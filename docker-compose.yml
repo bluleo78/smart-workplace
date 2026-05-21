@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: workplace
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d workplace"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 테스트 전용 DB — 로컬 개발 DB(5432)와 분리하여 테스트 격리 보장
+  db-test:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: workplace_test
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports:
+      - "5435:5432"
+    volumes:
+      - ./db-test-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d workplace_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
