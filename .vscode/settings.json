@@ -1,0 +1,21 @@
+{
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "files.exclude": {
+    "**/.turbo": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/build": true,
+    "**/.gradle": true,
+    "**/src/main/generated": true
+  },
+  "java.compile.nullAnalysis.mode": "automatic",
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "[java]": {
+    "editor.tabSize": 4
+  }
+}

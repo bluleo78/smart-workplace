@@ -12,9 +12,17 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:reset": "docker compose down -v && docker compose up -d",
-    "db:logs": "docker compose logs -f db"
+    "db:logs": "docker compose logs -f db",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "apps/workplace-web/{src,e2e}/**/*.{ts,tsx}": [
+      "echo 'workplace-web 셋업 후 eslint 추가 예정'"
+    ]
   },
   "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
     "turbo": "^2.5.0"
   },
   "packageManager": "pnpm@10.11.0"
