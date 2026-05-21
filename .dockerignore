@@ -1,0 +1,50 @@
+# Version control
+.git/
+.gitignore
+
+# Build outputs
+**/build/
+**/dist/
+**/.gradle/
+
+# Dependencies
+**/node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Claude / OMC
+.claude/
+.omc/
+
+# Turborepo
+.turbo/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Snapshots
+snapshots/
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+**/src/test/
+
+# Java artifacts
+**/*.class
+**/*.jar
+**/*.war
+**/.gradle/

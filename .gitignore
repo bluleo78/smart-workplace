@@ -1,0 +1,77 @@
+# Test results
+test-results/
+snapshots/
+
+# Java / Gradle
+**/build/
+**/.gradle/
+*.class
+*.jar
+*.war
+
+# Gradle Wrapper (keep wrapper jar tracked)
+!**/gradle/wrapper/gradle-wrapper.jar
+
+# Node / Frontend
+node_modules/
+dist/
+.cache/
+
+# Turborepo
+.turbo/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Claude Code (로컬 설정만 무시)
+.claude/settings.local.json
+.claude/plans/
+.claude/projects/
+
+# Gradle bin output
+**/bin/
+
+# jOOQ generated code
+**/src/main/generated/
+
+# Logs
+logs/
+*.log
+
+# Playwright
+.playwright-cli/
+.playwright-mcp
+playwright-report/
+
+# 루트 임시 산출물
+/*.png
+/*.webm
+/test_*.csv
+/test_*.txt
+
+# Local DB bind mount
+db-data/
+db-test-data/
+
+# Git worktrees (로컬 전용)
+.worktrees/
+
+# Serena
+.serena/
