@@ -26,6 +26,8 @@ export default defineConfig([
     rules: {
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
+      // 신규 권장 규칙이지만 강제는 부담 — 페이지/훅 패턴 정리 시점에 점진 해결
+      'react-hooks/set-state-in-effect': 'warn',
     },
   },
 ])

@@ -1,21 +1,62 @@
+import { lazy, Suspense } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
+import { AdminRoute } from './components/AdminRoute'
 import { AppLayout } from './components/layout/AppLayout'
 import { PageErrorBoundary } from './components/PageErrorBoundary'
-import HomePage from './pages/HomePage'
-import NotFoundPage from './pages/NotFoundPage'
+import { ProtectedRoute } from './components/ProtectedRoute'
+import { Skeleton } from './components/ui/skeleton'
 
-// v1 골격 라우트.
-// 인증·관리자·이슈 등 도메인 라우트는 후속 티켓에서 확장.
+// 페이지는 라우트 진입 시점에만 로드해 초기 번들을 가볍게 유지한다.
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const SignupPage = lazy(() => import('./pages/SignupPage'))
+const HomePage = lazy(() => import('./pages/HomePage'))
+const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
+const UserListPage = lazy(() => import('./pages/admin/UserListPage'))
+const UserDetailPage = lazy(() => import('./pages/admin/UserDetailPage'))
+const RoleListPage = lazy(() => import('./pages/admin/RoleListPage'))
+const RoleDetailPage = lazy(() => import('./pages/admin/RoleDetailPage'))
+const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
+
+function PageLoader() {
+  return (
+    <div className="container mx-auto p-8">
+      <Skeleton className="h-8 w-48 mb-4" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  )
+}
+
 export default function App() {
   return (
     <PageErrorBoundary>
-      <Routes>
-        <Route element={<AppLayout />}>
-          <Route index element={<HomePage />} />
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          {/* 공개 라우트 */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+
+          {/* 인증 필요 — ProtectedRoute 가 미인증 시 /login 리다이렉트, 통과 시 AppLayout 렌더 */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<AppLayout />}>
+              <Route index element={<HomePage />} />
+              <Route path="profile" element={<ProfilePage />} />
+
+              {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
+              <Route element={<AdminRoute />}>
+                <Route path="admin/users" element={<UserListPage />} />
+                <Route path="admin/users/:id" element={<UserDetailPage />} />
+                <Route path="admin/roles" element={<RoleListPage />} />
+                <Route path="admin/roles/:id" element={<RoleDetailPage />} />
+                <Route path="admin/audit-logs" element={<AuditLogListPage />} />
+              </Route>
+            </Route>
+          </Route>
+
           <Route path="*" element={<NotFoundPage />} />
-        </Route>
-      </Routes>
+        </Routes>
+      </Suspense>
     </PageErrorBoundary>
   )
 }
