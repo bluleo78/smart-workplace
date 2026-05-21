@@ -4,6 +4,12 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7"
     id("nu.studer.jooq") version "9.0"
     id("com.diffplug.spotless") version "6.25.0"
+    jacoco
+}
+
+// JaCoCo — 로컬 리포트 전용. 0.8.13: Java 25(class major version 69) 지원
+jacoco {
+    toolVersion = "0.8.13"
 }
 
 group = "com.workplace"
@@ -59,6 +65,30 @@ tasks.withType<Test> {
         "--add-opens", "java.base/java.util=ALL-UNNAMED",
         "-XX:+EnableDynamicAgentLoading",
         "-Dnet.bytebuddy.experimental=true"
+    )
+    // 테스트 완료 후 JaCoCo 리포트 자동 생성
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    // 제외: jOOQ 코드젠 결과물, 단순 DTO/예외(생성자 위주라 의미있는 로직 없음)
+    classDirectories.setFrom(
+        files(
+            classDirectories.files.map {
+                fileTree(it) {
+                    exclude(
+                        "com/workplace/jooq/**",
+                        "**/dto/**",
+                        "**/*Exception.class",
+                    )
+                }
+            }
+        )
     )
 }
 
