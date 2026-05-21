@@ -73,6 +73,3 @@ db-test-data/
 
 # Git worktrees (로컬 전용)
 .worktrees/
-
-# Serena
-.serena/
