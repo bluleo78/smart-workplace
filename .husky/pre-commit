@@ -1,1 +1,2 @@
-pnpm exec lint-staged
+# husky 디스패처 — 실제 로직은 scripts/husky/pre-commit.sh 참조
+exec ./scripts/husky/pre-commit.sh
