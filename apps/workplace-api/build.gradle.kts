@@ -29,6 +29,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-jooq")
     implementation("org.springframework.boot:spring-boot-starter-security")
+    // SMTP 테스트(설정 UI) — settings 모듈 SMTP 검증 엔드포인트
+    implementation("org.springframework.boot:spring-boot-starter-mail")
 
     // JWT (jjwt)
     implementation("io.jsonwebtoken:jjwt-api:0.12.6")

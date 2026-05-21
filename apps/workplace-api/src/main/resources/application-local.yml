@@ -14,3 +14,6 @@ app:
   jwt:
     # 로컬 개발 전용 키 (Base64). 프로덕션 절대 사용 금지.
     secret: ${JWT_SECRET:d29ya3BsYWNlLWxvY2FsLWRldi1qd3Qtc2VjcmV0LWtleS1ub3QtZm9yLXByb2R1Y3Rpb24tdXNlLW9ubHk=}
+  encryption:
+    # 로컬 개발 전용 키 — 정확히 32바이트 (AES-256). 프로덕션 절대 사용 금지.
+    master-key: ${ENCRYPTION_MASTER_KEY:bG9jYWwtZGV2LWVuY3J5cHRpb24ta2V5LTMyYnkhISE=}
