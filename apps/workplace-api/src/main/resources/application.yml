@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: workplace-api
+
+server:
+  port: 8090
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized

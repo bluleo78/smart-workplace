@@ -1,0 +1,5 @@
+# 로컬 개발 프로파일 — DB/보안 등은 후속 이슈(#5, #6)에서 추가
+management:
+  endpoint:
+    health:
+      show-details: always

@@ -14,6 +14,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커. 향후 chat / wiki / driv
 - 앱별 상세 (예정): `apps/workplace-api/CLAUDE.md`, `apps/workplace-web/CLAUDE.md`
 - 커밋 컨벤션: [docs/COMMIT_CONVENTION.md](docs/COMMIT_CONVENTION.md)
 - 로컬 DB: 포트 5434(dev), 5435(test). 컨테이너 `smart-workplace-db-1`, `smart-workplace-db-test-1`
+- 로컬 API: 포트 8090 (firehub-api 8080 / smart-school-cdn 8080 과 분리)
 
 ## Rules
 
