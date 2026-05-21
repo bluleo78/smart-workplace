@@ -1,12 +1,21 @@
-// v1 골격용 자리표시 컴포넌트.
-// 본격 라우팅·레이아웃은 #10, #12 에서 추가.
+import { Route, Routes } from 'react-router-dom'
+
+import { AppLayout } from './components/layout/AppLayout'
+import { PageErrorBoundary } from './components/PageErrorBoundary'
+import HomePage from './pages/HomePage'
+import NotFoundPage from './pages/NotFoundPage'
+
+// v1 골격 라우트.
+// 인증·관리자·이슈 등 도메인 라우트는 후속 티켓에서 확장.
 export default function App() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-50 text-neutral-900">
-      <div className="text-center space-y-2">
-        <h1 className="text-2xl font-semibold">Smart Workplace</h1>
-        <p className="text-sm text-neutral-500">v1 골격 — UI/라우팅은 이후 티켓에서 추가</p>
-      </div>
-    </div>
+    <PageErrorBoundary>
+      <Routes>
+        <Route element={<AppLayout />}>
+          <Route index element={<HomePage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+    </PageErrorBoundary>
   )
 }
