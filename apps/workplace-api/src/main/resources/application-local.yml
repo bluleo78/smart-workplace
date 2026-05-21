@@ -9,3 +9,8 @@ management:
   endpoint:
     health:
       show-details: always
+
+app:
+  jwt:
+    # 로컬 개발 전용 키 (Base64). 프로덕션 절대 사용 금지.
+    secret: ${JWT_SECRET:d29ya3BsYWNlLWxvY2FsLWRldi1qd3Qtc2VjcmV0LWtleS1ub3QtZm9yLXByb2R1Y3Rpb24tdXNlLW9ubHk=}

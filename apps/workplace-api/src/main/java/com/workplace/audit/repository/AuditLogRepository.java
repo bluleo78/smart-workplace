@@ -1,0 +1,236 @@
+package com.workplace.audit.repository;
+
+import static org.jooq.impl.DSL.*;
+
+import com.workplace.audit.dto.AuditLogResponse;
+import com.workplace.global.dto.PageResponse;
+import com.workplace.global.util.LikePatternUtils;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.JSONB;
+import org.jooq.Record;
+import org.jooq.Table;
+import org.springframework.stereotype.Repository;
+
+@Repository
+@RequiredArgsConstructor
+public class AuditLogRepository {
+
+  private final DSLContext dsl;
+
+  private static final Table<?> AUDIT_LOG = table(name("audit_log"));
+  private static final Field<Long> AL_ID = field(name("audit_log", "id"), Long.class);
+  private static final Field<Long> AL_USER_ID = field(name("audit_log", "user_id"), Long.class);
+  private static final Field<String> AL_USERNAME =
+      field(name("audit_log", "username"), String.class);
+  private static final Field<String> AL_ACTION_TYPE =
+      field(name("audit_log", "action_type"), String.class);
+  private static final Field<String> AL_RESOURCE =
+      field(name("audit_log", "resource"), String.class);
+  private static final Field<String> AL_RESOURCE_ID =
+      field(name("audit_log", "resource_id"), String.class);
+  private static final Field<String> AL_DESCRIPTION =
+      field(name("audit_log", "description"), String.class);
+  private static final Field<LocalDateTime> AL_ACTION_TIME =
+      field(name("audit_log", "action_time"), LocalDateTime.class);
+  private static final Field<String> AL_IP_ADDRESS =
+      field(name("audit_log", "ip_address"), String.class);
+  private static final Field<String> AL_USER_AGENT =
+      field(name("audit_log", "user_agent"), String.class);
+  private static final Field<String> AL_RESULT = field(name("audit_log", "result"), String.class);
+  private static final Field<String> AL_ERROR_MESSAGE =
+      field(name("audit_log", "error_message"), String.class);
+  private static final Field<JSONB> AL_METADATA = field(name("audit_log", "metadata"), JSONB.class);
+
+  private AuditLogResponse mapToResponse(Record r) {
+    JSONB jsonb = r.get(AL_METADATA);
+    return new AuditLogResponse(
+        r.get(AL_ID),
+        r.get(AL_USER_ID),
+        r.get(AL_USERNAME),
+        r.get(AL_ACTION_TYPE),
+        r.get(AL_RESOURCE),
+        r.get(AL_RESOURCE_ID),
+        r.get(AL_DESCRIPTION),
+        r.get(AL_ACTION_TIME),
+        r.get(AL_IP_ADDRESS),
+        r.get(AL_USER_AGENT),
+        r.get(AL_RESULT),
+        r.get(AL_ERROR_MESSAGE),
+        jsonb != null ? jsonb.data() : null);
+  }
+
+  public Long save(
+      Long userId,
+      String username,
+      String actionType,
+      String resource,
+      String resourceId,
+      String description,
+      String ipAddress,
+      String userAgent,
+      String result,
+      String errorMessage,
+      JSONB metadata) {
+    return dsl.insertInto(AUDIT_LOG)
+        .set(AL_USER_ID, userId)
+        .set(AL_USERNAME, username)
+        .set(AL_ACTION_TYPE, actionType)
+        .set(AL_RESOURCE, resource)
+        .set(AL_RESOURCE_ID, resourceId)
+        .set(AL_DESCRIPTION, description)
+        .set(AL_IP_ADDRESS, ipAddress)
+        .set(AL_USER_AGENT, userAgent)
+        .set(AL_RESULT, result)
+        .set(AL_ERROR_MESSAGE, errorMessage)
+        .set(AL_METADATA, metadata)
+        .returning(AL_ID)
+        .fetchOne()
+        .get(AL_ID);
+  }
+
+  public Optional<AuditLogResponse> findById(Long id) {
+    return dsl.select(
+            AL_ID,
+            AL_USER_ID,
+            AL_USERNAME,
+            AL_ACTION_TYPE,
+            AL_RESOURCE,
+            AL_RESOURCE_ID,
+            AL_DESCRIPTION,
+            AL_ACTION_TIME,
+            AL_IP_ADDRESS,
+            AL_USER_AGENT,
+            AL_RESULT,
+            AL_ERROR_MESSAGE,
+            AL_METADATA)
+        .from(AUDIT_LOG)
+        .where(AL_ID.eq(id))
+        .fetchOptional(this::mapToResponse);
+  }
+
+  public List<AuditLogResponse> findByResource(
+      String actionType, String resource, String resourceId) {
+    var condition = AL_RESOURCE.eq(resource);
+
+    if (actionType != null) {
+      condition = condition.and(AL_ACTION_TYPE.eq(actionType));
+    }
+
+    if (resourceId != null) {
+      condition = condition.and(AL_RESOURCE_ID.eq(resourceId));
+    }
+
+    return dsl.select(
+            AL_ID,
+            AL_USER_ID,
+            AL_USERNAME,
+            AL_ACTION_TYPE,
+            AL_RESOURCE,
+            AL_RESOURCE_ID,
+            AL_DESCRIPTION,
+            AL_ACTION_TIME,
+            AL_IP_ADDRESS,
+            AL_USER_AGENT,
+            AL_RESULT,
+            AL_ERROR_MESSAGE,
+            AL_METADATA)
+        .from(AUDIT_LOG)
+        .where(condition)
+        .orderBy(AL_ACTION_TIME.desc())
+        .fetch(this::mapToResponse);
+  }
+
+  /**
+   * 감사 로그 전체 조회 (페이지네이션 + 복합 필터)
+   *
+   * @param search 사용자명/설명 검색어
+   * @param userId 사용자 ID 정확 일치 필터 (null이면 무제한, #89)
+   * @param actionType 액션 유형 필터
+   * @param resource 리소스 유형 필터
+   * @param result 결과(SUCCESS/FAILURE) 필터
+   * @param startDate 날짜 범위 시작 (inclusive, null이면 무제한)
+   * @param endDate 날짜 범위 종료 (inclusive, null이면 무제한)
+   * @param page 페이지 번호 (0부터)
+   * @param size 페이지 크기
+   */
+  public PageResponse<AuditLogResponse> findAll(
+      String search,
+      Long userId,
+      String actionType,
+      String resource,
+      String result,
+      LocalDateTime startDate,
+      LocalDateTime endDate,
+      int page,
+      int size) {
+    Condition condition = noCondition();
+
+    if (search != null && !search.isBlank()) {
+      String pattern = LikePatternUtils.containsPattern(search.trim());
+      condition =
+          condition.and(
+              AL_USERNAME
+                  .likeIgnoreCase(pattern, '\\')
+                  .or(AL_DESCRIPTION.likeIgnoreCase(pattern, '\\')));
+    }
+
+    // 사용자별 정확 일치 필터 (#89): username free-text 검색과 달리 user_id 컬럼으로 직접 조회.
+    if (userId != null) {
+      condition = condition.and(AL_USER_ID.eq(userId));
+    }
+
+    if (actionType != null && !actionType.isBlank()) {
+      condition = condition.and(AL_ACTION_TYPE.eq(actionType));
+    }
+
+    if (resource != null && !resource.isBlank()) {
+      condition = condition.and(AL_RESOURCE.eq(resource));
+    }
+
+    if (result != null && !result.isBlank()) {
+      condition = condition.and(AL_RESULT.eq(result));
+    }
+
+    // 날짜 범위 필터: startDate 이상, endDate 이하
+    if (startDate != null) {
+      condition = condition.and(AL_ACTION_TIME.greaterOrEqual(startDate));
+    }
+
+    if (endDate != null) {
+      condition = condition.and(AL_ACTION_TIME.lessOrEqual(endDate));
+    }
+
+    long totalElements = dsl.selectCount().from(AUDIT_LOG).where(condition).fetchOne(0, long.class);
+
+    List<AuditLogResponse> content =
+        dsl.select(
+                AL_ID,
+                AL_USER_ID,
+                AL_USERNAME,
+                AL_ACTION_TYPE,
+                AL_RESOURCE,
+                AL_RESOURCE_ID,
+                AL_DESCRIPTION,
+                AL_ACTION_TIME,
+                AL_IP_ADDRESS,
+                AL_USER_AGENT,
+                AL_RESULT,
+                AL_ERROR_MESSAGE,
+                AL_METADATA)
+            .from(AUDIT_LOG)
+            .where(condition)
+            .orderBy(AL_ACTION_TIME.desc())
+            .offset(page * size)
+            .limit(size)
+            .fetch(this::mapToResponse);
+
+    int totalPages = (int) Math.ceil((double) totalElements / size);
+    return new PageResponse<>(content, page, size, totalElements, totalPages);
+  }
+}

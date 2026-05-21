@@ -1,0 +1,31 @@
+package com.workplace.permission.service;
+
+import com.workplace.permission.dto.PermissionResponse;
+import com.workplace.permission.repository.PermissionRepository;
+import java.util.List;
+import java.util.Set;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@RequiredArgsConstructor
+public class PermissionService {
+
+  private final PermissionRepository permissionRepository;
+
+  @Transactional(readOnly = true)
+  public List<PermissionResponse> getAllPermissions() {
+    return permissionRepository.findAll();
+  }
+
+  @Transactional(readOnly = true)
+  public List<PermissionResponse> getPermissionsByCategory(String category) {
+    return permissionRepository.findByCategory(category);
+  }
+
+  @Transactional(readOnly = true)
+  public Set<String> getUserPermissions(Long userId) {
+    return permissionRepository.findPermissionCodesByUserId(userId);
+  }
+}
