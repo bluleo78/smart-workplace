@@ -13,12 +13,13 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커. 향후 chat / wiki / driv
 
 - 앱별 상세 (예정): `apps/workplace-api/CLAUDE.md`, `apps/workplace-web/CLAUDE.md`
 - 커밋 컨벤션: [docs/COMMIT_CONVENTION.md](docs/COMMIT_CONVENTION.md)
+- 코딩 컨벤션: [docs/CODING_CONVENTION.md](docs/CODING_CONVENTION.md)
 - 로컬 DB: 포트 5434(dev), 5435(test). 컨테이너 `smart-workplace-db-1`, `smart-workplace-db-test-1`
 - 로컬 API: 포트 8090 (firehub-api 8080 / smart-school-cdn 8080 과 분리)
 
 ## Rules
 
-- **한국어 주석 필수**: 클래스·메서드·주요 로직에 무엇을·왜
+- **한국어 주석 필수**: 클래스·메서드·주요 로직에 무엇을·왜. 상세는 [코딩 컨벤션](docs/CODING_CONVENTION.md)
 - **커밋/배포 금지**: 사용자 명시적 승인 후에만 실행
 - **테스트 필수**: backend → JUnit 통합 테스트, frontend → Playwright E2E
 - **스크린샷**: 탐색 → `test-results/exploratory/<기능>/<timestamp>/screenshots/`, TC → `test-results/tc/<suite>/`
@@ -35,3 +36,4 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커. 향후 chat / wiki / driv
 ## Conventions
 
 - 커밋 컨벤션: [docs/COMMIT_CONVENTION.md](docs/COMMIT_CONVENTION.md)
+- 코딩 컨벤션: [docs/CODING_CONVENTION.md](docs/CODING_CONVENTION.md)
