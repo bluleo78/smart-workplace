@@ -1,6 +1,12 @@
 spring:
   application:
     name: workplace-api
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+  jooq:
+    sql-dialect: postgres
 
 server:
   port: 8090

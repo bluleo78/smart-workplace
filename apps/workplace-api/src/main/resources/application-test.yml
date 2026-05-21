@@ -1,3 +1,9 @@
-# 테스트 프로파일 — 랜덤 포트로 격리, DB는 후속 이슈에서 추가
+# 테스트 프로파일 — 격리된 테스트 DB(5435) 사용, 랜덤 서버 포트
 server:
   port: 0
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5435/workplace_test
+    username: app
+    password: app

@@ -1,4 +1,10 @@
-# 로컬 개발 프로파일 — DB/보안 등은 후속 이슈(#5, #6)에서 추가
+# 로컬 개발 프로파일
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5434/workplace
+    username: app
+    password: app
+
 management:
   endpoint:
     health:
