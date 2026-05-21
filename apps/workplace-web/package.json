@@ -10,7 +10,10 @@
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "test": "echo \"no unit tests yet\"",
-    "clean": "rm -rf dist node_modules/.tmp"
+    "clean": "rm -rf dist node_modules/.tmp",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
@@ -35,6 +38,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.1.18",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
