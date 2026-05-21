@@ -23,6 +23,6 @@ RUN apt-get update && \
 WORKDIR /app
 COPY --from=build /app/build/libs/*.jar app.jar
 
-EXPOSE 8090
+EXPOSE 9090
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
