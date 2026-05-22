@@ -1,7 +1,12 @@
 import { createPageResponse, mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createMember, createProject } from '../../factories/project.factory';
-import { createComment, createIssue, createIssueDetail } from '../../factories/issue.factory';
+import {
+  createComment,
+  createIssue,
+  createIssueDetail,
+  createIssueSearchResponse,
+} from '../../factories/issue.factory';
 
 // @smoke — 핵심 happy path 전체 파이프라인:
 // 프로젝트 생성 → 이슈 생성 → 상태 변경 → 코멘트 작성.
@@ -28,13 +33,16 @@ test(
 
     // 1. 프로젝트 상세 → 이슈 생성
     await mockApi(page, 'GET', '/api/v1/projects/WP', createProject());
-    await mockApi(page, 'GET', '/api/v1/projects/WP/issues', createPageResponse([createIssue()]));
+    await mockApi(
+      page, 'GET', '/api/v1/projects/WP/issues',
+      createIssueSearchResponse([createIssue({ title: '첫 이슈' })]),
+    );
     const createIssueCapture = await mockApi(
       page, 'POST', '/api/v1/projects/WP/issues', createIssue(), { capture: true },
     );
 
     await page.getByRole('main').getByRole('link', { name: /Workplace/ }).first().click();
-    await page.getByRole('button', { name: '+ 새 이슈' }).click();
+    await page.getByRole('button', { name: '+ 새 태스크' }).click();
     await page.getByLabel('제목').fill('첫 이슈');
     await page.getByRole('button', { name: '생성' }).click();
 

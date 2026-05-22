@@ -6,6 +6,7 @@ import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.InvalidIssueOperationException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
@@ -283,6 +284,14 @@ public class GlobalExceptionHandler {
       IssueCommentNotFoundException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 잘못된 검색 cursor (또는 잘못된 검색 입력) 인 경우 400 반환. */
+  @ExceptionHandler(InvalidCursorException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidCursor(
+      InvalidCursorException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
   /** 이슈 비즈니스 규칙 위반(잘못된 상태 전이 등)은 422 UNPROCESSABLE_ENTITY. */

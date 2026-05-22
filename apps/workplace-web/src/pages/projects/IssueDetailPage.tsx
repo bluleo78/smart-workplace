@@ -20,7 +20,7 @@ export default function IssueDetailPage() {
   const update = useUpdateIssue(key, issueNumber);
 
   if (isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
-  if (!data) return <p className="container mx-auto p-6 text-destructive">이슈를 찾을 수 없습니다</p>;
+  if (!data) return <p className="container mx-auto p-6 text-destructive">태스크를 찾을 수 없습니다</p>;
 
   const { summary, body, comments, history } = data;
 

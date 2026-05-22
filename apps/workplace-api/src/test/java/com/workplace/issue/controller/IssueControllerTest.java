@@ -14,15 +14,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
+import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.project.exception.ProjectAccessDeniedException;
@@ -47,6 +48,7 @@ class IssueControllerTest {
   @Autowired private ObjectMapper objectMapper;
 
   @MockitoBean private IssueService issueService;
+  @MockitoBean private IssueSearchService issueSearchService;
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
   @MockitoBean private PermissionService permissionService;
@@ -68,16 +70,17 @@ class IssueControllerTest {
   }
 
   @Test
-  void list_happyPath_returnsPage() throws Exception {
+  void list_happyPath_returnsSearchResponse() throws Exception {
+    // Phase 2: list 엔드포인트는 IssueSearchService 를 통한 cursor 페이징 응답을 반환.
     mockAuthentication("project:read");
-    PageResponse<IssueResponse> page = new PageResponse<>(List.of(sampleIssue()), 0, 20, 1, 1);
-    when(issueService.list(1L, "WP", 0, 20)).thenReturn(page);
+    IssueSearchResponse resp = new IssueSearchResponse(List.of(sampleIssue()), null, false);
+    when(issueSearchService.search(eq(1L), eq("WP"), any())).thenReturn(resp);
 
     mockMvc
         .perform(get("/api/v1/projects/WP/issues").header("Authorization", "Bearer valid-token"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.content[0].title").value("title"))
-        .andExpect(jsonPath("$.totalElements").value(1));
+        .andExpect(jsonPath("$.items[0].title").value("title"))
+        .andExpect(jsonPath("$.hasMore").value(false));
   }
 
   @Test

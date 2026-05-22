@@ -181,6 +181,69 @@ public class IssueRepository {
         .execute();
   }
 
+  /**
+   * 검색/필터 + cursor 페이징. 활성(deleted_at IS NULL) 이슈만 대상. 정렬은 (updated_at DESC, id DESC) 고정. size 는
+   * 호출자가 1..100 으로 클램프한 값을 넘긴다.
+   */
+  public List<IssueRow> search(Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
+    org.jooq.Condition where = ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull());
+
+    if (query.q() != null && !query.q().isBlank()) {
+      String pattern = "%" + query.q().trim() + "%";
+      where = where.and(ISSUE.TITLE.likeIgnoreCase(pattern).or(ISSUE.BODY.likeIgnoreCase(pattern)));
+    }
+    if (query.statuses() != null && !query.statuses().isEmpty()) {
+      where = where.and(ISSUE.STATUS.in(query.statuses()));
+    }
+    if (query.priorities() != null && !query.priorities().isEmpty()) {
+      where = where.and(ISSUE.PRIORITY.in(query.priorities()));
+    }
+    boolean hasAssigneeList = query.assigneeIds() != null && !query.assigneeIds().isEmpty();
+    if (hasAssigneeList || query.includeUnassigned()) {
+      org.jooq.Condition assigneeCond = org.jooq.impl.DSL.noCondition();
+      if (hasAssigneeList) {
+        assigneeCond = assigneeCond.or(ISSUE.ASSIGNEE_ID.in(query.assigneeIds()));
+      }
+      if (query.includeUnassigned()) {
+        assigneeCond = assigneeCond.or(ISSUE.ASSIGNEE_ID.isNull());
+      }
+      where = where.and(assigneeCond);
+    }
+    if (query.dueFrom() != null) {
+      where = where.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
+    }
+    if (query.dueTo() != null) {
+      where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
+    }
+    if (query.cursor() != null) {
+      var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
+      var cursorId = query.cursor().id();
+      // (updated_at, id) < (cursorTs, cursorId) — 동일 updated_at 인 경우 id 로 tie-break
+      where =
+          where.and(ISSUE.UPDATED_AT.lt(ts).or(ISSUE.UPDATED_AT.eq(ts).and(ISSUE.ID.lt(cursorId))));
+    }
+
+    return dsl.select(
+            ISSUE.ID,
+            ISSUE.PROJECT_ID,
+            ISSUE.NUMBER,
+            ISSUE.TITLE,
+            ISSUE.BODY,
+            ISSUE.STATUS,
+            ISSUE.PRIORITY,
+            ISSUE.DUE_DATE,
+            ISSUE.REPORTER_ID,
+            ISSUE.ASSIGNEE_ID,
+            ISSUE.CREATED_AT,
+            ISSUE.UPDATED_AT,
+            ISSUE.CLOSED_AT)
+        .from(ISSUE)
+        .where(where)
+        .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
+        .limit(query.size())
+        .fetch(this::mapToRow);
+  }
+
   /** soft-delete: deleted_at = now(). */
   public void softDelete(Long id) {
     dsl.update(ISSUE).set(ISSUE.DELETED_AT, OffsetDateTime.now()).where(ISSUE.ID.eq(id)).execute();

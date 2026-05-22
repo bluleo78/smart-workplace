@@ -1,22 +1,30 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 
-import { useIssues } from '../../hooks/queries/useIssues';
 import { useProject } from '../../hooks/queries/useProjects';
+import { parseFilters, parseView } from '../../lib/issueFilters';
+import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
-import { IssueListTable } from './components/IssueListTable';
+import { IssueFilterBar } from './components/IssueFilterBar';
+import { IssueListView } from './components/IssueListView';
 
-// 프로젝트 홈 — 이슈 리스트 + 새 이슈 생성. URL: /projects/:key
+// 프로젝트 홈 — 태스크 필터/뷰 영역 + 새 태스크 생성. URL: /projects/:key
+// view / 필터는 URL SearchParams 가 단일 source of truth.
 export default function ProjectDetailPage() {
   const { key = '' } = useParams();
   const [open, setOpen] = useState(false);
   const project = useProject(key);
-  const issues = useIssues(key);
 
-  if (project.isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
-  if (project.error) return <p className="container mx-auto p-6 text-destructive">프로젝트를 불러올 수 없습니다</p>;
+  if (project.isLoading)
+    return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
+  if (project.error)
+    return (
+      <p className="container mx-auto p-6 text-destructive">
+        프로젝트를 불러올 수 없습니다
+      </p>
+    );
 
   return (
     <div className="container mx-auto p-6 space-y-4">
@@ -29,15 +37,30 @@ export default function ProjectDetailPage() {
           <Link to={`/projects/${key}/settings`}>
             <Button variant="outline">설정</Button>
           </Link>
-          <Button onClick={() => setOpen(true)}>+ 새 이슈</Button>
+          <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
         </div>
       </div>
-      {issues.isLoading ? (
-        <p className="text-muted-foreground">로딩 중…</p>
-      ) : (
-        <IssueListTable projectKey={key} issues={issues.data?.content ?? []} />
-      )}
+      <IssueArea projectKey={key} />
       <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} />
     </div>
+  );
+}
+
+// IssueFilterBar 와 활성 뷰(list/board) 를 묶는 영역.
+// FilterBar 가 URL 을 갱신하면 useSearchParams 의 재렌더로 자식 뷰가 같이 갱신된다.
+function IssueArea({ projectKey }: { projectKey: string }) {
+  const [params] = useSearchParams();
+  const filters = parseFilters(params);
+  const view = parseView(params);
+
+  return (
+    <section aria-label="태스크">
+      <IssueFilterBar />
+      {view === 'board' ? (
+        <IssueBoardView projectKey={projectKey} filters={filters} />
+      ) : (
+        <IssueListView projectKey={projectKey} filters={filters} />
+      )}
+    </section>
   );
 }

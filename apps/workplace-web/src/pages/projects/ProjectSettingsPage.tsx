@@ -80,7 +80,7 @@ export default function ProjectSettingsPage() {
       <section className="border border-destructive rounded p-4 space-y-2">
         <h2 className="text-lg font-semibold text-destructive">위험 구역</h2>
         <p className="text-sm text-muted-foreground">
-          프로젝트를 삭제하면 이슈/코멘트도 함께 숨겨집니다 (soft delete).
+          프로젝트를 삭제하면 태스크/코멘트도 함께 숨겨집니다 (soft delete).
         </p>
         <Button variant="destructive" onClick={onDelete} disabled={remove.isPending}>
           프로젝트 삭제

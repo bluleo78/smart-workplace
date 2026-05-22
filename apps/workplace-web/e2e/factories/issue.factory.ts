@@ -3,6 +3,7 @@ import type {
   IssueDetailResponse,
   IssueHistoryEntry,
   IssueResponse,
+  IssueSearchResponse,
 } from '../../src/types/issue';
 
 // 테스트용 이슈 요약 객체 팩토리.
@@ -51,6 +52,14 @@ export function createHistoryEntry(overrides: Partial<IssueHistoryEntry> = {}): 
     createdAt: new Date().toISOString(),
     ...overrides,
   };
+}
+
+// 이슈 검색 응답(cursor 페이징) 팩토리. nextCursor 가 null 이 아니면 hasMore=true.
+export function createIssueSearchResponse(
+  items: IssueResponse[] = [],
+  nextCursor: string | null = null,
+): IssueSearchResponse {
+  return { items, nextCursor, hasMore: nextCursor !== null };
 }
 
 // 테스트용 이슈 상세 응답 팩토리.

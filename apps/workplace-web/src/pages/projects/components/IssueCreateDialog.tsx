@@ -31,18 +31,18 @@ export function IssueCreateDialog({
     };
     try {
       await create.mutateAsync(payload);
-      toast.success('이슈를 생성했습니다');
+      toast.success('태스크를 생성했습니다');
       reset({ priority: 'MID' });
       onOpenChange(false);
     } catch (e) {
-      handleApiError(e, '이슈 생성에 실패했습니다');
+      handleApiError(e, '태스크 생성에 실패했습니다');
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader><DialogTitle>새 이슈</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>새 태스크</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-1">
             <label className="text-sm font-medium" htmlFor="issue-title">제목</label>

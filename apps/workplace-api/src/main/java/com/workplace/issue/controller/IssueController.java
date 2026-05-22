@@ -1,13 +1,16 @@
 package com.workplace.issue.controller;
 
-import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
+import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
+import com.workplace.issue.dto.UpdateStatusRequest;
+import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
 import jakarta.validation.Valid;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -28,16 +31,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class IssueController {
 
   private final IssueService issueService;
+  private final IssueSearchService issueSearchService;
 
-  /** 프로젝트 내 이슈 목록 페이지 조회. */
+  /** 검색/필터 + cursor 페이징 단일 엔드포인트. */
   @GetMapping
   @RequirePermission("project:read")
-  public ResponseEntity<PageResponse<IssueResponse>> list(
-      Authentication auth,
-      @PathVariable String key,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size) {
-    return ResponseEntity.ok(issueService.list((Long) auth.getPrincipal(), key, page, size));
+  public ResponseEntity<IssueSearchResponse> list(
+      Authentication auth, @PathVariable String key, @RequestParam Map<String, String> params) {
+    return ResponseEntity.ok(issueSearchService.search((Long) auth.getPrincipal(), key, params));
   }
 
   /** 신규 이슈 생성. */
@@ -65,6 +66,18 @@ public class IssueController {
       @PathVariable int number,
       @Valid @RequestBody UpdateIssueRequest req) {
     return ResponseEntity.ok(issueService.update((Long) auth.getPrincipal(), key, number, req));
+  }
+
+  /** DnD 전용 — status 만 갱신. */
+  @PatchMapping("/{number}/status")
+  @RequirePermission("issue:write")
+  public ResponseEntity<IssueDetailResponse> updateStatus(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @Valid @RequestBody UpdateStatusRequest req) {
+    return ResponseEntity.ok(
+        issueService.updateStatus((Long) auth.getPrincipal(), key, number, req.status()));
   }
 
   /** 이슈 soft-delete. reporter 또는 OWNER 만 가능. */

@@ -119,6 +119,13 @@ public class IssueService {
     return get(callerId, projectKey, number);
   }
 
+  /** DnD 등에서 status 만 변경. update(...) 의 단축 경로 — 히스토리 기록도 동일하게 수행. */
+  public IssueDetailResponse updateStatus(
+      Long callerId, String projectKey, int number, String newStatus) {
+    var req = new UpdateIssueRequest(null, null, newStatus, null, null, null, false, false);
+    return update(callerId, projectKey, number, req);
+  }
+
   /** 이슈 soft-delete. reporter 본인 또는 프로젝트 OWNER 만 가능. */
   public void softDelete(Long callerId, String projectKey, int number) {
     var project = accessGuard.assertMember(projectKey, callerId);

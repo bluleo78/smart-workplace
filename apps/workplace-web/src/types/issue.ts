@@ -72,3 +72,24 @@ export interface UpdateIssueRequest {
 
 export interface CreateCommentRequest { body: string }
 export interface UpdateCommentRequest { body: string }
+
+// 이슈 검색 응답 — cursor 기반 페이지네이션.
+export interface IssueSearchResponse {
+  items: IssueResponse[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+// 필터 상태 — URL 의 SearchParams 와 1:1 매핑되는 정규화된 형태.
+export interface IssueFilters {
+  q: string;
+  statuses: string[];
+  priorities: string[];
+  assigneeIds: number[];
+  includeUnassigned: boolean;
+  dueFrom: string | null;
+  dueTo: string | null;
+}
+
+// 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.
+export type IssueView = 'list' | 'board';
