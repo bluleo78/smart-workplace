@@ -6,6 +6,12 @@ import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.issue.exception.InvalidIssueOperationException;
+import com.workplace.issue.exception.IssueCommentNotFoundException;
+import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectConflictException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.exception.SystemRoleModificationException;
 import com.workplace.user.exception.UserDeactivatedException;
@@ -158,18 +164,13 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
   }
 
-  /**
-   * 업로드 파일 크기가 제한을 초과했을 때 400 대신 명확한 메시지를 반환한다. Spring Boot 기본 동작은 500 또는 비구조화된 에러이므로 여기서 통일한다.
-   */
+  /** 업로드 파일 크기가 제한을 초과했을 때 400 대신 명확한 메시지를 반환한다. Spring Boot 기본 동작은 500 또는 비구조화된 에러이므로 여기서 통일한다. */
   @ExceptionHandler(MaxUploadSizeExceededException.class)
   public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(
       MaxUploadSizeExceededException ex, HttpServletRequest request) {
     ErrorResponse response =
         buildError(
-            HttpStatus.BAD_REQUEST,
-            "파일 크기가 허용 한도를 초과했습니다. 더 작은 파일을 업로드해주세요.",
-            null,
-            request);
+            HttpStatus.BAD_REQUEST, "파일 크기가 허용 한도를 초과했습니다. 더 작은 파일을 업로드해주세요.", null, request);
     return ResponseEntity.badRequest().body(response);
   }
 
@@ -210,7 +211,8 @@ public class GlobalExceptionHandler {
 
   /**
    * 경로/쿼리 파라미터 타입 불일치 시 500 대신 400 반환. 예: {@code Long id} 파라미터에 "abc" 같은 비-숫자 문자열이 전달되거나, {@code
-   * Boolean} 쿼리 파라미터에 "notbool" 같은 값이 전달되는 경우. 클라이언트 입력 오류이므로 400으로 분류하여 모니터링 SLO 오염과 5xx 알람 노이즈를 방지한다.
+   * Boolean} 쿼리 파라미터에 "notbool" 같은 값이 전달되는 경우. 클라이언트 입력 오류이므로 400으로 분류하여 모니터링 SLO 오염과 5xx 알람 노이즈를
+   * 방지한다.
    */
   @ExceptionHandler(MethodArgumentTypeMismatchException.class)
   public ResponseEntity<ErrorResponse> handleTypeMismatch(
@@ -241,6 +243,54 @@ public class GlobalExceptionHandler {
       NoResourceFoundException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다.", null, request);
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  /** 프로젝트(또는 프로젝트 내 리소스)를 찾을 수 없는 경우 404 반환. */
+  @ExceptionHandler(ProjectNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleProjectNotFound(
+      ProjectNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 프로젝트 접근 권한이 없는 경우 403 반환. */
+  @ExceptionHandler(ProjectAccessDeniedException.class)
+  public ResponseEntity<ErrorResponse> handleProjectAccessDenied(
+      ProjectAccessDeniedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request));
+  }
+
+  /** 프로젝트/멤버 관련 상태 충돌(key 중복, OWNER 최소 1명 등)인 경우 409 반환. */
+  @ExceptionHandler(ProjectConflictException.class)
+  public ResponseEntity<ErrorResponse> handleProjectConflict(
+      ProjectConflictException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 이슈를 찾을 수 없는 경우 404 반환. */
+  @ExceptionHandler(IssueNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleIssueNotFound(
+      IssueNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 이슈 코멘트를 찾을 수 없는 경우 404 반환. */
+  @ExceptionHandler(IssueCommentNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleCommentNotFound(
+      IssueCommentNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 이슈 비즈니스 규칙 위반(잘못된 상태 전이 등)은 422 UNPROCESSABLE_ENTITY. */
+  @ExceptionHandler(InvalidIssueOperationException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidIssueOp(
+      InvalidIssueOperationException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+        .body(buildError(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), null, request));
   }
 
   @ExceptionHandler(Exception.class)

@@ -1,0 +1,52 @@
+package com.workplace.issue.service;
+
+import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.repository.IssueHistoryRepository;
+import java.util.Objects;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+/** 이슈 수정 시 before/after 비교 후 변경된 항목에 대해 history row 를 기록한다. body 변경은 소음 방지를 위해 기록 대상에서 제외한다. */
+@Component
+@RequiredArgsConstructor
+public class IssueHistoryRecorder {
+
+  private final IssueHistoryRepository historyRepository;
+
+  /** before/after 의 주요 필드 비교 후 변경 항목별로 history row 삽입. */
+  public void recordChanges(Long actorId, IssueRow before, IssueRow after) {
+    if (!Objects.equals(before.title(), after.title())) {
+      historyRepository.insert(
+          before.id(), actorId, "TITLE_CHANGED", before.title(), after.title());
+    }
+    if (!Objects.equals(before.status(), after.status())) {
+      historyRepository.insert(
+          before.id(), actorId, "STATUS_CHANGED", before.status(), after.status());
+    }
+    if (!Objects.equals(before.priority(), after.priority())) {
+      historyRepository.insert(
+          before.id(), actorId, "PRIORITY_CHANGED", before.priority(), after.priority());
+    }
+    if (!Objects.equals(before.assigneeId(), after.assigneeId())) {
+      historyRepository.insert(
+          before.id(),
+          actorId,
+          "ASSIGNEE_CHANGED",
+          stringify(before.assigneeId()),
+          stringify(after.assigneeId()));
+    }
+    if (!Objects.equals(before.dueDate(), after.dueDate())) {
+      historyRepository.insert(
+          before.id(),
+          actorId,
+          "DUE_DATE_CHANGED",
+          stringify(before.dueDate()),
+          stringify(after.dueDate()));
+    }
+  }
+
+  /** 객체 → 문자열 (null 보존). */
+  private static String stringify(Object v) {
+    return v == null ? null : v.toString();
+  }
+}

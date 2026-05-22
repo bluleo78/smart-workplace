@@ -65,9 +65,7 @@ public class FileCleanupService {
     int dbDeleted = 0;
     if (!successfullyDeletedPaths.isEmpty()) {
       dbDeleted =
-          dsl.deleteFrom(FILE)
-              .where(FILE.STORAGE_PATH.in(successfullyDeletedPaths))
-              .execute();
+          dsl.deleteFrom(FILE).where(FILE.STORAGE_PATH.in(successfullyDeletedPaths)).execute();
     }
 
     int failedCount = expiredPaths.size() - successfullyDeletedPaths.size();

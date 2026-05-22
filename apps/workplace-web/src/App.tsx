@@ -18,6 +18,10 @@ const UserDetailPage = lazy(() => import('./pages/admin/UserDetailPage'))
 const RoleListPage = lazy(() => import('./pages/admin/RoleListPage'))
 const RoleDetailPage = lazy(() => import('./pages/admin/RoleDetailPage'))
 const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
+const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
+const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'))
+const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
+const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
 
 function PageLoader() {
   return (
@@ -42,6 +46,12 @@ export default function App() {
             <Route element={<AppLayout />}>
               <Route index element={<HomePage />} />
               <Route path="profile" element={<ProfilePage />} />
+
+              {/* 프로젝트 / 이슈 */}
+              <Route path="projects" element={<ProjectListPage />} />
+              <Route path="projects/:key" element={<ProjectDetailPage />} />
+              <Route path="projects/:key/settings" element={<ProjectSettingsPage />} />
+              <Route path="projects/:key/issues/:number" element={<IssueDetailPage />} />
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
               <Route element={<AdminRoute />}>

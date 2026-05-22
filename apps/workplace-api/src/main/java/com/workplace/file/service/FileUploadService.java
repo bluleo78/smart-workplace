@@ -165,10 +165,7 @@ public class FileUploadService {
 
   public FileUploadResponse getFileInfo(Long fileId, Long userId) {
     var record =
-        dsl.selectFrom(FILE)
-            .where(FILE.ID.eq(fileId))
-            .and(FILE.UPLOADED_BY.eq(userId))
-            .fetchOne();
+        dsl.selectFrom(FILE).where(FILE.ID.eq(fileId)).and(FILE.UPLOADED_BY.eq(userId)).fetchOne();
 
     if (record == null) {
       throw new FileNotFoundException(fileId);
@@ -189,10 +186,7 @@ public class FileUploadService {
 
   public FileContentResult getFileContent(Long fileId, Long userId) throws IOException {
     var record =
-        dsl.selectFrom(FILE)
-            .where(FILE.ID.eq(fileId))
-            .and(FILE.UPLOADED_BY.eq(userId))
-            .fetchOne();
+        dsl.selectFrom(FILE).where(FILE.ID.eq(fileId)).and(FILE.UPLOADED_BY.eq(userId)).fetchOne();
 
     if (record == null) {
       throw new FileNotFoundException(fileId);

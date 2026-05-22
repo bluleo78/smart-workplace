@@ -1,0 +1,188 @@
+package com.workplace.issue.repository;
+
+import static com.workplace.jooq.Tables.ISSUE;
+import static org.jooq.impl.DSL.count;
+
+import com.workplace.issue.dto.IssueRow;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import org.jooq.DSLContext;
+import org.jooq.Record;
+import org.springframework.stereotype.Repository;
+
+/** issue 테이블 jOOQ 리포지토리. 모든 조회는 soft-delete(deleted_at IS NULL) 기준 활성 row 만 대상. */
+@Repository
+@RequiredArgsConstructor
+public class IssueRepository {
+
+  private final DSLContext dsl;
+
+  /** SELECT 결과를 {@link IssueRow} 로 매핑. OffsetDateTime → Instant 변환. */
+  private IssueRow mapToRow(Record r) {
+    OffsetDateTime created = r.get(ISSUE.CREATED_AT);
+    OffsetDateTime updated = r.get(ISSUE.UPDATED_AT);
+    OffsetDateTime closed = r.get(ISSUE.CLOSED_AT);
+    return new IssueRow(
+        r.get(ISSUE.ID),
+        r.get(ISSUE.PROJECT_ID),
+        r.get(ISSUE.NUMBER),
+        r.get(ISSUE.TITLE),
+        r.get(ISSUE.BODY),
+        r.get(ISSUE.STATUS),
+        r.get(ISSUE.PRIORITY),
+        r.get(ISSUE.DUE_DATE),
+        r.get(ISSUE.REPORTER_ID),
+        r.get(ISSUE.ASSIGNEE_ID),
+        created != null ? created.toInstant() : null,
+        updated != null ? updated.toInstant() : null,
+        closed != null ? closed.toInstant() : null);
+  }
+
+  /** id 로 활성 이슈 조회. */
+  public Optional<IssueRow> findById(Long id) {
+    return dsl.select(
+            ISSUE.ID,
+            ISSUE.PROJECT_ID,
+            ISSUE.NUMBER,
+            ISSUE.TITLE,
+            ISSUE.BODY,
+            ISSUE.STATUS,
+            ISSUE.PRIORITY,
+            ISSUE.DUE_DATE,
+            ISSUE.REPORTER_ID,
+            ISSUE.ASSIGNEE_ID,
+            ISSUE.CREATED_AT,
+            ISSUE.UPDATED_AT,
+            ISSUE.CLOSED_AT)
+        .from(ISSUE)
+        .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
+        .fetchOptional(this::mapToRow);
+  }
+
+  /** projectId + number 로 활성 이슈 조회. */
+  public Optional<IssueRow> findByProjectAndNumber(Long projectId, int number) {
+    return dsl.select(
+            ISSUE.ID,
+            ISSUE.PROJECT_ID,
+            ISSUE.NUMBER,
+            ISSUE.TITLE,
+            ISSUE.BODY,
+            ISSUE.STATUS,
+            ISSUE.PRIORITY,
+            ISSUE.DUE_DATE,
+            ISSUE.REPORTER_ID,
+            ISSUE.ASSIGNEE_ID,
+            ISSUE.CREATED_AT,
+            ISSUE.UPDATED_AT,
+            ISSUE.CLOSED_AT)
+        .from(ISSUE)
+        .where(
+            ISSUE
+                .PROJECT_ID
+                .eq(projectId)
+                .and(ISSUE.NUMBER.eq(number))
+                .and(ISSUE.DELETED_AT.isNull()))
+        .fetchOptional(this::mapToRow);
+  }
+
+  /** 프로젝트 내 활성 이슈를 updated_at desc 정렬로 페이지 조회. */
+  public List<IssueRow> findByProject(Long projectId, int page, int size) {
+    return dsl.select(
+            ISSUE.ID,
+            ISSUE.PROJECT_ID,
+            ISSUE.NUMBER,
+            ISSUE.TITLE,
+            ISSUE.BODY,
+            ISSUE.STATUS,
+            ISSUE.PRIORITY,
+            ISSUE.DUE_DATE,
+            ISSUE.REPORTER_ID,
+            ISSUE.ASSIGNEE_ID,
+            ISSUE.CREATED_AT,
+            ISSUE.UPDATED_AT,
+            ISSUE.CLOSED_AT)
+        .from(ISSUE)
+        .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull()))
+        .orderBy(ISSUE.UPDATED_AT.desc())
+        .limit(size)
+        .offset((long) page * size)
+        .fetch(this::mapToRow);
+  }
+
+  /** 프로젝트 내 활성 이슈 총 개수. */
+  public long countByProject(Long projectId) {
+    return dsl.select(count())
+        .from(ISSUE)
+        .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull()))
+        .fetchOne(0, Long.class);
+  }
+
+  /** 신규 이슈 INSERT 후 생성된 row 반환. status 는 DB default('TODO') 사용. */
+  public IssueRow insert(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId,
+      Long assigneeId) {
+    return dsl.insertInto(ISSUE)
+        .set(ISSUE.PROJECT_ID, projectId)
+        .set(ISSUE.NUMBER, number)
+        .set(ISSUE.TITLE, title)
+        .set(ISSUE.BODY, body)
+        .set(ISSUE.PRIORITY, priority)
+        .set(ISSUE.DUE_DATE, dueDate)
+        .set(ISSUE.REPORTER_ID, reporterId)
+        .set(ISSUE.ASSIGNEE_ID, assigneeId)
+        .returning(
+            ISSUE.ID,
+            ISSUE.PROJECT_ID,
+            ISSUE.NUMBER,
+            ISSUE.TITLE,
+            ISSUE.BODY,
+            ISSUE.STATUS,
+            ISSUE.PRIORITY,
+            ISSUE.DUE_DATE,
+            ISSUE.REPORTER_ID,
+            ISSUE.ASSIGNEE_ID,
+            ISSUE.CREATED_AT,
+            ISSUE.UPDATED_AT,
+            ISSUE.CLOSED_AT)
+        .fetchOptional()
+        .map(this::mapToRow)
+        .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
+  }
+
+  /** 모든 변경 가능 필드 일괄 갱신. updated_at = now(). closedAt 은 호출자가 계산하여 전달. */
+  public void updateAll(
+      Long id,
+      String title,
+      String body,
+      String status,
+      String priority,
+      LocalDate dueDate,
+      Long assigneeId,
+      java.time.Instant closedAt) {
+    dsl.update(ISSUE)
+        .set(ISSUE.TITLE, title)
+        .set(ISSUE.BODY, body)
+        .set(ISSUE.STATUS, status)
+        .set(ISSUE.PRIORITY, priority)
+        .set(ISSUE.DUE_DATE, dueDate)
+        .set(ISSUE.ASSIGNEE_ID, assigneeId)
+        .set(ISSUE.CLOSED_AT, closedAt != null ? closedAt.atOffset(java.time.ZoneOffset.UTC) : null)
+        .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
+        .where(ISSUE.ID.eq(id))
+        .execute();
+  }
+
+  /** soft-delete: deleted_at = now(). */
+  public void softDelete(Long id) {
+    dsl.update(ISSUE).set(ISSUE.DELETED_AT, OffsetDateTime.now()).where(ISSUE.ID.eq(id)).execute();
+  }
+}

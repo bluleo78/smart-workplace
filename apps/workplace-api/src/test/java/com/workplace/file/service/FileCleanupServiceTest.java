@@ -75,8 +75,7 @@ class FileCleanupServiceTest extends IntegrationTestBase {
     fileCleanupService.cleanupExpiredFiles();
 
     // DB 레코드가 삭제되어야 함
-    int remaining =
-        dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(expiredFile.toString()));
+    int remaining = dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(expiredFile.toString()));
     assertThat(remaining).isEqualTo(0);
 
     // 실제 파일도 삭제되어야 함
@@ -105,8 +104,7 @@ class FileCleanupServiceTest extends IntegrationTestBase {
     fileCleanupService.cleanupExpiredFiles();
 
     // DB 레코드가 유지되어야 함
-    int remaining =
-        dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(validFile.toString()));
+    int remaining = dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(validFile.toString()));
     assertThat(remaining).isEqualTo(1);
 
     // 실제 파일도 유지되어야 함
@@ -153,9 +151,7 @@ class FileCleanupServiceTest extends IntegrationTestBase {
       fileCleanupService.cleanupExpiredFiles();
 
       // 디스크 삭제 실패 시 DB 레코드는 반드시 유지되어야 함 (고아 파일 방지)
-      int remaining =
-          dsl.fetchCount(
-              FILE, FILE.STORAGE_PATH.eq(undeletableFile.toString()));
+      int remaining = dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(undeletableFile.toString()));
       assertThat(remaining).isEqualTo(1);
     } finally {
       // 테스트 후 디렉토리 쓰기 권한 복원 (TempDir 정리를 위해)
@@ -212,14 +208,12 @@ class FileCleanupServiceTest extends IntegrationTestBase {
       fileCleanupService.cleanupExpiredFiles();
 
       // 삭제 성공한 파일의 DB 레코드는 삭제되어야 함
-      int deletableRemaining =
-          dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(deletableFile.toString()));
+      int deletableRemaining = dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(deletableFile.toString()));
       assertThat(deletableRemaining).isEqualTo(0);
 
       // 삭제 실패한 파일의 DB 레코드는 유지되어야 함
       int undeletableRemaining =
-          dsl.fetchCount(
-              FILE, FILE.STORAGE_PATH.eq(undeletableFile.toString()));
+          dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(undeletableFile.toString()));
       assertThat(undeletableRemaining).isEqualTo(1);
     } finally {
       lockedDir.toFile().setWritable(true);
