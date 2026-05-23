@@ -62,7 +62,18 @@ class IssueControllerTest {
 
   private IssueResponse sampleIssue() {
     return new IssueResponse(
-        100L, "WP", 1, "title", "TODO", "MID", null, 1L, null, Instant.now(), Instant.now());
+        100L,
+        "WP",
+        1,
+        "title",
+        "TODO",
+        "MID",
+        null,
+        1L,
+        null,
+        Instant.now(),
+        Instant.now(),
+        List.of());
   }
 
   private IssueDetailResponse sampleDetail() {

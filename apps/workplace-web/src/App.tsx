@@ -22,6 +22,7 @@ const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
 const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'))
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
 const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
+const WatchedIssuesPage = lazy(() => import('./pages/me/WatchedIssuesPage'))
 
 function PageLoader() {
   return (
@@ -52,6 +53,9 @@ export default function App() {
               <Route path="projects/:key" element={<ProjectDetailPage />} />
               <Route path="projects/:key/settings" element={<ProjectSettingsPage />} />
               <Route path="projects/:key/issues/:number" element={<IssueDetailPage />} />
+
+              {/* 내 태스크 — 구독 중인 이슈 목록 */}
+              <Route path="me/watched" element={<WatchedIssuesPage />} />
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
               <Route element={<AdminRoute />}>

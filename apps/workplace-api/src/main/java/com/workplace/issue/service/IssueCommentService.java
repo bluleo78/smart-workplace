@@ -27,6 +27,7 @@ public class IssueCommentService {
   private final IssueCommentRepository commentRepository;
   private final ProjectAccessGuard accessGuard;
   private final ProjectRepository projectRepository;
+  private final com.workplace.watcher.service.WatcherAutoEnroller watcherAutoEnroller;
 
   /** 이슈 → 프로젝트 → 멤버십 가드. 프로젝트 row 반환. */
   private ProjectRow assertIssueAccess(Long issueId, Long callerId) {
@@ -47,10 +48,12 @@ public class IssueCommentService {
     return commentRepository.findByIssue(issueId);
   }
 
-  /** 코멘트 생성. */
+  /** 코멘트 생성. 작성자를 자동으로 issue watcher 로 등록. */
   public IssueCommentResponse create(Long callerId, Long issueId, CreateCommentRequest req) {
     assertIssueAccess(issueId, callerId);
-    return commentRepository.insert(issueId, callerId, req.body());
+    var resp = commentRepository.insert(issueId, callerId, req.body());
+    watcherAutoEnroller.enroll(issueId, callerId);
+    return resp;
   }
 
   /** 코멘트 수정 (본인 또는 프로젝트 OWNER) — delete 와 동일한 권한 모델. */

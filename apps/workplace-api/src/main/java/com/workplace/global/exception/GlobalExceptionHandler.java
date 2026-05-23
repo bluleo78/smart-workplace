@@ -10,6 +10,10 @@ import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.InvalidIssueOperationException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.label.exception.InvalidColorTokenException;
+import com.workplace.label.exception.InvalidLabelForProjectException;
+import com.workplace.label.exception.LabelNameDuplicatedException;
+import com.workplace.label.exception.LabelNotFoundException;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
@@ -300,6 +304,38 @@ public class GlobalExceptionHandler {
       InvalidIssueOperationException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
         .body(buildError(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), null, request));
+  }
+
+  /** 라벨 없음 — 404. */
+  @ExceptionHandler(LabelNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleLabelNotFound(
+      LabelNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 라벨 이름 중복 — 409. */
+  @ExceptionHandler(LabelNameDuplicatedException.class)
+  public ResponseEntity<ErrorResponse> handleLabelNameDuplicated(
+      LabelNameDuplicatedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 허용되지 않은 색상 토큰 — 400. */
+  @ExceptionHandler(InvalidColorTokenException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidColorToken(
+      InvalidColorTokenException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 이슈 프로젝트와 다른 라벨 부착 시도 — 400. */
+  @ExceptionHandler(InvalidLabelForProjectException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidLabelForProject(
+      InvalidLabelForProjectException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
   @ExceptionHandler(Exception.class)

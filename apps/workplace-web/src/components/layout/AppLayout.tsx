@@ -43,6 +43,14 @@ export function AppLayout() {
               >
                 프로젝트
               </NavLink>
+              <NavLink
+                to="/me/watched"
+                className={({ isActive }) =>
+                  isActive ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }
+              >
+                내 태스크
+              </NavLink>
               {isAdmin && (
                 <NavLink
                   to="/admin/users"

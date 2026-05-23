@@ -40,6 +40,16 @@ public class UserRepository {
         .fetchOptional(this::mapToUserResponse);
   }
 
+  /** id 집합으로 일괄 조회 (N+1 회피). 빈 입력은 빈 리스트 반환. */
+  public List<UserResponse> findByIds(List<Long> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    return dsl.select(
+            USER.ID, USER.USERNAME, USER.EMAIL, USER.NAME, USER.IS_ACTIVE, USER.CREATED_AT)
+        .from(USER)
+        .where(USER.ID.in(ids))
+        .fetch(this::mapToUserResponse);
+  }
+
   public Optional<UserResponse> findById(Long id) {
     return dsl.select(
             USER.ID, USER.USERNAME, USER.EMAIL, USER.NAME, USER.IS_ACTIVE, USER.CREATED_AT)

@@ -1,4 +1,4 @@
-// 이슈 변경 이력 타임라인. status/priority/assignee/dueDate/title 변경만 기록.
+// 이슈 변경 이력 타임라인. status/priority/assignee/dueDate/title/labels 변경 기록.
 
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
 
@@ -9,7 +9,28 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   PRIORITY_CHANGED: '우선순위 변경',
   ASSIGNEE_CHANGED: '담당자 변경',
   DUE_DATE_CHANGED: '마감일 변경',
+  LABELS_CHANGED: '라벨 변경',
 };
+
+// LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.
+// 파싱 실패 시 원문 그대로 노출.
+function formatLabelsChanged(toValue: string | null): string {
+  if (!toValue) return '없음';
+  try {
+    const parsed = JSON.parse(toValue) as {
+      added?: { name?: string }[];
+      removed?: { name?: string }[];
+    };
+    const added = (parsed.added ?? []).map((l) => l.name ?? '').filter(Boolean);
+    const removed = (parsed.removed ?? []).map((l) => l.name ?? '').filter(Boolean);
+    const parts: string[] = [];
+    if (added.length) parts.push(`+ ${added.join(', ')}`);
+    if (removed.length) parts.push(`- ${removed.join(', ')}`);
+    return parts.length ? parts.join(' / ') : '변경 없음';
+  } catch {
+    return toValue;
+  }
+}
 
 // 이력 항목을 시간순으로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
 export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[] }) {
@@ -25,7 +46,13 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
           </div>
           <div>
             <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}
-            <span>{e.fromValue ?? '없음'} → {e.toValue ?? '없음'}</span>
+            {e.eventType === 'LABELS_CHANGED' ? (
+              <span>{formatLabelsChanged(e.toValue)}</span>
+            ) : (
+              <span>
+                {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}
+              </span>
+            )}
           </div>
         </li>
       ))}

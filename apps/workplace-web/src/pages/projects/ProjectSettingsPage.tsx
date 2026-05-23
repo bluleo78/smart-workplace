@@ -8,10 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
+import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useDeleteProject, useProject, useUpdateProject } from '../../hooks/queries/useProjects';
+import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import { updateProjectSchema, type UpdateProjectFormData } from '../../lib/validations/project';
 
+import { LabelManagement } from './components/LabelManagement';
 import { MemberManagement } from './components/MemberManagement';
 
 // 프로젝트 설정 — 기본 정보 수정 + 멤버 관리 + 위험 구역(삭제).
@@ -21,6 +24,11 @@ export default function ProjectSettingsPage() {
   const project = useProject(key);
   const update = useUpdateProject(key);
   const remove = useDeleteProject();
+  // 멤버 목록 기반으로 현재 사용자의 프로젝트 권한을 도출 — 라벨 편집 UI 게이팅에 사용.
+  const members = useProjectMembers(key);
+  const { user } = useAuth();
+  const isOwner =
+    members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<UpdateProjectFormData>({
     resolver: zodResolver(updateProjectSchema),
@@ -76,6 +84,8 @@ export default function ProjectSettingsPage() {
       </form>
 
       <MemberManagement projectKey={key} />
+
+      <LabelManagement projectKey={key} isOwner={isOwner} />
 
       <section className="border border-destructive rounded p-4 space-y-2">
         <h2 className="text-lg font-semibold text-destructive">위험 구역</h2>

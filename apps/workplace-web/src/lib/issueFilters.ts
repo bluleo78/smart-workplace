@@ -19,6 +19,10 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
       if (Number.isFinite(n) && n > 0) assigneeIds.push(n);
     }
   }
+  // label 토큰은 양의 정수만 허용; 그 외(빈문자, 비숫자, 음수, 0) 는 폐기.
+  const labelIds = csv(params.get('label'))
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n) && n > 0);
   return {
     q: params.get('q') ?? '',
     statuses: csv(params.get('status')).filter((s) =>
@@ -31,6 +35,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     includeUnassigned,
     dueFrom: params.get('dueFrom'),
     dueTo: params.get('dueTo'),
+    labelIds,
   };
 }
 
@@ -51,6 +56,7 @@ export function filtersToParams(f: IssueFilters, view: IssueView): URLSearchPara
   if (assigneeTokens.length) p.set('assignee', assigneeTokens.join(','));
   if (f.dueFrom) p.set('dueFrom', f.dueFrom);
   if (f.dueTo) p.set('dueTo', f.dueTo);
+  if (f.labelIds.length) p.set('label', f.labelIds.join(','));
   return p;
 }
 

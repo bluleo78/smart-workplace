@@ -94,12 +94,12 @@ class PermissionServiceTest extends IntegrationTestBase {
   // getAllPermissions
   // =========================================================================
 
-  /** Flyway seed 데이터(V2 10개 + V5 신규 4개 = 14개)가 모두 반환되어야 한다. */
+  /** Flyway seed 데이터(V2 10개 + V5 신규 4개 + V7 1개 = 15개)가 모두 반환되어야 한다. */
   @Test
   void getAllPermissions_returnAllSeedPermissions() {
     List<PermissionResponse> result = permissionService.getAllPermissions();
 
-    assertThat(result).hasSize(14);
+    assertThat(result).hasSize(15);
   }
 
   /** 반환 목록은 id 오름차순으로 정렬되어야 한다. */

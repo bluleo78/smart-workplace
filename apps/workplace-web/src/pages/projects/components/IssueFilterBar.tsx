@@ -6,7 +6,10 @@ import { useSearchParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
+import { LabelChip } from '../../../components/labels/LabelChip';
+import { useLabels } from '../../../hooks/queries/useLabels';
 import { filtersToParams, parseFilters, parseView } from '../../../lib/issueFilters';
 import type { IssueFilters, IssueView } from '../../../types/issue';
 
@@ -24,11 +27,12 @@ const PRIORITY_OPTIONS = [
   { value: 'HIGH', label: '높음' },
 ];
 
-export function IssueFilterBar() {
+export function IssueFilterBar({ projectKey }: { projectKey: string }) {
   const [params, setParams] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
   const [qDraft, setQDraft] = useState(filters.q);
+  const labels = useLabels(projectKey);
 
   // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 동기화한다.
   useEffect(() => {
@@ -70,6 +74,20 @@ export function IssueFilterBar() {
         priorities: has
           ? filters.priorities.filter((x) => x !== p)
           : [...filters.priorities, p],
+      },
+      view,
+    );
+  }
+
+  // 라벨 다중 토글 — AND 결합이므로 선택할수록 결과는 좁아진다.
+  function toggleLabel(id: number) {
+    const has = filters.labelIds.includes(id);
+    writeFilters(
+      {
+        ...filters,
+        labelIds: has
+          ? filters.labelIds.filter((x) => x !== id)
+          : [...filters.labelIds, id],
       },
       view,
     );
@@ -123,6 +141,46 @@ export function IssueFilterBar() {
           </Button>
         ))}
       </div>
+
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant={filters.labelIds.length > 0 ? 'default' : 'outline'}
+            size="sm"
+            aria-label="라벨 필터"
+            data-testid="label-filter-trigger"
+          >
+            라벨{filters.labelIds.length > 0 ? ` (${filters.labelIds.length})` : ''}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 p-2">
+          <div className="max-h-64 overflow-y-auto space-y-1">
+            {(labels.data ?? []).map((l) => (
+              <label
+                key={l.id}
+                className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
+                data-testid={`label-filter-option-${l.id}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={filters.labelIds.includes(l.id)}
+                  onChange={() => toggleLabel(l.id)}
+                  aria-label={l.name}
+                />
+                <LabelChip
+                  label={{ id: l.id, name: l.name, colorToken: l.colorToken }}
+                  size="sm"
+                />
+              </label>
+            ))}
+            {(labels.data ?? []).length === 0 && (
+              <p className="text-xs text-muted-foreground py-2 text-center">
+                라벨이 없습니다
+              </p>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
 
       <div className="flex items-center gap-1 ml-auto" role="group" aria-label="뷰 전환">
         <Button

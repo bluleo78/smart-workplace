@@ -1,9 +1,16 @@
-// 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 활동 타임라인).
+// 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
+import { Eye, EyeOff } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { Button } from '@/components/ui/button';
+
+import { LabelChip } from '../../components/labels/LabelChip';
+import { LabelPickerPopover } from '../../components/labels/LabelPickerPopover';
 import { useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
+import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
+import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 
@@ -18,6 +25,10 @@ export default function IssueDetailPage() {
   const issueNumber = Number(number);
   const { data, isLoading } = useIssue(key, issueNumber);
   const update = useUpdateIssue(key, issueNumber);
+  const { user } = useAuth();
+  const watchers = useWatchers(key, issueNumber);
+  const toggleWatch = useWatchToggle(key, issueNumber, user?.id ?? null);
+  const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
 
   if (isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
   if (!data) return <p className="container mx-auto p-6 text-destructive">태스크를 찾을 수 없습니다</p>;
@@ -41,7 +52,24 @@ export default function IssueDetailPage() {
           <p className="text-sm font-mono text-muted-foreground">
             {summary.projectKey}-{summary.number}
           </p>
-          <h1 className="text-2xl font-semibold">{summary.title}</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl font-semibold">{summary.title}</h1>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => toggleWatch.mutate(!isWatching)}
+              aria-pressed={isWatching}
+              aria-label={isWatching ? '구독 중' : '구독'}
+              data-testid="watch-toggle"
+              disabled={toggleWatch.isPending}
+            >
+              {isWatching ? <Eye className="h-4 w-4 mr-1" /> : <EyeOff className="h-4 w-4 mr-1" />}
+              {isWatching ? '구독 중' : '구독'}
+              <span className="ml-1 text-xs text-muted-foreground">
+                {watchers.data?.length ?? 0}
+              </span>
+            </Button>
+          </div>
         </div>
         <article className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
           {body ?? <em className="text-muted-foreground">본문 없음</em>}
@@ -83,6 +111,24 @@ export default function IssueDetailPage() {
               clearDueDate: !e.target.value,
             })}
           />
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">라벨</span>
+            <LabelPickerPopover
+              projectKey={key}
+              issueNumber={issueNumber}
+              current={summary.labels}
+            />
+          </div>
+          <div className="flex flex-wrap gap-1" data-testid="issue-labels">
+            {summary.labels.map((l) => (
+              <LabelChip key={l.id} label={l} />
+            ))}
+            {summary.labels.length === 0 && (
+              <span className="text-xs text-muted-foreground">없음</span>
+            )}
+          </div>
         </div>
         <div>
           <h3 className="text-sm font-semibold mb-2">활동</h3>

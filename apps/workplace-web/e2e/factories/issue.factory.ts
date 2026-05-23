@@ -21,6 +21,7 @@ export function createIssue(overrides: Partial<IssueResponse> = {}): IssueRespon
     assigneeId: null,
     createdAt: now,
     updatedAt: now,
+    labels: [],
     ...overrides,
   };
 }

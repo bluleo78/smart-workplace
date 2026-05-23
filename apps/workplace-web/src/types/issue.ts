@@ -1,5 +1,7 @@
 // 이슈/댓글/이력 관련 타입 — 백엔드 DTO 와 1:1 매칭.
 
+import type { LabelSummary } from './label';
+
 export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELED';
 export type IssuePriority = 'LOW' | 'MID' | 'HIGH';
 
@@ -15,6 +17,8 @@ export interface IssueResponse {
   assigneeId: number | null;
   createdAt: string;
   updatedAt: string;
+  // 부착된 라벨 — 백엔드가 항상 배열로 내려준다 (없으면 빈 배열).
+  labels: LabelSummary[];
 }
 
 export interface IssueCommentResponse {
@@ -32,7 +36,8 @@ export type IssueHistoryEventType =
   | 'STATUS_CHANGED'
   | 'PRIORITY_CHANGED'
   | 'ASSIGNEE_CHANGED'
-  | 'DUE_DATE_CHANGED';
+  | 'DUE_DATE_CHANGED'
+  | 'LABELS_CHANGED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -89,6 +94,8 @@ export interface IssueFilters {
   includeUnassigned: boolean;
   dueFrom: string | null;
   dueTo: string | null;
+  // 다중 라벨 AND 필터 — 모든 라벨이 부착된 이슈만 매칭.
+  labelIds: number[];
 }
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.

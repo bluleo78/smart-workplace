@@ -1,7 +1,11 @@
 package com.workplace.issue.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueHistoryRepository;
+import com.workplace.label.dto.LabelSummary;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -12,6 +16,7 @@ import org.springframework.stereotype.Component;
 public class IssueHistoryRecorder {
 
   private final IssueHistoryRepository historyRepository;
+  private final ObjectMapper objectMapper;
 
   /** before/after 의 주요 필드 비교 후 변경 항목별로 history row 삽입. */
   public void recordChanges(Long actorId, IssueRow before, IssueRow after) {
@@ -43,6 +48,28 @@ public class IssueHistoryRecorder {
           stringify(before.dueDate()),
           stringify(after.dueDate()));
     }
+  }
+
+  /**
+   * 라벨 집합 교체를 한 건의 history 로 기록한다. diff 가 없으면 no-op. payload JSON 은 toValue 필드에 저장한다 (fromValue 는
+   * null).
+   */
+  public void recordLabelsChanged(
+      Long actorId, Long issueId, List<LabelSummary> added, List<LabelSummary> removed) {
+    if ((added == null || added.isEmpty()) && (removed == null || removed.isEmpty())) {
+      return;
+    }
+    String payload;
+    try {
+      payload =
+          objectMapper.writeValueAsString(
+              Map.of(
+                  "added", added == null ? List.of() : added,
+                  "removed", removed == null ? List.of() : removed));
+    } catch (Exception e) {
+      payload = "{}";
+    }
+    historyRepository.insert(issueId, actorId, "LABELS_CHANGED", null, payload);
   }
 
   /** 객체 → 문자열 (null 보존). */

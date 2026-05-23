@@ -8,6 +8,7 @@ import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
+import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
@@ -27,9 +28,11 @@ public class IssueService {
   private final IssueRepository issueRepository;
   private final IssueCommentRepository commentRepository;
   private final IssueHistoryRepository historyRepository;
+  private final IssueLabelRepository issueLabelRepository;
   private final ProjectIssueSequenceRepository sequenceRepository;
   private final ProjectAccessGuard accessGuard;
   private final IssueHistoryRecorder historyRecorder;
+  private final com.workplace.watcher.service.WatcherAutoEnroller watcherAutoEnroller;
 
   /** 신규 이슈 생성. priority 기본값(MID)을 서비스에서 보정한다. */
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
@@ -45,6 +48,11 @@ public class IssueService {
             req.dueDate(),
             callerId,
             req.assigneeId());
+    // 자동 watcher 등록: reporter + (assignee 가 있고 호출자와 다르면) assignee
+    watcherAutoEnroller.enroll(row.id(), callerId);
+    if (req.assigneeId() != null && !req.assigneeId().equals(callerId)) {
+      watcherAutoEnroller.enroll(row.id(), req.assigneeId());
+    }
     return IssueResponse.from(project.key(), row);
   }
 
@@ -71,10 +79,11 @@ public class IssueService {
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    var labels = issueLabelRepository.findLabelsByIssue(row.id());
     var comments = commentRepository.findByIssue(row.id());
     var history = historyRepository.findByIssue(row.id());
     return new IssueDetailResponse(
-        IssueResponse.from(project.key(), row), row.body(), comments, history);
+        IssueResponse.fromWithLabels(project.key(), row, labels), row.body(), comments, history);
   }
 
   /** 이슈 부분 수정. null 필드는 변경 없음, clear* 플래그로 명시적 NULL 설정을 지원한다. */
@@ -115,6 +124,11 @@ public class IssueService {
         before.id(), newTitle, newBody, newStatus, newPriority, newDue, newAssignee, newClosedAt);
     var after = issueRepository.findById(before.id()).orElseThrow();
     historyRecorder.recordChanges(callerId, before, after);
+
+    // assignee 가 새로운 non-null 값으로 전이된 경우 자동 watcher 등록
+    if (newAssignee != null && !newAssignee.equals(before.assigneeId())) {
+      watcherAutoEnroller.enroll(before.id(), newAssignee);
+    }
 
     return get(callerId, projectKey, number);
   }

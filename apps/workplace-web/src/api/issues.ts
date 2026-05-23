@@ -41,6 +41,7 @@ export async function searchIssues(
   if (assigneeTokens.length) params.set('assignee', assigneeTokens.join(','));
   if (filters.dueFrom) params.set('dueFrom', filters.dueFrom);
   if (filters.dueTo) params.set('dueTo', filters.dueTo);
+  if (filters.labelIds.length) params.set('label', filters.labelIds.join(','));
   if (cursor) params.set('cursor', cursor);
   params.set('size', String(size));
   const { data } = await client.get<IssueSearchResponse>(

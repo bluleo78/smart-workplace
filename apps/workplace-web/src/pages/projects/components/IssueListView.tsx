@@ -4,6 +4,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 
+import { LabelChip } from '../../../components/labels/LabelChip';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import type { IssueFilters } from '../../../types/issue';
 import { IssuePriorityBadge } from './IssuePriorityBadge';
@@ -82,6 +83,13 @@ export function IssueListView({
                 >
                   {it.title}
                 </Link>
+                {it.labels.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {it.labels.map((l) => (
+                      <LabelChip key={l.id} label={l} size="sm" />
+                    ))}
+                  </div>
+                )}
               </td>
               <td>
                 <IssueStatusBadge status={it.status} />

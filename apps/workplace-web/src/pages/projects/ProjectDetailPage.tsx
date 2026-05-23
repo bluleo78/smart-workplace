@@ -55,7 +55,7 @@ function IssueArea({ projectKey }: { projectKey: string }) {
 
   return (
     <section aria-label="태스크">
-      <IssueFilterBar />
+      <IssueFilterBar projectKey={projectKey} />
       {view === 'board' ? (
         <IssueBoardView projectKey={projectKey} filters={filters} />
       ) : (

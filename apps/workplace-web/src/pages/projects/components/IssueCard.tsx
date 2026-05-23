@@ -6,6 +6,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Link } from 'react-router-dom';
 
+import { LabelChip } from '../../../components/labels/LabelChip';
 import type { IssueResponse } from '../../../types/issue';
 import { IssuePriorityBadge } from './IssuePriorityBadge';
 
@@ -67,6 +68,18 @@ export function IssueCard({
         <span>{issue.assigneeId == null ? '미지정' : `#${issue.assigneeId}`}</span>
         {issue.dueDate && <span>~{issue.dueDate}</span>}
       </div>
+      {issue.labels.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {issue.labels.slice(0, 3).map((l) => (
+            <LabelChip key={l.id} label={l} size="sm" />
+          ))}
+          {issue.labels.length > 3 && (
+            <span className="text-[10px] text-muted-foreground">
+              +{issue.labels.length - 3}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

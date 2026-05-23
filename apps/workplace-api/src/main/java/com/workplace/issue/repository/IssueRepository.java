@@ -215,6 +215,21 @@ public class IssueRepository {
     if (query.dueTo() != null) {
       where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
     }
+    if (query.labelIds() != null && !query.labelIds().isEmpty()) {
+      // 라벨은 AND 결합 — 모든 ID 가 부착된 이슈만 매칭 (EXISTS 서브쿼리를 ID 별로 누적)
+      for (Long lid : query.labelIds()) {
+        where =
+            where.and(
+                org.jooq.impl.DSL.exists(
+                    dsl.selectOne()
+                        .from(com.workplace.jooq.Tables.ISSUE_LABEL)
+                        .where(
+                            com.workplace.jooq.Tables.ISSUE_LABEL
+                                .ISSUE_ID
+                                .eq(ISSUE.ID)
+                                .and(com.workplace.jooq.Tables.ISSUE_LABEL.LABEL_ID.eq(lid)))));
+      }
+    }
     if (query.cursor() != null) {
       var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = query.cursor().id();
@@ -247,5 +262,52 @@ public class IssueRepository {
   /** soft-delete: deleted_at = now(). */
   public void softDelete(Long id) {
     dsl.update(ISSUE).set(ISSUE.DELETED_AT, OffsetDateTime.now()).where(ISSUE.ID.eq(id)).execute();
+  }
+
+  /** watched-issues 전용 헬퍼. 호출자가 현재 멤버인 프로젝트의 활성 이슈만, ids 제한 + (updated_at, id) DESC cursor 페이징. */
+  public List<IssueRow> findByIdsActiveMemberOf(
+      List<Long> issueIds,
+      Long memberUserId,
+      com.workplace.issue.dto.IssueCursor cursor,
+      int size) {
+    if (issueIds == null || issueIds.isEmpty()) return List.of();
+    org.jooq.Condition where = ISSUE.ID.in(issueIds).and(ISSUE.DELETED_AT.isNull());
+    where =
+        where.and(
+            org.jooq.impl.DSL.exists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
+                    .where(
+                        com.workplace.jooq.Tables.PROJECT_MEMBER
+                            .PROJECT_ID
+                            .eq(ISSUE.PROJECT_ID)
+                            .and(
+                                com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(
+                                    memberUserId)))));
+    if (cursor != null) {
+      var ts = cursor.updatedAt().atOffset(java.time.ZoneOffset.UTC);
+      var cursorId = cursor.id();
+      where =
+          where.and(ISSUE.UPDATED_AT.lt(ts).or(ISSUE.UPDATED_AT.eq(ts).and(ISSUE.ID.lt(cursorId))));
+    }
+    return dsl.select(
+            ISSUE.ID,
+            ISSUE.PROJECT_ID,
+            ISSUE.NUMBER,
+            ISSUE.TITLE,
+            ISSUE.BODY,
+            ISSUE.STATUS,
+            ISSUE.PRIORITY,
+            ISSUE.DUE_DATE,
+            ISSUE.REPORTER_ID,
+            ISSUE.ASSIGNEE_ID,
+            ISSUE.CREATED_AT,
+            ISSUE.UPDATED_AT,
+            ISSUE.CLOSED_AT)
+        .from(ISSUE)
+        .where(where)
+        .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
+        .limit(size)
+        .fetch(this::mapToRow);
   }
 }

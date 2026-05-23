@@ -2,10 +2,13 @@ package com.workplace.issue.service;
 
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueResponse;
+import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.exception.InvalidCursorException;
+import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.label.dto.LabelSummary;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
@@ -19,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 이슈 검색/필터 + cursor 페이징 단일 진입점. 컨트롤러에서 받은 Map<String,String> 쿼리 파라미터를 IssueSearchQuery 로 정규화한 뒤
- * 리포지토리에 위임한다.
+ * 리포지토리에 위임한다. 라벨은 N+1 회피를 위해 한 번의 IN 쿼리로 일괄 fetch 후 in-memory 그룹핑.
  */
 @Service
 @Transactional(readOnly = true)
@@ -30,15 +33,25 @@ public class IssueSearchService {
   private static final int MAX_SIZE = 100;
 
   private final IssueRepository issueRepository;
+  private final IssueLabelRepository issueLabelRepository;
   private final ProjectAccessGuard accessGuard;
 
-  /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, cursor, size. */
+  /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, cursor, size. */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     var project = accessGuard.assertMember(projectKey, callerId);
     IssueSearchQuery query = parse(params);
 
     var rows = issueRepository.search(project.id(), query);
-    var items = rows.stream().map(r -> IssueResponse.from(project.key(), r)).toList();
+    List<Long> issueIds = rows.stream().map(IssueRow::id).toList();
+    Map<Long, List<LabelSummary>> labelsByIssue =
+        issueLabelRepository.findLabelsByIssueIds(issueIds);
+    var items =
+        rows.stream()
+            .map(
+                r ->
+                    IssueResponse.fromWithLabels(
+                        project.key(), r, labelsByIssue.getOrDefault(r.id(), List.of())))
+            .toList();
 
     String nextCursor = null;
     boolean hasMore = false;
@@ -90,8 +103,27 @@ public class IssueSearchService {
       }
     }
 
+    // 라벨 ID CSV → List<Long> (잘못된 토큰은 무시)
+    List<Long> labelIds = new ArrayList<>();
+    for (String tok : csv(p.get("label"))) {
+      try {
+        labelIds.add(Long.parseLong(tok));
+      } catch (NumberFormatException ignored) {
+        // 잘못된 라벨 토큰은 필터 미적용
+      }
+    }
+
     return new IssueSearchQuery(
-        q, statuses, assigneeIds, includeUnassigned, priorities, dueFrom, dueTo, cursor, size);
+        q,
+        statuses,
+        assigneeIds,
+        includeUnassigned,
+        priorities,
+        dueFrom,
+        dueTo,
+        cursor,
+        size,
+        labelIds);
   }
 
   private static String trimToNull(String s) {
