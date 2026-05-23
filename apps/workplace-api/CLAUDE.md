@@ -98,10 +98,11 @@ docker exec smart-workplace-db-1 psql -U app -d workplace -c 'SELECT * FROM "use
 
 ## Flyway Rules
 
-- 마이그레이션 경로: `src/main/resources/db/migration/V{n}__*.sql`
-- 새 마이그레이션 추가 시 번호 순차 증가
-- `baseline-on-migrate: true`, `baseline-version: 1` — 기존 스키마가 있어도 baseline 자동 생성
-- **절대 금지**: `flyway clean`, `pnpm db:reset` 으로 사용자 데이터 손실, `baseline-version` 을 최신보다 낮게 설정
+- 마이그레이션 경로: `src/main/resources/db/migration/V{n}__*.sql`, 번호 순차 증가
+- 적용은 `./gradlew bootRun` 이 자동 수행. 적용 후 `./gradlew generateJooq` 로 코드 재생성
+- 머지된 마이그레이션 파일은 수정 금지 (checksum 변경 → 다른 환경 검증 실패). 정정은 V{n+1} 로
+- `flyway_schema_history` 직접 INSERT/UPDATE 금지 (가짜 checksum → 부팅 시 validation 실패)
+- `flyway clean`, `pnpm db:reset`, `baseline-version` 다운그레이드, `flyway repair`, `--no-verify` 는 사용자 명시 승인 후에만
 
 ## Key Conventions
 
