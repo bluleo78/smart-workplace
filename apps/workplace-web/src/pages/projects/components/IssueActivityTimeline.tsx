@@ -8,6 +8,7 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   STATUS_CHANGED: '상태 변경',
   PRIORITY_CHANGED: '우선순위 변경',
   ASSIGNEE_CHANGED: '담당자 변경',
+  ASSIGNEES_CHANGED: '담당자 변경',
   DUE_DATE_CHANGED: '마감일 변경',
   LABELS_CHANGED: '라벨 변경',
   ATTACHMENTS_CHANGED: '첨부 변경',
@@ -53,6 +54,26 @@ function formatAttachmentsChanged(toValue: string | null): string {
   }
 }
 
+// ASSIGNEES_CHANGED 페이로드는 toValue 에 {added:[{id,name,...}], removed:[{id,name,...}]} JSON.
+// name 이 비어 있을 수 있어 (removed 의 경우) #id 로 폴백.
+function formatAssigneesChanged(toValue: string | null): string {
+  if (!toValue) return '담당자 변경';
+  try {
+    const parsed = JSON.parse(toValue) as {
+      added?: { id: number; name?: string | null }[];
+      removed?: { id: number; name?: string | null }[];
+    };
+    const added = (parsed.added ?? []).map((x) => x.name ?? `#${x.id}`);
+    const removed = (parsed.removed ?? []).map((x) => x.name ?? `#${x.id}`);
+    const parts: string[] = [];
+    if (added.length) parts.push(`+ ${added.join(', ')}`);
+    if (removed.length) parts.push(`- ${removed.join(', ')}`);
+    return parts.length ? parts.join(' / ') : '변경 없음';
+  } catch {
+    return toValue;
+  }
+}
+
 // 이력 항목을 시간순으로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
 export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[] }) {
   if (entries.length === 0) {
@@ -71,6 +92,8 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
               <span>{formatLabelsChanged(e.toValue)}</span>
             ) : e.eventType === 'ATTACHMENTS_CHANGED' ? (
               <span>{formatAttachmentsChanged(e.toValue)}</span>
+            ) : e.eventType === 'ASSIGNEES_CHANGED' ? (
+              <span>{formatAssigneesChanged(e.toValue)}</span>
             ) : (
               <span>
                 {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}

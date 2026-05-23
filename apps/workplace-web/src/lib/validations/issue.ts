@@ -11,7 +11,8 @@ export const createIssueSchema = z.object({
   priority: priorityEnum.optional(),
   // YYYY-MM-DD 형식 (HTML date input) 또는 빈 문자열 허용
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
-  assigneeId: z.number().nullable().optional(),
+  // Phase 3c — 생성 시 다중 담당자 지정용. 현재 dialog 에서는 미노출이지만 schema 는 허용.
+  assigneeIds: z.array(z.number().int().positive()).optional().nullable(),
 });
 export type CreateIssueFormData = z.infer<typeof createIssueSchema>;
 
@@ -21,7 +22,7 @@ export const updateIssueSchema = z.object({
   status: statusEnum.optional(),
   priority: priorityEnum.optional(),
   dueDate: z.string().optional(),
-  assigneeId: z.number().nullable().optional(),
+  clearDueDate: z.boolean().optional(),
 });
 
 export const createCommentSchema = z.object({

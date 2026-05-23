@@ -9,6 +9,7 @@ import com.workplace.global.dto.ErrorResponse;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.AttachmentTooLargeException;
+import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.InvalidIssueOperationException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
@@ -337,6 +338,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(InvalidLabelForProjectException.class)
   public ResponseEntity<ErrorResponse> handleInvalidLabelForProject(
       InvalidLabelForProjectException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 이슈 담당자로 비-멤버 사용자를 지정 — 400. */
+  @ExceptionHandler(InvalidAssigneeForProjectException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidAssigneeForProject(
+      InvalidAssigneeForProjectException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }

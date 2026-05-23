@@ -35,7 +35,6 @@ public class IssueRepository {
         r.get(ISSUE.PRIORITY),
         r.get(ISSUE.DUE_DATE),
         r.get(ISSUE.REPORTER_ID),
-        r.get(ISSUE.ASSIGNEE_ID),
         created != null ? created.toInstant() : null,
         updated != null ? updated.toInstant() : null,
         closed != null ? closed.toInstant() : null);
@@ -53,7 +52,6 @@ public class IssueRepository {
             ISSUE.PRIORITY,
             ISSUE.DUE_DATE,
             ISSUE.REPORTER_ID,
-            ISSUE.ASSIGNEE_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT)
@@ -74,7 +72,6 @@ public class IssueRepository {
             ISSUE.PRIORITY,
             ISSUE.DUE_DATE,
             ISSUE.REPORTER_ID,
-            ISSUE.ASSIGNEE_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT)
@@ -100,7 +97,6 @@ public class IssueRepository {
             ISSUE.PRIORITY,
             ISSUE.DUE_DATE,
             ISSUE.REPORTER_ID,
-            ISSUE.ASSIGNEE_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT)
@@ -120,7 +116,9 @@ public class IssueRepository {
         .fetchOne(0, Long.class);
   }
 
-  /** 신규 이슈 INSERT 후 생성된 row 반환. status 는 DB default('TODO') 사용. */
+  /**
+   * 신규 이슈 INSERT 후 생성된 row 반환. status 는 DB default('TODO') 사용. 담당자는 별도 매핑(issue_assignee) 으로 관리.
+   */
   public IssueRow insert(
       Long projectId,
       int number,
@@ -128,8 +126,7 @@ public class IssueRepository {
       String body,
       String priority,
       LocalDate dueDate,
-      Long reporterId,
-      Long assigneeId) {
+      Long reporterId) {
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, projectId)
         .set(ISSUE.NUMBER, number)
@@ -138,7 +135,6 @@ public class IssueRepository {
         .set(ISSUE.PRIORITY, priority)
         .set(ISSUE.DUE_DATE, dueDate)
         .set(ISSUE.REPORTER_ID, reporterId)
-        .set(ISSUE.ASSIGNEE_ID, assigneeId)
         .returning(
             ISSUE.ID,
             ISSUE.PROJECT_ID,
@@ -149,7 +145,6 @@ public class IssueRepository {
             ISSUE.PRIORITY,
             ISSUE.DUE_DATE,
             ISSUE.REPORTER_ID,
-            ISSUE.ASSIGNEE_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT)
@@ -166,7 +161,6 @@ public class IssueRepository {
       String status,
       String priority,
       LocalDate dueDate,
-      Long assigneeId,
       java.time.Instant closedAt) {
     dsl.update(ISSUE)
         .set(ISSUE.TITLE, title)
@@ -174,7 +168,6 @@ public class IssueRepository {
         .set(ISSUE.STATUS, status)
         .set(ISSUE.PRIORITY, priority)
         .set(ISSUE.DUE_DATE, dueDate)
-        .set(ISSUE.ASSIGNEE_ID, assigneeId)
         .set(ISSUE.CLOSED_AT, closedAt != null ? closedAt.atOffset(java.time.ZoneOffset.UTC) : null)
         .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
         .where(ISSUE.ID.eq(id))
@@ -183,7 +176,7 @@ public class IssueRepository {
 
   /**
    * 검색/필터 + cursor 페이징. 활성(deleted_at IS NULL) 이슈만 대상. 정렬은 (updated_at DESC, id DESC) 고정. size 는
-   * 호출자가 1..100 으로 클램프한 값을 넘긴다.
+   * 호출자가 1..100 으로 클램프한 값을 넘긴다. assignee 필터는 issue_assignee 매핑에 대한 EXISTS/NOT EXISTS 로 변환된다.
    */
   public List<IssueRow> search(Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition where = ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull());
@@ -200,14 +193,31 @@ public class IssueRepository {
     }
     boolean hasAssigneeList = query.assigneeIds() != null && !query.assigneeIds().isEmpty();
     if (hasAssigneeList || query.includeUnassigned()) {
-      org.jooq.Condition assigneeCond = org.jooq.impl.DSL.noCondition();
+      // issue_assignee 매핑 기반 EXISTS/NOT EXISTS — Phase 3c 단일컷 후 다중 담당자 구조에 맞춘 필터.
+      org.jooq.Condition cond = org.jooq.impl.DSL.noCondition();
       if (hasAssigneeList) {
-        assigneeCond = assigneeCond.or(ISSUE.ASSIGNEE_ID.in(query.assigneeIds()));
+        cond =
+            cond.or(
+                org.jooq.impl.DSL.exists(
+                    dsl.selectOne()
+                        .from(com.workplace.jooq.Tables.ISSUE_ASSIGNEE)
+                        .where(
+                            com.workplace.jooq.Tables.ISSUE_ASSIGNEE
+                                .ISSUE_ID
+                                .eq(ISSUE.ID)
+                                .and(
+                                    com.workplace.jooq.Tables.ISSUE_ASSIGNEE.USER_ID.in(
+                                        query.assigneeIds())))));
       }
       if (query.includeUnassigned()) {
-        assigneeCond = assigneeCond.or(ISSUE.ASSIGNEE_ID.isNull());
+        cond =
+            cond.or(
+                org.jooq.impl.DSL.notExists(
+                    dsl.selectOne()
+                        .from(com.workplace.jooq.Tables.ISSUE_ASSIGNEE)
+                        .where(com.workplace.jooq.Tables.ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))));
       }
-      where = where.and(assigneeCond);
+      where = where.and(cond);
     }
     if (query.dueFrom() != null) {
       where = where.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
@@ -248,7 +258,6 @@ public class IssueRepository {
             ISSUE.PRIORITY,
             ISSUE.DUE_DATE,
             ISSUE.REPORTER_ID,
-            ISSUE.ASSIGNEE_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT)
@@ -300,7 +309,6 @@ public class IssueRepository {
             ISSUE.PRIORITY,
             ISSUE.DUE_DATE,
             ISSUE.REPORTER_ID,
-            ISSUE.ASSIGNEE_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT)

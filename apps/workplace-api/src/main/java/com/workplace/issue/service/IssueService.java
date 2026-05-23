@@ -5,7 +5,9 @@ import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
+import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
@@ -13,9 +15,12 @@ import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
+import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashSet;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,14 +36,28 @@ public class IssueService {
   private final IssueHistoryRepository historyRepository;
   private final IssueLabelRepository issueLabelRepository;
   private final IssueAttachmentRepository issueAttachmentRepository;
+  private final IssueAssigneeRepository assigneeRepository;
   private final ProjectIssueSequenceRepository sequenceRepository;
+  private final ProjectMemberRepository memberRepository;
   private final ProjectAccessGuard accessGuard;
   private final IssueHistoryRecorder historyRecorder;
   private final com.workplace.watcher.service.WatcherAutoEnroller watcherAutoEnroller;
 
-  /** 신규 이슈 생성. priority 기본값(MID)을 서비스에서 보정한다. */
+  /**
+   * 신규 이슈 생성. priority 기본값(MID)을 서비스에서 보정. assigneeIds 가 비어있지 않으면 issue_assignee 매핑까지 동시 INSERT.
+   */
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
     var project = accessGuard.assertMember(projectKey, callerId);
+
+    // 1) 담당자 멤버십 검증
+    List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
+    if (!assigneeIds.isEmpty()) {
+      var memberIds = memberRepository.findUserIdsByProject(project.id());
+      if (!new HashSet<>(memberIds).containsAll(assigneeIds)) {
+        throw new InvalidAssigneeForProjectException();
+      }
+    }
+
     int number = sequenceRepository.allocateNext(project.id());
     var row =
         issueRepository.insert(
@@ -48,13 +67,19 @@ public class IssueService {
             req.body(),
             req.priority() != null ? req.priority() : "MID",
             req.dueDate(),
-            callerId,
-            req.assigneeId());
-    // 자동 watcher 등록: reporter + (assignee 가 있고 호출자와 다르면) assignee
-    watcherAutoEnroller.enroll(row.id(), callerId);
-    if (req.assigneeId() != null && !req.assigneeId().equals(callerId)) {
-      watcherAutoEnroller.enroll(row.id(), req.assigneeId());
+            callerId);
+
+    // 2) issue_assignee 매핑 INSERT
+    for (Long uid : assigneeIds) {
+      assigneeRepository.add(row.id(), uid, callerId);
     }
+
+    // 3) watcher 자동 등록: reporter + 각 assignee (caller 와 다를 때만)
+    watcherAutoEnroller.enroll(row.id(), callerId);
+    for (Long uid : assigneeIds) {
+      if (!uid.equals(callerId)) watcherAutoEnroller.enroll(row.id(), uid);
+    }
+
     return IssueResponse.from(project.key(), row);
   }
 
@@ -73,7 +98,7 @@ public class IssueService {
         totalPages);
   }
 
-  /** 이슈 상세 조회 (요약 + 본문 + 코멘트 + 히스토리). */
+  /** 이슈 상세 조회 (요약 + 본문 + 코멘트 + 히스토리 + 담당자). */
   @Transactional(readOnly = true)
   public IssueDetailResponse get(Long callerId, String projectKey, int number) {
     var project = accessGuard.assertMember(projectKey, callerId);
@@ -83,17 +108,19 @@ public class IssueService {
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     var labels = issueLabelRepository.findLabelsByIssue(row.id());
     var attachments = issueAttachmentRepository.findByIssue(row.id());
+    var assignees = assigneeRepository.findByIssue(row.id());
     var comments = commentRepository.findByIssue(row.id());
     var history = historyRepository.findByIssue(row.id());
     return new IssueDetailResponse(
-        IssueResponse.fromWithDetails(project.key(), row, labels, attachments.size()),
+        IssueResponse.fromWithFullDetails(
+            project.key(), row, labels, attachments.size(), assignees),
         row.body(),
         comments,
         history,
         attachments);
   }
 
-  /** 이슈 부분 수정. null 필드는 변경 없음, clear* 플래그로 명시적 NULL 설정을 지원한다. */
+  /** 이슈 부분 수정. null 필드는 변경 없음, clearDueDate 플래그로 명시적 NULL 설정 지원. 담당자는 별도 PUT /assignees 흐름에서 관리. */
   public IssueDetailResponse update(
       Long callerId, String projectKey, int number, UpdateIssueRequest req) {
     var project = accessGuard.assertMember(projectKey, callerId);
@@ -110,10 +137,6 @@ public class IssueService {
         Boolean.TRUE.equals(req.clearDueDate())
             ? null
             : (req.dueDate() != null ? req.dueDate() : before.dueDate());
-    Long newAssignee =
-        Boolean.TRUE.equals(req.clearAssignee())
-            ? null
-            : (req.assigneeId() != null ? req.assigneeId() : before.assigneeId());
 
     // closed_at 전이: 종료 상태로 진입 시 now(), 재오픈 시 NULL, 그 외 유지
     boolean wasClosed = before.status().equals("DONE") || before.status().equals("CANCELED");
@@ -128,14 +151,9 @@ public class IssueService {
     }
 
     issueRepository.updateAll(
-        before.id(), newTitle, newBody, newStatus, newPriority, newDue, newAssignee, newClosedAt);
+        before.id(), newTitle, newBody, newStatus, newPriority, newDue, newClosedAt);
     var after = issueRepository.findById(before.id()).orElseThrow();
     historyRecorder.recordChanges(callerId, before, after);
-
-    // assignee 가 새로운 non-null 값으로 전이된 경우 자동 watcher 등록
-    if (newAssignee != null && !newAssignee.equals(before.assigneeId())) {
-      watcherAutoEnroller.enroll(before.id(), newAssignee);
-    }
 
     return get(callerId, projectKey, number);
   }
@@ -143,7 +161,7 @@ public class IssueService {
   /** DnD 등에서 status 만 변경. update(...) 의 단축 경로 — 히스토리 기록도 동일하게 수행. */
   public IssueDetailResponse updateStatus(
       Long callerId, String projectKey, int number, String newStatus) {
-    var req = new UpdateIssueRequest(null, null, newStatus, null, null, null, false, false);
+    var req = new UpdateIssueRequest(null, null, newStatus, null, null, false);
     return update(callerId, projectKey, number, req);
   }
 

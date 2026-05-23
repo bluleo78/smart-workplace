@@ -18,11 +18,11 @@ export function createIssue(overrides: Partial<IssueResponse> = {}): IssueRespon
     priority: 'MID',
     dueDate: null,
     reporterId: 1,
-    assigneeId: null,
     createdAt: now,
     updatedAt: now,
     labels: [],
     attachmentCount: 0,
+    assignees: [],
     ...overrides,
   };
 }

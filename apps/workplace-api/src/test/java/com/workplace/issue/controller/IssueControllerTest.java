@@ -70,11 +70,11 @@ class IssueControllerTest {
         "MID",
         null,
         1L,
-        null,
         Instant.now(),
         Instant.now(),
         List.of(),
-        0);
+        0,
+        List.of());
   }
 
   private IssueDetailResponse sampleDetail() {
@@ -178,8 +178,7 @@ class IssueControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new UpdateIssueRequest(
-                            null, null, "UNKNOWN", null, null, null, null, null))))
+                        new UpdateIssueRequest(null, null, "UNKNOWN", null, null, null))))
         .andExpect(status().isBadRequest());
   }
 

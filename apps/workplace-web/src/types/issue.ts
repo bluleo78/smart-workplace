@@ -2,6 +2,7 @@
 
 import type { IssueAttachment } from './attachment';
 import type { LabelSummary } from './label';
+import type { UserSummary } from './user';
 
 export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELED';
 export type IssuePriority = 'LOW' | 'MID' | 'HIGH';
@@ -15,13 +16,14 @@ export interface IssueResponse {
   priority: IssuePriority;
   dueDate: string | null;
   reporterId: number;
-  assigneeId: number | null;
   createdAt: string;
   updatedAt: string;
   // 부착된 라벨 — 백엔드가 항상 배열로 내려준다 (없으면 빈 배열).
   labels: LabelSummary[];
   // 이슈에 부착된 첨부 개수 — N+1 회피용 카운트 (목록 카드 표시).
   attachmentCount: number;
+  // 다중 담당자 — Phase 3c. 항상 배열 (없으면 빈 배열).
+  assignees: UserSummary[];
 }
 
 export interface IssueCommentResponse {
@@ -39,6 +41,7 @@ export type IssueHistoryEventType =
   | 'STATUS_CHANGED'
   | 'PRIORITY_CHANGED'
   | 'ASSIGNEE_CHANGED'
+  | 'ASSIGNEES_CHANGED'
   | 'DUE_DATE_CHANGED'
   | 'LABELS_CHANGED'
   | 'ATTACHMENTS_CHANGED';
@@ -67,7 +70,8 @@ export interface CreateIssueRequest {
   body?: string;
   priority?: IssuePriority;
   dueDate?: string;
-  assigneeId?: number | null;
+  // 다중 담당자 — Phase 3c. 생략/빈배열/null 모두 "지정 안함" 의미.
+  assigneeIds?: number[] | null;
 }
 
 export interface UpdateIssueRequest {
@@ -76,8 +80,7 @@ export interface UpdateIssueRequest {
   status?: IssueStatus;
   priority?: IssuePriority;
   dueDate?: string;
-  assigneeId?: number;
-  clearAssignee?: boolean;
+  // dueDate 단독 비우기 플래그 — true 면 dueDate 무시.
   clearDueDate?: boolean;
 }
 

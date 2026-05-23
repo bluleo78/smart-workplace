@@ -75,7 +75,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
   void member_uploads_one_file_records_history() throws IOException {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "AT");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner, null);
+    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
 
     var result =
         service.upload(owner, p.key(), 1, List.of(mockFile("a.txt", new byte[] {1, 2, 3})));
@@ -90,7 +90,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
   void file_exceeds_25mb_throws_400() {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "AT");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner, null);
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
 
     byte[] huge = new byte[26 * 1024 * 1024]; // 26MB
     assertThatThrownBy(() -> service.upload(owner, p.key(), 1, List.of(mockFile("big.bin", huge))))
@@ -101,7 +101,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
   void over_10_per_issue_throws_409() throws IOException {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "AT");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner, null);
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
 
     // 1차로 9개 업로드 → OK
     List<MultipartFile> nine =
@@ -126,7 +126,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     Long owner = createUser("owner");
     Long stranger = createUser("stranger");
     ProjectResponse p = newProject(owner, "AT");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner, null);
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(
             () -> service.upload(stranger, p.key(), 1, List.of(mockFile("a.txt", new byte[] {1}))))
@@ -141,7 +141,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "AT");
     projectService.addMember(owner, p.key(), new AddMemberRequest(memberA, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(memberB, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner, null);
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
 
     // memberA 가 2개 첨부
     var attached =

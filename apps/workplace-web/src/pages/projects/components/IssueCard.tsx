@@ -8,6 +8,7 @@ import { Paperclip } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { LabelChip } from '../../../components/labels/LabelChip';
+import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { IssueResponse } from '../../../types/issue';
 import { IssuePriorityBadge } from './IssuePriorityBadge';
 
@@ -66,7 +67,25 @@ export function IssueCard({
         <IssuePriorityBadge priority={issue.priority} />
       </div>
       <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-        <span>{issue.assigneeId == null ? '미지정' : `#${issue.assigneeId}`}</span>
+        <span
+          className="flex items-center -space-x-1"
+          data-testid={`issue-card-${issue.number}-assignees`}
+        >
+          {issue.assignees.length === 0 ? (
+            <span>미지정</span>
+          ) : (
+            <>
+              {issue.assignees.slice(0, 3).map((u) => (
+                <UserAvatar key={u.id} user={u} size="xs" ring />
+              ))}
+              {issue.assignees.length > 3 && (
+                <span className="text-[10px] text-muted-foreground ml-1">
+                  +{issue.assignees.length - 3}
+                </span>
+              )}
+            </>
+          )}
+        </span>
         <div className="flex items-center gap-2">
           {issue.attachmentCount > 0 && (
             <span

@@ -14,7 +14,6 @@ public record IssueRow(
     String priority,
     LocalDate dueDate,
     Long reporterId,
-    Long assigneeId,
     Instant createdAt,
     Instant updatedAt,
     Instant closedAt) {}

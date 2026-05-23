@@ -113,13 +113,13 @@ class IssueServiceTest extends IntegrationTestBase {
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "IN_PROGRESS", null, null, null, null, null));
+        new UpdateIssueRequest(null, null, "IN_PROGRESS", null, null, null));
     // IN_PROGRESS → DONE
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "DONE", null, null, null, null, null));
+        new UpdateIssueRequest(null, null, "DONE", null, null, null));
 
     var closedAt =
         dsl.select(ISSUE.CLOSED_AT)
@@ -138,13 +138,13 @@ class IssueServiceTest extends IntegrationTestBase {
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "DONE", null, null, null, null, null));
+        new UpdateIssueRequest(null, null, "DONE", null, null, null));
     // DONE → TODO 재오픈
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "TODO", null, null, null, null, null));
+        new UpdateIssueRequest(null, null, "TODO", null, null, null));
 
     var closedAt =
         dsl.select(ISSUE.CLOSED_AT)
@@ -164,7 +164,7 @@ class IssueServiceTest extends IntegrationTestBase {
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest("renamed", null, null, null, null, null, null, null));
+        new UpdateIssueRequest("renamed", null, null, null, null, null));
 
     int historyCount =
         dsl.fetchCount(
@@ -174,27 +174,6 @@ class IssueServiceTest extends IntegrationTestBase {
                 .eq(created.id())
                 .and(ISSUE_HISTORY.EVENT_TYPE.eq("TITLE_CHANGED")));
     assertThat(historyCount).isEqualTo(1);
-  }
-
-  @Test
-  void update_clearAssignee_setsNull() {
-    IssueResponse created =
-        issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, ownerId));
-    assertThat(created.assigneeId()).isEqualTo(ownerId);
-
-    issueService.update(
-        ownerId,
-        projectKey,
-        created.number(),
-        new UpdateIssueRequest(null, null, null, null, null, null, true, null));
-
-    Long assignee =
-        dsl.select(ISSUE.ASSIGNEE_ID)
-            .from(ISSUE)
-            .where(ISSUE.ID.eq(created.id()))
-            .fetchOne(ISSUE.ASSIGNEE_ID);
-    assertThat(assignee).isNull();
   }
 
   @Test
@@ -237,7 +216,7 @@ class IssueServiceTest extends IntegrationTestBase {
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest("renamed", null, null, null, null, null, null, null));
+        new UpdateIssueRequest("renamed", null, null, null, null, null));
     // 코멘트 1개 추가
     dsl.insertInto(ISSUE_COMMENT)
         .set(ISSUE_COMMENT.ISSUE_ID, created.id())

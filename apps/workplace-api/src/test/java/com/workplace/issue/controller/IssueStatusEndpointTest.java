@@ -73,7 +73,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long userId = createUser("m");
     String key = uniqueKey("PM");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    IssueRow issue = issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId, null);
+    IssueRow issue = issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
 
     String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS"));
     mvc.perform(
@@ -92,7 +92,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long userId = createUser("n");
     String key = uniqueKey("PN");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    IssueRow issue = issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId, null);
+    IssueRow issue = issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
 
     String body = om.writeValueAsString(new UpdateStatusRequest("TODO"));
     mvc.perform(
@@ -112,7 +112,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long other = createUser("xx");
     String key = uniqueKey("PO");
     ProjectResponse proj = projectService.create(owner, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, owner, null);
+    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, owner);
 
     String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS"));
     mvc.perform(

@@ -60,7 +60,7 @@ class WatcherServiceTest extends IntegrationTestBase {
   void member_can_watch_and_unwatch_idempotently() {
     Long owner = createUser("w1");
     ProjectResponse p = newProject(owner, "W1");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner, null);
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
 
     watcherService.watch(owner, p.key(), 1);
     watcherService.watch(owner, p.key(), 1); // idempotent
@@ -76,7 +76,7 @@ class WatcherServiceTest extends IntegrationTestBase {
     Long owner = createUser("w2");
     Long other = createUser("x2");
     ProjectResponse p = newProject(owner, "W2");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner, null);
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(() -> watcherService.watch(other, p.key(), 1))
         .isInstanceOf(ProjectAccessDeniedException.class);
@@ -86,7 +86,7 @@ class WatcherServiceTest extends IntegrationTestBase {
   void watched_issues_filters_out_non_member_projects() {
     Long u = createUser("w3");
     ProjectResponse p = newProject(u, "W3");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, u, null);
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, u);
     watcherService.watch(u, p.key(), 1);
 
     assertThat(watcherService.watchedIssues(u, null, 30).items()).hasSize(1);

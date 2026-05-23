@@ -6,7 +6,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.CreateIssueRequest;
-import com.workplace.issue.dto.UpdateIssueRequest;
+import com.workplace.issue.service.IssueAssigneeService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -14,6 +14,7 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.watcher.repository.IssueWatcherRepository;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,7 @@ class WatcherAutoEnrollerTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired IssueService issueService;
+  @Autowired IssueAssigneeService issueAssigneeService;
   @Autowired IssueWatcherRepository watcherRepository;
   @Autowired ProjectService projectService;
   @Autowired ProjectMemberRepository memberRepository;
@@ -78,11 +80,7 @@ class WatcherAutoEnrollerTest extends IntegrationTestBase {
     var issue =
         issueService.create(owner, p.key(), new CreateIssueRequest("t", null, "MID", null, null));
 
-    issueService.update(
-        owner,
-        p.key(),
-        issue.number(),
-        new UpdateIssueRequest(null, null, null, null, null, assignee, false, false));
+    issueAssigneeService.replace(owner, p.key(), issue.number(), List.of(assignee));
 
     var watchers = watcherRepository.findUserIdsByIssue(issue.id());
     assertThat(watchers).contains(assignee);

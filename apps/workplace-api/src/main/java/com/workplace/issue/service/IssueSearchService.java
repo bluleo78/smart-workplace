@@ -5,7 +5,9 @@ import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueSearchResponse;
+import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.InvalidCursorException;
+import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -36,6 +38,7 @@ public class IssueSearchService {
   private final IssueRepository issueRepository;
   private final IssueLabelRepository issueLabelRepository;
   private final IssueAttachmentRepository issueAttachmentRepository;
+  private final IssueAssigneeRepository issueAssigneeRepository;
   private final ProjectAccessGuard accessGuard;
 
   /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, cursor, size. */
@@ -49,15 +52,19 @@ public class IssueSearchService {
         issueLabelRepository.findLabelsByIssueIds(issueIds);
     // 첨부 카운트 N+1 회피: 단일 IN 쿼리로 일괄 집계.
     Map<Long, Integer> countsByIssue = issueAttachmentRepository.countByIssueIds(issueIds);
+    // 담당자 N+1 회피: issueIds 일괄 조회 후 in-memory 그룹핑.
+    Map<Long, List<UserSummary>> assigneesByIssue =
+        issueAssigneeRepository.findByIssueIds(issueIds);
     var items =
         rows.stream()
             .map(
                 r ->
-                    IssueResponse.fromWithDetails(
+                    IssueResponse.fromWithFullDetails(
                         project.key(),
                         r,
                         labelsByIssue.getOrDefault(r.id(), List.of()),
-                        countsByIssue.getOrDefault(r.id(), 0)))
+                        countsByIssue.getOrDefault(r.id(), 0),
+                        assigneesByIssue.getOrDefault(r.id(), List.of())))
             .toList();
 
     String nextCursor = null;

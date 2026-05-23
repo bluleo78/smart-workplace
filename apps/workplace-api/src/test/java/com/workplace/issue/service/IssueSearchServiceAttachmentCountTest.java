@@ -73,8 +73,8 @@ class IssueSearchServiceAttachmentCountTest extends IntegrationTestBase {
     Long owner = createUser("o");
     ProjectResponse p =
         projectService.create(owner, new CreateProjectRequest(uniqueKey("AC"), "P", "x"));
-    IssueRow i1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner, null);
-    IssueRow i2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner, null);
+    IssueRow i1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner);
+    IssueRow i2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner);
 
     // i1 에 첨부 3개
     for (int i = 0; i < 3; i++) {

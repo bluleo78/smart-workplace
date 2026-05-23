@@ -117,6 +117,14 @@ public class ProjectMemberRepository {
         .fetchOne(0, Long.class);
   }
 
+  /** 프로젝트 멤버의 user_id 목록. 담당자 멤버십 검증 등에서 IN 셋 비교에 사용. */
+  public List<Long> findUserIdsByProject(Long projectId) {
+    return dsl.select(PROJECT_MEMBER.USER_ID)
+        .from(PROJECT_MEMBER)
+        .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId))
+        .fetch(PROJECT_MEMBER.USER_ID);
+  }
+
   /** 사용자의 프로젝트 멤버 여부. */
   public boolean isMember(Long projectId, Long userId) {
     return dsl.fetchExists(

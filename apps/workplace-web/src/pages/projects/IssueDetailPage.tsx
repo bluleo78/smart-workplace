@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 
 import { LabelChip } from '../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../components/labels/LabelPickerPopover';
+import { UserAvatar } from '../../components/users/UserAvatar';
 import { useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
@@ -15,6 +16,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 
+import { AssigneePickerPopover } from './components/AssigneePickerPopover';
 import { IssueActivityTimeline } from './components/IssueActivityTimeline';
 import { IssueAttachmentDropzone } from './components/IssueAttachmentDropzone';
 import { IssueAttachmentList } from './components/IssueAttachmentList';
@@ -119,6 +121,32 @@ export default function IssueDetailPage() {
             })}
           />
         </div>
+        <section aria-label="담당자" className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">담당자</span>
+            <AssigneePickerPopover
+              projectKey={key}
+              issueNumber={issueNumber}
+              current={summary.assignees}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2" data-testid="issue-assignees">
+            {summary.assignees.length === 0 ? (
+              <span className="text-xs text-muted-foreground">미지정</span>
+            ) : (
+              summary.assignees.map((u) => (
+                <span
+                  key={u.id}
+                  className="inline-flex items-center gap-1 text-sm"
+                  data-testid={`issue-assignee-${u.id}`}
+                >
+                  <UserAvatar user={u} size="sm" />
+                  <span>{u.name}</span>
+                </span>
+              ))
+            )}
+          </div>
+        </section>
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">라벨</span>

@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.label.dto.LabelSummary;
 import java.util.List;
@@ -19,7 +20,9 @@ public class IssueHistoryRecorder {
   private final IssueHistoryRepository historyRepository;
   private final ObjectMapper objectMapper;
 
-  /** before/after 의 주요 필드 비교 후 변경 항목별로 history row 삽입. */
+  /**
+   * before/after 의 주요 필드 비교 후 변경 항목별로 history row 삽입. 담당자는 별도 PUT 흐름에서 ASSIGNEES_CHANGED 로 기록된다.
+   */
   public void recordChanges(Long actorId, IssueRow before, IssueRow after) {
     if (!Objects.equals(before.title(), after.title())) {
       historyRepository.insert(
@@ -32,14 +35,6 @@ public class IssueHistoryRecorder {
     if (!Objects.equals(before.priority(), after.priority())) {
       historyRepository.insert(
           before.id(), actorId, "PRIORITY_CHANGED", before.priority(), after.priority());
-    }
-    if (!Objects.equals(before.assigneeId(), after.assigneeId())) {
-      historyRepository.insert(
-          before.id(),
-          actorId,
-          "ASSIGNEE_CHANGED",
-          stringify(before.assigneeId()),
-          stringify(after.assigneeId()));
     }
     if (!Objects.equals(before.dueDate(), after.dueDate())) {
       historyRepository.insert(
@@ -108,6 +103,30 @@ public class IssueHistoryRecorder {
       payload = "{}";
     }
     historyRepository.insert(issueId, actorId, "ATTACHMENTS_CHANGED", null, payload);
+  }
+
+  /**
+   * 담당자 집합 교체를 한 건의 history 로 기록한다. diff 0 이면 no-op. payload JSON 은 toValue 필드에 저장한다 (fromValue 는
+   * null). 라벨/첨부와 동일한 패턴.
+   */
+  public void recordAssigneesChanged(
+      Long actorId, Long issueId, List<UserSummary> added, List<UserSummary> removed) {
+    boolean noAdd = added == null || added.isEmpty();
+    boolean noRem = removed == null || removed.isEmpty();
+    if (noAdd && noRem) {
+      return;
+    }
+    String payload;
+    try {
+      payload =
+          objectMapper.writeValueAsString(
+              Map.of(
+                  "added", added == null ? List.of() : added,
+                  "removed", removed == null ? List.of() : removed));
+    } catch (Exception e) {
+      payload = "{}";
+    }
+    historyRepository.insert(issueId, actorId, "ASSIGNEES_CHANGED", null, payload);
   }
 
   /** 객체 → 문자열 (null 보존). */
