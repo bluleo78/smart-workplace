@@ -41,7 +41,9 @@ export function IssueListView({
     return <p className="text-muted-foreground py-4">로딩 중…</p>;
   }
 
-  const items = data?.pages.flatMap((p) => p.items) ?? [];
+  // 응답 모양이 예상과 다르면(p.items 누락 등) flatMap 이 [undefined] 를 만들 수 있어 필터링.
+  const items =
+    data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [];
   if (items.length === 0) {
     return (
       <p className="text-muted-foreground py-8 text-center">

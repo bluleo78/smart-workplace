@@ -3,8 +3,11 @@
 // 첫 페이지가 가득 차면 자동으로 두번째 페이지까지 prefetch.
 
 import {
+  closestCorners,
   DndContext,
   type DragEndEvent,
+  DragOverlay,
+  type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
   useDroppable,
@@ -16,7 +19,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
@@ -52,8 +55,10 @@ export function IssueBoardView({
     }
   }, [data, hasNextPage, isFetching, fetchNextPage]);
 
+  // 응답 모양이 예상과 다른 경우(p.items 누락) flatMap 이 [undefined] 를 만들지 못하게 방어.
   const allIssues: IssueResponse[] = useMemo(
-    () => data?.pages.flatMap((p) => p.items) ?? [],
+    () =>
+      data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [],
     [data],
   );
 
@@ -76,13 +81,24 @@ export function IssueBoardView({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  // DragOverlay 로 띄울 활성 카드. 드래그 중 원본은 반투명 placeholder, overlay 가 포인터를 따라간다.
+  const [activeIssue, setActiveIssue] = useState<IssueResponse | null>(null);
+
+  function handleDragStart(e: DragStartEvent) {
+    const id = e.active.id;
+    const found = allIssues.find((i) => `issue-${i.id}` === id);
+    setActiveIssue(found ?? null);
+  }
+
   function handleDragEnd(e: DragEndEvent) {
+    setActiveIssue(null);
     const { active, over } = e;
     if (!over) return;
     const sourceStatus = active.data.current?.status as string | undefined;
-    // drop 대상이 카드면 active 의 status, 빈 컬럼이면 droppable id 에서 추출.
+    // drop 대상이 카드면 카드의 status, 컬럼이면 droppable id 에서 추출.
+    const overStatus = over.data.current?.status as string | undefined;
     const targetStatus =
-      (over.data.current?.status as string | undefined) ??
+      overStatus ??
       (typeof over.id === 'string' && over.id.startsWith('col-')
         ? over.id.replace('col-', '')
         : undefined);
@@ -93,7 +109,13 @@ export function IssueBoardView({
   }
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveIssue(null)}
+    >
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {COLUMNS.map((col) => (
           <BoardColumn
@@ -110,6 +132,16 @@ export function IssueBoardView({
           더 많은 결과가 있습니다 — 필터로 좁혀주세요.
         </p>
       )}
+      {/* DragOverlay — 컬럼 경계를 넘어도 ghost 가 포인터를 그대로 따라간다. */}
+      <DragOverlay dropAnimation={null}>
+        {activeIssue ? (
+          <IssueCard
+            projectKey={projectKey}
+            issue={activeIssue}
+            asOverlay
+          />
+        ) : null}
+      </DragOverlay>
     </DndContext>
   );
 }

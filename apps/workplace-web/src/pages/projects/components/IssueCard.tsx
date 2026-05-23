@@ -12,32 +12,42 @@ import { IssuePriorityBadge } from './IssuePriorityBadge';
 export function IssueCard({
   projectKey,
   issue,
+  asOverlay = false,
 }: {
   projectKey: string;
   issue: IssueResponse;
+  // DragOverlay 안에서 렌더될 때는 sortable 훅을 쓰지 않고 정적으로 그린다.
+  asOverlay?: boolean;
 }) {
+  const sortable = useSortable({
+    id: `issue-${issue.id}`,
+    data: { issueNumber: issue.number, status: issue.status },
+    disabled: asOverlay,
+  });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({
-      id: `issue-${issue.id}`,
-      data: { issueNumber: issue.number, status: issue.status },
-    });
+    sortable;
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
+  // 드래그 중 원본은 placeholder 만 남기고 visible 한 카드는 DragOverlay 가 그린다.
+  const style = asOverlay
+    ? { cursor: 'grabbing' as const }
+    : {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+      };
 
   // identifier 는 백엔드가 별도로 내려주지 않으므로 클라이언트에서 합성한다.
   const identifier = `${projectKey}-${issue.number}`;
 
   return (
     <div
-      ref={setNodeRef}
+      ref={asOverlay ? undefined : setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
-      className="rounded-md border bg-card p-3 text-sm shadow-sm cursor-grab active:cursor-grabbing"
+      {...(asOverlay ? {} : attributes)}
+      {...(asOverlay ? {} : listeners)}
+      className={`rounded-md border bg-card p-3 text-sm shadow-sm ${
+        asOverlay ? 'shadow-xl ring-2 ring-primary/40' : 'cursor-grab active:cursor-grabbing'
+      }`}
       data-testid={`issue-card-${issue.number}`}
     >
       <div className="flex items-center justify-between gap-2">
