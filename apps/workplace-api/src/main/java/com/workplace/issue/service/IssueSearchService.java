@@ -6,6 +6,7 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.exception.InvalidCursorException;
+import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.label.dto.LabelSummary;
@@ -34,6 +35,7 @@ public class IssueSearchService {
 
   private final IssueRepository issueRepository;
   private final IssueLabelRepository issueLabelRepository;
+  private final IssueAttachmentRepository issueAttachmentRepository;
   private final ProjectAccessGuard accessGuard;
 
   /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, cursor, size. */
@@ -45,12 +47,17 @@ public class IssueSearchService {
     List<Long> issueIds = rows.stream().map(IssueRow::id).toList();
     Map<Long, List<LabelSummary>> labelsByIssue =
         issueLabelRepository.findLabelsByIssueIds(issueIds);
+    // 첨부 카운트 N+1 회피: 단일 IN 쿼리로 일괄 집계.
+    Map<Long, Integer> countsByIssue = issueAttachmentRepository.countByIssueIds(issueIds);
     var items =
         rows.stream()
             .map(
                 r ->
-                    IssueResponse.fromWithLabels(
-                        project.key(), r, labelsByIssue.getOrDefault(r.id(), List.of())))
+                    IssueResponse.fromWithDetails(
+                        project.key(),
+                        r,
+                        labelsByIssue.getOrDefault(r.id(), List.of()),
+                        countsByIssue.getOrDefault(r.id(), 0)))
             .toList();
 
     String nextCursor = null;

@@ -71,5 +71,8 @@ playwright-report/
 db-data/
 db-test-data/
 
+# File uploads (runtime/storage)
+**/uploads/
+
 # Git worktrees (로컬 전용)
 .worktrees/

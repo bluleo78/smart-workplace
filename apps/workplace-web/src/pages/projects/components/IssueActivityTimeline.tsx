@@ -10,6 +10,7 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   ASSIGNEE_CHANGED: '담당자 변경',
   DUE_DATE_CHANGED: '마감일 변경',
   LABELS_CHANGED: '라벨 변경',
+  ATTACHMENTS_CHANGED: '첨부 변경',
 };
 
 // LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.
@@ -23,6 +24,26 @@ function formatLabelsChanged(toValue: string | null): string {
     };
     const added = (parsed.added ?? []).map((l) => l.name ?? '').filter(Boolean);
     const removed = (parsed.removed ?? []).map((l) => l.name ?? '').filter(Boolean);
+    const parts: string[] = [];
+    if (added.length) parts.push(`+ ${added.join(', ')}`);
+    if (removed.length) parts.push(`- ${removed.join(', ')}`);
+    return parts.length ? parts.join(' / ') : '변경 없음';
+  } catch {
+    return toValue;
+  }
+}
+
+// ATTACHMENTS_CHANGED 페이로드는 toValue 에 {added:[{fileId,originalName}], removed:[{fileId,originalName}]} JSON.
+// 라벨과 동일 패턴으로 파싱해 +/- 로 표시. 파싱 실패 시 안전한 기본 문구로 폴백.
+function formatAttachmentsChanged(toValue: string | null): string {
+  if (!toValue) return '첨부 변경';
+  try {
+    const parsed = JSON.parse(toValue) as {
+      added?: { originalName?: string }[];
+      removed?: { originalName?: string }[];
+    };
+    const added = (parsed.added ?? []).map((x) => x.originalName ?? '').filter(Boolean);
+    const removed = (parsed.removed ?? []).map((x) => x.originalName ?? '').filter(Boolean);
     const parts: string[] = [];
     if (added.length) parts.push(`+ ${added.join(', ')}`);
     if (removed.length) parts.push(`- ${removed.join(', ')}`);
@@ -48,6 +69,8 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
             <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}
             {e.eventType === 'LABELS_CHANGED' ? (
               <span>{formatLabelsChanged(e.toValue)}</span>
+            ) : e.eventType === 'ATTACHMENTS_CHANGED' ? (
+              <span>{formatAttachmentsChanged(e.toValue)}</span>
             ) : (
               <span>
                 {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}

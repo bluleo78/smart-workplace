@@ -22,6 +22,7 @@ export function createIssue(overrides: Partial<IssueResponse> = {}): IssueRespon
     createdAt: now,
     updatedAt: now,
     labels: [],
+    attachmentCount: 0,
     ...overrides,
   };
 }
@@ -70,6 +71,7 @@ export function createIssueDetail(overrides: Partial<IssueDetailResponse> = {}):
     body: '본문',
     comments: [],
     history: [],
+    attachments: [],
     ...overrides,
   };
 }

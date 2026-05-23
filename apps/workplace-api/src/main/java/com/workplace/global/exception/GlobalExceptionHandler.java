@@ -6,6 +6,9 @@ import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.issue.exception.AttachmentLimitExceededException;
+import com.workplace.issue.exception.AttachmentNotFoundException;
+import com.workplace.issue.exception.AttachmentTooLargeException;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.InvalidIssueOperationException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
@@ -336,6 +339,30 @@ public class GlobalExceptionHandler {
       InvalidLabelForProjectException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 이슈 첨부 매핑 또는 file row 미존재 — 404. */
+  @ExceptionHandler(AttachmentNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleAttachmentNotFound(
+      AttachmentNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 첨부 파일 사이즈 한도 초과 — 400. */
+  @ExceptionHandler(AttachmentTooLargeException.class)
+  public ResponseEntity<ErrorResponse> handleAttachmentTooLarge(
+      AttachmentTooLargeException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 이슈당 첨부 개수 한도 초과 — 409. */
+  @ExceptionHandler(AttachmentLimitExceededException.class)
+  public ResponseEntity<ErrorResponse> handleAttachmentLimit(
+      AttachmentLimitExceededException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
   }
 
   @ExceptionHandler(Exception.class)

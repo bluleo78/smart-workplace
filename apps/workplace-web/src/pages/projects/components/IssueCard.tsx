@@ -4,6 +4,7 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { Paperclip } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { LabelChip } from '../../../components/labels/LabelChip';
@@ -66,7 +67,19 @@ export function IssueCard({
       </div>
       <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
         <span>{issue.assigneeId == null ? '미지정' : `#${issue.assigneeId}`}</span>
-        {issue.dueDate && <span>~{issue.dueDate}</span>}
+        <div className="flex items-center gap-2">
+          {issue.attachmentCount > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5"
+              aria-label={`첨부 ${issue.attachmentCount}개`}
+              data-testid={`issue-card-${issue.number}-attachment-count`}
+            >
+              <Paperclip className="h-3 w-3" />
+              {issue.attachmentCount}
+            </span>
+          )}
+          {issue.dueDate && <span>~{issue.dueDate}</span>}
+        </div>
       </div>
       {issue.labels.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">

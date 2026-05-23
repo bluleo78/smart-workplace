@@ -1,5 +1,6 @@
 // 이슈/댓글/이력 관련 타입 — 백엔드 DTO 와 1:1 매칭.
 
+import type { IssueAttachment } from './attachment';
 import type { LabelSummary } from './label';
 
 export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELED';
@@ -19,6 +20,8 @@ export interface IssueResponse {
   updatedAt: string;
   // 부착된 라벨 — 백엔드가 항상 배열로 내려준다 (없으면 빈 배열).
   labels: LabelSummary[];
+  // 이슈에 부착된 첨부 개수 — N+1 회피용 카운트 (목록 카드 표시).
+  attachmentCount: number;
 }
 
 export interface IssueCommentResponse {
@@ -37,7 +40,8 @@ export type IssueHistoryEventType =
   | 'PRIORITY_CHANGED'
   | 'ASSIGNEE_CHANGED'
   | 'DUE_DATE_CHANGED'
-  | 'LABELS_CHANGED';
+  | 'LABELS_CHANGED'
+  | 'ATTACHMENTS_CHANGED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -54,6 +58,8 @@ export interface IssueDetailResponse {
   body: string | null;
   comments: IssueCommentResponse[];
   history: IssueHistoryEntry[];
+  // 이슈에 부착된 첨부 목록 — 상세 진입 시 함께 응답.
+  attachments: IssueAttachment[];
 }
 
 export interface CreateIssueRequest {

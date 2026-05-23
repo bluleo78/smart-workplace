@@ -6,6 +6,7 @@ import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
@@ -29,6 +30,7 @@ public class IssueService {
   private final IssueCommentRepository commentRepository;
   private final IssueHistoryRepository historyRepository;
   private final IssueLabelRepository issueLabelRepository;
+  private final IssueAttachmentRepository issueAttachmentRepository;
   private final ProjectIssueSequenceRepository sequenceRepository;
   private final ProjectAccessGuard accessGuard;
   private final IssueHistoryRecorder historyRecorder;
@@ -80,10 +82,15 @@ public class IssueService {
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     var labels = issueLabelRepository.findLabelsByIssue(row.id());
+    var attachments = issueAttachmentRepository.findByIssue(row.id());
     var comments = commentRepository.findByIssue(row.id());
     var history = historyRepository.findByIssue(row.id());
     return new IssueDetailResponse(
-        IssueResponse.fromWithLabels(project.key(), row, labels), row.body(), comments, history);
+        IssueResponse.fromWithDetails(project.key(), row, labels, attachments.size()),
+        row.body(),
+        comments,
+        history,
+        attachments);
   }
 
   /** 이슈 부분 수정. null 필드는 변경 없음, clear* 플래그로 명시적 NULL 설정을 지원한다. */

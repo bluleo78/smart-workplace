@@ -7,6 +7,18 @@ spring:
     baseline-version: 1
   jooq:
     sql-dialect: postgres
+  servlet:
+    multipart:
+      # 이슈 첨부 25MB × 최대 10개. 단일 파일 25MB, 요청 전체 275MB.
+      max-file-size: 25MB
+      max-request-size: 275MB
+
+# 이슈 첨부 전용 설정 (file 모듈의 firehub.file.* 와는 별도 키 — 우회 흐름).
+workplace:
+  attachment:
+    upload-dir: ./uploads/attachments
+    max-file-size-bytes: 26214400      # 25MB
+    max-per-issue: 10
 
 app:
   jwt:

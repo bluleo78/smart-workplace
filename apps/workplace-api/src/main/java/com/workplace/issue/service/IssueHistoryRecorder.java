@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.label.dto.LabelSummary;
@@ -70,6 +71,43 @@ public class IssueHistoryRecorder {
       payload = "{}";
     }
     historyRepository.insert(issueId, actorId, "LABELS_CHANGED", null, payload);
+  }
+
+  /**
+   * 이슈 첨부 추가/제거를 한 건의 history 로 기록한다. added/removed 모두 비면 no-op. payload JSON 은 toValue 에 저장
+   * ({@code LABELS_CHANGED} 와 동일한 패턴).
+   */
+  public void recordAttachmentsChanged(
+      Long actorId,
+      Long issueId,
+      List<IssueAttachmentResponse> added,
+      List<IssueAttachmentResponse> removed) {
+    boolean noAdd = added == null || added.isEmpty();
+    boolean noRem = removed == null || removed.isEmpty();
+    if (noAdd && noRem) {
+      return;
+    }
+    String payload;
+    try {
+      payload =
+          objectMapper.writeValueAsString(
+              Map.of(
+                  "added",
+                  added == null
+                      ? List.of()
+                      : added.stream()
+                          .map(a -> Map.of("fileId", a.fileId(), "originalName", a.originalName()))
+                          .toList(),
+                  "removed",
+                  removed == null
+                      ? List.of()
+                      : removed.stream()
+                          .map(a -> Map.of("fileId", a.fileId(), "originalName", a.originalName()))
+                          .toList()));
+    } catch (Exception e) {
+      payload = "{}";
+    }
+    historyRepository.insert(issueId, actorId, "ATTACHMENTS_CHANGED", null, payload);
   }
 
   /** 객체 → 문자열 (null 보존). */

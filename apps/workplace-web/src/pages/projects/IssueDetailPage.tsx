@@ -9,12 +9,15 @@ import { Button } from '@/components/ui/button';
 import { LabelChip } from '../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../components/labels/LabelPickerPopover';
 import { useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
+import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 
 import { IssueActivityTimeline } from './components/IssueActivityTimeline';
+import { IssueAttachmentDropzone } from './components/IssueAttachmentDropzone';
+import { IssueAttachmentList } from './components/IssueAttachmentList';
 import { IssueCommentList } from './components/IssueCommentList';
 import { IssuePrioritySelect } from './components/IssuePrioritySelect';
 import { IssueStatusSelect } from './components/IssueStatusSelect';
@@ -29,6 +32,10 @@ export default function IssueDetailPage() {
   const watchers = useWatchers(key, issueNumber);
   const toggleWatch = useWatchToggle(key, issueNumber, user?.id ?? null);
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
+  // 첨부 삭제 권한 UI 토글용 — 첨부자 또는 OWNER. 백엔드 가드가 최종 검증.
+  const members = useProjectMembers(key);
+  const isOwner =
+    members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
 
   if (isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
   if (!data) return <p className="container mx-auto p-6 text-destructive">태스크를 찾을 수 없습니다</p>;
@@ -130,6 +137,26 @@ export default function IssueDetailPage() {
             )}
           </div>
         </div>
+        <section aria-label="첨부" className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">첨부</span>
+            <span className="text-xs text-muted-foreground">
+              {summary.attachmentCount}/10
+            </span>
+          </div>
+          <IssueAttachmentDropzone
+            projectKey={key}
+            number={issueNumber}
+            currentCount={summary.attachmentCount}
+            disabled={summary.attachmentCount >= 10}
+          />
+          <IssueAttachmentList
+            projectKey={key}
+            number={issueNumber}
+            currentUserId={user?.id ?? null}
+            isOwner={isOwner}
+          />
+        </section>
         <div>
           <h3 className="text-sm font-semibold mb-2">활동</h3>
           <IssueActivityTimeline entries={history} />
