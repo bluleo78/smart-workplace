@@ -11,12 +11,13 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커. 향후 chat / wiki / driv
 
 ## Key Files
 
-- 앱별 상세 (예정): `apps/workplace-api/CLAUDE.md`, `apps/workplace-web/CLAUDE.md`
+- 앱별 상세: `apps/workplace-api/CLAUDE.md`, `apps/workplace-web/CLAUDE.md`, `apps/workplace-ai-agent/CLAUDE.md`
 - 커밋 컨벤션: [docs/COMMIT_CONVENTION.md](docs/COMMIT_CONVENTION.md)
 - 코딩 컨벤션: [docs/CODING_CONVENTION.md](docs/CODING_CONVENTION.md)
 - 로컬 DB: 포트 5434(dev), 5435(test). 컨테이너 `smart-workplace-db-1`, `smart-workplace-db-test-1`
 - 로컬 API: 포트 9090 (firehub-api 8090 과 분리)
 - 로컬 Web: 포트 6173 (firehub-web 5173 과 분리)
+- 로컬 AI Agent: 포트 7070
 
 ## Rules
 
@@ -32,7 +33,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커. 향후 chat / wiki / driv
   - core: identity / thread / search / file / notify / ai
   - domain: issue (v1) → chat / wiki / drive (v2+)
 - **프론트엔드**: Vite + React 19 + TS + Tailwind 4 + shadcn/ui
-- **별도 서비스**: workplace-channel (실시간), workplace-ai-agent (Claude Agent SDK) — 향후 추가
+- **별도 서비스**: workplace-ai-agent (Claude Agent SDK, 스캐폴딩 완료 — 5b/5c 에서 로직 채움), workplace-channel (실시간, 향후 추가)
 
 ## Conventions
 
