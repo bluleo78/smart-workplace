@@ -14,6 +14,8 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   ATTACHMENTS_CHANGED: '첨부 변경',
   TYPE_CHANGED: '유형 변경',
   PARENT_CHANGED: '부모 변경',
+  DEPENDENCY_ADDED: '의존성 추가',
+  DEPENDENCY_REMOVED: '의존성 제거',
 };
 
 // LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.
@@ -111,6 +113,28 @@ function formatTypeChanged(toValue: string | null): string {
   }
 }
 
+// DEPENDENCY_ADDED/REMOVED 페이로드는 toValue 에
+// {other:{number,title}, direction:"blocks"|"blockedBy"} JSON 으로 들어온다.
+// direction 토큰을 한국어 보조 텍스트로 변환해 출력.
+function formatDependencyChanged(
+  toValue: string | null,
+  eventType: 'DEPENDENCY_ADDED' | 'DEPENDENCY_REMOVED',
+): string {
+  const verb = eventType === 'DEPENDENCY_ADDED' ? '추가' : '제거';
+  if (!toValue) return verb;
+  try {
+    const p = JSON.parse(toValue) as {
+      other?: { number: number; title: string };
+      direction?: string;
+    };
+    const dirLabel = p.direction === 'blockedBy' ? '차단됨' : '차단 중';
+    const otherText = p.other?.title ?? `#${p.other?.number ?? ''}`;
+    return `${otherText} (${dirLabel}) ${verb}`;
+  } catch {
+    return toValue;
+  }
+}
+
 // 이력 항목을 시간순으로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
 export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[] }) {
   if (entries.length === 0) {
@@ -135,6 +159,10 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
               <span>{formatTypeChanged(e.toValue)}</span>
             ) : e.eventType === 'PARENT_CHANGED' ? (
               <span>{formatParentChanged(e.toValue)}</span>
+            ) : e.eventType === 'DEPENDENCY_ADDED' ? (
+              <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_ADDED')}</span>
+            ) : e.eventType === 'DEPENDENCY_REMOVED' ? (
+              <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_REMOVED')}</span>
             ) : (
               <span>
                 {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}

@@ -173,6 +173,44 @@ public class IssueHistoryRecorder {
     historyRepository.insert(issueId, actorId, "PARENT_CHANGED", null, payload);
   }
 
+  /**
+   * 의존성 추가 한 건 기록 (Phase 4b). direction = "blocks" | "blockedBy" — 화살표 방향은 호출자가 결정. payload toValue
+   * JSON = {other: {number, title}, direction}.
+   */
+  public void recordDependencyAdded(
+      Long actorId, Long issueId, int otherNumber, String otherTitle, String direction) {
+    writeDependency(actorId, issueId, otherNumber, otherTitle, direction, "DEPENDENCY_ADDED");
+  }
+
+  /** 의존성 제거 한 건 기록 (Phase 4b). 0건 삭제 시 호출 안 됨 — 서비스에서 사전 가드. */
+  public void recordDependencyRemoved(
+      Long actorId, Long issueId, int otherNumber, String otherTitle, String direction) {
+    writeDependency(actorId, issueId, otherNumber, otherTitle, direction, "DEPENDENCY_REMOVED");
+  }
+
+  /** 의존성 add/remove 공통 payload 직렬화 + insert. eventType 만 분기. */
+  private void writeDependency(
+      Long actorId,
+      Long issueId,
+      int otherNumber,
+      String otherTitle,
+      String direction,
+      String eventType) {
+    String payload;
+    try {
+      payload =
+          objectMapper.writeValueAsString(
+              Map.of(
+                  "other",
+                  Map.of("number", otherNumber, "title", otherTitle),
+                  "direction",
+                  direction));
+    } catch (Exception e) {
+      payload = "{}";
+    }
+    historyRepository.insert(issueId, actorId, eventType, null, payload);
+  }
+
   /** 객체 → 문자열 (null 보존). */
   private static String stringify(Object v) {
     return v == null ? null : v.toString();

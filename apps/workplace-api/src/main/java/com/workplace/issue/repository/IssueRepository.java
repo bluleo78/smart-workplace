@@ -343,6 +343,23 @@ public class IssueRepository {
     } else if (Boolean.TRUE.equals(query.topLevel())) {
       where = where.and(ISSUE.PARENT_ISSUE_ID.isNull());
     }
+    // Phase 4b — blocked=true: 활성 차단자(미완료, 미삭제)가 존재하는 이슈만. 자기참조 회피를 위해 blocker self-alias 사용.
+    if (Boolean.TRUE.equals(query.blocked())) {
+      var blockerAlias = ISSUE.as("blocker");
+      where =
+          where.and(
+              org.jooq.impl.DSL.exists(
+                  dsl.selectOne()
+                      .from(com.workplace.jooq.Tables.ISSUE_DEPENDENCY)
+                      .join(blockerAlias)
+                      .on(blockerAlias.ID.eq(com.workplace.jooq.Tables.ISSUE_DEPENDENCY.ISSUE_ID))
+                      .where(
+                          com.workplace.jooq.Tables.ISSUE_DEPENDENCY
+                              .BLOCKS_ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(blockerAlias.STATUS.notIn("DONE", "CANCELED"))
+                              .and(blockerAlias.DELETED_AT.isNull()))));
+    }
     if (query.cursor() != null) {
       var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = query.cursor().id();

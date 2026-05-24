@@ -32,6 +32,8 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const parentNum = parentRaw == null ? NaN : Number(parentRaw);
   const parentNumber = Number.isFinite(parentNum) && parentNum > 0 ? parentNum : null;
   const topLevel = params.get('topLevel') === 'true';
+  // Phase 4b — blocked 도 'true' 만 통과. UI 노출은 deferred.
+  const blocked = params.get('blocked') === 'true';
   return {
     q: params.get('q') ?? '',
     statuses: csv(params.get('status')).filter((s) =>
@@ -48,6 +50,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     typeIds,
     parentNumber,
     topLevel,
+    blocked,
   };
 }
 
@@ -73,6 +76,8 @@ export function filtersToParams(f: IssueFilters, view: IssueView): URLSearchPara
   // Phase 4a — parent / topLevel 직렬화. UI 노출은 deferred.
   if (f.parentNumber != null && f.parentNumber > 0) p.set('parent', String(f.parentNumber));
   if (f.topLevel) p.set('topLevel', 'true');
+  // Phase 4b — blocked 직렬화. UI 노출은 deferred.
+  if (f.blocked) p.set('blocked', 'true');
   return p;
 }
 

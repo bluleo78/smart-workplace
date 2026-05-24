@@ -51,11 +51,22 @@ export function IssueCard({
       style={style}
       {...(asOverlay ? {} : attributes)}
       {...(asOverlay ? {} : listeners)}
-      className={`rounded-md border bg-card p-3 text-sm shadow-sm ${
+      className={`relative rounded-md border bg-card p-3 text-sm shadow-sm ${
         asOverlay ? 'shadow-xl ring-2 ring-primary/40' : 'cursor-grab active:cursor-grabbing'
       }`}
       data-testid={`issue-card-${issue.number}`}
     >
+      {/* Phase 4b — 차단된 이슈에 ⛔ 우상단 마커. */}
+      {issue.blocked && (
+        <span
+          className="absolute right-2 top-2 text-destructive text-sm"
+          data-testid={`issue-card-${issue.number}-blocked`}
+          aria-label="차단됨"
+          title="차단됨"
+        >
+          ⛔
+        </span>
+      )}
       <div className="flex items-center justify-between gap-2">
         <Link
           to={`/projects/${projectKey}/issues/${issue.number}`}

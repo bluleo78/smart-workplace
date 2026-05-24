@@ -13,5 +13,8 @@ public enum IssueHistoryEventType {
   ATTACHMENTS_CHANGED,
   TYPE_CHANGED,
   // 부모(SUBTASK) 변경/해제 — Phase 4a.
-  PARENT_CHANGED
+  PARENT_CHANGED,
+  // 의존성 추가/제거 — Phase 4b.
+  DEPENDENCY_ADDED,
+  DEPENDENCY_REMOVED
 }

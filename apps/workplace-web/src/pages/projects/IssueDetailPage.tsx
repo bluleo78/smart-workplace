@@ -25,6 +25,7 @@ import { IssueAttachmentDropzone } from './components/IssueAttachmentDropzone';
 import { IssueAttachmentList } from './components/IssueAttachmentList';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
 import { IssueCommentList } from './components/IssueCommentList';
+import { IssueDependenciesSection } from './components/IssueDependenciesSection';
 import { IssueParentSlot } from './components/IssueParentSlot';
 import { IssuePrioritySelect } from './components/IssuePrioritySelect';
 import { IssueStatusSelect } from './components/IssueStatusSelect';
@@ -91,6 +92,15 @@ export default function IssueDetailPage() {
               />
             )}
             <h1 className="text-2xl font-semibold">{summary.title}</h1>
+            {/* Phase 4b — blockedBy 중 미완료 존재 시 헤더에 차단됨 배지 노출. */}
+            {summary.blocked && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-destructive/15 text-destructive text-xs"
+                data-testid="issue-blocked-badge"
+              >
+                ⛔ 차단됨
+              </span>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -241,6 +251,13 @@ export default function IssueDetailPage() {
             isOwner={isOwner}
           />
         </section>
+        {/* Phase 4b — 의존성 두 슬롯(차단됨/차단 중) + Picker. */}
+        <IssueDependenciesSection
+          projectKey={key}
+          issueNumber={issueNumber}
+          blockedBy={summary.blockedBy}
+          blocks={summary.blocks}
+        />
         <div>
           <h3 className="text-sm font-semibold mb-2">활동</h3>
           <IssueActivityTimeline entries={history} />

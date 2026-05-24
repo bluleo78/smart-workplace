@@ -53,6 +53,7 @@ export function IssueChildrenSection({
           typeIds: [],
           parentNumber,
           topLevel: false,
+          blocked: false,
         },
         null,
         100,

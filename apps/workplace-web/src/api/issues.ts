@@ -49,6 +49,8 @@ export async function searchIssues(
   } else if (filters.topLevel) {
     params.set('topLevel', 'true');
   }
+  // Phase 4b — blocked 검색 송신. UI 노출은 deferred.
+  if (filters.blocked) params.set('blocked', 'true');
   if (cursor) params.set('cursor', cursor);
   params.set('size', String(size));
   const { data } = await client.get<IssueSearchResponse>(

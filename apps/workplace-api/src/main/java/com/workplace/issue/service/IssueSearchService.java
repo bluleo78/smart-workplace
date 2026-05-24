@@ -10,6 +10,7 @@ import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
+import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
@@ -42,6 +43,7 @@ public class IssueSearchService {
   private final IssueAttachmentRepository issueAttachmentRepository;
   private final IssueAssigneeRepository issueAssigneeRepository;
   private final IssueTypeRepository typeRepository;
+  private final IssueDependencyRepository dependencyRepository;
   private final ProjectAccessGuard accessGuard;
 
   /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size. */
@@ -65,11 +67,15 @@ public class IssueSearchService {
     var parentRefByChild = issueRepository.findParentRefsByIssueIds(issueIds);
     var childCountByParent = issueRepository.countChildrenByParentIds(issueIds);
     var childDoneCountByParent = issueRepository.countDoneChildrenByParentIds(issueIds);
+    // Phase 4b — 의존성 batch (blockedBy / blocks / blocked 플래그) (N+1 회피).
+    var blockedByByIssue = dependencyRepository.findBlockedByForIssues(issueIds);
+    var blocksByIssue = dependencyRepository.findBlocksForIssues(issueIds);
+    var blockedFlagByIssue = dependencyRepository.findBlockedFlags(issueIds);
     var items =
         rows.stream()
             .map(
                 r ->
-                    IssueResponse.fromWithSubtasks(
+                    IssueResponse.fromWithDeps(
                         project.key(),
                         r,
                         labelsByIssue.getOrDefault(r.id(), List.of()),
@@ -78,7 +84,10 @@ public class IssueSearchService {
                         assigneesByIssue.getOrDefault(r.id(), List.of()),
                         parentRefByChild.get(r.id()),
                         childCountByParent.getOrDefault(r.id(), 0),
-                        childDoneCountByParent.getOrDefault(r.id(), 0)))
+                        childDoneCountByParent.getOrDefault(r.id(), 0),
+                        blockedByByIssue.getOrDefault(r.id(), List.of()),
+                        blocksByIssue.getOrDefault(r.id(), List.of()),
+                        blockedFlagByIssue.getOrDefault(r.id(), false)))
             .toList();
 
     String nextCursor = null;
@@ -162,6 +171,8 @@ public class IssueSearchService {
       }
     }
     Boolean topLevel = "true".equalsIgnoreCase(p.get("topLevel"));
+    // Phase 4b — blocked 파싱. "true" 만 활성화, 그 외는 null (필터 미적용).
+    Boolean blocked = "true".equalsIgnoreCase(p.get("blocked")) ? Boolean.TRUE : null;
 
     return new IssueSearchQuery(
         q,
@@ -176,7 +187,8 @@ public class IssueSearchService {
         labelIds,
         typeIds,
         parentNumber,
-        topLevel);
+        topLevel,
+        blocked);
   }
 
   private static String trimToNull(String s) {

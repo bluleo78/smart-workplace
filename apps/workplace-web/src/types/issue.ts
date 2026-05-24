@@ -15,6 +15,15 @@ export interface ParentRef {
   type: IssueTypeSummary;
 }
 
+// 의존성 응답에 임베드되는 이슈 요약 (Phase 4b).
+// blockedBy/blocks 양쪽에서 동일 모양으로 사용된다.
+export interface IssueLinkSummary {
+  number: number;
+  title: string;
+  status: string;
+  type: IssueTypeSummary;
+}
+
 export interface IssueResponse {
   id: number;
   projectKey: string;
@@ -41,6 +50,12 @@ export interface IssueResponse {
   childCount: number;
   // 자식 중 DONE 인 SUBTASK 수 — 진행률 표시용.
   childDoneCount: number;
+  // 이 이슈를 차단(blocking) 하는 의존성 — 선행 완료 필요 (Phase 4b).
+  blockedBy: IssueLinkSummary[];
+  // 이 이슈가 차단(blocking) 중인 이슈들 (Phase 4b).
+  blocks: IssueLinkSummary[];
+  // blockedBy 중 미완료 이슈 존재 여부 — 헤더 ⛔ 배지/카드 마커 분기 (Phase 4b).
+  blocked: boolean;
 }
 
 export interface IssueCommentResponse {
@@ -64,7 +79,10 @@ export type IssueHistoryEventType =
   | 'ATTACHMENTS_CHANGED'
   | 'TYPE_CHANGED'
   // 부모 변경/해제 (Phase 4a).
-  | 'PARENT_CHANGED';
+  | 'PARENT_CHANGED'
+  // 의존성 추가/제거 (Phase 4b).
+  | 'DEPENDENCY_ADDED'
+  | 'DEPENDENCY_REMOVED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -135,6 +153,8 @@ export interface IssueFilters {
   parentNumber: number | null;
   // 최상위(부모 없는) 이슈만 보기 (Phase 4a) — UI 노출 deferred.
   topLevel: boolean;
+  // 차단된(blocked) 이슈만 보기 (Phase 4b) — UI 노출 deferred, URL 직렬화만.
+  blocked: boolean;
 }
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.

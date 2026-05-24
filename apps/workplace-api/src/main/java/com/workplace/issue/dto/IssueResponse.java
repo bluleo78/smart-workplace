@@ -7,8 +7,8 @@ import java.util.List;
 
 /**
  * 이슈 목록·요약 응답 DTO. projectKey 는 컨텍스트(프로젝트)에서 주입한다. labels/attachmentCount/type/assignees 는 호출자가 채우지
- * 않으면 빈 값. Phase 4a 부터 parent/childCount/childDoneCount 가 추가됨 — 기존 5종 factory 는 default (null, 0,
- * 0) 로 유지.
+ * 않으면 빈 값. Phase 4a 부터 parent/childCount/childDoneCount 가 추가됨. Phase 4b 부터 blockedBy/blocks/blocked
+ * 가 추가됨 — 기존 6 factory 는 default (List.of(), List.of(), false) 로 유지.
  */
 public record IssueResponse(
     Long id,
@@ -27,11 +27,14 @@ public record IssueResponse(
     List<UserSummary> assignees,
     ParentRef parent,
     int childCount,
-    int childDoneCount) {
+    int childDoneCount,
+    List<IssueLinkSummary> blockedBy,
+    List<IssueLinkSummary> blocks,
+    boolean blocked) {
 
   /**
    * projectKey + 내부 row → 응답 변환. labels/type/assignees null, attachmentCount 0 — Phase 1·2 호출자 호환.
-   * parent/childCount/childDoneCount 는 default.
+   * parent/childCount/childDoneCount/blockedBy/blocks/blocked 는 default.
    */
   public static IssueResponse from(String projectKey, IssueRow r) {
     return new IssueResponse(
@@ -51,7 +54,10 @@ public record IssueResponse(
         List.of(),
         null,
         0,
-        0);
+        0,
+        List.of(),
+        List.of(),
+        false);
   }
 
   /**
@@ -77,7 +83,10 @@ public record IssueResponse(
         List.of(),
         null,
         0,
-        0);
+        0,
+        List.of(),
+        List.of(),
+        false);
   }
 
   /** 라벨 + 첨부 카운트까지 채운 버전 — Phase 3b 호출자 호환. type null, assignees 빈 리스트. */
@@ -100,7 +109,10 @@ public record IssueResponse(
         List.of(),
         null,
         0,
-        0);
+        0,
+        List.of(),
+        List.of(),
+        false);
   }
 
   /** 라벨 + 첨부 카운트 + 담당자까지 채운 풀버전 — Phase 3c 호출자 호환. type null. */
@@ -127,7 +139,10 @@ public record IssueResponse(
         assignees == null ? List.of() : assignees,
         null,
         0,
-        0);
+        0,
+        List.of(),
+        List.of(),
+        false);
   }
 
   /** Phase 4 — 라벨 + 첨부 카운트 + 유형 + 담당자 모두 채운 풀버전. */
@@ -155,12 +170,15 @@ public record IssueResponse(
         assignees == null ? List.of() : assignees,
         null,
         0,
-        0);
+        0,
+        List.of(),
+        List.of(),
+        false);
   }
 
   /**
-   * Phase 4a — 부모/자식 트리 정보까지 채운 최신 풀버전. 검색/상세 경로에서 사용. parent 는 SUBTASK 일 때만 non-null,
-   * childCount/childDoneCount 는 비SUBTASK 의 자식 집계.
+   * Phase 4a — 부모/자식 트리 정보까지 채운 풀버전. parent 는 SUBTASK 일 때만 non-null, childCount/childDoneCount 는
+   * 비SUBTASK 의 자식 집계. (의존성 default 유지)
    */
   public static IssueResponse fromWithSubtasks(
       String projectKey,
@@ -189,6 +207,46 @@ public record IssueResponse(
         assignees == null ? List.of() : assignees,
         parent,
         childCount,
-        childDoneCount);
+        childDoneCount,
+        List.of(),
+        List.of(),
+        false);
+  }
+
+  /** Phase 4b — 의존성(blockedBy/blocks/blocked) 까지 채운 최신 풀버전. 검색/상세 경로에서 사용. */
+  public static IssueResponse fromWithDeps(
+      String projectKey,
+      IssueRow r,
+      List<LabelSummary> labels,
+      int attachmentCount,
+      IssueTypeSummary type,
+      List<UserSummary> assignees,
+      ParentRef parent,
+      int childCount,
+      int childDoneCount,
+      List<IssueLinkSummary> blockedBy,
+      List<IssueLinkSummary> blocks,
+      boolean blocked) {
+    return new IssueResponse(
+        r.id(),
+        projectKey,
+        r.number(),
+        r.title(),
+        r.status(),
+        r.priority(),
+        r.dueDate(),
+        r.reporterId(),
+        r.createdAt(),
+        r.updatedAt(),
+        labels == null ? List.of() : labels,
+        attachmentCount,
+        type,
+        assignees == null ? List.of() : assignees,
+        parent,
+        childCount,
+        childDoneCount,
+        blockedBy == null ? List.of() : blockedBy,
+        blocks == null ? List.of() : blocks,
+        blocked);
   }
 }

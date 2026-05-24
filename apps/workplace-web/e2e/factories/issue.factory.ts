@@ -29,6 +29,10 @@ export function createIssue(overrides: Partial<IssueResponse> = {}): IssueRespon
     parent: null,
     childCount: 0,
     childDoneCount: 0,
+    // Phase 4b — 의존성 기본값. blocked 는 blockedBy 가 비어있으면 false.
+    blockedBy: [],
+    blocks: [],
+    blocked: false,
     ...overrides,
   };
 }

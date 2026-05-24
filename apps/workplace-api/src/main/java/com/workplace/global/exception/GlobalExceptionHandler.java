@@ -468,6 +468,22 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** 의존성 인자 유효성 위반(자기 자신/없는 이슈/다른 프로젝트) — 400. (Phase 4b) */
+  @ExceptionHandler(com.workplace.issue.exception.InvalidDependencyException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidDependency(
+      com.workplace.issue.exception.InvalidDependencyException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 의존성 사이클 발생 — 409. (Phase 4b) */
+  @ExceptionHandler(com.workplace.issue.exception.DependencyCycleException.class)
+  public ResponseEntity<ErrorResponse> handleDependencyCycle(
+      com.workplace.issue.exception.DependencyCycleException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
     log.error("Unhandled exception", ex);

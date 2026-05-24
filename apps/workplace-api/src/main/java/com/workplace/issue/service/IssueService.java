@@ -18,6 +18,7 @@ import com.workplace.issue.exception.SubtaskParentRequiredException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
+import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -47,6 +48,7 @@ public class IssueService {
   private final IssueAttachmentRepository issueAttachmentRepository;
   private final IssueAssigneeRepository assigneeRepository;
   private final IssueTypeRepository typeRepository;
+  private final IssueDependencyRepository dependencyRepository;
   private final ProjectIssueSequenceRepository sequenceRepository;
   private final ProjectMemberRepository memberRepository;
   private final ProjectAccessGuard accessGuard;
@@ -171,8 +173,13 @@ public class IssueService {
         issueRepository.countChildrenByParentIds(List.of(row.id())).getOrDefault(row.id(), 0);
     int childDoneCount =
         issueRepository.countDoneChildrenByParentIds(List.of(row.id())).getOrDefault(row.id(), 0);
+    // Phase 4b — 의존성 batch (단일 이슈 경로도 동일 API 사용).
+    var ids = List.of(row.id());
+    var blockedByMap = dependencyRepository.findBlockedByForIssues(ids);
+    var blocksMap = dependencyRepository.findBlocksForIssues(ids);
+    var blockedMap = dependencyRepository.findBlockedFlags(ids);
     return new IssueDetailResponse(
-        IssueResponse.fromWithSubtasks(
+        IssueResponse.fromWithDeps(
             project.key(),
             row,
             labels,
@@ -181,7 +188,10 @@ public class IssueService {
             assignees,
             parentRef,
             childCount,
-            childDoneCount),
+            childDoneCount,
+            blockedByMap.getOrDefault(row.id(), List.of()),
+            blocksMap.getOrDefault(row.id(), List.of()),
+            blockedMap.getOrDefault(row.id(), false)),
         row.body(),
         comments,
         history,
