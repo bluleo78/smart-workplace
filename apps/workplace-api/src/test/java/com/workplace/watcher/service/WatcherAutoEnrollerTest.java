@@ -65,7 +65,8 @@ class WatcherAutoEnrollerTest extends IntegrationTestBase {
     ProjectResponse p = newProject(u, "AE1");
 
     var resp =
-        issueService.create(u, p.key(), new CreateIssueRequest("t", null, "MID", null, null, null));
+        issueService.create(
+            u, p.key(), new CreateIssueRequest("t", null, "MID", null, null, null, null));
 
     var watchers = watcherRepository.findUserIdsByIssue(resp.id());
     assertThat(watchers).contains(u);
@@ -79,7 +80,7 @@ class WatcherAutoEnrollerTest extends IntegrationTestBase {
     memberRepository.insert(p.id(), assignee, "MEMBER");
     var issue =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("t", null, "MID", null, null, null));
+            owner, p.key(), new CreateIssueRequest("t", null, "MID", null, null, null, null));
 
     issueAssigneeService.replace(owner, p.key(), issue.number(), List.of(assignee));
 

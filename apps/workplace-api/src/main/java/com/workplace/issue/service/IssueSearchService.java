@@ -61,17 +61,24 @@ public class IssueSearchService {
     // 유형 N+1 회피: row 들의 typeId distinct 모아 한 번에 fetch.
     List<Long> typeIdsToFetch = rows.stream().map(IssueRow::typeId).distinct().toList();
     Map<Long, IssueTypeSummary> typesById = typeRepository.findByIds(typeIdsToFetch);
+    // Phase 4a — 부모 ref + 자식 카운트 batch (N+1 회피).
+    var parentRefByChild = issueRepository.findParentRefsByIssueIds(issueIds);
+    var childCountByParent = issueRepository.countChildrenByParentIds(issueIds);
+    var childDoneCountByParent = issueRepository.countDoneChildrenByParentIds(issueIds);
     var items =
         rows.stream()
             .map(
                 r ->
-                    IssueResponse.fromWithType(
+                    IssueResponse.fromWithSubtasks(
                         project.key(),
                         r,
                         labelsByIssue.getOrDefault(r.id(), List.of()),
                         countsByIssue.getOrDefault(r.id(), 0),
                         typesById.get(r.typeId()),
-                        assigneesByIssue.getOrDefault(r.id(), List.of())))
+                        assigneesByIssue.getOrDefault(r.id(), List.of()),
+                        parentRefByChild.get(r.id()),
+                        childCountByParent.getOrDefault(r.id(), 0),
+                        childDoneCountByParent.getOrDefault(r.id(), 0)))
             .toList();
 
     String nextCursor = null;
@@ -144,6 +151,18 @@ public class IssueSearchService {
       }
     }
 
+    // Phase 4a — parent / topLevel 파싱. parent 가 지정되면 topLevel 은 리포지토리에서 무시.
+    Integer parentNumber = null;
+    String pn = trimToNull(p.get("parent"));
+    if (pn != null) {
+      try {
+        parentNumber = Integer.parseInt(pn);
+      } catch (NumberFormatException ignored) {
+        // 잘못된 값은 필터 미적용
+      }
+    }
+    Boolean topLevel = "true".equalsIgnoreCase(p.get("topLevel"));
+
     return new IssueSearchQuery(
         q,
         statuses,
@@ -155,7 +174,9 @@ public class IssueSearchService {
         cursor,
         size,
         labelIds,
-        typeIds);
+        typeIds,
+        parentNumber,
+        topLevel);
   }
 
   private static String trimToNull(String s) {

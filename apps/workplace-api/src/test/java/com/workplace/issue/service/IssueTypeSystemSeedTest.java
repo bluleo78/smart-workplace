@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/** ProjectService.create 가 시스템 유형 4종을 시드하는지 검증. */
+/** ProjectService.create 가 시스템 유형 5종(SUBTASK 포함)을 시드하는지 검증. */
 @Transactional
 class IssueTypeSystemSeedTest extends IntegrationTestBase {
 
@@ -47,17 +47,17 @@ class IssueTypeSystemSeedTest extends IntegrationTestBase {
   }
 
   @Test
-  void create_project_seeds_4_system_types() {
+  void create_project_seeds_5_system_types() {
     Long ownerId = createUser("seed");
     var project =
         projectService.create(ownerId, new CreateProjectRequest(uniqueKey("SD"), "Seed", "x"));
 
     var types = typeRepository.findByProject(project.id());
 
-    assertThat(types).hasSize(4);
+    assertThat(types).hasSize(5);
     assertThat(types)
         .extracting(IssueTypeRow::name)
-        .containsExactlyInAnyOrder("TASK", "BUG", "STORY", "CHORE");
+        .containsExactlyInAnyOrder("TASK", "BUG", "STORY", "CHORE", "SUBTASK");
     assertThat(types).allMatch(IssueTypeRow::isSystem);
   }
 }

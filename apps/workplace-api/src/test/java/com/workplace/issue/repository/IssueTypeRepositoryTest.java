@@ -55,16 +55,16 @@ class IssueTypeRepositoryTest extends IntegrationTestBase {
 
   @Test
   void find_by_project_returns_seeded_system_types() {
-    // ProjectService.create 가 시스템 4종을 시드 — position 순서 보장.
+    // ProjectService.create 가 시스템 5종(Phase 4a SUBTASK 포함)을 시드 — position 순서 보장.
     Long owner = createUser("a");
     ProjectResponse p = newProject(owner, "TYA");
 
     List<IssueTypeRow> types = repo.findByProject(p.id());
 
-    assertThat(types).hasSize(4);
+    assertThat(types).hasSize(5);
     assertThat(types)
         .extracting(IssueTypeRow::name)
-        .containsExactly("TASK", "BUG", "STORY", "CHORE");
+        .containsExactly("TASK", "BUG", "STORY", "CHORE", "SUBTASK");
     assertThat(types).allMatch(IssueTypeRow::isSystem);
   }
 

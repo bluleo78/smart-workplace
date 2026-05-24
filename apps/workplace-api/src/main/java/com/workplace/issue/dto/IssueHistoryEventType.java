@@ -11,5 +11,7 @@ public enum IssueHistoryEventType {
   DUE_DATE_CHANGED,
   LABELS_CHANGED,
   ATTACHMENTS_CHANGED,
-  TYPE_CHANGED
+  TYPE_CHANGED,
+  // 부모(SUBTASK) 변경/해제 — Phase 4a.
+  PARENT_CHANGED
 }

@@ -13,6 +13,11 @@ export function makeTaskType(): IssueTypeSummary {
   return { id: 1, name: 'TASK', colorToken: 'BLUE', icon: 'Circle' };
 }
 
+// SUBTASK 시스템 유형 summary — Phase 4a 자식 이슈 시드용.
+export function makeSubtaskType(): IssueTypeSummary {
+  return { id: 5, name: 'SUBTASK', colorToken: 'TEAL', icon: 'CornerDownRight' };
+}
+
 // 유형 정의 단건 — id 미지정 시 자동 증가.
 export function makeIssueType(over: Partial<IssueTypeResponse> = {}): IssueTypeResponse {
   const id = over.id ?? nextId++;
@@ -38,5 +43,7 @@ export function systemTypes(): IssueTypeResponse[] {
     makeIssueType({ id: 2, name: 'BUG', colorToken: 'RED', icon: 'Bug', isSystem: true, position: 1 }),
     makeIssueType({ id: 3, name: 'STORY', colorToken: 'PURPLE', icon: 'BookOpen', isSystem: true, position: 2 }),
     makeIssueType({ id: 4, name: 'CHORE', colorToken: 'GRAY', icon: 'Wrench', isSystem: true, position: 3 }),
+    // Phase 4a — SUBTASK 시스템 유형 (position 4, TEAL + CornerDownRight).
+    makeIssueType({ id: 5, name: 'SUBTASK', colorToken: 'TEAL', icon: 'CornerDownRight', isSystem: true, position: 4 }),
   ];
 }

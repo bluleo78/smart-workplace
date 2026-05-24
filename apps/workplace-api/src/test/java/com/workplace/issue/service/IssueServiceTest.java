@@ -80,10 +80,14 @@ class IssueServiceTest extends IntegrationTestBase {
   void create_allocatesNumberFromSequence() {
     IssueResponse first =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("first", "b1", null, null, null, null));
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("first", "b1", null, null, null, null, null));
     IssueResponse second =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("second", "b2", null, null, null, null));
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("second", "b2", null, null, null, null, null));
 
     assertThat(first.number()).isEqualTo(1);
     assertThat(second.number()).isEqualTo(2);
@@ -93,7 +97,7 @@ class IssueServiceTest extends IntegrationTestBase {
   void create_priorityDefaultsToMid() {
     IssueResponse resp =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null));
+            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
 
     String stored =
         dsl.select(ISSUE.PRIORITY)
@@ -107,7 +111,7 @@ class IssueServiceTest extends IntegrationTestBase {
   void update_statusToDone_setsClosedAt() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null));
+            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
     // TODO → IN_PROGRESS
     issueService.update(
         ownerId,
@@ -133,7 +137,7 @@ class IssueServiceTest extends IntegrationTestBase {
   void update_statusFromDoneToTodo_clearsClosedAt() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null));
+            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
     issueService.update(
         ownerId,
         projectKey,
@@ -158,7 +162,7 @@ class IssueServiceTest extends IntegrationTestBase {
   void update_titleChange_createsHistoryRow() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("orig", "b", null, null, null, null));
+            ownerId, projectKey, new CreateIssueRequest("orig", "b", null, null, null, null, null));
 
     issueService.update(
         ownerId,
@@ -180,7 +184,7 @@ class IssueServiceTest extends IntegrationTestBase {
   void softDelete_byReporter_marksDeleted() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null));
+            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
 
     issueService.softDelete(ownerId, projectKey, created.number());
 
@@ -193,7 +197,7 @@ class IssueServiceTest extends IntegrationTestBase {
     // owner 가 이슈 생성, other 를 MEMBER 로 추가 → other 는 reporter 도 OWNER 도 아님
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null));
+            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
     projectService.addMember(ownerId, projectKey, new AddMemberRequest(otherUserId, "MEMBER"));
 
     assertThatThrownBy(() -> issueService.softDelete(otherUserId, projectKey, created.number()))
@@ -210,7 +214,7 @@ class IssueServiceTest extends IntegrationTestBase {
   void get_returnsCommentsAndHistory() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null));
+            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
     // 히스토리 row 1개 추가될 변경 (title)
     issueService.update(
         ownerId,

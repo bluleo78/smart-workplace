@@ -15,6 +15,9 @@ export const createIssueSchema = z.object({
   assigneeIds: z.array(z.number().int().positive()).optional().nullable(),
   // 이슈 유형 id — 생략 시 백엔드가 TASK 로 fallback.
   typeId: z.number().int().positive().optional().nullable(),
+  // SUBTASK 일 때만 의미가 있는 부모 number (Phase 4a).
+  // SUBTASK 가 아닌 유형에 동봉하면 백엔드 400 — 다이얼로그에서 송신 시점에 제거.
+  parentNumber: z.number().int().positive().optional().nullable(),
 });
 export type CreateIssueFormData = z.infer<typeof createIssueSchema>;
 

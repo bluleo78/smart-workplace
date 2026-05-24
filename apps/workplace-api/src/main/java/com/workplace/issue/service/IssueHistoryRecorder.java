@@ -151,6 +151,28 @@ public class IssueHistoryRecorder {
     historyRepository.insert(issueId, actorId, "TYPE_CHANGED", null, payload);
   }
 
+  /**
+   * 부모 변경/해제 한 건을 기록. from/to 는 null 가능 (설정/해제/교체 모두). diff 0 호출은 서비스에서 사전 차단. payload JSON 의 to 값은
+   * type 정보 제외 — 렌더링은 응답의 parent.type 으로 처리한다.
+   */
+  public void recordParentChanged(
+      Long actorId,
+      Long issueId,
+      com.workplace.issue.dto.ParentRef from,
+      com.workplace.issue.dto.ParentRef to) {
+    String payload;
+    try {
+      java.util.Map<String, Object> body = new java.util.HashMap<>();
+      body.put(
+          "from", from == null ? null : Map.of("number", from.number(), "title", from.title()));
+      body.put("to", to == null ? null : Map.of("number", to.number(), "title", to.title()));
+      payload = objectMapper.writeValueAsString(body);
+    } catch (Exception e) {
+      payload = "{}";
+    }
+    historyRepository.insert(issueId, actorId, "PARENT_CHANGED", null, payload);
+  }
+
   /** 객체 → 문자열 (null 보존). */
   private static String stringify(Object v) {
     return v == null ? null : v.toString();

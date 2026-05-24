@@ -5,6 +5,7 @@ import {
   BookOpen,
   Bug,
   Circle,
+  CornerDownRight,
   Flag,
   Star,
   Target,
@@ -24,4 +25,6 @@ export const ISSUE_TYPE_ICONS: Record<IconName, LucideIcon> = {
   Zap,
   Flag,
   Target,
+  // SUBTASK 전용 — 하위 트리 표시용 (Phase 4a).
+  CornerDownRight,
 };

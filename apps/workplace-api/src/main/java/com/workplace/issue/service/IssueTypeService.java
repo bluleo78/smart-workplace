@@ -29,12 +29,16 @@ public class IssueTypeService {
   private final IssueTypeRepository repo;
   private final ProjectAccessGuard accessGuard;
 
-  /** 신규 프로젝트 생성 직후 시스템 4종(TASK/BUG/STORY/CHORE)을 시드한다. ProjectService.create 에서 호출. */
+  /**
+   * 신규 프로젝트 생성 직후 시스템 5종(TASK/BUG/STORY/CHORE/SUBTASK)을 시드한다. ProjectService.create 에서 호출. SUBTASK
+   * 는 Phase 4a 부터 추가된 Jira 스타일 자식 유형.
+   */
   public void seedSystemTypes(Long projectId) {
     repo.insert(projectId, "TASK", "BLUE", "Circle", true, 0);
     repo.insert(projectId, "BUG", "RED", "Bug", true, 1);
     repo.insert(projectId, "STORY", "PURPLE", "BookOpen", true, 2);
     repo.insert(projectId, "CHORE", "GRAY", "Wrench", true, 3);
+    repo.insert(projectId, "SUBTASK", "TEAL", "CornerDownRight", true, 4);
   }
 
   /** 프로젝트 내 유형 목록 — 멤버 이상 조회 가능. */

@@ -46,6 +46,9 @@ export function IssueCreateDialog({
   }, [types.data]);
 
   const currentTypeId = watch('typeId');
+  // 선택된 유형이 SUBTASK 인지 — parentNumber 입력 동적 노출 + 송신 분기에 사용 (Phase 4a).
+  const selectedType = (types.data ?? []).find((t) => t.id === currentTypeId);
+  const isSubtaskSelected = selectedType?.name === 'SUBTASK';
 
   const onSubmit = async (data: CreateIssueFormData) => {
     const payload = {
@@ -53,6 +56,8 @@ export function IssueCreateDialog({
       dueDate: data.dueDate || undefined,
       body: data.body || undefined,
       typeId: data.typeId ?? undefined,
+      // SUBTASK 가 아닐 때는 parentNumber 를 절대 보내지 않는다 — 백엔드가 400.
+      parentNumber: isSubtaskSelected ? (data.parentNumber ?? undefined) : undefined,
     };
     try {
       await create.mutateAsync(payload);
@@ -107,6 +112,25 @@ export function IssueCreateDialog({
               <Input id="issue-due" type="date" {...register('dueDate')} />
             </div>
           </div>
+          {/* SUBTASK 선택 시에만 부모 number 입력 노출 (Phase 4a).
+              valueAsNumber 로 number 변환 — 빈 값은 NaN 이 되어 송신 시 undefined. */}
+          {isSubtaskSelected && (
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="create-parent-number">
+                부모 이슈 번호
+              </label>
+              <Input
+                id="create-parent-number"
+                type="number"
+                min={1}
+                {...register('parentNumber', { valueAsNumber: true })}
+                data-testid="create-parent-number"
+              />
+              {errors.parentNumber && (
+                <p className="text-sm text-destructive">{errors.parentNumber.message}</p>
+              )}
+            </div>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
             <Button type="submit" disabled={create.isPending}>생성</Button>

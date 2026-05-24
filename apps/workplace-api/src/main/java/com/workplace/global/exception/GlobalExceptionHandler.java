@@ -428,6 +428,46 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** SUBTASK 생성 시 parentNumber 누락 — 400. */
+  @ExceptionHandler(com.workplace.issue.exception.SubtaskParentRequiredException.class)
+  public ResponseEntity<ErrorResponse> handleSubtaskParentRequired(
+      com.workplace.issue.exception.SubtaskParentRequiredException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 비SUBTASK 가 parentNumber 를 지정 — 400. */
+  @ExceptionHandler(com.workplace.issue.exception.ParentNotAllowedException.class)
+  public ResponseEntity<ErrorResponse> handleParentNotAllowed(
+      com.workplace.issue.exception.ParentNotAllowedException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 부모가 없거나 다른 프로젝트/자기 자신 — 400. */
+  @ExceptionHandler(com.workplace.issue.exception.InvalidParentException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidParent(
+      com.workplace.issue.exception.InvalidParentException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** parent 가 SUBTASK 인 경우 — 1단계 트리 위반. 400. */
+  @ExceptionHandler(com.workplace.issue.exception.ParentCannotBeSubtaskException.class)
+  public ResponseEntity<ErrorResponse> handleParentCannotBeSubtask(
+      com.workplace.issue.exception.ParentCannotBeSubtaskException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** setParent 호출 대상이 SUBTASK 가 아님 — 400. */
+  @ExceptionHandler(com.workplace.issue.exception.SetParentOnNonSubtaskException.class)
+  public ResponseEntity<ErrorResponse> handleSetParentOnNonSubtask(
+      com.workplace.issue.exception.SetParentOnNonSubtaskException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
     log.error("Unhandled exception", ex);

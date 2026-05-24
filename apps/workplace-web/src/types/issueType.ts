@@ -10,6 +10,8 @@ export const ICON_NAMES = [
   'Zap',
   'Flag',
   'Target',
+  // SUBTASK 시스템 유형 전용 아이콘 (Phase 4a).
+  'CornerDownRight',
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];

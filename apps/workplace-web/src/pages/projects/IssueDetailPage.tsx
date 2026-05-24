@@ -22,7 +22,9 @@ import { AssigneePickerPopover } from './components/AssigneePickerPopover';
 import { IssueActivityTimeline } from './components/IssueActivityTimeline';
 import { IssueAttachmentDropzone } from './components/IssueAttachmentDropzone';
 import { IssueAttachmentList } from './components/IssueAttachmentList';
+import { IssueChildrenSection } from './components/IssueChildrenSection';
 import { IssueCommentList } from './components/IssueCommentList';
+import { IssueParentSlot } from './components/IssueParentSlot';
 import { IssuePrioritySelect } from './components/IssuePrioritySelect';
 import { IssueStatusSelect } from './components/IssueStatusSelect';
 
@@ -45,6 +47,8 @@ export default function IssueDetailPage() {
   if (!data) return <p className="container mx-auto p-6 text-destructive">태스크를 찾을 수 없습니다</p>;
 
   const { summary, body, comments, history } = data;
+  // SUBTASK 여부 — 부모 슬롯(SUBTASK 만) / 자식 섹션(비SUBTASK 만) 분기에 사용 (Phase 4a).
+  const isSubtask = summary.type?.name === 'SUBTASK';
 
   // 인라인 편집 patch — 단일 필드 변경마다 호출되며 onSuccess invalidate 로 detail 재조회.
   const patch = async (changes: UpdateIssueRequest) => {
@@ -92,6 +96,15 @@ export default function IssueDetailPage() {
         <article className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
           {body ?? <em className="text-muted-foreground">본문 없음</em>}
         </article>
+        {/* 비SUBTASK 상세 본문 아래 — 자식 SUBTASK 진행률/목록/인라인 추가 (Phase 4a). */}
+        {!isSubtask && (
+          <IssueChildrenSection
+            projectKey={key}
+            parentNumber={issueNumber}
+            childCount={summary.childCount}
+            childDoneCount={summary.childDoneCount}
+          />
+        )}
         <IssueCommentList
           projectKey={key}
           issueNumber={issueNumber}
@@ -100,6 +113,14 @@ export default function IssueDetailPage() {
         />
       </div>
       <aside className="space-y-4">
+        {/* SUBTASK 상세에서만 부모 슬롯 노출 (Phase 4a). */}
+        {isSubtask && (
+          <IssueParentSlot
+            projectKey={key}
+            issueNumber={issueNumber}
+            parent={summary.parent}
+          />
+        )}
         <div className="space-y-1">
           <label className="text-sm text-muted-foreground">상태</label>
           <IssueStatusSelect

@@ -25,6 +25,10 @@ export function createIssue(overrides: Partial<IssueResponse> = {}): IssueRespon
     attachmentCount: 0,
     type: makeTaskType(),
     assignees: [],
+    // Phase 4a — 부모 / 자식 트리 기본값. SUBTASK 가 아니면 parent=null, 자식 카운트 0.
+    parent: null,
+    childCount: 0,
+    childDoneCount: 0,
     ...overrides,
   };
 }

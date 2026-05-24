@@ -8,6 +8,13 @@ import type { UserSummary } from './user';
 export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELED';
 export type IssuePriority = 'LOW' | 'MID' | 'HIGH';
 
+// 자식 이슈가 응답에 포함하는 부모 요약 (Phase 4a).
+export interface ParentRef {
+  number: number;
+  title: string;
+  type: IssueTypeSummary;
+}
+
 export interface IssueResponse {
   id: number;
   projectKey: string;
@@ -28,6 +35,12 @@ export interface IssueResponse {
   type: IssueTypeSummary | null;
   // 다중 담당자 — Phase 3c. 항상 배열 (없으면 빈 배열).
   assignees: UserSummary[];
+  // SUBTASK 일 때만 채워지는 부모 요약 (Phase 4a).
+  parent: ParentRef | null;
+  // 이 이슈를 부모로 가진 자식 SUBTASK 수 (비SUBTASK 만 0 초과 가능).
+  childCount: number;
+  // 자식 중 DONE 인 SUBTASK 수 — 진행률 표시용.
+  childDoneCount: number;
 }
 
 export interface IssueCommentResponse {
@@ -49,7 +62,9 @@ export type IssueHistoryEventType =
   | 'DUE_DATE_CHANGED'
   | 'LABELS_CHANGED'
   | 'ATTACHMENTS_CHANGED'
-  | 'TYPE_CHANGED';
+  | 'TYPE_CHANGED'
+  // 부모 변경/해제 (Phase 4a).
+  | 'PARENT_CHANGED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -79,6 +94,8 @@ export interface CreateIssueRequest {
   assigneeIds?: number[] | null;
   // 이슈 유형 id — 생략 시 백엔드가 TASK 로 fallback.
   typeId?: number | null;
+  // SUBTASK 일 때만 부모 number 동봉 (Phase 4a). 비SUBTASK 에 동봉하면 400.
+  parentNumber?: number | null;
 }
 
 export interface UpdateIssueRequest {
@@ -114,6 +131,10 @@ export interface IssueFilters {
   labelIds: number[];
   // 다중 유형 OR 필터 — 선택된 유형 중 하나에 속한 이슈 매칭.
   typeIds: number[];
+  // 특정 부모(번호) 의 자식만 보기 (Phase 4a) — UI 노출은 deferred, URL 직렬화만.
+  parentNumber: number | null;
+  // 최상위(부모 없는) 이슈만 보기 (Phase 4a) — UI 노출 deferred.
+  topLevel: boolean;
 }
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.

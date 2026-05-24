@@ -42,6 +42,8 @@ export function IssueCard({
 
   // identifier 는 백엔드가 별도로 내려주지 않으므로 클라이언트에서 합성한다.
   const identifier = `${projectKey}-${issue.number}`;
+  // SUBTASK 여부 — 카드 헤더에 부모 식별자(└) 표시 분기에 사용 (Phase 4a).
+  const isSubtask = issue.type?.name === 'SUBTASK';
 
   return (
     <div
@@ -62,6 +64,15 @@ export function IssueCard({
         >
           {issue.type && (
             <IssueTypeBadge type={issue.type} size="sm" iconOnly />
+          )}
+          {/* SUBTASK 면 부모 식별자(└ KEY-N) 를 제목 앞에 작게 표시 (Phase 4a). */}
+          {isSubtask && issue.parent && (
+            <span
+              className="text-[10px] text-muted-foreground mr-1 font-mono"
+              data-testid={`issue-card-${issue.number}-parent`}
+            >
+              └ {projectKey}-{issue.parent.number}
+            </span>
           )}
           <span className="text-muted-foreground mr-1 font-mono text-xs">
             {identifier}
@@ -99,6 +110,16 @@ export function IssueCard({
             >
               <Paperclip className="h-3 w-3" />
               {issue.attachmentCount}
+            </span>
+          )}
+          {/* 비SUBTASK 인 부모 카드라면 자식 진행률 표시 (Phase 4a). */}
+          {!isSubtask && issue.childCount > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5"
+              data-testid={`issue-card-${issue.number}-child-progress`}
+              aria-label={`자식 SUBTASK ${issue.childDoneCount}/${issue.childCount}`}
+            >
+              └ {issue.childDoneCount}/{issue.childCount}
             </span>
           )}
           {issue.dueDate && <span>~{issue.dueDate}</span>}

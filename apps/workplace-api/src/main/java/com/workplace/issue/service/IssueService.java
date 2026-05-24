@@ -5,10 +5,16 @@ import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueTypeSummary;
+import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
+import com.workplace.issue.exception.InvalidParentException;
 import com.workplace.issue.exception.InvalidTypeForProjectException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.exception.ParentCannotBeSubtaskException;
+import com.workplace.issue.exception.ParentNotAllowedException;
+import com.workplace.issue.exception.SetParentOnNonSubtaskException;
+import com.workplace.issue.exception.SubtaskParentRequiredException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
@@ -49,7 +55,8 @@ public class IssueService {
 
   /**
    * 신규 이슈 생성. priority 기본값(MID)을 서비스에서 보정. assigneeIds 가 비어있지 않으면 issue_assignee 매핑까지 동시 INSERT.
-   * typeId 미지정 시 프로젝트의 TASK 시스템 유형으로 fallback.
+   * typeId 미지정 시 프로젝트의 TASK 시스템 유형으로 fallback. SUBTASK 면 parentNumber 필수 + 부모 검증, 비SUBTASK 면
+   * parentNumber 지정 불가 (Phase 4a).
    */
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
     var project = accessGuard.assertMember(projectKey, callerId);
@@ -63,21 +70,39 @@ public class IssueService {
       }
     }
 
-    // 2) typeId 결정 — 지정 시 같은 프로젝트 검증, 아니면 TASK fallback.
-    Long typeId;
+    // 2) typeId 결정 — 지정 시 같은 프로젝트 검증, 아니면 TASK fallback. typeRow 는 이후 SUBTASK 분기 판정에 재사용.
+    com.workplace.issue.dto.IssueTypeRow typeRow;
     if (req.typeId() != null) {
-      var t =
+      typeRow =
           typeRepository.findById(req.typeId()).orElseThrow(InvalidTypeForProjectException::new);
-      if (!t.projectId().equals(project.id())) {
+      if (!typeRow.projectId().equals(project.id())) {
         throw new InvalidTypeForProjectException();
       }
-      typeId = t.id();
     } else {
-      typeId =
+      typeRow =
           typeRepository
               .findByProjectAndName(project.id(), "TASK")
-              .orElseThrow(() -> new IllegalStateException("프로젝트에 TASK 유형이 없음"))
-              .id();
+              .orElseThrow(() -> new IllegalStateException("프로젝트에 TASK 유형이 없음"));
+    }
+    Long typeId = typeRow.id();
+
+    // 3) parent 검증 (Phase 4a) — SUBTASK 만 parent 가능, SUBTASK 는 parent 필수.
+    Long parentIssueId = null;
+    boolean isSubtask = "SUBTASK".equals(typeRow.name());
+    if (req.parentNumber() != null) {
+      if (!isSubtask) throw new ParentNotAllowedException();
+      var parent =
+          issueRepository
+              .findByProjectAndNumber(project.id(), req.parentNumber())
+              .orElseThrow(() -> new InvalidParentException("부모 이슈 없음"));
+      var parentType =
+          typeRepository
+              .findById(parent.typeId())
+              .orElseThrow(() -> new InvalidParentException("부모 유형 없음"));
+      if ("SUBTASK".equals(parentType.name())) throw new ParentCannotBeSubtaskException();
+      parentIssueId = parent.id();
+    } else if (isSubtask) {
+      throw new SubtaskParentRequiredException();
     }
 
     int number = sequenceRepository.allocateNext(project.id());
@@ -90,7 +115,8 @@ public class IssueService {
             req.priority() != null ? req.priority() : "MID",
             req.dueDate(),
             callerId,
-            typeId);
+            typeId,
+            parentIssueId);
 
     // 3) issue_assignee 매핑 INSERT
     for (Long uid : assigneeIds) {
@@ -136,8 +162,26 @@ public class IssueService {
     var type = typeMap.get(row.typeId());
     var comments = commentRepository.findByIssue(row.id());
     var history = historyRepository.findByIssue(row.id());
+    // Phase 4a — 부모/자식 트리 정보. SUBTASK 면 parent 채움, 비SUBTASK 면 자식 집계.
+    var parentRef =
+        row.parentIssueId() == null
+            ? null
+            : issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id());
+    int childCount =
+        issueRepository.countChildrenByParentIds(List.of(row.id())).getOrDefault(row.id(), 0);
+    int childDoneCount =
+        issueRepository.countDoneChildrenByParentIds(List.of(row.id())).getOrDefault(row.id(), 0);
     return new IssueDetailResponse(
-        IssueResponse.fromWithType(project.key(), row, labels, attachments.size(), type, assignees),
+        IssueResponse.fromWithSubtasks(
+            project.key(),
+            row,
+            labels,
+            attachments.size(),
+            type,
+            assignees,
+            parentRef,
+            childCount,
+            childDoneCount),
         row.body(),
         comments,
         history,
@@ -208,6 +252,26 @@ public class IssueService {
       return get(callerId, projectKey, number);
     }
     var oldType = typeRepository.findById(issue.typeId()).orElseThrow();
+
+    // Phase 4a — SUBTASK → 비SUBTASK 전환 시 부모 자동 해제 + PARENT_CHANGED 기록 (parent 있을 때만).
+    if ("SUBTASK".equals(oldType.name())
+        && !"SUBTASK".equals(newType.name())
+        && issue.parentIssueId() != null) {
+      var oldParent = issueRepository.findById(issue.parentIssueId()).orElseThrow();
+      var oldParentType = typeRepository.findById(oldParent.typeId()).orElseThrow();
+      var oldParentRef =
+          new ParentRef(
+              oldParent.number(),
+              oldParent.title(),
+              new IssueTypeSummary(
+                  oldParentType.id(),
+                  oldParentType.name(),
+                  oldParentType.colorToken(),
+                  oldParentType.icon()));
+      issueRepository.updateParent(issue.id(), null);
+      historyRecorder.recordParentChanged(callerId, issue.id(), oldParentRef, null);
+    }
+
     issueRepository.updateType(issue.id(), newType.id());
     historyRecorder.recordTypeChanged(
         callerId,
@@ -237,6 +301,76 @@ public class IssueService {
     if (!isReporter && !isOwner) {
       throw new ProjectAccessDeniedException("이슈 삭제는 reporter 또는 OWNER 만 가능합니다");
     }
-    issueRepository.softDelete(row.id());
+    // Phase 4a — 부모 자체와 활성 자식들에 동일 timestamp 로 cascade soft-delete.
+    var now = Instant.now();
+    issueRepository.softDelete(row.id(), now);
+    issueRepository.softDeleteChildren(row.id(), now);
+  }
+
+  /**
+   * SUBTASK 의 부모 설정/해제. newParentNumber == null 이면 해제. 비SUBTASK 에 호출하면 {@link
+   * SetParentOnNonSubtaskException}. 부모 검증은 create 와 동일 — 같은 프로젝트, 존재, type != SUBTASK, 자기 자신 X.
+   * diff 0 이면 history 미기록 fast-return.
+   */
+  public IssueDetailResponse setParent(
+      Long callerId, String projectKey, int number, Integer newParentNumber) {
+    var project = accessGuard.assertMember(projectKey, callerId);
+    var row =
+        issueRepository
+            .findByProjectAndNumber(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    var currentType = typeRepository.findById(row.typeId()).orElseThrow();
+    if (!"SUBTASK".equals(currentType.name())) {
+      throw new SetParentOnNonSubtaskException();
+    }
+
+    Long newParentId = null;
+    ParentRef newRef = null;
+    if (newParentNumber != null) {
+      if (newParentNumber == row.number()) throw new InvalidParentException("자기 자신");
+      var newParent =
+          issueRepository
+              .findByProjectAndNumber(project.id(), newParentNumber)
+              .orElseThrow(() -> new InvalidParentException("부모 이슈 없음"));
+      var newParentType =
+          typeRepository
+              .findById(newParent.typeId())
+              .orElseThrow(() -> new InvalidParentException("부모 유형 없음"));
+      if ("SUBTASK".equals(newParentType.name())) throw new ParentCannotBeSubtaskException();
+      newParentId = newParent.id();
+      newRef =
+          new ParentRef(
+              newParent.number(),
+              newParent.title(),
+              new IssueTypeSummary(
+                  newParentType.id(),
+                  newParentType.name(),
+                  newParentType.colorToken(),
+                  newParentType.icon()));
+    }
+
+    Long currentParentId = row.parentIssueId();
+    if (java.util.Objects.equals(currentParentId, newParentId)) {
+      return get(callerId, projectKey, number);
+    }
+
+    ParentRef oldRef = null;
+    if (currentParentId != null) {
+      var oldParent = issueRepository.findById(currentParentId).orElseThrow();
+      var oldParentType = typeRepository.findById(oldParent.typeId()).orElseThrow();
+      oldRef =
+          new ParentRef(
+              oldParent.number(),
+              oldParent.title(),
+              new IssueTypeSummary(
+                  oldParentType.id(),
+                  oldParentType.name(),
+                  oldParentType.colorToken(),
+                  oldParentType.icon()));
+    }
+
+    issueRepository.updateParent(row.id(), newParentId);
+    historyRecorder.recordParentChanged(callerId, row.id(), oldRef, newRef);
+    return get(callerId, projectKey, number);
   }
 }

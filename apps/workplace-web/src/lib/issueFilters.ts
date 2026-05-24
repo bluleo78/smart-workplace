@@ -27,6 +27,11 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const typeIds = csv(params.get('type'))
     .map((s) => Number(s))
     .filter((n) => Number.isFinite(n) && n > 0);
+  // parent 는 단일 양의 정수만 허용. topLevel 은 'true' 만 통과 (그 외는 false).
+  const parentRaw = params.get('parent');
+  const parentNum = parentRaw == null ? NaN : Number(parentRaw);
+  const parentNumber = Number.isFinite(parentNum) && parentNum > 0 ? parentNum : null;
+  const topLevel = params.get('topLevel') === 'true';
   return {
     q: params.get('q') ?? '',
     statuses: csv(params.get('status')).filter((s) =>
@@ -41,6 +46,8 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     dueTo: params.get('dueTo'),
     labelIds,
     typeIds,
+    parentNumber,
+    topLevel,
   };
 }
 
@@ -63,6 +70,9 @@ export function filtersToParams(f: IssueFilters, view: IssueView): URLSearchPara
   if (f.dueTo) p.set('dueTo', f.dueTo);
   if (f.labelIds.length) p.set('label', f.labelIds.join(','));
   if (f.typeIds.length) p.set('type', f.typeIds.join(','));
+  // Phase 4a — parent / topLevel 직렬화. UI 노출은 deferred.
+  if (f.parentNumber != null && f.parentNumber > 0) p.set('parent', String(f.parentNumber));
+  if (f.topLevel) p.set('topLevel', 'true');
   return p;
 }
 

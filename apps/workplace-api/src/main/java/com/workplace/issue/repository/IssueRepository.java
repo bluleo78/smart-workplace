@@ -5,9 +5,15 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static org.jooq.impl.DSL.count;
 
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.dto.IssueTypeSummary;
+import com.workplace.issue.dto.ParentRef;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -21,7 +27,10 @@ public class IssueRepository {
 
   private final DSLContext dsl;
 
-  /** SELECT 결과를 {@link IssueRow} 로 매핑. OffsetDateTime → Instant 변환. typeId 는 V10 이후 NOT NULL. */
+  /**
+   * SELECT 결과를 {@link IssueRow} 로 매핑. OffsetDateTime → Instant 변환. typeId 는 V10 이후 NOT NULL,
+   * parentIssueId 는 V11 이후 nullable.
+   */
   private IssueRow mapToRow(Record r) {
     OffsetDateTime created = r.get(ISSUE.CREATED_AT);
     OffsetDateTime updated = r.get(ISSUE.UPDATED_AT);
@@ -39,7 +48,8 @@ public class IssueRepository {
         created != null ? created.toInstant() : null,
         updated != null ? updated.toInstant() : null,
         closed != null ? closed.toInstant() : null,
-        r.get(ISSUE.TYPE_ID));
+        r.get(ISSUE.TYPE_ID),
+        r.get(ISSUE.PARENT_ISSUE_ID));
   }
 
   /** id 로 활성 이슈 조회. */
@@ -57,7 +67,8 @@ public class IssueRepository {
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID)
+            ISSUE.TYPE_ID,
+            ISSUE.PARENT_ISSUE_ID)
         .from(ISSUE)
         .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
@@ -78,7 +89,8 @@ public class IssueRepository {
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID)
+            ISSUE.TYPE_ID,
+            ISSUE.PARENT_ISSUE_ID)
         .from(ISSUE)
         .where(
             ISSUE
@@ -104,7 +116,8 @@ public class IssueRepository {
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID)
+            ISSUE.TYPE_ID,
+            ISSUE.PARENT_ISSUE_ID)
         .from(ISSUE)
         .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull()))
         .orderBy(ISSUE.UPDATED_AT.desc())
@@ -123,7 +136,8 @@ public class IssueRepository {
 
   /**
    * 신규 이슈 INSERT 후 생성된 row 반환. status 는 DB default('TODO') 사용. 담당자는 별도 매핑(issue_assignee) 으로 관리.
-   * typeId 는 V10 이후 NOT NULL — 호출자가 결정(typically TASK fallback) 해서 전달.
+   * typeId 는 V10 이후 NOT NULL — 호출자가 결정(typically TASK fallback) 해서 전달. parentIssueId 는 SUBTASK 일 때만
+   * non-null (Phase 4a) — 부모-자식 정합성은 서비스 계층에서 가드.
    */
   public IssueRow insert(
       Long projectId,
@@ -133,7 +147,8 @@ public class IssueRepository {
       String priority,
       LocalDate dueDate,
       Long reporterId,
-      Long typeId) {
+      Long typeId,
+      Long parentIssueId) {
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, projectId)
         .set(ISSUE.NUMBER, number)
@@ -143,6 +158,7 @@ public class IssueRepository {
         .set(ISSUE.DUE_DATE, dueDate)
         .set(ISSUE.REPORTER_ID, reporterId)
         .set(ISSUE.TYPE_ID, typeId)
+        .set(ISSUE.PARENT_ISSUE_ID, parentIssueId)
         .returning(
             ISSUE.ID,
             ISSUE.PROJECT_ID,
@@ -156,15 +172,29 @@ public class IssueRepository {
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID)
+            ISSUE.TYPE_ID,
+            ISSUE.PARENT_ISSUE_ID)
         .fetchOptional()
         .map(this::mapToRow)
         .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
   }
 
+  /** 8-인자 호환 오버로드 — Phase 27 도입. parentIssueId 는 null 로 위임. 비SUBTASK 이슈 시드용 서비스 경로에서 사용. */
+  public IssueRow insert(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId,
+      Long typeId) {
+    return insert(projectId, number, title, body, priority, dueDate, reporterId, typeId, null);
+  }
+
   /**
-   * 테스트 편의 오버로드 — typeId 미지정 시 프로젝트의 TASK 시스템 유형으로 자동 fallback. 프로덕션 서비스 코드는 8-인자 변형을 직접 호출(typeId
-   * 를 명시적으로 결정해서 전달)한다. 이 오버로드는 신규 type 컬럼 추가 후 다수 테스트 시드의 마이그레이션 비용을 줄이기 위한 호환층.
+   * 테스트 편의 오버로드 — typeId 미지정 시 프로젝트의 TASK 시스템 유형으로 자동 fallback. 프로덕션 서비스 코드는 8/9-인자 변형을 직접 호출. 이
+   * 오버로드는 신규 type 컬럼 추가 후 다수 테스트 시드의 마이그레이션 비용을 줄이기 위한 호환층.
    */
   public IssueRow insert(
       Long projectId,
@@ -181,7 +211,7 @@ public class IssueRepository {
             .fetchOptional(ISSUE_TYPE_DEF.ID)
             .orElseThrow(
                 () -> new IllegalStateException("프로젝트에 TASK 유형이 없음: projectId=" + projectId));
-    return insert(projectId, number, title, body, priority, dueDate, reporterId, taskTypeId);
+    return insert(projectId, number, title, body, priority, dueDate, reporterId, taskTypeId, null);
   }
 
   /**
@@ -217,10 +247,19 @@ public class IssueRepository {
         .execute();
   }
 
+  /** 부모(SUBTASK) 갱신 — newParentId null 이면 해제. updated_at 동기. (Phase 4a) */
+  public void updateParent(Long id, Long newParentId) {
+    dsl.update(ISSUE)
+        .set(ISSUE.PARENT_ISSUE_ID, newParentId)
+        .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
+        .where(ISSUE.ID.eq(id))
+        .execute();
+  }
+
   /**
    * 검색/필터 + cursor 페이징. 활성(deleted_at IS NULL) 이슈만 대상. 정렬은 (updated_at DESC, id DESC) 고정. size 는
    * 호출자가 1..100 으로 클램프한 값을 넘긴다. assignee 필터는 issue_assignee 매핑에 대한 EXISTS/NOT EXISTS 로 변환된다.
-   * typeIds 는 OR 결합.
+   * typeIds 는 OR 결합. Phase 4a: parentNumber/topLevel 필터.
    */
   public List<IssueRow> search(Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition where = ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull());
@@ -287,6 +326,23 @@ public class IssueRepository {
     if (query.typeIds() != null && !query.typeIds().isEmpty()) {
       where = where.and(ISSUE.TYPE_ID.in(query.typeIds()));
     }
+    // Phase 4a — parentNumber 가 지정되면 해당 부모의 자식만, 아니면 topLevel=true 면 루트만.
+    if (query.parentNumber() != null) {
+      Long parentId =
+          dsl.select(ISSUE.ID)
+              .from(ISSUE)
+              .where(
+                  ISSUE
+                      .PROJECT_ID
+                      .eq(projectId)
+                      .and(ISSUE.NUMBER.eq(query.parentNumber()))
+                      .and(ISSUE.DELETED_AT.isNull()))
+              .fetchOptional(0, Long.class)
+              .orElse(-1L);
+      where = where.and(ISSUE.PARENT_ISSUE_ID.eq(parentId));
+    } else if (Boolean.TRUE.equals(query.topLevel())) {
+      where = where.and(ISSUE.PARENT_ISSUE_ID.isNull());
+    }
     if (query.cursor() != null) {
       var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = query.cursor().id();
@@ -308,7 +364,8 @@ public class IssueRepository {
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID)
+            ISSUE.TYPE_ID,
+            ISSUE.PARENT_ISSUE_ID)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
@@ -316,9 +373,90 @@ public class IssueRepository {
         .fetch(this::mapToRow);
   }
 
-  /** soft-delete: deleted_at = now(). */
-  public void softDelete(Long id) {
-    dsl.update(ISSUE).set(ISSUE.DELETED_AT, OffsetDateTime.now()).where(ISSUE.ID.eq(id)).execute();
+  /** soft-delete: deleted_at = 호출자 지정 timestamp. (Phase 4a — cascade 동일 timestamp 보장용 명시 인자) */
+  public void softDelete(Long id, Instant deletedAt) {
+    dsl.update(ISSUE)
+        .set(ISSUE.DELETED_AT, deletedAt.atOffset(ZoneOffset.UTC))
+        .where(ISSUE.ID.eq(id))
+        .execute();
+  }
+
+  /** 부모 soft-delete 시 활성 자식들도 동일 timestamp 로 soft-delete. 이미 삭제된 자식은 건드리지 않는다. */
+  public void softDeleteChildren(Long parentId, Instant deletedAt) {
+    dsl.update(ISSUE)
+        .set(ISSUE.DELETED_AT, deletedAt.atOffset(ZoneOffset.UTC))
+        .where(ISSUE.PARENT_ISSUE_ID.eq(parentId).and(ISSUE.DELETED_AT.isNull()))
+        .execute();
+  }
+
+  /**
+   * N+1 회피 — 자식 id 집합 → 부모 요약. self-alias 로 부모 row 와 부모 type 을 함께 fetch. 부모가 없는 id 는 결과 맵에서 제외된다.
+   */
+  public Map<Long, ParentRef> findParentRefsByIssueIds(List<Long> issueIds) {
+    if (issueIds == null || issueIds.isEmpty()) return Map.of();
+    var p = ISSUE.as("p");
+    Map<Long, ParentRef> result = new HashMap<>();
+    dsl.select(
+            ISSUE.ID,
+            p.NUMBER,
+            p.TITLE,
+            ISSUE_TYPE_DEF.ID,
+            ISSUE_TYPE_DEF.NAME,
+            ISSUE_TYPE_DEF.COLOR_TOKEN,
+            ISSUE_TYPE_DEF.ICON)
+        .from(ISSUE)
+        .join(p)
+        .on(p.ID.eq(ISSUE.PARENT_ISSUE_ID))
+        .join(ISSUE_TYPE_DEF)
+        .on(ISSUE_TYPE_DEF.ID.eq(p.TYPE_ID))
+        .where(ISSUE.ID.in(issueIds).and(ISSUE.PARENT_ISSUE_ID.isNotNull()))
+        .fetch()
+        .forEach(
+            r ->
+                result.put(
+                    r.get(ISSUE.ID),
+                    new ParentRef(
+                        r.get(p.NUMBER),
+                        r.get(p.TITLE),
+                        new IssueTypeSummary(
+                            r.get(ISSUE_TYPE_DEF.ID),
+                            r.get(ISSUE_TYPE_DEF.NAME),
+                            r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
+                            r.get(ISSUE_TYPE_DEF.ICON)))));
+    return result;
+  }
+
+  /** 부모 id 집합 → 활성 자식 수 맵. 입력에 들어온 모든 id 에 대해 0 으로 초기화 후 group by 결과로 덮어쓴다. */
+  public Map<Long, Integer> countChildrenByParentIds(List<Long> parentIds) {
+    if (parentIds == null || parentIds.isEmpty()) return Map.of();
+    Map<Long, Integer> result = new HashMap<>();
+    for (Long id : parentIds) result.put(id, 0);
+    dsl.select(ISSUE.PARENT_ISSUE_ID, count())
+        .from(ISSUE)
+        .where(ISSUE.PARENT_ISSUE_ID.in(parentIds).and(ISSUE.DELETED_AT.isNull()))
+        .groupBy(ISSUE.PARENT_ISSUE_ID)
+        .fetch()
+        .forEach(r -> result.put(r.value1(), r.value2()));
+    return result;
+  }
+
+  /** 부모 id 집합 → 활성 + status=DONE 자식 수 맵. 진행률 표시용. */
+  public Map<Long, Integer> countDoneChildrenByParentIds(List<Long> parentIds) {
+    if (parentIds == null || parentIds.isEmpty()) return Map.of();
+    Map<Long, Integer> result = new HashMap<>();
+    for (Long id : parentIds) result.put(id, 0);
+    dsl.select(ISSUE.PARENT_ISSUE_ID, count())
+        .from(ISSUE)
+        .where(
+            ISSUE
+                .PARENT_ISSUE_ID
+                .in(parentIds)
+                .and(ISSUE.DELETED_AT.isNull())
+                .and(ISSUE.STATUS.eq("DONE")))
+        .groupBy(ISSUE.PARENT_ISSUE_ID)
+        .fetch()
+        .forEach(r -> result.put(r.value1(), r.value2()));
+    return result;
   }
 
   /** watched-issues 전용 헬퍼. 호출자가 현재 멤버인 프로젝트의 활성 이슈만, ids 제한 + (updated_at, id) DESC cursor 페이징. */
@@ -360,7 +498,8 @@ public class IssueRepository {
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID)
+            ISSUE.TYPE_ID,
+            ISSUE.PARENT_ISSUE_ID)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())

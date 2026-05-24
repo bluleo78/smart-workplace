@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * 이슈 생성 요청. priority 기본값(MID)은 서비스에서 적용. assigneeIds 는 다중 담당자(선택). typeId 미지정 시 프로젝트의 TASK 시스템 유형으로
- * fallback.
+ * fallback. parentNumber 는 SUBTASK 생성 시 필수, 비SUBTASK 면 null 이어야 한다 (Phase 4a).
  */
 public record CreateIssueRequest(
     @NotBlank @Size(max = 200) String title,
@@ -16,4 +16,5 @@ public record CreateIssueRequest(
     @Pattern(regexp = "LOW|MID|HIGH") String priority,
     LocalDate dueDate,
     List<Long> assigneeIds,
-    Long typeId) {}
+    Long typeId,
+    Integer parentNumber) {}

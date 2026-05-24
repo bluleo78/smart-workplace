@@ -13,6 +13,7 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   LABELS_CHANGED: '라벨 변경',
   ATTACHMENTS_CHANGED: '첨부 변경',
   TYPE_CHANGED: '유형 변경',
+  PARENT_CHANGED: '부모 변경',
 };
 
 // LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.
@@ -75,6 +76,26 @@ function formatAssigneesChanged(toValue: string | null): string {
   }
 }
 
+// PARENT_CHANGED 페이로드는 toValue 에 {from:{number,title}|null, to:{number,title}|null} JSON.
+// 백엔드가 parent type 은 보내지 않으므로 텍스트만 렌더 — 설정/해제/변경을 자연어로 표기.
+function formatParentChanged(toValue: string | null): string {
+  if (!toValue) return '부모 변경';
+  try {
+    const p = JSON.parse(toValue) as {
+      from?: { number: number; title: string } | null;
+      to?: { number: number; title: string } | null;
+    };
+    const from = p.from ?? null;
+    const to = p.to ?? null;
+    if (to == null && from == null) return '부모 변경';
+    if (to == null) return `부모 해제 (이전 ${from?.title ?? ''})`;
+    if (from == null) return `부모 ${to.title} 로 설정`;
+    return `${from.title} → ${to.title}`;
+  } catch {
+    return toValue;
+  }
+}
+
 // TYPE_CHANGED 페이로드는 toValue 에 {from:{id,name}, to:{id,name}} JSON.
 // 파싱 실패 시 안전한 기본 문구로 폴백.
 function formatTypeChanged(toValue: string | null): string {
@@ -112,6 +133,8 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
               <span>{formatAssigneesChanged(e.toValue)}</span>
             ) : e.eventType === 'TYPE_CHANGED' ? (
               <span>{formatTypeChanged(e.toValue)}</span>
+            ) : e.eventType === 'PARENT_CHANGED' ? (
+              <span>{formatParentChanged(e.toValue)}</span>
             ) : (
               <span>
                 {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}

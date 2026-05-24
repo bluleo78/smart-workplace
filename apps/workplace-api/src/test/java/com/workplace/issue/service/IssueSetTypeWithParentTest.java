@@ -6,26 +6,26 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
-import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/** IssueSearchService — type 임베딩(N+1 회피) + type CSV 필터(OR) 검증. */
+/** Phase 4a — setType 의 SUBTASK ↔ 비SUBTASK 전환에서 parent 자동 해제 검증. */
 @Transactional
-class IssueSearchServiceTypesTest extends IntegrationTestBase {
+class IssueSetTypeWithParentTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired IssueService issueService;
-  @Autowired IssueSearchService searchService;
   @Autowired IssueTypeRepository typeRepository;
+  @Autowired IssueHistoryRepository historyRepository;
   @Autowired ProjectService projectService;
 
   private Long createUser(String prefix) {
@@ -56,40 +56,42 @@ class IssueSearchServiceTypesTest extends IntegrationTestBase {
   }
 
   @Test
-  void search_result_includes_type_summary() {
+  void subtask_to_task_releases_parent_and_records_two_histories() {
     Long owner = createUser("a");
-    ProjectResponse p = newProject(owner, "STY1");
-    var bug = typeRepository.findByProjectAndName(p.id(), "BUG").orElseThrow();
-    issueService.create(
-        owner, p.key(), new CreateIssueRequest("with-bug", null, null, null, null, bug.id(), null));
+    var p = newProject(owner, "STP1");
+    Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    Long taskId = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow().id();
+    var parent =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null));
+    var sub =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("s", null, null, null, null, subId, parent.number()));
 
-    var resp = searchService.search(owner, p.key(), Map.of());
+    issueService.setType(owner, p.key(), sub.number(), taskId);
 
-    assertThat(resp.items()).isNotEmpty();
-    assertThat(resp.items().get(0).type()).isNotNull();
-    assertThat(resp.items().get(0).type().name()).isEqualTo("BUG");
-    assertThat(resp.items().get(0).type().icon()).isEqualTo("Bug");
+    var detail = issueService.get(owner, p.key(), sub.number());
+    assertThat(detail.summary().parent()).isNull();
+    var events = historyRepository.findByIssue(sub.id());
+    assertThat(events).anyMatch(h -> "PARENT_CHANGED".equals(h.eventType()));
+    assertThat(events).anyMatch(h -> "TYPE_CHANGED".equals(h.eventType()));
   }
 
   @Test
-  void type_csv_filter_or_matches() {
+  void task_to_subtask_keeps_parent_null() {
     Long owner = createUser("b");
-    ProjectResponse p = newProject(owner, "STY2");
-    var bug = typeRepository.findByProjectAndName(p.id(), "BUG").orElseThrow();
-    var story = typeRepository.findByProjectAndName(p.id(), "STORY").orElseThrow();
-    var task = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow();
-    issueService.create(
-        owner, p.key(), new CreateIssueRequest("a-bug", null, null, null, null, bug.id(), null));
-    issueService.create(
-        owner,
-        p.key(),
-        new CreateIssueRequest("a-story", null, null, null, null, story.id(), null));
-    issueService.create(
-        owner, p.key(), new CreateIssueRequest("a-task", null, null, null, null, task.id(), null));
+    var p = newProject(owner, "STP2");
+    Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    var task =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
 
-    var resp = searchService.search(owner, p.key(), Map.of("type", bug.id() + "," + story.id()));
+    issueService.setType(owner, p.key(), task.number(), subId);
 
-    assertThat(resp.items()).hasSize(2);
-    assertThat(resp.items()).extracting(i -> i.type().name()).containsOnly("BUG", "STORY");
+    var events = historyRepository.findByIssue(task.id());
+    assertThat(events).anyMatch(h -> "TYPE_CHANGED".equals(h.eventType()));
+    assertThat(events).noneMatch(h -> "PARENT_CHANGED".equals(h.eventType()));
   }
 }
