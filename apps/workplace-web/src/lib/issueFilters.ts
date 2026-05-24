@@ -23,6 +23,10 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const labelIds = csv(params.get('label'))
     .map((s) => Number(s))
     .filter((n) => Number.isFinite(n) && n > 0);
+  // type 토큰도 동일 규칙 — 양의 정수만 통과.
+  const typeIds = csv(params.get('type'))
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n) && n > 0);
   return {
     q: params.get('q') ?? '',
     statuses: csv(params.get('status')).filter((s) =>
@@ -36,6 +40,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     dueFrom: params.get('dueFrom'),
     dueTo: params.get('dueTo'),
     labelIds,
+    typeIds,
   };
 }
 
@@ -57,6 +62,7 @@ export function filtersToParams(f: IssueFilters, view: IssueView): URLSearchPara
   if (f.dueFrom) p.set('dueFrom', f.dueFrom);
   if (f.dueTo) p.set('dueTo', f.dueTo);
   if (f.labelIds.length) p.set('label', f.labelIds.join(','));
+  if (f.typeIds.length) p.set('type', f.typeIds.join(','));
   return p;
 }
 

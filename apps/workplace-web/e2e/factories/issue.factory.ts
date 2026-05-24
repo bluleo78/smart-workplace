@@ -5,6 +5,7 @@ import type {
   IssueResponse,
   IssueSearchResponse,
 } from '../../src/types/issue';
+import { makeTaskType } from './issueType.factory';
 
 // 테스트용 이슈 요약 객체 팩토리.
 export function createIssue(overrides: Partial<IssueResponse> = {}): IssueResponse {
@@ -22,6 +23,7 @@ export function createIssue(overrides: Partial<IssueResponse> = {}): IssueRespon
     updatedAt: now,
     labels: [],
     attachmentCount: 0,
+    type: makeTaskType(),
     assignees: [],
     ...overrides,
   };

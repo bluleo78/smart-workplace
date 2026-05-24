@@ -1,4 +1,4 @@
-package com.workplace.watcher.service;
+package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
@@ -6,31 +6,27 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.CreateIssueRequest;
-import com.workplace.issue.service.IssueAssigneeService;
-import com.workplace.issue.service.IssueService;
+import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
-import com.workplace.watcher.repository.IssueWatcherRepository;
-import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/** WatcherAutoEnroller 자동 등록 통합 테스트 (create/update 훅 경로). */
+/** IssueSearchService — type 임베딩(N+1 회피) + type CSV 필터(OR) 검증. */
 @Transactional
-class WatcherAutoEnrollerTest extends IntegrationTestBase {
+class IssueSearchServiceTypesTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired IssueService issueService;
-  @Autowired IssueAssigneeService issueAssigneeService;
-  @Autowired IssueWatcherRepository watcherRepository;
+  @Autowired IssueSearchService searchService;
+  @Autowired IssueTypeRepository typeRepository;
   @Autowired ProjectService projectService;
-  @Autowired ProjectMemberRepository memberRepository;
 
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -60,30 +56,38 @@ class WatcherAutoEnrollerTest extends IntegrationTestBase {
   }
 
   @Test
-  void reporter_is_auto_enrolled_on_create() {
-    Long u = createUser("a");
-    ProjectResponse p = newProject(u, "AE1");
+  void search_result_includes_type_summary() {
+    Long owner = createUser("a");
+    ProjectResponse p = newProject(owner, "STY1");
+    var bug = typeRepository.findByProjectAndName(p.id(), "BUG").orElseThrow();
+    issueService.create(
+        owner, p.key(), new CreateIssueRequest("with-bug", null, null, null, null, bug.id()));
 
-    var resp =
-        issueService.create(u, p.key(), new CreateIssueRequest("t", null, "MID", null, null, null));
+    var resp = searchService.search(owner, p.key(), Map.of());
 
-    var watchers = watcherRepository.findUserIdsByIssue(resp.id());
-    assertThat(watchers).contains(u);
+    assertThat(resp.items()).isNotEmpty();
+    assertThat(resp.items().get(0).type()).isNotNull();
+    assertThat(resp.items().get(0).type().name()).isEqualTo("BUG");
+    assertThat(resp.items().get(0).type().icon()).isEqualTo("Bug");
   }
 
   @Test
-  void new_assignee_is_auto_enrolled_on_update() {
+  void type_csv_filter_or_matches() {
     Long owner = createUser("b");
-    Long assignee = createUser("c");
-    ProjectResponse p = newProject(owner, "AE2");
-    memberRepository.insert(p.id(), assignee, "MEMBER");
-    var issue =
-        issueService.create(
-            owner, p.key(), new CreateIssueRequest("t", null, "MID", null, null, null));
+    ProjectResponse p = newProject(owner, "STY2");
+    var bug = typeRepository.findByProjectAndName(p.id(), "BUG").orElseThrow();
+    var story = typeRepository.findByProjectAndName(p.id(), "STORY").orElseThrow();
+    var task = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow();
+    issueService.create(
+        owner, p.key(), new CreateIssueRequest("a-bug", null, null, null, null, bug.id()));
+    issueService.create(
+        owner, p.key(), new CreateIssueRequest("a-story", null, null, null, null, story.id()));
+    issueService.create(
+        owner, p.key(), new CreateIssueRequest("a-task", null, null, null, null, task.id()));
 
-    issueAssigneeService.replace(owner, p.key(), issue.number(), List.of(assignee));
+    var resp = searchService.search(owner, p.key(), Map.of("type", bug.id() + "," + story.id()));
 
-    var watchers = watcherRepository.findUserIdsByIssue(issue.id());
-    assertThat(watchers).contains(assignee);
+    assertThat(resp.items()).hasSize(2);
+    assertThat(resp.items()).extracting(i -> i.type().name()).containsOnly("BUG", "STORY");
   }
 }

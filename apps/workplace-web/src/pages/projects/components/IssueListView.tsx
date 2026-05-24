@@ -4,6 +4,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 
+import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import type { IssueFilters } from '../../../types/issue';
@@ -77,12 +78,15 @@ export function IssueListView({
                 {projectKey}-{it.number}
               </td>
               <td>
-                <Link
-                  to={`/projects/${projectKey}/issues/${it.number}`}
-                  className="font-medium hover:underline"
-                >
-                  {it.title}
-                </Link>
+                <div className="flex items-center gap-2">
+                  {it.type && <IssueTypeBadge type={it.type} size="sm" />}
+                  <Link
+                    to={`/projects/${projectKey}/issues/${it.number}`}
+                    className="font-medium hover:underline"
+                  >
+                    {it.title}
+                  </Link>
+                </div>
                 {it.labels.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     {it.labels.map((l) => (

@@ -13,6 +13,8 @@ export const createIssueSchema = z.object({
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
   // Phase 3c — 생성 시 다중 담당자 지정용. 현재 dialog 에서는 미노출이지만 schema 는 허용.
   assigneeIds: z.array(z.number().int().positive()).optional().nullable(),
+  // 이슈 유형 id — 생략 시 백엔드가 TASK 로 fallback.
+  typeId: z.number().int().positive().optional().nullable(),
 });
 export type CreateIssueFormData = z.infer<typeof createIssueSchema>;
 

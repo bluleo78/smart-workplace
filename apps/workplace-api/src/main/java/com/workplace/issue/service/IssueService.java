@@ -4,8 +4,10 @@ import com.workplace.global.dto.PageResponse;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
+import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
+import com.workplace.issue.exception.InvalidTypeForProjectException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
@@ -13,6 +15,7 @@ import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
@@ -37,6 +40,7 @@ public class IssueService {
   private final IssueLabelRepository issueLabelRepository;
   private final IssueAttachmentRepository issueAttachmentRepository;
   private final IssueAssigneeRepository assigneeRepository;
+  private final IssueTypeRepository typeRepository;
   private final ProjectIssueSequenceRepository sequenceRepository;
   private final ProjectMemberRepository memberRepository;
   private final ProjectAccessGuard accessGuard;
@@ -45,6 +49,7 @@ public class IssueService {
 
   /**
    * 신규 이슈 생성. priority 기본값(MID)을 서비스에서 보정. assigneeIds 가 비어있지 않으면 issue_assignee 매핑까지 동시 INSERT.
+   * typeId 미지정 시 프로젝트의 TASK 시스템 유형으로 fallback.
    */
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
     var project = accessGuard.assertMember(projectKey, callerId);
@@ -58,6 +63,23 @@ public class IssueService {
       }
     }
 
+    // 2) typeId 결정 — 지정 시 같은 프로젝트 검증, 아니면 TASK fallback.
+    Long typeId;
+    if (req.typeId() != null) {
+      var t =
+          typeRepository.findById(req.typeId()).orElseThrow(InvalidTypeForProjectException::new);
+      if (!t.projectId().equals(project.id())) {
+        throw new InvalidTypeForProjectException();
+      }
+      typeId = t.id();
+    } else {
+      typeId =
+          typeRepository
+              .findByProjectAndName(project.id(), "TASK")
+              .orElseThrow(() -> new IllegalStateException("프로젝트에 TASK 유형이 없음"))
+              .id();
+    }
+
     int number = sequenceRepository.allocateNext(project.id());
     var row =
         issueRepository.insert(
@@ -67,14 +89,15 @@ public class IssueService {
             req.body(),
             req.priority() != null ? req.priority() : "MID",
             req.dueDate(),
-            callerId);
+            callerId,
+            typeId);
 
-    // 2) issue_assignee 매핑 INSERT
+    // 3) issue_assignee 매핑 INSERT
     for (Long uid : assigneeIds) {
       assigneeRepository.add(row.id(), uid, callerId);
     }
 
-    // 3) watcher 자동 등록: reporter + 각 assignee (caller 와 다를 때만)
+    // 4) watcher 자동 등록: reporter + 각 assignee (caller 와 다를 때만)
     watcherAutoEnroller.enroll(row.id(), callerId);
     for (Long uid : assigneeIds) {
       if (!uid.equals(callerId)) watcherAutoEnroller.enroll(row.id(), uid);
@@ -98,7 +121,7 @@ public class IssueService {
         totalPages);
   }
 
-  /** 이슈 상세 조회 (요약 + 본문 + 코멘트 + 히스토리 + 담당자). */
+  /** 이슈 상세 조회 (요약 + 본문 + 코멘트 + 히스토리 + 담당자 + 유형). */
   @Transactional(readOnly = true)
   public IssueDetailResponse get(Long callerId, String projectKey, int number) {
     var project = accessGuard.assertMember(projectKey, callerId);
@@ -109,11 +132,12 @@ public class IssueService {
     var labels = issueLabelRepository.findLabelsByIssue(row.id());
     var attachments = issueAttachmentRepository.findByIssue(row.id());
     var assignees = assigneeRepository.findByIssue(row.id());
+    var typeMap = typeRepository.findByIds(List.of(row.typeId()));
+    var type = typeMap.get(row.typeId());
     var comments = commentRepository.findByIssue(row.id());
     var history = historyRepository.findByIssue(row.id());
     return new IssueDetailResponse(
-        IssueResponse.fromWithFullDetails(
-            project.key(), row, labels, attachments.size(), assignees),
+        IssueResponse.fromWithType(project.key(), row, labels, attachments.size(), type, assignees),
         row.body(),
         comments,
         history,
@@ -163,6 +187,34 @@ public class IssueService {
       Long callerId, String projectKey, int number, String newStatus) {
     var req = new UpdateIssueRequest(null, null, newStatus, null, null, false);
     return update(callerId, projectKey, number, req);
+  }
+
+  /**
+   * 이슈 유형 변경 — 멤버 권한. 같은 프로젝트의 유형만 허용. 기존과 동일한 유형이면 history 미기록 fast-return. 변경 시 TYPE_CHANGED
+   * history 한 건 기록.
+   */
+  public IssueDetailResponse setType(Long callerId, String projectKey, int number, Long newTypeId) {
+    var project = accessGuard.assertMember(projectKey, callerId);
+    var issue =
+        issueRepository
+            .findByProjectAndNumber(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    var newType =
+        typeRepository.findById(newTypeId).orElseThrow(InvalidTypeForProjectException::new);
+    if (!newType.projectId().equals(project.id())) {
+      throw new InvalidTypeForProjectException();
+    }
+    if (newType.id().equals(issue.typeId())) {
+      return get(callerId, projectKey, number);
+    }
+    var oldType = typeRepository.findById(issue.typeId()).orElseThrow();
+    issueRepository.updateType(issue.id(), newType.id());
+    historyRecorder.recordTypeChanged(
+        callerId,
+        issue.id(),
+        new IssueTypeSummary(oldType.id(), oldType.name(), oldType.colorToken(), oldType.icon()),
+        new IssueTypeSummary(newType.id(), newType.name(), newType.colorToken(), newType.icon()));
+    return get(callerId, projectKey, number);
   }
 
   /** 이슈 soft-delete. reporter 본인 또는 프로젝트 OWNER 만 가능. */

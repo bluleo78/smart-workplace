@@ -1,6 +1,7 @@
 package com.workplace.issue.repository;
 
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static org.jooq.impl.DSL.count;
 
 import com.workplace.issue.dto.IssueRow;
@@ -20,7 +21,7 @@ public class IssueRepository {
 
   private final DSLContext dsl;
 
-  /** SELECT 결과를 {@link IssueRow} 로 매핑. OffsetDateTime → Instant 변환. */
+  /** SELECT 결과를 {@link IssueRow} 로 매핑. OffsetDateTime → Instant 변환. typeId 는 V10 이후 NOT NULL. */
   private IssueRow mapToRow(Record r) {
     OffsetDateTime created = r.get(ISSUE.CREATED_AT);
     OffsetDateTime updated = r.get(ISSUE.UPDATED_AT);
@@ -37,7 +38,8 @@ public class IssueRepository {
         r.get(ISSUE.REPORTER_ID),
         created != null ? created.toInstant() : null,
         updated != null ? updated.toInstant() : null,
-        closed != null ? closed.toInstant() : null);
+        closed != null ? closed.toInstant() : null,
+        r.get(ISSUE.TYPE_ID));
   }
 
   /** id 로 활성 이슈 조회. */
@@ -54,7 +56,8 @@ public class IssueRepository {
             ISSUE.REPORTER_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT)
+            ISSUE.CLOSED_AT,
+            ISSUE.TYPE_ID)
         .from(ISSUE)
         .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
@@ -74,7 +77,8 @@ public class IssueRepository {
             ISSUE.REPORTER_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT)
+            ISSUE.CLOSED_AT,
+            ISSUE.TYPE_ID)
         .from(ISSUE)
         .where(
             ISSUE
@@ -99,7 +103,8 @@ public class IssueRepository {
             ISSUE.REPORTER_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT)
+            ISSUE.CLOSED_AT,
+            ISSUE.TYPE_ID)
         .from(ISSUE)
         .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull()))
         .orderBy(ISSUE.UPDATED_AT.desc())
@@ -118,6 +123,7 @@ public class IssueRepository {
 
   /**
    * 신규 이슈 INSERT 후 생성된 row 반환. status 는 DB default('TODO') 사용. 담당자는 별도 매핑(issue_assignee) 으로 관리.
+   * typeId 는 V10 이후 NOT NULL — 호출자가 결정(typically TASK fallback) 해서 전달.
    */
   public IssueRow insert(
       Long projectId,
@@ -126,7 +132,8 @@ public class IssueRepository {
       String body,
       String priority,
       LocalDate dueDate,
-      Long reporterId) {
+      Long reporterId,
+      Long typeId) {
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, projectId)
         .set(ISSUE.NUMBER, number)
@@ -135,6 +142,7 @@ public class IssueRepository {
         .set(ISSUE.PRIORITY, priority)
         .set(ISSUE.DUE_DATE, dueDate)
         .set(ISSUE.REPORTER_ID, reporterId)
+        .set(ISSUE.TYPE_ID, typeId)
         .returning(
             ISSUE.ID,
             ISSUE.PROJECT_ID,
@@ -147,13 +155,39 @@ public class IssueRepository {
             ISSUE.REPORTER_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT)
+            ISSUE.CLOSED_AT,
+            ISSUE.TYPE_ID)
         .fetchOptional()
         .map(this::mapToRow)
         .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
   }
 
-  /** 모든 변경 가능 필드 일괄 갱신. updated_at = now(). closedAt 은 호출자가 계산하여 전달. */
+  /**
+   * 테스트 편의 오버로드 — typeId 미지정 시 프로젝트의 TASK 시스템 유형으로 자동 fallback. 프로덕션 서비스 코드는 8-인자 변형을 직접 호출(typeId
+   * 를 명시적으로 결정해서 전달)한다. 이 오버로드는 신규 type 컬럼 추가 후 다수 테스트 시드의 마이그레이션 비용을 줄이기 위한 호환층.
+   */
+  public IssueRow insert(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId) {
+    Long taskTypeId =
+        dsl.select(ISSUE_TYPE_DEF.ID)
+            .from(ISSUE_TYPE_DEF)
+            .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(projectId).and(ISSUE_TYPE_DEF.NAME.eq("TASK")))
+            .fetchOptional(ISSUE_TYPE_DEF.ID)
+            .orElseThrow(
+                () -> new IllegalStateException("프로젝트에 TASK 유형이 없음: projectId=" + projectId));
+    return insert(projectId, number, title, body, priority, dueDate, reporterId, taskTypeId);
+  }
+
+  /**
+   * 모든 변경 가능 필드 일괄 갱신. updated_at = now(). closedAt 은 호출자가 계산하여 전달. type 변경은 별도 {@link
+   * #updateType}.
+   */
   public void updateAll(
       Long id,
       String title,
@@ -174,9 +208,19 @@ public class IssueRepository {
         .execute();
   }
 
+  /** 유형만 갱신 — updated_at 동기. 서비스에서 fast-return / history 기록과 함께 사용. */
+  public void updateType(Long id, Long newTypeId) {
+    dsl.update(ISSUE)
+        .set(ISSUE.TYPE_ID, newTypeId)
+        .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
+        .where(ISSUE.ID.eq(id))
+        .execute();
+  }
+
   /**
    * 검색/필터 + cursor 페이징. 활성(deleted_at IS NULL) 이슈만 대상. 정렬은 (updated_at DESC, id DESC) 고정. size 는
    * 호출자가 1..100 으로 클램프한 값을 넘긴다. assignee 필터는 issue_assignee 매핑에 대한 EXISTS/NOT EXISTS 로 변환된다.
+   * typeIds 는 OR 결합.
    */
   public List<IssueRow> search(Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition where = ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull());
@@ -240,6 +284,9 @@ public class IssueRepository {
                                 .and(com.workplace.jooq.Tables.ISSUE_LABEL.LABEL_ID.eq(lid)))));
       }
     }
+    if (query.typeIds() != null && !query.typeIds().isEmpty()) {
+      where = where.and(ISSUE.TYPE_ID.in(query.typeIds()));
+    }
     if (query.cursor() != null) {
       var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = query.cursor().id();
@@ -260,7 +307,8 @@ public class IssueRepository {
             ISSUE.REPORTER_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT)
+            ISSUE.CLOSED_AT,
+            ISSUE.TYPE_ID)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
@@ -311,7 +359,8 @@ public class IssueRepository {
             ISSUE.REPORTER_ID,
             ISSUE.CREATED_AT,
             ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT)
+            ISSUE.CLOSED_AT,
+            ISSUE.TYPE_ID)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())

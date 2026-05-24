@@ -27,7 +27,19 @@ class IssueHistoryRecorderTest {
   /** 비교용 IssueRow 헬퍼. id/projectId/number/reporter 등은 고정. */
   private IssueRow row(String title, String status, String priority, LocalDate due) {
     return new IssueRow(
-        99L, 1L, 1, title, "body", status, priority, due, 10L, Instant.now(), Instant.now(), null);
+        99L,
+        1L,
+        1,
+        title,
+        "body",
+        status,
+        priority,
+        due,
+        10L,
+        Instant.now(),
+        Instant.now(),
+        null,
+        1L);
   }
 
   @Test
@@ -56,7 +68,8 @@ class IssueHistoryRecorderTest {
             10L,
             Instant.now(),
             Instant.now(),
-            null);
+            null,
+            1L);
     var after =
         new IssueRow(
             99L,
@@ -70,7 +83,8 @@ class IssueHistoryRecorderTest {
             10L,
             Instant.now(),
             Instant.now(),
-            null);
+            null,
+            1L);
 
     recorder().recordChanges(1L, before, after);
 

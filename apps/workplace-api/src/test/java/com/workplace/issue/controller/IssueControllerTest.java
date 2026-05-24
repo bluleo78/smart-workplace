@@ -74,6 +74,7 @@ class IssueControllerTest {
         Instant.now(),
         List.of(),
         0,
+        null,
         List.of());
   }
 
@@ -107,7 +108,7 @@ class IssueControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CreateIssueRequest("title", "body", "MID", null, null))))
+                        new CreateIssueRequest("title", "body", "MID", null, null, null))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.title").value("title"));
   }
@@ -123,7 +124,7 @@ class IssueControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CreateIssueRequest("", "body", null, null, null))))
+                        new CreateIssueRequest("", "body", null, null, null, null))))
         .andExpect(status().isBadRequest());
   }
 
@@ -138,7 +139,7 @@ class IssueControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CreateIssueRequest("title", "body", "FOO", null, null))))
+                        new CreateIssueRequest("title", "body", "FOO", null, null, null))))
         .andExpect(status().isBadRequest());
   }
 

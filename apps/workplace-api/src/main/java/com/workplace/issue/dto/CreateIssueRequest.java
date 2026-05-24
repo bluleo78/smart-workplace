@@ -6,10 +6,14 @@ import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.util.List;
 
-/** 이슈 생성 요청. priority 기본값(MID)은 서비스에서 적용. assigneeIds 는 다중 담당자 (선택). */
+/**
+ * 이슈 생성 요청. priority 기본값(MID)은 서비스에서 적용. assigneeIds 는 다중 담당자(선택). typeId 미지정 시 프로젝트의 TASK 시스템 유형으로
+ * fallback.
+ */
 public record CreateIssueRequest(
     @NotBlank @Size(max = 200) String title,
     @Size(max = 10000) String body,
     @Pattern(regexp = "LOW|MID|HIGH") String priority,
     LocalDate dueDate,
-    List<Long> assigneeIds) {}
+    List<Long> assigneeIds,
+    Long typeId) {}

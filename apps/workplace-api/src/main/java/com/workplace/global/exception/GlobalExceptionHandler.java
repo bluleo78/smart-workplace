@@ -12,8 +12,14 @@ import com.workplace.issue.exception.AttachmentTooLargeException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.InvalidIssueOperationException;
+import com.workplace.issue.exception.InvalidTypeForProjectException;
+import com.workplace.issue.exception.InvalidTypeIconException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.exception.SystemTypeImmutableException;
+import com.workplace.issue.exception.TypeInUseException;
+import com.workplace.issue.exception.TypeNameDuplicatedException;
+import com.workplace.issue.exception.TypeNotFoundException;
 import com.workplace.label.exception.InvalidColorTokenException;
 import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.exception.LabelNameDuplicatedException;
@@ -372,6 +378,54 @@ public class GlobalExceptionHandler {
       AttachmentLimitExceededException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.CONFLICT)
         .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 이슈 유형 정의를 찾을 수 없음 — 404. */
+  @ExceptionHandler(TypeNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleTypeNotFound(
+      TypeNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 동일 프로젝트 내 유형 이름 중복 — 409. */
+  @ExceptionHandler(TypeNameDuplicatedException.class)
+  public ResponseEntity<ErrorResponse> handleTypeNameDuplicated(
+      TypeNameDuplicatedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 시스템 유형(TASK/BUG/STORY/CHORE) 수정/삭제 시도 — 409. */
+  @ExceptionHandler(SystemTypeImmutableException.class)
+  public ResponseEntity<ErrorResponse> handleSystemTypeImmutable(
+      SystemTypeImmutableException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 사용 중인 CUSTOM 유형 삭제 시도 — 409. */
+  @ExceptionHandler(TypeInUseException.class)
+  public ResponseEntity<ErrorResponse> handleTypeInUse(
+      TypeInUseException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 다른 프로젝트의 유형 id 를 지정 — 400. */
+  @ExceptionHandler(InvalidTypeForProjectException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidTypeForProject(
+      InvalidTypeForProjectException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 허용되지 않은 유형 아이콘 — 400. */
+  @ExceptionHandler(InvalidTypeIconException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidTypeIcon(
+      InvalidTypeIconException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
   @ExceptionHandler(Exception.class)

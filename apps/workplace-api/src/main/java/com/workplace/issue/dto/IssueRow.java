@@ -3,7 +3,7 @@ package com.workplace.issue.dto;
 import java.time.Instant;
 import java.time.LocalDate;
 
-/** 리포지토리 → 서비스 전달용 내부 이슈 row. 외부 응답에는 {@link IssueResponse} 등 사용. */
+/** 리포지토리 → 서비스 전달용 내부 이슈 row. 외부 응답에는 {@link IssueResponse} 등 사용. typeId 는 V10 이후 NOT NULL. */
 public record IssueRow(
     Long id,
     Long projectId,
@@ -16,4 +16,5 @@ public record IssueRow(
     Long reporterId,
     Instant createdAt,
     Instant updatedAt,
-    Instant closedAt) {}
+    Instant closedAt,
+    Long typeId) {}

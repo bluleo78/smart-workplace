@@ -7,6 +7,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Paperclip } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { IssueResponse } from '../../../types/issue';
@@ -56,9 +57,12 @@ export function IssueCard({
       <div className="flex items-center justify-between gap-2">
         <Link
           to={`/projects/${projectKey}/issues/${issue.number}`}
-          className="font-medium hover:underline truncate"
+          className="font-medium hover:underline truncate flex items-center gap-1"
           onPointerDown={(e) => e.stopPropagation()}
         >
+          {issue.type && (
+            <IssueTypeBadge type={issue.type} size="sm" iconOnly />
+          )}
           <span className="text-muted-foreground mr-1 font-mono text-xs">
             {identifier}
           </span>

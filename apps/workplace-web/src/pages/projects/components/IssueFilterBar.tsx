@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
+import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
+import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { filtersToParams, parseFilters, parseView } from '../../../lib/issueFilters';
 import type { IssueFilters, IssueView } from '../../../types/issue';
@@ -33,6 +35,7 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
   const view = parseView(params);
   const [qDraft, setQDraft] = useState(filters.q);
   const labels = useLabels(projectKey);
+  const types = useIssueTypes(projectKey);
 
   // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 동기화한다.
   useEffect(() => {
@@ -88,6 +91,20 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
         labelIds: has
           ? filters.labelIds.filter((x) => x !== id)
           : [...filters.labelIds, id],
+      },
+      view,
+    );
+  }
+
+  // 유형 다중 토글 — OR 결합. 선택된 유형 중 하나에 속한 이슈 매칭.
+  function toggleType(id: number) {
+    const has = filters.typeIds.includes(id);
+    writeFilters(
+      {
+        ...filters,
+        typeIds: has
+          ? filters.typeIds.filter((x) => x !== id)
+          : [...filters.typeIds, id],
       },
       view,
     );
@@ -176,6 +193,51 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
             {(labels.data ?? []).length === 0 && (
               <p className="text-xs text-muted-foreground py-2 text-center">
                 라벨이 없습니다
+              </p>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant={filters.typeIds.length > 0 ? 'default' : 'outline'}
+            size="sm"
+            aria-label="유형 필터"
+            data-testid="issue-type-filter-trigger"
+          >
+            유형{filters.typeIds.length > 0 ? ` (${filters.typeIds.length})` : ''}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 p-2">
+          <div className="max-h-64 overflow-y-auto space-y-1">
+            {(types.data ?? []).map((t) => (
+              <label
+                key={t.id}
+                className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
+                data-testid={`issue-type-filter-option-${t.id}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={filters.typeIds.includes(t.id)}
+                  onChange={() => toggleType(t.id)}
+                  aria-label={t.name}
+                />
+                <IssueTypeBadge
+                  type={{
+                    id: t.id,
+                    name: t.name,
+                    colorToken: t.colorToken,
+                    icon: t.icon,
+                  }}
+                  size="sm"
+                />
+              </label>
+            ))}
+            {(types.data ?? []).length === 0 && (
+              <p className="text-xs text-muted-foreground py-2 text-center">
+                유형이 없습니다
               </p>
             )}
           </div>

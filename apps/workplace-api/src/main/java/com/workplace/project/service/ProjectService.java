@@ -2,6 +2,7 @@ package com.workplace.project.service;
 
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.issue.service.IssueTypeService;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.MemberResponse;
@@ -33,8 +34,9 @@ public class ProjectService {
   private final ProjectIssueSequenceRepository sequenceRepository;
   private final ProjectAccessGuard accessGuard;
   private final PermissionChecker permissionChecker;
+  private final IssueTypeService issueTypeService;
 
-  /** 프로젝트 생성. 호출자를 OWNER 로 등록하고 이슈 시퀀스를 초기화한다. */
+  /** 프로젝트 생성. 호출자를 OWNER 로 등록 → 이슈 시퀀스 초기화 → 시스템 유형 4종(TASK/BUG/STORY/CHORE) 시드. */
   public ProjectResponse create(Long callerId, CreateProjectRequest req) {
     if (projectRepository.existsByKey(req.key())) {
       throw new ProjectConflictException("이미 사용 중인 key 입니다: " + req.key());
@@ -42,6 +44,7 @@ public class ProjectService {
     ProjectRow row = projectRepository.insert(req.key(), req.name(), req.description(), callerId);
     memberRepository.insert(row.id(), callerId, "OWNER");
     sequenceRepository.initialize(row.id());
+    issueTypeService.seedSystemTypes(row.id());
     return ProjectResponse.from(row);
   }
 

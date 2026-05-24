@@ -12,6 +12,7 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   DUE_DATE_CHANGED: '마감일 변경',
   LABELS_CHANGED: '라벨 변경',
   ATTACHMENTS_CHANGED: '첨부 변경',
+  TYPE_CHANGED: '유형 변경',
 };
 
 // LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.
@@ -74,6 +75,21 @@ function formatAssigneesChanged(toValue: string | null): string {
   }
 }
 
+// TYPE_CHANGED 페이로드는 toValue 에 {from:{id,name}, to:{id,name}} JSON.
+// 파싱 실패 시 안전한 기본 문구로 폴백.
+function formatTypeChanged(toValue: string | null): string {
+  if (!toValue) return '유형 변경';
+  try {
+    const p = JSON.parse(toValue) as {
+      from?: { name?: string };
+      to?: { name?: string };
+    };
+    return `${p.from?.name ?? '?'} → ${p.to?.name ?? '?'}`;
+  } catch {
+    return toValue;
+  }
+}
+
 // 이력 항목을 시간순으로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
 export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[] }) {
   if (entries.length === 0) {
@@ -94,6 +110,8 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
               <span>{formatAttachmentsChanged(e.toValue)}</span>
             ) : e.eventType === 'ASSIGNEES_CHANGED' ? (
               <span>{formatAssigneesChanged(e.toValue)}</span>
+            ) : e.eventType === 'TYPE_CHANGED' ? (
+              <span>{formatTypeChanged(e.toValue)}</span>
             ) : (
               <span>
                 {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}

@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -9,25 +10,49 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
+import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { handleApiError } from '../../../lib/api-error';
 import { createIssueSchema, type CreateIssueFormData } from '../../../lib/validations/issue';
 
 // 새 이슈 생성 모달. priority 기본 MID, dueDate 미지정 시 빈 문자열 → API 호출 직전 undefined 변환.
+// 유형 select 의 기본값은 프로젝트 유형 목록에서 name === 'TASK' 인 id (없으면 첫 번째).
 export function IssueCreateDialog({
   projectKey, open, onOpenChange,
 }: { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void }) {
   const create = useCreateIssue(projectKey);
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateIssueFormData>({
+  const types = useIssueTypes(projectKey);
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    formState: { errors },
+  } = useForm<CreateIssueFormData>({
     resolver: zodResolver(createIssueSchema),
     defaultValues: { priority: 'MID' },
   });
+
+  // 유형 목록 로드 시 기본값 세팅 — name === 'TASK' 우선, 없으면 첫 항목.
+  useEffect(() => {
+    const list = types.data;
+    if (!list || list.length === 0) return;
+    const currentTypeId = watch('typeId');
+    if (currentTypeId) return;
+    const task = list.find((t) => t.name === 'TASK');
+    setValue('typeId', task?.id ?? list[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [types.data]);
+
+  const currentTypeId = watch('typeId');
 
   const onSubmit = async (data: CreateIssueFormData) => {
     const payload = {
       ...data,
       dueDate: data.dueDate || undefined,
       body: data.body || undefined,
+      typeId: data.typeId ?? undefined,
     };
     try {
       await create.mutateAsync(payload);
@@ -53,7 +78,22 @@ export function IssueCreateDialog({
             <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
             <Textarea id="issue-body" {...register('body')} rows={6} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="issue-type">유형</label>
+              <select
+                id="issue-type"
+                value={currentTypeId ?? ''}
+                onChange={(e) => setValue('typeId', Number(e.target.value))}
+                data-testid="create-type-select"
+                aria-label="이슈 유형"
+                className="w-full border rounded p-2 bg-background"
+              >
+                {(types.data ?? []).map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="issue-priority">우선순위</label>
               <select id="issue-priority" {...register('priority')} className="w-full border rounded p-2 bg-background">

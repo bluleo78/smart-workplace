@@ -1,6 +1,7 @@
 // 이슈/댓글/이력 관련 타입 — 백엔드 DTO 와 1:1 매칭.
 
 import type { IssueAttachment } from './attachment';
+import type { IssueTypeSummary } from './issueType';
 import type { LabelSummary } from './label';
 import type { UserSummary } from './user';
 
@@ -22,6 +23,9 @@ export interface IssueResponse {
   labels: LabelSummary[];
   // 이슈에 부착된 첨부 개수 — N+1 회피용 카운트 (목록 카드 표시).
   attachmentCount: number;
+  // 이슈 유형 요약 — 검색·상세 응답에는 항상 채워지지만,
+  // POST /issues 응답(생성 직후) 은 null 일 수 있다. list 재조회 시 채워진다.
+  type: IssueTypeSummary | null;
   // 다중 담당자 — Phase 3c. 항상 배열 (없으면 빈 배열).
   assignees: UserSummary[];
 }
@@ -44,7 +48,8 @@ export type IssueHistoryEventType =
   | 'ASSIGNEES_CHANGED'
   | 'DUE_DATE_CHANGED'
   | 'LABELS_CHANGED'
-  | 'ATTACHMENTS_CHANGED';
+  | 'ATTACHMENTS_CHANGED'
+  | 'TYPE_CHANGED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -72,6 +77,8 @@ export interface CreateIssueRequest {
   dueDate?: string;
   // 다중 담당자 — Phase 3c. 생략/빈배열/null 모두 "지정 안함" 의미.
   assigneeIds?: number[] | null;
+  // 이슈 유형 id — 생략 시 백엔드가 TASK 로 fallback.
+  typeId?: number | null;
 }
 
 export interface UpdateIssueRequest {
@@ -105,6 +112,8 @@ export interface IssueFilters {
   dueTo: string | null;
   // 다중 라벨 AND 필터 — 모든 라벨이 부착된 이슈만 매칭.
   labelIds: number[];
+  // 다중 유형 OR 필터 — 선택된 유형 중 하나에 속한 이슈 매칭.
+  typeIds: number[];
 }
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.

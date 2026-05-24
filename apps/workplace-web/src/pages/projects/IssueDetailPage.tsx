@@ -16,6 +16,8 @@ import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 
+import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
+
 import { AssigneePickerPopover } from './components/AssigneePickerPopover';
 import { IssueActivityTimeline } from './components/IssueActivityTimeline';
 import { IssueAttachmentDropzone } from './components/IssueAttachmentDropzone';
@@ -62,6 +64,13 @@ export default function IssueDetailPage() {
             {summary.projectKey}-{summary.number}
           </p>
           <div className="flex items-center gap-3 flex-wrap">
+            {summary.type && (
+              <IssueTypeSelectPopover
+                projectKey={key}
+                issueNumber={issueNumber}
+                current={summary.type}
+              />
+            )}
             <h1 className="text-2xl font-semibold">{summary.title}</h1>
             <Button
               variant="outline"

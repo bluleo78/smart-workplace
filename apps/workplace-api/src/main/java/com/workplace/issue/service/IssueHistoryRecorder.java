@@ -129,6 +129,28 @@ public class IssueHistoryRecorder {
     historyRepository.insert(issueId, actorId, "ASSIGNEES_CHANGED", null, payload);
   }
 
+  /**
+   * 유형 변경 한 건을 기록. 동일 유형은 호출 안 됨 보장(서비스). payload JSON 은 toValue 필드에 저장하고 fromValue 는 null
+   * (라벨/첨부/담당자와 동일 패턴).
+   */
+  public void recordTypeChanged(
+      Long actorId,
+      Long issueId,
+      com.workplace.issue.dto.IssueTypeSummary from,
+      com.workplace.issue.dto.IssueTypeSummary to) {
+    String payload;
+    try {
+      payload =
+          objectMapper.writeValueAsString(
+              Map.of(
+                  "from", Map.of("id", from.id(), "name", from.name()),
+                  "to", Map.of("id", to.id(), "name", to.name())));
+    } catch (Exception e) {
+      payload = "{}";
+    }
+    historyRepository.insert(issueId, actorId, "TYPE_CHANGED", null, payload);
+  }
+
   /** 객체 → 문자열 (null 보존). */
   private static String stringify(Object v) {
     return v == null ? null : v.toString();

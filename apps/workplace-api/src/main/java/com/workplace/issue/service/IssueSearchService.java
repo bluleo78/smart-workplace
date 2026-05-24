@@ -5,12 +5,14 @@ import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueSearchResponse;
+import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.label.dto.LabelSummary;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.time.LocalDate;
@@ -25,7 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 이슈 검색/필터 + cursor 페이징 단일 진입점. 컨트롤러에서 받은 Map<String,String> 쿼리 파라미터를 IssueSearchQuery 로 정규화한 뒤
- * 리포지토리에 위임한다. 라벨은 N+1 회피를 위해 한 번의 IN 쿼리로 일괄 fetch 후 in-memory 그룹핑.
+ * 리포지토리에 위임한다. 라벨/첨부/담당자/유형 모두 N+1 회피를 위해 한 번의 IN 쿼리로 일괄 fetch 후 in-memory 그룹핑.
  */
 @Service
 @Transactional(readOnly = true)
@@ -39,9 +41,10 @@ public class IssueSearchService {
   private final IssueLabelRepository issueLabelRepository;
   private final IssueAttachmentRepository issueAttachmentRepository;
   private final IssueAssigneeRepository issueAssigneeRepository;
+  private final IssueTypeRepository typeRepository;
   private final ProjectAccessGuard accessGuard;
 
-  /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, cursor, size. */
+  /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size. */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     var project = accessGuard.assertMember(projectKey, callerId);
     IssueSearchQuery query = parse(params);
@@ -55,15 +58,19 @@ public class IssueSearchService {
     // 담당자 N+1 회피: issueIds 일괄 조회 후 in-memory 그룹핑.
     Map<Long, List<UserSummary>> assigneesByIssue =
         issueAssigneeRepository.findByIssueIds(issueIds);
+    // 유형 N+1 회피: row 들의 typeId distinct 모아 한 번에 fetch.
+    List<Long> typeIdsToFetch = rows.stream().map(IssueRow::typeId).distinct().toList();
+    Map<Long, IssueTypeSummary> typesById = typeRepository.findByIds(typeIdsToFetch);
     var items =
         rows.stream()
             .map(
                 r ->
-                    IssueResponse.fromWithFullDetails(
+                    IssueResponse.fromWithType(
                         project.key(),
                         r,
                         labelsByIssue.getOrDefault(r.id(), List.of()),
                         countsByIssue.getOrDefault(r.id(), 0),
+                        typesById.get(r.typeId()),
                         assigneesByIssue.getOrDefault(r.id(), List.of())))
             .toList();
 
@@ -127,6 +134,16 @@ public class IssueSearchService {
       }
     }
 
+    // 유형 ID CSV — OR 결합 필터. 잘못된 토큰은 무시.
+    List<Long> typeIds = new ArrayList<>();
+    for (String tok : csv(p.get("type"))) {
+      try {
+        typeIds.add(Long.parseLong(tok));
+      } catch (NumberFormatException ignored) {
+        // 잘못된 유형 토큰은 필터 미적용
+      }
+    }
+
     return new IssueSearchQuery(
         q,
         statuses,
@@ -137,7 +154,8 @@ public class IssueSearchService {
         dueTo,
         cursor,
         size,
-        labelIds);
+        labelIds,
+        typeIds);
   }
 
   private static String trimToNull(String s) {

@@ -80,6 +80,21 @@ public class IssueController {
         issueService.updateStatus((Long) auth.getPrincipal(), key, number, req.status()));
   }
 
+  /** 유형 변경 본문. typeId 필수. */
+  public record UpdateTypeRequest(@jakarta.validation.constraints.NotNull Long typeId) {}
+
+  /** 이슈 유형 변경 — 같은 프로젝트의 유형만 허용. */
+  @PatchMapping("/{number}/type")
+  @RequirePermission("issue:write")
+  public ResponseEntity<IssueDetailResponse> updateType(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @Valid @RequestBody UpdateTypeRequest req) {
+    return ResponseEntity.ok(
+        issueService.setType((Long) auth.getPrincipal(), key, number, req.typeId()));
+  }
+
   /** 이슈 soft-delete. reporter 또는 OWNER 만 가능. */
   @DeleteMapping("/{number}")
   @RequirePermission("issue:write")
