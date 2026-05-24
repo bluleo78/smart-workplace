@@ -2,8 +2,10 @@
 // 검색/목록 조회는 useIssueSearch (cursor 기반 무한 스크롤) 에서 담당한다.
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 import { issuesApi } from '../../api/issues';
+import { handleApiError } from '../../lib/api-error';
 import type { CreateIssueRequest } from '../../types/issue';
 
 export const issueKeys = {
@@ -24,5 +26,21 @@ export function useCreateIssue(projectKey: string) {
       qc.invalidateQueries({ queryKey: issueKeys.lists(projectKey) });
       qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
     },
+  });
+}
+
+// 이슈 soft-delete. 부모면 자식 SUBTASK 도 cascade (백엔드 처리).
+// 권한: reporter 또는 OWNER. 성공 시 호출자가 라우팅 처리.
+export function useDeleteIssue(projectKey: string, number: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => issuesApi.remove(projectKey, number).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: issueKeys.lists(projectKey) });
+      qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
+      qc.invalidateQueries({ queryKey: issueKeys.detail(projectKey, number) });
+      toast.success('태스크를 삭제했습니다');
+    },
+    onError: (e) => handleApiError(e, '태스크 삭제에 실패했습니다'),
   });
 }

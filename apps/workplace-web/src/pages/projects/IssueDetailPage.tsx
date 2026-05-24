@@ -1,7 +1,7 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
-import { Eye, EyeOff } from 'lucide-react';
-import { useParams } from 'react-router-dom';
+import { Eye, EyeOff, Trash2 } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { LabelChip } from '../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../components/labels/LabelPickerPopover';
 import { UserAvatar } from '../../components/users/UserAvatar';
 import { useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
+import { useDeleteIssue } from '../../hooks/queries/useIssues';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
 import { useAuth } from '../../hooks/useAuth';
@@ -32,8 +33,10 @@ import { IssueStatusSelect } from './components/IssueStatusSelect';
 export default function IssueDetailPage() {
   const { key = '', number = '' } = useParams();
   const issueNumber = Number(number);
+  const navigate = useNavigate();
   const { data, isLoading } = useIssue(key, issueNumber);
   const update = useUpdateIssue(key, issueNumber);
+  const remove = useDeleteIssue(key, issueNumber);
   const { user } = useAuth();
   const watchers = useWatchers(key, issueNumber);
   const toggleWatch = useWatchToggle(key, issueNumber, user?.id ?? null);
@@ -49,6 +52,18 @@ export default function IssueDetailPage() {
   const { summary, body, comments, history } = data;
   // SUBTASK 여부 — 부모 슬롯(SUBTASK 만) / 자식 섹션(비SUBTASK 만) 분기에 사용 (Phase 4a).
   const isSubtask = summary.type?.name === 'SUBTASK';
+
+  // 삭제 — cascade soft-delete. childCount > 0 이면 confirm 메시지에 자식 수 포함.
+  // 성공 시 프로젝트 보드로 이동. 권한(첨부자/OWNER) 검증은 백엔드가 수행.
+  const onDelete = () => {
+    const msg = summary.childCount > 0
+      ? `이 태스크에는 자식 SUBTASK 가 ${summary.childCount}개 있습니다. 함께 삭제됩니다. 진행하시겠습니까?`
+      : '이 태스크를 삭제하시겠습니까?';
+    if (!confirm(msg)) return;
+    remove.mutate(undefined, {
+      onSuccess: () => navigate(`/projects/${key}`),
+    });
+  };
 
   // 인라인 편집 patch — 단일 필드 변경마다 호출되며 onSuccess invalidate 로 detail 재조회.
   const patch = async (changes: UpdateIssueRequest) => {
@@ -90,6 +105,17 @@ export default function IssueDetailPage() {
               <span className="ml-1 text-xs text-muted-foreground">
                 {watchers.data?.length ?? 0}
               </span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onDelete}
+              aria-label="태스크 삭제"
+              data-testid="issue-delete"
+              disabled={remove.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              삭제
             </Button>
           </div>
         </div>
