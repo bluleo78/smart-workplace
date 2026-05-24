@@ -1,36 +1,40 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 
 import {
-  useAddMember, useProjectMembers, useRemoveMember, useUpdateMemberRole,
+  useAddMember,
+  useProjectMembers,
+  useRemoveMember,
+  useUpdateMemberRole,
 } from '../../../hooks/queries/useProjectMembers';
 import { handleApiError } from '../../../lib/api-error';
+import type { UserResponse } from '../../../types/auth';
 import type { ProjectMemberRole } from '../../../types/project';
+import { MemberSearchPopover } from './MemberSearchPopover';
 
-// 프로젝트 멤버 관리 — 추가/역할 변경/제거. userId 입력 기반 (사용자 검색 UI 는 Phase 외).
+// 프로젝트 멤버 관리 — 검색 picker 로 추가, 역할 변경/제거.
 export function MemberManagement({ projectKey }: { projectKey: string }) {
   const members = useProjectMembers(projectKey);
   const addMember = useAddMember(projectKey);
   const updateRole = useUpdateMemberRole(projectKey);
   const removeMember = useRemoveMember(projectKey);
 
-  const [newUserId, setNewUserId] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [newRole, setNewRole] = useState<ProjectMemberRole>('MEMBER');
 
-  const onAdd = async () => {
-    const userId = Number(newUserId);
-    if (!Number.isFinite(userId) || userId <= 0) {
-      toast.error('userId 가 올바르지 않습니다');
-      return;
-    }
+  // 기존 멤버 id 집합 — picker 에서 disabled 처리에 사용.
+  const existingIds = useMemo(
+    () => new Set((members.data ?? []).map((m) => m.userId)),
+    [members.data],
+  );
+
+  // picker 에서 사용자 선택 시 호출 — 선택된 role 로 즉시 추가.
+  const onPick = async (user: UserResponse) => {
     try {
-      await addMember.mutateAsync({ userId, role: newRole });
-      toast.success('멤버를 추가했습니다');
-      setNewUserId('');
-      setNewRole('MEMBER');
+      await addMember.mutateAsync({ userId: user.id, role: newRole });
+      toast.success(`${user.name} 을(를) 추가했습니다`);
     } catch (e) {
       handleApiError(e, '멤버 추가에 실패했습니다');
     }
@@ -59,24 +63,11 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
     <section className="space-y-3">
       <h2 className="text-lg font-semibold">멤버</h2>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void onAdd();
-        }}
-        className="flex gap-2 items-end"
-      >
-        <div className="flex-1 space-y-1">
-          <label className="text-sm font-medium" htmlFor="new-member-userId">userId</label>
-          <Input
-            id="new-member-userId"
-            value={newUserId}
-            onChange={(e) => setNewUserId(e.target.value)}
-            placeholder="예: 42"
-          />
-        </div>
+      <div className="flex gap-2 items-end">
         <div className="space-y-1">
-          <label className="text-sm font-medium" htmlFor="new-member-role">역할</label>
+          <label className="text-sm font-medium" htmlFor="new-member-role">
+            역할
+          </label>
           <select
             id="new-member-role"
             value={newRole}
@@ -87,8 +78,18 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
             <option value="OWNER">OWNER</option>
           </select>
         </div>
-        <Button type="submit" disabled={addMember.isPending}>추가</Button>
-      </form>
+        <MemberSearchPopover
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          existingMemberIds={existingIds}
+          onSelect={onPick}
+          trigger={
+            <Button type="button" data-testid="member-add-trigger">
+              + 멤버 추가
+            </Button>
+          }
+        />
+      </div>
 
       {members.isLoading ? (
         <p className="text-muted-foreground">로딩 중…</p>
@@ -110,7 +111,9 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
                 <td>
                   <select
                     value={m.role}
-                    onChange={(e) => onChangeRole(m.userId, e.target.value as ProjectMemberRole)}
+                    onChange={(e) =>
+                      onChangeRole(m.userId, e.target.value as ProjectMemberRole)
+                    }
                     aria-label={`${m.name} 역할`}
                     className="border rounded p-1 bg-background"
                   >
@@ -131,7 +134,11 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
               </tr>
             ))}
             {members.data?.length === 0 && (
-              <tr><td colSpan={4} className="py-4 text-muted-foreground">멤버가 없습니다</td></tr>
+              <tr>
+                <td colSpan={4} className="py-4 text-muted-foreground">
+                  멤버가 없습니다
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
