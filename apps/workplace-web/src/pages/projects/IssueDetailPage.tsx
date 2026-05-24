@@ -20,6 +20,7 @@ import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
 
 import { AssigneePickerPopover } from './components/AssigneePickerPopover';
+import { CustomFieldsSection } from './components/CustomFieldsSection';
 import { IssueActivityTimeline } from './components/IssueActivityTimeline';
 import { IssueAttachmentDropzone } from './components/IssueAttachmentDropzone';
 import { IssueAttachmentList } from './components/IssueAttachmentList';
@@ -257,6 +258,12 @@ export default function IssueDetailPage() {
           issueNumber={issueNumber}
           blockedBy={summary.blockedBy}
           blocks={summary.blocks}
+        />
+        {/* Phase 4c — 프로젝트 커스텀 필드 인라인 편집. 정의 없으면 null. */}
+        <CustomFieldsSection
+          projectKey={key}
+          issueNumber={issueNumber}
+          current={summary.customFields}
         />
         <div>
           <h3 className="text-sm font-semibold mb-2">활동</h3>

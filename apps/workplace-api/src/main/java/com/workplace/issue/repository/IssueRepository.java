@@ -360,6 +360,26 @@ public class IssueRepository {
                               .and(blockerAlias.STATUS.notIn("DONE", "CANCELED"))
                               .and(blockerAlias.DELETED_AT.isNull()))));
     }
+    // Phase 4c — custom field 단일 동등 비교 필터 (fieldId+fieldValue 동시 지정 시). JSONB 를 텍스트로 캐스트하여 비교.
+    if (query.fieldId() != null && query.fieldValue() != null) {
+      where =
+          where.and(
+              org.jooq.impl.DSL.exists(
+                  dsl.selectOne()
+                      .from(com.workplace.jooq.Tables.ISSUE_FIELD_VALUE)
+                      .where(
+                          com.workplace.jooq.Tables.ISSUE_FIELD_VALUE
+                              .ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(
+                                  com.workplace.jooq.Tables.ISSUE_FIELD_VALUE.FIELD_DEF_ID.eq(
+                                      query.fieldId()))
+                              .and(
+                                  com.workplace.jooq.Tables.ISSUE_FIELD_VALUE
+                                      .VALUE
+                                      .cast(String.class)
+                                      .eq(query.fieldValue())))));
+    }
     if (query.cursor() != null) {
       var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = query.cursor().id();

@@ -211,6 +211,33 @@ public class IssueHistoryRecorder {
     historyRepository.insert(issueId, actorId, eventType, null, payload);
   }
 
+  /**
+   * Phase 4c — 프로젝트 custom field 값 변경 한 건 기록. from/to 는 null 가능 (신규 설정/삭제). payload toValue JSON =
+   * {defId, name, type, from, to}. HashMap 사용은 Map.of 가 null value 를 허용하지 않기 때문.
+   */
+  public void recordCustomFieldChanged(
+      Long actorId,
+      Long issueId,
+      Long defId,
+      String name,
+      String type,
+      com.fasterxml.jackson.databind.JsonNode from,
+      com.fasterxml.jackson.databind.JsonNode to) {
+    String payload;
+    try {
+      java.util.Map<String, Object> body = new java.util.HashMap<>();
+      body.put("defId", defId);
+      body.put("name", name);
+      body.put("type", type);
+      body.put("from", from);
+      body.put("to", to);
+      payload = objectMapper.writeValueAsString(body);
+    } catch (Exception e) {
+      payload = "{}";
+    }
+    historyRepository.insert(issueId, actorId, "CUSTOM_FIELD_CHANGED", null, payload);
+  }
+
   /** 객체 → 문자열 (null 보존). */
   private static String stringify(Object v) {
     return v == null ? null : v.toString();

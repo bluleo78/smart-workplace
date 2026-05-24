@@ -14,6 +14,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import { updateProjectSchema, type UpdateProjectFormData } from '../../lib/validations/project';
 
+import { CustomFieldManagement } from './components/CustomFieldManagement';
 import { IssueTypeManagement } from './components/IssueTypeManagement';
 import { LabelManagement } from './components/LabelManagement';
 import { MemberManagement } from './components/MemberManagement';
@@ -89,6 +90,8 @@ export default function ProjectSettingsPage() {
       <LabelManagement projectKey={key} isOwner={isOwner} />
 
       <IssueTypeManagement projectKey={key} isOwner={isOwner} />
+
+      <CustomFieldManagement projectKey={key} isOwner={isOwner} />
 
       <section className="border border-destructive rounded p-4 space-y-2">
         <h2 className="text-lg font-semibold text-destructive">위험 구역</h2>

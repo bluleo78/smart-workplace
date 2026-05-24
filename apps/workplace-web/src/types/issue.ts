@@ -1,6 +1,7 @@
 // 이슈/댓글/이력 관련 타입 — 백엔드 DTO 와 1:1 매칭.
 
 import type { IssueAttachment } from './attachment';
+import type { IssueFieldEntry } from './customField';
 import type { IssueTypeSummary } from './issueType';
 import type { LabelSummary } from './label';
 import type { UserSummary } from './user';
@@ -56,6 +57,8 @@ export interface IssueResponse {
   blocks: IssueLinkSummary[];
   // blockedBy 중 미완료 이슈 존재 여부 — 헤더 ⛔ 배지/카드 마커 분기 (Phase 4b).
   blocked: boolean;
+  // 프로젝트 커스텀 필드의 현재 값 목록 (Phase 4c). 정의는 있는데 값이 없는 필드는 빠진다.
+  customFields: IssueFieldEntry[];
 }
 
 export interface IssueCommentResponse {
@@ -82,7 +85,9 @@ export type IssueHistoryEventType =
   | 'PARENT_CHANGED'
   // 의존성 추가/제거 (Phase 4b).
   | 'DEPENDENCY_ADDED'
-  | 'DEPENDENCY_REMOVED';
+  | 'DEPENDENCY_REMOVED'
+  // 커스텀 필드 값 변경 (Phase 4c).
+  | 'CUSTOM_FIELD_CHANGED';
 
 export interface IssueHistoryEntry {
   id: number;

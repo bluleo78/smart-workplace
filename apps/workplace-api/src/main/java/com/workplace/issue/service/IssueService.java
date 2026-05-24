@@ -19,6 +19,7 @@ import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueDependencyRepository;
+import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -49,6 +50,7 @@ public class IssueService {
   private final IssueAssigneeRepository assigneeRepository;
   private final IssueTypeRepository typeRepository;
   private final IssueDependencyRepository dependencyRepository;
+  private final IssueFieldValueRepository fieldValueRepository;
   private final ProjectIssueSequenceRepository sequenceRepository;
   private final ProjectMemberRepository memberRepository;
   private final ProjectAccessGuard accessGuard;
@@ -178,8 +180,10 @@ public class IssueService {
     var blockedByMap = dependencyRepository.findBlockedByForIssues(ids);
     var blocksMap = dependencyRepository.findBlocksForIssues(ids);
     var blockedMap = dependencyRepository.findBlockedFlags(ids);
+    // Phase 4c — custom field 값 batch (단일 이슈 경로도 동일 API).
+    var fieldsByIssue = fieldValueRepository.findByIssueIds(ids);
     return new IssueDetailResponse(
-        IssueResponse.fromWithDeps(
+        IssueResponse.fromWithCustomFields(
             project.key(),
             row,
             labels,
@@ -191,7 +195,8 @@ public class IssueService {
             childDoneCount,
             blockedByMap.getOrDefault(row.id(), List.of()),
             blocksMap.getOrDefault(row.id(), List.of()),
-            blockedMap.getOrDefault(row.id(), false)),
+            blockedMap.getOrDefault(row.id(), false),
+            fieldsByIssue.getOrDefault(row.id(), List.of())),
         row.body(),
         comments,
         history,

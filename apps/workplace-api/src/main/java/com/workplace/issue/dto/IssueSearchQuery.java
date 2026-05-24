@@ -8,6 +8,7 @@ import java.util.List;
  * 또는 미지정" 매칭을 표현한다. labelIds 는 AND 결합 — 모든 라벨이 부착된 이슈만 매칭. typeIds 는 OR 결합 — 지정된 유형 중 하나라도 일치하면 매칭.
  * parentNumber 가 지정되면 해당 부모의 자식만, topLevel=true 면 parent_issue_id IS NULL 인 이슈만 (Phase 4a).
  * parentNumber 가 있으면 topLevel 은 무시된다. blocked=true 면 활성 차단자(미완료)가 존재하는 이슈만 (Phase 4b).
+ * fieldId+fieldValue 동시 지정 시 해당 필드의 JSONB 값을 텍스트 캐스트 동등 비교로 필터 (Phase 4c, 1차 단순화).
  */
 public record IssueSearchQuery(
     String q,
@@ -23,4 +24,6 @@ public record IssueSearchQuery(
     List<Long> typeIds,
     Integer parentNumber,
     Boolean topLevel,
-    Boolean blocked) {}
+    Boolean blocked,
+    Long fieldId,
+    String fieldValue) {}

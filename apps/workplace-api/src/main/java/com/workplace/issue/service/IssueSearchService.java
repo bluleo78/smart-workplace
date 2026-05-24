@@ -11,6 +11,7 @@ import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueDependencyRepository;
+import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
@@ -44,6 +45,7 @@ public class IssueSearchService {
   private final IssueAssigneeRepository issueAssigneeRepository;
   private final IssueTypeRepository typeRepository;
   private final IssueDependencyRepository dependencyRepository;
+  private final IssueFieldValueRepository fieldValueRepository;
   private final ProjectAccessGuard accessGuard;
 
   /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size. */
@@ -71,11 +73,13 @@ public class IssueSearchService {
     var blockedByByIssue = dependencyRepository.findBlockedByForIssues(issueIds);
     var blocksByIssue = dependencyRepository.findBlocksForIssues(issueIds);
     var blockedFlagByIssue = dependencyRepository.findBlockedFlags(issueIds);
+    // Phase 4c — custom field 값 batch (N+1 회피).
+    var fieldsByIssue = fieldValueRepository.findByIssueIds(issueIds);
     var items =
         rows.stream()
             .map(
                 r ->
-                    IssueResponse.fromWithDeps(
+                    IssueResponse.fromWithCustomFields(
                         project.key(),
                         r,
                         labelsByIssue.getOrDefault(r.id(), List.of()),
@@ -87,7 +91,8 @@ public class IssueSearchService {
                         childDoneCountByParent.getOrDefault(r.id(), 0),
                         blockedByByIssue.getOrDefault(r.id(), List.of()),
                         blocksByIssue.getOrDefault(r.id(), List.of()),
-                        blockedFlagByIssue.getOrDefault(r.id(), false)))
+                        blockedFlagByIssue.getOrDefault(r.id(), false),
+                        fieldsByIssue.getOrDefault(r.id(), List.of())))
             .toList();
 
     String nextCursor = null;
@@ -174,6 +179,18 @@ public class IssueSearchService {
     // Phase 4b — blocked 파싱. "true" 만 활성화, 그 외는 null (필터 미적용).
     Boolean blocked = "true".equalsIgnoreCase(p.get("blocked")) ? Boolean.TRUE : null;
 
+    // Phase 4c — fieldId / fieldValue. fieldId 가 숫자가 아니면 null 로 무시 (필터 미적용).
+    Long fieldId = null;
+    String fieldValue = trimToNull(p.get("fieldValue"));
+    String fid = trimToNull(p.get("fieldId"));
+    if (fid != null) {
+      try {
+        fieldId = Long.parseLong(fid);
+      } catch (NumberFormatException ignored) {
+        // 잘못된 fieldId 는 필터 미적용
+      }
+    }
+
     return new IssueSearchQuery(
         q,
         statuses,
@@ -188,7 +205,9 @@ public class IssueSearchService {
         typeIds,
         parentNumber,
         topLevel,
-        blocked);
+        blocked,
+        fieldId,
+        fieldValue);
   }
 
   private static String trimToNull(String s) {

@@ -16,6 +16,7 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   PARENT_CHANGED: '부모 변경',
   DEPENDENCY_ADDED: '의존성 추가',
   DEPENDENCY_REMOVED: '의존성 제거',
+  CUSTOM_FIELD_CHANGED: '필드',
 };
 
 // LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.
@@ -135,6 +136,28 @@ function formatDependencyChanged(
   }
 }
 
+// CUSTOM_FIELD_CHANGED 페이로드는 toValue 에 {defId,name,type,from,to} JSON.
+// from/to 는 type 별 모양이 다르므로 (string|number|string[]) 안전한 fmt 로 표시.
+function formatCustomFieldChanged(toValue: string | null): string {
+  if (!toValue) return '필드 변경';
+  try {
+    const p = JSON.parse(toValue) as {
+      name?: string;
+      type?: string;
+      from?: unknown;
+      to?: unknown;
+    };
+    const fmt = (v: unknown): string => {
+      if (v == null) return '(빈값)';
+      if (Array.isArray(v)) return v.join(', ');
+      return String(v);
+    };
+    return `${p.name ?? '?'}: ${fmt(p.from)} → ${fmt(p.to)}`;
+  } catch {
+    return toValue;
+  }
+}
+
 // 이력 항목을 시간순으로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
 export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[] }) {
   if (entries.length === 0) {
@@ -163,6 +186,8 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
               <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_ADDED')}</span>
             ) : e.eventType === 'DEPENDENCY_REMOVED' ? (
               <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_REMOVED')}</span>
+            ) : e.eventType === 'CUSTOM_FIELD_CHANGED' ? (
+              <span>{formatCustomFieldChanged(e.toValue)}</span>
             ) : (
               <span>
                 {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}

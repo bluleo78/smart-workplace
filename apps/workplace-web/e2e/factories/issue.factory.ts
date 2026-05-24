@@ -33,6 +33,8 @@ export function createIssue(overrides: Partial<IssueResponse> = {}): IssueRespon
     blockedBy: [],
     blocks: [],
     blocked: false,
+    // Phase 4c — 커스텀 필드 값 기본값.
+    customFields: [],
     ...overrides,
   };
 }

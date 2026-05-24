@@ -81,7 +81,8 @@ class IssueControllerTest {
         0,
         List.of(),
         List.of(),
-        false);
+        false,
+        List.of());
   }
 
   private IssueDetailResponse sampleDetail() {

@@ -484,6 +484,63 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
   }
 
+  /** Phase 4c — 필드 정의 미존재 → 404. */
+  @ExceptionHandler(com.workplace.issue.exception.FieldNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleFieldNotFound(
+      com.workplace.issue.exception.FieldNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** Phase 4c — 동일 프로젝트 내 필드 이름 중복 → 409. */
+  @ExceptionHandler(com.workplace.issue.exception.FieldNameDuplicatedException.class)
+  public ResponseEntity<ErrorResponse> handleFieldNameDuplicated(
+      com.workplace.issue.exception.FieldNameDuplicatedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** Phase 4c — 허용되지 않은 필드 타입 → 400. */
+  @ExceptionHandler(com.workplace.issue.exception.InvalidFieldTypeException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidFieldType(
+      com.workplace.issue.exception.InvalidFieldTypeException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** Phase 4c — options 누락/형식/중복 또는 비-SELECT 타입의 options 지정 → 400. */
+  @ExceptionHandler(com.workplace.issue.exception.InvalidFieldOptionsException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidFieldOptions(
+      com.workplace.issue.exception.InvalidFieldOptionsException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** Phase 4c — 필드 PATCH 에서 type 변경 시도 → 400. */
+  @ExceptionHandler(com.workplace.issue.exception.TypeImmutableException.class)
+  public ResponseEntity<ErrorResponse> handleTypeImmutable(
+      com.workplace.issue.exception.TypeImmutableException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** Phase 4c — 다른 프로젝트의 필드 defId 를 PUT 에 포함 → 400. */
+  @ExceptionHandler(com.workplace.issue.exception.InvalidFieldForProjectException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidFieldForProject(
+      com.workplace.issue.exception.InvalidFieldForProjectException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** Phase 4c — 필드 값 모양/옵션 위반 → 400. */
+  @ExceptionHandler(com.workplace.issue.exception.InvalidFieldValueException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidFieldValue(
+      com.workplace.issue.exception.InvalidFieldValueException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
     log.error("Unhandled exception", ex);

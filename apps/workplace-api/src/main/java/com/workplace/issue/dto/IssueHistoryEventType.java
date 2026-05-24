@@ -16,5 +16,7 @@ public enum IssueHistoryEventType {
   PARENT_CHANGED,
   // 의존성 추가/제거 — Phase 4b.
   DEPENDENCY_ADDED,
-  DEPENDENCY_REMOVED
+  DEPENDENCY_REMOVED,
+  // 프로젝트 custom field 값 변경 — Phase 4c. payload: {defId, name, type, from, to}
+  CUSTOM_FIELD_CHANGED
 }
