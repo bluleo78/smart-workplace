@@ -9,4 +9,6 @@ public record UserResponse(
     String email,
     String name,
     boolean isActive,
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss") LocalDateTime createdAt) {}
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss") LocalDateTime createdAt,
+    // Phase 5a — HUMAN | AGENT (마지막 위치 추가, 호출자 모두 갱신)
+    String kind) {}

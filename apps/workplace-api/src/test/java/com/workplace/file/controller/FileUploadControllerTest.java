@@ -5,14 +5,17 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.file.dto.FileUploadResponse;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.global.config.SecurityConfig;
+import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -29,7 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 /** FileUploadController WebMvcTest — 파일 업로드/조회 엔드포인트 인증/권한 검증 */
 @SuppressWarnings("null")
 @WebMvcTest(FileUploadController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
 class FileUploadControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -38,6 +41,10 @@ class FileUploadControllerTest {
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
   @MockitoBean private PermissionService permissionService;
+
+  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+
+  @MockitoBean private UserRepository userRepository;
 
   @BeforeEach
   void setUp() {

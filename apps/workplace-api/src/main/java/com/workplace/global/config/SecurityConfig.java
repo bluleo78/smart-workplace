@@ -1,5 +1,6 @@
 package com.workplace.global.config;
 
+import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import jakarta.servlet.DispatcherType;
@@ -28,6 +29,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
   private final JwtAuthenticationFilter jwtAuthenticationFilter;
+  // Phase 5a — AGENT 인증 (Bearer ak_...) 는 JWT 보다 먼저 시도
+  private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
   private final CorsProperties corsProperties;
 
   @Bean
@@ -78,7 +81,9 @@ public class SecurityConfig {
                                   + authException.getMessage()
                                   + "\"}");
                     }))
-        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+        // ak_ 토큰을 JWT 보다 먼저 시도 (둘 다 Bearer 헤더 — prefix 로 분기)
+        .addFilterBefore(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class);
 
     return http.build();
   }

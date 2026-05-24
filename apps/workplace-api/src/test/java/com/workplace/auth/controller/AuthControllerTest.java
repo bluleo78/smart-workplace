@@ -13,13 +13,16 @@ import com.workplace.auth.dto.LoginRequest;
 import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
 import com.workplace.auth.exception.AccountLockedException;
+import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.service.AuthService;
 import com.workplace.global.config.SecurityConfig;
+import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.user.dto.UserResponse;
+import com.workplace.user.repository.UserRepository;
 import jakarta.servlet.http.Cookie;
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -33,7 +36,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SuppressWarnings("null")
 @WebMvcTest(AuthController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
 class AuthControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -48,13 +51,23 @@ class AuthControllerTest {
 
   @MockitoBean private PermissionService permissionService;
 
+  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+
+  @MockitoBean private UserRepository userRepository;
+
   @Test
   void signup_returnsCreated() throws Exception {
     SignupRequest request =
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User");
     UserResponse response =
         new UserResponse(
-            1L, "test@example.com", "test@example.com", "Test User", true, LocalDateTime.now());
+            1L,
+            "test@example.com",
+            "test@example.com",
+            "Test User",
+            true,
+            LocalDateTime.now(),
+            "HUMAN");
 
     when(authService.signup(any(SignupRequest.class))).thenReturn(response);
 

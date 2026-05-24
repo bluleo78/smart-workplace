@@ -18,6 +18,7 @@ const UserDetailPage = lazy(() => import('./pages/admin/UserDetailPage'))
 const RoleListPage = lazy(() => import('./pages/admin/RoleListPage'))
 const RoleDetailPage = lazy(() => import('./pages/admin/RoleDetailPage'))
 const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
+const AgentManagementPage = lazy(() => import('./pages/admin/AgentManagementPage'))
 const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
 const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'))
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
@@ -64,6 +65,7 @@ export default function App() {
                 <Route path="admin/roles" element={<RoleListPage />} />
                 <Route path="admin/roles/:id" element={<RoleDetailPage />} />
                 <Route path="admin/audit-logs" element={<AuditLogListPage />} />
+                <Route path="admin/agents" element={<AgentManagementPage />} />
               </Route>
             </Route>
           </Route>

@@ -52,14 +52,25 @@ export function AppLayout() {
                 내 태스크
               </NavLink>
               {isAdmin && (
-                <NavLink
-                  to="/admin/users"
-                  className={({ isActive }) =>
-                    isActive ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
-                  }
-                >
-                  관리자
-                </NavLink>
+                <>
+                  <NavLink
+                    to="/admin/users"
+                    className={({ isActive }) =>
+                      isActive ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    }
+                  >
+                    관리자
+                  </NavLink>
+                  {/* AGENT 유저 + API 키 관리 — Phase 5a */}
+                  <NavLink
+                    to="/admin/agents"
+                    className={({ isActive }) =>
+                      isActive ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    }
+                  >
+                    AGENT
+                  </NavLink>
+                </>
               )}
             </nav>
           )}

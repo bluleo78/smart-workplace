@@ -1,5 +1,8 @@
 import type { RoleResponse } from './role';
 
+// 사용자 종류 — HUMAN(일반 사용자) | AGENT(AI 워커, 비밀번호 없음 / API 키 로그인).
+export type UserKind = 'HUMAN' | 'AGENT';
+
 export interface UserDetailResponse {
   id: number;
   username: string;
@@ -8,6 +11,7 @@ export interface UserDetailResponse {
   isActive: boolean;
   createdAt: string;
   roles: RoleResponse[];
+  kind: UserKind;
 }
 
 
@@ -34,4 +38,5 @@ export interface UserSummary {
   id: number;
   username: string;
   name: string;
+  kind: UserKind;
 }

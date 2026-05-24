@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 
 import { LabelChip } from '../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../components/labels/LabelPickerPopover';
+import { AgentBadge } from '../../components/users/AgentBadge';
 import { UserAvatar } from '../../components/users/UserAvatar';
 import { useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
 import { useDeleteIssue } from '../../hooks/queries/useIssues';
@@ -209,6 +210,7 @@ export default function IssueDetailPage() {
                 >
                   <UserAvatar user={u} size="sm" />
                   <span>{u.name}</span>
+                  {u.kind === 'AGENT' && <AgentBadge size="xs" />}
                 </span>
               ))
             )}

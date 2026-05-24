@@ -5,6 +5,7 @@ import com.workplace.auth.dto.LoginRequest;
 import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
 import com.workplace.auth.exception.AccountLockedException;
+import com.workplace.auth.exception.AgentCannotLoginException;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
@@ -15,6 +16,7 @@ import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.repository.RoleRepository;
+import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.repository.UserRepository;
@@ -101,6 +103,11 @@ public class AuthService {
                   // 사용자 존재 여부 노출 방지를 위해 동일한 메시지 반환
                   return new InvalidCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다.");
                 });
+
+    // Phase 5a — AGENT 는 비밀번호 로그인 흐름 사용 금지. login_attempts 카운터는 증가시키지 않는다.
+    if (UserKind.isAgent(user.kind())) {
+      throw new AgentCannotLoginException();
+    }
 
     String storedPassword =
         userRepository

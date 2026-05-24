@@ -6,7 +6,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.config.SecurityConfig;
+import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
@@ -14,6 +16,7 @@ import com.workplace.permission.dto.PermissionResponse;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.role.dto.*;
 import com.workplace.role.service.RoleService;
+import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -26,7 +29,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SuppressWarnings("null")
 @WebMvcTest(RoleController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
 class RoleControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -40,6 +43,10 @@ class RoleControllerTest {
   @MockitoBean private JwtProperties jwtProperties;
 
   @MockitoBean private PermissionService permissionService;
+
+  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+
+  @MockitoBean private UserRepository userRepository;
 
   private void mockAuthentication(String... permissions) {
     when(jwtTokenProvider.validateAccessToken("valid-token")).thenReturn(true);

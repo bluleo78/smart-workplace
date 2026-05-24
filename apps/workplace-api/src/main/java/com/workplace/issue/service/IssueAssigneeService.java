@@ -75,7 +75,7 @@ public class IssueAssigneeService {
     if (!toRemove.isEmpty()) {
       removedSummaries =
           userRepository.findByIds(new ArrayList<>(toRemove)).stream()
-              .map(u -> new UserSummary(u.id(), u.username(), u.name()))
+              .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
               .toList();
     }
 
@@ -88,7 +88,7 @@ public class IssueAssigneeService {
       if (!toAdd.isEmpty()) {
         addedSummaries =
             userRepository.findByIds(new ArrayList<>(toAdd)).stream()
-                .map(u -> new UserSummary(u.id(), u.username(), u.name()))
+                .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
                 .toList();
       }
       historyRecorder.recordAssigneesChanged(

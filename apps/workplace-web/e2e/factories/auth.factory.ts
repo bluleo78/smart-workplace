@@ -8,7 +8,7 @@ import type { TokenResponse, UserResponse } from '@/types/auth';
 import type { RoleResponse } from '@/types/role';
 import type { UserDetailResponse } from '@/types/user';
 
-/** 기본 사용자 응답 객체 생성 */
+/** 기본 사용자 응답 객체 생성 — kind default 'HUMAN'. */
 export function createUser(overrides?: Partial<UserResponse>): UserResponse {
   return {
     id: 1,
@@ -17,6 +17,7 @@ export function createUser(overrides?: Partial<UserResponse>): UserResponse {
     name: '테스트 사용자',
     isActive: true,
     createdAt: '2024-01-01T00:00:00Z',
+    kind: 'HUMAN',
     ...overrides,
   };
 }
@@ -52,6 +53,7 @@ export function createUserDetail(overrides?: Partial<UserDetailResponse>): UserD
     isActive: true,
     createdAt: '2024-01-01T00:00:00Z',
     roles: [createRole()],
+    kind: 'HUMAN',
     ...overrides,
   };
 }

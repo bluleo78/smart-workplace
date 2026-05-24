@@ -3,6 +3,9 @@
 
 import type { UserSummary } from '../../types/user';
 
+// kind 정보 없이도 호출 가능하도록 식별/표기 필드만 요구하는 좁은 타입.
+type AvatarUser = Pick<UserSummary, 'id' | 'username' | 'name'>;
+
 // 사이즈별 Tailwind 클래스 묶음.
 const SIZE_CLASS: Record<'xs' | 'sm' | 'md', string> = {
   xs: 'h-5 w-5 text-[10px]',
@@ -40,7 +43,7 @@ export function UserAvatar({
   size = 'sm',
   ring = false,
 }: {
-  user: UserSummary;
+  user: AvatarUser;
   size?: 'xs' | 'sm' | 'md';
   // 보드 카드처럼 겹쳐 보일 때 배경색과 경계를 줄 때만 켠다.
   ring?: boolean;

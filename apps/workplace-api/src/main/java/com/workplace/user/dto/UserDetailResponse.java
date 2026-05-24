@@ -11,4 +11,6 @@ public record UserDetailResponse(
     String name,
     boolean isActive,
     LocalDateTime createdAt,
-    List<RoleResponse> roles) {}
+    List<RoleResponse> roles,
+    // Phase 5a — HUMAN | AGENT (마지막 위치 추가)
+    String kind) {}

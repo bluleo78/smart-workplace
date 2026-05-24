@@ -11,8 +11,8 @@ import type { UserSummary } from '../../../src/types/user';
 
 const PROJECT_KEY = 'WP';
 
-const USER1: UserSummary = { id: 1, username: 'testuser', name: '테스트 사용자' };
-const USER2: UserSummary = { id: 2, username: 'second', name: '두번째 멤버' };
+const USER1: UserSummary = { id: 1, username: 'testuser', name: '테스트 사용자', kind: 'HUMAN' };
+const USER2: UserSummary = { id: 2, username: 'second', name: '두번째 멤버', kind: 'HUMAN' };
 
 // 공통 stub — 상세에서 동시에 떨어지는 부수 endpoint 들을 모두 막는다.
 async function setupCommonStubs(

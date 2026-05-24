@@ -30,20 +30,23 @@ public class IssueAssigneeRepository {
 
   /** 이슈에 부착된 담당자 요약을 USER 조인으로 조회. name 오름차순. */
   public List<UserSummary> findByIssue(Long issueId) {
-    return dsl.select(USER.ID, USER.USERNAME, USER.NAME)
+    return dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.KIND)
         .from(ISSUE_ASSIGNEE)
         .join(USER)
         .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
         .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId))
         .orderBy(USER.NAME.asc())
-        .fetch(r -> new UserSummary(r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME)));
+        .fetch(
+            r ->
+                new UserSummary(
+                    r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND)));
   }
 
   /** issueIds 일괄 — issueId 별 UserSummary 리스트 (N+1 회피). 입력에 있는 모든 id 키를 보장한다. */
   public Map<Long, List<UserSummary>> findByIssueIds(List<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
     var rows =
-        dsl.select(ISSUE_ASSIGNEE.ISSUE_ID, USER.ID, USER.USERNAME, USER.NAME)
+        dsl.select(ISSUE_ASSIGNEE.ISSUE_ID, USER.ID, USER.USERNAME, USER.NAME, USER.KIND)
             .from(ISSUE_ASSIGNEE)
             .join(USER)
             .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
@@ -55,7 +58,9 @@ public class IssueAssigneeRepository {
     for (var r : rows) {
       result
           .get(r.get(ISSUE_ASSIGNEE.ISSUE_ID))
-          .add(new UserSummary(r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME)));
+          .add(
+              new UserSummary(
+                  r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND)));
     }
     return result;
   }

@@ -7,14 +7,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.user.dto.*;
+import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.UserService;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -29,7 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SuppressWarnings("null")
 @WebMvcTest(UserController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
 class UserControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -43,6 +46,10 @@ class UserControllerTest {
   @MockitoBean private JwtProperties jwtProperties;
 
   @MockitoBean private PermissionService permissionService;
+
+  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+
+  @MockitoBean private UserRepository userRepository;
 
   private void mockAuthentication(String... permissions) {
     when(jwtTokenProvider.validateAccessToken("valid-token")).thenReturn(true);
@@ -61,7 +68,8 @@ class UserControllerTest {
             "Test User",
             true,
             LocalDateTime.now(),
-            List.of(new RoleResponse(1L, "USER", "Regular user", true)));
+            List.of(new RoleResponse(1L, "USER", "Regular user", true)),
+            "HUMAN");
     when(userService.getUserById(1L)).thenReturn(detail);
 
     mockMvc
@@ -110,7 +118,13 @@ class UserControllerTest {
         new PageResponse<>(
             List.of(
                 new UserResponse(
-                    1L, "testuser", "test@example.com", "Test User", true, LocalDateTime.now())),
+                    1L,
+                    "testuser",
+                    "test@example.com",
+                    "Test User",
+                    true,
+                    LocalDateTime.now(),
+                    "HUMAN")),
             0,
             20,
             1,
@@ -135,7 +149,8 @@ class UserControllerTest {
             "Other User",
             true,
             LocalDateTime.now(),
-            List.of());
+            List.of(),
+            "HUMAN");
     when(userService.getUserById(2L)).thenReturn(detail);
 
     mockMvc

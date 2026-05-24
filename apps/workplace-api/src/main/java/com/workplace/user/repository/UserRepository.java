@@ -23,18 +23,26 @@ public class UserRepository {
   private final DSLContext dsl;
 
   private UserResponse mapToUserResponse(Record r) {
+    // Phase 5a: kind 컬럼을 마지막 인자로 함께 노출 (HUMAN | AGENT)
     return new UserResponse(
         r.get(USER.ID),
         r.get(USER.USERNAME),
         r.get(USER.EMAIL),
         r.get(USER.NAME),
         r.get(USER.IS_ACTIVE),
-        r.get(USER.CREATED_AT));
+        r.get(USER.CREATED_AT),
+        r.get(USER.KIND));
   }
 
   public Optional<UserResponse> findByUsername(String username) {
     return dsl.select(
-            USER.ID, USER.USERNAME, USER.EMAIL, USER.NAME, USER.IS_ACTIVE, USER.CREATED_AT)
+            USER.ID,
+            USER.USERNAME,
+            USER.EMAIL,
+            USER.NAME,
+            USER.IS_ACTIVE,
+            USER.CREATED_AT,
+            USER.KIND)
         .from(USER)
         .where(USER.USERNAME.eq(username))
         .fetchOptional(this::mapToUserResponse);
@@ -44,7 +52,13 @@ public class UserRepository {
   public List<UserResponse> findByIds(List<Long> ids) {
     if (ids == null || ids.isEmpty()) return List.of();
     return dsl.select(
-            USER.ID, USER.USERNAME, USER.EMAIL, USER.NAME, USER.IS_ACTIVE, USER.CREATED_AT)
+            USER.ID,
+            USER.USERNAME,
+            USER.EMAIL,
+            USER.NAME,
+            USER.IS_ACTIVE,
+            USER.CREATED_AT,
+            USER.KIND)
         .from(USER)
         .where(USER.ID.in(ids))
         .fetch(this::mapToUserResponse);
@@ -52,10 +66,32 @@ public class UserRepository {
 
   public Optional<UserResponse> findById(Long id) {
     return dsl.select(
-            USER.ID, USER.USERNAME, USER.EMAIL, USER.NAME, USER.IS_ACTIVE, USER.CREATED_AT)
+            USER.ID,
+            USER.USERNAME,
+            USER.EMAIL,
+            USER.NAME,
+            USER.IS_ACTIVE,
+            USER.CREATED_AT,
+            USER.KIND)
         .from(USER)
         .where(USER.ID.eq(id))
         .fetchOptional(this::mapToUserResponse);
+  }
+
+  /** kind 별 사용자 목록 (예: 모든 AGENT). 이름 오름차순. */
+  public List<UserResponse> findByKind(String kind) {
+    return dsl.select(
+            USER.ID,
+            USER.USERNAME,
+            USER.EMAIL,
+            USER.NAME,
+            USER.IS_ACTIVE,
+            USER.CREATED_AT,
+            USER.KIND)
+        .from(USER)
+        .where(USER.KIND.eq(kind))
+        .orderBy(USER.NAME.asc(), USER.ID.asc())
+        .fetch(this::mapToUserResponse);
   }
 
   public Optional<String> findPasswordByUsername(String username) {
@@ -104,7 +140,37 @@ public class UserRepository {
         .set(USER.EMAIL, email)
         .set(USER.PASSWORD, password)
         .set(USER.NAME, name)
-        .returning(USER.ID, USER.USERNAME, USER.EMAIL, USER.NAME, USER.IS_ACTIVE, USER.CREATED_AT)
+        .returning(
+            USER.ID,
+            USER.USERNAME,
+            USER.EMAIL,
+            USER.NAME,
+            USER.IS_ACTIVE,
+            USER.CREATED_AT,
+            USER.KIND)
+        .fetchOne(this::mapToUserResponse);
+  }
+
+  /**
+   * AGENT 유저 생성 — password=NULL, kind='AGENT'. AGENT 는 로그인 흐름을 사용할 수 없고 API 키로만 인증한다.
+   *
+   * @return 생성된 사용자 응답
+   */
+  public UserResponse createAgent(String username, String email, String name) {
+    return dsl.insertInto(USER)
+        .set(USER.USERNAME, username)
+        .set(USER.EMAIL, email)
+        .set(USER.NAME, name)
+        .set(USER.KIND, com.workplace.user.dto.UserKind.AGENT)
+        .setNull(USER.PASSWORD)
+        .returning(
+            USER.ID,
+            USER.USERNAME,
+            USER.EMAIL,
+            USER.NAME,
+            USER.IS_ACTIVE,
+            USER.CREATED_AT,
+            USER.KIND)
         .fetchOne(this::mapToUserResponse);
   }
 
@@ -122,7 +188,13 @@ public class UserRepository {
     }
 
     return dsl.select(
-            USER.ID, USER.USERNAME, USER.EMAIL, USER.NAME, USER.IS_ACTIVE, USER.CREATED_AT)
+            USER.ID,
+            USER.USERNAME,
+            USER.EMAIL,
+            USER.NAME,
+            USER.IS_ACTIVE,
+            USER.CREATED_AT,
+            USER.KIND)
         .from(USER)
         .where(condition)
         .orderBy(USER.ID.asc())
@@ -162,6 +234,11 @@ public class UserRepository {
         .set(USER.UPDATED_AT, LocalDateTime.now())
         .where(USER.ID.eq(id))
         .execute();
+  }
+
+  /** id 로 사용자 삭제 (CASCADE). Phase 5a AGENT 삭제용 — 일반 HUMAN 에는 사용 금지. */
+  public void deleteById(Long id) {
+    dsl.deleteFrom(USER).where(USER.ID.eq(id)).execute();
   }
 
   public void setActive(Long id, boolean active) {

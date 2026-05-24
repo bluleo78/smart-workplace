@@ -13,7 +13,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.config.SecurityConfig;
+import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
@@ -27,6 +29,7 @@ import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -41,7 +44,7 @@ import org.springframework.test.web.servlet.MockMvc;
 /** IssueController @WebMvcTest. JWT/Permission/Service 모두 mock. */
 @SuppressWarnings("null")
 @WebMvcTest(IssueController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
 class IssueControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -52,6 +55,10 @@ class IssueControllerTest {
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
   @MockitoBean private PermissionService permissionService;
+
+  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+
+  @MockitoBean private UserRepository userRepository;
 
   /** valid-token 인증 + 주어진 권한 부여. */
   private void mockAuthentication(String... permissions) {

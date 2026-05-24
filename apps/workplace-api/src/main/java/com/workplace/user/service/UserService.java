@@ -1,10 +1,14 @@
 package com.workplace.user.service;
 
+import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
+import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
+import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.UserDetailResponse;
+import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
@@ -21,6 +25,7 @@ public class UserService {
   private final UserRepository userRepository;
   private final RoleRepository roleRepository;
   private final PasswordEncoder passwordEncoder;
+  private final AuditLogService auditLogService;
 
   @Transactional(readOnly = true)
   public PageResponse<UserResponse> getUsers(String search, int page, int size) {
@@ -44,7 +49,79 @@ public class UserService {
         user.name(),
         user.isActive(),
         user.createdAt(),
-        roles);
+        roles,
+        user.kind());
+  }
+
+  /** Phase 5a — kind 별 사용자 목록 (AGENT 관리 화면 등). */
+  @Transactional(readOnly = true)
+  public List<UserResponse> listByKind(String kind) {
+    return userRepository.findByKind(kind);
+  }
+
+  /** 감사 로그용 username 조회 — caller 사용자가 없는 테스트 환경에서는 "system" 으로 대체. */
+  private String resolveUsername(Long callerId) {
+    if (callerId == null) return "system";
+    return userRepository.findById(callerId).map(UserResponse::username).orElse("system");
+  }
+
+  /**
+   * Phase 5a — AGENT 유저 생성. ADMIN 권한은 컨트롤러의 @RequirePermission 으로 가드한다. password=NULL, kind='AGENT'
+   * 로 저장되며 별도 역할은 부여하지 않는다(필요 시 ADMIN 이 부여).
+   */
+  @Transactional
+  public UserResponse createAgent(Long callerId, CreateAgentRequest req) {
+    if (userRepository.existsByUsername(req.username())) {
+      throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
+    }
+    if (userRepository.existsByEmail(req.email())) {
+      throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다.");
+    }
+    UserResponse created = userRepository.createAgent(req.username(), req.email(), req.name());
+    String callerUsername = resolveUsername(callerId);
+    // 감사 로그 — AGENT_CREATED (action_type, resource=user, resource_id=신규 user id)
+    auditLogService.log(
+        callerId,
+        callerUsername,
+        "AGENT_CREATED",
+        "user",
+        String.valueOf(created.id()),
+        "AGENT 유저 생성: " + created.username(),
+        null,
+        null,
+        "SUCCESS",
+        null,
+        java.util.Map.of("username", created.username(), "name", created.name()));
+    return created;
+  }
+
+  /**
+   * Phase 5a — AGENT 유저 삭제. agent_api_key 는 ON DELETE CASCADE 로 함께 제거된다. ADMIN 가드는 컨트롤러에서 처리. 안전상
+   * AGENT 만 삭제 허용.
+   */
+  @Transactional
+  public void deleteAgent(Long callerId, Long userId) {
+    UserResponse user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+    if (!UserKind.isAgent(user.kind())) {
+      throw new IllegalArgumentException("AGENT 유저만 삭제할 수 있습니다");
+    }
+    String callerUsername = resolveUsername(callerId);
+    userRepository.deleteById(userId);
+    auditLogService.log(
+        callerId,
+        callerUsername,
+        "AGENT_DELETED",
+        "user",
+        String.valueOf(userId),
+        "AGENT 유저 삭제: " + user.username(),
+        null,
+        null,
+        "SUCCESS",
+        null,
+        null);
   }
 
   @Transactional

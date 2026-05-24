@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui/table';
+import { AgentBadge } from '../../components/users/AgentBadge';
 import { useUsers } from '../../hooks/queries/useUsers';
 
 export default function UserListPage() {
@@ -53,15 +54,16 @@ export default function UserListPage() {
               <TableHead>이름</TableHead>
               <TableHead>아이디</TableHead>
               <TableHead>이메일</TableHead>
+              <TableHead>구분</TableHead>
               <TableHead>상태</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableSkeletonRows columns={4} rows={5} />
+              <TableSkeletonRows columns={5} rows={5} />
             ) : isError ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-destructive">
+                <TableCell colSpan={5} className="text-center text-destructive">
                   데이터를 불러오는데 실패했습니다.
                 </TableCell>
               </TableRow>
@@ -82,6 +84,13 @@ export default function UserListPage() {
                   <TableCell className="font-medium">{u.username}</TableCell>
                   <TableCell>{u.email ?? '-'}</TableCell>
                   <TableCell>
+                    {u.kind === 'AGENT' ? (
+                      <AgentBadge size="xs" />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">HUMAN</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <Badge variant={u.isActive ? 'default' : 'secondary'}>
                       {u.isActive ? '활성' : '비활성'}
                     </Badge>
@@ -90,7 +99,7 @@ export default function UserListPage() {
               ))
             ) : (
               <TableEmptyRow
-                colSpan={4}
+                colSpan={5}
                 message="사용자가 없습니다."
                 searchKeyword={debouncedSearch || undefined}
                 onResetSearch={search ? () => { setSearch(''); setPage(0); } : undefined}

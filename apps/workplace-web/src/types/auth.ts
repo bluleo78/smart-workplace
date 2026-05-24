@@ -16,6 +16,9 @@ export interface TokenResponse {
   expiresIn: number;
 }
 
+// 사용자 종류 — Phase 5a 부터 백엔드 UserResponse 마지막 필드로 추가됨.
+import type { UserKind } from './user';
+
 export interface UserResponse {
   id: number;
   username: string;
@@ -23,6 +26,7 @@ export interface UserResponse {
   name: string;
   isActive: boolean;
   createdAt: string;
+  kind: UserKind;
 }
 
 export interface ErrorResponse {
