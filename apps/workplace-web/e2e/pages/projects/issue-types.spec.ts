@@ -15,7 +15,11 @@ test.describe('이슈 유형', () => {
     async ({ authenticatedPage: page }) => {
       // 시스템 4종 시드 + 초기 이슈(TASK 유형) 상태.
       let types = systemTypes();
-      const issue = { ...createIssue({ id: 1, number: 1, title: 't' }), type: types[0] };
+      // type 은 IssueTypeSummary 모양으로 좁혀서 — IssueResponse.type 이 Summary 만 허용.
+      const toSummary = (t: (typeof types)[number]) => ({
+        id: t.id, name: t.name, colorToken: t.colorToken, icon: t.icon,
+      });
+      const issue = { ...createIssue({ id: 1, number: 1, title: 't' }), type: toSummary(types[0]) };
 
       // 프로젝트/멤버 stub — 현재 사용자(id=1) OWNER 로 설정해야 관리 UI 가 렌더된다.
       await page.route(`**/api/v1/projects/${KEY}`, (route) =>
@@ -106,12 +110,7 @@ test.describe('이슈 유형', () => {
         const tid = (patchPayload as { typeId: number }).typeId;
         const newType = types.find((t) => t.id === tid);
         if (newType) {
-          issue.type = {
-            id: newType.id,
-            name: newType.name,
-            colorToken: newType.colorToken,
-            icon: newType.icon,
-          };
+          issue.type = toSummary(newType);
         }
         return route.fulfill({
           status: 200,
