@@ -83,6 +83,16 @@ describe('event-handler', () => {
     expect(body).not.toContain('x'.repeat(100));
   });
 
+  it('handleIssueCommented → actor 가 AGENT 면 self-loop 차단 (호출 0)', async () => {
+    await handleIssueCommented(client, {
+      ...baseCommon,
+      actor: { id: 999, username: 'ai', kind: 'AGENT' as const },
+      commentId: 99,
+      commentBody: '스스로 단 코멘트',
+    });
+    expect(client.addIssueComment).not.toHaveBeenCalled();
+  });
+
   it('handleIssueStatusChanged → previous → new 포함', async () => {
     await handleIssueStatusChanged(client, {
       ...baseCommon,

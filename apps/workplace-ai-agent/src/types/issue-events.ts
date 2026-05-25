@@ -63,3 +63,13 @@ export type IssueEventEnvelope = z.infer<typeof issueEventEnvelope>;
 // 본 ai-agent 가 처리하는 알려진 type 들의 prefix — invalid_payload 와
 // unsupported_event_type 분기에 사용.
 export const KNOWN_TYPE_PREFIX = 'issue.';
+
+// discriminatedUnion 의 type literal 들을 정확히 추출한 Set —
+// invalid_payload (알려진 type, 잘못된 payload) 와
+// unsupported_event_type (모르는 type) 분기에 사용.
+export const KNOWN_ISSUE_TYPES: ReadonlySet<string> = new Set([
+  'issue.created',
+  'issue.assigned',
+  'issue.commented',
+  'issue.status_changed',
+]);

@@ -78,6 +78,18 @@ describe('POST /events', () => {
     });
   });
 
+  it('알려진 prefix 의 unknown literal → 400 unsupported_event_type', async () => {
+    const res = await request(buildApp(client))
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'issue.foo', payload: validCreatedPayload });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      error: 'unsupported_event_type',
+      type: 'issue.foo',
+    });
+  });
+
   it('issue.assigned payload 의 added 누락 → 400 invalid_payload', async () => {
     const res = await request(buildApp(client))
       .post('/events')

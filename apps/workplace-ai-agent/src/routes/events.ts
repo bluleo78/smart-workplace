@@ -13,7 +13,7 @@ import {
 } from '../agent/event-handler.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import {
-  KNOWN_TYPE_PREFIX,
+  KNOWN_ISSUE_TYPES,
   issueEventEnvelope,
 } from '../types/issue-events.js';
 
@@ -38,8 +38,9 @@ export function createEventsRouter(client: WorkplaceApiClient): Router {
 
     const parsed = issueEventEnvelope.safeParse(req.body);
     if (!parsed.success) {
-      // 알려진 prefix 면 payload 형태가 잘못된 것 → invalid_payload
-      if (type.startsWith(KNOWN_TYPE_PREFIX)) {
+      // 알려진 type literal 이면 payload 형태가 잘못된 것 → invalid_payload.
+      // 'issue.foo' 처럼 prefix 만 같고 literal 이 모르는 경우는 미지원.
+      if (KNOWN_ISSUE_TYPES.has(type)) {
         res
           .status(400)
           .json({ error: 'invalid_payload', issues: parsed.error.issues });

@@ -36,6 +36,9 @@ export async function handleIssueCommented(
   client: WorkplaceApiClient,
   p: IssueCommentedPayload,
 ): Promise<void> {
+  // defense-in-depth — 업스트림(5b-1) 이 actor.kind==AGENT 인 발사를 skip
+  // 하지만, ai-agent 측에서도 명시적으로 차단해 self-loop 위험을 0 으로 한다.
+  if (p.actor.kind === 'AGENT') return;
   const snippet = truncate(p.commentBody, COMMENT_BODY_TRUNCATE);
   const body = `코멘트 확인했습니다 (by @${p.actor.username}): "${snippet}"${SUFFIX}`;
   await safeCall(client, p.issueKey, body);
