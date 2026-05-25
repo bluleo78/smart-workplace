@@ -14,3 +14,10 @@ app:
   encryption:
     # 테스트용 32바이트 키 (AES-256)
     master-key: dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3Q=
+
+# ai-agent 발사: 테스트 기본 off. 통합 테스트는 @TestPropertySource 로 override.
+workplace:
+  ai-agent:
+    base-url: http://localhost:7070
+    internal-token: test-token
+    enabled: false

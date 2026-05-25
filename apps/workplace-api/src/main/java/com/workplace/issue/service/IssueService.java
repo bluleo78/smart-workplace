@@ -7,6 +7,7 @@ import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.dto.UpdateIssueRequest;
+import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidParentException;
 import com.workplace.issue.exception.InvalidTypeForProjectException;
@@ -15,6 +16,9 @@ import com.workplace.issue.exception.ParentCannotBeSubtaskException;
 import com.workplace.issue.exception.ParentNotAllowedException;
 import com.workplace.issue.exception.SetParentOnNonSubtaskException;
 import com.workplace.issue.exception.SubtaskParentRequiredException;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
@@ -28,11 +32,13 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -56,6 +62,8 @@ public class IssueService {
   private final ProjectAccessGuard accessGuard;
   private final IssueHistoryRecorder historyRecorder;
   private final com.workplace.watcher.service.WatcherAutoEnroller watcherAutoEnroller;
+  private final ApplicationEventPublisher publisher;
+  private final UserRepository userRepository;
 
   /**
    * 신규 이슈 생성. priority 기본값(MID)을 서비스에서 보정. assigneeIds 가 비어있지 않으면 issue_assignee 매핑까지 동시 INSERT.
@@ -131,6 +139,47 @@ public class IssueService {
     watcherAutoEnroller.enroll(row.id(), callerId);
     for (Long uid : assigneeIds) {
       if (!uid.equals(callerId)) watcherAutoEnroller.enroll(row.id(), uid);
+    }
+
+    // 5) 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent dispatcher 가 받아 발사)
+    //    - IssueCreatedEvent 는 항상 발행 (assignee 가 비어있어도)
+    //    - assignee 가 있으면 initial 상태로 IssueAssignedEvent 도 함께 발행 (added=all, removed=[])
+    var actor =
+        userRepository
+            .findById(callerId)
+            .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+            .orElse(null);
+    List<UserSummary> assigneeSummaries =
+        assigneeIds.isEmpty()
+            ? List.of()
+            : userRepository.findByIds(assigneeIds).stream()
+                .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+                .toList();
+    String issueKey = project.key() + "-" + number;
+    Instant occurredAt = Instant.now();
+    publisher.publishEvent(
+        new IssueCreatedEvent(
+            row.id(),
+            project.key(),
+            issueKey,
+            row.title(),
+            row.status(),
+            row.priority(),
+            actor,
+            assigneeSummaries,
+            occurredAt));
+    if (!assigneeSummaries.isEmpty()) {
+      publisher.publishEvent(
+          new IssueAssignedEvent(
+              row.id(),
+              project.key(),
+              issueKey,
+              row.title(),
+              actor,
+              assigneeSummaries,
+              assigneeSummaries,
+              List.of(),
+              occurredAt));
     }
 
     return IssueResponse.from(project.key(), row);
@@ -236,6 +285,29 @@ public class IssueService {
     issueRepository.updateAll(
         before.id(), newTitle, newBody, newStatus, newPriority, newDue, newClosedAt);
     var after = issueRepository.findById(before.id()).orElseThrow();
+
+    // 상태 전이가 있을 때만 IssueStatusChangedEvent 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보)
+    if (!before.status().equals(after.status())) {
+      var actor =
+          userRepository
+              .findById(callerId)
+              .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+              .orElse(null);
+      var currentAssignees = assigneeRepository.findByIssue(after.id());
+      String issueKey = project.key() + "-" + after.number();
+      publisher.publishEvent(
+          new IssueStatusChangedEvent(
+              after.id(),
+              project.key(),
+              issueKey,
+              after.title(),
+              actor,
+              currentAssignees,
+              before.status(),
+              after.status(),
+              Instant.now()));
+    }
+
     historyRecorder.recordChanges(callerId, before, after);
 
     return get(callerId, projectKey, number);

@@ -3,17 +3,20 @@ package com.workplace.issue.service;
 import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.service.WatcherAutoEnroller;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +36,7 @@ public class IssueAssigneeService {
   private final IssueHistoryRecorder historyRecorder;
   private final WatcherAutoEnroller watcherAutoEnroller;
   private final UserRepository userRepository;
+  private final ApplicationEventPublisher publisher;
 
   /**
    * 이슈 담당자 집합을 통째로 교체한다.
@@ -83,8 +87,8 @@ public class IssueAssigneeService {
     for (Long uid : toRemove) repo.remove(issue.id(), uid);
 
     // 4) history — diff 0 이면 미기록
+    List<UserSummary> addedSummaries = List.of();
     if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
-      List<UserSummary> addedSummaries = List.of();
       if (!toAdd.isEmpty()) {
         addedSummaries =
             userRepository.findByIds(new ArrayList<>(toAdd)).stream()
@@ -97,6 +101,28 @@ public class IssueAssigneeService {
 
     // 5) 신규 추가 사용자 watcher 자동 등록
     for (Long uid : toAdd) watcherAutoEnroller.enroll(issue.id(), uid);
+
+    // 6) 변경이 있을 때만 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보)
+    if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
+      var actor =
+          userRepository
+              .findById(callerId)
+              .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+              .orElse(null);
+      var currentAssignees = repo.findByIssue(issue.id());
+      String issueKey = project.key() + "-" + issue.number();
+      publisher.publishEvent(
+          new IssueAssignedEvent(
+              issue.id(),
+              project.key(),
+              issueKey,
+              issue.title(),
+              actor,
+              currentAssignees,
+              addedSummaries,
+              removedSummaries,
+              Instant.now()));
+    }
 
     return repo.findByIssue(issue.id());
   }

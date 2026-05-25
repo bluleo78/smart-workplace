@@ -19,6 +19,10 @@ workplace:
     upload-dir: ./uploads/attachments
     max-file-size-bytes: 26214400      # 25MB
     max-per-issue: 10
+  ai-agent:
+    base-url: ${WORKPLACE_AI_AGENT_URL:http://localhost:7070}
+    internal-token: ${WORKPLACE_AI_AGENT_TOKEN:changeme-local}
+    enabled: ${WORKPLACE_AI_AGENT_ENABLED:true}
 
 app:
   jwt:

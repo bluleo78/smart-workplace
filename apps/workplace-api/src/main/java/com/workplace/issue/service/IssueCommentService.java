@@ -3,8 +3,11 @@ package com.workplace.issue.service;
 import com.workplace.issue.dto.CreateCommentRequest;
 import com.workplace.issue.dto.IssueCommentResponse;
 import com.workplace.issue.dto.UpdateCommentRequest;
+import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
+import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
@@ -12,8 +15,11 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.user.repository.UserRepository;
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +34,9 @@ public class IssueCommentService {
   private final ProjectAccessGuard accessGuard;
   private final ProjectRepository projectRepository;
   private final com.workplace.watcher.service.WatcherAutoEnroller watcherAutoEnroller;
+  private final IssueAssigneeRepository assigneeRepository;
+  private final UserRepository userRepository;
+  private final ApplicationEventPublisher publisher;
 
   /** 이슈 → 프로젝트 → 멤버십 가드. 프로젝트 row 반환. */
   private ProjectRow assertIssueAccess(Long issueId, Long callerId) {
@@ -50,9 +59,31 @@ public class IssueCommentService {
 
   /** 코멘트 생성. 작성자를 자동으로 issue watcher 로 등록. */
   public IssueCommentResponse create(Long callerId, Long issueId, CreateCommentRequest req) {
-    assertIssueAccess(issueId, callerId);
+    var project = assertIssueAccess(issueId, callerId);
     var resp = commentRepository.insert(issueId, callerId, req.body());
     watcherAutoEnroller.enroll(issueId, callerId);
+
+    // 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보)
+    var issue = issueRepository.findById(issueId).orElseThrow();
+    var assignees = assigneeRepository.findByIssue(issueId);
+    var actor =
+        userRepository
+            .findById(callerId)
+            .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+            .orElse(null);
+    String issueKey = project.key() + "-" + issue.number();
+    publisher.publishEvent(
+        new IssueCommentedEvent(
+            issueId,
+            project.key(),
+            issueKey,
+            issue.title(),
+            actor,
+            assignees,
+            resp.id(),
+            req.body(),
+            Instant.now()));
+
     return resp;
   }
 
