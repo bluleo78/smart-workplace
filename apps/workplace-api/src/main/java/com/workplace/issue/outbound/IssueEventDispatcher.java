@@ -10,13 +10,15 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
  * 도메인 이벤트 → ai-agent 발사. AFTER_COMMIT 에서만 동작 — 트랜잭션 롤백 시 발사하지 않는다. 모든 핸들러는 enabled / AGENT assignee
- * / self-loop 필터를 거친 뒤 envelope 을 만들어 client 에 위임한다.
+ * / self-loop 필터를 거친 뒤 envelope 을 만들어 client 에 위임한다. 핸들러는 @Async("aiAgentEventExecutor") 로 별도 스레드에서
+ * 실행되어 ai-agent 다운 시의 재시도 백오프가 도메인 처리(호출 스레드)에 영향을 주지 않는다.
  */
 @Slf4j
 @Component
@@ -26,6 +28,7 @@ public class IssueEventDispatcher {
   private final AiAgentEventClient client;
   private final AiAgentProperties props;
 
+  @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueCreated(IssueCreatedEvent e) {
     if (skip(e.actor(), e.assignees())) return;
@@ -43,6 +46,7 @@ public class IssueEventDispatcher {
     dispatch("issue.created", p, e.issueKey());
   }
 
+  @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueAssigned(IssueAssignedEvent e) {
     if (skip(e.actor(), e.assignees())) return;
@@ -60,6 +64,7 @@ public class IssueEventDispatcher {
     dispatch("issue.assigned", p, e.issueKey());
   }
 
+  @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueCommented(IssueCommentedEvent e) {
     if (skip(e.actor(), e.assignees())) return;
@@ -77,6 +82,7 @@ public class IssueEventDispatcher {
     dispatch("issue.commented", p, e.issueKey());
   }
 
+  @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueStatusChanged(IssueStatusChangedEvent e) {
     if (skip(e.actor(), e.assignees())) return;

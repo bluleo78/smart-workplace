@@ -4,6 +4,8 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -21,6 +23,7 @@ import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -46,6 +49,16 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
   @Autowired UserRepository userRepository;
 
   @MockitoSpyBean AiAgentEventClient client;
+
+  /**
+   * 통합 테스트는 dispatcher → client 호출 캡처만 검증한다. 실제 HTTP 발사는 AiAgentEventClientTest 의
+   * MockRestServiceServer 가 담당. spy 가 실제 publish 를 실행하면 ai-agent 가 부재한 환경에서 재시도 백오프(1s+2s+4s ≒ 7s)
+   * 가 누적되므로 doNothing 으로 stub.
+   */
+  @BeforeEach
+  void stubClientPublish() {
+    doNothing().when(client).publish(any(EventEnvelope.class));
+  }
 
   /** HUMAN 유저 한 명 생성 + USER 역할 부여. username 은 UUID 접미사로 격리. */
   private Long createHuman(String prefix) {
@@ -136,6 +149,7 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
             fx.projectKey(),
             new CreateIssueRequest("기존", "본문", "MID", null, List.of(), null, null));
     org.mockito.Mockito.reset(client);
+    doNothing().when(client).publish(any(EventEnvelope.class));
 
     assigneeService.replace(fx.humanId(), fx.projectKey(), issue.number(), List.of(fx.agentId()));
 
@@ -157,7 +171,10 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
             fx.humanId(),
             fx.projectKey(),
             new CreateIssueRequest("AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null));
+    // setup 단계 비동기 발사 2회(created+assigned) 완료를 기다린 뒤 reset — async 라 reset 너머로 흘러오지 않게.
+    verify(client, timeout(2000).times(2)).publish(any(EventEnvelope.class));
     org.mockito.Mockito.reset(client);
+    doNothing().when(client).publish(any(EventEnvelope.class));
 
     commentService.create(fx.humanId(), issue.id(), new CreateCommentRequest("@ai 확인 부탁"));
 
@@ -177,7 +194,10 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
             fx.humanId(),
             fx.projectKey(),
             new CreateIssueRequest("AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null));
+    // setup 단계 비동기 발사 2회 완료 대기 후 reset.
+    verify(client, timeout(2000).times(2)).publish(any(EventEnvelope.class));
     org.mockito.Mockito.reset(client);
+    doNothing().when(client).publish(any(EventEnvelope.class));
 
     commentService.create(fx.agentId(), issue.id(), new CreateCommentRequest("작업 완료"));
 
@@ -198,7 +218,10 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
             fx.humanId(),
             fx.projectKey(),
             new CreateIssueRequest("AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null));
+    // setup 단계 비동기 발사 2회 완료 대기 후 reset.
+    verify(client, timeout(2000).times(2)).publish(any(EventEnvelope.class));
     org.mockito.Mockito.reset(client);
+    doNothing().when(client).publish(any(EventEnvelope.class));
 
     issueService.updateStatus(fx.humanId(), fx.projectKey(), issue.number(), "IN_PROGRESS");
 

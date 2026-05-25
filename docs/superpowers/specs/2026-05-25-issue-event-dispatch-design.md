@@ -237,6 +237,11 @@ ai-agent 스캐폴딩이 정의한 envelope:
 
 재시도 백오프 검증은 단위 테스트에서 1ms 로 override (production 1s/2s/4s).
 
+또한 dispatcher 의 4개 `@TransactionalEventListener(AFTER_COMMIT)` 핸들러는 `@Async("aiAgentEventExecutor")`
+로 표시되어 전용 `ThreadPoolTaskExecutor`(core/max 2/4, queue 100, prefix `ai-agent-`) 에서 실행된다.
+ai-agent 가 다운된 경우의 재시도 백오프(최대 ~7s) 가 호출(HTTP 요청) 스레드를 점유하지 않으므로 도메인 API 응답
+지연은 발생하지 않는다 — 발사는 fire-and-forget 으로 도메인 처리에 영향 0.
+
 ## Self-loop 차단의 실제 의미
 
 AGENT 가 workplace-api 의 코멘트 추가 API 를 호출하면
