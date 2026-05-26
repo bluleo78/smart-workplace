@@ -1,9 +1,8 @@
-// Express 부트 — 미들웨어 → /health → /events → 전역 에러 핸들러 → graceful shutdown.
-// 5c-1 부터 events 라우터가 workplace-api client 를 주입받는다.
+// Express 부트 — 환경변수 검증 → /health → /events → 전역 에러 핸들러 → graceful shutdown.
+// 5c-2: CLI + 구독 토큰 모드. CLAUDE_CODE_OAUTH_TOKEN 미설정 시 부트 실패.
 import express, { type NextFunction, type Request, type Response } from 'express';
 import dotenv from 'dotenv';
 
-import { createWorkplaceApiClient } from './clients/workplace-api.js';
 import { DEFAULT_PORT } from './constants.js';
 import { internalAuth } from './middleware/internal-auth.js';
 import { healthRouter } from './routes/health.js';
@@ -12,26 +11,43 @@ import { createEventsRouter } from './routes/events.js';
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
+// 필수 환경변수 검증 — 누락 시 fail-fast.
+const REQUIRED_ENV = [
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'INTERNAL_SERVICE_TOKEN',
+  'WORKPLACE_AGENT_API_KEY',
+  'WORKPLACE_API_BASE_URL',
+];
+for (const k of REQUIRED_ENV) {
+  if (!process.env[k]) {
+    console.error(`[ai-agent] ${k} 미설정 — 부트 중단`);
+    process.exit(1);
+  }
+}
+
 const app = express();
 const PORT = Number(process.env.PORT ?? DEFAULT_PORT);
 
-// workplace-api 호출용 client — AGENT API key 로 인증.
-const workplaceApi = createWorkplaceApiClient({
-  baseURL: process.env.WORKPLACE_API_BASE_URL,
-  apiKey: process.env.WORKPLACE_AGENT_API_KEY ?? '',
-});
-
 app.use(express.json());
 
-// /health 는 인증 없이 노출 — k8s 프로브 등을 가정.
+// /health 는 인증 없이 노출.
 app.use(healthRouter);
 // /events 는 사내 서비스 인증 필수.
-app.use(internalAuth, createEventsRouter(workplaceApi));
+app.use(internalAuth, createEventsRouter());
 
-// 전역 에러 핸들러 — 라우트에서 처리 못 한 throw 의 안전망.
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[ai-agent] unhandled error:', err);
   res.status(500).json({ error: 'internal_error' });
+});
+
+// Claude CLI / MCP child 가 abort 시 던지는 rejection 은 swallow — firehub 패턴.
+process.on('unhandledRejection', (reason: unknown) => {
+  const m = reason instanceof Error ? reason.message : String(reason);
+  if (m.includes('aborted')) {
+    console.warn('[process] suppressed abort rejection:', m);
+  } else {
+    console.error('[process] unhandled rejection:', reason);
+  }
 });
 
 const server = app.listen(PORT, () => {
@@ -40,7 +56,6 @@ const server = app.listen(PORT, () => {
   console.log(`  POST /events`);
 });
 
-// SIGTERM/SIGINT 시 진행 중 요청 5초 대기 후 강제 종료.
 function shutdown(signal: string) {
   console.log(`[ai-agent] ${signal} received, shutting down...`);
   server.close(() => process.exit(0));

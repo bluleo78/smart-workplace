@@ -1,23 +1,16 @@
-// 4 type 별 acknowledgment 핸들러 검증.
-// client 는 vi.fn 으로 모킹 — workplace-api 호출은 client.test.ts 가 검증.
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+// 5c-2: 4 type 핸들러가 runAgent 를 fire-and-forget 으로 호출하는지 검증.
+// 5c-1 의 ack 텍스트 코드는 모두 제거됐다.
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import {
-  handleIssueAssigned,
-  handleIssueCommented,
-  handleIssueCreated,
-  handleIssueStatusChanged,
-} from './event-handler.js';
+vi.mock('./run-agent.js', () => ({
+  runAgent: vi.fn().mockResolvedValue(undefined),
+}));
 
-function mockClient(): WorkplaceApiClient {
-  return {
-    addIssueComment: vi.fn().mockResolvedValue(undefined),
-    updateIssueStatus: vi.fn(),
-  };
-}
+import { handleEvent } from './event-handler.js';
+import { runAgent } from './run-agent.js';
+import type { IssueEventEnvelope } from '../types/issue-events.js';
 
-const baseCommon = {
+const common = {
   projectKey: 'WP',
   issueKey: 'WP-42',
   issueId: 42,
@@ -27,79 +20,68 @@ const baseCommon = {
   occurredAt: '2026-05-25T12:00:00Z',
 };
 
-describe('event-handler', () => {
-  let client: WorkplaceApiClient;
-
+describe('handleEvent', () => {
   beforeEach(() => {
-    client = mockClient();
+    vi.mocked(runAgent).mockClear();
+    vi.mocked(runAgent).mockResolvedValue(undefined);
   });
 
-  it('handleIssueCreated → ack 코멘트', async () => {
-    await handleIssueCreated(client, {
-      ...baseCommon,
-      status: 'TODO',
-      priority: 'MID',
-    });
-    expect(client.addIssueComment).toHaveBeenCalledOnce();
-    const [issueKey, body] = vi.mocked(client.addIssueComment).mock.calls[0];
-    expect(issueKey).toBe('WP-42');
-    expect(body).toContain('새 이슈 생성을 확인했습니다 — WP-42 "분석"');
-    expect(body).toContain('_(자동 응답)_');
+  it('issue.created → runAgent 1회 호출, 동기 반환', () => {
+    const env: IssueEventEnvelope = {
+      type: 'issue.created',
+      payload: { ...common, status: 'TODO', priority: 'MID' },
+    };
+    handleEvent(env);
+    expect(runAgent).toHaveBeenCalledOnce();
+    expect(runAgent).toHaveBeenCalledWith(env);
   });
 
-  it('handleIssueAssigned → ack 코멘트', async () => {
-    await handleIssueAssigned(client, {
-      ...baseCommon,
-      added: baseCommon.assignees,
-      removed: [],
+  it('issue.assigned → runAgent 호출', () => {
+    handleEvent({
+      type: 'issue.assigned',
+      payload: { ...common, added: common.assignees, removed: [] },
     });
-    const [issueKey, body] = vi.mocked(client.addIssueComment).mock.calls[0];
-    expect(issueKey).toBe('WP-42');
-    expect(body).toContain('작업을 맡았습니다 — WP-42');
+    expect(runAgent).toHaveBeenCalledOnce();
   });
 
-  it('handleIssueCommented → actor username + commentBody 포함', async () => {
-    await handleIssueCommented(client, {
-      ...baseCommon,
-      commentId: 99,
-      commentBody: '확인 부탁해요',
+  it('issue.commented → AGENT actor 면 self-loop 차단 (runAgent 호출 0)', () => {
+    handleEvent({
+      type: 'issue.commented',
+      payload: {
+        ...common,
+        actor: { id: 999, username: 'ai', kind: 'AGENT' as const },
+        commentId: 1,
+        commentBody: '자기 코멘트',
+      },
     });
-    const [, body] = vi.mocked(client.addIssueComment).mock.calls[0];
-    expect(body).toContain('코멘트 확인했습니다 (by @alice)');
-    expect(body).toContain('확인 부탁해요');
+    expect(runAgent).not.toHaveBeenCalled();
   });
 
-  it('handleIssueCommented → 80자 초과 commentBody 는 80자 + …', async () => {
-    const long = 'x'.repeat(100);
-    await handleIssueCommented(client, {
-      ...baseCommon,
-      commentId: 99,
-      commentBody: long,
+  it('issue.commented → HUMAN actor 면 runAgent 호출', () => {
+    handleEvent({
+      type: 'issue.commented',
+      payload: { ...common, commentId: 1, commentBody: '확인' },
     });
-    const [, body] = vi.mocked(client.addIssueComment).mock.calls[0];
-    // 80자 + ellipsis
-    expect(body).toContain('x'.repeat(80) + '…');
-    // 100자 그대로는 포함하지 않음
-    expect(body).not.toContain('x'.repeat(100));
+    expect(runAgent).toHaveBeenCalledOnce();
   });
 
-  it('handleIssueCommented → actor 가 AGENT 면 self-loop 차단 (호출 0)', async () => {
-    await handleIssueCommented(client, {
-      ...baseCommon,
-      actor: { id: 999, username: 'ai', kind: 'AGENT' as const },
-      commentId: 99,
-      commentBody: '스스로 단 코멘트',
+  it('issue.status_changed → runAgent 호출', () => {
+    handleEvent({
+      type: 'issue.status_changed',
+      payload: { ...common, previousStatus: 'TODO', newStatus: 'IN_PROGRESS' },
     });
-    expect(client.addIssueComment).not.toHaveBeenCalled();
+    expect(runAgent).toHaveBeenCalledOnce();
   });
 
-  it('handleIssueStatusChanged → previous → new 포함', async () => {
-    await handleIssueStatusChanged(client, {
-      ...baseCommon,
-      previousStatus: 'TODO',
-      newStatus: 'IN_PROGRESS',
-    });
-    const [, body] = vi.mocked(client.addIssueComment).mock.calls[0];
-    expect(body).toContain('상태 변경 확인 — TODO → IN_PROGRESS');
+  it('runAgent 가 reject 해도 handleEvent 는 throw 하지 않는다 (fire-and-forget)', async () => {
+    vi.mocked(runAgent).mockRejectedValueOnce(new Error('boom'));
+    expect(() =>
+      handleEvent({
+        type: 'issue.created',
+        payload: { ...common, status: 'TODO', priority: 'MID' },
+      }),
+    ).not.toThrow();
+    // microtask 비우기
+    await new Promise((r) => setImmediate(r));
   });
 });

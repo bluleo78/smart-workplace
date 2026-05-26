@@ -14,6 +14,7 @@ import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.InvalidIssueOperationException;
 import com.workplace.issue.exception.InvalidTypeForProjectException;
 import com.workplace.issue.exception.InvalidTypeIconException;
+import com.workplace.issue.exception.IssueAssigneeAgentRestrictionException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.exception.SystemTypeImmutableException;
@@ -354,6 +355,14 @@ public class GlobalExceptionHandler {
       InvalidAssigneeForProjectException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** Phase 5c-2 — AGENT 가 자기 외 assignee 변경 시도 → 403. */
+  @ExceptionHandler(IssueAssigneeAgentRestrictionException.class)
+  public ResponseEntity<ErrorResponse> handleAgentAssigneeRestriction(
+      IssueAssigneeAgentRestrictionException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request));
   }
 
   /** 이슈 첨부 매핑 또는 file row 미존재 — 404. */

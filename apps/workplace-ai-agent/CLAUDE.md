@@ -4,7 +4,7 @@
 
 ## 이 앱의 목적
 
-Smart Workplace 의 **AI Agent 서비스**. 현재는 **스캐폴딩 단계** — 이벤트 수신 엔드포인트와 의존성 골격만 마련. 실제 LLM 호출 / MCP 도구 / workplace-api 호출은 미구현. Phase 5b (이벤트 수신 처리) / 5c (workplace-api 응답) 에서 채워진다.
+Smart Workplace 의 **AI Agent 서비스**. Phase 5c-2 부터 Claude CLI + 구독 OAuth 토큰으로 LLM 응답을 수행한다. 4 종 이슈 이벤트 envelope 을 받아 `claude` CLI 를 child process 로 spawn 하고, MCP 서버 (별 entry point `dist/mcp/workplace-mcp-server.js`) 가 workplace-api 호출 도구 4 개를 노출한다.
 
 ## Commands
 
@@ -20,14 +20,23 @@ pnpm typecheck
 
 ## Stack
 
-Node.js 22 + TypeScript (ES2022, NodeNext), Express 4, Zod 4, axios, dotenv, `@anthropic-ai/claude-agent-sdk` (의존성만), Vitest 4 + supertest.
+Node.js 22 + TypeScript (ES2022, NodeNext), Express 4, Zod 4, axios, dotenv, `@modelcontextprotocol/sdk`, `@anthropic-ai/claude-agent-sdk` (의존성만 유지 — 향후 SDK 모드 추가 시 사용), Vitest 4 + supertest + nock. 외부 의존: 시스템에 설치된 `claude` CLI (`@anthropic-ai/claude-code`) + `CLAUDE_CODE_OAUTH_TOKEN` 구독 토큰.
 
 ## Layered Structure
 
 ```
 src/
-  agent/                # Claude Agent SDK import (현 시점 빈 export)
-  clients/              # workplace-api 호출용 axios client (현 시점 throw stub)
+  agent/
+    event-handler         # envelope → runAgent fire-and-forget
+    run-agent             # CLI spawn 엔트리
+    cli-runner            # claude CLI 인자/env 빌더 + spawn
+    system-prompt         # LLM 시스템 프롬프트 상수
+    user-message          # 4 type 별 user message 빌더
+    mcp-config            # MCP config 파일 경로 export
+  mcp/
+    workplace-mcp-server  # 별 entry point — stdio MCP 서버
+    tools                 # 4 도구 정의 (get_issue_detail / add_comment / update_status / unassign_self)
+  clients/              # workplace-api 호출용 axios client (코멘트/상태/담당자/조회 4 메서드)
   middleware/           # internal-auth (Authorization: Internal {token})
   routes/               # health, events
   constants.ts          # DEFAULT_PORT, INTERNAL_AUTH_SCHEME, DEFAULT_API_BASE_URL
@@ -62,3 +71,11 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 ## 환경변수
 
 `.env.example` 참고. 로컬은 `.env.local` 사용 (dotenv 가 `.env.local` 먼저, `.env` 후순위로 로드).
+
+| 변수 | 의미 | 필수 |
+|---|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude 구독 OAuth 토큰 (`claude setup-token`) | 예 (부트 fail-fast) |
+| `INTERNAL_SERVICE_TOKEN` | 인바운드 /events 인증 | 예 |
+| `WORKPLACE_API_BASE_URL` | workplace-api URL | 예 |
+| `WORKPLACE_AGENT_API_KEY` | AGENT API key | 예 |
+| `WORKPLACE_AI_MODEL` / `WORKPLACE_AI_MAX_TURNS` / `WORKPLACE_AI_TIMEOUT_MS` | 선택 override | 아님 |

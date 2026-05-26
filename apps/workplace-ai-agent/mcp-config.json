@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "workplace": {
+      "command": "node",
+      "args": ["dist/mcp/workplace-mcp-server.js"],
+      "env": {
+        "WORKPLACE_API_BASE_URL": "${WORKPLACE_API_BASE_URL}",
+        "WORKPLACE_AGENT_API_KEY": "${WORKPLACE_AGENT_API_KEY}"
+      }
+    }
+  }
+}

@@ -37,13 +37,91 @@ describe('createWorkplaceApiClient', () => {
     expect(scope.isDone()).toBe(true);
   });
 
-  it('updateIssueStatus 는 5c-1 에서 여전히 throw', async () => {
+  it('updateIssueStatus → PATCH /projects/{key}/issues/{number}/status', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-api-key', 'k')
+      .patch(`${PREFIX}/projects/WP/issues/1/status`, { status: 'DONE' })
+      .reply(200, {});
+
     const c = createWorkplaceApiClient({
       baseURL: `${BASE}${PREFIX}`,
       apiKey: 'k',
     });
-    await expect(c.updateIssueStatus('WP-1', 'DONE')).rejects.toThrow(
-      /not implemented|미구현/,
-    );
+    await c.updateIssueStatus('WP-1', 'DONE');
+
+    expect(scope.isDone()).toBe(true);
+  });
+
+  it('getIssueDetail → GET /projects/{key}/issues/{number} + 응답 파싱', async () => {
+    nock(BASE)
+      .matchHeader('x-api-key', 'k')
+      .get(`${PREFIX}/projects/WP/issues/42`)
+      .reply(200, {
+        key: 'WP-42',
+        title: '분석',
+        body: '본문',
+        status: 'TODO',
+        priority: 'MID',
+        assignees: [{ id: 201, username: 'ai-bot', name: 'AI', kind: 'AGENT' }],
+        comments: [],
+      });
+
+    const c = createWorkplaceApiClient({
+      baseURL: `${BASE}${PREFIX}`,
+      apiKey: 'k',
+    });
+    const d = await c.getIssueDetail('WP-42');
+
+    expect(d.issueKey).toBe('WP-42');
+    expect(d.title).toBe('분석');
+    expect(d.assignees[0].kind).toBe('AGENT');
+  });
+
+  it('unassignSelf → /users/me 후 assignees PUT (자기만 제외)', async () => {
+    nock(BASE)
+      .matchHeader('x-api-key', 'k')
+      .get(`${PREFIX}/users/me`)
+      .reply(200, { id: 201, username: 'ai-bot', kind: 'AGENT' });
+    nock(BASE)
+      .matchHeader('x-api-key', 'k')
+      .get(`${PREFIX}/projects/WP/issues/42/assignees`)
+      .reply(200, [
+        { id: 7, username: 'alice', kind: 'HUMAN' },
+        { id: 201, username: 'ai-bot', kind: 'AGENT' },
+      ]);
+    const putScope = nock(BASE)
+      .matchHeader('x-api-key', 'k')
+      .put(`${PREFIX}/projects/WP/issues/42/assignees`, { userIds: [7] })
+      .reply(200, []);
+
+    const c = createWorkplaceApiClient({
+      baseURL: `${BASE}${PREFIX}`,
+      apiKey: 'k',
+    });
+    await c.unassignSelf('WP-42');
+
+    expect(putScope.isDone()).toBe(true);
+  });
+
+  it('unassignSelf 연속 호출 시 /users/me 는 1회만 (캐시)', async () => {
+    nock(BASE).get(`${PREFIX}/users/me`).reply(200, { id: 201, username: 'ai-bot', kind: 'AGENT' });
+    nock(BASE)
+      .get(`${PREFIX}/projects/WP/issues/1/assignees`)
+      .reply(200, [{ id: 201, username: 'ai-bot', kind: 'AGENT' }]);
+    nock(BASE).put(`${PREFIX}/projects/WP/issues/1/assignees`, { userIds: [] }).reply(200, []);
+    nock(BASE)
+      .get(`${PREFIX}/projects/WP/issues/2/assignees`)
+      .reply(200, [{ id: 201, username: 'ai-bot', kind: 'AGENT' }]);
+    nock(BASE).put(`${PREFIX}/projects/WP/issues/2/assignees`, { userIds: [] }).reply(200, []);
+
+    const c = createWorkplaceApiClient({
+      baseURL: `${BASE}${PREFIX}`,
+      apiKey: 'k',
+    });
+    await c.unassignSelf('WP-1');
+    await c.unassignSelf('WP-2');
+
+    // /users/me 가 두 번째 호출에서도 발생했다면 nock pending 이 남음
+    expect(nock.pendingMocks()).toEqual([]);
   });
 });

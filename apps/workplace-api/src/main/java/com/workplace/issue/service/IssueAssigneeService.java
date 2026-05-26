@@ -2,6 +2,7 @@ package com.workplace.issue.service;
 
 import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
+import com.workplace.issue.exception.IssueAssigneeAgentRestrictionException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
@@ -63,6 +64,21 @@ public class IssueAssigneeService {
       var memberIds = memberRepository.findUserIdsByProject(project.id());
       if (!new HashSet<>(memberIds).containsAll(normalized)) {
         throw new InvalidAssigneeForProjectException();
+      }
+    }
+
+    // 1-b) AGENT 호출자는 "자기 자신만 제거" 외 변경 금지 (Phase 5c-2)
+    var callerUser =
+        userRepository
+            .findById(callerId)
+            .orElseThrow(() -> new IllegalStateException("caller user 없음: " + callerId));
+    if ("AGENT".equals(callerUser.kind())) {
+      Set<Long> currentSet = new HashSet<>(repo.findUserIdsByIssue(issue.id()));
+      Set<Long> targetSet = new HashSet<>(normalized);
+      Set<Long> currentMinusSelf = new HashSet<>(currentSet);
+      currentMinusSelf.remove(callerId);
+      if (!targetSet.equals(currentMinusSelf)) {
+        throw new IssueAssigneeAgentRestrictionException();
       }
     }
 
