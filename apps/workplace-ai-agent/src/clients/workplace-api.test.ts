@@ -30,14 +30,18 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   }
 
-  it('addIssueComment → POST + Internal + X-On-Behalf-Of', async () => {
-    const scope = nock(BASE)
+  it('addIssueComment → GET 상세로 issueId 추출 후 POST /issues/{id}/comments', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/projects/WP/issues/42`)
+      .reply(200, { summary: { id: 999, title: 't' }, body: 'b' });
+    const post = nock(BASE)
       .matchHeader('authorization', 'Internal tk-internal')
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .post(`${PREFIX}/projects/WP/issues/42/comments`, { body: '안녕' })
+      .post(`${PREFIX}/issues/999/comments`, { body: '안녕' })
       .reply(201, {});
     await newClient().addIssueComment(AGENT_ID, 'WP-42', '안녕');
-    expect(scope.isDone()).toBe(true);
+    expect(post.isDone()).toBe(true);
   });
 
   it('updateIssueStatus → PATCH + 헤더', async () => {

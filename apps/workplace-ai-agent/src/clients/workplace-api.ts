@@ -41,8 +41,15 @@ export function createWorkplaceApiClient(opts: {
   return {
     async addIssueComment(agentId, issueKey, body) {
       const { projectKey, number } = parseIssueKey(issueKey);
+      // 코멘트 endpoint 는 issueId 기반 (workplace-api 컨벤션) — issue 상세에서 id 추출.
+      const r = await http.get(
+        `/projects/${projectKey}/issues/${number}`,
+        onBehalfOf(agentId),
+      );
+      const issueId = r.data?.summary?.id ?? r.data?.id;
+      if (!issueId) throw new Error(`issueId 조회 실패: ${issueKey}`);
       await http.post(
-        `/projects/${projectKey}/issues/${number}/comments`,
+        `/issues/${issueId}/comments`,
         { body },
         onBehalfOf(agentId),
       );
@@ -61,9 +68,17 @@ export function createWorkplaceApiClient(opts: {
       const { projectKey, number } = parseIssueKey(issueKey);
       const r = await http.get(`/projects/${projectKey}/issues/${number}`, onBehalfOf(agentId));
       const raw = r.data ?? {};
+      // workplace-api 응답: {summary:{title,status,priority,assignees}, body, comments}.
+      // LLM 노출용으로 flatten + issueKey 명시.
+      const summary = raw.summary ?? {};
       const normalized = {
-        ...raw,
         issueKey: raw.issueKey ?? raw.key ?? issueKey,
+        title: summary.title ?? raw.title ?? '',
+        body: raw.body ?? summary.body ?? null,
+        status: summary.status ?? raw.status ?? '',
+        priority: summary.priority ?? raw.priority ?? '',
+        assignees: summary.assignees ?? raw.assignees ?? [],
+        comments: raw.comments ?? [],
       };
       return issueDetail.parse(normalized);
     },

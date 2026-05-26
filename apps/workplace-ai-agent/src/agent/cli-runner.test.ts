@@ -18,13 +18,14 @@ describe('buildCliArgs', () => {
     expect(args).toContain('claude-sonnet-4-6');
     expect(args).toContain('--max-turns');
     expect(args).toContain('10');
-    expect(args).toContain('--allowedTools');
+    expect(args).toContain('--allowed-tools');
     expect(args).toContain('mcp__workplace__*');
     expect(args).toContain('--mcp-config');
     expect(args).toContain('/abs/mcp.json');
     expect(args).toContain('--output-format');
     expect(args).toContain('stream-json');
     expect(args).toContain('--dangerously-skip-permissions');
+    expect(args).toContain('--disallowed-tools');
   });
 });
 

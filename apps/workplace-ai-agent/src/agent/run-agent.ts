@@ -1,14 +1,14 @@
 // envelope → AGENT id 결정 → token fetch → CLI spawn. 모든 호출에 agentId 명시.
 import { SYSTEM_PROMPT } from './system-prompt.js';
 import { buildUserMessage } from './user-message.js';
-import { MCP_CONFIG_PATH } from './mcp-config.js';
+import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
 import { buildChildEnv, buildCliArgs, runClaudeCli } from './cli-runner.js';
 import { pickActingAgentId } from './agent-resolver.js';
 import type { IssueEventEnvelope } from '../types/issue-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
-const DEFAULT_MAX_TURNS = 10;
+const DEFAULT_MAX_TURNS = 30;
 const DEFAULT_TIMEOUT_MS = 300_000;
 
 export interface RunAgentDeps {
@@ -48,15 +48,24 @@ export async function runAgent(
   const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
   const userMessage = buildUserMessage(envelope);
+  const mcpConfigPath = writeTempMcpConfig({
+    agentId,
+    baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
+    internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
+  });
   const args = buildCliArgs({
     userMessage,
     systemPrompt: SYSTEM_PROMPT,
     model,
     maxTurns,
-    mcpConfigPath: MCP_CONFIG_PATH,
+    mcpConfigPath,
   });
   const childEnv = buildChildEnv(process.env, token, agentId);
   const logTag = `agent:${envelope.type}:${envelope.payload.issueKey}:${agentId}`;
 
-  await runClaudeCli({ args, env: childEnv, timeoutMs, logTag });
+  try {
+    await runClaudeCli({ args, env: childEnv, timeoutMs, logTag });
+  } finally {
+    cleanupTempMcpConfig(mcpConfigPath);
+  }
 }

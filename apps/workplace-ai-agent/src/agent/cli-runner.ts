@@ -1,6 +1,7 @@
 // Claude CLI child spawn + stdout JSONL 파싱 + 종료/timeout 처리.
 // firehub/apps/firehub-ai-agent/src/agent/agent-cli.ts 패턴 차용.
 import { spawn } from 'node:child_process';
+import os from 'node:os';
 
 export interface CliArgsInput {
   userMessage: string;
@@ -20,12 +21,28 @@ export function buildCliArgs(i: CliArgsInput): string[] {
     i.model,
     '--max-turns',
     String(i.maxTurns),
-    '--allowedTools',
+    '--allowed-tools',
     'mcp__workplace__*',
+    '--disallowed-tools',
+    [
+      'Bash', 'BashOutput', 'KillShell',
+      'Read', 'Write', 'Edit', 'NotebookEdit',
+      'Glob', 'Grep',
+      'WebFetch', 'WebSearch',
+      'Task', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate',
+      'TodoWrite',
+      'Skill', 'ToolSearch', 'SlashCommand',
+      'AskUserQuestion', 'SendUserFile', 'ScheduleWakeup', 'ShareOnboardingGuide',
+      'Monitor', 'LSP',
+    ].join(','),
     '--mcp-config',
     i.mcpConfigPath,
     '--output-format',
     'stream-json',
+    '--verbose',
+    '--include-partial-messages',
+    '--strict-mcp-config',
+    '--disable-slash-commands',
     '--dangerously-skip-permissions',
   ];
 }
@@ -53,9 +70,12 @@ export interface RunCliInput {
 
 export async function runClaudeCli(i: RunCliInput): Promise<void> {
   return new Promise<void>((resolve) => {
+    // cwd: claude CLI 가 cwd 의 CLAUDE.md 를 자동 로드하면 ai-agent 자체 문서가
+    // LLM 컨텍스트에 섞여 self-doubt 유발. 중립 디렉터리(tmpdir) 사용.
     const child = spawn('claude', i.args, {
       env: i.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: os.tmpdir(),
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     let buf = '';

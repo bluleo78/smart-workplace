@@ -6,7 +6,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { z } from 'zod';
 
 import { createWorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools } from './tools.js';
@@ -34,17 +34,23 @@ async function main(): Promise<void> {
     { capabilities: { tools: {} } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: zodToJsonSchema(t.inputSchema as never, {
-        $refStrategy: 'none',
-      }) as never,
-    })),
-  }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const out = {
+      tools: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: z.toJSONSchema(t.inputSchema) as never,
+      })),
+    };
+    console.error(
+      '[workplace-mcp] listTools →',
+      JSON.stringify(out.tools.map((t) => ({ name: t.name, schema: t.inputSchema }))),
+    );
+    return out;
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    console.error('[workplace-mcp] callTool:', req.params.name);
     const tool = tools.find((t) => t.name === req.params.name);
     if (!tool) {
       return {
