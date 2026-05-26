@@ -30,16 +30,17 @@ export function buildCliArgs(i: CliArgsInput): string[] {
   ];
 }
 
-// 구독 모드 강제: ANTHROPIC_API_KEY 가 있으면 CLI 가 API key 모드로 빠지므로 제거.
-// token 은 항상 인자로 받는다 — 호스트 env 의 CLAUDE_CODE_OAUTH_TOKEN 은 무시되고
-// workplace-api 에서 받아온 토큰만 사용 (단일 진실).
+// 구독 모드 강제 + 토큰·agentId 명시 주입. INTERNAL_SERVICE_TOKEN 은 parent 그대로
+// 전달돼 MCP server child 가 사용한다.
 export function buildChildEnv(
   parent: NodeJS.ProcessEnv,
   token: string,
+  agentId: number,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...parent };
   delete env.ANTHROPIC_API_KEY;
   env.CLAUDE_CODE_OAUTH_TOKEN = token;
+  env.ACTING_AGENT_ID = String(agentId);
   return env;
 }
 

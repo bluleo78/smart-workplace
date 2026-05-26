@@ -14,8 +14,7 @@ const client = {
   updateIssueStatus: vi.fn(),
   getIssueDetail: vi.fn(),
   unassignSelf: vi.fn(),
-  getCachedSelfUserId: vi.fn(),
-  getMyOAuthToken: vi.fn(),
+  getOAuthToken: vi.fn(),
 } as unknown as WorkplaceApiClient;
 
 const common = {

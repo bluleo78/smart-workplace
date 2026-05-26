@@ -76,7 +76,11 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 
 | 변수 | 의미 | 필수 |
 |---|---|---|
-| `INTERNAL_SERVICE_TOKEN` | 인바운드 /events 인증 | 예 |
+| `INTERNAL_SERVICE_TOKEN` | 인바운드 /events + 아웃바운드 호출 (Authorization: Internal) 공용 | 예 |
 | `WORKPLACE_API_BASE_URL` | workplace-api URL | 예 |
-| `WORKPLACE_AGENT_API_KEY` | AGENT API key | 예 |
 | `WORKPLACE_AI_MODEL` / `WORKPLACE_AI_MAX_TURNS` / `WORKPLACE_AI_TIMEOUT_MS` | 선택 override | 아님 |
+
+**대행 AGENT 식별**: ai-agent 는 이벤트 envelope 의 assignees 중 첫 AGENT 를 대행 (#34).
+workplace-api 호출 시 `Authorization: Internal <token>` + `X-On-Behalf-Of: <agentId>` 헤더로
+그 AGENT 자격을 부여받는다. 5a 의 AGENT API key 는 ai-agent 부트스트랩과 무관 — 외부 서비스가
+AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.

@@ -1,5 +1,4 @@
-// 4 MCP 도구 정의 — get_issue_detail / add_comment / update_status / unassign_self.
-// 각 도구는 zod input schema + handler 쌍. workplace-mcp-server 가 이 목록을 등록한다.
+// 4 MCP 도구 정의 — 모든 호출에 agentId 가 closure 로 바인딩 (#34).
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -21,7 +20,7 @@ const updateStatusInput = z.object({
   status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']),
 });
 
-export function buildTools(client: WorkplaceApiClient): McpTool[] {
+export function buildTools(client: WorkplaceApiClient, agentId: number): McpTool[] {
   return [
     {
       name: 'get_issue_detail',
@@ -30,7 +29,7 @@ export function buildTools(client: WorkplaceApiClient): McpTool[] {
       inputSchema: issueKey,
       async handler(args) {
         const { issueKey: k } = issueKey.parse(args);
-        const detail = await client.getIssueDetail(k);
+        const detail = await client.getIssueDetail(agentId, k);
         return JSON.stringify(detail);
       },
     },
@@ -40,7 +39,7 @@ export function buildTools(client: WorkplaceApiClient): McpTool[] {
       inputSchema: addCommentInput,
       async handler(args) {
         const { issueKey: k, body } = addCommentInput.parse(args);
-        await client.addIssueComment(k, body);
+        await client.addIssueComment(agentId, k, body);
         return 'ok';
       },
     },
@@ -51,7 +50,7 @@ export function buildTools(client: WorkplaceApiClient): McpTool[] {
       inputSchema: updateStatusInput,
       async handler(args) {
         const { issueKey: k, status } = updateStatusInput.parse(args);
-        await client.updateIssueStatus(k, status);
+        await client.updateIssueStatus(agentId, k, status);
         return 'ok';
       },
     },
@@ -62,7 +61,7 @@ export function buildTools(client: WorkplaceApiClient): McpTool[] {
       inputSchema: issueKey,
       async handler(args) {
         const { issueKey: k } = issueKey.parse(args);
-        await client.unassignSelf(k);
+        await client.unassignSelf(agentId, k);
         return 'ok';
       },
     },

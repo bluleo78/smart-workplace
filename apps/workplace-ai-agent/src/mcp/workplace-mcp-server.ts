@@ -1,6 +1,5 @@
 // Workplace MCP server — Claude CLI 가 stdio child 로 띄우는 entry point.
-// `node dist/mcp/workplace-mcp-server.js` 로 실행. 환경변수에서 workplace-api
-// 접속 정보를 읽고 4 도구를 등록한다.
+// #34: INTERNAL_SERVICE_TOKEN + ACTING_AGENT_ID env 로부터 agentId 를 받아 closure 바인딩.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -14,16 +13,21 @@ import { buildTools } from './tools.js';
 
 async function main(): Promise<void> {
   const baseURL = process.env.WORKPLACE_API_BASE_URL;
-  const apiKey = process.env.WORKPLACE_AGENT_API_KEY;
-  if (!baseURL || !apiKey) {
-    console.error(
-      '[workplace-mcp] WORKPLACE_API_BASE_URL / WORKPLACE_AGENT_API_KEY 미설정',
-    );
+  const internalToken = process.env.INTERNAL_SERVICE_TOKEN;
+  const actingAgentIdRaw = process.env.ACTING_AGENT_ID;
+  const actingAgentId = Number(actingAgentIdRaw);
+
+  if (!baseURL || !internalToken || !Number.isFinite(actingAgentId)) {
+    console.error('[workplace-mcp] 환경변수 누락 또는 ACTING_AGENT_ID 형식 오류', {
+      hasBaseURL: !!baseURL,
+      hasInternalToken: !!internalToken,
+      actingAgentIdRaw,
+    });
     process.exit(1);
   }
 
-  const client = createWorkplaceApiClient({ baseURL, apiKey });
-  const tools = buildTools(client);
+  const client = createWorkplaceApiClient({ baseURL, internalToken });
+  const tools = buildTools(client, actingAgentId);
 
   const server = new Server(
     { name: 'workplace', version: '0.0.1' },
@@ -34,10 +38,9 @@ async function main(): Promise<void> {
     tools: tools.map((t) => ({
       name: t.name,
       description: t.description,
-      // zod-to-json-schema 는 zod v3 타입을 기대 — runtime 형상은 v4 와 호환되므로 cast.
       inputSchema: zodToJsonSchema(t.inputSchema as never, {
         $refStrategy: 'none',
-      }),
+      }) as never,
     })),
   }));
 
@@ -60,7 +63,7 @@ async function main(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[workplace-mcp] connected via stdio');
+  console.error('[workplace-mcp] connected via stdio (acting as agent', actingAgentId, ')');
 }
 
 main().catch((e) => {

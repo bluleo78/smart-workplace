@@ -5,7 +5,8 @@
       "args": ["dist/mcp/workplace-mcp-server.js"],
       "env": {
         "WORKPLACE_API_BASE_URL": "${WORKPLACE_API_BASE_URL}",
-        "WORKPLACE_AGENT_API_KEY": "${WORKPLACE_AGENT_API_KEY}"
+        "INTERNAL_SERVICE_TOKEN": "${INTERNAL_SERVICE_TOKEN}",
+        "ACTING_AGENT_ID": "${ACTING_AGENT_ID}"
       }
     }
   }

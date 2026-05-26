@@ -29,23 +29,34 @@ describe('buildCliArgs', () => {
 });
 
 describe('buildChildEnv', () => {
-  it('token 인자 → CLAUDE_CODE_OAUTH_TOKEN 으로 주입', () => {
-    const env = buildChildEnv({ FOO: 'bar' }, 'tk-X');
+  it('token + agentId 인자 → 둘 다 child env 에 주입', () => {
+    const env = buildChildEnv({ FOO: 'bar' }, 'tk-X', 201);
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('tk-X');
+    expect(env.ACTING_AGENT_ID).toBe('201');
     expect(env.FOO).toBe('bar');
   });
 
-  it('parent 의 CLAUDE_CODE_OAUTH_TOKEN 은 무시되고 인자 token 으로 override', () => {
+  it('parent 의 CLAUDE_CODE_OAUTH_TOKEN 은 인자 token 으로 override', () => {
     const env = buildChildEnv(
-      { CLAUDE_CODE_OAUTH_TOKEN: 'parent-stale', OTHER: 'keep' },
+      { CLAUDE_CODE_OAUTH_TOKEN: 'parent-stale' },
       'tk-fresh',
+      99,
     );
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('tk-fresh');
-    expect(env.OTHER).toBe('keep');
+    expect(env.ACTING_AGENT_ID).toBe('99');
   });
 
-  it('ANTHROPIC_API_KEY 는 항상 제거 (구독 모드 강제)', () => {
-    const env = buildChildEnv({ ANTHROPIC_API_KEY: 'should-go' }, 'tk-X');
+  it('parent INTERNAL_SERVICE_TOKEN 은 그대로 전달 (MCP child 가 사용)', () => {
+    const env = buildChildEnv(
+      { INTERNAL_SERVICE_TOKEN: 'srv-tk' },
+      'tk-X',
+      201,
+    );
+    expect(env.INTERNAL_SERVICE_TOKEN).toBe('srv-tk');
+  });
+
+  it('ANTHROPIC_API_KEY 는 항상 제거', () => {
+    const env = buildChildEnv({ ANTHROPIC_API_KEY: 'should-go' }, 'tk-X', 201);
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 });

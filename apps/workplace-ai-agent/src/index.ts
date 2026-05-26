@@ -1,5 +1,6 @@
 // Express 부트 — 환경변수 검증 → /health → /events → 전역 에러 핸들러 → graceful shutdown.
-// 5c-2 후속 (#33): OAuth 토큰은 매 spawn 시 workplace-api 에서 fetch — 호스트 ~/.claude/ 의존 없음.
+// #34: INTERNAL_SERVICE_TOKEN 단일 부트스트랩. WORKPLACE_AGENT_API_KEY 제거.
+// 호출 시 X-On-Behalf-Of 헤더로 대행 AGENT 명시.
 import express, { type NextFunction, type Request, type Response } from 'express';
 import dotenv from 'dotenv';
 
@@ -14,7 +15,6 @@ dotenv.config();
 
 const REQUIRED_ENV = [
   'INTERNAL_SERVICE_TOKEN',
-  'WORKPLACE_AGENT_API_KEY',
   'WORKPLACE_API_BASE_URL',
 ];
 for (const k of REQUIRED_ENV) {
@@ -24,10 +24,10 @@ for (const k of REQUIRED_ENV) {
   }
 }
 
-// OAuth 토큰 fetch + 도메인 호출 모두에 사용되는 단일 client.
+// 모든 workplace-api 호출은 Internal 인증 + X-On-Behalf-Of 헤더로 대행 AGENT 명시.
 const workplaceApi = createWorkplaceApiClient({
   baseURL: process.env.WORKPLACE_API_BASE_URL,
-  apiKey: process.env.WORKPLACE_AGENT_API_KEY ?? '',
+  internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
 });
 
 const app = express();
