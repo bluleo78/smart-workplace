@@ -31,7 +31,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   public JwtAuthenticationFilter(
       JwtTokenProvider jwtTokenProvider,
       @Lazy PermissionService permissionService,
-      @Value("${agent.internal-token:}") String internalToken) {
+      @Value("${workplace.ai-agent.internal-token:}") String internalToken) {
     this.jwtTokenProvider = jwtTokenProvider;
     this.permissionService = permissionService;
     this.internalToken = internalToken;
