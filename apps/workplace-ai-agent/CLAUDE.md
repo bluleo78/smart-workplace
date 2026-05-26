@@ -74,7 +74,7 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 
 | 변수 | 의미 | 필수 |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude 구독 OAuth 토큰 (`claude setup-token`) | 예 (부트 fail-fast) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude 구독 OAuth 토큰 | 선택 — 기본은 `claude setup-token` 으로 `~/.claude/` 저장. env var 가 있으면 그걸로 override (Docker 등) |
 | `INTERNAL_SERVICE_TOKEN` | 인바운드 /events 인증 | 예 |
 | `WORKPLACE_API_BASE_URL` | workplace-api URL | 예 |
 | `WORKPLACE_AGENT_API_KEY` | AGENT API key | 예 |

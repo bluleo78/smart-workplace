@@ -12,8 +12,11 @@ dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 // 필수 환경변수 검증 — 누락 시 fail-fast.
+// CLAUDE_CODE_OAUTH_TOKEN 은 의도적으로 제외 — `claude setup-token` 으로
+// 호스트의 ~/.claude/ credential store 에 저장하는 방식을 1순위로 한다.
+// env var 로 override 도 가능 (있으면 cli-runner 가 child env 에 전달).
+// 인증 실패는 첫 LLM 호출의 stderr 로 노출되는 lazy-fail.
 const REQUIRED_ENV = [
-  'CLAUDE_CODE_OAUTH_TOKEN',
   'INTERNAL_SERVICE_TOKEN',
   'WORKPLACE_AGENT_API_KEY',
   'WORKPLACE_API_BASE_URL',
