@@ -29,22 +29,23 @@ describe('buildCliArgs', () => {
 });
 
 describe('buildChildEnv', () => {
-  it('ANTHROPIC_API_KEY 제거 + CLAUDE_CODE_OAUTH_TOKEN 주입', () => {
-    const parent = {
-      ANTHROPIC_API_KEY: 'should-be-removed',
-      CLAUDE_CODE_OAUTH_TOKEN: 'sub-token',
-      WORKPLACE_AGENT_API_KEY: 'k',
-      OTHER: 'keep',
-    };
-    const env = buildChildEnv(parent);
-    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
-    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('sub-token');
-    expect(env.WORKPLACE_AGENT_API_KEY).toBe('k');
+  it('token 인자 → CLAUDE_CODE_OAUTH_TOKEN 으로 주입', () => {
+    const env = buildChildEnv({ FOO: 'bar' }, 'tk-X');
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('tk-X');
+    expect(env.FOO).toBe('bar');
+  });
+
+  it('parent 의 CLAUDE_CODE_OAUTH_TOKEN 은 무시되고 인자 token 으로 override', () => {
+    const env = buildChildEnv(
+      { CLAUDE_CODE_OAUTH_TOKEN: 'parent-stale', OTHER: 'keep' },
+      'tk-fresh',
+    );
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('tk-fresh');
     expect(env.OTHER).toBe('keep');
   });
 
-  it('CLAUDE_CODE_OAUTH_TOKEN 누락 시에도 단순 복사 (caller 가 부트에서 검증)', () => {
-    const env = buildChildEnv({ FOO: 'bar' });
-    expect(env.FOO).toBe('bar');
+  it('ANTHROPIC_API_KEY 는 항상 제거 (구독 모드 강제)', () => {
+    const env = buildChildEnv({ ANTHROPIC_API_KEY: 'should-go' }, 'tk-X');
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 });

@@ -1,10 +1,8 @@
-// 이벤트 수신 엔드포인트 — workplace-api 가 도메인 이벤트를 푸시한다.
-// envelope({type, payload}) 검증 후 handleEvent 단일 진입점으로 분기.
-// LLM 실행은 background — /events 는 즉시 202.
+// 이벤트 수신 — workplace-api 가 푸시한 이벤트를 즉시 202 응답하고 background 처리.
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { handleEvent } from '../agent/event-handler.js';
+import { handleEvent, type EventHandlerDeps } from '../agent/event-handler.js';
 import {
   KNOWN_ISSUE_TYPES,
   issueEventEnvelope,
@@ -15,7 +13,7 @@ const envelopeSchema = z.object({
   payload: z.unknown(),
 });
 
-export function createEventsRouter(): Router {
+export function createEventsRouter(deps: EventHandlerDeps): Router {
   const router = Router();
 
   router.post('/events', (req, res) => {
@@ -40,8 +38,7 @@ export function createEventsRouter(): Router {
       return;
     }
 
-    // 동기 진입 — handleEvent 내부에서 fire-and-forget.
-    handleEvent(parsed.data);
+    handleEvent(parsed.data, deps);
     res.status(202).json({ received: true });
   });
 

@@ -3,6 +3,10 @@
 
 import type { UserResponse } from '../types/auth';
 import type { AgentApiKey, AgentApiKeyIssueResponse } from '../types/agentKey';
+import type {
+  OAuthTokenMeta,
+  OAuthTokenRegisterRequest,
+} from '../types/agentOAuthToken';
 
 import { client } from './client';
 
@@ -48,4 +52,31 @@ export async function issueAgentKey(
 // 키 회수 — revoked_at 마킹. 인증 hot path 에서 즉시 차단.
 export async function revokeAgentKey(userId: number, keyId: number): Promise<void> {
   await client.delete<void>(`/admin/agents/${userId}/keys/${keyId}`);
+}
+
+// AGENT 의 active OAuth 토큰 메타 조회 — 평문 미포함. 미등록 시 404.
+export async function getAgentOAuthTokenMeta(
+  userId: number,
+): Promise<OAuthTokenMeta> {
+  const { data } = await client.get<OAuthTokenMeta>(
+    `/admin/agents/${userId}/oauth-token`,
+  );
+  return data;
+}
+
+// OAuth 토큰 등록 (또는 재발급 — 기존 active 자동 revoke). 응답에 평문 미포함.
+export async function registerAgentOAuthToken(
+  userId: number,
+  body: OAuthTokenRegisterRequest,
+): Promise<OAuthTokenMeta> {
+  const { data } = await client.post<OAuthTokenMeta>(
+    `/admin/agents/${userId}/oauth-token`,
+    body,
+  );
+  return data;
+}
+
+// OAuth 토큰 회수 — idempotent. 회수 후 AGENT 는 LLM 호출 불가 상태.
+export async function revokeAgentOAuthToken(userId: number): Promise<void> {
+  await client.delete<void>(`/admin/agents/${userId}/oauth-token`);
 }

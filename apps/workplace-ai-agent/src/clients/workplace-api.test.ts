@@ -103,6 +103,25 @@ describe('createWorkplaceApiClient', () => {
     expect(putScope.isDone()).toBe(true);
   });
 
+  it('getMyOAuthToken → GET /users/me/oauth-token + 응답 파싱', async () => {
+    nock(BASE)
+      .matchHeader('x-api-key', 'k')
+      .get(`${PREFIX}/users/me/oauth-token`)
+      .reply(200, { token: 'tk-plain', label: 'main' });
+
+    const c = createWorkplaceApiClient({ baseURL: `${BASE}${PREFIX}`, apiKey: 'k' });
+    const r = await c.getMyOAuthToken();
+
+    expect(r).toEqual({ token: 'tk-plain', label: 'main' });
+  });
+
+  it('getMyOAuthToken → 404 면 throw', async () => {
+    nock(BASE).get(`${PREFIX}/users/me/oauth-token`).reply(404, { error: 'not_found' });
+
+    const c = createWorkplaceApiClient({ baseURL: `${BASE}${PREFIX}`, apiKey: 'k' });
+    await expect(c.getMyOAuthToken()).rejects.toThrow();
+  });
+
   it('unassignSelf 연속 호출 시 /users/me 는 1회만 (캐시)', async () => {
     nock(BASE).get(`${PREFIX}/users/me`).reply(200, { id: 201, username: 'ai-bot', kind: 'AGENT' });
     nock(BASE)

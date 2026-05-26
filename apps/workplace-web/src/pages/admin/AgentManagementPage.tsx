@@ -3,6 +3,7 @@
 // 키 발급 응답에 포함된 plaintextKey 는 즉시 dialog 로 표시 (1회).
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,9 +15,15 @@ import {
   useIssueAgentKey,
   useRevokeAgentKey,
 } from '../../hooks/queries/useAgentKeys';
+import {
+  useAgentOAuthTokenMeta,
+  useRevokeAgentOAuthToken,
+} from '../../hooks/queries/useAgentOAuthToken';
+import { handleApiError } from '../../lib/api-error';
 
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
 import { NewAgentDialog } from './components/NewAgentDialog';
+import { OAuthTokenDialog } from './components/OAuthTokenDialog';
 
 // 시간 표시 공통 — null/빈값 폴백.
 function fmtDateTime(iso: string | null): string {
@@ -232,6 +239,8 @@ export default function AgentManagementPage() {
                   </table>
                 </div>
               </div>
+
+              <OAuthTokenSection agentUserId={selected.id} />
             </>
           )}
         </section>
@@ -246,5 +255,88 @@ export default function AgentManagementPage() {
         }}
       />
     </div>
+  );
+}
+
+// AGENT 의 Claude CLI OAuth 토큰 섹션 — 메타 조회 + 등록/재발급/회수.
+// 평문 토큰은 절대 응답에 포함되지 않으며, 회수 후에는 LLM 호출이 불가해진다.
+function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
+  const { data: meta, isLoading } = useAgentOAuthTokenMeta(agentUserId);
+  const revoke = useRevokeAgentOAuthToken(agentUserId);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const onRevoke = async () => {
+    if (
+      !confirm('OAuth 토큰을 회수하시겠습니까? AGENT 는 LLM 호출 불가 상태가 됩니다.')
+    )
+      return;
+    try {
+      await revoke.mutateAsync();
+      toast.success('토큰을 회수했습니다.');
+    } catch (e) {
+      handleApiError(e, '토큰 회수에 실패했습니다');
+    }
+  };
+
+  return (
+    <section className="border-t pt-4 mt-4 space-y-2">
+      <h3 className="text-sm font-medium">Claude CLI OAuth 토큰</h3>
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">로드 중…</p>
+      ) : meta ? (
+        <div className="space-y-1 text-sm">
+          <div>
+            <span className="text-muted-foreground">레이블: </span>
+            <span>{meta.label ?? '(없음)'}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">등록일: </span>
+            <span>{fmtDateTime(meta.createdAt)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">최근 사용: </span>
+            <span>{meta.lastUsedAt ? fmtDateTime(meta.lastUsedAt) : '미사용'}</span>
+          </div>
+          <div className="pt-2 flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setDialogOpen(true)}
+              data-testid="oauth-token-reissue"
+            >
+              재발급
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={onRevoke}
+              disabled={revoke.isPending}
+              data-testid="oauth-token-revoke"
+            >
+              회수
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            등록된 토큰 없음. AGENT 는 LLM 호출 불가.
+          </p>
+          <Button
+            size="sm"
+            onClick={() => setDialogOpen(true)}
+            data-testid="oauth-token-register"
+          >
+            등록
+          </Button>
+        </div>
+      )}
+      <OAuthTokenDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        agentUserId={agentUserId}
+        isReissue={meta != null}
+      />
+    </section>
   );
 }

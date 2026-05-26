@@ -17,6 +17,7 @@ function client(): WorkplaceApiClient {
     }),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
     getCachedSelfUserId: vi.fn().mockResolvedValue(201),
+    getMyOAuthToken: vi.fn().mockResolvedValue({ token: 'tk', label: 'main' }),
   };
 }
 

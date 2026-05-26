@@ -72,9 +72,10 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 
 `.env.example` 참고. 로컬은 `.env.local` 사용 (dotenv 가 `.env.local` 먼저, `.env` 후순위로 로드).
 
+**Claude CLI OAuth 토큰**: workplace-api DB 에 AGENT 별로 암호화 저장 (#33). 호스트 `~/.claude/` 의존 없음. workplace-web 의 AGENT 관리 화면에서 등록.
+
 | 변수 | 의미 | 필수 |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude 구독 OAuth 토큰 | 선택 — 기본은 `claude setup-token` 으로 `~/.claude/` 저장. env var 가 있으면 그걸로 override (Docker 등) |
 | `INTERNAL_SERVICE_TOKEN` | 인바운드 /events 인증 | 예 |
 | `WORKPLACE_API_BASE_URL` | workplace-api URL | 예 |
 | `WORKPLACE_AGENT_API_KEY` | AGENT API key | 예 |

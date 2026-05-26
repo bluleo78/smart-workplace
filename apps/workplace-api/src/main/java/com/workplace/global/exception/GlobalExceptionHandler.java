@@ -574,6 +574,14 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
   }
 
+  /** Phase 5c-2 후속 (#33) — AGENT 의 active OAuth 토큰 없음 → 404. */
+  @ExceptionHandler(com.workplace.auth.exception.OAuthTokenNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleOAuthTokenNotFound(
+      com.workplace.auth.exception.OAuthTokenNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
     log.error("Unhandled exception", ex);

@@ -10,11 +10,21 @@ vi.mock('../agent/run-agent.js', () => ({
 import { internalAuth } from '../middleware/internal-auth.js';
 import { createEventsRouter } from './events.js';
 import { runAgent } from '../agent/run-agent.js';
+import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+
+const client = {
+  addIssueComment: vi.fn(),
+  updateIssueStatus: vi.fn(),
+  getIssueDetail: vi.fn(),
+  unassignSelf: vi.fn(),
+  getCachedSelfUserId: vi.fn(),
+  getMyOAuthToken: vi.fn(),
+} as unknown as WorkplaceApiClient;
 
 function buildApp() {
   const app = express();
   app.use(express.json());
-  app.use(internalAuth, createEventsRouter());
+  app.use(internalAuth, createEventsRouter({ client }));
   return app;
 }
 

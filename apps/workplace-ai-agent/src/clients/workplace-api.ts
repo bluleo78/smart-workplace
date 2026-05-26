@@ -23,6 +23,8 @@ export interface WorkplaceApiClient {
   unassignSelf(issueKey: string): Promise<void>;
   // 캐시된 self user id 조회 (테스트 보조).
   getCachedSelfUserId(): Promise<number>;
+  // 본인의 active OAuth 토큰 평문 + label. 없으면 404 throw.
+  getMyOAuthToken(): Promise<{ token: string; label: string | null }>;
 }
 
 // issueKey("WP-42" / "A-B-7") → workplace-api URL 부품. projectKey 에
@@ -106,6 +108,14 @@ export function createWorkplaceApiClient(opts: {
     async getCachedSelfUserId() {
       const me = await fetchSelf();
       return me.id;
+    },
+
+    async getMyOAuthToken() {
+      const r = await http.get('/users/me/oauth-token');
+      return {
+        token: String(r.data?.token ?? ''),
+        label: r.data?.label ?? null,
+      };
     },
   };
 }
