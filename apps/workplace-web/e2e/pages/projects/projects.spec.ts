@@ -105,7 +105,7 @@ test('상태 변경 시 활동 타임라인에 한국어 라벨로 노출', asyn
   const after = createIssueDetail({
     summary: createIssue({ status: 'IN_PROGRESS' }),
     history: [{
-      id: 1, actorId: 1, actorName: 'Tester', eventType: 'STATUS_CHANGED',
+      id: 1, actorId: 1, actorName: 'Tester', actorKind: 'HUMAN', eventType: 'STATUS_CHANGED',
       fromValue: 'TODO', toValue: 'IN_PROGRESS', createdAt: new Date().toISOString(),
     }],
   });

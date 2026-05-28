@@ -47,6 +47,7 @@ export function createComment(overrides: Partial<IssueCommentResponse> = {}): Is
     issueId: 100,
     authorId: 1,
     authorName: 'Tester',
+    authorKind: 'HUMAN',
     body: '확인했습니다',
     createdAt: now,
     updatedAt: now,
@@ -60,6 +61,7 @@ export function createHistoryEntry(overrides: Partial<IssueHistoryEntry> = {}): 
     id: 1,
     actorId: 1,
     actorName: 'Tester',
+    actorKind: 'HUMAN',
     eventType: 'STATUS_CHANGED',
     fromValue: 'TODO',
     toValue: 'IN_PROGRESS',
@@ -86,4 +88,27 @@ export function createIssueDetail(overrides: Partial<IssueDetailResponse> = {}):
     attachments: [],
     ...overrides,
   };
+}
+
+// AGENT 작성 코멘트 팩토리 — 시각 구분 테스트용.
+export function createAgentComment(overrides: Partial<IssueCommentResponse> = {}): IssueCommentResponse {
+  return createComment({
+    id: 2,
+    authorId: 99,
+    authorName: 'AI Agent',
+    authorKind: 'AGENT',
+    body: '확인 후 처리하겠습니다',
+    ...overrides,
+  });
+}
+
+// AGENT 가 일으킨 이력 팩토리.
+export function createAgentHistoryEntry(overrides: Partial<IssueHistoryEntry> = {}): IssueHistoryEntry {
+  return createHistoryEntry({
+    id: 2,
+    actorId: 99,
+    actorName: 'AI Agent',
+    actorKind: 'AGENT',
+    ...overrides,
+  });
 }

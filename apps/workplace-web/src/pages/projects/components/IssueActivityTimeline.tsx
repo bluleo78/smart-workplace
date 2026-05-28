@@ -1,5 +1,7 @@
 // 이슈 변경 이력 타임라인. status/priority/assignee/dueDate/title/labels 변경 기록.
 
+import { Badge } from '@/components/ui/badge';
+
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
 
 // 이벤트 타입을 한국어 라벨로 매핑 — 백엔드 enum 과 1:1 매칭.
@@ -165,37 +167,55 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
   }
   return (
     <ol className="space-y-2 text-sm" role="list" aria-label="활동 타임라인">
-      {entries.map((e) => (
-        <li key={e.id} className="border-l-2 pl-3">
-          <div className="text-muted-foreground">
-            {e.actorName} · {new Date(e.createdAt).toLocaleString('ko-KR')}
-          </div>
-          <div>
-            <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}
-            {e.eventType === 'LABELS_CHANGED' ? (
-              <span>{formatLabelsChanged(e.toValue)}</span>
-            ) : e.eventType === 'ATTACHMENTS_CHANGED' ? (
-              <span>{formatAttachmentsChanged(e.toValue)}</span>
-            ) : e.eventType === 'ASSIGNEES_CHANGED' ? (
-              <span>{formatAssigneesChanged(e.toValue)}</span>
-            ) : e.eventType === 'TYPE_CHANGED' ? (
-              <span>{formatTypeChanged(e.toValue)}</span>
-            ) : e.eventType === 'PARENT_CHANGED' ? (
-              <span>{formatParentChanged(e.toValue)}</span>
-            ) : e.eventType === 'DEPENDENCY_ADDED' ? (
-              <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_ADDED')}</span>
-            ) : e.eventType === 'DEPENDENCY_REMOVED' ? (
-              <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_REMOVED')}</span>
-            ) : e.eventType === 'CUSTOM_FIELD_CHANGED' ? (
-              <span>{formatCustomFieldChanged(e.toValue)}</span>
-            ) : (
-              <span>
-                {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}
-              </span>
-            )}
-          </div>
-        </li>
-      ))}
+      {entries.map((e) => {
+        const isAgent = e.actorKind === 'AGENT';
+        return (
+          <li
+            key={e.id}
+            className={
+              isAgent ? 'border-l-2 border-l-blue-500 pl-3' : 'border-l-2 pl-3'
+            }
+            data-agent={isAgent ? 'true' : undefined}
+          >
+            <div className="text-muted-foreground flex items-center gap-1">
+              <span>{e.actorName}</span>
+              {isAgent && (
+                <Badge
+                  variant="secondary"
+                  className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                >
+                  AI
+                </Badge>
+              )}
+              <span>· {new Date(e.createdAt).toLocaleString('ko-KR')}</span>
+            </div>
+            <div>
+              <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}
+              {e.eventType === 'LABELS_CHANGED' ? (
+                <span>{formatLabelsChanged(e.toValue)}</span>
+              ) : e.eventType === 'ATTACHMENTS_CHANGED' ? (
+                <span>{formatAttachmentsChanged(e.toValue)}</span>
+              ) : e.eventType === 'ASSIGNEES_CHANGED' ? (
+                <span>{formatAssigneesChanged(e.toValue)}</span>
+              ) : e.eventType === 'TYPE_CHANGED' ? (
+                <span>{formatTypeChanged(e.toValue)}</span>
+              ) : e.eventType === 'PARENT_CHANGED' ? (
+                <span>{formatParentChanged(e.toValue)}</span>
+              ) : e.eventType === 'DEPENDENCY_ADDED' ? (
+                <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_ADDED')}</span>
+              ) : e.eventType === 'DEPENDENCY_REMOVED' ? (
+                <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_REMOVED')}</span>
+              ) : e.eventType === 'CUSTOM_FIELD_CHANGED' ? (
+                <span>{formatCustomFieldChanged(e.toValue)}</span>
+              ) : (
+                <span>
+                  {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}
+                </span>
+              )}
+            </div>
+          </li>
+        );
+      })}
     </ol>
   );
 }

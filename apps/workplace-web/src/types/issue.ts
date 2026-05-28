@@ -66,6 +66,8 @@ export interface IssueCommentResponse {
   issueId: number;
   authorId: number;
   authorName: string;
+  // HUMAN (사람) | AGENT (AI). 백엔드 user.kind 와 1:1 (V14). AGENT 코멘트는 UI 에서 시각 구분.
+  authorKind: 'HUMAN' | 'AGENT';
   body: string;
   createdAt: string;
   updatedAt: string;
@@ -93,6 +95,8 @@ export interface IssueHistoryEntry {
   id: number;
   actorId: number;
   actorName: string;
+  // HUMAN | AGENT. 타임라인에서 AGENT 행은 시각 구분.
+  actorKind: 'HUMAN' | 'AGENT';
   eventType: IssueHistoryEventType;
   fromValue: string | null;
   toValue: string | null;

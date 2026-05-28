@@ -232,8 +232,8 @@ export interface IssueCommentResponse {
   issueId: number;
   authorId: number;
   authorName: string;
-  // USER (사람) | AGENT (AI). 백엔드 user.kind 와 1:1. AGENT 코멘트는 UI 에서 시각 구분.
-  authorKind: 'USER' | 'AGENT';
+  // HUMAN (사람) | AGENT (AI). 백엔드 user.kind 와 1:1 (V14 마이그레이션). AGENT 코멘트는 UI 에서 시각 구분.
+  authorKind: 'HUMAN' | 'AGENT';
   body: string;
   createdAt: string;
   updatedAt: string;
@@ -246,8 +246,8 @@ export interface IssueHistoryEntry {
   id: number;
   actorId: number;
   actorName: string;
-  // USER | AGENT. 타임라인에서 AGENT 행은 시각 구분.
-  actorKind: 'USER' | 'AGENT';
+  // HUMAN | AGENT. 타임라인에서 AGENT 행은 시각 구분.
+  actorKind: 'HUMAN' | 'AGENT';
   eventType: IssueHistoryEventType;
   fromValue: string | null;
   toValue: string | null;
@@ -268,7 +268,7 @@ export function createComment(overrides: Partial<IssueCommentResponse> = {}): Is
     issueId: 100,
     authorId: 1,
     authorName: 'Tester',
-    authorKind: 'USER',
+    authorKind: 'HUMAN',
     body: '확인했습니다',
     createdAt: now,
     updatedAt: now,
@@ -294,7 +294,7 @@ export function createHistoryEntry(overrides: Partial<IssueHistoryEntry> = {}): 
     id: 1,
     actorId: 1,
     actorName: 'Tester',
-    actorKind: 'USER',
+    actorKind: 'HUMAN',
     eventType: 'STATUS_CHANGED',
     fromValue: 'TODO',
     toValue: 'IN_PROGRESS',

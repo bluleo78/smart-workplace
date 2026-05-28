@@ -4,12 +4,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
 import { useCreateComment } from '../../../hooks/queries/useIssueComments';
 import { handleApiError } from '../../../lib/api-error';
-import { createCommentSchema, type CreateCommentFormData } from '../../../lib/validations/issue';
+import { type CreateCommentFormData,createCommentSchema } from '../../../lib/validations/issue';
 import type { IssueCommentResponse } from '../../../types/issue';
 
 // 코멘트 목록을 시간순으로 표시하고, 하단 폼에서 신규 코멘트를 추가.
@@ -49,14 +50,34 @@ export function IssueCommentList({
     <section aria-label="코멘트" className="space-y-3">
       <h2 className="text-lg font-semibold">코멘트</h2>
       <ul className="space-y-2" role="list">
-        {comments.map((c) => (
-          <li key={c.id} className="border rounded p-3">
-            <div className="text-sm text-muted-foreground">
-              {c.authorName} · {new Date(c.createdAt).toLocaleString('ko-KR')}
-            </div>
-            <div className="whitespace-pre-wrap mt-1">{c.body}</div>
-          </li>
-        ))}
+        {comments.map((c) => {
+          const isAgent = c.authorKind === 'AGENT';
+          return (
+            <li
+              key={c.id}
+              className={
+                isAgent
+                  ? 'border border-blue-500/50 bg-blue-50/40 dark:bg-blue-950/20 rounded p-3'
+                  : 'border rounded p-3'
+              }
+              data-agent={isAgent ? 'true' : undefined}
+            >
+              <div className="text-sm text-muted-foreground flex items-center gap-1">
+                <span>{c.authorName}</span>
+                {isAgent && (
+                  <Badge
+                    variant="secondary"
+                    className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  >
+                    AI
+                  </Badge>
+                )}
+                <span>· {new Date(c.createdAt).toLocaleString('ko-KR')}</span>
+              </div>
+              <div className="whitespace-pre-wrap mt-1">{c.body}</div>
+            </li>
+          );
+        })}
         {comments.length === 0 && (
           <li className="text-muted-foreground text-sm">코멘트가 없습니다</li>
         )}
