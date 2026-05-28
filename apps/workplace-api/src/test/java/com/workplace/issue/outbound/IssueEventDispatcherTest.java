@@ -5,6 +5,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.workplace.global.outbound.AiAgentEventClient;
+import com.workplace.global.outbound.AiAgentProperties;
+import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;

@@ -1,4 +1,4 @@
-package com.workplace.issue.outbound;
+package com.workplace.global.outbound;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

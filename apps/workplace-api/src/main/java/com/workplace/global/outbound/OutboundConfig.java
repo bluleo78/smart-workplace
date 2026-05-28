@@ -1,4 +1,4 @@
-package com.workplace.issue.outbound;
+package com.workplace.global.outbound;
 
 import java.util.concurrent.Executor;
 import org.springframework.context.annotation.Bean;

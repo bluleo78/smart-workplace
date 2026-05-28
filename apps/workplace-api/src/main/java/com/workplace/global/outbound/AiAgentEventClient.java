@@ -1,4 +1,4 @@
-package com.workplace.issue.outbound;
+package com.workplace.global.outbound;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatusCode;

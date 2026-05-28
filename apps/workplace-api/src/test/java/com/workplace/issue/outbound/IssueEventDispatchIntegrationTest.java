@@ -10,6 +10,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
+import com.workplace.global.outbound.AiAgentEventClient;
+import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.issue.dto.CreateCommentRequest;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.service.IssueAssigneeService;
