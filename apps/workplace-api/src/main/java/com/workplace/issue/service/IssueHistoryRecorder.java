@@ -1,9 +1,9 @@
 package com.workplace.issue.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.dto.IssueRow;
-import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.label.dto.LabelSummary;
 import java.util.List;

@@ -1,13 +1,13 @@
 package com.workplace.issue.service;
 
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.dto.UpdateIssueRequest;
-import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidParentException;
 import com.workplace.issue.exception.InvalidTypeForProjectException;

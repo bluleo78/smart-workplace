@@ -3,7 +3,7 @@ package com.workplace.issue.repository;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.USER;
 
-import com.workplace.issue.dto.UserSummary;
+import com.workplace.global.dto.UserSummary;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;

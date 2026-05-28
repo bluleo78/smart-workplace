@@ -1,12 +1,12 @@
 package com.workplace.issue.service;
 
+import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.IssueTypeSummary;
-import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;

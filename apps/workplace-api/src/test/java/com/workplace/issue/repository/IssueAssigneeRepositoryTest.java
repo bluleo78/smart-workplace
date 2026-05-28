@@ -5,8 +5,8 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.IssueRow;
-import com.workplace.issue.dto.UserSummary;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;

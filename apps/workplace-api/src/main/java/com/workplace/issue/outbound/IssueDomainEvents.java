@@ -1,6 +1,6 @@
 package com.workplace.issue.outbound;
 
-import com.workplace.issue.dto.UserSummary;
+import com.workplace.global.dto.UserSummary;
 import java.time.Instant;
 import java.util.List;
 

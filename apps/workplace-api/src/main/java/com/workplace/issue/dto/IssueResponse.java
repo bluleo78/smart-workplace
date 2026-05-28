@@ -1,5 +1,6 @@
 package com.workplace.issue.dto;
 
+import com.workplace.global.dto.UserSummary;
 import com.workplace.label.dto.LabelSummary;
 import java.time.Instant;
 import java.time.LocalDate;

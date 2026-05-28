@@ -1,6 +1,6 @@
 package com.workplace.issue.service;
 
-import com.workplace.issue.dto.UserSummary;
+import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.IssueAssigneeAgentRestrictionException;
 import com.workplace.issue.exception.IssueNotFoundException;

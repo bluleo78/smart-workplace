@@ -1,7 +1,7 @@
 package com.workplace.issue.controller;
 
+import com.workplace.global.dto.UserSummary;
 import com.workplace.global.security.RequirePermission;
-import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.service.IssueAssigneeService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;

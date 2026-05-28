@@ -1,9 +1,9 @@
 package com.workplace.issue.service;
 
+import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.CreateCommentRequest;
 import com.workplace.issue.dto.IssueCommentResponse;
 import com.workplace.issue.dto.UpdateCommentRequest;
-import com.workplace.issue.dto.UserSummary;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
