@@ -1,0 +1,82 @@
+package com.workplace.chat.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.workplace.chat.dto.ChatMessageResponse;
+import com.workplace.chat.dto.CreateChatMessageRequest;
+import com.workplace.chat.dto.UpdateChatMessageRequest;
+import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
+import com.workplace.chat.exception.ChatThreadNotMemberException;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
+import com.workplace.support.IntegrationTestBase;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
+
+/** 메시지 CRUD + 권한 + 이벤트 발행 검증. */
+@RecordApplicationEvents
+class ChatMessageServiceTest extends IntegrationTestBase {
+
+  @Autowired ChatMessageService messageService;
+  @Autowired ChatThreadService threadService;
+  @Autowired ChatFixtures fx;
+  @Autowired ApplicationEvents events;
+
+  @Test
+  void create_byMember_succeedsAndPublishesEvent() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+
+    ChatMessageResponse msg =
+        messageService.create(
+            s.reporterId(), thread.threadId(), new CreateChatMessageRequest("hi"));
+
+    assertThat(msg.body()).isEqualTo("hi");
+    assertThat(msg.authorId().longValue()).isEqualTo(s.reporterId());
+    assertThat(events.stream(ChatMessageCreatedEvent.class).count()).isEqualTo(1L);
+  }
+
+  @Test
+  void create_byNonMember_throws() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+
+    assertThatThrownBy(
+            () ->
+                messageService.create(
+                    s.outsiderId(), thread.threadId(), new CreateChatMessageRequest("hi")))
+        .isInstanceOf(ChatThreadNotMemberException.class);
+  }
+
+  @Test
+  void update_byOther_throws() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    var msg =
+        messageService.create(
+            s.reporterId(), thread.threadId(), new CreateChatMessageRequest("first"));
+
+    assertThatThrownBy(
+            () ->
+                messageService.update(
+                    s.assigneeId(), msg.id(), new UpdateChatMessageRequest("hacked")))
+        .isInstanceOf(ChatMessageAuthorMismatchException.class);
+  }
+
+  @Test
+  void delete_softMasksBody() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    var msg =
+        messageService.create(
+            s.reporterId(), thread.threadId(), new CreateChatMessageRequest("byebye"));
+
+    messageService.delete(s.reporterId(), msg.id());
+    var page = messageService.list(s.reporterId(), thread.threadId(), null, 50);
+    assertThat(page.items()).hasSize(1);
+    assertThat(page.items().get(0).deleted()).isTrue();
+    assertThat(page.items().get(0).body()).isEqualTo("(삭제됨)");
+  }
+}
