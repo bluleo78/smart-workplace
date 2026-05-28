@@ -191,10 +191,12 @@ public class ChatMessageRepository {
   }
 
   @SneakyThrows
-  @SuppressWarnings("unchecked")
   private List<Long> fromJson(JSONB jsonb) {
     if (jsonb == null) return List.of();
-    return objectMapper.readValue(jsonb.data(), List.class);
+    // Jackson 은 List<Long> 타입 힌트 없이 읽으면 List<Integer> 로 반환한다.
+    // 람다 진입 시 자동 (Long) checkcast 가 실패하므로 와일드카드로 받아 명시 변환.
+    List<?> raw = objectMapper.readValue(jsonb.data(), List.class);
+    return raw.stream().map(n -> ((Number) n).longValue()).toList();
   }
 
   /** mentionUserIds → ChatMentionResponse[] 변환 책임. */
