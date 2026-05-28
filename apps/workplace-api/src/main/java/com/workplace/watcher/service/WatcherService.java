@@ -12,10 +12,13 @@ import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.dto.WatcherResponse;
+import com.workplace.watcher.outbound.WatcherDomainEvents.WatcherAddedEvent;
 import com.workplace.watcher.repository.IssueWatcherRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,15 +34,23 @@ public class WatcherService {
   private final ProjectRepository projectRepository;
   private final UserRepository userRepository;
   private final ProjectAccessGuard accessGuard;
+  private final ApplicationEventPublisher eventPublisher;
 
-  /** 멤버가 본인을 issue watcher 로 등록. */
+  /**
+   * 멤버가 본인을 issue watcher 로 등록. 신규 row 가 실제로 insert 된 경우에만 {@link WatcherAddedEvent} 를 발행 — 이미
+   * watcher 인 경우(멱등 no-op) 이벤트 중복 발행을 방지.
+   */
   public void watch(Long callerId, String projectKey, int number) {
     var project = accessGuard.assertMember(projectKey, callerId);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
-    watcherRepository.add(issue.id(), callerId);
+    boolean inserted = watcherRepository.add(issue.id(), callerId);
+    if (inserted) {
+      eventPublisher.publishEvent(
+          new WatcherAddedEvent(issue.id(), callerId, callerId, Instant.now()));
+    }
   }
 
   /** 본인 watcher 해제. */

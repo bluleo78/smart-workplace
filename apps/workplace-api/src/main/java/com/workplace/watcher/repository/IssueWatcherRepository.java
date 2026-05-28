@@ -14,13 +14,15 @@ public class IssueWatcherRepository {
 
   private final DSLContext dsl;
 
-  /** 멱등 등록 — 중복 PK 는 무시. */
-  public void add(Long issueId, Long userId) {
-    dsl.insertInto(ISSUE_WATCHER)
-        .set(ISSUE_WATCHER.ISSUE_ID, issueId)
-        .set(ISSUE_WATCHER.USER_ID, userId)
-        .onConflictDoNothing()
-        .execute();
+  /** 멱등 등록 — 중복 PK 는 무시. 신규 row 가 실제로 insert 된 경우 true, 이미 존재해서 no-op 인 경우 false. */
+  public boolean add(Long issueId, Long userId) {
+    int affected =
+        dsl.insertInto(ISSUE_WATCHER)
+            .set(ISSUE_WATCHER.ISSUE_ID, issueId)
+            .set(ISSUE_WATCHER.USER_ID, userId)
+            .onConflictDoNothing()
+            .execute();
+    return affected > 0;
   }
 
   /** 멱등 해제. */
