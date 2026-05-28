@@ -56,6 +56,16 @@ public class ChatFixtures {
     return new Setup(reporter, assignee, watcher, outsider, projectKey, projectId, issueId, 1);
   }
 
+  /** setup() 후 추가 AGENT 사용자를 만들어 프로젝트 멤버 (수동 추가 대신 직접 INSERT) 로 등록. */
+  public AgentSetup setupWithAgent() {
+    Setup base = setup();
+    String agentUsername = "ai_" + UUID.randomUUID().toString().substring(0, 6);
+    long agentId = insertAgentUser(agentUsername);
+    // 프로젝트 멤버로 등록 (수동 add 시 ProjectAccessDenied 회피).
+    memberRepository.insert(base.projectId(), agentId, "MEMBER");
+    return new AgentSetup(base, agentId, agentUsername);
+  }
+
   /** USER 테이블에 최소 컬럼만 INSERT (kind/is_active 는 default). 비밀번호는 더미. */
   private long insertUser(String username) {
     return dsl.insertInto(USER)
@@ -63,6 +73,19 @@ public class ChatFixtures {
         .set(USER.PASSWORD, "pw")
         .set(USER.NAME, username)
         .set(USER.EMAIL, username + "@example.com")
+        .returning(USER.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** insertUser 와 동일하지만 kind="AGENT" 로 등록. */
+  private long insertAgentUser(String username) {
+    return dsl.insertInto(USER)
+        .set(USER.USERNAME, username)
+        .set(USER.PASSWORD, "pw")
+        .set(USER.NAME, username)
+        .set(USER.EMAIL, username + "@example.com")
+        .set(USER.KIND, "AGENT")
         .returning(USER.ID)
         .fetchOne()
         .getId();
@@ -93,4 +116,7 @@ public class ChatFixtures {
       long projectId,
       long issueId,
       int issueNumber) {}
+
+  /** setupWithAgent() 결과 — base setup + AGENT user id/username. */
+  public record AgentSetup(Setup base, long agentId, String agentUsername) {}
 }
