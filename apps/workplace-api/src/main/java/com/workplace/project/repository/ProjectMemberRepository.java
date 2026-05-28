@@ -50,16 +50,18 @@ public class ProjectMemberRepository {
         r.get(PROJECT_MEMBER.USER_ID),
         r.get(USER.USERNAME),
         r.get(USER.NAME),
+        r.get(USER.KIND),
         r.get(PROJECT_MEMBER.ROLE),
         created != null ? created.toInstant() : null);
   }
 
-  /** 프로젝트의 전체 멤버를 USER JOIN 하여 username/name 포함된 응답으로 조회. created_at 오름차순. */
+  /** 프로젝트의 전체 멤버를 USER JOIN 하여 username/name/kind 포함된 응답으로 조회. created_at 오름차순. */
   public List<MemberResponse> findAllByProject(Long projectId) {
     return dsl.select(
             PROJECT_MEMBER.USER_ID,
             USER.USERNAME,
             USER.NAME,
+            USER.KIND,
             PROJECT_MEMBER.ROLE,
             PROJECT_MEMBER.CREATED_AT)
         .from(PROJECT_MEMBER)
@@ -70,12 +72,13 @@ public class ProjectMemberRepository {
         .fetch(this::mapToMemberResponse);
   }
 
-  /** username/name 까지 채워진 멤버 단건 조회. addMember/updateMemberRole 응답에 사용. */
+  /** username/name/kind 까지 채워진 멤버 단건 조회. addMember/updateMemberRole 응답에 사용. */
   public Optional<MemberResponse> findMemberWithUser(Long projectId, Long userId) {
     return dsl.select(
             PROJECT_MEMBER.USER_ID,
             USER.USERNAME,
             USER.NAME,
+            USER.KIND,
             PROJECT_MEMBER.ROLE,
             PROJECT_MEMBER.CREATED_AT)
         .from(PROJECT_MEMBER)

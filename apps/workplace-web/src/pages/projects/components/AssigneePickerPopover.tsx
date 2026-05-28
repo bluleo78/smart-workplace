@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
+import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueAssignees } from '../../../hooks/queries/useUpdateIssueAssignees';
@@ -85,6 +86,7 @@ export function AssigneePickerPopover({
               key={m.userId}
               className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
               data-testid={`assignee-option-${m.userId}`}
+              data-agent={m.kind === 'AGENT' ? 'true' : undefined}
             >
               <input
                 type="checkbox"
@@ -98,6 +100,7 @@ export function AssigneePickerPopover({
               />
               <span className="text-sm">{m.name}</span>
               <span className="text-xs text-muted-foreground">@{m.username}</span>
+              {m.kind === 'AGENT' && <AgentBadge size="xs" />}
             </label>
           ))}
           {filtered.length === 0 && (

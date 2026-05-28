@@ -22,8 +22,21 @@ export function createMember(overrides: Partial<MemberResponse> = {}): MemberRes
     userId: 1,
     username: 'tester@example.com',
     name: 'Tester',
+    kind: 'HUMAN',
     role: 'OWNER',
     createdAt: now,
     ...overrides,
   };
+}
+
+// AGENT 멤버 팩토리 — 픽커 시각 구분 테스트용.
+export function createAgentMember(overrides: Partial<MemberResponse> = {}): MemberResponse {
+  return createMember({
+    userId: 99,
+    username: 'ai-agent',
+    name: 'AI Agent',
+    kind: 'AGENT',
+    role: 'MEMBER',
+    ...overrides,
+  });
 }

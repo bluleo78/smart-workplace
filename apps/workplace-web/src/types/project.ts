@@ -1,5 +1,7 @@
 // 프로젝트 관련 타입 — 백엔드 ProjectResponse 와 1:1 매칭. 변경 시 동기화 필수.
 
+import type { UserKind } from './user';
+
 export interface ProjectResponse {
   id: number;
   key: string;
@@ -16,6 +18,8 @@ export interface MemberResponse {
   userId: number;
   username: string;
   name: string;
+  // HUMAN (사람) | AGENT (AI). assignee 픽커 등에서 시각 구분에 사용.
+  kind: UserKind;
   role: ProjectMemberRole;
   createdAt: string;
 }

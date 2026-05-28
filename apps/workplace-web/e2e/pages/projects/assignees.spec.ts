@@ -5,7 +5,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
-import { createMember, createProject } from '../../factories/project.factory';
+import { createAgentMember, createMember, createProject } from '../../factories/project.factory';
 import type { IssueDetailResponse } from '../../../src/types/issue';
 import type { UserSummary } from '../../../src/types/user';
 
@@ -196,5 +196,73 @@ test.describe('이슈 담당자(다중)', () => {
     await expect.poll(() => putPayload).toEqual({ userIds: [] });
     await expect(page.getByText('담당자를 저장했습니다')).toBeVisible();
     await expect(page.getByTestId('issue-assignees')).toContainText('미지정');
+  });
+
+  // Phase 5 (#20): AGENT 멤버는 픽커 항목에서 AgentBadge 로 HUMAN 과 구분된다.
+  test('AGENT 멤버는 픽커에서 시각적으로 구분된다', async ({ authenticatedPage: page }) => {
+    const AGENT_ID = 99;
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: 1, title: '담당자 테스트', assignees: [] }),
+      }),
+    };
+
+    // setupCommonStubs 는 USER1/USER2 만 멤버로 등록하므로 멤버 라우트를 직접 덮어쓴다.
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createProject()),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          createMember({ userId: USER1.id, username: USER1.username, name: USER1.name, role: 'OWNER' }),
+          createAgentMember({ userId: AGENT_ID, username: 'ai-agent', name: 'AI Agent' }),
+        ]),
+      });
+    });
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(detailRef.current),
+        }),
+    );
+    // 부수 endpoint 들 — 빈 응답.
+    for (const sub of ['watchers', 'labels', 'attachments']) {
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/${sub}`,
+        (route) =>
+          route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+    }
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/labels`,
+      (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByTestId('assignee-picker-trigger').click();
+    await expect(page.getByTestId('assignee-picker')).toBeVisible();
+
+    // HUMAN 옵션: data-agent 속성 없음 + AGENT 배지 없음
+    const humanOption = page.getByTestId(`assignee-option-${USER1.id}`);
+    await expect(humanOption).toBeVisible();
+    await expect(humanOption).not.toHaveAttribute('data-agent', 'true');
+    await expect(humanOption.getByTestId('agent-badge')).toHaveCount(0);
+
+    // AGENT 옵션: data-agent="true" + AgentBadge 노출
+    const agentOption = page.getByTestId(`assignee-option-${AGENT_ID}`);
+    await expect(agentOption).toBeVisible();
+    await expect(agentOption).toHaveAttribute('data-agent', 'true');
+    await expect(agentOption.getByTestId('agent-badge')).toBeVisible();
   });
 });
