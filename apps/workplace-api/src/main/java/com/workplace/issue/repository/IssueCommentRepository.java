@@ -19,7 +19,7 @@ public class IssueCommentRepository {
 
   private final DSLContext dsl;
 
-  /** SELECT 결과를 {@link IssueCommentResponse} 로 매핑. user.name JOIN 포함. */
+  /** SELECT 결과를 {@link IssueCommentResponse} 로 매핑. user.name/kind JOIN 포함. */
   private IssueCommentResponse mapToResponse(Record r) {
     OffsetDateTime created = r.get(ISSUE_COMMENT.CREATED_AT);
     OffsetDateTime updated = r.get(ISSUE_COMMENT.UPDATED_AT);
@@ -28,6 +28,7 @@ public class IssueCommentRepository {
         r.get(ISSUE_COMMENT.ISSUE_ID),
         r.get(ISSUE_COMMENT.AUTHOR_ID),
         r.get(USER.NAME),
+        r.get(USER.KIND),
         r.get(ISSUE_COMMENT.BODY),
         created != null ? created.toInstant() : null,
         updated != null ? updated.toInstant() : null);
@@ -40,6 +41,7 @@ public class IssueCommentRepository {
             ISSUE_COMMENT.ISSUE_ID,
             ISSUE_COMMENT.AUTHOR_ID,
             USER.NAME,
+            USER.KIND,
             ISSUE_COMMENT.BODY,
             ISSUE_COMMENT.CREATED_AT,
             ISSUE_COMMENT.UPDATED_AT)
@@ -57,6 +59,7 @@ public class IssueCommentRepository {
             ISSUE_COMMENT.ISSUE_ID,
             ISSUE_COMMENT.AUTHOR_ID,
             USER.NAME,
+            USER.KIND,
             ISSUE_COMMENT.BODY,
             ISSUE_COMMENT.CREATED_AT,
             ISSUE_COMMENT.UPDATED_AT)

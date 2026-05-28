@@ -18,13 +18,14 @@ public class IssueHistoryRepository {
 
   private final DSLContext dsl;
 
-  /** SELECT 결과를 {@link IssueHistoryEntryResponse} 로 매핑. */
+  /** SELECT 결과를 {@link IssueHistoryEntryResponse} 로 매핑. user.name/kind JOIN 포함. */
   private IssueHistoryEntryResponse mapToResponse(Record r) {
     OffsetDateTime created = r.get(ISSUE_HISTORY.CREATED_AT);
     return new IssueHistoryEntryResponse(
         r.get(ISSUE_HISTORY.ID),
         r.get(ISSUE_HISTORY.ACTOR_ID),
         r.get(USER.NAME),
+        r.get(USER.KIND),
         r.get(ISSUE_HISTORY.EVENT_TYPE),
         r.get(ISSUE_HISTORY.FROM_VALUE),
         r.get(ISSUE_HISTORY.TO_VALUE),
@@ -37,6 +38,7 @@ public class IssueHistoryRepository {
             ISSUE_HISTORY.ID,
             ISSUE_HISTORY.ACTOR_ID,
             USER.NAME,
+            USER.KIND,
             ISSUE_HISTORY.EVENT_TYPE,
             ISSUE_HISTORY.FROM_VALUE,
             ISSUE_HISTORY.TO_VALUE,

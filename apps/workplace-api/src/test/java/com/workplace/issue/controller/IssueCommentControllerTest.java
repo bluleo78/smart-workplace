@@ -63,7 +63,23 @@ class IssueCommentControllerTest {
   }
 
   private IssueCommentResponse sampleComment() {
-    return new IssueCommentResponse(50L, 100L, 1L, "me", "hello", Instant.now(), Instant.now());
+    return new IssueCommentResponse(
+        50L, 100L, 1L, "me", "HUMAN", "hello", Instant.now(), Instant.now());
+  }
+
+  @Test
+  void list_includesAuthorKindAgent() throws Exception {
+    mockAuthentication("project:read");
+    IssueCommentResponse agentComment =
+        new IssueCommentResponse(
+            51L, 100L, 9L, "ai-bot", "AGENT", "응답입니다", Instant.now(), Instant.now());
+    when(commentService.list(1L, 100L)).thenReturn(List.of(agentComment));
+
+    mockMvc
+        .perform(get("/api/v1/issues/100/comments").header("Authorization", "Bearer valid-token"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].authorKind").value("AGENT"))
+        .andExpect(jsonPath("$[0].authorName").value("ai-bot"));
   }
 
   @Test
