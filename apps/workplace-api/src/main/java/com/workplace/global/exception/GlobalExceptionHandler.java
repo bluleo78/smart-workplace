@@ -5,6 +5,9 @@ import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
+import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
+import com.workplace.chat.exception.ChatMessageNotFoundException;
+import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.global.dto.ErrorResponse;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.exception.AttachmentNotFoundException;
@@ -578,6 +581,30 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(com.workplace.auth.exception.OAuthTokenNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleOAuthTokenNotFound(
       com.workplace.auth.exception.OAuthTokenNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** Phase 6a — chat thread 비-멤버가 쓰기/읽음 표시 등을 시도 → 403. */
+  @ExceptionHandler(ChatThreadNotMemberException.class)
+  public ResponseEntity<ErrorResponse> handleChatThreadNotMember(
+      ChatThreadNotMemberException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request));
+  }
+
+  /** Phase 6a — 본인이 아닌 chat 메시지를 수정/삭제 시도 → 403. */
+  @ExceptionHandler(ChatMessageAuthorMismatchException.class)
+  public ResponseEntity<ErrorResponse> handleChatMessageAuthorMismatch(
+      ChatMessageAuthorMismatchException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request));
+  }
+
+  /** Phase 6a — chat 메시지 id 미존재 또는 soft-deleted → 404. */
+  @ExceptionHandler(ChatMessageNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleChatMessageNotFound(
+      ChatMessageNotFoundException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
   }
