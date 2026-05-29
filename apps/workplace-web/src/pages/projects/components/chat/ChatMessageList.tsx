@@ -35,6 +35,7 @@ export function ChatMessageList({
   renderEditor,
 }: ChatMessageListProps) {
   const lastRef = useRef<HTMLLIElement | null>(null);
+  const scrollRootRef = useRef<HTMLDivElement | null>(null);
 
   // 메시지가 createdAt 기준 오름차순이 되도록 한 번 정렬.
   const sorted = useMemo(
@@ -45,6 +46,17 @@ export function ChatMessageList({
     [messages],
   );
   const lastId = sorted.length > 0 ? sorted[sorted.length - 1].id : null;
+
+  // 최신 메시지(lastId)가 바뀌면 ScrollArea 뷰포트를 바닥으로 스크롤.
+  // 초기 로드/새 메시지에는 lastId 가 변하므로 스크롤, '이전 메시지 더 보기'(앞쪽 prepend)는
+  // lastId 가 그대로라 스크롤하지 않는다.
+  useEffect(() => {
+    if (lastId === null) return;
+    const viewport = scrollRootRef.current?.querySelector<HTMLElement>(
+      '[data-radix-scroll-area-viewport]',
+    );
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
+  }, [lastId]);
 
   // 마지막 메시지 IO — viewport 진입 시 mark-read.
   useEffect(() => {
@@ -72,7 +84,11 @@ export function ChatMessageList({
   }
 
   return (
-    <ScrollArea className="h-[min(60vh,480px)] pr-2" data-testid="chat-message-list">
+    <ScrollArea
+      ref={scrollRootRef}
+      className="h-[min(60vh,480px)] pr-2"
+      data-testid="chat-message-list"
+    >
       <div className="flex flex-col">
         {hasMore && (
           <div className="flex justify-center py-2">

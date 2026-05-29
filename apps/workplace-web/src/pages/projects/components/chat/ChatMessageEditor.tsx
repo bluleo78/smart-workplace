@@ -32,6 +32,8 @@ export function ChatMessageEditor({ initialBody, onSave, onCancel }: ChatMessage
         autoFocus
         rows={2}
         onKeyDown={(e) => {
+          // IME 조합 중 Enter 는 음절 확정용 — 저장으로 처리하지 않는다.
+          if (e.nativeEvent.isComposing) return;
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             save();

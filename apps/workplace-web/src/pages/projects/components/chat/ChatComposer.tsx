@@ -75,6 +75,9 @@ export function ChatComposer({ members, onSubmit, disabled = false }: ChatCompos
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // 한글/일어 등 IME 조합 중 Enter 는 마지막 음절 확정용이므로
+    // 전송·멘션선택으로 처리하지 않는다 (안 그러면 "안녕"/"녕" 중복 전송).
+    if (e.nativeEvent.isComposing) return;
     const popoverOpen = mentionQuery !== null && filteredMembers.length > 0;
     if (popoverOpen) {
       if (e.key === 'ArrowDown') {

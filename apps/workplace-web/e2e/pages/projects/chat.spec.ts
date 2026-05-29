@@ -353,4 +353,88 @@ test.describe('이슈 chat panel', () => {
       .poll(() => stubs.markReadPayloads, { timeout: 3000 })
       .toEqual([{ uptoMessageId: 700 }]);
   });
+
+  // #40-1 회귀 — 한글 IME 조합 중 Enter 는 음절 확정용이므로 전송하지 않는다.
+  // (가드 없으면 "안녕"/"녕" 처럼 중복 전송됨)
+  test('한글 IME 조합 중 Enter 는 전송하지 않는다 — 중복 메시지 방지', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'IME' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const ta = page.getByTestId('chat-composer-input');
+    await ta.fill('안녕');
+
+    // IME 조합 중(마지막 음절 확정) Enter — isComposing=true 인 native keydown 을
+    // React 위임 리스너에 도달하도록 직접 dispatch.
+    await ta.evaluate((el) => {
+      const ev = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(ev, 'isComposing', { get: () => true });
+      el.dispatchEvent(ev);
+    });
+
+    // 조합 Enter 로는 전송되면 안 된다.
+    await page.waitForTimeout(300);
+    expect(stubs.createPayloads).toEqual([]);
+
+    // 조합 종료 후 실제 Enter → 정확히 1건만 전송.
+    await ta.press('Enter');
+    await expect.poll(() => stubs.createPayloads).toEqual([{ body: '안녕' }]);
+  });
+
+  // #40-2 회귀 — 메시지가 많으면 로드 시 ScrollArea 뷰포트가 바닥으로 스크롤된다.
+  test('메시지가 많으면 로드 시 마지막 메시지로 스크롤된다', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'scroll' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    // 30건 — h-[min(60vh,480px)] 를 넘겨 스크롤이 생기도록.
+    const many = Array.from({ length: 30 }, (_, i) =>
+      createChatMessage({
+        id: i + 1,
+        threadId: THREAD_ID,
+        authorId: 99,
+        authorName: 'AI Agent',
+        authorKind: 'AGENT',
+        body: `메시지 ${i + 1}`,
+        createdAt: new Date(Date.now() + i * 1000).toISOString(),
+      }),
+    );
+    stubs.thread = { ...stubs.thread, recentMessages: many };
+    stubs.messages = many;
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expect(page.getByTestId('chat-message-list')).toBeVisible();
+
+    // 뷰포트가 바닥에 도달했는지 직접 검증 (chat section 이 페이지 fold 아래라 toBeInViewport 는 혼동됨).
+    await expect
+      .poll(async () =>
+        page.getByTestId('chat-message-list').evaluate((root) => {
+          const vp = root.querySelector<HTMLElement>(
+            '[data-radix-scroll-area-viewport]',
+          );
+          if (!vp) return -1; // 뷰포트 노드를 못 찾으면 명시적 실패값.
+          return vp.scrollHeight - vp.scrollTop - vp.clientHeight;
+        }),
+      )
+      .toBeLessThan(4);
+  });
 });
