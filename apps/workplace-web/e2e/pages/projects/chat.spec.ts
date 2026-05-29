@@ -263,6 +263,57 @@ test.describe('이슈 chat panel', () => {
     await expect(page.getByTestId('chat-mention-chip-99')).toHaveText('@AI Agent');
   });
 
+  // 회귀 — 인라인 편집기의 멘션 팝업이 열린 상태에서 composer 로 포커스 이동 후 Enter.
+  // (예전 버그: Enter 가드가 DOM 전역 조회라 다른 인스턴스 팝업까지 잡혀 composer 전송이 차단됨)
+  test('다른 인스턴스의 멘션 팝업이 열려있어도 composer Enter 전송은 차단되지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'cross-instance popup' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: [
+        createChatMessage({
+          id: 700,
+          threadId: THREAD_ID,
+          authorId: ME_ID,
+          authorName: '테스트 사용자',
+          authorKind: 'HUMAN',
+          body: '편집 대상',
+        }),
+      ],
+    };
+    stubs.messages = stubs.thread.recentMessages;
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 인라인 편집기 열고 '@' 입력으로 그 인스턴스의 멘션 팝업을 띄운다.
+    const row700 = page.getByTestId('chat-message-700');
+    await row700.hover();
+    await page.getByTestId('chat-message-edit-700').click();
+    const editor = page.getByTestId('chat-message-editor-input');
+    await editor.click();
+    await page.keyboard.type(' @ai');
+    await expect(page.getByTestId('chat-mention-popover')).toBeVisible();
+
+    // 편집기 팝업이 열린 채로 composer 로 포커스 이동 → 평범한 메시지 작성 → Enter 전송.
+    const composer = page.getByTestId('chat-composer-input');
+    await composer.click();
+    await page.keyboard.type('전송되어야 함');
+    await page.keyboard.press('Enter');
+
+    // composer 의 멘션 없는 body 가 POST 되어야 한다 (Enter 가 삼켜지지 않음).
+    await expect
+      .poll(() => stubs.createPayloads.map((p) => p.body.trim()))
+      .toEqual(['전송되어야 함']);
+  });
+
   test('AGENT 메시지 시각 구분', async ({ authenticatedPage: page }) => {
     const detailRef = {
       current: createIssueDetail({

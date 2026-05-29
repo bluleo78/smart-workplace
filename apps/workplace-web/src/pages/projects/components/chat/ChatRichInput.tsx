@@ -7,6 +7,7 @@ import './chat-rich-input.css';
 import Document from '@tiptap/extension-document';
 import Mention from '@tiptap/extension-mention';
 import Paragraph from '@tiptap/extension-paragraph';
+import Placeholder from '@tiptap/extension-placeholder';
 import Text from '@tiptap/extension-text';
 import { EditorContent, ReactRenderer, useEditor } from '@tiptap/react';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
@@ -48,10 +49,15 @@ export function ChatRichInput({
   cancelTestId,
 }: ChatRichInputProps) {
   // members 최신값을 suggestion 콜백에서 참조하기 위한 ref.
+  // (콜백은 useEditor 가 생성한 클로저에서 호출되므로, 렌더 시점이 아닌 effect 에서 최신값 동기화)
   const membersRef = useRef(members);
   useEffect(() => {
     membersRef.current = members;
   });
+
+  // 멘션 팝업 활성 여부를 인스턴스-로컬로 추적. Enter 가드에서 DOM 전역 조회 대신 사용
+  // (전역 조회 시 다른 인스턴스의 팝업까지 잡혀 Enter 전송이 잘못 차단됨).
+  const popupOpenRef = useRef(false);
 
   const editor = useEditor({
     autofocus: autoFocus,
@@ -59,7 +65,11 @@ export function ChatRichInput({
       Document,
       Paragraph,
       Text,
-      // eslint-disable-next-line react-hooks/refs -- membersRef.current 은 items 콜백(비렌더 시점)에서만 읽힘. TipTap suggestion 표준 패턴.
+      Placeholder.configure({ placeholder }),
+      // membersRef 는 suggestion items/render 콜백에서만 역참조된다. 이 콜백들은
+      // 사용자가 '@' 를 입력할 때 ProseMirror 가 호출하며 렌더 시점에 동기 실행되지 않으므로
+      // 안전하다 (react-hooks/refs 의 보수적 false positive).
+      // eslint-disable-next-line react-hooks/refs
       Mention.configure({
         HTMLAttributes: { class: 'chat-mention' },
         renderText: ({ node }: { node: { attrs: Record<string, unknown> } }) =>
@@ -82,6 +92,7 @@ export function ChatRichInput({
             let popup: TippyInstance | null = null;
             return {
               onStart: (props: SuggestionProps<ChatMemberResponse>) => {
+                popupOpenRef.current = true;
                 component = new ReactRenderer(MentionList, {
                   props,
                   editor: props.editor,
@@ -108,6 +119,7 @@ export function ChatRichInput({
                 return component?.ref?.onKeyDown(props) ?? false;
               },
               onExit: () => {
+                popupOpenRef.current = false;
                 popup?.destroy();
                 component?.destroy();
                 popup = null;
@@ -129,8 +141,8 @@ export function ChatRichInput({
       handleKeyDown: (_view, event) => {
         // suggestion 팝업이 열려있으면 Enter 는 mention 플러그인이 먼저 처리(키 위임)하므로 여기선 무시.
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-          // 팝업 활성 여부는 DOM 으로 확인 (열려있으면 mention 처리에 양보).
-          if (document.querySelector('[data-testid="chat-mention-popover"]')) return false;
+          // 이 인스턴스의 팝업이 열려있으면 mention 처리에 양보 (인스턴스-로컬 플래그).
+          if (popupOpenRef.current) return false;
           event.preventDefault();
           submit();
           return true;
@@ -158,7 +170,7 @@ export function ChatRichInput({
 
   return (
     <div className="flex flex-col gap-2" data-testid={`${inputTestId}-wrap`}>
-      <div className="relative" data-placeholder={placeholder}>
+      <div className="relative">
         <EditorContent editor={editor} />
       </div>
       <div className="flex justify-end gap-2">
