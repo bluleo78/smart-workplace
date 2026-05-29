@@ -161,6 +161,8 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
           renderEditor={(m) => (
             <ChatMessageEditor
               initialBody={m.body}
+              initialMentions={m.mentions}
+              members={thread.members}
               onSave={(body) => {
                 updateMutation.mutate(
                   { messageId: m.id, payload: { body } },
@@ -173,7 +175,6 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
         />
         <ChatComposer
           members={thread.members}
-          disabled={createMutation.isPending}
           onSubmit={(body) => createMutation.mutate({ body })}
         />
       </CardContent>

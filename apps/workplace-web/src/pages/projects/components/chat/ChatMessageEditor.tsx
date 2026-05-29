@@ -1,70 +1,37 @@
-// 본인 메시지 수정용 인라인 에디터.
-// Enter = 저장, Esc = 취소, Shift+Enter = 줄바꿈.
+// 본인 메시지 인라인 수정 — ChatRichInput 재사용. Enter=저장, Esc=취소.
 
-import { useState } from 'react';
-
-import { Button } from '../../../../components/ui/button';
-import { Textarea } from '../../../../components/ui/textarea';
+import type { ChatMemberResponse, ChatMentionResponse } from '../../../../types/chat';
+import { ChatRichInput } from './ChatRichInput';
 
 interface ChatMessageEditorProps {
   initialBody: string;
+  initialMentions: ChatMentionResponse[];
+  members: ChatMemberResponse[];
   onSave: (body: string) => void;
   onCancel: () => void;
 }
 
-export function ChatMessageEditor({ initialBody, onSave, onCancel }: ChatMessageEditorProps) {
-  const [body, setBody] = useState(initialBody);
-
-  function save() {
-    const trimmed = body.trim();
-    if (trimmed.length === 0 || trimmed === initialBody.trim()) {
-      onCancel();
-      return;
-    }
-    onSave(trimmed);
-  }
-
+export function ChatMessageEditor({
+  initialBody,
+  initialMentions,
+  members,
+  onSave,
+  onCancel,
+}: ChatMessageEditorProps) {
   return (
-    <div className="flex flex-col gap-2 px-3 py-2" data-testid="chat-message-editor">
-      <Textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
+    <div className="px-3 py-2" data-testid="chat-message-editor">
+      <ChatRichInput
+        members={members}
+        initialBody={initialBody}
+        initialMentions={initialMentions}
+        onSubmit={onSave}
+        onCancel={onCancel}
+        submitLabel="저장"
         autoFocus
-        rows={2}
-        onKeyDown={(e) => {
-          // IME 조합 중 Enter 는 음절 확정용 — 저장으로 처리하지 않는다.
-          if (e.nativeEvent.isComposing) return;
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            save();
-          }
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            onCancel();
-          }
-        }}
-        aria-label="메시지 수정"
-        data-testid="chat-message-editor-input"
+        inputTestId="chat-message-editor-input"
+        submitTestId="chat-message-editor-save"
+        cancelTestId="chat-message-editor-cancel"
       />
-      <div className="flex gap-2 justify-end">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={onCancel}
-          data-testid="chat-message-editor-cancel"
-        >
-          취소
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          onClick={save}
-          data-testid="chat-message-editor-save"
-        >
-          저장
-        </Button>
-      </div>
     </div>
   );
 }

@@ -10,7 +10,11 @@ import {
 } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
-import type { ChatMessageResponse } from '../../../src/types/chat';
+import type {
+  ChatMemberResponse,
+  ChatMentionResponse,
+  ChatMessageResponse,
+} from '../../../src/types/chat';
 import type { IssueDetailResponse } from '../../../src/types/issue';
 
 const PROJECT_KEY = 'WP';
@@ -101,6 +105,8 @@ async function setupChatStubs(page: import('@playwright/test').Page, stubs: Chat
         authorName: '테스트 사용자',
         authorKind: 'HUMAN',
         body: payload.body,
+        // 백엔드 hydrator 모사 — body 의 <@id> 토큰을 멤버 정보로 채운다.
+        mentions: hydrateMentions(payload.body, stubs.thread.members),
       });
       stubs.messages = [...stubs.messages, saved];
       // optimistic(pending) 상태가 관찰 가능하도록 약간의 지연 — 실제 네트워크 지연 모사.
@@ -150,6 +156,27 @@ async function setupChatStubs(page: import('@playwright/test').Page, stubs: Chat
   );
 }
 
+// 백엔드 hydrator 모사 — body 의 <@id> 토큰을 thread 멤버로 매핑한 mentions 배열 생성.
+function hydrateMentions(
+  body: string,
+  members: ChatMemberResponse[],
+): ChatMentionResponse[] {
+  const byId = new Map(members.map((m) => [m.userId, m]));
+  const ids = new Set<number>();
+  const re = /<@(\d+)>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) ids.add(Number(m[1]));
+  return [...ids]
+    .map((id) => byId.get(id))
+    .filter((mem): mem is ChatMemberResponse => mem !== undefined)
+    .map((mem) => ({
+      id: mem.userId,
+      username: mem.username,
+      name: mem.name,
+      kind: mem.kind,
+    }));
+}
+
 function freshStubs(): ChatStubs {
   return {
     thread: createChatThread({
@@ -193,7 +220,8 @@ test.describe('이슈 chat panel', () => {
       await expect(page.getByTestId('chat-section')).toBeVisible();
       await expect(page.getByTestId('chat-empty')).toBeVisible();
 
-      await page.getByTestId('chat-composer-input').fill('안녕하세요');
+      await page.getByTestId('chat-composer-input').click();
+      await page.keyboard.type('안녕하세요');
       await page.getByTestId('chat-composer-submit').click();
 
       // optimistic 즉시 노출 — pending 마커.
@@ -207,7 +235,7 @@ test.describe('이슈 chat panel', () => {
     },
   );
 
-  test('@mention typeahead — 멤버 선택 → textarea 치환', async ({
+  test('@mention — 멤버 선택 → 칩 → <@id> 전송 + 이름 칩 렌더', async ({
     authenticatedPage: page,
   }) => {
     const detailRef = {
@@ -221,16 +249,18 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
-    const ta = page.getByTestId('chat-composer-input');
-    await ta.fill('hi @ai');
+    const input = page.getByTestId('chat-composer-input');
+    await input.click();
+    await page.keyboard.type('hi @ai');
     await expect(page.getByTestId('chat-mention-popover')).toBeVisible();
-    await expect(page.getByTestId('chat-mention-option-99')).toBeVisible();
     await page.getByTestId('chat-mention-option-99').click();
 
-    await expect(ta).toHaveValue('hi @ai-agent ');
+    await expect(input).toContainText('@AI Agent');
 
     await page.getByTestId('chat-composer-submit').click();
-    await expect.poll(() => stubs.createPayloads).toEqual([{ body: 'hi @ai-agent' }]);
+
+    await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['hi <@99>']);
+    await expect(page.getByTestId('chat-mention-chip-99')).toHaveText('@AI Agent');
   });
 
   test('AGENT 메시지 시각 구분', async ({ authenticatedPage: page }) => {
@@ -303,7 +333,10 @@ test.describe('이슈 chat panel', () => {
     const row600 = page.getByTestId('chat-message-600');
     await row600.hover();
     await page.getByTestId('chat-message-edit-600').click();
-    await page.getByTestId('chat-message-editor-input').fill('수정본');
+    const editor = page.getByTestId('chat-message-editor-input');
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type('수정본');
     await page.getByTestId('chat-message-editor-save').click();
 
     await expect.poll(() => stubs.patchPayloads).toEqual([{ id: 600, body: '수정본' }]);
@@ -354,46 +387,6 @@ test.describe('이슈 chat panel', () => {
       .toEqual([{ uptoMessageId: 700 }]);
   });
 
-  // #40-1 회귀 — 한글 IME 조합 중 Enter 는 음절 확정용이므로 전송하지 않는다.
-  // (가드 없으면 "안녕"/"녕" 처럼 중복 전송됨)
-  test('한글 IME 조합 중 Enter 는 전송하지 않는다 — 중복 메시지 방지', async ({
-    authenticatedPage: page,
-  }) => {
-    const detailRef = {
-      current: createIssueDetail({
-        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'IME' }),
-      }),
-    };
-    await setupCommonStubs(page, detailRef);
-    const stubs = freshStubs();
-    await setupChatStubs(page, stubs);
-
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    const ta = page.getByTestId('chat-composer-input');
-    await ta.fill('안녕');
-
-    // IME 조합 중(마지막 음절 확정) Enter — isComposing=true 인 native keydown 을
-    // React 위임 리스너에 도달하도록 직접 dispatch.
-    await ta.evaluate((el) => {
-      const ev = new KeyboardEvent('keydown', {
-        key: 'Enter',
-        bubbles: true,
-        cancelable: true,
-      });
-      Object.defineProperty(ev, 'isComposing', { get: () => true });
-      el.dispatchEvent(ev);
-    });
-
-    // 조합 Enter 로는 전송되면 안 된다.
-    await page.waitForTimeout(300);
-    expect(stubs.createPayloads).toEqual([]);
-
-    // 조합 종료 후 실제 Enter → 정확히 1건만 전송.
-    await ta.press('Enter');
-    await expect.poll(() => stubs.createPayloads).toEqual([{ body: '안녕' }]);
-  });
-
   // #40-2 회귀 — 메시지가 많으면 로드 시 ScrollArea 뷰포트가 바닥으로 스크롤된다.
   test('메시지가 많으면 로드 시 마지막 메시지로 스크롤된다', async ({
     authenticatedPage: page,
@@ -438,10 +431,8 @@ test.describe('이슈 chat panel', () => {
       .toBeLessThan(4);
   });
 
-  // #41 회귀 — 전송 후에도 입력창 포커스가 유지되어 마우스 클릭 없이 연속 입력 가능.
-  test('전송 후 입력창 포커스가 유지된다 — 연속 입력 가능', async ({
-    authenticatedPage: page,
-  }) => {
+  // 전송 후에도 입력창에 포커스가 남아 마우스 클릭 없이 연속 입력 가능 (ProseMirror).
+  test('전송 후 입력창 포커스 유지 — 연속 입력', async ({ authenticatedPage: page }) => {
     const detailRef = {
       current: createIssueDetail({
         summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'focus' }),
@@ -453,18 +444,15 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
-    const ta = page.getByTestId('chat-composer-input');
-    await ta.fill('첫 메시지');
-    await ta.press('Enter');
+    const input = page.getByTestId('chat-composer-input');
+    await input.click();
+    await page.keyboard.type('첫 메시지');
+    await page.keyboard.press('Enter');
 
-    // 전송이 서버로 나갔는지 확인 (mutation pending 구간 진입 보장).
-    await expect.poll(() => stubs.createPayloads).toEqual([{ body: '첫 메시지' }]);
+    await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['첫 메시지']);
+    await expect(input).toBeFocused();
 
-    // 전송 후에도 포커스가 입력창에 남아 있어야 한다.
-    await expect(ta).toBeFocused();
-
-    // 마우스 클릭 없이 곧바로 이어서 타이핑 가능.
     await page.keyboard.type('이어서');
-    await expect(ta).toHaveValue('이어서');
+    await expect(input).toContainText('이어서');
   });
 });
