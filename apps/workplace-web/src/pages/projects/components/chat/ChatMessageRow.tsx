@@ -28,11 +28,17 @@ export function ChatMessageRow({
 }: ChatMessageRowProps) {
   const isAgent = message.authorKind === 'AGENT';
   const showToolbar = canEdit && !message.deleted && !isPending;
+  // aria-label 은 <@id> 토큰 대신 사람이 읽을 수 있는 형태(@이름)로 노출.
+  const plainBody = message.deleted
+    ? message.body
+    : parseMessageSegments(message.body, message.mentions)
+        .map((seg) => (seg.type === 'text' ? seg.value : `@${seg.name}`))
+        .join('');
 
   return (
     <li
       role="article"
-      aria-label={`${message.authorName}: ${message.body.slice(0, 40)}`}
+      aria-label={`${message.authorName}: ${plainBody.slice(0, 40)}`}
       data-testid={`chat-message-${message.id}`}
       data-agent={isAgent ? 'true' : undefined}
       data-pending={isPending ? 'true' : undefined}
