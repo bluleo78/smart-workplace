@@ -161,6 +161,12 @@ export function ChatRichInput({
     if (!editor) return;
     const body = serializeToBody(editor.getJSON()).trim();
     if (body.length === 0) return;
+    // 변경 없는 저장은 no-op — onCancel 로 닫아 불필요한 update 호출을 막는다 (#44).
+    // composer 는 initialBody='' + body 비어있지 않음이라 절대 매칭되지 않는다.
+    if (body === initialBody.trim() && onCancel) {
+      onCancel();
+      return;
+    }
     onSubmit(body);
     if (clearOnSubmit) {
       editor.commands.clearContent();

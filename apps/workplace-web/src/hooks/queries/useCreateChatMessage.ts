@@ -7,7 +7,9 @@ import { type InfiniteData,useMutation, useQueryClient } from '@tanstack/react-q
 
 import { chatApi } from '../../api/chat';
 import { handleApiError } from '../../lib/api-error';
+import { hydrateMentions } from '../../lib/chat-mentions';
 import type {
+  ChatMemberResponse,
   ChatMessagePage,
   ChatMessageResponse,
   CreateChatMessageRequest,
@@ -21,7 +23,11 @@ interface MeContext {
   kind: UserKind;
 }
 
-export function useCreateChatMessage(threadId: number, me: MeContext) {
+export function useCreateChatMessage(
+  threadId: number,
+  me: MeContext,
+  members: ChatMemberResponse[],
+) {
   const qc = useQueryClient();
 
   return useMutation({
@@ -41,7 +47,8 @@ export function useCreateChatMessage(threadId: number, me: MeContext) {
         authorName: me.name,
         authorKind: me.kind,
         body: payload.body,
-        mentions: [],
+        // optimistic 단계에서도 멘션 칩이 올바른 이름으로 보이도록 멤버 목록으로 hydrate (#43).
+        mentions: hydrateMentions(payload.body, members),
         createdAt: new Date().toISOString(),
         editedAt: null,
         deleted: false,

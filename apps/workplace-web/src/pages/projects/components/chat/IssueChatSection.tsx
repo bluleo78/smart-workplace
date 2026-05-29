@@ -81,11 +81,15 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
   );
 
   const threadId = threadQ.data?.threadId ?? 0;
-  const createMutation = useCreateChatMessage(threadId, {
-    id: me?.id ?? 0,
-    name: me?.name ?? me?.username ?? '나',
-    kind: 'HUMAN',
-  });
+  const createMutation = useCreateChatMessage(
+    threadId,
+    {
+      id: me?.id ?? 0,
+      name: me?.name ?? me?.username ?? '나',
+      kind: 'HUMAN',
+    },
+    threadQ.data?.members ?? [],
+  );
   const updateMutation = useUpdateChatMessage(threadId);
   const deleteMutation = useDeleteChatMessage(threadId);
   const markReadMutation = useMarkChatRead(threadId);

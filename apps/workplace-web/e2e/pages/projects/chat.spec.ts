@@ -10,11 +10,8 @@ import {
 } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
-import type {
-  ChatMemberResponse,
-  ChatMentionResponse,
-  ChatMessageResponse,
-} from '../../../src/types/chat';
+import { hydrateMentions } from '../../../src/lib/chat-mentions';
+import type { ChatMessageResponse } from '../../../src/types/chat';
 import type { IssueDetailResponse } from '../../../src/types/issue';
 
 const PROJECT_KEY = 'WP';
@@ -154,27 +151,6 @@ async function setupChatStubs(page: import('@playwright/test').Page, stubs: Chat
       return route.fulfill({ status: 204 });
     },
   );
-}
-
-// 백엔드 hydrator 모사 — body 의 <@id> 토큰을 thread 멤버로 매핑한 mentions 배열 생성.
-function hydrateMentions(
-  body: string,
-  members: ChatMemberResponse[],
-): ChatMentionResponse[] {
-  const byId = new Map(members.map((m) => [m.userId, m]));
-  const ids = new Set<number>();
-  const re = /<@(\d+)>/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(body)) !== null) ids.add(Number(m[1]));
-  return [...ids]
-    .map((id) => byId.get(id))
-    .filter((mem): mem is ChatMemberResponse => mem !== undefined)
-    .map((mem) => ({
-      id: mem.userId,
-      username: mem.username,
-      name: mem.name,
-      kind: mem.kind,
-    }));
 }
 
 function freshStubs(): ChatStubs {
@@ -505,5 +481,100 @@ test.describe('이슈 chat panel', () => {
 
     await page.keyboard.type('이어서');
     await expect(input).toContainText('이어서');
+  });
+
+  // #44 회귀 — 인라인 편집기에서 본문을 바꾸지 않고 저장하면 PATCH 를 호출하지 않고 닫힌다.
+  test('변경 없이 저장하면 PATCH 를 호출하지 않는다', async ({ authenticatedPage: page }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'noop save' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: [
+        createChatMessage({
+          id: 800,
+          threadId: THREAD_ID,
+          authorId: ME_ID,
+          authorName: '테스트 사용자',
+          authorKind: 'HUMAN',
+          body: '원본',
+        }),
+      ],
+    };
+    stubs.messages = stubs.thread.recentMessages;
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const row = page.getByTestId('chat-message-800');
+    await row.hover();
+    await page.getByTestId('chat-message-edit-800').click();
+    await expect(page.getByTestId('chat-message-editor-input')).toBeVisible();
+
+    // 변경 없이 바로 저장.
+    await page.getByTestId('chat-message-editor-save').click();
+
+    // 에디터는 닫히고(취소처럼 처리), PATCH 는 호출되지 않아야 한다.
+    await expect(page.getByTestId('chat-message-editor')).toHaveCount(0);
+    await expect(page.getByTestId('chat-message-body-800')).toHaveText('원본');
+    await page.waitForTimeout(300);
+    expect(stubs.patchPayloads).toEqual([]);
+  });
+
+  // #43 회귀 — 멘션 메시지 전송 시 서버 응답 전 optimistic 칩이 올바른 이름으로 보인다(@알 수 없음 X).
+  test('optimistic 멘션 칩이 서버 응답 전에도 올바른 이름으로 보인다', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'optimistic mention' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    await setupChatStubs(page, stubs);
+
+    // POST 응답을 길게(3s) 지연시켜 optimistic(pending) 윈도를 확보 — 서버 hydrate 전 상태를 검증.
+    await page.route(
+      (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
+      async (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        const payload = route.request().postDataJSON() as { body: string };
+        stubs.createPayloads.push(payload);
+        const saved = createChatMessage({
+          id: 2000,
+          threadId: THREAD_ID,
+          authorId: ME_ID,
+          authorName: '테스트 사용자',
+          authorKind: 'HUMAN',
+          body: payload.body,
+          mentions: hydrateMentions(payload.body, stubs.thread.members),
+        });
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(saved),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const input = page.getByTestId('chat-composer-input');
+    await input.click();
+    await page.keyboard.type('hi @ai');
+    await expect(page.getByTestId('chat-mention-popover')).toBeVisible();
+    await page.getByTestId('chat-mention-option-99').click();
+    await page.getByTestId('chat-composer-submit').click();
+
+    // 서버 응답(3s) 전에 optimistic 칩 이름이 올바라야 한다 (2s 안에 단언).
+    await expect(page.getByTestId('chat-mention-chip-99')).toHaveText('@AI Agent', {
+      timeout: 2000,
+    });
   });
 });
