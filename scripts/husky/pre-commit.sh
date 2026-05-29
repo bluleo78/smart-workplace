@@ -65,10 +65,11 @@ elif [ -n "$WEB_PAGE_CHANGES" ]; then
     done
 
     # step 1: 전역 smoke
-    npx playwright test --grep "@smoke"
+    # 8-worker 병렬에서 dev-server 프록시 race 로 flake — workers=2 로 안정화
+    npx playwright test --grep "@smoke" --workers=2
     # step 2: 해당 도메인의 non-smoke (디렉토리가 있을 때만)
     if [ -n "$DOMAIN_SPECS" ]; then
-      npx playwright test $DOMAIN_SPECS --grep-invert "@smoke"
+      npx playwright test $DOMAIN_SPECS --grep-invert "@smoke" --workers=2
     fi
     cd - >/dev/null
   fi
