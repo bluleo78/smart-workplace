@@ -1,0 +1,123 @@
+// chat 메시지 스크롤 리스트.
+// 최신이 아래(Slack 스타일). 위로 스크롤 시 fetchNextPage.
+// 마지막 메시지가 viewport 진입하면 onMarkRead(lastId) 호출 — debounce 는 부모에서 처리.
+
+import { useEffect, useMemo, useRef } from 'react';
+import { ScrollArea } from '../../../../components/ui/scroll-area';
+import { Button } from '../../../../components/ui/button';
+import type { ChatMessageResponse } from '../../../../types/chat';
+import { ChatMessageRow } from './ChatMessageRow';
+
+interface ChatMessageListProps {
+  messages: ChatMessageResponse[];
+  currentUserId: number;
+  hasMore: boolean;
+  isFetchingMore: boolean;
+  onLoadMore: () => void;
+  onEdit: (id: number) => void;
+  onDelete: (id: number) => void;
+  onMarkRead: (lastMessageId: number) => void;
+  editingMessageId: number | null;
+  renderEditor: (message: ChatMessageResponse) => React.ReactNode;
+}
+
+export function ChatMessageList({
+  messages,
+  currentUserId,
+  hasMore,
+  isFetchingMore,
+  onLoadMore,
+  onEdit,
+  onDelete,
+  onMarkRead,
+  editingMessageId,
+  renderEditor,
+}: ChatMessageListProps) {
+  const lastRef = useRef<HTMLLIElement | null>(null);
+
+  // 메시지가 createdAt 기준 오름차순이 되도록 한 번 정렬.
+  const sorted = useMemo(
+    () =>
+      [...messages].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+    [messages],
+  );
+  const lastId = sorted.length > 0 ? sorted[sorted.length - 1].id : null;
+
+  // 마지막 메시지 IO — viewport 진입 시 mark-read.
+  useEffect(() => {
+    const el = lastRef.current;
+    if (!el || lastId === null || lastId < 0) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onMarkRead(lastId);
+      },
+      { threshold: 0.5 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [lastId, onMarkRead]);
+
+  if (sorted.length === 0) {
+    return (
+      <div
+        className="flex h-32 items-center justify-center text-sm text-muted-foreground"
+        data-testid="chat-empty"
+      >
+        아직 대화가 없어요. 첫 메시지를 남겨보세요.
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="h-[min(60vh,480px)] pr-2" data-testid="chat-message-list">
+      <div className="flex flex-col">
+        {hasMore && (
+          <div className="flex justify-center py-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onLoadMore}
+              disabled={isFetchingMore}
+              data-testid="chat-load-more"
+            >
+              {isFetchingMore ? '불러오는 중...' : '이전 메시지 더 보기'}
+            </Button>
+          </div>
+        )}
+        <ul>
+          {sorted.map((m, idx) => {
+            const isLast = idx === sorted.length - 1;
+            const isEditing = editingMessageId === m.id;
+            const isPending = m.id < 0;
+            const canEdit = m.authorId === currentUserId;
+
+            if (isEditing) {
+              return (
+                <li
+                  key={m.id}
+                  ref={isLast ? lastRef : undefined}
+                  data-testid={`chat-message-${m.id}`}
+                >
+                  {renderEditor(m)}
+                </li>
+              );
+            }
+            return (
+              <div key={m.id} ref={isLast ? (lastRef as unknown as React.Ref<HTMLDivElement>) : undefined}>
+                <ChatMessageRow
+                  message={m}
+                  canEdit={canEdit}
+                  isPending={isPending}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                />
+              </div>
+            );
+          })}
+        </ul>
+      </div>
+    </ScrollArea>
+  );
+}
