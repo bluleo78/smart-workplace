@@ -68,10 +68,12 @@ export function ChatComposer({ members, onSubmit, disabled = false }: ChatCompos
 
   function submit() {
     const trimmed = body.trim();
-    if (trimmed.length === 0 || disabled) return;
+    if (trimmed.length === 0) return;
     onSubmit(trimmed);
     setBody('');
     setMentionQuery(null);
+    // 전송 후 입력창 포커스 유지 — 마우스 클릭 없이 연속 입력 가능 (버튼 클릭 전송 경로 포함).
+    taRef.current?.focus();
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -124,7 +126,6 @@ export function ChatComposer({ members, onSubmit, disabled = false }: ChatCompos
         aria-label="채팅 메시지 작성"
         data-testid="chat-composer-input"
         rows={2}
-        disabled={disabled}
         className="resize-none"
       />
       {mentionQuery !== null && (

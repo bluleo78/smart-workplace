@@ -437,4 +437,34 @@ test.describe('이슈 chat panel', () => {
       )
       .toBeLessThan(4);
   });
+
+  // #41 회귀 — 전송 후에도 입력창 포커스가 유지되어 마우스 클릭 없이 연속 입력 가능.
+  test('전송 후 입력창 포커스가 유지된다 — 연속 입력 가능', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'focus' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const ta = page.getByTestId('chat-composer-input');
+    await ta.fill('첫 메시지');
+    await ta.press('Enter');
+
+    // 전송이 서버로 나갔는지 확인 (mutation pending 구간 진입 보장).
+    await expect.poll(() => stubs.createPayloads).toEqual([{ body: '첫 메시지' }]);
+
+    // 전송 후에도 포커스가 입력창에 남아 있어야 한다.
+    await expect(ta).toBeFocused();
+
+    // 마우스 클릭 없이 곧바로 이어서 타이핑 가능.
+    await page.keyboard.type('이어서');
+    await expect(ta).toHaveValue('이어서');
+  });
 });
