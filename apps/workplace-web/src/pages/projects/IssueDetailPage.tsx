@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 
+import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
 import { LabelChip } from '../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../components/labels/LabelPickerPopover';
 import { AgentBadge } from '../../components/users/AgentBadge';
@@ -17,10 +18,8 @@ import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle'
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
-
-import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
-
 import { AssigneePickerPopover } from './components/AssigneePickerPopover';
+import { IssueChatSection } from './components/chat/IssueChatSection';
 import { CustomFieldsSection } from './components/CustomFieldsSection';
 import { IssueActivityTimeline } from './components/IssueActivityTimeline';
 import { IssueAttachmentDropzone } from './components/IssueAttachmentDropzone';
@@ -149,6 +148,7 @@ export default function IssueDetailPage() {
           issueId={summary.id}
           comments={comments}
         />
+        <IssueChatSection projectKey={key} issueNumber={issueNumber} />
       </div>
       <aside className="space-y-4">
         {/* SUBTASK 상세에서만 부모 슬롯 노출 (Phase 4a). */}
