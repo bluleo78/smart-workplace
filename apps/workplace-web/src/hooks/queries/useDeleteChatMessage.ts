@@ -1,9 +1,10 @@
 // 메시지 soft-delete mutation. 성공 시 캐시의 해당 메시지 deleted=true, body='(삭제됨)' 처리.
 
-import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import { type InfiniteData,useMutation, useQueryClient } from '@tanstack/react-query';
+
 import { chatApi } from '../../api/chat';
-import type { ChatMessagePage } from '../../types/chat';
 import { handleApiError } from '../../lib/api-error';
+import type { ChatMessagePage } from '../../types/chat';
 import { chatKeys } from './chatKeys';
 
 export function useDeleteChatMessage(threadId: number) {

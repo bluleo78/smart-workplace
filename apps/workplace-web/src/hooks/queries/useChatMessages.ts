@@ -3,6 +3,7 @@
 // initialData 는 ChatThread 응답의 recentMessages 로 호출처에서 seeded.
 
 import { useInfiniteQuery } from '@tanstack/react-query';
+
 import { chatApi } from '../../api/chat';
 import type { ChatMessagePage } from '../../types/chat';
 import { chatKeys } from './chatKeys';

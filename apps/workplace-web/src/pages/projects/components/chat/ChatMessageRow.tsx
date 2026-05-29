@@ -4,6 +4,7 @@
 // deleted=true 면 body 가 '(삭제됨)' 으로 마스킹돼 들어옴.
 
 import { Bot, Pencil, Trash2, User } from 'lucide-react';
+
 import { Button } from '../../../../components/ui/button';
 import { AgentBadge } from '../../../../components/users/AgentBadge';
 import type { ChatMessageResponse } from '../../../../types/chat';

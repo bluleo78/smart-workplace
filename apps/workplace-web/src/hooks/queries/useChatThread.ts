@@ -3,6 +3,7 @@
 // staleTime 30s — thread 자체는 거의 안 변하지만 멤버 변경(자동 add)이 있을 수 있어 적당히 짧게.
 
 import { useQuery } from '@tanstack/react-query';
+
 import { chatApi } from '../../api/chat';
 import { chatKeys } from './chatKeys';
 

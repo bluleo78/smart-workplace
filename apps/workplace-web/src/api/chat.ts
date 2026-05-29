@@ -1,7 +1,6 @@
 // chat REST API client.
 // 모든 함수는 axios envelope(AxiosResponse) 반환 — 호출처(query 훅)에서 .data unwrap.
 
-import { client } from './client';
 import type {
   AddChatMemberRequest,
   ChatMemberResponse,
@@ -12,6 +11,7 @@ import type {
   MarkChatReadRequest,
   UpdateChatMessageRequest,
 } from '../types/chat';
+import { client } from './client';
 
 export const chatApi = {
   // 이슈에 묶인 thread getter — 백엔드가 lazy create.

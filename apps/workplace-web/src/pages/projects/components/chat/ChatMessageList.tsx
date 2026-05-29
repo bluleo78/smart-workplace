@@ -3,8 +3,9 @@
 // 마지막 메시지가 viewport 진입하면 onMarkRead(lastId) 호출 — debounce 는 부모에서 처리.
 
 import { useEffect, useMemo, useRef } from 'react';
-import { ScrollArea } from '../../../../components/ui/scroll-area';
+
 import { Button } from '../../../../components/ui/button';
+import { ScrollArea } from '../../../../components/ui/scroll-area';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { ChatMessageRow } from './ChatMessageRow';
 

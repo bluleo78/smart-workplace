@@ -2,20 +2,21 @@
 // thread lazy fetch → messages infinite query (recentMessages seed) → polling/mark-read 게이팅.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../../components/ui/card';
+
 import { Button } from '../../../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../../components/ui/card';
 import { Skeleton } from '../../../../components/ui/skeleton';
-import { useChatThread } from '../../../../hooks/queries/useChatThread';
 import { useChatMessages } from '../../../../hooks/queries/useChatMessages';
+import { useChatThread } from '../../../../hooks/queries/useChatThread';
 import { useCreateChatMessage } from '../../../../hooks/queries/useCreateChatMessage';
-import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMessage';
 import { useDeleteChatMessage } from '../../../../hooks/queries/useDeleteChatMessage';
 import { useMarkChatRead } from '../../../../hooks/queries/useMarkChatRead';
-import { useDebounceValue } from '../../../../hooks/useDebounceValue';
+import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMessage';
 import { useAuth } from '../../../../hooks/useAuth';
-import { ChatMessageList } from './ChatMessageList';
+import { useDebounceValue } from '../../../../hooks/useDebounceValue';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
+import { ChatMessageList } from './ChatMessageList';
 
 interface IssueChatSectionProps {
   projectKey: string;

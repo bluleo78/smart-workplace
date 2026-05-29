@@ -3,15 +3,16 @@
 // onError 시 snapshot 복원 + toast.
 // 폴링이 concurrent 메시지를 5초 안에 동기화하므로 onSettled 재요청은 두지 않는다 (네트워크 절약).
 
-import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import { type InfiniteData,useMutation, useQueryClient } from '@tanstack/react-query';
+
 import { chatApi } from '../../api/chat';
+import { handleApiError } from '../../lib/api-error';
 import type {
   ChatMessagePage,
   ChatMessageResponse,
   CreateChatMessageRequest,
   UserKind,
 } from '../../types/chat';
-import { handleApiError } from '../../lib/api-error';
 import { chatKeys } from './chatKeys';
 
 interface MeContext {
