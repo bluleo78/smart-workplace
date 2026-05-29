@@ -33,8 +33,7 @@ public class ChatMessageService {
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
     ensureMember(threadId, callerId);
-    List<String> usernames = ChatMentionParser.parse(req.body());
-    List<Long> mentionUserIds = hydrator.resolveUsernamesToIds(usernames);
+    List<Long> mentionUserIds = hydrator.filterExistingUserIds(ChatMentionParser.parse(req.body()));
     long messageId = messageRepo.insert(threadId, callerId, req.body(), mentionUserIds);
 
     publisher.publishEvent(buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds));
@@ -49,7 +48,7 @@ public class ChatMessageService {
             .findAuthorId(messageId)
             .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
     if (authorId != callerId) throw new ChatMessageAuthorMismatchException(messageId, callerId);
-    List<Long> mentionUserIds = hydrator.resolveUsernamesToIds(ChatMentionParser.parse(req.body()));
+    List<Long> mentionUserIds = hydrator.filterExistingUserIds(ChatMentionParser.parse(req.body()));
     messageRepo.update(messageId, req.body(), mentionUserIds);
     return findOne(messageId);
   }

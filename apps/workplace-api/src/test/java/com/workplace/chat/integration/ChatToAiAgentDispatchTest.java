@@ -39,13 +39,13 @@ class ChatToAiAgentDispatchTest extends IntegrationTestBase {
     var thread =
         threadService.getOrCreate(
             s.base().reporterId(), s.base().projectKey(), s.base().issueNumber());
-    // AGENT 도 thread 멤버로 직접 추가 (mention resolve 단계와 무관 — mention 은 username 매칭으로 작동).
+    // AGENT 도 thread 멤버로 직접 추가 (mention resolve 단계와 무관 — mention 은 <@id> 토큰으로 작동).
     memberRepo.insertIgnoreConflict(thread.threadId(), List.of(s.agentId()));
 
     messageService.create(
         s.base().reporterId(),
         thread.threadId(),
-        new CreateChatMessageRequest("@" + s.agentUsername() + " 처리해줘"));
+        new CreateChatMessageRequest("<@" + s.agentId() + "> 처리해줘"));
 
     ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
     verify(client, timeout(2000).times(1)).publish(captor.capture());

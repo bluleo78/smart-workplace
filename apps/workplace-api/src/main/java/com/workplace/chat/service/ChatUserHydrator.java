@@ -39,13 +39,12 @@ public class ChatUserHydrator {
     return normalized.stream().map(map::get).filter(Objects::nonNull).toList();
   }
 
-  /** username[] → user.id[] (active 만, 같은 프로젝트 한정은 caller 가 별도 필터 책임). */
-  public List<Long> resolveUsernamesToIds(List<String> usernames) {
-    if (usernames == null || usernames.isEmpty()) return List.of();
-    return dsl.select(USER.ID)
-        .from(USER)
-        .where(USER.USERNAME.in(usernames))
-        .fetch(r -> r.get(USER.ID));
+  /** mention id 후보 중 실제 존재하는 user.id 만 통과 (중복 제거, 입력 순서 보존). */
+  public List<Long> filterExistingUserIds(List<Long> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    java.util.Set<Long> existing =
+        dsl.select(USER.ID).from(USER).where(USER.ID.in(ids)).fetchSet(USER.ID);
+    return ids.stream().filter(existing::contains).distinct().toList();
   }
 
   /** 단건 UserSummary 조회. */
