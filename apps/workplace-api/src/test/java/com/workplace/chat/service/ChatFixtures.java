@@ -63,7 +63,7 @@ public class ChatFixtures {
     long agentId = insertAgentUser(agentUsername);
     // 프로젝트 멤버로 등록 (수동 add 시 ProjectAccessDenied 회피).
     memberRepository.insert(base.projectId(), agentId, "MEMBER");
-    return new AgentSetup(base, agentId, agentUsername);
+    return new AgentSetup(base, agentId);
   }
 
   /** USER 테이블에 최소 컬럼만 INSERT (kind/is_active 는 default). 비밀번호는 더미. */
@@ -117,6 +117,6 @@ public class ChatFixtures {
       long issueId,
       int issueNumber) {}
 
-  /** setupWithAgent() 결과 — base setup + AGENT user id/username. */
-  public record AgentSetup(Setup base, long agentId, String agentUsername) {}
+  /** setupWithAgent() 결과 — base setup + AGENT user id. */
+  public record AgentSetup(Setup base, long agentId) {}
 }

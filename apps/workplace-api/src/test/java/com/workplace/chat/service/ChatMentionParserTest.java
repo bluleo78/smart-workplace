@@ -32,4 +32,10 @@ class ChatMentionParserTest {
   void parse_malformedToken_isIgnored() {
     assertThat(ChatMentionParser.parse("<@> <@abc> <@1a>")).isEmpty();
   }
+
+  @Test
+  void parse_overlongToken_isIgnored() {
+    // bigint 범위를 넘는 19자리+ 토큰은 overflow 방지를 위해 무시.
+    assertThat(ChatMentionParser.parse("<@1234567890123456789012345>")).isEmpty();
+  }
 }

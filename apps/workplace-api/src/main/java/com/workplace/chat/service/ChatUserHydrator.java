@@ -39,12 +39,12 @@ public class ChatUserHydrator {
     return normalized.stream().map(map::get).filter(Objects::nonNull).toList();
   }
 
-  /** mention id 후보 중 실제 존재하는 user.id 만 통과 (중복 제거, 입력 순서 보존). */
+  /** mention id 후보 중 실제 존재하는 user.id 만 통과 (입력 순서 보존, 입력은 파서가 이미 dedup). */
   public List<Long> filterExistingUserIds(List<Long> ids) {
     if (ids == null || ids.isEmpty()) return List.of();
     java.util.Set<Long> existing =
         dsl.select(USER.ID).from(USER).where(USER.ID.in(ids)).fetchSet(USER.ID);
-    return ids.stream().filter(existing::contains).distinct().toList();
+    return ids.stream().filter(existing::contains).toList();
   }
 
   /** 단건 UserSummary 조회. */
