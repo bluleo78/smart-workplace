@@ -9,6 +9,7 @@ import { Button } from '../../../../components/ui/button';
 import { AgentBadge } from '../../../../components/users/AgentBadge';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { formatChatTimestamp } from './formatChatTimestamp';
+import { parseMessageSegments } from './parseMessageSegments';
 
 interface ChatMessageRowProps {
   message: ChatMessageResponse;
@@ -66,7 +67,25 @@ export function ChatMessageRow({
           }`}
           data-testid={`chat-message-body-${message.id}`}
         >
-          {message.body}
+          {message.deleted
+            ? message.body
+            : parseMessageSegments(message.body, message.mentions).map((seg, i) =>
+                seg.type === 'text' ? (
+                  <span key={i}>{seg.value}</span>
+                ) : (
+                  <span
+                    key={i}
+                    data-testid={`chat-mention-chip-${seg.id}`}
+                    className={`rounded px-1 font-medium ${
+                      seg.kind === 'AGENT'
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'bg-blue-100 text-blue-700'
+                    }`}
+                  >
+                    @{seg.name}
+                  </span>
+                ),
+              )}
         </div>
       </div>
 
