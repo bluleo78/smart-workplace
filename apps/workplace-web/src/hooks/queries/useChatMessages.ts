@@ -22,14 +22,16 @@ export function useChatMessages({
 }: UseChatMessagesOptions) {
   return useInfiniteQuery<ChatMessagePage>({
     queryKey: threadId ? chatKeys.messages(threadId) : ['chat', 'messages', 'idle'],
-    enabled: Number.isFinite(threadId),
+    enabled: !!threadId,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       chatApi.getMessages(threadId!, pageParam as string | undefined).then((r) => r.data),
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // 폴링 cadence 와 맞춰, 시드 직후 5초 동안은 stale 로 보지 않아 즉시 refetch 가 일어나지 않는다.
+    staleTime: 5_000,
     refetchInterval: pollingEnabled ? 5_000 : false,
+    // 폴링이 visibility 조건과 묶여 있으므로, 백그라운드/포커스 복귀 refetch 는 중복이 되어 끈다.
     refetchIntervalInBackground: false,
-    // 폴링이 켜질 때 백그라운드에서도 refetch — 화면 활성 직후 즉시 갱신.
     refetchOnWindowFocus: false,
     initialData: initialFirstPage
       ? { pages: [initialFirstPage], pageParams: [undefined] }
