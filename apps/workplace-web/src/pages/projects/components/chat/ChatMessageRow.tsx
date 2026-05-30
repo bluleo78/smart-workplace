@@ -1,7 +1,8 @@
 // chat 메시지 1건.
 // AGENT 행은 좌측 보더(보라) + Bot 아이콘 + AgentBadge.
 // 본인 메시지(canEdit) hover 시 toolbar 노출 — 실제 핸들러는 부모 ChatMessageList 에서 prop 으로 주입.
-// deleted=true 면 body 가 '(삭제됨)' 으로 마스킹돼 들어옴.
+// deleted=true 면 행이 직접 '(삭제됨)' 플레이스홀더를 렌더한다 — SSE 로 도착한 삭제 이벤트는
+// body 를 마스킹하지 않으므로(원본 body 가 그대로 남음) 소스(REST/SSE)와 무관하게 일관 표시.
 
 import { Bot, Pencil, Trash2, User } from 'lucide-react';
 
@@ -30,7 +31,7 @@ export function ChatMessageRow({
   const showToolbar = canEdit && !message.deleted && !isPending;
   // aria-label 은 <@id> 토큰 대신 사람이 읽을 수 있는 형태(@이름)로 노출.
   const plainBody = message.deleted
-    ? message.body
+    ? '(삭제됨)'
     : parseMessageSegments(message.body, message.mentions)
         .map((seg) => (seg.type === 'text' ? seg.value : `@${seg.name}`))
         .join('');
@@ -74,7 +75,7 @@ export function ChatMessageRow({
           data-testid={`chat-message-body-${message.id}`}
         >
           {message.deleted
-            ? message.body
+            ? '(삭제됨)'
             : parseMessageSegments(message.body, message.mentions).map((seg, i) =>
                 seg.type === 'text' ? (
                   <span key={i}>{seg.value}</span>

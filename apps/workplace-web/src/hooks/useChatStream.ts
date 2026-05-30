@@ -7,7 +7,7 @@
 import { type InfiniteData, type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
-import { getAccessToken } from '../api/client';
+import { getAccessToken, refreshAccessToken } from '../api/client';
 import type { ChatMessagePage, ChatMessageResponse } from '../types/chat';
 import { chatKeys } from './queries/chatKeys';
 
@@ -124,6 +124,16 @@ export function useChatStream() {
           signal: controller.signal,
           credentials: 'include',
         });
+        if (response.status === 401) {
+          // access token 만료 — raw fetch 는 axios refresh 인터셉터를 안 타므로 직접 갱신 후 재연결.
+          const refreshed = await refreshAccessToken();
+          if (!refreshed) {
+            cancelled = true; // refresh 실패 → 다음 axios 호출이 로그인으로 보냄. SSE 루프 종료.
+            return;
+          }
+          scheduleReconnect();
+          return;
+        }
         if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
         attempt = 0;
 

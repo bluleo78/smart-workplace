@@ -75,11 +75,20 @@ export function useCreateChatMessage(
       const key = chatKeys.messages(threadId);
       qc.setQueryData<InfiniteData<ChatMessagePage>>(key, (old) => {
         if (!old) return old;
+        // optimistic temp id → 서버 메시지로 치환. SSE self-echo 가 이미 같은 id 를 넣었을 수 있으므로
+        // id 기준 dedup 으로 중복 행 제거 (SSE 도착 순서와 무관하게 단일 행 보장).
+        const seen = new Set<number>();
         return {
           ...old,
           pages: old.pages.map((p) => ({
             ...p,
-            items: p.items.map((m) => (m.id === ctx?.tempId ? saved : m)),
+            items: p.items
+              .map((m) => (m.id === ctx?.tempId ? saved : m))
+              .filter((m) => {
+                if (seen.has(m.id)) return false;
+                seen.add(m.id);
+                return true;
+              }),
           })),
         };
       });
