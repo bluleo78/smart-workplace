@@ -8,6 +8,10 @@ import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
 import com.workplace.chat.exception.ChatMessageNotFoundException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadReadEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.global.dto.UserSummary;
@@ -50,7 +54,16 @@ public class ChatMessageService {
     if (authorId != callerId) throw new ChatMessageAuthorMismatchException(messageId, callerId);
     List<Long> mentionUserIds = hydrator.filterExistingUserIds(ChatMentionParser.parse(req.body()));
     messageRepo.update(messageId, req.body(), mentionUserIds);
-    return findOne(messageId);
+    ChatMessageResponse saved = findOne(messageId);
+    // SSE fan-out 용 수정 이벤트 발행 (mention 은 hydrate 후 전달).
+    publisher.publishEvent(
+        new ChatMessageUpdatedEvent(
+            saved.threadId(),
+            messageId,
+            saved.body(),
+            hydrator.summariesOf(mentionUserIds),
+            saved.editedAt()));
+    return saved;
   }
 
   /** 본인만 soft-delete. */
@@ -61,7 +74,13 @@ public class ChatMessageService {
             .findAuthorId(messageId)
             .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
     if (authorId != callerId) throw new ChatMessageAuthorMismatchException(messageId, callerId);
+    // soft-delete 전 threadId 를 조회해 둔다 (이벤트 fan-out 에 필요).
+    long threadId =
+        messageRepo
+            .findThreadId(messageId)
+            .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
     messageRepo.softDelete(messageId);
+    publisher.publishEvent(new ChatMessageDeletedEvent(threadId, messageId));
   }
 
   public ChatMessagePage list(long callerId, long threadId, String cursor, int limit) {
@@ -73,6 +92,13 @@ public class ChatMessageService {
   public void markRead(long callerId, long threadId, long uptoMessageId) {
     ensureMember(threadId, callerId);
     memberRepo.markRead(threadId, callerId, uptoMessageId);
+    publisher.publishEvent(new ChatThreadReadEvent(threadId, callerId, uptoMessageId));
+  }
+
+  /** 타이핑 알림 — DB 저장 없이 transient 이벤트만 발행. @Transactional 아님 (비-트랜잭션 이벤트). */
+  public void notifyTyping(long callerId, long threadId) {
+    ensureMember(threadId, callerId);
+    publisher.publishEvent(new ChatThreadTypingEvent(threadId, hydrator.summaryOf(callerId)));
   }
 
   private ChatMessageResponse findOne(long messageId) {
