@@ -527,7 +527,7 @@ cd apps/workplace-api
 ./gradlew generateJooq
 ```
 
-> 프로젝트 관례: 마이그레이션은 `bootRun` 이 자동 적용. 적용 후 `./gradlew generateJooq` 로 `src/main/generated/` 재생성. 생성 코드는 커밋 대상.
+> 프로젝트 관례: 마이그레이션은 `bootRun` 이 자동 적용. 적용 후 `./gradlew generateJooq` 로 `src/main/generated/` 재생성. **생성 코드는 `.gitignore` 됨 — 커밋하지 않음(로컬 생성).**
 
 - [ ] **Step 3: 생성 클래스 확인**
 
