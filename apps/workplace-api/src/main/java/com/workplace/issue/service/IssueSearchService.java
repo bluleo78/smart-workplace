@@ -51,7 +51,7 @@ public class IssueSearchService {
   /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size. */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     var project = accessGuard.assertMember(projectKey, callerId);
-    IssueSearchQuery query = parse(params);
+    IssueSearchQuery query = parse(callerId, params);
 
     var rows = issueRepository.search(project.id(), query);
     List<Long> issueIds = rows.stream().map(IssueRow::id).toList();
@@ -105,8 +105,12 @@ public class IssueSearchService {
     return new IssueSearchResponse(items, nextCursor, hasMore);
   }
 
-  /** Map → IssueSearchQuery 정규화. 잘못된 cursor/date 는 InvalidCursorException(400) 으로 변환. */
-  private IssueSearchQuery parse(Map<String, String> p) {
+  /**
+   * Map → IssueSearchQuery 정규화. 잘못된 cursor/date 는 InvalidCursorException(400) 으로 변환.
+   *
+   * @param callerId 호출자 ID — assignee=me 리터럴을 실제 ID 로 치환하는 데 사용 (7a).
+   */
+  private IssueSearchQuery parse(Long callerId, Map<String, String> p) {
     String q = trimToNull(p.get("q"));
     List<String> statuses = csv(p.get("status"));
     List<String> priorities = csv(p.get("priority"));
@@ -115,7 +119,10 @@ public class IssueSearchService {
     List<Long> assigneeIds = new ArrayList<>();
     boolean includeUnassigned = false;
     for (String tok : assigneeTokens) {
-      if ("null".equalsIgnoreCase(tok)) {
+      if ("me".equalsIgnoreCase(tok)) {
+        // 7a: 'me' 리터럴 → 호출자 본인. 홈 컴포저가 사용자 ID 를 몰라도 "내 담당" 조회 가능.
+        assigneeIds.add(callerId);
+      } else if ("null".equalsIgnoreCase(tok)) {
         includeUnassigned = true;
       } else {
         try {
