@@ -26,6 +26,8 @@ interface ChatRichInputProps {
   placeholder?: string;
   onSubmit: (body: string) => void;
   onCancel?: () => void;
+  // 본문이 바뀔 때마다 호출 (타이핑 송신용). 제출/clear 도 onUpdate 를 트리거하나 호출처에서 throttle.
+  onChange?: () => void;
   submitLabel?: string;
   clearOnSubmit?: boolean;
   autoFocus?: boolean;
@@ -41,6 +43,7 @@ export function ChatRichInput({
   placeholder = '메시지 입력 (Shift+Enter 로 줄바꿈)',
   onSubmit,
   onCancel,
+  onChange,
   submitLabel = '보내기',
   clearOnSubmit = false,
   autoFocus = false,
@@ -59,8 +62,16 @@ export function ChatRichInput({
   // (전역 조회 시 다른 인스턴스의 팝업까지 잡혀 Enter 전송이 잘못 차단됨).
   const popupOpenRef = useRef(false);
 
+  // onChange 최신값을 onUpdate 콜백에서 참조 (membersRef 와 동일 패턴, 스테일 클로저 회피).
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
+
   const editor = useEditor({
     autofocus: autoFocus,
+    // 본문이 바뀔 때마다(타이핑) 호출. 호출처에서 throttle.
+    onUpdate: () => onChangeRef.current?.(),
     extensions: [
       Document,
       Paragraph,

@@ -1,8 +1,10 @@
 // 이슈 상세 inline chat section.
-// thread lazy fetch → messages infinite query (recentMessages seed) → polling/mark-read 게이팅.
+// thread lazy fetch → messages infinite query (recentMessages seed). 실시간은 SSE(useChatStream).
+// 타이핑: 입력 시 typing 송신 + 다른 멤버 typing 표시. mark-read 는 debounce 게이팅.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { chatApi } from '../../../../api/chat';
 import { Button } from '../../../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../../components/ui/card';
 import { Skeleton } from '../../../../components/ui/skeleton';
@@ -13,6 +15,7 @@ import { useDeleteChatMessage } from '../../../../hooks/queries/useDeleteChatMes
 import { useMarkChatRead } from '../../../../hooks/queries/useMarkChatRead';
 import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMessage';
 import { useAuth } from '../../../../hooks/useAuth';
+import { onChatTyping } from '../../../../hooks/useChatStream';
 import { useDebounceValue } from '../../../../hooks/useDebounceValue';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
@@ -23,39 +26,8 @@ interface IssueChatSectionProps {
   issueNumber: number;
 }
 
-// document.visibilityState 변화를 React state 로 노출.
-function useIsPageVisible(): boolean {
-  const [visible, setVisible] = useState(() =>
-    typeof document !== 'undefined' ? document.visibilityState === 'visible' : true,
-  );
-  useEffect(() => {
-    const onChange = () => setVisible(document.visibilityState === 'visible');
-    document.addEventListener('visibilitychange', onChange);
-    return () => document.removeEventListener('visibilitychange', onChange);
-  }, []);
-  return visible;
-}
-
-// section root 가 viewport 안에 있는지 IntersectionObserver 로 추적.
-function useInViewport(ref: React.RefObject<HTMLElement | null>): boolean {
-  const [inView, setInView] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => setInView(entries.some((e) => e.isIntersecting)),
-      { threshold: 0.1 },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [ref]);
-  return inView;
-}
-
 export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const isPageVisible = useIsPageVisible();
-  const isInView = useInViewport(rootRef);
   const auth = useAuth();
   const me = auth.user;
 
@@ -71,7 +43,6 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
 
   const messagesQ = useChatMessages({
     threadId: threadQ.data?.threadId,
-    pollingEnabled: !!threadQ.data && isPageVisible && isInView,
     initialFirstPage,
   });
 
@@ -104,6 +75,42 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedReadId, threadId]);
+
+  // 다른 멤버의 타이핑 표시 (SSE typing 버스 구독, 4초 TTL). 본인 이벤트는 무시.
+  const [typingNames, setTypingNames] = useState<Map<number, { name: string; at: number }>>(
+    new Map(),
+  );
+  useEffect(() => {
+    const unsub = onChatTyping((e) => {
+      if (e.threadId !== threadId || e.userId === (me?.id ?? 0)) return;
+      setTypingNames((prev) => {
+        const next = new Map(prev);
+        next.set(e.userId, { name: e.name, at: Date.now() });
+        return next;
+      });
+    });
+    const ttl = setInterval(() => {
+      setTypingNames((prev) => {
+        const now = Date.now();
+        const next = new Map([...prev].filter(([, v]) => now - v.at < 4000));
+        return next.size === prev.size ? prev : next;
+      });
+    }, 1000);
+    return () => {
+      unsub();
+      clearInterval(ttl);
+    };
+  }, [threadId, me?.id]);
+
+  // 입력 중 3초 throttle 로 typing 송신.
+  const lastTypingRef = useRef(0);
+  const handleTyping = () => {
+    const now = Date.now();
+    if (threadId > 0 && now - lastTypingRef.current > 3000) {
+      lastTypingRef.current = now;
+      chatApi.sendTyping(threadId).catch(() => {});
+    }
+  };
 
   if (threadQ.isLoading) {
     return (
@@ -177,9 +184,15 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
             />
           )}
         />
+        {typingNames.size > 0 && (
+          <div className="px-4 pb-1 text-xs text-muted-foreground" data-testid="chat-typing">
+            {[...typingNames.values()].map((v) => v.name).join(', ')} 입력 중…
+          </div>
+        )}
         <ChatComposer
           members={thread.members}
           onSubmit={(body) => createMutation.mutate({ body })}
+          onTyping={handleTyping}
         />
       </CardContent>
     </Card>

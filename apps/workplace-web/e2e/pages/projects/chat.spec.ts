@@ -577,4 +577,72 @@ test.describe('이슈 chat panel', () => {
       timeout: 2000,
     });
   });
+
+  // #37 — 입력 중 typing 송신: 본문이 바뀌면 POST /chat/threads/{id}/typing 가 호출된다.
+  test('입력 중 typing 송신 (POST /typing)', async ({ authenticatedPage: page }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'typing 테스트' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    await setupChatStubs(page, stubs);
+
+    const typingCalls: number[] = [];
+    await page.route(
+      (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/typing`,
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        typingCalls.push(Date.now());
+        return route.fulfill({ status: 204 });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await page.getByTestId('chat-composer-input').click();
+    await page.keyboard.type('타이핑');
+
+    // 입력 시작과 동시에 typing 이 최소 1회 송신돼야 한다 (3초 throttle).
+    await expect.poll(() => typingCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // #37 — 다른 멤버의 typing SSE 이벤트가 "X 입력 중…" 인디케이터로 보인다.
+  test('다른 멤버 typing 인디케이터 노출', async ({ authenticatedPage: page }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'typing indicator' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    await setupChatStubs(page, stubs);
+
+    // SSE 스트림 모킹 — 매 연결마다 typing 이벤트(본인 + 다른 멤버)를 흘려보낸다.
+    // 컴포넌트 구독 시점과의 경합을 피하려 재연결마다 재방출(스트림은 finite → 재연결됨).
+    // 본인(ME_ID) 이벤트는 self-filter 로 무시되고, 다른 멤버만 인디케이터에 보여야 한다.
+    await page.route(
+      (url) => url.pathname === '/api/v1/chat/stream',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          headers: { 'cache-control': 'no-cache' },
+          body:
+            `event: chat.thread.typing\n` +
+            `data: ${JSON.stringify({ threadId: THREAD_ID, userId: ME_ID, name: '테스트 사용자' })}\n\n` +
+            `event: chat.thread.typing\n` +
+            `data: ${JSON.stringify({ threadId: THREAD_ID, userId: 99, name: 'AI Agent' })}\n\n`,
+        }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 다른 멤버 typing → 인디케이터 노출. 본인 이벤트는 self-filter 로 표시되지 않는다.
+    // (TTL 소멸은 재방출 모킹과 경합해 안정적으로 검증하기 어려워 생략 — TTL 로직은 단위 미검증.)
+    const indicator = page.getByTestId('chat-typing');
+    await expect(indicator).toContainText('AI Agent 입력 중…');
+    await expect(indicator).not.toContainText('테스트 사용자');
+  });
 });
