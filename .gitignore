@@ -76,3 +76,6 @@ db-test-data/
 
 # Git worktrees (로컬 전용)
 .worktrees/
+
+# Superpowers brainstorm visual companion
+.superpowers/
