@@ -22,6 +22,8 @@
 **Create — Flyway:**
 - `apps/workplace-api/src/main/resources/db/migration/V17__home_ai.sql`
 
+> ⚠️ jOOQ 생성 코드(`src/main/generated/`)는 `.gitignore` 됨 — **커밋하지 않는다**. 마이그레이션 후 각 환경에서 `./gradlew generateJooq` 로 로컬 생성(이미 디스크에 있으면 컴파일됨). 커밋 대상은 V17 SQL 뿐.
+
 **Create — `com.workplace.home` 모듈:**
 - `home/dto/ActivityEntryResponse.java`
 - `home/dto/HomeSessionResponse.java`, `home/dto/HomeSessionSummary.java`, `home/dto/HomeMessageResponse.java`
@@ -532,12 +534,11 @@ cd apps/workplace-api
 Run: `ls apps/workplace-api/src/main/generated/com/workplace/jooq/tables/ | grep -i home`
 Expected: `HomeSession.java`, `HomeMessage.java` (+ `records/HomeSessionRecord.java`, `HomeMessageRecord.java`)
 
-- [ ] **Step 4: 커밋**
+- [ ] **Step 4: 커밋 (마이그레이션만 — generated 는 gitignore 라 커밋 X)**
 
 ```bash
-git add apps/workplace-api/src/main/resources/db/migration/V17__home_ai.sql \
-        apps/workplace-api/src/main/generated/
-git commit -m "feat(api): V17 home_session/home_message 마이그레이션 + jOOQ 코드젠 — #46"
+git add apps/workplace-api/src/main/resources/db/migration/V17__home_ai.sql
+git commit -m "feat(api): V17 home_session/home_message 마이그레이션 — #46"
 ```
 
 ---
