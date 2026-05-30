@@ -25,6 +25,7 @@ export function writeTempMcpConfig(opts: {
   agentId: number;
   baseURL: string;
   internalToken: string;
+  profile?: 'issue' | 'chat';
 }): string {
   const config = {
     mcpServers: {
@@ -35,6 +36,7 @@ export function writeTempMcpConfig(opts: {
           WORKPLACE_API_BASE_URL: opts.baseURL,
           INTERNAL_SERVICE_TOKEN: opts.internalToken,
           ACTING_AGENT_ID: String(opts.agentId),
+          WORKPLACE_MCP_PROFILE: opts.profile ?? 'issue',
         },
       },
     },

@@ -6,10 +6,14 @@ import request from 'supertest';
 vi.mock('../agent/run-agent.js', () => ({
   runAgent: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock('../agent/chat-event-handler.js', () => ({
+  handleChatEvent: vi.fn(),
+}));
 
 import { internalAuth } from '../middleware/internal-auth.js';
 import { createEventsRouter } from './events.js';
 import { runAgent } from '../agent/run-agent.js';
+import { handleChatEvent } from '../agent/chat-event-handler.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
 const client = {
@@ -49,6 +53,7 @@ describe('POST /events', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(runAgent).mockClear();
     vi.mocked(runAgent).mockResolvedValue(undefined);
+    vi.mocked(handleChatEvent).mockClear();
   });
   afterEach(() => {
     delete process.env.INTERNAL_SERVICE_TOKEN;
@@ -134,5 +139,37 @@ describe('POST /events', () => {
     expect(res.status).toBe(202);
     // 응답 후에야 resolve
     if (resolveAgent) (resolveAgent as () => void)();
+  });
+
+  const validChatPayload = {
+    projectKey: 'WP',
+    issueKey: 'WP-1',
+    issueId: 1,
+    threadId: 5,
+    messageId: 9,
+    actor: { id: 7, username: 'alice', name: 'Alice', kind: 'HUMAN' },
+    body: '@AI 요약해줘',
+    mentions: [{ id: 99, username: 'ai', name: 'AI', kind: 'AGENT' }],
+    occurredAt: '2026-05-30T12:00:00Z',
+  };
+
+  it('chat.message.posted 정상 → 202 + handleChatEvent 호출', async () => {
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'chat.message.posted', payload: validChatPayload });
+    expect(res.status).toBe(202);
+    expect(handleChatEvent).toHaveBeenCalledOnce();
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  it('chat.message.posted 잘못된 payload → 400 invalid_payload', async () => {
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'chat.message.posted', payload: { threadId: 'nope' } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
+    expect(handleChatEvent).not.toHaveBeenCalled();
   });
 });

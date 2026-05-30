@@ -38,6 +38,17 @@ public class ChatMessageService {
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
     ensureMember(threadId, callerId);
     List<Long> mentionUserIds = hydrator.filterExistingUserIds(ChatMentionParser.parse(req.body()));
+
+    // 멘션된 AGENT 는 thread 멤버로 add-only 추가 — AI 가 답을 작성하려면 멤버여야 함(6c).
+    List<Long> agentMentionIds =
+        hydrator.summariesOf(mentionUserIds).stream()
+            .filter(u -> "AGENT".equals(u.kind()))
+            .map(UserSummary::id)
+            .toList();
+    if (!agentMentionIds.isEmpty()) {
+      memberRepo.insertIgnoreConflict(threadId, agentMentionIds);
+    }
+
     long messageId = messageRepo.insert(threadId, callerId, req.body(), mentionUserIds);
 
     publisher.publishEvent(buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds));

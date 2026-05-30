@@ -105,4 +105,58 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       .reply(404, { error: 'not_found' });
     await expect(newClient().getOAuthToken(AGENT_ID)).rejects.toThrow();
   });
+
+  // --- 6c: chat ---
+
+  it('getChatMessages → GET /chat/threads/{id}/messages?limit + 헤더', async () => {
+    nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/chat/threads/5/messages`)
+      .query({ limit: '20' })
+      .reply(200, {
+        items: [
+          { id: 1, authorName: 'A', authorKind: 'HUMAN', body: 'hi', createdAt: 't', deleted: false },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      });
+    const items = await newClient().getChatMessages(AGENT_ID, 5, 20);
+    expect(items).toHaveLength(1);
+    expect(items[0].body).toBe('hi');
+  });
+
+  it('addChatMessage → POST /chat/threads/{id}/messages {body} + 헤더', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .post(`${PREFIX}/chat/threads/5/messages`, { body: '답변' })
+      .reply(201, {});
+    await newClient().addChatMessage(AGENT_ID, 5, '답변');
+    expect(scope.isDone()).toBe(true);
+  });
+
+  // --- 6c: 이슈 첨부 ---
+
+  it('listIssueAttachments → GET /projects/{key}/issues/{n}/attachments', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/projects/WP/issues/1/attachments`)
+      .reply(200, [
+        { fileId: 3, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 100 },
+      ]);
+    const list = await newClient().listIssueAttachments(AGENT_ID, 'WP-1');
+    expect(list[0]).toMatchObject({ fileId: 3, originalName: 'a.png', mimeType: 'image/png' });
+  });
+
+  it('downloadIssueAttachment → GET .../content (바이트 + mimeType)', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/projects/WP/issues/1/attachments/3/content`)
+      .reply(200, Buffer.from('PNGDATA'), { 'Content-Type': 'image/png' });
+    const res = await newClient().downloadIssueAttachment(AGENT_ID, 'WP-1', 3);
+    expect(Buffer.isBuffer(res.data)).toBe(true);
+    expect(res.data.toString()).toBe('PNGDATA');
+    expect(res.mimeType).toBe('image/png');
+  });
 });

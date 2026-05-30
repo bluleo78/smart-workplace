@@ -21,6 +21,10 @@ function client(token: string | Error): WorkplaceApiClient {
       token instanceof Error
         ? vi.fn().mockRejectedValue(token)
         : vi.fn().mockResolvedValue({ token, label: 'main' }),
+    getChatMessages: vi.fn().mockResolvedValue([]),
+    addChatMessage: vi.fn().mockResolvedValue(undefined),
+    listIssueAttachments: vi.fn().mockResolvedValue([]),
+    downloadIssueAttachment: vi.fn(),
   };
 }
 

@@ -11,6 +11,7 @@ import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
+import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.support.IntegrationTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +25,27 @@ class ChatMessageServiceTest extends IntegrationTestBase {
   @Autowired ChatMessageService messageService;
   @Autowired ChatThreadService threadService;
   @Autowired ChatFixtures fx;
+  @Autowired ChatThreadMemberRepository memberRepo;
   @Autowired ApplicationEvents events;
+
+  @Test
+  void create_withAgentMention_addsAgentAsThreadMember() {
+    // 6c: 사람이 @AGENT 멘션 메시지를 작성하면 그 AGENT 가 thread 멤버로 자동 추가돼야
+    // (AI 가 답을 POST 하려면 멤버여야 함).
+    ChatFixtures.AgentSetup s = fx.setupWithAgent();
+    var thread =
+        threadService.getOrCreate(
+            s.base().reporterId(), s.base().projectKey(), s.base().issueNumber());
+
+    assertThat(memberRepo.isMember(thread.threadId(), s.agentId())).isFalse();
+
+    messageService.create(
+        s.base().reporterId(),
+        thread.threadId(),
+        new CreateChatMessageRequest("<@" + s.agentId() + "> 도와줘"));
+
+    assertThat(memberRepo.isMember(thread.threadId(), s.agentId())).isTrue();
+  }
 
   @Test
   void create_byMember_succeedsAndPublishesEvent() {

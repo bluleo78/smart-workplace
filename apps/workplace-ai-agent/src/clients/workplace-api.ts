@@ -6,12 +6,40 @@ import axios, { AxiosInstance } from 'axios';
 import { DEFAULT_API_BASE_URL } from '../constants.js';
 import { IssueDetail, issueDetail } from '../types/workplace-api.js';
 
+// 6c: chat thread 메시지 (LLM 노출용 경량 형태).
+export interface ChatMessageItem {
+  id: number;
+  authorName: string;
+  authorKind: 'HUMAN' | 'AGENT';
+  body: string;
+  createdAt: string;
+  deleted: boolean;
+}
+
+// 6c: 이슈 첨부 메타.
+export interface AttachmentMeta {
+  fileId: number;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
 export interface WorkplaceApiClient {
   addIssueComment(agentId: number, issueKey: string, body: string): Promise<void>;
   updateIssueStatus(agentId: number, issueKey: string, statusKey: string): Promise<void>;
   getIssueDetail(agentId: number, issueKey: string): Promise<IssueDetail>;
   unassignSelf(agentId: number, issueKey: string): Promise<void>;
   getOAuthToken(agentId: number): Promise<{ token: string; label: string | null }>;
+  // 6c: chat
+  getChatMessages(agentId: number, threadId: number, limit: number): Promise<ChatMessageItem[]>;
+  addChatMessage(agentId: number, threadId: number, body: string): Promise<void>;
+  // 6c: 이슈 첨부
+  listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
+  downloadIssueAttachment(
+    agentId: number,
+    issueKey: string,
+    fileId: number,
+  ): Promise<{ data: Buffer; mimeType: string }>;
 }
 
 export function parseIssueKey(issueKey: string): {
@@ -104,6 +132,39 @@ export function createWorkplaceApiClient(opts: {
         token: String(r.data?.token ?? ''),
         label: r.data?.label ?? null,
       };
+    },
+
+    async getChatMessages(agentId, threadId, limit) {
+      const r = await http.get(
+        `/chat/threads/${threadId}/messages?limit=${limit}`,
+        onBehalfOf(agentId),
+      );
+      const items: ChatMessageItem[] = Array.isArray(r.data?.items) ? r.data.items : [];
+      return items;
+    },
+
+    async addChatMessage(agentId, threadId, body) {
+      await http.post(`/chat/threads/${threadId}/messages`, { body }, onBehalfOf(agentId));
+    },
+
+    async listIssueAttachments(agentId, issueKey) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      const r = await http.get(
+        `/projects/${projectKey}/issues/${number}/attachments`,
+        onBehalfOf(agentId),
+      );
+      const list: AttachmentMeta[] = Array.isArray(r.data) ? r.data : [];
+      return list;
+    },
+
+    async downloadIssueAttachment(agentId, issueKey, fileId) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      const r = await http.get(
+        `/projects/${projectKey}/issues/${number}/attachments/${fileId}/content`,
+        { ...onBehalfOf(agentId), responseType: 'arraybuffer' },
+      );
+      const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');
+      return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
     },
   };
 }

@@ -27,6 +27,36 @@ describe('buildCliArgs', () => {
     expect(args).toContain('--dangerously-skip-permissions');
     expect(args).toContain('--disallowed-tools');
   });
+
+  it('allowFileRead=true → allowed-tools 에 Read 포함, disallowed 에서 Read 제외', () => {
+    const args = buildCliArgs({
+      userMessage: 'm',
+      systemPrompt: 's',
+      model: 'x',
+      maxTurns: 5,
+      mcpConfigPath: '/tmp/c.json',
+      allowFileRead: true,
+    });
+    const allowed = args[args.indexOf('--allowed-tools') + 1];
+    const disallowed = args[args.indexOf('--disallowed-tools') + 1];
+    expect(allowed).toContain('Read');
+    expect(allowed).toContain('mcp__workplace__*');
+    expect(disallowed.split(',')).not.toContain('Read');
+  });
+
+  it('allowFileRead 생략 → 기존대로 Read 차단', () => {
+    const args = buildCliArgs({
+      userMessage: 'm',
+      systemPrompt: 's',
+      model: 'x',
+      maxTurns: 5,
+      mcpConfigPath: '/tmp/c.json',
+    });
+    const allowed = args[args.indexOf('--allowed-tools') + 1];
+    const disallowed = args[args.indexOf('--disallowed-tools') + 1];
+    expect(allowed).toBe('mcp__workplace__*');
+    expect(disallowed.split(',')).toContain('Read');
+  });
 });
 
 describe('buildChildEnv', () => {

@@ -3,10 +3,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { handleEvent, type EventHandlerDeps } from '../agent/event-handler.js';
+import { handleChatEvent } from '../agent/chat-event-handler.js';
 import {
   KNOWN_ISSUE_TYPES,
   issueEventEnvelope,
 } from '../types/issue-events.js';
+import { chatEventEnvelope, CHAT_MESSAGE_POSTED } from '../types/chat-events.js';
 
 const envelopeSchema = z.object({
   type: z.string().min(1),
@@ -26,6 +28,19 @@ export function createEventsRouter(deps: EventHandlerDeps): Router {
     }
 
     const { type } = envelope.data;
+
+    // 6c: chat 이벤트 분기 — 별도 스키마/핸들러.
+    if (type === CHAT_MESSAGE_POSTED) {
+      const chat = chatEventEnvelope.safeParse(req.body);
+      if (!chat.success) {
+        res.status(400).json({ error: 'invalid_payload', issues: chat.error.issues });
+        return;
+      }
+      handleChatEvent(chat.data, deps);
+      res.status(202).json({ received: true });
+      return;
+    }
+
     const parsed = issueEventEnvelope.safeParse(req.body);
     if (!parsed.success) {
       if (KNOWN_ISSUE_TYPES.has(type)) {

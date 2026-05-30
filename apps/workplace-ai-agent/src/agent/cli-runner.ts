@@ -9,9 +9,28 @@ export interface CliArgsInput {
   model: string;
   maxTurns: number;
   mcpConfigPath: string;
+  // 6c: 첨부 읽기용 native Read 허용 (chat). true 면 allowed-tools 에 Read 추가 + disallowed 에서 제외.
+  allowFileRead?: boolean;
 }
 
+// 기본 차단 도구 — Read 는 allowFileRead 시 제외된다.
+const BASE_DISALLOWED = [
+  'Bash', 'BashOutput', 'KillShell',
+  'Read', 'Write', 'Edit', 'NotebookEdit',
+  'Glob', 'Grep',
+  'WebFetch', 'WebSearch',
+  'Task', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate',
+  'TodoWrite',
+  'Skill', 'ToolSearch', 'SlashCommand',
+  'AskUserQuestion', 'SendUserFile', 'ScheduleWakeup', 'ShareOnboardingGuide',
+  'Monitor', 'LSP',
+];
+
 export function buildCliArgs(i: CliArgsInput): string[] {
+  const allowedTools = i.allowFileRead ? 'mcp__workplace__*,Read' : 'mcp__workplace__*';
+  const disallowed = i.allowFileRead
+    ? BASE_DISALLOWED.filter((t) => t !== 'Read')
+    : BASE_DISALLOWED;
   return [
     '--print',
     i.userMessage,
@@ -22,19 +41,9 @@ export function buildCliArgs(i: CliArgsInput): string[] {
     '--max-turns',
     String(i.maxTurns),
     '--allowed-tools',
-    'mcp__workplace__*',
+    allowedTools,
     '--disallowed-tools',
-    [
-      'Bash', 'BashOutput', 'KillShell',
-      'Read', 'Write', 'Edit', 'NotebookEdit',
-      'Glob', 'Grep',
-      'WebFetch', 'WebSearch',
-      'Task', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate',
-      'TodoWrite',
-      'Skill', 'ToolSearch', 'SlashCommand',
-      'AskUserQuestion', 'SendUserFile', 'ScheduleWakeup', 'ShareOnboardingGuide',
-      'Monitor', 'LSP',
-    ].join(','),
+    disallowed.join(','),
     '--mcp-config',
     i.mcpConfigPath,
     '--output-format',
@@ -66,15 +75,17 @@ export interface RunCliInput {
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
   logTag: string;
+  // 6c: chat 은 첨부가 담긴 per-run 임시폴더를 cwd 로 줘서 Read 를 그 폴더로 한정.
+  cwd?: string;
 }
 
 export async function runClaudeCli(i: RunCliInput): Promise<void> {
   return new Promise<void>((resolve) => {
     // cwd: claude CLI 가 cwd 의 CLAUDE.md 를 자동 로드하면 ai-agent 자체 문서가
-    // LLM 컨텍스트에 섞여 self-doubt 유발. 중립 디렉터리(tmpdir) 사용.
+    // LLM 컨텍스트에 섞여 self-doubt 유발. 중립 디렉터리(tmpdir) 기본.
     const child = spawn('claude', i.args, {
       env: i.env,
-      cwd: os.tmpdir(),
+      cwd: i.cwd ?? os.tmpdir(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
