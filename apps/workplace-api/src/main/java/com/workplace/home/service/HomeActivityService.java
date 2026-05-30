@@ -21,7 +21,7 @@ public class HomeActivityService {
     List<ActivityEntryResponse> items =
         repo.findRecent(callerId, actorKind, CursorCodec.decode(cursor), limit);
     String next =
-        items.size() < limit || items.isEmpty()
+        items.size() < limit
             ? null
             : CursorCodec.encode(
                 items.get(items.size() - 1).createdAt(),

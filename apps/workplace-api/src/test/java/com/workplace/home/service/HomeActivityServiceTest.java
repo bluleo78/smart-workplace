@@ -54,4 +54,18 @@ class HomeActivityServiceTest extends IntegrationTestBase {
 
     assertThat(activityService.recent(s.outsiderId(), null, null, 20).items()).isEmpty();
   }
+
+  @Test
+  void activity_watcher_seesHistory() {
+    ChatFixtures.Setup s = fx.setup(); // 이슈는 watcher 도 워치 등록됨
+    long agentId = insertAgent("agent" + s.issueId());
+
+    historyRepo.insert(s.issueId(), s.reporterId(), "STATUS", "TODO", "IN_PROGRESS"); // HUMAN
+    historyRepo.insert(s.issueId(), agentId, "COMMENT", null, null); // AGENT
+
+    // 워처 관점에서도 동일 이슈 history 2건이 보인다.
+    List<ActivityEntryResponse> watched =
+        activityService.recent(s.watcherId(), null, null, 20).items();
+    assertThat(watched).hasSize(2);
+  }
 }
