@@ -118,4 +118,12 @@ class ChatMessageControllerTest {
         .andExpect(status().isNoContent());
     verify(messageService).markRead(1L, 1L, 10L);
   }
+
+  @Test
+  void typing_204() throws Exception {
+    mockMvc
+        .perform(post("/api/v1/chat/threads/1/typing").header("Authorization", "Bearer v"))
+        .andExpect(status().isNoContent());
+    verify(messageService).notifyTyping(1L, 1L);
+  }
 }
