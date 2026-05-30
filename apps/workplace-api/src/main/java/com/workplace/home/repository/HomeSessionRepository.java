@@ -57,13 +57,21 @@ public class HomeSessionRepository {
             Integer.class);
 
     Condition where = HOME_SESSION.USER_ID.eq(userId);
+    // 커서 id 는 세션(UUID)/활동(Long) 공용 String 이라 비-UUID 일 수 있다. 파싱 실패 시 커서를 무시(첫 페이지)하여 방어.
+    UUID cursorId = null;
     if (cursor != null) {
+      try {
+        cursorId = UUID.fromString(cursor.id());
+      } catch (IllegalArgumentException e) {
+        cursorId = null;
+      }
+    }
+    if (cursor != null && cursorId != null) {
       where =
           where.and(
               DSL.row(HOME_SESSION.LAST_MESSAGE_AT, HOME_SESSION.ID)
                   .lessThan(
-                      OffsetDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC),
-                      UUID.fromString(cursor.id())));
+                      OffsetDateTime.ofInstant(cursor.createdAt(), ZoneOffset.UTC), cursorId));
     }
     return dsl.select(
             HOME_SESSION.ID, HOME_SESSION.TITLE, HOME_SESSION.LAST_MESSAGE_AT, widgetCount)
