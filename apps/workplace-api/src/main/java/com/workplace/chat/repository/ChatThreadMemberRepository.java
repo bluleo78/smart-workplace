@@ -67,6 +67,14 @@ public class ChatThreadMemberRepository {
         .execute();
   }
 
+  /** Thread 의 모든 멤버 user_id 만 조회 (SSE fan-out 용 경량 쿼리). */
+  public List<Long> findMemberIds(long threadId) {
+    return dsl.select(CHAT_THREAD_MEMBER.USER_ID)
+        .from(CHAT_THREAD_MEMBER)
+        .where(CHAT_THREAD_MEMBER.THREAD_ID.eq(threadId))
+        .fetch(CHAT_THREAD_MEMBER.USER_ID);
+  }
+
   /** Thread 의 모든 멤버 + USER.username/name/kind JOIN. joined_at 빠른 순. */
   public List<ChatMemberResponse> findMembers(long threadId) {
     return dsl.select(
