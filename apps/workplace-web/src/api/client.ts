@@ -10,6 +10,24 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+// access token 만료 시 cookie 기반 refresh 로 새 토큰을 받아 메모리에 저장한다.
+// axios 인터셉터(아래)와 동일한 endpoint/응답 필드를 쓰되, raw fetch SSE 처럼 인터셉터를 안 타는
+// 호출부에서 재사용할 수 있도록 별도 함수로 노출한다. 성공 여부만 boolean 으로 반환 — 리다이렉트는
+// 호출부(또는 다음 axios 401)가 처리.
+export async function refreshAccessToken(): Promise<boolean> {
+  try {
+    // client 인스턴스가 아니라 bare axios — 응답 인터셉터 재진입을 피한다.
+    const { data } = await axios.post('/api/v1/auth/refresh', null, {
+      withCredentials: true,
+    });
+    setAccessToken(data.accessToken);
+    return true;
+  } catch {
+    setAccessToken(null);
+    return false;
+  }
+}
+
 export const client = axios.create({
   baseURL: '/api/v1',
   headers: {

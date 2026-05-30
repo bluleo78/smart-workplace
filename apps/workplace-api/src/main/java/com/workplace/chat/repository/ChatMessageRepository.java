@@ -75,6 +75,14 @@ public class ChatMessageRepository {
         .fetchOptional(r -> r.get(CHAT_MESSAGE.AUTHOR_ID));
   }
 
+  /** 메시지의 소속 thread_id 조회 (삭제 이벤트 fan-out 대상 산정용). */
+  public java.util.Optional<Long> findThreadId(long messageId) {
+    return dsl.select(CHAT_MESSAGE.THREAD_ID)
+        .from(CHAT_MESSAGE)
+        .where(CHAT_MESSAGE.ID.eq(messageId))
+        .fetchOptional(CHAT_MESSAGE.THREAD_ID);
+  }
+
   /** id 로 단건 조회. soft-deleted 도 body 마스킹해 반환. */
   public Optional<ChatMessageResponse> findById(long id, MentionResolver resolver) {
     return dsl.select(

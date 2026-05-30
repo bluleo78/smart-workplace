@@ -48,6 +48,10 @@ export const chatApi = {
   markRead: (threadId: number, payload: MarkChatReadRequest) =>
     client.post<void>(`/chat/threads/${threadId}/read`, payload),
 
+  // 타이핑 알림 — DB 변경 없음, 204. thread 멤버에게 SSE typing 이벤트 fan-out 트리거.
+  sendTyping: (threadId: number) =>
+    client.post<void>(`/chat/threads/${threadId}/typing`),
+
   addMember: (threadId: number, payload: AddChatMemberRequest) =>
     client.post<ChatMemberResponse>(
       `/chat/threads/${threadId}/members`,

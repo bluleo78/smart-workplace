@@ -70,4 +70,12 @@ public class ChatMessageController {
     messageService.markRead(callerId, threadId, req.uptoMessageId());
     return ResponseEntity.noContent().build();
   }
+
+  /** 타이핑 알림 — DB 변경 없이 thread 멤버에게 SSE typing 이벤트 발행. */
+  @PostMapping("/threads/{id}/typing")
+  public ResponseEntity<Void> typing(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long threadId) {
+    messageService.notifyTyping(callerId, threadId);
+    return ResponseEntity.noContent().build();
+  }
 }

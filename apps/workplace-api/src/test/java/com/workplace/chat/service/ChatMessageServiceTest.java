@@ -9,6 +9,8 @@ import com.workplace.chat.dto.UpdateChatMessageRequest;
 import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.support.IntegrationTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,5 +80,35 @@ class ChatMessageServiceTest extends IntegrationTestBase {
     assertThat(page.items()).hasSize(1);
     assertThat(page.items().get(0).deleted()).isTrue();
     assertThat(page.items().get(0).body()).isEqualTo("(삭제됨)");
+  }
+
+  @Test
+  void update_publishesUpdatedEvent() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    var msg =
+        messageService.create(
+            s.reporterId(), thread.threadId(), new CreateChatMessageRequest("first"));
+
+    messageService.update(s.reporterId(), msg.id(), new UpdateChatMessageRequest("new body"));
+
+    var updated = events.stream(ChatMessageUpdatedEvent.class).toList();
+    assertThat(updated).hasSize(1);
+    assertThat(updated.get(0).messageId()).isEqualTo(msg.id());
+    assertThat(updated.get(0).threadId()).isEqualTo(thread.threadId());
+    assertThat(updated.get(0).body()).isEqualTo("new body");
+  }
+
+  @Test
+  void notifyTyping_publishesTypingEvent() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+
+    messageService.notifyTyping(s.reporterId(), thread.threadId());
+
+    var typing = events.stream(ChatThreadTypingEvent.class).toList();
+    assertThat(typing).hasSize(1);
+    assertThat(typing.get(0).threadId()).isEqualTo(thread.threadId());
+    assertThat(typing.get(0).actor().id()).isEqualTo(s.reporterId());
   }
 }
