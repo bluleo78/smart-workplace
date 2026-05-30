@@ -11,11 +11,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+
 import { useAuth } from '../../hooks/useAuth'
+import { useChatStream } from '../../hooks/useChatStream'
 
 // v1 골격용 슬림 레이아웃 — 헤더 + 본문.
 // 인증된 사용자에게는 헤더 우측에 사용자 메뉴(프로필/로그아웃)를 노출한다.
 export function AppLayout() {
+  // 인증된 앱 셸에서 chat 실시간 SSE 를 1회 구독 (유저당 글로벌 스트림).
+  useChatStream()
+
   const { resolvedTheme, setTheme } = useTheme()
   const { isAuthenticated, isAdmin, user, logout } = useAuth()
   const navigate = useNavigate()
