@@ -6,6 +6,7 @@ import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.user.repository.UserRepository;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -73,17 +74,27 @@ public class PersonalAssistantService {
     return new AssistantStatusResponse(true, label, lastUsedAt, model, depth);
   }
 
-  /** caller 의 개인 AGENT 를 보장 — 없으면 생성 후 FK 연결, 있으면 재사용. 생성된/기존 AGENT id 반환. */
+  /**
+   * caller 의 개인 AGENT 를 보장 — 없으면 생성 후 FK 연결, 있으면 재사용. 생성된/기존 AGENT id 반환.
+   *
+   * <p>disable() 은 FK 를 NULL 로 비우되 개인 AGENT row 는 보존한다. 그래서 FK 만으로는 "해제 후 재등록" 을 가려낼 수 없다 — 이 경우
+   * 결정적 username 으로 기존 AGENT 를 찾아 재사용해야 unique 충돌(500)을 피한다.
+   */
   private long ensurePersonalAgent(long callerId) {
-    return personalRepo
-        .findAgentId(callerId)
-        .orElseGet(
-            () -> {
-              long id =
-                  userRepository.createPersonalAssistantAgent(
-                      "__assistant_u" + callerId, "assistant.u" + callerId + "@workplace.local");
-              personalRepo.setAgentId(callerId, id);
-              return id;
-            });
+    Optional<Long> linked = personalRepo.findAgentId(callerId);
+    if (linked.isPresent()) {
+      return linked.get();
+    }
+    String username = "__assistant_u" + callerId;
+    long agentId =
+        userRepository
+            .findByUsername(username)
+            .map(u -> u.id())
+            .orElseGet(
+                () ->
+                    userRepository.createPersonalAssistantAgent(
+                        username, "assistant.u" + callerId + "@workplace.local"));
+    personalRepo.setAgentId(callerId, agentId);
+    return agentId;
   }
 }

@@ -62,4 +62,22 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
     long human = TestFixtures.createHuman(dsl);
     assertThat(service.getStatus(human).configured()).isFalse();
   }
+
+  @Test
+  void 해제후_재등록하면_기존_개인AGENT_재사용_그리고_unique충돌_없음() {
+    // disable 은 FK 를 NULL 로 비우되 개인 AGENT row(결정적 username)는 보존한다.
+    // 재등록 시 그 row 를 재사용해야 username unique 충돌(500) 없이 동작한다.
+    long human = TestFixtures.createHuman(dsl);
+    service.registerToken(human, TOKEN, "t1");
+    long first = personalRepo.findAgentId(human).orElseThrow();
+
+    service.disable(human);
+    assertThat(personalRepo.findAgentId(human)).isEmpty();
+
+    service.registerToken(human, TOKEN, "t2"); // 여기서 새 AGENT 를 INSERT 하면 username 충돌
+    long second = personalRepo.findAgentId(human).orElseThrow();
+
+    assertThat(second).isEqualTo(first); // 동일 AGENT 재사용
+    assertThat(credentialRepo.findActive(second)).isPresent();
+  }
 }
