@@ -622,6 +622,15 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), null, request));
   }
 
+  /** #50 — 개인·공용 비서가 모두 미설정 → 503 + 사유 메시지. 캐치올(500)보다 우선 매칭되어 사용자에게 설정 필요를 알린다. */
+  @ExceptionHandler(com.workplace.auth.exception.HomeAssistantNotConfiguredException.class)
+  public ResponseEntity<ErrorResponse> handleHomeAssistantNotConfigured(
+      com.workplace.auth.exception.HomeAssistantNotConfiguredException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .body(buildError(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), null, request));
+  }
+
   /** #50 — ai-agent compose 게이트웨이 오류 → 502 + 사유 메시지 노출(캐치올 500 으로 뭉개지지 않도록). */
   @ExceptionHandler(AiAgentComposeException.class)
   public ResponseEntity<ErrorResponse> handleAiAgentCompose(
