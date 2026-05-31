@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input';
 import { Separator } from '../components/ui/separator';
 import { useAuth } from '../hooks/useAuth';
+import { PersonalAssistantSection } from './profile/PersonalAssistantSection';
 import type { ChangePasswordFormData,UpdateProfileFormData } from '../lib/validations/user';
 import { changePasswordSchema,updateProfileSchema } from '../lib/validations/user';
 
@@ -193,6 +194,10 @@ export default function ProfilePage() {
           </form>
         </CardContent>
       </Card>
+
+      <Separator />
+
+      <PersonalAssistantSection />
     </div>
   );
 }
