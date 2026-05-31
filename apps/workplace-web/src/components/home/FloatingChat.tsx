@@ -1,29 +1,25 @@
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useHomeCompose } from '@/hooks/queries/useHomeQueries';
 import { cn } from '@/lib/utils';
-import type { WidgetSpec } from '@/types/home';
-
-interface ChatTurn {
-  role: 'user' | 'assistant';
-  content: string;
-}
+import type { ChatTurn } from '@/types/home';
 
 interface Props {
-  /** compose 결과 위젯을 캔버스에 적용. */
-  onCompose: (specs: WidgetSpec[]) => void;
+  /** 대화 transcript(상위 useHomeSession 소유). */
+  turns: ChatTurn[];
+  /** compose 진행 중 여부. */
+  pending: boolean;
+  /** 입력 제출 → 상위가 compose 실행. */
+  onSubmit: (query: string) => void;
 }
 
-/** 떠있는 챗 레이어 — 평소 입력창만, ⌘K/포커스 시 메시지 패널 펼침, 응답 완료 시 자동 접힘. */
-export function FloatingChat({ onCompose }: Props) {
+/** 떠있는 챗 레이어 — 평소 입력창만, ⌘K/포커스 시 패널 펼침, 응답 완료 시 자동 접힘. 상태는 상위 소유(controlled). */
+export function FloatingChat({ turns, pending, onSubmit }: Props) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const compose = useHomeCompose();
+  const prevPending = useRef(false);
 
   // ⌘K / Ctrl+K 토글.
   useEffect(() => {
@@ -41,27 +37,19 @@ export function FloatingChat({ onCompose }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const submit = useCallback(
-    (e: FormEvent) => {
-      e.preventDefault();
-      const query = input.trim();
-      if (!query || compose.isPending) return;
-      setTurns((t) => [...t, { role: 'user', content: query }]);
-      setInput('');
-      compose.mutate(
-        { sessionId, query },
-        {
-          onSuccess: (res) => {
-            setSessionId(res.sessionId); // follow-up 연속성(7c 는 in-memory 추적만)
-            setTurns((t) => [...t, { role: 'assistant', content: res.message }]);
-            onCompose(res.widgets);
-            setOpen(false); // 응답 완료 → 자동 접힘(결과 전면)
-          },
-        },
-      );
-    },
-    [input, compose, sessionId, onCompose],
-  );
+  // 응답 완료(pending true→false) 시 자동 접힘(결과 전면).
+  useEffect(() => {
+    if (prevPending.current && !pending) setOpen(false);
+    prevPending.current = pending;
+  }, [pending]);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const query = input.trim();
+    if (!query || pending) return;
+    onSubmit(query);
+    setInput('');
+  };
 
   return (
     <>
@@ -91,7 +79,7 @@ export function FloatingChat({ onCompose }: Props) {
                     {t.content}
                   </li>
                 ))}
-                {compose.isPending && <li className="text-sm text-muted-foreground" data-testid="chat-pending">구성 중…</li>}
+                {pending && <li className="text-sm text-muted-foreground" data-testid="chat-pending">구성 중…</li>}
               </ul>
             )}
           </div>
@@ -106,7 +94,7 @@ export function FloatingChat({ onCompose }: Props) {
               placeholder="AI 에게 요청…  (⌘K)"
               data-testid="chat-input"
             />
-            <Button type="submit" disabled={compose.isPending} className="bg-ai-accent text-ai-accent-foreground">
+            <Button type="submit" disabled={pending} className="bg-ai-accent text-ai-accent-foreground">
               보내기
             </Button>
           </div>
