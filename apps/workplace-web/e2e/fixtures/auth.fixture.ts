@@ -43,6 +43,14 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
       body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
     }),
   )
+  // Phase 7c — "/" 홈 셸이 마운트 시 기본 구성(my_tasks/issue_list/activity)을 자동 로드하며
+  // /me/issues·/me/watched-issues·/me/activity 를 실제로 fetch 한다. 모든 인증 테스트가
+  // 결국 "/" 에 착지하므로(예: 로그아웃) 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
+  // mockApi 는 pathname 정확 매칭(쿼리스트링 무시) → ?assignee=me&size=50 등도 매칭된다.
+  // 홈을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → 그쪽이 우선한다.
+  await mockApi(page, 'GET', '/api/v1/me/issues', { items: [], nextCursor: null, hasMore: false })
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', { items: [], nextCursor: null, hasMore: false })
+  await mockApi(page, 'GET', '/api/v1/me/activity', { items: [], nextCursor: null })
   // 인증 컨텍스트가 마운트 시점에 hasSession 플래그를 보고 refresh 를 시도하므로
   // 미리 스토리지에 플래그를 심는다.
   await page.addInitScript(() => window.localStorage.setItem('hasSession', '1'))
