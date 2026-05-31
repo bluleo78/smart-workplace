@@ -3,11 +3,14 @@ package com.workplace.home.service;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.home.dto.HomeComposeResponse;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeSessionResponse;
@@ -34,6 +37,13 @@ class HomeComposeServiceTest extends IntegrationTestBase {
   @Autowired ObjectMapper objectMapper;
   @Autowired DSLContext dsl;
   @MockitoBean AiAgentComposeClient composeClient;
+  // 비서 해석은 본 테스트 관심사 밖 — 더미 사양으로 고정해 resolve 가 503 으로 단락되지 않게 한다.
+  @MockitoBean AssistantResolver assistantResolver;
+
+  private void stubAssistant() {
+    when(assistantResolver.resolve(anyLong()))
+        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+  }
 
   // 7a HomeSessionServiceTest 의 user(String) 헬퍼와 동일.
   private long user(String n) {
@@ -54,6 +64,7 @@ class HomeComposeServiceTest extends IntegrationTestBase {
   @Test
   void sessionId_null_이면_새_세션_생성하고_USER_ASSISTANT_영속() throws Exception {
     long uid = user("compose" + System.nanoTime());
+    stubAssistant();
     when(composeClient.compose(any()))
         .thenReturn(
             new ComposeResult("내 할 일이에요", widgets("[{\"type\":\"my_tasks\",\"params\":{}}]")));
@@ -84,6 +95,7 @@ class HomeComposeServiceTest extends IntegrationTestBase {
         "ASSISTANT",
         "내 담당이에요",
         "[{\"type\":\"issue_list\",\"params\":{\"assignee\":\"me\"}}]");
+    stubAssistant();
     when(composeClient.compose(any())).thenReturn(new ComposeResult("HIGH 만 추렸어요", widgets("[]")));
 
     composeService.compose(uid, s.id(), "그 중 HIGH 만");

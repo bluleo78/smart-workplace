@@ -43,12 +43,17 @@ class AiAgentComposeClientTest {
         .andExpect(method(HttpMethod.POST))
         .andExpect(header(HttpHeaders.AUTHORIZATION, "Internal tok-123"))
         .andExpect(jsonPath("$.query").value("내 할 일"))
+        .andExpect(jsonPath("$.assistantAgentId").value(5))
+        .andExpect(jsonPath("$.model").value("claude-sonnet-4-6"))
+        .andExpect(jsonPath("$.thinkingDepth").value("NORMAL"))
         .andRespond(
             withSuccess(
                 "{\"message\":\"할 일이에요\",\"widgets\":[{\"type\":\"my_tasks\",\"params\":{}}]}",
                 MediaType.APPLICATION_JSON));
 
-    ComposeResult res = client.compose(new ComposeRequest("내 할 일", List.of()));
+    ComposeResult res =
+        client.compose(
+            new ComposeRequest("내 할 일", List.of(), 5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
 
     assertThat(res.message()).isEqualTo("할 일이에요");
     assertThat(res.widgets().get(0).get("type").asText()).isEqualTo("my_tasks");
@@ -62,7 +67,11 @@ class AiAgentComposeClientTest {
         .andExpect(method(HttpMethod.POST))
         .andRespond(withServerError());
 
-    assertThatThrownBy(() -> client.compose(new ComposeRequest("x", List.of())))
+    assertThatThrownBy(
+            () ->
+                client.compose(
+                    new ComposeRequest(
+                        "x", List.of(), 5L, "claude-sonnet-4-6", "NORMAL", 8, 60000)))
         .isInstanceOf(AiAgentComposeException.class);
     server.verify(); // 단 1회 호출(무재시도) 검증
   }
@@ -79,7 +88,11 @@ class AiAgentComposeClientTest {
                 .body("{\"error\":\"home_composer_not_configured\"}")
                 .contentType(MediaType.APPLICATION_JSON));
 
-    assertThatThrownBy(() -> client.compose(new ComposeRequest("안녕", List.of())))
+    assertThatThrownBy(
+            () ->
+                client.compose(
+                    new ComposeRequest(
+                        "안녕", List.of(), 5L, "claude-sonnet-4-6", "NORMAL", 8, 60000)))
         .isInstanceOf(HomeComposeUnavailableException.class)
         .hasMessageContaining("설정되지 않");
     server.verify();

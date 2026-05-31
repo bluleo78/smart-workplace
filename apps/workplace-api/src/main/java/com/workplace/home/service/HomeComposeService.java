@@ -31,6 +31,7 @@ public class HomeComposeService {
   private final AiAgentComposeClient composeClient;
   private final AiAgentProperties aiAgentProperties;
   private final ObjectMapper objectMapper;
+  private final com.workplace.auth.service.AssistantResolver assistantResolver;
 
   /** sessionId null 이면 새 세션 생성. callerId 소유 세션이 아니면 getMessages/appendMessage 가 404. */
   public HomeComposeResponse compose(long callerId, UUID sessionId, String query) {
@@ -43,9 +44,21 @@ public class HomeComposeService {
     // 현재 query 를 적재하기 전, 기존 대화에서 최근 N개를 텍스트 전용 맥락으로.
     List<ContextMessage> recentContext = buildRecentContext(callerId, sid);
 
+    // 홈 비서 해석: 개인 비서 → 공용 비서 순으로 고르고, 둘 다 미설정이면 503(HomeAssistantNotConfiguredException).
+    com.workplace.auth.service.AssistantSpec spec = assistantResolver.resolve(callerId);
+
     sessionService.appendMessage(callerId, sid, "USER", query, null);
 
-    ComposeResult result = composeClient.compose(new ComposeRequest(query, recentContext));
+    ComposeResult result =
+        composeClient.compose(
+            new ComposeRequest(
+                query,
+                recentContext,
+                spec.agentUserId(),
+                spec.model(),
+                spec.thinkingDepth(),
+                spec.maxTurns(),
+                spec.timeoutMs()));
 
     String widgetsJson = serializeWidgets(result.widgets());
     sessionService.appendMessage(callerId, sid, "ASSISTANT", result.message(), widgetsJson);
