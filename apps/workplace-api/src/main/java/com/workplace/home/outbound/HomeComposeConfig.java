@@ -8,22 +8,24 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
-/** 홈 컴포즈 전용 RestClient Bean — read timeout 60s(CLI cold-start 수용), 무재시도. */
+/** 홈 컴포즈 전용 RestClient Bean — read timeout 90s(ai-agent CLI 예산 초과 보장), 무재시도. */
 @Configuration
 public class HomeComposeConfig {
 
   /**
    * 컴포즈 전용 RestClient 를 구성한다.
    *
-   * <p>connect 5s / read 60s — CLI cold-start(10~30s) 동기 호출을 수용. 재시도 로직은 두지 않는다(무재시도). Spring Boot
-   * 3.4 의 비-deprecated API({@code org.springframework.boot.http.client.*}) 로 팩토리를 생성한다.
+   * <p>connect 5s / read 90s — read timeout 은 ai-agent 의 CLI 예산(DEFAULT_TIMEOUT_MS=60s)을 반드시 초과해야
+   * 한다. 같으면 CLI 가 풀-런 후 파싱·응답을 마치기 전에 api 측이 먼저 끊어, 느리지만 성공한 compose 가 잘릴 수 있다. 재시도 로직은 두지
+   * 않는다(무재시도). Spring Boot 3.4 의 비-deprecated API({@code org.springframework.boot.http.client.*}) 로
+   * 팩토리를 생성한다.
    */
   @Bean
   public AiAgentComposeClient aiAgentComposeClient(AiAgentProperties props) {
     var settings =
         ClientHttpRequestFactorySettings.defaults()
             .withConnectTimeout(Duration.ofSeconds(5))
-            .withReadTimeout(Duration.ofSeconds(60));
+            .withReadTimeout(Duration.ofSeconds(90));
     var factory = ClientHttpRequestFactoryBuilder.detect().build(settings);
     var builder = RestClient.builder().baseUrl(props.baseUrl()).requestFactory(factory);
     return new AiAgentComposeClient(builder, props.internalToken());

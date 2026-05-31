@@ -12,6 +12,7 @@ vi.mock('./mcp-config.js', () => ({
 
 import { runHomeCompose, HomeComposerNotConfiguredError } from './run-home-compose.js';
 import { runClaudeCliCollect, buildCliArgs } from './cli-runner.js';
+import { cleanupTempMcpConfig } from './mcp-config.js';
 
 const fakeClient = { getOAuthToken: vi.fn() } as never;
 
@@ -39,6 +40,12 @@ describe('runHomeCompose', () => {
     await expect(runHomeCompose({ query: 'x' }, { client: fakeClient })).rejects.toBeInstanceOf(
       HomeComposerNotConfiguredError,
     );
+  });
+
+  it('CLI 실패(reject) 가 전파되고 temp config 는 정리된다', async () => {
+    vi.mocked(runClaudeCliCollect).mockRejectedValue(new Error('cli boom'));
+    await expect(runHomeCompose({ query: 'x' }, { client: fakeClient })).rejects.toThrow('cli boom');
+    expect(cleanupTempMcpConfig).toHaveBeenCalledWith('/tmp/cfg.json');
   });
 
   it('recentContext 를 프롬프트에 임베드해 buildCliArgs 에 전달', async () => {
