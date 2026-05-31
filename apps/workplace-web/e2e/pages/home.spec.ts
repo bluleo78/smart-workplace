@@ -4,7 +4,7 @@ import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
 import type { IssueSearchResponse } from '../../src/types/issue'
-import type { ActivityPage } from '../../src/types/home'
+import type { ActivityPage, HomeMessage, HomeSessionPage } from '../../src/types/home'
 
 // 7c 홈 E2E — 기본 구성 자동 로드(AI 미호출)·⌘K 명령→compose 재구성·멀티페이지 전환.
 // 모든 홈 API(/me/issues, /me/watched-issues, /me/activity, /home/compose)를 모킹해 백엔드 없이 검증.
@@ -43,6 +43,11 @@ async function mockHome(page: Page) {
   await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
   await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
   await mockApi(page, 'GET', '/api/v1/me/activity', activity())
+}
+
+// 세션 목록 스텁(기본 빈; 인자로 채운 목록 주입). fixture 의 빈 기본 스텁을 덮어쓴다.
+async function mockSessions(page: Page, sessions: HomeSessionPage = { items: [], nextCursor: null }) {
+  await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
 }
 
 test('홈 기본 구성이 AI 호출 없이 로드된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
@@ -116,4 +121,75 @@ test('compose 가 page=new 면 새 페이지가 생기고 전환된다', async (
   const indicator = page.getByTestId('page-indicator')
   await expect(indicator).toBeVisible()
   await expect(indicator.getByRole('button')).toHaveCount(2)
+})
+
+// 7d 홈 세션 UI E2E — 세션 스위처 새세션·복원·삭제. /home/sessions 목록·{id}/messages·DELETE 모킹.
+
+test('새 세션 — compose 후 ＋새 세션 으로 기본 구성 복귀', async ({ authenticatedPage: page }) => {
+  await mockHome(page)
+  await mockSessions(page)
+  await mockApi(page, 'POST', '/api/v1/home/compose', {
+    sessionId: 's1',
+    message: '구성했어요',
+    widgets: [{ type: 'issue_list', params: { status: 'TODO' }, layout: { page: 'current' } }],
+  })
+  await page.goto('/')
+
+  // compose 1회 → 현재 페이지가 위젯 1개로 교체
+  await page.getByTestId('chat-input').fill('TODO 이슈만')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(page.getByTestId('home-widget')).toHaveCount(1)
+
+  // ＋새 세션 → 로컬 리셋(기본 구성 3종 복귀, AI 미호출)
+  await page.getByTestId('session-switcher').click()
+  await page.getByTestId('session-new').click()
+  await expect(page.getByTestId('home-widget')).toHaveCount(3)
+})
+
+test('복원 — 세션 선택 시 대화 transcript + 캔버스 재구성(AI 재호출 없음)', async ({ authenticatedPage: page }) => {
+  await mockHome(page)
+  await mockSessions(page, {
+    items: [{ id: 's9', title: 'HIGH 이슈 보기', lastMessageAt: '2026-05-31T00:00:00Z', widgetCount: 1 }],
+    nextCursor: null,
+  })
+  const messages: HomeMessage[] = [
+    { id: 1, role: 'USER', content: 'HIGH 이슈', widgets: null, createdAt: '2026-05-31T00:00:00Z' },
+    {
+      id: 2,
+      role: 'ASSISTANT',
+      content: '여기 있어요',
+      widgets: [{ type: 'issue_list', params: { priority: 'HIGH' }, layout: { page: 'current' } }],
+      createdAt: '2026-05-31T00:00:01Z',
+    },
+  ]
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s9/messages', messages)
+  await page.goto('/')
+
+  // 세션 선택 → 메시지 페치 후 캔버스 fold(위젯 1개) + transcript 재현
+  await page.getByTestId('session-switcher').click()
+  await page.getByTestId('session-select').click()
+
+  await expect(page.getByTestId('home-widget')).toHaveCount(1)
+  await page.getByTestId('chat-input').click()
+  await expect(page.getByTestId('chat-panel')).toContainText('HIGH 이슈')
+  await expect(page.getByTestId('chat-panel')).toContainText('여기 있어요')
+  await expect(page.getByTestId('session-switcher')).toContainText('HIGH 이슈 보기')
+})
+
+test('삭제 — 휴지통 클릭 시 DELETE 호출 + 목록에서 제거', async ({ authenticatedPage: page }) => {
+  await mockHome(page)
+  await mockSessions(page, {
+    items: [{ id: 's3', title: '삭제할 세션', lastMessageAt: '2026-05-31T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  const del = await mockApi(page, 'DELETE', '/api/v1/home/sessions/s3', null, { status: 204, capture: true })
+  await page.goto('/')
+
+  await page.getByTestId('session-switcher').click()
+  await expect(page.getByTestId('session-item')).toHaveCount(1)
+  // 삭제 성공 → 세션 목록 invalidate → 재페치는 빈 목록(나중 등록 라우트가 우선)
+  await mockSessions(page)
+  await page.getByTestId('session-delete').click()
+  await del.waitForRequest()
+  await expect(page.getByTestId('session-item')).toHaveCount(0)
 })
