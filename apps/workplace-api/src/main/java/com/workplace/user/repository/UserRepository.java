@@ -174,6 +174,18 @@ public class UserRepository {
         .fetchOne(this::mapToUserResponse);
   }
 
+  /** 개인 비서용 AGENT user 생성(로그인 불가, password NULL). 생성된 id 반환. */
+  public long createPersonalAssistantAgent(String username, String email) {
+    return dsl.insertInto(USER)
+        .set(USER.USERNAME, username)
+        .set(USER.EMAIL, email)
+        .set(USER.NAME, "개인 비서")
+        .set(USER.KIND, com.workplace.user.dto.UserKind.AGENT)
+        .setNull(USER.PASSWORD)
+        .returning(USER.ID)
+        .fetchOne(USER.ID);
+  }
+
   public List<UserResponse> findAllPaginated(String search, int page, int size) {
     Condition condition = trueCondition();
 
