@@ -24,6 +24,7 @@ import { handleApiError } from '../../lib/api-error';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
 import { NewAgentDialog } from './components/NewAgentDialog';
 import { OAuthTokenDialog } from './components/OAuthTokenDialog';
+import { WorkspaceAssistantCard } from './components/WorkspaceAssistantCard';
 
 // 시간 표시 공통 — null/빈값 폴백.
 function fmtDateTime(iso: string | null): string {
@@ -88,6 +89,8 @@ export default function AgentManagementPage() {
           + 신규 AGENT
         </Button>
       </div>
+
+      <WorkspaceAssistantCard />
 
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
         <aside className="space-y-2 border rounded-md p-2">
