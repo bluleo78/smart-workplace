@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { homeApi } from '@/api/home';
 import { useDeleteSession, useHomeCompose } from '@/hooks/queries/useHomeQueries';
@@ -18,6 +18,10 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
   const del = useDeleteSession();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
+  // 작업 세대 카운터 — 사용자 전이(compose/새세션/복원)마다 증가. 비동기 결과는
+  // 자신이 캡처한 세대가 여전히 최신일 때만 반영(in-flight compose 와 세션 전환의 레이스로
+  // stale 응답이 복원/리셋 상태를 덮어쓰는 것 방지).
+  const opSeq = useRef(0);
 
   // 마운트 시 기본 구성 1회 로드(AI 미호출, 7c 동작 유지).
   useEffect(() => {
@@ -27,11 +31,14 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
   // 챗 명령 → compose. 성공 시 sessionId 추적 + assistant 턴 + 캔버스 재구성.
   const submitQuery = useCallback(
     (query: string) => {
+      const gen = ++opSeq.current;
       setTurns((t) => [...t, { role: 'user', content: query }]);
       compose.mutate(
         { sessionId, query },
         {
           onSuccess: (res) => {
+            // 응답 도착 사이에 새세션/복원이 일어났으면 이 compose 결과는 폐기.
+            if (opSeq.current !== gen) return;
             setSessionId(res.sessionId);
             setTurns((t) => [...t, { role: 'assistant', content: res.message }]);
             apply(res.widgets);
@@ -42,8 +49,9 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
     [compose, sessionId, apply],
   );
 
-  // 새 세션 — 로컬 리셋만(POST 안 함; 첫 compose 가 서버에서 세션 생성).
+  // 새 세션 — 로컬 리셋만(POST 안 함; 첫 compose 가 서버에서 세션 생성). in-flight 작업 무효화.
   const newSession = useCallback(() => {
+    opSeq.current++;
     setSessionId(null);
     setTurns([]);
     loadDefault(defaultSpecs);
@@ -52,8 +60,11 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
   // 복원 — 메시지 fetch → transcript 재현 + 위젯 배치 fold(AI 재호출 없음).
   const restoreSession = useCallback(
     async (id: string) => {
+      const gen = ++opSeq.current;
       try {
         const { data } = await homeApi.sessionMessages(id);
+        // fetch 중 더 최신 전이가 있었으면 폐기.
+        if (opSeq.current !== gen) return;
         const { turns: restored, widgetBatches } = parseRestoredSession(data);
         setSessionId(id);
         setTurns(restored);
