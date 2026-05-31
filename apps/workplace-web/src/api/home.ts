@@ -1,5 +1,11 @@
 import { client } from './client';
-import type { ActivityPage, ComposeRequest, ComposeResponse } from '@/types/home';
+import type {
+  ActivityPage,
+  ComposeRequest,
+  ComposeResponse,
+  HomeMessage,
+  HomeSessionPage,
+} from '@/types/home';
 import type { IssueSearchResponse } from '@/types/issue';
 
 /** 위젯 params(자유 형태)를 axios 쿼리스트링용 string map 으로 정규화. 배열은 CSV, undefined/null 은 제거. */
@@ -27,4 +33,16 @@ export const homeApi = {
   /** 최근 활동(activity 위젯). actorKind=AGENT 면 AI 가 한 일만. */
   activity: (params: { actorKind?: string; size?: number } = {}) =>
     client.get<ActivityPage>('/me/activity', { params }),
+
+  /** 세션 목록(스위처). */
+  listSessions: (size = 30) =>
+    client.get<HomeSessionPage>('/home/sessions', { params: { size } }),
+
+  /** 세션 전체 메시지(복원용). */
+  sessionMessages: (sessionId: string) =>
+    client.get<HomeMessage[]>(`/home/sessions/${sessionId}/messages`),
+
+  /** 세션 삭제. */
+  deleteSession: (sessionId: string) =>
+    client.delete<void>(`/home/sessions/${sessionId}`),
 };

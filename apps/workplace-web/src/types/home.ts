@@ -27,6 +27,35 @@ export interface ComposeResponse {
   widgets: WidgetSpec[];
 }
 
+/** 챗 말풍선 한 턴. (FloatingChat 로컬 정의에서 이동 — 복원 매퍼/세션 훅이 공유) */
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** 세션 스위처 목록 항목 (GET /home/sessions). */
+export interface HomeSessionSummary {
+  id: string;
+  title: string;
+  lastMessageAt: string; // ISO 8601
+  widgetCount: number;
+}
+
+/** 세션 목록 페이지(커서 페이지네이션). */
+export interface HomeSessionPage {
+  items: HomeSessionSummary[];
+  nextCursor: string | null;
+}
+
+/** 복원용 메시지 (GET /home/sessions/{id}/messages). ASSISTANT 의 widgets 가 캔버스 복원 원천. */
+export interface HomeMessage {
+  id: number;
+  role: 'USER' | 'ASSISTANT';
+  content: string;
+  widgets: WidgetSpec[] | null;
+  createdAt: string; // ISO 8601
+}
+
 export type ActorKind = 'HUMAN' | 'AGENT';
 
 /** GET /api/v1/me/activity 항목. */
