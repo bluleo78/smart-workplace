@@ -93,3 +93,35 @@ describe('buildTools (agentId bound)', () => {
     expect(out).toContain('hi');
   });
 });
+
+// home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
+describe('buildTools home 프로필', () => {
+  const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분
+  const tools = buildTools(fakeClient, 1, 'home');
+
+  it('show_* 4개 도구만 노출', () => {
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      'show_activity',
+      'show_issue_detail',
+      'show_issue_list',
+      'show_my_tasks',
+    ]);
+  });
+
+  it('각 도구는 {displayed:true} 만 반환 (데이터 조회 X)', async () => {
+    for (const t of tools) {
+      const out = await t.handler({});
+      expect(JSON.parse(out)).toEqual({ displayed: true });
+    }
+  });
+
+  it('show_issue_list 는 params/layout 입력 스키마를 통과시킨다', () => {
+    const t = tools.find((x) => x.name === 'show_issue_list')!;
+    expect(() =>
+      t.inputSchema.parse({
+        params: { status: 'IN_PROGRESS', priority: ['HIGH'], assignee: 'me' },
+        layout: { page: 'current' },
+      }),
+    ).not.toThrow();
+  });
+});

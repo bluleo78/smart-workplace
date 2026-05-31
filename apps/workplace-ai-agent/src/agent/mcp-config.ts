@@ -25,7 +25,7 @@ export function writeTempMcpConfig(opts: {
   agentId: number;
   baseURL: string;
   internalToken: string;
-  profile?: 'issue' | 'chat';
+  profile?: 'issue' | 'chat' | 'home';
 }): string {
   const config = {
     mcpServers: {

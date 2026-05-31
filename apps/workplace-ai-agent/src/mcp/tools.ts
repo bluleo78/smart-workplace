@@ -28,7 +28,44 @@ const getChatThreadInput = z.object({
   threadId: z.number().int().positive(),
 });
 
-export type McpProfile = 'issue' | 'chat';
+// 7b: home 컴포저 표시 지시 도구 — 모든 도구가 균일한 {params?, layout?} 봉투를 받는다.
+// layout: 캔버스 배치 규칙(프론트 7c 가 해석). page/replace/pageLabel 모두 선택.
+const layoutSchema = z
+  .object({
+    page: z.enum(['new', 'current']).optional(),
+    replace: z.string().optional(),
+    pageLabel: z.string().optional(),
+  })
+  .optional();
+// issue_list 필터(스펙 §4.1 검증 완료 범위). 전부 선택 — AI 가 의도에 맞는 것만 채운다.
+const issueListParams = z
+  .object({
+    projectKey: z.string().optional(),
+    status: z.string().optional(),
+    priority: z.array(z.string()).optional(),
+    label: z.string().optional(),
+    type: z.string().optional(),
+    dueFrom: z.string().optional(),
+    dueTo: z.string().optional(),
+    q: z.string().optional(),
+    blocked: z.boolean().optional(),
+    topLevel: z.boolean().optional(),
+    assignee: z.string().optional(), // 'me' | '<id>'
+    size: z.number().int().positive().optional(),
+  })
+  .optional();
+const showMyTasksInput = z.object({ params: z.object({}).optional(), layout: layoutSchema });
+const showIssueListInput = z.object({ params: issueListParams, layout: layoutSchema });
+const showIssueDetailInput = z.object({
+  params: z.object({ number: z.number().int().positive(), projectKey: z.string().optional() }),
+  layout: layoutSchema,
+});
+const showActivityInput = z.object({
+  params: z.object({ actorKind: z.enum(['HUMAN', 'AGENT']).optional() }).optional(),
+  layout: layoutSchema,
+});
+
+export type McpProfile = 'issue' | 'chat' | 'home';
 
 // profile 기본값 'issue' — 이슈 핸들러는 기존 4 도구, chat 핸들러는 읽기+chat 쓰기 도구만.
 export function buildTools(
@@ -69,6 +106,38 @@ export function buildTools(
           await client.addChatMessage(agentId, threadId, body);
           return 'ok';
         },
+      },
+    ];
+  }
+
+  // 7b: home 컴포저 — 표시 지시만(데이터 조회 X). 핸들러는 모두 {displayed:true}.
+  if (profile === 'home') {
+    const displayed = async () => JSON.stringify({ displayed: true });
+    return [
+      {
+        name: 'show_my_tasks',
+        description: '사용자의 할 일 요약 카드(담당/워치)를 화면에 표시합니다.',
+        inputSchema: showMyTasksInput,
+        handler: displayed,
+      },
+      {
+        name: 'show_issue_list',
+        description:
+          '필터(params)에 맞는 이슈 목록을 화면에 표시합니다. assignee="me" 로 내 담당만, priority/status/dueTo 등으로 좁힙니다.',
+        inputSchema: showIssueListInput,
+        handler: displayed,
+      },
+      {
+        name: 'show_issue_detail',
+        description: '단일 이슈 상세(번호 지정)를 화면에 표시합니다.',
+        inputSchema: showIssueDetailInput,
+        handler: displayed,
+      },
+      {
+        name: 'show_activity',
+        description: '최근 활동 피드를 표시합니다. actorKind="AGENT" 면 AI 가 한 일만 봅니다.',
+        inputSchema: showActivityInput,
+        handler: displayed,
       },
     ];
   }

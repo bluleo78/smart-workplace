@@ -27,8 +27,9 @@ async function main(): Promise<void> {
   }
 
   const client = createWorkplaceApiClient({ baseURL, internalToken });
-  // 6c: WORKPLACE_MCP_PROFILE 로 도구셋 결정 (chat 은 읽기+chat 쓰기, 기본 issue 는 기존 4 도구).
-  const profile = process.env.WORKPLACE_MCP_PROFILE === 'chat' ? 'chat' : 'issue';
+  // 6c/7b: WORKPLACE_MCP_PROFILE 로 도구셋 결정.
+  const raw = process.env.WORKPLACE_MCP_PROFILE;
+  const profile = raw === 'chat' || raw === 'home' ? raw : 'issue';
   const tools = buildTools(client, actingAgentId, profile);
 
   const server = new Server(
