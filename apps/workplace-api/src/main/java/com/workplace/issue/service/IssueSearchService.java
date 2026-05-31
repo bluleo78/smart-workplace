@@ -47,6 +47,8 @@ public class IssueSearchService {
   private final IssueDependencyRepository dependencyRepository;
   private final IssueFieldValueRepository fieldValueRepository;
   private final ProjectAccessGuard accessGuard;
+  // 7c: 횡단 검색 시 row 별 projectId → projectKey 일괄 해석용.
+  private final com.workplace.project.repository.ProjectRepository projectRepository;
 
   /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size. */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
@@ -54,6 +56,28 @@ public class IssueSearchService {
     IssueSearchQuery query = parse(callerId, params);
 
     var rows = issueRepository.search(project.id(), query);
+    // 단일 프로젝트 검색이므로 projectId 무시하고 상수 key 사용.
+    return assemble(rows, query, pid -> project.key());
+  }
+
+  /**
+   * 7c: 프로젝트 횡단 "내 이슈" 검색. 홈 위젯(issue_list/my_tasks)·기본구성용. assignee=me 는 parse 에서 callerId 로 해석되고,
+   * 스코프는 호출자가 멤버인 모든 프로젝트(searchMemberOf 의 멤버십 EXISTS)로 제한된다.
+   */
+  public IssueSearchResponse searchMine(Long callerId, Map<String, String> params) {
+    IssueSearchQuery query = parse(callerId, params);
+    var rows = issueRepository.searchMemberOf(callerId, query);
+    // projectId → key 일괄 해석(횡단이므로 여러 프로젝트). distinct 후 한 번에.
+    var keyById =
+        projectRepository.keysByIds(rows.stream().map(IssueRow::projectId).distinct().toList());
+    return assemble(rows, query, pid -> keyById.getOrDefault(pid, ""));
+  }
+
+  /** rows → IssueSearchResponse 조립. projectKey 는 row 마다 keyResolver 로 해석(횡단 검색 대응). */
+  private IssueSearchResponse assemble(
+      List<IssueRow> rows,
+      IssueSearchQuery query,
+      java.util.function.LongFunction<String> keyResolver) {
     List<Long> issueIds = rows.stream().map(IssueRow::id).toList();
     Map<Long, List<LabelSummary>> labelsByIssue =
         issueLabelRepository.findLabelsByIssueIds(issueIds);
@@ -80,7 +104,7 @@ public class IssueSearchService {
             .map(
                 r ->
                     IssueResponse.fromWithCustomFields(
-                        project.key(),
+                        keyResolver.apply(r.projectId()), // ← project.key() 대신 row 별 해석
                         r,
                         labelsByIssue.getOrDefault(r.id(), List.of()),
                         countsByIssue.getOrDefault(r.id(), 0),

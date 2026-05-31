@@ -34,6 +34,18 @@ public class ProjectRepository {
         updated != null ? updated.toInstant() : null);
   }
 
+  /**
+   * id 목록 → key 일괄 해석. 프로젝트 횡단 검색(홈 /me/issues)에서 row 별 projectId 를 projectKey 로 바꿀 때 사용. 빈 목록이면 빈
+   * 맵.
+   */
+  public java.util.Map<Long, String> keysByIds(List<Long> ids) {
+    if (ids == null || ids.isEmpty()) return java.util.Map.of();
+    return dsl.select(PROJECT.ID, PROJECT.KEY)
+        .from(PROJECT)
+        .where(PROJECT.ID.in(ids).and(PROJECT.DELETED_AT.isNull()))
+        .fetchMap(PROJECT.ID, PROJECT.KEY);
+  }
+
   /** key 로 활성 프로젝트 조회 (soft-deleted 제외). */
   public Optional<ProjectRow> findByKey(String key) {
     return dsl.select(

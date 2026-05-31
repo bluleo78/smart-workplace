@@ -410,6 +410,163 @@ public class IssueRepository {
         .fetch(this::mapToRow);
   }
 
+  /**
+   * 프로젝트 횡단 검색 — 호출자가 멤버인 모든 프로젝트의 이슈를 필터/커서로 조회(홈 /me/issues). {@link #search(Long,
+   * com.workplace.issue.dto.IssueSearchQuery)} 와 동일하되 베이스 스코프만 단일 프로젝트(PROJECT_ID.eq) 대신 멤버십 EXISTS
+   * 로 교체한다(비멤버 프로젝트 이슈는 누락). 나머지 필터/정렬/페이징은 동일.
+   */
+  public List<IssueRow> searchMemberOf(
+      Long memberUserId, com.workplace.issue.dto.IssueSearchQuery query) {
+    // 베이스 조건: 활성 이슈 + 호출자가 멤버인 프로젝트(findByIdsActiveMemberOf 의 멤버십 EXISTS 패턴 미러).
+    org.jooq.Condition where =
+        ISSUE
+            .DELETED_AT
+            .isNull()
+            .and(
+                org.jooq.impl.DSL.exists(
+                    dsl.selectOne()
+                        .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
+                        .where(
+                            com.workplace.jooq.Tables.PROJECT_MEMBER
+                                .PROJECT_ID
+                                .eq(ISSUE.PROJECT_ID)
+                                .and(
+                                    com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(
+                                        memberUserId)))));
+
+    if (query.q() != null && !query.q().isBlank()) {
+      String pattern = "%" + query.q().trim() + "%";
+      where = where.and(ISSUE.TITLE.likeIgnoreCase(pattern).or(ISSUE.BODY.likeIgnoreCase(pattern)));
+    }
+    if (query.statuses() != null && !query.statuses().isEmpty()) {
+      where = where.and(ISSUE.STATUS.in(query.statuses()));
+    }
+    if (query.priorities() != null && !query.priorities().isEmpty()) {
+      where = where.and(ISSUE.PRIORITY.in(query.priorities()));
+    }
+    boolean hasAssigneeList = query.assigneeIds() != null && !query.assigneeIds().isEmpty();
+    if (hasAssigneeList || query.includeUnassigned()) {
+      // issue_assignee 매핑 기반 EXISTS/NOT EXISTS — 다중 담당자 구조에 맞춘 필터.
+      org.jooq.Condition cond = org.jooq.impl.DSL.noCondition();
+      if (hasAssigneeList) {
+        cond =
+            cond.or(
+                org.jooq.impl.DSL.exists(
+                    dsl.selectOne()
+                        .from(com.workplace.jooq.Tables.ISSUE_ASSIGNEE)
+                        .where(
+                            com.workplace.jooq.Tables.ISSUE_ASSIGNEE
+                                .ISSUE_ID
+                                .eq(ISSUE.ID)
+                                .and(
+                                    com.workplace.jooq.Tables.ISSUE_ASSIGNEE.USER_ID.in(
+                                        query.assigneeIds())))));
+      }
+      if (query.includeUnassigned()) {
+        cond =
+            cond.or(
+                org.jooq.impl.DSL.notExists(
+                    dsl.selectOne()
+                        .from(com.workplace.jooq.Tables.ISSUE_ASSIGNEE)
+                        .where(com.workplace.jooq.Tables.ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))));
+      }
+      where = where.and(cond);
+    }
+    if (query.dueFrom() != null) {
+      where = where.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
+    }
+    if (query.dueTo() != null) {
+      where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
+    }
+    if (query.labelIds() != null && !query.labelIds().isEmpty()) {
+      // 라벨은 AND 결합 — 모든 ID 가 부착된 이슈만 매칭 (EXISTS 서브쿼리를 ID 별로 누적)
+      for (Long lid : query.labelIds()) {
+        where =
+            where.and(
+                org.jooq.impl.DSL.exists(
+                    dsl.selectOne()
+                        .from(com.workplace.jooq.Tables.ISSUE_LABEL)
+                        .where(
+                            com.workplace.jooq.Tables.ISSUE_LABEL
+                                .ISSUE_ID
+                                .eq(ISSUE.ID)
+                                .and(com.workplace.jooq.Tables.ISSUE_LABEL.LABEL_ID.eq(lid)))));
+      }
+    }
+    if (query.typeIds() != null && !query.typeIds().isEmpty()) {
+      where = where.and(ISSUE.TYPE_ID.in(query.typeIds()));
+    }
+    // 횡단 경로에서는 parentNumber 로 프로젝트를 특정할 수 없어 지원하지 않는다(무시). topLevel 만 지원.
+    if (Boolean.TRUE.equals(query.topLevel())) {
+      where = where.and(ISSUE.PARENT_ISSUE_ID.isNull());
+    }
+    // blocked=true: 활성 차단자(미완료, 미삭제)가 존재하는 이슈만. 자기참조 회피를 위해 blocker self-alias 사용.
+    if (Boolean.TRUE.equals(query.blocked())) {
+      var blockerAlias = ISSUE.as("blocker");
+      where =
+          where.and(
+              org.jooq.impl.DSL.exists(
+                  dsl.selectOne()
+                      .from(com.workplace.jooq.Tables.ISSUE_DEPENDENCY)
+                      .join(blockerAlias)
+                      .on(blockerAlias.ID.eq(com.workplace.jooq.Tables.ISSUE_DEPENDENCY.ISSUE_ID))
+                      .where(
+                          com.workplace.jooq.Tables.ISSUE_DEPENDENCY
+                              .BLOCKS_ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(blockerAlias.STATUS.notIn("DONE", "CANCELED"))
+                              .and(blockerAlias.DELETED_AT.isNull()))));
+    }
+    // custom field 단일 동등 비교 필터 (fieldId+fieldValue 동시 지정 시). JSONB 를 텍스트로 캐스트하여 비교.
+    if (query.fieldId() != null && query.fieldValue() != null) {
+      where =
+          where.and(
+              org.jooq.impl.DSL.exists(
+                  dsl.selectOne()
+                      .from(com.workplace.jooq.Tables.ISSUE_FIELD_VALUE)
+                      .where(
+                          com.workplace.jooq.Tables.ISSUE_FIELD_VALUE
+                              .ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(
+                                  com.workplace.jooq.Tables.ISSUE_FIELD_VALUE.FIELD_DEF_ID.eq(
+                                      query.fieldId()))
+                              .and(
+                                  com.workplace.jooq.Tables.ISSUE_FIELD_VALUE
+                                      .VALUE
+                                      .cast(String.class)
+                                      .eq(query.fieldValue())))));
+    }
+    if (query.cursor() != null) {
+      var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
+      var cursorId = query.cursor().id();
+      // (updated_at, id) < (cursorTs, cursorId) — 동일 updated_at 인 경우 id 로 tie-break
+      where =
+          where.and(ISSUE.UPDATED_AT.lt(ts).or(ISSUE.UPDATED_AT.eq(ts).and(ISSUE.ID.lt(cursorId))));
+    }
+
+    return dsl.select(
+            ISSUE.ID,
+            ISSUE.PROJECT_ID,
+            ISSUE.NUMBER,
+            ISSUE.TITLE,
+            ISSUE.BODY,
+            ISSUE.STATUS,
+            ISSUE.PRIORITY,
+            ISSUE.DUE_DATE,
+            ISSUE.REPORTER_ID,
+            ISSUE.CREATED_AT,
+            ISSUE.UPDATED_AT,
+            ISSUE.CLOSED_AT,
+            ISSUE.TYPE_ID,
+            ISSUE.PARENT_ISSUE_ID)
+        .from(ISSUE)
+        .where(where)
+        .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
+        .limit(query.size())
+        .fetch(this::mapToRow);
+  }
+
   /** soft-delete: deleted_at = 호출자 지정 timestamp. (Phase 4a — cascade 동일 timestamp 보장용 명시 인자) */
   public void softDelete(Long id, Instant deletedAt) {
     dsl.update(ISSUE)
