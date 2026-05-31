@@ -91,3 +91,20 @@ describe('buildChildEnv', () => {
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 });
+
+describe('buildCliArgs includePartialMessages=false', () => {
+  it('partial messages 플래그를 제외한다', () => {
+    const args = buildCliArgs({
+      userMessage: 'q', systemPrompt: 's', model: 'm', maxTurns: 8,
+      mcpConfigPath: '/x.json', includePartialMessages: false,
+    });
+    expect(args).not.toContain('--include-partial-messages');
+    expect(args).toContain('stream-json');
+  });
+  it('기본값은 partial messages 포함(기존 동작 유지)', () => {
+    const args = buildCliArgs({
+      userMessage: 'q', systemPrompt: 's', model: 'm', maxTurns: 8, mcpConfigPath: '/x.json',
+    });
+    expect(args).toContain('--include-partial-messages');
+  });
+});

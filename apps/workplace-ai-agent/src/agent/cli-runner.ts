@@ -11,6 +11,8 @@ export interface CliArgsInput {
   mcpConfigPath: string;
   // 6c: 첨부 읽기용 native Read 허용 (chat). true 면 allowed-tools 에 Read 추가 + disallowed 에서 제외.
   allowFileRead?: boolean;
+  // 7b: 컴포즈(요청/응답)는 partial 이벤트가 tool_use input 을 조각내므로 false 로 끈다. 기본 true(기존 동작).
+  includePartialMessages?: boolean;
 }
 
 // 기본 차단 도구 — Read 는 allowFileRead 시 제외된다.
@@ -31,7 +33,8 @@ export function buildCliArgs(i: CliArgsInput): string[] {
   const disallowed = i.allowFileRead
     ? BASE_DISALLOWED.filter((t) => t !== 'Read')
     : BASE_DISALLOWED;
-  return [
+  const includePartial = i.includePartialMessages ?? true;
+  const args = [
     '--print',
     i.userMessage,
     '--system-prompt',
@@ -49,11 +52,10 @@ export function buildCliArgs(i: CliArgsInput): string[] {
     '--output-format',
     'stream-json',
     '--verbose',
-    '--include-partial-messages',
-    '--strict-mcp-config',
-    '--disable-slash-commands',
-    '--dangerously-skip-permissions',
   ];
+  if (includePartial) args.push('--include-partial-messages');
+  args.push('--strict-mcp-config', '--disable-slash-commands', '--dangerously-skip-permissions');
+  return args;
 }
 
 // 구독 모드 강제 + 토큰·agentId 명시 주입. INTERNAL_SERVICE_TOKEN 은 parent 그대로
@@ -132,6 +134,54 @@ export async function runClaudeCli(i: RunCliInput): Promise<void> {
       clearTimeout(timer);
       console.error(`[${i.logTag}] spawn error:`, e);
       resolve();
+    });
+  });
+}
+
+// 7b: stdout 의 NDJSON 라인을 모아 반환(컴포즈 동기 응답용). 기존 runClaudeCli 와 spawn/timeout 동일.
+export async function runClaudeCliCollect(i: RunCliInput): Promise<string[]> {
+  return new Promise<string[]>((resolve) => {
+    const child = spawn('claude', i.args, {
+      env: i.env,
+      cwd: i.cwd ?? os.tmpdir(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const lines: string[] = [];
+    let buf = '';
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      console.error(`[${i.logTag}] timeout ${i.timeoutMs}ms, SIGTERM`);
+      child.kill('SIGTERM');
+      setTimeout(() => {
+        if (!child.killed) child.kill('SIGKILL');
+      }, 5000);
+    }, i.timeoutMs);
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      buf += chunk.toString('utf8');
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (line) lines.push(line);
+      }
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      console.error(`[${i.logTag}] stderr: ${chunk.toString('utf8').trim()}`);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (buf.trim()) lines.push(buf.trim()); // 마지막 개행 없는 잔여
+      if (killed) console.error(`[${i.logTag}] killed (timeout)`);
+      else if (code !== 0) console.error(`[${i.logTag}] exit ${code}`);
+      else console.log(`[${i.logTag}] done (${lines.length} lines)`);
+      resolve(lines);
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      console.error(`[${i.logTag}] spawn error:`, e);
+      resolve(lines);
     });
   });
 }
