@@ -35,7 +35,7 @@ public class HomeComposeService {
   /** sessionId null 이면 새 세션 생성. callerId 소유 세션이 아니면 getMessages/appendMessage 가 404. */
   public HomeComposeResponse compose(long callerId, UUID sessionId, String query) {
     if (!aiAgentProperties.enabled()) {
-      throw new HomeComposeUnavailableException("ai-agent 연동이 비활성화됨");
+      throw new HomeComposeUnavailableException("AI 구성 기능이 현재 비활성화되어 있어요.");
     }
 
     UUID sid = sessionId != null ? sessionId : sessionService.create(callerId).id();

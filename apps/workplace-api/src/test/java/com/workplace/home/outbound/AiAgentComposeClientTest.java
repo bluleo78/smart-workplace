@@ -7,8 +7,10 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.workplace.home.exception.HomeComposeUnavailableException;
 import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
 import com.workplace.home.outbound.ComposeMessages.ComposeResult;
 import java.util.List;
@@ -16,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -62,5 +65,23 @@ class AiAgentComposeClientTest {
     assertThatThrownBy(() -> client.compose(new ComposeRequest("x", List.of())))
         .isInstanceOf(AiAgentComposeException.class);
     server.verify(); // 단 1회 호출(무재시도) 검증
+  }
+
+  @Test
+  void 홈컴포저_미설정_503_은_HomeComposeUnavailableException_명확메시지로_변환() {
+    // #50 — ai-agent 가 503 home_composer_not_configured 를 주면 제네릭 502 가 아니라
+    // 사용자에게 명확한 사유 메시지를 주는 503(HomeComposeUnavailableException)으로 변환되어야 한다.
+    server
+        .expect(requestTo("http://ai-agent.test/home/compose"))
+        .andExpect(method(HttpMethod.POST))
+        .andRespond(
+            withStatus(HttpStatus.SERVICE_UNAVAILABLE)
+                .body("{\"error\":\"home_composer_not_configured\"}")
+                .contentType(MediaType.APPLICATION_JSON));
+
+    assertThatThrownBy(() -> client.compose(new ComposeRequest("안녕", List.of())))
+        .isInstanceOf(HomeComposeUnavailableException.class)
+        .hasMessageContaining("설정되지 않");
+    server.verify();
   }
 }
