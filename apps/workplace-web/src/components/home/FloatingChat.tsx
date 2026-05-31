@@ -10,12 +10,14 @@ interface Props {
   turns: ChatTurn[];
   /** compose 진행 중 여부. */
   pending: boolean;
+  /** 직전 응답이 위젯을 만들었는지 — true 일 때만 완료 시 자동 접힘(텍스트 전용 답변은 펼친 채 유지, #51). */
+  collapseOnComplete: boolean;
   /** 입력 제출 → 상위가 compose 실행. */
   onSubmit: (query: string) => void;
 }
 
-/** 떠있는 챗 레이어 — 평소 입력창만, ⌘K/포커스 시 패널 펼침, 응답 완료 시 자동 접힘. 상태는 상위 소유(controlled). */
-export function FloatingChat({ turns, pending, onSubmit }: Props) {
+/** 떠있는 챗 레이어 — 평소 입력창만, ⌘K/포커스 시 패널 펼침, 배경 클릭/⌘K 로 닫음. 상태는 상위 소유(controlled). */
+export function FloatingChat({ turns, pending, collapseOnComplete, onSubmit }: Props) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -37,11 +39,12 @@ export function FloatingChat({ turns, pending, onSubmit }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // 응답 완료(pending true→false) 시 자동 접힘(결과 전면).
+  // 응답 완료(pending true→false) 시: 위젯 응답이면 자동 접힘(캔버스 결과 전면), 텍스트 전용 응답이면
+  // 펼친 채 유지한다. 무조건 접으면 위젯 없는 답변(예: "안녕")이 가려져 대화가 초기화된 것처럼 보였다(#51).
   useEffect(() => {
-    if (prevPending.current && !pending) setOpen(false);
+    if (prevPending.current && !pending && collapseOnComplete) setOpen(false);
     prevPending.current = pending;
-  }, [pending]);
+  }, [pending, collapseOnComplete]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();

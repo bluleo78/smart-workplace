@@ -94,8 +94,29 @@ test('⌘K 로 챗을 열고 명령하면 캔버스가 재구성된다', async (
 
   // 재구성: 현재 페이지가 issue_list 1개로 교체(replace-all)
   await expect(page.getByTestId('home-widget')).toHaveCount(1)
-  // 응답 완료 → 자동 접힘
+  // 위젯 응답 → 자동 접힘(캔버스 결과 전면)
   await expect(page.getByTestId('chat-panel')).toHaveCount(0)
+})
+
+test('compose 가 텍스트 전용 응답(위젯 없음)이면 패널이 닫히지 않고 대화가 그대로 보인다 (#51)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockHome(page)
+  // "안녕" 류 — 위젯 없이 텍스트만 답하는 응답.
+  await mockApi(page, 'POST', '/api/v1/home/compose', {
+    sessionId: 's1',
+    message: '안녕하세요. 무엇을 도와드릴까요?',
+    widgets: [],
+  })
+  await page.goto('/')
+
+  await page.getByTestId('chat-input').fill('안녕')
+  await page.getByRole('button', { name: '보내기' }).click()
+
+  // #51 회귀: 위젯 없는 응답은 자동 접힘 없이 패널이 그대로 열려 transcript 가 보여야 한다(포커스 토글 없이).
+  await expect(page.getByTestId('chat-panel')).toBeVisible()
+  await expect(page.getByTestId('chat-panel')).toContainText('안녕')
+  await expect(page.getByTestId('chat-panel')).toContainText('안녕하세요. 무엇을 도와드릴까요?')
 })
 
 test('compose 가 page=new 면 새 페이지가 생기고 전환된다', async ({ authenticatedPage: page }) => {

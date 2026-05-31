@@ -35,7 +35,12 @@ export function HomeShell() {
         </header>
         <div className="relative flex-1 overflow-hidden">
           <HomeCanvas pages={session.pages} activeIndex={session.activeIndex} onSelectPage={session.setActive} />
-          <FloatingChat turns={session.turns} pending={session.pending} onSubmit={session.submitQuery} />
+          <FloatingChat
+            turns={session.turns}
+            pending={session.pending}
+            collapseOnComplete={session.collapseOnComplete}
+            onSubmit={session.submitQuery}
+          />
         </div>
       </main>
     </div>
