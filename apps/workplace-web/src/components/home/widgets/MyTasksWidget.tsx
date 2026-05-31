@@ -23,10 +23,11 @@ export default function MyTasksWidget() {
         <Skeleton className="h-12 w-full" />
       ) : (
         <div className="flex gap-6">
-          <Link to="/me/watched" className="text-center" data-testid="mytasks-assigned">
+          {/* 내 담당: 전역 "내 담당" 라우트가 아직 없어 카운트만 표기(링크 X). */}
+          <div className="text-center" data-testid="mytasks-assigned">
             <div className="text-2xl font-semibold text-ai-accent">{count(assigned.data)}</div>
             <div className="text-xs text-muted-foreground">내 담당</div>
-          </Link>
+          </div>
           <Link to="/me/watched" className="text-center" data-testid="mytasks-watched">
             <div className="text-2xl font-semibold">{count(watched.data)}</div>
             <div className="text-xs text-muted-foreground">워치</div>

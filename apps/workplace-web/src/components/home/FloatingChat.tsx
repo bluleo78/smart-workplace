@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useHomeCompose } from '@/hooks/queries/useHomeQueries';
-import type { WidgetSpec } from '@/types/home';
-import { Input } from '@/components/ui/input';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { useHomeCompose } from '@/hooks/queries/useHomeQueries';
 import { cn } from '@/lib/utils';
+import type { WidgetSpec } from '@/types/home';
 
 interface ChatTurn {
   role: 'user' | 'assistant';
@@ -41,7 +42,7 @@ export function FloatingChat({ onCompose }: Props) {
   }, []);
 
   const submit = useCallback(
-    (e: React.FormEvent) => {
+    (e: FormEvent) => {
       e.preventDefault();
       const query = input.trim();
       if (!query || compose.isPending) return;

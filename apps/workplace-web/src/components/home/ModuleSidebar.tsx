@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 
@@ -15,17 +17,22 @@ export function ModuleSidebar() {
   return (
     <aside className="flex w-56 flex-col border-r bg-card/40 p-3" data-testid="module-sidebar">
       <nav className="space-y-1">
-        {MODULES.map((m) => (
-          <div
-            key={m.key}
-            className={cn(
-              'rounded px-3 py-2 text-sm',
-              m.active ? 'bg-ai-accent-subtle font-medium text-ai-accent' : 'text-foreground',
-            )}
-          >
-            {m.label}
-          </div>
-        ))}
+        {MODULES.map((m) => {
+          const className = cn(
+            'block rounded px-3 py-2 text-sm',
+            m.active ? 'bg-ai-accent-subtle font-medium text-ai-accent' : 'text-foreground',
+          );
+          // 활성 모듈(홈)은 비링크, 그 외(이슈)는 해당 라우트로 이동.
+          return m.to ? (
+            <Link key={m.key} to={m.to} className={className}>
+              {m.label}
+            </Link>
+          ) : (
+            <div key={m.key} className={className}>
+              {m.label}
+            </div>
+          );
+        })}
         {SOON.map((s) => (
           <div key={s} className="px-3 py-2 text-sm text-muted-foreground/50">
             {s} <span className="text-xs">(예정)</span>

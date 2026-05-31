@@ -1,4 +1,5 @@
 import { useCallback, useReducer } from 'react';
+
 import type { WidgetSpec } from '@/types/home';
 
 /** 캔버스에 놓인 위젯 인스턴스(안정적 id 부여). */
@@ -55,22 +56,9 @@ function reducer(state: CanvasState, action: Action): CanvasState {
       const pages = [...state.pages];
       const idx = state.activeIndex;
       const active = pages[idx] ?? pages[0];
-      // layout.replace 가 있으면 해당 위젯만 교체(나머지 유지).
-      const replaceIds = specs.map((s) => s.layout?.replace).filter(Boolean) as string[];
-      if (replaceIds.length > 0) {
-        let widgets = active.widgets;
-        for (const spec of specs) {
-          const rid = spec.layout?.replace;
-          if (rid) {
-            widgets = widgets.map((w) => (w.id === rid ? { id: rid, spec } : w));
-          } else {
-            widgets = [...widgets, { id: nextId('w'), spec }];
-          }
-        }
-        pages[idx] = { ...active, widgets };
-        return { ...state, pages };
-      }
-      // 기본(page='current'/미지정): 현재 페이지를 이번 배치로 재구성(replace-all).
+      // page='current'/미지정: 현재 페이지를 이번 배치로 재구성(replace-all).
+      // 참고: layout.replace(위젯 단위 세분화 교체)는 향후 단계 — 위젯 id 가 클라이언트 생성이라
+      // 백엔드가 echo 할 수 없어 7c 에선 미지원. 계약(WidgetLayout.replace 타입)만 유지.
       pages[idx] = { ...active, widgets: toWidgets(specs) };
       return { ...state, pages };
     }
