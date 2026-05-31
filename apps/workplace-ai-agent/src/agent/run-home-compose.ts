@@ -1,22 +1,12 @@
-// 7b: 홈 컴포즈 러너 — composer agentId 토큰 fetch → home MCP config → CLI(home 프로필) 스폰 → 파서.
+// 7b: 홈 컴포즈 러너 — 비서(assistant) agentId 토큰 fetch → home MCP config → CLI(home 프로필) 스폰 → 파서.
 // 데이터 조회는 show_* 도구가 하지 않으므로 토큰은 순수 Claude LLM 인증용(데이터 권한과 무관).
+// 모델/생각의 깊이/maxTurns/timeoutMs 는 workplace-api 가 비서 설정을 해석해 요청 본문으로 전달한다(#50).
 import { HOME_SYSTEM_PROMPT } from './home-system-prompt.js';
 import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
 import { buildChildEnv, buildCliArgs, runClaudeCliCollect } from './cli-runner.js';
 import { parseComposeLines, type ComposeResult } from './compose-parser.js';
+import { thinkingDirective } from './thinking.js';
 import type { RunAgentDeps } from './run-agent.js';
-
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
-const DEFAULT_MAX_TURNS = 8;
-const DEFAULT_TIMEOUT_MS = 60_000;
-
-// composer agentId 미설정 — /home/compose 라우트가 503 으로 변환.
-export class HomeComposerNotConfiguredError extends Error {
-  constructor() {
-    super('WORKPLACE_HOME_COMPOSER_AGENT_ID 미설정');
-    this.name = 'HomeComposerNotConfiguredError';
-  }
-}
 
 export interface ContextMessage {
   role: string; // 'USER' | 'ASSISTANT'
@@ -25,6 +15,12 @@ export interface ContextMessage {
 export interface ComposeInput {
   query: string;
   recentContext?: ContextMessage[];
+  // 비서 설정 — workplace-api 가 요청별로 해석해 전달(env 미사용).
+  assistantAgentId: number;
+  model: string;
+  thinkingDepth: 'NONE' | 'NORMAL' | 'DEEP';
+  maxTurns: number;
+  timeoutMs: number;
 }
 
 // recentContext 를 단발 --print 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
@@ -39,11 +35,8 @@ export async function runHomeCompose(
   input: ComposeInput,
   deps: RunAgentDeps,
 ): Promise<ComposeResult> {
-  const agentId = Number(process.env.WORKPLACE_HOME_COMPOSER_AGENT_ID);
-  if (!Number.isFinite(agentId) || agentId <= 0) {
-    throw new HomeComposerNotConfiguredError();
-  }
-
+  // 비서 AGENT 의 OAuth 토큰으로 LLM 인증. agentId 는 요청 본문에서 온다.
+  const agentId = input.assistantAgentId;
   const token = (await deps.client.getOAuthToken(agentId)).token;
   const mcpConfigPath = writeTempMcpConfig({
     agentId,
@@ -53,20 +46,23 @@ export async function runHomeCompose(
   });
 
   try {
-    const model = process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
-    const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
-    const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
-
+    // 생각의 깊이는 CLI 플래그가 없어 system-prompt 접미 지시문으로 근사한다.
+    const systemPrompt = HOME_SYSTEM_PROMPT + thinkingDirective(input.thinkingDepth);
     const args = buildCliArgs({
       userMessage: buildComposeUserMessage(input),
-      systemPrompt: HOME_SYSTEM_PROMPT,
-      model,
-      maxTurns,
+      systemPrompt,
+      model: input.model,
+      maxTurns: input.maxTurns,
       mcpConfigPath,
       includePartialMessages: false,
     });
     const env = buildChildEnv(process.env, token, agentId);
-    const lines = await runClaudeCliCollect({ args, env, timeoutMs, logTag: `home-compose:${agentId}` });
+    const lines = await runClaudeCliCollect({
+      args,
+      env,
+      timeoutMs: input.timeoutMs,
+      logTag: `home-compose:${agentId}`,
+    });
     return parseComposeLines(lines);
   } finally {
     cleanupTempMcpConfig(mcpConfigPath);
