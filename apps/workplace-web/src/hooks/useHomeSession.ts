@@ -18,9 +18,6 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
   const del = useDeleteSession();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
-  // 직전 compose 가 위젯을 만들었는지 — 챗 패널 자동 접힘 판단에 쓴다(#51).
-  // 위젯 응답은 캔버스가 결과이므로 접고, 텍스트 전용 응답은 답변이 transcript 라 펼친 채 둔다.
-  const [lastHadWidgets, setLastHadWidgets] = useState(false);
   // 작업 세대 카운터 — 사용자 전이(compose/새세션/복원)마다 증가. 비동기 결과는
   // 자신이 캡처한 세대가 여전히 최신일 때만 반영(in-flight compose 와 세션 전환의 레이스로
   // stale 응답이 복원/리셋 상태를 덮어쓰는 것 방지).
@@ -44,7 +41,6 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
             if (opSeq.current !== gen) return;
             setSessionId(res.sessionId);
             setTurns((t) => [...t, { role: 'assistant', content: res.message }]);
-            setLastHadWidgets((res.widgets?.length ?? 0) > 0);
             apply(res.widgets);
           },
         },
@@ -99,8 +95,6 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
     sessionId,
     turns,
     pending: compose.isPending,
-    // 위젯 응답일 때만 챗 패널 자동 접힘(텍스트 전용 답변은 펼친 채 유지) — #51.
-    collapseOnComplete: lastHadWidgets,
     submitQuery,
     newSession,
     restoreSession,

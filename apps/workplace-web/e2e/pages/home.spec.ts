@@ -94,11 +94,13 @@ test('⌘K 로 챗을 열고 명령하면 캔버스가 재구성된다', async (
 
   // 재구성: 현재 페이지가 issue_list 1개로 교체(replace-all)
   await expect(page.getByTestId('home-widget')).toHaveCount(1)
-  // 위젯 응답 → 자동 접힘(캔버스 결과 전면)
-  await expect(page.getByTestId('chat-panel')).toHaveCount(0)
+  // B(#51): 응답이 위젯이어도 패널은 자동으로 닫히지 않는다(도크형·비차단). 대화가 그대로 보인다.
+  await expect(page.getByTestId('chat-panel')).toBeVisible()
+  await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈')
+  await expect(page.getByTestId('chat-panel')).toContainText('HIGH 이슈만 보여드려요')
 })
 
-test('compose 가 텍스트 전용 응답(위젯 없음)이면 패널이 닫히지 않고 대화가 그대로 보인다 (#51)', async ({
+test('텍스트 전용 응답(위젯 없음)도 패널이 닫히지 않고 대화가 그대로 보인다 (#51)', async ({
   authenticatedPage: page,
 }) => {
   await mockHome(page)
@@ -113,10 +115,28 @@ test('compose 가 텍스트 전용 응답(위젯 없음)이면 패널이 닫히�
   await page.getByTestId('chat-input').fill('안녕')
   await page.getByRole('button', { name: '보내기' }).click()
 
-  // #51 회귀: 위젯 없는 응답은 자동 접힘 없이 패널이 그대로 열려 transcript 가 보여야 한다(포커스 토글 없이).
+  // #51 회귀: 응답 후에도 자동 접힘 없이 패널이 그대로 열려 transcript 가 보여야 한다(포커스 토글 없이).
   await expect(page.getByTestId('chat-panel')).toBeVisible()
   await expect(page.getByTestId('chat-panel')).toContainText('안녕')
   await expect(page.getByTestId('chat-panel')).toContainText('안녕하세요. 무엇을 도와드릴까요?')
+})
+
+test('도크형 비차단 — 챗 열린 상태에서 캔버스 위젯 클릭 가능 + 클릭 시 패널만 접힘 (#51)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockHome(page)
+  await page.goto('/')
+  await expect(page.getByTestId('home-widget')).toHaveCount(3)
+
+  // 입력 포커스 → 패널 펼침
+  await page.getByTestId('chat-input').click()
+  await expect(page.getByTestId('chat-panel')).toBeVisible()
+
+  // 패널이 열린 상태에서도 배경(캔버스)이 클릭을 가로채지 않는다: 상단 헤더의 캔버스 영역 클릭 →
+  // 입력 포커스가 빠지며 패널만 접히고(입력바는 유지), 클릭은 캔버스로 전달된다.
+  await page.getByTestId('canvas-header').click()
+  await expect(page.getByTestId('chat-panel')).toHaveCount(0)
+  await expect(page.getByTestId('chat-input')).toBeVisible()
 })
 
 test('compose 가 page=new 면 새 페이지가 생기고 전환된다', async ({ authenticatedPage: page }) => {
