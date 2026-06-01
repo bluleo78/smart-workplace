@@ -370,6 +370,30 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** 저장된 뷰 없음 — 404. */
+  @ExceptionHandler(com.workplace.view.exception.SavedViewNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleSavedViewNotFound(
+      com.workplace.view.exception.SavedViewNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 저장된 뷰 이름 중복 — 409. */
+  @ExceptionHandler(com.workplace.view.exception.SavedViewNameDuplicatedException.class)
+  public ResponseEntity<ErrorResponse> handleSavedViewNameDuplicated(
+      com.workplace.view.exception.SavedViewNameDuplicatedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 저장된 뷰 권한 없음 — 403. */
+  @ExceptionHandler(com.workplace.view.exception.SavedViewAccessDeniedException.class)
+  public ResponseEntity<ErrorResponse> handleSavedViewAccessDenied(
+      com.workplace.view.exception.SavedViewAccessDeniedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request));
+  }
+
   /** 이슈 담당자로 비-멤버 사용자를 지정 — 400. */
   @ExceptionHandler(InvalidAssigneeForProjectException.class)
   public ResponseEntity<ErrorResponse> handleInvalidAssigneeForProject(
