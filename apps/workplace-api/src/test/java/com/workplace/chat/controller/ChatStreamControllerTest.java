@@ -7,8 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
-import com.workplace.chat.outbound.ChatSseRegistry;
 import com.workplace.global.config.SecurityConfig;
+import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
@@ -32,7 +32,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 class ChatStreamControllerTest {
 
   @Autowired MockMvc mockMvc;
-  @MockitoBean ChatSseRegistry registry;
+  @MockitoBean SseRegistry registry;
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;

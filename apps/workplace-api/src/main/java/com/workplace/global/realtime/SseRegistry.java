@@ -1,4 +1,4 @@
-package com.workplace.chat.outbound;
+package com.workplace.global.realtime;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * 유저당 SSE emitter 레지스트리. chat 이벤트를 thread 멤버에게 fan-out 한다.
+ * 유저당 SSE emitter 레지스트리. chat·messaging 등 도메인에 관계없이 공유되는 범용 레지스트리.
  *
  * <p>firehub-api 의 SseEmitterRegistry 패턴 재사용 — in-memory, 단일 노드 MVP. heartbeat(30s)로 죽은 연결을
  * 감지·정리하고, emitter timeout(1h)으로 장수명 연결을 주기적으로 재활용(만료 시 클라가 fresh 토큰으로 재연결 → 30분 access token 재인증
@@ -24,7 +24,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ChatSseRegistry {
+public class SseRegistry {
 
   private static final long EMITTER_TIMEOUT = 3_600_000L; // 1h
   private static final int MAX_EMITTERS_PER_USER = 5; // 탭/기기 다중 허용

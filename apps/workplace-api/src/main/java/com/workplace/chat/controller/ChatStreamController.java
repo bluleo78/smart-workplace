@@ -1,6 +1,6 @@
 package com.workplace.chat.controller;
 
-import com.workplace.chat.outbound.ChatSseRegistry;
+import com.workplace.global.realtime.SseRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,7 +19,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/api/v1/chat")
 public class ChatStreamController {
 
-  private final ChatSseRegistry registry;
+  private final SseRegistry registry;
 
   @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
   public SseEmitter stream(@AuthenticationPrincipal Long callerId) {
