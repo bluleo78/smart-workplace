@@ -30,6 +30,8 @@ import com.workplace.label.exception.InvalidColorTokenException;
 import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.exception.LabelNameDuplicatedException;
 import com.workplace.label.exception.LabelNotFoundException;
+import com.workplace.messaging.exception.ChannelNotFoundException;
+import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
@@ -162,6 +164,20 @@ public class GlobalExceptionHandler {
       UserNotFoundException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  @ExceptionHandler(ChannelNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleChannelNotFound(
+      ChannelNotFoundException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  @ExceptionHandler(ChannelNotMemberException.class)
+  public ResponseEntity<ErrorResponse> handleChannelNotMember(
+      ChannelNotMemberException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
   @ExceptionHandler(RoleNotFoundException.class)
