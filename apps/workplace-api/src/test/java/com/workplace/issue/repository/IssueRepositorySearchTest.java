@@ -72,7 +72,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 null, List.of(), List.of(), false, List.of(), null, null, null, 30, List.of(),
-                List.of(), null, null, null, null, null));
+                List.of(), null, null, null, null, null, null));
 
     assertThat(result).hasSize(2);
     assertThat(result.get(0).number()).isEqualTo(2); // 가장 최근
@@ -90,7 +90,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 "login", List.of(), List.of(), false, List.of(), null, null, null, 30, List.of(),
-                List.of(), null, null, null, null, null));
+                List.of(), null, null, null, null, null, null));
 
     assertThat(result).hasSize(2);
     assertThat(result).extracting("title").contains("Login bug", "Other");
@@ -123,6 +123,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                null,
                 null));
 
     assertThat(result).hasSize(1);
@@ -142,7 +143,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 null, List.of(), List.of(), true, List.of(), null, null, null, 30, List.of(),
-                List.of(), null, null, null, null, null));
+                List.of(), null, null, null, null, null, null));
 
     assertThat(result).hasSize(1);
     assertThat(result.get(0).title()).isEqualTo("unassigned");
@@ -173,6 +174,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 30,
                 List.of(),
                 List.of(),
+                null,
                 null,
                 null,
                 null,
@@ -212,6 +214,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                null,
                 null));
 
     assertThat(result).hasSize(1);
@@ -230,7 +233,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 null, List.of(), List.of(), false, List.of(), null, null, null, 2, List.of(),
-                List.of(), null, null, null, null, null));
+                List.of(), null, null, null, null, null, null));
     assertThat(page1).hasSize(2);
 
     var lastRow = page1.get(page1.size() - 1);
@@ -240,7 +243,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 null, List.of(), List.of(), false, List.of(), null, null, cursor, 2, List.of(),
-                List.of(), null, null, null, null, null));
+                List.of(), null, null, null, null, null, null));
 
     assertThat(page2).hasSize(2);
     assertThat(page2).extracting("id").doesNotContain(lastRow.id());

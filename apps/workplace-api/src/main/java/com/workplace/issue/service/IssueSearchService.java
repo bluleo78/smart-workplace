@@ -132,7 +132,7 @@ public class IssueSearchService {
   /**
    * Map → IssueSearchQuery 정규화. 잘못된 cursor/date 는 InvalidCursorException(400) 으로 변환.
    *
-   * @param callerId 호출자 ID — assignee=me 리터럴을 실제 ID 로 치환하는 데 사용 (7a).
+   * @param callerId 호출자 ID — assignee=me / reporter=me 리터럴을 실제 ID 로 치환 (7a, 7-nav).
    */
   private IssueSearchQuery parse(Long callerId, Map<String, String> p) {
     String q = trimToNull(p.get("q"));
@@ -153,6 +153,21 @@ public class IssueSearchService {
           assigneeIds.add(Long.parseLong(tok));
         } catch (NumberFormatException e) {
           // 알 수 없는 토큰은 무시 — 비어 있으면 필터 미적용
+        }
+      }
+    }
+
+    // 7-nav: reporter 필터. "me" → 호출자 본인("내가 만든" 조회). 숫자 외 토큰은 무시.
+    var reporterTokens = csv(p.get("reporter"));
+    List<Long> reporterIds = new ArrayList<>();
+    for (String tok : reporterTokens) {
+      if ("me".equalsIgnoreCase(tok)) {
+        reporterIds.add(callerId);
+      } else {
+        try {
+          reporterIds.add(Long.parseLong(tok));
+        } catch (NumberFormatException e) {
+          // 알 수 없는 토큰 무시
         }
       }
     }
@@ -238,7 +253,8 @@ public class IssueSearchService {
         topLevel,
         blocked,
         fieldId,
-        fieldValue);
+        fieldValue,
+        reporterIds);
   }
 
   private static String trimToNull(String s) {

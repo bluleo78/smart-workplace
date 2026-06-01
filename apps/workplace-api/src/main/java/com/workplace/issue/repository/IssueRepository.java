@@ -274,6 +274,10 @@ public class IssueRepository {
     if (query.priorities() != null && !query.priorities().isEmpty()) {
       where = where.and(ISSUE.PRIORITY.in(query.priorities()));
     }
+    if (query.reporterIds() != null && !query.reporterIds().isEmpty()) {
+      // reporter(이슈 생성자) 직접 컬럼 비교 — issue_assignee 매핑과 무관.
+      where = where.and(ISSUE.REPORTER_ID.in(query.reporterIds()));
+    }
     boolean hasAssigneeList = query.assigneeIds() != null && !query.assigneeIds().isEmpty();
     if (hasAssigneeList || query.includeUnassigned()) {
       // issue_assignee 매핑 기반 EXISTS/NOT EXISTS — Phase 3c 단일컷 후 다중 담당자 구조에 맞춘 필터.
@@ -443,6 +447,10 @@ public class IssueRepository {
     }
     if (query.priorities() != null && !query.priorities().isEmpty()) {
       where = where.and(ISSUE.PRIORITY.in(query.priorities()));
+    }
+    if (query.reporterIds() != null && !query.reporterIds().isEmpty()) {
+      // reporter(이슈 생성자) 직접 컬럼 비교 — 횡단 "내가 만든"(/me/issues?reporter=me) 조회.
+      where = where.and(ISSUE.REPORTER_ID.in(query.reporterIds()));
     }
     boolean hasAssigneeList = query.assigneeIds() != null && !query.assigneeIds().isEmpty();
     if (hasAssigneeList || query.includeUnassigned()) {

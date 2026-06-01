@@ -9,6 +9,7 @@ import java.util.List;
  * parentNumber 가 지정되면 해당 부모의 자식만, topLevel=true 면 parent_issue_id IS NULL 인 이슈만 (Phase 4a).
  * parentNumber 가 있으면 topLevel 은 무시된다. blocked=true 면 활성 차단자(미완료)가 존재하는 이슈만 (Phase 4b).
  * fieldId+fieldValue 동시 지정 시 해당 필드의 JSONB 값을 텍스트 캐스트 동등 비교로 필터 (Phase 4c, 1차 단순화).
+ * reporterIds 는 OR 결합 — 이슈를 만든 사람(reporter_id 직접 컬럼) 필터. 비어 있으면 미적용.
  */
 public record IssueSearchQuery(
     String q,
@@ -26,4 +27,6 @@ public record IssueSearchQuery(
     Boolean topLevel,
     Boolean blocked,
     Long fieldId,
-    String fieldValue) {}
+    String fieldValue,
+    // 7-nav: reporter(이슈를 만든 사람) 필터. "me" 는 호출자로 치환. 비어 있으면 미적용.
+    List<Long> reporterIds) {}
