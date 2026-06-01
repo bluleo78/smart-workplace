@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
+import { AdminModuleLayout } from './components/admin/AdminModuleLayout'
 import { AdminRoute } from './components/AdminRoute'
 import { IssueModuleLayout } from './components/issue/IssueModuleLayout'
 import { AppLayout } from './components/layout/AppLayout'
@@ -64,12 +65,15 @@ export default function App() {
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
               <Route element={<AdminRoute />}>
-                <Route path="admin/users" element={<UserListPage />} />
-                <Route path="admin/users/:id" element={<UserDetailPage />} />
-                <Route path="admin/roles" element={<RoleListPage />} />
-                <Route path="admin/roles/:id" element={<RoleDetailPage />} />
-                <Route path="admin/audit-logs" element={<AuditLogListPage />} />
-                <Route path="admin/agents" element={<AgentManagementPage />} />
+                {/* 관리 모듈 — 2차 사이드바(사용자/역할/감사로그/AGENT) 가 감싼다 */}
+                <Route element={<AdminModuleLayout />}>
+                  <Route path="admin/users" element={<UserListPage />} />
+                  <Route path="admin/users/:id" element={<UserDetailPage />} />
+                  <Route path="admin/roles" element={<RoleListPage />} />
+                  <Route path="admin/roles/:id" element={<RoleDetailPage />} />
+                  <Route path="admin/audit-logs" element={<AuditLogListPage />} />
+                  <Route path="admin/agents" element={<AgentManagementPage />} />
+                </Route>
               </Route>
             </Route>
           </Route>
