@@ -11,8 +11,8 @@ test('로그인 페이지가 보인다', { tag: '@smoke' }, async ({ page }) => 
 // 인증된 상태로 진입 시 홈이 보인다 (HomePage)
 test('인증 상태에서 홈에 진입한다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await page.goto('/')
-  // 7c — 홈이 AI Native 셸로 교체됨. 좌측 모듈 사이드바가 보이면 홈 진입 성공.
-  await expect(page.getByTestId('module-sidebar')).toBeVisible()
+  // 셸 전환 — 좌측 앱 레일(LNB)이 보이면 인증 셸 진입 성공.
+  await expect(page.getByTestId('app-rail')).toBeVisible()
 })
 
 // 헤더 사용자 메뉴에서 로그아웃 — 서버 호출 + 로그인 페이지 이동
@@ -20,8 +20,8 @@ test('헤더 메뉴에서 로그아웃하면 로그인 페이지로 이동한다
   const logoutCapture = await mockApi(page, 'POST', '/api/v1/auth/logout', {}, { capture: true })
 
   await page.goto('/')
-  // 7c — 홈 셸 진입 확인(헤더의 사용자 메뉴는 AppLayout 에 그대로 존재).
-  await expect(page.getByTestId('module-sidebar')).toBeVisible()
+  // 셸 전환 — 사용자 메뉴는 앱 레일 하단으로 이동(AppRailUserMenu).
+  await expect(page.getByTestId('app-rail')).toBeVisible()
 
   await page.getByRole('button', { name: '사용자 메뉴' }).click()
   await page.getByRole('menuitem', { name: '로그아웃' }).click()
