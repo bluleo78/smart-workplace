@@ -27,6 +27,7 @@ const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsP
 const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
 const WatchedIssuesPage = lazy(() => import('./pages/me/WatchedIssuesPage'))
 const MyTasksPage = lazy(() => import('./pages/me/MyTasksPage'))
+const AiDelegatedTasksPage = lazy(() => import('./pages/me/AiDelegatedTasksPage'))
 
 function PageLoader() {
   return (
@@ -66,6 +67,9 @@ export default function App() {
                 {/* 내 작업 — 할당/내가 만든/구독 3탭 */}
                 <Route path="me/tasks" element={<Navigate to="/me/tasks/assigned" replace />} />
                 <Route path="me/tasks/:tab" element={<MyTasksPage />} />
+
+                {/* AI 위임 작업 — 내가 만든 이슈 중 AI 담당 */}
+                <Route path="me/ai-tasks" element={<AiDelegatedTasksPage />} />
               </Route>
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
