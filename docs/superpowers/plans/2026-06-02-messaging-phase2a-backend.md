@@ -4,7 +4,7 @@
 
 **Goal:** 비공개 채널 + 채널 CRUD(이름변경·아카이브·하드삭제) + 탐색 + 멤버 역할(OWNER/ADMIN/MEMBER) 관리의 **백엔드**를 구현한다. 프론트(2b)는 이 API가 확정된 뒤 별도 플랜으로 작성한다.
 
-**Architecture:** Phase 1 `com.workplace.messaging` 도메인을 확장한다. `channel_member.role` 컬럼을 추가하고(`V20`), 권한 판정을 `ChannelPermissions` 헬퍼로 일원화한다(채널 역할 + 시스템 ADMIN 오버라이드 = `PermissionChecker.userHasRole(id,"ADMIN")`). 비공개 채널은 비멤버에게 404로 은닉한다.
+**Architecture:** Phase 1 `com.workplace.messaging` 도메인을 확장한다. `channel_member.role` 컬럼을 추가하고(`V21`), 권한 판정을 `ChannelPermissions` 헬퍼로 일원화한다(채널 역할 + 시스템 ADMIN 오버라이드 = `PermissionChecker.userHasRole(id,"ADMIN")`). 비공개 채널은 비멤버에게 404로 은닉한다.
 
 **Tech Stack:** Spring Boot, jOOQ(생성 소스 `src/main/generated/`, gitignored), Flyway, JUnit5 + AssertJ 통합 테스트(`IntegrationTestBase`, test DB:5435), Lombok, Google Java Format(Spotless).
 
@@ -25,7 +25,7 @@
 ## 파일 구조 (생성/수정 대상)
 
 **생성**
-- `src/main/resources/db/migration/V20__messaging_phase2.sql`
+- `src/main/resources/db/migration/V21__messaging_phase2.sql`
 - `src/main/java/com/workplace/messaging/dto/ChannelMemberResponse.java`
 - `src/main/java/com/workplace/messaging/dto/RenameChannelRequest.java`
 - `src/main/java/com/workplace/messaging/dto/AddMemberRequest.java`
@@ -47,16 +47,16 @@
 
 ---
 
-## Task B1: V20 마이그레이션 + jOOQ 재생성 (게이트)
+## Task B1: V21 마이그레이션 + jOOQ 재생성 (게이트)
 
 > 이후 모든 Task 는 `CHANNEL_MEMBER.ROLE` jOOQ 필드에 의존하므로 이 Task 가 선행되어야 컴파일된다.
 
 **Files:**
-- Create: `src/main/resources/db/migration/V20__messaging_phase2.sql`
+- Create: `src/main/resources/db/migration/V21__messaging_phase2.sql`
 
 - [ ] **Step 1: 마이그레이션 SQL 작성**
 
-`src/main/resources/db/migration/V20__messaging_phase2.sql`:
+`src/main/resources/db/migration/V21__messaging_phase2.sql`:
 
 ```sql
 -- Messaging Phase 2: 채널 멤버 역할 + 탐색 인덱스
@@ -84,10 +84,10 @@ Run:
 ```bash
 pnpm db:up   # 이미 떠 있으면 no-op
 cd apps/workplace-api
-# Flyway 는 부팅 시 자동 적용. 로그에 "Migrating schema ... to version 20" 확인 후 종료.
+# Flyway 는 부팅 시 자동 적용. 로그에 "Migrating schema ... to version 21" 확인 후 종료.
 timeout 90 ./gradlew bootRun || true
 ```
-Expected: 로그에 `Successfully applied 1 migration ... version "20 - messaging phase2"` 류 출력. (앱은 timeout 으로 종료되어도 무방 — 마이그레이션은 부팅 초기에 커밋됨.)
+Expected: 로그에 `Successfully applied 1 migration ... version "21 - messaging phase2"` 류 출력. (앱은 timeout 으로 종료되어도 무방 — 마이그레이션은 부팅 초기에 커밋됨.)
 
 검증:
 ```bash
@@ -114,8 +114,8 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/main/resources/db/migration/V20__messaging_phase2.sql
-git commit --no-verify -m "feat(messaging): V20 — channel_member.role + 탐색 인덱스"
+git add src/main/resources/db/migration/V21__messaging_phase2.sql
+git commit --no-verify -m "feat(messaging): V21 — channel_member.role + 탐색 인덱스"
 ```
 > 참고: `src/main/generated/` 는 gitignored 이므로 add 되지 않는다(정상).
 
