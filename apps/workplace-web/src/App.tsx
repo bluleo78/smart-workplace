@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AdminModuleLayout } from './components/admin/AdminModuleLayout'
 import { AdminRoute } from './components/AdminRoute'
@@ -26,6 +26,7 @@ const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
 const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
 const WatchedIssuesPage = lazy(() => import('./pages/me/WatchedIssuesPage'))
+const MyTasksPage = lazy(() => import('./pages/me/MyTasksPage'))
 
 function PageLoader() {
   return (
@@ -61,6 +62,10 @@ export default function App() {
 
                 {/* 내 태스크 — 구독 중인 이슈 목록 */}
                 <Route path="me/watched" element={<WatchedIssuesPage />} />
+
+                {/* 내 작업 — 할당/내가 만든/구독 3탭 */}
+                <Route path="me/tasks" element={<Navigate to="/me/tasks/assigned" replace />} />
+                <Route path="me/tasks/:tab" element={<MyTasksPage />} />
               </Route>
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
