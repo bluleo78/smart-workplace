@@ -54,14 +54,14 @@ export function AppRailUserMenu({ collapsed }: { collapsed: boolean }) {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => navigate('/profile')}>
-          <UserIcon className="mr-2 h-4 w-4" /> 프로필
+          <UserIcon className="h-4 w-4" /> 프로필
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
-          {resolvedTheme === 'dark' ? <Sun className="mr-2 h-4 w-4" /> : <Moon className="mr-2 h-4 w-4" />}
+          {resolvedTheme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           테마 전환
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={handleLogout}>
-          <LogOut className="mr-2 h-4 w-4" /> 로그아웃
+          <LogOut className="h-4 w-4" /> 로그아웃
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
