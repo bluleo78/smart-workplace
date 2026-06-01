@@ -1,6 +1,6 @@
 // 전역 AI 진입 — 상단 중앙 칩(런처) + 펼침 패널. 하단을 점유하지 않아 페이지 UI와 충돌하지 않음.
 import { Sparkles } from 'lucide-react';
-import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,8 +51,8 @@ export function FloatingChat({ turns, pending, onSubmit }: Props) {
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  const submit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  // 폼 제출 — 이벤트 타입은 form 의 onSubmit 에서 추론(별도 FormEvent import 불필요)
+  const submit = () => {
     const query = input.trim();
     if (!query || pending) return;
     onSubmit(query);
@@ -101,7 +101,13 @@ export function FloatingChat({ turns, pending, onSubmit }: Props) {
               </ul>
             )}
           </div>
-          <form onSubmit={submit} className="border-t p-2">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit();
+            }}
+            className="border-t p-2"
+          >
             <div className="flex gap-2">
               <Input
                 ref={inputRef}
