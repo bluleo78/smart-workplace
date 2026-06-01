@@ -1,11 +1,11 @@
 // 이슈 목록 테이블 — ID/제목/상태/우선순위. 내 작업·AI 위임 등 여러 뷰에서 공유.
 import { Link } from 'react-router-dom'
 
-import { IssueTypeBadge } from '../issueTypes/IssueTypeBadge'
-import { LabelChip } from '../labels/LabelChip'
-import type { IssueResponse } from '../../types/issue'
 import { IssuePriorityBadge } from '../../pages/projects/components/IssuePriorityBadge'
 import { IssueStatusBadge } from '../../pages/projects/components/IssueStatusBadge'
+import type { IssueResponse } from '../../types/issue'
+import { IssueTypeBadge } from '../issueTypes/IssueTypeBadge'
+import { LabelChip } from '../labels/LabelChip'
 
 export function IssueListTable({
   items,

@@ -1,10 +1,10 @@
 // 무한스크롤 이슈 목록 — useInfiniteQuery 결과를 받아 테이블 + sentinel 렌더.
 // filter 를 주면 페이지 합본에 클라이언트 필터 적용(AI 위임 작업: assignee.kind==='AGENT').
-import { useEffect, useRef } from 'react'
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 
-import { IssueListTable } from './IssueListTable'
 import type { IssueResponse, IssueSearchResponse } from '../../types/issue'
+import { IssueListTable } from './IssueListTable'
 
 export function InfiniteIssueList({
   query,
