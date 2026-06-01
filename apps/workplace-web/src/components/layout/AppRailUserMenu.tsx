@@ -1,0 +1,69 @@
+// src/components/layout/AppRailUserMenu.tsx
+// 앱 레일 하단의 유저 메뉴 — 프로필/테마 토글/로그아웃. collapsed 시 아이콘만.
+import { LogOut, Moon, Sun, User as UserIcon } from 'lucide-react'
+import { useTheme } from 'next-themes'
+import { useNavigate } from 'react-router-dom'
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useAuth } from '@/hooks/useAuth'
+import { cn } from '@/lib/utils'
+
+export function AppRailUserMenu({ collapsed }: { collapsed: boolean }) {
+  const navigate = useNavigate()
+  const { resolvedTheme, setTheme } = useTheme()
+  const { user, logout } = useAuth()
+
+  // 로그아웃 — 서버 세션 종료 후 로그인 페이지로 이동
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login', { replace: true })
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="사용자 메뉴"
+          data-testid="rail-user-menu"
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md p-2 text-sm transition-colors hover:bg-accent/50',
+            collapsed && 'justify-center',
+          )}
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <UserIcon className="h-4 w-4" />
+          </span>
+          {!collapsed && (
+            <span className="min-w-0 flex-1 truncate text-left font-medium">
+              {user?.name ?? user?.username ?? '사용자'}
+            </span>
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side={collapsed ? 'right' : 'top'} align="start" className="w-48">
+        <DropdownMenuLabel className="truncate">
+          {user?.name ?? user?.username ?? '사용자'}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigate('/profile')}>
+          <UserIcon className="mr-2 h-4 w-4" /> 프로필
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
+          {resolvedTheme === 'dark' ? <Sun className="mr-2 h-4 w-4" /> : <Moon className="mr-2 h-4 w-4" />}
+          테마 전환
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={handleLogout}>
+          <LogOut className="mr-2 h-4 w-4" /> 로그아웃
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
