@@ -2,9 +2,8 @@
 import { ListChecks, Plus } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
+import { sidebarLinkClass } from '@/components/layout/sidebar-link'
 import { useProjects } from '@/hooks/queries/useProjects'
-
-import { sidebarLinkClass } from '../layout/sidebar-link'
 
 export function IssueSidebar() {
   // 프로젝트 목록은 PageResponse<ProjectResponse> 형태 — data.content 로 접근한다.

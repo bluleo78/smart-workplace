@@ -2,7 +2,7 @@
 import { Bot, FileText, Shield, Users } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
-import { sidebarLinkClass } from '../layout/sidebar-link'
+import { sidebarLinkClass } from '@/components/layout/sidebar-link'
 
 // 관리 모듈 내비게이션 항목. AGENT 는 기존 GNB 의 비서 관리 메뉴를 흡수한 것.
 const ITEMS = [
