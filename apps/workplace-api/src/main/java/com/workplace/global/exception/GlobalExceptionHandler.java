@@ -30,8 +30,11 @@ import com.workplace.label.exception.InvalidColorTokenException;
 import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.exception.LabelNameDuplicatedException;
 import com.workplace.label.exception.LabelNotFoundException;
+import com.workplace.messaging.exception.ChannelArchivedException;
+import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
+import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
@@ -178,6 +181,20 @@ public class GlobalExceptionHandler {
       ChannelNotMemberException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  @ExceptionHandler(ChannelForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handleChannelForbidden(
+      ChannelForbiddenException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  @ExceptionHandler({ChannelArchivedException.class, OwnershipTransferRequiredException.class})
+  public ResponseEntity<ErrorResponse> handleChannelConflict(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
   @ExceptionHandler(RoleNotFoundException.class)
@@ -381,7 +398,8 @@ public class GlobalExceptionHandler {
   /** 저장된 뷰 이름 중복 — 409. */
   @ExceptionHandler(com.workplace.view.exception.SavedViewNameDuplicatedException.class)
   public ResponseEntity<ErrorResponse> handleSavedViewNameDuplicated(
-      com.workplace.view.exception.SavedViewNameDuplicatedException ex, HttpServletRequest request) {
+      com.workplace.view.exception.SavedViewNameDuplicatedException ex,
+      HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.CONFLICT)
         .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
   }
