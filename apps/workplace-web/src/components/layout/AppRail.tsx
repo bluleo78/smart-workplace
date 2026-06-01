@@ -42,12 +42,12 @@ interface RailItem {
 const MODULES: RailItem[] = [
   { label: '홈', href: '/', icon: Home },
   { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
+  { label: 'Chat', href: '/chat', icon: MessageSquare },
 ]
 // 어드민 전용 모듈 — "설정"(워크스페이스 설정·관리)
 const ADMIN_MODULE: RailItem = { label: '설정', href: '/admin/users', icon: Settings, match: '/admin' }
 // 예정 모듈 — 비활성(흐림). 아이콘 레일이므로 아이콘으로 표시한다.
 const SOON: { label: string; icon: LucideIcon }[] = [
-  { label: 'Chat', icon: MessageSquare },
   { label: 'Wiki', icon: BookOpen },
   { label: 'Drive', icon: HardDrive },
 ]

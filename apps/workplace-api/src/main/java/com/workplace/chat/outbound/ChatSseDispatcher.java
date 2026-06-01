@@ -7,6 +7,7 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadReadEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.realtime.SseRegistry;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +30,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @RequiredArgsConstructor
 public class ChatSseDispatcher {
 
-  private final ChatSseRegistry registry;
+  private final SseRegistry registry;
   private final ChatThreadMemberRepository memberRepo;
 
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

@@ -1,4 +1,4 @@
-package com.workplace.chat.outbound;
+package com.workplace.global.realtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -8,9 +8,9 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-class ChatSseRegistryTest {
+class SseRegistryTest {
 
-  private final ChatSseRegistry registry = new ChatSseRegistry(new ObjectMapper());
+  private final SseRegistry registry = new SseRegistry(new ObjectMapper());
 
   @Test
   void register_returnsEmitterAndCounts() {

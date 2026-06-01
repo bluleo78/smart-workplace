@@ -10,6 +10,7 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.realtime.SseRegistry;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,7 +19,7 @@ import org.mockito.Mockito;
 
 class ChatSseDispatcherTest {
 
-  private ChatSseRegistry registry;
+  private SseRegistry registry;
   private ChatThreadMemberRepository memberRepo;
   private ChatSseDispatcher dispatcher;
 
@@ -26,7 +27,7 @@ class ChatSseDispatcherTest {
 
   @BeforeEach
   void setUp() {
-    registry = Mockito.mock(ChatSseRegistry.class);
+    registry = Mockito.mock(SseRegistry.class);
     memberRepo = Mockito.mock(ChatThreadMemberRepository.class);
     dispatcher = new ChatSseDispatcher(registry, memberRepo);
     when(memberRepo.findMemberIds(5L)).thenReturn(List.of(1L, 2L));
