@@ -19,7 +19,7 @@ import org.jooq.SelectConditionStep;
 import org.springframework.stereotype.Repository;
 
 /**
- * message 리포지토리. cursor = base64(createdAt-millis|id) DESC. soft-deleted 메시지는 body 를 "(삭제됨)" 으로
+ * message 리포지토리. cursor = base64(epochSecond|nano|id) DESC. soft-deleted 메시지는 body 를 "(삭제됨)" 으로
  * 마스킹해 응답에 포함 (UI 순서 보존). Phase 1: mention resolver 없음.
  */
 @Repository
@@ -61,7 +61,7 @@ public class MessageRepository {
         .fetchOptional(this::toResponse);
   }
 
-  /** Cursor 페이징. nextCursor 는 base64(createdAt-millis|id). DESC 정렬. */
+  /** Cursor 페이징. nextCursor 는 base64(epochSecond|nano|id). DESC 정렬. */
   public MessagePage findPage(long channelId, String cursor, int limit) {
     int safeLimit = Math.min(limit, MAX_LIMIT);
     SelectConditionStep<?> query =
@@ -125,19 +125,27 @@ public class MessageRepository {
         deleted);
   }
 
-  /** Cursor record + 인코딩. base64(createdAt-millis|id). */
+  /**
+   * Cursor record + 인코딩. base64(epochSecond|nano|id).
+   *
+   * <p>created_at(TIMESTAMPTZ)은 마이크로초 정밀도이므로 밀리초로 절단하면 같은 밀리초 내 메시지가 키셋 경계에서 영구 누락될 수 있다 (스크롤백 시 동일
+   * 절단 커서 재생성 → 도달 불가). epochSecond + nano 로 풀 정밀도를 보존한다.
+   */
   public record Cursor(Instant createdAt, long id) {
     public static String encode(Cursor c) {
       return Base64.getUrlEncoder()
           .withoutPadding()
           .encodeToString(
-              (c.createdAt.toEpochMilli() + "|" + c.id).getBytes(StandardCharsets.UTF_8));
+              (c.createdAt.getEpochSecond() + "|" + c.createdAt.getNano() + "|" + c.id)
+                  .getBytes(StandardCharsets.UTF_8));
     }
 
     public static Cursor decode(String s) {
       String raw = new String(Base64.getUrlDecoder().decode(s), StandardCharsets.UTF_8);
       String[] parts = raw.split("\\|");
-      return new Cursor(Instant.ofEpochMilli(Long.parseLong(parts[0])), Long.parseLong(parts[1]));
+      return new Cursor(
+          Instant.ofEpochSecond(Long.parseLong(parts[0]), Long.parseLong(parts[1])),
+          Long.parseLong(parts[2]));
     }
   }
 }

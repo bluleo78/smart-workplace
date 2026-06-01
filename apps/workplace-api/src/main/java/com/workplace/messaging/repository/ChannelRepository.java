@@ -48,14 +48,14 @@ public class ChannelRepository {
                         .CHANNEL_ID
                         .eq(CHANNEL.ID)
                         .and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
-                .asField("member_count"))
+                .asField("is_member"))
         .from(CHANNEL)
         .where(CHANNEL.VISIBILITY.eq("PUBLIC").and(CHANNEL.ARCHIVED_AT.isNull()))
         .orderBy(CHANNEL.CREATED_AT.asc(), CHANNEL.ID.asc())
         .fetch(
             r -> {
               OffsetDateTime created = r.get(CHANNEL.CREATED_AT);
-              Integer mc = r.get("member_count", Integer.class);
+              Integer mc = r.get("is_member", Integer.class);
               return new ChannelResponse(
                   r.get(CHANNEL.ID),
                   r.get(CHANNEL.KIND),
