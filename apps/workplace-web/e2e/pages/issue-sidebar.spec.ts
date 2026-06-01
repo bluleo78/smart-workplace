@@ -14,7 +14,8 @@ test('이슈 모듈에 2차 사이드바가 보이고 홈에는 없다', { tag: 
   await expect(page.getByTestId('issue-sidebar')).toBeVisible()
   // 앱 타이틀 헤더("작업 관리")로 현재 앱을 식별할 수 있다(Slack 모델)
   await expect(page.getByTestId('issue-sidebar').getByText('작업 관리', { exact: true })).toBeVisible()
-  await expect(page.getByTestId('issue-sidebar').getByRole('link', { name: '내 태스크' })).toBeVisible()
+  await expect(page.getByTestId('issue-sidebar').getByRole('link', { name: '내 작업' })).toBeVisible()
+  await expect(page.getByTestId('issue-sidebar').getByRole('link', { name: 'AI 위임 작업' })).toBeVisible()
 
   await page.goto('/')
   await expect(page.getByTestId('issue-sidebar')).toHaveCount(0)
@@ -42,4 +43,6 @@ test('사이드바가 프로젝트 응답을 링크로 렌더한다 (name → hr
   const link = page.getByTestId('issue-sidebar').getByRole('link', { name: 'Engineering' })
   await expect(link).toBeVisible()
   await expect(link).toHaveAttribute('href', '/projects/ENG')
+  // 프로젝트 항목은 컬러 식별자(이니셜 배지)를 갖는다 — 아이콘 일관성.
+  await expect(page.getByTestId('project-badge-ENG')).toHaveText('EN')
 })
