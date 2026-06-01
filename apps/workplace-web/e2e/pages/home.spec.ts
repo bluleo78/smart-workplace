@@ -58,9 +58,10 @@ test('홈 기본 구성이 AI 호출 없이 로드된다', { tag: '@smoke' }, as
   await expect(page.getByTestId('home-widget')).toHaveCount(3)
   await expect(page.getByTestId('issuelist-items')).toContainText('로그인 버그')
   await expect(page.getByTestId('activity-items')).toContainText('Claude')
-  // 떠있는 챗 입력창은 평소 보임, 메시지 패널은 접힘
-  await expect(page.getByTestId('chat-input')).toBeVisible()
+  // 상단 AI 칩(런처)은 평소 보임, 입력/메시지 패널은 접힘(칩 클릭/⌘K 로만 펼침)
+  await expect(page.getByTestId('chat-launcher')).toBeVisible()
   await expect(page.getByTestId('chat-panel')).toHaveCount(0)
+  await expect(page.getByTestId('chat-input')).toHaveCount(0)
 })
 
 test('⌘K 로 챗을 열고 명령하면 캔버스가 재구성된다', async ({ authenticatedPage: page }) => {
@@ -112,31 +113,33 @@ test('텍스트 전용 응답(위젯 없음)도 패널이 닫히지 않고 대�
   })
   await page.goto('/')
 
+  await page.getByTestId('chat-launcher').click()
   await page.getByTestId('chat-input').fill('안녕')
   await page.getByRole('button', { name: '보내기' }).click()
 
-  // #51 회귀: 응답 후에도 자동 접힘 없이 패널이 그대로 열려 transcript 가 보여야 한다(포커스 토글 없이).
+  // 응답 후에도 자동 접힘 없이 패널이 그대로 열려 transcript 가 보여야 한다.
   await expect(page.getByTestId('chat-panel')).toBeVisible()
   await expect(page.getByTestId('chat-panel')).toContainText('안녕')
   await expect(page.getByTestId('chat-panel')).toContainText('안녕하세요. 무엇을 도와드릴까요?')
 })
 
-test('도크형 비차단 — 챗 열린 상태에서 캔버스 위젯 클릭 가능 + 클릭 시 패널만 접힘 (#51)', async ({
+test('상단 칩 런처 — 클릭으로 패널 토글(열고 닫힘), 닫히면 칩만 남는다', async ({
   authenticatedPage: page,
 }) => {
   await mockHome(page)
   await page.goto('/')
   await expect(page.getByTestId('home-widget')).toHaveCount(3)
 
-  // 입력 포커스 → 패널 펼침
-  await page.getByTestId('chat-input').click()
+  // 칩 클릭 → 패널/입력 펼침
+  await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('chat-panel')).toBeVisible()
-
-  // 패널이 열린 상태에서도 배경(캔버스)이 클릭을 가로채지 않는다: 상단 헤더의 캔버스 영역 클릭 →
-  // 입력 포커스가 빠지며 패널만 접히고(입력바는 유지), 클릭은 캔버스로 전달된다.
-  await page.getByTestId('canvas-header').click()
-  await expect(page.getByTestId('chat-panel')).toHaveCount(0)
   await expect(page.getByTestId('chat-input')).toBeVisible()
+
+  // 다시 칩 클릭 → 패널 접힘(칩은 그대로 상주)
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('chat-panel')).toHaveCount(0)
+  await expect(page.getByTestId('chat-input')).toHaveCount(0)
+  await expect(page.getByTestId('chat-launcher')).toBeVisible()
 })
 
 test('compose 가 page=new 면 새 페이지가 생기고 전환된다', async ({ authenticatedPage: page }) => {
@@ -154,7 +157,7 @@ test('compose 가 page=new 면 새 페이지가 생기고 전환된다', async (
   })
 
   await page.goto('/')
-  await page.keyboard.press('Meta+k')
+  await page.getByTestId('chat-launcher').click()
   await page.getByTestId('chat-input').fill('이번 주 마감')
   await page.getByRole('button', { name: '보내기' }).click()
 
@@ -177,6 +180,7 @@ test('새 세션 — compose 후 ＋새 세션 으로 기본 구성 복귀', asy
   await page.goto('/')
 
   // compose 1회 → 현재 페이지가 위젯 1개로 교체
+  await page.getByTestId('chat-launcher').click()
   await page.getByTestId('chat-input').fill('TODO 이슈만')
   await page.getByRole('button', { name: '보내기' }).click()
   await expect(page.getByTestId('home-widget')).toHaveCount(1)
@@ -211,7 +215,7 @@ test('복원 — 세션 선택 시 대화 transcript + 캔버스 재구성(AI �
   await page.getByTestId('session-select').click()
 
   await expect(page.getByTestId('home-widget')).toHaveCount(1)
-  await page.getByTestId('chat-input').click()
+  await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('chat-panel')).toContainText('HIGH 이슈')
   await expect(page.getByTestId('chat-panel')).toContainText('여기 있어요')
   await expect(page.getByTestId('session-switcher')).toContainText('HIGH 이슈 보기')
