@@ -26,6 +26,11 @@ const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
 const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
 const WatchedIssuesPage = lazy(() => import('./pages/me/WatchedIssuesPage'))
+const ChatModuleLayout = lazy(() =>
+  import('./components/chat/ChatModuleLayout').then((m) => ({ default: m.ChatModuleLayout })),
+)
+const ChannelListPage = lazy(() => import('./pages/chat/ChannelListPage'))
+const ChannelPage = lazy(() => import('./pages/chat/ChannelPage'))
 
 function PageLoader() {
   return (
@@ -61,6 +66,12 @@ export default function App() {
 
                 {/* 내 태스크 — 구독 중인 이슈 목록 */}
                 <Route path="me/watched" element={<WatchedIssuesPage />} />
+              </Route>
+
+              {/* 채팅 모듈 — 2차 사이드바(채널 목록) 가 감싼다 */}
+              <Route element={<ChatModuleLayout />}>
+                <Route path="chat" element={<ChannelListPage />} />
+                <Route path="chat/channels/:id" element={<ChannelPage />} />
               </Route>
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
