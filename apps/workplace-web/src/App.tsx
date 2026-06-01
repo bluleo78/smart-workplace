@@ -25,7 +25,6 @@ const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
 const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'))
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
 const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
-const WatchedIssuesPage = lazy(() => import('./pages/me/WatchedIssuesPage'))
 const MyTasksPage = lazy(() => import('./pages/me/MyTasksPage'))
 const AiDelegatedTasksPage = lazy(() => import('./pages/me/AiDelegatedTasksPage'))
 
@@ -61,8 +60,8 @@ export default function App() {
                 <Route path="projects/:key/settings" element={<ProjectSettingsPage />} />
                 <Route path="projects/:key/issues/:number" element={<IssueDetailPage />} />
 
-                {/* 내 태스크 — 구독 중인 이슈 목록 */}
-                <Route path="me/watched" element={<WatchedIssuesPage />} />
+                {/* 하위호환 — 구버전 경로를 새 탭으로 리다이렉트 */}
+                <Route path="me/watched" element={<Navigate to="/me/tasks/watched" replace />} />
 
                 {/* 내 작업 — 할당/내가 만든/구독 3탭 */}
                 <Route path="me/tasks" element={<Navigate to="/me/tasks/assigned" replace />} />
