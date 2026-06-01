@@ -24,7 +24,7 @@ export function IssueSidebar() {
       <div className="flex-1 overflow-y-auto p-3">
         {/* 개인 영역 — 경쟁 솔루션 공통 패턴: 개인 작업을 사이드바 최상단에 고정 */}
         <nav className="space-y-1">
-          <NavLink to="/me/tasks/assigned" className={sidebarLinkClass}>
+          <NavLink to="/me/tasks" className={sidebarLinkClass}>
             <ListChecks className="h-4 w-4" /> 내 작업
           </NavLink>
           <NavLink to="/me/ai-tasks" className={sidebarLinkClass}>
@@ -52,6 +52,7 @@ export function IssueSidebar() {
               return (
                 <NavLink key={p.id} to={`/projects/${p.key}`} className={sidebarLinkClass}>
                   <span
+                    aria-hidden="true"
                     data-testid={`project-badge-${p.key}`}
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold"
                     style={{ backgroundColor: c.bg, color: c.fg }}

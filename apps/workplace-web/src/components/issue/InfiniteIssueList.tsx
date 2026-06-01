@@ -41,7 +41,8 @@ export function InfiniteIssueList({
     <div className="space-y-4">
       {isLoading ? (
         <p className="text-muted-foreground">로딩 중…</p>
-      ) : items.length === 0 ? (
+      ) : /* 마지막 페이지까지 로드 후에만 빈 상태 표시 — 스트리밍 중 깜빡임 방지 */
+      items.length === 0 && !hasNextPage && !isFetching ? (
         <p className="text-muted-foreground py-8 text-center">{emptyText}</p>
       ) : (
         <IssueListTable items={items} rowTestIdPrefix={rowTestIdPrefix} />
