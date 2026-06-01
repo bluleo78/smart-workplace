@@ -28,6 +28,9 @@ interface RailItem {
   label: string
   href: string
   icon: LucideIcon
+  // 활성 판별용 prefix. 없으면 href 로 판별한다.
+  // (예: 관리 모듈은 href='/admin/users'(실제 라우트)지만 '/admin/*' 전체에서 활성)
+  match?: string
 }
 
 // 활성화된 모듈 런처 항목
@@ -36,16 +39,18 @@ const MODULES: RailItem[] = [
   { label: '이슈', href: '/projects', icon: CircleDot },
 ]
 // 어드민 전용 모듈
-const ADMIN_MODULE: RailItem = { label: '관리', href: '/admin/users', icon: Shield }
+const ADMIN_MODULE: RailItem = { label: '관리', href: '/admin/users', icon: Shield, match: '/admin' }
 // 예정 모듈 — 비활성 표시
 const SOON = ['Chat', 'Wiki', 'Drive']
 
 const STORAGE_KEY = 'app-rail-collapsed'
 
 // 현재 경로가 해당 모듈에 속하는지 판별. 홈('/')은 정확히 일치할 때만 활성.
-function isActive(pathname: string, href: string): boolean {
-  if (href === '/') return pathname === '/'
-  return pathname.startsWith(href)
+// 활성 판별 prefix 는 item.match 우선, 없으면 href. (관리 모듈이 /admin/* 전체에서 활성이 되도록)
+function isActive(pathname: string, item: RailItem): boolean {
+  const matchPath = item.match ?? item.href
+  if (matchPath === '/') return pathname === '/'
+  return pathname.startsWith(matchPath)
 }
 
 // 단일 레일 링크. collapsed 시 아이콘만 노출하고 라벨은 툴팁으로 보여준다.
@@ -164,7 +169,7 @@ export function AppRail() {
             <RailLink
               key={item.href}
               item={item}
-              active={isActive(location.pathname, item.href)}
+              active={isActive(location.pathname, item)}
               collapsed={collapsed}
               onNavigate={closeMobile}
             />
