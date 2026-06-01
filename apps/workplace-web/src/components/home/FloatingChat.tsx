@@ -51,7 +51,7 @@ export function FloatingChat({ turns, pending, onSubmit }: Props) {
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  const submit = (e: FormEvent) => {
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const query = input.trim();
     if (!query || pending) return;

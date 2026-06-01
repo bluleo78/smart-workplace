@@ -5,8 +5,7 @@ import { Outlet } from 'react-router-dom'
 import { AppRail } from '@/components/layout/AppRail'
 import { GlobalChatDock } from '@/components/layout/GlobalChatDock'
 import { HomeSessionProvider } from '@/hooks/HomeSessionContext'
-
-import { useChatStream } from '../../hooks/useChatStream'
+import { useChatStream } from '@/hooks/useChatStream'
 
 export function AppLayout() {
   // 인증된 앱 셸에서 chat 실시간 SSE 를 1회 구독 (유저당 글로벌 스트림).
