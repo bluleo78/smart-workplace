@@ -12,6 +12,8 @@ test('이슈 모듈에 2차 사이드바가 보이고 홈에는 없다', { tag: 
   )
   await page.goto('/projects')
   await expect(page.getByTestId('issue-sidebar')).toBeVisible()
+  // 앱 타이틀 헤더("작업 관리")로 현재 앱을 식별할 수 있다(Slack 모델)
+  await expect(page.getByTestId('issue-sidebar').getByText('작업 관리', { exact: true })).toBeVisible()
   await expect(page.getByTestId('issue-sidebar').getByRole('link', { name: '내 태스크' })).toBeVisible()
 
   await page.goto('/')

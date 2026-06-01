@@ -1,5 +1,6 @@
 // src/components/layout/AppRailUserMenu.tsx
-// 앱 레일 하단의 유저 메뉴 — 프로필/테마 토글/로그아웃. collapsed 시 아이콘만.
+// 앱 레일 하단의 유저 메뉴 — 프로필/테마 토글/로그아웃.
+// 아이콘 레일이므로 데스크톱(lg)은 아바타만, 모바일 드로어는 아바타+이름.
 import { LogOut, Moon, Sun, User as UserIcon } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useNavigate } from 'react-router-dom'
@@ -15,7 +16,7 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 
-export function AppRailUserMenu({ collapsed }: { collapsed: boolean }) {
+export function AppRailUserMenu() {
   const navigate = useNavigate()
   const { resolvedTheme, setTheme } = useTheme()
   const { user, logout } = useAuth()
@@ -35,20 +36,19 @@ export function AppRailUserMenu({ collapsed }: { collapsed: boolean }) {
           data-testid="rail-user-menu"
           className={cn(
             'flex w-full items-center gap-2 rounded-md p-2 text-sm transition-colors hover:bg-accent/50',
-            collapsed && 'justify-center',
+            'lg:justify-center',
           )}
         >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             <UserIcon className="h-4 w-4" />
           </span>
-          {!collapsed && (
-            <span className="min-w-0 flex-1 truncate text-left font-medium">
-              {user?.name ?? user?.username ?? '사용자'}
-            </span>
-          )}
+          {/* 모바일 드로어에서만 이름 노출. 데스크톱 아이콘 레일은 아바타만. */}
+          <span className="min-w-0 flex-1 truncate text-left font-medium lg:hidden">
+            {user?.name ?? user?.username ?? '사용자'}
+          </span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side={collapsed ? 'right' : 'top'} align="start" className="w-48">
+      <DropdownMenuContent side="right" align="start" className="w-48">
         <DropdownMenuLabel className="truncate">
           {user?.name ?? user?.username ?? '사용자'}
         </DropdownMenuLabel>

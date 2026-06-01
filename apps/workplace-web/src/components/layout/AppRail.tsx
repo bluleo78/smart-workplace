@@ -1,14 +1,18 @@
 // src/components/layout/AppRail.tsx
 // 앱 런처 LNB — 명시적으로 모듈(앱)을 띄우는 레일. 기능 카탈로그가 아님.
-// 모듈 내부 깊은 네비는 각 모듈의 2차 사이드바가 담당한다.
+// 정체성: Slack 워크스페이스 레일 / macOS 독처럼 "항상 아이콘 레일"(확장 모드 없음).
+// 모듈 내부의 텍스트 맥락(라벨/깊은 네비)은 각 모듈의 2차 사이드바가 책임진다.
+// 데스크톱(lg) = 56px 아이콘 레일(라벨은 Tooltip), 모바일 = 오버레이 드로어(아이콘+라벨).
 import {
-  ChevronsLeft,
-  ChevronsRight,
-  CircleDot,
+  BookOpen,
+  Boxes,
+  HardDrive,
   Home,
+  LayoutList,
   type LucideIcon,
   Menu,
-  Shield,
+  MessageSquare,
+  Settings,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
@@ -37,14 +41,16 @@ interface RailItem {
 // 활성화된 모듈 런처 항목
 const MODULES: RailItem[] = [
   { label: '홈', href: '/', icon: Home },
-  { label: '이슈', href: '/projects', icon: CircleDot, match: ['/projects', '/me'] },
+  { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
 ]
-// 어드민 전용 모듈
-const ADMIN_MODULE: RailItem = { label: '관리', href: '/admin/users', icon: Shield, match: '/admin' }
-// 예정 모듈 — 비활성 표시
-const SOON = ['Chat', 'Wiki', 'Drive']
-
-const STORAGE_KEY = 'app-rail-collapsed'
+// 어드민 전용 모듈 — "설정"(워크스페이스 설정·관리)
+const ADMIN_MODULE: RailItem = { label: '설정', href: '/admin/users', icon: Settings, match: '/admin' }
+// 예정 모듈 — 비활성(흐림). 아이콘 레일이므로 아이콘으로 표시한다.
+const SOON: { label: string; icon: LucideIcon }[] = [
+  { label: 'Chat', icon: MessageSquare },
+  { label: 'Wiki', icon: BookOpen },
+  { label: 'Drive', icon: HardDrive },
+]
 
 // 현재 경로가 해당 모듈에 속하는지 판별. 홈('/')은 정확히 일치할 때만 활성.
 // 활성 판별 prefix 는 item.match(문자열/배열) 우선, 없으면 href.
@@ -58,64 +64,52 @@ function isActive(pathname: string, item: RailItem): boolean {
   return matchPaths.some((p) => (p === '/' ? pathname === '/' : pathname.startsWith(p)))
 }
 
-// 단일 레일 링크. collapsed 시 아이콘만 노출하고 라벨은 툴팁으로 보여준다.
+// 단일 레일 링크. 데스크톱(lg)은 아이콘만 + 라벨 Tooltip, 모바일 드로어는 아이콘+라벨.
 function RailLink({
   item,
   active,
-  collapsed,
   onNavigate,
 }: {
   item: RailItem
   active: boolean
-  collapsed: boolean
   onNavigate: () => void
 }) {
   const Icon = item.icon
-  const link = (
-    <Link
-      to={item.href}
-      onClick={onNavigate}
-      data-testid={`rail-link-${item.href}`}
-      aria-current={active ? 'page' : undefined}
-      className={cn(
-        'flex items-center rounded-md text-[13px] font-medium transition-colors',
-        active
-          ? 'bg-accent text-accent-foreground nav-active-indicator'
-          : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground',
-        collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2',
-      )}
-    >
-      <Icon className={cn('shrink-0', collapsed ? 'h-5 w-5' : 'h-4 w-4')} />
-      {!collapsed && <span>{item.label}</span>}
-    </Link>
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link
+          to={item.href}
+          onClick={onNavigate}
+          data-testid={`rail-link-${item.href}`}
+          aria-current={active ? 'page' : undefined}
+          className={cn(
+            'flex items-center gap-3 rounded-md px-3 py-2 text-[13px] font-medium transition-colors',
+            'lg:justify-center lg:gap-0 lg:px-2 lg:py-2.5',
+            active
+              ? 'bg-accent text-accent-foreground nav-active-indicator'
+              : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground',
+          )}
+        >
+          <Icon className="h-5 w-5 shrink-0" />
+          {/* 모바일 드로어에서만 라벨 노출. 데스크톱(lg)은 Tooltip 으로 대체. */}
+          <span className="lg:hidden">{item.label}</span>
+        </Link>
+      </TooltipTrigger>
+      {/* 데스크톱 아이콘 레일에서 hover 시 라벨 노출 */}
+      <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+        {item.label}
+      </TooltipContent>
+    </Tooltip>
   )
-  if (collapsed) {
-    // collapsed 상태에서 아이콘 라벨을 Tooltip 으로 표시. (Provider 는 AppRail 최상위에서 1회 제공)
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>{link}</TooltipTrigger>
-        <TooltipContent side="right" sideOffset={8}>
-          {item.label}
-        </TooltipContent>
-      </Tooltip>
-    )
-  }
-  return link
 }
 
-// 앱 런처 레일. collapse 상태는 localStorage 에 영속, 모바일은 오버레이로 노출.
+// 앱 런처 레일. 데스크톱은 상주 아이콘 레일, 모바일은 오버레이 드로어.
 export function AppRail() {
   const location = useLocation()
   const { isAdmin } = useAuth()
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true')
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      localStorage.setItem(STORAGE_KEY, String(!prev))
-      return !prev
-    })
-  }
   const closeMobile = () => setMobileOpen(false)
 
   // 모바일 오버레이가 열려 있을 때 Escape 로 닫을 수 있게 한다(키보드 접근성).
@@ -151,28 +145,25 @@ export function AppRail() {
       <aside
         data-testid="app-rail"
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex flex-col border-r bg-sidebar transition-[width,transform] duration-200',
-          'lg:static lg:translate-x-0',
-          collapsed ? 'lg:w-[56px]' : 'lg:w-60',
-          mobileOpen ? 'w-60 translate-x-0' : '-translate-x-full',
+          'fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r bg-sidebar transition-transform duration-200',
+          'lg:static lg:w-[56px] lg:translate-x-0',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        {/* 로고 + collapse 토글 */}
-        <div className={cn('flex h-14 shrink-0 items-center border-b px-3', collapsed && 'justify-center px-0')}>
-          {!collapsed && (
-            <Link to="/" className="flex-1 truncate font-semibold" onClick={closeMobile}>
-              Smart Workplace
-            </Link>
-          )}
-          <button
-            type="button"
-            aria-label={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
-            data-testid="rail-collapse-toggle"
-            className="hidden rounded-md p-1.5 text-muted-foreground hover:bg-accent/50 lg:block"
-            onClick={toggleCollapsed}
+        {/* 앱 마크 — 클릭 시 홈. 데스크톱은 마크만, 모바일은 마크+워드마크. */}
+        <div className="flex h-14 shrink-0 items-center border-b px-3 lg:justify-center lg:px-0">
+          <Link
+            to="/"
+            data-testid="rail-home"
+            aria-label="홈"
+            onClick={closeMobile}
+            className="flex items-center gap-2"
           >
-            {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
-          </button>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <Boxes className="h-5 w-5" />
+            </span>
+            <span className="truncate font-semibold lg:hidden">Smart Workplace</span>
+          </Link>
         </div>
 
         {/* 모듈 런처 */}
@@ -182,30 +173,42 @@ export function AppRail() {
               key={item.href}
               item={item}
               active={isActive(location.pathname, item)}
-              collapsed={collapsed}
               onNavigate={closeMobile}
             />
           ))}
 
-          {/* 예정 모듈 */}
-          {!collapsed && (
-            <div className="mt-4 space-y-1">
-              {SOON.map((s) => (
-                <div
-                  key={s}
-                  className="cursor-default rounded-md px-3 py-2 text-[13px] text-muted-foreground/50"
-                  aria-disabled="true"
-                >
-                  {s} <span className="text-xs">(예정)</span>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* 예정 모듈 — 흐림/비활성, 클릭 불가 */}
+          <div className="mt-4 space-y-1">
+            {SOON.map((s) => {
+              const Icon = s.icon
+              return (
+                <Tooltip key={s.label}>
+                  <TooltipTrigger asChild>
+                    <div
+                      aria-disabled="true"
+                      className={cn(
+                        'flex cursor-default items-center gap-3 rounded-md px-3 py-2 text-[13px] text-muted-foreground/50',
+                        'lg:justify-center lg:gap-0 lg:px-2 lg:py-2.5',
+                      )}
+                    >
+                      <Icon className="h-5 w-5 shrink-0" />
+                      <span className="lg:hidden">
+                        {s.label} <span className="text-xs">(예정)</span>
+                      </span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+                    {s.label} (예정)
+                  </TooltipContent>
+                </Tooltip>
+              )
+            })}
+          </div>
         </nav>
 
         {/* 하단 유저 메뉴 */}
         <div className="shrink-0 border-t p-2">
-          <AppRailUserMenu collapsed={collapsed} />
+          <AppRailUserMenu />
         </div>
       </aside>
     </TooltipProvider>
