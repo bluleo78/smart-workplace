@@ -1,3 +1,4 @@
+import type { ProjectResponse } from '../../src/types/project'
 import { expect, test } from '../fixtures/auth.fixture'
 
 test('이슈 모듈에 2차 사이드바가 보이고 홈에는 없다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
@@ -15,4 +16,28 @@ test('이슈 모듈에 2차 사이드바가 보이고 홈에는 없다', { tag: 
 
   await page.goto('/')
   await expect(page.getByTestId('issue-sidebar')).toHaveCount(0)
+})
+
+test('사이드바가 프로젝트 응답을 링크로 렌더한다 (name → href)', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  // API 응답(name/key) → 사이드바 NavLink(text/href) 매핑까지 검증한다.
+  const project: ProjectResponse = {
+    id: 1,
+    key: 'ENG',
+    name: 'Engineering',
+    description: null,
+    ownerId: 1,
+    createdAt: '',
+    updatedAt: '',
+  }
+  await page.route('**/api/v1/projects**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ content: [project], page: 0, size: 20, totalElements: 1, totalPages: 1 }),
+    }),
+  )
+  await page.goto('/projects')
+  const link = page.getByTestId('issue-sidebar').getByRole('link', { name: 'Engineering' })
+  await expect(link).toBeVisible()
+  await expect(link).toHaveAttribute('href', '/projects/ENG')
 })

@@ -36,7 +36,7 @@ export function IssueSidebar() {
           </span>
           <NavLink
             to="/projects"
-            aria-label="새 프로젝트"
+            aria-label="프로젝트 전체 보기"
             className="text-muted-foreground hover:text-foreground"
           >
             <Plus className="h-4 w-4" />
