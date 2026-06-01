@@ -18,14 +18,20 @@ public class ChannelRepository {
 
   private final DSLContext dsl;
 
-  /** 공개 채널 생성 후 id 반환. kind/visibility 는 DB default('CHANNEL'/'PUBLIC') 사용. */
-  public long insertPublic(String name, long createdBy) {
+  /** 채널 생성 후 id 반환. kind 는 DB default('CHANNEL'). */
+  public long insert(String name, String visibility, long createdBy) {
     return dsl.insertInto(CHANNEL)
         .set(CHANNEL.NAME, name)
+        .set(CHANNEL.VISIBILITY, visibility)
         .set(CHANNEL.CREATED_BY, createdBy)
         .returning(CHANNEL.ID)
         .fetchOne()
         .getId();
+  }
+
+  /** 공개 채널 생성(하위호환 래퍼) — visibility=PUBLIC 으로 insert 위임. */
+  public long insertPublic(String name, long createdBy) {
+    return insert(name, "PUBLIC", createdBy);
   }
 
   /** 채널 존재 여부 확인. */
@@ -33,13 +39,16 @@ public class ChannelRepository {
     return dsl.fetchExists(dsl.selectOne().from(CHANNEL).where(CHANNEL.ID.eq(channelId)));
   }
 
-  /** 전체 공개 채널 + caller 멤버 여부. created_at 오름차순. */
+  /**
+   * 전체 공개 채널 + caller 멤버 여부. created_at 오름차순. (Phase 1 호환 — 사이드바는 Task B7 에서 findMyChannels 로 대체)
+   */
   public List<ChannelResponse> findAllWithMembership(long callerId) {
     return dsl.select(
             CHANNEL.ID,
             CHANNEL.KIND,
             CHANNEL.NAME,
             CHANNEL.VISIBILITY,
+            CHANNEL.ARCHIVED_AT,
             CHANNEL.CREATED_AT,
             dsl.selectCount()
                 .from(CHANNEL_MEMBER)
@@ -48,26 +57,44 @@ public class ChannelRepository {
                         .CHANNEL_ID
                         .eq(CHANNEL.ID)
                         .and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
-                .asField("is_member"))
+                .asField("is_member"),
+            dsl.selectCount()
+                .from(CHANNEL_MEMBER)
+                .where(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID))
+                .asField("member_count"),
+            dsl.select(CHANNEL_MEMBER.ROLE)
+                .from(CHANNEL_MEMBER)
+                .where(
+                    CHANNEL_MEMBER
+                        .CHANNEL_ID
+                        .eq(CHANNEL.ID)
+                        .and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
+                .asField("my_role"))
         .from(CHANNEL)
         .where(CHANNEL.VISIBILITY.eq("PUBLIC").and(CHANNEL.ARCHIVED_AT.isNull()))
         .orderBy(CHANNEL.CREATED_AT.asc(), CHANNEL.ID.asc())
-        .fetch(
-            r -> {
-              OffsetDateTime created = r.get(CHANNEL.CREATED_AT);
-              Integer mc = r.get("is_member", Integer.class);
-              return new ChannelResponse(
-                  r.get(CHANNEL.ID),
-                  r.get(CHANNEL.KIND),
-                  r.get(CHANNEL.NAME),
-                  r.get(CHANNEL.VISIBILITY),
-                  mc != null && mc > 0,
-                  created == null ? null : created.toInstant());
-            });
+        .fetch(ChannelRepository::mapChannel);
   }
 
   /** channelId 로 단건 조회. caller 멤버 여부 포함. */
   public Optional<ChannelResponse> findOne(long channelId, long callerId) {
     return findAllWithMembership(callerId).stream().filter(c -> c.id() == channelId).findFirst();
+  }
+
+  /** Record → ChannelResponse 공용 매퍼. select 절에 is_member/member_count/my_role 별칭이 있어야 한다. */
+  static ChannelResponse mapChannel(org.jooq.Record r) {
+    OffsetDateTime created = r.get(CHANNEL.CREATED_AT);
+    Integer mc = r.get("is_member", Integer.class);
+    Integer total = r.get("member_count", Integer.class);
+    return new ChannelResponse(
+        r.get(CHANNEL.ID),
+        r.get(CHANNEL.KIND),
+        r.get(CHANNEL.NAME),
+        r.get(CHANNEL.VISIBILITY),
+        mc != null && mc > 0,
+        r.get("my_role", String.class),
+        r.get(CHANNEL.ARCHIVED_AT) != null,
+        total == null ? 0 : total,
+        created == null ? null : created.toInstant());
   }
 }
