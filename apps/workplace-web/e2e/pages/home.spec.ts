@@ -99,6 +99,8 @@ test('⌘K 로 챗을 열고 명령하면 캔버스가 재구성된다', async (
   await expect(page.getByTestId('chat-panel')).toBeVisible()
   await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈')
   await expect(page.getByTestId('chat-panel')).toContainText('HIGH 이슈만 보여드려요')
+  // 이력은 말풍선 단위로 렌더된다(사용자 질의 + 어시스턴트 응답 = 2개).
+  await expect(page.getByTestId('chat-turn')).toHaveCount(2)
 })
 
 test('텍스트 전용 응답(위젯 없음)도 패널이 닫히지 않고 대화가 그대로 보인다 (#51)', async ({
@@ -130,12 +132,13 @@ test('상단 칩 런처 — 클릭으로 패널 토글(열고 닫힘), 닫히면
   await page.goto('/')
   await expect(page.getByTestId('home-widget')).toHaveCount(3)
 
-  // 칩 클릭 → 패널/입력 펼침
+  // 칩 클릭 → 모달 도크 펼침. 칩은 사라지지 않고 active 상태로 상주.
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('chat-panel')).toBeVisible()
   await expect(page.getByTestId('chat-input')).toBeVisible()
+  await expect(page.getByTestId('chat-launcher')).toBeVisible()
 
-  // 다시 칩 클릭 → 패널 접힘(칩은 그대로 상주)
+  // 다시 칩 클릭 → 모달 닫힘(칩은 그대로 상주)
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('chat-panel')).toHaveCount(0)
   await expect(page.getByTestId('chat-input')).toHaveCount(0)
@@ -184,6 +187,10 @@ test('새 세션 — compose 후 ＋새 세션 으로 기본 구성 복귀', asy
   await page.getByTestId('chat-input').fill('TODO 이슈만')
   await page.getByRole('button', { name: '보내기' }).click()
   await expect(page.getByTestId('home-widget')).toHaveCount(1)
+
+  // 챗 모달이 헤더를 덮으므로 Esc 로 닫은 뒤 헤더(세션 스위처)를 사용한다.
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('chat-panel')).toHaveCount(0)
 
   // ＋새 세션 → 로컬 리셋(기본 구성 3종 복귀, AI 미호출)
   await page.getByTestId('session-switcher').click()

@@ -451,3 +451,10 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* AI 챗 도크 — 런처(상단)에서 "아래로 내려오며" 등장. origin-top + 위에서 슬라이드 + 가벼운 scaleY 성장.
+   살짝 내려오는 동작이 보이도록 이동폭을 키우고 시간을 늘렸다(클래스 duration 0.4s). */
+@keyframes chat-dock-expand {
+  from { opacity: 0; transform: translateY(-56px) scaleY(0.9); }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
+}
