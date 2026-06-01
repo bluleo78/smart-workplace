@@ -10,7 +10,7 @@ import {
   Menu,
   Shield,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import {
@@ -28,15 +28,16 @@ interface RailItem {
   label: string
   href: string
   icon: LucideIcon
-  // 활성 판별용 prefix. 없으면 href 로 판별한다.
-  // (예: 관리 모듈은 href='/admin/users'(실제 라우트)지만 '/admin/*' 전체에서 활성)
-  match?: string
+  // 활성 판별용 prefix(들). 없으면 href 로 판별한다.
+  // (예: 관리 모듈은 href='/admin/users'(실제 라우트)지만 '/admin/*' 전체에서 활성,
+  //  이슈 모듈은 '/projects' 와 '/me'(내 태스크) 양쪽에서 활성)
+  match?: string | string[]
 }
 
 // 활성화된 모듈 런처 항목
 const MODULES: RailItem[] = [
   { label: '홈', href: '/', icon: Home },
-  { label: '이슈', href: '/projects', icon: CircleDot },
+  { label: '이슈', href: '/projects', icon: CircleDot, match: ['/projects', '/me'] },
 ]
 // 어드민 전용 모듈
 const ADMIN_MODULE: RailItem = { label: '관리', href: '/admin/users', icon: Shield, match: '/admin' }
@@ -46,11 +47,15 @@ const SOON = ['Chat', 'Wiki', 'Drive']
 const STORAGE_KEY = 'app-rail-collapsed'
 
 // 현재 경로가 해당 모듈에 속하는지 판별. 홈('/')은 정확히 일치할 때만 활성.
-// 활성 판별 prefix 는 item.match 우선, 없으면 href. (관리 모듈이 /admin/* 전체에서 활성이 되도록)
+// 활성 판별 prefix 는 item.match(문자열/배열) 우선, 없으면 href.
+// (관리 모듈이 /admin/* 전체에서, 이슈 모듈이 /projects·/me 전체에서 활성이 되도록)
 function isActive(pathname: string, item: RailItem): boolean {
-  const matchPath = item.match ?? item.href
-  if (matchPath === '/') return pathname === '/'
-  return pathname.startsWith(matchPath)
+  const matchPaths = item.match
+    ? Array.isArray(item.match)
+      ? item.match
+      : [item.match]
+    : [item.href]
+  return matchPaths.some((p) => (p === '/' ? pathname === '/' : pathname.startsWith(p)))
 }
 
 // 단일 레일 링크. collapsed 시 아이콘만 노출하고 라벨은 툴팁으로 보여준다.
@@ -85,17 +90,14 @@ function RailLink({
     </Link>
   )
   if (collapsed) {
-    // AppRail 은 아직 AppLayout 에 연결되지 않아(Task 5) 상위 TooltipProvider 가 없을 수 있다.
-    // 자기완결적으로 동작하도록 collapsed 툴팁을 자체 Provider 로 감싼다.
+    // collapsed 상태에서 아이콘 라벨을 Tooltip 으로 표시. (Provider 는 AppRail 최상위에서 1회 제공)
     return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>{link}</TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            {item.label}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>
+          {item.label}
+        </TooltipContent>
+      </Tooltip>
     )
   }
   return link
@@ -116,10 +118,20 @@ export function AppRail() {
   }
   const closeMobile = () => setMobileOpen(false)
 
+  // 모바일 오버레이가 열려 있을 때 Escape 로 닫을 수 있게 한다(키보드 접근성).
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobileOpen])
+
   const items = isAdmin ? [...MODULES, ADMIN_MODULE] : MODULES
 
   return (
-    <>
+    <TooltipProvider>
       {/* 모바일 햄버거 */}
       <button
         type="button"
@@ -196,6 +208,6 @@ export function AppRail() {
           <AppRailUserMenu collapsed={collapsed} />
         </div>
       </aside>
-    </>
+    </TooltipProvider>
   )
 }

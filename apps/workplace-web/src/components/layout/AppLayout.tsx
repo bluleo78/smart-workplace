@@ -15,7 +15,7 @@ export function AppLayout() {
     <HomeSessionProvider>
       <div className="flex h-screen overflow-hidden bg-background text-foreground">
         <AppRail />
-        <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0">
           <Outlet />
           <GlobalChatDock />
         </main>
