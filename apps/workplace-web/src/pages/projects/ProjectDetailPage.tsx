@@ -9,6 +9,7 @@ import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
+import { ViewChipBar } from './components/ViewChipBar';
 
 // 프로젝트 홈 — 태스크 필터/뷰 영역 + 새 태스크 생성. URL: /projects/:key
 // view / 필터는 URL SearchParams 가 단일 source of truth.
@@ -55,6 +56,7 @@ function IssueArea({ projectKey }: { projectKey: string }) {
 
   return (
     <section aria-label="태스크">
+      <ViewChipBar projectKey={projectKey} />
       <IssueFilterBar projectKey={projectKey} />
       {view === 'board' ? (
         <IssueBoardView projectKey={projectKey} filters={filters} />
