@@ -56,7 +56,8 @@ class MessageControllerTest {
   }
 
   private MessageResponse sample() {
-    return new MessageResponse(10L, 1L, 1L, "me", "HUMAN", "hello", Instant.now(), null, false);
+    return new MessageResponse(
+        10L, 1L, 1L, "me", "HUMAN", "hello", java.util.List.of(), Instant.now(), null, false);
   }
 
   @Test
