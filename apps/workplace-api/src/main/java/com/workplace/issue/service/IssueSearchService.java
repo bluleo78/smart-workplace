@@ -201,6 +201,16 @@ public class IssueSearchService {
       }
     }
 
+    // 사이클 ID CSV — OR 결합 필터. 잘못된 토큰은 무시.
+    List<Long> cycleIds = new ArrayList<>();
+    for (String tok : csv(p.get("cycle"))) {
+      try {
+        cycleIds.add(Long.parseLong(tok));
+      } catch (NumberFormatException ignored) {
+        // 잘못된 사이클 토큰은 필터 미적용
+      }
+    }
+
     // 유형 ID CSV — OR 결합 필터. 잘못된 토큰은 무시.
     List<Long> typeIds = new ArrayList<>();
     for (String tok : csv(p.get("type"))) {
@@ -254,7 +264,8 @@ public class IssueSearchService {
         blocked,
         fieldId,
         fieldValue,
-        reporterIds);
+        reporterIds,
+        cycleIds);
   }
 
   private static String trimToNull(String s) {

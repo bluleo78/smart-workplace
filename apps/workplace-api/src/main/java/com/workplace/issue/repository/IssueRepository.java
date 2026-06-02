@@ -327,6 +327,21 @@ public class IssueRepository {
                                 .and(com.workplace.jooq.Tables.ISSUE_LABEL.LABEL_ID.eq(lid)))));
       }
     }
+    if (query.cycleIds() != null && !query.cycleIds().isEmpty()) {
+      // 사이클은 OR 결합 — 지정된 사이클 중 하나라도 연결된 이슈만 매칭 (IN 을 포함한 단일 EXISTS)
+      where =
+          where.and(
+              org.jooq.impl.DSL.exists(
+                  dsl.selectOne()
+                      .from(com.workplace.jooq.Tables.ISSUE_CYCLE)
+                      .where(
+                          com.workplace.jooq.Tables.ISSUE_CYCLE
+                              .ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(
+                                  com.workplace.jooq.Tables.ISSUE_CYCLE.CYCLE_ID.in(
+                                      query.cycleIds())))));
+    }
     if (query.typeIds() != null && !query.typeIds().isEmpty()) {
       where = where.and(ISSUE.TYPE_ID.in(query.typeIds()));
     }
@@ -500,6 +515,21 @@ public class IssueRepository {
                                 .eq(ISSUE.ID)
                                 .and(com.workplace.jooq.Tables.ISSUE_LABEL.LABEL_ID.eq(lid)))));
       }
+    }
+    if (query.cycleIds() != null && !query.cycleIds().isEmpty()) {
+      // 사이클은 OR 결합 — 지정된 사이클 중 하나라도 연결된 이슈만 매칭 (IN 을 포함한 단일 EXISTS)
+      where =
+          where.and(
+              org.jooq.impl.DSL.exists(
+                  dsl.selectOne()
+                      .from(com.workplace.jooq.Tables.ISSUE_CYCLE)
+                      .where(
+                          com.workplace.jooq.Tables.ISSUE_CYCLE
+                              .ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(
+                                  com.workplace.jooq.Tables.ISSUE_CYCLE.CYCLE_ID.in(
+                                      query.cycleIds())))));
     }
     if (query.typeIds() != null && !query.typeIds().isEmpty()) {
       where = where.and(ISSUE.TYPE_ID.in(query.typeIds()));
