@@ -4,6 +4,8 @@
 import type {
   ChannelResponse,
   ChannelMemberResponse,
+  DmParticipant,
+  DmResponse,
   MessageResponse,
 } from '../../src/types/messaging';
 
@@ -31,6 +33,25 @@ export function createChannelMember(
     kind: 'HUMAN',
     role: 'MEMBER',
     joinedAt: new Date('2026-06-01T00:00:00Z').toISOString(),
+    ...overrides,
+  };
+}
+
+export function createDmParticipant(
+  overrides: Partial<DmParticipant> = {},
+): DmParticipant {
+  return { userId: 1, name: '테스트 사용자', kind: 'HUMAN', ...overrides };
+}
+
+export function createDm(overrides: Partial<DmResponse> = {}): DmResponse {
+  return {
+    id: 100,
+    participants: [
+      createDmParticipant({ userId: 1, name: '나' }),
+      createDmParticipant({ userId: 2, name: '밥' }),
+    ],
+    lastMessageAt: null,
+    createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     ...overrides,
   };
 }
