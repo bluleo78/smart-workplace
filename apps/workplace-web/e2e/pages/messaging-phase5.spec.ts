@@ -286,6 +286,81 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await expect(page.getByTestId(`reaction-count-${MSG_ID}-🔥`)).toHaveText('1')
   })
 
+  // 6) 회귀: 스레드 패널 내 답글 수정 시 thread 캐시가 갱신돼 UI 에 수정된 본문이 보인다.
+  //    useUpdateMessage.onSuccess 가 thread 캐시를 patch 하지 않으면 이 테스트는 FAIL 한다.
+  test(
+    '스레드 패널에서 내 답글을 수정하면 패널 내 본문이 갱신된다(thread 캐시 패치 회귀)',
+    async ({ authenticatedPage: page }) => {
+      const CHANNEL_ID = 505
+      const PARENT_ID = 9600
+      const REPLY_ID = 9601
+      const EDITED_BODY = '수정된 답글'
+      const channel = createChannel({ id: CHANNEL_ID, name: '수정회귀채널' })
+      const parent = createMessage({
+        id: PARENT_ID,
+        channelId: CHANNEL_ID,
+        body: '부모글',
+        replyCount: 1,
+      })
+      const reply = createMessage({
+        id: REPLY_ID,
+        channelId: CHANNEL_ID,
+        parentMessageId: PARENT_ID,
+        authorId: ME_ID,
+        authorName: '나',
+        body: '원본 답글',
+      })
+
+      await stubChannelsList(page, [channel])
+      await stubDmsList(page)
+      await stubStream(page)
+      await stubChannelDetail(page, channel)
+      await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+      await stubMessages(page, CHANNEL_ID, [parent])
+      await stubReplies(page, PARENT_ID, [reply])
+
+      // PATCH /api/v1/messaging/messages/:replyId → 수정된 메시지 응답.
+      await page.route(
+        (url) => url.pathname === `/api/v1/messaging/messages/${REPLY_ID}`,
+        (route) =>
+          route.request().method() === 'PATCH'
+            ? route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(
+                  createMessage({
+                    id: REPLY_ID,
+                    channelId: CHANNEL_ID,
+                    parentMessageId: PARENT_ID,
+                    authorId: ME_ID,
+                    authorName: '나',
+                    body: EDITED_BODY,
+                    editedAt: new Date('2026-06-03T00:00:00Z').toISOString(),
+                  }),
+                ),
+              })
+            : route.fallback(),
+      )
+
+      await page.goto(`/chat/channels/${CHANNEL_ID}`)
+      // 답글수 링크 클릭 → 스레드 패널 오픈(replyCount=1 이므로 thread-link 가 렌더됨).
+      await page.getByTestId(`message-thread-link-${PARENT_ID}`).click()
+      const panel = page.getByTestId('thread-panel')
+      await expect(panel).toBeVisible()
+
+      // 스레드 패널 내 답글 hover → 수정 버튼 클릭(group-hover toolbar).
+      await panel.getByTestId(`message-${REPLY_ID}`).hover()
+      await panel.getByTestId(`message-edit-${REPLY_ID}`).click()
+
+      // 인라인 에디터에 새 내용 입력 후 저장.
+      await panel.getByTestId(`message-editor-input-${REPLY_ID}`).fill(EDITED_BODY)
+      await panel.getByTestId(`message-editor-save-${REPLY_ID}`).click()
+
+      // thread 캐시가 패치되면 패널 내 본문이 갱신된다.
+      await expect(panel.getByTestId(`message-body-${REPLY_ID}`)).toContainText(EDITED_BODY)
+    },
+  )
+
   // 5) self-echo 답글: 내가 쓴 답글의 created self-echo 가 와도 replyCount 가 이중 카운트되지 않는다.
   //    useCreateReply.onMutate 는 replyCount 를 낙관적으로 bump 하지 않고,
   //    SSE created 이벤트가 bumpReplyCount 를 단 한 번 수행(+1). 결과: 정확히 1개.

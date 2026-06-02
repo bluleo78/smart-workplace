@@ -80,6 +80,9 @@ class ReactionSseFanOutTest extends IntegrationTestBase {
     assertThat(ids.getValue()).contains(uid);
     assertThat(payload.getValue()).containsEntry("messageId", messageId);
     assertThat(payload.getValue()).containsEntry("emoji", "👍");
+    // 프론트엔드 캐시 스코프·self-echo 가드에 필요한 channelId / userId 포함 확인.
+    assertThat(payload.getValue()).containsEntry("channelId", channelId);
+    assertThat(payload.getValue()).containsEntry("userId", uid);
   }
 
   /**
@@ -113,5 +116,8 @@ class ReactionSseFanOutTest extends IntegrationTestBase {
     assertThat(ids.getValue()).contains(uid);
     assertThat(payload.getValue()).containsEntry("messageId", messageId);
     assertThat(payload.getValue()).containsEntry("emoji", "❤️");
+    // 프론트엔드 캐시 스코프·self-echo 가드에 필요한 channelId / userId 포함 확인.
+    assertThat(payload.getValue()).containsEntry("channelId", channelId);
+    assertThat(payload.getValue()).containsEntry("userId", uid);
   }
 }
