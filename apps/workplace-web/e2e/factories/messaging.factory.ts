@@ -67,6 +67,9 @@ export function createMessage(overrides: Partial<MessageResponse> = {}): Message
     authorKind: 'HUMAN',
     body: '안녕하세요',
     mentions: [],
+    parentMessageId: null, // Phase 5: 스레드 답글이면 부모 id
+    replyCount: 0, // Phase 5: 이 메시지에 달린 답글 수
+    reactions: [], // Phase 5: 이모지별 집계
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     editedAt: null,
     deleted: false,
