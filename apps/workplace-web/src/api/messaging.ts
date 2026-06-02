@@ -6,6 +6,7 @@ import type {
   ChannelRole,
   CreateChannelRequest,
   CreateMessageRequest,
+  DmResponse,
   MessagePage,
   MessageResponse,
 } from '../types/messaging';
@@ -71,4 +72,11 @@ export const messagingApi = {
 
   updateMemberRole: (channelId: number, userId: number, role: ChannelRole) =>
     client.patch<void>(`/messaging/channels/${channelId}/members/${userId}`, { role }),
+
+  // DM 목록(참여자·최근시각 포함).
+  listDms: () => client.get<DmResponse[]>('/messaging/dms'),
+
+  // DM find-or-create. 기존 멤버셋이면 서버가 같은 DM 반환.
+  createDm: (userIds: number[]) =>
+    client.post<DmResponse>('/messaging/dms', { userIds }),
 };

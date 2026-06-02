@@ -7,4 +7,5 @@ export const messagingKeys = {
   members: (channelId: number) => [...messagingKeys.all, 'members', channelId] as const,
   messages: (channelId: number) =>
     [...messagingKeys.all, 'messages', channelId] as const,
+  dms: () => [...messagingKeys.all, 'dms'] as const,
 };

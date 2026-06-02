@@ -62,3 +62,23 @@ export interface UpdateRoleRequest {
 export interface CreateMessageRequest {
   body: string;
 }
+
+/** DM 참여자(본인 포함). */
+export interface DmParticipant {
+  userId: number;
+  name: string;
+  kind: UserKind;
+}
+
+/** DM 1건 — name 이 없으므로 참여자에서 표시명 파생. */
+export interface DmResponse {
+  id: number;
+  participants: DmParticipant[];
+  lastMessageAt: string | null;
+  createdAt: string;
+}
+
+/** DM 생성 요청 — 본인 제외 타겟. */
+export interface CreateDmRequest {
+  userIds: number[];
+}
