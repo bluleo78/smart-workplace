@@ -186,4 +186,43 @@ class SavedViewServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> service.delete(member, p.key(), v.id()))
         .isInstanceOf(SavedViewAccessDeniedException.class);
   }
+
+  @Test
+  void togglePin_setsPinned_andReflectedInList() {
+    // owner 의 PRIVATE 뷰를 고정/해제하고 목록 응답의 pinned 플래그가 반영되는지 검증.
+    Long ownerId = createUser("vo-pin");
+    ProjectResponse p = newProject(ownerId, "VK");
+    String projectKey = p.key();
+    Long viewId = service.create(ownerId, projectKey, req("mine", "q=p", "PRIVATE")).id();
+
+    service.togglePin(ownerId, projectKey, viewId, true);
+    var pinned =
+        service.list(ownerId, projectKey).stream()
+            .filter(v -> v.id().equals(viewId))
+            .findFirst()
+            .orElseThrow();
+    assertThat(pinned.pinned()).isTrue();
+
+    service.togglePin(ownerId, projectKey, viewId, false);
+    var unpinned =
+        service.list(ownerId, projectKey).stream()
+            .filter(v -> v.id().equals(viewId))
+            .findFirst()
+            .orElseThrow();
+    assertThat(unpinned.pinned()).isFalse();
+  }
+
+  @Test
+  void togglePin_othersPrivateView_throwsNotFound() {
+    // 타인의 PRIVATE 뷰는 존재 은닉(404) — 고정 시도 시 SavedViewNotFoundException.
+    Long ownerId = createUser("vo-pin2");
+    Long otherMemberId = createUser("vm-pin2");
+    ProjectResponse p = newProject(ownerId, "VL");
+    String projectKey = p.key();
+    memberRepository.insert(p.id(), otherMemberId, "MEMBER");
+    Long viewId = service.create(ownerId, projectKey, req("owner-private", "q=p", "PRIVATE")).id();
+
+    assertThatThrownBy(() -> service.togglePin(otherMemberId, projectKey, viewId, true))
+        .isInstanceOf(SavedViewNotFoundException.class);
+  }
 }

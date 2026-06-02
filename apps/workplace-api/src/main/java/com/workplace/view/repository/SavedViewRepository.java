@@ -86,6 +86,15 @@ public class SavedViewRepository {
     }
   }
 
+  /** 뷰 고정/해제. updated_at 갱신. */
+  public void setPinned(Long id, boolean pinned) {
+    dsl.update(SAVED_VIEW)
+        .set(SAVED_VIEW.IS_PINNED, pinned)
+        .set(SAVED_VIEW.UPDATED_AT, OffsetDateTime.now())
+        .where(SAVED_VIEW.ID.eq(id))
+        .execute();
+  }
+
   /** 뷰 hard-delete. */
   public void delete(Long id) {
     dsl.deleteFrom(SAVED_VIEW).where(SAVED_VIEW.ID.eq(id)).execute();

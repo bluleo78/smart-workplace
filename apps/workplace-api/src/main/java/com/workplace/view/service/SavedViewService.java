@@ -78,6 +78,19 @@ public class SavedViewService {
     repository.delete(viewId);
   }
 
+  /** 저장된 뷰 고정/해제. 본인 소유 뷰만 가능. */
+  public SavedViewResponse togglePin(
+      Long callerId, String projectKey, Long viewId, boolean pinned) {
+    var project = accessGuard.assertMember(projectKey, callerId);
+    var row = loadInProject(viewId, project.id());
+    hidePrivateFromOthers(row, callerId);
+    if (!row.ownerId().equals(callerId)) {
+      throw new SavedViewAccessDeniedException("본인의 뷰만 고정할 수 있습니다");
+    }
+    repository.setPinned(viewId, pinned);
+    return toResponse(repository.findById(viewId).orElseThrow(), callerId);
+  }
+
   /** 호출자가 프로젝트 OWNER 역할인지 — assertWithRole 통과 여부로 판정. */
   private boolean isProjectOwner(String projectKey, Long callerId) {
     try {
