@@ -12,8 +12,8 @@ import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
-import { filtersToParams, parseFilters, parseView } from '../../../lib/issueFilters';
-import type { IssueFilters, IssueView } from '../../../types/issue';
+import { filtersToParams, parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters';
+import type { IssueFilters, IssueGroupBy, IssueView } from '../../../types/issue';
 
 const STATUS_OPTIONS = [
   { value: 'TODO', label: '할 일' },
@@ -29,10 +29,19 @@ const PRIORITY_OPTIONS = [
   { value: 'HIGH', label: '높음' },
 ];
 
+// 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
+const GROUP_OPTIONS: { value: IssueGroupBy | null; label: string }[] = [
+  { value: null, label: '없음' },
+  { value: 'status', label: '상태' },
+  { value: 'assignee', label: '담당자' },
+  { value: 'priority', label: '우선순위' },
+];
+
 export function IssueFilterBar({ projectKey }: { projectKey: string }) {
   const [params, setParams] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
+  const groupBy = parseGroupBy(params);
   const [qDraft, setQDraft] = useState(filters.q);
   const labels = useLabels(projectKey);
   const types = useIssueTypes(projectKey);
@@ -46,14 +55,19 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
   useEffect(() => {
     if (qDraft === filters.q) return;
     const t = setTimeout(() => {
-      writeFilters({ ...filters, q: qDraft }, view);
+      writeFilters({ ...filters, q: qDraft }, view, groupBy);
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qDraft]);
 
-  function writeFilters(next: IssueFilters, nextView: IssueView) {
-    setParams(filtersToParams(next, nextView), { replace: true });
+  // view·groupBy 는 IssueFilters 와 분리된 URL 키 — 필터 변경 시에도 함께 보존해야 한다.
+  function writeFilters(
+    next: IssueFilters,
+    nextView: IssueView,
+    nextGroupBy: IssueGroupBy | null,
+  ) {
+    setParams(filtersToParams(next, nextView, nextGroupBy), { replace: true });
   }
 
   function toggleStatus(s: string) {
@@ -66,6 +80,7 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
           : [...filters.statuses, s],
       },
       view,
+      groupBy,
     );
   }
 
@@ -79,6 +94,7 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
           : [...filters.priorities, p],
       },
       view,
+      groupBy,
     );
   }
 
@@ -93,6 +109,7 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
           : [...filters.labelIds, id],
       },
       view,
+      groupBy,
     );
   }
 
@@ -107,18 +124,25 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
           : [...filters.typeIds, id],
       },
       view,
+      groupBy,
     );
   }
 
   function setView(v: IssueView) {
-    writeFilters(filters, v);
+    writeFilters(filters, v, groupBy);
   }
 
-  // 초기화는 view 만 유지하고 나머지 모두 비운다.
+  // 그룹 기준 변경 — 필터/view 는 유지하고 group 만 교체 (#58).
+  function setGroupBy(g: IssueGroupBy | null) {
+    writeFilters(filters, view, g);
+  }
+
+  // 초기화는 view·group 은 유지하고 나머지 필터만 비운다.
   function reset() {
-    setParams(new URLSearchParams(view === 'board' ? 'view=board' : ''), {
-      replace: true,
-    });
+    const p = new URLSearchParams();
+    if (view === 'board') p.set('view', 'board');
+    if (groupBy) p.set('group', groupBy);
+    setParams(p, { replace: true });
   }
 
   return (
@@ -244,7 +268,23 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
         </PopoverContent>
       </Popover>
 
-      <div className="flex items-center gap-1 ml-auto" role="group" aria-label="뷰 전환">
+      <div className="flex items-center gap-1 ml-auto" role="group" aria-label="그룹 기준">
+        <span className="text-xs text-muted-foreground">그룹</span>
+        {GROUP_OPTIONS.map((opt) => (
+          <Button
+            key={opt.value ?? 'none'}
+            variant={groupBy === opt.value ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setGroupBy(opt.value)}
+            aria-pressed={groupBy === opt.value}
+            data-testid={`group-by-${opt.value ?? 'none'}`}
+          >
+            {opt.label}
+          </Button>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-1" role="group" aria-label="뷰 전환">
         <Button
           variant={view === 'list' ? 'default' : 'outline'}
           size="sm"

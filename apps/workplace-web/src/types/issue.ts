@@ -168,3 +168,7 @@ export interface IssueFilters {
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.
 export type IssueView = 'list' | 'board';
+
+// 보드/리스트 그룹 기준 (#58). null/부재 = 그룹 없음(평탄 리스트 / 상태 보드).
+// view 와 동일하게 IssueFilters 와 분리된 URL 쿼리스트링 키('group')로 다룬다.
+export type IssueGroupBy = 'status' | 'assignee' | 'priority';

@@ -1,10 +1,11 @@
 // URL SearchParams 와 IssueFilters / IssueView 사이의 양방향 직렬화.
 // 모든 필터 동작은 이 두 함수만 통과한다 — 화면/상태/URL 의 단일 진입점.
 
-import type { IssueFilters, IssueView } from '../types/issue';
+import type { IssueFilters, IssueGroupBy, IssueView } from '../types/issue';
 
 const STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'] as const;
 const PRIORITIES = ['LOW', 'MID', 'HIGH'] as const;
+const GROUP_BYS = ['status', 'assignee', 'priority'] as const;
 
 // 알려진 토큰만 통과시켜 잘못된 URL 입력에 대해 안전하게 동작.
 export function parseFilters(params: URLSearchParams): IssueFilters {
@@ -59,10 +60,24 @@ export function parseView(params: URLSearchParams): IssueView {
   return params.get('view') === 'board' ? 'board' : 'list';
 }
 
-// IssueFilters + view → URLSearchParams. 기본값(list, 빈 필터)은 키 자체를 생략한다.
-export function filtersToParams(f: IssueFilters, view: IssueView): URLSearchParams {
+// group 파라미터가 알려진 값일 때만 통과, 그 외(부재 포함)는 null(그룹 없음). (#58)
+export function parseGroupBy(params: URLSearchParams): IssueGroupBy | null {
+  const g = params.get('group');
+  return (GROUP_BYS as readonly string[]).includes(g ?? '')
+    ? (g as IssueGroupBy)
+    : null;
+}
+
+// IssueFilters + view + groupBy → URLSearchParams. 기본값(list, 빈 필터, 그룹 없음)은 키 생략.
+// groupBy 는 필수 인자 — 컴파일러가 모든 호출처에서 group 영속을 강제(저장 뷰 라운드트립 누락 방지).
+export function filtersToParams(
+  f: IssueFilters,
+  view: IssueView,
+  groupBy: IssueGroupBy | null,
+): URLSearchParams {
   const p = new URLSearchParams();
   if (view !== 'list') p.set('view', view);
+  if (groupBy) p.set('group', groupBy);
   if (f.q) p.set('q', f.q);
   if (f.statuses.length) p.set('status', f.statuses.join(','));
   if (f.priorities.length) p.set('priority', f.priorities.join(','));
