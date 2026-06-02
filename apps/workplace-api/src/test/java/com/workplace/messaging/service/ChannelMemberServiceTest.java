@@ -139,16 +139,22 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
     long target = seedUser();
     long sysAdmin = seedUser();
     grantSystemAdmin(sysAdmin);
-    ChannelResponse ch = channelService.create(owner, "일반", "PUBLIC");
-    memberService.add(owner, ch.id(), target); // target 은 MEMBER
+    // 영속 테스트 DB(5435)는 롤백되지 않으므로, ADMIN 부여를 finally 에서 반드시 회수한다.
+    // (전역 활성 ADMIN 수를 세는 UserServiceTest 등 다른 테스트 오염 방지)
+    try {
+      ChannelResponse ch = channelService.create(owner, "일반", "PUBLIC");
+      memberService.add(owner, ch.id(), target); // target 은 MEMBER
 
-    // 시스템 ADMIN 이 소유권을 target 으로 이전
-    memberService.updateRole(sysAdmin, ch.id(), target, "OWNER");
+      // 시스템 ADMIN 이 소유권을 target 으로 이전
+      memberService.updateRole(sysAdmin, ch.id(), target, "OWNER");
 
-    assertThat(memberRepo.findRole(ch.id(), target)).contains("OWNER"); // 새 OWNER
-    assertThat(memberRepo.findRole(ch.id(), owner)).contains("ADMIN"); // 기존 OWNER 강등됨
-    // OWNER 는 정확히 1명이어야 한다
-    assertThat(memberRepo.findOwner(ch.id())).contains(target);
+      assertThat(memberRepo.findRole(ch.id(), target)).contains("OWNER"); // 새 OWNER
+      assertThat(memberRepo.findRole(ch.id(), owner)).contains("ADMIN"); // 기존 OWNER 강등됨
+      // OWNER 는 정확히 1명이어야 한다
+      assertThat(memberRepo.findOwner(ch.id())).contains(target);
+    } finally {
+      dsl.deleteFrom(USER_ROLE).where(USER_ROLE.USER_ID.eq(sysAdmin)).execute();
+    }
   }
 
   @Test
