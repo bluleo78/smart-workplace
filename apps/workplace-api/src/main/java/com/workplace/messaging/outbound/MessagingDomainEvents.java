@@ -22,4 +22,7 @@ public final class MessagingDomainEvents {
 
   /** 메시지 soft-delete 직후. SSE fan-out 용. */
   public record MessageDeletedEvent(long channelId, long messageId) {}
+
+  /** 읽음 표시 직후. SSE fan-out 용. */
+  public record MessageReadEvent(long channelId, long userId, long lastReadMessageId) {}
 }

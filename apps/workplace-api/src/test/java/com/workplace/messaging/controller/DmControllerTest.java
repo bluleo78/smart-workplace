@@ -62,7 +62,8 @@ class DmControllerTest {
         7L,
         List.of(new DmParticipant(1L, "나", "HUMAN"), new DmParticipant(2L, "밥", "HUMAN")),
         null,
-        Instant.parse("2026-06-01T00:00:00Z"));
+        Instant.parse("2026-06-01T00:00:00Z"),
+        0L);
   }
 
   @Test

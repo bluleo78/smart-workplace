@@ -12,6 +12,7 @@ import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -56,8 +57,7 @@ public class MessageService {
             .findAuthorId(messageId)
             .orElseThrow(() -> new MessageNotFoundException(messageId));
     if (authorId != callerId) throw new MessageAuthorMismatchException(messageId, callerId);
-    List<Long> mentionIds =
-        mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
+    List<Long> mentionIds = mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
     messageRepo.update(messageId, req.body(), mentionIds);
     MessageResponse saved = findOne(messageId);
     publisher.publishEvent(
@@ -84,6 +84,14 @@ public class MessageService {
             .orElseThrow(() -> new MessageNotFoundException(messageId));
     messageRepo.softDelete(messageId);
     publisher.publishEvent(new MessageDeletedEvent(channelId, messageId));
+  }
+
+  /** 채널 멤버가 uptoMessageId 까지 읽음 표시. watermark 갱신 후 AFTER_COMMIT SSE 발행. */
+  @Transactional
+  public void markRead(long callerId, long channelId, long uptoMessageId) {
+    ensureMember(channelId, callerId);
+    memberRepo.markRead(channelId, callerId, uptoMessageId);
+    publisher.publishEvent(new MessageReadEvent(channelId, callerId, uptoMessageId));
   }
 
   /** 채널 멤버만 히스토리 조회. */

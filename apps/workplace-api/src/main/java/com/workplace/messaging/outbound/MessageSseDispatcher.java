@@ -3,6 +3,7 @@ package com.workplace.messaging.outbound;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import java.util.LinkedHashMap;
@@ -48,5 +49,15 @@ public class MessageSseDispatcher {
     p.put("channelId", e.channelId());
     p.put("id", e.messageId());
     registry.fanOut(memberRepo.findMemberIds(e.channelId()), "messaging.message.deleted", p);
+  }
+
+  /** 읽음 표시 이벤트를 채널 전 멤버에게 fan-out(멀티기기 unread 동기화). */
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onRead(MessageReadEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("channelId", e.channelId());
+    p.put("userId", e.userId());
+    p.put("lastReadMessageId", e.lastReadMessageId());
+    registry.fanOut(memberRepo.findMemberIds(e.channelId()), "messaging.message.read", p);
   }
 }
