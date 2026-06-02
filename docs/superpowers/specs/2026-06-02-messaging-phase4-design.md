@@ -78,9 +78,12 @@ chat 도메인은 위 공유 컴포넌트를 사용하도록 수정한다(기존
 - `MessageSseDispatcher.onRead` → `fanOut(memberIds, "messaging.message.read", {channelId, userId, lastReadMessageId})`.
   - 본인 multi-device 동기화가 주 목적이므로 멤버 전체 fan-out (chat 동일 패턴).
 - REST: `POST /api/v1/messaging/channels/{id}/read` body `{uptoMessageId}`.
-- **Unread-count**: 채널 목록 조회(`ChannelService.list`) 시 채널별 안읽음 수를 단일 JOIN/서브쿼리로 집계.
-  - `unreadCount = count(message m WHERE m.channel_id = c.id AND m.id > member.last_read_message_id AND m.deleted_at IS NULL)`
-  - `last_read_message_id IS NULL` 이면 전체 미읽음으로 계산.
+- **Unread-count** (⚠️ net-new 설계 — 포팅 아님): chat 에는 메시지 unread 배지 선례가 없다. notify 의 `useUnreadCount`(인박스 알림 카운트)를 개념적으로만 참고한다. mark-read 동기화는 chat 에서 포팅하되, *집계·노출* 은 신규 설계로 취급한다.
+  - 채널 목록 조회(`ChannelService.list`) 시 채널별 안읽음 수를 단일 상관 서브쿼리로 집계:
+    `unreadCount = count(message m WHERE m.channel_id = c.id AND m.id > COALESCE(member.last_read_message_id, member_init) AND m.deleted_at IS NULL AND m.author_id <> :callerId)`
+    - 본인 메시지는 제외(보낸 직후 자기 채널이 unread 로 뜨지 않게).
+  - **신규 멤버 초기값**: 채널 join 시 `last_read_message_id` 를 *그 시점의 최신 메시지 id* 로 초기화한다(`ChannelMemberRepository.join/add` 수정). → 가입 전 히스토리가 거대한 unread 배지로 뜨는 것 방지. (대안인 "NULL=전체 미읽음" 은 폐기.)
+  - 비용: 채널 목록당 채널 수만큼의 상관 서브쿼리. 채널 수가 작아 list 응답에 인라인으로 충분(별도 엔드포인트 불필요). 추후 채널 수 급증 시 batch count 로 최적화.
   - `ChannelResponse` 에 `unreadCount: long` 추가.
 
 ## 프론트엔드 설계
@@ -109,7 +112,7 @@ chat 에서 이동, chat import 경로 수정:
 
 - `MessageList`: `IntersectionObserver` 로 마지막 메시지 가시 시 `useMarkMessageRead(channelId)(lastId)` 호출. chat `ChatMessageList` 포팅.
 - `useMessageStream`: `messaging.message.read` 핸들러 — 채널 멤버/배지 캐시의 `lastReadMessageId` 갱신.
-- **사이드바**: 채널/DM 행에 `unreadCount` 배지. `messaging.message.created`(증가)·`messaging.message.read`(감소/소멸) SSE 로 실시간 갱신.
+- **사이드바**: 채널/DM 행에 `unreadCount` 배지. 초기값은 채널 목록 쿼리의 `unreadCount`, 이후 `messaging.message.created`(현재 보고 있지 않은 채널이면 +1)·`messaging.message.read`(해당 채널 0 으로) SSE 로 갱신. 현재 열려 있는 채널은 mark-read 가 즉시 0 유지. 재진입/refetch 시 서버 `unreadCount` 로 재동기화(낙관 카운트 drift 보정).
 - 훅/타입: `useMarkMessageRead`, `messagingApi.markRead`, `ChannelResponse.unreadCount`.
 
 ## 컴포넌트 경계 요약
@@ -147,6 +150,7 @@ chat 에서 이동, chat import 경로 수정:
 
 ## 단계 분할 (구현 순서 가이드)
 
+0. **그린 베이스라인 확보**: worktree 에서 `pnpm install` → chat 백엔드/프론트 테스트 실행해 *시작점이 green* 임을 확인(공유 추출 회귀를 기존 실패와 구분하기 위함).
 1. **공유 추출** (백엔드 `global` parser/hydrator, 프론트 `components/mentions/`) + chat 리팩터 + chat 회귀 통과
 2. **백엔드 @멘션** (V24, repo/service/dto/event/SSE) + 통합 테스트
 3. **백엔드 수정/삭제** (repo/service/event/SSE/REST) + 통합 테스트
