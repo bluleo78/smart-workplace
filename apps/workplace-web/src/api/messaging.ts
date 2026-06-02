@@ -1,8 +1,8 @@
 // messaging REST API client. 모든 함수는 AxiosResponse 반환 — 호출처(query 훅)에서 .data unwrap.
 
 import type {
-  ChannelResponse,
   ChannelMemberResponse,
+  ChannelResponse,
   ChannelRole,
   CreateChannelRequest,
   CreateMessageRequest,
