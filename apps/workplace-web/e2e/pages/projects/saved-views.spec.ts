@@ -39,7 +39,7 @@ test('저장된 뷰 — 필터 저장 → 칩 등장 → 클릭 시 필터 복�
       const created: SavedViewResponse = {
         id: views.length + 1, name: body.name, query: body.query,
         visibility: body.visibility as SavedViewResponse['visibility'],
-        ownerId: 1, mine: true, createdAt: '', updatedAt: '',
+        ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '',
       }
       views.push(created)
       return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) })
@@ -93,7 +93,7 @@ test('저장된 뷰 — ⋯ 수정 → 이름/가시성 변경(PATCH payload·�
   const views: SavedViewResponse[] = [
     {
       id: 1, name: '원래이름', query: 'priority=HIGH', visibility: 'PRIVATE',
-      ownerId: 1, mine: true, createdAt: '', updatedAt: '',
+      ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '',
     },
   ]
 

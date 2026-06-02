@@ -1,6 +1,7 @@
 package com.workplace.view.controller;
 
 import com.workplace.global.security.RequirePermission;
+import com.workplace.view.dto.PinRequest;
 import com.workplace.view.dto.SaveViewRequest;
 import com.workplace.view.dto.SavedViewResponse;
 import com.workplace.view.service.SavedViewService;
@@ -55,6 +56,17 @@ public class SavedViewController {
       @PathVariable Long id,
       @Valid @RequestBody SaveViewRequest req) {
     return ResponseEntity.ok(service.update((Long) auth.getPrincipal(), key, id, req));
+  }
+
+  /** 고정/해제 — owner 본인만. */
+  @PatchMapping("/{id}/pin")
+  @RequirePermission("savedview:manage")
+  public ResponseEntity<SavedViewResponse> pin(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable Long id,
+      @Valid @RequestBody PinRequest req) {
+    return ResponseEntity.ok(service.togglePin((Long) auth.getPrincipal(), key, id, req.pinned()));
   }
 
   /** 삭제 — owner 본인 또는 SHARED 모더레이터. */

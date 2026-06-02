@@ -1,6 +1,10 @@
 // 저장된 뷰 API — 프로젝트 스코프 CRUD.
 
-import type { SavedViewResponse, SaveViewRequest } from '../types/savedView';
+import type {
+  PinnedSavedViewResponse,
+  SavedViewResponse,
+  SaveViewRequest,
+} from '../types/savedView';
 import { client } from './client';
 
 // 프로젝트의 저장된 뷰 목록 (내 PRIVATE + 공유된 SHARED).
@@ -44,4 +48,23 @@ export async function deleteSavedView(
   id: number,
 ): Promise<void> {
   await client.delete<void>(`/projects/${projectKey}/saved-views/${id}`);
+}
+
+// 뷰 사이드바 고정/해제.
+export async function pinSavedView(
+  projectKey: string,
+  id: number,
+  pinned: boolean,
+): Promise<SavedViewResponse> {
+  const { data } = await client.patch<SavedViewResponse>(
+    `/projects/${projectKey}/saved-views/${id}/pin`,
+    { pinned },
+  );
+  return data;
+}
+
+// 내 프로젝트 교차 고정뷰 목록.
+export async function listMyPinnedViews(): Promise<PinnedSavedViewResponse[]> {
+  const { data } = await client.get<PinnedSavedViewResponse[]>('/me/pinned-views');
+  return data;
 }

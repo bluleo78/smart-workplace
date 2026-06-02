@@ -6,7 +6,9 @@ import { toast } from 'sonner';
 import {
   createSavedView,
   deleteSavedView,
+  listMyPinnedViews,
   listSavedViews,
+  pinSavedView,
   updateSavedView,
 } from '../../api/savedViews';
 import { handleApiError } from '../../lib/api-error';
@@ -58,5 +60,28 @@ export function useDeleteSavedView(projectKey: string) {
       toast.success('뷰를 삭제했습니다');
     },
     onError: (e) => handleApiError(e, '뷰 삭제에 실패했습니다'),
+  });
+}
+
+/** 사용자의 프로젝트 교차 고정뷰 (사이드바). */
+export function useMyPinnedViews() {
+  return useQuery({
+    queryKey: ['pinnedViews'],
+    queryFn: listMyPinnedViews,
+  });
+}
+
+/** 저장된 뷰 사이드바 고정/해제. */
+export function usePinSavedView(projectKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: number; pinned: boolean }) =>
+      pinSavedView(projectKey, v.id, v.pinned),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['savedViews', projectKey] });
+      qc.invalidateQueries({ queryKey: ['pinnedViews'] });
+      toast.success(v.pinned ? '사이드바에 고정했습니다' : '고정을 해제했습니다');
+    },
+    onError: (e) => handleApiError(e, '고정 변경에 실패했습니다'),
   });
 }

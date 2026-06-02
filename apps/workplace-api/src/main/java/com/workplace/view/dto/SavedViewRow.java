@@ -10,5 +10,6 @@ public record SavedViewRow(
     String name,
     String query,
     String visibility,
+    boolean pinned,
     Instant createdAt,
     Instant updatedAt) {}

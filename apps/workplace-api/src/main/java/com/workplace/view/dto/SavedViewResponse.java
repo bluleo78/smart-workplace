@@ -10,5 +10,6 @@ public record SavedViewResponse(
     String visibility,
     Long ownerId,
     boolean mine,
+    boolean pinned,
     Instant createdAt,
     Instant updatedAt) {}
