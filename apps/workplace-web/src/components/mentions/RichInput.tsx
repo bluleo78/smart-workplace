@@ -14,12 +14,13 @@ import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion
 import { useEffect, useRef } from 'react';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
-import { Button } from '../../../../components/ui/button';
-import type { ChatMemberResponse, ChatMentionResponse } from '../../../../types/chat';
-import { MentionList, type MentionListHandle } from './MentionList';
+import { Button } from '@/components/ui/button';
+import { MentionList, type MentionListHandle } from '@/pages/projects/components/chat/MentionList';
+import type { ChatMemberResponse, ChatMentionResponse } from '@/types/chat';
+
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
 
-interface ChatRichInputProps {
+interface RichInputProps {
   members: ChatMemberResponse[];
   initialBody?: string;
   initialMentions?: ChatMentionResponse[];
@@ -36,7 +37,7 @@ interface ChatRichInputProps {
   cancelTestId?: string;
 }
 
-export function ChatRichInput({
+export function RichInput({
   members,
   initialBody = '',
   initialMentions = [],
@@ -50,7 +51,7 @@ export function ChatRichInput({
   inputTestId,
   submitTestId,
   cancelTestId,
-}: ChatRichInputProps) {
+}: RichInputProps) {
   // members 최신값을 suggestion 콜백에서 참조하기 위한 ref.
   // (콜백은 useEditor 가 생성한 클로저에서 호출되므로, 렌더 시점이 아닌 effect 에서 최신값 동기화)
   const membersRef = useRef(members);

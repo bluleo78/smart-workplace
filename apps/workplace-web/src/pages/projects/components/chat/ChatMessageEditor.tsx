@@ -1,7 +1,7 @@
-// 본인 메시지 인라인 수정 — ChatRichInput 재사용. Enter=저장, Esc=취소.
+// 본인 메시지 인라인 수정 — RichInput 재사용. Enter=저장, Esc=취소.
 
 import type { ChatMemberResponse, ChatMentionResponse } from '../../../../types/chat';
-import { ChatRichInput } from './ChatRichInput';
+import { RichInput } from '@/components/mentions/RichInput';
 
 interface ChatMessageEditorProps {
   initialBody: string;
@@ -20,7 +20,7 @@ export function ChatMessageEditor({
 }: ChatMessageEditorProps) {
   return (
     <div className="px-3 py-2" data-testid="chat-message-editor">
-      <ChatRichInput
+      <RichInput
         members={members}
         initialBody={initialBody}
         initialMentions={initialMentions}

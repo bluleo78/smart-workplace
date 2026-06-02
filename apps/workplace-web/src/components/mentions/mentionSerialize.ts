@@ -2,7 +2,7 @@
 
 import type { JSONContent } from '@tiptap/core';
 
-import type { ChatMentionResponse } from '../../../../types/chat';
+import type { ChatMentionResponse } from '@/types/chat';
 
 // TipTap JSON(doc) → 본문 문자열. mention 노드는 <@id>, 문단 경계는 \n.
 export function serializeToBody(doc: JSONContent): string {

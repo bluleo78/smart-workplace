@@ -9,8 +9,9 @@ import { Bot, Pencil, Trash2, User } from 'lucide-react';
 import { Button } from '../../../../components/ui/button';
 import { AgentBadge } from '../../../../components/users/AgentBadge';
 import type { ChatMessageResponse } from '../../../../types/chat';
+import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
+
 import { formatChatTimestamp } from './formatChatTimestamp';
-import { parseMessageSegments } from './parseMessageSegments';
 
 interface ChatMessageRowProps {
   message: ChatMessageResponse;
