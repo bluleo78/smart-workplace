@@ -2,7 +2,11 @@ package com.workplace.messaging.outbound;
 
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -23,5 +27,26 @@ public class MessageSseDispatcher {
   public void onCreated(MessageCreatedEvent e) {
     registry.fanOut(
         memberRepo.findMemberIds(e.channelId()), "messaging.message.created", e.message());
+  }
+
+  /** 메시지 수정 이벤트를 채널 전 멤버에게 fan-out. */
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onUpdated(MessageUpdatedEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("channelId", e.channelId());
+    p.put("id", e.messageId());
+    p.put("body", e.body());
+    p.put("mentions", e.mentions());
+    p.put("editedAt", e.editedAt() == null ? null : e.editedAt().toString());
+    registry.fanOut(memberRepo.findMemberIds(e.channelId()), "messaging.message.updated", p);
+  }
+
+  /** 메시지 삭제 이벤트를 채널 전 멤버에게 fan-out. */
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onDeleted(MessageDeletedEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("channelId", e.channelId());
+    p.put("id", e.messageId());
+    registry.fanOut(memberRepo.findMemberIds(e.channelId()), "messaging.message.deleted", p);
   }
 }

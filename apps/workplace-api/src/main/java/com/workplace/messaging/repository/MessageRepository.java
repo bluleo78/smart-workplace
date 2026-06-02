@@ -49,6 +49,40 @@ public class MessageRepository {
         .getId();
   }
 
+  /** 메시지 body·mentions·edited_at 수정. */
+  public void update(long id, String body, java.util.List<Long> mentionUserIds) {
+    dsl.update(MESSAGE)
+        .set(MESSAGE.BODY, body)
+        .set(MESSAGE.MENTIONS, JSONB.valueOf(toJson(mentionUserIds)))
+        .set(MESSAGE.EDITED_AT, java.time.OffsetDateTime.now())
+        .where(MESSAGE.ID.eq(id))
+        .execute();
+  }
+
+  /** soft-delete: deleted_at 설정. */
+  public void softDelete(long id) {
+    dsl.update(MESSAGE)
+        .set(MESSAGE.DELETED_AT, java.time.OffsetDateTime.now())
+        .where(MESSAGE.ID.eq(id))
+        .execute();
+  }
+
+  /** 메시지 작성자 id 조회. 미존재 시 Optional.empty(). */
+  public Optional<Long> findAuthorId(long id) {
+    return dsl.select(MESSAGE.AUTHOR_ID)
+        .from(MESSAGE)
+        .where(MESSAGE.ID.eq(id))
+        .fetchOptional(MESSAGE.AUTHOR_ID);
+  }
+
+  /** 메시지 채널 id 조회. 미존재 시 Optional.empty(). */
+  public Optional<Long> findChannelId(long id) {
+    return dsl.select(MESSAGE.CHANNEL_ID)
+        .from(MESSAGE)
+        .where(MESSAGE.ID.eq(id))
+        .fetchOptional(MESSAGE.CHANNEL_ID);
+  }
+
   /** id 로 단건 조회. soft-deleted 도 body 마스킹해 반환. */
   public Optional<MessageResponse> findById(long id, MentionResolver resolver) {
     return dsl.select(
