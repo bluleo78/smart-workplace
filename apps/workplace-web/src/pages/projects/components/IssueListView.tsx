@@ -7,16 +7,23 @@ import { Link } from 'react-router-dom';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
-import type { IssueFilters } from '../../../types/issue';
+import { groupIssues } from '../../../lib/issueGrouping';
+import type {
+  IssueFilters,
+  IssueGroupBy,
+  IssueResponse,
+} from '../../../types/issue';
 import { IssuePriorityBadge } from './IssuePriorityBadge';
 import { IssueStatusBadge } from './IssueStatusBadge';
 
 export function IssueListView({
   projectKey,
   filters,
+  groupBy,
 }: {
   projectKey: string;
   filters: IssueFilters;
+  groupBy: IssueGroupBy | null;
 }) {
   const { data, fetchNextPage, hasNextPage, isFetching, isLoading } =
     useIssueSearch(projectKey, filters);
@@ -54,6 +61,11 @@ export function IssueListView({
     );
   }
 
+  // group 이 설정되면 빈 그룹은 숨기고 섹션별로 묶어 렌더 (#58). 부재 시 평탄 목록.
+  const groups = groupBy
+    ? groupIssues(items, groupBy).filter((g) => g.issues.length > 0)
+    : null;
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm" role="table">
@@ -66,50 +78,81 @@ export function IssueListView({
             <th className="w-32">마감</th>
           </tr>
         </thead>
-        <tbody>
-          {items.map((it) => (
-            <tr
-              key={it.id}
-              className="border-b hover:bg-accent"
-              role="row"
-              data-testid={`issue-row-${it.number}`}
-            >
-              <td className="py-2 font-mono text-muted-foreground">
-                {projectKey}-{it.number}
-              </td>
-              <td>
-                <div className="flex items-center gap-2">
-                  {it.type && <IssueTypeBadge type={it.type} size="sm" />}
-                  <Link
-                    to={`/projects/${projectKey}/issues/${it.number}`}
-                    className="font-medium hover:underline"
-                  >
-                    {it.title}
-                  </Link>
-                </div>
-                {it.labels.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {it.labels.map((l) => (
-                      <LabelChip key={l.id} label={l} size="sm" />
-                    ))}
-                  </div>
-                )}
-              </td>
-              <td>
-                <IssueStatusBadge status={it.status} />
-              </td>
-              <td>
-                <IssuePriorityBadge priority={it.priority} />
-              </td>
-              <td>{it.dueDate ?? '-'}</td>
-            </tr>
-          ))}
-        </tbody>
+        {groups ? (
+          groups.map((g) => (
+            <tbody key={g.key} data-testid={`list-group-${g.key}`}>
+              <tr className="bg-muted/40 border-b">
+                <td
+                  colSpan={5}
+                  className="py-1.5 px-1 text-xs font-semibold text-muted-foreground"
+                >
+                  {g.label}
+                  <span className="ml-2 font-normal">{g.issues.length}</span>
+                </td>
+              </tr>
+              {g.issues.map((it) => (
+                <IssueRow key={it.id} issue={it} projectKey={projectKey} />
+              ))}
+            </tbody>
+          ))
+        ) : (
+          <tbody>
+            {items.map((it) => (
+              <IssueRow key={it.id} issue={it} projectKey={projectKey} />
+            ))}
+          </tbody>
+        )}
       </table>
       <div ref={sentinelRef} aria-hidden="true" className="h-1" />
       {isFetching && (
         <p className="text-muted-foreground py-2">불러오는 중…</p>
       )}
     </div>
+  );
+}
+
+// 리스트 행 — 평탄/그룹 렌더가 공유 (DRY) (#58).
+function IssueRow({
+  issue: it,
+  projectKey,
+}: {
+  issue: IssueResponse;
+  projectKey: string;
+}) {
+  return (
+    <tr
+      className="border-b hover:bg-accent"
+      role="row"
+      data-testid={`issue-row-${it.number}`}
+    >
+      <td className="py-2 font-mono text-muted-foreground">
+        {projectKey}-{it.number}
+      </td>
+      <td>
+        <div className="flex items-center gap-2">
+          {it.type && <IssueTypeBadge type={it.type} size="sm" />}
+          <Link
+            to={`/projects/${projectKey}/issues/${it.number}`}
+            className="font-medium hover:underline"
+          >
+            {it.title}
+          </Link>
+        </div>
+        {it.labels.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {it.labels.map((l) => (
+              <LabelChip key={l.id} label={l} size="sm" />
+            ))}
+          </div>
+        )}
+      </td>
+      <td>
+        <IssueStatusBadge status={it.status} />
+      </td>
+      <td>
+        <IssuePriorityBadge priority={it.priority} />
+      </td>
+      <td>{it.dueDate ?? '-'}</td>
+    </tr>
   );
 }

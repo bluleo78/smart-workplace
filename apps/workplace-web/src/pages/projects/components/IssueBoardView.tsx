@@ -23,7 +23,12 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
-import type { IssueFilters, IssueResponse } from '../../../types/issue';
+import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
+import type {
+  IssueFilters,
+  IssueGroupBy,
+  IssueResponse,
+} from '../../../types/issue';
 import { IssueCard } from './IssueCard';
 
 const COLUMNS: { status: string; label: string }[] = [
@@ -36,9 +41,11 @@ const COLUMNS: { status: string; label: string }[] = [
 export function IssueBoardView({
   projectKey,
   filters,
+  groupBy,
 }: {
   projectKey: string;
   filters: IssueFilters;
+  groupBy: IssueGroupBy | null;
 }) {
   // 보드는 한 화면에 많은 카드를 보여줘야 하므로 페이지 크기를 100 으로 키운다.
   const { data, fetchNextPage, hasNextPage, isFetching } = useIssueSearch(
@@ -106,6 +113,26 @@ export function IssueBoardView({
     if (!sourceStatus || !targetStatus || !issueNumber) return;
     if (sourceStatus === targetStatus) return;
     updateStatus.mutate({ number: issueNumber, status: targetStatus });
+  }
+
+  // group 이 상태/없음이 아니면(담당자·우선순위) 동적 읽기전용 그룹 컬럼을 렌더한다.
+  // 상태 그룹/그룹 없음은 기존 드래그-상태변경 보드를 그대로 유지한다 (#58).
+  if (groupBy && groupBy !== 'status') {
+    const grouped = groupIssues(allIssues, groupBy);
+    return (
+      <>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          {grouped.map((g) => (
+            <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} />
+          ))}
+        </div>
+        {hasNextPage && (
+          <p className="text-xs text-muted-foreground mt-3">
+            더 많은 결과가 있습니다 — 필터로 좁혀주세요.
+          </p>
+        )}
+      </>
+    );
   }
 
   return (
@@ -183,6 +210,33 @@ function BoardColumn({
           ))}
         </div>
       </SortableContext>
+    </section>
+  );
+}
+
+// 담당자/우선순위 그룹 보드의 컬럼 — DnD 없는 읽기전용 (이슈는 *렌더*만 요구) (#58).
+function ReadOnlyColumn({
+  group,
+  projectKey,
+}: {
+  group: IssueGroup;
+  projectKey: string;
+}) {
+  return (
+    <section
+      aria-label={`${group.label} 컬럼`}
+      data-testid={`board-col-${group.key}`}
+      className="rounded-md border p-2 min-h-[200px]"
+    >
+      <header className="flex items-center justify-between px-1 pb-2 text-xs font-semibold text-muted-foreground">
+        <span>{group.label}</span>
+        <span>{group.issues.length}</span>
+      </header>
+      <div className="flex flex-col gap-2">
+        {group.issues.map((it) => (
+          <IssueCard key={it.id} projectKey={projectKey} issue={it} />
+        ))}
+      </div>
     </section>
   );
 }

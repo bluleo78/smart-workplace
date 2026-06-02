@@ -12,7 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 
 import { useDeleteSavedView, usePinSavedView, useSavedViews } from '../../../hooks/queries/useSavedViews'
-import { filtersToParams, parseFilters, parseView } from '../../../lib/issueFilters'
+import { filtersToParams, parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters'
 import { queriesEqual } from '../../../lib/savedViewQuery'
 import type { SavedViewResponse } from '../../../types/savedView'
 import { SaveViewDialog } from './SaveViewDialog'
@@ -27,7 +27,8 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
   const [editing, setEditing] = useState<SavedViewResponse | null>(null)
 
   // 현재 URL 필터를 canonical 쿼리스트링으로 — 저장/활성칩 판정에 동일 기준 사용.
-  const currentQuery = filtersToParams(parseFilters(params), parseView(params)).toString()
+  // group 도 포함해야 그룹이 저장 뷰에 영속되고 활성 칩 판정에 반영된다 (#58).
+  const currentQuery = filtersToParams(parseFilters(params), parseView(params), parseGroupBy(params)).toString()
   const isAllActive = currentQuery === ''
 
   // 쿼리스트링을 URL 로 적용 — 저장된 뷰/전체 칩 클릭 시 필터 복원.

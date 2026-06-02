@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
 import { useProject } from '../../hooks/queries/useProjects';
-import { parseFilters, parseView } from '../../lib/issueFilters';
+import { parseFilters, parseGroupBy, parseView } from '../../lib/issueFilters';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
 import { IssueFilterBar } from './components/IssueFilterBar';
@@ -53,15 +53,16 @@ function IssueArea({ projectKey }: { projectKey: string }) {
   const [params] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
+  const groupBy = parseGroupBy(params);
 
   return (
     <section aria-label="태스크">
       <ViewChipBar projectKey={projectKey} />
       <IssueFilterBar projectKey={projectKey} />
       {view === 'board' ? (
-        <IssueBoardView projectKey={projectKey} filters={filters} />
+        <IssueBoardView projectKey={projectKey} filters={filters} groupBy={groupBy} />
       ) : (
-        <IssueListView projectKey={projectKey} filters={filters} />
+        <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} />
       )}
     </section>
   );
