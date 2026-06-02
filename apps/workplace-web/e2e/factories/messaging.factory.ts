@@ -7,7 +7,6 @@ import type {
   DmParticipant,
   DmResponse,
   MessageResponse,
-  MentionResponse,
 } from '../../src/types/messaging';
 
 export function createChannel(overrides: Partial<ChannelResponse> = {}): ChannelResponse {
