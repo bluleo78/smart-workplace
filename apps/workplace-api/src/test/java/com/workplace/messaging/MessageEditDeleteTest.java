@@ -57,10 +57,7 @@ class MessageEditDeleteTest extends IntegrationTestBase {
   /** 작성자가 자신의 메시지를 수정하면 body 가 바뀌고 editedAt 이 설정된다. */
   @Test
   void author_canEdit_bodyChangesAndEditedAtSet() {
-    long msgId =
-        messageService
-            .create(author, channelId, new CreateMessageRequest("원본 메시지"))
-            .id();
+    long msgId = messageService.create(author, channelId, new CreateMessageRequest("원본 메시지")).id();
 
     MessageResponse updated =
         messageService.update(author, msgId, new UpdateMessageRequest("수정된 메시지"));
@@ -74,14 +71,10 @@ class MessageEditDeleteTest extends IntegrationTestBase {
   @Test
   void author_edit_reparsesMentions() {
     // other 유저를 멘션 대상으로 사용
-    long msgId =
-        messageService
-            .create(author, channelId, new CreateMessageRequest("안녕"))
-            .id();
+    long msgId = messageService.create(author, channelId, new CreateMessageRequest("안녕")).id();
 
     MessageResponse updated =
-        messageService.update(
-            author, msgId, new UpdateMessageRequest("<@" + other + "> 수정 멘션"));
+        messageService.update(author, msgId, new UpdateMessageRequest("<@" + other + "> 수정 멘션"));
 
     assertThat(updated.mentions()).extracting(MentionResponse::id).containsExactly(other);
   }
@@ -89,23 +82,16 @@ class MessageEditDeleteTest extends IntegrationTestBase {
   /** 다른 사용자가 수정을 시도하면 MessageAuthorMismatchException(403) 이 발생한다. */
   @Test
   void nonAuthor_edit_throwsAuthorMismatch() {
-    long msgId =
-        messageService
-            .create(author, channelId, new CreateMessageRequest("내 메시지"))
-            .id();
+    long msgId = messageService.create(author, channelId, new CreateMessageRequest("내 메시지")).id();
 
-    assertThatThrownBy(
-            () -> messageService.update(other, msgId, new UpdateMessageRequest("훼손 시도")))
+    assertThatThrownBy(() -> messageService.update(other, msgId, new UpdateMessageRequest("훼손 시도")))
         .isInstanceOf(MessageAuthorMismatchException.class);
   }
 
   /** 다른 사용자가 삭제를 시도하면 MessageAuthorMismatchException(403) 이 발생한다. */
   @Test
   void nonAuthor_delete_throwsAuthorMismatch() {
-    long msgId =
-        messageService
-            .create(author, channelId, new CreateMessageRequest("내 메시지"))
-            .id();
+    long msgId = messageService.create(author, channelId, new CreateMessageRequest("내 메시지")).id();
 
     assertThatThrownBy(() -> messageService.delete(other, msgId))
         .isInstanceOf(MessageAuthorMismatchException.class);
@@ -114,10 +100,7 @@ class MessageEditDeleteTest extends IntegrationTestBase {
   /** 작성자가 soft-delete 하면 조회 시 deleted=true, body="(삭제됨)" 으로 마스킹된다. */
   @Test
   void author_delete_thenFetchShowsMasked() {
-    long msgId =
-        messageService
-            .create(author, channelId, new CreateMessageRequest("삭제 예정"))
-            .id();
+    long msgId = messageService.create(author, channelId, new CreateMessageRequest("삭제 예정")).id();
 
     messageService.delete(author, msgId);
 
