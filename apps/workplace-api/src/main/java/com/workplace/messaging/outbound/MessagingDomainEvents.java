@@ -25,4 +25,10 @@ public final class MessagingDomainEvents {
 
   /** 읽음 표시 직후. SSE fan-out 용. */
   public record MessageReadEvent(long channelId, long userId, long lastReadMessageId) {}
+
+  /** 리액션 추가 직후. SSE fan-out 용. */
+  public record ReactionAddedEvent(long channelId, long messageId, String emoji, long userId) {}
+
+  /** 리액션 제거 직후. SSE fan-out 용. */
+  public record ReactionRemovedEvent(long channelId, long messageId, String emoji, long userId) {}
 }

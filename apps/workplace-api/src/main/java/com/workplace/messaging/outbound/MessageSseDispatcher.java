@@ -5,6 +5,8 @@ import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEven
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionAddedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionRemovedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -59,5 +61,34 @@ public class MessageSseDispatcher {
     p.put("userId", e.userId());
     p.put("lastReadMessageId", e.lastReadMessageId());
     registry.fanOut(memberRepo.findMemberIds(e.channelId()), "messaging.message.read", p);
+  }
+
+  /** 리액션 추가 이벤트를 채널 전 멤버에게 fan-out. */
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onReactionAdded(ReactionAddedEvent e) {
+    registry.fanOut(
+        memberRepo.findMemberIds(e.channelId()),
+        "messaging.reaction.added",
+        reactionPayload(e.channelId(), e.messageId(), e.emoji(), e.userId()));
+  }
+
+  /** 리액션 제거 이벤트를 채널 전 멤버에게 fan-out. */
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onReactionRemoved(ReactionRemovedEvent e) {
+    registry.fanOut(
+        memberRepo.findMemberIds(e.channelId()),
+        "messaging.reaction.removed",
+        reactionPayload(e.channelId(), e.messageId(), e.emoji(), e.userId()));
+  }
+
+  /** 리액션 SSE payload {channelId, messageId, emoji, userId}. */
+  private Map<String, Object> reactionPayload(
+      long channelId, long messageId, String emoji, long userId) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("channelId", channelId);
+    p.put("messageId", messageId);
+    p.put("emoji", emoji);
+    p.put("userId", userId);
+    return p;
   }
 }

@@ -66,6 +66,16 @@ public class MessageController {
     return ResponseEntity.noContent().build();
   }
 
+  /** 특정 부모 메시지의 답글(스레드) 조회. 비멤버=403. */
+  @GetMapping("/messages/{id}/replies")
+  public ResponseEntity<MessagePage> replies(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long parentMessageId,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(defaultValue = "50") int limit) {
+    return ResponseEntity.ok(messageService.listThread(callerId, parentMessageId, cursor, limit));
+  }
+
   /** 작성자만 자신의 메시지 soft-delete. 204 반환. */
   @DeleteMapping("/messages/{id}")
   public ResponseEntity<Void> delete(
