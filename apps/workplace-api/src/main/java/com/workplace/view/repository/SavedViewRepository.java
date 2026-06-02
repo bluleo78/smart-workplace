@@ -1,7 +1,9 @@
 package com.workplace.view.repository;
 
+import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.SAVED_VIEW;
 
+import com.workplace.view.dto.PinnedSavedViewResponse;
 import com.workplace.view.dto.SavedViewRow;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -93,6 +95,40 @@ public class SavedViewRepository {
         .set(SAVED_VIEW.UPDATED_AT, OffsetDateTime.now())
         .where(SAVED_VIEW.ID.eq(id))
         .execute();
+  }
+
+  /** 사용자의 모든 프로젝트 고정뷰 (project 조인, 삭제 프로젝트 제외). */
+  public List<PinnedSavedViewResponse> findPinnedByUser(Long userId) {
+    return dsl.select(
+            SAVED_VIEW.ID,
+            SAVED_VIEW.PROJECT_ID,
+            PROJECT.KEY,
+            PROJECT.NAME,
+            SAVED_VIEW.NAME,
+            SAVED_VIEW.QUERY,
+            SAVED_VIEW.CREATED_AT)
+        .from(SAVED_VIEW)
+        .join(PROJECT)
+        .on(SAVED_VIEW.PROJECT_ID.eq(PROJECT.ID))
+        .where(
+            SAVED_VIEW
+                .OWNER_ID
+                .eq(userId)
+                .and(SAVED_VIEW.IS_PINNED.isTrue())
+                .and(PROJECT.DELETED_AT.isNull()))
+        .orderBy(SAVED_VIEW.CREATED_AT.desc())
+        .fetch(
+            r -> {
+              OffsetDateTime created = r.get(SAVED_VIEW.CREATED_AT);
+              return new PinnedSavedViewResponse(
+                  r.get(SAVED_VIEW.ID),
+                  r.get(SAVED_VIEW.PROJECT_ID),
+                  r.get(PROJECT.KEY),
+                  r.get(PROJECT.NAME),
+                  r.get(SAVED_VIEW.NAME),
+                  r.get(SAVED_VIEW.QUERY),
+                  created != null ? created.toInstant() : null);
+            });
   }
 
   /** 뷰 hard-delete. */
