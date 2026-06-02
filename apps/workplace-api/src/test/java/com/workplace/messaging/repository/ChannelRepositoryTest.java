@@ -53,12 +53,15 @@ class ChannelRepositoryTest extends IntegrationTestBase {
   @Test
   void searchDiscoverable_publicNotArchived_matchesName_excludesPrivate() {
     long owner = seedUser();
-    long pub = channelRepo.insert("공개-개발팀", "PUBLIC", owner);
-    long priv = channelRepo.insert("비공개-개발팀", "PRIVATE", owner);
-    long arch = channelRepo.insert("공개-보관-개발팀", "PUBLIC", owner);
+    // 영속 테스트 DB(5435)는 테스트 간 정리되지 않으므로, 이름 검색어를 매 실행 고유 토큰으로
+    // 만들어 이전 실행/다른 테스트가 만든 채널과 충돌하지 않게 한다(containsExactly 보장).
+    String tag = "검색" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    long pub = channelRepo.insert("공개-" + tag, "PUBLIC", owner);
+    long priv = channelRepo.insert("비공개-" + tag, "PRIVATE", owner);
+    long arch = channelRepo.insert("공개-보관-" + tag, "PUBLIC", owner);
     channelRepo.setArchived(arch, true);
 
-    List<ChannelResponse> result = channelRepo.searchDiscoverable(seedUser(), "개발팀");
+    List<ChannelResponse> result = channelRepo.searchDiscoverable(seedUser(), tag);
     assertThat(result).extracting(ChannelResponse::id).containsExactly(pub);
     assertThat(result).extracting(ChannelResponse::id).doesNotContain(priv, arch);
     assertThat(result.get(0).member()).isFalse();
