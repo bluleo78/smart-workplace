@@ -17,9 +17,11 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.Record;
 import org.jooq.SelectConditionStep;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -37,13 +39,15 @@ public class MessageRepository {
   private final DSLContext dsl;
   private final ObjectMapper objectMapper;
 
-  /** 메시지 작성 후 ID 반환. mentions 는 user.id 의 long[] 형태로 저장. */
-  public long insert(long channelId, long authorId, String body, List<Long> mentionUserIds) {
+  /** 메시지 작성 후 ID 반환. mentions 는 user.id 의 long[] 형태로 저장. parentMessageId 있으면 스레드 답글. */
+  public long insert(
+      long channelId, long authorId, String body, List<Long> mentionUserIds, Long parentMessageId) {
     return dsl.insertInto(MESSAGE)
         .set(MESSAGE.CHANNEL_ID, channelId)
         .set(MESSAGE.AUTHOR_ID, authorId)
         .set(MESSAGE.BODY, body)
         .set(MESSAGE.MENTIONS, JSONB.valueOf(toJson(mentionUserIds)))
+        .set(MESSAGE.PARENT_MESSAGE_ID, parentMessageId)
         .returning(MESSAGE.ID)
         .fetchOne()
         .getId();
@@ -83,6 +87,27 @@ public class MessageRepository {
         .fetchOptional(MESSAGE.CHANNEL_ID);
   }
 
+  /** 메시지의 channel_id + parent_message_id 조회(스레드 부모 검증용). 미존재 시 empty. */
+  public Optional<MessageRef> findRef(long id) {
+    return dsl.select(MESSAGE.CHANNEL_ID, MESSAGE.PARENT_MESSAGE_ID)
+        .from(MESSAGE)
+        .where(MESSAGE.ID.eq(id))
+        .fetchOptional(
+            r -> new MessageRef(r.get(MESSAGE.CHANNEL_ID), r.get(MESSAGE.PARENT_MESSAGE_ID)));
+  }
+
+  /** 메시지 참조(채널 + 부모). parentMessageId == null 이면 최상위 메시지. */
+  public record MessageRef(long channelId, Long parentMessageId) {}
+
+  /** 이 메시지에 달린 답글 수 상관 서브쿼리(삭제 포함 — 패널 표시와 일치). */
+  private static Field<Integer> replyCountField() {
+    com.workplace.jooq.tables.Message child = MESSAGE.as("child");
+    return DSL.selectCount()
+        .from(child)
+        .where(child.PARENT_MESSAGE_ID.eq(MESSAGE.ID))
+        .asField("reply_count");
+  }
+
   /** id 로 단건 조회. soft-deleted 도 body 마스킹해 반환. */
   public Optional<MessageResponse> findById(long id, MentionResolver resolver) {
     return dsl.select(
@@ -95,7 +120,9 @@ public class MessageRepository {
             MESSAGE.MENTIONS,
             MESSAGE.CREATED_AT,
             MESSAGE.EDITED_AT,
-            MESSAGE.DELETED_AT)
+            MESSAGE.DELETED_AT,
+            MESSAGE.PARENT_MESSAGE_ID,
+            replyCountField())
         .from(MESSAGE)
         .join(USER)
         .on(USER.ID.eq(MESSAGE.AUTHOR_ID))
@@ -103,7 +130,9 @@ public class MessageRepository {
         .fetchOptional(r -> toResponse(r, resolver));
   }
 
-  /** Cursor 페이징. nextCursor 는 base64(epochSecond|nano|id). DESC 정렬. */
+  /**
+   * Cursor 페이징. nextCursor 는 base64(epochSecond|nano|id). DESC 정렬. parent IS NULL 인 최상위 메시지만 반환.
+   */
   public MessagePage findPage(long channelId, String cursor, int limit, MentionResolver resolver) {
     int safeLimit = Math.min(limit, MAX_LIMIT);
     SelectConditionStep<?> query =
@@ -117,11 +146,13 @@ public class MessageRepository {
                 MESSAGE.MENTIONS,
                 MESSAGE.CREATED_AT,
                 MESSAGE.EDITED_AT,
-                MESSAGE.DELETED_AT)
+                MESSAGE.DELETED_AT,
+                MESSAGE.PARENT_MESSAGE_ID,
+                replyCountField())
             .from(MESSAGE)
             .join(USER)
             .on(USER.ID.eq(MESSAGE.AUTHOR_ID))
-            .where(MESSAGE.CHANNEL_ID.eq(channelId));
+            .where(MESSAGE.CHANNEL_ID.eq(channelId).and(MESSAGE.PARENT_MESSAGE_ID.isNull()));
 
     if (cursor != null && !cursor.isEmpty()) {
       Cursor c = Cursor.decode(cursor);
@@ -150,6 +181,56 @@ public class MessageRepository {
     return new MessagePage(items, nextCursor, hasMore);
   }
 
+  /** 특정 부모 메시지의 답글 페이지. 오래된→최신(ASC) keyset. soft-deleted 답글도 마스킹해 포함. */
+  public MessagePage findThreadPage(
+      long parentMessageId, String cursor, int limit, MentionResolver resolver) {
+    int safeLimit = Math.min(limit, MAX_LIMIT);
+    SelectConditionStep<?> query =
+        dsl.select(
+                MESSAGE.ID,
+                MESSAGE.CHANNEL_ID,
+                MESSAGE.AUTHOR_ID,
+                USER.NAME,
+                USER.KIND,
+                MESSAGE.BODY,
+                MESSAGE.MENTIONS,
+                MESSAGE.CREATED_AT,
+                MESSAGE.EDITED_AT,
+                MESSAGE.DELETED_AT,
+                MESSAGE.PARENT_MESSAGE_ID,
+                replyCountField())
+            .from(MESSAGE)
+            .join(USER)
+            .on(USER.ID.eq(MESSAGE.AUTHOR_ID))
+            .where(MESSAGE.PARENT_MESSAGE_ID.eq(parentMessageId));
+
+    if (cursor != null && !cursor.isEmpty()) {
+      Cursor c = Cursor.decode(cursor);
+      OffsetDateTime cursorTs = OffsetDateTime.ofInstant(c.createdAt(), ZoneOffset.UTC);
+      query =
+          query.and(
+              MESSAGE
+                  .CREATED_AT
+                  .greaterThan(cursorTs)
+                  .or(MESSAGE.CREATED_AT.eq(cursorTs).and(MESSAGE.ID.greaterThan(c.id()))));
+    }
+
+    List<MessageResponse> items =
+        query
+            .orderBy(MESSAGE.CREATED_AT.asc(), MESSAGE.ID.asc())
+            .limit(safeLimit + 1)
+            .fetch(r -> toResponse(r, resolver));
+
+    boolean hasMore = items.size() > safeLimit;
+    if (hasMore) items = items.subList(0, safeLimit);
+    String nextCursor = null;
+    if (hasMore && !items.isEmpty()) {
+      MessageResponse last = items.get(items.size() - 1);
+      nextCursor = Cursor.encode(new Cursor(last.createdAt(), last.id()));
+    }
+    return new MessagePage(items, nextCursor, hasMore);
+  }
+
   /**
    * Record → MessageResponse 변환. soft-deleted 메시지는 body 를 "(삭제됨)" 으로 마스킹. mentions 는 resolver 로
    * hydrate.
@@ -161,6 +242,7 @@ public class MessageRepository {
     List<MentionResponse> mentions = resolver.resolve(mentionIds);
     OffsetDateTime created = r.get(MESSAGE.CREATED_AT);
     OffsetDateTime edited = r.get(MESSAGE.EDITED_AT);
+    Integer replyCount = r.get("reply_count", Integer.class);
     return new MessageResponse(
         r.get(MESSAGE.ID),
         r.get(MESSAGE.CHANNEL_ID),
@@ -169,6 +251,9 @@ public class MessageRepository {
         r.get(USER.KIND),
         body,
         mentions,
+        r.get(MESSAGE.PARENT_MESSAGE_ID),
+        replyCount == null ? 0 : replyCount,
+        java.util.List.of(), // reactions 는 service 가 batch enrich
         created == null ? null : created.toInstant(),
         edited == null ? null : edited.toInstant(),
         deleted);

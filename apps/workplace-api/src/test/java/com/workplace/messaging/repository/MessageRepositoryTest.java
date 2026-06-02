@@ -36,8 +36,8 @@ class MessageRepositoryTest extends IntegrationTestBase {
     long uid = seedUser();
     long channelId = channelRepo.insertPublic("일반", uid);
 
-    long m1 = messageRepo.insert(channelId, uid, "first", java.util.List.of());
-    long m2 = messageRepo.insert(channelId, uid, "second", java.util.List.of());
+    long m1 = messageRepo.insert(channelId, uid, "first", java.util.List.of(), null);
+    long m2 = messageRepo.insert(channelId, uid, "second", java.util.List.of(), null);
 
     // 멘션이 없는 메시지이므로 resolver 는 빈 목록을 돌려주는 trivial 구현으로 충분.
     MessagePage page = messageRepo.findPage(channelId, null, 50, ids -> java.util.List.of());

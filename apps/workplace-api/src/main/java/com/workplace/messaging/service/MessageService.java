@@ -5,9 +5,11 @@ import com.workplace.global.util.MentionParser;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageResponse;
+import com.workplace.messaging.dto.ReactionResponse;
 import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
+import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
@@ -17,7 +19,10 @@ import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEven
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.repository.MessageRepository;
+import com.workplace.messaging.repository.MessageRepository.MessageRef;
+import com.workplace.messaging.repository.ReactionRepository;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -33,6 +38,7 @@ public class MessageService {
   private final ChannelRepository channelRepo;
   private final ApplicationEventPublisher publisher;
   private final UserMentionHydrator mentionHydrator;
+  private final ReactionRepository reactionRepo;
 
   /** 채널 멤버가 메시지 작성. 본문 @멘션 파싱·검증 후 INSERT, AFTER_COMMIT 이벤트 발행. */
   @Transactional
@@ -40,11 +46,21 @@ public class MessageService {
     ensureMember(channelId, callerId);
     // 아카이브된 채널에는 새 메시지를 작성할 수 없다 (409).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
+    // 스레드 답글이면 부모 검증: 존재 + 같은 채널 + 최상위(대댓글 금지).
+    Long parentId = req.parentMessageId();
+    if (parentId != null) {
+      MessageRef ref =
+          messageRepo
+              .findRef(parentId)
+              .orElseThrow(() -> new InvalidThreadParentException(parentId));
+      if (ref.channelId() != channelId || ref.parentMessageId() != null)
+        throw new InvalidThreadParentException(parentId);
+    }
     // 본문에서 멘션 토큰 추출 → 실제 존재하는 user.id 만 남긴다.
     java.util.List<Long> mentionIds =
         mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
-    long messageId = messageRepo.insert(channelId, callerId, req.body(), mentionIds);
-    MessageResponse saved = findOne(messageId);
+    long messageId = messageRepo.insert(channelId, callerId, req.body(), mentionIds, parentId);
+    MessageResponse saved = findOne(messageId, callerId);
     publisher.publishEvent(new MessageCreatedEvent(channelId, saved));
     return saved;
   }
@@ -59,7 +75,7 @@ public class MessageService {
     if (authorId != callerId) throw new MessageAuthorMismatchException(messageId, callerId);
     List<Long> mentionIds = mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
     messageRepo.update(messageId, req.body(), mentionIds);
-    MessageResponse saved = findOne(messageId);
+    MessageResponse saved = findOne(messageId, callerId);
     publisher.publishEvent(
         new MessageUpdatedEvent(
             saved.channelId(),
@@ -94,16 +110,47 @@ public class MessageService {
     publisher.publishEvent(new MessageReadEvent(channelId, callerId, uptoMessageId));
   }
 
-  /** 채널 멤버만 히스토리 조회. */
+  /** 채널 멤버만 히스토리 조회. 리액션 집계 batch enrich 포함. */
   public MessagePage list(long callerId, long channelId, String cursor, int limit) {
     ensureMember(channelId, callerId);
-    return messageRepo.findPage(channelId, cursor, limit, mentionHydrator::asMentionResponses);
+    MessagePage page =
+        messageRepo.findPage(channelId, cursor, limit, mentionHydrator::asMentionResponses);
+    return enrichReactions(page, callerId);
   }
 
-  private MessageResponse findOne(long messageId) {
-    return messageRepo
-        .findById(messageId, mentionHydrator::asMentionResponses)
-        .orElseThrow(() -> new IllegalStateException("message " + messageId + " not found"));
+  /** 채널 멤버만 특정 부모 메시지의 답글 조회. */
+  public MessagePage listThread(long callerId, long parentMessageId, String cursor, int limit) {
+    MessageRef ref =
+        messageRepo
+            .findRef(parentMessageId)
+            .orElseThrow(() -> new MessageNotFoundException(parentMessageId));
+    ensureMember(ref.channelId(), callerId);
+    MessagePage page =
+        messageRepo.findThreadPage(
+            parentMessageId, cursor, limit, mentionHydrator::asMentionResponses);
+    return enrichReactions(page, callerId);
+  }
+
+  /** 페이지 내 모든 메시지의 리액션 집계를 batch 로 채운다. */
+  private MessagePage enrichReactions(MessagePage page, long callerId) {
+    java.util.List<Long> ids = page.items().stream().map(MessageResponse::id).toList();
+    Map<Long, java.util.List<ReactionResponse>> map = reactionRepo.summariesFor(ids, callerId);
+    java.util.List<MessageResponse> enriched =
+        page.items().stream()
+            .map(m -> m.withReactions(map.getOrDefault(m.id(), java.util.List.of())))
+            .toList();
+    return new MessagePage(enriched, page.nextCursor(), page.hasMore());
+  }
+
+  private MessageResponse findOne(long messageId, long callerId) {
+    MessageResponse m =
+        messageRepo
+            .findById(messageId, mentionHydrator::asMentionResponses)
+            .orElseThrow(() -> new IllegalStateException("message " + messageId + " not found"));
+    return m.withReactions(
+        reactionRepo
+            .summariesFor(java.util.List.of(messageId), callerId)
+            .getOrDefault(messageId, java.util.List.of()));
   }
 
   private void ensureMember(long channelId, long userId) {

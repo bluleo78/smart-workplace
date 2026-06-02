@@ -5,7 +5,8 @@ export const messagingKeys = {
   discover: (q: string) => [...messagingKeys.all, 'discover', q] as const,
   detail: (channelId: number) => [...messagingKeys.all, 'detail', channelId] as const,
   members: (channelId: number) => [...messagingKeys.all, 'members', channelId] as const,
-  messages: (channelId: number) =>
-    [...messagingKeys.all, 'messages', channelId] as const,
+  messages: (channelId: number) => [...messagingKeys.all, 'messages', channelId] as const,
+  threads: () => [...messagingKeys.all, 'thread'] as const,
+  thread: (parentMessageId: number) => [...messagingKeys.all, 'thread', parentMessageId] as const,
   dms: () => [...messagingKeys.all, 'dms'] as const,
 };

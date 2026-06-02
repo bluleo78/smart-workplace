@@ -39,6 +39,7 @@ import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidDmRequestException;
+import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
@@ -201,6 +202,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(InvalidDmRequestException.class)
   public ResponseEntity<ErrorResponse> handleInvalidDmRequest(
       InvalidDmRequestException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+  }
+
+  /** 스레드 부모 부적합 → 400. */
+  @ExceptionHandler(InvalidThreadParentException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidThreadParent(
+      InvalidThreadParentException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }

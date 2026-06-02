@@ -358,6 +358,7 @@ public class ChannelRepository {
                 .CHANNEL_ID
                 .eq(CHANNEL.ID)
                 .and(MESSAGE.DELETED_AT.isNull())
+                .and(MESSAGE.PARENT_MESSAGE_ID.isNull()) // 스레드 답글은 채널 뱃지에서 제외
                 .and(MESSAGE.AUTHOR_ID.ne(callerId))
                 .and(
                     MESSAGE.ID.gt(

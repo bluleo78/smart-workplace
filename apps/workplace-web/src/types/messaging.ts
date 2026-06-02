@@ -33,6 +33,13 @@ export interface MentionResponse {
   kind: UserKind;
 }
 
+/** 메시지의 이모지별 리액션 집계. reacted = 내가 누른 여부. */
+export interface ReactionResponse {
+  emoji: string;
+  count: number;
+  reacted: boolean;
+}
+
 export interface MessageResponse {
   id: number;
   channelId: number;
@@ -41,6 +48,9 @@ export interface MessageResponse {
   authorKind: UserKind;
   body: string;
   mentions: MentionResponse[]; // 메시지 내 @멘션 목록
+  parentMessageId: number | null; // 스레드 답글이면 부모 id
+  replyCount: number; // 이 메시지에 달린 답글 수
+  reactions: ReactionResponse[]; // 이모지별 집계
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
@@ -71,6 +81,7 @@ export interface UpdateRoleRequest {
 
 export interface CreateMessageRequest {
   body: string;
+  parentMessageId?: number | null; // 스레드 답글 작성 시
 }
 
 /** DM 참여자(본인 포함). */
