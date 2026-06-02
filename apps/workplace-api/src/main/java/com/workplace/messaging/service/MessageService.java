@@ -3,9 +3,11 @@ package com.workplace.messaging.service;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageResponse;
+import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
+import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -19,12 +21,15 @@ public class MessageService {
 
   private final MessageRepository messageRepo;
   private final ChannelMemberRepository memberRepo;
+  private final ChannelRepository channelRepo;
   private final ApplicationEventPublisher publisher;
 
   /** 채널 멤버가 메시지 작성. INSERT 후 AFTER_COMMIT 이벤트 발행. */
   @Transactional
   public MessageResponse create(long callerId, long channelId, CreateMessageRequest req) {
     ensureMember(channelId, callerId);
+    // 아카이브된 채널에는 메시지 전송 불가 (409)
+    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     long messageId = messageRepo.insert(channelId, callerId, req.body());
     MessageResponse saved = findOne(messageId);
     publisher.publishEvent(new MessageCreatedEvent(channelId, saved));

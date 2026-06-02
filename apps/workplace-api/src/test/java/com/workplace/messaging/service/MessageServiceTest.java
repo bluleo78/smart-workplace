@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageResponse;
+import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.support.IntegrationTestBase;
@@ -54,5 +55,16 @@ class MessageServiceTest extends IntegrationTestBase {
     long channelId = channelRepo.insertPublic("비밀 아님", uid);
     assertThatThrownBy(() -> messageService.create(uid, channelId, new CreateMessageRequest("hi")))
         .isInstanceOf(ChannelNotMemberException.class);
+  }
+
+  @Test
+  void create_onArchivedChannel_throws409() {
+    long uid = seedUser();
+    long channelId = channelRepo.insertPublic("보관채널", uid);
+    channelService.join(uid, channelId); // uid 를 멤버로
+    channelRepo.setArchived(channelId, true); // 리포지토리로 직접 아카이브 상태 설정
+
+    assertThatThrownBy(() -> messageService.create(uid, channelId, new CreateMessageRequest("막힘")))
+        .isInstanceOf(ChannelArchivedException.class);
   }
 }
