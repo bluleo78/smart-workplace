@@ -42,6 +42,7 @@ export async function searchIssues(
   if (filters.dueFrom) params.set('dueFrom', filters.dueFrom);
   if (filters.dueTo) params.set('dueTo', filters.dueTo);
   if (filters.labelIds.length) params.set('label', filters.labelIds.join(','));
+  if (filters.cycleIds.length) params.set('cycle', filters.cycleIds.join(','));
   if (filters.typeIds.length) params.set('type', filters.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel 은 무시(서버 우선순위와 정합).
   if (filters.parentNumber != null && filters.parentNumber > 0) {

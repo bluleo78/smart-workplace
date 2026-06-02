@@ -50,6 +50,7 @@ export function IssueChildrenSection({
           dueFrom: null,
           dueTo: null,
           labelIds: [],
+          cycleIds: [],
           typeIds: [],
           parentNumber,
           topLevel: false,
