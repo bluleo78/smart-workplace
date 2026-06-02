@@ -1,7 +1,10 @@
 package com.workplace.messaging.service;
 
+import com.workplace.global.dto.MentionResponse;
+import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
+import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageResponse;
@@ -12,6 +15,7 @@ import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
+import com.workplace.messaging.outbound.MessagingDomainEvents.MessageAiTriggerEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
@@ -39,6 +43,7 @@ public class MessageService {
   private final ApplicationEventPublisher publisher;
   private final UserMentionHydrator mentionHydrator;
   private final ReactionRepository reactionRepo;
+  private final AiAgentProperties aiAgentProps;
 
   /** 채널 멤버가 메시지 작성. 본문 @멘션 파싱·검증 후 INSERT, AFTER_COMMIT 이벤트 발행. */
   @Transactional
@@ -61,8 +66,68 @@ public class MessageService {
         mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
     long messageId = messageRepo.insert(channelId, callerId, req.body(), mentionIds, parentId);
     MessageResponse saved = findOne(messageId, callerId);
-    publisher.publishEvent(new MessageCreatedEvent(channelId, saved));
+    publisher.publishEvent(new MessageCreatedEvent(channelId, saved)); // SSE fan-out (기존)
+    maybeTriggerAi(callerId, channelId, saved); // AI 응답 트리거 (신규)
     return saved;
+  }
+
+  /**
+   * AI 응답 트리거 판단. self-loop 차단(작성자 AGENT 면 무발사). 채널이면 멘션된 AGENT 를 add-only 멤버추가 후 첫 AGENT 를 응답자로,
+   * 1:1 DM 이면 상대 AGENT 를, 그룹 DM 이면 멤버인 멘션 AGENT 를 응답자로 선정한다. 응답자가 있으면 MessageAiTriggerEvent 발행 →
+   * AFTER_COMMIT 디스패처가 ai-agent 로 forward.
+   */
+  private void maybeTriggerAi(long callerId, long channelId, MessageResponse saved) {
+    // AI 비활성 시 트리거뿐 아니라 AGENT 자동 멤버추가도 하지 않는다(비활성 환경에서 응답 없는 유령 멤버 방지).
+    if (!aiAgentProps.enabled()) return;
+    if ("AGENT".equals(saved.authorKind())) return; // self-loop 가드 (1:1 DM 의 유일한 가드)
+    String kind = channelRepo.findKind(channelId);
+    Long respondAsAgentId;
+    if ("DM".equals(kind)) {
+      java.util.List<ChannelMemberResponse> members = memberRepo.listMembers(channelId);
+      if (members.size() == 2) {
+        // 1:1 DM: caller 제외 상대가 AGENT 면 멘션 없이도 응답.
+        respondAsAgentId =
+            members.stream()
+                .filter(m -> m.userId() != callerId && "AGENT".equals(m.kind()))
+                .map(ChannelMemberResponse::userId)
+                .findFirst()
+                .orElse(null);
+      } else {
+        // 그룹 DM: 멤버가 고정 — 멘션된 AGENT 가 이미 멤버일 때만.
+        java.util.Set<Long> memberIds =
+            members.stream()
+                .map(ChannelMemberResponse::userId)
+                .collect(java.util.stream.Collectors.toSet());
+        respondAsAgentId =
+            saved.mentions().stream()
+                .filter(m -> "AGENT".equals(m.kind()) && memberIds.contains(m.id()))
+                .map(MentionResponse::id)
+                .findFirst()
+                .orElse(null);
+      }
+    } else {
+      // 채널: 멘션된 AGENT 를 add-only 멤버추가 후 첫 AGENT 를 응답자로.
+      java.util.List<Long> agentMentionIds =
+          saved.mentions().stream()
+              .filter(m -> "AGENT".equals(m.kind()))
+              .map(MentionResponse::id)
+              .toList();
+      for (Long agentId : agentMentionIds) memberRepo.add(channelId, agentId, "MEMBER");
+      respondAsAgentId = agentMentionIds.isEmpty() ? null : agentMentionIds.get(0);
+    }
+    if (respondAsAgentId == null) return;
+    publisher.publishEvent(
+        new MessageAiTriggerEvent(
+            channelId,
+            kind,
+            saved.id(),
+            respondAsAgentId,
+            saved.authorId(),
+            saved.authorName(),
+            saved.authorKind(),
+            saved.body(),
+            saved.mentions(),
+            saved.createdAt()));
   }
 
   /** 작성자만 자신의 메시지 수정. 본문 @멘션 재파싱, AFTER_COMMIT SSE 발행. */

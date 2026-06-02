@@ -9,11 +9,15 @@ vi.mock('../agent/run-agent.js', () => ({
 vi.mock('../agent/chat-event-handler.js', () => ({
   handleChatEvent: vi.fn(),
 }));
+vi.mock('../agent/messaging-event-handler.js', () => ({
+  handleMessagingEvent: vi.fn(),
+}));
 
 import { internalAuth } from '../middleware/internal-auth.js';
 import { createEventsRouter } from './events.js';
 import { runAgent } from '../agent/run-agent.js';
 import { handleChatEvent } from '../agent/chat-event-handler.js';
+import { handleMessagingEvent } from '../agent/messaging-event-handler.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
 const client = {
@@ -54,6 +58,7 @@ describe('POST /events', () => {
     vi.mocked(runAgent).mockClear();
     vi.mocked(runAgent).mockResolvedValue(undefined);
     vi.mocked(handleChatEvent).mockClear();
+    vi.mocked(handleMessagingEvent).mockClear();
   });
   afterEach(() => {
     delete process.env.INTERNAL_SERVICE_TOKEN;
@@ -171,5 +176,38 @@ describe('POST /events', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('invalid_payload');
     expect(handleChatEvent).not.toHaveBeenCalled();
+  });
+
+  const validMessagingPayload = {
+    channelId: 10,
+    channelKind: 'PUBLIC',
+    messageId: 55,
+    respondAsAgentId: 201,
+    actor: { id: 7, name: 'Alice', kind: 'HUMAN' },
+    body: '@AI 도움말',
+    mentions: [{ id: 201, username: 'ai-bot', name: 'AI', kind: 'AGENT' }],
+    occurredAt: '2026-06-03T09:00:00Z',
+  };
+
+  it('messaging.message.posted 정상 → 202 + handleMessagingEvent 호출', async () => {
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'messaging.message.posted', payload: validMessagingPayload });
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ received: true });
+    expect(handleMessagingEvent).toHaveBeenCalledOnce();
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(handleChatEvent).not.toHaveBeenCalled();
+  });
+
+  it('messaging.message.posted 잘못된 payload → 400 invalid_payload', async () => {
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'messaging.message.posted', payload: { channelId: 'bad' } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
+    expect(handleMessagingEvent).not.toHaveBeenCalled();
   });
 });

@@ -4,11 +4,13 @@ import { z } from 'zod';
 
 import { handleEvent, type EventHandlerDeps } from '../agent/event-handler.js';
 import { handleChatEvent } from '../agent/chat-event-handler.js';
+import { handleMessagingEvent } from '../agent/messaging-event-handler.js';
 import {
   KNOWN_ISSUE_TYPES,
   issueEventEnvelope,
 } from '../types/issue-events.js';
 import { chatEventEnvelope, CHAT_MESSAGE_POSTED } from '../types/chat-events.js';
+import { messagingEventEnvelope, MESSAGING_MESSAGE_POSTED } from '../types/messaging-events.js';
 
 const envelopeSchema = z.object({
   type: z.string().min(1),
@@ -37,6 +39,18 @@ export function createEventsRouter(deps: EventHandlerDeps): Router {
         return;
       }
       handleChatEvent(chat.data, deps);
+      res.status(202).json({ received: true });
+      return;
+    }
+
+    // 7: messaging 이벤트 분기 — 별도 스키마/핸들러.
+    if (type === MESSAGING_MESSAGE_POSTED) {
+      const m = messagingEventEnvelope.safeParse(req.body);
+      if (!m.success) {
+        res.status(400).json({ error: 'invalid_payload', issues: m.error.issues });
+        return;
+      }
+      handleMessagingEvent(m.data, deps);
       res.status(202).json({ received: true });
       return;
     }
