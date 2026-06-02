@@ -7,11 +7,11 @@ import { useEffect, useRef, useState } from 'react'
 
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
+import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
 import { useDeleteMessage } from '@/hooks/queries/useDeleteMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
-import type { ChatMemberResponse } from '@/types/chat'
 import type { MessageResponse } from '@/types/messaging'
 
 interface MessageListProps {
@@ -19,7 +19,7 @@ interface MessageListProps {
   channelId: number
   currentUserId: number
   // @멘션 후보(인라인 수정 에디터의 RichInput 용). 멘션 칩 표시는 본문에 이미 포함.
-  members: ChatMemberResponse[]
+  members: MentionCandidate[]
 }
 
 export function MessageList({ messages, channelId, currentUserId, members }: MessageListProps) {

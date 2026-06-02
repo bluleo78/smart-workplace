@@ -15,15 +15,15 @@ import { useEffect, useRef } from 'react';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
 import { Button } from '@/components/ui/button';
-import { MentionList, type MentionListHandle } from '@/pages/projects/components/chat/MentionList';
-import type { ChatMemberResponse, ChatMentionResponse } from '@/types/chat';
 
+import { MentionList, type MentionListHandle } from './MentionList';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
+import type { MentionCandidate, MentionUser } from './types';
 
 interface RichInputProps {
-  members: ChatMemberResponse[];
+  members: MentionCandidate[];
   initialBody?: string;
-  initialMentions?: ChatMentionResponse[];
+  initialMentions?: MentionUser[];
   placeholder?: string;
   onSubmit: (body: string) => void;
   onCancel?: () => void;
@@ -103,7 +103,7 @@ export function RichInput({
             let component: ReactRenderer<MentionListHandle> | null = null;
             let popup: TippyInstance | null = null;
             return {
-              onStart: (props: SuggestionProps<ChatMemberResponse>) => {
+              onStart: (props: SuggestionProps<MentionCandidate>) => {
                 popupOpenRef.current = true;
                 component = new ReactRenderer(MentionList, {
                   props,
@@ -119,7 +119,7 @@ export function RichInput({
                   placement: 'bottom-start',
                 });
               },
-              onUpdate: (props: SuggestionProps<ChatMemberResponse>) => {
+              onUpdate: (props: SuggestionProps<MentionCandidate>) => {
                 component?.updateProps(props);
                 popup?.setProps({ getReferenceClientRect: props.clientRect as () => DOMRect });
               },

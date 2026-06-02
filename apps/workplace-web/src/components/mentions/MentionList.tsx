@@ -3,15 +3,16 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 
-import { AgentBadge } from '../../../../components/users/AgentBadge';
-import type { ChatMemberResponse } from '../../../../types/chat';
+import { AgentBadge } from '@/components/users/AgentBadge';
+
+import type { MentionCandidate } from './types';
 
 export interface MentionListHandle {
   onKeyDown: (props: { event: KeyboardEvent }) => boolean;
 }
 
 interface MentionListProps {
-  items: ChatMemberResponse[];
+  items: MentionCandidate[];
   command: (item: { id: number; label: string }) => void;
 }
 

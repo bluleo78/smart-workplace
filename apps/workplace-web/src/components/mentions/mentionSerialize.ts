@@ -2,7 +2,7 @@
 
 import type { JSONContent } from '@tiptap/core';
 
-import type { ChatMentionResponse } from '@/types/chat';
+import type { MentionUser } from './types';
 
 // TipTap JSON(doc) → 본문 문자열. mention 노드는 <@id>, 문단 경계는 \n.
 export function serializeToBody(doc: JSONContent): string {
@@ -19,7 +19,7 @@ export function serializeToBody(doc: JSONContent): string {
 }
 
 // 본문 문자열 → TipTap JSON(doc). <@id> 는 mention 노드(label=이름)로 복원.
-export function bodyToDoc(body: string, mentions: ChatMentionResponse[]): JSONContent {
+export function bodyToDoc(body: string, mentions: MentionUser[]): JSONContent {
   const nameById = new Map(mentions.map((m) => [m.id, m.name]));
   const lines = body.split('\n');
   const content: JSONContent[] = lines.map((line) => {

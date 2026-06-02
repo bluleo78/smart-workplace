@@ -4,11 +4,11 @@ import { useParams } from 'react-router-dom'
 import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
+import type { MentionCandidate } from '@/components/mentions/types'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useAuth } from '@/hooks/useAuth'
-import type { ChatMemberResponse } from '@/types/chat'
 import type { UserKind } from '@/types/messaging'
 
 export default function DmPage() {
@@ -27,13 +27,11 @@ export default function DmPage() {
 
   const dm = dms?.find((d) => d.id === dmId)
   // @멘션 후보 = DM 참여자. RichInput 이 기대하는 chat 멤버 형태로 매핑(username 은 name 으로 대체).
-  const mentionMembers: ChatMemberResponse[] = (dm?.participants ?? []).map((p) => ({
+  const mentionMembers: MentionCandidate[] = (dm?.participants ?? []).map((p) => ({
     userId: p.userId,
     username: p.name,
     name: p.name,
     kind: p.kind,
-    lastReadMessageId: null,
-    joinedAt: '',
   }))
 
   // 목록 로딩 끝났는데 해당 DM 이 없으면 비참여자/미존재 → 은닉.

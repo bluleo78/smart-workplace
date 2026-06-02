@@ -1,7 +1,7 @@
 // 메시지 작성기 — RichInput(@멘션) 기반. Enter 전송·Shift+Enter 줄바꿈은 RichInput 이 처리.
 // 아카이브 채널이면 입력기 미마운트 + 안내(보관 채널은 전송 불가).
 import { RichInput } from '@/components/mentions/RichInput'
-import type { ChatMemberResponse } from '@/types/chat'
+import type { MentionCandidate } from '@/components/mentions/types'
 
 export function MessageComposer({
   members,
@@ -9,7 +9,7 @@ export function MessageComposer({
   disabled = false,
 }: {
   // @멘션 후보 = 해당 채널/DM 의 구성원.
-  members: ChatMemberResponse[]
+  members: MentionCandidate[]
   onSend: (body: string) => void
   disabled?: boolean
 }) {
