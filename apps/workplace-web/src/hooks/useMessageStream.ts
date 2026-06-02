@@ -36,23 +36,25 @@ function upsertMessage(qc: QueryClient, channelId: number, msg: MessageResponse)
 // 캐시 내 기존 메시지를 부분 patch(merge). updated/deleted 이벤트는 부분 payload 이므로
 // full replace 가 아닌 merge 로 적용한다(authorId/authorName 등 보존). 미존재 시 no-op
 // (미오픈 채널 → 열 때 refetch 로 정합. created 와 달리 prepend 하지 않음).
+// 채널 캐시와 스레드 캐시 모두에 적용 — 답글은 thread 캐시에만 존재하므로 양쪽 모두 필요.
 function patchMessage(
   qc: QueryClient,
   channelId: number,
   id: number,
   patch: Partial<MessageResponse>,
 ) {
-  const key = messagingKeys.messages(channelId);
-  qc.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
-    if (!old) return old;
-    return {
-      ...old,
-      pages: old.pages.map((p) => ({
-        ...p,
-        items: p.items.map((m) => (m.id === id ? { ...m, ...patch } : m)),
-      })),
-    };
-  });
+  const apply = (old?: InfiniteData<MessagePage>) =>
+    !old
+      ? old
+      : {
+          ...old,
+          pages: old.pages.map((p) => ({
+            ...p,
+            items: p.items.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+          })),
+        };
+  qc.setQueryData<InfiniteData<MessagePage>>(messagingKeys.messages(channelId), apply);
+  qc.setQueriesData<InfiniteData<MessagePage>>({ queryKey: messagingKeys.threads() }, apply);
 }
 
 // 사이드바 unread 배지는 서버 재계산이 진실원 — created/read 이벤트에 채널·DM 목록 키를

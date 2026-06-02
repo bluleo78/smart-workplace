@@ -17,17 +17,19 @@ export function useUpdateMessage(channelId: number) {
       messagingApi.updateMessage(messageId, body),
 
     onSuccess: (saved) => {
-      const key = messagingKeys.messages(channelId);
-      qc.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((p) => ({
-            ...p,
-            items: p.items.map((m) => (m.id === saved.id ? saved : m)),
-          })),
-        };
-      });
+      // 수정된 메시지를 채널 캐시와 스레드 캐시 모두에 반영(답글은 thread 캐시에만 존재).
+      const apply = (old?: InfiniteData<MessagePage>) =>
+        !old
+          ? old
+          : {
+              ...old,
+              pages: old.pages.map((p) => ({
+                ...p,
+                items: p.items.map((m) => (m.id === saved.id ? saved : m)),
+              })),
+            };
+      qc.setQueryData<InfiniteData<MessagePage>>(messagingKeys.messages(channelId), apply);
+      qc.setQueriesData<InfiniteData<MessagePage>>({ queryKey: messagingKeys.threads() }, apply);
     },
 
     onError: (err) => {
