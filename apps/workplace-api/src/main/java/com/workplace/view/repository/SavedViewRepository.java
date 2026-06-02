@@ -1,6 +1,7 @@
 package com.workplace.view.repository;
 
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.SAVED_VIEW;
 
 import com.workplace.view.dto.PinnedSavedViewResponse;
@@ -11,6 +12,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
@@ -97,7 +99,10 @@ public class SavedViewRepository {
         .execute();
   }
 
-  /** 사용자의 모든 프로젝트 고정뷰 (project 조인, 삭제 프로젝트 제외). */
+  /**
+   * 사용자의 모든 프로젝트 고정뷰 (project 조인, 삭제 프로젝트 제외). 소유자가 해당 프로젝트의 멤버로 여전히 남아 있는 뷰만 반환한다 — 프로젝트를 탈퇴하면 고정뷰
+   * 행은 남아 있어 죽은 사이드바 링크가 되므로 PROJECT_MEMBER 재확인(EXISTS)으로 제외한다.
+   */
   public List<PinnedSavedViewResponse> findPinnedByUser(Long userId) {
     return dsl.select(
             SAVED_VIEW.ID,
@@ -115,7 +120,16 @@ public class SavedViewRepository {
                 .OWNER_ID
                 .eq(userId)
                 .and(SAVED_VIEW.IS_PINNED.isTrue())
-                .and(PROJECT.DELETED_AT.isNull()))
+                .and(PROJECT.DELETED_AT.isNull())
+                .and(
+                    DSL.exists(
+                        DSL.selectOne()
+                            .from(PROJECT_MEMBER)
+                            .where(
+                                PROJECT_MEMBER
+                                    .PROJECT_ID
+                                    .eq(SAVED_VIEW.PROJECT_ID)
+                                    .and(PROJECT_MEMBER.USER_ID.eq(userId))))))
         .orderBy(SAVED_VIEW.CREATED_AT.desc())
         .fetch(
             r -> {

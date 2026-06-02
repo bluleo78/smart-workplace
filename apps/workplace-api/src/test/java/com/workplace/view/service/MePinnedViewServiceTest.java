@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
+import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.view.dto.PinnedSavedViewResponse;
@@ -25,6 +26,7 @@ class MePinnedViewServiceTest extends IntegrationTestBase {
   @Autowired MePinnedViewService service;
   @Autowired SavedViewService savedViewService;
   @Autowired ProjectService projectService;
+  @Autowired ProjectMemberRepository memberRepository;
 
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -77,5 +79,56 @@ class MePinnedViewServiceTest extends IntegrationTestBase {
               assertThat(p.name()).isNotBlank();
               assertThat(p.projectName()).isNotBlank();
             });
+  }
+
+  /** 다른 사용자의 고정뷰는 내 목록에 노출되지 않는다 (OWNER_ID 격리). */
+  @Test
+  void list_excludesOtherUsersPinnedViews() {
+    Long ownerA = createUser("pinaA");
+    Long ownerB = createUser("pinaB");
+    var pB = newProject(ownerB, "pina");
+    var vB = savedViewService.create(ownerB, pB.key(), req("B고정", "priority=HIGH", "PRIVATE"));
+    savedViewService.togglePin(ownerB, pB.key(), vB.id(), true);
+
+    var pinnedA = service.list(ownerA);
+
+    assertThat(pinnedA).extracting(PinnedSavedViewResponse::id).doesNotContain(vB.id());
+  }
+
+  /** 고정되지 않은 뷰는 제외된다 — 고정한 뷰만 반환. */
+  @Test
+  void list_excludesUnpinnedViews() {
+    Long owner = createUser("pinunp");
+    var p = newProject(owner, "pinu");
+    var pinnedView =
+        savedViewService.create(owner, p.key(), req("고정함", "priority=HIGH", "PRIVATE"));
+    var unpinnedView =
+        savedViewService.create(owner, p.key(), req("미고정", "assignee=me", "PRIVATE"));
+    savedViewService.togglePin(owner, p.key(), pinnedView.id(), true);
+
+    var pinned = service.list(owner);
+
+    assertThat(pinned).extracting(PinnedSavedViewResponse::id).contains(pinnedView.id());
+    assertThat(pinned).extracting(PinnedSavedViewResponse::id).doesNotContain(unpinnedView.id());
+  }
+
+  /** 사용자가 프로젝트를 탈퇴하면 그 프로젝트의 고정뷰는 제외된다 (멤버십 재확인). */
+  @Test
+  void list_excludesViewsInProjectsUserLeft() {
+    Long owner = createUser("pinlvo");
+    Long member = createUser("pinlvm");
+    var p = newProject(owner, "pinl");
+    // 두 번째 사용자를 멤버로 추가 후, 그가 뷰를 만들고 고정한다.
+    memberRepository.insert(p.id(), member, "MEMBER");
+    var v = savedViewService.create(member, p.key(), req("탈퇴전", "priority=HIGH", "PRIVATE"));
+    savedViewService.togglePin(member, p.key(), v.id(), true);
+
+    // 멤버인 동안에는 목록에 포함된다 (멤버십 필터가 원인임을 증명하는 before 단언).
+    assertThat(service.list(member)).extracting(PinnedSavedViewResponse::id).contains(v.id());
+
+    // 멤버십 제거 후에는 제외된다.
+    memberRepository.delete(p.id(), member);
+
+    assertThat(service.list(member)).extracting(PinnedSavedViewResponse::id).doesNotContain(v.id());
   }
 }
