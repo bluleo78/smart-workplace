@@ -24,12 +24,12 @@
 - **모듈 경계 준수**: Spring Modulith 상 `messaging` 모듈이 `chat` 모듈을 직접 의존하지 않는다. 공유 로직은 백엔드 `global`(이미 `SseRegistry` 위치), 프론트 신규 `src/components/mentions/` 로 추출한다.
 - chat 의 import 경로는 추출된 공유 모듈을 가리키도록 리팩터한다 (동작 동일, 회귀 없음).
 
-## 마이그레이션 (V24)
+## 마이그레이션 (V25)
 
 `message` 테이블에 멘션 컬럼만 추가한다. 나머지 컬럼은 V19 에 이미 존재.
 
 ```sql
--- V24__messaging_mentions.sql
+-- V25__messaging_mentions.sql
 ALTER TABLE message ADD COLUMN mentions JSONB NOT NULL DEFAULT '[]';
 ```
 
@@ -37,7 +37,7 @@ ALTER TABLE message ADD COLUMN mentions JSONB NOT NULL DEFAULT '[]';
 - `message.edited_at TIMESTAMPTZ`, `message.deleted_at TIMESTAMPTZ` (V19)
 - `channel_member.last_read_message_id BIGINT` (V19)
 
-마이그레이션 번호: V22=notify, V23=DM → **다음은 V24**.
+마이그레이션 번호: V22=notify, V23=DM, **V24=saved_view_pin(main 선점)** → **다음은 V25**.
 
 ## 백엔드 설계
 

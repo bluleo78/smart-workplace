@@ -6,7 +6,7 @@
 
 **Architecture:** 이슈 채팅(`chat`) 도메인에 검증된 패턴을 messaging 으로 포팅한다. 모듈 경계상 messaging→chat 직접 의존은 금지하므로, 공유 로직은 백엔드 `global`(parser/hydrator)·프론트 `src/components/mentions/` 로 추출한다. unread 배지는 chat 의 `last_read_message_id` 워터마크 위에 per-channel count 집계를 새로 얹고(net-new), notify 의 `invalidate→refetch` 패턴으로 실시간 갱신한다.
 
-**Tech Stack:** Spring Boot · jOOQ(코드젠) · Flyway(V24) · JUnit 통합테스트 / React 19 · TipTap · TanStack Query · Playwright E2E
+**Tech Stack:** Spring Boot · jOOQ(코드젠) · Flyway(V25) · JUnit 통합테스트 / React 19 · TipTap · TanStack Query · Playwright E2E
 
 **참조 소스(verbatim 미러 대상):**
 - `chat/service/ChatMessageService.java`, `chat/repository/ChatMessageRepository.java`, `chat/controller/ChatMessageController.java`
@@ -25,7 +25,7 @@
 - `global/util/MentionParser.java` — `<@id>` 파서 (chat 에서 이동)
 - `global/dto/MentionResponse.java` — 공유 멘션 DTO `{id, username, name, kind}`
 - `global/service/UserMentionHydrator.java` — `filterExistingUserIds` + `asMentionResponses`
-- `db/migration/V24__messaging_mentions.sql`
+- `db/migration/V25__messaging_mentions.sql`
 
 **백엔드 — 수정**
 - chat: `ChatUserHydrator`(mention 메서드 제거·위임), `ChatMessageRepository`(MentionResolver 타입 교체), `ChatMessageResponse`(mentions 타입 교체), `ChatMessageService`(parser/resolver 참조 교체), `chat/dto/ChatMentionResponse.java`(삭제)
@@ -235,15 +235,15 @@ git add -A && git commit --no-verify -m "refactor(global): UserMentionHydrator/M
 
 ---
 
-## Task 3: 마이그레이션 V24 + jOOQ 코드젠
+## Task 3: 마이그레이션 V25 + jOOQ 코드젠
 
 **Files:**
-- Create: `apps/workplace-api/src/main/resources/db/migration/V24__messaging_mentions.sql`
+- Create: `apps/workplace-api/src/main/resources/db/migration/V25__messaging_mentions.sql`
 
 - [ ] **Step 1: 마이그레이션 작성**
 
 ```sql
--- V24: messaging 메시지 멘션. chat_message.mentions 와 동일 패턴(JSONB long[]).
+-- V25: messaging 메시지 멘션. chat_message.mentions 와 동일 패턴(JSONB long[]).
 ALTER TABLE message ADD COLUMN mentions JSONB NOT NULL DEFAULT '[]';
 ```
 
@@ -260,7 +260,7 @@ Expected: `public final TableField<MessageRecord, JSONB> MENTIONS = ...`
 - [ ] **Step 4: Commit**
 
 ```bash
-git add -A && git commit --no-verify -m "feat(messaging): V24 message.mentions 컬럼 + jOOQ 재생성"
+git add -A && git commit --no-verify -m "feat(messaging): V25 message.mentions 컬럼 + jOOQ 재생성"
 ```
 
 ---
