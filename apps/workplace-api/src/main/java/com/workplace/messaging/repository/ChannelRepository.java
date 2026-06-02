@@ -208,6 +208,15 @@ public class ChannelRepository {
             .where(CHANNEL.ID.eq(channelId).and(CHANNEL.ARCHIVED_AT.isNotNull())));
   }
 
+  /** 채널 kind('CHANNEL'|'DM'). 트리거 판단용. 채널이 없으면 빈 문자열. */
+  public String findKind(long channelId) {
+    return dsl.select(CHANNEL.KIND)
+        .from(CHANNEL)
+        .where(CHANNEL.ID.eq(channelId))
+        .fetchOptional(CHANNEL.KIND)
+        .orElse("");
+  }
+
   /** 하드 삭제 — channel_member/message 는 FK ON DELETE CASCADE 로 함께 삭제. */
   public void hardDelete(long channelId) {
     dsl.deleteFrom(CHANNEL).where(CHANNEL.ID.eq(channelId)).execute();

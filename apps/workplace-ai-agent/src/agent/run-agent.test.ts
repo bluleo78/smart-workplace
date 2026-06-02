@@ -23,6 +23,8 @@ function client(token: string | Error): WorkplaceApiClient {
         : vi.fn().mockResolvedValue({ token, label: 'main' }),
     getChatMessages: vi.fn().mockResolvedValue([]),
     addChatMessage: vi.fn().mockResolvedValue(undefined),
+    getChannelMessages: vi.fn().mockResolvedValue([]),
+    addChannelMessage: vi.fn().mockResolvedValue(undefined),
     listIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadIssueAttachment: vi.fn(),
   };
