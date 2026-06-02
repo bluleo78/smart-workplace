@@ -8,8 +8,19 @@ export interface SavedViewResponse {
   visibility: Visibility;
   ownerId: number;
   mine: boolean;
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PinnedSavedViewResponse {
+  id: number;
+  projectId: number;
+  projectKey: string;
+  projectName: string;
+  name: string;
+  query: string;
+  createdAt: string;
 }
 
 export interface SaveViewRequest {
