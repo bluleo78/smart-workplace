@@ -1,6 +1,8 @@
 package com.workplace.messaging.service;
 
+import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -118,6 +120,35 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
     memberService.updateRole(owner, ch.id(), target, "OWNER");
     assertThat(memberRepo.findRole(ch.id(), owner)).contains("ADMIN");
     assertThat(memberRepo.findRole(ch.id(), target)).contains("OWNER");
+  }
+
+  /** 기존 시스템 ADMIN 역할을 user 에 부여해 시스템 관리자로 만든다. */
+  private void grantSystemAdmin(long userId) {
+    Long adminRoleId =
+        dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, userId)
+        .set(USER_ROLE.ROLE_ID, adminRoleId)
+        .onConflictDoNothing()
+        .execute();
+  }
+
+  @Test
+  void updateRole_transferBySystemAdmin_demotesIncumbentOwnerNotCaller() {
+    long owner = seedUser();
+    long target = seedUser();
+    long sysAdmin = seedUser();
+    grantSystemAdmin(sysAdmin);
+    ChannelResponse ch = channelService.create(owner, "일반", "PUBLIC");
+    memberService.add(owner, ch.id(), target); // target 은 MEMBER
+
+    // 시스템 ADMIN 이 소유권을 target 으로 이전
+    memberService.updateRole(sysAdmin, ch.id(), target, "OWNER");
+
+    assertThat(memberRepo.findRole(ch.id(), target)).contains("OWNER"); // 새 OWNER
+    assertThat(memberRepo.findRole(ch.id(), owner)).contains("ADMIN"); // 기존 OWNER 강등됨
+    // OWNER 는 정확히 1명이어야 한다
+    assertThat(memberRepo.findOwner(ch.id())).contains(target);
   }
 
   @Test

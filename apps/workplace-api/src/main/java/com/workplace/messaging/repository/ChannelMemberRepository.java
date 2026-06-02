@@ -61,6 +61,14 @@ public class ChannelMemberRepository {
         .fetchOptional(CHANNEL_MEMBER.ROLE);
   }
 
+  /** 채널의 현직 OWNER user_id (없으면 empty). 소유권 이전 시 기존 OWNER 강등에 사용. */
+  public Optional<Long> findOwner(long channelId) {
+    return dsl.select(CHANNEL_MEMBER.USER_ID)
+        .from(CHANNEL_MEMBER)
+        .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.ROLE.eq("OWNER")))
+        .fetchOptional(CHANNEL_MEMBER.USER_ID);
+  }
+
   /** 역할 변경(승격/강등/소유권 이전). */
   public void updateRole(long channelId, long userId, String role) {
     dsl.update(CHANNEL_MEMBER)
