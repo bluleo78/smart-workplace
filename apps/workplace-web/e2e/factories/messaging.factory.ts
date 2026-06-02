@@ -7,6 +7,7 @@ import type {
   DmParticipant,
   DmResponse,
   MessageResponse,
+  ReactionResponse,
 } from '../../src/types/messaging';
 
 export function createChannel(overrides: Partial<ChannelResponse> = {}): ChannelResponse {
@@ -56,6 +57,11 @@ export function createDm(overrides: Partial<DmResponse> = {}): DmResponse {
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     ...overrides,
   };
+}
+
+/** Phase 5: 이모지 리액션 집계 팩토리. */
+export function createReaction(overrides: Partial<ReactionResponse> = {}): ReactionResponse {
+  return { emoji: '👍', count: 1, reacted: false, ...overrides };
 }
 
 export function createMessage(overrides: Partial<MessageResponse> = {}): MessageResponse {
