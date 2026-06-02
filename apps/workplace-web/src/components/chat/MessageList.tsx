@@ -3,12 +3,13 @@
 // 본인(authorId === currentUserId) · 미삭제 메시지는 hover 시 수정/삭제 toolbar 노출.
 // 수정 → 인라인 RichInput 에디터(chat 의 ChatMessageEditor 미러). 삭제됨 메시지는 '(삭제됨)' 마스킹.
 import { Pencil, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
 import { Button } from '@/components/ui/button'
 import { useDeleteMessage } from '@/hooks/queries/useDeleteMessage'
+import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
 import type { ChatMemberResponse } from '@/types/chat'
 import type { MessageResponse } from '@/types/messaging'
@@ -30,17 +31,37 @@ export function MessageList({ messages, channelId, currentUserId, members }: Mes
   const update = useUpdateMessage(channelId)
   const remove = useDeleteMessage(channelId)
 
+  // 마지막(최신) 메시지가 viewport 진입하면 읽음 처리(mark-read). 중복 억제는 훅 내부 ref 가 담당.
+  const markRead = useMarkMessageRead(channelId)
+  const lastRef = useRef<HTMLDivElement | null>(null)
+  const lastId = ordered.length > 0 ? ordered[ordered.length - 1].id : null
+
+  useEffect(() => {
+    const el = lastRef.current
+    if (!el || lastId === null || lastId < 0) return // 낙관적(음수)·빈 목록 제외
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) markRead(lastId)
+      },
+      { threshold: 0.5 },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [lastId, markRead])
+
   return (
     <div className="flex flex-col gap-2 p-4" data-testid="message-list">
-      {ordered.map((m) => {
+      {ordered.map((m, idx) => {
         const isPending = m.id < 0
         // 본인·미삭제·미전송중 메시지만 toolbar 노출.
         const canEdit = m.authorId === currentUserId && !m.deleted && !isPending
         const isEditing = editingId === m.id
+        const isLast = idx === ordered.length - 1
 
         return (
           <div
             key={m.id}
+            ref={isLast ? lastRef : undefined}
             data-testid={`message-${m.id}`}
             data-pending={isPending ? 'true' : undefined}
             className="group relative rounded-md px-2 py-1"

@@ -3,7 +3,7 @@
 // messaging.message.created 는 react-query messages 캐시를 channelId 로 직접 갱신.
 
 import { type InfiniteData, type QueryClient, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { getAccessToken, refreshAccessToken } from '../api/client';
 import type { MessagePage, MessageResponse } from '../types/messaging';
@@ -51,12 +51,26 @@ function patchMessage(
   });
 }
 
-function handleEvent(qc: QueryClient, eventName: string, data: unknown) {
+// 사이드바 unread 배지는 서버 재계산이 진실원 — created/read 이벤트에 채널·DM 목록 키를
+// invalidate 하면 REST 가 최신 unreadCount 를 다시 가져온다(낙관적 ±1 금지, 스펙 결정).
+function invalidateLists(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: messagingKeys.channels() });
+  qc.invalidateQueries({ queryKey: messagingKeys.dms() });
+}
+
+function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentUserId: number) {
   const d = data as Record<string, unknown>;
+  // read 이벤트: payload {channelId,userId,lastReadMessageId}. 본인 읽음일 때만 배지 재계산.
+  if (eventName === 'messaging.message.read') {
+    if (Number(d.userId) === currentUserId) invalidateLists(qc);
+    return;
+  }
   const channelId = Number(d.channelId);
   if (!channelId) return;
   if (eventName === 'messaging.message.created') {
     upsertMessage(qc, channelId, data as MessageResponse);
+    // 미오픈 채널 포함 사이드바 배지 갱신.
+    invalidateLists(qc);
   } else if (eventName === 'messaging.message.updated') {
     // payload: {channelId,id,body,mentions,editedAt}
     const id = Number(d.id);
@@ -74,8 +88,11 @@ function handleEvent(qc: QueryClient, eventName: string, data: unknown) {
   }
 }
 
-export function useMessageStream() {
+export function useMessageStream(currentUserId: number) {
   const qc = useQueryClient();
+  // read 이벤트 필터(본인 읽음만 invalidate)용 — ref 로 보관해 재연결(스트림 재구독) 없이 최신값 참조.
+  const currentUserIdRef = useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
 
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +143,7 @@ export function useMessageStream() {
         const dispatch = () => {
           if (currentData) {
             try {
-              handleEvent(qc, currentEvent, JSON.parse(currentData));
+              handleEvent(qc, currentEvent, JSON.parse(currentData), currentUserIdRef.current);
             } catch {
               // 잘못된 SSE 데이터 무시
             }
