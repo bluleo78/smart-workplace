@@ -127,8 +127,8 @@ export function ChannelMembersPanel({
                       {m.role}
                     </Badge>
                   )}
-                  {/* OWNER/ADMIN 은 타인 제거 가능(본인 제외) */}
-                  {canManage && !isSelf && (
+                  {/* OWNER/ADMIN 은 타인 제거 가능(본인 제외). OWNER 는 제거 불가(백엔드 403) → 버튼 숨김. */}
+                  {canManage && !isSelf && m.role !== 'OWNER' && (
                     <Button
                       size="sm"
                       variant="ghost"

@@ -147,6 +147,18 @@ test.describe('messaging 멤버 패널', () => {
     const ch = createChannel({ id: CID, role: 'OWNER', member: true })
     await stubBase(page, ch)
     let transferred = false
+    // 채널 상세 — 이전 후 caller(나)는 OWNER→ADMIN 으로 강등(실제 백엔드 동작). stubBase 보다 나중에 등록되어 우선.
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CID}`,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback()
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...ch, role: transferred ? 'ADMIN' : 'OWNER' }),
+        })
+      },
+    )
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${CID}/members`,
       (route) => {
@@ -177,9 +189,8 @@ test.describe('messaging 멤버 패널', () => {
     await page.getByTestId('channel-members-btn').click()
     // 동료(2)를 OWNER 로 — 역할 select 사용(myRole=OWNER, isSelf=false → select 렌더).
     await page.getByTestId('member-role-select-2').selectOption('OWNER')
-    // 멤버 재조회 후 member-role-select-2 의 value 가 OWNER 로 업데이트되는지 확인.
-    // (stubBase 의 GET /channels/{id} 는 OWNER 고정 → myRole 유지 → member 2 는 여전히 select)
-    await expect(page.getByTestId('member-role-select-2')).toHaveValue('OWNER')
+    // 이전 후 detail 무효화 → 나는 ADMIN 으로 강등(isOwner=false) → 동료(2)는 뱃지로 OWNER 표시.
+    await expect(page.getByTestId('member-role-2')).toContainText('OWNER')
     // 이제 나가기.
     await page.getByTestId('channel-leave-btn').click()
     await page.getByTestId('channel-leave-confirm').click()
