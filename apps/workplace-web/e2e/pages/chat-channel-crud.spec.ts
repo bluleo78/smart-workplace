@@ -170,3 +170,108 @@ test.describe('messaging 채널 탐색·참여', () => {
     await expect(page.getByTestId('channel-link-30')).toBeVisible()
   })
 })
+
+// 채널 상세(헤더·아카이브·404) E2E — stubChannelView 로 공통 라우트 설정.
+async function stubChannelView(
+  page: Page,
+  channel: ReturnType<typeof createChannel>,
+  status = 200,
+) {
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/channels',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([channel]) })
+        : route.fallback(),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/stream',
+    (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: ':\n\n' }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${channel.id}`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return status === 200
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(channel) })
+        : route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ message: '채널을 찾을 수 없습니다' }) })
+    },
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${channel.id}/messages`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }) })
+        : route.fallback(),
+  )
+}
+
+test.describe('messaging 채널 헤더·아카이브', () => {
+  test('아카이브 채널 → composer 비활성 + 안내', async ({ authenticatedPage: page }) => {
+    const archived = createChannel({ id: 40, name: '보관됨', archived: true, role: 'OWNER', member: true })
+    await stubChannelView(page, archived)
+    await page.goto('/chat/channels/40')
+    await expect(page.getByTestId('channel-archived-badge')).toBeVisible()
+    await expect(page.getByTestId('message-composer-input')).toBeDisabled()
+    await expect(page.getByText('이 채널은 보관되었습니다')).toBeVisible()
+  })
+
+  test('OWNER → 설정에서 이름 변경', async ({ authenticatedPage: page }) => {
+    const ch = createChannel({ id: 41, name: '구이름', role: 'OWNER', member: true })
+    await stubChannelView(page, ch)
+    // PATCH 후 GET 이 새 이름을 반환하도록 토글.
+    let renamed = false
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels/41',
+      (route) => {
+        if (route.request().method() === 'PATCH') {
+          const payload = route.request().postDataJSON() as { name: string }
+          expect(payload).toEqual({ name: '새이름' })
+          renamed = true
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...ch, name: '새이름' }) })
+        }
+        if (route.request().method() === 'GET') {
+          const body = renamed ? { ...ch, name: '새이름' } : ch
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+        }
+        return route.fallback()
+      },
+    )
+    await page.goto('/chat/channels/41')
+    await page.getByTestId('channel-settings-btn').click()
+    await page.getByTestId('channel-rename-action').click()
+    await page.getByTestId('rename-channel-name').fill('새이름')
+    await page.getByTestId('rename-channel-submit').click()
+    await expect(page.getByTestId('channel-header-name')).toHaveText('새이름')
+  })
+
+  test('MEMBER 에게는 설정 버튼 미노출', async ({ authenticatedPage: page }) => {
+    const ch = createChannel({ id: 42, name: '일반방', role: 'MEMBER', member: true })
+    await stubChannelView(page, ch)
+    await page.goto('/chat/channels/42')
+    await expect(page.getByTestId('channel-header')).toBeVisible()
+    await expect(page.getByTestId('channel-settings-btn')).toHaveCount(0)
+  })
+
+  test('비공개 비멤버 접근(404) → 채널 없음', async ({ authenticatedPage: page }) => {
+    const ghost = createChannel({ id: 43, name: '비밀', visibility: 'PRIVATE' })
+    await stubChannelView(page, ghost, 404)
+    await page.goto('/chat/channels/43')
+    await expect(page.getByTestId('channel-not-found')).toBeVisible()
+  })
+
+  test('시스템 ADMIN → 채널 삭제 → /chat 이동', async ({ adminPage: page }) => {
+    const ch = createChannel({ id: 44, name: '삭제대상', role: 'MEMBER', member: true })
+    await stubChannelView(page, ch)
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels/44',
+      (route) => (route.request().method() === 'DELETE' ? route.fulfill({ status: 204 }) : route.fallback()),
+    )
+    await page.goto('/chat/channels/44')
+    await page.getByTestId('channel-settings-btn').click()
+    await page.getByTestId('channel-delete-action').click()
+    // AlertDialog 확인 버튼.
+    await page.getByTestId('channel-delete-confirm').click()
+    await expect(page).toHaveURL(/\/chat$/)
+  })
+})
