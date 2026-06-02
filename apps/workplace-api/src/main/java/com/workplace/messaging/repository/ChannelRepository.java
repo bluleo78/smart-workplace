@@ -103,7 +103,8 @@ public class ChannelRepository {
                 .from(CHANNEL_MEMBER)
                 .where(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID))
                 .asField("member_count"),
-            CHANNEL_MEMBER.ROLE.as("my_role"))
+            CHANNEL_MEMBER.ROLE.as("my_role"),
+            unreadCountField(callerId))
         .from(CHANNEL)
         .join(CHANNEL_MEMBER)
         .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
@@ -233,8 +234,8 @@ public class ChannelRepository {
   }
 
   /**
-   * DM 채널 생성. 동일 member_key 가 이미 있으면(동시 생성 레이스) 아무 것도 하지 않고 empty 반환.
-   * uq_channel_dm_member_key 부분 유니크 인덱스를 충돌 타깃으로 사용 → 예외 없이 트랜잭션 유지(@Transactional abort 방지).
+   * DM 채널 생성. 동일 member_key 가 이미 있으면(동시 생성 레이스) 아무 것도 하지 않고 empty 반환. uq_channel_dm_member_key 부분
+   * 유니크 인덱스를 충돌 타깃으로 사용 → 예외 없이 트랜잭션 유지(@Transactional abort 방지).
    */
   public Optional<Long> insertDmIfAbsent(String memberKey, long createdBy) {
     return dsl.insertInto(CHANNEL)
@@ -276,12 +277,14 @@ public class ChannelRepository {
     List<DmParticipant> parts = participantsOf(channelId);
     OffsetDateTime last = ch.get("last_message_at", OffsetDateTime.class);
     OffsetDateTime created = ch.get(CHANNEL.CREATED_AT);
+    // 단건 상세는 사이드바 unread 집계(findMyDms) 와 별개 경로 — caller 멤버 row 를 조인하지 않으므로 0 으로 둔다.
     return Optional.of(
         new DmResponse(
             ch.get(CHANNEL.ID),
             parts,
             last == null ? null : last.toInstant(),
-            created == null ? null : created.toInstant()));
+            created == null ? null : created.toInstant(),
+            0L));
   }
 
   /** caller 가 멤버인 DM 목록(참여자 동봉). 최근 메시지 → 생성 시각 내림차순. */
@@ -293,14 +296,11 @@ public class ChannelRepository {
                 dsl.select(DSL.max(MESSAGE.CREATED_AT))
                     .from(MESSAGE)
                     .where(MESSAGE.CHANNEL_ID.eq(CHANNEL.ID))
-                    .asField("last_message_at"))
+                    .asField("last_message_at"),
+                unreadCountField(callerId))
             .from(CHANNEL)
             .join(CHANNEL_MEMBER)
-            .on(
-                CHANNEL_MEMBER
-                    .CHANNEL_ID
-                    .eq(CHANNEL.ID)
-                    .and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
+            .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
             .where(CHANNEL.KIND.eq("DM"))
             .fetch();
     List<Long> ids = rows.map(r -> r.get(CHANNEL.ID));
@@ -320,16 +320,17 @@ public class ChannelRepository {
             r -> {
               OffsetDateTime last = r.get("last_message_at", OffsetDateTime.class);
               OffsetDateTime created = r.get(CHANNEL.CREATED_AT);
+              Integer unread = r.get("unread_count", Integer.class);
               return new DmResponse(
                   r.get(CHANNEL.ID),
                   byChannel.getOrDefault(r.get(CHANNEL.ID), List.of()),
                   last == null ? null : last.toInstant(),
-                  created == null ? null : created.toInstant());
+                  created == null ? null : created.toInstant(),
+                  unread == null ? 0 : unread);
             })
         .sorted(
             Comparator.comparing(
-                    (DmResponse d) ->
-                        d.lastMessageAt() != null ? d.lastMessageAt() : d.createdAt(),
+                    (DmResponse d) -> d.lastMessageAt() != null ? d.lastMessageAt() : d.createdAt(),
                     Comparator.nullsLast(Comparator.naturalOrder()))
                 .reversed())
         .toList();
@@ -345,11 +346,32 @@ public class ChannelRepository {
         .fetch(r -> new DmParticipant(r.get(USER.ID), r.get(USER.NAME), r.get(USER.KIND)));
   }
 
+  /**
+   * caller 의 채널별 미읽음 메시지 수 상관 서브쿼리. caller 의 CHANNEL_MEMBER row 가 조인된 쿼리에서만 사용. 본인 작성·삭제된 메시지는
+   * 제외하고, last_read_message_id(없으면 0) 초과 메시지를 센다.
+   */
+  private static org.jooq.Field<Integer> unreadCountField(long callerId) {
+    return DSL.selectCount()
+        .from(MESSAGE)
+        .where(
+            MESSAGE
+                .CHANNEL_ID
+                .eq(CHANNEL.ID)
+                .and(MESSAGE.DELETED_AT.isNull())
+                .and(MESSAGE.AUTHOR_ID.ne(callerId))
+                .and(
+                    MESSAGE.ID.gt(
+                        DSL.coalesce(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID, DSL.inline(0L)))))
+        .asField("unread_count");
+  }
+
   /** Record → ChannelResponse 공용 매퍼. select 절에 is_member/member_count/my_role 별칭이 있어야 한다. */
   static ChannelResponse mapChannel(org.jooq.Record r) {
     OffsetDateTime created = r.get(CHANNEL.CREATED_AT);
     Integer mc = r.get("is_member", Integer.class);
     Integer total = r.get("member_count", Integer.class);
+    // unread_count 는 일부 쿼리에만 존재 — 없으면 0 으로 방어적 처리.
+    Integer unread = r.field("unread_count") != null ? r.get("unread_count", Integer.class) : 0;
     return new ChannelResponse(
         r.get(CHANNEL.ID),
         r.get(CHANNEL.KIND),
@@ -359,6 +381,7 @@ public class ChannelRepository {
         r.get("my_role", String.class),
         r.get(CHANNEL.ARCHIVED_AT) != null,
         total == null ? 0 : total,
+        unread == null ? 0 : unread,
         created == null ? null : created.toInstant());
   }
 }

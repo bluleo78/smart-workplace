@@ -1,5 +1,6 @@
 package com.workplace.chat.dto;
 
+import com.workplace.global.dto.MentionResponse;
 import java.time.Instant;
 import java.util.List;
 
@@ -11,7 +12,7 @@ public record ChatMessageResponse(
     String authorName,
     String authorKind,
     String body,
-    List<ChatMentionResponse> mentions,
+    List<MentionResponse> mentions,
     Instant createdAt,
     Instant editedAt,
     boolean deleted) {}

@@ -9,6 +9,7 @@ import java.time.Instant;
  * @param role caller 의 채널 역할(OWNER/ADMIN/MEMBER), 비멤버면 null
  * @param archived 아카이브 여부
  * @param memberCount 멤버 수
+ * @param unreadCount caller 미읽음 메시지 수(본인 작성·삭제 제외)
  */
 public record ChannelResponse(
     Long id,
@@ -19,4 +20,5 @@ public record ChannelResponse(
     String role,
     boolean archived,
     int memberCount,
+    long unreadCount,
     Instant createdAt) {}

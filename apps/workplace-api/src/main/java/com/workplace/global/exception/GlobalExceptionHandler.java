@@ -35,6 +35,8 @@ import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidDmRequestException;
+import com.workplace.messaging.exception.MessageAuthorMismatchException;
+import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
@@ -676,6 +678,22 @@ public class GlobalExceptionHandler {
       ChatMessageNotFoundException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** messaging 메시지 id 미존재 → 404. */
+  @ExceptionHandler(MessageNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleMessageNotFound(
+      MessageNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** messaging — 본인이 아닌 메시지를 수정/삭제 시도 → 403. */
+  @ExceptionHandler(MessageAuthorMismatchException.class)
+  public ResponseEntity<ErrorResponse> handleMessageAuthorMismatch(
+      MessageAuthorMismatchException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request));
   }
 
   /**

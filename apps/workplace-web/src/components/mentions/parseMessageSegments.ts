@@ -1,6 +1,6 @@
 // 채팅 본문을 <@id> 토큰 기준으로 표시 세그먼트 배열로 분리. 에디터/DOM 비의존 순수 함수.
 
-import type { ChatMentionResponse, UserKind } from '../../../../types/chat';
+import type { MentionUser, UserKind } from './types';
 
 export type MentionSegment =
   | { type: 'text'; value: string }
@@ -8,7 +8,7 @@ export type MentionSegment =
 
 export function parseMessageSegments(
   body: string,
-  mentions: ChatMentionResponse[],
+  mentions: MentionUser[],
 ): MentionSegment[] {
   const byId = new Map(mentions.map((m) => [m.id, m]));
   const segments: MentionSegment[] = [];

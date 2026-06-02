@@ -7,7 +7,9 @@ import { ChannelMembersPanel } from '@/components/chat/ChannelMembersPanel'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
 import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
+import type { MentionCandidate } from '@/components/mentions/types'
 import { useChannelDetail } from '@/hooks/queries/useChannelDetail'
+import { useChannelMembers } from '@/hooks/queries/useChannelMembers'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useAuth } from '@/hooks/useAuth'
@@ -20,6 +22,14 @@ export default function ChannelPage() {
   const detail = useChannelDetail(channelId)
   const { data } = useChannelMessages(channelId)
   const messages = data?.pages.flatMap((p) => p.items) ?? []
+  // @멘션 후보 = 채널 멤버. RichInput 이 기대하는 chat 멤버 형태로 매핑(username 은 name 으로 대체).
+  const { data: channelMembers } = useChannelMembers(channelId)
+  const mentionMembers: MentionCandidate[] = (channelMembers ?? []).map((m) => ({
+    userId: m.userId,
+    username: m.name,
+    name: m.name,
+    kind: m.kind,
+  }))
   const [membersOpen, setMembersOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
 
@@ -54,10 +64,16 @@ export default function ChannelPage() {
         onOpenRename={() => setRenameOpen(true)}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <MessageList messages={messages} />
+        <MessageList
+          messages={messages}
+          channelId={channel.id}
+          currentUserId={me.id}
+          members={mentionMembers}
+        />
       </div>
       {/* 아카이브 채널이면 composer 비활성. */}
       <MessageComposer
+        members={mentionMembers}
         disabled={channel.archived}
         onSend={(body) => create.mutate({ body })}
       />

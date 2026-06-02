@@ -76,6 +76,14 @@ export function ChannelSidebar() {
               <Hash className="h-4 w-4 shrink-0" />
             )}
             <span className="truncate">{c.name}</span>
+            {c.unreadCount > 0 && (
+              <span
+                data-testid={`channel-unread-${c.id}`}
+                className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
+              >
+                {c.unreadCount > 99 ? '99+' : c.unreadCount}
+              </span>
+            )}
           </Link>
         ))}
       </nav>
@@ -109,6 +117,14 @@ export function ChannelSidebar() {
           >
             <MessageSquare className="h-4 w-4 shrink-0" />
             <span className="truncate">{dmDisplayName(dm, myId)}</span>
+            {dm.unreadCount > 0 && (
+              <span
+                data-testid={`dm-unread-${dm.id}`}
+                className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
+              >
+                {dm.unreadCount > 99 ? '99+' : dm.unreadCount}
+              </span>
+            )}
           </Link>
         ))}
       </nav>

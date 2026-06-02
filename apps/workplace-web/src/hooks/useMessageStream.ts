@@ -3,7 +3,7 @@
 // messaging.message.created 는 react-query messages 캐시를 channelId 로 직접 갱신.
 
 import { type InfiniteData, type QueryClient, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { getAccessToken, refreshAccessToken } from '../api/client';
 import type { MessagePage, MessageResponse } from '../types/messaging';
@@ -29,17 +29,70 @@ function upsertMessage(qc: QueryClient, channelId: number, msg: MessageResponse)
   });
 }
 
-function handleEvent(qc: QueryClient, eventName: string, data: unknown) {
+// 캐시 내 기존 메시지를 부분 patch(merge). updated/deleted 이벤트는 부분 payload 이므로
+// full replace 가 아닌 merge 로 적용한다(authorId/authorName 등 보존). 미존재 시 no-op
+// (미오픈 채널 → 열 때 refetch 로 정합. created 와 달리 prepend 하지 않음).
+function patchMessage(
+  qc: QueryClient,
+  channelId: number,
+  id: number,
+  patch: Partial<MessageResponse>,
+) {
+  const key = messagingKeys.messages(channelId);
+  qc.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
+    if (!old) return old;
+    return {
+      ...old,
+      pages: old.pages.map((p) => ({
+        ...p,
+        items: p.items.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      })),
+    };
+  });
+}
+
+// 사이드바 unread 배지는 서버 재계산이 진실원 — created/read 이벤트에 채널·DM 목록 키를
+// invalidate 하면 REST 가 최신 unreadCount 를 다시 가져온다(낙관적 ±1 금지, 스펙 결정).
+function invalidateLists(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: messagingKeys.channels() });
+  qc.invalidateQueries({ queryKey: messagingKeys.dms() });
+}
+
+function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentUserId: number) {
   const d = data as Record<string, unknown>;
+  // read 이벤트: payload {channelId,userId,lastReadMessageId}. 본인 읽음일 때만 배지 재계산.
+  if (eventName === 'messaging.message.read') {
+    if (Number(d.userId) === currentUserId) invalidateLists(qc);
+    return;
+  }
   const channelId = Number(d.channelId);
   if (!channelId) return;
   if (eventName === 'messaging.message.created') {
     upsertMessage(qc, channelId, data as MessageResponse);
+    // 미오픈 채널 포함 사이드바 배지 갱신.
+    invalidateLists(qc);
+  } else if (eventName === 'messaging.message.updated') {
+    // payload: {channelId,id,body,mentions,editedAt}
+    const id = Number(d.id);
+    if (!id) return;
+    patchMessage(qc, channelId, id, {
+      body: d.body as string,
+      mentions: d.mentions as MessageResponse['mentions'],
+      editedAt: d.editedAt as string | null,
+    });
+  } else if (eventName === 'messaging.message.deleted') {
+    // payload: {channelId,id}
+    const id = Number(d.id);
+    if (!id) return;
+    patchMessage(qc, channelId, id, { deleted: true, body: '(삭제됨)' });
   }
 }
 
-export function useMessageStream() {
+export function useMessageStream(currentUserId: number) {
   const qc = useQueryClient();
+  // read 이벤트 필터(본인 읽음만 invalidate)용 — ref 로 보관해 재연결(스트림 재구독) 없이 최신값 참조.
+  const currentUserIdRef = useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
 
   useEffect(() => {
     let cancelled = false;
@@ -90,7 +143,7 @@ export function useMessageStream() {
         const dispatch = () => {
           if (currentData) {
             try {
-              handleEvent(qc, currentEvent, JSON.parse(currentData));
+              handleEvent(qc, currentEvent, JSON.parse(currentData), currentUserIdRef.current);
             } catch {
               // 잘못된 SSE 데이터 무시
             }

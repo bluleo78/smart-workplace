@@ -36,11 +36,11 @@ class MessageRepositoryTest extends IntegrationTestBase {
     long uid = seedUser();
     long channelId = channelRepo.insertPublic("일반", uid);
 
-    long m1 = messageRepo.insert(channelId, uid, "first");
-    long m2 = messageRepo.insert(channelId, uid, "second");
+    long m1 = messageRepo.insert(channelId, uid, "first", java.util.List.of());
+    long m2 = messageRepo.insert(channelId, uid, "second", java.util.List.of());
 
-    // Phase 1 findPage 시그니처: (channelId, cursor, limit) — mention resolver 없음.
-    MessagePage page = messageRepo.findPage(channelId, null, 50);
+    // 멘션이 없는 메시지이므로 resolver 는 빈 목록을 돌려주는 trivial 구현으로 충분.
+    MessagePage page = messageRepo.findPage(channelId, null, 50, ids -> java.util.List.of());
     assertThat(page.items()).hasSize(2);
     assertThat(page.items().get(0).id()).isEqualTo(m2);
     assertThat(page.items().get(1).id()).isEqualTo(m1);

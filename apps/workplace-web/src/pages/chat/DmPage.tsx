@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom'
 import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
+import type { MentionCandidate } from '@/components/mentions/types'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMyDms } from '@/hooks/queries/useMyDms'
@@ -25,6 +26,13 @@ export default function DmPage() {
   const create = useCreateMessage(dmId ?? 0, me)
 
   const dm = dms?.find((d) => d.id === dmId)
+  // @멘션 후보 = DM 참여자. RichInput 이 기대하는 chat 멤버 형태로 매핑(username 은 name 으로 대체).
+  const mentionMembers: MentionCandidate[] = (dm?.participants ?? []).map((p) => ({
+    userId: p.userId,
+    username: p.name,
+    name: p.name,
+    kind: p.kind,
+  }))
 
   // 목록 로딩 끝났는데 해당 DM 이 없으면 비참여자/미존재 → 은닉.
   if (!isLoading && !dm) {
@@ -45,9 +53,17 @@ export default function DmPage() {
     <div className="flex h-full min-h-0 flex-col">
       <DmHeader dm={dm} currentUserId={me.id} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <MessageList messages={messages} />
+        <MessageList
+          messages={messages}
+          channelId={dm.id}
+          currentUserId={me.id}
+          members={mentionMembers}
+        />
       </div>
-      <MessageComposer onSend={(body) => create.mutate({ body })} />
+      <MessageComposer
+        members={mentionMembers}
+        onSend={(body) => create.mutate({ body })}
+      />
     </div>
   )
 }

@@ -31,10 +31,7 @@ public class DmService {
     return channelRepo.findMyDms(callerId);
   }
 
-  /**
-   * caller + targets 멤버셋의 DM 을 찾거나 생성한다. 멤버셋 dedup(정렬 member_key). 1:1 은 타겟 1명 그룹 DM 의 특수
-   * 케이스.
-   */
+  /** caller + targets 멤버셋의 DM 을 찾거나 생성한다. 멤버셋 dedup(정렬 member_key). 1:1 은 타겟 1명 그룹 DM 의 특수 케이스. */
   @Transactional
   public DmResult createOrGet(long callerId, List<Long> targetUserIds) {
     if (targetUserIds == null || targetUserIds.isEmpty()) {

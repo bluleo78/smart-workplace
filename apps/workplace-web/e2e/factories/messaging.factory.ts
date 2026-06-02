@@ -19,6 +19,7 @@ export function createChannel(overrides: Partial<ChannelResponse> = {}): Channel
     role: 'MEMBER',
     archived: false,
     memberCount: 1,
+    unreadCount: 0,
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     ...overrides,
   };
@@ -51,6 +52,7 @@ export function createDm(overrides: Partial<DmResponse> = {}): DmResponse {
       createDmParticipant({ userId: 2, name: '밥' }),
     ],
     lastMessageAt: null,
+    unreadCount: 0,
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     ...overrides,
   };
@@ -64,6 +66,7 @@ export function createMessage(overrides: Partial<MessageResponse> = {}): Message
     authorName: '테스트 사용자',
     authorKind: 'HUMAN',
     body: '안녕하세요',
+    mentions: [],
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     editedAt: null,
     deleted: false,

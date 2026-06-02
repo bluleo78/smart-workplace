@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ChatMentionResponse } from '../../../../../types/chat';
-import { parseMessageSegments } from '../parseMessageSegments';
+import { parseMessageSegments } from '../../../../../components/mentions/parseMessageSegments';
 
 const AI: ChatMentionResponse = { id: 99, username: 'ai-agent', name: 'AI Agent', kind: 'AGENT' };
 

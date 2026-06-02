@@ -14,15 +14,16 @@ import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion
 import { useEffect, useRef } from 'react';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
-import { Button } from '../../../../components/ui/button';
-import type { ChatMemberResponse, ChatMentionResponse } from '../../../../types/chat';
+import { Button } from '@/components/ui/button';
+
 import { MentionList, type MentionListHandle } from './MentionList';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
+import type { MentionCandidate, MentionUser } from './types';
 
-interface ChatRichInputProps {
-  members: ChatMemberResponse[];
+interface RichInputProps {
+  members: MentionCandidate[];
   initialBody?: string;
-  initialMentions?: ChatMentionResponse[];
+  initialMentions?: MentionUser[];
   placeholder?: string;
   onSubmit: (body: string) => void;
   onCancel?: () => void;
@@ -36,7 +37,7 @@ interface ChatRichInputProps {
   cancelTestId?: string;
 }
 
-export function ChatRichInput({
+export function RichInput({
   members,
   initialBody = '',
   initialMentions = [],
@@ -50,7 +51,7 @@ export function ChatRichInput({
   inputTestId,
   submitTestId,
   cancelTestId,
-}: ChatRichInputProps) {
+}: RichInputProps) {
   // members 최신값을 suggestion 콜백에서 참조하기 위한 ref.
   // (콜백은 useEditor 가 생성한 클로저에서 호출되므로, 렌더 시점이 아닌 effect 에서 최신값 동기화)
   const membersRef = useRef(members);
@@ -102,7 +103,7 @@ export function ChatRichInput({
             let component: ReactRenderer<MentionListHandle> | null = null;
             let popup: TippyInstance | null = null;
             return {
-              onStart: (props: SuggestionProps<ChatMemberResponse>) => {
+              onStart: (props: SuggestionProps<MentionCandidate>) => {
                 popupOpenRef.current = true;
                 component = new ReactRenderer(MentionList, {
                   props,
@@ -118,7 +119,7 @@ export function ChatRichInput({
                   placement: 'bottom-start',
                 });
               },
-              onUpdate: (props: SuggestionProps<ChatMemberResponse>) => {
+              onUpdate: (props: SuggestionProps<MentionCandidate>) => {
                 component?.updateProps(props);
                 popup?.setProps({ getReferenceClientRect: props.clientRect as () => DOMRect });
               },

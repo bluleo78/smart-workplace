@@ -38,6 +38,7 @@ export function useCreateMessage(channelId: number, me: MeContext) {
         authorName: me.name,
         authorKind: me.kind,
         body: payload.body,
+        mentions: [], // optimistic — 서버 응답 시 실제값으로 치환
         createdAt: new Date().toISOString(),
         editedAt: null,
         deleted: false,
