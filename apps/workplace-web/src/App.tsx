@@ -32,6 +32,7 @@ const ChatModuleLayout = lazy(() =>
 )
 const ChannelListPage = lazy(() => import('./pages/chat/ChannelListPage'))
 const ChannelPage = lazy(() => import('./pages/chat/ChannelPage'))
+const DmPage = lazy(() => import('./pages/chat/DmPage'))
 
 function PageLoader() {
   return (
@@ -80,6 +81,7 @@ export default function App() {
               <Route element={<ChatModuleLayout />}>
                 <Route path="chat" element={<ChannelListPage />} />
                 <Route path="chat/channels/:id" element={<ChannelPage />} />
+                <Route path="chat/dms/:id" element={<DmPage />} />
               </Route>
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
