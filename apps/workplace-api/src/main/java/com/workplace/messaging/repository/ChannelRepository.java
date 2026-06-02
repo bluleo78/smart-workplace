@@ -2,10 +2,16 @@ package com.workplace.messaging.repository;
 
 import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
+import static com.workplace.jooq.Tables.MESSAGE;
+import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.messaging.dto.ChannelResponse;
+import com.workplace.messaging.dto.DmParticipant;
+import com.workplace.messaging.dto.DmResponse;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
@@ -101,7 +107,7 @@ public class ChannelRepository {
         .from(CHANNEL)
         .join(CHANNEL_MEMBER)
         .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
-        .where(CHANNEL.ARCHIVED_AT.isNull())
+        .where(CHANNEL.ARCHIVED_AT.isNull().and(CHANNEL.KIND.eq("CHANNEL")))
         .orderBy(CHANNEL.NAME.asc(), CHANNEL.ID.asc())
         .fetch(ChannelRepository::mapChannel);
   }
@@ -204,6 +210,122 @@ public class ChannelRepository {
   /** 하드 삭제 — channel_member/message 는 FK ON DELETE CASCADE 로 함께 삭제. */
   public void hardDelete(long channelId) {
     dsl.deleteFrom(CHANNEL).where(CHANNEL.ID.eq(channelId)).execute();
+  }
+
+  /** kind='DM' AND member_key=? 인 DM 채널 id. */
+  public Optional<Long> findDmIdByMemberKey(String memberKey) {
+    return dsl.select(CHANNEL.ID)
+        .from(CHANNEL)
+        .where(CHANNEL.KIND.eq("DM").and(CHANNEL.MEMBER_KEY.eq(memberKey)))
+        .fetchOptional(CHANNEL.ID);
+  }
+
+  /** DM 채널 생성(name=null, visibility=PRIVATE). id 반환. */
+  public long insertDm(String memberKey, long createdBy) {
+    return dsl.insertInto(CHANNEL)
+        .set(CHANNEL.KIND, "DM")
+        .set(CHANNEL.VISIBILITY, "PRIVATE")
+        .set(CHANNEL.MEMBER_KEY, memberKey)
+        .set(CHANNEL.CREATED_BY, createdBy)
+        .returning(CHANNEL.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** caller 가 멤버인 단일 DM 상세(참여자 동봉). 비멤버/비DM 이면 empty. */
+  public Optional<DmResponse> findDmDetail(long channelId, long callerId) {
+    boolean isMember =
+        dsl.fetchExists(
+            dsl.selectOne()
+                .from(CHANNEL_MEMBER)
+                .where(
+                    CHANNEL_MEMBER
+                        .CHANNEL_ID
+                        .eq(channelId)
+                        .and(CHANNEL_MEMBER.USER_ID.eq(callerId))));
+    if (!isMember) return Optional.empty();
+    var ch =
+        dsl.select(
+                CHANNEL.ID,
+                CHANNEL.CREATED_AT,
+                dsl.select(DSL.max(MESSAGE.CREATED_AT))
+                    .from(MESSAGE)
+                    .where(MESSAGE.CHANNEL_ID.eq(CHANNEL.ID))
+                    .asField("last_message_at"))
+            .from(CHANNEL)
+            .where(CHANNEL.ID.eq(channelId).and(CHANNEL.KIND.eq("DM")))
+            .fetchOne();
+    if (ch == null) return Optional.empty();
+    List<DmParticipant> parts = participantsOf(channelId);
+    OffsetDateTime last = ch.get("last_message_at", OffsetDateTime.class);
+    OffsetDateTime created = ch.get(CHANNEL.CREATED_AT);
+    return Optional.of(
+        new DmResponse(
+            ch.get(CHANNEL.ID),
+            parts,
+            last == null ? null : last.toInstant(),
+            created == null ? null : created.toInstant()));
+  }
+
+  /** caller 가 멤버인 DM 목록(참여자 동봉). 최근 메시지 → 생성 시각 내림차순. */
+  public List<DmResponse> findMyDms(long callerId) {
+    var rows =
+        dsl.select(
+                CHANNEL.ID,
+                CHANNEL.CREATED_AT,
+                dsl.select(DSL.max(MESSAGE.CREATED_AT))
+                    .from(MESSAGE)
+                    .where(MESSAGE.CHANNEL_ID.eq(CHANNEL.ID))
+                    .asField("last_message_at"))
+            .from(CHANNEL)
+            .join(CHANNEL_MEMBER)
+            .on(
+                CHANNEL_MEMBER
+                    .CHANNEL_ID
+                    .eq(CHANNEL.ID)
+                    .and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
+            .where(CHANNEL.KIND.eq("DM"))
+            .fetch();
+    List<Long> ids = rows.map(r -> r.get(CHANNEL.ID));
+    if (ids.isEmpty()) return List.of();
+    // 참여자 일괄 조회(N+1 회피).
+    Map<Long, List<DmParticipant>> byChannel =
+        dsl.select(CHANNEL_MEMBER.CHANNEL_ID, USER.ID, USER.NAME, USER.KIND)
+            .from(CHANNEL_MEMBER)
+            .join(USER)
+            .on(USER.ID.eq(CHANNEL_MEMBER.USER_ID))
+            .where(CHANNEL_MEMBER.CHANNEL_ID.in(ids))
+            .fetchGroups(
+                r -> r.get(CHANNEL_MEMBER.CHANNEL_ID),
+                r -> new DmParticipant(r.get(USER.ID), r.get(USER.NAME), r.get(USER.KIND)));
+    return rows.stream()
+        .map(
+            r -> {
+              OffsetDateTime last = r.get("last_message_at", OffsetDateTime.class);
+              OffsetDateTime created = r.get(CHANNEL.CREATED_AT);
+              return new DmResponse(
+                  r.get(CHANNEL.ID),
+                  byChannel.getOrDefault(r.get(CHANNEL.ID), List.of()),
+                  last == null ? null : last.toInstant(),
+                  created == null ? null : created.toInstant());
+            })
+        .sorted(
+            Comparator.comparing(
+                    (DmResponse d) ->
+                        d.lastMessageAt() != null ? d.lastMessageAt() : d.createdAt(),
+                    Comparator.nullsLast(Comparator.naturalOrder()))
+                .reversed())
+        .toList();
+  }
+
+  /** 채널 참여자(user 조인) — DM 표시명 파생용. */
+  private List<DmParticipant> participantsOf(long channelId) {
+    return dsl.select(USER.ID, USER.NAME, USER.KIND)
+        .from(CHANNEL_MEMBER)
+        .join(USER)
+        .on(USER.ID.eq(CHANNEL_MEMBER.USER_ID))
+        .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId))
+        .fetch(r -> new DmParticipant(r.get(USER.ID), r.get(USER.NAME), r.get(USER.KIND)));
   }
 
   /** Record → ChannelResponse 공용 매퍼. select 절에 is_member/member_count/my_role 별칭이 있어야 한다. */
