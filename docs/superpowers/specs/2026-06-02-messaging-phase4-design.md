@@ -112,7 +112,7 @@ chat 에서 이동, chat import 경로 수정:
 
 - `MessageList`: `IntersectionObserver` 로 마지막 메시지 가시 시 `useMarkMessageRead(channelId)(lastId)` 호출. chat `ChatMessageList` 포팅.
 - `useMessageStream`: `messaging.message.read` 핸들러 — 채널 멤버/배지 캐시의 `lastReadMessageId` 갱신.
-- **사이드바**: 채널/DM 행에 `unreadCount` 배지. 초기값은 채널 목록 쿼리의 `unreadCount`, 이후 `messaging.message.created`(현재 보고 있지 않은 채널이면 +1)·`messaging.message.read`(해당 채널 0 으로) SSE 로 갱신. 현재 열려 있는 채널은 mark-read 가 즉시 0 유지. 재진입/refetch 시 서버 `unreadCount` 로 재동기화(낙관 카운트 drift 보정).
+- **사이드바**: 채널/DM 행에 `unreadCount` 배지. 갱신은 **notify 선례(`useUnreadCount`/`useNotificationStream`)와 동일한 invalidate→refetch 패턴**을 따른다 — `messaging.message.created`·`messaging.message.read` SSE 수신 시 채널 목록 쿼리(`unreadCount` 포함)를 invalidate 하여 서버가 정확한 수를 재산출. 클라이언트 낙관적 +1/-1 은 쓰지 않는다(drift 방지, 구현 단순). 현재 열려 있는 채널은 IntersectionObserver mark-read 로 즉시 0 이 되고, 다음 refetch 에서 서버값과 일치.
 - 훅/타입: `useMarkMessageRead`, `messagingApi.markRead`, `ChannelResponse.unreadCount`.
 
 ## 컴포넌트 경계 요약
