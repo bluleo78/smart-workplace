@@ -47,11 +47,12 @@ public class SavedViewService {
     }
   }
 
-  /** 수정 — owner 본인만. */
+  /** 수정 — owner 본인만. 타인의 PRIVATE 뷰는 존재 은닉(404), 타인의 SHARED 뷰는 권한 거부(403). */
   public SavedViewResponse update(
       Long callerId, String projectKey, Long viewId, SaveViewRequest req) {
     var project = accessGuard.assertMember(projectKey, callerId);
     var row = loadInProject(viewId, project.id());
+    hidePrivateFromOthers(row, callerId);
     if (!row.ownerId().equals(callerId)) {
       throw new SavedViewAccessDeniedException("본인의 뷰만 수정할 수 있습니다");
     }
@@ -64,10 +65,11 @@ public class SavedViewService {
     return toResponse(repository.findById(viewId).orElseThrow(), callerId);
   }
 
-  /** 삭제 — owner 본인, 또는 SHARED 뷰면 프로젝트 OWNER 도 가능(모더레이션). */
+  /** 삭제 — owner 본인, 또는 SHARED 뷰면 프로젝트 OWNER 도 가능(모더레이션). 타인의 PRIVATE 뷰는 존재 은닉(404). */
   public void delete(Long callerId, String projectKey, Long viewId) {
     var project = accessGuard.assertMember(projectKey, callerId);
     var row = loadInProject(viewId, project.id());
+    hidePrivateFromOthers(row, callerId);
     boolean owner = row.ownerId().equals(callerId);
     boolean moderator = "SHARED".equals(row.visibility()) && isProjectOwner(projectKey, callerId);
     if (!owner && !moderator) {
@@ -83,6 +85,17 @@ public class SavedViewService {
       return true;
     } catch (com.workplace.project.exception.ProjectAccessDeniedException e) {
       return false;
+    }
+  }
+
+  /**
+   * 타인의 PRIVATE 뷰는 존재를 은닉한다 — 목록(findVisible)에 노출되지 않으므로 수정/삭제 시도 시 403(권한 없음)이 아니라 404(없음)로 응답해 존재
+   * 여부 유출을 막는다. SHARED 이거나 본인 소유면 통과.
+   */
+  private void hidePrivateFromOthers(SavedViewRow row, Long callerId) {
+    boolean mine = row.ownerId().equals(callerId);
+    if (!mine && !"SHARED".equals(row.visibility())) {
+      throw new SavedViewNotFoundException(row.id());
     }
   }
 

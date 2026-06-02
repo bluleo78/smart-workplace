@@ -16,6 +16,7 @@ import com.workplace.view.dto.SaveViewRequest;
 import com.workplace.view.dto.SavedViewResponse;
 import com.workplace.view.exception.SavedViewAccessDeniedException;
 import com.workplace.view.exception.SavedViewNameDuplicatedException;
+import com.workplace.view.exception.SavedViewNotFoundException;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -103,7 +104,7 @@ class SavedViewServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void non_owner_member_cannot_update_others_view() {
+  void non_owner_member_cannot_update_others_shared_view_403() {
     Long owner = createUser("vo3");
     Long member = createUser("vm3");
     ProjectResponse p = newProject(owner, "VD");
@@ -111,6 +112,18 @@ class SavedViewServiceTest extends IntegrationTestBase {
     var v = service.create(owner, p.key(), req("shared", "q=a", "SHARED"));
     assertThatThrownBy(() -> service.update(member, p.key(), v.id(), req("hack", "q=b", "SHARED")))
         .isInstanceOf(SavedViewAccessDeniedException.class);
+  }
+
+  @Test
+  void update_others_private_view_hidden_as_404() {
+    // 타인의 PRIVATE 뷰는 목록에 보이지 않으므로 수정 시도 시 존재 은닉(404) — 권한 거부(403)가 아님.
+    Long owner = createUser("vo3p");
+    Long member = createUser("vm3p");
+    ProjectResponse p = newProject(owner, "VDP");
+    memberRepository.insert(p.id(), member, "MEMBER");
+    var v = service.create(owner, p.key(), req("owner-private", "q=a", "PRIVATE"));
+    assertThatThrownBy(() -> service.update(member, p.key(), v.id(), req("hack", "q=b", "PRIVATE")))
+        .isInstanceOf(SavedViewNotFoundException.class);
   }
 
   @Test
@@ -152,18 +165,19 @@ class SavedViewServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void project_owner_cannot_delete_private_view_of_other() {
+  void delete_others_private_view_hidden_as_404_even_for_project_owner() {
+    // 프로젝트 OWNER 모더레이션은 SHARED 뷰에 한정 — 타인의 PRIVATE 뷰는 존재 은닉(404).
     Long owner = createUser("vo-priv");
     Long member = createUser("vm-priv");
     ProjectResponse p = newProject(owner, "VI");
     memberRepository.insert(p.id(), member, "MEMBER");
     var v = service.create(member, p.key(), req("m-private", "q=d", "PRIVATE"));
     assertThatThrownBy(() -> service.delete(owner, p.key(), v.id()))
-        .isInstanceOf(SavedViewAccessDeniedException.class);
+        .isInstanceOf(SavedViewNotFoundException.class);
   }
 
   @Test
-  void non_owner_member_cannot_delete_others_view() {
+  void non_owner_member_cannot_delete_others_shared_view_403() {
     Long owner = createUser("vo-nd");
     Long member = createUser("vm-nd");
     ProjectResponse p = newProject(owner, "VJ");
