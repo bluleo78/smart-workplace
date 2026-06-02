@@ -17,7 +17,7 @@
 ## File Structure
 
 **Backend (`apps/workplace-api/src/main`)**
-- `resources/db/migration/V22__messaging_dm.sql` — 신규: `member_key` 컬럼 + 부분 유니크 인덱스.
+- `resources/db/migration/V23__messaging_dm.sql` — 신규: `member_key` 컬럼 + 부분 유니크 인덱스.
 - `java/com/workplace/messaging/dto/DmResponse.java` — 신규: DM 1건(참여자 동봉).
 - `java/com/workplace/messaging/dto/DmParticipant.java` — 신규.
 - `java/com/workplace/messaging/dto/CreateDmRequest.java` — 신규.
@@ -55,11 +55,11 @@
 ## Task 1: 마이그레이션 — member_key 컬럼 + 부분 유니크 인덱스
 
 **Files:**
-- Create: `apps/workplace-api/src/main/resources/db/migration/V22__messaging_dm.sql`
+- Create: `apps/workplace-api/src/main/resources/db/migration/V23__messaging_dm.sql`
 
 - [ ] **Step 1: 마이그레이션 작성**
 
-`apps/workplace-api/src/main/resources/db/migration/V22__messaging_dm.sql`:
+`apps/workplace-api/src/main/resources/db/migration/V23__messaging_dm.sql`:
 ```sql
 -- Messaging Phase 3 (DM): DM 채널 정체성 키.
 -- 정렬된 참여자 ID 조합("3,7,12")을 채널 행에 저장 → 멤버셋 dedup·레이스 차단.
@@ -91,8 +91,8 @@ Expected: `member_key | character varying(255)` 컬럼 + `uq_channel_dm_member_k
 - [ ] **Step 4: 커밋**
 
 ```bash
-git add apps/workplace-api/src/main/resources/db/migration/V22__messaging_dm.sql apps/workplace-api/src/main/generated
-git commit -m "feat(messaging): V22 — DM member_key 컬럼 + 부분 유니크 인덱스"
+git add apps/workplace-api/src/main/resources/db/migration/V23__messaging_dm.sql apps/workplace-api/src/main/generated
+git commit -m "feat(messaging): V23 — DM member_key 컬럼 + 부분 유니크 인덱스"
 ```
 
 ---

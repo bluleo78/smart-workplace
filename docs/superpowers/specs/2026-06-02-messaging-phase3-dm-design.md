@@ -27,7 +27,7 @@ Phase 1·2 는 채널(`kind='CHANNEL'`) — 공개/비공개, CRUD, 탐색, 멤�
 
 ## 데이터 모델
 
-### 스키마 변경 — `V22__messaging_dm.sql`
+### 스키마 변경 — `V23__messaging_dm.sql`
 
 ```sql
 -- DM 정체성: 정렬된 참여자 ID 조합을 정규화 키로 저장 (DM 전용; 채널은 NULL)
