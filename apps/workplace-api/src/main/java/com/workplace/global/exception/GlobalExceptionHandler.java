@@ -34,6 +34,7 @@ import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
+import com.workplace.messaging.exception.InvalidDmRequestException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
@@ -188,6 +189,14 @@ public class GlobalExceptionHandler {
       ChannelForbiddenException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  /** 잘못된 DM 생성 요청 → 400. */
+  @ExceptionHandler(InvalidDmRequestException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidDmRequest(
+      InvalidDmRequestException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
   @ExceptionHandler({ChannelArchivedException.class, OwnershipTransferRequiredException.class})
