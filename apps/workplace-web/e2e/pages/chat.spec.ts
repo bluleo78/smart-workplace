@@ -27,6 +27,21 @@ async function setupChannelStubs(
     },
   );
 
+  // GET /messaging/channels/{id} — 채널 상세(헤더). T5 이후 ChannelPage 가 호출.
+  for (const ch of channels) {
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${ch.id}`,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(ch),
+        });
+      },
+    );
+  }
+
   // GET /messaging/stream — SSE (fetch + ReadableStream 방식이므로 canned body 사용)
   await page.route(
     (url) => url.pathname === '/api/v1/messaging/stream',
