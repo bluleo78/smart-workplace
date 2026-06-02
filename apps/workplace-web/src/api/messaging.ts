@@ -79,4 +79,16 @@ export const messagingApi = {
   // DM find-or-create. 기존 멤버셋이면 서버가 같은 DM 반환.
   createDm: (userIds: number[]) =>
     client.post<DmResponse>('/messaging/dms', { userIds }),
+
+  // 메시지 본문 수정.
+  updateMessage: (messageId: number, body: string) =>
+    client.patch<MessageResponse>(`/messaging/messages/${messageId}`, { body }).then((r) => r.data),
+
+  // 메시지 삭제(soft delete).
+  deleteMessage: (messageId: number) =>
+    client.delete(`/messaging/messages/${messageId}`).then(() => undefined),
+
+  // 채널 읽음 처리 — uptoMessageId 까지 읽음으로 표시.
+  markRead: (channelId: number, uptoMessageId: number) =>
+    client.post(`/messaging/channels/${channelId}/read`, { uptoMessageId }).then(() => undefined),
 };

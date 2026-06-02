@@ -13,6 +13,7 @@ export interface ChannelResponse {
   role: ChannelRole | null; // 비멤버면 null
   archived: boolean;
   memberCount: number;
+  unreadCount: number; // 읽지 않은 메시지 수
   createdAt: string;
 }
 
@@ -24,6 +25,14 @@ export interface ChannelMemberResponse {
   joinedAt: string;
 }
 
+/** 메시지 내 멘션된 사용자 정보. */
+export interface MentionResponse {
+  id: number;
+  username: string;
+  name: string;
+  kind: string;
+}
+
 export interface MessageResponse {
   id: number;
   channelId: number;
@@ -31,6 +40,7 @@ export interface MessageResponse {
   authorName: string;
   authorKind: UserKind;
   body: string;
+  mentions: MentionResponse[]; // 메시지 내 @멘션 목록
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
@@ -75,6 +85,7 @@ export interface DmResponse {
   id: number;
   participants: DmParticipant[];
   lastMessageAt: string | null;
+  unreadCount: number; // 읽지 않은 메시지 수
   createdAt: string;
 }
 
