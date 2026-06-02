@@ -137,10 +137,13 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
 
             {!isEditing && (
               <div className="absolute right-2 top-1 hidden gap-0.5 group-hover:flex">
-                <EmojiPicker
-                  testIdPrefix={`message-${m.id}`}
-                  onPick={(emoji) => toggleReaction.mutate({ message: m, emoji })}
-                />
+                {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
+                {!isPending && (
+                  <EmojiPicker
+                    testIdPrefix={`message-${m.id}`}
+                    onPick={(emoji) => toggleReaction.mutate({ message: m, emoji })}
+                  />
+                )}
                 {onOpenThread && !isPending && (
                   <Button
                     size="icon"
