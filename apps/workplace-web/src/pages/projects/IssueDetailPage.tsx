@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
+import { CyclePickerPopover } from '../../components/cycle/CyclePickerPopover';
 import { LabelChip } from '../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../components/labels/LabelPickerPopover';
 import { AgentBadge } from '../../components/users/AgentBadge';
@@ -234,6 +235,11 @@ export default function IssueDetailPage() {
             )}
           </div>
         </div>
+        {/* 사이클 피커 — 이슈에 연결된 사이클 조회·변경 (CyclePickerPopover) */}
+        <section data-testid="issue-cycles-section">
+          <h3 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">사이클</h3>
+          <CyclePickerPopover projectKey={key} issueNumber={issueNumber} />
+        </section>
         <section aria-label="첨부" className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">첨부</span>

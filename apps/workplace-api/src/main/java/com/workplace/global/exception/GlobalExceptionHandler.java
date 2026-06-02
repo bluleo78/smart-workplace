@@ -8,6 +8,10 @@ import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
 import com.workplace.chat.exception.ChatMessageNotFoundException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
+import com.workplace.cycle.exception.CycleNameDuplicatedException;
+import com.workplace.cycle.exception.CycleNotFoundException;
+import com.workplace.cycle.exception.InvalidCycleForProjectException;
+import com.workplace.cycle.exception.InvalidCycleStatusException;
 import com.workplace.global.dto.ErrorResponse;
 import com.workplace.home.exception.HomeComposeUnavailableException;
 import com.workplace.home.outbound.AiAgentComposeException;
@@ -394,6 +398,38 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(InvalidLabelForProjectException.class)
   public ResponseEntity<ErrorResponse> handleInvalidLabelForProject(
       InvalidLabelForProjectException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 사이클 없음 — 404. */
+  @ExceptionHandler(CycleNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleCycleNotFound(
+      CycleNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 사이클 이름 중복 — 409. */
+  @ExceptionHandler(CycleNameDuplicatedException.class)
+  public ResponseEntity<ErrorResponse> handleCycleNameDuplicated(
+      CycleNameDuplicatedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 허용되지 않은 사이클 상태 — 400. */
+  @ExceptionHandler(InvalidCycleStatusException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidCycleStatus(
+      InvalidCycleStatusException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 이슈 프로젝트와 다른 사이클 연결 시도 — 400. */
+  @ExceptionHandler(InvalidCycleForProjectException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidCycleForProject(
+      InvalidCycleForProjectException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }

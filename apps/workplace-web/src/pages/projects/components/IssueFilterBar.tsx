@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
+import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { filtersToParams, parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters';
@@ -44,6 +45,7 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
   const groupBy = parseGroupBy(params);
   const [qDraft, setQDraft] = useState(filters.q);
   const labels = useLabels(projectKey);
+  const cycles = useCycles(projectKey);
   const types = useIssueTypes(projectKey);
 
   // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 동기화한다.
@@ -107,6 +109,21 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
         labelIds: has
           ? filters.labelIds.filter((x) => x !== id)
           : [...filters.labelIds, id],
+      },
+      view,
+      groupBy,
+    );
+  }
+
+  // 사이클 다중 토글 — OR 결합. 선택된 사이클 중 하나에 속한 이슈 매칭.
+  function toggleCycle(id: number) {
+    const has = filters.cycleIds.includes(id);
+    writeFilters(
+      {
+        ...filters,
+        cycleIds: has
+          ? filters.cycleIds.filter((x) => x !== id)
+          : [...filters.cycleIds, id],
       },
       view,
       groupBy,
@@ -217,6 +234,47 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
             {(labels.data ?? []).length === 0 && (
               <p className="text-xs text-muted-foreground py-2 text-center">
                 라벨이 없습니다
+              </p>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      {/* 사이클 필터 — 라벨 필터와 동일 패턴으로 멀티셀렉트 구현 */}
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant={filters.cycleIds.length > 0 ? 'default' : 'outline'}
+            size="sm"
+            aria-label="사이클 필터"
+            data-testid="cycle-filter-trigger"
+          >
+            사이클{filters.cycleIds.length > 0 ? ` (${filters.cycleIds.length})` : ''}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 p-2">
+          <div className="max-h-64 overflow-y-auto space-y-1">
+            {(cycles.data ?? []).map((c) => (
+              <label
+                key={c.id}
+                className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
+                data-testid={`cycle-filter-option-${c.id}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={filters.cycleIds.includes(c.id)}
+                  onChange={() => toggleCycle(c.id)}
+                  aria-label={c.name}
+                />
+                <span className="text-sm">{c.name}</span>
+                <span className="ml-auto text-[10px] uppercase text-muted-foreground">
+                  {c.status}
+                </span>
+              </label>
+            ))}
+            {(cycles.data ?? []).length === 0 && (
+              <p className="text-xs text-muted-foreground py-2 text-center">
+                사이클이 없습니다
               </p>
             )}
           </div>

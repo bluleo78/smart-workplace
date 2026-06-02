@@ -156,6 +156,8 @@ export interface IssueFilters {
   dueTo: string | null;
   // 다중 라벨 AND 필터 — 모든 라벨이 부착된 이슈만 매칭.
   labelIds: number[];
+  // 다중 사이클 OR 필터 — 선택된 사이클 중 하나에 속한 이슈 매칭.
+  cycleIds: number[];
   // 다중 유형 OR 필터 — 선택된 유형 중 하나에 속한 이슈 매칭.
   typeIds: number[];
   // 특정 부모(번호) 의 자식만 보기 (Phase 4a) — UI 노출은 deferred, URL 직렬화만.

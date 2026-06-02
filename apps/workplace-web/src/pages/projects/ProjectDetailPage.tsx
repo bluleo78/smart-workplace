@@ -35,6 +35,9 @@ export default function ProjectDetailPage() {
           <p className="text-muted-foreground">{project.data?.key}</p>
         </div>
         <div className="flex gap-2">
+          <Link to={`/projects/${key}/cycles`}>
+            <Button variant="outline">사이클</Button>
+          </Link>
           <Link to={`/projects/${key}/settings`}>
             <Button variant="outline">설정</Button>
           </Link>

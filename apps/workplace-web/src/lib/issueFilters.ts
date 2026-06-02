@@ -24,6 +24,10 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const labelIds = csv(params.get('label'))
     .map((s) => Number(s))
     .filter((n) => Number.isFinite(n) && n > 0);
+  // cycle 토큰도 동일 규칙 — 양의 정수만 통과.
+  const cycleIds = csv(params.get('cycle'))
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n) && n > 0);
   // type 토큰도 동일 규칙 — 양의 정수만 통과.
   const typeIds = csv(params.get('type'))
     .map((s) => Number(s))
@@ -48,6 +52,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     dueFrom: params.get('dueFrom'),
     dueTo: params.get('dueTo'),
     labelIds,
+    cycleIds,
     typeIds,
     parentNumber,
     topLevel,
@@ -87,6 +92,7 @@ export function filtersToParams(
   if (f.dueFrom) p.set('dueFrom', f.dueFrom);
   if (f.dueTo) p.set('dueTo', f.dueTo);
   if (f.labelIds.length) p.set('label', f.labelIds.join(','));
+  if (f.cycleIds.length) p.set('cycle', f.cycleIds.join(','));
   if (f.typeIds.length) p.set('type', f.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. UI 노출은 deferred.
   if (f.parentNumber != null && f.parentNumber > 0) p.set('parent', String(f.parentNumber));
