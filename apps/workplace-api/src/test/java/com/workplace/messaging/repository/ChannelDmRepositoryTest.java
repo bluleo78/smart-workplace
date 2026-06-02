@@ -73,4 +73,13 @@ class ChannelDmRepositoryTest extends IntegrationTestBase {
     assertThat(dms.get(0).participants()).extracting("userId").containsExactlyInAnyOrder(u1, u2);
     assertThat(dms.get(0).lastMessageAt()).isNull(); // 메시지 0건
   }
+
+  @Test
+  void insertDm_duplicateMemberKey_dedupedByUniqueIndex() {
+    long u1 = seedUser();
+    long u2 = seedUser();
+    String key = "%d,%d".formatted(Math.min(u1, u2), Math.max(u1, u2));
+    assertThat(channelRepo.insertDmIfAbsent(key, u1)).isPresent();
+    assertThat(channelRepo.insertDmIfAbsent(key, u1)).isEmpty(); // 부분 유니크 인덱스가 중복 차단
+  }
 }

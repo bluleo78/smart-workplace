@@ -220,7 +220,7 @@ public class ChannelRepository {
         .fetchOptional(CHANNEL.ID);
   }
 
-  /** DM 채널 생성(name=null, visibility=PRIVATE). id 반환. */
+  /** DM 채널 생성(name=null, visibility=PRIVATE). id 반환. 테스트 시딩 등 충돌 없음이 보장된 경로용. */
   public long insertDm(String memberKey, long createdBy) {
     return dsl.insertInto(CHANNEL)
         .set(CHANNEL.KIND, "DM")
@@ -230,6 +230,23 @@ public class ChannelRepository {
         .returning(CHANNEL.ID)
         .fetchOne()
         .getId();
+  }
+
+  /**
+   * DM 채널 생성. 동일 member_key 가 이미 있으면(동시 생성 레이스) 아무 것도 하지 않고 empty 반환.
+   * uq_channel_dm_member_key 부분 유니크 인덱스를 충돌 타깃으로 사용 → 예외 없이 트랜잭션 유지(@Transactional abort 방지).
+   */
+  public Optional<Long> insertDmIfAbsent(String memberKey, long createdBy) {
+    return dsl.insertInto(CHANNEL)
+        .set(CHANNEL.KIND, "DM")
+        .set(CHANNEL.VISIBILITY, "PRIVATE")
+        .set(CHANNEL.MEMBER_KEY, memberKey)
+        .set(CHANNEL.CREATED_BY, createdBy)
+        .onConflict(CHANNEL.MEMBER_KEY)
+        .where(CHANNEL.KIND.eq("DM"))
+        .doNothing()
+        .returning(CHANNEL.ID)
+        .fetchOptional(CHANNEL.ID);
   }
 
   /** caller 가 멤버인 단일 DM 상세(참여자 동봉). 비멤버/비DM 이면 empty. */

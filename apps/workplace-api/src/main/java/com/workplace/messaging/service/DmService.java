@@ -9,7 +9,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,16 +62,17 @@ public class DmService {
     if (existing.isPresent()) {
       return new DmResult(channelRepo.findDmDetail(existing.get(), callerId).orElseThrow(), false);
     }
-    // 신규 생성 — 동시 생성 레이스는 유니크 인덱스가 차단, catch 후 재조회.
-    try {
-      long id = channelRepo.insertDm(memberKey, callerId);
+    // 신규 생성 — ON CONFLICT DO NOTHING 으로 동시 생성 레이스를 트랜잭션 abort 없이 처리.
+    var inserted = channelRepo.insertDmIfAbsent(memberKey, callerId);
+    if (inserted.isPresent()) {
+      long id = inserted.get();
       for (Long uid : members) {
         memberRepo.add(id, uid, "MEMBER");
       }
       return new DmResult(channelRepo.findDmDetail(id, callerId).orElseThrow(), true);
-    } catch (DuplicateKeyException race) {
-      long id = channelRepo.findDmIdByMemberKey(memberKey).orElseThrow();
-      return new DmResult(channelRepo.findDmDetail(id, callerId).orElseThrow(), false);
     }
+    // 레이스 패자: 동시 트랜잭션이 먼저 생성 → 기존 DM 재사용.
+    long existingId = channelRepo.findDmIdByMemberKey(memberKey).orElseThrow();
+    return new DmResult(channelRepo.findDmDetail(existingId, callerId).orElseThrow(), false);
   }
 }
