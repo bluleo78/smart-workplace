@@ -33,4 +33,20 @@ public class OutboundConfig {
     executor.initialize();
     return executor;
   }
+
+  /**
+   * notify 디스패처 전용 executor. @Async 무인자는 단일 Executor 빈(aiAgentEventExecutor)에 바인딩되거나, 빈이 2개면 모호해져
+   * SimpleAsyncTaskExecutor 로 조용히 폴백한다. 따라서 항상 명시 한정(@Async("notifyEventExecutor"))한다. 알림은 가벼운
+   * insert+fan-out 이므로 작은 풀로 충분, queue 는 버스트 흡수용으로 넉넉히.
+   */
+  @Bean(name = "notifyEventExecutor")
+  public Executor notifyEventExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(2);
+    executor.setMaxPoolSize(4);
+    executor.setQueueCapacity(500);
+    executor.setThreadNamePrefix("notify-");
+    executor.initialize();
+    return executor;
+  }
 }
