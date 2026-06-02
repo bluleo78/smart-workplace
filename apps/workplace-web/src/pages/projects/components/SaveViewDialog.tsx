@@ -1,4 +1,4 @@
-// 뷰 저장 다이얼로그 — 현재 URL 쿼리스트링을 이름+가시성과 함께 저장.
+// 뷰 저장/수정 다이얼로그 — 생성 시 현재 URL 쿼리스트링을, 수정 시 기존 뷰의 쿼리를 이름+가시성과 함께 저장.
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -11,30 +11,37 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
-import { useCreateSavedView } from '../../../hooks/queries/useSavedViews'
-import type { Visibility } from '../../../types/savedView'
+import { useCreateSavedView, useUpdateSavedView } from '../../../hooks/queries/useSavedViews'
+import type { SavedViewResponse, Visibility } from '../../../types/savedView'
 
 export function SaveViewDialog({
   projectKey,
   query,
+  editing,
   open,
   onOpenChange,
 }: {
   projectKey: string
-  /** 저장할 현재 필터 쿼리스트링(? 제외). */
+  /** 생성 시 저장할 현재 필터 쿼리스트링(? 제외). 수정 시에는 editing.query 가 사용된다. */
   query: string
+  /** 지정되면 수정 모드 — 이름/가시성만 변경하고 쿼리는 기존값 유지. */
+  editing?: SavedViewResponse
   open: boolean
   onOpenChange: (v: boolean) => void
 }) {
   const create = useCreateSavedView(projectKey)
-  const [name, setName] = useState('')
-  const [visibility, setVisibility] = useState<Visibility>('PRIVATE')
+  const update = useUpdateSavedView(projectKey)
+  const isEdit = !!editing
+  // 수정 모드면 기존값으로 초기화 — 호출처에서 key 로 리마운트해 editing 별 초기값을 보장한다.
+  const [name, setName] = useState(editing?.name ?? '')
+  const [visibility, setVisibility] = useState<Visibility>(editing?.visibility ?? 'PRIVATE')
+  const pending = isEdit ? update.isPending : create.isPending
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>뷰 저장</DialogTitle>
+          <DialogTitle>{isEdit ? '뷰 수정' : '뷰 저장'}</DialogTitle>
         </DialogHeader>
         <form
           onSubmit={async (e) => {
@@ -43,7 +50,15 @@ export function SaveViewDialog({
             const trimmed = name.trim()
             if (!trimmed) return
             try {
-              await create.mutateAsync({ name: trimmed, query, visibility })
+              if (isEdit) {
+                // 수정: 쿼리는 기존값 유지, 이름/가시성만 변경.
+                await update.mutateAsync({
+                  id: editing.id,
+                  body: { name: trimmed, query: editing.query, visibility },
+                })
+              } else {
+                await create.mutateAsync({ name: trimmed, query, visibility })
+              }
               setName('')
               setVisibility('PRIVATE')
               onOpenChange(false)
@@ -91,8 +106,8 @@ export function SaveViewDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               취소
             </Button>
-            <Button type="submit" data-testid="save-view-submit" disabled={create.isPending}>
-              저장
+            <Button type="submit" data-testid="save-view-submit" disabled={pending}>
+              {isEdit ? '수정' : '저장'}
             </Button>
           </DialogFooter>
         </form>

@@ -1,5 +1,5 @@
 // 뷰 칩 바 — [전체] + 저장된 뷰 칩 + ＋뷰 저장. 칩 클릭 시 필터 복원.
-import { Plus, Trash2, Users } from 'lucide-react'
+import { Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { useDeleteSavedView, useSavedViews } from '../../../hooks/queries/useSavedViews'
 import { filtersToParams, parseFilters, parseView } from '../../../lib/issueFilters'
 import { queriesEqual } from '../../../lib/savedViewQuery'
+import type { SavedViewResponse } from '../../../types/savedView'
 import { SaveViewDialog } from './SaveViewDialog'
 
 export function ViewChipBar({ projectKey }: { projectKey: string }) {
@@ -21,6 +22,8 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
   const views = useSavedViews(projectKey)
   const del = useDeleteSavedView(projectKey)
   const [saveOpen, setSaveOpen] = useState(false)
+  // 수정 중인 뷰 — null 이면 수정 다이얼로그 닫힘.
+  const [editing, setEditing] = useState<SavedViewResponse | null>(null)
 
   // 현재 URL 필터를 canonical 쿼리스트링으로 — 저장/활성칩 판정에 동일 기준 사용.
   const currentQuery = filtersToParams(parseFilters(params), parseView(params)).toString()
@@ -70,6 +73,12 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
+                    data-testid={`view-edit-${v.id}`}
+                    onSelect={() => setEditing(v)}
+                  >
+                    <Pencil className="mr-2 h-4 w-4" /> 수정
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
                     data-testid={`view-delete-${v.id}`}
                     onSelect={() => del.mutate(v.id)}
                     className="text-destructive"
@@ -98,6 +107,20 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
         open={saveOpen}
         onOpenChange={setSaveOpen}
       />
+
+      {/* 수정 다이얼로그 — key 로 리마운트해 선택한 뷰의 이름/가시성을 초기값으로 채운다. */}
+      {editing && (
+        <SaveViewDialog
+          key={editing.id}
+          projectKey={projectKey}
+          query={currentQuery}
+          editing={editing}
+          open
+          onOpenChange={(v) => {
+            if (!v) setEditing(null)
+          }}
+        />
+      )}
     </div>
   )
 }
