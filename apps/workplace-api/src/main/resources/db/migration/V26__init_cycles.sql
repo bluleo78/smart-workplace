@@ -1,4 +1,4 @@
--- V25__init_cycles.sql
+-- V26__init_cycles.sql
 -- 제품 내장 Sprint/Cycle(이터레이션) 도메인.
 -- cycle: 프로젝트 스코프. issue_cycle: 이슈↔사이클 M:N (issue 도메인 소유).
 
