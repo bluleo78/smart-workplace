@@ -212,19 +212,28 @@ public class ChatMessageRepository {
     List<ChatMentionResponse> resolve(List<Long> mentionUserIds);
   }
 
-  /** Cursor record + 인코딩. base64(createdAt-millis|id). */
+  /**
+   * Cursor record + 인코딩. base64(epochSecond|nano|id).
+   *
+   * <p>createdAt 을 초+나노 풀 정밀도로 인코딩한다. 과거에는 toEpochMilli() 로 밀리초 미만을 절삭해, 동일 밀리초에 생성된 메시지가 커서
+   * 경계(createdAt 동률 → id 비교)에 걸릴 때 누락될 수 있었다(메시지 유실). Postgres TIMESTAMPTZ 는 마이크로초까지 저장하므로, 절삭 시 같은
+   * ms 안의 서로 다른 마이크로초 메시지가 동일 커서 시각으로 뭉개졌다. epochSecond|nano 로 DB 가 돌려준 정확한 시각을 보존한다.
+   */
   public record Cursor(Instant createdAt, long id) {
     public static String encode(Cursor c) {
       return Base64.getUrlEncoder()
           .withoutPadding()
           .encodeToString(
-              (c.createdAt.toEpochMilli() + "|" + c.id).getBytes(StandardCharsets.UTF_8));
+              (c.createdAt.getEpochSecond() + "|" + c.createdAt.getNano() + "|" + c.id)
+                  .getBytes(StandardCharsets.UTF_8));
     }
 
     public static Cursor decode(String s) {
       String raw = new String(Base64.getUrlDecoder().decode(s), StandardCharsets.UTF_8);
       String[] parts = raw.split("\\|");
-      return new Cursor(Instant.ofEpochMilli(Long.parseLong(parts[0])), Long.parseLong(parts[1]));
+      return new Cursor(
+          Instant.ofEpochSecond(Long.parseLong(parts[0]), Long.parseLong(parts[1])),
+          Long.parseLong(parts[2]));
     }
   }
 }
