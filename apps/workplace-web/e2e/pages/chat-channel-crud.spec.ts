@@ -212,7 +212,9 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     await stubChannelView(page, archived)
     await page.goto('/chat/channels/40')
     await expect(page.getByTestId('channel-archived-badge')).toBeVisible()
-    await expect(page.getByTestId('message-composer-input')).toBeDisabled()
+    // Phase 4: 컴포저가 contenteditable(RichInput) 로 바뀌어, 보관 채널은 입력기를
+    // 비활성 표시하는 대신 아예 마운트하지 않고 안내 문구만 렌더한다.
+    await expect(page.getByTestId('message-composer-input')).toHaveCount(0)
     await expect(page.getByText('이 채널은 보관되었습니다')).toBeVisible()
   })
 
