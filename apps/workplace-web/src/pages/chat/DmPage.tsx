@@ -55,7 +55,12 @@ export default function DmPage() {
     <div className="flex h-full min-h-0 flex-col">
       <DmHeader dm={dm} currentUserId={me.id} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <MessageList messages={messages} />
+        <MessageList
+          messages={messages}
+          channelId={dm.id}
+          currentUserId={me.id}
+          members={mentionMembers}
+        />
       </div>
       <MessageComposer
         members={mentionMembers}

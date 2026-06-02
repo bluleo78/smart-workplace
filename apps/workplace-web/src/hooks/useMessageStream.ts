@@ -29,12 +29,48 @@ function upsertMessage(qc: QueryClient, channelId: number, msg: MessageResponse)
   });
 }
 
+// 캐시 내 기존 메시지를 부분 patch(merge). updated/deleted 이벤트는 부분 payload 이므로
+// full replace 가 아닌 merge 로 적용한다(authorId/authorName 등 보존). 미존재 시 no-op
+// (미오픈 채널 → 열 때 refetch 로 정합. created 와 달리 prepend 하지 않음).
+function patchMessage(
+  qc: QueryClient,
+  channelId: number,
+  id: number,
+  patch: Partial<MessageResponse>,
+) {
+  const key = messagingKeys.messages(channelId);
+  qc.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
+    if (!old) return old;
+    return {
+      ...old,
+      pages: old.pages.map((p) => ({
+        ...p,
+        items: p.items.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      })),
+    };
+  });
+}
+
 function handleEvent(qc: QueryClient, eventName: string, data: unknown) {
   const d = data as Record<string, unknown>;
   const channelId = Number(d.channelId);
   if (!channelId) return;
   if (eventName === 'messaging.message.created') {
     upsertMessage(qc, channelId, data as MessageResponse);
+  } else if (eventName === 'messaging.message.updated') {
+    // payload: {channelId,id,body,mentions,editedAt}
+    const id = Number(d.id);
+    if (!id) return;
+    patchMessage(qc, channelId, id, {
+      body: d.body as string,
+      mentions: d.mentions as MessageResponse['mentions'],
+      editedAt: d.editedAt as string | null,
+    });
+  } else if (eventName === 'messaging.message.deleted') {
+    // payload: {channelId,id}
+    const id = Number(d.id);
+    if (!id) return;
+    patchMessage(qc, channelId, id, { deleted: true, body: '(삭제됨)' });
   }
 }
 

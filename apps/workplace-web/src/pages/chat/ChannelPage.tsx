@@ -66,7 +66,12 @@ export default function ChannelPage() {
         onOpenRename={() => setRenameOpen(true)}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <MessageList messages={messages} />
+        <MessageList
+          messages={messages}
+          channelId={channel.id}
+          currentUserId={me.id}
+          members={mentionMembers}
+        />
       </div>
       {/* 아카이브 채널이면 composer 비활성. */}
       <MessageComposer
