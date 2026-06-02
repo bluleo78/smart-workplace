@@ -2,6 +2,8 @@
 
 import type {
   ChannelResponse,
+  ChannelMemberResponse,
+  ChannelRole,
   CreateChannelRequest,
   CreateMessageRequest,
   MessagePage,
@@ -29,4 +31,44 @@ export const messagingApi = {
 
   createMessage: (channelId: number, payload: CreateMessageRequest) =>
     client.post<MessageResponse>(`/messaging/channels/${channelId}/messages`, payload),
+
+  // 공개 채널 탐색. q 비면 전체 공개 채널.
+  discoverChannels: (q?: string) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    const qs = params.toString();
+    return client.get<ChannelResponse[]>(
+      `/messaging/channels/discover${qs ? `?${qs}` : ''}`,
+    );
+  },
+
+  getChannel: (channelId: number) =>
+    client.get<ChannelResponse>(`/messaging/channels/${channelId}`),
+
+  renameChannel: (channelId: number, name: string) =>
+    client.patch<ChannelResponse>(`/messaging/channels/${channelId}`, { name }),
+
+  archiveChannel: (channelId: number) =>
+    client.post<void>(`/messaging/channels/${channelId}/archive`),
+
+  unarchiveChannel: (channelId: number) =>
+    client.post<void>(`/messaging/channels/${channelId}/unarchive`),
+
+  deleteChannel: (channelId: number) =>
+    client.delete<void>(`/messaging/channels/${channelId}`),
+
+  listMembers: (channelId: number) =>
+    client.get<ChannelMemberResponse[]>(`/messaging/channels/${channelId}/members`),
+
+  addMember: (channelId: number, userId: number) =>
+    client.post<void>(`/messaging/channels/${channelId}/members`, { userId }),
+
+  removeMember: (channelId: number, userId: number) =>
+    client.delete<void>(`/messaging/channels/${channelId}/members/${userId}`),
+
+  leaveChannel: (channelId: number) =>
+    client.post<void>(`/messaging/channels/${channelId}/leave`),
+
+  updateMemberRole: (channelId: number, userId: number, role: ChannelRole) =>
+    client.patch<void>(`/messaging/channels/${channelId}/members/${userId}`, { role }),
 };

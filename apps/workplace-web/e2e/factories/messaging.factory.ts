@@ -1,7 +1,11 @@
 // messaging E2E 테스트용 factory.
 // 단일 사용 패턴: createChannel() / createMessage() 호출 시 sensible defaults + spread overrides.
 
-import type { ChannelResponse, MessageResponse } from '../../src/types/messaging';
+import type {
+  ChannelResponse,
+  ChannelMemberResponse,
+  MessageResponse,
+} from '../../src/types/messaging';
 
 export function createChannel(overrides: Partial<ChannelResponse> = {}): ChannelResponse {
   return {
@@ -10,7 +14,23 @@ export function createChannel(overrides: Partial<ChannelResponse> = {}): Channel
     name: '일반',
     visibility: 'PUBLIC',
     member: true,
+    role: 'MEMBER',
+    archived: false,
+    memberCount: 1,
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
+    ...overrides,
+  };
+}
+
+export function createChannelMember(
+  overrides: Partial<ChannelMemberResponse> = {},
+): ChannelMemberResponse {
+  return {
+    userId: 1,
+    name: '테스트 사용자',
+    kind: 'HUMAN',
+    role: 'MEMBER',
+    joinedAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     ...overrides,
   };
 }
