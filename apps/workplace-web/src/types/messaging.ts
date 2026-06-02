@@ -30,7 +30,7 @@ export interface MentionResponse {
   id: number;
   username: string;
   name: string;
-  kind: string;
+  kind: UserKind;
 }
 
 export interface MessageResponse {
