@@ -1,7 +1,10 @@
 package com.workplace.view.repository;
 
+import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.SAVED_VIEW;
 
+import com.workplace.view.dto.PinnedSavedViewResponse;
 import com.workplace.view.dto.SavedViewRow;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -9,6 +12,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
@@ -30,6 +34,7 @@ public class SavedViewRepository {
         r.get(SAVED_VIEW.NAME),
         r.get(SAVED_VIEW.QUERY),
         r.get(SAVED_VIEW.VISIBILITY),
+        Boolean.TRUE.equals(r.get(SAVED_VIEW.IS_PINNED)),
         created != null ? created.toInstant() : null,
         updated != null ? updated.toInstant() : null);
   }
@@ -83,6 +88,61 @@ public class SavedViewRepository {
     } catch (org.jooq.exception.IntegrityConstraintViolationException e) {
       throw new DuplicateKeyException("saved_view name duplicated", e);
     }
+  }
+
+  /** 뷰 고정/해제. updated_at 갱신. */
+  public void setPinned(Long id, boolean pinned) {
+    dsl.update(SAVED_VIEW)
+        .set(SAVED_VIEW.IS_PINNED, pinned)
+        .set(SAVED_VIEW.UPDATED_AT, OffsetDateTime.now())
+        .where(SAVED_VIEW.ID.eq(id))
+        .execute();
+  }
+
+  /**
+   * 사용자의 모든 프로젝트 고정뷰 (project 조인, 삭제 프로젝트 제외). 소유자가 해당 프로젝트의 멤버로 여전히 남아 있는 뷰만 반환한다 — 프로젝트를 탈퇴하면 고정뷰
+   * 행은 남아 있어 죽은 사이드바 링크가 되므로 PROJECT_MEMBER 재확인(EXISTS)으로 제외한다.
+   */
+  public List<PinnedSavedViewResponse> findPinnedByUser(Long userId) {
+    return dsl.select(
+            SAVED_VIEW.ID,
+            SAVED_VIEW.PROJECT_ID,
+            PROJECT.KEY,
+            PROJECT.NAME,
+            SAVED_VIEW.NAME,
+            SAVED_VIEW.QUERY,
+            SAVED_VIEW.CREATED_AT)
+        .from(SAVED_VIEW)
+        .join(PROJECT)
+        .on(SAVED_VIEW.PROJECT_ID.eq(PROJECT.ID))
+        .where(
+            SAVED_VIEW
+                .OWNER_ID
+                .eq(userId)
+                .and(SAVED_VIEW.IS_PINNED.isTrue())
+                .and(PROJECT.DELETED_AT.isNull())
+                .and(
+                    DSL.exists(
+                        DSL.selectOne()
+                            .from(PROJECT_MEMBER)
+                            .where(
+                                PROJECT_MEMBER
+                                    .PROJECT_ID
+                                    .eq(SAVED_VIEW.PROJECT_ID)
+                                    .and(PROJECT_MEMBER.USER_ID.eq(userId))))))
+        .orderBy(SAVED_VIEW.CREATED_AT.desc())
+        .fetch(
+            r -> {
+              OffsetDateTime created = r.get(SAVED_VIEW.CREATED_AT);
+              return new PinnedSavedViewResponse(
+                  r.get(SAVED_VIEW.ID),
+                  r.get(SAVED_VIEW.PROJECT_ID),
+                  r.get(PROJECT.KEY),
+                  r.get(PROJECT.NAME),
+                  r.get(SAVED_VIEW.NAME),
+                  r.get(SAVED_VIEW.QUERY),
+                  created != null ? created.toInstant() : null);
+            });
   }
 
   /** 뷰 hard-delete. */

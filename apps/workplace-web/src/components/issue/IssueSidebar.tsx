@@ -1,14 +1,17 @@
 // 이슈 모듈 2차 사이드바 — 개인 영역(내 작업/AI 위임) + 프로젝트(컬러 식별자).
-import { LayoutList, ListChecks, Plus, Sparkles } from 'lucide-react'
+import { LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { useProjects } from '@/hooks/queries/useProjects'
+import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { projectColor, projectInitial } from '@/lib/project-color'
 
 export function IssueSidebar() {
   // 프로젝트 목록은 PageResponse<ProjectResponse> 형태 — data.content 로 접근한다.
   const projects = useProjects()
+  // 사용자가 고정한 뷰 — 프로젝트 교차 빠른 접근(사이드바 상단 노출).
+  const pinned = useMyPinnedViews()
 
   return (
     <aside
@@ -31,6 +34,28 @@ export function IssueSidebar() {
             <Sparkles className="h-4 w-4" /> AI 위임 작업
           </NavLink>
         </nav>
+
+        {(pinned.data?.length ?? 0) > 0 && (
+          <div className="mt-5" data-testid="sidebar-pinned-views">
+            <div className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              고정된 뷰
+            </div>
+            <nav className="mt-2 space-y-1">
+              {(pinned.data ?? []).map((v) => (
+                <NavLink
+                  key={v.id}
+                  to={`/projects/${v.projectKey}?${v.query}`}
+                  data-testid={`pinned-view-${v.id}`}
+                  className={sidebarLinkClass}
+                >
+                  <Star className="h-4 w-4 shrink-0 fill-current text-muted-foreground" />
+                  <span className="truncate">{v.name}</span>
+                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{v.projectKey}</span>
+                </NavLink>
+              ))}
+            </nav>
+          </div>
+        )}
 
         <div className="mt-5">
           <div className="flex items-center justify-between px-3">

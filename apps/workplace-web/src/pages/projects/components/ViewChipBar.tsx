@@ -1,5 +1,5 @@
 // 뷰 칩 바 — [전체] + 저장된 뷰 칩 + ＋뷰 저장. 칩 클릭 시 필터 복원.
-import { Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { Pencil, Plus, Star, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 
-import { useDeleteSavedView, useSavedViews } from '../../../hooks/queries/useSavedViews'
+import { useDeleteSavedView, usePinSavedView, useSavedViews } from '../../../hooks/queries/useSavedViews'
 import { filtersToParams, parseFilters, parseView } from '../../../lib/issueFilters'
 import { queriesEqual } from '../../../lib/savedViewQuery'
 import type { SavedViewResponse } from '../../../types/savedView'
@@ -21,6 +21,7 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
   const [params, setParams] = useSearchParams()
   const views = useSavedViews(projectKey)
   const del = useDeleteSavedView(projectKey)
+  const pin = usePinSavedView(projectKey)
   const [saveOpen, setSaveOpen] = useState(false)
   // 수정 중인 뷰 — null 이면 수정 다이얼로그 닫힘.
   const [editing, setEditing] = useState<SavedViewResponse | null>(null)
@@ -72,6 +73,13 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
                   ⋯
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    data-testid={`view-pin-${v.id}`}
+                    onSelect={() => pin.mutate({ id: v.id, pinned: !v.pinned })}
+                  >
+                    <Star className={cn('mr-2 h-4 w-4', v.pinned && 'fill-current')} />
+                    {v.pinned ? '고정 해제' : '사이드바에 고정'}
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     data-testid={`view-edit-${v.id}`}
                     onSelect={() => setEditing(v)}
