@@ -2,7 +2,7 @@
 
 AI Native 워크플레이스 — 사람과 AI가 함께 일하는 협업 플랫폼.
 
-v1: AI를 Assignee로 둘 수 있는 이슈 트래커. 향후 chat / wiki / drive로 확장.
+v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat). 팀 채팅(messaging)·알림(notify) 확장 중 — 향후 wiki / drive.
 
 ## Commands
 
@@ -19,11 +19,19 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커. 향후 chat / wiki / driv
 - 로컬 Web: 포트 6173 (firehub-web 5173 과 분리)
 - 로컬 AI Agent: 포트 7070
 
+## 이슈 관리
+
+- 이슈/작업 관리는 **GitHub Projects v2 #4** 에서 진행: https://github.com/users/bluleo78/projects/4
+- 새 작업은 착수 전 이슈로 등록(에픽-하위 구조 사용). 현재/예정 작업은 **현재 이터레이션**에 할당.
+- **특정 이슈에 착수할 때**: 해당 이슈의 Status 를 진행 단계로 변경(`In progress` 등)하고, **현재 이터레이션에 미할당이면 할당**한다.
+- 조작은 `gh` CLI(Projects v2 GraphQL) 사용. 필드/옵션/이터레이션 ID 는 자동 메모 참조.
+
 ## Rules
 
 - **한국어 주석 필수**: 클래스·메서드·주요 로직에 무엇을·왜. 상세는 [코딩 컨벤션](docs/CODING_CONVENTION.md)
 - **커밋/배포 금지**: 사용자 명시적 승인 후에만 실행
 - **테스트 필수**: backend → JUnit 통합 테스트, frontend → Playwright E2E
+- **이슈 관리**: 작업 착수 시 GitHub Projects #4 이슈 상태 변경 + 현재 이터레이션 할당 (위 "이슈 관리" 참조)
 - **스크린샷**: 탐색 → `test-results/exploratory/<기능>/<timestamp>/screenshots/`, TC → `test-results/tc/<suite>/`
 
 ## Architecture (목표)
@@ -31,7 +39,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커. 향후 chat / wiki / driv
 - **모노레포**: pnpm workspaces + Turborepo
 - **백엔드**: 모듈러 모놀리스 (Spring Boot + Spring Modulith)
   - core: identity / thread / search / file / notify / ai
-  - domain: issue (v1) → chat / wiki / drive (v2+)
+  - domain: issue(v1, 완료) · chat(이슈 컨텍스트, 완료) · messaging(팀 채팅 — Phase 1·2 완료, 3~7 백로그 #60–64) · notify(인박스/알림, 진행 중 #54) → wiki / drive (이후)
 - **프론트엔드**: Vite + React 19 + TS + Tailwind 4 + shadcn/ui
 - **별도 서비스**: workplace-ai-agent (Claude Agent SDK, 스캐폴딩 완료 — 5b/5c 에서 로직 채움), workplace-channel (실시간, 향후 추가)
 

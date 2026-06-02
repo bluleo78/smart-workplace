@@ -4,7 +4,7 @@
 
 ## 이 앱의 목적
 
-Smart Workplace 의 **단일 SPA**. 현재 인증·프로필·관리자 페이지(사용자/역할/감사) 를 제공한다.
+Smart Workplace 의 **단일 SPA**. 인증·프로필·관리자(사용자/역할/감사), 이슈 트래커(프로젝트·칸반 보드·이슈·라벨·subtask·의존성·custom field·Saved View), 이슈 컨텍스트 chat, 팀 채팅(messaging) 을 제공한다.
 
 ## Commands
 

@@ -4,7 +4,7 @@
 
 ## 이 앱의 목적
 
-Smart Workplace 의 **모듈러 모놀리스 백엔드**. 현재 인증·권한·감사·파일 코어 모듈을 제공한다.
+Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권한·감사·파일) 코어와 이슈 트래커·이슈 컨텍스트 chat·팀 채팅 messaging 도메인 모듈을 제공한다.
 
 새 도메인 모듈을 추가할 때의 원칙: 같은 프로세스 안에 모듈로 추가하고, 다른 도메인 패키지를 직접 import 하지 않는다 (`global` 만 의존, 도메인 간 통신은 이벤트).
 
@@ -45,13 +45,21 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. 현재 인증·권한�
 | `file` | 업로드 파일 메타. 바이너리는 디스크/오브젝트 스토리지에 별도 저장 |
 | `health` | `/api/v1/health`, Actuator 헬스 |
 | `global` | SecurityConfig, JwtAuthenticationFilter, GlobalExceptionHandler, `@RequirePermission`, 공통 DTO, EncryptionService(AES-256-GCM) |
+| `home` | 홈 대시보드 집계 — 내 이슈·워치·활동 |
+| `project` | 프로젝트 CRUD·멤버·권한·custom field |
+| `issue` | 이슈 CRUD·상태/우선순위/유형·subtask·의존성·다중 assignee·이벤트 발행 |
+| `label` | 라벨 CRUD·이슈 라벨링 |
+| `watcher` | 이슈 워처(구독) |
+| `view` | Saved View — 필터 조건 저장·공유 |
+| `chat` | 이슈 컨텍스트 채팅 — 메시지·@멘션·읽음·수정/삭제·SSE, AI/담당자 양방향 |
+| `messaging` | 팀 채팅 — 공개/비공개 채널·CRUD·탐색·멤버 역할(OWNER/ADMIN/MEMBER)·메시지·SSE (Phase 1·2) |
 
 ### 데이터 접근: jOOQ (not JPA)
 
 - Repository 는 `DSLContext` 로 type-safe SQL 작성
 - 코드젠 결과: `src/main/generated/` (public 스키마)
 - 빌드와 codegen 은 분리(`generateSchemaSourceOnCompilation = false`) — 스키마 변경 후 명시적으로 `./gradlew generateJooq`
-- Flyway 마이그레이션: `src/main/resources/db/migration/V{n}__*.sql` (현재 V1~V4)
+- Flyway 마이그레이션: `src/main/resources/db/migration/V{n}__*.sql` (현재 V21 까지)
 
 ### Auth & Permission
 
