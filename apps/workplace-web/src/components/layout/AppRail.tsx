@@ -27,6 +27,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 
 import { AppRailUserMenu } from './AppRailUserMenu'
+import { InboxPanel } from './InboxPanel'
 
 interface RailItem {
   label: string
@@ -206,8 +207,9 @@ export function AppRail() {
           </div>
         </nav>
 
-        {/* 하단 유저 메뉴 */}
-        <div className="shrink-0 border-t p-2">
+        {/* 하단: 알림 인박스 + 유저 메뉴 */}
+        <div className="shrink-0 space-y-1 border-t p-2">
+          <InboxPanel />
           <AppRailUserMenu />
         </div>
       </aside>

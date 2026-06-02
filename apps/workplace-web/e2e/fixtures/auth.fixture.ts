@@ -55,6 +55,13 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   // 결국 "/" 에 착지하므로 빈 기본 목록 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 세션을 검증하는 spec 은 더 구체적 목록을 나중에 등록 → 그쪽이 우선한다.
   await mockApi(page, 'GET', '/api/v1/home/sessions', { items: [], nextCursor: null })
+  // 알림 인박스 기본 스텁 — 모든 인증 페이지에서 종/배지가 마운트되므로 기본값 제공.
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [])
+  // SSE 스트림은 즉시 닫히는 빈 event-stream 으로 스텁(실네트워크 차단).
+  await page.route('**/api/v1/notifications/stream', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }),
+  )
   // 인증 컨텍스트가 마운트 시점에 hasSession 플래그를 보고 refresh 를 시도하므로
   // 미리 스토리지에 플래그를 심는다.
   await page.addInitScript(() => window.localStorage.setItem('hasSession', '1'))
