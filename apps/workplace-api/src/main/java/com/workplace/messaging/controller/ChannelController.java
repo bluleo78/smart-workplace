@@ -33,7 +33,7 @@ public class ChannelController {
   public ResponseEntity<ChannelResponse> create(
       @AuthenticationPrincipal Long callerId, @Valid @RequestBody CreateChannelRequest req) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(channelService.create(callerId, req.name()));
+        .body(channelService.create(callerId, req.name(), req.visibility()));
   }
 
   @PostMapping("/channels/{id}/join")
