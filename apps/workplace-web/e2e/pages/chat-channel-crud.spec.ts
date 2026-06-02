@@ -126,3 +126,47 @@ test.describe('messaging 채널 생성', () => {
     await expect(page.getByTestId('channel-lock-9')).toBeVisible();
   });
 });
+
+test.describe('messaging 채널 탐색·참여', () => {
+  test('탐색 모달 → 검색 결과 → 참여 → 목록 무효화', async ({ authenticatedPage: page }) => {
+    // 사이드바: 처음엔 내 채널 없음. 참여 후 GET /channels 가 새 채널 포함하도록 토글.
+    let joined = false
+    const target = createChannel({ id: 30, name: '공개방', visibility: 'PUBLIC', member: false, role: null })
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels',
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback()
+        const body = joined ? [{ ...target, member: true, role: 'MEMBER' }] : []
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+      },
+    )
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/stream',
+      (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: ':\n\n' }),
+    )
+    // GET /channels/discover — 검색 결과.
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels/discover',
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback()
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([target]) })
+      },
+    )
+    // POST /channels/30/join — 204 + 이후 사이드바 반영 토글.
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels/30/join',
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback()
+        joined = true
+        return route.fulfill({ status: 204 })
+      },
+    )
+
+    await page.goto('/chat')
+    await page.getByTestId('channel-browse-btn').click()
+    await expect(page.getByTestId('channel-browser')).toBeVisible()
+    await page.getByTestId('channel-browser-join-30').click()
+    // 참여 후 사이드바에 등장.
+    await expect(page.getByTestId('channel-link-30')).toBeVisible()
+  })
+})
