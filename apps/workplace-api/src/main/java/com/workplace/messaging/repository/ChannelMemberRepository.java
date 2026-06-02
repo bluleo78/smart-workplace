@@ -69,6 +69,14 @@ public class ChannelMemberRepository {
         .execute();
   }
 
+  /** 현재 OWNER 를 ADMIN 으로 강등 — 소유권 이전 시 새 OWNER 승격 직전에 호출해 "OWNER 1명" 불변식을 유지한다. */
+  public void demoteOwners(long channelId) {
+    dsl.update(CHANNEL_MEMBER)
+        .set(CHANNEL_MEMBER.ROLE, "ADMIN")
+        .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.ROLE.eq("OWNER")))
+        .execute();
+  }
+
   /** 멤버 제거. */
   public void remove(long channelId, long userId) {
     dsl.deleteFrom(CHANNEL_MEMBER)

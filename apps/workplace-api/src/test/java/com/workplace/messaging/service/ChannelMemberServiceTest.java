@@ -1,6 +1,8 @@
 package com.workplace.messaging.service;
 
+import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -34,6 +36,36 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
         .returning(USER.ID)
         .fetchOne()
         .getId();
+  }
+
+  /** 시스템 ADMIN 역할을 가진 사용자 — 채널 비멤버여도 권한 오버라이드를 검증하기 위함. */
+  private long seedAdminUser() {
+    long id = seedUser();
+    Long adminRoleId =
+        dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, id)
+        .set(USER_ROLE.ROLE_ID, adminRoleId)
+        .execute();
+    return id;
+  }
+
+  @Test
+  void updateRole_systemAdminTransfer_demotesActualOwner_keepsSingleOwner() {
+    // 시스템 ADMIN(채널 비멤버)이 소유권을 이전하면 호출자가 아니라 "현재 OWNER" 가 강등되어야 한다.
+    long owner = seedUser();
+    long target = seedUser();
+    long sysAdmin = seedAdminUser();
+    ChannelResponse ch = channelService.create(owner, "일반", "PUBLIC");
+    memberService.add(owner, ch.id(), target);
+
+    memberService.updateRole(sysAdmin, ch.id(), target, "OWNER");
+
+    assertThat(memberRepo.findRole(ch.id(), target)).contains("OWNER");
+    assertThat(memberRepo.findRole(ch.id(), owner)).contains("ADMIN");
+    long ownerCount =
+        memberRepo.listMembers(ch.id()).stream().filter(m -> "OWNER".equals(m.role())).count();
+    assertThat(ownerCount).isEqualTo(1);
   }
 
   @Test

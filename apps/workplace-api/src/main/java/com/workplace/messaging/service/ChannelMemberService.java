@@ -70,11 +70,10 @@ public class ChannelMemberService {
       throw new ChannelForbiddenException(channelId, callerId, "update-role-of-nonmember");
     }
     if ("OWNER".equals(normalized)) {
-      // 소유권 이전 — 대상 OWNER, 기존 OWNER(호출자) ADMIN 강등
+      // 소유권 이전 — 호출자가 아니라 "현재 OWNER" 를 강등한다.
+      // (시스템 ADMIN 이 비멤버로서 이전을 수행하면 호출자 강등은 0행이 되어 OWNER 가 2명이 되는 버그 방지.)
+      memberRepo.demoteOwners(channelId);
       memberRepo.updateRole(channelId, targetUserId, "OWNER");
-      if (callerId != targetUserId) {
-        memberRepo.updateRole(channelId, callerId, "ADMIN");
-      }
     } else {
       // 대상이 현재 OWNER 인데 비-OWNER 로 강등하려 하면 차단(소유권 공백 방지)
       if (memberRepo.findRole(channelId, targetUserId).filter("OWNER"::equals).isPresent()) {
