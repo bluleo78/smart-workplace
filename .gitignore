@@ -45,6 +45,10 @@ Thumbs.db
 .claude/settings.local.json
 .claude/plans/
 .claude/projects/
+.claude/worktrees/
+
+# Serena MCP (로컬 캐시/설정)
+**/.serena/
 
 # Gradle bin output
 **/bin/
@@ -76,6 +80,7 @@ db-test-data/
 
 # Git worktrees (로컬 전용)
 .worktrees/
+.claire/
 
 # Superpowers brainstorm visual companion
 .superpowers/
