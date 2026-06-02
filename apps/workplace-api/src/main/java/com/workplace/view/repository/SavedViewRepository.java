@@ -30,6 +30,7 @@ public class SavedViewRepository {
         r.get(SAVED_VIEW.NAME),
         r.get(SAVED_VIEW.QUERY),
         r.get(SAVED_VIEW.VISIBILITY),
+        Boolean.TRUE.equals(r.get(SAVED_VIEW.IS_PINNED)),
         created != null ? created.toInstant() : null,
         updated != null ? updated.toInstant() : null);
   }

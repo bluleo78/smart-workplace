@@ -122,6 +122,7 @@ public class SavedViewService {
         r.visibility(),
         r.ownerId(),
         r.ownerId().equals(callerId),
+        r.pinned(),
         r.createdAt(),
         r.updatedAt());
   }
