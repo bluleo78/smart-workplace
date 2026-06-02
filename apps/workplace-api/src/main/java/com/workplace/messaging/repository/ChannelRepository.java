@@ -233,8 +233,8 @@ public class ChannelRepository {
   }
 
   /**
-   * DM 채널 생성. 동일 member_key 가 이미 있으면(동시 생성 레이스) 아무 것도 하지 않고 empty 반환.
-   * uq_channel_dm_member_key 부분 유니크 인덱스를 충돌 타깃으로 사용 → 예외 없이 트랜잭션 유지(@Transactional abort 방지).
+   * DM 채널 생성. 동일 member_key 가 이미 있으면(동시 생성 레이스) 아무 것도 하지 않고 empty 반환. uq_channel_dm_member_key 부분
+   * 유니크 인덱스를 충돌 타깃으로 사용 → 예외 없이 트랜잭션 유지(@Transactional abort 방지).
    */
   public Optional<Long> insertDmIfAbsent(String memberKey, long createdBy) {
     return dsl.insertInto(CHANNEL)
@@ -296,11 +296,7 @@ public class ChannelRepository {
                     .asField("last_message_at"))
             .from(CHANNEL)
             .join(CHANNEL_MEMBER)
-            .on(
-                CHANNEL_MEMBER
-                    .CHANNEL_ID
-                    .eq(CHANNEL.ID)
-                    .and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
+            .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
             .where(CHANNEL.KIND.eq("DM"))
             .fetch();
     List<Long> ids = rows.map(r -> r.get(CHANNEL.ID));
@@ -328,8 +324,7 @@ public class ChannelRepository {
             })
         .sorted(
             Comparator.comparing(
-                    (DmResponse d) ->
-                        d.lastMessageAt() != null ? d.lastMessageAt() : d.createdAt(),
+                    (DmResponse d) -> d.lastMessageAt() != null ? d.lastMessageAt() : d.createdAt(),
                     Comparator.nullsLast(Comparator.naturalOrder()))
                 .reversed())
         .toList();

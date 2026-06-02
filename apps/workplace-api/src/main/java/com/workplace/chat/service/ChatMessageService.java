@@ -15,6 +15,7 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
 import java.time.Instant;
 import java.util.List;
@@ -31,6 +32,7 @@ public class ChatMessageService {
   private final ChatMessageRepository messageRepo;
   private final ChatThreadMemberRepository memberRepo;
   private final ChatUserHydrator hydrator;
+  private final UserMentionHydrator userMentionHydrator;
   private final ChatThreadContextResolver contextResolver;
   private final ApplicationEventPublisher publisher;
 
@@ -38,7 +40,8 @@ public class ChatMessageService {
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
     ensureMember(threadId, callerId);
-    List<Long> mentionUserIds = hydrator.filterExistingUserIds(MentionParser.parse(req.body()));
+    List<Long> mentionUserIds =
+        userMentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
 
     // 멘션된 AGENT 는 thread 멤버로 add-only 추가 — AI 가 답을 작성하려면 멤버여야 함(6c).
     List<Long> agentMentionIds =
@@ -64,7 +67,8 @@ public class ChatMessageService {
             .findAuthorId(messageId)
             .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
     if (authorId != callerId) throw new ChatMessageAuthorMismatchException(messageId, callerId);
-    List<Long> mentionUserIds = hydrator.filterExistingUserIds(MentionParser.parse(req.body()));
+    List<Long> mentionUserIds =
+        userMentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
     messageRepo.update(messageId, req.body(), mentionUserIds);
     ChatMessageResponse saved = findOne(messageId);
     // SSE fan-out 용 수정 이벤트 발행 (mention 은 hydrate 후 전달).
@@ -97,7 +101,7 @@ public class ChatMessageService {
 
   public ChatMessagePage list(long callerId, long threadId, String cursor, int limit) {
     ensureMember(threadId, callerId);
-    return messageRepo.findPage(threadId, cursor, limit, hydrator::asMentionResponses);
+    return messageRepo.findPage(threadId, cursor, limit, userMentionHydrator::asMentionResponses);
   }
 
   @Transactional
@@ -115,7 +119,7 @@ public class ChatMessageService {
 
   private ChatMessageResponse findOne(long messageId) {
     return messageRepo
-        .findById(messageId, hydrator::asMentionResponses)
+        .findById(messageId, userMentionHydrator::asMentionResponses)
         .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
   }
 

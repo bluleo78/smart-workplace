@@ -9,6 +9,7 @@ import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.repository.ChatThreadRepository;
 import com.workplace.chat.repository.IssueStakeholderLookup;
 import com.workplace.chat.repository.IssueStakeholderLookup.IssueRow;
+import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ public class ChatThreadService {
   private final ChatMessageRepository messageRepo;
   private final IssueStakeholderLookup lookup;
   private final ChatUserHydrator hydrator;
+  private final UserMentionHydrator userMentionHydrator;
 
   /** 이슈에 연결된 thread 를 반환. 없으면 생성 + initial 멤버(reporter/assignees/watchers) 채움. */
   @Transactional
@@ -42,7 +44,7 @@ public class ChatThreadService {
         threadRepo.findIdByIssueId(issue.id()).orElseGet(() -> createWithInitialMembers(issue));
 
     List<ChatMemberResponse> members = memberRepo.findMembers(threadId);
-    MentionResolver resolver = hydrator::asMentionResponses;
+    MentionResolver resolver = userMentionHydrator::asMentionResponses;
     List<ChatMessageResponse> recent = messageRepo.findRecent(threadId, RECENT_LIMIT, resolver);
     var threadRow = threadRepo.findByIssueId(issue.id()).orElseThrow();
     return new ChatThreadResponse(threadId, issue.id(), threadRow.archivedAt(), members, recent);

@@ -4,9 +4,9 @@ import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.USER;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workplace.chat.dto.ChatMentionResponse;
 import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.dto.ChatMessageResponse;
+import com.workplace.global.dto.MentionResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -177,7 +177,7 @@ public class ChatMessageRepository {
     boolean deleted = r.get(CHAT_MESSAGE.DELETED_AT) != null;
     String body = deleted ? DELETED_BODY : r.get(CHAT_MESSAGE.BODY);
     List<Long> mentionIds = fromJson(r.get(CHAT_MESSAGE.MENTIONS));
-    List<ChatMentionResponse> mentions = resolver.resolve(mentionIds);
+    List<MentionResponse> mentions = resolver.resolve(mentionIds);
     OffsetDateTime created = r.get(CHAT_MESSAGE.CREATED_AT);
     OffsetDateTime edited = r.get(CHAT_MESSAGE.EDITED_AT);
     return new ChatMessageResponse(
@@ -207,9 +207,9 @@ public class ChatMessageRepository {
     return raw.stream().map(n -> ((Number) n).longValue()).toList();
   }
 
-  /** mentionUserIds → ChatMentionResponse[] 변환 책임. */
+  /** mentionUserIds → MentionResponse[] 변환 책임. */
   public interface MentionResolver {
-    List<ChatMentionResponse> resolve(List<Long> mentionUserIds);
+    List<MentionResponse> resolve(List<Long> mentionUserIds);
   }
 
   /**
