@@ -31,4 +31,23 @@ public final class MessagingDomainEvents {
 
   /** 리액션 제거 직후. SSE fan-out 용. */
   public record ReactionRemovedEvent(long channelId, long messageId, String emoji, long userId) {}
+
+  /**
+   * messaging 메시지가 AI 응답을 유발할 때만 발행. MessageService.create 가 트리거 조건을 판단해(채널 kind·멤버 정보 보유)
+   * respondAsAgentId 를 확정하고 발행한다. AFTER_COMMIT async 디스패처는 단순 forward.
+   *
+   * @param channelKind "CHANNEL" 또는 "DM"
+   * @param respondAsAgentId 응답을 작성할 AGENT user id
+   */
+  public record MessageAiTriggerEvent(
+      long channelId,
+      String channelKind,
+      long messageId,
+      long respondAsAgentId,
+      long actorId,
+      String actorName,
+      String actorKind,
+      String body,
+      List<MentionResponse> mentions,
+      Instant occurredAt) {}
 }

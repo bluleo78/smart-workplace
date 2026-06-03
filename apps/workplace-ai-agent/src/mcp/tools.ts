@@ -28,6 +28,15 @@ const getChatThreadInput = z.object({
   threadId: z.number().int().positive(),
 });
 
+// 7: messaging 프로필 도구 입력.
+const getChannelMessagesInput = z.object({
+  channelId: z.number().int().positive(),
+});
+const addChannelMessageInput = z.object({
+  channelId: z.number().int().positive(),
+  body: z.string().min(1),
+});
+
 // 7b: home 컴포저 표시 지시 도구 — 모든 도구가 균일한 {params?, layout?} 봉투를 받는다.
 // layout: 캔버스 배치 규칙(프론트 7c 가 해석). page/replace/pageLabel 모두 선택.
 const layoutSchema = z
@@ -65,7 +74,7 @@ const showActivityInput = z.object({
   layout: layoutSchema,
 });
 
-export type McpProfile = 'issue' | 'chat' | 'home';
+export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging';
 
 // profile 기본값 'issue' — 이슈 핸들러는 기존 4 도구, chat 핸들러는 읽기+chat 쓰기 도구만.
 export function buildTools(
@@ -104,6 +113,31 @@ export function buildTools(
         async handler(args) {
           const { threadId, body } = addChatMessageInput.parse(args);
           await client.addChatMessage(agentId, threadId, body);
+          return 'ok';
+        },
+      },
+    ];
+  }
+
+  if (profile === 'messaging') {
+    return [
+      {
+        name: 'get_channel_messages',
+        description: '현재 채널/DM 의 최근 메시지 목록을 JSON 으로 반환합니다(대화 흐름 확인용).',
+        inputSchema: getChannelMessagesInput,
+        async handler(args) {
+          const { channelId } = getChannelMessagesInput.parse(args);
+          return JSON.stringify(await client.getChannelMessages(agentId, channelId, 50));
+        },
+      },
+      {
+        name: 'add_channel_message',
+        description:
+          '채널/DM 에 답변 메시지를 작성합니다. 본문은 마크다운 지원. 정확히 한 번만 호출하세요.',
+        inputSchema: addChannelMessageInput,
+        async handler(args) {
+          const { channelId, body } = addChannelMessageInput.parse(args);
+          await client.addChannelMessage(agentId, channelId, body);
           return 'ok';
         },
       },

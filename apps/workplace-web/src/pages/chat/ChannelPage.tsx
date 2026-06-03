@@ -12,6 +12,7 @@ import { ThreadPanel } from '@/components/chat/ThreadPanel'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { useChannelDetail } from '@/hooks/queries/useChannelDetail'
 import { useChannelMembers } from '@/hooks/queries/useChannelMembers'
+import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useAuth } from '@/hooks/useAuth'
@@ -24,14 +25,16 @@ export default function ChannelPage() {
   const detail = useChannelDetail(channelId)
   const { data } = useChannelMessages(channelId)
   const messages = data?.pages.flatMap((p) => p.items) ?? []
-  // @멘션 후보 = 채널 멤버. RichInput 이 기대하는 chat 멤버 형태로 매핑(username 은 name 으로 대체).
   const { data: channelMembers } = useChannelMembers(channelId)
-  const mentionMembers: MentionCandidate[] = (channelMembers ?? []).map((m) => ({
-    userId: m.userId,
-    username: m.name,
-    name: m.name,
-    kind: m.kind,
-  }))
+  const { data: agentCandidates } = useMentionAgents()
+  // @멘션 후보 = 채널 멤버 ∪ 워크스페이스 AGENT(비멤버 AGENT 초대용). userId 로 dedup.
+  const mentionMembers: MentionCandidate[] = (() => {
+    const byId = new Map<number, MentionCandidate>()
+    for (const m of channelMembers ?? [])
+      byId.set(m.userId, { userId: m.userId, username: m.name, name: m.name, kind: m.kind })
+    for (const a of agentCandidates ?? []) if (!byId.has(a.userId)) byId.set(a.userId, a)
+    return [...byId.values()]
+  })()
   const [membersOpen, setMembersOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
   // 스레드 패널: 어느 부모 메시지 id 가 열려 있는지. null 이면 패널 닫힘.

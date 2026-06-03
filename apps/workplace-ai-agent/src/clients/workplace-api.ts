@@ -16,6 +16,16 @@ export interface ChatMessageItem {
   deleted: boolean;
 }
 
+// 7: 채널 메시지 (LLM 노출용 경량 형태).
+export interface ChannelMessageItem {
+  id: number;
+  authorName: string;
+  authorKind: 'HUMAN' | 'AGENT';
+  body: string;
+  createdAt: string;
+  deleted: boolean;
+}
+
 // 6c: 이슈 첨부 메타.
 export interface AttachmentMeta {
   fileId: number;
@@ -33,6 +43,13 @@ export interface WorkplaceApiClient {
   // 6c: chat
   getChatMessages(agentId: number, threadId: number, limit: number): Promise<ChatMessageItem[]>;
   addChatMessage(agentId: number, threadId: number, body: string): Promise<void>;
+  // 7: 채널 메시지 조회/작성
+  getChannelMessages(
+    agentId: number,
+    channelId: number,
+    limit: number,
+  ): Promise<ChannelMessageItem[]>;
+  addChannelMessage(agentId: number, channelId: number, body: string): Promise<void>;
   // 6c: 이슈 첨부
   listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
   downloadIssueAttachment(
@@ -145,6 +162,22 @@ export function createWorkplaceApiClient(opts: {
 
     async addChatMessage(agentId, threadId, body) {
       await http.post(`/chat/threads/${threadId}/messages`, { body }, onBehalfOf(agentId));
+    },
+
+    async getChannelMessages(agentId, channelId, limit) {
+      const r = await http.get(
+        `/messaging/channels/${channelId}/messages?limit=${limit}`,
+        onBehalfOf(agentId),
+      );
+      const items: ChannelMessageItem[] = Array.isArray(r.data?.items) ? r.data.items : [];
+      return items;
+    },
+    async addChannelMessage(agentId, channelId, body) {
+      await http.post(
+        `/messaging/channels/${channelId}/messages`,
+        { body },
+        onBehalfOf(agentId),
+      );
     },
 
     async listIssueAttachments(agentId, issueKey) {
