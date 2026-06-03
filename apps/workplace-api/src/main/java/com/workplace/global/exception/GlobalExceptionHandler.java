@@ -217,6 +217,14 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
+  // 연락처 도메인 — 미존재/격리(404)
+  @ExceptionHandler(com.workplace.contacts.exception.ContactNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleContactNotFound(
+      com.workplace.contacts.exception.ContactNotFoundException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
   @ExceptionHandler(ChannelNotMemberException.class)
   public ResponseEntity<ErrorResponse> handleChannelNotMember(
       ChannelNotMemberException ex, HttpServletRequest request) {
