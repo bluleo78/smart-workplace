@@ -4,8 +4,10 @@ import com.workplace.drive.dto.CreateFolderRequest;
 import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveItemListResponse;
 import com.workplace.drive.dto.RenameFolderRequest;
+import com.workplace.drive.dto.TargetParentRequest;
 import com.workplace.drive.service.DriveFolderService;
 import jakarta.validation.Valid;
+import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -58,5 +60,24 @@ public class DriveFolderController {
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long folderId) {
     folderService.delete(callerId, folderId);
     return ResponseEntity.noContent().build();
+  }
+
+  @PatchMapping("/folders/{id}/move")
+  public ResponseEntity<Void> move(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long folderId,
+      @RequestBody TargetParentRequest req) {
+    folderService.move(callerId, folderId, req.targetParentId());
+    return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/folders/{id}/copy")
+  public ResponseEntity<DriveFolderResponse> copy(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long folderId,
+      @RequestBody TargetParentRequest req)
+      throws IOException {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(folderService.copy(callerId, folderId, req.targetParentId()));
   }
 }

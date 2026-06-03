@@ -1,6 +1,7 @@
 package com.workplace.drive.controller;
 
 import com.workplace.drive.dto.DriveFileResponse;
+import com.workplace.drive.dto.TargetFolderRequest;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import java.io.IOException;
@@ -15,8 +16,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -58,5 +61,24 @@ public class DriveFileController {
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
     fileService.delete(callerId, driveFileId);
     return ResponseEntity.noContent().build();
+  }
+
+  @PatchMapping("/files/{id}/move")
+  public ResponseEntity<Void> move(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long driveFileId,
+      @RequestBody TargetFolderRequest req) {
+    fileService.move(callerId, driveFileId, req.targetFolderId());
+    return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/files/{id}/copy")
+  public ResponseEntity<DriveFileResponse> copy(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long driveFileId,
+      @RequestBody TargetFolderRequest req)
+      throws IOException {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(fileService.copy(callerId, driveFileId, req.targetFolderId()));
   }
 }
