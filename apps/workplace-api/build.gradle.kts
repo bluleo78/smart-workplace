@@ -53,6 +53,8 @@ dependencies {
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
+    // 메일 연결 테스트용 임베디드 IMAP/SMTP 서버
+    testImplementation("com.icegreen:greenmail-junit5:2.1.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
