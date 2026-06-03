@@ -109,6 +109,18 @@ public class EmailAccountRepository {
             .and(EMAIL_ACCOUNT.DISABLED_AT.isNull()));
   }
 
+  /** 본인 활성 계정 중 주어진 id 를 제외하고 같은 이메일 주소 존재 여부(수정 시 중복 방지). */
+  public boolean existsByUserAndAddressExcludingId(
+      long userId, String emailAddress, long excludeId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(EMAIL_ACCOUNT)
+            .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
+            .and(EMAIL_ACCOUNT.EMAIL_ADDRESS.eq(emailAddress))
+            .and(EMAIL_ACCOUNT.ID.ne(excludeId))
+            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull()));
+  }
+
   /** 본인 활성 계정 수정(설정 + 암호화 비밀번호 + updated_at). 영향 행 수 반환. */
   public int update(long userId, long id, EmailAccountRequest req, String encryptedPassword) {
     return dsl.update(EMAIL_ACCOUNT)

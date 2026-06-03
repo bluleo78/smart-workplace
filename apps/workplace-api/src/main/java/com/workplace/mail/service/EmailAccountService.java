@@ -61,6 +61,9 @@ public class EmailAccountService {
     String storedEnc =
         repo.findEncryptedPassword(userId, id)
             .orElseThrow(() -> new EmailAccountNotFoundException(id));
+    if (repo.existsByUserAndAddressExcludingId(userId, req.emailAddress(), id)) {
+      throw new DuplicateEmailAccountException(req.emailAddress());
+    }
     String effectivePassword =
         isBlank(req.password()) ? encryption.decrypt(storedEnc) : req.password();
 

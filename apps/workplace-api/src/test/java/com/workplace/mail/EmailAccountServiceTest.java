@@ -160,4 +160,30 @@ class EmailAccountServiceTest extends IntegrationTestBase {
     assertThat(bad.success()).isFalse();
     assertThat(bad.imapOk()).isFalse();
   }
+
+  @Test
+  void update_toExistingActiveAddress_throwsConflict() {
+    long user = TestFixtures.createHuman(dsl);
+    // 활성 계정 A: box@test.local (정상 생성)
+    service.create(user, greenMailReq("pw"));
+    // 계정 B: box2@test.local — 연결테스트 우회 위해 repo 로 직접 삽입
+    EmailAccountRequest bReq =
+        new EmailAccountRequest(
+            "box2@test.local",
+            "B",
+            "127.0.0.1",
+            3143,
+            MailSecurity.NONE,
+            "box2@test.local",
+            "127.0.0.1",
+            3025,
+            MailSecurity.NONE,
+            "box2@test.local",
+            "pw");
+    long bId = repo.insert(user, bReq, encryption.encrypt("pw"));
+    // B 의 주소를 A 와 동일하게 변경 시도(비번 빈값=유지) → 연결테스트 전에 중복 409
+    EmailAccountRequest toDup = greenMailReq("");
+    assertThatThrownBy(() -> service.update(user, bId, toDup))
+        .isInstanceOf(DuplicateEmailAccountException.class);
+  }
 }
