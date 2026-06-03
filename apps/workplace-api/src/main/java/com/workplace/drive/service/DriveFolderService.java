@@ -61,17 +61,18 @@ public class DriveFolderService {
   /** 이동 — 같은 공간 내 다른 부모로 parent_id 변경. 자신·하위로의 이동은 거부. */
   @Transactional
   public void move(long callerId, long folderId, Long targetParentId) {
+    DriveFolderResponse self =
+        folders.findById(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
     long spaceId =
         folders.findSpaceId(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
     perms.requireRole(spaceId, callerId, "EDITOR");
     validateTarget(spaceId, folderId, targetParentId);
-    String name =
-        folders
-            .findById(folderId)
-            .orElseThrow(() -> new DriveFolderNotFoundException(folderId))
-            .name();
-    if (folders.existsInSpace(spaceId, targetParentId, name)) {
-      throw new DriveDuplicateNameException(name);
+    // 같은 부모로의 이동은 no-op — 자기 자신과의 이름 충돌로 인한 잘못된 409 방지
+    if (java.util.Objects.equals(self.parentId(), targetParentId)) {
+      return;
+    }
+    if (folders.existsInSpace(spaceId, targetParentId, self.name())) {
+      throw new DriveDuplicateNameException(self.name());
     }
     folders.updateParent(folderId, targetParentId);
   }

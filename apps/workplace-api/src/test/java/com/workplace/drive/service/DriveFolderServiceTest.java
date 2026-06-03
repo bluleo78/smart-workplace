@@ -208,6 +208,23 @@ class DriveFolderServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void move_toSameParent_isNoOp() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var box = folderService.create(u, sp.id(), null, "상자");
+    var f = folderService.create(u, sp.id(), box.id(), "f");
+
+    folderService.move(u, f.id(), box.id()); // 같은 부모로 재이동 — 409 없이 no-op
+
+    var parent =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID)
+            .from(com.workplace.jooq.Tables.DRIVE_FOLDER)
+            .where(com.workplace.jooq.Tables.DRIVE_FOLDER.ID.eq(f.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID);
+    assertThat(parent).isEqualTo(box.id());
+  }
+
+  @Test
   void copy_whenTargetHasSameName_conflicts() {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
