@@ -12,9 +12,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input';
 import { Separator } from '../components/ui/separator';
 import { useAuth } from '../hooks/useAuth';
+import type { ChangePasswordFormData, UpdateProfileFormData } from '../lib/validations/user';
+import { changePasswordSchema, updateProfileSchema } from '../lib/validations/user';
+import { MailAccountsSection } from './profile/MailAccountsSection';
 import { PersonalAssistantSection } from './profile/PersonalAssistantSection';
-import type { ChangePasswordFormData,UpdateProfileFormData } from '../lib/validations/user';
-import { changePasswordSchema,updateProfileSchema } from '../lib/validations/user';
 
 export default function ProfilePage() {
   const { user, refreshUser } = useAuth();
@@ -198,6 +199,10 @@ export default function ProfilePage() {
       <Separator />
 
       <PersonalAssistantSection />
+
+      <Separator />
+
+      <MailAccountsSection />
     </div>
   );
 }
