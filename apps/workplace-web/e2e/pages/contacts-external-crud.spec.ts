@@ -47,8 +47,8 @@ test('외부 연락처 생성', { tag: '@smoke' }, async ({ authenticatedPage: p
   )
 
   await page.goto('/contacts')
-  // 상단 고정 AI 런처가 버튼 영역과 겹칠 수 있어 JavaScript click
-  await page.getByTestId('contact-create').dispatchEvent('click')
+  // 버튼을 좌측에 배치해 중앙 고정 AI 칩과 겹치지 않으므로 일반 클릭으로 동작해야 한다
+  await page.getByTestId('contact-create').click()
   await expect(page.getByTestId('external-contact-dialog')).toBeVisible()
   await page.getByTestId('c-name').fill('신규연락처')
   await page.getByTestId('c-email').fill('new@corp.com')
@@ -107,12 +107,27 @@ test('외부 연락처 삭제', { tag: '@smoke' }, async ({ authenticatedPage: p
   await page.goto('/contacts')
   await page.getByTestId('contact-row-EXTERNAL-100').click()
   await page.getByTestId('contact-delete').click()
+
+  // 삭제 확정 직전, 목록을 빈 페이지로 재라우팅 (Playwright 는 마지막 등록 라우트 우선).
+  // 삭제 mutation 이 contactKeys.all 을 무효화해 재요청 시 빈 목록을 받게 한다.
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(makePage([])),
+      }),
+  )
+
   // DeleteConfirmDialog 확인 — AlertDialogAction "삭제"
   await page.getByRole('button', { name: '삭제' }).last().click()
 
   await expect.poll(() => deleted).toBe(true)
   // 선택 해제 → empty 상태
   await expect(page.getByTestId('contact-detail-empty')).toBeVisible()
+  // 목록에서 제거됨 — 재요청 후 행이 사라진다
+  await expect(page.getByTestId('contact-row-EXTERNAL-100')).toHaveCount(0)
 })
 
 test('editable=false 면 수정/삭제 미노출', async ({ authenticatedPage: page }) => {

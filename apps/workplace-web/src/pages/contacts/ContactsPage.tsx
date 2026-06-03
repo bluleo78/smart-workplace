@@ -68,12 +68,12 @@ export function ContactsPage() {
       <div className="flex h-full min-h-0">
         {/* 목록 (마스터) */}
         <div className="flex min-w-0 flex-1 flex-col border-r" data-testid="contact-list">
-          {/* 툴바 — 새 외부 연락처 버튼 */}
-          <div className="flex items-center justify-between border-b px-4 py-2">
-            <span className="text-sm font-medium text-muted-foreground">연락처</span>
+          {/* 툴바 — 새 외부 연락처 버튼. 버튼을 좌측에 두어 화면 중앙 고정 AI 칩과 겹치지 않게 한다. */}
+          <div className="flex items-center gap-2 border-b px-4 py-2">
             <Button size="sm" data-testid="contact-create" onClick={() => setCreateOpen(true)}>
               새 외부 연락처
             </Button>
+            <span className="text-sm font-medium text-muted-foreground">연락처</span>
           </div>
           {isLoading ? (
             <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
