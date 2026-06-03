@@ -7,6 +7,19 @@ spring:
     url: jdbc:postgresql://localhost:5435/workplace_test
     username: app
     password: app
+    hikari:
+      # 통합 테스트는 다수의 @SpringBootTest 컨텍스트를 캐시(Spring 기본 최대 32개)하며 각 컨텍스트가
+      # 별도 Hikari 풀을 연다. 기본 풀(10)×컨텍스트 수가 공유 test DB(5435)의 max_connections(100)를
+      # 초과해 'too many clients' 로 컨텍스트 로드가 실패했다 → 테스트는 단일 스레드이므로 풀을 최소로
+      # 잡고 유휴 연결을 즉시 반납해 동시 연결 피크를 낮춘다.
+      maximum-pool-size: 2
+      minimum-idle: 0
+      idle-timeout: 10000
+  # [#75 임시] 공유 test DB(5435)에 병렬 contacts 워크트리가 V33 을 선점해 있어
+  # 내 브랜치의 resolved 마이그레이션에 없는 applied 버전(V33)을 무시한다.
+  # 머지(번호 재정렬) 후 반드시 제거할 것. 참조: drive-feature-state / shared-db-worktree-migrations
+  flyway:
+    ignore-migration-patterns: "*:missing"
 
 app:
   jwt:
