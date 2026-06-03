@@ -2,7 +2,7 @@ package com.workplace.contacts.dto;
 
 import java.time.OffsetDateTime;
 
-/** 외부 연락처 상세. PERSONAL 은 owner 만 조회 가능(repository 에서 격리). */
+/** 외부 연락처 상세. editable = caller==owner || ADMIN (서버 계산, 프론트 버튼 게이팅). */
 public record ExternalContactDetail(
     long id,
     String name,
@@ -12,5 +12,6 @@ public record ExternalContactDetail(
     String title,
     String notes,
     String visibility,
+    boolean editable,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt) {}

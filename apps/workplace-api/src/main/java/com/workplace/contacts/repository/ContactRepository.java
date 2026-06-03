@@ -7,7 +7,9 @@ import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 
 import com.workplace.contacts.dto.ContactSummary;
 import com.workplace.contacts.dto.ExternalContactDetail;
+import com.workplace.contacts.dto.ExternalContactRequest;
 import com.workplace.contacts.dto.MemberDetail;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -133,8 +135,8 @@ public class ContactRepository {
             groups));
   }
 
-  /** 외부 상세 — SHARED 또는 본인 PERSONAL 만. 격리 위반/미존재는 empty. */
-  public Optional<ExternalContactDetail> findExternal(long callerId, long id) {
+  /** 외부 상세 — SHARED 또는 본인 PERSONAL 만. editable = 본인 owner || isAdmin. 격리 위반/미존재는 empty. */
+  public Optional<ExternalContactDetail> findExternal(long callerId, boolean isAdmin, long id) {
     return dsl.select(
             CONTACT_ENTRY.ID,
             CONTACT_ENTRY.NAME,
@@ -144,11 +146,17 @@ public class ContactRepository {
             CONTACT_ENTRY.TITLE,
             CONTACT_ENTRY.NOTES,
             CONTACT_ENTRY.VISIBILITY,
+            CONTACT_ENTRY.OWNER_ID,
             CONTACT_ENTRY.CREATED_AT,
             CONTACT_ENTRY.UPDATED_AT)
         .from(CONTACT_ENTRY)
         .where(CONTACT_ENTRY.ID.eq(id))
-        .and(CONTACT_ENTRY.VISIBILITY.eq("SHARED").or(CONTACT_ENTRY.OWNER_ID.eq(callerId)))
+        .and(
+            CONTACT_ENTRY
+                .VISIBILITY
+                .eq("SHARED")
+                .or(CONTACT_ENTRY.OWNER_ID.eq(callerId))
+                .or(DSL.condition(isAdmin)))
         .fetchOptional(
             r ->
                 new ExternalContactDetail(
@@ -160,7 +168,62 @@ public class ContactRepository {
                     r.get(CONTACT_ENTRY.TITLE),
                     r.get(CONTACT_ENTRY.NOTES),
                     r.get(CONTACT_ENTRY.VISIBILITY),
+                    isAdmin || r.get(CONTACT_ENTRY.OWNER_ID).equals(callerId),
                     r.get(CONTACT_ENTRY.CREATED_AT),
                     r.get(CONTACT_ENTRY.UPDATED_AT)));
+  }
+
+  /** update/delete 권한 판정용 경량 조회 결과. */
+  public record OwnerVisibility(long ownerId, String visibility) {}
+
+  /** owner_id + visibility 만 조회(없으면 empty). 권한 체크 전용. */
+  public Optional<OwnerVisibility> findOwnerVisibility(long id) {
+    return dsl.select(CONTACT_ENTRY.OWNER_ID, CONTACT_ENTRY.VISIBILITY)
+        .from(CONTACT_ENTRY)
+        .where(CONTACT_ENTRY.ID.eq(id))
+        .fetchOptional(
+            r ->
+                new OwnerVisibility(
+                    r.get(CONTACT_ENTRY.OWNER_ID), r.get(CONTACT_ENTRY.VISIBILITY)));
+  }
+
+  /** 외부 연락처 생성 — 빈 문자열 optional 은 null 정규화. 생성된 id 반환. */
+  public long insert(long ownerId, ExternalContactRequest req) {
+    return dsl.insertInto(CONTACT_ENTRY)
+        .set(CONTACT_ENTRY.NAME, req.name())
+        .set(CONTACT_ENTRY.EMAIL, nullIfBlank(req.email()))
+        .set(CONTACT_ENTRY.PHONE, nullIfBlank(req.phone()))
+        .set(CONTACT_ENTRY.ORGANIZATION, nullIfBlank(req.organization()))
+        .set(CONTACT_ENTRY.TITLE, nullIfBlank(req.title()))
+        .set(CONTACT_ENTRY.NOTES, nullIfBlank(req.notes()))
+        .set(CONTACT_ENTRY.OWNER_ID, ownerId)
+        .set(CONTACT_ENTRY.VISIBILITY, req.visibility())
+        .returning(CONTACT_ENTRY.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** 외부 연락처 전체 교체 + updated_at 갱신. 권한은 service 에서 검증한 뒤 호출. */
+  public void update(long id, ExternalContactRequest req) {
+    dsl.update(CONTACT_ENTRY)
+        .set(CONTACT_ENTRY.NAME, req.name())
+        .set(CONTACT_ENTRY.EMAIL, nullIfBlank(req.email()))
+        .set(CONTACT_ENTRY.PHONE, nullIfBlank(req.phone()))
+        .set(CONTACT_ENTRY.ORGANIZATION, nullIfBlank(req.organization()))
+        .set(CONTACT_ENTRY.TITLE, nullIfBlank(req.title()))
+        .set(CONTACT_ENTRY.NOTES, nullIfBlank(req.notes()))
+        .set(CONTACT_ENTRY.VISIBILITY, req.visibility())
+        .set(CONTACT_ENTRY.UPDATED_AT, OffsetDateTime.now())
+        .where(CONTACT_ENTRY.ID.eq(id))
+        .execute();
+  }
+
+  /** 외부 연락처 삭제. 권한은 service 에서 검증한 뒤 호출. */
+  public void delete(long id) {
+    dsl.deleteFrom(CONTACT_ENTRY).where(CONTACT_ENTRY.ID.eq(id)).execute();
+  }
+
+  private static String nullIfBlank(String s) {
+    return (s == null || s.isBlank()) ? null : s;
   }
 }

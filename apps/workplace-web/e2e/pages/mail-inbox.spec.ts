@@ -1,0 +1,107 @@
+// 받은편지함 E2E — 계정 선택·목록·검색·상세·동기화 (백엔드 없이 page.route 모킹).
+import type { Page } from '@playwright/test'
+
+import { detail, mailAccount, summary } from '../factories/mail.factory'
+import { mockApi } from '../fixtures/api-mock'
+import { expect, test } from '../fixtures/auth.fixture'
+
+// GET /mail/accounts/1/messages — query 파라미터에 따라 분기(검색 검증).
+async function stubMessages(page: Page) {
+  await page.route(
+    (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+    (route, req) => {
+      const q = new URL(req.url()).searchParams.get('query')?.toLowerCase() ?? ''
+      const all = [
+        summary(),
+        summary({
+          id: 11,
+          fromName: '밥',
+          fromAddress: 'bob@example.com',
+          subject: '점심 메뉴',
+          snippet: '오늘 점심 뭐 드실래요',
+          seen: true,
+          hasAttachment: false,
+        }),
+      ]
+      const items = q
+        ? all.filter(
+            (m) =>
+              (m.subject ?? '').toLowerCase().includes(q) ||
+              (m.fromName ?? '').toLowerCase().includes(q) ||
+              (m.fromAddress ?? '').toLowerCase().includes(q),
+          )
+        : all
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(items),
+      })
+    },
+  )
+}
+
+test.describe('받은편지함', () => {
+  test('계정 선택·목록·상세·첨부', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
+
+    // /mail → 첫 계정으로 리다이렉트(/mail/1)
+    await page.goto('/mail')
+    await expect(page).toHaveURL(/\/mail\/1$/)
+
+    // 사이드바에 계정, 목록에 두 메시지
+    await expect(page.getByTestId('mail-account-1')).toBeVisible()
+    await expect(page.getByTestId('mail-row-10')).toBeVisible()
+    await expect(page.getByTestId('mail-row-11')).toBeVisible()
+    // 첨부 있는 행만 클립 — 행 10 클릭 시 상세
+    await page.getByTestId('mail-row-10').click()
+    const detailPanel = page.getByTestId('mail-detail')
+    await expect(detailPanel).toContainText('프로젝트 회의 안내')
+    await expect(detailPanel).toContainText('내일 오후 2시')
+    await expect(page.getByTestId('mail-attachments')).toContainText('안건.pdf')
+  })
+
+  test('검색 → query 파라미터 전달 + 목록 필터', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await page.goto('/mail/1')
+
+    await expect(page.getByTestId('mail-row-10')).toBeVisible()
+    await expect(page.getByTestId('mail-row-11')).toBeVisible()
+
+    // '점심' 검색 → 밥의 메일만
+    await page.getByTestId('mail-search').fill('점심')
+    await expect(page.getByTestId('mail-row-11')).toBeVisible()
+    await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
+  })
+
+  test('동기화 버튼 → sync 호출 + 토스트', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+
+    let syncCalled = false
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/sync',
+      (route) => {
+        syncCalled = true
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ fetched: 2, saved: 2 }),
+        })
+      },
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-sync').click()
+    await expect.poll(() => syncCalled).toBe(true)
+    await expect(page.getByText('새 메일 2건을 받았습니다')).toBeVisible()
+  })
+
+  test('계정 없음 안내', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
+    await page.goto('/mail')
+    await expect(page.getByTestId('mail-empty-accounts')).toBeVisible()
+  })
+})

@@ -1,0 +1,47 @@
+// 받은편지함 메시지 DTO — 백엔드 com.workplace.mail.dto 와 1:1 매칭.
+
+/** 메일 목록 한 행(본문 제외, 미리보기 snippet 포함). */
+export interface EmailMessageSummary {
+  id: number;
+  threadId: string;
+  fromAddress: string | null;
+  fromName: string | null;
+  subject: string | null;
+  snippet: string | null;
+  receivedAt: string | null;
+  seen: boolean;
+  hasAttachment: boolean;
+}
+
+/** 첨부 메타(바이너리 미저장 — 다운로드는 후속). */
+export interface EmailAttachmentMeta {
+  id: number;
+  filename: string | null;
+  contentType: string | null;
+  sizeBytes: number;
+  contentId: string | null;
+}
+
+/** 메일 본문 단건(헤더 + text/html 본문 + 첨부 메타). */
+export interface EmailMessageDetail {
+  id: number;
+  threadId: string;
+  messageId: string | null;
+  fromAddress: string | null;
+  fromName: string | null;
+  toAddresses: string | null;
+  ccAddresses: string | null;
+  subject: string | null;
+  sentAt: string | null;
+  receivedAt: string | null;
+  seen: boolean;
+  bodyText: string | null;
+  bodyHtml: string | null;
+  attachments: EmailAttachmentMeta[];
+}
+
+/** 수동 동기화 1회 결과 요약. */
+export interface MailSyncResult {
+  fetched: number;
+  saved: number;
+}

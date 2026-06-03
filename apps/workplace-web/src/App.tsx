@@ -51,6 +51,12 @@ const ContactModuleLayout = lazy(() =>
 const ContactsPage = lazy(() =>
   import('./pages/contacts/ContactsPage').then((m) => ({ default: m.ContactsPage })),
 )
+const MailModuleLayout = lazy(() =>
+  import('./components/mail/MailModuleLayout').then((m) => ({ default: m.MailModuleLayout })),
+)
+const MailInboxPage = lazy(() =>
+  import('./pages/mail/MailInboxPage').then((m) => ({ default: m.MailInboxPage })),
+)
 
 function PageLoader() {
   return (
@@ -112,6 +118,12 @@ export default function App() {
               {/* 연락처 모듈 — 통합 디렉토리(읽기 전용) */}
               <Route element={<ContactModuleLayout />}>
                 <Route path="contacts" element={<ContactsPage />} />
+              </Route>
+
+              {/* 메일 모듈 — 받은편지함 동기화·읽기(읽기 전용). accountId 미지정 시 첫 계정으로 */}
+              <Route element={<MailModuleLayout />}>
+                <Route path="mail" element={<MailInboxPage />} />
+                <Route path="mail/:accountId" element={<MailInboxPage />} />
               </Route>
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
