@@ -52,6 +52,18 @@ test('외부 연락처 생성', { tag: '@smoke' }, async ({ authenticatedPage: p
   await expect(page.getByTestId('external-contact-dialog')).toBeVisible()
   await page.getByTestId('c-name').fill('신규연락처')
   await page.getByTestId('c-email').fill('new@corp.com')
+
+  // 저장 직전, 목록을 신규 행 포함으로 재라우팅 (Playwright 는 마지막 등록 라우트 우선).
+  // 생성 mutation 이 contactKeys.all 을 무효화해 재요청 시 신규 행을 받게 한다.
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(makePage([external(), external({ id: 200, name: '신규연락처' })])),
+      }),
+  )
   await page.getByTestId('c-save').click()
 
   // payload 검증
@@ -61,6 +73,8 @@ test('외부 연락처 생성', { tag: '@smoke' }, async ({ authenticatedPage: p
   expect(posted!.visibility).toBe('PERSONAL')
   // 다이얼로그 닫힘
   await expect(page.getByTestId('external-contact-dialog')).toHaveCount(0)
+  // UI 반영 — 신규 행이 목록에 노출된다
+  await expect(page.getByTestId('contact-row-EXTERNAL-200')).toBeVisible()
 })
 
 test('외부 연락처 편집', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
@@ -85,10 +99,27 @@ test('외부 연락처 편집', { tag: '@smoke' }, async ({ authenticatedPage: p
   await expect(page.getByTestId('contact-detail-external')).toContainText('박외부')
   await page.getByTestId('contact-edit').click()
   await page.getByTestId('c-name').fill('수정됨')
+
+  // 저장 직전, 상세 GET 을 수정된 값으로 재라우팅 (마지막 등록 우선).
+  // PATCH 후 mutation 무효화로 재요청되는 상세가 '수정됨' 을 반환하게 한다.
+  // PATCH 는 method 체크로 위 라우트가 처리하도록 fallback.
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts/external/100',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(externalDetail({ name: '수정됨' })),
+      })
+    },
+  )
   await page.getByTestId('c-save').click()
 
   await expect.poll(() => patched).not.toBeNull()
   expect(patched!.name).toBe('수정됨')
+  // UI 반영 — 상세 패널이 수정된 이름을 보여준다
+  await expect(page.getByTestId('contact-detail-external')).toContainText('수정됨')
 })
 
 test('외부 연락처 삭제', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {

@@ -11,7 +11,7 @@ export const externalContactSchema = z.object({
   phone: z.string().trim().max(40, '40자 이내'),
   organization: z.string().trim().max(120, '120자 이내'),
   title: z.string().trim().max(100, '100자 이내'),
-  notes: z.string(),
+  notes: z.string().trim().max(2000, '2000자 이내'),
   visibility: z.enum(['SHARED', 'PERSONAL']),
 })
 
