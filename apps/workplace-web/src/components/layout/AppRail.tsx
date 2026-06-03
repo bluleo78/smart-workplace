@@ -10,6 +10,7 @@ import {
   Home,
   LayoutList,
   type LucideIcon,
+  Mail,
   Menu,
   MessageSquare,
   Settings,
@@ -47,6 +48,7 @@ const MODULES: RailItem[] = [
   { label: 'Chat', href: '/chat', icon: MessageSquare },
   { label: 'Drive', href: '/drive', icon: HardDrive },
   { label: '연락처', href: '/contacts', icon: Users },
+  { label: '메일', href: '/mail', icon: Mail },
 ]
 // 어드민 전용 모듈 — "설정"(워크스페이스 설정·관리)
 const ADMIN_MODULE: RailItem = { label: '설정', href: '/admin/users', icon: Settings, match: '/admin' }
