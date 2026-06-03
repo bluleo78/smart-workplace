@@ -9,8 +9,13 @@ import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.file.service.FileUploadService;
+import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.support.IntegrationTestBase;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.util.Optional;
 import java.util.UUID;
+import javax.imageio.ImageIO;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +43,48 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
   private MockMultipartFile txt() {
     return new MockMultipartFile("file", "memo.txt", "text/plain", "hello".getBytes());
+  }
+
+  private MockMultipartFile png() throws Exception {
+    BufferedImage img = new BufferedImage(300, 200, BufferedImage.TYPE_INT_RGB);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    ImageIO.write(img, "png", out);
+    return new MockMultipartFile("file", "pic.png", "image/png", out.toByteArray());
+  }
+
+  /** 이미지 업로드 후 thumbnail() 이 콘텐츠를 반환. */
+  @Test
+  void thumbnail_returnsContent_forImage() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, png());
+
+    Optional<FileContentResult> thumb = fileService.thumbnail(u, f.id());
+
+    assertThat(thumb).isPresent();
+    assertThat(thumb.get().mimeType()).isEqualTo("image/png");
+  }
+
+  /** 텍스트 파일은 썸네일이 없어 빈 Optional. */
+  @Test
+  void thumbnail_isEmpty_forText() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+
+    assertThat(fileService.thumbnail(u, f.id())).isEmpty();
+  }
+
+  /** 비멤버는 썸네일 접근 불가(공간 존재 은닉 → NotFound). */
+  @Test
+  void thumbnail_byNonMember_isRejected() throws Exception {
+    long owner = seedUser();
+    long outsider = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(owner, "팀");
+    DriveFileResponse f = fileService.upload(owner, sp.id(), null, png());
+
+    assertThatThrownBy(() -> fileService.thumbnail(outsider, f.id()))
+        .isInstanceOf(com.workplace.drive.exception.DriveSpaceNotFoundException.class);
   }
 
   @Test

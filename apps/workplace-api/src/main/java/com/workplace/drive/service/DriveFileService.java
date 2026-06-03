@@ -48,6 +48,16 @@ public class DriveFileService {
     return fileUpload.getFileContentTrusted(row.fileId());
   }
 
+  /** 썸네일. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. 없으면 빈 Optional → 컨트롤러 404. */
+  @Transactional(readOnly = true)
+  public java.util.Optional<FileContentResult> thumbnail(long callerId, long driveFileId)
+      throws IOException {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    return fileUpload.getThumbnailContentTrusted(row.fileId());
+  }
+
   /** 삭제 — drive_file 제거 + FILE 만료 표시. */
   @Transactional
   public void delete(long callerId, long driveFileId) {

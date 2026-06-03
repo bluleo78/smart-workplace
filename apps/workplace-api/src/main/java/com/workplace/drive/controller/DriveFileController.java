@@ -6,6 +6,7 @@ import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
@@ -52,6 +53,36 @@ public class DriveFileController {
     headers.setContentType(MediaType.parseMediaType(c.mimeType()));
     headers.setContentDisposition(
         ContentDisposition.attachment().filename(c.originalName(), StandardCharsets.UTF_8).build());
+    headers.setContentLength(c.size());
+    return ResponseEntity.ok().headers(headers).body(c.resource());
+  }
+
+  /** 인라인 미리보기 — download 와 동일 콘텐츠를 inline disposition 으로 서빙. */
+  @GetMapping("/files/{id}/content")
+  public ResponseEntity<Resource> content(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId)
+      throws IOException {
+    FileContentResult c = fileService.download(callerId, driveFileId);
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.parseMediaType(c.mimeType()));
+    headers.setContentDisposition(
+        ContentDisposition.inline().filename(c.originalName(), StandardCharsets.UTF_8).build());
+    headers.setContentLength(c.size());
+    return ResponseEntity.ok().headers(headers).body(c.resource());
+  }
+
+  /** 썸네일 — 없으면 404(프론트가 원본 인라인으로 폴백). */
+  @GetMapping("/files/{id}/thumbnail")
+  public ResponseEntity<Resource> thumbnail(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId)
+      throws IOException {
+    Optional<FileContentResult> opt = fileService.thumbnail(callerId, driveFileId);
+    if (opt.isEmpty()) {
+      return ResponseEntity.notFound().build();
+    }
+    FileContentResult c = opt.get();
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.IMAGE_PNG);
     headers.setContentLength(c.size());
     return ResponseEntity.ok().headers(headers).body(c.resource());
   }
