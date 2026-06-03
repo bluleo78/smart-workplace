@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 
 import { driveApi } from '../../api/drive'
+import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import type { DriveItemList } from '../../types/drive'
 
 /** 폴더 브라우저 — 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/다운로드. */
@@ -14,6 +15,10 @@ export function DrivePage() {
 
   const [items, setItems] = useState<DriveItemList>({ folders: [], files: [] })
   const fileInput = useRef<HTMLInputElement>(null)
+  const [picker, setPicker] = useState<
+    | { mode: 'move' | 'copy'; kind: 'file' | 'folder'; id: number; name: string }
+    | null
+  >(null)
 
   async function reload() {
     const { data } = await driveApi.listItems(sid, folderId)
@@ -59,6 +64,26 @@ export function DrivePage() {
     if (!window.confirm('파일을 삭제할까요?')) return
     await driveApi.deleteFile(id)
     await reload()
+  }
+
+  async function onPickTarget(targetId: number | null) {
+    if (!picker) return
+    const { mode, kind, id } = picker
+    try {
+      if (kind === 'file') {
+        if (mode === 'move') await driveApi.moveFile(id, targetId)
+        else await driveApi.copyFile(id, targetId)
+      } else {
+        if (mode === 'move') await driveApi.moveFolder(id, targetId)
+        else await driveApi.copyFolder(id, targetId)
+      }
+    } catch {
+      // 백엔드 거부(예: 자기 하위로 이동 400, 이름 충돌 409) — 모달이 멈추지 않도록 알림 후 닫기
+      window.alert('이동/복사할 수 없는 위치입니다.')
+    } finally {
+      setPicker(null)
+      await reload()
+    }
   }
 
   return (
@@ -108,6 +133,20 @@ export function DrivePage() {
             </button>
             <button
               type="button"
+              onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
+              className="text-xs text-muted-foreground"
+            >
+              이동
+            </button>
+            <button
+              type="button"
+              onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
+              className="text-xs text-muted-foreground"
+            >
+              복사
+            </button>
+            <button
+              type="button"
               onClick={() => onDeleteFolder(f.id)}
               className="text-xs text-destructive"
             >
@@ -127,6 +166,20 @@ export function DrivePage() {
             </button>
             <button
               type="button"
+              onClick={() => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name })}
+              className="text-xs text-muted-foreground"
+            >
+              이동
+            </button>
+            <button
+              type="button"
+              onClick={() => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name })}
+              className="text-xs text-muted-foreground"
+            >
+              복사
+            </button>
+            <button
+              type="button"
               onClick={() => onDeleteFile(f.id)}
               className="text-xs text-destructive"
             >
@@ -138,6 +191,15 @@ export function DrivePage() {
           <li className="py-8 text-center text-sm text-muted-foreground">비어 있습니다</li>
         )}
       </ul>
+      {picker && (
+        <FolderPickerModal
+          spaceId={sid}
+          title={`${picker.name} ${picker.mode === 'move' ? '이동' : '복사'}`}
+          disabledFolderId={picker.kind === 'folder' ? picker.id : undefined}
+          onConfirm={onPickTarget}
+          onClose={() => setPicker(null)}
+        />
+      )}
     </div>
   )
 }
