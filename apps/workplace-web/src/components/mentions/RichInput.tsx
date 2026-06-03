@@ -72,6 +72,14 @@ export function RichInput({
     onChangeRef.current = onChange;
   });
 
+  // onSubmit 최신값을 submit()(Enter 경로 포함)에서 참조. useEditor 는 1회 생성이라
+  // handleKeyDown 이 첫 렌더 submit 클로저를 잡아 onSubmit 이 스테일해진다(예: composer 의
+  // pending 첨부가 [] 로 고정 → Enter 전송 시 첨부 누락). ref 로 최신값 동기화.
+  const onSubmitRef = useRef(onSubmit);
+  useEffect(() => {
+    onSubmitRef.current = onSubmit;
+  });
+
   // allowEmptySubmit 최신값을 submit()(Enter 경로 포함)에서 참조. useEditor 는 1회 생성이라
   // handleKeyDown 이 첫 렌더 submit 클로저를 잡아 스테일해진다 — ref 로 최신값 동기화(위 패턴 동일).
   const allowEmptyRef = useRef(allowEmptySubmit);
@@ -190,7 +198,7 @@ export function RichInput({
       onCancel();
       return;
     }
-    onSubmit(body);
+    onSubmitRef.current(body);
     if (clearOnSubmit) {
       editor.commands.clearContent();
       editor.commands.focus();
