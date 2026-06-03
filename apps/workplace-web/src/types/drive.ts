@@ -40,3 +40,17 @@ export interface DriveItemList {
   folders: DriveFolder[]
   files: DriveFile[]
 }
+
+/** 검색 결과 파일/폴더 — 백엔드 DriveFileHit/DriveFolderHit 와 1:1. folderPath = 조상 폴더 경로. */
+export interface DriveFileHit extends DriveFile {
+  folderPath: string
+}
+
+export interface DriveFolderHit extends DriveFolder {
+  folderPath: string
+}
+
+export interface DriveSearchResult {
+  folders: DriveFolderHit[]
+  files: DriveFileHit[]
+}

@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 
 import { driveApi } from '../../api/drive'
+import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
+import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
-import type { DriveItemList } from '../../types/drive'
+import { SearchInput } from '../../components/ui/search-input'
+import type { DriveFile, DriveItemList, DriveSearchResult } from '../../types/drive'
 
-/** 폴더 브라우저 — 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/다운로드. */
+/** 폴더 브라우저 — 검색 + 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드. */
 export function DrivePage() {
   const { spaceId } = useParams()
   const sid = Number(spaceId)
@@ -16,9 +19,13 @@ export function DrivePage() {
   const [items, setItems] = useState<DriveItemList>({ folders: [], files: [] })
   const fileInput = useRef<HTMLInputElement>(null)
   const [picker, setPicker] = useState<
-    | { mode: 'move' | 'copy'; kind: 'file' | 'folder'; id: number; name: string }
-    | null
+    { mode: 'move' | 'copy'; kind: 'file' | 'folder'; id: number; name: string } | null
   >(null)
+  const [preview, setPreview] = useState<DriveFile | null>(null)
+
+  // 검색 상태 — query 길이 ≥2 면 results 로 목록을 대체.
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<DriveSearchResult | null>(null)
 
   async function reload() {
     const { data } = await driveApi.listItems(sid, folderId)
@@ -29,7 +36,22 @@ export function DrivePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, folderId])
 
+  // 검색 디바운스(300ms). 2자 미만이면 결과 해제(브라우즈 복귀).
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) {
+      setResults(null)
+      return
+    }
+    const t = setTimeout(() => {
+      void driveApi.search(sid, q).then(({ data }) => setResults(data))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [query, sid])
+
   function openFolder(id: number) {
+    setQuery('')
+    setResults(null)
     setSearchParams({ folderId: String(id) })
   }
   function goRoot() {
@@ -78,7 +100,6 @@ export function DrivePage() {
         else await driveApi.copyFolder(id, targetId)
       }
     } catch {
-      // 백엔드 거부(예: 자기 하위로 이동 400, 이름 충돌 409) — 모달이 멈추지 않도록 알림 후 닫기
       window.alert('이동/복사할 수 없는 위치입니다.')
     } finally {
       setPicker(null)
@@ -86,15 +107,24 @@ export function DrivePage() {
     }
   }
 
+  const searching = results != null
+
   return (
     <div className="p-4" data-testid="drive-page">
       <div className="mb-3 flex items-center gap-2">
         <button type="button" onClick={goRoot} className="text-sm text-primary hover:underline">
           루트
         </button>
-        {folderId != null && (
+        {folderId != null && !searching && (
           <span className="text-sm text-muted-foreground">/ 폴더 {folderId}</span>
         )}
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          placeholder="이 공간에서 검색..."
+          aria-label="드라이브 검색"
+          className="ml-2"
+        />
         <div className="ml-auto flex gap-2">
           <button
             type="button"
@@ -114,83 +144,128 @@ export function DrivePage() {
         </div>
       </div>
 
-      <ul className="divide-y divide-border">
-        {items.folders.map((f) => (
-          <li key={`folder-${f.id}`} className="flex items-center gap-2 py-2">
-            <button
-              type="button"
-              onClick={() => openFolder(f.id)}
-              className="flex-1 text-left text-sm hover:underline"
-            >
-              📁 {f.name}
-            </button>
-            <button
-              type="button"
-              onClick={() => onRenameFolder(f.id, f.name)}
-              className="text-xs text-muted-foreground"
-            >
-              이름변경
-            </button>
-            <button
-              type="button"
-              onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
-              className="text-xs text-muted-foreground"
-            >
-              이동
-            </button>
-            <button
-              type="button"
-              onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
-              className="text-xs text-muted-foreground"
-            >
-              복사
-            </button>
-            <button
-              type="button"
-              onClick={() => onDeleteFolder(f.id)}
-              className="text-xs text-destructive"
-            >
-              삭제
-            </button>
-          </li>
-        ))}
-        {items.files.map((f) => (
-          <li key={`file-${f.id}`} className="flex items-center gap-2 py-2">
-            <span className="flex-1 truncate text-sm">📄 {f.name}</span>
-            <button
-              type="button"
-              onClick={() => driveApi.downloadFile(f.id, f.name)}
-              className="text-xs text-primary"
-            >
-              다운로드
-            </button>
-            <button
-              type="button"
-              onClick={() => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name })}
-              className="text-xs text-muted-foreground"
-            >
-              이동
-            </button>
-            <button
-              type="button"
-              onClick={() => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name })}
-              className="text-xs text-muted-foreground"
-            >
-              복사
-            </button>
-            <button
-              type="button"
-              onClick={() => onDeleteFile(f.id)}
-              className="text-xs text-destructive"
-            >
-              삭제
-            </button>
-          </li>
-        ))}
-        {items.folders.length === 0 && items.files.length === 0 && (
-          <li className="py-8 text-center text-sm text-muted-foreground">비어 있습니다</li>
-        )}
-      </ul>
+      {searching ? (
+        <ul className="divide-y divide-border" data-testid="search-results">
+          {results.folders.map((f) => (
+            <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
+              <button
+                type="button"
+                onClick={() => openFolder(f.id)}
+                className="flex-1 text-left text-sm hover:underline"
+              >
+                📁 {f.name}
+                {f.folderPath && (
+                  <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                )}
+              </button>
+            </li>
+          ))}
+          {results.files.map((f) => (
+            <li key={`s-file-${f.id}`} className="flex items-center gap-2 py-2">
+              <DriveThumbnail fileId={f.id} category={f.category} />
+              <button
+                type="button"
+                onClick={() => setPreview(f)}
+                className="flex-1 truncate text-left text-sm hover:underline"
+              >
+                {f.name}
+                {f.folderPath && (
+                  <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                )}
+              </button>
+            </li>
+          ))}
+          {results.folders.length === 0 && results.files.length === 0 && (
+            <li className="py-8 text-center text-sm text-muted-foreground">검색 결과가 없습니다</li>
+          )}
+        </ul>
+      ) : (
+        <ul className="divide-y divide-border">
+          {items.folders.map((f) => (
+            <li key={`folder-${f.id}`} className="flex items-center gap-2 py-2">
+              <button
+                type="button"
+                onClick={() => openFolder(f.id)}
+                className="flex-1 text-left text-sm hover:underline"
+              >
+                📁 {f.name}
+              </button>
+              <button
+                type="button"
+                onClick={() => onRenameFolder(f.id, f.name)}
+                className="text-xs text-muted-foreground"
+              >
+                이름변경
+              </button>
+              <button
+                type="button"
+                onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
+                className="text-xs text-muted-foreground"
+              >
+                이동
+              </button>
+              <button
+                type="button"
+                onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
+                className="text-xs text-muted-foreground"
+              >
+                복사
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteFolder(f.id)}
+                className="text-xs text-destructive"
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+          {items.files.map((f) => (
+            <li key={`file-${f.id}`} className="flex items-center gap-2 py-2">
+              <DriveThumbnail fileId={f.id} category={f.category} />
+              <button
+                type="button"
+                onClick={() => setPreview(f)}
+                className="flex-1 truncate text-left text-sm hover:underline"
+              >
+                {f.name}
+              </button>
+              <button
+                type="button"
+                onClick={() => driveApi.downloadFile(f.id, f.name)}
+                className="text-xs text-primary"
+              >
+                다운로드
+              </button>
+              <button
+                type="button"
+                onClick={() => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name })}
+                className="text-xs text-muted-foreground"
+              >
+                이동
+              </button>
+              <button
+                type="button"
+                onClick={() => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name })}
+                className="text-xs text-muted-foreground"
+              >
+                복사
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteFile(f.id)}
+                className="text-xs text-destructive"
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+          {items.folders.length === 0 && items.files.length === 0 && (
+            <li className="py-8 text-center text-sm text-muted-foreground">비어 있습니다</li>
+          )}
+        </ul>
+      )}
+
       {picker && (
         <FolderPickerModal
           spaceId={sid}
@@ -200,6 +275,7 @@ export function DrivePage() {
           onClose={() => setPicker(null)}
         />
       )}
+      {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
     </div>
   )
 }

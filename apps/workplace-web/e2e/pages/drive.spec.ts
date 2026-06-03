@@ -101,7 +101,7 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
     mimeType: 'text/plain',
     buffer: Buffer.from('hello'),
   })
-  await expect(page.getByText('📄 memo.txt')).toBeVisible()
+  await expect(page.getByText('memo.txt')).toBeVisible()
 
   // 다운로드 트리거(에러 없이 동작 — download 이벤트는 환경에 따라 안 떠도 무방)
   const downloadPromise = page.waitForEvent('download').catch(() => null)
@@ -115,7 +115,7 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
     .filter({ hasText: 'memo.txt' })
     .getByRole('button', { name: '삭제' })
     .click()
-  await expect(page.getByText('📄 memo.txt')).toHaveCount(0)
+  await expect(page.getByText('memo.txt')).toHaveCount(0)
 })
 
 test('파일을 폴더로 이동', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
@@ -160,7 +160,7 @@ test('파일을 폴더로 이동', { tag: '@smoke' }, async ({ authenticatedPage
   )
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByText('📄 memo.txt')).toBeVisible()
+  await expect(page.getByText('memo.txt')).toBeVisible()
 
   // memo.txt 행의 '이동' 클릭 → 모달
   await page
@@ -176,5 +176,127 @@ test('파일을 폴더로 이동', { tag: '@smoke' }, async ({ authenticatedPage
   await page.getByTestId('folder-picker-confirm').click()
 
   // 루트 목록 리로드 → 파일 사라짐
-  await expect(page.getByText('📄 memo.txt')).toHaveCount(0)
+  await expect(page.getByText('memo.txt')).toHaveCount(0)
+})
+
+// 1x1 투명 PNG (썸네일/이미지 콘텐츠 모킹용)
+const PNG_1x1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+test('검색어 입력 시 결과를 경로와 함께 보여주고, 폴더 결과 클릭으로 이동한다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubSpaces(page)
+  // 기본 목록(빈 루트). 폴더 50 진입 시에도 빈 목록.
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ folders: [], files: [] }),
+          })
+        : route.fallback(),
+  )
+  // 검색 결과 — q query param 캡처
+  let searchQuery = ''
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/search`,
+    (route) => {
+      searchQuery = new URL(route.request().url()).searchParams.get('q') ?? ''
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          folders: [
+            {
+              id: 50,
+              parentId: 9,
+              name: 'report-archive',
+              createdAt: '2026-01-01T00:00:00Z',
+              folderPath: '프로젝트',
+            },
+          ],
+          files: [
+            {
+              id: 60,
+              folderId: 9,
+              fileId: 100,
+              name: 'report-final.txt',
+              mimeType: 'text/plain',
+              sizeBytes: 3,
+              category: 'TEXT',
+              createdAt: '2026-01-01T00:00:00Z',
+              folderPath: '프로젝트/문서',
+            },
+          ],
+        }),
+      })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // 입력 → API query param 검증
+  await page.getByLabel('드라이브 검색').fill('report')
+  await expect(page.getByTestId('search-results')).toBeVisible()
+  expect(searchQuery).toBe('report')
+
+  // 응답 → UI 반영(경로 표시 포함)
+  await expect(page.getByText('report-final.txt')).toBeVisible()
+  await expect(page.getByText('프로젝트/문서')).toBeVisible()
+  await expect(page.getByText('report-archive')).toBeVisible()
+
+  // 폴더 결과 클릭 → 해당 폴더로 이동(folderId=50)
+  await page.getByRole('button', { name: /report-archive/ }).click()
+  await expect(page).toHaveURL(/folderId=50/)
+})
+
+test('이미지 파일 클릭 시 미리보기 모달에 이미지를 표시한다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              folders: [],
+              files: [
+                {
+                  id: 70,
+                  folderId: null,
+                  fileId: 200,
+                  name: 'photo.png',
+                  mimeType: 'image/png',
+                  sizeBytes: 100,
+                  category: 'IMAGE',
+                  createdAt: '2026-01-01T00:00:00Z',
+                },
+              ],
+            }),
+          })
+        : route.fallback(),
+  )
+  // 썸네일 + 콘텐츠 모두 PNG 로 모킹
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/files/70/thumbnail',
+    (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1x1 }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/files/70/content',
+    (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1x1 }),
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await page.getByRole('button', { name: 'photo.png' }).click()
+
+  const body = page.getByTestId('preview-body')
+  await expect(body).toBeVisible()
+  await expect(body.locator('img')).toBeVisible()
 })

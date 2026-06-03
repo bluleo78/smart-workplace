@@ -1,6 +1,13 @@
 // 드라이브 REST API client. 모든 함수는 AxiosResponse 반환 — 호출처에서 .data unwrap.
 
-import type { DriveFile, DriveFolder, DriveItemList, DriveMember, DriveSpace } from '../types/drive'
+import type {
+  DriveFile,
+  DriveFolder,
+  DriveItemList,
+  DriveMember,
+  DriveSearchResult,
+  DriveSpace,
+} from '../types/drive'
 import { client } from './client'
 
 export const driveApi = {
@@ -62,5 +69,38 @@ export const driveApi = {
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
+  },
+
+  // 공간 전체 이름 검색
+  search: (spaceId: number, q: string) =>
+    client.get<DriveSearchResult>(`/drive/spaces/${spaceId}/search`, { params: { q } }),
+
+  // 썸네일 blob → object URL. 메모리 Bearer 라 <img> 가 헤더를 못 실으므로 axios 로 받아 objectURL 생성.
+  // 404(썸네일 없음)면 null 반환. 호출처가 revokeObjectURL 책임.
+  fetchThumbnailUrl: async (driveFileId: number): Promise<string | null> => {
+    try {
+      const { data } = await client.get<Blob>(`/drive/files/${driveFileId}/thumbnail`, {
+        responseType: 'blob',
+      })
+      return URL.createObjectURL(data)
+    } catch {
+      return null
+    }
+  },
+
+  // 미리보기 콘텐츠(이미지/PDF) blob → object URL. 호출처가 revoke.
+  fetchContentUrl: async (driveFileId: number): Promise<string> => {
+    const { data } = await client.get<Blob>(`/drive/files/${driveFileId}/content`, {
+      responseType: 'blob',
+    })
+    return URL.createObjectURL(data)
+  },
+
+  // 텍스트 미리보기 — blob 을 문자열로.
+  fetchTextContent: async (driveFileId: number): Promise<string> => {
+    const { data } = await client.get<Blob>(`/drive/files/${driveFileId}/content`, {
+      responseType: 'blob',
+    })
+    return await data.text()
   },
 }
