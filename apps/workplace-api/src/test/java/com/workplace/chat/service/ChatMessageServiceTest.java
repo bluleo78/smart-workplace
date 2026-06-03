@@ -17,9 +17,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 메시지 CRUD + 권한 + 이벤트 발행 검증. */
 @RecordApplicationEvents
+@Transactional
 class ChatMessageServiceTest extends IntegrationTestBase {
 
   @Autowired ChatMessageService messageService;

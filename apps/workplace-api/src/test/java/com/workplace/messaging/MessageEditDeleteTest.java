@@ -19,8 +19,10 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 메시지 수정/삭제(작성자 권한·soft-delete·editedAt) 통합 테스트. */
+@Transactional
 class MessageEditDeleteTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

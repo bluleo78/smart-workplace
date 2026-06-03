@@ -1,7 +1,9 @@
 package com.workplace.chat.service;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
+import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.issue.repository.IssueRepository;
@@ -9,6 +11,8 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -28,6 +32,26 @@ public class ChatFixtures {
   private final ProjectMemberRepository memberRepository;
   private final IssueRepository issueRepository;
 
+  // 비-Tx(커밋) 테스트가 만든 row 를 @AfterEach 에서 회수하기 위한 추적 목록.
+  // issue.project_id 는 CASCADE 가 아니므로 issue(→chat_thread/message/assignee/watcher CASCADE)를
+  // 먼저 지우고, project(→member/types CASCADE), 마지막에 user 순으로 삭제한다.
+  // (Tx 테스트가 호출해도 롤백된 id 라 no-op)
+  private final List<Long> createdProjectIds = new ArrayList<>();
+  private final List<Long> createdUserIds = new ArrayList<>();
+
+  /** 비-Tx 테스트의 @AfterEach 에서 호출 — 이 fixture 가 커밋한 project/issue/user row 를 모두 삭제한다. */
+  public void cleanupAll() {
+    if (!createdProjectIds.isEmpty()) {
+      dsl.deleteFrom(ISSUE).where(ISSUE.PROJECT_ID.in(createdProjectIds)).execute();
+      dsl.deleteFrom(PROJECT).where(PROJECT.ID.in(createdProjectIds)).execute();
+    }
+    if (!createdUserIds.isEmpty()) {
+      dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
+    }
+    createdProjectIds.clear();
+    createdUserIds.clear();
+  }
+
   /** 한 번의 setup 호출에 필요한 모든 row 를 만든다. */
   public Setup setup() {
     String suffix = UUID.randomUUID().toString().replaceAll("-", "").substring(0, 6).toLowerCase();
@@ -41,6 +65,7 @@ public class ChatFixtures {
     ProjectResponse project =
         projectService.create(reporter, new CreateProjectRequest(projectKey, "P-" + suffix, "x"));
     long projectId = project.id();
+    createdProjectIds.add(projectId);
 
     // assignee/watcher 도 project_member 로 등록 (outsider 는 제외).
     memberRepository.insert(projectId, assignee, "MEMBER");
@@ -68,27 +93,33 @@ public class ChatFixtures {
 
   /** USER 테이블에 최소 컬럼만 INSERT (kind/is_active 는 default). 비밀번호는 더미. */
   private long insertUser(String username) {
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, username)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, username)
-        .set(USER.EMAIL, username + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, username)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, username)
+            .set(USER.EMAIL, username + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    createdUserIds.add(id);
+    return id;
   }
 
   /** insertUser 와 동일하지만 kind="AGENT" 로 등록. */
   private long insertAgentUser(String username) {
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, username)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, username)
-        .set(USER.EMAIL, username + "@example.com")
-        .set(USER.KIND, "AGENT")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, username)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, username)
+            .set(USER.EMAIL, username + "@example.com")
+            .set(USER.KIND, "AGENT")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    createdUserIds.add(id);
+    return id;
   }
 
   private void insertAssignee(long issueId, long userId, long assignedBy) {

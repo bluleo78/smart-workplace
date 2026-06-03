@@ -44,7 +44,7 @@ class RoleServiceTest extends IntegrationTestBase {
 
   @Test
   void getRoleById_notFound_throwsException() {
-    assertThatThrownBy(() -> roleService.getRoleById(999L))
+    assertThatThrownBy(() -> roleService.getRoleById(Long.MAX_VALUE))
         .isInstanceOf(RoleNotFoundException.class);
   }
 

@@ -9,8 +9,10 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** message 리포지토리 cursor 페이징 통합 테스트 (test DB:5435). */
+@Transactional
 class MessageRepositoryTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

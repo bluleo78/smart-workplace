@@ -1,5 +1,6 @@
 package com.workplace.messaging.integration;
 
+import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -13,10 +14,13 @@ import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.messaging.service.ReactionService;
 import com.workplace.support.IntegrationTestBase;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,17 +43,31 @@ class ReactionSseFanOutTest extends IntegrationTestBase {
   @Autowired ReactionService reactionService;
   @Autowired ChannelRepository channelRepo;
 
+  // 비-Tx(AFTER_COMMIT 이벤트 검증) 테스트: 만든 user id 추적 → @AfterEach 에서 채널(CASCADE)+user 회수.
+  private final List<Long> createdUserIds = new ArrayList<>();
+
+  @AfterEach
+  void cleanup() {
+    if (createdUserIds.isEmpty()) return;
+    dsl.deleteFrom(CHANNEL).where(CHANNEL.CREATED_BY.in(createdUserIds)).execute();
+    dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
+    createdUserIds.clear();
+  }
+
   /** 테스트 격리를 위해 UUID suffix 로 유니크 유저를 직접 INSERT 후 ID 반환. */
   private long seedUser() {
     String suffix = UUID.randomUUID().toString().replaceAll("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "rxsse_" + suffix)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "RxSse" + suffix)
-        .set(USER.EMAIL, "rxsse_" + suffix + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "rxsse_" + suffix)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "RxSse" + suffix)
+            .set(USER.EMAIL, "rxsse_" + suffix + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    createdUserIds.add(id);
+    return id;
   }
 
   /**

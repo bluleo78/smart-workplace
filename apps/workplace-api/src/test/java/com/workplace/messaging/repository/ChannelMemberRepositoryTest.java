@@ -10,8 +10,10 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** channel_member 역할/멤버 관리 통합 테스트. */
+@Transactional
 class ChannelMemberRepositoryTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

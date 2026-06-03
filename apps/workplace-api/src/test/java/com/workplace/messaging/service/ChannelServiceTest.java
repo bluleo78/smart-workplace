@@ -15,8 +15,10 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** ChannelService 통합 테스트 — 생성/탐색/내채널/관리 권한. */
+@Transactional
 class ChannelServiceTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

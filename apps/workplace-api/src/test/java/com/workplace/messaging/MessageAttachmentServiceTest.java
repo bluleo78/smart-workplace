@@ -20,8 +20,10 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
 /** MessageAttachmentService 통합 테스트 — 업로드 게이트 + 바인딩 검증. */
+@Transactional
 class MessageAttachmentServiceTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

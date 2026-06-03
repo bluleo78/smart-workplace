@@ -15,6 +15,7 @@ import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,12 @@ class ChatToAiAgentDispatchTest extends IntegrationTestBase {
   @Autowired ChatMessageService messageService;
   @Autowired ChatThreadMemberRepository memberRepo;
   @Autowired ChatFixtures fx;
+
+  // 비-Tx 통합테스트: 커밋된 fixture 데이터를 회수 (project CASCADE + user).
+  @AfterEach
+  void cleanup() {
+    fx.cleanupAll();
+  }
 
   @Test
   void humanWithAgentMention_publishesOnce() {

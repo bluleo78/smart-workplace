@@ -12,7 +12,9 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
+@Transactional
 class DriveSpaceServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired DriveSpaceService spaceService;

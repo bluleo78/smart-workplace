@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /** ChannelMemberService 통합 테스트 — 초대/제거/나가기/소유권 이전. */
+@Transactional
 class ChannelMemberServiceTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
@@ -52,7 +53,6 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  @Transactional // 영구 ADMIN 사용자가 다른 테스트(예: UserService 의 "마지막 admin")를 오염시키지 않도록 롤백.
   void updateRole_systemAdminTransfer_demotesActualOwner_keepsSingleOwner() {
     // 시스템 ADMIN(채널 비멤버)이 소유권을 이전하면 호출자가 아니라 "현재 OWNER" 가 강등되어야 한다.
     long owner = seedUser();

@@ -1,5 +1,6 @@
 package com.workplace.messaging.integration;
 
+import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,10 +16,13 @@ import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.IntegrationTestBase;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +40,17 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelMemberRepository memberRepo;
 
+  // 비-Tx(커밋) 테스트: 만든 user id 추적 → @AfterEach 에서 채널(created_by, CASCADE)+user 회수.
+  private final List<Long> createdUserIds = new ArrayList<>();
+
+  @AfterEach
+  void cleanup() {
+    if (createdUserIds.isEmpty()) return;
+    dsl.deleteFrom(CHANNEL).where(CHANNEL.CREATED_BY.in(createdUserIds)).execute();
+    dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
+    createdUserIds.clear();
+  }
+
   /** UUID suffix 로 격리된 테스트 유저 INSERT 후 id 반환. kind 미지정 → HUMAN(DB 기본값). */
   private long seedUser(String kind) {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
@@ -48,7 +63,9 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
     if ("AGENT".equals(kind)) {
       step = step.set(USER.KIND, "AGENT");
     }
-    return step.returning(USER.ID).fetchOne().getId();
+    long id = step.returning(USER.ID).fetchOne().getId();
+    createdUserIds.add(id);
+    return id;
   }
 
   /** 정렬된 memberId 조합 → member_key (DmService 와 동일 규칙). DM 채널 생성 후 멤버 추가. */

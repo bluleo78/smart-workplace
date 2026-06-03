@@ -6,10 +6,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.auth.repository.LoginAttemptRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,10 +31,20 @@ class LoginAttemptServiceTest extends IntegrationTestBase {
 
   private String uniqueUser;
 
+  // loginFailed 는 REQUIRES_NEW 로 커밋되어 롤백되지 않으므로, 사용한 username 을 추적해 @AfterEach 에서 회수.
+  private final List<String> createdUsernames = new ArrayList<>();
+
   @BeforeEach
   void setUp() {
     // 테스트 간 격리를 위해 username을 UUID로 분리
     uniqueUser = "user-" + UUID.randomUUID() + "@test.com";
+    createdUsernames.add(uniqueUser);
+  }
+
+  @AfterEach
+  void cleanup() {
+    dsl.deleteFrom(LOGIN_ATTEMPTS).where(LOGIN_ATTEMPTS.USERNAME.in(createdUsernames)).execute();
+    createdUsernames.clear();
   }
 
   @Test
@@ -113,6 +126,7 @@ class LoginAttemptServiceTest extends IntegrationTestBase {
     String expired1 = "exp1-" + UUID.randomUUID() + "@test.com";
     String expired2 = "exp2-" + UUID.randomUUID() + "@test.com";
     String fresh = "fresh-" + UUID.randomUUID() + "@test.com";
+    createdUsernames.addAll(List.of(expired1, expired2, fresh));
 
     loginAttemptService.loginFailed(expired1);
     loginAttemptService.loginFailed(expired2);

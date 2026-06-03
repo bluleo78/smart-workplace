@@ -10,8 +10,10 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** DM 리포지토리 메서드 + 채널 목록 DM 누수 회귀 테스트(실제 DB). */
+@Transactional
 class ChannelDmRepositoryTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

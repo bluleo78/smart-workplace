@@ -23,12 +23,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * MessageAttachmentController 통합 테스트 — 실 JWT + 실 DB + 실 스토리지로 업로드/다운로드 + 멤버십 게이트를 검증한다. messaging
  * 엔드포인트는 @RequirePermission 없이 서비스에서 멤버십을 검증하므로 토큰만 유효하면 보안 체인을 통과한다.
  */
 @AutoConfigureMockMvc
+@Transactional
 class MessageAttachmentControllerTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;

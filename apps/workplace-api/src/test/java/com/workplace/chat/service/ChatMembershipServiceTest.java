@@ -9,8 +9,10 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.support.IntegrationTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 수동 add/leave 권한 + non-member 거부 검증. */
+@Transactional
 class ChatMembershipServiceTest extends IntegrationTestBase {
 
   @Autowired ChatMembershipService membershipService;

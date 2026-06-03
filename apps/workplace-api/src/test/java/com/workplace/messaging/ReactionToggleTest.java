@@ -19,8 +19,10 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 이모지 리액션 토글·멱등·집계(count/reacted)·비멤버 거부 통합 테스트. */
+@Transactional
 class ReactionToggleTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
