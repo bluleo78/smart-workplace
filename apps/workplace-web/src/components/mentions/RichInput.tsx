@@ -31,6 +31,8 @@ interface RichInputProps {
   onChange?: () => void;
   submitLabel?: string;
   clearOnSubmit?: boolean;
+  // 본문이 비어도 제출 허용(첨부만 있는 메시지용). composer 가 pending 첨부 유무로 토글.
+  allowEmptySubmit?: boolean;
   autoFocus?: boolean;
   inputTestId: string;
   submitTestId: string;
@@ -47,6 +49,7 @@ export function RichInput({
   onChange,
   submitLabel = '보내기',
   clearOnSubmit = false,
+  allowEmptySubmit = false,
   autoFocus = false,
   inputTestId,
   submitTestId,
@@ -67,6 +70,13 @@ export function RichInput({
   const onChangeRef = useRef(onChange);
   useEffect(() => {
     onChangeRef.current = onChange;
+  });
+
+  // allowEmptySubmit 최신값을 submit()(Enter 경로 포함)에서 참조. useEditor 는 1회 생성이라
+  // handleKeyDown 이 첫 렌더 submit 클로저를 잡아 스테일해진다 — ref 로 최신값 동기화(위 패턴 동일).
+  const allowEmptyRef = useRef(allowEmptySubmit);
+  useEffect(() => {
+    allowEmptyRef.current = allowEmptySubmit;
   });
 
   const editor = useEditor({
@@ -172,7 +182,8 @@ export function RichInput({
   function submit() {
     if (!editor) return;
     const body = serializeToBody(editor.getJSON()).trim();
-    if (body.length === 0) return;
+    // 본문이 비어도 첨부가 있으면(allowEmptySubmit) 제출 허용.
+    if (body.length === 0 && !allowEmptyRef.current) return;
     // 변경 없는 저장은 no-op — onCancel 로 닫아 불필요한 update 호출을 막는다 (#44).
     // composer 는 initialBody='' + body 비어있지 않음이라 절대 매칭되지 않는다.
     if (body === initialBody.trim() && onCancel) {

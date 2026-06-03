@@ -61,8 +61,11 @@ export default function DmPage() {
         />
       </div>
       <MessageComposer
+        channelId={dm.id}
         members={mentionMembers}
-        onSend={(body) => create.mutate({ body })}
+        onSend={(body, fileIds) =>
+          create.mutate({ body, fileIds: fileIds.length ? fileIds : undefined })
+        }
       />
     </div>
   )
