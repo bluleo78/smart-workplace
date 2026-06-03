@@ -8,6 +8,8 @@ import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
+import com.workplace.file.service.FileUploadService;
+import java.io.IOException;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ public class DriveFolderService {
   private final DriveFolderRepository folders;
   private final DriveFileRepository files;
   private final DrivePermissions perms;
+  private final FileUploadService fileUpload;
 
   @Transactional
   public DriveFolderResponse create(long callerId, long spaceId, Long parentId, String name) {
@@ -71,6 +74,45 @@ public class DriveFolderService {
       throw new DriveDuplicateNameException(name);
     }
     folders.updateParent(folderId, targetParentId);
+  }
+
+  /**
+   * 복사 — 폴더 서브트리 전체를 대상 부모 밑으로 재귀 복제. 각 파일은 blob 물리 복제(영구).
+   *
+   * <p>단일 `@Transactional` — 중간 실패 시 복제된 모든 folder·file·drive_file row 가 함께 롤백된다(부분 커밋 없음). 단일 txn
+   * 이라 임시-expiry→promote 단계는 불필요. 디스크 blob 고아 가능성(드문 실패경로)은 copyFile 주석 참조.
+   */
+  @Transactional
+  public DriveFolderResponse copy(long callerId, long folderId, Long targetParentId)
+      throws IOException {
+    long spaceId =
+        folders.findSpaceId(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
+    perms.requireRole(spaceId, callerId, "EDITOR");
+    validateTarget(spaceId, folderId, targetParentId);
+    DriveFolderResponse src =
+        folders.findById(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
+    if (folders.existsInSpace(spaceId, targetParentId, src.name())) {
+      throw new DriveDuplicateNameException(src.name());
+    }
+    long newRootId = copyTree(callerId, spaceId, folderId, targetParentId, src.name());
+    return folders
+        .findById(newRootId)
+        .orElseThrow(() -> new DriveFolderNotFoundException(newRootId));
+  }
+
+  /** 한 폴더를 대상 밑에 만들고, 그 안의 파일(blob 복제)·하위 폴더를 재귀 복제. 새 루트 폴더 id 반환. */
+  private long copyTree(
+      long callerId, long spaceId, long srcFolderId, Long destParentId, String name)
+      throws IOException {
+    long newFolderId = folders.insert(spaceId, destParentId, name);
+    for (DriveFileResponse f : files.listInFolder(spaceId, srcFolderId)) {
+      long newFid = fileUpload.copyFile(f.fileId(), callerId);
+      files.insert(spaceId, newFolderId, newFid, f.name());
+    }
+    for (DriveFolderResponse child : folders.listChildFolders(spaceId, srcFolderId)) {
+      copyTree(callerId, spaceId, child.id(), newFolderId, child.name());
+    }
+    return newFolderId;
   }
 
   /** 대상 부모가 같은 공간이고 폴더 자신·하위(서브트리)가 아닌지 검증. null = 공간 루트. */

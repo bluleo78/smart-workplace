@@ -163,4 +163,59 @@ class DriveFolderServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> folderService.move(u, a.id(), box.id()))
         .isInstanceOf(DriveDuplicateNameException.class);
   }
+
+  @Test
+  void copy_recursivelyDuplicatesSubtree_withIndependentBlobs() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var src = folderService.create(u, sp.id(), null, "원본");
+    var sub = folderService.create(u, sp.id(), src.id(), "하위");
+    DriveFileResponse f =
+        fileService.upload(
+            u,
+            sp.id(),
+            sub.id(),
+            new MockMultipartFile("file", "a.txt", "text/plain", "x".getBytes()));
+    var dest = folderService.create(u, sp.id(), null, "대상");
+
+    DriveFolderResponse copied = folderService.copy(u, src.id(), dest.id());
+
+    assertThat(copied.id()).isNotEqualTo(src.id());
+    assertThat(copied.parentId()).isEqualTo(dest.id());
+    assertThat(copied.name()).isEqualTo("원본");
+    var copiedSub = folderService.listItems(u, sp.id(), copied.id()).folders().get(0);
+    assertThat(copiedSub.name()).isEqualTo("하위");
+    var copiedFile = folderService.listItems(u, sp.id(), copiedSub.id()).files().get(0);
+    assertThat(copiedFile.name()).isEqualTo("a.txt");
+    assertThat(copiedFile.fileId()).isNotEqualTo(f.fileId());
+    String srcPath =
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(f.fileId()))
+            .fetchOne(FILE.STORAGE_PATH);
+    String copyPath =
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(copiedFile.fileId()))
+            .fetchOne(FILE.STORAGE_PATH);
+    assertThat(copyPath).isNotEqualTo(srcPath);
+    var exp =
+        dsl.select(FILE.EXPIRES_AT)
+            .from(FILE)
+            .where(FILE.ID.eq(copiedFile.fileId()))
+            .fetchOne(FILE.EXPIRES_AT);
+    assertThat(exp).isNull();
+  }
+
+  @Test
+  void copy_whenTargetHasSameName_conflicts() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var src = folderService.create(u, sp.id(), null, "문서");
+    var box = folderService.create(u, sp.id(), null, "상자");
+    folderService.create(u, sp.id(), box.id(), "문서");
+
+    assertThatThrownBy(() -> folderService.copy(u, src.id(), box.id()))
+        .isInstanceOf(DriveDuplicateNameException.class);
+  }
 }
