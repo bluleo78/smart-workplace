@@ -205,6 +205,22 @@ public class FileUploadService {
         resource, record.getMimeType(), record.getOriginalName(), fileSize);
   }
 
+  /** 업로더 검증 없이 파일 콘텐츠를 반환한다. drive 처럼 자체 권한 모델을 가진 호출자가 공간 권한을 검증한 뒤 사용한다. 절대 인증 없이 노출하지 말 것. */
+  public FileContentResult getFileContentTrusted(Long fileId) throws IOException {
+    var record = dsl.selectFrom(FILE).where(FILE.ID.eq(fileId)).fetchOne();
+    if (record == null) {
+      throw new FileNotFoundException(fileId);
+    }
+    Path storagePath = Path.of(record.getStoragePath());
+    if (!Files.exists(storagePath)) {
+      throw new FileNotFoundException(fileId);
+    }
+    long fileSize = Files.size(storagePath);
+    Resource resource = new FileSystemResource(storagePath);
+    return new FileContentResult(
+        resource, record.getMimeType(), record.getOriginalName(), fileSize);
+  }
+
   private String resolveMimeType(MultipartFile file) {
     String contentType = file.getContentType();
     if (contentType != null

@@ -188,6 +188,35 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
+  // 드라이브 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400)
+  @ExceptionHandler({
+    com.workplace.drive.exception.DriveSpaceNotFoundException.class,
+    com.workplace.drive.exception.DriveFolderNotFoundException.class,
+    com.workplace.drive.exception.DriveFileNotFoundException.class
+  })
+  public ResponseEntity<ErrorResponse> handleDriveNotFound(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  @ExceptionHandler(com.workplace.drive.exception.DriveForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handleDriveForbidden(
+      com.workplace.drive.exception.DriveForbiddenException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  @ExceptionHandler({
+    com.workplace.drive.exception.DriveInvalidRoleException.class,
+    com.workplace.drive.exception.DriveDuplicateNameException.class
+  })
+  public ResponseEntity<ErrorResponse> handleDriveBadRequest(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+  }
+
   @ExceptionHandler(ChannelNotMemberException.class)
   public ResponseEntity<ErrorResponse> handleChannelNotMember(
       ChannelNotMemberException ex, HttpServletRequest request) {
