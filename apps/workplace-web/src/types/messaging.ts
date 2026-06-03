@@ -40,6 +40,18 @@ export interface ReactionResponse {
   reacted: boolean;
 }
 
+/** 메시지에 첨부된 파일 1건. content 는 별도 인증 엔드포인트로 blob 다운로드. */
+export interface MessageAttachment {
+  fileId: number;
+  messageId: number;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  attachedById: number;
+  attachedByName: string;
+  attachedAt: string;
+}
+
 export interface MessageResponse {
   id: number;
   channelId: number;
@@ -51,6 +63,7 @@ export interface MessageResponse {
   parentMessageId: number | null; // 스레드 답글이면 부모 id
   replyCount: number; // 이 메시지에 달린 답글 수
   reactions: ReactionResponse[]; // 이모지별 집계
+  attachments: MessageAttachment[]; // 첨부 파일 목록
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
@@ -82,6 +95,7 @@ export interface UpdateRoleRequest {
 export interface CreateMessageRequest {
   body: string;
   parentMessageId?: number | null; // 스레드 답글 작성 시
+  fileIds?: number[]; // 사전 업로드된 첨부 파일 id 목록
 }
 
 /** DM 참여자(본인 포함). */

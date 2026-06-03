@@ -42,6 +42,7 @@ export function useCreateMessage(channelId: number, me: MeContext) {
         parentMessageId: null, // 메인 컴포저는 최상위 메시지만 작성
         replyCount: 0,
         reactions: [],
+        attachments: [], // optimistic — 서버 응답 시 실제값으로 치환
         createdAt: new Date().toISOString(),
         editedAt: null,
         deleted: false,

@@ -36,6 +36,7 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
         parentMessageId,
         replyCount: 0,
         reactions: [],
+        attachments: [], // optimistic — 서버 응답 시 실제값으로 치환
         createdAt: new Date().toISOString(),
         editedAt: null,
         deleted: false,
