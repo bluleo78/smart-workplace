@@ -221,6 +221,52 @@ public class FileUploadService {
         resource, record.getMimeType(), record.getOriginalName(), fileSize);
   }
 
+  /**
+   * 기존 FILE 의 디스크 blob 을 새 파일로 물리 복제하고 새 FILE row(영구, expires_at=null)를 만든다. drive 복사용.
+   *
+   * <p>별도 @Transactional 을 두지 않으므로 호출자(drive copy 서비스)의 트랜잭션에 합류한다(propagation REQUIRED). 따라서 복사
+   * 작업이 실패해 롤백되면 새 FILE row·drive_file row 가 함께 사라진다(부분 커밋 없음). 단, 이미 디스크에 기록된 blob 은 비-트랜잭션 리소스라
+   * DB row 없이 디스크에 남을 수 있다(드문 실패경로 한계 — 후속 하드닝/스윕 대상, leak-free 아님). 해피패스(커밋)에서는 원본과 완전히 독립된 영구 파일이
+   * 된다.
+   *
+   * @return 새로 만든 FILE.id
+   */
+  public long copyFile(long srcFileId, Long callerId) throws IOException {
+    var record = dsl.selectFrom(FILE).where(FILE.ID.eq(srcFileId)).fetchOne();
+    if (record == null) {
+      throw new FileNotFoundException(srcFileId);
+    }
+    Path srcPath = Path.of(record.getStoragePath());
+    if (!Files.exists(srcPath)) {
+      throw new FileNotFoundException(srcFileId);
+    }
+
+    String ext = getExtension(record.getStoredName());
+    String storedName = UUID.randomUUID().toString() + (ext.isEmpty() ? "" : "." + ext);
+    String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+    Path dir = Paths.get(uploadDir, "chat-files", datePath).toAbsolutePath();
+    Files.createDirectories(dir);
+    Path destPath = dir.resolve(storedName);
+    Files.copy(srcPath, destPath);
+
+    // expires_at 미설정(null = 영구). drive 복사는 단일 트랜잭션이라 임시-expiry→promote 단계가 불필요.
+    Long newId =
+        dsl.insertInto(FILE)
+            .set(FILE.ORIGINAL_NAME, record.getOriginalName())
+            .set(FILE.STORED_NAME, storedName)
+            .set(FILE.MIME_TYPE, record.getMimeType())
+            .set(FILE.SIZE_BYTES, record.getSizeBytes())
+            .set(FILE.CATEGORY, record.getCategory())
+            .set(FILE.STORAGE_PATH, destPath.toAbsolutePath().toString())
+            .set(FILE.UPLOADED_BY, callerId)
+            .set(FILE.CREATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+            .returning(FILE.ID)
+            .fetchOne()
+            .getId();
+    log.info("File copied: src={}, new={}, name={}", srcFileId, newId, record.getOriginalName());
+    return newId;
+  }
+
   private String resolveMimeType(MultipartFile file) {
     String contentType = file.getContentType();
     if (contentType != null
