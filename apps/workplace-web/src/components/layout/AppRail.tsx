@@ -44,14 +44,12 @@ const MODULES: RailItem[] = [
   { label: '홈', href: '/', icon: Home },
   { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
   { label: 'Chat', href: '/chat', icon: MessageSquare },
+  { label: 'Drive', href: '/drive', icon: HardDrive },
 ]
 // 어드민 전용 모듈 — "설정"(워크스페이스 설정·관리)
 const ADMIN_MODULE: RailItem = { label: '설정', href: '/admin/users', icon: Settings, match: '/admin' }
 // 예정 모듈 — 비활성(흐림). 아이콘 레일이므로 아이콘으로 표시한다.
-const SOON: { label: string; icon: LucideIcon }[] = [
-  { label: 'Wiki', icon: BookOpen },
-  { label: 'Drive', icon: HardDrive },
-]
+const SOON: { label: string; icon: LucideIcon }[] = [{ label: 'Wiki', icon: BookOpen }]
 
 // 현재 경로가 해당 모듈에 속하는지 판별. 홈('/')은 정확히 일치할 때만 활성.
 // 활성 판별 prefix 는 item.match(문자열/배열) 우선, 없으면 href.

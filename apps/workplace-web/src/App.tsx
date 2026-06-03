@@ -34,6 +34,15 @@ const ChatModuleLayout = lazy(() =>
 const ChannelListPage = lazy(() => import('./pages/chat/ChannelListPage'))
 const ChannelPage = lazy(() => import('./pages/chat/ChannelPage'))
 const DmPage = lazy(() => import('./pages/chat/DmPage'))
+const DriveModuleLayout = lazy(() =>
+  import('./components/drive/DriveModuleLayout').then((m) => ({ default: m.DriveModuleLayout })),
+)
+const DrivePage = lazy(() =>
+  import('./pages/drive/DrivePage').then((m) => ({ default: m.DrivePage })),
+)
+const DriveIndexRedirect = lazy(() =>
+  import('./pages/drive/DriveIndexRedirect').then((m) => ({ default: m.DriveIndexRedirect })),
+)
 
 function PageLoader() {
   return (
@@ -84,6 +93,12 @@ export default function App() {
                 <Route path="chat" element={<ChannelListPage />} />
                 <Route path="chat/channels/:id" element={<ChannelPage />} />
                 <Route path="chat/dms/:id" element={<DmPage />} />
+              </Route>
+
+              {/* 드라이브 모듈 — 2차 사이드바(공간 목록) 가 감싼다 */}
+              <Route element={<DriveModuleLayout />}>
+                <Route path="drive" element={<DriveIndexRedirect />} />
+                <Route path="drive/spaces/:spaceId" element={<DrivePage />} />
               </Route>
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
