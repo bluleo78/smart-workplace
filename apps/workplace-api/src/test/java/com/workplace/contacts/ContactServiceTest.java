@@ -82,4 +82,129 @@ class ContactServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> service.getExternal(other, id))
         .isInstanceOf(ContactNotFoundException.class);
   }
+
+  // === Task A5 추가 ===
+
+  // visibility 지정 외부 시드
+  private long seedExternal(String name, long owner, String visibility) {
+    return dsl.insertInto(CONTACT_ENTRY)
+        .set(CONTACT_ENTRY.NAME, name)
+        .set(CONTACT_ENTRY.OWNER_ID, owner)
+        .set(CONTACT_ENTRY.VISIBILITY, visibility)
+        .returning(CONTACT_ENTRY.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  // 사용자에 ADMIN 역할 부여
+  private void makeAdmin(long userId) {
+    Long roleId =
+        dsl.select(com.workplace.jooq.Tables.ROLE.ID)
+            .from(com.workplace.jooq.Tables.ROLE)
+            .where(com.workplace.jooq.Tables.ROLE.NAME.eq("ADMIN"))
+            .fetchOne(com.workplace.jooq.Tables.ROLE.ID);
+    dsl.insertInto(com.workplace.jooq.Tables.USER_ROLE)
+        .set(com.workplace.jooq.Tables.USER_ROLE.USER_ID, userId)
+        .set(com.workplace.jooq.Tables.USER_ROLE.ROLE_ID, roleId)
+        .execute();
+  }
+
+  @Test
+  void create_setsOwnerToCaller_andNormalizesBlanks() {
+    long c = caller();
+    var detail =
+        service.create(
+            c,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "신규", "", "010", "", "", "", "PERSONAL"));
+    assertThat(detail.name()).isEqualTo("신규");
+    assertThat(detail.email()).isNull(); // 빈문자열→null
+    assertThat(detail.phone()).isEqualTo("010");
+    assertThat(detail.editable()).isTrue();
+  }
+
+  @Test
+  void update_byOwner_replacesFields() {
+    long c = caller();
+    long id = seedExternal("old", c, "PERSONAL");
+    var d =
+        service.update(
+            c,
+            id,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "new", null, null, null, null, null, "SHARED"));
+    assertThat(d.name()).isEqualTo("new");
+    assertThat(d.visibility()).isEqualTo("SHARED");
+  }
+
+  @Test
+  void update_personalByNonOwner_throwsNotFound() {
+    long owner = caller();
+    long other = caller();
+    long id = seedExternal("priv", owner, "PERSONAL");
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    other,
+                    id,
+                    new com.workplace.contacts.dto.ExternalContactRequest(
+                        "x", null, null, null, null, null, "PERSONAL")))
+        .isInstanceOf(ContactNotFoundException.class);
+  }
+
+  @Test
+  void update_sharedByNonOwner_throwsForbidden() {
+    long owner = caller();
+    long other = caller();
+    long id = seedExternal("shared", owner, "SHARED");
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    other,
+                    id,
+                    new com.workplace.contacts.dto.ExternalContactRequest(
+                        "x", null, null, null, null, null, "SHARED")))
+        .isInstanceOf(com.workplace.contacts.exception.ContactForbiddenException.class);
+  }
+
+  @Test
+  void update_byAdmin_overridesOwnership() {
+    long owner = caller();
+    long admin = caller();
+    makeAdmin(admin);
+    long id = seedExternal("shared", owner, "SHARED");
+    var d =
+        service.update(
+            admin,
+            id,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "byadmin", null, null, null, null, null, "SHARED"));
+    assertThat(d.name()).isEqualTo("byadmin");
+  }
+
+  @Test
+  void delete_byOwner_removesAndSubsequentGetIs404() {
+    long c = caller();
+    long id = seedExternal("tmp", c, "PERSONAL");
+    service.delete(c, id);
+    assertThatThrownBy(() -> service.getExternal(c, id))
+        .isInstanceOf(ContactNotFoundException.class);
+  }
+
+  @Test
+  void delete_sharedByNonOwner_throwsForbidden() {
+    long owner = caller();
+    long other = caller();
+    long id = seedExternal("shared", owner, "SHARED");
+    assertThatThrownBy(() -> service.delete(other, id))
+        .isInstanceOf(com.workplace.contacts.exception.ContactForbiddenException.class);
+  }
+
+  @Test
+  void getExternal_sharedByNonOwner_editableFalse() {
+    long owner = caller();
+    long other = caller();
+    long id = seedExternal("shared", owner, "SHARED");
+    assertThat(service.getExternal(other, id).editable()).isFalse();
+  }
 }
