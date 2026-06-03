@@ -14,8 +14,10 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 메시지 @멘션 파싱·hydrate 통합 테스트 — 존재하는 user 만 통과시키고 응답에 hydrate. */
+@Transactional
 class MessageMentionTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

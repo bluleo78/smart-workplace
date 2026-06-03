@@ -15,7 +15,9 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
+@Transactional
 class DriveFileServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired DriveSpaceService spaceService;

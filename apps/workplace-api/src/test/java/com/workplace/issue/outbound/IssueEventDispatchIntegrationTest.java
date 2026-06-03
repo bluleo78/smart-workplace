@@ -1,5 +1,7 @@
 package com.workplace.issue.outbound;
 
+import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -22,9 +24,11 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.user.repository.UserRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,9 +61,29 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
    * MockRestServiceServer 가 담당. spy 가 실제 publish 를 실행하면 ai-agent 가 부재한 환경에서 재시도 백오프(1s+2s+4s ≒ 7s)
    * 가 누적되므로 doNothing 으로 stub.
    */
+  // 비-Tx(AFTER_COMMIT 검증, 클래스에 @Transactional 금지) 테스트: 커밋된 row 추적 → @AfterEach 회수.
+  private final List<Long> createdUserIds = new ArrayList<>();
+
+  private final List<Long> createdProjectIds = new ArrayList<>();
+
   @BeforeEach
   void stubClientPublish() {
     doNothing().when(client).publish(any(EventEnvelope.class));
+  }
+
+  @AfterEach
+  void cleanup() {
+    if (!createdProjectIds.isEmpty()) {
+      // issue.project_id 는 CASCADE 아님 → issue(자식 CASCADE) 먼저, 그다음 project(member/types CASCADE).
+      dsl.deleteFrom(ISSUE).where(ISSUE.PROJECT_ID.in(createdProjectIds)).execute();
+      dsl.deleteFrom(PROJECT).where(PROJECT.ID.in(createdProjectIds)).execute();
+    }
+    if (!createdUserIds.isEmpty()) {
+      dsl.deleteFrom(USER_ROLE).where(USER_ROLE.USER_ID.in(createdUserIds)).execute();
+      dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
+    }
+    createdProjectIds.clear();
+    createdUserIds.clear();
   }
 
   /** HUMAN 유저 한 명 생성 + USER 역할 부여. username 은 UUID 접미사로 격리. */
@@ -76,15 +100,19 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
             .getId();
     Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("USER")).fetchOne(ROLE.ID);
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
+    createdUserIds.add(id);
     return id;
   }
 
   /** AGENT 유저 — UserRepository.createAgent 헬퍼 사용 (kind=AGENT, password=NULL). */
   private Long createAgent(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
-    return userRepository
-        .createAgent(prefix + "-" + suffix, prefix + "-" + suffix + "@example.com", prefix)
-        .id();
+    Long id =
+        userRepository
+            .createAgent(prefix + "-" + suffix, prefix + "-" + suffix + "@example.com", prefix)
+            .id();
+    createdUserIds.add(id);
+    return id;
   }
 
   /** key 는 2~10자 대문자/숫자. 충돌 회피 위해 UUID 4자 접미사. */
@@ -102,6 +130,7 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
     Long agent = createAgent("a");
     var proj =
         projectService.create(human, new CreateProjectRequest(uniqueKey("WP"), "P-event", "x"));
+    createdProjectIds.add(proj.id());
     // 프로젝트 생성 시 owner 자동 등록되므로 agent 만 추가
     memberRepository.insert(proj.id(), agent, "MEMBER");
     return new Setup(human, agent, proj.key());

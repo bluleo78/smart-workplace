@@ -18,8 +18,10 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 스레드 답글: 부모 검증·대댓글 금지·메인 제외·thread page·replyCount 통합 테스트. */
+@Transactional
 class MessageThreadTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

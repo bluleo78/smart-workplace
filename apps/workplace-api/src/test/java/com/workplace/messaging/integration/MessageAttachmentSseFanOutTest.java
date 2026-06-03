@@ -1,5 +1,7 @@
 package com.workplace.messaging.integration;
 
+import static com.workplace.jooq.Tables.CHANNEL;
+import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,9 +17,11 @@ import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageAttachmentStorage;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.IntegrationTestBase;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,17 +45,33 @@ class MessageAttachmentSseFanOutTest extends IntegrationTestBase {
   @Autowired ChannelRepository channelRepo;
   @Autowired MessageAttachmentStorage storage;
 
+  // 비-Tx(커밋) 테스트: 만든 user id 추적 → @AfterEach 에서 회수.
+  private final List<Long> createdUserIds = new ArrayList<>();
+
+  @AfterEach
+  void cleanup() {
+    if (createdUserIds.isEmpty()) return;
+    // channel 삭제 → message/attachment CASCADE. file(uploaded_by, non-cascade) 은 별도 삭제 후 user.
+    dsl.deleteFrom(CHANNEL).where(CHANNEL.CREATED_BY.in(createdUserIds)).execute();
+    dsl.deleteFrom(FILE).where(FILE.UPLOADED_BY.in(createdUserIds)).execute();
+    dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
+    createdUserIds.clear();
+  }
+
   /** 테스트 격리용 유니크 유저 INSERT 후 ID 반환. */
   private long seedUser() {
     String suffix = UUID.randomUUID().toString().replaceAll("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "msg_att_sse_" + suffix)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "MsgAttSse" + suffix)
-        .set(USER.EMAIL, "msgattsse_" + suffix + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "msg_att_sse_" + suffix)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "MsgAttSse" + suffix)
+            .set(USER.EMAIL, "msgattsse_" + suffix + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    createdUserIds.add(id);
+    return id;
   }
 
   /** 첨부 포함 메시지 생성 → fan-out payload 의 attachments 에 해당 파일이 담겨 있다. */

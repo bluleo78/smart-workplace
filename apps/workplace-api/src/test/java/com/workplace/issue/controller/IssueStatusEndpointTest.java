@@ -24,12 +24,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * PATCH /api/v1/projects/{key}/issues/{number}/status 통합 테스트. 실 JWT 발급 + MockMvc 로 전체 보안 체인을 통과시켜
  * 권한/히스토리/404 동작을 검증한다.
  */
 @AutoConfigureMockMvc
+@Transactional
 class IssueStatusEndpointTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;

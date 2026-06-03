@@ -73,7 +73,7 @@ class UserServiceTest extends IntegrationTestBase {
 
   @Test
   void getUserById_notFound_throwsException() {
-    assertThatThrownBy(() -> userService.getUserById(999L))
+    assertThatThrownBy(() -> userService.getUserById(Long.MAX_VALUE))
         .isInstanceOf(UserNotFoundException.class);
   }
 

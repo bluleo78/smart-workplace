@@ -11,8 +11,10 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** DM find-or-create·검증 통합 테스트(실제 DB). */
+@Transactional
 class DmServiceTest extends IntegrationTestBase {
 
   @Autowired DmService dmService;

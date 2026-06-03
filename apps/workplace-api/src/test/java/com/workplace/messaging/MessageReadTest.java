@@ -17,8 +17,10 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 읽음 추적(markRead watermark) + 채널 unread-count 집계 통합 테스트. */
+@Transactional
 class MessageReadTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
