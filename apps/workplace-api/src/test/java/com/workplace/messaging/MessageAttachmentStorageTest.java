@@ -1,7 +1,7 @@
 package com.workplace.messaging;
 
-import static com.workplace.jooq.tables.File.FILE;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.tables.File.FILE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.jooq.tables.records.FileRecord;

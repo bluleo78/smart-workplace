@@ -46,8 +46,8 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * bindToMessage_rejectsForeignFile: 유저A가 업로드한 파일을 유저B가 바인딩하려 하면
-   * InvalidMessageAttachmentException 발생.
+   * bindToMessage_rejectsForeignFile: 유저A가 업로드한 파일을 유저B가 바인딩하려 하면 InvalidMessageAttachmentException
+   * 발생.
    */
   @Test
   void bindToMessage_rejectsForeignFile() throws Exception {
@@ -67,10 +67,7 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
         .isInstanceOf(InvalidMessageAttachmentException.class);
   }
 
-  /**
-   * upload_rejectsOversizeFile: 26_214_401 바이트 파일 업로드 시
-   * MessageAttachmentTooLargeException 발생.
-   */
+  /** upload_rejectsOversizeFile: 26_214_401 바이트 파일 업로드 시 MessageAttachmentTooLargeException 발생. */
   @Test
   void upload_rejectsOversizeFile() {
     long userId = seedUser();
@@ -86,8 +83,8 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * upload_thenBind_succeeds: 정상 업로드 후 본인 메시지에 바인딩하면 예외 없이 완료되고
-   * 파일이 영구 승격(expires_at = null, bound = true)된다.
+   * upload_thenBind_succeeds: 정상 업로드 후 본인 메시지에 바인딩하면 예외 없이 완료되고 파일이 영구 승격(expires_at = null, bound
+   * = true)된다.
    */
   @Test
   void upload_thenBind_succeeds() throws Exception {

@@ -254,6 +254,7 @@ public class MessageRepository {
         r.get(MESSAGE.PARENT_MESSAGE_ID),
         replyCount == null ? 0 : replyCount,
         java.util.List.of(), // reactions 는 service 가 batch enrich
+        java.util.List.of(), // attachments 는 service 가 batch enrich
         created == null ? null : created.toInstant(),
         edited == null ? null : edited.toInstant(),
         deleted);

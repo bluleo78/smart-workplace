@@ -38,13 +38,14 @@ import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
+import com.workplace.messaging.exception.EmptyMessageException;
 import com.workplace.messaging.exception.InvalidDmRequestException;
-import com.workplace.messaging.exception.InvalidThreadParentException;
-import com.workplace.messaging.exception.MessageAuthorMismatchException;
-import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.exception.InvalidMessageAttachmentException;
+import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.exception.MessageAttachmentLimitExceededException;
 import com.workplace.messaging.exception.MessageAttachmentTooLargeException;
+import com.workplace.messaging.exception.MessageAuthorMismatchException;
+import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
@@ -244,6 +245,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(InvalidMessageAttachmentException.class)
   public ResponseEntity<ErrorResponse> handleInvalidMessageAttachment(
       InvalidMessageAttachmentException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  // 본문도 첨부도 없는 빈 메시지 → 400
+  @ExceptionHandler(EmptyMessageException.class)
+  public ResponseEntity<ErrorResponse> handleEmptyMessage(
+      EmptyMessageException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }

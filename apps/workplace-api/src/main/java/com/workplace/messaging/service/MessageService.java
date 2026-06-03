@@ -9,6 +9,7 @@ import com.workplace.messaging.dto.ReactionResponse;
 import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
+import com.workplace.messaging.exception.EmptyMessageException;
 import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
@@ -18,6 +19,7 @@ import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
+import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.repository.MessageRepository.MessageRef;
 import com.workplace.messaging.repository.ReactionRepository;
@@ -39,6 +41,8 @@ public class MessageService {
   private final ApplicationEventPublisher publisher;
   private final UserMentionHydrator mentionHydrator;
   private final ReactionRepository reactionRepo;
+  private final MessageAttachmentService attachmentService;
+  private final MessageAttachmentRepository attachmentRepo;
 
   /** 채널 멤버가 메시지 작성. 본문 @멘션 파싱·검증 후 INSERT, AFTER_COMMIT 이벤트 발행. */
   @Transactional
@@ -46,6 +50,11 @@ public class MessageService {
     ensureMember(channelId, callerId);
     // 아카이브된 채널에는 새 메시지를 작성할 수 없다 (409).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
+    // 빈 메시지 거부: 본문도 첨부도 없으면 작성 불가 (400).
+    boolean bodyEmpty = req.body() == null || req.body().isBlank();
+    if (bodyEmpty && req.fileIds().isEmpty()) {
+      throw new EmptyMessageException();
+    }
     // 스레드 답글이면 부모 검증: 존재 + 같은 채널 + 최상위(대댓글 금지).
     Long parentId = req.parentMessageId();
     if (parentId != null) {
@@ -56,10 +65,14 @@ public class MessageService {
       if (ref.channelId() != channelId || ref.parentMessageId() != null)
         throw new InvalidThreadParentException(parentId);
     }
-    // 본문에서 멘션 토큰 추출 → 실제 존재하는 user.id 만 남긴다.
+    // 본문에서 멘션 토큰 추출 → 실제 존재하는 user.id 만 남긴다. body 가 null 일 수 있어 빈 문자열로 방어.
     java.util.List<Long> mentionIds =
-        mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
+        mentionHydrator.filterExistingUserIds(
+            MentionParser.parse(req.body() == null ? "" : req.body()));
+    // body 는 nullable (첨부만 있는 메시지). jOOQ 가 NULL 로 INSERT.
     long messageId = messageRepo.insert(channelId, callerId, req.body(), mentionIds, parentId);
+    // 선업로드된 첨부를 이 메시지에 바인딩 + 영구 승격 (같은 트랜잭션).
+    attachmentService.bindToMessage(callerId, messageId, req.fileIds());
     MessageResponse saved = findOne(messageId, callerId);
     publisher.publishEvent(new MessageCreatedEvent(channelId, saved));
     return saved;
@@ -131,13 +144,17 @@ public class MessageService {
     return enrichReactions(page, callerId);
   }
 
-  /** 페이지 내 모든 메시지의 리액션 집계를 batch 로 채운다. */
+  /** 페이지 내 모든 메시지의 리액션 집계 + 첨부 목록을 batch 로 채운다(N+1 회피). */
   private MessagePage enrichReactions(MessagePage page, long callerId) {
     java.util.List<Long> ids = page.items().stream().map(MessageResponse::id).toList();
-    Map<Long, java.util.List<ReactionResponse>> map = reactionRepo.summariesFor(ids, callerId);
+    Map<Long, java.util.List<ReactionResponse>> rmap = reactionRepo.summariesFor(ids, callerId);
+    var amap = attachmentRepo.findByMessageIds(ids);
     java.util.List<MessageResponse> enriched =
         page.items().stream()
-            .map(m -> m.withReactions(map.getOrDefault(m.id(), java.util.List.of())))
+            .map(
+                m ->
+                    m.withReactions(rmap.getOrDefault(m.id(), java.util.List.of()))
+                        .withAttachments(amap.getOrDefault(m.id(), java.util.List.of())))
             .toList();
     return new MessagePage(enriched, page.nextCursor(), page.hasMore());
   }
@@ -147,10 +164,14 @@ public class MessageService {
         messageRepo
             .findById(messageId, mentionHydrator::asMentionResponses)
             .orElseThrow(() -> new IllegalStateException("message " + messageId + " not found"));
-    return m.withReactions(
-        reactionRepo
-            .summariesFor(java.util.List.of(messageId), callerId)
-            .getOrDefault(messageId, java.util.List.of()));
+    MessageResponse response =
+        m.withReactions(
+            reactionRepo
+                .summariesFor(java.util.List.of(messageId), callerId)
+                .getOrDefault(messageId, java.util.List.of()));
+    // 첨부 목록 batch hydrate (단건이라도 동일 메서드 재사용).
+    var attMap = attachmentRepo.findByMessageIds(java.util.List.of(messageId));
+    return response.withAttachments(attMap.getOrDefault(messageId, java.util.List.of()));
   }
 
   private void ensureMember(long channelId, long userId) {

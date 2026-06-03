@@ -22,9 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * MessageAttachmentRepository 통합 테스트 — 바인딩/영구 승격/배치 조회/다운로드 조회 검증.
- */
+/** MessageAttachmentRepository 통합 테스트 — 바인딩/영구 승격/배치 조회/다운로드 조회 검증. */
 @Transactional
 class MessageAttachmentRepositoryTest extends IntegrationTestBase {
 
@@ -84,7 +82,8 @@ class MessageAttachmentRepositoryTest extends IntegrationTestBase {
     repo.bind(fileId, messageId, userId);
     repo.promoteToPermanent(List.of(fileId));
 
-    var expiresAt = dsl.select(FILE.EXPIRES_AT).from(FILE).where(FILE.ID.eq(fileId)).fetchOne(FILE.EXPIRES_AT);
+    var expiresAt =
+        dsl.select(FILE.EXPIRES_AT).from(FILE).where(FILE.ID.eq(fileId)).fetchOne(FILE.EXPIRES_AT);
     assertThat(expiresAt).isNull();
   }
 
@@ -95,8 +94,7 @@ class MessageAttachmentRepositoryTest extends IntegrationTestBase {
     Long fileId = storage.storeTemporary(mf, userId);
     repo.bind(fileId, messageId, userId);
 
-    Map<Long, List<MessageAttachmentResponse>> result =
-        repo.findByMessageIds(List.of(messageId));
+    Map<Long, List<MessageAttachmentResponse>> result = repo.findByMessageIds(List.of(messageId));
 
     assertThat(result).containsKey(messageId);
     assertThat(result.get(messageId)).hasSize(1);

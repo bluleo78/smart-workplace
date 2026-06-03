@@ -83,7 +83,8 @@ public class MessageAttachmentService {
     OffsetDateTime now = OffsetDateTime.now();
     for (Long fileId : fileIds) {
       var b =
-          repo.findBindable(fileId).orElseThrow(() -> new InvalidMessageAttachmentException(fileId));
+          repo.findBindable(fileId)
+              .orElseThrow(() -> new InvalidMessageAttachmentException(fileId));
       // uploadedBy null 체크: DB 컬럼이 nullable 인 경우 방어
       boolean ownedByCaller = b.uploadedBy() != null && b.uploadedBy() == callerId;
       boolean expired = b.expiresAt() != null && b.expiresAt().isBefore(now);
