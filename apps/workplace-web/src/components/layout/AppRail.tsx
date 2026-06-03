@@ -13,6 +13,7 @@ import {
   Menu,
   MessageSquare,
   Settings,
+  Users,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
@@ -45,6 +46,7 @@ const MODULES: RailItem[] = [
   { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
   { label: 'Chat', href: '/chat', icon: MessageSquare },
   { label: 'Drive', href: '/drive', icon: HardDrive },
+  { label: '연락처', href: '/contacts', icon: Users },
 ]
 // 어드민 전용 모듈 — "설정"(워크스페이스 설정·관리)
 const ADMIN_MODULE: RailItem = { label: '설정', href: '/admin/users', icon: Settings, match: '/admin' }

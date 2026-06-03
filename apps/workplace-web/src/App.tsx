@@ -43,6 +43,14 @@ const DrivePage = lazy(() =>
 const DriveIndexRedirect = lazy(() =>
   import('./pages/drive/DriveIndexRedirect').then((m) => ({ default: m.DriveIndexRedirect })),
 )
+const ContactModuleLayout = lazy(() =>
+  import('./components/contacts/ContactModuleLayout').then((m) => ({
+    default: m.ContactModuleLayout,
+  })),
+)
+const ContactsPage = lazy(() =>
+  import('./pages/contacts/ContactsPage').then((m) => ({ default: m.ContactsPage })),
+)
 
 function PageLoader() {
   return (
@@ -99,6 +107,11 @@ export default function App() {
               <Route element={<DriveModuleLayout />}>
                 <Route path="drive" element={<DriveIndexRedirect />} />
                 <Route path="drive/spaces/:spaceId" element={<DrivePage />} />
+              </Route>
+
+              {/* 연락처 모듈 — 통합 디렉토리(읽기 전용) */}
+              <Route element={<ContactModuleLayout />}>
+                <Route path="contacts" element={<ContactsPage />} />
               </Route>
 
               {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
