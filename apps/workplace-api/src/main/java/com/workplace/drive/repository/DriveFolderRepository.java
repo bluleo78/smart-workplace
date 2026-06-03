@@ -120,6 +120,40 @@ public class DriveFolderRepository {
                     r.get(DRIVE_FOLDER.CREATED_AT)));
   }
 
+  /** 공간 전체에서 이름에 q 를 포함(대소문자 무시)하는 폴더 — LIKE 와일드카드(%, _)는 리터럴로 이스케이프. */
+  public List<DriveFolderResponse> searchByName(long spaceId, String q) {
+    String pattern = "%" + DriveSearchPattern.escape(q) + "%";
+    return dsl.select(
+            DRIVE_FOLDER.ID, DRIVE_FOLDER.PARENT_ID, DRIVE_FOLDER.NAME, DRIVE_FOLDER.CREATED_AT)
+        .from(DRIVE_FOLDER)
+        .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
+        .and(DRIVE_FOLDER.NAME.likeIgnoreCase(pattern, '\\'))
+        .orderBy(DRIVE_FOLDER.NAME.asc())
+        .limit(200)
+        .fetch(
+            r ->
+                new DriveFolderResponse(
+                    r.get(DRIVE_FOLDER.ID),
+                    r.get(DRIVE_FOLDER.PARENT_ID),
+                    r.get(DRIVE_FOLDER.NAME),
+                    r.get(DRIVE_FOLDER.CREATED_AT)));
+  }
+
+  /** 공간의 모든 폴더(경로 계산용 id→parent/name 맵 구성). */
+  public List<DriveFolderResponse> listAllFolders(long spaceId) {
+    return dsl.select(
+            DRIVE_FOLDER.ID, DRIVE_FOLDER.PARENT_ID, DRIVE_FOLDER.NAME, DRIVE_FOLDER.CREATED_AT)
+        .from(DRIVE_FOLDER)
+        .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
+        .fetch(
+            r ->
+                new DriveFolderResponse(
+                    r.get(DRIVE_FOLDER.ID),
+                    r.get(DRIVE_FOLDER.PARENT_ID),
+                    r.get(DRIVE_FOLDER.NAME),
+                    r.get(DRIVE_FOLDER.CREATED_AT)));
+  }
+
   /**
    * 폴더 서브트리(자기 자신 포함)의 모든 drive_file.file_id — 삭제 전 FILE 만료 처리용. BFS 로 하위 폴더를 수집해 CTE 없이 안전하게 처리.
    */

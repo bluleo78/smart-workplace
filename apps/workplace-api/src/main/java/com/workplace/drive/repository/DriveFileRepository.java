@@ -108,6 +108,38 @@ public class DriveFileRepository {
                     r.get(DRIVE_FILE.CREATED_AT)));
   }
 
+  /** 공간 전체에서 이름에 q 를 포함(대소문자 무시)하는 파일 — LIKE 와일드카드(%, _)는 리터럴로 이스케이프. */
+  public List<DriveFileResponse> searchByName(long spaceId, String q) {
+    String pattern = "%" + DriveSearchPattern.escape(q) + "%";
+    return dsl.select(
+            DRIVE_FILE.ID,
+            DRIVE_FILE.FOLDER_ID,
+            DRIVE_FILE.FILE_ID,
+            DRIVE_FILE.NAME,
+            FILE.MIME_TYPE,
+            FILE.SIZE_BYTES,
+            FILE.CATEGORY,
+            DRIVE_FILE.CREATED_AT)
+        .from(DRIVE_FILE)
+        .join(FILE)
+        .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
+        .where(DRIVE_FILE.SPACE_ID.eq(spaceId))
+        .and(DRIVE_FILE.NAME.likeIgnoreCase(pattern, '\\'))
+        .orderBy(DRIVE_FILE.NAME.asc())
+        .limit(200)
+        .fetch(
+            r ->
+                new DriveFileResponse(
+                    r.get(DRIVE_FILE.ID),
+                    r.get(DRIVE_FILE.FOLDER_ID),
+                    r.get(DRIVE_FILE.FILE_ID),
+                    r.get(DRIVE_FILE.NAME),
+                    r.get(FILE.MIME_TYPE),
+                    r.get(FILE.SIZE_BYTES),
+                    r.get(FILE.CATEGORY),
+                    r.get(DRIVE_FILE.CREATED_AT)));
+  }
+
   /** 내부 행 표현(권한 검증·다운로드·복사용). */
   public record DriveFileRow(long id, long spaceId, long fileId, String name) {}
 }
