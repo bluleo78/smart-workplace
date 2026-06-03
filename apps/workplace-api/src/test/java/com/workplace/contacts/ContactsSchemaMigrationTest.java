@@ -13,8 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 연락처(contacts) 도메인 V31 스키마 마이그레이션 통합 테스트.
  *
- * <p>생성된 jOOQ 클래스에 의존하지 않도록 plain SQL 로 작성한다 — 마이그레이션이 적용되기 전에는
- * 신규 테이블/컬럼이 없어 실패하고, V31 적용 후 통과한다(TDD red→green).
+ * <p>생성된 jOOQ 클래스에 의존하지 않도록 plain SQL 로 작성한다 — 마이그레이션이 적용되기 전에는 신규 테이블/컬럼이 없어 실패하고, V31 적용 후
+ * 통과한다(TDD red→green).
  *
  * <p>공유 test DB 오염을 막기 위해 {@link Transactional} 로 각 메서드를 롤백한다.
  */
@@ -29,7 +29,9 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
     return dsl.fetchOne(
             "insert into \"user\"(username, password, name, email)"
                 + " values(?, 'pw', ?, ?) returning id",
-            "ct_" + s, "Ct" + s, "ct_" + s + "@example.com")
+            "ct_" + s,
+            "Ct" + s,
+            "ct_" + s + "@example.com")
         .get(0, Long.class);
   }
 
@@ -38,7 +40,8 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
     long uid = seedUser();
     dsl.execute("update \"user\" set title = ? where id = ?", "백엔드 엔지니어", uid);
 
-    String title = dsl.fetchOne("select title from \"user\" where id = ?", uid).get(0, String.class);
+    String title =
+        dsl.fetchOne("select title from \"user\" where id = ?", uid).get(0, String.class);
     assertThat(title).isEqualTo("백엔드 엔지니어");
   }
 
@@ -68,10 +71,13 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
             .get(0, Long.class);
 
     assertThat(rootId).isNotNull();
-    assertThat(dsl.fetchOne("select parent_id from user_group where id = ?", childId).get(0, Long.class))
+    assertThat(
+            dsl.fetchOne("select parent_id from user_group where id = ?", childId)
+                .get(0, Long.class))
         .isEqualTo(rootId);
     assertThat(
-            dsl.fetchOne("select owner_id from user_group where id = ?", personalId).get(0, Long.class))
+            dsl.fetchOne("select owner_id from user_group where id = ?", personalId)
+                .get(0, Long.class))
         .isEqualTo(owner);
   }
 
@@ -79,16 +85,15 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
   void userGroup_personalRequiresOwner() {
     // PERSONAL 인데 owner_id 누락 → CHECK 위반
     assertThatThrownBy(
-            () -> dsl.execute("insert into user_group(name, visibility) values('주인없음', 'PERSONAL')"))
+            () ->
+                dsl.execute("insert into user_group(name, visibility) values('주인없음', 'PERSONAL')"))
         .isInstanceOf(Exception.class);
   }
 
   @Test
   void userGroup_rejectsInvalidVisibility() {
     assertThatThrownBy(
-            () ->
-                dsl.execute(
-                    "insert into user_group(name, visibility) values('잘못', 'BOGUS')"))
+            () -> dsl.execute("insert into user_group(name, visibility) values('잘못', 'BOGUS')"))
         .isInstanceOf(Exception.class);
   }
 
@@ -107,10 +112,12 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
 
     dsl.execute(
         "insert into user_group_member(group_id, target_type, target_id) values(?, 'MEMBER', ?)",
-        groupId, member);
+        groupId,
+        member);
     dsl.execute(
         "insert into user_group_member(group_id, target_type, target_id) values(?, 'EXTERNAL', ?)",
-        groupId, contactId);
+        groupId,
+        contactId);
 
     int count =
         dsl.fetchOne("select count(*) from user_group_member where group_id = ?", groupId)
@@ -123,7 +130,8 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
                 dsl.execute(
                     "insert into user_group_member(group_id, target_type, target_id)"
                         + " values(?, 'MEMBER', ?)",
-                    groupId, member))
+                    groupId,
+                    member))
         .isInstanceOf(Exception.class);
   }
 
@@ -138,7 +146,9 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
                 owner)
             .get(0, Long.class);
 
-    var row = dsl.fetchOne("select name, email, visibility, owner_id from contact_entry where id = ?", id);
+    var row =
+        dsl.fetchOne(
+            "select name, email, visibility, owner_id from contact_entry where id = ?", id);
     assertThat(row.get(0, String.class)).isEqualTo("홍길동");
     assertThat(row.get(1, String.class)).isEqualTo("h@ex.com");
     assertThat(row.get(2, String.class)).isEqualTo("PERSONAL");
@@ -162,7 +172,8 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
     long target = seedUser();
     dsl.execute(
         "insert into contact_favorite(owner_id, target_type, target_id) values(?, 'MEMBER', ?)",
-        owner, target);
+        owner,
+        target);
 
     int count =
         dsl.fetchOne(
@@ -176,7 +187,8 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
                 dsl.execute(
                     "insert into contact_favorite(owner_id, target_type, target_id)"
                         + " values(?, 'MEMBER', ?)",
-                    owner, target))
+                    owner,
+                    target))
         .isInstanceOf(Exception.class);
   }
 
@@ -184,7 +196,8 @@ class ContactsSchemaMigrationTest extends IntegrationTestBase {
   void permissions_seededAndGrantedToAdmin() {
     for (String code : new String[] {"contact:read", "contact:write", "user-group:manage"}) {
       int exists =
-          dsl.fetchOne("select count(*) from permission where code = ?", code).get(0, Integer.class);
+          dsl.fetchOne("select count(*) from permission where code = ?", code)
+              .get(0, Integer.class);
       assertThat(exists).as("permission %s seeded", code).isEqualTo(1);
 
       int grantedToAdmin =
