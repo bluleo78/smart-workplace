@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.contacts.dto.ContactSummary;
+import com.workplace.contacts.dto.ExternalContactRequest;
 import com.workplace.contacts.dto.MemberDetail;
 import com.workplace.contacts.repository.ContactCursorCodec;
 import com.workplace.contacts.repository.ContactRepository;
@@ -160,9 +161,63 @@ class ContactRepositoryTest extends IntegrationTestBase {
     long shared = seedExternal("Sh" + tag(), "SHARED", owner);
     long personal = seedExternal("Pe" + tag(), "PERSONAL", owner);
 
-    assertThat(repo.findExternal(other, shared)).isPresent();
-    assertThat(repo.findExternal(other, personal)).isEmpty();
-    assertThat(repo.findExternal(owner, personal)).isPresent();
+    assertThat(repo.findExternal(other, false, shared)).isPresent();
+    assertThat(repo.findExternal(other, false, personal)).isEmpty();
+    assertThat(repo.findExternal(owner, false, personal)).isPresent();
+  }
+
+  // === Task A4 추가: 쓰기 + editable ===
+
+  @Test
+  void insert_thenFindExternal_returnsRow_editableForOwner() {
+    long owner = seedUser("R_" + tag(), "HUMAN");
+    long id =
+        repo.insert(
+            owner,
+            new ExternalContactRequest("박외부", "park@corp.com", "", "Corp", "", "  ", "PERSONAL"));
+    var found = repo.findExternal(owner, false, id);
+    org.assertj.core.api.Assertions.assertThat(found).isPresent();
+    org.assertj.core.api.Assertions.assertThat(found.get().name()).isEqualTo("박외부");
+    // 빈/공백 optional 은 null 정규화
+    org.assertj.core.api.Assertions.assertThat(found.get().phone()).isNull();
+    org.assertj.core.api.Assertions.assertThat(found.get().notes()).isNull();
+    org.assertj.core.api.Assertions.assertThat(found.get().editable()).isTrue();
+  }
+
+  @Test
+  void findExternal_sharedByNonOwner_editableFalse_unlessAdmin() {
+    long owner = seedUser("R_" + tag(), "HUMAN");
+    long other = seedUser("R_" + tag(), "HUMAN");
+    long id =
+        repo.insert(
+            owner, new ExternalContactRequest("공유연락처", null, null, null, null, null, "SHARED"));
+    org.assertj.core.api.Assertions.assertThat(repo.findExternal(other, false, id).get().editable())
+        .isFalse();
+    org.assertj.core.api.Assertions.assertThat(repo.findExternal(other, true, id).get().editable())
+        .isTrue();
+  }
+
+  @Test
+  void update_replacesFields() {
+    long owner = seedUser("R_" + tag(), "HUMAN");
+    long id =
+        repo.insert(
+            owner, new ExternalContactRequest("old", null, null, null, null, null, "PERSONAL"));
+    repo.update(
+        id, new ExternalContactRequest("new", "new@x.com", null, null, null, null, "SHARED"));
+    var f = repo.findExternal(owner, false, id).get();
+    org.assertj.core.api.Assertions.assertThat(f.name()).isEqualTo("new");
+    org.assertj.core.api.Assertions.assertThat(f.visibility()).isEqualTo("SHARED");
+  }
+
+  @Test
+  void delete_removesRow() {
+    long owner = seedUser("R_" + tag(), "HUMAN");
+    long id =
+        repo.insert(
+            owner, new ExternalContactRequest("tmp", null, null, null, null, null, "PERSONAL"));
+    repo.delete(id);
+    org.assertj.core.api.Assertions.assertThat(repo.findOwnerVisibility(id)).isEmpty();
   }
 
   @Test

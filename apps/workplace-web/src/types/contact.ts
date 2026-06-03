@@ -38,6 +38,18 @@ export interface ExternalContactDetail {
   title: string | null
   notes: string | null
   visibility: ContactVisibility
+  editable: boolean
   createdAt: string
   updatedAt: string
+}
+
+// 외부 연락처 생성/수정 요청 바디 (백엔드 ExternalContactRequest 와 1:1).
+export interface ExternalContactRequest {
+  name: string
+  email: string
+  phone: string
+  organization: string
+  title: string
+  notes: string
+  visibility: ContactVisibility
 }

@@ -4,6 +4,7 @@ import type {
   ContactPage,
   ContactTypeFilter,
   ExternalContactDetail,
+  ExternalContactRequest,
   MemberDetail,
 } from '../types/contact'
 import { client } from './client'
@@ -16,4 +17,15 @@ export const contactsApi = {
   getMember: (userId: number) => client.get<MemberDetail>(`/contacts/members/${userId}`),
 
   getExternal: (id: number) => client.get<ExternalContactDetail>(`/contacts/external/${id}`),
+
+  // 외부 연락처 생성 — 201 + 생성된 상세.
+  createExternal: (body: ExternalContactRequest) =>
+    client.post<ExternalContactDetail>('/contacts/external', body),
+
+  // 외부 연락처 수정(전체 교체).
+  updateExternal: (id: number, body: ExternalContactRequest) =>
+    client.patch<ExternalContactDetail>(`/contacts/external/${id}`, body),
+
+  // 외부 연락처 삭제 — 204.
+  deleteExternal: (id: number) => client.delete<void>(`/contacts/external/${id}`),
 }

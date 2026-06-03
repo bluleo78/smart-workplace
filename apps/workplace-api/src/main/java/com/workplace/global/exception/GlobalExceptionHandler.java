@@ -225,6 +225,13 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
+  @ExceptionHandler(com.workplace.contacts.exception.ContactForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handleContactForbidden(
+      com.workplace.contacts.exception.ContactForbiddenException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   // 이름 충돌(폴더 UNIQUE 제약 위반) — 409
   @ExceptionHandler(com.workplace.drive.exception.DriveDuplicateNameException.class)
   public ResponseEntity<ErrorResponse> handleDriveConflict(
