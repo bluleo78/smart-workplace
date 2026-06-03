@@ -17,6 +17,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
@@ -82,16 +83,19 @@ public class FileUploadService {
           "DOCUMENT", 10L * 1024 * 1024);
 
   private final DSLContext dsl;
+  private final ThumbnailGenerator thumbnailGenerator;
   private final String uploadDir;
   private final int maxFilesPerRequest;
   private final int expiryHours;
 
   public FileUploadService(
       DSLContext dsl,
+      ThumbnailGenerator thumbnailGenerator,
       @Value("${firehub.file.upload-dir:./uploads}") String uploadDir,
       @Value("${firehub.file.max-files-per-request:3}") int maxFilesPerRequest,
       @Value("${firehub.file.expiry-hours:24}") int expiryHours) {
     this.dsl = dsl;
+    this.thumbnailGenerator = thumbnailGenerator;
     this.uploadDir = uploadDir;
     this.maxFilesPerRequest = maxFilesPerRequest;
     this.expiryHours = expiryHours;
@@ -135,6 +139,12 @@ public class FileUploadService {
     Path storagePath = dir.resolve(storedName);
     file.transferTo(storagePath.toFile());
 
+    // IMAGE 카테고리는 썸네일 생성(실패해도 원본 업로드는 유지). 그 외는 null.
+    String thumbnailPath = null;
+    if ("IMAGE".equals(category)) {
+      thumbnailPath = thumbnailGenerator.generate(storagePath, dir).orElse(null);
+    }
+
     Instant now = Instant.now();
     Instant expiresAt = now.plusSeconds((long) expiryHours * 3600);
 
@@ -149,6 +159,7 @@ public class FileUploadService {
             .set(FILE.UPLOADED_BY, userId)
             .set(FILE.CREATED_AT, OffsetDateTime.ofInstant(now, ZoneOffset.UTC))
             .set(FILE.EXPIRES_AT, OffsetDateTime.ofInstant(expiresAt, ZoneOffset.UTC))
+            .set(FILE.THUMBNAIL_PATH, thumbnailPath)
             .returning(FILE.ID)
             .fetchOne()
             .getId();
@@ -219,6 +230,28 @@ public class FileUploadService {
     Resource resource = new FileSystemResource(storagePath);
     return new FileContentResult(
         resource, record.getMimeType(), record.getOriginalName(), fileSize);
+  }
+
+  /**
+   * 썸네일 콘텐츠를 업로더 검증 없이 반환한다(drive 처럼 자체 권한 모델 호출자용). thumbnail_path 가 없거나(비이미지/생성실패) 디스크에 파일이 없으면 빈
+   * Optional → 호출자는 404 로 매핑한다.
+   */
+  public Optional<FileContentResult> getThumbnailContentTrusted(Long fileId) throws IOException {
+    var record = dsl.selectFrom(FILE).where(FILE.ID.eq(fileId)).fetchOne();
+    if (record == null) {
+      throw new FileNotFoundException(fileId);
+    }
+    String tp = record.getThumbnailPath();
+    if (tp == null) {
+      return Optional.empty();
+    }
+    Path thumbPath = Path.of(tp);
+    if (!Files.exists(thumbPath)) {
+      return Optional.empty();
+    }
+    long size = Files.size(thumbPath);
+    Resource resource = new FileSystemResource(thumbPath);
+    return Optional.of(new FileContentResult(resource, "image/png", "thumbnail.png", size));
   }
 
   /**

@@ -39,22 +39,33 @@ public class FileCleanupService {
   public void cleanupExpiredFiles() {
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
-    List<String> expiredPaths =
-        dsl.select(FILE.STORAGE_PATH)
+    // 만료 행의 원본+썸네일 경로를 함께 조회
+    var expired =
+        dsl.select(FILE.STORAGE_PATH, FILE.THUMBNAIL_PATH)
             .from(FILE)
             .where(FILE.EXPIRES_AT.lt(now))
-            .fetchInto(String.class);
+            .fetch();
 
-    if (expiredPaths.isEmpty()) {
+    if (expired.isEmpty()) {
       return;
     }
 
-    // 디스크 삭제 성공한 경로만 추적 — 실패한 경로는 DB 레코드를 유지하여 재시도 가능하게 함
+    // 디스크 삭제 성공한 원본 경로만 추적 — 실패한 경로는 DB 레코드를 유지하여 재시도 가능하게 함.
+    // 썸네일은 원본 삭제에 성공할 때 best-effort 로 함께 삭제(실패해도 무시 — 고아 썸네일은 경미).
     List<String> successfullyDeletedPaths = new ArrayList<>();
-    for (String storagePath : expiredPaths) {
+    for (var row : expired) {
+      String storagePath = row.get(FILE.STORAGE_PATH);
+      String thumbnailPath = row.get(FILE.THUMBNAIL_PATH);
       try {
         Files.deleteIfExists(Path.of(storagePath));
         successfullyDeletedPaths.add(storagePath);
+        if (thumbnailPath != null) {
+          try {
+            Files.deleteIfExists(Path.of(thumbnailPath));
+          } catch (IOException te) {
+            log.warn("썸네일 삭제 실패(무시): {}: {}", thumbnailPath, te.getMessage());
+          }
+        }
       } catch (IOException e) {
         log.warn(
             "디스크 파일 삭제 실패 — DB 레코드를 유지하여 다음 정리 사이클에서 재시도 가능: {}: {}", storagePath, e.getMessage());
@@ -68,10 +79,10 @@ public class FileCleanupService {
           dsl.deleteFrom(FILE).where(FILE.STORAGE_PATH.in(successfullyDeletedPaths)).execute();
     }
 
-    int failedCount = expiredPaths.size() - successfullyDeletedPaths.size();
+    int failedCount = expired.size() - successfullyDeletedPaths.size();
     log.info(
         "만료 업로드 파일 정리 완료 (전체: {}, 파일 삭제 성공: {}, DB 레코드 삭제: {}, 실패(DB 유지): {})",
-        expiredPaths.size(),
+        expired.size(),
         successfullyDeletedPaths.size(),
         dbDeleted,
         failedCount);
