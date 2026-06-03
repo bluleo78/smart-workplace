@@ -209,7 +209,7 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler({
     com.workplace.drive.exception.DriveInvalidRoleException.class,
-    com.workplace.drive.exception.DriveDuplicateNameException.class
+    com.workplace.drive.exception.DriveInvalidTargetException.class
   })
   public ResponseEntity<ErrorResponse> handleDriveBadRequest(
       RuntimeException ex, HttpServletRequest request) {
@@ -223,6 +223,14 @@ public class GlobalExceptionHandler {
       com.workplace.contacts.exception.ContactNotFoundException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  // 이름 충돌(폴더 UNIQUE 제약 위반) — 409
+  @ExceptionHandler(com.workplace.drive.exception.DriveDuplicateNameException.class)
+  public ResponseEntity<ErrorResponse> handleDriveConflict(
+      com.workplace.drive.exception.DriveDuplicateNameException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
   @ExceptionHandler(ChannelNotMemberException.class)

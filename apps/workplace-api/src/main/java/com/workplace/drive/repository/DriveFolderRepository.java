@@ -76,6 +76,32 @@ public class DriveFolderRepository {
     dsl.deleteFrom(DRIVE_FOLDER).where(DRIVE_FOLDER.ID.eq(folderId)).execute();
   }
 
+  /** 이동 — parent_id 변경(null = 공간 루트). */
+  public void updateParent(long folderId, Long targetParentId) {
+    dsl.update(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.PARENT_ID, targetParentId)
+        .set(DRIVE_FOLDER.UPDATED_AT, DSL.currentOffsetDateTime())
+        .where(DRIVE_FOLDER.ID.eq(folderId))
+        .execute();
+  }
+
+  /** 폴더 서브트리 id(자기 자신 포함) — 이동/복사 사이클 검사용. BFS(CTE 미사용). */
+  public List<Long> findSubtreeFolderIds(long folderId) {
+    List<Long> subtree = new ArrayList<>();
+    Deque<Long> queue = new ArrayDeque<>();
+    queue.add(folderId);
+    while (!queue.isEmpty()) {
+      long cur = queue.poll();
+      subtree.add(cur);
+      queue.addAll(
+          dsl.select(DRIVE_FOLDER.ID)
+              .from(DRIVE_FOLDER)
+              .where(DRIVE_FOLDER.PARENT_ID.eq(cur))
+              .fetch(DRIVE_FOLDER.ID));
+    }
+    return subtree;
+  }
+
   public List<DriveFolderResponse> listChildFolders(long spaceId, Long parentId) {
     Condition parentCond =
         parentId == null ? DRIVE_FOLDER.PARENT_ID.isNull() : DRIVE_FOLDER.PARENT_ID.eq(parentId);

@@ -12,6 +12,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** drive_file 접근 + FILE 영구화/만료 갱신(messaging 도 FILE 을 직접 갱신하는 것과 동일 패턴). */
@@ -49,7 +50,7 @@ public class DriveFileRepository {
 
   public Optional<DriveFileRow> findRow(long driveFileId) {
     var r =
-        dsl.select(DRIVE_FILE.ID, DRIVE_FILE.SPACE_ID, DRIVE_FILE.FILE_ID)
+        dsl.select(DRIVE_FILE.ID, DRIVE_FILE.SPACE_ID, DRIVE_FILE.FILE_ID, DRIVE_FILE.NAME)
             .from(DRIVE_FILE)
             .where(DRIVE_FILE.ID.eq(driveFileId))
             .fetchOne();
@@ -57,11 +58,23 @@ public class DriveFileRepository {
         ? Optional.empty()
         : Optional.of(
             new DriveFileRow(
-                r.get(DRIVE_FILE.ID), r.get(DRIVE_FILE.SPACE_ID), r.get(DRIVE_FILE.FILE_ID)));
+                r.get(DRIVE_FILE.ID),
+                r.get(DRIVE_FILE.SPACE_ID),
+                r.get(DRIVE_FILE.FILE_ID),
+                r.get(DRIVE_FILE.NAME)));
   }
 
   public void delete(long driveFileId) {
     dsl.deleteFrom(DRIVE_FILE).where(DRIVE_FILE.ID.eq(driveFileId)).execute();
+  }
+
+  /** 이동 — 소속 폴더 변경(null = 공간 루트). */
+  public void updateFolder(long driveFileId, Long targetFolderId) {
+    dsl.update(DRIVE_FILE)
+        .set(DRIVE_FILE.FOLDER_ID, targetFolderId)
+        .set(DRIVE_FILE.UPDATED_AT, DSL.currentOffsetDateTime())
+        .where(DRIVE_FILE.ID.eq(driveFileId))
+        .execute();
   }
 
   public List<DriveFileResponse> listInFolder(long spaceId, Long folderId) {
@@ -95,6 +108,6 @@ public class DriveFileRepository {
                     r.get(DRIVE_FILE.CREATED_AT)));
   }
 
-  /** 내부 행 표현(권한 검증·다운로드용). */
-  public record DriveFileRow(long id, long spaceId, long fileId) {}
+  /** 내부 행 표현(권한 검증·다운로드·복사용). */
+  public record DriveFileRow(long id, long spaceId, long fileId, String name) {}
 }

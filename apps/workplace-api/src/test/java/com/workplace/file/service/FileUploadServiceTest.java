@@ -228,13 +228,46 @@ class FileUploadServiceTest extends IntegrationTestBase {
         .isInstanceOf(FileNotFoundException.class);
   }
 
+  @Test
+  void copyFile_duplicatesBlob_withNewStoragePath_permanent() throws IOException {
+    MockMultipartFile file =
+        new MockMultipartFile("files", "doc.txt", "text/plain", "payload".getBytes());
+    FileUploadResponse src = fileUploadService.uploadFiles(List.of(file), testUserId).get(0);
+    String srcPath =
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(src.id()))
+            .fetchOne(FILE.STORAGE_PATH);
+
+    long copyId = fileUploadService.copyFile(src.id(), otherUserId);
+
+    // 새 FILE row, 다른 storage_path(= 물리적으로 분리된 디스크 파일)
+    assertThat(copyId).isNotEqualTo(src.id());
+    String copyPath =
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(copyId))
+            .fetchOne(FILE.STORAGE_PATH);
+    assertThat(copyPath).isNotEqualTo(srcPath);
+    // 영구(expires_at=null) — drive 복사는 단일 txn 이라 promote 단계 없이 바로 영구
+    var exp =
+        dsl.select(FILE.EXPIRES_AT).from(FILE).where(FILE.ID.eq(copyId)).fetchOne(FILE.EXPIRES_AT);
+    assertThat(exp).isNull();
+    // 콘텐츠 동일
+    FileContentResult c = fileUploadService.getFileContentTrusted(copyId);
+    try (InputStream in = c.resource().getInputStream()) {
+      assertThat(new String(in.readAllBytes())).isEqualTo("payload");
+    }
+    assertThat(c.originalName()).isEqualTo("doc.txt");
+  }
+
   @AfterEach
   void cleanupUploadedFilesFromDisk() {
-    // Clean up any physical files written during tests
+    // Clean up any physical files written during tests (testUser 및 otherUser 모두 정리)
     List<String> paths =
         dsl.select(FILE.STORAGE_PATH)
             .from(FILE)
-            .where(FILE.UPLOADED_BY.eq(testUserId))
+            .where(FILE.UPLOADED_BY.eq(testUserId).or(FILE.UPLOADED_BY.eq(otherUserId)))
             .fetchInto(String.class);
     for (String p : paths) {
       try {

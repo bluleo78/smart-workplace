@@ -108,4 +108,133 @@ class DriveFolderServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> folderService.create(viewer, sp.id(), null, "x"))
         .isInstanceOf(DriveForbiddenException.class);
   }
+
+  @Test
+  void move_changesParent_andCarriesSubtree() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var parent = folderService.create(u, sp.id(), null, "부모");
+    var child = folderService.create(u, sp.id(), parent.id(), "자식");
+    var target = folderService.create(u, sp.id(), null, "대상");
+
+    folderService.move(u, parent.id(), target.id());
+
+    var movedParent =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID)
+            .from(com.workplace.jooq.Tables.DRIVE_FOLDER)
+            .where(com.workplace.jooq.Tables.DRIVE_FOLDER.ID.eq(parent.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID);
+    assertThat(movedParent).isEqualTo(target.id());
+    var childParent =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID)
+            .from(com.workplace.jooq.Tables.DRIVE_FOLDER)
+            .where(com.workplace.jooq.Tables.DRIVE_FOLDER.ID.eq(child.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID);
+    assertThat(childParent).isEqualTo(parent.id());
+  }
+
+  @Test
+  void move_intoOwnDescendant_isRejected() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var parent = folderService.create(u, sp.id(), null, "부모");
+    var child = folderService.create(u, sp.id(), parent.id(), "자식");
+
+    assertThatThrownBy(() -> folderService.move(u, parent.id(), child.id()))
+        .isInstanceOf(com.workplace.drive.exception.DriveInvalidTargetException.class);
+  }
+
+  @Test
+  void move_intoItself_isRejected() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var folder = folderService.create(u, sp.id(), null, "f");
+
+    assertThatThrownBy(() -> folderService.move(u, folder.id(), folder.id()))
+        .isInstanceOf(com.workplace.drive.exception.DriveInvalidTargetException.class);
+  }
+
+  @Test
+  void move_whenTargetHasSameName_conflicts() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var a = folderService.create(u, sp.id(), null, "보고서");
+    var box = folderService.create(u, sp.id(), null, "상자");
+    folderService.create(u, sp.id(), box.id(), "보고서");
+
+    assertThatThrownBy(() -> folderService.move(u, a.id(), box.id()))
+        .isInstanceOf(DriveDuplicateNameException.class);
+  }
+
+  @Test
+  void copy_recursivelyDuplicatesSubtree_withIndependentBlobs() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var src = folderService.create(u, sp.id(), null, "원본");
+    var sub = folderService.create(u, sp.id(), src.id(), "하위");
+    DriveFileResponse f =
+        fileService.upload(
+            u,
+            sp.id(),
+            sub.id(),
+            new MockMultipartFile("file", "a.txt", "text/plain", "x".getBytes()));
+    var dest = folderService.create(u, sp.id(), null, "대상");
+
+    DriveFolderResponse copied = folderService.copy(u, src.id(), dest.id());
+
+    assertThat(copied.id()).isNotEqualTo(src.id());
+    assertThat(copied.parentId()).isEqualTo(dest.id());
+    assertThat(copied.name()).isEqualTo("원본");
+    var copiedSub = folderService.listItems(u, sp.id(), copied.id()).folders().get(0);
+    assertThat(copiedSub.name()).isEqualTo("하위");
+    var copiedFile = folderService.listItems(u, sp.id(), copiedSub.id()).files().get(0);
+    assertThat(copiedFile.name()).isEqualTo("a.txt");
+    assertThat(copiedFile.fileId()).isNotEqualTo(f.fileId());
+    String srcPath =
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(f.fileId()))
+            .fetchOne(FILE.STORAGE_PATH);
+    String copyPath =
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(copiedFile.fileId()))
+            .fetchOne(FILE.STORAGE_PATH);
+    assertThat(copyPath).isNotEqualTo(srcPath);
+    var exp =
+        dsl.select(FILE.EXPIRES_AT)
+            .from(FILE)
+            .where(FILE.ID.eq(copiedFile.fileId()))
+            .fetchOne(FILE.EXPIRES_AT);
+    assertThat(exp).isNull();
+  }
+
+  @Test
+  void move_toSameParent_isNoOp() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var box = folderService.create(u, sp.id(), null, "상자");
+    var f = folderService.create(u, sp.id(), box.id(), "f");
+
+    folderService.move(u, f.id(), box.id()); // 같은 부모로 재이동 — 409 없이 no-op
+
+    var parent =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID)
+            .from(com.workplace.jooq.Tables.DRIVE_FOLDER)
+            .where(com.workplace.jooq.Tables.DRIVE_FOLDER.ID.eq(f.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID);
+    assertThat(parent).isEqualTo(box.id());
+  }
+
+  @Test
+  void copy_whenTargetHasSameName_conflicts() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var src = folderService.create(u, sp.id(), null, "문서");
+    var box = folderService.create(u, sp.id(), null, "상자");
+    folderService.create(u, sp.id(), box.id(), "문서");
+
+    assertThatThrownBy(() -> folderService.copy(u, src.id(), box.id()))
+        .isInstanceOf(DriveDuplicateNameException.class);
+  }
 }
