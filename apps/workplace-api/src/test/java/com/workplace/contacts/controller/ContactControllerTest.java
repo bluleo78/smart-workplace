@@ -141,6 +141,20 @@ class ContactControllerTest {
   }
 
   @Test
+  void createExternal_invalidVisibility_returns400() throws Exception {
+    // visibility 의 @Pattern(SHARED|PERSONAL) 위반 → 400
+    when(permissionService.getUserPermissions(1L))
+        .thenReturn(Set.of("contact:read", "contact:write"));
+    mockMvc
+        .perform(
+            post("/api/v1/contacts/external")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"x\",\"visibility\":\"BOGUS\"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void updateExternal_sharedNonOwner_returns403() throws Exception {
     when(permissionService.getUserPermissions(1L))
         .thenReturn(Set.of("contact:read", "contact:write"));

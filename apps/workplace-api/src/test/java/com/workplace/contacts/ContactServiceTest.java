@@ -207,4 +207,45 @@ class ContactServiceTest extends IntegrationTestBase {
     long id = seedExternal("shared", owner, "SHARED");
     assertThat(service.getExternal(other, id).editable()).isFalse();
   }
+
+  @Test
+  void delete_personalByNonOwner_throwsNotFound() {
+    long owner = caller();
+    long other = caller();
+    long id = seedExternal("priv", owner, "PERSONAL");
+    assertThatThrownBy(() -> service.delete(other, id))
+        .isInstanceOf(ContactNotFoundException.class);
+  }
+
+  @Test
+  void delete_byAdmin_overridesOwnership() {
+    long owner = caller();
+    long admin = caller();
+    makeAdmin(admin);
+    long id = seedExternal("shared", owner, "SHARED");
+    service.delete(admin, id);
+    // admin 삭제 성공 → 행이 사라져 owner 조회도 404
+    assertThatThrownBy(() -> service.getExternal(owner, id))
+        .isInstanceOf(ContactNotFoundException.class);
+  }
+
+  @Test
+  void update_nonexistentId_throwsNotFound() {
+    long c = caller();
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    c,
+                    99_999_999L,
+                    new com.workplace.contacts.dto.ExternalContactRequest(
+                        "x", null, null, null, null, null, "PERSONAL")))
+        .isInstanceOf(ContactNotFoundException.class);
+  }
+
+  @Test
+  void delete_nonexistentId_throwsNotFound() {
+    long c = caller();
+    assertThatThrownBy(() -> service.delete(c, 99_999_999L))
+        .isInstanceOf(ContactNotFoundException.class);
+  }
 }
