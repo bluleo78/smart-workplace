@@ -16,10 +16,17 @@ interface MeContext {
 export function useCreateReply(channelId: number, parentMessageId: number, me: MeContext) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: string) =>
-      messagingApi.createMessage(channelId, { body, parentMessageId }).then((r) => r.data),
+    mutationFn: ({ body, fileIds }: { body: string; fileIds?: number[] }) =>
+      messagingApi
+        // fileIds 빈 배열이면 키 자체를 생략(텍스트 전용 payload 오염 방지).
+        .createMessage(channelId, {
+          body,
+          parentMessageId,
+          fileIds: fileIds?.length ? fileIds : undefined,
+        })
+        .then((r) => r.data),
 
-    onMutate: async (body) => {
+    onMutate: async ({ body }) => {
       const threadKey = messagingKeys.thread(parentMessageId);
       await qc.cancelQueries({ queryKey: threadKey });
       const threadSnap = qc.getQueryData<InfiniteData<MessagePage>>(threadKey);
@@ -36,6 +43,7 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
         parentMessageId,
         replyCount: 0,
         reactions: [],
+        attachments: [], // optimistic — 서버 응답 시 실제값으로 치환
         createdAt: new Date().toISOString(),
         editedAt: null,
         deleted: false,

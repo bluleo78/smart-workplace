@@ -86,9 +86,12 @@ export default function ChannelPage() {
         </div>
         {/* 아카이브 채널이면 composer 비활성. */}
         <MessageComposer
+          channelId={channel.id}
           members={mentionMembers}
           disabled={channel.archived}
-          onSend={(body) => create.mutate({ body })}
+          onSend={(body, fileIds) =>
+            create.mutate({ body, fileIds: fileIds.length ? fileIds : undefined })
+          }
         />
       </div>
       {/* 스레드 패널 — openThreadParent 가 있을 때만 렌더. */}

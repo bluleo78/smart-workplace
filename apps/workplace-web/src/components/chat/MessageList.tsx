@@ -7,6 +7,7 @@ import { MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
+import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { ReactionBar } from '@/components/chat/ReactionBar'
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
@@ -133,6 +134,10 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                       ),
                     )}
               </div>
+            )}
+
+            {!m.deleted && m.attachments?.length > 0 && (
+              <MessageAttachmentList channelId={channelId} attachments={m.attachments} />
             )}
 
             {!isEditing && (

@@ -87,6 +87,14 @@ public class MessageRepository {
         .fetchOptional(MESSAGE.CHANNEL_ID);
   }
 
+  /** 메시지가 해당 채널 소속인지. 다운로드 시 메시지-채널 정합성 검증용. */
+  public boolean belongsToChannel(long messageId, long channelId) {
+    return dsl.fetchExists(
+        dsl.selectFrom(MESSAGE)
+            .where(MESSAGE.ID.eq(messageId))
+            .and(MESSAGE.CHANNEL_ID.eq(channelId)));
+  }
+
   /** 메시지의 channel_id + parent_message_id 조회(스레드 부모 검증용). 미존재 시 empty. */
   public Optional<MessageRef> findRef(long id) {
     return dsl.select(MESSAGE.CHANNEL_ID, MESSAGE.PARENT_MESSAGE_ID)
@@ -254,6 +262,7 @@ public class MessageRepository {
         r.get(MESSAGE.PARENT_MESSAGE_ID),
         replyCount == null ? 0 : replyCount,
         java.util.List.of(), // reactions 는 service 가 batch enrich
+        java.util.List.of(), // attachments 는 service 가 batch enrich
         created == null ? null : created.toInstant(),
         edited == null ? null : edited.toInstant(),
         deleted);

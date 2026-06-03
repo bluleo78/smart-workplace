@@ -19,6 +19,12 @@ workplace:
     upload-dir: ./uploads/attachments
     max-file-size-bytes: 26214400      # 25MB
     max-per-issue: 10
+  messaging:
+    attachment:
+      upload-dir: ./uploads/messaging-attachments
+      max-file-size-bytes: 26214400   # 25MB
+      max-per-message: 10
+      temp-expiry-hours: 24
   ai-agent:
     base-url: ${WORKPLACE_AI_AGENT_URL:http://localhost:7070}
     internal-token: ${WORKPLACE_AI_AGENT_TOKEN:changeme-local}

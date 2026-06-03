@@ -111,4 +111,45 @@ export const messagingApi = {
     client
       .delete(`/messaging/messages/${messageId}/reactions?emoji=${encodeURIComponent(emoji)}`)
       .then(() => undefined),
+
+  // 첨부 사전 업로드 — multipart/form-data, 필드명 `files`. 응답 fileId 로 메시지 작성 시 연결.
+  uploadAttachments: (channelId: number, files: File[]) => {
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    return client.post<
+      { fileId: number; originalName: string; mimeType: string; sizeBytes: number }[]
+    >(`/messaging/channels/${channelId}/attachments`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  // 첨부 다운로드 — blob 으로 받아 a[download] 트리거. Bearer 인증이라 직접 href 불가.
+  downloadAttachment: async (
+    channelId: number,
+    messageId: number,
+    fileId: number,
+    fileName: string,
+  ) => {
+    const { data } = await client.get<Blob>(
+      `/messaging/channels/${channelId}/messages/${messageId}/attachments/${fileId}/content`,
+      { responseType: 'blob' },
+    );
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  // 인라인 이미지 썸네일용 blob fetch — objectURL 은 호출처(훅)에서 생성/revoke.
+  fetchAttachmentBlob: (channelId: number, messageId: number, fileId: number) =>
+    client
+      .get<Blob>(
+        `/messaging/channels/${channelId}/messages/${messageId}/attachments/${fileId}/content`,
+        { responseType: 'blob' },
+      )
+      .then((r) => r.data),
 };

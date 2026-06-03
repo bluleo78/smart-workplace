@@ -67,6 +67,7 @@ class MessageControllerTest {
         null,
         0,
         java.util.List.of(),
+        java.util.List.of(),
         Instant.now(),
         null,
         false);
