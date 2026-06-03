@@ -168,22 +168,9 @@ class ContactRepositoryTest extends IntegrationTestBase {
 
   // === Task A4 추가: 쓰기 + editable ===
 
-  private long newUser() {
-    String t = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(com.workplace.jooq.Tables.USER)
-        .set(com.workplace.jooq.Tables.USER.USERNAME, "r_" + t)
-        .set(com.workplace.jooq.Tables.USER.PASSWORD, "pw")
-        .set(com.workplace.jooq.Tables.USER.NAME, "R " + t)
-        .set(com.workplace.jooq.Tables.USER.EMAIL, t + "@example.com")
-        .set(com.workplace.jooq.Tables.USER.KIND, "HUMAN")
-        .returning(com.workplace.jooq.Tables.USER.ID)
-        .fetchOne()
-        .getId();
-  }
-
-  @org.junit.jupiter.api.Test
+  @Test
   void insert_thenFindExternal_returnsRow_editableForOwner() {
-    long owner = newUser();
+    long owner = seedUser("R_" + tag(), "HUMAN");
     long id =
         repo.insert(
             owner,
@@ -197,10 +184,10 @@ class ContactRepositoryTest extends IntegrationTestBase {
     org.assertj.core.api.Assertions.assertThat(found.get().editable()).isTrue();
   }
 
-  @org.junit.jupiter.api.Test
+  @Test
   void findExternal_sharedByNonOwner_editableFalse_unlessAdmin() {
-    long owner = newUser();
-    long other = newUser();
+    long owner = seedUser("R_" + tag(), "HUMAN");
+    long other = seedUser("R_" + tag(), "HUMAN");
     long id =
         repo.insert(
             owner, new ExternalContactRequest("공유연락처", null, null, null, null, null, "SHARED"));
@@ -210,9 +197,9 @@ class ContactRepositoryTest extends IntegrationTestBase {
         .isTrue();
   }
 
-  @org.junit.jupiter.api.Test
+  @Test
   void update_replacesFields() {
-    long owner = newUser();
+    long owner = seedUser("R_" + tag(), "HUMAN");
     long id =
         repo.insert(
             owner, new ExternalContactRequest("old", null, null, null, null, null, "PERSONAL"));
@@ -223,9 +210,9 @@ class ContactRepositoryTest extends IntegrationTestBase {
     org.assertj.core.api.Assertions.assertThat(f.visibility()).isEqualTo("SHARED");
   }
 
-  @org.junit.jupiter.api.Test
+  @Test
   void delete_removesRow() {
-    long owner = newUser();
+    long owner = seedUser("R_" + tag(), "HUMAN");
     long id =
         repo.insert(
             owner, new ExternalContactRequest("tmp", null, null, null, null, null, "PERSONAL"));

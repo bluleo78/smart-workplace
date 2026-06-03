@@ -248,4 +248,31 @@ class ContactServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> service.delete(c, 99_999_999L))
         .isInstanceOf(ContactNotFoundException.class);
   }
+
+  @Test
+  void getExternal_personalByAdmin_returnsRow_editableTrue() {
+    long owner = caller();
+    long admin = caller();
+    makeAdmin(admin);
+    long id = seedExternal("priv", owner, "PERSONAL");
+    // ADMIN 은 타인 PERSONAL 도 조회 가능, editable=true
+    var d = service.getExternal(admin, id);
+    assertThat(d.name()).isEqualTo("priv");
+    assertThat(d.editable()).isTrue();
+  }
+
+  @Test
+  void update_personalByAdmin_succeeds() {
+    long owner = caller();
+    long admin = caller();
+    makeAdmin(admin);
+    long id = seedExternal("old", owner, "PERSONAL");
+    var d =
+        service.update(
+            admin,
+            id,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "byadmin", null, null, null, null, null, "PERSONAL"));
+    assertThat(d.name()).isEqualTo("byadmin");
+  }
 }

@@ -151,7 +151,12 @@ public class ContactRepository {
             CONTACT_ENTRY.UPDATED_AT)
         .from(CONTACT_ENTRY)
         .where(CONTACT_ENTRY.ID.eq(id))
-        .and(CONTACT_ENTRY.VISIBILITY.eq("SHARED").or(CONTACT_ENTRY.OWNER_ID.eq(callerId)))
+        .and(
+            CONTACT_ENTRY
+                .VISIBILITY
+                .eq("SHARED")
+                .or(CONTACT_ENTRY.OWNER_ID.eq(callerId))
+                .or(DSL.condition(isAdmin)))
         .fetchOptional(
             r ->
                 new ExternalContactDetail(
