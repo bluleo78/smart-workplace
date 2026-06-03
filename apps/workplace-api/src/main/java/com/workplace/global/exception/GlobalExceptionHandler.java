@@ -42,6 +42,9 @@ import com.workplace.messaging.exception.InvalidDmRequestException;
 import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
+import com.workplace.messaging.exception.InvalidMessageAttachmentException;
+import com.workplace.messaging.exception.MessageAttachmentLimitExceededException;
+import com.workplace.messaging.exception.MessageAttachmentTooLargeException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
@@ -219,6 +222,30 @@ public class GlobalExceptionHandler {
       RuntimeException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
+  /** 메시지 첨부 파일 크기 한도 초과 — 400. */
+  @ExceptionHandler(MessageAttachmentTooLargeException.class)
+  public ResponseEntity<ErrorResponse> handleMessageAttachmentTooLarge(
+      MessageAttachmentTooLargeException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 메시지당 첨부 개수 한도 초과 — 409. */
+  @ExceptionHandler(MessageAttachmentLimitExceededException.class)
+  public ResponseEntity<ErrorResponse> handleMessageAttachmentLimitExceeded(
+      MessageAttachmentLimitExceededException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 바인딩 불가 첨부 파일(타 유저 소유/이미 바인딩됨/만료/없음) — 400. */
+  @ExceptionHandler(InvalidMessageAttachmentException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidMessageAttachment(
+      InvalidMessageAttachmentException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
   @ExceptionHandler(RoleNotFoundException.class)
