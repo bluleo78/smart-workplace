@@ -37,6 +37,18 @@ export const driveApi = {
 
   deleteFile: (driveFileId: number) => client.delete<void>(`/drive/files/${driveFileId}`),
 
+  moveFile: (driveFileId: number, targetFolderId: number | null) =>
+    client.patch<void>(`/drive/files/${driveFileId}/move`, { targetFolderId }),
+
+  copyFile: (driveFileId: number, targetFolderId: number | null) =>
+    client.post<DriveFile>(`/drive/files/${driveFileId}/copy`, { targetFolderId }),
+
+  moveFolder: (folderId: number, targetParentId: number | null) =>
+    client.patch<void>(`/drive/folders/${folderId}/move`, { targetParentId }),
+
+  copyFolder: (folderId: number, targetParentId: number | null) =>
+    client.post<DriveFolder>(`/drive/folders/${folderId}/copy`, { targetParentId }),
+
   // blob 다운로드 → a[download] 트리거
   downloadFile: async (driveFileId: number, fileName: string) => {
     const { data } = await client.get<Blob>(`/drive/files/${driveFileId}/download`, {
