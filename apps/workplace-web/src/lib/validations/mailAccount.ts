@@ -19,3 +19,5 @@ export const mailAccountSchema = z.object({
 });
 
 export type MailAccountFormData = z.infer<typeof mailAccountSchema>;
+// z.coerce 로 input(string|number)·output(number) 타입이 달라서 RHF 3-제네릭에 필요
+export type MailAccountFormInput = z.input<typeof mailAccountSchema>;

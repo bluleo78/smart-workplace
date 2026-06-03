@@ -29,6 +29,7 @@ import {
 import {
   mailAccountSchema,
   type MailAccountFormData,
+  type MailAccountFormInput,
 } from '@/lib/validations/mailAccount';
 import {
   useCreateMailAccount,
@@ -70,10 +71,9 @@ export function MailAccountDialog({
   // 연결 테스트 결과 — 추가 모드에서 저장 가능 여부 판단에 사용
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
 
-  // zodResolver + z.coerce 타입 추론 mismatch 우회: resolver 에 타입 단언 사용
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const form = useForm<MailAccountFormData>({
-    resolver: zodResolver(mailAccountSchema) as any,
+  // z.coerce 로 input·output 타입이 달라 RHF 3-제네릭(input, context, output) 사용
+  const form = useForm<MailAccountFormInput, unknown, MailAccountFormData>({
+    resolver: zodResolver(mailAccountSchema),
     defaultValues: EMPTY,
   });
 
@@ -119,7 +119,8 @@ export function MailAccountDialog({
     const valid = await form.trigger();
     if (!valid) return;
     setTestResult(null);
-    const result = await testConn.mutateAsync(form.getValues());
+    // getValues() 는 input 타입(coerce 전)이라 schema.parse 로 output 타입(number 포트) 변환
+    const result = await testConn.mutateAsync(mailAccountSchema.parse(form.getValues()));
     setTestResult(result);
   };
 
@@ -327,7 +328,7 @@ export function MailAccountDialog({
               type="button"
               variant="outline"
               onClick={() => void onTest()}
-              disabled={testConn.isPending}
+              disabled={testConn.isPending || saving}
               data-testid="mail-test-button"
             >
               {testConn.isPending ? '테스트 중…' : '연결 테스트'}
