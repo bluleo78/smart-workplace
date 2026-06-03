@@ -7,13 +7,11 @@ export const externalContactSchema = z.object({
     .string()
     .trim()
     .max(255, '255자 이내')
-    .email('유효한 이메일을 입력하세요')
-    .or(z.literal(''))
-    .default(''),
-  phone: z.string().trim().max(40, '40자 이내').default(''),
-  organization: z.string().trim().max(120, '120자 이내').default(''),
-  title: z.string().trim().max(100, '100자 이내').default(''),
-  notes: z.string().default(''),
+    .refine((v) => v === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), '유효한 이메일을 입력하세요'),
+  phone: z.string().trim().max(40, '40자 이내'),
+  organization: z.string().trim().max(120, '120자 이내'),
+  title: z.string().trim().max(100, '100자 이내'),
+  notes: z.string(),
   visibility: z.enum(['SHARED', 'PERSONAL']),
 })
 
