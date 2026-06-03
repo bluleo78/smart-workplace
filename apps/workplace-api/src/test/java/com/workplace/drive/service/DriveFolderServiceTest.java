@@ -106,4 +106,61 @@ class DriveFolderServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> folderService.create(viewer, sp.id(), null, "x"))
         .isInstanceOf(DriveForbiddenException.class);
   }
+
+  @Test
+  void move_changesParent_andCarriesSubtree() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var parent = folderService.create(u, sp.id(), null, "부모");
+    var child = folderService.create(u, sp.id(), parent.id(), "자식");
+    var target = folderService.create(u, sp.id(), null, "대상");
+
+    folderService.move(u, parent.id(), target.id());
+
+    var movedParent =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID)
+            .from(com.workplace.jooq.Tables.DRIVE_FOLDER)
+            .where(com.workplace.jooq.Tables.DRIVE_FOLDER.ID.eq(parent.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID);
+    assertThat(movedParent).isEqualTo(target.id());
+    var childParent =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID)
+            .from(com.workplace.jooq.Tables.DRIVE_FOLDER)
+            .where(com.workplace.jooq.Tables.DRIVE_FOLDER.ID.eq(child.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FOLDER.PARENT_ID);
+    assertThat(childParent).isEqualTo(parent.id());
+  }
+
+  @Test
+  void move_intoOwnDescendant_isRejected() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var parent = folderService.create(u, sp.id(), null, "부모");
+    var child = folderService.create(u, sp.id(), parent.id(), "자식");
+
+    assertThatThrownBy(() -> folderService.move(u, parent.id(), child.id()))
+        .isInstanceOf(com.workplace.drive.exception.DriveInvalidTargetException.class);
+  }
+
+  @Test
+  void move_intoItself_isRejected() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var folder = folderService.create(u, sp.id(), null, "f");
+
+    assertThatThrownBy(() -> folderService.move(u, folder.id(), folder.id()))
+        .isInstanceOf(com.workplace.drive.exception.DriveInvalidTargetException.class);
+  }
+
+  @Test
+  void move_whenTargetHasSameName_conflicts() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var a = folderService.create(u, sp.id(), null, "보고서");
+    var box = folderService.create(u, sp.id(), null, "상자");
+    folderService.create(u, sp.id(), box.id(), "보고서");
+
+    assertThatThrownBy(() -> folderService.move(u, a.id(), box.id()))
+        .isInstanceOf(DriveDuplicateNameException.class);
+  }
 }

@@ -5,6 +5,7 @@ import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveItemListResponse;
 import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
+import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import java.util.List;
@@ -52,6 +53,41 @@ public class DriveFolderService {
     List<DriveFolderResponse> fl = folders.listChildFolders(spaceId, parentId);
     List<DriveFileResponse> fi = files.listInFolder(spaceId, parentId);
     return new DriveItemListResponse(fl, fi);
+  }
+
+  /** 이동 — 같은 공간 내 다른 부모로 parent_id 변경. 자신·하위로의 이동은 거부. */
+  @Transactional
+  public void move(long callerId, long folderId, Long targetParentId) {
+    long spaceId =
+        folders.findSpaceId(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
+    perms.requireRole(spaceId, callerId, "EDITOR");
+    validateTarget(spaceId, folderId, targetParentId);
+    String name =
+        folders
+            .findById(folderId)
+            .orElseThrow(() -> new DriveFolderNotFoundException(folderId))
+            .name();
+    if (folders.existsInSpace(spaceId, targetParentId, name)) {
+      throw new DriveDuplicateNameException(name);
+    }
+    folders.updateParent(folderId, targetParentId);
+  }
+
+  /** 대상 부모가 같은 공간이고 폴더 자신·하위(서브트리)가 아닌지 검증. null = 공간 루트. */
+  private void validateTarget(long spaceId, long folderId, Long targetParentId) {
+    if (targetParentId == null) {
+      return;
+    }
+    long targetSpace =
+        folders
+            .findSpaceId(targetParentId)
+            .orElseThrow(() -> new DriveFolderNotFoundException(targetParentId));
+    if (targetSpace != spaceId) {
+      throw new DriveInvalidTargetException("target folder in different space");
+    }
+    if (folders.findSubtreeFolderIds(folderId).contains(targetParentId)) {
+      throw new DriveInvalidTargetException("cannot move/copy into its own subtree");
+    }
   }
 
   private long requireFolderSpace(long callerId, long folderId, String minRole) {
