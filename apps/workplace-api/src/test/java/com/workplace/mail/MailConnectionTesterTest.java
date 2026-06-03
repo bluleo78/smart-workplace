@@ -29,8 +29,14 @@ class MailConnectionTesterTest {
   void success_whenCredentialsValid() {
     ConnectionTestResult r =
         tester.test(
-            "127.0.0.1", 3143, MailSecurity.NONE, "u@test.local",
-            "127.0.0.1", 3025, MailSecurity.NONE, "u@test.local",
+            "127.0.0.1",
+            3143,
+            MailSecurity.NONE,
+            "u@test.local",
+            "127.0.0.1",
+            3025,
+            MailSecurity.NONE,
+            "u@test.local",
             "pw");
     assertThat(r.success()).isTrue();
     assertThat(r.imapOk()).isTrue();
@@ -41,19 +47,49 @@ class MailConnectionTesterTest {
   void imapFails_whenBadPassword() {
     ConnectionTestResult r =
         tester.test(
-            "127.0.0.1", 3143, MailSecurity.NONE, "u@test.local",
-            "127.0.0.1", 3025, MailSecurity.NONE, "u@test.local",
+            "127.0.0.1",
+            3143,
+            MailSecurity.NONE,
+            "u@test.local",
+            "127.0.0.1",
+            3025,
+            MailSecurity.NONE,
+            "u@test.local",
             "wrong-pw");
     assertThat(r.imapOk()).isFalse();
     assertThat(r.imapError()).isNotNull();
   }
 
   @Test
+  void smtpFails_whenBadPassword() {
+    ConnectionTestResult r =
+        tester.test(
+            "127.0.0.1",
+            3143,
+            MailSecurity.NONE,
+            "u@test.local",
+            "127.0.0.1",
+            3025,
+            MailSecurity.NONE,
+            "u@test.local",
+            "wrong-pw");
+    // IMAP·SMTP 둘 다 같은 잘못된 비번이므로 SMTP 도 실패해야 한다
+    assertThat(r.smtpOk()).isFalse();
+    assertThat(r.smtpError()).isNotNull();
+  }
+
+  @Test
   void imapFails_whenHostUnreachable() {
     ConnectionTestResult r =
         tester.test(
-            "127.0.0.1", 1, MailSecurity.NONE, "u@test.local",
-            "127.0.0.1", 3025, MailSecurity.NONE, "u@test.local",
+            "127.0.0.1",
+            1,
+            MailSecurity.NONE,
+            "u@test.local",
+            "127.0.0.1",
+            3025,
+            MailSecurity.NONE,
+            "u@test.local",
             "pw");
     assertThat(r.imapOk()).isFalse();
     assertThat(r.imapError()).isNotNull();

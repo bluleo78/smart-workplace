@@ -14,8 +14,8 @@ import javax.net.ssl.SSLException;
 import org.springframework.stereotype.Component;
 
 /**
- * IMAP/SMTP 에 실제 접속해 호스트·포트·보안·자격증명을 검증한다. 메일 페치/발송은 하지 않고 connect/close 만 수행한다. 행(hang) 방지를
- * 위해 연결·읽기 타임아웃을 10초로 제한한다. Spring 빈이지만 외부 의존이 없어 단위 테스트에서 직접 new 로 생성 가능하다.
+ * IMAP/SMTP 에 실제 접속해 호스트·포트·보안·자격증명을 검증한다. 메일 페치/발송은 하지 않고 connect/close 만 수행한다. 행(hang) 방지를 위해
+ * 연결·읽기 타임아웃을 10초로 제한한다. Spring 빈이지만 외부 의존이 없어 단위 테스트에서 직접 new 로 생성 가능하다.
  */
 @Component
 public class MailConnectionTester {
@@ -52,13 +52,23 @@ public class MailConnectionTester {
       props.put("mail.imap.starttls.required", "true");
     }
     Session session = Session.getInstance(props);
-    try (Store store = session.getStore(protocol)) {
+    Store store = null;
+    try {
+      store = session.getStore(protocol);
       store.connect(host, port, username, password);
       return null;
     } catch (AuthenticationFailedException e) {
       return "인증 실패 — 사용자명 또는 비밀번호를 확인하세요";
     } catch (MessagingException e) {
       return classify(e);
+    } finally {
+      try {
+        if (store != null) {
+          store.close();
+        }
+      } catch (MessagingException ignored) {
+        // 연결 검증 목적상 close 실패는 무시
+      }
     }
   }
 
@@ -77,13 +87,23 @@ public class MailConnectionTester {
       props.put("mail.smtp.starttls.required", "true");
     }
     Session session = Session.getInstance(props);
-    try (Transport transport = session.getTransport("smtp")) {
+    Transport transport = null;
+    try {
+      transport = session.getTransport("smtp");
       transport.connect(host, port, username, password);
       return null;
     } catch (AuthenticationFailedException e) {
       return "인증 실패 — 사용자명 또는 비밀번호를 확인하세요";
     } catch (MessagingException e) {
       return classify(e);
+    } finally {
+      try {
+        if (transport != null) {
+          transport.close();
+        }
+      } catch (MessagingException ignored) {
+        // 연결 검증 목적상 close 실패는 무시
+      }
     }
   }
 
@@ -102,6 +122,6 @@ public class MailConnectionTester {
     if (cause instanceof java.net.SocketTimeoutException) {
       return "연결 시간 초과 — 호스트/포트를 확인하세요";
     }
-    return "연결 실패 — " + e.getMessage();
+    return "연결 실패 — 서버 오류가 발생했습니다";
   }
 }
