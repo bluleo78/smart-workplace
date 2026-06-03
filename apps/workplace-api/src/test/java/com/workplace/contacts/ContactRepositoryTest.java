@@ -56,17 +56,21 @@ class ContactRepositoryTest extends IntegrationTestBase {
 
   @Test
   void list_mergesMembersAndExternals_sortedByName() {
-    long caller = seedUser("ZZ_caller_" + tag(), "HUMAN");
-    long m = seedUser("AA_member_" + tag(), "HUMAN");
-    long e = seedExternal("BB_external_" + tag(), "SHARED", caller);
+    // 공유 test DB 에 데이터가 많아 search=null + limit 100 으로는 시드 행이 범위 밖일 수 있다.
+    // 고유 prefix 로 검색해 시드한 3건만 결정적으로 매칭(이름 순서: _AA < _BB < _ZZ).
+    String p = "zmrg" + tag();
+    long caller = seedUser(p + "_ZZ_caller", "HUMAN");
+    long m = seedUser(p + "_AA_member", "HUMAN");
+    long e = seedExternal(p + "_BB_external", "SHARED", caller);
 
-    List<ContactSummary> rows = repo.findPage(caller, null, "ALL", null, 100);
+    List<ContactSummary> rows = repo.findPage(caller, p, "ALL", null, 100);
 
-    assertThat(rows).extracting(ContactSummary::id).contains(m, e);
+    assertThat(rows).extracting(ContactSummary::id).contains(m, e, caller);
     assertThat(rows).extracting(ContactSummary::type).contains("MEMBER", "EXTERNAL");
-    List<String> names = rows.stream().map(ContactSummary::name).toList();
-    // DB 정렬(PostgreSQL 로케일)과 Java 자연 정렬의 대소문자 순서 불일치 → 대소문자 무시 비교
-    assertThat(names).isSortedAccordingTo(String.CASE_INSENSITIVE_ORDER);
+    // 멤버+외부가 단일 목록에 (name, type, id) 오름차순으로 머지됨
+    assertThat(rows)
+        .extracting(ContactSummary::name)
+        .containsExactly(p + "_AA_member", p + "_BB_external", p + "_ZZ_caller");
   }
 
   @Test
@@ -82,9 +86,11 @@ class ContactRepositoryTest extends IntegrationTestBase {
   @Test
   void list_typeFilter_externalOnly() {
     long caller = seedUser("c_" + tag(), "HUMAN");
-    long e = seedExternal("ext_" + tag(), "SHARED", caller);
+    // 고유 prefix 로 검색해 시드 외부 1건만 결정적으로 매칭(공유 DB 의 다른 외부 배제).
+    String p = "tfx" + tag();
+    long e = seedExternal(p + "_ext", "SHARED", caller);
 
-    List<ContactSummary> rows = repo.findPage(caller, null, "EXTERNAL", null, 100);
+    List<ContactSummary> rows = repo.findPage(caller, p, "EXTERNAL", null, 100);
 
     assertThat(rows).isNotEmpty();
     assertThat(rows).allMatch(r -> r.type().equals("EXTERNAL"));
