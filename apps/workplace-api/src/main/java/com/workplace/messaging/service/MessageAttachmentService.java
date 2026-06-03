@@ -6,6 +6,7 @@ import com.workplace.messaging.exception.MessageAttachmentLimitExceededException
 import com.workplace.messaging.exception.MessageAttachmentTooLargeException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.MessageAttachmentRepository;
+import com.workplace.messaging.repository.MessageRepository;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -23,6 +24,7 @@ public class MessageAttachmentService {
   private final MessageAttachmentStorage storage;
   private final MessageAttachmentRepository repo;
   private final ChannelMemberRepository memberRepo;
+  private final MessageRepository messageRepo;
 
   @Value("${workplace.messaging.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -33,10 +35,12 @@ public class MessageAttachmentService {
   public MessageAttachmentService(
       MessageAttachmentStorage storage,
       MessageAttachmentRepository repo,
-      ChannelMemberRepository memberRepo) {
+      ChannelMemberRepository memberRepo,
+      MessageRepository messageRepo) {
     this.storage = storage;
     this.repo = repo;
     this.memberRepo = memberRepo;
+    this.messageRepo = messageRepo;
   }
 
   /** 선업로드: 채널 멤버 검증 + 크기/개수 게이트 후 임시 저장. fileId 메타 반환. */
@@ -96,6 +100,18 @@ public class MessageAttachmentService {
       repo.bind(fileId, messageId, callerId);
     }
     repo.promoteToPermanent(fileIds);
+  }
+
+  /** 채널 멤버만 다운로드 가능. 메시지-파일-채널 정합성 + 멤버십 검증 후 저장 파일 정보 반환. */
+  @Transactional(readOnly = true)
+  public MessageAttachmentRepository.StoredFileRow download(
+      long callerId, long channelId, long messageId, Long fileId) {
+    ensureMember(channelId, callerId);
+    if (!messageRepo.belongsToChannel(messageId, channelId)) {
+      throw new InvalidMessageAttachmentException(fileId);
+    }
+    return repo.findStoredFile(fileId, messageId)
+        .orElseThrow(() -> new InvalidMessageAttachmentException(fileId));
   }
 
   /** 채널 멤버 여부 확인. 비멤버면 ChannelNotMemberException 발생. */
