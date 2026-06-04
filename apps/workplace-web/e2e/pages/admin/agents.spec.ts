@@ -125,7 +125,7 @@ test.describe('/admin/agents', () => {
       });
 
       // 1) 페이지 진입 + 신규 AGENT 다이얼로그 열기
-      await page.goto('/admin/agents');
+      await page.goto('/settings/agents');
       await expect(
         page.getByRole('heading', { name: 'AGENT 관리' }),
       ).toBeVisible();

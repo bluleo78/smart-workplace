@@ -46,7 +46,7 @@ test.describe('admin 공용 비서', () => {
       return route.fallback();
     });
 
-    await page.goto('/admin/agents');
+    await page.goto('/settings/agents');
 
     // 지정된 AGENT 가 select 에 반영되고, 활성 토큰 없음 경고가 노출되어야 한다.
     await expect(page.getByTestId('workspace-assistant-agent')).toHaveValue('5');

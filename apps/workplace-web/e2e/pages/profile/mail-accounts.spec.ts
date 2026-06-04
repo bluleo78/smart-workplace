@@ -30,7 +30,7 @@ function account(overrides?: Partial<MailAccountResponse>): MailAccountResponse 
 test.describe('메일 계정 설정', () => {
   test('목록 비어있을 때 안내 노출 + 추가 다이얼로그 열림', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
-    await page.goto('/profile');
+    await page.goto('/settings/mail');
     const section = page.getByTestId('mail-accounts-section');
     await expect(section).toBeVisible();
     await expect(section).toContainText('연결된 메일 계정이 없습니다');
@@ -50,7 +50,7 @@ test.describe('메일 계정 설정', () => {
     });
     // POST /accounts — 계정 생성 응답
     await mockApi(page, 'POST', '/api/v1/mail/accounts', account());
-    await page.goto('/profile');
+    await page.goto('/settings/mail');
 
     // 추가 다이얼로그 열기
     await page.getByTestId('mail-add-trigger').click();
@@ -89,7 +89,7 @@ test.describe('메일 계정 설정', () => {
       smtpOk: true,
       smtpError: null,
     });
-    await page.goto('/profile');
+    await page.goto('/settings/mail');
     await page.getByTestId('mail-add-trigger').click();
 
     // 직접 입력 모드 — 모든 필드 수동 입력
@@ -111,7 +111,7 @@ test.describe('메일 계정 설정', () => {
     // PUT /api/v1/mail/accounts/1 — capture: true 로 payload 캡처
     const capture = await mockApi(page, 'PUT', '/api/v1/mail/accounts/1', account({ aiEnabled: true }), { capture: true });
 
-    await page.goto('/profile');
+    await page.goto('/settings/mail');
 
     // 수정 버튼 클릭 → 수정 다이얼로그 열기
     await page.getByTestId('mail-account-row-1').getByRole('button', { name: '수정' }).click();
@@ -131,7 +131,7 @@ test.describe('메일 계정 설정', () => {
   test('계정 삭제', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [account()]);
     await mockApi(page, 'DELETE', '/api/v1/mail/accounts/1', {}, { status: 204 });
-    await page.goto('/profile');
+    await page.goto('/settings/mail');
     await expect(page.getByTestId('mail-account-row-1')).toBeVisible();
 
     // 삭제 후 빈 목록 응답을 미리 등록

@@ -39,7 +39,7 @@ test('관리자 권한으로 사용자 관리 페이지에 진입한다', { tag:
   await page.route('**/api/v1/users**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   )
-  await page.goto('/admin/users')
+  await page.goto('/settings/users')
   // 페이지 자체가 렌더 (NotFound 가 아님) 만 확인 — 실제 표 내용은 폴리싱 후
-  await expect(page).toHaveURL(/\/admin\/users/)
+  await expect(page).toHaveURL(/\/settings\/users/)
 })

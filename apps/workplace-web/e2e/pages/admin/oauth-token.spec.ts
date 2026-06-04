@@ -143,7 +143,7 @@ async function setupOAuth(
 
 // 페이지 진입 + AGENT 행 클릭 — OAuthTokenSection 가 렌더되는 시점까지.
 async function enterAndSelect(page: import('@playwright/test').Page) {
-  await page.goto('/admin/agents');
+  await page.goto('/settings/agents');
   await expect(
     page.getByRole('heading', { name: 'AGENT 관리' }),
   ).toBeVisible();

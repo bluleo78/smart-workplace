@@ -42,7 +42,7 @@ test.describe('프로필 개인 비서', () => {
       return route.fulfill({ status: 204, body: '' })
     })
 
-    await page.goto('/profile')
+    await page.goto('/settings/assistant')
 
     // 미설정: 토큰 입력 → 등록.
     await page.getByTestId('assistant-token-input').fill('x'.repeat(40))
