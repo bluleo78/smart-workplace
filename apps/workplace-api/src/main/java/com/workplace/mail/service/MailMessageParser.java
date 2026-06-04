@@ -38,68 +38,6 @@ public class MailMessageParser {
   private static final Pattern ANGLE_ID = Pattern.compile("<([^>]+)>");
 
   /**
-   * MimeMessage 를 파싱(헤더 + 본문 + 첨부). uid 는 스레드키 합성 fallback 과 증분 키로 쓰인다.
-   *
-   * <p>Task 7 에서 동기화가 {@link #parseMetadata} + {@link #parseBody} 로 전환되면 제거 예정 — 현재 {@code
-   * MailSyncService} 가 여전히 사용한다.
-   */
-  public ParsedMessage parse(long uid, Message msg) throws MessagingException, IOException {
-    String messageId = normalizeId(firstHeader(msg, "Message-ID"));
-    String inReplyTo = normalizeId(firstHeader(msg, "In-Reply-To"));
-    String references = firstHeader(msg, "References");
-    String threadId = deriveThreadId(references, inReplyTo, messageId, uid);
-
-    String fromAddress = null;
-    String fromName = null;
-    Address[] from = msg.getFrom();
-    if (from != null && from.length > 0 && from[0] instanceof InternetAddress ia) {
-      fromAddress = ia.getAddress();
-      fromName = ia.getPersonal();
-    }
-
-    String to = addressesToString(msg.getRecipients(Message.RecipientType.TO));
-    String cc = addressesToString(msg.getRecipients(Message.RecipientType.CC));
-    String subject = msg.getSubject();
-
-    Instant sentAt = toInstant(msg.getSentDate());
-    Instant receivedAt = toInstant(msg.getReceivedDate());
-    if (receivedAt == null) {
-      receivedAt = sentAt; // IMAP 서버가 수신일을 안 주면 발신일로 대체
-    }
-
-    boolean seen = msg.getFlags().contains(Flags.Flag.SEEN);
-
-    StringBuilder text = new StringBuilder();
-    StringBuilder html = new StringBuilder();
-    List<ParsedAttachment> attachments = new ArrayList<>();
-    collectBody(msg, text, html, attachments);
-
-    String bodyText = text.length() == 0 ? null : text.toString();
-    String bodyHtml = html.length() == 0 ? null : html.toString();
-    String snippet = buildSnippet(bodyText, bodyHtml);
-
-    return new ParsedMessage(
-        uid,
-        truncate(messageId, ID_MAX),
-        truncate(threadId, ID_MAX),
-        truncate(inReplyTo, ID_MAX),
-        references, // mail_references 는 TEXT — 절단 불필요
-        truncate(fromAddress, ADDR_MAX),
-        truncate(fromName, NAME_MAX),
-        to, // to_addresses 는 TEXT
-        cc, // cc_addresses 는 TEXT
-        truncate(subject, ID_MAX),
-        sentAt,
-        receivedAt,
-        seen,
-        !attachments.isEmpty(),
-        bodyText, // body_text 는 TEXT
-        bodyHtml, // body_html 은 TEXT
-        snippet,
-        attachments);
-  }
-
-  /**
    * 헤더/봉투만 파싱(본문 미수집). 목록 동기화용 — collectBody 를 호출하지 않아 본문 IMAP 다운로드를 유발하지 않는다. uid 는 스레드키 합성
    * fallback 과 증분 키로 쓰인다. 본문/스니펫/첨부 플래그는 본문 적재 단계에서 {@link #parseBody} 로 확정한다.
    */
