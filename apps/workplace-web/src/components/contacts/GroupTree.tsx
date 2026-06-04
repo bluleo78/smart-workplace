@@ -1,6 +1,7 @@
 // 사이드바 그룹 트리: 공유 조직도(읽기전용) + 개인 그룹(편집 가능).
 import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
+import { toast } from 'sonner'
 
 import { userGroupsApi } from '@/api/userGroups'
 import {
@@ -19,7 +20,7 @@ import { cn } from '@/lib/utils'
 import type { UserGroupDetail, UserGroupNode } from '@/types/userGroup'
 
 import { GroupForm } from './GroupForm'
-import { flattenGroups } from './groupTree.helpers'
+import { findNode, flattenGroups } from './groupTree.helpers'
 
 interface NodeProps {
   node: UserGroupNode
@@ -121,11 +122,18 @@ export function GroupTree({ selectedId, onSelect }: Props) {
 
   const personalOptions = flattenGroups(data?.personal ?? [])
 
+  // 같은 노드를 다시 클릭하면 선택 해제(통합 목록 복원).
+  const handleSelect = (id: number) => onSelect(selectedId === id ? null : id)
+
   // 편집은 직속 멤버가 필요 → 상세를 가져와 폼에 전달
   const openEdit = async (node: UserGroupNode) => {
-    const detail = await userGroupsApi.detail(node.id).then((r) => r.data)
-    setEditTarget(detail)
-    setFormOpen(true)
+    try {
+      const detail = await userGroupsApi.detail(node.id).then((r) => r.data)
+      setEditTarget(detail)
+      setFormOpen(true)
+    } catch {
+      toast.error('그룹 정보를 불러오지 못했습니다')
+    }
   }
   const openCreate = () => {
     setEditTarget(null)
@@ -134,7 +142,8 @@ export function GroupTree({ selectedId, onSelect }: Props) {
   const confirmDelete = async () => {
     if (!deleteTarget) return
     await del.mutateAsync(deleteTarget.id)
-    if (selectedId === deleteTarget.id) onSelect(null)
+    // 삭제된 서브트리(자신 또는 자손)가 선택돼 있으면 선택 해제 — 캐스케이드로 사라진 그룹 뷰 방지.
+    if (selectedId != null && findNode([deleteTarget], selectedId)) onSelect(null)
     setDeleteTarget(null)
   }
 
@@ -154,7 +163,7 @@ export function GroupTree({ selectedId, onSelect }: Props) {
               node={n}
               depth={0}
               selectedId={selectedId}
-              onSelect={onSelect}
+              onSelect={handleSelect}
               editable={false}
             />
           ))
@@ -184,7 +193,7 @@ export function GroupTree({ selectedId, onSelect }: Props) {
               node={n}
               depth={0}
               selectedId={selectedId}
-              onSelect={onSelect}
+              onSelect={handleSelect}
               editable
               onEdit={openEdit}
               onDelete={setDeleteTarget}
