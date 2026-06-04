@@ -34,16 +34,24 @@ class UserGroupServiceTest extends IntegrationTestBase {
   private long user() {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     return dsl.insertInto(USER)
-        .set(USER.USERNAME, "u_" + t).set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "User " + t).set(USER.EMAIL, t + "@example.com")
-        .set(USER.KIND, "HUMAN").set(USER.IS_ACTIVE, true)
-        .returning(USER.ID).fetchOne().getId();
+        .set(USER.USERNAME, "u_" + t)
+        .set(USER.PASSWORD, "pw")
+        .set(USER.NAME, "User " + t)
+        .set(USER.EMAIL, t + "@example.com")
+        .set(USER.KIND, "HUMAN")
+        .set(USER.IS_ACTIVE, true)
+        .returning(USER.ID)
+        .fetchOne()
+        .getId();
   }
 
   /** user 에 ADMIN 역할 부여(ADMIN 은 user-group:manage 권한 보유). */
   private void makeAdmin(long userId) {
     Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
-    dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, userId).set(USER_ROLE.ROLE_ID, roleId).execute();
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, userId)
+        .set(USER_ROLE.ROLE_ID, roleId)
+        .execute();
   }
 
   private CreateUserGroupRequest req(String name, Long parentId, String visibility) {
@@ -83,10 +91,12 @@ class UserGroupServiceTest extends IntegrationTestBase {
     service.create(admin, req("내 분류", null, "PERSONAL"));
 
     UserGroupTreeResponse tree = service.getTree(admin);
-    assertThat(tree.shared()).hasSize(1);
-    assertThat(tree.shared().get(0).name()).isEqualTo("본부");
-    assertThat(tree.shared().get(0).children()).hasSize(1);
-    assertThat(tree.shared().get(0).children().get(0).name()).isEqualTo("팀");
+    // 공유 그룹은 owner_id NULL 로 전역 가시 → 공유 테스트 DB 드리프트 방지를 위해
+    // 개수 단정 대신 이름으로 찾아 자식 구조만 검증한다.
+    var bonbu = tree.shared().stream().filter(n -> "본부".equals(n.name())).findFirst().orElseThrow();
+    assertThat(bonbu.children()).hasSize(1);
+    assertThat(bonbu.children().get(0).name()).isEqualTo("팀");
+    // 개인 그룹은 owner 스코프(새로 만든 admin 소유) → 정확히 1개.
     assertThat(tree.personal()).hasSize(1);
     assertThat(tree.personal().get(0).name()).isEqualTo("내 분류");
   }
@@ -115,7 +125,8 @@ class UserGroupServiceTest extends IntegrationTestBase {
     UserGroupDetail g = service.create(caller, req("내 그룹", null, "PERSONAL"));
 
     service.addMember(caller, g.id(), new AddMemberRequest("MEMBER", memberUser));
-    UserGroupDetail after = service.addMember(caller, g.id(), new AddMemberRequest("EXTERNAL", contactId));
+    UserGroupDetail after =
+        service.addMember(caller, g.id(), new AddMemberRequest("EXTERNAL", contactId));
 
     assertThat(after.members()).hasSize(2);
     assertThat(after.members())
@@ -130,7 +141,8 @@ class UserGroupServiceTest extends IntegrationTestBase {
     long memberUser = user();
     UserGroupDetail g = service.create(caller, req("내 그룹", null, "PERSONAL"));
     service.addMember(caller, g.id(), new AddMemberRequest("MEMBER", memberUser));
-    UserGroupDetail after = service.addMember(caller, g.id(), new AddMemberRequest("MEMBER", memberUser));
+    UserGroupDetail after =
+        service.addMember(caller, g.id(), new AddMemberRequest("MEMBER", memberUser));
     assertThat(after.members()).hasSize(1);
   }
 
@@ -207,7 +219,8 @@ class UserGroupServiceTest extends IntegrationTestBase {
     service.delete(caller, parent.id());
 
     assertThat(dsl.fetchCount(USER_GROUP, USER_GROUP.ID.in(parent.id(), child.id()))).isZero();
-    assertThat(dsl.fetchCount(USER_GROUP_MEMBER, USER_GROUP_MEMBER.GROUP_ID.eq(child.id()))).isZero();
+    assertThat(dsl.fetchCount(USER_GROUP_MEMBER, USER_GROUP_MEMBER.GROUP_ID.eq(child.id())))
+        .isZero();
   }
 
   @Test
