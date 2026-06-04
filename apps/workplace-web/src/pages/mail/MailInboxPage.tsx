@@ -1,6 +1,6 @@
 import { Forward, Paperclip, PenSquare, RefreshCw, Reply, ReplyAll } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { cn } from '@/lib/utils'
 
@@ -332,9 +332,9 @@ export function MailInboxPage() {
     return (
       <div data-testid="mail-empty-accounts" className="p-8 text-sm text-muted-foreground">
         연결된 메일 계정이 없습니다.{' '}
-        <a href="/profile" className="text-primary underline">
-          프로필에서 메일 계정을 추가
-        </a>
+        <Link to="/settings/mail" className="text-primary underline">
+          설정에서 메일 계정을 추가
+        </Link>
         하세요.
       </div>
     )
