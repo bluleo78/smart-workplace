@@ -61,7 +61,13 @@ public class DriveTrashService {
     return new DriveTrashListResponse(items);
   }
 
-  /** 폴더 복원 — op 단위 일괄 + 부모 보정 + 이름충돌 자동리네임. EDITOR. */
+  /**
+   * 폴더 복원 — 부모 보정·이름충돌 자동리네임을 '아직 trashed 인 상태'에서 먼저 처리한 뒤 op 단위 일괄 복원. EDITOR.
+   *
+   * <p>부분 유니크 인덱스 uq_drive_folder_name 은 trashed_at IS NULL 행만 검사한다. 따라서 이름/부모는 trashed 상태에서 확정해야
+   * 하며, 그 뒤에야 restoreByOp 의 trashed_at=NULL 갱신이 유니크 위반 없이 통과한다(순서를 바꾸면 동명 충돌 시 롤백됨). 충돌은 trash_root
+   * 에서만 발생 가능(아직 trashed 인 부모 밑에는 살아있는 동명 폴더를 만들 수 없으므로 하위는 충돌하지 않음).
+   */
   @Transactional
   public void restoreFolder(long callerId, long folderId) {
     var meta =
@@ -71,15 +77,18 @@ public class DriveTrashService {
                 () ->
                     new com.workplace.drive.exception.DriveNotInTrashException("folder", folderId));
     perms.requireRole(meta.spaceId(), callerId, "EDITOR");
-    folders.restoreByOp(meta.opId());
-    files.restoreByOp(meta.opId());
+    // 1) 부모 보정 — 원래 부모가 없거나(영구삭제) 아직 휴지통이면 루트로
     Long parent = meta.parentId();
     if (parent != null && !folders.liveFolderExists(parent)) {
       folders.setParentToRoot(folderId);
       parent = null;
     }
+    // 2) 살아있는 형제와 이름 충돌 시 자동 리네임 — 아직 trashed 라 부분 인덱스에 안 걸림
     String name = resolveFolderName(meta.spaceId(), parent, meta.name(), folderId);
     if (!name.equals(meta.name())) folders.rename(folderId, name);
+    // 3) 안전한 이름/부모 확정 후 op 단위 일괄 복원(trashed_at=NULL)
+    folders.restoreByOp(meta.opId());
+    files.restoreByOp(meta.opId());
   }
 
   /** 파일 복원 — op 단위 일괄 + 폴더 보정. 파일명은 충돌 제약 없음. EDITOR. */

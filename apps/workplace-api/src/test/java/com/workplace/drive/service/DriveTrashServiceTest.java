@@ -188,4 +188,61 @@ class DriveTrashServiceTest extends IntegrationTestBase {
     assertThat(list.items()).anyMatch(i -> i.type().equals("FILE"));
     assertThat(list.items()).allMatch(i -> i.autoPurgeAt().isAfter(i.trashedAt()));
   }
+
+  /** 폴더를 휴지통에 보낸 뒤 같은 이름 폴더를 새로 만들 수 있다(부분 유니크 인덱스 — trashed 행 제외). */
+  @Test
+  void createSameNameFolder_afterTrash_isAllowed() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var first = folderService.create(u, sp.id(), null, "보고서");
+    folderService.delete(u, first.id()); // 휴지통으로
+
+    // 같은 이름 새 폴더 — 유니크 위반 없이 생성돼야 함
+    var second = folderService.create(u, sp.id(), null, "보고서");
+    assertThat(second.id()).isNotEqualTo(first.id());
+    assertThat(folderService.listItems(u, sp.id(), null).folders())
+        .anyMatch(f -> f.id() == second.id());
+  }
+
+  /** 복원 시 살아있는 동명 폴더가 있으면 자동 리네임("보고서 (복원됨)") — 유니크 위반으로 롤백되지 않는다. */
+  @Test
+  void restore_folder_autoRenamesOnLiveNameCollision() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var original = folderService.create(u, sp.id(), null, "보고서");
+    folderService.delete(u, original.id()); // 휴지통으로
+    var replacement = folderService.create(u, sp.id(), null, "보고서"); // 같은 이름 새 폴더
+
+    trashService.restoreFolder(u, original.id()); // 충돌 → 자동 리네임 기대
+
+    var folders = folderService.listItems(u, sp.id(), null).folders();
+    // 원본·대체 둘 다 살아있고, 원본은 리네임됨
+    assertThat(folders).anyMatch(f -> f.id() == replacement.id() && f.name().equals("보고서"));
+    assertThat(folders).anyMatch(f -> f.id() == original.id() && f.name().equals("보고서 (복원됨)"));
+    assertThat(trashService.listTrash(u, sp.id()).items()).isEmpty();
+  }
+
+  /** VIEWER 는 삭제/복원/영구삭제/비우기 불가(403), 조회는 가능. */
+  @Test
+  void viewer_cannotMutateTrash_butCanList() throws Exception {
+    long owner = seedUser();
+    long viewer = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(owner, "팀");
+    spaceService.addMember(owner, sp.id(), viewer, "VIEWER");
+    DriveFileResponse f = fileService.upload(owner, sp.id(), null, txt());
+    fileService.delete(owner, f.id()); // owner 가 휴지통으로
+
+    // 조회는 VIEWER 가능
+    assertThat(trashService.listTrash(viewer, sp.id()).items()).hasSize(1);
+    // 변경 동작은 모두 403
+    var forbidden = com.workplace.drive.exception.DriveForbiddenException.class;
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> trashService.restoreFile(viewer, f.id()))
+        .isInstanceOf(forbidden);
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> trashService.purgeFile(viewer, f.id()))
+        .isInstanceOf(forbidden);
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> trashService.emptyTrash(viewer, sp.id()))
+        .isInstanceOf(forbidden);
+  }
 }
