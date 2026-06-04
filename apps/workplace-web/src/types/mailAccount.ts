@@ -31,7 +31,7 @@ export interface MailAccountRequest {
   smtpSecurity: MailSecurity;
   smtpUsername: string;
   /** AI 비서 기능 활성화 여부 */
-  aiEnabled?: boolean;
+  aiEnabled: boolean;
   /** 생성·테스트 시 필수. 수정 시 빈 문자열이면 기존 비밀번호 유지. */
   password?: string;
 }
