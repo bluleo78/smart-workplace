@@ -3,7 +3,9 @@ package com.workplace.user.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -104,5 +106,36 @@ class UserGroupControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void detail_returns200() throws Exception {
+    when(service.getDetail(1L, 5L))
+        .thenReturn(new UserGroupDetail(5L, null, "팀", null, null, "SHARED", 0, List.of()));
+    mockMvc
+        .perform(get("/api/v1/user-groups/5").header("Authorization", "Bearer v"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("팀"));
+  }
+
+  @Test
+  void update_returns200() throws Exception {
+    when(service.update(eq(1L), eq(5L), any()))
+        .thenReturn(new UserGroupDetail(5L, null, "수정됨", null, 1L, "PERSONAL", 0, List.of()));
+    mockMvc
+        .perform(
+            patch("/api/v1/user-groups/5")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"수정됨\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("수정됨"));
+  }
+
+  @Test
+  void delete_returns204() throws Exception {
+    mockMvc
+        .perform(delete("/api/v1/user-groups/5").header("Authorization", "Bearer v"))
+        .andExpect(status().isNoContent());
   }
 }
