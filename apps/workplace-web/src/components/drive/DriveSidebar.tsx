@@ -1,5 +1,8 @@
+import { HardDrive, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
+
+import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 
 import { driveApi } from '../../api/drive'
 import type { DriveSpace } from '../../types/drive'
@@ -28,33 +31,47 @@ export function DriveSidebar() {
   return (
     <aside
       data-testid="drive-sidebar"
-      className="flex w-60 shrink-0 flex-col border-r border-border p-3"
+      className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40"
     >
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-semibold text-foreground">드라이브</span>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="rounded px-2 py-0.5 text-sm text-primary hover:bg-accent"
-        >
-          + 공간
-        </button>
+      {/* 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "드라이브" 앱임을 명시 */}
+      <div className={sidebarTitleClass}>
+        <HardDrive className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
+        드라이브
       </div>
-      <nav className="flex flex-col gap-0.5">
-        {spaces.map((s) => (
-          <NavLink
-            key={s.id}
-            to={`/drive/spaces/${s.id}`}
-            className={({ isActive }) =>
-              `truncate rounded px-2 py-1.5 text-sm ${
-                isActive ? 'bg-accent font-medium' : 'hover:bg-accent/50'
-              }`
-            }
+
+      <div className="flex-1 overflow-y-auto p-3">
+        {/* 공간 섹션 헤더 — 팀 공간 생성 액션을 섹션 헤더에 배치(표준 사이드바 패턴) */}
+        <div className="flex items-center justify-between px-3">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            공간
+          </span>
+          <button
+            type="button"
+            aria-label="팀 공간 만들기"
+            onClick={onCreate}
+            className="text-muted-foreground hover:text-foreground"
           >
-            {s.type === 'PERSONAL' ? '내 드라이브' : s.name}
-          </NavLink>
-        ))}
-      </nav>
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+        <nav className="mt-2 space-y-1">
+          {spaces.map((s) => (
+            <NavLink
+              key={s.id}
+              to={`/drive/spaces/${s.id}`}
+              className={({ isActive }) =>
+                `flex items-center gap-2 truncate rounded-md px-3 py-2 text-sm ${
+                  isActive
+                    ? 'bg-accent font-medium text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50'
+                }`
+              }
+            >
+              {s.type === 'PERSONAL' ? '내 드라이브' : s.name}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
     </aside>
   )
 }

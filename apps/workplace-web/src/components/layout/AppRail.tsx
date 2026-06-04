@@ -45,10 +45,11 @@ interface RailItem {
 const MODULES: RailItem[] = [
   { label: '홈', href: '/', icon: Home },
   { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
-  { label: 'Chat', href: '/chat', icon: MessageSquare },
-  { label: 'Drive', href: '/drive', icon: HardDrive },
-  { label: '연락처', href: '/contacts', icon: Users },
+  // 소통 묶음 — 대화·메일·연락처를 인접 배치, 파일(드라이브)은 끝으로.
+  { label: '대화', href: '/chat', icon: MessageSquare },
   { label: '메일', href: '/mail', icon: Mail },
+  { label: '연락처', href: '/contacts', icon: Users },
+  { label: '드라이브', href: '/drive', icon: HardDrive },
 ]
 // 어드민 전용 모듈 — "설정"(워크스페이스 설정·관리)
 const ADMIN_MODULE: RailItem = { label: '설정', href: '/admin/users', icon: Settings, match: '/admin' }

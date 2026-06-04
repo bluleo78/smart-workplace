@@ -69,3 +69,13 @@ test('통합 목록·검색·타입필터·상세', { tag: '@smoke' }, async ({ 
   await expect(page.getByTestId('contact-detail-member')).toContainText('김멤버')
   await expect(page.getByTestId('contact-detail-member')).toContainText('개발팀')
 })
+
+// LNB 표준화(#98) — 연락처 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
+test('연락처 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
+  await stubList(page)
+  await page.goto('/contacts')
+  const sidebar = page.getByTestId('contact-sidebar')
+  await expect(sidebar).toBeVisible()
+  // h-14 앱 타이틀 헤더에 "연락처"(레일 라벨과 동일) 노출
+  await expect(sidebar.getByText('연락처', { exact: true })).toBeVisible()
+})

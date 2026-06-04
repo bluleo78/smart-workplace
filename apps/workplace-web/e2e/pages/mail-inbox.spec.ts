@@ -104,4 +104,15 @@ test.describe('받은편지함', () => {
     await page.goto('/mail')
     await expect(page.getByTestId('mail-empty-accounts')).toBeVisible()
   })
+
+  // LNB 표준화(#98) — 메일 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
+  test('메일 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await page.goto('/mail')
+    const sidebar = page.getByTestId('mail-sidebar')
+    await expect(sidebar).toBeVisible()
+    // h-14 앱 타이틀 헤더에 "메일"(레일 라벨과 동일) 노출 — "메일 계정" 섹션 라벨과 구분되도록 exact
+    await expect(sidebar.getByText('메일', { exact: true })).toBeVisible()
+  })
 })

@@ -173,3 +173,13 @@ test.describe('messaging 채팅 E2E', () => {
     await expect(page.getByTestId('message-body-500')).toHaveCount(1);
   });
 });
+
+// LNB 표준화(#98) — 대화 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
+test('대화 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
+  await setupChannelStubs(page, [createChannel({ id: CHANNEL_ID, member: true })], `:\n\n`);
+  await page.goto(`/chat/channels/${CHANNEL_ID}`);
+  const sidebar = page.getByTestId('channel-sidebar');
+  await expect(sidebar).toBeVisible();
+  // h-14 앱 타이틀 헤더에 "대화"(레일 라벨과 동일) 노출
+  await expect(sidebar.getByText('대화', { exact: true })).toBeVisible();
+});

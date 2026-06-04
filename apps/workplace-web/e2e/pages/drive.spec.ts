@@ -328,3 +328,13 @@ test('휴지통 — 조회 후 복원하면 목록이 갱신된다', async ({ au
   await page.getByRole('button', { name: '복원' }).click()
   await expect(page.getByText('휴지통이 비어 있습니다')).toBeVisible()
 })
+
+// LNB 표준화(#98) — 드라이브 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
+test('드라이브 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await page.goto('/drive')
+  const sidebar = page.getByTestId('drive-sidebar')
+  await expect(sidebar).toBeVisible()
+  // h-14 앱 타이틀 헤더에 "드라이브"(레일 라벨과 동일) 노출 — 공간 링크 "내 드라이브"와 구분되도록 exact
+  await expect(sidebar.getByText('드라이브', { exact: true })).toBeVisible()
+})
