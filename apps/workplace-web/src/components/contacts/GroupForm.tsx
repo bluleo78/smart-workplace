@@ -16,7 +16,7 @@ import {
 } from '@/hooks/queries/useUserGroupMutations'
 import { type UserGroupFormData, userGroupSchema } from '@/lib/validations/userGroup'
 import type { ContactSummary } from '@/types/contact'
-import type { GroupMemberType, UserGroupDetail, UserGroupNode } from '@/types/userGroup'
+import type { GroupMemberType, UserGroupDetail } from '@/types/userGroup'
 
 interface Props {
   open: boolean
@@ -231,17 +231,4 @@ export function GroupForm({ open, onOpenChange, group, personalOptions }: Props)
       </DialogContent>
     </Dialog>
   )
-}
-
-/** 트리를 평면 {id,name} 목록으로(부모 셀렉트 후보). */
-export function flattenGroups(nodes: UserGroupNode[]): { id: number; name: string }[] {
-  const out: { id: number; name: string }[] = []
-  const walk = (ns: UserGroupNode[], depth: number) => {
-    for (const n of ns) {
-      out.push({ id: n.id, name: `${'　'.repeat(depth)}${n.name}` })
-      walk(n.children, depth + 1)
-    }
-  }
-  walk(nodes, 0)
-  return out
 }

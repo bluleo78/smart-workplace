@@ -18,7 +18,8 @@ import { useUserGroups } from '@/hooks/queries/useUserGroups'
 import { cn } from '@/lib/utils'
 import type { UserGroupDetail, UserGroupNode } from '@/types/userGroup'
 
-import { flattenGroups, GroupForm } from './GroupForm'
+import { GroupForm } from './GroupForm'
+import { flattenGroups } from './groupTree.helpers'
 
 interface NodeProps {
   node: UserGroupNode

@@ -19,13 +19,3 @@ function OrgNode({ node, depth }: { node: UserGroupNode; depth: number }) {
     </div>
   )
 }
-
-/** 트리에서 id 노드 찾기(공유 트리에서 서브트리 루트 조회용). */
-export function findNode(nodes: UserGroupNode[], id: number): UserGroupNode | null {
-  for (const n of nodes) {
-    if (n.id === id) return n
-    const found = findNode(n.children, id)
-    if (found) return found
-  }
-  return null
-}

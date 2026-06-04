@@ -1,8 +1,10 @@
-import { cn } from '@/lib/utils'
+import type { ContactSelection } from '@/hooks/queries/useContactDetail'
 import { useUserGroupDetail } from '@/hooks/queries/useUserGroupDetail'
 import { useUserGroups } from '@/hooks/queries/useUserGroups'
-import type { ContactSelection } from '@/hooks/queries/useContactDetail'
-import { findNode, OrgChartView } from './OrgChartView'
+import { cn } from '@/lib/utils'
+
+import { findNode } from './groupTree.helpers'
+import { OrgChartView } from './OrgChartView'
 
 interface Props {
   groupId: number
