@@ -232,6 +232,30 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  // 사용자 그룹 도메인 — 미존재/격리(404)
+  @ExceptionHandler(com.workplace.user.exception.UserGroupNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleUserGroupNotFound(
+      com.workplace.user.exception.UserGroupNotFoundException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  // 사용자 그룹 — SHARED 비권한자 쓰기(403)
+  @ExceptionHandler(com.workplace.user.exception.UserGroupForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handleUserGroupForbidden(
+      com.workplace.user.exception.UserGroupForbiddenException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  // 사용자 그룹 — 사이클·잘못된 멤버 대상(400)
+  @ExceptionHandler(com.workplace.user.exception.InvalidUserGroupException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidUserGroup(
+      com.workplace.user.exception.InvalidUserGroupException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+  }
+
   // 이름 충돌(폴더 UNIQUE 제약 위반) — 409
   @ExceptionHandler(com.workplace.drive.exception.DriveDuplicateNameException.class)
   public ResponseEntity<ErrorResponse> handleDriveConflict(
