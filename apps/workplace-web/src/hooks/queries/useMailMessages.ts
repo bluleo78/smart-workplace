@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { getMessage, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
+import { generateReplyDraft, getMailSummary, getMessage, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import type { MailFolder, MailSendRequest } from '../../types/mailMessage';
 
@@ -11,6 +11,7 @@ export const mailMessageKeys = {
   list: (accountId: number, folder: MailFolder, query: string) =>
     ['mail-messages', accountId, folder, query] as const,
   detail: (messageId: number) => ['mail-message', messageId] as const,
+  summary: (messageId: number) => ['mail-summary', messageId] as const,
 };
 
 /** 계정의 메시지 목록(폴더·검색어). accountId 가 없으면 비활성. */
@@ -35,6 +36,16 @@ export function useMailMessage(messageId: number | null) {
   });
 }
 
+/** 메일 요약 — 열람 시 자동 조회(계정 AI 사용 + messageId 있을 때만). */
+export function useMailSummary(messageId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: mailMessageKeys.summary(messageId ?? 0),
+    queryFn: () => getMailSummary(messageId as number),
+    enabled: !!messageId && enabled,
+    staleTime: Infinity,
+  });
+}
+
 /** INBOX 수동 동기화 — 성공 시 해당 계정의 목록 캐시 무효화. */
 export function useSyncMailbox(accountId: number | undefined) {
   const qc = useQueryClient();
@@ -49,6 +60,14 @@ export function useSyncMailbox(accountId: number | undefined) {
       );
     },
     onError: (e) => handleApiError(e, '동기화에 실패했습니다'),
+  });
+}
+
+/** AI 답장 초안 — 버튼 클릭 시 1회 생성. 결과는 호출 측에서 작성 도크에 채움. */
+export function useReplyDraft() {
+  return useMutation({
+    mutationFn: (messageId: number) => generateReplyDraft(messageId),
+    onError: (e) => handleApiError(e, 'AI 답장 초안 생성에 실패했습니다'),
   });
 }
 

@@ -9,6 +9,8 @@ import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
   useMailMessage,
   useMailMessages,
+  useMailSummary,
+  useReplyDraft,
   useSyncMailbox,
 } from '../../hooks/queries/useMailMessages'
 import type { EmailMessageDetail, EmailMessageSummary, MailFolder } from '../../types/mailMessage'
@@ -62,6 +64,26 @@ function MessageRow({
         {m.subject || '(제목 없음)'}
       </span>
       <span className="truncate text-xs text-muted-foreground">{m.snippet}</span>
+      {(m.aiCategory || m.aiNeedsReply) && (
+        <span className="mt-0.5 flex items-center gap-1">
+          {m.aiCategory && (
+            <span
+              data-testid={`mail-badge-category-${m.id}`}
+              className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            >
+              {m.aiCategory}
+            </span>
+          )}
+          {m.aiNeedsReply && (
+            <span
+              data-testid={`mail-badge-needsreply-${m.id}`}
+              className="inline-flex items-center gap-0.5 text-[10px] font-medium text-primary"
+            >
+              ● 답장필요
+            </span>
+          )}
+        </span>
+      )}
     </button>
   )
 }
@@ -88,16 +110,22 @@ function extractEmail(token: string): string {
 // 선택한 메시지의 본문 패널 — text 우선, HTML 만 있으면 스크립트 차단 iframe 으로 렌더.
 function MessageDetailPanel({
   messageId,
+  aiEnabled,
   onReply,
   onReplyAll,
   onForward,
+  onAiReplyDraft,
 }: {
   messageId: number | null
+  aiEnabled: boolean
   onReply: (detail: EmailMessageDetail) => void
   onReplyAll: (detail: EmailMessageDetail) => void
   onForward: (detail: EmailMessageDetail) => void
+  onAiReplyDraft: (detail: EmailMessageDetail) => void
 }) {
   const { data: detail, isLoading, isError } = useMailMessage(messageId)
+  // AI 사용 계정 + messageId 가 있을 때만 요약 자동 조회.
+  const { data: summaryData } = useMailSummary(messageId, aiEnabled)
 
   if (!messageId) {
     return (
@@ -119,6 +147,13 @@ function MessageDetailPanel({
   return (
     <div data-testid="mail-detail" className="flex h-full flex-col overflow-y-auto">
       <div className="border-b p-4">
+        {/* AI 요약 스트립 — AI 사용 계정 + 요약 있을 때만 표시. */}
+        {aiEnabled && summaryData?.summary && (
+          <details data-testid="mail-ai-summary" open className="mb-2 rounded border bg-muted/40 p-2 text-xs">
+            <summary className="cursor-pointer font-medium text-muted-foreground">요약 (AI)</summary>
+            <div className="mt-1 whitespace-pre-wrap">{summaryData.summary}</div>
+          </details>
+        )}
         <h2 className="text-lg font-semibold">{detail.subject || '(제목 없음)'}</h2>
         <div className="mt-1 text-sm text-muted-foreground">
           {detail.fromName ? `${detail.fromName} <${detail.fromAddress}>` : detail.fromAddress}
@@ -158,6 +193,17 @@ function MessageDetailPanel({
           >
             <Forward className="h-3.5 w-3.5" /> 전달
           </button>
+          {/* AI 답장 초안 버튼 — AI 사용 계정에서만 노출. */}
+          {aiEnabled && (
+            <button
+              type="button"
+              data-testid="mail-ai-reply-draft"
+              onClick={() => onAiReplyDraft(detail)}
+              className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
+            >
+              ✨ AI 답장 초안
+            </button>
+          )}
         </div>
         {detail.attachments.length > 0 && (
           <ul data-testid="mail-attachments" className="mt-2 flex flex-wrap gap-2">
@@ -216,9 +262,12 @@ export function MailInboxPage() {
   const { data: messages, isLoading, isError } = useMailMessages(accountIdNum, folderParam, search)
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
+  const replyDraft = useReplyDraft()
 
   // 본인 이메일 주소(전체답장에서 자신을 수신자에서 제외).
   const selfAddress = accounts?.find((a) => a.id === accountIdNum)?.emailAddress ?? ''
+  // 현재 계정의 AI 사용 여부 — 요약 스트립 표시 여부에 사용.
+  const aiEnabled = accounts?.find((a) => a.id === accountIdNum)?.aiEnabled ?? false
 
   // 답장 draft 생성.
   function buildReply(detail: EmailMessageDetail, all: boolean): ComposeDraft {
@@ -254,6 +303,16 @@ export function MailInboxPage() {
       initialHtml: quoteHtml(d),
       inReplyToMessageId: null,
     })
+  }
+  // AI 답장 초안 — 생성된 본문을 인용문 위 단락으로 넣어 답장 도크 오픈.
+  async function onAiReplyDraft(d: EmailMessageDetail) {
+    const base = buildReply(d, false)
+    try {
+      const { draftBody } = await replyDraft.mutateAsync(d.id)
+      openCompose({ ...base, initialHtml: `<p>${draftBody.replace(/\n/g, '<br/>')}</p>${base.initialHtml}` })
+    } catch {
+      /* 토스트는 훅 onError 가 처리 */
+    }
   }
   function onNew() {
     openCompose({
@@ -388,9 +447,11 @@ export function MailInboxPage() {
       <div className="hidden min-w-0 flex-1 lg:block" data-testid="mail-detail-pane">
         <MessageDetailPanel
           messageId={selectedId}
+          aiEnabled={aiEnabled}
           onReply={onReply}
           onReplyAll={onReplyAll}
           onForward={onForward}
+          onAiReplyDraft={onAiReplyDraft}
         />
       </div>
     </div>

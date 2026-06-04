@@ -44,7 +44,8 @@ class MailSentAppenderTest {
         "me@test.local",
         null,
         null,
-        null);
+        null,
+        false);
   }
 
   private MimeMessage simpleMessage() throws Exception {

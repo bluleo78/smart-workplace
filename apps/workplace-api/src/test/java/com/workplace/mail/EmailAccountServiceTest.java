@@ -55,7 +55,8 @@ class EmailAccountServiceTest extends IntegrationTestBase {
         3025,
         MailSecurity.NONE,
         "box@test.local",
-        password);
+        password,
+        false);
   }
 
   @Test
@@ -120,7 +121,8 @@ class EmailAccountServiceTest extends IntegrationTestBase {
             3025,
             MailSecurity.NONE,
             "box@test.local",
-            "");
+            "",
+            false);
     EmailAccountResponse res = service.update(user, created.id(), update);
 
     assertThat(res.displayName()).isEqualTo("새표시명");
@@ -179,7 +181,8 @@ class EmailAccountServiceTest extends IntegrationTestBase {
             3025,
             MailSecurity.NONE,
             "box2@test.local",
-            "pw");
+            "pw",
+            false);
     long bId = repo.insert(user, bReq, encryption.encrypt("pw"));
     // B 의 주소를 A 와 동일하게 변경 시도(비번 빈값=유지) → 연결테스트 전에 중복 409
     EmailAccountRequest toDup = greenMailReq("");

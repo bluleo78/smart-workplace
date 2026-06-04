@@ -60,7 +60,8 @@ class MailComposeServiceTest extends IntegrationTestBase {
             3025,
             MailSecurity.NONE,
             "me@test.local",
-            "pw");
+            "pw",
+            false);
     return accountRepo.insert(user, req, encryption.encrypt("pw"));
   }
 

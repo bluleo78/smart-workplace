@@ -35,6 +35,7 @@ public class EmailAccountRepository {
         .set(EMAIL_ACCOUNT.SMTP_SECURITY, req.smtpSecurity().name())
         .set(EMAIL_ACCOUNT.SMTP_USERNAME, req.smtpUsername())
         .set(EMAIL_ACCOUNT.ENCRYPTED_PASSWORD, encryptedPassword)
+        .set(EMAIL_ACCOUNT.AI_ENABLED, req.aiEnabled()) // AI 비서 활성화 여부
         .set(EMAIL_ACCOUNT.LAST_TESTED_AT, OffsetDateTime.now())
         .returning(EMAIL_ACCOUNT.ID)
         .fetchOne()
@@ -57,7 +58,8 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.SMTP_USERNAME,
             EMAIL_ACCOUNT.LAST_TESTED_AT,
             EMAIL_ACCOUNT.CREATED_AT,
-            EMAIL_ACCOUNT.UPDATED_AT)
+            EMAIL_ACCOUNT.UPDATED_AT,
+            EMAIL_ACCOUNT.AI_ENABLED)
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.ID.eq(id))
         .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
@@ -81,7 +83,8 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.SMTP_USERNAME,
             EMAIL_ACCOUNT.LAST_TESTED_AT,
             EMAIL_ACCOUNT.CREATED_AT,
-            EMAIL_ACCOUNT.UPDATED_AT)
+            EMAIL_ACCOUNT.UPDATED_AT,
+            EMAIL_ACCOUNT.AI_ENABLED)
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
@@ -135,6 +138,7 @@ public class EmailAccountRepository {
         .set(EMAIL_ACCOUNT.SMTP_SECURITY, req.smtpSecurity().name())
         .set(EMAIL_ACCOUNT.SMTP_USERNAME, req.smtpUsername())
         .set(EMAIL_ACCOUNT.ENCRYPTED_PASSWORD, encryptedPassword)
+        .set(EMAIL_ACCOUNT.AI_ENABLED, req.aiEnabled()) // AI 비서 활성화 여부
         .set(EMAIL_ACCOUNT.LAST_TESTED_AT, OffsetDateTime.now())
         .set(EMAIL_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
         .where(EMAIL_ACCOUNT.ID.eq(id))
@@ -172,6 +176,7 @@ public class EmailAccountRepository {
         r.get(EMAIL_ACCOUNT.SMTP_USERNAME),
         tested == null ? null : tested.toInstant(),
         created == null ? null : created.toInstant(),
-        updated == null ? null : updated.toInstant());
+        updated == null ? null : updated.toInstant(),
+        Boolean.TRUE.equals(r.get(EMAIL_ACCOUNT.AI_ENABLED)));
   }
 }

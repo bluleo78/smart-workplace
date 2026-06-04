@@ -11,6 +11,8 @@ export interface EmailMessageSummary {
   receivedAt: string | null;
   seen: boolean;
   hasAttachment: boolean;
+  aiCategory: string | null;
+  aiNeedsReply: boolean | null;
 }
 
 /** 첨부 메타(바이너리 미저장 — 다운로드는 후속). */

@@ -36,6 +36,18 @@ export async function getMessage(messageId: number): Promise<EmailMessageDetail>
   return data;
 }
 
+/** 메일 요약(캐시 우선). */
+export async function getMailSummary(messageId: number): Promise<{ summary: string | null }> {
+  const { data } = await client.get<{ summary: string | null }>(`/mail/messages/${messageId}/summary`)
+  return data
+}
+
+/** AI 답장 초안 생성(미영속). */
+export async function generateReplyDraft(messageId: number): Promise<{ draftBody: string }> {
+  const { data } = await client.post<{ draftBody: string }>(`/mail/messages/${messageId}/reply-draft`)
+  return data
+}
+
 /** 메일 발송(새 메일·답장·전달). inReplyToMessageId 가 있으면 답장. */
 export async function sendMail(
   accountId: number,

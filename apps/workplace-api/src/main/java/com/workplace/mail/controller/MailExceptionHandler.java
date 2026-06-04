@@ -2,6 +2,8 @@ package com.workplace.mail.controller;
 
 import com.workplace.global.dto.ErrorResponse;
 import com.workplace.mail.dto.ConnectionTestResult;
+import com.workplace.mail.exception.MailAiException;
+import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.exception.MailValidationException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,5 +43,34 @@ public class MailExceptionHandler {
             Instant.now().toString(),
             request.getRequestURI());
     return ResponseEntity.badRequest().body(body);
+  }
+
+  /** AI 비서 서비스 미설정·일시 불가 → 503 + ErrorResponse(message 포함). */
+  @ExceptionHandler(MailAiUnavailableException.class)
+  public ResponseEntity<ErrorResponse> handleAiUnavailable(
+      MailAiUnavailableException e, HttpServletRequest request) {
+    ErrorResponse body =
+        new ErrorResponse(
+            HttpStatus.SERVICE_UNAVAILABLE.value(),
+            HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase(),
+            e.getMessage(),
+            null,
+            Instant.now().toString(),
+            request.getRequestURI());
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+  }
+
+  /** AI 비서 호출 실패(IO/4xx/5xx) → 502 + ErrorResponse(message 포함). */
+  @ExceptionHandler(MailAiException.class)
+  public ResponseEntity<ErrorResponse> handleAi(MailAiException e, HttpServletRequest request) {
+    ErrorResponse body =
+        new ErrorResponse(
+            HttpStatus.BAD_GATEWAY.value(),
+            HttpStatus.BAD_GATEWAY.getReasonPhrase(),
+            e.getMessage(),
+            null,
+            Instant.now().toString(),
+            request.getRequestURI());
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
   }
 }

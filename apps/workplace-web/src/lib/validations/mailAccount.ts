@@ -16,6 +16,8 @@ export const mailAccountSchema = z.object({
   smtpSecurity: securityEnum,
   smtpUsername: z.string().min(1, 'SMTP 사용자명을 입력하세요'),
   password: z.string().optional().or(z.literal('')),
+  // AI 비서 기능 활성화 여부 — 기본 꺼짐
+  aiEnabled: z.boolean().default(false),
 });
 
 export type MailAccountFormData = z.infer<typeof mailAccountSchema>;

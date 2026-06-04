@@ -2,12 +2,18 @@ package com.workplace.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.when;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
 import com.icegreen.greenmail.user.GreenMailUser;
 import com.icegreen.greenmail.util.GreenMailUtil;
 import com.icegreen.greenmail.util.ServerSetupTest;
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailMessageDetail;
@@ -15,6 +21,8 @@ import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
+import com.workplace.mail.outbound.AiAgentMailClient;
+import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailSyncService;
@@ -36,6 +44,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -57,8 +66,19 @@ class MailSyncServiceTest extends IntegrationTestBase {
   @Autowired EmailMessageRepository messageRepo;
   @Autowired EncryptionService encryption;
 
+  /** ai-agent 실호출 차단 — 더미 응답으로 고정. */
+  @MockitoBean AiAgentMailClient mailClient;
+
+  /** 비서 해석은 관심 밖 — 더미 사양으로 고정. */
+  @MockitoBean AssistantResolver assistantResolver;
+
   /** box@test.local 을 가리키는 계정을 직접 삽입(연결테스트 우회). 동기화 대상 accountId 반환. */
   private long insertAccount(long userId) {
+    return insertAccount(userId, false);
+  }
+
+  /** box@test.local 계정 삽입 with aiEnabled 옵션. AI 분류 테스트에서 aiEnabled=true 로 생성할 때 사용. */
+  private long insertAccount(long userId, boolean aiEnabled) {
     EmailAccountRequest req =
         new EmailAccountRequest(
             "box@test.local",
@@ -71,7 +91,8 @@ class MailSyncServiceTest extends IntegrationTestBase {
             3025,
             MailSecurity.NONE,
             "box@test.local",
-            "pw");
+            "pw",
+            aiEnabled);
     return accountRepo.insert(userId, req, encryption.encrypt("pw"));
   }
 
@@ -182,6 +203,40 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> syncService.sync(other, accountId))
         .isInstanceOf(EmailAccountNotFoundException.class);
+  }
+
+  /** ai_enabled=true 계정 동기화 → 신규 메시지에 분류 결과가 저장된다. */
+  @Test
+  void sync_aiEnabled_신규메시지_분류기록() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user, true);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "업무 보고", "보고서 내용");
+    greenMail.waitForIncomingEmail(1);
+
+    when(assistantResolver.resolve(anyLong()))
+        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+    when(mailClient.classify(any())).thenReturn(new ClassifyResult("업무", true));
+
+    syncService.sync(user, accountId);
+
+    List<EmailMessageSummary> list = messageRepo.listByAccount(accountId, null, 50);
+    assertThat(list).hasSize(1);
+    assertThat(list.get(0).aiCategory()).isEqualTo("업무");
+    assertThat(list.get(0).aiNeedsReply()).isTrue();
+  }
+
+  /** ai_enabled=false 계정 동기화 → classify 미호출. */
+  @Test
+  void sync_aiDisabled_classify_미호출() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user, false);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "일반 메일", "내용");
+    greenMail.waitForIncomingEmail(1);
+
+    syncService.sync(user, accountId);
+
+    // aiEnabled=false 이면 classify 가 전혀 호출되지 않아야 한다.
+    org.mockito.Mockito.verify(mailClient, never()).classify(any());
   }
 
   /**

@@ -19,6 +19,7 @@ function account(overrides?: Partial<MailAccountResponse>): MailAccountResponse 
     smtpPort: 587,
     smtpSecurity: 'STARTTLS',
     smtpUsername: 'me@example.com',
+    aiEnabled: false,
     lastTestedAt: '2026-06-03T00:00:00Z',
     createdAt: '2026-06-03T00:00:00Z',
     updatedAt: '2026-06-03T00:00:00Z',
@@ -102,6 +103,29 @@ test.describe('메일 계정 설정', () => {
     await page.getByTestId('mail-test-button').click();
     await expect(page.getByTestId('mail-test-result')).toContainText('인증 실패');
     await expect(page.getByTestId('mail-save-button')).toBeDisabled();
+  });
+
+  test('수정 다이얼로그 — AI 비서 토글 활성화 후 저장 시 PUT payload 에 aiEnabled: true 포함', async ({ authenticatedPage: page }) => {
+    // GET: aiEnabled=false 인 계정 1건
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [account({ aiEnabled: false })]);
+    // PUT /api/v1/mail/accounts/1 — capture: true 로 payload 캡처
+    const capture = await mockApi(page, 'PUT', '/api/v1/mail/accounts/1', account({ aiEnabled: true }), { capture: true });
+
+    await page.goto('/profile');
+
+    // 수정 버튼 클릭 → 수정 다이얼로그 열기
+    await page.getByTestId('mail-account-row-1').getByRole('button', { name: '수정' }).click();
+    await expect(page.getByTestId('mail-account-dialog')).toBeVisible();
+
+    // AI 비서 토글 클릭 (false → true)
+    await page.getByTestId('mail-ai-enabled').click();
+
+    // 저장
+    await page.getByTestId('mail-save-button').click();
+
+    // PUT body 에 aiEnabled: true 포함 확인
+    const req = await capture.waitForRequest();
+    expect((req.payload as Record<string, unknown>).aiEnabled).toBe(true);
   });
 
   test('계정 삭제', async ({ authenticatedPage: page }) => {
