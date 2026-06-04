@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.EMAIL_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
+import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailAttachmentMeta;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
@@ -240,6 +241,75 @@ public class EmailMessageRepository {
         .set(EMAIL_MESSAGE.AI_SUMMARIZED_AT, OffsetDateTime.now())
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .execute();
+  }
+
+  /** 본문/스니펫/첨부플래그 저장 + body_fetched_at 갱신(적재 완료 표시). */
+  public void updateBody(
+      long messageId, String bodyText, String bodyHtml, String snippet, boolean hasAttachment) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.BODY_TEXT, bodyText)
+        .set(EMAIL_MESSAGE.BODY_HTML, bodyHtml)
+        .set(EMAIL_MESSAGE.SNIPPET, snippet)
+        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, hasAttachment)
+        .set(EMAIL_MESSAGE.BODY_FETCHED_AT, OffsetDateTime.now())
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /** 본문 미적재 대상(account 별, 최근순). imap_uid 없는 로컬 보낸메일 제외. */
+  public List<BodyTarget> listMissingBody(long accountId, int limit) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_MESSAGE.IMAP_UID,
+            EMAIL_FOLDER.NAME,
+            EMAIL_MESSAGE.BODY_FETCHED_AT)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.BODY_FETCHED_AT.isNull())
+        .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast())
+        .limit(limit)
+        .fetch(this::toBodyTarget);
+  }
+
+  /** 본문 미적재 건수(account 별). 진행률 total 산정용. */
+  public int countMissingBody(long accountId) {
+    return dsl.fetchCount(
+        dsl.selectFrom(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_MESSAGE.BODY_FETCHED_AT.isNull())
+            .and(EMAIL_MESSAGE.IMAP_UID.isNotNull()));
+  }
+
+  /** 단건 본문 적재 대상 조회(account 기준 — 호출 측에서 소유 검증 선행). */
+  public Optional<BodyTarget> findBodyTarget(long accountId, long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_MESSAGE.IMAP_UID,
+            EMAIL_FOLDER.NAME,
+            EMAIL_MESSAGE.BODY_FETCHED_AT)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .fetchOptional(this::toBodyTarget);
+  }
+
+  /** Record → BodyTarget. imap_uid null→0L, body_fetched_at null→null else Instant. */
+  private BodyTarget toBodyTarget(Record r) {
+    Long uid = r.get(EMAIL_MESSAGE.IMAP_UID);
+    OffsetDateTime fetched = r.get(EMAIL_MESSAGE.BODY_FETCHED_AT);
+    return new BodyTarget(
+        r.get(EMAIL_MESSAGE.ID),
+        r.get(EMAIL_MESSAGE.ACCOUNT_ID),
+        uid == null ? 0L : uid,
+        r.get(EMAIL_FOLDER.NAME),
+        fetched == null ? null : fetched.toInstant());
   }
 
   /** AI 요약/답장용 컨텍스트(계정 ai_enabled·본인 이메일 + 메시지 본문/요약). 소유 검증 포함. */
