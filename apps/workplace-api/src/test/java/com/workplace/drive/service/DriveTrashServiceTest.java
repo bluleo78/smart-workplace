@@ -37,6 +37,60 @@ class DriveTrashServiceTest extends IntegrationTestBase {
     return new MockMultipartFile("file", "memo.txt", "text/plain", "hello".getBytes());
   }
 
+  /** 폴더 복원 → 하위까지 통째 복귀(브라우즈 재등장). */
+  @Test
+  void restore_folder_bringsBackSubtree() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var folder = folderService.create(u, sp.id(), null, "보고서");
+    fileService.upload(u, sp.id(), folder.id(), txt());
+    folderService.delete(u, folder.id());
+
+    trashService.restoreFolder(u, folder.id());
+
+    assertThat(folderService.listItems(u, sp.id(), null).folders())
+        .anyMatch(f -> f.id() == folder.id());
+    assertThat(folderService.listItems(u, sp.id(), folder.id()).files()).hasSize(1);
+    assertThat(trashService.listTrash(u, sp.id()).items()).isEmpty();
+  }
+
+  /** 중첩 독립삭제: 파일X 삭제 → 부모 삭제 → 부모 복원 시 X 는 여전히 휴지통. */
+  @Test
+  void restore_folder_keepsIndependentlyTrashedChild() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var parent = folderService.create(u, sp.id(), null, "부모");
+    DriveFileResponse x = fileService.upload(u, sp.id(), parent.id(), txt());
+    fileService.delete(u, x.id()); // op1
+    folderService.delete(u, parent.id()); // op2
+
+    trashService.restoreFolder(u, parent.id()); // op2 만 복원
+
+    assertThat(folderService.listItems(u, sp.id(), null).folders())
+        .anyMatch(f -> f.id() == parent.id());
+    var xTrashed =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FILE.TRASHED_AT)
+            .from(com.workplace.jooq.Tables.DRIVE_FILE)
+            .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(x.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FILE.TRASHED_AT);
+    assertThat(xTrashed).isNotNull();
+  }
+
+  /** 원래 부모가 사라지면 루트로 복원. */
+  @Test
+  void restore_file_toRoot_whenOriginalFolderGone() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var folder = folderService.create(u, sp.id(), null, "임시");
+    DriveFileResponse f = fileService.upload(u, sp.id(), folder.id(), txt());
+    fileService.delete(u, f.id()); // 파일만 휴지통
+    folderService.delete(u, folder.id()); // 원래 폴더도 휴지통(=사라짐)
+
+    trashService.restoreFile(u, f.id());
+
+    assertThat(folderService.listItems(u, sp.id(), null).files()).anyMatch(x -> x.id() == f.id());
+  }
+
   /** 삭제한 파일·폴더가 휴지통 목록에 trash_root 단위로 나타난다. */
   @Test
   void listTrash_showsDeletedRoots() throws Exception {

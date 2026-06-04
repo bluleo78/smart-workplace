@@ -207,6 +207,73 @@ public class DriveFolderRepository {
   /** 휴지통 폴더 행. parentId = 원래 부모(null=루트). */
   public record TrashRow(long id, String name, Long parentId, java.time.OffsetDateTime trashedAt) {}
 
+  /** op 단위 폴더 복원(trashed 해제). */
+  public void restoreByOp(long opId) {
+    dsl.update(DRIVE_FOLDER)
+        .setNull(DRIVE_FOLDER.TRASHED_AT)
+        .setNull(DRIVE_FOLDER.TRASH_OP_ID)
+        .set(DRIVE_FOLDER.TRASH_ROOT, false)
+        .where(DRIVE_FOLDER.TRASH_OP_ID.eq(opId))
+        .execute();
+  }
+
+  /** trash_root 폴더 메타(op·parent·space·name). 없거나 trash_root 아니면 empty. */
+  public java.util.Optional<TrashRootMeta> findTrashRoot(long folderId) {
+    var r =
+        dsl.select(
+                DRIVE_FOLDER.SPACE_ID,
+                DRIVE_FOLDER.PARENT_ID,
+                DRIVE_FOLDER.TRASH_OP_ID,
+                DRIVE_FOLDER.NAME)
+            .from(DRIVE_FOLDER)
+            .where(DRIVE_FOLDER.ID.eq(folderId))
+            .and(DRIVE_FOLDER.TRASH_ROOT.isTrue())
+            .and(DRIVE_FOLDER.TRASHED_AT.isNotNull())
+            .fetchOne();
+    return r == null
+        ? java.util.Optional.empty()
+        : java.util.Optional.of(
+            new TrashRootMeta(
+                r.get(DRIVE_FOLDER.SPACE_ID),
+                r.get(DRIVE_FOLDER.PARENT_ID),
+                r.get(DRIVE_FOLDER.TRASH_OP_ID),
+                r.get(DRIVE_FOLDER.NAME)));
+  }
+
+  /** 살아있는 폴더 존재 여부(복원 위치 유효성). */
+  public boolean liveFolderExists(long folderId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(DRIVE_FOLDER)
+            .where(DRIVE_FOLDER.ID.eq(folderId))
+            .and(DRIVE_FOLDER.TRASHED_AT.isNull()));
+  }
+
+  /** 복원 시 부모 보정(루트로). */
+  public void setParentToRoot(long folderId) {
+    dsl.update(DRIVE_FOLDER)
+        .setNull(DRIVE_FOLDER.PARENT_ID)
+        .where(DRIVE_FOLDER.ID.eq(folderId))
+        .execute();
+  }
+
+  /** 자기 자신(selfId) 제외하고 동명 살아있는 폴더 존재 여부. */
+  public boolean existsInSpaceExcluding(long spaceId, Long parentId, String name, long selfId) {
+    org.jooq.Condition parentCond =
+        parentId == null ? DRIVE_FOLDER.PARENT_ID.isNull() : DRIVE_FOLDER.PARENT_ID.eq(parentId);
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(DRIVE_FOLDER)
+            .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
+            .and(parentCond)
+            .and(DRIVE_FOLDER.NAME.eq(name))
+            .and(DRIVE_FOLDER.ID.ne(selfId))
+            .and(DRIVE_FOLDER.TRASHED_AT.isNull()));
+  }
+
+  /** 복원 메타. */
+  public record TrashRootMeta(long spaceId, Long parentId, long opId, String name) {}
+
   /**
    * 폴더 서브트리(자기 자신 포함)의 모든 drive_file.file_id — 삭제 전 FILE 만료 처리용. BFS 로 하위 폴더를 수집해 CTE 없이 안전하게 처리.
    */

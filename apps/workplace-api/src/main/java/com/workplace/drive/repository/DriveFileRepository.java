@@ -185,4 +185,45 @@ public class DriveFileRepository {
 
   /** 내부 행 표현(권한 검증·다운로드·복사용). */
   public record DriveFileRow(long id, long spaceId, long fileId, String name) {}
+
+  /** op 단위 파일 복원. */
+  public void restoreByOp(long opId) {
+    dsl.update(DRIVE_FILE)
+        .setNull(DRIVE_FILE.TRASHED_AT)
+        .setNull(DRIVE_FILE.TRASH_OP_ID)
+        .set(DRIVE_FILE.TRASH_ROOT, false)
+        .where(DRIVE_FILE.TRASH_OP_ID.eq(opId))
+        .execute();
+  }
+
+  /** trash_root 파일 메타. */
+  public java.util.Optional<TrashRootMeta> findTrashRoot(long driveFileId) {
+    var r =
+        dsl.select(
+                DRIVE_FILE.SPACE_ID, DRIVE_FILE.FOLDER_ID, DRIVE_FILE.TRASH_OP_ID, DRIVE_FILE.NAME)
+            .from(DRIVE_FILE)
+            .where(DRIVE_FILE.ID.eq(driveFileId))
+            .and(DRIVE_FILE.TRASH_ROOT.isTrue())
+            .and(DRIVE_FILE.TRASHED_AT.isNotNull())
+            .fetchOne();
+    return r == null
+        ? java.util.Optional.empty()
+        : java.util.Optional.of(
+            new TrashRootMeta(
+                r.get(DRIVE_FILE.SPACE_ID),
+                r.get(DRIVE_FILE.FOLDER_ID),
+                r.get(DRIVE_FILE.TRASH_OP_ID),
+                r.get(DRIVE_FILE.NAME)));
+  }
+
+  /** 복원 시 폴더 보정(루트로). */
+  public void setFolderToRoot(long driveFileId) {
+    dsl.update(DRIVE_FILE)
+        .setNull(DRIVE_FILE.FOLDER_ID)
+        .where(DRIVE_FILE.ID.eq(driveFileId))
+        .execute();
+  }
+
+  /** 복원 메타. */
+  public record TrashRootMeta(long spaceId, Long folderId, long opId, String name) {}
 }

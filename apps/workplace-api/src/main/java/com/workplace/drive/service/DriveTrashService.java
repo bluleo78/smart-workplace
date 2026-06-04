@@ -61,6 +61,56 @@ public class DriveTrashService {
     return new DriveTrashListResponse(items);
   }
 
+  /** 폴더 복원 — op 단위 일괄 + 부모 보정 + 이름충돌 자동리네임. EDITOR. */
+  @Transactional
+  public void restoreFolder(long callerId, long folderId) {
+    var meta =
+        folders
+            .findTrashRoot(folderId)
+            .orElseThrow(
+                () ->
+                    new com.workplace.drive.exception.DriveNotInTrashException("folder", folderId));
+    perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    folders.restoreByOp(meta.opId());
+    files.restoreByOp(meta.opId());
+    Long parent = meta.parentId();
+    if (parent != null && !folders.liveFolderExists(parent)) {
+      folders.setParentToRoot(folderId);
+      parent = null;
+    }
+    String name = resolveFolderName(meta.spaceId(), parent, meta.name(), folderId);
+    if (!name.equals(meta.name())) folders.rename(folderId, name);
+  }
+
+  /** 파일 복원 — op 단위 일괄 + 폴더 보정. 파일명은 충돌 제약 없음. EDITOR. */
+  @Transactional
+  public void restoreFile(long callerId, long driveFileId) {
+    var meta =
+        files
+            .findTrashRoot(driveFileId)
+            .orElseThrow(
+                () ->
+                    new com.workplace.drive.exception.DriveNotInTrashException(
+                        "file", driveFileId));
+    perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    folders.restoreByOp(meta.opId());
+    files.restoreByOp(meta.opId());
+    if (meta.folderId() != null && !folders.liveFolderExists(meta.folderId())) {
+      files.setFolderToRoot(driveFileId);
+    }
+  }
+
+  /** 살아있는 형제 폴더와 충돌하면 " (복원됨)", 그래도 충돌하면 " (2)", " (3)"… 부여. */
+  private String resolveFolderName(long spaceId, Long parentId, String base, long selfId) {
+    if (!folders.existsInSpaceExcluding(spaceId, parentId, base, selfId)) return base;
+    String candidate = base + " (복원됨)";
+    int n = 2;
+    while (folders.existsInSpaceExcluding(spaceId, parentId, candidate, selfId)) {
+      candidate = base + " (" + n++ + ")";
+    }
+    return candidate;
+  }
+
   /** 조상 폴더명을 '/' 로 결합(DriveSearchService.pathOf 와 동일 규약). 루트 직속은 빈 문자열. */
   private String pathOf(Long folderId, Map<Long, DriveFolderResponse> byId) {
     Deque<String> parts = new ArrayDeque<>();

@@ -192,7 +192,8 @@ public class GlobalExceptionHandler {
   @ExceptionHandler({
     com.workplace.drive.exception.DriveSpaceNotFoundException.class,
     com.workplace.drive.exception.DriveFolderNotFoundException.class,
-    com.workplace.drive.exception.DriveFileNotFoundException.class
+    com.workplace.drive.exception.DriveFileNotFoundException.class,
+    com.workplace.drive.exception.DriveNotInTrashException.class
   })
   public ResponseEntity<ErrorResponse> handleDriveNotFound(
       RuntimeException ex, HttpServletRequest request) {
