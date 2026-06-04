@@ -41,7 +41,8 @@ class MailSmtpSenderTest {
         "me@test.local",
         null,
         null,
-        null);
+        null,
+        false);
   }
 
   @Test

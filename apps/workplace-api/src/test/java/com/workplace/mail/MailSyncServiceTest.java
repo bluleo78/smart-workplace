@@ -71,7 +71,8 @@ class MailSyncServiceTest extends IntegrationTestBase {
             3025,
             MailSecurity.NONE,
             "box@test.local",
-            "pw");
+            "pw",
+            false);
     return accountRepo.insert(userId, req, encryption.encrypt("pw"));
   }
 

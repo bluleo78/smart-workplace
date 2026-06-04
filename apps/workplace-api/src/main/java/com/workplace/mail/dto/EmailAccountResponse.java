@@ -17,4 +17,6 @@ public record EmailAccountResponse(
     String smtpUsername,
     Instant lastTestedAt,
     Instant createdAt,
-    Instant updatedAt) {}
+    Instant updatedAt,
+    /** AI 비서 활성화 여부. */
+    boolean aiEnabled) {}

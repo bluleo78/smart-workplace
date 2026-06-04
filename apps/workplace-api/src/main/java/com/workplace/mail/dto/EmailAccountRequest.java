@@ -23,4 +23,6 @@ public record EmailAccountRequest(
     @Min(1) @Max(65535) int smtpPort,
     @NotNull MailSecurity smtpSecurity,
     @NotBlank String smtpUsername,
-    String password) {}
+    String password,
+    /** AI 비서 활성화 여부. 기본값 false. */
+    boolean aiEnabled) {}

@@ -34,7 +34,8 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
         587,
         MailSecurity.STARTTLS,
         email,
-        "plain-pw");
+        "plain-pw",
+        false);
   }
 
   @Test
@@ -109,7 +110,8 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
             465,
             MailSecurity.SSL_TLS,
             "h2@example.com",
-            "ignored");
+            "ignored",
+            false);
     repo.update(user, id, changed, "ENC2");
 
     EmailAccountResponse r = repo.findByIdAndUser(user, id).orElseThrow();
@@ -127,5 +129,29 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
     assertThat(repo.softDelete(user, id)).isEqualTo(1);
     assertThat(repo.listByUser(user)).isEmpty();
     assertThat(repo.softDelete(user, id)).isEqualTo(0);
+  }
+
+  /** aiEnabled=true 로 저장한 계정을 재조회하면 aiEnabled 가 true 이어야 한다. */
+  @Test
+  void insert_withAiEnabled_true_isPersistedAndReturned() {
+    long user = TestFixtures.createHuman(dsl);
+    EmailAccountRequest req =
+        new EmailAccountRequest(
+            "ai@example.com",
+            "AI 계정",
+            "imap.example.com",
+            993,
+            MailSecurity.SSL_TLS,
+            "ai@example.com",
+            "smtp.example.com",
+            587,
+            MailSecurity.STARTTLS,
+            "ai@example.com",
+            "plain-pw",
+            true); // AI 비서 활성화
+    long id = repo.insert(user, req, "ENC");
+
+    EmailAccountResponse found = repo.findByIdAndUser(user, id).orElseThrow();
+    assertThat(found.aiEnabled()).isTrue();
   }
 }

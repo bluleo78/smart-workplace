@@ -80,7 +80,8 @@ class EmailAccountControllerTest {
         "box@test.local",
         Instant.now(),
         Instant.now(),
-        Instant.now());
+        Instant.now(),
+        false);
   }
 
   private EmailAccountRequest sampleRequest() {
@@ -95,7 +96,8 @@ class EmailAccountControllerTest {
         587,
         MailSecurity.STARTTLS,
         "box@test.local",
-        "pw");
+        "pw",
+        false);
   }
 
   @Test
@@ -138,7 +140,8 @@ class EmailAccountControllerTest {
             587,
             MailSecurity.STARTTLS,
             "box@test.local",
-            "pw");
+            "pw",
+            false);
     mockMvc
         .perform(
             post("/api/v1/mail/accounts")
