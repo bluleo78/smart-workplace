@@ -52,6 +52,8 @@ test('조직도(공유) 선택 시 트리+직속 멤버 렌더', { tag: '@smoke'
 })
 
 test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  let createBody: any
+  let memberBody: any
   await stubTree(page)
   await stubDetail(page)
   // 멤버 검색은 contacts 목록 API 재사용 — 이후 등록이 우선하므로 stubTree 뒤에 등록
@@ -75,6 +77,7 @@ test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authent
     (url) => url.pathname === '/api/v1/user-groups',
     (route, req) => {
       if (req.method() === 'POST') {
+        createBody = req.postDataJSON()
         return route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -87,12 +90,14 @@ test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authent
   // 멤버 편입 POST stub
   await page.route(
     (url) => url.pathname === '/api/v1/user-groups/99/members',
-    (route) =>
-      route.fulfill({
+    (route, req) => {
+      memberBody = req.postDataJSON()
+      return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(personalDetail({ id: 99, name: '신규 그룹' })),
-      }),
+      })
+    },
   )
 
   await page.goto('/contacts')
@@ -100,8 +105,13 @@ test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authent
   await expect(page.getByTestId('group-form-dialog')).toBeVisible()
   await page.getByTestId('g-name').fill('신규 그룹')
   await page.getByTestId('g-member-search').fill('김멤버')
+  await expect(page.getByTestId('g-member-result-MEMBER-1')).toBeVisible()
   await page.getByTestId('g-member-result-MEMBER-1').click()
   await expect(page.getByTestId('g-picked-remove-MEMBER-1')).toBeVisible()
   await page.getByTestId('g-save').click()
   await expect(page.getByTestId('group-form-dialog')).toBeHidden()
+
+  // payload 검증 — 생성/멤버 편입 요청이 올바른 본문으로 실제 발사되었는지 확인
+  expect(createBody).toMatchObject({ name: '신규 그룹', visibility: 'PERSONAL' })
+  expect(memberBody).toMatchObject({ targetType: 'MEMBER', targetId: 1 })
 })
