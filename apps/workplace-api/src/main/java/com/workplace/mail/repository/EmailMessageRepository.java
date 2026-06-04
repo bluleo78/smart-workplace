@@ -2,12 +2,16 @@ package com.workplace.mail.repository;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_ATTACHMENT;
+import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
 import com.workplace.mail.dto.EmailAttachmentMeta;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
+import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.ParsedMessage;
+import com.workplace.mail.dto.ReplyContext;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -64,12 +68,18 @@ public class EmailMessageRepository {
         .map(r -> r.get(EMAIL_MESSAGE.ID));
   }
 
-  /**
-   * 계정의 메시지 목록(최신 수신순, 본문 제외). query 가 있으면 제목/보낸사람/스니펫에 대소문자 무시 부분일치로 필터한다. 소유 검증은 호출 측(서비스)에서 계정
-   * 소유 확인 후 호출하므로 여기서는 account_id 스코프만 적용한다.
-   */
+  /** 기존 호출 호환(받은편지함). 폴더 미지정은 INBOX 로 스코프. */
   public List<EmailMessageSummary> listByAccount(long accountId, String query, int limit) {
-    Condition where = EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId);
+    return listByAccount(accountId, "INBOX", query, limit);
+  }
+
+  /**
+   * 계정 + 폴더(INBOX/SENT) 스코프 목록(최신순, 본문 제외). query 가 있으면 제목/보낸사람/스니펫 부분일치. 폴더 분리를 위해 email_folder 와
+   * 조인해 folder.name 으로 필터한다. 소유 검증은 호출 측에서 수행.
+   */
+  public List<EmailMessageSummary> listByAccount(
+      long accountId, String folderName, String query, int limit) {
+    Condition where = EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(EMAIL_FOLDER.NAME.eq(folderName));
     if (query != null && !query.isBlank()) {
       String like = "%" + query.trim() + "%";
       where =
@@ -92,10 +102,64 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT)
         .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
         .where(where)
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(this::toSummary);
+  }
+
+  /** 로컬에서 작성한 보낸메일 1건 저장(imap_uid=NULL, seen=true). 생성된 id 반환. */
+  public long insertSent(long accountId, long folderId, OutgoingMail m) {
+    Instant sentAt = m.sentAt();
+    return dsl.insertInto(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
+        .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+        .set(EMAIL_MESSAGE.IMAP_UID, (Long) null)
+        .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
+        .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
+        .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
+        .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
+        .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
+        .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
+        .set(EMAIL_MESSAGE.TO_ADDRESSES, joinOrNull(m.to()))
+        .set(EMAIL_MESSAGE.CC_ADDRESSES, joinOrNull(m.cc()))
+        .set(EMAIL_MESSAGE.BCC_ADDRESSES, joinOrNull(m.bcc()))
+        .set(EMAIL_MESSAGE.SUBJECT, m.subject())
+        .set(EMAIL_MESSAGE.SENT_AT, toOffset(sentAt))
+        .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(sentAt))
+        .set(EMAIL_MESSAGE.SEEN, true)
+        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, false)
+        .set(EMAIL_MESSAGE.BODY_TEXT, m.bodyText())
+        .set(EMAIL_MESSAGE.BODY_HTML, m.bodyHtml())
+        .set(EMAIL_MESSAGE.SNIPPET, m.snippet())
+        .returning(EMAIL_MESSAGE.ID)
+        .fetchOne()
+        .get(EMAIL_MESSAGE.ID);
+  }
+
+  /** 답장 헤더/스레드 구성용 부모 컨텍스트(thread_id, 부모 Message-ID, 부모 References). 소유 검증 포함. */
+  public Optional<ReplyContext> findReplyContextByIdAndUser(long userId, long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.THREAD_ID, EMAIL_MESSAGE.MESSAGE_ID, EMAIL_MESSAGE.MAIL_REFERENCES)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(
+            r ->
+                new ReplyContext(
+                    r.get(EMAIL_MESSAGE.THREAD_ID),
+                    r.get(EMAIL_MESSAGE.MESSAGE_ID),
+                    r.get(EMAIL_MESSAGE.MAIL_REFERENCES)));
+  }
+
+  /** 주소 리스트를 쉼표로 합침. 비어있으면 null(TEXT 컬럼). */
+  private static String joinOrNull(List<String> addrs) {
+    return (addrs == null || addrs.isEmpty()) ? null : String.join(", ", addrs);
   }
 
   /**
@@ -112,6 +176,7 @@ public class EmailMessageRepository {
                 EMAIL_MESSAGE.FROM_NAME,
                 EMAIL_MESSAGE.TO_ADDRESSES,
                 EMAIL_MESSAGE.CC_ADDRESSES,
+                EMAIL_MESSAGE.BCC_ADDRESSES,
                 EMAIL_MESSAGE.SUBJECT,
                 EMAIL_MESSAGE.SENT_AT,
                 EMAIL_MESSAGE.RECEIVED_AT,
@@ -181,6 +246,7 @@ public class EmailMessageRepository {
         r.get(EMAIL_MESSAGE.FROM_NAME),
         r.get(EMAIL_MESSAGE.TO_ADDRESSES),
         r.get(EMAIL_MESSAGE.CC_ADDRESSES),
+        r.get(EMAIL_MESSAGE.BCC_ADDRESSES),
         r.get(EMAIL_MESSAGE.SUBJECT),
         sent == null ? null : sent.toInstant(),
         received == null ? null : received.toInstant(),
@@ -200,6 +266,7 @@ public class EmailMessageRepository {
         d.fromName(),
         d.toAddresses(),
         d.ccAddresses(),
+        d.bccAddresses(),
         d.subject(),
         d.sentAt(),
         d.receivedAt(),

@@ -12,6 +12,7 @@ public record EmailMessageDetail(
     String fromName,
     String toAddresses,
     String ccAddresses,
+    String bccAddresses,
     String subject,
     Instant sentAt,
     Instant receivedAt,
