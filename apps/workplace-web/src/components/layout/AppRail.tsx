@@ -25,7 +25,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 
 import { AppRailUserMenu } from './AppRailUserMenu'
@@ -50,9 +49,8 @@ const MODULES: RailItem[] = [
   { label: '메일', href: '/mail', icon: Mail },
   { label: '연락처', href: '/contacts', icon: Users },
   { label: '드라이브', href: '/drive', icon: HardDrive },
+  { label: '설정', href: '/settings/profile', icon: Settings, match: ['/settings', '/admin'] },
 ]
-// 어드민 전용 모듈 — "설정"(워크스페이스 설정·관리)
-const ADMIN_MODULE: RailItem = { label: '설정', href: '/admin/users', icon: Settings, match: '/admin' }
 // 예정 모듈 — 비활성(흐림). 아이콘 레일이므로 아이콘으로 표시한다.
 const SOON: { label: string; icon: LucideIcon }[] = [{ label: 'Wiki', icon: BookOpen }]
 
@@ -111,7 +109,6 @@ function RailLink({
 // 앱 런처 레일. 데스크톱은 상주 아이콘 레일, 모바일은 오버레이 드로어.
 export function AppRail() {
   const location = useLocation()
-  const { isAdmin } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const closeMobile = () => setMobileOpen(false)
@@ -126,7 +123,7 @@ export function AppRail() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [mobileOpen])
 
-  const items = isAdmin ? [...MODULES, ADMIN_MODULE] : MODULES
+  const items = MODULES
 
   return (
     <TooltipProvider>
