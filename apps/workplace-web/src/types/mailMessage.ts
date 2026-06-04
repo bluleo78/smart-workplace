@@ -1,4 +1,4 @@
-// 받은편지함 메시지 DTO — 백엔드 com.workplace.mail.dto 와 1:1 매칭.
+// 받은편지함/보낸편지함 메시지 DTO — 백엔드 com.workplace.mail.dto 와 1:1 매칭.
 
 /** 메일 목록 한 행(본문 제외, 미리보기 snippet 포함). */
 export interface EmailMessageSummary {
@@ -31,6 +31,7 @@ export interface EmailMessageDetail {
   fromName: string | null;
   toAddresses: string | null;
   ccAddresses: string | null;
+  bccAddresses: string | null;
   subject: string | null;
   sentAt: string | null;
   receivedAt: string | null;
@@ -44,4 +45,24 @@ export interface EmailMessageDetail {
 export interface MailSyncResult {
   fetched: number;
   saved: number;
+}
+
+/** 메일 폴더(받은편지함/보낸편지함). */
+export type MailFolder = 'INBOX' | 'SENT';
+
+/** 메일 발송 요청(새 메일·답장·전달 공용). 백엔드 MailSendRequest 와 1:1. */
+export interface MailSendRequest {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  bodyHtml: string;
+  bodyText: string;
+  inReplyToMessageId: number | null;
+}
+
+/** 발송 결과. */
+export interface SendResult {
+  localMessageId: number;
+  messageId: string;
 }

@@ -1,22 +1,27 @@
-// 받은편지함 목록/상세 조회 + 수동 동기화 mutation.
+// 받은편지함/보낸편지함 목록·상세 조회 + 동기화·발송 mutation.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { getMessage, listMessages, syncMailbox } from '../../api/mailMessages';
+import { getMessage, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
+import type { MailFolder, MailSendRequest } from '../../types/mailMessage';
 
 export const mailMessageKeys = {
-  list: (accountId: number, query: string) =>
-    ['mail-messages', accountId, query] as const,
+  list: (accountId: number, folder: MailFolder, query: string) =>
+    ['mail-messages', accountId, folder, query] as const,
   detail: (messageId: number) => ['mail-message', messageId] as const,
 };
 
-/** 계정의 메시지 목록(검색어 포함). accountId 가 없으면 비활성. */
-export function useMailMessages(accountId: number | undefined, query: string) {
+/** 계정의 메시지 목록(폴더·검색어). accountId 가 없으면 비활성. */
+export function useMailMessages(
+  accountId: number | undefined,
+  folder: MailFolder,
+  query: string,
+) {
   return useQuery({
-    queryKey: mailMessageKeys.list(accountId ?? 0, query),
-    queryFn: () => listMessages(accountId as number, query || undefined),
+    queryKey: mailMessageKeys.list(accountId ?? 0, folder, query),
+    queryFn: () => listMessages(accountId as number, folder, query || undefined),
     enabled: !!accountId,
   });
 }
@@ -44,5 +49,18 @@ export function useSyncMailbox(accountId: number | undefined) {
       );
     },
     onError: (e) => handleApiError(e, '동기화에 실패했습니다'),
+  });
+}
+
+/** 메일 발송 — 성공 시 보낸편지함 목록 무효화 + 토스트. */
+export function useSendMail(accountId: number | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MailSendRequest) => sendMail(accountId as number, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mail-messages', accountId, 'SENT'] });
+      toast.success('메일을 보냈습니다');
+    },
+    onError: (e) => handleApiError(e, '메일 발송에 실패했습니다'),
   });
 }

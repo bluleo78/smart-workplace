@@ -52,6 +52,7 @@ export function detail(overrides?: Partial<EmailMessageDetail>): EmailMessageDet
     fromName: '앨리스',
     toAddresses: 'me@example.com',
     ccAddresses: null,
+    bccAddresses: null,
     subject: '프로젝트 회의 안내',
     sentAt: '2026-06-03T01:00:00Z',
     receivedAt: '2026-06-03T01:00:00Z',
