@@ -300,6 +300,28 @@ public class EmailMessageRepository {
         .fetchOptional(this::toBodyTarget);
   }
 
+  /**
+   * 단건 본문 적재 대상 조회(messageId 기준 + 소유 검증). EMAIL_ACCOUNT 조인으로 account.user_id = userId 인 경우만 반환한다(상세
+   * 열람 OnDemand 적재용). 폴더명은 EMAIL_FOLDER 조인에서 얻는다.
+   */
+  public Optional<BodyTarget> findBodyTargetForUser(long userId, long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_MESSAGE.IMAP_UID,
+            EMAIL_FOLDER.NAME,
+            EMAIL_MESSAGE.BODY_FETCHED_AT)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(this::toBodyTarget);
+  }
+
   /** Record → BodyTarget. imap_uid null→0L, body_fetched_at null→null else Instant. */
   private BodyTarget toBodyTarget(Record r) {
     Long uid = r.get(EMAIL_MESSAGE.IMAP_UID);
