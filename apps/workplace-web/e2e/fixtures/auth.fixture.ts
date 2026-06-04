@@ -59,6 +59,16 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   // 결국 "/" 에 착지하므로 빈 기본 목록 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 세션을 검증하는 spec 은 더 구체적 목록을 나중에 등록 → 그쪽이 우선한다.
   await mockApi(page, 'GET', '/api/v1/home/sessions', { items: [], nextCursor: null })
+  // #93 그룹 트리가 마운트되므로 다른 authed 스펙 누수 방지용 기본 빈 트리
+  await page.route(
+    (url) => url.pathname === '/api/v1/user-groups',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ shared: [], personal: [] }),
+      }),
+  )
   // 알림 인박스 기본 스텁 — 모든 인증 페이지에서 종/배지가 마운트되므로 기본값 제공.
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
   await mockApi(page, 'GET', '/api/v1/notifications', [])
