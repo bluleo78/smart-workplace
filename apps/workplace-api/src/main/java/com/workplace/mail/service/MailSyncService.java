@@ -3,7 +3,6 @@ package com.workplace.mail.service;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
-import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.ParsedAttachment;
 import com.workplace.mail.dto.ParsedMessage;
@@ -17,11 +16,9 @@ import jakarta.mail.FetchProfile;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
-import jakarta.mail.Session;
 import jakarta.mail.Store;
 import jakarta.mail.UIDFolder;
 import java.util.Optional;
-import java.util.Properties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -45,12 +42,10 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class MailSyncService {
 
-  /** 연결·읽기 타임아웃(ms) — 행 방지. */
-  private static final int TIMEOUT_MS = 10_000;
-
   /** v1 동기화 대상 폴더. */
   private static final String INBOX = "INBOX";
 
+  private final ImapConnector imapConnector;
   private final EmailAccountRepository accountRepo;
   private final EmailFolderRepository folderRepo;
   private final EmailMessageRepository messageRepo;
@@ -77,7 +72,7 @@ public class MailSyncService {
     Store store = null;
     Folder inbox = null;
     try {
-      store = connect(account, password);
+      store = imapConnector.connect(account, password);
       inbox = store.getFolder(INBOX);
       inbox.open(Folder.READ_ONLY);
       UIDFolder uidFolder = (UIDFolder) inbox;
@@ -152,26 +147,6 @@ public class MailSyncService {
     fp.add(FetchProfile.Item.ENVELOPE);
     fp.add(FetchProfile.Item.CONTENT_INFO);
     inbox.fetch(messages, fp);
-  }
-
-  /** IMAP Store 연결(MailConnectionTester 와 동일한 보안/타임아웃 정책). */
-  private Store connect(EmailAccountResponse account, String password) throws MessagingException {
-    MailSecurity security = account.imapSecurity();
-    String protocol = security == MailSecurity.SSL_TLS ? "imaps" : "imap";
-    Properties props = new Properties();
-    props.put("mail.store.protocol", protocol);
-    props.put("mail." + protocol + ".connectiontimeout", String.valueOf(TIMEOUT_MS));
-    props.put("mail." + protocol + ".timeout", String.valueOf(TIMEOUT_MS));
-    // 비표준 주소 헤더에 관대하게 — strict 파싱은 정상 메일도 거부할 수 있다.
-    props.put("mail.mime.address.strict", "false");
-    if (security == MailSecurity.STARTTLS) {
-      props.put("mail.imap.starttls.enable", "true");
-      props.put("mail.imap.starttls.required", "true");
-    }
-    Session session = Session.getInstance(props);
-    Store store = session.getStore(protocol);
-    store.connect(account.imapHost(), account.imapPort(), account.imapUsername(), password);
-    return store;
   }
 
   private void closeQuietly(Folder inbox, Store store) {
