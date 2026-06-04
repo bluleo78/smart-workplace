@@ -24,14 +24,16 @@ public class MailMessageService {
   private final EmailAccountRepository accountRepo;
   private final EmailMessageRepository messageRepo;
 
-  /** 계정의 메시지 목록(최신순, 선택적 검색어). 계정이 본인 소유가 아니면 404. */
+  /** 계정의 메시지 목록(폴더 스코프·최신순·선택 검색어). 계정이 본인 소유가 아니면 404. */
   @Transactional(readOnly = true)
-  public List<EmailMessageSummary> list(long userId, long accountId, String query, int limit) {
+  public List<EmailMessageSummary> list(
+      long userId, long accountId, String folder, String query, int limit) {
     accountRepo
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     int effective = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
-    return messageRepo.listByAccount(accountId, query, effective);
+    String folderName = (folder == null || folder.isBlank()) ? "INBOX" : folder;
+    return messageRepo.listByAccount(accountId, folderName, query, effective);
   }
 
   /** 메시지 단건 상세. 본인 소유가 아니거나 없으면 404. */

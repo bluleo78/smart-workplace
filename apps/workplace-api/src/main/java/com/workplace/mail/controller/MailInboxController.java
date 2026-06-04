@@ -33,14 +33,15 @@ public class MailInboxController {
     return syncService.sync(callerId, accountId);
   }
 
-  /** 계정의 메시지 목록(최신순, 선택적 검색어 query, limit). */
+  /** 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, limit). */
   @GetMapping("/accounts/{accountId}/messages")
   public List<EmailMessageSummary> messages(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long accountId,
+      @RequestParam(required = false, defaultValue = "INBOX") String folder,
       @RequestParam(required = false) String query,
       @RequestParam(required = false, defaultValue = "0") int limit) {
-    return messageService.list(callerId, accountId, query, limit);
+    return messageService.list(callerId, accountId, folder, query, limit);
   }
 
   /** 메시지 단건 상세(본문 + 첨부 메타). */
