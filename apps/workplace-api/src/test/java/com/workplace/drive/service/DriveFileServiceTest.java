@@ -212,4 +212,17 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> fileService.move(u, f.id(), otherFolder.id()))
         .isInstanceOf(com.workplace.drive.exception.DriveInvalidTargetException.class);
   }
+
+  /** 휴지통에 있는 파일은 이동 대상이 아님 — findRow 의 trashed 필터로 NotFound(하드닝). */
+  @Test
+  void move_trashedFile_isNotFound() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var folder = folderService.create(u, sp.id(), null, "대상");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+    fileService.delete(u, f.id());
+
+    assertThatThrownBy(() -> fileService.move(u, f.id(), folder.id()))
+        .isInstanceOf(DriveFileNotFoundException.class);
+  }
 }
