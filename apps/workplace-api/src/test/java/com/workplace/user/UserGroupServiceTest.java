@@ -209,4 +209,24 @@ class UserGroupServiceTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(USER_GROUP, USER_GROUP.ID.in(parent.id(), child.id()))).isZero();
     assertThat(dsl.fetchCount(USER_GROUP_MEMBER, USER_GROUP_MEMBER.GROUP_ID.eq(child.id()))).isZero();
   }
+
+  @Test
+  void update_setParentToNull_makesRoot() {
+    long caller = user();
+    UserGroupDetail parent = service.create(caller, req("부모", null, "PERSONAL"));
+    UserGroupDetail child = service.create(caller, req("자식", parent.id(), "PERSONAL"));
+    UserGroupDetail updated =
+        service.update(caller, child.id(), new UpdateUserGroupRequest("자식", null, null, 0));
+    assertThat(updated.parentId()).isNull();
+  }
+
+  @Test
+  void getDetail_personalByAdmin_returnsGroup() {
+    long owner = user();
+    long admin = user();
+    makeAdmin(admin);
+    UserGroupDetail g = service.create(owner, req("비공개", null, "PERSONAL"));
+    UserGroupDetail seen = service.getDetail(admin, g.id());
+    assertThat(seen.id()).isEqualTo(g.id());
+  }
 }

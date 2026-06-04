@@ -67,7 +67,7 @@ public class UserGroupService {
     }
     Long ownerId = shared ? null : callerId;
     if (req.parentId() != null) {
-      validateParent(callerId, req.visibility(), ownerId, req.parentId());
+      validateParent(callerId, req.visibility(), req.parentId());
     }
     long id = repo.insert(req, ownerId);
     return toDetail(repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
@@ -84,7 +84,7 @@ public class UserGroupService {
       if (descendants(callerId, id).contains(req.parentId())) {
         throw new InvalidUserGroupException("그룹을 자손 그룹의 하위로 옮길 수 없습니다");
       }
-      validateParent(callerId, g.visibility(), g.ownerId(), req.parentId());
+      validateParent(callerId, g.visibility(), req.parentId());
     }
     repo.update(id, req);
     return toDetail(repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
@@ -147,7 +147,7 @@ public class UserGroupService {
   }
 
   /** 부모 검증 — 존재·접근가능·동일 visibility, PERSONAL 은 동일 owner. */
-  private void validateParent(long callerId, String visibility, Long ownerId, long parentId) {
+  private void validateParent(long callerId, String visibility, long parentId) {
     FlatGroup parent =
         repo.findById(parentId)
             .orElseThrow(() -> new InvalidUserGroupException("부모 그룹이 없습니다: " + parentId));
@@ -189,6 +189,7 @@ public class UserGroupService {
     return buildNodes(childrenByParent, null);
   }
 
+  /** childrenByParent 맵에서 parentId 하위 노드들을 재귀 조립(sort_order→name 정렬). */
   private List<UserGroupNode> buildNodes(Map<Long, List<FlatGroup>> childrenByParent, Long parentId) {
     List<FlatGroup> children = childrenByParent.getOrDefault(parentId, List.of());
     return children.stream()
