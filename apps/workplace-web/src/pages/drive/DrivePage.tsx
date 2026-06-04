@@ -6,7 +6,7 @@ import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { SearchInput } from '../../components/ui/search-input'
-import type { DriveFile, DriveItemList, DriveSearchResult } from '../../types/drive'
+import type { DriveFile, DriveItemList, DriveSearchResult, DriveTrashItem } from '../../types/drive'
 
 /** 폴더 브라우저 — 검색 + 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드. */
 export function DrivePage() {
@@ -26,6 +26,9 @@ export function DrivePage() {
   // 검색 상태 — query 길이 ≥2 면 results 로 목록을 대체.
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<DriveSearchResult | null>(null)
+
+  // 휴지통 뷰 — trash != null 이면 휴지통 모드.
+  const [trash, setTrash] = useState<DriveTrashItem[] | null>(null)
 
   async function reload() {
     const { data } = await driveApi.listItems(sid, folderId)
@@ -78,12 +81,12 @@ export function DrivePage() {
     await reload()
   }
   async function onDeleteFolder(id: number) {
-    if (!window.confirm('폴더를 삭제할까요? 하위 항목도 삭제됩니다.')) return
+    if (!window.confirm('폴더를 휴지통으로 보낼까요? 30일 후 자동 삭제됩니다.')) return
     await driveApi.deleteFolder(id)
     await reload()
   }
   async function onDeleteFile(id: number) {
-    if (!window.confirm('파일을 삭제할까요?')) return
+    if (!window.confirm('파일을 휴지통으로 보낼까요? 30일 후 자동 삭제됩니다.')) return
     await driveApi.deleteFile(id)
     await reload()
   }
@@ -105,6 +108,37 @@ export function DrivePage() {
       setPicker(null)
       await reload()
     }
+  }
+
+  async function openTrash() {
+    setQuery('')
+    setResults(null)
+    const { data } = await driveApi.listTrash(sid)
+    setTrash(data.items)
+  }
+  async function reloadTrash() {
+    const { data } = await driveApi.listTrash(sid)
+    setTrash(data.items)
+  }
+  function closeTrash() {
+    setTrash(null)
+    void reload()
+  }
+  async function onRestore(it: DriveTrashItem) {
+    if (it.type === 'FOLDER') await driveApi.restoreFolder(it.id)
+    else await driveApi.restoreFile(it.id)
+    await reloadTrash()
+  }
+  async function onPurge(it: DriveTrashItem) {
+    if (!window.confirm(`'${it.name}' 을(를) 영구 삭제할까요? 되돌릴 수 없습니다.`)) return
+    if (it.type === 'FOLDER') await driveApi.purgeFolder(it.id)
+    else await driveApi.purgeFile(it.id)
+    await reloadTrash()
+  }
+  async function onEmptyTrash() {
+    if (!window.confirm('휴지통을 비울까요? 모든 항목이 영구 삭제됩니다.')) return
+    await driveApi.emptyTrash(sid)
+    await reloadTrash()
   }
 
   const searching = results != null
@@ -141,10 +175,58 @@ export function DrivePage() {
             업로드
           </button>
           <input ref={fileInput} type="file" hidden onChange={onUpload} data-testid="file-input" />
+          <button
+            type="button"
+            onClick={trash != null ? closeTrash : openTrash}
+            className="rounded border px-2 py-1 text-sm hover:bg-accent/50"
+            data-testid="trash-toggle"
+          >
+            {trash != null ? '← 드라이브' : '휴지통'}
+          </button>
         </div>
       </div>
 
-      {searching ? (
+      {trash != null ? (
+        <div data-testid="trash-view">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">휴지통 ({trash.length})</span>
+            {trash.length > 0 && (
+              <button
+                type="button"
+                onClick={onEmptyTrash}
+                className="text-xs text-destructive"
+                data-testid="empty-trash"
+              >
+                휴지통 비우기
+              </button>
+            )}
+          </div>
+          <ul className="divide-y divide-border">
+            {trash.map((it) => (
+              <li key={`trash-${it.type}-${it.id}`} className="flex items-center gap-2 py-2">
+                <span className="flex-1 truncate text-sm">
+                  {it.type === 'FOLDER' ? '📁' : '📄'} {it.name}
+                  {it.originalPath && (
+                    <span className="ml-2 text-xs text-muted-foreground">{it.originalPath}</span>
+                  )}
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {new Date(it.autoPurgeAt).toLocaleDateString()} 삭제 예정
+                  </span>
+                </span>
+                <button type="button" onClick={() => onRestore(it)} className="text-xs text-primary">
+                  복원
+                </button>
+                <button type="button" onClick={() => onPurge(it)} className="text-xs text-destructive">
+                  영구삭제
+                </button>
+              </li>
+            ))}
+            {trash.length === 0 && (
+              <li className="py-8 text-center text-sm text-muted-foreground">휴지통이 비어 있습니다</li>
+            )}
+          </ul>
+        </div>
+      ) : searching ? (
         <ul className="divide-y divide-border" data-testid="search-results">
           {results.folders.map((f) => (
             <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
