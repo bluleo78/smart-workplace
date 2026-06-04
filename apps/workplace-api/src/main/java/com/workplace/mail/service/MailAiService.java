@@ -22,7 +22,6 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 메일 AI 오케스트레이션(7d): 분류(동기화 잡 best-effort)·요약(캐시)·답장 초안. 모든 경로는 계정 ai_enabled 게이트. 비서 사양은 home 과
@@ -73,8 +72,11 @@ public class MailAiService {
     }
   }
 
-  /** 메일 요약(캐시 우선). 캐시 없으면 ai-agent 호출 후 저장. ai_enabled=false 면 503. */
-  @Transactional
+  /**
+   * 메일 요약(캐시 우선). 캐시 없으면 ai-agent 호출 후 저장. ai_enabled=false 면 503.
+   *
+   * <p>LLM 호출(최대 90s) 동안 풀 커넥션을 점유하지 않도록 트랜잭션을 걸지 않는다. 읽기·캐시 쓰기는 각자 짧은 커넥션으로 수행.
+   */
   public MailSummary summarize(long userId, long messageId) {
     AiContext ctx =
         messageRepo
@@ -100,8 +102,11 @@ public class MailAiService {
     return new MailSummary(r.summary());
   }
 
-  /** AI 답장 초안(미영속). 스레드 전체를 맥락으로. ai_enabled=false 면 503. */
-  @Transactional(readOnly = true)
+  /**
+   * AI 답장 초안(미영속). 스레드 전체를 맥락으로. ai_enabled=false 면 503.
+   *
+   * <p>LLM 호출(최대 90s) 동안 풀 커넥션을 점유하지 않도록 트랜잭션을 걸지 않는다. 읽기·캐시 쓰기는 각자 짧은 커넥션으로 수행.
+   */
   public MailReplyDraft replyDraft(long userId, long messageId) {
     AiContext ctx =
         messageRepo

@@ -291,6 +291,7 @@ public class EmailMessageRepository {
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
         .where(EMAIL_MESSAGE.THREAD_ID.eq(threadId))
         .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.asc().nullsFirst(), EMAIL_MESSAGE.ID.asc())
         .fetch(
             r ->
