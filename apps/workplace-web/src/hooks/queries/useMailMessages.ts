@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { generateReplyDraft, getMessage, getMailSummary, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
+import { generateReplyDraft, getMailSummary, getMessage, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import type { MailFolder, MailSendRequest } from '../../types/mailMessage';
 
