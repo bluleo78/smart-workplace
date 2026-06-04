@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { getMessage, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
+import { getMessage, getMailSummary, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import type { MailFolder, MailSendRequest } from '../../types/mailMessage';
 
@@ -11,6 +11,7 @@ export const mailMessageKeys = {
   list: (accountId: number, folder: MailFolder, query: string) =>
     ['mail-messages', accountId, folder, query] as const,
   detail: (messageId: number) => ['mail-message', messageId] as const,
+  summary: (messageId: number) => ['mail-summary', messageId] as const,
 };
 
 /** 계정의 메시지 목록(폴더·검색어). accountId 가 없으면 비활성. */
@@ -32,6 +33,16 @@ export function useMailMessage(messageId: number | null) {
     queryKey: mailMessageKeys.detail(messageId ?? 0),
     queryFn: () => getMessage(messageId as number),
     enabled: !!messageId,
+  });
+}
+
+/** 메일 요약 — 열람 시 자동 조회(계정 AI 사용 + messageId 있을 때만). */
+export function useMailSummary(messageId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: mailMessageKeys.summary(messageId ?? 0),
+    queryFn: () => getMailSummary(messageId as number),
+    enabled: !!messageId && enabled,
+    staleTime: Infinity,
   });
 }
 

@@ -9,6 +9,7 @@ import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
   useMailMessage,
   useMailMessages,
+  useMailSummary,
   useSyncMailbox,
 } from '../../hooks/queries/useMailMessages'
 import type { EmailMessageDetail, EmailMessageSummary, MailFolder } from '../../types/mailMessage'
@@ -108,16 +109,20 @@ function extractEmail(token: string): string {
 // 선택한 메시지의 본문 패널 — text 우선, HTML 만 있으면 스크립트 차단 iframe 으로 렌더.
 function MessageDetailPanel({
   messageId,
+  aiEnabled,
   onReply,
   onReplyAll,
   onForward,
 }: {
   messageId: number | null
+  aiEnabled: boolean
   onReply: (detail: EmailMessageDetail) => void
   onReplyAll: (detail: EmailMessageDetail) => void
   onForward: (detail: EmailMessageDetail) => void
 }) {
   const { data: detail, isLoading, isError } = useMailMessage(messageId)
+  // AI 사용 계정 + messageId 가 있을 때만 요약 자동 조회.
+  const { data: summaryData } = useMailSummary(messageId, aiEnabled)
 
   if (!messageId) {
     return (
@@ -139,6 +144,13 @@ function MessageDetailPanel({
   return (
     <div data-testid="mail-detail" className="flex h-full flex-col overflow-y-auto">
       <div className="border-b p-4">
+        {/* AI 요약 스트립 — AI 사용 계정 + 요약 있을 때만 표시. */}
+        {aiEnabled && summaryData?.summary && (
+          <details data-testid="mail-ai-summary" open className="mb-2 rounded border bg-muted/40 p-2 text-xs">
+            <summary className="cursor-pointer font-medium text-muted-foreground">요약 (AI)</summary>
+            <div className="mt-1 whitespace-pre-wrap">{summaryData.summary}</div>
+          </details>
+        )}
         <h2 className="text-lg font-semibold">{detail.subject || '(제목 없음)'}</h2>
         <div className="mt-1 text-sm text-muted-foreground">
           {detail.fromName ? `${detail.fromName} <${detail.fromAddress}>` : detail.fromAddress}
@@ -239,6 +251,8 @@ export function MailInboxPage() {
 
   // 본인 이메일 주소(전체답장에서 자신을 수신자에서 제외).
   const selfAddress = accounts?.find((a) => a.id === accountIdNum)?.emailAddress ?? ''
+  // 현재 계정의 AI 사용 여부 — 요약 스트립 표시 여부에 사용.
+  const aiEnabled = accounts?.find((a) => a.id === accountIdNum)?.aiEnabled ?? false
 
   // 답장 draft 생성.
   function buildReply(detail: EmailMessageDetail, all: boolean): ComposeDraft {
@@ -408,6 +422,7 @@ export function MailInboxPage() {
       <div className="hidden min-w-0 flex-1 lg:block" data-testid="mail-detail-pane">
         <MessageDetailPanel
           messageId={selectedId}
+          aiEnabled={aiEnabled}
           onReply={onReply}
           onReplyAll={onReplyAll}
           onForward={onForward}

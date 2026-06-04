@@ -36,6 +36,12 @@ export async function getMessage(messageId: number): Promise<EmailMessageDetail>
   return data;
 }
 
+/** 메일 요약(캐시 우선). */
+export async function getMailSummary(messageId: number): Promise<{ summary: string | null }> {
+  const { data } = await client.get<{ summary: string | null }>(`/mail/messages/${messageId}/summary`)
+  return data
+}
+
 /** 메일 발송(새 메일·답장·전달). inReplyToMessageId 가 있으면 답장. */
 export async function sendMail(
   accountId: number,

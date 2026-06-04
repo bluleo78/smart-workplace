@@ -18,4 +18,17 @@ test.describe('메일 AI 비서', () => {
     await expect(page.getByTestId('mail-badge-category-7')).toHaveText('업무')
     await expect(page.getByTestId('mail-badge-needsreply-7')).toBeVisible()
   })
+
+  test('요약 스트립 — 열람 시 자동 로드', async ({ authenticatedPage: page }) => {
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify([summary({ id: 7 })]) }),
+    )
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7', detail({ id: 7, bodyText: '본문' }))
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7/summary', { summary: '• 자동요약' })
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await expect(page.getByTestId('mail-ai-summary')).toContainText('자동요약')
+  })
 })
