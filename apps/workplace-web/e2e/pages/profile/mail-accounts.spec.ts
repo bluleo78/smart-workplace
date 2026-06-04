@@ -3,7 +3,6 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockApi } from '../../fixtures/api-mock';
-import { mailAccount } from '../../factories/mail.factory';
 import type { MailAccountResponse } from '../../../src/types/mailAccount';
 
 /** 기본 메일 계정 픽스처 생성 */
@@ -108,9 +107,9 @@ test.describe('메일 계정 설정', () => {
 
   test('수정 다이얼로그 — AI 비서 토글 활성화 후 저장 시 PUT payload 에 aiEnabled: true 포함', async ({ authenticatedPage: page }) => {
     // GET: aiEnabled=false 인 계정 1건
-    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: false })]);
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [account({ aiEnabled: false })]);
     // PUT /api/v1/mail/accounts/1 — capture: true 로 payload 캡처
-    const capture = await mockApi(page, 'PUT', '/api/v1/mail/accounts/1', mailAccount({ aiEnabled: true }), { capture: true });
+    const capture = await mockApi(page, 'PUT', '/api/v1/mail/accounts/1', account({ aiEnabled: true }), { capture: true });
 
     await page.goto('/profile');
 

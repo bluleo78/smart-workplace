@@ -13,6 +13,7 @@ export interface MailAccountResponse {
   smtpPort: number;
   smtpSecurity: MailSecurity;
   smtpUsername: string;
+  /** AI 비서 기능 활성화 여부 */
   aiEnabled: boolean;
   lastTestedAt: string | null;
   createdAt: string;
