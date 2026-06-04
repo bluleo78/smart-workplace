@@ -24,6 +24,7 @@ public class DriveFileService {
   private final FileUploadService fileUpload;
   private final DrivePermissions perms;
   private final DriveFolderRepository folders;
+  private final org.jooq.DSLContext dsl;
 
   /** 업로드 → file core 저장 → 영구화 → drive_file 바인딩. */
   @Transactional
@@ -58,14 +59,14 @@ public class DriveFileService {
     return fileUpload.getThumbnailContentTrusted(row.fileId());
   }
 
-  /** 삭제 — drive_file 제거 + FILE 만료 표시. */
+  /** 삭제 = 휴지통으로(soft). drive_file 행 보존·trashed 표시. blob 은 영구삭제 시점까지 보존. */
   @Transactional
   public void delete(long callerId, long driveFileId) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
-    files.delete(driveFileId);
-    files.expireFiles(List.of(row.fileId()));
+    long opId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
+    files.markTrashed(driveFileId, opId);
   }
 
   /** 이동 — 같은 공간 다른 폴더로 folder_id 변경. */

@@ -53,6 +53,7 @@ public class DriveFileRepository {
         dsl.select(DRIVE_FILE.ID, DRIVE_FILE.SPACE_ID, DRIVE_FILE.FILE_ID, DRIVE_FILE.NAME)
             .from(DRIVE_FILE)
             .where(DRIVE_FILE.ID.eq(driveFileId))
+            .and(DRIVE_FILE.TRASHED_AT.isNull())
             .fetchOne();
     return r == null
         ? Optional.empty()
@@ -66,6 +67,17 @@ public class DriveFileRepository {
 
   public void delete(long driveFileId) {
     dsl.deleteFrom(DRIVE_FILE).where(DRIVE_FILE.ID.eq(driveFileId)).execute();
+  }
+
+  /** 파일을 휴지통으로(soft). 살아있을 때만 마킹, trash_root=true(leaf). */
+  public void markTrashed(long driveFileId, long opId) {
+    dsl.update(DRIVE_FILE)
+        .set(DRIVE_FILE.TRASHED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .set(DRIVE_FILE.TRASH_OP_ID, opId)
+        .set(DRIVE_FILE.TRASH_ROOT, true)
+        .where(DRIVE_FILE.ID.eq(driveFileId))
+        .and(DRIVE_FILE.TRASHED_AT.isNull())
+        .execute();
   }
 
   /** 이동 — 소속 폴더 변경(null = 공간 루트). */
@@ -94,6 +106,7 @@ public class DriveFileRepository {
         .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
         .where(DRIVE_FILE.SPACE_ID.eq(spaceId))
         .and(folderCond)
+        .and(DRIVE_FILE.TRASHED_AT.isNull())
         .orderBy(DRIVE_FILE.NAME.asc())
         .fetch(
             r ->
@@ -125,6 +138,7 @@ public class DriveFileRepository {
         .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
         .where(DRIVE_FILE.SPACE_ID.eq(spaceId))
         .and(DRIVE_FILE.NAME.likeIgnoreCase(pattern, '\\'))
+        .and(DRIVE_FILE.TRASHED_AT.isNull())
         .orderBy(DRIVE_FILE.NAME.asc())
         .limit(200)
         .fetch(

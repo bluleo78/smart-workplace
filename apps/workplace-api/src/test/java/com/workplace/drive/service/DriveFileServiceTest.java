@@ -112,20 +112,32 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(content.originalName()).isEqualTo("memo.txt");
   }
 
+  /** 삭제 = 휴지통으로(soft). drive_file 행 보존·trashed 표시, blob 은 보존(expires_at NULL 유지). */
   @Test
-  void delete_setsFileExpiring_andRemovesDriveRow() throws Exception {
+  void delete_movesToTrash_preservesBlob() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+
     fileService.delete(u, f.id());
+
+    // 브라우즈/다운로드에서 사라짐
     assertThatThrownBy(() -> fileService.download(u, f.id()))
         .isInstanceOf(DriveFileNotFoundException.class);
+    // 행은 보존(trashed_at 표시)
+    var trashedAt =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FILE.TRASHED_AT)
+            .from(com.workplace.jooq.Tables.DRIVE_FILE)
+            .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(f.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FILE.TRASHED_AT);
+    assertThat(trashedAt).isNotNull();
+    // blob 은 보존 — expires_at 여전히 NULL
     var exp =
         dsl.select(FILE.EXPIRES_AT)
             .from(FILE)
             .where(FILE.ID.eq(f.fileId()))
             .fetchOne(FILE.EXPIRES_AT);
-    assertThat(exp).isNotNull();
+    assertThat(exp).isNull();
   }
 
   @Test
