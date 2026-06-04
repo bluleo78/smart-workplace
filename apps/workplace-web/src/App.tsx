@@ -1,7 +1,6 @@
 import { lazy, Suspense } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
-import { AdminModuleLayout } from './components/admin/AdminModuleLayout'
 import { AdminRoute } from './components/AdminRoute'
 import { IssueModuleLayout } from './components/issue/IssueModuleLayout'
 import { AppLayout } from './components/layout/AppLayout'
@@ -13,7 +12,6 @@ import { Skeleton } from './components/ui/skeleton'
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const SignupPage = lazy(() => import('./pages/SignupPage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
-const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserListPage = lazy(() => import('./pages/admin/UserListPage'))
 const UserDetailPage = lazy(() => import('./pages/admin/UserDetailPage'))
@@ -57,6 +55,19 @@ const MailModuleLayout = lazy(() =>
 const MailInboxPage = lazy(() =>
   import('./pages/mail/MailInboxPage').then((m) => ({ default: m.MailInboxPage })),
 )
+const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettingsPage'))
+const MailSettingsPage = lazy(() => import('./pages/settings/MailSettingsPage'))
+const AssistantSettingsPage = lazy(() => import('./pages/settings/AssistantSettingsPage'))
+const SettingsModuleLayout = lazy(() =>
+  import('./components/layout/SettingsModuleLayout').then((m) => ({ default: m.SettingsModuleLayout })),
+)
+
+// 구 /admin/* 딥링크를 /settings/* 로 치환 리다이렉트(하위경로·쿼리 보존).
+function AdminRedirect() {
+  const { pathname, search } = useLocation()
+  const target = pathname.replace(/^\/admin/, '/settings') + search
+  return <Navigate to={target} replace />
+}
 
 function PageLoader() {
   return (
@@ -80,7 +91,6 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
               <Route index element={<HomePage />} />
-              <Route path="profile" element={<ProfilePage />} />
 
               {/* 이슈 모듈 — 2차 사이드바(내 태스크 + 프로젝트 목록) 가 감싼다 */}
               <Route element={<IssueModuleLayout />}>
@@ -126,18 +136,28 @@ export default function App() {
                 <Route path="mail/:accountId" element={<MailInboxPage />} />
               </Route>
 
-              {/* 관리자 영역 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
-              <Route element={<AdminRoute />}>
-                {/* 관리 모듈 — 2차 사이드바(사용자/역할/감사로그/AGENT) 가 감싼다 */}
-                <Route element={<AdminModuleLayout />}>
-                  <Route path="admin/users" element={<UserListPage />} />
-                  <Route path="admin/users/:id" element={<UserDetailPage />} />
-                  <Route path="admin/roles" element={<RoleListPage />} />
-                  <Route path="admin/roles/:id" element={<RoleDetailPage />} />
-                  <Route path="admin/audit-logs" element={<AuditLogListPage />} />
-                  <Route path="admin/agents" element={<AgentManagementPage />} />
+              {/* 설정 모듈 — 2차 사이드바(개인/관리) 가 감싼다 */}
+              <Route element={<SettingsModuleLayout />}>
+                {/* 개인 설정 — 전체 로그인 사용자 */}
+                <Route path="settings" element={<Navigate to="/settings/profile" replace />} />
+                <Route path="settings/profile" element={<ProfileSettingsPage />} />
+                <Route path="settings/mail" element={<MailSettingsPage />} />
+                <Route path="settings/assistant" element={<AssistantSettingsPage />} />
+
+                {/* 워크스페이스 관리 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
+                <Route element={<AdminRoute />}>
+                  <Route path="settings/users" element={<UserListPage />} />
+                  <Route path="settings/users/:id" element={<UserDetailPage />} />
+                  <Route path="settings/roles" element={<RoleListPage />} />
+                  <Route path="settings/roles/:id" element={<RoleDetailPage />} />
+                  <Route path="settings/audit-logs" element={<AuditLogListPage />} />
+                  <Route path="settings/agents" element={<AgentManagementPage />} />
                 </Route>
               </Route>
+
+              {/* 호환 리다이렉트 — 구 경로 흡수 */}
+              <Route path="profile" element={<Navigate to="/settings/profile" replace />} />
+              <Route path="admin/*" element={<AdminRedirect />} />
             </Route>
           </Route>
 
