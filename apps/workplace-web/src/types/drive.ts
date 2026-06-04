@@ -54,3 +54,18 @@ export interface DriveSearchResult {
   folders: DriveFolderHit[]
   files: DriveFileHit[]
 }
+
+/** 휴지통 항목 — 백엔드 DriveTrashItemResponse 와 1:1. type: 'FOLDER'|'FILE'. */
+export interface DriveTrashItem {
+  type: 'FOLDER' | 'FILE'
+  id: number
+  name: string
+  originalPath: string
+  trashedAt: string
+  autoPurgeAt: string
+  sizeBytes: number | null
+}
+
+export interface DriveTrashList {
+  items: DriveTrashItem[]
+}

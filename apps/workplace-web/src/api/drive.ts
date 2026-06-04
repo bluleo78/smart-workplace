@@ -7,6 +7,7 @@ import type {
   DriveMember,
   DriveSearchResult,
   DriveSpace,
+  DriveTrashList,
 } from '../types/drive'
 import { client } from './client'
 
@@ -55,6 +56,25 @@ export const driveApi = {
 
   copyFolder: (folderId: number, targetParentId: number | null) =>
     client.post<DriveFolder>(`/drive/folders/${folderId}/copy`, { targetParentId }),
+
+  // 휴지통
+  listTrash: (spaceId: number) =>
+    client.get<DriveTrashList>(`/drive/spaces/${spaceId}/trash`),
+
+  restoreFile: (driveFileId: number) =>
+    client.post<void>(`/drive/files/${driveFileId}/restore`),
+
+  restoreFolder: (folderId: number) =>
+    client.post<void>(`/drive/folders/${folderId}/restore`),
+
+  purgeFile: (driveFileId: number) =>
+    client.delete<void>(`/drive/files/${driveFileId}/purge`),
+
+  purgeFolder: (folderId: number) =>
+    client.delete<void>(`/drive/folders/${folderId}/purge`),
+
+  emptyTrash: (spaceId: number) =>
+    client.delete<void>(`/drive/spaces/${spaceId}/trash`),
 
   // blob 다운로드 → a[download] 트리거
   downloadFile: async (driveFileId: number, fileName: string) => {
