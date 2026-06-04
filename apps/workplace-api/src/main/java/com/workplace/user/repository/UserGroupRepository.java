@@ -18,8 +18,8 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
- * 사용자 그룹 저장소. 공유(owner_id NULL)와 호출자 개인(owner_id=caller) 그룹을 평면 조회하고,
- * 멤버는 user/contact_entry 를 직접 JOIN 해 enrich 한다. 폴리모픽 target 은 DB FK 가 없어 앱에서 검증.
+ * 사용자 그룹 저장소. 공유(owner_id NULL)와 호출자 개인(owner_id=caller) 그룹을 평면 조회하고, 멤버는 user/contact_entry 를 직접
+ * JOIN 해 enrich 한다. 폴리모픽 target 은 DB FK 가 없어 앱에서 검증.
  */
 @Repository
 @RequiredArgsConstructor
@@ -28,36 +28,60 @@ public class UserGroupRepository {
 
   /** 평면 그룹 레코드(트리 조립 전). */
   public record FlatGroup(
-      long id, String code, String name, Long parentId, Long ownerId, String visibility, int sortOrder) {}
+      long id,
+      String code,
+      String name,
+      Long parentId,
+      Long ownerId,
+      String visibility,
+      int sortOrder) {}
 
   /** 호출자가 볼 수 있는 모든 그룹(공유 전체 + 본인 개인) 평면 조회. */
   public List<FlatGroup> findAccessible(long callerId) {
     return dsl.select(
-            USER_GROUP.ID, USER_GROUP.CODE, USER_GROUP.NAME, USER_GROUP.PARENT_ID,
-            USER_GROUP.OWNER_ID, USER_GROUP.VISIBILITY, USER_GROUP.SORT_ORDER)
+            USER_GROUP.ID,
+            USER_GROUP.CODE,
+            USER_GROUP.NAME,
+            USER_GROUP.PARENT_ID,
+            USER_GROUP.OWNER_ID,
+            USER_GROUP.VISIBILITY,
+            USER_GROUP.SORT_ORDER)
         .from(USER_GROUP)
         .where(USER_GROUP.OWNER_ID.isNull().or(USER_GROUP.OWNER_ID.eq(callerId)))
         .fetch(
             r ->
                 new FlatGroup(
-                    r.get(USER_GROUP.ID), r.get(USER_GROUP.CODE), r.get(USER_GROUP.NAME),
-                    r.get(USER_GROUP.PARENT_ID), r.get(USER_GROUP.OWNER_ID),
-                    r.get(USER_GROUP.VISIBILITY), r.get(USER_GROUP.SORT_ORDER)));
+                    r.get(USER_GROUP.ID),
+                    r.get(USER_GROUP.CODE),
+                    r.get(USER_GROUP.NAME),
+                    r.get(USER_GROUP.PARENT_ID),
+                    r.get(USER_GROUP.OWNER_ID),
+                    r.get(USER_GROUP.VISIBILITY),
+                    r.get(USER_GROUP.SORT_ORDER)));
   }
 
   /** 단건 평면 조회(권한·존재 판정용). */
   public Optional<FlatGroup> findById(long id) {
     return dsl.select(
-            USER_GROUP.ID, USER_GROUP.CODE, USER_GROUP.NAME, USER_GROUP.PARENT_ID,
-            USER_GROUP.OWNER_ID, USER_GROUP.VISIBILITY, USER_GROUP.SORT_ORDER)
+            USER_GROUP.ID,
+            USER_GROUP.CODE,
+            USER_GROUP.NAME,
+            USER_GROUP.PARENT_ID,
+            USER_GROUP.OWNER_ID,
+            USER_GROUP.VISIBILITY,
+            USER_GROUP.SORT_ORDER)
         .from(USER_GROUP)
         .where(USER_GROUP.ID.eq(id))
         .fetchOptional(
             r ->
                 new FlatGroup(
-                    r.get(USER_GROUP.ID), r.get(USER_GROUP.CODE), r.get(USER_GROUP.NAME),
-                    r.get(USER_GROUP.PARENT_ID), r.get(USER_GROUP.OWNER_ID),
-                    r.get(USER_GROUP.VISIBILITY), r.get(USER_GROUP.SORT_ORDER)));
+                    r.get(USER_GROUP.ID),
+                    r.get(USER_GROUP.CODE),
+                    r.get(USER_GROUP.NAME),
+                    r.get(USER_GROUP.PARENT_ID),
+                    r.get(USER_GROUP.OWNER_ID),
+                    r.get(USER_GROUP.VISIBILITY),
+                    r.get(USER_GROUP.SORT_ORDER)));
   }
 
   /** 그룹 직속 멤버 enrich(MEMBER→user, EXTERNAL→contact_entry). 이름 오름차순. */
@@ -74,11 +98,18 @@ public class UserGroupRepository {
             r ->
                 all.add(
                     new UserGroupMemberSummary(
-                        "MEMBER", r.get(USER.ID), r.get(USER.NAME),
-                        r.get(USER.EMAIL), r.get(USER.TITLE), null)));
+                        "MEMBER",
+                        r.get(USER.ID),
+                        r.get(USER.NAME),
+                        r.get(USER.EMAIL),
+                        r.get(USER.TITLE),
+                        null)));
     dsl.select(
-            CONTACT_ENTRY.ID, CONTACT_ENTRY.NAME, CONTACT_ENTRY.EMAIL,
-            CONTACT_ENTRY.TITLE, CONTACT_ENTRY.ORGANIZATION)
+            CONTACT_ENTRY.ID,
+            CONTACT_ENTRY.NAME,
+            CONTACT_ENTRY.EMAIL,
+            CONTACT_ENTRY.TITLE,
+            CONTACT_ENTRY.ORGANIZATION)
         .from(USER_GROUP_MEMBER)
         .join(CONTACT_ENTRY)
         .on(CONTACT_ENTRY.ID.eq(USER_GROUP_MEMBER.TARGET_ID))
@@ -89,8 +120,11 @@ public class UserGroupRepository {
             r ->
                 all.add(
                     new UserGroupMemberSummary(
-                        "EXTERNAL", r.get(CONTACT_ENTRY.ID), r.get(CONTACT_ENTRY.NAME),
-                        r.get(CONTACT_ENTRY.EMAIL), r.get(CONTACT_ENTRY.TITLE),
+                        "EXTERNAL",
+                        r.get(CONTACT_ENTRY.ID),
+                        r.get(CONTACT_ENTRY.NAME),
+                        r.get(CONTACT_ENTRY.EMAIL),
+                        r.get(CONTACT_ENTRY.TITLE),
                         r.get(CONTACT_ENTRY.ORGANIZATION))));
     all.sort(Comparator.comparing(UserGroupMemberSummary::name, String.CASE_INSENSITIVE_ORDER));
     return all;

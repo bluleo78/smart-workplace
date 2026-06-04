@@ -22,8 +22,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 사용자 그룹·조직도 API. 조회는 contact:read(클래스 레벨). 쓰기 권한은 서비스에서 visibility 별로 판정
- * (PERSONAL=본인, SHARED=user-group:manage) — 개인 그룹은 contact:read 사용자가 생성 가능해야 하므로 메서드 레벨 권한을 두지 않는다.
+ * 사용자 그룹·조직도 API. 조회는 contact:read(클래스 레벨). 쓰기 권한은 서비스에서 visibility 별로 판정 (PERSONAL=본인,
+ * SHARED=user-group:manage) — 개인 그룹은 contact:read 사용자가 생성 가능해야 하므로 메서드 레벨 권한을 두지 않는다.
  */
 @RestController
 @RequiredArgsConstructor

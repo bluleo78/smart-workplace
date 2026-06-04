@@ -26,8 +26,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 사용자 그룹·조직도 유스케이스. 트리는 평면 fetch 후 Java 조립. 격리는 requireWritable 3-분기 idiom:
- * 미존재→404, PERSONAL 비소유자→404(존재 은닉), SHARED 비-manage→403. SHARED 쓰기는 user-group:manage 권한 필요.
+ * 사용자 그룹·조직도 유스케이스. 트리는 평면 fetch 후 Java 조립. 격리는 requireWritable 3-분기 idiom: 미존재→404, PERSONAL
+ * 비소유자→404(존재 은닉), SHARED 비-manage→403. SHARED 쓰기는 user-group:manage 권한 필요.
  */
 @Service
 @RequiredArgsConstructor
@@ -180,8 +180,7 @@ public class UserGroupService {
 
   /** 평면 목록에서 특정 visibility 의 트리(루트 리스트) 조립. sort_order→name 정렬. */
   private List<UserGroupNode> buildTree(List<FlatGroup> flat, String visibility) {
-    List<FlatGroup> scoped =
-        flat.stream().filter(g -> g.visibility().equals(visibility)).toList();
+    List<FlatGroup> scoped = flat.stream().filter(g -> g.visibility().equals(visibility)).toList();
     Map<Long, List<FlatGroup>> childrenByParent = new LinkedHashMap<>();
     for (FlatGroup g : scoped) {
       childrenByParent.computeIfAbsent(g.parentId(), k -> new ArrayList<>()).add(g);
@@ -190,7 +189,8 @@ public class UserGroupService {
   }
 
   /** childrenByParent 맵에서 parentId 하위 노드들을 재귀 조립(sort_order→name 정렬). */
-  private List<UserGroupNode> buildNodes(Map<Long, List<FlatGroup>> childrenByParent, Long parentId) {
+  private List<UserGroupNode> buildNodes(
+      Map<Long, List<FlatGroup>> childrenByParent, Long parentId) {
     List<FlatGroup> children = childrenByParent.getOrDefault(parentId, List.of());
     return children.stream()
         .sorted(
@@ -199,15 +199,27 @@ public class UserGroupService {
         .map(
             g ->
                 new UserGroupNode(
-                    g.id(), g.code(), g.name(), g.parentId(), g.ownerId(), g.visibility(),
-                    g.sortOrder(), buildNodes(childrenByParent, g.id())))
+                    g.id(),
+                    g.code(),
+                    g.name(),
+                    g.parentId(),
+                    g.ownerId(),
+                    g.visibility(),
+                    g.sortOrder(),
+                    buildNodes(childrenByParent, g.id())))
         .toList();
   }
 
   /** FlatGroup → 상세(직속 멤버 포함). */
   private UserGroupDetail toDetail(FlatGroup g) {
     return new UserGroupDetail(
-        g.id(), g.code(), g.name(), g.parentId(), g.ownerId(), g.visibility(), g.sortOrder(),
+        g.id(),
+        g.code(),
+        g.name(),
+        g.parentId(),
+        g.ownerId(),
+        g.visibility(),
+        g.sortOrder(),
         repo.findMembers(g.id()));
   }
 }
