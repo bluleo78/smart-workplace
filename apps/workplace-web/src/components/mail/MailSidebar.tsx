@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 
 /**
- * 메일 모듈 2차 사이드바 — 연결된 메일 계정 목록(선택 시 /mail/:accountId). 계정 추가/관리는 프로필 페이지로 연결(계정 연동은 #68 영역).
+ * 메일 모듈 2차 사이드바 — 연결된 메일 계정 목록(선택 시 /mail/:accountId). 계정 추가/관리는 설정 > 메일 계정(/settings/mail)으로 연결(계정 연동은 #68 영역).
  */
 export function MailSidebar() {
   const { accountId } = useParams()

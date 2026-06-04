@@ -76,9 +76,9 @@ export default function UserListPage() {
                   role="button"
                   aria-label={`사용자 ${u.name} 상세 보기`}
                   className="cursor-pointer hover:bg-muted/50 transition-colors row-hover"
-                  onClick={() => navigate(`/admin/users/${u.id}`)}
+                  onClick={() => navigate(`/settings/users/${u.id}`)}
                   // Enter/Space 키로 행 클릭과 동일한 네비게이션 동작 수행
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/admin/users/${u.id}`); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/settings/users/${u.id}`); }}
                 >
                   <TableCell>{u.name}</TableCell>
                   <TableCell className="font-medium">{u.username}</TableCell>
