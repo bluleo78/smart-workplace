@@ -5,6 +5,7 @@ import type {
   MailFolder,
   MailSendRequest,
   MailSyncResult,
+  MailSyncStatus,
   SendResult,
 } from '../types/mailMessage';
 import { client } from './client';
@@ -13,6 +14,14 @@ import { client } from './client';
 export async function syncMailbox(accountId: number): Promise<MailSyncResult> {
   const { data } = await client.post<MailSyncResult>(
     `/mail/accounts/${accountId}/sync`,
+  );
+  return data;
+}
+
+/** 계정 동기화 진행 상태(폴링용). */
+export async function getSyncStatus(accountId: number): Promise<MailSyncStatus> {
+  const { data } = await client.get<MailSyncStatus>(
+    `/mail/accounts/${accountId}/sync-status`,
   );
   return data;
 }

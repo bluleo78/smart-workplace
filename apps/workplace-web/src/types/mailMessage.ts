@@ -49,6 +49,14 @@ export interface MailSyncResult {
   saved: number;
 }
 
+/** 수동 동기화 진행 상태(폴링). phase: 'LIST' | 'BODIES' | 'IDLE'. */
+export interface MailSyncStatus {
+  phase: 'LIST' | 'BODIES' | 'IDLE';
+  total: number;
+  done: number;
+  running: boolean;
+}
+
 /** 메일 폴더(받은편지함/보낸편지함). */
 export type MailFolder = 'INBOX' | 'SENT';
 

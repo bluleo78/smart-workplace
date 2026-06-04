@@ -92,11 +92,71 @@ test.describe('받은편지함', () => {
         })
       },
     )
+    // 동기화 클릭 시 폴링되는 sync-status 도 스텁(미모킹 시 :9090 프록시→ECONNREFUSED).
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', {
+      phase: 'IDLE',
+      total: 0,
+      done: 0,
+      running: false,
+    })
 
     await page.goto('/mail/1')
     await page.getByTestId('mail-sync').click()
     await expect.poll(() => syncCalled).toBe(true)
     await expect(page.getByText('새 메일 2건을 받았습니다')).toBeVisible()
+  })
+
+  test('동기화 → 진행률 폴링(BODIES) → 완료 시 진행바 사라짐', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/sync',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ fetched: 2, saved: 2 }),
+        }),
+    )
+    // 플래그로 BODIES→IDLE 전환을 제어(폴링이 running 동안 유지되므로 진행바가 확실히 노출됨).
+    let syncDone = false
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/sync-status',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            syncDone
+              ? { phase: 'IDLE', total: 2, done: 2, running: false }
+              : { phase: 'BODIES', total: 2, done: 1, running: true },
+          ),
+        }),
+    )
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-sync').click()
+    await expect(page.getByTestId('mail-sync-progress')).toContainText('본문 1/2')
+    syncDone = true
+    await expect(page.getByTestId('mail-sync-progress')).toHaveCount(0)
+  })
+
+  test('snippet 없는 행은 미리보기 줄 생략', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    // 행 10: snippet 있음 / 행 20: snippet null
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([summary(), summary({ id: 20, snippet: null })]),
+        }),
+    )
+    await page.goto('/mail/1')
+    await expect(page.getByTestId('mail-row-20')).toBeVisible()
+    // snippet 있는 행은 미리보기 노출, null 행은 미리보기 줄 생략.
+    await expect(page.getByTestId('mail-snippet-10')).toBeVisible()
+    await expect(page.getByTestId('mail-snippet-20')).toHaveCount(0)
   })
 
   test('계정 없음 안내', async ({ authenticatedPage: page }) => {
