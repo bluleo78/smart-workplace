@@ -1,0 +1,87 @@
+// 7d: 메일 AI 러너 — 비서 OAuth 토큰 fetch → home MCP config(도구 미사용) → CLI(단발 --print) → 파서.
+// 분류/요약/답장 모두 도구 없이 텍스트 in/out. assistant 설정은 workplace-api 가 요청 본문으로 전달.
+import { buildChildEnv, buildCliArgs, runClaudeCliCollect } from './cli-runner.js';
+import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
+import { extractResultText, parseClassifyJson } from './mail-parser.js';
+import {
+  MAIL_CLASSIFY_PROMPT,
+  MAIL_REPLY_DRAFT_PROMPT,
+  MAIL_SUMMARIZE_PROMPT,
+} from './mail-system-prompt.js';
+import type { RunAgentDeps } from './run-agent.js';
+
+interface BaseConfig {
+  assistantAgentId: number;
+  model: string;
+  maxTurns: number;
+  timeoutMs: number;
+}
+export interface ClassifyInput extends BaseConfig { subject: string; from: string; snippet: string; }
+export interface SummarizeInput extends BaseConfig { subject: string; from: string; body: string; }
+export interface ThreadMsg { from: string; date: string; body: string; }
+export interface ReplyDraftInput extends BaseConfig { thread: ThreadMsg[]; replyingAs: string; }
+
+// 공통: 토큰 fetch → 임시 MCP config → CLI 단발 실행 → 최종 텍스트. finally 로 config 정리.
+async function runText(
+  systemPrompt: string,
+  userMessage: string,
+  cfg: BaseConfig,
+  deps: RunAgentDeps,
+  tag: string,
+): Promise<string> {
+  const token = (await deps.client.getOAuthToken(cfg.assistantAgentId)).token;
+  const mcpConfigPath = writeTempMcpConfig({
+    agentId: cfg.assistantAgentId,
+    baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
+    internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
+    profile: 'home',
+  });
+  try {
+    const args = buildCliArgs({
+      userMessage,
+      systemPrompt,
+      model: cfg.model,
+      maxTurns: cfg.maxTurns,
+      mcpConfigPath,
+      includePartialMessages: false,
+    });
+    const env = buildChildEnv(process.env, token, cfg.assistantAgentId);
+    const lines = await runClaudeCliCollect({
+      args,
+      env,
+      timeoutMs: cfg.timeoutMs,
+      logTag: `${tag}:${cfg.assistantAgentId}`,
+    });
+    return extractResultText(lines);
+  } finally {
+    cleanupTempMcpConfig(mcpConfigPath);
+  }
+}
+
+// 메일 분류: 제목·보낸사람·미리보기 → {category, needsReply}
+export async function runMailClassify(
+  input: ClassifyInput,
+  deps: RunAgentDeps,
+): Promise<{ category: string; needsReply: boolean }> {
+  const userMessage = `제목: ${input.subject}\n보낸사람: ${input.from}\n미리보기: ${input.snippet}`;
+  return parseClassifyJson(await runText(MAIL_CLASSIFY_PROMPT, userMessage, input, deps, 'mail-classify'));
+}
+
+// 메일 요약: 제목·보낸사람·본문 → {summary}
+export async function runMailSummarize(
+  input: SummarizeInput,
+  deps: RunAgentDeps,
+): Promise<{ summary: string }> {
+  const userMessage = `제목: ${input.subject}\n보낸사람: ${input.from}\n\n본문:\n${input.body}`;
+  return { summary: (await runText(MAIL_SUMMARIZE_PROMPT, userMessage, input, deps, 'mail-summarize')).trim() };
+}
+
+// 답장 초안: 스레드 전체 + 발신자 → {draftBody}
+export async function runMailReplyDraft(
+  input: ReplyDraftInput,
+  deps: RunAgentDeps,
+): Promise<{ draftBody: string }> {
+  const convo = input.thread.map((m) => `--- ${m.from} (${m.date})\n${m.body}`).join('\n\n');
+  const userMessage = `당신은 ${input.replyingAs} 로서 아래 대화의 마지막 메일에 답장합니다.\n\n${convo}`;
+  return { draftBody: (await runText(MAIL_REPLY_DRAFT_PROMPT, userMessage, input, deps, 'mail-reply-draft')).trim() };
+}
