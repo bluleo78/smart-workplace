@@ -11,6 +11,7 @@ import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.dto.ReplyContext;
+import com.workplace.mail.outbound.MailAiMessages;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -100,7 +101,9 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.SNIPPET,
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
-            EMAIL_MESSAGE.HAS_ATTACHMENT)
+            EMAIL_MESSAGE.HAS_ATTACHMENT,
+            EMAIL_MESSAGE.AI_CATEGORY,
+            EMAIL_MESSAGE.AI_NEEDS_REPLY)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -221,6 +224,94 @@ public class EmailMessageRepository {
                     r.get(EMAIL_ATTACHMENT.CONTENT_ID)));
   }
 
+  /** 분류 결과 저장(동기화 잡, best-effort). */
+  public void updateClassification(long messageId, String category, boolean needsReply) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.AI_CATEGORY, category)
+        .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, needsReply)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /** 요약 캐시 저장. */
+  public void updateSummary(long messageId, String summary) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.AI_SUMMARY, summary)
+        .set(EMAIL_MESSAGE.AI_SUMMARIZED_AT, OffsetDateTime.now())
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /** AI 요약/답장용 컨텍스트(계정 ai_enabled·본인 이메일 + 메시지 본문/요약). 소유 검증 포함. */
+  public Optional<AiContext> findAiContextByIdAndUser(long userId, long messageId) {
+    return dsl.select(
+            EMAIL_ACCOUNT.AI_ENABLED,
+            EMAIL_ACCOUNT.EMAIL_ADDRESS,
+            EMAIL_MESSAGE.SUBJECT,
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_MESSAGE.BODY_TEXT,
+            EMAIL_MESSAGE.BODY_HTML,
+            EMAIL_MESSAGE.AI_SUMMARY)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(
+            r ->
+                new AiContext(
+                    Boolean.TRUE.equals(r.get(EMAIL_ACCOUNT.AI_ENABLED)),
+                    r.get(EMAIL_ACCOUNT.EMAIL_ADDRESS),
+                    r.get(EMAIL_MESSAGE.SUBJECT),
+                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                    r.get(EMAIL_MESSAGE.BODY_TEXT),
+                    r.get(EMAIL_MESSAGE.BODY_HTML),
+                    r.get(EMAIL_MESSAGE.AI_SUMMARY)));
+  }
+
+  /** 메시지가 속한 스레드 전체(시간순) — 답장 초안 컨텍스트. 소유 검증 포함. */
+  public List<MailAiMessages.ThreadMessage> findThreadByIdAndUser(long userId, long messageId) {
+    String threadId =
+        dsl.select(EMAIL_MESSAGE.THREAD_ID)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_ACCOUNT)
+            .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+            .fetchOne(EMAIL_MESSAGE.THREAD_ID);
+    if (threadId == null) {
+      return List.of();
+    }
+    return dsl.select(
+            EMAIL_MESSAGE.FROM_ADDRESS, EMAIL_MESSAGE.RECEIVED_AT, EMAIL_MESSAGE.BODY_TEXT)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .where(EMAIL_MESSAGE.THREAD_ID.eq(threadId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.asc().nullsFirst(), EMAIL_MESSAGE.ID.asc())
+        .fetch(
+            r ->
+                new MailAiMessages.ThreadMessage(
+                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                    r.get(EMAIL_MESSAGE.RECEIVED_AT) == null
+                        ? ""
+                        : r.get(EMAIL_MESSAGE.RECEIVED_AT).toString(),
+                    r.get(EMAIL_MESSAGE.BODY_TEXT) == null ? "" : r.get(EMAIL_MESSAGE.BODY_TEXT)));
+  }
+
+  /** AI 컨텍스트 행. */
+  public record AiContext(
+      boolean aiEnabled,
+      String selfAddress,
+      String subject,
+      String fromAddress,
+      String bodyText,
+      String bodyHtml,
+      String summary) {}
+
   private EmailMessageSummary toSummary(Record r) {
     OffsetDateTime received = r.get(EMAIL_MESSAGE.RECEIVED_AT);
     return new EmailMessageSummary(
@@ -232,7 +323,9 @@ public class EmailMessageRepository {
         r.get(EMAIL_MESSAGE.SNIPPET),
         received == null ? null : received.toInstant(),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
-        Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.HAS_ATTACHMENT)));
+        Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.HAS_ATTACHMENT)),
+        r.get(EMAIL_MESSAGE.AI_CATEGORY),
+        r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY));
   }
 
   private EmailMessageDetail toDetail(Record r, List<EmailAttachmentMeta> attachments) {

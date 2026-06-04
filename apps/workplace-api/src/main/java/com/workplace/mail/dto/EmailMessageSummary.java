@@ -12,4 +12,6 @@ public record EmailMessageSummary(
     String snippet,
     Instant receivedAt,
     boolean seen,
-    boolean hasAttachment) {}
+    boolean hasAttachment,
+    String aiCategory,
+    Boolean aiNeedsReply) {}
