@@ -39,6 +39,8 @@ export function summary(overrides?: Partial<EmailMessageSummary>): EmailMessageS
     receivedAt: '2026-06-03T01:00:00Z',
     seen: false,
     hasAttachment: true,
+    aiCategory: null,
+    aiNeedsReply: null,
     ...overrides,
   }
 }
