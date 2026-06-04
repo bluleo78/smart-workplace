@@ -19,6 +19,7 @@ export function mailAccount(overrides?: Partial<MailAccountResponse>): MailAccou
     smtpPort: 587,
     smtpSecurity: 'STARTTLS',
     smtpUsername: 'me@example.com',
+    aiEnabled: false,
     lastTestedAt: '2026-06-03T00:00:00Z',
     createdAt: '2026-06-03T00:00:00Z',
     updatedAt: '2026-06-03T00:00:00Z',

@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import {
   Dialog,
   DialogContent,
@@ -57,6 +58,7 @@ const EMPTY: MailAccountFormData = {
   smtpSecurity: 'STARTTLS',
   smtpUsername: '',
   password: '',
+  aiEnabled: false,
 };
 
 export function MailAccountDialog({
@@ -94,6 +96,7 @@ export function MailAccountDialog({
         smtpSecurity: account.smtpSecurity,
         smtpUsername: account.smtpUsername,
         password: '',
+        aiEnabled: account.aiEnabled,
       });
     } else {
       form.reset(EMPTY);
@@ -308,6 +311,21 @@ export function MailAccountDialog({
             Gmail·Outlook 등은 로그인 비밀번호 대신{' '}
             <strong>앱 비밀번호</strong>가 필요합니다.
           </p>
+
+          {/* AI 비서 사용 토글 — 활성화 시 메일 본문이 AI 서비스로 전송됨 */}
+          <FormField label="AI 비서 사용" htmlFor="mail-ai-enabled">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="mail-ai-enabled"
+                data-testid="mail-ai-enabled"
+                checked={form.watch('aiEnabled')}
+                onCheckedChange={(v) => form.setValue('aiEnabled', v)}
+              />
+              <span className="text-xs text-muted-foreground">
+                메일 요약·분류·답장 초안에 본문이 AI로 전송됩니다(기본 꺼짐).
+              </span>
+            </div>
+          </FormField>
 
           {/* 연결 테스트 결과 인라인 표시 */}
           {testResult && (
