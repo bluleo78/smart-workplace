@@ -1,4 +1,4 @@
-import type { DriveFile, DriveFolder, DriveSpace } from '../../src/types/drive'
+import type { DriveFile, DriveFolder, DriveSpace, DriveTrashList } from '../../src/types/drive'
 
 export function createSpace(overrides: Partial<DriveSpace> = {}): DriveSpace {
   return {
@@ -36,6 +36,23 @@ export function createFile(overrides: Partial<DriveFile> = {}): DriveFile {
     sizeBytes: 5,
     category: 'TEXT',
     createdAt: new Date('2026-06-01').toISOString(),
+    ...overrides,
+  }
+}
+
+export function makeTrashList(overrides: Partial<DriveTrashList> = {}): DriveTrashList {
+  return {
+    items: [
+      {
+        type: 'FILE',
+        id: 901,
+        name: 'memo.txt',
+        originalPath: '',
+        trashedAt: '2026-06-04T00:00:00Z',
+        autoPurgeAt: '2026-07-04T00:00:00Z',
+        sizeBytes: 5,
+      },
+    ],
     ...overrides,
   }
 }

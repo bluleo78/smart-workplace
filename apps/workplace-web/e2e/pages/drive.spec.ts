@@ -1,7 +1,7 @@
 // 드라이브 E2E — 폴더 생성 · 파일 업로드 · 다운로드 · 삭제 (백엔드 없이 page.route 모킹).
 import type { Page } from '@playwright/test'
 
-import { createFile, createFolder, createSpace, personalSpace } from '../factories/drive.factory'
+import { createFile, createFolder, createSpace, makeTrashList, personalSpace } from '../factories/drive.factory'
 import { expect, test } from '../fixtures/auth.fixture'
 
 const SPACE_ID = 1
@@ -299,4 +299,32 @@ test('이미지 파일 클릭 시 미리보기 모달에 이미지를 표시한�
   const body = page.getByTestId('preview-body')
   await expect(body).toBeVisible()
   await expect(body.locator('img')).toBeVisible()
+})
+
+test('휴지통 — 조회 후 복원하면 목록이 갱신된다', async ({ authenticatedPage: page }) => {
+  let restored = false
+  await stubSpaces(page)
+  // 기본 항목 목록(빈 루트) — DrivePage 마운트 시 필요
+  await stubItems(page, () => ({ folders: [], files: [] }))
+
+  await page.route('**/api/v1/drive/spaces/*/trash', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: restored ? { items: [] } : makeTrashList() })
+    } else {
+      await route.fulfill({ status: 204, body: '' })
+    }
+  })
+  await page.route('**/api/v1/drive/files/901/restore', async (route) => {
+    restored = true
+    await route.fulfill({ status: 204, body: '' })
+  })
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  await page.getByTestId('trash-toggle').click()
+  await expect(page.getByTestId('trash-view')).toBeVisible()
+  await expect(page.getByText('memo.txt')).toBeVisible()
+  await page.getByRole('button', { name: '복원' }).click()
+  await expect(page.getByText('휴지통이 비어 있습니다')).toBeVisible()
 })
