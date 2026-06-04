@@ -1,5 +1,6 @@
 package com.workplace.mail.service;
 
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailSecurity;
@@ -37,7 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
  * </ul>
  *
  * <p>현재는 수동 트리거 1회 동기화. IMAP IDLE/스케줄 푸시는 후속(#71 이후) 확장 여지로 남긴다. 네트워크 I/O 를 트랜잭션 안에서 수행하는 것은 개인
- * 메일함·수동 동기화라 허용하는 v1 단순화다.
+ * 메일함·수동 동기화라 허용하는 v1 단순화다. 동기화 직후 수행하는 동기 분류 호출도 동일한 v1 트레이드오프를 공유한다.
  */
 @Slf4j
 @Service
@@ -56,6 +57,7 @@ public class MailSyncService {
   private final EmailAttachmentRepository attachmentRepo;
   private final EncryptionService encryption;
   private final MailMessageParser parser;
+  private final MailAiService mailAiService;
 
   /** 본인 계정의 INBOX 를 증분 동기화. 소유 아니면 404, 메일 서버 오류면 502. */
   @Transactional
@@ -91,6 +93,9 @@ public class MailSyncService {
       Message[] messages = uidFolder.getMessagesByUID(lastSeenUid + 1, UIDFolder.LASTUID);
       prefetch(inbox, messages);
 
+      // 분류용 비서 사양 — 계정 AI 사용 시에만(미설정이면 null → 분류 생략). 메시지 수만큼 재해석 방지.
+      AssistantSpec aiSpec = account.aiEnabled() ? mailAiService.resolveSpecOrNull(userId) : null;
+
       int fetched = 0;
       int saved = 0;
       long maxUid = lastSeenUid;
@@ -112,6 +117,10 @@ public class MailSyncService {
             saved++;
             for (ParsedAttachment a : parsed.attachments()) {
               attachmentRepo.insert(newId.get(), a);
+            }
+            // 신규 INBOX 메시지만 분류(go-forward only). best-effort — 실패해도 동기화 지속.
+            if (aiSpec != null) {
+              mailAiService.classifyAndStore(newId.get(), parsed, aiSpec);
             }
           }
         } catch (Exception e) {
