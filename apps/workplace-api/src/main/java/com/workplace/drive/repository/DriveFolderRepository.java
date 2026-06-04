@@ -186,6 +186,27 @@ public class DriveFolderRepository {
                     r.get(DRIVE_FOLDER.CREATED_AT)));
   }
 
+  /** 공간 휴지통의 폴더 trash_root 항목. */
+  public List<TrashRow> listTrashedFolders(long spaceId) {
+    return dsl.select(
+            DRIVE_FOLDER.ID, DRIVE_FOLDER.NAME, DRIVE_FOLDER.PARENT_ID, DRIVE_FOLDER.TRASHED_AT)
+        .from(DRIVE_FOLDER)
+        .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
+        .and(DRIVE_FOLDER.TRASH_ROOT.isTrue())
+        .and(DRIVE_FOLDER.TRASHED_AT.isNotNull())
+        .orderBy(DRIVE_FOLDER.TRASHED_AT.desc())
+        .fetch(
+            r ->
+                new TrashRow(
+                    r.get(DRIVE_FOLDER.ID),
+                    r.get(DRIVE_FOLDER.NAME),
+                    r.get(DRIVE_FOLDER.PARENT_ID),
+                    r.get(DRIVE_FOLDER.TRASHED_AT)));
+  }
+
+  /** 휴지통 폴더 행. parentId = 원래 부모(null=루트). */
+  public record TrashRow(long id, String name, Long parentId, java.time.OffsetDateTime trashedAt) {}
+
   /**
    * 폴더 서브트리(자기 자신 포함)의 모든 drive_file.file_id — 삭제 전 FILE 만료 처리용. BFS 로 하위 폴더를 수집해 CTE 없이 안전하게 처리.
    */

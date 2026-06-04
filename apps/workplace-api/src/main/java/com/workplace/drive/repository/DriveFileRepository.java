@@ -154,6 +154,35 @@ public class DriveFileRepository {
                     r.get(DRIVE_FILE.CREATED_AT)));
   }
 
+  /** 공간 휴지통의 파일 trash_root 항목. */
+  public List<TrashRow> listTrashedFiles(long spaceId) {
+    return dsl.select(
+            DRIVE_FILE.ID,
+            DRIVE_FILE.NAME,
+            DRIVE_FILE.FOLDER_ID,
+            DRIVE_FILE.TRASHED_AT,
+            FILE.SIZE_BYTES)
+        .from(DRIVE_FILE)
+        .join(FILE)
+        .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
+        .where(DRIVE_FILE.SPACE_ID.eq(spaceId))
+        .and(DRIVE_FILE.TRASH_ROOT.isTrue())
+        .and(DRIVE_FILE.TRASHED_AT.isNotNull())
+        .orderBy(DRIVE_FILE.TRASHED_AT.desc())
+        .fetch(
+            r ->
+                new TrashRow(
+                    r.get(DRIVE_FILE.ID),
+                    r.get(DRIVE_FILE.NAME),
+                    r.get(DRIVE_FILE.FOLDER_ID),
+                    r.get(DRIVE_FILE.TRASHED_AT),
+                    r.get(FILE.SIZE_BYTES)));
+  }
+
+  /** 휴지통 파일 행. folderId = 원래 폴더(null=루트). */
+  public record TrashRow(
+      long id, String name, Long folderId, java.time.OffsetDateTime trashedAt, Long sizeBytes) {}
+
   /** 내부 행 표현(권한 검증·다운로드·복사용). */
   public record DriveFileRow(long id, long spaceId, long fileId, String name) {}
 }
