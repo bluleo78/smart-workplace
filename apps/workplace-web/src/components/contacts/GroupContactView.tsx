@@ -50,6 +50,7 @@ export function GroupContactView({ groupId, selected, onSelect }: Props) {
                   key={`${m.targetType}-${m.targetId}`}
                   type="button"
                   data-testid={`group-member-${m.targetType}-${m.targetId}`}
+                  aria-pressed={active}
                   onClick={() => onSelect({ type: m.targetType, id: m.targetId })}
                   className={cn(
                     'flex w-full items-center gap-3 px-4 py-3 text-left',

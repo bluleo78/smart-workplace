@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
@@ -55,10 +55,15 @@ export function ContactsPage() {
   const search = params.get('q') ?? ''
   const type = ((params.get('type') as ContactTypeFilter) ?? 'ALL') as ContactTypeFilter
   const groupParam = params.get('group')
-  const groupId = groupParam ? Number(groupParam) : null
+  const groupId = groupParam != null && /^\d+$/.test(groupParam) ? Number(groupParam) : null
 
   const [selected, setSelected] = useState<ContactSelection | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+
+  // 그룹 전환 시 이전 선택(상세 패널) 초기화
+  useEffect(() => {
+    setSelected(null)
+  }, [groupId])
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useContacts(
     search,
     type,
