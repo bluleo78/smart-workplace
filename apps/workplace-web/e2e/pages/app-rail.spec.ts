@@ -18,14 +18,16 @@ test('데스크톱에서 앱 레일은 아이콘 전용이다(앱 마크 표시�
 })
 
 // LNB 표준화(#98) — 레일 라벨 한글화(대화·드라이브) + 소통 묶음 순서.
-test('앱 레일 — 한글 라벨과 소통 묶음 순서(홈·작업·대화·메일·연락처·드라이브)', async ({
+// #99 — '설정' 모듈을 어드민 전용에서 전체 사용자 노출로 전환, 드라이브 다음(끝)에 배치.
+test('앱 레일 — 한글 라벨과 소통 묶음 순서(홈·작업·대화·메일·연락처·드라이브·설정)', async ({
   authenticatedPage: page,
 }) => {
   await page.goto('/')
   // 영문 라벨(Chat/Drive) 제거 — 레일 항목 텍스트가 한글이다.
   await expect(page.getByTestId('rail-link-/chat')).toContainText('대화')
   await expect(page.getByTestId('rail-link-/drive')).toContainText('드라이브')
-  // 순서: 홈 · 작업 관리 · 대화 · 메일 · 연락처 · 드라이브 (소통 앱 인접, 드라이브는 끝)
+  // 순서: 홈 · 작업 관리 · 대화 · 메일 · 연락처 · 드라이브 · 설정
+  // (소통 앱 인접, 드라이브 다음 끝에 설정 — 일반 사용자에게도 노출. #99)
   const order = await page
     .locator('[data-testid^="rail-link-"]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
@@ -36,5 +38,6 @@ test('앱 레일 — 한글 라벨과 소통 묶음 순서(홈·작업·대화·
     'rail-link-/mail',
     'rail-link-/contacts',
     'rail-link-/drive',
+    'rail-link-/settings/profile',
   ])
 })
