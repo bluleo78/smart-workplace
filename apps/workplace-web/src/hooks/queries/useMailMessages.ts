@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { getMessage, getMailSummary, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
+import { generateReplyDraft, getMessage, getMailSummary, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import type { MailFolder, MailSendRequest } from '../../types/mailMessage';
 
@@ -60,6 +60,14 @@ export function useSyncMailbox(accountId: number | undefined) {
       );
     },
     onError: (e) => handleApiError(e, '동기화에 실패했습니다'),
+  });
+}
+
+/** AI 답장 초안 — 버튼 클릭 시 1회 생성. 결과는 호출 측에서 작성 도크에 채움. */
+export function useReplyDraft() {
+  return useMutation({
+    mutationFn: (messageId: number) => generateReplyDraft(messageId),
+    onError: (e) => handleApiError(e, 'AI 답장 초안 생성에 실패했습니다'),
   });
 }
 

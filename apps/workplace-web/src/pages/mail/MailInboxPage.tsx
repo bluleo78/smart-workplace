@@ -10,6 +10,7 @@ import {
   useMailMessage,
   useMailMessages,
   useMailSummary,
+  useReplyDraft,
   useSyncMailbox,
 } from '../../hooks/queries/useMailMessages'
 import type { EmailMessageDetail, EmailMessageSummary, MailFolder } from '../../types/mailMessage'
@@ -113,12 +114,14 @@ function MessageDetailPanel({
   onReply,
   onReplyAll,
   onForward,
+  onAiReplyDraft,
 }: {
   messageId: number | null
   aiEnabled: boolean
   onReply: (detail: EmailMessageDetail) => void
   onReplyAll: (detail: EmailMessageDetail) => void
   onForward: (detail: EmailMessageDetail) => void
+  onAiReplyDraft: (detail: EmailMessageDetail) => void
 }) {
   const { data: detail, isLoading, isError } = useMailMessage(messageId)
   // AI 사용 계정 + messageId 가 있을 때만 요약 자동 조회.
@@ -190,6 +193,17 @@ function MessageDetailPanel({
           >
             <Forward className="h-3.5 w-3.5" /> 전달
           </button>
+          {/* AI 답장 초안 버튼 — AI 사용 계정에서만 노출. */}
+          {aiEnabled && (
+            <button
+              type="button"
+              data-testid="mail-ai-reply-draft"
+              onClick={() => onAiReplyDraft(detail)}
+              className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
+            >
+              ✨ AI 답장 초안
+            </button>
+          )}
         </div>
         {detail.attachments.length > 0 && (
           <ul data-testid="mail-attachments" className="mt-2 flex flex-wrap gap-2">
@@ -248,6 +262,7 @@ export function MailInboxPage() {
   const { data: messages, isLoading, isError } = useMailMessages(accountIdNum, folderParam, search)
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
+  const replyDraft = useReplyDraft()
 
   // 본인 이메일 주소(전체답장에서 자신을 수신자에서 제외).
   const selfAddress = accounts?.find((a) => a.id === accountIdNum)?.emailAddress ?? ''
@@ -288,6 +303,16 @@ export function MailInboxPage() {
       initialHtml: quoteHtml(d),
       inReplyToMessageId: null,
     })
+  }
+  // AI 답장 초안 — 생성된 본문을 인용문 위 단락으로 넣어 답장 도크 오픈.
+  async function onAiReplyDraft(d: EmailMessageDetail) {
+    const base = buildReply(d, false)
+    try {
+      const { draftBody } = await replyDraft.mutateAsync(d.id)
+      openCompose({ ...base, initialHtml: `<p>${draftBody.replace(/\n/g, '<br/>')}</p>${base.initialHtml}` })
+    } catch {
+      /* 토스트는 훅 onError 가 처리 */
+    }
   }
   function onNew() {
     openCompose({
@@ -426,6 +451,7 @@ export function MailInboxPage() {
           onReply={onReply}
           onReplyAll={onReplyAll}
           onForward={onForward}
+          onAiReplyDraft={onAiReplyDraft}
         />
       </div>
     </div>
