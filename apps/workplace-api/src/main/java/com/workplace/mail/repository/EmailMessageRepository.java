@@ -373,6 +373,29 @@ public class EmailMessageRepository {
                     r.get(EMAIL_MESSAGE.BODY_TEXT) == null ? "" : r.get(EMAIL_MESSAGE.BODY_TEXT)));
   }
 
+  /**
+   * 분류 입력 컨텍스트(subject/from/snippet) 조회. 본문 적재 후 messageId 로 분류할 때 사용. 소유 검증을 위해 email_account 와
+   * 조인해 account.user_id = userId 인 경우만 반환.
+   */
+  public Optional<ClassifyContext> findClassifyContextByIdAndUser(long userId, long messageId) {
+    return dsl.select(EMAIL_MESSAGE.SUBJECT, EMAIL_MESSAGE.FROM_ADDRESS, EMAIL_MESSAGE.SNIPPET)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(
+            r ->
+                new ClassifyContext(
+                    r.get(EMAIL_MESSAGE.SUBJECT),
+                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                    r.get(EMAIL_MESSAGE.SNIPPET)));
+  }
+
+  /** 분류 입력 행(제목/보낸사람/미리보기). */
+  public record ClassifyContext(String subject, String fromAddress, String snippet) {}
+
   /** AI 컨텍스트 행. */
   public record AiContext(
       boolean aiEnabled,

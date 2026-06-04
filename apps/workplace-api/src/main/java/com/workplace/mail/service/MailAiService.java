@@ -73,6 +73,33 @@ public class MailAiService {
   }
 
   /**
+   * messageId 기준 분류(본문 적재 후 호출). subject/from/snippet 을 DB 에서 읽어 분류한다. best-effort: 어떤 실패도 삼키고 적재
+   * 흐름을 막지 않는다.
+   */
+  public void classifyAndStore(long userId, long messageId, AssistantSpec spec) {
+    try {
+      var ctx = messageRepo.findClassifyContextByIdAndUser(userId, messageId).orElse(null);
+      if (ctx == null) {
+        return;
+      }
+      ClassifyResult r =
+          mailClient.classify(
+              new ClassifyRequest(
+                  nz(ctx.subject()),
+                  nz(ctx.fromAddress()),
+                  nz(ctx.snippet()),
+                  spec.agentUserId(),
+                  spec.model(),
+                  MAX_TURNS,
+                  spec.timeoutMs()));
+      String category = CATEGORIES.contains(r.category()) ? r.category() : null;
+      messageRepo.updateClassification(messageId, category, r.needsReply());
+    } catch (Exception e) {
+      log.warn("메일 분류 건너뜀 (messageId={}): {}", messageId, e.toString());
+    }
+  }
+
+  /**
    * 메일 요약(캐시 우선). 캐시 없으면 ai-agent 호출 후 저장. ai_enabled=false 면 503.
    *
    * <p>LLM 호출(최대 90s) 동안 풀 커넥션을 점유하지 않도록 트랜잭션을 걸지 않는다. 읽기·캐시 쓰기는 각자 짧은 커넥션으로 수행.

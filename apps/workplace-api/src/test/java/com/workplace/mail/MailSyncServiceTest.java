@@ -15,10 +15,8 @@ import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.security.EncryptionService;
-import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
-import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.outbound.AiAgentMailClient;
@@ -79,21 +77,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
   /** box@test.local 계정 삽입 with aiEnabled 옵션. AI 분류 테스트에서 aiEnabled=true 로 생성할 때 사용. */
   private long insertAccount(long userId, boolean aiEnabled) {
-    EmailAccountRequest req =
-        new EmailAccountRequest(
-            "box@test.local",
-            "테스트박스",
-            "127.0.0.1",
-            3143,
-            MailSecurity.NONE,
-            "box@test.local",
-            "127.0.0.1",
-            3025,
-            MailSecurity.NONE,
-            "box@test.local",
-            "pw",
-            aiEnabled);
-    return accountRepo.insert(userId, req, encryption.encrypt("pw"));
+    return MailTestSupport.insertAccount(accountRepo, encryption, userId, aiEnabled);
   }
 
   @Test
