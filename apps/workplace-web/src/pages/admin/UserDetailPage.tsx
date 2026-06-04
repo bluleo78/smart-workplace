@@ -57,7 +57,7 @@ export default function UserDetailPage() {
         setSelectedRoleIds(userRes.data.roles.map(r => r.id));
       } catch {
         toast.error('사용자 정보를 불러오는데 실패했습니다.');
-        navigate('/admin/users');
+        navigate('/settings/users');
       } finally {
         setIsLoading(false);
       }
@@ -157,7 +157,7 @@ export default function UserDetailPage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex items-center gap-4">
         {/* 사용자 목록으로 돌아가는 뒤로가기 버튼 — 접근성 보강 (#102) */}
-        <Button variant="ghost" size="icon" onClick={() => navigate('/admin/users')} aria-label="목록으로 돌아가기" title="목록으로 돌아가기">
+        <Button variant="ghost" size="icon" onClick={() => navigate('/settings/users')} aria-label="목록으로 돌아가기" title="목록으로 돌아가기">
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <h1 className="text-[28px] leading-[36px] font-semibold tracking-tight">사용자 상세</h1>

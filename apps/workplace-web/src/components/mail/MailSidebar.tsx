@@ -63,9 +63,9 @@ export function MailSidebar() {
           </nav>
         )}
 
-        {/* 계정 추가/관리 — 프로필 설정으로 */}
+        {/* 계정 추가/관리 — 설정 > 메일 계정으로 */}
         <Link
-          to="/profile"
+          to="/settings/mail"
           data-testid="mail-manage-accounts"
           className="mt-4 flex items-center gap-2 rounded-md px-3 py-2 text-[13px] text-muted-foreground hover:bg-accent/50"
         >

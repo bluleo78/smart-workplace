@@ -53,7 +53,7 @@ export function AppRailUserMenu() {
           {user?.name ?? user?.username ?? '사용자'}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => navigate('/profile')}>
+        <DropdownMenuItem onSelect={() => navigate('/settings/profile')}>
           <UserIcon className="h-4 w-4" /> 프로필
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
