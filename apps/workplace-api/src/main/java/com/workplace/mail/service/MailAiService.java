@@ -4,7 +4,6 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.mail.dto.MailReplyDraft;
 import com.workplace.mail.dto.MailSummary;
-import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
@@ -49,26 +48,6 @@ public class MailAiService {
     } catch (Exception e) {
       log.warn("메일 AI 비서 미설정 — 분류 생략 (userId={}): {}", userId, e.toString());
       return null;
-    }
-  }
-
-  /** 신규 INBOX 메시지 1건 분류 후 저장. best-effort: 어떤 실패도 삼키고 동기화 지속. */
-  public void classifyAndStore(long messageId, ParsedMessage parsed, AssistantSpec spec) {
-    try {
-      ClassifyResult r =
-          mailClient.classify(
-              new ClassifyRequest(
-                  nz(parsed.subject()),
-                  nz(parsed.fromAddress()),
-                  nz(parsed.snippet()),
-                  spec.agentUserId(),
-                  spec.model(),
-                  MAX_TURNS,
-                  spec.timeoutMs()));
-      String category = CATEGORIES.contains(r.category()) ? r.category() : null;
-      messageRepo.updateClassification(messageId, category, r.needsReply());
-    } catch (Exception e) {
-      log.warn("메일 분류 건너뜀 (messageId={}): {}", messageId, e.toString());
     }
   }
 

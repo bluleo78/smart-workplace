@@ -1,6 +1,5 @@
 package com.workplace.mail;
 
-import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -35,8 +34,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * MailBodyFetcher 통합 테스트 — GreenMail(IMAP 3143)에서 단건 본문을 적재해 캐시(body_fetched_at)·본문·분류를 검증한다.
  *
- * <p>주의: 현재 sync 는 parser.parse 로 본문까지 채우므로(Task 7 전), '미적재' 상태를 재현하려면 sync 후 본문 컬럼을 비운다.
- * body_fetched_at 은 sync 가 건드리지 않아 null 유지 — fetchBody 가 실제로 본문을 다시 내려받는지 검증할 수 있다.
+ * <p>sync 는 메타만 저장하므로 본문/스니펫은 적재 전 null 이고 body_fetched_at 도 null 이다. 따라서 sync 직후가 곧 '미적재' 상태이며,
+ * fetchBody 가 실제로 본문을 내려받아 채우는지(그리고 멱등/분류) 를 그대로 검증할 수 있다.
  */
 @Transactional
 class MailBodyFetcherTest extends IntegrationTestBase {
@@ -60,16 +59,6 @@ class MailBodyFetcherTest extends IntegrationTestBase {
   /** 비서 해석 — 분류 테스트에서만 스텁. */
   @MockitoBean AssistantResolver assistantResolver;
 
-  /** sync 후 본문을 비워 진짜 '미적재' 상태로 만든다(body_fetched_at 은 sync 가 건드리지 않아 null 유지). */
-  private void clearBody(long messageId) {
-    dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.BODY_TEXT, (String) null)
-        .set(EMAIL_MESSAGE.BODY_HTML, (String) null)
-        .set(EMAIL_MESSAGE.SNIPPET, (String) null)
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .execute();
-  }
-
   @Test
   void fetchBody_본문적재_및_캐시() {
     long user = TestFixtures.createHuman(dsl);
@@ -79,7 +68,6 @@ class MailBodyFetcherTest extends IntegrationTestBase {
 
     syncService.sync(user, accountId);
     long messageId = messageRepo.listMissingBody(accountId, 10).get(0).messageId();
-    clearBody(messageId); // 본문 제거 → fetchBody 가 실제로 다시 내려받는지 검증 가능
 
     bodyFetcher.fetchBody(user, messageRepo.findBodyTarget(accountId, messageId).orElseThrow());
 
@@ -118,7 +106,6 @@ class MailBodyFetcherTest extends IntegrationTestBase {
 
     syncService.sync(user, accountId);
     long messageId = messageRepo.listMissingBody(accountId, 10).get(0).messageId();
-    clearBody(messageId);
 
     when(assistantResolver.resolve(anyLong()))
         .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));

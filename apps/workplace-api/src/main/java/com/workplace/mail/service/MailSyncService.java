@@ -92,7 +92,10 @@ public class MailSyncService {
       // 미적재 본문이 있으면 본문 보충 단계로 전환 + 비동기 트리거(완료 시 backfill 이 progress.finish 수행).
       int missing = messageRepo.countMissingBody(accountId);
       if (missing > 0) {
-        progress.startBodies(accountId, missing);
+        // 한 회 보충 상한까지만 진행률로 표기한다 — 백필은 BATCH_LIMIT 만 처리하므로(잔여는 다음 sync)
+        // 진행바가 "본문 200/250" 후 사라져 오해를 주지 않도록 total 을 상한으로 보정한다.
+        int shown = Math.min(missing, MailBackfillService.BATCH_LIMIT);
+        progress.startBodies(accountId, shown);
         backfillService.backfill(userId, accountId);
         triggeredBackfill = true;
       }

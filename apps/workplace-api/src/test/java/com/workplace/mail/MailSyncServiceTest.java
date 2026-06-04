@@ -25,6 +25,7 @@ import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import jakarta.mail.Flags;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Part;
@@ -35,6 +36,9 @@ import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.List;
 import java.util.Properties;
 import org.jooq.DSLContext;
@@ -98,6 +102,37 @@ class MailSyncServiceTest extends IntegrationTestBase {
     assertThat(list).hasSize(2);
     assertThat(list).extracting(EmailMessageSummary::subject).contains("안녕하세요", "두번째");
     assertThat(list).allSatisfy(m -> assertThat(m.fromAddress()).isNotBlank());
+  }
+
+  /**
+   * 첫 동기화는 최근 {@code INITIAL_WINDOW_DAYS}(7)일로 한정된다 — searchRecent 가 {@code ReceivedDateTerm(GE,
+   * now-7d)} 로 IMAP INTERNALDATE 기준 SEARCH 하기 때문. INTERNALDATE 가 8일 전인 메시지와 방금 수신한 메시지를 IMAP APPEND
+   * 로 직접 넣고(=appendMessage 의 Date 인자가 INTERNALDATE 를 결정), 첫 sync 후 최근 1건만 저장됨을 검증한다. 두 건 모두
+   * 저장되면(size 2) 7일 컷오프가 동작하지 않는 것이므로, size 1 자체가 8일 전 메시지 제외의 증거다.
+   */
+  @Test
+  void sync_firstSync_limitsToLast7Days() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+
+    GreenMailUser box = greenMail.getUserManager().getUser("box@test.local");
+    // appendMessage 의 세 번째 인자(Date)가 INTERNALDATE 를 결정한다(setSentDate 로는 안 바뀜).
+    var inbox = greenMail.getManagers().getImapHostManager().getInbox(box);
+    inbox.appendMessage(
+        textMessage("<old@test>", null, null, "오래된 메일", "8일 전 본문"),
+        new Flags(),
+        Date.from(Instant.now().minus(8, ChronoUnit.DAYS)));
+    inbox.appendMessage(
+        textMessage("<new@test>", null, null, "최근 메일", "최근 본문"), new Flags(), new Date());
+
+    MailSyncResult result = syncService.sync(user, accountId);
+
+    // 7일 컷오프로 8일 전 메시지는 SEARCH 결과에서 빠져 최근 1건만 페치·저장된다.
+    assertThat(result.fetched()).isEqualTo(1);
+    assertThat(result.saved()).isEqualTo(1);
+    List<EmailMessageSummary> list = messageRepo.listByAccount(accountId, null, 50);
+    assertThat(list).hasSize(1);
+    assertThat(list.get(0).subject()).isEqualTo("최근 메일");
   }
 
   @Test

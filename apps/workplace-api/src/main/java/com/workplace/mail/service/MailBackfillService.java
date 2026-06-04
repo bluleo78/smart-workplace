@@ -14,8 +14,8 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class MailBackfillService {
 
-  /** 한 회 보충 상한(과도한 IMAP 점유 방지). */
-  private static final int BATCH_LIMIT = 200;
+  /** 한 회 보충 상한(과도한 IMAP 점유 방지). 진행률 표기 보정을 위해 sync 에서도 참조한다. */
+  public static final int BATCH_LIMIT = 200;
 
   private final EmailMessageRepository messageRepo;
   private final MailBodyFetcher bodyFetcher;
