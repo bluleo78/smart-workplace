@@ -138,6 +138,24 @@ public class DriveTrashService {
     folders.deleteTrashedRootsInSpace(spaceId); // 폴더(CASCADE)
   }
 
+  /** cutoff 이전 trash_root 전체 영구삭제(스케줄 잡 진입). 권한 검사 없음(시스템). */
+  @Transactional
+  public void purgeExpired(java.time.OffsetDateTime cutoff) {
+    for (long folderId : folders.expiredTrashRootFolderIds(cutoff)) {
+      files.expireFiles(folders.findFileIdsUnderFolder(folderId));
+      folders.delete(folderId);
+    }
+    for (long fileId : files.expiredTrashRootFileIds(cutoff)) {
+      files.fileIdOf(fileId).ifPresent(fid -> files.expireFiles(java.util.List.of(fid)));
+      files.delete(fileId);
+    }
+  }
+
+  /** 보존기간(일) — 잡이 cutoff 계산에 사용. */
+  public int retentionDays() {
+    return retentionDays;
+  }
+
   /** 살아있는 형제 폴더와 충돌하면 " (복원됨)", 그래도 충돌하면 " (2)", " (3)"… 부여. */
   private String resolveFolderName(long spaceId, Long parentId, String base, long selfId) {
     if (!folders.existsInSpaceExcluding(spaceId, parentId, base, selfId)) return base;

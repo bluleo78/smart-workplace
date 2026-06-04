@@ -279,6 +279,15 @@ public class DriveFolderRepository {
         .execute();
   }
 
+  /** cutoff 이전에 버려진 trash_root 폴더 id. */
+  public List<Long> expiredTrashRootFolderIds(java.time.OffsetDateTime cutoff) {
+    return dsl.select(DRIVE_FOLDER.ID)
+        .from(DRIVE_FOLDER)
+        .where(DRIVE_FOLDER.TRASH_ROOT.isTrue())
+        .and(DRIVE_FOLDER.TRASHED_AT.lt(cutoff))
+        .fetch(DRIVE_FOLDER.ID);
+  }
+
   /** 복원 메타. */
   public record TrashRootMeta(long spaceId, Long parentId, long opId, String name) {}
 

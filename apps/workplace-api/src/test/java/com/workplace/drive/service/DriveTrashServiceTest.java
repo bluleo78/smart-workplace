@@ -137,6 +137,39 @@ class DriveTrashServiceTest extends IntegrationTestBase {
         .isEqualTo(0);
   }
 
+  /** 보존기간 경과한 trash_root 만 자동 영구삭제. */
+  @Test
+  void autoCleanup_purgesOnlyExpired() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse old = fileService.upload(u, sp.id(), null, txt());
+    DriveFileResponse fresh = fileService.upload(u, sp.id(), null, txt());
+    fileService.delete(u, old.id());
+    fileService.delete(u, fresh.id());
+    // old 의 trashed_at 을 31일 전으로 조작
+    dsl.update(com.workplace.jooq.Tables.DRIVE_FILE)
+        .set(
+            com.workplace.jooq.Tables.DRIVE_FILE.TRASHED_AT,
+            java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).minusDays(31))
+        .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(old.id()))
+        .execute();
+
+    trashService.purgeExpired(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).minusDays(30));
+
+    assertThat(
+            dsl.fetchExists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.DRIVE_FILE)
+                    .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(old.id()))))
+        .isFalse();
+    assertThat(
+            dsl.fetchExists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.DRIVE_FILE)
+                    .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(fresh.id()))))
+        .isTrue();
+  }
+
   /** 삭제한 파일·폴더가 휴지통 목록에 trash_root 단위로 나타난다. */
   @Test
   void listTrash_showsDeletedRoots() throws Exception {
