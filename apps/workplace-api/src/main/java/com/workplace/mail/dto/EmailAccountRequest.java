@@ -24,5 +24,4 @@ public record EmailAccountRequest(
     @NotNull MailSecurity smtpSecurity,
     @NotBlank String smtpUsername,
     String password,
-    /** AI 비서 활성화 여부. 기본값 false. */
-    boolean aiEnabled) {}
+    boolean aiEnabled) {} // aiEnabled: AI 비서 활성화 여부(기본 false)

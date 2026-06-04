@@ -18,5 +18,4 @@ public record EmailAccountResponse(
     Instant lastTestedAt,
     Instant createdAt,
     Instant updatedAt,
-    /** AI 비서 활성화 여부. */
-    boolean aiEnabled) {}
+    boolean aiEnabled) {} // aiEnabled: AI 비서 활성화 여부(기본 false)
