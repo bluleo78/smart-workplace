@@ -37,6 +37,10 @@ class DriveFolderServiceTest extends IntegrationTestBase {
         .getId();
   }
 
+  private MockMultipartFile txt() {
+    return new MockMultipartFile("file", "memo.txt", "text/plain", "hello".getBytes());
+  }
+
   @Test
   void create_thenListItems_returnsFolder() {
     long u = seedUser();
@@ -66,8 +70,9 @@ class DriveFolderServiceTest extends IntegrationTestBase {
     assertThat(renamed.name()).isEqualTo("new");
   }
 
+  /** 폴더 삭제(소프트) = 휴지통으로. 중첩 파일 blob 은 보존(expires_at NULL 유지). */
   @Test
-  void delete_removesFolderAndSubtree_andExpiresNestedFiles() throws Exception {
+  void delete_trashesSubtree_andPreservesNestedFileBlobs() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     DriveFolderResponse parent = folderService.create(u, sp.id(), null, "부모");
@@ -79,24 +84,18 @@ class DriveFolderServiceTest extends IntegrationTestBase {
             sp.id(),
             child.id(),
             new MockMultipartFile("file", "n.txt", "text/plain", "x".getBytes()));
+
+    folderService.delete(u, parent.id());
+
+    // 브라우즈에서 폴더 트리 사라짐(soft-delete)
+    assertThat(folderService.listItems(u, sp.id(), null).folders()).isEmpty();
+    // blob 은 보존 — expires_at 여전히 NULL(soft-delete 는 물리 삭제 없음)
     assertThat(
             dsl.select(FILE.EXPIRES_AT)
                 .from(FILE)
                 .where(FILE.ID.eq(nested.fileId()))
                 .fetchOne(FILE.EXPIRES_AT))
         .isNull();
-
-    folderService.delete(u, parent.id());
-
-    // 폴더 트리 제거됨
-    assertThat(folderService.listItems(u, sp.id(), null).folders()).isEmpty();
-    // 재귀 수집이 중첩 파일의 FILE.expires_at 을 설정해 바이트 정리 대상으로 만들었는지 검증
-    assertThat(
-            dsl.select(FILE.EXPIRES_AT)
-                .from(FILE)
-                .where(FILE.ID.eq(nested.fileId()))
-                .fetchOne(FILE.EXPIRES_AT))
-        .isNotNull();
   }
 
   @Test
@@ -236,5 +235,70 @@ class DriveFolderServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> folderService.copy(u, src.id(), box.id()))
         .isInstanceOf(DriveDuplicateNameException.class);
+  }
+
+  /** 폴더 삭제 = 하위 통째 휴지통. 최상위만 trash_root, 하위는 같은 op_id. */
+  @Test
+  void deleteFolder_trashesSubtreeUnderOneOp() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var parent = folderService.create(u, sp.id(), null, "부모");
+    var child = folderService.create(u, sp.id(), parent.id(), "자식");
+    fileService.upload(u, sp.id(), child.id(), txt());
+
+    folderService.delete(u, parent.id());
+
+    var pf = trashed(parent.id());
+    var cf = trashed(child.id());
+    assertThat(pf.trashedAt()).isNotNull();
+    assertThat(cf.trashedAt()).isNotNull();
+    assertThat(pf.opId()).isEqualTo(cf.opId()); // 같은 작업
+    assertThat(pf.root()).isTrue();
+    assertThat(cf.root()).isFalse();
+    // 브라우즈에서 사라짐
+    assertThat(folderService.listItems(u, sp.id(), null).folders()).isEmpty();
+  }
+
+  /** 중첩 독립삭제: 파일 X 삭제 후 부모폴더 삭제 → X 는 자기 op 유지(부모 op 와 다름). */
+  @Test
+  void deleteFolder_skipsAlreadyTrashedChild() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var parent = folderService.create(u, sp.id(), null, "부모");
+    DriveFileResponse x = fileService.upload(u, sp.id(), parent.id(), txt());
+
+    fileService.delete(u, x.id()); // op1
+    folderService.delete(u, parent.id()); // op2
+
+    Long xop =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FILE.TRASH_OP_ID)
+            .from(com.workplace.jooq.Tables.DRIVE_FILE)
+            .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(x.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FILE.TRASH_OP_ID);
+    Long pop =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FOLDER.TRASH_OP_ID)
+            .from(com.workplace.jooq.Tables.DRIVE_FOLDER)
+            .where(com.workplace.jooq.Tables.DRIVE_FOLDER.ID.eq(parent.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FOLDER.TRASH_OP_ID);
+    assertThat(xop).isNotEqualTo(pop); // X 는 op1, 부모는 op2
+    assertThat(
+            dsl.select(com.workplace.jooq.Tables.DRIVE_FILE.TRASH_ROOT)
+                .from(com.workplace.jooq.Tables.DRIVE_FILE)
+                .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(x.id()))
+                .fetchOne(com.workplace.jooq.Tables.DRIVE_FILE.TRASH_ROOT))
+        .isTrue();
+  }
+
+  // 헬퍼: 폴더의 trashed 메타 조회
+  private record TrashMeta(java.time.OffsetDateTime trashedAt, Long opId, Boolean root) {}
+
+  private TrashMeta trashed(long folderId) {
+    var t = com.workplace.jooq.Tables.DRIVE_FOLDER;
+    var r =
+        dsl.select(t.TRASHED_AT, t.TRASH_OP_ID, t.TRASH_ROOT)
+            .from(t)
+            .where(t.ID.eq(folderId))
+            .fetchOne();
+    return new TrashMeta(r.get(t.TRASHED_AT), r.get(t.TRASH_OP_ID), r.get(t.TRASH_ROOT));
   }
 }

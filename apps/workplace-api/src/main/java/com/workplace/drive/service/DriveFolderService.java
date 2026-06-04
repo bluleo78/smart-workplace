@@ -23,6 +23,7 @@ public class DriveFolderService {
   private final DriveFileRepository files;
   private final DrivePermissions perms;
   private final FileUploadService fileUpload;
+  private final org.jooq.DSLContext dsl;
 
   @Transactional
   public DriveFolderResponse create(long callerId, long spaceId, Long parentId, String name) {
@@ -41,13 +42,12 @@ public class DriveFolderService {
     return folders.findById(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
   }
 
+  /** 삭제 = 휴지통으로(soft, 통째). 살아있는 서브트리 전체를 같은 op 로 마킹. blob 보존. */
   @Transactional
   public void delete(long callerId, long folderId) {
     requireFolderSpace(callerId, folderId, "EDITOR");
-    // 서브트리 파일 바이트 정리 위임(FILE.expires_at = now)
-    List<Long> fileIds = folders.findFileIdsUnderFolder(folderId);
-    files.expireFiles(fileIds);
-    folders.delete(folderId); // 하위 폴더/파일 행은 CASCADE
+    long opId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
+    folders.markSubtreeTrashed(folderId, opId);
   }
 
   @Transactional(readOnly = true)

@@ -39,13 +39,15 @@ public class DriveFolderRepository {
             .from(DRIVE_FOLDER)
             .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
             .and(parentCond)
-            .and(DRIVE_FOLDER.NAME.eq(name)));
+            .and(DRIVE_FOLDER.NAME.eq(name))
+            .and(DRIVE_FOLDER.TRASHED_AT.isNull()));
   }
 
   public Optional<Long> findSpaceId(long folderId) {
     return dsl.select(DRIVE_FOLDER.SPACE_ID)
         .from(DRIVE_FOLDER)
         .where(DRIVE_FOLDER.ID.eq(folderId))
+        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
         .fetchOptional(DRIVE_FOLDER.SPACE_ID);
   }
 
@@ -54,6 +56,7 @@ public class DriveFolderRepository {
             DRIVE_FOLDER.ID, DRIVE_FOLDER.PARENT_ID, DRIVE_FOLDER.NAME, DRIVE_FOLDER.CREATED_AT)
         .from(DRIVE_FOLDER)
         .where(DRIVE_FOLDER.ID.eq(folderId))
+        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
         .fetchOptional(
             r ->
                 new DriveFolderResponse(
@@ -85,6 +88,33 @@ public class DriveFolderRepository {
         .execute();
   }
 
+  /** 폴더 서브트리(자기 포함)를 휴지통으로 마킹. 살아있는 행만, 최상위만 trash_root=true. */
+  public void markSubtreeTrashed(long rootFolderId, long opId) {
+    java.util.List<Long> subtree = findSubtreeFolderIds(rootFolderId); // 자기 포함, trashed 무관 BFS
+    java.time.OffsetDateTime now = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC);
+    // 1) 서브트리 폴더 중 살아있는 것 마킹(trash_root=false)
+    dsl.update(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.TRASHED_AT, now)
+        .set(DRIVE_FOLDER.TRASH_OP_ID, opId)
+        .set(DRIVE_FOLDER.TRASH_ROOT, false)
+        .where(DRIVE_FOLDER.ID.in(subtree))
+        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
+        .execute();
+    // 2) 최상위만 trash_root=true (방금 마킹돼 trashed_at 존재)
+    dsl.update(DRIVE_FOLDER)
+        .set(DRIVE_FOLDER.TRASH_ROOT, true)
+        .where(DRIVE_FOLDER.ID.eq(rootFolderId))
+        .execute();
+    // 3) 서브트리 파일 중 살아있는 것 마킹(trash_root=false)
+    dsl.update(DRIVE_FILE)
+        .set(DRIVE_FILE.TRASHED_AT, now)
+        .set(DRIVE_FILE.TRASH_OP_ID, opId)
+        .set(DRIVE_FILE.TRASH_ROOT, false)
+        .where(DRIVE_FILE.FOLDER_ID.in(subtree))
+        .and(DRIVE_FILE.TRASHED_AT.isNull())
+        .execute();
+  }
+
   /** 폴더 서브트리 id(자기 자신 포함) — 이동/복사 사이클 검사용. BFS(CTE 미사용). */
   public List<Long> findSubtreeFolderIds(long folderId) {
     List<Long> subtree = new ArrayList<>();
@@ -110,6 +140,7 @@ public class DriveFolderRepository {
         .from(DRIVE_FOLDER)
         .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
         .and(parentCond)
+        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
         .orderBy(DRIVE_FOLDER.NAME.asc())
         .fetch(
             r ->
@@ -128,6 +159,7 @@ public class DriveFolderRepository {
         .from(DRIVE_FOLDER)
         .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
         .and(DRIVE_FOLDER.NAME.likeIgnoreCase(pattern, '\\'))
+        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
         .orderBy(DRIVE_FOLDER.NAME.asc())
         .limit(200)
         .fetch(
