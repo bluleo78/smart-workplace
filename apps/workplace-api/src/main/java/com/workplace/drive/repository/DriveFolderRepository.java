@@ -271,6 +271,14 @@ public class DriveFolderRepository {
             .and(DRIVE_FOLDER.TRASHED_AT.isNull()));
   }
 
+  /** 공간의 trashed 폴더 전체 삭제(FK CASCADE 로 하위 trashed 폴더 제거). */
+  public void deleteTrashedRootsInSpace(long spaceId) {
+    dsl.deleteFrom(DRIVE_FOLDER)
+        .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
+        .and(DRIVE_FOLDER.TRASHED_AT.isNotNull())
+        .execute();
+  }
+
   /** 복원 메타. */
   public record TrashRootMeta(long spaceId, Long parentId, long opId, String name) {}
 

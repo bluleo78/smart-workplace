@@ -1,5 +1,6 @@
 package com.workplace.drive.service;
 
+import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -89,6 +90,51 @@ class DriveTrashServiceTest extends IntegrationTestBase {
     trashService.restoreFile(u, f.id());
 
     assertThat(folderService.listItems(u, sp.id(), null).files()).anyMatch(x -> x.id() == f.id());
+  }
+
+  /** 개별 영구삭제 — 행 하드삭제 + blob 만료(expires_at 세팅). */
+  @Test
+  void purge_file_hardDeletesAndExpiresBlob() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+    fileService.delete(u, f.id());
+
+    trashService.purgeFile(u, f.id());
+
+    assertThat(
+            dsl.fetchExists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.DRIVE_FILE)
+                    .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(f.id()))))
+        .isFalse();
+    var exp =
+        dsl.select(FILE.EXPIRES_AT)
+            .from(FILE)
+            .where(FILE.ID.eq(f.fileId()))
+            .fetchOne(FILE.EXPIRES_AT);
+    assertThat(exp).isNotNull();
+  }
+
+  /** 휴지통 비우기 — 공간의 모든 trashed 행 제거. */
+  @Test
+  void emptyTrash_removesAllTrashed() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var folder = folderService.create(u, sp.id(), null, "보고서");
+    fileService.upload(u, sp.id(), folder.id(), txt());
+    DriveFileResponse loose = fileService.upload(u, sp.id(), null, txt());
+    folderService.delete(u, folder.id());
+    fileService.delete(u, loose.id());
+
+    trashService.emptyTrash(u, sp.id());
+
+    assertThat(trashService.listTrash(u, sp.id()).items()).isEmpty();
+    assertThat(
+            dsl.fetchCount(
+                com.workplace.jooq.Tables.DRIVE_FILE,
+                com.workplace.jooq.Tables.DRIVE_FILE.SPACE_ID.eq(sp.id())))
+        .isEqualTo(0);
   }
 
   /** 삭제한 파일·폴더가 휴지통 목록에 trash_root 단위로 나타난다. */

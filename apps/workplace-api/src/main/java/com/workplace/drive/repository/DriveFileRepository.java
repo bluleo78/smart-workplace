@@ -224,6 +224,31 @@ public class DriveFileRepository {
         .execute();
   }
 
+  /** 공간의 trashed 파일 전체 file_id(비우기 시 blob 만료용). */
+  public List<Long> trashedFileIds(long spaceId) {
+    return dsl.select(DRIVE_FILE.FILE_ID)
+        .from(DRIVE_FILE)
+        .where(DRIVE_FILE.SPACE_ID.eq(spaceId))
+        .and(DRIVE_FILE.TRASHED_AT.isNotNull())
+        .fetch(DRIVE_FILE.FILE_ID);
+  }
+
+  /** 공간의 trashed 파일 행 전체 삭제. */
+  public void deleteTrashedInSpace(long spaceId) {
+    dsl.deleteFrom(DRIVE_FILE)
+        .where(DRIVE_FILE.SPACE_ID.eq(spaceId))
+        .and(DRIVE_FILE.TRASHED_AT.isNotNull())
+        .execute();
+  }
+
+  /** 한 파일의 file_id(영구삭제 blob 만료용). */
+  public java.util.Optional<Long> fileIdOf(long driveFileId) {
+    return dsl.select(DRIVE_FILE.FILE_ID)
+        .from(DRIVE_FILE)
+        .where(DRIVE_FILE.ID.eq(driveFileId))
+        .fetchOptional(DRIVE_FILE.FILE_ID);
+  }
+
   /** 복원 메타. */
   public record TrashRootMeta(long spaceId, Long folderId, long opId, String name) {}
 }

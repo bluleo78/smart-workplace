@@ -100,6 +100,44 @@ public class DriveTrashService {
     }
   }
 
+  /** 파일 영구삭제 — trash_root 확인 후 blob 만료 + 행 하드삭제. EDITOR. */
+  @Transactional
+  public void purgeFile(long callerId, long driveFileId) {
+    var meta =
+        files
+            .findTrashRoot(driveFileId)
+            .orElseThrow(
+                () ->
+                    new com.workplace.drive.exception.DriveNotInTrashException(
+                        "file", driveFileId));
+    perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    files.fileIdOf(driveFileId).ifPresent(fid -> files.expireFiles(java.util.List.of(fid)));
+    files.delete(driveFileId);
+  }
+
+  /** 폴더 영구삭제 — 서브트리 blob 만료 + 행 하드삭제(CASCADE). EDITOR. */
+  @Transactional
+  public void purgeFolder(long callerId, long folderId) {
+    var meta =
+        folders
+            .findTrashRoot(folderId)
+            .orElseThrow(
+                () ->
+                    new com.workplace.drive.exception.DriveNotInTrashException("folder", folderId));
+    perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    files.expireFiles(folders.findFileIdsUnderFolder(folderId)); // 서브트리(중첩 op 포함) 전체
+    folders.delete(folderId); // CASCADE
+  }
+
+  /** 휴지통 비우기 — 공간의 모든 trashed 행 제거. EDITOR. */
+  @Transactional
+  public void emptyTrash(long callerId, long spaceId) {
+    perms.requireRole(spaceId, callerId, "EDITOR");
+    files.expireFiles(files.trashedFileIds(spaceId));
+    files.deleteTrashedInSpace(spaceId); // 파일 행 먼저
+    folders.deleteTrashedRootsInSpace(spaceId); // 폴더(CASCADE)
+  }
+
   /** 살아있는 형제 폴더와 충돌하면 " (복원됨)", 그래도 충돌하면 " (2)", " (3)"… 부여. */
   private String resolveFolderName(long spaceId, Long parentId, String base, long selfId) {
     if (!folders.existsInSpaceExcluding(spaceId, parentId, base, selfId)) return base;
