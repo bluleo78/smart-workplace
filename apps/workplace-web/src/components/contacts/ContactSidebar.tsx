@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
 import type { ContactTypeFilter } from '../../types/contact'
+import { GroupTree } from './GroupTree'
 
 // 타입 퀵필터 정의 — 전체/멤버/외부 (즐겨찾기는 후속 이슈)
 const TYPE_FILTERS: { value: ContactTypeFilter; label: string }[] = [
@@ -20,6 +21,10 @@ export function ContactSidebar() {
   const [params, setParams] = useSearchParams()
   const q = params.get('q') ?? ''
   const type = (params.get('type') as ContactTypeFilter) ?? 'ALL'
+  const groupParam = params.get('group')
+  const selectedGroupId = groupParam ? Number(groupParam) : null
+  const selectGroup = (id: number | null) =>
+    patch({ group: id == null ? null : String(id) })
 
   // searchParams 의 특정 키만 갱신(나머지 보존).
   const patch = (next: Record<string, string | null>) => {
@@ -47,8 +52,9 @@ export function ContactSidebar() {
         data-testid="contact-search"
         value={q}
         onChange={(e) => patch({ q: e.target.value })}
+        disabled={selectedGroupId != null}
         placeholder="이름·이메일 검색"
-        className="mb-4 w-full rounded-md border bg-background px-3 py-2 text-sm"
+        className="mb-4 w-full rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
       />
 
       {/* 타입 퀵필터 */}
@@ -58,10 +64,11 @@ export function ContactSidebar() {
             key={f.value}
             type="button"
             data-testid={`contact-filter-${f.value}`}
+            disabled={selectedGroupId != null}
             aria-current={type === f.value ? 'true' : undefined}
             onClick={() => patch({ type: f.value })}
             className={cn(
-              'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] font-medium transition-colors',
+              'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] font-medium transition-colors disabled:opacity-50',
               type === f.value
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground hover:bg-accent/50',
@@ -73,7 +80,7 @@ export function ContactSidebar() {
         ))}
       </nav>
 
-      {/* 후속 이슈 placeholder — 비활성 */}
+      {/* 후속 이슈 placeholder — 즐겨찾기(#94)는 유지 */}
       <div className="mt-6 space-y-1 opacity-50">
         <div
           aria-disabled="true"
@@ -83,14 +90,9 @@ export function ContactSidebar() {
           <Star className="h-4 w-4 shrink-0" />
           즐겨찾기 <span className="text-xs">(준비 중)</span>
         </div>
-        <div className="px-3 pt-2 text-xs font-semibold text-muted-foreground/70">그룹</div>
-        <div
-          data-testid="contact-grouptree-placeholder"
-          className="px-3 py-2 text-xs text-muted-foreground/60"
-        >
-          그룹 트리 준비 중
-        </div>
       </div>
+      {/* #93 그룹 트리 */}
+      <GroupTree selectedId={selectedGroupId} onSelect={selectGroup} />
     </aside>
   )
 }
