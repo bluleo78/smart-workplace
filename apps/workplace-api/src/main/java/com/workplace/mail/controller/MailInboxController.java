@@ -3,6 +3,7 @@ package com.workplace.mail.controller;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSyncResult;
+import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
 import java.util.List;
@@ -44,10 +45,17 @@ public class MailInboxController {
     return messageService.list(callerId, accountId, folder, query, limit);
   }
 
-  /** 메시지 단건 상세(본문 + 첨부 메타). */
+  /** 메시지 단건 상세(본문 + 첨부 메타). 본문 미적재면 OnDemand 로 적재 후 반환. */
   @GetMapping("/messages/{messageId}")
   public EmailMessageDetail message(
       @AuthenticationPrincipal Long callerId, @PathVariable long messageId) {
     return messageService.get(callerId, messageId);
+  }
+
+  /** 계정 동기화 진행 상태(폴링용). */
+  @GetMapping("/accounts/{accountId}/sync-status")
+  public MailSyncStatus syncStatus(
+      @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
+    return messageService.syncStatus(callerId, accountId);
   }
 }

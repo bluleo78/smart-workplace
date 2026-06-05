@@ -1,6 +1,7 @@
 package com.workplace.mail.service;
 
 import com.workplace.mail.dto.ParsedAttachment;
+import com.workplace.mail.dto.ParsedBody;
 import com.workplace.mail.dto.ParsedMessage;
 import jakarta.mail.Address;
 import jakarta.mail.Flags;
@@ -36,8 +37,11 @@ public class MailMessageParser {
 
   private static final Pattern ANGLE_ID = Pattern.compile("<([^>]+)>");
 
-  /** MimeMessage 를 파싱. uid 는 스레드키 합성 fallback 과 증분 키로 쓰인다. */
-  public ParsedMessage parse(long uid, Message msg) throws MessagingException, IOException {
+  /**
+   * 헤더/봉투만 파싱(본문 미수집). 목록 동기화용 — collectBody 를 호출하지 않아 본문 IMAP 다운로드를 유발하지 않는다. uid 는 스레드키 합성
+   * fallback 과 증분 키로 쓰인다. 본문/스니펫/첨부 플래그는 본문 적재 단계에서 {@link #parseBody} 로 확정한다.
+   */
+  public ParsedMessage parseMetadata(long uid, Message msg) throws MessagingException {
     String messageId = normalizeId(firstHeader(msg, "Message-ID"));
     String inReplyTo = normalizeId(firstHeader(msg, "In-Reply-To"));
     String references = firstHeader(msg, "References");
@@ -63,15 +67,6 @@ public class MailMessageParser {
 
     boolean seen = msg.getFlags().contains(Flags.Flag.SEEN);
 
-    StringBuilder text = new StringBuilder();
-    StringBuilder html = new StringBuilder();
-    List<ParsedAttachment> attachments = new ArrayList<>();
-    collectBody(msg, text, html, attachments);
-
-    String bodyText = text.length() == 0 ? null : text.toString();
-    String bodyHtml = html.length() == 0 ? null : html.toString();
-    String snippet = buildSnippet(bodyText, bodyHtml);
-
     return new ParsedMessage(
         uid,
         truncate(messageId, ID_MAX),
@@ -86,11 +81,25 @@ public class MailMessageParser {
         sentAt,
         receivedAt,
         seen,
-        !attachments.isEmpty(),
-        bodyText, // body_text 는 TEXT
-        bodyHtml, // body_html 은 TEXT
-        snippet,
-        attachments);
+        false, // hasAttachment — 본문 적재 시 확정
+        null, // bodyText — 본문 적재 시 확정
+        null, // bodyHtml — 본문 적재 시 확정
+        null, // snippet — 본문 적재 시 확정
+        java.util.List.of());
+  }
+
+  /** 본문/첨부만 파싱(OnDemand/백그라운드 본문 적재용). collectBody 로 IMAP 본문을 내려받아 text/html/스니펫/첨부를 수집한다. */
+  public ParsedBody parseBody(Message msg) throws MessagingException, IOException {
+    StringBuilder text = new StringBuilder();
+    StringBuilder html = new StringBuilder();
+    List<ParsedAttachment> attachments = new ArrayList<>();
+    collectBody(msg, text, html, attachments);
+
+    String bodyText = text.length() == 0 ? null : text.toString();
+    String bodyHtml = html.length() == 0 ? null : html.toString();
+    String snippet = buildSnippet(bodyText, bodyHtml);
+
+    return new ParsedBody(bodyText, bodyHtml, snippet, !attachments.isEmpty(), attachments);
   }
 
   /** 길이 상한이 있는 컬럼용 절단(상한 초과분 제거). null/이내면 그대로. */

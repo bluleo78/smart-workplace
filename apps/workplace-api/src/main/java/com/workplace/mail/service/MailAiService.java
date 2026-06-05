@@ -4,7 +4,6 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.mail.dto.MailReplyDraft;
 import com.workplace.mail.dto.MailSummary;
-import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
@@ -52,15 +51,22 @@ public class MailAiService {
     }
   }
 
-  /** 신규 INBOX 메시지 1건 분류 후 저장. best-effort: 어떤 실패도 삼키고 동기화 지속. */
-  public void classifyAndStore(long messageId, ParsedMessage parsed, AssistantSpec spec) {
+  /**
+   * messageId 기준 분류(본문 적재 후 호출). subject/from/snippet 을 DB 에서 읽어 분류한다. best-effort: 어떤 실패도 삼키고 적재
+   * 흐름을 막지 않는다.
+   */
+  public void classifyAndStore(long userId, long messageId, AssistantSpec spec) {
     try {
+      var ctx = messageRepo.findClassifyContextByIdAndUser(userId, messageId).orElse(null);
+      if (ctx == null) {
+        return;
+      }
       ClassifyResult r =
           mailClient.classify(
               new ClassifyRequest(
-                  nz(parsed.subject()),
-                  nz(parsed.fromAddress()),
-                  nz(parsed.snippet()),
+                  nz(ctx.subject()),
+                  nz(ctx.fromAddress()),
+                  nz(ctx.snippet()),
                   spec.agentUserId(),
                   spec.model(),
                   MAX_TURNS,

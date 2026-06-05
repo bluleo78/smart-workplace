@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { generateReplyDraft, getMailSummary, getMessage, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
+import { generateReplyDraft, getMailSummary, getMessage, getSyncStatus, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import type { MailFolder, MailSendRequest } from '../../types/mailMessage';
 
@@ -12,6 +12,7 @@ export const mailMessageKeys = {
     ['mail-messages', accountId, folder, query] as const,
   detail: (messageId: number) => ['mail-message', messageId] as const,
   summary: (messageId: number) => ['mail-summary', messageId] as const,
+  syncStatus: (accountId: number) => ['mail-sync-status', accountId] as const,
 };
 
 /** 계정의 메시지 목록(폴더·검색어). accountId 가 없으면 비활성. */
@@ -46,6 +47,16 @@ export function useMailSummary(messageId: number | null, enabled: boolean) {
   });
 }
 
+/** 동기화 진행 상태 폴링 — running 동안 1초 간격, 그 외 정지. */
+export function useSyncStatus(accountId: number | undefined, active: boolean) {
+  return useQuery({
+    queryKey: mailMessageKeys.syncStatus(accountId ?? 0),
+    queryFn: () => getSyncStatus(accountId as number),
+    enabled: !!accountId && active,
+    refetchInterval: (q) => (q.state.data?.running ? 1000 : false),
+  });
+}
+
 /** INBOX 수동 동기화 — 성공 시 해당 계정의 목록 캐시 무효화. */
 export function useSyncMailbox(accountId: number | undefined) {
   const qc = useQueryClient();
@@ -53,6 +64,7 @@ export function useSyncMailbox(accountId: number | undefined) {
     mutationFn: () => syncMailbox(accountId as number),
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['mail-messages', accountId] });
+      qc.invalidateQueries({ queryKey: mailMessageKeys.syncStatus(accountId ?? 0) });
       toast.success(
         result.saved > 0
           ? `새 메일 ${result.saved}건을 받았습니다`

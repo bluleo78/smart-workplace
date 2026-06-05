@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.EMAIL_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
+import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailAttachmentMeta;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
@@ -242,6 +243,97 @@ public class EmailMessageRepository {
         .execute();
   }
 
+  /** 본문/스니펫/첨부플래그 저장 + body_fetched_at 갱신(적재 완료 표시). */
+  public void updateBody(
+      long messageId, String bodyText, String bodyHtml, String snippet, boolean hasAttachment) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.BODY_TEXT, bodyText)
+        .set(EMAIL_MESSAGE.BODY_HTML, bodyHtml)
+        .set(EMAIL_MESSAGE.SNIPPET, snippet)
+        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, hasAttachment)
+        .set(EMAIL_MESSAGE.BODY_FETCHED_AT, OffsetDateTime.now())
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /** 본문 미적재 대상(account 별, 최근순). imap_uid 없는 로컬 보낸메일 제외. */
+  public List<BodyTarget> listMissingBody(long accountId, int limit) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_MESSAGE.IMAP_UID,
+            EMAIL_FOLDER.NAME,
+            EMAIL_MESSAGE.BODY_FETCHED_AT)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.BODY_FETCHED_AT.isNull())
+        .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast())
+        .limit(limit)
+        .fetch(this::toBodyTarget);
+  }
+
+  /** 본문 미적재 건수(account 별). 진행률 total 산정용. */
+  public int countMissingBody(long accountId) {
+    return dsl.fetchCount(
+        dsl.selectFrom(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_MESSAGE.BODY_FETCHED_AT.isNull())
+            .and(EMAIL_MESSAGE.IMAP_UID.isNotNull()));
+  }
+
+  /** 단건 본문 적재 대상 조회(account 기준 — 호출 측에서 소유 검증 선행). */
+  public Optional<BodyTarget> findBodyTarget(long accountId, long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_MESSAGE.IMAP_UID,
+            EMAIL_FOLDER.NAME,
+            EMAIL_MESSAGE.BODY_FETCHED_AT)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .fetchOptional(this::toBodyTarget);
+  }
+
+  /**
+   * 단건 본문 적재 대상 조회(messageId 기준 + 소유 검증). EMAIL_ACCOUNT 조인으로 account.user_id = userId 인 경우만 반환한다(상세
+   * 열람 OnDemand 적재용). 폴더명은 EMAIL_FOLDER 조인에서 얻는다.
+   */
+  public Optional<BodyTarget> findBodyTargetForUser(long userId, long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_MESSAGE.IMAP_UID,
+            EMAIL_FOLDER.NAME,
+            EMAIL_MESSAGE.BODY_FETCHED_AT)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(this::toBodyTarget);
+  }
+
+  /** Record → BodyTarget. imap_uid null→0L, body_fetched_at null→null else Instant. */
+  private BodyTarget toBodyTarget(Record r) {
+    Long uid = r.get(EMAIL_MESSAGE.IMAP_UID);
+    OffsetDateTime fetched = r.get(EMAIL_MESSAGE.BODY_FETCHED_AT);
+    return new BodyTarget(
+        r.get(EMAIL_MESSAGE.ID),
+        r.get(EMAIL_MESSAGE.ACCOUNT_ID),
+        uid == null ? 0L : uid,
+        r.get(EMAIL_FOLDER.NAME),
+        fetched == null ? null : fetched.toInstant());
+  }
+
   /** AI 요약/답장용 컨텍스트(계정 ai_enabled·본인 이메일 + 메시지 본문/요약). 소유 검증 포함. */
   public Optional<AiContext> findAiContextByIdAndUser(long userId, long messageId) {
     return dsl.select(
@@ -302,6 +394,29 @@ public class EmailMessageRepository {
                         : r.get(EMAIL_MESSAGE.RECEIVED_AT).toString(),
                     r.get(EMAIL_MESSAGE.BODY_TEXT) == null ? "" : r.get(EMAIL_MESSAGE.BODY_TEXT)));
   }
+
+  /**
+   * 분류 입력 컨텍스트(subject/from/snippet) 조회. 본문 적재 후 messageId 로 분류할 때 사용. 소유 검증을 위해 email_account 와
+   * 조인해 account.user_id = userId 인 경우만 반환.
+   */
+  public Optional<ClassifyContext> findClassifyContextByIdAndUser(long userId, long messageId) {
+    return dsl.select(EMAIL_MESSAGE.SUBJECT, EMAIL_MESSAGE.FROM_ADDRESS, EMAIL_MESSAGE.SNIPPET)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(
+            r ->
+                new ClassifyContext(
+                    r.get(EMAIL_MESSAGE.SUBJECT),
+                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                    r.get(EMAIL_MESSAGE.SNIPPET)));
+  }
+
+  /** 분류 입력 행(제목/보낸사람/미리보기). */
+  public record ClassifyContext(String subject, String fromAddress, String snippet) {}
 
   /** AI 컨텍스트 행. */
   public record AiContext(

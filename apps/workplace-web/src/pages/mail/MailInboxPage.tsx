@@ -1,5 +1,6 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { Forward, Paperclip, PenSquare, RefreshCw, Reply, ReplyAll } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { cn } from '@/lib/utils'
@@ -12,6 +13,7 @@ import {
   useMailSummary,
   useReplyDraft,
   useSyncMailbox,
+  useSyncStatus,
 } from '../../hooks/queries/useMailMessages'
 import type { EmailMessageDetail, EmailMessageSummary, MailFolder } from '../../types/mailMessage'
 
@@ -63,7 +65,14 @@ function MessageRow({
       <span className={cn('truncate text-sm', m.seen ? 'text-muted-foreground' : 'font-medium')}>
         {m.subject || '(제목 없음)'}
       </span>
-      <span className="truncate text-xs text-muted-foreground">{m.snippet}</span>
+      {m.snippet && (
+        <span
+          data-testid={`mail-snippet-${m.id}`}
+          className="truncate text-xs text-muted-foreground"
+        >
+          {m.snippet}
+        </span>
+      )}
       {(m.aiCategory || m.aiNeedsReply) && (
         <span className="mt-0.5 flex items-center gap-1">
           {m.aiCategory && (
@@ -264,6 +273,19 @@ export function MailInboxPage() {
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
 
+  // 동기화 진행 상태 구독 — 동기화 트리거(성공/진행 중) 동안만 폴링.
+  const syncStatus = useSyncStatus(accountIdNum, sync.isSuccess || sync.isPending)
+  const qc = useQueryClient()
+  // 본문 보충(running)이 끝나는 순간 목록을 다시 불러와 snippet 등을 갱신.
+  const prevRunning = useRef(false)
+  useEffect(() => {
+    const running = syncStatus.data?.running ?? false
+    if (prevRunning.current && !running) {
+      qc.invalidateQueries({ queryKey: ['mail-messages', accountIdNum] })
+    }
+    prevRunning.current = running
+  }, [syncStatus.data?.running, accountIdNum, qc])
+
   // 본인 이메일 주소(전체답장에서 자신을 수신자에서 제외).
   const selfAddress = accounts?.find((a) => a.id === accountIdNum)?.emailAddress ?? ''
   // 현재 계정의 AI 사용 여부 — 요약 스트립 표시 여부에 사용.
@@ -385,16 +407,29 @@ export function MailInboxPage() {
           {/* 동기화 + 검색(받은편지함에서만 동기화) */}
           <div className="flex items-center gap-2">
             {folderParam === 'INBOX' && (
-              <button
-                type="button"
-                data-testid="mail-sync"
-                onClick={() => sync.mutate()}
-                disabled={sync.isPending}
-                className="flex shrink-0 items-center gap-1 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent/50 disabled:opacity-50"
-              >
-                <RefreshCw className={cn('h-4 w-4', sync.isPending && 'animate-spin')} />
-                동기화
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="mail-sync"
+                  onClick={() => sync.mutate()}
+                  disabled={sync.isPending || (syncStatus.data?.running ?? false)}
+                  className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent/50 disabled:opacity-50"
+                >
+                  <RefreshCw
+                    className={cn(
+                      'h-4 w-4',
+                      (sync.isPending || syncStatus.data?.running) && 'animate-spin',
+                    )}
+                  />
+                  동기화
+                </button>
+                {/* 본문 보충 진행률 — BODIES 단계 + total 이 있을 때만. */}
+                {syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0 && (
+                  <span data-testid="mail-sync-progress" className="text-xs text-muted-foreground">
+                    본문 {syncStatus.data.done}/{syncStatus.data.total}
+                  </span>
+                )}
+              </div>
             )}
             <input
               type="search"
