@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom'
 import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
+import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
@@ -52,14 +53,14 @@ export default function DmPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DmHeader dm={dm} currentUserId={me.id} />
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <MessageScrollArea depKey={`${messages.length}:${messages[0]?.id ?? 0}`}>
         <MessageList
           messages={messages}
           channelId={dm.id}
           currentUserId={me.id}
           members={mentionMembers}
         />
-      </div>
+      </MessageScrollArea>
       <MessageComposer
         channelId={dm.id}
         members={mentionMembers}

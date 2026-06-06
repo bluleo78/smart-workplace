@@ -7,14 +7,15 @@ import { ChannelHeader } from '@/components/chat/ChannelHeader'
 import { ChannelMembersPanel } from '@/components/chat/ChannelMembersPanel'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
+import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { useChannelDetail } from '@/hooks/queries/useChannelDetail'
 import { useChannelMembers } from '@/hooks/queries/useChannelMembers'
-import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
+import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useAuth } from '@/hooks/useAuth'
 import type { UserKind } from '@/types/messaging'
 
@@ -75,7 +76,7 @@ export default function ChannelPage() {
           onOpenMembers={() => setMembersOpen(true)}
           onOpenRename={() => setRenameOpen(true)}
         />
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <MessageScrollArea depKey={`${messages.length}:${messages[0]?.id ?? 0}`}>
           <MessageList
             messages={messages}
             channelId={channel.id}
@@ -83,7 +84,7 @@ export default function ChannelPage() {
             members={mentionMembers}
             onOpenThread={setOpenThreadId}
           />
-        </div>
+        </MessageScrollArea>
         {/* 아카이브 채널이면 composer 비활성. */}
         <MessageComposer
           channelId={channel.id}

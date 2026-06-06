@@ -1,0 +1,224 @@
+// messaging 메시지 본문 기본기 E2E — 연속 그룹핑·아바타·타임스탬프·하단 고정 검증.
+// 백엔드 없이 page.route() 로 API 모킹.
+// 검증 범위:
+//   - 같은 작성자 연속 메시지 → 하나의 그룹(첫 줄만 헤더+아바타 노출, 후속 줄 숨김)
+//   - 다른 작성자/간격 초과 메시지 → 새 그룹 시작
+//   - 페이지 진입 시 최신 메시지가 viewport 안에 보임(stick-to-bottom)
+import type { Page } from '@playwright/test'
+
+import {
+  createChannel,
+  createChannelMember,
+  createMessage,
+} from '../factories/messaging.factory'
+import { expect, test } from '../fixtures/auth.fixture'
+
+// auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정.
+const CHANNEL_ID = 700
+
+// 테스트용 메시지 — API 는 DESC(최신순)로 반환하므로 id 3 → 2 → 1 순으로 items 배열에 담는다.
+// MessageList 는 .reverse() 로 ASC 정렬 후 렌더한다.
+const messages = [
+  createMessage({
+    id: 1,
+    channelId: CHANNEL_ID,
+    authorId: 10,
+    authorName: 'bluleo78',
+    authorKind: 'HUMAN',
+    body: '첫째',
+    createdAt: '2026-06-06T03:00:00',
+  }),
+  createMessage({
+    id: 2,
+    channelId: CHANNEL_ID,
+    authorId: 10,
+    authorName: 'bluleo78',
+    authorKind: 'HUMAN',
+    body: '둘째(연속)',
+    createdAt: '2026-06-06T03:02:00',
+  }),
+  createMessage({
+    id: 3,
+    channelId: CHANNEL_ID,
+    authorId: 99,
+    authorName: 'My AI',
+    authorKind: 'AGENT',
+    body: '에이전트 응답',
+    createdAt: '2026-06-06T03:10:00',
+  }),
+]
+
+// ── stub helpers (messaging-phase7.spec.ts 패턴 동일) ──────────────────────────
+
+async function stubChannelsList(page: Page, channels: ReturnType<typeof createChannel>[]) {
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/channels',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(channels),
+          })
+        : route.fallback(),
+  )
+}
+
+async function stubDmsList(page: Page) {
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/dms',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+        : route.fallback(),
+  )
+}
+
+async function stubStream(page: Page) {
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/stream',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        headers: { 'cache-control': 'no-cache' },
+        body: `:\n\n`,
+      }),
+  )
+}
+
+async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${channel.id}`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(channel) })
+        : route.fallback(),
+  )
+}
+
+async function stubMembers(
+  page: Page,
+  channelId: number,
+  members: ReturnType<typeof createChannelMember>[],
+) {
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${channelId}/members`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(members) })
+        : route.fallback(),
+  )
+}
+
+async function stubMessages(
+  page: Page,
+  channelId: number,
+  items: ReturnType<typeof createMessage>[],
+) {
+  // API 는 DESC(최신순) 반환 — items 는 호출처에서 이미 DESC 순으로 전달한다.
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${channelId}/messages`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ items, nextCursor: null, hasMore: false }),
+          })
+        : route.fallback(),
+  )
+}
+
+/** 읽음 처리(mark-read) POST — 응답만 stub, 검증 불필요. */
+async function stubMarkRead(page: Page, channelId: number) {
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${channelId}/read`,
+    (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 204, contentType: 'application/json', body: '' })
+        : route.fallback(),
+  )
+}
+
+/** useMentionAgents 가 호출하는 GET /api/v1/users stub. */
+async function stubUsers(page: Page) {
+  await page.route(
+    (url) => url.pathname === '/api/v1/users',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              content: [],
+              page: 0,
+              size: 100,
+              totalElements: 0,
+              totalPages: 0,
+            }),
+          })
+        : route.fallback(),
+  )
+}
+
+// ── test suite ─────────────────────────────────────────────────────────────────
+
+test.describe('messaging 메시지 본문 기본기', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: CHANNEL_ID, name: '테스트', memberCount: 2 })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [
+      createChannelMember({ userId: 10, name: 'bluleo78', kind: 'HUMAN' }),
+      createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
+    ])
+    // DESC(최신→오래된) 순으로 전달: id 3 → 2 → 1
+    await stubMessages(page, CHANNEL_ID, [...messages].reverse())
+    await stubMarkRead(page, CHANNEL_ID)
+    await stubUsers(page)
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    // 메시지 목록이 렌더될 때까지 대기
+    await expect(page.getByTestId('message-list')).toBeVisible()
+  })
+
+  test(
+    '연속 그룹핑 — 첫 메시지에 헤더·아바타, 후속 메시지에 헤더 없음',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      // message-1: 그룹 시작 → data-group-start="true", 타임스탬프 보임, 아바타 렌더.
+      await expect(page.getByTestId('message-1')).toHaveAttribute('data-group-start', 'true')
+      await expect(page.getByTestId('message-time-1')).toBeVisible()
+
+      // chat-avatar-10 은 그룹 헤더가 한 번만 생기므로 정확히 1개.
+      await expect(page.getByTestId('chat-avatar-10')).toHaveCount(1)
+
+      // message-2: 연속(같은 작성자) → data-group-start="false", 타임스탬프 없음.
+      await expect(page.getByTestId('message-2')).toHaveAttribute('data-group-start', 'false')
+      await expect(page.getByTestId('message-time-2')).toHaveCount(0)
+    },
+  )
+
+  test(
+    'AGENT 메시지는 새 그룹 시작 + 봇 배지 노출',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      // message-3: 작성자 변경 → 새 그룹.
+      await expect(page.getByTestId('message-3')).toHaveAttribute('data-group-start', 'true')
+
+      // AGENT 아바타 봇 배지(chat-avatar-agent-99) 노출.
+      await expect(page.getByTestId('chat-avatar-agent-99')).toBeVisible()
+    },
+  )
+
+  test(
+    '페이지 진입 시 최신 메시지(message-3)가 viewport 안에 보임 — stick-to-bottom',
+    async ({ authenticatedPage: page }) => {
+      await expect(page.getByTestId('message-3')).toBeInViewport()
+    },
+  )
+})
