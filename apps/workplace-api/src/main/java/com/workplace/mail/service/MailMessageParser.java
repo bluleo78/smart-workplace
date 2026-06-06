@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.HtmlUtils;
 
 /**
  * IMAP MimeMessage → {@link ParsedMessage}. 멀티파트(alternative/mixed)를 재귀로 훑어 text/html 본문과 첨부 메타를
@@ -228,16 +229,31 @@ public class MailMessageParser {
     return date == null ? null : date.toInstant();
   }
 
-  /** 본문에서 미리보기 스니펫 생성(text 우선, 없으면 html 태그 제거). 공백 정규화 후 최대 길이로 자름. */
+  /**
+   * 본문에서 미리보기 스니펫 생성(text 우선, 없으면 html 태그 제거). 공백 정규화 후 최대 길이로 자름.
+   *
+   * <p>HTML 전용 메일(text/plain 파트 없음)은 태그만 지우면 &lt;style&gt;/&lt;script&gt;/&lt;head&gt;/주석 블록의
+   * <b>내용</b>(CSS·JS)이 그대로 남아 스니펫에 노출된다. 태그 제거 전에 해당 블록을 통째로 선제거한다.
+   */
   private String buildSnippet(String bodyText, String bodyHtml) {
     String src = bodyText;
     if (src == null && bodyHtml != null) {
-      src = bodyHtml.replaceAll("(?s)<[^>]+>", " ");
+      String stripped =
+          bodyHtml
+              // style/script/head 블록은 내용까지 통째로 제거 (대소문자 무시 + 줄바꿈 포함)
+              .replaceAll("(?is)<(style|script|head)[^>]*>.*?</\\1>", " ")
+              // HTML 주석 블록 제거
+              .replaceAll("(?s)<!--.*?-->", " ")
+              // 나머지 태그 제거
+              .replaceAll("(?s)<[^>]+>", " ");
+      // &nbsp;/&amp; 등 엔티티를 디코드해 스니펫을 사람이 읽을 수 있는 텍스트로 만든다.
+      src = HtmlUtils.htmlUnescape(stripped);
     }
     if (src == null) {
       return null;
     }
-    String collapsed = src.replaceAll("\\s+", " ").trim();
+    //  (NBSP) 는 Java \s 에 안 잡히므로 함께 공백으로 정규화한다.
+    String collapsed = src.replaceAll("[\\s\\u00A0]+", " ").trim();
     if (collapsed.isEmpty()) {
       return null;
     }
