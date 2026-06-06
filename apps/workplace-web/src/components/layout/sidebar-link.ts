@@ -15,3 +15,7 @@ export const appTitleTextClass = 'text-[15px] font-bold tracking-tight text-fore
 // 레일 앱 마크 헤더(h-14, border-b)와 높이를 맞춰 가로로 정렬된다.
 export const sidebarTitleClass =
   'flex h-14 shrink-0 items-center gap-2 border-b px-4 ' + appTitleTextClass
+
+// 인-플로우 페이지 제목(헤더 바 없는 문서/설정형) — 단일 토큰으로 통일.
+// 헤더 바를 쓰지 않는 페이지(설정 등)의 <h1> 에 적용. 바 제목은 appTitleTextClass 사용.
+export const pageTitleClass = 'text-[28px] leading-[36px] font-semibold tracking-tight'

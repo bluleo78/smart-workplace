@@ -102,7 +102,7 @@ Smart Workplace 디자인 시스템의 간격(spacing)과 레이아웃(layout) �
 - 사이드바를 갖는 모듈(작업 관리·대화·메일·연락처·드라이브·설정)은 동일 패턴: `*ModuleLayout` 이 `flex h-full min-h-0 flex-1` 안에 사이드바 + `min-w-0 flex-1 overflow-y-auto` 콘텐츠를 둔다.
 - **홈(`/`)은 예외** — 2차 사이드바 없이 AI 캔버스만 콘텐츠 전체에 렌더한다(`HomeModuleLayout` 없음). 챗 도크가 홈의 주 진입점이다.
 - 사이드바: `w-56`(224px) `shrink-0`, `border-r`, `bg-sidebar/40`.
-- 상단 앱 타이틀 헤더: `sidebarTitleClass` = `h-14 border-b px-4` + 앱 타이틀 텍스트(레일 마크 헤더와 높이 정렬).
+- 상단 앱 타이틀 헤더: `sidebarTitleClass` = `h-14 border-b px-4` + 앱 타이틀 텍스트(`appTitleTextClass`, 레일 마크 헤더와 높이 정렬). 콘텐츠 영역의 옵션 헤더 바(`PageHeader`)와 인-플로우 제목(`pageTitleClass`)도 같은 `src/components/layout/sidebar-link.ts` 토큰을 공유한다.
 - 본문: `flex-1 overflow-y-auto p-3`, nav `space-y-1`, 항목 `px-3 py-2 gap-2`.
 - 그룹 라벨: `text-xs font-semibold uppercase tracking-wider text-muted-foreground` (또는 `GroupLabel`: `px-3 pt-3 pb-1`).
 - 예: 설정(개인 설정 / 워크스페이스 관리 2그룹, 어드민 게이팅), 메일(계정 목록), 이슈/대화/연락처/드라이브 각각의 사이드바.
@@ -111,6 +111,7 @@ Smart Workplace 디자인 시스템의 간격(spacing)과 레이아웃(layout) �
 - `relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0`.
 - `pt-12`는 모바일 햄버거(`top-3`) 공간 확보용 — 데스크톱(lg)에서는 0.
 - 페이지가 자체 헤더 + 본문을 렌더한다(전역 상단 GNB 없음). 표준 본문 padding `p-6`, 섹션 간격 `space-y-6`.
+- **컨텐츠 헤더는 옵션이다.** 두는 경우 공용 `PageHeader`(`src/components/layout/PageHeader.tsx`)를 사용해 `h-14 border-b` 고정 바로 사이드바 헤더(`sidebarTitleClass`)와 한 선 정렬한다(같은 `h-14`). 헤더 바를 쓰지 않는 문서/설정형 페이지의 인-플로우 제목은 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`)로 통일한다.
 
 **AI 챗 도크 (`GlobalChatDock` → `FloatingChat`)** — 우측 패널 아님, 전역 오버레이.
 - 런처 칩: `createPortal`로 body 에. `fixed top-2 z-[70]`, 가로 중앙(`left-1/2 -translate-x-1/2`), 데스크톱은 레일 56px 절반만큼 보정해 콘텐츠 중앙(`lg:left-[calc(50%+28px)]`). 활성 시 `border-ai-accent` 강조.

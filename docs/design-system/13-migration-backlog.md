@@ -28,7 +28,9 @@
 ## P1 — 일관성 부채
 
 - [ ] **페이지 최상위 컨테이너 3종 혼재** — `container mx-auto p-6` / `space-y-6` / `mx-auto max-w-2xl`이 페이지마다 제각각. [05-page-patterns.md](./05-page-patterns.md)의 표준 컨테이너로 통일.
+  - 진행: 컨텐츠 헤더 = **옵션** 원칙 확정 + 공용 `PageHeader`(옵션·`h-14`·사이드바 헤더와 정렬) 도입(2026-06-06). Phase 1–2 적용: `PageHeader` 컴포넌트 = 프로젝트 목록/상세·이슈 상세·홈·캘린더(상단 네비 툴바를 `PageHeader` 로 흡수 — 제목=날짜, 액션=뷰 전환). Phase 3–4(메일·연락처·드라이브 마스터-디테일·채팅·설정 토큰)는 후속 플랜.
 - [ ] **페이지 제목 타이포 불일치** — 대부분 `text-2xl font-semibold`이나 일부 `text-[28px]`. 또한 페이지 제목과 섹션 제목이 같은 `text-2xl`을 공유해 H1/H2 시각 계층이 없음. [02-typography.md](./02-typography.md)의 시맨틱 스케일로 정리.
+  - 진행: 인-플로우 제목 토큰 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`) + 헤더 바 제목 `appTitleTextClass` 분리 도입(2026-06-06). Phase 1–2 적용: 프로젝트 목록/상세·이슈 상세·홈·캘린더. Phase 3–4(메일·연락처·드라이브 마스터-디테일·채팅·설정 토큰)는 후속 플랜.
 - [ ] **삭제 확인 UX 불일치** — 일부 삭제가 브라우저 네이티브 `confirm()`을 사용. 전부 `DeleteConfirmDialog`/`AlertDialog`로 통일. ([06-feedback-states.md](./06-feedback-states.md))
 - [ ] **상세 페이지 탭 패턴 부재** — 탭형 상세 레이아웃이 아직 없음. 필요 모듈(이슈/프로젝트) 식별 후 표준 정의 여부 결정.
 

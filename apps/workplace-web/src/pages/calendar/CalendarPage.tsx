@@ -7,6 +7,7 @@ import { EventDialog } from '@/components/calendar/EventDialog'
 import { AgendaView } from '@/components/calendar/views/AgendaView'
 import { MonthView } from '@/components/calendar/views/MonthView'
 import { DayView, WeekView } from '@/components/calendar/views/WeekView'
+import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
 import {
@@ -100,48 +101,48 @@ export function CalendarPage() {
       <CalendarSidebar onNew={() => openNew()} />
       <div className="flex min-w-0 flex-1 flex-col">
         {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환 */}
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <Button
-            variant="outline"
-            size="sm"
-            data-testid="calendar-today"
-            onClick={() => setAnchor(startOfDay(new Date()))}
-          >
-            오늘
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            data-testid="calendar-prev"
-            onClick={() => step(-1)}
-          >
-            ‹
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            data-testid="calendar-next"
-            onClick={() => step(1)}
-          >
-            ›
-          </Button>
-          <div className="ml-2 font-semibold" data-testid="calendar-title">
-            {format(anchor, 'yyyy년 M월')}
-          </div>
-          <div className="ml-auto flex gap-1">
-            {VIEWS.map((v) => (
+        <PageHeader
+          icon={
+            <div className="flex items-center gap-1">
               <Button
-                key={v.key}
+                variant="outline"
                 size="sm"
-                variant={view === v.key ? 'default' : 'ghost'}
-                data-testid={`calendar-view-${v.key}-btn`}
-                onClick={() => setView(v.key)}
+                data-testid="calendar-today"
+                onClick={() => setAnchor(startOfDay(new Date()))}
               >
-                {v.label}
+                오늘
               </Button>
-            ))}
-          </div>
-        </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="calendar-prev"
+                onClick={() => step(-1)}
+              >
+                ‹
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="calendar-next"
+                onClick={() => step(1)}
+              >
+                ›
+              </Button>
+            </div>
+          }
+          title={<span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>}
+          actions={VIEWS.map((v) => (
+            <Button
+              key={v.key}
+              size="sm"
+              variant={view === v.key ? 'default' : 'ghost'}
+              data-testid={`calendar-view-${v.key}-btn`}
+              onClick={() => setView(v.key)}
+            >
+              {v.label}
+            </Button>
+          ))}
+        />
 
         {/* 뷰 렌더링 */}
         {view === 'month' && <MonthView {...viewProps} />}

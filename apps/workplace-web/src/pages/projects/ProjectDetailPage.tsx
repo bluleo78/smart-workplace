@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 
+import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
 
 import { useProject } from '../../hooks/queries/useProjects';
@@ -28,23 +29,27 @@ export default function ProjectDetailPage() {
     );
 
   return (
-    <div className="container mx-auto p-6 space-y-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-semibold">{project.data?.name}</h1>
-          <p className="text-muted-foreground">{project.data?.key}</p>
-        </div>
-        <div className="flex gap-2">
-          <Link to={`/projects/${key}/cycles`}>
-            <Button variant="outline">사이클</Button>
-          </Link>
-          <Link to={`/projects/${key}/settings`}>
-            <Button variant="outline">설정</Button>
-          </Link>
-          <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
+    <div className="flex h-full flex-col overflow-hidden">
+      <PageHeader
+        title={project.data?.name ?? ''}
+        meta={<span className="text-muted-foreground">{project.data?.key}</span>}
+        actions={
+          <>
+            <Link to={`/projects/${key}/cycles`}>
+              <Button variant="outline">사이클</Button>
+            </Link>
+            <Link to={`/projects/${key}/settings`}>
+              <Button variant="outline">설정</Button>
+            </Link>
+            <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
+          </>
+        }
+      />
+      <div className="flex-1 overflow-y-auto">
+        <div className="container mx-auto p-6 space-y-4">
+          <IssueArea projectKey={key} />
         </div>
       </div>
-      <IssueArea projectKey={key} />
       <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} />
     </div>
   );

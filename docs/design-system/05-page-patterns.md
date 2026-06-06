@@ -44,6 +44,14 @@ Smart Workplace 프론트엔드(`apps/workplace-web`)에서 실제로 반복되�
 > `ProfileSettingsPage` 는 `mx-auto max-w-2xl ... p-6` 를 쓴다.
 > 신규 페이지는 "리스트/상세 = `p-6 space-y-*`", "폼 = `max-w-2xl`" 규칙으로 통일을 권장한다.
 
+### 컨텐츠 헤더 — 옵션 · `PageHeader` · `h-14` 정렬
+
+페이지 상단의 컨텐츠 헤더는 **필수가 아니라 옵션**이다. 두는 경우와 두지 않는 경우의 규칙을 통일한다.
+
+- **헤더 바를 둘 때**: 공용 `PageHeader`(`src/components/layout/PageHeader.tsx`)를 쓴다. 컨테이너가 `flex h-14 shrink-0 ... border-b px-4` 이므로, 2차 사이드바 타이틀 헤더(`sidebarTitleClass`)·홈 헤더와 **같은 `h-14` 로 한 선 정렬**된다. 제목은 사이드바 헤더와 동일한 `appTitleTextClass` 무게를 쓴다. 풀폭 페이지(목록·마스터-디테일·상세)에 적합하다.
+- **헤더 바를 두지 않을 때**(문서/설정·가운데 컬럼형): 인-플로우 `<h1>` 제목을 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`)로 통일한다.
+- props 상세는 [04-components.md](./04-components.md) §A-3, 토큰은 [03-spacing-layout.md](./03-spacing-layout.md) Zone 3 참조.
+
 ---
 
 ## A. 리스트/테이블 페이지
@@ -202,6 +210,7 @@ export default function ProjectListPage() {
 
 - 생성은 **별도 페이지가 아니라 Dialog**(`ProjectCreateDialog` / `IssueCreateDialog`)로 띄운다 — 워크플레이스의 지배적 생성 패턴. F. 폼 페이지 참고.
 - 카드 항목 간격 `space-y-2`, 카드 내부 패딩 `p-4`.
+- 헤더: 풀폭 목록은 제목+우측 버튼을 옵션 `<PageHeader title="프로젝트" actions={<Button …/>} />`(`h-14` 정렬)로 두는 것을 권장한다. 헤더 바를 쓰지 않으면 인-플로우 제목은 `pageTitleClass` 로 통일(위 "컨텐츠 헤더" 절). 프로젝트 목록/상세는 이미 적용됨.
 
 > **As-Is 주의**: A-1(테이블)은 `space-y-6` + 패딩 없음, A-2(카드)는 `container mx-auto p-6 space-y-4` 로 간격 스케일이 다르다.
 > 같은 "리스트" 의미인데 토큰이 갈리므로 신규 페이지는 한쪽으로 맞추는 것을 권장한다.
@@ -336,6 +345,7 @@ export default function ChannelPage() {
 - **선택 상태는 로컬 `useState`**(`selectedId`/`openThreadId`)로, 필터/계정/폴더 같은 공유 상태는 **URL SearchParams**로 둔다(메일의 `?folder`, `?q`).
 - 반응형: 좁은 화면(`lg` 미만)에선 디테일 패널을 `hidden` 처리하고 목록만 보인다. 보조 패널(스레드)은 조건부 렌더(없으면 본문이 전체폭).
 - 선택 없음/로딩/에러 빈 상태는 디테일 패널 내부에서 안내 문구로 처리(메일 "메일을 선택하세요"). [06-feedback-states.md](./06-feedback-states.md) 참고.
+- 풀폭 페이지이므로 각 컬럼 상단 헤더(예: `ChannelHeader`, 목록 툴바)는 옵션 `PageHeader`(`h-14`·`border-b`)로 두면 사이드바 헤더와 한 선 정렬된다(위 "컨텐츠 헤더" 절). 메일/연락처/드라이브 마스터-디테일의 헤더 표준화는 후속 플랜([13-migration-backlog.md](./13-migration-backlog.md)).
 
 ---
 
@@ -399,7 +409,7 @@ export default function IssueDetailPage() {
 - 메인/aside 내부 모두 `space-y-4`.
 - aside 의 메타 항목은 `<div className="space-y-1"><label .../> <Control/></div>` 패턴으로 라벨+컨트롤을 1쌍씩 쌓는다.
 - **인라인 편집(즉시 저장)**: 필드 변경마다 `patch()`(단일 필드 `mutateAsync`) → 성공 토스트 → invalidate 로 재조회. "저장" 버튼 없는 낙관적 UX.
-- 헤더 메타 줄은 `flex items-center gap-3 flex-wrap` 로 제목+배지+액션을 한 줄에 흘려놓는다.
+- 헤더 메타 줄은 `flex items-center gap-3 flex-wrap` 로 제목+배지+액션을 한 줄에 흘려놓는다. 풀폭 상세는 이 헤더를 옵션 `PageHeader`(`h-14`·`border-b`, `meta`/`actions` 슬롯)로 표준화해 사이드바 헤더와 정렬할 수 있다(위 "컨텐츠 헤더" 절). 이슈 상세는 이미 적용됨.
 - 상태 배지(차단됨 등)는 `bg-destructive/15 text-destructive` 형태의 인라인 칩. 공통 Badge 사용은 [04-components.md](./04-components.md) 참고.
 
 > **As-Is 주의 — 삭제 확인**

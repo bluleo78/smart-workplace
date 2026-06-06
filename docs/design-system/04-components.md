@@ -64,6 +64,16 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 | FreshnessBar | `freshness-bar.tsx` | 최근 갱신 시점 막대(신선도) 표시 |
 | Sparkline | `sparkline.tsx` | 인라인 막대 추이 |
 
+### A-3. 레이아웃 공통 컴포넌트 (`components/layout/`)
+
+`ui/` 와 별개로, 셸·페이지 구조를 표준화하는 레이아웃 컴포넌트는 `src/components/layout/` 에 위치한다.
+
+| Component | File | 역할 |
+|-----------|------|------|
+| PageHeader | `layout/PageHeader.tsx` | 컨텐츠 영역 표준 헤더 바 — 옵션·`h-14`·사이드바 헤더와 정렬 |
+
+> **PageHeader props**: `title`(필수, 좌측 제목 — `appTitleTextClass` 무게) · `icon`(선택, 제목 앞 아이콘) · `meta`(선택, 제목 옆 보조 메타) · `actions`(선택, 우측 액션 슬롯) · `className` · `data-testid`(기본 `'page-header'`). 컨테이너는 `flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4` 로, 2차 사이드바 헤더(`sidebarTitleClass`)·홈 헤더와 한 선 정렬한다. 컨텐츠 헤더는 **옵션**이며, 두지 않는 문서/설정형 페이지는 인-플로우 제목 토큰 `pageTitleClass` 를 쓴다([05-page-patterns.md](./05-page-patterns.md) 참조).
+
 ---
 
 ## B. 공통 래퍼 컴포넌트 상세
