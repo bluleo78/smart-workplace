@@ -25,6 +25,12 @@ export interface DriveFolder {
   createdAt: string
 }
 
+/** breadcrumb 세그먼트 — 백엔드 DriveFolderPathSegment 와 1:1. 루트→대상 순. */
+export interface DriveFolderPathSegment {
+  id: number
+  name: string
+}
+
 export interface DriveFile {
   id: number
   folderId: number | null

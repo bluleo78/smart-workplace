@@ -3,6 +3,7 @@
 import type {
   DriveFile,
   DriveFolder,
+  DriveFolderPathSegment,
   DriveItemList,
   DriveMember,
   DriveSearchResult,
@@ -31,6 +32,10 @@ export const driveApi = {
 
   renameFolder: (folderId: number, name: string) =>
     client.patch<DriveFolder>(`/drive/folders/${folderId}`, { name }),
+
+  // 폴더 조상 경로(루트→대상) — breadcrumb.
+  getFolderPath: (folderId: number) =>
+    client.get<DriveFolderPathSegment[]>(`/drive/folders/${folderId}/path`),
 
   deleteFolder: (folderId: number) => client.delete<void>(`/drive/folders/${folderId}`),
 
