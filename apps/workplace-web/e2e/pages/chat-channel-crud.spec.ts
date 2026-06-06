@@ -262,6 +262,22 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     await expect(page.getByTestId('channel-not-found')).toBeVisible()
   })
 
+  test('채널 헤더 h-14 정렬 + 설정 드롭다운 동작', async ({ authenticatedPage: page }) => {
+    // OWNER 권한 채널 진입 — stubChannelView 재사용.
+    const ch = createChannel({ id: 45, name: '헤더테스트', role: 'OWNER', member: true })
+    await stubChannelView(page, ch)
+    await page.goto('/chat/channels/45')
+
+    // h-14 클래스 확인.
+    const header = page.getByTestId('channel-header')
+    await expect(header).toHaveClass(/h-14/)
+    await expect(page.getByTestId('channel-header-name')).toBeVisible()
+
+    // 설정 드롭다운이 열리고 이름변경 항목이 보임 — 기능 회귀 없음 확인.
+    await page.getByTestId('channel-settings-btn').click()
+    await expect(page.getByTestId('channel-rename-action')).toBeVisible()
+  })
+
   test('시스템 ADMIN → 채널 삭제 → /chat 이동', async ({ adminPage: page }) => {
     const ch = createChannel({ id: 44, name: '삭제대상', role: 'MEMBER', member: true })
     await stubChannelView(page, ch)
