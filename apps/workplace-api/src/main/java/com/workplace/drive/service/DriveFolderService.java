@@ -1,6 +1,7 @@
 package com.workplace.drive.service;
 
 import com.workplace.drive.dto.DriveFileResponse;
+import com.workplace.drive.dto.DriveFolderPathSegment;
 import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveItemListResponse;
 import com.workplace.drive.exception.DriveDuplicateNameException;
@@ -10,7 +11,12 @@ import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.file.service.FileUploadService;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,6 +62,30 @@ public class DriveFolderService {
     List<DriveFolderResponse> fl = folders.listChildFolders(spaceId, parentId);
     List<DriveFileResponse> fi = files.listInFolder(spaceId, parentId);
     return new DriveItemListResponse(fl, fi);
+  }
+
+  /**
+   * 폴더의 조상 경로(루트→대상) 세그먼트 목록 — breadcrumb 용. 공간 전체 폴더를 1회 로드해 부모 체인을 거슬러 올라간 뒤 역순(루트가 앞)으로 반환한다.
+   * 사이클 가드(1000).
+   */
+  @Transactional(readOnly = true)
+  public List<DriveFolderPathSegment> path(long callerId, long folderId) {
+    long spaceId =
+        folders.findSpaceId(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
+    perms.requireRole(spaceId, callerId, "VIEWER");
+    Map<Long, DriveFolderResponse> byId = new HashMap<>();
+    for (DriveFolderResponse f : folders.listAllFolders(spaceId)) {
+      byId.put(f.id(), f);
+    }
+    Deque<DriveFolderPathSegment> parts = new ArrayDeque<>();
+    Long cur = folderId;
+    int guard = 0;
+    while (cur != null && byId.containsKey(cur) && guard++ < 1000) {
+      DriveFolderResponse f = byId.get(cur);
+      parts.addFirst(new DriveFolderPathSegment(f.id(), f.name()));
+      cur = f.parentId();
+    }
+    return new ArrayList<>(parts);
   }
 
   /** 이동 — 같은 공간 내 다른 부모로 parent_id 변경. 자신·하위로의 이동은 거부. */
