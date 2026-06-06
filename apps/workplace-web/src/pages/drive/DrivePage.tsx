@@ -218,6 +218,7 @@ export function DrivePage() {
       {/* breadcrumb 행 — 브라우즈 모드(검색·휴지통 아님)에서만. 폴더명 경로, 깊으면 … 접기. */}
       {trash == null && !searching && (
         <nav
+          aria-label="폴더 경로"
           className="flex h-9 shrink-0 items-center gap-1 border-b px-4 text-sm"
           data-testid="drive-breadcrumb"
         >
@@ -231,7 +232,7 @@ export function DrivePage() {
           </button>
           {collapseCrumbs(crumbs).map((c, i, arr) =>
             c == null ? (
-              <span key={`ellipsis-${i}`} className="flex items-center gap-1 text-muted-foreground">
+              <span key="ellipsis" className="flex items-center gap-1 text-muted-foreground">
                 <span>/</span>
                 <span>…</span>
               </span>
