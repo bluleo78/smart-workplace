@@ -55,8 +55,7 @@ class CalendarEventControllerTest {
 
   /** 샘플 응답 — create/list 에서 재사용. */
   private CalendarEventResponse sample() {
-    return new CalendarEventResponse(
-        1L, "회의", null, STARTS, ENDS, false, null, null, STARTS, ENDS);
+    return new CalendarEventResponse(1L, "회의", null, STARTS, ENDS, false, null, null, STARTS, ENDS);
   }
 
   @BeforeEach
@@ -71,7 +70,8 @@ class CalendarEventControllerTest {
   void create_valid_returns201() throws Exception {
     when(service.create(eq(1L), any())).thenReturn(sample());
 
-    CalendarEventRequest req = new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null);
+    CalendarEventRequest req =
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null);
 
     mockMvc
         .perform(
@@ -114,7 +114,8 @@ class CalendarEventControllerTest {
 
   @Test
   void create_unauthenticated_returns401() throws Exception {
-    CalendarEventRequest req = new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null);
+    CalendarEventRequest req =
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null);
 
     mockMvc
         .perform(
