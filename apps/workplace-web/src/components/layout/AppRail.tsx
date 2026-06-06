@@ -6,6 +6,7 @@
 import {
   BookOpen,
   Boxes,
+  CalendarDays,
   HardDrive,
   Home,
   LayoutList,
@@ -48,6 +49,7 @@ const MODULES: RailItem[] = [
   { label: '대화', href: '/chat', icon: MessageSquare },
   { label: '메일', href: '/mail', icon: Mail },
   { label: '연락처', href: '/contacts', icon: Users },
+  { label: '캘린더', href: '/calendar', icon: CalendarDays },
   { label: '드라이브', href: '/drive', icon: HardDrive },
   { label: '설정', href: '/settings/profile', icon: Settings, match: ['/settings', '/admin'] },
 ]

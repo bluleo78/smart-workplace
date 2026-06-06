@@ -51,6 +51,14 @@ const ContactModuleLayout = lazy(() =>
 const ContactsPage = lazy(() =>
   import('./pages/contacts/ContactsPage').then((m) => ({ default: m.ContactsPage })),
 )
+const CalendarModuleLayout = lazy(() =>
+  import('./components/calendar/CalendarModuleLayout').then((m) => ({
+    default: m.CalendarModuleLayout,
+  })),
+)
+const CalendarPage = lazy(() =>
+  import('./pages/calendar/CalendarPage').then((m) => ({ default: m.CalendarPage })),
+)
 const MailModuleLayout = lazy(() =>
   import('./components/mail/MailModuleLayout').then((m) => ({ default: m.MailModuleLayout })),
 )
@@ -132,6 +140,11 @@ export default function App() {
               {/* 연락처 모듈 — 통합 디렉토리(읽기 전용) */}
               <Route element={<ContactModuleLayout />}>
                 <Route path="contacts" element={<ContactsPage />} />
+              </Route>
+
+              {/* 캘린더 모듈 */}
+              <Route element={<CalendarModuleLayout />}>
+                <Route path="calendar" element={<CalendarPage />} />
               </Route>
 
               {/* 메일 모듈 — 받은편지함 동기화·읽기(읽기 전용). accountId 미지정 시 첫 계정으로 */}
