@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
 import { EventDialog } from '@/components/calendar/EventDialog'
+import { RecurrenceScopeDialog } from '@/components/calendar/RecurrenceScopeDialog'
 import { AgendaView } from '@/components/calendar/views/AgendaView'
 import { MonthView } from '@/components/calendar/views/MonthView'
 import { DayView, WeekView } from '@/components/calendar/views/WeekView'
@@ -21,6 +22,7 @@ import type {
   CalendarEvent,
   CalendarEventRequest,
   CalendarViewType,
+  EditScope,
   IssueDueMarker,
 } from '@/types/calendar'
 
@@ -40,6 +42,10 @@ export function CalendarPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
   const [defaultStart, setDefaultStart] = useState<Date | undefined>()
+  // 반복 회차 수정/삭제 시 scope 선택 다이얼로그 모드(null=닫힘) (이슈 #111)
+  const [scopeMode, setScopeMode] = useState<'edit' | 'delete' | null>(null)
+  // scope 선택 전까지 보류하는 수정 body
+  const [pendingBody, setPendingBody] = useState<CalendarEventRequest | null>(null)
 
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
@@ -73,6 +79,14 @@ export function CalendarPage() {
   // 생성·수정 공용 submit 핸들러
   const submit = (body: CalendarEventRequest) => {
     if (editing) {
+      // 반복 회차(occurrenceDate 존재) → body 보류 후 EventDialog 닫고 scope 선택 다이얼로그 표시.
+      if (editing.occurrenceDate != null) {
+        setPendingBody(body)
+        setDialogOpen(false)
+        setScopeMode('edit')
+        return
+      }
+      // 단일 일정 → scope 없이 바로 수정(서버 기본 ALL)
       update.mutate({ id: editing.id, body }, { onSuccess: () => setDialogOpen(false) })
     } else {
       create.mutate(body, { onSuccess: () => setDialogOpen(false) })
@@ -80,7 +94,35 @@ export function CalendarPage() {
   }
 
   const onDelete = () => {
-    if (editing) remove.mutate(editing.id, { onSuccess: () => setDialogOpen(false) })
+    if (!editing) return
+    // 반복 회차 → EventDialog 닫고 scope 선택 다이얼로그 표시.
+    if (editing.occurrenceDate != null) {
+      setDialogOpen(false)
+      setScopeMode('delete')
+      return
+    }
+    // 단일 일정 → scope 없이 바로 삭제
+    remove.mutate({ id: editing.id }, { onSuccess: () => setDialogOpen(false) })
+  }
+
+  // scope 선택 후 실행 — 반복은 마스터 id 로, occurrenceDate 는 서버 값 그대로 전달.
+  const onPickScope = (scope: EditScope) => {
+    if (!editing) return
+    const id = editing.masterEventId ?? editing.id
+    const occurrenceDate = editing.occurrenceDate
+    if (scopeMode === 'edit' && pendingBody) {
+      update.mutate({ id, body: pendingBody, scope, occurrenceDate })
+    } else if (scopeMode === 'delete') {
+      remove.mutate({ id, scope, occurrenceDate })
+    }
+    setScopeMode(null)
+    setPendingBody(null)
+  }
+
+  // scope 다이얼로그 취소 — 보류 상태 정리
+  const cancelScope = () => {
+    setScopeMode(null)
+    setPendingBody(null)
   }
 
   // 이슈 마감 칩 클릭 → 해당 이슈 상세로 이동(읽기전용 오버레이).
@@ -159,6 +201,16 @@ export function CalendarPage() {
         onSubmit={submit}
         onDelete={onDelete}
       />
+
+      {/* 반복 회차 수정/삭제 시 적용 범위 선택 (이슈 #111) */}
+      {scopeMode && (
+        <RecurrenceScopeDialog
+          open={!!scopeMode}
+          mode={scopeMode}
+          onPick={onPickScope}
+          onCancel={cancelScope}
+        />
+      )}
     </>
   )
 }

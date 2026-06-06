@@ -1,6 +1,10 @@
 // 캘린더 일정 — 백엔드 DTO 1:1.
 export type CalendarViewType = 'month' | 'week' | 'day' | 'agenda'
 
+// 반복 일정 편집/삭제 적용 범위 (이슈 #111)
+// THIS = 이 회차만, THIS_AND_FOLLOWING = 이후 모든 회차, ALL = 전체 시리즈
+export type EditScope = 'THIS' | 'THIS_AND_FOLLOWING' | 'ALL'
+
 export interface CalendarEvent {
   id: number
   title: string
