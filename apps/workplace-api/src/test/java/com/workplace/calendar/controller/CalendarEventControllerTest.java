@@ -1,9 +1,14 @@
 package com.workplace.calendar.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -12,6 +17,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.realtime.SseRegistry;
@@ -26,6 +32,7 @@ import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -111,6 +118,62 @@ class CalendarEventControllerTest {
                 .param("to", "2026-06-11T00:00:00Z"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].id").value(1));
+  }
+
+  @Test
+  void update_withScopeAndOccurrence_delegatesParsedParams() throws Exception {
+    // scope/occurrenceDate 쿼리 파라미터가 서비스로 그대로 전달되는지 확인.
+    when(service.update(eq(1L), eq(1L), any(), any(), any())).thenReturn(sample());
+    CalendarEventRequest req =
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null);
+
+    mockMvc
+        .perform(
+            patch("/api/v1/calendar/events/1")
+                .header("Authorization", "Bearer v")
+                .param("scope", "THIS")
+                .param("occurrenceDate", "2026-06-10T09:00:00Z")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<EditScope> scopeCaptor = ArgumentCaptor.forClass(EditScope.class);
+    ArgumentCaptor<OffsetDateTime> dateCaptor = ArgumentCaptor.forClass(OffsetDateTime.class);
+    verify(service).update(eq(1L), eq(1L), any(), scopeCaptor.capture(), dateCaptor.capture());
+    assertThat(scopeCaptor.getValue()).isEqualTo(EditScope.THIS);
+    assertThat(dateCaptor.getValue()).isEqualTo(STARTS);
+  }
+
+  @Test
+  void update_withoutScopeParam_defaultsToAll() throws Exception {
+    // scope 미지정 시 ALL, occurrenceDate 미지정 시 null.
+    when(service.update(eq(1L), eq(1L), any(), any(), isNull())).thenReturn(sample());
+    CalendarEventRequest req =
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null);
+
+    mockMvc
+        .perform(
+            patch("/api/v1/calendar/events/1")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isOk());
+
+    verify(service).update(eq(1L), eq(1L), any(), eq(EditScope.ALL), isNull());
+  }
+
+  @Test
+  void delete_withScopeAndOccurrence_delegatesParsedParams() throws Exception {
+    // 삭제 엔드포인트도 scope/occurrenceDate 전달.
+    mockMvc
+        .perform(
+            delete("/api/v1/calendar/events/1")
+                .header("Authorization", "Bearer v")
+                .param("scope", "THIS_AND_FOLLOWING")
+                .param("occurrenceDate", "2026-06-10T09:00:00Z"))
+        .andExpect(status().isNoContent());
+
+    verify(service).delete(eq(1L), eq(1L), eq(EditScope.THIS_AND_FOLLOWING), eq(STARTS));
   }
 
   @Test
