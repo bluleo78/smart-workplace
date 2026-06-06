@@ -101,8 +101,8 @@ class PermissionServiceTest extends IntegrationTestBase {
   void getAllPermissions_returnAllSeedPermissions() {
     List<PermissionResponse> result = permissionService.getAllPermissions();
 
-    assertThat(result).hasSize(20);
-    // V20 저장된 뷰 권한 + V26 사이클 권한 + V31 연락처 권한이 시드에 포함되는지 함께 확인.
+    assertThat(result).hasSize(22);
+    // V20 저장된 뷰 권한 + V26 사이클 권한 + V31 연락처 권한 + V39 캘린더 권한이 시드에 포함되는지 함께 확인.
     assertThat(result)
         .extracting(PermissionResponse::code)
         .contains(
@@ -110,7 +110,9 @@ class PermissionServiceTest extends IntegrationTestBase {
             "cycle:manage",
             "contact:read",
             "contact:write",
-            "user-group:manage");
+            "user-group:manage",
+            "calendar:read",
+            "calendar:write");
   }
 
   /** 반환 목록은 id 오름차순으로 정렬되어야 한다. */
