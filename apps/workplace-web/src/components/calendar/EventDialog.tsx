@@ -43,10 +43,10 @@ const schema = z
     reminderMinutes: z.enum(['none', '10', '60', '1440']),
     // 반복 설정 — 폼에서는 평탄한 필드로 다루고 제출 시 RecurrenceForm 으로 조립한다. (이슈 #111)
     recurrenceFreq: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']),
-    recurrenceInterval: z.number().int().min(1, '간격은 1 이상이어야 합니다'),
-    recurrenceEnd: z.enum(['none', 'until', 'count']),
-    // until/count 는 조건부 필드 — base 에서는 검증하지 않고 superRefine 에서 노출 조건일 때만 검증.
+    // interval/until/count 는 조건부 필드 — base 에서는 검증하지 않고 superRefine 에서 노출 조건일 때만 검증.
     // (숨겨진 필드의 잔존 값이 제출을 조용히 막는 것을 방지)
+    recurrenceInterval: z.number().optional(),
+    recurrenceEnd: z.enum(['none', 'until', 'count']),
     recurrenceUntil: z.string().optional(),
     recurrenceCount: z.number().optional(),
   })
@@ -54,13 +54,21 @@ const schema = z
     message: '종료는 시작보다 뒤여야 합니다',
     path: ['end'],
   })
-  // 반복 종료 조건은 해당 입력이 실제로 노출될 때(freq≠NONE + end 일치)만 검증한다.
+  // 반복 관련 필드는 해당 입력이 실제로 노출될 때(freq≠NONE)만 검증한다.
   .superRefine((v, ctx) => {
     if (v.recurrenceFreq === 'NONE') return
+    // 간격 — 1 이상의 정수 필수 (freq≠NONE 일 때만 노출)
+    if (!(Number.isInteger(v.recurrenceInterval) && (v.recurrenceInterval ?? 0) >= 1)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '간격은 1 이상이어야 합니다',
+        path: ['recurrenceInterval'],
+      })
+    }
     // 종료=날짜까지 → 종료 날짜 필수
     if (v.recurrenceEnd === 'until' && !v.recurrenceUntil) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         message: '종료 날짜를 입력하세요',
         path: ['recurrenceUntil'],
       })
@@ -71,7 +79,7 @@ const schema = z
       !(Number.isInteger(v.recurrenceCount) && (v.recurrenceCount ?? 0) >= 1)
     ) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         message: '횟수는 1 이상이어야 합니다',
         path: ['recurrenceCount'],
       })
@@ -213,7 +221,7 @@ export function EventDialog({
     // 평탄한 폼 필드 → RecurrenceForm 조립 후 RRULE 문자열 생성. freq=NONE 이면 null(단일 일정).
     const recForm: RecurrenceForm = {
       freq: values.recurrenceFreq,
-      interval: values.recurrenceInterval,
+      interval: values.recurrenceInterval ?? 1,
       end:
         values.recurrenceEnd === 'until'
           ? { type: 'until', date: values.recurrenceUntil ?? '' }
