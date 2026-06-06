@@ -233,6 +233,16 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  // 일정 도메인 — 미존재/비-owner(404)
+  /** 일정 미존재/비-owner → 404. */
+  @ExceptionHandler(com.workplace.calendar.exception.CalendarEventNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleCalendarEventNotFound(
+      com.workplace.calendar.exception.CalendarEventNotFoundException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
   // 사용자 그룹 도메인 — 미존재/격리(404)
   @ExceptionHandler(com.workplace.user.exception.UserGroupNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleUserGroupNotFound(
