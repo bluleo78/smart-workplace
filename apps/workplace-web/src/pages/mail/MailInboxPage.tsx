@@ -262,10 +262,11 @@ export function MailInboxPage() {
   // 폴더 파라미터: ?folder=sent → SENT, 기본 INBOX.
   const folderParam = (params.get('folder') === 'sent' ? 'SENT' : 'INBOX') as MailFolder
 
-  // 계정 전환 시 이전 계정의 선택 메시지가 남지 않도록 초기화.
+  // 계정·폴더 전환 시 이전 선택 메시지가 남지 않도록 초기화.
+  // (좁은 화면에서 폴더 전환 후에도 디테일 패널이 강제로 열려 있는 문제 방지)
   useEffect(() => {
     setSelectedId(null)
-  }, [accountId])
+  }, [accountId, folderParam])
 
   const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
   const accountIdNum = accountId ? Number(accountId) : undefined
@@ -391,6 +392,7 @@ export function MailInboxPage() {
             <input
               type="search"
               data-testid="mail-search"
+              aria-label="메일 검색"
               value={search}
               onChange={(e) =>
                 setParams(
