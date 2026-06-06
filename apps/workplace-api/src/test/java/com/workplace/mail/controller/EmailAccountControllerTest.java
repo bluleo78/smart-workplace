@@ -21,6 +21,7 @@ import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailSecurity;
+import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.service.EmailAccountService;
 import com.workplace.permission.service.PermissionService;
@@ -189,5 +190,19 @@ class EmailAccountControllerTest {
         .perform(delete("/api/v1/mail/accounts/10").header("Authorization", "Bearer v"))
         .andExpect(status().isNoContent());
     verify(service).delete(eq(1L), eq(10L));
+  }
+
+  /**
+   * #119 — @ResponseStatus(404) 만 선언한 EmailAccountNotFoundException 이 GlobalExceptionHandler 의
+   * catch-all 에 삼켜져 500 으로 응답되던 회귀를 막는다. 존재하지 않거나 본인 소유가 아닌 계정 삭제 시 404 여야 한다.
+   */
+  @Test
+  void delete_notFound_returns404() throws Exception {
+    org.mockito.Mockito.doThrow(new EmailAccountNotFoundException(999L))
+        .when(service)
+        .delete(eq(1L), eq(999L));
+    mockMvc
+        .perform(delete("/api/v1/mail/accounts/999").header("Authorization", "Bearer v"))
+        .andExpect(status().isNotFound());
   }
 }

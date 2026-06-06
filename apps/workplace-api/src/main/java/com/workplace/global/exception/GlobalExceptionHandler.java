@@ -60,17 +60,22 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.util.StringUtils;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
@@ -900,10 +905,58 @@ public class GlobalExceptionHandler {
       log.debug("클라이언트 연결 종료로 응답 쓰기 불가 — 무시: {}", ex.toString());
       return null;
     }
+    // #119 — catch-all 이 @ResponseStatus / ResponseStatusException 의 의도된 상태를 500 으로 덮지 않도록,
+    // 선언된 상태가 있으면 그 상태로 응답한다. (Spring 의 ResponseStatusExceptionResolver 는 이 catch-all 매칭에
+    // 가려 동작하지 못한다.) 정말 미선언인 예외만 500 으로 처리.
+    ResponseEntity<ErrorResponse> declared = handleDeclaredStatus(ex, request);
+    if (declared != null) {
+      return declared;
+    }
     log.error("Unhandled exception", ex);
     ErrorResponse response =
         buildError(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred", null, request);
     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+  }
+
+  /**
+   * 예외에 선언된 HTTP 상태(@ResponseStatus 또는 ResponseStatusException)를 추출하여 그 상태로 응답한다. 선언이 없으면 {@code
+   * null} 을 반환해 호출부가 500 으로 처리하도록 한다.
+   *
+   * <p>로그 레벨: 4xx(클라이언트 오류)는 debug, 5xx(상위/서버 오류)는 warn — catch-all 의 {@code log.error(..., ex)} 풀
+   * 스택트레이스 노이즈(#107 와 동일 뿌리)를 선언된 예외에는 남기지 않는다.
+   */
+  private ResponseEntity<ErrorResponse> handleDeclaredStatus(
+      Exception ex, HttpServletRequest request) {
+    HttpStatusCode statusCode = null;
+    String message = ex.getMessage();
+    if (ex instanceof ResponseStatusException rse) {
+      statusCode = rse.getStatusCode();
+      if (StringUtils.hasText(rse.getReason())) {
+        message = rse.getReason();
+      }
+    } else {
+      ResponseStatus rs =
+          AnnotatedElementUtils.findMergedAnnotation(ex.getClass(), ResponseStatus.class);
+      if (rs != null) {
+        statusCode = rs.code();
+        if (StringUtils.hasText(rs.reason())) {
+          message = rs.reason();
+        }
+      }
+    }
+    if (statusCode == null) {
+      return null;
+    }
+    if (statusCode.is5xxServerError()) {
+      log.warn("선언된 상태({})로 응답: {}", statusCode.value(), ex.toString());
+    } else {
+      log.debug("선언된 상태({})로 응답: {}", statusCode.value(), ex.toString());
+    }
+    HttpStatus status = HttpStatus.resolve(statusCode.value());
+    ErrorResponse body =
+        buildError(
+            status != null ? status : HttpStatus.INTERNAL_SERVER_ERROR, message, null, request);
+    return ResponseEntity.status(statusCode).body(body);
   }
 
   /**

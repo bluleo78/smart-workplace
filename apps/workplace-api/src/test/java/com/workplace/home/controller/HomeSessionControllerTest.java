@@ -69,4 +69,19 @@ class HomeSessionControllerTest {
         .andExpect(status().isNoContent());
     verify(sessionService).delete(eq(1L), eq(id));
   }
+
+  /**
+   * #119 — @ResponseStatus(404) 만 선언한 HomeSessionNotFoundException 이 GlobalExceptionHandler 의
+   * catch-all 에 삼켜져 500 으로 응답되던 회귀를 막는다. 존재하지 않거나 호출자 소유가 아닌 세션 삭제 시 404 여야 한다.
+   */
+  @Test
+  void delete_notFound_404() throws Exception {
+    UUID id = UUID.randomUUID();
+    org.mockito.Mockito.doThrow(new com.workplace.home.exception.HomeSessionNotFoundException(id))
+        .when(sessionService)
+        .delete(eq(1L), eq(id));
+    mockMvc
+        .perform(delete("/api/v1/home/sessions/" + id).header("Authorization", "Bearer v"))
+        .andExpect(status().isNotFound());
+  }
 }
