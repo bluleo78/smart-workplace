@@ -2,6 +2,7 @@ package com.workplace.calendar.service;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.repository.CalendarEventExceptionRepository;
 import com.workplace.calendar.repository.CalendarEventRepository;
@@ -101,21 +102,124 @@ public class CalendarEventService {
         m.updatedAt());
   }
 
-  /** 전체 교체 — 비-owner→404. RRULE 이 있으면 쓰기 시점에 검증(잘못된 규칙→400). */
+  /**
+   * 일정 수정 — 비-owner→404. RRULE 검증(400). 단일 일정이거나 scope=ALL 이면 전체 교체(마스터 자체 수정). 반복 일정의 THIS/
+   * THIS_AND_FOLLOWING 는 occurrenceDate 가 가리키는 회차를 기준으로 분기한다(id 는 마스터 id).
+   */
   @Transactional
-  public CalendarEventResponse update(long callerId, long id, CalendarEventRequest req) {
+  public CalendarEventResponse update(
+      long callerId,
+      long id,
+      CalendarEventRequest req,
+      EditScope scope,
+      OffsetDateTime occurrenceDate) {
     requireOwner(callerId, id);
     validateRecurrence(req.recurrenceRule());
-    repo.update(id, req);
-    applyReminder(id, req.reminderMinutes());
-    return get(callerId, id);
+    CalendarEventResponse target =
+        repo.findById(id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+
+    // 단일 일정 또는 ALL → 마스터 행 전체 교체(RRULE 포함). 기존 예외는 유지(v1b 한계).
+    if (target.recurrenceRule() == null || scope == EditScope.ALL) {
+      repo.update(id, req);
+      applyReminder(id, req.reminderMinutes());
+      return get(callerId, id);
+    }
+    requireOccurrenceDate(scope, occurrenceDate);
+
+    if (scope == EditScope.THIS) {
+      return updateThisOccurrence(callerId, id, req, occurrenceDate);
+    }
+    return updateFollowing(callerId, target, req, occurrenceDate);
   }
 
-  /** 삭제 — 비-owner→404. event_reminder 는 FK ON DELETE CASCADE 로 함께 제거. */
+  /**
+   * THIS 수정 — 회차를 대체할 독립 일정(RRULE=null, owner=마스터 owner)을 만들고 예외 행에 오버라이드로 연결한다. 이미 오버라이드가 있으면 중복
+   * 생성 대신 그 일정을 갱신한다(고아 방지). 리마인더는 create 와 동일 경로로 부여.
+   */
+  private CalendarEventResponse updateThisOccurrence(
+      long callerId, long masterId, CalendarEventRequest req, OffsetDateTime occurrenceDate) {
+    CalendarEventRequest overrideReq = withoutRecurrence(req);
+    long overrideId =
+        exceptionRepo
+            .findOverrideEventId(masterId, occurrenceDate)
+            .map(
+                existing -> {
+                  repo.update(existing, overrideReq);
+                  return existing;
+                })
+            .orElseGet(() -> repo.insert(callerId, overrideReq));
+    applyReminder(overrideId, req.reminderMinutes());
+    exceptionRepo.upsertOverride(masterId, occurrenceDate, overrideId);
+    return get(callerId, overrideId);
+  }
+
+  /**
+   * THIS_AND_FOLLOWING 수정 — 시리즈를 occurrenceDate 직전(UNTIL=occ-1s)에서 자르고, occurrenceDate 부터 시작하는 새
+   * 마스터를 req(변경된 RRULE 포함)로 생성한다. 잘린 구간의 고아 예외는 제거. 반환은 새 마스터.
+   */
+  private CalendarEventResponse updateFollowing(
+      long callerId,
+      CalendarEventResponse master,
+      CalendarEventRequest req,
+      OffsetDateTime occurrenceDate) {
+    String truncated =
+        RecurrenceExpander.withUntil(master.recurrenceRule(), occurrenceDate.minusSeconds(1));
+    repo.updateRecurrenceRule(master.id(), truncated);
+    long newMasterId = repo.insert(callerId, req);
+    applyReminder(newMasterId, req.reminderMinutes());
+    exceptionRepo.deleteFromOccurrence(master.id(), occurrenceDate);
+    return get(callerId, newMasterId);
+  }
+
+  /**
+   * 일정 삭제 — 비-owner→404. 단일 일정이거나 scope=ALL 이면 마스터 삭제(예외·리마인더 cascade). 오버라이드 별도 일정은 cascade 되지
+   * 않으므로 직접 제거. THIS=회차 취소, THIS_AND_FOLLOWING=시리즈 잘라내기.
+   */
   @Transactional
-  public void delete(long callerId, long id) {
+  public void delete(long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
     requireOwner(callerId, id);
-    repo.delete(id);
+    CalendarEventResponse target =
+        repo.findById(id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+
+    if (target.recurrenceRule() == null || scope == EditScope.ALL) {
+      // 마스터에 매달린 오버라이드 일정들은 FK 가 master→exception 방향이라 cascade 되지 않음 — 먼저 수집해 직접 삭제.
+      List<Long> overrides = exceptionRepo.overrideEventIds(id);
+      repo.delete(id);
+      repo.deleteAllById(overrides);
+      return;
+    }
+    requireOccurrenceDate(scope, occurrenceDate);
+
+    if (scope == EditScope.THIS) {
+      exceptionRepo.insertCancellation(id, occurrenceDate);
+      return;
+    }
+    // THIS_AND_FOLLOWING — UNTIL 로 시리즈를 자르고 미래 예외 정리.
+    String truncated =
+        RecurrenceExpander.withUntil(target.recurrenceRule(), occurrenceDate.minusSeconds(1));
+    repo.updateRecurrenceRule(id, truncated);
+    exceptionRepo.deleteFromOccurrence(id, occurrenceDate);
+  }
+
+  /** 반복 일정의 THIS/THIS_AND_FOLLOWING 는 회차 식별자(occurrenceDate)가 필수 — 누락 시 400. */
+  private static void requireOccurrenceDate(EditScope scope, OffsetDateTime occurrenceDate) {
+    if (occurrenceDate == null) {
+      throw new IllegalArgumentException("occurrenceDate required for THIS/THIS_AND_FOLLOWING");
+    }
+  }
+
+  /** 오버라이드 일정은 단일 일정이어야 하므로 RRULE 을 제거한 요청 복제. */
+  private static CalendarEventRequest withoutRecurrence(CalendarEventRequest req) {
+    return new CalendarEventRequest(
+        req.title(),
+        req.description(),
+        req.startsAt(),
+        req.endsAt(),
+        req.allDay(),
+        req.location(),
+        req.color(),
+        req.reminderMinutes(),
+        null);
   }
 
   /** RRULE 쓰기 검증 — 비어있지 않으면 파싱 시도(잘못된 규칙→IllegalArgumentException→400). null/공백은 단일 일정이라 통과. */

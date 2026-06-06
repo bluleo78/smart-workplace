@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.support.IntegrationTestBase;
@@ -69,12 +70,14 @@ class CalendarEventServiceTest extends IntegrationTestBase {
     assertThat(service.get(u, created.id()).reminderMinutes()).isEqualTo(30);
 
     // 리마인더 null 로 수정 → 제거
-    CalendarEventResponse cleared = service.update(u, created.id(), req(BASE, BASE.plusHours(1)));
+    CalendarEventResponse cleared =
+        service.update(u, created.id(), req(BASE, BASE.plusHours(1)), EditScope.ALL, null);
     assertThat(cleared.reminderMinutes()).isNull();
 
     // 다시 설정 → 반영
     CalendarEventResponse rearmed =
-        service.update(u, created.id(), reqWithReminder(BASE, BASE.plusHours(1), 60));
+        service.update(
+            u, created.id(), reqWithReminder(BASE, BASE.plusHours(1), 60), EditScope.ALL, null);
     assertThat(rearmed.reminderMinutes()).isEqualTo(60);
   }
 
@@ -94,7 +97,10 @@ class CalendarEventServiceTest extends IntegrationTestBase {
     long other = user();
     CalendarEventResponse created = service.create(owner, req(BASE, BASE.plusHours(1)));
 
-    assertThatThrownBy(() -> service.update(other, created.id(), req(BASE, BASE.plusHours(2))))
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    other, created.id(), req(BASE, BASE.plusHours(2)), EditScope.ALL, null))
         .isInstanceOf(CalendarEventNotFoundException.class);
   }
 
@@ -104,7 +110,7 @@ class CalendarEventServiceTest extends IntegrationTestBase {
     long other = user();
     CalendarEventResponse created = service.create(owner, req(BASE, BASE.plusHours(1)));
 
-    assertThatThrownBy(() -> service.delete(other, created.id()))
+    assertThatThrownBy(() -> service.delete(other, created.id(), EditScope.ALL, null))
         .isInstanceOf(CalendarEventNotFoundException.class);
   }
 

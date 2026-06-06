@@ -3,8 +3,12 @@ package com.workplace.calendar.service;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
 import org.dmfs.rfc5545.DateTime;
 import org.dmfs.rfc5545.recur.InvalidRecurrenceRuleException;
 import org.dmfs.rfc5545.recur.RecurrenceRule;
@@ -20,6 +24,29 @@ public class RecurrenceExpander {
 
   /** 무한 규칙(예: FREQ=DAILY, 종료 없음) 폭주 방지 안전 상한 — fastForward 이후 적용. */
   private static final int SAFETY_CAP = 1000;
+
+  /** RFC5545 UNTIL 의 UTC 절대 시각 포맷(yyyyMMdd'T'HHmmss'Z'). */
+  private static final DateTimeFormatter UNTIL_FMT =
+      DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC);
+
+  /**
+   * 기존 RRULE 에 UNTIL=<cutoff(UTC)> 를 설정한 새 규칙 반환 — 시리즈 잘라내기(THIS_AND_FOLLOWING)용. UNTIL 과 COUNT 는
+   * 상호 배타이므로 기존 UNTIL=/COUNT= 토큰을 모두 제거한 뒤 새 UNTIL 을 덧붙인다. cutoff 는 절대(UTC) 시각으로 포맷한다.
+   */
+  public static String withUntil(String rrule, OffsetDateTime cutoff) {
+    String until = "UNTIL=" + UNTIL_FMT.format(cutoff.toInstant());
+    String cleaned =
+        Arrays.stream(rrule.split(";"))
+            .map(String::trim)
+            .filter(p -> !p.isEmpty())
+            .filter(
+                p -> {
+                  String upper = p.toUpperCase(Locale.ROOT);
+                  return !upper.startsWith("UNTIL=") && !upper.startsWith("COUNT=");
+                })
+            .collect(Collectors.joining(";"));
+    return cleaned.isEmpty() ? until : cleaned + ";" + until;
+  }
 
   /**
    * [from, to) 안의 회차 시작 시각(UTC) 목록. fastForward 로 과거 회차를 건너뛴 뒤, to 직전까지 순회한다. from 이 마스터 시작 이전이면

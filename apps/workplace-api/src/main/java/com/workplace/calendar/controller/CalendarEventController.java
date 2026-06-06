@@ -2,6 +2,7 @@ package com.workplace.calendar.controller;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.global.security.RequirePermission;
 import jakarta.validation.Valid;
@@ -53,7 +54,8 @@ public class CalendarEventController {
       @AuthenticationPrincipal Long callerId,
       @PathVariable long id,
       @Valid @RequestBody CalendarEventRequest req) {
-    return ResponseEntity.ok(service.update(callerId, id, req));
+    // scope/occurrenceDate 쿼리 파라미터 연동은 Task 5 — 지금은 ALL(마스터 전체 교체)로 호출.
+    return ResponseEntity.ok(service.update(callerId, id, req, EditScope.ALL, null));
   }
 
   /** 일정 삭제. */
@@ -61,7 +63,7 @@ public class CalendarEventController {
   @RequirePermission("calendar:write")
   public ResponseEntity<Void> delete(
       @AuthenticationPrincipal Long callerId, @PathVariable long id) {
-    service.delete(callerId, id);
+    service.delete(callerId, id, EditScope.ALL, null);
     return ResponseEntity.noContent().build();
   }
 }

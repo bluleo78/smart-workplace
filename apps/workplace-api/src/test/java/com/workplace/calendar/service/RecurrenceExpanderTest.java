@@ -56,6 +56,33 @@ class RecurrenceExpanderTest {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
+  /** withUntil — COUNT 토큰을 제거하고 UNTIL 로 교체(상호 배타)하며 UTC 절대 시각으로 포맷한다. */
+  @Test
+  void withUntil_replacesCount() {
+    String r =
+        RecurrenceExpander.withUntil(
+            "FREQ=WEEKLY;COUNT=10", OffsetDateTime.parse("2026-06-17T08:59:59Z"));
+    assertThat(r).isEqualTo("FREQ=WEEKLY;UNTIL=20260617T085959Z");
+  }
+
+  /** withUntil — 기존 UNTIL 토큰도 새 값으로 교체한다. */
+  @Test
+  void withUntil_replacesExistingUntil() {
+    String r =
+        RecurrenceExpander.withUntil(
+            "FREQ=DAILY;UNTIL=20260101T000000Z", OffsetDateTime.parse("2026-06-17T08:59:59Z"));
+    assertThat(r).isEqualTo("FREQ=DAILY;UNTIL=20260617T085959Z");
+  }
+
+  /** withUntil — UNTIL/COUNT 이 없는 규칙엔 UNTIL 을 덧붙인다. 비-UTC 오프셋도 UTC 절대 시각으로 변환. */
+  @Test
+  void withUntil_appendsAndConvertsToUtc() {
+    String r =
+        RecurrenceExpander.withUntil(
+            "FREQ=WEEKLY", OffsetDateTime.parse("2026-06-17T17:59:59+09:00"));
+    assertThat(r).isEqualTo("FREQ=WEEKLY;UNTIL=20260617T085959Z");
+  }
+
   /** expand 도 잘못된 규칙이면 동일하게 IllegalArgumentException(list per-master 격리 대상). */
   @Test
   void expand_invalidRule_throws() {

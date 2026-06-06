@@ -104,9 +104,26 @@ public class CalendarEventRepository {
         .execute();
   }
 
+  /** RRULE 만 교체 + updated_at 갱신 — 시리즈 잘라내기(UNTIL 적용)에 사용. */
+  public void updateRecurrenceRule(long id, String recurrenceRule) {
+    dsl.update(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.RECURRENCE_RULE, nullIfBlank(recurrenceRule))
+        .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
+        .where(CALENDAR_EVENT.ID.eq(id))
+        .execute();
+  }
+
   /** 삭제. */
   public void delete(long id) {
     dsl.deleteFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.ID.eq(id)).execute();
+  }
+
+  /** 여러 일정 일괄 삭제 — 마스터 삭제 시 고아가 된 오버라이드 일정 정리에 사용. */
+  public void deleteAllById(java.util.Collection<Long> ids) {
+    if (ids.isEmpty()) {
+      return;
+    }
+    dsl.deleteFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.ID.in(ids)).execute();
   }
 
   private static CalendarEventResponse toResponse(Record r) {

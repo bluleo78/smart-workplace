@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.support.IntegrationTestBase;
 import java.time.OffsetDateTime;
@@ -43,6 +44,152 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
   /** RRULE 포함 일정 요청 헬퍼. */
   private CalendarEventRequest recurringReq(String rrule, OffsetDateTime s, OffsetDateTime e) {
     return new CalendarEventRequest("회의", null, s, e, false, null, null, null, rrule);
+  }
+
+  /** 제목 지정 편집 요청 헬퍼(클라이언트가 회차 시작을 그대로 echo 하는 상황 모사). */
+  private CalendarEventRequest editReq(String title, String rrule, OffsetDateTime s) {
+    return new CalendarEventRequest(title, null, s, s.plusHours(1), false, null, null, null, rrule);
+  }
+
+  /** 마스터의 예외 행에 저장된 override_event_id 조회(없으면 null). */
+  private Long overrideEventId(long masterId) {
+    return dsl.select(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID)
+        .from(CALENDAR_EVENT_EXCEPTION)
+        .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(masterId))
+        .fetchOne(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID);
+  }
+
+  /** THIS 수정 → 해당 회차만 오버라이드 일정으로 대체되고 나머지 회차는 그대로. */
+  @Test
+  void updateScopeThis_createsOverride_replacesOnlyThatOccurrence() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ2 = BASE.plusWeeks(1);
+
+    // 2번째 회차만 제목 변경(THIS). 클라이언트는 회차 시작(occ2)을 그대로 보낸다.
+    service.update(u, master.id(), editReq("수정회의", "FREQ=WEEKLY", occ2), EditScope.THIS, occ2);
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(4));
+    assertThat(r).hasSize(4);
+    // occ2 슬롯은 오버라이드(단일 일정)로 대체 — 제목 변경, RRULE 없음.
+    CalendarEventResponse at2 =
+        r.stream()
+            .filter(e -> e.startsAt().toInstant().equals(occ2.toInstant()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(at2.title()).isEqualTo("수정회의");
+    assertThat(at2.recurrenceRule()).isNull();
+    // 첫 회차는 원본 그대로.
+    CalendarEventResponse at1 =
+        r.stream()
+            .filter(e -> e.startsAt().toInstant().equals(BASE.toInstant()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(at1.title()).isEqualTo("회의");
+    // 예외 행에 override_event_id 가 연결됨.
+    assertThat(overrideEventId(master.id())).isNotNull();
+  }
+
+  /** THIS 삭제 → 해당 회차만 취소되고 나머지는 유지. */
+  @Test
+  void deleteScopeThis_cancelsOnlyThatOccurrence() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ2 = BASE.plusWeeks(1);
+
+    service.delete(u, master.id(), EditScope.THIS, occ2);
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(4));
+    assertThat(r).hasSize(3);
+    assertThat(r).extracting(CalendarEventResponse::startsAt).doesNotContain(occ2);
+  }
+
+  /** ALL 삭제 → 마스터·예외·오버라이드 일정까지 모두 제거(가상 회차도 사라짐). */
+  @Test
+  void deleteScopeAll_removesMasterAndExpansion() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ2 = BASE.plusWeeks(1);
+    // 오버라이드 1건을 만들어 예외+별도 일정 행을 생성해 둔다.
+    service.update(u, master.id(), editReq("수정회의", "FREQ=WEEKLY", occ2), EditScope.THIS, occ2);
+
+    service.delete(u, master.id(), EditScope.ALL, null);
+
+    assertThat(service.list(u, BASE.minusDays(1), BASE.plusWeeks(4))).isEmpty();
+    // 예외 행과 오버라이드 별도 일정(고아) 모두 정리됨.
+    assertThat(
+            dsl.fetchCount(
+                CALENDAR_EVENT_EXCEPTION, CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(master.id())))
+        .isZero();
+    assertThat(dsl.fetchCount(CALENDAR_EVENT, CALENDAR_EVENT.OWNER_ID.eq(u))).isZero();
+  }
+
+  /** THIS_AND_FOLLOWING 수정 → 시리즈가 분리되어 이전 회차는 옛 마스터, 이후 회차는 새 마스터로 반영. */
+  @Test
+  void updateScopeFollowing_splitsSeries() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ3 = BASE.plusWeeks(2);
+
+    CalendarEventResponse newMaster =
+        service.update(
+            u, master.id(), editReq("후속", "FREQ=WEEKLY", occ3), EditScope.THIS_AND_FOLLOWING, occ3);
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(4));
+    assertThat(r).hasSize(4);
+    // occ3 이전(BASE, +1w) → 옛 마스터·원제목.
+    assertThat(r)
+        .filteredOn(e -> e.startsAt().toInstant().isBefore(occ3.toInstant()))
+        .hasSize(2)
+        .allSatisfy(
+            e -> {
+              assertThat(e.title()).isEqualTo("회의");
+              assertThat(e.masterEventId()).isEqualTo(master.id());
+            });
+    // occ3 이후(+2w, +3w) → 새 마스터·변경 제목.
+    assertThat(r)
+        .filteredOn(e -> !e.startsAt().toInstant().isBefore(occ3.toInstant()))
+        .hasSize(2)
+        .allSatisfy(
+            e -> {
+              assertThat(e.title()).isEqualTo("후속");
+              assertThat(e.masterEventId()).isEqualTo(newMaster.id());
+            });
+  }
+
+  /** THIS_AND_FOLLOWING 삭제 → 해당 회차 이후가 모두 잘려 이전 회차만 남는다. */
+  @Test
+  void deleteScopeFollowing_truncatesSeries() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ3 = BASE.plusWeeks(2);
+
+    service.delete(u, master.id(), EditScope.THIS_AND_FOLLOWING, occ3);
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(4));
+    assertThat(r).hasSize(2);
+    assertThat(r)
+        .extracting(CalendarEventResponse::startsAt)
+        .containsExactly(BASE, BASE.plusWeeks(1));
+  }
+
+  /** 반복 일정의 THIS 인데 occurrenceDate 누락 → IllegalArgumentException(전역 핸들러 400). */
+  @Test
+  void updateScopeThis_withoutOccurrenceDate_rejected() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    u, master.id(), editReq("x", "FREQ=WEEKLY", BASE), EditScope.THIS, null))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
