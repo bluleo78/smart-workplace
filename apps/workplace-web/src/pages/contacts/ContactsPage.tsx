@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { ContactDetailPanel } from '../../components/contacts/ContactDetailPanel'
 import { ExternalContactFormDialog } from '../../components/contacts/ExternalContactFormDialog'
 import { GroupContactView } from '../../components/contacts/GroupContactView'
+import { parseGroupId } from '../../components/contacts/groupTree.helpers'
 import type { ContactSelection } from '../../hooks/queries/useContactDetail'
 import { useContacts } from '../../hooks/queries/useContacts'
 import type { ContactSummary, ContactTypeFilter } from '../../types/contact'
@@ -56,7 +57,7 @@ export function ContactsPage() {
   const search = params.get('q') ?? ''
   const type = ((params.get('type') as ContactTypeFilter) ?? 'ALL') as ContactTypeFilter
   const groupParam = params.get('group')
-  const groupId = groupParam != null && /^\d+$/.test(groupParam) ? Number(groupParam) : null
+  const groupId = parseGroupId(groupParam)
 
   const [selected, setSelected] = useState<ContactSelection | null>(null)
   const [createOpen, setCreateOpen] = useState(false)

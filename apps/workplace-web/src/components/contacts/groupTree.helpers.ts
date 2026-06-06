@@ -14,6 +14,15 @@ export function flattenGroups(nodes: UserGroupNode[]): { id: number; name: strin
   return out
 }
 
+/**
+ * URL `group` 파라미터를 유효 정수 그룹 ID 로 파싱(비정수는 null).
+ * ContactsPage(그룹 뷰 렌더 판정)·ContactSidebar(검색·필터 잠금 판정)가 동일 기준을 쓰도록 공용화 —
+ * 예전엔 사이드바가 검증 없이 Number() 만 써서 `?group=abc`(NaN)에 컨트롤만 잠기고 그룹 뷰는 안 뜨는 불일치가 있었다.
+ */
+export function parseGroupId(groupParam: string | null): number | null {
+  return groupParam != null && /^\d+$/.test(groupParam) ? Number(groupParam) : null
+}
+
 /** 트리에서 id 노드 찾기(공유 트리에서 서브트리 루트 조회용). */
 export function findNode(nodes: UserGroupNode[], id: number): UserGroupNode | null {
   for (const n of nodes) {

@@ -5,6 +5,7 @@ import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { cn } from '@/lib/utils'
 
 import type { ContactTypeFilter } from '../../types/contact'
+import { parseGroupId } from './groupTree.helpers'
 import { GroupTree } from './GroupTree'
 
 // 타입 퀵필터 정의 — 전체/멤버/외부 (즐겨찾기는 후속 이슈)
@@ -23,7 +24,8 @@ export function ContactSidebar() {
   const q = params.get('q') ?? ''
   const type = (params.get('type') as ContactTypeFilter) ?? 'ALL'
   const groupParam = params.get('group')
-  const selectedGroupId = groupParam ? Number(groupParam) : null
+  // 정수 검증을 거친 그룹 ID(비정수는 null) — ContactsPage 와 동일 기준이라야 검색·필터 잠금과 그룹 뷰 표시가 일치한다.
+  const selectedGroupId = parseGroupId(groupParam)
   const selectGroup = (id: number | null) =>
     patch({ group: id == null ? null : String(id) })
 

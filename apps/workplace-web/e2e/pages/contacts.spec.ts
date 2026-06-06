@@ -94,6 +94,33 @@ test('그룹 뷰 — 헤더 새 외부 연락처 버튼 노출', async ({ authen
   await expect(page.getByTestId('contact-create')).toBeVisible()
 })
 
+// #115 — 비정수 group 파라미터(?group=abc)는 그룹 미선택으로 취급:
+// 사이드바 검색·타입필터가 잠기지 않고, 메인은 그룹 뷰가 아닌 일반 목록을 렌더한다.
+// (예전엔 사이드바가 Number('abc')=NaN 을 선택으로 오인해 컨트롤만 영구 비활성됐다.)
+test('비정수 group 파라미터 — 검색·필터 비잠금 + 일반 목록 유지', async ({
+  authenticatedPage: page,
+}) => {
+  await stubList(page)
+  await stubMemberDetail(page)
+
+  await page.goto('/contacts?group=abc')
+
+  // 컨트롤이 잠기지 않아야 함(수정 전엔 모두 disabled 였음)
+  await expect(page.getByTestId('contact-search')).toBeEnabled()
+  await expect(page.getByTestId('contact-filter-ALL')).toBeEnabled()
+  await expect(page.getByTestId('contact-filter-MEMBER')).toBeEnabled()
+  await expect(page.getByTestId('contact-filter-EXTERNAL')).toBeEnabled()
+
+  // 그룹 뷰가 아니라 일반 통합 목록이 떠야 함(멤버·외부 행 노출)
+  await expect(page.getByTestId('contact-row-MEMBER-1')).toBeVisible()
+  await expect(page.getByTestId('contact-row-EXTERNAL-100')).toBeVisible()
+
+  // 잠기지 않았으므로 검색이 실제로 동작(입력→필터 반영)
+  await page.getByTestId('contact-search').fill('박외부')
+  await expect(page.getByTestId('contact-row-MEMBER-1')).toHaveCount(0)
+  await expect(page.getByTestId('contact-row-EXTERNAL-100')).toBeVisible()
+})
+
 // LNB 표준화(#98) — 연락처 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
 test('연락처 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
   await stubList(page)
