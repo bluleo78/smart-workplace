@@ -1,4 +1,4 @@
-import { Inbox, Mail, PenSquare, Send, Settings } from 'lucide-react'
+import { Check, ChevronDown, Inbox, Mail, PenSquare, Send, Settings } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -73,7 +73,7 @@ export function MailSidebar() {
               >
                 <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{current?.emailAddress}</span>
-                <span className="shrink-0 text-muted-foreground">▾</span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-52">
                 {accounts.map((a) => (
@@ -85,7 +85,9 @@ export function MailSidebar() {
                   >
                     <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{a.emailAddress}</span>
-                    {String(a.id) === String(current?.id) && <span aria-hidden>✓</span>}
+                    {String(a.id) === String(current?.id) && (
+                      <Check className="h-4 w-4 shrink-0" aria-hidden />
+                    )}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
