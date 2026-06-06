@@ -2,7 +2,8 @@
 // monthMatrix()로 일요일 시작 6주를 생성한다.
 import { format, isSameMonth, isToday } from 'date-fns'
 
-import { eventsOnDay, monthMatrix } from '@/lib/calendar'
+import { IssueDueChip } from '@/components/calendar/IssueDueChip'
+import { eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
 
 import type { ViewProps } from './TimeGrid'
 
@@ -10,7 +11,7 @@ import type { ViewProps } from './TimeGrid'
 const WEEK_DAYS = ['일', '월', '화', '수', '목', '금', '토']
 
 // 월간 뷰 컴포넌트
-export function MonthView({ events, anchor, onSelectEvent, onCreateAt }: ViewProps) {
+export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIssue, onCreateAt }: ViewProps) {
   // anchor 기준 42칸 날짜 배열
   const cells = monthMatrix(anchor)
 
@@ -33,6 +34,8 @@ export function MonthView({ events, anchor, onSelectEvent, onCreateAt }: ViewPro
           // 최대 3개만 표시, 나머지는 오버플로 표시
           const visible = dayEvents.slice(0, 3)
           const overflow = dayEvents.length - visible.length
+          // 해당 날 마감 이슈 마커(읽기전용 오버레이)
+          const dayDues = issueDuesOnDay(issueDues, day)
           const inMonth = isSameMonth(day, anchor)
           const today = isToday(day)
 
@@ -77,6 +80,13 @@ export function MonthView({ events, anchor, onSelectEvent, onCreateAt }: ViewPro
               {overflow > 0 && (
                 <div className="text-xs text-muted-foreground pl-1">+{overflow}</div>
               )}
+
+              {/* 이슈 마감일 칩 (읽기전용, 일정과 구분) */}
+              {dayDues.map((m) => (
+                <div key={m.issueId} className="mb-0.5">
+                  <IssueDueChip marker={m} onSelect={onSelectIssue} />
+                </div>
+              ))}
             </div>
           )
         })}

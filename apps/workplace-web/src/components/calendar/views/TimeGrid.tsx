@@ -2,16 +2,20 @@
 // WeekView(7일)와 DayView(1일)가 동일한 레이아웃을 공유한다.
 import { format, isSameDay } from 'date-fns'
 
-import { eventsOnDay, hhmm, HOURS } from '@/lib/calendar'
-import type { CalendarEvent } from '@/types/calendar'
+import { IssueDueChip } from '@/components/calendar/IssueDueChip'
+import { eventsOnDay, hhmm, HOURS, issueDuesOnDay } from '@/lib/calendar'
+import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 // ─────────────────────────────────────────────────────────────
 // 공용 뷰 props (MonthView · AgendaView · WeekView · DayView 공통)
 // ─────────────────────────────────────────────────────────────
 export interface ViewProps {
   events: CalendarEvent[]
+  // 내게 할당된 이슈 마감일 오버레이(읽기전용). 일정과 별도로 렌더링.
+  issueDues: IssueDueMarker[]
   anchor: Date
   onSelectEvent: (e: CalendarEvent) => void
+  onSelectIssue: (marker: IssueDueMarker) => void
   onCreateAt: (start: Date) => void
 }
 
@@ -40,7 +44,9 @@ function eventStyle(event: CalendarEvent): { top: number; height: number } {
 // ─────────────────────────────────────────────────────────────
 export function TimeGrid({
   events,
+  issueDues,
   onSelectEvent,
+  onSelectIssue,
   onCreateAt,
   days,
   testid,
@@ -68,6 +74,8 @@ export function TimeGrid({
           const allDayEvts = events.filter(
             (e) => e.allDay && isSameDay(new Date(e.startsAt), day),
           )
+          // 마감일은 날짜 단위라 종일 줄에 함께 표시.
+          const dayDues = issueDuesOnDay(issueDues, day)
           return (
             <div
               key={day.toISOString()}
@@ -82,6 +90,9 @@ export function TimeGrid({
                 >
                   {e.title}
                 </button>
+              ))}
+              {dayDues.map((m) => (
+                <IssueDueChip key={m.issueId} marker={m} onSelect={onSelectIssue} />
               ))}
             </div>
           )

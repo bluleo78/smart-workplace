@@ -14,6 +14,16 @@ export interface CalendarEvent {
   updatedAt: string
 }
 
+// 캘린더에 읽기전용으로 오버레이되는 "내게 할당된 이슈 마감일" 마커.
+// 캘린더 백엔드는 이슈를 모르므로(모듈 경계) 프론트에서 issue API(/me/issues)와 병합한다.
+export interface IssueDueMarker {
+  issueId: number
+  projectKey: string
+  number: number
+  title: string
+  dueDate: string // yyyy-MM-dd (백엔드 LocalDate, 날짜 단위)
+}
+
 export interface CalendarEventRequest {
   title: string
   description: string | null

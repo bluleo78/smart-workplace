@@ -1,9 +1,9 @@
 import {
-  addDays, eachDayOfInterval, endOfDay, endOfMonth,
+  addDays, eachDayOfInterval, endOfDay, endOfMonth, format,
   startOfDay, startOfMonth, startOfWeek,
 } from 'date-fns'
 
-import type { CalendarEvent, CalendarViewType } from '../types/calendar'
+import type { CalendarEvent, CalendarViewType, IssueDueMarker } from '../types/calendar'
 
 // 월 그리드: 해당 월을 포함하는 일요일 시작 6주(42칸).
 export function monthMatrix(anchor: Date): Date[] {
@@ -43,6 +43,12 @@ export function eventsOnDay(events: CalendarEvent[], day: Date): CalendarEvent[]
     const en = new Date(e.endsAt)
     return s <= dayEnd && en > dayStart
   })
+}
+
+// 해당 날짜(yyyy-MM-dd)에 마감인 이슈 마커. dueDate 는 날짜 단위라 시각 비교 없이 키 매칭.
+export function issueDuesOnDay(dues: IssueDueMarker[], day: Date): IssueDueMarker[] {
+  const key = format(day, 'yyyy-MM-dd')
+  return dues.filter((d) => d.dueDate.slice(0, 10) === key)
 }
 
 // 시간축(0~23시) 슬롯.

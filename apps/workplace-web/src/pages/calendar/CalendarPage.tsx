@@ -1,5 +1,6 @@
 import { addDays, addMonths, format, startOfDay } from 'date-fns'
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
 import { EventDialog } from '@/components/calendar/EventDialog'
@@ -13,8 +14,14 @@ import {
   useDeleteEvent,
   useUpdateEvent,
 } from '@/hooks/queries/useCalendarMutations'
+import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { visibleRange } from '@/lib/calendar'
-import type { CalendarEvent, CalendarEventRequest, CalendarViewType } from '@/types/calendar'
+import type {
+  CalendarEvent,
+  CalendarEventRequest,
+  CalendarViewType,
+  IssueDueMarker,
+} from '@/types/calendar'
 
 // 뷰 전환 탭 목록 — key 는 CalendarViewType 과 대응
 const VIEWS: { key: CalendarViewType; label: string }[] = [
@@ -26,6 +33,7 @@ const VIEWS: { key: CalendarViewType; label: string }[] = [
 
 /** 캘린더 페이지 — 뷰 전환·날짜 네비·일정 CRUD 를 통합 관리. */
 export function CalendarPage() {
+  const navigate = useNavigate()
   const [view, setView] = useState<CalendarViewType>('month')
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -35,6 +43,8 @@ export function CalendarPage() {
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
   const { data: events = [] } = useCalendarEvents(from, to)
+  // 내게 할당된 이슈 마감일을 같은 가시 범위로 조회해 읽기전용 오버레이.
+  const { data: issueDues = [] } = useMyIssueDues(from, to)
 
   const create = useCreateEvent()
   const update = useUpdateEvent()
@@ -72,7 +82,18 @@ export function CalendarPage() {
     if (editing) remove.mutate(editing.id, { onSuccess: () => setDialogOpen(false) })
   }
 
-  const viewProps = { events, anchor, onSelectEvent: openEdit, onCreateAt: openNew }
+  // 이슈 마감 칩 클릭 → 해당 이슈 상세로 이동(읽기전용 오버레이).
+  const openIssue = (m: IssueDueMarker) =>
+    navigate(`/projects/${m.projectKey}/issues/${m.number}`)
+
+  const viewProps = {
+    events,
+    issueDues,
+    anchor,
+    onSelectEvent: openEdit,
+    onSelectIssue: openIssue,
+    onCreateAt: openNew,
+  }
 
   return (
     <>
