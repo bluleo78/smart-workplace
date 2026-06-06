@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { handleApiError } from '../../../lib/api-error';
+import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import { createIssueSchema, type CreateIssueFormData } from '../../../lib/validations/issue';
 
 // 새 이슈 생성 모달. priority 기본 MID, dueDate 미지정 시 빈 문자열 → API 호출 직전 undefined 변환.
@@ -95,7 +96,7 @@ export function IssueCreateDialog({
                 className="w-full border rounded p-2 bg-background"
               >
                 {(types.data ?? []).map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                  <option key={t.id} value={t.id}>{getIssueTypeLabel(t.name)}</option>
                 ))}
               </select>
             </div>

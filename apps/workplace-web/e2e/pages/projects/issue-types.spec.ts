@@ -1,10 +1,14 @@
 // 이슈 유형 도메인 E2E.
-// 시나리오: OWNER 가 설정 페이지에서 CUSTOM 유형(디자인)을 추가 → 이슈 상세에서 picker 로 변경 →
-// PATCH payload {typeId} 검증 + 배지 갱신 확인.
+// 시나리오:
+//   1) OWNER 가 설정 페이지에서 CUSTOM 유형(디자인)을 추가 → 이슈 상세에서 picker 로 변경 →
+//      PATCH payload {typeId} 검증 + 배지 갱신 확인.
+//   2) 이슈 생성 다이얼로그 유형 드롭다운이 한국어 라벨로 표시되는지 회귀 검증.
 
+import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { createIssue } from '../../factories/issue.factory';
+import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeIssueType, systemTypes } from '../../factories/issueType.factory';
+import { createProject } from '../../factories/project.factory';
 
 const KEY = 'WP';
 
@@ -146,6 +150,48 @@ test.describe('이슈 유형', () => {
 
       await expect.poll(() => patchPayload).toEqual({ typeId: designId });
       await expect(page.getByTestId(`issue-type-badge-${designId}`)).toBeVisible();
+    },
+  );
+
+  test(
+    '이슈 생성 다이얼로그 유형 드롭다운이 한국어 라벨로 표시된다',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      const types = systemTypes();
+
+      // 프로젝트 상세 + 이슈 목록 + 유형 목록 stub.
+      await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP' }));
+      await mockApi(
+        page,
+        'GET',
+        '/api/v1/projects/WP/issues',
+        createIssueSearchResponse([]),
+      );
+      await page.route('**/api/v1/projects/WP/types', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(types),
+        }),
+      );
+
+      await page.goto('/projects/WP');
+
+      // 새 태스크 다이얼로그 열기.
+      await page.getByRole('button', { name: '+ 새 태스크' }).click();
+
+      // 유형 드롭다운 옵션이 한국어로 표시되어야 한다 (영문 enum 원문 노출 회귀 #126).
+      const select = page.getByTestId('create-type-select');
+      await expect(select).toBeVisible();
+      // 시스템 5종 한국어 라벨 검증 (정확 일치 — hasText 는 부분 문자열이므로 정규식으로 앵커).
+      await expect(select.locator('option').filter({ hasText: /^태스크$/ })).toHaveCount(1);
+      await expect(select.locator('option').filter({ hasText: /^버그$/ })).toHaveCount(1);
+      await expect(select.locator('option').filter({ hasText: /^스토리$/ })).toHaveCount(1);
+      await expect(select.locator('option').filter({ hasText: /^기타$/ })).toHaveCount(1);
+      await expect(select.locator('option').filter({ hasText: /^하위 태스크$/ })).toHaveCount(1);
+      // 영문 enum 원문은 보여선 안 된다.
+      await expect(select.locator('option').filter({ hasText: /^TASK$/ })).toHaveCount(0);
+      await expect(select.locator('option').filter({ hasText: /^BUG$/ })).toHaveCount(0);
     },
   );
 });

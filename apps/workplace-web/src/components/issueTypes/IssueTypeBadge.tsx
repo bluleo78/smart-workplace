@@ -3,6 +3,7 @@
 // fallback: 알 수 없는 토큰/아이콘은 GRAY + Circle.
 
 import { ISSUE_TYPE_ICONS } from '../../lib/issueTypeIcons';
+import { getIssueTypeLabel } from '../../lib/issueTypeLabels';
 import { LABEL_COLORS } from '../../lib/labelColors';
 import type { IssueTypeSummary } from '../../types/issueType';
 import type { ColorToken } from '../../types/label';
@@ -22,12 +23,12 @@ export function IssueTypeBadge({
   return (
     <span
       className={`inline-flex items-center gap-1 rounded ${padding} ${colors.bg} ${colors.text}`}
-      aria-label={type.name}
-      title={type.name}
+      aria-label={getIssueTypeLabel(type.name)}
+      title={getIssueTypeLabel(type.name)}
       data-testid={`issue-type-badge-${type.id}`}
     >
       <Icon className="h-3 w-3" />
-      {!iconOnly && type.name}
+      {!iconOnly && getIssueTypeLabel(type.name)}
     </span>
   );
 }
