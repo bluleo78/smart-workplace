@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { monthMatrix, visibleRange, weekDays, eventsOnDay } from './calendar'
+
 import type { CalendarEvent } from '../types/calendar'
+import { eventsOnDay,monthMatrix, visibleRange, weekDays } from './calendar'
 
 const ev = (id: number, startsAt: string, endsAt: string, allDay = false): CalendarEvent => ({
   id, title: `e${id}`, description: null, startsAt, endsAt, allDay,

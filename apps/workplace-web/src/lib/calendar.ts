@@ -2,6 +2,7 @@ import {
   addDays, eachDayOfInterval, endOfDay, endOfMonth,
   startOfDay, startOfMonth, startOfWeek,
 } from 'date-fns'
+
 import type { CalendarEvent, CalendarViewType } from '../types/calendar'
 
 // 월 그리드: 해당 월을 포함하는 일요일 시작 6주(42칸).
@@ -52,4 +53,4 @@ export function hhmm(iso: string): string {
   return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
 
-export { startOfMonth, endOfMonth, addDays }
+export { addDays, endOfMonth, startOfMonth }
