@@ -100,7 +100,7 @@ export default function ChannelPage() {
         <MessageComposer
           channelId={channel.id}
           members={mentionMembers}
-          disabled={channel.archived}
+          archived={channel.archived}
           onSend={(body, fileIds) =>
             create.mutate({ body, fileIds: fileIds.length ? fileIds : undefined })
           }

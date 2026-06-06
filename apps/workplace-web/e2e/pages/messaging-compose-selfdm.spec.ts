@@ -187,6 +187,31 @@ test.describe('messaging 인라인 compose + self-DM', () => {
     },
   )
 
+  // (D) 회귀: /chat/new 수신자 미선택 상태에서 "보관됨" 오표시 금지 (#118)
+  test(
+    '수신자 미선택 시 "이 채널은 보관되었습니다" 가 표시되지 않는다',
+    async ({ authenticatedPage: page }) => {
+      await stubSidebarLists(page)
+      await stubUserSearch(page, [{ id: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
+
+      await page.goto('/chat/new')
+      await expect(page.getByTestId('new-message-page')).toBeVisible()
+
+      // 초기(수신자 0): 빈 상태 안내만, "보관됨" 오표시 없음, 입력기도 미마운트.
+      await expect(page.getByText('받는 사람을 추가하면 대화를 시작할 수 있어요.')).toBeVisible()
+      await expect(page.getByText('이 채널은 보관되었습니다')).toHaveCount(0)
+      await expect(page.getByTestId('message-composer-input')).toHaveCount(0)
+
+      // 수신자 1명 추가 → 입력기 정상 노출, 여전히 "보관됨" 문구 없음.
+      await page.getByTestId('new-message-add-recipient').click()
+      await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
+      await page.getByTestId('member-search-row-2').click()
+      await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
+      await expect(page.getByTestId('message-composer-input')).toBeVisible()
+      await expect(page.getByText('이 채널은 보관되었습니다')).toHaveCount(0)
+    },
+  )
+
   // (C) self-DM 사이드바 링크 + redirect
   test(
     'self-DM 링크 레이블이 "테스트 사용자 (나)"이고 클릭 시 POST {userIds:[1]} → DM 이동',

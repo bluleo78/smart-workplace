@@ -65,7 +65,7 @@ export function ThreadPanel({ channelId, parent, members, me, archived, onClose 
       <MessageComposer
         channelId={channelId}
         members={members}
-        disabled={archived}
+        archived={archived}
         onSend={(body, fileIds) => reply.mutate({ body, fileIds })}
       />
     </div>

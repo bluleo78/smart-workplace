@@ -1,6 +1,7 @@
 // 메시지 작성기 — RichInput(@멘션) 기반. Enter 전송·Shift+Enter 줄바꿈은 RichInput 이 처리.
 // 파일 첨부: Paperclip 버튼 → 선택 즉시 사전 업로드(pending 칩 표시), 전송 시 fileIds 동봉.
-// 본문이 비어도 첨부가 있으면 전송 허용(첨부만 있는 메시지). 아카이브 채널이면 입력기 미마운트.
+// 본문이 비어도 첨부가 있으면 전송 허용(첨부만 있는 메시지).
+// 보관 채널(archived)은 입력기 대신 "보관됨" 안내만, 단순 비활성(disabled)은 입력기를 숨긴다.
 import { Paperclip, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 
@@ -17,13 +18,17 @@ export function MessageComposer({
   members,
   onSend,
   disabled = false,
+  archived = false,
 }: {
   // 첨부 사전 업로드 대상 채널.
   channelId: number
   // @멘션 후보 = 해당 채널/DM 의 구성원.
   members: MentionCandidate[]
   onSend: (body: string, fileIds: number[]) => void
+  // 단순 비활성(수신자 미선택·전송중 등) — 입력기를 숨긴다(안내 문구 없음).
   disabled?: boolean
+  // 보관된 채널 — "보관됨" 안내만 표시하고 입력기를 띄우지 않는다.
+  archived?: boolean
 }) {
   // 사전 업로드된(아직 전송 안 된) 첨부.
   const [pending, setPending] = useState<PendingFile[]>([])
@@ -31,12 +36,17 @@ export function MessageComposer({
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   // 보관된 채널은 입력기를 띄우지 않고 안내만 표시(전송 자체를 차단).
-  if (disabled) {
+  if (archived) {
     return (
       <div className="border-t p-3">
         <p className="text-sm text-muted-foreground">이 채널은 보관되었습니다</p>
       </div>
     )
+  }
+
+  // 단순 비활성(수신자 미선택·전송중 등)은 입력기를 숨긴다 — "보관됨" 오표시 방지.
+  if (disabled) {
+    return null
   }
 
   // 파일 선택 시 즉시 사전 업로드 → pending 에 메타 누적.
