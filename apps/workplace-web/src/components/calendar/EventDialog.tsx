@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { buildRRule, parseRRule, type RecurrenceForm } from '@/lib/recurrence'
 import type { CalendarEvent, CalendarEventRequest } from '@/types/calendar'
 
 // ────────────────────────────────────────────────────────────
@@ -40,11 +41,23 @@ const schema = z
     // 리마인더 — select 값은 문자열('none' = 없음, 그 외 분 단위). 제출 시 number|null 로 변환.
     // (Radix Select 는 빈 문자열 value 를 허용하지 않아 'none' 센티넬 사용)
     reminderMinutes: z.enum(['none', '10', '60', '1440']),
+    // 반복 설정 — 폼에서는 평탄한 필드로 다루고 제출 시 RecurrenceForm 으로 조립한다. (이슈 #111)
+    recurrenceFreq: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']),
+    recurrenceInterval: z.number().int().min(1, '간격은 1 이상이어야 합니다'),
+    recurrenceEnd: z.enum(['none', 'until', 'count']),
+    recurrenceUntil: z.string().optional(),
+    recurrenceCount: z.number().int().min(1, '횟수는 1 이상이어야 합니다'),
   })
   .refine((v) => new Date(v.end) > new Date(v.start), {
     message: '종료는 시작보다 뒤여야 합니다',
     path: ['end'],
   })
+  // 종료=날짜까지 일 때만 종료 날짜 필수 검증 (반복 사용 시)
+  .refine(
+    (v) =>
+      v.recurrenceFreq === 'NONE' || v.recurrenceEnd !== 'until' || !!v.recurrenceUntil,
+    { message: '종료 날짜를 입력하세요', path: ['recurrenceUntil'] }
+  )
 
 type FormValues = z.infer<typeof schema>
 
@@ -70,6 +83,20 @@ function dateToLocalInput(d: Date): string {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 16)
+}
+
+/** 반복 빈도별 간격 단위 라벨 (예: '주' → "주마다") */
+function recurrenceUnitLabel(freq: FormValues['recurrenceFreq']): string {
+  switch (freq) {
+    case 'DAILY':
+      return '일'
+    case 'WEEKLY':
+      return '주'
+    case 'MONTHLY':
+      return '개월'
+    default:
+      return ''
+  }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -110,12 +137,27 @@ export function EventDialog({
       location: '',
       description: '',
       reminderMinutes: 'none',
+      recurrenceFreq: 'NONE',
+      recurrenceInterval: 1,
+      recurrenceEnd: 'none',
+      recurrenceUntil: '',
+      recurrenceCount: 1,
     },
   })
 
   // 다이얼로그가 열릴 때마다 폼 초기화
   useEffect(() => {
     if (!open) return
+
+    // 반복 규칙(RRULE) → 평탄한 폼 필드로 변환. 생성 모드(이벤트 없음)면 NONE 기본값.
+    const rec = parseRRule(event?.recurrenceRule ?? null)
+    const recFields = {
+      recurrenceFreq: rec.freq,
+      recurrenceInterval: rec.interval,
+      recurrenceEnd: rec.end.type,
+      recurrenceUntil: rec.end.type === 'until' ? rec.end.date : '',
+      recurrenceCount: rec.end.type === 'count' ? rec.end.count : 1,
+    }
 
     if (event) {
       // 편집 모드: 기존 이벤트 데이터로 프리필
@@ -128,6 +170,7 @@ export function EventDialog({
         description: event.description ?? '',
         reminderMinutes: (event.reminderMinutes?.toString() ??
           'none') as FormValues['reminderMinutes'],
+        ...recFields,
       })
     } else {
       // 생성 모드: defaultStart(또는 현재 시각) 기준으로 초기화. 종료 = 시작 + 1시간
@@ -141,12 +184,25 @@ export function EventDialog({
         location: '',
         description: '',
         reminderMinutes: 'none',
+        ...recFields,
       })
     }
   }, [open, event, defaultStart, form])
 
   // 폼 제출 핸들러
   function handleSubmit(values: FormValues) {
+    // 평탄한 폼 필드 → RecurrenceForm 조립 후 RRULE 문자열 생성. freq=NONE 이면 null(단일 일정).
+    const recForm: RecurrenceForm = {
+      freq: values.recurrenceFreq,
+      interval: values.recurrenceInterval,
+      end:
+        values.recurrenceEnd === 'until'
+          ? { type: 'until', date: values.recurrenceUntil ?? '' }
+          : values.recurrenceEnd === 'count'
+            ? { type: 'count', count: values.recurrenceCount }
+            : { type: 'none' },
+    }
+
     const body: CalendarEventRequest = {
       title: values.title,
       allDay: values.allDay,
@@ -157,8 +213,8 @@ export function EventDialog({
       color: null,
       // 'none'(없음) → null, 그 외 분 단위 숫자로 변환
       reminderMinutes: values.reminderMinutes === 'none' ? null : Number(values.reminderMinutes),
-      // 반복 규칙은 Task 7 에서 폼 연동 — 현재는 미설정(null) (이슈 #111)
-      recurrenceRule: null,
+      // 반복 규칙 — freq=NONE 이면 buildRRule 이 null 반환 (이슈 #111)
+      recurrenceRule: buildRRule(recForm),
     }
     onSubmit(body)
   }
@@ -270,6 +326,104 @@ export function EventDialog({
               </SelectContent>
             </Select>
           </FormField>
+
+          {/* 반복 설정 — 빈도/간격/종료 (이슈 #111) */}
+          <FormField label="반복" htmlFor="ev-recurrence-freq">
+            <Select
+              value={form.watch('recurrenceFreq')}
+              onValueChange={(v) =>
+                form.setValue('recurrenceFreq', v as FormValues['recurrenceFreq'])
+              }
+            >
+              <SelectTrigger
+                id="ev-recurrence-freq"
+                data-testid="calendar-form-recurrence-freq"
+                className="w-full"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NONE">없음</SelectItem>
+                <SelectItem value="DAILY">매일</SelectItem>
+                <SelectItem value="WEEKLY">매주</SelectItem>
+                <SelectItem value="MONTHLY">매월</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+
+          {/* freq ≠ NONE 일 때만 간격/종료 조건 표시 */}
+          {form.watch('recurrenceFreq') !== 'NONE' && (
+            <>
+              <FormField
+                label={`${recurrenceUnitLabel(form.watch('recurrenceFreq'))}마다`}
+                htmlFor="ev-recurrence-interval"
+                error={form.formState.errors.recurrenceInterval?.message}
+              >
+                <Input
+                  id="ev-recurrence-interval"
+                  type="number"
+                  min={1}
+                  data-testid="calendar-form-recurrence-interval"
+                  {...form.register('recurrenceInterval', { valueAsNumber: true })}
+                />
+              </FormField>
+
+              <FormField label="종료" htmlFor="ev-recurrence-end">
+                <Select
+                  value={form.watch('recurrenceEnd')}
+                  onValueChange={(v) =>
+                    form.setValue('recurrenceEnd', v as FormValues['recurrenceEnd'])
+                  }
+                >
+                  <SelectTrigger
+                    id="ev-recurrence-end"
+                    data-testid="calendar-form-recurrence-end"
+                    className="w-full"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">없음</SelectItem>
+                    <SelectItem value="until">날짜까지</SelectItem>
+                    <SelectItem value="count">횟수</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+
+              {/* 종료=날짜까지 → 날짜 입력 */}
+              {form.watch('recurrenceEnd') === 'until' && (
+                <FormField
+                  label="종료 날짜"
+                  htmlFor="ev-recurrence-until"
+                  error={form.formState.errors.recurrenceUntil?.message}
+                >
+                  <Input
+                    id="ev-recurrence-until"
+                    type="date"
+                    data-testid="calendar-form-recurrence-until"
+                    {...form.register('recurrenceUntil')}
+                  />
+                </FormField>
+              )}
+
+              {/* 종료=횟수 → 횟수 입력 */}
+              {form.watch('recurrenceEnd') === 'count' && (
+                <FormField
+                  label="반복 횟수"
+                  htmlFor="ev-recurrence-count"
+                  error={form.formState.errors.recurrenceCount?.message}
+                >
+                  <Input
+                    id="ev-recurrence-count"
+                    type="number"
+                    min={1}
+                    data-testid="calendar-form-recurrence-count"
+                    {...form.register('recurrenceCount', { valueAsNumber: true })}
+                  />
+                </FormField>
+              )}
+            </>
+          )}
 
           {/* 설명 */}
           <FormField label="설명" htmlFor="ev-description">
