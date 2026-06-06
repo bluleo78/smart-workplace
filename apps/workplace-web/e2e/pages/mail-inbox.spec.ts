@@ -50,8 +50,8 @@ test.describe('받은편지함', () => {
     await page.goto('/mail')
     await expect(page).toHaveURL(/\/mail\/1$/)
 
-    // 사이드바에 계정, 목록에 두 메시지
-    await expect(page.getByTestId('mail-account-1')).toBeVisible()
+    // 사이드바 계정 스위처에 현재 계정, 목록에 두 메시지
+    await expect(page.getByTestId('mail-account-switcher')).toContainText('me@example.com')
     await expect(page.getByTestId('mail-row-10')).toBeVisible()
     await expect(page.getByTestId('mail-row-11')).toBeVisible()
     // 첨부 있는 행만 클립 — 행 10 클릭 시 상세

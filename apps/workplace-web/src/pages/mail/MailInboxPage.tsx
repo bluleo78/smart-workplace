@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Forward, Paperclip, PenSquare, RefreshCw, Reply, ReplyAll } from 'lucide-react'
+import { Forward, Paperclip, RefreshCw, Reply, ReplyAll } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 
@@ -336,13 +336,6 @@ export function MailInboxPage() {
       /* 토스트는 훅 onError 가 처리 */
     }
   }
-  function onNew() {
-    openCompose({
-      accountId: accountIdNum as number,
-      to: [], cc: [], bcc: [], subject: '', initialHtml: '', inReplyToMessageId: null,
-    })
-  }
-
   // accountId 미지정 → 첫 계정으로 이동. 계정이 없으면 안내.
   if (!accountId) {
     if (accountsLoading) {
@@ -366,43 +359,11 @@ export function MailInboxPage() {
     <div className="flex h-full min-h-0">
       {/* 목록 (마스터) */}
       <div className="flex min-w-0 flex-1 flex-col border-r lg:max-w-md" data-testid="mail-list">
-        {/* 툴바: 폴더 토글 + 새 메일 + 동기화 + 검색 */}
+        {/* 툴바: 폴더명 + 동기화 + 검색 */}
         <div className="flex flex-col gap-2 border-b p-3">
-          {/* 폴더 토글 + 새 메일 버튼 */}
-          <div className="flex items-center gap-2">
-            <div className="flex gap-1" data-testid="mail-folder-toggle">
-              {(['INBOX', 'SENT'] as MailFolder[]).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  data-testid={`mail-folder-${f.toLowerCase()}`}
-                  onClick={() =>
-                    setParams(
-                      (prev) => {
-                        const sp = new URLSearchParams(prev)
-                        if (f === 'SENT') sp.set('folder', 'sent'); else sp.delete('folder')
-                        return sp
-                      },
-                      { replace: true },
-                    )
-                  }
-                  className={cn(
-                    'rounded-md px-3 py-1.5 text-sm',
-                    folderParam === f ? 'bg-accent font-medium' : 'text-muted-foreground',
-                  )}
-                >
-                  {f === 'INBOX' ? '받은편지함' : '보낸편지함'}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              data-testid="mail-compose-new"
-              onClick={onNew}
-              className="ml-auto flex shrink-0 items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              <PenSquare className="h-4 w-4" /> 새 메일
-            </button>
+          {/* 현재 폴더명 — 폴더 nav 는 사이드바로 이동, 본문엔 맥락 표시만 */}
+          <div data-testid="mail-folder-title" className="px-1 text-sm font-semibold">
+            {folderParam === 'INBOX' ? '받은편지함' : '보낸편지함'}
           </div>
           {/* 동기화 + 검색(받은편지함에서만 동기화) */}
           <div className="flex items-center gap-2">
