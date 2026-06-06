@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { pageTitleClass } from '@/components/layout/sidebar-link';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -304,7 +305,7 @@ export default function AuditLogListPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-[28px] leading-[36px] font-semibold tracking-tight">감사 로그</h1>
+      <h1 className={pageTitleClass}>감사 로그</h1>
 
       <div className="flex flex-wrap items-center gap-4">
         <SearchInput
