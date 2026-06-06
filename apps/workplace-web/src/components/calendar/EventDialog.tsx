@@ -45,19 +45,38 @@ const schema = z
     recurrenceFreq: z.enum(['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']),
     recurrenceInterval: z.number().int().min(1, '간격은 1 이상이어야 합니다'),
     recurrenceEnd: z.enum(['none', 'until', 'count']),
+    // until/count 는 조건부 필드 — base 에서는 검증하지 않고 superRefine 에서 노출 조건일 때만 검증.
+    // (숨겨진 필드의 잔존 값이 제출을 조용히 막는 것을 방지)
     recurrenceUntil: z.string().optional(),
-    recurrenceCount: z.number().int().min(1, '횟수는 1 이상이어야 합니다'),
+    recurrenceCount: z.number().optional(),
   })
   .refine((v) => new Date(v.end) > new Date(v.start), {
     message: '종료는 시작보다 뒤여야 합니다',
     path: ['end'],
   })
-  // 종료=날짜까지 일 때만 종료 날짜 필수 검증 (반복 사용 시)
-  .refine(
-    (v) =>
-      v.recurrenceFreq === 'NONE' || v.recurrenceEnd !== 'until' || !!v.recurrenceUntil,
-    { message: '종료 날짜를 입력하세요', path: ['recurrenceUntil'] }
-  )
+  // 반복 종료 조건은 해당 입력이 실제로 노출될 때(freq≠NONE + end 일치)만 검증한다.
+  .superRefine((v, ctx) => {
+    if (v.recurrenceFreq === 'NONE') return
+    // 종료=날짜까지 → 종료 날짜 필수
+    if (v.recurrenceEnd === 'until' && !v.recurrenceUntil) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '종료 날짜를 입력하세요',
+        path: ['recurrenceUntil'],
+      })
+    }
+    // 종료=횟수 → 1 이상의 정수 필수
+    if (
+      v.recurrenceEnd === 'count' &&
+      !(Number.isInteger(v.recurrenceCount) && (v.recurrenceCount ?? 0) >= 1)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '횟수는 1 이상이어야 합니다',
+        path: ['recurrenceCount'],
+      })
+    }
+  })
 
 type FormValues = z.infer<typeof schema>
 
@@ -199,7 +218,7 @@ export function EventDialog({
         values.recurrenceEnd === 'until'
           ? { type: 'until', date: values.recurrenceUntil ?? '' }
           : values.recurrenceEnd === 'count'
-            ? { type: 'count', count: values.recurrenceCount }
+            ? { type: 'count', count: values.recurrenceCount ?? 1 }
             : { type: 'none' },
     }
 
