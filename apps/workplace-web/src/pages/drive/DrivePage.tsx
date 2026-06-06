@@ -5,8 +5,17 @@ import { driveApi } from '../../api/drive'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
+import { PageHeader } from '@/components/layout/PageHeader'
 import { SearchInput } from '../../components/ui/search-input'
-import type { DriveFile, DriveItemList, DriveSearchResult, DriveTrashItem } from '../../types/drive'
+import type { DriveFile, DriveItemList, DriveSearchResult, DriveTrashItem, DriveFolderPathSegment } from '../../types/drive'
+
+// breadcrumb 접기 — 4개 초과면 [첫, null(…), 마지막2개]. null 은 생략 표식.
+function collapseCrumbs(
+  crumbs: DriveFolderPathSegment[],
+): (DriveFolderPathSegment | null)[] {
+  if (crumbs.length <= 4) return crumbs
+  return [crumbs[0], null, crumbs[crumbs.length - 2], crumbs[crumbs.length - 1]]
+}
 
 /** 폴더 브라우저 — 검색 + 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드. */
 export function DrivePage() {
@@ -30,6 +39,9 @@ export function DrivePage() {
   // 휴지통 뷰 — trash != null 이면 휴지통 모드.
   const [trash, setTrash] = useState<DriveTrashItem[] | null>(null)
 
+  // breadcrumb 경로(루트→현재 폴더). folderId 가 있을 때 서버에서 폴더명 경로를 로드.
+  const [crumbs, setCrumbs] = useState<DriveFolderPathSegment[]>([])
+
   async function reload() {
     const { data } = await driveApi.listItems(sid, folderId)
     setItems(data)
@@ -38,6 +50,26 @@ export function DrivePage() {
     if (!Number.isNaN(sid)) void reload()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, folderId])
+
+  // 폴더 진입 시 조상 경로(폴더명) 로드. 루트(null)면 비움. 실패 시 빈 경로로 폴백.
+  useEffect(() => {
+    if (folderId == null) {
+      setCrumbs([])
+      return
+    }
+    let alive = true
+    void driveApi
+      .getFolderPath(folderId)
+      .then(({ data }) => {
+        if (alive) setCrumbs(data)
+      })
+      .catch(() => {
+        if (alive) setCrumbs([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [folderId])
 
   // 검색 디바운스(300ms). 2자 미만이면 결과 해제(브라우즈 복귀).
   useEffect(() => {
@@ -144,220 +176,261 @@ export function DrivePage() {
   const searching = results != null
 
   return (
-    <div className="p-4" data-testid="drive-page">
-      <div className="mb-3 flex items-center gap-2">
-        <button type="button" onClick={goRoot} className="text-sm text-primary hover:underline">
-          루트
-        </button>
-        {folderId != null && !searching && (
-          <span className="text-sm text-muted-foreground">/ 폴더 {folderId}</span>
-        )}
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder="이 공간에서 검색..."
-          aria-label="드라이브 검색"
-          className="ml-2"
-        />
-        <div className="ml-auto flex gap-2">
+    <div className="flex h-full flex-col overflow-hidden" data-testid="drive-page">
+      <PageHeader
+        title="드라이브"
+        actions={
+          <>
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="이 공간에서 검색..."
+              aria-label="드라이브 검색"
+            />
+            <button
+              type="button"
+              onClick={onNewFolder}
+              data-testid="drive-new-folder"
+              className="rounded border px-2 py-1 text-sm hover:bg-accent/50"
+            >
+              새 폴더
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              data-testid="drive-upload"
+              className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90"
+            >
+              업로드
+            </button>
+            <input ref={fileInput} type="file" hidden onChange={onUpload} data-testid="file-input" />
+            <button
+              type="button"
+              onClick={trash != null ? closeTrash : openTrash}
+              className="rounded border px-2 py-1 text-sm hover:bg-accent/50"
+              data-testid="trash-toggle"
+            >
+              {trash != null ? '← 드라이브' : '휴지통'}
+            </button>
+          </>
+        }
+      />
+      {/* breadcrumb 행 — 브라우즈 모드(검색·휴지통 아님)에서만. 폴더명 경로, 깊으면 … 접기. */}
+      {trash == null && !searching && (
+        <nav
+          className="flex h-9 shrink-0 items-center gap-1 border-b px-4 text-sm"
+          data-testid="drive-breadcrumb"
+        >
           <button
             type="button"
-            onClick={onNewFolder}
-            className="rounded border px-2 py-1 text-sm hover:bg-accent/50"
+            onClick={goRoot}
+            data-testid="drive-root"
+            className={folderId == null ? 'font-semibold' : 'text-primary hover:underline'}
           >
-            새 폴더
+            드라이브
           </button>
-          <button
-            type="button"
-            onClick={() => fileInput.current?.click()}
-            className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90"
-          >
-            업로드
-          </button>
-          <input ref={fileInput} type="file" hidden onChange={onUpload} data-testid="file-input" />
-          <button
-            type="button"
-            onClick={trash != null ? closeTrash : openTrash}
-            className="rounded border px-2 py-1 text-sm hover:bg-accent/50"
-            data-testid="trash-toggle"
-          >
-            {trash != null ? '← 드라이브' : '휴지통'}
-          </button>
-        </div>
-      </div>
-
-      {trash != null ? (
-        <div data-testid="trash-view">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">휴지통 ({trash.length})</span>
-            {trash.length > 0 && (
-              <button
-                type="button"
-                onClick={onEmptyTrash}
-                className="text-xs text-destructive"
-                data-testid="empty-trash"
-              >
-                휴지통 비우기
-              </button>
-            )}
-          </div>
-          <ul className="divide-y divide-border">
-            {trash.map((it) => (
-              <li key={`trash-${it.type}-${it.id}`} className="flex items-center gap-2 py-2">
-                <span className="flex-1 truncate text-sm">
-                  {it.type === 'FOLDER' ? '📁' : '📄'} {it.name}
-                  {it.originalPath && (
-                    <span className="ml-2 text-xs text-muted-foreground">{it.originalPath}</span>
-                  )}
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {new Date(it.autoPurgeAt).toLocaleDateString()} 삭제 예정
+          {collapseCrumbs(crumbs).map((c, i, arr) =>
+            c == null ? (
+              <span key={`ellipsis-${i}`} className="flex items-center gap-1 text-muted-foreground">
+                <span>/</span>
+                <span>…</span>
+              </span>
+            ) : (
+              <span key={c.id} className="flex items-center gap-1">
+                <span className="text-muted-foreground">/</span>
+                {i === arr.length - 1 ? (
+                  <span className="font-semibold" data-testid={`drive-crumb-${c.id}`}>
+                    {c.name}
                   </span>
-                </span>
-                <button type="button" onClick={() => onRestore(it)} className="text-xs text-primary">
-                  복원
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => openFolder(c.id)}
+                    data-testid={`drive-crumb-${c.id}`}
+                    className="text-primary hover:underline"
+                  >
+                    {c.name}
+                  </button>
+                )}
+              </span>
+            ),
+          )}
+        </nav>
+      )}
+      <div className="flex-1 overflow-y-auto p-4">
+        {trash != null ? (
+          <div data-testid="trash-view">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">휴지통 ({trash.length})</span>
+              {trash.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onEmptyTrash}
+                  className="text-xs text-destructive"
+                  data-testid="empty-trash"
+                >
+                  휴지통 비우기
                 </button>
-                <button type="button" onClick={() => onPurge(it)} className="text-xs text-destructive">
-                  영구삭제
+              )}
+            </div>
+            <ul className="divide-y divide-border">
+              {trash.map((it) => (
+                <li key={`trash-${it.type}-${it.id}`} className="flex items-center gap-2 py-2">
+                  <span className="flex-1 truncate text-sm">
+                    {it.type === 'FOLDER' ? '📁' : '📄'} {it.name}
+                    {it.originalPath && (
+                      <span className="ml-2 text-xs text-muted-foreground">{it.originalPath}</span>
+                    )}
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {new Date(it.autoPurgeAt).toLocaleDateString()} 삭제 예정
+                    </span>
+                  </span>
+                  <button type="button" onClick={() => onRestore(it)} className="text-xs text-primary">
+                    복원
+                  </button>
+                  <button type="button" onClick={() => onPurge(it)} className="text-xs text-destructive">
+                    영구삭제
+                  </button>
+                </li>
+              ))}
+              {trash.length === 0 && (
+                <li className="py-8 text-center text-sm text-muted-foreground">휴지통이 비어 있습니다</li>
+              )}
+            </ul>
+          </div>
+        ) : searching ? (
+          <ul className="divide-y divide-border" data-testid="search-results">
+            {results.folders.map((f) => (
+              <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
+                <button
+                  type="button"
+                  onClick={() => openFolder(f.id)}
+                  className="flex-1 text-left text-sm hover:underline"
+                >
+                  📁 {f.name}
+                  {f.folderPath && (
+                    <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                  )}
                 </button>
               </li>
             ))}
-            {trash.length === 0 && (
-              <li className="py-8 text-center text-sm text-muted-foreground">휴지통이 비어 있습니다</li>
+            {results.files.map((f) => (
+              <li key={`s-file-${f.id}`} className="flex items-center gap-2 py-2">
+                <DriveThumbnail fileId={f.id} category={f.category} />
+                <button
+                  type="button"
+                  onClick={() => setPreview(f)}
+                  className="flex-1 truncate text-left text-sm hover:underline"
+                >
+                  {f.name}
+                  {f.folderPath && (
+                    <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                  )}
+                </button>
+              </li>
+            ))}
+            {results.folders.length === 0 && results.files.length === 0 && (
+              <li className="py-8 text-center text-sm text-muted-foreground">검색 결과가 없습니다</li>
             )}
           </ul>
-        </div>
-      ) : searching ? (
-        <ul className="divide-y divide-border" data-testid="search-results">
-          {results.folders.map((f) => (
-            <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
-              <button
-                type="button"
-                onClick={() => openFolder(f.id)}
-                className="flex-1 text-left text-sm hover:underline"
-              >
-                📁 {f.name}
-                {f.folderPath && (
-                  <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
-                )}
-              </button>
-            </li>
-          ))}
-          {results.files.map((f) => (
-            <li key={`s-file-${f.id}`} className="flex items-center gap-2 py-2">
-              <DriveThumbnail fileId={f.id} category={f.category} />
-              <button
-                type="button"
-                onClick={() => setPreview(f)}
-                className="flex-1 truncate text-left text-sm hover:underline"
-              >
-                {f.name}
-                {f.folderPath && (
-                  <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
-                )}
-              </button>
-            </li>
-          ))}
-          {results.folders.length === 0 && results.files.length === 0 && (
-            <li className="py-8 text-center text-sm text-muted-foreground">검색 결과가 없습니다</li>
-          )}
-        </ul>
-      ) : (
-        <ul className="divide-y divide-border">
-          {items.folders.map((f) => (
-            <li key={`folder-${f.id}`} className="flex items-center gap-2 py-2">
-              <button
-                type="button"
-                onClick={() => openFolder(f.id)}
-                className="flex-1 text-left text-sm hover:underline"
-              >
-                📁 {f.name}
-              </button>
-              <button
-                type="button"
-                onClick={() => onRenameFolder(f.id, f.name)}
-                className="text-xs text-muted-foreground"
-              >
-                이름변경
-              </button>
-              <button
-                type="button"
-                onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
-                className="text-xs text-muted-foreground"
-              >
-                이동
-              </button>
-              <button
-                type="button"
-                onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
-                className="text-xs text-muted-foreground"
-              >
-                복사
-              </button>
-              <button
-                type="button"
-                onClick={() => onDeleteFolder(f.id)}
-                className="text-xs text-destructive"
-              >
-                삭제
-              </button>
-            </li>
-          ))}
-          {items.files.map((f) => (
-            <li key={`file-${f.id}`} className="flex items-center gap-2 py-2">
-              <DriveThumbnail fileId={f.id} category={f.category} />
-              <button
-                type="button"
-                onClick={() => setPreview(f)}
-                className="flex-1 truncate text-left text-sm hover:underline"
-              >
-                {f.name}
-              </button>
-              <button
-                type="button"
-                onClick={() => driveApi.downloadFile(f.id, f.name)}
-                className="text-xs text-primary"
-              >
-                다운로드
-              </button>
-              <button
-                type="button"
-                onClick={() => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name })}
-                className="text-xs text-muted-foreground"
-              >
-                이동
-              </button>
-              <button
-                type="button"
-                onClick={() => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name })}
-                className="text-xs text-muted-foreground"
-              >
-                복사
-              </button>
-              <button
-                type="button"
-                onClick={() => onDeleteFile(f.id)}
-                className="text-xs text-destructive"
-              >
-                삭제
-              </button>
-            </li>
-          ))}
-          {items.folders.length === 0 && items.files.length === 0 && (
-            <li className="py-8 text-center text-sm text-muted-foreground">비어 있습니다</li>
-          )}
-        </ul>
-      )}
+        ) : (
+          <ul className="divide-y divide-border">
+            {items.folders.map((f) => (
+              <li key={`folder-${f.id}`} className="flex items-center gap-2 py-2">
+                <button
+                  type="button"
+                  onClick={() => openFolder(f.id)}
+                  className="flex-1 text-left text-sm hover:underline"
+                >
+                  📁 {f.name}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRenameFolder(f.id, f.name)}
+                  className="text-xs text-muted-foreground"
+                >
+                  이름변경
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
+                  className="text-xs text-muted-foreground"
+                >
+                  이동
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
+                  className="text-xs text-muted-foreground"
+                >
+                  복사
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteFolder(f.id)}
+                  className="text-xs text-destructive"
+                >
+                  삭제
+                </button>
+              </li>
+            ))}
+            {items.files.map((f) => (
+              <li key={`file-${f.id}`} className="flex items-center gap-2 py-2">
+                <DriveThumbnail fileId={f.id} category={f.category} />
+                <button
+                  type="button"
+                  onClick={() => setPreview(f)}
+                  className="flex-1 truncate text-left text-sm hover:underline"
+                >
+                  {f.name}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => driveApi.downloadFile(f.id, f.name)}
+                  className="text-xs text-primary"
+                >
+                  다운로드
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name })}
+                  className="text-xs text-muted-foreground"
+                >
+                  이동
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name })}
+                  className="text-xs text-muted-foreground"
+                >
+                  복사
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteFile(f.id)}
+                  className="text-xs text-destructive"
+                >
+                  삭제
+                </button>
+              </li>
+            ))}
+            {items.folders.length === 0 && items.files.length === 0 && (
+              <li className="py-8 text-center text-sm text-muted-foreground">비어 있습니다</li>
+            )}
+          </ul>
+        )}
 
-      {picker && (
-        <FolderPickerModal
-          spaceId={sid}
-          title={`${picker.name} ${picker.mode === 'move' ? '이동' : '복사'}`}
-          disabledFolderId={picker.kind === 'folder' ? picker.id : undefined}
-          onConfirm={onPickTarget}
-          onClose={() => setPicker(null)}
-        />
-      )}
-      {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
+        {picker && (
+          <FolderPickerModal
+            spaceId={sid}
+            title={`${picker.name} ${picker.mode === 'move' ? '이동' : '복사'}`}
+            disabledFolderId={picker.kind === 'folder' ? picker.id : undefined}
+            onConfirm={onPickTarget}
+            onClose={() => setPicker(null)}
+          />
+        )}
+        {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
+      </div>
     </div>
   )
 }

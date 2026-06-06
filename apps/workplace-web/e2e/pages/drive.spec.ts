@@ -329,6 +329,34 @@ test('휴지통 — 조회 후 복원하면 목록이 갱신된다', async ({ au
   await expect(page.getByText('휴지통이 비어 있습니다')).toBeVisible()
 })
 
+test('드라이브 헤더와 폴더명 breadcrumb', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  // 항목 목록 — folderId=10 진입 시 빈 목록
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ folders: [], files: [] }),
+          })
+        : route.fallback(),
+  )
+  // 폴더 경로 모킹: /drive/folders/10/path → [{문서},{2026}]
+  await page.route('**/api/v1/drive/folders/10/path', (route) =>
+    route.fulfill({ json: [{ id: 5, name: '문서' }, { id: 10, name: '2026' }] }),
+  )
+  await page.goto(`/drive/spaces/${SPACE_ID}?folderId=10`)
+
+  await expect(page.getByTestId('page-header')).toContainText('드라이브')
+  await expect(page.getByTestId('drive-root')).toBeVisible()
+  await expect(page.getByTestId('drive-crumb-5')).toHaveText('문서')
+  await expect(page.getByTestId('drive-crumb-10')).toHaveText('2026')
+  await expect(page.getByTestId('drive-new-folder')).toBeVisible()
+  await expect(page.getByTestId('drive-upload')).toBeVisible()
+})
+
 // LNB 표준화(#98) — 드라이브 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
 test('드라이브 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
   await stubSpaces(page)
