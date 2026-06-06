@@ -145,6 +145,30 @@ class CalendarEventControllerTest {
   }
 
   @Test
+  void update_occurrenceDateWithoutSeconds_bindsToSameInstant() throws Exception {
+    // 서버가 OffsetDateTime.toString() 으로 내보내는 분 단위 정시 값은 초가 생략된다
+    // (예: 2026-06-10T09:00Z). 프론트가 이를 그대로 occurrenceDate 로 되돌려보낼 때
+    // @DateTimeFormat(ISO.DATE_TIME) 이 초 생략 형식을 동일 instant 로 바인딩하는지 검증.
+    when(service.update(eq(1L), eq(1L), any(), any(), any())).thenReturn(sample());
+    CalendarEventRequest req =
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null);
+
+    mockMvc
+        .perform(
+            patch("/api/v1/calendar/events/1")
+                .header("Authorization", "Bearer v")
+                .param("scope", "THIS")
+                .param("occurrenceDate", "2026-06-10T09:00Z")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<OffsetDateTime> dateCaptor = ArgumentCaptor.forClass(OffsetDateTime.class);
+    verify(service).update(eq(1L), eq(1L), any(), any(), dateCaptor.capture());
+    assertThat(dateCaptor.getValue()).isEqualTo(OffsetDateTime.parse("2026-06-10T09:00:00Z"));
+  }
+
+  @Test
   void update_withoutScopeParam_defaultsToAll() throws Exception {
     // scope 미지정 시 ALL, occurrenceDate 미지정 시 null.
     when(service.update(eq(1L), eq(1L), any(), any(), isNull())).thenReturn(sample());
