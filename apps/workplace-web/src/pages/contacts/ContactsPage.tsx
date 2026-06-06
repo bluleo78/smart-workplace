@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -73,22 +74,28 @@ export function ContactsPage() {
 
   return (
     <>
-      <div className="flex h-full min-h-0">
-        {/* 목록 (마스터) — 그룹 선택 시 GroupContactView 로 전환 */}
-        {groupId != null ? (
-          <div className="flex min-w-0 flex-1 flex-col border-r" data-testid="contact-list">
-            <GroupContactView groupId={groupId} selected={selected} onSelect={setSelected} />
-          </div>
-        ) : (
-          <div className="flex min-w-0 flex-1 flex-col border-r" data-testid="contact-list">
-            {/* 툴바 — 새 외부 연락처 버튼. 버튼을 좌측에 두어 화면 중앙 고정 AI 칩과 겹치지 않게 한다. */}
-            <div className="flex items-center gap-2 border-b px-4 py-2">
-              <Button size="sm" data-testid="contact-create" onClick={() => setCreateOpen(true)}>
-                새 외부 연락처
-              </Button>
-              <span className="text-sm font-medium text-muted-foreground">연락처</span>
-            </div>
-            {isLoading ? (
+      <div className="flex h-full flex-col overflow-hidden">
+        {/* 전폭 헤더 — 연락처 제목 + 새 외부 연락처 버튼(그룹·일반 공통) */}
+        <PageHeader
+          title="연락처"
+          actions={
+            <Button size="sm" data-testid="contact-create" onClick={() => setCreateOpen(true)}>
+              새 외부 연락처
+            </Button>
+          }
+        />
+        <div className="flex min-h-0 flex-1">
+          {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}
+          <div
+            className={cn(
+              'flex min-w-0 flex-1 flex-col border-r',
+              selected != null && 'hidden lg:flex',
+            )}
+            data-testid="contact-list"
+          >
+            {groupId != null ? (
+              <GroupContactView groupId={groupId} selected={selected} onSelect={setSelected} />
+            ) : isLoading ? (
               <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
             ) : isError ? (
               <div className="p-6 text-sm text-destructive">목록을 불러오지 못했습니다</div>
@@ -120,11 +127,26 @@ export function ContactsPage() {
               </div>
             )}
           </div>
-        )}
 
-        {/* 상세 (디테일) */}
-        <div className="hidden min-w-0 flex-1 lg:block" data-testid="contact-detail">
-          <ContactDetailPanel selected={selected} onDeleted={() => setSelected(null)} />
+          {/* 상세 (디테일) — 좁은 화면은 선택 시 전체폭 */}
+          <div
+            className={cn(
+              'min-w-0 flex-1',
+              selected == null ? 'hidden lg:block' : 'flex flex-col lg:block',
+            )}
+            data-testid="contact-detail"
+          >
+            {/* 좁은 화면 뒤로가기 — lg 이상에서는 숨김 */}
+            <button
+              type="button"
+              data-testid="contact-back"
+              onClick={() => setSelected(null)}
+              className="flex items-center gap-1 border-b px-4 py-2 text-sm text-primary lg:hidden"
+            >
+              ‹ 목록
+            </button>
+            <ContactDetailPanel selected={selected} onDeleted={() => setSelected(null)} />
+          </div>
         </div>
       </div>
 
