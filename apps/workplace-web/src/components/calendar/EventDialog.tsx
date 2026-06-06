@@ -16,6 +16,13 @@ import {
 } from '@/components/ui/dialog'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import type { CalendarEvent, CalendarEventRequest } from '@/types/calendar'
 
@@ -30,6 +37,9 @@ const schema = z
     end: z.string().min(1, '종료를 입력하세요'),
     location: z.string().max(200).optional(),
     description: z.string().optional(),
+    // 리마인더 — select 값은 문자열('none' = 없음, 그 외 분 단위). 제출 시 number|null 로 변환.
+    // (Radix Select 는 빈 문자열 value 를 허용하지 않아 'none' 센티넬 사용)
+    reminderMinutes: z.enum(['none', '10', '60', '1440']),
   })
   .refine((v) => new Date(v.end) > new Date(v.start), {
     message: '종료는 시작보다 뒤여야 합니다',
@@ -99,6 +109,7 @@ export function EventDialog({
       end: '',
       location: '',
       description: '',
+      reminderMinutes: 'none',
     },
   })
 
@@ -115,6 +126,8 @@ export function EventDialog({
         end: toLocalInput(event.endsAt),
         location: event.location ?? '',
         description: event.description ?? '',
+        reminderMinutes: (event.reminderMinutes?.toString() ??
+          'none') as FormValues['reminderMinutes'],
       })
     } else {
       // 생성 모드: defaultStart(또는 현재 시각) 기준으로 초기화. 종료 = 시작 + 1시간
@@ -127,6 +140,7 @@ export function EventDialog({
         end: dateToLocalInput(endDate),
         location: '',
         description: '',
+        reminderMinutes: 'none',
       })
     }
   }, [open, event, defaultStart, form])
@@ -141,6 +155,8 @@ export function EventDialog({
       location: values.location?.trim() || null,
       description: values.description?.trim() || null,
       color: null,
+      // 'none'(없음) → null, 그 외 분 단위 숫자로 변환
+      reminderMinutes: values.reminderMinutes === 'none' ? null : Number(values.reminderMinutes),
     }
     onSubmit(body)
   }
@@ -227,6 +243,30 @@ export function EventDialog({
               placeholder="장소 (선택)"
               {...form.register('location')}
             />
+          </FormField>
+
+          {/* 알림(리마인더) — 시작 N분 전 알림 */}
+          <FormField label="알림(리마인더)" htmlFor="ev-reminder">
+            <Select
+              value={form.watch('reminderMinutes')}
+              onValueChange={(v) =>
+                form.setValue('reminderMinutes', v as FormValues['reminderMinutes'])
+              }
+            >
+              <SelectTrigger
+                id="ev-reminder"
+                data-testid="calendar-form-reminder"
+                className="w-full"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">없음</SelectItem>
+                <SelectItem value="10">10분 전</SelectItem>
+                <SelectItem value="60">1시간 전</SelectItem>
+                <SelectItem value="1440">1일 전</SelectItem>
+              </SelectContent>
+            </Select>
           </FormField>
 
           {/* 설명 */}

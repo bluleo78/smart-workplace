@@ -15,6 +15,9 @@ function notif(over: Partial<NotificationResponse> = {}): NotificationResponse {
     issueNumber: 3,
     issueTitle: '리팩터링',
     commentId: 55,
+    eventId: null,
+    eventTitle: null,
+    eventStartsAt: null,
     read: false,
     createdAt: new Date().toISOString(),
     ...over,
@@ -60,6 +63,33 @@ test('행 클릭 → 읽음 POST + 이슈 상세로 이동', async ({ authentica
 
   await readCapture.waitForRequest()
   await expect(page).toHaveURL(/\/projects\/WP\/issues\/3$/)
+})
+
+test('REMINDER 알림은 일정 정보를 렌더하고 클릭 시 캘린더로 이동한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({
+      id: 2,
+      type: 'REMINDER',
+      actorId: null,
+      actorName: null,
+      actorKind: null,
+      commentId: null,
+      eventId: 5,
+      eventTitle: '팀 회의',
+      eventStartsAt: '2026-06-10T01:00:00Z',
+    }),
+  ])
+  await mockApi(page, 'POST', '/api/v1/notifications/2/read', {}, { status: 204 })
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+  const item = page.getByTestId('inbox-item').first()
+  await expect(item).toContainText('일정 알림')
+  await expect(item).toContainText('팀 회의')
+  await item.click()
+  await expect(page).toHaveURL(/\/calendar$/)
 })
 
 test('"모두 읽음" → read-all POST', async ({ authenticatedPage: page }) => {

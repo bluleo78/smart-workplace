@@ -39,9 +39,14 @@ class CalendarEventServiceTest extends IntegrationTestBase {
         .getId();
   }
 
-  /** 일정 요청 헬퍼. */
+  /** 일정 요청 헬퍼(리마인더 없음). */
   private CalendarEventRequest req(OffsetDateTime s, OffsetDateTime e) {
-    return new CalendarEventRequest("회의", null, s, e, false, null, null);
+    return new CalendarEventRequest("회의", null, s, e, false, null, null, null);
+  }
+
+  /** 리마인더 포함 일정 요청 헬퍼. */
+  private CalendarEventRequest reqWithReminder(OffsetDateTime s, OffsetDateTime e, int minutes) {
+    return new CalendarEventRequest("회의", null, s, e, false, null, null, minutes);
   }
 
   @Test
@@ -53,6 +58,24 @@ class CalendarEventServiceTest extends IntegrationTestBase {
     assertThat(fetched.id()).isEqualTo(created.id());
     assertThat(fetched.title()).isEqualTo("회의");
     assertThat(fetched.startsAt()).isEqualTo(BASE);
+  }
+
+  @Test
+  void create_withReminder_roundtrip_and_update_clears() {
+    long u = user();
+    // 생성 시 30분 전 리마인더 → 응답에 반영
+    CalendarEventResponse created = service.create(u, reqWithReminder(BASE, BASE.plusHours(1), 30));
+    assertThat(created.reminderMinutes()).isEqualTo(30);
+    assertThat(service.get(u, created.id()).reminderMinutes()).isEqualTo(30);
+
+    // 리마인더 null 로 수정 → 제거
+    CalendarEventResponse cleared = service.update(u, created.id(), req(BASE, BASE.plusHours(1)));
+    assertThat(cleared.reminderMinutes()).isNull();
+
+    // 다시 설정 → 반영
+    CalendarEventResponse rearmed =
+        service.update(u, created.id(), reqWithReminder(BASE, BASE.plusHours(1), 60));
+    assertThat(rearmed.reminderMinutes()).isEqualTo(60);
   }
 
   @Test

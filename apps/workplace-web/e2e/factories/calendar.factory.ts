@@ -11,6 +11,7 @@ export function calendarEvent(over: Partial<CalendarEvent> = {}): CalendarEvent 
     allDay: false,
     location: null,
     color: null,
+    reminderMinutes: null,
     createdAt: '2026-06-10T01:00:00Z',
     updatedAt: '2026-06-10T01:00:00Z',
     ...over,

@@ -1,5 +1,6 @@
 package com.workplace.notify.repository;
 
+import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
@@ -70,6 +71,52 @@ class NotificationRepositoryTest extends IntegrationTestBase {
         .returning(ISSUE.ID)
         .fetchOne()
         .getId();
+  }
+
+  /** ownerId 의 일정 1건 시드 후 eventId 반환. */
+  private long seedEvent(long ownerId, String title) {
+    var now = java.time.OffsetDateTime.now();
+    return dsl.insertInto(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.OWNER_ID, ownerId)
+        .set(CALENDAR_EVENT.TITLE, title)
+        .set(CALENDAR_EVENT.STARTS_AT, now.plusHours(1))
+        .set(CALENDAR_EVENT.ENDS_AT, now.plusHours(2))
+        .set(CALENDAR_EVENT.ALL_DAY, false)
+        .returning(CALENDAR_EVENT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  @Test
+  void insertReminder_then_listRecent_joinsEventFields_noIssue() {
+    long recipient = seedUser("HUMAN");
+    long eventId = seedEvent(recipient, "주간 회의");
+
+    repo.insertReminder(recipient, eventId);
+
+    NotificationResponse n = repo.listRecent(recipient, 20).get(0);
+    assertThat(n.type()).isEqualTo("REMINDER");
+    assertThat(n.eventId()).isEqualTo(eventId);
+    assertThat(n.eventTitle()).isEqualTo("주간 회의");
+    assertThat(n.eventStartsAt()).isNotNull();
+    assertThat(n.actorId()).isNull();
+    assertThat(n.issueId()).isNull();
+    assertThat(n.read()).isFalse();
+    assertThat(repo.countUnread(recipient)).isEqualTo(1);
+  }
+
+  @Test
+  void listRecent_mixesIssueAndReminder() {
+    long recipient = seedUser("HUMAN");
+    long actor = seedUser("HUMAN");
+    long issueId = seedIssue(actor, "이슈건");
+    long eventId = seedEvent(recipient, "일정건");
+    repo.insertBatch(List.of(recipient), NotificationType.ASSIGNED, actor, issueId, null);
+    repo.insertReminder(recipient, eventId);
+
+    List<NotificationResponse> list = repo.listRecent(recipient, 20);
+    assertThat(list).hasSize(2);
+    assertThat(list).extracting(NotificationResponse::type).contains("ASSIGNED", "REMINDER");
   }
 
   @Test

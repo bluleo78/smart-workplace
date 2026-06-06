@@ -55,7 +55,8 @@ class CalendarEventControllerTest {
 
   /** 샘플 응답 — create/list 에서 재사용. */
   private CalendarEventResponse sample() {
-    return new CalendarEventResponse(1L, "회의", null, STARTS, ENDS, false, null, null, STARTS, ENDS);
+    return new CalendarEventResponse(
+        1L, "회의", null, STARTS, ENDS, false, null, null, null, STARTS, ENDS);
   }
 
   @BeforeEach
@@ -71,7 +72,7 @@ class CalendarEventControllerTest {
     when(service.create(eq(1L), any())).thenReturn(sample());
 
     CalendarEventRequest req =
-        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null);
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null);
 
     mockMvc
         .perform(
@@ -87,7 +88,7 @@ class CalendarEventControllerTest {
   void create_endsBeforeStarts_returns400() throws Exception {
     // endsAt 이 startsAt 보다 앞 → @AssertTrue isValidRange 위반 → 400
     CalendarEventRequest req =
-        new CalendarEventRequest("회의", null, ENDS, STARTS, false, null, null);
+        new CalendarEventRequest("회의", null, ENDS, STARTS, false, null, null, null);
 
     mockMvc
         .perform(
@@ -115,7 +116,7 @@ class CalendarEventControllerTest {
   @Test
   void create_unauthenticated_returns401() throws Exception {
     CalendarEventRequest req =
-        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null);
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null);
 
     mockMvc
         .perform(

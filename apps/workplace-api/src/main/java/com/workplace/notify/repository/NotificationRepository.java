@@ -1,5 +1,6 @@
 package com.workplace.notify.repository;
 
+import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
@@ -39,7 +40,19 @@ public class NotificationRepository {
     dsl.batch(rows).execute();
   }
 
-  /** 최신순 알림 — issue·project·user(actor, LEFT) 조인으로 표시 필드 합성. */
+  /** REMINDER 알림 1건 insert — actor/issue 없음(event_id 만), type=REMINDER, 안읽음. */
+  public void insertReminder(long recipientId, long eventId) {
+    dsl.insertInto(NOTIFICATION)
+        .set(NOTIFICATION.RECIPIENT_ID, recipientId)
+        .set(NOTIFICATION.TYPE, NotificationType.REMINDER.name())
+        .set(NOTIFICATION.EVENT_ID, eventId)
+        .execute();
+  }
+
+  /**
+   * 최신순 알림 — issue·project(LEFT, 이슈 알림용), calendar_event(LEFT, REMINDER 용), user(actor, LEFT) 조인으로
+   * 표시 필드 합성. 이슈/리마인더가 섞여 있으므로 issue 는 INNER 가 아닌 LEFT JOIN.
+   */
   public List<NotificationResponse> listRecent(long recipientId, int limit) {
     return dsl.select(
             NOTIFICATION.ID,
@@ -52,13 +65,18 @@ public class NotificationRepository {
             ISSUE.NUMBER,
             ISSUE.TITLE,
             NOTIFICATION.COMMENT_ID,
+            NOTIFICATION.EVENT_ID,
+            CALENDAR_EVENT.TITLE,
+            CALENDAR_EVENT.STARTS_AT,
             NOTIFICATION.READ_AT,
             NOTIFICATION.CREATED_AT)
         .from(NOTIFICATION)
-        .join(ISSUE)
+        .leftJoin(ISSUE)
         .on(ISSUE.ID.eq(NOTIFICATION.ISSUE_ID))
-        .join(PROJECT)
+        .leftJoin(PROJECT)
         .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
+        .leftJoin(CALENDAR_EVENT)
+        .on(CALENDAR_EVENT.ID.eq(NOTIFICATION.EVENT_ID))
         .leftJoin(USER)
         .on(USER.ID.eq(NOTIFICATION.ACTOR_ID))
         .where(NOTIFICATION.RECIPIENT_ID.eq(recipientId))
@@ -67,6 +85,7 @@ public class NotificationRepository {
         .fetch(
             r -> {
               OffsetDateTime created = r.get(NOTIFICATION.CREATED_AT);
+              OffsetDateTime eventStart = r.get(CALENDAR_EVENT.STARTS_AT);
               return new NotificationResponse(
                   r.get(NOTIFICATION.ID),
                   r.get(NOTIFICATION.TYPE),
@@ -78,6 +97,9 @@ public class NotificationRepository {
                   r.get(ISSUE.NUMBER),
                   r.get(ISSUE.TITLE),
                   r.get(NOTIFICATION.COMMENT_ID),
+                  r.get(NOTIFICATION.EVENT_ID),
+                  r.get(CALENDAR_EVENT.TITLE),
+                  eventStart == null ? null : eventStart.toInstant(),
                   r.get(NOTIFICATION.READ_AT) != null,
                   created == null ? null : created.toInstant());
             });

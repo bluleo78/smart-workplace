@@ -57,7 +57,21 @@ class NotificationControllerTest {
   void list_returnsCallerScoped() throws Exception {
     var n =
         new NotificationResponse(
-            5L, "COMMENTED", 9L, "AI", "AGENT", 7L, "WP", 3, "제목", 55L, false, Instant.now());
+            5L,
+            "COMMENTED",
+            9L,
+            "AI",
+            "AGENT",
+            7L,
+            "WP",
+            3,
+            "제목",
+            55L,
+            null,
+            null,
+            null,
+            false,
+            Instant.now());
     when(service.listRecent(eq(1L), eq(20))).thenReturn(List.of(n));
 
     mockMvc
