@@ -367,3 +367,80 @@ test(
     await expect(page.getByTestId('calendar-recurrence-scope-dialog')).toBeHidden()
   },
 )
+
+test(
+  '반복 종료 날짜가 시작일보다 이전이면 검증 에러 — 저장 차단(이슈 #114)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = []
+    await stubCalendarEvents(page, store)
+
+    // POST 가 발생하지 않아야 함을 증명하기 위해 요청 카운트 추적
+    let postCount = 0
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && req.url().includes('/api/v1/calendar/events')) postCount++
+    })
+
+    await page.goto('/calendar')
+
+    await page.getByTestId('calendar-new-event').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 시작/종료를 명시적으로 지정(시작 2026-06-19) → until(2026-06-10)이 시작보다 이전
+    await page.getByTestId('calendar-form-title').fill('Orphan 방지')
+    await page.getByTestId('calendar-form-start').fill('2026-06-19T09:00')
+    await page.getByTestId('calendar-form-end').fill('2026-06-19T10:00')
+    // 반복 매주 → 종료 날짜까지 → 시작보다 이전 날짜 입력
+    await page.getByTestId('calendar-form-recurrence-freq').click()
+    await page.getByRole('option', { name: '매주' }).click()
+    await page.getByTestId('calendar-form-recurrence-end').click()
+    await page.getByRole('option', { name: '날짜까지' }).click()
+    await page.getByTestId('calendar-form-recurrence-until').fill('2026-06-10')
+
+    // 저장 클릭 → zod 검증 실패로 onSubmit 미실행
+    await page.getByTestId('calendar-form-submit').click()
+
+    // 검증 에러 메시지가 UI 에 노출되고 다이얼로그는 닫히지 않는다
+    await expect(page.getByText('반복 종료 날짜는 시작일 이후여야 합니다')).toBeVisible()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+    // POST 가 전혀 발생하지 않았음(orphan 저장 차단)
+    expect(postCount).toBe(0)
+  },
+)
+
+test(
+  '반복 종료 날짜가 시작일과 같으면 저장 허용 — RRULE 에 UNTIL 포함(이슈 #114)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = []
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    await page.getByTestId('calendar-new-event').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    await page.getByTestId('calendar-form-title').fill('당일 종료')
+    await page.getByTestId('calendar-form-start').fill('2026-06-19T09:00')
+    await page.getByTestId('calendar-form-end').fill('2026-06-19T10:00')
+    await page.getByTestId('calendar-form-recurrence-freq').click()
+    await page.getByRole('option', { name: '매주' }).click()
+    await page.getByTestId('calendar-form-recurrence-end').click()
+    await page.getByRole('option', { name: '날짜까지' }).click()
+    // 시작일과 동일한 날짜 → 1회차 발생하므로 허용되어야 함
+    await page.getByTestId('calendar-form-recurrence-until').fill('2026-06-19')
+
+    const postPromise = page.waitForRequest(
+      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-form-submit').click()
+    const post = await postPromise
+    expect(post.postDataJSON()).toMatchObject({
+      recurrenceRule: 'FREQ=WEEKLY;UNTIL=20260619T235959Z',
+    })
+
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+  },
+)

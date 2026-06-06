@@ -73,6 +73,17 @@ const schema = z
         path: ['recurrenceUntil'],
       })
     }
+    // 반복 종료 날짜가 시작일보다 이전이면 회차가 0개로 전개되어 조회·삭제 불가능한
+    // orphan 일정이 된다(이슈 #114). 시작일(날짜 부분) 이상인지 검증한다.
+    // start='YYYY-MM-DDTHH:mm', recurrenceUntil='YYYY-MM-DD' — 둘 다 로컬 ISO 라
+    // 날짜 부분 문자열 비교로 안전하게 순서 판정(같은 날은 1회차 발생하므로 허용).
+    if (v.recurrenceEnd === 'until' && v.recurrenceUntil && v.recurrenceUntil < v.start.slice(0, 10)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '반복 종료 날짜는 시작일 이후여야 합니다',
+        path: ['recurrenceUntil'],
+      })
+    }
     // 종료=횟수 → 1 이상의 정수 필수
     if (
       v.recurrenceEnd === 'count' &&
