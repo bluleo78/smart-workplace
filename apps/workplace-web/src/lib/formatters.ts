@@ -4,7 +4,7 @@
  */
 
 /** 서버(UTC)에서 받은 LocalDateTime 문자열에 'Z'를 붙여 UTC로 파싱 */
-function parseUtcDate(dateStr: string): Date {
+export function parseUtcDate(dateStr: string): Date {
   // 이미 타임존 정보가 있으면 그대로, 없으면 UTC로 간주
   if (/[Z+-]\d{0,4}$/.test(dateStr)) return new Date(dateStr);
   return new Date(dateStr + 'Z');
@@ -282,6 +282,20 @@ export function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}시간 전`;
   const days = Math.floor(hours / 24);
   return `${days}일 전`;
+}
+
+/**
+ * 메시지 거품용 시각 — `오전/오후 H:mm` (KST). 채팅 타임스탬프에 사용.
+ * parseUtcDate 로 서버 LocalDateTime(UTC) 을 정확히 파싱하고, timeZone 을 Asia/Seoul 로 고정해
+ * CI 로케일/타임존에 비의존하도록 한다.
+ */
+export function formatClockTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '-';
+  const d = parseUtcDate(dateStr);
+  if (Number.isNaN(d.getTime())) return '-';
+  return new Intl.DateTimeFormat('ko-KR', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Seoul',
+  }).format(d);
 }
 
 /**

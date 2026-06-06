@@ -208,7 +208,9 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await page.getByTestId(`message-editor-save-${MSG_ID}`).click()
 
     await expect(page.getByTestId(`message-edited-${MSG_ID}`)).toBeVisible()
-    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('원본 수정됨')
+    // 본문 컨테이너엔 본문 텍스트 + 인라인 (수정됨) 표식이 함께 들어가므로 부분 일치로 검증.
+    // ((수정됨) 가시성은 위 message-edited 단언이 담당)
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toContainText('원본 수정됨')
 
     // DELETE /messaging/messages/{id} — 204 → 캐시에서 deleted=true, (삭제됨) 마스킹.
     await page.route(

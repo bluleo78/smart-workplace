@@ -3,9 +3,11 @@
 // 본인(authorId === currentUserId) · 미삭제 메시지는 hover 시 수정/삭제 toolbar 노출.
 // 수정 → 인라인 RichInput 에디터(chat 의 ChatMessageEditor 미러). 삭제됨 메시지는 '(삭제됨)' 마스킹.
 // Phase 5: hover toolbar 에 이모지 피커 + 답글 버튼 추가. body 아래 ReactionBar + 답글수 링크.
+// Task 5(대화 Phase A): 2-컬럼 레이아웃 — 좌측 아바타 거터 + 우측 본문 컬럼. Slack 패턴 그룹핑.
 import { MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import { ChatAvatar } from '@/components/chat/ChatAvatar'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { ReactionBar } from '@/components/chat/ReactionBar'
@@ -17,6 +19,8 @@ import { useDeleteMessage } from '@/hooks/queries/useDeleteMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useToggleReaction } from '@/hooks/queries/useToggleReaction'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
+import { formatClockTime } from '@/lib/formatters'
+import { shouldStartNewGroup } from '@/lib/messageGrouping'
 import type { MessageResponse } from '@/types/messaging'
 
 interface MessageListProps {
@@ -68,138 +72,168 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
         const isEditing = editingId === m.id
         const isLast = idx === ordered.length - 1
 
+        const prev = idx > 0 ? ordered[idx - 1] : null
+        const startsGroup = shouldStartNewGroup(prev, m)
+
         return (
           <div
             key={m.id}
             ref={isLast ? lastRef : undefined}
             data-testid={`message-${m.id}`}
             data-pending={isPending ? 'true' : undefined}
-            className="group relative rounded-md px-2 py-1"
+            data-group-start={startsGroup ? 'true' : 'false'}
+            className={`group relative flex gap-2 rounded-md px-2 ${startsGroup ? 'mt-2 pt-0.5' : ''}`}
           >
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>
-                {m.authorName}
-                {m.authorKind === 'AGENT' && ' 🤖'}
-              </span>
-              {m.editedAt && (
-                <span aria-label="수정됨" data-testid={`message-edited-${m.id}`}>
-                  (수정됨)
+            {/* 좌측 거터(아바타 폭 고정) — 그룹 첫 줄엔 아바타, 후속 줄엔 hover 시 시각. */}
+            <div className="w-8 shrink-0 pt-0.5">
+              {startsGroup ? (
+                <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
+              ) : (
+                <span
+                  className="hidden pt-px text-right text-[10px] leading-4 text-muted-foreground group-hover:block"
+                  data-testid={`message-hovertime-${m.id}`}
+                >
+                  {formatClockTime(m.createdAt)}
                 </span>
               )}
             </div>
 
-            {isEditing ? (
-              // 인라인 수정 — RichInput 재사용. 저장 시 useUpdateMessage, 닫으면 편집 종료.
-              <div data-testid={`message-editor-${m.id}`}>
-                <RichInput
-                  members={members}
-                  initialBody={m.body}
-                  initialMentions={m.mentions}
-                  onSubmit={(body) => {
-                    update.mutate({ messageId: m.id, body })
-                    setEditingId(null)
-                  }}
-                  onCancel={() => setEditingId(null)}
-                  submitLabel="저장"
-                  autoFocus
-                  inputTestId={`message-editor-input-${m.id}`}
-                  submitTestId={`message-editor-save-${m.id}`}
-                  cancelTestId={`message-editor-cancel-${m.id}`}
-                />
-              </div>
-            ) : (
-              <div
-                data-testid={`message-body-${m.id}`}
-                className={`text-sm whitespace-pre-wrap break-words ${
-                  m.deleted ? 'italic text-muted-foreground' : ''
-                }`}
-              >
-                {m.deleted
-                  ? '(삭제됨)'
-                  : parseMessageSegments(m.body, m.mentions).map((seg, i) =>
-                      seg.type === 'text' ? (
-                        <span key={i}>{seg.value}</span>
-                      ) : (
-                        <span
-                          key={i}
-                          data-testid={`mention-chip-${seg.id}`}
-                          className={`rounded px-1 font-medium ${
-                            seg.kind === 'AGENT'
-                              ? 'bg-purple-100 text-purple-700'
-                              : 'bg-blue-100 text-blue-700'
-                          }`}
-                        >
-                          @{seg.name}
-                        </span>
-                      ),
-                    )}
-              </div>
-            )}
+            {/* 우측 본문 컬럼 — 헤더/본문/첨부/toolbar/리액션/답글 전체. */}
+            <div className="min-w-0 flex-1">
+              {/* 그룹 첫 줄에만 작성자 헤더(이름 + 시각 + 수정됨 표시) 노출. */}
+              {startsGroup && (
+                <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">
+                    {m.authorName}
+                    {m.authorKind === 'AGENT' && ' 🤖'}
+                  </span>
+                  <span data-testid={`message-time-${m.id}`}>{formatClockTime(m.createdAt)}</span>
+                </div>
+              )}
 
-            {!m.deleted && m.attachments?.length > 0 && (
-              <MessageAttachmentList channelId={channelId} attachments={m.attachments} />
-            )}
-
-            {!isEditing && (
-              <div className="absolute right-2 top-1 hidden gap-0.5 group-hover:flex">
-                {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
-                {!isPending && (
-                  <EmojiPicker
-                    testIdPrefix={`message-${m.id}`}
-                    onPick={(emoji) => toggleReaction.mutate({ message: m, emoji })}
+              {isEditing ? (
+                // 인라인 수정 — RichInput 재사용. 저장 시 useUpdateMessage, 닫으면 편집 종료.
+                <div data-testid={`message-editor-${m.id}`}>
+                  <RichInput
+                    members={members}
+                    initialBody={m.body}
+                    initialMentions={m.mentions}
+                    onSubmit={(body) => {
+                      update.mutate({ messageId: m.id, body })
+                      setEditingId(null)
+                    }}
+                    onCancel={() => setEditingId(null)}
+                    submitLabel="저장"
+                    autoFocus
+                    inputTestId={`message-editor-input-${m.id}`}
+                    submitTestId={`message-editor-save-${m.id}`}
+                    cancelTestId={`message-editor-cancel-${m.id}`}
                   />
-                )}
-                {onOpenThread && !isPending && (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-6 w-6"
-                    aria-label="스레드"
-                    data-testid={`message-reply-${m.id}`}
-                    onClick={() => onOpenThread(m.id)}
-                  >
-                    <MessageSquare className="h-3 w-3" />
-                  </Button>
-                )}
-                {canEdit && (
-                  <>
+                </div>
+              ) : (
+                <div
+                  data-testid={`message-body-${m.id}`}
+                  className={`text-sm whitespace-pre-wrap break-words ${
+                    m.deleted ? 'italic text-muted-foreground' : ''
+                  }`}
+                >
+                  {m.deleted
+                    ? '(삭제됨)'
+                    : parseMessageSegments(m.body, m.mentions).map((seg, i) =>
+                        seg.type === 'text' ? (
+                          <span key={i}>{seg.value}</span>
+                        ) : (
+                          <span
+                            key={i}
+                            data-testid={`mention-chip-${seg.id}`}
+                            className={`rounded px-1 font-medium ${
+                              seg.kind === 'AGENT'
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}
+                          >
+                            @{seg.name}
+                          </span>
+                        ),
+                      )}
+                  {/* 수정됨 표시 — 그룹 첫 줄/후속 줄 모두 노출되도록 본문 끝에 인라인 렌더(삭제됨 메시지는 제외). */}
+                  {m.editedAt && !m.deleted && (
+                    <span
+                      aria-label="수정됨"
+                      data-testid={`message-edited-${m.id}`}
+                      className="ml-1 align-baseline text-xs text-muted-foreground"
+                    >
+                      (수정됨)
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {!m.deleted && m.attachments?.length > 0 && (
+                <MessageAttachmentList channelId={channelId} attachments={m.attachments} />
+              )}
+
+              {!isEditing && (
+                <div className="absolute right-2 top-0 hidden gap-0.5 group-hover:flex">
+                  {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
+                  {!isPending && (
+                    <EmojiPicker
+                      testIdPrefix={`message-${m.id}`}
+                      onPick={(emoji) => toggleReaction.mutate({ message: m, emoji })}
+                    />
+                  )}
+                  {onOpenThread && !isPending && (
                     <Button
                       size="icon"
                       variant="ghost"
                       className="h-6 w-6"
-                      aria-label="수정"
-                      data-testid={`message-edit-${m.id}`}
-                      onClick={() => setEditingId(m.id)}
+                      aria-label="스레드"
+                      data-testid={`message-reply-${m.id}`}
+                      onClick={() => onOpenThread(m.id)}
                     >
-                      <Pencil className="h-3 w-3" />
+                      <MessageSquare className="h-3 w-3" />
                     </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-6 w-6"
-                      aria-label="삭제"
-                      data-testid={`message-delete-${m.id}`}
-                      onClick={() => remove.mutate(m.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </>
-                )}
-              </div>
-            )}
+                  )}
+                  {canEdit && (
+                    <>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        aria-label="수정"
+                        data-testid={`message-edit-${m.id}`}
+                        onClick={() => setEditingId(m.id)}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        aria-label="삭제"
+                        data-testid={`message-delete-${m.id}`}
+                        onClick={() => remove.mutate(m.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
 
-            <ReactionBar message={m} onToggle={(emoji) => toggleReaction.mutate({ message: m, emoji })} />
+              <ReactionBar message={m} onToggle={(emoji) => toggleReaction.mutate({ message: m, emoji })} />
 
-            {onOpenThread && m.replyCount > 0 && (
-              <button
-                type="button"
-                className="mt-0.5 text-xs font-medium text-blue-600 hover:underline"
-                data-testid={`message-thread-link-${m.id}`}
-                onClick={() => onOpenThread(m.id)}
-              >
-                💬 답글 {m.replyCount}개
-              </button>
-            )}
+              {onOpenThread && m.replyCount > 0 && (
+                <button
+                  type="button"
+                  className="mt-0.5 text-xs font-medium text-blue-600 hover:underline"
+                  data-testid={`message-thread-link-${m.id}`}
+                  onClick={() => onOpenThread(m.id)}
+                >
+                  💬 답글 {m.replyCount}개
+                </button>
+              )}
+            </div>
           </div>
         )
       })}
