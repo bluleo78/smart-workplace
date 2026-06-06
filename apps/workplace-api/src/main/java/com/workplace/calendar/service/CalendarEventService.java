@@ -155,7 +155,8 @@ public class CalendarEventService {
 
   /**
    * THIS_AND_FOLLOWING 수정 — 시리즈를 occurrenceDate 직전(UNTIL=occ-1s)에서 자르고, occurrenceDate 부터 시작하는 새
-   * 마스터를 req(변경된 RRULE 포함)로 생성한다. 잘린 구간의 고아 예외는 제거. 반환은 새 마스터.
+   * 마스터를 req(변경된 RRULE 포함)로 생성한다. 잘린 구간의 예외 행과 그 오버라이드 별도 일정까지 제거해 새 마스터 재전개와의 중복(고아 ghost)을 막는다.
+   * 반환은 새 마스터.
    */
   private CalendarEventResponse updateFollowing(
       long callerId,
@@ -167,8 +168,18 @@ public class CalendarEventService {
     repo.updateRecurrenceRule(master.id(), truncated);
     long newMasterId = repo.insert(callerId, req);
     applyReminder(newMasterId, req.reminderMinutes());
-    exceptionRepo.deleteFromOccurrence(master.id(), occurrenceDate);
+    truncateExceptionsFrom(master.id(), occurrenceDate);
     return get(callerId, newMasterId);
+  }
+
+  /**
+   * occurrenceDate 이후 예외 행 + 그 오버라이드 별도 일정 정리(FOLLOWING 수정/삭제 공용). 예외 행만 지우면 오버라이드 일정이 고아로 남아 새 회차와
+   * 중복 표시되므로, 잘려나가는 오버라이드 id 를 먼저 수집해 함께 삭제한다.
+   */
+  private void truncateExceptionsFrom(long masterId, OffsetDateTime occurrenceDate) {
+    List<Long> orphanedOverrides = exceptionRepo.overrideEventIdsFrom(masterId, occurrenceDate);
+    exceptionRepo.deleteFromOccurrence(masterId, occurrenceDate);
+    repo.deleteAllById(orphanedOverrides);
   }
 
   /**
@@ -191,14 +202,16 @@ public class CalendarEventService {
     requireOccurrenceDate(scope, occurrenceDate);
 
     if (scope == EditScope.THIS) {
+      // 이미 오버라이드가 있던 회차를 취소하면 예외 행은 cancel 로 repoint 되지만 오버라이드 별도 일정은 남는다 → 고아 ghost 방지로 먼저 삭제.
+      exceptionRepo.findOverrideEventId(id, occurrenceDate).ifPresent(repo::delete);
       exceptionRepo.insertCancellation(id, occurrenceDate);
       return;
     }
-    // THIS_AND_FOLLOWING — UNTIL 로 시리즈를 자르고 미래 예외 정리.
+    // THIS_AND_FOLLOWING — UNTIL 로 시리즈를 자르고 잘린 구간의 예외·오버라이드 일정 정리.
     String truncated =
         RecurrenceExpander.withUntil(target.recurrenceRule(), occurrenceDate.minusSeconds(1));
     repo.updateRecurrenceRule(id, truncated);
-    exceptionRepo.deleteFromOccurrence(id, occurrenceDate);
+    truncateExceptionsFrom(id, occurrenceDate);
   }
 
   /** 반복 일정의 THIS/THIS_AND_FOLLOWING 는 회차 식별자(occurrenceDate)가 필수 — 누락 시 400. */

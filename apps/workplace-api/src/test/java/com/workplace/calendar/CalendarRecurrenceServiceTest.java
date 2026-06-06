@@ -192,6 +192,52 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
+  /**
+   * THIS 오버라이드가 있던 분할점에서 FOLLOWING 수정해도 그 슬롯에 중복이 생기지 않는다(잘려나가는 오버라이드 별도 일정까지 삭제 → 고아 ghost 없음).
+   */
+  @Test
+  void updateFollowing_afterThisOverride_noDuplicateAtSplit() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ3 = BASE.plusWeeks(2);
+    // occ3 회차를 THIS 로 단독 수정 → 오버라이드 별도 일정 생성.
+    service.update(u, master.id(), editReq("단독수정", "FREQ=WEEKLY", occ3), EditScope.THIS, occ3);
+    // 같은 occ3 를 분할점으로 FOLLOWING 수정.
+    CalendarEventResponse newMaster =
+        service.update(
+            u, master.id(), editReq("후속", "FREQ=WEEKLY", occ3), EditScope.THIS_AND_FOLLOWING, occ3);
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(4));
+    assertThat(r).hasSize(4);
+    // occ3 슬롯은 정확히 1건(잔존 오버라이드와의 중복 없음)이며 새 마스터의 후속 회차다.
+    List<CalendarEventResponse> atOcc3 =
+        r.stream().filter(e -> e.startsAt().toInstant().equals(occ3.toInstant())).toList();
+    assertThat(atOcc3).hasSize(1);
+    assertThat(atOcc3.get(0).title()).isEqualTo("후속");
+    assertThat(atOcc3.get(0).masterEventId()).isEqualTo(newMaster.id());
+    // 고아 없음: 잘린 옛 마스터 + 새 마스터 = 2건만 존재(오버라이드 별도 일정은 삭제됨).
+    assertThat(dsl.fetchCount(CALENDAR_EVENT, CALENDAR_EVENT.OWNER_ID.eq(u))).isEqualTo(2);
+  }
+
+  /** 기존 오버라이드가 있던 회차를 DELETE/THIS 로 취소하면 회차가 사라지고 오버라이드 별도 일정도 고아로 남지 않는다. */
+  @Test
+  void deleteThis_overExistingOverride_removesOverrideEvent() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ2 = BASE.plusWeeks(1);
+    service.update(u, master.id(), editReq("단독수정", "FREQ=WEEKLY", occ2), EditScope.THIS, occ2);
+
+    service.delete(u, master.id(), EditScope.THIS, occ2);
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(4));
+    assertThat(r).hasSize(3);
+    assertThat(r).extracting(CalendarEventResponse::startsAt).doesNotContain(occ2);
+    // 고아 없음: 마스터 1건만 존재(오버라이드 별도 일정 삭제됨).
+    assertThat(dsl.fetchCount(CALENDAR_EVENT, CALENDAR_EVENT.OWNER_ID.eq(u))).isEqualTo(1);
+  }
+
   @Test
   void list_weeklyMaster_expandsAcrossWeeks() {
     long u = user();

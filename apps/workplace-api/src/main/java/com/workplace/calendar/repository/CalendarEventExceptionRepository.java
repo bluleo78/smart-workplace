@@ -47,7 +47,7 @@ public class CalendarEventExceptionRepository {
 
   /**
    * 회차 취소 예외 upsert(THIS 삭제). 해당 (event_id, occurrence_date) 회차를 is_cancelled=true 로 기록한다. 이미 예외 행이
-   * 있으면(오버라이드였더라도) 취소로 덮어쓰며 override_event_id 는 null 로 비운다. (override 였다면 그 별도 일정은 고아로 남음 — v1b 한계)
+   * 있으면(오버라이드였더라도) 취소로 덮어쓰며 override_event_id 는 null 로 비운다. (기존 오버라이드 별도 일정은 서비스가 먼저 삭제해 고아를 방지)
    */
   public void insertCancellation(long eventId, OffsetDateTime occurrenceDate) {
     dsl.insertInto(CALENDAR_EVENT_EXCEPTION)
@@ -92,20 +92,33 @@ public class CalendarEventExceptionRepository {
         .map(r -> r.get(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID));
   }
 
-  /**
-   * 마스터의 오버라이드 일정 id 목록(THIS·ALL 삭제 시 고아 정리용). 마스터 삭제는 override 별도 일정을 cascade 하지 않으므로 서비스가 직접 지운다.
-   */
+  /** 마스터의 오버라이드 일정 id 목록(ALL 삭제 시 고아 정리용). 마스터 삭제는 override 별도 일정을 cascade 하지 않으므로 서비스가 직접 지운다. */
   public List<Long> overrideEventIds(long eventId) {
+    return overrideEventIdsFrom(eventId, null);
+  }
+
+  /**
+   * occurrence_date 가 cutoff 이상인 예외행들의 not-null override_event_id 목록 — 시리즈 잘라내기(FOLLOWING) 시 잘려나가는
+   * 회차의 오버라이드 별도 일정을 고아로 남기지 않도록 함께 삭제하려고 수집한다. cutoff 가 null 이면 마스터 전체 오버라이드를 반환한다.
+   */
+  public List<Long> overrideEventIdsFrom(long eventId, OffsetDateTime occurrenceDate) {
+    var condition =
+        CALENDAR_EVENT_EXCEPTION
+            .EVENT_ID
+            .eq(eventId)
+            .and(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.isNotNull());
+    if (occurrenceDate != null) {
+      condition = condition.and(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE.ge(occurrenceDate));
+    }
     return dsl.select(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID)
         .from(CALENDAR_EVENT_EXCEPTION)
-        .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(eventId))
-        .and(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.isNotNull())
+        .where(condition)
         .fetch(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID);
   }
 
   /**
    * occurrence_date 가 cutoff 이상인 예외 행 삭제(THIS_AND_FOLLOWING). 시리즈를 자른 뒤 더 이상 의미 없는 미래 예외(취소/오버라이드
-   * 행)를 제거한다. (오버라이드였던 별도 일정 자체는 고아로 남음 — v1b 한계)
+   * 행)를 제거한다. 오버라이드였던 별도 일정 자체는 서비스가 overrideEventIdsFrom 으로 수집해 함께 삭제한다.
    */
   public void deleteFromOccurrence(long eventId, OffsetDateTime occurrenceDate) {
     dsl.deleteFrom(CALENDAR_EVENT_EXCEPTION)
