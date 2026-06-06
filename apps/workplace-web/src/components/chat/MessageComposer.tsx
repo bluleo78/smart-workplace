@@ -112,6 +112,7 @@ export function MessageComposer({
             onSubmit={handleSubmit}
             clearOnSubmit
             allowEmptySubmit={pending.length > 0}
+            disableWhenEmpty
             placeholder="메시지를 입력하세요"
             submitLabel={uploading ? '업로드 중…' : '보내기'}
             inputTestId="message-composer-input"

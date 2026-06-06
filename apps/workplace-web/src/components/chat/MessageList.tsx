@@ -33,9 +33,11 @@ interface MessageListProps {
   onOpenThread?: (messageId: number) => void
   // 스레드 패널처럼 답글/부모를 재렌더할 때 mark-read 를 끈다(답글 id 로 채널 watermark 가 잘못 전진하는 것 방지).
   disableMarkRead?: boolean
+  // 메시지 0건일 때 보여줄 빈 상태(부모가 맥락 문구를 조립해 전달). 미전달 시 빈 화면 유지.
+  emptyState?: React.ReactNode
 }
 
-export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead }: MessageListProps) {
+export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState }: MessageListProps) {
   // 페이지는 DESC 로 쌓이므로 화면에는 ASC(오래된 위)로 뒤집어 보여준다.
   const ordered = [...messages].reverse()
   // 현재 인라인 수정 중인 메시지 id (한 번에 하나).
@@ -65,6 +67,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
 
   return (
     <div className="flex flex-col gap-2 p-4" data-testid="message-list">
+      {ordered.length === 0 && emptyState}
       {ordered.map((m, idx) => {
         const isPending = m.id < 0
         // 본인·미삭제·미전송중 메시지만 toolbar 노출.
@@ -82,7 +85,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
             data-testid={`message-${m.id}`}
             data-pending={isPending ? 'true' : undefined}
             data-group-start={startsGroup ? 'true' : 'false'}
-            className={`group relative flex gap-2 rounded-md px-2 ${startsGroup ? 'mt-2 pt-0.5' : ''}`}
+            className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''}`}
           >
             {/* 좌측 거터(아바타 폭 고정) — 그룹 첫 줄엔 아바타, 후속 줄엔 hover 시 시각. */}
             <div className="w-8 shrink-0 pt-0.5">

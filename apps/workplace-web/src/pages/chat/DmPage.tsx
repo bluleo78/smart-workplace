@@ -1,6 +1,8 @@
 // DM 메시지 뷰 — 기존 메시지 컴포넌트 재사용(DM 채널 id). 헤더는 참여자 기반.
+import { MessageSquare } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 
+import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
@@ -10,7 +12,17 @@ import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useAuth } from '@/hooks/useAuth'
-import type { UserKind } from '@/types/messaging'
+import { dmDisplayName } from '@/lib/dm'
+import type { DmResponse, UserKind } from '@/types/messaging'
+
+// DM 빈 상태 설명 — self/1:1/그룹 분기.
+function dmEmptyDescription(dm: DmResponse, myId: number): string {
+  const others = dm.participants.filter((p) => p.userId !== myId)
+  if (others.length === 0) return '나에게만 보이는 공간입니다. 메모·링크·할 일을 남겨보세요.'
+  if (others.length === 1) return `${others[0].name} 님과의 다이렉트 메시지 시작입니다.`
+  // 그룹은 쉼표로 묶인 이름 리스트라 "님" 경어 대신 자연스러운 그룹 문구로.
+  return `${others.map((p) => p.name).join(', ')} 님과 함께하는 그룹 대화의 시작입니다.`
+}
 
 export default function DmPage() {
   const { id } = useParams()
@@ -59,6 +71,15 @@ export default function DmPage() {
           channelId={dm.id}
           currentUserId={me.id}
           members={mentionMembers}
+          emptyState={
+            data ? (
+              <ChatEmptyState
+                icon={<MessageSquare className="h-8 w-8" />}
+                title={dmDisplayName(dm, me.id)}
+                description={dmEmptyDescription(dm, me.id)}
+              />
+            ) : undefined
+          }
         />
       </MessageScrollArea>
       <MessageComposer

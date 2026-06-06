@@ -1,10 +1,12 @@
 // 채널 메시지 뷰 — 헤더 + 히스토리 + 실시간 + optimistic 전송. 비공개 비멤버는 404 → 채널 없음.
 // Phase 5: 우측 스레드 패널(ThreadPanel) — openThreadId state 로 토글.
+import { Hash } from 'lucide-react'
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { ChannelHeader } from '@/components/chat/ChannelHeader'
 import { ChannelMembersPanel } from '@/components/chat/ChannelMembersPanel'
+import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
@@ -83,6 +85,15 @@ export default function ChannelPage() {
             currentUserId={me.id}
             members={mentionMembers}
             onOpenThread={setOpenThreadId}
+            emptyState={
+              data ? (
+                <ChatEmptyState
+                  icon={<Hash className="h-8 w-8" />}
+                  title={`#${channel.name}`}
+                  description={`이것은 #${channel.name} 채널의 시작입니다.`}
+                />
+              ) : undefined
+            }
           />
         </MessageScrollArea>
         {/* 아카이브 채널이면 composer 비활성. */}

@@ -9,6 +9,7 @@ import { messagingApi } from '@/api/messaging'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
+import { AgentBadge } from '@/components/users/AgentBadge'
 import { useCreateDm } from '@/hooks/queries/useCreateDm'
 import { useAuth } from '@/hooks/useAuth'
 import { handleApiError } from '@/lib/api-error'
@@ -77,6 +78,8 @@ export default function NewMessagePage() {
               className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-sm"
             >
               {u.name}
+              {/* AGENT 수신자면 보라색 봇 배지 표시 */}
+              {u.kind === 'AGENT' && <AgentBadge size="xs" />}
               <button type="button" aria-label={`${u.name} 제거`} onClick={() => removeRecipient(u.id)}>
                 <X className="h-3 w-3" />
               </button>

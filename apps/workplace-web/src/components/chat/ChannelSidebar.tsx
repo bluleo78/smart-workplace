@@ -6,6 +6,7 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
+import { AgentBadge } from '@/components/users/AgentBadge'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useAuth } from '@/hooks/useAuth'
@@ -149,6 +150,10 @@ export function ChannelSidebar() {
               >
                 <MessageSquare className="h-4 w-4 shrink-0" />
                 <span className="truncate">{dmDisplayName(dm, myId)}</span>
+                {/* 상대 중 AGENT 가 있으면 보라색 봇 배지 표시 */}
+                {dm.participants.some((p) => p.kind === 'AGENT' && p.userId !== myId) && (
+                  <AgentBadge size="xs" />
+                )}
                 {dm.unreadCount > 0 && (
                   <span
                     data-testid={`dm-unread-${dm.id}`}

@@ -11,7 +11,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Text from '@tiptap/extension-text';
 import { EditorContent, ReactRenderer, useEditor } from '@tiptap/react';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,8 @@ interface RichInputProps {
   clearOnSubmit?: boolean;
   // 본문이 비어도 제출 허용(첨부만 있는 메시지용). composer 가 pending 첨부 유무로 토글.
   allowEmptySubmit?: boolean;
+  // true 일 때만 빈 입력에서 전송 버튼 비활성화(opt-in). 미전달 시 기존 동작 유지.
+  disableWhenEmpty?: boolean;
   autoFocus?: boolean;
   inputTestId: string;
   submitTestId: string;
@@ -50,11 +52,16 @@ export function RichInput({
   submitLabel = '보내기',
   clearOnSubmit = false,
   allowEmptySubmit = false,
+  disableWhenEmpty = false,
   autoFocus = false,
   inputTestId,
   submitTestId,
   cancelTestId,
 }: RichInputProps) {
+  // 에디터 본문 공백 여부 — disableWhenEmpty 가 true 일 때 전송 버튼 비활성화에 사용.
+  // initialBody 가 있으면 비어있지 않은 상태로 초기화.
+  const [isEmpty, setIsEmpty] = useState(!initialBody || initialBody.trim().length === 0);
+
   // members 최신값을 suggestion 콜백에서 참조하기 위한 ref.
   // (콜백은 useEditor 가 생성한 클로저에서 호출되므로, 렌더 시점이 아닌 effect 에서 최신값 동기화)
   const membersRef = useRef(members);
@@ -90,7 +97,11 @@ export function RichInput({
   const editor = useEditor({
     autofocus: autoFocus,
     // 본문이 바뀔 때마다(타이핑) 호출. 호출처에서 throttle.
-    onUpdate: () => onChangeRef.current?.(),
+    // isEmpty 상태도 함께 갱신 — disableWhenEmpty 전송 버튼 비활성화에 사용.
+    onUpdate: ({ editor }) => {
+      setIsEmpty(editor.getText().trim().length === 0);
+      onChangeRef.current?.();
+    },
     extensions: [
       Document,
       Paragraph,
@@ -222,7 +233,15 @@ export function RichInput({
             취소
           </Button>
         )}
-        <Button type="button" size="sm" onClick={submit} data-testid={submitTestId}>
+        {/* disableWhenEmpty=true 이고 본문도 비고 첨부도 없을 때만 비활성화(opt-in). */}
+        {/* allowEmptySubmit 은 렌더 시점 prop 직접 참조 — ref 는 submit(Enter 경로) 전용. */}
+        <Button
+          type="button"
+          size="sm"
+          onClick={submit}
+          data-testid={submitTestId}
+          disabled={disableWhenEmpty ? isEmpty && !allowEmptySubmit : false}
+        >
           {submitLabel}
         </Button>
       </div>
