@@ -1,6 +1,6 @@
 // DM 헤더 — 참여자 기반 표시명. AGENT 배지·인원수는 그룹(3명+)일 때만 표시.
-import { AgentBadge } from '@/components/users/AgentBadge'
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
+import { AgentBadge } from '@/components/users/AgentBadge'
 import { dmDisplayName } from '@/lib/dm'
 import type { DmResponse } from '@/types/messaging'
 

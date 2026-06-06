@@ -5,7 +5,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
-
 import {
   AlertDialog,
   AlertDialogAction,

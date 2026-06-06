@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 
+import { PageHeader } from '@/components/layout/PageHeader'
+
 import { driveApi } from '../../api/drive'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
-import { PageHeader } from '@/components/layout/PageHeader'
 import { SearchInput } from '../../components/ui/search-input'
-import type { DriveFile, DriveItemList, DriveSearchResult, DriveTrashItem, DriveFolderPathSegment } from '../../types/drive'
+import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveTrashItem } from '../../types/drive'
 
 // breadcrumb 접기 — 4개 초과면 [첫, null(…), 마지막2개]. null 은 생략 표식.
 function collapseCrumbs(
