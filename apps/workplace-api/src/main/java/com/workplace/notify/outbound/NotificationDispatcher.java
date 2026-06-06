@@ -1,5 +1,6 @@
 package com.workplace.notify.outbound;
 
+import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
@@ -41,6 +42,17 @@ public class NotificationDispatcher {
           NotificationType.ASSIGNED, recipients, actorId(e.actor()), e.issueId(), null);
     } catch (Exception ex) {
       log.warn("[notify] assigned 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
+    }
+  }
+
+  /** 캘린더 리마인더 발화 → 일정 소유자에게 알림. actor/issue 없음. */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onCalendarReminderDue(CalendarReminderDueEvent e) {
+    try {
+      service.createReminderAndFanOut(e.ownerId(), e.eventId());
+    } catch (Exception ex) {
+      log.warn("[notify] reminder 알림 실패 eventId={}: {}", e.eventId(), ex.getMessage());
     }
   }
 

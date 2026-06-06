@@ -38,6 +38,17 @@ public class NotificationService {
     registry.fanOut(recipients, "notify.created", Map.of("type", type.name(), "issueId", issueId));
   }
 
+  /**
+   * 캘린더 리마인더 알림 — 수신자=일정 소유자 1인, actor 없음. insert 후 동일 수신자에게 SSE fan-out. (이슈 경로와 분리 — issue_id 없는
+   * 알림을 안전히 생성하고 Map.of NPE 회피)
+   */
+  @Transactional
+  public void createReminderAndFanOut(long recipientId, long eventId) {
+    repo.insertReminder(recipientId, eventId);
+    registry.fanOut(
+        List.of(recipientId), "notify.created", Map.of("type", "REMINDER", "eventId", eventId));
+  }
+
   @Transactional(readOnly = true)
   public List<NotificationResponse> listRecent(long recipientId, int limit) {
     return repo.listRecent(recipientId, limit);

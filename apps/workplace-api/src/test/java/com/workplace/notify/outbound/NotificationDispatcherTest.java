@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
@@ -104,6 +105,25 @@ class NotificationDispatcherTest {
         .createAndFanOut(
             eq(NotificationType.STATUS_CHANGED), recipients.capture(), eq(9L), eq(12L), eq(null));
     assertThat(recipients.getValue()).contains(2L, 3L);
+  }
+
+  @Test
+  void onCalendarReminderDue_createsReminderForOwner() {
+    var e = new CalendarReminderDueEvent(77L, 5L, Instant.now());
+
+    dispatcher.onCalendarReminderDue(e);
+
+    verify(service).createReminderAndFanOut(5L, 77L);
+  }
+
+  @Test
+  void onCalendarReminderDue_serviceThrows_isSwallowed() {
+    Mockito.doThrow(new RuntimeException("boom"))
+        .when(service)
+        .createReminderAndFanOut(Mockito.anyLong(), Mockito.anyLong());
+
+    // 예외가 전파되지 않아야 한다
+    dispatcher.onCalendarReminderDue(new CalendarReminderDueEvent(1L, 1L, Instant.now()));
   }
 
   @Test

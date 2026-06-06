@@ -1,6 +1,7 @@
 package com.workplace.calendar.repository;
 
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.EVENT_REMINDER;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
@@ -34,9 +35,12 @@ public class CalendarEventRepository {
         .getId();
   }
 
-  /** 단건 조회(owner 무관) — service 에서 owner 검증. */
+  /** 단건 조회(owner 무관) — service 에서 owner 검증. event_reminder 를 left join 해 reminderMinutes 포함. */
   public Optional<CalendarEventResponse> findById(long id) {
-    return dsl.selectFrom(CALENDAR_EVENT)
+    return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
+        .from(CALENDAR_EVENT)
+        .leftJoin(EVENT_REMINDER)
+        .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
         .where(CALENDAR_EVENT.ID.eq(id))
         .fetchOptional()
         .map(CalendarEventRepository::toResponse);
@@ -53,7 +57,10 @@ public class CalendarEventRepository {
   /** owner 의 [from,to) 와 겹치는 일정 — starts_at < to AND ends_at > from. */
   public List<CalendarEventResponse> listByRange(
       long ownerId, OffsetDateTime from, OffsetDateTime to) {
-    return dsl.selectFrom(CALENDAR_EVENT)
+    return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
+        .from(CALENDAR_EVENT)
+        .leftJoin(EVENT_REMINDER)
+        .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
         .where(CALENDAR_EVENT.OWNER_ID.eq(ownerId))
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
         .and(CALENDAR_EVENT.ENDS_AT.gt(from))
@@ -91,6 +98,7 @@ public class CalendarEventRepository {
         r.get(CALENDAR_EVENT.ALL_DAY),
         r.get(CALENDAR_EVENT.LOCATION),
         r.get(CALENDAR_EVENT.COLOR),
+        r.get(EVENT_REMINDER.LEAD_MINUTES),
         r.get(CALENDAR_EVENT.CREATED_AT),
         r.get(CALENDAR_EVENT.UPDATED_AT));
   }

@@ -128,6 +128,36 @@ test(
 )
 
 test(
+  '새 일정 생성 시 리마인더 설정이 payload 에 포함된다',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = []
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    await page.getByTestId('calendar-new-event').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 제목 입력 + 리마인더 '10분 전' 선택
+    await page.getByTestId('calendar-form-title').fill('스탠드업')
+    await page.getByTestId('calendar-form-reminder').click()
+    await page.getByRole('option', { name: '10분 전' }).click()
+
+    // POST payload 캡처 — reminderMinutes 가 포함되는지 검증
+    const postPromise = page.waitForRequest(
+      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-form-submit').click()
+    const post = await postPromise
+    expect(post.postDataJSON()).toMatchObject({ reminderMinutes: 10 })
+
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+  },
+)
+
+test(
   '일정 편집',
   { tag: '@smoke' },
   async ({ authenticatedPage: page }) => {

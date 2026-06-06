@@ -10,6 +10,8 @@ export interface CalendarEvent {
   allDay: boolean
   location: string | null
   color: string | null
+  // 시작 N분 전 리마인더(분). null = 알림 없음 (이슈 #110)
+  reminderMinutes: number | null
   createdAt: string
   updatedAt: string
 }
@@ -32,4 +34,6 @@ export interface CalendarEventRequest {
   allDay: boolean
   location: string | null
   color: string | null
+  // 시작 N분 전 리마인더(분). null = 알림 없음 (이슈 #110)
+  reminderMinutes: number | null
 }
