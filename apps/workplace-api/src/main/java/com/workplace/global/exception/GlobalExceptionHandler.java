@@ -884,9 +884,42 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
+    // SSE/async 스트림에 쓰던 중 클라이언트가 끊긴 경우(Broken pipe 등)는 정상 흐름이다.
+    // 응답 content-type 이 이미 text/event-stream 이라 ErrorResponse(JSON) 직렬화도 불가하므로
+    // (HttpMessageNotWritableException 유발), ERROR 로그·직렬화를 시도하지 않고 조용히 무시한다.
+    if (isClientDisconnect(ex)) {
+      log.debug("클라이언트 연결 종료로 응답 쓰기 불가 — 무시: {}", ex.toString());
+      return null;
+    }
     log.error("Unhandled exception", ex);
     ErrorResponse response =
         buildError(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred", null, request);
     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+  }
+
+  /**
+   * 클라이언트 연결 종료로 인한 예외인지 원인 체인을 따라 판정한다. Broken pipe / Connection reset(소켓 강제 종료) 또는 Tomcat
+   * ClientAbortException / Spring AsyncRequestNotUsableException(둘 다 클래스명으로 식별 — 하드 의존 회피)을 포함하면
+   * true.
+   */
+  private static boolean isClientDisconnect(Throwable ex) {
+    Throwable t = ex;
+    for (int depth = 0; t != null && depth < 10; t = t.getCause(), depth++) {
+      String name = t.getClass().getSimpleName();
+      if ("ClientAbortException".equals(name) || "AsyncRequestNotUsableException".equals(name)) {
+        return true;
+      }
+      String msg = t.getMessage();
+      if (msg != null) {
+        String lower = msg.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("broken pipe") || lower.contains("connection reset")) {
+          return true;
+        }
+      }
+      if (t.getCause() == t) {
+        break; // 자기참조 원인 방어
+      }
+    }
+    return false;
   }
 }
