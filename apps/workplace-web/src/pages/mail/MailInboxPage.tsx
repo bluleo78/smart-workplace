@@ -359,12 +359,8 @@ export function MailInboxPage() {
     <div className="flex h-full min-h-0">
       {/* 목록 (마스터) */}
       <div className="flex min-w-0 flex-1 flex-col border-r lg:max-w-md" data-testid="mail-list">
-        {/* 툴바: 폴더명 + 동기화 + 검색 */}
+        {/* 툴바: 동기화 + 검색 (현재 폴더는 사이드바 active 로 표시 — Gmail 패리티상 본문 중복 표기 제거) */}
         <div className="flex flex-col gap-2 border-b p-3">
-          {/* 현재 폴더명 — 폴더 nav 는 사이드바로 이동, 본문엔 맥락 표시만 */}
-          <div data-testid="mail-folder-title" className="px-1 text-sm font-semibold">
-            {folderParam === 'INBOX' ? '받은편지함' : '보낸편지함'}
-          </div>
           {/* 동기화 + 검색(받은편지함에서만 동기화) */}
           <div className="flex items-center gap-2">
             {folderParam === 'INBOX' && (
