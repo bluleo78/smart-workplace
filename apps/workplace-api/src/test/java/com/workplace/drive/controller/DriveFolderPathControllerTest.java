@@ -77,4 +77,10 @@ class DriveFolderPathControllerTest {
             get("/api/v1/drive/folders/999999/path").header("Authorization", "Bearer test-token"))
         .andExpect(status().isNotFound());
   }
+
+  /** 인증 없으면 401. */
+  @Test
+  void path_withoutAuth_returns401() throws Exception {
+    mockMvc.perform(get("/api/v1/drive/folders/11/path")).andExpect(status().isUnauthorized());
+  }
 }
