@@ -42,3 +42,22 @@ test('앱 레일 — 한글 라벨과 소통 묶음 순서(홈·작업·대화·
     'rail-link-/settings/profile',
   ])
 })
+
+// #120 — 데스크톱(lg) 레일에서 라벨 span 이 lg:hidden 이라 모듈 링크 8개의 accessible name 이
+// 비어 있던 a11y 결함(WCAG 4.1.2). RailLink<Link> 에 aria-label 부여로 모든 뷰포트에서 이름 보장.
+// 요소 존재가 아니라 "역할 link + 접근 가능한 이름"을 함께 검증한다.
+test('앱 레일 — 데스크톱 모듈 링크 8개가 접근 가능한 이름(역할 link + 이름)을 갖는다 (#120)', async ({
+  authenticatedPage: page,
+}) => {
+  // 기본 뷰포트(1280)는 lg → 라벨 span 이 숨겨지는, 버그가 발생하던 바로 그 조건.
+  await page.goto('/')
+  // 레일의 <nav> 로 스코프 — 헤더의 홈 마크(aria-label="홈")와 이름 충돌을 피한다.
+  const nav = page.getByTestId('app-rail').locator('nav')
+  // MODULES 라벨(순서 무관, 이름 존재만 검증).
+  const labels = ['홈', '작업 관리', '대화', '메일', '연락처', '캘린더', '드라이브', '설정']
+  for (const name of labels) {
+    await expect(nav.getByRole('link', { name, exact: true })).toBeVisible()
+  }
+  // 레일 nav 안의 link 역할 요소는 정확히 8개(모듈 링크) — 이름 없는 link 가 없음을 보장.
+  await expect(nav.getByRole('link')).toHaveCount(8)
+})

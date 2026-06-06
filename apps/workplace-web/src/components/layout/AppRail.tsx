@@ -86,6 +86,9 @@ function RailLink({
           to={item.href}
           onClick={onNavigate}
           data-testid={`rail-link-${item.href}`}
+          // 데스크톱(lg)에선 라벨 span 이 lg:hidden 이라 accessible name 이 사라진다.
+          // 모든 뷰포트에서 SR/음성제어용 이름을 보장하기 위해 항상 aria-label 부여(Tooltip 은 시각 보조).
+          aria-label={item.label}
           aria-current={active ? 'page' : undefined}
           className={cn(
             'flex items-center gap-3 rounded-md px-3 py-2 text-[13px] font-medium transition-colors',
