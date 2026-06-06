@@ -92,7 +92,8 @@ export function ExternalContactFormDialog({ open, onOpenChange, contact }: Props
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
-          <FormField label="이름" htmlFor="c-name" error={form.formState.errors.name?.message}>
+          {/* 이름 — 필수 필드: required prop 으로 붉은 별표 표시 */}
+          <FormField label="이름" htmlFor="c-name" required error={form.formState.errors.name?.message}>
             <Input id="c-name" data-testid="c-name" {...form.register('name')} />
           </FormField>
           <FormField label="이메일" htmlFor="c-email" error={form.formState.errors.email?.message}>

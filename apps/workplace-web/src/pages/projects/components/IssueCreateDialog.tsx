@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -75,11 +76,10 @@ export function IssueCreateDialog({
       <DialogContent>
         <DialogHeader><DialogTitle>새 태스크</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="issue-title">제목</label>
+          {/* 제목 — 필수 필드: FormField required 로 붉은 별표 표시 (캘린더 EventDialog 동일 패턴) */}
+          <FormField label="제목" htmlFor="issue-title" required error={errors.title?.message}>
             <Input id="issue-title" {...register('title')} />
-            {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
-          </div>
+          </FormField>
           <div className="space-y-1">
             <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
             <Textarea id="issue-body" {...register('body')} rows={6} />
