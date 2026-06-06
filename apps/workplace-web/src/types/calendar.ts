@@ -12,6 +12,12 @@ export interface CalendarEvent {
   color: string | null
   // 시작 N분 전 리마인더(분). null = 알림 없음 (이슈 #110)
   reminderMinutes: number | null
+  // RRULE 문자열(반복 규칙). null = 반복 없음 (이슈 #111)
+  recurrenceRule: string | null
+  // 반복 마스터 일정 id. null = 단일/마스터 자체 (이슈 #111)
+  masterEventId?: number | null
+  // 가상 occurrence 의 시작 시각(ISO, 불투명 문자열로 취급 — 가공 금지) (이슈 #111)
+  occurrenceDate?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -36,4 +42,6 @@ export interface CalendarEventRequest {
   color: string | null
   // 시작 N분 전 리마인더(분). null = 알림 없음 (이슈 #110)
   reminderMinutes: number | null
+  // RRULE 문자열(반복 규칙). null = 반복 없음 (이슈 #111)
+  recurrenceRule: string | null
 }

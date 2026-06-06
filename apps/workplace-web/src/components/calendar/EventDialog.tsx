@@ -157,6 +157,8 @@ export function EventDialog({
       color: null,
       // 'none'(없음) → null, 그 외 분 단위 숫자로 변환
       reminderMinutes: values.reminderMinutes === 'none' ? null : Number(values.reminderMinutes),
+      // 반복 규칙은 Task 7 에서 폼 연동 — 현재는 미설정(null) (이슈 #111)
+      recurrenceRule: null,
     }
     onSubmit(body)
   }
