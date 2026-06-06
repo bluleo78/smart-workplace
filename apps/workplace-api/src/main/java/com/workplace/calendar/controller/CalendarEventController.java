@@ -2,6 +2,7 @@ package com.workplace.calendar.controller;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.global.security.RequirePermission;
 import jakarta.validation.Valid;
@@ -46,22 +47,32 @@ public class CalendarEventController {
     return ResponseEntity.status(HttpStatus.CREATED).body(service.create(callerId, req));
   }
 
-  /** 일정 수정(전체 교체). */
+  /**
+   * 일정 수정. 반복 일정은 scope(THIS/THIS_AND_FOLLOWING/ALL)와 occurrenceDate(대상 회차 시작시각)로 적용 범위를 지정. scope
+   * 미지정 시 ALL(마스터 전체 교체).
+   */
   @PatchMapping("/{id}")
   @RequirePermission("calendar:write")
   public ResponseEntity<CalendarEventResponse> update(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long id,
-      @Valid @RequestBody CalendarEventRequest req) {
-    return ResponseEntity.ok(service.update(callerId, id, req));
+      @Valid @RequestBody CalendarEventRequest req,
+      @RequestParam(defaultValue = "ALL") EditScope scope,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          OffsetDateTime occurrenceDate) {
+    return ResponseEntity.ok(service.update(callerId, id, req, scope, occurrenceDate));
   }
 
-  /** 일정 삭제. */
+  /** 일정 삭제. 반복 일정은 scope/occurrenceDate 로 적용 범위 지정. scope 미지정 시 ALL(시리즈 전체 삭제). */
   @DeleteMapping("/{id}")
   @RequirePermission("calendar:write")
   public ResponseEntity<Void> delete(
-      @AuthenticationPrincipal Long callerId, @PathVariable long id) {
-    service.delete(callerId, id);
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @RequestParam(defaultValue = "ALL") EditScope scope,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+          OffsetDateTime occurrenceDate) {
+    service.delete(callerId, id, scope, occurrenceDate);
     return ResponseEntity.noContent().build();
   }
 }

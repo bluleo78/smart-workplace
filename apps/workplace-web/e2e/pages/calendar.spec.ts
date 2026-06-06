@@ -2,7 +2,7 @@
 import type { Page } from '@playwright/test'
 
 import type { CalendarEvent } from '../../src/types/calendar'
-import { calendarEvent } from '../factories/calendar.factory'
+import { calendarEvent, recurringCalendarEvent } from '../factories/calendar.factory'
 import { expect, test } from '../fixtures/auth.fixture'
 
 /**
@@ -204,5 +204,166 @@ test(
     // 다이얼로그 닫힘 + 일정 카드 사라짐
     await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
     await expect(page.getByTestId('calendar-event-1')).toHaveCount(0)
+  },
+)
+
+// ────────────────────────────────────────────────────────────
+// 반복 일정 (이슈 #111)
+// ────────────────────────────────────────────────────────────
+
+// 마스터 id 와 6월 내 가상 회차 날짜(주 단위). 월 뷰에서 모두 보이도록 6월로 고정.
+const MASTER_ID = 5
+const OCC_DATES = ['2026-06-08T01:00:00Z', '2026-06-15T01:00:00Z', '2026-06-22T01:00:00Z']
+
+test(
+  '반복 일정 생성 — recurrenceRule(FREQ=WEEKLY) 가 POST payload 에 포함된다',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = []
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    await page.getByTestId('calendar-new-event').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 제목 입력 + 반복 빈도 '매주'(WEEKLY) 선택
+    await page.getByTestId('calendar-form-title').fill('주간 회의')
+    await page.getByTestId('calendar-form-recurrence-freq').click()
+    await page.getByRole('option', { name: '매주' }).click()
+
+    // POST payload 캡처 — recurrenceRule = FREQ=WEEKLY (interval=1 은 생략)
+    const postPromise = page.waitForRequest(
+      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-form-submit').click()
+    const post = await postPromise
+    expect(post.postDataJSON()).toMatchObject({ recurrenceRule: 'FREQ=WEEKLY' })
+
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+  },
+)
+
+test(
+  '반복 일정 생성 — 간격/횟수 설정이 RRULE 로 조립된다',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = []
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    await page.getByTestId('calendar-new-event').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    await page.getByTestId('calendar-form-title').fill('격주 스프린트')
+    // 빈도 매주 → 간격 2 → 종료 횟수 3
+    await page.getByTestId('calendar-form-recurrence-freq').click()
+    await page.getByRole('option', { name: '매주' }).click()
+    await page.getByTestId('calendar-form-recurrence-interval').fill('2')
+    await page.getByTestId('calendar-form-recurrence-end').click()
+    await page.getByRole('option', { name: '횟수' }).click()
+    await page.getByTestId('calendar-form-recurrence-count').fill('3')
+
+    const postPromise = page.waitForRequest(
+      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-form-submit').click()
+    const post = await postPromise
+    expect(post.postDataJSON()).toMatchObject({ recurrenceRule: 'FREQ=WEEKLY;INTERVAL=2;COUNT=3' })
+
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+  },
+)
+
+test('반복 일정 — 여러 회차가 월 뷰에 표시된다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+  // GET 이 마스터 id 를 공유하는 3개 회차를 반환
+  const store: CalendarEvent[] = recurringCalendarEvent(MASTER_ID, OCC_DATES)
+  await stubCalendarEvents(page, store)
+
+  await page.goto('/calendar')
+
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+  // 각 회차는 서로 다른 날짜 셀에 동일 testid(calendar-event-5) 로 렌더 → 3건
+  await expect(page.getByTestId(`calendar-event-${MASTER_ID}`)).toHaveCount(OCC_DATES.length)
+})
+
+test(
+  '반복 회차 단일 수정 — PATCH scope=THIS + occurrenceDate(verbatim)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = recurringCalendarEvent(MASTER_ID, OCC_DATES)
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    // 첫 회차(가장 이른 날짜=DOM 첫 항목) 클릭 → EventDialog 열림
+    await page.getByTestId(`calendar-event-${MASTER_ID}`).first().click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 제목 수정 후 저장 → EventDialog 닫히고 scope 선택 다이얼로그 표시
+    await page.getByTestId('calendar-form-title').fill('수정된 회차')
+    await page.getByTestId('calendar-form-submit').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+    await expect(page.getByTestId('calendar-recurrence-scope-dialog')).toBeVisible()
+
+    // '이 일정만'(THIS) 클릭 → PATCH /events/{masterId}?scope=THIS&occurrenceDate=<verbatim>
+    const patchPromise = page.waitForRequest(
+      (req) => req.method() === 'PATCH' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-recurrence-scope-this').click()
+    const patch = await patchPromise
+
+    const url = new URL(patch.url())
+    expect(url.pathname.endsWith(`/${MASTER_ID}`)).toBe(true)
+    expect(url.searchParams.get('scope')).toBe('THIS')
+    // occurrenceDate 는 회차 행 값(불투명 문자열)을 그대로 echo
+    expect(url.searchParams.get('occurrenceDate')).toBe(OCC_DATES[0])
+    // 수정한 제목이 PATCH body 에 실제로 담겼는지 확인 + 반복 규칙 필드 존재
+    expect(patch.postDataJSON().title).toBe('수정된 회차')
+    expect(patch.postDataJSON().recurrenceRule).toBeTruthy()
+
+    await expect(page.getByTestId('calendar-recurrence-scope-dialog')).toBeHidden()
+  },
+)
+
+test(
+  '반복 회차 단일 삭제 — DELETE scope=THIS + occurrenceDate(verbatim)',
+  { tag: '@smoke' },
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = recurringCalendarEvent(MASTER_ID, OCC_DATES)
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    // 첫 회차 클릭 → EventDialog 열림
+    await page.getByTestId(`calendar-event-${MASTER_ID}`).first().click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 삭제 → EventDialog 닫히고 scope 선택 다이얼로그 표시
+    await page.getByTestId('calendar-form-delete').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+    await expect(page.getByTestId('calendar-recurrence-scope-dialog')).toBeVisible()
+
+    // '이 일정만'(THIS) 클릭 → DELETE /events/{masterId}?scope=THIS&occurrenceDate=<verbatim>
+    const deletePromise = page.waitForRequest(
+      (req) => req.method() === 'DELETE' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-recurrence-scope-this').click()
+    const del = await deletePromise
+
+    const url = new URL(del.url())
+    expect(url.pathname.endsWith(`/${MASTER_ID}`)).toBe(true)
+    expect(url.searchParams.get('scope')).toBe('THIS')
+    expect(url.searchParams.get('occurrenceDate')).toBe(OCC_DATES[0])
+
+    await expect(page.getByTestId('calendar-recurrence-scope-dialog')).toBeHidden()
   },
 )

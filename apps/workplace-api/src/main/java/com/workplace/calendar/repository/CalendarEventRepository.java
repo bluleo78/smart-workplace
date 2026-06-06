@@ -30,6 +30,7 @@ public class CalendarEventRepository {
         .set(CALENDAR_EVENT.ALL_DAY, req.allDay())
         .set(CALENDAR_EVENT.LOCATION, nullIfBlank(req.location()))
         .set(CALENDAR_EVENT.COLOR, nullIfBlank(req.color()))
+        .set(CALENDAR_EVENT.RECURRENCE_RULE, nullIfBlank(req.recurrenceRule()))
         .returning(CALENDAR_EVENT.ID)
         .fetchOne()
         .getId();
@@ -54,7 +55,10 @@ public class CalendarEventRepository {
         .fetchOptional(CALENDAR_EVENT.OWNER_ID);
   }
 
-  /** owner 의 [from,to) 와 겹치는 일정 — starts_at < to AND ends_at > from. */
+  /**
+   * owner 의 [from,to) 와 겹치는 구체(비반복) 일정 — starts_at < to AND ends_at > from. 반복 마스터(RRULE 보유)는 회차
+   * 전개로 별도 처리하므로 제외한다. 오버라이드 일정은 RRULE 이 null 이라 여기서 그대로 반환된다.
+   */
   public List<CalendarEventResponse> listByRange(
       long ownerId, OffsetDateTime from, OffsetDateTime to) {
     return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
@@ -64,7 +68,23 @@ public class CalendarEventRepository {
         .where(CALENDAR_EVENT.OWNER_ID.eq(ownerId))
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
         .and(CALENDAR_EVENT.ENDS_AT.gt(from))
+        .and(CALENDAR_EVENT.RECURRENCE_RULE.isNull())
         .orderBy(CALENDAR_EVENT.STARTS_AT.asc())
+        .fetch(CalendarEventRepository::toResponse);
+  }
+
+  /**
+   * owner 의 반복 마스터(RRULE 보유) 중 시작이 to 이전인 것 — starts_at < to. from 하한은 회차 전개(fastForward) 가 처리하므로
+   * 두지 않는다(과거에 시작한 마스터의 미래 회차도 잡아야 함).
+   */
+  public List<CalendarEventResponse> listRecurringMasters(long ownerId, OffsetDateTime to) {
+    return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
+        .from(CALENDAR_EVENT)
+        .leftJoin(EVENT_REMINDER)
+        .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
+        .where(CALENDAR_EVENT.OWNER_ID.eq(ownerId))
+        .and(CALENDAR_EVENT.RECURRENCE_RULE.isNotNull())
+        .and(CALENDAR_EVENT.STARTS_AT.lt(to))
         .fetch(CalendarEventRepository::toResponse);
   }
 
@@ -78,6 +98,16 @@ public class CalendarEventRepository {
         .set(CALENDAR_EVENT.ALL_DAY, req.allDay())
         .set(CALENDAR_EVENT.LOCATION, nullIfBlank(req.location()))
         .set(CALENDAR_EVENT.COLOR, nullIfBlank(req.color()))
+        .set(CALENDAR_EVENT.RECURRENCE_RULE, nullIfBlank(req.recurrenceRule()))
+        .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
+        .where(CALENDAR_EVENT.ID.eq(id))
+        .execute();
+  }
+
+  /** RRULE 만 교체 + updated_at 갱신 — 시리즈 잘라내기(UNTIL 적용)에 사용. */
+  public void updateRecurrenceRule(long id, String recurrenceRule) {
+    dsl.update(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.RECURRENCE_RULE, nullIfBlank(recurrenceRule))
         .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
         .where(CALENDAR_EVENT.ID.eq(id))
         .execute();
@@ -86,6 +116,14 @@ public class CalendarEventRepository {
   /** 삭제. */
   public void delete(long id) {
     dsl.deleteFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.ID.eq(id)).execute();
+  }
+
+  /** 여러 일정 일괄 삭제 — 마스터 삭제 시 고아가 된 오버라이드 일정 정리에 사용. */
+  public void deleteAllById(java.util.Collection<Long> ids) {
+    if (ids.isEmpty()) {
+      return;
+    }
+    dsl.deleteFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.ID.in(ids)).execute();
   }
 
   private static CalendarEventResponse toResponse(Record r) {
@@ -99,6 +137,9 @@ public class CalendarEventRepository {
         r.get(CALENDAR_EVENT.LOCATION),
         r.get(CALENDAR_EVENT.COLOR),
         r.get(EVENT_REMINDER.LEAD_MINUTES),
+        r.get(CALENDAR_EVENT.RECURRENCE_RULE),
+        null, // masterEventId — 구체/마스터 행은 회차가 아니므로 null
+        null, // occurrenceDate — 가상 회차에서만 채워짐
         r.get(CALENDAR_EVENT.CREATED_AT),
         r.get(CALENDAR_EVENT.UPDATED_AT));
   }

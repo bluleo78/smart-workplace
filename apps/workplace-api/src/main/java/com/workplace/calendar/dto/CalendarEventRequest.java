@@ -11,6 +11,7 @@ import java.time.OffsetDateTime;
  * 일정 생성/수정 요청. endsAt 은 startsAt 보다 뒤여야 한다.
  *
  * @param reminderMinutes 시작 N분 전 리마인더(예: 10·60·1440). null 이면 리마인더 없음(수정 시 기존 리마인더 제거).
+ * @param recurrenceRule RFC5545 RRULE 문자열(예: FREQ=WEEKLY). null 이면 단일(비반복) 일정.
  */
 public record CalendarEventRequest(
     @NotBlank @Size(max = 200) String title,
@@ -20,7 +21,8 @@ public record CalendarEventRequest(
     boolean allDay,
     @Size(max = 200) String location,
     @Size(max = 32) String color,
-    @Min(0) Integer reminderMinutes) {
+    @Min(0) Integer reminderMinutes,
+    @Size(max = 500) String recurrenceRule) {
 
   /** 종료가 시작보다 뒤인지 교차 검증 — 위반 시 400. */
   @AssertTrue(message = "endsAt must be after startsAt")
