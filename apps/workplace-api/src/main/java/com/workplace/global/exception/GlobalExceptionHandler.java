@@ -234,7 +234,6 @@ public class GlobalExceptionHandler {
   }
 
   // 일정 도메인 — 미존재/비-owner(404)
-  /** 일정 미존재/비-owner → 404. */
   @ExceptionHandler(com.workplace.calendar.exception.CalendarEventNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleCalendarEventNotFound(
       com.workplace.calendar.exception.CalendarEventNotFoundException ex,
