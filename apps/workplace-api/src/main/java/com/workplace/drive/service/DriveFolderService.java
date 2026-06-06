@@ -85,6 +85,10 @@ public class DriveFolderService {
       parts.addFirst(new DriveFolderPathSegment(f.id(), f.name()));
       cur = f.parentId();
     }
+    // 사이클로 가드가 트립되면 조용히 잘린 경로를 반환하지 않고 손상 데이터를 감지 가능하게 예외
+    if (guard >= 1000) {
+      throw new IllegalStateException("폴더 경로 사이클 감지: folderId=" + folderId);
+    }
     return new ArrayList<>(parts);
   }
 
