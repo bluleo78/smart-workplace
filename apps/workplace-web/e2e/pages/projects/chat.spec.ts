@@ -477,7 +477,10 @@ test.describe('이슈 chat panel', () => {
     await page.keyboard.press('Enter');
 
     await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['첫 메시지']);
+    // #123 — 성공 시에만 입력창을 비운다. 서버 확정(1001) 후 컴포저가 비워지고 포커스가 복귀한다.
+    await expect(page.getByTestId('chat-message-1001')).toBeVisible();
     await expect(input).toBeFocused();
+    await expect(input).not.toContainText('첫 메시지');
 
     await page.keyboard.type('이어서');
     await expect(input).toContainText('이어서');
@@ -644,5 +647,135 @@ test.describe('이슈 chat panel', () => {
     const indicator = page.getByTestId('chat-typing');
     await expect(indicator).toContainText('AI Agent 입력 중…');
     await expect(indicator).not.toContainText('테스트 사용자');
+  });
+
+  // #123 회귀 — 전송 실패(POST 500) 시 컴포저 입력이 소실되지 않고 보존돼 재시도할 수 있어야 한다.
+  // (예전 버그: clearOnSubmit 가 제출 즉시 동기적으로 입력을 비워 토스트 외 복구 수단이 없었음)
+  test('전송 실패(500) 시 입력 텍스트 보존 + 재시도 성공', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'send fail' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    await setupChatStubs(page, stubs);
+
+    // POST 를 첫 1회만 500 으로 강제, 이후엔 setup 핸들러로 위임해 정상 처리.
+    let failNext = true;
+    await page.route(
+      (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        if (failNext) {
+          failNext = false;
+          return route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: '서버 오류' }),
+          });
+        }
+        return route.fallback();
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const input = page.getByTestId('chat-composer-input');
+    await input.click();
+    await page.keyboard.type('전송실패될메시지XYZ');
+    await page.getByTestId('chat-composer-submit').click();
+
+    // 실패 토스트 표시 + 낙관적 행 제거. 그러나 컴포저 입력은 보존돼야 한다(핵심).
+    await expect(page.getByText('서버 오류')).toBeVisible();
+    await expect(input).toContainText('전송실패될메시지XYZ');
+    // 첫 시도는 500 이라 성공 payload 가 기록되지 않는다(setup 핸들러는 성공 시에만 push).
+    expect(stubs.createPayloads).toEqual([]);
+
+    // 재시도: 보존된 입력을 그대로 다시 전송하면 이번엔 성공한다.
+    await page.getByTestId('chat-composer-submit').click();
+    await expect
+      .poll(() => stubs.createPayloads.map((p) => p.body.trim()))
+      .toEqual(['전송실패될메시지XYZ']);
+    // 성공 확정 후엔 컴포저가 비워진다(#123: 성공 시에만 clear).
+    await expect(input).not.toContainText('전송실패될메시지XYZ');
+  });
+
+  // #123 회귀 — 수정 실패(PATCH 500) 시 에디터가 강제로 닫히지 않고 입력 내용을 보존해야 한다.
+  // (예전 버그: onSettled 가 실패에도 setEditingId(null) 로 에디터를 닫아 수정 내용이 소실됐음.
+  //  useUpdateChatMessage 의 onError 캐시 보존 의도 "재시도 가능" 과 정면 모순)
+  test('수정 실패(500) 시 에디터 유지 + 수정 내용 보존 + 재시도 성공', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'edit fail' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: [
+        createChatMessage({
+          id: 600,
+          threadId: THREAD_ID,
+          authorId: ME_ID,
+          authorName: '테스트 사용자',
+          authorKind: 'HUMAN',
+          body: '원본메시지테스트',
+        }),
+      ],
+    };
+    stubs.messages = stubs.thread.recentMessages;
+    await setupChatStubs(page, stubs);
+
+    // PATCH 를 첫 1회만 500 으로 강제, 이후엔 setup 핸들러로 위임해 정상 처리.
+    let failNext = true;
+    await page.route(
+      (url) => /\/api\/v1\/chat\/messages\/\d+$/.test(url.pathname),
+      (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        if (failNext) {
+          failNext = false;
+          return route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: '수정 서버 오류' }),
+          });
+        }
+        return route.fallback();
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const row = page.getByTestId('chat-message-600');
+    await row.hover();
+    await page.getByTestId('chat-message-edit-600').click();
+    const editor = page.getByTestId('chat-message-editor-input');
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.type('원본메시지테스트_수정중인내용');
+    await page.getByTestId('chat-message-editor-save').click();
+
+    // 실패 토스트 + 에디터 유지 + 수정 내용 보존(에디터가 닫히지 않아야 함 — 핵심).
+    await expect(page.getByText('수정 서버 오류')).toBeVisible();
+    await expect(page.getByTestId('chat-message-editor')).toBeVisible();
+    await expect(editor).toContainText('원본메시지테스트_수정중인내용');
+    // 첫 PATCH 는 내 핸들러가 500 으로 가로채 setup 핸들러에 도달하지 않으므로 payload 미기록.
+    expect(stubs.patchPayloads).toEqual([]);
+
+    // 재시도: 보존된 수정 내용으로 다시 저장하면 이번엔 성공하고 에디터가 닫힌다.
+    await page.getByTestId('chat-message-editor-save').click();
+    await expect
+      .poll(() => stubs.patchPayloads)
+      .toEqual([{ id: 600, body: '원본메시지테스트_수정중인내용' }]);
+    await expect(page.getByTestId('chat-message-editor')).toHaveCount(0);
+    await expect(page.getByTestId('chat-message-body-600')).toHaveText(
+      '원본메시지테스트_수정중인내용',
+    );
   });
 });

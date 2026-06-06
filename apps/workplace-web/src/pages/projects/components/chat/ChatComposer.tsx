@@ -6,7 +6,8 @@ import { RichInput } from '@/components/mentions/RichInput';
 
 interface ChatComposerProps {
   members: ChatMemberResponse[];
-  onSubmit: (body: string) => void;
+  // Promise 를 반환하면 RichInput 이 성공(resolve) 시에만 입력창을 비운다 — 전송 실패 시 입력 보존(#123).
+  onSubmit: (body: string) => void | Promise<unknown>;
   // 입력 중일 때마다 호출 (타이핑 송신). 호출처에서 throttle.
   onTyping?: () => void;
 }

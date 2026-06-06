@@ -25,7 +25,9 @@ interface RichInputProps {
   initialBody?: string;
   initialMentions?: MentionUser[];
   placeholder?: string;
-  onSubmit: (body: string) => void;
+  // void 면 즉시(다음 microtask) clear. Promise 를 반환하면 resolve(성공) 시에만 clear,
+  // reject(전송 실패) 면 입력을 보존해 재시도 가능하게 한다(#123).
+  onSubmit: (body: string) => void | Promise<unknown>;
   onCancel?: () => void;
   // 본문이 바뀔 때마다 호출 (타이핑 송신용). 제출/clear 도 onUpdate 를 트리거하나 호출처에서 throttle.
   onChange?: () => void;
@@ -209,10 +211,24 @@ export function RichInput({
       onCancel();
       return;
     }
-    onSubmitRef.current(body);
+    const result = onSubmitRef.current(body);
     if (clearOnSubmit) {
-      editor.commands.clearContent();
-      editor.commands.focus();
+      // 성공 시에만 입력창을 비운다(#123). onSubmit 이 전송 mutation Promise 를 반환하면
+      // resolve(성공) 후 clear, reject(전송 실패) 면 입력을 보존해 즉시 재시도할 수 있게 한다.
+      // void 반환(첨부 attach 등 비-Promise 경로)이면 resolve 로 취급해 기존처럼 비운다.
+      Promise.resolve(result).then(
+        () => {
+          // 비동기 resolve 시점에 언마운트됐을 수 있으므로 editor 파괴 여부를 확인.
+          if (editor.isDestroyed) return;
+          editor.commands.clearContent();
+          editor.commands.focus();
+        },
+        () => {
+          // 전송 실패: 입력 유지. 포커스만 복귀시켜 재시도 가능하게.
+          if (editor.isDestroyed) return;
+          editor.commands.focus();
+        },
+      );
     }
   }
 

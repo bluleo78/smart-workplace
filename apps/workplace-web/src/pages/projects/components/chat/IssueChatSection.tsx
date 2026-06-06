@@ -175,9 +175,12 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
               initialMentions={m.mentions}
               members={thread.members}
               onSave={(body) => {
+                // 성공 시에만 에디터를 닫는다(#123). onSettled 는 실패에도 닫혀 수정 내용이
+                // 소실됐다 — useUpdateChatMessage 가 onError 에서 캐시를 보존하는 의도(재시도 가능)와
+                // 일치시키기 위해 onSuccess 로 전환. 실패 시 에디터는 입력 내용을 유지한 채 열려 있다.
                 updateMutation.mutate(
                   { messageId: m.id, payload: { body } },
-                  { onSettled: () => setEditingId(null) },
+                  { onSuccess: () => setEditingId(null) },
                 );
               }}
               onCancel={() => setEditingId(null)}
@@ -191,7 +194,7 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
         )}
         <ChatComposer
           members={thread.members}
-          onSubmit={(body) => createMutation.mutate({ body })}
+          onSubmit={(body) => createMutation.mutateAsync({ body })}
           onTyping={handleTyping}
         />
       </CardContent>
