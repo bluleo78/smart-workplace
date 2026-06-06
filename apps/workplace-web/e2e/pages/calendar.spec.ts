@@ -324,8 +324,9 @@ test(
     expect(url.searchParams.get('scope')).toBe('THIS')
     // occurrenceDate 는 회차 행 값(불투명 문자열)을 그대로 echo
     expect(url.searchParams.get('occurrenceDate')).toBe(OCC_DATES[0])
-    // 수정 body 동봉
-    expect(patch.postDataJSON()).toBeTruthy()
+    // 수정한 제목이 PATCH body 에 실제로 담겼는지 확인 + 반복 규칙 필드 존재
+    expect(patch.postDataJSON().title).toBe('수정된 회차')
+    expect(patch.postDataJSON().recurrenceRule).toBeTruthy()
 
     await expect(page.getByTestId('calendar-recurrence-scope-dialog')).toBeHidden()
   },

@@ -22,6 +22,7 @@ export function calendarEvent(over: Partial<CalendarEvent> = {}): CalendarEvent 
 // 반복 일정의 가상 occurrence 목록을 만든다 (이슈 #111, Task 9 E2E 용).
 // occurrenceDates 각 항목마다 한 건씩: id/masterEventId 는 masterId 공통,
 // startsAt·occurrenceDate 는 해당 날짜, endsAt 는 시작 +1시간.
+// 가상 회차는 백엔드 계약상 id == masterEventId == master id (회차는 occurrenceDate 로 식별).
 export function recurringCalendarEvent(
   masterId: number,
   occurrenceDates: string[],
