@@ -1,8 +1,10 @@
 package com.workplace.calendar;
 
+import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT_EXCEPTION;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
@@ -76,5 +78,36 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
     // 4회 중 취소 1회 제외 → 3회.
     assertThat(r).hasSize(3);
     assertThat(r).extracting(CalendarEventResponse::startsAt).doesNotContain(secondOccurrence);
+  }
+
+  /** 쓰기 시점에 잘못된 RRULE 은 거부된다(IllegalArgumentException → 전역 핸들러 400). */
+  @Test
+  void create_invalidRecurrenceRule_rejected() {
+    long u = user();
+    assertThatThrownBy(() -> service.create(u, recurringReq("GARBAGE", BASE, BASE.plusHours(1))))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** DB 레벨로 손상된 RRULE 마스터가 섞여 있어도 list() 는 500 없이 정상 이벤트만 반환한다(per-master 격리). */
+  @Test
+  void list_corruptMasterRule_isolatedAndReturnsValidEvents() {
+    long u = user();
+    // 정상 주간 마스터.
+    service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    // 손상된 규칙을 가진 마스터를 DB 에 직접 삽입(쓰기 검증 우회).
+    dsl.insertInto(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.OWNER_ID, u)
+        .set(CALENDAR_EVENT.TITLE, "손상")
+        .set(CALENDAR_EVENT.STARTS_AT, BASE)
+        .set(CALENDAR_EVENT.ENDS_AT, BASE.plusHours(1))
+        .set(CALENDAR_EVENT.ALL_DAY, false)
+        .set(CALENDAR_EVENT.RECURRENCE_RULE, "GARBAGE")
+        .execute();
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(4));
+
+    // 손상 마스터는 스킵, 정상 주간 마스터 4회만 반환.
+    assertThat(r).hasSize(4);
+    assertThat(r).allSatisfy(e -> assertThat(e.recurrenceRule()).isEqualTo("FREQ=WEEKLY"));
   }
 }

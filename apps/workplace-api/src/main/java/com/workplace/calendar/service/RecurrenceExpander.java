@@ -56,10 +56,18 @@ public class RecurrenceExpander {
     return result;
   }
 
-  /** RRULE 파싱 — 잘못된 규칙이면 비검사 예외로 전환(저장된 규칙 손상은 상위에서 처리). */
+  /** RRULE 유효성 검증(쓰기 시점) — 잘못된 규칙이면 IllegalArgumentException(전역 핸들러에서 400). 파싱 성공 여부만 확인한다. */
+  public void validate(String rrule) {
+    parse(rrule);
+  }
+
+  /**
+   * RRULE 파싱 — RFC2445_LAX(관용 파싱)로 일부 비표준 입력도 허용. 잘못된 규칙이면 비검사 예외로 전환(쓰기 검증 400 / list per-master
+   * 격리에서 처리).
+   */
   private static RecurrenceRule parse(String rrule) {
     try {
-      return new RecurrenceRule(rrule);
+      return new RecurrenceRule(rrule, RecurrenceRule.RfcMode.RFC2445_LAX);
     } catch (InvalidRecurrenceRuleException e) {
       throw new IllegalArgumentException("invalid recurrence rule: " + rrule, e);
     }

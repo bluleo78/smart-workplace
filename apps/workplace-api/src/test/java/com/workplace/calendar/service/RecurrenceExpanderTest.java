@@ -1,6 +1,7 @@
 package com.workplace.calendar.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -46,5 +47,25 @@ class RecurrenceExpanderTest {
             OffsetDateTime.parse("2026-06-01T00:00:00Z"),
             OffsetDateTime.parse("2026-12-31T00:00:00Z"));
     assertThat(occ).hasSize(3);
+  }
+
+  /** 잘못된 RRULE 은 IllegalArgumentException(전역 핸들러에서 400) 으로 전환되어야 한다. */
+  @Test
+  void validate_invalidRule_throws() {
+    assertThatThrownBy(() -> expander.validate("GARBAGE"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** expand 도 잘못된 규칙이면 동일하게 IllegalArgumentException(list per-master 격리 대상). */
+  @Test
+  void expand_invalidRule_throws() {
+    assertThatThrownBy(
+            () ->
+                expander.expand(
+                    "GARBAGE",
+                    OffsetDateTime.parse("2026-06-01T09:00:00Z"),
+                    OffsetDateTime.parse("2026-06-01T00:00:00Z"),
+                    OffsetDateTime.parse("2026-12-31T00:00:00Z")))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }

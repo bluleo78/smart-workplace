@@ -16,11 +16,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 개인 일정 CRUD 유스케이스. owner=호출자만 접근 가능(비-owner→404). */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class CalendarEventService {
   private final CalendarEventRepository repo;
@@ -28,9 +30,10 @@ public class CalendarEventService {
   private final CalendarEventExceptionRepository exceptionRepo;
   private final RecurrenceExpander expander;
 
-  /** 일정 생성 — owner=caller. */
+  /** 일정 생성 — owner=caller. RRULE 이 있으면 쓰기 시점에 검증(잘못된 규칙→400). */
   @Transactional
   public CalendarEventResponse create(long callerId, CalendarEventRequest req) {
+    validateRecurrence(req.recurrenceRule());
     long id = repo.insert(callerId, req);
     applyReminder(id, req.reminderMinutes());
     return get(callerId, id);
@@ -58,13 +61,18 @@ public class CalendarEventService {
           exceptionRepo.occurrencesByEvent(
               masters.stream().map(CalendarEventResponse::id).toList());
       for (CalendarEventResponse m : masters) {
-        Set<Instant> skip = exceptions.getOrDefault(m.id(), Collections.emptySet());
-        Duration duration = Duration.between(m.startsAt(), m.endsAt());
-        for (OffsetDateTime s : expander.expand(m.recurrenceRule(), m.startsAt(), from, to)) {
-          if (skip.contains(s.toInstant())) {
-            continue;
+        // 마스터 1개의 손상된 RRULE 이 전체 조회를 죽이지 않도록 격리(로그 후 스킵). DB 레벨 손상 방어.
+        try {
+          Set<Instant> skip = exceptions.getOrDefault(m.id(), Collections.emptySet());
+          Duration duration = Duration.between(m.startsAt(), m.endsAt());
+          for (OffsetDateTime s : expander.expand(m.recurrenceRule(), m.startsAt(), from, to)) {
+            if (skip.contains(s.toInstant())) {
+              continue;
+            }
+            result.add(toOccurrence(m, s, duration));
           }
-          result.add(toOccurrence(m, s, duration));
+        } catch (RuntimeException e) {
+          log.warn("반복 마스터 회차 전개 실패 — 건너뜀. eventId={}, rule={}", m.id(), m.recurrenceRule(), e);
         }
       }
     }
@@ -93,10 +101,11 @@ public class CalendarEventService {
         m.updatedAt());
   }
 
-  /** 전체 교체 — 비-owner→404. */
+  /** 전체 교체 — 비-owner→404. RRULE 이 있으면 쓰기 시점에 검증(잘못된 규칙→400). */
   @Transactional
   public CalendarEventResponse update(long callerId, long id, CalendarEventRequest req) {
     requireOwner(callerId, id);
+    validateRecurrence(req.recurrenceRule());
     repo.update(id, req);
     applyReminder(id, req.reminderMinutes());
     return get(callerId, id);
@@ -107,6 +116,13 @@ public class CalendarEventService {
   public void delete(long callerId, long id) {
     requireOwner(callerId, id);
     repo.delete(id);
+  }
+
+  /** RRULE 쓰기 검증 — 비어있지 않으면 파싱 시도(잘못된 규칙→IllegalArgumentException→400). null/공백은 단일 일정이라 통과. */
+  private void validateRecurrence(String recurrenceRule) {
+    if (recurrenceRule != null && !recurrenceRule.isBlank()) {
+      expander.validate(recurrenceRule);
+    }
   }
 
   /** 리마인더 반영 — null 이면 제거, 값 있으면 upsert(저장 시 재무장). */
