@@ -14,7 +14,6 @@ import { cn } from '@/lib/utils'
 
 import { ChannelBrowser } from './ChannelBrowser'
 import { CreateChannelModal } from './CreateChannelModal'
-import { NewDmModal } from './NewDmModal'
 
 export function ChannelSidebar() {
   const { id } = useParams()
@@ -28,7 +27,6 @@ export function ChannelSidebar() {
   const myId = user?.id ?? 0
   const [createOpen, setCreateOpen] = useState(false)
   const [browseOpen, setBrowseOpen] = useState(false)
-  const [newDmOpen, setNewDmOpen] = useState(false)
 
   return (
     <aside
@@ -113,40 +111,57 @@ export function ChannelSidebar() {
             className="h-6 w-6"
             data-testid="dm-new-btn"
             aria-label="새 메시지"
-            onClick={() => setNewDmOpen(true)}
+            asChild
           >
-            <Plus className="h-4 w-4" />
+            <Link to="/chat/new">
+              <Plus className="h-4 w-4" />
+            </Link>
           </Button>
         </div>
         <nav className="mt-2 space-y-1" data-testid="dm-list">
-          {dms?.map((dm) => (
-            <Link
-              key={dm.id}
-              to={`/chat/dms/${dm.id}`}
-              data-testid={`dm-link-${dm.id}`}
-              className={cn(
-                'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
-                isDmRoute && activeId === dm.id
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:bg-accent/50',
-              )}
-            >
-              <MessageSquare className="h-4 w-4 shrink-0" />
-              <span className="truncate">{dmDisplayName(dm, myId)}</span>
-              {dm.unreadCount > 0 && (
-                <span
-                  data-testid={`dm-unread-${dm.id}`}
-                  className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
-                >
-                  {dm.unreadCount > 99 ? '99+' : dm.unreadCount}
-                </span>
-              )}
-            </Link>
-          ))}
+          {/* self-DM("나") 고정 항목 — 항상 맨 위. 클릭 시 find-or-create 후 진입. */}
+          <Link
+            to="/chat/dms/self"
+            data-testid="dm-self-link"
+            className={cn(
+              'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
+              location.pathname === '/chat/dms/self'
+                ? 'bg-accent text-accent-foreground'
+                : 'text-muted-foreground hover:bg-accent/50',
+            )}
+          >
+            <MessageSquare className="h-4 w-4 shrink-0" />
+            <span className="truncate">{user?.name ? `${user.name} (나)` : '나'}</span>
+          </Link>
+          {dms
+            ?.filter((dm) => dm.participants.filter((p) => p.userId !== myId).length > 0)
+            .map((dm) => (
+              <Link
+                key={dm.id}
+                to={`/chat/dms/${dm.id}`}
+                data-testid={`dm-link-${dm.id}`}
+                className={cn(
+                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
+                  isDmRoute && activeId === dm.id
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50',
+                )}
+              >
+                <MessageSquare className="h-4 w-4 shrink-0" />
+                <span className="truncate">{dmDisplayName(dm, myId)}</span>
+                {dm.unreadCount > 0 && (
+                  <span
+                    data-testid={`dm-unread-${dm.id}`}
+                    className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
+                  >
+                    {dm.unreadCount > 99 ? '99+' : dm.unreadCount}
+                  </span>
+                )}
+              </Link>
+            ))}
         </nav>
       </div>
 
-      <NewDmModal open={newDmOpen} onOpenChange={setNewDmOpen} />
       <CreateChannelModal open={createOpen} onOpenChange={setCreateOpen} />
       <ChannelBrowser open={browseOpen} onOpenChange={setBrowseOpen} />
     </aside>

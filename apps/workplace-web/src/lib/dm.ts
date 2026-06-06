@@ -4,7 +4,11 @@ import type { DmResponse } from '../types/messaging';
 
 export function dmDisplayName(dm: DmResponse, currentUserId: number): string {
   const others = dm.participants.filter((p) => p.userId !== currentUserId);
-  if (others.length === 0) return '(나)'; // 방어적 — 정상 DM 엔 발생 안 함
+  if (others.length === 0) {
+    // self-DM — 본인 이름 + "(나)" (Slack 의 "(you)" 방식).
+    const me = dm.participants.find((p) => p.userId === currentUserId);
+    return me ? `${me.name} (나)` : '(나)';
+  }
   if (others.length === 1) return others[0].name;
   if (others.length <= 3) return others.map((p) => p.name).join(', ');
   return `${others[0].name}, ${others[1].name} 외 ${others.length - 2}명`;

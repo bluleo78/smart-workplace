@@ -36,6 +36,8 @@ export interface MemberSearchPopoverProps {
   existingMemberIds: Set<number>;
   onSelect: (user: UserResponse) => void | Promise<void>;
   trigger: React.ReactNode;
+  // 검색 결과에서 완전히 제외할 사용자 id(예: DM compose 의 본인). 미전달 시 제외 없음.
+  excludeUserIds?: Set<number>;
 }
 
 export function MemberSearchPopover({
@@ -44,6 +46,7 @@ export function MemberSearchPopover({
   existingMemberIds,
   onSelect,
   trigger,
+  excludeUserIds,
 }: MemberSearchPopoverProps) {
   const [query, setQuery] = useState('');
   const [kindFilter, setKindFilter] = useState<KindFilter>('ALL');
@@ -51,9 +54,9 @@ export function MemberSearchPopover({
   const search = useUserSearch(debounced);
 
   // kind 필터 적용 — 백엔드는 kind 필터를 지원하지 않으므로 클라이언트에서 분기.
-  const items = (search.data?.content ?? []).filter((u) =>
-    kindFilter === 'ALL' ? true : u.kind === kindFilter,
-  );
+  const items = (search.data?.content ?? [])
+    .filter((u) => !excludeUserIds?.has(u.id)) // 본인 등 제외 대상
+    .filter((u) => (kindFilter === 'ALL' ? true : u.kind === kindFilter));
 
   // 후보 선택 — 이미 멤버면 무시, 아니면 부모 mutation 후 검색어만 비움.
   const handleSelect = async (user: UserResponse) => {

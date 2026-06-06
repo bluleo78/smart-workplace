@@ -40,8 +40,9 @@ public class DmService {
     LinkedHashSet<Long> members = new LinkedHashSet<>();
     members.add(callerId);
     members.addAll(targetUserIds);
-    if (members.size() < 2) {
-      throw new InvalidDmRequestException("자기 자신과는 DM 할 수 없습니다");
+    // self-DM(본인만, size==1) 허용 — 개인 메모 공간. 빈 멤버셋만 방어(상단 targetUserIds 검사로 사실상 불가).
+    if (members.isEmpty()) {
+      throw new InvalidDmRequestException("대상이 비어 있습니다");
     }
     if (members.size() > MAX_MEMBERS) {
       throw new InvalidDmRequestException("DM 은 본인 포함 최대 " + MAX_MEMBERS + "명입니다");

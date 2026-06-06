@@ -61,15 +61,26 @@ async function stubMessages(page: Page, dmId: number, items: ReturnType<typeof c
   )
 }
 
+// mark-read stub — 응답만 처리, 검증 불필요.
+async function stubMarkRead(page: Page, dmId: number) {
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${dmId}/read`,
+    (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 204, body: '' })
+        : route.fallback(),
+  )
+}
+
 test.describe('messaging DM', () => {
   test('새 1:1 DM 생성 → DM 섹션 등장 → 진입', { tag: '@smoke' }, async ({
     authenticatedPage: page,
   }) => {
-    // 초기: DM 없음. 생성 후: DM 1개.
+    // 초기: DM 없음. 생성 후: DM 1개. POST /messaging/dms 로 find-or-create.
     const created = createDm({
       id: 100,
       participants: [
-        createDmParticipant({ userId: 1, name: '나' }),
+        createDmParticipant({ userId: 1, name: '테스트 사용자' }),
         createDmParticipant({ userId: 2, name: '밥' }),
       ],
     })
@@ -107,6 +118,19 @@ test.describe('messaging DM', () => {
     )
     await stubStream(page)
     await stubMessages(page, 100, [])
+    await stubMarkRead(page, 100)
+    // 첫 메시지 전송 stub
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels/100/messages',
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback()
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(createMessage({ id: 1, channelId: 100, authorId: 1, body: '안녕' })),
+        })
+      },
+    )
     // 사용자 검색(MemberSearchPopover) stub — id=2 '밥'. PageResponse<UserResponse> 형태.
     await page.route(
       (url) => url.pathname === '/api/v1/users',
@@ -121,13 +145,22 @@ test.describe('messaging DM', () => {
         }),
     )
 
+    // dm-new-btn 은 <Link to="/chat/new"> — /chat/new 로 이동해 인라인 compose 렌더.
     await page.goto('/chat')
     await page.getByTestId('dm-new-btn').click()
-    await page.getByTestId('new-dm-add-btn').click()
+    await expect(page).toHaveURL(/\/chat\/new$/)
+    await expect(page.getByTestId('new-message-page')).toBeVisible()
+
+    // 수신자 선택
+    await page.getByTestId('new-message-add-recipient').click()
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
     await page.getByTestId('member-search-row-2').click()
-    await expect(page.getByTestId('new-dm-chip-2')).toBeVisible()
-    await page.getByTestId('new-dm-start-btn').click()
+    await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
+
+    // 메시지 작성 + 전송(Enter)
+    await page.getByTestId('message-composer-input').click()
+    await page.keyboard.type('안녕')
+    await page.keyboard.press('Enter')
 
     // 1) URL 라우팅 2) 사이드바 DM 섹션에 상대 이름으로 등장 3) 대화 헤더 진입.
     await expect(page).toHaveURL(/\/chat\/dms\/100$/)
@@ -136,11 +169,11 @@ test.describe('messaging DM', () => {
   })
 
   test('그룹 DM 생성 → 다중 선택 → payload → 표시명', async ({ authenticatedPage: page }) => {
-    // 그룹 DM 을 NewDmModal 다중 선택으로 직접 만들고, POST payload·표시명을 검증한다.
+    // 그룹 DM 을 인라인 compose 다중 선택으로 직접 만들고, POST payload·표시명을 검증한다.
     const group = createDm({
       id: 101,
       participants: [
-        createDmParticipant({ userId: 1, name: '나' }),
+        createDmParticipant({ userId: 1, name: '테스트 사용자' }),
         createDmParticipant({ userId: 2, name: '밥' }),
         createDmParticipant({ userId: 3, name: '캐럴' }),
       ],
@@ -182,6 +215,19 @@ test.describe('messaging DM', () => {
     )
     await stubStream(page)
     await stubMessages(page, 101, [])
+    await stubMarkRead(page, 101)
+    // 첫 메시지 전송 stub
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels/101/messages',
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback()
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(createMessage({ id: 2, channelId: 101, authorId: 1, body: '안녕' })),
+        })
+      },
+    )
     // 사용자 검색 stub — 밥(2)·캐럴(3) 둘 다 반환.
     await page.route(
       (url) => url.pathname === '/api/v1/users',
@@ -199,17 +245,21 @@ test.describe('messaging DM', () => {
         }),
     )
 
-    await page.goto('/chat')
-    await page.getByTestId('dm-new-btn').click()
-    await page.getByTestId('new-dm-add-btn').click()
+    await page.goto('/chat/new')
+    await expect(page.getByTestId('new-message-page')).toBeVisible()
+    await page.getByTestId('new-message-add-recipient').click()
     // MemberSearchPopover 는 select 시 닫히지 않고 쿼리만 비운다 → 같은 입력에 이어서 검색.
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
     await page.getByTestId('member-search-row-2').click()
-    await expect(page.getByTestId('new-dm-chip-2')).toBeVisible()
+    await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('캐럴')
     await page.getByTestId('member-search-row-3').click()
-    await expect(page.getByTestId('new-dm-chip-3')).toBeVisible()
-    await page.getByTestId('new-dm-start-btn').click()
+    await expect(page.getByTestId('recipient-chip-3')).toBeVisible()
+
+    // 메시지 작성 + 전송
+    await page.getByTestId('message-composer-input').click()
+    await page.keyboard.type('안녕')
+    await page.keyboard.press('Enter')
 
     await expect(page).toHaveURL(/\/chat\/dms\/101$/)
     await expect(page.getByTestId('dm-title')).toHaveText('밥, 캐럴')
@@ -219,6 +269,7 @@ test.describe('messaging DM', () => {
     const dm = createDm({ id: 102 })
     await stubLists(page, [dm])
     await stubMessages(page, 102, [])
+    await stubMarkRead(page, 102)
     await page.route(
       (url) => url.pathname === '/api/v1/messaging/channels/102/messages',
       (route) => {
@@ -250,10 +301,13 @@ test.describe('messaging DM', () => {
     await expect(page.getByTestId('dm-not-found')).toBeVisible()
   })
 
-  test('참여자 7명 선택 시 추가 버튼 비활성(본인 포함 8명 상한)', async ({
+  test('참여자 7명 초과 선택 거부(본인 포함 8명 상한)', async ({
     authenticatedPage: page,
   }) => {
-    // 후보 7명(ids 2~8) — 각자 고유 이름으로 정확히 검색해 모호성 제거.
+    // 후보 8명(ids 2~9) — 7명까지 선택 후 8번째 시도가 무시됨을 검증.
+    // 참고: 구 NewDmModal 은 7명 도달 시 추가 버튼을 disabled 처리했으나,
+    // 인라인 compose(NewMessagePage)는 addRecipient 로직에서 초과를 무시하고 버튼 disabled 는 없다.
+    // 이는 UX 어포던스 차이이며, 상한 로직 자체는 정상 동작함을 이 테스트로 검증한다.
     const candidates = [
       { id: 2, name: '밥', username: 'bob' },
       { id: 3, name: '캐럴', username: 'carol' },
@@ -263,6 +317,7 @@ test.describe('messaging DM', () => {
       { id: 7, name: '그레이스', username: 'grace' },
       { id: 8, name: '하이디', username: 'heidi' },
     ]
+    const extra = { id: 9, name: '아이반', username: 'ivan', kind: 'HUMAN' }
     await stubLists(page, [])
     await page.route(
       (url) => url.pathname === '/api/v1/users',
@@ -271,25 +326,31 @@ test.describe('messaging DM', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            content: candidates.map((c) => ({ ...c, kind: 'HUMAN' })),
-            totalElements: candidates.length,
+            content: [...candidates.map((c) => ({ ...c, kind: 'HUMAN' })), extra],
+            totalElements: candidates.length + 1,
           }),
         }),
     )
 
-    await page.goto('/chat')
-    await page.getByTestId('dm-new-btn').click()
-    await page.getByTestId('new-dm-add-btn').click()
+    await page.goto('/chat/new')
+    await expect(page.getByTestId('new-message-page')).toBeVisible()
+    await page.getByTestId('new-message-add-recipient').click()
     // popover 는 select 시 닫히지 않으므로 같은 입력에 이어서 7명을 누적 선택.
     for (const c of candidates) {
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill(c.name)
       await page.getByTestId(`member-search-row-${c.id}`).click()
-      await expect(page.getByTestId(`new-dm-chip-${c.id}`)).toBeVisible()
+      await expect(page.getByTestId(`recipient-chip-${c.id}`)).toBeVisible()
     }
 
-    // 7명(본인 포함 8) 도달 → 추가 비활성, 시작은 활성.
-    await expect(page.getByTestId('new-dm-add-btn')).toBeDisabled()
-    await expect(page.getByTestId('new-dm-start-btn')).not.toBeDisabled()
+    // 8번째(아이반) 시도 — addRecipient 가 MAX_TARGETS(7) 초과로 무시해야 한다.
+    await page.getByPlaceholder('이름·아이디·이메일로 검색').fill(extra.name)
+    await page.getByTestId(`member-search-row-${extra.id}`).click()
+
+    // 칩이 여전히 7개 — 8번째 추가 거부 확인.
+    await expect(
+      page.getByTestId('new-message-recipients').locator('[data-testid^="recipient-chip-"]'),
+    ).toHaveCount(7)
+    await expect(page.getByTestId(`recipient-chip-${extra.id}`)).toHaveCount(0)
   })
 
   test('DM 생성 400 → 에러 토스트', async ({ authenticatedPage: page }) => {
@@ -323,13 +384,17 @@ test.describe('messaging DM', () => {
         }),
     )
 
-    await page.goto('/chat')
-    await page.getByTestId('dm-new-btn').click()
-    await page.getByTestId('new-dm-add-btn').click()
+    await page.goto('/chat/new')
+    await expect(page.getByTestId('new-message-page')).toBeVisible()
+    await page.getByTestId('new-message-add-recipient').click()
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
     await page.getByTestId('member-search-row-2').click()
-    await expect(page.getByTestId('new-dm-chip-2')).toBeVisible()
-    await page.getByTestId('new-dm-start-btn').click()
+    await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
+
+    // 메시지 작성 + 전송 → POST /dms 400 → 토스트 표시.
+    await page.getByTestId('message-composer-input').click()
+    await page.keyboard.type('테스트')
+    await page.keyboard.press('Enter')
 
     // Sonner 토스트 — 기존 스펙과 동일하게 메시지 텍스트로 검증.
     await expect(page.getByText('자기 자신과는 DM 할 수 없습니다')).toBeVisible()

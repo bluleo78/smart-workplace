@@ -67,10 +67,23 @@ class DmServiceTest extends IntegrationTestBase {
     long a = seedUser();
     assertThatThrownBy(() -> dmService.createOrGet(a, List.of()))
         .isInstanceOf(InvalidDmRequestException.class);
-    assertThatThrownBy(() -> dmService.createOrGet(a, List.of(a))) // self-only
-        .isInstanceOf(InvalidDmRequestException.class);
     assertThatThrownBy(() -> dmService.createOrGet(a, List.of(999_999_999L))) // 미존재
         .isInstanceOf(InvalidDmRequestException.class);
+  }
+
+  /** self-DM(본인만) 은 생성·dedup 되어야 한다(개인 메모 공간). */
+  @Test
+  void createOrGet_selfDm_createsAndDedups() {
+    long a = seedUser();
+
+    var first = dmService.createOrGet(a, List.of(a)); // 본인 id 를 타겟으로
+    var again = dmService.createOrGet(a, List.of(a));
+
+    assertThat(first.created()).isTrue();
+    assertThat(again.created()).isFalse();
+    assertThat(again.dm().id()).isEqualTo(first.dm().id());
+    assertThat(first.dm().participants()).hasSize(1);
+    assertThat(first.dm().participants().get(0).userId()).isEqualTo(a);
   }
 
   @Test
