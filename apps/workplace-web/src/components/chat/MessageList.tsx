@@ -122,8 +122,11 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                     initialBody={m.body}
                     initialMentions={m.mentions}
                     onSubmit={(body) => {
-                      update.mutate({ messageId: m.id, body })
-                      setEditingId(null)
+                      // #124 수정: 성공 시에만 에디터 닫기. 실패 시 에디터는 입력 내용을 유지한 채 열려 있다.
+                      update.mutate(
+                        { messageId: m.id, body },
+                        { onSuccess: () => setEditingId(null) },
+                      )
                     }}
                     onCancel={() => setEditingId(null)}
                     submitLabel="저장"

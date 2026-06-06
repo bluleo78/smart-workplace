@@ -226,6 +226,87 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('(삭제됨)')
   })
 
+  // 2-1) #124 회귀 — 수정 실패(PATCH 500) 시 에디터가 강제로 닫히지 않고 입력 내용을 보존해야 한다.
+  // (예전 버그: setEditingId(null) 이 mutate() 직후 동기 호출되어 성공/실패 무관하게 에디터 닫힘)
+  test('수정 실패(500) 시 에디터 유지 + 수정 내용 보존 + 재시도 성공', async ({
+    authenticatedPage: page,
+  }) => {
+    const CHANNEL_ID = 203
+    const MSG_ID = 900
+    const channel = createChannel({ id: CHANNEL_ID, name: '실패테스트채널', member: true })
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [
+      createMessage({
+        id: MSG_ID,
+        channelId: CHANNEL_ID,
+        authorId: ME_ID,
+        authorName: '나',
+        body: '원본메시지',
+      }),
+    ])
+
+    // PATCH — 첫 1회는 500 반환, 이후에는 성공 응답 반환.
+    let failNext = true
+    let patchPayloads: { body: string }[] = []
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}`,
+      (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback()
+        const payload = route.request().postDataJSON() as { body: string }
+        if (failNext) {
+          failNext = false
+          return route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: '수정 서버 오류' }),
+          })
+        }
+        patchPayloads.push(payload)
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            createMessage({
+              id: MSG_ID,
+              channelId: CHANNEL_ID,
+              authorId: ME_ID,
+              authorName: '나',
+              body: payload.body,
+              editedAt: new Date('2026-06-07T01:00:00Z').toISOString(),
+            }),
+          ),
+        })
+      },
+    )
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toBeVisible()
+
+    // hover → 수정 버튼 클릭 → 에디터 열림
+    await page.getByTestId(`message-${MSG_ID}`).hover()
+    await page.getByTestId(`message-edit-${MSG_ID}`).click()
+    const editor = page.getByTestId(`message-editor-input-${MSG_ID}`)
+    await editor.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type('_수정중인내용')
+    await page.getByTestId(`message-editor-save-${MSG_ID}`).click()
+
+    // 실패 토스트 + 에디터 유지(닫히지 않음) + 수정 내용 보존 — #124 핵심 검증.
+    await expect(page.getByText('수정 서버 오류')).toBeVisible()
+    await expect(page.getByTestId(`message-editor-${MSG_ID}`)).toBeVisible()
+    await expect(editor).toContainText('원본메시지_수정중인내용')
+
+    // 재시도: 보존된 내용으로 다시 저장 → 성공 → 에디터 닫힘.
+    await page.getByTestId(`message-editor-save-${MSG_ID}`).click()
+    await expect.poll(() => patchPayloads).toEqual([{ body: '원본메시지_수정중인내용' }])
+    await expect(page.getByTestId(`message-editor-${MSG_ID}`)).toHaveCount(0)
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toContainText('원본메시지_수정중인내용')
+  })
+
   // 3) unread 배지: 사이드바에 unread>0 배지 → SSE read 이벤트(본인) 로 목록 invalidate
   //    → 재조회가 unreadCount:0 반환 → 배지 사라짐.
   //    레이스 회피: SSE read 이벤트를 mount 즉시 흘리지 않고, 배지가 화면에 뜬 것을 확인한
