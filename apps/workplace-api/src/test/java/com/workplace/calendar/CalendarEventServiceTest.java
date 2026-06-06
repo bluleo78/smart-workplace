@@ -41,12 +41,12 @@ class CalendarEventServiceTest extends IntegrationTestBase {
 
   /** 일정 요청 헬퍼(리마인더 없음). */
   private CalendarEventRequest req(OffsetDateTime s, OffsetDateTime e) {
-    return new CalendarEventRequest("회의", null, s, e, false, null, null, null);
+    return new CalendarEventRequest("회의", null, s, e, false, null, null, null, null);
   }
 
   /** 리마인더 포함 일정 요청 헬퍼. */
   private CalendarEventRequest reqWithReminder(OffsetDateTime s, OffsetDateTime e, int minutes) {
-    return new CalendarEventRequest("회의", null, s, e, false, null, null, minutes);
+    return new CalendarEventRequest("회의", null, s, e, false, null, null, minutes, null);
   }
 
   @Test
