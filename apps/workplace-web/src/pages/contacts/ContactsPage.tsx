@@ -61,10 +61,10 @@ export function ContactsPage() {
   const [selected, setSelected] = useState<ContactSelection | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
 
-  // 그룹 전환 시 이전 선택(상세 패널) 초기화
+  // 그룹·타입·검색 등 목록 필터 전환 시 이전 선택(상세 패널) 초기화 — 좁은 화면에서 사이드바 필터를 바꿔도 상세가 남지 않도록.
   useEffect(() => {
     setSelected(null)
-  }, [groupId])
+  }, [groupId, search, type])
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useContacts(
     search,
     type,
