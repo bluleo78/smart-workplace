@@ -1,11 +1,9 @@
-import { ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -14,7 +12,6 @@ import type { HomeSessionSummary } from '@/types/home';
 interface Props {
   sessions: HomeSessionSummary[];
   currentSessionId: string | null;
-  onNew: () => void;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -29,8 +26,8 @@ function relTime(iso: string): string {
   return `${Math.floor(h / 24)}일 전`;
 }
 
-/** 캔버스 헤더 세션 스위처 — 현재 세션 제목 ▾, ＋새 세션 + 최근 세션 목록·삭제. */
-export function SessionSwitcher({ sessions, currentSessionId, onNew, onSelect, onDelete }: Props) {
+/** 캔버스 헤더 세션 스위처 — 현재 세션 제목 ▾ + 최근 세션 목록·삭제. */
+export function SessionSwitcher({ sessions, currentSessionId, onSelect, onDelete }: Props) {
   const [open, setOpen] = useState(false);
   const current = sessions.find((s) => s.id === currentSessionId);
   const label = current?.title ?? '새 세션';
@@ -45,16 +42,6 @@ export function SessionSwitcher({ sessions, currentSessionId, onNew, onSelect, o
         <ChevronDown className="h-4 w-4 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72">
-        <DropdownMenuItem
-          data-testid="session-new"
-          onSelect={() => {
-            setOpen(false);
-            onNew();
-          }}
-        >
-          <Plus className="mr-2 h-4 w-4" /> 새 세션
-        </DropdownMenuItem>
-        {sessions.length > 0 && <DropdownMenuSeparator />}
         {sessions.map((s) => (
           // 행 자체는 비-DropdownMenuItem div(삭제 버튼과 onSelect 충돌 방지). open 은 수동 제어.
           <div

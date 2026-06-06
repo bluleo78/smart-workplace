@@ -25,7 +25,6 @@ export function HomeShell() {
         <SessionSwitcher
           sessions={sessions.data?.items ?? []}
           currentSessionId={session.sessionId}
-          onNew={session.newSession}
           onSelect={session.restoreSession}
           onDelete={session.deleteSession}
         />

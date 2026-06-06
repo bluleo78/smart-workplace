@@ -172,32 +172,6 @@ test('compose 가 page=new 면 새 페이지가 생기고 전환된다', async (
 
 // 7d 홈 세션 UI E2E — 세션 스위처 새세션·복원·삭제. /home/sessions 목록·{id}/messages·DELETE 모킹.
 
-test('새 세션 — compose 후 ＋새 세션 으로 기본 구성 복귀', async ({ authenticatedPage: page }) => {
-  await mockHome(page)
-  await mockSessions(page)
-  await mockApi(page, 'POST', '/api/v1/home/compose', {
-    sessionId: 's1',
-    message: '구성했어요',
-    widgets: [{ type: 'issue_list', params: { status: 'TODO' }, layout: { page: 'current' } }],
-  })
-  await page.goto('/')
-
-  // compose 1회 → 현재 페이지가 위젯 1개로 교체
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-input').fill('TODO 이슈만')
-  await page.getByRole('button', { name: '보내기' }).click()
-  await expect(page.getByTestId('home-widget')).toHaveCount(1)
-
-  // 챗 모달이 헤더를 덮으므로 Esc 로 닫은 뒤 헤더(세션 스위처)를 사용한다.
-  await page.keyboard.press('Escape')
-  await expect(page.getByTestId('chat-panel')).toHaveCount(0)
-
-  // ＋새 세션 → 로컬 리셋(기본 구성 3종 복귀, AI 미호출)
-  await page.getByTestId('session-switcher').click()
-  await page.getByTestId('session-new').click()
-  await expect(page.getByTestId('home-widget')).toHaveCount(3)
-})
-
 test('복원 — 세션 선택 시 대화 transcript + 캔버스 재구성(AI 재호출 없음)', async ({ authenticatedPage: page }) => {
   await mockHome(page)
   await mockSessions(page, {
