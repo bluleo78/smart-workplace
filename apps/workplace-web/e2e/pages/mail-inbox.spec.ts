@@ -165,6 +165,36 @@ test.describe('받은편지함', () => {
     await expect(page.getByTestId('mail-empty-accounts')).toBeVisible()
   })
 
+  // #113 전폭 PageHeader(폴더명) + 좁은 화면 뒤로가기 — 800px 뷰포트에서 마스터-디테일 토글 검증.
+  test('메일 전폭 헤더 + 좁은 화면 뒤로가기', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 800, height: 900 }) // lg(1024px) 미만
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
+    await page.goto('/mail/1')
+    // 전폭 헤더에 폴더명 표시
+    await expect(page.getByTestId('page-header')).toContainText('받은편지함')
+    // 목록에서 첫 번째 행 클릭
+    const firstRow = page.getByTestId('mail-row-10')
+    await firstRow.click()
+    // 선택 후: 뒤로가기 버튼·상세 표시, 목록 숨김
+    await expect(page.getByTestId('mail-back')).toBeVisible()
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    await expect(page.getByTestId('mail-list')).toBeHidden()
+    // 뒤로가기 클릭 → 목록 복귀
+    await page.getByTestId('mail-back').click()
+    await expect(page.getByTestId('mail-list')).toBeVisible()
+
+    // 다시 메시지 선택(디테일 노출) 후 보낸편지함으로 폴더 전환 →
+    // 선택이 초기화되어 목록이 다시 보이고 뒤로가기 버튼은 숨겨져야 한다(스테일 디테일에 갇히지 않음).
+    await firstRow.click()
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    await page.goto('/mail/1?folder=sent')
+    await expect(page.getByTestId('page-header')).toContainText('보낸편지함')
+    await expect(page.getByTestId('mail-list')).toBeVisible()
+    await expect(page.getByTestId('mail-back')).toBeHidden()
+  })
+
   // LNB 표준화(#98) — 메일 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
   test('메일 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])

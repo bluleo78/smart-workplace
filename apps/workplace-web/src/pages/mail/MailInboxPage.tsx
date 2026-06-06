@@ -3,6 +3,7 @@ import { Forward, Paperclip, RefreshCw, Reply, ReplyAll } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 
+import { PageHeader } from '@/components/layout/PageHeader'
 import { cn } from '@/lib/utils'
 
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
@@ -261,10 +262,11 @@ export function MailInboxPage() {
   // 폴더 파라미터: ?folder=sent → SENT, 기본 INBOX.
   const folderParam = (params.get('folder') === 'sent' ? 'SENT' : 'INBOX') as MailFolder
 
-  // 계정 전환 시 이전 계정의 선택 메시지가 남지 않도록 초기화.
+  // 계정·폴더 전환 시 이전 선택 메시지가 남지 않도록 초기화.
+  // (좁은 화면에서 폴더 전환 후에도 디테일 패널이 강제로 열려 있는 문제 방지)
   useEffect(() => {
     setSelectedId(null)
-  }, [accountId])
+  }, [accountId, folderParam])
 
   const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
   const accountIdNum = accountId ? Number(accountId) : undefined
@@ -356,13 +358,12 @@ export function MailInboxPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0">
-      {/* 목록 (마스터) */}
-      <div className="flex min-w-0 flex-1 flex-col border-r lg:max-w-md" data-testid="mail-list">
-        {/* 툴바: 동기화 + 검색 (현재 폴더는 사이드바 active 로 표시 — Gmail 패리티상 본문 중복 표기 제거) */}
-        <div className="flex flex-col gap-2 border-b p-3">
-          {/* 동기화 + 검색(받은편지함에서만 동기화) */}
-          <div className="flex items-center gap-2">
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* 전폭 헤더 — 폴더명 + 동기화(받은편지함) + 검색. 기존 목록 툴바 대체. */}
+      <PageHeader
+        title={folderParam === 'SENT' ? '보낸편지함' : '받은편지함'}
+        actions={
+          <>
             {folderParam === 'INBOX' && (
               <div className="flex shrink-0 items-center gap-2">
                 <button
@@ -391,6 +392,7 @@ export function MailInboxPage() {
             <input
               type="search"
               data-testid="mail-search"
+              aria-label="메일 검색"
               value={search}
               onChange={(e) =>
                 setParams(
@@ -404,47 +406,72 @@ export function MailInboxPage() {
                 )
               }
               placeholder="제목·보낸사람 검색"
-              className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm"
+              className="w-48 rounded-md border bg-background px-3 py-1.5 text-sm"
             />
-          </div>
+          </>
+        }
+      />
+      <div className="flex min-h-0 flex-1">
+        {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}
+        <div
+          className={cn(
+            'flex min-w-0 flex-1 flex-col border-r lg:max-w-md',
+            selectedId != null && 'hidden lg:flex',
+          )}
+          data-testid="mail-list"
+        >
+          {isLoading ? (
+            <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
+          ) : isError ? (
+            <div className="p-6 text-sm text-destructive">목록을 불러오지 못했습니다</div>
+          ) : !messages || messages.length === 0 ? (
+            <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
+              {search
+                ? '검색 결과가 없습니다'
+                : folderParam === 'SENT'
+                  ? '보낸 메일이 없습니다.'
+                  : '받은 메일이 없습니다. 동기화를 눌러보세요.'}
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto">
+              {messages.map((m) => (
+                <MessageRow
+                  key={m.id}
+                  m={m}
+                  active={selectedId === m.id}
+                  onSelect={() => setSelectedId(m.id)}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
-        {isLoading ? (
-          <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
-        ) : isError ? (
-          <div className="p-6 text-sm text-destructive">목록을 불러오지 못했습니다</div>
-        ) : !messages || messages.length === 0 ? (
-          <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
-            {search
-              ? '검색 결과가 없습니다'
-              : folderParam === 'SENT'
-                ? '보낸 메일이 없습니다.'
-                : '받은 메일이 없습니다. 동기화를 눌러보세요.'}
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            {messages.map((m) => (
-              <MessageRow
-                key={m.id}
-                m={m}
-                active={selectedId === m.id}
-                onSelect={() => setSelectedId(m.id)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 본문 (디테일) */}
-      <div className="hidden min-w-0 flex-1 lg:block" data-testid="mail-detail-pane">
-        <MessageDetailPanel
-          messageId={selectedId}
-          aiEnabled={aiEnabled}
-          onReply={onReply}
-          onReplyAll={onReplyAll}
-          onForward={onForward}
-          onAiReplyDraft={onAiReplyDraft}
-        />
+        {/* 본문 (디테일) — 좁은 화면은 선택 시 전체폭, 미선택 시 숨김 */}
+        <div
+          className={cn(
+            'min-w-0 flex-1',
+            selectedId == null ? 'hidden lg:block' : 'flex flex-col lg:block',
+          )}
+          data-testid="mail-detail-pane"
+        >
+          {/* 좁은 화면 뒤로가기 버튼 — 선택 상태에서만 표시 */}
+          <button
+            type="button"
+            data-testid="mail-back"
+            onClick={() => setSelectedId(null)}
+            className="flex items-center gap-1 border-b px-4 py-2 text-sm text-primary lg:hidden"
+          >
+            ‹ 목록
+          </button>
+          <MessageDetailPanel
+            messageId={selectedId}
+            aiEnabled={aiEnabled}
+            onReply={onReply}
+            onReplyAll={onReplyAll}
+            onForward={onForward}
+            onAiReplyDraft={onAiReplyDraft}
+          />
+        </div>
       </div>
     </div>
   )

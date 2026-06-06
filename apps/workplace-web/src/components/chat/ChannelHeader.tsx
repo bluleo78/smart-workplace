@@ -4,6 +4,7 @@ import { ChevronDown, Lock, Users } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { appTitleTextClass } from '@/components/layout/sidebar-link'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,11 +54,11 @@ export function ChannelHeader({
 
   return (
     <div
-      className="flex items-center gap-2 border-b px-4 py-2.5"
+      className="flex h-14 shrink-0 items-center gap-2 border-b px-4"
       data-testid="channel-header"
     >
       {channel.visibility === 'PRIVATE' && <Lock className="h-4 w-4 text-muted-foreground" />}
-      <span className="font-semibold" data-testid="channel-header-name">
+      <span className={appTitleTextClass} data-testid="channel-header-name">
         {channel.name}
       </span>
       {channel.archived && (

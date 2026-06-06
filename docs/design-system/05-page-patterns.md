@@ -277,7 +277,7 @@ export function XxxModuleLayout() {
 좌측 목록(마스터) + 우측 상세(디테일)를 한 화면에서 동시에 보는 패턴이다.
 모듈 셸(B)의 `<Outlet />` 안쪽에 들어가며, 셸 높이를 `h-full min-h-0` 로 이어받아 좌/우가 독립 스크롤한다.
 
-**실제 적용 페이지**: `MailInboxPage`(목록↔본문), `ChannelPage`(메시지↔스레드 패널)
+**실제 적용 페이지**: `MailInboxPage`(목록↔본문), `ContactsPage`(목록↔상세), `DrivePage`(목록↔파일 상세), `ChannelPage`(메시지↔스레드 패널)
 
 ### C-1. 목록 ↔ 본문 (메일)
 
@@ -344,8 +344,11 @@ export default function ChannelPage() {
 - 마스터 목록 폭 제한: 메일은 `lg:max-w-md`. 디테일은 `flex-1`(나머지 전부).
 - **선택 상태는 로컬 `useState`**(`selectedId`/`openThreadId`)로, 필터/계정/폴더 같은 공유 상태는 **URL SearchParams**로 둔다(메일의 `?folder`, `?q`).
 - 반응형: 좁은 화면(`lg` 미만)에선 디테일 패널을 `hidden` 처리하고 목록만 보인다. 보조 패널(스레드)은 조건부 렌더(없으면 본문이 전체폭).
+  - 메일·연락처·드라이브의 마스터-디테일은 **`lg` 미만에서 제자리 전환**(목록 표시 중 항목 선택 → 목록 숨김 + 상세 전체폭, 상세에 `‹ 목록` 뒤로가기 버튼 노출)을 추가로 적용한다.
 - 선택 없음/로딩/에러 빈 상태는 디테일 패널 내부에서 안내 문구로 처리(메일 "메일을 선택하세요"). [06-feedback-states.md](./06-feedback-states.md) 참고.
-- 풀폭 페이지이므로 각 컬럼 상단 헤더(예: `ChannelHeader`, 목록 툴바)는 옵션 `PageHeader`(`h-14`·`border-b`)로 두면 사이드바 헤더와 한 선 정렬된다(위 "컨텐츠 헤더" 절). 메일/연락처/드라이브 마스터-디테일의 헤더 표준화는 후속 플랜([13-migration-backlog.md](./13-migration-backlog.md)).
+- 풀폭 페이지이므로 각 컬럼 상단 헤더(예: `ChannelHeader`, 목록 툴바)는 옵션 `PageHeader`(`h-14`·`border-b`)로 두면 사이드바 헤더와 한 선 정렬된다(위 "컨텐츠 헤더" 절). **메일·연락처·드라이브·채팅 헤더 표준화 완료**(#113, 2026-06-06).
+  - 드라이브: 전폭 `PageHeader`(title="드라이브", actions=검색·새 폴더·업로드·휴지통) 아래 **폴더명 breadcrumb 행**을 별도로 둔다(`GET /drive/folders/{id}/path`로 폴더 경로 조회, 깊으면 `…` 접기).
+  - 채팅 `ChannelHeader`/`DmHeader`: 내부 높이·타이포를 `h-14`·`appTitleTextClass`로 정렬(기능 무변).
 
 ---
 
@@ -585,6 +588,6 @@ export function HomeCanvas({ pages, activeIndex, onSelectPage }: Props) {
 |-----------|---------------|
 | 최상위 컨테이너가 `container mx-auto p-6` / `space-y-6` / `mx-auto max-w-2xl` 로 갈림 | 리스트·상세=`p-6 space-y-6`, 폼=`max-w-2xl`, 분할형=`flex h-full min-h-0` 으로 역할별 통일 |
 | 로딩 표현이 `<p>로딩 중…</p>` / `TableSkeletonRows` / `Skeleton` 으로 혼재 | 테이블=`TableSkeletonRows`, 단일 리소스=`Skeleton`, 단순 텍스트 폴백 지양 ([06-feedback-states.md](./06-feedback-states.md)) |
-| 제목 타이포가 `text-2xl font-semibold`(projects) vs `text-[28px] leading-[36px] ...`(settings) 로 다름 | 페이지 H1 토큰을 하나로 정하고 클래스화 ([03-spacing-layout.md](./03-spacing-layout.md)) |
+| 제목 타이포가 `text-2xl font-semibold`(projects) vs `text-[28px] leading-[36px] ...`(settings) 로 다름 | 인-플로우 제목 토큰 `pageTitleClass`로 통일(설정·어드민·누락 페이지 적용 완료, #113). 나머지 `text-2xl` 페이지는 기회 있을 때 정리. ([03-spacing-layout.md](./03-spacing-layout.md)) |
 | 삭제 확인이 브라우저 `confirm()` (이슈/프로젝트 설정) | 공통 확인 다이얼로그(AlertDialog) 컴포넌트로 통일 |
 | 탭형 상세 패턴이 없음(그리드형만 존재) | 탭이 필요한 상세가 생기면 `Tabs` 사용 규약을 별도 정의 |

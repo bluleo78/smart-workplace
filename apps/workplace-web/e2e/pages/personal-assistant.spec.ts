@@ -51,4 +51,23 @@ test.describe('프로필 개인 비서', () => {
     // 설정됨 표시가 노출되어야 한다.
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
   })
+
+  test('비서 설정 페이지 제목', async ({ authenticatedPage: page }) => {
+    // GET /users/me/assistant — 미설정 상태 모킹(컴포넌트 크래시 방지)
+    await page.route('**/api/v1/users/me/assistant', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          configured: false,
+          tokenLabel: null,
+          tokenLastUsedAt: null,
+          model: null,
+          thinkingDepth: null,
+        }),
+      }),
+    )
+    await page.goto('/settings/assistant')
+    await expect(page.getByRole('heading', { name: '비서 설정' })).toBeVisible()
+  })
 })

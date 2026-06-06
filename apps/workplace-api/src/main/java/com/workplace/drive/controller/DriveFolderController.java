@@ -1,6 +1,7 @@
 package com.workplace.drive.controller;
 
 import com.workplace.drive.dto.CreateFolderRequest;
+import com.workplace.drive.dto.DriveFolderPathSegment;
 import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveItemListResponse;
 import com.workplace.drive.dto.RenameFolderRequest;
@@ -8,6 +9,7 @@ import com.workplace.drive.dto.TargetParentRequest;
 import com.workplace.drive.service.DriveFolderService;
 import jakarta.validation.Valid;
 import java.io.IOException;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +30,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/drive")
 public class DriveFolderController {
   private final DriveFolderService folderService;
+
+  /** 폴더의 조상 경로(루트→대상) — breadcrumb 용. */
+  @GetMapping("/folders/{id}/path")
+  public ResponseEntity<List<DriveFolderPathSegment>> path(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long folderId) {
+    return ResponseEntity.ok(folderService.path(callerId, folderId));
+  }
 
   /** 한 폴더(또는 루트, parentId 미지정)의 하위 폴더+파일 목록. */
   @GetMapping("/spaces/{id}/items")

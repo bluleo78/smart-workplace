@@ -70,6 +70,30 @@ test('통합 목록·검색·타입필터·상세', { tag: '@smoke' }, async ({ 
   await expect(page.getByTestId('contact-detail-member')).toContainText('개발팀')
 })
 
+// #113 전폭 PageHeader + 좁은 화면 뒤로가기
+test('연락처 전폭 헤더 + 좁은 화면 뒤로가기', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  await stubList(page)
+  await stubMemberDetail(page)
+  await page.setViewportSize({ width: 800, height: 900 })
+  await page.goto('/contacts')
+  await expect(page.getByTestId('page-header')).toContainText('연락처')
+  await expect(page.getByTestId('contact-create')).toBeVisible()
+  const firstRow = page.getByTestId(/^contact-row-/).first()
+  await firstRow.click()
+  await expect(page.getByTestId('contact-back')).toBeVisible()
+  await expect(page.getByTestId('contact-list')).toBeHidden()
+  await page.getByTestId('contact-back').click()
+  await expect(page.getByTestId('contact-list')).toBeVisible()
+})
+
+// #113 그룹 뷰에서도 헤더의 새 외부 연락처 버튼 노출(공통 헤더로 이동).
+test('그룹 뷰 — 헤더 새 외부 연락처 버튼 노출', async ({ authenticatedPage: page }) => {
+  await stubList(page)
+  await page.goto('/contacts?group=1')
+  await expect(page.getByTestId('page-header')).toContainText('연락처')
+  await expect(page.getByTestId('contact-create')).toBeVisible()
+})
+
 // LNB 표준화(#98) — 연락처 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
 test('연락처 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
   await stubList(page)

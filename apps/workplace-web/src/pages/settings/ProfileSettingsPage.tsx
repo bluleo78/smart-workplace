@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 
 import { usersApi } from '@/api/users'
+import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormField } from '@/components/ui/form-field'
@@ -71,7 +72,7 @@ export default function ProfileSettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <h1 className="text-[28px] leading-[36px] font-semibold tracking-tight">프로필</h1>
+      <h1 className={pageTitleClass}>프로필</h1>
 
       <Card>
         <CardHeader>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { pageTitleClass } from '@/components/layout/sidebar-link';
 import { SearchInput } from '@/components/ui/search-input';
 import { SimplePagination } from '@/components/ui/simple-pagination';
 import { TableEmptyRow } from '@/components/ui/table-empty';
@@ -39,7 +40,7 @@ export default function UserListPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-[28px] leading-[36px] font-semibold tracking-tight">사용자 관리</h1>
+      <h1 className={pageTitleClass}>사용자 관리</h1>
 
       <SearchInput
         placeholder="이름 또는 아이디로 검색..."
