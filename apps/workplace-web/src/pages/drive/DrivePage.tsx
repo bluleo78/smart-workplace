@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { PageHeader } from '@/components/layout/PageHeader'
+import { handleApiError } from '@/lib/api-error'
 
 import { driveApi } from '../../api/drive'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
@@ -9,6 +11,9 @@ import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { SearchInput } from '../../components/ui/search-input'
 import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveTrashItem } from '../../types/drive'
+
+// 서버 multipart 업로드 한도(application.yml: max-file-size 25MB)와 동일. 초과 시 업로드 전 안내.
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 // breadcrumb 접기 — 4개 초과면 [첫, null(…), 마지막2개]. null 은 생략 표식.
 function collapseCrumbs(
@@ -97,31 +102,59 @@ export function DrivePage() {
   async function onNewFolder() {
     const name = window.prompt('새 폴더 이름')
     if (!name) return
-    await driveApi.createFolder(sid, folderId, name)
-    await reload()
+    // 공백만 입력 등은 서버 @NotBlank 400 → 토스트로 사유 안내(silent failure 방지).
+    try {
+      await driveApi.createFolder(sid, folderId, name)
+      await reload()
+    } catch (e) {
+      handleApiError(e, '폴더를 만들지 못했습니다.')
+    }
   }
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    await driveApi.uploadFile(sid, folderId, file)
-    e.target.value = ''
-    await reload()
+    // 한도 초과는 업로드 전 클라이언트에서 안내 — 불필요한 400 왕복·데이터 유실 오인 방지.
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error('파일 크기가 25MB를 초과합니다.')
+      e.target.value = ''
+      return
+    }
+    try {
+      await driveApi.uploadFile(sid, folderId, file)
+      e.target.value = ''
+      await reload()
+    } catch (err) {
+      e.target.value = ''
+      handleApiError(err, '파일을 업로드하지 못했습니다.')
+    }
   }
   async function onRenameFolder(id: number, current: string) {
     const name = window.prompt('폴더 이름 변경', current)
     if (!name) return
-    await driveApi.renameFolder(id, name)
-    await reload()
+    try {
+      await driveApi.renameFolder(id, name)
+      await reload()
+    } catch (e) {
+      handleApiError(e, '폴더 이름을 변경하지 못했습니다.')
+    }
   }
   async function onDeleteFolder(id: number) {
     if (!window.confirm('폴더를 휴지통으로 보낼까요? 30일 후 자동 삭제됩니다.')) return
-    await driveApi.deleteFolder(id)
-    await reload()
+    try {
+      await driveApi.deleteFolder(id)
+      await reload()
+    } catch (e) {
+      handleApiError(e, '폴더를 삭제하지 못했습니다.')
+    }
   }
   async function onDeleteFile(id: number) {
     if (!window.confirm('파일을 휴지통으로 보낼까요? 30일 후 자동 삭제됩니다.')) return
-    await driveApi.deleteFile(id)
-    await reload()
+    try {
+      await driveApi.deleteFile(id)
+      await reload()
+    } catch (e) {
+      handleApiError(e, '파일을 삭제하지 못했습니다.')
+    }
   }
 
   async function onPickTarget(targetId: number | null) {
@@ -135,8 +168,9 @@ export function DrivePage() {
         if (mode === 'move') await driveApi.moveFolder(id, targetId)
         else await driveApi.copyFolder(id, targetId)
       }
-    } catch {
-      window.alert('이동/복사할 수 없는 위치입니다.')
+    } catch (e) {
+      // 표준 토스트로 통일(기존 window.alert 대체) — 다른 mutation 과 피드백 일관성 확보.
+      handleApiError(e, '이동/복사할 수 없는 위치입니다.')
     } finally {
       setPicker(null)
       await reload()

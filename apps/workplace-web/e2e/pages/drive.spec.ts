@@ -366,3 +366,88 @@ test('드라이브 사이드바 — 표준 LNB 타이틀 헤더', async ({ authe
   // h-14 앱 타이틀 헤더에 "드라이브"(레일 라벨과 동일) 노출 — 공간 링크 "내 드라이브"와 구분되도록 exact
   await expect(sidebar.getByText('드라이브', { exact: true })).toBeVisible()
 })
+
+// silent failure 수정(#116) — mutation 실패 시 표준 토스트로 사용자에게 사유를 알린다.
+test('폴더 생성 실패(400) 시 에러 토스트로 사유를 안내한다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+  // 공백만 입력 → 클라이언트 가드(if(!name)) 통과 → 서버 @NotBlank 400 + 한국어 message.
+  let folderPosted = false
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/folders`,
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      folderPosted = true
+      return route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 400, error: 'Bad Request', message: '폴더 이름은 비어 있을 수 없습니다' }),
+      })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  page.once('dialog', (d) => d.accept('   '))
+  await page.getByRole('button', { name: '새 폴더' }).click()
+
+  // 서버 메시지가 그대로 토스트로 노출(이전엔 토스트 없이 unhandled rejection).
+  await expect(page.getByText('폴더 이름은 비어 있을 수 없습니다')).toBeVisible()
+  expect(folderPosted).toBe(true)
+})
+
+test('업로드 실패(400) 시 에러 토스트를 표시한다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      return route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 400, error: 'Bad Request', message: '파일을 업로드할 수 없습니다' }),
+      })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // 25MB 이하 파일이라 클라이언트 가드는 통과 → 서버 400 → 토스트.
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'memo.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('hello'),
+  })
+
+  await expect(page.getByText('파일을 업로드할 수 없습니다')).toBeVisible()
+})
+
+test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내한다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+  // 업로드 엔드포인트가 호출되면 안 된다(클라이언트 사전 차단).
+  let uploadCalled = false
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    (route) => {
+      uploadCalled = true
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // 26MB 더미 파일 → 한도(25MB) 초과.
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'huge.bin',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.alloc(26 * 1024 * 1024, 1),
+  })
+
+  await expect(page.getByText('파일 크기가 25MB를 초과합니다.')).toBeVisible()
+  expect(uploadCalled).toBe(false)
+})
