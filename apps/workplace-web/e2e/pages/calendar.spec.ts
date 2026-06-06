@@ -11,7 +11,7 @@ import { expect, test } from '../fixtures/auth.fixture'
  */
 async function stubCalendarEvents(page: Page, store: CalendarEvent[]) {
   await page.route(
-    (url) => url.pathname === '/api/v1/calendar/events',
+    (url) => url.pathname.startsWith('/api/v1/calendar/events'),
     (route) => {
       const method = route.request().method()
 
@@ -124,5 +124,55 @@ test(
 
     // GET 재패치 후 새 이벤트 카드 노출 (id=999)
     await expect(page.getByTestId('calendar-event-999')).toBeVisible()
+  },
+)
+
+test(
+  '일정 편집',
+  { tag: '@smoke' },
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = [calendarEvent({ id: 1, title: '팀 회의' })]
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    // 월 뷰에서 일정 클릭 → 다이얼로그 열림
+    await page.getByTestId('calendar-event-1').first().click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 제목 변경 후 제출
+    await page.getByTestId('calendar-form-title').fill('수정된 회의')
+    await page.getByTestId('calendar-form-submit').click()
+
+    // 다이얼로그 닫힘 후 수정된 제목이 아젠다 뷰에서 확인됨
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+    await page.getByTestId('calendar-view-agenda-btn').click()
+    await expect(page.getByText('수정된 회의')).toBeVisible()
+  },
+)
+
+test(
+  '일정 삭제',
+  { tag: '@smoke' },
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = [calendarEvent({ id: 1 })]
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    // 일정 클릭 → 다이얼로그 열림
+    await page.getByTestId('calendar-event-1').first().click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 삭제 버튼 클릭 → DELETE 요청 → store 에서 제거
+    await page.getByTestId('calendar-form-delete').click()
+
+    // 다이얼로그 닫힘 + 일정 카드 사라짐
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+    await expect(page.getByTestId('calendar-event-1')).toHaveCount(0)
   },
 )
