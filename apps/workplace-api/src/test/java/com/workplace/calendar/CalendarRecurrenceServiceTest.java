@@ -250,6 +250,33 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
     assertThat(r).allSatisfy(e -> assertThat(e.recurrenceRule()).isEqualTo("FREQ=WEEKLY"));
     assertThat(r).extracting(CalendarEventResponse::occurrenceDate).doesNotContainNull();
     assertThat(r).extracting(CalendarEventResponse::masterEventId).doesNotContainNull();
+    // 회차 시작 instant 가 주 단위로 정확히 전개되는지 단언(정렬 순서 포함).
+    assertThat(r)
+        .extracting(e -> e.startsAt().toInstant())
+        .containsExactly(
+            BASE.toInstant(),
+            BASE.plusWeeks(1).toInstant(),
+            BASE.plusWeeks(2).toInstant(),
+            BASE.plusWeeks(3).toInstant());
+  }
+
+  /** ALL 수정으로 RRULE 자체를 교체하면(WEEKLY→DAILY) 전개가 새 규칙·새 제목으로 바뀐다. (기존 예외 stale 유지는 v1b 한계) */
+  @Test
+  void updateScopeAll_changesRecurrenceRule() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+
+    CalendarEventRequest edit =
+        new CalendarEventRequest(
+            "매일회의", null, BASE, BASE.plusHours(1), false, null, null, null, "FREQ=DAILY");
+    service.update(u, master.id(), edit, EditScope.ALL, null);
+
+    // BASE 부터 7일 범위 → 일간 7회, 모두 새 제목.
+    List<CalendarEventResponse> r = service.list(u, BASE.minusHours(1), BASE.plusDays(7));
+    assertThat(r).hasSize(7);
+    assertThat(r).allSatisfy(e -> assertThat(e.title()).isEqualTo("매일회의"));
+    assertThat(r).allSatisfy(e -> assertThat(e.recurrenceRule()).isEqualTo("FREQ=DAILY"));
   }
 
   @Test
