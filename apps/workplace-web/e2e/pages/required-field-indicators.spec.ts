@@ -5,7 +5,6 @@ import { external, page as makePage } from '../factories/contacts.factory'
 import { createProject } from '../factories/project.factory'
 import { createIssueSearchResponse } from '../factories/issue.factory'
 import { systemTypes } from '../factories/issueType.factory'
-import { createPageResponse } from '../fixtures/api-mock'
 
 // ─────────────────────────────────────────────
 // IssueCreateDialog — 제목 필드 필수 표시
