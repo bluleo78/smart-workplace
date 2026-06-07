@@ -107,7 +107,7 @@ export function SaveViewDialog({
               취소
             </Button>
             <Button type="submit" data-testid="save-view-submit" disabled={pending}>
-              {isEdit ? '수정' : '저장'}
+              {pending ? (isEdit ? '수정 중…' : '저장 중…') : (isEdit ? '수정' : '저장')}
             </Button>
           </DialogFooter>
         </form>

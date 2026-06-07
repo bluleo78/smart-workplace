@@ -76,7 +76,7 @@ export function CreateChannelModal({
             disabled={!name.trim() || create.isPending}
             onClick={() => void submit()}
           >
-            만들기
+            {create.isPending ? '생성 중…' : '만들기'}
           </Button>
         </DialogFooter>
       </DialogContent>

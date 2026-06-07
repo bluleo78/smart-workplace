@@ -161,7 +161,7 @@ export function MailComposeDock() {
               )}
             >
               <Send className="h-4 w-4" />
-              보내기
+              {send.isPending ? '전송 중…' : '보내기'}
             </button>
           </div>
         </div>

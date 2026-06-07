@@ -82,7 +82,7 @@ export default function ProjectSettingsPage() {
           <label className="text-sm font-medium" htmlFor="settings-desc">설명</label>
           <Textarea id="settings-desc" {...register('description')} rows={4} />
         </div>
-        <Button type="submit" disabled={update.isPending}>저장</Button>
+        <Button type="submit" disabled={update.isPending}>{update.isPending ? '저장 중…' : '저장'}</Button>
       </form>
 
       <MemberManagement projectKey={key} />

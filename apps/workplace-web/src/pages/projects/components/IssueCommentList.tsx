@@ -90,7 +90,7 @@ export function IssueCommentList({
         />
         {errors.body && <p className="text-sm text-destructive">{errors.body.message}</p>}
         <div className="flex justify-end">
-          <Button type="submit" disabled={create.isPending}>작성</Button>
+          <Button type="submit" disabled={create.isPending}>{create.isPending ? '작성 중…' : '작성'}</Button>
         </div>
       </form>
     </section>

@@ -56,7 +56,7 @@ export function RenameChannelModal({
             disabled={!name.trim() || rename.isPending}
             onClick={() => void submit()}
           >
-            저장
+            {rename.isPending ? '저장 중…' : '저장'}
           </Button>
         </DialogFooter>
       </DialogContent>
