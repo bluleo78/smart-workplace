@@ -32,11 +32,11 @@ import type { CalendarEvent, CalendarEventRequest } from '@/types/calendar'
 // ────────────────────────────────────────────────────────────
 const schema = z
   .object({
-    title: z.string().min(1, '제목을 입력하세요').max(200),
+    title: z.string().min(1, '제목을 입력하세요').max(200, '제목은 200자 이하여야 합니다'),
     allDay: z.boolean(),
     start: z.string().min(1, '시작을 입력하세요'),
     end: z.string().min(1, '종료를 입력하세요'),
-    location: z.string().max(200).optional(),
+    location: z.string().max(200, '장소는 200자 이하여야 합니다').optional(),
     description: z.string().optional(),
     // 리마인더 — select 값은 문자열('none' = 없음, 그 외 분 단위). 제출 시 number|null 로 변환.
     // (Radix Select 는 빈 문자열 value 를 허용하지 않아 'none' 센티넬 사용)

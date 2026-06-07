@@ -6,8 +6,8 @@ const statusEnum = z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']);
 const priorityEnum = z.enum(['LOW', 'MID', 'HIGH']);
 
 export const createIssueSchema = z.object({
-  title: z.string().min(1, '제목은 필수입니다').max(200),
-  body: z.string().max(10000).optional(),
+  title: z.string().min(1, '제목은 필수입니다').max(200, '제목은 200자 이하여야 합니다'),
+  body: z.string().max(10000, '본문은 10000자 이하여야 합니다').optional(),
   priority: priorityEnum.optional(),
   // YYYY-MM-DD 형식 (HTML date input) 또는 빈 문자열 허용
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
