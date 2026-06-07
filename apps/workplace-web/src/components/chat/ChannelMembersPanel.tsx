@@ -166,7 +166,9 @@ export function ChannelMembersPanel({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
+            {/* 되돌릴 수 없는 파괴적 작업임을 시각적으로 표시 */}
             <AlertDialogAction
+              variant="destructive"
               data-testid="channel-leave-confirm"
               onClick={async () => {
                 await leave.mutateAsync(channelId)

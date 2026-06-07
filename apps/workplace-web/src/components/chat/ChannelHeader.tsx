@@ -140,7 +140,9 @@ export function ChannelHeader({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
+            {/* 파괴적 작업임을 시각적으로 표시 */}
             <AlertDialogAction
+              variant="destructive"
               data-testid="channel-delete-confirm"
               onClick={async () => {
                 await del.mutateAsync(channel.id)

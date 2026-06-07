@@ -219,7 +219,8 @@ export function GroupTree({ selectedId, onSelect }: Props) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction data-testid="group-delete-confirm-btn" onClick={confirmDelete}>
+            {/* 파괴적 작업임을 시각적으로 표시 */}
+            <AlertDialogAction variant="destructive" data-testid="group-delete-confirm-btn" onClick={confirmDelete}>
               삭제
             </AlertDialogAction>
           </AlertDialogFooter>

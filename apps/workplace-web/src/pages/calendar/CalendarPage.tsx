@@ -245,7 +245,9 @@ export function CalendarPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="calendar-confirm-delete-cancel">취소</AlertDialogCancel>
+            {/* 파괴적 작업임을 시각적으로 표시 */}
             <AlertDialogAction
+              variant="destructive"
               data-testid="calendar-confirm-delete-confirm"
               onClick={confirmDelete}
             >

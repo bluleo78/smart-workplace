@@ -40,7 +40,8 @@ export function DeleteConfirmDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>삭제</AlertDialogAction>
+          {/* 파괴적 작업임을 시각적으로 표시 — 실수 클릭 방지 */}
+          <AlertDialogAction variant="destructive" onClick={onConfirm}>삭제</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

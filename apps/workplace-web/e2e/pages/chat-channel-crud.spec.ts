@@ -278,6 +278,19 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     await expect(page.getByTestId('channel-rename-action')).toBeVisible()
   })
 
+  test('채널 삭제 확인 버튼 — destructive 스타일 적용 (이슈 #142)', async ({ adminPage: page }) => {
+    // 파괴적 작업 버튼이 기본 파란색(primary)이 아닌 빨간색(destructive)으로 표시되어야 함
+    const ch = createChannel({ id: 44, name: '삭제대상', role: 'MEMBER', member: true })
+    await stubChannelView(page, ch)
+    await page.goto('/chat/channels/44')
+    await page.getByTestId('channel-settings-btn').click()
+    await page.getByTestId('channel-delete-action').click()
+    // AlertDialog 확인 버튼에 bg-destructive 클래스가 있어야 함 (primary 아님)
+    const confirmBtn = page.getByTestId('channel-delete-confirm')
+    await expect(confirmBtn).toBeVisible()
+    await expect(confirmBtn).toHaveClass(/bg-destructive/)
+  })
+
   test('시스템 ADMIN → 채널 삭제 → /chat 이동', async ({ adminPage: page }) => {
     const ch = createChannel({ id: 44, name: '삭제대상', role: 'MEMBER', member: true })
     await stubChannelView(page, ch)

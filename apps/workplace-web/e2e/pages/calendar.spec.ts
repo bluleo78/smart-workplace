@@ -246,6 +246,26 @@ test(
   },
 )
 
+test(
+  '일정 삭제 confirm 버튼 — destructive 스타일 적용 (이슈 #142)',
+  async ({ authenticatedPage: page }) => {
+    // 파괴적 작업 버튼이 기본 파란색(primary)이 아닌 빨간색(destructive)으로 표시되어야 함
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    const store: CalendarEvent[] = [calendarEvent({ id: 1 })]
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-event-1').first().click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+    await page.getByTestId('calendar-form-delete').click()
+    await expect(page.getByTestId('calendar-confirm-delete-dialog')).toBeVisible()
+
+    // 확인 버튼에 bg-destructive 클래스가 있어야 함 — primary 스타일이면 회귀
+    const confirmBtn = page.getByTestId('calendar-confirm-delete-confirm')
+    await expect(confirmBtn).toHaveClass(/bg-destructive/)
+  },
+)
+
 // ────────────────────────────────────────────────────────────
 // 반복 일정 (이슈 #111)
 // ────────────────────────────────────────────────────────────
