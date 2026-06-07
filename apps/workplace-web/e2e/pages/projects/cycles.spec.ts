@@ -168,6 +168,30 @@ test.describe('사이클 관리', () => {
   );
 
   test(
+    '상태 레이블 한국어 표시 — PLANNED/ACTIVE/COMPLETED 영문 enum 대신 한국어 표시',
+    async ({ authenticatedPage: page }) => {
+      const cycles: CycleResponse[] = [
+        createCycle({ id: 1, name: '계획 사이클', status: 'PLANNED' }),
+        createCycle({ id: 2, name: '진행 사이클', status: 'ACTIVE' }),
+        createCycle({ id: 3, name: '완료 사이클', status: 'COMPLETED' }),
+      ];
+
+      await setupCyclesPageStubs(page, cycles, []);
+      await page.goto(`/projects/${KEY}/cycles`);
+
+      // 영문 enum 값이 그대로 표시되지 않고 한국어로 변환되어 표시된다.
+      await expect(page.getByTestId('cycle-row-1')).toContainText('계획됨');
+      await expect(page.getByTestId('cycle-row-1')).not.toContainText('PLANNED');
+
+      await expect(page.getByTestId('cycle-row-2')).toContainText('진행 중');
+      await expect(page.getByTestId('cycle-row-2')).not.toContainText('ACTIVE');
+
+      await expect(page.getByTestId('cycle-row-3')).toContainText('완료됨');
+      await expect(page.getByTestId('cycle-row-3')).not.toContainText('COMPLETED');
+    },
+  );
+
+  test(
     '새 사이클 생성 — cycle-new → 이름 입력 → 저장 → POST 요청 발생',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
@@ -305,7 +329,7 @@ test.describe('사이클 관리', () => {
   );
 
   test(
-    '사이클 삭제 — confirm 승인 → DELETE /cycles/{id} 발생 + 행 사라짐',
+    '사이클 삭제 — AlertDialog 확인 → DELETE /cycles/{id} 발생 + 행 사라짐',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       const cycle = createCycle({ id: 1, name: '스프린트 1', status: 'ACTIVE' });
@@ -339,14 +363,14 @@ test.describe('사이클 관리', () => {
         return route.fulfill({ status: 204, body: '' });
       });
 
-      // confirm 다이얼로그를 미리 자동 승인.
-      page.on('dialog', (d) => d.accept());
-
       await page.goto(`/projects/${KEY}/cycles`);
       await expect(page.getByTestId('cycle-row-1')).toBeVisible();
 
-      // 삭제 버튼 클릭.
+      // 삭제 버튼 클릭 → shadcn AlertDialog 표시.
       await page.getByTestId('cycle-delete-1').click();
+
+      // AlertDialog 의 삭제 확인 버튼 클릭 — window.confirm 대신 shadcn AlertDialog 사용 (#145).
+      await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click();
 
       // DELETE 요청 발생 확인.
       await expect.poll(() => deleteFired, { timeout: 5000 }).toBe(true);

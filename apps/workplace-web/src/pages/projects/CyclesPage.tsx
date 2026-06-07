@@ -4,11 +4,19 @@ import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
+import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
 import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
 import { useCycleProgress, useCycles, useDeleteCycle } from '../../hooks/queries/useCycles';
 import type { CycleProgress, CycleResponse } from '../../types/cycle';
+
+// 사이클 상태 한국어 레이블 매핑 — 백엔드 enum 값을 UI 문구로 변환.
+const STATUS_LABEL: Record<string, string> = {
+  PLANNED: '계획됨',
+  ACTIVE: '진행 중',
+  COMPLETED: '완료됨',
+};
 
 export default function CyclesPage() {
   const { key = '' } = useParams();
@@ -47,8 +55,8 @@ export default function CyclesPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{c.name}</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase">
-                    {c.status}
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                    {STATUS_LABEL[c.status] ?? c.status}
                   </span>
                 </div>
                 {c.goal && <p className="mt-0.5 text-sm text-muted-foreground">{c.goal}</p>}
@@ -70,17 +78,22 @@ export default function CyclesPage() {
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="삭제"
-                  data-testid={`cycle-delete-${c.id}`}
-                  onClick={() => {
-                    if (confirm(`"${c.name}" 사이클을 삭제할까요?`)) del.mutate(c.id);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {/* 삭제 확인 — shadcn AlertDialog로 교체 (#145) */}
+                <DeleteConfirmDialog
+                  entityName="사이클"
+                  itemName={c.name}
+                  onConfirm={() => del.mutate(c.id)}
+                  trigger={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="삭제"
+                      data-testid={`cycle-delete-${c.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  }
+                />
               </div>
             </div>
             <div className="mt-3">
