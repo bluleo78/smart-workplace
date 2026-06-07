@@ -86,7 +86,7 @@ export default function DmPage() {
         channelId={dm.id}
         members={mentionMembers}
         onSend={(body, fileIds) =>
-          create.mutate({ body, fileIds: fileIds.length ? fileIds : undefined })
+          create.mutateAsync({ body, fileIds: fileIds.length ? fileIds : undefined })
         }
       />
     </div>

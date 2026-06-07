@@ -104,7 +104,7 @@ export default function ChannelPage() {
           members={mentionMembers}
           archived={channel.archived}
           onSend={(body, fileIds) =>
-            create.mutate({ body, fileIds: fileIds.length ? fileIds : undefined })
+            create.mutateAsync({ body, fileIds: fileIds.length ? fileIds : undefined })
           }
         />
       </div>

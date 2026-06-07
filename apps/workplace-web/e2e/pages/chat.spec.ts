@@ -274,6 +274,48 @@ test.describe('MessageComposer 4000자 한도 검증', () => {
   });
 });
 
+// 메시지 전송 실패 시 입력 텍스트 보존 (#169)
+// POST 가 503 으로 실패할 때 입력창 텍스트가 사라지지 않아야 한다(clearOnSubmit 성공 시에만).
+test.describe('MessageComposer 전송 실패 입력 보존', () => {
+  test('메시지 POST 503 실패 → 입력창 텍스트 보존', async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: CHANNEL_ID, member: true });
+    await setupChannelStubs(page, [channel], `:\n\n`);
+
+    // GET messages — 빈 목록
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
+        });
+      },
+    );
+
+    // POST messages — 503 반환(전송 실패 시뮬레이션)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        return route.fulfill({ status: 503, body: JSON.stringify({ message: '서비스 불가' }) });
+      },
+    );
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`);
+    await page.getByTestId('message-composer-input').waitFor({ state: 'visible' });
+
+    // 메시지 입력 후 전송
+    await page.getByTestId('message-composer-input').click();
+    await page.keyboard.type('재전송해야 할 중요한 메시지');
+    await page.keyboard.press('Enter');
+
+    // 전송 실패 후에도 입력창에 텍스트가 그대로 남아있어야 한다 (#169)
+    await expect(page.getByTestId('message-composer-input')).toContainText('재전송해야 할 중요한 메시지');
+  });
+});
+
 // LNB 표준화(#98) — 대화 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
 test('대화 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
   await setupChannelStubs(page, [createChannel({ id: CHANNEL_ID, member: true })], `:\n\n`);

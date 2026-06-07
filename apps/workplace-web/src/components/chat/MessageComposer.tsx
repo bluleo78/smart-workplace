@@ -24,7 +24,9 @@ export function MessageComposer({
   channelId: number
   // @멘션 후보 = 해당 채널/DM 의 구성원.
   members: MentionCandidate[]
-  onSend: (body: string, fileIds: number[]) => void
+  // 전송 성공 시 resolved Promise, 실패 시 rejected Promise 를 반환해야 한다.
+  // RichInput clearOnSubmit 이 Promise 를 받아 성공 시에만 입력창을 비운다 (#169).
+  onSend: (body: string, fileIds: number[]) => void | Promise<unknown>
   // 단순 비활성(수신자 미선택·전송중 등) — 입력기를 숨긴다(안내 문구 없음).
   disabled?: boolean
   // 보관된 채널 — "보관됨" 안내만 표시하고 입력기를 띄우지 않는다.
@@ -66,11 +68,13 @@ export function MessageComposer({
     }
   }
 
-  // 본문·첨부 둘 다 비면 전송 차단. 전송 후 pending 비움.
-  const handleSubmit = (body: string) => {
+  // 본문·첨부 둘 다 비면 전송 차단. 전송 성공 시에만 pending 비움 (#169).
+  // RichInput clearOnSubmit 이 반환된 Promise 를 보고 성공 시에만 입력창을 비운다.
+  const handleSubmit = async (body: string): Promise<void> => {
     const trimmed = body.trim()
     if (!trimmed && pending.length === 0) return
-    onSend(trimmed, pending.map((p) => p.fileId))
+    await onSend(trimmed, pending.map((p) => p.fileId))
+    // 성공 경로에서만 도달 — 실패 시 await 에서 throw 되어 pending 도 입력창도 유지됨.
     setPending([])
   }
 

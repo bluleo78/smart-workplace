@@ -66,7 +66,7 @@ export function ThreadPanel({ channelId, parent, members, me, archived, onClose 
         channelId={channelId}
         members={members}
         archived={archived}
-        onSend={(body, fileIds) => reply.mutate({ body, fileIds })}
+        onSend={(body, fileIds) => reply.mutateAsync({ body, fileIds })}
       />
     </div>
   )
