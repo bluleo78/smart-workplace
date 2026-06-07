@@ -252,7 +252,8 @@ export function FloatingChat({
                   placeholder="AI 에게 요청…  (⌘K)"
                   data-testid="chat-input"
                 />
-                <Button type="submit" disabled={pending} className="bg-ai-accent text-ai-accent-foreground">
+                {/* 입력이 비어 있거나 전송 중일 때 버튼 비활성화 — submit guard와 일치 */}
+                <Button type="submit" disabled={pending || !input.trim()} className="bg-ai-accent text-ai-accent-foreground">
                   보내기
                 </Button>
               </div>

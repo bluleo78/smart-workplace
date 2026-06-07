@@ -1,6 +1,24 @@
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 
+test('입력이 비어 있으면 보내기 버튼이 비활성(disabled)이어야 한다', async ({ authenticatedPage: page }) => {
+  // 보내기 버튼의 disabled 속성이 입력 상태와 동기화되는지 검증 (이슈 #144 회귀 방지)
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  const sendBtn = page.getByRole('button', { name: '보내기' })
+
+  // 1) 입력 비어 있음 → 버튼 비활성
+  await expect(sendBtn).toBeDisabled()
+
+  // 2) 텍스트 입력 후 → 버튼 활성
+  await page.getByTestId('chat-input').fill('안녕')
+  await expect(sendBtn).toBeEnabled()
+
+  // 3) 입력 지우면 → 다시 비활성
+  await page.getByTestId('chat-input').fill('')
+  await expect(sendBtn).toBeDisabled()
+})
+
 test('이슈 페이지에서도 챗 런처가 상주한다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   // 챗 런처는 AppLayout(전역 셸)에 있다. 이슈 페이지가 정상 렌더돼야(에러 바운더리 미발동)
   // 런처도 함께 상주함을 확인할 수 있으므로 프로젝트 목록을 빈 페이지로 모킹한다.
