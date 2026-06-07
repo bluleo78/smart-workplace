@@ -39,6 +39,8 @@ interface RichInputProps {
   disableWhenEmpty?: boolean;
   // 외부 상태(예: 파일 업로드 중)로 전송 버튼을 강제 비활성화. Enter 키 경로도 함께 차단.
   submitDisabled?: boolean;
+  // 직렬화 본문(serializeToBody) 기준 최대 글자 수. 초과 시 전송 버튼 비활성화 + 카운터 빨간 표시.
+  maxLength?: number;
   autoFocus?: boolean;
   inputTestId: string;
   submitTestId: string;
@@ -58,6 +60,7 @@ export function RichInput({
   allowEmptySubmit = false,
   disableWhenEmpty = false,
   submitDisabled = false,
+  maxLength,
   autoFocus = false,
   inputTestId,
   submitTestId,
@@ -66,6 +69,8 @@ export function RichInput({
   // 에디터 본문 공백 여부 — disableWhenEmpty 가 true 일 때 전송 버튼 비활성화에 사용.
   // initialBody 가 있으면 비어있지 않은 상태로 초기화.
   const [isEmpty, setIsEmpty] = useState(!initialBody || initialBody.trim().length === 0);
+  // maxLength 가 설정된 경우 실시간 글자 수 추적. 직렬화 본문 기준(serializeToBody)으로 서버 검증과 일치.
+  const [charCount, setCharCount] = useState(initialBody ? initialBody.trim().length : 0);
 
   // members 최신값을 suggestion 콜백에서 참조하기 위한 ref.
   // (콜백은 useEditor 가 생성한 클로저에서 호출되므로, 렌더 시점이 아닌 effect 에서 최신값 동기화)
@@ -106,12 +111,21 @@ export function RichInput({
     submitDisabledRef.current = submitDisabled;
   });
 
+  // maxLength 최신값을 submit()(Enter 경로 포함)에서 참조. 버튼 disabled 와 Enter 경로 양쪽 차단.
+  const maxLengthRef = useRef(maxLength);
+  useEffect(() => {
+    maxLengthRef.current = maxLength;
+  });
+
   const editor = useEditor({
     autofocus: autoFocus,
     // 본문이 바뀔 때마다(타이핑) 호출. 호출처에서 throttle.
     // isEmpty 상태도 함께 갱신 — disableWhenEmpty 전송 버튼 비활성화에 사용.
+    // charCount 도 갱신 — maxLength 초과 시 버튼 비활성화 및 카운터 표시에 사용.
+    // serializeToBody 기준으로 서버 @Size(max) 검증과 동일한 길이를 측정한다.
     onUpdate: ({ editor }) => {
       setIsEmpty(editor.getText().trim().length === 0);
+      setCharCount(serializeToBody(editor.getJSON()).trim().length);
       onChangeRef.current?.();
     },
     extensions: [
@@ -217,6 +231,8 @@ export function RichInput({
     const body = serializeToBody(editor.getJSON()).trim();
     // 본문이 비어도 첨부가 있으면(allowEmptySubmit) 제출 허용.
     if (body.length === 0 && !allowEmptyRef.current) return;
+    // maxLength 초과 시 버튼·Enter 양쪽 모두 차단(서버 @Size 검증과 동일 기준).
+    if (maxLengthRef.current != null && body.length > maxLengthRef.current) return;
     // 변경 없는 저장은 no-op — onCancel 로 닫아 불필요한 update 호출을 막는다 (#44).
     // composer 는 initialBody='' + body 비어있지 않음이라 절대 매칭되지 않는다.
     if (body === initialBody.trim() && onCancel) {
@@ -249,7 +265,17 @@ export function RichInput({
       <div className="relative">
         <EditorContent editor={editor} />
       </div>
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        {/* maxLength 설정 시 글자 수 카운터 표시. charCount > 0 일 때만 노출해 빈 입력 노이즈 방지. */}
+        {/* 초과 시 text-destructive(빨간색)로 강조. */}
+        {maxLength != null && charCount > 0 && (
+          <span
+            className={`text-xs tabular-nums ${charCount > maxLength ? 'text-destructive font-medium' : 'text-muted-foreground'}`}
+            data-testid="char-count"
+          >
+            {charCount} / {maxLength}
+          </span>
+        )}
         {onCancel && (
           <Button
             type="button"
@@ -264,12 +290,17 @@ export function RichInput({
         {/* disableWhenEmpty=true 이고 본문도 비고 첨부도 없을 때만 비활성화(opt-in). */}
         {/* allowEmptySubmit 은 렌더 시점 prop 직접 참조 — ref 는 submit(Enter 경로) 전용. */}
         {/* submitDisabled 는 외부 상태(업로드 중 등)로 강제 비활성화. 버튼·Enter 양쪽 차단. */}
+        {/* maxLength 초과 시도 비활성화 — charCount 와 동일 기준(렌더 시점 prop 직접 참조). */}
         <Button
           type="button"
           size="sm"
           onClick={submit}
           data-testid={submitTestId}
-          disabled={submitDisabled || (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false)}
+          disabled={
+            submitDisabled ||
+            (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false) ||
+            (maxLength != null && charCount > maxLength)
+          }
         >
           {submitLabel}
         </Button>

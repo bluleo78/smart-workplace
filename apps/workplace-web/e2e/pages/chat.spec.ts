@@ -174,6 +174,106 @@ test.describe('messaging 채팅 E2E', () => {
   });
 });
 
+// MessageComposer 4000자 한도 프론트엔드 검증 (#165)
+// page.evaluate 로 4001자를 TipTap 에 삽입 후 전송 버튼 비활성화 + POST 차단을 검증한다.
+test.describe('MessageComposer 4000자 한도 검증', () => {
+  // 채널 스텁 + GET messages 스텁 공통 setup.
+  async function setupForLimit(page: import('@playwright/test').Page) {
+    const channel = createChannel({ id: CHANNEL_ID, member: true });
+    await setupChannelStubs(page, [channel], `:\n\n`);
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
+        });
+      },
+    );
+    await page.goto(`/chat/channels/${CHANNEL_ID}`);
+    await page.getByTestId('message-composer-input').waitFor({ state: 'visible' });
+  }
+
+  // TipTap contenteditable 에 execCommand 로 텍스트 삽입 (keyboard.type 보다 빠름).
+  async function insertText(page: import('@playwright/test').Page, text: string) {
+    await page.getByTestId('message-composer-input').click();
+    await page.evaluate((t: string) => {
+      const el = document.querySelector('[data-testid="message-composer-input"]') as HTMLElement;
+      el?.focus();
+      document.execCommand('insertText', false, t);
+    }, text);
+  }
+
+  test('4001자 입력 → 전송 버튼 비활성화 + Enter POST 차단', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupForLimit(page);
+
+    // POST 가 발생하면 실패로 기록한다.
+    let postFired = false;
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        postFired = true;
+        return route.fulfill({ status: 400 });
+      },
+    );
+
+    await insertText(page, 'A'.repeat(4001));
+
+    // 전송 버튼 비활성화 검증.
+    await expect(page.getByTestId('message-composer-submit')).toBeDisabled();
+
+    // 글자 수 카운터가 "4001 / 4000" 으로 표시되어야 한다.
+    await expect(page.getByTestId('char-count')).toBeVisible();
+    await expect(page.getByTestId('char-count')).toContainText('4001 / 4000');
+
+    // Enter 키로 전송 시도해도 POST 가 발생하지 않아야 한다.
+    await page.getByTestId('message-composer-input').press('Enter');
+    expect(postFired).toBe(false);
+  });
+
+  test('4000자 이하 → 전송 버튼 활성화 + POST 정상 발송', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupForLimit(page);
+
+    let capturedBody: string | null = null;
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        const payload = route.request().postDataJSON() as { body: string };
+        capturedBody = payload.body;
+        const saved = createMessage({
+          id: 501,
+          channelId: CHANNEL_ID,
+          authorId: ME_ID,
+          body: payload.body,
+        });
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(saved),
+        });
+      },
+    );
+
+    await insertText(page, 'A'.repeat(4000));
+
+    // 전송 버튼 활성화 검증.
+    await expect(page.getByTestId('message-composer-submit')).toBeEnabled();
+
+    // Enter 전송 → POST payload 에 4000자가 그대로 담겨야 한다.
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('message-body-501')).toBeVisible();
+    expect(capturedBody).toHaveLength(4000);
+  });
+});
+
 // LNB 표준화(#98) — 대화 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
 test('대화 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
   await setupChannelStubs(page, [createChannel({ id: CHANNEL_ID, member: true })], `:\n\n`);

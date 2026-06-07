@@ -126,6 +126,7 @@ export function MessageComposer({
             placeholder="메시지를 입력하세요"
             submitLabel={uploading ? '업로드 중…' : '보내기'}
             submitDisabled={uploading}
+            maxLength={4000}
             inputTestId="message-composer-input"
             submitTestId="message-composer-submit"
           />
