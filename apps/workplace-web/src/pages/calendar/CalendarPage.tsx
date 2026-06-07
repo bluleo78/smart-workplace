@@ -9,6 +9,16 @@ import { AgendaView } from '@/components/calendar/views/AgendaView'
 import { MonthView } from '@/components/calendar/views/MonthView'
 import { DayView, WeekView } from '@/components/calendar/views/WeekView'
 import { PageHeader } from '@/components/layout/PageHeader'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
 import {
@@ -46,6 +56,8 @@ export function CalendarPage() {
   const [scopeMode, setScopeMode] = useState<'edit' | 'delete' | null>(null)
   // scope 선택 전까지 보류하는 수정 body
   const [pendingBody, setPendingBody] = useState<CalendarEventRequest | null>(null)
+  // 단일 일정 삭제 확인 다이얼로그 표시 여부 (이슈 #128)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
@@ -101,8 +113,16 @@ export function CalendarPage() {
       setScopeMode('delete')
       return
     }
-    // 단일 일정 → scope 없이 바로 삭제
-    remove.mutate({ id: editing.id }, { onSuccess: () => setDialogOpen(false) })
+    // 단일 일정 → EventDialog 닫고 삭제 확인 다이얼로그 표시. (이슈 #128)
+    setDialogOpen(false)
+    setConfirmDeleteOpen(true)
+  }
+
+  // 단일 일정 삭제 확인 후 실행
+  const confirmDelete = () => {
+    if (!editing) return
+    remove.mutate({ id: editing.id }, { onSuccess: () => setConfirmDeleteOpen(false) })
+    setConfirmDeleteOpen(false)
   }
 
   // scope 선택 후 실행 — 반복은 마스터 id 로, occurrenceDate 는 서버 값 그대로 전달.
@@ -211,6 +231,27 @@ export function CalendarPage() {
           onCancel={cancelScope}
         />
       )}
+
+      {/* 단일 일정 삭제 확인 다이얼로그 — 되돌릴 수 없으므로 confirm 필요 (이슈 #128) */}
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent data-testid="calendar-confirm-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>일정 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              정말 삭제하시겠습니까? 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="calendar-confirm-delete-cancel">취소</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="calendar-confirm-delete-confirm"
+              onClick={confirmDelete}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

@@ -184,7 +184,7 @@ test(
 )
 
 test(
-  '일정 삭제',
+  '일정 삭제 — confirm 다이얼로그 확인 후 삭제',
   { tag: '@smoke' },
   async ({ authenticatedPage: page }) => {
     await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
@@ -194,16 +194,55 @@ test(
 
     await page.goto('/calendar')
 
-    // 일정 클릭 → 다이얼로그 열림
+    // 일정 클릭 → EventDialog 열림
     await page.getByTestId('calendar-event-1').first().click()
     await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
 
-    // 삭제 버튼 클릭 → DELETE 요청 → store 에서 제거
+    // 삭제 버튼 클릭 → EventDialog 닫히고 confirm 다이얼로그 표시 (이슈 #128)
     await page.getByTestId('calendar-form-delete').click()
-
-    // 다이얼로그 닫힘 + 일정 카드 사라짐
     await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+    await expect(page.getByTestId('calendar-confirm-delete-dialog')).toBeVisible()
+
+    // DELETE 요청 캡처 후 '삭제' 확인 버튼 클릭
+    const deletePromise = page.waitForRequest(
+      (req) => req.method() === 'DELETE' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-confirm-delete-confirm').click()
+    await deletePromise
+
+    // confirm 다이얼로그 닫힘 + 일정 카드 사라짐
+    await expect(page.getByTestId('calendar-confirm-delete-dialog')).toBeHidden()
     await expect(page.getByTestId('calendar-event-1')).toHaveCount(0)
+  },
+)
+
+test(
+  '일정 삭제 — confirm 취소 시 일정 유지 및 DELETE 미발생 (이슈 #128)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = [calendarEvent({ id: 1 })]
+    await stubCalendarEvents(page, store)
+
+    // DELETE 요청 발생 횟수 추적
+    let deleteCount = 0
+    page.on('request', (req) => {
+      if (req.method() === 'DELETE' && req.url().includes('/api/v1/calendar/events')) deleteCount++
+    })
+
+    await page.goto('/calendar')
+
+    // 일정 클릭 → EventDialog 열림 → 삭제 → confirm 다이얼로그 표시
+    await page.getByTestId('calendar-event-1').first().click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+    await page.getByTestId('calendar-form-delete').click()
+    await expect(page.getByTestId('calendar-confirm-delete-dialog')).toBeVisible()
+
+    // '취소' 클릭 → 다이얼로그 닫힘, DELETE 미발생, 일정 카드 유지
+    await page.getByTestId('calendar-confirm-delete-cancel').click()
+    await expect(page.getByTestId('calendar-confirm-delete-dialog')).toBeHidden()
+    expect(deleteCount).toBe(0)
+    await expect(page.getByTestId('calendar-event-1')).toBeVisible()
   },
 )
 
