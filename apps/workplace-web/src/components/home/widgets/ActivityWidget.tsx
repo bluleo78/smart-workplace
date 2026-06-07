@@ -17,6 +17,8 @@ const EVENT_LABEL: Record<string, string> = {
   TITLE_CHANGED: '제목 변경',
   DESCRIPTION_CHANGED: '설명 변경',
   LABEL_CHANGED: '라벨 변경',
+  LABELS_CHANGED: '라벨 변경',
+  ATTACHMENTS_CHANGED: '첨부 변경',
   DUE_DATE_CHANGED: '마감일 변경',
   CLOSED: '완료',
   REOPENED: '재개',

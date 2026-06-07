@@ -279,6 +279,54 @@ test('활동 위젯 — eventType 이 한국어 레이블로 변환되어 표시
   await expect(activityList).toContainText('로그인 버그')
 })
 
+test('활동 위젯 — LABELS_CHANGED·ATTACHMENTS_CHANGED 가 한국어 레이블로 표시된다 (#153)', async ({
+  authenticatedPage: page,
+}) => {
+  // 백엔드 실제 enum 값(LABELS_CHANGED, ATTACHMENTS_CHANGED)을 포함한 활동 목록 모킹
+  const activityWithMissingLabels: ActivityPage = {
+    items: [
+      {
+        id: 1,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '채팅 테스트 이슈',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'LABELS_CHANGED',
+        createdAt: '2026-06-07T01:00:00Z',
+      },
+      {
+        id: 2,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '채팅 테스트 이슈',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'ATTACHMENTS_CHANGED',
+        createdAt: '2026-06-07T02:00:00Z',
+      },
+    ],
+    nextCursor: null,
+  }
+  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/activity', activityWithMissingLabels)
+  await page.goto('/')
+
+  const activityList = page.getByTestId('activity-items')
+  await expect(activityList).toBeVisible()
+
+  // raw enum 값이 아닌 한국어 레이블로 표시되어야 한다
+  await expect(activityList).toContainText('라벨 변경')
+  await expect(activityList).toContainText('첨부 변경')
+  await expect(activityList).not.toContainText('LABELS_CHANGED')
+  await expect(activityList).not.toContainText('ATTACHMENTS_CHANGED')
+})
+
 test('삭제 — 휴지통 클릭 시 DELETE 호출 + 목록에서 제거', async ({ authenticatedPage: page }) => {
   await mockHome(page)
   await mockSessions(page, {
