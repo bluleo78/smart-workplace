@@ -1,5 +1,6 @@
 // 멤버 단위 mutation 모음. 성공 시 멤버 목록·채널 상세(memberCount) 무효화.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 import { messagingApi } from '../../api/messaging';
 import { handleApiError } from '../../lib/api-error';
@@ -26,6 +27,7 @@ export function useRemoveMember(channelId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: messagingKeys.members(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
+      toast.success('멤버를 제거했어요');
     },
     onError: (err) => handleApiError(err, '멤버 제거에 실패했어요'),
   });

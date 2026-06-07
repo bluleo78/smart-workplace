@@ -61,7 +61,7 @@ test.describe('messaging 멤버 패널', () => {
     await expect(page.getByTestId('member-role-1')).toContainText('OWNER')
   })
 
-  test('OWNER → 멤버 제거', async ({ authenticatedPage: page }) => {
+  test('OWNER → 멤버 제거 (AlertDialog 확인 후 제거)', async ({ authenticatedPage: page }) => {
     const ch = createChannel({ id: CID, role: 'OWNER', member: true })
     await stubBase(page, ch)
     let removed = false
@@ -88,8 +88,38 @@ test.describe('messaging 멤버 패널', () => {
     )
     await page.goto(`/chat/channels/${CID}`)
     await page.getByTestId('channel-members-btn').click()
+    // 제거 버튼 클릭 → AlertDialog 확인 단계 거쳐야 실제 제거됨
     await page.getByTestId('member-remove-2').click()
+    // AlertDialog 가 열려야 함 (즉시 제거 방지 검증)
+    await expect(page.getByTestId('member-remove-confirm')).toBeVisible()
+    await page.getByTestId('member-remove-confirm').click()
     await expect(page.getByTestId('member-row-2')).toHaveCount(0)
+  })
+
+  test('OWNER → 멤버 제거 취소 시 멤버 유지', async ({ authenticatedPage: page }) => {
+    const ch = createChannel({ id: CID, role: 'OWNER', member: true })
+    await stubBase(page, ch)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CID}/members`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify([
+                createChannelMember({ userId: 1, name: '나', role: 'OWNER' }),
+                createChannelMember({ userId: 2, name: '동료', role: 'MEMBER' }),
+              ]),
+            })
+          : route.fallback(),
+    )
+    await page.goto(`/chat/channels/${CID}`)
+    await page.getByTestId('channel-members-btn').click()
+    await page.getByTestId('member-remove-2').click()
+    // AlertDialog 에서 취소 → 멤버 유지
+    await expect(page.getByTestId('member-remove-confirm')).toBeVisible()
+    await page.getByRole('button', { name: '취소' }).click()
+    await expect(page.getByTestId('member-row-2')).toBeVisible()
   })
 
   test('비공개 초대 — OWNER 가 검색해서 추가(POST payload 검증)', async ({ authenticatedPage: page }) => {

@@ -58,6 +58,8 @@ export function ChannelMembersPanel({
   const [searchOpen, setSearchOpen] = useState(false)
   // 나가기 확인 다이얼로그 열림 상태 — AlertDialog 로 직접 제어.
   const [confirmLeave, setConfirmLeave] = useState(false)
+  // 제거 확인 다이얼로그 — { userId, name } 를 열면 해당 멤버 제거 확인 요청.
+  const [confirmRemove, setConfirmRemove] = useState<{ userId: number; name: string } | null>(null)
 
   // 내가 OWNER 인지(역할 변경 가능), 내가 OWNER 또는 ADMIN 인지(추가/제거 가능).
   const isOwner = myRole === 'OWNER'
@@ -133,7 +135,7 @@ export function ChannelMembersPanel({
                       size="sm"
                       variant="ghost"
                       data-testid={`member-remove-${m.userId}`}
-                      onClick={() => removeMember.mutate(m.userId)}
+                      onClick={() => setConfirmRemove({ userId: m.userId, name: m.name })}
                     >
                       제거
                     </Button>
@@ -154,6 +156,34 @@ export function ChannelMembersPanel({
           </Button>
         </DialogContent>
       </Dialog>
+
+      {/* 멤버 제거 확인 — 실수 클릭 방지. 나가기 패턴과 동일하게 AlertDialog 직접 사용. */}
+      <AlertDialog
+        open={confirmRemove !== null}
+        onOpenChange={(open) => !open && setConfirmRemove(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>멤버 제거</AlertDialogTitle>
+            <AlertDialogDescription>
+              채널에서 {confirmRemove?.name}을(를) 제거하시겠습니까? 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              data-testid="member-remove-confirm"
+              onClick={() => {
+                if (confirmRemove) removeMember.mutate(confirmRemove.userId)
+                setConfirmRemove(null)
+              }}
+            >
+              제거
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 나가기 확인 — DeleteConfirmDialog 는 trigger 기반으로 비호환. AlertDialog 직접 사용. */}
       <AlertDialog open={confirmLeave} onOpenChange={setConfirmLeave}>
