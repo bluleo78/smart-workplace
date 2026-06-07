@@ -483,3 +483,64 @@ test(
     await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
   },
 )
+
+test(
+  '저장 버튼: POST 진행 중 disabled 상태 — 중복 제출 차단 (이슈 #130)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    // POST 응답을 인위적으로 지연시켜 isPending=true 구간을 만든다.
+    let resolvePost!: () => void
+    await page.route(
+      (url) => url.pathname.startsWith('/api/v1/calendar/events'),
+      async (route) => {
+        const method = route.request().method()
+        if (method === 'GET') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([]),
+          })
+        }
+        if (method === 'POST') {
+          // 외부에서 resolvePost() 를 호출할 때까지 응답을 보류
+          await new Promise<void>((resolve) => {
+            resolvePost = resolve
+          })
+          return route.fulfill({
+            status: 201,
+            contentType: 'application/json',
+            body: JSON.stringify({ id: 999, title: '점심 약속' }),
+          })
+        }
+        return route.fallback()
+      },
+    )
+
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-new-event').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    await page.getByTestId('calendar-form-title').fill('점심 약속')
+
+    // POST 요청 시작 시점 감시
+    const postStarted = page.waitForRequest(
+      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
+    )
+
+    // 첫 번째 클릭 → 요청 시작
+    await page.getByTestId('calendar-form-submit').click()
+    await postStarted
+
+    // isPending=true 구간: 버튼이 disabled 이어야 함 (중복 클릭 방지)
+    await expect(page.getByTestId('calendar-form-submit')).toBeDisabled()
+    // 로딩 텍스트 표시 확인
+    await expect(page.getByTestId('calendar-form-submit')).toContainText('저장 중')
+
+    // 지연 해제 → 응답 완료
+    resolvePost()
+
+    // 완료 후 다이얼로그 닫힘
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+  },
+)

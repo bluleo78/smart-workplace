@@ -150,6 +150,8 @@ interface EventDialogProps {
   onSubmit: (body: CalendarEventRequest) => void
   /** 편집 모드에서만 제공 — 삭제 버튼 표시 */
   onDelete?: () => void
+  /** API 요청 진행 중 여부 — true 이면 저장 버튼 비활성화 + 로딩 텍스트 표시 (이슈 #130) */
+  isPending?: boolean
 }
 
 // ────────────────────────────────────────────────────────────
@@ -162,6 +164,7 @@ export function EventDialog({
   defaultStart,
   onSubmit,
   onDelete,
+  isPending = false,
 }: EventDialogProps) {
   const isEdit = !!event
 
@@ -494,8 +497,8 @@ export function EventDialog({
               >
                 취소
               </Button>
-              <Button type="submit" data-testid="calendar-form-submit">
-                {isEdit ? '수정' : '저장'}
+              <Button type="submit" data-testid="calendar-form-submit" disabled={isPending}>
+                {isPending ? '저장 중…' : isEdit ? '수정' : '저장'}
               </Button>
             </div>
           </DialogFooter>

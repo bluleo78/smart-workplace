@@ -213,6 +213,7 @@ export function CalendarPage() {
         {view === 'agenda' && <AgendaView {...viewProps} />}
       </div>
 
+      {/* isPending: API 진행 중일 때 저장 버튼 비활성화 — 중복 제출 방지 (이슈 #130) */}
       <EventDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -220,6 +221,7 @@ export function CalendarPage() {
         defaultStart={defaultStart}
         onSubmit={submit}
         onDelete={onDelete}
+        isPending={create.isPending || update.isPending}
       />
 
       {/* 반복 회차 수정/삭제 시 적용 범위 선택 (이슈 #111) */}
