@@ -131,6 +131,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                     onCancel={() => setEditingId(null)}
                     submitLabel="저장"
                     autoFocus
+                    disableWhenEmpty
                     inputTestId={`message-editor-input-${m.id}`}
                     submitTestId={`message-editor-save-${m.id}`}
                     cancelTestId={`message-editor-cancel-${m.id}`}

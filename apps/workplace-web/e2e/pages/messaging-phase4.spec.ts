@@ -307,6 +307,52 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toContainText('원본메시지_수정중인내용')
   })
 
+  // 2-2) #151 회귀 — 인라인 편집에서 내용을 모두 지우면 저장 버튼이 비활성화돼야 한다.
+  // (예전 버그: disableWhenEmpty prop 미전달로 빈 내용에도 저장 버튼이 활성화)
+  test('인라인 편집 — 내용을 모두 지우면 저장 버튼이 비활성화된다', async ({
+    authenticatedPage: page,
+  }) => {
+    const CHANNEL_ID = 204
+    const MSG_ID = 901
+    const channel = createChannel({ id: CHANNEL_ID, name: '빈내용테스트채널', member: true })
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [
+      createMessage({
+        id: MSG_ID,
+        channelId: CHANNEL_ID,
+        authorId: ME_ID,
+        authorName: '나',
+        body: '원본메시지',
+      }),
+    ])
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toBeVisible()
+
+    // hover → 수정 버튼 클릭 → 에디터 열림
+    await page.getByTestId(`message-${MSG_ID}`).hover()
+    await page.getByTestId(`message-edit-${MSG_ID}`).click()
+
+    const saveBtn = page.getByTestId(`message-editor-save-${MSG_ID}`)
+    const editorInput = page.getByTestId(`message-editor-input-${MSG_ID}`)
+
+    // 내용이 있을 때는 저장 버튼 활성 상태
+    await expect(saveBtn).not.toBeDisabled()
+
+    // 전체 선택 후 삭제 → 빈 상태
+    // TipTap contenteditable 에서 triple-click 으로 단락 전체 선택 후 Backspace.
+    await editorInput.click({ clickCount: 3 })
+    await page.keyboard.press('Backspace')
+    // 에디터가 실제로 비었는지 확인(TipTap onUpdate 가 isEmpty 를 갱신하는 타이밍 보장)
+    await expect(editorInput).toHaveText('')
+    // 빈 상태에서 저장 버튼이 비활성화돼야 한다(#151 핵심 검증)
+    await expect(saveBtn).toBeDisabled()
+  })
+
   // 3) unread 배지: 사이드바에 unread>0 배지 → SSE read 이벤트(본인) 로 목록 invalidate
   //    → 재조회가 unreadCount:0 반환 → 배지 사라짐.
   //    레이스 회피: SSE read 이벤트를 mount 즉시 흘리지 않고, 배지가 화면에 뜬 것을 확인한
