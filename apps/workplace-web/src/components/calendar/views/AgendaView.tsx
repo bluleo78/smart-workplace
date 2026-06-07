@@ -1,5 +1,6 @@
 // 목록(어젠다) 뷰 — 일정과 이슈 마감일을 날짜 오름차순으로 한 줄씩 나열한다.
 import { format } from 'date-fns'
+import { ko } from 'date-fns/locale'
 import { Flag } from 'lucide-react'
 
 import { hhmm } from '@/lib/calendar'
@@ -40,7 +41,7 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
             >
               {/* 날짜 */}
               <span className="text-sm text-muted-foreground w-28 shrink-0">
-                {format(new Date(row.event.startsAt), 'M.d (EEE)')}
+                {format(new Date(row.event.startsAt), 'M.d (EEE)', { locale: ko })}
               </span>
               {/* 시간 — 종일 이벤트는 '종일' 표시 */}
               <span className="text-sm text-muted-foreground w-16 shrink-0">
@@ -58,7 +59,7 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
             >
               {/* 날짜 */}
               <span className="text-sm text-muted-foreground w-28 shrink-0">
-                {format(new Date(`${row.marker.dueDate.slice(0, 10)}T00:00:00`), 'M.d (EEE)')}
+                {format(new Date(`${row.marker.dueDate.slice(0, 10)}T00:00:00`), 'M.d (EEE)', { locale: ko })}
               </span>
               {/* 이슈 마감 표식 — 일정과 구분 */}
               <span className="text-sm text-muted-foreground w-16 shrink-0">마감</span>

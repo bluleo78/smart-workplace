@@ -1,6 +1,7 @@
 // 주/일 뷰 공용 타임그리드 컴포넌트.
 // WeekView(7일)와 DayView(1일)가 동일한 레이아웃을 공유한다.
 import { format, isSameDay } from 'date-fns'
+import { ko } from 'date-fns/locale'
 
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { eventsOnDay, hhmm, HOURS, issueDuesOnDay } from '@/lib/calendar'
@@ -62,7 +63,7 @@ export function TimeGrid({
             key={day.toISOString()}
             className="flex-1 text-center text-sm py-2 font-medium border-l"
           >
-            {format(day, 'M.d (EEE)')}
+            {format(day, 'M.d (EEE)', { locale: ko })}
           </div>
         ))}
       </div>

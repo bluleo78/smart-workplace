@@ -571,6 +571,46 @@ test(
 // 반복 일정 중복 key 수정 (이슈 #174)
 // ────────────────────────────────────────────────────────────
 
+// ────────────────────────────────────────────────────────────
+// date-fns 로케일 한국어 표시 회귀 검증 (이슈 #176)
+// ────────────────────────────────────────────────────────────
+
+test(
+  '목록/주/일 뷰 — 요일이 한국어로 표시된다 (이슈 #176)',
+  async ({ authenticatedPage: page }) => {
+    // 2026-06-08 = 월요일 → "6.8 (월)" 이어야 함. "Mon" 이면 회귀.
+    await page.clock.setFixedTime(new Date('2026-06-08T03:00:00Z'))
+
+    // 2026-06-08 시작하는 일정 1건 주입
+    const store: CalendarEvent[] = [
+      calendarEvent({ id: 1, startsAt: '2026-06-08T01:00:00Z', endsAt: '2026-06-08T02:00:00Z' }),
+    ]
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    // 1) 목록(어젠다) 뷰
+    await page.getByTestId('calendar-view-agenda-btn').click()
+    await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
+    // "Mon" 이 없고, "월" 이 보여야 한다
+    await expect(page.getByText(/Mon/)).toHaveCount(0)
+    await expect(page.getByText(/6\.8 \(월\)/)).toBeVisible()
+
+    // 2) 주 뷰 날짜 헤더
+    await page.getByTestId('calendar-view-week-btn').click()
+    await expect(page.getByTestId('calendar-view-week')).toBeVisible()
+    // 주 뷰 헤더에 영문 요일("Mon") 가 없고 한국어("월") 가 있어야 한다
+    await expect(page.locator('[data-testid="calendar-view-week"] >> text=Mon')).toHaveCount(0)
+    await expect(page.locator('[data-testid="calendar-view-week"] >> text=6.8 (월)')).toBeVisible()
+
+    // 3) 일 뷰 날짜 헤더
+    await page.getByTestId('calendar-view-day-btn').click()
+    await expect(page.getByTestId('calendar-view-day')).toBeVisible()
+    await expect(page.locator('[data-testid="calendar-view-day"] >> text=Mon')).toHaveCount(0)
+    await expect(page.locator('[data-testid="calendar-view-day"] >> text=6.8 (월)')).toBeVisible()
+  },
+)
+
 test(
   '반복 일정 — AgendaView 에서 각 occurrence 가 고유 testid 로 노출된다 (이슈 #174)',
   async ({ authenticatedPage: page }) => {
