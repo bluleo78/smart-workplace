@@ -6,6 +6,51 @@ import type { SavedViewResponse } from '../../../src/types/savedView'
 
 const KEY = 'WP'
 
+/** 공통 라우트 셋업 — 프로젝트/이슈/labels/types/saved-views 기본 mock */
+async function setupCommonRoutes(page: import('@playwright/test').Page, views: SavedViewResponse[]) {
+  await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+  )
+  await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  await page.route(`**/api/v1/projects/${KEY}/types`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([], null)),
+      }),
+  )
+  await page.route(`**/api/v1/projects/${KEY}/saved-views`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(views) }),
+  )
+}
+
+test('저장된 뷰 — 필터 미적용 상태에서 뷰 저장 버튼 비활성 + 다이얼로그 오류 메시지 표시 (refs #146)', async ({
+  authenticatedPage: page,
+}) => {
+  // 필터 없는 초기 상태에서 진입 — query='' 이므로 isAllActive=true.
+  await setupCommonRoutes(page, [])
+  await page.goto(`/projects/${KEY}`)
+
+  // 1) "뷰 저장" 버튼은 disabled 상태여야 한다.
+  await expect(page.getByTestId('save-view-button')).toBeDisabled()
+
+  // 2) 필터 적용 후에는 버튼이 활성화된다.
+  await page.getByRole('button', { name: '높음' }).click()
+  await expect(page).toHaveURL(/priority=HIGH/)
+  await expect(page.getByTestId('save-view-button')).toBeEnabled()
+
+  // 3) 전체 칩 클릭으로 필터 해제 → 다시 비활성.
+  await page.getByTestId('view-chip-all').click()
+  await expect(page.getByTestId('save-view-button')).toBeDisabled()
+})
+
 test('저장된 뷰 — 필터 저장 → 칩 등장 → 클릭 시 필터 복원 → 삭제', async ({
   authenticatedPage: page,
 }) => {

@@ -101,11 +101,14 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
         )
       })}
 
+      {/* 필터 미적용 시 비활성 — 빈 query 저장 방지(백엔드 NotBlank 위반 선제 차단). */}
       <button
         type="button"
         data-testid="save-view-button"
         onClick={() => setSaveOpen(true)}
-        className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-sm text-muted-foreground hover:bg-accent/50"
+        disabled={isAllActive}
+        title={isAllActive ? '필터를 먼저 적용하세요' : undefined}
+        className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-sm text-muted-foreground hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
       >
         <Plus className="h-3.5 w-3.5" /> 뷰 저장
       </button>

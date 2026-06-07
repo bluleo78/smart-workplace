@@ -36,6 +36,8 @@ export function SaveViewDialog({
   const [name, setName] = useState(editing?.name ?? '')
   const [visibility, setVisibility] = useState<Visibility>(editing?.visibility ?? 'PRIVATE')
   const pending = isEdit ? update.isPending : create.isPending
+  // 생성 모드에서 필터 미적용(빈 query) 이면 백엔드 NotBlank 위반 → 클라이언트 가드.
+  const noFilter = !isEdit && !query.trim()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -48,7 +50,7 @@ export function SaveViewDialog({
             // 저장 — 이름 trim 후 빈 값이면 무시. 성공 시 입력 초기화 + 닫기.
             e.preventDefault()
             const trimmed = name.trim()
-            if (!trimmed) return
+            if (!trimmed || noFilter) return
             try {
               if (isEdit) {
                 // 수정: 쿼리는 기존값 유지, 이름/가시성만 변경.
@@ -68,6 +70,12 @@ export function SaveViewDialog({
           }}
           className="space-y-4"
         >
+          {/* 필터 미적용 안내 — 빈 query 로 저장 시도 방지 */}
+          {noFilter && (
+            <p data-testid="save-view-no-filter-msg" className="text-sm text-destructive">
+              저장하려면 먼저 필터를 하나 이상 적용하세요.
+            </p>
+          )}
           <div className="space-y-1">
             <label className="text-sm font-medium" htmlFor="save-view-name">
               뷰 이름
@@ -106,7 +114,7 @@ export function SaveViewDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               취소
             </Button>
-            <Button type="submit" data-testid="save-view-submit" disabled={pending}>
+            <Button type="submit" data-testid="save-view-submit" disabled={pending || noFilter}>
               {pending ? (isEdit ? '수정 중…' : '저장 중…') : (isEdit ? '수정' : '저장')}
             </Button>
           </DialogFooter>
