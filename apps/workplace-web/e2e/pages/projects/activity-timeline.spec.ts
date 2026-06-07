@@ -1,0 +1,260 @@
+// IssueActivityTimeline — STATUS_CHANGED/PRIORITY_CHANGED 한국어 매핑 회귀 테스트 (#157).
+// 백엔드 영문 enum 원시값이 그대로 노출되지 않고 한국어 표시명으로 렌더되는지 검증.
+
+import { expect, test } from '../../fixtures/auth.fixture';
+import { createHistoryEntry, createIssueDetail } from '../../factories/issue.factory';
+import { createMember, createProject } from '../../factories/project.factory';
+
+const PROJECT_KEY = 'WP';
+
+// IssueDetailPage 가 동시에 fetch 하는 부수 endpoint 를 공통으로 stub.
+async function setupCommonStubs(page: import('@playwright/test').Page) {
+  await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(createProject()),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' }),
+      ]),
+    });
+  });
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/watchers`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/labels`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/labels`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    },
+  );
+}
+
+test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
+  test(
+    'STATUS_CHANGED 이벤트: TODO→IN_PROGRESS 가 "할 일 → 진행 중" 으로 표시됨',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      const detail = createIssueDetail({
+        history: [
+          createHistoryEntry({
+            id: 1,
+            eventType: 'STATUS_CHANGED',
+            fromValue: 'TODO',
+            toValue: 'IN_PROGRESS',
+          }),
+        ],
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+      // 활동 타임라인 섹션 대기
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+
+      // 영문 enum 원시값 노출 없어야 함
+      await expect(timeline).not.toContainText('TODO');
+      await expect(timeline).not.toContainText('IN_PROGRESS');
+
+      // 한국어 표시명이 렌더되어야 함
+      await expect(timeline).toContainText('할 일 → 진행 중');
+    },
+  );
+
+  test(
+    'STATUS_CHANGED 이벤트: 여러 상태값(DONE, CANCELED) 한국어 매핑 검증',
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      const detail = createIssueDetail({
+        history: [
+          createHistoryEntry({
+            id: 2,
+            eventType: 'STATUS_CHANGED',
+            fromValue: 'IN_PROGRESS',
+            toValue: 'DONE',
+          }),
+          createHistoryEntry({
+            id: 3,
+            eventType: 'STATUS_CHANGED',
+            fromValue: 'DONE',
+            toValue: 'CANCELED',
+          }),
+        ],
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+
+      await expect(timeline).not.toContainText('IN_PROGRESS');
+      await expect(timeline).not.toContainText('DONE');
+      await expect(timeline).not.toContainText('CANCELED');
+
+      await expect(timeline).toContainText('진행 중 → 완료');
+      await expect(timeline).toContainText('완료 → 취소');
+    },
+  );
+
+  test(
+    'PRIORITY_CHANGED 이벤트: LOW→HIGH 가 "낮음 → 높음" 으로 표시됨',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      const detail = createIssueDetail({
+        history: [
+          createHistoryEntry({
+            id: 4,
+            eventType: 'PRIORITY_CHANGED',
+            fromValue: 'LOW',
+            toValue: 'HIGH',
+          }),
+        ],
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+
+      await expect(timeline).not.toContainText('LOW');
+      await expect(timeline).not.toContainText('HIGH');
+
+      await expect(timeline).toContainText('낮음 → 높음');
+    },
+  );
+
+  test(
+    'PRIORITY_CHANGED 이벤트: MID 값이 "보통" 으로 표시됨',
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      const detail = createIssueDetail({
+        history: [
+          createHistoryEntry({
+            id: 5,
+            eventType: 'PRIORITY_CHANGED',
+            fromValue: 'MID',
+            toValue: 'HIGH',
+          }),
+        ],
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+
+      await expect(timeline).not.toContainText('MID');
+      await expect(timeline).toContainText('보통 → 높음');
+    },
+  );
+
+  test(
+    '매핑 없는 알 수 없는 상태값은 원문 그대로 폴백 렌더됨',
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      // 미래에 추가될 수 있는 알 수 없는 enum 값에 대한 안전한 폴백 검증.
+      const detail = createIssueDetail({
+        history: [
+          createHistoryEntry({
+            id: 6,
+            eventType: 'STATUS_CHANGED',
+            fromValue: 'UNKNOWN_STATUS',
+            toValue: 'ANOTHER_STATUS',
+          }),
+        ],
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+
+      // 매핑 없는 값은 원문 그대로 표시되어야 함 (안전한 폴백).
+      await expect(timeline).toContainText('UNKNOWN_STATUS → ANOTHER_STATUS');
+    },
+  );
+});

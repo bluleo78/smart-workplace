@@ -122,7 +122,7 @@ test('상태 변경 시 활동 타임라인에 한국어 라벨로 노출', asyn
   await page.getByRole('combobox', { name: '상태' }).click();
   await page.getByRole('option', { name: '진행 중' }).click();
   await expect(page.getByText('상태 변경')).toBeVisible();
-  await expect(page.getByText(/TODO\s*→\s*IN_PROGRESS/)).toBeVisible();
+  await expect(page.getByText(/할 일\s*→\s*진행 중/)).toBeVisible();
 });
 
 // non-smoke: 프로젝트 삭제 후 목록에서 사라짐

@@ -160,6 +160,31 @@ function formatCustomFieldChanged(toValue: string | null): string {
   }
 }
 
+// STATUS_CHANGED: 백엔드 enum → 한국어 상태명. 매핑 없는 값은 원문 폴백.
+const STATUS_LABEL: Record<string, string> = {
+  TODO: '할 일',
+  IN_PROGRESS: '진행 중',
+  DONE: '완료',
+  CANCELED: '취소',
+};
+
+// PRIORITY_CHANGED: 백엔드 enum → 한국어 우선순위명. 매핑 없는 값은 원문 폴백.
+const PRIORITY_LABEL: Record<string, string> = {
+  HIGH: '높음',
+  MID: '보통',
+  LOW: '낮음',
+};
+
+function mapStatusLabel(v: string | null): string {
+  if (!v) return '없음';
+  return STATUS_LABEL[v] ?? v;
+}
+
+function mapPriorityLabel(v: string | null): string {
+  if (!v) return '없음';
+  return PRIORITY_LABEL[v] ?? v;
+}
+
 // 이력 항목을 시간순으로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
 export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[] }) {
   if (entries.length === 0) {
@@ -191,7 +216,15 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
             </div>
             <div>
               <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}
-              {e.eventType === 'LABELS_CHANGED' ? (
+              {e.eventType === 'STATUS_CHANGED' ? (
+                <span>
+                  {mapStatusLabel(e.fromValue)} → {mapStatusLabel(e.toValue)}
+                </span>
+              ) : e.eventType === 'PRIORITY_CHANGED' ? (
+                <span>
+                  {mapPriorityLabel(e.fromValue)} → {mapPriorityLabel(e.toValue)}
+                </span>
+              ) : e.eventType === 'LABELS_CHANGED' ? (
                 <span>{formatLabelsChanged(e.toValue)}</span>
               ) : e.eventType === 'ATTACHMENTS_CHANGED' ? (
                 <span>{formatAttachmentsChanged(e.toValue)}</span>
