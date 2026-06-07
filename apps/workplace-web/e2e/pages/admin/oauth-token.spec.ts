@@ -261,6 +261,7 @@ test.describe('/admin/agents — OAuthTokenSection', () => {
   });
 
   test('회수 → 미등록 상태로 전환', async ({ adminPage: page }) => {
+    // #136: window.confirm → AlertDialog 교체 검증.
     await setupBase(page);
     const state = await setupOAuth(page, {
       initial: 'present',
@@ -274,11 +275,10 @@ test.describe('/admin/agents — OAuthTokenSection', () => {
 
     await enterAndSelect(page);
 
-    // confirm() 수락.
-    page.on('dialog', (d) => {
-      void d.accept();
-    });
+    // AlertDialog 가 표시되고 확인 버튼 클릭 → DELETE 호출.
     await page.getByTestId('oauth-token-revoke').click();
+    await expect(page.getByTestId('oauth-revoke-dialog')).toBeVisible();
+    await page.getByTestId('oauth-revoke-confirm').click();
 
     await expect(page.getByText('토큰을 회수했습니다.')).toBeVisible();
     expect(state.deleteCount).toBe(1);
@@ -288,7 +288,8 @@ test.describe('/admin/agents — OAuthTokenSection', () => {
     await expect(page.getByTestId('oauth-token-register')).toBeVisible();
   });
 
-  test('회수 confirm 거절 → DELETE 호출 없음', async ({ adminPage: page }) => {
+  test('회수 AlertDialog 취소 → DELETE 호출 없음', async ({ adminPage: page }) => {
+    // #136: window.confirm → AlertDialog 교체 검증 — 취소 경로.
     await setupBase(page);
     const state = await setupOAuth(page, {
       initial: 'present',
@@ -302,13 +303,12 @@ test.describe('/admin/agents — OAuthTokenSection', () => {
 
     await enterAndSelect(page);
 
-    page.on('dialog', (d) => {
-      void d.dismiss();
-    });
+    // AlertDialog 가 표시되고 취소 버튼 클릭 → DELETE 호출 없음.
     await page.getByTestId('oauth-token-revoke').click();
+    await expect(page.getByTestId('oauth-revoke-dialog')).toBeVisible();
+    await page.getByTestId('oauth-revoke-cancel').click();
+    await expect(page.getByTestId('oauth-revoke-dialog')).not.toBeVisible();
 
-    // 짧은 대기 — DELETE 가 호출되지 않았음을 검증.
-    await page.waitForTimeout(200);
     expect(state.deleteCount).toBe(0);
     await expect(page.getByTestId('oauth-token-revoke')).toBeVisible();
   });

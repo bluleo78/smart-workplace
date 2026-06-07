@@ -5,6 +5,16 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -48,6 +58,14 @@ export default function AgentManagementPage() {
   const [showNew, setShowNew] = useState(false);
   const [plaintext, setPlaintext] = useState<string | null>(null);
 
+  // 파괴적 작업 확인 AlertDialog — API 키 회수 + AGENT 삭제. window.confirm 대체 (#136).
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    description: string;
+    actionLabel: string;
+    action: () => void;
+  } | null>(null);
+
   const onIssue = async () => {
     if (selectedId == null) return;
     try {
@@ -59,17 +77,28 @@ export default function AgentManagementPage() {
     }
   };
 
+  // API 키 회수 — AlertDialog 로 확인 후 실행.
   const onRevoke = (keyId: number) => {
-    if (!confirm('이 키를 회수하시겠습니까? 즉시 인증이 차단됩니다.')) return;
-    revoke.mutate(keyId);
+    setConfirmDialog({
+      title: 'API 키 회수',
+      description: '이 키를 회수하시겠습니까? 즉시 인증이 차단됩니다.',
+      actionLabel: '회수',
+      action: () => revoke.mutate(keyId),
+    });
   };
 
+  // AGENT 삭제 — AlertDialog 로 확인 후 실행.
   const onDelete = (id: number, name: string) => {
-    if (!confirm(`AGENT "${name}" 를 삭제하시겠습니까? 키도 모두 제거됩니다.`)) return;
-    deleteAgent.mutate(id, {
-      onSuccess: () => {
-        if (selectedId === id) setSelectedId(null);
-      },
+    setConfirmDialog({
+      title: 'AGENT 삭제',
+      description: `AGENT "${name}" 를 삭제하시겠습니까? 키도 모두 제거됩니다.`,
+      actionLabel: '삭제',
+      action: () =>
+        deleteAgent.mutate(id, {
+          onSuccess: () => {
+            if (selectedId === id) setSelectedId(null);
+          },
+        }),
     });
   };
 
@@ -257,6 +286,37 @@ export default function AgentManagementPage() {
           if (!v) setPlaintext(null);
         }}
       />
+
+      {/* 파괴적 작업 확인 AlertDialog — API 키 회수 + AGENT 삭제. window.confirm 대체 (#136). */}
+      <AlertDialog
+        open={confirmDialog != null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDialog(null);
+        }}
+      >
+        <AlertDialogContent data-testid="agent-confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog?.title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmDialog?.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="agent-confirm-cancel">
+              취소
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                confirmDialog?.action();
+              }}
+              data-testid="agent-confirm-confirm"
+            >
+              {confirmDialog?.actionLabel ?? '확인'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -267,12 +327,16 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
   const { data: meta, isLoading } = useAgentOAuthTokenMeta(agentUserId);
   const revoke = useRevokeAgentOAuthToken(agentUserId);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // OAuth 토큰 회수 확인 AlertDialog. window.confirm 대체 (#136).
+  const [revokeOpen, setRevokeOpen] = useState(false);
 
-  const onRevoke = async () => {
-    if (
-      !confirm('OAuth 토큰을 회수하시겠습니까? AGENT 는 LLM 호출 불가 상태가 됩니다.')
-    )
-      return;
+  // 회수 확인 AlertDialog 표시 — 취소 시 아무것도 안 함.
+  const onRevokeClick = () => {
+    setRevokeOpen(true);
+  };
+
+  // AlertDialog 확인 시 실제 회수 실행.
+  const doRevoke = async () => {
     try {
       await revoke.mutateAsync();
       toast.success('토큰을 회수했습니다.');
@@ -312,7 +376,7 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
             <Button
               size="sm"
               variant="destructive"
-              onClick={onRevoke}
+              onClick={onRevokeClick}
               disabled={revoke.isPending}
               data-testid="oauth-token-revoke"
             >
@@ -340,6 +404,30 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
         agentUserId={agentUserId}
         isReissue={meta != null}
       />
+
+      {/* OAuth 토큰 회수 확인 AlertDialog. window.confirm 대체 (#136). */}
+      <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
+        <AlertDialogContent data-testid="oauth-revoke-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>OAuth 토큰 회수</AlertDialogTitle>
+            <AlertDialogDescription>
+              OAuth 토큰을 회수하시겠습니까? AGENT 는 LLM 호출 불가 상태가 됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="oauth-revoke-cancel">
+              취소
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void doRevoke()}
+              data-testid="oauth-revoke-confirm"
+            >
+              회수
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
