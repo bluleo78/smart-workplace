@@ -30,6 +30,26 @@ export function formatDateOnly(dateStr: string | null | undefined): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+/**
+ * 날짜 전용 ISO 문자열(YYYY-MM-DD)을 한국어 로케일로 포매팅.
+ * ex) "2026-06-30" → "2026년 6월 30일"
+ * 타임존 왜곡 방지를 위해 UTC 파싱 없이 로컬 날짜로 직접 생성.
+ */
+export function formatDateKorean(dateStr: string | null | undefined): string {
+  if (!dateStr) return '-';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return '-';
+  const [y, m, d] = parts.map(Number);
+  if (!y || !m || !d) return '-';
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat('ko-KR', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(date);
+}
+
 /** 두 자리 zero-pad. */
 function pad2(n: number): string {
   return n.toString().padStart(2, '0');

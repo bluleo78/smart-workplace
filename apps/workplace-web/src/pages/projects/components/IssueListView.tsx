@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
+import { formatDateKorean } from '../../../lib/formatters';
 import { groupIssues } from '../../../lib/issueGrouping';
 import type {
   IssueFilters,
@@ -152,7 +153,7 @@ function IssueRow({
       <td>
         <IssuePriorityBadge priority={it.priority} />
       </td>
-      <td>{it.dueDate ?? '-'}</td>
+      <td>{formatDateKorean(it.dueDate)}</td>
     </tr>
   );
 }
