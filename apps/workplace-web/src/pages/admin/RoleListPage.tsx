@@ -68,6 +68,13 @@ export default function RoleListPage() {
     fetchRoles();
   }, [fetchRoles]);
 
+  // dialog가 열릴 때 폼 상태 및 에러 초기화 — 닫혀있는 동안 react-hook-form 상태가 유지되므로 재열기 시 reset 필요.
+  useEffect(() => {
+    if (!dialogOpen) return;
+    form.reset();
+    setCreateError('');
+  }, [dialogOpen, form]);
+
   const onCreateSubmit = async (data: CreateRoleFormData) => {
     try {
       setCreateError('');

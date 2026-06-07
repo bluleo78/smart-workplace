@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -21,6 +22,12 @@ export function ProjectCreateDialog({
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateProjectFormData>({
     resolver: zodResolver(createProjectSchema),
   });
+
+  // dialog가 열릴 때 폼 상태 초기화 — 닫혀있는 동안 react-hook-form 상태가 유지되므로 재열기 시 reset 필요.
+  useEffect(() => {
+    if (!open) return;
+    reset();
+  }, [open, reset]);
 
   const onSubmit = async (data: CreateProjectFormData) => {
     try {

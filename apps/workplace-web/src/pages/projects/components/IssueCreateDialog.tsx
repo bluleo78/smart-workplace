@@ -36,6 +36,12 @@ export function IssueCreateDialog({
     defaultValues: { priority: 'MID' },
   });
 
+  // dialog가 열릴 때 폼 상태 초기화 — 닫혀있는 동안 react-hook-form 상태가 유지되므로 재열기 시 reset 필요.
+  useEffect(() => {
+    if (!open) return;
+    reset({ priority: 'MID' });
+  }, [open, reset]);
+
   // 유형 목록 로드 시 기본값 세팅 — name === 'TASK' 우선, 없으면 첫 항목.
   useEffect(() => {
     const list = types.data;
