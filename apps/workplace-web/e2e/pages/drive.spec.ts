@@ -332,6 +332,40 @@ test('휴지통 — 조회 후 복원하면 목록이 갱신된다', async ({ au
   await expect(page.getByText('휴지통이 비어 있습니다')).toBeVisible()
 })
 
+// 복원 실패 시 에러 토스트 표시 검증 (#143)
+test('휴지통 — 복원 실패(500) 시 에러 토스트를 표시한다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+
+  await page.route('**/api/v1/drive/spaces/*/trash', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: makeTrashList() })
+    } else {
+      await route.fulfill({ status: 204, body: '' })
+    }
+  })
+  // 복원 엔드포인트가 500을 반환 — try/catch 누락 시 unhandled rejection, 수정 후 토스트
+  await page.route('**/api/v1/drive/files/901/restore', async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 500, error: 'Internal Server Error', message: '복원하지 못했습니다.' }),
+    })
+  })
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await page.getByTestId('trash-toggle').click()
+  await expect(page.getByTestId('trash-view')).toBeVisible()
+  await expect(page.getByText('memo.txt')).toBeVisible()
+
+  await page.getByRole('button', { name: '복원' }).click()
+
+  // 에러 토스트가 표시되어야 한다 (이전에는 아무 피드백 없음)
+  await expect(page.getByText('복원하지 못했습니다.')).toBeVisible()
+  // 휴지통 목록은 그대로 유지 (복원 실패이므로)
+  await expect(page.getByText('memo.txt')).toBeVisible()
+})
+
 test('드라이브 헤더와 폴더명 breadcrumb', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await stubSpaces(page)
   // 항목 목록 — folderId=10 진입 시 빈 목록

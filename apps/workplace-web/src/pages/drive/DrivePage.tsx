@@ -244,10 +244,15 @@ export function DrivePage() {
     setTrash(null)
     void reload()
   }
+  // 복원 실패 시 사용자에게 오류 피드백 제공 (try/catch 추가)
   async function onRestore(it: DriveTrashItem) {
-    if (it.type === 'FOLDER') await driveApi.restoreFolder(it.id)
-    else await driveApi.restoreFile(it.id)
-    await reloadTrash()
+    try {
+      if (it.type === 'FOLDER') await driveApi.restoreFolder(it.id)
+      else await driveApi.restoreFile(it.id)
+      await reloadTrash()
+    } catch (e) {
+      handleApiError(e, '복원하지 못했습니다.')
+    }
   }
   function onPurge(it: DriveTrashItem) {
     setConfirmDialog({
