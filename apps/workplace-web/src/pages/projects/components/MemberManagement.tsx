@@ -74,8 +74,8 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
             onChange={(e) => setNewRole(e.target.value as ProjectMemberRole)}
             className="border rounded p-2 bg-background"
           >
-            <option value="MEMBER">MEMBER</option>
-            <option value="OWNER">OWNER</option>
+            <option value="MEMBER">멤버</option>
+            <option value="OWNER">소유자</option>
           </select>
         </div>
         <MemberSearchPopover
@@ -117,8 +117,8 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
                     aria-label={`${m.name} 역할`}
                     className="border rounded p-1 bg-background"
                   >
-                    <option value="MEMBER">MEMBER</option>
-                    <option value="OWNER">OWNER</option>
+                    <option value="MEMBER">멤버</option>
+                    <option value="OWNER">소유자</option>
                   </select>
                 </td>
                 <td>

@@ -138,6 +138,59 @@ test.describe('멤버 테이블 컬럼 헤더', () => {
   );
 });
 
+test.describe('역할 선택 드롭다운 한국어 표시', () => {
+  // 역할 옵션이 영문 enum(MEMBER/OWNER) 대신 한국어(멤버/소유자)로 표시되어야 함 (#158 회귀 방지)
+  test(
+    '멤버 추가 역할 드롭다운이 한국어로 표시된다',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      const membersRef = {
+        current: [
+          { userId: 1, username: 'me', name: 'Me', role: 'OWNER' },
+        ] as StubMember[],
+      };
+      await setupStubs(page, membersRef);
+
+      await page.goto(SETTINGS_URL);
+
+      // 멤버 추가 역할 선택 드롭다운: 한국어 옵션 표시 검증
+      const addRoleSelect = page.locator('#new-member-role');
+      await expect(addRoleSelect).toBeVisible();
+      await expect(addRoleSelect.locator('option[value="MEMBER"]')).toHaveText('멤버');
+      await expect(addRoleSelect.locator('option[value="OWNER"]')).toHaveText('소유자');
+      // 영문 enum 원시값이 노출되지 않아야 함
+      await expect(addRoleSelect).not.toContainText('MEMBER');
+      await expect(addRoleSelect).not.toContainText('OWNER');
+    },
+  );
+
+  test(
+    '멤버 목록 역할 변경 select가 한국어로 표시된다',
+    async ({ authenticatedPage: page }) => {
+      const membersRef = {
+        current: [
+          { userId: 1, username: 'me', name: 'Me', role: 'OWNER' },
+          { userId: 2, username: 'alice', name: 'Alice', role: 'MEMBER' },
+        ] as StubMember[],
+      };
+      await setupStubs(page, membersRef);
+
+      await page.goto(SETTINGS_URL);
+
+      // 멤버 목록 각 행의 역할 변경 select: 한국어 옵션 표시 검증
+      const rows = page.locator('table tbody tr');
+      await expect(rows).toHaveCount(2);
+
+      const firstRowSelect = rows.first().locator('select');
+      await expect(firstRowSelect.locator('option[value="MEMBER"]')).toHaveText('멤버');
+      await expect(firstRowSelect.locator('option[value="OWNER"]')).toHaveText('소유자');
+      // 영문 enum 원시값이 노출되지 않아야 함
+      await expect(firstRowSelect).not.toContainText('MEMBER');
+      await expect(firstRowSelect).not.toContainText('OWNER');
+    },
+  );
+});
+
 test.describe('멤버 추가 검색 picker', () => {
   test(
     '검색 → 후보 클릭 → POST /members + 테이블 갱신',
