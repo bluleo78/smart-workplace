@@ -37,6 +37,8 @@ interface RichInputProps {
   allowEmptySubmit?: boolean;
   // true 일 때만 빈 입력에서 전송 버튼 비활성화(opt-in). 미전달 시 기존 동작 유지.
   disableWhenEmpty?: boolean;
+  // 외부 상태(예: 파일 업로드 중)로 전송 버튼을 강제 비활성화. Enter 키 경로도 함께 차단.
+  submitDisabled?: boolean;
   autoFocus?: boolean;
   inputTestId: string;
   submitTestId: string;
@@ -55,6 +57,7 @@ export function RichInput({
   clearOnSubmit = false,
   allowEmptySubmit = false,
   disableWhenEmpty = false,
+  submitDisabled = false,
   autoFocus = false,
   inputTestId,
   submitTestId,
@@ -94,6 +97,13 @@ export function RichInput({
   const allowEmptyRef = useRef(allowEmptySubmit);
   useEffect(() => {
     allowEmptyRef.current = allowEmptySubmit;
+  });
+
+  // submitDisabled 최신값을 submit()(Enter 경로 포함)에서 참조. 외부 비활성 상태(업로드 중 등)를
+  // 버튼 클릭뿐 아니라 Enter 키 경로에서도 차단하기 위해 ref 로 동기화.
+  const submitDisabledRef = useRef(submitDisabled);
+  useEffect(() => {
+    submitDisabledRef.current = submitDisabled;
   });
 
   const editor = useEditor({
@@ -202,6 +212,8 @@ export function RichInput({
 
   function submit() {
     if (!editor) return;
+    // 외부에서 전송을 차단한 경우(파일 업로드 중 등) 버튼·Enter 양쪽 모두 차단.
+    if (submitDisabledRef.current) return;
     const body = serializeToBody(editor.getJSON()).trim();
     // 본문이 비어도 첨부가 있으면(allowEmptySubmit) 제출 허용.
     if (body.length === 0 && !allowEmptyRef.current) return;
@@ -251,12 +263,13 @@ export function RichInput({
         )}
         {/* disableWhenEmpty=true 이고 본문도 비고 첨부도 없을 때만 비활성화(opt-in). */}
         {/* allowEmptySubmit 은 렌더 시점 prop 직접 참조 — ref 는 submit(Enter 경로) 전용. */}
+        {/* submitDisabled 는 외부 상태(업로드 중 등)로 강제 비활성화. 버튼·Enter 양쪽 차단. */}
         <Button
           type="button"
           size="sm"
           onClick={submit}
           data-testid={submitTestId}
-          disabled={disableWhenEmpty ? isEmpty && !allowEmptySubmit : false}
+          disabled={submitDisabled || (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false)}
         >
           {submitLabel}
         </Button>

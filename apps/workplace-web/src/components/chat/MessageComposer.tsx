@@ -125,6 +125,7 @@ export function MessageComposer({
             disableWhenEmpty
             placeholder="메시지를 입력하세요"
             submitLabel={uploading ? '업로드 중…' : '보내기'}
+            submitDisabled={uploading}
             inputTestId="message-composer-input"
             submitTestId="message-composer-submit"
           />
