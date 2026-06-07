@@ -27,7 +27,7 @@ export function ContactDetailPanel({
   selected: ContactSelection | null
   onDeleted?: () => void
 }) {
-  const { data, isLoading, isError } = useContactDetail(selected)
+  const { data, isLoading, isError, refetch } = useContactDetail(selected)
   const [editOpen, setEditOpen] = useState(false)
   const del = useDeleteExternalContact()
 
@@ -45,7 +45,12 @@ export function ContactDetailPanel({
     return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
   }
   if (isError || !data) {
-    return <div className="p-6 text-sm text-destructive">연락처를 찾을 수 없습니다</div>
+    return (
+      <div className="p-6 text-center">
+        <p className="text-sm text-destructive mb-2">연락처를 찾을 수 없습니다</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
+      </div>
+    )
   }
 
   if (selected.type === 'MEMBER') {

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/PageHeader'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
@@ -133,7 +134,7 @@ function MessageDetailPanel({
   onForward: (detail: EmailMessageDetail) => void
   onAiReplyDraft: (detail: EmailMessageDetail) => void
 }) {
-  const { data: detail, isLoading, isError } = useMailMessage(messageId)
+  const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
   // AI 사용 계정 + messageId 가 있을 때만 요약 자동 조회.
   const { data: summaryData } = useMailSummary(messageId, aiEnabled)
 
@@ -151,7 +152,12 @@ function MessageDetailPanel({
     return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
   }
   if (isError || !detail) {
-    return <div className="p-6 text-sm text-destructive">메일을 불러오지 못했습니다</div>
+    return (
+      <div className="p-6 text-center">
+        <p className="text-sm text-destructive mb-2">메일을 불러오지 못했습니다</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
+      </div>
+    )
   }
 
   return (
@@ -270,7 +276,7 @@ export function MailInboxPage() {
 
   const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
   const accountIdNum = accountId ? Number(accountId) : undefined
-  const { data: messages, isLoading, isError } = useMailMessages(accountIdNum, folderParam, search)
+  const { data: messages, isLoading, isError, refetch: refetchMessages } = useMailMessages(accountIdNum, folderParam, search)
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
@@ -423,7 +429,10 @@ export function MailInboxPage() {
           {isLoading ? (
             <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
           ) : isError ? (
-            <div className="p-6 text-sm text-destructive">목록을 불러오지 못했습니다</div>
+            <div className="p-6 text-center">
+              <p className="text-sm text-destructive mb-2">목록을 불러오지 못했습니다</p>
+              <Button variant="outline" size="sm" onClick={() => refetchMessages()}>다시 시도</Button>
+            </div>
           ) : !messages || messages.length === 0 ? (
             <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
               {search

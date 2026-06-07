@@ -38,7 +38,7 @@ export default function IssueDetailPage() {
   const { key = '', number = '' } = useParams();
   const issueNumber = Number(number);
   const navigate = useNavigate();
-  const { data, isLoading } = useIssue(key, issueNumber);
+  const { data, isLoading, refetch } = useIssue(key, issueNumber);
   const update = useUpdateIssue(key, issueNumber);
   const remove = useDeleteIssue(key, issueNumber);
   const { user } = useAuth();
@@ -51,7 +51,12 @@ export default function IssueDetailPage() {
     members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
 
   if (isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
-  if (!data) return <p className="container mx-auto p-6 text-destructive">태스크를 찾을 수 없습니다</p>;
+  if (!data) return (
+    <div className="container mx-auto p-6 text-center">
+      <p className="text-sm text-destructive mb-2">태스크를 찾을 수 없습니다</p>
+      <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
+    </div>
+  );
 
   const { summary, body, comments, history } = data;
   // SUBTASK 여부 — 부모 슬롯(SUBTASK 만) / 자식 섹션(비SUBTASK 만) 분기에 사용 (Phase 4a).

@@ -66,7 +66,7 @@ export function ContactsPage() {
   useEffect(() => {
     setSelected(null)
   }, [groupId, search, type])
-  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useContacts(
+  const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useContacts(
     search,
     type,
   )
@@ -99,7 +99,10 @@ export function ContactsPage() {
             ) : isLoading ? (
               <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
             ) : isError ? (
-              <div className="p-6 text-sm text-destructive">목록을 불러오지 못했습니다</div>
+              <div className="p-6 text-center">
+                <p className="text-sm text-destructive mb-2">목록을 불러오지 못했습니다</p>
+                <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
+              </div>
             ) : items.length === 0 ? (
               <div data-testid="contact-list-empty" className="p-6 text-sm text-muted-foreground">
                 연락처가 없습니다

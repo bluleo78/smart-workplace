@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { ChannelHeader } from '@/components/chat/ChannelHeader'
+import { Button } from '@/components/ui/button'
 import { ChannelMembersPanel } from '@/components/chat/ChannelMembersPanel'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { MessageComposer } from '@/components/chat/MessageComposer'
@@ -56,10 +57,11 @@ export default function ChannelPage() {
   if (detail.isError) {
     return (
       <div
-        className="flex h-full items-center justify-center text-muted-foreground"
+        className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground"
         data-testid="channel-not-found"
       >
-        채널을 찾을 수 없습니다.
+        <p className="text-sm text-destructive">채널을 찾을 수 없습니다.</p>
+        <Button variant="outline" size="sm" onClick={() => detail.refetch()}>다시 시도</Button>
       </div>
     )
   }
