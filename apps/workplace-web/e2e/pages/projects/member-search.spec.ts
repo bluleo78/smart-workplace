@@ -113,6 +113,31 @@ async function setupStubs(
   });
 }
 
+test.describe('멤버 테이블 컬럼 헤더', () => {
+  test(
+    '멤버 테이블 헤더가 한국어로 표시된다 (이름·이메일·역할)',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      const membersRef = {
+        current: [
+          { userId: 1, username: 'me', name: 'Me', role: 'OWNER' },
+        ] as StubMember[],
+      };
+      await setupStubs(page, membersRef);
+
+      await page.goto(SETTINGS_URL);
+
+      // 테이블 헤더가 한국어로 표시되는지 검증 (#140 회귀 방지)
+      const thead = page.locator('table thead tr');
+      await expect(thead).toContainText('이름');
+      await expect(thead).toContainText('이메일');
+      await expect(thead).toContainText('역할');
+      // "username" 영문 헤더가 더 이상 노출되지 않아야 함
+      await expect(thead).not.toContainText('username');
+    },
+  );
+});
+
 test.describe('멤버 추가 검색 picker', () => {
   test(
     '검색 → 후보 클릭 → POST /members + 테이블 갱신',

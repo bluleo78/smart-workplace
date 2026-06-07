@@ -98,7 +98,7 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
           <thead>
             <tr className="text-left text-muted-foreground border-b">
               <th className="py-2">이름</th>
-              <th>username</th>
+              <th>이메일</th>
               <th>역할</th>
               <th className="w-24"></th>
             </tr>
