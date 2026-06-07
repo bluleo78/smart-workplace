@@ -62,7 +62,11 @@ export function IssueChildrenSection({
     enabled: !!projectKey && Number.isFinite(parentNumber),
   });
 
-  const items: IssueResponse[] = children.data?.items ?? [];
+  // 생성 시간 오름차순 정렬 — 백엔드 기본 정렬(updatedAt desc)로 인해 신규 항목이
+  // 최상단에 삽입되는 역방향 UX 방지 (refs #166).
+  const items: IssueResponse[] = (children.data?.items ?? []).slice().sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
   const [newTitle, setNewTitle] = useState('');
   const [adding, setAdding] = useState(false);
 
