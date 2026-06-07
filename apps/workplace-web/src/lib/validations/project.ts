@@ -9,13 +9,13 @@ export const projectKeySchema = z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/, {
 
 export const createProjectSchema = z.object({
   key: projectKeySchema,
-  name: z.string().min(1, '이름은 필수입니다').max(120),
-  description: z.string().max(2000).optional(),
+  name: z.string().min(1, '이름은 필수입니다').max(120, '이름은 120자 이하여야 합니다'),
+  description: z.string().max(2000, '설명은 2000자 이하여야 합니다').optional(),
 });
 export type CreateProjectFormData = z.infer<typeof createProjectSchema>;
 
 export const updateProjectSchema = z.object({
-  name: z.string().min(1).max(120),
-  description: z.string().max(2000).optional(),
+  name: z.string().min(1, '이름은 필수입니다').max(120, '이름은 120자 이하여야 합니다'),
+  description: z.string().max(2000, '설명은 2000자 이하여야 합니다').optional(),
 });
 export type UpdateProjectFormData = z.infer<typeof updateProjectSchema>;
