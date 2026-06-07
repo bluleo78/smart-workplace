@@ -3,6 +3,25 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { PageHeader } from '@/components/layout/PageHeader'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { handleApiError } from '@/lib/api-error'
 
 import { driveApi } from '../../api/drive'
@@ -44,6 +63,21 @@ export function DrivePage() {
 
   // 휴지통 뷰 — trash != null 이면 휴지통 모드.
   const [trash, setTrash] = useState<DriveTrashItem[] | null>(null)
+
+  // 폴더 이름 입력 다이얼로그 — 새 폴더 생성(create) / 이름 변경(rename). window.prompt 대체 (#135).
+  const [nameDialog, setNameDialog] = useState<{
+    mode: 'create' | 'rename'
+    folderId?: number
+  } | null>(null)
+  const [nameInput, setNameInput] = useState('')
+
+  // 파괴적 작업 확인 AlertDialog — 삭제/영구삭제/휴지통 비우기. window.confirm 대체 (#135).
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string
+    description: string
+    actionLabel: string
+    action: () => Promise<void>
+  } | null>(null)
 
   // breadcrumb 경로(루트→현재 폴더). folderId 가 있을 때 서버에서 폴더명 경로를 로드.
   const [crumbs, setCrumbs] = useState<DriveFolderPathSegment[]>([])
@@ -99,16 +133,29 @@ export function DrivePage() {
     setSearchParams({})
   }
 
-  async function onNewFolder() {
-    const name = window.prompt('새 폴더 이름')
-    if (!name) return
-    // 공백만 입력 등은 서버 @NotBlank 400 → 토스트로 사유 안내(silent failure 방지).
+  // 폴더 이름 다이얼로그 확인 — 생성/이름변경 API 호출 후 목록 갱신.
+  // trim 없이 raw 값을 전송 — 공백만 입력 시 서버 @NotBlank 400 → 토스트 안내(#116 동작 보존).
+  async function submitNameDialog() {
+    if (!nameDialog || !nameInput) return
+    const dialog = nameDialog
+    setNameDialog(null)
+    setNameInput('')
     try {
-      await driveApi.createFolder(sid, folderId, name)
-      await reload()
+      if (dialog.mode === 'create') {
+        await driveApi.createFolder(sid, folderId, nameInput)
+        await reload()
+      } else if (dialog.folderId != null) {
+        await driveApi.renameFolder(dialog.folderId, nameInput)
+        await reload()
+      }
     } catch (e) {
-      handleApiError(e, '폴더를 만들지 못했습니다.')
+      handleApiError(e, dialog.mode === 'create' ? '폴더를 만들지 못했습니다.' : '폴더 이름을 변경하지 못했습니다.')
     }
+  }
+
+  function onNewFolder() {
+    setNameInput('')
+    setNameDialog({ mode: 'create' })
   }
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -128,33 +175,39 @@ export function DrivePage() {
       handleApiError(err, '파일을 업로드하지 못했습니다.')
     }
   }
-  async function onRenameFolder(id: number, current: string) {
-    const name = window.prompt('폴더 이름 변경', current)
-    if (!name) return
-    try {
-      await driveApi.renameFolder(id, name)
-      await reload()
-    } catch (e) {
-      handleApiError(e, '폴더 이름을 변경하지 못했습니다.')
-    }
+  function onRenameFolder(id: number, current: string) {
+    setNameInput(current)
+    setNameDialog({ mode: 'rename', folderId: id })
   }
-  async function onDeleteFolder(id: number) {
-    if (!window.confirm('폴더를 휴지통으로 보낼까요? 30일 후 자동 삭제됩니다.')) return
-    try {
-      await driveApi.deleteFolder(id)
-      await reload()
-    } catch (e) {
-      handleApiError(e, '폴더를 삭제하지 못했습니다.')
-    }
+  function onDeleteFolder(id: number) {
+    setConfirmDialog({
+      title: '폴더 삭제',
+      description: '폴더를 휴지통으로 보낼까요? 30일 후 자동 삭제됩니다.',
+      actionLabel: '삭제',
+      action: async () => {
+        try {
+          await driveApi.deleteFolder(id)
+          await reload()
+        } catch (e) {
+          handleApiError(e, '폴더를 삭제하지 못했습니다.')
+        }
+      },
+    })
   }
-  async function onDeleteFile(id: number) {
-    if (!window.confirm('파일을 휴지통으로 보낼까요? 30일 후 자동 삭제됩니다.')) return
-    try {
-      await driveApi.deleteFile(id)
-      await reload()
-    } catch (e) {
-      handleApiError(e, '파일을 삭제하지 못했습니다.')
-    }
+  function onDeleteFile(id: number) {
+    setConfirmDialog({
+      title: '파일 삭제',
+      description: '파일을 휴지통으로 보낼까요? 30일 후 자동 삭제됩니다.',
+      actionLabel: '삭제',
+      action: async () => {
+        try {
+          await driveApi.deleteFile(id)
+          await reload()
+        } catch (e) {
+          handleApiError(e, '파일을 삭제하지 못했습니다.')
+        }
+      },
+    })
   }
 
   async function onPickTarget(targetId: number | null) {
@@ -196,16 +249,36 @@ export function DrivePage() {
     else await driveApi.restoreFile(it.id)
     await reloadTrash()
   }
-  async function onPurge(it: DriveTrashItem) {
-    if (!window.confirm(`'${it.name}' 을(를) 영구 삭제할까요? 되돌릴 수 없습니다.`)) return
-    if (it.type === 'FOLDER') await driveApi.purgeFolder(it.id)
-    else await driveApi.purgeFile(it.id)
-    await reloadTrash()
+  function onPurge(it: DriveTrashItem) {
+    setConfirmDialog({
+      title: '영구 삭제',
+      description: `'${it.name}' 을(를) 영구 삭제할까요? 되돌릴 수 없습니다.`,
+      actionLabel: '영구삭제',
+      action: async () => {
+        try {
+          if (it.type === 'FOLDER') await driveApi.purgeFolder(it.id)
+          else await driveApi.purgeFile(it.id)
+          await reloadTrash()
+        } catch (e) {
+          handleApiError(e, '영구 삭제하지 못했습니다.')
+        }
+      },
+    })
   }
-  async function onEmptyTrash() {
-    if (!window.confirm('휴지통을 비울까요? 모든 항목이 영구 삭제됩니다.')) return
-    await driveApi.emptyTrash(sid)
-    await reloadTrash()
+  function onEmptyTrash() {
+    setConfirmDialog({
+      title: '휴지통 비우기',
+      description: '모든 항목이 영구 삭제됩니다. 되돌릴 수 없습니다.',
+      actionLabel: '비우기',
+      action: async () => {
+        try {
+          await driveApi.emptyTrash(sid)
+          await reloadTrash()
+        } catch (e) {
+          handleApiError(e, '휴지통을 비우지 못했습니다.')
+        }
+      },
+    })
   }
 
   const searching = results != null
@@ -467,6 +540,76 @@ export function DrivePage() {
         )}
         {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
       </div>
+
+      {/* 폴더 이름 입력 다이얼로그 — 새 폴더 생성 / 이름 변경. window.prompt 대체 (#135). */}
+      <Dialog
+        open={nameDialog != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setNameDialog(null)
+            setNameInput('')
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{nameDialog?.mode === 'create' ? '새 폴더' : '폴더 이름 변경'}</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submitNameDialog()
+            }}
+            placeholder="폴더 이름"
+            autoFocus
+            data-testid="folder-name-input"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setNameDialog(null)
+                setNameInput('')
+              }}
+              data-testid="folder-name-cancel"
+            >
+              취소
+            </Button>
+            <Button onClick={() => void submitNameDialog()} data-testid="folder-name-confirm">
+              확인
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 파괴적 작업 확인 AlertDialog — 삭제/영구삭제/휴지통 비우기. window.confirm 대체 (#135). */}
+      <AlertDialog
+        open={confirmDialog != null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDialog(null)
+        }}
+      >
+        <AlertDialogContent data-testid="drive-confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDialog?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="drive-confirm-cancel">취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const action = confirmDialog?.action
+                void action?.()
+              }}
+              data-testid="drive-confirm-confirm"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {confirmDialog?.actionLabel ?? '확인'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

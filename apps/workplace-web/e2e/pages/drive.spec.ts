@@ -90,9 +90,11 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByTestId('drive-page')).toBeVisible()
 
-  // 새 폴더
-  page.once('dialog', (d) => d.accept('문서'))
+  // 새 폴더 — Dialog(#135: window.prompt 대체)
   await page.getByRole('button', { name: '새 폴더' }).click()
+  await expect(page.getByTestId('folder-name-input')).toBeVisible()
+  await page.getByTestId('folder-name-input').fill('문서')
+  await page.getByTestId('folder-name-confirm').click()
   await expect(page.getByText('📁 문서')).toBeVisible()
 
   // 업로드(숨김 input 에 파일 주입)
@@ -108,13 +110,14 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   await page.getByRole('button', { name: '다운로드' }).first().click()
   await downloadPromise
 
-  // 삭제
-  page.once('dialog', (d) => d.accept())
+  // 삭제 — AlertDialog(#135: window.confirm 대체)
   await page
     .getByRole('listitem')
     .filter({ hasText: 'memo.txt' })
     .getByRole('button', { name: '삭제' })
     .click()
+  await expect(page.getByTestId('drive-confirm-dialog')).toBeVisible()
+  await page.getByTestId('drive-confirm-confirm').click()
   await expect(page.getByText('memo.txt')).toHaveCount(0)
 })
 
@@ -389,8 +392,11 @@ test('폴더 생성 실패(400) 시 에러 토스트로 사유를 안내한다',
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByTestId('drive-page')).toBeVisible()
 
-  page.once('dialog', (d) => d.accept('   '))
+  // Dialog(#135) 로 폴더 이름 입력 — 공백만 있어도 전송(trim 없음, #116 동작 보존)
   await page.getByRole('button', { name: '새 폴더' }).click()
+  await expect(page.getByTestId('folder-name-input')).toBeVisible()
+  await page.getByTestId('folder-name-input').fill('   ')
+  await page.getByTestId('folder-name-confirm').click()
 
   // 서버 메시지가 그대로 토스트로 노출(이전엔 토스트 없이 unhandled rejection).
   await expect(page.getByText('폴더 이름은 비어 있을 수 없습니다')).toBeVisible()
@@ -450,4 +456,101 @@ test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내
 
   await expect(page.getByText('파일 크기가 25MB를 초과합니다.')).toBeVisible()
   expect(uploadCalled).toBe(false)
+})
+
+// #135 — window.prompt/confirm → shadcn Dialog/AlertDialog 교체 검증
+
+test('폴더 생성 — Dialog 표시, 이름 입력 후 확인 시 POST 호출', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  const state = { folders: [] as unknown[], files: [] as unknown[] }
+  await stubSpaces(page)
+  await stubItems(page, () => state)
+
+  let postedName = ''
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/folders`,
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      const body = route.request().postDataJSON() as { name?: string }
+      postedName = body.name ?? ''
+      const folder = createFolder({ name: postedName })
+      state.folders = [folder]
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(folder) })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  await page.getByTestId('drive-new-folder').click()
+  // window.prompt 가 아닌 Dialog 가 나타나야 한다 (#135)
+  await expect(page.getByTestId('folder-name-input')).toBeVisible()
+  await page.getByTestId('folder-name-input').fill('보고서')
+  await page.getByTestId('folder-name-confirm').click()
+
+  // POST body 검증 — 이름이 정확히 전달됐는지
+  expect(postedName).toBe('보고서')
+  // UI 갱신 확인
+  await expect(page.getByText('📁 보고서')).toBeVisible()
+})
+
+test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 PATCH body 검증', async ({ authenticatedPage: page }) => {
+  const folder = createFolder({ id: 10, name: '문서' })
+  const state = { folders: [folder], files: [] as unknown[] }
+  await stubSpaces(page)
+  await stubItems(page, () => state)
+
+  let patchedName = ''
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/folders/10',
+    (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback()
+      const body = route.request().postDataJSON() as { name?: string }
+      patchedName = body.name ?? ''
+      state.folders = [{ ...folder, name: patchedName }]
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...folder, name: patchedName }) })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByText('📁 문서')).toBeVisible()
+
+  // 이름변경 클릭 → Dialog 가 현재 이름('문서')으로 사전 입력되어야 함
+  await page.getByRole('listitem').filter({ hasText: '📁 문서' }).getByRole('button', { name: '이름변경' }).click()
+  await expect(page.getByTestId('folder-name-input')).toHaveValue('문서')
+
+  // 이름 교체 후 확인
+  await page.getByTestId('folder-name-input').fill('보관함')
+  await page.getByTestId('folder-name-confirm').click()
+
+  // PATCH body 검증
+  expect(patchedName).toBe('보관함')
+  await expect(page.getByText('📁 보관함')).toBeVisible()
+})
+
+test('파일 삭제 — AlertDialog 표시 후 취소 시 DELETE 호출 안 함', async ({ authenticatedPage: page }) => {
+  const file = createFile()
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [file] }))
+
+  let deleteCalled = false
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/files/${file.id}`,
+    (route) => {
+      deleteCalled = true
+      return route.fulfill({ status: 204, body: '' })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByText('memo.txt')).toBeVisible()
+
+  // 삭제 클릭 → window.confirm 아닌 AlertDialog 가 나타나야 한다 (#135)
+  await page.getByRole('listitem').filter({ hasText: 'memo.txt' }).getByRole('button', { name: '삭제' }).click()
+  await expect(page.getByTestId('drive-confirm-dialog')).toBeVisible()
+
+  // 취소 → API 호출 없이 파일 그대로
+  await page.getByTestId('drive-confirm-cancel').click()
+  await expect(page.getByTestId('drive-confirm-dialog')).not.toBeVisible()
+  expect(deleteCalled).toBe(false)
+  await expect(page.getByText('memo.txt')).toBeVisible()
 })
