@@ -1,5 +1,7 @@
+import { ClipboardList } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMyIssues } from '@/hooks/queries/useHomeQueries';
 // 이슈 상태 전용 배지 — 범용 StatusBadge(type 기반)가 아니라 IssueStatus 를 직접 받는다.
@@ -34,9 +36,20 @@ export default function IssueListWidget({ params }: { params?: Record<string, un
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-muted-foreground" data-testid="issuelist-empty">
-          해당 조건의 이슈가 없어요.
-        </p>
+        // 빈 상태 — 아이콘+제목+설명+CTA로 사용자에게 맥락과 다음 행동을 안내한다.
+        <div
+          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
+          data-testid="issuelist-empty"
+        >
+          <ClipboardList className="h-8 w-8 text-muted-foreground" />
+          <p className="text-sm font-semibold">배정된 이슈가 없어요</p>
+          <p className="max-w-xs text-xs text-muted-foreground">
+            나에게 할당된 이슈가 여기에 표시됩니다.
+          </p>
+          <Button variant="outline" size="sm" asChild className="mt-1">
+            <Link to="/projects">프로젝트로 이동</Link>
+          </Button>
+        </div>
       )}
     </WidgetFrame>
   );

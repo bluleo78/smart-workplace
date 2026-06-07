@@ -50,6 +50,33 @@ async function mockSessions(page: Page, sessions: HomeSessionPage = { items: [],
   await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
 }
 
+test('이슈 위젯 — 이슈 없을 때 개선된 empty state(아이콘·제목·설명·CTA)가 렌더된다 (#129)', async ({
+  authenticatedPage: page,
+}) => {
+  // 이슈 없는 빈 응답으로 모킹
+  const emptyIssues: IssueSearchResponse = createIssueSearchResponse([])
+  await mockApi(page, 'GET', '/api/v1/me/issues', emptyIssues)
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', emptyIssues)
+  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
+  await page.goto('/')
+
+  // 빈 상태 컨테이너 표시 확인
+  const emptyState = page.getByTestId('issuelist-empty')
+  await expect(emptyState).toBeVisible()
+
+  // 제목·설명 텍스트가 맥락을 전달하는지 검증
+  await expect(emptyState).toContainText('배정된 이슈가 없어요')
+  await expect(emptyState).toContainText('나에게 할당된 이슈가 여기에 표시됩니다')
+
+  // CTA 링크가 /projects 로 연결되는지 검증
+  const ctaLink = emptyState.getByRole('link', { name: '프로젝트로 이동' })
+  await expect(ctaLink).toBeVisible()
+  await expect(ctaLink).toHaveAttribute('href', '/projects')
+
+  // 아이콘 svg 가 렌더되는지 확인(존재 여부)
+  await expect(emptyState.locator('svg')).toBeVisible()
+})
+
 test('홈 기본 구성이 AI 호출 없이 로드된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await mockHome(page)
   await page.goto('/')
