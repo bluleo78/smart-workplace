@@ -7,9 +7,11 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.dto.UpdateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -20,10 +22,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 프로젝트 CRUD REST API. */
+/** 프로젝트 CRUD REST API. @Validated 로 쿼리 파라미터 Bean Validation 활성화. */
 @RestController
 @RequestMapping("/api/v1/projects")
 @RequiredArgsConstructor
+@Validated
 public class ProjectController {
 
   private final ProjectService projectService;
@@ -33,8 +36,8 @@ public class ProjectController {
   @RequirePermission("project:read")
   public ResponseEntity<PageResponse<ProjectResponse>> list(
       Authentication auth,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size) {
+      @Min(value = 0, message = "page는 0 이상이어야 합니다") @RequestParam(defaultValue = "0") int page,
+      @Min(value = 1, message = "size는 1 이상이어야 합니다") @RequestParam(defaultValue = "20") int size) {
     return ResponseEntity.ok(projectService.list((Long) auth.getPrincipal(), page, size));
   }
 

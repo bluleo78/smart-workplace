@@ -152,21 +152,40 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
   }
 
+  /**
+   * DB 무결성 위반 예외 처리.
+   *
+   * <p>OFFSET/LIMIT 음수 에러(페이지네이션 입력값 오류)는 클라이언트 잘못이므로 400으로 반환한다. 그 외
+   * DataIntegrityViolationException은 409로 처리하되, raw DB 에러 메시지를 그대로 노출하지 않는다.
+   */
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(
       DataIntegrityViolationException ex, HttpServletRequest request) {
+    String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : null;
+
+    // 페이지네이션 음수 파라미터 → 입력값 오류(400)
+    if (causeMsg != null
+        && (causeMsg.contains("OFFSET must not be negative")
+            || causeMsg.contains("LIMIT must not be negative"))) {
+      ErrorResponse response =
+          buildError(
+              HttpStatus.BAD_REQUEST,
+              "Invalid pagination parameter: value must not be negative",
+              null,
+              request);
+      return ResponseEntity.badRequest().body(response);
+    }
+
     String message = "Data integrity violation";
-    if (ex.getCause() != null) {
-      String causeMsg = ex.getCause().getMessage();
-      if (causeMsg != null && causeMsg.contains("duplicate key")) {
+    if (causeMsg != null) {
+      if (causeMsg.contains("duplicate key")) {
         message = "Data integrity violation: duplicate entry";
-      } else if (causeMsg != null && causeMsg.contains("foreign key")) {
+      } else if (causeMsg.contains("foreign key")) {
         message = "Data integrity violation: referenced record not found";
-      } else if (causeMsg != null && causeMsg.contains("check constraint")) {
-        message = "Data integrity violation: constraint check failed - " + causeMsg;
-      } else if (causeMsg != null) {
-        message = "Data integrity violation: " + causeMsg;
+      } else if (causeMsg.contains("check constraint")) {
+        message = "Data integrity violation: constraint check failed";
       }
+      // 그 외 알 수 없는 케이스는 raw DB 메시지를 노출하지 않고 제네릭 메시지로 처리
     }
     ErrorResponse response = buildError(HttpStatus.CONFLICT, message, null, request);
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);

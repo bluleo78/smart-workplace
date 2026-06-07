@@ -5,14 +5,18 @@ import com.workplace.global.security.RequirePermission;
 import com.workplace.user.dto.*;
 import com.workplace.user.service.UserService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+/** 사용자 REST API. @Validated 로 쿼리 파라미터 Bean Validation 활성화. */
 @RestController
 @RequestMapping("/api/v1/users")
 @RequiredArgsConstructor
+@Validated
 public class UserController {
 
   private final UserService userService;
@@ -46,8 +50,8 @@ public class UserController {
   @RequirePermission("user:read")
   public ResponseEntity<PageResponse<UserResponse>> getUsers(
       @RequestParam(required = false) String search,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size) {
+      @Min(value = 0, message = "page는 0 이상이어야 합니다") @RequestParam(defaultValue = "0") int page,
+      @Min(value = 1, message = "size는 1 이상이어야 합니다") @RequestParam(defaultValue = "20") int size) {
     PageResponse<UserResponse> users = userService.getUsers(search, page, size);
     return ResponseEntity.ok(users);
   }
