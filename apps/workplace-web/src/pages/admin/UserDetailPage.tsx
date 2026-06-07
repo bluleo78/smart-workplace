@@ -74,6 +74,11 @@ export default function UserDetailPage() {
 
   const handleSaveRoles = async () => {
     if (!user) return;
+    // 역할 0개 저장 방지 — 사용자에게 역할이 최소 1개 이상 있어야 한다 (#150)
+    if (selectedRoleIds.length === 0) {
+      toast.error('역할은 최소 1개 이상 선택해야 합니다.');
+      return;
+    }
     setIsSavingRoles(true);
     try {
       await usersApi.setUserRoles(user.id, { roleIds: selectedRoleIds });

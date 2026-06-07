@@ -176,6 +176,21 @@ class UserControllerTest {
   }
 
   @Test
+  void setUserRoles_withEmptyRoleIds_returnsBadRequest() throws Exception {
+    // 빈 roleIds 는 @NotEmpty 검증 실패 → 400 Bad Request (#150)
+    mockAuthentication("role:assign");
+    SetRolesRequest request = new SetRolesRequest(List.of());
+
+    mockMvc
+        .perform(
+            put("/api/v1/users/2/roles")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void setUserActive_withPermission_returnsNoContent() throws Exception {
     mockAuthentication("user:write");
     SetActiveRequest request = new SetActiveRequest(false);
