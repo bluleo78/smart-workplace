@@ -194,4 +194,48 @@ test.describe('이슈 유형', () => {
       await expect(select.locator('option').filter({ hasText: /^BUG$/ })).toHaveCount(0);
     },
   );
+
+  test(
+    '하위 태스크 선택 후 부모 번호 빈값 제출 시 한국어 오류 메시지가 표시된다',
+    async ({ authenticatedPage: page }) => {
+      const types = systemTypes();
+
+      // 프로젝트 상세 + 이슈 목록 + 유형 목록 stub.
+      await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP' }));
+      await mockApi(
+        page,
+        'GET',
+        '/api/v1/projects/WP/issues',
+        createIssueSearchResponse([]),
+      );
+      await page.route('**/api/v1/projects/WP/types', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(types),
+        }),
+      );
+
+      await page.goto('/projects/WP');
+
+      // 새 태스크 다이얼로그 열기.
+      await page.getByRole('button', { name: '+ 새 태스크' }).click();
+
+      // 제목 입력 + 유형을 하위 태스크로 선택 → 부모 이슈 번호 필드 노출.
+      await page.locator('#issue-title').fill('테스트 하위태스크');
+      await page.getByTestId('create-type-select').selectOption('하위 태스크');
+      await expect(page.getByTestId('create-parent-number')).toBeVisible();
+
+      // 부모 번호를 비워둔 채 생성 클릭 → 한국어 오류 메시지가 나타나야 한다 (#159).
+      await page.getByRole('button', { name: '생성' }).click();
+
+      // 영문 원시 Zod 오류가 아닌 한국어 메시지여야 한다.
+      const errorMsg = page.locator('p.text-destructive');
+      await expect(errorMsg).toBeVisible();
+      await expect(errorMsg).toContainText('부모 이슈 번호');
+      // 영문 원시 Zod 메시지는 노출되면 안 된다 (회귀 방지).
+      await expect(errorMsg).not.toContainText('Invalid input');
+      await expect(errorMsg).not.toContainText('NaN');
+    },
+  );
 });

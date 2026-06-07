@@ -17,7 +17,13 @@ export const createIssueSchema = z.object({
   typeId: z.number().int().positive().optional().nullable(),
   // SUBTASK 일 때만 의미가 있는 부모 number (Phase 4a).
   // SUBTASK 가 아닌 유형에 동봉하면 백엔드 400 — 다이얼로그에서 송신 시점에 제거.
-  parentNumber: z.number().int().positive().optional().nullable(),
+  // error: valueAsNumber 빈 값 → NaN 변환 시 한국어 오류 표시 (#159). Zod v4 에서는 invalid_type_error 대신 error.
+  parentNumber: z
+    .number({ error: '부모 이슈 번호를 입력해주세요' })
+    .int()
+    .positive()
+    .optional()
+    .nullable(),
 });
 export type CreateIssueFormData = z.infer<typeof createIssueSchema>;
 
