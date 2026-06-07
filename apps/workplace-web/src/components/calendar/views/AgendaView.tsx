@@ -33,8 +33,8 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
         rows.map((row) =>
           row.kind === 'event' ? (
             <button
-              key={`e-${row.event.id}`}
-              data-testid={`calendar-event-${row.event.id}`}
+              key={`e-${row.event.id}-${row.event.occurrenceDate ?? 'single'}`}
+              data-testid={`calendar-event-${row.event.occurrenceDate ? `${row.event.id}-${row.event.occurrenceDate}` : row.event.id}`}
               onClick={() => onSelectEvent(row.event)}
               className="flex gap-4 px-4 py-3 text-left hover:bg-muted/50 w-full"
             >

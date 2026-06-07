@@ -64,8 +64,8 @@ export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIs
               {/* 이벤트 칩 (최대 3개) */}
               {visible.map((e) => (
                 <button
-                  key={e.id}
-                  data-testid={`calendar-event-${e.id}`}
+                  key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
+                  data-testid={`calendar-event-${e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id}`}
                   onClick={(ev) => {
                     ev.stopPropagation()
                     onSelectEvent(e)

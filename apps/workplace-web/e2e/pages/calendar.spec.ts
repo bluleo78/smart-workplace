@@ -347,8 +347,10 @@ test('반복 일정 — 여러 회차가 월 뷰에 표시된다', async ({ auth
   await page.goto('/calendar')
 
   await expect(page.getByTestId('calendar-view-month')).toBeVisible()
-  // 각 회차는 서로 다른 날짜 셀에 동일 testid(calendar-event-5) 로 렌더 → 3건
-  await expect(page.getByTestId(`calendar-event-${MASTER_ID}`)).toHaveCount(OCC_DATES.length)
+  // 각 회차는 고유 testid(calendar-event-5-<occurrenceDate>) 로 렌더 → 3건 (이슈 #174: 복합 키)
+  for (const occ of OCC_DATES) {
+    await expect(page.getByTestId(`calendar-event-${MASTER_ID}-${occ}`)).toBeVisible()
+  }
 })
 
 test(
@@ -361,8 +363,8 @@ test(
 
     await page.goto('/calendar')
 
-    // 첫 회차(가장 이른 날짜=DOM 첫 항목) 클릭 → EventDialog 열림
-    await page.getByTestId(`calendar-event-${MASTER_ID}`).first().click()
+    // 첫 회차(가장 이른 날짜) 클릭 → EventDialog 열림 (이슈 #174: 복합 key/testid)
+    await page.getByTestId(`calendar-event-${MASTER_ID}-${OCC_DATES[0]}`).click()
     await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
 
     // 제목 수정 후 저장 → EventDialog 닫히고 scope 선택 다이얼로그 표시
@@ -402,8 +404,8 @@ test(
 
     await page.goto('/calendar')
 
-    // 첫 회차 클릭 → EventDialog 열림
-    await page.getByTestId(`calendar-event-${MASTER_ID}`).first().click()
+    // 첫 회차 클릭 → EventDialog 열림 (이슈 #174: 복합 key/testid)
+    await page.getByTestId(`calendar-event-${MASTER_ID}-${OCC_DATES[0]}`).click()
     await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
 
     // 삭제 → EventDialog 닫히고 scope 선택 다이얼로그 표시
@@ -562,5 +564,31 @@ test(
 
     // 완료 후 다이얼로그 닫힘
     await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+  },
+)
+
+// ────────────────────────────────────────────────────────────
+// 반복 일정 중복 key 수정 (이슈 #174)
+// ────────────────────────────────────────────────────────────
+
+test(
+  '반복 일정 — AgendaView 에서 각 occurrence 가 고유 testid 로 노출된다 (이슈 #174)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    // 마스터 id 를 공유하는 3개 회차 — AgendaView 하나의 리스트에 모두 렌더링됨
+    const store: CalendarEvent[] = recurringCalendarEvent(MASTER_ID, OCC_DATES)
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    // 어젠다 뷰로 전환
+    await page.getByTestId('calendar-view-agenda-btn').click()
+    await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
+
+    // 각 회차가 고유 testid 로 렌더링됨 (수정 전: 모두 calendar-event-5 → 중복 key)
+    for (const occ of OCC_DATES) {
+      await expect(page.getByTestId(`calendar-event-${MASTER_ID}-${occ}`)).toBeVisible()
+    }
   },
 )

@@ -83,8 +83,8 @@ export function TimeGrid({
             >
               {allDayEvts.map((e) => (
                 <button
-                  key={e.id}
-                  data-testid={`calendar-event-${e.id}`}
+                  key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
+                  data-testid={`calendar-event-${e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id}`}
                   onClick={() => onSelectEvent(e)}
                   className="w-full text-left text-xs px-1 py-0.5 rounded bg-primary text-primary-foreground truncate"
                 >
@@ -138,8 +138,8 @@ export function TimeGrid({
                 const style = eventStyle(e)
                 return (
                   <button
-                    key={e.id}
-                    data-testid={`calendar-event-${e.id}`}
+                    key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
+                    data-testid={`calendar-event-${e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id}`}
                     style={{ position: 'absolute', top: style.top, height: style.height, left: 2, right: 2 }}
                     onClick={(ev) => {
                       ev.stopPropagation()
