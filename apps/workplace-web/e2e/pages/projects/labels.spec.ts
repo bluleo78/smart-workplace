@@ -125,6 +125,65 @@ test.describe('라벨', () => {
   );
 
   test(
+    '라벨 이름 변경 — shadcn Dialog 로 PATCH 발생, window.prompt 없음 (#160)',
+    async ({ authenticatedPage: page }) => {
+      const label = createLabel({ name: '원래이름', colorToken: 'GRAY' });
+      let patchBody: unknown;
+
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+      );
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([createMember({ userId: 1, username: 'me', name: 'Me', role: 'OWNER' })]),
+        });
+      });
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels`, (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([label]),
+        });
+      });
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels/${label.id}`, (route) => {
+        const method = route.request().method();
+        if (method !== 'PUT' && method !== 'PATCH') return route.fallback();
+        patchBody = route.request().postDataJSON();
+        label.name = (patchBody as { name: string }).name;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(label),
+        });
+      });
+
+      await page.goto(`/projects/${PROJECT_KEY}/settings`);
+      const row = page.getByTestId(`label-row-${label.id}`);
+      await expect(row).toBeVisible();
+
+      // 이름 변경 버튼 클릭 → native prompt 가 아닌 shadcn Dialog 가 떠야 함.
+      await row.getByRole('button', { name: '원래이름 이름 변경' }).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText('라벨 이름 변경');
+
+      // 새 이름 입력 후 확인 — PATCH payload 검증.
+      const input = page.getByTestId('rename-dialog-input');
+      await input.clear();
+      await input.fill('새이름');
+      await page.getByTestId('rename-dialog-confirm').click();
+
+      await expect.poll(() => (patchBody as { name?: string } | undefined)?.name).toBe('새이름');
+      // Dialog 가 닫혀야 함.
+      await expect(dialog).toBeHidden();
+    },
+  );
+
+  test(
     '라벨 삭제 — AlertDialog 확인 후 DELETE 발생 (#148)',
     async ({ authenticatedPage: page }) => {
       const label = createLabel({ name: '삭제대상', colorToken: 'RED' });

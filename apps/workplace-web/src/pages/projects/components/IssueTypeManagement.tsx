@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
+import { RenameDialog } from '../../../components/ui/rename-dialog';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import {
   useCreateIssueType,
@@ -33,6 +34,14 @@ export function IssueTypeManagement({
   const [name, setName] = useState('');
   const [color, setColor] = useState<ColorToken>('BLUE');
   const [icon, setIcon] = useState<IconName>('Circle');
+
+  // 이름 변경 Dialog 상태 — window.prompt() 대체 (#160)
+  const [renameTarget, setRenameTarget] = useState<{
+    id: number;
+    name: string;
+    colorToken: string;
+    icon: IconName;
+  } | null>(null);
 
   async function onCreate() {
     const trimmed = name.trim();
@@ -144,19 +153,15 @@ export function IssueTypeManagement({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      const next = prompt('새 이름', t.name);
-                      if (next && next.trim()) {
-                        update.mutate({
-                          id: t.id,
-                          body: {
-                            name: next.trim(),
-                            colorToken: t.colorToken,
-                            icon: t.icon,
-                          },
-                        });
-                      }
-                    }}
+                    onClick={() =>
+                      setRenameTarget({
+                        id: t.id,
+                        name: t.name,
+                        colorToken: t.colorToken,
+                        icon: t.icon,
+                      })
+                    }
+                    aria-label={`${t.name} 이름 변경`}
                   >
                     이름 변경
                   </Button>
@@ -177,6 +182,21 @@ export function IssueTypeManagement({
           ))}
         </ul>
       )}
+
+      {/* 이름 변경 Dialog — window.prompt() 대체 (#160) */}
+      <RenameDialog
+        open={renameTarget != null}
+        title="이슈 유형 이름 변경"
+        initialValue={renameTarget?.name ?? ''}
+        onConfirm={(newName) => {
+          if (!renameTarget) return;
+          update.mutate({
+            id: renameTarget.id,
+            body: { name: newName, colorToken: renameTarget.colorToken, icon: renameTarget.icon },
+          });
+        }}
+        onClose={() => setRenameTarget(null)}
+      />
     </section>
   );
 }

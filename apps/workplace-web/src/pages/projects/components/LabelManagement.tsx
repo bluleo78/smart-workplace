@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
+import { RenameDialog } from '../../../components/ui/rename-dialog';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import {
   useCreateLabel,
@@ -30,6 +31,13 @@ export function LabelManagement({
   const del = useDeleteLabel(projectKey);
   const [name, setName] = useState('');
   const [color, setColor] = useState<ColorToken>('GRAY');
+
+  // 이름 변경 Dialog 상태 — window.prompt() 대체 (#160)
+  const [renameTarget, setRenameTarget] = useState<{
+    id: number;
+    name: string;
+    colorToken: ColorToken;
+  } | null>(null);
 
   // 생성 — trim 후 빈 문자열은 무시. submit 이벤트는 form 의 onSubmit 에서 처리.
   async function onCreate() {
@@ -110,15 +118,9 @@ export function LabelManagement({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      const next = prompt('새 이름', l.name);
-                      if (next && next.trim()) {
-                        update.mutate({
-                          id: l.id,
-                          body: { name: next.trim(), colorToken: l.colorToken },
-                        });
-                      }
-                    }}
+                    onClick={() =>
+                      setRenameTarget({ id: l.id, name: l.name, colorToken: l.colorToken })
+                    }
                     aria-label={`${l.name} 이름 변경`}
                   >
                     이름 변경
@@ -143,6 +145,21 @@ export function LabelManagement({
           )}
         </ul>
       )}
+
+      {/* 이름 변경 Dialog — window.prompt() 대체 (#160) */}
+      <RenameDialog
+        open={renameTarget != null}
+        title="라벨 이름 변경"
+        initialValue={renameTarget?.name ?? ''}
+        onConfirm={(newName) => {
+          if (!renameTarget) return;
+          update.mutate({
+            id: renameTarget.id,
+            body: { name: newName, colorToken: renameTarget.colorToken },
+          });
+        }}
+        onClose={() => setRenameTarget(null)}
+      />
     </section>
   );
 }
