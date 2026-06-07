@@ -163,8 +163,10 @@ test.describe('SUBTASK', () => {
       // 비SUBTASK 진입 — 자식 섹션 노출, 부모 슬롯 없음.
       await expect(page.getByTestId('issue-children-section')).toBeVisible();
       await expect(page.getByTestId('issue-parent-slot')).toHaveCount(0);
+      // 섹션 제목이 한국어로 표시되는지 확인 (#133 회귀 방지).
+      await expect(page.getByRole('heading', { name: '하위 태스크', level: 3 })).toBeVisible();
       // 초기 상태 — 빈 자식 메시지.
-      await expect(page.getByText('자식 SUBTASK 가 없습니다')).toBeVisible();
+      await expect(page.getByText('하위 태스크가 없습니다')).toBeVisible();
 
       // SUBTASK 인라인 추가.
       await page.getByTestId('child-add-input').fill('첫 자식');
