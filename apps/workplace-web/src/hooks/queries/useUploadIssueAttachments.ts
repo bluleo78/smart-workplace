@@ -9,6 +9,7 @@ import {
   uploadAttachments,
 } from '../../api/issueAttachments';
 import { handleApiError } from '../../lib/api-error';
+import { eulReul, eunNeun } from '../../lib/utils';
 
 export function useUploadIssueAttachments(projectKey: string, number: number) {
   const qc = useQueryClient();
@@ -19,11 +20,11 @@ export function useUploadIssueAttachments(projectKey: string, number: number) {
       const accepted: File[] = [];
       for (const f of files) {
         if (f.size > ATTACHMENT_MAX_BYTES) {
-          toast.error(`${f.name} 은 25MB 한도를 초과합니다`);
+          toast.error(`${f.name}${eunNeun(f.name)} 25MB 한도를 초과합니다`);
           continue;
         }
         if (currentCount + accepted.length >= ATTACHMENT_MAX_PER_ISSUE) {
-          toast.error(`이슈당 첨부 한도(${ATTACHMENT_MAX_PER_ISSUE}개) 초과 — ${f.name} 스킵`);
+          toast.error(`이슈당 첨부 한도(${ATTACHMENT_MAX_PER_ISSUE}개)를 초과하여 ${f.name}${eulReul(f.name)} 건너뜁니다`);
           continue;
         }
         accepted.push(f);

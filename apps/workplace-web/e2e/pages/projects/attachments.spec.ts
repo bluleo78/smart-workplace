@@ -206,10 +206,60 @@ test.describe('이슈 첨부', () => {
       buffer: oversized,
     });
 
-    await expect(page.getByText('huge.bin 은 25MB 한도를 초과합니다')).toBeVisible();
+    await expect(page.getByText('huge.bin는 25MB 한도를 초과합니다')).toBeVisible();
     // 사전 검증 통과 파일이 없으므로 POST 가 발생하지 않아야 한다.
     // 짧은 대기 후 카운트 확인 — 즉시 검사 시 mutate 비동기 진입 전에 통과할 수 있음.
     await page.waitForTimeout(300);
     expect(postCount).toBe(0);
+  });
+
+  test('이슈당 첨부 한도(10개) 초과 시 올바른 조사 포함 토스트 표시', async ({
+    authenticatedPage: page,
+  }) => {
+    // attachmentCount=9 → currentCount=9. 2개 업로드 시 첫 번째(9+0<10)는 수락, 두 번째(9+1=10)는 한도 초과.
+    await setupCommonStubs(page, 9);
+
+    let postCount = 0;
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      (route) => {
+        const method = route.request().method();
+        if (method === 'GET') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: '[]',
+          });
+        }
+        if (method === 'POST') {
+          postCount += 1;
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([createAttachment({ fileId: 9999, originalName: 'first.pdf' })]),
+          });
+        }
+        return route.fallback();
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    const dropzone = page.getByTestId('attachment-dropzone');
+    await expect(dropzone).toBeVisible();
+
+    // 2개 동시 업로드 — 첫 번째는 통과, 두 번째는 한도 초과 토스트.
+    // 'test.pdf' 마지막 글자 'f'는 영문 → 받침 없음 → eulReul='를'.
+    await dropzone.locator('input[type=file]').setInputFiles([
+      { name: 'first.pdf', mimeType: 'application/pdf', buffer: Buffer.from('a') },
+      { name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from('b') },
+    ]);
+
+    await expect(
+      page.getByText('이슈당 첨부 한도(10개)를 초과하여 test.pdf를 건너뜁니다'),
+    ).toBeVisible();
+    // 첫 번째 파일만 POST 발생해야 한다.
+    await page.waitForTimeout(300);
+    expect(postCount).toBe(1);
   });
 });

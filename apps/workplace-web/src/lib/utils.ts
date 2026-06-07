@@ -16,3 +16,9 @@ export function iGa(word: string) {
   const code = word.charCodeAt(word.length - 1) - 0xac00;
   return code >= 0 && code % 28 > 0 ? '이' : '가';
 }
+
+/** 마지막 음절 받침 유무에 따라 "은"/"는" 반환 */
+export function eunNeun(word: string) {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  return code >= 0 && code % 28 > 0 ? '은' : '는';
+}
