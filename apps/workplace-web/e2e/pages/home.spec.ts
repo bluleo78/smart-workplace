@@ -229,6 +229,56 @@ test('복원 — 세션 선택 시 대화 transcript + 캔버스 재구성(AI �
   await expect(page.getByTestId('session-switcher')).toContainText('HIGH 이슈 보기')
 })
 
+test('활동 위젯 — eventType 이 한국어 레이블로 변환되어 표시된다 (#147)', async ({
+  authenticatedPage: page,
+}) => {
+  // 다양한 eventType 을 포함한 활동 목록으로 모킹
+  const activityWithEvents: ActivityPage = {
+    items: [
+      {
+        id: 1,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '로그인 버그',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'STATUS_CHANGED',
+        createdAt: '2026-06-07T01:00:00Z',
+      },
+      {
+        id: 2,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '로그인 버그',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'COMMENTED',
+        createdAt: '2026-06-07T02:00:00Z',
+      },
+    ],
+    nextCursor: null,
+  }
+  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/activity', activityWithEvents)
+  await page.goto('/')
+
+  const activityList = page.getByTestId('activity-items')
+  await expect(activityList).toBeVisible()
+
+  // 각 항목에 eventType 한국어 레이블이 렌더되었는지 확인
+  await expect(activityList).toContainText('상태 변경')
+  await expect(activityList).toContainText('코멘트')
+
+  // 행위자 이름과 이슈 제목도 함께 표시되어야 한다
+  await expect(activityList).toContainText('양동희')
+  await expect(activityList).toContainText('로그인 버그')
+})
+
 test('삭제 — 휴지통 클릭 시 DELETE 호출 + 목록에서 제거', async ({ authenticatedPage: page }) => {
   await mockHome(page)
   await mockSessions(page, {

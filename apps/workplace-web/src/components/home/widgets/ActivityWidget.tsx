@@ -6,6 +6,22 @@ import { useActivity } from '@/hooks/queries/useHomeQueries';
 
 import { WidgetFrame } from './WidgetFrame';
 
+/** eventType → 한국어 행동 레이블 매핑 */
+const EVENT_LABEL: Record<string, string> = {
+  CREATED: '생성',
+  COMMENTED: '코멘트',
+  STATUS_CHANGED: '상태 변경',
+  STATUS_CHANGE: '상태 변경',
+  ASSIGNEES_CHANGED: '담당자 변경',
+  PRIORITY_CHANGED: '우선순위 변경',
+  TITLE_CHANGED: '제목 변경',
+  DESCRIPTION_CHANGED: '설명 변경',
+  LABEL_CHANGED: '라벨 변경',
+  DUE_DATE_CHANGED: '마감일 변경',
+  CLOSED: '완료',
+  REOPENED: '재개',
+};
+
 /** 최근 활동. params.actorKind='AGENT' 면 AI 가 한 일만. */
 export default function ActivityWidget({ params }: { params?: Record<string, unknown> }) {
   const actorKind = params?.actorKind as string | undefined;
@@ -22,6 +38,10 @@ export default function ActivityWidget({ params }: { params?: Record<string, unk
                 <Badge className="bg-ai-accent text-ai-accent-foreground">AI</Badge>
               )}
               <span className="text-muted-foreground">{a.actorName}</span>
+              {/* eventType 을 한국어 레이블로 변환하여 행위 맥락 제공 */}
+              <span className="text-xs text-muted-foreground">
+                {EVENT_LABEL[a.eventType] ?? a.eventType}
+              </span>
               <Link
                 to={`/projects/${a.projectKey}/issues/${a.issueNumber}`}
                 className="truncate hover:text-ai-accent"
