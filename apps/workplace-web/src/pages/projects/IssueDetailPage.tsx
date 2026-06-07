@@ -1,10 +1,22 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
+import { useState } from 'react';
+
 import { Eye, EyeOff, Trash2 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/PageHeader';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 
 import { CyclePickerPopover } from '../../components/cycle/CyclePickerPopover';
@@ -45,6 +57,8 @@ export default function IssueDetailPage() {
   const watchers = useWatchers(key, issueNumber);
   const toggleWatch = useWatchToggle(key, issueNumber, user?.id ?? null);
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
+  // 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
+  const [deletePending, setDeletePending] = useState(false);
   // 첨부 삭제 권한 UI 토글용 — 첨부자 또는 OWNER. 백엔드 가드가 최종 검증.
   const members = useProjectMembers(key);
   const isOwner =
@@ -62,13 +76,10 @@ export default function IssueDetailPage() {
   // SUBTASK 여부 — 부모 슬롯(SUBTASK 만) / 자식 섹션(비SUBTASK 만) 분기에 사용 (Phase 4a).
   const isSubtask = summary.type?.name === 'SUBTASK';
 
-  // 삭제 — cascade soft-delete. childCount > 0 이면 confirm 메시지에 자식 수 포함.
+  // 삭제 — cascade soft-delete. childCount > 0 이면 AlertDialog 경고 문구에 자식 수 포함.
   // 성공 시 프로젝트 보드로 이동. 권한(첨부자/OWNER) 검증은 백엔드가 수행.
-  const onDelete = () => {
-    const msg = summary.childCount > 0
-      ? `이 태스크에는 자식 SUBTASK 가 ${summary.childCount}개 있습니다. 함께 삭제됩니다. 진행하시겠습니까?`
-      : '이 태스크를 삭제하시겠습니까?';
-    if (!confirm(msg)) return;
+  const onDelete = () => setDeletePending(true);
+  const onDeleteConfirm = () => {
     remove.mutate(undefined, {
       onSuccess: () => navigate(`/projects/${key}`),
     });
@@ -294,6 +305,23 @@ export default function IssueDetailPage() {
           </aside>
         </div>
       </div>
+      {/* 삭제 확인 AlertDialog — window.confirm() 대체. childCount > 0 시 자식 수 경고 포함. */}
+      <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>태스크 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              {summary.childCount > 0
+                ? `이 태스크에는 자식 SUBTASK 가 ${summary.childCount}개 있습니다. 함께 삭제됩니다. 진행하시겠습니까?`
+                : '이 태스크를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={onDeleteConfirm}>삭제</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
