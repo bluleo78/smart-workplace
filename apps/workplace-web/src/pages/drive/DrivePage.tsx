@@ -71,6 +71,9 @@ export function DrivePage() {
   } | null>(null)
   const [nameInput, setNameInput] = useState('')
 
+  // 파일 업로드 진행 상태 — 업로드 중 버튼 비활성화·텍스트 변경으로 중복 업로드 방지 (#170).
+  const [uploading, setUploading] = useState(false)
+
   // 파괴적 작업 확인 AlertDialog — 삭제/영구삭제/휴지통 비우기. window.confirm 대체 (#135).
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string
@@ -166,6 +169,8 @@ export function DrivePage() {
       e.target.value = ''
       return
     }
+    // 업로드 시작 — 버튼 비활성화로 중복 업로드 방지 (#170).
+    setUploading(true)
     try {
       await driveApi.uploadFile(sid, folderId, file)
       e.target.value = ''
@@ -173,6 +178,8 @@ export function DrivePage() {
     } catch (err) {
       e.target.value = ''
       handleApiError(err, '파일을 업로드하지 못했습니다.')
+    } finally {
+      setUploading(false)
     }
   }
   function onRenameFolder(id: number, current: string) {
@@ -312,9 +319,10 @@ export function DrivePage() {
               type="button"
               onClick={() => fileInput.current?.click()}
               data-testid="drive-upload"
-              className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90"
+              disabled={uploading}
+              className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              업로드
+              {uploading ? '업로드 중…' : '업로드'}
             </button>
             <input ref={fileInput} type="file" hidden onChange={onUpload} data-testid="file-input" />
             <button

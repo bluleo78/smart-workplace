@@ -465,6 +465,47 @@ test('업로드 실패(400) 시 에러 토스트를 표시한다', async ({ auth
   await expect(page.getByText('파일을 업로드할 수 없습니다')).toBeVisible()
 })
 
+// #170 — 업로드 중 버튼 비활성화 / 텍스트 변경 / 완료 후 복원 검증
+test('업로드 중 버튼이 비활성화되고 완료 후 다시 활성화된다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+
+  // 업로드 API — 200ms 지연으로 "업로드 중" 상태 관찰 가능하게 함.
+  let resolveUpload!: () => void
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    async (route) => {
+      await new Promise<void>((res) => {
+        resolveUpload = res
+      })
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createFile()) })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // 파일 선택 → 업로드 시작 (API 홀드 중)
+  const uploadPromise = page.getByTestId('file-input').setInputFiles({
+    name: 'memo.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('hello'),
+  })
+
+  // 업로드 중: 버튼 비활성화 + 텍스트 변경
+  const btn = page.getByTestId('drive-upload')
+  await expect(btn).toBeDisabled()
+  await expect(btn).toHaveText('업로드 중…')
+
+  // API 응답 해제 → 완료
+  resolveUpload()
+  await uploadPromise
+
+  // 업로드 완료 후: 버튼 복원
+  await expect(btn).toBeEnabled()
+  await expect(btn).toHaveText('업로드')
+})
+
 test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내한다', async ({ authenticatedPage: page }) => {
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [], files: [] }))
