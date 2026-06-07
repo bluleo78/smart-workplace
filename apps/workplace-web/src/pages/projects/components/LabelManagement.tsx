@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import {
   useCreateLabel,
@@ -122,16 +123,17 @@ export function LabelManagement({
                   >
                     이름 변경
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      if (confirm('삭제하시겠습니까?')) del.mutate(l.id);
-                    }}
-                    aria-label={`${l.name} 삭제`}
-                  >
-                    삭제
-                  </Button>
+                  {/* 삭제 — window.confirm 대신 shadcn AlertDialog (#148) */}
+                  <DeleteConfirmDialog
+                    entityName="라벨"
+                    itemName={l.name}
+                    onConfirm={() => del.mutate(l.id)}
+                    trigger={
+                      <Button variant="ghost" size="sm" aria-label={`${l.name} 삭제`}>
+                        삭제
+                      </Button>
+                    }
+                  />
                 </div>
               )}
             </li>

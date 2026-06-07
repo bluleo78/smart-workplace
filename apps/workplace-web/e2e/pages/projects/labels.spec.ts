@@ -123,4 +123,52 @@ test.describe('라벨', () => {
       ).toBe(true);
     },
   );
+
+  test(
+    '라벨 삭제 — AlertDialog 확인 후 DELETE 발생 (#148)',
+    async ({ authenticatedPage: page }) => {
+      const label = createLabel({ name: '삭제대상', colorToken: 'RED' });
+      let deleted = false;
+
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+      );
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([createMember({ userId: 1, username: 'me', name: 'Me', role: 'OWNER' })]),
+        });
+      });
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels`, async (route) => {
+        const method = route.request().method();
+        if (method === 'GET') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(deleted ? [] : [label]),
+          });
+        }
+        return route.fallback();
+      });
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels/${label.id}`, async (route) => {
+        if (route.request().method() !== 'DELETE') return route.fallback();
+        deleted = true;
+        return route.fulfill({ status: 204, body: '' });
+      });
+
+      await page.goto(`/projects/${PROJECT_KEY}/settings`);
+      const row = page.getByTestId(`label-row-${label.id}`);
+      await expect(row).toBeVisible();
+
+      // 삭제 버튼 클릭 → AlertDialog 확인 버튼 클릭 → DELETE 발생.
+      await row.getByRole('button', { name: `${label.name} 삭제` }).click();
+      await expect(page.getByRole('alertdialog')).toBeVisible();
+      await page.getByRole('button', { name: '삭제' }).last().click();
+
+      await expect.poll(() => deleted).toBe(true);
+      await expect(page.getByTestId(`label-row-${label.id}`)).toBeHidden();
+    },
+  );
 });

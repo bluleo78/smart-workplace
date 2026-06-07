@@ -84,9 +84,6 @@ test.describe('이슈 첨부', () => {
 
       await setupCommonStubs(page, 0);
 
-      // confirm() 자동 수락 — 삭제 다이얼로그.
-      page.on('dialog', (d) => d.accept());
-
       let postCount = 0;
       let deleteCount = 0;
 
@@ -156,8 +153,11 @@ test.describe('이슈 첨부', () => {
       await expect(row).toBeVisible();
       await expect(row).toContainText('spec.pdf');
 
-      // 삭제 → 빈 상태.
+      // 삭제 → AlertDialog 확인 → 빈 상태 (#148: window.confirm → shadcn AlertDialog).
       await row.getByRole('button', { name: '첨부 삭제' }).click();
+      // AlertDialog 가 뜨고 삭제 버튼 클릭으로 확인.
+      await expect(page.getByTestId('attachment-delete-dialog')).toBeVisible();
+      await page.getByTestId('attachment-delete-confirm').click();
       await expect(page.getByText('첨부를 삭제했습니다')).toBeVisible();
       expect(deleteCount).toBe(1);
       await expect(page.getByText('첨부가 없습니다')).toBeVisible();

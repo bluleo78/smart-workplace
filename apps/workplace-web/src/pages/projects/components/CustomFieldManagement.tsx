@@ -5,6 +5,16 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 import {
   useCreateCustomField,
@@ -27,6 +37,8 @@ export function CustomFieldManagement({
   const [name, setName] = useState('');
   const [type, setType] = useState<FieldType>('TEXT');
   const [optionsText, setOptionsText] = useState('');
+  // 삭제 확인 다이얼로그 — window.confirm 대체 (#148).
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
   const needsOptions = type === 'SELECT' || type === 'MULTI_SELECT';
 
@@ -127,17 +139,12 @@ export function CustomFieldManagement({
               )}
               {isOwner && (
                 <div className="ml-auto flex gap-2">
+                  {/* 삭제 — window.confirm 대신 shadcn AlertDialog (#148). cascade 경고 포함. */}
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      // 삭제 시 이슈에 부착된 값들도 cascade 로 사라진다 — confirm 으로 경고.
-                      if (
-                        confirm('이 필드는 이슈 값들과 함께 삭제됩니다. 진행하시겠습니까?')
-                      ) {
-                        del.mutate(f.id);
-                      }
-                    }}
+                    onClick={() => setPendingDeleteId(f.id)}
+                    data-testid={`custom-field-delete-${f.id}`}
                   >
                     삭제
                   </Button>
@@ -147,6 +154,31 @@ export function CustomFieldManagement({
           ))}
         </ul>
       )}
+
+      {/* 커스텀 필드 삭제 확인 — 이슈 값 cascade 경고 포함 (#148) */}
+      <AlertDialog
+        open={pendingDeleteId != null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
+      >
+        <AlertDialogContent data-testid="custom-field-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>프로젝트 필드 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              이 필드는 이슈 값들과 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다. 정말 진행하시겠습니까?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => { if (pendingDeleteId != null) del.mutate(pendingDeleteId); }}
+              data-testid="custom-field-delete-confirm"
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

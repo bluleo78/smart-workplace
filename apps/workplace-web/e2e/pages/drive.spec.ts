@@ -588,3 +588,43 @@ test('파일 삭제 — AlertDialog 표시 후 취소 시 DELETE 호출 안 함'
   expect(deleteCalled).toBe(false)
   await expect(page.getByText('memo.txt')).toBeVisible()
 })
+
+// #148 — DriveSidebar 팀 공간 생성 — window.prompt → Dialog 교체 검증
+test('팀 공간 생성 — Dialog 표시, 이름 입력 후 만들기 클릭 시 POST 호출', async ({ authenticatedPage: page }) => {
+  const newSpace = createSpace({ id: 99, name: '신규팀', type: 'TEAM' })
+  let spacesStore = [personalSpace(), createSpace()]
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces',
+    (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(spacesStore) })
+      }
+      if (method === 'POST') {
+        spacesStore = [...spacesStore, newSpace]
+        return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(newSpace) })
+      }
+      return route.fallback()
+    },
+  )
+
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${newSpace.id}/items`,
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ folders: [], files: [] }) }),
+  )
+
+  await page.goto(`/drive/spaces/1`)
+  await expect(page.getByTestId('drive-sidebar')).toBeVisible()
+
+  // + 버튼 클릭 → window.prompt 가 아닌 Dialog 가 나타나야 한다 (#148).
+  await page.getByRole('button', { name: '팀 공간 만들기' }).click()
+  await expect(page.getByTestId('space-name-dialog')).toBeVisible()
+
+  await page.getByTestId('space-name-input').fill('신규팀')
+  await page.getByTestId('space-name-confirm').click()
+
+  // 사이드바에 새 공간이 나타나야 함.
+  await expect(page.getByText('신규팀')).toBeVisible()
+})

@@ -183,4 +183,60 @@ test.describe('커스텀 필드', () => {
       });
     },
   );
+
+  test(
+    '커스텀 필드 삭제 — AlertDialog 확인 후 DELETE 발생 (#148)',
+    async ({ authenticatedPage: page }) => {
+      const field = {
+        id: 200,
+        projectId: 1,
+        name: '삭제필드',
+        type: 'TEXT',
+        options: null,
+        position: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      let deleted = false;
+
+      await page.route(`**/api/v1/projects/${KEY}`, (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 1, key: KEY, name: 'P', description: '', ownerId: 1, ownerName: 'T', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
+        }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/members`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ userId: 1, username: 'me', name: 'Me', role: 'OWNER' }]) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/types`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/labels`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/fields`, async (route) => {
+        if (route.request().method() === 'GET') {
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(deleted ? [] : [field]) });
+        }
+        return route.fallback();
+      });
+      await page.route(`**/api/v1/projects/${KEY}/fields/${field.id}`, async (route) => {
+        if (route.request().method() !== 'DELETE') return route.fallback();
+        deleted = true;
+        return route.fulfill({ status: 204, body: '' });
+      });
+
+      await page.goto(`/projects/${KEY}/settings`);
+      await expect(page.getByText('삭제필드')).toBeVisible();
+
+      // 삭제 버튼 → AlertDialog cascade 경고 확인 → DELETE 발생.
+      await page.getByTestId(`custom-field-delete-${field.id}`).click();
+      await expect(page.getByTestId('custom-field-delete-dialog')).toBeVisible();
+      await expect(page.getByTestId('custom-field-delete-dialog')).toContainText('이슈 값들과 함께 삭제');
+      await page.getByTestId('custom-field-delete-confirm').click();
+
+      await expect.poll(() => deleted).toBe(true);
+    },
+  );
 });

@@ -2,6 +2,15 @@ import { HardDrive, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 
 import { driveApi } from '../../api/drive'
@@ -11,6 +20,9 @@ import type { DriveSpace } from '../../types/drive'
 export function DriveSidebar() {
   const [spaces, setSpaces] = useState<DriveSpace[]>([])
   const navigate = useNavigate()
+  // 팀 공간 생성 다이얼로그 — window.prompt 대체 (#148).
+  const [spaceDialogOpen, setSpaceDialogOpen] = useState(false)
+  const [spaceName, setSpaceName] = useState('')
 
   async function reload() {
     const { data } = await driveApi.listSpaces()
@@ -20,10 +32,13 @@ export function DriveSidebar() {
     void reload()
   }, [])
 
-  async function onCreate() {
-    const name = window.prompt('새 팀 공간 이름')
-    if (!name) return
-    const { data } = await driveApi.createSpace(name)
+  /** 팀 공간 생성 — 다이얼로그 확인 시 호출. */
+  async function submitCreate() {
+    const trimmed = spaceName.trim()
+    if (!trimmed) return
+    setSpaceDialogOpen(false)
+    setSpaceName('')
+    const { data } = await driveApi.createSpace(trimmed)
     await reload()
     navigate(`/drive/spaces/${data.id}`)
   }
@@ -48,7 +63,7 @@ export function DriveSidebar() {
           <button
             type="button"
             aria-label="팀 공간 만들기"
-            onClick={onCreate}
+            onClick={() => setSpaceDialogOpen(true)}
             className="text-muted-foreground hover:text-foreground"
           >
             <Plus className="h-4 w-4" />
@@ -72,6 +87,44 @@ export function DriveSidebar() {
           ))}
         </nav>
       </div>
+
+      {/* 팀 공간 이름 입력 다이얼로그 — window.prompt 대체 (#148) */}
+      <Dialog
+        open={spaceDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSpaceDialogOpen(false)
+            setSpaceName('')
+          }
+        }}
+      >
+        <DialogContent data-testid="space-name-dialog">
+          <DialogHeader>
+            <DialogTitle>새 팀 공간</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={spaceName}
+            onChange={(e) => setSpaceName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submitCreate()
+            }}
+            placeholder="공간 이름"
+            autoFocus
+            data-testid="space-name-input"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setSpaceDialogOpen(false); setSpaceName('') }}
+            >
+              취소
+            </Button>
+            <Button onClick={() => void submitCreate()} data-testid="space-name-confirm">
+              만들기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   )
 }

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import {
   useCreateIssueType,
@@ -159,15 +160,17 @@ export function IssueTypeManagement({
                   >
                     이름 변경
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      if (confirm('삭제하시겠습니까?')) del.mutate(t.id);
-                    }}
-                  >
-                    삭제
-                  </Button>
+                  {/* 삭제 — window.confirm 대신 shadcn AlertDialog (#148) */}
+                  <DeleteConfirmDialog
+                    entityName="이슈 유형"
+                    itemName={t.name}
+                    onConfirm={() => del.mutate(t.id)}
+                    trigger={
+                      <Button variant="ghost" size="sm">
+                        삭제
+                      </Button>
+                    }
+                  />
                 </div>
               )}
             </li>

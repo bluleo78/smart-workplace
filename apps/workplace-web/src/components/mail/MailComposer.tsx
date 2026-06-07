@@ -7,7 +7,17 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Bold, Italic, Link2, List, ListOrdered } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 interface MailComposerProps {
@@ -48,6 +58,10 @@ function ToolbarButton({
 
 /** 메일 본문 작성 에디터. */
 export function MailComposer({ initialHtml = '', onChange }: MailComposerProps) {
+  // 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148).
+  const [linkDialog, setLinkDialog] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -105,20 +119,69 @@ export function MailComposer({ initialHtml = '', onChange }: MailComposerProps) 
           label="링크"
           active={editor.isActive('link')}
           onClick={() => {
+            // 다이얼로그 열기 — window.prompt 대체 (#148).
             const prev = editor.getAttributes('link').href as string | undefined;
-            const url = window.prompt('링크 URL', prev ?? 'https://');
-            if (url === null) return;
-            if (url === '') {
-              editor.chain().focus().unsetLink().run();
-              return;
-            }
-            editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+            setLinkUrl(prev ?? '');
+            setLinkDialog(true);
           }}
         >
           <Link2 className="h-4 w-4" />
         </ToolbarButton>
       </div>
       <EditorContent editor={editor} />
+
+      {/* 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148) */}
+      <Dialog
+        open={linkDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLinkDialog(false);
+            setLinkUrl('');
+          }
+        }}
+      >
+        <DialogContent data-testid="link-url-dialog">
+          <DialogHeader>
+            <DialogTitle>링크 삽입</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                applyLink();
+              }
+            }}
+            placeholder="https://"
+            autoFocus
+            data-testid="link-url-input"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setLinkDialog(false); setLinkUrl(''); }}
+            >
+              취소
+            </Button>
+            <Button onClick={applyLink} data-testid="link-url-confirm">
+              확인
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+
+  /** 링크 다이얼로그 확인 — 빈 URL 이면 링크 해제, 아니면 링크 설정. */
+  function applyLink() {
+    if (!editor) return; // editor 는 JSX 내부에서만 호출되지만 타입 안전을 위해 가드.
+    setLinkDialog(false);
+    setLinkUrl('');
+    if (linkUrl.trim() === '') {
+      editor.chain().focus().unsetLink().run();
+      return;
+    }
+    editor.chain().focus().extendMarkRange('link').setLink({ href: linkUrl.trim() }).run();
+  }
 }
