@@ -3,6 +3,13 @@
 export const CYCLE_STATUSES = ['PLANNED', 'ACTIVE', 'COMPLETED'] as const;
 export type CycleStatus = (typeof CYCLE_STATUSES)[number];
 
+// 사이클 상태 한국어 레이블 매핑 — 백엔드 enum 값을 UI 문구로 변환.
+export const CYCLE_STATUS_LABEL: Record<CycleStatus, string> = {
+  PLANNED: '계획됨',
+  ACTIVE: '진행 중',
+  COMPLETED: '완료됨',
+};
+
 // 사이클 단건 응답.
 export interface CycleResponse {
   id: number;

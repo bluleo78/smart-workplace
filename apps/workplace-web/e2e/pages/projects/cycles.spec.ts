@@ -192,6 +192,30 @@ test.describe('사이클 관리', () => {
   );
 
   test(
+    '사이클 폼 다이얼로그 상태 드롭다운 한국어 표시 — PLANNED/ACTIVE/COMPLETED 영문 enum 대신 한국어 옵션',
+    async ({ authenticatedPage: page }) => {
+      await setupCyclesPageStubs(page, [], []);
+      await page.goto(`/projects/${KEY}/cycles`);
+
+      // 새 사이클 다이얼로그 열기.
+      await page.getByTestId('cycle-new').click();
+      await expect(page.getByTestId('cycle-form-dialog')).toBeVisible();
+
+      const select = page.getByLabel('상태');
+
+      // 영문 enum 값이 option 레이블로 노출되면 안 된다.
+      await expect(select).not.toContainText('PLANNED');
+      await expect(select).not.toContainText('ACTIVE');
+      await expect(select).not.toContainText('COMPLETED');
+
+      // 한국어 레이블이 옵션으로 표시된다.
+      await expect(select.locator('option[value="PLANNED"]')).toHaveText('계획됨');
+      await expect(select.locator('option[value="ACTIVE"]')).toHaveText('진행 중');
+      await expect(select.locator('option[value="COMPLETED"]')).toHaveText('완료됨');
+    },
+  );
+
+  test(
     '새 사이클 생성 — cycle-new → 이름 입력 → 저장 → POST 요청 발생',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {

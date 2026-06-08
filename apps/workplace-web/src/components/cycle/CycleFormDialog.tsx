@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 import { useCreateCycle, useUpdateCycle } from '../../hooks/queries/useCycles';
-import { CYCLE_STATUSES, type CycleResponse, type CycleStatus } from '../../types/cycle';
+import { CYCLE_STATUSES, CYCLE_STATUS_LABEL, type CycleResponse, type CycleStatus } from '../../types/cycle';
 
 export function CycleFormDialog({
   projectKey,
@@ -100,7 +100,7 @@ export function CycleFormDialog({
           >
             {CYCLE_STATUSES.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {CYCLE_STATUS_LABEL[s]}
               </option>
             ))}
           </select>
