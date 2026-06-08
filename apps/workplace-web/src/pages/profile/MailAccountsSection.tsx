@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { useDeleteMailAccount, useMailAccounts } from '@/hooks/queries/useMailAccounts';
 import type { MailAccountResponse } from '@/types/mailAccount';
 
@@ -54,16 +55,24 @@ export function MailAccountsSection() {
               <Button size="sm" variant="ghost" onClick={() => openEdit(acc)}>
                 수정
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive"
-                disabled={del.isPending}
-                onClick={() => del.mutate(acc.id)}
-                data-testid={`mail-delete-${acc.id}`}
-              >
-                삭제
-              </Button>
+              {/* 삭제 확인 다이얼로그 — 즉시 실행 방지 (#182) */}
+              <DeleteConfirmDialog
+                entityName="메일 계정"
+                itemName={acc.emailAddress}
+                onConfirm={() => del.mutate(acc.id)}
+                description="이 계정과 연결된 동기화 메일이 모두 삭제됩니다. 계속하시겠습니까?"
+                trigger={
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    disabled={del.isPending}
+                    data-testid={`mail-delete-${acc.id}`}
+                  >
+                    삭제
+                  </Button>
+                }
+              />
             </div>
           </div>
         ))}

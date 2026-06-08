@@ -128,16 +128,29 @@ test.describe('메일 계정 설정', () => {
     expect((req.payload as Record<string, unknown>).aiEnabled).toBe(true);
   });
 
-  test('계정 삭제', async ({ authenticatedPage: page }) => {
+  test('계정 삭제 — 확인 AlertDialog 후 실행', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [account()]);
     await mockApi(page, 'DELETE', '/api/v1/mail/accounts/1', {}, { status: 204 });
     await page.goto('/settings/mail');
     await expect(page.getByTestId('mail-account-row-1')).toBeVisible();
 
+    // 삭제 버튼 클릭 → AlertDialog 표시 확인 (#182)
+    await page.getByTestId('mail-delete-1').click();
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    await expect(page.getByRole('alertdialog')).toContainText('이 계정과 연결된 동기화 메일이 모두 삭제됩니다.');
+
+    // 취소 → 행 유지
+    await page.getByRole('button', { name: '취소' }).click();
+    await expect(page.getByTestId('mail-account-row-1')).toBeVisible();
+
+    // 재클릭 → 확인 → 삭제 실행
+    await page.getByTestId('mail-delete-1').click();
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+
     // 삭제 후 빈 목록 응답을 미리 등록
     await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
 
-    await page.getByTestId('mail-delete-1').click();
+    await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click();
     await expect(page.getByTestId('mail-account-row-1')).toBeHidden();
   });
 

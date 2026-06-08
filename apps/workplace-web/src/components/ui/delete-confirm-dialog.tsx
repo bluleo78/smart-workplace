@@ -18,6 +18,8 @@ interface DeleteConfirmDialogProps {
   itemName: string;
   onConfirm: () => void;
   trigger: ReactNode;
+  /** 기본 자동 생성 문구 대신 사용할 커스텀 설명. 미지정 시 자동 생성. */
+  description?: ReactNode;
 }
 
 export function DeleteConfirmDialog({
@@ -25,6 +27,7 @@ export function DeleteConfirmDialog({
   itemName,
   onConfirm,
   trigger,
+  description,
 }: DeleteConfirmDialogProps) {
   return (
     <AlertDialog>
@@ -35,7 +38,9 @@ export function DeleteConfirmDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{entityName} 삭제</AlertDialogTitle>
           <AlertDialogDescription>
-            &quot;{itemName}&quot; {entityName}{eulReul(entityName)} 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+            {description ?? (
+              <>&quot;{itemName}&quot; {entityName}{eulReul(entityName)} 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
