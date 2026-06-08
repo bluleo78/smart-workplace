@@ -205,4 +205,47 @@ test.describe('받은편지함', () => {
     // h-14 앱 타이틀 헤더에 "메일"(레일 라벨과 동일) 노출 — "메일 계정" 섹션 라벨과 구분되도록 exact
     await expect(sidebar.getByText('메일', { exact: true })).toBeVisible()
   })
+
+  // #180 — 첨부 파일 다운로드 버튼이 렌더링되고 클릭 시 GET /mail/attachments/{id}/content 를 호출한다.
+  test('첨부 파일 다운로드 버튼 → API 호출 + 파일 수신', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
+
+    // 첨부 다운로드 엔드포인트 모킹 — 실제 바이너리 대신 1바이트 더미 + Content-Disposition 헤더
+    let downloadRequestUrl = ''
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/attachments/1/content',
+      (route, req) => {
+        downloadRequestUrl = req.url()
+        return route.fulfill({
+          status: 200,
+          headers: {
+            'content-type': 'application/pdf',
+            'content-disposition': "attachment; filename*=UTF-8''%EC%95%88%EA%B1%B4.pdf",
+          },
+          body: Buffer.from([0x25, 0x50, 0x44, 0x46]), // '%PDF' magic bytes
+        })
+      },
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-10').click()
+
+    // 다운로드 버튼이 첨부마다 존재해야 한다.
+    const downloadBtn = page.getByTestId('mail-attachment-download-1')
+    await expect(downloadBtn).toBeVisible()
+
+    // 다운로드 이벤트 대기 후 버튼 클릭 — 파이프라인: 클릭 → API 호출 → Blob download
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      downloadBtn.click(),
+    ])
+
+    // GET /mail/attachments/1/content 가 호출됐는지 검증
+    expect(downloadRequestUrl).toContain('/api/v1/mail/attachments/1/content')
+
+    // 브라우저가 제안하는 파일명이 첨부 파일명과 일치하는지 검증
+    expect(download.suggestedFilename()).toBe('안건.pdf')
+  })
 })

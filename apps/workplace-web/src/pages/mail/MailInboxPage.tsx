@@ -1,12 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Forward, Paperclip, RefreshCw, Reply, ReplyAll } from 'lucide-react'
+import { Download, Forward, Paperclip, RefreshCw, Reply, ReplyAll } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
+import { downloadMailAttachment } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
@@ -118,6 +120,51 @@ function extractEmail(token: string): string {
   return m ? m[1].trim() : token.trim()
 }
 
+// 첨부 파일 목록 — 파일명·아이콘 + 다운로드 버튼. Bearer 인증이 필요해 단순 <a href> 대신 axios 를 사용한다.
+function AttachmentList({
+  attachments,
+}: {
+  attachments: { id: number; filename: string | null; contentType: string | null; sizeBytes: number; contentId: string | null }[]
+}) {
+  const [downloadingId, setDownloadingId] = useState<number | null>(null)
+
+  const handleDownload = async (attachmentId: number, filename: string | null) => {
+    if (downloadingId !== null) return
+    setDownloadingId(attachmentId)
+    try {
+      await downloadMailAttachment(attachmentId, filename || `attachment-${attachmentId}`)
+    } catch {
+      toast.error('첨부 파일 다운로드에 실패했습니다')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  return (
+    <ul data-testid="mail-attachments" className="mt-2 flex flex-wrap gap-2">
+      {attachments.map((a) => (
+        <li
+          key={a.id}
+          className="flex items-center gap-1 rounded border bg-muted px-2 py-1 text-xs"
+        >
+          <Paperclip className="h-3 w-3 shrink-0" />
+          <span>{a.filename || '첨부파일'}</span>
+          <button
+            type="button"
+            data-testid={`mail-attachment-download-${a.id}`}
+            aria-label={`${a.filename || '첨부파일'} 다운로드`}
+            disabled={downloadingId === a.id}
+            onClick={() => handleDownload(a.id, a.filename)}
+            className="ml-1 rounded p-0.5 hover:bg-accent disabled:opacity-50"
+          >
+            <Download className="h-3 w-3" />
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 // 선택한 메시지의 본문 패널 — text 우선, HTML 만 있으면 스크립트 차단 iframe 으로 렌더.
 function MessageDetailPanel({
   messageId,
@@ -222,17 +269,7 @@ function MessageDetailPanel({
           )}
         </div>
         {detail.attachments.length > 0 && (
-          <ul data-testid="mail-attachments" className="mt-2 flex flex-wrap gap-2">
-            {detail.attachments.map((a) => (
-              <li
-                key={a.id}
-                className="flex items-center gap-1 rounded border bg-muted px-2 py-1 text-xs"
-              >
-                <Paperclip className="h-3 w-3" />
-                {a.filename || '첨부파일'}
-              </li>
-            ))}
-          </ul>
+          <AttachmentList attachments={detail.attachments} />
         )}
       </div>
       <div className="flex-1 p-4">

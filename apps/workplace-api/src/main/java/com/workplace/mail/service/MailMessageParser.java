@@ -103,6 +103,37 @@ public class MailMessageParser {
     return new ParsedBody(bodyText, bodyHtml, snippet, !attachments.isEmpty(), attachments);
   }
 
+  /**
+   * 메시지에서 ordinalIndex 번째(0-based) 첨부 파트의 바이너리를 반환한다. 순회 순서는 {@link #collectBody} 와 동일하므로 DB 에 저장된
+   * 첨부 id 오름차순 순서와 일치한다. ordinal 이 범위를 벗어나면 null 반환.
+   */
+  public byte[] extractAttachmentBytes(Message msg, int ordinalIndex)
+      throws MessagingException, IOException {
+    List<jakarta.mail.Part> parts = new ArrayList<>();
+    collectAttachmentParts(msg, parts);
+    if (ordinalIndex < 0 || ordinalIndex >= parts.size()) {
+      return null;
+    }
+    try (java.io.InputStream is = parts.get(ordinalIndex).getInputStream()) {
+      return is.readAllBytes();
+    }
+  }
+
+  /** collectBody 와 동일한 DFS 순서로 첨부 파트(Part 객체)만 수집. */
+  private void collectAttachmentParts(Part part, List<Part> result)
+      throws MessagingException, IOException {
+    if (part.isMimeType("multipart/*")) {
+      Multipart mp = (Multipart) part.getContent();
+      for (int i = 0; i < mp.getCount(); i++) {
+        collectAttachmentParts(mp.getBodyPart(i), result);
+      }
+      return;
+    }
+    if (isAttachment(part)) {
+      result.add(part);
+    }
+  }
+
   /** 길이 상한이 있는 컬럼용 절단(상한 초과분 제거). null/이내면 그대로. */
   private String truncate(String value, int max) {
     if (value == null || value.length() <= max) {
