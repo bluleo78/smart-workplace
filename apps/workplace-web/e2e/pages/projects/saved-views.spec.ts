@@ -121,14 +121,53 @@ test('저장된 뷰 — 필터 저장 → 칩 등장 → 클릭 시 필터 복�
   await page.getByTestId('view-chip-1').click()
   await expect(page).toHaveURL(/priority=HIGH/)
 
-  // 6) 삭제 — DELETE 호출 + 칩 제거.
+  // 6) 삭제 — AlertDialog 확인 후 DELETE 호출 + 칩 제거 (#188).
   await page.route(`**/api/v1/projects/${KEY}/saved-views/1`, (route) => {
     views.length = 0
     return route.fulfill({ status: 204, body: '' })
   })
   await page.getByTestId('view-chip-menu-1').click()
   await page.getByTestId('view-delete-1').click()
+  // AlertDialog 가 등장해야 한다.
+  await expect(page.getByRole('alertdialog')).toBeVisible()
+  // 확인 버튼 클릭 → 실제 삭제.
+  await page.getByRole('button', { name: '삭제' }).last().click()
   await expect(page.getByTestId('view-chip-1')).toHaveCount(0)
+})
+
+test('저장된 뷰 — 삭제 클릭 시 AlertDialog 표시, 취소 시 뷰 유지 (refs #188)', async ({
+  authenticatedPage: page,
+}) => {
+  // 기존 PRIVATE 뷰 1건 시드.
+  const views: SavedViewResponse[] = [
+    {
+      id: 1, name: '취소테스트뷰', query: 'priority=HIGH', visibility: 'PRIVATE',
+      ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '',
+    },
+  ]
+  await setupCommonRoutes(page, views)
+  // DELETE 가 호출되면 실패시켜 취소 확인.
+  let deleteCalled = false
+  await page.route(`**/api/v1/projects/${KEY}/saved-views/1`, (route) => {
+    deleteCalled = true
+    return route.fulfill({ status: 204, body: '' })
+  })
+
+  await page.goto(`/projects/${KEY}`)
+
+  // 1) ⋯ → 삭제 클릭.
+  await page.getByTestId('view-chip-menu-1').click()
+  await page.getByTestId('view-delete-1').click()
+
+  // 2) AlertDialog 에 뷰 이름 포함된 설명 표시.
+  await expect(page.getByRole('alertdialog')).toBeVisible()
+  await expect(page.getByRole('alertdialog')).toContainText('취소테스트뷰')
+
+  // 3) 취소 클릭 → 다이얼로그 닫힘 + DELETE 미호출 + 칩 유지.
+  await page.getByRole('button', { name: '취소' }).click()
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  expect(deleteCalled).toBe(false)
+  await expect(page.getByTestId('view-chip-1')).toBeVisible()
 })
 
 test('저장된 뷰 — 빈 이름 제출 시 에러 메시지 표시 + 입력 시 초기화 (refs #184)', async ({

@@ -4,6 +4,16 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -25,6 +35,8 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
   const [saveOpen, setSaveOpen] = useState(false)
   // 수정 중인 뷰 — null 이면 수정 다이얼로그 닫힘.
   const [editing, setEditing] = useState<SavedViewResponse | null>(null)
+  // 삭제 확인 대화상자 대상 뷰 id — null 이면 닫힘.
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null)
 
   // 현재 URL 필터를 canonical 쿼리스트링으로 — 저장/활성칩 판정에 동일 기준 사용.
   // group 도 포함해야 그룹이 저장 뷰에 영속되고 활성 칩 판정에 반영된다 (#58).
@@ -89,7 +101,7 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     data-testid={`view-delete-${v.id}`}
-                    onSelect={() => del.mutate(v.id)}
+                    onSelect={() => setDeleteTargetId(v.id)}
                     className="text-destructive"
                   >
                     <Trash2 className="mr-2 h-4 w-4" /> 삭제
@@ -133,6 +145,34 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
           }}
         />
       )}
+
+      {/* 삭제 확인 AlertDialog — 즉시 삭제 방지, 앱 전체 삭제 UX 패턴과 일관성 유지 (#188). */}
+      <AlertDialog
+        open={deleteTargetId !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTargetId(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>저장된 뷰 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              &apos;{(views.data ?? []).find((v) => v.id === deleteTargetId)?.name}&apos; 뷰를 삭제하시겠습니까?
+              이 작업은 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteTargetId !== null) del.mutate(deleteTargetId)
+                setDeleteTargetId(null)
+              }}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
