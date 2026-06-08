@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { handleApiError } from '../../lib/api-error';
 import {
   useDisableMyAssistant,
   useMyAssistant,
@@ -39,15 +40,23 @@ export function PersonalAssistantSection() {
       toast.error('토큰 형식이 올바르지 않아요.');
       return;
     }
-    await register.mutateAsync({ token: t });
-    setToken('');
-    toast.success('개인 비서 토큰을 저장했어요.');
+    try {
+      await register.mutateAsync({ token: t });
+      setToken('');
+      toast.success('개인 비서 토큰을 저장했어요.');
+    } catch (e) {
+      handleApiError(e, '토큰 등록에 실패했어요.');
+    }
   };
 
   // 개인 비서 해제.
   const handleDisable = async () => {
-    await disable.mutateAsync();
-    toast.success('개인 비서를 해제했어요.');
+    try {
+      await disable.mutateAsync();
+      toast.success('개인 비서를 해제했어요.');
+    } catch (e) {
+      handleApiError(e, '개인 비서 해제에 실패했어요.');
+    }
   };
 
   return (
