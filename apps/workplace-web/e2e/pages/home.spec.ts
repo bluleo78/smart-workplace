@@ -327,6 +327,96 @@ test('활동 위젯 — LABELS_CHANGED·ATTACHMENTS_CHANGED 가 한국어 레이
   await expect(activityList).not.toContainText('ATTACHMENTS_CHANGED')
 })
 
+test('활동 위젯 — CUSTOM_FIELD_CHANGED·DEPENDENCY_ADDED 등 신규 이벤트가 한국어 레이블로 표시된다 (#191)', async ({
+  authenticatedPage: page,
+}) => {
+  // 누락됐던 5종 이벤트를 포함한 활동 목록으로 모킹
+  const activityWithNewEvents: ActivityPage = {
+    items: [
+      {
+        id: 1,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '채팅 테스트 이슈',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'CUSTOM_FIELD_CHANGED',
+        createdAt: '2026-06-08T01:00:00Z',
+      },
+      {
+        id: 2,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '채팅 테스트 이슈',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'DEPENDENCY_ADDED',
+        createdAt: '2026-06-08T02:00:00Z',
+      },
+      {
+        id: 3,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '채팅 테스트 이슈',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'DEPENDENCY_REMOVED',
+        createdAt: '2026-06-08T03:00:00Z',
+      },
+      {
+        id: 4,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '채팅 테스트 이슈',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'TYPE_CHANGED',
+        createdAt: '2026-06-08T04:00:00Z',
+      },
+      {
+        id: 5,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '채팅 테스트 이슈',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'PARENT_CHANGED',
+        createdAt: '2026-06-08T05:00:00Z',
+      },
+    ],
+    nextCursor: null,
+  }
+  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/activity', activityWithNewEvents)
+  await page.goto('/')
+
+  const activityList = page.getByTestId('activity-items')
+  await expect(activityList).toBeVisible()
+
+  // raw enum 값이 아닌 한국어 레이블로 표시되어야 한다
+  await expect(activityList).toContainText('필드')
+  await expect(activityList).toContainText('의존성 추가')
+  await expect(activityList).toContainText('의존성 제거')
+  await expect(activityList).toContainText('유형 변경')
+  await expect(activityList).toContainText('부모 변경')
+  await expect(activityList).not.toContainText('CUSTOM_FIELD_CHANGED')
+  await expect(activityList).not.toContainText('DEPENDENCY_ADDED')
+  await expect(activityList).not.toContainText('DEPENDENCY_REMOVED')
+  await expect(activityList).not.toContainText('TYPE_CHANGED')
+  await expect(activityList).not.toContainText('PARENT_CHANGED')
+})
+
 test('삭제 — 휴지통 클릭 시 DELETE 호출 + 목록에서 제거', async ({ authenticatedPage: page }) => {
   await mockHome(page)
   await mockSessions(page, {

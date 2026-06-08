@@ -22,6 +22,11 @@ const EVENT_LABEL: Record<string, string> = {
   DUE_DATE_CHANGED: '마감일 변경',
   CLOSED: '완료',
   REOPENED: '재개',
+  TYPE_CHANGED: '유형 변경',
+  PARENT_CHANGED: '부모 변경',
+  DEPENDENCY_ADDED: '의존성 추가',
+  DEPENDENCY_REMOVED: '의존성 제거',
+  CUSTOM_FIELD_CHANGED: '필드',
 };
 
 /** 최근 활동. params.actorKind='AGENT' 면 AI 가 한 일만. */
