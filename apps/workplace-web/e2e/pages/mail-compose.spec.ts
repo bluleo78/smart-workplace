@@ -119,6 +119,32 @@ test.describe('메일 작성·발송', () => {
     expect(sentBody!.to).toEqual(['alice@example.com'])
   })
 
+  test('메일 모듈 이탈 후 복귀 시 작성 도크 draft 유지 (#183)', async ({ authenticatedPage: page }) => {
+    // /projects 이동을 위해 프로젝트 목록 API 모킹.
+    await mockApi(page, 'GET', '/api/v1/projects', [])
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-compose-new').dispatchEvent('click')
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+
+    // 수신자·제목 입력 후 모듈 이탈 (앱 레일 클릭 → SPA 클라이언트 내비게이션).
+    await page.getByTestId('mail-compose-to').fill('draft@example.com')
+    await page.getByTestId('mail-compose-subject').fill('Draft survival test')
+
+    // 앱 레일에서 다른 모듈로 이동 — MailModuleLayout 언마운트되지만 AppLayout 유지.
+    await page.getByTestId('rail-link-/projects').click()
+    await page.waitForURL(/\/projects/)
+    // 다른 모듈에서도 dock 이 살아있어야 한다 (draft 가 AppLayout 레벨에서 보존됨).
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+
+    // 메일로 복귀 — draft 상태(수신자·제목) 유지 검증.
+    await page.getByTestId('rail-link-/mail').click()
+    await page.waitForURL(/\/mail/)
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+    await expect(page.getByTestId('mail-compose-to')).toHaveValue('draft@example.com')
+    await expect(page.getByTestId('mail-compose-subject')).toHaveValue('Draft survival test')
+  })
+
   test('보낸편지함 토글 → folder=SENT 쿼리', async ({ authenticatedPage: page }) => {
     // 메시지 요청 URL 의 folder 파라미터를 수집.
     const seen: string[] = []
