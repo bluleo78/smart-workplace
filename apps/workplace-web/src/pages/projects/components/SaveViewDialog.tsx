@@ -34,6 +34,7 @@ export function SaveViewDialog({
   const isEdit = !!editing
   // 수정 모드면 기존값으로 초기화 — 호출처에서 key 로 리마운트해 editing 별 초기값을 보장한다.
   const [name, setName] = useState(editing?.name ?? '')
+  const [nameError, setNameError] = useState('')
   const [visibility, setVisibility] = useState<Visibility>(editing?.visibility ?? 'PRIVATE')
   const pending = isEdit ? update.isPending : create.isPending
   // 생성 모드에서 필터 미적용(빈 query) 이면 백엔드 NotBlank 위반 → 클라이언트 가드.
@@ -47,10 +48,14 @@ export function SaveViewDialog({
         </DialogHeader>
         <form
           onSubmit={async (e) => {
-            // 저장 — 이름 trim 후 빈 값이면 무시. 성공 시 입력 초기화 + 닫기.
+            // 저장 — 이름 trim 후 빈 값이면 에러 메시지 표시. 성공 시 입력 초기화 + 닫기.
             e.preventDefault()
             const trimmed = name.trim()
-            if (!trimmed || noFilter) return
+            if (!trimmed) {
+              setNameError('뷰 이름을 입력하세요')
+              return
+            }
+            if (noFilter) return
             try {
               if (isEdit) {
                 // 수정: 쿼리는 기존값 유지, 이름/가시성만 변경.
@@ -62,6 +67,7 @@ export function SaveViewDialog({
                 await create.mutateAsync({ name: trimmed, query, visibility })
               }
               setName('')
+              setNameError('')
               setVisibility('PRIVATE')
               onOpenChange(false)
             } catch {
@@ -84,9 +90,18 @@ export function SaveViewDialog({
               id="save-view-name"
               data-testid="save-view-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value)
+                if (nameError) setNameError('')
+              }}
               placeholder="예: 내 HIGH 이슈"
             />
+            {/* 빈 이름 제출 시 표시되는 인라인 에러 메시지 */}
+            {nameError && (
+              <p data-testid="save-view-name-error" className="text-sm text-destructive">
+                {nameError}
+              </p>
+            )}
           </div>
           <fieldset className="flex items-center gap-4 border-none p-0 text-sm">
             <legend className="mb-1 text-sm font-medium">가시성</legend>

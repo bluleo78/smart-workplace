@@ -131,6 +131,31 @@ test('저장된 뷰 — 필터 저장 → 칩 등장 → 클릭 시 필터 복�
   await expect(page.getByTestId('view-chip-1')).toHaveCount(0)
 })
 
+test('저장된 뷰 — 빈 이름 제출 시 에러 메시지 표시 + 입력 시 초기화 (refs #184)', async ({
+  authenticatedPage: page,
+}) => {
+  // 필터가 적용된 상태에서 다이얼로그를 열어 빈 이름으로 제출하는 시나리오.
+  await setupCommonRoutes(page, [])
+  await page.goto(`/projects/${KEY}`)
+
+  // 1) 필터 적용 — 우선순위 HIGH 적용 후 뷰 저장 버튼 활성화.
+  await page.getByRole('button', { name: '높음' }).click()
+  await expect(page).toHaveURL(/priority=HIGH/)
+
+  // 2) 뷰 저장 다이얼로그 열기.
+  await page.getByTestId('save-view-button').click()
+
+  // 3) 이름 비워둔 채 저장 클릭 → 에러 메시지 등장 + 다이얼로그 유지.
+  await page.getByTestId('save-view-submit').click()
+  await expect(page.getByTestId('save-view-name-error')).toHaveText('뷰 이름을 입력하세요')
+  // 다이얼로그가 닫히지 않아야 한다.
+  await expect(page.getByTestId('save-view-name')).toBeVisible()
+
+  // 4) 입력하면 에러 메시지가 사라져야 한다.
+  await page.getByTestId('save-view-name').fill('테스트')
+  await expect(page.getByTestId('save-view-name-error')).toHaveCount(0)
+})
+
 test('저장된 뷰 — ⋯ 수정 → 이름/가시성 변경(PATCH payload·쿼리 유지) → 칩 반영', async ({
   authenticatedPage: page,
 }) => {
