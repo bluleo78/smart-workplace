@@ -3,6 +3,16 @@ import { ChevronDown, MessageSquare, Plus, Sparkles, Trash2 } from 'lucide-react
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -66,6 +76,8 @@ export function FloatingChat({
   const [open, setOpen] = useState(false);
   const current = sessions.find((s) => s.id === currentSessionId);
   const [input, setInput] = useState('');
+  // 삭제 확인 대기 중인 세션 id — null 이면 AlertDialog 닫힘.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // ⌘K/Ctrl+K 토글 + Esc 닫기.
@@ -123,6 +135,33 @@ export function FloatingChat({
 
       {/* 활성(open) 시 — 스크림으로 나머지를 비활성화하고, 런처에서 아래로 내려오는 모달 도크를 띄운다.
           document.body 로 portal — main 안에 두면 fixed 가 main 에 갇혀 앱 레일을 못 덮으므로 뷰포트 전체를 덮게 한다. */}
+      {/* 대화 삭제 확인 — pendingDeleteId 가 설정되면 AlertDialog 열림(portal 자체 처리). */}
+      <AlertDialog open={pendingDeleteId !== null} onOpenChange={(v) => !v && setPendingDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>대화 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              이 대화를 삭제하시겠습니까? 삭제된 대화는 복구할 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            {/* 파괴적 작업 — destructive 스타일로 실수 방지 */}
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (pendingDeleteId) {
+                  onDeleteSession(pendingDeleteId);
+                  setPendingDeleteId(null);
+                }
+              }}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {open &&
         createPortal(
           <div className="fixed inset-0 z-[60] px-4 pb-4 pt-16 sm:px-6">
@@ -180,7 +219,11 @@ export function FloatingChat({
                           aria-label="대화 삭제"
                           data-testid="chat-session-delete"
                           className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive"
-                          onClick={() => onDeleteSession(s.id)}
+                          onClick={(e) => {
+                            // 부모 select 버튼 이벤트 전파 차단 + 확인 다이얼로그 진입.
+                            e.stopPropagation();
+                            setPendingDeleteId(s.id);
+                          }}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>

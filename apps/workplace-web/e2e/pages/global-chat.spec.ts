@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
+import type { HomeSessionPage } from '../../src/types/home'
 
 test('입력이 비어 있으면 보내기 버튼이 비활성(disabled)이어야 한다', async ({ authenticatedPage: page }) => {
   // 보내기 버튼의 disabled 속성이 입력 상태와 동기화되는지 검증 (이슈 #144 회귀 방지)
@@ -81,4 +82,71 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 홈으로 이동해 캔버�
   // 6) 전역 챗 패널은 라우팅 후에도 유지되며 사용자 질의 + 어시스턴트 응답을 보여준다
   await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈')
   await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈를 정리했어요')
+})
+
+// FloatingChat 세션 삭제 확인 다이얼로그 (#193)
+// 휴지통 클릭 시 AlertDialog 로 확인 후 삭제 — 즉시 삭제 금지.
+
+const mockChatSessions = async (page: Parameters<typeof mockApi>[0], sessions: HomeSessionPage) => {
+  await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
+}
+
+test('FloatingChat — 휴지통 클릭 시 AlertDialog 확인 다이얼로그가 표시되고, 취소 시 삭제 API 미호출', async ({
+  authenticatedPage: page,
+}) => {
+  // 세션 1개로 모킹
+  await mockChatSessions(page, {
+    items: [{ id: 'sc1', title: '테스트 대화', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  // 삭제 API — 호출 여부 캡처(호출되면 안 됨)
+  const del = await mockApi(page, 'DELETE', '/api/v1/home/sessions/sc1', null, { status: 204, capture: true })
+
+  await page.goto('/')
+  // 전역 챗 패널 열기
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('chat-panel')).toBeVisible()
+
+  // 세션 드롭다운 열기
+  await page.getByTestId('chat-session-switcher').click()
+  await expect(page.getByTestId('chat-session-item')).toHaveCount(1)
+
+  // 휴지통 클릭 → 즉시 삭제 아닌 AlertDialog 표시
+  await page.getByTestId('chat-session-delete').click()
+  await expect(page.getByRole('alertdialog')).toBeVisible()
+  await expect(page.getByRole('alertdialog')).toContainText('대화 삭제')
+  await expect(page.getByRole('alertdialog')).toContainText('삭제된 대화는 복구할 수 없습니다')
+
+  // 취소 → AlertDialog 닫힘, 삭제 API 미호출
+  await page.getByRole('button', { name: '취소' }).click()
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  // 삭제 요청이 없었는지 확인 (capture 된 요청 없음)
+  expect(del.requests.length).toBe(0)
+})
+
+test('FloatingChat — AlertDialog 삭제 확인 클릭 시 DELETE API 호출됨 (#193)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockChatSessions(page, {
+    items: [{ id: 'sc2', title: '삭제할 대화', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  const del = await mockApi(page, 'DELETE', '/api/v1/home/sessions/sc2', null, { status: 204, capture: true })
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('chat-panel')).toBeVisible()
+
+  await page.getByTestId('chat-session-switcher').click()
+  await expect(page.getByTestId('chat-session-item')).toHaveCount(1)
+
+  // 휴지통 클릭 → AlertDialog가 뜨고 즉시 삭제되지 않음
+  await page.getByTestId('chat-session-delete').click()
+  await expect(page.getByRole('alertdialog')).toBeVisible()
+  // AlertDialog 확인("삭제") 클릭 → DELETE API 호출
+  await page.getByRole('button', { name: '삭제' }).last().click()
+  await del.waitForRequest()
+
+  // AlertDialog가 닫혀야 함
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
 })
