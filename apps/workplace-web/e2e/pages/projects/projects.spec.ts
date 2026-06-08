@@ -85,6 +85,38 @@ test(
   },
 );
 
+// non-smoke: 프로젝트 목록 API 실패 시 오류 메시지·재시도 버튼 노출 (refs #189)
+test('프로젝트 목록 API 실패 시 오류 메시지와 재시도 버튼이 표시된다', async ({ authenticatedPage: page }) => {
+  // QueryClient 전역 retry: 1 → 자동 재시도 1회 포함, 첫 2번은 500으로 isError 유도,
+  // 3번째(수동 "다시 시도" 클릭)는 200으로 복구 확인
+  let attempt = 0;
+  await page.route(
+    (url) => url.pathname === '/api/v1/projects',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      attempt++;
+      if (attempt <= 2) {
+        return route.fulfill({ status: 500, contentType: 'application/json',
+          body: JSON.stringify({ message: 'Internal Server Error' }) });
+      }
+      // 수동 재시도 요청: 정상 응답
+      return route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify(createPageResponse([createProject()])) });
+    },
+  );
+
+  await page.goto('/projects');
+
+  // 오류 메시지와 재시도 버튼 표시 확인 (retry: 1 자동 재시도 소진 후 isError 노출)
+  await expect(page.getByText('프로젝트 목록을 불러오지 못했습니다.')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: '다시 시도' })).toBeVisible();
+
+  // 재시도 클릭 → 정상 목록 표시
+  await page.getByRole('button', { name: '다시 시도' }).click();
+  await expect(page.getByText('프로젝트 목록을 불러오지 못했습니다.')).not.toBeVisible();
+  await expect(page.getByRole('list').getByRole('link', { name: /Workplace/ })).toBeVisible();
+});
+
 // non-smoke: 비멤버 프로젝트 접근 시 403 → 에러 메시지 노출
 test('비멤버 프로젝트 접근 시 권한 거부 메시지 노출', async ({ authenticatedPage: page }) => {
   await mockApi(

@@ -10,7 +10,8 @@ import { ProjectCreateDialog } from './components/ProjectCreateDialog';
 // 내가 멤버인 프로젝트 목록 (ADMIN 은 전체). 우상단 "+ 새 프로젝트" 로 생성 모달.
 export default function ProjectListPage() {
   const [open, setOpen] = useState(false);
-  const { data, isLoading } = useProjects();
+  // isError/refetch 구조분해 — API 실패 시 오류 상태와 재시도 버튼 표시
+  const { data, isLoading, isError, refetch } = useProjects();
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -22,6 +23,11 @@ export default function ProjectListPage() {
         <div className="container mx-auto space-y-4 p-6">
           {isLoading ? (
             <p className="text-muted-foreground">로딩 중…</p>
+          ) : isError ? (
+            <div className="text-center p-6">
+              <p className="text-sm text-destructive mb-2">프로젝트 목록을 불러오지 못했습니다.</p>
+              <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
+            </div>
           ) : data && data.content.length === 0 ? (
             <p className="text-muted-foreground">아직 프로젝트가 없습니다. 우상단 버튼으로 시작하세요.</p>
           ) : (
