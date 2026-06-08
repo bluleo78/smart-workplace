@@ -1,9 +1,19 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -55,8 +65,12 @@ export default function ProjectSettingsPage() {
     }
   };
 
-  const onDelete = async () => {
-    if (!confirm(`프로젝트 ${key} 를 삭제하시겠습니까?`)) return;
+  // 프로젝트 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
+  const [deletePending, setDeletePending] = useState(false);
+
+  const onDelete = () => setDeletePending(true);
+
+  const onDeleteConfirm = async () => {
     try {
       await remove.mutateAsync(key);
       toast.success('삭제되었습니다');
@@ -69,6 +83,7 @@ export default function ProjectSettingsPage() {
   if (project.isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
 
   return (
+    <>
     <div className="container mx-auto p-6 space-y-8 max-w-3xl">
       <h1 className="text-2xl font-semibold">프로젝트 설정</h1>
 
@@ -98,10 +113,26 @@ export default function ProjectSettingsPage() {
         <p className="text-sm text-muted-foreground">
           프로젝트를 삭제하면 태스크/코멘트도 함께 숨겨집니다 (soft delete).
         </p>
-        <Button variant="destructive" onClick={onDelete} disabled={remove.isPending}>
+        <Button variant="destructive" onClick={onDelete} disabled={remove.isPending} data-testid="project-delete">
           프로젝트 삭제
         </Button>
       </section>
     </div>
+    {/* 프로젝트 삭제 확인 AlertDialog — window.confirm() 대체. */}
+    <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>프로젝트 삭제</AlertDialogTitle>
+          <AlertDialogDescription>
+            프로젝트 {key}를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>취소</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onDeleteConfirm}>삭제</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

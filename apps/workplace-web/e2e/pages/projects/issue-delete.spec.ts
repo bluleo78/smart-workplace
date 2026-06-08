@@ -125,7 +125,7 @@ test.describe('IssueDetailPage 삭제 확인 AlertDialog (#161)', () => {
 
       await expect(page.getByRole('alertdialog')).toBeVisible();
       await expect(
-        page.getByText('이 태스크에는 자식 SUBTASK 가 3개 있습니다. 함께 삭제됩니다. 진행하시겠습니까?'),
+        page.getByText('이 태스크에는 하위 태스크가 3개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.'),
       ).toBeVisible();
     },
   );

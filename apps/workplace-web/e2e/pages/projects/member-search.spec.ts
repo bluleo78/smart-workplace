@@ -326,3 +326,70 @@ test.describe('멤버 추가 검색 picker', () => {
     expect(postCount).toBe(0);
   });
 });
+
+test.describe('멤버 제거 AlertDialog (#139)', () => {
+  // 제거 버튼 클릭 시 window.confirm() 대신 shadcn AlertDialog가 열리고 취소/확인이 올바르게 동작.
+  test(
+    '제거 버튼 클릭 시 AlertDialog가 열리고 취소 시 DELETE 미호출',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      const membersRef = {
+        current: [
+          { userId: 1, username: 'me', name: 'Me', role: 'OWNER' },
+          { userId: 2, username: 'alice', name: 'Alice', role: 'MEMBER' },
+        ] as StubMember[],
+      };
+      await setupStubs(page, membersRef);
+
+      let deleteCalled = false;
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/members/2`, (route) => {
+        if (route.request().method() === 'DELETE') {
+          deleteCalled = true;
+          return route.fulfill({ status: 204 });
+        }
+        return route.fallback();
+      });
+
+      await page.goto(SETTINGS_URL);
+
+      // 제거 버튼 클릭 — window.confirm() 이 아닌 AlertDialog가 열려야 함.
+      await page.getByTestId('member-remove-2').click();
+      await expect(page.getByRole('alertdialog')).toBeVisible();
+      await expect(page.getByText('멤버 제거')).toBeVisible();
+
+      // 취소 → 다이얼로그 닫힘 + DELETE 미호출.
+      await page.getByRole('button', { name: '취소' }).click();
+      await expect(page.getByRole('alertdialog')).not.toBeVisible();
+      expect(deleteCalled).toBe(false);
+    },
+  );
+
+  test('제거 확인 클릭 시 DELETE API 호출', async ({ authenticatedPage: page }) => {
+    const membersRef = {
+      current: [
+        { userId: 1, username: 'me', name: 'Me', role: 'OWNER' },
+        { userId: 2, username: 'alice', name: 'Alice', role: 'MEMBER' },
+      ] as StubMember[],
+    };
+    await setupStubs(page, membersRef);
+
+    let deleteCalled = false;
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members/2`, (route) => {
+      if (route.request().method() === 'DELETE') {
+        deleteCalled = true;
+        membersRef.current = membersRef.current.filter((m) => m.userId !== 2);
+        return route.fulfill({ status: 204 });
+      }
+      return route.fallback();
+    });
+
+    await page.goto(SETTINGS_URL);
+    await page.getByTestId('member-remove-2').click();
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+
+    // 제거 확인 → DELETE API 호출.
+    await page.getByRole('button', { name: '제거' }).click();
+    expect(deleteCalled).toBe(true);
+    await expect(page.getByText('멤버를 제거했습니다')).toBeVisible();
+  });
+});

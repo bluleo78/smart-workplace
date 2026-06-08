@@ -312,7 +312,7 @@ export default function IssueDetailPage() {
             <AlertDialogTitle>태스크 삭제</AlertDialogTitle>
             <AlertDialogDescription>
               {summary.childCount > 0
-                ? `이 태스크에는 자식 SUBTASK 가 ${summary.childCount}개 있습니다. 함께 삭제됩니다. 진행하시겠습니까?`
+                ? `이 태스크에는 하위 태스크가 ${summary.childCount}개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`
                 : '이 태스크를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.'}
             </AlertDialogDescription>
           </AlertDialogHeader>

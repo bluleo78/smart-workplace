@@ -1,6 +1,16 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 
 import {
@@ -23,6 +33,8 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [newRole, setNewRole] = useState<ProjectMemberRole>('MEMBER');
+  // 멤버 제거 확인 다이얼로그 — { userId, name } 지정 시 해당 멤버 제거 확인 AlertDialog 표시.
+  const [confirmRemove, setConfirmRemove] = useState<{ userId: number; name: string } | null>(null);
 
   // 기존 멤버 id 집합 — picker 에서 disabled 처리에 사용.
   const existingIds = useMemo(
@@ -49,17 +61,24 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
     }
   };
 
-  const onRemove = async (userId: number) => {
-    if (!confirm('이 멤버를 제거하시겠습니까?')) return;
+  // 제거 버튼 클릭 시 확인 다이얼로그 표시 — 실제 제거는 onRemoveConfirm에서 수행.
+  const onRemove = (userId: number, name: string) => {
+    setConfirmRemove({ userId, name });
+  };
+
+  const onRemoveConfirm = async () => {
+    if (!confirmRemove) return;
     try {
-      await removeMember.mutateAsync(userId);
+      await removeMember.mutateAsync(confirmRemove.userId);
       toast.success('멤버를 제거했습니다');
+      setConfirmRemove(null);
     } catch (e) {
       handleApiError(e, '멤버 제거에 실패했습니다');
     }
   };
 
   return (
+    <>
     <section className="space-y-3">
       <h2 className="text-lg font-semibold">멤버</h2>
 
@@ -125,8 +144,9 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => onRemove(m.userId)}
+                    onClick={() => onRemove(m.userId, m.name)}
                     aria-label={`${m.name} 제거`}
+                    data-testid={`member-remove-${m.userId}`}
                   >
                     제거
                   </Button>
@@ -144,5 +164,21 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
         </table>
       )}
     </section>
+    {/* 멤버 제거 확인 AlertDialog — window.confirm() 대체. */}
+    <AlertDialog open={!!confirmRemove} onOpenChange={(open) => !open && setConfirmRemove(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>멤버 제거</AlertDialogTitle>
+          <AlertDialogDescription>
+            {confirmRemove?.name}을(를) 프로젝트에서 제거하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>취소</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onRemoveConfirm}>제거</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

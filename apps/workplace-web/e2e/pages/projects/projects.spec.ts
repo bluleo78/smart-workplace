@@ -155,10 +155,11 @@ test('프로젝트 삭제 후 목록에서 사라진다', async ({ authenticated
     },
   );
 
-  page.on('dialog', (d) => d.accept());
-
   await page.goto('/projects/WP/settings');
-  await page.getByRole('button', { name: '프로젝트 삭제' }).click();
+  await page.getByTestId('project-delete').click();
+  // shadcn AlertDialog가 열리면 확인 버튼을 클릭 (#139 window.confirm 대체).
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await page.getByRole('button', { name: '삭제' }).last().click();
   await expect(page).toHaveURL(/\/projects$/);
   await expect(page.getByText('아직 프로젝트가 없습니다')).toBeVisible();
 });
