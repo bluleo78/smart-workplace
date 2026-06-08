@@ -3,6 +3,7 @@ import { MessageSquare } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
+import { Button } from '@/components/ui/button'
 import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
@@ -28,7 +29,7 @@ export default function DmPage() {
   const { id } = useParams()
   const dmId = id ? Number(id) : undefined
   const { user } = useAuth()
-  const { data: dms, isLoading } = useMyDms()
+  const { data: dms, isLoading, isError, refetch } = useMyDms()
   const { data } = useChannelMessages(dmId)
   const messages = data?.pages.flatMap((p) => p.items) ?? []
 
@@ -46,6 +47,21 @@ export default function DmPage() {
     name: p.name,
     kind: p.kind,
   }))
+
+  // DM 목록 API 오류 — 로드 실패와 실제 미존재를 구분해 사용자 오해 방지.
+  if (isError) {
+    return (
+      <div
+        className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground"
+        data-testid="dm-load-error"
+      >
+        <p className="text-sm text-destructive">대화 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</p>
+        <Button variant="outline" size="sm" onClick={() => void refetch()}>
+          다시 시도
+        </Button>
+      </div>
+    )
+  }
 
   // 목록 로딩 끝났는데 해당 DM 이 없으면 비참여자/미존재 → 은닉.
   if (!isLoading && !dm) {

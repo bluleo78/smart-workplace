@@ -301,6 +301,35 @@ test.describe('messaging DM', () => {
     await expect(page.getByTestId('dm-not-found')).toBeVisible()
   })
 
+  test('DM 목록 API 오류 → 오류 메시지(미존재 오표시 아님)', async ({
+    authenticatedPage: page,
+  }) => {
+    // /api/v1/messaging/dms 를 500 으로 막아 isError=true 분기 검증.
+    // 실제 버그(#190): isError 미구분 → "대화를 찾을 수 없습니다." 오표시.
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/dms',
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 500, body: 'Internal Server Error' })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels',
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+          : route.fallback(),
+    )
+    await stubStream(page)
+
+    await page.goto('/chat/dms/100')
+
+    // isError → dm-load-error 표시, dm-not-found 는 표시되지 않아야 함.
+    await expect(page.getByTestId('dm-load-error')).toBeVisible()
+    await expect(page.getByTestId('dm-not-found')).toHaveCount(0)
+    await expect(page.getByText('대화 목록을 불러오지 못했습니다')).toBeVisible()
+  })
+
   test('참여자 7명 초과 선택 거부(본인 포함 8명 상한)', async ({
     authenticatedPage: page,
   }) => {
