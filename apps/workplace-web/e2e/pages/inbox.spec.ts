@@ -93,6 +93,8 @@ test('REMINDER 알림은 일정 정보를 렌더하고 클릭 시 캘린더로 �
 })
 
 test('"모두 읽음" → read-all POST', async ({ authenticatedPage: page }) => {
+  // unread-count 가 1 이상이어야 버튼이 활성화됨
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
   await mockApi(page, 'GET', '/api/v1/notifications', [notif()])
   const allCapture = await mockApi(page, 'POST', '/api/v1/notifications/read-all', {}, {
     status: 204,
@@ -102,4 +104,23 @@ test('"모두 읽음" → read-all POST', async ({ authenticatedPage: page }) =>
   await page.getByTestId('inbox-trigger').click()
   await page.getByTestId('inbox-mark-all').click()
   await allCapture.waitForRequest()
+})
+
+test('알림 없을 때 "모두 읽음" 버튼이 비활성화된다 (refs #186)', async ({ authenticatedPage: page }) => {
+  // 알림 목록이 비어있을 때 버튼 disabled 검증
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [])
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+  await expect(page.getByTestId('inbox-empty')).toBeVisible()
+  await expect(page.getByTestId('inbox-mark-all')).toBeDisabled()
+})
+
+test('모두 읽음 상태일 때(unread=0, 목록 있음) "모두 읽음" 버튼이 비활성화된다 (refs #186)', async ({ authenticatedPage: page }) => {
+  // 이미 읽은 알림만 있을 때 버튼 disabled 검증
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [notif({ read: true })])
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+  await expect(page.getByTestId('inbox-mark-all')).toBeDisabled()
 })

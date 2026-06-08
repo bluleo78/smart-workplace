@@ -70,7 +70,9 @@ export function InboxPanel() {
             type="button"
             data-testid="inbox-mark-all"
             onClick={() => markAll.mutate()}
-            className="text-xs text-muted-foreground hover:text-foreground"
+            // 알림 없거나 모두 읽음 상태이거나 처리 중이면 비활성화
+            disabled={items.length === 0 || unread === 0 || markAll.isPending}
+            className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
             모두 읽음
           </button>
