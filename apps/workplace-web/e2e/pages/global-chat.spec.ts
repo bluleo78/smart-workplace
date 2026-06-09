@@ -1,11 +1,21 @@
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
-import type { HomeSessionPage } from '../../src/types/home'
+import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
+
+// global-chat.spec.ts — AI 어시스턴트 신규 모드(side/fullscreen/chip) E2E.
+// FloatingChat 모달은 제거됨. 칩(chat-launcher) 클릭 → side → fullscreen → closed 순환.
+// 기존 chat→compose→캔버스 payload 검증 케이스는 side 오픈 후 동일하게 유지.
+
+const mockChatSessions = async (page: Parameters<typeof mockApi>[0], sessions: HomeSessionPage) => {
+  await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
+}
+
+// ── 기존 케이스 (모달→side 오픈 방식으로 유지) ──────────────────────────────
 
 test('입력이 비어 있으면 보내기 버튼이 비활성(disabled)이어야 한다', async ({ authenticatedPage: page }) => {
   // 보내기 버튼의 disabled 속성이 입력 상태와 동기화되는지 검증 (이슈 #144 회귀 방지)
   await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-launcher').click() // → side 모드
   const sendBtn = page.getByRole('button', { name: '보내기' })
 
   // 1) 입력 비어 있음 → 버튼 비활성
@@ -31,7 +41,7 @@ test('이슈 페이지에서도 챗 런처가 상주한다', { tag: '@smoke' }, 
     totalPages: 0,
   })
   await page.goto('/projects')
-  // 평소엔 칩(런처)만 보이고, 클릭하면 입력 패널이 펼쳐진다.
+  // 평소엔 칩(런처)만 보이고, 클릭하면 사이드 패널이 펼쳐진다.
   await expect(page.getByTestId('chat-launcher')).toBeVisible()
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('chat-input')).toBeVisible()
@@ -65,7 +75,7 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 홈으로 이동해 캔버�
   await page.goto('/projects')
   await expect(page.getByTestId('issue-sidebar')).toBeVisible()
 
-  // 2) 전역 챗 런처를 열고 질의 제출
+  // 2) 전역 챗 런처를 열고(side 모드) 질의 제출
   await page.getByTestId('chat-launcher').click()
   await page.getByTestId('chat-input').fill('내 HIGH 이슈')
   await page.getByRole('button', { name: '보내기' }).click()
@@ -84,14 +94,10 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 홈으로 이동해 캔버�
   await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈를 정리했어요')
 })
 
-// FloatingChat 세션 삭제 확인 다이얼로그 (#193)
+// 세션 삭제 확인 다이얼로그 (#193)
 // 휴지통 클릭 시 AlertDialog 로 확인 후 삭제 — 즉시 삭제 금지.
 
-const mockChatSessions = async (page: Parameters<typeof mockApi>[0], sessions: HomeSessionPage) => {
-  await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
-}
-
-test('FloatingChat — 휴지통 클릭 시 AlertDialog 확인 다이얼로그가 표시되고, 취소 시 삭제 API 미호출', async ({
+test('사이드 패널 — 휴지통 클릭 시 AlertDialog 확인 다이얼로그가 표시되고, 취소 시 삭제 API 미호출', async ({
   authenticatedPage: page,
 }) => {
   // 세션 1개로 모킹
@@ -103,7 +109,7 @@ test('FloatingChat — 휴지통 클릭 시 AlertDialog 확인 다이얼로그�
   const del = await mockApi(page, 'DELETE', '/api/v1/home/sessions/sc1', null, { status: 204, capture: true })
 
   await page.goto('/')
-  // 전역 챗 패널 열기
+  // 전역 챗 패널 열기 (side 모드)
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('chat-panel')).toBeVisible()
 
@@ -124,7 +130,7 @@ test('FloatingChat — 휴지통 클릭 시 AlertDialog 확인 다이얼로그�
   expect(del.requests.length).toBe(0)
 })
 
-test('FloatingChat — AlertDialog 삭제 확인 클릭 시 DELETE API 호출됨 (#193)', async ({
+test('사이드 패널 — AlertDialog 삭제 확인 클릭 시 DELETE API 호출됨 (#193)', async ({
   authenticatedPage: page,
 }) => {
   await mockChatSessions(page, {
@@ -149,4 +155,161 @@ test('FloatingChat — AlertDialog 삭제 확인 클릭 시 DELETE API 호출됨
 
   // AlertDialog가 닫혀야 함
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
+})
+
+// ── 신규 모드 동작 케이스 ────────────────────────────────────────────────────
+
+test('칩 클릭이 closed→side→fullscreen→closed 로 순환한다', async ({ authenticatedPage: page }) => {
+  await page.goto('/')
+  const chip = page.getByTestId('chat-launcher')
+  // 초기: side/fullscreen 없음
+  await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
+  await expect(chip).toHaveAttribute('data-mode', 'closed')
+
+  // 1클릭 → side
+  await chip.click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  await expect(chip).toHaveAttribute('data-mode', 'side')
+
+  // 2클릭 → fullscreen
+  await chip.click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
+  await expect(chip).toHaveAttribute('data-mode', 'fullscreen')
+
+  // 3클릭 → closed
+  await chip.click()
+  await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
+  await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
+  await expect(chip).toHaveAttribute('data-mode', 'closed')
+})
+
+test('칩 치수가 fire-hub 정합값이다 (minWidth 140px, fontSize 12px, borderRadius 20px)', async ({
+  authenticatedPage: page,
+}) => {
+  // 칩 fixed 오버레이 치수 — fire-hub 정합(인라인 style 고정값).
+  await page.goto('/')
+  const chip = page.getByTestId('chat-launcher')
+  const box = await chip.evaluate((el) => {
+    const cs = getComputedStyle(el)
+    return { minWidth: cs.minWidth, fontSize: cs.fontSize, borderRadius: cs.borderRadius }
+  })
+  expect(box.minWidth).toBe('140px')
+  expect(box.fontSize).toBe('12px')
+  expect(box.borderRadius).toBe('20px')
+})
+
+test('⌘K 로 side 패널이 열리고 Esc 로 닫힌다', async ({ authenticatedPage: page }) => {
+  // ⌘K 토글: 닫혀 있으면 side 모드로 열림(lastOpen 기본값), 열려 있으면 닫힘.
+  await page.goto('/')
+  // 칩이 렌더되어 이벤트 리스너가 등록될 때까지 대기
+  await expect(page.getByTestId('chat-launcher')).toBeVisible()
+  // 초기 닫힘 상태
+  await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
+
+  // ⌘K → side 열림 (window keydown 이벤트 리스너가 칩 마운트 시 등록됨)
+  await page.keyboard.press('Meta+k')
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+
+  // Esc → 닫힘
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
+})
+
+test('사이드 패널이 본문을 밀어낸다(reflow) + 핸들 드래그 후 리사이즈 영속', async ({
+  authenticatedPage: page,
+}) => {
+  // 데스크톱 뷰포트에서 side 패널이 flex 형제로 본문을 실제로 밀어내는지 검증.
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  const main = page.locator('main')
+  const before = (await main.boundingBox())!.width
+
+  // side 모드 열기
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  const after = (await main.boundingBox())!.width
+  // 본문이 줄어들어야 함(reflow)
+  expect(after).toBeLessThan(before)
+
+  // 핸들 드래그로 폭 확대 (기본 380 → +120 = ~500)
+  // 핸들은 absolute left-0, w-1(4px) — 패널의 좌측 경계.
+  const panel = page.getByTestId('ai-side-panel')
+  const pb = (await panel.boundingBox())!
+  // 핸들 위치: 패널 좌측 경계 + 2px (핸들 폭 4px 의 중심)
+  const hx = pb.x + 2
+  const hy = pb.y + pb.height / 2
+  await page.mouse.move(hx, hy)
+  await page.mouse.down()
+  // pointermove 리스너가 window 에 등록될 시간을 줌
+  await page.waitForTimeout(50)
+  // 10 스텝으로 천천히 왼쪽으로 드래그 (패널 폭 증가 방향)
+  await page.mouse.move(hx - 120, hy, { steps: 10 })
+  await page.mouse.up()
+  // width transition 이 완료될 시간을 줌 (200ms transition-[width])
+  await page.waitForTimeout(300)
+  const widened = (await page.getByTestId('ai-side-panel').boundingBox())!.width
+  expect(widened).toBeGreaterThan(380)
+
+  // 페이지 재로드 후 폭이 localStorage 에서 복원되어야 함
+  await page.reload()
+  // 재로드 후 초기 모드는 closed — 다시 open
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  const restored = (await page.getByTestId('ai-side-panel').boundingBox())!.width
+  expect(Math.abs(restored - widened)).toBeLessThan(8)
+})
+
+test('모바일 뷰포트(<1024px)에서 side 가 풀스크린 오버레이로 렌더된다', async ({
+  authenticatedPage: page,
+}) => {
+  // 모바일 뷰포트: max-lg CSS → 고정 인라인 width 무력화 + !fixed !inset-0 !w-full.
+  await page.setViewportSize({ width: 480, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click() // side
+  const panel = page.getByTestId('ai-side-panel')
+  await expect(panel).toBeVisible()
+  const box = (await panel.boundingBox())!
+  // 화면 폭 가득(오버레이) — 440px 이상
+  expect(box.width).toBeGreaterThan(440)
+})
+
+test('풀스크린 2단: 세션 선택 시 우측 채팅 패널에 transcript 가 렌더된다', async ({
+  authenticatedPage: page,
+}) => {
+  // /home/sessions 에 1개 세션, /home/sessions/s-fs1/messages 로 메시지 2건 모킹.
+  await mockChatSessions(page, {
+    items: [{ id: 's-fs1', title: '풀스크린 테스트 대화', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 1 }],
+    nextCursor: null,
+  })
+  const messages: HomeMessage[] = [
+    { id: 1, role: 'USER', content: '풀스크린 질문', widgets: null, createdAt: '2026-06-08T00:00:00Z' },
+    {
+      id: 2,
+      role: 'ASSISTANT',
+      content: '풀스크린 응답입니다',
+      widgets: [{ type: 'issue_list', params: {}, layout: { page: 'current' } }],
+      createdAt: '2026-06-08T00:00:01Z',
+    },
+  ]
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-fs1/messages', messages)
+
+  await page.goto('/')
+  // side → fullscreen 으로 두 번 클릭
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+
+  // 좌측 세션 목록에 1건이 보여야 함
+  const fsSessions = page.getByTestId('ai-fs-sessions')
+  await expect(fsSessions).toBeVisible()
+  await expect(fsSessions.getByTestId('chat-session-item')).toHaveCount(1)
+
+  // 세션 클릭 → 우측 채팅 패널에 transcript 반영
+  await fsSessions.getByTestId('chat-session-select').first().click()
+
+  // 메시지 fetch 후 chat-turn 이 2개 렌더되어야 함
+  await expect(page.getByTestId('chat-panel').getByTestId('chat-turn')).toHaveCount(2)
+  await expect(page.getByTestId('chat-panel')).toContainText('풀스크린 질문')
+  await expect(page.getByTestId('chat-panel')).toContainText('풀스크린 응답입니다')
 })

@@ -152,20 +152,24 @@ test('텍스트 전용 응답(위젯 없음)도 패널이 닫히지 않고 대�
   await expect(page.getByTestId('chat-panel')).toContainText('안녕하세요. 무엇을 도와드릴까요?')
 })
 
-test('상단 칩 런처 — 클릭으로 패널 토글(열고 닫힘), 닫히면 칩만 남는다', async ({
+test('상단 칩 런처 — 클릭으로 모드 순환(closed→side→fullscreen→closed), 칩은 상주', async ({
   authenticatedPage: page,
 }) => {
   await mockHome(page)
   await page.goto('/')
   await expect(page.getByTestId('home-widget')).toHaveCount(3)
 
-  // 칩 클릭 → 모달 도크 펼침. 칩은 사라지지 않고 active 상태로 상주.
+  // 첫 클릭 → side. 칩은 사라지지 않고 active 상태로 상주.
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('chat-panel')).toBeVisible()
   await expect(page.getByTestId('chat-input')).toBeVisible()
   await expect(page.getByTestId('chat-launcher')).toBeVisible()
 
-  // 다시 칩 클릭 → 모달 닫힘(칩은 그대로 상주)
+  // 두 번째 클릭 → fullscreen (여전히 chat-panel 렌더)
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('chat-panel')).toBeVisible()
+
+  // 세 번째 클릭 → closed (패널 사라지고 칩만 상주)
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('chat-panel')).toHaveCount(0)
   await expect(page.getByTestId('chat-input')).toHaveCount(0)
