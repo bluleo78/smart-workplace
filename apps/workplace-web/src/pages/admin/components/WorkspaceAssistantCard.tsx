@@ -2,6 +2,8 @@
 // 워크스페이스 홈을 기본 담당하는 AGENT 를 지정하고, 활성 OAuth 토큰 유무 경고 +
 // 모델/생각의 깊이 설정을 제공한다.
 
+import { toast } from 'sonner';
+
 import {
   Card,
   CardContent,
@@ -10,6 +12,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 
+import { handleApiError } from '../../../lib/api-error';
 import { useAgents } from '../../../hooks/queries/useAgents';
 import {
   useSetWorkspaceAssistant,
@@ -32,6 +35,26 @@ export function WorkspaceAssistantCard() {
   const { data: agents } = useAgents();
   const setAssistant = useSetWorkspaceAssistant();
   const updateSettings = useUpdateWorkspaceAssistantSettings();
+
+  // 모델 변경 — 실패 시 오류 토스트(silent failure 방지), 성공 시 확인 토스트.
+  const handleModelChange = async (model: string) => {
+    try {
+      await updateSettings.mutateAsync({ model });
+      toast.success('공용 비서 설정을 변경했어요.');
+    } catch (e) {
+      handleApiError(e, '공용 비서 설정 변경에 실패했어요.');
+    }
+  };
+
+  // 생각의 깊이 변경 — 실패 시 오류 토스트, 성공 시 확인 토스트.
+  const handleDepthChange = async (thinkingDepth: ThinkingDepth) => {
+    try {
+      await updateSettings.mutateAsync({ thinkingDepth });
+      toast.success('공용 비서 설정을 변경했어요.');
+    } catch (e) {
+      handleApiError(e, '공용 비서 설정 변경에 실패했어요.');
+    }
+  };
 
   return (
     <Card data-testid="workspace-assistant-card">
@@ -88,9 +111,7 @@ export function WorkspaceAssistantCard() {
                 data-testid="workspace-assistant-model"
                 className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                 value={data.model ?? ''}
-                onChange={(e) =>
-                  updateSettings.mutate({ model: e.target.value })
-                }
+                onChange={(e) => handleModelChange(e.target.value)}
               >
                 <option value="" disabled>
                   선택…
@@ -116,9 +137,7 @@ export function WorkspaceAssistantCard() {
                 className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                 value={data.thinkingDepth ?? 'NORMAL'}
                 onChange={(e) =>
-                  updateSettings.mutate({
-                    thinkingDepth: e.target.value as ThinkingDepth,
-                  })
+                  handleDepthChange(e.target.value as ThinkingDepth)
                 }
               >
                 {DEPTHS.map((d) => (

@@ -49,6 +49,26 @@ export function PersonalAssistantSection() {
     }
   };
 
+  // 모델 변경 — 실패 시 오류 토스트(silent failure 방지), 성공 시 확인 토스트.
+  const handleModelChange = async (model: string) => {
+    try {
+      await updateSettings.mutateAsync({ model });
+      toast.success('비서 설정을 변경했어요.');
+    } catch (e) {
+      handleApiError(e, '비서 설정 변경에 실패했어요.');
+    }
+  };
+
+  // 생각의 깊이 변경 — 실패 시 오류 토스트, 성공 시 확인 토스트.
+  const handleDepthChange = async (thinkingDepth: ThinkingDepth) => {
+    try {
+      await updateSettings.mutateAsync({ thinkingDepth });
+      toast.success('비서 설정을 변경했어요.');
+    } catch (e) {
+      handleApiError(e, '비서 설정 변경에 실패했어요.');
+    }
+  };
+
   // 개인 비서 해제.
   const handleDisable = async () => {
     try {
@@ -84,7 +104,7 @@ export function PersonalAssistantSection() {
                 id="assistant-model"
                 className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={status.model ?? ''}
-                onChange={(e) => updateSettings.mutate({ model: e.target.value })}
+                onChange={(e) => handleModelChange(e.target.value)}
               >
                 {MODELS.map((m) => (
                   <option key={m} value={m}>
@@ -102,9 +122,7 @@ export function PersonalAssistantSection() {
                 id="assistant-depth"
                 className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={status.thinkingDepth ?? 'NORMAL'}
-                onChange={(e) =>
-                  updateSettings.mutate({ thinkingDepth: e.target.value as ThinkingDepth })
-                }
+                onChange={(e) => handleDepthChange(e.target.value as ThinkingDepth)}
               >
                 {DEPTHS.map((d) => (
                   <option key={d.value} value={d.value}>

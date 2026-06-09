@@ -151,4 +151,80 @@ test.describe('프로필 개인 비서', () => {
     // 성공 토스트는 표시되면 안 된다.
     await expect(page.getByText('개인 비서를 해제했어요.')).not.toBeVisible()
   })
+
+  // #198 — 모델 변경 PUT /settings 실패 시 오류 토스트가 표시되어야 한다(silent failure 방지).
+  test('모델 변경 API 실패 시 오류 토스트 표시', async ({ authenticatedPage: page }) => {
+    // GET — 설정됨 상태(모델/깊이 드롭다운 노출).
+    await page.route('**/api/v1/users/me/assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            configured: true,
+            tokenLabel: null,
+            tokenLastUsedAt: null,
+            model: 'claude-sonnet-4-6',
+            thinkingDepth: 'NORMAL',
+          }),
+        })
+      }
+      return route.fallback()
+    })
+    // PUT /settings — 500 에러 반환.
+    await page.route('**/api/v1/users/me/assistant/settings', (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: '서버 오류가 발생했습니다.' }),
+      }),
+    )
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+    // 모델 드롭다운 변경 → onChange 가 PUT /settings 호출(500).
+    await page.locator('#assistant-model').selectOption('claude-opus-4-8')
+
+    // 오류 토스트가 표시되어야 한다.
+    await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible()
+    // 성공 토스트는 표시되면 안 된다.
+    await expect(page.getByText('비서 설정을 변경했어요.')).not.toBeVisible()
+  })
+
+  // #198 — 생각의 깊이 변경 성공(204) 시 성공 토스트가 표시되어야 한다(피드백 일관성).
+  test('생각의 깊이 변경 성공 시 성공 토스트 표시', async ({ authenticatedPage: page }) => {
+    // GET — 설정됨 상태.
+    await page.route('**/api/v1/users/me/assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            configured: true,
+            tokenLabel: null,
+            tokenLastUsedAt: null,
+            model: 'claude-sonnet-4-6',
+            thinkingDepth: 'NORMAL',
+          }),
+        })
+      }
+      return route.fallback()
+    })
+    // PUT /settings — 204 성공. payload 검증.
+    let putBody: unknown = null
+    await page.route('**/api/v1/users/me/assistant/settings', (route) => {
+      putBody = route.request().postDataJSON()
+      return route.fulfill({ status: 204, body: '' })
+    })
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+    // 생각의 깊이 변경 → onChange 가 PUT /settings 호출(204).
+    await page.locator('#assistant-depth').selectOption('DEEP')
+
+    // 성공 토스트가 표시되어야 한다.
+    await expect(page.getByText('비서 설정을 변경했어요.')).toBeVisible()
+    // 보낸 payload 가 선택값과 일치해야 한다.
+    expect(putBody).toEqual({ thinkingDepth: 'DEEP' })
+  })
 })
