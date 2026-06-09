@@ -52,15 +52,21 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
   // 새 세션 — 로컬 리셋만(POST 안 함; 첫 compose 가 서버에서 세션 생성). in-flight 작업 무효화.
   const newSession = useCallback(() => {
     opSeq.current++;
+    // in-flight compose 의 mutation 상태(isPending) 초기화 — 누수된 pending 이 새 세션
+    // 입력을 잠그는 것 방지(#196). 응답 데이터는 submitQuery 의 opSeq 가드가 폐기한다.
+    compose.reset();
     setSessionId(null);
     setTurns([]);
     loadDefault(defaultSpecs);
-  }, [loadDefault, defaultSpecs]);
+  }, [loadDefault, defaultSpecs, compose]);
 
   // 복원 — 메시지 fetch → transcript 재현 + 위젯 배치 fold(AI 재호출 없음).
   const restoreSession = useCallback(
     async (id: string) => {
       const gen = ++opSeq.current;
+      // 전환 직전 in-flight compose pending 초기화 — 복원된 세션에 '구성 중…'이
+      // 잘못 붙거나 입력이 잠기는 것 방지(#196).
+      compose.reset();
       try {
         const { data } = await homeApi.sessionMessages(id);
         // fetch 중 더 최신 전이가 있었으면 폐기.
@@ -73,7 +79,7 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
         handleApiError(err, '세션을 불러오지 못했어요');
       }
     },
-    [restore, defaultSpecs],
+    [restore, defaultSpecs, compose],
   );
 
   // 삭제 — 활성 세션이면 새 세션으로 리셋.

@@ -438,3 +438,64 @@ test('삭제 — 휴지통 클릭 시 DELETE 호출 + 목록에서 제거', asyn
   await del.waitForRequest()
   await expect(page.getByTestId('session-item')).toHaveCount(0)
 })
+
+// #196 회귀 — in-flight compose 중 '새 대화' 전환 시 pending 누수로 새 세션 입력이 잠기지 않는지 검증.
+// 핵심 파이프라인: compose pending → chat-new-session 클릭 → 새 세션은 빈 상태 + 입력 활성 →
+// 새 질문 전송이 실제로 두 번째 compose 요청을 발생시킨다.
+test('in-flight compose 중 새 대화로 전환하면 새 세션 입력이 잠기지 않는다 (#196)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockHome(page)
+  await mockSessions(page)
+
+  // 첫 compose 요청을 '보류' — fulfill 하지 않고 route 를 붙잡아 pending 상태를 결정적으로 유지.
+  // (고정 setTimeout 대신 수동 release 방식으로 wall-clock 의존 flake 제거.)
+  let releaseFirstCompose = (): void => {}
+  const firstComposeHeld = new Promise<void>((resolve) => {
+    releaseFirstCompose = resolve
+  })
+  let composeCount = 0
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/compose',
+    async (route) => {
+      composeCount += 1
+      if (composeCount === 1) {
+        // 첫 요청: 응답을 보류해 in-flight(구성 중…) 창을 유지.
+        await firstComposeHeld
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ sessionId: `s${composeCount}`, message: '응답', widgets: [] }),
+      })
+    },
+  )
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('chat-panel')).toBeVisible()
+
+  // 1) 첫 질문 전송 → pending(구성 중…) 표시, 보내기 비활성.
+  await page.getByTestId('chat-input').fill('첫 질문')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(page.getByTestId('chat-pending')).toBeVisible()
+  await expect(page.getByRole('button', { name: '보내기' })).toBeDisabled()
+
+  // 2) 응답이 오기 전에 '새 대화' 클릭 → 새 빈 세션(turns 0)으로 리셋.
+  await page.getByTestId('chat-new-session').click()
+  await expect(page.getByTestId('chat-turn')).toHaveCount(0)
+  // 누수 pending 이 제거되어 '구성 중…'도 사라져야 한다.
+  await expect(page.getByTestId('chat-pending')).toHaveCount(0)
+
+  // 3) 핵심 회귀: 새 세션에 텍스트 입력 시 보내기 버튼이 활성화되어야 한다(이전엔 disabled 로 잠김).
+  await page.getByTestId('chat-input').fill('다른 질문')
+  await expect(page.getByRole('button', { name: '보내기' })).toBeEnabled()
+
+  // 4) 새 질문 전송이 실제로 두 번째 compose 요청을 발생시킨다(입력→처리 파이프라인 검증).
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect.poll(() => composeCount).toBe(2)
+  await expect(page.getByTestId('chat-turn')).toContainText('다른 질문')
+
+  // 보류했던 첫 compose 를 풀어 라우트 핸들러가 매달리지 않게 정리.
+  releaseFirstCompose()
+})
