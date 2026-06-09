@@ -274,6 +274,60 @@ test('모바일 뷰포트(<1024px)에서 side 가 풀스크린 오버레이로 �
   expect(box.width).toBeGreaterThan(440)
 })
 
+test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스위처를 가리거나 클릭을 가로채지 않는다 (#195)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀(#195): 칩이 뷰포트 중앙 고정이라, 패널을 ~502px 이상으로 넓히면 칩 우측이
+  // 헤더의 대화 선택 스위처(chat-session-switcher) 좌측을 덮어 클릭을 가로챘다.
+  // 수정: side 모드에서 칩을 콘텐츠 영역(뷰포트−패널폭) 중앙으로 정렬 → 패널과 항상 비겹침.
+  await page.setViewportSize({ width: 1200, height: 800 })
+  await page.goto('/')
+
+  // side 모드 열기
+  await page.getByTestId('chat-launcher').click()
+  const panel = page.getByTestId('ai-side-panel')
+  await expect(panel).toBeVisible()
+
+  // 핸들을 왼쪽 끝까지 드래그하여 패널을 상한 폭(600)까지 확대 → 칩과 충돌 영역에 진입.
+  const pb = (await panel.boundingBox())!
+  const hx = pb.x + 2
+  const hy = pb.y + pb.height / 2
+  await page.mouse.move(hx, hy)
+  await page.mouse.down()
+  await page.waitForTimeout(50)
+  // 충분히 큰 거리(중심을 향해)로 끌어 상한(600)까지 클램프되게 한다.
+  await page.mouse.move(hx - 400, hy, { steps: 12 })
+  await page.mouse.up()
+  // width transition(200ms) + 칩 left transition 완료 대기
+  await page.waitForTimeout(300)
+
+  const widened = (await panel.boundingBox())!.width
+  expect(widened).toBeGreaterThanOrEqual(560) // 거의 상한까지 넓어졌는지
+
+  // 대화 선택 스위처가 헤더에 존재해야(빈 상태에서도 "대화 선택" 버튼 렌더)
+  const switcher = page.getByTestId('chat-session-switcher')
+  await expect(switcher).toBeVisible()
+
+  // 핵심 검증 1(기하): 칩 우측 끝이 스위처 좌측 끝보다 왼쪽(또는 같음) → 시각적 겹침 없음.
+  const chipBox = (await page.getByTestId('chat-launcher').boundingBox())!
+  const swBox = (await switcher.boundingBox())!
+  expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(swBox.x)
+
+  // 핵심 검증 2(히트테스트): 스위처 좌측 지점의 최상단 요소가 칩이 아니어야 클릭이 안 가로채진다.
+  const hitTestid = await page.evaluate(
+    ({ x, y }) => {
+      const el = document.elementFromPoint(x, y) as HTMLElement | null
+      return el?.getAttribute('data-testid') ?? el?.closest('[data-testid]')?.getAttribute('data-testid') ?? null
+    },
+    { x: swBox.x + 4, y: swBox.y + swBox.height / 2 },
+  )
+  expect(hitTestid).not.toBe('chat-launcher')
+
+  // 핵심 검증 3(동작): 스위처 좌측을 클릭해도 칩의 모드 순환(side→fullscreen)이 트리거되지 않는다.
+  await page.mouse.click(swBox.x + 4, swBox.y + swBox.height / 2)
+  await expect(page.getByTestId('chat-launcher')).toHaveAttribute('data-mode', 'side')
+})
+
 test('풀스크린 2단: 세션 선택 시 우측 채팅 패널에 transcript 가 렌더된다', async ({
   authenticatedPage: page,
 }) => {
