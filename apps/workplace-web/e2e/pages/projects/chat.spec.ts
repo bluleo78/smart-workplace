@@ -255,6 +255,52 @@ test.describe('이슈 chat panel', () => {
     await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['안녕']);
   });
 
+  // 회귀(#197 재발) — 메시지 전송 직후 입력창이 자동으로 비워진 상태에서 보내기 버튼이
+  // 다시 비활성(disabled)이어야 한다. 과거 버그: RichInput 의 clearContent() 가 emitUpdate=false(기본)라
+  // onUpdate 미발생 → isEmpty 가 직전 false 에 stale 고정 → 전송 후 빈 입력인데도 버튼이 활성으로 남고
+  // 클릭 시 trim 가드로 silent no-op(POST 미발생). clearContent(true) 로 update 강제 → isEmpty 동기화로 수정.
+  test('전송 직후 입력 자동 비움 → 보내기 버튼 다시 비활성 (post-send stale 회귀)', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'post-send empty guard' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const input = page.getByTestId('chat-composer-input');
+    const submit = page.getByTestId('chat-composer-submit');
+    await expect(input).toBeVisible();
+
+    // 1) 텍스트 입력 → 전송.
+    await input.click();
+    await page.keyboard.type('첫 메시지');
+    await expect(submit).toBeEnabled();
+    await submit.click();
+
+    // 2) 서버 확정(POST 201) — clearOnSubmit 이 성공 resolve 후 입력창을 비운다.
+    await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['첫 메시지']);
+    await expect(input).toHaveText('');
+
+    // 3) 핵심 검증: 전송 직후 빈 입력 상태에서 보내기 버튼이 다시 비활성이어야 한다.
+    //    (stale isEmpty=false 면 여기서 enabled 로 남아 fail → 회귀 포착)
+    await expect(submit).toBeDisabled();
+
+    // 4) 비활성 버튼 클릭해도 POST 가 추가로 발생하지 않는다(silent no-op 자체가 차단됨).
+    await submit.click({ force: true }).catch(() => {});
+    await expect.poll(() => stubs.createPayloads.length).toBe(1);
+
+    // 5) 다시 텍스트 입력 → 버튼 재활성화(전송 후에도 정상 토글 동작 유지).
+    await input.click();
+    await page.keyboard.type('두 번째');
+    await expect(submit).toBeEnabled();
+  });
+
   test('@mention — 멤버 선택 → 칩 → <@id> 전송 + 이름 칩 렌더', async ({
     authenticatedPage: page,
   }) => {

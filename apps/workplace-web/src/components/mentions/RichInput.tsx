@@ -248,7 +248,12 @@ export function RichInput({
         () => {
           // 비동기 resolve 시점에 언마운트됐을 수 있으므로 editor 파괴 여부를 확인.
           if (editor.isDestroyed) return;
-          editor.commands.clearContent();
+          // clearContent(emitUpdate=true) — TipTap 2.27.2 의 clearContent 기본값(false)은
+          // onUpdate 를 발생시키지 않아, 전송 직후 isEmpty/charCount 가 stale(false/직전값)로 남는다.
+          // 그 결과 disableWhenEmpty 컴포저(이슈 챗 ChatComposer 등)에서 전송 후 빈 입력인데도
+          // 보내기 버튼이 활성으로 남아 클릭 시 silent no-op 이 되는 회귀(#197)가 발생.
+          // true 를 전달해 update 를 강제 → onUpdate(line 126)가 isEmpty=true / charCount=0 을 동기화.
+          editor.commands.clearContent(true);
           editor.commands.focus();
         },
         () => {
