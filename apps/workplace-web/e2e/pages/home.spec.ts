@@ -421,6 +421,42 @@ test('활동 위젯 — CUSTOM_FIELD_CHANGED·DEPENDENCY_ADDED 등 신규 이벤
   await expect(activityList).not.toContainText('PARENT_CHANGED')
 })
 
+test('활동 위젯 — legacy ASSIGNEE_CHANGED(단수) 가 raw enum 대신 한국어 레이블로 표시된다 (#200)', async ({
+  authenticatedPage: page,
+}) => {
+  // legacy 단일 assignee 시절 이벤트(ASSIGNEE_CHANGED, 단수)만 포함한 활동 목록 모킹.
+  // ASSIGNEES_CHANGED(복수)와 라벨이 같으므로, raw enum 미노출 검증이 fix 의 판별 기준이다.
+  const activityWithLegacyAssignee: ActivityPage = {
+    items: [
+      {
+        id: 1,
+        issueId: 1,
+        projectKey: 'WP',
+        issueNumber: 7,
+        issueTitle: '레거시 담당자 이슈',
+        actorId: 2,
+        actorName: '양동희',
+        actorKind: 'HUMAN',
+        eventType: 'ASSIGNEE_CHANGED',
+        createdAt: '2026-06-09T01:00:00Z',
+      },
+    ],
+    nextCursor: null,
+  }
+  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/activity', activityWithLegacyAssignee)
+  await page.goto('/')
+
+  const activityList = page.getByTestId('activity-items')
+  await expect(activityList).toBeVisible()
+
+  // 한국어 레이블이 표시되고, raw enum 문자열은 노출되지 않아야 한다.
+  await expect(activityList).toContainText('담당자 변경')
+  // 판별 어서션: 'ASSIGNEE_CHANGED'(EE_)는 'ASSIGNEES_CHANGED'(EES_)의 부분문자열이 아니므로 false-trip 없음.
+  await expect(activityList).not.toContainText('ASSIGNEE_CHANGED')
+})
+
 test('삭제 — 휴지통 클릭 시 DELETE 호출 + 목록에서 제거', async ({ authenticatedPage: page }) => {
   await mockHome(page)
   await mockSessions(page, {
