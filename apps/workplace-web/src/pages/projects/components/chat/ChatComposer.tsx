@@ -20,6 +20,7 @@ export function ChatComposer({ members, onSubmit, onTyping }: ChatComposerProps)
         onSubmit={onSubmit}
         onChange={onTyping}
         clearOnSubmit
+        disableWhenEmpty
         submitLabel="보내기"
         inputTestId="chat-composer-input"
         submitTestId="chat-composer-submit"

@@ -211,6 +211,50 @@ test.describe('이슈 chat panel', () => {
     },
   );
 
+  // 회귀(#197) — 빈/공백 입력에서 '보내기' 버튼이 비활성(disableWhenEmpty)이어야 한다.
+  // 과거 버그: prop 미전달로 버튼이 항상 활성 → 클릭해도 trim 가드로 silent no-op(POST 미발생).
+  // 팀채팅 컴포저(MessageComposer)와 동일 동작으로 정합.
+  test('빈/공백 입력 시 보내기 버튼 비활성 → 텍스트 입력 시 활성화 (POST 미발생 보장)', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'empty guard' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const input = page.getByTestId('chat-composer-input');
+    const submit = page.getByTestId('chat-composer-submit');
+    await expect(input).toBeVisible();
+
+    // 1) 초기 빈 상태 → 버튼 비활성.
+    await expect(submit).toBeDisabled();
+
+    // 2) 공백만 입력 → 여전히 비활성 (isEmpty 가 trim 기준).
+    await input.click();
+    await page.keyboard.type('   ');
+    await expect(submit).toBeDisabled();
+
+    // 3) 비활성 버튼 클릭 시도 → POST 미발생(silent no-op 자체가 발생할 여지가 없음).
+    await submit.click({ force: true }).catch(() => {});
+    await expect.poll(() => stubs.createPayloads.length).toBe(0);
+
+    // 4) 실제 텍스트 입력 → 버튼 활성화. (force-click 으로 잃은 포커스를 다시 잡고 입력)
+    await input.click();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.type('안녕');
+    await expect(submit).toBeEnabled();
+
+    // 5) 전송 → POST 1건 발생(공백 trim 후 본문만).
+    await submit.click();
+    await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['안녕']);
+  });
+
   test('@mention — 멤버 선택 → 칩 → <@id> 전송 + 이름 칩 렌더', async ({
     authenticatedPage: page,
   }) => {
