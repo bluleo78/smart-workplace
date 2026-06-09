@@ -102,7 +102,14 @@ export function IssueCard({
           ) : (
             <>
               {issue.assignees.slice(0, 3).map((u) => (
-                <UserAvatar key={u.id} user={u} size="xs" ring />
+                // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분 (#199).
+                <UserAvatar
+                  key={u.id}
+                  user={u}
+                  size="xs"
+                  ring
+                  agent={u.kind === 'AGENT'}
+                />
               ))}
               {issue.assignees.length > 3 && (
                 <span className="text-[10px] text-muted-foreground ml-1">

@@ -237,6 +237,53 @@ test.describe('태스크 보드/검색', () => {
     ).toHaveCount(0);
   });
 
+  test('보드 카드 — AGENT 담당자는 AI 마커로 사람과 시각/접근성 구분 (#199)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+
+    // 같은 카드에 AGENT + HUMAN 담당자를 나란히 둬서 "구분 가능"을 검증한다.
+    // (마커 존재만 보면 누구에게나 마커가 새는 회귀를 못 잡으므로 둘을 대조)
+    const issues = [
+      createIssue({
+        id: 1,
+        number: 1,
+        title: 'AI 위임 이슈',
+        status: 'TODO',
+        assignees: [
+          { id: 10, username: 'my-ai', name: 'My AI', kind: 'AGENT' },
+          { id: 11, username: 'ydh', name: '양동희', kind: 'HUMAN' },
+        ],
+      }),
+    ];
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(issues)),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+    const card = page.getByTestId('board-col-TODO').getByTestId('issue-card-1');
+    await expect(card).toBeVisible();
+
+    // AGENT 아바타: Bot 마커가 붙고 accessible name 에 이름 + (AGENT) 가 모두 포함.
+    const agentAvatar = card.getByTestId('user-avatar-10');
+    await expect(agentAvatar).toBeVisible();
+    await expect(card.getByTestId('user-avatar-10-agent-marker')).toBeVisible();
+    await expect(agentAvatar).toHaveAttribute('aria-label', 'My AI (AGENT)');
+    await expect(agentAvatar).toHaveAttribute('data-agent', 'true');
+
+    // HUMAN 아바타: 마커 없음 + accessible name 은 순수 이름 (AGENT 표기 누수 없음).
+    const humanAvatar = card.getByTestId('user-avatar-11');
+    await expect(humanAvatar).toBeVisible();
+    await expect(card.getByTestId('user-avatar-11-agent-marker')).toHaveCount(0);
+    await expect(humanAvatar).toHaveAttribute('aria-label', '양동희');
+    await expect(humanAvatar).not.toHaveAttribute('data-agent');
+  });
+
   test('리스트 무한 스크롤 — 두번째 페이지가 cursor 로 자동 로드', async ({
     authenticatedPage: page,
   }) => {
