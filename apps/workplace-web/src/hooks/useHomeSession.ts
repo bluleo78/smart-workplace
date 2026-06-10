@@ -18,6 +18,10 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
   const del = useDeleteSession();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
+  // '새 대화' 전이 신호(nonce) — newSession() 호출마다 증가. 패널 로컬 입력(미전송 초안)을
+  // effect 로 비우기 위한 트리거. 신선한(아직 compose 안 한) 세션에서 sessionId/turns 는
+  // 이미 빈 값이라 prop 변화가 패널에 보이지 않으므로, 명시적 카운터로 전이를 전달한다(#204).
+  const [newSessionNonce, setNewSessionNonce] = useState(0);
   // 작업 세대 카운터 — 사용자 전이(compose/새세션/복원)마다 증가. 비동기 결과는
   // 자신이 캡처한 세대가 여전히 최신일 때만 반영(in-flight compose 와 세션 전환의 레이스로
   // stale 응답이 복원/리셋 상태를 덮어쓰는 것 방지).
@@ -57,6 +61,9 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
     compose.reset();
     setSessionId(null);
     setTurns([]);
+    // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력 초기화 신호 발행(#204).
+    // restoreSession(세션 선택)/submit 에서는 발행하지 않아 세션별 초안 보존(by-design)을 깨지 않는다.
+    setNewSessionNonce((n) => n + 1);
     loadDefault(defaultSpecs);
   }, [loadDefault, defaultSpecs, compose]);
 
@@ -100,6 +107,7 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
     setActive: canvas.setActive,
     sessionId,
     turns,
+    newSessionNonce,
     pending: compose.isPending,
     submitQuery,
     newSession,

@@ -535,3 +535,51 @@ test('in-flight compose 중 새 대화로 전환하면 새 세션 입력이 잠�
   // 보류했던 첫 compose 를 풀어 라우트 핸들러가 매달리지 않게 정리.
   releaseFirstCompose()
 })
+
+// #204 회귀 — '새 대화' 클릭 시 입력창의 미전송 텍스트(초안)가 초기화되어야 한다.
+// 핵심 파이프라인: 신선한(compose 안 한) 세션에서 입력 → '새 대화' → 입력창이 빈 값.
+// side(헤더 스위처 버튼)·fullscreen(좌측 목록 버튼) 양쪽 '새 대화' 버튼 위치가 다르므로 둘 다 검증.
+test("'새 대화' 클릭 시 입력창의 미전송 텍스트가 비워진다 — side (#204)", async ({
+  authenticatedPage: page,
+}) => {
+  await mockHome(page)
+  await mockSessions(page)
+  await page.goto('/')
+
+  // 첫 클릭 → side 패널. 헤더 스위처의 '새 대화' 버튼이 렌더된다.
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('chat-input')).toBeVisible()
+
+  // 1) 미전송 텍스트 입력(전송하지 않음).
+  await page.getByTestId('chat-input').fill('이 텍스트는 새대화 후 사라져야 함')
+  await expect(page.getByTestId('chat-input')).toHaveValue('이 텍스트는 새대화 후 사라져야 함')
+
+  // 2) '새 대화' 클릭 → 입력창이 빈 값으로 초기화되어야 한다(이전엔 초안이 잔존).
+  await page.getByTestId('chat-new-session').click()
+  await expect(page.getByTestId('chat-input')).toHaveValue('')
+  // 대화 이력도 빈 상태 유지(회귀 가드).
+  await expect(page.getByTestId('chat-turn')).toHaveCount(0)
+})
+
+test("'새 대화' 클릭 시 입력창의 미전송 텍스트가 비워진다 — fullscreen (#204)", async ({
+  authenticatedPage: page,
+}) => {
+  await mockHome(page)
+  await mockSessions(page)
+  await page.goto('/')
+
+  // 두 번 클릭 → fullscreen. '새 대화' 버튼은 좌측 세션 목록 헤더에 있다(패널 헤더 스위처 off).
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('chat-input')).toBeVisible()
+
+  // 1) 미전송 텍스트 입력.
+  await page.getByTestId('chat-input').fill('풀스크린 미전송 초안')
+  await expect(page.getByTestId('chat-input')).toHaveValue('풀스크린 미전송 초안')
+
+  // 2) 좌측 목록 '새 대화' 클릭 → 입력창 초기화.
+  await page.getByTestId('chat-new-session').click()
+  await expect(page.getByTestId('chat-input')).toHaveValue('')
+  await expect(page.getByTestId('chat-turn')).toHaveCount(0)
+})

@@ -12,6 +12,8 @@ export interface AssistantChat {
   pending: boolean;
   sessions: HomeSessionSummary[];
   currentSessionId: string | null;
+  /** '새 대화' 전이 신호(nonce) — 증가 시 패널이 미전송 입력 초안을 비운다(#204). */
+  newSessionNonce: number;
   onSubmit: (query: string) => void;
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
@@ -34,6 +36,7 @@ export function useAssistantChat(): AssistantChat {
     pending: session.pending,
     sessions: sessions.data?.items ?? [],
     currentSessionId: session.sessionId,
+    newSessionNonce: session.newSessionNonce,
     onSubmit: (query: string) => {
       goHome();
       session.submitQuery(query);

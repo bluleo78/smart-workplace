@@ -30,6 +30,7 @@ export function AIChatPanel({
   onSubmit,
   sessions,
   currentSessionId,
+  newSessionNonce,
   onNewSession,
   onSelectSession,
   onDeleteSession,
@@ -44,6 +45,14 @@ export function AIChatPanel({
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
   }, [autoFocus]);
+
+  // '새 대화' 전이 시 미전송 입력 초안을 비운다(#204). side·fullscreen 의 '새 대화' 버튼은
+  // 서로 다른 위치(헤더 스위처 / 풀스크린 좌측 목록)에 있지만, 둘 다 onNewSession 을 거쳐
+  // newSessionNonce 를 증가시키므로 이 패널 공통 effect 하나로 양쪽이 함께 초기화된다.
+  // nonce 는 newSession() 에서만 증가하므로 세션 선택(restore)·전송(submit) 시엔 초안이 보존된다.
+  useEffect(() => {
+    if (newSessionNonce > 0) setInput('');
+  }, [newSessionNonce]);
 
   const submit = () => {
     const query = input.trim();
