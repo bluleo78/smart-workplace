@@ -326,7 +326,12 @@ test.describe('이슈 chat panel', () => {
     await page.getByTestId('chat-composer-submit').click();
 
     await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['hi <@99>']);
-    await expect(page.getByTestId('chat-mention-chip-99')).toHaveText('@AI Agent');
+    const agentChip = page.getByTestId('chat-mention-chip-99');
+    await expect(agentChip).toHaveText('@AI Agent');
+    // #208: AGENT 멘션칩은 ai-accent 토큰(raw purple 회귀 방지).
+    await expect(agentChip).toHaveClass(/bg-ai-accent-subtle/);
+    await expect(agentChip).toHaveClass(/text-ai-accent/);
+    await expect(agentChip).not.toHaveClass(/purple/);
   });
 
   // 회귀 — 인라인 편집기의 멘션 팝업이 열린 상태에서 composer 로 포커스 이동 후 Enter.
@@ -410,6 +415,19 @@ test.describe('이슈 chat panel', () => {
     await expect(row).toBeVisible();
     await expect(row).toHaveAttribute('data-agent', 'true');
     await expect(row.getByTestId('agent-badge')).toBeVisible();
+
+    // #208: AGENT 표식 색이 ai-accent 토큰으로 통일됐는지 검증(raw purple 팔레트 회귀 방지).
+    // 클래스 단언(getComputedStyle 의 oklch/rgb 표기는 브라우저별로 갈려 brittle).
+    // 좌측 보더는 ai-accent, raw purple-400 잔존 없음.
+    await expect(row).toHaveClass(/border-ai-accent/);
+    await expect(row).not.toHaveClass(/border-purple/);
+    // Bot 아이콘 text 색도 ai-accent.
+    const botIcon = row.locator('svg.lucide-bot').first();
+    await expect(botIcon).toHaveClass(/text-ai-accent/);
+    // AgentBadge 배경/텍스트도 ai-accent-subtle / ai-accent.
+    const badge = row.getByTestId('agent-badge');
+    await expect(badge).toHaveClass(/bg-ai-accent-subtle/);
+    await expect(badge).toHaveClass(/text-ai-accent/);
   });
 
   test('본인 메시지 수정 + 삭제', async ({ authenticatedPage: page }) => {

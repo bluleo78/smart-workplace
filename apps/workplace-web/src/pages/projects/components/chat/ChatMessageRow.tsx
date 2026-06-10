@@ -45,12 +45,12 @@ export function ChatMessageRow({
       data-agent={isAgent ? 'true' : undefined}
       data-pending={isPending ? 'true' : undefined}
       className={`group relative flex gap-2 px-3 py-2 ${
-        isAgent ? 'border-l-2 border-purple-400' : ''
+        isAgent ? 'border-l-2 border-ai-accent' : ''
       } ${isPending ? 'opacity-60' : ''}`}
     >
       <div className="flex-shrink-0 mt-0.5">
         {isAgent ? (
-          <Bot className="h-5 w-5 text-purple-600" aria-hidden />
+          <Bot className="h-5 w-5 text-ai-accent" aria-hidden />
         ) : (
           <User className="h-5 w-5 text-muted-foreground" aria-hidden />
         )}
@@ -84,10 +84,13 @@ export function ChatMessageRow({
                   <span
                     key={i}
                     data-testid={`chat-mention-chip-${seg.id}`}
+                    // #208: AGENT 멘션칩은 ai-accent 토큰으로 통일(배지/아바타와 동일 색).
+                    // 사람(HUMAN) 칩은 raw blue 팔레트(DS 위반) 대신 중립 시맨틱 토큰으로
+                    // 정리해 AGENT 칩과 시각 구분을 유지하면서 다크모드도 자동 대응.
                     className={`rounded px-1 font-medium ${
                       seg.kind === 'AGENT'
-                        ? 'bg-purple-100 text-purple-700'
-                        : 'bg-blue-100 text-blue-700'
+                        ? 'bg-ai-accent-subtle text-ai-accent'
+                        : 'bg-muted text-foreground'
                     }`}
                   >
                     @{seg.name}

@@ -59,10 +59,11 @@ export function UserAvatar({
   const initial = seed.charAt(0).toUpperCase();
   // AGENT 면 aria-label/title 에 AGENT 표기를 덧붙여 사람 담당자와 구분되게 한다.
   const label = agent ? `${user.name} (AGENT)` : user.name;
-  // 겹침(-space-x-1) 상황에서도 보이도록 ring 은 보라색으로, 마커는 겹침의 윗면인
+  // 겹침(-space-x-1) 상황에서도 보이도록 ring 은 AI 강조색으로, 마커는 겹침의 윗면인
   // 우하단 모서리에 배치한다. ring 두께는 AGENT 강조를 위해 사람보다 한 단계 두껍게.
+  // #208: raw purple → 시맨틱 토큰 ai-accent(라이트/다크 자동). AGENT 표식 색 통일.
   const ringClass = agent
-    ? 'ring-2 ring-purple-500 dark:ring-purple-400'
+    ? 'ring-2 ring-ai-accent'
     : ring
       ? 'ring-2 ring-background'
       : '';
@@ -77,8 +78,8 @@ export function UserAvatar({
       {initial}
       {agent && (
         <span
-          // 우하단 모서리 Bot 마커 — AgentBadge 와 동일한 보라색 톤으로 일관성 유지.
-          className="absolute -bottom-0.5 -right-0.5 inline-flex items-center justify-center rounded-full bg-purple-600 text-white ring-1 ring-background dark:bg-purple-500"
+          // 우하단 모서리 Bot 마커 — AgentBadge 와 동일한 ai-accent 토큰으로 색 일관성 유지(#208).
+          className="absolute -bottom-0.5 -right-0.5 inline-flex items-center justify-center rounded-full bg-ai-accent text-ai-accent-foreground ring-1 ring-background"
           data-testid={`user-avatar-${user.id}-agent-marker`}
           aria-hidden="true"
         >
