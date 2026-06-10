@@ -87,18 +87,27 @@ export function AIFullscreen() {
         </div>
       </div>
 
-      {/* 우: 채팅 본문(헤더 스위처 off — 좌측 목록이 대신). 우상단 닫기. */}
-      <div className="relative min-w-0 flex-1">
-        <button
-          type="button"
-          aria-label="닫기"
-          data-testid="ai-fs-close"
-          onClick={close}
-          className="absolute right-2 top-2 z-10 rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
-        <AIChatPanel {...chat} showSessionSwitcher={false} autoFocus />
+      {/* 우: 채팅 본문(헤더 스위처 off — 좌측 목록이 대신). */}
+      {/* #206 occlusion 방지: 우측 pane 상단에 좌측 세션목록 헤더(h-12)와 정합하는 헤더 바를 둔다.
+          기존엔 닫기 X 가 absolute 라 헤더 여백이 없어, 첫 chat-turn 이 상단 고정 AI 칩과
+          우상단 닫기 X 에 가려졌다. 헤더 바로 여백을 확보하고 닫기 버튼을 일반 배치로 옮긴다. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* 상단 바 — 좌측 세션목록 헤더(h-12 border-b)와 높이/구분선 정합. 닫기 버튼을 우측 정렬. */}
+        <div className="flex h-12 shrink-0 items-center justify-end border-b px-3">
+          <button
+            type="button"
+            aria-label="닫기"
+            data-testid="ai-fs-close"
+            onClick={close}
+            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {/* 헤더 아래 영역에 채팅 패널 배치 — 첫 turn 이 헤더 영역 아래로 내려가 occlusion 해소. */}
+        <div className="min-h-0 flex-1">
+          <AIChatPanel {...chat} showSessionSwitcher={false} autoFocus />
+        </div>
       </div>
     </div>
   );

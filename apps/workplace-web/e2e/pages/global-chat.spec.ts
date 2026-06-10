@@ -368,6 +368,51 @@ test('풀스크린 2단: 세션 선택 시 우측 채팅 패널에 transcript �
   await expect(page.getByTestId('chat-panel')).toContainText('풀스크린 응답입니다')
 })
 
+test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·닫기 X 에 가려지지 않는다 (#206)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀(#206): 풀스크린 우측 채팅 pane 에 상단 헤더가 없어, 첫 USER turn(우상단 정렬)이
+  // 상단 고정 AI 칩(chat-launcher)과 우상단 닫기 X(ai-fs-close)에 가려졌다(occlusion).
+  // 수정: 우측 pane 상단에 h-12 헤더 바를 추가하고 닫기 X 를 그 안 일반 배치로 옮겨 여백 확보.
+  // 검증: 첫 chat-turn 의 top 이 칩의 bottom 이상이고, 닫기 X rect 와 겹치지 않는다.
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  // 홈에서 compose 응답을 모킹 — 제출 시 turn 이 렌더되도록.
+  await mockApi(page, 'POST', '/api/v1/home/compose', {
+    sessionId: 's-206',
+    message: '정리했어요',
+    widgets: [{ type: 'issue_list', params: {}, layout: { page: 'current' } }],
+  })
+
+  await page.goto('/')
+  // side → fullscreen
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+
+  // 메시지 1개 전송
+  await page.getByTestId('chat-input').fill('내 이슈 정리')
+  await page.getByRole('button', { name: '보내기' }).click()
+
+  // 제출 후에도 풀스크린 pane 유지(모드 전환/라우팅으로 측정 대상이 사라지지 않음)
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+
+  // 첫 chat-turn(USER, 우상단 정렬) 이 렌더될 때까지 대기
+  const firstTurn = page.getByTestId('chat-panel').getByTestId('chat-turn').first()
+  await expect(firstTurn).toBeVisible()
+
+  const turnBox = (await firstTurn.boundingBox())!
+  const chipBox = (await page.getByTestId('chat-launcher').boundingBox())!
+  const closeBox = (await page.getByTestId('ai-fs-close').boundingBox())!
+
+  // 1) 첫 turn 의 top 이 칩 bottom 이상 → 칩과 수직 비겹침(칩에 가려지지 않음)
+  expect(turnBox.y).toBeGreaterThanOrEqual(chipBox.y + chipBox.height)
+
+  // 2) 첫 turn 이 닫기 X rect 와 겹치지 않음(헤더 영역 아래로 내려감).
+  //    사각형 비겹침: turn.top 이 close.bottom 이상이면 수직으로 분리됨.
+  expect(turnBox.y).toBeGreaterThanOrEqual(closeBox.y + closeBox.height)
+})
+
 test('긴 무공백 메시지가 말풍선 안에서 줄바꿈되어 메시지 패널에 가로 오버플로가 없다 (#202)', async ({
   authenticatedPage: page,
 }) => {
