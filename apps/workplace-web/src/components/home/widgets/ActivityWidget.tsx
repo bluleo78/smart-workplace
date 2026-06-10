@@ -1,3 +1,4 @@
+import { Activity } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
@@ -65,9 +66,18 @@ export default function ActivityWidget({ params }: { params?: Record<string, unk
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-muted-foreground" data-testid="activity-empty">
-          최근 활동이 없어요.
-        </p>
+        // 빈 상태 — 아이콘+제목+설명 구조로 맥락 제공(DS §2.5). IssueListWidget 빈 상태와 시각 정합.
+        // 명확한 단일 액션이 없어 CTA 는 생략(3요소).
+        <div
+          className="flex flex-col items-center gap-2 px-4 py-8 text-center"
+          data-testid="activity-empty"
+        >
+          <Activity className="h-8 w-8 text-muted-foreground" />
+          <p className="text-sm font-semibold">최근 활동이 없어요</p>
+          <p className="max-w-xs text-xs text-muted-foreground">
+            이슈가 생성·변경되면 여기에 표시됩니다.
+          </p>
+        </div>
       )}
     </WidgetFrame>
   );

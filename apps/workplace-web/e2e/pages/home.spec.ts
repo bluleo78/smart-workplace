@@ -77,6 +77,24 @@ test('이슈 위젯 — 이슈 없을 때 개선된 empty state(아이콘·제�
   await expect(emptyState.locator('svg')).toBeVisible()
 })
 
+test('활동 위젯 — 활동 없을 때 DS §2.5 빈 상태(아이콘·제목·설명)가 렌더된다 (#209)', async ({
+  authenticatedPage: page,
+}) => {
+  // 이슈/워치는 비우고, activity 만 빈 배열(200)로 응답 — 에러 아닌 진짜 빈 상태로 유도.
+  const emptyIssues: IssueSearchResponse = createIssueSearchResponse([])
+  await mockApi(page, 'GET', '/api/v1/me/issues', emptyIssues)
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', emptyIssues)
+  await mockApi(page, 'GET', '/api/v1/me/activity', { items: [] })
+  await page.goto('/')
+
+  const empty = page.getByTestId('activity-empty')
+  await expect(empty).toBeVisible()
+  // [아이콘(svg)+제목+설명] 3요소 — IssueListWidget 빈 상태와 시각 정합.
+  await expect(empty.locator('svg')).toBeVisible()
+  await expect(empty).toContainText('최근 활동이 없어요')
+  await expect(empty).toContainText('이슈가 생성·변경되면 여기에 표시됩니다.')
+})
+
 // #205 — 홈 위젯이 데이터 fetch 실패(500) 시 거짓 '빈 상태' 대신 에러+재시도 UI 를 표시해야 한다.
 // 핵심 어서션: 500 주입 시 (a) 위젯별 에러 상태 노출 AND (b) 정상 빈 상태(activity-empty/issuelist-empty)는 NOT 노출.
 // → 에러가 거짓 '빈 상태'로 둔갑하지 않음을 양방향으로 검증.
