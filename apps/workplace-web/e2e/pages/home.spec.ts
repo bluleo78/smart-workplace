@@ -77,6 +77,78 @@ test('이슈 위젯 — 이슈 없을 때 개선된 empty state(아이콘·제�
   await expect(emptyState.locator('svg')).toBeVisible()
 })
 
+// #205 — 홈 위젯이 데이터 fetch 실패(500) 시 거짓 '빈 상태' 대신 에러+재시도 UI 를 표시해야 한다.
+// 핵심 어서션: 500 주입 시 (a) 위젯별 에러 상태 노출 AND (b) 정상 빈 상태(activity-empty/issuelist-empty)는 NOT 노출.
+// → 에러가 거짓 '빈 상태'로 둔갑하지 않음을 양방향으로 검증.
+
+test('홈 위젯 — /me/activity 500 시 ActivityWidget 이 빈 상태 대신 에러+재시도를 표시한다 (#205)', async ({
+  authenticatedPage: page,
+}) => {
+  // 이슈/워치는 정상, activity 만 500.
+  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/activity', { message: 'server error' }, { status: 500 })
+  await page.goto('/')
+
+  // (a) 에러 상태 노출 + 재시도 버튼
+  const err = page.getByTestId('activity-error')
+  await expect(err).toBeVisible()
+  await expect(err).toContainText('불러오지 못했어요')
+  await expect(err.getByRole('button', { name: '다시 시도' })).toBeVisible()
+  // (b) 거짓 빈 상태/목록은 노출되지 않아야 한다 — 핵심 회귀 가드
+  await expect(page.getByTestId('activity-empty')).toHaveCount(0)
+  await expect(page.getByTestId('activity-items')).toHaveCount(0)
+})
+
+test('홈 위젯 — /me/issues 500 시 IssueListWidget 이 빈 상태(CTA) 대신 에러+재시도를 표시한다 (#205)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/issues', { message: 'server error' }, { status: 500 })
+  await page.goto('/')
+
+  const err = page.getByTestId('issuelist-error')
+  await expect(err).toBeVisible()
+  await expect(err.getByRole('button', { name: '다시 시도' })).toBeVisible()
+  // '배정된 이슈가 없어요' 거짓 빈 상태가 떠선 안 된다.
+  await expect(page.getByTestId('issuelist-empty')).toHaveCount(0)
+  await expect(page.getByText('배정된 이슈가 없어요')).toHaveCount(0)
+})
+
+test('홈 위젯 — /me/issues 500 시 MyTasksWidget 이 "–" 카운트 대신 에러를 표시한다 (#205)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/issues', { message: 'server error' }, { status: 500 })
+  await page.goto('/')
+
+  // MyTasksWidget(assigned=내이슈) 실패 → 위젯 전체 에러.
+  await expect(page.getByTestId('mytasks-error')).toBeVisible()
+  // 카운트 블록(내 담당/워치)이 보이지 않아야 0건과 혼동되지 않는다.
+  await expect(page.getByTestId('mytasks-assigned')).toHaveCount(0)
+})
+
+test('홈 위젯 — 활동 500 후 "다시 시도" 클릭 시 재요청해 정상 목록이 렌더된다 (#205)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
+  // 1차: activity 500 → 에러.
+  await mockApi(page, 'GET', '/api/v1/me/activity', { message: 'server error' }, { status: 500 })
+  await page.goto('/')
+  await expect(page.getByTestId('activity-error')).toBeVisible()
+
+  // 2차: activity 정상 응답을 나중에 등록(라우트는 후등록 우선) → '다시 시도' 클릭 → refetch.
+  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
+  await page.getByTestId('activity-error').getByRole('button', { name: '다시 시도' }).click()
+
+  // 입력(재시도)→처리(재요청)→출력(목록) 파이프라인 검증.
+  await expect(page.getByTestId('activity-items')).toContainText('Claude')
+  await expect(page.getByTestId('activity-error')).toHaveCount(0)
+})
+
 test('홈 기본 구성이 AI 호출 없이 로드된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await mockHome(page)
   await page.goto('/')

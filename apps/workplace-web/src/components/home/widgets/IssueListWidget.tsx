@@ -7,15 +7,19 @@ import { useMyIssues } from '@/hooks/queries/useHomeQueries';
 // 이슈 상태 전용 배지 — 범용 StatusBadge(type 기반)가 아니라 IssueStatus 를 직접 받는다.
 import { IssueStatusBadge } from '@/pages/projects/components/IssueStatusBadge';
 
+import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
 
 /** params(assignee/status/priority/due 등)로 프로젝트 횡단 이슈 목록. */
 export default function IssueListWidget({ params }: { params?: Record<string, unknown> }) {
-  const { data, isLoading } = useMyIssues(params ?? { assignee: 'me' });
+  const { data, isLoading, isError, refetch } = useMyIssues(params ?? { assignee: 'me' });
   return (
     <WidgetFrame title="이슈">
       {isLoading ? (
         <Skeleton className="h-24 w-full" />
+      ) : isError ? (
+        // fetch 실패 — '배정된 이슈가 없어요' 거짓 빈 상태 대신 에러+재시도 표시(#205).
+        <WidgetError onRetry={() => refetch()} testId="issuelist-error" />
       ) : data && data.items.length > 0 ? (
         <ul className="divide-y" data-testid="issuelist-items">
           {data.items.map((it) => (

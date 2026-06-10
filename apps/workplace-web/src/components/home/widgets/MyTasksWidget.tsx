@@ -4,6 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useMyIssues, useWatchedIssues } from '@/hooks/queries/useHomeQueries';
 import type { IssueSearchResponse } from '@/types/issue';
 
+import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
 
 // size=50 페이지 기준 카운트 — hasMore 면 "N+" 로 표기(전체 카운트 엔드포인트 없음).
@@ -17,10 +18,21 @@ export default function MyTasksWidget() {
   const assigned = useMyIssues({ assignee: 'me', size: 50 });
   const watched = useWatchedIssues();
   const loading = assigned.isLoading || watched.isLoading;
+  // 둘 중 하나라도 실패하면 카운트 일부가 거짓 '–'(0건과 구분 불가)로 보이므로 위젯 전체를 에러로 처리(#205).
+  const isError = assigned.isError || watched.isError;
   return (
     <WidgetFrame title="내 할 일">
       {loading ? (
         <Skeleton className="h-12 w-full" />
+      ) : isError ? (
+        // fetch 실패 — 두 쿼리 모두 재시도.
+        <WidgetError
+          onRetry={() => {
+            assigned.refetch();
+            watched.refetch();
+          }}
+          testId="mytasks-error"
+        />
       ) : (
         <div className="flex gap-6">
           {/* 내 담당: 전역 "내 담당" 라우트가 아직 없어 카운트만 표기(링크 X). */}
