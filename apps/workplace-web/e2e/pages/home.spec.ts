@@ -608,6 +608,64 @@ test('in-flight compose 중 새 대화로 전환하면 새 세션 입력이 잠�
   releaseFirstCompose()
 })
 
+// #207 회귀 — pending('응답 작성 중') 표시가 평문 '구성 중…'이 아니라
+// assistant 말풍선 형태(좌측 bg-muted rounded-2xl 버블)에 3-dot 타이핑 모션을 둔 상태여야 한다.
+// 핵심: compose 응답을 보류해 pending 을 결정적으로 유지(#196 패턴 재사용) → chat-pending 이
+// role=status + aria-label + animate-bounce dot 3개를 가짐 → 응답 도착 후 사라지고 turn 렌더.
+test('pending 표시가 말풍선 형태 + 3-dot 타이핑 모션으로 렌더된다 (#207)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockHome(page)
+  await mockSessions(page)
+
+  // compose 응답을 수동 release 로 보류 — pending('응답 작성 중') 창을 wall-clock 의존 없이 유지.
+  let releaseCompose = (): void => {}
+  const composeHeld = new Promise<void>((resolve) => {
+    releaseCompose = resolve
+  })
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/compose',
+    async (route) => {
+      await composeHeld
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ sessionId: 's1', message: '응답입니다', widgets: [] }),
+      })
+    },
+  )
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('chat-panel')).toBeVisible()
+
+  // 질문 전송 → pending 유지.
+  await page.getByTestId('chat-input').fill('질문')
+  await page.getByRole('button', { name: '보내기' }).click()
+
+  const pendingEl = page.getByTestId('chat-pending')
+  await expect(pendingEl).toBeVisible()
+
+  // (a) 접근성: pending 내부에 role=status + 진행 중 aria-label 가 있어야 한다.
+  const status = pendingEl.getByRole('status')
+  await expect(status).toHaveAttribute('aria-label', 'AI가 응답을 작성 중입니다')
+
+  // (b) 시각 위계: 평문이 아니라 말풍선 형태(좌측 정렬 + bg-muted + rounded-2xl)여야 한다.
+  await expect(pendingEl).toHaveClass(/justify-start/)
+  await expect(status).toHaveClass(/bg-muted/)
+  await expect(status).toHaveClass(/rounded-2xl/)
+
+  // (c) 타이핑 모션: animate-bounce dot span 이 정확히 3개여야 한다.
+  await expect(pendingEl.locator('.animate-bounce')).toHaveCount(3)
+
+  // 응답 도착 → pending 사라지고 assistant turn 렌더(진행→완료 전이 검증).
+  releaseCompose()
+  await expect(page.getByTestId('chat-pending')).toHaveCount(0)
+  // 질문 + 응답 두 turn 이 렌더되며, assistant 응답 turn 에 본문이 담긴다.
+  await expect(page.getByTestId('chat-turn')).toHaveCount(2)
+  await expect(page.getByTestId('chat-turn').last()).toContainText('응답입니다')
+})
+
 // #204 회귀 — '새 대화' 클릭 시 입력창의 미전송 텍스트(초안)가 초기화되어야 한다.
 // 핵심 파이프라인: 신선한(compose 안 한) 세션에서 입력 → '새 대화' → 입력창이 빈 값.
 // side(헤더 스위처 버튼)·fullscreen(좌측 목록 버튼) 양쪽 '새 대화' 버튼 위치가 다르므로 둘 다 검증.

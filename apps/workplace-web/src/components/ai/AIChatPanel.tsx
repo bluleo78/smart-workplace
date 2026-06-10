@@ -166,8 +166,18 @@ export function AIChatPanel({
               </li>
             ))}
             {pending && (
-              <li className="text-sm text-muted-foreground" data-testid="chat-pending">
-                구성 중…
+              <li className="flex justify-start" data-testid="chat-pending">
+                {/* 응답 작성 중 — assistant 말풍선과 동일한 정렬·형태(좌측·bg-muted·rounded-2xl)에
+                    타이핑 dot 모션을 둬, 완료된 짧은 메시지가 아니라 '진행 중' 상태로 읽히게 한다(#207). */}
+                <span
+                  className="flex items-center gap-1 rounded-2xl bg-muted px-3 py-2.5"
+                  role="status"
+                  aria-label="AI가 응답을 작성 중입니다"
+                >
+                  <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.3s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.15s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60" />
+                </span>
               </li>
             )}
           </ul>
