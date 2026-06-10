@@ -367,3 +367,46 @@ test('풀스크린 2단: 세션 선택 시 우측 채팅 패널에 transcript �
   await expect(page.getByTestId('chat-panel')).toContainText('풀스크린 질문')
   await expect(page.getByTestId('chat-panel')).toContainText('풀스크린 응답입니다')
 })
+
+test('긴 무공백 메시지가 말풍선 안에서 줄바꿈되어 메시지 패널에 가로 오버플로가 없다 (#202)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀(#202): 100자+ 공백 없는 토큰(URL/aaaa…) 메시지가 말풍선의 max-w-[80%] 를 무시하고
+  // 줄바꿈 없이 가로로 늘어나 메시지 스크롤러에 가로 스크롤이 생겼다.
+  // 수정: 말풍선 <span> 에 [overflow-wrap:anywhere] 추가 → 무공백 긴 토큰도 강제 줄바꿈.
+  // 검증: 메시지 스크롤러의 scrollWidth 가 clientWidth 를 (의미 있는 폭으로) 넘지 않아야 한다.
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const longToken = 'a'.repeat(150) // 공백 없는 150자 토큰
+  await mockChatSessions(page, {
+    items: [{ id: 's-lw1', title: '긴토큰 대화', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  const messages: HomeMessage[] = [
+    { id: 1, role: 'USER', content: longToken, widgets: null, createdAt: '2026-06-08T00:00:00Z' },
+    { id: 2, role: 'ASSISTANT', content: longToken, widgets: null, createdAt: '2026-06-08T00:00:01Z' },
+  ]
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-lw1/messages', messages)
+
+  await page.goto('/')
+  // side → fullscreen
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+
+  // 세션 선택 → transcript 렌더
+  await page.getByTestId('ai-fs-sessions').getByTestId('chat-session-select').first().click()
+  const turns = page.getByTestId('chat-panel').getByTestId('chat-turn')
+  await expect(turns).toHaveCount(2)
+
+  // 1) 말풍선 자체가 부모 폭을 넘지 않는다 (overflow-wrap:anywhere 로 무공백 토큰이 줄바꿈됨)
+  const bubbleOverflow = await turns.first().locator('span').evaluate((el) => el.scrollWidth - el.clientWidth)
+  expect(bubbleOverflow).toBeLessThanOrEqual(1) // 반올림 오차 1px 허용
+
+  // 2) 메시지 스크롤러(말풍선의 overflow-auto 조상)에 가로 오버플로가 없다
+  const scrollerOverflow = await turns.first().evaluate((turnEl) => {
+    const scroller = (turnEl.closest('.overflow-auto') as HTMLElement | null) ?? turnEl
+    return scroller.scrollWidth - scroller.clientWidth
+  })
+  // 수정 전엔 수백 px 의 가로 오버플로가 났다. 수정 후엔 0(또는 반올림 오차 수준)이어야 한다.
+  expect(scrollerOverflow).toBeLessThanOrEqual(2)
+})

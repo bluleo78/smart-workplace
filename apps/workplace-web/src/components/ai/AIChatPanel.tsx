@@ -143,7 +143,10 @@ export function AIChatPanel({
               >
                 <span
                   className={cn(
-                    'max-w-[80%] whitespace-pre-wrap rounded-2xl px-3 py-1.5 text-sm',
+                    // whitespace-pre-wrap 로 공백/개행은 보존하되,
+                    // [overflow-wrap:anywhere] 로 URL·토큰 등 무공백 긴 문자열도 강제 줄바꿈해
+                    // 말풍선이 max-w-[80%] 를 넘어 가로 오버플로하지 않도록 한다 (#202)
+                    'max-w-[80%] whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl px-3 py-1.5 text-sm',
                     t.role === 'assistant'
                       ? 'bg-muted text-foreground'
                       : 'bg-ai-accent text-ai-accent-foreground',
