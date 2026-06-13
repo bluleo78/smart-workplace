@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -11,6 +12,7 @@ import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -34,6 +36,9 @@ class FileCleanupServiceTest extends IntegrationTestBase {
 
   @BeforeEach
   void setUp() {
+    // RLS(V53) 적용 후 FILE INSERT 가 WITH CHECK 를 통과하려면 트랜잭션에 app.tenant_id GUC 가
+    // 있어야 한다. 요청 필터를 흉내내 tenant#1 컨텍스트를 명시(세션 기본 GUC 에 암묵 의존하지 않도록).
+    TenantContext.set(1L);
     testUserId =
         dsl.insertInto(USER)
             .set(USER.USERNAME, "file_cleanup_user")
@@ -43,6 +48,11 @@ class FileCleanupServiceTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+  }
+
+  @AfterEach
+  void clearTenant() {
+    TenantContext.clear();
   }
 
   // =========================================================================
@@ -72,7 +82,7 @@ class FileCleanupServiceTest extends IntegrationTestBase {
         .set(FILE.EXPIRES_AT, expiredAt)
         .execute();
 
-    fileCleanupService.cleanupExpiredFiles();
+    fileCleanupService.cleanupExpiredForCurrentTenant();
 
     // DB 레코드가 삭제되어야 함
     int remaining = dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(expiredFile.toString()));
@@ -101,7 +111,7 @@ class FileCleanupServiceTest extends IntegrationTestBase {
         .set(FILE.EXPIRES_AT, futureExpiry)
         .execute();
 
-    fileCleanupService.cleanupExpiredFiles();
+    fileCleanupService.cleanupExpiredForCurrentTenant();
 
     // DB 레코드가 유지되어야 함
     int remaining = dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(validFile.toString()));
@@ -115,7 +125,7 @@ class FileCleanupServiceTest extends IntegrationTestBase {
   @Test
   void cleanupExpiredFiles_noExpiredRecords_noException() {
     // FILE 테이블이 비어있는 상태에서 호출
-    fileCleanupService.cleanupExpiredFiles();
+    fileCleanupService.cleanupExpiredForCurrentTenant();
 
     // 예외 없이 완료 (assertion 불필요 — 예외 발생 시 테스트 실패)
   }
@@ -148,7 +158,7 @@ class FileCleanupServiceTest extends IntegrationTestBase {
         .execute();
 
     try {
-      fileCleanupService.cleanupExpiredFiles();
+      fileCleanupService.cleanupExpiredForCurrentTenant();
 
       // 디스크 삭제 실패 시 DB 레코드는 반드시 유지되어야 함 (고아 파일 방지)
       int remaining = dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(undeletableFile.toString()));
@@ -205,7 +215,7 @@ class FileCleanupServiceTest extends IntegrationTestBase {
     lockedDir.toFile().setWritable(false);
 
     try {
-      fileCleanupService.cleanupExpiredFiles();
+      fileCleanupService.cleanupExpiredForCurrentTenant();
 
       // 삭제 성공한 파일의 DB 레코드는 삭제되어야 함
       int deletableRemaining = dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(deletableFile.toString()));

@@ -7,9 +7,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +21,18 @@ import org.springframework.transaction.annotation.Transactional;
 class DriveSpaceServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired DriveSpaceService spaceService;
+
+  // RLS(V53) 적용 후 drive_space/drive_space_member INSERT 가 WITH CHECK 를 통과하려면
+  // 트랜잭션에 app.tenant_id GUC 가 있어야 한다. 요청 필터를 흉내내 tenant#1 컨텍스트를 명시한다.
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
+
+  @AfterEach
+  void clearTenant() {
+    TenantContext.clear();
+  }
 
   private long seedUser() {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);

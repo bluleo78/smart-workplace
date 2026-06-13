@@ -10,9 +10,12 @@ import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveForbiddenException;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
@@ -24,6 +27,18 @@ class DriveFolderServiceTest extends IntegrationTestBase {
   @Autowired DriveSpaceService spaceService;
   @Autowired DriveFolderService folderService;
   @Autowired DriveFileService fileService;
+
+  /** drive 복사(copyFile)는 TenantContext 를 요구한다 — 테스트에선 tenant#1 로 고정. */
+  @BeforeEach
+  void setTenantContext() {
+    TenantContext.set(1L);
+  }
+
+  /** ThreadLocal 누수 방지. */
+  @AfterEach
+  void clearTenantContext() {
+    TenantContext.clear();
+  }
 
   private long seedUser() {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
