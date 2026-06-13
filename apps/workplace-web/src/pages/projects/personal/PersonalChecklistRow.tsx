@@ -2,13 +2,13 @@
 // 행 클릭 = 우측 drawer 토글(같은 행 재클릭 시 닫힘). 인라인 펼침은 제거(상세는 drawer).
 import { useSearchParams } from 'react-router-dom';
 
+import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars';
+import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon';
 import { useUpdateIssue } from '@/hooks/queries/useIssue';
 import { cn } from '@/lib/utils';
 import type { IssueResponse } from '@/types/issue';
 
 import { AiDelegationBadge } from './aiDelegation';
-import { PersonalPriorityBars } from './PersonalPriorityBars';
-import { PersonalStatusIcon } from './PersonalStatusIcon';
 
 // 마감 색 — 지남=빨강, 오늘=주황(warning). 완료/없음/이후=muted.
 function dueClass(due: string, done: boolean): string {
@@ -76,7 +76,7 @@ export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string
         isOpen && 'bg-muted',
       )}
     >
-      <PersonalPriorityBars priority={issue.priority} />
+      <IssuePriorityBars priority={issue.priority} />
       <button
         type="button"
         aria-label="완료 토글"
@@ -86,7 +86,7 @@ export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string
         onClick={toggleDone}
         className="shrink-0"
       >
-        <PersonalStatusIcon status={issue.status} />
+        <IssueStatusIcon status={issue.status} />
       </button>
       <span className={cn('min-w-0 truncate text-sm', done && 'text-muted-foreground line-through')}>
         {issue.title}

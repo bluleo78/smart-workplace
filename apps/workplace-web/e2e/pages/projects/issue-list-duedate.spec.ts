@@ -54,8 +54,8 @@ test(
 
     await page.goto('/projects/WP');
 
-    // 마감일 없을 때 '-' 표시
-    const dueDateCell = page.getByRole('row', { name: /마감일 없는 이슈/ }).getByRole('cell').last();
+    // 마감일 없을 때 '-' 표시 — 행 전체 클릭 구조 변경 후 data-testid 로 셀 특정.
+    const dueDateCell = page.getByTestId('issue-row-1-due');
     await expect(dueDateCell).toHaveText('-');
   },
 );
