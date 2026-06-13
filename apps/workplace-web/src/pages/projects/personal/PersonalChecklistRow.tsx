@@ -49,9 +49,15 @@ export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string
       tabIndex={0}
       data-testid={`personal-task-row-${issue.number}`}
       data-status={issue.status}
-      aria-current={isOpen}
+      aria-pressed={isOpen}
       onClick={togglePanel}
-      onKeyDown={(e) => { if (e.key === 'Enter') togglePanel(); }}
+      onKeyDown={(e) => {
+        // Enter/Space 로 행 토글 — 내부 버튼 포커스 시 중복 발화 방지(타겟이 행 자신일 때만).
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault();
+          togglePanel();
+        }
+      }}
       className={cn(
         'flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/50',
         isOpen && 'bg-muted',
@@ -72,7 +78,9 @@ export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string
       <span className={cn('min-w-0 truncate text-sm', done && 'text-muted-foreground line-through')}>
         {issue.title}
       </span>
-      {issue.labels.map((l) => <LabelChip key={l.id} label={l} size="sm" />)}
+      {issue.labels.map((l) => (
+        <span key={l.id} className="shrink-0"><LabelChip label={l} size="sm" /></span>
+      ))}
       <div className="ml-auto flex shrink-0 items-center gap-2">
         {issue.dueDate && (
           <span className={cn('text-xs', dueClass(issue.dueDate, done))}>{formatDateKorean(issue.dueDate)}</span>

@@ -228,14 +228,19 @@ test('행에 우선순위 배지·라벨·마감 텍스트가 렌더된다', asy
       dueDate: '2020-01-01',
       labels: [toLabelSummary(label)],
     }),
+    // MID 작업 — 우선순위 배지 미노출 확인용(제목에 "보통" 미포함).
+    createIssue({ projectKey: KEY, number: 2, title: '일반항목', status: 'TODO', priority: 'MID' }),
   ]);
   await page.goto(`/projects/${KEY}`);
 
   const row = page.getByTestId('personal-task-row-1');
   await expect(row).toContainText('중요작업');
   await expect(row).toContainText('긴급'); // 라벨
+  await expect(row).toContainText('높음'); // HIGH 우선순위 배지
   // 마감 텍스트(formatDateKorean 포맷) 존재.
   await expect(row.locator('span.text-destructive')).toBeVisible();
+  // MID 행에는 우선순위 배지("보통") 미노출.
+  await expect(page.getByTestId('personal-task-row-2')).not.toContainText('보통');
 });
 
 test('행 data-status 속성이 이슈 상태와 일치한다', async ({ authenticatedPage: page }) => {

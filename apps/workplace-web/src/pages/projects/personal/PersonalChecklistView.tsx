@@ -20,6 +20,9 @@ export function PersonalChecklistView({ projectKey, filters }: { projectKey: str
     return <p className="py-12 text-center text-sm text-muted-foreground">작업이 없습니다. + 빠른 추가로 시작하세요.</p>;
 
   const { active, done } = groupByDue(items);
+  // 전부 CANCELED 등으로 활성·완료 모두 비면 백지 대신 빈 상태 안내.
+  if (active.length === 0 && done.length === 0)
+    return <p className="py-12 text-center text-sm text-muted-foreground">표시할 작업이 없습니다.</p>;
 
   return (
     <div className="mx-auto max-w-3xl space-y-5" data-testid="personal-checklist">
