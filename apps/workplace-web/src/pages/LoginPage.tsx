@@ -41,6 +41,11 @@ export default function LoginPage() {
       setServerError('');
       await login(data);
     } catch (error) {
+      // 자격증명은 맞지만 소속 워크스페이스가 없는 경우(백엔드 0-membership) — 전용 안내
+      if (error instanceof Error && error.message === 'NO_WORKSPACE') {
+        setServerError('접속 가능한 워크스페이스가 없습니다. 관리자에게 문의하세요.');
+        return;
+      }
       if (axios.isAxiosError(error) && error.response?.data) {
         // 401 응답은 서버 영문 메시지 대신 한국어 고정 메시지로 교체
         // (서버가 "Invalid username or password" 영문 메시지를 반환하기 때문)
