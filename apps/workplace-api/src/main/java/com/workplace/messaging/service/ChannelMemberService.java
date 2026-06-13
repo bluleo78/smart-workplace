@@ -1,11 +1,13 @@
 package com.workplace.messaging.service;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
+import com.workplace.tenant.repository.MembershipRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,7 @@ public class ChannelMemberService {
   private final ChannelRepository channelRepo;
   private final ChannelMemberRepository memberRepo;
   private final ChannelPermissions perms;
+  private final MembershipRepository membershipRepo;
 
   private static final List<String> VALID_ROLES = List.of("OWNER", "ADMIN", "MEMBER");
 
@@ -34,6 +37,11 @@ public class ChannelMemberService {
   public void add(long callerId, long channelId, long targetUserId) {
     ensureExists(channelId);
     perms.requireManage(channelId, callerId, "add-member");
+    // 추가 대상 사용자가 현재 테넌트의 활성 멤버인지 확인 — 테넌트 경계를 넘는 채널 멤버십 차단(설계 §4).
+    Long tenantId = TenantContext.get();
+    if (tenantId == null || !membershipRepo.hasActiveMembership(targetUserId, tenantId)) {
+      throw new ChannelForbiddenException(channelId, targetUserId, "add-cross-tenant");
+    }
     memberRepo.add(channelId, targetUserId, "MEMBER");
   }
 
