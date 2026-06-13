@@ -61,6 +61,20 @@ test('체크리스트는 작업 행과 AI 위임 배지를 렌더한다', async 
   await expect(page.getByTestId('ai-delegation-badge-3')).not.toContainText('처리중');
 });
 
+test('보드 뷰는 상태 3컬럼으로 카드를 배치한다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [
+    createIssue({ projectKey: KEY, number: 1, title: '할일카드', status: 'TODO' }),
+    createIssue({ projectKey: KEY, number: 2, title: '진행카드', status: 'IN_PROGRESS' }),
+    createIssue({ projectKey: KEY, number: 3, title: '완료카드', status: 'DONE' }),
+  ]);
+  await page.goto(`/projects/${KEY}?view=board`);
+
+  await expect(page.getByTestId('personal-board')).toBeVisible();
+  await expect(page.getByTestId('personal-board-col-TODO')).toContainText('할일카드');
+  await expect(page.getByTestId('personal-board-col-IN_PROGRESS')).toContainText('진행카드');
+  await expect(page.getByTestId('personal-board-col-DONE')).toContainText('완료카드');
+});
+
 test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 반영', async ({ authenticatedPage: page }) => {
   // 가변 상태 — PATCH 후 GET 재조회가 DONE 을 반영하도록 한다.
   let issue = createIssue({ projectKey: KEY, number: 1, title: '운동 계획', status: 'TODO' });
