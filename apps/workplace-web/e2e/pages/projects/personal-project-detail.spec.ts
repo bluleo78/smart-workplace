@@ -362,7 +362,8 @@ test('그룹=상태 클릭 → 체크리스트가 상태 섹션(TODO/IN_PROGRESS
   await expect(page.getByTestId('personal-section-overdue')).toContainText('할일A');
   await expect(page.getByTestId('personal-section-TODO')).toHaveCount(0);
 
-  // 그룹=상태 클릭 → URL ?group=status + 상태 섹션으로 재구성.
+  // 그룹=상태 선택 → URL ?group=status + 상태 섹션으로 재구성. (셀렉트 트리거 열고 항목 선택)
+  await page.getByTestId('group-by-trigger').click();
   await page.getByTestId('group-by-status').click();
   await expect(page).toHaveURL(/group=status/);
   await expect(page.getByTestId('personal-section-TODO')).toContainText('할일A');

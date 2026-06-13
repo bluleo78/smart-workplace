@@ -105,12 +105,15 @@ test.describe('Saved View group-by', () => {
     await routeIssueSearch(page, (route) => fulfillIssues(route, []));
 
     await page.goto(`/projects/${KEY}?view=board`);
+    // 그룹 셀렉트(드롭다운) 트리거를 열고 항목 선택.
+    await page.getByTestId('group-by-trigger').click();
     await page.getByTestId('group-by-assignee').click();
     await expect(page).toHaveURL(/group=assignee/);
     // view 는 유지
     await expect(page).toHaveURL(/view=board/);
 
     // 없음으로 되돌리면 group 키 제거
+    await page.getByTestId('group-by-trigger').click();
     await page.getByTestId('group-by-none').click();
     await expect(page).not.toHaveURL(/group=/);
   });

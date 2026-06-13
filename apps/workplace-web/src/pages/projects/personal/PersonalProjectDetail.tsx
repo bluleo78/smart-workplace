@@ -1,6 +1,7 @@
 // 개인 프로젝트 전용 상세 셸 — 팀과 동일 레이아웃으로 재수렴.
 // 상단 팀 툴바(IssueFilterBar, 개인 옵션) + 공유 보드(IssueBoardView, 개인 컬럼·drawer cardTo)
 // + 그룹핑 연동 체크리스트. URL = single source of truth: /projects/:key?view=&group=&task=
+import { ListChecks } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -28,6 +29,7 @@ const PERSONAL_FILTER_OPTIONS: IssueFilterBarOptions = {
   showCycle: false,
   showType: false,
   listLabel: '체크리스트',
+  listIcon: ListChecks,
   groupOptions: [
     { value: null, label: '없음' },
     { value: 'status', label: '상태' },

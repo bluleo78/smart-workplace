@@ -1,12 +1,20 @@
 // 태스크 필터/검색 + 뷰(list/board) 토글 바.
 // URL 의 SearchParams 가 단일 source of truth — 내부 state 는 q 입력 debounce 버퍼뿐.
 
+import { LayoutGrid, List, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
@@ -43,7 +51,8 @@ export interface IssueFilterBarOptions {
   showCycle?: boolean; // 기본 true
   showType?: boolean; // 기본 true
   groupOptions?: { value: IssueGroupBy | null; label: string }[]; // 기본 GROUP_OPTIONS
-  listLabel?: string; // 뷰토글의 'list' 버튼 라벨. 기본 '리스트'
+  listLabel?: string; // 뷰토글의 'list' 버튼 접근성 라벨. 기본 '리스트'
+  listIcon?: LucideIcon; // 뷰토글의 'list' 버튼 아이콘. 기본 List(목록). 개인=ListChecks(체크리스트)
 }
 
 export function IssueFilterBar({
@@ -57,6 +66,7 @@ export function IssueFilterBar({
   const showType = options?.showType ?? true;
   const groupOptions = options?.groupOptions ?? GROUP_OPTIONS;
   const listLabel = options?.listLabel ?? '리스트';
+  const ListIcon = options?.listIcon ?? List;
   const [params, setParams] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
@@ -181,6 +191,15 @@ export function IssueFilterBar({
     if (groupBy) p.set('group', groupBy);
     setParams(p, { replace: true });
   }
+
+  // 적용된 필터가 하나라도 있을 때만 초기화 버튼을 노출 — 평소엔 숨겨 툴바를 깔끔하게.
+  const hasActiveFilters =
+    filters.q !== '' ||
+    filters.statuses.length > 0 ||
+    filters.priorities.length > 0 ||
+    filters.labelIds.length > 0 ||
+    filters.cycleIds.length > 0 ||
+    filters.typeIds.length > 0;
 
   return (
     <div className="flex flex-wrap items-center gap-2 py-2">
@@ -351,44 +370,64 @@ export function IssueFilterBar({
         </Popover>
       )}
 
-      <div className="flex items-center gap-1 ml-auto" role="group" aria-label="그룹 기준">
+      {/* 그룹 기준 — 셀렉트(드롭다운). null='none' 으로 매핑. */}
+      <div className="flex items-center gap-1 ml-auto">
         <span className="text-xs text-muted-foreground">그룹</span>
-        {groupOptions.map((opt) => (
-          <Button
-            key={opt.value ?? 'none'}
-            variant={groupBy === opt.value ? 'default' : 'outline'}
+        <Select
+          value={groupBy ?? 'none'}
+          onValueChange={(v) => setGroupBy(v === 'none' ? null : (v as IssueGroupBy))}
+        >
+          <SelectTrigger
             size="sm"
-            onClick={() => setGroupBy(opt.value)}
-            aria-pressed={groupBy === opt.value}
-            data-testid={`group-by-${opt.value ?? 'none'}`}
+            className="w-28"
+            aria-label="그룹 기준"
+            data-testid="group-by-trigger"
           >
-            {opt.label}
-          </Button>
-        ))}
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {groupOptions.map((opt) => (
+              <SelectItem
+                key={opt.value ?? 'none'}
+                value={opt.value ?? 'none'}
+                data-testid={`group-by-${opt.value ?? 'none'}`}
+              >
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
+      {/* 뷰 전환 — 아이콘 토글. 접근성 라벨은 listLabel/'보드' 로 유지(E2E·스크린리더). */}
       <div className="flex items-center gap-1" role="group" aria-label="뷰 전환">
         <Button
           variant={view === 'list' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setView('list')}
           aria-pressed={view === 'list'}
+          aria-label={listLabel}
+          title={listLabel}
         >
-          {listLabel}
+          <ListIcon className="h-4 w-4" />
         </Button>
         <Button
           variant={view === 'board' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setView('board')}
           aria-pressed={view === 'board'}
+          aria-label="보드"
+          title="보드"
         >
-          보드
+          <LayoutGrid className="h-4 w-4" />
         </Button>
       </div>
 
-      <Button variant="ghost" size="sm" onClick={reset}>
-        초기화
-      </Button>
+      {hasActiveFilters && (
+        <Button variant="ghost" size="sm" onClick={reset}>
+          초기화
+        </Button>
+      )}
     </div>
   );
 }
