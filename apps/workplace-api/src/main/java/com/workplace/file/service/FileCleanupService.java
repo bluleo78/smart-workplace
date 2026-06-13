@@ -2,6 +2,7 @@ package com.workplace.file.service;
 
 import static com.workplace.jooq.Tables.FILE;
 
+import com.workplace.global.tenant.TenantScopedRunner;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -22,6 +23,9 @@ import org.springframework.stereotype.Service;
 public class FileCleanupService {
 
   private final DSLContext dsl;
+  // FILE 은 RLS 적용 테이블 — 스케줄러/부팅 잡은 요청 스레드가 아니어서 GUC 가 비어 있다.
+  // 활성 테넌트마다 컨텍스트+트랜잭션을 열어 GUC 를 주입(미주입 시 RLS fail-closed → 0행 삭제 버그)한다.
+  private final TenantScopedRunner tenantScopedRunner;
 
   @PostConstruct
   public void cleanupOnStartup() {
@@ -30,13 +34,25 @@ public class FileCleanupService {
   }
 
   /**
-   * 만료된 업로드 파일을 정리한다.
-   *
-   * <p>디스크 파일 삭제에 성공한 경로만 추적하여 해당 경로에 해당하는 DB 레코드만 삭제한다. 디스크 삭제 실패 시 경고 로그만 남기고 DB 레코드는 유지하여 이후
-   * 재시도가 가능하도록 한다. 이렇게 함으로써 디스크에 파일이 남아있지만 DB 추적이 사라지는 고아 파일(orphan) 문제를 방지한다.
+   * 만료된 업로드 파일을 정리한다 — 활성 테넌트별로 순회하며 각 테넌트의 만료 파일을 삭제한다. 스케줄러 본체는 비-트랜잭션이며, 테넌트별 트랜잭션 경계는
+   * TenantScopedRunner 가 제공한다(자기-호출 프록시 우회 방지).
    */
   @Scheduled(fixedRate = 3_600_000)
   public void cleanupExpiredFiles() {
+    tenantScopedRunner.forEachActiveTenant(tid -> cleanupExpiredForCurrentTenant());
+  }
+
+  /**
+   * 현재 테넌트(GUC 설정됨)의 만료 업로드 파일을 정리한다.
+   *
+   * <p>디스크 파일 삭제에 성공한 경로만 추적하여 해당 경로에 해당하는 DB 레코드만 삭제한다. 디스크 삭제 실패 시 경고 로그만 남기고 DB 레코드는 유지하여 이후
+   * 재시도가 가능하도록 한다. 이렇게 함으로써 디스크에 파일이 남아있지만 DB 추적이 사라지는 고아 파일(orphan) 문제를 방지한다. FILE 조회/삭제는 RLS
+   * 대상이므로 반드시 TenantScopedRunner 가 연 트랜잭션(GUC 주입) 안에서 호출돼야 한다.
+   *
+   * <p>가시성: package-private — 단일 테넌트의 디스크 삭제 회귀(#152)를 검증하는 단위 테스트가 per-tenant 순회를 거치지 않고 직접 호출하기
+   * 위함.
+   */
+  void cleanupExpiredForCurrentTenant() {
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
     // 만료 행의 원본+썸네일 경로를 함께 조회

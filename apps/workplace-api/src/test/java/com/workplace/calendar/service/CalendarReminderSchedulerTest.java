@@ -8,7 +8,9 @@ import static org.mockito.Mockito.when;
 import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
 import com.workplace.calendar.repository.EventReminderRepository;
 import com.workplace.calendar.repository.EventReminderRepository.DueReminder;
+import com.workplace.global.tenant.TenantScopedRunner;
 import java.util.List;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -20,13 +22,23 @@ class CalendarReminderSchedulerTest {
 
   private EventReminderRepository repo;
   private ApplicationEventPublisher publisher;
+  private TenantScopedRunner runner;
   private CalendarReminderScheduler scheduler;
 
   @BeforeEach
   void setUp() {
     repo = Mockito.mock(EventReminderRepository.class);
     publisher = Mockito.mock(ApplicationEventPublisher.class);
-    scheduler = new CalendarReminderScheduler(repo, publisher);
+    runner = Mockito.mock(TenantScopedRunner.class);
+    // forEachActiveTenant 가 단일 활성 테넌트(id=1)에 대해 콜백을 1회 실행하도록 스텁 — pollForCurrentTenant 본체 검증.
+    Mockito.doAnswer(
+            inv -> {
+              inv.<Consumer<Long>>getArgument(0).accept(1L);
+              return null;
+            })
+        .when(runner)
+        .forEachActiveTenant(Mockito.any());
+    scheduler = new CalendarReminderScheduler(repo, publisher, runner);
   }
 
   @Test

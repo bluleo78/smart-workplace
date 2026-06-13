@@ -6,6 +6,7 @@ import com.workplace.file.dto.FileUploadResponse;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
+import com.workplace.global.tenant.TenantContext;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,6 +27,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
@@ -101,6 +103,10 @@ public class FileUploadService {
     this.expiryHours = expiryHours;
   }
 
+  // RLS 적용 후 FILE INSERT 는 트랜잭션-로컬 GUC(app.tenant_id)가 채워진 트랜잭션 안에서 일어나야 한다(없으면
+  // tenant_id 디폴트가 NULL → NOT NULL 위반). public 진입점에 @Transactional 을 두어 프록시가 트랜잭션을 시작하게 한다
+  // — private uploadSingleFile 에 두면 자기-호출로 프록시를 우회해 트랜잭션이 시작되지 않는다.
+  @Transactional
   public List<FileUploadResponse> uploadFiles(List<MultipartFile> files, Long userId)
       throws IOException {
     if (files.size() > maxFilesPerRequest) {
@@ -133,7 +139,8 @@ public class FileUploadService {
     String storedName = UUID.randomUUID().toString() + (ext.isEmpty() ? "" : "." + ext);
 
     String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-    Path dir = Paths.get(uploadDir, "chat-files", datePath).toAbsolutePath();
+    // 스토리지 경로에 테넌트 prefix 를 넣어 테넌트 간 파일을 물리적으로 분리한다.
+    Path dir = tenantScopedDir(datePath);
     Files.createDirectories(dir);
 
     Path storagePath = dir.resolve(storedName);
@@ -277,7 +284,8 @@ public class FileUploadService {
     String ext = getExtension(record.getStoredName());
     String storedName = UUID.randomUUID().toString() + (ext.isEmpty() ? "" : "." + ext);
     String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-    Path dir = Paths.get(uploadDir, "chat-files", datePath).toAbsolutePath();
+    // 복사도 업로드와 동일하게 현재 테넌트 prefix 경로에 둔다(drive 복사는 요청 스레드).
+    Path dir = tenantScopedDir(datePath);
     Files.createDirectories(dir);
     Path destPath = dir.resolve(storedName);
     Files.copy(srcPath, destPath);
@@ -333,5 +341,17 @@ public class FileUploadService {
   private String getExtension(String filename) {
     int dotIdx = filename.lastIndexOf('.');
     return dotIdx >= 0 ? filename.substring(dotIdx + 1) : "";
+  }
+
+  /**
+   * 현재 테넌트로 스코핑된 저장 디렉터리({uploadDir}/tenant-{tenantId}/chat-files/{date})를 만든다. 테넌트 컨텍스트가 없으면 업로드를
+   * 차단(테넌트 미선택 상태 업로드 금지) — RLS GUC 와 파일시스템 경로의 테넌트 일관성을 보장한다.
+   */
+  private Path tenantScopedDir(String datePath) {
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) {
+      throw new IllegalStateException("테넌트 컨텍스트 없이 파일 업로드 불가");
+    }
+    return Paths.get(uploadDir, "tenant-" + tenantId, "chat-files", datePath).toAbsolutePath();
   }
 }

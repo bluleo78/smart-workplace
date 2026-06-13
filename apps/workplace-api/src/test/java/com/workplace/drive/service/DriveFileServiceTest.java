@@ -10,6 +10,7 @@ import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -17,6 +18,8 @@ import java.util.Optional;
 import java.util.UUID;
 import javax.imageio.ImageIO;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
@@ -28,6 +31,18 @@ class DriveFileServiceTest extends IntegrationTestBase {
   @Autowired DriveSpaceService spaceService;
   @Autowired DriveFileService fileService;
   @Autowired DriveFolderService folderService;
+
+  /** drive 복사(copyFile)는 TenantContext 를 요구한다 — 테스트에선 tenant#1 로 고정. */
+  @BeforeEach
+  void setTenantContext() {
+    TenantContext.set(1L);
+  }
+
+  /** ThreadLocal 누수 방지. */
+  @AfterEach
+  void clearTenantContext() {
+    TenantContext.clear();
+  }
 
   private long seedUser() {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);

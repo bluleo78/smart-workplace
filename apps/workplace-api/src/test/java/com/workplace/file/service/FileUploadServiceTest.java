@@ -10,6 +10,7 @@ import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.io.IOException;
 import java.io.InputStream;
@@ -36,6 +37,8 @@ class FileUploadServiceTest extends IntegrationTestBase {
 
   @BeforeEach
   void setUp() {
+    // 업로드 경로는 TenantContext(요청 스레드 테넌트)를 요구한다 — 테스트에선 tenant#1 로 고정.
+    TenantContext.set(1L);
     testUserId =
         dsl.insertInto(USER)
             .set(USER.USERNAME, "filetest_user")
@@ -275,5 +278,6 @@ class FileUploadServiceTest extends IntegrationTestBase {
       } catch (IOException ignored) {
       }
     }
+    TenantContext.clear();
   }
 }

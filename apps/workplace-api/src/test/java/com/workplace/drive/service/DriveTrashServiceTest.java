@@ -6,9 +6,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveSpaceResponse;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
@@ -21,6 +24,18 @@ class DriveTrashServiceTest extends IntegrationTestBase {
   @Autowired DriveFileService fileService;
   @Autowired DriveFolderService folderService;
   @Autowired DriveTrashService trashService;
+
+  /** 업로드(copyFile)/drive 작업은 TenantContext 를 요구한다 — 테스트에선 tenant#1 로 고정. */
+  @BeforeEach
+  void setTenantContext() {
+    TenantContext.set(1L);
+  }
+
+  /** ThreadLocal 누수 방지. */
+  @AfterEach
+  void clearTenantContext() {
+    TenantContext.clear();
+  }
 
   private long seedUser() {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
