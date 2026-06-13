@@ -78,6 +78,62 @@ test('보드 뷰는 상태 3컬럼으로 카드를 배치한다', async ({ authe
   await expect(page.getByTestId('personal-board')).not.toContainText('취소카드');
 });
 
+test('행 클릭 시 인라인 펼침으로 빠른 편집이 열린다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO', priority: 'MID' })]);
+  await page.goto(`/projects/${KEY}`);
+
+  // 제목 클릭 → 그 행이 인라인 펼침(상태/우선순위/자세히보기 노출).
+  await page.getByTestId('personal-task-row-1').getByText('블로그 초안').click();
+  await expect(page.getByTestId('personal-task-inline-1')).toBeVisible();
+  await expect(page.getByTestId('personal-task-detail-link-1')).toBeVisible();
+  // 패널은 아직 열리지 않음(인라인이 먼저).
+  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
+});
+
+test('인라인 펼침에서 상태 변경 시 PATCH { status: ... } 호출', async ({ authenticatedPage: page }) => {
+  let issue = createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO', priority: 'MID' });
+  const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}`,
+    (route) => route.fulfill({ json: project }),
+  );
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    (route) => route.fulfill({ json: createIssueSearchResponse([issue]) }),
+  );
+  let patchBody: unknown;
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues/1`,
+    (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchBody = route.request().postDataJSON();
+        issue = { ...issue, status: 'IN_PROGRESS' };
+        return route.fulfill({ json: issue });
+      }
+      return route.fallback();
+    },
+  );
+
+  await page.goto(`/projects/${KEY}`);
+  // 인라인 펼침 → 상태 셀렉트에서 "진행 중" 선택.
+  await page.getByTestId('personal-task-row-1').getByText('블로그 초안').click();
+  await expect(page.getByTestId('personal-task-inline-1')).toBeVisible();
+  await page.getByTestId('personal-task-inline-1').getByRole('combobox').first().click();
+  await page.getByRole('option', { name: '진행 중' }).click();
+  await expect.poll(() => patchBody).toMatchObject({ status: 'IN_PROGRESS' });
+});
+
+test('"자세히 보기" 클릭 시 ?task=N 쿼리 파라미터가 설정된다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO', priority: 'MID' })]);
+  await page.goto(`/projects/${KEY}`);
+
+  // 인라인 펼침 → 자세히 보기 클릭 → URL에 task=1.
+  await page.getByTestId('personal-task-row-1').getByText('블로그 초안').click();
+  await expect(page.getByTestId('personal-task-detail-link-1')).toBeVisible();
+  await page.getByTestId('personal-task-detail-link-1').click();
+  await expect(page).toHaveURL(/task=1/);
+});
+
 test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 반영', async ({ authenticatedPage: page }) => {
   // 가변 상태 — PATCH 후 GET 재조회가 DONE 을 반영하도록 한다.
   let issue = createIssue({ projectKey: KEY, number: 1, title: '운동 계획', status: 'TODO' });
