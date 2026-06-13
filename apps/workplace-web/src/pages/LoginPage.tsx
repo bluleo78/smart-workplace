@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, Navigate } from 'react-router-dom';
 
+import { WorkspaceSelectCard } from '../components/auth/WorkspaceSelectCard';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -15,7 +16,7 @@ import { loginSchema } from '../lib/validations/auth';
 import type { ErrorResponse } from '../types/auth';
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, tenantOptions } = useAuth();
   const [serverError, setServerError] = useState('');
 
   const {
@@ -28,6 +29,11 @@ export default function LoginPage() {
 
   if (isAuthenticated) {
     return <Navigate to="/" replace />;
+  }
+
+  // 다중소속 로그인 직후 — 폼 대신 워크스페이스 선택 카드를 렌더.
+  if (tenantOptions) {
+    return <WorkspaceSelectCard options={tenantOptions} />;
   }
 
   const onSubmit = async (data: LoginFormData) => {
