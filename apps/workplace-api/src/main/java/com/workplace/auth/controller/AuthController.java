@@ -1,11 +1,14 @@
 package com.workplace.auth.controller;
 
 import com.workplace.auth.dto.LoginRequest;
+import com.workplace.auth.dto.LoginResponse;
+import com.workplace.auth.dto.SelectTenantRequest;
 import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
 import com.workplace.auth.service.AuthService;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.dto.MembershipResponse;
 import com.workplace.user.dto.UserResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -50,13 +53,34 @@ public class AuthController {
   }
 
   @PostMapping("/login")
-  public ResponseEntity<TokenResponse> login(
+  public ResponseEntity<LoginResponse> login(
       @Valid @RequestBody LoginRequest request, HttpServletResponse response) {
-    TokenResponse token = authService.login(request);
+    // 1단계: 신원 인증 → tenant-less access(바디) + refresh(쿠키) + 선택 가능한 멤버십(바디)
+    AuthService.LoginResult result = authService.login(request);
+    addRefreshTokenCookie(response, result.refreshToken());
+    return ResponseEntity.ok(
+        new LoginResponse(
+            result.accessToken(), "Bearer", result.expiresIn(), result.memberships()));
+  }
+
+  @PostMapping("/select-tenant")
+  public ResponseEntity<TokenResponse> selectTenant(
+      Authentication authentication,
+      @Valid @RequestBody SelectTenantRequest request,
+      HttpServletResponse response) {
+    // 2단계: tenant-less(또는 기존) access 토큰으로 인증된 사용자가 활성 테넌트를 선택/전환
+    Long userId = (Long) authentication.getPrincipal();
+    TokenResponse token = authService.selectTenant(userId, request.tenantId());
     addRefreshTokenCookie(response, token.refreshToken());
     TokenResponse body =
         new TokenResponse(token.accessToken(), null, token.tokenType(), token.expiresIn());
     return ResponseEntity.ok(body);
+  }
+
+  @GetMapping("/memberships")
+  public ResponseEntity<List<MembershipResponse>> memberships(Authentication authentication) {
+    Long userId = (Long) authentication.getPrincipal();
+    return ResponseEntity.ok(authService.membershipsOf(userId));
   }
 
   @PostMapping("/refresh")

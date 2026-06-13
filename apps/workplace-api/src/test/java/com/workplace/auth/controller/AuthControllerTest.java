@@ -96,10 +96,10 @@ class AuthControllerTest {
   @Test
   void login_returnsOkWithCookie() throws Exception {
     LoginRequest request = new LoginRequest("test@example.com", "Password123");
-    TokenResponse tokenResponse =
-        new TokenResponse("access-token", "refresh-token", "Bearer", 1800);
+    AuthService.LoginResult loginResult =
+        new AuthService.LoginResult("access-token", "refresh-token", 1800, java.util.List.of());
 
-    when(authService.login(any(LoginRequest.class))).thenReturn(tokenResponse);
+    when(authService.login(any(LoginRequest.class))).thenReturn(loginResult);
     when(jwtProperties.refreshExpiration()).thenReturn(604800000L);
 
     mockMvc

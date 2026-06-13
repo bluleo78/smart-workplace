@@ -4,6 +4,7 @@ import com.workplace.auth.exception.AccountLockedException;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
+import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
 import com.workplace.chat.exception.ChatMessageNotFoundException;
@@ -150,6 +151,14 @@ public class GlobalExceptionHandler {
       InvalidTokenException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.UNAUTHORIZED, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+  }
+
+  /** 비멤버/정지 테넌트 선택 시도 → 403. */
+  @ExceptionHandler(TenantAccessDeniedException.class)
+  public ResponseEntity<ErrorResponse> handleTenantAccessDenied(
+      TenantAccessDeniedException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
   /**

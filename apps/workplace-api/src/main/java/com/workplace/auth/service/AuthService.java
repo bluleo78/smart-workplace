@@ -9,6 +9,7 @@ import com.workplace.auth.exception.AgentCannotLoginException;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
+import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.auth.repository.RefreshTokenRepository;
 import com.workplace.global.exception.CryptoException;
@@ -16,6 +17,9 @@ import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.repository.RoleRepository;
+import com.workplace.tenant.dto.MembershipResponse;
+import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.tenant.repository.TenantRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
@@ -26,6 +30,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -46,6 +51,15 @@ public class AuthService {
   private final RefreshTokenRepository refreshTokenRepository;
   private final LoginAttemptService loginAttemptService;
   private final AuditLogService auditLogService;
+  private final MembershipRepository membershipRepository;
+  private final TenantRepository tenantRepository;
+
+  /** 1단계 로그인 결과(내부 운반용): accessToken/refreshToken 분리 + 선택 가능한 멤버십. */
+  public record LoginResult(
+      String accessToken,
+      String refreshToken,
+      long expiresIn,
+      List<MembershipResponse> memberships) {}
 
   @Transactional
   public UserResponse signup(SignupRequest request) {
@@ -88,7 +102,7 @@ public class AuthService {
   }
 
   @Transactional
-  public TokenResponse login(LoginRequest request) {
+  public LoginResult login(LoginRequest request) {
     if (loginAttemptService.isBlocked(request.username())) {
       // 과도한 로그인 실패로 계정이 잠긴 경우 한국어 메시지 반환
       throw new AccountLockedException("로그인 시도 횟수를 초과하였습니다. 잠시 후 다시 시도해 주세요.");
@@ -131,8 +145,9 @@ public class AuthService {
 
     loginAttemptService.loginSucceeded(request.username());
 
-    String accessToken = jwtTokenProvider.generateAccessToken(user.id(), user.username());
-    String refreshToken = jwtTokenProvider.generateRefreshToken(user.id());
+    // 1단계: 테넌트 미선택(tenant-less) 토큰 발급. 테넌트 스코프 데이터는 select-tenant 후에야 접근 가능.
+    String accessToken = jwtTokenProvider.generateAccessToken(user.id(), user.username(), null);
+    String refreshToken = jwtTokenProvider.generateRefreshToken(user.id(), null);
 
     UUID familyId = UUID.randomUUID();
     storeRefreshToken(user.id(), refreshToken, familyId);
@@ -152,8 +167,35 @@ public class AuthService {
         null,
         null);
 
+    return new LoginResult(
+        accessToken,
+        refreshToken,
+        jwtProperties.accessExpiration() / 1000,
+        membershipRepository.findActiveByUser(user.id()));
+  }
+
+  /** 2단계: 테넌트 선택 → membership+tenant ACTIVE 검증 후 tenant 스코프 토큰 발급. 전환도 이 메서드. */
+  @Transactional
+  public TokenResponse selectTenant(Long userId, Long tenantId) {
+    if (!membershipRepository.hasActiveMembership(userId, tenantId)
+        || !tenantRepository.isActive(tenantId)) {
+      throw new TenantAccessDeniedException("해당 테넌트에 접근 권한이 없습니다.");
+    }
+    UserResponse user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new InvalidTokenException("사용자를 찾을 수 없습니다."));
+    String accessToken = jwtTokenProvider.generateAccessToken(userId, user.username(), tenantId);
+    String refreshToken = jwtTokenProvider.generateRefreshToken(userId, tenantId);
+    storeRefreshToken(userId, refreshToken, UUID.randomUUID());
     return new TokenResponse(
         accessToken, refreshToken, "Bearer", jwtProperties.accessExpiration() / 1000);
+  }
+
+  /** 사용자의 선택 가능한 ACTIVE 멤버십 목록. */
+  @Transactional(readOnly = true)
+  public List<MembershipResponse> membershipsOf(Long userId) {
+    return membershipRepository.findActiveByUser(userId);
   }
 
   @Transactional
@@ -199,8 +241,17 @@ public class AuthService {
       throw new UserDeactivatedException("비활성화된 계정입니다.");
     }
 
-    String accessToken = jwtTokenProvider.generateAccessToken(user.id(), user.username());
-    String newRefreshToken = jwtTokenProvider.generateRefreshToken(user.id());
+    // refresh 토큰에 active-tenant 가 있으면 동일 테넌트로 재발급하되, 멤버십/테넌트가 여전히 ACTIVE
+    // 인지 재검증한다(정지/탈퇴 시 즉시 차단 → 클라이언트는 테넌트 선택으로 복귀). 없으면 tenant-less 재발급.
+    Long tenantId = jwtTokenProvider.getTenantIdFromToken(rawRefreshToken);
+    if (tenantId != null
+        && (!membershipRepository.hasActiveMembership(userId, tenantId)
+            || !tenantRepository.isActive(tenantId))) {
+      throw new InvalidTokenException("테넌트 접근이 만료되었습니다. 테넌트를 다시 선택해 주세요.");
+    }
+
+    String accessToken = jwtTokenProvider.generateAccessToken(user.id(), user.username(), tenantId);
+    String newRefreshToken = jwtTokenProvider.generateRefreshToken(user.id(), tenantId);
 
     storeRefreshToken(user.id(), newRefreshToken, familyId);
 

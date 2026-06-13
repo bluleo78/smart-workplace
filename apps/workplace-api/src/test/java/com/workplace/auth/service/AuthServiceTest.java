@@ -100,12 +100,13 @@ class AuthServiceTest extends IntegrationTestBase {
     authService.signup(
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
 
-    TokenResponse result = authService.login(new LoginRequest("test@example.com", "Password123"));
+    var result = authService.login(new LoginRequest("test@example.com", "Password123"));
 
     assertThat(result.accessToken()).isNotBlank();
     assertThat(result.refreshToken()).isNotBlank();
-    assertThat(result.tokenType()).isEqualTo("Bearer");
     assertThat(result.expiresIn()).isGreaterThan(0);
+    // 1단계 로그인은 tenant-less 토큰 + 선택 가능한 멤버십을 반환한다(여기선 멤버십 없음 = 빈 목록).
+    assertThat(result.memberships()).isNotNull();
   }
 
   @Test
@@ -128,8 +129,7 @@ class AuthServiceTest extends IntegrationTestBase {
   void refresh_success() throws InterruptedException {
     authService.signup(
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
-    TokenResponse loginResult =
-        authService.login(new LoginRequest("test@example.com", "Password123"));
+    var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
 
     Thread.sleep(1100); // JWT uses second-precision timestamps; ensure new token differs
 
@@ -151,8 +151,7 @@ class AuthServiceTest extends IntegrationTestBase {
     UserResponse user =
         authService.signup(
             new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
-    TokenResponse loginResult =
-        authService.login(new LoginRequest("test@example.com", "Password123"));
+    var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
 
     // Logout revokes all tokens
     authService.logout(user.id());
@@ -167,8 +166,7 @@ class AuthServiceTest extends IntegrationTestBase {
   void refresh_reusedToken_revokesEntireFamily() throws InterruptedException {
     authService.signup(
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
-    TokenResponse loginResult =
-        authService.login(new LoginRequest("test@example.com", "Password123"));
+    var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
 
     String firstRefreshToken = loginResult.refreshToken();
 
@@ -194,8 +192,7 @@ class AuthServiceTest extends IntegrationTestBase {
     UserResponse user =
         authService.signup(
             new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
-    TokenResponse loginResult =
-        authService.login(new LoginRequest("test@example.com", "Password123"));
+    var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
 
     authService.logout(user.id());
 
@@ -208,8 +205,7 @@ class AuthServiceTest extends IntegrationTestBase {
     UserResponse user =
         authService.signup(
             new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
-    TokenResponse loginResult =
-        authService.login(new LoginRequest("test@example.com", "Password123"));
+    var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
 
     userRepository.setActive(user.id(), false);
 

@@ -6,7 +6,6 @@ import static org.jooq.impl.DSL.field;
 
 import com.workplace.auth.dto.LoginRequest;
 import com.workplace.auth.dto.SignupRequest;
-import com.workplace.auth.dto.TokenResponse;
 import com.workplace.support.IntegrationTestBase;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -31,8 +30,7 @@ class RefreshTokenCleanupServiceTest extends IntegrationTestBase {
   void cleanupExpiredTokens_deletesExpiredTokens() {
     authService.signup(
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
-    TokenResponse loginResult =
-        authService.login(new LoginRequest("test@example.com", "Password123"));
+    var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
 
     // Manually expire the token
     dsl.update(REFRESH_TOKEN)
