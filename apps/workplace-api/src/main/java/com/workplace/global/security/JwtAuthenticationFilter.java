@@ -1,5 +1,6 @@
 package com.workplace.global.security;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.permission.service.PermissionService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -54,17 +55,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       token = authHeader.substring(7);
     }
 
-    if (token != null) {
-      authenticateWithJwt(token);
-    } else if (StringUtils.hasText(authHeader) && authHeader.startsWith("Internal ")) {
-      authenticateWithInternalToken(authHeader.substring(9), request);
-    }
-
+    // 인증 호출(authenticateWithJwt 내부에서 TenantContext.set 후 DB 조회)이 예외를 던져도
+    // finally 가 실행되도록 인증 전체를 try 안에 둔다. 그래야 풀 스레드에 stale tenant 가
+    // 남아 다음(특히 tenant 없는) 요청이 교차테넌트로 이를 물려받는 fail-open 을 막는다.
     try {
+      if (token != null) {
+        authenticateWithJwt(token);
+      } else if (StringUtils.hasText(authHeader) && authHeader.startsWith("Internal ")) {
+        authenticateWithInternalToken(authHeader.substring(9), request);
+      }
+
       filterChain.doFilter(request, response);
     } finally {
       // 풀링된 스레드로 active-tenant ThreadLocal 이 새지 않도록 요청 종료 시 항상 정리한다.
-      com.workplace.global.tenant.TenantContext.clear();
+      TenantContext.clear();
     }
   }
 
@@ -74,7 +78,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       // active-tenant 클레임이 있으면 요청 스코프에 설정(RLS GUC 주입용). 없으면 fail-closed.
       Long tenantId = jwtTokenProvider.getTenantIdFromToken(token);
       if (tenantId != null) {
-        com.workplace.global.tenant.TenantContext.set(tenantId);
+        TenantContext.set(tenantId);
       }
       setSecurityContext(userId);
     }
