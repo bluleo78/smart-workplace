@@ -53,13 +53,16 @@ class TenantContextGucTest extends IntegrationTestBase {
             });
   }
 
-  /** TenantContext 미설정(tenant-less) → GUC 없음 → 카나리아 비가시(fail-closed). */
+  /** test 하버스 세션 기본값(tenant#1)만 보이고 다른 테넌트 행은 비가시 — LOCAL 미오버라이드 시 기본 스코프. */
   @Test
-  void noTenantContext_failsClosed() {
+  void noTenantContext_seesOnlySessionDefaultTenant() {
     new TransactionTemplate(txManager)
         .execute(
             status -> {
-              assertThat(dsl.fetchCount(TENANT_CANARY)).isEqualTo(0);
+              Integer foreign =
+                  dsl.fetchCount(
+                      dsl.selectFrom(TENANT_CANARY).where(TENANT_CANARY.TENANT_ID.eq(9999L)));
+              assertThat(foreign).isZero();
               status.setRollbackOnly();
               return null;
             });
