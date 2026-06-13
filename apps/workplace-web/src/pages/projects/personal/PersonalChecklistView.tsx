@@ -25,7 +25,7 @@ export function PersonalChecklistView({ projectKey, filters }: { projectKey: str
     return <p className="py-12 text-center text-sm text-muted-foreground">표시할 작업이 없습니다.</p>;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5" data-testid="personal-checklist">
+    <div className="space-y-5" data-testid="personal-checklist">
       {active.map((g) => (
         <section key={g.key} data-testid={`personal-section-${g.key}`}>
           <h3 className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">

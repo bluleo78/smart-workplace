@@ -55,12 +55,12 @@ test('체크리스트는 작업 행과 AI 위임 배지를 렌더한다', async 
 
   await expect(page.getByTestId('personal-task-row-1')).toContainText('블로그 초안');
   await expect(page.getByTestId('personal-task-row-2')).toContainText('운동 계획');
-  // AGENT 담당 + 진행중 → "처리중" 배지. 비위임 행엔 배지 없음.
-  await expect(page.getByTestId('ai-delegation-badge-1')).toContainText('처리중');
+  // AGENT 담당 + 진행중 → "처리중" 아바타(텍스트 없음, title 로 상태). 비위임 행엔 배지 없음.
+  await expect(page.getByTestId('ai-delegation-badge-1')).toHaveAttribute('title', /처리중/);
   await expect(page.getByTestId('ai-delegation-badge-2')).toHaveCount(0);
-  // AGENT 담당 + TODO → "위임" 배지(아직 처리 시작 전).
-  await expect(page.getByTestId('ai-delegation-badge-3')).toContainText('위임');
-  await expect(page.getByTestId('ai-delegation-badge-3')).not.toContainText('처리중');
+  // AGENT 담당 + TODO → "위임" 아바타(아직 처리 시작 전).
+  await expect(page.getByTestId('ai-delegation-badge-3')).toHaveAttribute('title', /위임/);
+  await expect(page.getByTestId('ai-delegation-badge-3')).not.toHaveAttribute('title', /처리중/);
 });
 
 test('보드 뷰는 상태 3컬럼으로 카드를 배치한다', async ({ authenticatedPage: page }) => {
@@ -216,8 +216,11 @@ test('마감 기준 섹션 그룹화 — 과거=overdue, 먼미래=upcoming, 기
   await expect(page.getByTestId('personal-task-row-5')).toHaveCount(0);
 });
 
-test('행에 우선순위 배지·라벨·마감 텍스트가 렌더된다', async ({ authenticatedPage: page }) => {
+test('행에 우선순위(막대)·라벨·짧은 마감 텍스트가 렌더된다', async ({ authenticatedPage: page }) => {
   const label = createLabel({ id: 5, name: '긴급' });
+  // 오늘 마감 — formatDueShort 가 "오늘" 출력하는지 확인용(고정 날짜 대신 오늘 기준).
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   await mockPersonal(page, [
     createIssue({
       projectKey: KEY,
@@ -225,22 +228,26 @@ test('행에 우선순위 배지·라벨·마감 텍스트가 렌더된다', asy
       title: '중요작업',
       status: 'TODO',
       priority: 'HIGH',
-      dueDate: '2020-01-01',
+      dueDate: '2020-01-10', // 명확히 지난 날 → "2020년 1월 10일" + text-destructive
       labels: [toLabelSummary(label)],
     }),
-    // MID 작업 — 우선순위 배지 미노출 확인용(제목에 "보통" 미포함).
-    createIssue({ projectKey: KEY, number: 2, title: '일반항목', status: 'TODO', priority: 'MID' }),
+    // 오늘 마감 → "오늘" 짧은 포맷.
+    createIssue({ projectKey: KEY, number: 2, title: '오늘작업', status: 'TODO', priority: 'MID', dueDate: todayStr }),
   ]);
   await page.goto(`/projects/${KEY}`);
 
   const row = page.getByTestId('personal-task-row-1');
   await expect(row).toContainText('중요작업');
-  await expect(row).toContainText('긴급'); // 라벨
-  await expect(row).toContainText('높음'); // HIGH 우선순위 배지
-  // 마감 텍스트(formatDateKorean 포맷) 존재.
-  await expect(row.locator('span.text-destructive')).toBeVisible();
-  // MID 행에는 우선순위 배지("보통") 미노출.
-  await expect(page.getByTestId('personal-task-row-2')).not.toContainText('보통');
+  await expect(row).toContainText('긴급'); // 라벨(outline 칩, 텍스트 유지)
+  // 우선순위는 막대 아이콘으로 표현 → 텍스트 배지("높음") 없음, data-priority 로 확인.
+  await expect(row).toHaveAttribute('data-priority', 'HIGH');
+  await expect(row).not.toContainText('높음');
+  // 지난 마감 → 짧은 포맷(연도 포함) + text-destructive 색.
+  await expect(row.locator('span.text-destructive')).toContainText('2020년 1월 10일');
+  // 오늘 마감 행 → "오늘" 짧은 포맷, data-priority='MID'.
+  const today2 = page.getByTestId('personal-task-row-2');
+  await expect(today2).toHaveAttribute('data-priority', 'MID');
+  await expect(today2).toContainText('오늘');
 });
 
 test('행 data-status 속성이 이슈 상태와 일치한다', async ({ authenticatedPage: page }) => {

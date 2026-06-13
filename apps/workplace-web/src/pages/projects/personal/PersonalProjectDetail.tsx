@@ -48,7 +48,8 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          <div className="container mx-auto p-6">
+          {/* 개인 화면 본문 — 전체폭(데스크탑 리스트). 팀 화면은 건드리지 않음. */}
+          <div className="w-full px-6 py-6">
             {view === 'board' ? (
               <PersonalBoardView projectKey={key} filters={filters} />
             ) : (
