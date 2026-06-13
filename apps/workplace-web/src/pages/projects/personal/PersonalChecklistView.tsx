@@ -20,7 +20,8 @@ export function PersonalChecklistView({
   groupBy: IssueGroupBy | null;
 }) {
   const q = useIssueSearch(projectKey, filters, 100);
-  const items = q.data?.pages.flatMap((p) => p.items) ?? [];
+  // IssueBoardView 와 동일한 방어 — items 누락 페이지가 groupChecklist 의 it.status 접근에서 throw 하지 않도록.
+  const items = q.data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [];
   const [showDone, setShowDone] = useState(false);
 
   if (q.isLoading) return <p className="text-sm text-muted-foreground">로딩 중…</p>;

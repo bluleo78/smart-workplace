@@ -122,7 +122,11 @@ export function IssueBoardView({
   // group 이 상태/없음이 아니면(담당자·우선순위) 동적 읽기전용 그룹 컬럼을 렌더한다.
   // 상태 그룹/그룹 없음은 기존 드래그-상태변경 보드를 그대로 유지한다 (#58).
   if (groupBy && groupBy !== 'status') {
-    const grouped = groupIssues(allIssues, groupBy);
+    // 개인 3컬럼 보드에서 우선순위 그룹 시 CANCELED 누출 방지 — columns 에 없는 상태는 그룹 전에 제거.
+    // 팀(DEFAULT_COLUMNS=4상태)은 모든 상태가 허용돼 필터가 아무것도 제거하지 않아 출력이 byte-identical.
+    const allowedStatuses = new Set(columns.map((c) => c.status));
+    const visibleIssues = allIssues.filter((it) => allowedStatuses.has(it.status));
+    const grouped = groupIssues(visibleIssues, groupBy);
     return (
       <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">

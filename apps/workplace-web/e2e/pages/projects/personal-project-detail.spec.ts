@@ -372,3 +372,54 @@ test('그룹=상태 클릭 → 체크리스트가 상태 섹션(TODO/IN_PROGRESS
   // 마감 버킷 섹션은 더 이상 없다.
   await expect(page.getByTestId('personal-section-overdue')).toHaveCount(0);
 });
+
+test('툴바 상태 필터(할 일) 클릭 → ?status=TODO URL + 이슈 API status param 전달 + 출력 반영', async ({ authenticatedPage: page }) => {
+  const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, project);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/labels`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/cycles`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/types`, []);
+  // 상태 필터에 따라 응답을 바꿔 입력→처리→출력 전체 파이프라인을 검증한다.
+  const all = [
+    createIssue({ projectKey: KEY, number: 1, title: '할일작업', status: 'TODO', dueDate: '2020-01-01' }),
+    createIssue({ projectKey: KEY, number: 2, title: '완료작업', status: 'DONE', dueDate: undefined }),
+  ];
+  const capturedStatuses: (string | null)[] = [];
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    (route) => {
+      const status = new URL(route.request().url()).searchParams.get('status');
+      capturedStatuses.push(status);
+      // 백엔드 필터를 흉내 — status=TODO 면 TODO 이슈만 반환.
+      const items = status === 'TODO' ? all.filter((it) => it.status === 'TODO') : all;
+      return route.fulfill({ json: createIssueSearchResponse(items) });
+    },
+  );
+  await page.goto(`/projects/${KEY}`);
+  await expect(page.getByTestId('personal-task-row-1')).toContainText('할일작업');
+
+  // 상태 필터 '할 일' 클릭 → URL ?status=TODO.
+  await page.getByRole('button', { name: '할 일' }).click();
+  await expect(page).toHaveURL(/[?&]status=TODO/);
+
+  // 처리 → 이슈 API 가 status=TODO query param 으로 재조회된다.
+  await expect.poll(() => capturedStatuses.includes('TODO')).toBe(true);
+
+  // 출력 → 완료작업(DONE)은 더 이상 표시되지 않는다.
+  await expect(page.getByTestId('personal-task-row-1')).toContainText('할일작업');
+  await expect(page.getByText('완료작업')).toHaveCount(0);
+});
+
+test('보드+우선순위 그룹 — CANCELED 이슈는 어떤 우선순위 컬럼에도 나타나지 않는다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [
+    createIssue({ projectKey: KEY, number: 1, title: '높음활성', status: 'TODO', priority: 'HIGH' }),
+    // CANCELED + HIGH — 우선순위 그룹 시 HIGH 컬럼에 누출되면 안 된다(개인 3컬럼 보드 규칙).
+    createIssue({ projectKey: KEY, number: 2, title: '높음취소', status: 'CANCELED', priority: 'HIGH' }),
+  ]);
+  await page.goto(`/projects/${KEY}?view=board&group=priority`);
+
+  // 활성 HIGH 카드는 렌더된다.
+  await expect(page.getByTestId('issue-card-1')).toBeVisible();
+  // CANCELED 카드는 우선순위 그룹 보드 어디에도 없다.
+  await expect(page.getByTestId('issue-card-2')).toHaveCount(0);
+});
