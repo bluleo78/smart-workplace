@@ -41,3 +41,18 @@ test('뷰 토글 클릭 시 task 쿼리를 보존하며 view만 변경한다', a
   await expect(page).not.toHaveURL(/view=/);
   await expect(page).toHaveURL(/task=1/);
 });
+
+test('체크리스트는 작업 행과 AI 위임 배지를 렌더한다', async ({ authenticatedPage: page }) => {
+  const agent = { id: 99, username: 'ai', name: 'AI', kind: 'AGENT' as const };
+  await mockPersonal(page, [
+    createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'IN_PROGRESS', assignees: [agent] }),
+    createIssue({ projectKey: KEY, number: 2, title: '운동 계획', status: 'TODO', assignees: [] }),
+  ]);
+  await page.goto(`/projects/${KEY}`);
+
+  await expect(page.getByTestId('personal-task-row-1')).toContainText('블로그 초안');
+  await expect(page.getByTestId('personal-task-row-2')).toContainText('운동 계획');
+  // AGENT 담당 + 진행중 → "처리중" 배지. 비위임 행엔 배지 없음.
+  await expect(page.getByTestId('ai-delegation-badge-1')).toContainText('처리중');
+  await expect(page.getByTestId('ai-delegation-badge-2')).toHaveCount(0);
+});
