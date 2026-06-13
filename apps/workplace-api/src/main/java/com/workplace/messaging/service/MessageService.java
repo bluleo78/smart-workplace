@@ -198,7 +198,8 @@ public class MessageService {
     publisher.publishEvent(new MessageReadEvent(channelId, callerId, uptoMessageId));
   }
 
-  /** 채널 멤버만 히스토리 조회. 리액션 집계 batch enrich 포함. */
+  /** 채널 멤버만 히스토리 조회. 리액션 집계 batch enrich 포함. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  @Transactional(readOnly = true)
   public MessagePage list(long callerId, long channelId, String cursor, int limit) {
     ensureMember(channelId, callerId);
     MessagePage page =
@@ -206,7 +207,8 @@ public class MessageService {
     return enrichReactions(page, callerId);
   }
 
-  /** 채널 멤버만 특정 부모 메시지의 답글 조회. */
+  /** 채널 멤버만 특정 부모 메시지의 답글 조회. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  @Transactional(readOnly = true)
   public MessagePage listThread(long callerId, long parentMessageId, String cursor, int limit) {
     MessageRef ref =
         messageRepo

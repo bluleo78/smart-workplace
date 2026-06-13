@@ -42,9 +42,13 @@ public class MailMessageService {
   /**
    * 메시지 단건 상세. 본인 소유가 아니거나 없으면 404. 본문이 미적재(text/html 모두 null)면 OnDemand 로 IMAP 에서 적재 후 다시 읽어 반환한다.
    *
-   * <p>트랜잭션 미선언: {@link MailBodyFetcher} 는 IMAP 왕복 동안 DB 커넥션을 점유하지 않도록 트랜잭션 밖에서 동작해야 한다. 메서드에 트랜잭션을
-   * 걸면 그 계약을 깨고, 읽기전용이면 적재 쓰기가 조용히 실패한다. 적재 후 재조회로 본문을 반영한다.
+   * <p>RLS 도입 후 @Transactional(read-write) 필수 — app_tenant 런타임에서 트랜잭션-로컬 GUC(app.tenant_id)가 주입되지
+   * 않으면 첫 RLS 스코프 SELECT 가 빈 결과 → 거짓 404. read-write 인 이유: 미적재 본문 적재({@link
+   * MailBodyFetcher#fetchBody})가 쓰기를 동반하므로 readOnly 면 적재가 조용히 실패한다. <b>트레이드오프</b>: 본문 미적재(cold)
+   * 경로에서는 IMAP 왕복 동안 DB 커넥션을 점유한다 — 짧은-트랜잭션(별도 빈/TransactionTemplate)으로 커넥션을 조기 반납하는 리팩터링은 후속
+   * 과제(#230 보고서 참조).
    */
+  @Transactional
   public EmailMessageDetail get(long userId, long messageId) {
     EmailMessageDetail detail =
         messageRepo

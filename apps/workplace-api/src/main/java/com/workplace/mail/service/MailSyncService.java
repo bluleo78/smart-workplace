@@ -24,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.angus.mail.imap.IMAPFolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * IMAP 받은편지함을 워크플레이스 DB 로 동기화한다(v1 = INBOX, 온디맨드 폴링) — <b>목록 메타데이터 전용</b>. 본문/첨부는 받지 않고 헤더/봉투/플래그만
@@ -39,9 +40,10 @@ import org.springframework.stereotype.Service;
  *   <li>UIDVALIDITY 가 바뀌면 서버가 UID 를 재사용하므로 폴더의 기존 메시지를 비우고 첫 동기화처럼 재적재.
  * </ul>
  *
- * <p>네트워크 I/O 는 트랜잭션 밖에서 수행한다(긴 트랜잭션 제거) — DB 커넥션을 IMAP 왕복 동안 점유하지 않도록. 계정당 동시 동기화는 {@link
- * MailSyncProgress} 가드로 직렬화해 둘째 클릭이 영구 정지하던 데드락을 제거한다. 진행 상태는 in-memory 홀더에 두고 sync-status 폴링으로
- * 노출한다.
+ * <p>원래 설계는 네트워크 I/O 를 트랜잭션 밖에서 수행했으나(긴 트랜잭션 제거), RLS 도입 후 {@link #sync} 는 GUC 주입을
+ * 위해 @Transactional 이 필요해 IMAP 세션을 트랜잭션 안에서 돌린다(#230). 짧은-트랜잭션 분리는 후속 과제 — 상세는 {@link #sync}
+ * Javadoc. 계정당 동시 동기화는 {@link MailSyncProgress} 가드로 직렬화해 둘째 클릭이 영구 정지하던 데드락을 제거한다. 진행 상태는 in-memory
+ * 홀더에 두고 sync-status 폴링으로 노출한다.
  */
 @Slf4j
 @Service
@@ -66,7 +68,15 @@ public class MailSyncService {
   /**
    * 본인 계정 INBOX 의 목록 메타를 동기화(본문 제외). 소유 아니면 404, 메일 서버 오류면 502. 이미 진행 중이면 빈 결과 반환(가드 — 진행률은
    * sync-status 로 확인). 완료 후 미적재 본문이 있으면 비동기 백그라운드 보충을 트리거한다.
+   *
+   * <p>RLS 도입 후 @Transactional(read-write) 필수 — app_tenant 런타임에서 GUC 미주입 시 소유 검증 SELECT·insert 가 모두
+   * RLS 로 빈 결과/미스코프 → fail-closed. 메시지 insert 를 동반하므로 read-write. <b>트레이드오프</b>: 본 메서드는 IMAP 세션 전체
+   * (fetchMetadata)를 트랜잭션 안에서 수행해 동기화 내내 DB 커넥션을 점유한다(원래 "네트워크 I/O 는 트랜잭션 밖" 설계가 RLS 와 충돌). 14개 중
+   * 최악의 connection-holder — 읽기/쓰기를 짧은 트랜잭션으로 분리하는 리팩터링이 고부하 prod 전 우선 후속 과제(#230 보고서). 또한 비동기 백필
+   * ({@code backfillService.backfill}, @Async)은 요청 스레드 밖에서 돌아 GUC 가 없으므로 별도 컨텍스트 전파가 필요(본 이슈 범위 밖,
+   * 후속).
    */
+  @Transactional
   public MailSyncResult sync(long userId, long accountId) {
     EmailAccountResponse account =
         accountRepo
@@ -86,7 +96,7 @@ public class MailSyncService {
               .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
       EmailFolderRepository.FolderSyncState folder = folderRepo.ensureFolder(accountId, INBOX);
 
-      // 네트워크 I/O — 트랜잭션 밖에서 메타만 수집해 저장.
+      // IMAP 네트워크 I/O + 메타 저장. (#230 이후 RLS GUC 위해 이 트랜잭션 안에서 수행 — 커넥션 점유 트레이드오프는 메서드 Javadoc 참조)
       MailSyncResult result = fetchMetadata(account, accountId, password, folder);
 
       // 미적재 본문이 있으면 본문 보충 단계로 전환 + 비동기 트리거(완료 시 backfill 이 progress.finish 수행).

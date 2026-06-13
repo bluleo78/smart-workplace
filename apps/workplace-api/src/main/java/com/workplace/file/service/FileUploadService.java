@@ -181,6 +181,9 @@ public class FileUploadService {
     return new FileUploadResponse(fileId, originalName, mimeType, file.getSize(), category, now);
   }
 
+  // RLS GUC 주입 위해 @Transactional 필요 — 없으면 app_tenant 런타임에서 SELECT 가 빈 결과 → 거짓 404(local/prod
+  // fail-closed).
+  @Transactional(readOnly = true)
   public FileUploadResponse getFileInfo(Long fileId, Long userId) {
     var record =
         dsl.selectFrom(FILE).where(FILE.ID.eq(fileId)).and(FILE.UPLOADED_BY.eq(userId)).fetchOne();
@@ -202,6 +205,8 @@ public class FileUploadService {
   public record FileContentResult(
       Resource resource, String mimeType, String originalName, long size) {}
 
+  // RLS GUC 주입 위해 @Transactional 필요 — 없으면 SELECT 가 빈 결과 → 거짓 404(local/prod fail-closed).
+  @Transactional(readOnly = true)
   public FileContentResult getFileContent(Long fileId, Long userId) throws IOException {
     var record =
         dsl.selectFrom(FILE).where(FILE.ID.eq(fileId)).and(FILE.UPLOADED_BY.eq(userId)).fetchOne();
