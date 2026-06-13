@@ -3,6 +3,7 @@ package com.workplace.messaging.service;
 import com.workplace.global.dto.MentionResponse;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.service.UserMentionHydrator;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.MentionParser;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.dto.CreateMessageRequest;
@@ -27,6 +28,7 @@ import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.repository.MessageRepository.MessageRef;
 import com.workplace.messaging.repository.ReactionRepository;
+import com.workplace.tenant.repository.MembershipRepository;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +50,7 @@ public class MessageService {
   private final MessageAttachmentService attachmentService;
   private final MessageAttachmentRepository attachmentRepo;
   private final AiAgentProperties aiAgentProps;
+  private final MembershipRepository membershipRepo;
 
   /** 채널 멤버가 메시지 작성. 본문 @멘션 파싱·검증 후 INSERT, AFTER_COMMIT 이벤트 발행. */
   @Transactional
@@ -125,8 +128,15 @@ public class MessageService {
               .filter(m -> "AGENT".equals(m.kind()))
               .map(MentionResponse::id)
               .toList();
-      for (Long agentId : agentMentionIds) memberRepo.add(channelId, agentId, "MEMBER");
-      respondAsAgentId = agentMentionIds.isEmpty() ? null : agentMentionIds.get(0);
+      Long tenantId = TenantContext.get();
+      // 멘션된 AGENT 중 현재 테넌트의 활성 멤버만 채널에 추가·트리거 — 교차테넌트 에이전트 멘션은 조용히 무시(메시지 전송은 막지 않음).
+      // (tenantId == null 이면 어떤 에이전트도 추가하지 않음 — fail-closed)
+      java.util.List<Long> eligibleAgentIds =
+          agentMentionIds.stream()
+              .filter(aid -> tenantId != null && membershipRepo.hasActiveMembership(aid, tenantId))
+              .toList();
+      for (Long agentId : eligibleAgentIds) memberRepo.add(channelId, agentId, "MEMBER");
+      respondAsAgentId = eligibleAgentIds.isEmpty() ? null : eligibleAgentIds.get(0);
     }
     if (respondAsAgentId == null) return;
     publisher.publishEvent(

@@ -14,9 +14,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * V50 messaging 도메인 RLS 격리 증명 — 한 테넌트의 channel/message 는 다른 테넌트 GUC 컨텍스트에서 비가시.
- * 전체를 롤백되는 단일 트랜잭션으로 수행 → 공유 DB 무오염 (app_tenant 는 tenant 행 DELETE 불가, V46;
- * 롤백으로 미커밋 tenant/channel/message 행 모두 사라짐).
+ * V50 messaging 도메인 RLS 격리 증명 — 한 테넌트의 channel/message 는 다른 테넌트 GUC 컨텍스트에서 비가시. 전체를 롤백되는 단일 트랜잭션으로
+ * 수행 → 공유 DB 무오염 (app_tenant 는 tenant 행 DELETE 불가, V46; 롤백으로 미커밋 tenant/channel/message 행 모두 사라짐).
  */
 class MessagingDomainRlsTest extends IntegrationTestBase {
 
@@ -24,8 +23,8 @@ class MessagingDomainRlsTest extends IntegrationTestBase {
   @Autowired private PlatformTransactionManager txManager;
 
   /**
-   * 트랜잭션-로컬 GUC 를 직접 전환하며, tenant#2 의 channel/message 가 tenant#1 컨텍스트에서 안 보임을 증명.
-   * 트랜잭션 내에 신규 테넌트와 channel, message 를 삽입하고 GUC 전환으로 RLS 격리를 확인한 뒤 롤백.
+   * 트랜잭션-로컬 GUC 를 직접 전환하며, tenant#2 의 channel/message 가 tenant#1 컨텍스트에서 안 보임을 증명. 트랜잭션 내에 신규 테넌트와
+   * channel, message 를 삽입하고 GUC 전환으로 RLS 격리를 확인한 뒤 롤백.
    */
   @Test
   void channelAndMessage_areIsolatedAcrossTenants() {
