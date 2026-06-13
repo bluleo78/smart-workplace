@@ -53,16 +53,24 @@ class TenantContextGucTest extends IntegrationTestBase {
             });
   }
 
-  /** test 하버스 세션 기본값(tenant#1)만 보이고 다른 테넌트 행은 비가시 — LOCAL 미오버라이드 시 기본 스코프. */
+  /** LOCAL 미설정(TenantContext 없음) → 세션 GUC 기본값(tenant#1)이 적용됨을 직접 검증. connection-init-sql 회귀 가드. */
   @Test
-  void noTenantContext_seesOnlySessionDefaultTenant() {
+  void noTenantContext_usesSessionDefaultTenant1() {
     new TransactionTemplate(txManager)
         .execute(
             status -> {
-              Integer foreign =
-                  dsl.fetchCount(
-                      dsl.selectFrom(TENANT_CANARY).where(TENANT_CANARY.TENANT_ID.eq(9999L)));
-              assertThat(foreign).isZero();
+              String guc = (String) dsl.fetchValue("SELECT current_setting('app.tenant_id', true)");
+              assertThat(guc).isEqualTo("1");
+              // 세션 기본 테넌트(1)로 RLS WITH CHECK 통과 + 가시
+              dsl.insertInto(TENANT_CANARY)
+                  .set(TENANT_CANARY.TENANT_ID, 1L)
+                  .set(TENANT_CANARY.VAL, "sess-default")
+                  .execute();
+              assertThat(
+                      dsl.fetchCount(
+                          dsl.selectFrom(TENANT_CANARY)
+                              .where(TENANT_CANARY.VAL.eq("sess-default"))))
+                  .isEqualTo(1);
               status.setRollbackOnly();
               return null;
             });
