@@ -27,3 +27,17 @@ test('개인 프로젝트는 전용 셸과 뷰 토글을 렌더한다', { tag: '
   // 팀 전용 헤더 버튼(사이클/설정 텍스트) 부재.
   await expect(page.getByRole('button', { name: '사이클' })).toHaveCount(0);
 });
+
+// 뷰 토글 클릭 — 다른 쿼리(task=) 보존 확인.
+test('뷰 토글 클릭 시 task 쿼리를 보존하며 view만 변경한다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  await page.getByTestId('personal-view-board').click();
+  await expect(page).toHaveURL(/view=board/);
+  await expect(page).toHaveURL(/task=1/);
+
+  await page.getByTestId('personal-view-checklist').click();
+  await expect(page).not.toHaveURL(/view=/);
+  await expect(page).toHaveURL(/task=1/);
+});

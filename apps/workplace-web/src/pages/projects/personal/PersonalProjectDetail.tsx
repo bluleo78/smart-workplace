@@ -1,6 +1,6 @@
 // 개인 프로젝트 전용 상세 셸 — 헤더(빠른 추가) + 체크리스트⇄보드 토글 + 본문 + 우측 패널.
 // 레이아웃만 신규이고 필드 위젯/데이터 훅은 기존 컴포넌트 재사용. URL: /projects/:key?view=&task=
-import { LayoutGrid,ListChecks } from 'lucide-react';
+import { LayoutGrid, ListChecks } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
