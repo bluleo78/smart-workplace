@@ -112,6 +112,8 @@ class AuthServiceTest extends IntegrationTestBase {
     assertThat(result.expiresIn()).isGreaterThan(0);
     // 1단계 로그인은 tenant-less 토큰 + 선택 가능한 멤버십을 반환한다(여기선 멤버십 없음 = 빈 목록).
     assertThat(result.memberships()).isNotNull();
+    // 0 멤버십 → 자동 선택 불가 → tenant-less 토큰(0/1/2 분기 커버리지 잠금).
+    assertThat(jwtTokenProvider.getTenantIdFromToken(result.accessToken())).isNull();
   }
 
   @Test
@@ -326,7 +328,7 @@ class AuthServiceTest extends IntegrationTestBase {
     var result = authService.login(new LoginRequest("multi-member@example.com", "Password123"));
 
     assertThat(jwtTokenProvider.getTenantIdFromToken(result.accessToken())).isNull();
-    assertThat(result.memberships()).hasSizeGreaterThanOrEqualTo(2);
+    assertThat(result.memberships()).hasSize(2);
     // @Transactional 클래스 어노테이션으로 테스트 종료 시 롤백 — 별도 cleanup 불필요.
   }
 }
