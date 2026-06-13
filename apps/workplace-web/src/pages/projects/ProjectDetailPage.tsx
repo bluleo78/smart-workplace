@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 
 import { useProject } from '../../hooks/queries/useProjects';
 import { parseFilters, parseGroupBy, parseView } from '../../lib/issueFilters';
+import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
 import { IssueFilterBar } from './components/IssueFilterBar';
@@ -27,6 +28,11 @@ export default function ProjectDetailPage() {
         프로젝트를 불러올 수 없습니다
       </p>
     );
+
+  // 개인 프로젝트는 전용 화면으로 분기 — 팀 화면(사이클/설정/필터바)을 렌더하지 않는다.
+  if (project.data?.type === 'PERSONAL') {
+    return <PersonalProjectDetail project={project.data} />;
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
