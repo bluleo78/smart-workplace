@@ -1,11 +1,15 @@
 // 태스크 리스트 뷰 — cursor 기반 무한 스크롤.
 // sentinel 이 뷰포트에 들어오면 다음 페이지를 자동 fetch.
+// 행은 아이콘 중심(상태/우선순위/유형) + 담당자 + 행 전체 클릭으로 상세 이동(#234).
 
 import { useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
+import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
+import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
+import { UserAvatar } from '../../../components/users/UserAvatar';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { formatDateKorean } from '../../../lib/formatters';
 import { groupIssues } from '../../../lib/issueGrouping';
@@ -14,8 +18,6 @@ import type {
   IssueGroupBy,
   IssueResponse,
 } from '../../../types/issue';
-import { IssuePriorityBadge } from './IssuePriorityBadge';
-import { IssueStatusBadge } from './IssueStatusBadge';
 
 export function IssueListView({
   projectKey,
@@ -31,7 +33,6 @@ export function IssueListView({
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   // IntersectionObserver — sentinel 진입 시 다음 페이지 로드.
-  // rootMargin 으로 화면 아래 200px 미리 트리거.
   useEffect(() => {
     const node = sentinelRef.current;
     if (!node) return;
@@ -51,7 +52,6 @@ export function IssueListView({
     return <p className="text-muted-foreground py-4">로딩 중…</p>;
   }
 
-  // 응답 모양이 예상과 다르면(p.items 누락 등) flatMap 이 [undefined] 를 만들 수 있어 필터링.
   const items =
     data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [];
   if (items.length === 0) {
@@ -62,7 +62,6 @@ export function IssueListView({
     );
   }
 
-  // group 이 설정되면 빈 그룹은 숨기고 섹션별로 묶어 렌더 (#58). 부재 시 평탄 목록.
   const groups = groupBy
     ? groupIssues(items, groupBy).filter((g) => g.issues.length > 0)
     : null;
@@ -72,10 +71,12 @@ export function IssueListView({
       <table className="w-full text-sm" role="table">
         <thead>
           <tr className="text-left text-muted-foreground border-b">
-            <th className="py-2 w-28">ID</th>
+            {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
+            <th className="w-9 py-2"><span className="sr-only">상태</span></th>
+            <th className="w-9"><span className="sr-only">우선순위</span></th>
+            <th className="w-28">ID</th>
             <th>제목</th>
-            <th className="w-28">상태</th>
-            <th className="w-24">우선순위</th>
+            <th className="w-20">담당자</th>
             <th className="w-32">마감</th>
           </tr>
         </thead>
@@ -84,7 +85,7 @@ export function IssueListView({
             <tbody key={g.key} data-testid={`list-group-${g.key}`}>
               <tr className="bg-muted/40 border-b">
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="py-1.5 px-1 text-xs font-semibold text-muted-foreground"
                 >
                   {g.label}
@@ -105,14 +106,12 @@ export function IssueListView({
         )}
       </table>
       <div ref={sentinelRef} aria-hidden="true" className="h-1" />
-      {isFetching && (
-        <p className="text-muted-foreground py-2">불러오는 중…</p>
-      )}
+      {isFetching && <p className="text-muted-foreground py-2">불러오는 중…</p>}
     </div>
   );
 }
 
-// 리스트 행 — 평탄/그룹 렌더가 공유 (DRY) (#58).
+// 리스트 행 — 평탄/그룹 렌더가 공유 (DRY). 행 전체 클릭 → 상세(#234).
 function IssueRow({
   issue: it,
   projectKey,
@@ -120,21 +119,36 @@ function IssueRow({
   issue: IssueResponse;
   projectKey: string;
 }) {
+  const navigate = useNavigate();
+  const to = `/projects/${projectKey}/issues/${it.number}`;
+  const isSubtask = it.type?.name === 'SUBTASK';
+
   return (
     <tr
-      className="border-b hover:bg-accent"
-      role="row"
+      onClick={() => navigate(to)}
+      className="border-b hover:bg-accent cursor-pointer"
       data-testid={`issue-row-${it.number}`}
     >
-      <td className="py-2 font-mono text-muted-foreground">
-        {projectKey}-{it.number}
+      <td className="py-2"><IssueStatusIcon status={it.status} /></td>
+      <td><IssuePriorityBars priority={it.priority} /></td>
+      <td className="font-mono text-muted-foreground text-xs">
+        <span className="flex items-center gap-1.5">
+          {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
+          <span>{projectKey}-{it.number}</span>
+        </span>
       </td>
       <td>
-        <div className="flex items-center gap-2">
-          {it.type && <IssueTypeBadge type={it.type} size="sm" />}
+        <div className="flex items-center gap-1.5 font-medium">
+          {/* SUBTASK 면 부모 식별자(↳ KEY-N) 를 제목 앞에 작게 표시. */}
+          {isSubtask && it.parent && (
+            <span className="text-[11px] text-muted-foreground font-mono">
+              ↳ {projectKey}-{it.parent.number}
+            </span>
+          )}
+          {/* 제목 = 실제 링크(키보드 포커스·스크린리더 접근점). 행 onClick 은 마우스 편의용. */}
           <Link
-            to={`/projects/${projectKey}/issues/${it.number}`}
-            className="font-medium hover:underline"
+            to={to}
+            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {it.title}
           </Link>
@@ -148,12 +162,27 @@ function IssueRow({
         )}
       </td>
       <td>
-        <IssueStatusBadge status={it.status} />
+        <span className="flex items-center -space-x-1">
+          {it.assignees.length === 0 ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            <>
+              {it.assignees.slice(0, 3).map((u) => (
+                // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분.
+                <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
+              ))}
+              {it.assignees.length > 3 && (
+                <span className="text-[10px] text-muted-foreground ml-1">
+                  +{it.assignees.length - 3}
+                </span>
+              )}
+            </>
+          )}
+        </span>
       </td>
-      <td>
-        <IssuePriorityBadge priority={it.priority} />
+      <td className="text-muted-foreground" data-testid={`issue-row-${it.number}-due`}>
+        {formatDateKorean(it.dueDate)}
       </td>
-      <td>{formatDateKorean(it.dueDate)}</td>
     </tr>
   );
 }
