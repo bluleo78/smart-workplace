@@ -45,6 +45,7 @@ export function IssueBoardView({
   groupBy,
   columns = DEFAULT_COLUMNS,
   cardTo,
+  showType = true,
 }: {
   projectKey: string;
   filters: IssueFilters;
@@ -53,6 +54,8 @@ export function IssueBoardView({
   columns?: { status: string; label: string }[];
   // 카드 링크 대상 빌더(기본 미지정 = IssueCard 기본 상세 경로). 개인은 drawer 경로 주입.
   cardTo?: (issue: IssueResponse) => string;
+  // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
+  showType?: boolean;
 }) {
   // 보드는 한 화면에 많은 카드를 보여줘야 하므로 페이지 크기를 100 으로 키운다.
   const { data, fetchNextPage, hasNextPage, isFetching } = useIssueSearch(
@@ -131,7 +134,7 @@ export function IssueBoardView({
       <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {grouped.map((g) => (
-            <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} />
+            <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} />
           ))}
         </div>
         {hasNextPage && (
@@ -160,6 +163,7 @@ export function IssueBoardView({
             issues={byStatus[col.status] ?? []}
             projectKey={projectKey}
             cardTo={cardTo}
+            showType={showType}
           />
         ))}
       </div>
@@ -176,6 +180,7 @@ export function IssueBoardView({
             issue={activeIssue}
             asOverlay
             to={cardTo?.(activeIssue)}
+            showType={showType}
           />
         ) : null}
       </DragOverlay>
@@ -190,6 +195,7 @@ function BoardColumn({
   issues,
   projectKey,
   cardTo,
+  showType = true,
 }: {
   status: string;
   label: string;
@@ -197,6 +203,8 @@ function BoardColumn({
   projectKey: string;
   // 카드 링크 대상 빌더 — 부모에서 thread.
   cardTo?: (issue: IssueResponse) => string;
+  // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
+  showType?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `col-${status}`,
@@ -219,7 +227,7 @@ function BoardColumn({
       >
         <div className="flex flex-col gap-2">
           {issues.map((it) => (
-            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} />
+            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} />
           ))}
         </div>
       </SortableContext>
@@ -228,15 +236,19 @@ function BoardColumn({
 }
 
 // 담당자/우선순위 그룹 보드의 컬럼 — DnD 없는 읽기전용 (이슈는 *렌더*만 요구) (#58).
+// 비-상태 그룹(담당자·우선순위)은 컬럼 헤더가 상태를 드러내지 않으므로 카드에 showStatus=true 로 상태 아이콘을 표시한다.
 function ReadOnlyColumn({
   group,
   projectKey,
   cardTo,
+  showType = true,
 }: {
   group: IssueGroup;
   projectKey: string;
   // 카드 링크 대상 빌더 — 부모에서 thread.
   cardTo?: (issue: IssueResponse) => string;
+  // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
+  showType?: boolean;
 }) {
   return (
     <section
@@ -250,7 +262,7 @@ function ReadOnlyColumn({
       </header>
       <div className="flex flex-col gap-2">
         {group.issues.map((it) => (
-          <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} />
+          <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} showStatus />
         ))}
       </div>
     </section>

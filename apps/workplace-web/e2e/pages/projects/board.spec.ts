@@ -295,6 +295,52 @@ test.describe('태스크 보드/검색', () => {
     await expect(humanAvatar).not.toHaveAttribute('data-agent');
   });
 
+  test('카드: 우선순위 막대 렌더 + 카드 전체(담당자 영역) 클릭으로 상세 이동 (#234)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    const issue = createIssue({ id: 1, number: 7, title: '로그인 버그', status: 'IN_PROGRESS', priority: 'HIGH' });
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([issue])),
+      }),
+    );
+
+    await page.goto(`/projects/WP?view=board`);
+    const card = page.getByTestId('issue-card-7');
+    await expect(card).toBeVisible();
+    // 우선순위 막대 렌더 확인
+    await expect(card.getByLabel('우선순위 높음')).toBeVisible();
+    // 카드 전체(담당자 영역) 클릭 → 상세 이동
+    await card.getByTestId('issue-card-7-assignees').click();
+    await expect(page).toHaveURL(/\/projects\/WP\/issues\/7$/);
+  });
+
+  test('카드: 5px 이상 드래그는 상세를 열지 않는다(클릭/드래그 구분) (#234)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    const issue = createIssue({ id: 1, number: 7, title: '로그인 버그', status: 'TODO', priority: 'MID' });
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([issue])),
+      }),
+    );
+
+    await page.goto(`/projects/WP?view=board`);
+    const card = page.getByTestId('issue-card-7');
+    const box = (await card.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await expect(page).toHaveURL(/\/projects\/WP\?view=board$/);
+  });
+
   test('리스트 무한 스크롤 — 두번째 페이지가 cursor 로 자동 로드', async ({
     authenticatedPage: page,
   }) => {

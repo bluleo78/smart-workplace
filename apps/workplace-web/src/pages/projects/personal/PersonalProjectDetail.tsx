@@ -70,6 +70,7 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
                 groupBy={groupBy}
                 columns={PERSONAL_COLUMNS}
                 cardTo={cardTo}
+                showType={false}
               />
             ) : (
               <PersonalChecklistView projectKey={key} filters={filters} groupBy={groupBy} />
