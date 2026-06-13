@@ -30,6 +30,7 @@ export function PersonalChecklistRow({ projectKey, issue, expanded, onToggleExpa
           className={cn('h-4 w-4 shrink-0 rounded-full border-[1.5px]',
             done ? 'bg-muted-foreground/40 border-muted-foreground/40' : 'border-muted-foreground/60')} />
         <button type="button" onClick={onToggleExpand}
+          aria-expanded={expanded} aria-controls={`personal-task-inline-id-${issue.number}`}
           className={cn('flex-1 truncate text-left text-sm', done && 'text-muted-foreground line-through')}>
           {issue.title}
         </button>
@@ -37,11 +38,11 @@ export function PersonalChecklistRow({ projectKey, issue, expanded, onToggleExpa
         <AiDelegationBadge issue={issue} />
       </div>
       {expanded && (
-        <div data-testid={`personal-task-inline-${issue.number}`}
+        <div id={`personal-task-inline-id-${issue.number}`} data-testid={`personal-task-inline-${issue.number}`}
           className="ml-9 mr-2 mb-2 space-y-2 rounded-md border p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <IssueStatusSelect value={issue.status} onChange={(v) => update.mutate({ status: v })} />
-            <IssuePrioritySelect value={issue.priority} onChange={(v) => update.mutate({ priority: v })} />
+            <IssueStatusSelect value={issue.status} disabled={update.isPending} onChange={(v) => update.mutate({ status: v })} />
+            <IssuePrioritySelect value={issue.priority} disabled={update.isPending} onChange={(v) => update.mutate({ priority: v })} />
             <LabelPickerPopover projectKey={projectKey} issueNumber={issue.number} current={issue.labels} />
           </div>
           <button type="button" data-testid={`personal-task-detail-link-${issue.number}`} onClick={openPanel}
