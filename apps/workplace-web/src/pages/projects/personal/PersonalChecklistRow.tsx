@@ -34,6 +34,8 @@ export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string
       <button
         type="button"
         aria-label="완료 토글"
+        aria-pressed={done}
+        disabled={update.isPending}
         data-testid={`personal-task-check-${issue.number}`}
         onClick={toggleDone}
         className={cn(
