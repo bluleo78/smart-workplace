@@ -103,13 +103,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     try {
       Long userId = Long.parseLong(onBehalfOf);
       // Internal(AI 에이전트) 경로도 active-tenant 를 요청 스코프에 설정해야 RLS GUC 가 주입된다.
-      // JWT 경로(클레임)와 달리 토큰에 tenant 가 없으므로, 대상 사용자의 단일 활성 멤버십에서 해석한다.
-      // (멀티 소속 에이전트의 명시적 테넌트 선택은 P4 후속. 0/다중이면 미설정 → fail-closed.)
+      // 토큰에 tenant 가 없으므로, 선택적 X-On-Behalf-Of-Tenant 헤더(멤버십 검증) 또는 단일 멤버십으로 해석한다.
+      // 비멤버 테넌트 헤더/0/다중·미해석이면 미설정 → fail-closed. (ApiKey 필터와 동일 불변식)
       // TenantContext 를 먼저 설정해야 setSecurityContext→getUserPermissions(@Transactional doBegin)가
-      // GUC 를 주입받아 RLS 하에서 권한을 정상 조회한다. (ApiKey 필터와 동일 불변식)
+      // GUC 를 주입받아 RLS 하에서 권한을 정상 조회한다.
       var memberships = membershipRepository.findActiveByUser(userId);
-      if (memberships.size() == 1) {
-        TenantContext.set(memberships.get(0).tenantId());
+      Long resolved =
+          AgentTenantResolver.resolve(
+              memberships, request.getHeader(AgentTenantResolver.TENANT_HEADER));
+      if (resolved != null) {
+        TenantContext.set(resolved);
       }
       setSecurityContext(userId);
     } catch (NumberFormatException ignored) {

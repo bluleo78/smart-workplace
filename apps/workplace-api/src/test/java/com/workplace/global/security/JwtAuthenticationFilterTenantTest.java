@@ -140,4 +140,67 @@ class JwtAuthenticationFilterTenantTest {
     assertThat(captured.get()).isEqualTo(TENANT_ID);
     // MembershipRepository 는 호출되지 않아야 함 (Mockito strict: 미설정 stub 호출 시 예외 발생)
   }
+
+  /** 명시 테넌트 헤더가 에이전트의 ACTIVE 멤버십에 포함되면 그 테넌트로 설정. */
+  @Test
+  void internalToken_explicitTenant_member_setsRequestedTenant() throws Exception {
+    when(membershipRepository.findActiveByUser(USER_ID))
+        .thenReturn(
+            List.of(
+                new MembershipResponse(1L, "Acme", "acme"),
+                new MembershipResponse(2L, "Beta", "beta")));
+    AtomicReference<Long> captured = new AtomicReference<>();
+    FilterChain capturingChain = (req, res) -> captured.set(TenantContext.get());
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("Authorization", "Internal " + INTERNAL_TOKEN);
+    request.addHeader("X-On-Behalf-Of", USER_ID.toString());
+    request.addHeader(AgentTenantResolver.TENANT_HEADER, "2");
+    filter.doFilter(request, new MockHttpServletResponse(), capturingChain);
+    assertThat(captured.get()).as("멀티 멤버십 + 명시 헤더(멤버) → 요청 테넌트 채택").isEqualTo(2L);
+  }
+
+  /** 명시 테넌트 헤더가 멤버십에 없으면 미설정(fail-closed) — 헤더 위조 차단. */
+  @Test
+  void internalToken_explicitTenant_notMember_failsClosed() throws Exception {
+    when(membershipRepository.findActiveByUser(USER_ID))
+        .thenReturn(List.of(new MembershipResponse(1L, "Acme", "acme")));
+    AtomicReference<Long> captured = new AtomicReference<>(Long.MIN_VALUE);
+    FilterChain capturingChain = (req, res) -> captured.set(TenantContext.get());
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("Authorization", "Internal " + INTERNAL_TOKEN);
+    request.addHeader("X-On-Behalf-Of", USER_ID.toString());
+    request.addHeader(AgentTenantResolver.TENANT_HEADER, "999");
+    filter.doFilter(request, new MockHttpServletResponse(), capturingChain);
+    assertThat(captured.get()).as("명시 헤더가 비멤버 테넌트 → 미설정 (fail-closed)").isNull();
+  }
+
+  /** 명시 테넌트 헤더가 단일 멤버십과 일치하면 그대로 설정. */
+  @Test
+  void internalToken_explicitTenant_singleMembershipMatch_setsTenant() throws Exception {
+    when(membershipRepository.findActiveByUser(USER_ID))
+        .thenReturn(List.of(new MembershipResponse(1L, "Acme", "acme")));
+    AtomicReference<Long> captured = new AtomicReference<>();
+    FilterChain capturingChain = (req, res) -> captured.set(TenantContext.get());
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("Authorization", "Internal " + INTERNAL_TOKEN);
+    request.addHeader("X-On-Behalf-Of", USER_ID.toString());
+    request.addHeader(AgentTenantResolver.TENANT_HEADER, "1");
+    filter.doFilter(request, new MockHttpServletResponse(), capturingChain);
+    assertThat(captured.get()).isEqualTo(1L);
+  }
+
+  /** 잘못된(숫자 아님) 명시 헤더는 미설정(fail-closed). */
+  @Test
+  void internalToken_explicitTenant_malformed_failsClosed() throws Exception {
+    when(membershipRepository.findActiveByUser(USER_ID))
+        .thenReturn(List.of(new MembershipResponse(1L, "Acme", "acme")));
+    AtomicReference<Long> captured = new AtomicReference<>(Long.MIN_VALUE);
+    FilterChain capturingChain = (req, res) -> captured.set(TenantContext.get());
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("Authorization", "Internal " + INTERNAL_TOKEN);
+    request.addHeader("X-On-Behalf-Of", USER_ID.toString());
+    request.addHeader(AgentTenantResolver.TENANT_HEADER, "abc");
+    filter.doFilter(request, new MockHttpServletResponse(), capturingChain);
+    assertThat(captured.get()).as("malformed 헤더 → 미설정 (fail-closed)").isNull();
+  }
 }
