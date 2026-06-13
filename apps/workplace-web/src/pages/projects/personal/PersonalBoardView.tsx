@@ -46,10 +46,12 @@ export function PersonalBoardView({ projectKey, filters }: { projectKey: string;
 // 보드 카드 — 제목 + AI 배지. 클릭 시 패널 오픈.
 function PersonalBoardCard({ issue, onOpen }: { issue: IssueResponse; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} data-testid={`personal-board-card-${issue.number}`}
+    <button type="button" onClick={onOpen} aria-label={issue.title} data-testid={`personal-board-card-${issue.number}`}
       className={cn('w-full rounded-md border bg-card p-3 text-left text-sm hover:border-primary/40')}>
       <div className="truncate">{issue.title}</div>
-      <div className="mt-1"><AiDelegationBadge issue={issue} /></div>
+      {issue.assignees.some((a) => a.kind === 'AGENT') && (
+        <div className="mt-1"><AiDelegationBadge issue={issue} /></div>
+      )}
     </button>
   );
 }

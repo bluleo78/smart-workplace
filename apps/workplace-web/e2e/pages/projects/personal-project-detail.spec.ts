@@ -66,6 +66,7 @@ test('보드 뷰는 상태 3컬럼으로 카드를 배치한다', async ({ authe
     createIssue({ projectKey: KEY, number: 1, title: '할일카드', status: 'TODO' }),
     createIssue({ projectKey: KEY, number: 2, title: '진행카드', status: 'IN_PROGRESS' }),
     createIssue({ projectKey: KEY, number: 3, title: '완료카드', status: 'DONE' }),
+    createIssue({ projectKey: KEY, number: 4, title: '취소카드', status: 'CANCELED' }),
   ]);
   await page.goto(`/projects/${KEY}?view=board`);
 
@@ -73,6 +74,8 @@ test('보드 뷰는 상태 3컬럼으로 카드를 배치한다', async ({ authe
   await expect(page.getByTestId('personal-board-col-TODO')).toContainText('할일카드');
   await expect(page.getByTestId('personal-board-col-IN_PROGRESS')).toContainText('진행카드');
   await expect(page.getByTestId('personal-board-col-DONE')).toContainText('완료카드');
+  // CANCELED 는 개인 보드에서 표시하지 않는다(문서화된 디자인 규칙).
+  await expect(page.getByTestId('personal-board')).not.toContainText('취소카드');
 });
 
 test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 반영', async ({ authenticatedPage: page }) => {
