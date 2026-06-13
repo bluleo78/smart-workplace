@@ -10,6 +10,7 @@ export function IssuePriorityBars({ priority }: { priority: IssuePriority }) {
   const filled = FILLED[priority];
   return (
     <span
+      role="img"
       className="flex shrink-0 items-end gap-[1.5px]"
       title={`우선순위: ${LABEL[priority]}`}
       aria-label={`우선순위 ${LABEL[priority]}`}

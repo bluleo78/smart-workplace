@@ -45,4 +45,18 @@ test.describe('팀 리스트 뷰', () => {
     await row.getByTestId('issue-row-7-due').click();
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/7$`));
   });
+
+  test('제목 링크 클릭은 history 를 한 번만 쌓는다(뒤로가기 1번에 리스트 복귀) (#234)', async ({ authenticatedPage: page }) => {
+    // 제목 <Link> 가 행 onClick 으로 버블하면 navigate 가 두 번 발생해 뒤로가기 1번으로는 같은 상세로 되돌아온다.
+    // stopPropagation 회귀 검증: 제목 클릭 → 상세, 뒤로가기 1번 → 리스트.
+    const issue = createIssue({ id: 1, number: 7, title: '로그인 버그 수정', status: 'TODO', priority: 'MID' });
+    await mock(page, [issue]);
+
+    await page.goto(`/projects/${KEY}`);
+    await page.getByTestId('issue-row-7').getByText('로그인 버그 수정').click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/7$`));
+
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
+  });
 });

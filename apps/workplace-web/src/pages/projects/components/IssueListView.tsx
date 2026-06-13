@@ -145,9 +145,11 @@ function IssueRow({
               ↳ {projectKey}-{it.parent.number}
             </span>
           )}
-          {/* 제목 = 실제 링크(키보드 포커스·스크린리더 접근점). 행 onClick 은 마우스 편의용. */}
+          {/* 제목 = 실제 링크(키보드 포커스·스크린리더 접근점). 행 onClick 은 마우스 편의용.
+              stopPropagation 으로 링크 클릭이 행 onClick 까지 버블해 history 가 이중 push 되는 것을 막는다. */}
           <Link
             to={to}
+            onClick={(e) => e.stopPropagation()}
             className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {it.title}
