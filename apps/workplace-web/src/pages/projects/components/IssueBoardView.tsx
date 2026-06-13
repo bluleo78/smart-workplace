@@ -31,7 +31,8 @@ import type {
 } from '../../../types/issue';
 import { IssueCard } from './IssueCard';
 
-const COLUMNS: { status: string; label: string }[] = [
+// 기본 4컬럼(팀). 개인은 3컬럼(CANCELED 제외) 을 주입한다.
+const DEFAULT_COLUMNS: { status: string; label: string }[] = [
   { status: 'TODO', label: '할 일' },
   { status: 'IN_PROGRESS', label: '진행 중' },
   { status: 'DONE', label: '완료' },
@@ -42,10 +43,16 @@ export function IssueBoardView({
   projectKey,
   filters,
   groupBy,
+  columns = DEFAULT_COLUMNS,
+  cardTo,
 }: {
   projectKey: string;
   filters: IssueFilters;
   groupBy: IssueGroupBy | null;
+  // 컬럼 세트 override(기본 팀 4컬럼). 컬럼에 없는 상태의 이슈는 렌더 제외.
+  columns?: { status: string; label: string }[];
+  // 카드 링크 대상 빌더(기본 미지정 = IssueCard 기본 상세 경로). 개인은 drawer 경로 주입.
+  cardTo?: (issue: IssueResponse) => string;
 }) {
   // 보드는 한 화면에 많은 카드를 보여줘야 하므로 페이지 크기를 100 으로 키운다.
   const { data, fetchNextPage, hasNextPage, isFetching } = useIssueSearch(
@@ -69,18 +76,15 @@ export function IssueBoardView({
     [data],
   );
 
+  // byStatus 는 columns 기준으로 동적 생성 — 컬럼에 없는 상태(개인 CANCELED)는 자연 제외.
   const byStatus = useMemo(() => {
-    const map: Record<string, IssueResponse[]> = {
-      TODO: [],
-      IN_PROGRESS: [],
-      DONE: [],
-      CANCELED: [],
-    };
+    const map: Record<string, IssueResponse[]> = {};
+    for (const col of columns) map[col.status] = [];
     for (const it of allIssues) {
       if (map[it.status]) map[it.status].push(it);
     }
     return map;
-  }, [allIssues]);
+  }, [allIssues, columns]);
 
   // PointerSensor distance:5 — 짧은 클릭으로 Link 가 발화되도록 보장.
   const sensors = useSensors(
@@ -123,7 +127,7 @@ export function IssueBoardView({
       <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {grouped.map((g) => (
-            <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} />
+            <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} />
           ))}
         </div>
         {hasNextPage && (
@@ -144,13 +148,14 @@ export function IssueBoardView({
       onDragCancel={() => setActiveIssue(null)}
     >
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-        {COLUMNS.map((col) => (
+        {columns.map((col) => (
           <BoardColumn
             key={col.status}
             status={col.status}
             label={col.label}
             issues={byStatus[col.status] ?? []}
             projectKey={projectKey}
+            cardTo={cardTo}
           />
         ))}
       </div>
@@ -166,6 +171,7 @@ export function IssueBoardView({
             projectKey={projectKey}
             issue={activeIssue}
             asOverlay
+            to={cardTo?.(activeIssue)}
           />
         ) : null}
       </DragOverlay>
@@ -179,11 +185,14 @@ function BoardColumn({
   label,
   issues,
   projectKey,
+  cardTo,
 }: {
   status: string;
   label: string;
   issues: IssueResponse[];
   projectKey: string;
+  // 카드 링크 대상 빌더 — 부모에서 thread.
+  cardTo?: (issue: IssueResponse) => string;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `col-${status}`,
@@ -206,7 +215,7 @@ function BoardColumn({
       >
         <div className="flex flex-col gap-2">
           {issues.map((it) => (
-            <IssueCard key={it.id} projectKey={projectKey} issue={it} />
+            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} />
           ))}
         </div>
       </SortableContext>
@@ -218,9 +227,12 @@ function BoardColumn({
 function ReadOnlyColumn({
   group,
   projectKey,
+  cardTo,
 }: {
   group: IssueGroup;
   projectKey: string;
+  // 카드 링크 대상 빌더 — 부모에서 thread.
+  cardTo?: (issue: IssueResponse) => string;
 }) {
   return (
     <section
@@ -234,7 +246,7 @@ function ReadOnlyColumn({
       </header>
       <div className="flex flex-col gap-2">
         {group.issues.map((it) => (
-          <IssueCard key={it.id} projectKey={projectKey} issue={it} />
+          <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} />
         ))}
       </div>
     </section>
