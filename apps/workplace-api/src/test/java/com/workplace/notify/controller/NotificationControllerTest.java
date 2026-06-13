@@ -18,6 +18,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
@@ -43,6 +44,8 @@ class NotificationControllerTest {
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
+
+  @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserRepository userRepository;
 

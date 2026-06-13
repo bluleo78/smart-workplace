@@ -2,6 +2,7 @@ package com.workplace.global.security;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.repository.MembershipRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,14 +28,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
   private final JwtTokenProvider jwtTokenProvider;
   private final PermissionService permissionService;
+  private final MembershipRepository membershipRepository;
   private final String internalToken;
 
   public JwtAuthenticationFilter(
       JwtTokenProvider jwtTokenProvider,
       @Lazy PermissionService permissionService,
+      MembershipRepository membershipRepository,
       @Value("${workplace.ai-agent.internal-token:}") String internalToken) {
     this.jwtTokenProvider = jwtTokenProvider;
     this.permissionService = permissionService;
+    this.membershipRepository = membershipRepository;
     this.internalToken = internalToken;
   }
 
@@ -99,6 +103,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     try {
       Long userId = Long.parseLong(onBehalfOf);
       setSecurityContext(userId);
+      // Internal(AI 에이전트) 경로도 active-tenant 를 요청 스코프에 설정해야 RLS GUC 가 주입된다.
+      // JWT 경로(클레임)와 달리 토큰에 tenant 가 없으므로, 대상 사용자의 단일 활성 멤버십에서 해석한다.
+      // (멀티 소속 에이전트의 명시적 테넌트 선택은 P4 후속. 0/다중이면 미설정 → fail-closed.)
+      var memberships = membershipRepository.findActiveByUser(userId);
+      if (memberships.size() == 1) {
+        TenantContext.set(memberships.get(0).tenantId());
+      }
     } catch (NumberFormatException ignored) {
       // Invalid userId, skip authentication
     }

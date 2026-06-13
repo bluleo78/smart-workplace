@@ -21,6 +21,7 @@ import com.workplace.messaging.dto.DmResponse;
 import com.workplace.messaging.exception.InvalidDmRequestException;
 import com.workplace.messaging.service.DmService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
@@ -47,6 +48,8 @@ class DmControllerTest {
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
+
+  @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserRepository userRepository;
 

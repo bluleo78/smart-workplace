@@ -25,6 +25,7 @@ import com.workplace.issue.dto.UpdateCommentRequest;
 import com.workplace.issue.service.IssueCommentService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
@@ -50,6 +51,8 @@ class IssueCommentControllerTest {
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
   @MockitoBean private PermissionService permissionService;
+
+  @MockitoBean private MembershipRepository membershipRepository;
 
   @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
 

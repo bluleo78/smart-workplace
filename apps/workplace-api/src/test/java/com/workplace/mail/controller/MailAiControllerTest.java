@@ -19,6 +19,7 @@ import com.workplace.mail.dto.MailSummary;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.service.MailAiService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +47,8 @@ class MailAiControllerTest {
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
+
+  @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserRepository userRepository;
 

@@ -16,6 +16,7 @@ import com.workplace.permission.dto.PermissionResponse;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.role.dto.*;
 import com.workplace.role.service.RoleService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Set;
@@ -43,6 +44,8 @@ class RoleControllerTest {
   @MockitoBean private JwtProperties jwtProperties;
 
   @MockitoBean private PermissionService permissionService;
+
+  @MockitoBean private MembershipRepository membershipRepository;
 
   @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
 

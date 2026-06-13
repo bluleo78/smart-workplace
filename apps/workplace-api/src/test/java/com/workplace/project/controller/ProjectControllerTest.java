@@ -28,6 +28,7 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
@@ -53,6 +54,8 @@ class ProjectControllerTest {
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
   @MockitoBean private PermissionService permissionService;
+
+  @MockitoBean private MembershipRepository membershipRepository;
 
   @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
 
