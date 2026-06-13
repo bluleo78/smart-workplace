@@ -59,10 +59,11 @@ public class IssueAssigneeService {
 
     List<Long> normalized = userIds == null ? List.of() : userIds;
 
-    // 1) 모든 userIds 가 프로젝트 멤버인지 검증
+    // 1) 담당자 검증 — 개인 프로젝트는 OWNER + 모든 AGENT 를 허용 후보로(멤버 검사 완화), 팀은 멤버만 (Unit 4)
     if (!normalized.isEmpty()) {
-      var memberIds = memberRepository.findUserIdsByProject(project.id());
-      if (!new HashSet<>(memberIds).containsAll(normalized)) {
+      Set<Long> allowed =
+          AssigneePolicy.allowedAssigneeIds(project, memberRepository, userRepository);
+      if (!allowed.containsAll(normalized)) {
         throw new InvalidAssigneeForProjectException();
       }
     }

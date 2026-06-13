@@ -29,6 +29,8 @@ test('사이드바가 프로젝트 응답을 링크로 렌더한다 (name → hr
     name: 'Engineering',
     description: null,
     ownerId: 1,
+    type: 'TEAM',
+    isDefault: false,
     createdAt: '',
     updatedAt: '',
   }

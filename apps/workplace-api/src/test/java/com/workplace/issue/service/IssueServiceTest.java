@@ -8,6 +8,7 @@ import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
+import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -15,6 +16,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -91,6 +93,39 @@ class IssueServiceTest extends IntegrationTestBase {
 
     assertThat(first.number()).isEqualTo(1);
     assertThat(second.number()).isEqualTo(2);
+  }
+
+  /** 개인 프로젝트: 멤버 아닌 AGENT 도 담당자로 지정 가능 (Unit 4 검증 완화). */
+  @Test
+  void create_personalAllowsAgentAssignee() {
+    Long owner = createUser("owner6");
+    Long agent = createAgentUser("bot6");
+    ProjectResponse personal =
+        projectService.create(owner, new CreateProjectRequest(null, "p6", null, "PERSONAL"));
+    IssueResponse resp =
+        issueService.create(
+            owner,
+            personal.key(),
+            new CreateIssueRequest("t", null, null, null, List.of(agent), null, null));
+    // create() 응답 DTO 는 assignees 를 채우지 않으므로(IssueResponse.from), 읽기 경로(get)로 실제 배정 확인
+    IssueDetailResponse detail = issueService.get(owner, personal.key(), resp.number());
+    assertThat(detail.summary().assignees()).anyMatch(a -> a.id().equals(agent));
+  }
+
+  /** 개인 프로젝트: 소유자/AGENT 가 아닌 일반 HUMAN 은 담당자로 지정 불가 (Unit 4 검증 완화의 경계). */
+  @Test
+  void create_personalRejectsNonOwnerHuman() {
+    Long owner = createUser("owner6b");
+    Long stranger = createUser("stranger6b");
+    ProjectResponse personal =
+        projectService.create(owner, new CreateProjectRequest(null, "p6b", null, "PERSONAL"));
+    assertThatThrownBy(
+            () ->
+                issueService.create(
+                    owner,
+                    personal.key(),
+                    new CreateIssueRequest("t", null, null, null, List.of(stranger), null, null)))
+        .isInstanceOf(InvalidAssigneeForProjectException.class);
   }
 
   @Test

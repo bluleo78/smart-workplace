@@ -4,8 +4,11 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.IssueAssigneeAgentRestrictionException;
@@ -39,6 +42,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   @Autowired IssueWatcherRepository watcherRepository;
   @Autowired ProjectService projectService;
   @Autowired UserRepository userRepository;
+  @Autowired IssueService issueService;
 
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -48,23 +52,6 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
             .set(USER.PASSWORD, "pw")
             .set(USER.NAME, prefix)
             .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
-    Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("USER")).fetchOne(ROLE.ID);
-    dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
-    return id;
-  }
-
-  /** AGENT 유저 생성 (password=NULL, kind='AGENT'). 권한 분기 통합 테스트용. */
-  private Long createAgentUser(String prefix) {
-    String suffix = UUID.randomUUID().toString().substring(0, 8);
-    Long id =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, prefix + "-" + suffix)
-            .set(USER.NAME, prefix)
-            .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
-            .set(USER.KIND, "AGENT")
             .returning(USER.ID)
             .fetchOne()
             .getId();
@@ -234,6 +221,24 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     var result = service.replace(agent, p.key(), 1, List.of());
 
     assertThat(result).isEmpty();
+  }
+
+  /** 개인 프로젝트: AGENT 담당 지정 허용, 멤버 아닌 HUMAN 은 거부 (Unit 4 검증 완화). */
+  @Test
+  void replace_personalAllowsAgentRejectsHuman() {
+    Long owner = createUser("owner5");
+    Long agent = createAgentUser("bot5");
+    Long stranger = createUser("stranger5");
+    ProjectResponse personal =
+        projectService.create(owner, new CreateProjectRequest(null, "p", null, "PERSONAL"));
+    IssueResponse issue =
+        issueService.create(
+            owner, personal.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+    assertThatCode(() -> service.replace(owner, personal.key(), issue.number(), List.of(agent)))
+        .doesNotThrowAnyException();
+    assertThatThrownBy(
+            () -> service.replace(owner, personal.key(), issue.number(), List.of(stranger)))
+        .isInstanceOf(InvalidAssigneeForProjectException.class);
   }
 
   @Test

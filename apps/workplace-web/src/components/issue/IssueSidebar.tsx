@@ -13,6 +13,11 @@ export function IssueSidebar() {
   // 사용자가 고정한 뷰 — 프로젝트 교차 빠른 접근(사이드바 상단 노출).
   const pinned = useMyPinnedViews()
 
+  // 프로젝트를 개인(PERSONAL)/팀(TEAM)으로 분리 — 개인 프로젝트는 별도 섹션에 노출한다.
+  const all = projects.data?.content ?? []
+  const personal = all.filter((p) => p.type === 'PERSONAL')
+  const team = all.filter((p) => p.type !== 'PERSONAL')
+
   return (
     <aside
       className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40"
@@ -57,6 +62,39 @@ export function IssueSidebar() {
           </div>
         )}
 
+        {/* 개인 영역 — 소유자 전용 비공개 개인 프로젝트(멤버 없음) 그룹. */}
+        {personal.length > 0 && (
+          <div className="mt-5" data-testid="sidebar-personal-projects">
+            <div className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              개인
+            </div>
+            <nav className="mt-2 space-y-1">
+              {personal.map((p) => {
+                // 백엔드에 색상 필드가 없어 key 해시로 결정적 컬러 식별자 생성(아이콘 일관성).
+                const c = projectColor(p.key)
+                return (
+                  <NavLink
+                    key={p.id}
+                    to={`/projects/${p.key}`}
+                    data-testid={`personal-project-${p.key}`}
+                    className={sidebarLinkClass}
+                  >
+                    <span
+                      aria-hidden="true"
+                      data-testid={`project-badge-${p.key}`}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold"
+                      style={{ backgroundColor: c.bg, color: c.fg }}
+                    >
+                      {projectInitial(p.key)}
+                    </span>
+                    <span className="truncate">{p.name}</span>
+                  </NavLink>
+                )
+              })}
+            </nav>
+          </div>
+        )}
+
         <div className="mt-5">
           <div className="flex items-center justify-between px-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -71,11 +109,16 @@ export function IssueSidebar() {
             </NavLink>
           </div>
           <nav className="mt-2 space-y-1">
-            {(projects.data?.content ?? []).map((p) => {
+            {team.map((p) => {
               // 백엔드에 색상 필드가 없어 key 해시로 결정적 컬러 식별자 생성(아이콘 일관성).
               const c = projectColor(p.key)
               return (
-                <NavLink key={p.id} to={`/projects/${p.key}`} className={sidebarLinkClass}>
+                <NavLink
+                  key={p.id}
+                  to={`/projects/${p.key}`}
+                  className={sidebarLinkClass}
+                  data-testid={`team-project-${p.key}`}
+                >
                   <span
                     aria-hidden="true"
                     data-testid={`project-badge-${p.key}`}

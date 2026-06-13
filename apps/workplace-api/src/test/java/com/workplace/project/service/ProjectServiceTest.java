@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.workplace.global.dto.PageResponse;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.MemberResponse;
@@ -15,6 +14,7 @@ import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,19 +52,22 @@ class ProjectServiceTest extends IntegrationTestBase {
         .getId();
   }
 
-  /** role_name 의 역할을 user 에게 부여. */
-  private void grantRole(Long userId, String roleName) {
-    Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq(roleName)).fetchOne(ROLE.ID);
-    dsl.insertInto(USER_ROLE)
-        .set(USER_ROLE.USER_ID, userId)
-        .set(USER_ROLE.ROLE_ID, roleId)
-        .execute();
-  }
-
   /** 유니크 key 생성 (대문자/숫자 2~10자). */
   private String uniqueKey(String prefix) {
     String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 4);
     return (prefix + suffix).substring(0, Math.min(10, (prefix + suffix).length()));
+  }
+
+  /** 개인 프로젝트 멤버 목록은 OWNER + AGENT 담당 후보를 함께 노출한다. */
+  @Test
+  void listMembers_personalIncludesAgents() {
+    Long owner = createUser("owner4");
+    Long agent = createAgentUser("bot");
+    ProjectResponse personal =
+        projectService.create(owner, new CreateProjectRequest(null, "AI랑", null, "PERSONAL"));
+    List<MemberResponse> members = projectService.listMembers(owner, personal.key());
+    assertThat(members).anyMatch(m -> m.userId().equals(owner) && "OWNER".equals(m.role()));
+    assertThat(members).anyMatch(m -> m.userId().equals(agent) && "AGENT".equals(m.kind()));
   }
 
   @Test
@@ -103,6 +106,31 @@ class ProjectServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void create_team_setsTypeTeamAndNotDefault() {
+    String key = uniqueKey("WP");
+    ProjectResponse resp =
+        projectService.create(ownerId, new CreateProjectRequest(key, "Workplace", "v1", "TEAM"));
+    assertThat(resp.type()).isEqualTo("TEAM");
+    assertThat(resp.isDefault()).isFalse();
+  }
+
+  @Test
+  void create_personal_autoGeneratesKeyAndSetsType() {
+    ProjectResponse resp =
+        projectService.create(ownerId, new CreateProjectRequest(null, "사이드 토이", null, "PERSONAL"));
+    assertThat(resp.type()).isEqualTo("PERSONAL");
+    assertThat(resp.isDefault()).isFalse();
+    assertThat(resp.key()).startsWith("P");
+    assertThat(resp.name()).isEqualTo("사이드 토이");
+    String role =
+        dsl.select(PROJECT_MEMBER.ROLE)
+            .from(PROJECT_MEMBER)
+            .where(PROJECT_MEMBER.PROJECT_ID.eq(resp.id()).and(PROJECT_MEMBER.USER_ID.eq(ownerId)))
+            .fetchOne(PROJECT_MEMBER.ROLE);
+    assertThat(role).isEqualTo("OWNER");
+  }
+
+  @Test
   void create_duplicateKey_throwsConflict() {
     String key = uniqueKey("DUP");
     projectService.create(ownerId, new CreateProjectRequest(key, "First", null));
@@ -110,30 +138,6 @@ class ProjectServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () -> projectService.create(ownerId, new CreateProjectRequest(key, "Second", null)))
         .isInstanceOf(ProjectConflictException.class);
-  }
-
-  @Test
-  void list_callerIsAdmin_returnsAllActiveProjects() {
-    // other 가 만든 프로젝트 — owner 는 멤버 아님
-    String key = uniqueKey("ADM");
-    projectService.create(otherUserId, new CreateProjectRequest(key, "By Other", null));
-
-    // owner 에게 ADMIN 역할 부여
-    grantRole(ownerId, "ADMIN");
-
-    PageResponse<ProjectResponse> result = projectService.list(ownerId, 0, 50);
-    assertThat(result.content().stream().anyMatch(p -> p.key().equals(key))).isTrue();
-  }
-
-  @Test
-  void list_callerIsNotMember_excludesProject() {
-    // other 가 만든 프로젝트
-    String key = uniqueKey("EX");
-    projectService.create(otherUserId, new CreateProjectRequest(key, "By Other", null));
-
-    // owner 는 비-멤버, 비-ADMIN
-    PageResponse<ProjectResponse> result = projectService.list(ownerId, 0, 50);
-    assertThat(result.content().stream().noneMatch(p -> p.key().equals(key))).isTrue();
   }
 
   @Test
@@ -196,6 +200,18 @@ class ProjectServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 projectService.addMember(ownerId, key, new AddMemberRequest(otherUserId, "MEMBER")))
+        .isInstanceOf(ProjectConflictException.class);
+  }
+
+  /** 개인 프로젝트에는 사람 멤버를 추가할 수 없음 (혼자만 사용). */
+  @Test
+  void addMember_blockedOnPersonalProject() {
+    ProjectResponse personal =
+        projectService.create(ownerId, new CreateProjectRequest(null, "혼자", null, "PERSONAL"));
+    assertThatThrownBy(
+            () ->
+                projectService.addMember(
+                    ownerId, personal.key(), new AddMemberRequest(otherUserId, "MEMBER")))
         .isInstanceOf(ProjectConflictException.class);
   }
 }

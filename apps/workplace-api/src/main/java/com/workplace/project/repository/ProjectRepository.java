@@ -30,6 +30,8 @@ public class ProjectRepository {
         r.get(PROJECT.NAME),
         r.get(PROJECT.DESCRIPTION),
         r.get(PROJECT.OWNER_ID),
+        r.get(PROJECT.TYPE),
+        Boolean.TRUE.equals(r.get(PROJECT.IS_DEFAULT)),
         created != null ? created.toInstant() : null,
         updated != null ? updated.toInstant() : null);
   }
@@ -54,6 +56,8 @@ public class ProjectRepository {
             PROJECT.NAME,
             PROJECT.DESCRIPTION,
             PROJECT.OWNER_ID,
+            PROJECT.TYPE,
+            PROJECT.IS_DEFAULT,
             PROJECT.CREATED_AT,
             PROJECT.UPDATED_AT)
         .from(PROJECT)
@@ -69,11 +73,18 @@ public class ProjectRepository {
             PROJECT.NAME,
             PROJECT.DESCRIPTION,
             PROJECT.OWNER_ID,
+            PROJECT.TYPE,
+            PROJECT.IS_DEFAULT,
             PROJECT.CREATED_AT,
             PROJECT.UPDATED_AT)
         .from(PROJECT)
         .where(PROJECT.ID.eq(id).and(PROJECT.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
+  }
+
+  /** ADMIN 가시 범위: TEAM 전체 + 본인 PERSONAL만 (개인 프로젝트 완전 비공개 정책). */
+  private org.jooq.Condition adminVisibleCondition(Long userId) {
+    return PROJECT.DELETED_AT.isNull().and(PROJECT.TYPE.eq("TEAM").or(PROJECT.OWNER_ID.eq(userId)));
   }
 
   /**
@@ -87,10 +98,12 @@ public class ProjectRepository {
               PROJECT.NAME,
               PROJECT.DESCRIPTION,
               PROJECT.OWNER_ID,
+              PROJECT.TYPE,
+              PROJECT.IS_DEFAULT,
               PROJECT.CREATED_AT,
               PROJECT.UPDATED_AT)
           .from(PROJECT)
-          .where(PROJECT.DELETED_AT.isNull())
+          .where(adminVisibleCondition(userId))
           .orderBy(PROJECT.UPDATED_AT.desc())
           .limit(size)
           .offset((long) page * size)
@@ -102,6 +115,8 @@ public class ProjectRepository {
             PROJECT.NAME,
             PROJECT.DESCRIPTION,
             PROJECT.OWNER_ID,
+            PROJECT.TYPE,
+            PROJECT.IS_DEFAULT,
             PROJECT.CREATED_AT,
             PROJECT.UPDATED_AT)
         .from(PROJECT)
@@ -119,7 +134,7 @@ public class ProjectRepository {
     if (isAdmin) {
       return dsl.select(count())
           .from(PROJECT)
-          .where(PROJECT.DELETED_AT.isNull())
+          .where(adminVisibleCondition(userId))
           .fetchOne(0, Long.class);
     }
     return dsl.select(count())
@@ -130,19 +145,47 @@ public class ProjectRepository {
         .fetchOne(0, Long.class);
   }
 
-  /** 신규 프로젝트 INSERT 후 생성된 row 반환. */
-  public ProjectRow insert(String key, String name, String description, Long ownerId) {
+  /** 소유자의 기본 개인 프로젝트(있으면). */
+  public Optional<ProjectRow> findDefaultPersonal(Long ownerId) {
+    return dsl.select(
+            PROJECT.ID,
+            PROJECT.KEY,
+            PROJECT.NAME,
+            PROJECT.DESCRIPTION,
+            PROJECT.OWNER_ID,
+            PROJECT.TYPE,
+            PROJECT.IS_DEFAULT,
+            PROJECT.CREATED_AT,
+            PROJECT.UPDATED_AT)
+        .from(PROJECT)
+        .where(
+            PROJECT
+                .OWNER_ID
+                .eq(ownerId)
+                .and(PROJECT.TYPE.eq("PERSONAL"))
+                .and(PROJECT.IS_DEFAULT.isTrue())
+                .and(PROJECT.DELETED_AT.isNull()))
+        .fetchOptional(this::mapToRow);
+  }
+
+  /** 신규 프로젝트 INSERT 후 생성된 row 반환. type/isDefault 로 TEAM/PERSONAL·기본 프로젝트 여부를 지정. */
+  public ProjectRow insert(
+      String key, String name, String description, Long ownerId, String type, boolean isDefault) {
     return dsl.insertInto(PROJECT)
         .set(PROJECT.KEY, key)
         .set(PROJECT.NAME, name)
         .set(PROJECT.DESCRIPTION, description)
         .set(PROJECT.OWNER_ID, ownerId)
+        .set(PROJECT.TYPE, type)
+        .set(PROJECT.IS_DEFAULT, isDefault)
         .returning(
             PROJECT.ID,
             PROJECT.KEY,
             PROJECT.NAME,
             PROJECT.DESCRIPTION,
             PROJECT.OWNER_ID,
+            PROJECT.TYPE,
+            PROJECT.IS_DEFAULT,
             PROJECT.CREATED_AT,
             PROJECT.UPDATED_AT)
         .fetchOptional()

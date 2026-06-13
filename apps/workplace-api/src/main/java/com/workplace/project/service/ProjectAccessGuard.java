@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * 프로젝트 접근/역할 보장 가드. 컨트롤러 단의 {@code @RequirePermission} 외에 프로젝트별 멤버십/역할 체크가 필요할 때 서비스에서 호출한다. ADMIN
- * 역할은 모든 프로젝트 접근을 우회한다.
+ * 역할은 팀(TEAM) 프로젝트 접근을 우회하지만, 개인(PERSONAL) 프로젝트는 완전 비공개라 소유자만 접근할 수 있다(ADMIN도 제외).
  */
 @Service
 @RequiredArgsConstructor
@@ -45,8 +45,9 @@ public class ProjectAccessGuard {
         projectRepository
             .findByKey(projectKey)
             .orElseThrow(() -> new ProjectNotFoundException(projectKey));
-    // ADMIN 은 멤버십/역할 검증을 모두 우회
-    if (permissionChecker.userHasRole(userId, "ADMIN")) {
+    boolean isPersonal = "PERSONAL".equals(project.type());
+    // ADMIN 은 멤버십/역할 검증을 우회 — 단, PERSONAL 은 소유자만 접근 (완전 비공개)
+    if (!isPersonal && permissionChecker.userHasRole(userId, "ADMIN")) {
       return project;
     }
     MemberRow member =

@@ -22,8 +22,7 @@ import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useDeleteProject, useProject, useUpdateProject } from '../../hooks/queries/useProjects';
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
-import { updateProjectSchema, type UpdateProjectFormData } from '../../lib/validations/project';
-
+import { type UpdateProjectFormData,updateProjectSchema } from '../../lib/validations/project';
 import { CustomFieldManagement } from './components/CustomFieldManagement';
 import { IssueTypeManagement } from './components/IssueTypeManagement';
 import { LabelManagement } from './components/LabelManagement';
@@ -41,6 +40,8 @@ export default function ProjectSettingsPage() {
   const { user } = useAuth();
   const isOwner =
     members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
+  // 개인 프로젝트는 멤버 개념이 없어 멤버 관리 섹션을 숨긴다.
+  const isPersonal = project.data?.type === 'PERSONAL';
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<UpdateProjectFormData>({
     resolver: zodResolver(updateProjectSchema),
@@ -100,7 +101,8 @@ export default function ProjectSettingsPage() {
         <Button type="submit" disabled={update.isPending}>{update.isPending ? '저장 중…' : '저장'}</Button>
       </form>
 
-      <MemberManagement projectKey={key} />
+      {/* 개인 프로젝트는 멤버가 없으므로 멤버 관리 섹션 숨김 */}
+      {!isPersonal && <MemberManagement projectKey={key} />}
 
       <LabelManagement projectKey={key} isOwner={isOwner} />
 

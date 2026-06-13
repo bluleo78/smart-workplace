@@ -9,6 +9,8 @@ public record ProjectResponse(
     String name,
     String description,
     Long ownerId,
+    String type,
+    boolean isDefault,
     Instant createdAt,
     Instant updatedAt) {
 
@@ -20,6 +22,8 @@ public record ProjectResponse(
         row.name(),
         row.description(),
         row.ownerId(),
+        row.type(),
+        row.isDefault(),
         row.createdAt(),
         row.updatedAt());
   }

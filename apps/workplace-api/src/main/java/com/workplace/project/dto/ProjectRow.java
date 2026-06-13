@@ -9,5 +9,7 @@ public record ProjectRow(
     String name,
     String description,
     Long ownerId,
+    String type,
+    boolean isDefault,
     Instant createdAt,
     Instant updatedAt) {}

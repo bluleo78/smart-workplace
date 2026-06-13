@@ -16,6 +16,8 @@ import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
+import com.workplace.user.dto.UserKind;
+import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,22 +37,38 @@ public class ProjectService {
   private final ProjectAccessGuard accessGuard;
   private final PermissionChecker permissionChecker;
   private final IssueTypeService issueTypeService;
+  private final PersonalProjectProvisioner provisioner;
+  private final UserRepository userRepository;
 
-  /** 프로젝트 생성. 호출자를 OWNER 로 등록 → 이슈 시퀀스 초기화 → 시스템 유형 4종(TASK/BUG/STORY/CHORE) 시드. */
+  /**
+   * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, 아니면 TEAM 경로. 호출자를 OWNER 로 등록 → 이슈
+   * 시퀀스 초기화 → 시스템 유형 4종(TASK/BUG/STORY/CHORE) 시드.
+   */
   public ProjectResponse create(Long callerId, CreateProjectRequest req) {
+    if ("PERSONAL".equals(req.typeOrDefault())) {
+      return provisioner.createPersonal(callerId, req.name(), req.description(), false);
+    }
+    if (req.key() == null || req.key().isBlank()) {
+      throw new ProjectConflictException("팀 프로젝트는 key 가 필요합니다");
+    }
     if (projectRepository.existsByKey(req.key())) {
       throw new ProjectConflictException("이미 사용 중인 key 입니다: " + req.key());
     }
-    ProjectRow row = projectRepository.insert(req.key(), req.name(), req.description(), callerId);
+    ProjectRow row =
+        projectRepository.insert(req.key(), req.name(), req.description(), callerId, "TEAM", false);
     memberRepository.insert(row.id(), callerId, "OWNER");
     sequenceRepository.initialize(row.id());
     issueTypeService.seedSystemTypes(row.id());
     return ProjectResponse.from(row);
   }
 
-  /** 사용자에게 보이는 프로젝트 목록 페이지 조회. ADMIN 은 전체, 일반 사용자는 본인 멤버 프로젝트만. */
+  /**
+   * 사용자에게 보이는 프로젝트 목록 페이지 조회. 조회 전에 기본 개인 프로젝트를 지연 프로비저닝(HUMAN 한정)한다 — provisioner 의 REQUIRES_NEW
+   * 서브 트랜잭션이 먼저 커밋되므로 본 readOnly 조회가 깨끗한 커넥션에서 기본 프로젝트를 볼 수 있다. ADMIN 은 전체, 일반 사용자는 본인 멤버 프로젝트만.
+   */
   @Transactional(readOnly = true)
   public PageResponse<ProjectResponse> list(Long callerId, int page, int size) {
+    provisioner.ensureDefaultPersonal(callerId);
     boolean isAdmin = permissionChecker.userHasRole(callerId, "ADMIN");
     long total = projectRepository.countForUser(callerId, isAdmin);
     List<ProjectRow> rows = projectRepository.findAllForUser(callerId, isAdmin, page, size);
@@ -80,19 +98,46 @@ public class ProjectService {
   /** 프로젝트 soft-delete. OWNER 권한 필요. */
   public void softDelete(Long callerId, String projectKey) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
+    // 기본 개인 프로젝트는 사용자에게 항상 1개 보장되어야 하므로 삭제 차단
+    if (project.isDefault()) {
+      throw new ProjectConflictException("기본 개인 프로젝트는 삭제할 수 없습니다");
+    }
     projectRepository.softDelete(project.id());
   }
 
-  /** 프로젝트 멤버 목록 조회. 멤버 권한 필요. */
+  /**
+   * 프로젝트 멤버 목록 조회. 멤버 권한 필요. 개인 프로젝트는 멤버(OWNER 혼자) 외에 AGENT 사용자들을 담당 후보로 함께 노출한다 (멤버는 아니지만 assignee
+   * 가능 — Unit 4). TEAM 프로젝트는 순수 멤버 목록 그대로 반환.
+   */
   @Transactional(readOnly = true)
   public List<MemberResponse> listMembers(Long callerId, String projectKey) {
     ProjectRow project = accessGuard.assertMember(projectKey, callerId);
-    return memberRepository.findAllByProject(project.id());
+    List<MemberResponse> members = memberRepository.findAllByProject(project.id());
+    if (!"PERSONAL".equals(project.type())) {
+      return members;
+    }
+    // 개인 프로젝트: 담당 후보로 AGENT 사용자도 노출 (멤버는 아니지만 assignee 가능)
+    java.util.Set<Long> ids =
+        members.stream().map(MemberResponse::userId).collect(java.util.stream.Collectors.toSet());
+    List<MemberResponse> agents =
+        userRepository.findByKind(UserKind.AGENT).stream()
+            .filter(u -> !ids.contains(u.id()))
+            // AGENT 후보는 합성 행(실제 project_member 아님)이라 createdAt 미사용 → null (TZ 변환 회피)
+            .map(
+                u ->
+                    new MemberResponse(
+                        u.id(), u.username(), u.name(), UserKind.AGENT, "MEMBER", null))
+            .toList();
+    return java.util.stream.Stream.concat(members.stream(), agents.stream()).toList();
   }
 
   /** 멤버 추가. OWNER 권한 필요. 중복 시 409. */
   public MemberResponse addMember(Long callerId, String projectKey, AddMemberRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
+    // 개인 프로젝트는 소유자 혼자만 사용 — 다른 사람 멤버 추가 차단
+    if ("PERSONAL".equals(project.type())) {
+      throw new ProjectConflictException("개인 프로젝트에는 멤버를 추가할 수 없습니다");
+    }
     if (memberRepository.isMember(project.id(), req.userId())) {
       throw new ProjectConflictException("이미 멤버입니다");
     }

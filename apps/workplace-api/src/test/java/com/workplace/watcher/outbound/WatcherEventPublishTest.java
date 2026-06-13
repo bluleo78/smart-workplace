@@ -66,7 +66,8 @@ class WatcherEventPublishTest {
             publisher);
 
     ProjectRow project =
-        new ProjectRow(PROJECT_ID, PROJECT_KEY, "P", "d", 1L, Instant.now(), Instant.now());
+        new ProjectRow(
+            PROJECT_ID, PROJECT_KEY, "P", "d", 1L, "TEAM", false, Instant.now(), Instant.now());
     IssueRow issue =
         new IssueRow(
             ISSUE_ID,

@@ -35,7 +35,6 @@ import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.HashSet;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -73,11 +72,11 @@ public class IssueService {
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
     var project = accessGuard.assertMember(projectKey, callerId);
 
-    // 1) 담당자 멤버십 검증
+    // 1) 담당자 검증 — 개인 프로젝트는 OWNER + 모든 AGENT 를 허용 후보로(멤버 검사 완화), 팀은 멤버만 (Unit 4)
     List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
     if (!assigneeIds.isEmpty()) {
-      var memberIds = memberRepository.findUserIdsByProject(project.id());
-      if (!new HashSet<>(memberIds).containsAll(assigneeIds)) {
+      var allowed = AssigneePolicy.allowedAssigneeIds(project, memberRepository, userRepository);
+      if (!allowed.containsAll(assigneeIds)) {
         throw new InvalidAssigneeForProjectException();
       }
     }

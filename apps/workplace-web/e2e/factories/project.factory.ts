@@ -9,6 +9,8 @@ export function createProject(overrides: Partial<ProjectResponse> = {}): Project
     name: 'Workplace',
     description: 'v1',
     ownerId: 1,
+    type: 'TEAM',
+    isDefault: false,
     createdAt: now,
     updatedAt: now,
     ...overrides,

@@ -66,7 +66,8 @@ class ProjectControllerTest {
   }
 
   private ProjectResponse sampleProject() {
-    return new ProjectResponse(10L, "WP", "Workplace", "v1", 1L, Instant.now(), Instant.now());
+    return new ProjectResponse(
+        10L, "WP", "Workplace", "v1", 1L, "TEAM", false, Instant.now(), Instant.now());
   }
 
   @Test
@@ -84,6 +85,27 @@ class ProjectControllerTest {
                         new CreateProjectRequest("WP", "Workplace", "v1"))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.key").value("WP"));
+  }
+
+  @Test
+  void create_personalWithoutKey_passesValidation_returns200() throws Exception {
+    // PERSONAL 은 key 생략 가능 — @Valid 레이어가 400 으로 막지 않고 서비스까지 도달해야 한다.
+    mockAuthentication("project:write");
+    ProjectResponse personal =
+        new ProjectResponse(
+            11L, "P-1", "개인 작업", null, 1L, "PERSONAL", false, Instant.now(), Instant.now());
+    when(projectService.create(eq(1L), any())).thenReturn(personal);
+
+    mockMvc
+        .perform(
+            post("/api/v1/projects")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new CreateProjectRequest(null, "개인 작업", null, "PERSONAL"))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.type").value("PERSONAL"));
   }
 
   @Test
