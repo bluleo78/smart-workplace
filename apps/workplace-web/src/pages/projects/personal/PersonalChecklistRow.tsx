@@ -1,54 +1,84 @@
-// 개인 체크리스트 단일 행 — 완료 토글 + 제목 + 마감 + AI 배지 + 인라인 펼침(빠른 편집).
+// 개인 체크리스트 단일 행 — 상태아이콘(완료 토글) + 우선순위 + 제목 + 라벨 + 마감 + AI 배지.
+// 행 클릭 = 우측 drawer 토글(같은 행 재클릭 시 닫힘). 인라인 펼침은 제거(상세는 drawer).
 import { useSearchParams } from 'react-router-dom';
 
-import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
+import { LabelChip } from '@/components/labels/LabelChip';
 import { useUpdateIssue } from '@/hooks/queries/useIssue';
+import { formatDateKorean } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 import type { IssueResponse } from '@/types/issue';
 
-import { IssuePrioritySelect } from '../components/IssuePrioritySelect';
-import { IssueStatusSelect } from '../components/IssueStatusSelect';
+import { IssuePriorityBadge } from '../components/IssuePriorityBadge';
 import { AiDelegationBadge } from './aiDelegation';
+import { PersonalStatusIcon } from './PersonalStatusIcon';
 
-export function PersonalChecklistRow({ projectKey, issue, expanded, onToggleExpand }: {
-  projectKey: string; issue: IssueResponse; expanded: boolean; onToggleExpand: () => void;
-}) {
-  const [, setParams] = useSearchParams();
+// 마감 색 — 지남=빨강, 오늘=주황(warning). 완료/없음/이후=muted.
+function dueClass(due: string, done: boolean): string {
+  if (done) return 'text-muted-foreground';
+  const now = new Date();
+  const sToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const d = new Date(due + 'T00:00:00');
+  if (d < sToday) return 'text-destructive';
+  if (d.getTime() === sToday.getTime()) return 'text-warning';
+  return 'text-muted-foreground';
+}
+
+export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string; issue: IssueResponse }) {
+  const [params, setParams] = useSearchParams();
   const update = useUpdateIssue(projectKey, issue.number);
   const done = issue.status === 'DONE';
+  const isOpen = params.get('task') === String(issue.number);
 
-  const toggleDone = () => update.mutate({ status: done ? 'TODO' : 'DONE' });
-  // "자세히 보기" → 우측 패널 오픈(?task=N).
-  const openPanel = () =>
-    setParams((p) => { const n = new URLSearchParams(p); n.set('task', String(issue.number)); return n; }, { replace: true });
+  // 상태아이콘 클릭 = 완료 토글(행 클릭 전파 차단).
+  const toggleDone = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    update.mutate({ status: done ? 'TODO' : 'DONE' });
+  };
+  // 행 클릭 = drawer 토글(같은 행이면 닫고, 아니면 해당 이슈로 전환).
+  const togglePanel = () =>
+    setParams((p) => {
+      const n = new URLSearchParams(p);
+      if (n.get('task') === String(issue.number)) n.delete('task');
+      else n.set('task', String(issue.number));
+      return n;
+    }, { replace: true });
 
   return (
-    <div className="rounded-md hover:bg-muted/50">
-      <div data-testid={`personal-task-row-${issue.number}`} className="flex items-center gap-3 px-2 py-2">
-        <button type="button" aria-label="완료 토글" aria-pressed={done} disabled={update.isPending}
-          data-testid={`personal-task-check-${issue.number}`} onClick={toggleDone}
-          className={cn('h-4 w-4 shrink-0 rounded-full border-[1.5px]',
-            done ? 'bg-muted-foreground/40 border-muted-foreground/40' : 'border-muted-foreground/60')} />
-        <button type="button" onClick={onToggleExpand}
-          aria-expanded={expanded} aria-controls={`personal-task-inline-id-${issue.number}`}
-          className={cn('flex-1 truncate text-left text-sm', done && 'text-muted-foreground line-through')}>
-          {issue.title}
-        </button>
-        {issue.dueDate && <span className="shrink-0 text-xs text-muted-foreground">{issue.dueDate}</span>}
+    <div
+      role="button"
+      tabIndex={0}
+      data-testid={`personal-task-row-${issue.number}`}
+      data-status={issue.status}
+      aria-current={isOpen}
+      onClick={togglePanel}
+      onKeyDown={(e) => { if (e.key === 'Enter') togglePanel(); }}
+      className={cn(
+        'flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/50',
+        isOpen && 'bg-muted',
+      )}
+    >
+      <button
+        type="button"
+        aria-label="완료 토글"
+        aria-pressed={done}
+        disabled={update.isPending}
+        data-testid={`personal-task-check-${issue.number}`}
+        onClick={toggleDone}
+        className="shrink-0"
+      >
+        <PersonalStatusIcon status={issue.status} />
+      </button>
+      {issue.priority !== 'MID' && <IssuePriorityBadge priority={issue.priority} />}
+      <span className={cn('min-w-0 truncate text-sm', done && 'text-muted-foreground line-through')}>
+        {issue.title}
+      </span>
+      {issue.labels.map((l) => <LabelChip key={l.id} label={l} size="sm" />)}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {issue.dueDate && (
+          <span className={cn('text-xs', dueClass(issue.dueDate, done))}>{formatDateKorean(issue.dueDate)}</span>
+        )}
         <AiDelegationBadge issue={issue} />
       </div>
-      {expanded && (
-        <div id={`personal-task-inline-id-${issue.number}`} data-testid={`personal-task-inline-${issue.number}`}
-          className="ml-9 mr-2 mb-2 space-y-2 rounded-md border p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <IssueStatusSelect value={issue.status} disabled={update.isPending} onChange={(v) => update.mutate({ status: v })} />
-            <IssuePrioritySelect value={issue.priority} disabled={update.isPending} onChange={(v) => update.mutate({ priority: v })} />
-            <LabelPickerPopover projectKey={projectKey} issueNumber={issue.number} current={issue.labels} />
-          </div>
-          <button type="button" data-testid={`personal-task-detail-link-${issue.number}`} onClick={openPanel}
-            className="text-xs text-muted-foreground hover:text-foreground">자세히 보기 →</button>
-        </div>
-      )}
     </div>
   );
 }

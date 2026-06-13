@@ -1,4 +1,4 @@
-// 개인 프로젝트 전용 상세 화면 E2E — 분기/뷰 토글/인라인/패널/리다이렉트/필드 다이어트.
+// 개인 프로젝트 전용 상세 화면 E2E — 분기/뷰 토글/패널/리다이렉트/필드 다이어트.
 // 전 구간 page.route 모킹(백엔드 무관). 모킹 데이터는 실제 타입(factory) 사용.
 import { createChatMessagePage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -80,82 +80,26 @@ test('보드 뷰는 상태 3컬럼으로 카드를 배치한다', async ({ authe
   await expect(page.getByTestId('personal-board')).not.toContainText('취소카드');
 });
 
-test('행 클릭 시 인라인 펼침으로 빠른 편집이 열린다', async ({ authenticatedPage: page }) => {
-  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO', priority: 'MID' })]);
-  await page.goto(`/projects/${KEY}`);
-
-  // 제목 클릭 → 그 행이 인라인 펼침(상태/우선순위/자세히보기 노출).
-  await page.getByTestId('personal-task-row-1').getByText('블로그 초안').click();
-  await expect(page.getByTestId('personal-task-inline-1')).toBeVisible();
-  await expect(page.getByTestId('personal-task-detail-link-1')).toBeVisible();
-  // 패널은 아직 열리지 않음(인라인이 먼저).
-  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
-});
-
-test('인라인 펼침에서 상태 변경 시 PATCH { status: ... } 호출', async ({ authenticatedPage: page }) => {
-  let issue = createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO', priority: 'MID' });
-  const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
-  await page.route(
-    (url) => url.pathname === `/api/v1/projects/${KEY}`,
-    (route) => route.fulfill({ json: project }),
-  );
-  await page.route(
-    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
-    (route) => route.fulfill({ json: createIssueSearchResponse([issue]) }),
-  );
-  let patchBody: unknown;
-  await page.route(
-    (url) => url.pathname === `/api/v1/projects/${KEY}/issues/1`,
-    (route) => {
-      if (route.request().method() === 'PATCH') {
-        patchBody = route.request().postDataJSON();
-        issue = { ...issue, status: 'IN_PROGRESS' };
-        return route.fulfill({ json: issue });
-      }
-      return route.fallback();
-    },
-  );
-
-  await page.goto(`/projects/${KEY}`);
-  // 인라인 펼침 → 상태 셀렉트에서 "진행 중" 선택.
-  await page.getByTestId('personal-task-row-1').getByText('블로그 초안').click();
-  await expect(page.getByTestId('personal-task-inline-1')).toBeVisible();
-  await page.getByTestId('personal-task-inline-1').getByRole('combobox').first().click();
-  await page.getByRole('option', { name: '진행 중' }).click();
-  await expect.poll(() => patchBody).toMatchObject({ status: 'IN_PROGRESS' });
-});
-
-test('"자세히 보기" 클릭 시 ?task=N 쿼리 파라미터가 설정된다', async ({ authenticatedPage: page }) => {
-  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO', priority: 'MID' })]);
-  await page.goto(`/projects/${KEY}`);
-
-  // 인라인 펼침 → 자세히 보기 클릭 → URL에 task=1.
-  await page.getByTestId('personal-task-row-1').getByText('블로그 초안').click();
-  await expect(page.getByTestId('personal-task-detail-link-1')).toBeVisible();
-  await page.getByTestId('personal-task-detail-link-1').click();
-  await expect(page).toHaveURL(/task=1/);
-});
-
-// 패널 진입 공통 — 단건 + chat 모킹.
-async function mockTaskDetail(page: import('@playwright/test').Page) {
+// 패널 진입 공통 — 단건 + chat 모킹. number 기본값=1.
+async function mockTaskDetail(page: import('@playwright/test').Page, number = 1) {
   const label = createLabel({ id: 5, name: '긴급' });
   const detail = createIssueDetail({
-    summary: createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', labels: [toLabelSummary(label)] }),
+    summary: createIssue({ projectKey: KEY, number, title: '블로그 초안', labels: [toLabelSummary(label)] }),
     body: '서론은 짧게',
   });
-  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1`, detail);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/${number}`, detail);
   const thread = createChatThread();
-  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/chat/thread`, thread);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/${number}/chat/thread`, thread);
   await mockApi(page, 'GET', `/api/v1/chat/threads/${thread.threadId}/messages`, createChatMessagePage([]));
 }
 
-test('자세히 보기 → 우측 패널 오픈 + URL ?task 반영 + 새로고침 유지', async ({ authenticatedPage: page }) => {
+test('행 클릭 → 우측 패널 오픈 + URL ?task 반영 + 새로고침 유지', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
   await mockTaskDetail(page);
   await page.goto(`/projects/${KEY}`);
 
-  await page.getByTestId('personal-task-row-1').getByText('블로그 초안').click();
-  await page.getByTestId('personal-task-detail-link-1').click();
+  // 행 클릭 한 번으로 패널 오픈.
+  await page.getByTestId('personal-task-row-1').click();
 
   await expect(page.getByTestId('personal-task-panel')).toBeVisible();
   await expect(page).toHaveURL(/[?&]task=1/);
@@ -235,8 +179,112 @@ test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 
   );
 
   await page.goto(`/projects/${KEY}`);
+  // 상태아이콘 버튼 클릭 = 완료 토글(행 클릭 이벤트 차단 → drawer 열리지 않음).
   await page.getByTestId('personal-task-check-1').click();
   await expect.poll(() => patchBody).toEqual({ status: 'DONE' });
-  // 재조회 후 제목 버튼에 취소선(line-through) 적용.
+  // 체크 후 drawer가 열리지 않아야 함.
+  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
+  // DONE 이슈는 완료 섹션으로 이동 → 섹션 펼침 후 취소선 확인.
+  await page.getByTestId('personal-section-done').getByRole('button').click();
   await expect(page.getByTestId('personal-task-row-1').locator('.line-through')).toContainText('운동 계획');
+});
+
+// ─── 신규 테스트 ───────────────────────────────────────────────────────────────
+
+test('마감 기준 섹션 그룹화 — 과거=overdue, 먼미래=upcoming, 기한없음=noDue, 완료=done(접힘)', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [
+    // 명확히 과거 날짜 → overdue
+    createIssue({ projectKey: KEY, number: 1, title: '지난작업', status: 'TODO', dueDate: '2020-01-01' }),
+    // 명확히 먼 미래 → upcoming
+    createIssue({ projectKey: KEY, number: 2, title: '미래작업', status: 'TODO', dueDate: '2999-12-31' }),
+    // 기한 없음 → noDue
+    createIssue({ projectKey: KEY, number: 3, title: '기한없음', status: 'TODO', dueDate: undefined }),
+    // 완료 → done 섹션(접힘)
+    createIssue({ projectKey: KEY, number: 4, title: '완료작업', status: 'DONE', dueDate: undefined }),
+    // 취소 → 숨김(어느 섹션에도 없음)
+    createIssue({ projectKey: KEY, number: 5, title: '취소작업', status: 'CANCELED', dueDate: undefined }),
+  ]);
+  await page.goto(`/projects/${KEY}`);
+
+  await expect(page.getByTestId('personal-section-overdue')).toContainText('지난작업');
+  await expect(page.getByTestId('personal-section-upcoming')).toContainText('미래작업');
+  await expect(page.getByTestId('personal-section-noDue')).toContainText('기한없음');
+  // 완료는 접혀있어 기본 비표시.
+  await expect(page.getByTestId('personal-section-done')).toBeVisible(); // 섹션 버튼은 보임
+  await expect(page.getByTestId('personal-task-row-4')).toHaveCount(0); // 행은 숨김
+  // 취소는 어느 섹션에도 없음.
+  await expect(page.getByTestId('personal-task-row-5')).toHaveCount(0);
+});
+
+test('행에 우선순위 배지·라벨·마감 텍스트가 렌더된다', async ({ authenticatedPage: page }) => {
+  const label = createLabel({ id: 5, name: '긴급' });
+  await mockPersonal(page, [
+    createIssue({
+      projectKey: KEY,
+      number: 1,
+      title: '중요작업',
+      status: 'TODO',
+      priority: 'HIGH',
+      dueDate: '2020-01-01',
+      labels: [toLabelSummary(label)],
+    }),
+  ]);
+  await page.goto(`/projects/${KEY}`);
+
+  const row = page.getByTestId('personal-task-row-1');
+  await expect(row).toContainText('중요작업');
+  await expect(row).toContainText('긴급'); // 라벨
+  // 마감 텍스트(formatDateKorean 포맷) 존재.
+  await expect(row.locator('span.text-destructive')).toBeVisible();
+});
+
+test('행 data-status 속성이 이슈 상태와 일치한다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [
+    createIssue({ projectKey: KEY, number: 1, title: '진행중작업', status: 'IN_PROGRESS' }),
+  ]);
+  await page.goto(`/projects/${KEY}`);
+
+  await expect(page.getByTestId('personal-task-row-1')).toHaveAttribute('data-status', 'IN_PROGRESS');
+});
+
+test('drawer ESC 키로 닫힘 + URL에서 task 제거', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
+  await expect(page).not.toHaveURL(/task=/);
+});
+
+test('같은 행 재클릭 시 drawer 닫힘(토글)', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}`);
+
+  // 첫 클릭 → 열림.
+  await page.getByTestId('personal-task-row-1').click();
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  // 같은 행 재클릭 → 닫힘.
+  await page.getByTestId('personal-task-row-1').click();
+  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
+});
+
+test('다른 행 클릭 시 drawer가 해당 이슈로 전환된다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [
+    createIssue({ projectKey: KEY, number: 1, title: '작업1', status: 'TODO' }),
+    createIssue({ projectKey: KEY, number: 2, title: '작업2', status: 'TODO' }),
+  ]);
+  await mockTaskDetail(page, 1);
+  await mockTaskDetail(page, 2);
+  await page.goto(`/projects/${KEY}`);
+
+  // 행1 클릭 → task=1.
+  await page.getByTestId('personal-task-row-1').click();
+  await expect(page).toHaveURL(/task=1/);
+  // 행2 클릭 → task=2 로 전환(drawer 유지, 이슈만 교체).
+  await page.getByTestId('personal-task-row-2').click();
+  await expect(page).toHaveURL(/task=2/);
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
 });

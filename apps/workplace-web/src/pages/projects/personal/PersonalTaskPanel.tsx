@@ -1,39 +1,56 @@
-// 개인 작업 우측 상세 패널 — ?task=N 이 있을 때만 표시. 기존 필드 위젯 + 이슈 chat 재사용.
-// 노출 필드: 상태·우선순위·마감·담당자·라벨·메모(읽기)·AI 대화. 제거: 사이클·의존성·커스텀필드·watch·활동.
+// 개인 작업 우측 비모달 drawer — ?task=N 이 있을 때만 슬라이드인. dim 없음(목록 계속 클릭 가능).
+// 기존 필드 위젯 + 이슈 chat 재사용. ESC·✕·같은 행 재클릭으로 닫힘.
 import { X } from 'lucide-react';
+import { useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
 import { Button } from '@/components/ui/button';
 import { useIssue, useUpdateIssue } from '@/hooks/queries/useIssue';
+import { cn } from '@/lib/utils';
 
 import { AssigneePickerPopover } from '../components/AssigneePickerPopover';
 import { IssueChatSection } from '../components/chat/IssueChatSection';
 import { IssuePrioritySelect } from '../components/IssuePrioritySelect';
 import { IssueStatusSelect } from '../components/IssueStatusSelect';
 
-/** ?task=N 쿼리 파라미터를 감지해 우측 패널을 열거나 숨긴다. */
+/** ?task=N 쿼리 파라미터를 감지해 비모달 우측 drawer를 열거나 닫는다. */
 export function PersonalTaskPanel({ projectKey }: { projectKey: string }) {
   const [params, setParams] = useSearchParams();
   const taskParam = params.get('task');
   const number = taskParam ? Number(taskParam) : NaN;
   const open = Number.isFinite(number);
 
-  // 패널 닫기 — task 쿼리만 제거, 나머지 쿼리(view 등) 유지.
-  const close = () =>
-    setParams(
-      (p) => {
-        const n = new URLSearchParams(p);
-        n.delete('task');
-        return n;
-      },
-      { replace: true },
-    );
+  // 닫기 — task 쿼리 제거, 나머지(view 등) 유지.
+  const close = useCallback(
+    () => setParams((p) => { const n = new URLSearchParams(p); n.delete('task'); return n; }, { replace: true }),
+    [setParams],
+  );
 
-  if (!open) return null;
-  // number 변경 시 key 로 재마운트 → 이전 이슈 캐시 UI 잔류 방지.
-  return <PanelBody key={number} projectKey={projectKey} number={number} onClose={close} />;
+  // ESC 로 닫기.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, close]);
+
+  // 비모달 떠 있는 우측 drawer — dim 배경 없음(목록 계속 클릭 가능). 닫힘 시 화면 밖으로 슬라이드 + pointer-events 차단.
+  return (
+    <div
+      role="complementary"
+      aria-label="작업 상세"
+      aria-hidden={!open}
+      data-testid={open ? 'personal-task-panel' : undefined}
+      className={cn(
+        'fixed right-0 top-0 z-50 flex h-full w-full max-w-[420px] flex-col border-l bg-card shadow-xl transition-transform duration-200',
+        open ? 'translate-x-0' : 'pointer-events-none translate-x-full',
+      )}
+    >
+      {open && <PanelBody key={number} projectKey={projectKey} number={number} onClose={close} />}
+    </div>
+  );
 }
 
 /** 실제 이슈 단건 로드 및 필드 렌더. */
@@ -50,11 +67,8 @@ function PanelBody({
   const update = useUpdateIssue(projectKey, number);
 
   return (
-    <aside
-      data-testid="personal-task-panel"
-      aria-label="작업 상세"
-      className="flex w-[380px] min-w-0 shrink-0 flex-col overflow-y-auto border-l bg-card"
-    >
+    // 스크롤 컨테이너 — 외부 wrapper가 h-full flex flex-col이므로 flex-1로 남은 높이 채움.
+    <div className="flex flex-1 flex-col overflow-y-auto">
       {/* 헤더 — 제목 + 닫기 버튼 */}
       <div className="flex items-center justify-between border-b p-3">
         <span className="truncate text-sm font-medium">{q.data?.summary.title ?? '작업'}</span>
@@ -141,7 +155,7 @@ function PanelBody({
           </div>
         </div>
       )}
-    </aside>
+    </div>
   );
 }
 
