@@ -194,6 +194,16 @@ test('패널 — 존재하지 않는 task id 진입 시 오류 메시지와 닫�
   await expect(page).not.toHaveURL(/task=/);
 });
 
+test('개인 프로젝트의 풀페이지 이슈 URL 은 패널로 리다이렉트된다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  // 알림/북마크가 가리키는 풀페이지 경로로 직접 진입.
+  await page.goto(`/projects/${KEY}/issues/1`);
+  // → /projects/PME?task=1 로 치환되고 패널이 열린다.
+  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?task=1`));
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+});
+
 test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 반영', async ({ authenticatedPage: page }) => {
   // 가변 상태 — PATCH 후 GET 재조회가 DONE 을 반영하도록 한다.
   let issue = createIssue({ projectKey: KEY, number: 1, title: '운동 계획', status: 'TODO' });

@@ -1,9 +1,8 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
-import { useState } from 'react';
-
 import { Eye, EyeOff, Trash2 } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useState } from 'react';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -28,6 +27,7 @@ import { UserAvatar } from '../../components/users/UserAvatar';
 import { useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
 import { useDeleteIssue } from '../../hooks/queries/useIssues';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
+import { useProject } from '../../hooks/queries/useProjects';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
@@ -50,6 +50,8 @@ export default function IssueDetailPage() {
   const { key = '', number = '' } = useParams();
   const issueNumber = Number(number);
   const navigate = useNavigate();
+  // 개인 프로젝트 여부 판별 — 개인 프로젝트의 이슈는 풀페이지 대신 패널로 귀결시킨다.
+  const project = useProject(key);
   const { data, isLoading, refetch } = useIssue(key, issueNumber);
   const update = useUpdateIssue(key, issueNumber);
   const remove = useDeleteIssue(key, issueNumber);
@@ -63,6 +65,12 @@ export default function IssueDetailPage() {
   const members = useProjectMembers(key);
   const isOwner =
     members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
+
+  // 개인 프로젝트의 이슈 풀페이지 진입(알림/북마크)은 프로젝트 화면의 우측 패널로 리다이렉트한다.
+  // 팀 프로젝트는 기존 풀페이지 유지.
+  if (project.data?.type === 'PERSONAL') {
+    return <Navigate to={`/projects/${key}?task=${issueNumber}`} replace />;
+  }
 
   if (isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
   if (!data) return (
