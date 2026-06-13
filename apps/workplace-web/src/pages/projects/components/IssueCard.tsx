@@ -17,11 +17,15 @@ export function IssueCard({
   projectKey,
   issue,
   asOverlay = false,
+  to,
 }: {
   projectKey: string;
   issue: IssueResponse;
   // DragOverlay 안에서 렌더될 때는 sortable 훅을 쓰지 않고 정적으로 그린다.
   asOverlay?: boolean;
+  // 카드 클릭 시 이동 경로 override. 미지정 시 팀 풀페이지 상세 경로(기본).
+  // 개인 보드는 `?view=board&task=N`(같은 라우트 검색파라미터) 를 넘겨 drawer 를 연다.
+  to?: string;
 }) {
   const sortable = useSortable({
     id: `issue-${issue.id}`,
@@ -44,6 +48,9 @@ export function IssueCard({
   const identifier = `${projectKey}-${issue.number}`;
   // SUBTASK 여부 — 카드 헤더에 부모 식별자(└) 표시 분기에 사용 (Phase 4a).
   const isSubtask = issue.type?.name === 'SUBTASK';
+
+  // 링크 대상 — override(개인 drawer) 우선, 미지정 시 팀 풀페이지 상세 경로(기본).
+  const linkTo = to ?? `/projects/${projectKey}/issues/${issue.number}`;
 
   return (
     <div
@@ -69,7 +76,7 @@ export function IssueCard({
       )}
       <div className="flex items-center justify-between gap-2">
         <Link
-          to={`/projects/${projectKey}/issues/${issue.number}`}
+          to={linkTo}
           className="font-medium hover:underline truncate flex items-center gap-1"
           onPointerDown={(e) => e.stopPropagation()}
         >
