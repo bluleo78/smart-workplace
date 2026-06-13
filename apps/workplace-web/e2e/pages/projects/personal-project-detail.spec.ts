@@ -10,38 +10,48 @@ import { expect, test } from '../../fixtures/auth.fixture';
 const KEY = 'PME';
 
 // 개인 프로젝트 + 이슈 목록 공통 모킹.
+// 공유 툴바(IssueFilterBar) 가 마운트 시 labels/cycles/issue-types 를 페치하므로(개인은 숨김이지만
+// 훅은 항상 호출됨) 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
 async function mockPersonal(page: import('@playwright/test').Page, issues = [createIssue({ projectKey: KEY })]) {
   const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, project);
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues`, createIssueSearchResponse(issues));
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/labels`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/cycles`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/types`, []);
   return project;
 }
 
-test('개인 프로젝트는 전용 셸과 뷰 토글을 렌더한다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+test('개인 프로젝트는 전용 셸과 팀 툴바(개인 옵션)를 렌더한다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await mockPersonal(page);
   await page.goto(`/projects/${KEY}`);
 
   await expect(page.getByTestId('personal-project-detail')).toBeVisible();
-  await expect(page.getByTestId('personal-view-toggle')).toBeVisible();
-  // 기본은 체크리스트 — 보드 컨테이너는 없음.
+  // 팀 공유 툴바 — 검색 입력 + 뷰토글(체크리스트/보드, aria-pressed).
+  await expect(page.getByRole('textbox', { name: '태스크 검색' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '체크리스트' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: '보드' })).toHaveAttribute('aria-pressed', 'false');
+  // 기본은 체크리스트 — 보드 컬럼은 없음.
   await expect(page.getByTestId('personal-checklist')).toBeVisible();
-  await expect(page.getByTestId('personal-board')).toHaveCount(0);
-  // 팀 전용 헤더 버튼(사이클/설정 텍스트) 부재.
-  await expect(page.getByRole('button', { name: '사이클' })).toHaveCount(0);
+  await expect(page.getByTestId('board-col-TODO')).toHaveCount(0);
+  // 개인 전용 — 사이클·유형 필터(팀 전용) 부재.
+  await expect(page.getByTestId('cycle-filter-trigger')).toHaveCount(0);
+  await expect(page.getByTestId('issue-type-filter-trigger')).toHaveCount(0);
 });
 
-// 뷰 토글 클릭 — 다른 쿼리(task=) 보존 확인.
-test('뷰 토글 클릭 시 task 쿼리를 보존하며 view만 변경한다', async ({ authenticatedPage: page }) => {
+// 뷰 토글 — 공유 툴바 setView 는 URL 을 필터+view+group 으로 재구성한다(task 등 임시 파라미터 비보존).
+// 따라서 보드↔체크리스트 전환 시 열린 drawer(task=)는 닫힌다. (additive 규율 유지 — IssueFilterBar 무변경)
+test('뷰 토글 클릭 시 view 가 전환되고 열린 drawer(task)는 닫힌다', async ({ authenticatedPage: page }) => {
   await mockPersonal(page);
   await page.goto(`/projects/${KEY}?task=1`);
 
-  await page.getByTestId('personal-view-board').click();
+  await page.getByRole('button', { name: '보드' }).click();
   await expect(page).toHaveURL(/view=board/);
-  await expect(page).toHaveURL(/task=1/);
+  await expect(page).not.toHaveURL(/task=1/);
 
-  await page.getByTestId('personal-view-checklist').click();
+  // view=list 는 URL 키 생략(filtersToParams 기본값) → ?view= 부재.
+  await page.getByRole('button', { name: '체크리스트' }).click();
   await expect(page).not.toHaveURL(/view=/);
-  await expect(page).toHaveURL(/task=1/);
 });
 
 test('체크리스트는 작업 행과 AI 위임 배지를 렌더한다', async ({ authenticatedPage: page }) => {
@@ -63,7 +73,7 @@ test('체크리스트는 작업 행과 AI 위임 배지를 렌더한다', async 
   await expect(page.getByTestId('ai-delegation-badge-3')).not.toHaveAttribute('title', /처리중/);
 });
 
-test('보드 뷰는 상태 3컬럼으로 카드를 배치한다', async ({ authenticatedPage: page }) => {
+test('보드 뷰는 팀 리치카드를 상태 3컬럼으로 배치한다(CANCELED 컬럼 부재)', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [
     createIssue({ projectKey: KEY, number: 1, title: '할일카드', status: 'TODO' }),
     createIssue({ projectKey: KEY, number: 2, title: '진행카드', status: 'IN_PROGRESS' }),
@@ -72,12 +82,14 @@ test('보드 뷰는 상태 3컬럼으로 카드를 배치한다', async ({ authe
   ]);
   await page.goto(`/projects/${KEY}?view=board`);
 
-  await expect(page.getByTestId('personal-board')).toBeVisible();
-  await expect(page.getByTestId('personal-board-col-TODO')).toContainText('할일카드');
-  await expect(page.getByTestId('personal-board-col-IN_PROGRESS')).toContainText('진행카드');
-  await expect(page.getByTestId('personal-board-col-DONE')).toContainText('완료카드');
-  // CANCELED 는 개인 보드에서 표시하지 않는다(문서화된 디자인 규칙).
-  await expect(page.getByTestId('personal-board')).not.toContainText('취소카드');
+  // 팀 공유 보드 컬럼(board-col-*) + 팀 리치카드(issue-card-N).
+  await expect(page.getByTestId('board-col-TODO')).toContainText('할일카드');
+  await expect(page.getByTestId('board-col-IN_PROGRESS')).toContainText('진행카드');
+  await expect(page.getByTestId('board-col-DONE')).toContainText('완료카드');
+  await expect(page.getByTestId('issue-card-1')).toBeVisible();
+  // CANCELED 컬럼 자체가 없고(개인 3컬럼), 취소 카드도 렌더되지 않는다.
+  await expect(page.getByTestId('board-col-CANCELED')).toHaveCount(0);
+  await expect(page.getByTestId('issue-card-4')).toHaveCount(0);
 });
 
 // 패널 진입 공통 — 단건 + chat 모킹. number 기본값=1.
@@ -121,12 +133,17 @@ test('패널은 라벨·AI 대화 노출 / 사이클·의존성·커스텀필드
   await expect(panel.getByText('구독')).toHaveCount(0);
 });
 
-test('보드 카드 클릭 → 우측 패널 오픈', async ({ authenticatedPage: page }) => {
+test('보드 카드(링크) 클릭 → ?task=N drawer 오픈(풀페이지 이동 아님)', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })]);
   await mockTaskDetail(page);
   await page.goto(`/projects/${KEY}?view=board`);
-  await page.getByTestId('personal-board-card-1').click();
+  // 카드 제목 Link 클릭 — cardTo 가 ?view=board&task=1 로 라우팅(같은 라우트, drawer 오픈).
+  await page.getByTestId('issue-card-1').getByRole('link').click();
+  await expect(page).toHaveURL(/view=board/);
+  await expect(page).toHaveURL(/[?&]task=1/);
   await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  // 풀페이지 상세 경로(/issues/1)로 이동하지 않았다.
+  await expect(page).not.toHaveURL(/\/issues\/1/);
 });
 
 test('패널 — 존재하지 않는 task id 진입 시 오류 메시지와 닫기 버튼을 표시한다', async ({ authenticatedPage: page }) => {
@@ -299,4 +316,59 @@ test('다른 행 클릭 시 drawer가 해당 이슈로 전환된다', async ({ a
   await page.getByTestId('personal-task-row-2').click();
   await expect(page).toHaveURL(/task=2/);
   await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+});
+
+// ─── 공유 툴바 통합 테스트 (입력 → URL/처리 → 출력 파이프라인) ─────────────────────────
+
+test('툴바 검색 입력 → ?q= URL 반영 + 이슈 API query param(q) 전달', async ({ authenticatedPage: page }) => {
+  const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, project);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/labels`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/cycles`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/types`, []);
+  // 이슈 검색 요청을 캡처해 query param(q) 전달을 검증한다.
+  const issuesMock = await mockApi(
+    page,
+    'GET',
+    `/api/v1/projects/${KEY}/issues`,
+    createIssueSearchResponse([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]),
+    { capture: true },
+  );
+  await page.goto(`/projects/${KEY}`);
+  await expect(page.getByTestId('personal-checklist')).toBeVisible();
+
+  // 검색 입력 → debounce 후 URL ?q= 반영.
+  await page.getByRole('textbox', { name: '태스크 검색' }).fill('블로그');
+  await expect(page).toHaveURL(/[?&]q=/);
+  await expect(page).toHaveURL(/%EB%B8%94%EB%A1%9C%EA%B7%B8|블로그/);
+
+  // 처리 → 이슈 API 가 q=블로그 query param 으로 재조회된다.
+  await expect
+    .poll(() =>
+      issuesMock.requests.some((r) => r.searchParams.get('q') === '블로그'),
+    )
+    .toBe(true);
+});
+
+test('그룹=상태 클릭 → 체크리스트가 상태 섹션(TODO/IN_PROGRESS/DONE)으로 재구성된다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [
+    createIssue({ projectKey: KEY, number: 1, title: '할일A', status: 'TODO', dueDate: '2020-01-01' }),
+    createIssue({ projectKey: KEY, number: 2, title: '진행B', status: 'IN_PROGRESS', dueDate: undefined }),
+    createIssue({ projectKey: KEY, number: 3, title: '완료C', status: 'DONE', dueDate: undefined }),
+  ]);
+  await page.goto(`/projects/${KEY}`);
+
+  // 기본(그룹 없음) — 마감 섹션. overdue 섹션에 할일A 가 있고, 완료는 접힘.
+  await expect(page.getByTestId('personal-section-overdue')).toContainText('할일A');
+  await expect(page.getByTestId('personal-section-TODO')).toHaveCount(0);
+
+  // 그룹=상태 클릭 → URL ?group=status + 상태 섹션으로 재구성.
+  await page.getByTestId('group-by-status').click();
+  await expect(page).toHaveURL(/group=status/);
+  await expect(page.getByTestId('personal-section-TODO')).toContainText('할일A');
+  await expect(page.getByTestId('personal-section-IN_PROGRESS')).toContainText('진행B');
+  // 상태 모드에서는 완료가 접히지 않고 일반 섹션(DONE)으로 항상 표시된다.
+  await expect(page.getByTestId('personal-section-DONE')).toContainText('완료C');
+  // 마감 버킷 섹션은 더 이상 없다.
+  await expect(page.getByTestId('personal-section-overdue')).toHaveCount(0);
 });
