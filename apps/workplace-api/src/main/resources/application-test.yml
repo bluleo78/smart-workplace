@@ -4,9 +4,10 @@ server:
 
 spring:
   datasource:
+    # 런타임 트래픽은 비특권 app_tenant 롤(RLS 적용). 마이그레이션은 아래 flyway(app)로.
     url: jdbc:postgresql://localhost:5435/workplace_test
-    username: app
-    password: app
+    username: app_tenant
+    password: app_tenant
     hikari:
       # 통합 테스트는 다수의 @SpringBootTest 컨텍스트를 캐시(Spring 기본 최대 32개)하며 각 컨텍스트가
       # 별도 Hikari 풀을 연다. 기본 풀(10)×컨텍스트 수가 공유 test DB(5435)의 max_connections(100)를
@@ -15,6 +16,13 @@ spring:
       maximum-pool-size: 2
       minimum-idle: 0
       idle-timeout: 10000
+      # 롤/권한은 V44 마이그레이션(app)이 만든다 → 시작 접속 시도 끄고 첫 쿼리 시 지연 접속.
+      initialization-fail-timeout: -1
+  flyway:
+    # 마이그레이션은 소유자 권한 롤(app)로 실행 (테이블/롤 생성·GRANT 필요).
+    url: jdbc:postgresql://localhost:5435/workplace_test
+    user: app
+    password: app
 
 app:
   jwt:

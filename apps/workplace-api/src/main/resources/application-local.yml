@@ -1,8 +1,18 @@
 # 로컬 개발 프로파일
 spring:
   datasource:
+    # 런타임 트래픽은 비특권 app_tenant 롤로 흐른다(RLS 적용 = fail-closed).
     url: jdbc:postgresql://localhost:5434/workplace
-    username: app
+    username: app_tenant
+    password: app_tenant
+    hikari:
+      # app_tenant 롤/권한은 V44 마이그레이션(app 권한)이 만든다. 풀이 시작 즉시 접속을 시도하면
+      # 마이그레이션 전이라 실패할 수 있으므로 시작 접속 시도를 끄고 첫 쿼리 시 지연 접속한다.
+      initialization-fail-timeout: -1
+  flyway:
+    # 마이그레이션은 테이블/롤 생성·GRANT 가 필요하므로 소유자 권한 롤(app)로 실행한다.
+    url: jdbc:postgresql://localhost:5434/workplace
+    user: app
     password: app
 
 management:
