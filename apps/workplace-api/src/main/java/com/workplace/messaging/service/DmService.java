@@ -1,9 +1,11 @@
 package com.workplace.messaging.service;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.DmResponse;
 import com.workplace.messaging.exception.InvalidDmRequestException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -22,6 +24,7 @@ public class DmService {
   private final ChannelRepository channelRepo;
   private final ChannelMemberRepository memberRepo;
   private final UserRepository userRepo;
+  private final MembershipRepository membershipRepo;
 
   /** create 결과 — 신규(201)/기존(200) 구분용. */
   public record DmResult(DmResponse dm, boolean created) {}
@@ -47,9 +50,14 @@ public class DmService {
     if (members.size() > MAX_MEMBERS) {
       throw new InvalidDmRequestException("DM 은 본인 포함 최대 " + MAX_MEMBERS + "명입니다");
     }
+    // DM 참여자 유효성 검사 — 존재 여부 + 현재 테넌트 멤버십(테넌트 경계를 넘는 DM 생성 차단, 설계 §4).
+    Long tenantId = TenantContext.get();
     for (Long uid : members) {
       if (!userRepo.existsById(uid)) {
         throw new InvalidDmRequestException("존재하지 않는 사용자: " + uid);
+      }
+      if (tenantId == null || !membershipRepo.hasActiveMembership(uid, tenantId)) {
+        throw new InvalidDmRequestException("현재 워크스페이스(테넌트)의 멤버가 아닌 사용자: " + uid);
       }
     }
     String memberKey =

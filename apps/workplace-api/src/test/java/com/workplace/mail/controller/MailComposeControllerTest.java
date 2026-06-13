@@ -19,6 +19,7 @@ import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Set;
@@ -49,6 +50,8 @@ class MailComposeControllerTest {
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
+
+  @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserRepository userRepository;
 

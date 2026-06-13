@@ -1,11 +1,14 @@
 package com.workplace.messaging.service;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.exception.ChannelForbiddenException;
@@ -15,6 +18,8 @@ import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,16 +33,37 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
   @Autowired ChannelMemberService memberService;
   @Autowired ChannelMemberRepository memberRepo;
 
+  /** 각 테스트 전 TenantContext 를 tenant#1 로 설정 — 멤버십 검증 통과를 위한 전제 조건. */
+  @BeforeEach
+  void setTenantContext() {
+    TenantContext.set(1L);
+  }
+
+  /** 각 테스트 후 TenantContext 정리 — ThreadLocal 누수 방지. */
+  @AfterEach
+  void clearTenantContext() {
+    TenantContext.clear();
+  }
+
+  /** 고유 user 1행 insert 후 id 반환. tenant#1 ACTIVE 멤버십도 함께 삽입하여 채널 멤버 추가 시 테넌트 경계 검증을 통과시킨다. */
   private long seedUser() {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "cms_" + s)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "Cms" + s)
-        .set(USER.EMAIL, "cms_" + s + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "cms_" + s)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "Cms" + s)
+            .set(USER.EMAIL, "cms_" + s + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    // tenant#1 ACTIVE 멤버십 부여 — 채널 멤버 추가 테넌트 경계 검증 통과용.
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
   }
 
   /** 시스템 ADMIN 역할을 가진 사용자 — 채널 비멤버여도 권한 오버라이드를 검증하기 위함. */
@@ -171,5 +197,51 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> memberService.updateRole(admin, ch.id(), member, "ADMIN"))
         .isInstanceOf(ChannelForbiddenException.class);
+  }
+
+  /** 타 테넌트(tenant#2) 전용 사용자를 채널 멤버로 추가하면 거부되어야 한다. 테넌트 경계를 넘는 채널 멤버십을 서비스 계층에서 차단함을 검증한다(설계 §4). */
+  @Test
+  void add_crossTenantUser_throwsForbidden() {
+    long owner = seedUser(); // tenant#1 멤버
+
+    // tenant#2 생성 + userB 는 tenant#2 에만 소속
+    String slug = "test-ch-t2-" + UUID.randomUUID().toString().substring(0, 8);
+    long tenant2Id =
+        dsl.insertInto(TENANT)
+            .set(TENANT.NAME, "Channel Cross Tenant Test")
+            .set(TENANT.SLUG, slug)
+            .set(TENANT.STATUS, "ACTIVE")
+            .returning(TENANT.ID)
+            .fetchOne()
+            .getId();
+
+    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    long userBInTenant2Only =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "ch_t2_" + s)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "ChT2" + s)
+            .set(USER.EMAIL, "ch_t2_" + s + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    // tenant#2 에만 ACTIVE 멤버십 부여(tenant#1 멤버십 없음).
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, userBInTenant2Only)
+        .set(MEMBERSHIP.TENANT_ID, tenant2Id)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+
+    ChannelResponse ch = channelService.create(owner, "테넌트경계테스트채널", "PRIVATE");
+
+    // TenantContext = tenant#1 인 상태에서 tenant#2 전용 사용자를 채널에 추가 → 거부.
+    assertThatThrownBy(() -> memberService.add(owner, ch.id(), userBInTenant2Only))
+        .isInstanceOf(ChannelForbiddenException.class);
+
+    // 긍정 회귀: tenant#1 멤버(owner 본인) 추가는 성공한다(이미 OWNER 이므로 idempotent).
+    // tenant#1 멤버인 새 사용자 추가도 성공해야 함.
+    long anotherTenant1User = seedUser();
+    memberService.add(owner, ch.id(), anotherTenant1User);
+    assertThat(memberRepo.isMember(ch.id(), anotherTenant1User)).isTrue();
   }
 }

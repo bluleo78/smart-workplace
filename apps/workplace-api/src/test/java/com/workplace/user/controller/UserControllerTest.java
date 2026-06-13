@@ -16,6 +16,7 @@ import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.role.dto.RoleResponse;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.*;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.UserService;
@@ -46,6 +47,8 @@ class UserControllerTest {
   @MockitoBean private JwtProperties jwtProperties;
 
   @MockitoBean private PermissionService permissionService;
+
+  @MockitoBean private MembershipRepository membershipRepository;
 
   @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
 

@@ -53,13 +53,31 @@ class TenantContextGucTest extends IntegrationTestBase {
             });
   }
 
-  /** TenantContext 미설정(tenant-less) → GUC 없음 → 카나리아 비가시(fail-closed). */
+  /**
+   * LOCAL 미설정(TenantContext 없음) → 테스트 하네스 세션 GUC 기본값(tenant#1)이 적용됨을 직접 검증.
+   *
+   * <p><b>경고: 이 동작은 테스트 하네스 전용이다.</b> application-test.yml 의 {@code connection-init-sql: SET
+   * app.tenant_id = 1} 이 세션 기본값을 세팅하기 때문에 테스트에서는 TenantContext 가 없어도 GUC 가 1 로 보인다. <b>프로덕션에는 이 세션
+   * 기본값이 없으므로</b>, TenantContext 가 미설정이면 GUC 가 NULL → RLS {@code USING} 이 NULL 로 평가 → 읽기 0건, 쓰기
+   * WITH CHECK 실패(fail-closed). connection-init-sql 회귀 가드 역할만 한다.
+   */
   @Test
-  void noTenantContext_failsClosed() {
+  void noTenantContext_sessionDefaultIsOne_testHarnessOnly() {
     new TransactionTemplate(txManager)
         .execute(
             status -> {
-              assertThat(dsl.fetchCount(TENANT_CANARY)).isEqualTo(0);
+              String guc = (String) dsl.fetchValue("SELECT current_setting('app.tenant_id', true)");
+              assertThat(guc).isEqualTo("1");
+              // 세션 기본 테넌트(1)로 RLS WITH CHECK 통과 + 가시
+              dsl.insertInto(TENANT_CANARY)
+                  .set(TENANT_CANARY.TENANT_ID, 1L)
+                  .set(TENANT_CANARY.VAL, "sess-default")
+                  .execute();
+              assertThat(
+                      dsl.fetchCount(
+                          dsl.selectFrom(TENANT_CANARY)
+                              .where(TENANT_CANARY.VAL.eq("sess-default"))))
+                  .isEqualTo(1);
               status.setRollbackOnly();
               return null;
             });

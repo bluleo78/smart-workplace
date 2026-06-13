@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
 import com.workplace.global.dto.UserSummary;
@@ -14,7 +13,6 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
-import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,14 +29,12 @@ class NotificationDispatcherTest {
   private static final UserSummary ASSIGNEE_B = new UserSummary(3L, "carol", "Carol", "HUMAN");
 
   private NotificationService service;
-  private IssueWatcherRepository watcherRepo;
   private NotificationDispatcher dispatcher;
 
   @BeforeEach
   void setUp() {
     service = Mockito.mock(NotificationService.class);
-    watcherRepo = Mockito.mock(IssueWatcherRepository.class);
-    dispatcher = new NotificationDispatcher(service, watcherRepo);
+    dispatcher = new NotificationDispatcher(service);
   }
 
   @Test
@@ -65,27 +61,28 @@ class NotificationDispatcherTest {
     assertThat(recipients.getValue()).containsExactly(2L);
   }
 
+  /**
+   * commented: dispatcher 는 service.createWithWatchersAndFanOut 에 assignees 와 issueId 를 넘긴다. 워처 조회는
+   * 서비스 트랜잭션 내에서 발생(RLS-safe). 여기서는 service 메서드 호출 인수만 검증.
+   */
   @Test
-  @SuppressWarnings("unchecked")
-  void onIssueCommented_unionsAssigneesAndWatchers_typeCommented_withCommentId() {
-    when(watcherRepo.findUserIdsByIssue(11L)).thenReturn(List.of(4L, 2L));
+  void onIssueCommented_delegatesToCreateWithWatchersAndFanOut() {
     var e =
         new IssueCommentedEvent(
             11L, "WP", "WP-11", "t", HUMAN_ACTOR, List.of(ASSIGNEE_A), 55L, "hi", Instant.now());
 
     dispatcher.onIssueCommented(e);
 
-    var recipients = ArgumentCaptor.forClass(List.class);
     verify(service)
-        .createAndFanOut(
-            eq(NotificationType.COMMENTED), recipients.capture(), eq(1L), eq(11L), eq(55L));
-    assertThat(recipients.getValue()).contains(2L, 4L);
+        .createWithWatchersAndFanOut(
+            eq(NotificationType.COMMENTED), eq(11L), eq(List.of(ASSIGNEE_A)), eq(1L), eq(55L));
   }
 
+  /**
+   * status_changed: dispatcher 는 service.createWithWatchersAndFanOut 에 assignees 와 issueId 를 넘긴다.
+   */
   @Test
-  @SuppressWarnings("unchecked")
-  void onIssueStatusChanged_unionsAssigneesAndWatchers_agentActorPreserved() {
-    when(watcherRepo.findUserIdsByIssue(12L)).thenReturn(List.of());
+  void onIssueStatusChanged_delegatesToCreateWithWatchersAndFanOut_agentActorPreserved() {
     var e =
         new IssueStatusChangedEvent(
             12L,
@@ -100,11 +97,13 @@ class NotificationDispatcherTest {
 
     dispatcher.onIssueStatusChanged(e);
 
-    var recipients = ArgumentCaptor.forClass(List.class);
     verify(service)
-        .createAndFanOut(
-            eq(NotificationType.STATUS_CHANGED), recipients.capture(), eq(9L), eq(12L), eq(null));
-    assertThat(recipients.getValue()).contains(2L, 3L);
+        .createWithWatchersAndFanOut(
+            eq(NotificationType.STATUS_CHANGED),
+            eq(12L),
+            eq(List.of(ASSIGNEE_A, ASSIGNEE_B)),
+            eq(9L),
+            eq(null));
   }
 
   @Test

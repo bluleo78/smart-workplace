@@ -1,5 +1,7 @@
 package com.workplace.auth.service;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.TENANT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -10,6 +12,7 @@ import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
+import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
@@ -36,6 +39,8 @@ class AuthServiceTest extends IntegrationTestBase {
   @Autowired private AuthService authService;
 
   @Autowired private UserRepository userRepository;
+
+  @Autowired private JwtTokenProvider jwtTokenProvider;
 
   @Test
   void signup_firstUser_assignsAdminAndUserRoles() {
@@ -107,6 +112,8 @@ class AuthServiceTest extends IntegrationTestBase {
     assertThat(result.expiresIn()).isGreaterThan(0);
     // 1단계 로그인은 tenant-less 토큰 + 선택 가능한 멤버십을 반환한다(여기선 멤버십 없음 = 빈 목록).
     assertThat(result.memberships()).isNotNull();
+    // 0 멤버십 → 자동 선택 불가 → tenant-less 토큰(0/1/2 분기 커버리지 잠금).
+    assertThat(jwtTokenProvider.getTenantIdFromToken(result.accessToken())).isNull();
   }
 
   @Test
@@ -224,5 +231,104 @@ class AuthServiceTest extends IntegrationTestBase {
 
     assertThat(result.id()).isEqualTo(created.id());
     assertThat(result.username()).isEqualTo("test@example.com");
+  }
+
+  /**
+   * 단일 멤버십 → tenant-scoped 토큰 자동 발급. 신규 사용자를 만들고 테넌트 1개를 연결한 뒤 로그인했을 때, accessToken 에 테넌트 클레임이
+   * 포함되는지 검증한다.
+   */
+  @Test
+  void login_withSingleMembership_issuesTenantScopedToken() {
+    // 사용자 생성
+    UserResponse user =
+        authService.signup(
+            new SignupRequest(
+                "single-member@example.com",
+                "single-member@example.com",
+                "Password123",
+                "Single Member"));
+
+    // 테넌트 1개 생성
+    Long tenantId =
+        baseDsl
+            .insertInto(TENANT)
+            .set(TENANT.NAME, "Test Tenant Single")
+            .set(TENANT.SLUG, "test-tenant-single-" + user.id())
+            .set(TENANT.STATUS, "ACTIVE")
+            .returning(TENANT.ID)
+            .fetchOne()
+            .getId();
+
+    // 해당 사용자에게 멤버십 연결
+    baseDsl
+        .insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, user.id())
+        .set(MEMBERSHIP.TENANT_ID, tenantId)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+
+    // 로그인 — 단일 멤버십이므로 즉시 tenant-scoped 토큰 발급
+    var result = authService.login(new LoginRequest("single-member@example.com", "Password123"));
+
+    assertThat(jwtTokenProvider.getTenantIdFromToken(result.accessToken())).isEqualTo(tenantId);
+    assertThat(result.memberships()).hasSize(1);
+  }
+
+  /**
+   * 다중 멤버십 → tenant-less 토큰 유지. 사용자에게 테넌트 2개를 연결한 뒤 로그인했을 때, tenant 클레임이 null(tenant-less)이어야 한다.
+   */
+  @Test
+  void login_withMultipleMemberships_issuesTenantlessToken() {
+    // 사용자 생성
+    UserResponse user =
+        authService.signup(
+            new SignupRequest(
+                "multi-member@example.com",
+                "multi-member@example.com",
+                "Password123",
+                "Multi Member"));
+
+    // 테넌트 2개 생성
+    Long tenantId1 =
+        baseDsl
+            .insertInto(TENANT)
+            .set(TENANT.NAME, "Test Tenant Multi 1")
+            .set(TENANT.SLUG, "test-tenant-multi1-" + user.id())
+            .set(TENANT.STATUS, "ACTIVE")
+            .returning(TENANT.ID)
+            .fetchOne()
+            .getId();
+
+    Long tenantId2 =
+        baseDsl
+            .insertInto(TENANT)
+            .set(TENANT.NAME, "Test Tenant Multi 2")
+            .set(TENANT.SLUG, "test-tenant-multi2-" + user.id())
+            .set(TENANT.STATUS, "ACTIVE")
+            .returning(TENANT.ID)
+            .fetchOne()
+            .getId();
+
+    // 두 멤버십 모두 연결
+    baseDsl
+        .insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, user.id())
+        .set(MEMBERSHIP.TENANT_ID, tenantId1)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+
+    baseDsl
+        .insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, user.id())
+        .set(MEMBERSHIP.TENANT_ID, tenantId2)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+
+    // 로그인 — 다중 멤버십이므로 tenant-less 토큰 유지
+    var result = authService.login(new LoginRequest("multi-member@example.com", "Password123"));
+
+    assertThat(jwtTokenProvider.getTenantIdFromToken(result.accessToken())).isNull();
+    assertThat(result.memberships()).hasSize(2);
+    // @Transactional 클래스 어노테이션으로 테스트 종료 시 롤백 — 별도 cleanup 불필요.
   }
 }

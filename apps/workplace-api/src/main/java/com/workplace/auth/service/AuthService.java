@@ -145,9 +145,14 @@ public class AuthService {
 
     loginAttemptService.loginSucceeded(request.username());
 
-    // 1단계: 테넌트 미선택(tenant-less) 토큰 발급. 테넌트 스코프 데이터는 select-tenant 후에야 접근 가능.
-    String accessToken = jwtTokenProvider.generateAccessToken(user.id(), user.username(), null);
-    String refreshToken = jwtTokenProvider.generateRefreshToken(user.id(), null);
+    // 활성 멤버십을 먼저 조회 — 정확히 1개면 자동 선택해 tenant-scoped 토큰 발급.
+    // (P3 테넌트 선택 UI 전까지 단일 소속 사용자가 도메인 RLS 하에서도 정상 동작하도록.)
+    var memberships = membershipRepository.findActiveByUser(user.id());
+    Long autoTenantId = memberships.size() == 1 ? memberships.get(0).tenantId() : null;
+
+    String accessToken =
+        jwtTokenProvider.generateAccessToken(user.id(), user.username(), autoTenantId);
+    String refreshToken = jwtTokenProvider.generateRefreshToken(user.id(), autoTenantId);
 
     UUID familyId = UUID.randomUUID();
     storeRefreshToken(user.id(), refreshToken, familyId);
@@ -168,10 +173,7 @@ public class AuthService {
         null);
 
     return new LoginResult(
-        accessToken,
-        refreshToken,
-        jwtProperties.accessExpiration() / 1000,
-        membershipRepository.findActiveByUser(user.id()));
+        accessToken, refreshToken, jwtProperties.accessExpiration() / 1000, memberships);
   }
 
   /** 2단계: 테넌트 선택 → membership+tenant ACTIVE 검증 후 tenant 스코프 토큰 발급. 전환도 이 메서드. */

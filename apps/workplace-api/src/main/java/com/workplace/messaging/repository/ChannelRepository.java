@@ -243,8 +243,9 @@ public class ChannelRepository {
   }
 
   /**
-   * DM 채널 생성. 동일 member_key 가 이미 있으면(동시 생성 레이스) 아무 것도 하지 않고 empty 반환. uq_channel_dm_member_key 부분
-   * 유니크 인덱스를 충돌 타깃으로 사용 → 예외 없이 트랜잭션 유지(@Transactional abort 방지).
+   * DM 채널 생성. 동일 (tenant_id, member_key) 가 이미 있으면(동시 생성 레이스) 아무 것도 하지 않고 empty 반환.
+   * uq_channel_dm_member_key 부분 유니크 인덱스(V51 이후 tenant_id 포함)를 충돌 타깃으로 사용 → 예외 없이 트랜잭션
+   * 유지(@Transactional abort 방지). tenant_id 는 DEFAULT(GUC 에서 자동 채워짐)이므로 set 불필요; 충돌 타깃에는 명시.
    */
   public Optional<Long> insertDmIfAbsent(String memberKey, long createdBy) {
     return dsl.insertInto(CHANNEL)
@@ -252,7 +253,7 @@ public class ChannelRepository {
         .set(CHANNEL.VISIBILITY, "PRIVATE")
         .set(CHANNEL.MEMBER_KEY, memberKey)
         .set(CHANNEL.CREATED_BY, createdBy)
-        .onConflict(CHANNEL.MEMBER_KEY)
+        .onConflict(CHANNEL.TENANT_ID, CHANNEL.MEMBER_KEY)
         .where(CHANNEL.KIND.eq("DM"))
         .doNothing()
         .returning(CHANNEL.ID)

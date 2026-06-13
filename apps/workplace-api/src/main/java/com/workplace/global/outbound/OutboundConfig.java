@@ -1,5 +1,6 @@
 package com.workplace.global.outbound;
 
+import com.workplace.global.tenant.TenantContextTaskDecorator;
 import java.util.concurrent.Executor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,6 +31,8 @@ public class OutboundConfig {
     executor.setMaxPoolSize(4);
     executor.setQueueCapacity(100);
     executor.setThreadNamePrefix("ai-agent-");
+    // TenantContext 전파 — 향후 핸들러가 RLS 테이블을 읽을 때도 GUC 가 올바르게 주입되도록.
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
     executor.initialize();
     return executor;
   }
@@ -46,6 +49,10 @@ public class OutboundConfig {
     executor.setMaxPoolSize(4);
     executor.setQueueCapacity(500);
     executor.setThreadNamePrefix("notify-");
+    // TenantContext 전파 — @Async AFTER_COMMIT 핸들러가 워커 스레드에서 트랜잭션을 시작할 때
+    // TenantAwareTransactionManager 가 GUC(app.tenant_id) 를 주입할 수 있도록.
+    // (issue_watcher 등 RLS 보호 테이블 조회가 fail-closed 로 차단되지 않도록 하는 핵심 조치)
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
     executor.initialize();
     return executor;
   }

@@ -1,9 +1,12 @@
 package com.workplace.notify.service;
 
+import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.repository.NotificationRepository;
+import com.workplace.watcher.repository.IssueWatcherRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -21,6 +24,7 @@ public class NotificationService {
 
   private final NotificationRepository repo;
   private final SseRegistry registry;
+  private final IssueWatcherRepository watcherRepo;
 
   /** 수신자 확정(actor 제외·중복 제거) → batch insert → SSE fan-out. 빈 수신자면 no-op. */
   @Transactional
@@ -36,6 +40,29 @@ public class NotificationService {
     repo.insertBatch(recipients, type, actorId, issueId, commentId);
     // 페이로드는 경량(클라가 수신 즉시 쿼리 invalidate). 상세는 REST 재조회.
     registry.fanOut(recipients, "notify.created", Map.of("type", type.name(), "issueId", issueId));
+  }
+
+  /**
+   * 워처 조회 + 알림 생성 + fan-out 을 단일 트랜잭션 안에서 수행한다.
+   *
+   * <p>NotificationDispatcher 의 @Async AFTER_COMMIT 핸들러가 이 메서드를 호출하면, 이 메서드가 시작하는 트랜잭션 doBegin 시점에
+   * TenantContext 가 워커 스레드에 복원(TaskDecorator 에 의해)되어 TenantAwareTransactionManager 가
+   * GUC(app.tenant_id) 를 올바르게 주입한다. 결과적으로 RLS 보호 테이블(issue_watcher)의 조회가 올바른 테넌트 스코프에서 실행된다.
+   *
+   * <p>assignees 는 이벤트 페이로드(같은 트랜잭션에서 확정된 값), 워처는 이 트랜잭션 내 조회.
+   */
+  @Transactional
+  public void createWithWatchersAndFanOut(
+      NotificationType type,
+      long issueId,
+      List<UserSummary> assignees,
+      Long actorId,
+      Long commentId) {
+    List<Long> ids = new ArrayList<>();
+    if (assignees != null) assignees.forEach(u -> ids.add(u.id()));
+    // 트랜잭션 내에서 조회 — TenantAwareTransactionManager 가 GUC 를 주입한 후이므로 RLS 정책 통과.
+    ids.addAll(watcherRepo.findUserIdsByIssue(issueId));
+    createAndFanOut(type, ids, actorId, issueId, commentId);
   }
 
   /**

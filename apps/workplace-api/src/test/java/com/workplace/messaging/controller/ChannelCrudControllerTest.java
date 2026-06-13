@@ -20,6 +20,7 @@ import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.service.ChannelMemberService;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +46,8 @@ class ChannelCrudControllerTest {
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
+
+  @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserRepository userRepository;
 

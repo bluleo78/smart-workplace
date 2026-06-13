@@ -25,6 +25,7 @@ import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.service.EmailAccountService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
@@ -56,6 +57,8 @@ class EmailAccountControllerTest {
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
+
+  @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserRepository userRepository;
 

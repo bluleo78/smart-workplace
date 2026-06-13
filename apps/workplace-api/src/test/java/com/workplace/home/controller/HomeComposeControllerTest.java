@@ -17,6 +17,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.home.dto.HomeComposeResponse;
 import com.workplace.home.service.HomeComposeService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Set;
 import java.util.UUID;
@@ -41,6 +42,8 @@ class HomeComposeControllerTest {
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
+
+  @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserRepository userRepository;
 
