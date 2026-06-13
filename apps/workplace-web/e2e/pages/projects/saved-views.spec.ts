@@ -42,7 +42,10 @@ test('저장된 뷰 — 필터 미적용 상태에서 뷰 저장 버튼 비활�
   await expect(page.getByTestId('save-view-button')).toBeDisabled()
 
   // 2) 필터 적용 후에는 버튼이 활성화된다.
-  await page.getByRole('button', { name: '높음' }).click()
+  await page.getByTestId('add-filter-trigger').click()
+  await page.getByTestId('add-filter-facet-priority').click()
+  await page.getByTestId('facet-value-priority-HIGH').click()
+  await page.keyboard.press('Escape')
   await expect(page).toHaveURL(/priority=HIGH/)
   await expect(page.getByTestId('save-view-button')).toBeEnabled()
 
@@ -94,9 +97,11 @@ test('저장된 뷰 — 필터 저장 → 칩 등장 → 클릭 시 필터 복�
 
   await page.goto(`/projects/${KEY}`)
 
-  // 1) 필터 적용 — 우선순위 HIGH('높음' 버튼, URL 에 priority=HIGH 반영).
-  //    IssueFilterBar 의 priority 버튼은 텍스트가 고유('높음') 하므로 role 셀렉터로 직접 클릭한다.
-  await page.getByRole('button', { name: '높음' }).click()
+  // 1) 필터 적용 — 우선순위 HIGH(＋필터 → 우선순위 facet → '높음', URL 에 priority=HIGH 반영).
+  await page.getByTestId('add-filter-trigger').click()
+  await page.getByTestId('add-filter-facet-priority').click()
+  await page.getByTestId('facet-value-priority-HIGH').click()
+  await page.keyboard.press('Escape')
   await expect(page).toHaveURL(/priority=HIGH/)
 
   // 2) ＋뷰 저장 → 다이얼로그 → 이름 입력 → 저장. POST payload 검증.
@@ -178,7 +183,10 @@ test('저장된 뷰 — 빈 이름 제출 시 에러 메시지 표시 + 입력 �
   await page.goto(`/projects/${KEY}`)
 
   // 1) 필터 적용 — 우선순위 HIGH 적용 후 뷰 저장 버튼 활성화.
-  await page.getByRole('button', { name: '높음' }).click()
+  await page.getByTestId('add-filter-trigger').click()
+  await page.getByTestId('add-filter-facet-priority').click()
+  await page.getByTestId('facet-value-priority-HIGH').click()
+  await page.keyboard.press('Escape')
   await expect(page).toHaveURL(/priority=HIGH/)
 
   // 2) 뷰 저장 다이얼로그 열기.

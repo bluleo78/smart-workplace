@@ -5,9 +5,9 @@ import { LayoutGrid, List, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -102,79 +102,6 @@ export function IssueFilterBar({
     setParams(filtersToParams(next, nextView, nextGroupBy), { replace: true });
   }
 
-  function toggleStatus(s: string) {
-    const has = filters.statuses.includes(s);
-    writeFilters(
-      {
-        ...filters,
-        statuses: has
-          ? filters.statuses.filter((x) => x !== s)
-          : [...filters.statuses, s],
-      },
-      view,
-      groupBy,
-    );
-  }
-
-  function togglePriority(p: string) {
-    const has = filters.priorities.includes(p);
-    writeFilters(
-      {
-        ...filters,
-        priorities: has
-          ? filters.priorities.filter((x) => x !== p)
-          : [...filters.priorities, p],
-      },
-      view,
-      groupBy,
-    );
-  }
-
-  // 라벨 다중 토글 — AND 결합이므로 선택할수록 결과는 좁아진다.
-  function toggleLabel(id: number) {
-    const has = filters.labelIds.includes(id);
-    writeFilters(
-      {
-        ...filters,
-        labelIds: has
-          ? filters.labelIds.filter((x) => x !== id)
-          : [...filters.labelIds, id],
-      },
-      view,
-      groupBy,
-    );
-  }
-
-  // 사이클 다중 토글 — OR 결합. 선택된 사이클 중 하나에 속한 이슈 매칭.
-  function toggleCycle(id: number) {
-    const has = filters.cycleIds.includes(id);
-    writeFilters(
-      {
-        ...filters,
-        cycleIds: has
-          ? filters.cycleIds.filter((x) => x !== id)
-          : [...filters.cycleIds, id],
-      },
-      view,
-      groupBy,
-    );
-  }
-
-  // 유형 다중 토글 — OR 결합. 선택된 유형 중 하나에 속한 이슈 매칭.
-  function toggleType(id: number) {
-    const has = filters.typeIds.includes(id);
-    writeFilters(
-      {
-        ...filters,
-        typeIds: has
-          ? filters.typeIds.filter((x) => x !== id)
-          : [...filters.typeIds, id],
-      },
-      view,
-      groupBy,
-    );
-  }
-
   function setView(v: IssueView) {
     writeFilters(filters, v, groupBy);
   }
@@ -201,6 +128,83 @@ export function IssueFilterBar({
     filters.cycleIds.length > 0 ||
     filters.typeIds.length > 0;
 
+  // URL filters → 범용 FilterValue. 상태/우선순위는 문자열, 라벨/사이클/유형은 숫자 id.
+  const filterValue: FilterValue = {
+    status: filters.statuses,
+    priority: filters.priorities,
+    label: filters.labelIds,
+    cycle: filters.cycleIds,
+    type: filters.typeIds,
+  };
+
+  // facet 정의 — 노출 여부는 showCycle/showType 옵션으로 결정.
+  const facets: FacetDef[] = [
+    {
+      key: 'status',
+      label: '상태',
+      options: STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+    },
+    {
+      key: 'priority',
+      label: '우선순위',
+      options: PRIORITY_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+    },
+    {
+      key: 'label',
+      label: '라벨',
+      options: (labels.data ?? []).map((l) => ({
+        value: l.id,
+        label: l.name,
+        render: (
+          <LabelChip label={{ id: l.id, name: l.name, colorToken: l.colorToken }} size="sm" />
+        ),
+      })),
+    },
+    ...(showCycle
+      ? [
+          {
+            key: 'cycle',
+            label: '사이클',
+            options: (cycles.data ?? []).map((c) => ({ value: c.id, label: c.name })),
+          } satisfies FacetDef,
+        ]
+      : []),
+    ...(showType
+      ? [
+          {
+            key: 'type',
+            label: '유형',
+            options: (types.data ?? []).map((t) => ({
+              value: t.id,
+              label: t.name,
+              render: (
+                <IssueTypeBadge
+                  type={{ id: t.id, name: t.name, colorToken: t.colorToken, icon: t.icon }}
+                  size="sm"
+                />
+              ),
+            })),
+          } satisfies FacetDef,
+        ]
+      : []),
+  ];
+
+  // FilterValue → URL filters. 숫자 facet 값은 number 로 왕복(DOM stringify 금지).
+  function handleFilterChange(next: FilterValue) {
+    writeFilters(
+      {
+        ...filters,
+        statuses: (next.status ?? []) as string[],
+        priorities: (next.priority ?? []) as string[],
+        labelIds: (next.label ?? []) as number[],
+        cycleIds: (next.cycle ?? []) as number[],
+        typeIds: (next.type ?? []) as number[],
+      },
+      view,
+      groupBy,
+    );
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-2 py-2">
       <Input
@@ -211,164 +215,7 @@ export function IssueFilterBar({
         aria-label="태스크 검색"
       />
 
-      <div className="flex items-center gap-1" role="group" aria-label="상태 필터">
-        {STATUS_OPTIONS.map((opt) => (
-          <Button
-            key={opt.value}
-            variant={filters.statuses.includes(opt.value) ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => toggleStatus(opt.value)}
-            aria-pressed={filters.statuses.includes(opt.value)}
-          >
-            {opt.label}
-          </Button>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-1" role="group" aria-label="우선순위 필터">
-        {PRIORITY_OPTIONS.map((opt) => (
-          <Button
-            key={opt.value}
-            variant={filters.priorities.includes(opt.value) ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => togglePriority(opt.value)}
-            aria-pressed={filters.priorities.includes(opt.value)}
-          >
-            {opt.label}
-          </Button>
-        ))}
-      </div>
-
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            variant={filters.labelIds.length > 0 ? 'default' : 'outline'}
-            size="sm"
-            aria-label="라벨 필터"
-            data-testid="label-filter-trigger"
-          >
-            라벨{filters.labelIds.length > 0 ? ` (${filters.labelIds.length})` : ''}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-64 p-2">
-          <div className="max-h-64 overflow-y-auto space-y-1">
-            {(labels.data ?? []).map((l) => (
-              <label
-                key={l.id}
-                className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
-                data-testid={`label-filter-option-${l.id}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={filters.labelIds.includes(l.id)}
-                  onChange={() => toggleLabel(l.id)}
-                  aria-label={l.name}
-                />
-                <LabelChip
-                  label={{ id: l.id, name: l.name, colorToken: l.colorToken }}
-                  size="sm"
-                />
-              </label>
-            ))}
-            {(labels.data ?? []).length === 0 && (
-              <p className="text-xs text-muted-foreground py-2 text-center">
-                라벨이 없습니다
-              </p>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      {/* 사이클 필터 — 라벨 필터와 동일 패턴으로 멀티셀렉트 구현. 개인 프로젝트는 숨김. */}
-      {showCycle && (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant={filters.cycleIds.length > 0 ? 'default' : 'outline'}
-              size="sm"
-              aria-label="사이클 필터"
-              data-testid="cycle-filter-trigger"
-            >
-              사이클{filters.cycleIds.length > 0 ? ` (${filters.cycleIds.length})` : ''}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-64 p-2">
-            <div className="max-h-64 overflow-y-auto space-y-1">
-              {(cycles.data ?? []).map((c) => (
-                <label
-                  key={c.id}
-                  className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
-                  data-testid={`cycle-filter-option-${c.id}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={filters.cycleIds.includes(c.id)}
-                    onChange={() => toggleCycle(c.id)}
-                    aria-label={c.name}
-                  />
-                  <span className="text-sm">{c.name}</span>
-                  <span className="ml-auto text-[10px] uppercase text-muted-foreground">
-                    {c.status}
-                  </span>
-                </label>
-              ))}
-              {(cycles.data ?? []).length === 0 && (
-                <p className="text-xs text-muted-foreground py-2 text-center">
-                  사이클이 없습니다
-                </p>
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-      )}
-
-      {/* 유형 필터 — 개인 프로젝트는 TASK 전용이라 숨김. */}
-      {showType && (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant={filters.typeIds.length > 0 ? 'default' : 'outline'}
-              size="sm"
-              aria-label="유형 필터"
-              data-testid="issue-type-filter-trigger"
-            >
-              유형{filters.typeIds.length > 0 ? ` (${filters.typeIds.length})` : ''}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-64 p-2">
-            <div className="max-h-64 overflow-y-auto space-y-1">
-              {(types.data ?? []).map((t) => (
-                <label
-                  key={t.id}
-                  className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
-                  data-testid={`issue-type-filter-option-${t.id}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={filters.typeIds.includes(t.id)}
-                    onChange={() => toggleType(t.id)}
-                    aria-label={t.name}
-                  />
-                  <IssueTypeBadge
-                    type={{
-                      id: t.id,
-                      name: t.name,
-                      colorToken: t.colorToken,
-                      icon: t.icon,
-                    }}
-                    size="sm"
-                  />
-                </label>
-              ))}
-              {(types.data ?? []).length === 0 && (
-                <p className="text-xs text-muted-foreground py-2 text-center">
-                  유형이 없습니다
-                </p>
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-      )}
+      <FacetFilter facets={facets} value={filterValue} onChange={handleFilterChange} />
 
       {/* 그룹 기준 — 셀렉트(드롭다운). null='none' 으로 매핑. */}
       <div className="flex items-center gap-1 ml-auto">

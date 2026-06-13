@@ -111,10 +111,10 @@ test.describe('라벨', () => {
       await page.goto(`/projects/${PROJECT_KEY}`);
       await expect(page.getByTestId('issue-row-1')).toBeVisible();
 
-      await page.getByTestId('label-filter-trigger').click();
-      const filterOption = page.getByTestId(`label-filter-option-${createdId}`);
-      await expect(filterOption).toBeVisible();
-      await filterOption.click();
+      await page.getByTestId('add-filter-trigger').click();
+      await page.getByTestId('add-filter-facet-label').click();
+      await page.getByTestId(`facet-value-label-${createdId}`).click();
+      await expect(page.getByTestId('filter-chip-label')).toBeVisible();
 
       // URL 에 label= 가 들어오고, 백엔드도 label CSV 를 받음.
       await expect(page).toHaveURL(/label=/);

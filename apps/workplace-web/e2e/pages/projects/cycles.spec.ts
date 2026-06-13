@@ -532,8 +532,9 @@ test.describe('사이클 필터', () => {
 
       await page.goto(`/projects/${KEY}`);
 
-      // 사이클 필터가 있는 필터바 로드 대기.
-      await expect(page.getByTestId('cycle-filter-trigger')).toBeVisible();
+      // ＋필터 팝오버를 열어 사이클 facet 이 노출되는지 확인(필터바 로드 대기 겸).
+      await page.getByTestId('add-filter-trigger').click();
+      await expect(page.getByTestId('add-filter-facet-cycle')).toBeVisible();
 
       // cycle=1 을 포함하는 이슈 검색 요청을 기다리는 waitForRequest 설정.
       const filteredReq = page.waitForRequest(
@@ -544,9 +545,10 @@ test.describe('사이클 필터', () => {
         { timeout: 5000 },
       );
 
-      // 사이클 필터 팝오버 열기 → 스프린트 1 옵션 클릭.
-      await page.getByTestId('cycle-filter-trigger').click();
-      await page.getByTestId('cycle-filter-option-1').click();
+      // 사이클 facet → 값 체크리스트에서 스프린트 1 선택.
+      await page.getByTestId('add-filter-facet-cycle').click();
+      await page.getByTestId('facet-value-cycle-1').click();
+      await expect(page.getByTestId('filter-chip-cycle')).toBeVisible();
 
       // cycle=1 을 포함하는 요청이 발생했는지 확인.
       const req = await filteredReq;

@@ -158,13 +158,18 @@ test.describe('태스크 보드/검색', () => {
     });
 
     await page.goto(`/projects/${PROJECT_KEY}`);
-    await page
-      .getByRole('group', { name: '상태 필터' })
-      .getByRole('button', { name: '진행 중' })
-      .click();
+    await page.getByTestId('add-filter-trigger').click();
+    await page.getByTestId('add-filter-facet-status').click();
+    await page.getByTestId('facet-value-status-IN_PROGRESS').click();
+    await expect(page.getByTestId('filter-chip-status')).toBeVisible();
+    await page.keyboard.press('Escape');
 
     await expect(page).toHaveURL(/status=IN_PROGRESS/);
     await expect.poll(() => seenQueries.some((s) => s.includes('status=IN_PROGRESS'))).toBe(true);
+
+    // 칩 제거 → URL 에서 status 파라미터가 빠진다.
+    await page.getByTestId('filter-chip-status-remove').click();
+    await expect(page).not.toHaveURL(/status=IN_PROGRESS/);
   });
 
   test('뷰 토글 리스트 ↔ 보드 → URL view 동기화', async ({ authenticatedPage: page }) => {
