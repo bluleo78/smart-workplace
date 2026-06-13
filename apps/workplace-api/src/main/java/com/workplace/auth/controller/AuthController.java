@@ -7,6 +7,7 @@ import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
 import com.workplace.auth.service.AuthService;
 import com.workplace.global.security.JwtProperties;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.dto.MembershipResponse;
 import com.workplace.user.dto.UserResponse;
@@ -48,8 +49,17 @@ public class AuthController {
 
   @PostMapping("/signup")
   public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignupRequest request) {
-    UserResponse user = authService.signup(request);
-    return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    // signup 은 과도기 모델에서 tenant#1 컨텍스트로 처리한다(전역 시스템 role 조회/할당이 RLS 하에서
+    // 동작하도록). @Transactional 인 AuthService.signup 안에서 설정하면 TenantAwareTransactionManager
+    // 가 tx-start(doBegin) 시점에 TenantContext 를 읽으므로 이미 늦다 → 비-트랜잭션 컨트롤러 경계에서 설정.
+    // 멀티테넌트 셀프-가입/초대 흐름은 후속(P3/§8).
+    TenantContext.set(1L);
+    try {
+      UserResponse user = authService.signup(request);
+      return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    } finally {
+      TenantContext.clear();
+    }
   }
 
   @PostMapping("/login")

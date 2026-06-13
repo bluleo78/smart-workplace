@@ -102,8 +102,16 @@ class AuthServiceTest extends IntegrationTestBase {
 
   @Test
   void login_success() {
-    authService.signup(
-        new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
+    UserResponse user =
+        authService.signup(
+            new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
+    // signup 이 자동 생성하는 tenant#1 멤버십을 SUSPENDED 로 — app_tenant 는 membership DELETE 불가(V46)이나
+    // UPDATE 는 가능. findActiveByUser 는 ACTIVE 만 보므로 활성 멤버십 0 → tenant-less 분기 검증.
+    baseDsl
+        .update(MEMBERSHIP)
+        .set(MEMBERSHIP.STATUS, "SUSPENDED")
+        .where(MEMBERSHIP.USER_ID.eq(user.id()).and(MEMBERSHIP.TENANT_ID.eq(1L)))
+        .execute();
 
     var result = authService.login(new LoginRequest("test@example.com", "Password123"));
 
@@ -247,6 +255,12 @@ class AuthServiceTest extends IntegrationTestBase {
                 "single-member@example.com",
                 "Password123",
                 "Single Member"));
+    // signup 이 자동 생성하는 tenant#1 멤버십을 SUSPENDED 로 → 아래 단일 테넌트만 활성으로 남겨 1 멤버십(tenant-scoped) 분기 검증.
+    baseDsl
+        .update(MEMBERSHIP)
+        .set(MEMBERSHIP.STATUS, "SUSPENDED")
+        .where(MEMBERSHIP.USER_ID.eq(user.id()).and(MEMBERSHIP.TENANT_ID.eq(1L)))
+        .execute();
 
     // 테넌트 1개 생성
     Long tenantId =
@@ -287,6 +301,12 @@ class AuthServiceTest extends IntegrationTestBase {
                 "multi-member@example.com",
                 "Password123",
                 "Multi Member"));
+    // signup 이 자동 생성하는 tenant#1 멤버십을 SUSPENDED 로 → 아래 두 테넌트만 활성으로 남겨 2 멤버십(tenant-less) 분기 검증.
+    baseDsl
+        .update(MEMBERSHIP)
+        .set(MEMBERSHIP.STATUS, "SUSPENDED")
+        .where(MEMBERSHIP.USER_ID.eq(user.id()).and(MEMBERSHIP.TENANT_ID.eq(1L)))
+        .execute();
 
     // 테넌트 2개 생성
     Long tenantId1 =

@@ -98,6 +98,11 @@ public class AuthService {
       userRepository.addRole(user.id(), adminRoleId);
     }
 
+    // 신규 사용자에게 tenant#1 멤버십을 생성한다 — 그래야 로그인 시 단일 멤버십이 자동 선택되어
+    // tenant-scoped 토큰이 발급되고(도메인 RLS 하에서도 정상 동작), 사용자가 실제로 사용 가능해진다.
+    // (과도기 모델: 모든 신규 사용자는 tenant#1 에 귀속. 멀티테넌트 셀프-가입/초대는 후속 P3/§8.)
+    membershipRepository.create(user.id(), 1L, "ACTIVE");
+
     return user;
   }
 
