@@ -60,12 +60,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       authenticateWithInternalToken(authHeader.substring(9), request);
     }
 
-    filterChain.doFilter(request, response);
+    try {
+      filterChain.doFilter(request, response);
+    } finally {
+      // 풀링된 스레드로 active-tenant ThreadLocal 이 새지 않도록 요청 종료 시 항상 정리한다.
+      com.workplace.global.tenant.TenantContext.clear();
+    }
   }
 
   private void authenticateWithJwt(String token) {
     if (jwtTokenProvider.validateAccessToken(token)) {
       Long userId = jwtTokenProvider.getUserIdFromToken(token);
+      // active-tenant 클레임이 있으면 요청 스코프에 설정(RLS GUC 주입용). 없으면 fail-closed.
+      Long tenantId = jwtTokenProvider.getTenantIdFromToken(token);
+      if (tenantId != null) {
+        com.workplace.global.tenant.TenantContext.set(tenantId);
+      }
       setSecurityContext(userId);
     }
   }

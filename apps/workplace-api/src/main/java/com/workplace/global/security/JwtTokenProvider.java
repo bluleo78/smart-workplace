@@ -26,27 +26,50 @@ public class JwtTokenProvider {
     this.refreshExpiration = jwtProperties.refreshExpiration();
   }
 
-  public String generateAccessToken(Long userId, String username) {
+  /** tenant 가 null 이면 pre-auth(테넌트 미선택) 토큰. */
+  public String generateAccessToken(Long userId, String username, Long tenantId) {
     Date now = new Date();
-    return Jwts.builder()
-        .subject(userId.toString())
-        .claim("username", username)
-        .claim("type", "access")
-        .issuedAt(now)
-        .expiration(new Date(now.getTime() + accessExpiration))
-        .signWith(key)
-        .compact();
+    var builder =
+        Jwts.builder()
+            .subject(userId.toString())
+            .claim("username", username)
+            .claim("type", "access")
+            .issuedAt(now)
+            .expiration(new Date(now.getTime() + accessExpiration));
+    if (tenantId != null) {
+      builder.claim("tenant", tenantId);
+    }
+    return builder.signWith(key).compact();
   }
 
-  public String generateRefreshToken(Long userId) {
+  /** 하위호환 — pre-auth(테넌트 미선택) 토큰. */
+  public String generateAccessToken(Long userId, String username) {
+    return generateAccessToken(userId, username, null);
+  }
+
+  public String generateRefreshToken(Long userId, Long tenantId) {
     Date now = new Date();
-    return Jwts.builder()
-        .subject(userId.toString())
-        .claim("type", "refresh")
-        .issuedAt(now)
-        .expiration(new Date(now.getTime() + refreshExpiration))
-        .signWith(key)
-        .compact();
+    var builder =
+        Jwts.builder()
+            .subject(userId.toString())
+            .claim("type", "refresh")
+            .issuedAt(now)
+            .expiration(new Date(now.getTime() + refreshExpiration));
+    if (tenantId != null) {
+      builder.claim("tenant", tenantId);
+    }
+    return builder.signWith(key).compact();
+  }
+
+  /** 하위호환. */
+  public String generateRefreshToken(Long userId) {
+    return generateRefreshToken(userId, null);
+  }
+
+  /** active-tenant. pre-auth 토큰이면 null. */
+  public Long getTenantIdFromToken(String token) {
+    Object t = parseClaims(token).get("tenant");
+    return t == null ? null : ((Number) t).longValue();
   }
 
   public Long getUserIdFromToken(String token) {
