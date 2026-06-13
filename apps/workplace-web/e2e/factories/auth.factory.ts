@@ -4,7 +4,7 @@
  * overrides 파라미터로 특정 필드만 덮어쓸 수 있다.
  */
 
-import type { Membership, TokenResponse, UserResponse } from '@/types/auth';
+import type { LoginResponse, Membership, TokenResponse, UserResponse } from '@/types/auth';
 import type { RoleResponse } from '@/types/role';
 import type { UserDetailResponse } from '@/types/user';
 
@@ -14,6 +14,17 @@ export function createMembership(overrides?: Partial<Membership>): Membership {
     tenantId: 1,
     tenantName: '에이콘 워크스페이스',
     tenantSlug: 'acorn',
+    ...overrides,
+  };
+}
+
+/** 1단계 로그인 응답 생성 — memberships 기본 1개(단일소속/통과 경로) */
+export function createLoginResponse(overrides?: Partial<LoginResponse>): LoginResponse {
+  return {
+    accessToken: 'mock-access-token-12345',
+    tokenType: 'Bearer',
+    expiresIn: 3600,
+    memberships: [createMembership()],
     ...overrides,
   };
 }

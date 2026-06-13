@@ -66,6 +66,8 @@ test('다른 워크스페이스 선택 시 select-tenant API 를 호출한다(pa
 
   await page.goto('/')
   await page.getByTestId('workspace-switcher').click()
+  // 멤버십이 2개여도 현재(활성) 워크스페이스 항목은 비활성 — 자기 자신으로 전환 불가.
+  await expect(page.getByTestId('workspace-switch-1')).toHaveAttribute('data-disabled', '')
   // 다른 워크스페이스(베타) 선택.
   await page.getByTestId('workspace-switch-2').click()
 
