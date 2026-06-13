@@ -13,6 +13,7 @@ import jakarta.mail.UIDFolder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 메일 첨부 파일 다운로드 서비스. DB 에 저장된 첨부 메타(ordinal)를 기반으로 IMAP 에서 해당 파트의 바이너리를 재조회해 반환한다. ordinal 은 {@link
@@ -32,7 +33,14 @@ public class MailAttachmentService {
   /** 다운로드 결과 캐리어. */
   public record AttachmentDownload(byte[] content, String filename, String contentType) {}
 
-  /** 첨부 파일 바이너리 다운로드. 소유 검증 포함. imap_uid 가 없는 로컬 보낸메일이나 IMAP 재조회 실패 시 404/500 반환. */
+  /**
+   * 첨부 파일 바이너리 다운로드. 소유 검증 포함. imap_uid 가 없는 로컬 보낸메일이나 IMAP 재조회 실패 시 404/500 반환.
+   *
+   * <p>RLS GUC 주입 위해 @Transactional(readOnly) 필요 — 없으면 소유 검증 SELECT 가 빈 결과 → 거짓 404(local/prod
+   * fail-closed). DB 쓰기는 없어 readOnly. <b>트레이드오프</b>: IMAP 왕복 동안 DB 커넥션을 점유한다 — 짧은-트랜잭션 리팩터링은 후속
+   * 과제(#230 보고서 참조).
+   */
+  @Transactional(readOnly = true)
   public AttachmentDownload download(long userId, long attachmentId) {
     AttachmentDownloadContext ctx =
         attachmentRepo

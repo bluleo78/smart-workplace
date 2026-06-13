@@ -25,7 +25,8 @@ public class ChannelMemberService {
 
   private static final List<String> VALID_ROLES = List.of("OWNER", "ADMIN", "MEMBER");
 
-  /** 멤버 목록 — 멤버만(비공개 비멤버 404 은닉). */
+  /** 멤버 목록 — 멤버만(비공개 비멤버 404 은닉). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  @Transactional(readOnly = true)
   public List<ChannelMemberResponse> listMembers(long callerId, long channelId) {
     ensureExists(channelId);
     perms.requireMember(channelId, callerId);

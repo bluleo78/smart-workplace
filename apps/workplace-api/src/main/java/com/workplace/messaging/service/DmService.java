@@ -29,7 +29,8 @@ public class DmService {
   /** create 결과 — 신규(201)/기존(200) 구분용. */
   public record DmResult(DmResponse dm, boolean created) {}
 
-  /** 내 DM 목록(최근순). */
+  /** 내 DM 목록(최근순). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  @Transactional(readOnly = true)
   public List<DmResponse> listMyDms(long callerId) {
     return channelRepo.findMyDms(callerId);
   }

@@ -19,12 +19,14 @@ public class ChannelService {
   private final ChannelMemberRepository memberRepo;
   private final ChannelPermissions perms;
 
-  /** 사이드바 — caller 가 멤버이고 아카이브되지 않은 채널만. */
+  /** 사이드바 — caller 가 멤버이고 아카이브되지 않은 채널만. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  @Transactional(readOnly = true)
   public List<ChannelResponse> list(long callerId) {
     return channelRepo.findMyChannels(callerId);
   }
 
-  /** 탐색 — 공개·비아카이브 채널 검색(q ILIKE). */
+  /** 탐색 — 공개·비아카이브 채널 검색(q ILIKE). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  @Transactional(readOnly = true)
   public List<ChannelResponse> discover(long callerId, String q) {
     return channelRepo.searchDiscoverable(callerId, q);
   }
@@ -40,7 +42,8 @@ public class ChannelService {
         .orElseThrow(() -> new ChannelNotFoundException(channelId));
   }
 
-  /** 상세 — 공개 채널은 누구나, 비공개는 멤버만(비멤버 404 은닉). */
+  /** 상세 — 공개 채널은 누구나, 비공개는 멤버만(비멤버 404 은닉). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  @Transactional(readOnly = true)
   public ChannelResponse getDetail(long callerId, long channelId) {
     ChannelResponse ch =
         channelRepo

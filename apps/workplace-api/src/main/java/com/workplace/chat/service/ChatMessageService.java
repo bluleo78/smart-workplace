@@ -99,6 +99,10 @@ public class ChatMessageService {
     publisher.publishEvent(new ChatMessageDeletedEvent(threadId, messageId));
   }
 
+  // readOnly 트랜잭션 — ensureMember(chat_thread_member)·findPage(chat_message) 가 모두 RLS 보호 테이블이라,
+  // 트랜잭션이 없으면 GUC 미주입 autocommit 연결로 fail-closed(빈 결과/멤버 아님)된다. doBegin 이 readOnly 트랜잭션에도
+  // GUC 를 주입하므로 @Transactional(readOnly) 로 RLS 컨텍스트를 확보한다.
+  @Transactional(readOnly = true)
   public ChatMessagePage list(long callerId, long threadId, String cursor, int limit) {
     ensureMember(threadId, callerId);
     return messageRepo.findPage(threadId, cursor, limit, userMentionHydrator::asMentionResponses);
@@ -111,7 +115,13 @@ public class ChatMessageService {
     publisher.publishEvent(new ChatThreadReadEvent(threadId, callerId, uptoMessageId));
   }
 
-  /** 타이핑 알림 — DB 저장 없이 transient 이벤트만 발행. @Transactional 아님 (비-트랜잭션 이벤트). */
+  /**
+   * 타이핑 알림 — DB 저장 없이 transient 이벤트만 발행. 단, 이벤트 발행 전 ensureMember 가 RLS 보호 테이블 chat_thread_member 를
+   * 읽으므로 readOnly 트랜잭션으로 감싸 GUC(app.tenant_id)를 주입한다. 트랜잭션이 없으면 이 멤버십 조회가 fail-closed 되어 매 호출이
+   * NotMember 로 예외 발생한다. onTyping 은 일반 @EventListener(AFTER_COMMIT 아님)라 트랜잭션화해도 이벤트가 유실되지 않는다(트랜잭션
+   * 종료 전 동기 발행).
+   */
+  @Transactional(readOnly = true)
   public void notifyTyping(long callerId, long threadId) {
     ensureMember(threadId, callerId);
     publisher.publishEvent(new ChatThreadTypingEvent(threadId, hydrator.summaryOf(callerId)));
