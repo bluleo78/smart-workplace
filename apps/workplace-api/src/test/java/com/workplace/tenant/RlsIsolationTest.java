@@ -12,8 +12,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * RLS 격리 증명. 비특권 app_tenant 커넥션에서 app.tenant_id GUC 로 행이 격리됨을 증명한다. 이 테스트가
- * 통과해야 RLS 전체(P2 포함)의 신뢰 근거가 선다. @Transactional 롤백으로 카나리아 행은 남지 않는다.
+ * RLS 격리 증명. 비특권 app_tenant 커넥션에서 app.tenant_id GUC 로 행이 격리됨을 증명한다. 이 테스트가 통과해야 RLS 전체(P2 포함)의 신뢰
+ * 근거가 선다. @Transactional 롤백으로 카나리아 행은 남지 않는다.
  */
 class RlsIsolationTest extends IntegrationTestBase {
 

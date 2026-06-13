@@ -14,9 +14,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * TenantContext → 트랜잭션-로컬 GUC 주입이 실제 트랜잭션에서 동작함을 검증. @Transactional 테스트는 본문
- * 전에 트랜잭션이 시작돼 TenantContext 설정이 늦으므로, 운영과 동일하게 "컨텍스트 설정 후 트랜잭션
- * 시작" 순서를 보장하는 TransactionTemplate 으로 검증한다.
+ * TenantContext → 트랜잭션-로컬 GUC 주입이 실제 트랜잭션에서 동작함을 검증. @Transactional 테스트는 본문 전에 트랜잭션이 시작돼
+ * TenantContext 설정이 늦으므로, 운영과 동일하게 "컨텍스트 설정 후 트랜잭션 시작" 순서를 보장하는 TransactionTemplate 으로 검증한다.
  */
 class TenantContextGucTest extends IntegrationTestBase {
 
@@ -40,8 +39,7 @@ class TenantContextGucTest extends IntegrationTestBase {
     new TransactionTemplate(txManager)
         .execute(
             status -> {
-              String guc =
-                  (String) dsl.fetchValue("SELECT current_setting('app.tenant_id', true)");
+              String guc = (String) dsl.fetchValue("SELECT current_setting('app.tenant_id', true)");
               assertThat(guc).isEqualTo("1001");
 
               dsl.insertInto(TENANT_CANARY)
