@@ -66,14 +66,15 @@ export default function IssueDetailPage() {
   const isOwner =
     members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
 
+  // 프로젝트 타입이 확정되기 전에는 렌더 보류 — 팀 화면 반짝임 방지.
+  if (project.isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
+  if (project.error)
+    return <p className="container mx-auto p-6 text-destructive">프로젝트를 불러올 수 없습니다</p>;
   // 개인 프로젝트의 이슈 풀페이지 진입(알림/북마크)은 프로젝트 화면의 우측 패널로 리다이렉트한다.
   // 팀 프로젝트는 기존 풀페이지 유지.
   if (project.data?.type === 'PERSONAL') {
     return <Navigate to={`/projects/${key}?task=${issueNumber}`} replace />;
   }
-
-  // 프로젝트 타입이 아직 불명이면 렌더 보류 — 팀 화면 반짝임 방지.
-  if (project.isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
 
   if (isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
   if (!data) return (
