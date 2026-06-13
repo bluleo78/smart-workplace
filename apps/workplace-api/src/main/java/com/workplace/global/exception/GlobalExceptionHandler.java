@@ -703,6 +703,15 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** 개인 프로젝트 이슈에 TASK 가 아닌 유형 지정/변경 — 400. */
+  @ExceptionHandler(com.workplace.issue.exception.PersonalProjectTypeFixedException.class)
+  public ResponseEntity<ErrorResponse> handlePersonalProjectTypeFixed(
+      com.workplace.issue.exception.PersonalProjectTypeFixedException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   /** 허용되지 않은 유형 아이콘 — 400. */
   @ExceptionHandler(InvalidTypeIconException.class)
   public ResponseEntity<ErrorResponse> handleInvalidTypeIcon(

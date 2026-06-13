@@ -82,8 +82,15 @@ public class IssueService {
     }
 
     // 2) typeId 결정 — 지정 시 같은 프로젝트 검증, 아니면 TASK fallback. typeRow 는 이후 SUBTASK 분기 판정에 재사용.
+    //    개인 프로젝트는 TASK 단일 유형만 허용(#226) — req.typeId() 와 무관하게 항상 TASK 로 강제하여
+    //    잘못된/비TASK typeId 가 들어와도 견고하게 TASK 로 귀결시킨다.
     com.workplace.issue.dto.IssueTypeRow typeRow;
-    if (req.typeId() != null) {
+    if ("PERSONAL".equals(project.type())) {
+      typeRow =
+          typeRepository
+              .findByProjectAndName(project.id(), "TASK")
+              .orElseThrow(() -> new IllegalStateException("프로젝트에 TASK 유형이 없음"));
+    } else if (req.typeId() != null) {
       typeRow =
           typeRepository.findById(req.typeId()).orElseThrow(InvalidTypeForProjectException::new);
       if (!typeRow.projectId().equals(project.id())) {
@@ -333,6 +340,10 @@ public class IssueService {
         typeRepository.findById(newTypeId).orElseThrow(InvalidTypeForProjectException::new);
     if (!newType.projectId().equals(project.id())) {
       throw new InvalidTypeForProjectException();
+    }
+    // 개인 프로젝트는 TASK 단일 유형만 허용(#226) — 비TASK 유형으로의 변경을 400 으로 거부한다.
+    if ("PERSONAL".equals(project.type()) && !"TASK".equals(newType.name())) {
+      throw new com.workplace.issue.exception.PersonalProjectTypeFixedException();
     }
     if (newType.id().equals(issue.typeId())) {
       return get(callerId, projectKey, number);

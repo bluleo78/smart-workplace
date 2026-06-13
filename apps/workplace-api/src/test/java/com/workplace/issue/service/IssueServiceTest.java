@@ -30,6 +30,7 @@ class IssueServiceTest extends IntegrationTestBase {
 
   @Autowired private IssueService issueService;
   @Autowired private ProjectService projectService;
+  @Autowired private com.workplace.issue.repository.IssueTypeRepository typeRepository;
   @Autowired private DSLContext dsl;
 
   private Long ownerId;
@@ -126,6 +127,23 @@ class IssueServiceTest extends IntegrationTestBase {
                     personal.key(),
                     new CreateIssueRequest("t", null, null, null, List.of(stranger), null, null)))
         .isInstanceOf(InvalidAssigneeForProjectException.class);
+  }
+
+  /** 개인 프로젝트: 비TASK typeId 를 넘겨도 TASK 로 강제된다 (#226 — 개인은 TASK 단일 유형). */
+  @Test
+  void create_personalForcesTaskTypeEvenWithNonTaskTypeId() {
+    Long owner = createUser("owner226");
+    ProjectResponse personal =
+        projectService.create(owner, new CreateProjectRequest(null, "p226", null, "PERSONAL"));
+    // 개인 프로젝트에도 시드되는 BUG 유형 id 를 의도적으로 넘긴다 — 무시되고 TASK 로 귀결되어야 한다.
+    var bug = typeRepository.findByProjectAndName(personal.id(), "BUG").orElseThrow();
+    IssueResponse resp =
+        issueService.create(
+            owner,
+            personal.key(),
+            new CreateIssueRequest("t", null, null, null, null, bug.id(), null));
+    IssueDetailResponse detail = issueService.get(owner, personal.key(), resp.number());
+    assertThat(detail.summary().type().name()).isEqualTo("TASK");
   }
 
   @Test

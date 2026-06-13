@@ -19,9 +19,11 @@ import { createIssueSchema, type CreateIssueFormData } from '../../../lib/valida
 
 // 새 이슈 생성 모달. priority 기본 MID, dueDate 미지정 시 빈 문자열 → API 호출 직전 undefined 변환.
 // 유형 select 의 기본값은 프로젝트 유형 목록에서 name === 'TASK' 인 id (없으면 첫 번째).
+// personal=true 면 개인 프로젝트(#226) — 유형 select 를 숨긴다. 기본값 effect 가 typeId 를 TASK 로
+// 채우므로 셀렉트가 없어도 payload 의 typeId 는 TASK 로 유지된다.
 export function IssueCreateDialog({
-  projectKey, open, onOpenChange,
-}: { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void }) {
+  projectKey, open, onOpenChange, personal = false,
+}: { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean }) {
   const create = useCreateIssue(projectKey);
   const types = useIssueTypes(projectKey);
   const {
@@ -50,8 +52,10 @@ export function IssueCreateDialog({
     if (currentTypeId) return;
     const task = list.find((t) => t.name === 'TASK');
     setValue('typeId', task?.id ?? list[0].id);
+    // open 의존: 다이얼로그 재오픈 시 reset 이 typeId 를 지운 뒤 이 effect 가 다시 TASK 기본값을 채우도록 한다.
+    // (개인 프로젝트는 select 가 숨겨져 사용자 보정이 불가하므로 payload typeId 누락을 막는 것이 특히 중요.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [types.data]);
+  }, [types.data, open]);
 
   const currentTypeId = watch('typeId');
   // 선택된 유형이 SUBTASK 인지 — parentNumber 입력 동적 노출 + 송신 분기에 사용 (Phase 4a).
@@ -90,22 +94,25 @@ export function IssueCreateDialog({
             <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
             <Textarea id="issue-body" {...register('body')} rows={6} />
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="issue-type">유형</label>
-              <select
-                id="issue-type"
-                value={currentTypeId ?? ''}
-                onChange={(e) => setValue('typeId', Number(e.target.value))}
-                data-testid="create-type-select"
-                aria-label="이슈 유형"
-                className="w-full border rounded p-2 bg-background"
-              >
-                {(types.data ?? []).map((t) => (
-                  <option key={t.id} value={t.id}>{getIssueTypeLabel(t.name)}</option>
-                ))}
-              </select>
-            </div>
+          <div className={personal ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-3 gap-3'}>
+            {/* 개인 프로젝트는 TASK 단일 유형(#226) — 유형 select 를 숨긴다(typeId 는 effect 가 TASK 로 채움). */}
+            {!personal && (
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="issue-type">유형</label>
+                <select
+                  id="issue-type"
+                  value={currentTypeId ?? ''}
+                  onChange={(e) => setValue('typeId', Number(e.target.value))}
+                  data-testid="create-type-select"
+                  aria-label="이슈 유형"
+                  className="w-full border rounded p-2 bg-background"
+                >
+                  {(types.data ?? []).map((t) => (
+                    <option key={t.id} value={t.id}>{getIssueTypeLabel(t.name)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="issue-priority">우선순위</label>
               <select id="issue-priority" {...register('priority')} className="w-full border rounded p-2 bg-background">

@@ -79,7 +79,8 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
       </div>
       {/* 우측 상세 패널 — ?task=N 이 있을 때만 표시 */}
       <PersonalTaskPanel projectKey={key} />
-      <IssueCreateDialog projectKey={key} open={createOpen} onOpenChange={setCreateOpen} />
+      {/* 개인 프로젝트 — TASK 단일 유형(#226): 유형 select 숨김 */}
+      <IssueCreateDialog projectKey={key} personal open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

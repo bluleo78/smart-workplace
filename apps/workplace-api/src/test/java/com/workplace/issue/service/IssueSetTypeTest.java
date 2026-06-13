@@ -158,4 +158,34 @@ class IssueSetTypeTest extends IntegrationTestBase {
                     new CreateIssueRequest("t", null, null, null, null, foreignType.id(), null)))
         .isInstanceOf(InvalidTypeForProjectException.class);
   }
+
+  /** 개인 프로젝트: 이슈 유형을 비TASK(BUG)로 변경하면 400 (#226 — 개인은 TASK 단일 유형). */
+  @Test
+  void personal_setType_to_non_task_throws_400() {
+    Long owner = createUser("g");
+    ProjectResponse personal =
+        projectService.create(owner, new CreateProjectRequest(null, "stp", null, "PERSONAL"));
+    var bug = typeRepository.findByProjectAndName(personal.id(), "BUG").orElseThrow();
+    var issue =
+        issueService.create(
+            owner, personal.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+
+    assertThatThrownBy(() -> issueService.setType(owner, personal.key(), issue.number(), bug.id()))
+        .isInstanceOf(com.workplace.issue.exception.PersonalProjectTypeFixedException.class);
+  }
+
+  /** 개인 프로젝트: TASK 로의 setType 은 동일 유형이라 fast-return 으로 성공한다 (#226). */
+  @Test
+  void personal_setType_to_task_succeeds() {
+    Long owner = createUser("h");
+    ProjectResponse personal =
+        projectService.create(owner, new CreateProjectRequest(null, "stp2", null, "PERSONAL"));
+    var task = typeRepository.findByProjectAndName(personal.id(), "TASK").orElseThrow();
+    var issue =
+        issueService.create(
+            owner, personal.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+
+    var detail = issueService.setType(owner, personal.key(), issue.number(), task.id());
+    assertThat(detail.summary().type().name()).isEqualTo("TASK");
+  }
 }

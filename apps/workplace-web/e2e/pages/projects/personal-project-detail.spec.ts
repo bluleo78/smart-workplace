@@ -2,6 +2,7 @@
 // 전 구간 page.route 모킹(백엔드 무관). 모킹 데이터는 실제 타입(factory) 사용.
 import { createChatMessagePage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
+import { systemTypes } from '../../factories/issueType.factory';
 import { createLabel, toLabelSummary } from '../../factories/label.factory';
 import { createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
@@ -409,6 +410,42 @@ test('툴바 상태 필터(할 일) 클릭 → ?status=TODO URL + 이슈 API sta
   // 출력 → 완료작업(DONE)은 더 이상 표시되지 않는다.
   await expect(page.getByTestId('personal-task-row-1')).toContainText('할일작업');
   await expect(page.getByText('완료작업')).toHaveCount(0);
+});
+
+// ─── 빠른 추가(#226: 개인은 TASK 단일 유형) ───────────────────────────────────────
+
+test('빠른 추가 다이얼로그는 유형 select 를 숨기고 POST payload 의 typeId 가 TASK 로 고정된다', async ({ authenticatedPage: page }) => {
+  const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, project);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/labels`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/cycles`, []);
+  // 다이얼로그 effect 가 typeId 를 name==='TASK' 인 id 로 채우도록 시스템 유형(TASK id=1 포함)을 모킹한다.
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/types`, systemTypes());
+  const taskTypeId = systemTypes().find((t) => t.name === 'TASK')!.id;
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues`, createIssueSearchResponse([]));
+
+  // 생성 POST 캡처 — payload.typeId 검증용 (검증된 mockApi capture 패턴).
+  const createCapture = await mockApi(
+    page,
+    'POST',
+    `/api/v1/projects/${KEY}/issues`,
+    createIssue({ projectKey: KEY, number: 1, title: '새 작업' }),
+    { capture: true },
+  );
+
+  await page.goto(`/projects/${KEY}`);
+  await page.getByRole('button', { name: '빠른 추가' }).click();
+
+  // 다이얼로그 오픈 + 유형 select 부재(개인 전용).
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByTestId('create-type-select')).toHaveCount(0);
+
+  // 제목 입력 후 생성 → POST payload 의 typeId 가 TASK 로 고정되어야 한다.
+  await page.getByLabel('제목').fill('새 작업');
+  await page.getByRole('button', { name: '생성' }).click();
+
+  const created = await createCapture.waitForRequest();
+  expect((created.payload as { typeId?: number }).typeId).toBe(taskTypeId);
 });
 
 test('보드+우선순위 그룹 — CANCELED 이슈는 어떤 우선순위 컬럼에도 나타나지 않는다', async ({ authenticatedPage: page }) => {
