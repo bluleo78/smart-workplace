@@ -1,6 +1,8 @@
 // 개인 프로젝트 전용 상세 화면 E2E — 분기/뷰 토글/인라인/패널/리다이렉트/필드 다이어트.
 // 전 구간 page.route 모킹(백엔드 무관). 모킹 데이터는 실제 타입(factory) 사용.
-import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
+import { createChatMessagePage, createChatThread } from '../../factories/chat.factory';
+import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
+import { createLabel, toLabelSummary } from '../../factories/label.factory';
 import { createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
@@ -132,6 +134,55 @@ test('"자세히 보기" 클릭 시 ?task=N 쿼리 파라미터가 설정된다'
   await expect(page.getByTestId('personal-task-detail-link-1')).toBeVisible();
   await page.getByTestId('personal-task-detail-link-1').click();
   await expect(page).toHaveURL(/task=1/);
+});
+
+// 패널 진입 공통 — 단건 + chat 모킹.
+async function mockTaskDetail(page: import('@playwright/test').Page) {
+  const label = createLabel({ id: 5, name: '긴급' });
+  const detail = createIssueDetail({
+    summary: createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', labels: [toLabelSummary(label)] }),
+    body: '서론은 짧게',
+  });
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1`, detail);
+  const thread = createChatThread();
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/chat/thread`, thread);
+  await mockApi(page, 'GET', `/api/v1/chat/threads/${thread.threadId}/messages`, createChatMessagePage([]));
+}
+
+test('자세히 보기 → 우측 패널 오픈 + URL ?task 반영 + 새로고침 유지', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}`);
+
+  await page.getByTestId('personal-task-row-1').getByText('블로그 초안').click();
+  await page.getByTestId('personal-task-detail-link-1').click();
+
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  await expect(page).toHaveURL(/[?&]task=1/);
+  await page.reload();
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+});
+
+test('패널은 라벨·AI 대화 노출 / 사이클·의존성·커스텀필드·watch 미노출', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const panel = page.getByTestId('personal-task-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText('긴급'); // 라벨
+  await expect(panel.getByTestId('personal-panel-chat')).toBeVisible(); // AI 대화
+  await expect(panel.getByText('사이클')).toHaveCount(0);
+  await expect(panel.getByText('의존성')).toHaveCount(0);
+  await expect(panel.getByText('구독')).toHaveCount(0);
+});
+
+test('보드 카드 클릭 → 우측 패널 오픈', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?view=board`);
+  await page.getByTestId('personal-board-card-1').click();
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
 });
 
 test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 반영', async ({ authenticatedPage: page }) => {
