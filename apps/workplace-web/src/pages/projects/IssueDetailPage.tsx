@@ -72,6 +72,9 @@ export default function IssueDetailPage() {
     return <Navigate to={`/projects/${key}?task=${issueNumber}`} replace />;
   }
 
+  // 프로젝트 타입이 아직 불명이면 렌더 보류 — 팀 화면 반짝임 방지.
+  if (project.isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
+
   if (isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
   if (!data) return (
     <div className="container mx-auto p-6 text-center">
