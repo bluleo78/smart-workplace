@@ -5,7 +5,6 @@
 // 데스크톱(lg) = 56px 아이콘 레일(라벨은 Tooltip), 모바일 = 오버레이 드로어(아이콘+라벨).
 import {
   BookOpen,
-  Boxes,
   CalendarDays,
   HardDrive,
   Home,
@@ -30,6 +29,7 @@ import { cn } from '@/lib/utils'
 
 import { AppRailUserMenu } from './AppRailUserMenu'
 import { InboxPanel } from './InboxPanel'
+import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 interface RailItem {
   label: string
@@ -156,20 +156,9 @@ export function AppRail() {
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        {/* 앱 마크 — 클릭 시 홈. 데스크톱은 마크만, 모바일은 마크+워드마크. */}
-        <div className="flex h-14 shrink-0 items-center border-b px-3 lg:justify-center lg:px-0">
-          <Link
-            to="/"
-            data-testid="rail-home"
-            aria-label="홈"
-            onClick={closeMobile}
-            className="flex items-center gap-2"
-          >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Boxes className="h-5 w-5" />
-            </span>
-            <span className="truncate font-semibold lg:hidden">Smart Workplace</span>
-          </Link>
+        {/* 상단 — 워크스페이스 스위처(활성 테넌트 없으면 미렌더). */}
+        <div className="flex h-14 shrink-0 items-center border-b px-2 lg:px-1">
+          <WorkspaceSwitcher />
         </div>
 
         {/* 모듈 런처 */}

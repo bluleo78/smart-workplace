@@ -6,15 +6,19 @@ test('홈에 앱 레일이 보이고 상단 GNB는 없다', { tag: '@smoke' }, a
   await expect(page.getByTestId('module-sidebar')).toHaveCount(0)
 })
 
-test('데스크톱에서 앱 레일은 아이콘 전용이다(앱 마크 표시·워드마크 숨김)', async ({
+test('데스크톱에서 앱 레일은 아이콘 전용이다(워드마크 없음, 홈은 모듈 링크로 접근)', async ({
   authenticatedPage: page,
 }) => {
   // 기본 뷰포트(1280)는 lg 브레이크포인트 → 아이콘 레일.
   await page.goto('/')
-  // 앱 마크(→홈)는 항상 보인다.
-  await expect(page.getByTestId('rail-home')).toBeVisible()
-  // 워드마크 "Smart Workplace" 는 lg 에서 숨김(아이콘 전용 정체성).
-  await expect(page.getByTestId('app-rail').getByText('Smart Workplace')).toBeHidden()
+  // #219 P3 — 레일 최상단 앱마크(→홈)는 워크스페이스 스위처 칩으로 교체됐다.
+  // 활성 테넌트가 없는 기본 fixture 에선 스위처가 미렌더(기존 단일테넌트 무영향).
+  await expect(page.getByTestId('workspace-switcher')).toHaveCount(0)
+  // 옛 앱마크 testid 는 제거됨 — 홈은 모듈 런처의 '홈' 링크(rail-link-/)로 접근한다.
+  await expect(page.getByTestId('app-rail').getByTestId('rail-home')).toHaveCount(0)
+  await expect(page.getByTestId('rail-link-/')).toBeVisible()
+  // 워드마크 "Smart Workplace" 는 레일 어디에도 노출되지 않는다(아이콘 전용 정체성).
+  await expect(page.getByTestId('app-rail').getByText('Smart Workplace')).toHaveCount(0)
 })
 
 // LNB 표준화(#98) — 레일 라벨 한글화(대화·드라이브) + 소통 묶음 순서.

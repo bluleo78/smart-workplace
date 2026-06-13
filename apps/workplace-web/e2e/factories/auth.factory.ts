@@ -4,9 +4,19 @@
  * overrides 파라미터로 특정 필드만 덮어쓸 수 있다.
  */
 
-import type { TokenResponse, UserResponse } from '@/types/auth';
+import type { Membership, TokenResponse, UserResponse } from '@/types/auth';
 import type { RoleResponse } from '@/types/role';
 import type { UserDetailResponse } from '@/types/user';
+
+/** 테넌트 멤버십(워크스페이스) 객체 생성 — 워크스페이스 스위처 테스트용. */
+export function createMembership(overrides?: Partial<Membership>): Membership {
+  return {
+    tenantId: 1,
+    tenantName: '에이콘 워크스페이스',
+    tenantSlug: 'acorn',
+    ...overrides,
+  };
+}
 
 /** 기본 사용자 응답 객체 생성 — kind default 'HUMAN'. */
 export function createUser(overrides?: Partial<UserResponse>): UserResponse {
