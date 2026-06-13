@@ -185,6 +185,15 @@ test('보드 카드 클릭 → 우측 패널 오픈', async ({ authenticatedPage
   await expect(page.getByTestId('personal-task-panel')).toBeVisible();
 });
 
+test('패널 — 존재하지 않는 task id 진입 시 오류 메시지와 닫기 버튼을 표시한다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/999`, { message: 'not found' }, { status: 404 });
+  await page.goto(`/projects/${KEY}?task=999`);
+  await expect(page.getByTestId('personal-task-panel-notfound')).toBeVisible();
+  await page.getByTestId('personal-task-panel-notfound').getByRole('button', { name: '닫기' }).click();
+  await expect(page).not.toHaveURL(/task=/);
+});
+
 test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 반영', async ({ authenticatedPage: page }) => {
   // 가변 상태 — PATCH 후 GET 재조회가 DONE 을 반영하도록 한다.
   let issue = createIssue({ projectKey: KEY, number: 1, title: '운동 계획', status: 'TODO' });

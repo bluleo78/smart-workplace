@@ -52,6 +52,7 @@ function PanelBody({
   return (
     <aside
       data-testid="personal-task-panel"
+      aria-label="작업 상세"
       className="flex w-[380px] min-w-0 shrink-0 flex-col overflow-y-auto border-l bg-card"
     >
       {/* 헤더 — 제목 + 닫기 버튼 */}
@@ -102,6 +103,7 @@ function PanelBody({
             <input
               type="date"
               value={q.data.summary.dueDate ?? ''}
+              disabled={update.isPending}
               onChange={(e) =>
                 update.mutate(e.target.value ? { dueDate: e.target.value } : { clearDueDate: true })
               }
