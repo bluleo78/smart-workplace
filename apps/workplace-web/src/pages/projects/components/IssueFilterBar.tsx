@@ -38,13 +38,33 @@ const GROUP_OPTIONS: { value: IssueGroupBy | null; label: string }[] = [
   { value: 'priority', label: '우선순위' },
 ];
 
-export function IssueFilterBar({ projectKey }: { projectKey: string }) {
+// 개인 프로젝트 등에서 일부 컨트롤을 숨기거나 라벨을 바꾸기 위한 옵션. 기본값 = 팀 전체 동작.
+export interface IssueFilterBarOptions {
+  showCycle?: boolean; // 기본 true
+  showType?: boolean; // 기본 true
+  groupOptions?: { value: IssueGroupBy | null; label: string }[]; // 기본 GROUP_OPTIONS
+  listLabel?: string; // 뷰토글의 'list' 버튼 라벨. 기본 '리스트'
+}
+
+export function IssueFilterBar({
+  projectKey,
+  options,
+}: {
+  projectKey: string;
+  options?: IssueFilterBarOptions;
+}) {
+  const showCycle = options?.showCycle ?? true;
+  const showType = options?.showType ?? true;
+  const groupOptions = options?.groupOptions ?? GROUP_OPTIONS;
+  const listLabel = options?.listLabel ?? '리스트';
   const [params, setParams] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
   const groupBy = parseGroupBy(params);
   const [qDraft, setQDraft] = useState(filters.q);
   const labels = useLabels(projectKey);
+  // useCycles/useIssueTypes 는 훅 규칙상 항상 호출하지만, showCycle/showType=false 면
+  // 렌더하지 않는다(개인 프로젝트). 네트워크는 발생하나 결과가 비어 무해.
   const cycles = useCycles(projectKey);
   const types = useIssueTypes(projectKey);
 
@@ -240,95 +260,100 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
         </PopoverContent>
       </Popover>
 
-      {/* 사이클 필터 — 라벨 필터와 동일 패턴으로 멀티셀렉트 구현 */}
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            variant={filters.cycleIds.length > 0 ? 'default' : 'outline'}
-            size="sm"
-            aria-label="사이클 필터"
-            data-testid="cycle-filter-trigger"
-          >
-            사이클{filters.cycleIds.length > 0 ? ` (${filters.cycleIds.length})` : ''}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-64 p-2">
-          <div className="max-h-64 overflow-y-auto space-y-1">
-            {(cycles.data ?? []).map((c) => (
-              <label
-                key={c.id}
-                className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
-                data-testid={`cycle-filter-option-${c.id}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={filters.cycleIds.includes(c.id)}
-                  onChange={() => toggleCycle(c.id)}
-                  aria-label={c.name}
-                />
-                <span className="text-sm">{c.name}</span>
-                <span className="ml-auto text-[10px] uppercase text-muted-foreground">
-                  {c.status}
-                </span>
-              </label>
-            ))}
-            {(cycles.data ?? []).length === 0 && (
-              <p className="text-xs text-muted-foreground py-2 text-center">
-                사이클이 없습니다
-              </p>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
+      {/* 사이클 필터 — 라벨 필터와 동일 패턴으로 멀티셀렉트 구현. 개인 프로젝트는 숨김. */}
+      {showCycle && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant={filters.cycleIds.length > 0 ? 'default' : 'outline'}
+              size="sm"
+              aria-label="사이클 필터"
+              data-testid="cycle-filter-trigger"
+            >
+              사이클{filters.cycleIds.length > 0 ? ` (${filters.cycleIds.length})` : ''}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-2">
+            <div className="max-h-64 overflow-y-auto space-y-1">
+              {(cycles.data ?? []).map((c) => (
+                <label
+                  key={c.id}
+                  className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
+                  data-testid={`cycle-filter-option-${c.id}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={filters.cycleIds.includes(c.id)}
+                    onChange={() => toggleCycle(c.id)}
+                    aria-label={c.name}
+                  />
+                  <span className="text-sm">{c.name}</span>
+                  <span className="ml-auto text-[10px] uppercase text-muted-foreground">
+                    {c.status}
+                  </span>
+                </label>
+              ))}
+              {(cycles.data ?? []).length === 0 && (
+                <p className="text-xs text-muted-foreground py-2 text-center">
+                  사이클이 없습니다
+                </p>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
 
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            variant={filters.typeIds.length > 0 ? 'default' : 'outline'}
-            size="sm"
-            aria-label="유형 필터"
-            data-testid="issue-type-filter-trigger"
-          >
-            유형{filters.typeIds.length > 0 ? ` (${filters.typeIds.length})` : ''}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-64 p-2">
-          <div className="max-h-64 overflow-y-auto space-y-1">
-            {(types.data ?? []).map((t) => (
-              <label
-                key={t.id}
-                className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
-                data-testid={`issue-type-filter-option-${t.id}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={filters.typeIds.includes(t.id)}
-                  onChange={() => toggleType(t.id)}
-                  aria-label={t.name}
-                />
-                <IssueTypeBadge
-                  type={{
-                    id: t.id,
-                    name: t.name,
-                    colorToken: t.colorToken,
-                    icon: t.icon,
-                  }}
-                  size="sm"
-                />
-              </label>
-            ))}
-            {(types.data ?? []).length === 0 && (
-              <p className="text-xs text-muted-foreground py-2 text-center">
-                유형이 없습니다
-              </p>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
+      {/* 유형 필터 — 개인 프로젝트는 TASK 전용이라 숨김. */}
+      {showType && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant={filters.typeIds.length > 0 ? 'default' : 'outline'}
+              size="sm"
+              aria-label="유형 필터"
+              data-testid="issue-type-filter-trigger"
+            >
+              유형{filters.typeIds.length > 0 ? ` (${filters.typeIds.length})` : ''}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-2">
+            <div className="max-h-64 overflow-y-auto space-y-1">
+              {(types.data ?? []).map((t) => (
+                <label
+                  key={t.id}
+                  className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
+                  data-testid={`issue-type-filter-option-${t.id}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={filters.typeIds.includes(t.id)}
+                    onChange={() => toggleType(t.id)}
+                    aria-label={t.name}
+                  />
+                  <IssueTypeBadge
+                    type={{
+                      id: t.id,
+                      name: t.name,
+                      colorToken: t.colorToken,
+                      icon: t.icon,
+                    }}
+                    size="sm"
+                  />
+                </label>
+              ))}
+              {(types.data ?? []).length === 0 && (
+                <p className="text-xs text-muted-foreground py-2 text-center">
+                  유형이 없습니다
+                </p>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
 
       <div className="flex items-center gap-1 ml-auto" role="group" aria-label="그룹 기준">
         <span className="text-xs text-muted-foreground">그룹</span>
-        {GROUP_OPTIONS.map((opt) => (
+        {groupOptions.map((opt) => (
           <Button
             key={opt.value ?? 'none'}
             variant={groupBy === opt.value ? 'default' : 'outline'}
@@ -349,7 +374,7 @@ export function IssueFilterBar({ projectKey }: { projectKey: string }) {
           onClick={() => setView('list')}
           aria-pressed={view === 'list'}
         >
-          리스트
+          {listLabel}
         </Button>
         <Button
           variant={view === 'board' ? 'default' : 'outline'}
