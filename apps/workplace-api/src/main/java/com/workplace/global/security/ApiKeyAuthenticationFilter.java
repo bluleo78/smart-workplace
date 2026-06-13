@@ -1,7 +1,9 @@
 package com.workplace.global.security;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
 import jakarta.servlet.FilterChain;
@@ -38,14 +40,17 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
   private final AgentApiKeyRepository agentApiKeyRepository;
   private final UserRepository userRepository;
   private final PermissionService permissionService;
+  private final MembershipRepository membershipRepository;
 
   public ApiKeyAuthenticationFilter(
       AgentApiKeyRepository agentApiKeyRepository,
       UserRepository userRepository,
-      @Lazy PermissionService permissionService) {
+      @Lazy PermissionService permissionService,
+      MembershipRepository membershipRepository) {
     this.agentApiKeyRepository = agentApiKeyRepository;
     this.userRepository = userRepository;
     this.permissionService = permissionService;
+    this.membershipRepository = membershipRepository;
   }
 
   @Override
@@ -54,36 +59,54 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
       @NonNull HttpServletResponse response,
       @NonNull FilterChain chain)
       throws ServletException, IOException {
-    String auth = request.getHeader("Authorization");
-    if (auth != null
-        && auth.startsWith(BEARER_PREFIX)
-        && auth.length() > BEARER_PREFIX.length()
-        && auth.substring(BEARER_PREFIX.length()).startsWith(AK_PREFIX)) {
-      String plaintext = auth.substring(BEARER_PREFIX.length());
-      String hash = sha256Hex(plaintext);
-      agentApiKeyRepository
-          .findActiveByHash(hash)
-          .ifPresent(
-              key ->
-                  userRepository
-                      .findById(key.userId())
-                      .filter(u -> UserKind.isAgent(u.kind()))
-                      .ifPresent(
-                          user -> {
-                            // AGENT 의 명시적 권한 + ROLE_AGENT 마커
-                            List<SimpleGrantedAuthority> authorities = new ArrayList<>();
-                            permissionService
-                                .getUserPermissions(user.id())
-                                .forEach(p -> authorities.add(new SimpleGrantedAuthority(p)));
-                            authorities.add(new SimpleGrantedAuthority("ROLE_AGENT"));
-                            UsernamePasswordAuthenticationToken token =
-                                new UsernamePasswordAuthenticationToken(
-                                    user.id(), null, authorities);
-                            SecurityContextHolder.getContext().setAuthentication(token);
-                            agentApiKeyRepository.touchLastUsed(key.id());
-                          }));
+    // active-tenant ThreadLocal 이 풀링 스레드로 새지 않도록, 인증 + 다운스트림 처리 전체를 try 로 감싸고
+    // finally 에서 항상 정리한다(키 미일치 시에도 안전 — clear 는 멱등). JwtAuthenticationFilter 패턴 미러.
+    try {
+      String auth = request.getHeader("Authorization");
+      if (auth != null
+          && auth.startsWith(BEARER_PREFIX)
+          && auth.length() > BEARER_PREFIX.length()
+          && auth.substring(BEARER_PREFIX.length()).startsWith(AK_PREFIX)) {
+        String plaintext = auth.substring(BEARER_PREFIX.length());
+        String hash = sha256Hex(plaintext);
+        agentApiKeyRepository
+            .findActiveByHash(hash)
+            .ifPresent(
+                key ->
+                    userRepository
+                        .findById(key.userId())
+                        .filter(u -> UserKind.isAgent(u.kind()))
+                        .ifPresent(
+                            user -> {
+                              // AGENT 경로도 active-tenant 를 요청 스코프에 설정해야 RLS GUC 가 주입되어
+                              // user_role/role_permission 조회(getUserPermissions)가 권한을 반환한다. 설정하지
+                              // 않으면 RLS fail-closed 로 권한이 비어 에이전트가 모든 권한을 잃는다. API 키에는
+                              // tenant 가 없으므로 대상 사용자의 단일 활성 멤버십에서 해석한다. (멀티 소속 에이전트의
+                              // 명시적 테넌트 선택은 P4 후속. 0/다중이면 미설정 → fail-closed.)
+                              // 반드시 getUserPermissions 호출 전에 설정해야 한다.
+                              var memberships = membershipRepository.findActiveByUser(user.id());
+                              if (memberships.size() == 1) {
+                                TenantContext.set(memberships.get(0).tenantId());
+                              }
+
+                              // AGENT 의 명시적 권한 + ROLE_AGENT 마커
+                              List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+                              permissionService
+                                  .getUserPermissions(user.id())
+                                  .forEach(p -> authorities.add(new SimpleGrantedAuthority(p)));
+                              authorities.add(new SimpleGrantedAuthority("ROLE_AGENT"));
+                              UsernamePasswordAuthenticationToken token =
+                                  new UsernamePasswordAuthenticationToken(
+                                      user.id(), null, authorities);
+                              SecurityContextHolder.getContext().setAuthentication(token);
+                              agentApiKeyRepository.touchLastUsed(key.id());
+                            }));
+      }
+      chain.doFilter(request, response);
+    } finally {
+      // 풀링된 스레드로 active-tenant ThreadLocal 이 새지 않도록 요청 종료 시 항상 정리한다.
+      TenantContext.clear();
     }
-    chain.doFilter(request, response);
   }
 
   private String sha256Hex(String plaintext) {
