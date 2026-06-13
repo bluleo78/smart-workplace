@@ -12,8 +12,11 @@ CREATE INDEX idx_tenant_canary_tenant ON tenant_canary(tenant_id);
 
 ALTER TABLE tenant_canary ENABLE ROW LEVEL SECURITY;
 
--- current_setting(...,true): GUC 미설정 시 NULL → 비교가 NULL → 행 비가시(fail-closed).
+-- GUC 해석: current_setting(...,true) 는 미설정이면 NULL, 그러나 set_config 가 한 번이라도
+-- 호출된 풀 커넥션에서는 트랜잭션 종료 후 세션 기본값인 '빈 문자열' 로 남는다. ''::bigint 는
+-- 에러(fail-ERROR)이므로 NULLIF(...,'') 로 빈 문자열을 NULL 로 환산해 비교를 NULL(=행 비가시,
+-- fail-closed)로 만든다. 이 NULLIF 패턴은 P2 의 모든 도메인 RLS 정책에 그대로 적용한다.
 -- WITH CHECK: 현재 GUC 와 다른 tenant_id 삽입 차단.
 CREATE POLICY tenant_canary_isolation ON tenant_canary
-  USING (tenant_id = current_setting('app.tenant_id', true)::bigint)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::bigint);
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::bigint)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::bigint);
