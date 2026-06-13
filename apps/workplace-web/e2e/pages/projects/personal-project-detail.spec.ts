@@ -50,11 +50,8 @@ test('뷰 토글 클릭 시 view 가 전환되고 열린 drawer(task)는 닫힌�
   await mockPersonal(page);
   await page.goto(`/projects/${KEY}?task=1`);
 
-  // 필터바 간소화(＋필터 단일 버튼)로 ml-auto 뷰토글이 우측 끝으로 이동하면서 task drawer
-  // (fixed, max-w-420px, 우측 전체 높이) 영역과 겹친다. 이 테스트의 검증 대상은 setView 의
-  // URL 재구성(아래 toHaveURL)이므로 hit-test 를 우회해 버튼에 직접 click 이벤트를 디스패치한다.
-  // drawer-뷰토글 겹침은 별도 레이아웃 이슈로 추적: refs #231
-  await page.getByRole('button', { name: '보드' }).dispatchEvent('click');
+  // 패널은 인플로우(콘텐츠를 밀어 공존)라 뷰토글을 가리지 않는다(#231 해소).
+  await page.getByRole('button', { name: '보드' }).click();
   await expect(page).toHaveURL(/view=board/);
   await expect(page).not.toHaveURL(/task=1/);
 
@@ -150,9 +147,28 @@ test('보드 카드(링크) 클릭 → ?task=N drawer 오픈(풀페이지 이동
   await page.getByTestId('issue-card-1').getByRole('link').click();
   await expect(page).toHaveURL(/view=board/);
   await expect(page).toHaveURL(/[?&]task=1/);
-  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  // 보드 뷰는 중앙 모달로 상세를 표시한다(인플로우 패널 아님, #231).
+  await expect(page.getByTestId('personal-task-modal')).toBeVisible();
+  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
   // 풀페이지 상세 경로(/issues/1)로 이동하지 않았다.
   await expect(page).not.toHaveURL(/\/issues\/1/);
+});
+
+test('리스트/체크리스트는 인플로우 사이드 패널, 보드는 모달로 상세 표시 (#231)', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })]);
+  await mockTaskDetail(page);
+  // 체크리스트(기본 뷰) → 인플로우 사이드 패널, 모달 부재.
+  await page.goto(`/projects/${KEY}?task=1`);
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  await expect(page.getByTestId('personal-task-modal')).toHaveCount(0);
+  // 보드로 전환 → 패널은 인플로우라 뷰토글을 가리지 않으므로 정상 클릭 가능(#231 해소).
+  await page.getByRole('button', { name: '보드' }).click();
+  await expect(page).toHaveURL(/view=board/);
+
+  // 보드 뷰 직접 진입 → 모달, 패널 부재
+  await page.goto(`/projects/${KEY}?view=board&task=1`);
+  await expect(page.getByTestId('personal-task-modal')).toBeVisible();
+  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
 });
 
 test('패널 — 존재하지 않는 task id 진입 시 오류 메시지와 닫기 버튼을 표시한다', async ({ authenticatedPage: page }) => {
