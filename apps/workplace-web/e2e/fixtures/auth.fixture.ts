@@ -76,6 +76,13 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   await page.route('**/api/v1/notifications/stream', (route) =>
     route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }),
   )
+  // AI 채팅 도크가 마운트 시 /api/v1/chat/stream 으로 streaming fetch 를 연다(useChatStream).
+  // 미스텁 시 백엔드 프록시로 누수되며, 백엔드 부재 시 503 재연결이 페이지 네비게이션과 레이스를
+  // 일으켜(page.goto ERR_ABORTED/frame detached) 상세→목록 이동 테스트가 타임아웃된다.
+  // notifications/stream 과 동일하게 즉시 닫히는 빈 event-stream 으로 스텁한다.
+  await page.route('**/api/v1/chat/stream', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }),
+  )
   // 인증 컨텍스트가 마운트 시점에 hasSession 플래그를 보고 refresh 를 시도하므로
   // 미리 스토리지에 플래그를 심는다.
   await page.addInitScript(() => window.localStorage.setItem('hasSession', '1'))
