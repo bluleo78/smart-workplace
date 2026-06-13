@@ -4,12 +4,21 @@ import { useState } from 'react';
 
 import { useIssueSearch } from '@/hooks/queries/useIssueSearch';
 import { cn } from '@/lib/utils';
-import type { IssueFilters } from '@/types/issue';
+import type { IssueFilters, IssueGroupBy } from '@/types/issue';
 
 import { PersonalChecklistRow } from './PersonalChecklistRow';
-import { groupByDue } from './personalGrouping';
+import { groupChecklist } from './personalGrouping';
 
-export function PersonalChecklistView({ projectKey, filters }: { projectKey: string; filters: IssueFilters }) {
+// groupBy 에 따라 섹션 재구성 — null=마감 버킷(+완료 접힘), status/priority=평탄 섹션.
+export function PersonalChecklistView({
+  projectKey,
+  filters,
+  groupBy,
+}: {
+  projectKey: string;
+  filters: IssueFilters;
+  groupBy: IssueGroupBy | null;
+}) {
   const q = useIssueSearch(projectKey, filters, 100);
   const items = q.data?.pages.flatMap((p) => p.items) ?? [];
   const [showDone, setShowDone] = useState(false);
@@ -19,14 +28,14 @@ export function PersonalChecklistView({ projectKey, filters }: { projectKey: str
   if (items.length === 0)
     return <p className="py-12 text-center text-sm text-muted-foreground">작업이 없습니다. + 빠른 추가로 시작하세요.</p>;
 
-  const { active, done } = groupByDue(items);
-  // 전부 CANCELED 등으로 활성·완료 모두 비면 백지 대신 빈 상태 안내.
-  if (active.length === 0 && done.length === 0)
+  const { sections, collapsedDone } = groupChecklist(items, groupBy);
+  // 전부 CANCELED 등으로 섹션·완료 모두 비면 백지 대신 빈 상태 안내.
+  if (sections.length === 0 && collapsedDone.length === 0)
     return <p className="py-12 text-center text-sm text-muted-foreground">표시할 작업이 없습니다.</p>;
 
   return (
     <div className="space-y-5" data-testid="personal-checklist">
-      {active.map((g) => (
+      {sections.map((g) => (
         <section key={g.key} data-testid={`personal-section-${g.key}`}>
           <h3 className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {g.label} <span className="ml-1 text-muted-foreground/60">{g.items.length}</span>
@@ -36,7 +45,7 @@ export function PersonalChecklistView({ projectKey, filters }: { projectKey: str
           </div>
         </section>
       ))}
-      {done.length > 0 && (
+      {collapsedDone.length > 0 && (
         <section data-testid="personal-section-done">
           <button
             type="button"
@@ -45,11 +54,11 @@ export function PersonalChecklistView({ projectKey, filters }: { projectKey: str
             className="flex items-center gap-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
           >
             <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', showDone && 'rotate-90')} />
-            완료 <span className="text-muted-foreground/60">{done.length}</span>
+            완료 <span className="text-muted-foreground/60">{collapsedDone.length}</span>
           </button>
           {showDone && (
             <div className="mt-1 space-y-0.5">
-              {done.map((it) => <PersonalChecklistRow key={it.id} projectKey={projectKey} issue={it} />)}
+              {collapsedDone.map((it) => <PersonalChecklistRow key={it.id} projectKey={projectKey} issue={it} />)}
             </div>
           )}
         </section>
