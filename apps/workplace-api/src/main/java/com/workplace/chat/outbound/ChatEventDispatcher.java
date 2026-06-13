@@ -33,6 +33,8 @@ public class ChatEventDispatcher {
   private final AiAgentEventClient client;
   private final AiAgentProperties props;
 
+  // ChatSseDispatcher 와 달리 @Transactional(REQUIRES_NEW) 가 필요 없다 — 이 핸들러는 DB 를 읽지 않고
+  // 이벤트 payload 만 읽어 outbound HTTP 발사하므로 RLS 보호 테이블 조회가 없어 GUC/트랜잭션이 불필요하다.
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   @Async("aiAgentEventExecutor")
   public void onChatMessageCreated(ChatMessageCreatedEvent e) {
