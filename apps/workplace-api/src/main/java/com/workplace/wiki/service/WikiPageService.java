@@ -9,6 +9,7 @@ import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.exception.WikiConflictException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.repository.WikiPageRepository;
+import com.workplace.wiki.repository.WikiReferenceRepository;
 import com.workplace.wiki.repository.WikiRevisionRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,8 @@ public class WikiPageService {
   private final WikiPageRepository pages;
   private final WikiRevisionRepository revisions;
   private final WikiPermissions perms;
+  private final WikiReferenceRepository references;
+  private final WikiReferenceParser refParser;
 
   /** 페이지 생성(말단 position). EDITOR 이상. */
   @Transactional
@@ -64,10 +67,16 @@ public class WikiPageService {
     }
 
     String title = req.title() != null ? req.title() : current.title();
-    int affected = pages.saveIfVersion(pageId, title, req.body(), req.version(), callerId);
+    // body null 이면 현재 본문 유지(title 과 대칭) — null 저장으로 본문·백링크 소실 방지.
+    String body = req.body() != null ? req.body() : current.body();
+    int affected = pages.saveIfVersion(pageId, title, body, req.version(), callerId);
     if (affected == 0) {
       throw new WikiConflictException(pageId);
     }
+    // 본문에서 page/issue 참조를 추출해 백링크 테이블을 교체(diff-replace). 유저 멘션은 적재 안 함.
+    // save() 가 @Transactional 이므로 replaceForSource 의 delete+insert 가 원자적으로 묶인다.
+    // 추출은 실제 저장한 body 로 수행해야 본문과 백링크가 일관(null→유지 시 기존 백링크 보존).
+    references.replaceForSource(pageId, refParser.parse(pageId, body));
     return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
 
