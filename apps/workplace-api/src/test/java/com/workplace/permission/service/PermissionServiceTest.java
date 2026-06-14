@@ -101,7 +101,7 @@ class PermissionServiceTest extends IntegrationTestBase {
   void getAllPermissions_returnAllSeedPermissions() {
     List<PermissionResponse> result = permissionService.getAllPermissions();
 
-    assertThat(result).hasSize(23); // V42: audit:read 추가
+    assertThat(result).hasSize(27); // V42 audit:read, V70 platform:* 4종 추가 → 27
     // V20 저장된 뷰 권한 + V26 사이클 권한 + V31 연락처 권한 + V39 캘린더 권한이 시드에 포함되는지 함께 확인.
     assertThat(result)
         .extracting(PermissionResponse::code)
