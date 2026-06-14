@@ -22,10 +22,14 @@ management:
 
 app:
   cors:
-    # 로컬 웹 개발 서버 오리진 (workplace-web: 6173)
+    # 로컬 개발 서버 오리진 (workplace-web: 6173, workplace-admin 운영자 콘솔: 6174)
+    # 6174 누락 시 브라우저가 보내는 Origin 을 Spring CORS 가 거부 → "Invalid CORS request" 403
+    # (curl 은 Origin 헤더가 없어 통과하므로 증상이 브라우저에서만 발현).
     allowed-origins:
       - http://localhost:6173
       - http://127.0.0.1:6173
+      - http://localhost:6174
+      - http://127.0.0.1:6174
   jwt:
     # 로컬 개발 전용 키 (Base64). 프로덕션 절대 사용 금지.
     secret: ${JWT_SECRET:d29ya3BsYWNlLWxvY2FsLWRldi1qd3Qtc2VjcmV0LWtleS1ub3QtZm9yLXByb2R1Y3Rpb24tdXNlLW9ubHk=}
