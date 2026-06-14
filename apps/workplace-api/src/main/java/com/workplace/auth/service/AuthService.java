@@ -53,6 +53,9 @@ public class AuthService {
   private final AuditLogService auditLogService;
   private final MembershipRepository membershipRepository;
   private final TenantRepository tenantRepository;
+  // 최초 가입자 부트스트랩용 플랫폼 RBAC 저장소. platform 모듈 의존이지만 DSLContext 만 참조하므로
+  // 순환 빈 의존이 없다(AuthService → PlatformRoleRepository → DSLContext).
+  private final com.workplace.platform.repository.PlatformRoleRepository platformRoleRepository;
 
   /** 1단계 로그인 결과(내부 운반용): accessToken/refreshToken 분리 + 선택 가능한 멤버십. */
   public record LoginResult(
@@ -96,6 +99,10 @@ public class AuthService {
               .orElseThrow(() -> new RoleNotFoundException("System role not found: ADMIN"))
               .id();
       userRepository.addRole(user.id(), adminRoleId);
+
+      // 최초 가입자를 플랫폼 슈퍼 관리자로 부트스트랩 — 운영자 콘솔의 첫 접근 주체.
+      // platform_user_role 은 전역 테이블(RLS 비대상)이라 tenant#1 컨텍스트에서도 삽입 가능.
+      platformRoleRepository.assignSuperAdmin(user.id());
     }
 
     // 신규 사용자에게 tenant#1 멤버십을 생성한다 — 그래야 로그인 시 단일 멤버십이 자동 선택되어
