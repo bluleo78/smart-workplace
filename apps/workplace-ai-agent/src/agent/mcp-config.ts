@@ -46,6 +46,15 @@ export function writeTempMcpConfig(opts: {
   return p;
 }
 
+// Wiki S3(A2): 도구 없는(순수 텍스트 생성) 컴포즈용 — 빈 mcpServers 임시 설정.
+// buildCliArgs 의 allowedTools(mcp__workplace__*)는 등록된 서버가 없으므로 아무 도구로도 해석되지 않는다.
+// --strict-mcp-config 와 함께 도구를 0개로 노출한다. 호출자가 정리 책임.
+export function writeEmptyMcpConfig(): string {
+  const p = path.join(tmpdir(), `workplace-mcp-config-${randomUUID()}.json`);
+  writeFileSync(p, JSON.stringify({ mcpServers: {} }), 'utf8');
+  return p;
+}
+
 export function cleanupTempMcpConfig(p: string): void {
   try {
     unlinkSync(p);

@@ -46,4 +46,16 @@ class GlobalExceptionHandlerTest {
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
     assertThat(res.getBody()).isNotNull();
   }
+
+  @Test
+  void executor_포화_TaskRejected_는_503_을_반환한다() {
+    // wikiAiStreamExecutor 큐 포화 시 AbortPolicy → TaskRejectedException → 깔끔한 503.
+    ResponseEntity<ErrorResponse> res =
+        handler.handleTaskRejected(
+            new org.springframework.core.task.TaskRejectedException("queue full"), request);
+    assertThat(res).isNotNull();
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    assertThat(res.getBody()).isNotNull();
+    assertThat(res.getBody().message()).contains("잠시 후");
+  }
 }

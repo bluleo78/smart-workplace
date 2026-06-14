@@ -983,6 +983,20 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
   }
 
+  /**
+   * 위키 인에디터 /ai 전용 executor(wikiAiStreamExecutor) 의 큐가 가득 찼을 때(동시 스트림 과다) AbortPolicy 가 던지는
+   * TaskRejectedException → 503. 캐치올 500 으로 뭉개지지 않고 사용자에게 '잠시 후 재시도' 를 안내한다.
+   */
+  @ExceptionHandler(org.springframework.core.task.TaskRejectedException.class)
+  public ResponseEntity<ErrorResponse> handleTaskRejected(
+      org.springframework.core.task.TaskRejectedException ex, HttpServletRequest request) {
+    log.warn("AI 스트림 executor 포화 — 요청 거부: {}", ex.getMessage());
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .body(
+            buildError(
+                HttpStatus.SERVICE_UNAVAILABLE, "AI 생성 요청이 많아요. 잠시 후 다시 시도해주세요.", null, request));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
     // SSE/async 스트림에 쓰던 중 클라이언트가 끊긴 경우(Broken pipe 등)는 정상 흐름이다.

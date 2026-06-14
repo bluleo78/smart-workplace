@@ -197,6 +197,94 @@ export async function runClaudeCliCollect(i: RunCliInput): Promise<string[]> {
   });
 }
 
+// Wiki S3(A1): 스트리밍 러너 핸들 — done(종료 Promise) + kill(상위 연결 종료 시 child 종료).
+export interface StreamHandle {
+  done: Promise<void>;
+  kill: () => void;
+}
+
+// Wiki S3(A1): runClaudeCliCollect 미러 — 단, 라인을 모으지 않고 즉시 onLine(line) 으로 흘린다.
+// 상위(라우트)가 연결 종료 시 kill() 로 child 를 종료할 수 있게 핸들을 반환한다.
+// spawn/env/cwd/timeout/실패전파(spawn-error·non-zero·timeout → reject)는 Collect 와 동일하게 유지한다.
+export function runClaudeCliStream(
+  i: RunCliInput,
+  onLine: (line: string) => void,
+): StreamHandle {
+  let child: ReturnType<typeof spawn> | null = null;
+  let manuallyKilled = false;
+
+  const done = new Promise<void>((resolve, reject) => {
+    child = spawn('claude', i.args, {
+      env: i.env,
+      cwd: i.cwd ?? os.tmpdir(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let buf = '';
+    let killed = false;
+
+    const timer = setTimeout(() => {
+      killed = true;
+      console.error(`[${i.logTag}] timeout ${i.timeoutMs}ms, SIGTERM`);
+      child?.kill('SIGTERM');
+      setTimeout(() => {
+        if (child && !child.killed) child.kill('SIGKILL');
+      }, 5000);
+    }, i.timeoutMs);
+
+    child.stdout!.on('data', (chunk: Buffer) => {
+      buf += chunk.toString('utf8');
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (line) onLine(line);
+      }
+    });
+
+    child.stderr!.on('data', (chunk: Buffer) => {
+      console.error(`[${i.logTag}] stderr: ${chunk.toString('utf8').trim()}`);
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (buf.trim()) onLine(buf.trim()); // 마지막 개행 없는 잔여 라인
+      if (manuallyKilled) {
+        // 상위 연결 종료로 인한 의도적 kill — 정상 종료로 간주(에러 발행 안 함).
+        console.error(`[${i.logTag}] killed (client closed)`);
+        resolve();
+      } else if (killed) {
+        // timeout-kill: 부분 결과를 성공으로 오인하지 않도록 reject
+        console.error(`[${i.logTag}] killed (timeout)`);
+        reject(new Error(`${i.logTag} timeout after ${i.timeoutMs}ms`));
+      } else if (code !== 0) {
+        console.error(`[${i.logTag}] exit ${code}`);
+        reject(new Error(`${i.logTag} exited ${code}`));
+      } else {
+        console.log(`[${i.logTag}] done (stream)`);
+        resolve();
+      }
+    });
+
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      console.error(`[${i.logTag}] spawn error:`, e);
+      reject(e);
+    });
+  });
+
+  // 상위 연결 종료 시 호출 — child 를 종료한다. close 핸들러가 resolve 로 마무리한다.
+  const kill = () => {
+    manuallyKilled = true;
+    child?.kill('SIGTERM');
+    setTimeout(() => {
+      if (child && !child.killed) child.kill('SIGKILL');
+    }, 5000);
+  };
+
+  return { done, kill };
+}
+
 function handleLine(tag: string, line: string): void {
   try {
     const obj = JSON.parse(line) as { type?: string; subtype?: string };
