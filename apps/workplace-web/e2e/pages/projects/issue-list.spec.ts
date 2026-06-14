@@ -46,6 +46,32 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/7$`));
   });
 
+  test('필터 없이 진입하면 검색 요청에 topLevel=true 가 실린다 (서브태스크 혼재 제거 #168)', async ({ authenticatedPage: page }) => {
+    // 보드/목록 기본은 상위 이슈만 — SUBTASK 는 부모 상세에서만 관리.
+    // 백엔드 필터링 대신 요청 쿼리 파라미터를 직접 검증(견고).
+    await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+    );
+    let searchUrl: URL | null = null;
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        searchUrl = new URL(route.request().url());
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse([createIssue({ number: 7 })], null)),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}`);
+    await expect(page.getByTestId('issue-row-7')).toBeVisible();
+    expect(searchUrl).not.toBeNull();
+    expect(searchUrl!.searchParams.get('topLevel')).toBe('true');
+  });
+
   test('제목 링크 클릭은 history 를 한 번만 쌓는다(뒤로가기 1번에 리스트 복귀) (#234)', async ({ authenticatedPage: page }) => {
     // 제목 <Link> 가 행 onClick 으로 버블하면 navigate 가 두 번 발생해 뒤로가기 1번으로는 같은 상세로 되돌아온다.
     // stopPropagation 회귀 검증: 제목 클릭 → 상세, 뒤로가기 1번 → 리스트.

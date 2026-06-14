@@ -32,11 +32,12 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const typeIds = csv(params.get('type'))
     .map((s) => Number(s))
     .filter((n) => Number.isFinite(n) && n > 0);
-  // parent 는 단일 양의 정수만 허용. topLevel 은 'true' 만 통과 (그 외는 false).
+  // parent 는 단일 양의 정수만 허용.
   const parentRaw = params.get('parent');
   const parentNum = parentRaw == null ? NaN : Number(parentRaw);
   const parentNumber = Number.isFinite(parentNum) && parentNum > 0 ? parentNum : null;
-  const topLevel = params.get('topLevel') === 'true';
+  // 보드/목록 기본은 상위 이슈만(서브태스크는 부모 상세에서 관리). 'false' 일 때만 끔 → 기본 true.
+  const topLevel = params.get('topLevel') !== 'false';
   // Phase 4b — blocked 도 'true' 만 통과. UI 노출은 deferred.
   const blocked = params.get('blocked') === 'true';
   return {
@@ -96,7 +97,8 @@ export function filtersToParams(
   if (f.typeIds.length) p.set('type', f.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. UI 노출은 deferred.
   if (f.parentNumber != null && f.parentNumber > 0) p.set('parent', String(f.parentNumber));
-  if (f.topLevel) p.set('topLevel', 'true');
+  // 기본(상위 이슈만)은 빈 정규형 유지 — false(전체 표시)일 때만 URL 에 명시. (#168)
+  if (!f.topLevel) p.set('topLevel', 'false');
   // Phase 4b — blocked 직렬화. UI 노출은 deferred.
   if (f.blocked) p.set('blocked', 'true');
   return p;

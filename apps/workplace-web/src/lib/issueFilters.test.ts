@@ -42,3 +42,19 @@ describe('filtersToParams - group', () => {
     expect(round.get('status')).toBe('TODO');
   });
 });
+
+describe('topLevel 기본값 (#168)', () => {
+  it('빈 URL 의 topLevel 기본값은 true (보드/목록은 상위 이슈만)', () => {
+    expect(parseFilters(new URLSearchParams()).topLevel).toBe(true);
+  });
+
+  it('기본(빈) 필터는 빈 문자열로 직렬화된다 (정규형 보존)', () => {
+    expect(filtersToParams(EMPTY, 'list', null).toString()).toBe('');
+  });
+
+  it('topLevel=false 는 파싱·직렬화 라운드트립된다 (false 일 때만 URL 명시)', () => {
+    const f = parseFilters(new URLSearchParams('topLevel=false'));
+    expect(f.topLevel).toBe(false);
+    expect(filtersToParams(f, 'list', null).toString()).toBe('topLevel=false');
+  });
+});

@@ -45,6 +45,7 @@ export async function searchIssues(
   if (filters.cycleIds.length) params.set('cycle', filters.cycleIds.join(','));
   if (filters.typeIds.length) params.set('type', filters.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel 은 무시(서버 우선순위와 정합).
+  // topLevel 기본 true → 보드/목록은 상위 이슈만 요청. false(전체)면 미송신(백엔드 기본=전체). (#168)
   if (filters.parentNumber != null && filters.parentNumber > 0) {
     params.set('parent', String(filters.parentNumber));
   } else if (filters.topLevel) {
