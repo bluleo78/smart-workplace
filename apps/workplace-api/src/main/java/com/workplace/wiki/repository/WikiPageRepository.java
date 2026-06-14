@@ -86,10 +86,9 @@ public class WikiPageRepository {
         .fetchOptional(WIKI_PAGE.SPACE_ID);
   }
 
-  /**
-   * 낙관적 동시성 저장: version 일치할 때만 갱신하고 version+1. 영향 행수 반환(0 이면 충돌).
-   */
-  public int saveIfVersion(long pageId, String title, String body, int expectedVersion, long editorId) {
+  /** 낙관적 동시성 저장: version 일치할 때만 갱신하고 version+1. 영향 행수 반환(0 이면 충돌). */
+  public int saveIfVersion(
+      long pageId, String title, String body, int expectedVersion, long editorId) {
     return dsl.update(WIKI_PAGE)
         .set(WIKI_PAGE.TITLE, title)
         .set(WIKI_PAGE.BODY, body)
@@ -104,6 +103,24 @@ public class WikiPageRepository {
   public void move(long pageId, Long parentId, int position) {
     dsl.update(WIKI_PAGE)
         .set(WIKI_PAGE.PARENT_ID, parentId)
+        .set(WIKI_PAGE.POSITION, position)
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .execute();
+  }
+
+  /** 같은 부모(공간 스코프)의 자식 id 들을 position,id 순으로 — 재배열 기준 순서. */
+  public java.util.List<Long> childIdsOrdered(long spaceId, Long parentId) {
+    return dsl.select(WIKI_PAGE.ID)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.SPACE_ID.eq(spaceId))
+        .and(parentId == null ? WIKI_PAGE.PARENT_ID.isNull() : WIKI_PAGE.PARENT_ID.eq(parentId))
+        .orderBy(WIKI_PAGE.POSITION.asc(), WIKI_PAGE.ID.asc())
+        .fetch(WIKI_PAGE.ID);
+  }
+
+  /** 단건 position 갱신(타이 제거 재부여용). */
+  public void setPosition(long pageId, int position) {
+    dsl.update(WIKI_PAGE)
         .set(WIKI_PAGE.POSITION, position)
         .where(WIKI_PAGE.ID.eq(pageId))
         .execute();

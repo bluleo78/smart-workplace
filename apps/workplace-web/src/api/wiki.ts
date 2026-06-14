@@ -14,6 +14,15 @@ export const wikiApi = {
   createSpace: (name: string) => client.post<WikiSpace>('/wiki/spaces', { name }),
   getSpace: (spaceId: number) => client.get<WikiSpace>(`/wiki/spaces/${spaceId}`),
   listMembers: (spaceId: number) => client.get<WikiMember[]>(`/wiki/spaces/${spaceId}/members`),
+  // 멤버 추가 — TEAM 스페이스 공유. 기본 EDITOR 로 초대(호출처 지정).
+  addMember: (spaceId: number, userId: number, role: string) =>
+    client.post<void>(`/wiki/spaces/${spaceId}/members`, { userId, role }),
+  // 멤버 역할 변경 — OWNER 만. 소유자 자신은 변경 대상 아님.
+  updateMemberRole: (spaceId: number, userId: number, role: string) =>
+    client.patch<void>(`/wiki/spaces/${spaceId}/members/${userId}`, { role }),
+  // 멤버 제거 — OWNER 만. 소유자는 제거 불가.
+  removeMember: (spaceId: number, userId: number) =>
+    client.delete<void>(`/wiki/spaces/${spaceId}/members/${userId}`),
 
   listPages: (spaceId: number) =>
     client.get<WikiPageSummary[]>(`/wiki/spaces/${spaceId}/pages`),
