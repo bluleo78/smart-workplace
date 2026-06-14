@@ -42,6 +42,19 @@ public class MembershipRepository {
         .execute();
   }
 
+  /**
+   * 지정한 역할(OWNER/ADMIN/MEMBER)로 멤버십을 생성한다. 운영자 콘솔의 테넌트 생성에서 초기 소유자에게 OWNER 를 부여하는 데 사용. membership
+   * 은 전역 테이블이라 GUC 없이 삽입 가능. role 컬럼은 V69 에서 추가됐고 baseline jOOQ 코드젠에는 없으므로 name-based field 로 기록한다.
+   */
+  public void createWithRole(Long userId, Long tenantId, String status, String role) {
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, userId)
+        .set(MEMBERSHIP.TENANT_ID, tenantId)
+        .set(MEMBERSHIP.STATUS, status)
+        .set(org.jooq.impl.DSL.field(org.jooq.impl.DSL.name("role"), String.class), role)
+        .execute();
+  }
+
   /** 해당 (user, tenant) 멤버십이 ACTIVE 인지. */
   @Transactional(readOnly = true)
   public boolean hasActiveMembership(Long userId, Long tenantId) {
