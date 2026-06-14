@@ -90,8 +90,8 @@ class PlatformSecurityBoundaryTest extends IntegrationTestBase {
   }
 
   /**
-   * (d) 양성 대조: 플랫폼 토큰은 게이트를 통과한다 → 인가 거부(403/401)가 아님. 게이트가 "열린다"는 증명. 컨트롤러
-   * 부재 시 404 이지만, 이후 Task 에서 컨트롤러가 추가돼도 깨지지 않도록 상태코드 동치 비교 대신 인가거부 아님만 단언한다.
+   * (d) 양성 대조: 플랫폼 토큰은 게이트를 통과한다 → 인가 거부(403/401)가 아님. 게이트가 "열린다"는 증명. 컨트롤러 부재 시 404 이지만, 이후 Task
+   * 에서 컨트롤러가 추가돼도 깨지지 않도록 상태코드 동치 비교 대신 인가거부 아님만 단언한다.
    */
   @Test
   void platformToken_passesGate() throws Exception {
