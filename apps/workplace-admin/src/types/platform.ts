@@ -29,3 +29,36 @@ export interface ErrorResponse {
   message: string
   errors?: Record<string, string>
 }
+
+/** 테넌트 상태 — 활성/정지. */
+export type TenantStatus = 'ACTIVE' | 'SUSPENDED'
+
+/** 테넌트 목록 항목 요약. */
+export interface TenantSummary {
+  id: number
+  slug: string | null
+  name: string
+  status: TenantStatus
+  memberCount: number
+  createdAt: string
+}
+
+/** 테넌트 상세 — 목록 항목과 동일한 형태(생성/조회 응답). */
+export type TenantDetail = TenantSummary
+
+/** 테넌트 생성 요청 — name 필수, slug 선택, ownerUserId 필수. */
+export interface CreateTenantRequest {
+  name: string
+  slug?: string
+  ownerUserId: number
+}
+
+/** 테넌트 멤버(상세 화면·Task 4 에서 사용). */
+export interface TenantMember {
+  userId: number
+  username: string
+  name: string
+  email: string | null
+  role: 'OWNER' | 'ADMIN' | 'MEMBER'
+  status: string
+}

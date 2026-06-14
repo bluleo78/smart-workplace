@@ -66,6 +66,18 @@ export async function setupPlatformAuthMocks(page: Page, user: PlatformUser = cr
       body: JSON.stringify(user),
     }),
   )
+  // 테넌트 목록 기본 스텁(빈 배열) — 인증된 홈이 에러 상태로 떨어지지 않게 한다.
+  // 테넌트 화면 테스트는 이 라우트를 더 구체적인 핸들러로 오버라이드한다.
+  await page.route('**/api/platform/tenants', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      })
+    }
+    return route.fallback()
+  })
 }
 
 type PlatformAuthFixtures = {
