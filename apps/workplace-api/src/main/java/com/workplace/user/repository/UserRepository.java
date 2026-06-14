@@ -292,15 +292,6 @@ public class UserRepository {
             .where(USER_ROLE.USER_ID.eq(userId).and(ROLE.NAME.eq("ADMIN"))));
   }
 
-  /** 플랫폼 운영자(is_platform_admin) 여부. 사용자 없으면 false. */
-  public boolean isPlatformAdmin(Long userId) {
-    return dsl.select(USER.IS_PLATFORM_ADMIN)
-        .from(USER)
-        .where(USER.ID.eq(userId))
-        .fetchOptional(USER.IS_PLATFORM_ADMIN)
-        .orElse(false);
-  }
-
   public void addRole(Long userId, Long roleId) {
     dsl.insertInto(USER_ROLE)
         .set(USER_ROLE.USER_ID, userId)

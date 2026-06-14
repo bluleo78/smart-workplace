@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.platform.repository.PlatformRoleRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -34,6 +35,7 @@ class PlatformAuthControllerTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired PasswordEncoder passwordEncoder;
   @Autowired ObjectMapper objectMapper;
+  @Autowired PlatformRoleRepository platformRoleRepository;
 
   /** HUMAN 사용자 시드(비밀번호 인코딩). 반환은 username. */
   private String createHumanUser(String prefix, boolean platformAdmin) {
@@ -45,12 +47,15 @@ class PlatformAuthControllerTest extends IntegrationTestBase {
             .set(USER.PASSWORD, passwordEncoder.encode(RAW_PASSWORD))
             .set(USER.NAME, prefix)
             .set(USER.EMAIL, username + "@example.com")
-            .set(USER.IS_PLATFORM_ADMIN, platformAdmin)
             .returning(USER.ID)
             .fetchOne()
             .getId();
     Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("USER")).fetchOne(ROLE.ID);
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
+    // 운영자 권한은 이제 역할 기반 — platform_user_role(SUPER_ADMIN) 로 부여한다.
+    if (platformAdmin) {
+      platformRoleRepository.assignSuperAdmin(id);
+    }
     return username;
   }
 

@@ -12,6 +12,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.platform.dto.PlatformLoginRequest;
 import com.workplace.platform.dto.PlatformUserResponse;
 import com.workplace.platform.exception.PlatformAccessDeniedException;
+import com.workplace.platform.repository.PlatformRoleRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
@@ -37,7 +38,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * 검사·감사 로그·refresh reuse-detection/family)을 충실히 미러하되, 멀티테넌트 평면과 분리한다:
  *
  * <ul>
- *   <li>비밀번호 검증 통과 후 {@code is_platform_admin} 을 확인해 운영자 권한 없는 사용자의 권한상승을 차단한다.
+ *   <li>비밀번호 검증 통과 후 플랫폼 역할 보유({@code platform_user_role}) 를 확인해 운영자 권한 없는 사용자의 권한상승을 차단한다.
  *   <li>토큰은 tenant 없는 platform 토큰({@code platform=true})으로 발급한다.
  *   <li>refresh 진입 시 platform 토큰 여부를 가장 먼저 확인해 일반(테넌트) refresh 토큰의 평면 교차를 차단한다.
  * </ul>
@@ -47,6 +48,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 public class PlatformAuthService {
 
   private final UserRepository userRepository;
+  private final PlatformRoleRepository platformRoleRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtTokenProvider jwtTokenProvider;
   private final JwtProperties jwtProperties;
@@ -58,7 +60,7 @@ public class PlatformAuthService {
   public record PlatformLoginResult(
       String accessToken, String refreshToken, long expiresIn, UserResponse user) {}
 
-  /** 운영자 로그인 — 자격 검증 + is_platform_admin 확인 후 platform 토큰 발급. */
+  /** 운영자 로그인 — 자격 검증 + 플랫폼 역할 보유 확인 후 platform 토큰 발급. */
   @Transactional
   public PlatformLoginResult login(PlatformLoginRequest request) {
     // 일반 로그인과 동일한 브루트포스 잠금 정책을 적용한다.
@@ -100,8 +102,8 @@ public class PlatformAuthService {
       throw new UserDeactivatedException("비활성화된 계정입니다.");
     }
 
-    // 자격이 유효해도 운영자가 아니면 플랫폼 평면 접근 거부(권한상승 차단). 비밀번호 검증 통과 후에 확인한다.
-    if (!userRepository.isPlatformAdmin(user.id())) {
+    // 자격이 유효해도 플랫폼 역할이 없으면 운영자 평면 접근 거부(권한상승 차단). 역할 기반(platform_user_role).
+    if (!platformRoleRepository.hasAnyPlatformRole(user.id())) {
       throw new PlatformAccessDeniedException("운영자 권한이 없습니다.");
     }
 
@@ -177,7 +179,7 @@ public class PlatformAuthService {
     }
 
     // 토큰 회전 사이 운영자 권한이 회수되었을 수 있으므로 재검증한다(권한상승 차단 일관 유지).
-    if (!userRepository.isPlatformAdmin(userId)) {
+    if (!platformRoleRepository.hasAnyPlatformRole(userId)) {
       throw new PlatformAccessDeniedException("운영자 권한이 없습니다.");
     }
 
@@ -221,7 +223,12 @@ public class PlatformAuthService {
         userRepository
             .findById(userId)
             .orElseThrow(() -> new InvalidTokenException("사용자를 찾을 수 없습니다."));
-    return new PlatformUserResponse(user.id(), user.username(), user.name(), user.email());
+    return new PlatformUserResponse(
+        user.id(),
+        user.username(),
+        user.name(),
+        user.email(),
+        platformRoleRepository.findPermissionCodes(userId));
   }
 
   private void storeRefreshToken(Long userId, String refreshToken, UUID familyId) {
