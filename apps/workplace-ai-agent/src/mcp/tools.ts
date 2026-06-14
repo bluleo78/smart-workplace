@@ -28,6 +28,10 @@ const getChatThreadInput = z.object({
   threadId: z.number().int().positive(),
 });
 
+// S2: 위키 읽기 그라운딩 도구 입력.
+const searchWikiInput = z.object({ query: z.string().min(1) });
+const getWikiPageInput = z.object({ pageId: z.number().int().positive() });
+
 // 7: messaging 프로필 도구 입력.
 const getChannelMessagesInput = z.object({
   channelId: z.number().int().positive(),
@@ -93,9 +97,33 @@ export function buildTools(
     },
   };
 
+  // 위키 읽기 그라운딩 도구(S2) — issue·chat 프로필 공용
+  const searchWikiTool: McpTool = {
+    name: 'search_wiki',
+    description:
+      '위키 페이지를 제목·본문으로 검색합니다. 접근 가능한 스페이스만 대상이며, 결과 JSON 배열(id·spaceName·title·snippet)을 반환합니다. 근거가 필요하면 먼저 검색하세요.',
+    inputSchema: searchWikiInput,
+    async handler(args) {
+      const { query } = searchWikiInput.parse(args);
+      return JSON.stringify(await client.searchWikiPages(agentId, query));
+    },
+  };
+  const getWikiPageTool: McpTool = {
+    name: 'get_wiki_page',
+    description:
+      '위키 페이지 본문 전체를 JSON(title·body·version 등)으로 반환합니다. search_wiki 결과의 id 로 호출하세요.',
+    inputSchema: getWikiPageInput,
+    async handler(args) {
+      const { pageId } = getWikiPageInput.parse(args);
+      return JSON.stringify(await client.getWikiPage(agentId, pageId));
+    },
+  };
+
   if (profile === 'chat') {
     return [
       getIssueDetailTool,
+      searchWikiTool,
+      getWikiPageTool,
       {
         name: 'get_chat_thread',
         description: '현재 chat thread 의 최근 메시지 목록을 JSON 으로 반환합니다(과거 흐름 확인용).',
@@ -178,6 +206,8 @@ export function buildTools(
 
   return [
     getIssueDetailTool,
+    searchWikiTool,
+    getWikiPageTool,
     {
       name: 'add_comment',
       description: '이슈에 코멘트를 작성합니다. 본문은 마크다운을 지원합니다.',

@@ -22,6 +22,12 @@ function client(): WorkplaceApiClient {
     addChannelMessage: vi.fn().mockResolvedValue(undefined),
     listIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadIssueAttachment: vi.fn(),
+    searchWikiPages: vi.fn().mockResolvedValue([
+      { id: 7, spaceId: 2, spaceName: '팀', title: '릴리스', snippet: '배포', updatedAt: '2026-06-14T00:00:00Z' },
+    ]),
+    getWikiPage: vi.fn().mockResolvedValue({
+      id: 7, spaceId: 2, parentId: null, title: '릴리스', body: '본문', version: 3, updatedAt: '2026-06-14T00:00:00Z',
+    }),
   };
 }
 
@@ -67,14 +73,27 @@ describe('buildTools (agentId bound)', () => {
 
   // --- 6c: 프로필 ---
 
-  it('chat 프로필: get_issue_detail, get_chat_thread, add_chat_message 만', () => {
+  it('chat 프로필: 이슈 조회·chat 읽기/쓰기 + 위키 읽기 도구', () => {
     const names = buildTools(client(), AGENT_ID, 'chat').map((t) => t.name).sort();
-    expect(names).toEqual(['add_chat_message', 'get_chat_thread', 'get_issue_detail']);
+    expect(names).toEqual([
+      'add_chat_message',
+      'get_chat_thread',
+      'get_issue_detail',
+      'get_wiki_page',
+      'search_wiki',
+    ]);
   });
 
-  it('issue 프로필(기본): 기존 4개 그대로', () => {
+  it('issue 프로필(기본): 기존 4개 + 위키 읽기 도구', () => {
     const names = buildTools(client(), AGENT_ID, 'issue').map((t) => t.name).sort();
-    expect(names).toEqual(['add_comment', 'get_issue_detail', 'unassign_self', 'update_status']);
+    expect(names).toEqual([
+      'add_comment',
+      'get_issue_detail',
+      'get_wiki_page',
+      'search_wiki',
+      'unassign_self',
+      'update_status',
+    ]);
   });
 
   it('add_chat_message → client.addChatMessage(agentId, threadId, body)', async () => {
@@ -93,6 +112,31 @@ describe('buildTools (agentId bound)', () => {
     const out = await t.handler({ threadId: 5 });
     expect(c.getChatMessages).toHaveBeenCalledWith(AGENT_ID, 5, 50);
     expect(out).toContain('hi');
+  });
+
+  // --- S2: 위키 읽기 그라운딩 (issue·chat 프로필 공용) ---
+
+  it('issue 프로필: search_wiki → client.searchWikiPages(agentId, query)', async () => {
+    const c = client();
+    const t = buildTools(c, AGENT_ID, 'issue').find((x) => x.name === 'search_wiki')!;
+    const out = await t.handler({ query: '배포' });
+    expect(c.searchWikiPages).toHaveBeenCalledWith(AGENT_ID, '배포');
+    expect(JSON.parse(out)[0]).toMatchObject({ id: 7, title: '릴리스' });
+  });
+
+  it('chat 프로필: get_wiki_page → client.getWikiPage(agentId, pageId)', async () => {
+    const c = client();
+    const t = buildTools(c, AGENT_ID, 'chat').find((x) => x.name === 'get_wiki_page')!;
+    const out = await t.handler({ pageId: 7 });
+    expect(c.getWikiPage).toHaveBeenCalledWith(AGENT_ID, 7);
+    expect(JSON.parse(out)).toMatchObject({ id: 7, body: '본문' });
+  });
+
+  it('issue·chat 프로필 모두 위키 읽기 도구를 포함한다', () => {
+    const names = (p: 'issue' | 'chat') => buildTools(client(), AGENT_ID, p).map((t) => t.name);
+    for (const p of ['issue', 'chat'] as const) {
+      expect(names(p)).toEqual(expect.arrayContaining(['search_wiki', 'get_wiki_page']));
+    }
   });
 });
 

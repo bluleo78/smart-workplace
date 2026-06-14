@@ -27,6 +27,8 @@ function client(token: string | Error): WorkplaceApiClient {
     addChannelMessage: vi.fn().mockResolvedValue(undefined),
     listIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadIssueAttachment: vi.fn(),
+    searchWikiPages: vi.fn().mockResolvedValue([]),
+    getWikiPage: vi.fn().mockResolvedValue({} as never),
   };
 }
 

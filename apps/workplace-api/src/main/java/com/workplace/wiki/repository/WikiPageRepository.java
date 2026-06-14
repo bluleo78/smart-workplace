@@ -1,12 +1,16 @@
 package com.workplace.wiki.repository;
 
 import static com.workplace.jooq.Tables.WIKI_PAGE;
+import static com.workplace.jooq.Tables.WIKI_SPACE;
+import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
+import com.workplace.wiki.dto.WikiSearchResult;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -128,5 +132,52 @@ public class WikiPageRepository {
 
   public void delete(long pageId) {
     dsl.deleteFrom(WIKI_PAGE).where(WIKI_PAGE.ID.eq(pageId)).execute();
+  }
+
+  /**
+   * 호출자가 멤버인 스페이스의 위키 페이지를 제목·본문 ILIKE 로 검색한다. spaceId 가 null 이면 호출자가 멤버인 전체 스페이스 대상, 지정되면 해당 스페이스
+   * 한정. 멤버십 조인으로 접근 불가 스페이스는 결과에서 자연 배제(RLS+멤버십 이중 스코핑).
+   */
+  public List<WikiSearchResult> search(long callerId, Long spaceId, String pattern, int limit) {
+    Condition cond =
+        WIKI_SPACE_MEMBER
+            .USER_ID
+            .eq(callerId)
+            .and(
+                WIKI_PAGE
+                    .TITLE
+                    .likeIgnoreCase(pattern, '\\')
+                    .or(WIKI_PAGE.BODY.likeIgnoreCase(pattern, '\\')));
+    if (spaceId != null) {
+      cond = cond.and(WIKI_PAGE.SPACE_ID.eq(spaceId));
+    }
+    return dsl.select(
+            WIKI_PAGE.ID,
+            WIKI_PAGE.SPACE_ID,
+            WIKI_SPACE.NAME,
+            WIKI_PAGE.TITLE,
+            WIKI_PAGE.BODY,
+            WIKI_PAGE.UPDATED_AT)
+        .from(WIKI_PAGE)
+        .join(WIKI_SPACE)
+        .on(WIKI_SPACE.ID.eq(WIKI_PAGE.SPACE_ID))
+        .join(WIKI_SPACE_MEMBER)
+        .on(WIKI_SPACE_MEMBER.SPACE_ID.eq(WIKI_PAGE.SPACE_ID))
+        .where(cond)
+        .orderBy(WIKI_PAGE.UPDATED_AT.desc())
+        .limit(limit)
+        .fetch(
+            r -> {
+              String body = r.get(WIKI_PAGE.BODY);
+              String snippet =
+                  body == null ? "" : (body.length() > 300 ? body.substring(0, 300) : body);
+              return new WikiSearchResult(
+                  r.get(WIKI_PAGE.ID),
+                  r.get(WIKI_PAGE.SPACE_ID),
+                  r.get(WIKI_SPACE.NAME),
+                  r.get(WIKI_PAGE.TITLE),
+                  snippet,
+                  r.get(WIKI_PAGE.UPDATED_AT));
+            });
   }
 }
