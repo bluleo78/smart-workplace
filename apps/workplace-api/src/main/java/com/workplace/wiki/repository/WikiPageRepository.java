@@ -4,6 +4,8 @@ import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
+import com.workplace.wiki.dto.WikiBacklink;
+import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
@@ -179,5 +181,63 @@ public class WikiPageRepository {
                   snippet,
                   r.get(WIKI_PAGE.UPDATED_AT));
             });
+  }
+
+  /**
+   * pageIds 중 호출자가 멤버인 스페이스의 페이지만 백링크 형태로 반환한다. search() 와 동일한 멤버십
+   * 조인(WIKI_PAGE⨝WIKI_SPACE⨝WIKI_SPACE_MEMBER user=caller)으로 접근 불가 스페이스의 페이지를 자연 배제. 빈 ids 면 빈 리스트.
+   */
+  public List<WikiBacklink> findVisibleBacklinks(long callerId, List<Long> pageIds) {
+    if (pageIds == null || pageIds.isEmpty()) return List.of();
+    return visiblePagesQuery(callerId, pageIds)
+        .orderBy(WIKI_PAGE.UPDATED_AT.desc())
+        .fetch(
+            r ->
+                new WikiBacklink(
+                    r.get(WIKI_PAGE.ID),
+                    r.get(WIKI_PAGE.SPACE_ID),
+                    r.get(WIKI_SPACE.NAME),
+                    r.get(WIKI_PAGE.TITLE),
+                    r.get(WIKI_PAGE.UPDATED_AT)));
+  }
+
+  /**
+   * 페이지 멘션 하이드레이션용 — pageIds 중 호출자가 멤버인 스페이스의 페이지를 칩 메타(type=PAGE, label=title, spaceId)로 반환한다. 가시성
+   * 스코핑은 {@link #findVisibleBacklinks} 와 동일. projectKey/number 는 PAGE 에 무의미하므로 null. 빈 ids 면 빈 리스트.
+   */
+  public List<WikiMentionRef> findVisiblePageRefs(long callerId, List<Long> pageIds) {
+    if (pageIds == null || pageIds.isEmpty()) return List.of();
+    return visiblePagesQuery(callerId, pageIds)
+        .fetch(
+            r ->
+                new WikiMentionRef(
+                    "PAGE",
+                    r.get(WIKI_PAGE.ID),
+                    r.get(WIKI_PAGE.TITLE),
+                    r.get(WIKI_PAGE.SPACE_ID),
+                    null,
+                    null));
+  }
+
+  /**
+   * pageIds 중 호출자가 멤버인 스페이스의 페이지 행을 고르는 공통 가시성 쿼리(id/spaceId/spaceName/title/updatedAt 컬럼). 백링크·페이지
+   * 멘션 하이드레이션이 같은 멤버십 조인을 재사용한다.
+   */
+  private org.jooq.SelectConditionStep<
+          org.jooq.Record5<Long, Long, String, String, java.time.OffsetDateTime>>
+      visiblePagesQuery(long callerId, List<Long> pageIds) {
+    return dsl.select(
+            WIKI_PAGE.ID,
+            WIKI_PAGE.SPACE_ID,
+            WIKI_SPACE.NAME,
+            WIKI_PAGE.TITLE,
+            WIKI_PAGE.UPDATED_AT)
+        .from(WIKI_PAGE)
+        .join(WIKI_SPACE)
+        .on(WIKI_SPACE.ID.eq(WIKI_PAGE.SPACE_ID))
+        .join(WIKI_SPACE_MEMBER)
+        .on(WIKI_SPACE_MEMBER.SPACE_ID.eq(WIKI_PAGE.SPACE_ID))
+        .where(WIKI_SPACE_MEMBER.USER_ID.eq(callerId))
+        .and(WIKI_PAGE.ID.in(pageIds));
   }
 }
