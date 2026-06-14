@@ -12,9 +12,9 @@ import { BrowserRouter } from 'react-router-dom'
 
 import App from './App.tsx'
 import { Toaster } from './components/ui/sonner.tsx'
+import { PlatformAuthProvider } from './hooks/PlatformAuthContext.tsx'
 
 // 운영자 콘솔 진입점.
-// 인증 컨텍스트(PlatformAuthProvider)는 후속 태스크(Task 2)에서 추가한다.
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false },
@@ -26,8 +26,10 @@ createRoot(document.getElementById('root')!).render(
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <App />
-          <Toaster />
+          <PlatformAuthProvider>
+            <App />
+            <Toaster />
+          </PlatformAuthProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </ThemeProvider>

@@ -1,10 +1,18 @@
 import { Route, Routes } from 'react-router-dom'
 
-// 임시 최소 App — 라우팅/페이지는 후속 태스크에서 채운다.
+import { ProtectedRoute } from './components/ProtectedRoute'
+import LoginPage from './pages/LoginPage'
+
+// 운영자 콘솔 라우팅.
+// - /login: 공개 로그인
+// - 그 외: ProtectedRoute 하위(인증 필요). TenantListPage 등 실제 화면은 Task 3 에서.
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<div>workplace-admin</div>} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<ProtectedRoute />}>
+        <Route path="/" element={<div data-testid="admin-home">admin</div>} />
+      </Route>
     </Routes>
   )
 }
