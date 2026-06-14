@@ -79,14 +79,17 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                         .ifPresent(
                             user -> {
                               // AGENT 경로도 active-tenant 를 요청 스코프에 설정해야 RLS GUC 가 주입되어
-                              // user_role/role_permission 조회(getUserPermissions)가 권한을 반환한다. 설정하지
-                              // 않으면 RLS fail-closed 로 권한이 비어 에이전트가 모든 권한을 잃는다. API 키에는
-                              // tenant 가 없으므로 대상 사용자의 단일 활성 멤버십에서 해석한다. (멀티 소속 에이전트의
-                              // 명시적 테넌트 선택은 P4 후속. 0/다중이면 미설정 → fail-closed.)
-                              // 반드시 getUserPermissions 호출 전에 설정해야 한다.
+                              // user_role/role_permission 조회(getUserPermissions)가 권한을 반환한다. API 키에는
+                              // tenant 가 없으므로 X-On-Behalf-Of-Tenant 헤더(멤버십 검증) 또는 단일 멤버십으로 해석한다.
+                              // 비멤버 헤더/0/다중·미해석이면 미설정 → fail-closed. 반드시 getUserPermissions 호출 전에
+                              // 설정.
                               var memberships = membershipRepository.findActiveByUser(user.id());
-                              if (memberships.size() == 1) {
-                                TenantContext.set(memberships.get(0).tenantId());
+                              Long resolved =
+                                  AgentTenantResolver.resolve(
+                                      memberships,
+                                      request.getHeader(AgentTenantResolver.TENANT_HEADER));
+                              if (resolved != null) {
+                                TenantContext.set(resolved);
                               }
 
                               // AGENT 의 명시적 권한 + ROLE_AGENT 마커
