@@ -41,14 +41,15 @@ public class WikiPageService {
   /** 단건 상세(본문 + version). VIEWER 이상. */
   @Transactional(readOnly = true)
   public WikiPageDetail get(long callerId, long pageId) {
-    long spaceId = pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    long spaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(spaceId, callerId, "VIEWER");
     return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
 
   /**
-   * 낙관적 동시성 저장. snapshot=true 면 직전 버전 상태를 wiki_revision 에 적재(명시 저장/세션 첫 편집).
-   * 자동저장은 snapshot=false 로 호출 → 리비전 미적재.
+   * 낙관적 동시성 저장. snapshot=true 면 직전 버전 상태를 wiki_revision 에 적재(명시 저장/세션 첫 편집). 자동저장은 snapshot=false 로
+   * 호출 → 리비전 미적재.
    */
   @Transactional
   public WikiPageDetail save(long callerId, long pageId, SavePageRequest req) {
@@ -69,18 +70,29 @@ public class WikiPageService {
     return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
 
-  /** 트리 이동(parent/position 변경). EDITOR 이상. */
+  /** 트리 이동(parent/position 변경) + 형제 재배열로 타이 제거. EDITOR 이상. */
   @Transactional
   public void move(long callerId, long pageId, MovePageRequest req) {
-    long spaceId = pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    long spaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // 부모 변경을 먼저 반영(같은 부모면 no-op 수준).
     pages.move(pageId, req.parentId(), req.position());
+    // 새 부모의 형제들을 현재 순서로 가져와 이동 노드를 목표 인덱스에 삽입 후 0..n 재부여(타이 제거).
+    java.util.List<Long> ids = pages.childIdsOrdered(spaceId, req.parentId());
+    ids.remove(Long.valueOf(pageId)); // 박싱 remove(Object) — 인덱스 remove 아님
+    int idx = Math.max(0, Math.min(req.position(), ids.size()));
+    ids.add(idx, pageId);
+    for (int i = 0; i < ids.size(); i++) {
+      pages.setPosition(ids.get(i), i);
+    }
   }
 
   /** 페이지 삭제(자식 CASCADE). EDITOR 이상. */
   @Transactional
   public void delete(long callerId, long pageId) {
-    long spaceId = pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    long spaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(spaceId, callerId, "EDITOR");
     pages.delete(pageId);
   }

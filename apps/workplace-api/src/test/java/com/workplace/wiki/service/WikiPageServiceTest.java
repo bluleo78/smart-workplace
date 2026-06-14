@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.wiki.dto.CreatePageRequest;
+import com.workplace.wiki.dto.MovePageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
@@ -69,8 +70,7 @@ class WikiPageServiceTest extends IntegrationTestBase {
     WikiPageDetail p = pageService.create(u, sp.id(), new CreatePageRequest(null, "제목"));
     assertThat(p.version()).isEqualTo(1);
 
-    WikiPageDetail saved =
-        pageService.save(u, p.id(), new SavePageRequest("제목", "# 본문", 1, false));
+    WikiPageDetail saved = pageService.save(u, p.id(), new SavePageRequest("제목", "# 본문", 1, false));
     assertThat(saved.version()).isEqualTo(2);
     assertThat(saved.body()).isEqualTo("# 본문");
   }
@@ -82,8 +82,39 @@ class WikiPageServiceTest extends IntegrationTestBase {
     WikiPageDetail p = pageService.create(u, sp.id(), new CreatePageRequest(null, "제목"));
     pageService.save(u, p.id(), new SavePageRequest("제목", "v2", 1, false));
 
-    assertThatThrownBy(() -> pageService.save(u, p.id(), new SavePageRequest("제목", "stale", 1, false)))
+    assertThatThrownBy(
+            () -> pageService.save(u, p.id(), new SavePageRequest("제목", "stale", 1, false)))
         .isInstanceOf(WikiConflictException.class);
+  }
+
+  @Test
+  void move_reordersSiblings_withoutTies() {
+    long u = seedUser();
+    WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
+    // 루트 페이지 A, B, C 를 순서대로 생성 → position 0,1,2.
+    WikiPageDetail a = pageService.create(u, sp.id(), new CreatePageRequest(null, "A"));
+    WikiPageDetail b = pageService.create(u, sp.id(), new CreatePageRequest(null, "B"));
+    WikiPageDetail c = pageService.create(u, sp.id(), new CreatePageRequest(null, "C"));
+
+    // C 를 맨 앞(position 0)으로 이동 → 형제 재배열 기대 순서 [C, A, B].
+    pageService.move(u, c.id(), new MovePageRequest(null, 0));
+
+    List<Long> rootOrder =
+        pageService.listTree(u, sp.id()).stream()
+            .filter(p -> p.parentId() == null)
+            .map(WikiPageSummary::id)
+            .toList();
+    // 타이가 없어야 순서가 [C, A, B] 로 결정적. 나이브 구현은 position 0 에 타이가 생겨 실패.
+    assertThat(rootOrder).containsExactly(c.id(), a.id(), b.id());
+
+    // A 를 맨 뒤(position 2)로 이동 → [C, B, A] 로 결정적 재배열되어야 한다.
+    pageService.move(u, a.id(), new MovePageRequest(null, 2));
+    List<Long> after =
+        pageService.listTree(u, sp.id()).stream()
+            .filter(p -> p.parentId() == null)
+            .map(WikiPageSummary::id)
+            .toList();
+    assertThat(after).containsExactly(c.id(), b.id(), a.id());
   }
 
   @Test
