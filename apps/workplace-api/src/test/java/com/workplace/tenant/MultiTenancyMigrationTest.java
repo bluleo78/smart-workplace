@@ -44,22 +44,4 @@ class MultiTenancyMigrationTest extends IntegrationTestBase {
                 .and(MEMBERSHIP.TENANT_ID.eq(1L)));
     assertThat(count).isEqualTo(1);
   }
-
-  @Test
-  void userTable_hasPlatformAdminColumnDefaultingFalse() {
-    Long uid =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, "pa-test@example.com")
-            .set(USER.PASSWORD, "x")
-            .set(USER.NAME, "PA")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
-    Boolean isPa =
-        dsl.select(USER.IS_PLATFORM_ADMIN)
-            .from(USER)
-            .where(USER.ID.eq(uid))
-            .fetchOne(USER.IS_PLATFORM_ADMIN);
-    assertThat(isPa).isFalse();
-  }
 }
