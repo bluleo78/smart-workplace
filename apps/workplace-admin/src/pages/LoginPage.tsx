@@ -21,7 +21,7 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth()
+  const { login, isAuthenticated, isLoading } = useAuth()
   const navigate = useNavigate()
   const [serverError, setServerError] = useState('')
 
@@ -33,6 +33,10 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
   })
 
+  // 세션 복원 중에는 로그인 폼을 그리지 않는다(복원 후 인증되면 리다이렉트되므로 폼 깜빡임 방지).
+  if (isLoading) {
+    return null
+  }
   if (isAuthenticated) {
     return <Navigate to="/" replace />
   }

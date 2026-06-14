@@ -19,10 +19,8 @@ export const platformTenants = {
   /** 테넌트 멤버 목록(상세·Task 4). */
   members: (id: number) =>
     client.get<TenantMember[]>(`/tenants/${id}/members`).then((res) => res.data),
-  /** 테넌트 정지. */
-  suspend: (id: number) =>
-    client.post<TenantDetail>(`/tenants/${id}/suspend`).then((res) => res.data),
-  /** 테넌트 활성화. */
-  activate: (id: number) =>
-    client.post<TenantDetail>(`/tenants/${id}/activate`).then((res) => res.data),
+  /** 테넌트 정지. 백엔드는 204 No Content(바디 없음). */
+  suspend: (id: number) => client.post<void>(`/tenants/${id}/suspend`).then(() => undefined),
+  /** 테넌트 활성화. 백엔드는 204 No Content(바디 없음). */
+  activate: (id: number) => client.post<void>(`/tenants/${id}/activate`).then(() => undefined),
 }
