@@ -1,0 +1,71 @@
+package com.workplace.platform.controller;
+
+import com.workplace.platform.dto.CreateTenantRequest;
+import com.workplace.platform.dto.TenantDetailResponse;
+import com.workplace.platform.dto.TenantMemberResponse;
+import com.workplace.platform.dto.TenantSummaryResponse;
+import com.workplace.platform.service.PlatformTenantService;
+import jakarta.validation.Valid;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 운영자 콘솔 — 테넌트 관리 엔드포인트.
+ *
+ * <p>{@code /api/platform/**} 는 SecurityConfig 에서 ROLE_PLATFORM(플랫폼 토큰)으로 게이트되므로 별도
+ * {@code @RequirePermission} 은 두지 않는다.
+ */
+@RestController
+@RequestMapping("/api/platform/tenants")
+@RequiredArgsConstructor
+public class PlatformTenantController {
+
+  private final PlatformTenantService platformTenantService;
+
+  /** 테넌트 생성 — 201 + 생성된 상세. */
+  @PostMapping
+  public ResponseEntity<TenantDetailResponse> create(@Valid @RequestBody CreateTenantRequest req) {
+    TenantDetailResponse created = platformTenantService.createTenant(req);
+    return ResponseEntity.status(HttpStatus.CREATED).body(created);
+  }
+
+  /** 전체 테넌트 목록. */
+  @GetMapping
+  public ResponseEntity<List<TenantSummaryResponse>> list() {
+    return ResponseEntity.ok(platformTenantService.listTenants());
+  }
+
+  /** 테넌트 상세 — 없으면 404. */
+  @GetMapping("/{id}")
+  public ResponseEntity<TenantDetailResponse> get(@PathVariable Long id) {
+    return ResponseEntity.ok(platformTenantService.getTenant(id));
+  }
+
+  /** 테넌트 정지(SUSPENDED). */
+  @PostMapping("/{id}/suspend")
+  public ResponseEntity<Void> suspend(@PathVariable Long id) {
+    platformTenantService.suspend(id);
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 테넌트 활성화(ACTIVE). */
+  @PostMapping("/{id}/activate")
+  public ResponseEntity<Void> activate(@PathVariable Long id) {
+    platformTenantService.activate(id);
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 테넌트 멤버 목록. */
+  @GetMapping("/{id}/members")
+  public ResponseEntity<List<TenantMemberResponse>> members(@PathVariable Long id) {
+    return ResponseEntity.ok(platformTenantService.getMembers(id));
+  }
+}

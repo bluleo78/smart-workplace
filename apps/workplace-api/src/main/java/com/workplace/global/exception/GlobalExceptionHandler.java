@@ -162,6 +162,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  /** 운영자 콘솔에서 존재하지 않는 테넌트 id 조회/조작 → 404. */
+  @ExceptionHandler(com.workplace.platform.exception.PlatformTenantNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handlePlatformTenantNotFound(
+      com.workplace.platform.exception.PlatformTenantNotFoundException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
   /** 비멤버/정지 테넌트 선택 시도 → 403. */
   @ExceptionHandler(TenantAccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleTenantAccessDenied(
