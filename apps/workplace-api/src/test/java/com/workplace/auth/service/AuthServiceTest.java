@@ -69,12 +69,12 @@ class AuthServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 회귀 가드: 일반(비-최초) 가입자는 플랫폼 역할을 절대 부여받지 않아야 한다. SUPER_ADMIN 부트스트랩 호출이 {@code
-   * isFirstUser} 블록 밖으로 새면 모든 가입자가 슈퍼 관리자가 되는 치명적 결함을 잡는다.
+   * 회귀 가드: 일반(비-최초) 가입자는 플랫폼 역할을 절대 부여받지 않아야 한다. SUPER_ADMIN 부트스트랩 호출이 {@code isFirstUser} 블록 밖으로
+   * 새면 모든 가입자가 슈퍼 관리자가 되는 치명적 결함을 잡는다.
    *
-   * <p>(공유 테스트 DB 는 비어 있지 않아 {@code countAll != 0} → isFirstUser=false 이므로, 최초 가입자 양성 경로는
-   * 통합 테스트로 단언 불가. 최초 가입 부여의 정상 동작은 PlatformRoleRepositoryTest 의 assignSuperAdmin 단위
-   * 커버리지 + AuthService.signup 의 배치 검수로 보장한다.)
+   * <p>(공유 테스트 DB 는 비어 있지 않아 {@code countAll != 0} → isFirstUser=false 이므로, 최초 가입자 양성 경로는 통합 테스트로
+   * 단언 불가. 최초 가입 부여의 정상 동작은 PlatformRoleRepositoryTest 의 assignSuperAdmin 단위 커버리지 +
+   * AuthService.signup 의 배치 검수로 보장한다.)
    */
   @Test
   void signup_subsequentUser_doesNotGrantPlatformRole() {

@@ -29,7 +29,9 @@ public class WikiPermissions {
    */
   public String requireRole(long spaceId, long userId, String minRole) {
     String role =
-        members.findRole(spaceId, userId).orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
+        members
+            .findRole(spaceId, userId)
+            .orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
     if (RANK.get(role) < RANK.get(minRole)) {
       throw new WikiForbiddenException(spaceId, userId);
     }

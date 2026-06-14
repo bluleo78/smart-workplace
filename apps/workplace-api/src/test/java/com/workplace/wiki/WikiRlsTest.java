@@ -14,12 +14,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * V68 위키 도메인 RLS 격리 증명: tenant#1 에서 만든 wiki_space / wiki_space_member 가 다른 테넌트 GUC 컨텍스트에서 비가시.
- * 전체를 롤백되는 단일 트랜잭션으로 수행 → 공유 DB 무오염 (IssueDomainRlsTest / CalendarDomainRlsTest 패턴).
+ * V68 위키 도메인 RLS 격리 증명: tenant#1 에서 만든 wiki_space / wiki_space_member 가 다른 테넌트 GUC 컨텍스트에서 비가시. 전체를
+ * 롤백되는 단일 트랜잭션으로 수행 → 공유 DB 무오염 (IssueDomainRlsTest / CalendarDomainRlsTest 패턴).
  *
  * <p>WikiSpaceService.createTeamSpace / listMySpaces 를 직접 호출하지 않는 이유: 각 서비스 메서드는 @Transactional 이라
- * 커밋되어 공유 DB 를 오염시키고, listMySpaces 는 ensurePersonalSpace 의 INSERT 로 미커밋 tenant#2 에 대한 FK 를 건드린다.
- * 모든 형제 도메인 RLS 테스트와 동일하게 정책(USING/WITH CHECK) 자체를 직접 jOOQ 로 검증한다.
+ * 커밋되어 공유 DB 를 오염시키고, listMySpaces 는 ensurePersonalSpace 의 INSERT 로 미커밋 tenant#2 에 대한 FK 를 건드린다. 모든
+ * 형제 도메인 RLS 테스트와 동일하게 정책(USING/WITH CHECK) 자체를 직접 jOOQ 로 검증한다.
  */
 class WikiRlsTest extends IntegrationTestBase {
 
@@ -78,8 +78,7 @@ class WikiRlsTest extends IntegrationTestBase {
 
               // tenant#1 컨텍스트에서는 가시 (양성 대조 — 행이 실제로 삽입됐음을 보장)
               assertThat(
-                      dsl.fetchCount(
-                          dsl.selectFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(spaceId))))
+                      dsl.fetchCount(dsl.selectFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(spaceId))))
                   .isEqualTo(1);
               assertThat(
                       dsl.fetchCount(
@@ -92,8 +91,7 @@ class WikiRlsTest extends IntegrationTestBase {
               // tenant#2 컨텍스트로 전환 → tenant#1 의 공간/멤버는 비가시 (RLS USING 차단)
               setGuc(tid2);
               assertThat(
-                      dsl.fetchCount(
-                          dsl.selectFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(spaceId))))
+                      dsl.fetchCount(dsl.selectFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(spaceId))))
                   .isZero();
               assertThat(
                       dsl.fetchCount(
