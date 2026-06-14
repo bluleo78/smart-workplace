@@ -10,5 +10,6 @@ export function useWikiBacklinks(pageId: number | null) {
     queryKey: wikiKeys.backlinks(pageId ?? 0),
     queryFn: () => wikiApi.getBacklinks(pageId as number).then((r) => r.data),
     enabled: pageId != null,
+    staleTime: 30_000, // 본문 저장 전까지 백링크 결과는 변하지 않음
   })
 }
