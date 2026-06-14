@@ -10,22 +10,32 @@ import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 운영자 콘솔 — 테넌트 생성/목록/상세/정지/활성화/멤버 조회.
  *
- * <p>⚠️ 이 서비스에는 {@code @Transactional} 을 붙이지 않는다. 생성은 {@link
- * PlatformTenantRepository#createTenantWithOwner} (별도 빈, 자체 트랜잭션)에서 커밋된 뒤 반환되어야 하고, 후속 단계(Task 6 역할
- * 시드)가 커밋된 tenant 행을 별도 커넥션에서 봐야 하기 때문이다. 서비스에 트랜잭션을 걸면 self-invocation 프록시 우회와 커밋 지연이 생긴다.
+ * <p>⚠️ {@link #createTenant} 만 {@code @Transactional}(단일 트랜잭션)이다. tenant + OWNER 멤버십 + 기본 RBAC 시드를
+ * 한 트랜잭션·한 커넥션으로 원자 처리해야 한다(Task 6). 이렇게 해야 role.tenant_id FK 가 같은 트랜잭션의 미커밋 tenant 행을 보고, 트랜잭션-로컬
+ * GUC 로 RLS WITH CHECK 를 통과한다. 시드 중간 실패 시 tenant 까지 함께 롤백되어 고아 테넌트가 남지 않는다. (이전의 "commit-first + 별도
+ * 커넥션 가시성" 설계는 폐기됨 — 되돌리지 말 것.)
  */
 @Service
 @RequiredArgsConstructor
 public class PlatformTenantService {
 
   private final PlatformTenantRepository platformTenantRepository;
+  private final TenantProvisioningService tenantProvisioningService;
   private final UserRepository userRepository;
 
-  /** 테넌트 생성 — slug 중복·owner 존재 검증 후 tenant + OWNER 멤버십 생성(커밋). 생성된 상세를 반환. */
+  /**
+   * 테넌트 생성 — slug 중복·owner 존재 검증 후 tenant + OWNER 멤버십 + 기본 RBAC 시드를 단일 트랜잭션으로 처리. 생성된 상세를 반환.
+   *
+   * <p>{@code @Transactional}: tenant/membership(전역 테이블) → 신규 테넌트 GUC 설정 →
+   * role/role_permission/user_role 시드까지 같은 커넥션에서 원자 실행. createTenantWithOwner 의
+   * {@code @Transactional} 은 REQUIRED 로 이 트랜잭션에 합류한다.
+   */
+  @Transactional
   public TenantDetailResponse createTenant(CreateTenantRequest req) {
     // slug 가 지정된 경우 전역 유일성 검증(중복이면 400).
     if (req.slug() != null && platformTenantRepository.slugExists(req.slug())) {
@@ -35,9 +45,12 @@ public class PlatformTenantService {
     if (!userRepository.existsById(req.ownerUserId())) {
       throw new IllegalArgumentException("존재하지 않는 사용자입니다: " + req.ownerUserId());
     }
+    // tenant + OWNER 멤버십(전역 테이블, GUC 무관). createTenantWithOwner 는 REQUIRED 로 이 tx 에 합류한다.
     Long tenantId =
         platformTenantRepository.createTenantWithOwner(req.name(), req.slug(), req.ownerUserId());
-    // 방금 커밋된 테넌트를 다시 조회해 일관된 상세(멤버 수 포함)를 반환.
+    // 같은 트랜잭션/커넥션에서 신규 테넌트 GUC 로 RBAC 시드(FK 가 미커밋 tenant 를 봄, RLS WITH CHECK 통과).
+    tenantProvisioningService.seedDefaultRoles(tenantId, req.ownerUserId());
+    // 같은 트랜잭션에서 다시 조회해 일관된 상세(멤버 수 포함)를 반환.
     return platformTenantRepository
         .findTenant(tenantId)
         .orElseThrow(() -> new IllegalStateException("테넌트 생성 직후 조회에 실패했습니다: " + tenantId));
