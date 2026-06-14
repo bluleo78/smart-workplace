@@ -7,12 +7,16 @@
 // 스테일 클로저를 피하려 ref 로 주입(RichInput 의 membersRef/onSubmitRef 패턴).
 
 import { Extension } from '@tiptap/core'
+import { PluginKey } from '@tiptap/pm/state'
 import { ReactRenderer } from '@tiptap/react'
 import Suggestion, {
   type SuggestionKeyDownProps,
   type SuggestionProps,
 } from '@tiptap/suggestion'
 import tippy, { type Instance as TippyInstance } from 'tippy.js'
+
+// @tiptap/suggestion 의 기본 플러그인 키(suggestion$)는 @ 멘션 suggestion 과 충돌하므로 전용 키 부여.
+const wikiSlashPluginKey = new PluginKey('wikiSlashAi')
 
 import { type WikiSlashItem, WikiSlashMenu, type WikiSlashMenuHandle } from './WikiSlashMenu'
 
@@ -39,6 +43,7 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
       return [
         Suggestion({
           editor: this.editor,
+          pluginKey: wikiSlashPluginKey,
           char: '/',
           // 줄 어디서든 "/" 로 트리거(기본 prefix 제약 해제).
           allowedPrefixes: null,

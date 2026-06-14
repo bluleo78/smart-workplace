@@ -59,6 +59,19 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   // 결국 "/" 에 착지하므로 빈 기본 목록 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 세션을 검증하는 spec 은 더 구체적 목록을 나중에 등록 → 그쪽이 우선한다.
   await mockApi(page, 'GET', '/api/v1/home/sessions', { items: [], nextCursor: null })
+  // 위키 에디터가 마운트 시 useWikiMentions(page.id) 로 /wiki/pages/:id/mentions 를 페치하므로
+  // 모든 wiki 스펙에서 빈 기본 스텁을 깔아 백엔드 프록시(localhost:9090) 누수를 막는다.
+  // 멘션을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
+  await page.route(
+    (url) => /^\/api\/v1\/wiki\/pages\/\d+\/mentions$/.test(url.pathname),
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  // 백링크(Task 9 예정)도 같은 자리에서 빈 기본 스텁으로 누수 예방.
+  await page.route(
+    (url) => /^\/api\/v1\/wiki\/pages\/\d+\/backlinks$/.test(url.pathname),
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }),
+  )
   // #93 그룹 트리가 마운트되므로 다른 authed 스펙 누수 방지용 기본 빈 트리
   await page.route(
     (url) => url.pathname === '/api/v1/user-groups',
