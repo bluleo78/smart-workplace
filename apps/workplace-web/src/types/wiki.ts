@@ -42,3 +42,29 @@ export interface SavePageRequest {
   version: number
   snapshot: boolean
 }
+
+// 멘션 참조 종류 — 본문 토큰(<@id>·<#page:id>·<#issue:id>) 의 대상 타입.
+export type WikiMentionType = 'USER' | 'PAGE' | 'ISSUE'
+
+// 페이지 본문에 등장하는 멘션을 라벨/링크 정보로 해소한 참조(백엔드 1:1).
+export interface WikiMentionRef {
+  type: WikiMentionType
+  id: number
+  label: string
+  spaceId: number | null
+  projectKey: string | null
+  number: number | null
+}
+
+// 백링크 — 이 페이지를 참조(멘션)하는 다른 위키 페이지(백엔드 1:1).
+export interface WikiBacklink {
+  pageId: number
+  spaceId: number
+  spaceName: string
+  title: string
+  updatedAt: string
+}
+
+export interface WikiBacklinksResponse {
+  items: WikiBacklink[]
+}

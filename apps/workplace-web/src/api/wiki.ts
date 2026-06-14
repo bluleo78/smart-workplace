@@ -2,7 +2,9 @@
 
 import type {
   SavePageRequest,
+  WikiBacklinksResponse,
   WikiMember,
+  WikiMentionRef,
   WikiPageDetail,
   WikiPageSummary,
   WikiSpace,
@@ -35,4 +37,11 @@ export const wikiApi = {
   movePage: (pageId: number, parentId: number | null, position: number) =>
     client.patch<void>(`/wiki/pages/${pageId}/move`, { parentId, position }),
   deletePage: (pageId: number) => client.delete<void>(`/wiki/pages/${pageId}`),
+
+  // 본문 멘션 토큰을 라벨/링크 정보로 해소 — 칩 렌더용.
+  getMentions: (pageId: number) =>
+    client.get<WikiMentionRef[]>(`/wiki/pages/${pageId}/mentions`),
+  // 이 페이지를 참조하는 다른 페이지 목록(백링크).
+  getBacklinks: (pageId: number) =>
+    client.get<WikiBacklinksResponse>(`/wiki/pages/${pageId}/backlinks`),
 }
