@@ -26,6 +26,27 @@ export interface ChannelMessageItem {
   deleted: boolean;
 }
 
+// S2: 위키 검색 결과 한 건(읽기 그라운딩).
+export interface WikiSearchItem {
+  id: number;
+  spaceId: number;
+  spaceName: string;
+  title: string;
+  snippet: string;
+  updatedAt: string;
+}
+
+// S2: 위키 페이지 본문 전체.
+export interface WikiPageContent {
+  id: number;
+  spaceId: number;
+  parentId: number | null;
+  title: string;
+  body: string;
+  version: number;
+  updatedAt: string;
+}
+
 // 6c: 이슈 첨부 메타.
 export interface AttachmentMeta {
   fileId: number;
@@ -50,6 +71,9 @@ export interface WorkplaceApiClient {
     limit: number,
   ): Promise<ChannelMessageItem[]>;
   addChannelMessage(agentId: number, channelId: number, body: string): Promise<void>;
+  // S2: 위키 읽기 그라운딩
+  searchWikiPages(agentId: number, query: string): Promise<WikiSearchItem[]>;
+  getWikiPage(agentId: number, pageId: number): Promise<WikiPageContent>;
   // 6c: 이슈 첨부
   listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
   downloadIssueAttachment(
@@ -178,6 +202,20 @@ export function createWorkplaceApiClient(opts: {
         { body },
         onBehalfOf(agentId),
       );
+    },
+
+    // S2: 위키 검색 — 백엔드는 bare JSON 배열(List<WikiSearchResult>)을 반환.
+    async searchWikiPages(agentId, query) {
+      const r = await http.get(
+        `/wiki/search?q=${encodeURIComponent(query)}`,
+        onBehalfOf(agentId),
+      );
+      return Array.isArray(r.data) ? (r.data as WikiSearchItem[]) : [];
+    },
+    // S2: 위키 페이지 본문 — 페이지 객체를 그대로 반환.
+    async getWikiPage(agentId, pageId) {
+      const r = await http.get(`/wiki/pages/${pageId}`, onBehalfOf(agentId));
+      return r.data as WikiPageContent;
     },
 
     async listIssueAttachments(agentId, issueKey) {

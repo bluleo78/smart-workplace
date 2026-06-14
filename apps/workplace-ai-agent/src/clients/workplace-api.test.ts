@@ -159,4 +159,31 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(res.data.toString()).toBe('PNGDATA');
     expect(res.mimeType).toBe('image/png');
   });
+
+  // --- S2: 위키 읽기 그라운딩 ---
+
+  it('searchWikiPages → GET /wiki/search?q= with on-behalf-of', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/wiki/search`)
+      .query({ q: '배포' })
+      .reply(200, [
+        { id: 7, spaceId: 2, spaceName: '팀', title: '릴리스', snippet: '배포 절차', updatedAt: '2026-06-14T00:00:00Z' },
+      ]);
+    const out = await newClient().searchWikiPages(AGENT_ID, '배포');
+    expect(scope.isDone()).toBe(true);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ id: 7, title: '릴리스' });
+  });
+
+  it('getWikiPage → GET /wiki/pages/{id} with on-behalf-of', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/wiki/pages/7`)
+      .reply(200, { id: 7, spaceId: 2, parentId: null, title: '릴리스', body: '본문', version: 3, updatedAt: '2026-06-14T00:00:00Z' });
+    const out = await newClient().getWikiPage(AGENT_ID, 7);
+    expect(scope.isDone()).toBe(true);
+    expect(out).toMatchObject({ id: 7, body: '본문', version: 3 });
+  });
 });
