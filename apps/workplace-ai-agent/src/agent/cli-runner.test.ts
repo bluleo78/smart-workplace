@@ -1,5 +1,30 @@
-import { describe, expect, it } from 'vitest';
-import { buildCliArgs, buildChildEnv } from './cli-runner.js';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { EventEmitter } from 'node:events';
+
+// Wiki S3(A1): runClaudeCliStream 의 라인 분리/잔여 flush/kill 을 spawn 없이 단위 검증하기 위해
+// node:child_process 의 spawn 을 가짜 child(EventEmitter)로 모킹한다.
+const spawnMock = vi.hoisted(() => vi.fn());
+vi.mock('node:child_process', () => ({ spawn: spawnMock }));
+
+import { buildCliArgs, buildChildEnv, runClaudeCliStream } from './cli-runner.js';
+
+// 가짜 child: stdout/stderr 는 EventEmitter, kill 은 spy.
+function makeFakeChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+    kill: ReturnType<typeof vi.fn>;
+    killed: boolean;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.killed = false;
+  child.kill = vi.fn(() => {
+    child.killed = true;
+    return true;
+  });
+  return child;
+}
 
 describe('buildCliArgs', () => {
   it('필수 옵션 포함', () => {
@@ -56,6 +81,68 @@ describe('buildCliArgs', () => {
     const disallowed = args[args.indexOf('--disallowed-tools') + 1];
     expect(allowed).toBe('mcp__workplace__*');
     expect(disallowed.split(',')).toContain('Read');
+  });
+});
+
+describe('runClaudeCliStream (라인 스트리밍)', () => {
+  beforeEach(() => spawnMock.mockReset());
+
+  const input = {
+    args: ['--print', 'x'],
+    env: {} as NodeJS.ProcessEnv,
+    timeoutMs: 60_000,
+    logTag: 'wiki-test',
+  };
+
+  it('stdout chunk 를 개행 단위로 분리해 onLine 을 순서대로 호출', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+    const lines: string[] = [];
+    const handle = runClaudeCliStream(input, (l) => lines.push(l));
+    // 한 청크에 1.5 라인 → 다음 청크로 나머지 + 완결 라인.
+    child.stdout.emit('data', Buffer.from('{"a":1}\n{"b":'));
+    child.stdout.emit('data', Buffer.from('2}\n{"c":3}\n'));
+    child.emit('close', 0);
+    await handle.done;
+    expect(lines).toEqual(['{"a":1}', '{"b":2}', '{"c":3}']);
+  });
+
+  it('마지막 개행 없는 잔여 라인도 close 시 flush', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+    const lines: string[] = [];
+    const handle = runClaudeCliStream(input, (l) => lines.push(l));
+    child.stdout.emit('data', Buffer.from('{"x":1}\n{"y":2}')); // 마지막 개행 없음
+    child.emit('close', 0);
+    await handle.done;
+    expect(lines).toEqual(['{"x":1}', '{"y":2}']);
+  });
+
+  it('non-zero exit → done reject', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+    const handle = runClaudeCliStream(input, () => {});
+    child.emit('close', 1);
+    await expect(handle.done).rejects.toThrow(/exited 1/);
+  });
+
+  it('kill() → child SIGTERM + done 정상 resolve(연결 종료)', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+    const handle = runClaudeCliStream(input, () => {});
+    handle.kill();
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    // kill 은 의도적 종료 — close 후 reject 가 아니라 resolve.
+    child.emit('close', null);
+    await expect(handle.done).resolves.toBeUndefined();
+  });
+
+  it('spawn error → done reject', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+    const handle = runClaudeCliStream(input, () => {});
+    child.emit('error', new Error('spawn boom'));
+    await expect(handle.done).rejects.toThrow('spawn boom');
   });
 });
 

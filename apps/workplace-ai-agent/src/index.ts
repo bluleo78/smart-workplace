@@ -11,6 +11,7 @@ import { healthRouter } from './routes/health.js';
 import { createEventsRouter } from './routes/events.js';
 import { createHomeRouter } from './routes/home.js';
 import { createMailRouter } from './routes/mail.js';
+import { createWikiRouter } from './routes/wiki.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -41,6 +42,7 @@ app.use(internalAuth);
 app.use(createEventsRouter({ client: workplaceApi }));
 app.use(createHomeRouter({ client: workplaceApi }));
 app.use(createMailRouter({ client: workplaceApi }));
+app.use(createWikiRouter({ client: workplaceApi }));
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[ai-agent] unhandled error:', err);
@@ -62,6 +64,7 @@ const server = app.listen(PORT, () => {
   console.log(`  POST /events`);
   console.log('  POST /home/compose');
   console.log('  POST /mail/classify | /mail/summarize | /mail/reply-draft');
+  console.log('  POST /wiki/compose (SSE)');
 });
 
 function shutdown(signal: string) {
