@@ -1,7 +1,7 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
-import { Eye, EyeOff, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Eye, EyeOff, Pencil, Trash2 } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -17,6 +17,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 import { CyclePickerPopover } from '../../components/cycle/CyclePickerPopover';
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
@@ -44,6 +46,160 @@ import { IssueDependenciesSection } from './components/IssueDependenciesSection'
 import { IssueParentSlot } from './components/IssueParentSlot';
 import { IssuePrioritySelect } from './components/IssuePrioritySelect';
 import { IssueStatusSelect } from './components/IssueStatusSelect';
+
+// 제목 인라인 편집 — 표시 모드(텍스트+연필)와 편집 모드(input) 토글.
+// 무엇을: 헤더 제목을 클릭/연필로 input 으로 전환, Enter·blur 저장, Escape 취소.
+// 왜: 오타·제목 수정을 위해 이슈를 삭제·재생성해야 하는 불편 해소 (#117).
+function InlineEditableTitle({
+  title,
+  onSave,
+  disabled,
+}: {
+  title: string;
+  onSave: (next: string) => void;
+  disabled: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  // 무엇을: Escape 직후 발생하는 blur 가 저장을 트리거하지 않도록 1회 스킵 플래그.
+  // 왜: setDraft 는 비동기라 blur 핸들러가 stale 값을 보므로, ref 로 결정적으로 취소를 처리.
+  const skipCommitRef = useRef(false);
+
+  // 무엇을: 편집 진입 — 현재 값으로 draft 시드.
+  const enter = () => {
+    setDraft(title);
+    setEditing(true);
+  };
+
+  // 무엇을: 단일 저장 경로(blur). Enter 는 blur() 를 호출해 이 경로로 합류.
+  // 빈/공백 제목 가드: trim 후 비었거나 변화 없으면 PATCH 없이 표시만 원복.
+  const commit = () => {
+    if (skipCommitRef.current) {
+      skipCommitRef.current = false;
+      setEditing(false);
+      return;
+    }
+    const trimmed = draft.trim();
+    setEditing(false);
+    // 왜: zod min(1) 위반(빈 제목)·불변 요청은 무의미하므로 UI 에서 차단.
+    if (!trimmed || trimmed === title) return;
+    onSave(trimmed);
+  };
+
+  if (!editing) {
+    return (
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="truncate">{title}</span>
+        <button
+          type="button"
+          onClick={enter}
+          disabled={disabled}
+          aria-label="제목 편집"
+          className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <Input
+      autoFocus
+      data-testid="issue-title-input"
+      className="h-8 max-w-md"
+      value={draft}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          skipCommitRef.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
+// 본문 인라인 편집 — 표시(prose)와 편집(textarea) 토글.
+// 무엇을: 본문 영역을 연필로 textarea 로 전환, blur·Cmd/Ctrl+Enter 저장, Escape 취소.
+// 빈 본문은 허용(스키마는 max 길이만 제약). 변화 없으면 PATCH 생략.
+function InlineEditableBody({
+  body,
+  onSave,
+  disabled,
+}: {
+  body: string | null;
+  onSave: (next: string) => void;
+  disabled: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(body ?? '');
+  // Escape 취소 시 후속 blur 저장을 막는 1회 스킵 플래그 (제목과 동일 패턴).
+  const skipCommitRef = useRef(false);
+
+  const enter = () => {
+    setDraft(body ?? '');
+    setEditing(true);
+  };
+
+  // 단일 저장 경로(blur). Cmd/Ctrl+Enter 는 blur() 로 합류.
+  const commit = () => {
+    if (skipCommitRef.current) {
+      skipCommitRef.current = false;
+      setEditing(false);
+      return;
+    }
+    setEditing(false);
+    // 왜: 본문은 빈 값 허용. 단 변화 없으면 무의미 요청 차단.
+    if (draft === (body ?? '')) return;
+    onSave(draft);
+  };
+
+  if (!editing) {
+    return (
+      <div className="group relative">
+        <button
+          type="button"
+          onClick={enter}
+          disabled={disabled}
+          aria-label="본문 편집"
+          className="absolute right-0 top-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-50"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+        <article className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
+          {body ?? <em className="text-muted-foreground">본문 없음</em>}
+        </article>
+      </div>
+    );
+  }
+
+  return (
+    <Textarea
+      autoFocus
+      data-testid="issue-body-textarea"
+      className="min-h-[160px]"
+      value={draft}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          skipCommitRef.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
 
 // 이슈 상세 페이지 — URL 파라미터에서 프로젝트 키와 이슈 번호를 받아 단건 조회.
 export default function IssueDetailPage() {
@@ -110,7 +266,13 @@ export default function IssueDetailPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
-        title={<span className="truncate">{summary.title}</span>}
+        title={
+          <InlineEditableTitle
+            title={summary.title}
+            onSave={(t) => patch({ title: t })}
+            disabled={update.isPending}
+          />
+        }
         meta={
           <>
             <span className="text-sm font-mono text-muted-foreground">
@@ -168,9 +330,11 @@ export default function IssueDetailPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto p-6 grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
           <div className="space-y-4">
-            <article className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
-              {body ?? <em className="text-muted-foreground">본문 없음</em>}
-            </article>
+            <InlineEditableBody
+              body={body}
+              onSave={(b) => patch({ body: b })}
+              disabled={update.isPending}
+            />
             {/* 비SUBTASK 상세 본문 아래 — 자식 SUBTASK 진행률/목록/인라인 추가 (Phase 4a). */}
             {!isSubtask && (
               <IssueChildrenSection
