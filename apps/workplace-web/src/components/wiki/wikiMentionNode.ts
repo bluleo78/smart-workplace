@@ -24,7 +24,8 @@ export interface WikiMentionAttrs {
 
 // 칩 스타일 — 디자인 시스템 시맨틱 토큰만(hex/임의색 금지). chat .chat-mention 의 하드코딩 색 대신
 // accent 토큰을 재사용해 라이트/다크 테마에 자동 대응.
-const CHIP_CLASS = 'rounded bg-accent px-1 font-medium text-accent-foreground'
+// cursor-pointer — 칩이 클릭 내비게이션 affordance 임을 시각적으로 알린다(PAGE/ISSUE 는 라우트 이동).
+const CHIP_CLASS = 'cursor-pointer rounded bg-accent px-1 font-medium text-accent-foreground'
 
 export const WikiMention = Node.create({
   name: 'wikiMention',

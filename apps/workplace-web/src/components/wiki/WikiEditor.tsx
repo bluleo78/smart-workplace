@@ -2,6 +2,7 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { isAxiosError } from 'axios'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Markdown } from 'tiptap-markdown'
 
@@ -16,7 +17,8 @@ import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
 import { useSavePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
-import type { WikiPageDetail } from '../../types/wiki'
+import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
+import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { hydrateWikiMentions } from './wikiMentionHydrate'
 import { WikiMention } from './wikiMentionNode'
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
@@ -27,6 +29,7 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'conflict'
 
 /** 위키 에디터 — 마크다운 직렬화 + debounce 자동저장(낙관적 동시성) + 인에디터 /ai 스트리밍. */
 export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: number }) {
+  const navigate = useNavigate()
   const save = useSavePage(spaceId)
   const [title, setTitle] = useState(page.title)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -179,6 +182,39 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     hydrateWikiMentions(editor, pageMentions ?? [])
   }, [editor, pageMentions, mentionsError])
 
+  // 멘션 칩 클릭 내비게이션 — 칩 노드 attrs 는 {mtype,id,label} 뿐이라(spaceId/projectKey 없음)
+  // useWikiMentions 해소 결과(WikiMentionRef)를 type+id 로 룩업해 라우트를 계산한다.
+  // EditorContent 래퍼 div 의 onClick 에 다는 이유: 이 핸들러는 매 렌더 재생성되어 pageMentions
+  // 최신값을 닫아 캡처한다(useEditor 옵션에 넣으면 생성 시점 빈 배열을 캡처해 영구 미스). 칩은
+  // data-mtype/data-id 를 렌더하므로 closest 로 클릭된 칩을 찾는다.
+  const onChipClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement
+      const chip = target.closest('[data-mtype]') as HTMLElement | null
+      if (!chip) return
+      const mtype = chip.getAttribute('data-mtype') as WikiMentionType | null
+      const id = Number(chip.getAttribute('data-id'))
+      if (!mtype || !Number.isFinite(id)) return
+      // type+id 로 해소 참조를 찾아 라우트의 spaceId/projectKey/number 를 얻는다.
+      const ref: WikiMentionRef | undefined = pageMentions?.find(
+        (m) => m.type === mtype && m.id === id,
+      )
+      if (mtype === 'PAGE') {
+        // PAGE → 해소된 spaceId 가 있어야 위키 페이지 경로를 만들 수 있다.
+        if (ref?.spaceId == null) return
+        e.preventDefault()
+        navigate(`/wiki/spaces/${ref.spaceId}/pages/${id}`)
+      } else if (mtype === 'ISSUE') {
+        // ISSUE → 해소된 projectKey+number 로 이슈 상세 경로.
+        if (ref?.projectKey == null || ref.number == null) return
+        e.preventDefault()
+        navigate(`/projects/${ref.projectKey}/issues/${ref.number}`)
+      }
+      // USER → 일반 사용자 프로필 라우트가 없어(관리자 전용 settings/users/:id 뿐) 무동작.
+    },
+    [navigate, pageMentions],
+  )
+
   // 페이지 전환 시 WikiPageView 가 key={page.id} 로 이 컴포넌트를 리마운트하므로
   // 초기 상태(title/version/firstSave)는 마운트 시 한 번만 설정되면 충분하다.
   // 저장 성공 후 page prop 의 version 이 갱신돼도 상태를 리셋하지 않는다
@@ -278,10 +314,14 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         className="mb-4 w-full border-0 bg-transparent text-3xl font-bold outline-none placeholder:text-muted-foreground/40"
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* 멘션 칩 클릭 내비게이션은 래퍼 onClick 에서 위임 처리(closest[data-mtype]). */}
         <EditorContent
           editor={editor}
+          onClick={onChipClick}
           className="[&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
         />
+        {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
+        <WikiBacklinksPanel pageId={page.id} />
       </div>
       <div className="flex items-center gap-3 pt-2 text-xs text-muted-foreground">
         {saveState === 'saving' && '저장 중…'}
