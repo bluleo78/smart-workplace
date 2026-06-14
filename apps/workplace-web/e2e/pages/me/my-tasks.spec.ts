@@ -22,6 +22,8 @@ test('내 작업 — 할당 탭은 assignee=me 로 조회하고 결과를 렌더
   const req = await cap.waitForRequest()
   expect(req.searchParams.get('assignee')).toBe('me')
   await expect(page.getByTestId('assigned-row-11')).toContainText('할당된 이슈')
+  // #201 회귀 — 공유 테이블은 기본 showAssignees=false → 내 작업 뷰에는 담당자 컬럼이 없다.
+  await expect(page.getByRole('columnheader', { name: '담당자' })).toHaveCount(0)
 })
 
 test('내 작업 — 내가 만든 탭은 reporter=me 로 조회한다', async ({ authenticatedPage: page }) => {

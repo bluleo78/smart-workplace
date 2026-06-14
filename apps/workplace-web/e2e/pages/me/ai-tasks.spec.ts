@@ -27,6 +27,10 @@ test('AI 위임 작업 — reporter=me 중 담당이 AGENT 인 이슈만 표시'
   await expect(page.getByTestId('ai-row-31')).toContainText('AI 가 담당')
   await expect(page.getByTestId('ai-row-32')).toHaveCount(0)
   await expect(page.getByTestId('ai-row-33')).toHaveCount(0)
+  // #201 — AI 위임 페이지는 어느 AI 담당인지가 핵심 → 행에 AGENT 담당자 칩(아바타+Bot 마커)이 보인다.
+  const row = page.getByTestId('ai-row-31')
+  await expect(row.getByTestId(`user-avatar-${agent.id}`)).toBeVisible()
+  await expect(row.getByTestId(`user-avatar-${agent.id}-agent-marker`)).toBeVisible()
 })
 
 test('AI 위임 작업 — 비어 있으면 안내 문구', async ({ authenticatedPage: page }) => {

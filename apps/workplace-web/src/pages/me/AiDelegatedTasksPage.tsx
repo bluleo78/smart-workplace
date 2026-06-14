@@ -17,6 +17,7 @@ export default function AiDelegatedTasksPage() {
         emptyIcon={Bot}
         emptyDescription="이슈를 만들 때 담당자를 AI로 지정하면 여기에 표시됩니다."
         filter={(it) => it.assignees.some((a) => a.kind === 'AGENT')}
+        showAssignees
       />
     </div>
   )

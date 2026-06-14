@@ -14,6 +14,7 @@ export function InfiniteIssueList({
   emptyIcon: EmptyIcon = ClipboardList,
   emptyDescription,
   filter,
+  showAssignees,
 }: {
   query: UseInfiniteQueryResult<InfiniteData<IssueSearchResponse>, Error>
   rowTestIdPrefix: string
@@ -24,6 +25,8 @@ export function InfiniteIssueList({
   // 빈 상태 설명(선택) — 주입 시 [아이콘+제목+설명] 3요소 완성(DS §2.5).
   emptyDescription?: string
   filter?: (it: IssueResponse) => boolean
+  // 담당자 컬럼 표시 여부 — AI 위임 페이지(opt-in)만 켜고, 내 작업 뷰는 기본 off(IssueListTable 기본값).
+  showAssignees?: boolean
 }) {
   const { data, fetchNextPage, hasNextPage, isFetching, isLoading } = query
   const sentinel = useRef<HTMLDivElement | null>(null)
@@ -63,7 +66,11 @@ export function InfiniteIssueList({
           )}
         </div>
       ) : (
-        <IssueListTable items={items} rowTestIdPrefix={rowTestIdPrefix} />
+        <IssueListTable
+          items={items}
+          rowTestIdPrefix={rowTestIdPrefix}
+          showAssignees={showAssignees}
+        />
       )}
       <div ref={sentinel} aria-hidden="true" className="h-1" />
       {isFetching && !isLoading && <p className="text-muted-foreground py-2">불러오는 중…</p>}
