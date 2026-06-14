@@ -251,6 +251,38 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
+  // 위키 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400) / 낙관적 충돌(409)
+  @ExceptionHandler({
+    com.workplace.wiki.exception.WikiSpaceNotFoundException.class,
+    com.workplace.wiki.exception.WikiPageNotFoundException.class
+  })
+  public ResponseEntity<ErrorResponse> handleWikiNotFound(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  @ExceptionHandler(com.workplace.wiki.exception.WikiForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handleWikiForbidden(
+      com.workplace.wiki.exception.WikiForbiddenException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  @ExceptionHandler(com.workplace.wiki.exception.WikiInvalidRoleException.class)
+  public ResponseEntity<ErrorResponse> handleWikiBadRequest(
+      com.workplace.wiki.exception.WikiInvalidRoleException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+  }
+
+  @ExceptionHandler(com.workplace.wiki.exception.WikiConflictException.class)
+  public ResponseEntity<ErrorResponse> handleWikiConflict(
+      com.workplace.wiki.exception.WikiConflictException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   // 연락처 도메인 — 미존재/격리(404)
   @ExceptionHandler(com.workplace.contacts.exception.ContactNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleContactNotFound(

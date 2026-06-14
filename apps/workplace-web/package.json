@@ -50,6 +50,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "tippy.js": "^6.3.7",
+    "tiptap-markdown": "^0.8.10",
     "zod": "^4.4.3"
   },
   "devDependencies": {
