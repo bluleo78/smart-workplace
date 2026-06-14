@@ -33,6 +33,36 @@ test('AI 위임 작업 — reporter=me 중 담당이 AGENT 인 이슈만 표시'
   await expect(row.getByTestId(`user-avatar-${agent.id}-agent-marker`)).toBeVisible()
 })
 
+// #233-B — AI 위임 페이지에도 공통 facet. status query 가 합쳐지되 AGENT 스코프(클라이언트 필터)는 유지.
+test('AI 위임 작업 — 상태 facet 이 status query 로 합쳐지고 AGENT 스코프는 유지된다', async ({
+  authenticatedPage: page,
+}) => {
+  const cap = await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([
+      createIssue({ id: 31, title: 'AI 가 담당', assignees: [agent] }),
+      createIssue({ id: 32, title: '사람이 담당', assignees: [human] }),
+    ]),
+    { capture: true },
+  )
+  await page.goto('/me/ai-tasks')
+  await cap.waitForRequest()
+  expect(cap.lastRequest()?.searchParams.get('reporter')).toBe('me')
+
+  await page.getByTestId('add-filter-trigger').click()
+  await page.getByTestId('add-filter-facet-status').click()
+  await page.getByTestId('facet-value-status-DONE').click()
+
+  // status query 가 합쳐지고 reporter=me 는 유지된다.
+  await expect.poll(() => cap.lastRequest()?.searchParams.get('status')).toBe('DONE')
+  expect(cap.lastRequest()?.searchParams.get('reporter')).toBe('me')
+  // AGENT 스코프(클라이언트 필터) 유지 — 사람 담당 이슈는 여전히 숨겨진다.
+  await expect(page.getByTestId('ai-row-31')).toBeVisible()
+  await expect(page.getByTestId('ai-row-32')).toHaveCount(0)
+})
+
 test('AI 위임 작업 — 비어 있으면 안내 문구', async ({ authenticatedPage: page }) => {
   await mockApi(
     page,

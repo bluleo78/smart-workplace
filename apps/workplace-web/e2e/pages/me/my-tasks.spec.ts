@@ -66,3 +66,64 @@ test('내 작업 — /me/tasks 는 할당 탭으로 리다이렉트된다', asyn
   await page.goto('/me/tasks')
   await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
 })
+
+// #233-B — 공통 facet 필터(상태/우선순위). 정적 enum 만 노출하며 /me/issues query 로 합쳐진다.
+// 캡처 helper 의 waitForRequest 는 마지막 캡처를 즉시 반환하므로(초기 unfiltered 요청),
+// facet 적용 후에는 expect.poll(lastRequest) 로 새 요청이 도착할 때까지 기다린다.
+test('내 작업 — 상태 facet 을 선택하면 status query 로 조회하고 칩이 보인다 (할당 탭 유지)', async ({
+  authenticatedPage: page,
+}) => {
+  const cap = await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([createIssue({ id: 11, title: '할당된 이슈' })]),
+    { capture: true },
+  )
+  await page.goto('/me/tasks/assigned')
+  // 초기 요청은 assignee=me, status 없음.
+  await cap.waitForRequest()
+  expect(cap.lastRequest()?.searchParams.get('status')).toBeNull()
+
+  // ＋필터 → 상태 → 진행 중 선택.
+  await page.getByTestId('add-filter-trigger').click()
+  await page.getByTestId('add-filter-facet-status').click()
+  await page.getByTestId('facet-value-status-IN_PROGRESS').click()
+
+  // 새 요청이 status=IN_PROGRESS + assignee=me 로 도착할 때까지 대기.
+  await expect
+    .poll(() => cap.lastRequest()?.searchParams.get('status'))
+    .toBe('IN_PROGRESS')
+  expect(cap.lastRequest()?.searchParams.get('assignee')).toBe('me')
+  // 탭은 경로 세그먼트라 facet 변경에도 유지된다.
+  await expect(page).toHaveURL(/\/me\/tasks\/assigned/)
+  // 칩 노출.
+  await expect(page.getByTestId('filter-chip-status')).toBeVisible()
+
+  // 칩 제거 → URL 의 status param 이 사라지고 칩도 사라진다.
+  // (이전 unfiltered 쿼리키는 캐시되어 새 네트워크 요청이 없을 수 있으므로 URL/칩으로 검증.)
+  await page.getByTestId('filter-chip-status-remove').click()
+  await expect(page).toHaveURL((u) => !u.searchParams.has('status'))
+  await expect(page.getByTestId('filter-chip-status')).toHaveCount(0)
+})
+
+test('내 작업 — 우선순위 facet 을 선택하면 priority query 로 조회한다', async ({
+  authenticatedPage: page,
+}) => {
+  const cap = await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([createIssue({ id: 12, title: '할당된 이슈' })]),
+    { capture: true },
+  )
+  await page.goto('/me/tasks/assigned')
+  await cap.waitForRequest()
+
+  await page.getByTestId('add-filter-trigger').click()
+  await page.getByTestId('add-filter-facet-priority').click()
+  await page.getByTestId('facet-value-priority-HIGH').click()
+
+  await expect.poll(() => cap.lastRequest()?.searchParams.get('priority')).toBe('HIGH')
+  expect(cap.lastRequest()?.searchParams.get('assignee')).toBe('me')
+})

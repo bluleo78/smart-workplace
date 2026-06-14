@@ -1,34 +1,41 @@
 // 내 작업 — 할당/내가 만든/구독 3탭. 경로 기반(/me/tasks/:tab)으로 공유 가능한 URL.
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { InfiniteIssueList } from '@/components/issue/InfiniteIssueList'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMeIssues } from '@/hooks/queries/useMeIssues'
 import { useWatchedIssues } from '@/hooks/queries/useWatchedIssues'
 
-const TABS = ['assigned', 'reported', 'watched'] as const
-type Tab = (typeof TABS)[number]
+import { meFacetParams } from './meFacetParams'
+import { MeTaskFilterBar } from './MeTaskFilterBar'
 
+// 할당/내가 만든 탭은 /me/issues 기반이라 status/priority facet 을 서버 쿼리로 합친다.
 function AssignedTab() {
-  const query = useMeIssues({ assignee: 'me' })
+  const [params] = useSearchParams()
+  const query = useMeIssues({ assignee: 'me', ...meFacetParams(params) })
   return (
     <InfiniteIssueList query={query} rowTestIdPrefix="assigned-row" emptyText="할당된 작업이 없습니다." />
   )
 }
 
 function ReportedTab() {
-  const query = useMeIssues({ reporter: 'me' })
+  const [params] = useSearchParams()
+  const query = useMeIssues({ reporter: 'me', ...meFacetParams(params) })
   return (
     <InfiniteIssueList query={query} rowTestIdPrefix="reported-row" emptyText="내가 만든 작업이 없습니다." />
   )
 }
 
+// 구독 탭은 /me/watched-issues(다른 엔드포인트) — facet 미지원이라 필터 바를 노출하지 않는다.
 function WatchedTab() {
   const query = useWatchedIssues()
   return (
     <InfiniteIssueList query={query} rowTestIdPrefix="watched-row" emptyText="구독 중인 작업이 없습니다." />
   )
 }
+
+const TABS = ['assigned', 'reported', 'watched'] as const
+type Tab = (typeof TABS)[number]
 
 export default function MyTasksPage() {
   const navigate = useNavigate()
@@ -46,6 +53,8 @@ export default function MyTasksPage() {
           <TabsTrigger value="watched" data-testid="tab-watched">구독</TabsTrigger>
         </TabsList>
       </Tabs>
+      {/* facet 바는 /me/issues 기반 탭(할당·내가 만든)에서만 노출 — 구독은 다른 엔드포인트라 제외. */}
+      {active !== 'watched' && <MeTaskFilterBar />}
       {active === 'assigned' && <AssignedTab />}
       {active === 'reported' && <ReportedTab />}
       {active === 'watched' && <WatchedTab />}
