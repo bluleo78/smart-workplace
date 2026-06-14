@@ -43,6 +43,13 @@ const DrivePage = lazy(() =>
 const DriveIndexRedirect = lazy(() =>
   import('./pages/drive/DriveIndexRedirect').then((m) => ({ default: m.DriveIndexRedirect })),
 )
+const WikiModuleLayout = lazy(() =>
+  import('./components/wiki/WikiModuleLayout').then((m) => ({ default: m.WikiModuleLayout })),
+)
+const WikiPage = lazy(() => import('./pages/wiki/WikiPage').then((m) => ({ default: m.WikiPage })))
+const WikiIndexRedirect = lazy(() =>
+  import('./pages/wiki/WikiIndexRedirect').then((m) => ({ default: m.WikiIndexRedirect })),
+)
 const ContactModuleLayout = lazy(() =>
   import('./components/contacts/ContactModuleLayout').then((m) => ({
     default: m.ContactModuleLayout,
@@ -135,6 +142,13 @@ export default function App() {
               <Route element={<DriveModuleLayout />}>
                 <Route path="drive" element={<DriveIndexRedirect />} />
                 <Route path="drive/spaces/:spaceId" element={<DrivePage />} />
+              </Route>
+
+              {/* 위키 모듈 — 2차 사이드바(스페이스/페이지 트리) 가 감싼다 */}
+              <Route element={<WikiModuleLayout />}>
+                <Route path="wiki" element={<WikiIndexRedirect />} />
+                <Route path="wiki/spaces/:spaceId" element={<WikiPage />} />
+                <Route path="wiki/spaces/:spaceId/pages/:pageId" element={<WikiPage />} />
               </Route>
 
               {/* 연락처 모듈 — 통합 디렉토리(읽기 전용) */}
