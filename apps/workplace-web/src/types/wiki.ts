@@ -68,3 +68,13 @@ export interface WikiBacklink {
 export interface WikiBacklinksResponse {
   items: WikiBacklink[]
 }
+
+// 위키 검색 결과 한 건(S2, 백엔드 1:1). snippet 은 본문 앞부분 미리보기.
+export interface WikiSearchResult {
+  id: number
+  spaceId: number
+  spaceName: string
+  title: string
+  snippet: string
+  updatedAt: string
+}
