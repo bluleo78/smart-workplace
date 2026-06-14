@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter';
 import { pageTitleClass } from '@/components/layout/sidebar-link';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -291,6 +292,47 @@ export default function AuditLogListPage() {
     setPage(0);
   };
 
+  /**
+   * actionType·resource 공통 facet 정의 (#233-A)
+   * - 기존 단일 Select 를 도메인 비결합 FacetFilter(＋필터→칩) 패턴으로 통일.
+   * - 옵션/라벨은 기존 ACTION_TYPES/RESOURCES(한글 라벨) 그대로 사용.
+   */
+  const auditFacets: FacetDef[] = [
+    {
+      key: 'actionType',
+      label: '액션 유형',
+      options: ACTION_TYPES.map((t) => ({ value: t.value, label: t.label })),
+    },
+    {
+      key: 'resource',
+      label: '리소스',
+      options: RESOURCES.map((r) => ({ value: r.value, label: r.label })),
+    },
+  ];
+
+  /**
+   * 단일 문자열 state → FacetFilter value(0~1개 배열).
+   * - 백엔드(AuditLogController/Repository)가 actionType/resource 를 단일 .eq() 로만 받으므로
+   *   각 facet 은 최대 1개 값만 가진다.
+   */
+  const auditFilterValue: FilterValue = {
+    actionType: actionType ? [actionType] : [],
+    resource: resource ? [resource] : [],
+  };
+
+  /**
+   * FacetFilter onChange → 단일값 state 갱신.
+   * - FacetFilter 의 toggle 은 멀티셀렉트(append)이지만 백엔드가 단일값만 지원하므로
+   *   마지막에 추가된 값만 유지해 "교체" 의미를 만든다(이전 값 자동 해제).
+   */
+  const handleFacetChange = (next: FilterValue) => {
+    const a = next.actionType ?? [];
+    const r = next.resource ?? [];
+    setActionType(a.length ? String(a[a.length - 1]) : '');
+    setResource(r.length ? String(r[r.length - 1]) : '');
+    setPage(0);
+  };
+
   /** 날짜 필터 변경 시 페이지 리셋 */
   const handleDateChange = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setter(e.target.value);
@@ -334,29 +376,16 @@ export default function AuditLogListPage() {
           </SelectContent>
         </Select>
 
-        <Select value={actionType || 'all'} onValueChange={handleFilterChange(setActionType)}>
-          <SelectTrigger className="w-[140px]" aria-label="액션 유형 필터">
-            <SelectValue placeholder="액션 유형" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">전체 액션</SelectItem>
-            {ACTION_TYPES.map((t) => (
-              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={resource || 'all'} onValueChange={handleFilterChange(setResource)}>
-          <SelectTrigger className="w-[140px]" aria-label="리소스 필터">
-            <SelectValue placeholder="리소스" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">전체 리소스</SelectItem>
-            {RESOURCES.map((r) => (
-              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/*
+          액션 유형·리소스 필터 (#233-A)
+          - 기존 단일 Select 2개를 공통 FacetFilter(＋필터→칩) 로 통일.
+          - 백엔드가 단일값만 지원하므로 handleFacetChange 가 facet 당 1개 값으로 제약한다.
+        */}
+        <FacetFilter
+          facets={auditFacets}
+          value={auditFilterValue}
+          onChange={handleFacetChange}
+        />
 
         <Select value={result || 'all'} onValueChange={handleFilterChange(setResult)}>
           <SelectTrigger className="w-[120px]" aria-label="결과 필터">
