@@ -6,11 +6,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,13 +23,19 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class UserCreateAgentTest extends IntegrationTestBase {
 
+  // V44 가 시드하는 기본 테넌트(id=1, ACTIVE). 에이전트 생성은 active 테넌트 컨텍스트를 요구한다.
+  private static final Long TENANT_ID = 1L;
+
   @Autowired private UserService userService;
+  @Autowired private MembershipRepository membershipRepository;
   @Autowired private DSLContext dsl;
 
   private Long callerId;
 
   @BeforeEach
   void seedCaller() {
+    // 에이전트 생성 경로는 인증된 ADMIN 요청이라 active 테넌트가 항상 존재한다 — 테스트에서도 시뮬레이트.
+    TenantContext.set(TENANT_ID);
     callerId =
         dsl.insertInto(USER)
             .set(USER.USERNAME, "admin-caller-" + System.nanoTime())
@@ -36,6 +45,12 @@ class UserCreateAgentTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+  }
+
+  @AfterEach
+  void clearTenant() {
+    // ThreadLocal 누수 방지 — 공유 스레드에 테넌트가 남으면 후속 테스트 클래스에 오염된다.
+    TenantContext.clear();
   }
 
   @Test
@@ -52,6 +67,29 @@ class UserCreateAgentTest extends IntegrationTestBase {
     String kind =
         dsl.select(USER.KIND).from(USER).where(USER.ID.eq(agent.id())).fetchOne(USER.KIND);
     assertThat(kind).isEqualTo("AGENT");
+  }
+
+  @Test
+  void create_agent_provisions_membership_in_active_tenant() {
+    // 신규 에이전트는 현재 active 테넌트에 단일 멤버십을 갖는다 — 콜백 시 RLS 컨텍스트 자동 해석용.
+    UserResponse agent =
+        userService.createAgent(
+            callerId,
+            new CreateAgentRequest("bot-membership", "Mem Bot", "bot-membership@example.com"));
+
+    assertThat(membershipRepository.hasActiveMembership(agent.id(), TENANT_ID)).isTrue();
+  }
+
+  @Test
+  void create_agent_without_tenant_context_throws() {
+    // active 테넌트가 없으면 테넌트 없는 고아 에이전트가 되므로 생성을 거부한다.
+    TenantContext.clear();
+    assertThatThrownBy(
+            () ->
+                userService.createAgent(
+                    callerId,
+                    new CreateAgentRequest("bot-orphan", "Orphan", "bot-orphan@example.com")))
+        .isInstanceOf(IllegalStateException.class);
   }
 
   @Test

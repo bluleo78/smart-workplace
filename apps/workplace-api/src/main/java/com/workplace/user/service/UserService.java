@@ -4,8 +4,10 @@ import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserKind;
@@ -26,6 +28,7 @@ public class UserService {
   private final RoleRepository roleRepository;
   private final PasswordEncoder passwordEncoder;
   private final AuditLogService auditLogService;
+  private final MembershipRepository membershipRepository;
 
   @Transactional(readOnly = true)
   public PageResponse<UserResponse> getUsers(String search, int page, int size) {
@@ -78,6 +81,13 @@ public class UserService {
       throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다.");
     }
     UserResponse created = userRepository.createAgent(req.username(), req.email(), req.name());
+    // 에이전트를 현재 active 테넌트에 귀속 — 콜백 시 단일-멤버십으로 RLS 컨텍스트가 해석되도록.
+    // 인증된 ADMIN 경로이므로 active 테넌트가 반드시 있어야 한다(테넌트 없는 고아 에이전트 방지).
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) {
+      throw new IllegalStateException("에이전트 생성에는 active 테넌트 컨텍스트가 필요합니다.");
+    }
+    membershipRepository.create(created.id(), tenantId, "ACTIVE");
     String callerUsername = resolveUsername(callerId);
     // 감사 로그 — AGENT_CREATED (action_type, resource=user, resource_id=신규 user id)
     auditLogService.log(

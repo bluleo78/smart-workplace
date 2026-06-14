@@ -5,6 +5,8 @@ import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.PersonalAssistantRepository;
+import com.workplace.global.tenant.TenantContext;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ public class PersonalAssistantService {
   private final AiAgentCredentialService credentialService;
   private final AiAgentCredentialRepository credentialRepo;
   private final UserRepository userRepository;
+  private final MembershipRepository membershipRepository;
 
   /** 토큰 등록/교체 — 개인 AGENT 가 없으면 자동 생성한 뒤 active 토큰을 등록(기존 active 는 자동 revoke). */
   public void registerToken(long callerId, String plaintextToken, String label) {
@@ -91,9 +94,18 @@ public class PersonalAssistantService {
             .findByUsername(username)
             .map(u -> u.id())
             .orElseGet(
-                () ->
-                    userRepository.createPersonalAssistantAgent(
-                        username, "assistant.u" + callerId + "@workplace.local"));
+                () -> {
+                  long newId =
+                      userRepository.createPersonalAssistantAgent(
+                          username, "assistant.u" + callerId + "@workplace.local");
+                  // 신규 개인비서를 현재 active 테넌트에 귀속(콜백 RLS 컨텍스트 해석용).
+                  Long tenantId = TenantContext.get();
+                  if (tenantId == null) {
+                    throw new IllegalStateException("개인비서 생성에는 active 테넌트 컨텍스트가 필요합니다.");
+                  }
+                  membershipRepository.create(newId, tenantId, "ACTIVE");
+                  return newId;
+                });
     personalRepo.setAgentId(callerId, agentId);
     return agentId;
   }

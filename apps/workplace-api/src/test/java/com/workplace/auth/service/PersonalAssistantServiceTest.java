@@ -4,9 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.tenant.repository.MembershipRepository;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,12 +18,28 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class PersonalAssistantServiceTest extends IntegrationTestBase {
 
+  // V44 가 시드하는 기본 테넌트(id=1, ACTIVE). 개인비서 생성은 active 테넌트 컨텍스트를 요구한다.
+  private static final Long TENANT_ID = 1L;
+
   @Autowired PersonalAssistantService service;
   @Autowired PersonalAssistantRepository personalRepo;
   @Autowired AiAgentCredentialRepository credentialRepo;
+  @Autowired MembershipRepository membershipRepository;
   @Autowired DSLContext dsl;
 
   private static final String TOKEN = "sk-ant-oat-" + "x".repeat(40);
+
+  @BeforeEach
+  void setTenant() {
+    // 개인비서 등록은 인증된 본인 요청이라 active 테넌트가 항상 존재한다 — 테스트에서도 시뮬레이트.
+    TenantContext.set(TENANT_ID);
+  }
+
+  @AfterEach
+  void clearTenant() {
+    // ThreadLocal 누수 방지 — 공유 스레드에 테넌트가 남으면 후속 테스트 클래스에 오염된다.
+    TenantContext.clear();
+  }
 
   @Test
   void 최초_토큰등록시_개인AGENT_자동생성_그리고_상태조회() {
@@ -32,6 +52,16 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
     var status = service.getStatus(human);
     assertThat(status.configured()).isTrue();
     assertThat(status.model()).isEqualTo(AssistantDefaults.MODEL); // config 없음 → 디폴트 표시
+  }
+
+  @Test
+  void 최초_개인비서_생성시_현재테넌트_멤버십_프로비저닝() {
+    // 신규 개인비서(이전 FK 없음·결정적 username 미존재)는 현재 active 테넌트에 단일 멤버십을 갖는다 — 콜백 RLS 해석용.
+    long human = TestFixtures.createHuman(dsl);
+    service.registerToken(human, TOKEN, "내 토큰");
+
+    long agentId = personalRepo.findAgentId(human).orElseThrow();
+    assertThat(membershipRepository.hasActiveMembership(agentId, TENANT_ID)).isTrue();
   }
 
   @Test
