@@ -10,6 +10,7 @@ import type { UserResponse } from '../../src/types/auth'
 import type { PageResponse } from '../../src/types/common'
 import type {
   SavePageRequest,
+  WikiBacklink,
   WikiMentionRef,
   WikiPageDetail,
   WikiPageSummary,
@@ -96,6 +97,7 @@ async function setupWikiMocks(
     body: string
     onSave?: (req: SavePageRequest) => void
     mentions?: WikiMentionRef[]
+    backlinks?: WikiBacklink[]
   },
 ) {
   await page.route(
@@ -141,6 +143,19 @@ async function setupWikiMocks(
             status: 200,
             contentType: 'application/json',
             body: JSON.stringify(opts.mentions ?? []),
+          })
+        : route.fallback(),
+  )
+
+  // backlinks 해소(백링크 패널) — 기본 빈 배열.
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${PAGE_ID}/backlinks`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ items: opts.backlinks ?? [] }),
           })
         : route.fallback(),
   )
@@ -312,4 +327,93 @@ test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(�
   await page.waitForTimeout(500)
   await expect(page.getByTestId('wiki-mention-popover')).toHaveCount(0)
   expect(captured.wikiQ).toBeUndefined()
+})
+
+// ── S4: 멘션 칩 내비게이션 ──────────────────────────────────────────────────
+// 칩 노드 attrs 는 {mtype,id,label} 뿐이라 라우트의 spaceId/projectKey/number 는
+// useWikiMentions 해소 결과(WikiMentionRef)에서 룩업한다(노드 attrs 미추가 결정).
+
+test('위키 멘션 칩 — PAGE 칩 클릭 시 위키 페이지 경로로 이동(해소 spaceId 사용)', async ({
+  authenticatedPage: page,
+}) => {
+  // PAGE 토큰 본문 + 해소 결과(spaceId=1). 칩 클릭 시 /wiki/spaces/1/pages/55 로 이동해야 한다.
+  const BODY = '<#page:55> 참고'
+  const MENTIONS: WikiMentionRef[] = [
+    { type: 'PAGE', id: 55, label: '온보딩 가이드', spaceId: SPACE_ID, projectKey: null, number: null },
+  ]
+  await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
+  await setupSearchMocks(page, {})
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror span[data-mtype="PAGE"]')).toHaveText('온보딩 가이드')
+
+  // 칩 클릭 → 라우트 이동(URL 검증).
+  await page.locator('.ProseMirror span[data-mtype="PAGE"]').click()
+  await page.waitForURL(`**/wiki/spaces/${SPACE_ID}/pages/55`)
+  expect(new URL(page.url()).pathname).toBe(`/wiki/spaces/${SPACE_ID}/pages/55`)
+})
+
+test('위키 멘션 칩 — ISSUE 칩 클릭 시 이슈 상세 경로로 이동(해소 projectKey/number 사용)', async ({
+  authenticatedPage: page,
+}) => {
+  // ISSUE 토큰 본문 + 해소 결과(projectKey=WP, number=12). /projects/WP/issues/12 로 이동.
+  const BODY = '<#issue:99> 확인'
+  const MENTIONS: WikiMentionRef[] = [
+    { type: 'ISSUE', id: 99, label: '로그인 버그', spaceId: null, projectKey: 'WP', number: 12 },
+  ]
+  await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
+  await setupSearchMocks(page, {})
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror span[data-mtype="ISSUE"]')).toHaveText('로그인 버그')
+
+  await page.locator('.ProseMirror span[data-mtype="ISSUE"]').click()
+  await page.waitForURL('**/projects/WP/issues/12')
+  expect(new URL(page.url()).pathname).toBe('/projects/WP/issues/12')
+})
+
+// ── S4: 백링크 패널 ─────────────────────────────────────────────────────────
+
+test('위키 백링크 패널 — 참조 페이지 칩 렌더 + 클릭 시 출처 페이지로 이동', async ({
+  authenticatedPage: page,
+}) => {
+  // 이 페이지를 참조하는 두 출처 페이지 — 서로 다른 스페이스(1·2)로 둬 "각 백링크 자신의 spaceId 로
+  // 이동" 로직을 실검증한다(현재 페이지 spaceId 하드코딩이면 두 번째 항목에서 깨진다).
+  const OTHER_SPACE_ID = 2
+  const BACKLINKS: WikiBacklink[] = [
+    { pageId: 501, spaceId: SPACE_ID, spaceName: '팀 위키', title: '회의록 2026', updatedAt: '2026-06-10T00:00:00Z' },
+    { pageId: 502, spaceId: OTHER_SPACE_ID, spaceName: '엔지니어링', title: '제품 로드맵', updatedAt: '2026-06-11T00:00:00Z' },
+  ]
+  await setupWikiMocks(page, { role: 'EDITOR', body: '', backlinks: BACKLINKS })
+  await setupSearchMocks(page, {})
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  // 패널 + 두 백링크가 셀 단위로 렌더되는지(제목·스페이스명).
+  const panel = page.getByTestId('wiki-backlinks-panel')
+  await expect(panel).toBeVisible()
+  await expect(panel).toContainText('이 페이지를 참조하는 곳')
+  await expect(page.getByTestId('wiki-backlink-501')).toContainText('회의록 2026')
+  await expect(page.getByTestId('wiki-backlink-501')).toContainText('팀 위키')
+  await expect(page.getByTestId('wiki-backlink-502')).toContainText('제품 로드맵')
+  await expect(page.getByTestId('wiki-backlink-502')).toContainText('엔지니어링')
+
+  // 두 번째 백링크 클릭 → 자신의 spaceId(2)/pageId(502)로 이동(현재 페이지 spaceId=1 아님).
+  await page.getByTestId('wiki-backlink-502').click()
+  await page.waitForURL(`**/wiki/spaces/${OTHER_SPACE_ID}/pages/502`)
+  expect(new URL(page.url()).pathname).toBe(`/wiki/spaces/${OTHER_SPACE_ID}/pages/502`)
+})
+
+test('위키 백링크 패널 — 백링크가 없으면 패널이 숨겨진다', async ({
+  authenticatedPage: page,
+}) => {
+  // 빈 백링크 → 패널 미노출(절제).
+  await setupWikiMocks(page, { role: 'EDITOR', body: '', backlinks: [] })
+  await setupSearchMocks(page, {})
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await expect(page.getByTestId('wiki-backlinks-panel')).toHaveCount(0)
 })

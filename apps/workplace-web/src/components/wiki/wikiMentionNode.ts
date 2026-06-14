@@ -24,8 +24,10 @@ export interface WikiMentionAttrs {
 
 // 칩 스타일 — 디자인 시스템 시맨틱 토큰만(hex/임의색 금지). chat .chat-mention 의 하드코딩 색 대신
 // accent 토큰을 재사용해 라이트/다크 테마에 자동 대응.
-// cursor-pointer — 칩이 클릭 내비게이션 affordance 임을 시각적으로 알린다(PAGE/ISSUE 는 라우트 이동).
-const CHIP_CLASS = 'cursor-pointer rounded bg-accent px-1 font-medium text-accent-foreground'
+// 칩 기본 스타일. cursor-pointer 는 내비 가능한 칩(PAGE/ISSUE)에만 부여 — USER 칩은 클릭 무동작이라
+// 거짓 affordance 를 피하려 기본 클래스만 쓴다(mtype 분기는 renderHTML 에서).
+const BASE_CHIP_CLASS = 'rounded bg-accent px-1 font-medium text-accent-foreground'
+const NAV_CHIP_CLASS = `${BASE_CHIP_CLASS} cursor-pointer`
 
 export const WikiMention = Node.create({
   name: 'wikiMention',
@@ -62,13 +64,10 @@ export const WikiMention = Node.create({
     return [{ tag: 'span[data-mtype]' }]
   },
 
-  // 칩 렌더 — data-* + 칩 클래스, 자식은 라벨 텍스트.
+  // 칩 렌더 — data-* + 칩 클래스, 자식은 라벨 텍스트. USER 는 무동작이라 cursor-pointer 제외.
   renderHTML({ node, HTMLAttributes }) {
-    return [
-      'span',
-      mergeAttributes(HTMLAttributes, { class: CHIP_CLASS }),
-      node.attrs.label as string,
-    ]
+    const cls = (node.attrs.mtype as string) === 'USER' ? BASE_CHIP_CLASS : NAV_CHIP_CLASS
+    return ['span', mergeAttributes(HTMLAttributes, { class: cls }), node.attrs.label as string]
   },
 
   // tiptap-markdown 직렬화 — 저장 본문을 클린 토큰으로 유지하는 핵심.
