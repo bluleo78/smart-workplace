@@ -61,6 +61,13 @@ public class SecurityConfig {
                     // OAuth 콜백은 외부 서비스(Kakao/Slack)에서 리다이렉트되므로 Bearer 헤더 없음
                     .requestMatchers("/api/v1/oauth/kakao/callback", "/api/v1/oauth/slack/callback")
                     .permitAll()
+                    // 운영자 콘솔(workplace-admin) 전용 평면. 로그인/리프레시만 공개, 그 외는 플랫폼 토큰(ROLE_PLATFORM) 필수.
+                    // 일반 테넌트/에이전트 토큰으로는 접근 불가(권한상승 차단). 매칭 안 된 /api/platform 경로가
+                    // anyRequest().permitAll() 로 새지 않도록 와일드카드로 전부 덮는다.
+                    .requestMatchers("/api/platform/auth/login", "/api/platform/auth/refresh")
+                    .permitAll()
+                    .requestMatchers("/api/platform/**")
+                    .hasRole("PLATFORM")
                     .requestMatchers("/api/v1/**")
                     .authenticated()
                     .anyRequest()

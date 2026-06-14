@@ -79,6 +79,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   private void authenticateWithJwt(String token) {
     if (jwtTokenProvider.validateAccessToken(token)) {
       Long userId = jwtTokenProvider.getUserIdFromToken(token);
+      // 플랫폼(운영자) 토큰: tenant 없음 → TenantContext 미설정. 권한은 테넌트 RBAC 가 아니라
+      // ROLE_PLATFORM authority 로 부여한다(SecurityConfig 의 /api/platform/** hasRole 게이트용).
+      if (jwtTokenProvider.isPlatformToken(token)) {
+        setPlatformSecurityContext(userId);
+        return;
+      }
       // active-tenant 클레임이 있으면 요청 스코프에 설정(RLS GUC 주입용). 없으면 fail-closed.
       Long tenantId = jwtTokenProvider.getTenantIdFromToken(token);
       if (tenantId != null) {
@@ -86,6 +92,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       }
       setSecurityContext(userId);
     }
+  }
+
+  /** 플랫폼 운영자 인증 컨텍스트 — ROLE_PLATFORM authority 단일 부여(테넌트 권한 조회 안 함). */
+  private void setPlatformSecurityContext(Long userId) {
+    var authentication =
+        new UsernamePasswordAuthenticationToken(
+            userId, null, List.of(new SimpleGrantedAuthority("ROLE_PLATFORM")));
+    SecurityContextHolder.getContext().setAuthentication(authentication);
   }
 
   private void authenticateWithInternalToken(String token, HttpServletRequest request) {
