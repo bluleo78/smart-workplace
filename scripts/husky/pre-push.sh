@@ -7,4 +7,5 @@
 set -e
 
 (cd apps/workplace-web && pnpm test:e2e)
+(cd apps/workplace-admin && pnpm test:e2e)
 cd apps/workplace-api && ./gradlew test -x generateJooq --build-cache --configuration-cache
