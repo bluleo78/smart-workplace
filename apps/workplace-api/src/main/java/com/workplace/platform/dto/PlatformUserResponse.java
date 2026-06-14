@@ -1,4 +1,7 @@
 package com.workplace.platform.dto;
 
-/** 운영자 본인(/me) 정보 — 운영자 평면에서 필요한 최소 필드만 노출. */
-public record PlatformUserResponse(Long id, String username, String name, String email) {}
+import java.util.List;
+
+/** 운영자 본인 정보 응답 — 식별 정보 + 보유 플랫폼 권한코드(운영자 콘솔 UI 표시용). */
+public record PlatformUserResponse(
+    Long id, String username, String name, String email, List<String> permissions) {}

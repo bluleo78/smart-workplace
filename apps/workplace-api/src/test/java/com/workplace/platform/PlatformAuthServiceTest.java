@@ -12,6 +12,7 @@ import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.platform.dto.PlatformLoginRequest;
 import com.workplace.platform.exception.PlatformAccessDeniedException;
+import com.workplace.platform.repository.PlatformRoleRepository;
 import com.workplace.platform.service.PlatformAuthService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
@@ -35,6 +36,7 @@ class PlatformAuthServiceTest extends IntegrationTestBase {
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired PasswordEncoder passwordEncoder;
   @Autowired DSLContext dsl;
+  @Autowired PlatformRoleRepository platformRoleRepository;
 
   /** HUMAN 사용자 시드 — 비밀번호는 인코딩해 저장. 반환은 username. */
   private String createHumanUser(String prefix, boolean platformAdmin, boolean active) {
@@ -46,13 +48,16 @@ class PlatformAuthServiceTest extends IntegrationTestBase {
             .set(USER.PASSWORD, passwordEncoder.encode(RAW_PASSWORD))
             .set(USER.NAME, prefix)
             .set(USER.EMAIL, username + "@example.com")
-            .set(USER.IS_PLATFORM_ADMIN, platformAdmin)
             .set(USER.IS_ACTIVE, active)
             .returning(USER.ID)
             .fetchOne()
             .getId();
     Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("USER")).fetchOne(ROLE.ID);
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
+    // 운영자 권한은 이제 역할 기반 — platform_user_role(SUPER_ADMIN) 로 부여한다.
+    if (platformAdmin) {
+      platformRoleRepository.assignSuperAdmin(id);
+    }
     return username;
   }
 
