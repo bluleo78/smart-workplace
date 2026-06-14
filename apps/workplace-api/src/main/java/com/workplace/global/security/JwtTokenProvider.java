@@ -66,6 +66,43 @@ public class JwtTokenProvider {
     return generateRefreshToken(userId, null);
   }
 
+  /** 플랫폼(운영자) access 토큰 — tenant 없음, platform=true 클레임. */
+  public String generatePlatformAccessToken(Long userId, String username) {
+    Date now = new Date();
+    return Jwts.builder()
+        .subject(userId.toString())
+        .claim("username", username)
+        .claim("type", "access")
+        .claim("platform", true)
+        .issuedAt(now)
+        .expiration(new Date(now.getTime() + accessExpiration))
+        .signWith(key)
+        .compact();
+  }
+
+  /** 플랫폼 refresh 토큰 — platform=true 클레임. */
+  public String generatePlatformRefreshToken(Long userId) {
+    Date now = new Date();
+    return Jwts.builder()
+        .subject(userId.toString())
+        .claim("type", "refresh")
+        .claim("platform", true)
+        .issuedAt(now)
+        .expiration(new Date(now.getTime() + refreshExpiration))
+        .signWith(key)
+        .compact();
+  }
+
+  /** platform 클레임이 true 인 토큰인지. 일반 테넌트 토큰/파싱 실패는 false. */
+  public boolean isPlatformToken(String token) {
+    try {
+      Object p = parseClaims(token).get("platform");
+      return Boolean.TRUE.equals(p);
+    } catch (JwtException | IllegalArgumentException e) {
+      return false;
+    }
+  }
+
   /** active-tenant. pre-auth 토큰이면 null. */
   public Long getTenantIdFromToken(String token) {
     Object t = parseClaims(token).get("tenant");
