@@ -153,6 +153,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
   }
 
+  /** 운영자 권한 없는 사용자가 플랫폼 평면 로그인/접근 시도 → 403(권한상승 차단). */
+  @ExceptionHandler(com.workplace.platform.exception.PlatformAccessDeniedException.class)
+  public ResponseEntity<ErrorResponse> handlePlatformAccessDenied(
+      com.workplace.platform.exception.PlatformAccessDeniedException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   /** 비멤버/정지 테넌트 선택 시도 → 403. */
   @ExceptionHandler(TenantAccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleTenantAccessDenied(
