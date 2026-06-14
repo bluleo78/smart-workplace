@@ -341,6 +341,38 @@ test.describe('태스크 보드/검색', () => {
     await expect(page).toHaveURL(/\/projects\/WP\?view=board$/);
   });
 
+  test('보드: 1024px 좁은 폭에서 컬럼 min-width 240px 보존 (제목 절단 방지) (#132)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 무엇을: 1024px(lg 브레이크포인트) 진입 시 보드 컬럼 폭을 검증.
+    // 왜: 기존 4-track grid 는 1024px 에서 컬럼이 ~160px 로 압축돼 truncate 제목이 1~2자로 절단 → 식별 불가.
+    //     Option A(컬럼 min-w-[240px] + 가로 스크롤)로 컬럼이 최소 240px 를 유지하는지 직접 측정한다.
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await stubProjectMeta(page);
+
+    const issues = [
+      createIssue({ id: 1, number: 1, title: '로그인 페이지에서 새로고침 시 세션이 풀리는 버그', status: 'TODO' }),
+      createIssue({ id: 2, number: 2, title: '대시보드 위젯 로딩 스피너가 사라지지 않음', status: 'IN_PROGRESS' }),
+      createIssue({ id: 3, number: 3, title: '알림 배지 카운트가 실시간으로 갱신되지 않는 문제', status: 'DONE' }),
+    ];
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(issues)),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+    // 컬럼이 노출되고, 폭이 최소 240px 이상이어야 한다(min-w floor).
+    await expect(page.getByTestId('board-col-TODO')).toBeVisible();
+    const colWidth = await page
+      .getByTestId('board-col-TODO')
+      .evaluate((el) => el.getBoundingClientRect().width);
+    expect(colWidth).toBeGreaterThanOrEqual(240);
+  });
+
   test('리스트 무한 스크롤 — 두번째 페이지가 cursor 로 자동 로드', async ({
     authenticatedPage: page,
   }) => {

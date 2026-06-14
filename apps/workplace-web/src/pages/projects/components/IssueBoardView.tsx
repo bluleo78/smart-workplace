@@ -132,7 +132,10 @@ export function IssueBoardView({
     const grouped = groupIssues(visibleIssues, groupBy);
     return (
       <>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* 무엇을: 컬럼을 가로 스크롤 flex 행으로 배치(컬럼별 min-w-[240px]).
+            왜: 좁은 폭(1024px 등)에서 4-track grid 가 컬럼을 ~160px 로 압축해 truncate 제목이 식별 불가 →
+                컬럼 min-width + 가로 스크롤로 식별성 보존(넓은 폭은 flex-1 로 4-up 유지). */}
+        <div className="flex gap-3 overflow-x-auto">
           {grouped.map((g) => (
             <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} />
           ))}
@@ -154,7 +157,10 @@ export function IssueBoardView({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveIssue(null)}
     >
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* 무엇을: 컬럼을 가로 스크롤 flex 행으로 배치(컬럼별 min-w-[240px]).
+          왜: 좁은 폭(1024px 등)에서 4-track grid 가 컬럼을 ~160px 로 압축해 truncate 제목이 식별 불가 →
+              컬럼 min-width + 가로 스크롤로 식별성 보존(넓은 폭은 flex-1 로 4-up 유지). */}
+      <div className="flex gap-3 overflow-x-auto">
         {columns.map((col) => (
           <BoardColumn
             key={col.status}
@@ -215,7 +221,7 @@ function BoardColumn({
       ref={setNodeRef}
       aria-label={`${label} 컬럼`}
       data-testid={`board-col-${status}`}
-      className={`rounded-md border p-2 min-h-[200px] ${isOver ? 'bg-accent/30' : ''}`}
+      className={`rounded-md border p-2 min-h-[200px] min-w-[240px] flex-1 ${isOver ? 'bg-accent/30' : ''}`}
     >
       <header className="flex items-center justify-between px-1 pb-2 text-xs font-semibold text-muted-foreground">
         <span>{label}</span>
@@ -254,7 +260,7 @@ function ReadOnlyColumn({
     <section
       aria-label={`${group.label} 컬럼`}
       data-testid={`board-col-${group.key}`}
-      className="rounded-md border p-2 min-h-[200px]"
+      className="rounded-md border p-2 min-h-[200px] min-w-[240px] flex-1"
     >
       <header className="flex items-center justify-between px-1 pb-2 text-xs font-semibold text-muted-foreground">
         <span>{group.label}</span>
