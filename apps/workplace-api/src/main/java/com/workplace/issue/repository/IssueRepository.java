@@ -738,4 +738,36 @@ public class IssueRepository {
         .limit(size)
         .fetch(this::mapToRow);
   }
+
+  /**
+   * 전역 issue.id 목록 중 호출자가 멤버인 프로젝트의 활성 이슈만 경량 참조로 배치 조회한다. wiki 멘션 하이드레이션용 — 가시성은 PROJECT_MEMBER
+   * 멤버십 EXISTS 로 스코핑(같은 패턴이 {@link #findByIdsActiveMemberOf}). PROJECT 조인으로 projectKey/number/title
+   * 을 함께 반환한다. 빈 ids 면 빈 리스트.
+   */
+  public List<com.workplace.issue.dto.IssueRef> findVisibleRefsByIds(
+      long callerId, List<Long> issueIds) {
+    if (issueIds == null || issueIds.isEmpty()) return List.of();
+    return dsl.select(ISSUE.ID, com.workplace.jooq.Tables.PROJECT.KEY, ISSUE.NUMBER, ISSUE.TITLE)
+        .from(ISSUE)
+        .join(com.workplace.jooq.Tables.PROJECT)
+        .on(com.workplace.jooq.Tables.PROJECT.ID.eq(ISSUE.PROJECT_ID))
+        .where(ISSUE.ID.in(issueIds))
+        .and(ISSUE.DELETED_AT.isNull())
+        .and(
+            org.jooq.impl.DSL.exists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
+                    .where(
+                        com.workplace.jooq.Tables.PROJECT_MEMBER
+                            .PROJECT_ID
+                            .eq(ISSUE.PROJECT_ID)
+                            .and(com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(callerId)))))
+        .fetch(
+            r ->
+                new com.workplace.issue.dto.IssueRef(
+                    r.get(ISSUE.ID),
+                    r.get(com.workplace.jooq.Tables.PROJECT.KEY),
+                    r.get(ISSUE.NUMBER),
+                    r.get(ISSUE.TITLE)));
+  }
 }
