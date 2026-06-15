@@ -230,42 +230,42 @@ function MessageDetailPanel({
         {detail.bccAddresses && (
           <div className="mt-0.5 text-xs text-muted-foreground">숨은참조: {detail.bccAddresses}</div>
         )}
-        {/* 답장/전체답장/전달 버튼 */}
+        {/* 답장/전체답장/전달 버튼 — shadcn Button으로 앱 전체 버튼 스타일 일관성 유지. */}
         <div className="mt-2 flex gap-2">
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             data-testid="mail-reply"
             onClick={() => onReply(detail)}
-            className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
           >
             <Reply className="h-3.5 w-3.5" /> 답장
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             data-testid="mail-reply-all"
             onClick={() => onReplyAll(detail)}
-            className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
           >
             <ReplyAll className="h-3.5 w-3.5" /> 전체답장
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             data-testid="mail-forward"
             onClick={() => onForward(detail)}
-            className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
           >
             <Forward className="h-3.5 w-3.5" /> 전달
-          </button>
+          </Button>
           {/* AI 답장 초안 버튼 — AI 사용 계정에서만 노출. */}
           {aiEnabled && (
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               data-testid="mail-ai-reply-draft"
               onClick={() => onAiReplyDraft(detail)}
-              className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
             >
               ✨ AI 답장 초안
-            </button>
+            </Button>
           )}
         </div>
         {detail.attachments.length > 0 && (
