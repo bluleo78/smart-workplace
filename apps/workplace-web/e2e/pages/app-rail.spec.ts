@@ -59,8 +59,8 @@ test('앱 레일 — 데스크톱 모듈 링크 9개가 접근 가능한 이름(
   await page.goto('/')
   // 레일의 <nav> 로 스코프 — 헤더의 홈 마크(aria-label="홈")와 이름 충돌을 피한다.
   const nav = page.getByTestId('app-rail').locator('nav')
-  // MODULES 라벨(순서 무관, 이름 존재만 검증). Wiki S1 으로 'Wiki' 활성 모듈 추가(영문 라벨).
-  const labels = ['홈', '작업 관리', '대화', '메일', '연락처', '캘린더', '드라이브', 'Wiki', '설정']
+  // MODULES 라벨(순서 무관, 이름 존재만 검증). 노트(구 Wiki) 활성 모듈 포함.
+  const labels = ['홈', '작업 관리', '대화', '메일', '연락처', '캘린더', '드라이브', '노트', '설정']
   for (const name of labels) {
     await expect(nav.getByRole('link', { name, exact: true })).toBeVisible()
   }

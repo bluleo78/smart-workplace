@@ -51,10 +51,10 @@ const MODULES: RailItem[] = [
   { label: '연락처', href: '/contacts', icon: Users },
   { label: '캘린더', href: '/calendar', icon: CalendarDays },
   { label: '드라이브', href: '/drive', icon: HardDrive },
-  { label: 'Wiki', href: '/wiki', icon: BookOpen },
+  { label: '노트', href: '/wiki', icon: BookOpen },
   { label: '설정', href: '/settings/profile', icon: Settings, match: ['/settings', '/admin'] },
 ]
-// 예정 모듈 — 현재 없음(Wiki 활성화로 비활성 앱 소진).
+// 예정 모듈 — 현재 없음(노트 활성화로 비활성 앱 소진).
 const SOON: { label: string; icon: LucideIcon }[] = []
 
 // 현재 경로가 해당 모듈에 속하는지 판별. 홈('/')은 정확히 일치할 때만 활성.
