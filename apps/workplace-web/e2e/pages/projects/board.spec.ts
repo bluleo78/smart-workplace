@@ -199,6 +199,33 @@ test.describe('태스크 보드/검색', () => {
     expect(box!.height).toBeGreaterThanOrEqual(24);
   });
 
+  test('뷰 전환 버튼 — title 속성 없고 호버 시 shadcn Tooltip 표시 (#269 회귀)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([])),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}`);
+
+    const viewGroup = page.getByRole('group', { name: '뷰 전환' });
+    const listBtn = viewGroup.getByRole('button', { name: '리스트' });
+    const boardBtn = viewGroup.getByRole('button', { name: '보드' });
+
+    // native title 속성 미사용 확인 — shadcn Tooltip 으로 대체됨
+    expect(await listBtn.getAttribute('title')).toBeNull();
+    expect(await boardBtn.getAttribute('title')).toBeNull();
+
+    // 호버 시 shadcn TooltipContent 표시 확인 (리스트 버튼 대표 검증)
+    await listBtn.hover();
+    await expect(page.getByRole('tooltip', { name: '리스트' })).toBeVisible();
+  });
+
   test('뷰 토글 리스트 ↔ 보드 → URL view 동기화', async ({ authenticatedPage: page }) => {
     await stubProjectMeta(page);
     await routeIssueSearch(page, (route) =>

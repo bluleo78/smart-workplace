@@ -9,6 +9,12 @@ import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filte
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -246,29 +252,39 @@ export function IssueFilterBar({
         </Select>
       </div>
 
-      {/* 뷰 전환 — 아이콘 토글. 접근성 라벨은 listLabel/'보드' 로 유지(E2E·스크린리더). */}
-      <div className="flex items-center gap-1" role="group" aria-label="뷰 전환">
-        <Button
-          variant={view === 'list' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setView('list')}
-          aria-pressed={view === 'list'}
-          aria-label={listLabel}
-          title={listLabel}
-        >
-          <ListIcon className="h-4 w-4" />
-        </Button>
-        <Button
-          variant={view === 'board' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setView('board')}
-          aria-pressed={view === 'board'}
-          aria-label="보드"
-          title="보드"
-        >
-          <LayoutGrid className="h-4 w-4" />
-        </Button>
-      </div>
+      {/* 뷰 전환 — 아이콘 토글. AppRail 과 동일하게 shadcn Tooltip 사용(키보드 포커스 툴팁 지원). */}
+      <TooltipProvider>
+        <div className="flex items-center gap-1" role="group" aria-label="뷰 전환">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={view === 'list' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setView('list')}
+                aria-pressed={view === 'list'}
+                aria-label={listLabel}
+              >
+                <ListIcon className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{listLabel}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={view === 'board' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setView('board')}
+                aria-pressed={view === 'board'}
+                aria-label="보드"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>보드</TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
 
       {hasActiveFilters && (
         <Button variant="ghost" size="sm" onClick={reset}>
