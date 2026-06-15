@@ -16,21 +16,19 @@ import {
 } from '../../hooks/queries/useWikiEntitySearch'
 import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
 import { useDeletePage, useSavePage } from '../../hooks/queries/useWikiMutations'
-import { useWikiTree } from '../../hooks/queries/useWikiTree'
-import { buildBreadcrumb } from './wikiBreadcrumb'
-import { WikiDeletePageDialog } from './WikiDeletePageDialog'
-import { WikiPageHeader } from './WikiPageHeader'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
+import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
+import { buildBreadcrumb } from './wikiBreadcrumb'
+import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { hydrateWikiMentions } from './wikiMentionHydrate'
 import { WikiMention } from './wikiMentionNode'
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
+import { WikiPageHeader, type SaveState } from './WikiPageHeader'
 import type { WikiAiAction } from './WikiSlashMenu'
 import { createWikiSlashExtension } from './wikiSlashSuggestion'
-
-type SaveState = 'idle' | 'saving' | 'saved' | 'conflict'
 
 /** 위키 에디터 — 마크다운 직렬화 + debounce 자동저장(낙관적 동시성) + 인에디터 /ai 스트리밍. */
 export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: number }) {

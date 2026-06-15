@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-type SaveState = 'idle' | 'saving' | 'saved' | 'conflict'
+export type SaveState = 'idle' | 'saving' | 'saved' | 'conflict'
 
 /**
  * 노트 페이지 뷰 헤더 — 브레드크럼(조상 경로) + 저장상태 + 더보기(AI 초안·삭제).
@@ -65,7 +65,7 @@ export function WikiPageHeader({
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="페이지 메뉴"
-            className="rounded p-1 text-muted-foreground hover:bg-accent"
+            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <MoreHorizontal className="h-4 w-4" />
           </DropdownMenuTrigger>
