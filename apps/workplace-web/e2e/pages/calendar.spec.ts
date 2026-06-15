@@ -632,3 +632,39 @@ test(
     }
   },
 )
+
+// ────────────────────────────────────────────────────────────
+// 주/일 뷰 오늘 날짜 헤더 강조 회귀 검증 (이슈 #257)
+// ────────────────────────────────────────────────────────────
+
+test(
+  '주/일 뷰 — 오늘 날짜 컬럼 헤더가 primary 배지로 강조된다 (이슈 #257)',
+  async ({ authenticatedPage: page }) => {
+    // 2026-06-16 = 화요일 → 주 뷰에서 "6.16 (화)" 헤더가 강조되어야 한다
+    await page.clock.setFixedTime(new Date('2026-06-16T03:00:00Z'))
+    await stubCalendarEvents(page, [])
+
+    await page.goto('/calendar')
+
+    // 1) 주간 뷰 — 오늘 날짜 헤더에만 bg-primary 뱃지가 적용된다
+    await page.getByTestId('calendar-view-week-btn').click()
+    await expect(page.getByTestId('calendar-view-week')).toBeVisible()
+
+    const weekView = page.getByTestId('calendar-view-week')
+    // 오늘 "6.16 (화)" 텍스트를 감싸는 span이 bg-primary 클래스를 가진다
+    const todaySpanWeek = weekView.locator('span.bg-primary').filter({ hasText: '6.16 (화)' })
+    await expect(todaySpanWeek).toBeVisible()
+
+    // 다른 날은 bg-primary 뱃지 없이 텍스트만 렌더링됨
+    const nonTodaySpanWeek = weekView.locator('span.bg-primary').filter({ hasText: '6.15 (월)' })
+    await expect(nonTodaySpanWeek).toHaveCount(0)
+
+    // 2) 일간 뷰 — 오늘(단일 날) 헤더도 강조된다
+    await page.getByTestId('calendar-view-day-btn').click()
+    await expect(page.getByTestId('calendar-view-day')).toBeVisible()
+
+    const dayView = page.getByTestId('calendar-view-day')
+    const todaySpanDay = dayView.locator('span.bg-primary').filter({ hasText: '6.16 (화)' })
+    await expect(todaySpanDay).toBeVisible()
+  },
+)

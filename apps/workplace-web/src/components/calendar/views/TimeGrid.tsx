@@ -1,6 +1,6 @@
 // 주/일 뷰 공용 타임그리드 컴포넌트.
 // WeekView(7일)와 DayView(1일)가 동일한 레이아웃을 공유한다.
-import { format, isSameDay } from 'date-fns'
+import { format, isSameDay, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
@@ -58,14 +58,26 @@ export function TimeGrid({
       <div className="flex border-b sticky top-0 bg-background z-10 shrink-0">
         {/* 거터 */}
         <div className="w-12 shrink-0" />
-        {days.map((day) => (
-          <div
-            key={day.toISOString()}
-            className="flex-1 text-center text-sm py-2 font-medium border-l"
-          >
-            {format(day, 'M.d (EEE)', { locale: ko })}
-          </div>
-        ))}
+        {days.map((day) => {
+          // 오늘 날짜 컬럼 강조 — 월간 뷰와 동일한 primary 원형 스타일 적용
+          const todayCol = isToday(day)
+          return (
+            <div
+              key={day.toISOString()}
+              className="flex-1 text-center text-sm py-2 font-medium border-l"
+            >
+              <span
+                className={
+                  todayCol
+                    ? 'inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground px-2 h-7 font-bold'
+                    : ''
+                }
+              >
+                {format(day, 'M.d (EEE)', { locale: ko })}
+              </span>
+            </div>
+          )
+        })}
       </div>
 
       {/* ── 종일 이벤트 줄 ── */}
