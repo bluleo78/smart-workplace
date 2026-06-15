@@ -43,7 +43,7 @@ export function FilterChip({
         type="button"
         aria-label={`${facet.label} 필터 제거`}
         data-testid={`filter-chip-${facet.key}-remove`}
-        className="rounded-full p-0.5 hover:bg-accent"
+        className="rounded-full p-1.5 hover:bg-accent"
         onClick={onClear}
       >
         <X className="h-3 w-3" />
