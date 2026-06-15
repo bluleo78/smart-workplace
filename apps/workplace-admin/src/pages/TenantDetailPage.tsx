@@ -209,7 +209,7 @@ export default function TenantDetailPage() {
           ) : (
             tenant && (
               <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
-                <dt className="text-muted-foreground">slug</dt>
+                <dt className="text-muted-foreground">슬러그</dt>
                 <dd>{tenant.slug ?? '-'}</dd>
                 <dt className="text-muted-foreground">상태</dt>
                 <dd>

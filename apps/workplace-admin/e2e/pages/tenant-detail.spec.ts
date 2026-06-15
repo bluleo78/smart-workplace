@@ -76,6 +76,8 @@ test.describe('테넌트 상세', () => {
     await expect(page.getByTestId('tenant-detail-name')).toHaveText('Acme Corp')
     await expect(page.getByText('acme', { exact: true })).toBeVisible()
     await expect(page.getByTestId('tenant-status')).toHaveText('활성')
+    // 슬러그 필드 레이블이 한국어로 표시돼야 한다 (회귀: #254)
+    await expect(page.getByText('슬러그', { exact: true })).toBeVisible()
 
     const rows = page.getByTestId('member-row')
     await expect(rows).toHaveCount(2)

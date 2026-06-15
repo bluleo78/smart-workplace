@@ -54,6 +54,8 @@ test.describe('테넌트 목록', () => {
     await expect(page.getByRole('cell', { name: 'Globex', exact: true })).toBeVisible()
     await expect(page.getByText('활성')).toBeVisible()
     await expect(page.getByText('정지됨')).toBeVisible()
+    // 슬러그 컬럼 헤더가 한국어로 표시돼야 한다 (회귀: #254)
+    await expect(page.getByRole('columnheader', { name: '슬러그' })).toBeVisible()
   })
 
   // (b) 빈 목록 → 빈 상태 표시
