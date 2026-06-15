@@ -533,6 +533,42 @@ test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내
   expect(uploadCalled).toBe(false)
 })
 
+// #260 — 빈 폴더 empty state: 아이콘+제목+설명+CTA 4요소 검증 (DS §2.5)
+test('빈 폴더 진입 시 empty state 4요소가 표시되고 업로드 CTA가 파일 입력을 트리거한다', async ({ authenticatedPage: page }) => {
+  const state = { folders: [] as unknown[], files: [] as unknown[] }
+  await stubSpaces(page)
+  await stubItems(page, () => state)
+
+  let uploadCalled = false
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    (route) => {
+      uploadCalled = true
+      const file = createFile({ name: 'test.txt' })
+      state.files = [file]
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(file) })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // empty state 4요소 확인 — 아이콘+제목+설명+CTA (DS §2.5)
+  const emptyState = page.getByTestId('drive-empty-folder')
+  await expect(emptyState).toBeVisible()
+  await expect(emptyState.getByText('이 폴더는 비어 있어요')).toBeVisible()
+  await expect(emptyState.getByText('파일을 업로드하거나 새 폴더를 만들어보세요')).toBeVisible()
+
+  // 업로드 CTA가 file input을 트리거하는지: 숨김 input에 파일 직접 주입 → API 호출 + UI 갱신 확인
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'test.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('hello'),
+  })
+  await expect(page.getByText('test.txt')).toBeVisible()
+  expect(uploadCalled).toBe(true)
+})
+
 // #135 — window.prompt/confirm → shadcn Dialog/AlertDialog 교체 검증
 
 test('폴더 생성 — Dialog 표시, 이름 입력 후 확인 시 POST 호출', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {

@@ -1,4 +1,4 @@
-import { Folder } from 'lucide-react'
+import { Folder, FolderOpen, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -542,7 +542,23 @@ export function DrivePage() {
               </li>
             ))}
             {items.folders.length === 0 && items.files.length === 0 && (
-              <li className="py-8 text-center text-sm text-muted-foreground">비어 있습니다</li>
+              // 빈 폴더 empty state — DS §2.5: 아이콘+제목+설명+CTA 4요소.
+              <li
+                className="flex flex-col items-center gap-2 px-4 py-12 text-center"
+                data-testid="drive-empty-folder"
+              >
+                <FolderOpen className="h-12 w-12 text-muted-foreground" />
+                <p className="text-sm font-semibold">이 폴더는 비어 있어요</p>
+                <p className="text-xs text-muted-foreground">파일을 업로드하거나 새 폴더를 만들어보세요</p>
+                <button
+                  type="button"
+                  onClick={() => fileInput.current?.click()}
+                  className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  업로드
+                </button>
+              </li>
             )}
           </ul>
         )}
