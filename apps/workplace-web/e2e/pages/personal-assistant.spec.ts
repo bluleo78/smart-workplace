@@ -259,6 +259,66 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByText('비서 설정을 변경했어요.')).not.toBeVisible()
   })
 
+  // #264 — tokenLabel 이 null 일 때 '(라벨 없음)' 개발자 용어가 노출되면 안 된다.
+  test('tokenLabel null 시 라벨 없음 문구가 표시되지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route('**/api/v1/users/me/assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            configured: true,
+            tokenLabel: null,
+            tokenLastUsedAt: null,
+            model: 'claude-sonnet-4-6',
+            thinkingDepth: 'NORMAL',
+          }),
+        })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/settings/assistant')
+    const configured = page.getByTestId('assistant-configured')
+    await expect(configured).toBeVisible()
+
+    // '(라벨 없음)' 개발자 용어가 표시되면 안 된다.
+    await expect(configured).not.toContainText('라벨 없음')
+    // tokenLabel 이 없어도 '설정됨' 문구는 그대로 표시되어야 한다.
+    await expect(configured).toContainText('설정됨')
+  })
+
+  // #264 — tokenLabel 이 있으면 ' · <label>' 형태로 표시되어야 한다.
+  test('tokenLabel 있을 때 라벨이 포함된 문구가 표시된다', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route('**/api/v1/users/me/assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            configured: true,
+            tokenLabel: '내 토큰',
+            tokenLastUsedAt: null,
+            model: 'claude-sonnet-4-6',
+            thinkingDepth: 'NORMAL',
+          }),
+        })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/settings/assistant')
+    const configured = page.getByTestId('assistant-configured')
+    await expect(configured).toBeVisible()
+
+    // tokenLabel 이 있으면 '설정됨 · <label>' 형태로 노출.
+    await expect(configured).toContainText('설정됨 · 내 토큰')
+  })
+
   // #198 — 생각의 깊이 변경 성공(204) 시 성공 토스트가 표시되어야 한다(피드백 일관성).
   test('생각의 깊이 변경 성공 시 성공 토스트 표시', async ({ authenticatedPage: page }) => {
     // GET — 설정됨 상태.

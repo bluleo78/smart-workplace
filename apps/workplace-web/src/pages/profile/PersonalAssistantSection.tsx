@@ -101,9 +101,9 @@ export function PersonalAssistantSection() {
 
         {status?.configured ? (
           <div className="space-y-4">
-            {/* 설정됨 — 토큰 라벨/모델/생각의 깊이/해제 */}
+            {/* 설정됨 — 토큰 라벨(없으면 생략)/모델/생각의 깊이/해제 */}
             <p className="text-sm" data-testid="assistant-configured">
-              설정됨 · 토큰 {status.tokenLabel ?? '(라벨 없음)'}
+              설정됨{status.tokenLabel ? ` · ${status.tokenLabel}` : ''}
             </p>
 
             <div className="space-y-2">
