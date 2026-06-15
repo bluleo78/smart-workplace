@@ -10,6 +10,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
 import { useCreateCycle, useUpdateCycle } from '../../hooks/queries/useCycles';
@@ -91,19 +94,23 @@ export function CycleFormDialog({
               aria-label="종료일"
             />
           </div>
-          <select
-            className="w-full rounded border bg-background p-2 text-sm"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as CycleStatus)}
-            aria-label="상태"
-            data-testid="cycle-status-select"
-          >
-            {CYCLE_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {CYCLE_STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
+          {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+          <Select value={status} onValueChange={(v) => setStatus(v as CycleStatus)}>
+            <SelectTrigger
+              className="w-full"
+              aria-label="상태"
+              data-testid="cycle-status-select"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CYCLE_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {CYCLE_STATUS_LABEL[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

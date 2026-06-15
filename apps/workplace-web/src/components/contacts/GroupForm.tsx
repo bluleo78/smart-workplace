@@ -9,6 +9,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
   useAddGroupMember,
   useCreateUserGroup,
   useRemoveGroupMember,
@@ -143,24 +146,28 @@ export function GroupForm({ open, onOpenChange, group, personalOptions }: Props)
             <Input id="g-name" data-testid="g-name" {...form.register('name')} />
           </FormField>
           <FormField label="상위 그룹" htmlFor="g-parent">
-            <select
-              id="g-parent"
-              data-testid="g-parent"
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-              value={form.watch('parentId') ?? ''}
-              onChange={(e) =>
-                form.setValue('parentId', e.target.value ? Number(e.target.value) : null)
+            {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270).
+                Radix는 빈 문자열 value를 허용하지 않아 '__top__' 센티넬로 최상위(null)를 표현. */}
+            <Select
+              value={form.watch('parentId') != null ? String(form.watch('parentId')) : '__top__'}
+              onValueChange={(v) =>
+                form.setValue('parentId', v === '__top__' ? null : Number(v))
               }
             >
-              <option value="">최상위</option>
-              {personalOptions
-                .filter((o) => !group || o.id !== group.id)
-                .map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-            </select>
+              <SelectTrigger id="g-parent" data-testid="g-parent" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__top__">최상위</SelectItem>
+                {personalOptions
+                  .filter((o) => !group || o.id !== group.id)
+                  .map((o) => (
+                    <SelectItem key={o.id} value={String(o.id)}>
+                      {o.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </FormField>
 
           {/* 멤버 통합 검색 피커 */}

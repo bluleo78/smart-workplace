@@ -154,13 +154,20 @@ test.describe('역할 선택 드롭다운 한국어 표시', () => {
       await page.goto(SETTINGS_URL);
 
       // 멤버 추가 역할 선택 드롭다운: 한국어 옵션 표시 검증
+      // shadcn Select 로 교체(#270) — 트리거 클릭 후 listbox 스코프로 항목 검증.
+      // (Radix는 hidden native <option>도 유지하므로 role=listbox 로 범위 한정)
       const addRoleSelect = page.locator('#new-member-role');
       await expect(addRoleSelect).toBeVisible();
-      await expect(addRoleSelect.locator('option[value="MEMBER"]')).toHaveText('멤버');
-      await expect(addRoleSelect.locator('option[value="OWNER"]')).toHaveText('소유자');
+      // 드롭다운 열기.
+      await addRoleSelect.click();
+      const addRoleListbox = page.getByRole('listbox');
+      await expect(addRoleListbox.getByRole('option', { name: '멤버' })).toBeVisible();
+      await expect(addRoleListbox.getByRole('option', { name: '소유자' })).toBeVisible();
       // 영문 enum 원시값이 노출되지 않아야 함
-      await expect(addRoleSelect).not.toContainText('MEMBER');
-      await expect(addRoleSelect).not.toContainText('OWNER');
+      await expect(addRoleListbox.getByRole('option', { name: 'MEMBER' })).toHaveCount(0);
+      await expect(addRoleListbox.getByRole('option', { name: 'OWNER' })).toHaveCount(0);
+      // 드롭다운 닫기.
+      await page.keyboard.press('Escape');
     },
   );
 
@@ -178,15 +185,22 @@ test.describe('역할 선택 드롭다운 한국어 표시', () => {
       await page.goto(SETTINGS_URL);
 
       // 멤버 목록 각 행의 역할 변경 select: 한국어 옵션 표시 검증
+      // shadcn Select 로 교체(#270) — 트리거 클릭 후 listbox 스코프로 항목 검증.
+      // (Radix는 hidden native <option>도 유지하므로 role=listbox 로 범위 한정)
       const rows = page.locator('table tbody tr');
       await expect(rows).toHaveCount(2);
 
-      const firstRowSelect = rows.first().locator('select');
-      await expect(firstRowSelect.locator('option[value="MEMBER"]')).toHaveText('멤버');
-      await expect(firstRowSelect.locator('option[value="OWNER"]')).toHaveText('소유자');
+      // 첫 번째 행의 SelectTrigger 클릭하여 드롭다운 열기.
+      const firstRowTrigger = rows.first().getByRole('combobox');
+      await firstRowTrigger.click();
+      const rowListbox = page.getByRole('listbox');
+      await expect(rowListbox.getByRole('option', { name: '멤버' })).toBeVisible();
+      await expect(rowListbox.getByRole('option', { name: '소유자' })).toBeVisible();
       // 영문 enum 원시값이 노출되지 않아야 함
-      await expect(firstRowSelect).not.toContainText('MEMBER');
-      await expect(firstRowSelect).not.toContainText('OWNER');
+      await expect(rowListbox.getByRole('option', { name: 'MEMBER' })).toHaveCount(0);
+      await expect(rowListbox.getByRole('option', { name: 'OWNER' })).toHaveCount(0);
+      // 드롭다운 닫기.
+      await page.keyboard.press('Escape');
     },
   );
 });

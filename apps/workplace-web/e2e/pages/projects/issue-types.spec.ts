@@ -181,17 +181,24 @@ test.describe('이슈 유형', () => {
       await page.getByRole('button', { name: '+ 새 태스크' }).click();
 
       // 유형 드롭다운 옵션이 한국어로 표시되어야 한다 (영문 enum 원문 노출 회귀 #126).
-      const select = page.getByTestId('create-type-select');
-      await expect(select).toBeVisible();
-      // 시스템 5종 한국어 라벨 검증 (정확 일치 — hasText 는 부분 문자열이므로 정규식으로 앵커).
-      await expect(select.locator('option').filter({ hasText: /^태스크$/ })).toHaveCount(1);
-      await expect(select.locator('option').filter({ hasText: /^버그$/ })).toHaveCount(1);
-      await expect(select.locator('option').filter({ hasText: /^스토리$/ })).toHaveCount(1);
-      await expect(select.locator('option').filter({ hasText: /^기타$/ })).toHaveCount(1);
-      await expect(select.locator('option').filter({ hasText: /^하위 태스크$/ })).toHaveCount(1);
+      // shadcn Select 로 교체(#270) — 트리거 클릭 후 listbox 스코프로 항목 검증.
+      const trigger = page.getByTestId('create-type-select');
+      await expect(trigger).toBeVisible();
+      // 드롭다운 열기.
+      await trigger.click();
+      const listbox = page.getByRole('listbox');
+      // 시스템 5종 한국어 라벨이 보이는지 검증 (Radix는 ARIA용 hidden 노드를 추가 생성하므로
+      // toHaveCount(1) 대신 first().toBeVisible() 로 가시성 확인).
+      await expect(listbox.getByRole('option', { name: '태스크' }).first()).toBeVisible();
+      await expect(listbox.getByRole('option', { name: '버그' }).first()).toBeVisible();
+      await expect(listbox.getByRole('option', { name: '스토리' }).first()).toBeVisible();
+      await expect(listbox.getByRole('option', { name: '기타' }).first()).toBeVisible();
+      await expect(listbox.getByRole('option', { name: '하위 태스크' }).first()).toBeVisible();
       // 영문 enum 원문은 보여선 안 된다.
-      await expect(select.locator('option').filter({ hasText: /^TASK$/ })).toHaveCount(0);
-      await expect(select.locator('option').filter({ hasText: /^BUG$/ })).toHaveCount(0);
+      await expect(listbox.getByRole('option', { name: 'TASK' })).toHaveCount(0);
+      await expect(listbox.getByRole('option', { name: 'BUG' })).toHaveCount(0);
+      // 드롭다운 닫기.
+      await page.keyboard.press('Escape');
     },
   );
 
@@ -222,8 +229,10 @@ test.describe('이슈 유형', () => {
       await page.getByRole('button', { name: '+ 새 태스크' }).click();
 
       // 제목 입력 + 유형을 하위 태스크로 선택 → 부모 이슈 번호 필드 노출.
+      // shadcn Select 로 교체(#270) — 트리거 클릭 후 option 항목 클릭.
       await page.locator('#issue-title').fill('테스트 하위태스크');
-      await page.getByTestId('create-type-select').selectOption('하위 태스크');
+      await page.getByTestId('create-type-select').click();
+      await page.getByRole('option', { name: '하위 태스크' }).click();
       await expect(page.getByTestId('create-parent-number')).toBeVisible();
 
       // 부모 번호를 비워둔 채 생성 클릭 → 한국어 오류 메시지가 나타나야 한다 (#159).

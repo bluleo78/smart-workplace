@@ -9,6 +9,9 @@ import {
 } from '@/components/ui/dialog';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
@@ -99,27 +102,45 @@ export function IssueCreateDialog({
             {!personal && (
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="issue-type">유형</label>
-                <select
-                  id="issue-type"
-                  value={currentTypeId ?? ''}
-                  onChange={(e) => setValue('typeId', Number(e.target.value))}
-                  data-testid="create-type-select"
-                  aria-label="이슈 유형"
-                  className="w-full border rounded p-2 bg-background"
+                {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+                <Select
+                  value={currentTypeId !== undefined ? String(currentTypeId) : undefined}
+                  onValueChange={(v) => setValue('typeId', Number(v))}
                 >
-                  {(types.data ?? []).map((t) => (
-                    <option key={t.id} value={t.id}>{getIssueTypeLabel(t.name)}</option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    id="issue-type"
+                    data-testid="create-type-select"
+                    aria-label="이슈 유형"
+                    className="w-full"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(types.data ?? []).map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>
+                        {getIssueTypeLabel(t.name)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="issue-priority">우선순위</label>
-              <select id="issue-priority" {...register('priority')} className="w-full border rounded p-2 bg-background">
-                <option value="LOW">낮음</option>
-                <option value="MID">보통</option>
-                <option value="HIGH">높음</option>
-              </select>
+              {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+              <Select
+                value={watch('priority') ?? 'MID'}
+                onValueChange={(v) => setValue('priority', v as 'LOW' | 'MID' | 'HIGH')}
+              >
+                <SelectTrigger id="issue-priority" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="LOW">낮음</SelectItem>
+                  <SelectItem value="MID">보통</SelectItem>
+                  <SelectItem value="HIGH">높음</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="issue-due">마감일</label>

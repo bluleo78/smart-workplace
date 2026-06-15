@@ -12,6 +12,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 
 import {
   useAddMember,
@@ -87,15 +90,16 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
           <label className="text-sm font-medium" htmlFor="new-member-role">
             역할
           </label>
-          <select
-            id="new-member-role"
-            value={newRole}
-            onChange={(e) => setNewRole(e.target.value as ProjectMemberRole)}
-            className="border rounded p-2 bg-background"
-          >
-            <option value="MEMBER">멤버</option>
-            <option value="OWNER">소유자</option>
-          </select>
+          {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+          <Select value={newRole} onValueChange={(v) => setNewRole(v as ProjectMemberRole)}>
+            <SelectTrigger id="new-member-role" className="w-auto">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="MEMBER">멤버</SelectItem>
+              <SelectItem value="OWNER">소유자</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <MemberSearchPopover
           open={pickerOpen}
@@ -128,17 +132,19 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
                 <td className="py-2">{m.name}</td>
                 <td className="text-muted-foreground">{m.username}</td>
                 <td>
-                  <select
+                  {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+                  <Select
                     value={m.role}
-                    onChange={(e) =>
-                      onChangeRole(m.userId, e.target.value as ProjectMemberRole)
-                    }
-                    aria-label={`${m.name} 역할`}
-                    className="border rounded p-1 bg-background"
+                    onValueChange={(v) => onChangeRole(m.userId, v as ProjectMemberRole)}
                   >
-                    <option value="MEMBER">멤버</option>
-                    <option value="OWNER">소유자</option>
-                  </select>
+                    <SelectTrigger aria-label={`${m.name} 역할`} size="sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="MEMBER">멤버</SelectItem>
+                      <SelectItem value="OWNER">소유자</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </td>
                 <td>
                   <Button
