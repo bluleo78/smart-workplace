@@ -50,6 +50,25 @@ async function mockSessions(page: Page, sessions: HomeSessionPage = { items: [],
   await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
 }
 
+test("MyTasksWidget — '내 담당' 카운트가 /me/tasks/assigned 로 연결되는 링크다 (#251)", async ({
+  authenticatedPage: page,
+}) => {
+  // 담당 이슈 1건·워치 이슈 1건 모킹 — 카운트 표기 확인
+  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
+  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
+  await page.goto('/')
+
+  // 내 담당 블록이 링크(role=link)이고 href=/me/tasks/assigned 를 가져야 한다.
+  const assignedLink = page.getByTestId('mytasks-assigned')
+  await expect(assignedLink).toBeVisible()
+  await expect(assignedLink).toHaveAttribute('href', '/me/tasks/assigned')
+
+  // 클릭 시 /me/tasks/assigned(또는 서버 리다이렉트 포함 /me/tasks/assigned)로 이동해야 한다.
+  await assignedLink.click()
+  await expect(page).toHaveURL(/\/me\/tasks\/assigned/)
+})
+
 test('이슈 위젯 — 이슈 없을 때 개선된 empty state(아이콘·제목·설명·CTA)가 렌더된다 (#129)', async ({
   authenticatedPage: page,
 }) => {

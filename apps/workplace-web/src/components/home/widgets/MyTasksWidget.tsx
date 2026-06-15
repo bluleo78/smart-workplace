@@ -35,11 +35,11 @@ export default function MyTasksWidget() {
         />
       ) : (
         <div className="flex gap-6">
-          {/* 내 담당: 전역 "내 담당" 라우트가 아직 없어 카운트만 표기(링크 X). */}
-          <div className="text-center" data-testid="mytasks-assigned">
-            <div className="text-2xl font-semibold text-ai-accent">{count(assigned.data)}</div>
+          {/* 내 담당: /me/tasks/assigned 탭으로 이동. */}
+          <Link to="/me/tasks/assigned" className="text-center" data-testid="mytasks-assigned">
+            <div className="text-2xl font-semibold">{count(assigned.data)}</div>
             <div className="text-xs text-muted-foreground">내 담당</div>
-          </div>
+          </Link>
           <Link to="/me/watched" className="text-center" data-testid="mytasks-watched">
             <div className="text-2xl font-semibold">{count(watched.data)}</div>
             <div className="text-xs text-muted-foreground">워치</div>
