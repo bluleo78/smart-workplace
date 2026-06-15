@@ -15,7 +15,12 @@ export function WidgetError({
   testId: string;
 }) {
   return (
-    <div className="flex flex-col items-center gap-2 px-4 py-6 text-center" data-testid={testId}>
+    <div
+      // I3(a11y): 에러는 즉시 안내가 필요하므로 role="alert"(assertive live region).
+      role="alert"
+      className="flex flex-col items-center gap-2 px-4 py-6 text-center"
+      data-testid={testId}
+    >
       <p className="text-sm text-destructive">{message}</p>
       <Button variant="outline" size="sm" onClick={onRetry}>
         다시 시도

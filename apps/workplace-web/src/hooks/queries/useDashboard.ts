@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { dashboardApi } from '../../api/dashboard'
+import type { DashboardWidgetConfig } from '../../types/dashboard'
 import { dashboardKeys } from './dashboardKeys'
 
 /** 대시보드 레이아웃 조회. */
@@ -12,7 +13,7 @@ export function useDashboardLayout() {
 export function useSaveDashboardLayout() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (widgets: string[]) => dashboardApi.save(widgets),
+    mutationFn: (widgets: DashboardWidgetConfig[]) => dashboardApi.save(widgets),
     onSuccess: (data) => qc.setQueryData(dashboardKeys.layout(), data),
   })
 }

@@ -1,4 +1,5 @@
 import { CalendarDays } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
@@ -24,17 +25,25 @@ function eventTime(ev: CalendarEvent): string {
 }
 
 /** 오늘 일정 요약 본문 — 건수 + 상위 3건. 프레임/딥링크는 Dashboard 담당. */
-export default function CalendarTodayBody() {
+export default function CalendarTodayBody({ count = 5 }: { count?: number }) {
   const { from, to } = todayRange()
   const { data, isLoading, isError, refetch } = useCalendarEvents(from, to)
 
-  if (isLoading) return <Skeleton className="h-20 w-full" />
+  // I3(a11y): 로딩 영역에 aria-busy + 라벨.
+  if (isLoading)
+    return (
+      <div aria-busy="true" aria-label="불러오는 중">
+        <Skeleton className="h-20 w-full" />
+      </div>
+    )
   if (isError) return <WidgetError onRetry={() => refetch()} testId="dash-calendar-error" />
 
   const events = data ?? []
   if (events.length === 0)
     return (
       <div
+        // I3(a11y): 빈 상태는 보조 안내이므로 role="status"(polite live region).
+        role="status"
         className="flex flex-col items-center gap-2 py-6 text-center"
         data-testid="dash-calendar-empty"
       >
@@ -43,19 +52,26 @@ export default function CalendarTodayBody() {
       </div>
     )
 
-  // 시작 시각순 정렬 후 상위 3건.
+  // 시작 시각순 정렬 후 상위 count 건(위젯 설정 기반).
   const top = [...events]
     .sort((a, b) => parseUtcDate(a.startsAt).getTime() - parseUtcDate(b.startsAt).getTime())
-    .slice(0, 3)
+    .slice(0, count)
 
   return (
     <div data-testid="dash-calendar">
       <div className="mb-2 text-sm text-muted-foreground">오늘 {events.length}건</div>
-      <ul className="space-y-1">
+      <ul className="space-y-0.5">
         {top.map((ev) => (
-          <li key={ev.id} className="flex items-center gap-2 text-sm">
-            <span className="w-12 shrink-0 text-xs text-muted-foreground">{eventTime(ev)}</span>
-            <span className="truncate">{ev.title}</span>
+          // 일정 전용 상세 라우트가 없어 캘린더(/calendar)로 딥링크(스펙 §1.3 허용 폴백).
+          <li key={ev.id}>
+            <Link
+              to="/calendar"
+              aria-label={`일정 열기: ${ev.title}`}
+              className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <span className="w-12 shrink-0 text-xs text-muted-foreground">{eventTime(ev)}</span>
+              <span className="truncate">{ev.title}</span>
+            </Link>
           </li>
         ))}
       </ul>
