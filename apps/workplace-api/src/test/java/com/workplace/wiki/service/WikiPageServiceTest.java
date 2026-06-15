@@ -14,6 +14,7 @@ import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSpaceResponse;
 import com.workplace.wiki.exception.WikiConflictException;
+import com.workplace.wiki.repository.WikiReferenceRepository;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -28,6 +29,7 @@ class WikiPageServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired WikiSpaceService spaceService;
   @Autowired WikiPageService pageService;
+  @Autowired WikiReferenceRepository references;
 
   @BeforeEach
   void setTenant() {
@@ -115,6 +117,59 @@ class WikiPageServiceTest extends IntegrationTestBase {
             .map(WikiPageSummary::id)
             .toList();
     assertThat(after).containsExactly(c.id(), b.id(), a.id());
+  }
+
+  @Test
+  void save_extractsPageAndIssueReferences_ignoresUserMention() {
+    long u = seedUser();
+    WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
+    WikiPageDetail p = pageService.create(u, sp.id(), new CreatePageRequest(null, "제목"));
+
+    // 본문에 page/issue 토큰 + 유저 멘션 혼합 — page/issue 만 백링크로 적재되어야 한다.
+    pageService.save(
+        u, p.id(), new SavePageRequest("제목", "# 본문 <#page:9> <#issue:7> <@5>", 1, false));
+
+    // page:9 를 가리키는 백링크 source 에 우리 페이지가 있어야 한다.
+    assertThat(references.findBacklinkSourcePageIds("PAGE", 9L)).contains(p.id());
+    assertThat(references.findBacklinkSourcePageIds("ISSUE", 7L)).contains(p.id());
+    // 유저 멘션(<@5>)은 PAGE/ISSUE 어느 타입으로도 적재되지 않는다.
+    assertThat(references.findBacklinkSourcePageIds("PAGE", 5L)).doesNotContain(p.id());
+    assertThat(references.findBacklinkSourcePageIds("ISSUE", 5L)).doesNotContain(p.id());
+  }
+
+  @Test
+  void save_replacesReferences_onResave() {
+    long u = seedUser();
+    WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
+    WikiPageDetail p = pageService.create(u, sp.id(), new CreatePageRequest(null, "제목"));
+
+    // 1차 저장: page:9 참조.
+    pageService.save(u, p.id(), new SavePageRequest("제목", "<#page:9>", 1, false));
+    assertThat(references.findBacklinkSourcePageIds("PAGE", 9L)).contains(p.id());
+
+    // 2차 저장(version bump): issue:7 만 참조 → page:9 백링크는 제거(diff-replace)되어야 한다.
+    pageService.save(u, p.id(), new SavePageRequest("제목", "<#issue:7>", 2, false));
+    assertThat(references.findBacklinkSourcePageIds("PAGE", 9L)).doesNotContain(p.id());
+    assertThat(references.findBacklinkSourcePageIds("ISSUE", 7L)).contains(p.id());
+  }
+
+  @Test
+  void save_withNullBody_preservesBodyAndReferences() {
+    long u = seedUser();
+    WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
+    WikiPageDetail p = pageService.create(u, sp.id(), new CreatePageRequest(null, "제목"));
+
+    // 1차 저장: 본문 + page:9 참조 적재.
+    WikiPageDetail saved =
+        pageService.save(u, p.id(), new SavePageRequest("제목", "# 본문 <#page:9>", 1, false));
+    assertThat(references.findBacklinkSourcePageIds("PAGE", 9L)).contains(p.id());
+
+    // 2차 저장: body=null(title 만 변경) → 기존 본문·백링크가 보존되어야 한다(소실 X).
+    WikiPageDetail after =
+        pageService.save(u, p.id(), new SavePageRequest("새 제목", null, saved.version(), false));
+    assertThat(after.body()).isEqualTo("# 본문 <#page:9>");
+    assertThat(after.title()).isEqualTo("새 제목");
+    assertThat(references.findBacklinkSourcePageIds("PAGE", 9L)).contains(p.id());
   }
 
   @Test

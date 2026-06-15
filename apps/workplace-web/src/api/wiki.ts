@@ -2,9 +2,12 @@
 
 import type {
   SavePageRequest,
+  WikiBacklinksResponse,
   WikiMember,
+  WikiMentionRef,
   WikiPageDetail,
   WikiPageSummary,
+  WikiSearchResult,
   WikiSpace,
 } from '../types/wiki'
 import { client } from './client'
@@ -35,4 +38,17 @@ export const wikiApi = {
   movePage: (pageId: number, parentId: number | null, position: number) =>
     client.patch<void>(`/wiki/pages/${pageId}/move`, { parentId, position }),
   deletePage: (pageId: number) => client.delete<void>(`/wiki/pages/${pageId}`),
+
+  // 본문 멘션 토큰을 라벨/링크 정보로 해소 — 칩 렌더용.
+  getMentions: (pageId: number) =>
+    client.get<WikiMentionRef[]>(`/wiki/pages/${pageId}/mentions`),
+  // 이 페이지를 참조하는 다른 페이지 목록(백링크).
+  getBacklinks: (pageId: number) =>
+    client.get<WikiBacklinksResponse>(`/wiki/pages/${pageId}/backlinks`),
+
+  // 제목·본문으로 위키 페이지 검색(S2). spaceId 지정 시 해당 스페이스 우선.
+  search: (q: string, spaceId?: number) =>
+    client.get<WikiSearchResult[]>('/wiki/search', {
+      params: { q, ...(spaceId != null ? { spaceId } : {}) },
+    }),
 }

@@ -20,6 +20,10 @@ export function useSavePage(spaceId: number) {
     onSuccess: (data) => {
       qc.setQueryData(wikiKeys.page(data.id), data)
       qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
+      // 본문 저장으로 멘션/참조가 바뀔 수 있어 하이드레이션·백링크 캐시를 무효화한다.
+      // (staleTime 30s 와 결합 시 방금 삽입한 칩의 내비게이션 메타가 즉시 갱신되도록.)
+      qc.invalidateQueries({ queryKey: wikiKeys.mentions(data.id) })
+      qc.invalidateQueries({ queryKey: wikiKeys.backlinks(data.id) })
     },
   })
 }
