@@ -61,12 +61,12 @@ export function WikiTreeRow({
               e.stopPropagation()
               onToggle(id)
             }}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent"
           >
             {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
           </button>
         ) : (
-          <span className="h-5 w-5 shrink-0" />
+          <span className="h-6 w-6 shrink-0" />
         )}
         <button
           type="button"
@@ -85,7 +85,7 @@ export function WikiTreeRow({
               e.stopPropagation()
               onAddChild(id)
             }}
-            className="flex h-5 w-5 items-center justify-center rounded bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="flex h-6 w-6 items-center justify-center rounded bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -93,7 +93,7 @@ export function WikiTreeRow({
             <DropdownMenuTrigger
               aria-label="페이지 메뉴"
               onClick={(e) => e.stopPropagation()}
-              className="flex h-5 w-5 items-center justify-center rounded bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="flex h-6 w-6 items-center justify-center rounded bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </DropdownMenuTrigger>

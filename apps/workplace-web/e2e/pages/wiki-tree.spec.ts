@@ -84,6 +84,33 @@ test('접기/펼치기 — 부모 토글 시 자손 숨김/노출', async ({ aut
   await expect(page.getByTestId('wiki-tree-row-2')).toBeVisible()
 })
 
+test('인라인 액션 버튼 — WCAG 2.5.8 최소 24×24px 충족', async ({ authenticatedPage: page }) => {
+  await routeCommon(page)
+  const tree: WikiPageSummary[] = [
+    { id: 1, parentId: null, title: '제품 문서', position: 0 },
+    { id: 2, parentId: 1, title: '기획', position: 0 },
+  ]
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) }),
+  )
+  await page.route('**/api/v1/wiki/pages/*', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  const row = page.getByTestId('wiki-tree-row-1')
+  await row.hover()
+
+  // 접기 토글, 하위 페이지, 페이지 메뉴 버튼 각각 24px 이상 확인
+  for (const label of ['접기', '하위 페이지', '페이지 메뉴']) {
+    const btn = row.getByRole('button', { name: label })
+    const box = await btn.boundingBox()
+    expect(box, `${label} 버튼의 boundingBox가 null`).not.toBeNull()
+    expect(box!.width, `${label} 버튼 너비 < 24px`).toBeGreaterThanOrEqual(24)
+    expect(box!.height, `${label} 버튼 높이 < 24px`).toBeGreaterThanOrEqual(24)
+  }
+})
+
 test('삭제 — ⋯ 메뉴 → 다이얼로그 확인 시 DELETE, 취소 시 미호출', async ({ authenticatedPage: page }) => {
   await routeCommon(page)
   let deleteCalled = false
