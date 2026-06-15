@@ -201,17 +201,24 @@ test.describe('사이클 관리', () => {
       await page.getByTestId('cycle-new').click();
       await expect(page.getByTestId('cycle-form-dialog')).toBeVisible();
 
-      const select = page.getByLabel('상태');
+      const trigger = page.getByTestId('cycle-status-select');
 
-      // 영문 enum 값이 option 레이블로 노출되면 안 된다.
-      await expect(select).not.toContainText('PLANNED');
-      await expect(select).not.toContainText('ACTIVE');
-      await expect(select).not.toContainText('COMPLETED');
+      // shadcn Select — 트리거에 초기값 한국어 표시
+      await expect(trigger).toBeVisible();
+      await expect(trigger).not.toContainText('PLANNED');
+      await expect(trigger).toContainText('계획됨');
 
-      // 한국어 레이블이 옵션으로 표시된다.
-      await expect(select.locator('option[value="PLANNED"]')).toHaveText('계획됨');
-      await expect(select.locator('option[value="ACTIVE"]')).toHaveText('진행 중');
-      await expect(select.locator('option[value="COMPLETED"]')).toHaveText('완료됨');
+      // 드롭다운 열어 전체 옵션 한국어 확인
+      await trigger.click();
+      const content = page.locator('[role="listbox"]');
+      await expect(content.getByRole('option', { name: '계획됨' })).toBeVisible();
+      await expect(content.getByRole('option', { name: '진행 중' })).toBeVisible();
+      await expect(content.getByRole('option', { name: '완료됨' })).toBeVisible();
+      await expect(content).not.toContainText('PLANNED');
+      await expect(content).not.toContainText('ACTIVE');
+      await expect(content).not.toContainText('COMPLETED');
+      // 닫기
+      await page.keyboard.press('Escape');
     },
   );
 
