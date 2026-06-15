@@ -15,6 +15,13 @@ import type { ThinkingDepth } from '../../types/assistant';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 
 // 선택 가능한 모델 목록.
 const MODELS = ['claude-sonnet-4-6', 'claude-opus-4-8'];
@@ -100,36 +107,41 @@ export function PersonalAssistantSection() {
               <label className="text-sm font-medium" htmlFor="assistant-model">
                 모델
               </label>
-              <select
-                id="assistant-model"
-                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={status.model ?? ''}
-                onChange={(e) => handleModelChange(e.target.value)}
-              >
-                {MODELS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+              {/* 앱 디자인 시스템 일관성 — shadcn Select 사용 (native <select> 금지) */}
+              <Select value={status.model ?? ''} onValueChange={handleModelChange}>
+                <SelectTrigger id="assistant-model">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MODELS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="assistant-depth">
                 생각의 깊이
               </label>
-              <select
-                id="assistant-depth"
-                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              {/* 앱 디자인 시스템 일관성 — shadcn Select 사용 (native <select> 금지) */}
+              <Select
                 value={status.thinkingDepth ?? 'NORMAL'}
-                onChange={(e) => handleDepthChange(e.target.value as ThinkingDepth)}
+                onValueChange={(v) => handleDepthChange(v as ThinkingDepth)}
               >
-                {DEPTHS.map((d) => (
-                  <option key={d.value} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="assistant-depth">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DEPTHS.map((d) => (
+                    <SelectItem key={d.value} value={d.value}>
+                      {d.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <Button variant="destructive" onClick={handleDisable}>
