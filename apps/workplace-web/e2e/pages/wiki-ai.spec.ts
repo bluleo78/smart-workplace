@@ -225,6 +225,36 @@ test('위키 /ai — 진행 중 스트림이 있으면 새 액션이 이전 스�
   await expect(page.locator('.ProseMirror')).not.toContainText('요약: 핵심 내용')
 })
 
+// ── 팝업 max-height 회귀 (#250) ─────────────────────────────────────────────
+// WikiSlashMenu 에 max-h-60(240px) 이 적용되어 항목이 많아도 팝업이 뷰포트를 넘지 않는다.
+// 슬래시 메뉴는 현재 3개 항목만 있어 overflow 가 발생하지 않으므로 max-height 클래스 적용 여부를
+// computed style 로 검증한다.
+
+test('위키 /ai 슬래시 메뉴 — max-height(240px) 클래스 적용으로 뷰포트 넘침 방지', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+
+  await page.route('**/api/v1/wiki/pages/*/ai', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  // '/' 입력 → 슬래시 메뉴 노출.
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/')
+  const popover = page.getByTestId('wiki-slash-popover')
+  await expect(popover).toBeVisible()
+
+  // computedStyle 로 max-height 가 240px(15rem) 으로 제한됨을 검증한다.
+  const maxHeight = await popover.evaluate(
+    (el) => parseFloat(window.getComputedStyle(el).maxHeight),
+  )
+  expect(maxHeight).toBeLessThanOrEqual(240)
+})
+
 test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', async ({
   authenticatedPage: page,
 }) => {

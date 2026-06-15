@@ -70,7 +70,7 @@ export const WikiMentionList = forwardRef<WikiMentionListHandle, WikiMentionList
       <div
         role="listbox"
         aria-label="멘션 후보"
-        className="w-80 overflow-auto rounded-md border bg-popover shadow-md"
+        className="max-h-60 w-80 overflow-auto rounded-md border bg-popover shadow-md"
         data-testid="wiki-mention-popover"
       >
         {items.map((item, idx) => (

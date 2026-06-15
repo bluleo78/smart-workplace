@@ -54,7 +54,7 @@ export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>
       <div
         role="listbox"
         aria-label="AI 액션"
-        className="w-56 overflow-auto rounded-md border bg-popover shadow-md"
+        className="max-h-60 w-56 overflow-auto rounded-md border bg-popover shadow-md"
         data-testid="wiki-slash-popover"
       >
         {items.map((item, idx) => (
