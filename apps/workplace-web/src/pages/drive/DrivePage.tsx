@@ -1,3 +1,4 @@
+import { Folder } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -424,12 +425,14 @@ export function DrivePage() {
           <ul className="divide-y divide-border" data-testid="search-results">
             {results.folders.map((f) => (
               <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
+                {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
+                <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
                 <button
                   type="button"
                   onClick={() => openFolder(f.id)}
                   className="flex-1 text-left text-sm hover:underline"
                 >
-                  📁 {f.name}
+                  {f.name}
                   {f.folderPath && (
                     <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
                   )}
@@ -459,12 +462,14 @@ export function DrivePage() {
           <ul className="divide-y divide-border">
             {items.folders.map((f) => (
               <li key={`folder-${f.id}`} className="flex items-center gap-2 py-2">
+                {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
+                <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
                 <button
                   type="button"
                   onClick={() => openFolder(f.id)}
                   className="flex-1 text-left text-sm hover:underline"
                 >
-                  📁 {f.name}
+                  {f.name}
                 </button>
                 <button
                   type="button"

@@ -95,7 +95,7 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   await expect(page.getByTestId('folder-name-input')).toBeVisible()
   await page.getByTestId('folder-name-input').fill('문서')
   await page.getByTestId('folder-name-confirm').click()
-  await expect(page.getByText('📁 문서')).toBeVisible()
+  await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
 
   // 업로드(숨김 input 에 파일 주입)
   await page.getByTestId('file-input').setInputFiles({
@@ -174,8 +174,8 @@ test('파일을 폴더로 이동', { tag: '@smoke' }, async ({ authenticatedPage
   await expect(page.getByTestId('folder-picker')).toBeVisible()
 
   // 모달에서 '문서' 폴더로 진입 후 '여기로' 확정
-  // (📁 문서 는 모달 뒤 DrivePage 목록에도 있으므로 모달 스코프로 한정 — strict-mode 위반 방지)
-  await page.getByTestId('folder-picker').getByRole('button', { name: '📁 문서' }).click()
+  // (문서 버튼은 모달 뒤 DrivePage 목록에도 있으므로 모달 스코프로 한정 — strict-mode 위반 방지)
+  await page.getByTestId('folder-picker').getByRole('button', { name: '문서' }).click()
   await page.getByTestId('folder-picker-confirm').click()
 
   // 루트 목록 리로드 → 파일 사라짐
@@ -565,7 +565,7 @@ test('폴더 생성 — Dialog 표시, 이름 입력 후 확인 시 POST 호출'
   // POST body 검증 — 이름이 정확히 전달됐는지
   expect(postedName).toBe('보고서')
   // UI 갱신 확인
-  await expect(page.getByText('📁 보고서')).toBeVisible()
+  await expect(page.getByRole('button', { name: '보고서' })).toBeVisible()
 })
 
 test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 PATCH body 검증', async ({ authenticatedPage: page }) => {
@@ -587,10 +587,10 @@ test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 
   )
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByText('📁 문서')).toBeVisible()
+  await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
 
   // 이름변경 클릭 → Dialog 가 현재 이름('문서')으로 사전 입력되어야 함
-  await page.getByRole('listitem').filter({ hasText: '📁 문서' }).getByRole('button', { name: '이름변경' }).click()
+  await page.getByRole('listitem').filter({ hasText: '문서' }).getByRole('button', { name: '이름변경' }).click()
   await expect(page.getByTestId('folder-name-input')).toHaveValue('문서')
 
   // 이름 교체 후 확인
@@ -599,7 +599,7 @@ test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 
 
   // PATCH body 검증
   expect(patchedName).toBe('보관함')
-  await expect(page.getByText('📁 보관함')).toBeVisible()
+  await expect(page.getByRole('button', { name: '보관함' })).toBeVisible()
 })
 
 test('파일 삭제 — AlertDialog 표시 후 취소 시 DELETE 호출 안 함', async ({ authenticatedPage: page }) => {

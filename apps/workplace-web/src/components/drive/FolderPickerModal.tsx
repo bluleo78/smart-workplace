@@ -1,3 +1,4 @@
+import { Folder } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
@@ -45,9 +46,11 @@ export function FolderPickerModal({ spaceId, title, disabledFolderId, onConfirm,
                 type="button"
                 disabled={f.id === disabledFolderId}
                 onClick={() => setCurrent(f.id)}
-                className="w-full py-1.5 text-left text-sm hover:underline disabled:opacity-40"
+                className="flex w-full items-center gap-2 py-1.5 text-left text-sm hover:underline disabled:opacity-40"
               >
-                📁 {f.name}
+                {/* 폴더 아이콘 — lucide Folder SVG, DrivePage와 일관성 유지 */}
+                <Folder className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                {f.name}
               </button>
             </li>
           ))}
