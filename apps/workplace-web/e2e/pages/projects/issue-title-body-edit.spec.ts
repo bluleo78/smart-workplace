@@ -155,4 +155,16 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     expect(stub.patches).toHaveLength(0);
     await expect(page.getByText('원본 본문')).toBeVisible();
   });
+
+  // 회귀: 본문 편집 버튼이 hover 없이 기본 표시되어야 함 (refs #266)
+  // opacity-0 클래스가 제거되어 마우스 hover 없이도 편집 버튼이 보여야 한다.
+  test('본문 편집 버튼이 hover 없이 기본 표시됨 (opacity-0 없음) (#266)', async ({ authenticatedPage: page }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expect(page.getByText('원본 본문')).toBeVisible();
+
+    // hover 없이 본문 편집 버튼의 computed opacity 가 1이어야 함
+    const bodyEditBtn = page.getByRole('button', { name: '본문 편집' });
+    await expect(bodyEditBtn).toHaveCSS('opacity', '1');
+  });
 });

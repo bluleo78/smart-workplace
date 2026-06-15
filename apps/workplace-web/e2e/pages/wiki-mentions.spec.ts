@@ -311,6 +311,51 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
   await expect.poll(() => savedBody).toContain('담당 <@7> 은 <#page:55> 문서를')
 })
 
+test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표시(피드백)', async ({
+  authenticatedPage: page,
+}) => {
+  // 모든 검색 API 가 빈 배열/객체를 반환 → 후보 없음 상태를 재현.
+  await setupWikiMocks(page, { role: 'EDITOR', body: '' })
+
+  // 검색 API — 빈 결과 반환
+  await page.route(
+    (url) => url.pathname === '/api/v1/users',
+    (route) => {
+      const body: import('../../src/types/common').PageResponse<import('../../src/types/auth').UserResponse> =
+        { content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/search',
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/issues' && url.searchParams.has('q'),
+    (route) => {
+      const body: import('../../src/types/issue').IssueSearchResponse = {
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  // 존재하지 않는 이름 입력 → 결과 없음 팝업이 떠야 한다(null 반환으로 사라지면 회귀).
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('@zzzzzzz')
+
+  // 후보 팝업은 없고 "결과 없음" 메시지 div 가 보인다.
+  await expect(page.getByTestId('wiki-mention-empty')).toBeVisible()
+  await expect(page.getByTestId('wiki-mention-empty')).toHaveText('결과 없음')
+  await expect(page.getByTestId('wiki-mention-popover')).toHaveCount(0)
+})
+
 test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(역할 게이트)', async ({
   authenticatedPage: page,
 }) => {
@@ -403,6 +448,108 @@ test('위키 백링크 패널 — 참조 페이지 칩 렌더 + 클릭 시 출�
   await page.getByTestId('wiki-backlink-502').click()
   await page.waitForURL(`**/wiki/spaces/${OTHER_SPACE_ID}/pages/502`)
   expect(new URL(page.url()).pathname).toBe(`/wiki/spaces/${OTHER_SPACE_ID}/pages/502`)
+})
+
+// ── 팝업 max-height 회귀 (#250) ─────────────────────────────────────────────
+// WikiMentionList 에 max-h-60(240px) 이 적용되어 결과가 많아도 팝업이 뷰포트를 넘지 않는다.
+
+test('위키 @ 멘션 팝업 — 결과 多 경우 max-height(240px) 적용으로 스크롤 생성(뷰포트 넘침 방지)', async ({
+  authenticatedPage: page,
+}) => {
+  // PER_TYPE=5 제한으로 유저·페이지·이슈 각 5개 = 총 15개 항목 렌더 → 팝업 높이가 240px 초과.
+  const MANY_USERS: UserResponse[] = Array.from({ length: 5 }, (_, i) => ({
+    id: 200 + i,
+    username: `user${i}`,
+    email: `user${i}@example.com`,
+    name: `유저 ${i + 1}`,
+    isActive: true,
+    createdAt: '2026-06-01T00:00:00Z',
+    kind: 'HUMAN' as const,
+  }))
+  const MANY_PAGES: WikiSearchResult[] = Array.from({ length: 5 }, (_, i) => ({
+    id: 100 + i,
+    spaceId: SPACE_ID,
+    spaceName: '팀 위키',
+    title: `문서 ${i + 1}`,
+    snippet: '내용',
+    updatedAt: '2026-06-01T00:00:00Z',
+  }))
+  const MANY_ISSUES: IssueResponse[] = Array.from({ length: 5 }, (_, i) => ({
+    id: 300 + i,
+    projectKey: 'WP',
+    number: 100 + i,
+    title: `이슈 ${i + 1}`,
+    status: 'TODO' as const,
+    priority: 'MID' as const,
+    dueDate: null,
+    reporterId: 1,
+    createdAt: '2026-06-01T00:00:00Z',
+    updatedAt: '2026-06-01T00:00:00Z',
+    labels: [],
+    attachmentCount: 0,
+    type: null,
+    assignees: [],
+    parent: null,
+    childCount: 0,
+    childDoneCount: 0,
+    blockedBy: [],
+    blocks: [],
+    blocked: false,
+    customFields: [],
+  }))
+
+  await setupWikiMocks(page, { role: 'EDITOR', body: '' })
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/users',
+    (route) => {
+      const body: import('../../src/types/common').PageResponse<UserResponse> = {
+        content: MANY_USERS,
+        page: 0,
+        size: 5,
+        totalElements: 5,
+        totalPages: 1,
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/search',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(MANY_PAGES satisfies WikiSearchResult[]),
+      }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/issues' && url.searchParams.has('q'),
+    (route) => {
+      const body: IssueSearchResponse = {
+        items: MANY_ISSUES,
+        nextCursor: null,
+        hasMore: false,
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('@문')
+
+  const popover = page.getByTestId('wiki-mention-popover')
+  await expect(popover).toBeVisible()
+
+  // max-height(240px = 15rem)가 적용되어 팝업 높이가 240px 이하여야 한다.
+  const height = await popover.evaluate((el) => el.getBoundingClientRect().height)
+  expect(height).toBeLessThanOrEqual(240)
+
+  // 넘치는 항목은 스크롤로 접근 가능해야 한다(overflow 존재 = scrollHeight > clientHeight).
+  const hasScroll = await popover.evaluate((el) => el.scrollHeight > el.clientHeight)
+  expect(hasScroll).toBe(true)
 })
 
 test('위키 백링크 패널 — 백링크가 없으면 패널이 숨겨진다', async ({

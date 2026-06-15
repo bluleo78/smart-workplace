@@ -168,7 +168,7 @@ function InlineEditableBody({
           onClick={enter}
           disabled={disabled}
           aria-label="본문 편집"
-          className="absolute right-0 top-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-50"
+          className="absolute right-0 top-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>

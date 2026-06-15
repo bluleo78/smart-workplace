@@ -4,6 +4,7 @@
 //   - 같은 작성자 연속 메시지 → 하나의 그룹(첫 줄만 헤더+아바타 노출, 후속 줄 숨김)
 //   - 다른 작성자/간격 초과 메시지 → 새 그룹 시작
 //   - 페이지 진입 시 최신 메시지가 viewport 안에 보임(stick-to-bottom)
+//   - @멘션 칩 시맨틱 토큰 적용 확인 (#258 회귀 방지)
 import type { Page } from '@playwright/test'
 
 import {
@@ -219,6 +220,135 @@ test.describe('messaging 메시지 본문 기본기', () => {
     '페이지 진입 시 최신 메시지(message-3)가 viewport 안에 보임 — stick-to-bottom',
     async ({ authenticatedPage: page }) => {
       await expect(page.getByTestId('message-3')).toBeInViewport()
+    },
+  )
+})
+
+// ── @멘션 칩 시맨틱 토큰 회귀 (#258) ─────────────────────────────────────────────
+// raw 팔레트(bg-blue-100, text-blue-700 등)가 다시 사용되면 이 테스트가 실패한다.
+
+const MENTION_CHANNEL_ID = 701
+
+test.describe('@멘션 칩 시맨틱 토큰', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: MENTION_CHANNEL_ID, name: '멘션테스트', memberCount: 2 })
+
+    // HUMAN(id=10) 과 AGENT(id=99) 를 동시에 @멘션하는 메시지
+    const mentionMsg = createMessage({
+      id: 10,
+      channelId: MENTION_CHANNEL_ID,
+      authorId: 1,
+      authorName: 'me',
+      authorKind: 'HUMAN',
+      body: '안녕 <@10> <@99>',
+      mentions: [
+        { id: 10, username: 'bluleo78', name: '양동희', kind: 'HUMAN' },
+        { id: 99, username: 'myai', name: 'My AI', kind: 'AGENT' },
+      ],
+      createdAt: '2026-06-16T00:00:00',
+    })
+
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels',
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([channel]) })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/dms',
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/stream',
+      (route) =>
+        route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: ':\n\n' }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${MENTION_CHANNEL_ID}`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(channel) })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${MENTION_CHANNEL_ID}/members`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify([
+                createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
+                createChannelMember({ userId: 10, name: '양동희', kind: 'HUMAN' }),
+                createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
+              ]),
+            })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${MENTION_CHANNEL_ID}/messages`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ items: [mentionMsg], nextCursor: null, hasMore: false }),
+            })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${MENTION_CHANNEL_ID}/read`,
+      (route) =>
+        route.request().method() === 'POST'
+          ? route.fulfill({ status: 204, contentType: 'application/json', body: '' })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === '/api/v1/users',
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ content: [], page: 0, size: 100, totalElements: 0, totalPages: 0 }),
+            })
+          : route.fallback(),
+    )
+
+    await page.goto(`/chat/channels/${MENTION_CHANNEL_ID}`)
+    await expect(page.getByTestId('message-list')).toBeVisible()
+  })
+
+  test(
+    'HUMAN @멘션 칩은 시맨틱 토큰(bg-accent text-accent-foreground)을 사용한다 — raw 팔레트 금지 (#258)',
+    async ({ authenticatedPage: page }) => {
+      const chip = page.getByTestId('mention-chip-10')
+      await expect(chip).toBeVisible()
+      // 시맨틱 토큰 클래스 존재 확인
+      await expect(chip).toHaveClass(/bg-accent/)
+      await expect(chip).toHaveClass(/text-accent-foreground/)
+      // raw 팔레트 클래스 사용 금지
+      const className = await chip.getAttribute('class') ?? ''
+      expect(className).not.toContain('bg-blue-')
+      expect(className).not.toContain('text-blue-')
+    },
+  )
+
+  test(
+    'AGENT @멘션 칩은 시맨틱 토큰(bg-primary/15 text-primary)을 사용한다 — raw 팔레트 금지 (#258)',
+    async ({ authenticatedPage: page }) => {
+      const chip = page.getByTestId('mention-chip-99')
+      await expect(chip).toBeVisible()
+      // 시맨틱 토큰 클래스 존재 확인
+      await expect(chip).toHaveClass(/text-primary/)
+      // raw 팔레트 클래스 사용 금지
+      const className = await chip.getAttribute('class') ?? ''
+      expect(className).not.toContain('bg-purple-')
+      expect(className).not.toContain('text-purple-')
     },
   )
 })

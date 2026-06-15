@@ -42,11 +42,17 @@ test('패널을 열면 목록을 보여주고, AI 액터에 배지를 단다', a
   await expect(item).toContainText('AI')
 })
 
-test('빈 목록은 안내 문구를 보여준다', async ({ authenticatedPage: page }) => {
+test('빈 목록은 아이콘·제목·설명이 있는 빈 상태를 보여준다', async ({ authenticatedPage: page }) => {
+  // 디자인 시스템 §2.5 — 아이콘 + 제목 + 설명 4요소 검증
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   await page.goto('/')
   await page.getByTestId('inbox-trigger').click()
-  await expect(page.getByTestId('inbox-empty')).toHaveText('새 알림이 없습니다')
+  const empty = page.getByTestId('inbox-empty')
+  await expect(empty).toBeVisible()
+  await expect(empty).toContainText('새 알림이 없습니다')
+  await expect(empty).toContainText('이슈 배정, 코멘트, 상태 변경 알림이 여기에 표시됩니다.')
+  // Bell SVG 아이콘이 빈 상태 내에 렌더됨
+  await expect(empty.locator('svg')).toBeVisible()
 })
 
 test('행 클릭 → 읽음 POST + 이슈 상세로 이동', async ({ authenticatedPage: page }) => {

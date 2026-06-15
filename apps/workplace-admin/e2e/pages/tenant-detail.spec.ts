@@ -76,14 +76,19 @@ test.describe('테넌트 상세', () => {
     await expect(page.getByTestId('tenant-detail-name')).toHaveText('Acme Corp')
     await expect(page.getByText('acme', { exact: true })).toBeVisible()
     await expect(page.getByTestId('tenant-status')).toHaveText('활성')
+    // 슬러그 필드 레이블이 한국어로 표시돼야 한다 (회귀: #254)
+    await expect(page.getByText('슬러그', { exact: true })).toBeVisible()
 
     const rows = page.getByTestId('member-row')
     await expect(rows).toHaveCount(2)
-    await expect(page.getByText('소유자')).toBeVisible()
-    await expect(page.getByText('구성원')).toBeVisible()
-    // role badge — OWNER/MEMBER 표시
-    await expect(page.getByText('OWNER', { exact: true })).toBeVisible()
-    await expect(page.getByText('MEMBER', { exact: true })).toBeVisible()
+    // 이름 열
+    await expect(page.getByRole('cell', { name: '소유자' }).first()).toBeVisible()
+    await expect(page.getByRole('cell', { name: '구성원' })).toBeVisible()
+    // role badge — 한국어 번역 표시 (refs #255)
+    await expect(page.getByRole('cell', { name: '소유자' }).first()).toBeVisible()
+    await expect(page.getByRole('cell', { name: '멤버' })).toBeVisible()
+    // member status — 한국어 번역 표시 (refs #255)
+    await expect(page.getByRole('cell', { name: '활성' }).first()).toBeVisible()
   })
 
   // (b) 정지: ACTIVE → 정지 클릭 → 확인 → POST suspend → 재조회로 SUSPENDED 반영

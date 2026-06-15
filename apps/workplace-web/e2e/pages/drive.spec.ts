@@ -95,7 +95,7 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   await expect(page.getByTestId('folder-name-input')).toBeVisible()
   await page.getByTestId('folder-name-input').fill('문서')
   await page.getByTestId('folder-name-confirm').click()
-  await expect(page.getByText('📁 문서')).toBeVisible()
+  await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
 
   // 업로드(숨김 input 에 파일 주입)
   await page.getByTestId('file-input').setInputFiles({
@@ -174,8 +174,8 @@ test('파일을 폴더로 이동', { tag: '@smoke' }, async ({ authenticatedPage
   await expect(page.getByTestId('folder-picker')).toBeVisible()
 
   // 모달에서 '문서' 폴더로 진입 후 '여기로' 확정
-  // (📁 문서 는 모달 뒤 DrivePage 목록에도 있으므로 모달 스코프로 한정 — strict-mode 위반 방지)
-  await page.getByTestId('folder-picker').getByRole('button', { name: '📁 문서' }).click()
+  // (문서 버튼은 모달 뒤 DrivePage 목록에도 있으므로 모달 스코프로 한정 — strict-mode 위반 방지)
+  await page.getByTestId('folder-picker').getByRole('button', { name: '문서' }).click()
   await page.getByTestId('folder-picker-confirm').click()
 
   // 루트 목록 리로드 → 파일 사라짐
@@ -533,6 +533,42 @@ test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내
   expect(uploadCalled).toBe(false)
 })
 
+// #260 — 빈 폴더 empty state: 아이콘+제목+설명+CTA 4요소 검증 (DS §2.5)
+test('빈 폴더 진입 시 empty state 4요소가 표시되고 업로드 CTA가 파일 입력을 트리거한다', async ({ authenticatedPage: page }) => {
+  const state = { folders: [] as unknown[], files: [] as unknown[] }
+  await stubSpaces(page)
+  await stubItems(page, () => state)
+
+  let uploadCalled = false
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    (route) => {
+      uploadCalled = true
+      const file = createFile({ name: 'test.txt' })
+      state.files = [file]
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(file) })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // empty state 4요소 확인 — 아이콘+제목+설명+CTA (DS §2.5)
+  const emptyState = page.getByTestId('drive-empty-folder')
+  await expect(emptyState).toBeVisible()
+  await expect(emptyState.getByText('이 폴더는 비어 있어요')).toBeVisible()
+  await expect(emptyState.getByText('파일을 업로드하거나 새 폴더를 만들어보세요')).toBeVisible()
+
+  // 업로드 CTA가 file input을 트리거하는지: 숨김 input에 파일 직접 주입 → API 호출 + UI 갱신 확인
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'test.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('hello'),
+  })
+  await expect(page.getByText('test.txt')).toBeVisible()
+  expect(uploadCalled).toBe(true)
+})
+
 // #135 — window.prompt/confirm → shadcn Dialog/AlertDialog 교체 검증
 
 test('폴더 생성 — Dialog 표시, 이름 입력 후 확인 시 POST 호출', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
@@ -565,7 +601,7 @@ test('폴더 생성 — Dialog 표시, 이름 입력 후 확인 시 POST 호출'
   // POST body 검증 — 이름이 정확히 전달됐는지
   expect(postedName).toBe('보고서')
   // UI 갱신 확인
-  await expect(page.getByText('📁 보고서')).toBeVisible()
+  await expect(page.getByRole('button', { name: '보고서' })).toBeVisible()
 })
 
 test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 PATCH body 검증', async ({ authenticatedPage: page }) => {
@@ -587,10 +623,10 @@ test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 
   )
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByText('📁 문서')).toBeVisible()
+  await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
 
   // 이름변경 클릭 → Dialog 가 현재 이름('문서')으로 사전 입력되어야 함
-  await page.getByRole('listitem').filter({ hasText: '📁 문서' }).getByRole('button', { name: '이름변경' }).click()
+  await page.getByRole('listitem').filter({ hasText: '문서' }).getByRole('button', { name: '이름변경' }).click()
   await expect(page.getByTestId('folder-name-input')).toHaveValue('문서')
 
   // 이름 교체 후 확인
@@ -599,7 +635,7 @@ test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 
 
   // PATCH body 검증
   expect(patchedName).toBe('보관함')
-  await expect(page.getByText('📁 보관함')).toBeVisible()
+  await expect(page.getByRole('button', { name: '보관함' })).toBeVisible()
 })
 
 test('파일 삭제 — AlertDialog 표시 후 취소 시 DELETE 호출 안 함', async ({ authenticatedPage: page }) => {

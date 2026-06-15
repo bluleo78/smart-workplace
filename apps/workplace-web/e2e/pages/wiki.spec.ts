@@ -38,6 +38,101 @@ function pageDetail(title: string, version: number): WikiPageDetail {
   }
 }
 
+// 빈 상태 — 페이지 미선택 시 DS §2.5 4요소(아이콘+제목+설명+CTA) 표시 + CTA로 페이지 생성 (refs #245)
+test('위키 — 빈 상태: 4요소 표시 + CTA로 새 페이지 생성 후 이동', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  const EMPTY_PAGE_ID = 50
+
+  // 스페이스 목록
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([personalSpace()]),
+          })
+        : route.fallback(),
+  )
+
+  // 트리 — 초기 빈 목록, POST 후 새 페이지 1건 반환
+  const treeState = { created: false }
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            treeState.created
+              ? [{ id: EMPTY_PAGE_ID, parentId: null, title: '제목 없음', position: 0 } as WikiPageSummary]
+              : [],
+          ),
+        })
+      }
+      if (method === 'POST') {
+        treeState.created = true
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: EMPTY_PAGE_ID,
+            spaceId: SPACE_ID,
+            parentId: null,
+            title: '제목 없음',
+            body: '',
+            version: 1,
+            updatedBy: 1,
+            updatedAt: '2026-06-16T00:00:00Z',
+          } as WikiPageDetail),
+        })
+      }
+      return route.fallback()
+    },
+  )
+
+  // 페이지 상세 — CTA 클릭 후 이동 시 에디터 마운트용
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${EMPTY_PAGE_ID}`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              id: EMPTY_PAGE_ID,
+              spaceId: SPACE_ID,
+              parentId: null,
+              title: '제목 없음',
+              body: '',
+              version: 1,
+              updatedBy: 1,
+              updatedAt: '2026-06-16T00:00:00Z',
+            } as WikiPageDetail),
+          })
+        : route.fallback(),
+  )
+
+  // 1) 스페이스 진입(페이지 미선택) → 빈 상태 4요소 확인
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  const emptyState = page.getByTestId('wiki-empty-state')
+  await expect(emptyState).toBeVisible()
+  // 아이콘(svg), 제목, 설명, CTA 버튼 4요소 모두 존재
+  await expect(emptyState.locator('svg')).toBeVisible()
+  await expect(emptyState.getByText('표시할 페이지가 없습니다')).toBeVisible()
+  await expect(emptyState.getByText('페이지를 선택하거나 새 페이지를 만드세요')).toBeVisible()
+  const ctaButton = emptyState.getByRole('button', { name: '새 페이지 만들기' })
+  await expect(ctaButton).toBeVisible()
+
+  // 2) CTA 클릭 → POST /wiki/spaces/:id/pages 호출 → 새 페이지 URL로 이동
+  await ctaButton.click()
+  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/${EMPTY_PAGE_ID}`), { timeout: 5000 })
+})
+
 test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입력·자동저장·트리 반영', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
@@ -120,7 +215,8 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}$`))
 
   // 2) 새 페이지 버튼 → 생성 후 해당 페이지로 이동(/pages/<number>).
-  await page.getByRole('button', { name: '새 페이지' }).click()
+  // exact:true — 빈 상태의 "새 페이지 만들기" 버튼이 substring 일치로 함께 잡히지 않도록.
+  await page.getByRole('button', { name: '새 페이지', exact: true }).click()
   await expect(page).toHaveURL(/\/wiki\/spaces\/\d+\/pages\/\d+/)
 
   // 3) 제목 입력.
@@ -241,11 +337,6 @@ test('위키 — 사이드바 페이지 삭제: 노드가 트리에서 사라진
 }) => {
   const DELETE_ID = 200
 
-  // window.confirm 을 항상 true 로 — goto 이전에 주입.
-  await page.addInitScript(() => {
-    window.confirm = () => true
-  })
-
   // 스페이스 목록.
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
@@ -310,14 +401,138 @@ test('위키 — 사이드바 페이지 삭제: 노드가 트리에서 사라진
 
   // 1) 스페이스로 진입 → '삭제 대상' 노드 노출 확인.
   await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  const targetNode = page.getByRole('button', { name: '삭제 대상', exact: true })
-  await expect(targetNode).toBeVisible()
+  const targetRow = page.getByTestId(`wiki-tree-row-${DELETE_ID}`)
+  await expect(targetRow.getByRole('button', { name: '삭제 대상', exact: true })).toBeVisible()
 
-  // 2) 행 hover → 삭제 버튼 노출 → 클릭(confirm 은 true 로 오버라이드됨).
-  //    제목 버튼('삭제 대상')과의 충돌을 피하려 'aria-label: 삭제: ...' 접두로 한정.
-  await targetNode.hover()
-  await page.getByRole('button', { name: /^삭제: / }).click()
+  // 2) 행 hover → ⋯ 메뉴 → 삭제 → 확인 다이얼로그에서 삭제.
+  await targetRow.hover()
+  await targetRow.getByRole('button', { name: '페이지 메뉴' }).click()
+  await page.getByRole('menuitem', { name: '삭제' }).click()
+  await page.getByTestId('wiki-delete-dialog').getByRole('button', { name: '삭제', exact: true }).click()
 
   // 3) 삭제 후 트리 refetch → '삭제 대상' 버튼이 사라진다.
   await expect(page.getByRole('button', { name: '삭제 대상', exact: true })).toHaveCount(0)
+})
+
+// skeleton 로딩 — GET /wiki/pages/:id 응답을 지연시켜 skeleton이 노출됐다가 에디터로 전환됨 검증.
+// (issue #246: 텍스트 "불러오는 중…" 대신 skeleton 컴포넌트를 표시해야 한다)
+test('위키 — 페이지 로딩 중 skeleton이 표시되고 로드 후 에디터로 전환된다', async ({
+  authenticatedPage: page,
+}) => {
+  const SLOW_PAGE_ID = 300
+
+  // 스페이스 목록
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([personalSpace()]),
+          })
+        : route.fallback(),
+  )
+
+  // 트리 — SLOW_PAGE_ID 1건 포함
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([
+              { id: SLOW_PAGE_ID, parentId: null, title: '느린 페이지', position: 0 } as WikiPageSummary,
+            ]),
+          })
+        : route.fallback(),
+  )
+
+  // 페이지 상세 — 응답을 1.5초 지연시켜 skeleton 노출 시간 확보.
+  let resolveSlowRoute!: () => void
+  const slowRouteReady = new Promise<void>((res) => { resolveSlowRoute = res })
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${SLOW_PAGE_ID}`,
+    async (route) => {
+      if (route.request().method() === 'GET') {
+        await slowRouteReady
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: SLOW_PAGE_ID,
+            spaceId: SPACE_ID,
+            parentId: null,
+            title: '느린 페이지',
+            body: '',
+            version: 1,
+            updatedBy: 1,
+            updatedAt: '2026-06-01T00:00:00Z',
+          } as WikiPageDetail),
+        })
+      }
+      return route.fallback()
+    },
+  )
+
+  // 1) 페이지 진입 — API 응답이 지연되므로 skeleton이 보여야 한다.
+  void page.goto(`/wiki/spaces/${SPACE_ID}/pages/${SLOW_PAGE_ID}`)
+  await expect(page.getByTestId('wiki-page-skeleton')).toBeVisible({ timeout: 3000 })
+
+  // "불러오는 중…" 텍스트는 없어야 한다 (회귀 방지).
+  await expect(page.getByText('불러오는 중…')).toHaveCount(0)
+
+  // 2) API 응답 해제 → skeleton 사라지고 에디터(.ProseMirror) 등장.
+  resolveSlowRoute()
+  await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0, { timeout: 5000 })
+  await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 5000 })
+})
+
+// 회귀: WikiSidebar 스페이스 선택기 — native <select> → shadcn/ui Select (refs #244)
+// native <select>가 쓰이면 role="combobox"가 없고 대신 role 없는 select 요소가 DOM에 존재.
+// shadcn Select가 정상 렌더링되면 SelectTrigger의 role="combobox"가 보여야 한다.
+test('위키 사이드바 — 스페이스 선택기가 shadcn Select로 렌더링되고 값 전환이 동작한다', async ({
+  authenticatedPage: page,
+}) => {
+  const SPACE_A_ID = 1
+  const SPACE_B_ID = 2
+
+  const spaces: WikiSpace[] = [
+    { id: SPACE_A_ID, type: 'PERSONAL', name: '내 노트', ownerId: 1, role: 'OWNER', createdAt: '2026-01-01T00:00:00Z' },
+    { id: SPACE_B_ID, type: 'PERSONAL', name: '두 번째 스페이스', ownerId: 1, role: 'OWNER', createdAt: '2026-01-01T00:00:00Z' },
+  ]
+
+  // 스페이스 목록 모킹
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(spaces) })
+        : route.fallback(),
+  )
+
+  // 트리 빈 응답 (페이지 없음)
+  await page.route(
+    (url) => /^\/api\/v1\/wiki\/spaces\/\d+\/pages$/.test(url.pathname),
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+        : route.fallback(),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_A_ID}`)
+
+  // 1) native <select>가 없어야 한다 — shadcn SelectTrigger(role="combobox")로 대체됨
+  await expect(page.locator('select')).toHaveCount(0)
+
+  // 2) shadcn SelectTrigger(role="combobox")가 보여야 한다
+  const trigger = page.getByRole('combobox')
+  await expect(trigger).toBeVisible()
+  await expect(trigger).toContainText('내 노트')
+
+  // 3) 다른 스페이스 선택 → URL이 해당 스페이스로 바뀜
+  await trigger.click()
+  await page.getByRole('option', { name: '두 번째 스페이스' }).click()
+  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_B_ID}`), { timeout: 3000 })
 })

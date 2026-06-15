@@ -248,4 +248,29 @@ test.describe('받은편지함', () => {
     // 브라우저가 제안하는 파일명이 첨부 파일명과 일치하는지 검증
     expect(download.suggestedFilename()).toBe('안건.pdf')
   })
+
+  // #265 — 답장/전체답장/전달 버튼이 shadcn Button(role=button)으로 렌더링되고 클릭 시 컴포즈 도크가 열린다.
+  test('메일 상세 — 답장·전체답장·전달 버튼 shadcn Button + 답장 클릭 → 컴포즈 도크', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-10').click()
+
+    // 각 버튼이 data-testid로 식별 가능하고 role="button" 을 가져야 한다.
+    const replyBtn = page.getByTestId('mail-reply')
+    const replyAllBtn = page.getByTestId('mail-reply-all')
+    const forwardBtn = page.getByTestId('mail-forward')
+    await expect(replyBtn).toBeVisible()
+    await expect(replyAllBtn).toBeVisible()
+    await expect(forwardBtn).toBeVisible()
+    await expect(replyBtn).toHaveRole('button')
+    await expect(replyAllBtn).toHaveRole('button')
+    await expect(forwardBtn).toHaveRole('button')
+
+    // 답장 클릭 → MailComposeContext.openCompose() → 컴포즈 도크가 열려야 한다.
+    await replyBtn.click()
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+  })
 })

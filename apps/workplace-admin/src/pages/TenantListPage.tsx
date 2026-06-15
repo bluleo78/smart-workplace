@@ -76,7 +76,7 @@ export default function TenantListPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>이름</TableHead>
-                <TableHead>slug</TableHead>
+                <TableHead>슬러그</TableHead>
                 <TableHead>상태</TableHead>
                 <TableHead className="text-right">멤버수</TableHead>
                 <TableHead>생성일</TableHead>

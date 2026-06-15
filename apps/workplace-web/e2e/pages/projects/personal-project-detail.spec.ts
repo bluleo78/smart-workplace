@@ -489,6 +489,34 @@ test('빠른 추가 다이얼로그는 유형 select 를 숨기고 POST payload 
   expect((created.payload as { typeId?: number }).typeId).toBe(taskTypeId);
 });
 
+// ─── #252 검색/필터 결과 0건 시 빈 상태 메시지 분기 ─────────────────────────────────
+test('검색어 활성 상태에서 결과 0건 → "일치하는 작업이 없습니다." (빠른 추가 유도 문구 미표시)', async ({ authenticatedPage: page }) => {
+  const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, project);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/labels`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/cycles`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/types`, []);
+  // 검색 결과 0건 응답
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues`, createIssueSearchResponse([]));
+
+  // q= 파라미터가 있는 URL 직접 진입 (검색 필터 활성 상태)
+  await page.goto(`/projects/${KEY}?q=zzz없는검색어`);
+
+  // "일치하는 작업이 없습니다." 가 보여야 한다 (빈 프로젝트 메시지가 아님)
+  await expect(page.getByText('일치하는 작업이 없습니다.')).toBeVisible();
+  // "빠른 추가로 시작하세요." 유도 문구는 없어야 한다
+  await expect(page.getByText(/빠른 추가로 시작하세요/)).toHaveCount(0);
+});
+
+test('필터 없는 빈 프로젝트 → "작업이 없습니다. + 빠른 추가로 시작하세요." 표시', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, []); // 이슈 없음 + 필터 없음
+  await page.goto(`/projects/${KEY}`);
+
+  // 필터가 없으면 기존 빈 상태 메시지 유지
+  await expect(page.getByText('작업이 없습니다. + 빠른 추가로 시작하세요.')).toBeVisible();
+  await expect(page.getByText('일치하는 작업이 없습니다.')).toHaveCount(0);
+});
+
 test('보드+우선순위 그룹 — CANCELED 이슈는 어떤 우선순위 컬럼에도 나타나지 않는다', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [
     createIssue({ projectKey: KEY, number: 1, title: '높음활성', status: 'TODO', priority: 'HIGH' }),
@@ -501,4 +529,38 @@ test('보드+우선순위 그룹 — CANCELED 이슈는 어떤 우선순위 컬�
   await expect(page.getByTestId('issue-card-1')).toBeVisible();
   // CANCELED 카드는 우선순위 그룹 보드 어디에도 없다.
   await expect(page.getByTestId('issue-card-2')).toHaveCount(0);
+});
+
+// ─── #267 패널/모달 제목 → 풀 페이지 링크 ──────────────────────────────────────
+
+test('패널 제목 링크 클릭 → 풀 이슈 상세 페이지(/projects/KEY/issues/N)로 이동', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const panel = page.getByTestId('personal-task-panel');
+  await expect(panel).toBeVisible();
+
+  // 제목 링크 존재 확인 — href 가 풀 이슈 경로여야 한다(#267).
+  const titleLink = panel.getByTestId('personal-task-panel-title-link');
+  await expect(titleLink).toBeVisible();
+  await expect(titleLink).toHaveAttribute('href', `/projects/${KEY}/issues/1`);
+
+  // 클릭 시 풀 이슈 경로로 이동한다(네비게이션 검증).
+  await titleLink.click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/1`));
+});
+
+test('보드 모달 헤더에 전체 보기 아이콘 버튼(ExternalLink)이 존재하고 풀 이슈 경로 href를 가진다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?view=board&task=1`);
+
+  const modal = page.getByTestId('personal-task-modal');
+  await expect(modal).toBeVisible();
+
+  // "전체 보기" 버튼이 존재하고 href 가 풀 이슈 경로여야 한다(#267).
+  const extBtn = modal.getByRole('link', { name: '전체 보기' });
+  await expect(extBtn).toBeVisible();
+  await expect(extBtn).toHaveAttribute('href', `/projects/${KEY}/issues/1`);
 });

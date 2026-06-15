@@ -155,8 +155,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                             data-testid={`mention-chip-${seg.id}`}
                             className={`rounded px-1 font-medium ${
                               seg.kind === 'AGENT'
-                                ? 'bg-purple-100 text-purple-700'
-                                : 'bg-blue-100 text-blue-700'
+                                ? 'bg-primary/15 text-primary' // 에이전트: 브랜드 컬러 기반 시맨틱 토큰
+                                : 'bg-accent text-accent-foreground' // 사용자: accent 시맨틱 토큰 (다크모드 자동 대응)
                             }`}
                           >
                             @{seg.name}
@@ -233,7 +233,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               {onOpenThread && m.replyCount > 0 && (
                 <button
                   type="button"
-                  className="mt-0.5 text-xs font-medium text-blue-600 hover:underline"
+                  className="mt-0.5 text-xs font-medium text-primary hover:underline"
                   data-testid={`message-thread-link-${m.id}`}
                   onClick={() => onOpenThread(m.id)}
                 >

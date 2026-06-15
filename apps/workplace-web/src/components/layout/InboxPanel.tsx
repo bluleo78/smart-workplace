@@ -81,12 +81,15 @@ export function InboxPanel() {
           {isLoading ? (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">불러오는 중…</p>
           ) : items.length === 0 ? (
-            <p
+            // 빈 상태: 아이콘 + 제목 + 설명 (디자인 시스템 §2.5 Empty State 4요소)
+            <div
               data-testid="inbox-empty"
-              className="px-3 py-6 text-center text-sm text-muted-foreground"
+              className="flex flex-col items-center gap-2 px-3 py-8 text-center text-muted-foreground"
             >
-              새 알림이 없습니다
-            </p>
+              <Bell className="h-8 w-8 opacity-30" />
+              <p className="text-sm font-medium">새 알림이 없습니다</p>
+              <p className="text-xs">이슈 배정, 코멘트, 상태 변경 알림이 여기에 표시됩니다.</p>
+            </div>
           ) : (
             <ul>
               {items.map((n) => (

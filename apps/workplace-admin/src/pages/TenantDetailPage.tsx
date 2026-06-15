@@ -56,12 +56,24 @@ function StatusBadge({ status }: { status: TenantStatus }) {
   )
 }
 
+// 역할 레이블 — API 원시값을 한국어로 변환.
+const ROLE_LABEL: Record<TenantMember['role'], string> = {
+  OWNER: '소유자',
+  ADMIN: '관리자',
+  MEMBER: '멤버',
+}
+
+// 멤버 상태 레이블 — API 원시값을 한국어로 변환.
+function memberStatusLabel(status: TenantMember['status']): string {
+  return status === 'ACTIVE' ? '활성' : '정지됨'
+}
+
 // 멤버 role 배지 — OWNER 는 강조(default), 그 외는 secondary.
 function RoleBadge({ role }: { role: TenantMember['role'] }) {
   if (role === 'OWNER') {
-    return <Badge variant="default">OWNER</Badge>
+    return <Badge variant="default">{ROLE_LABEL[role]}</Badge>
   }
-  return <Badge variant="secondary">{role}</Badge>
+  return <Badge variant="secondary">{ROLE_LABEL[role] ?? role}</Badge>
 }
 
 const MEMBER_COLUMN_COUNT = 4
@@ -209,7 +221,7 @@ export default function TenantDetailPage() {
           ) : (
             tenant && (
               <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
-                <dt className="text-muted-foreground">slug</dt>
+                <dt className="text-muted-foreground">슬러그</dt>
                 <dd>{tenant.slug ?? '-'}</dd>
                 <dt className="text-muted-foreground">상태</dt>
                 <dd>
@@ -256,7 +268,7 @@ export default function TenantDetailPage() {
                     <TableCell>
                       <RoleBadge role={member.role} />
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{member.status}</TableCell>
+                    <TableCell className="text-muted-foreground">{memberStatusLabel(member.status)}</TableCell>
                   </TableRow>
                 ))
               ) : (

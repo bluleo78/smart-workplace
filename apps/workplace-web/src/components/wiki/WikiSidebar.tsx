@@ -14,16 +14,21 @@ import {
   arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
-  useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { BookOpen } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   useCreatePage,
   useDeletePage,
@@ -32,7 +37,9 @@ import {
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import type { WikiPageSummary } from '../../types/wiki'
+import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
+import { WikiTreeRow } from './WikiTreeRow'
 
 // 들여쓰기 1단계 폭(px). 투영(projection) 시 가로 오프셋을 이 값으로 나눠 depth 변화를 계산한다.
 const INDENT = 16
@@ -43,13 +50,14 @@ interface FlatItem {
   parentId: number | null
   depth: number
   title: string
+  hasChildren: boolean
 }
 
-// 평면 목록 → depth-first 평면 배열. 형제는 position 순서 유지, 모든 노드 펼침(v1 접기 없음).
+// 평면 목록 → depth-first 평면 배열. 형제는 position 순서 유지.
+// collapsed 집합에 포함된 노드의 자손은 렌더에서 제외(DnD 도 보이는 항목만 대상).
 // parentId 가 목록에 없는(고아) 페이지는 루트로 취급한다.
-function flattenTree(pages: WikiPageSummary[]): FlatItem[] {
+function flattenTree(pages: WikiPageSummary[], collapsed: Set<number>): FlatItem[] {
   const ids = new Set(pages.map((p) => p.id))
-  // 부모별 자식 그룹화 — 존재하지 않는 부모는 null(루트)로 정규화.
   const byParent = new Map<number | null, WikiPageSummary[]>()
   for (const p of pages) {
     const key = p.parentId != null && ids.has(p.parentId) ? p.parentId : null
@@ -62,8 +70,10 @@ function flattenTree(pages: WikiPageSummary[]): FlatItem[] {
   const result: FlatItem[] = []
   const walk = (parentId: number | null, depth: number) => {
     for (const c of byParent.get(parentId) ?? []) {
-      result.push({ id: c.id, parentId, depth, title: c.title })
-      walk(c.id, depth + 1)
+      const hasChildren = (byParent.get(c.id) ?? []).length > 0
+      result.push({ id: c.id, parentId, depth, title: c.title, hasChildren })
+      // 접힌 노드의 자손은 평면화에서 제외(렌더·DnD 모두 보이는 항목만 대상).
+      if (!collapsed.has(c.id)) walk(c.id, depth + 1)
     }
   }
   walk(null, 0)
@@ -119,61 +129,6 @@ function getProjection(
   return { depth, parentId }
 }
 
-// 정렬 가능한 트리 행 — useSortable. 행 컨테이너에 listeners 를 깔되 distance:5 센서로
-// 클릭(제목 이동)과 드래그를 구분한다. depth 는 투영 중 active 행에 한해 투영 depth 를 받는다.
-function SortableTreeItem({
-  id,
-  title,
-  depth,
-  selected,
-  onOpen,
-  onDelete,
-}: {
-  id: number
-  title: string
-  depth: number
-  selected: boolean
-  onOpen: (id: number) => void
-  onDelete: (id: number) => void
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id })
-  const style = {
-    transform: CSS.Translate.toString(transform),
-    transition,
-  }
-  const label = title || '제목 없음'
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      className={`group relative flex items-center ${isDragging ? 'opacity-50' : ''}`}
-    >
-      {/* 제목 — 짧은 클릭이면 이동(distance:5 센서가 드래그와 분리). */}
-      <button
-        type="button"
-        onClick={() => onOpen(id)}
-        style={{ paddingLeft: 8 + depth * INDENT, paddingRight: 28 }}
-        className={`block w-full truncate rounded px-2 py-1 text-left text-sm hover:bg-accent ${
-          selected ? 'bg-accent font-medium' : ''
-        }`}
-      >
-        {label}
-      </button>
-      {/* 페이지 삭제 — 평소 opacity-0, hover 시 노출. */}
-      <button
-        type="button"
-        onClick={() => onDelete(id)}
-        aria-label={`삭제: ${label}`}
-        className="absolute right-1 rounded px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-      >
-        ✕
-      </button>
-    </div>
-  )
-}
 
 /** 위키 2차 사이드바 — 스페이스 선택 + 페이지 트리(드래그앤드롭 재정렬/재부모). */
 export function WikiSidebar() {
@@ -189,9 +144,13 @@ export function WikiSidebar() {
   const movePage = useMovePage(spaceId ?? 0)
   // 멤버 관리 다이얼로그 열림 상태 — TEAM 스페이스에서만 노출.
   const [membersOpen, setMembersOpen] = useState(false)
+  // 접힌 노드 id 집합 — 영속화하지 않음(새로고침 시 전부 펼침).
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
+  // 삭제 확인 대상 pageId(없으면 닫힘).
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
   // 평면화된 트리 — DnD SortableContext 의 항목 순서.
-  const flatItems = useMemo(() => flattenTree(pages ?? []), [pages])
+  const flatItems = useMemo(() => flattenTree(pages ?? [], collapsed), [pages, collapsed])
 
   // DnD 상태 — 드래그 중 active/over id 와 가로 오프셋(투영용).
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -227,12 +186,36 @@ export function WikiSidebar() {
     openPage(created.id)
   }
 
-  // 페이지 삭제 — 확인 후 mutate. 열려 있던 페이지가 삭제되면 스페이스 루트로 이동.
-  const handleDelete = async (id: number) => {
+  const toggleCollapse = (id: number) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  // 하위 페이지 생성 — 부모를 자동 펼친 뒤 생성 페이지로 이동.
+  const addSubPage = async (parentId: number) => {
     if (spaceId == null) return
-    if (!window.confirm('이 페이지를 삭제할까요? 하위 페이지도 함께 삭제됩니다.')) return
-    await deletePage.mutateAsync(id)
-    if (activePageId === id) navigate(`/wiki/spaces/${spaceId}`)
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      next.delete(parentId)
+      return next
+    })
+    const created = await createPage.mutateAsync({ parentId, title: '제목 없음' })
+    openPage(created.id)
+  }
+
+  // 삭제 확정 — 열려 있던 페이지가 삭제되면 스페이스 루트로 이동.
+  const confirmDelete = () => {
+    const id = deleteTarget
+    setDeleteTarget(null)
+    if (id == null || spaceId == null) return
+    deletePage.mutate(id, {
+      onSuccess: () => {
+        if (activePageId === id) navigate(`/wiki/spaces/${spaceId}`)
+      },
+    })
   }
 
   function resetDnd() {
@@ -292,19 +275,23 @@ export function WikiSidebar() {
         <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
         노트
       </div>
-      {/* 스페이스 전환 — 앱 헤더 아래 섹션에 배치(표준 사이드바 패턴) */}
+      {/* 스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지 */}
       <div className="border-b p-2">
-        <select
-          value={spaceId ?? ''}
-          onChange={(e) => navigate(`/wiki/spaces/${e.target.value}`)}
-          className="w-full rounded border bg-background px-2 py-1 text-sm"
+        <Select
+          value={String(spaceId ?? '')}
+          onValueChange={(v) => navigate(`/wiki/spaces/${v}`)}
         >
-          {(spaces ?? []).map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="h-8 w-full text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(spaces ?? []).map((s) => (
+              <SelectItem key={s.id} value={String(s.id)}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-xs font-semibold uppercase text-muted-foreground">페이지</span>
@@ -345,15 +332,18 @@ export function WikiSidebar() {
             strategy={verticalListSortingStrategy}
           >
             {flatItems.map((item) => (
-              <SortableTreeItem
+              <WikiTreeRow
                 key={item.id}
                 id={item.id}
                 title={item.title}
-                // 드래그 중 active 행만 투영 depth 를 적용(시각적 들여쓰기 피드백).
                 depth={activeId === item.id && projected ? projected.depth : item.depth}
+                hasChildren={item.hasChildren}
+                collapsed={collapsed.has(item.id)}
                 selected={item.id === activePageId}
+                onToggle={toggleCollapse}
                 onOpen={openPage}
-                onDelete={handleDelete}
+                onAddChild={addSubPage}
+                onRequestDelete={setDeleteTarget}
               />
             ))}
           </SortableContext>
@@ -368,6 +358,15 @@ export function WikiSidebar() {
           onOpenChange={setMembersOpen}
         />
       )}
+      {/* 페이지 삭제 확인(사이드바 행 ⋯). */}
+      <WikiDeletePageDialog
+        open={deleteTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        pageTitle={flatItems.find((i) => i.id === deleteTarget)?.title ?? ''}
+        onConfirm={confirmDelete}
+      />
     </aside>
   )
 }

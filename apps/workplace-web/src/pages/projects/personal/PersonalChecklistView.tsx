@@ -26,8 +26,22 @@ export function PersonalChecklistView({
 
   if (q.isLoading) return <p className="text-sm text-muted-foreground">로딩 중…</p>;
   if (q.error) return <p className="text-sm text-destructive">작업을 불러올 수 없습니다</p>;
-  if (items.length === 0)
-    return <p className="py-12 text-center text-sm text-muted-foreground">작업이 없습니다. + 빠른 추가로 시작하세요.</p>;
+  if (items.length === 0) {
+    // 활성 필터(검색어·상태·우선순위·라벨·담당자) 여부에 따라 빈 상태 메시지 분기
+    const hasActiveFilters =
+      filters.q !== '' ||
+      filters.statuses.length > 0 ||
+      filters.priorities.length > 0 ||
+      filters.labelIds.length > 0 ||
+      filters.assigneeIds.length > 0;
+    return (
+      <p className="py-12 text-center text-sm text-muted-foreground">
+        {hasActiveFilters
+          ? '일치하는 작업이 없습니다.'
+          : '작업이 없습니다. + 빠른 추가로 시작하세요.'}
+      </p>
+    );
+  }
 
   const { sections, collapsedDone } = groupChecklist(items, groupBy);
   // 전부 CANCELED 등으로 섹션·완료 모두 비면 백지 대신 빈 상태 안내.
