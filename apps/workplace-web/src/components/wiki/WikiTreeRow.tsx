@@ -77,7 +77,7 @@ export function WikiTreeRow({
         >
           {label}
         </button>
-        <div className="absolute right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="absolute right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <button
             type="button"
             aria-label="하위 페이지"
