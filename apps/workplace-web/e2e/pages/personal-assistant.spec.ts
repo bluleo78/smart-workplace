@@ -104,6 +104,40 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByRole('combobox', { name: '생각의 깊이' })).toBeVisible()
   })
 
+  // #262 — 모델 선택기에 내부 ID 대신 사용자 친화적 레이블이 표시되어야 한다.
+  test('모델 선택기에 사용자 친화적 레이블 표시', async ({ authenticatedPage: page }) => {
+    await page.route('**/api/v1/users/me/assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            configured: true,
+            tokenLabel: null,
+            tokenLastUsedAt: null,
+            model: 'claude-sonnet-4-6',
+            thinkingDepth: 'NORMAL',
+          }),
+        })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+
+    // 트리거(현재 선택값)에 사용자 친화적 레이블이 표시되어야 한다.
+    await expect(page.getByRole('combobox', { name: '모델' })).toContainText('Claude Sonnet 4.6')
+
+    // 드롭다운을 열어 목록에 내부 ID가 없고 레이블이 있는지 확인한다.
+    await page.getByRole('combobox', { name: '모델' }).click()
+    await expect(page.getByRole('option', { name: 'Claude Sonnet 4.6' })).toBeVisible()
+    await expect(page.getByRole('option', { name: 'Claude Opus 4.8' })).toBeVisible()
+    // 내부 ID 형식('claude-sonnet-4-6')은 옵션 레이블로 노출되면 안 된다.
+    await expect(page.getByRole('option', { name: 'claude-sonnet-4-6' })).not.toBeVisible()
+    await expect(page.getByRole('option', { name: 'claude-opus-4-8' })).not.toBeVisible()
+  })
+
   // #192 — 토큰 등록 API 실패 시 오류 토스트가 표시되어야 한다.
   test('토큰 등록 API 실패 시 오류 토스트 표시', async ({ authenticatedPage: page }) => {
     // GET — 미설정 상태 유지
@@ -217,7 +251,7 @@ test.describe('프로필 개인 비서', () => {
     // 모델 드롭다운 변경 → onValueChange 가 PUT /settings 호출(500).
     // shadcn Select: trigger(aria-label "모델") 클릭 → option 클릭
     await page.getByRole('combobox', { name: '모델' }).click()
-    await page.getByRole('option', { name: 'claude-opus-4-8' }).click()
+    await page.getByRole('option', { name: 'Claude Opus 4.8' }).click()
 
     // 오류 토스트가 표시되어야 한다.
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible()
