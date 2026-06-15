@@ -488,3 +488,51 @@ test('위키 — 페이지 로딩 중 skeleton이 표시되고 로드 후 에디
   await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0, { timeout: 5000 })
   await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 5000 })
 })
+
+// 회귀: WikiSidebar 스페이스 선택기 — native <select> → shadcn/ui Select (refs #244)
+// native <select>가 쓰이면 role="combobox"가 없고 대신 role 없는 select 요소가 DOM에 존재.
+// shadcn Select가 정상 렌더링되면 SelectTrigger의 role="combobox"가 보여야 한다.
+test('위키 사이드바 — 스페이스 선택기가 shadcn Select로 렌더링되고 값 전환이 동작한다', async ({
+  authenticatedPage: page,
+}) => {
+  const SPACE_A_ID = 1
+  const SPACE_B_ID = 2
+
+  const spaces: WikiSpace[] = [
+    { id: SPACE_A_ID, type: 'PERSONAL', name: '내 노트', ownerId: 1, role: 'OWNER', createdAt: '2026-01-01T00:00:00Z' },
+    { id: SPACE_B_ID, type: 'PERSONAL', name: '두 번째 스페이스', ownerId: 1, role: 'OWNER', createdAt: '2026-01-01T00:00:00Z' },
+  ]
+
+  // 스페이스 목록 모킹
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(spaces) })
+        : route.fallback(),
+  )
+
+  // 트리 빈 응답 (페이지 없음)
+  await page.route(
+    (url) => /^\/api\/v1\/wiki\/spaces\/\d+\/pages$/.test(url.pathname),
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+        : route.fallback(),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_A_ID}`)
+
+  // 1) native <select>가 없어야 한다 — shadcn SelectTrigger(role="combobox")로 대체됨
+  await expect(page.locator('select')).toHaveCount(0)
+
+  // 2) shadcn SelectTrigger(role="combobox")가 보여야 한다
+  const trigger = page.getByRole('combobox')
+  await expect(trigger).toBeVisible()
+  await expect(trigger).toContainText('내 노트')
+
+  // 3) 다른 스페이스 선택 → URL이 해당 스페이스로 바뀜
+  await trigger.click()
+  await page.getByRole('option', { name: '두 번째 스페이스' }).click()
+  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_B_ID}`), { timeout: 3000 })
+})

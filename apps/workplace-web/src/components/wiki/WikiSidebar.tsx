@@ -23,6 +23,13 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   useCreatePage,
   useDeletePage,
   useMovePage,
@@ -268,19 +275,23 @@ export function WikiSidebar() {
         <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
         노트
       </div>
-      {/* 스페이스 전환 — 앱 헤더 아래 섹션에 배치(표준 사이드바 패턴) */}
+      {/* 스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지 */}
       <div className="border-b p-2">
-        <select
-          value={spaceId ?? ''}
-          onChange={(e) => navigate(`/wiki/spaces/${e.target.value}`)}
-          className="w-full rounded border bg-background px-2 py-1 text-sm"
+        <Select
+          value={String(spaceId ?? '')}
+          onValueChange={(v) => navigate(`/wiki/spaces/${v}`)}
         >
-          {(spaces ?? []).map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="h-8 w-full text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(spaces ?? []).map((s) => (
+              <SelectItem key={s.id} value={String(s.id)}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-xs font-semibold uppercase text-muted-foreground">페이지</span>
