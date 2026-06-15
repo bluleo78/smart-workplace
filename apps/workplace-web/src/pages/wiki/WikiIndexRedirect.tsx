@@ -15,5 +15,5 @@ export function WikiIndexRedirect() {
   }, [spaces, navigate])
 
   if (isLoading) return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
-  return <div className="p-6 text-sm text-muted-foreground">위키 공간을 준비 중…</div>
+  return <div className="p-6 text-sm text-muted-foreground">노트 공간을 준비 중…</div>
 }

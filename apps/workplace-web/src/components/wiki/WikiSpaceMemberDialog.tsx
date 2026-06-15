@@ -142,7 +142,7 @@ export function WikiSpaceMemberDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>멤버 제거</AlertDialogTitle>
             <AlertDialogDescription>
-              이 위키에서 {confirmRemove?.name}을(를) 제거하시겠습니까? 되돌릴 수 없습니다.
+              이 노트에서 {confirmRemove?.name}을(를) 제거하시겠습니까? 되돌릴 수 없습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

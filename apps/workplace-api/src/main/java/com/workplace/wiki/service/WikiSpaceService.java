@@ -26,7 +26,7 @@ public class WikiSpaceService {
             .findPersonalSpaceId(userId)
             .orElseGet(
                 () -> {
-                  long id = spaces.insert("PERSONAL", "내 위키", userId);
+                  long id = spaces.insert("PERSONAL", "내 노트", userId);
                   members.add(id, userId, "OWNER");
                   return id;
                 });

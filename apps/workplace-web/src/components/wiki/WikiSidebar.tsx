@@ -18,9 +18,11 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { BookOpen } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
+import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import {
   useCreatePage,
@@ -284,7 +286,13 @@ export function WikiSidebar() {
   }
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r bg-muted/20">
+    <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
+      {/* 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "노트" 앱임을 명시(다른 앱과 한 선 정렬) */}
+      <div className={sidebarTitleClass}>
+        <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
+        노트
+      </div>
+      {/* 스페이스 전환 — 앱 헤더 아래 섹션에 배치(표준 사이드바 패턴) */}
       <div className="border-b p-2">
         <select
           value={spaceId ?? ''}

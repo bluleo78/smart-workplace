@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Markdown } from 'tiptap-markdown'
 
+import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 
@@ -311,7 +312,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           scheduleSave(e.target.value)
         }}
         placeholder="제목 없음"
-        className="mb-4 w-full border-0 bg-transparent text-3xl font-bold outline-none placeholder:text-muted-foreground/40"
+        className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* 멘션 칩 클릭 내비게이션은 래퍼 onClick 에서 위임 처리(closest[data-mtype]). */}
