@@ -317,3 +317,78 @@ test('위키 — 사이드바 페이지 삭제: 노드가 트리에서 사라진
   // 3) 삭제 후 트리 refetch → '삭제 대상' 버튼이 사라진다.
   await expect(page.getByRole('button', { name: '삭제 대상', exact: true })).toHaveCount(0)
 })
+
+// skeleton 로딩 — GET /wiki/pages/:id 응답을 지연시켜 skeleton이 노출됐다가 에디터로 전환됨 검증.
+// (issue #246: 텍스트 "불러오는 중…" 대신 skeleton 컴포넌트를 표시해야 한다)
+test('위키 — 페이지 로딩 중 skeleton이 표시되고 로드 후 에디터로 전환된다', async ({
+  authenticatedPage: page,
+}) => {
+  const SLOW_PAGE_ID = 300
+
+  // 스페이스 목록
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([personalSpace()]),
+          })
+        : route.fallback(),
+  )
+
+  // 트리 — SLOW_PAGE_ID 1건 포함
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([
+              { id: SLOW_PAGE_ID, parentId: null, title: '느린 페이지', position: 0 } as WikiPageSummary,
+            ]),
+          })
+        : route.fallback(),
+  )
+
+  // 페이지 상세 — 응답을 1.5초 지연시켜 skeleton 노출 시간 확보.
+  let resolveSlowRoute!: () => void
+  const slowRouteReady = new Promise<void>((res) => { resolveSlowRoute = res })
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${SLOW_PAGE_ID}`,
+    async (route) => {
+      if (route.request().method() === 'GET') {
+        await slowRouteReady
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: SLOW_PAGE_ID,
+            spaceId: SPACE_ID,
+            parentId: null,
+            title: '느린 페이지',
+            body: '',
+            version: 1,
+            updatedBy: 1,
+            updatedAt: '2026-06-01T00:00:00Z',
+          } as WikiPageDetail),
+        })
+      }
+      return route.fallback()
+    },
+  )
+
+  // 1) 페이지 진입 — API 응답이 지연되므로 skeleton이 보여야 한다.
+  void page.goto(`/wiki/spaces/${SPACE_ID}/pages/${SLOW_PAGE_ID}`)
+  await expect(page.getByTestId('wiki-page-skeleton')).toBeVisible({ timeout: 3000 })
+
+  // "불러오는 중…" 텍스트는 없어야 한다 (회귀 방지).
+  await expect(page.getByText('불러오는 중…')).toHaveCount(0)
+
+  // 2) API 응답 해제 → skeleton 사라지고 에디터(.ProseMirror) 등장.
+  resolveSlowRoute()
+  await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0, { timeout: 5000 })
+  await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 5000 })
+})

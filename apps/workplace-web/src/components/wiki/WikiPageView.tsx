@@ -1,3 +1,4 @@
+import { Skeleton } from '@/components/ui/skeleton'
 import { useWikiPage } from '../../hooks/queries/useWikiPage'
 import { WikiEditor } from './WikiEditor'
 
@@ -13,7 +14,15 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     )
   }
   if (isLoading || !page) {
-    return <div className="p-8 text-sm text-muted-foreground">불러오는 중…</div>
+    /** 페이지 콘텐츠 형태를 미러하는 skeleton — DS §2.5 */
+    return (
+      <div className="mx-auto max-w-3xl px-8 py-6" data-testid="wiki-page-skeleton">
+        <Skeleton className="mb-4 h-9 w-64" />
+        <Skeleton className="mb-2 h-4 w-full" />
+        <Skeleton className="mb-2 h-4 w-5/6" />
+        <Skeleton className="h-4 w-4/6" />
+      </div>
+    )
   }
   return <WikiEditor key={page.id} page={page} spaceId={spaceId} />
 }
