@@ -530,3 +530,37 @@ test('보드+우선순위 그룹 — CANCELED 이슈는 어떤 우선순위 컬�
   // CANCELED 카드는 우선순위 그룹 보드 어디에도 없다.
   await expect(page.getByTestId('issue-card-2')).toHaveCount(0);
 });
+
+// ─── #267 패널/모달 제목 → 풀 페이지 링크 ──────────────────────────────────────
+
+test('패널 제목 링크 클릭 → 풀 이슈 상세 페이지(/projects/KEY/issues/N)로 이동', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const panel = page.getByTestId('personal-task-panel');
+  await expect(panel).toBeVisible();
+
+  // 제목 링크 존재 확인 — href 가 풀 이슈 경로여야 한다(#267).
+  const titleLink = panel.getByTestId('personal-task-panel-title-link');
+  await expect(titleLink).toBeVisible();
+  await expect(titleLink).toHaveAttribute('href', `/projects/${KEY}/issues/1`);
+
+  // 클릭 시 풀 이슈 경로로 이동한다(네비게이션 검증).
+  await titleLink.click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/1`));
+});
+
+test('보드 모달 헤더에 전체 보기 아이콘 버튼(ExternalLink)이 존재하고 풀 이슈 경로 href를 가진다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?view=board&task=1`);
+
+  const modal = page.getByTestId('personal-task-modal');
+  await expect(modal).toBeVisible();
+
+  // "전체 보기" 버튼이 존재하고 href 가 풀 이슈 경로여야 한다(#267).
+  const extBtn = modal.getByRole('link', { name: '전체 보기' });
+  await expect(extBtn).toBeVisible();
+  await expect(extBtn).toHaveAttribute('href', `/projects/${KEY}/issues/1`);
+});

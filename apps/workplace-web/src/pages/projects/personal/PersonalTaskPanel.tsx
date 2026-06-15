@@ -1,8 +1,8 @@
 // 개인 작업 상세 — 뷰별 하이브리드: 리스트/체크리스트=인플로우 사이드 패널, 보드=중앙 모달(#231).
 // ?task=N 이 있을 때만 표시. 기존 필드 위젯 + 이슈 chat 재사용. ESC·✕·같은 행 재클릭으로 닫힘.
-import { X } from 'lucide-react';
+import { ExternalLink, X } from 'lucide-react';
 import { useCallback, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
@@ -103,11 +103,32 @@ export function PersonalTaskDetail({
       {/* 헤더 — 제목 + (패널일 때만) 닫기 버튼. 모달은 DialogContent 자체 닫기 사용. */}
       <div className="flex items-center justify-between border-b p-3">
         {asModal ? (
-          <DialogTitle className="truncate text-sm font-medium">
-            {q.data?.summary.title ?? '작업'}
-          </DialogTitle>
+          // 모달: DialogTitle(a11y 필수) + 전체 보기 아이콘 버튼.
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <DialogTitle className="truncate text-sm font-medium">
+              {q.data?.summary.title ?? '작업'}
+            </DialogTitle>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0"
+              aria-label="전체 보기"
+              asChild
+            >
+              <Link to={`/projects/${projectKey}/issues/${number}`}>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          </div>
         ) : (
-          <span className="truncate text-sm font-medium">{q.data?.summary.title ?? '작업'}</span>
+          // 패널: 제목을 링크로 — 클릭하면 풀 이슈 상세 페이지로 이동(#267).
+          <Link
+            to={`/projects/${projectKey}/issues/${number}`}
+            className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+            data-testid="personal-task-panel-title-link"
+          >
+            {q.data?.summary.title ?? '작업'}
+          </Link>
         )}
         {!asModal && (
           <Button
