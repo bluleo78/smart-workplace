@@ -38,6 +38,101 @@ function pageDetail(title: string, version: number): WikiPageDetail {
   }
 }
 
+// 빈 상태 — 페이지 미선택 시 DS §2.5 4요소(아이콘+제목+설명+CTA) 표시 + CTA로 페이지 생성 (refs #245)
+test('위키 — 빈 상태: 4요소 표시 + CTA로 새 페이지 생성 후 이동', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  const EMPTY_PAGE_ID = 50
+
+  // 스페이스 목록
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([personalSpace()]),
+          })
+        : route.fallback(),
+  )
+
+  // 트리 — 초기 빈 목록, POST 후 새 페이지 1건 반환
+  const treeState = { created: false }
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            treeState.created
+              ? [{ id: EMPTY_PAGE_ID, parentId: null, title: '제목 없음', position: 0 } as WikiPageSummary]
+              : [],
+          ),
+        })
+      }
+      if (method === 'POST') {
+        treeState.created = true
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: EMPTY_PAGE_ID,
+            spaceId: SPACE_ID,
+            parentId: null,
+            title: '제목 없음',
+            body: '',
+            version: 1,
+            updatedBy: 1,
+            updatedAt: '2026-06-16T00:00:00Z',
+          } as WikiPageDetail),
+        })
+      }
+      return route.fallback()
+    },
+  )
+
+  // 페이지 상세 — CTA 클릭 후 이동 시 에디터 마운트용
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${EMPTY_PAGE_ID}`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              id: EMPTY_PAGE_ID,
+              spaceId: SPACE_ID,
+              parentId: null,
+              title: '제목 없음',
+              body: '',
+              version: 1,
+              updatedBy: 1,
+              updatedAt: '2026-06-16T00:00:00Z',
+            } as WikiPageDetail),
+          })
+        : route.fallback(),
+  )
+
+  // 1) 스페이스 진입(페이지 미선택) → 빈 상태 4요소 확인
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  const emptyState = page.getByTestId('wiki-empty-state')
+  await expect(emptyState).toBeVisible()
+  // 아이콘(svg), 제목, 설명, CTA 버튼 4요소 모두 존재
+  await expect(emptyState.locator('svg')).toBeVisible()
+  await expect(emptyState.getByText('표시할 페이지가 없습니다')).toBeVisible()
+  await expect(emptyState.getByText('페이지를 선택하거나 새 페이지를 만드세요')).toBeVisible()
+  const ctaButton = emptyState.getByRole('button', { name: '새 페이지 만들기' })
+  await expect(ctaButton).toBeVisible()
+
+  // 2) CTA 클릭 → POST /wiki/spaces/:id/pages 호출 → 새 페이지 URL로 이동
+  await ctaButton.click()
+  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/${EMPTY_PAGE_ID}`), { timeout: 5000 })
+})
+
 test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입력·자동저장·트리 반영', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
@@ -120,7 +215,8 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}$`))
 
   // 2) 새 페이지 버튼 → 생성 후 해당 페이지로 이동(/pages/<number>).
-  await page.getByRole('button', { name: '새 페이지' }).click()
+  // exact:true — 빈 상태의 "새 페이지 만들기" 버튼이 substring 일치로 함께 잡히지 않도록.
+  await page.getByRole('button', { name: '새 페이지', exact: true }).click()
   await expect(page).toHaveURL(/\/wiki\/spaces\/\d+\/pages\/\d+/)
 
   // 3) 제목 입력.
