@@ -53,7 +53,18 @@ export const WikiMentionList = forwardRef<WikiMentionListHandle, WikiMentionList
       },
     }))
 
-    if (items.length === 0) return null
+    // 검색 결과가 없을 때 팝업을 닫지 않고 "결과 없음" 메시지를 표시한다.
+    // null 반환 시 DOM에서 제거돼 사용자가 검색 실패인지 결과 없음인지 구분 불가.
+    if (items.length === 0) {
+      return (
+        <div
+          className="w-80 rounded-md border bg-popover px-3 py-2 text-sm text-muted-foreground shadow-md"
+          data-testid="wiki-mention-empty"
+        >
+          결과 없음
+        </div>
+      )
+    }
 
     return (
       <div

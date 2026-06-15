@@ -311,6 +311,51 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
   await expect.poll(() => savedBody).toContain('담당 <@7> 은 <#page:55> 문서를')
 })
 
+test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표시(피드백)', async ({
+  authenticatedPage: page,
+}) => {
+  // 모든 검색 API 가 빈 배열/객체를 반환 → 후보 없음 상태를 재현.
+  await setupWikiMocks(page, { role: 'EDITOR', body: '' })
+
+  // 검색 API — 빈 결과 반환
+  await page.route(
+    (url) => url.pathname === '/api/v1/users',
+    (route) => {
+      const body: import('../../src/types/common').PageResponse<import('../../src/types/auth').UserResponse> =
+        { content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/search',
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/issues' && url.searchParams.has('q'),
+    (route) => {
+      const body: import('../../src/types/issue').IssueSearchResponse = {
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  // 존재하지 않는 이름 입력 → 결과 없음 팝업이 떠야 한다(null 반환으로 사라지면 회귀).
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('@zzzzzzz')
+
+  // 후보 팝업은 없고 "결과 없음" 메시지 div 가 보인다.
+  await expect(page.getByTestId('wiki-mention-empty')).toBeVisible()
+  await expect(page.getByTestId('wiki-mention-empty')).toHaveText('결과 없음')
+  await expect(page.getByTestId('wiki-mention-popover')).toHaveCount(0)
+})
+
 test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(역할 게이트)', async ({
   authenticatedPage: page,
 }) => {
