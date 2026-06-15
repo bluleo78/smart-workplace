@@ -15,7 +15,11 @@ import {
   type WikiEntityCandidate,
 } from '../../hooks/queries/useWikiEntitySearch'
 import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
-import { useSavePage } from '../../hooks/queries/useWikiMutations'
+import { useDeletePage, useSavePage } from '../../hooks/queries/useWikiMutations'
+import { useWikiTree } from '../../hooks/queries/useWikiTree'
+import { buildBreadcrumb } from './wikiBreadcrumb'
+import { WikiDeletePageDialog } from './WikiDeletePageDialog'
+import { WikiPageHeader } from './WikiPageHeader'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
@@ -32,6 +36,12 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'conflict'
 export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: number }) {
   const navigate = useNavigate()
   const save = useSavePage(spaceId)
+  const del = useDeletePage(spaceId)
+  const { data: tree } = useWikiTree(spaceId)
+  // 브레드크럼 — 이미 로드된 전체 트리에서 파생(추가 API 없음).
+  const crumbs = useMemo(() => buildBreadcrumb(tree ?? [], page.id), [tree, page.id])
+  // 현재 페이지 삭제 확인 다이얼로그 상태.
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [title, setTitle] = useState(page.title)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const versionRef = useRef(page.version)
@@ -285,6 +295,14 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     setAiBusy(false)
   }, [])
 
+  // 헤더 ⋯ → 삭제 확정. 삭제 후 스페이스 루트로 이동.
+  const handleDeleteCurrent = useCallback(() => {
+    setConfirmDelete(false)
+    del.mutate(page.id, {
+      onSuccess: () => navigate(`/wiki/spaces/${spaceId}`),
+    })
+  }, [del, page.id, navigate, spaceId])
+
   // 생성 중 ESC 로 취소.
   useEffect(() => {
     if (!aiBusy) return
@@ -296,52 +314,60 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   }, [aiBusy, cancelAi])
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col px-8 py-6">
-      {saveState === 'conflict' && (
-        <div className="mb-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.{' '}
-          <button type="button" className="underline" onClick={() => window.location.reload()}>
-            새로고침
-          </button>
-        </div>
-      )}
-      <input
-        value={title}
-        onChange={(e) => {
-          setTitle(e.target.value)
-          scheduleSave(e.target.value)
-        }}
-        placeholder="제목 없음"
-        className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
+    <div className="flex h-full min-h-0 flex-col">
+      <WikiPageHeader
+        crumbs={crumbs}
+        saveState={saveState}
+        canUseAi={canUseAi}
+        onNavigate={(id) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)}
+        onDraft={() => setDraftOpen(true)}
+        onDelete={() => setConfirmDelete(true)}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* 멘션 칩 클릭 내비게이션은 래퍼 onClick 에서 위임 처리(closest[data-mtype]). */}
-        <EditorContent
-          editor={editor}
-          onClick={onChipClick}
-          className="[&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
-        />
-        {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
-        <WikiBacklinksPanel pageId={page.id} />
-      </div>
-      <div className="flex items-center gap-3 pt-2 text-xs text-muted-foreground">
-        {saveState === 'saving' && '저장 중…'}
-        {saveState === 'saved' && '저장됨'}
-        {/* AI 생성 중 표시 + 취소 — 부분 텍스트는 이미 삽입되어 자동저장된다. */}
-        {aiBusy && (
-          <span className="flex items-center gap-2" data-testid="wiki-ai-busy">
-            생성 중…
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={cancelAi}
-              data-testid="wiki-ai-cancel"
-            >
-              취소
-            </Button>
-          </span>
-        )}
+        <div className="mx-auto flex max-w-3xl flex-col px-8 py-6">
+          {saveState === 'conflict' && (
+            <div className="mb-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.{' '}
+              <button type="button" className="underline" onClick={() => window.location.reload()}>
+                새로고침
+              </button>
+            </div>
+          )}
+          <input
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value)
+              scheduleSave(e.target.value)
+            }}
+            placeholder="제목 없음"
+            className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
+          />
+          {/* 멘션 칩 클릭 내비게이션은 래퍼 onClick 에서 위임 처리(closest[data-mtype]). */}
+          <EditorContent
+            editor={editor}
+            onClick={onChipClick}
+            className="[&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
+          />
+          {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
+          <WikiBacklinksPanel pageId={page.id} />
+          {/* AI 생성 중 표시 + 취소 — 부분 텍스트는 이미 삽입되어 자동저장된다. */}
+          {aiBusy && (
+            <div className="flex items-center gap-3 pt-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-2" data-testid="wiki-ai-busy">
+                생성 중…
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={cancelAi}
+                  data-testid="wiki-ai-cancel"
+                >
+                  취소
+                </Button>
+              </span>
+            </div>
+          )}
+        </div>
       </div>
       {/* draft 토픽 입력 — 확인 시 prompt 로 draft 액션 실행. */}
       <RenameDialog
@@ -350,6 +376,12 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         initialValue=""
         onConfirm={(topic) => runAction('draft', topic)}
         onClose={() => setDraftOpen(false)}
+      />
+      <WikiDeletePageDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        pageTitle={title}
+        onConfirm={handleDeleteCurrent}
       />
     </div>
   )
