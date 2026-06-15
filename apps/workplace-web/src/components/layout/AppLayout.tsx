@@ -9,7 +9,7 @@ import { AISidePanel } from '@/components/ai/AISidePanel'
 import { AppRail } from '@/components/layout/AppRail'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MailComposeDock } from '@/components/mail/MailComposeDock'
-import { HomeSessionProvider } from '@/hooks/HomeSessionContext'
+import { ChatSessionProvider } from '@/hooks/ChatSessionContext'
 import { useChatStream } from '@/hooks/useChatStream'
 import { useNotificationStream } from '@/hooks/useNotificationStream'
 
@@ -21,7 +21,7 @@ export function AppLayout() {
 
   return (
     <MailComposeProvider>
-      <HomeSessionProvider>
+      <ChatSessionProvider>
         <AIAssistantProvider>
           <div className="flex h-screen overflow-hidden bg-background text-foreground">
             <AppRail />
@@ -36,7 +36,7 @@ export function AppLayout() {
           {/* AI 칩 — fixed 상단 중앙. */}
           <AIChip />
         </AIAssistantProvider>
-      </HomeSessionProvider>
+      </ChatSessionProvider>
       {/* 메일 작성 도크 — fixed, 앱 전역. draft 없으면 null. */}
       <MailComposeDock />
     </MailComposeProvider>

@@ -114,6 +114,55 @@ public class EmailMessageRepository {
         .fetch(this::toSummary);
   }
 
+  /**
+   * 홈 위젯용 — 사용자 본인 INBOX 의 안읽은 메일 건수. 소유 검증을 위해 email_account 와 조인(user_id = callerId, 비활성 제외)하고,
+   * INBOX 스코프를 위해 email_folder 와 조인(folder.name = 'INBOX')한다. seen = false 만 집계.
+   */
+  public long countUnread(long callerId) {
+    return dsl.fetchCount(
+        dsl.selectOne()
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_ACCOUNT)
+            .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+            .join(EMAIL_FOLDER)
+            .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+            .where(EMAIL_ACCOUNT.USER_ID.eq(callerId))
+            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+            .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+            .and(EMAIL_MESSAGE.SEEN.isFalse()));
+  }
+
+  /**
+   * 홈 위젯용 — 사용자 본인 INBOX 의 최근 안읽은 메일 N건(최신순). countUnread 와 동일한 소유·INBOX·seen=false 필터를 쓰고,
+   * listByAccount 의 select 컬럼/정렬/매퍼(toSummary)를 그대로 재사용해 DTO 를 동일하게 만든다.
+   */
+  public List<EmailMessageSummary> listRecentUnread(long callerId, int limit) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.THREAD_ID,
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_MESSAGE.FROM_NAME,
+            EMAIL_MESSAGE.SUBJECT,
+            EMAIL_MESSAGE.SNIPPET,
+            EMAIL_MESSAGE.RECEIVED_AT,
+            EMAIL_MESSAGE.SEEN,
+            EMAIL_MESSAGE.HAS_ATTACHMENT,
+            EMAIL_MESSAGE.AI_CATEGORY,
+            EMAIL_MESSAGE.AI_NEEDS_REPLY)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_ACCOUNT.USER_ID.eq(callerId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
+        .limit(limit)
+        .fetch(this::toSummary);
+  }
+
   /** 로컬에서 작성한 보낸메일 1건 저장(imap_uid=NULL, seen=true). 생성된 id 반환. */
   public long insertSent(long accountId, long folderId, OutgoingMail m) {
     Instant sentAt = m.sentAt();

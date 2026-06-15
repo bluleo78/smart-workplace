@@ -1,19 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { homeApi } from '@/api/home';
 import { useDeleteSession, useHomeCompose } from '@/hooks/queries/useHomeQueries';
-import { useCanvasState } from '@/hooks/useCanvasState';
 import { handleApiError } from '@/lib/api-error';
-import { parseRestoredSession } from '@/lib/home-restore';
-import type { ChatTurn, WidgetSpec } from '@/types/home';
+import type { ChatTurn } from '@/types/home';
 
 /**
- * 홈 세션 상태 코디네이터 — sessionId / 대화 transcript / 캔버스를 한 곳에서 전이.
- * defaultSpecs 는 안정 참조(모듈 const)여야 한다(마운트 effect/콜백 deps 안정).
+ * 챗 전용 세션 상태 코디네이터 — sessionId / 대화 transcript 를 한 곳에서 전이.
+ * (구 홈 세션 훅에서 캔버스 결합을 떼어낸 챗-only 버전. 캔버스/위젯 의존 없음.)
+ * AppLayout 레벨에서 1회 생성해 컨텍스트로 공유 — side/fullscreen 패널이 같은 세션을 본다.
  */
-export function useHomeSession(defaultSpecs: WidgetSpec[]) {
-  const canvas = useCanvasState();
-  const { loadDefault, apply, restore } = canvas;
+export function useChatSession() {
   const compose = useHomeCompose();
   const del = useDeleteSession();
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -27,12 +24,7 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
   // stale 응답이 복원/리셋 상태를 덮어쓰는 것 방지).
   const opSeq = useRef(0);
 
-  // 마운트 시 기본 구성 1회 로드(AI 미호출, 7c 동작 유지).
-  useEffect(() => {
-    loadDefault(defaultSpecs);
-  }, [loadDefault, defaultSpecs]);
-
-  // 챗 명령 → compose. 성공 시 sessionId 추적 + assistant 턴 + 캔버스 재구성.
+  // 챗 명령 → compose. 성공 시 sessionId 추적 + assistant 턴 추가(캔버스 재구성 없음).
   const submitQuery = useCallback(
     (query: string) => {
       const gen = ++opSeq.current;
@@ -45,12 +37,11 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
             if (opSeq.current !== gen) return;
             setSessionId(res.sessionId);
             setTurns((t) => [...t, { role: 'assistant', content: res.message }]);
-            apply(res.widgets);
           },
         },
       );
     },
-    [compose, sessionId, apply],
+    [compose, sessionId],
   );
 
   // 새 세션 — 로컬 리셋만(POST 안 함; 첫 compose 가 서버에서 세션 생성). in-flight 작업 무효화.
@@ -64,10 +55,9 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
     // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력 초기화 신호 발행(#204).
     // restoreSession(세션 선택)/submit 에서는 발행하지 않아 세션별 초안 보존(by-design)을 깨지 않는다.
     setNewSessionNonce((n) => n + 1);
-    loadDefault(defaultSpecs);
-  }, [loadDefault, defaultSpecs, compose]);
+  }, [compose]);
 
-  // 복원 — 메시지 fetch → transcript 재현 + 위젯 배치 fold(AI 재호출 없음).
+  // 복원 — 메시지 fetch → transcript 재현(AI 재호출 없음, 위젯 fold 없음).
   const restoreSession = useCallback(
     async (id: string) => {
       const gen = ++opSeq.current;
@@ -78,15 +68,17 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
         const { data } = await homeApi.sessionMessages(id);
         // fetch 중 더 최신 전이가 있었으면 폐기.
         if (opSeq.current !== gen) return;
-        const { turns: restored, widgetBatches } = parseRestoredSession(data);
+        const restored: ChatTurn[] = data.map((m) => ({
+          role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
+          content: m.content,
+        }));
         setSessionId(id);
         setTurns(restored);
-        restore(defaultSpecs, widgetBatches);
       } catch (err) {
         handleApiError(err, '세션을 불러오지 못했어요');
       }
     },
-    [restore, defaultSpecs, compose],
+    [compose],
   );
 
   // 삭제 — 활성 세션이면 새 세션으로 리셋.
@@ -102,9 +94,6 @@ export function useHomeSession(defaultSpecs: WidgetSpec[]) {
   );
 
   return {
-    pages: canvas.pages,
-    activeIndex: canvas.activeIndex,
-    setActive: canvas.setActive,
     sessionId,
     turns,
     newSessionNonce,

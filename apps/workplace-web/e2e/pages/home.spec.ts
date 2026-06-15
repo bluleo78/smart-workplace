@@ -3,731 +3,180 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
-import type { IssueSearchResponse } from '../../src/types/issue'
-import type { ActivityPage, HomeMessage, HomeSessionPage } from '../../src/types/home'
+import type { CalendarEvent } from '../../src/types/calendar'
+import type { DashboardLayout, MailSummary } from '../../src/types/dashboard'
+import type { ChannelResponse, DmResponse } from '../../src/types/messaging'
+import type { NotificationResponse } from '../../src/types/notification'
 
-// 7c 홈 E2E — 기본 구성 자동 로드(AI 미호출)·⌘K 명령→compose 재구성·멀티페이지 전환.
-// 모든 홈 API(/me/issues, /me/watched-issues, /me/activity, /home/compose)를 모킹해 백엔드 없이 검증.
+// 홈 고정 대시보드 E2E — 저장 레이아웃 순서로 5종 위젯 렌더 + 위젯별 격리(로딩/에러).
+// 백엔드 없이 /me/dashboard·위젯별 엔드포인트를 모킹해 검증한다.
+// (구 AI 캔버스/세션 스위처/챗 도크 E2E 는 대시보드 전환으로 폐기됨.)
 
-// 최소 이슈 1건(IssueSearchResponse). 기존 issue factory 재사용으로 타입 정합 보장.
-function issueList(): IssueSearchResponse {
+// 레이아웃 응답 헬퍼 — 위젯 키 순서가 곧 렌더 순서.
+function layout(widgets: string[]): DashboardLayout {
+  return { widgets }
+}
+
+// 내 작업 위젯용 이슈 1건.
+function issues() {
   return createIssueSearchResponse([
-    createIssue({ id: 1, projectKey: 'WP', number: 7, title: '로그인 버그', status: 'IN_PROGRESS', priority: 'HIGH' }),
+    createIssue({ id: 1, projectKey: 'WP', number: 7, title: '로그인 버그', status: 'IN_PROGRESS' }),
   ])
 }
 
-// 최근 활동 1건 — actorKind=AGENT(Claude) 로 AI 활동 표시 검증.
-function activity(): ActivityPage {
-  return {
-    items: [
-      {
-        id: 1,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '로그인 버그',
-        actorId: 9,
-        actorName: 'Claude',
-        actorKind: 'AGENT',
-        eventType: 'STATUS_CHANGE',
-        createdAt: '2026-05-30T01:00:00Z',
-      },
-    ],
-    nextCursor: null,
-  }
-}
-
-// 홈 기본 구성용 데이터 모킹. mockApi 는 pathname 정확 매칭(쿼리스트링 무시)이라
-// /me/issues?assignee=me&size=50 같은 호출도 같은 응답으로 매칭된다. fixture 의 빈 기본 스텁을 덮어쓴다.
-async function mockHome(page: Page) {
-  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
-}
-
-// 세션 목록 스텁(기본 빈; 인자로 채운 목록 주입). fixture 의 빈 기본 스텁을 덮어쓴다.
-async function mockSessions(page: Page, sessions: HomeSessionPage = { items: [], nextCursor: null }) {
-  await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
-}
-
-test('이슈 위젯 — 이슈 없을 때 개선된 empty state(아이콘·제목·설명·CTA)가 렌더된다 (#129)', async ({
-  authenticatedPage: page,
-}) => {
-  // 이슈 없는 빈 응답으로 모킹
-  const emptyIssues: IssueSearchResponse = createIssueSearchResponse([])
-  await mockApi(page, 'GET', '/api/v1/me/issues', emptyIssues)
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', emptyIssues)
-  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
-  await page.goto('/')
-
-  // 빈 상태 컨테이너 표시 확인
-  const emptyState = page.getByTestId('issuelist-empty')
-  await expect(emptyState).toBeVisible()
-
-  // 제목·설명 텍스트가 맥락을 전달하는지 검증
-  await expect(emptyState).toContainText('배정된 이슈가 없어요')
-  await expect(emptyState).toContainText('나에게 할당된 이슈가 여기에 표시됩니다')
-
-  // CTA 링크가 /projects 로 연결되는지 검증
-  const ctaLink = emptyState.getByRole('link', { name: '프로젝트로 이동' })
-  await expect(ctaLink).toBeVisible()
-  await expect(ctaLink).toHaveAttribute('href', '/projects')
-
-  // 아이콘 svg 가 렌더되는지 확인(존재 여부)
-  await expect(emptyState.locator('svg')).toBeVisible()
-})
-
-test('활동 위젯 — 활동 없을 때 DS §2.5 빈 상태(아이콘·제목·설명)가 렌더된다 (#209)', async ({
-  authenticatedPage: page,
-}) => {
-  // 이슈/워치는 비우고, activity 만 빈 배열(200)로 응답 — 에러 아닌 진짜 빈 상태로 유도.
-  const emptyIssues: IssueSearchResponse = createIssueSearchResponse([])
-  await mockApi(page, 'GET', '/api/v1/me/issues', emptyIssues)
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', emptyIssues)
-  await mockApi(page, 'GET', '/api/v1/me/activity', { items: [] })
-  await page.goto('/')
-
-  const empty = page.getByTestId('activity-empty')
-  await expect(empty).toBeVisible()
-  // [아이콘(svg)+제목+설명] 3요소 — IssueListWidget 빈 상태와 시각 정합.
-  await expect(empty.locator('svg')).toBeVisible()
-  await expect(empty).toContainText('최근 활동이 없어요')
-  await expect(empty).toContainText('이슈가 생성·변경되면 여기에 표시됩니다.')
-})
-
-// #205 — 홈 위젯이 데이터 fetch 실패(500) 시 거짓 '빈 상태' 대신 에러+재시도 UI 를 표시해야 한다.
-// 핵심 어서션: 500 주입 시 (a) 위젯별 에러 상태 노출 AND (b) 정상 빈 상태(activity-empty/issuelist-empty)는 NOT 노출.
-// → 에러가 거짓 '빈 상태'로 둔갑하지 않음을 양방향으로 검증.
-
-test('홈 위젯 — /me/activity 500 시 ActivityWidget 이 빈 상태 대신 에러+재시도를 표시한다 (#205)', async ({
-  authenticatedPage: page,
-}) => {
-  // 이슈/워치는 정상, activity 만 500.
-  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/activity', { message: 'server error' }, { status: 500 })
-  await page.goto('/')
-
-  // (a) 에러 상태 노출 + 재시도 버튼
-  const err = page.getByTestId('activity-error')
-  await expect(err).toBeVisible()
-  await expect(err).toContainText('불러오지 못했어요')
-  await expect(err.getByRole('button', { name: '다시 시도' })).toBeVisible()
-  // (b) 거짓 빈 상태/목록은 노출되지 않아야 한다 — 핵심 회귀 가드
-  await expect(page.getByTestId('activity-empty')).toHaveCount(0)
-  await expect(page.getByTestId('activity-items')).toHaveCount(0)
-})
-
-test('홈 위젯 — /me/issues 500 시 IssueListWidget 이 빈 상태(CTA) 대신 에러+재시도를 표시한다 (#205)', async ({
-  authenticatedPage: page,
-}) => {
-  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/issues', { message: 'server error' }, { status: 500 })
-  await page.goto('/')
-
-  const err = page.getByTestId('issuelist-error')
-  await expect(err).toBeVisible()
-  await expect(err.getByRole('button', { name: '다시 시도' })).toBeVisible()
-  // '배정된 이슈가 없어요' 거짓 빈 상태가 떠선 안 된다.
-  await expect(page.getByTestId('issuelist-empty')).toHaveCount(0)
-  await expect(page.getByText('배정된 이슈가 없어요')).toHaveCount(0)
-})
-
-test('홈 위젯 — /me/issues 500 시 MyTasksWidget 이 "–" 카운트 대신 에러를 표시한다 (#205)', async ({
-  authenticatedPage: page,
-}) => {
-  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/issues', { message: 'server error' }, { status: 500 })
-  await page.goto('/')
-
-  // MyTasksWidget(assigned=내이슈) 실패 → 위젯 전체 에러.
-  await expect(page.getByTestId('mytasks-error')).toBeVisible()
-  // 카운트 블록(내 담당/워치)이 보이지 않아야 0건과 혼동되지 않는다.
-  await expect(page.getByTestId('mytasks-assigned')).toHaveCount(0)
-})
-
-test('홈 위젯 — 활동 500 후 "다시 시도" 클릭 시 재요청해 정상 목록이 렌더된다 (#205)', async ({
-  authenticatedPage: page,
-}) => {
-  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
-  // 1차: activity 500 → 에러.
-  await mockApi(page, 'GET', '/api/v1/me/activity', { message: 'server error' }, { status: 500 })
-  await page.goto('/')
-  await expect(page.getByTestId('activity-error')).toBeVisible()
-
-  // 2차: activity 정상 응답을 나중에 등록(라우트는 후등록 우선) → '다시 시도' 클릭 → refetch.
-  await mockApi(page, 'GET', '/api/v1/me/activity', activity())
-  await page.getByTestId('activity-error').getByRole('button', { name: '다시 시도' }).click()
-
-  // 입력(재시도)→처리(재요청)→출력(목록) 파이프라인 검증.
-  await expect(page.getByTestId('activity-items')).toContainText('Claude')
-  await expect(page.getByTestId('activity-error')).toHaveCount(0)
-})
-
-test('홈 기본 구성이 AI 호출 없이 로드된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  await mockHome(page)
-  await page.goto('/')
-
-  // 위젯 3종이 렌더(기본 구성: my_tasks + issue_list + activity)
-  await expect(page.getByTestId('home-widget')).toHaveCount(3)
-  await expect(page.getByTestId('issuelist-items')).toContainText('로그인 버그')
-  await expect(page.getByTestId('activity-items')).toContainText('Claude')
-  // 상단 AI 칩(런처)은 평소 보임, 입력/메시지 패널은 접힘(칩 클릭/⌘K 로만 펼침)
-  await expect(page.getByTestId('chat-launcher')).toBeVisible()
-  await expect(page.getByTestId('chat-panel')).toHaveCount(0)
-  await expect(page.getByTestId('chat-input')).toHaveCount(0)
-})
-
-test('⌘K 로 챗을 열고 명령하면 캔버스가 재구성된다', async ({ authenticatedPage: page }) => {
-  await mockHome(page)
-  const composeCapture = await mockApi(
-    page,
-    'POST',
-    '/api/v1/home/compose',
+// 오늘 일정 1건.
+function events(): CalendarEvent[] {
+  return [
     {
-      sessionId: 's1',
-      message: 'HIGH 이슈만 보여드려요',
-      widgets: [{ type: 'issue_list', params: { assignee: 'me', priority: ['HIGH'] }, layout: { page: 'current' } }],
-    },
-    { capture: true },
-  )
-
-  await page.goto('/')
-  await expect(page.getByTestId('home-widget')).toHaveCount(3)
-
-  // ⌘K → 패널 펼침
-  await page.keyboard.press('Meta+k')
-  await expect(page.getByTestId('chat-panel')).toBeVisible()
-
-  // 명령 입력 → 전송
-  await page.getByTestId('chat-input').fill('내 HIGH 이슈')
-  await page.getByRole('button', { name: '보내기' }).click()
-
-  // 요청 페이로드 검증(sessionId null, query)
-  const req = await composeCapture.waitForRequest()
-  expect(req.payload).toMatchObject({ sessionId: null, query: '내 HIGH 이슈' })
-
-  // 재구성: 현재 페이지가 issue_list 1개로 교체(replace-all)
-  await expect(page.getByTestId('home-widget')).toHaveCount(1)
-  // B(#51): 응답이 위젯이어도 패널은 자동으로 닫히지 않는다(도크형·비차단). 대화가 그대로 보인다.
-  await expect(page.getByTestId('chat-panel')).toBeVisible()
-  await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈')
-  await expect(page.getByTestId('chat-panel')).toContainText('HIGH 이슈만 보여드려요')
-  // 이력은 말풍선 단위로 렌더된다(사용자 질의 + 어시스턴트 응답 = 2개).
-  await expect(page.getByTestId('chat-turn')).toHaveCount(2)
-})
-
-test('텍스트 전용 응답(위젯 없음)도 패널이 닫히지 않고 대화가 그대로 보인다 (#51)', async ({
-  authenticatedPage: page,
-}) => {
-  await mockHome(page)
-  // "안녕" 류 — 위젯 없이 텍스트만 답하는 응답.
-  await mockApi(page, 'POST', '/api/v1/home/compose', {
-    sessionId: 's1',
-    message: '안녕하세요. 무엇을 도와드릴까요?',
-    widgets: [],
-  })
-  await page.goto('/')
-
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-input').fill('안녕')
-  await page.getByRole('button', { name: '보내기' }).click()
-
-  // 응답 후에도 자동 접힘 없이 패널이 그대로 열려 transcript 가 보여야 한다.
-  await expect(page.getByTestId('chat-panel')).toBeVisible()
-  await expect(page.getByTestId('chat-panel')).toContainText('안녕')
-  await expect(page.getByTestId('chat-panel')).toContainText('안녕하세요. 무엇을 도와드릴까요?')
-})
-
-test('상단 칩 런처 — 클릭으로 모드 순환(closed→side→fullscreen→closed), 칩은 상주', async ({
-  authenticatedPage: page,
-}) => {
-  await mockHome(page)
-  await page.goto('/')
-  await expect(page.getByTestId('home-widget')).toHaveCount(3)
-
-  // 첫 클릭 → side. 칩은 사라지지 않고 active 상태로 상주.
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('chat-panel')).toBeVisible()
-  await expect(page.getByTestId('chat-input')).toBeVisible()
-  await expect(page.getByTestId('chat-launcher')).toBeVisible()
-
-  // 두 번째 클릭 → fullscreen (여전히 chat-panel 렌더)
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('chat-panel')).toBeVisible()
-
-  // 세 번째 클릭 → closed (패널 사라지고 칩만 상주)
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('chat-panel')).toHaveCount(0)
-  await expect(page.getByTestId('chat-input')).toHaveCount(0)
-  await expect(page.getByTestId('chat-launcher')).toBeVisible()
-})
-
-test('compose 가 page=new 면 새 페이지가 생기고 전환된다', async ({ authenticatedPage: page }) => {
-  await mockHome(page)
-  await mockApi(page, 'POST', '/api/v1/home/compose', {
-    sessionId: 's1',
-    message: '새 페이지에 마감 이슈를 띄웠어요',
-    widgets: [
-      {
-        type: 'issue_list',
-        params: { assignee: 'me', dueTo: '2026-06-05' },
-        layout: { page: 'new', pageLabel: '이번 주 마감' },
-      },
-    ],
-  })
-
-  await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-input').fill('이번 주 마감')
-  await page.getByRole('button', { name: '보내기' }).click()
-
-  // 페이지 인디케이터가 2개 점을 보인다(기본 페이지 + 새 페이지)
-  const indicator = page.getByTestId('page-indicator')
-  await expect(indicator).toBeVisible()
-  await expect(indicator.getByRole('button')).toHaveCount(2)
-})
-
-// 7d 홈 세션 UI E2E — 세션 스위처 새세션·복원·삭제. /home/sessions 목록·{id}/messages·DELETE 모킹.
-
-test('복원 — 세션 선택 시 대화 transcript + 캔버스 재구성(AI 재호출 없음)', async ({ authenticatedPage: page }) => {
-  await mockHome(page)
-  await mockSessions(page, {
-    items: [{ id: 's9', title: 'HIGH 이슈 보기', lastMessageAt: '2026-05-31T00:00:00Z', widgetCount: 1 }],
-    nextCursor: null,
-  })
-  const messages: HomeMessage[] = [
-    { id: 1, role: 'USER', content: 'HIGH 이슈', widgets: null, createdAt: '2026-05-31T00:00:00Z' },
-    {
-      id: 2,
-      role: 'ASSISTANT',
-      content: '여기 있어요',
-      widgets: [{ type: 'issue_list', params: { priority: 'HIGH' }, layout: { page: 'current' } }],
-      createdAt: '2026-05-31T00:00:01Z',
+      id: 1,
+      title: '스탠드업 미팅',
+      description: null,
+      startsAt: '2026-06-16T01:00:00Z',
+      endsAt: '2026-06-16T01:30:00Z',
+      allDay: false,
+      location: null,
+      color: null,
+      reminderMinutes: null,
+      recurrenceRule: null,
+      createdAt: '2026-06-15T00:00:00Z',
+      updatedAt: '2026-06-15T00:00:00Z',
     },
   ]
-  await mockApi(page, 'GET', '/api/v1/home/sessions/s9/messages', messages)
-  await page.goto('/')
+}
 
-  // 세션 선택 → 메시지 페치 후 캔버스 fold(위젯 1개) + transcript 재현
-  await page.getByTestId('session-switcher').click()
-  await page.getByTestId('session-select').click()
-
-  await expect(page.getByTestId('home-widget')).toHaveCount(1)
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('chat-panel')).toContainText('HIGH 이슈')
-  await expect(page.getByTestId('chat-panel')).toContainText('여기 있어요')
-  await expect(page.getByTestId('session-switcher')).toContainText('HIGH 이슈 보기')
-})
-
-test('활동 위젯 — eventType 이 한국어 레이블로 변환되어 표시된다 (#147)', async ({
-  authenticatedPage: page,
-}) => {
-  // 다양한 eventType 을 포함한 활동 목록으로 모킹
-  const activityWithEvents: ActivityPage = {
-    items: [
-      {
-        id: 1,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '로그인 버그',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'STATUS_CHANGED',
-        createdAt: '2026-06-07T01:00:00Z',
-      },
-      {
-        id: 2,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '로그인 버그',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'COMMENTED',
-        createdAt: '2026-06-07T02:00:00Z',
-      },
-    ],
-    nextCursor: null,
-  }
-  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/activity', activityWithEvents)
-  await page.goto('/')
-
-  const activityList = page.getByTestId('activity-items')
-  await expect(activityList).toBeVisible()
-
-  // 각 항목에 eventType 한국어 레이블이 렌더되었는지 확인
-  await expect(activityList).toContainText('상태 변경')
-  await expect(activityList).toContainText('코멘트')
-
-  // 행위자 이름과 이슈 제목도 함께 표시되어야 한다
-  await expect(activityList).toContainText('양동희')
-  await expect(activityList).toContainText('로그인 버그')
-})
-
-test('활동 위젯 — LABELS_CHANGED·ATTACHMENTS_CHANGED 가 한국어 레이블로 표시된다 (#153)', async ({
-  authenticatedPage: page,
-}) => {
-  // 백엔드 실제 enum 값(LABELS_CHANGED, ATTACHMENTS_CHANGED)을 포함한 활동 목록 모킹
-  const activityWithMissingLabels: ActivityPage = {
-    items: [
-      {
-        id: 1,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '채팅 테스트 이슈',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'LABELS_CHANGED',
-        createdAt: '2026-06-07T01:00:00Z',
-      },
-      {
-        id: 2,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '채팅 테스트 이슈',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'ATTACHMENTS_CHANGED',
-        createdAt: '2026-06-07T02:00:00Z',
-      },
-    ],
-    nextCursor: null,
-  }
-  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/activity', activityWithMissingLabels)
-  await page.goto('/')
-
-  const activityList = page.getByTestId('activity-items')
-  await expect(activityList).toBeVisible()
-
-  // raw enum 값이 아닌 한국어 레이블로 표시되어야 한다
-  await expect(activityList).toContainText('라벨 변경')
-  await expect(activityList).toContainText('첨부 변경')
-  await expect(activityList).not.toContainText('LABELS_CHANGED')
-  await expect(activityList).not.toContainText('ATTACHMENTS_CHANGED')
-})
-
-test('활동 위젯 — CUSTOM_FIELD_CHANGED·DEPENDENCY_ADDED 등 신규 이벤트가 한국어 레이블로 표시된다 (#191)', async ({
-  authenticatedPage: page,
-}) => {
-  // 누락됐던 5종 이벤트를 포함한 활동 목록으로 모킹
-  const activityWithNewEvents: ActivityPage = {
-    items: [
-      {
-        id: 1,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '채팅 테스트 이슈',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'CUSTOM_FIELD_CHANGED',
-        createdAt: '2026-06-08T01:00:00Z',
-      },
-      {
-        id: 2,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '채팅 테스트 이슈',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'DEPENDENCY_ADDED',
-        createdAt: '2026-06-08T02:00:00Z',
-      },
-      {
-        id: 3,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '채팅 테스트 이슈',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'DEPENDENCY_REMOVED',
-        createdAt: '2026-06-08T03:00:00Z',
-      },
-      {
-        id: 4,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '채팅 테스트 이슈',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'TYPE_CHANGED',
-        createdAt: '2026-06-08T04:00:00Z',
-      },
-      {
-        id: 5,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '채팅 테스트 이슈',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'PARENT_CHANGED',
-        createdAt: '2026-06-08T05:00:00Z',
-      },
-    ],
-    nextCursor: null,
-  }
-  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/activity', activityWithNewEvents)
-  await page.goto('/')
-
-  const activityList = page.getByTestId('activity-items')
-  await expect(activityList).toBeVisible()
-
-  // raw enum 값이 아닌 한국어 레이블로 표시되어야 한다
-  await expect(activityList).toContainText('필드')
-  await expect(activityList).toContainText('의존성 추가')
-  await expect(activityList).toContainText('의존성 제거')
-  await expect(activityList).toContainText('유형 변경')
-  await expect(activityList).toContainText('부모 변경')
-  await expect(activityList).not.toContainText('CUSTOM_FIELD_CHANGED')
-  await expect(activityList).not.toContainText('DEPENDENCY_ADDED')
-  await expect(activityList).not.toContainText('DEPENDENCY_REMOVED')
-  await expect(activityList).not.toContainText('TYPE_CHANGED')
-  await expect(activityList).not.toContainText('PARENT_CHANGED')
-})
-
-test('활동 위젯 — legacy ASSIGNEE_CHANGED(단수) 가 raw enum 대신 한국어 레이블로 표시된다 (#200)', async ({
-  authenticatedPage: page,
-}) => {
-  // legacy 단일 assignee 시절 이벤트(ASSIGNEE_CHANGED, 단수)만 포함한 활동 목록 모킹.
-  // ASSIGNEES_CHANGED(복수)와 라벨이 같으므로, raw enum 미노출 검증이 fix 의 판별 기준이다.
-  const activityWithLegacyAssignee: ActivityPage = {
-    items: [
-      {
-        id: 1,
-        issueId: 1,
-        projectKey: 'WP',
-        issueNumber: 7,
-        issueTitle: '레거시 담당자 이슈',
-        actorId: 2,
-        actorName: '양동희',
-        actorKind: 'HUMAN',
-        eventType: 'ASSIGNEE_CHANGED',
-        createdAt: '2026-06-09T01:00:00Z',
-      },
-    ],
-    nextCursor: null,
-  }
-  await mockApi(page, 'GET', '/api/v1/me/issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issueList())
-  await mockApi(page, 'GET', '/api/v1/me/activity', activityWithLegacyAssignee)
-  await page.goto('/')
-
-  const activityList = page.getByTestId('activity-items')
-  await expect(activityList).toBeVisible()
-
-  // 한국어 레이블이 표시되고, raw enum 문자열은 노출되지 않아야 한다.
-  await expect(activityList).toContainText('담당자 변경')
-  // 판별 어서션: 'ASSIGNEE_CHANGED'(EE_)는 'ASSIGNEES_CHANGED'(EES_)의 부분문자열이 아니므로 false-trip 없음.
-  await expect(activityList).not.toContainText('ASSIGNEE_CHANGED')
-})
-
-test('삭제 — 휴지통 클릭 시 DELETE 호출 + 목록에서 제거', async ({ authenticatedPage: page }) => {
-  await mockHome(page)
-  await mockSessions(page, {
-    items: [{ id: 's3', title: '삭제할 세션', lastMessageAt: '2026-05-31T00:00:00Z', widgetCount: 0 }],
-    nextCursor: null,
-  })
-  const del = await mockApi(page, 'DELETE', '/api/v1/home/sessions/s3', null, { status: 204, capture: true })
-  await page.goto('/')
-
-  await page.getByTestId('session-switcher').click()
-  await expect(page.getByTestId('session-item')).toHaveCount(1)
-  // 삭제 성공 → 세션 목록 invalidate → 재페치는 빈 목록(나중 등록 라우트가 우선)
-  await mockSessions(page)
-  await page.getByTestId('session-delete').click()
-  await del.waitForRequest()
-  await expect(page.getByTestId('session-item')).toHaveCount(0)
-})
-
-// #196 회귀 — in-flight compose 중 '새 대화' 전환 시 pending 누수로 새 세션 입력이 잠기지 않는지 검증.
-// 핵심 파이프라인: compose pending → chat-new-session 클릭 → 새 세션은 빈 상태 + 입력 활성 →
-// 새 질문 전송이 실제로 두 번째 compose 요청을 발생시킨다.
-test('in-flight compose 중 새 대화로 전환하면 새 세션 입력이 잠기지 않는다 (#196)', async ({
-  authenticatedPage: page,
-}) => {
-  await mockHome(page)
-  await mockSessions(page)
-
-  // 첫 compose 요청을 '보류' — fulfill 하지 않고 route 를 붙잡아 pending 상태를 결정적으로 유지.
-  // (고정 setTimeout 대신 수동 release 방식으로 wall-clock 의존 flake 제거.)
-  let releaseFirstCompose = (): void => {}
-  const firstComposeHeld = new Promise<void>((resolve) => {
-    releaseFirstCompose = resolve
-  })
-  let composeCount = 0
-  await page.route(
-    (url) => url.pathname === '/api/v1/home/compose',
-    async (route) => {
-      composeCount += 1
-      if (composeCount === 1) {
-        // 첫 요청: 응답을 보류해 in-flight(구성 중…) 창을 유지.
-        await firstComposeHeld
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ sessionId: `s${composeCount}`, message: '응답', widgets: [] }),
-      })
+// 알림 1건(안 읽음).
+function notifications(): NotificationResponse[] {
+  return [
+    {
+      id: 1,
+      type: 'ASSIGNED',
+      actorId: 2,
+      actorName: '양동희',
+      actorKind: 'HUMAN',
+      issueId: 1,
+      projectKey: 'WP',
+      issueNumber: 7,
+      issueTitle: '리뷰 요청 이슈',
+      commentId: null,
+      eventId: null,
+      eventTitle: null,
+      eventStartsAt: null,
+      read: false,
+      createdAt: '2026-06-16T00:00:00Z',
     },
-  )
+  ]
+}
 
-  await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('chat-panel')).toBeVisible()
-
-  // 1) 첫 질문 전송 → pending(구성 중…) 표시, 보내기 비활성.
-  await page.getByTestId('chat-input').fill('첫 질문')
-  await page.getByRole('button', { name: '보내기' }).click()
-  await expect(page.getByTestId('chat-pending')).toBeVisible()
-  await expect(page.getByRole('button', { name: '보내기' })).toBeDisabled()
-
-  // 2) 응답이 오기 전에 '새 대화' 클릭 → 새 빈 세션(turns 0)으로 리셋.
-  await page.getByTestId('chat-new-session').click()
-  await expect(page.getByTestId('chat-turn')).toHaveCount(0)
-  // 누수 pending 이 제거되어 '구성 중…'도 사라져야 한다.
-  await expect(page.getByTestId('chat-pending')).toHaveCount(0)
-
-  // 3) 핵심 회귀: 새 세션에 텍스트 입력 시 보내기 버튼이 활성화되어야 한다(이전엔 disabled 로 잠김).
-  await page.getByTestId('chat-input').fill('다른 질문')
-  await expect(page.getByRole('button', { name: '보내기' })).toBeEnabled()
-
-  // 4) 새 질문 전송이 실제로 두 번째 compose 요청을 발생시킨다(입력→처리 파이프라인 검증).
-  await page.getByRole('button', { name: '보내기' }).click()
-  await expect.poll(() => composeCount).toBe(2)
-  await expect(page.getByTestId('chat-turn')).toContainText('다른 질문')
-
-  // 보류했던 첫 compose 를 풀어 라우트 핸들러가 매달리지 않게 정리.
-  releaseFirstCompose()
-})
-
-// #207 회귀 — pending('응답 작성 중') 표시가 평문 '구성 중…'이 아니라
-// assistant 말풍선 형태(좌측 bg-muted rounded-2xl 버블)에 3-dot 타이핑 모션을 둔 상태여야 한다.
-// 핵심: compose 응답을 보류해 pending 을 결정적으로 유지(#196 패턴 재사용) → chat-pending 이
-// role=status + aria-label + animate-bounce dot 3개를 가짐 → 응답 도착 후 사라지고 turn 렌더.
-test('pending 표시가 말풍선 형태 + 3-dot 타이핑 모션으로 렌더된다 (#207)', async ({
-  authenticatedPage: page,
-}) => {
-  await mockHome(page)
-  await mockSessions(page)
-
-  // compose 응답을 수동 release 로 보류 — pending('응답 작성 중') 창을 wall-clock 의존 없이 유지.
-  let releaseCompose = (): void => {}
-  const composeHeld = new Promise<void>((resolve) => {
-    releaseCompose = resolve
-  })
-  await page.route(
-    (url) => url.pathname === '/api/v1/home/compose',
-    async (route) => {
-      await composeHeld
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ sessionId: 's1', message: '응답입니다', widgets: [] }),
-      })
+// 안 읽은 메시지가 있는 채널 1건.
+function channels(): ChannelResponse[] {
+  return [
+    {
+      id: 10,
+      kind: 'CHANNEL',
+      name: 'general',
+      visibility: 'PUBLIC',
+      member: true,
+      role: 'MEMBER',
+      archived: false,
+      memberCount: 5,
+      unreadCount: 3,
+      createdAt: '2026-06-01T00:00:00Z',
     },
+  ]
+}
+
+const emptyDms: DmResponse[] = []
+
+// 메일 요약(안 읽음 2 + 최근 1건).
+function mail(): MailSummary {
+  return {
+    unreadCount: 2,
+    recent: [
+      {
+        id: 100,
+        subject: '월간 보고서',
+        fromAddress: 'boss@example.com',
+        fromName: '김부장',
+        receivedAt: '2026-06-16T00:00:00Z',
+        seen: false,
+      },
+    ],
+  }
+}
+
+// 5종 위젯 데이터 전부 정상 모킹.
+async function mockWidgets(page: Page) {
+  await mockApi(page, 'GET', '/api/v1/me/issues', issues())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issues())
+  await mockApi(page, 'GET', '/api/v1/calendar/events', events())
+  await mockApi(page, 'GET', '/api/v1/notifications', notifications())
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/messaging/channels', channels())
+  await mockApi(page, 'GET', '/api/v1/messaging/dms', emptyDms)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', mail())
+}
+
+test('대시보드 — 저장 레이아웃 순서로 5종 위젯이 렌더된다', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/dashboard',
+    layout(['my_tasks', 'calendar_today', 'notifications', 'recent_chats', 'unread_mail']),
   )
-
   await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('chat-panel')).toBeVisible()
 
-  // 질문 전송 → pending 유지.
-  await page.getByTestId('chat-input').fill('질문')
-  await page.getByRole('button', { name: '보내기' }).click()
+  // 위젯 카드 5개 렌더.
+  await expect(page.getByTestId('dashboard-widget')).toHaveCount(5)
 
-  const pendingEl = page.getByTestId('chat-pending')
-  await expect(pendingEl).toBeVisible()
+  // 각 위젯 본문이 데이터로 채워졌는지(요소 존재가 아니라 내용 검증).
+  await expect(page.getByTestId('dash-calendar')).toContainText('스탠드업 미팅')
+  await expect(page.getByTestId('dash-notif')).toContainText('리뷰 요청 이슈')
+  await expect(page.getByTestId('dash-chats')).toContainText('general')
+  await expect(page.getByTestId('dash-mail')).toContainText('월간 보고서')
 
-  // (a) 접근성: pending 내부에 role=status + 진행 중 aria-label 가 있어야 한다.
-  const status = pendingEl.getByRole('status')
-  await expect(status).toHaveAttribute('aria-label', 'AI가 응답을 작성 중입니다')
-
-  // (b) 시각 위계: 평문이 아니라 말풍선 형태(좌측 정렬 + bg-muted + rounded-2xl)여야 한다.
-  await expect(pendingEl).toHaveClass(/justify-start/)
-  await expect(status).toHaveClass(/bg-muted/)
-  await expect(status).toHaveClass(/rounded-2xl/)
-
-  // (c) 타이핑 모션: animate-bounce dot span 이 정확히 3개여야 한다.
-  await expect(pendingEl.locator('.animate-bounce')).toHaveCount(3)
-
-  // 응답 도착 → pending 사라지고 assistant turn 렌더(진행→완료 전이 검증).
-  releaseCompose()
-  await expect(page.getByTestId('chat-pending')).toHaveCount(0)
-  // 질문 + 응답 두 turn 이 렌더되며, assistant 응답 turn 에 본문이 담긴다.
-  await expect(page.getByTestId('chat-turn')).toHaveCount(2)
-  await expect(page.getByTestId('chat-turn').last()).toContainText('응답입니다')
+  // 홈에 하단 AI 챗 입력이 없어야 한다(대시보드 전환 핵심 요건).
+  await expect(page.getByTestId('chat-input')).toHaveCount(0)
 })
 
-// #204 회귀 — '새 대화' 클릭 시 입력창의 미전송 텍스트(초안)가 초기화되어야 한다.
-// 핵심 파이프라인: 신선한(compose 안 한) 세션에서 입력 → '새 대화' → 입력창이 빈 값.
-// side(헤더 스위처 버튼)·fullscreen(좌측 목록 버튼) 양쪽 '새 대화' 버튼 위치가 다르므로 둘 다 검증.
-test("'새 대화' 클릭 시 입력창의 미전송 텍스트가 비워진다 — side (#204)", async ({
-  authenticatedPage: page,
-}) => {
-  await mockHome(page)
-  await mockSessions(page)
+test('대시보드 — 알 수 없는 위젯 키는 조용히 스킵된다', async ({ authenticatedPage: page }) => {
+  await mockWidgets(page)
+  // 유효 2종 + 미등록 키 1종.
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unknown_widget', 'unread_mail']))
   await page.goto('/')
 
-  // 첫 클릭 → side 패널. 헤더 스위처의 '새 대화' 버튼이 렌더된다.
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('chat-input')).toBeVisible()
-
-  // 1) 미전송 텍스트 입력(전송하지 않음).
-  await page.getByTestId('chat-input').fill('이 텍스트는 새대화 후 사라져야 함')
-  await expect(page.getByTestId('chat-input')).toHaveValue('이 텍스트는 새대화 후 사라져야 함')
-
-  // 2) '새 대화' 클릭 → 입력창이 빈 값으로 초기화되어야 한다(이전엔 초안이 잔존).
-  await page.getByTestId('chat-new-session').click()
-  await expect(page.getByTestId('chat-input')).toHaveValue('')
-  // 대화 이력도 빈 상태 유지(회귀 가드).
-  await expect(page.getByTestId('chat-turn')).toHaveCount(0)
+  // 미등록 키는 무시 → 카드 2개만.
+  await expect(page.getByTestId('dashboard-widget')).toHaveCount(2)
+  await expect(page.getByTestId('dash-mail')).toContainText('월간 보고서')
 })
 
-test("'새 대화' 클릭 시 입력창의 미전송 텍스트가 비워진다 — fullscreen (#204)", async ({
-  authenticatedPage: page,
-}) => {
-  await mockHome(page)
-  await mockSessions(page)
+test('대시보드 — 위젯 헤더 클릭 시 딥링크로 이동한다', async ({ authenticatedPage: page }) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
   await page.goto('/')
 
-  // 두 번 클릭 → fullscreen. '새 대화' 버튼은 좌측 세션 목록 헤더에 있다(패널 헤더 스위처 off).
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
-  await expect(page.getByTestId('chat-input')).toBeVisible()
+  // 메일 위젯 헤더 링크 → /mail.
+  const link = page.getByTestId('dashboard-widget').getByRole('link', { name: /안 읽은 메일/ })
+  await expect(link).toHaveAttribute('href', '/mail')
+})
 
-  // 1) 미전송 텍스트 입력.
-  await page.getByTestId('chat-input').fill('풀스크린 미전송 초안')
-  await expect(page.getByTestId('chat-input')).toHaveValue('풀스크린 미전송 초안')
+test('대시보드 — 한 위젯 데이터 실패는 격리되어 다른 위젯에 영향이 없다', async ({
+  authenticatedPage: page,
+}) => {
+  // 메일만 500, 나머지는 정상.
+  await mockApi(page, 'GET', '/api/v1/me/issues', issues())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issues())
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', { message: 'server error' }, { status: 500 })
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']))
+  await page.goto('/')
 
-  // 2) 좌측 목록 '새 대화' 클릭 → 입력창 초기화.
-  await page.getByTestId('chat-new-session').click()
-  await expect(page.getByTestId('chat-input')).toHaveValue('')
-  await expect(page.getByTestId('chat-turn')).toHaveCount(0)
+  // 메일 위젯은 에러+재시도, 내 작업 위젯은 정상 카운트.
+  await expect(page.getByTestId('dash-mail-error')).toBeVisible()
+  await expect(page.getByTestId('dash-mail-error').getByRole('button', { name: '다시 시도' })).toBeVisible()
+  await expect(page.getByTestId('dash-mytasks')).toBeVisible()
+  // 메일 위젯의 거짓 빈/정상 상태는 노출되지 않아야 한다(회귀 가드).
+  await expect(page.getByTestId('dash-mail')).toHaveCount(0)
+  await expect(page.getByTestId('dash-mail-empty')).toHaveCount(0)
 })

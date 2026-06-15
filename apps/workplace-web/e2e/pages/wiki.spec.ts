@@ -241,6 +241,11 @@ test('위키 — 사이드바 페이지 삭제: 노드가 트리에서 사라진
 }) => {
   const DELETE_ID = 200
 
+  // window.confirm 을 항상 true 로 — goto 이전에 주입.
+  await page.addInitScript(() => {
+    window.confirm = () => true
+  })
+
   // 스페이스 목록.
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
@@ -305,14 +310,13 @@ test('위키 — 사이드바 페이지 삭제: 노드가 트리에서 사라진
 
   // 1) 스페이스로 진입 → '삭제 대상' 노드 노출 확인.
   await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  const targetRow = page.getByTestId(`wiki-tree-row-${DELETE_ID}`)
-  await expect(targetRow.getByRole('button', { name: '삭제 대상', exact: true })).toBeVisible()
+  const targetNode = page.getByRole('button', { name: '삭제 대상', exact: true })
+  await expect(targetNode).toBeVisible()
 
-  // 2) 행 hover → ⋯ 메뉴 → 삭제 → 확인 다이얼로그에서 삭제.
-  await targetRow.hover()
-  await targetRow.getByRole('button', { name: '페이지 메뉴' }).click()
-  await page.getByRole('menuitem', { name: '삭제' }).click()
-  await page.getByTestId('wiki-delete-dialog').getByRole('button', { name: '삭제', exact: true }).click()
+  // 2) 행 hover → 삭제 버튼 노출 → 클릭(confirm 은 true 로 오버라이드됨).
+  //    제목 버튼('삭제 대상')과의 충돌을 피하려 'aria-label: 삭제: ...' 접두로 한정.
+  await targetNode.hover()
+  await page.getByRole('button', { name: /^삭제: / }).click()
 
   // 3) 삭제 후 트리 refetch → '삭제 대상' 버튼이 사라진다.
   await expect(page.getByRole('button', { name: '삭제 대상', exact: true })).toHaveCount(0)

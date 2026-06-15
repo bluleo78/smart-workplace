@@ -3,8 +3,8 @@ import { mockApi } from '../fixtures/api-mock'
 import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
 
 // global-chat.spec.ts — AI 어시스턴트 신규 모드(side/fullscreen/chip) E2E.
-// FloatingChat 모달은 제거됨. 칩(chat-launcher) 클릭 → side → fullscreen → closed 순환.
-// 기존 chat→compose→캔버스 payload 검증 케이스는 side 오픈 후 동일하게 유지.
+// FloatingChat 모달·홈 캔버스는 제거됨. 칩(chat-launcher) 클릭 → side → fullscreen → closed 순환.
+// 챗→compose 는 제자리(in-place) 응답으로 동작(홈 이동/캔버스 구성 없음).
 
 const mockChatSessions = async (page: Parameters<typeof mockApi>[0], sessions: HomeSessionPage) => {
   await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
@@ -47,11 +47,11 @@ test('이슈 페이지에서도 챗 런처가 상주한다', { tag: '@smoke' }, 
   await expect(page.getByTestId('chat-input')).toBeVisible()
 })
 
-test('비-홈(이슈) 페이지에서 챗 제출 시 홈으로 이동해 캔버스를 구성한다', { tag: '@smoke' }, async ({
+test('비-홈(이슈) 페이지에서 챗 제출 시 제자리에서 어시스턴트가 응답한다(홈 이동/캔버스 없음)', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
-  // 이슈 페이지 렌더용 프로젝트 목록 + compose 응답 모킹.
-  // 세션/me/* 는 auth fixture 의 빈 스텁을 사용(홈 기본 구성은 빈 위젯이라도 home-widget 으로 렌더됨).
+  // 캔버스 제거 후 동작: 비-홈에서 제출해도 홈("/")으로 강제 이동하지 않고, 현재 라우트의
+  // 챗 패널에 사용자 질의 + 어시스턴트 응답 턴이 제자리(in-place)로 렌더된다.
   await mockApi(page, 'GET', '/api/v1/projects', {
     content: [],
     page: 0,
@@ -59,6 +59,7 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 홈으로 이동해 캔버�
     totalElements: 0,
     totalPages: 0,
   })
+  // compose 응답은 sessionId + message 만 사용(widgets 는 더 이상 읽지 않음).
   const composeCapture = await mockApi(
     page,
     'POST',
@@ -66,7 +67,6 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 홈으로 이동해 캔버�
     {
       sessionId: 's-nonhome',
       message: '내 HIGH 이슈를 정리했어요',
-      widgets: [{ type: 'issue_list', params: { assignee: 'me', priority: ['HIGH'] }, layout: { page: 'current' } }],
     },
     { capture: true },
   )
@@ -80,18 +80,18 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 홈으로 이동해 캔버�
   await page.getByTestId('chat-input').fill('내 HIGH 이슈')
   await page.getByRole('button', { name: '보내기' }).click()
 
-  // 3) 홈("/")으로 라우팅된다 — "챗 → compose → 캔버스" 주 경로 보존
-  await expect(page).toHaveURL(/\/$/)
-
-  // 4) compose 요청 페이로드 검증(새 세션이므로 sessionId null, 입력 query 그대로)
+  // 3) compose 요청 페이로드 검증(새 세션이므로 sessionId null, 입력 query 그대로)
   const req = await composeCapture.waitForRequest()
   expect(req.payload).toMatchObject({ sessionId: null, query: '내 HIGH 이슈' })
 
-  // 5) 캔버스가 compose 결과로 구성된다(현재 페이지 위젯 1개로 replace-all)
-  await expect(page.getByTestId('home-widget')).toHaveCount(1)
-  // 6) 전역 챗 패널은 라우팅 후에도 유지되며 사용자 질의 + 어시스턴트 응답을 보여준다
+  // 4) 어시스턴트 응답이 챗 패널에 제자리로 렌더된다(사용자 질의 + 응답 턴)
   await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈')
   await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈를 정리했어요')
+
+  // 5) 홈("/")으로 라우팅되지 않고 현재 라우트(/projects)에 머문다 — 강제 이동 제거
+  await expect(page).toHaveURL(/\/projects$/)
+  // 6) 캔버스(home-widget)는 더 이상 존재하지 않는다
+  await expect(page.getByTestId('home-widget')).toHaveCount(0)
 })
 
 // 세션 삭제 확인 다이얼로그 (#193)

@@ -1,36 +1,18 @@
-// 홈 모듈 콘텐츠 — AI 캔버스 + 세션 스위처. 챗 도크/네비는 전역 셸이 담당.
+// 홈 모듈 콘텐츠 — 고정 대시보드. (AI 캔버스/세션 스위처는 후속 작업에서 정리)
 import { PageHeader } from '@/components/layout/PageHeader';
-import { useHomeSessionContext } from '@/hooks/home-session-context';
-import { useSessions } from '@/hooks/queries/useHomeQueries';
 
-import { HomeCanvas } from './HomeCanvas';
-import { SessionSwitcher } from './SessionSwitcher';
+import { Dashboard } from './Dashboard';
 
-/** 홈 셸 — 세션 헤더 + 캔버스. 세션은 전역 Provider 가 소유. */
+/** 홈 셸 — 앱 타이틀 헤더 + 고정 대시보드. */
 export function HomeShell() {
-  const session = useHomeSessionContext();
-  const sessions = useSessions();
-
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* 홈 헤더 — 사이드바가 없는 홈은 이 상단 헤더가 앱 타이틀을 담당한다.
-          좌측: 앱 타이틀(Smart Workplace) / 우측: 세션 스위처. 중앙은 전역 AI 칩 자리로 비운다.
           공용 PageHeader(h-14·border-b) 로 레일 앱 마크 헤더 및 타 모듈 사이드바 타이틀과 가로 정렬.
           홈은 제품 워드마크 자체가 타이틀이라 아이콘 생략(레일 앱 마크와 중복 회피). */}
-      <PageHeader
-        data-testid="canvas-header"
-        title="Smart Workplace"
-        actions={
-          <SessionSwitcher
-            sessions={sessions.data?.items ?? []}
-            currentSessionId={session.sessionId}
-            onSelect={session.restoreSession}
-            onDelete={session.deleteSession}
-          />
-        }
-      />
+      <PageHeader data-testid="canvas-header" title="Smart Workplace" />
       <div className="relative flex-1 overflow-hidden">
-        <HomeCanvas pages={session.pages} activeIndex={session.activeIndex} onSelectPage={session.setActive} />
+        <Dashboard />
       </div>
     </div>
   );

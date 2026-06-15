@@ -1,9 +1,7 @@
 // src/hooks/useAssistantChat.ts
-// AI 어시스턴트 채팅 브리지 — 세션 상태 + 세션 목록을 모으고,
-// 비-홈에서 제출/새대화/선택 시 홈으로 이동(챗→compose→캔버스 주 경로 보존).
-import { useLocation, useNavigate } from 'react-router-dom';
-
-import { useHomeSessionContext } from '@/hooks/home-session-context';
+// AI 어시스턴트 채팅 브리지 — 챗 세션 상태 + 세션 목록을 모은다.
+// 어시스턴트는 어느 경로에서든 제자리(in-place)에서 답한다 — 홈으로 강제 이동/캔버스 구성 없음.
+import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useSessions } from '@/hooks/queries/useHomeQueries';
 import type { ChatTurn, HomeSessionSummary } from '@/types/home';
 
@@ -21,15 +19,8 @@ export interface AssistantChat {
 }
 
 export function useAssistantChat(): AssistantChat {
-  const session = useHomeSessionContext();
+  const session = useChatSessionContext();
   const sessions = useSessions();
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  // 비-홈이면 캔버스가 보이도록 먼저 홈으로 이동.
-  const goHome = () => {
-    if (location.pathname !== '/') navigate('/');
-  };
 
   return {
     turns: session.turns,
@@ -37,18 +28,9 @@ export function useAssistantChat(): AssistantChat {
     sessions: sessions.data?.items ?? [],
     currentSessionId: session.sessionId,
     newSessionNonce: session.newSessionNonce,
-    onSubmit: (query: string) => {
-      goHome();
-      session.submitQuery(query);
-    },
-    onNewSession: () => {
-      goHome();
-      session.newSession();
-    },
-    onSelectSession: (id: string) => {
-      goHome();
-      session.restoreSession(id);
-    },
+    onSubmit: session.submitQuery,
+    onNewSession: session.newSession,
+    onSelectSession: session.restoreSession,
     onDeleteSession: session.deleteSession,
   };
 }

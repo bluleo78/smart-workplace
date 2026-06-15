@@ -1,5 +1,9 @@
 // 7c: 홈 compose/위젯 계약. 백엔드 HomeComposeResponse·ActivityEntryResponse 와 1:1.
 
+// 아래 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 레거시 캔버스 잔재다.
+// 캔버스 UI 는 제거됐지만 백엔드 메시지 DTO(HomeMessage.widgets)·compose 응답에 필드가
+// 남아 있어, 타입 호환을 위해 형태만 유지한다(프론트에서 렌더에 쓰지 않음).
+
 /** 위젯 캔버스 배치 힌트 (compose 응답). fire-hub canvas 스키마 미러. */
 export interface WidgetLayout {
   page?: 'new' | 'current';
@@ -24,10 +28,11 @@ export interface ComposeRequest {
 export interface ComposeResponse {
   sessionId: string;
   message: string;
-  widgets: WidgetSpec[];
+  /** 레거시 캔버스 위젯 스펙 — 더 이상 프론트에서 읽지 않는다(캔버스 제거). 응답에 남아 있어도 무시. */
+  widgets?: WidgetSpec[];
 }
 
-/** 챗 말풍선 한 턴. (FloatingChat 로컬 정의에서 이동 — 복원 매퍼/세션 훅이 공유) */
+/** 챗 말풍선 한 턴. (챗 세션 훅이 transcript 로 사용) */
 export interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;

@@ -51,6 +51,14 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   await mockApi(page, 'GET', '/api/v1/me/issues', { items: [], nextCursor: null, hasMore: false })
   await mockApi(page, 'GET', '/api/v1/me/watched-issues', { items: [], nextCursor: null, hasMore: false })
   await mockApi(page, 'GET', '/api/v1/me/activity', { items: [], nextCursor: null })
+  // 고정 홈 대시보드(Dashboard)가 "/" 마운트 시 레이아웃·위젯 데이터를 페치한다.
+  // 모든 인증 테스트가 결국 "/" 에 착지하므로 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
+  // 대시보드를 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', { widgets: [] })
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', { unreadCount: 0, recent: [] })
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  await mockApi(page, 'GET', '/api/v1/messaging/channels', [])
+  await mockApi(page, 'GET', '/api/v1/messaging/dms', [])
   // 이슈 레이아웃의 IssueSidebar 가 마운트 시 /me/pinned-views(고정뷰)를 페치하므로
   // 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 고정뷰를 검증하는 spec 은 더 구체적 목록을 나중에 등록 → 그쪽이 우선한다.
