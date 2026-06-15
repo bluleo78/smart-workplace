@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/hooks/useAuth'
 import { extractApiError } from '@/lib/api-error'
@@ -125,21 +126,21 @@ export default function ProfileSettingsPage() {
               htmlFor="current-password"
               error={passwordForm.formState.errors.currentPassword?.message}
             >
-              <Input id="current-password" type="password" {...passwordForm.register('currentPassword')} />
+              <PasswordInput id="current-password" {...passwordForm.register('currentPassword')} />
             </FormField>
             <FormField
               label="새 비밀번호"
               htmlFor="new-password"
               error={passwordForm.formState.errors.newPassword?.message}
             >
-              <Input id="new-password" type="password" {...passwordForm.register('newPassword')} />
+              <PasswordInput id="new-password" {...passwordForm.register('newPassword')} />
             </FormField>
             <FormField
               label="비밀번호 확인"
               htmlFor="confirm-password"
               error={passwordForm.formState.errors.confirmPassword?.message}
             >
-              <Input id="confirm-password" type="password" {...passwordForm.register('confirmPassword')} />
+              <PasswordInput id="confirm-password" {...passwordForm.register('confirmPassword')} />
             </FormField>
             {passwordForm.formState.errors.root && (
               <p className="text-sm text-destructive">{passwordForm.formState.errors.root.message}</p>
