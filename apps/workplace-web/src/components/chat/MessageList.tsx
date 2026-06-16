@@ -189,7 +189,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               )}
 
               {!isEditing && (
-                <div className={`absolute top-0 hidden gap-0.5 group-hover:flex ${isOwn ? 'left-2' : 'right-2'}`}>
+                <div data-testid={`message-toolbar-${m.id}`} className="absolute top-0 hidden gap-0.5 group-hover:flex right-2">
                   {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
                   {!isPending && (
                     <EmojiPicker

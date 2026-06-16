@@ -435,4 +435,29 @@ test.describe('본인 메시지 우측 정렬', () => {
       await expect(page.getByTestId('chat-avatar-agent-99')).toBeVisible()
     },
   )
+
+  test(
+    // #290 회귀 — 본인 메시지 hover 툴바가 right-2에 위치해야 함 (left-2 버그 수정)
+    '본인 메시지 hover 툴바 — 메시지 버블과 인접한 right-2에 표시됨',
+    async ({ authenticatedPage: page }) => {
+      const ownRow = page.getByTestId('message-30')
+      const toolbar = page.getByTestId('message-toolbar-30')
+
+      // 본인 메시지 행에 호버 → 툴바가 flex로 나타남
+      await ownRow.hover()
+
+      // 툴바가 화면에 보여야 함
+      await expect(toolbar).toBeVisible()
+
+      // 툴바 위치 검증: right-2 배치이므로 메시지 버블(우측)과 인접해야 함.
+      // 컨테이너 우단 근처(right edge 기준 ≤ 60px)에 위치해야 하며,
+      // 버그(left-2) 때는 뷰포트 왼쪽 끝(x≈0~10)에 나타났었음.
+      const toolbarBox = await toolbar.boundingBox()
+      const viewportSize = page.viewportSize()
+      expect(toolbarBox).not.toBeNull()
+      expect(viewportSize).not.toBeNull()
+      // 툴바 왼쪽 끝이 뷰포트 우측 절반에 위치해야 함 (중앙 기준 우측)
+      expect(toolbarBox!.x).toBeGreaterThan(viewportSize!.width / 2)
+    },
+  )
 })
