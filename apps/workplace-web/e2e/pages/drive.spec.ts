@@ -105,17 +105,16 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   })
   await expect(page.getByText('memo.txt')).toBeVisible()
 
-  // 다운로드 트리거(에러 없이 동작 — download 이벤트는 환경에 따라 안 떠도 무방)
+  // 다운로드 트리거 — 호버 후 버튼 표시(#292 hover-reveal 패턴), download 이벤트는 환경에 따라 안 떠도 무방
   const downloadPromise = page.waitForEvent('download').catch(() => null)
-  await page.getByRole('button', { name: '다운로드' }).first().click()
+  const memoItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
+  await memoItem.hover()
+  await memoItem.getByRole('button', { name: '다운로드' }).click()
   await downloadPromise
 
-  // 삭제 — AlertDialog(#135: window.confirm 대체)
-  await page
-    .getByRole('listitem')
-    .filter({ hasText: 'memo.txt' })
-    .getByRole('button', { name: '삭제' })
-    .click()
+  // 삭제 — AlertDialog(#135: window.confirm 대체), 호버 후 버튼 표시(#292)
+  await memoItem.hover()
+  await memoItem.getByRole('button', { name: '삭제' }).click()
   await expect(page.getByTestId('drive-confirm-dialog')).toBeVisible()
   await page.getByTestId('drive-confirm-confirm').click()
   await expect(page.getByText('memo.txt')).toHaveCount(0)
@@ -165,12 +164,10 @@ test('파일을 폴더로 이동', { tag: '@smoke' }, async ({ authenticatedPage
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByText('memo.txt')).toBeVisible()
 
-  // memo.txt 행의 '이동' 클릭 → 모달
-  await page
-    .getByRole('listitem')
-    .filter({ hasText: 'memo.txt' })
-    .getByRole('button', { name: '이동' })
-    .click()
+  // memo.txt 행의 '이동' 클릭 → 모달. 호버 후 버튼 표시(#292 hover-reveal 패턴)
+  const memoRow = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
+  await memoRow.hover()
+  await memoRow.getByRole('button', { name: '이동' }).click()
   await expect(page.getByTestId('folder-picker')).toBeVisible()
 
   // 모달에서 '문서' 폴더로 진입 후 '여기로' 확정
@@ -625,8 +622,10 @@ test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
 
-  // 이름변경 클릭 → Dialog 가 현재 이름('문서')으로 사전 입력되어야 함
-  await page.getByRole('listitem').filter({ hasText: '문서' }).getByRole('button', { name: '이름변경' }).click()
+  // 이름변경 클릭 → Dialog 가 현재 이름('문서')으로 사전 입력되어야 함. 호버 후 버튼 표시(#292 hover-reveal 패턴)
+  const folderRow = page.getByRole('listitem').filter({ hasText: '문서' })
+  await folderRow.hover()
+  await folderRow.getByRole('button', { name: '이름변경' }).click()
   await expect(page.getByTestId('folder-name-input')).toHaveValue('문서')
 
   // 이름 교체 후 확인
@@ -655,8 +654,10 @@ test('파일 삭제 — AlertDialog 표시 후 취소 시 DELETE 호출 안 함'
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByText('memo.txt')).toBeVisible()
 
-  // 삭제 클릭 → window.confirm 아닌 AlertDialog 가 나타나야 한다 (#135)
-  await page.getByRole('listitem').filter({ hasText: 'memo.txt' }).getByRole('button', { name: '삭제' }).click()
+  // 삭제 클릭 → window.confirm 아닌 AlertDialog 가 나타나야 한다 (#135). 호버 후 버튼 표시(#292 hover-reveal 패턴)
+  const memoListItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
+  await memoListItem.hover()
+  await memoListItem.getByRole('button', { name: '삭제' }).click()
   await expect(page.getByTestId('drive-confirm-dialog')).toBeVisible()
 
   // 취소 → API 호출 없이 파일 그대로
@@ -664,6 +665,38 @@ test('파일 삭제 — AlertDialog 표시 후 취소 시 DELETE 호출 안 함'
   await expect(page.getByTestId('drive-confirm-dialog')).not.toBeVisible()
   expect(deleteCalled).toBe(false)
   await expect(page.getByText('memo.txt')).toBeVisible()
+})
+
+// #292 — 파일/폴더 액션 버튼 hover-reveal 패턴 회귀 테스트
+test('파일/폴더 액션 버튼이 기본 상태에서는 숨겨지고 호버 시에만 표시된다', async ({ authenticatedPage: page }) => {
+  const folder = createFolder({ id: 10, name: '문서' })
+  const file = createFile({ id: 20, name: 'memo.txt' })
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [folder], files: [file] }))
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // 기본 상태: 액션 버튼이 숨겨져 있어야 함
+  const folderItem = page.getByRole('listitem').filter({ hasText: '문서' })
+  const fileItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
+  await expect(folderItem.getByRole('button', { name: '이름변경' })).toBeHidden()
+  await expect(folderItem.getByRole('button', { name: '삭제' })).toBeHidden()
+  await expect(fileItem.getByRole('button', { name: '다운로드' })).toBeHidden()
+  await expect(fileItem.getByRole('button', { name: '삭제' })).toBeHidden()
+
+  // 호버 시: 액션 버튼이 표시되어야 함
+  await folderItem.hover()
+  await expect(folderItem.getByRole('button', { name: '이름변경' })).toBeVisible()
+  await expect(folderItem.getByRole('button', { name: '이동' })).toBeVisible()
+  await expect(folderItem.getByRole('button', { name: '복사' })).toBeVisible()
+  await expect(folderItem.getByRole('button', { name: '삭제' })).toBeVisible()
+
+  // 파일 행도 동일하게 검증
+  await fileItem.hover()
+  await expect(fileItem.getByRole('button', { name: '다운로드' })).toBeVisible()
+  await expect(fileItem.getByRole('button', { name: '이동' })).toBeVisible()
+  await expect(fileItem.getByRole('button', { name: '삭제' })).toBeVisible()
 })
 
 // #148 — DriveSidebar 팀 공간 생성 — window.prompt → Dialog 교체 검증

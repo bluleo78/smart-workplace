@@ -461,7 +461,8 @@ export function DrivePage() {
         ) : (
           <ul className="divide-y divide-border">
             {items.folders.map((f) => (
-              <li key={`folder-${f.id}`} className="flex items-center gap-2 py-2">
+              // group 클래스로 호버 시에만 액션 버튼 노출 — 앱 전체 hover-reveal 패턴과 일관성 유지
+              <li key={`folder-${f.id}`} className="group flex items-center gap-2 py-2">
                 {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
                 <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
                 <button
@@ -474,35 +475,36 @@ export function DrivePage() {
                 <button
                   type="button"
                   onClick={() => onRenameFolder(f.id, f.name)}
-                  className="text-xs text-muted-foreground"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
                 >
                   이름변경
                 </button>
                 <button
                   type="button"
                   onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
-                  className="text-xs text-muted-foreground"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
                 >
                   이동
                 </button>
                 <button
                   type="button"
                   onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
-                  className="text-xs text-muted-foreground"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
                 >
                   복사
                 </button>
                 <button
                   type="button"
                   onClick={() => onDeleteFolder(f.id)}
-                  className="text-xs text-destructive"
+                  className="hidden text-xs text-destructive group-hover:inline-flex"
                 >
                   삭제
                 </button>
               </li>
             ))}
             {items.files.map((f) => (
-              <li key={`file-${f.id}`} className="flex items-center gap-2 py-2">
+              // group 클래스로 호버 시에만 액션 버튼 노출 — 앱 전체 hover-reveal 패턴과 일관성 유지
+              <li key={`file-${f.id}`} className="group flex items-center gap-2 py-2">
                 <DriveThumbnail fileId={f.id} category={f.category} />
                 <button
                   type="button"
@@ -514,28 +516,28 @@ export function DrivePage() {
                 <button
                   type="button"
                   onClick={() => driveApi.downloadFile(f.id, f.name)}
-                  className="text-xs text-primary"
+                  className="hidden text-xs text-primary group-hover:inline-flex"
                 >
                   다운로드
                 </button>
                 <button
                   type="button"
                   onClick={() => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name })}
-                  className="text-xs text-muted-foreground"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
                 >
                   이동
                 </button>
                 <button
                   type="button"
                   onClick={() => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name })}
-                  className="text-xs text-muted-foreground"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
                 >
                   복사
                 </button>
                 <button
                   type="button"
                   onClick={() => onDeleteFile(f.id)}
-                  className="text-xs text-destructive"
+                  className="hidden text-xs text-destructive group-hover:inline-flex"
                 >
                   삭제
                 </button>
