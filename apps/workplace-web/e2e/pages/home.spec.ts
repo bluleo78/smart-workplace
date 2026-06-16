@@ -363,6 +363,8 @@ test('합성 — 급한 항목이 없으면 차분한 빈 상태를 보인다', 
 
   await expect(page.getByTestId('dashboard-attention-empty')).toBeVisible()
   await expect(page.getByTestId('dashboard-attention-empty')).toContainText('다 확인했어요')
+  // 디자인 시스템 준수: 이모지 대신 Lucide 아이콘만 사용 (#280)
+  await expect(page.getByTestId('dashboard-attention-empty')).not.toContainText('✅')
 })
 
 test('빠른 액션 — 각 버튼이 실제 라우트로 연결된다', async ({ authenticatedPage: page }) => {

@@ -213,7 +213,7 @@ export function SynthesisLayer() {
               data-testid="dashboard-attention-empty"
             >
               <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-              다 확인했어요 ✅
+              다 확인했어요
             </div>
           ) : (
             <ul className="space-y-0.5 border-l-2 border-l-destructive pl-2">
