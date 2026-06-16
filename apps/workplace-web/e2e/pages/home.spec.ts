@@ -782,3 +782,20 @@ test('편집(B1) — undo 가 갤러리 추가도 되돌린다(일관성)', asyn
     gallery.locator('[data-testid="dashboard-add-card"][data-widget="unread_mail"]'),
   ).toBeVisible()
 })
+
+// ── #282 회귀 가드 ─────────────────────────────────────────────────────────
+
+test('내 작업 — 내 담당·워치 카운터가 모두 ai-accent 색으로 일관된다 (refs #282)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/me/issues', issues())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issues())
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+
+  // 두 카운터 모두 text-ai-accent 클래스 — 시각 일관성 회귀 가드 (refs #282).
+  const mytasks = page.getByTestId('dash-mytasks')
+  const counters = mytasks.locator('.text-2xl')
+  await expect(counters.nth(0)).toHaveClass(/text-ai-accent/) // 내 담당
+  await expect(counters.nth(1)).toHaveClass(/text-ai-accent/) // 워치
+})

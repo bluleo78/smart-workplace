@@ -49,7 +49,8 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
           <div className="text-xs text-muted-foreground">내 담당</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-semibold">{count(watched.data)}</div>
+          {/* 내 담당과 동일한 시맨틱 토큰 — 두 지표를 동등한 레벨로 시각화. */}
+          <div className="text-2xl font-semibold text-ai-accent">{count(watched.data)}</div>
           <div className="text-xs text-muted-foreground">워치</div>
         </div>
       </div>
