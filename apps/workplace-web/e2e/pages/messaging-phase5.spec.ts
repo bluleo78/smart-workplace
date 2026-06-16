@@ -436,4 +436,45 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     // SSE self-echo 적용 후 "답글 1개" (2개 아님 — 이중 카운트 없음).
     await expect(page.getByTestId(`message-thread-link-${PARENT_ID}`)).toHaveText('💬 답글 1개')
   })
+
+  // 회귀 #281: 리액션 활성 pill 이 raw 팔레트(bg-blue-100 등) 대신 시맨틱 토큰(bg-primary/10)을 사용한다.
+  test('활성(reacted=true) 리액션 pill 이 시맨틱 토큰 클래스를 사용한다', async ({
+    authenticatedPage: page,
+  }) => {
+    const CHANNEL_ID = 510
+    const MSG_ID = 9700
+    const channel = createChannel({ id: CHANNEL_ID, name: '리액션토큰채널' })
+    const msg = createMessage({
+      id: MSG_ID,
+      channelId: CHANNEL_ID,
+      body: '리액션 토큰 테스트',
+      reactions: [createReaction({ emoji: '👍', count: 1, reacted: true })],
+    })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [msg])
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+
+    const pill = page.getByTestId(`reaction-pill-${MSG_ID}-👍`)
+    await expect(pill).toBeVisible()
+
+    // aria-pressed 로 활성 상태 확인.
+    await expect(pill).toHaveAttribute('aria-pressed', 'true')
+
+    // 시맨틱 토큰 클래스가 있어야 한다 (다크모드 자동 대응).
+    await expect(pill).toHaveClass(/bg-primary\/10/)
+    await expect(pill).toHaveClass(/text-primary/)
+    await expect(pill).toHaveClass(/border-primary/)
+
+    // raw 팔레트 클래스가 없어야 한다 (#281 회귀 방지).
+    const cls = await pill.getAttribute('class')
+    expect(cls).not.toContain('bg-blue-100')
+    expect(cls).not.toContain('text-blue-700')
+    expect(cls).not.toContain('border-blue-400')
+  })
 })

@@ -18,7 +18,7 @@ export function ReactionBar({ message, onToggle }: ReactionBarProps) {
           data-testid={`reaction-pill-${message.id}-${r.emoji}`}
           aria-pressed={r.reacted}
           className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
-            r.reacted ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-muted bg-muted/50'
+            r.reacted ? 'border-primary bg-primary/10 text-primary' : 'border-muted bg-muted/50'
           }`}
         >
           <span>{r.emoji}</span>
