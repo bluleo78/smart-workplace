@@ -56,7 +56,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
   },
   recent_chats: {
     type: 'recent_chats',
-    title: '최근 대화',
+    title: '안 읽은 대화',
     icon: MessageSquare,
     Component: lazy(() => import('./dashboard/RecentChatsBody')),
     deepLink: '/chat',

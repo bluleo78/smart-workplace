@@ -171,6 +171,38 @@ test('대시보드 — 위젯 헤더 클릭 시 딥링크로 이동한다', asyn
   await expect(link).toHaveAttribute('href', '/mail')
 })
 
+test('대시보드 — 안 읽은 대화 위젯 제목과 빈 상태 문구가 일치한다 (refs #272)', async ({
+  authenticatedPage: page,
+}) => {
+  // 모든 채널/DM 안 읽음 수 0 → 빈 상태.
+  await mockApi(page, 'GET', '/api/v1/messaging/channels', [
+    {
+      id: 10,
+      kind: 'CHANNEL',
+      name: 'general',
+      visibility: 'PUBLIC',
+      member: true,
+      role: 'MEMBER',
+      archived: false,
+      memberCount: 5,
+      unreadCount: 0,
+      createdAt: '2026-06-01T00:00:00Z',
+    },
+  ])
+  await mockApi(page, 'GET', '/api/v1/messaging/dms', [])
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['recent_chats']))
+  await page.goto('/')
+
+  // 위젯 헤더 제목이 '안 읽은 대화' 여야 한다 (title vs 빈 상태 불일치 회귀 방지).
+  const headerLink = page
+    .getByTestId('dashboard-widget')
+    .getByRole('link', { name: /안 읽은 대화/ })
+  await expect(headerLink).toBeVisible()
+
+  // 빈 상태 메시지가 제목과 동일한 맥락('안 읽은 대화가 없어요').
+  await expect(page.getByTestId('dash-chats-empty')).toContainText('안 읽은 대화가 없어요')
+})
+
 test('대시보드 — 각 위젯 행이 해당 항목 상세로 딥링크된다', async ({
   authenticatedPage: page,
 }) => {
@@ -198,7 +230,7 @@ test('대시보드 — 각 위젯 행이 해당 항목 상세로 딥링크된다
     page.getByTestId('dash-notif').getByRole('link', { name: '알림 열기: 리뷰 요청 이슈' }),
   ).toHaveAttribute('href', '/projects/WP/issues/7')
 
-  // 최근 대화 행(채널) → 채널 상세.
+  // 안 읽은 대화 행(채널) → 채널 상세.
   await expect(
     page.getByTestId('dash-chats').getByRole('link', { name: '대화 열기: # general' }),
   ).toHaveAttribute('href', '/chat/channels/10')
