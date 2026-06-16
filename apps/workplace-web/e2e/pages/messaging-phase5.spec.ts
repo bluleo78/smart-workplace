@@ -437,6 +437,37 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await expect(page.getByTestId(`message-thread-link-${PARENT_ID}`)).toHaveText('💬 답글 1개')
   })
 
+  // 회귀 #291: 스레드 패널 — 답글 0건 시 빈 상태 메시지("아직 답글이 없어요.") 표시.
+  test('스레드 패널 — 답글이 없을 때 빈 상태 메시지가 표시된다(#291 회귀)', async ({
+    authenticatedPage: page,
+  }) => {
+    const CHANNEL_ID = 511
+    const PARENT_ID = 9800
+    const channel = createChannel({ id: CHANNEL_ID, name: '빈스레드채널' })
+    const parent = createMessage({ id: PARENT_ID, channelId: CHANNEL_ID, body: '부모글', replyCount: 0 })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [parent])
+    // 답글 0건 — emptyState 가 렌더돼야 한다.
+    await stubReplies(page, PARENT_ID, [])
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+
+    // replyCount=0 이므로 thread-link 없음 → reply 버튼으로 패널 오픈.
+    await page.getByTestId(`message-${PARENT_ID}`).hover()
+    await page.getByTestId(`message-reply-${PARENT_ID}`).click()
+    await expect(page.getByTestId('thread-panel')).toBeVisible()
+
+    // 빈 상태 안내 메시지가 표시돼야 한다.
+    const panel = page.getByTestId('thread-panel')
+    await expect(panel.getByText('아직 답글이 없어요.')).toBeVisible()
+    await expect(panel.getByText('첫 번째 답글을 남겨보세요.')).toBeVisible()
+  })
+
   // 회귀 #281: 리액션 활성 pill 이 raw 팔레트(bg-blue-100 등) 대신 시맨틱 토큰(bg-primary/10)을 사용한다.
   test('활성(reacted=true) 리액션 pill 이 시맨틱 토큰 클래스를 사용한다', async ({
     authenticatedPage: page,

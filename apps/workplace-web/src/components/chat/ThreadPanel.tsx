@@ -1,6 +1,6 @@
 // 우측 스레드 패널 — 부모 메시지 + 답글 목록 + 답글 컴포저. 부모는 채널 메시지 캐시에서 찾고,
 // 답글은 useThreadReplies. 답글 작성은 useCreateReply(낙관적).
-import { X } from 'lucide-react'
+import { MessageSquare, X } from 'lucide-react'
 
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
@@ -60,6 +60,14 @@ export function ThreadPanel({ channelId, parent, members, me, archived, onClose 
           currentUserId={me.id}
           members={members}
           disableMarkRead
+          emptyState={
+            /* 답글 0건일 때 빈 공백 대신 안내 메시지 표시 */
+            <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">
+              <MessageSquare className="h-6 w-6" />
+              <p>아직 답글이 없어요.</p>
+              <p className="text-xs">첫 번째 답글을 남겨보세요.</p>
+            </div>
+          }
         />
       </div>
       <MessageComposer
