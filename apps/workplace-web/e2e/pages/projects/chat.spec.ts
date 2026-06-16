@@ -421,9 +421,9 @@ test.describe('이슈 chat panel', () => {
     // 좌측 보더는 ai-accent, raw purple-400 잔존 없음.
     await expect(row).toHaveClass(/border-ai-accent/);
     await expect(row).not.toHaveClass(/border-purple/);
-    // Bot 아이콘 text 색도 ai-accent.
-    const botIcon = row.locator('svg.lucide-bot').first();
-    await expect(botIcon).toHaveClass(/text-ai-accent/);
+    // #289: ChatAvatar — 이니셜 원 + 우하단 AGENT 배지(bot icon)가 렌더되어야 한다.
+    await expect(row.getByTestId('chat-avatar-99')).toBeVisible();
+    await expect(row.getByTestId('chat-avatar-agent-99')).toBeVisible();
     // AgentBadge 배경/텍스트도 ai-accent-subtle / ai-accent.
     const badge = row.getByTestId('agent-badge');
     await expect(badge).toHaveClass(/bg-ai-accent-subtle/);

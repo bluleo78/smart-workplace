@@ -4,8 +4,9 @@
 // deleted=true 면 행이 직접 '(삭제됨)' 플레이스홀더를 렌더한다 — SSE 로 도착한 삭제 이벤트는
 // body 를 마스킹하지 않으므로(원본 body 가 그대로 남음) 소스(REST/SSE)와 무관하게 일관 표시.
 
-import { Bot, Pencil, Trash2, User } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 
+import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { Button } from '../../../../components/ui/button';
 import { AgentBadge } from '../../../../components/users/AgentBadge';
 import type { ChatMessageResponse } from '../../../../types/chat';
@@ -48,13 +49,13 @@ export function ChatMessageRow({
         isAgent ? 'border-l-2 border-ai-accent' : ''
       } ${isPending ? 'opacity-60' : ''}`}
     >
-      <div className="flex-shrink-0 mt-0.5">
-        {isAgent ? (
-          <Bot className="h-5 w-5 text-ai-accent" aria-hidden />
-        ) : (
-          <User className="h-5 w-5 text-muted-foreground" aria-hidden />
-        )}
-      </div>
+      {/* 팀 채팅(MessageList)과 동일한 ChatAvatar — 이니셜+결정적 색상+AGENT 뱃지 */}
+      <ChatAvatar
+        userId={message.authorId}
+        name={message.authorName}
+        kind={message.authorKind}
+        className="size-6 mt-0.5"
+      />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-xs">
