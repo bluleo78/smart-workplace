@@ -69,7 +69,7 @@ export function AssigneePickerPopover({
           aria-label="담당자 편집"
           data-testid="assignee-picker-trigger"
         >
-          <Users className="h-4 w-4 mr-1" /> 담당자
+          <Users className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-2" data-testid="assignee-picker">

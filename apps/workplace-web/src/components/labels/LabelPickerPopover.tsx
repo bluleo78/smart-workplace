@@ -63,7 +63,7 @@ export function LabelPickerPopover({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" aria-label="라벨 편집" data-testid="label-picker-trigger">
-          <Tag className="h-4 w-4 mr-1" /> 라벨
+          <Tag className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-2" data-testid="label-picker">
