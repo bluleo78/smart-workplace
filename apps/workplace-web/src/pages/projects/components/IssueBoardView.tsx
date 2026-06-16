@@ -223,7 +223,7 @@ function BoardColumn({
       data-testid={`board-col-${status}`}
       className={`rounded-md border p-2 min-h-[200px] min-w-[240px] flex-1 ${isOver ? 'bg-accent/30' : ''}`}
     >
-      <header className="flex items-center justify-between px-1 pb-2 text-xs font-semibold text-muted-foreground">
+      <header className="flex items-center justify-between px-1 pb-2 text-sm font-semibold text-foreground">
         <span>{label}</span>
         <span>{issues.length}</span>
       </header>
@@ -262,7 +262,7 @@ function ReadOnlyColumn({
       data-testid={`board-col-${group.key}`}
       className="rounded-md border p-2 min-h-[200px] min-w-[240px] flex-1"
     >
-      <header className="flex items-center justify-between px-1 pb-2 text-xs font-semibold text-muted-foreground">
+      <header className="flex items-center justify-between px-1 pb-2 text-sm font-semibold text-foreground">
         <span>{group.label}</span>
         <span>{group.issues.length}</span>
       </header>

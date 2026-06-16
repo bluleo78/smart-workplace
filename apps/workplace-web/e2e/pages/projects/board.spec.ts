@@ -427,6 +427,45 @@ test.describe('태스크 보드/검색', () => {
     expect(colWidth).toBeGreaterThanOrEqual(240);
   });
 
+  test('보드: 컬럼 헤더가 카드 제목보다 강한 시각 계층 — text-sm + text-foreground 회귀 (#286)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 무엇을: 컬럼 헤더 className 에 text-sm, text-foreground 가 포함되고
+    //         카드 식별자(이슈 번호)에 text-xs, text-muted-foreground 가 포함되는지 검증.
+    // 왜: 헤더가 text-xs + text-muted-foreground 로 렌더되면 카드 본문보다 눈에 덜 띄어
+    //     시각 위계가 역전되는 회귀(#286)가 발생한다.
+    await stubProjectMeta(page);
+    const issues = [
+      createIssue({ id: 1, number: 1, title: '회귀 검증용 이슈', status: 'TODO' }),
+    ];
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(issues)),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    await expect(page.getByTestId('board-col-TODO')).toBeVisible();
+
+    // 컬럼 헤더: text-sm + text-foreground (강화된 계층)
+    const headerClass = await page
+      .getByTestId('board-col-TODO')
+      .locator('header')
+      .getAttribute('class');
+    expect(headerClass).toContain('text-sm');
+    expect(headerClass).toContain('text-foreground');
+    expect(headerClass).not.toContain('text-xs');
+    expect(headerClass).not.toContain('text-muted-foreground');
+
+    // 카드 이슈 번호: text-xs + text-muted-foreground (약화된 보조 텍스트)
+    const card = page.getByTestId('issue-card-1');
+    await expect(card).toBeVisible();
+    const identifierSpan = card.locator('span.font-mono.text-xs.text-muted-foreground');
+    await expect(identifierSpan).toHaveCount(1);
+  });
+
   test('리스트 무한 스크롤 — 두번째 페이지가 cursor 로 자동 로드', async ({
     authenticatedPage: page,
   }) => {
