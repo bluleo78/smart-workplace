@@ -29,6 +29,27 @@ public class TenantProvisioningService {
       List.of("user:read:self", "user:write:self");
 
   /**
+   * AGENT 역할(개인 비서 기본 역할)에 부여할 permission code — USER 의 비-관리 업무 권한에서 {@code project:manage}(프로젝트
+   * 삭제·멤버관리·스키마변경)만 제외한 12개. (#278) 업무별 에이전트는 관리자가 별도 역할을 부여한다.
+   *
+   * <p>마이그레이션 V75 의 시드 코드 집합과 동일하게 유지해야 한다.
+   */
+  private static final List<String> AGENT_ROLE_PERMISSION_CODES =
+      List.of(
+          "project:read",
+          "project:write",
+          "issue:write",
+          "label:manage",
+          "savedview:manage",
+          "cycle:manage",
+          "contact:read",
+          "contact:write",
+          "calendar:read",
+          "calendar:write",
+          "user:read:self",
+          "user:write:self");
+
+  /**
    * 신규 테넌트의 기본 RBAC 를 현재 트랜잭션 안에서 시드한다.
    *
    * @param tenantId 신규 테넌트 id (이미 같은 트랜잭션에 INSERT 됨, 미커밋)
@@ -40,9 +61,12 @@ public class TenantProvisioningService {
     try {
       Long adminRoleId = platformTenantRepository.insertRole("ADMIN", "테넌트 관리자", true);
       Long userRoleId = platformTenantRepository.insertRole("USER", "일반 사용자", true);
-      // ADMIN = 전체 권한, USER = V2 기준 self 권한만.
+      // AGENT = AI 에이전트(개인 비서) 기본 역할. (#278)
+      Long agentRoleId = platformTenantRepository.insertRole("AGENT", "AI 에이전트(개인 비서)", true);
+      // ADMIN = 전체 권한, USER = V2 기준 self 권한만, AGENT = 비-관리 업무 권한 12개.
       platformTenantRepository.grantAllPermissions(adminRoleId);
       platformTenantRepository.grantPermissionsByCode(userRoleId, USER_ROLE_PERMISSION_CODES);
+      platformTenantRepository.grantPermissionsByCode(agentRoleId, AGENT_ROLE_PERMISSION_CODES);
       // 초기 Owner 가 테넌트를 실제로 사용할 수 있도록 ADMIN 역할 할당.
       platformTenantRepository.assignUserRole(ownerUserId, adminRoleId);
     } finally {

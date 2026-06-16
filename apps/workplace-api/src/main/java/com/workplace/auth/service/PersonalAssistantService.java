@@ -6,6 +6,7 @@ import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Optional;
@@ -28,6 +29,7 @@ public class PersonalAssistantService {
   private final AiAgentCredentialRepository credentialRepo;
   private final UserRepository userRepository;
   private final MembershipRepository membershipRepository;
+  private final RoleRepository roleRepository;
 
   /** 토큰 등록/교체 — 개인 AGENT 가 없으면 자동 생성한 뒤 active 토큰을 등록(기존 active 는 자동 revoke). */
   public void registerToken(long callerId, String plaintextToken, String label) {
@@ -104,6 +106,11 @@ public class PersonalAssistantService {
                     throw new IllegalStateException("개인비서 생성에는 active 테넌트 컨텍스트가 필요합니다.");
                   }
                   membershipRepository.create(newId, tenantId, "ACTIVE");
+                  // #278: 개인 비서는 생성 시 기본 AGENT 역할을 받아 이슈챗 등 on-behalf 호출이 권한 게이트를 통과한다.
+                  // user_role.tenant_id 는 요청 tx 의 GUC(active 테넌트)로 자동 충전된다. 역할은 테넌트별로 시드돼 있다.
+                  roleRepository
+                      .findByName("AGENT")
+                      .ifPresent(role -> userRepository.addRole(newId, role.id()));
                   return newId;
                 });
     personalRepo.setAgentId(callerId, agentId);

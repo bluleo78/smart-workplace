@@ -5,9 +5,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.permission.repository.PermissionRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.tenant.repository.MembershipRepository;
+import java.util.Set;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +27,7 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
   @Autowired PersonalAssistantRepository personalRepo;
   @Autowired AiAgentCredentialRepository credentialRepo;
   @Autowired MembershipRepository membershipRepository;
+  @Autowired PermissionRepository permissionRepository;
   @Autowired DSLContext dsl;
 
   private static final String TOKEN = "sk-ant-oat-" + "x".repeat(40);
@@ -62,6 +65,20 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
 
     long agentId = personalRepo.findAgentId(human).orElseThrow();
     assertThat(membershipRepository.hasActiveMembership(agentId, TENANT_ID)).isTrue();
+  }
+
+  @Test
+  void 개인비서_생성시_AGENT_역할_자동부여하여_이슈챗_핵심권한_보유() {
+    // #278: 개인 비서는 생성 시 기본 AGENT 역할을 받아, on-behalf 호출이 project:read·issue:write 게이트를 통과해야 한다.
+    long human = TestFixtures.createHuman(dsl);
+    service.registerToken(human, TOKEN, "t");
+    long agentId = personalRepo.findAgentId(human).orElseThrow();
+
+    // TenantContext=1 인 @Transactional 테스트라 GUC=1 → 에이전트의 user_role(tenant1)이 보인다.
+    Set<String> codes = permissionRepository.findPermissionCodesByUserId(agentId);
+    assertThat(codes).contains("project:read", "issue:write");
+    // 파괴적 관리 권한은 제외(최소권한): 프로젝트 삭제·멤버관리·스키마변경.
+    assertThat(codes).doesNotContain("project:manage");
   }
 
   @Test

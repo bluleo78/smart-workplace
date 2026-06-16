@@ -89,11 +89,47 @@ class NewTenantProvisioningTest extends IntegrationTestBase {
         dsl.selectCount().from(ROLE).where(ROLE.TENANT_ID.eq(newId)).fetchOne(0, int.class);
     assertThat(visibleFromTenant1).isZero();
 
-    // 2b. 신규 테넌트 GUC 로는 ADMIN+USER 2개가 보인다(== 2).
+    // 2b. 신규 테넌트 GUC 로는 ADMIN+USER+AGENT 3개가 보인다(== 3). (#278 AGENT 역할 추가)
     setGuc(newId.toString());
     int visibleFromNew =
         dsl.selectCount().from(ROLE).where(ROLE.TENANT_ID.eq(newId)).fetchOne(0, int.class);
-    assertThat(visibleFromNew).isEqualTo(2);
+    assertThat(visibleFromNew).isEqualTo(3);
+  }
+
+  @Test
+  void createTenant_seedsAgentRole_withCuratedPermissions() {
+    // #278: 신규 테넌트는 AGENT 시스템 역할을 받고, USER 에서 project:manage 를 뺀 12개 권한만 갖는다.
+    long owner = createHumanUser("owner");
+    TenantDetailResponse detail =
+        service.createTenant(new CreateTenantRequest("AgentRoleCheck", uniqueSlug(), owner));
+
+    setGuc(detail.id().toString());
+    Long agentRoleId =
+        dsl.select(ROLE.ID)
+            .from(ROLE)
+            .where(ROLE.NAME.eq("AGENT"))
+            .and(ROLE.TENANT_ID.eq(detail.id()))
+            .fetchOne(ROLE.ID);
+    assertThat(agentRoleId).isNotNull();
+
+    Set<String> agentCodes =
+        permissionRepository.findByRoleId(agentRoleId).stream()
+            .map(PermissionResponse::code)
+            .collect(Collectors.toSet());
+    assertThat(agentCodes)
+        .containsExactlyInAnyOrder(
+            "project:read",
+            "project:write",
+            "issue:write",
+            "label:manage",
+            "savedview:manage",
+            "cycle:manage",
+            "contact:read",
+            "contact:write",
+            "calendar:read",
+            "calendar:write",
+            "user:read:self",
+            "user:write:self");
   }
 
   @Test
