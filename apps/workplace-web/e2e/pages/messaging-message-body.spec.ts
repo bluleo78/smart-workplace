@@ -352,3 +352,87 @@ test.describe('@멘션 칩 시맨틱 토큰', () => {
     },
   )
 })
+
+// ── 본인 메시지 우측 정렬 버블 ────────────────────────────────────────────────
+// currentUserId(=1) 의 메시지는 우측 정렬 + 버블, 타인/AGENT 는 좌측(아바타+이름) 유지.
+
+const OWN_CHANNEL_ID = 702
+
+test.describe('본인 메시지 우측 정렬', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: OWN_CHANNEL_ID, name: '정렬테스트', memberCount: 3 })
+
+    // id 30: 본인(authorId=1), id 31: 타인(id=20), id 32: AGENT(id=99)
+    const ownMsg = createMessage({
+      id: 30,
+      channelId: OWN_CHANNEL_ID,
+      authorId: 1,
+      authorName: 'me',
+      authorKind: 'HUMAN',
+      body: '내 메시지',
+      createdAt: '2026-06-06T03:00:00',
+    })
+    const peerMsg = createMessage({
+      id: 31,
+      channelId: OWN_CHANNEL_ID,
+      authorId: 20,
+      authorName: '동료',
+      authorKind: 'HUMAN',
+      body: '동료 메시지',
+      createdAt: '2026-06-06T03:01:00',
+    })
+    const agentMsg = createMessage({
+      id: 32,
+      channelId: OWN_CHANNEL_ID,
+      authorId: 99,
+      authorName: 'My AI',
+      authorKind: 'AGENT',
+      body: '에이전트 메시지',
+      createdAt: '2026-06-06T03:02:00',
+    })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, OWN_CHANNEL_ID, [
+      createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
+      createChannelMember({ userId: 20, name: '동료', kind: 'HUMAN' }),
+      createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
+    ])
+    await stubMessages(page, OWN_CHANNEL_ID, [agentMsg, peerMsg, ownMsg]) // DESC
+    await stubMarkRead(page, OWN_CHANNEL_ID)
+    await stubUsers(page)
+
+    await page.goto(`/chat/channels/${OWN_CHANNEL_ID}`)
+    await expect(page.getByTestId('message-list')).toBeVisible()
+  })
+
+  test(
+    '본인 메시지는 data-own=true + 우측 정렬 버블, 이름 헤더 없음',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      // 본인 메시지: 행에 data-own=true + justify-end, 본문은 버블(rounded-2xl bg-primary/10).
+      const ownRow = page.getByTestId('message-30')
+      await expect(ownRow).toHaveAttribute('data-own', 'true')
+      await expect(ownRow).toHaveClass(/justify-end/)
+      await expect(page.getByTestId('message-body-30')).toHaveClass(/rounded-2xl/)
+      // 본인 메시지엔 이름('me') 헤더가 없다(자명) — 본문 영역에 작성자명 미노출.
+      await expect(ownRow.getByText('me', { exact: true })).toHaveCount(0)
+    },
+  )
+
+  test(
+    '타인·AGENT 메시지는 data-own=false + 좌측(아바타) 유지',
+    async ({ authenticatedPage: page }) => {
+      // 동료(타인) 메시지: 좌측 유지, 아바타·이름 노출.
+      await expect(page.getByTestId('message-31')).toHaveAttribute('data-own', 'false')
+      await expect(page.getByTestId('chat-avatar-20')).toBeVisible()
+      await expect(page.getByTestId('message-body-31')).not.toHaveClass(/bg-primary\/10/)
+
+      // AGENT 는 본인이 아니므로 좌측 유지.
+      await expect(page.getByTestId('message-32')).toHaveAttribute('data-own', 'false')
+      await expect(page.getByTestId('chat-avatar-agent-99')).toBeVisible()
+    },
+  )
+})

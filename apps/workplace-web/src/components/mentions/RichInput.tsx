@@ -42,6 +42,8 @@ interface RichInputProps {
   // 직렬화 본문(serializeToBody) 기준 최대 글자 수. 초과 시 전송 버튼 비활성화 + 카운터 빨간 표시.
   maxLength?: number;
   autoFocus?: boolean;
+  // 버튼 행 좌측에 추가로 렌더할 노드(파일 첨부 버튼 등). 미전달 시 우측 버튼만 노출.
+  leftActions?: React.ReactNode;
   inputTestId: string;
   submitTestId: string;
   cancelTestId?: string;
@@ -62,6 +64,7 @@ export function RichInput({
   submitDisabled = false,
   maxLength,
   autoFocus = false,
+  leftActions,
   inputTestId,
   submitTestId,
   cancelTestId,
@@ -116,6 +119,9 @@ export function RichInput({
   useEffect(() => {
     maxLengthRef.current = maxLength;
   });
+
+  // leftActions: 버튼 행 좌측에 렌더할 커스텀 액션(파일 첨부 버튼 등). 미전달 시 좌측 영역 빈 채로 유지.
+  // (RichInput 내부 버튼 행을 justify-between 구조로 확장해 composer 와 editor 간 레이아웃 통합)
 
   const editor = useEditor({
     autofocus: autoFocus,
@@ -270,45 +276,49 @@ export function RichInput({
       <div className="relative">
         <EditorContent editor={editor} />
       </div>
-      <div className="flex items-center justify-end gap-2">
-        {/* maxLength 설정 시 글자 수 카운터 표시. charCount > 0 일 때만 노출해 빈 입력 노이즈 방지. */}
-        {/* 초과 시 text-destructive(빨간색)로 강조. */}
-        {maxLength != null && charCount > 0 && (
-          <span
-            className={`text-xs tabular-nums ${charCount > maxLength ? 'text-destructive font-medium' : 'text-muted-foreground'}`}
-            data-testid="char-count"
-          >
-            {charCount} / {maxLength}
-          </span>
-        )}
-        {onCancel && (
+      {/* leftActions 가 있으면 justify-between 으로 좌우 분리, 없으면 justify-end 로 우측 정렬. */}
+      <div className={`flex items-center gap-2 ${leftActions ? 'justify-between' : 'justify-end'}`}>
+        {leftActions && <div className="flex items-center gap-1">{leftActions}</div>}
+        <div className="flex items-center gap-2">
+          {/* maxLength 설정 시 글자 수 카운터 표시. charCount > 0 일 때만 노출해 빈 입력 노이즈 방지. */}
+          {/* 초과 시 text-destructive(빨간색)로 강조. */}
+          {maxLength != null && charCount > 0 && (
+            <span
+              className={`text-xs tabular-nums ${charCount > maxLength ? 'text-destructive font-medium' : 'text-muted-foreground'}`}
+              data-testid="char-count"
+            >
+              {charCount} / {maxLength}
+            </span>
+          )}
+          {onCancel && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={onCancel}
+              data-testid={cancelTestId}
+            >
+              취소
+            </Button>
+          )}
+          {/* disableWhenEmpty=true 이고 본문도 비고 첨부도 없을 때만 비활성화(opt-in). */}
+          {/* allowEmptySubmit 은 렌더 시점 prop 직접 참조 — ref 는 submit(Enter 경로) 전용. */}
+          {/* submitDisabled 는 외부 상태(업로드 중 등)로 강제 비활성화. 버튼·Enter 양쪽 차단. */}
+          {/* maxLength 초과 시도 비활성화 — charCount 와 동일 기준(렌더 시점 prop 직접 참조). */}
           <Button
             type="button"
             size="sm"
-            variant="ghost"
-            onClick={onCancel}
-            data-testid={cancelTestId}
+            onClick={submit}
+            data-testid={submitTestId}
+            disabled={
+              submitDisabled ||
+              (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false) ||
+              (maxLength != null && charCount > maxLength)
+            }
           >
-            취소
+            {submitLabel}
           </Button>
-        )}
-        {/* disableWhenEmpty=true 이고 본문도 비고 첨부도 없을 때만 비활성화(opt-in). */}
-        {/* allowEmptySubmit 은 렌더 시점 prop 직접 참조 — ref 는 submit(Enter 경로) 전용. */}
-        {/* submitDisabled 는 외부 상태(업로드 중 등)로 강제 비활성화. 버튼·Enter 양쪽 차단. */}
-        {/* maxLength 초과 시도 비활성화 — charCount 와 동일 기준(렌더 시점 prop 직접 참조). */}
-        <Button
-          type="button"
-          size="sm"
-          onClick={submit}
-          data-testid={submitTestId}
-          disabled={
-            submitDisabled ||
-            (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false) ||
-            (maxLength != null && charCount > maxLength)
-          }
-        >
-          {submitLabel}
-        </Button>
+        </div>
       </div>
     </div>
   );

@@ -70,8 +70,10 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
       {ordered.length === 0 && emptyState}
       {ordered.map((m, idx) => {
         const isPending = m.id < 0
+        // 본인 메시지(우측 버블 정렬 대상). AGENT 는 currentUserId 와 다르므로 항상 좌측.
+        const isOwn = m.authorId === currentUserId
         // 본인·미삭제·미전송중 메시지만 toolbar 노출.
-        const canEdit = m.authorId === currentUserId && !m.deleted && !isPending
+        const canEdit = isOwn && !m.deleted && !isPending
         const isEditing = editingId === m.id
         const isLast = idx === ordered.length - 1
 
@@ -85,31 +87,37 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
             data-testid={`message-${m.id}`}
             data-pending={isPending ? 'true' : undefined}
             data-group-start={startsGroup ? 'true' : 'false'}
-            className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''}`}
+            data-own={isOwn ? 'true' : 'false'}
+            className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${isOwn ? 'justify-end' : ''}`}
           >
-            {/* 좌측 거터(아바타 폭 고정) — 그룹 첫 줄엔 아바타, 후속 줄엔 hover 시 시각. */}
-            <div className="w-8 shrink-0 pt-0.5">
-              {startsGroup ? (
-                <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
-              ) : (
-                <span
-                  className="hidden pt-px text-right text-[10px] leading-4 text-muted-foreground group-hover:block"
-                  data-testid={`message-hovertime-${m.id}`}
-                >
-                  {formatClockTime(m.createdAt)}
-                </span>
-              )}
-            </div>
+            {/* 좌측 거터(아바타 폭 고정) — 그룹 첫 줄엔 아바타, 후속 줄엔 hover 시 시각. 본인 메시지는 우측 정렬이라 거터 생략. */}
+            {!isOwn && (
+              <div className="w-8 shrink-0 pt-0.5">
+                {startsGroup ? (
+                  <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
+                ) : (
+                  <span
+                    className="hidden pt-px text-right text-[10px] leading-4 text-muted-foreground group-hover:block"
+                    data-testid={`message-hovertime-${m.id}`}
+                  >
+                    {formatClockTime(m.createdAt)}
+                  </span>
+                )}
+              </div>
+            )}
 
-            {/* 우측 본문 컬럼 — 헤더/본문/첨부/toolbar/리액션/답글 전체. */}
-            <div className="min-w-0 flex-1">
-              {/* 그룹 첫 줄에만 작성자 헤더(이름 + 시각 + 수정됨 표시) 노출. */}
+            {/* 본문 컬럼 — 헤더/본문/첨부/toolbar/리액션/답글 전체. */}
+            {/* 본인 메시지: 우측 정렬 + 폭 제한(max-w) + items-end. 단, 인라인 수정 중엔 풀폭 좌측(에디터가 버블 안에서 눌리지 않도록). */}
+            <div className={`min-w-0 ${isOwn && !isEditing ? 'flex max-w-[75%] flex-col items-end' : 'flex-1'}`}>
+              {/* 그룹 첫 줄에만 작성자 헤더(이름 + 시각 + 수정됨 표시) 노출. 본인 메시지는 이름 생략(자명) — 시각만. */}
               {startsGroup && (
                 <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
-                  <span className="font-semibold text-foreground">
-                    {m.authorName}
-                    {m.authorKind === 'AGENT' && ' 🤖'}
-                  </span>
+                  {!isOwn && (
+                    <span className="font-semibold text-foreground">
+                      {m.authorName}
+                      {m.authorKind === 'AGENT' && ' 🤖'}
+                    </span>
+                  )}
                   <span data-testid={`message-time-${m.id}`}>{formatClockTime(m.createdAt)}</span>
                 </div>
               )}
@@ -142,7 +150,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                   data-testid={`message-body-${m.id}`}
                   className={`text-sm whitespace-pre-wrap break-words ${
                     m.deleted ? 'italic text-muted-foreground' : ''
-                  }`}
+                  } ${isOwn ? 'rounded-2xl bg-primary/10 px-3 py-1.5' : ''}`}
                 >
                   {m.deleted
                     ? '(삭제됨)'
@@ -181,7 +189,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               )}
 
               {!isEditing && (
-                <div className="absolute right-2 top-0 hidden gap-0.5 group-hover:flex">
+                <div className={`absolute top-0 hidden gap-0.5 group-hover:flex ${isOwn ? 'left-2' : 'right-2'}`}>
                   {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
                   {!isPending && (
                     <EmojiPicker

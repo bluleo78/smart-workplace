@@ -101,41 +101,40 @@ export function MessageComposer({
           ))}
         </ul>
       )}
-      <div className="flex items-end gap-2">
-        <button
-          type="button"
-          aria-label="파일 첨부"
-          data-testid="composer-attach-button"
-          className="rounded-md p-2 hover:bg-accent/40"
-          onClick={() => inputRef.current?.click()}
-        >
-          <Paperclip className="h-4 w-4" />
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          className="hidden"
-          data-testid="composer-file-input"
-          onChange={(e) => onFiles(e.target.files)}
-        />
-        <div className="flex-1">
-          {/* 첨부가 있으면 본문이 비어도 전송 허용(allowEmptySubmit). */}
-          <RichInput
-            members={members}
-            onSubmit={handleSubmit}
-            clearOnSubmit
-            allowEmptySubmit={pending.length > 0}
-            disableWhenEmpty
-            placeholder="메시지를 입력하세요"
-            submitLabel={uploading ? '업로드 중…' : '보내기'}
-            submitDisabled={uploading}
-            maxLength={4000}
-            inputTestId="message-composer-input"
-            submitTestId="message-composer-submit"
-          />
-        </div>
-      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        className="hidden"
+        data-testid="composer-file-input"
+        onChange={(e) => onFiles(e.target.files)}
+      />
+      {/* 첨부가 있으면 본문이 비어도 전송 허용(allowEmptySubmit). */}
+      {/* 파일 첨부 버튼은 RichInput 의 leftActions 로 전달 — 보내기 버튼과 같은 행에 정렬. */}
+      <RichInput
+        members={members}
+        onSubmit={handleSubmit}
+        clearOnSubmit
+        allowEmptySubmit={pending.length > 0}
+        disableWhenEmpty
+        placeholder="메시지를 입력하세요"
+        submitLabel={uploading ? '업로드 중…' : '보내기'}
+        submitDisabled={uploading}
+        maxLength={4000}
+        leftActions={
+          <button
+            type="button"
+            aria-label="파일 첨부"
+            data-testid="composer-attach-button"
+            className="rounded-md p-2 hover:bg-accent/40"
+            onClick={() => inputRef.current?.click()}
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+        }
+        inputTestId="message-composer-input"
+        submitTestId="message-composer-submit"
+      />
     </div>
   )
 }
