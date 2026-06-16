@@ -143,3 +143,55 @@ test('삭제 — ⋯ 메뉴 → 다이얼로그 확인 시 DELETE, 취소 시 �
   await page.getByTestId('wiki-delete-dialog').getByRole('button', { name: '삭제' }).click()
   await expect.poll(() => deleteCalled).toBe(true)
 })
+
+test('삭제 다이얼로그 — 리프 페이지(하위 없음)에서는 하위 페이지 경고 미표시', async ({ authenticatedPage: page }) => {
+  // 하위 없는 리프 페이지만 존재하는 트리 — hasChildren=false 케이스.
+  await routeCommon(page)
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 1, parentId: null, title: '리프 페이지', position: 0 }]),
+    }),
+  )
+  await page.route('**/api/v1/wiki/pages/*', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '리프 페이지', null)) }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  const row = page.getByTestId('wiki-tree-row-1')
+  await row.hover()
+  await row.getByRole('button', { name: '페이지 메뉴' }).click()
+  await page.getByRole('menuitem', { name: '삭제' }).click()
+  await expect(page.getByTestId('wiki-delete-dialog')).toBeVisible()
+  // 하위 페이지가 없으므로 "하위 페이지도 함께 삭제되며" 문구는 표시되지 않아야 한다.
+  await expect(page.getByTestId('wiki-delete-dialog')).not.toContainText('하위 페이지도 함께 삭제되며')
+  await expect(page.getByTestId('wiki-delete-dialog')).toContainText('되돌릴 수 없습니다')
+})
+
+test('삭제 다이얼로그 — 하위 페이지가 있는 부모 페이지에서는 경고 표시', async ({ authenticatedPage: page }) => {
+  // 부모-자식 구조 — 부모(id=1)를 삭제할 때 hasChildren=true 경고가 나타나야 한다.
+  await routeCommon(page)
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 1, parentId: null, title: '부모 페이지', position: 0 },
+        { id: 2, parentId: 1, title: '자식 페이지', position: 0 },
+      ]),
+    }),
+  )
+  await page.route('**/api/v1/wiki/pages/*', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '부모 페이지', null)) }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  const row = page.getByTestId('wiki-tree-row-1')
+  await row.hover()
+  await row.getByRole('button', { name: '페이지 메뉴' }).click()
+  await page.getByRole('menuitem', { name: '삭제' }).click()
+  await expect(page.getByTestId('wiki-delete-dialog')).toBeVisible()
+  // 하위 페이지가 있으므로 동반 삭제 경고가 표시되어야 한다.
+  await expect(page.getByTestId('wiki-delete-dialog')).toContainText('하위 페이지도 함께 삭제되며')
+})

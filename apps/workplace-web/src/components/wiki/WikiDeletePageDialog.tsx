@@ -11,17 +11,21 @@ import {
 
 /**
  * 노트 페이지 삭제 확인 — controlled(open/onOpenChange). 드롭다운 메뉴 항목에서 열기 위해
- * trigger 기반 DeleteConfirmDialog 대신 별도로 둔다. 하위 페이지 동반 삭제를 경고한다.
+ * trigger 기반 DeleteConfirmDialog 대신 별도로 둔다.
+ * hasChildren=true 일 때만 하위 페이지 동반 삭제 경고를 표시한다.
  */
 export function WikiDeletePageDialog({
   open,
   onOpenChange,
   pageTitle,
+  hasChildren = false,
   onConfirm,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   pageTitle: string
+  /** 하위 페이지가 있을 때 true — true 일 때만 동반 삭제 경고 표시. */
+  hasChildren?: boolean
   onConfirm: () => void
 }) {
   return (
@@ -30,7 +34,8 @@ export function WikiDeletePageDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>페이지 삭제</AlertDialogTitle>
           <AlertDialogDescription>
-            &quot;{pageTitle || '제목 없음'}&quot; 페이지를 삭제할까요? 하위 페이지도 함께 삭제되며 되돌릴 수 없습니다.
+            &quot;{pageTitle || '제목 없음'}&quot; 페이지를 삭제할까요?
+            {hasChildren && ' 하위 페이지도 함께 삭제되며'} 되돌릴 수 없습니다.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

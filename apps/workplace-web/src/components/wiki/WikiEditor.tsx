@@ -38,6 +38,11 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const { data: tree } = useWikiTree(spaceId)
   // 브레드크럼 — 이미 로드된 전체 트리에서 파생(추가 API 없음).
   const crumbs = useMemo(() => buildBreadcrumb(tree ?? [], page.id), [tree, page.id])
+  // 현재 페이지의 하위 페이지 존재 여부 — 트리에서 parentId 가 일치하는 항목 유무로 판단.
+  const pageHasChildren = useMemo(
+    () => (tree ?? []).some((p) => p.parentId === page.id),
+    [tree, page.id],
+  )
   // 현재 페이지 삭제 확인 다이얼로그 상태.
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [title, setTitle] = useState(page.title)
@@ -379,6 +384,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         pageTitle={title}
+        hasChildren={pageHasChildren}
         onConfirm={handleDeleteCurrent}
       />
     </div>

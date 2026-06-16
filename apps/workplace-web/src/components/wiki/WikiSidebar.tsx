@@ -358,13 +358,14 @@ export function WikiSidebar() {
           onOpenChange={setMembersOpen}
         />
       )}
-      {/* 페이지 삭제 확인(사이드바 행 ⋯). */}
+      {/* 페이지 삭제 확인(사이드바 행 ⋯). hasChildren 은 flatItems 에서 파생. */}
       <WikiDeletePageDialog
         open={deleteTarget != null}
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null)
         }}
         pageTitle={flatItems.find((i) => i.id === deleteTarget)?.title ?? ''}
+        hasChildren={flatItems.find((i) => i.id === deleteTarget)?.hasChildren ?? false}
         onConfirm={confirmDelete}
       />
     </aside>
