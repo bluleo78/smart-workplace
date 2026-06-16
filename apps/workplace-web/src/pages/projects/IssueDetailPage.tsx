@@ -35,6 +35,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { AssigneePickerPopover } from './components/AssigneePickerPopover';
+import { DueDatePickerPopover } from './components/DueDatePickerPopover';
 import { IssueChatSection } from './components/chat/IssueChatSection';
 import { CustomFieldsSection } from './components/CustomFieldsSection';
 import { IssueActivityTimeline } from './components/IssueActivityTimeline';
@@ -378,16 +379,13 @@ export default function IssueDetailPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground" htmlFor="issue-due-edit">마감일</label>
-              <input
-                id="issue-due-edit"
-                type="date"
-                className="w-full border rounded p-2 bg-background"
-                value={summary.dueDate ?? ''}
+              <span className="text-xs font-medium text-muted-foreground">마감일</span>
+              <DueDatePickerPopover
+                value={summary.dueDate}
                 disabled={update.isPending}
-                onChange={(e) => patch({
-                  dueDate: e.target.value || undefined,
-                  clearDueDate: !e.target.value,
+                onChange={(date) => patch({
+                  dueDate: date,
+                  clearDueDate: !date,
                 })}
               />
             </div>
