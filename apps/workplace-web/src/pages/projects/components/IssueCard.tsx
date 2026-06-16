@@ -4,7 +4,7 @@
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Paperclip } from 'lucide-react';
+import { GripVertical, Paperclip } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
@@ -65,11 +65,22 @@ export function IssueCard({
       style={style}
       {...(asOverlay ? {} : attributes)}
       {...(asOverlay ? {} : listeners)}
-      className={`relative rounded-md border bg-card p-3 text-sm shadow-sm ${
+      className={`group relative rounded-md border bg-card p-3 text-sm shadow-sm ${
         asOverlay ? 'shadow-xl ring-2 ring-primary/40' : 'cursor-grab active:cursor-grabbing'
       }`}
       data-testid={`issue-card-${issue.number}`}
     >
+      {/* 드래그 핸들 — hover 시만 표시. pointer-events-none 으로 클릭/드래그 방해 없음. */}
+      {!asOverlay && (
+        <div
+          className="pointer-events-none absolute left-1 top-1/2 z-10 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-40"
+          data-testid="issue-card-grip"
+          aria-hidden="true"
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
+        </div>
+      )}
+
       {/* 차단된 이슈에 ⛔ 우상단 마커 — 오버레이 위로(z-10). */}
       {issue.blocked && (
         <span

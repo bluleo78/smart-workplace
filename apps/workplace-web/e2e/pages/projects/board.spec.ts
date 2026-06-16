@@ -466,6 +466,43 @@ test.describe('태스크 보드/검색', () => {
     await expect(identifierSpan).toHaveCount(1);
   });
 
+  test('보드 카드 — hover 시 GripVertical 드래그 핸들 표시 (#288 회귀)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 무엇을: 카드에 드래그 핸들(GripVertical 아이콘)이 렌더되고, hover 시 opacity 가 0 초과인지 검증.
+    // 왜: #288 — 핸들 없이 cursor-grab 만으로는 드래그 어포던스 미노출. hover 로 opacity 전환을 확인.
+    await stubProjectMeta(page);
+    const issues = [
+      createIssue({ id: 1, number: 3, title: '드래그 핸들 테스트', status: 'TODO' }),
+    ];
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(issues)),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    const card = page.getByTestId('issue-card-3');
+    await expect(card).toBeVisible();
+
+    // 핸들 DOM 존재 확인
+    const grip = card.getByTestId('issue-card-grip');
+    await expect(grip).toBeAttached();
+
+    // hover 전: opacity-0(투명)
+    const opacityBefore = await grip.evaluate((el) => getComputedStyle(el).opacity);
+    expect(Number(opacityBefore)).toBe(0);
+
+    // hover 후: opacity > 0 (transition-opacity 완료까지 poll)
+    await card.hover();
+    await expect.poll(
+      async () => Number(await grip.evaluate((el) => getComputedStyle(el).opacity)),
+      { timeout: 2000 },
+    ).toBeGreaterThan(0);
+  });
+
   test('리스트 무한 스크롤 — 두번째 페이지가 cursor 로 자동 로드', async ({
     authenticatedPage: page,
   }) => {
