@@ -461,7 +461,6 @@ export function DrivePage() {
         ) : (
           <ul className="divide-y divide-border">
             {items.folders.map((f) => (
-              // group 클래스로 호버 시에만 액션 버튼 노출 — 앱 전체 hover-reveal 패턴과 일관성 유지
               <li key={`folder-${f.id}`} className="group flex items-center gap-2 py-2">
                 {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
                 <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
@@ -503,7 +502,6 @@ export function DrivePage() {
               </li>
             ))}
             {items.files.map((f) => (
-              // group 클래스로 호버 시에만 액션 버튼 노출 — 앱 전체 hover-reveal 패턴과 일관성 유지
               <li key={`file-${f.id}`} className="group flex items-center gap-2 py-2">
                 <DriveThumbnail fileId={f.id} category={f.category} />
                 <button
