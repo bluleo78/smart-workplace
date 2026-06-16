@@ -362,7 +362,7 @@ export default function IssueDetailPage() {
               />
             )}
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">상태</label>
+              <label className="text-xs font-medium text-muted-foreground">상태</label>
               <IssueStatusSelect
                 value={summary.status}
                 onChange={(v) => patch({ status: v })}
@@ -370,7 +370,7 @@ export default function IssueDetailPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">우선순위</label>
+              <label className="text-xs font-medium text-muted-foreground">우선순위</label>
               <IssuePrioritySelect
                 value={summary.priority}
                 onChange={(v) => patch({ priority: v })}
@@ -378,7 +378,7 @@ export default function IssueDetailPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground" htmlFor="issue-due-edit">마감일</label>
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="issue-due-edit">마감일</label>
               <input
                 id="issue-due-edit"
                 type="date"
@@ -393,7 +393,7 @@ export default function IssueDetailPage() {
             </div>
             <section aria-label="담당자" className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">담당자</span>
+                <span className="text-xs font-medium text-muted-foreground">담당자</span>
                 <AssigneePickerPopover
                   projectKey={key}
                   issueNumber={issueNumber}
@@ -420,7 +420,7 @@ export default function IssueDetailPage() {
             </section>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">라벨</span>
+                <span className="text-xs font-medium text-muted-foreground">라벨</span>
                 <LabelPickerPopover
                   projectKey={key}
                   issueNumber={issueNumber}
@@ -438,12 +438,12 @@ export default function IssueDetailPage() {
             </div>
             {/* 사이클 피커 — 이슈에 연결된 사이클 조회·변경 (CyclePickerPopover) */}
             <section data-testid="issue-cycles-section">
-              <h3 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">사이클</h3>
+              <h3 className="mb-1 text-xs font-medium text-muted-foreground">사이클</h3>
               <CyclePickerPopover projectKey={key} issueNumber={issueNumber} />
             </section>
             <section aria-label="첨부" className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">첨부</span>
+                <span className="text-xs font-medium text-muted-foreground">첨부</span>
                 <span className="text-xs text-muted-foreground">
                   {summary.attachmentCount}/10
                 </span>
