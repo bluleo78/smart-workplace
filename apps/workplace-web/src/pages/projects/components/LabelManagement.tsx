@@ -111,8 +111,8 @@ export function LabelManagement({
               className="flex items-center gap-2 border-b py-2"
               data-testid={`label-row-${l.id}`}
             >
+              {/* LabelChip 의 색상 도트가 색상을 시각적으로 전달하므로 colorToken 원시값 텍스트 불필요 (#307) */}
               <LabelChip label={{ id: l.id, name: l.name, colorToken: l.colorToken }} />
-              <span className="text-xs text-muted-foreground">{l.colorToken}</span>
               {isOwner && (
                 <div className="ml-auto flex gap-2">
                   <Button

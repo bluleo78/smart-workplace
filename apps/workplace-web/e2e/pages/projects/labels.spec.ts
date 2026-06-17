@@ -106,6 +106,8 @@ test.describe('라벨', () => {
       const createdId = labels[0]!.id;
       await expect(page.getByTestId(`label-row-${createdId}`)).toBeVisible();
       await expect(page.getByTestId(`label-row-${createdId}`)).toContainText('버그');
+      // colorToken 열거형 원시값(RED 등)이 행에 노출되지 않아야 함 (#307).
+      await expect(page.getByTestId(`label-row-${createdId}`)).not.toContainText('RED');
 
       // 2) 리스트로 이동 + 라벨 필터 popover 열기.
       await page.goto(`/projects/${PROJECT_KEY}`);
