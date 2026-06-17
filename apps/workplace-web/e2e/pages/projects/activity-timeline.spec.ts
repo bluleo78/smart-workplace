@@ -2,7 +2,11 @@
 // 백엔드 영문 enum 원시값이 그대로 노출되지 않고 한국어 표시명으로 렌더되는지 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import { createHistoryEntry, createIssueDetail } from '../../factories/issue.factory';
+import {
+  createAgentHistoryEntry,
+  createHistoryEntry,
+  createIssueDetail,
+} from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 
 const PROJECT_KEY = 'WP';
@@ -46,6 +50,50 @@ async function setupCommonStubs(page: import('@playwright/test').Page) {
     },
   );
 }
+
+test.describe('IssueActivityTimeline — 액터 보더 색상', () => {
+  // #311 회귀: HUMAN 항목에 border-l-border, AGENT 항목에 border-l-ai-accent 가 적용되는지 검증
+  test(
+    'HUMAN 항목에는 border-l-border, AGENT 항목에는 border-l-ai-accent 보더 색상이 적용됨',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      const detail = createIssueDetail({
+        history: [
+          createHistoryEntry({ id: 1, actorKind: 'HUMAN', actorName: '사람 사용자' }),
+          createAgentHistoryEntry({ id: 2 }),
+        ],
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+
+      // HUMAN 항목: border-l-border 클래스가 있어야 함 (투명 보더 방지)
+      // data-agent 속성이 없는 li = HUMAN 항목
+      const humanItem = timeline.locator('li:not([data-agent])').first();
+      await expect(humanItem).toHaveClass(/border-l-border/);
+
+      // AGENT 항목: border-l-ai-accent 클래스가 있어야 함
+      const agentItem = timeline.locator('li[data-agent="true"]').first();
+      await expect(agentItem).toHaveClass(/border-l-ai-accent/);
+    },
+  );
+});
 
 test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
   test(

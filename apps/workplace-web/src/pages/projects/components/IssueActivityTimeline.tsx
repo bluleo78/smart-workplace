@@ -198,7 +198,8 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
           <li
             key={e.id}
             className={
-              isAgent ? 'border-l-2 border-l-ai-accent pl-3' : 'border-l-2 pl-3'
+              // AGENT: 보라색 ai-accent 보더, HUMAN: 기본 border 색상으로 명시적 지정
+              isAgent ? 'border-l-2 border-l-ai-accent pl-3' : 'border-l-2 border-l-border pl-3'
             }
             data-agent={isAgent ? 'true' : undefined}
           >
