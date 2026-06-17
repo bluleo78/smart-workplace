@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificationsRead'
 import { useMarkNotificationRead } from '@/hooks/queries/useMarkNotificationRead'
 import { useNotifications } from '@/hooks/queries/useNotifications'
@@ -45,24 +46,32 @@ export function InboxPanel() {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label="알림"
-          data-testid="inbox-trigger"
-          className="relative flex w-full items-center justify-center rounded-md px-2 py-2.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-        >
-          <Bell className="h-5 w-5" />
-          {unread > 0 && (
-            <span
-              data-testid="inbox-badge"
-              className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="알림"
+              data-testid="inbox-trigger"
+              className="relative flex w-full items-center justify-center rounded-md px-2 py-2.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
             >
-              {unread > 99 ? '99+' : unread}
-            </span>
-          )}
-        </button>
-      </PopoverTrigger>
+              <Bell className="h-5 w-5" />
+              {unread > 0 && (
+                <span
+                  data-testid="inbox-badge"
+                  className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
+                >
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        {/* 데스크톱 아이콘 레일에서 hover 시 라벨 노출 (nav 링크와 동일 패턴) */}
+        <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+          알림
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent side="right" align="end" className="w-80 p-0" data-testid="inbox-panel">
         <div className="flex items-center justify-between border-b px-3 py-2">
           <span className="text-sm font-semibold">알림</span>

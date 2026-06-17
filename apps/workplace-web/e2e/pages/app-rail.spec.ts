@@ -49,6 +49,27 @@ test('앱 레일 — 한글 라벨과 소통 묶음 순서(홈·작업·대화·
   ])
 })
 
+// #316 — 하단 알림·유저 아이콘 hover 툴팁 미제공. shadcn Tooltip 을 InboxPanel·AppRailUserMenu
+// trigger 에 추가하여 nav 링크와 동일한 패턴으로 맞춤.
+test('앱 레일 하단 — 알림 아이콘 hover 시 툴팁 "알림" 표시 (#316)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.goto('/')
+  const trigger = page.getByTestId('inbox-trigger')
+  await trigger.hover()
+  // shadcn Tooltip 은 기본 200ms 딜레이 후 role="tooltip" 로 노출.
+  await expect(page.getByRole('tooltip', { name: '알림' })).toBeVisible()
+})
+
+test('앱 레일 하단 — 유저 아이콘 hover 시 툴팁 "내 계정" 표시 (#316)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.goto('/')
+  const trigger = page.getByTestId('rail-user-menu')
+  await trigger.hover()
+  await expect(page.getByRole('tooltip', { name: '내 계정' })).toBeVisible()
+})
+
 // #120 — 데스크톱(lg) 레일에서 라벨 span 이 lg:hidden 이라 모듈 링크 8개의 accessible name 이
 // 비어 있던 a11y 결함(WCAG 4.1.2). RailLink<Link> 에 aria-label 부여로 모든 뷰포트에서 이름 보장.
 // 요소 존재가 아니라 "역할 link + 접근 가능한 이름"을 함께 검증한다.
