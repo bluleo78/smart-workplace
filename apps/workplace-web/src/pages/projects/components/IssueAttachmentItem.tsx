@@ -35,7 +35,7 @@ export function IssueAttachmentItem({
 }) {
   return (
     <li
-      className="flex items-center gap-2 py-1 text-sm"
+      className="group flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-accent/50"
       data-testid={`attachment-row-${attachment.fileId}`}
     >
       {categoryIcon(attachment.mimeType)}
@@ -56,6 +56,7 @@ export function IssueAttachmentItem({
           variant="ghost"
           size="icon"
           aria-label="첨부 삭제"
+          className="hidden group-hover:inline-flex"
           onClick={() => onDelete(attachment.fileId)}
         >
           <X className="h-4 w-4" />

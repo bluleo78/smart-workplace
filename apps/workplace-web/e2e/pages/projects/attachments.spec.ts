@@ -154,6 +154,8 @@ test.describe('이슈 첨부', () => {
       await expect(row).toContainText('spec.pdf');
 
       // 삭제 → AlertDialog 확인 → 빈 상태 (#148: window.confirm → shadcn AlertDialog).
+      // #306: 삭제 버튼은 hover-reveal 패턴으로 숨겨져 있으므로 hover 후 클릭.
+      await row.hover();
       await row.getByRole('button', { name: '첨부 삭제' }).click();
       // AlertDialog 가 뜨고 삭제 버튼 클릭으로 확인.
       await expect(page.getByTestId('attachment-delete-dialog')).toBeVisible();
@@ -261,5 +263,44 @@ test.describe('이슈 첨부', () => {
     // 첫 번째 파일만 POST 발생해야 한다.
     await page.waitForTimeout(300);
     expect(postCount).toBe(1);
+  });
+
+  // #306 — 첨부 행 삭제 버튼 hover-reveal 패턴 회귀 테스트.
+  test('첨부 행 삭제 버튼은 hover 전 숨겨지고 hover 후 표시된다', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupCommonStubs(page, 0);
+
+    const attachment = createAttachment({
+      fileId: 8001,
+      originalName: 'hover-test.pdf',
+      sizeBytes: 512,
+      mimeType: 'application/pdf',
+      attachedById: 1,
+    });
+
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([attachment]),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    const row = page.getByTestId('attachment-row-8001');
+    await expect(row).toBeVisible();
+
+    // hover 전: 삭제 버튼은 숨겨져야 한다 (#306).
+    await expect(row.getByRole('button', { name: '첨부 삭제' })).toBeHidden();
+
+    // hover 후: 삭제 버튼이 나타나야 한다.
+    await row.hover();
+    await expect(row.getByRole('button', { name: '첨부 삭제' })).toBeVisible();
   });
 });
