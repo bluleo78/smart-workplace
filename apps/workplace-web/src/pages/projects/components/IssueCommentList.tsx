@@ -214,10 +214,12 @@ export function IssueCommentList({
         )}
       </ul>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-2">
+        {/* resize-none 으로 RichInput(이슈 채팅)과 시각 일관성 유지 (#310) */}
         <Textarea
           {...register('body')}
           placeholder="코멘트를 작성하세요"
           rows={3}
+          className="resize-none"
         />
         {errors.body && <p className="text-sm text-destructive">{errors.body.message}</p>}
         <div className="flex justify-end">

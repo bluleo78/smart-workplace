@@ -50,6 +50,59 @@ async function setupIssueStubs(
   );
 }
 
+test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310)', () => {
+  test('코멘트 textarea — resize-none 적용으로 RichInput과 시각 일관성', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+    const detailRef = { current: createIssueDetail({ comments: [] }) };
+    await setupIssueStubs(page, detailRef);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 코멘트 작성 폼의 textarea 확인
+    const textarea = page.locator('section[aria-label="코멘트"] textarea[placeholder="코멘트를 작성하세요"]');
+    await expect(textarea).toBeVisible();
+
+    // resize-none 클래스가 적용되어 있어야 함 — RichInput(이슈 채팅)과 시각 일관성
+    await expect(textarea).toHaveClass(/resize-none/);
+  });
+
+  test('코멘트 작성 — 폼 입력 → POST API 호출 → 목록 갱신', async ({ authenticatedPage: page }) => {
+    const detailRef = { current: createIssueDetail({ comments: [] }) };
+    await setupIssueStubs(page, detailRef);
+
+    const postPayloads: { body: string }[] = [];
+    const newComment = createComment({ id: 20, issueId: ISSUE_ID, authorId: ME_ID, body: '새 코멘트' });
+    await page.route(
+      (url) => /\/api\/v1\/issues\/\d+\/comments$/.test(url.pathname),
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        const payload = route.request().postDataJSON() as { body: string };
+        postPayloads.push(payload);
+        // 작성 성공 후 invalidateQueries 로 이슈 재조회 — 새 코멘트 포함 목록 반환
+        detailRef.current = createIssueDetail({ comments: [newComment] });
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(newComment),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expect(page.getByText('코멘트가 없습니다')).toBeVisible();
+
+    const textarea = page.locator('section[aria-label="코멘트"] textarea[placeholder="코멘트를 작성하세요"]');
+    await textarea.fill('새 코멘트');
+    await page.locator('section[aria-label="코멘트"] button[type="submit"]').click();
+
+    // POST payload 검증
+    await expect.poll(() => postPayloads.length).toBe(1);
+    expect(postPayloads[0].body).toBe('새 코멘트');
+
+    // UI에 새 코멘트 반영 확인
+    await expect(page.getByText('새 코멘트')).toBeVisible();
+  });
+});
+
 test.describe('IssueCommentList 수정·삭제 (#154)', () => {
   test('자신의 코멘트 — 수정 버튼 클릭 → 인라인 편집 → PATCH API 호출 및 본문 갱신', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     const myComment: IssueCommentResponse = createComment({ id: 10, issueId: ISSUE_ID, authorId: ME_ID, body: '원본 코멘트' });
