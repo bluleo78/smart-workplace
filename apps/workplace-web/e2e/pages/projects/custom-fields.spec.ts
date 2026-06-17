@@ -298,4 +298,132 @@ test.describe('커스텀 필드', () => {
       await expect.poll(() => deleted).toBe(true);
     },
   );
+
+  test(
+    'DATE 필드 Popover Calendar 선택 → PUT payload 검증 + 지우기 (#318)',
+    async ({ authenticatedPage: page }) => {
+      // DATE 타입 커스텀 필드가 shadcn Popover+Calendar로 렌더되고,
+      // 날짜 선택 → ISO PUT + 지우기 → null PUT 파이프라인 전체를 검증한다.
+      const dateDef = {
+        id: 400,
+        projectId: 1,
+        name: '마감목표일',
+        type: 'DATE',
+        options: null,
+        position: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const taskType = makeTaskType();
+      const baseIssue = {
+        ...createIssue({ id: 1, number: 1, title: 't' }),
+        type: taskType,
+        labels: [],
+        attachmentCount: 0,
+        assignees: [],
+        parent: null,
+        childCount: 0,
+        childDoneCount: 0,
+        blockedBy: [],
+        blocks: [],
+        blocked: false,
+        customFields: [] as Array<{ defId: number; name: string; type: string; value: unknown }>,
+      };
+      let issue = baseIssue;
+
+      await page.route(`**/api/v1/projects/${KEY}`, (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 1, key: KEY, name: 'P', description: '', ownerId: 1, ownerName: 'T', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
+        }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/members`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ userId: 1, username: 'me', name: 'Me', role: 'OWNER' }]) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/types`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(systemTypes()) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/labels`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/issues/1/watchers`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/issues/1/attachments`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/fields`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([dateDef]) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/issues/1`, (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ summary: issue, body: '', comments: [], history: [], attachments: [] }),
+        }),
+      );
+
+      let putPayload: unknown;
+      await page.route(`**/api/v1/projects/${KEY}/issues/1/fields`, (route) => {
+        putPayload = route.request().postDataJSON();
+        const incoming = (putPayload as { values: Array<{ defId: number; value: unknown }> }).values;
+        const map = new Map<number, { defId: number; name: string; type: string; value: unknown }>();
+        for (const e of issue.customFields) map.set(e.defId, e);
+        for (const v of incoming) {
+          if (v.value == null) map.delete(v.defId);
+          else map.set(v.defId, { defId: v.defId, name: dateDef.name, type: dateDef.type, value: v.value });
+        }
+        issue = { ...issue, customFields: Array.from(map.values()) };
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ summary: issue, body: '', comments: [], history: [], attachments: [] }),
+        });
+      });
+
+      await page.goto(`/projects/${KEY}/issues/1`);
+      await expect(page.getByTestId('custom-fields-section')).toBeVisible();
+
+      // 트리거가 native textbox가 아닌 버튼(shadcn PopoverTrigger)으로 렌더됨을 확인
+      const trigger = page.getByTestId(`field-input-${dateDef.id}`);
+      await expect(trigger).toBeVisible();
+      await expect(trigger).toHaveRole('button');
+      await expect(trigger).toContainText('날짜 선택');
+
+      // Popover 열어서 날짜 선택 (달력에서 15일 클릭)
+      await trigger.click();
+      // Popover 내 Calendar가 표시됨을 확인
+      await expect(page.locator('[role="dialog"]').or(page.locator('.rdp'))).toBeVisible();
+
+      // 달력에서 15일 버튼 클릭 (실제 존재하는 날짜)
+      const dayBtn = page.getByRole('button', { name: '15' }).first();
+      await expect(dayBtn).toBeVisible();
+      await dayBtn.click();
+
+      // 날짜 선택 후 PUT payload에 ISO 문자열이 포함되어야 함
+      await expect.poll(() => {
+        const p = putPayload as { values?: Array<{ defId: number; value: unknown }> } | undefined;
+        return p?.values?.find((v) => v.defId === dateDef.id)?.value;
+      }, { timeout: 2000 }).toMatch(/^\d{4}-\d{2}-15$/);
+
+      // 날짜 선택 후 트리거에 텍스트 표시됨 (더 이상 "날짜 선택" placeholder 없음)
+      await expect(trigger).not.toContainText('날짜 선택');
+
+      // 지우기 버튼이 나타남
+      const clearBtn = page.getByTestId(`field-input-${dateDef.id}-clear`);
+      await expect(clearBtn).toBeVisible();
+
+      // 지우기 클릭 → PUT payload value가 null
+      putPayload = undefined;
+      await clearBtn.click();
+      await expect.poll(() => {
+        const p = putPayload as { values?: Array<{ defId: number; value: unknown }> } | undefined;
+        return p?.values?.find((v) => v.defId === dateDef.id)?.value;
+      }, { timeout: 2000 }).toBeNull();
+
+      // 지운 후 트리거에 다시 "날짜 선택" placeholder 표시
+      await expect(trigger).toContainText('날짜 선택');
+    },
+  );
 });
