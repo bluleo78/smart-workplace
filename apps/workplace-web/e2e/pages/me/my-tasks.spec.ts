@@ -127,3 +127,30 @@ test('내 작업 — 우선순위 facet 을 선택하면 priority query 로 조�
   await expect.poll(() => cap.lastRequest()?.searchParams.get('priority')).toBe('HIGH')
   expect(cap.lastRequest()?.searchParams.get('assignee')).toBe('me')
 })
+
+// #294 회귀 — 내 작업 목록 상태·우선순위는 텍스트 배지가 아닌 아이콘으로 표시되어야 한다.
+// IssueStatusIcon(role=img aria-label="상태: ...") · IssuePriorityBars(role=img aria-label="우선순위 ...") 사용 검증.
+test('내 작업 — 상태·우선순위가 텍스트 배지 아닌 아이콘으로 렌더된다 (#294)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([
+      createIssue({ id: 77, title: '아이콘 검증 이슈', status: 'IN_PROGRESS', priority: 'HIGH' }),
+    ]),
+  )
+  await page.goto('/me/tasks/assigned')
+  await page.waitForSelector('[data-testid="assigned-row-77"]')
+
+  const row = page.getByTestId('assigned-row-77')
+
+  // 아이콘 방식: svg role=img + aria-label/title 확인.
+  await expect(row.getByRole('img', { name: /상태:/ })).toBeVisible()
+  await expect(row.getByRole('img', { name: /우선순위/ })).toBeVisible()
+
+  // 텍스트 배지 방식이 사라졌는지 확인(regression guard).
+  await expect(row.getByText('진행 중')).toHaveCount(0)
+  await expect(row.getByText('높음')).toHaveCount(0)
+})

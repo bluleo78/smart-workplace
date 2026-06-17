@@ -1,8 +1,9 @@
 // 이슈 목록 테이블 — ID/제목/상태/우선순위. 내 작업·AI 위임 등 여러 뷰에서 공유.
+// 상태·우선순위는 프로젝트 이슈 목록과 시각 언어 통일을 위해 아이콘 방식 사용(#294).
 import { Link } from 'react-router-dom'
 
-import { IssuePriorityBadge } from '../../pages/projects/components/IssuePriorityBadge'
-import { IssueStatusBadge } from '../../pages/projects/components/IssueStatusBadge'
+import { IssuePriorityBars } from '../issues/IssuePriorityBars'
+import { IssueStatusIcon } from '../issues/IssueStatusIcon'
 import type { IssueResponse } from '../../types/issue'
 import { IssueTypeBadge } from '../issueTypes/IssueTypeBadge'
 import { LabelChip } from '../labels/LabelChip'
@@ -61,10 +62,10 @@ export function IssueListTable({
                 )}
               </td>
               <td>
-                <IssueStatusBadge status={it.status} />
+                <IssueStatusIcon status={it.status} />
               </td>
               <td>
-                <IssuePriorityBadge priority={it.priority} />
+                <IssuePriorityBars priority={it.priority} />
               </td>
               {showAssignees && (
                 <td>
