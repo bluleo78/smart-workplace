@@ -89,6 +89,8 @@ test.describe('Saved View 사이드바 고정', () => {
     const pinReq = page.waitForRequest(
       (r) => r.url().endsWith(`/saved-views/10/pin`) && r.method() === 'PATCH',
     )
+    // #315: hover-reveal 패턴 — hover 후 메뉴 트리거 표시
+    await page.getByTestId('view-chip-10').hover()
     await page.getByTestId('view-chip-menu-10').click()
     await page.getByTestId('view-pin-10').click()
     const req = await pinReq

@@ -131,6 +131,8 @@ test('저장된 뷰 — 필터 저장 → 칩 등장 → 클릭 시 필터 복�
     views.length = 0
     return route.fulfill({ status: 204, body: '' })
   })
+  // #315: hover-reveal 패턴 — hover 후 메뉴 트리거 표시
+  await page.getByTestId('view-chip-1').hover()
   await page.getByTestId('view-chip-menu-1').click()
   await page.getByTestId('view-delete-1').click()
   // AlertDialog 가 등장해야 한다.
@@ -160,7 +162,8 @@ test('저장된 뷰 — 삭제 클릭 시 AlertDialog 표시, 취소 시 뷰 유
 
   await page.goto(`/projects/${KEY}`)
 
-  // 1) ⋯ → 삭제 클릭.
+  // 1) ⋯ → 삭제 클릭. #315: hover-reveal 패턴 — hover 후 메뉴 트리거 표시
+  await page.getByTestId('view-chip-1').hover()
   await page.getByTestId('view-chip-menu-1').click()
   await page.getByTestId('view-delete-1').click()
 
@@ -250,7 +253,8 @@ test('저장된 뷰 — ⋯ 수정 → 이름/가시성 변경(PATCH payload·�
   // 1) 기존 칩 등장.
   await expect(page.getByTestId('view-chip-1')).toContainText('원래이름')
 
-  // 2) ⋯ → 수정 → 다이얼로그가 기존 이름/가시성으로 프리필되는지 검증.
+  // 2) ⋯ → 수정 → 다이얼로그가 기존 이름/가시성으로 프리필되는지 검증. #315: hover-reveal 패턴 — hover 후 메뉴 트리거 표시
+  await page.getByTestId('view-chip-1').hover()
   await page.getByTestId('view-chip-menu-1').click()
   await page.getByTestId('view-edit-1').click()
   await expect(page.getByTestId('save-view-name')).toHaveValue('원래이름')
@@ -272,4 +276,28 @@ test('저장된 뷰 — ⋯ 수정 → 이름/가시성 변경(PATCH payload·�
   // 4) 칩에 새 이름 반영 + SHARED 공유 아이콘 노출.
   await expect(page.getByTestId('view-chip-1')).toContainText('수정된이름')
   await expect(page.getByTestId('view-chip-1').getByLabel('공유')).toBeVisible()
+})
+
+// #315 — 뷰 칩 ⋯ 메뉴 버튼 hover-reveal 패턴 회귀 테스트.
+test('뷰 칩 ⋯ 메뉴 버튼은 hover 전 숨겨지고 hover 후 표시된다 (refs #315)', async ({
+  authenticatedPage: page,
+}) => {
+  const views: SavedViewResponse[] = [
+    {
+      id: 1, name: 'hover테스트뷰', query: 'priority=HIGH', visibility: 'PRIVATE',
+      ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '',
+    },
+  ]
+  await setupCommonRoutes(page, views)
+  await page.goto(`/projects/${KEY}`)
+
+  const chip = page.getByTestId('view-chip-1')
+  await expect(chip).toBeVisible()
+
+  // hover 전: ⋯ 메뉴 버튼은 숨겨져야 한다 (#315).
+  await expect(page.getByTestId('view-chip-menu-1')).toBeHidden()
+
+  // hover 후: ⋯ 메뉴 버튼이 나타나야 한다.
+  await chip.hover()
+  await expect(page.getByTestId('view-chip-menu-1')).toBeVisible()
 })
