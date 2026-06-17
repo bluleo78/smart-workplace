@@ -212,6 +212,34 @@ test.describe('messaging 인라인 compose + self-DM', () => {
     },
   )
 
+  // (E) 회귀: 수신자 칩 X 버튼 클릭 → 칩 제거 (#314)
+  test(
+    '수신자 칩 X 버튼을 클릭하면 해당 칩이 제거된다',
+    async ({ authenticatedPage: page }) => {
+      await stubSidebarLists(page)
+      await stubUserSearch(page, [{ id: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
+
+      await page.goto('/chat/new')
+      await expect(page.getByTestId('new-message-page')).toBeVisible()
+
+      // 수신자 추가
+      await page.getByTestId('new-message-add-recipient').click()
+      await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
+      await page.getByTestId('member-search-row-2').click()
+      const chip = page.getByTestId('recipient-chip-2')
+      await expect(chip).toBeVisible()
+
+      // X 버튼 hover → 상태 확인 (disabled가 아닌 interactive 버튼인지)
+      const removeBtn = chip.getByRole('button', { name: '밥 제거' })
+      await expect(removeBtn).toBeVisible()
+      await expect(removeBtn).toBeEnabled()
+
+      // X 클릭 → 칩 사라짐
+      await removeBtn.click()
+      await expect(chip).toHaveCount(0)
+    },
+  )
+
   // (C) self-DM 사이드바 링크 + redirect
   test(
     'self-DM 링크 레이블이 "테스트 사용자 (나)"이고 클릭 시 POST {userIds:[1]} → DM 이동',

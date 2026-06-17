@@ -80,7 +80,13 @@ export default function NewMessagePage() {
               {u.name}
               {/* AGENT 수신자면 보라색 봇 배지 표시 */}
               {u.kind === 'AGENT' && <AgentBadge size="xs" />}
-              <button type="button" aria-label={`${u.name} 제거`} onClick={() => removeRecipient(u.id)}>
+              {/* hover 피드백 + 클릭 영역 확보 (p-0.5 → 최소 16×16px, rounded-full + transition) */}
+              <button
+                type="button"
+                aria-label={`${u.name} 제거`}
+                onClick={() => removeRecipient(u.id)}
+                className="rounded-full p-0.5 hover:bg-accent-foreground/10 transition-colors"
+              >
                 <X className="h-3 w-3" />
               </button>
             </span>
