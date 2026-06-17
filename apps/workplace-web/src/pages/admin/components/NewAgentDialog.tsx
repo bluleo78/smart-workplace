@@ -58,14 +58,14 @@ export function NewAgentDialog({ open, onOpenChange }: NewAgentDialogProps) {
           className="space-y-3"
         >
           <div className="space-y-1">
-            <Label htmlFor="agent-username">username</Label>
+            <Label htmlFor="agent-username">아이디</Label>
             <Input
               id="agent-username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
               maxLength={50}
-              aria-label="username"
+              aria-label="아이디"
             />
           </div>
           <div className="space-y-1">
@@ -80,14 +80,14 @@ export function NewAgentDialog({ open, onOpenChange }: NewAgentDialogProps) {
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="agent-email">email</Label>
+            <Label htmlFor="agent-email">이메일</Label>
             <Input
               id="agent-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              aria-label="email"
+              aria-label="이메일"
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">

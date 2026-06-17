@@ -229,9 +229,9 @@ test.describe('/admin/agents', () => {
       ).toBeVisible();
 
       await page.getByTestId('new-agent-trigger').click();
-      await page.getByLabel('username').fill('claude_bot');
+      await page.getByLabel('아이디').fill('claude_bot');
       await page.getByLabel('이름').fill('Claude 봇');
-      await page.getByLabel('email').fill('claude@bot.local');
+      await page.getByLabel('이메일').fill('claude@bot.local');
       await page.getByRole('button', { name: '생성' }).click();
 
       // 2) 새 AGENT 가 목록에 노출되고 → 행 선택
