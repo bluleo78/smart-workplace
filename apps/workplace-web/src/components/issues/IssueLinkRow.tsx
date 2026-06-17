@@ -21,8 +21,9 @@ export function IssueLinkRow({
   onRemove: () => void;
 }) {
   return (
+    // group: hover-reveal 패턴 — hover 시 배경 + 삭제 버튼 표시 (IssueAttachmentItem 동일 패턴)
     <li
-      className="flex items-center gap-2 text-sm py-1"
+      className="group flex items-center gap-2 rounded px-1 -mx-1 text-sm py-1 hover:bg-accent/50"
       data-testid={`issue-link-row-${link.number}`}
     >
       <IssueTypeBadge type={link.type} size="sm" iconOnly />
@@ -36,11 +37,13 @@ export function IssueLinkRow({
         {link.title}
       </Link>
       <IssueStatusBadge status={link.status as IssueStatus} />
+      {/* hover 시에만 노출 — 파괴적 작업 보호 */}
       <Button
         variant="ghost"
         size="icon"
         onClick={onRemove}
         aria-label="의존성 제거"
+        className="hidden group-hover:inline-flex"
         data-testid={`issue-link-remove-${link.number}`}
       >
         <X className="h-4 w-4" />

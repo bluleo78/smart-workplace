@@ -2,6 +2,7 @@
 // 시나리오 1 (smoke): 상세 진입 → '차단 중' 슬롯에 의존성 추가 → POST payload 검증
 //   → 슬롯에 행 노출 → X 클릭으로 제거 → DELETE 쿼리 검증 → 행 제거 확인.
 // 시나리오 2: POST 응답이 409(DEPENDENCY_CYCLE) → 토스트 노출 + picker 가 열린 상태로 유지.
+// 시나리오 3 (#312): 의존성 행 삭제 버튼 hover-reveal 패턴 회귀 테스트.
 
 import type { Page, Route } from '@playwright/test';
 
@@ -163,7 +164,9 @@ test.describe('의존성', () => {
       await expect(page.getByTestId('issue-link-row-42')).toBeVisible();
       await expect(page.getByTestId('issue-link-picker-blocks')).toHaveCount(0);
 
-      // 제거 — X 클릭 → DELETE 발생 → 행 사라짐.
+      // 제거 — hover 후 X 클릭 (#312: hover-reveal 패턴이므로 hover 필수) → DELETE 발생 → 행 사라짐.
+      const linkRow42 = page.getByTestId('issue-link-row-42');
+      await linkRow42.hover();
       await page.getByTestId('issue-link-remove-42').click();
 
       await expect.poll(() => deleteUrl).toBeDefined();
@@ -241,5 +244,56 @@ test.describe('의존성', () => {
 
     // 행은 추가되지 않음.
     await expect(page.getByTestId('issue-link-row-7')).toHaveCount(0);
+  });
+
+  // #312 — 의존성 행 삭제 버튼 hover-reveal 패턴 회귀 테스트.
+  test('의존성 행 삭제 버튼은 hover 전 숨겨지고 hover 후 표시된다', async ({
+    authenticatedPage: page,
+  }) => {
+    const taskType = makeTaskType();
+    const blockingLink: IssueLinkSummary = {
+      number: 99,
+      title: '선행 이슈',
+      status: 'TODO',
+      type: taskType,
+    };
+
+    await setupCommonStubs(page);
+
+    // blockedBy 에 행 1개 포함한 이슈 상세.
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            summary: {
+              ...createIssue({ id: 1, number: 1, title: 'task A' }),
+              type: taskType,
+              blockedBy: [blockingLink],
+              blocks: [],
+              blocked: true,
+            },
+            body: '',
+            comments: [],
+            history: [],
+            attachments: [],
+          }),
+        }),
+    );
+
+    await page.goto(`/projects/${KEY}/issues/1`);
+    await expect(page.getByTestId('issue-link-row-99')).toBeVisible();
+
+    const row = page.getByTestId('issue-link-row-99');
+    const removeBtn = page.getByTestId('issue-link-remove-99');
+
+    // hover 전: 삭제 버튼이 DOM에 있지만 숨겨진 상태.
+    await expect(removeBtn).toBeHidden();
+
+    // hover 후: 삭제 버튼이 표시됨.
+    await row.hover();
+    await expect(removeBtn).toBeVisible();
   });
 });
