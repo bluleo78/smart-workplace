@@ -163,9 +163,11 @@ test.describe('커스텀 필드', () => {
       });
 
       // 1) 설정 페이지에서 NUMBER 필드 추가
+      // shadcn Select 교체 후 (#317): Trigger 클릭 → 항목 클릭 패턴 사용.
       await page.goto(`/projects/${KEY}/settings`);
       await page.getByTestId('custom-field-create-form').getByLabel('이름').fill('스토리포인트');
-      await page.getByTestId('cf-type-select').selectOption('NUMBER');
+      await page.getByTestId('cf-type-select').click();
+      await page.getByTestId('cf-type-option-NUMBER').click();
       await page
         .getByTestId('custom-field-create-form')
         .getByRole('button', { name: '추가' })
@@ -181,6 +183,63 @@ test.describe('커스텀 필드', () => {
       await expect.poll(() => putPayload, { timeout: 2000 }).toMatchObject({
         values: [{ defId: fieldId, value: 5 }],
       });
+    },
+  );
+
+  test(
+    '필드 타입 드롭다운 shadcn Select + 목록 한국어 레이블 표시 (#317)',
+    async ({ authenticatedPage: page }) => {
+      // TEXT 타입 필드가 목록에서 "텍스트"로 표시되는지, 드롭다운이 shadcn Select인지 검증.
+      const field = {
+        id: 300,
+        projectId: 1,
+        name: '텍스트필드',
+        type: 'TEXT',
+        options: null,
+        position: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await page.route(`**/api/v1/projects/${KEY}`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 1, key: KEY, name: 'P', description: '', ownerId: 1, ownerName: 'T', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/members`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ userId: 1, username: 'me', name: 'Me', role: 'OWNER' }]) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/types`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/labels`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/fields`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([field]) }),
+      );
+
+      await page.goto(`/projects/${KEY}/settings`);
+
+      // 목록에서 "텍스트"로 표시되고, 영문 "TEXT"는 표시되지 않아야 함.
+      await expect(page.getByTestId(`custom-field-row-${field.id}`)).toContainText('텍스트');
+      await expect(page.getByTestId(`custom-field-row-${field.id}`)).not.toContainText('TEXT');
+
+      // 드롭다운 트리거가 shadcn Select (role=combobox) 로 렌더됨을 검증.
+      const trigger = page.getByTestId('cf-type-select');
+      await expect(trigger).toBeVisible();
+      // shadcn SelectTrigger는 button role로 렌더됨 — native select(combobox)가 아님.
+      await expect(trigger).toHaveRole('combobox');
+
+      // 드롭다운 열어서 한국어 옵션 확인.
+      await trigger.click();
+      await expect(page.getByTestId('cf-type-option-TEXT')).toContainText('텍스트');
+      await expect(page.getByTestId('cf-type-option-NUMBER')).toContainText('숫자');
+      await expect(page.getByTestId('cf-type-option-DATE')).toContainText('날짜');
+      await expect(page.getByTestId('cf-type-option-SELECT')).toContainText('선택');
+      await expect(page.getByTestId('cf-type-option-MULTI_SELECT')).toContainText('복수 선택');
+
+      // 옵션 선택 → 폼 상태 반영.
+      await page.getByTestId('cf-type-option-DATE').click();
+      await expect(trigger).toContainText('날짜');
     },
   );
 

@@ -15,6 +15,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 import {
   useCreateCustomField,
@@ -22,6 +29,15 @@ import {
   useDeleteCustomField,
 } from '../../../hooks/queries/useCustomFields';
 import { FIELD_TYPES, type FieldType } from '../../../types/customField';
+
+// 영문 enum → 한국어 레이블 매핑 (UI 표시용).
+const FIELD_TYPE_LABEL: Record<FieldType, string> = {
+  TEXT: '텍스트',
+  NUMBER: '숫자',
+  DATE: '날짜',
+  SELECT: '선택',
+  MULTI_SELECT: '복수 선택',
+};
 
 export function CustomFieldManagement({
   projectKey,
@@ -89,19 +105,27 @@ export function CustomFieldManagement({
             <label className="text-sm font-medium" htmlFor="cf-type">
               타입
             </label>
-            <select
-              id="cf-type"
+            {/* shadcn Select — native select 대신 디자인 시스템 통일 (#317) */}
+            <Select
               value={type}
-              onChange={(e) => setType(e.target.value as FieldType)}
-              className="border rounded p-2 bg-background"
-              data-testid="cf-type-select"
+              onValueChange={(v) => setType(v as FieldType)}
             >
-              {FIELD_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                id="cf-type"
+                className="w-36"
+                data-testid="cf-type-select"
+                aria-label="타입"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FIELD_TYPES.map((t) => (
+                  <SelectItem key={t} value={t} data-testid={`cf-type-option-${t}`}>
+                    {FIELD_TYPE_LABEL[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {needsOptions && (
             <div className="flex-1 min-w-[160px] space-y-1">
@@ -133,7 +157,8 @@ export function CustomFieldManagement({
               data-testid={`custom-field-row-${f.id}`}
             >
               <span className="font-medium">{f.name}</span>
-              <span className="text-xs text-muted-foreground">{f.type}</span>
+              {/* 한국어 레이블로 표시 (#317) */}
+              <span className="text-xs text-muted-foreground">{FIELD_TYPE_LABEL[f.type]}</span>
               {f.options && (
                 <span className="text-xs text-muted-foreground">[{f.options.join(', ')}]</span>
               )}
