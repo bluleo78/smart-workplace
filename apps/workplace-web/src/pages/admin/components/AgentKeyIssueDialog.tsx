@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -49,14 +50,14 @@ export function AgentKeyIssueDialog({
           >
             {plaintextKey ?? ''}
           </code>
-          <div className="flex justify-end gap-2">
+          <DialogFooter>
             <Button onClick={onCopy} disabled={!plaintextKey}>
               복사
             </Button>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               닫기
             </Button>
-          </div>
+          </DialogFooter>
         </div>
       </DialogContent>
     </Dialog>

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -90,7 +91,7 @@ export function NewAgentDialog({ open, onOpenChange }: NewAgentDialogProps) {
               aria-label="이메일"
             />
           </div>
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button
               type="button"
               variant="ghost"
@@ -101,7 +102,7 @@ export function NewAgentDialog({ open, onOpenChange }: NewAgentDialogProps) {
             <Button type="submit" disabled={create.isPending}>
               생성
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

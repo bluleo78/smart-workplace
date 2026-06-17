@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 
 import { contactsApi } from '@/api/contacts'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import {
@@ -226,14 +226,14 @@ export function GroupForm({ open, onOpenChange, group, personalOptions }: Props)
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               취소
             </Button>
             <Button type="submit" disabled={saving} data-testid="g-save">
               {saving ? '저장 중…' : '저장'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

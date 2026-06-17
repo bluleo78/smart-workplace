@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { type SubmitHandler,useForm } from 'react-hook-form'
 
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import {
@@ -132,14 +132,14 @@ export function ExternalContactFormDialog({ open, onOpenChange, contact }: Props
             </Select>
           </FormField>
 
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               취소
             </Button>
             <Button type="submit" disabled={saving} data-testid="c-save">
               {saving ? '저장 중…' : '저장'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
