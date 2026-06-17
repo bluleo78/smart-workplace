@@ -67,6 +67,9 @@ export default function ProjectSettingsPage() {
     }
   };
 
+  // 삭제 토스트에 사용할 프로젝트 이름 — data 미로드 시 key로 fallback.
+  const projectName = project.data?.name ?? key;
+
   // 프로젝트 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
   const [deletePending, setDeletePending] = useState(false);
 
@@ -75,7 +78,7 @@ export default function ProjectSettingsPage() {
   const onDeleteConfirm = async () => {
     try {
       await remove.mutateAsync(key);
-      toast.success('삭제되었습니다');
+      toast.success(`프로젝트 "${projectName}"이 삭제되었습니다`);
       navigate('/projects');
     } catch (e) {
       handleApiError(e, '삭제에 실패했습니다');

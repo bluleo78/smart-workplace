@@ -258,7 +258,7 @@ export default function IssueDetailPage() {
   const patch = async (changes: UpdateIssueRequest) => {
     try {
       await update.mutateAsync(changes);
-      toast.success('변경 완료');
+      toast.success('이슈 필드가 업데이트되었습니다');
     } catch (e) {
       handleApiError(e, '변경에 실패했습니다');
     }

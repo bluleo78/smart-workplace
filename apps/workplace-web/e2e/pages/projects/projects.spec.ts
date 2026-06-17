@@ -211,8 +211,30 @@ test('프로젝트 삭제 후 목록에서 사라진다', async ({ authenticated
   // shadcn AlertDialog가 열리면 확인 버튼을 클릭 (#139 window.confirm 대체).
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await page.getByRole('button', { name: '삭제' }).last().click();
+  // 삭제 토스트에 프로젝트명 포함 확인 (refs #323)
+  await expect(page.getByText('프로젝트 "Workplace"이 삭제되었습니다')).toBeVisible();
   await expect(page).toHaveURL(/\/projects$/);
   // 빈 상태 empty state: 아이콘+제목+설명+CTA 4요소 확인
   await expect(page.getByTestId('projects-empty')).toBeVisible();
   await expect(page.getByText('아직 프로젝트가 없어요')).toBeVisible();
+});
+
+// non-smoke: 이슈 필드 변경 시 토스트 메시지에 대상 명시 (refs #323)
+test('이슈 필드 변경 시 "이슈 필드가 업데이트되었습니다" 토스트 표시', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject());
+  await mockApi(page, 'GET', '/api/v1/projects/WP/members', [createMember()]);
+  await mockApi(page, 'GET', '/api/v1/projects/WP/issues/1', createIssueDetail());
+  await mockApi(
+    page, 'PATCH', '/api/v1/projects/WP/issues/1',
+    createIssueDetail({ summary: createIssue({ status: 'IN_PROGRESS' }) }),
+  );
+
+  await page.goto('/projects/WP/issues/1');
+  await expect(page.getByTestId('page-header')).toBeVisible();
+
+  // 상태 드롭다운 변경 → PATCH 트리거 → 토스트 확인
+  await page.getByRole('combobox', { name: '상태' }).click();
+  await page.getByRole('option', { name: '진행 중' }).click();
+
+  await expect(page.getByText('이슈 필드가 업데이트되었습니다')).toBeVisible();
 });
