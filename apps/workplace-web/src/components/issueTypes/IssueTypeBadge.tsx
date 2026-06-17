@@ -19,7 +19,7 @@ export function IssueTypeBadge({
 }) {
   const colors = LABEL_COLORS[type.colorToken as ColorToken] ?? LABEL_COLORS.GRAY;
   const Icon = ISSUE_TYPE_ICONS[type.icon] ?? ISSUE_TYPE_ICONS.Circle;
-  const padding = size === 'sm' ? 'px-1 py-0 text-[10px]' : 'px-2 py-0.5 text-xs';
+  const padding = size === 'sm' ? 'px-1 py-0 text-xs' : 'px-2 py-0.5 text-xs';
   return (
     <span
       className={`inline-flex items-center gap-1 rounded ${padding} ${colors.bg} ${colors.text}`}

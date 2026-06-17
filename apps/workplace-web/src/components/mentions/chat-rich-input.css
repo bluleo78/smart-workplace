@@ -2,13 +2,14 @@
 .chat-mention {
   border-radius: 0.25rem;
   padding: 0 0.25rem;
-  background-color: rgb(219 234 254); /* blue-100 */
-  color: rgb(29 78 216); /* blue-700 */
+  /* 멘션 칩 — primary 토큰 기반(라이트/다크 자동). 하드코딩 blue 제거(디자인 시스템). */
+  background-color: color-mix(in oklch, var(--primary) 15%, transparent);
+  color: var(--primary);
   font-weight: 500;
 }
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
-  color: rgb(148 163 184); /* slate-400 */
+  color: var(--muted-foreground); /* slate-400 → 시맨틱 토큰 */
   float: left;
   height: 0;
   pointer-events: none;

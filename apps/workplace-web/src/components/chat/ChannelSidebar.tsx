@@ -92,7 +92,7 @@ export function ChannelSidebar() {
               {c.unreadCount > 0 && (
                 <span
                   data-testid={`channel-unread-${c.id}`}
-                  className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
+                  className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
                 >
                   {c.unreadCount > 99 ? '99+' : c.unreadCount}
                 </span>
@@ -157,7 +157,7 @@ export function ChannelSidebar() {
                 {dm.unreadCount > 0 && (
                   <span
                     data-testid={`dm-unread-${dm.id}`}
-                    className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
+                    className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
                   >
                     {dm.unreadCount > 99 ? '99+' : dm.unreadCount}
                   </span>

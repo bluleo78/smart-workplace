@@ -97,7 +97,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                   <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
                 ) : (
                   <span
-                    className="hidden pt-px text-right text-[10px] leading-4 text-muted-foreground group-hover:block"
+                    className="hidden pt-px text-right text-xs leading-4 text-muted-foreground group-hover:block"
                     data-testid={`message-hovertime-${m.id}`}
                   >
                     {formatClockTime(m.createdAt)}

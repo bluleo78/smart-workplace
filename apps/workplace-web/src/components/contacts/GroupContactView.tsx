@@ -28,7 +28,7 @@ export function GroupContactView({ groupId, selected, onSelect }: Props) {
     <div className="flex h-full min-h-0 flex-col" data-testid="group-contact-view">
       <div className="flex items-center gap-2 border-b px-4 py-2">
         <span className="text-sm font-medium">{detail.name}</span>
-        <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
           {detail.visibility === 'SHARED' ? '조직도' : '내 그룹'}
         </span>
       </div>
@@ -61,7 +61,7 @@ export function GroupContactView({ groupId, selected, onSelect }: Props) {
                 >
                   <span
                     className={cn(
-                      'shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium',
+                      'shrink-0 rounded px-1.5 py-0.5 text-xs font-medium',
                       m.targetType === 'MEMBER'
                         ? 'bg-primary/10 text-primary'
                         : 'bg-muted text-muted-foreground',

@@ -90,7 +90,7 @@ export function WorkspaceAssistantCard() {
         {data?.agentUserId && !data.hasActiveToken ? (
           <div
             data-testid="workspace-assistant-warn"
-            className="text-sm text-amber-600"
+            className="text-sm text-warning"
           >
             지정된 비서에 활성 토큰이 없어요. OAuth 토큰을 등록해야 홈이 동작해요.
           </div>

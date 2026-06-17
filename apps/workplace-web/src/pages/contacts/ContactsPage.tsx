@@ -35,7 +35,7 @@ function ContactRow({
     >
       <span
         className={cn(
-          'shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium',
+          'shrink-0 rounded px-1.5 py-0.5 text-xs font-medium',
           c.type === 'MEMBER' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
         )}
       >

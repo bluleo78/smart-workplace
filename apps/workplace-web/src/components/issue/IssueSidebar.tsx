@@ -55,7 +55,7 @@ export function IssueSidebar() {
                 >
                   <Star className="h-4 w-4 shrink-0 fill-current text-muted-foreground" />
                   <span className="truncate">{v.name}</span>
-                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{v.projectKey}</span>
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{v.projectKey}</span>
                 </NavLink>
               ))}
             </nav>
@@ -82,7 +82,7 @@ export function IssueSidebar() {
                     <span
                       aria-hidden="true"
                       data-testid={`project-badge-${p.key}`}
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold"
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-xs font-bold"
                       style={{ backgroundColor: c.bg, color: c.fg }}
                     >
                       {projectInitial(p.key)}
@@ -122,7 +122,7 @@ export function IssueSidebar() {
                   <span
                     aria-hidden="true"
                     data-testid={`project-badge-${p.key}`}
-                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold"
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-xs font-bold"
                     style={{ backgroundColor: c.bg, color: c.fg }}
                   >
                     {projectInitial(p.key)}

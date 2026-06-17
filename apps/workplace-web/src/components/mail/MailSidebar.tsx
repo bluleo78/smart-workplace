@@ -41,7 +41,7 @@ export function MailSidebar() {
   // 폴더 nav 항목 공통 클래스(active = 현재 폴더).
   const folderClass = (active: boolean) =>
     cn(
-      'flex items-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium transition-colors',
+      'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
       active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
     )
 
@@ -69,7 +69,7 @@ export function MailSidebar() {
             <DropdownMenu>
               <DropdownMenuTrigger
                 data-testid="mail-account-switcher"
-                className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-[13px] font-medium hover:bg-accent/50"
+                className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm font-medium hover:bg-accent/50"
               >
                 <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{current?.emailAddress}</span>
@@ -129,7 +129,7 @@ export function MailSidebar() {
         <Link
           to="/settings/mail"
           data-testid="mail-manage-accounts"
-          className="mt-4 flex items-center gap-2 rounded-md px-3 py-2 text-[13px] text-muted-foreground hover:bg-accent/50"
+          className="mt-4 flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50"
         >
           <Settings className="h-4 w-4 shrink-0" /> 계정 관리
         </Link>

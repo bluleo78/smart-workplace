@@ -38,7 +38,7 @@
 
 ## P2 — 접근성 · 매직 넘버
 
-- [ ] **`text-[10px]`/`text-[11px]` 매직 넘버 23곳** — 디자인 토큰 범위 밖 + 접근성 최소(12px) 미만. `text-xs`(12px)로 상향하거나 토큰화. ([02-typography.md](./02-typography.md))
+- [x] **`text-[10px]`/`text-[11px]`/`text-[13px]` 매직 넘버** — 정리 완료(2026-06-18). `text-[10px]`/`text-[11px]`(접근성 12px 미만) → `text-xs`, `text-[13px]` → `text-sm` 로 일괄 상향(21파일). 공식 토큰 `pageTitleClass`(`text-[28px]`)·`appTitleTextClass`(`text-[15px]`)는 예외 유지.
 - [ ] **ARIA live region 부재** — 메일 동기화 진행·토스트 등 동적 변화에 live region 미적용. ([10-accessibility.md](./10-accessibility.md))
 - [ ] **Sonner 토스트 role 미검증** — 스크린리더 안내 여부 확인 및 보완.
 - [ ] **대비비(contrast) 회귀 점검** — `text-muted-foreground` on `bg-muted` 등 경계 조합 WCAG AA 4.5:1 검증.
@@ -49,7 +49,8 @@
 
 - [ ] **시맨틱 타이포 스케일 도입** — [02-typography.md](./02-typography.md)의 15단계 To-Be 스케일(`heading-page`(신규 28px) 등) 채택 여부. 채택 시 `@layer` 유틸 또는 컴포넌트화.
 - [ ] **`tabular-nums` 적용** — 정의돼 있으나 미사용. 숫자 정렬이 필요한 테이블(이슈 번호·메트릭)에 적용.
-- [ ] **하드코딩 hex 점검** — 컴포넌트 내 1건 확인됨. 토큰화. (조사 시점 grep 기준)
+- [x] **하드코딩 색 리터럴 정리** — 완료(2026-06-18). `chat-rich-input.css` 의 `rgb()` 3건(멘션 칩 bg/text, placeholder) → `color-mix(in oklch, var(--primary) …)`·`var(--primary)`·`var(--muted-foreground)` 토큰화. `pages` 내 팔레트색 위반(`text-green-600`→`text-success`, `text-amber-600`→`text-warning`)도 시맨틱 토큰으로 교체.
+- 식별색 팔레트(라벨/아바타/프로젝트)는 **승인된 categorical 예외**로 분류·문서화([01-design-tokens.md §1-7](./01-design-tokens.md)). 아바타 색 중복(`UserAvatar` 자체 팔레트)은 `avatarColor.ts` 단일 출처로 통합 완료.
 - [ ] **`ui/` 수동 편집 차단 정책** — fire-hub는 `components/ui/`를 ESLint ignore로 수동 편집을 막아 스타일 크리프를 방지. 동일 정책 도입 검토.
 - [ ] **차트 라이브러리 도입 결정** — 도입 시 `--chart-*` 토큰 활용, 미도입 시 P0의 토큰 제거와 연동.
 

@@ -78,7 +78,7 @@ export function ContactSidebar() {
             aria-current={type === f.value ? 'true' : undefined}
             onClick={() => patch({ type: f.value })}
             className={cn(
-              'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] font-medium transition-colors disabled:opacity-50',
+              'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50',
               type === f.value
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground hover:bg-accent/50',
@@ -95,7 +95,7 @@ export function ContactSidebar() {
           <div
             aria-disabled="true"
             data-testid="contact-favorites-placeholder"
-            className="flex cursor-default items-center gap-2 rounded-md px-3 py-2 text-[13px] text-muted-foreground"
+            className="flex cursor-default items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground"
           >
             <Star className="h-4 w-4 shrink-0" />
             즐겨찾기 <span className="text-xs">(준비 중)</span>

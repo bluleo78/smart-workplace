@@ -85,7 +85,7 @@ export function IssueListTable({
                           />
                         ))}
                         {it.assignees.length > 3 && (
-                          <span className="text-[10px] text-muted-foreground ml-1">
+                          <span className="text-xs text-muted-foreground ml-1">
                             +{it.assignees.length - 3}
                           </span>
                         )}

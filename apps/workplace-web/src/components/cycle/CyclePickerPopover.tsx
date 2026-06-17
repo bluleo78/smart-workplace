@@ -72,7 +72,7 @@ export function CyclePickerPopover({
                   aria-label={c.name}
                 />
                 <span className="text-sm">{c.name}</span>
-                <span className="ml-auto text-[10px] uppercase text-muted-foreground">
+                <span className="ml-auto text-xs uppercase text-muted-foreground">
                   {c.status}
                 </span>
               </label>

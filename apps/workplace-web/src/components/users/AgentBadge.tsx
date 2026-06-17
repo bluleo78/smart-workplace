@@ -11,7 +11,7 @@ interface AgentBadgeProps {
 
 export function AgentBadge({ size = 'sm' }: AgentBadgeProps) {
   const padding =
-    size === 'xs' ? 'px-1 py-0 text-[10px]' : 'px-1.5 py-0.5 text-xs';
+    size === 'xs' ? 'px-1 py-0 text-xs' : 'px-1.5 py-0.5 text-xs';
   return (
     <span
       className={`inline-flex items-center gap-1 rounded ${padding} bg-ai-accent-subtle text-ai-accent`}

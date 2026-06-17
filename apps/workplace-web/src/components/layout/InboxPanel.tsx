@@ -59,7 +59,7 @@ export function InboxPanel() {
               {unread > 0 && (
                 <span
                   data-testid="inbox-badge"
-                  className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
+                  className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
                 >
                   {unread > 99 ? '99+' : unread}
                 </span>
@@ -125,7 +125,7 @@ export function InboxPanel() {
                         <>
                           <span className="font-medium">{n.actorName ?? '시스템'}</span>
                           {n.actorKind === 'AGENT' && (
-                            <span className="ml-1 rounded bg-primary/10 px-1 text-[10px] text-primary">
+                            <span className="ml-1 rounded bg-primary/10 px-1 text-xs text-primary">
                               AI
                             </span>
                           )}
@@ -136,7 +136,7 @@ export function InboxPanel() {
                         </>
                       )}
                     </span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                    <span className="shrink-0 text-xs text-muted-foreground">
                       {formatRelativeTime(n.createdAt)}
                     </span>
                     {!n.read && (

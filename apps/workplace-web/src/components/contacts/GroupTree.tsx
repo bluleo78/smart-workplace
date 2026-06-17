@@ -40,7 +40,7 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
     <div>
       <div
         className={cn(
-          'group flex items-center gap-1 rounded-md px-2 py-1.5 text-[13px]',
+          'group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm',
           selectedId === node.id ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}

@@ -82,7 +82,7 @@ function MessageRow({
           {m.aiCategory && (
             <span
               data-testid={`mail-badge-category-${m.id}`}
-              className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
             >
               {m.aiCategory}
             </span>
@@ -90,7 +90,7 @@ function MessageRow({
           {m.aiNeedsReply && (
             <span
               data-testid={`mail-badge-needsreply-${m.id}`}
-              className="inline-flex items-center gap-0.5 text-[10px] font-medium text-primary"
+              className="inline-flex items-center gap-0.5 text-xs font-medium text-primary"
             >
               ● 답장필요
             </span>

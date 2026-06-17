@@ -49,7 +49,7 @@ export default function CyclesPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{c.name}</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-xs">
                     {CYCLE_STATUS_LABEL[c.status] ?? c.status}
                   </span>
                 </div>

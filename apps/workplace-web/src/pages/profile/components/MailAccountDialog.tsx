@@ -330,11 +330,11 @@ export function MailAccountDialog({
           {/* 연결 테스트 결과 인라인 표시 */}
           {testResult && (
             <div data-testid="mail-test-result" className="rounded border p-2 text-sm">
-              <p className={testResult.imapOk ? 'text-green-600' : 'text-destructive'}>
+              <p className={testResult.imapOk ? 'text-success' : 'text-destructive'}>
                 IMAP{' '}
                 {testResult.imapOk ? '✓ 연결됨' : `✗ ${testResult.imapError ?? '실패'}`}
               </p>
-              <p className={testResult.smtpOk ? 'text-green-600' : 'text-destructive'}>
+              <p className={testResult.smtpOk ? 'text-success' : 'text-destructive'}>
                 SMTP{' '}
                 {testResult.smtpOk ? '✓ 연결됨' : `✗ ${testResult.smtpError ?? '실패'}`}
               </p>

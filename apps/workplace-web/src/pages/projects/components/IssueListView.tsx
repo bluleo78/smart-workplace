@@ -141,7 +141,7 @@ function IssueRow({
         <div className="flex items-center gap-1.5 font-medium">
           {/* SUBTASK 면 부모 식별자(↳ KEY-N) 를 제목 앞에 작게 표시. */}
           {isSubtask && it.parent && (
-            <span className="text-[11px] text-muted-foreground font-mono">
+            <span className="text-xs text-muted-foreground font-mono">
               ↳ {projectKey}-{it.parent.number}
             </span>
           )}
@@ -174,7 +174,7 @@ function IssueRow({
                 <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
               ))}
               {it.assignees.length > 3 && (
-                <span className="text-[10px] text-muted-foreground ml-1">
+                <span className="text-xs text-muted-foreground ml-1">
                   +{it.assignees.length - 3}
                 </span>
               )}

@@ -92,7 +92,7 @@ export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string
         {issue.title}
       </span>
       {issue.labels.map((l) => (
-        <span key={l.id} className="shrink-0 rounded border border-border px-1.5 text-[11px] leading-5 text-muted-foreground">{l.name}</span>
+        <span key={l.id} className="shrink-0 rounded border border-border px-1.5 text-xs leading-5 text-muted-foreground">{l.name}</span>
       ))}
       <div className="ml-auto flex shrink-0 items-center gap-2">
         <AiDelegationBadge issue={issue} />

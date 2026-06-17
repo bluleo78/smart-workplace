@@ -11,7 +11,7 @@ export function LabelChip({
   size?: 'sm' | 'md';
 }) {
   const c = LABEL_COLORS[label.colorToken];
-  const padding = size === 'sm' ? 'px-1.5 py-0 text-[10px]' : 'px-2 py-0.5 text-xs';
+  const padding = size === 'sm' ? 'px-1.5 py-0 text-xs' : 'px-2 py-0.5 text-xs';
   return (
     <span className={`inline-flex items-center gap-1 rounded ${padding} ${c.bg} ${c.text}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} />

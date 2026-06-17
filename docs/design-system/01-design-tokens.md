@@ -274,6 +274,26 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 
 ---
 
+### 1-7. Categorical Palette — 식별색 (승인된 예외)
+
+라벨·아바타·프로젝트 등 **서로 구분되어야 하는 식별(categorical) 색**은 시맨틱 토큰 체계로 표현할 수 없다(`bg-primary` 같은 단일 시맨틱 토큰은 "구분"이 아니라 "역할"을 나타내므로). 이 영역에 한해 **Tailwind 기본 팔레트(`bg-red-200 dark:bg-red-900` 등) 사용을 명시적으로 허용**한다. 그 외 컴포넌트의 hex/임의 색/팔레트색 금지 원칙은 그대로 유효하다.
+
+| 사용처 | 파일 | 방식 |
+|--------|------|------|
+| 이슈/프로젝트 라벨 색 | `src/lib/labelColors.ts` | `ColorToken`(사용자 선택값, 백엔드 저장) → Tailwind 팔레트 정적 매핑(`bg`/`text`/`dot`, light+dark) |
+| 사용자 아바타 배경색 | `src/lib/avatarColor.ts` | **단일 출처**. `userId` 해시 → 9색 팔레트(`-500 text-white`). `ChatAvatar`·`UserAvatar` 가 공통 사용 |
+| 프로젝트 컬러 사각형 | `src/lib/project-color.ts` | key 해시 → `hsl(hue 60% 45%)`(고정 채도/명도, 흰 텍스트) |
+
+**설계 원칙**:
+
+- **테마 무관 고정**: 식별색은 식별 신호이므로 브랜드 테마(Indigo/Ocean/Sunset)나 다크 전환에 **반응하지 않는다**(고정). 따라서 `.theme-*`/`--primary` 에 묶지 않는다. 다크 대응이 필요한 곳(`labelColors`)은 `dark:` 변형으로 명시 처리한다.
+- **단일 출처**: 아바타 색은 `avatarColor.ts` 한 곳에서만 정의한다(과거 `UserAvatar` 내 중복 팔레트는 제거됨, #DS-categorical).
+- **정적 문자열 필수**: Tailwind purge 가 추출하도록 클래스는 인라인 리터럴로 둔다(동적 조립 금지).
+
+> 즉 "컴포넌트엔 시맨틱 토큰만" 규칙의 **유일한 예외가 이 categorical 팔레트**다. 새 식별색이 필요하면 위 세 유틸 중 하나를 재사용하거나 같은 패턴(정적 팔레트 + 결정적 해시)으로 추가한다.
+
+---
+
 ## 2. 컬러 테마 변형 — Ocean / Sunset
 
 `index.css`에는 인디고 기본 테마 외에 hue만 바꾼 두 가지 컬러 테마가 정의되어 있다. 최상위 엘리먼트에 `.theme-ocean` 또는 `.theme-sunset` 클래스를 부여하면 `--primary`, `--ring`, `--sidebar-primary`, `--chart-1`, `--accent`가 해당 hue로 오버라이드된다. `.dark`와 조합 가능(`.theme-ocean.dark`).

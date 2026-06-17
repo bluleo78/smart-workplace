@@ -100,7 +100,7 @@ export function IssueCard({
           {/* SUBTASK 면 부모 식별자(└ KEY-N) 를 제목 앞에 작게 표시. */}
           {isSubtask && issue.parent && (
             <span
-              className="text-[10px] text-muted-foreground mr-1 font-mono"
+              className="text-xs text-muted-foreground mr-1 font-mono"
               data-testid={`issue-card-${issue.number}-parent`}
             >
               └ {projectKey}-{issue.parent.number}
@@ -126,7 +126,7 @@ export function IssueCard({
                 <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
               ))}
               {issue.assignees.length > 3 && (
-                <span className="text-[10px] text-muted-foreground ml-1">
+                <span className="text-xs text-muted-foreground ml-1">
                   +{issue.assignees.length - 3}
                 </span>
               )}
@@ -164,7 +164,7 @@ export function IssueCard({
             <LabelChip key={l.id} label={l} size="sm" />
           ))}
           {issue.labels.length > 3 && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               +{issue.labels.length - 3}
             </span>
           )}

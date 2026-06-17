@@ -92,7 +92,7 @@ function RailLink({
           aria-label={item.label}
           aria-current={active ? 'page' : undefined}
           className={cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-[13px] font-medium transition-colors',
+            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
             'lg:justify-center lg:gap-0 lg:px-2 lg:py-2.5',
             active
               ? 'bg-accent text-accent-foreground nav-active-indicator'
@@ -183,7 +183,7 @@ export function AppRail() {
                     <div
                       aria-disabled="true"
                       className={cn(
-                        'flex cursor-default items-center gap-3 rounded-md px-3 py-2 text-[13px] text-muted-foreground/50',
+                        'flex cursor-default items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground/50',
                         'lg:justify-center lg:gap-0 lg:px-2 lg:py-2.5',
                       )}
                     >

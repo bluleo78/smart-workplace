@@ -1,7 +1,10 @@
 // 사용자 이니셜 아바타 — 이름/유저명에서 첫 글자 1자를 뽑아 배경색으로 식별.
-// 색상은 이름 해시 기반 결정적 매핑이라 같은 사용자는 항상 같은 색이 나온다.
+// 색·이니셜은 공용 avatarColor 유틸을 재사용한다(중복 팔레트 제거). userId 기반
+// 결정적 매핑이라 같은 사용자는 chat/user 아바타 어디서나 같은 색이 나온다.
 
 import { Bot } from 'lucide-react';
+
+import { avatarColorClass, avatarInitials } from '@/lib/avatarColor';
 
 import type { UserSummary } from '../../types/user';
 
@@ -10,35 +13,10 @@ type AvatarUser = Pick<UserSummary, 'id' | 'username' | 'name'>;
 
 // 사이즈별 Tailwind 클래스 묶음.
 const SIZE_CLASS: Record<'xs' | 'sm' | 'md', string> = {
-  xs: 'h-5 w-5 text-[10px]',
+  xs: 'h-5 w-5 text-xs',
   sm: 'h-6 w-6 text-xs',
   md: 'h-8 w-8 text-sm',
 };
-
-// 색상 팔레트 — 12색. 다크/라이트 모두 가독성 OK 한 -400 채도.
-const PALETTE = [
-  'bg-red-400',
-  'bg-orange-400',
-  'bg-amber-400',
-  'bg-yellow-400',
-  'bg-green-400',
-  'bg-teal-400',
-  'bg-cyan-400',
-  'bg-blue-400',
-  'bg-indigo-400',
-  'bg-purple-400',
-  'bg-pink-400',
-  'bg-rose-400',
-];
-
-// 이름 → 팔레트 인덱스. 단순 djb2 변형 해시.
-function colorFor(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) {
-    h = (h * 31 + seed.charCodeAt(i)) | 0;
-  }
-  return PALETTE[Math.abs(h) % PALETTE.length];
-}
 
 export function UserAvatar({
   user,
@@ -56,7 +34,7 @@ export function UserAvatar({
   agent?: boolean;
 }) {
   const seed = user.name || user.username || '?';
-  const initial = seed.charAt(0).toUpperCase();
+  const initial = avatarInitials(seed);
   // AGENT 면 aria-label/title 에 AGENT 표기를 덧붙여 사람 담당자와 구분되게 한다.
   const label = agent ? `${user.name} (AGENT)` : user.name;
   // 겹침(-space-x-1) 상황에서도 보이도록 ring 은 AI 강조색으로, 마커는 겹침의 윗면인
@@ -69,7 +47,7 @@ export function UserAvatar({
       : '';
   return (
     <span
-      className={`relative inline-flex shrink-0 items-center justify-center rounded-full text-white font-medium ${SIZE_CLASS[size]} ${colorFor(seed)} ${ringClass}`}
+      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZE_CLASS[size]} ${avatarColorClass(user.id)} ${ringClass}`}
       title={label}
       aria-label={label}
       data-testid={`user-avatar-${user.id}`}
