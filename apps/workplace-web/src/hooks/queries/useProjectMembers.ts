@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { projectsApi } from '../../api/projects';
 import type { AddMemberRequest, UpdateMemberRoleRequest } from '../../types/project';
-
 import { projectKeys } from './useProjects';
 
 export const memberKeys = {

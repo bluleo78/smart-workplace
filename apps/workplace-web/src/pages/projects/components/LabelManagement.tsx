@@ -6,9 +6,9 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import { LabelChip } from '../../../components/labels/LabelChip';
 import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
 import { RenameDialog } from '../../../components/ui/rename-dialog';
-import { LabelChip } from '../../../components/labels/LabelChip';
 import {
   useCreateLabel,
   useDeleteLabel,

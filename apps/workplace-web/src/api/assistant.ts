@@ -6,7 +6,6 @@ import type {
   UpdateAssistantSettings,
   WorkspaceAssistant,
 } from '../types/assistant';
-
 import { client } from './client';
 
 // 개인 비서(본인) 상태 조회 — 토큰 미등록이면 configured=false.

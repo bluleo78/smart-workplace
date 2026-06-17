@@ -2,6 +2,7 @@ import { HardDrive, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
+import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -11,7 +12,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 
 import { driveApi } from '../../api/drive'
 import type { DriveSpace } from '../../types/drive'

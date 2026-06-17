@@ -4,7 +4,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { issueCommentsApi } from '../../api/issueComments';
 import type { CreateCommentRequest, UpdateCommentRequest } from '../../types/issue';
-
 import { issueKeys } from './useIssues';
 
 export function useCreateComment(projectKey: string, issueNumber: number, issueId: number) {

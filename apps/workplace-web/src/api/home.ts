@@ -1,4 +1,3 @@
-import { client } from './client';
 import type {
   ActivityPage,
   ComposeRequest,
@@ -7,6 +6,8 @@ import type {
   HomeSessionPage,
 } from '@/types/home';
 import type { IssueSearchResponse } from '@/types/issue';
+
+import { client } from './client';
 
 /** 위젯 params(자유 형태)를 axios 쿼리스트링용 string map 으로 정규화. 배열은 CSV, undefined/null 은 제거. */
 export function toQueryParams(params: Record<string, unknown> = {}): Record<string, string> {

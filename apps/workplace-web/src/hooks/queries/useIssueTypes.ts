@@ -7,9 +7,9 @@ import { toast } from 'sonner';
 import {
   createIssueType,
   deleteIssueType,
+  type IssueTypeMutationBody,
   listIssueTypes,
   updateIssueType,
-  type IssueTypeMutationBody,
 } from '../../api/issueTypes';
 import { handleApiError } from '../../lib/api-error';
 

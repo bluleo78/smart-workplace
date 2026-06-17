@@ -4,14 +4,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-import { handleApiError } from '../../lib/api-error';
-import {
-  useDisableMyAssistant,
-  useMyAssistant,
-  useRegisterMyAssistantToken,
-  useUpdateMyAssistantSettings,
-} from '../../hooks/queries/useAssistant';
-import type { ThinkingDepth } from '../../types/assistant';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -22,6 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../components/ui/select';
+import {
+  useDisableMyAssistant,
+  useMyAssistant,
+  useRegisterMyAssistantToken,
+  useUpdateMyAssistantSettings,
+} from '../../hooks/queries/useAssistant';
+import { handleApiError } from '../../lib/api-error';
+import type { ThinkingDepth } from '../../types/assistant';
 
 // 선택 가능한 모델 목록 — value(내부 ID)와 label(사용자 표시명)을 분리한다.
 const MODELS: { id: string; label: string }[] = [

@@ -12,13 +12,13 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 
-import { handleApiError } from '../../../lib/api-error';
 import { useAgents } from '../../../hooks/queries/useAgents';
 import {
   useSetWorkspaceAssistant,
   useUpdateWorkspaceAssistantSettings,
   useWorkspaceAssistant,
 } from '../../../hooks/queries/useAssistant';
+import { handleApiError } from '../../../lib/api-error';
 import type { ThinkingDepth } from '../../../types/assistant';
 
 // 선택 가능한 모델 목록.

@@ -2,10 +2,9 @@
 // useCreateComment 훅으로 작성 후 detail 쿼리 무효화로 갱신.
 // 본인(HUMAN) 코멘트에만 수정·삭제 버튼 노출 (#154).
 
-import { useState } from 'react';
-
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Pencil, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -14,12 +13,12 @@ import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { Textarea } from '@/components/ui/textarea';
 
-import { useAuth } from '../../../hooks/useAuth';
 import {
   useCreateComment,
   useDeleteComment,
   useUpdateComment,
 } from '../../../hooks/queries/useIssueComments';
+import { useAuth } from '../../../hooks/useAuth';
 import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import { type CreateCommentFormData, createCommentSchema } from '../../../lib/validations/issue';

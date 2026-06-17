@@ -7,11 +7,11 @@
 import { Pencil, Trash2 } from 'lucide-react';
 
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
+import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
+
 import { Button } from '../../../../components/ui/button';
 import { AgentBadge } from '../../../../components/users/AgentBadge';
 import type { ChatMessageResponse } from '../../../../types/chat';
-import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
-
 import { formatChatTimestamp } from './formatChatTimestamp';
 
 interface ChatMessageRowProps {

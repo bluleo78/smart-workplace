@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ChatMentionResponse } from '../../../../../types/chat';
 import { bodyToDoc, serializeToBody } from '../../../../../components/mentions/mentionSerialize';
+import type { ChatMentionResponse } from '../../../../../types/chat';
 
 const AI: ChatMentionResponse = { id: 99, username: 'ai-agent', name: 'AI Agent', kind: 'AGENT' };
 

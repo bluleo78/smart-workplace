@@ -9,22 +9,22 @@ import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filte
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
-import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
+import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
@@ -87,7 +87,9 @@ export function IssueFilterBar({
   const types = useIssueTypes(projectKey);
 
   // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 동기화한다.
+  // 외부 소스(URL)→로컬 draft 동기화는 의도된 effect 패턴이라 규칙을 명시 해제한다.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setQDraft(filters.q);
   }, [filters.q]);
 

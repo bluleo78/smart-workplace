@@ -1,8 +1,8 @@
 // 이슈 첨부 API 클라이언트.
 // 백엔드는 멤버 권한 다운로드 전용 엔드포인트(/attachments/{fileId}/content)를 제공한다.
 
-import { client } from './client';
 import type { IssueAttachment } from '../types/attachment';
+import { client } from './client';
 
 // 클라이언트 사전 검증용 한도 — 백엔드 limit 와 일치해야 한다.
 export const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;

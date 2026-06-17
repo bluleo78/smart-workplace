@@ -14,11 +14,11 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
-import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
+import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { handleApiError } from '../../../lib/api-error';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
-import { createIssueSchema, type CreateIssueFormData } from '../../../lib/validations/issue';
+import { type CreateIssueFormData,createIssueSchema } from '../../../lib/validations/issue';
 
 // 새 이슈 생성 모달. priority 기본 MID, dueDate 미지정 시 빈 문자열 → API 호출 직전 undefined 변환.
 // 유형 select 의 기본값은 프로젝트 유형 목록에서 name === 'TASK' 인 id (없으면 첫 번째).

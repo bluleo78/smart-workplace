@@ -1,8 +1,9 @@
 // chat 메시지 작성 폼 — TipTap 기반 RichInput 래퍼.
 // Enter=전송, Shift+Enter=줄바꿈, @=멘션. 전송 후 비우고 포커스 유지.
 
-import type { ChatMemberResponse } from '../../../../types/chat';
 import { RichInput } from '@/components/mentions/RichInput';
+
+import type { ChatMemberResponse } from '../../../../types/chat';
 
 interface ChatComposerProps {
   members: ChatMemberResponse[];

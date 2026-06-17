@@ -4,7 +4,6 @@ import type {
   MailAccountRequest,
   MailAccountResponse,
 } from '../types/mailAccount';
-
 import { client } from './client';
 
 // baseURL 은 '/api/v1' 이므로 여기선 '/mail/accounts' 만 쓴다.

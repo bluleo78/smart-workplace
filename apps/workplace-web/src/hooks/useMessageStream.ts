@@ -143,8 +143,11 @@ function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentU
 export function useMessageStream(currentUserId: number) {
   const qc = useQueryClient();
   // read 이벤트 필터(본인 읽음만 invalidate)용 — ref 로 보관해 재연결(스트림 재구독) 없이 최신값 참조.
+  // 렌더 중 ref 쓰기(부작용) 대신 effect 에서 동기화한다 — 매 렌더 후 최신값 반영.
   const currentUserIdRef = useRef(currentUserId);
-  currentUserIdRef.current = currentUserId;
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  });
 
   useEffect(() => {
     let cancelled = false;

@@ -5,8 +5,8 @@ import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { cn } from '@/lib/utils'
 
 import type { ContactTypeFilter } from '../../types/contact'
-import { parseGroupId } from './groupTree.helpers'
 import { GroupTree } from './GroupTree'
+import { parseGroupId } from './groupTree.helpers'
 
 // 타입 퀵필터 정의 — 전체/멤버/외부 (즐겨찾기는 후속 이슈)
 const TYPE_FILTERS: { value: ContactTypeFilter; label: string }[] = [

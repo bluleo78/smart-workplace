@@ -7,9 +7,9 @@ import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 
-import { IssueTypeBadge } from '../issueTypes/IssueTypeBadge';
 import { IssueStatusBadge } from '../../pages/projects/components/IssueStatusBadge';
 import type { IssueLinkSummary, IssueStatus } from '../../types/issue';
+import { IssueTypeBadge } from '../issueTypes/IssueTypeBadge';
 
 export function IssueLinkRow({
   projectKey,

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+
 import { useCreatePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiPage } from '../../hooks/queries/useWikiPage'
 import { WikiEditor } from './WikiEditor'

@@ -16,7 +16,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 
 import { useCreateCycle, useUpdateCycle } from '../../hooks/queries/useCycles';
-import { CYCLE_STATUSES, CYCLE_STATUS_LABEL, type CycleResponse, type CycleStatus } from '../../types/cycle';
+import { CYCLE_STATUS_LABEL, CYCLE_STATUSES, type CycleResponse, type CycleStatus } from '../../types/cycle';
 
 export function CycleFormDialog({
   projectKey,

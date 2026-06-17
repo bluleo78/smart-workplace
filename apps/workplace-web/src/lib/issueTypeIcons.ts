@@ -7,11 +7,11 @@ import {
   Circle,
   CornerDownRight,
   Flag,
+  type LucideIcon,
   Star,
   Target,
   Wrench,
   Zap,
-  type LucideIcon,
 } from 'lucide-react';
 
 import type { IconName } from '../types/issueType';

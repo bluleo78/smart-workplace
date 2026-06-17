@@ -15,7 +15,6 @@ import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { handleApiError } from '../../../lib/api-error';
 import type { IssueResponse } from '../../../types/issue';
-
 import { IssueStatusBadge } from './IssueStatusBadge';
 
 export function IssueChildrenSection({

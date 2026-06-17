@@ -15,12 +15,7 @@
     "db:logs": "docker compose logs -f db",
     "prepare": "husky"
   },
-  "//lint-staged-note": "Java 포맷은 Spotless 가 gradle test 내 spotlessCheck 로 검증. apps/workplace-web 추가 시 eslint 추가.",
-  "lint-staged": {
-    "apps/{workplace-web,workplace-admin}/{src,e2e}/**/*.{ts,tsx}": [
-      "echo 'workplace-web 셋업 후 eslint 추가 예정'"
-    ]
-  },
+  "//lint-staged-note": "lint-staged 설정은 lint-staged.config.mjs 참조(앱별 eslint --fix 게이트). Java 포맷은 gradle test 내 Spotless 가 검증.",
   "devDependencies": {
     "husky": "^9.1.7",
     "lint-staged": "^17.0.5",

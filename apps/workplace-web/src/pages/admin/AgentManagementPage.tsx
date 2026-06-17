@@ -19,7 +19,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
-import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import {
   useAgentKeys,
   useIssueAgentKey,
@@ -29,8 +28,8 @@ import {
   useAgentOAuthTokenMeta,
   useRevokeAgentOAuthToken,
 } from '../../hooks/queries/useAgentOAuthToken';
+import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { handleApiError } from '../../lib/api-error';
-
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
 import { NewAgentDialog } from './components/NewAgentDialog';
 import { OAuthTokenDialog } from './components/OAuthTokenDialog';

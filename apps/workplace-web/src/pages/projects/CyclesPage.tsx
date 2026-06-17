@@ -9,8 +9,8 @@ import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
 import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
 import { useCycleProgress, useCycles, useDeleteCycle } from '../../hooks/queries/useCycles';
-import { CYCLE_STATUS_LABEL } from '../../types/cycle';
 import type { CycleProgress, CycleResponse } from '../../types/cycle';
+import { CYCLE_STATUS_LABEL } from '../../types/cycle';
 
 export default function CyclesPage() {
   const { key = '' } = useParams();

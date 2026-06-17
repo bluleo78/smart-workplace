@@ -1,5 +1,6 @@
 // 이슈 변경 이력 타임라인. status/priority/assignee/dueDate/title/labels 변경 기록.
 
+import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
   Calendar,
@@ -15,7 +16,6 @@ import {
   User,
   Users,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 

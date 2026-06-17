@@ -14,7 +14,6 @@ import {
 } from '../../../components/ui/alert-dialog';
 import { useDeleteIssueAttachment } from '../../../hooks/queries/useDeleteIssueAttachment';
 import { useIssueAttachments } from '../../../hooks/queries/useIssueAttachments';
-
 import { IssueAttachmentItem } from './IssueAttachmentItem';
 
 export function IssueAttachmentList({

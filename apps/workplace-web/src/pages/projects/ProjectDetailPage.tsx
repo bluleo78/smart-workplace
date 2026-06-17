@@ -6,12 +6,12 @@ import { Button } from '@/components/ui/button';
 
 import { useProject } from '../../hooks/queries/useProjects';
 import { parseFilters, parseGroupBy, parseView } from '../../lib/issueFilters';
-import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
 import { ViewChipBar } from './components/ViewChipBar';
+import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
 
 // 프로젝트 홈 — 태스크 필터/뷰 영역 + 새 태스크 생성. URL: /projects/:key
 // view / 필터는 URL SearchParams 가 단일 source of truth.

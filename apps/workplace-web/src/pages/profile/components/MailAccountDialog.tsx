@@ -4,10 +4,9 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect, useState } from 'react';
-import { useForm, type SubmitHandler } from 'react-hook-form';
+import { type SubmitHandler,useForm } from 'react-hook-form';
 
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import {
   Dialog,
   DialogContent,
@@ -23,20 +22,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  MAIL_PROVIDER_PRESETS,
-  MAIL_SECURITY_OPTIONS,
-} from '@/lib/constants/mailAccount';
-import {
-  mailAccountSchema,
-  type MailAccountFormData,
-  type MailAccountFormInput,
-} from '@/lib/validations/mailAccount';
+import { Switch } from '@/components/ui/switch';
 import {
   useCreateMailAccount,
   useTestMailConnection,
   useUpdateMailAccount,
 } from '@/hooks/queries/useMailAccounts';
+import {
+  MAIL_PROVIDER_PRESETS,
+  MAIL_SECURITY_OPTIONS,
+} from '@/lib/constants/mailAccount';
+import {
+  type MailAccountFormData,
+  type MailAccountFormInput,
+  mailAccountSchema,
+} from '@/lib/validations/mailAccount';
 import type { ConnectionTestResult, MailAccountResponse } from '@/types/mailAccount';
 
 interface MailAccountDialogProps {

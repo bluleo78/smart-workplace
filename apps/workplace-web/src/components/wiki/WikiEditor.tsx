@@ -26,7 +26,7 @@ import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { hydrateWikiMentions } from './wikiMentionHydrate'
 import { WikiMention } from './wikiMentionNode'
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
-import { WikiPageHeader, type SaveState } from './WikiPageHeader'
+import { type SaveState,WikiPageHeader } from './WikiPageHeader'
 import type { WikiAiAction } from './WikiSlashMenu'
 import { createWikiSlashExtension } from './wikiSlashSuggestion'
 

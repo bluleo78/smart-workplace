@@ -1,7 +1,8 @@
 // 본인 메시지 인라인 수정 — RichInput 재사용. Enter=저장, Esc=취소.
 
-import type { ChatMemberResponse, ChatMentionResponse } from '../../../../types/chat';
 import { RichInput } from '@/components/mentions/RichInput';
+
+import type { ChatMemberResponse, ChatMentionResponse } from '../../../../types/chat';
 
 interface ChatMessageEditorProps {
   initialBody: string;

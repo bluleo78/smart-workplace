@@ -1,4 +1,5 @@
 // 받은편지함/보낸편지함 동기화·읽기·발송 API. baseURL '/api/v1' 가 client 에 포함.
+import { downloadBlob } from '../lib/download';
 import type {
   EmailMessageDetail,
   EmailMessageSummary,
@@ -8,7 +9,6 @@ import type {
   MailSyncStatus,
   SendResult,
 } from '../types/mailMessage';
-import { downloadBlob } from '../lib/download';
 import { client } from './client';
 
 /** 계정의 INBOX 를 증분 동기화(수동 트리거). */

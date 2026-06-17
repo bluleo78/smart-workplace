@@ -1,6 +1,5 @@
 // 반복 일정 수정/삭제 시 적용 범위(scope)를 고르는 다이얼로그. (이슈 #111)
 // 가상 회차를 편집/삭제할 때 EventDialog/삭제 트리거가 이 다이얼로그로 분기한다.
-import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -10,6 +9,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import type { EditScope } from '@/types/calendar'
 
 interface RecurrenceScopeDialogProps {

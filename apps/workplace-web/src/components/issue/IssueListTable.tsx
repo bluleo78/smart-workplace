@@ -2,9 +2,9 @@
 // 상태·우선순위는 프로젝트 이슈 목록과 시각 언어 통일을 위해 아이콘 방식 사용(#294).
 import { Link } from 'react-router-dom'
 
+import type { IssueResponse } from '../../types/issue'
 import { IssuePriorityBars } from '../issues/IssuePriorityBars'
 import { IssueStatusIcon } from '../issues/IssueStatusIcon'
-import type { IssueResponse } from '../../types/issue'
 import { IssueTypeBadge } from '../issueTypes/IssueTypeBadge'
 import { LabelChip } from '../labels/LabelChip'
 import { UserAvatar } from '../users/UserAvatar'

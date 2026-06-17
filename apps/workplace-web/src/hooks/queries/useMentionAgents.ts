@@ -1,8 +1,9 @@
 // 멘션 후보용 워크스페이스 AGENT 유저. 채널 비멤버 AGENT 도 @멘션→자동 멤버추가 가능하도록 노출.
 import { useQuery } from '@tanstack/react-query';
 
-import { usersApi } from '../../api/users';
 import type { MentionCandidate } from '@/components/mentions/types';
+
+import { usersApi } from '../../api/users';
 
 export const mentionAgentKeys = {
   all: ['mention-agents'] as const,

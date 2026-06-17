@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { issuesApi } from '../../api/issues';
 import type { UpdateIssueRequest } from '../../types/issue';
-
 import { issueKeys } from './useIssues';
 
 export function useIssue(projectKey: string, number: number) {

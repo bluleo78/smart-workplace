@@ -7,11 +7,10 @@ import { toast } from 'sonner';
 
 import {
   addIssueDependency,
-  removeIssueDependency,
   type DependencyDirection,
+  removeIssueDependency,
 } from '../../api/issueDependencies';
 import { handleApiError } from '../../lib/api-error';
-
 import { issueKeys } from './useIssues';
 
 export function useAddIssueDependency(projectKey: string, number: number) {

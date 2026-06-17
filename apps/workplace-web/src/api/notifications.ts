@@ -1,6 +1,6 @@
 // 알림 인박스 REST 호출. client(baseURL /api/v1) 사용.
-import { client } from './client'
 import type { NotificationResponse } from '../types/notification'
+import { client } from './client'
 
 export const notificationsApi = {
   list: (limit = 20) =>

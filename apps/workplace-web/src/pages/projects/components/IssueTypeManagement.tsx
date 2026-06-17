@@ -6,9 +6,9 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
 import { RenameDialog } from '../../../components/ui/rename-dialog';
-import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import {
   useCreateIssueType,
   useDeleteIssueType,
