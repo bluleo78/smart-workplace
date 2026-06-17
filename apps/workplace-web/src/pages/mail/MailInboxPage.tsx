@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Download, Forward, Paperclip, RefreshCw, Reply, ReplyAll } from 'lucide-react'
+import { Download, Forward, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -264,7 +264,7 @@ function MessageDetailPanel({
               data-testid="mail-ai-reply-draft"
               onClick={() => onAiReplyDraft(detail)}
             >
-              ✨ AI 답장 초안
+              <Sparkles className="h-3.5 w-3.5" /> AI 답장 초안
             </Button>
           )}
         </div>

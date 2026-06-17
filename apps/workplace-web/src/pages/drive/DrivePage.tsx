@@ -1,4 +1,4 @@
-import { Folder, FolderOpen, Upload } from 'lucide-react'
+import { FileText, Folder, FolderOpen, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -399,8 +399,13 @@ export function DrivePage() {
             <ul className="divide-y divide-border">
               {trash.map((it) => (
                 <li key={`trash-${it.type}-${it.id}`} className="flex items-center gap-2 py-2">
-                  <span className="flex-1 truncate text-sm">
-                    {it.type === 'FOLDER' ? '📁' : '📄'} {it.name}
+                  <span className="flex flex-1 items-center gap-1.5 truncate text-sm">
+                    {it.type === 'FOLDER' ? (
+                      <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    {it.name}
                     {it.originalPath && (
                       <span className="ml-2 text-xs text-muted-foreground">{it.originalPath}</span>
                     )}

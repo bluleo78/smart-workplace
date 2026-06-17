@@ -3,6 +3,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
+import { pageTitleClass } from '@/components/layout/sidebar-link';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 
@@ -29,7 +30,7 @@ export default function CyclesPage() {
   return (
     <div className="mx-auto max-w-3xl p-6" data-testid="cycles-page">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">사이클</h1>
+        <h1 className={pageTitleClass}>사이클</h1>
         <Button
           size="sm"
           onClick={() => {

@@ -3,6 +3,7 @@
 // - 수정 모드: 기존 값 프리필. 비밀번호 빈 값이면 서버에서 기존 유지. 저장 버튼 항상 활성화.
 
 import { zodResolver } from '@hookform/resolvers/zod';
+import { Check, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { type SubmitHandler,useForm } from 'react-hook-form';
 
@@ -330,13 +331,19 @@ export function MailAccountDialog({
           {/* 연결 테스트 결과 인라인 표시 */}
           {testResult && (
             <div data-testid="mail-test-result" className="rounded border p-2 text-sm">
-              <p className={testResult.imapOk ? 'text-success' : 'text-destructive'}>
-                IMAP{' '}
-                {testResult.imapOk ? '✓ 연결됨' : `✗ ${testResult.imapError ?? '실패'}`}
+              <p
+                data-testid="mail-test-imap"
+                className={`flex items-center gap-1 ${testResult.imapOk ? 'text-success' : 'text-destructive'}`}
+              >
+                {testResult.imapOk ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                IMAP {testResult.imapOk ? '연결됨' : (testResult.imapError ?? '실패')}
               </p>
-              <p className={testResult.smtpOk ? 'text-success' : 'text-destructive'}>
-                SMTP{' '}
-                {testResult.smtpOk ? '✓ 연결됨' : `✗ ${testResult.smtpError ?? '실패'}`}
+              <p
+                data-testid="mail-test-smtp"
+                className={`flex items-center gap-1 ${testResult.smtpOk ? 'text-success' : 'text-destructive'}`}
+              >
+                {testResult.smtpOk ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                SMTP {testResult.smtpOk ? '연결됨' : (testResult.smtpError ?? '실패')}
               </p>
             </div>
           )}

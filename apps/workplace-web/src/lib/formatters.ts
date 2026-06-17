@@ -159,7 +159,8 @@ export function formatCellValue(value: unknown, dataType?: string): string {
 
   if (dataType === 'BOOLEAN' || typeof value === 'boolean') {
     const boolVal = typeof value === 'boolean' ? value : value === 'true';
-    return boolVal ? '✓' : '✗';
+    // 이모지(✓/✗) 대신 텍스트 — formatCellValue 는 string 반환 계약이라 아이콘 사용 불가.
+    return boolVal ? '예' : '아니오';
   }
 
   const str = String(value);

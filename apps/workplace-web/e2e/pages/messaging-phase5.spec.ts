@@ -434,7 +434,7 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await page.getByTestId('thread-panel').getByTestId('message-composer-submit').click()
 
     // SSE self-echo 적용 후 "답글 1개" (2개 아님 — 이중 카운트 없음).
-    await expect(page.getByTestId(`message-thread-link-${PARENT_ID}`)).toHaveText('💬 답글 1개')
+    await expect(page.getByTestId(`message-thread-link-${PARENT_ID}`)).toHaveText('답글 1개')
   })
 
   // 회귀 #291: 스레드 패널 — 답글 0건 시 빈 상태 메시지("아직 답글이 없어요.") 표시.

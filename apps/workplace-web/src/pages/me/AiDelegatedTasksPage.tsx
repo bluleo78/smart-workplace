@@ -4,6 +4,7 @@ import { Bot } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { InfiniteIssueList } from '@/components/issue/InfiniteIssueList'
+import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { useMeIssues } from '@/hooks/queries/useMeIssues'
 
 import { meFacetParams } from './meFacetParams'
@@ -15,7 +16,7 @@ export default function AiDelegatedTasksPage() {
   const query = useMeIssues({ reporter: 'me', ...meFacetParams(params) })
   return (
     <div className="container mx-auto p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">AI 위임 작업</h1>
+      <h1 className={pageTitleClass}>AI 위임 작업</h1>
       <MeTaskFilterBar />
       <InfiniteIssueList
         query={query}

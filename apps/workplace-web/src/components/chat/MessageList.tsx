@@ -241,11 +241,11 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               {onOpenThread && m.replyCount > 0 && (
                 <button
                   type="button"
-                  className="mt-0.5 text-xs font-medium text-primary hover:underline"
+                  className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                   data-testid={`message-thread-link-${m.id}`}
                   onClick={() => onOpenThread(m.id)}
                 >
-                  💬 답글 {m.replyCount}개
+                  <MessageSquare className="h-3.5 w-3.5" /> 답글 {m.replyCount}개
                 </button>
               )}
             </div>

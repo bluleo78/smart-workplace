@@ -184,19 +184,25 @@ test('칩 클릭이 closed→side→fullscreen→closed 로 순환한다', async
   await expect(chip).toHaveAttribute('data-mode', 'closed')
 })
 
-test('칩 치수가 fire-hub 정합값이다 (minWidth 140px, fontSize 12px, borderRadius 20px)', async ({
+test('칩이 디자인 시스템 치수를 따른다 (min-w 140px, text-xs, pill)', async ({
   authenticatedPage: page,
 }) => {
-  // 칩 fixed 오버레이 치수 — fire-hub 정합(인라인 style 고정값).
+  // 칩 치수 — 인라인 raw px 대신 디자인 시스템 유틸(min-w-[140px]·text-xs·rounded-full pill)로 정의.
   await page.goto('/')
   const chip = page.getByTestId('chat-launcher')
   const box = await chip.evaluate((el) => {
     const cs = getComputedStyle(el)
-    return { minWidth: cs.minWidth, fontSize: cs.fontSize, borderRadius: cs.borderRadius }
+    return {
+      minWidth: cs.minWidth,
+      fontSize: cs.fontSize,
+      borderRadius: parseFloat(cs.borderRadius),
+      height: el.getBoundingClientRect().height,
+    }
   })
   expect(box.minWidth).toBe('140px')
-  expect(box.fontSize).toBe('12px')
-  expect(box.borderRadius).toBe('20px')
+  expect(box.fontSize).toBe('12px') // text-xs
+  // rounded-full → 모서리 반경이 높이 절반 이상(완전 pill)
+  expect(box.borderRadius).toBeGreaterThanOrEqual(box.height / 2 - 1)
 })
 
 test('⌘K 로 side 패널이 열리고 Esc 로 닫힌다', async ({ authenticatedPage: page }) => {

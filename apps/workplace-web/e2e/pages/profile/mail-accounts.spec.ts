@@ -70,8 +70,8 @@ test.describe('메일 계정 설정', () => {
 
     // 연결 테스트 클릭
     await page.getByTestId('mail-test-button').click();
-    await expect(page.getByTestId('mail-test-result')).toContainText('IMAP ✓');
-    await expect(page.getByTestId('mail-test-result')).toContainText('SMTP ✓');
+    await expect(page.getByTestId('mail-test-imap')).toContainText('IMAP 연결됨');
+    await expect(page.getByTestId('mail-test-smtp')).toContainText('SMTP 연결됨');
 
     // 저장 후 목록 응답을 미리 등록 (Playwright route는 LIFO — 나중 등록이 우선)
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [account()]);

@@ -2,6 +2,7 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { InfiniteIssueList } from '@/components/issue/InfiniteIssueList'
+import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMeIssues } from '@/hooks/queries/useMeIssues'
 import { useWatchedIssues } from '@/hooks/queries/useWatchedIssues'
@@ -45,7 +46,7 @@ export default function MyTasksPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">내 작업</h1>
+      <h1 className={pageTitleClass}>내 작업</h1>
       <Tabs value={active} onValueChange={(v) => navigate(`/me/tasks/${v}`)}>
         <TabsList>
           <TabsTrigger value="assigned" data-testid="tab-assigned">할당</TabsTrigger>

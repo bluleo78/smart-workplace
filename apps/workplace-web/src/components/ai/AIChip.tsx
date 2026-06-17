@@ -38,15 +38,9 @@ export function AIChip() {
       aria-label="AI 어시스턴트"
       aria-expanded={open}
       onClick={cycleMode}
-      // fire-hub 치수는 인라인 style 로 고정(Tailwind 임의값 대신 정확 정합).
-      style={{
-        minWidth: 140,
-        padding: '6px 16px',
-        fontSize: 12,
-        borderRadius: 20,
-        gap: 6,
-      }}
       className={cn(
+        // 치수: 인라인 raw px 제거 → 디자인 시스템 유틸/토큰 사용(text-xs, gap-1.5, px-4/py-1.5, pill).
+        'min-w-[140px] gap-1.5 rounded-full px-4 py-1.5 text-xs',
         // 데스크톱(lg+): 칩을 "콘텐츠 영역"(뷰포트−사이드패널폭) 중앙에 정렬한다.
         // side 모드에서 --ai-side-width 가 설정되면 칩이 패널과 안 겹치도록 좌측으로 이동.
         // 변수 미설정(closed/fullscreen, 또는 모바일)이면 0px → 기존처럼 뷰포트 중앙(+28 AppRail 보정).

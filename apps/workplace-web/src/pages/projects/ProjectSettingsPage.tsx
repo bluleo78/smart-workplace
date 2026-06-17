@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { pageTitleClass } from '@/components/layout/sidebar-link';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -86,7 +87,7 @@ export default function ProjectSettingsPage() {
   return (
     <>
     <div className="container mx-auto p-6 space-y-8 max-w-3xl">
-      <h1 className="text-2xl font-semibold">프로젝트 설정</h1>
+      <h1 className={pageTitleClass}>프로젝트 설정</h1>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div className="space-y-1">
