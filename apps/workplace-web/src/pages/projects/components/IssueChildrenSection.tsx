@@ -124,7 +124,7 @@ export function IssueChildrenSection({
           {items.map((it) => (
             <li
               key={it.id}
-              className="flex items-center gap-2 text-sm"
+              className="flex items-center gap-2 rounded px-1 text-sm hover:bg-accent/50"
               data-testid={`child-row-${it.number}`}
             >
               <span className="text-muted-foreground">└</span>

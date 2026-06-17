@@ -316,6 +316,90 @@ test.describe('SUBTASK', () => {
     },
   );
 
+  // 하위 태스크 행 hover 배경 클래스 회귀 (#305).
+  // 행 컨테이너(<li>)에 hover:bg-accent/50 이 없으면 클릭 가능 영역임을 시각적으로 나타내지 못함.
+  test('하위 태스크 행 컨테이너에 hover:bg-accent/50 클래스가 적용됨 (#305 회귀)', async ({
+    authenticatedPage: page,
+  }) => {
+    const taskSummary = {
+      id: 1,
+      name: 'TASK',
+      colorToken: 'BLUE' as const,
+      icon: 'Circle' as const,
+    };
+    const parentIssue = {
+      ...createIssue({ id: 1, number: 1, title: '부모 TASK' }),
+      type: taskSummary,
+    };
+    const child = {
+      ...createIssue({ id: 10, number: 10, title: '자식 태스크' }),
+      type: makeSubtaskType(),
+      parent: { number: 1, title: '부모 TASK', type: taskSummary },
+    };
+
+    await setupCommonStubs(page);
+
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            summary: {
+              ...parentIssue,
+              childCount: 1,
+              childDoneCount: 0,
+              parent: null,
+              labels: [],
+              attachmentCount: 0,
+              assignees: [],
+            },
+            body: '',
+            comments: [],
+            history: [],
+            attachments: [],
+          }),
+        }),
+    );
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1/watchers`,
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1/attachments`,
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.route(
+      (url) => url.pathname === ISSUES_BASE,
+      (route) => {
+        const url = new URL(route.request().url());
+        if (url.searchParams.get('parent') === '1') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(createIssueSearchResponse([child], null)),
+          });
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse([], null)),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}/issues/1`);
+
+    // 자식 행이 렌더링될 때까지 대기.
+    const row = page.getByTestId('child-row-10');
+    await expect(row).toBeVisible();
+
+    // 행 컨테이너에 hover:bg-accent/50 클래스 존재 검증 (#305 회귀).
+    const className = await row.getAttribute('class');
+    expect(className).toContain('hover:bg-accent/50');
+  });
+
   test('SUBTASK 진입 → 부모 슬롯 + 변경 → PATCH payload + 슬롯 갱신', async ({
     authenticatedPage: page,
   }) => {
