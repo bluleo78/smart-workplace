@@ -738,3 +738,63 @@ test('팀 공간 생성 — Dialog 표시, 이름 입력 후 만들기 클릭 �
   // 사이드바에 새 공간이 나타나야 함.
   await expect(page.getByText('신규팀')).toBeVisible()
 })
+
+// #319 — FolderPickerModal shadcn Dialog 전환: Esc·오버레이 클릭 닫기 검증
+test('FolderPickerModal — Esc 키로 닫힌다', async ({ authenticatedPage: page }) => {
+  const FOLDER_ID = 10
+  await stubSpaces(page)
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              folders: [{ id: FOLDER_ID, parentId: null, name: '문서', createdAt: '2026-06-03T00:00:00Z' }],
+              files: [],
+            }),
+          })
+        : route.fallback(),
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  const folderItem = page.getByRole('listitem').filter({ hasText: '문서' })
+  await folderItem.hover()
+  await folderItem.getByRole('button', { name: '이동' }).click()
+  await expect(page.getByTestId('folder-picker')).toBeVisible()
+
+  // Esc 키 → 모달이 닫혀야 한다 (Radix Dialog 기본 동작)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('folder-picker')).not.toBeVisible()
+})
+
+test('FolderPickerModal — 오버레이(배경) 클릭으로 닫힌다', async ({ authenticatedPage: page }) => {
+  const FOLDER_ID = 10
+  await stubSpaces(page)
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              folders: [{ id: FOLDER_ID, parentId: null, name: '문서', createdAt: '2026-06-03T00:00:00Z' }],
+              files: [],
+            }),
+          })
+        : route.fallback(),
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  const folderItem = page.getByRole('listitem').filter({ hasText: '문서' })
+  await folderItem.hover()
+  await folderItem.getByRole('button', { name: '이동' }).click()
+  await expect(page.getByTestId('folder-picker')).toBeVisible()
+
+  // 오버레이(배경) 클릭 → 모달이 닫혀야 한다 (Radix Dialog pointerDownOutside 핸들러)
+  // 뷰포트 좌상단(모달 콘텐츠 밖 영역)을 클릭하여 오버레이 클릭을 시뮬레이션
+  await page.mouse.click(10, 10)
+  await expect(page.getByTestId('folder-picker')).not.toBeVisible()
+})

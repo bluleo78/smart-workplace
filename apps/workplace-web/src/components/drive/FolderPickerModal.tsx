@@ -3,6 +3,13 @@ import { useEffect, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
 import type { DriveFolder } from '../../types/drive'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog'
 
 interface Props {
   spaceId: number
@@ -13,7 +20,10 @@ interface Props {
   onClose: () => void
 }
 
-/** 같은 공간의 폴더 트리를 탐색해 이동/복사 대상 폴더(또는 루트)를 고르는 모달. */
+/**
+ * 같은 공간의 폴더 트리를 탐색해 이동/복사 대상 폴더(또는 루트)를 고르는 모달.
+ * shadcn Dialog로 래핑하여 Esc 닫기·오버레이 클릭 닫기·포커스 트랩을 Radix가 자동 처리.
+ */
 export function FolderPickerModal({ spaceId, title, disabledFolderId, onConfirm, onClose }: Props) {
   const [current, setCurrent] = useState<number | null>(null)
   const [folders, setFolders] = useState<DriveFolder[]>([])
@@ -23,12 +33,12 @@ export function FolderPickerModal({ spaceId, title, disabledFolderId, onConfirm,
   }, [spaceId, current])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      data-testid="folder-picker"
-    >
-      <div className="w-80 rounded-lg bg-background p-4 shadow-lg">
-        <h2 className="mb-2 text-sm font-semibold">{title}</h2>
+    // open 고정 true — 부모가 마운트/언마운트로 열기·닫기 제어함
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="w-80" data-testid="folder-picker">
+        <DialogHeader>
+          <DialogTitle className="text-sm font-semibold">{title}</DialogTitle>
+        </DialogHeader>
         <div className="mb-2 flex items-center gap-2 text-xs">
           <button
             type="button"
@@ -58,7 +68,7 @@ export function FolderPickerModal({ spaceId, title, disabledFolderId, onConfirm,
             <li className="py-4 text-center text-xs text-muted-foreground">하위 폴더 없음</li>
           )}
         </ul>
-        <div className="flex justify-end gap-2">
+        <DialogFooter>
           <button type="button" onClick={onClose} className="rounded border px-2 py-1 text-sm">
             취소
           </button>
@@ -71,8 +81,8 @@ export function FolderPickerModal({ spaceId, title, disabledFolderId, onConfirm,
           >
             여기로
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
