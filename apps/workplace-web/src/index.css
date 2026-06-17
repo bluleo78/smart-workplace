@@ -430,6 +430,45 @@
   100% { width: 100%; }
 }
 
+/* ===== WikiEditor — ProseMirror 헤딩 타이포그래피 =====
+ * Tailwind v4 preflight가 h1~h6 기본 스타일을 리셋하므로
+ * 에디터 내 헤딩에 명시적 크기·굵기·간격을 정의한다.
+ * 디자인 시스템 02-typography.md heading 스케일을 따른다.
+ */
+.ProseMirror h1,
+.ProseMirror h2,
+.ProseMirror h3,
+.ProseMirror h4 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+.ProseMirror h1:first-child,
+.ProseMirror h2:first-child,
+.ProseMirror h3:first-child,
+.ProseMirror h4:first-child {
+  margin-top: 0;
+}
+/* heading-page (28px) — 문서 최상위 제목 */
+.ProseMirror h1 {
+  font-size: 1.75rem; /* 28px */
+  letter-spacing: -0.025em;
+}
+/* heading-section (24px) — 주요 섹션 */
+.ProseMirror h2 {
+  font-size: 1.5rem; /* 24px */
+  letter-spacing: -0.025em;
+}
+/* heading-card (18px) — 소섹션 */
+.ProseMirror h3 {
+  font-size: 1.125rem; /* 18px */
+}
+/* heading-group (16px) — 세부 그룹 */
+.ProseMirror h4 {
+  font-size: 1rem; /* 16px */
+}
+
 /* Canvas animations */
 @keyframes canvas-widget-in {
   from { transform: translateY(20px); opacity: 0; }
