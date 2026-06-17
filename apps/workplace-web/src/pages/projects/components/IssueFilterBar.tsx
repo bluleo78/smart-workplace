@@ -23,12 +23,14 @@ import {
 } from '@/components/ui/select';
 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
+import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
+import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { filtersToParams, parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters';
-import type { IssueFilters, IssueGroupBy, IssueView } from '../../../types/issue';
+import type { IssueFilters, IssueGroupBy, IssuePriority, IssueStatus, IssueView } from '../../../types/issue';
 
 const STATUS_OPTIONS = [
   { value: 'TODO', label: '할 일' },
@@ -148,12 +150,32 @@ export function IssueFilterBar({
     {
       key: 'status',
       label: '상태',
-      options: STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+      // 이슈 목록 행의 IssueStatusIcon 과 동일한 아이콘을 드롭다운 옵션에 표시해 시각 일관성 확보.
+      options: STATUS_OPTIONS.map((o) => ({
+        value: o.value,
+        label: o.label,
+        render: (
+          <span className="flex items-center gap-1.5">
+            <IssueStatusIcon status={o.value as IssueStatus} />
+            {o.label}
+          </span>
+        ),
+      })),
     },
     {
       key: 'priority',
       label: '우선순위',
-      options: PRIORITY_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+      // 이슈 목록 행의 IssuePriorityBars 와 동일한 아이콘을 드롭다운 옵션에 표시해 시각 일관성 확보.
+      options: PRIORITY_OPTIONS.map((o) => ({
+        value: o.value,
+        label: o.label,
+        render: (
+          <span className="flex items-center gap-1.5">
+            <IssuePriorityBars priority={o.value as IssuePriority} />
+            {o.label}
+          </span>
+        ),
+      })),
     },
     {
       key: 'label',
