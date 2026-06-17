@@ -19,7 +19,10 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
+import { CircleDashed, Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+
+import { Button } from '@/components/ui/button';
 
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
@@ -46,6 +49,7 @@ export function IssueBoardView({
   columns = DEFAULT_COLUMNS,
   cardTo,
   showType = true,
+  onOpenCreate,
 }: {
   projectKey: string;
   filters: IssueFilters;
@@ -56,6 +60,8 @@ export function IssueBoardView({
   cardTo?: (issue: IssueResponse) => string;
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
+  // 빈 컬럼 CTA — "이슈 추가" 버튼 클릭 시 이슈 생성 다이얼로그를 여는 콜백.
+  onOpenCreate?: () => void;
 }) {
   // 보드는 한 화면에 많은 카드를 보여줘야 하므로 페이지 크기를 100 으로 키운다.
   const { data, fetchNextPage, hasNextPage, isFetching } = useIssueSearch(
@@ -137,7 +143,7 @@ export function IssueBoardView({
                 컬럼 min-width + 가로 스크롤로 식별성 보존(넓은 폭은 flex-1 로 4-up 유지). */}
         <div className="flex gap-3 overflow-x-auto">
           {grouped.map((g) => (
-            <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} />
+            <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} />
           ))}
         </div>
         {hasNextPage && (
@@ -170,6 +176,7 @@ export function IssueBoardView({
             projectKey={projectKey}
             cardTo={cardTo}
             showType={showType}
+            onOpenCreate={onOpenCreate}
           />
         ))}
       </div>
@@ -202,6 +209,7 @@ function BoardColumn({
   projectKey,
   cardTo,
   showType = true,
+  onOpenCreate,
 }: {
   status: string;
   label: string;
@@ -211,6 +219,8 @@ function BoardColumn({
   cardTo?: (issue: IssueResponse) => string;
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
+  // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
+  onOpenCreate?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `col-${status}`,
@@ -231,11 +241,31 @@ function BoardColumn({
         items={issues.map((i) => `issue-${i.id}`)}
         strategy={verticalListSortingStrategy}
       >
-        <div className="flex flex-col gap-2">
-          {issues.map((it) => (
-            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} />
-          ))}
-        </div>
+        {issues.length === 0 ? (
+          /* 빈 컬럼 — 디자인 시스템 §2.5 빈 상태 패턴: 아이콘 + 제목 + 설명 + CTA */
+          <div
+            className="flex flex-col items-center justify-center py-8 gap-3 text-center"
+            data-testid={`board-col-empty-${status}`}
+          >
+            <CircleDashed className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
+              <p className="text-xs text-muted-foreground">드래그하거나 새 이슈를 추가하세요</p>
+            </div>
+            {onOpenCreate && (
+              <Button size="sm" variant="ghost" onClick={onOpenCreate} data-testid={`board-col-add-${status}`}>
+                <Plus className="h-4 w-4" />
+                이슈 추가
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {issues.map((it) => (
+              <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} />
+            ))}
+          </div>
+        )}
       </SortableContext>
     </section>
   );
@@ -248,6 +278,7 @@ function ReadOnlyColumn({
   projectKey,
   cardTo,
   showType = true,
+  onOpenCreate,
 }: {
   group: IssueGroup;
   projectKey: string;
@@ -255,6 +286,8 @@ function ReadOnlyColumn({
   cardTo?: (issue: IssueResponse) => string;
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
+  // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
+  onOpenCreate?: () => void;
 }) {
   return (
     <section
@@ -266,11 +299,31 @@ function ReadOnlyColumn({
         <span>{group.label}</span>
         <span>{group.issues.length}</span>
       </header>
-      <div className="flex flex-col gap-2">
-        {group.issues.map((it) => (
-          <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} showStatus />
-        ))}
-      </div>
+      {group.issues.length === 0 ? (
+        /* 빈 그룹 컬럼 — 디자인 시스템 §2.5 빈 상태 패턴: 아이콘 + 제목 + 설명 + CTA */
+        <div
+          className="flex flex-col items-center justify-center py-8 gap-3 text-center"
+          data-testid={`board-col-empty-${group.key}`}
+        >
+          <CircleDashed className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
+            <p className="text-xs text-muted-foreground">드래그하거나 새 이슈를 추가하세요</p>
+          </div>
+          {onOpenCreate && (
+            <Button size="sm" variant="ghost" onClick={onOpenCreate} data-testid={`board-col-add-${group.key}`}>
+              <Plus className="h-4 w-4" />
+              이슈 추가
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {group.issues.map((it) => (
+            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} showStatus />
+          ))}
+        </div>
+      )}
     </section>
   );
 }

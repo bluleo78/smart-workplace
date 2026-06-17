@@ -71,6 +71,7 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
                 columns={PERSONAL_COLUMNS}
                 cardTo={cardTo}
                 showType={false}
+                onOpenCreate={() => setCreateOpen(true)}
               />
             ) : (
               <PersonalChecklistView projectKey={key} filters={filters} groupBy={groupBy} />

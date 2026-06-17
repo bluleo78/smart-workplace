@@ -53,7 +53,7 @@ export default function ProjectDetailPage() {
       />
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto p-6 space-y-4">
-          <IssueArea projectKey={key} />
+          <IssueArea projectKey={key} onOpenCreate={() => setOpen(true)} />
         </div>
       </div>
       <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} />
@@ -63,7 +63,7 @@ export default function ProjectDetailPage() {
 
 // IssueFilterBar 와 활성 뷰(list/board) 를 묶는 영역.
 // FilterBar 가 URL 을 갱신하면 useSearchParams 의 재렌더로 자식 뷰가 같이 갱신된다.
-function IssueArea({ projectKey }: { projectKey: string }) {
+function IssueArea({ projectKey, onOpenCreate }: { projectKey: string; onOpenCreate?: () => void }) {
   const [params] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
@@ -74,7 +74,7 @@ function IssueArea({ projectKey }: { projectKey: string }) {
       <ViewChipBar projectKey={projectKey} />
       <IssueFilterBar projectKey={projectKey} />
       {view === 'board' ? (
-        <IssueBoardView projectKey={projectKey} filters={filters} groupBy={groupBy} />
+        <IssueBoardView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
       ) : (
         <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} />
       )}

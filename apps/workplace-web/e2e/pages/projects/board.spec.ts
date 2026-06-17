@@ -537,4 +537,45 @@ test.describe('태스크 보드/검색', () => {
     await expect(page.getByTestId('issue-row-3')).toBeVisible();
     expect(calls).toBeGreaterThanOrEqual(2);
   });
+
+  test('빈 컬럼 — empty state(아이콘+안내+CTA) 표시, CTA 클릭 시 이슈 생성 다이얼로그 열림 (#309 회귀)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 무엇을: 이슈가 없는 컬럼에 빈 상태 UI(아이콘·안내 문구·이슈 추가 버튼)가 표시되고,
+    //         "이슈 추가" 버튼 클릭 시 이슈 생성 다이얼로그가 열리는지 검증한다.
+    // 왜: #309 — 빈 컬럼이 header만 보이고 본문이 완전히 비어 사용자가 첫 이슈를 어떻게 등록하는지 알 수 없었음.
+    await stubProjectMeta(page);
+
+    // DONE / CANCELED 컬럼은 이슈 0건, TODO 는 1건 — 빈/비빈 컬럼 대조 검증.
+    const issues = [createIssue({ id: 1, number: 1, title: '할 일 이슈', status: 'TODO' })];
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(issues)),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+    // TODO 컬럼 — 이슈 있음 → empty state 없어야 함
+    await expect(page.getByTestId('board-col-TODO').getByTestId('issue-card-1')).toBeVisible();
+    await expect(page.getByTestId('board-col-empty-TODO')).not.toBeAttached();
+
+    // DONE 컬럼 — 이슈 0건 → empty state 노출
+    const doneEmptyState = page.getByTestId('board-col-empty-DONE');
+    await expect(doneEmptyState).toBeVisible();
+    await expect(doneEmptyState.getByText('이슈 없음')).toBeVisible();
+    await expect(doneEmptyState.getByText('드래그하거나 새 이슈를 추가하세요')).toBeVisible();
+
+    // CANCELED 컬럼도 동일
+    await expect(page.getByTestId('board-col-empty-CANCELED')).toBeVisible();
+
+    // "이슈 추가" CTA 클릭 → 이슈 생성 다이얼로그 열림
+    const addBtn = page.getByTestId('board-col-add-DONE');
+    await expect(addBtn).toBeVisible();
+    await addBtn.click();
+    // IssueCreateDialog 가 열려 있으면 "새 태스크" role=dialog 가 보여야 함
+    await expect(page.getByRole('dialog')).toBeVisible();
+  });
 });
