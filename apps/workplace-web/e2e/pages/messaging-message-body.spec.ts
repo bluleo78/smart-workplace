@@ -212,7 +212,12 @@ test.describe('messaging 메시지 본문 기본기', () => {
       await expect(page.getByTestId('message-3')).toHaveAttribute('data-group-start', 'true')
 
       // AGENT 아바타 봇 배지(chat-avatar-agent-99) 노출.
-      await expect(page.getByTestId('chat-avatar-agent-99')).toBeVisible()
+      const agentBadge = page.getByTestId('chat-avatar-agent-99')
+      await expect(agentBadge).toBeVisible()
+
+      // #301 회귀: ChatAvatar AGENT 배지가 ai-accent 시맨틱 토큰 클래스를 사용해야 한다 (raw 팔레트 금지).
+      await expect(agentBadge).toHaveClass(/bg-ai-accent/)
+      await expect(agentBadge).not.toHaveClass(/bg-purple-600/)
     },
   )
 

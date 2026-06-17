@@ -1,5 +1,6 @@
 // Phase 5c-3: AGENT 가 작성한 코멘트와 활동 이력이 USER 와 시각적으로 구분되는지 검증.
 // 데이터 파이프라인 검증: factory(authorKind/actorKind) → mock 응답 → UI data-agent 속성 + AI 배지.
+// #301 시맨틱 토큰 회귀: raw 팔레트(border-blue-500, bg-blue-100 등)가 다시 사용되면 이 테스트가 실패한다.
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
@@ -42,6 +43,14 @@ test('AGENT 코멘트는 USER 와 시각적으로 구분된다', async ({ authen
   await expect(agentItem).toBeVisible();
   await expect(agentItem.getByText('AI 코멘트')).toBeVisible();
   await expect(agentItem.getByText('AI', { exact: true })).toBeVisible();
+
+  // #301 회귀: AGENT 코멘트 카드가 ai-accent 시맨틱 토큰 클래스를 사용해야 한다 (raw 팔레트 금지).
+  await expect(agentItem).toHaveClass(/border-ai-accent/);
+  await expect(agentItem).not.toHaveClass(/border-blue-500/);
+  const aiBadge = agentItem.getByText('AI', { exact: true });
+  await expect(aiBadge).toHaveClass(/bg-ai-accent-subtle/);
+  await expect(aiBadge).toHaveClass(/text-ai-accent/);
+  await expect(aiBadge).not.toHaveClass(/bg-blue-100/);
 });
 
 // non-smoke: 활동 타임라인에서 AGENT 행이 시각적으로 구분된다.
@@ -82,4 +91,12 @@ test('AGENT 가 일으킨 이력은 시각적으로 구분된다', async ({ auth
   const agentRow = timeline.locator('li[data-agent="true"]').filter({ hasText: 'AI Agent' });
   await expect(agentRow).toBeVisible();
   await expect(agentRow.getByText('AI', { exact: true })).toBeVisible();
+
+  // #301 회귀: AGENT 타임라인 행이 ai-accent 시맨틱 토큰 클래스를 사용해야 한다 (raw 팔레트 금지).
+  await expect(agentRow).toHaveClass(/border-l-ai-accent/);
+  await expect(agentRow).not.toHaveClass(/border-l-blue-500/);
+  const timelineBadge = agentRow.getByText('AI', { exact: true });
+  await expect(timelineBadge).toHaveClass(/bg-ai-accent-subtle/);
+  await expect(timelineBadge).toHaveClass(/text-ai-accent/);
+  await expect(timelineBadge).not.toHaveClass(/bg-blue-100/);
 });

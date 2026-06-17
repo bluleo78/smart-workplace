@@ -198,7 +198,7 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
           <li
             key={e.id}
             className={
-              isAgent ? 'border-l-2 border-l-blue-500 pl-3' : 'border-l-2 pl-3'
+              isAgent ? 'border-l-2 border-l-ai-accent pl-3' : 'border-l-2 pl-3'
             }
             data-agent={isAgent ? 'true' : undefined}
           >
@@ -207,7 +207,7 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
               {isAgent && (
                 <Badge
                   variant="secondary"
-                  className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  className="bg-ai-accent-subtle text-ai-accent"
                 >
                   AI
                 </Badge>

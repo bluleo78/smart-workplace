@@ -72,7 +72,7 @@ function CommentItem({
     <li
       className={[
         'relative group border rounded p-3',
-        isAgent ? 'border-blue-500/50 bg-blue-50/40 dark:bg-blue-950/20' : '',
+        isAgent ? 'border-ai-accent/50 bg-ai-accent-subtle/40' : '',
       ].join(' ')}
       data-agent={isAgent ? 'true' : undefined}
     >
@@ -83,7 +83,7 @@ function CommentItem({
           {isAgent && (
             <Badge
               variant="secondary"
-              className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+              className="bg-ai-accent-subtle text-ai-accent"
             >
               AI
             </Badge>

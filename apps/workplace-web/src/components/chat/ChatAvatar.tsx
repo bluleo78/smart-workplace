@@ -28,10 +28,10 @@ export function ChatAvatar({ userId, name, kind, className }: ChatAvatarProps) {
       {avatarInitials(name)}
       {kind === 'AGENT' && (
         <span
-          className="absolute -right-0.5 -bottom-0.5 flex size-3.5 items-center justify-center rounded-full bg-purple-600 ring-2 ring-background"
+          className="absolute -right-0.5 -bottom-0.5 flex size-3.5 items-center justify-center rounded-full bg-ai-accent ring-2 ring-background"
           data-testid={`chat-avatar-agent-${userId}`}
         >
-          <Bot className="size-2 text-white" />
+          <Bot className="size-2 text-ai-accent-foreground" />
         </span>
       )}
     </span>
