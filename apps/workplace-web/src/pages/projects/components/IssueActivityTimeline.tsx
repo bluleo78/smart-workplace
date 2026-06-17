@@ -1,8 +1,42 @@
 // 이슈 변경 이력 타임라인. status/priority/assignee/dueDate/title/labels 변경 기록.
 
+import {
+  AlertTriangle,
+  Calendar,
+  GitBranch,
+  GitFork,
+  Layers,
+  Link,
+  Link2Off,
+  Paperclip,
+  Pencil,
+  SlidersHorizontal,
+  Tag,
+  User,
+  Users,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+
 import { Badge } from '@/components/ui/badge';
 
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
+
+// 이벤트 타입별 Lucide 아이콘 매핑 — 타임라인 스캔 가독성 향상 (#313).
+const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
+  TITLE_CHANGED: Pencil,
+  STATUS_CHANGED: GitBranch,
+  PRIORITY_CHANGED: AlertTriangle,
+  ASSIGNEE_CHANGED: User,
+  ASSIGNEES_CHANGED: Users,
+  DUE_DATE_CHANGED: Calendar,
+  LABELS_CHANGED: Tag,
+  ATTACHMENTS_CHANGED: Paperclip,
+  TYPE_CHANGED: Layers,
+  PARENT_CHANGED: GitFork,
+  DEPENDENCY_ADDED: Link,
+  DEPENDENCY_REMOVED: Link2Off,
+  CUSTOM_FIELD_CHANGED: SlidersHorizontal,
+};
 
 // 이벤트 타입을 한국어 라벨로 매핑 — 백엔드 enum 과 1:1 매칭.
 const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
@@ -203,49 +237,63 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
             }
             data-agent={isAgent ? 'true' : undefined}
           >
-            <div className="text-muted-foreground flex items-center gap-1">
-              <span>{e.actorName}</span>
-              {isAgent && (
-                <Badge
-                  variant="secondary"
-                  className="bg-ai-accent-subtle text-ai-accent"
-                >
-                  AI
-                </Badge>
-              )}
-              <span>· {new Date(e.createdAt).toLocaleString('ko-KR')}</span>
-            </div>
-            <div>
-              <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}
-              {e.eventType === 'STATUS_CHANGED' ? (
-                <span>
-                  {mapStatusLabel(e.fromValue)} → {mapStatusLabel(e.toValue)}
-                </span>
-              ) : e.eventType === 'PRIORITY_CHANGED' ? (
-                <span>
-                  {mapPriorityLabel(e.fromValue)} → {mapPriorityLabel(e.toValue)}
-                </span>
-              ) : e.eventType === 'LABELS_CHANGED' ? (
-                <span>{formatLabelsChanged(e.toValue)}</span>
-              ) : e.eventType === 'ATTACHMENTS_CHANGED' ? (
-                <span>{formatAttachmentsChanged(e.toValue)}</span>
-              ) : e.eventType === 'ASSIGNEES_CHANGED' ? (
-                <span>{formatAssigneesChanged(e.toValue)}</span>
-              ) : e.eventType === 'TYPE_CHANGED' ? (
-                <span>{formatTypeChanged(e.toValue)}</span>
-              ) : e.eventType === 'PARENT_CHANGED' ? (
-                <span>{formatParentChanged(e.toValue)}</span>
-              ) : e.eventType === 'DEPENDENCY_ADDED' ? (
-                <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_ADDED')}</span>
-              ) : e.eventType === 'DEPENDENCY_REMOVED' ? (
-                <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_REMOVED')}</span>
-              ) : e.eventType === 'CUSTOM_FIELD_CHANGED' ? (
-                <span>{formatCustomFieldChanged(e.toValue)}</span>
-              ) : (
-                <span>
-                  {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}
-                </span>
-              )}
+            <div className="flex items-start gap-2">
+              {/* 이벤트 유형별 아이콘 — 타임라인 스캔 가독성 향상 (#313) */}
+              {(() => {
+                const Icon = EVENT_ICON[e.eventType];
+                return (
+                  <Icon
+                    className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0"
+                    aria-hidden="true"
+                  />
+                );
+              })()}
+              <div className="min-w-0 flex-1">
+                <div className="text-muted-foreground flex items-center gap-1">
+                  <span>{e.actorName}</span>
+                  {isAgent && (
+                    <Badge
+                      variant="secondary"
+                      className="bg-ai-accent-subtle text-ai-accent"
+                    >
+                      AI
+                    </Badge>
+                  )}
+                  <span>· {new Date(e.createdAt).toLocaleString('ko-KR')}</span>
+                </div>
+                <div>
+                  <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}
+                  {e.eventType === 'STATUS_CHANGED' ? (
+                    <span>
+                      {mapStatusLabel(e.fromValue)} → {mapStatusLabel(e.toValue)}
+                    </span>
+                  ) : e.eventType === 'PRIORITY_CHANGED' ? (
+                    <span>
+                      {mapPriorityLabel(e.fromValue)} → {mapPriorityLabel(e.toValue)}
+                    </span>
+                  ) : e.eventType === 'LABELS_CHANGED' ? (
+                    <span>{formatLabelsChanged(e.toValue)}</span>
+                  ) : e.eventType === 'ATTACHMENTS_CHANGED' ? (
+                    <span>{formatAttachmentsChanged(e.toValue)}</span>
+                  ) : e.eventType === 'ASSIGNEES_CHANGED' ? (
+                    <span>{formatAssigneesChanged(e.toValue)}</span>
+                  ) : e.eventType === 'TYPE_CHANGED' ? (
+                    <span>{formatTypeChanged(e.toValue)}</span>
+                  ) : e.eventType === 'PARENT_CHANGED' ? (
+                    <span>{formatParentChanged(e.toValue)}</span>
+                  ) : e.eventType === 'DEPENDENCY_ADDED' ? (
+                    <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_ADDED')}</span>
+                  ) : e.eventType === 'DEPENDENCY_REMOVED' ? (
+                    <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_REMOVED')}</span>
+                  ) : e.eventType === 'CUSTOM_FIELD_CHANGED' ? (
+                    <span>{formatCustomFieldChanged(e.toValue)}</span>
+                  ) : (
+                    <span>
+                      {e.fromValue ?? '없음'} → {e.toValue ?? '없음'}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           </li>
         );

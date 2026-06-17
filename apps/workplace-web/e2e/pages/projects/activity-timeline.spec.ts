@@ -268,6 +268,65 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
   );
 
   test(
+    '이벤트 유형별 아이콘이 각 타임라인 항목에 렌더됨 (회귀 #313)',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      const detail = createIssueDetail({
+        history: [
+          createHistoryEntry({
+            id: 10,
+            eventType: 'STATUS_CHANGED',
+            fromValue: 'TODO',
+            toValue: 'IN_PROGRESS',
+          }),
+          createHistoryEntry({
+            id: 11,
+            eventType: 'ASSIGNEES_CHANGED',
+            fromValue: null,
+            toValue: JSON.stringify({ added: [{ id: 1, name: '홍길동' }], removed: [] }),
+          }),
+          createHistoryEntry({
+            id: 12,
+            eventType: 'LABELS_CHANGED',
+            fromValue: null,
+            toValue: JSON.stringify({ added: [{ name: 'bug' }], removed: [] }),
+          }),
+        ],
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+
+      // 각 항목에 svg 아이콘이 렌더되어야 함 (이벤트 유형별 아이콘 #313)
+      const items = timeline.locator('li');
+      await expect(items).toHaveCount(3);
+
+      // 모든 항목에 aria-hidden svg 아이콘이 있어야 함
+      for (let i = 0; i < 3; i++) {
+        const item = items.nth(i);
+        const icon = item.locator('svg[aria-hidden="true"]');
+        await expect(icon).toBeVisible();
+      }
+    },
+  );
+
+  test(
     '매핑 없는 알 수 없는 상태값은 원문 그대로 폴백 렌더됨',
     async ({ authenticatedPage: page }) => {
       await setupCommonStubs(page);
