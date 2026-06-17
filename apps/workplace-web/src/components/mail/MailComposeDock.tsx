@@ -102,7 +102,7 @@ export function MailComposeDock() {
               value={to}
               onChange={(e) => setTo(e.target.value)}
               placeholder="받는사람"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+              className="min-w-0 flex-1 rounded-sm bg-transparent text-sm outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
             />
             {!showCcBcc && (
               <button
@@ -121,14 +121,14 @@ export function MailComposeDock() {
                 value={cc}
                 onChange={(e) => setCc(e.target.value)}
                 placeholder="참조"
-                className="border-b bg-transparent pb-2 text-sm outline-none"
+                className="border-b bg-transparent pb-2 text-sm outline-none focus-visible:border-primary focus-visible:outline-none"
               />
               <input
                 data-testid="mail-compose-bcc"
                 value={bcc}
                 onChange={(e) => setBcc(e.target.value)}
                 placeholder="숨은참조"
-                className="border-b bg-transparent pb-2 text-sm outline-none"
+                className="border-b bg-transparent pb-2 text-sm outline-none focus-visible:border-primary focus-visible:outline-none"
               />
             </>
           )}
@@ -138,7 +138,7 @@ export function MailComposeDock() {
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="제목"
-            className="border-b bg-transparent pb-2 text-sm outline-none"
+            className="border-b bg-transparent pb-2 text-sm outline-none focus-visible:border-primary focus-visible:outline-none"
           />
           {/* 본문 */}
           <MailComposer

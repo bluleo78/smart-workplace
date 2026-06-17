@@ -145,6 +145,21 @@ test.describe('메일 작성·발송', () => {
     await expect(page.getByTestId('mail-compose-subject')).toHaveValue('Draft survival test')
   })
 
+  test('작성 도크 입력 필드 키보드 포커스 이동 (focus-visible ring)', async ({ authenticatedPage: page }) => {
+    // Tab 키로 받는사람 → 제목 필드 이동 시 각 필드에 포커스가 잡혀야 한다 (#303).
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-compose-new').dispatchEvent('click')
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+
+    // 받는사람 클릭 후 Tab × 2 → 제목 필드 이동 검증
+    // (참조/숨은참조 버튼이 Tab 순서에 포함되므로 2번 이동).
+    await page.getByTestId('mail-compose-to').click()
+    await expect(page.getByTestId('mail-compose-to')).toBeFocused()
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await expect(page.getByTestId('mail-compose-subject')).toBeFocused()
+  })
+
   test('보낸편지함 토글 → folder=SENT 쿼리', async ({ authenticatedPage: page }) => {
     // 메시지 요청 URL 의 folder 파라미터를 수집.
     const seen: string[] = []
