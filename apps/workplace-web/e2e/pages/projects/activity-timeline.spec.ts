@@ -95,6 +95,53 @@ test.describe('IssueActivityTimeline — 액터 보더 색상', () => {
   );
 });
 
+test.describe('IssueActivityTimeline 날짜 포맷 (#320)', () => {
+  test(
+    '활동 타임라인 날짜가 초 없이 분 단위(YYYY-MM-DD HH:mm)로 표시된다',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      // UTC 타임스탬프(Z 포함) → parseUtcDate 경유 → formatDateTimeMinute → "YYYY-MM-DD HH:mm"
+      const fixedDate = '2026-06-07T00:22:52Z';
+      const detail = createIssueDetail({
+        history: [
+          createHistoryEntry({
+            id: 20,
+            actorKind: 'HUMAN',
+            actorName: '사람 사용자',
+            createdAt: fixedDate,
+          }),
+        ],
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+
+      const item = timeline.locator('li').first();
+
+      // 초 단위 포함 패턴(HH:MM:SS)이 없어야 함 — toLocaleString('ko-KR') 잔재 방지
+      await expect(item).not.toContainText(/\d{1,2}:\d{2}:\d{2}/);
+      // YYYY-MM-DD HH:mm 형식이어야 함
+      await expect(item).toContainText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
+    },
+  );
+});
+
 test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
   test(
     'STATUS_CHANGED 이벤트: TODO→IN_PROGRESS 가 "할 일 → 진행 중" 으로 표시됨',

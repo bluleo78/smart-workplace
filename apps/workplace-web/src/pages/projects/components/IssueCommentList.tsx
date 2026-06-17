@@ -21,6 +21,7 @@ import {
   useUpdateComment,
 } from '../../../hooks/queries/useIssueComments';
 import { handleApiError } from '../../../lib/api-error';
+import { formatDateTimeMinute } from '../../../lib/formatters';
 import { type CreateCommentFormData, createCommentSchema } from '../../../lib/validations/issue';
 import type { IssueCommentResponse } from '../../../types/issue';
 
@@ -88,7 +89,8 @@ function CommentItem({
               AI
             </Badge>
           )}
-          <span>· {new Date(comment.createdAt).toLocaleString('ko-KR')}</span>
+          {/* parseUtcDate 를 내장한 formatDateTimeMinute 로 UTC→로컬 변환 + 분 단위 표시 (#320) */}
+          <span>· {formatDateTimeMinute(comment.createdAt)}</span>
         </div>
 
         {/* 본인 HUMAN 코멘트에만 hover 시 액션 버튼 노출 */}

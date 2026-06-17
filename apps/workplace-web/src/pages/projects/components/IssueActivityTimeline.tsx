@@ -19,6 +19,7 @@ import type { LucideIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 
+import { formatDateTimeMinute } from '../../../lib/formatters';
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
 
 // 이벤트 타입별 Lucide 아이콘 매핑 — 타임라인 스캔 가독성 향상 (#313).
@@ -259,7 +260,8 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
                       AI
                     </Badge>
                   )}
-                  <span>· {new Date(e.createdAt).toLocaleString('ko-KR')}</span>
+                  {/* parseUtcDate 내장 formatDateTimeMinute 로 UTC→로컬 변환 + 분 단위 (#320) */}
+                  <span>· {formatDateTimeMinute(e.createdAt)}</span>
                 </div>
                 <div>
                   <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}

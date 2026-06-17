@@ -103,6 +103,36 @@ test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310)', () => {
   });
 });
 
+test.describe('IssueCommentList 날짜 포맷 (#320)', () => {
+  test(
+    '코멘트 날짜가 초 없이 분 단위(YYYY-MM-DD HH:mm)로 표시된다',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      // UTC 타임스탬프(Z 포함) → parseUtcDate 경유 → formatDateTimeMinute → "YYYY-MM-DD HH:mm"
+      const fixedDate = '2026-06-08T03:06:36Z';
+      const myComment: IssueCommentResponse = createComment({
+        id: 30,
+        issueId: ISSUE_ID,
+        authorId: ME_ID,
+        body: '날짜 포맷 테스트 코멘트',
+        createdAt: fixedDate,
+      });
+      const detailRef = { current: createIssueDetail({ comments: [myComment] }) };
+      await setupIssueStubs(page, detailRef);
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+      await page.waitForSelector('text=날짜 포맷 테스트 코멘트');
+
+      const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
+
+      // 초 단위 포함 패턴(HH:MM:SS)이 없어야 함 — toLocaleString('ko-KR') 잔재 방지
+      await expect(commentItem).not.toContainText(/\d{1,2}:\d{2}:\d{2}/);
+      // YYYY-MM-DD HH:mm 형식이어야 함
+      await expect(commentItem).toContainText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
+    },
+  );
+});
+
 test.describe('IssueCommentList 수정·삭제 (#154)', () => {
   test('자신의 코멘트 — 수정 버튼 클릭 → 인라인 편집 → PATCH API 호출 및 본문 갱신', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     const myComment: IssueCommentResponse = createComment({ id: 10, issueId: ISSUE_ID, authorId: ME_ID, body: '원본 코멘트' });
