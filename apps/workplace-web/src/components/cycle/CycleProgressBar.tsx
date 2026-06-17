@@ -3,9 +3,9 @@ import type { CycleProgress } from '../../types/cycle';
 
 const STATUS_COLOR: Record<string, string> = {
   TODO: 'bg-muted-foreground/40',
-  IN_PROGRESS: 'bg-blue-500',
-  DONE: 'bg-green-500',
-  CANCELED: 'bg-red-400',
+  IN_PROGRESS: 'bg-primary',
+  DONE: 'bg-success',
+  CANCELED: 'bg-destructive',
 };
 const STATUS_ORDER = ['DONE', 'IN_PROGRESS', 'TODO', 'CANCELED'];
 
