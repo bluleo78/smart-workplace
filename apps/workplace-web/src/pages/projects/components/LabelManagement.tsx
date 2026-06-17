@@ -108,7 +108,7 @@ export function LabelManagement({
           {(labels.data ?? []).map((l) => (
             <li
               key={l.id}
-              className="flex items-center gap-2 border-b py-2"
+              className="flex items-center gap-2 border-b py-2 hover:bg-accent/50 transition-colors cursor-pointer"
               data-testid={`label-row-${l.id}`}
             >
               {/* LabelChip 의 색상 도트가 색상을 시각적으로 전달하므로 colorToken 원시값 텍스트 불필요 (#307) */}

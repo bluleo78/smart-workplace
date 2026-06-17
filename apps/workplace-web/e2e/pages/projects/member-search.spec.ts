@@ -407,3 +407,24 @@ test.describe('멤버 제거 AlertDialog (#139)', () => {
     await expect(page.getByText('멤버를 제거했습니다')).toBeVisible();
   });
 });
+
+test.describe('멤버 행 hover 상태 (#308 회귀)', () => {
+  // 멤버 테이블 tbody tr 행에 hover:bg-accent/50 클래스가 있는지 검증 — 클릭 가능 행 시각 피드백 회귀 방지.
+  test('멤버 테이블 행에 hover 스타일 클래스가 적용된다', async ({ authenticatedPage: page }) => {
+    const membersRef = {
+      current: [
+        { userId: 1, username: 'me', name: 'Me', role: 'OWNER' },
+        { userId: 2, username: 'alice', name: 'Alice', role: 'MEMBER' },
+      ] as StubMember[],
+    };
+    await setupStubs(page, membersRef);
+
+    await page.goto(SETTINGS_URL);
+
+    // tbody 첫 번째 행에 hover:bg-accent/50 + transition-colors 클래스가 있어야 함 (#308 회귀 방지).
+    const firstRow = page.locator('table tbody tr').first();
+    await expect(firstRow).toBeVisible();
+    await expect(firstRow).toHaveClass(/hover:bg-accent\/50/);
+    await expect(firstRow).toHaveClass(/transition-colors/);
+  });
+});

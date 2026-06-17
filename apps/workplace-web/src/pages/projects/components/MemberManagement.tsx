@@ -128,7 +128,7 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
           </thead>
           <tbody>
             {members.data?.map((m) => (
-              <tr key={m.userId} className="border-b" role="row">
+              <tr key={m.userId} className="border-b hover:bg-accent/50 transition-colors cursor-pointer" role="row">
                 <td className="py-2">{m.name}</td>
                 <td className="text-muted-foreground">{m.username}</td>
                 <td>
