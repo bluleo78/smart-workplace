@@ -204,7 +204,10 @@ export function SynthesisLayer() {
         {/* 주의 필요 — 크로스앱 급한 것만. 비면 차분한 빈 상태. */}
         <div data-testid="dashboard-attention">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-            <AlertTriangle className="h-4 w-4 text-destructive" />
+            {/* 빈 상태(0건)면 경고 색 제거 — 경고 아이콘이 긍정 메시지와 모순되지 않도록. */}
+            <AlertTriangle
+              className={`h-4 w-4 ${top.length > 0 ? 'text-destructive' : 'text-muted-foreground'}`}
+            />
             주의 필요{top.length > 0 ? ` (${top.length})` : ''}
           </div>
           {top.length === 0 ? (

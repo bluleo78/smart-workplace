@@ -367,6 +367,42 @@ test('합성 — 급한 항목이 없으면 차분한 빈 상태를 보인다', 
   await expect(page.getByTestId('dashboard-attention-empty')).not.toContainText('✅')
 })
 
+test('합성 — 빈 상태에서 주의 필요 헤더 아이콘이 중립 색(text-muted-foreground)이다 (refs #293)', async ({
+  authenticatedPage: page,
+}) => {
+  // 항목 없음 → 빈 상태. mockWidgets 미호출 → 픽스처 기본(전부 빈) 사용.
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  await page.goto('/')
+
+  const attention = page.getByTestId('dashboard-attention')
+  // 섹션 헤더 AlertTriangle(첫 번째 SVG) — 빈 상태엔 경고 빨간색이 아니어야 한다 (#293 회귀 가드).
+  const headerIcon = attention.locator('svg').first()
+  await expect(headerIcon).not.toHaveClass(/text-destructive/)
+  await expect(headerIcon).toHaveClass(/text-muted-foreground/)
+})
+
+test('합성 — 주의 항목이 있을 때 헤더 아이콘은 경고 빨간색(text-destructive)이다 (refs #293)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // 마감 지난 이슈 → 주의 필요 항목 1건 → 헤더 아이콘 red.
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([
+      createIssue({ id: 1, projectKey: 'WP', number: 7, title: '지연된 이슈', dueDate: '2020-01-01' }),
+    ]),
+  )
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+
+  const attention = page.getByTestId('dashboard-attention')
+  const headerIcon = attention.locator('svg').first()
+  await expect(headerIcon).toHaveClass(/text-destructive/)
+  await expect(headerIcon).not.toHaveClass(/text-muted-foreground/)
+})
+
 test('빠른 액션 — 각 버튼이 실제 라우트로 연결된다', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
   await page.goto('/')
