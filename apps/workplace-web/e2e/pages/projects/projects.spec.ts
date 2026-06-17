@@ -85,6 +85,25 @@ test(
   },
 );
 
+// non-smoke: 빈 상태 — 아이콘+제목+설명+CTA 4요소 노출 (refs #296)
+test('프로젝트 없을 때 빈 상태 UI 4요소가 모두 표시된다', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([]));
+
+  await page.goto('/projects');
+
+  // 빈 상태 컨테이너
+  const emptyState = page.getByTestId('projects-empty');
+  await expect(emptyState).toBeVisible();
+
+  // 제목 + 설명 텍스트
+  await expect(emptyState.getByText('아직 프로젝트가 없어요')).toBeVisible();
+  await expect(emptyState.getByText('팀원과 함께 작업할 프로젝트를 만들어 보세요.')).toBeVisible();
+
+  // CTA 버튼 클릭 시 생성 모달 열림 (입력→처리→출력 파이프라인)
+  await emptyState.getByRole('button', { name: '새 프로젝트 만들기' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+});
+
 // non-smoke: 프로젝트 목록 API 실패 시 오류 메시지·재시도 버튼 노출 (refs #189)
 test('프로젝트 목록 API 실패 시 오류 메시지와 재시도 버튼이 표시된다', async ({ authenticatedPage: page }) => {
   // QueryClient 전역 retry: 1 → 자동 재시도 1회 포함, 첫 2번은 500으로 isError 유도,
@@ -193,5 +212,7 @@ test('프로젝트 삭제 후 목록에서 사라진다', async ({ authenticated
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await page.getByRole('button', { name: '삭제' }).last().click();
   await expect(page).toHaveURL(/\/projects$/);
-  await expect(page.getByText('아직 프로젝트가 없습니다')).toBeVisible();
+  // 빈 상태 empty state: 아이콘+제목+설명+CTA 4요소 확인
+  await expect(page.getByTestId('projects-empty')).toBeVisible();
+  await expect(page.getByText('아직 프로젝트가 없어요')).toBeVisible();
 });

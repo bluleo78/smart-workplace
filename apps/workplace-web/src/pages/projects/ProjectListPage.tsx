@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { FolderOpen } from 'lucide-react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 
 import { useProjects } from '../../hooks/queries/useProjects';
 import { ProjectCreateDialog } from './components/ProjectCreateDialog';
@@ -22,14 +24,28 @@ export default function ProjectListPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto space-y-4 p-6">
           {isLoading ? (
-            <p className="text-muted-foreground">로딩 중…</p>
+            // 로딩 중 — 스켈레톤 카드 3개로 레이아웃 시프트 최소화
+            <div className="space-y-2" data-testid="projects-loading">
+              {[0, 1, 2].map(i => (
+                <Skeleton key={i} className="h-16 w-full rounded-lg" />
+              ))}
+            </div>
           ) : isError ? (
             <div className="text-center p-6">
               <p className="text-sm text-destructive mb-2">프로젝트 목록을 불러오지 못했습니다.</p>
               <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
             </div>
           ) : data && data.content.length === 0 ? (
-            <p className="text-muted-foreground">아직 프로젝트가 없습니다. 우상단 버튼으로 시작하세요.</p>
+            // 빈 상태 — 디자인 시스템 §2.5: 아이콘 + 제목 + 설명 + CTA 4요소
+            <div
+              className="flex flex-col items-center gap-3 py-16 text-center"
+              data-testid="projects-empty"
+            >
+              <FolderOpen className="h-10 w-10 text-muted-foreground" />
+              <p className="text-sm font-semibold">아직 프로젝트가 없어요</p>
+              <p className="text-xs text-muted-foreground">팀원과 함께 작업할 프로젝트를 만들어 보세요.</p>
+              <Button onClick={() => setOpen(true)}>새 프로젝트 만들기</Button>
+            </div>
           ) : (
             <ul className="space-y-2" role="list">
               {data?.content.map(p => (
