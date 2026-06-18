@@ -281,8 +281,10 @@ test.describe('멤버 추가 검색 picker', () => {
       page.getByTestId(`member-search-row-${AGENT1.id}`),
     ).toBeVisible();
 
-    // AGENT 필터
-    await page.getByTestId('member-search-filter-AGENT').click();
+    // AGENT 필터 — 라벨은 사용자 노출 표준 용어 "에이전트" (refs #210)
+    const agentFilter = page.getByTestId('member-search-filter-AGENT');
+    await expect(agentFilter).toHaveText('에이전트');
+    await agentFilter.click();
     await expect(
       page.getByTestId(`member-search-row-${HUMAN1.id}`),
     ).toHaveCount(0);

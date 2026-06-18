@@ -96,7 +96,7 @@ export function MemberSearchPopover({
                 aria-selected={kindFilter === k}
                 data-testid={`member-search-filter-${k}`}
               >
-                {k === 'ALL' ? '전체' : k === 'HUMAN' ? '사람' : 'AGENT'}
+                {k === 'ALL' ? '전체' : k === 'HUMAN' ? '사람' : '에이전트'}
               </Button>
             ))}
           </div>
