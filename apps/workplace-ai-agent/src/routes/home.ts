@@ -56,6 +56,11 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
           res.write(`event: delta\ndata: ${JSON.stringify({ text })}\n\n`);
         },
         ac.signal,
+        (label) => {
+          // #333: 위임 진행 버블 — 서브에이전트 위임 시작 시 한 단계 표시.
+          if (aborted) return;
+          res.write(`event: progress\ndata: ${JSON.stringify({ label })}\n\n`);
+        },
       );
       if (!aborted) {
         res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets })}\n\n`);

@@ -65,12 +65,13 @@ describe('POST /home/compose', () => {
     expect(res.text).toContain('data: {"text":"녕"}');
     expect(res.text).toContain('event: done');
     expect(res.text).toContain('"fullText":"안녕"');
-    // 러너에 파싱된 페이로드가 그대로 전달됐는지 회귀 가드.
+    // 러너에 파싱된 페이로드가 그대로 전달됐는지 회귀 가드(5번째 onProgress 인자 포함).
     expect(runHomeComposeStream).toHaveBeenCalledWith(
       expect.objectContaining({ query: '내 할 일', assistantAgentId: 7 }),
       expect.anything(),
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.any(Function),
     );
   });
 
@@ -91,5 +92,26 @@ describe('POST /home/compose', () => {
     const res = await request(buildApp()).post('/home/compose').send(validBody());
     expect(res.text).toContain('event: error');
     expect(res.text).toContain('compose_failed');
+  });
+
+  it('위임 진행(onProgress) → event: progress 발행', async () => {
+    // 러너가 onProgress 를 호출(위임 라벨) 후 정상 종료하도록 mock.
+    // 라우트가 5번째 인자로 onProgress 콜백을 전달하고 event: progress 로 직렬화하는지 검증.
+    vi.mocked(runHomeComposeStream).mockImplementation(async (_i, _d, _onText, _signal, onProgress) => {
+      onProgress?.('이슈 전문가에게 위임 중');
+      return { fullText: '처리했어요.', widgets: null };
+    });
+    const res = await request(buildApp()).post('/home/compose').send(validBody());
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('event: progress');
+    expect(res.text).toContain('"label":"이슈 전문가에게 위임 중"');
+    // 라우트가 onProgress(5번째 인자)를 함수로 전달했는지 회귀 가드.
+    expect(runHomeComposeStream).toHaveBeenCalledWith(
+      expect.objectContaining({ query: '내 할 일' }),
+      expect.anything(),
+      expect.any(Function),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
   });
 });

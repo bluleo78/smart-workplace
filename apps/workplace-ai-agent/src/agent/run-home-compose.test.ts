@@ -10,10 +10,21 @@ vi.mock('./mcp-config.js', () => ({
   writeTempMcpConfig: vi.fn(() => '/tmp/cfg.json'),
   cleanupTempMcpConfig: vi.fn(),
 }));
+vi.mock('./subagent-loader.js', () => ({
+  loadSubagents: vi.fn(() => ({ 'issue-agent': { description: 'd', tools: [], prompt: '' } })),
+  writeSubagentDefinitions: vi.fn(),
+}));
+// mkdtempSync/writeFileSync/rmSync 는 실제 호출 없이 mock 처리해 fs 부작용 제거.
+vi.mock('node:fs', () => ({
+  mkdtempSync: vi.fn(() => '/tmp/mock-workdir'),
+  writeFileSync: vi.fn(),
+  rmSync: vi.fn(),
+}));
 
 import { runHomeCompose, runHomeComposeStream, type ComposeInput } from './run-home-compose.js';
 import { runClaudeCliCollect, runClaudeCliStream, buildCliArgs } from './cli-runner.js';
-import { cleanupTempMcpConfig } from './mcp-config.js';
+import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
+import { writeSubagentDefinitions } from './subagent-loader.js';
 
 const fakeClient = { getOAuthToken: vi.fn() } as never;
 
@@ -173,5 +184,43 @@ describe('runHomeComposeStream (스트리밍 — SSE 라우트용)', () => {
     expect(kill).toHaveBeenCalledOnce();
     resolveDone();
     await p;
+  });
+});
+
+describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
+  it('assistant 프로파일 + allowSubagents + systemPromptPath 로 spawn 준비', async () => {
+    vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    // writeTempMcpConfig 에 assistant 프로파일을 전달했는지 확인.
+    const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
+    expect(cfgArg.profile).toBe('assistant');
+    const cliArg = vi.mocked(buildCliArgs).mock.calls[0][0];
+    expect(cliArg.allowSubagents).toBe(true);
+    expect(typeof cliArg.systemPromptPath).toBe('string');
+    // .claude/agents 기록을 시도했는지.
+    expect(writeSubagentDefinitions).toHaveBeenCalled();
+  });
+
+  it('Agent(issue-agent) tool_use → onProgress 로 위임 라벨 발행', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '처리했어요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const labels: string[] = [];
+    await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, (l) => labels.push(l));
+    expect(labels).toContain('이슈 전문가에게 위임 중');
+  });
+
+  it('general-purpose 위임 tool_use → child kill + 에러 전파', async () => {
+    const kill = vi.fn();
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'general-purpose' } }] } }));
+      return { done: Promise.resolve(), kill };
+    });
+    await expect(
+      runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
+    ).rejects.toThrow(/blocked by policy/);
+    expect(kill).toHaveBeenCalled();
   });
 });
