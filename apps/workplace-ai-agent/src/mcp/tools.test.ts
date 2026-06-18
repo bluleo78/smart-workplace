@@ -30,6 +30,8 @@ function client(): WorkplaceApiClient {
     getWikiPage: vi.fn().mockResolvedValue({
       id: 7, spaceId: 2, parentId: null, title: '릴리스', body: '본문', version: 3, updatedAt: '2026-06-14T00:00:00Z',
     }),
+    listEvents: vi.fn().mockResolvedValue([]),
+    getEvent: vi.fn().mockResolvedValue({}),
   };
 }
 
@@ -142,31 +144,33 @@ describe('buildTools (agentId bound)', () => {
   });
 });
 
-// #333: assistant 프로파일 — 이슈 + 위키읽기 + home show_* 의 union(M1).
+// #333: assistant 프로파일 — 이슈 + 위키읽기 + home show_* + 캘린더 읽기 의 union(M1+M2).
 describe('buildTools(assistant)', () => {
   const fakeClient = {} as never;
 
   const names = buildTools(fakeClient, 1, 'assistant').map((t) => t.name).sort();
 
-  it('기존 이슈 + 위키읽기 + home show_* 의 union 을 노출', () => {
+  it('기존 union + 캘린더 읽기 도구(list_events/get_event)를 노출', () => {
     expect(names).toEqual(
       [
-        'add_comment',
-        'get_issue_detail',
-        'get_wiki_page',
-        'search_wiki',
-        'show_activity',
-        'show_issue_detail',
-        'show_issue_list',
-        'show_my_tasks',
-        'unassign_self',
-        'update_status',
+        'add_comment', 'get_issue_detail', 'get_wiki_page', 'search_wiki',
+        'show_activity', 'show_issue_detail', 'show_issue_list', 'show_my_tasks',
+        'unassign_self', 'update_status',
+        'list_events', 'get_event',
       ].sort(),
     );
   });
 
   it('신규 search_issues 는 포함하지 않는다(M1 기존 도구 경계)', () => {
     expect(names).not.toContain('search_issues');
+  });
+
+  it('list_events 핸들러가 client.listEvents 를 호출한다', async () => {
+    const calls: unknown[] = [];
+    const fake = { listEvents: async (...a: unknown[]) => { calls.push(a); return []; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'list_events')!;
+    await tool.handler({ from: '2026-06-19T00:00:00Z', to: '2026-06-26T00:00:00Z' });
+    expect(calls[0]).toEqual([7, '2026-06-19T00:00:00Z', '2026-06-26T00:00:00Z']);
   });
 });
 

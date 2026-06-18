@@ -32,6 +32,10 @@ const getChatThreadInput = z.object({
 const searchWikiInput = z.object({ query: z.string().min(1) });
 const getWikiPageInput = z.object({ pageId: z.number().int().positive() });
 
+// #333 M2: 캘린더 읽기 도구 입력.
+const listEventsInput = z.object({ from: z.string().min(1), to: z.string().min(1) });
+const getEventInput = z.object({ id: z.number().int().positive() });
+
 // 7: messaging 프로필 도구 입력.
 const getChannelMessagesInput = z.object({
   channelId: z.number().int().positive(),
@@ -243,7 +247,27 @@ export function buildTools(
     return buildShowTools();
   }
 
-  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시).
+  // #333 M2: 캘린더 읽기 도구 — assistant 프로파일 전용(일정 충돌 확인·요약).
+  const listEventsTool: McpTool = {
+    name: 'list_events',
+    description: '[from,to) 기간(ISO-8601)의 내 일정 목록을 JSON 으로 반환합니다. 일정 충돌 확인·요약에 사용하세요.',
+    inputSchema: listEventsInput,
+    async handler(args) {
+      const { from, to } = listEventsInput.parse(args);
+      return JSON.stringify(await client.listEvents(agentId, from, to));
+    },
+  };
+  const getEventTool: McpTool = {
+    name: 'get_event',
+    description: '단일 일정 상세를 JSON 으로 반환합니다. list_events 결과의 id 로 호출하세요.',
+    inputSchema: getEventInput,
+    async handler(args) {
+      const { id } = getEventInput.parse(args);
+      return JSON.stringify(await client.getEvent(agentId, id));
+    },
+  };
+
+  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
     return [
@@ -253,6 +277,8 @@ export function buildTools(
       addCommentTool,
       updateStatusTool,
       unassignSelfTool,
+      listEventsTool,
+      getEventTool,        // #333 M2: 캘린더 읽기
       ...buildShowTools(),
     ];
   }

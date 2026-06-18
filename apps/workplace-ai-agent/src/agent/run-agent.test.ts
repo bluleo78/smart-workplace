@@ -31,6 +31,8 @@ function client(token: string | Error): WorkplaceApiClient {
     downloadIssueAttachment: vi.fn(),
     searchWikiPages: vi.fn().mockResolvedValue([]),
     getWikiPage: vi.fn().mockResolvedValue({} as never),
+    listEvents: vi.fn().mockResolvedValue([]),
+    getEvent: vi.fn().mockResolvedValue({} as never),
   };
 }
 
