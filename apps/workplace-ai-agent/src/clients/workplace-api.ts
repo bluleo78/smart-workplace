@@ -55,6 +55,18 @@ export interface AttachmentMeta {
   sizeBytes: number;
 }
 
+// A2: 진행 상태 단계.
+export interface ProgressStepDto {
+  label: string;
+  status: 'running' | 'done';
+}
+// A2: 진행 상태 전체 payload.
+export interface ProgressPayload {
+  streamId: string;
+  phase: 'started' | 'tool' | 'done' | 'error';
+  steps: ProgressStepDto[];
+}
+
 export interface WorkplaceApiClient {
   addIssueComment(agentId: number, issueKey: string, body: string): Promise<void>;
   updateIssueStatus(agentId: number, issueKey: string, statusKey: string): Promise<void>;
@@ -64,6 +76,8 @@ export interface WorkplaceApiClient {
   // 6c: chat
   getChatMessages(agentId: number, threadId: number, limit: number): Promise<ChatMessageItem[]>;
   addChatMessage(agentId: number, threadId: number, body: string): Promise<void>;
+  // A2: chat 진행 상태 전송
+  postChatProgress(agentId: number, threadId: number, payload: ProgressPayload): Promise<void>;
   // 7: 채널 메시지 조회/작성
   getChannelMessages(
     agentId: number,
@@ -71,6 +85,8 @@ export interface WorkplaceApiClient {
     limit: number,
   ): Promise<ChannelMessageItem[]>;
   addChannelMessage(agentId: number, channelId: number, body: string): Promise<void>;
+  // A2: 메시징 진행 상태 전송
+  postMessagingProgress(agentId: number, channelId: number, payload: ProgressPayload): Promise<void>;
   // S2: 위키 읽기 그라운딩
   searchWikiPages(agentId: number, query: string): Promise<WikiSearchItem[]>;
   getWikiPage(agentId: number, pageId: number): Promise<WikiPageContent>;
@@ -188,6 +204,10 @@ export function createWorkplaceApiClient(opts: {
       await http.post(`/chat/threads/${threadId}/messages`, { body }, onBehalfOf(agentId));
     },
 
+    async postChatProgress(agentId, threadId, payload) {
+      await http.post(`/chat/threads/${threadId}/progress`, payload, onBehalfOf(agentId));
+    },
+
     async getChannelMessages(agentId, channelId, limit) {
       const r = await http.get(
         `/messaging/channels/${channelId}/messages?limit=${limit}`,
@@ -202,6 +222,10 @@ export function createWorkplaceApiClient(opts: {
         { body },
         onBehalfOf(agentId),
       );
+    },
+
+    async postMessagingProgress(agentId, channelId, payload) {
+      await http.post(`/messaging/channels/${channelId}/progress`, payload, onBehalfOf(agentId));
     },
 
     // S2: 위키 검색 — 백엔드는 bare JSON 배열(List<WikiSearchResult>)을 반환.

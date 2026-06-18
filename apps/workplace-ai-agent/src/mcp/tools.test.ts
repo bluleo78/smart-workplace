@@ -18,8 +18,10 @@ function client(): WorkplaceApiClient {
     getOAuthToken: vi.fn(),
     getChatMessages: vi.fn().mockResolvedValue([]),
     addChatMessage: vi.fn().mockResolvedValue(undefined),
+    postChatProgress: vi.fn().mockResolvedValue(undefined),
     getChannelMessages: vi.fn().mockResolvedValue([]),
     addChannelMessage: vi.fn().mockResolvedValue(undefined),
+    postMessagingProgress: vi.fn().mockResolvedValue(undefined),
     listIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadIssueAttachment: vi.fn(),
     searchWikiPages: vi.fn().mockResolvedValue([
