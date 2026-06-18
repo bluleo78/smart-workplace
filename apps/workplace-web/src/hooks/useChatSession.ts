@@ -153,14 +153,19 @@ export function useChatSession() {
   const confirmAction = useCallback(() => {
     const action = pendingAction;
     if (!action) return;
+    // submitQuery 와 동일한 세대 가드 — POST 진행 중 새 대화/세션 전환이 발생해도
+    // stale 세션에 확인 메시지나 복원 카드가 잘못 반영되는 것을 방지한다(#333 M2 final-review).
+    const gen = opSeq.current;
     setPendingAction(null); // 낙관적 폐기(중복 승인 방지)
     homeApi
       .confirmAction(action)
       .then(() => {
+        if (opSeq.current !== gen) return; // stale 세대 폐기
         // 승인 결과를 대화에 한 줄 추가(시스템 확인 메시지).
         setTurns((t) => [...t, { role: 'assistant', content: '요청을 처리했어요.' }]);
       })
       .catch((e) => {
+        if (opSeq.current !== gen) return; // stale 세대 폐기 — 오세션에 카드 복원 금지
         setPendingAction(action); // 실패 시 카드 복원 — 재시도/취소 가능
         handleApiError(e, '확인 작업에 실패했습니다');
       });
