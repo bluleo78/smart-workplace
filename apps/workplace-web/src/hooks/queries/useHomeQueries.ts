@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAccessToken } from '@/api/client';
 import { homeApi } from '@/api/home';
 import { handleApiError } from '@/lib/api-error';
-import type { ComposeRequest } from '@/types/home';
+import type { ComposeRequest, PendingAction } from '@/types/home';
 
 export const homeKeys = {
   all: ['home'] as const,
@@ -66,11 +66,17 @@ export function useDeleteSession() {
  * SSE 스트리밍 compose 헬퍼 — 블로킹 mutation 대신 ReadableStream SSE 루프를 사용.
  * delta 이벤트마다 onDelta 콜백을 호출해 어시스턴트 말풍선을 점진 갱신하고,
  * done 이벤트에서 { sessionId } 를 반환한다. AbortSignal 로 취소 가능.
+ *
+ * #333 M2: progress·pending_action 이벤트 소비 추가.
+ * - onProgress: 위임 진행 라벨 — assistant 말풍선 위 ghost 진행 줄로 표시.
+ * - onPendingAction: 확인 카드 제안 객체 — 도크가 승인/취소 카드로 렌더.
  */
 export async function composeStream(
   body: ComposeRequest,
   onDelta: (text: string) => void,
   signal: AbortSignal,
+  onProgress?: (label: string) => void,
+  onPendingAction?: (action: PendingAction) => void,
 ): Promise<{ sessionId?: string }> {
   const token = getAccessToken();
   const res = await fetch('/api/v1/home/compose', {
@@ -99,6 +105,10 @@ export async function composeStream(
     if (data) {
       const parsed = JSON.parse(data) as Record<string, unknown>;
       if (event === 'delta') onDelta(parsed.text as string);
+      // #333 M2: 위임 진행 라벨 — assistant 말풍선 위 ghost 진행 줄로 표시.
+      else if (event === 'progress') onProgress?.(parsed.label as string);
+      // #333 M2: 확인 카드 제안 객체 — 도크가 승인/취소 카드로 렌더.
+      else if (event === 'pending_action') onPendingAction?.(parsed as unknown as PendingAction);
       else if (event === 'done') result = { sessionId: parsed.sessionId as string | undefined };
       else if (event === 'error') throw new Error((parsed.message as string | undefined) ?? 'compose_failed');
     }
