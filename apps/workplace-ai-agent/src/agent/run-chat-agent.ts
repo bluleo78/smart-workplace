@@ -1,13 +1,17 @@
 // 6c: chat.message.posted → AGENT 결정 → 토큰·thread·첨부 준비 → CLI spawn(chat 프로필).
+// A3: runClaudeCliStream 으로 전환 — spawn 즉시 started, 라인마다 파서→tracker→tool, finally에서 done/error 발행.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
 import { buildChatUserMessage } from './chat-user-message.js';
 import { prepareAttachments } from './attachment-prep.js';
 import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
-import { buildChildEnv, buildCliArgs, runClaudeCli } from './cli-runner.js';
+import { buildChildEnv, buildCliArgs, runClaudeCliStream } from './cli-runner.js';
+import { parseProgressLine } from './chat-progress-parser.js';
+import { ProgressTracker } from './progress-tracker.js';
 import { pickMentionedAgentId } from './chat-agent-resolver.js';
 import type { RunAgentDeps } from './run-agent.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
@@ -66,10 +70,34 @@ export async function runChatAgent(
       mcpConfigPath,
       allowFileRead: true,
     });
+
+    // A3: 스트리밍 진행 발행 — 단일 streamId 로 started→tool→done/error 를 API 에 POST.
+    // progress POST 실패는 본 흐름을 막지 않는다(표시용). 에러는 로깅만.
+    const streamId = randomUUID();
+    const tracker = new ProgressTracker();
+    const emit = (phase: 'started' | 'tool' | 'done' | 'error') => {
+      const snap = tracker.snapshot(phase);
+      deps.client
+        .postChatProgress(agentId, p.threadId, { streamId, phase, steps: snap.steps })
+        .catch((e: unknown) =>
+          console.error('[run-chat-agent] progress 발행 실패', { threadId: p.threadId, error: e }),
+        );
+    };
+
+    emit('started');
     const childEnv = buildChildEnv(process.env, token, agentId);
     const logTag = `chat-agent:${p.issueKey}:thread${p.threadId}:${agentId}`;
-
-    await runClaudeCli({ args, env: childEnv, timeoutMs, logTag, cwd: workDir });
+    const handle = runClaudeCliStream({ args, env: childEnv, timeoutMs, logTag, cwd: workDir }, (line) => {
+      const sig = parseProgressLine(line);
+      if (tracker.apply(sig)) emit('tool');
+    });
+    try {
+      await handle.done;
+      emit('done');
+    } catch (e) {
+      console.error('[run-chat-agent] CLI 스트림 실패', { threadId: p.threadId, error: e });
+      emit('error');
+    }
   } finally {
     cleanupTempMcpConfig(mcpConfigPath);
     rmSync(workDir, { recursive: true, force: true });
