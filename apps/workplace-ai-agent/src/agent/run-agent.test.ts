@@ -44,6 +44,9 @@ function client(token: string | Error): WorkplaceApiClient {
     listProjects: vi.fn().mockResolvedValue([]),
     getProject: vi.fn().mockResolvedValue({} as never),
     listProjectMembers: vi.fn().mockResolvedValue([]),
+    listMySpaces: vi.fn().mockResolvedValue([]),
+    listSpaceItems: vi.fn().mockResolvedValue([]),
+    searchDrive: vi.fn().mockResolvedValue([]),
   };
 }
 

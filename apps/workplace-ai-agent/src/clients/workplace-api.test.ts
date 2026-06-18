@@ -341,4 +341,27 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(out.version).toBe(2);
     expect(out.title).toBe('수정 제목');
   });
+
+  // --- #333 M3: 드라이브 읽기 전용 ---
+
+  describe('listMySpaces', () => {
+    it('GET /drive/spaces 로 내 스페이스 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/drive/spaces`)
+        .reply(200, [{ id: 1, name: '팀 드라이브', role: 'EDITOR' }]);
+      const out = await newClient().listMySpaces(7);
+      expect(out[0].name).toBe('팀 드라이브');
+      scope.done();
+    });
+  });
+
+  describe('searchDrive', () => {
+    it('GET /drive/spaces/{id}/search?q 로 검색 결과 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/drive/spaces/1/search`).query({ q: '보고서' })
+        .reply(200, [{ id: 5, kind: 'FILE', name: '보고서.pdf', updatedAt: '2026-06-19T00:00:00Z' }]);
+      const out = await newClient().searchDrive(7, 1, '보고서');
+      expect(out[0].name).toBe('보고서.pdf');
+    });
+  });
 });

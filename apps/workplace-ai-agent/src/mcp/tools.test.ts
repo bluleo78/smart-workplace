@@ -47,6 +47,9 @@ function client(): WorkplaceApiClient {
     listProjects: vi.fn().mockResolvedValue([]),
     getProject: vi.fn().mockResolvedValue({}),
     listProjectMembers: vi.fn().mockResolvedValue([]),
+    listMySpaces: vi.fn().mockResolvedValue([]),
+    listSpaceItems: vi.fn().mockResolvedValue([]),
+    searchDrive: vi.fn().mockResolvedValue([]),
   };
 }
 

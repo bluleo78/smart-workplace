@@ -50,6 +50,12 @@ export interface ProjectMemberItem {
   role: string;
 }
 
+// #333 M3: 드라이브 스페이스 단건(읽기 그라운딩).
+export interface DriveSpaceItem { id: number; name: string; role: string; }
+
+// #333 M3: 드라이브 노드(폴더/파일) 단건(읽기 그라운딩).
+export interface DriveNode { id: number; kind: 'FOLDER' | 'FILE'; name: string; updatedAt: string; }
+
 // #333 M3: 외부연락처 생성/수정 입력 (선택 필드는 undefined 시 JSON 에서 생략).
 export interface ExternalContactInput {
   name: string;
@@ -172,6 +178,10 @@ export interface WorkplaceApiClient {
   getExternalContact(agentId: number, id: number): Promise<ContactItem>;
   createExternalContact(agentId: number, input: ExternalContactInput): Promise<ContactItem>;
   updateExternalContact(agentId: number, id: number, input: ExternalContactInput): Promise<ContactItem>;
+  // #333 M3: 드라이브 읽기 전용(v1 — 쓰기 연기). list/items/search.
+  listMySpaces(agentId: number): Promise<DriveSpaceItem[]>;
+  listSpaceItems(agentId: number, spaceId: number, parentId?: number): Promise<DriveNode[]>;
+  searchDrive(agentId: number, spaceId: number, q: string): Promise<DriveNode[]>;
   // 6c: 이슈 첨부
   listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
   downloadIssueAttachment(
@@ -411,6 +421,21 @@ export function createWorkplaceApiClient(opts: {
     async updateExternalContact(agentId, id, input) {
       const r = await http.patch(`/contacts/external/${id}`, input, onBehalfOf(agentId));
       return r.data as ContactItem;
+    },
+
+    // #333 M3: 드라이브 읽기 전용(v1 — 쓰기 연기). list/items/search.
+    async listMySpaces(agentId) {
+      const r = await http.get(`/drive/spaces`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as DriveSpaceItem[]) : [];
+    },
+    async listSpaceItems(agentId, spaceId, parentId) {
+      const qs = parentId ? `?parentId=${parentId}` : '';
+      const r = await http.get(`/drive/spaces/${spaceId}/items${qs}`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as DriveNode[]) : [];
+    },
+    async searchDrive(agentId, spaceId, q) {
+      const r = await http.get(`/drive/spaces/${spaceId}/search?q=${encodeURIComponent(q)}`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as DriveNode[]) : [];
     },
 
     async downloadIssueAttachment(agentId, issueKey, fileId) {
