@@ -50,6 +50,25 @@ function emitProgress(e: ChatProgressEvent) {
   progressListeners.forEach((l) => l(e));
 }
 
+// 메시지 생성 이벤트 버스 — 접힘 채팅 패널의 미읽음 배지 카운트용(#352).
+// messageId 를 함께 실어, 스트림 재연결 시 동일 created 가 재수신돼도 구독측에서 dedup 가능.
+export interface ChatMessageCreatedEvent {
+  threadId: number;
+  messageId: number;
+  authorId: number;
+}
+type CreatedListener = (e: ChatMessageCreatedEvent) => void;
+const createdListeners = new Set<CreatedListener>();
+export function onChatMessageCreated(listener: CreatedListener): () => void {
+  createdListeners.add(listener);
+  return () => {
+    createdListeners.delete(listener);
+  };
+}
+function emitCreated(e: ChatMessageCreatedEvent) {
+  createdListeners.forEach((l) => l(e));
+}
+
 // messages 캐시 첫 페이지에 메시지 prepend (없으면 무시 — 열려있지 않은 thread).
 function upsertMessage(qc: QueryClient, threadId: number, msg: ChatMessageResponse) {
   const key = chatKeys.messages(threadId);
@@ -94,9 +113,13 @@ function handleEvent(qc: QueryClient, eventName: string, data: unknown) {
   const threadId = Number(d.threadId);
   if (!threadId) return;
   switch (eventName) {
-    case 'chat.message.created':
-      upsertMessage(qc, threadId, data as ChatMessageResponse);
+    case 'chat.message.created': {
+      const m = data as ChatMessageResponse;
+      upsertMessage(qc, threadId, m);
+      // 접힘 채팅 패널 미읽음 배지용 — id 동반(재연결 시 중복 카운트 dedup).
+      emitCreated({ threadId, messageId: Number(m.id), authorId: Number(m.authorId) });
       break;
+    }
     case 'chat.message.updated':
       patchMessage(qc, threadId, Number(d.id), {
         body: String(d.body),
