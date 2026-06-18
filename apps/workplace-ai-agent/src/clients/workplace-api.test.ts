@@ -223,4 +223,40 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(out.id).toBe(42);
     expect(out.location).toBe('회의실');
   });
+
+  // --- #333 M3: 위키 페이지 생성/수정 ---
+
+  it('createWikiPage → POST /wiki/spaces/{id}/pages 로 생성하고 본문 반환', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', '7')
+      .post(`${PREFIX}/wiki/spaces/3/pages`, { parentId: null, title: '새 페이지' })
+      .reply(201, { id: 9, spaceId: 3, parentId: null, title: '새 페이지', body: '', version: 1, updatedAt: '2026-06-19T00:00:00Z' });
+    const out = await newClient().createWikiPage(7, 3, '새 페이지');
+    expect(scope.isDone()).toBe(true);
+    expect(out.id).toBe(9);
+    expect(out.title).toBe('새 페이지');
+  });
+
+  it('createWikiPage → parentId 지정 시 body 에 포함', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', '7')
+      .post(`${PREFIX}/wiki/spaces/3/pages`, { parentId: 5, title: '하위 페이지' })
+      .reply(201, { id: 10, spaceId: 3, parentId: 5, title: '하위 페이지', body: '', version: 1, updatedAt: '2026-06-19T00:00:00Z' });
+    const out = await newClient().createWikiPage(7, 3, '하위 페이지', 5);
+    expect(scope.isDone()).toBe(true);
+    expect(out.parentId).toBe(5);
+  });
+
+  it('updateWikiPage → PUT /wiki/pages/{id} 로 version 동반 저장하고 본문 반환', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', '7')
+      .put(`${PREFIX}/wiki/pages/9`, { title: '수정 제목', body: '본문', version: 1, snapshot: false })
+      .reply(200, { id: 9, spaceId: 3, parentId: null, title: '수정 제목', body: '본문', version: 2, updatedAt: '2026-06-19T01:00:00Z' });
+    const out = await newClient().updateWikiPage(7, 9, 1, '수정 제목', '본문');
+    expect(scope.isDone()).toBe(true);
+    expect(out.version).toBe(2);
+    expect(out.title).toBe('수정 제목');
+  });
 });

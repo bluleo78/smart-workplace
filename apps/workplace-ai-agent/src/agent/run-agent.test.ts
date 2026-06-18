@@ -33,6 +33,8 @@ function client(token: string | Error): WorkplaceApiClient {
     getWikiPage: vi.fn().mockResolvedValue({} as never),
     listEvents: vi.fn().mockResolvedValue([]),
     getEvent: vi.fn().mockResolvedValue({} as never),
+    createWikiPage: vi.fn().mockResolvedValue({} as never),
+    updateWikiPage: vi.fn().mockResolvedValue({} as never),
   };
 }
 

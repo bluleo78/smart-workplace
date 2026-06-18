@@ -102,6 +102,9 @@ export interface WorkplaceApiClient {
   // S2: 위키 읽기 그라운딩
   searchWikiPages(agentId: number, query: string): Promise<WikiSearchItem[]>;
   getWikiPage(agentId: number, pageId: number): Promise<WikiPageContent>;
+  // #333 M3: 위키 페이지 쓰기 — 스페이스 멤버십 가드는 서버가 강제하므로 propose/confirm 없이 직접 노출.
+  createWikiPage(agentId: number, spaceId: number, title: string, parentId?: number): Promise<WikiPageContent>;
+  updateWikiPage(agentId: number, pageId: number, version: number, title?: string, body?: string): Promise<WikiPageContent>;
   // #333 M2: 캘린더 읽기 — list/get. 쓰기(생성)는 서버측 confirm 실행기가 수행(에이전트는 propose 만).
   listEvents(agentId: number, from: string, to: string): Promise<CalendarEventItem[]>;
   getEvent(agentId: number, id: number): Promise<CalendarEventItem>;
@@ -241,6 +244,25 @@ export function createWorkplaceApiClient(opts: {
 
     async postMessagingProgress(agentId, channelId, payload) {
       await http.post(`/messaging/channels/${channelId}/progress`, payload, onBehalfOf(agentId));
+    },
+
+    // #333 M3: 위키 페이지 생성/수정 — 내부 쓰기(스페이스 멤버십 가드는 서버가 강제).
+    async createWikiPage(agentId, spaceId, title, parentId) {
+      const r = await http.post(
+        `/wiki/spaces/${spaceId}/pages`,
+        { parentId: parentId ?? null, title },
+        onBehalfOf(agentId),
+      );
+      return r.data as WikiPageContent;
+    },
+    async updateWikiPage(agentId, pageId, version, title, body) {
+      // SavePageRequest{title, body, version, snapshot} — 낙관적 동시성. 409 는 호출자(도구)가 처리.
+      const r = await http.put(
+        `/wiki/pages/${pageId}`,
+        { title, body, version, snapshot: false },
+        onBehalfOf(agentId),
+      );
+      return r.data as WikiPageContent;
     },
 
     // S2: 위키 검색 — 백엔드는 bare JSON 배열(List<WikiSearchResult>)을 반환.
