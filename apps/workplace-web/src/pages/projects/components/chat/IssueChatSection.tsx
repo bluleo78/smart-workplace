@@ -15,9 +15,10 @@ import { useDeleteChatMessage } from '../../../../hooks/queries/useDeleteChatMes
 import { useMarkChatRead } from '../../../../hooks/queries/useMarkChatRead';
 import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMessage';
 import { useAuth } from '../../../../hooks/useAuth';
-import { onChatTyping } from '../../../../hooks/useChatStream';
+import { type ChatProgressEvent,onChatProgress, onChatTyping } from '../../../../hooks/useChatStream';
 import { useDebounceValue } from '../../../../hooks/useDebounceValue';
 import { deleteMessageWithUndo } from '../../../../lib/deleteWithUndo';
+import { AiWorkingBubble } from './AiWorkingBubble';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
 import { ChatMessageList } from './ChatMessageList';
@@ -102,6 +103,41 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
       clearInterval(ttl);
     };
   }, [threadId, me?.id]);
+
+  // AI 작업 중 유령 버블 상태 관리 — streamId → 이벤트+타임스탬프 Map.
+  // phase done/error 이벤트 수신 시 해당 항목 제거, 메시지 수 증가(실제 메시지 도착) 시 전체 초기화.
+  const [working, setWorking] = useState<Map<string, ChatProgressEvent & { at: number }>>(
+    new Map(),
+  );
+  useEffect(() => {
+    return onChatProgress((e) => {
+      if (e.threadId !== threadId) return;
+      setWorking((prev) => {
+        const next = new Map(prev);
+        if (e.phase === 'done' || e.phase === 'error') next.delete(e.streamId);
+        else next.set(e.streamId, { ...e, at: Date.now() });
+        return next;
+      });
+    });
+  }, [threadId]);
+
+  // 메시지 수가 늘면(실제 AGENT 메시지 도착) 모든 유령 버블 제거 — SSE created 이벤트가 캐시를 늘림.
+  const messageCount = messages.length;
+  useEffect(() => {
+    setWorking(new Map());
+  }, [messageCount]);
+
+  // TTL 안전망: 60초 무수신 유령 제거 (10초마다 스위프)
+  useEffect(() => {
+    const t = setInterval(() => {
+      setWorking((prev) => {
+        const cutoff = Date.now() - 60_000;
+        const next = new Map([...prev].filter(([, v]) => v.at >= cutoff));
+        return next.size === prev.size ? prev : next;
+      });
+    }, 10_000);
+    return () => clearInterval(t);
+  }, []);
 
   // 입력 중 3초 throttle 로 typing 송신.
   const lastTypingRef = useRef(0);
@@ -193,6 +229,13 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
             {[...typingNames.values()].map((v) => v.name).join(', ')} 입력 중…
           </div>
         )}
+        {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 typing 표시 아래에 렌더 */}
+        {working.size > 0 &&
+          [...working.values()].map((w) => (
+            <ul key={w.streamId} className="px-4">
+              <AiWorkingBubble agentName={w.agentName} steps={w.steps} />
+            </ul>
+          ))}
         <ChatComposer
           members={thread.members}
           onSubmit={(body) => createMutation.mutateAsync({ body })}
