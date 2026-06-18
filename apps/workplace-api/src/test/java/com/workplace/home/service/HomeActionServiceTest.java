@@ -1,5 +1,6 @@
 package com.workplace.home.service;
 
+import static com.workplace.jooq.Tables.CONTACT_ENTRY;
 import static com.workplace.jooq.Tables.PERMISSION;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.ROLE_PERMISSION;
@@ -13,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.support.IntegrationTestBase;
+import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -124,5 +126,49 @@ class HomeActionServiceTest extends IntegrationTestBase {
                     params(
                         "{\"title\":\"x\",\"startsAt\":\"2026-06-26T02:00:00Z\",\"endsAt\":\"2026-06-26T01:00:00Z\",\"allDay\":false}")))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** 호출자 소유 외부 연락처를 contact_entry 에 직접 시드하고 id 반환. */
+  private long seedExternalContactOwnedBy(long ownerId) {
+    return dsl.insertInto(CONTACT_ENTRY)
+        .set(CONTACT_ENTRY.NAME, "테스트 연락처 " + UUID.randomUUID().toString().substring(0, 6))
+        .set(CONTACT_ENTRY.OWNER_ID, ownerId)
+        .set(CONTACT_ENTRY.VISIBILITY, "PERSONAL")
+        .returning(CONTACT_ENTRY.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  @Test
+  void contacts_delete_contact_확인_시_삭제() throws Exception {
+    long caller = userWith("contact:read", "contact:write");
+    long contactId = seedExternalContactOwnedBy(caller);
+    // 삭제 전 존재 확인
+    assertThat(
+            dsl.fetchCount(
+                CONTACT_ENTRY,
+                CONTACT_ENTRY.ID.eq(contactId).and(CONTACT_ENTRY.OWNER_ID.eq(caller))))
+        .isEqualTo(1);
+
+    Object result =
+        service.confirm(caller, "contacts.delete_contact", params("{\"id\":" + contactId + "}"));
+
+    // 반환값은 { "deleted": id } 형태(Map)
+    assertThat(result).isInstanceOf(Map.class);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> res = (Map<String, Object>) result;
+    assertThat(res.get("deleted")).isEqualTo(contactId);
+
+    // DB 에서 실제로 삭제됐는지 확인
+    assertThat(dsl.fetchCount(CONTACT_ENTRY, CONTACT_ENTRY.ID.eq(contactId))).isZero();
+  }
+
+  @Test
+  void contacts_delete_contact_write권한_없으면_AccessDenied() throws Exception {
+    // contact:write 없으면 RBAC 게이트에서 먼저 403 — contactId 가 실존하지 않아도 권한 검사 선행.
+    long caller = userWith("contact:read"); // write 없음
+    assertThatThrownBy(
+            () -> service.confirm(caller, "contacts.delete_contact", params("{\"id\":1}")))
+        .isInstanceOf(AccessDeniedException.class);
   }
 }

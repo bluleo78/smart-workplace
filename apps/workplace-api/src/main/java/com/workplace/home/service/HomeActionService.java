@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.service.CalendarEventService;
+import com.workplace.contacts.service.ContactService;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.service.MailComposeService;
@@ -34,6 +35,7 @@ public class HomeActionService {
 
   private final CalendarEventService calendarEventService;
   private final MailComposeService mailComposeService; // #333 M3 추가
+  private final ContactService contactService; // #333 M3 추가
   private final PermissionChecker permissionChecker;
   private final Validator validator;
   private final ObjectMapper objectMapper;
@@ -53,7 +55,9 @@ public class HomeActionService {
       Map.of(
           "calendar.create_event", "calendar:write",
           "mail.send",
-              ""); // 계정-소유권 경계 — RBAC 권한 없음(MailComposeService.send 가 findByIdAndUser 로 소유 검증)
+              "", // 계정-소유권 경계 — RBAC 권한 없음(MailComposeService.send 가 findByIdAndUser 로 소유 검증)
+          "contacts.delete_contact",
+              "contact:write"); // 실재 시드 코드 — owner/ADMIN 경계는 ContactService 가 추가 강제
 
   /**
    * 확인 카드 승인 실행 — 지원 여부 확인 → 권한 검사(필요 시) → 매핑·검증 → 도메인 실행. 결과 객체 반환(컨트롤러가 201).
@@ -77,6 +81,15 @@ public class HomeActionService {
     }
     if ("mail.send".equals(actionType)) {
       return dispatchMailSend(callerId, params);
+    }
+    if ("contacts.delete_contact".equals(actionType)) {
+      // params 에서 id(연락처 PK) 추출 → ContactService.delete 로 소유자/ADMIN 경계 위임.
+      if (params == null || !params.hasNonNull("id")) {
+        throw new IllegalArgumentException("contacts.delete_contact 에 id 가 필요합니다");
+      }
+      long id = params.get("id").asLong();
+      contactService.delete(callerId, id);
+      return Map.of("deleted", id);
     }
     throw new IllegalArgumentException("지원하지 않는 actionType: " + actionType);
   }
