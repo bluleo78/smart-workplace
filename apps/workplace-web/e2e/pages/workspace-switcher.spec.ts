@@ -87,3 +87,17 @@ test('멤버십이 1개뿐이면 전환 항목이 비활성(표시 전용)이다
   // 현재(유일) 워크스페이스 항목은 disabled — 전환 불가.
   await expect(page.getByTestId('workspace-switch-1')).toHaveAttribute('data-disabled', '')
 })
+
+// #336 — 데스크톱 아이콘 레일에서 WorkspaceSwitcher hover 시 툴팁 누락.
+// 입력(hover) → 처리(Tooltip 200ms 딜레이) → 출력(role="tooltip" + 테넌트명) 검증.
+test('데스크탑 레일 — WorkspaceSwitcher hover 시 워크스페이스명 툴팁 표시 (#336)', async ({
+  authenticatedPage: page,
+}) => {
+  await seedActiveTenant(page)
+  await page.goto('/')
+  const chip = page.getByTestId('workspace-switcher')
+  await expect(chip).toBeVisible()
+  await chip.hover()
+  // shadcn Tooltip 은 기본 200ms 딜레이 후 role="tooltip" 로 노출.
+  await expect(page.getByRole('tooltip', { name: TENANT_A.tenantName })).toBeVisible()
+})

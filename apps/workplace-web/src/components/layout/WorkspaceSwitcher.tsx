@@ -14,6 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 import type { Membership } from '@/types/auth'
@@ -47,24 +48,32 @@ export function WorkspaceSwitcher() {
 
   return (
     <DropdownMenu onOpenChange={onOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="워크스페이스 전환"
-          data-testid="workspace-switcher"
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md p-2 text-sm transition-colors hover:bg-accent/50',
-            'lg:justify-center',
-          )}
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground font-semibold">
-            {initial}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-left font-semibold lg:hidden">
-            {activeTenant.tenantName}
-          </span>
-        </button>
-      </DropdownMenuTrigger>
+      {/* 데스크톱(lg) 아이콘 레일에서 호버 시 워크스페이스 이름을 Tooltip으로 표시. 모바일 드로어에서는 숨김. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="워크스페이스 전환"
+              data-testid="workspace-switcher"
+              className={cn(
+                'flex w-full items-center gap-2 rounded-md p-2 text-sm transition-colors hover:bg-accent/50',
+                'lg:justify-center',
+              )}
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground font-semibold">
+                {initial}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-left font-semibold lg:hidden">
+                {activeTenant.tenantName}
+              </span>
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+          {activeTenant.tenantName}
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent side="right" align="start" className="w-56">
         <DropdownMenuLabel className="truncate">
           {loading ? '불러오는 중…' : '워크스페이스'}
