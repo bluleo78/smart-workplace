@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -150,13 +154,13 @@ describe('buildTools(assistant)', () => {
 
   const names = buildTools(fakeClient, 1, 'assistant').map((t) => t.name).sort();
 
-  it('기존 union + 캘린더 읽기 도구(list_events/get_event)를 노출', () => {
+  it('기존 union + 캘린더 읽기/제안 도구(list_events/get_event/propose_create_event)를 노출', () => {
     expect(names).toEqual(
       [
         'add_comment', 'get_issue_detail', 'get_wiki_page', 'search_wiki',
         'show_activity', 'show_issue_detail', 'show_issue_list', 'show_my_tasks',
         'unassign_self', 'update_status',
-        'list_events', 'get_event',
+        'list_events', 'get_event', 'propose_create_event',
       ].sort(),
     );
   });
@@ -171,6 +175,33 @@ describe('buildTools(assistant)', () => {
     const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'list_events')!;
     await tool.handler({ from: '2026-06-19T00:00:00Z', to: '2026-06-26T00:00:00Z' });
     expect(calls[0]).toEqual([7, '2026-06-19T00:00:00Z', '2026-06-26T00:00:00Z']);
+  });
+
+  it('propose_create_event 는 API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const fake = {} as never; // API 미호출이므로 빈 client
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      const ack = await tool.handler({
+        title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z',
+        allDay: false, summary: '6/26 10시 팀 미팅(1시간)',
+      });
+      expect(typeof ack).toBe('string'); // 서브에이전트용 ack
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('calendar.create_event');
+      expect(written.summary).toBe('6/26 10시 팀 미팅(1시간)');
+      expect(written.params.title).toBe('팀 미팅');
+      expect(written.params.endsAt).toBe('2026-06-26T02:00:00Z');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('assistant union 에 propose_create_event 가 포함된다', () => {
+    expect(buildTools({} as never, 1, 'assistant').map((t) => t.name)).toContain('propose_create_event');
   });
 });
 

@@ -44,4 +44,12 @@ describe('writeTempMcpConfig profile', () => {
     const cfg = JSON.parse(readFileSync(p, 'utf8'));
     expect(cfg.mcpServers.workplace.env.WORKPLACE_MCP_PROFILE).toBe('issue');
   });
+
+  it('pendingActionPath 설정 시 env.WORKPLACE_PENDING_ACTION_PATH 로 주입', () => {
+    p = writeTempMcpConfig({ agentId: 7, baseURL: 'http://x', internalToken: 't', profile: 'assistant', pendingActionPath: '/tmp/wd/pending-action.json' });
+    const cfg = JSON.parse(readFileSync(p, 'utf8'));
+    expect(cfg.mcpServers.workplace.env.WORKPLACE_PENDING_ACTION_PATH).toBe('/tmp/wd/pending-action.json');
+    cleanupTempMcpConfig(p);
+    p = ''; // afterEach 중복 정리 방지
+  });
 });

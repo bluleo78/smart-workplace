@@ -36,6 +36,19 @@ const getWikiPageInput = z.object({ pageId: z.number().int().positive() });
 const listEventsInput = z.object({ from: z.string().min(1), to: z.string().min(1) });
 const getEventInput = z.object({ id: z.number().int().positive() });
 
+// #333 M2: 일정 생성 제안 입력 — CalendarEventRequest 와 1:1(서버 매핑 단순화) + summary(카드 본문).
+const proposeCreateEventInput = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().optional(),
+  startsAt: z.string().min(1),   // ISO-8601
+  endsAt: z.string().min(1),
+  allDay: z.boolean().default(false),
+  location: z.string().max(200).optional(),
+  reminderMinutes: z.number().int().min(0).optional(),
+  recurrenceRule: z.string().max(500).optional(),
+  summary: z.string().min(1),    // 사람이 읽는 카드 요약
+});
+
 // 7: messaging 프로필 도구 입력.
 const getChannelMessagesInput = z.object({
   channelId: z.number().int().positive(),
@@ -267,7 +280,27 @@ export function buildTools(
     },
   };
 
-  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기).
+  // #333 M2: 일정 생성 제안 도구 — API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환.
+  const proposeCreateEventTool: McpTool = {
+    name: 'propose_create_event',
+    description:
+      '일정 생성을 제안합니다. 직접 생성하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약(일시·제목)을 넣으세요. 승인 시 서버가 실제로 생성합니다.',
+    inputSchema: proposeCreateEventInput,
+    async handler(args) {
+      const { summary, ...params } = proposeCreateEventInput.parse(args);
+      const sidecarPath = process.env.WORKPLACE_PENDING_ACTION_PATH;
+      if (!sidecarPath) {
+        // 사이드카 경로 미주입 — 확인 플로우 비활성. 서브에이전트에 사유 반환.
+        return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
+      }
+      // 제안 객체를 사이드카에 기록(메인이 done 후 읽어 pending_action 으로 발행).
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(sidecarPath, JSON.stringify({ actionType: 'calendar.create_event', summary, params }), 'utf8');
+      return '일정 생성 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+    },
+  };
+
+  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
     return [
@@ -278,7 +311,8 @@ export function buildTools(
       updateStatusTool,
       unassignSelfTool,
       listEventsTool,
-      getEventTool,        // #333 M2: 캘린더 읽기
+      getEventTool,              // #333 M2: 캘린더 읽기
+      proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
       ...buildShowTools(),
     ];
   }

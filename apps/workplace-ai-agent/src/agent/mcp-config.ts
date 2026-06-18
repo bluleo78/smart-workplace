@@ -42,6 +42,7 @@ export function writeTempMcpConfig(opts: {
   baseURL: string;
   internalToken: string;
   profile?: 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
+  pendingActionPath?: string; // #333 M2: propose 핸들러가 제안을 쓸 사이드카 절대경로(cwd 비의존)
 }): string {
   const { command, args } = resolveMcpServerCommand(here);
   const config = {
@@ -54,6 +55,8 @@ export function writeTempMcpConfig(opts: {
           INTERNAL_SERVICE_TOKEN: opts.internalToken,
           ACTING_AGENT_ID: String(opts.agentId),
           WORKPLACE_MCP_PROFILE: opts.profile ?? 'issue',
+          // 설정 시에만 키 추가(없으면 propose 핸들러가 동작 안 함 — 정상).
+          ...(opts.pendingActionPath ? { WORKPLACE_PENDING_ACTION_PATH: opts.pendingActionPath } : {}),
         },
       },
     },
