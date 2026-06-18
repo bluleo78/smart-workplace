@@ -282,6 +282,32 @@ describe('buildTools(assistant) 메일 도구 (M3)', () => {
   });
 });
 
+// #333 M3: 연락처 도구 — assistant union 멤버십 + propose_delete_contact 사이드카 테스트.
+describe('buildTools(assistant) 연락처 도구 (M3)', () => {
+  it('assistant union 에 연락처 도구(list/get/create/update + propose_delete_contact) 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of ['list_contacts', 'get_external_contact', 'create_external_contact', 'update_external_contact', 'propose_delete_contact']) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('propose_delete_contact 는 API 미호출, 사이드카에 contacts.delete_contact 제안을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-contact-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_contact')!;
+      await tool.handler({ id: 9, summary: '"김거래" 연락처 삭제' });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('contacts.delete_contact');
+      expect(written.params.id).toBe(9);
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분

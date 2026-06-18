@@ -49,6 +49,26 @@ const updateWikiPageInput = z.object({
 const listEventsInput = z.object({ from: z.string().min(1), to: z.string().min(1) });
 const getEventInput = z.object({ id: z.number().int().positive() });
 
+// #333 M3: 연락처 입력.
+const listContactsInput = z.object({
+  search: z.string().optional(),
+  type: z.enum(['MEMBER', 'EXTERNAL']).optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+});
+const getExternalContactInput = z.object({ id: z.number().int().positive() });
+const externalContactFields = {
+  name: z.string().min(1).max(120),
+  email: z.string().max(255).optional(),
+  phone: z.string().max(40).optional(),
+  organization: z.string().max(120).optional(),
+  title: z.string().max(100).optional(),
+  notes: z.string().optional(),
+  visibility: z.enum(['SHARED', 'PERSONAL']),
+};
+const createExternalContactInput = z.object(externalContactFields);
+const updateExternalContactInput = z.object({ id: z.number().int().positive(), ...externalContactFields });
+const proposeDeleteContactInput = z.object({ id: z.number().int().positive(), summary: z.string().min(1) });
+
 // #333 M3: 메일 읽기 입력.
 const listMailInput = z.object({
   accountId: z.number().int().positive(),
@@ -395,6 +415,61 @@ export function buildTools(
     },
   };
 
+  // #333 M3: 연락처 읽기/쓰기/삭제제안 도구 — assistant 프로파일 전용.
+  const listContactsTool: McpTool = {
+    name: 'list_contacts',
+    description: '연락처(멤버+외부) 목록을 JSON 으로 반환합니다. search 로 이름·이메일 검색, type 으로 MEMBER/EXTERNAL 한정.',
+    inputSchema: listContactsInput,
+    async handler(args) {
+      const { search, type, limit } = listContactsInput.parse(args);
+      return JSON.stringify(await client.listContacts(agentId, search, type, limit));
+    },
+  };
+  const getExternalContactTool: McpTool = {
+    name: 'get_external_contact',
+    description: '외부 연락처 단건 상세를 JSON 으로 반환합니다.',
+    inputSchema: getExternalContactInput,
+    async handler(args) {
+      const { id } = getExternalContactInput.parse(args);
+      return JSON.stringify(await client.getExternalContact(agentId, id));
+    },
+  };
+  const createExternalContactTool: McpTool = {
+    name: 'create_external_contact',
+    description: '외부 연락처를 생성합니다. visibility 는 SHARED(공유)/PERSONAL(개인). 생성 결과를 JSON 으로 반환합니다.',
+    inputSchema: createExternalContactInput,
+    async handler(args) {
+      const input = createExternalContactInput.parse(args);
+      return JSON.stringify(await client.createExternalContact(agentId, input));
+    },
+  };
+  const updateExternalContactTool: McpTool = {
+    name: 'update_external_contact',
+    description: '외부 연락처를 수정합니다(전체 교체). 모든 필드를 현재 값 기준으로 채워 보내세요.',
+    inputSchema: updateExternalContactInput,
+    async handler(args) {
+      const { id, ...input } = updateExternalContactInput.parse(args);
+      return JSON.stringify(await client.updateExternalContact(agentId, id, input));
+    },
+  };
+  const proposeDeleteContactTool: McpTool = {
+    name: 'propose_delete_contact',
+    description: '외부 연락처 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. summary 에 어떤 연락처를 지우는지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다.',
+    inputSchema: proposeDeleteContactInput,
+    async handler(args) {
+      const { summary, ...params } = proposeDeleteContactInput.parse(args);
+      const sidecarPath = process.env.WORKPLACE_PENDING_ACTION_PATH;
+      if (!sidecarPath) {
+        // 사이드카 경로 미주입 — 확인 플로우 비활성. 서브에이전트에 사유 반환.
+        return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
+      }
+      // 제안 객체를 사이드카에 기록(메인이 done 후 읽어 pending_action 으로 발행).
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(sidecarPath, JSON.stringify({ actionType: 'contacts.delete_contact', summary, params }), 'utf8');
+      return '연락처 삭제 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+    },
+  };
+
   // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기+메일).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
@@ -413,6 +488,7 @@ export function buildTools(
       getChannelMessagesTool,    // #333 M3: 메시징 읽기
       addChannelMessageTool,     // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       listMailTool, getMailTool, proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
+      listContactsTool, getExternalContactTool, createExternalContactTool, updateExternalContactTool, proposeDeleteContactTool, // #333 M3: 연락처
       ...buildShowTools(),
     ];
   }

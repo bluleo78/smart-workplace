@@ -11,6 +11,7 @@ const DELEGATION_LABELS: Record<string, string> = {
   'messaging-agent': '메시징 전문가에게 위임 중',
   'wiki-agent': '위키 전문가에게 위임 중',
   'mail-agent': '메일 전문가에게 위임 중',
+  'contacts-agent': '연락처 전문가에게 위임 중',
 };
 
 export function delegationLabel(subagentType: string): string | null {
@@ -34,6 +35,7 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Smart Workplace 홈 화면 "AI
 | 채널·DM 대화 확인·답변 작성·요약 | **messaging-agent** | "이 채널 요약해줘", "팀 채널에 공지 남겨줘", "최근 대화 정리해줘" |
 | 위키 검색·열람·페이지 생성/수정 | **wiki-agent** | "회의록 위키로 정리해줘", "온보딩 문서 찾아줘", "이 페이지에 내용 추가해줘" |
 | 메일 조회·검색·요약·발송(제안) | **mail-agent** | "안 읽은 메일 정리해줘", "이 메일에 답장 보내줘", "거래처에 메일 보내줘" |
+| 연락처 조회·검색·생성/수정·삭제(제안) | **contacts-agent** | "거래처 연락처 추가해줘", "김부장 이메일 찾아줘", "이 연락처 지워줘" |
 
 ## 표시 도구(직접 사용 가능)
 - \`show_my_tasks\`, \`show_issue_list\`, \`show_issue_detail\`, \`show_activity\` — 무엇을 보여줄지 지시만 합니다(데이터는 프론트가 가져옴).
