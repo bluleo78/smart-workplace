@@ -113,6 +113,30 @@ const proposeSendMailInput = z.object({
   summary: z.string().min(1),
 });
 
+// #333 M4: 일정 수정 제안 입력 — CalendarEventRequest 미러 + id/scope/occurrenceDate(경로/쿼리 상당) + summary.
+const proposeUpdateEventInput = z.object({
+  summary: z.string().min(1),
+  id: z.number().int().positive(),
+  scope: z.enum(['THIS', 'THIS_AND_FOLLOWING', 'ALL']).default('ALL'),
+  occurrenceDate: z.string().optional(), // ISO-8601, 반복 일정의 대상 회차
+  title: z.string().min(1).max(200),
+  description: z.string().optional(),
+  startsAt: z.string(),
+  endsAt: z.string(),
+  allDay: z.boolean().optional(),
+  location: z.string().max(200).optional(),
+  color: z.string().max(32).optional(),
+  reminderMinutes: z.number().int().min(0).optional(),
+  recurrenceRule: z.string().max(500).optional(),
+});
+// #333 M4: 일정 삭제 제안 입력 — id + 반복 scope/occurrenceDate + summary.
+const proposeDeleteEventInput = z.object({
+  summary: z.string().min(1),
+  id: z.number().int().positive(),
+  scope: z.enum(['THIS', 'THIS_AND_FOLLOWING', 'ALL']).default('ALL'),
+  occurrenceDate: z.string().optional(),
+});
+
 // #333 M2: 일정 생성 제안 입력 — CalendarEventRequest 와 1:1(서버 매핑 단순화) + summary(카드 본문).
 const proposeCreateEventInput = z.object({
   title: z.string().min(1).max(200),
@@ -390,6 +414,32 @@ export function buildTools(
     },
   };
 
+  // #333 M4: 일정 수정 제안 도구 — API 미호출, 사이드카에 수정 제안을 쓰고 ack 반환.
+  // scope: THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체. occurrenceDate=대상 회차 시작시각.
+  const proposeUpdateEventTool: McpTool = {
+    name: 'propose_update_event',
+    description:
+      '일정 수정을 제안합니다. 직접 수정하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). 승인 시 서버가 실제로 수정합니다.',
+    inputSchema: proposeUpdateEventInput,
+    async handler(args) {
+      const { summary, ...params } = proposeUpdateEventInput.parse(args);
+      return await writeProposal('calendar.update_event', summary, params);
+    },
+  };
+
+  // #333 M4: 일정 삭제 제안 도구 — API 미호출, 사이드카에 삭제 제안을 쓰고 ack 반환.
+  // scope/occurrenceDate 는 수정 제안과 동일 의미. 승인 시 서버가 실제로 삭제합니다.
+  const proposeDeleteEventTool: McpTool = {
+    name: 'propose_delete_event',
+    description:
+      '일정 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). 승인 시 서버가 실제로 삭제합니다.',
+    inputSchema: proposeDeleteEventInput,
+    async handler(args) {
+      const { summary, ...params } = proposeDeleteEventInput.parse(args);
+      return await writeProposal('calendar.delete_event', summary, params);
+    },
+  };
+
   // #333 M3: 위키 쓰기 도구 — 스페이스 멤버십 가드는 서버가 강제하므로 propose/confirm 없이 직접 노출.
   const createWikiPageTool: McpTool = {
     name: 'create_wiki_page',
@@ -588,6 +638,7 @@ export function buildTools(
       listEventsTool,
       getEventTool,              // #333 M2: 캘린더 읽기
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
+      proposeUpdateEventTool, proposeDeleteEventTool, // #333 M4: 일정 수정/삭제 제안
       getChannelMessagesTool,    // #333 M3: 메시징 읽기
       addChannelMessageTool,     // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       listMailTool, getMailTool, proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안

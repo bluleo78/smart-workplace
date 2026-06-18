@@ -379,6 +379,57 @@ describe('propose 단일-제안 가드 (M4)', () => {
   });
 });
 
+// #333 M4: 캘린더 수정/삭제 propose 도구 — assistant union 멤버십 + 사이드카 테스트.
+describe('buildTools(assistant) 캘린더 수정/삭제 제안 도구 (M4)', () => {
+  it('assistant union 에 propose_update_event / propose_delete_event 가 포함된다', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    expect(names).toContain('propose_update_event');
+    expect(names).toContain('propose_delete_event');
+  });
+
+  it('propose_update_event 는 API 미호출, 사이드카에 calendar.update_event 제안을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-upd-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
+      const ack = await tool.handler({
+        id: 42, title: '팀 미팅 (변경)', startsAt: '2026-07-01T01:00:00Z', endsAt: '2026-07-01T02:00:00Z',
+        scope: 'THIS', summary: '#42 팀 미팅 제목 변경',
+      });
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('calendar.update_event');
+      expect(written.summary).toBe('#42 팀 미팅 제목 변경');
+      expect(written.params.id).toBe(42);
+      expect(written.params.title).toBe('팀 미팅 (변경)');
+      expect(written.params.scope).toBe('THIS');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('propose_delete_event 는 API 미호출, 사이드카에 calendar.delete_event 제안을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-del-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_event')!;
+      const ack = await tool.handler({ id: 55, scope: 'ALL', summary: '#55 팀 미팅 전체 삭제' });
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('calendar.delete_event');
+      expect(written.summary).toBe('#55 팀 미팅 전체 삭제');
+      expect(written.params.id).toBe(55);
+      expect(written.params.scope).toBe('ALL');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분
