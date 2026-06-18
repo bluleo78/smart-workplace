@@ -24,9 +24,13 @@ function yamlDoubleQuoted(value: string): string {
 // SubagentDefinition → frontmatter + 본문 markdown.
 export function serializeSubagent(name: string, def: SubagentDefinition): string {
   const lines: string[] = ['---', `name: ${name}`, `description: ${yamlDoubleQuoted(def.description)}`];
+  // Finding 3: tools 키를 항상 방출. 빈 배열이면 'tools: []' 인라인 시퀀스로 직렬화해
+  // tools 미지정 시 기본 도구를 상속하는 권한 구멍을 막는다.
   if (def.tools.length > 0) {
     lines.push('tools:');
     for (const tool of def.tools) lines.push(`  - ${tool}`);
+  } else {
+    lines.push('tools: []');
   }
   if (def.model && def.model !== 'inherit') lines.push(`model: ${def.model}`);
   if (typeof def.maxTurns === 'number') lines.push(`maxTurns: ${def.maxTurns}`);
@@ -80,8 +84,14 @@ function parseFrontmatter(content: string): { frontmatter: Frontmatter; body: st
     }
     const key = kv[1];
     const val = kv[2];
-    if (val === '') {
-      // 다음 줄들의 '  - item' 배열 수집(tools 전용)
+    if (val === '' || val === '[]') {
+      // val='' → 다음 줄들의 '  - item' 배열 수집(tools 전용).
+      // val='[]' → 인라인 빈 배열 리터럴(Finding 3: tools: [] 직렬화 경로).
+      if (val === '[]') {
+        if (key === 'tools') fm.tools = [];
+        i += 1;
+        continue;
+      }
       const arr: string[] = [];
       let j = i + 1;
       while (j < lines.length && /^\s+-\s+/.test(lines[j])) {

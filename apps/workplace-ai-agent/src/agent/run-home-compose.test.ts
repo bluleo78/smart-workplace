@@ -212,7 +212,9 @@ describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
     expect(labels).toContain('이슈 전문가에게 위임 중');
   });
 
-  it('general-purpose 위임 tool_use → child kill + 에러 전파', async () => {
+  it('general-purpose 위임 tool_use → child kill + 에러 전파 (동기 onLine 경로)', async () => {
+    // 이 테스트는 onLine 이 handle 반환 전 동기 실행되는 경로. killer 홀더가 null 이므로
+    // 즉시 kill 은 없고, await handle.done 이후 fallback kill+throw 가 동작함을 검증.
     const kill = vi.fn();
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'general-purpose' } }] } }));
@@ -222,5 +224,38 @@ describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
       runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
     ).rejects.toThrow(/blocked by policy/);
     expect(kill).toHaveBeenCalled();
+  });
+
+  it('general-purpose 위임 tool_use → 비동기 onLine 경로에서 kill 이 done 보다 먼저 호출됨 (Finding 1 프로덕션 경로)', async () => {
+    // Finding 1: 프로덕션에서는 onLine 이 handle 반환 후(비동기) 호출된다.
+    // killer 홀더가 채워진 상태이므로 killer?.() 가 onLine 내부에서 즉시 kill 한다.
+    // done 이 resolve 되기 전에 kill 이 호출됐는지를 호출 순서로 검증.
+    const callOrder: string[] = [];
+    const kill = vi.fn(() => { callOrder.push('kill'); });
+    let capturedOnLine!: (line: string) => void;
+    let resolveDone!: () => void;
+
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      capturedOnLine = onLine; // onLine 을 나중에(비동기로) 호출하기 위해 보관
+      return {
+        done: new Promise<void>((r) => {
+          resolveDone = () => { callOrder.push('done'); r(); };
+        }),
+        kill,
+      };
+    });
+
+    const p = runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+
+    // 한 틱 양보해 handle 반환 + killer 홀더 채움이 완료된 후 onLine 을 비동기로 호출.
+    await Promise.resolve();
+    capturedOnLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'general-purpose' } }] } }));
+    // onLine 즉시(동기)로 killer?.() 가 불려 kill 이 기록돼야 한다.
+    expect(callOrder).toContain('kill'); // done resolve 전에 kill 이 기록됨
+
+    // done resolve 후 에러 전파 확인.
+    resolveDone();
+    await expect(p).rejects.toThrow(/blocked by policy/);
+    expect(callOrder.indexOf('kill')).toBeLessThan(callOrder.indexOf('done')); // kill < done 순서 보장
   });
 });

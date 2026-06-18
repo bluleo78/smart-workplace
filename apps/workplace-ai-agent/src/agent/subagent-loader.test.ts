@@ -30,6 +30,12 @@ describe('serializeSubagent', () => {
     const md = serializeSubagent('x', { description: 'd', tools: [], model: 'inherit', prompt: '' });
     expect(md).not.toContain('model:');
   });
+
+  // Finding 3: 빈 tools 배열도 'tools: []' 를 방출해 기본 도구 상속 구멍을 막는다.
+  it('tools=[] 이면 "tools: []" 인라인 시퀀스를 방출한다', () => {
+    const md = serializeSubagent('x', { description: 'd', tools: [], prompt: '' });
+    expect(md).toContain('tools: []');
+  });
 });
 
 describe('writeSubagentDefinitions', () => {
@@ -77,6 +83,21 @@ describe('loadSubagents', () => {
     try {
       mkdirSync(path.join(root, 'empty'), { recursive: true });
       expect(loadSubagents(root)).toEqual({});
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Finding 3: tools=[] 라운드트립 — serializeSubagent → loadSubagents 가 빈 배열 반환.
+  it('tools=[] 의 serializeSubagent→loadSubagents 라운드트립', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sa-empty-tools-'));
+    try {
+      const def: SubagentDefinition = { description: '테스트', tools: [], prompt: '# body\n' };
+      const agentDir = path.join(root, 'empty-tools-agent');
+      mkdirSync(agentDir, { recursive: true });
+      writeFileSync(path.join(agentDir, 'agent.md'), serializeSubagent('empty-tools-agent', def), 'utf8');
+      const loaded = loadSubagents(root);
+      expect(loaded['empty-tools-agent'].tools).toEqual([]); // 빈 배열로 복원돼야 한다
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

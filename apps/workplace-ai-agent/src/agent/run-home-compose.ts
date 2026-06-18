@@ -53,17 +53,21 @@ export async function runHomeComposeStream(
 ): Promise<{ fullText: string; widgets: unknown }> {
   const agentId = input.assistantAgentId;
   const token = (await deps.client.getOAuthToken(agentId)).token;
-  // #333: 요청마다 임시 작업 디렉토리 생성. .claude/agents/*.md 자동발견 경로.
-  // finally 에서 rmSync 로 한 번에 정리해 temp 누수 방지.
-  const workDir = mkdtempSync(path.join(tmpdir(), `assistant-${agentId}-`));
-  const mcpConfigPath = writeTempMcpConfig({
-    agentId,
-    baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
-    internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
-    profile: 'assistant', // home 프로파일 → assistant 프로파일로 교체(#333)
-  });
+  // #333: workDir·mcpConfigPath 를 try 블록 안에서 생성해 writeTempMcpConfig 실패 시
+  // finally 누수가 없도록 한다(Finding 2). let 으로 선언해 finally 에서 조건부 정리.
+  let workDir: string | null = null;
+  let mcpConfigPath: string | null = null;
 
   try {
+    // #333: 요청마다 임시 작업 디렉토리 생성. .claude/agents/*.md 자동발견 경로.
+    // finally 에서 rmSync 로 한 번에 정리해 temp 누수 방지.
+    workDir = mkdtempSync(path.join(tmpdir(), `assistant-${agentId}-`));
+    mcpConfigPath = writeTempMcpConfig({
+      agentId,
+      baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
+      internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
+      profile: 'assistant', // home 프로파일 → assistant 프로파일로 교체(#333)
+    });
     // #333: 서브에이전트 정의를 workDir 안 .claude/agents/ 에 기록 + 허용 이름 집합 산출.
     const subagents = loadSubagents();
     writeSubagentDefinitions(workDir, subagents);
@@ -87,12 +91,15 @@ export async function runHomeComposeStream(
     const env = buildChildEnv(process.env, token, agentId);
     const lines: string[] = [];
     let fullText = '';
-    // #333: 화이트리스트 위반 감지 플래그 — 콜백 안에서 handle 참조를 피해 TDZ 방지.
-    // 동기 onLine 호출(테스트 모킹) 에서 handle 이 아직 const 미할당 상태이기 때문에,
-    // 위반 시 즉시 kill 하지 않고 플래그만 세운 뒤 await handle.done 이후 kill + throw 한다.
+    // #333: 화이트리스트 위반 감지 플래그 + 즉시-kill 홀더(Finding 1).
+    // killer 홀더를 먼저 선언해 onLine 콜백 안에서 TDZ 없이 참조 가능하도록 한다.
+    // 프로덕션(비동기 onLine): handle 할당 후 killer 가 채워지므로 killer?.() 가 즉시 kill.
+    // 테스트 동기 모킹: onLine 이 handle 할당 전 동기 실행 → killer 가 null 이라 무해.
+    // 두 경우 모두 await handle.done 이후 fallback kill+throw 가 에러를 전파한다.
     let policyDeny: string | null = null;
+    let killer: (() => void) | null = null;
     const handle = runClaudeCliStream(
-      { args, env, timeoutMs: input.timeoutMs, logTag: `assistant:${agentId}`, cwd: workDir },
+      { args, env, timeoutMs: input.timeoutMs, logTag: `assistant:${agentId}`, cwd: workDir! },
       (line) => {
         // 모든 라인을 누적(parseComposeLines 가 위젯/최종메시지 파싱에 사용).
         lines.push(line);
@@ -118,8 +125,9 @@ export async function runHomeComposeStream(
             if (b.type !== 'tool_use' || b.name !== 'Agent') continue;
             const deny = checkSubagentWhitelist('Agent', b.input, allowedNames);
             if (deny) {
-              // 화이트리스트 위반 — 플래그만 세우고 반환. kill 은 handle 할당 후(TDZ 안전).
+              // 화이트리스트 위반 — 즉시 kill(프로덕션 비동기 경로). 동기 테스트 모킹에서는 null.
               policyDeny = deny;
+              killer?.(); // Finding 1: handle 할당 후면 즉시 kill, 동기 경로면 무해한 no-op
               return;
             }
             const subType = typeof b.input?.subagent_type === 'string' ? b.input.subagent_type : '';
@@ -129,11 +137,13 @@ export async function runHomeComposeStream(
         }
       },
     );
+    // killer 홀더를 채워 이후 onLine 콜백이 즉시 kill 할 수 있도록 한다.
+    killer = handle.kill;
     // 상위 연결 종료 시 child 종료(자원 누수 방지). 이미 abort 된 신호면 즉시 kill.
     if (signal.aborted) handle.kill();
     else signal.addEventListener('abort', () => handle.kill(), { once: true });
     await handle.done;
-    // #333: 위반 감지 시 handle 이 이미 할당됐으므로 안전하게 kill 후 throw.
+    // #333: 위반 감지 시 fallback kill(프로덕션=이미 killed, 동기 모킹=여기서 kill) + throw.
     if (policyDeny) {
       handle.kill();
       throw new Error(policyDeny);
@@ -142,8 +152,9 @@ export async function runHomeComposeStream(
     const parsed = parseComposeLines(lines);
     return { fullText: parsed.message || fullText, widgets: parsed.widgets.length > 0 ? parsed.widgets : null };
   } finally {
-    cleanupTempMcpConfig(mcpConfigPath);
-    rmSync(workDir, { recursive: true, force: true }); // workDir + 내부 system-prompt.txt 정리
+    // Finding 2: null 가드 — writeTempMcpConfig/mkdtempSync 가 throw 하면 미생성 변수는 정리 생략.
+    if (mcpConfigPath) cleanupTempMcpConfig(mcpConfigPath);
+    if (workDir) rmSync(workDir, { recursive: true, force: true }); // workDir + 내부 system-prompt.txt 정리
   }
 }
 
