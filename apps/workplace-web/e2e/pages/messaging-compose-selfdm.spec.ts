@@ -299,9 +299,10 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await page.goto('/chat')
 
       // 사이드바 self-DM 링크 텍스트 검증
+      // (#298) 링크 앞에 본인 이니셜 아바타가 추가돼 정확 일치 대신 라벨 포함으로 검증.
       const selfLink = page.getByTestId('dm-self-link')
       await expect(selfLink).toBeVisible()
-      await expect(selfLink).toHaveText(`${MY_NAME} (나)`)
+      await expect(selfLink).toContainText(`${MY_NAME} (나)`)
 
       // 클릭 → /chat/dms/self → SelfDmRedirect 가 POST 후 navigate
       await selfLink.click()

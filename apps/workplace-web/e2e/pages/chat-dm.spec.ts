@@ -428,4 +428,57 @@ test.describe('messaging DM', () => {
     // Sonner 토스트 — 기존 스펙과 동일하게 메시지 텍스트로 검증.
     await expect(page.getByText('자기 자신과는 DM 할 수 없습니다')).toBeVisible()
   })
+
+  test('DM 사이드바 — 각 DM 아이템이 상대 식별 아바타로 시각 구분된다 (#298)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 회귀 방지: 모든 DM 이 동일 MessageSquare 아이콘이던 결함.
+    // self/1:1/AI/그룹 이 각각 상대 식별 아바타(user-avatar-<id>)를 렌더해야 한다.
+    const dms = [
+      createDm({
+        id: 2,
+        participants: [
+          createDmParticipant({ userId: 1, name: '테스트 사용자' }),
+          createDmParticipant({ userId: 2, name: '밥' }),
+        ],
+      }),
+      createDm({
+        id: 3,
+        participants: [
+          createDmParticipant({ userId: 1, name: '테스트 사용자' }),
+          createDmParticipant({ userId: 10, name: 'My AI', kind: 'AGENT' }),
+        ],
+      }),
+      createDm({
+        id: 4,
+        participants: [
+          createDmParticipant({ userId: 1, name: '테스트 사용자' }),
+          createDmParticipant({ userId: 2, name: '밥' }),
+          createDmParticipant({ userId: 3, name: '캐럴' }),
+        ],
+      }),
+    ]
+    await stubLists(page, dms)
+    await page.goto('/chat')
+
+    // self-DM: 본인(id=1) 이니셜 아바타 '테'
+    const selfLink = page.getByTestId('dm-self-link')
+    await expect(selfLink.getByTestId('user-avatar-1')).toHaveText('테')
+
+    // 1:1 DM(상대 id=2): 상대 이니셜 '밥' — self 와 다른 식별 신호
+    const dm2 = page.getByTestId('dm-link-2')
+    await expect(dm2.getByTestId('user-avatar-2')).toHaveText('밥')
+
+    // AI DM(상대 id=10): 상대 아바타 + 에이전트 배지 공존(Bot 마커 중복 없음)
+    const dm3 = page.getByTestId('dm-link-3')
+    await expect(dm3.getByTestId('user-avatar-10')).toBeVisible()
+    await expect(dm3.getByTestId('agent-badge')).toBeVisible()
+
+    // 그룹 DM(대표 상대 id=2): 첫 비-본인 참여자 아바타
+    const dm4 = page.getByTestId('dm-link-4')
+    await expect(dm4.getByTestId('user-avatar-2')).toBeVisible()
+
+    // 더 이상 동일 아이콘이 아님: 사이드바 DM 영역에 MessageSquare(lucide) 아이콘 없음
+    await expect(page.getByTestId('dm-list').locator('svg.lucide-message-square')).toHaveCount(0)
+  })
 })

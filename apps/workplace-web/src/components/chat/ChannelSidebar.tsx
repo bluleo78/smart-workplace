@@ -7,6 +7,7 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import { AgentBadge } from '@/components/users/AgentBadge'
+import { UserAvatar } from '@/components/users/UserAvatar'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useAuth } from '@/hooks/useAuth'
@@ -131,12 +132,19 @@ export function ChannelSidebar() {
                 : 'text-muted-foreground hover:bg-accent/50',
             )}
           >
-            <MessageSquare className="h-4 w-4 shrink-0" />
+            {/* self-DM 아이콘 — 본인 이니셜 아바타로 다른 DM 과 시각 구분. */}
+            <UserAvatar
+              user={{ id: myId, username: user?.username ?? '', name: user?.name ?? '나' }}
+              size="xs"
+            />
             <span className="truncate">{user?.name ? `${user.name} (나)` : '나'}</span>
           </Link>
           {dms
             ?.filter((dm) => dm.participants.filter((p) => p.userId !== myId).length > 0)
-            .map((dm) => (
+            .map((dm) => {
+              // 대표 상대(첫 비-본인 참여자) 이니셜 아바타로 DM 을 시각 구분.
+              const other = dm.participants.find((p) => p.userId !== myId)
+              return (
               <Link
                 key={dm.id}
                 to={`/chat/dms/${dm.id}`}
@@ -148,7 +156,14 @@ export function ChannelSidebar() {
                     : 'text-muted-foreground hover:bg-accent/50',
                 )}
               >
-                <MessageSquare className="h-4 w-4 shrink-0" />
+                {other ? (
+                  <UserAvatar
+                    user={{ id: other.userId, username: '', name: other.name }}
+                    size="xs"
+                  />
+                ) : (
+                  <MessageSquare className="h-4 w-4 shrink-0" />
+                )}
                 <span className="truncate">{dmDisplayName(dm, myId)}</span>
                 {/* 상대 중 AGENT 가 있으면 보라색 봇 배지 표시 */}
                 {dm.participants.some((p) => p.kind === 'AGENT' && p.userId !== myId) && (
@@ -163,7 +178,8 @@ export function ChannelSidebar() {
                   </span>
                 )}
               </Link>
-            ))}
+              )
+            })}
         </nav>
       </div>
 
