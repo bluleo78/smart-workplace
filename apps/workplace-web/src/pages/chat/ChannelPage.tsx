@@ -1,9 +1,11 @@
 // 채널 메시지 뷰 — 헤더 + 히스토리 + 실시간 + optimistic 전송. 비공개 비멤버는 404 → 채널 없음.
 // Phase 5: 우측 스레드 패널(ThreadPanel) — openThreadId state 로 토글.
+// A9: AI 에이전트 작업 중 유령 버블 — onMessagingProgress 구독으로 채널별 진행 상태 렌더.
 import { Hash } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
+import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
 import { ChannelHeader } from '@/components/chat/ChannelHeader'
 import { ChannelMembersPanel } from '@/components/chat/ChannelMembersPanel'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
@@ -20,6 +22,7 @@ import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useAuth } from '@/hooks/useAuth'
+import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
 import type { UserKind } from '@/types/messaging'
 
 export default function ChannelPage() {
@@ -46,6 +49,43 @@ export default function ChannelPage() {
   // 부모 메시지를 채널 캐시(messages)에서 찾는다.
   const openThreadParent =
     openThreadId != null ? messages.find((m) => m.id === openThreadId) ?? null : null
+
+  // AI 작업 중 유령 버블 상태 관리 — streamId → 이벤트+타임스탬프 Map.
+  // phase done/error 이벤트 수신 시 해당 항목 제거, 메시지 수 증가(실제 메시지 도착) 시 전체 초기화.
+  // IssueChatSection 의 A8 패턴을 channelId 기준으로 동일하게 미러링.
+  const [working, setWorking] = useState<Map<string, MessagingProgressEvent & { at: number }>>(
+    new Map(),
+  )
+  useEffect(() => {
+    if (channelId == null) return
+    return onMessagingProgress((e) => {
+      if (e.channelId !== channelId) return
+      setWorking((prev) => {
+        const next = new Map(prev)
+        if (e.phase === 'done' || e.phase === 'error') next.delete(e.streamId)
+        else next.set(e.streamId, { ...e, at: Date.now() })
+        return next
+      })
+    })
+  }, [channelId])
+
+  // 메시지 수가 늘면(실제 AGENT 메시지 도착) 모든 유령 버블 제거 — SSE created 이벤트가 캐시를 늘림.
+  const messageCount = messages.length
+  useEffect(() => {
+    setWorking(new Map())
+  }, [messageCount])
+
+  // TTL 안전망: 60초 무수신 유령 제거 (10초마다 스위프)
+  useEffect(() => {
+    const t = setInterval(() => {
+      setWorking((prev) => {
+        const cutoff = Date.now() - 60_000
+        const next = new Map([...prev].filter(([, v]) => v.at >= cutoff))
+        return next.size === prev.size ? prev : next
+      })
+    }, 10_000)
+    return () => clearInterval(t)
+  }, [])
 
   // user 가 없으면 작성 비활성 대비 기본값. 정상 흐름에선 ProtectedRoute 가 user 를 보장한다.
   const me = user
@@ -98,6 +138,14 @@ export default function ChannelPage() {
             }
           />
         </MessageScrollArea>
+        {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 메시지 목록 하단에 렌더 */}
+        {working.size > 0 && (
+          <ul className="px-4 pb-1">
+            {[...working.values()].map((w) => (
+              <AiWorkingBubble key={w.streamId} agentName={w.agentName} steps={w.steps} />
+            ))}
+          </ul>
+        )}
         {/* 아카이브 채널이면 composer 비활성. */}
         <MessageComposer
           channelId={channel.id}

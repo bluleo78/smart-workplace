@@ -4,6 +4,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble';
+
 import { chatApi } from '../../../../api/chat';
 import { Button } from '../../../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../../components/ui/card';
@@ -18,7 +20,6 @@ import { useAuth } from '../../../../hooks/useAuth';
 import { type ChatProgressEvent,onChatProgress, onChatTyping } from '../../../../hooks/useChatStream';
 import { useDebounceValue } from '../../../../hooks/useDebounceValue';
 import { deleteMessageWithUndo } from '../../../../lib/deleteWithUndo';
-import { AiWorkingBubble } from './AiWorkingBubble';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
 import { ChatMessageList } from './ChatMessageList';
