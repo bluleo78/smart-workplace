@@ -1,6 +1,8 @@
 package com.workplace.home.service;
 
 import static com.workplace.jooq.Tables.CONTACT_ENTRY;
+import static com.workplace.jooq.Tables.DRIVE_FILE;
+import static com.workplace.jooq.Tables.DRIVE_FOLDER;
 import static com.workplace.jooq.Tables.PERMISSION;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.ROLE_PERMISSION;
@@ -12,14 +14,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.drive.dto.DriveFolderResponse;
+import com.workplace.drive.dto.DriveSpaceResponse;
+import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveFolderService;
+import com.workplace.drive.service.DriveSpaceService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.support.IntegrationTestBase;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +40,21 @@ class HomeActionServiceTest extends IntegrationTestBase {
   @Autowired HomeActionService service;
   @Autowired ObjectMapper om;
   @Autowired DSLContext dsl;
+  @Autowired DriveSpaceService driveSpaceService;
+  @Autowired DriveFolderService driveFolderService;
+  @Autowired DriveFileService driveFileService;
+
+  /** 드라이브 RLS(app.tenant_id GUC)를 통과하려면 TenantContext 를 설정해야 한다. */
+  @BeforeEach
+  void setTenantContext() {
+    TenantContext.set(1L);
+  }
+
+  /** ThreadLocal 누수 방지. */
+  @AfterEach
+  void clearTenantContext() {
+    TenantContext.clear();
+  }
 
   /** 유저 1명 + 전용 ROLE 에 주어진 권한코드를 부여해 시드. hasPermission 이 읽는 그 테이블. */
   private long userWith(String... permissionCodes) {
@@ -328,5 +354,74 @@ class HomeActionServiceTest extends IntegrationTestBase {
             "project.add_member",
             params("{\"key\":\"" + key + "\",\"userId\":" + newMember + ",\"role\":\"MEMBER\"}"));
     assertThat(result).isNotNull();
+  }
+
+  @Test
+  void drive_delete_folder_확인_시_휴지통으로_이동() throws Exception {
+    // 팀 공간 생성 후 폴더를 drive.delete_folder 로 soft-delete(휴지통). trashed_at 세팅 확인.
+    long caller = userWith();
+    DriveSpaceResponse space = driveSpaceService.createTeamSpace(caller, "테스트 팀 공간");
+    DriveFolderResponse folder = driveFolderService.create(caller, space.id(), null, "삭제 대상 폴더");
+
+    Object result =
+        service.confirm(caller, "drive.delete_folder", params("{\"id\":" + folder.id() + "}"));
+
+    // 반환값은 { "deleted": id } 형태(Map)
+    assertThat(result).isInstanceOf(Map.class);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> res = (Map<String, Object>) result;
+    assertThat(res.get("deleted")).isEqualTo(folder.id());
+
+    // DB 에서 trashed_at 이 세팅됐는지 확인(soft-delete = 휴지통)
+    assertThat(
+            dsl.select(DRIVE_FOLDER.TRASHED_AT)
+                .from(DRIVE_FOLDER)
+                .where(DRIVE_FOLDER.ID.eq(folder.id()))
+                .fetchOne(DRIVE_FOLDER.TRASHED_AT))
+        .isNotNull();
+  }
+
+  @Test
+  void drive_delete_folder_id_누락_시_IllegalArgument() throws Exception {
+    // id 파라미터 없으면 requireLong 에서 IllegalArgumentException.
+    long caller = userWith();
+    assertThatThrownBy(() -> service.confirm(caller, "drive.delete_folder", params("{}")))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void drive_delete_file_확인_시_휴지통으로_이동() throws Exception {
+    // 팀 공간 생성 후 파일 업로드 → drive.delete_file 로 soft-delete(휴지통). trashed_at 세팅 확인.
+    long caller = userWith();
+    DriveSpaceResponse space = driveSpaceService.createTeamSpace(caller, "파일 테스트 공간");
+    MockMultipartFile multipart =
+        new MockMultipartFile("file", "test.txt", "text/plain", "hello".getBytes());
+    com.workplace.drive.dto.DriveFileResponse file =
+        driveFileService.upload(caller, space.id(), null, multipart);
+
+    Object result =
+        service.confirm(caller, "drive.delete_file", params("{\"id\":" + file.id() + "}"));
+
+    // 반환값은 { "deleted": id } 형태(Map)
+    assertThat(result).isInstanceOf(Map.class);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> res = (Map<String, Object>) result;
+    assertThat(res.get("deleted")).isEqualTo(file.id());
+
+    // DB 에서 trashed_at 이 세팅됐는지 확인(soft-delete = 휴지통)
+    assertThat(
+            dsl.select(DRIVE_FILE.TRASHED_AT)
+                .from(DRIVE_FILE)
+                .where(DRIVE_FILE.ID.eq(file.id()))
+                .fetchOne(DRIVE_FILE.TRASHED_AT))
+        .isNotNull();
+  }
+
+  @Test
+  void drive_delete_file_id_누락_시_IllegalArgument() throws Exception {
+    // id 파라미터 없으면 requireLong 에서 IllegalArgumentException.
+    long caller = userWith();
+    assertThatThrownBy(() -> service.confirm(caller, "drive.delete_file", params("{}")))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }

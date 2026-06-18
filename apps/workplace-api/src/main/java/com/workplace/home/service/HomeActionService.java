@@ -7,6 +7,8 @@ import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.contacts.service.ContactService;
+import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveFolderService;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.service.MailComposeService;
@@ -42,6 +44,8 @@ public class HomeActionService {
   private final MailComposeService mailComposeService; // #333 M3 추가
   private final ContactService contactService; // #333 M3 추가
   private final ProjectService projectService; // #333 M3
+  private final DriveFileService driveFileService; // #333 M4 추가
+  private final DriveFolderService driveFolderService; // #333 M4 추가
   private final PermissionChecker permissionChecker;
   private final Validator validator;
   private final ObjectMapper objectMapper;
@@ -70,7 +74,11 @@ public class HomeActionService {
           Map.entry("project.delete_project", "project:manage"), // #333 M3 — 소프트삭제(OWNER 경계 추가 강제)
           Map.entry("project.add_member", "project:manage"), // #333 M3 — 멤버 추가(OWNER 경계 추가 강제)
           Map.entry("calendar.update_event", "calendar:write"), // #333 M4 — 일정 수정
-          Map.entry("calendar.delete_event", "calendar:write")); // #333 M4 — 일정 삭제
+          Map.entry("calendar.delete_event", "calendar:write"), // #333 M4 — 일정 삭제
+          Map.entry(
+              "drive.delete_file", ""), // 드라이브는 글로벌 RBAC 권한 없음 — space role(EDITOR) 경계를 서비스가 강제
+          Map.entry(
+              "drive.delete_folder", "")); // 드라이브는 글로벌 RBAC 권한 없음 — space role(EDITOR) 경계를 서비스가 강제
 
   /**
    * 확인 카드 승인 실행 — 지원 여부 확인 → 권한 검사(필요 시) → 매핑·검증 → 도메인 실행. 결과 객체 반환(컨트롤러가 201).
@@ -144,6 +152,18 @@ public class HomeActionService {
       EditScope scope = parseScope(params);
       OffsetDateTime occ = parseOffsetDateTime(params, "occurrenceDate");
       calendarEventService.delete(callerId, id, scope, occ);
+      return Map.of("deleted", id);
+    }
+    if ("drive.delete_file".equals(actionType)) {
+      // id(드라이브 파일 PK) 추출 → DriveFileService.delete 로 space EDITOR 경계 위임(soft-delete=휴지통).
+      long id = requireLong(params, "id");
+      driveFileService.delete(callerId, id);
+      return Map.of("deleted", id);
+    }
+    if ("drive.delete_folder".equals(actionType)) {
+      // id(드라이브 폴더 PK) 추출 → DriveFolderService.delete 로 space EDITOR 경계 위임(soft-delete=휴지통).
+      long id = requireLong(params, "id");
+      driveFolderService.delete(callerId, id);
       return Map.of("deleted", id);
     }
     throw new IllegalArgumentException("지원하지 않는 actionType: " + actionType);
