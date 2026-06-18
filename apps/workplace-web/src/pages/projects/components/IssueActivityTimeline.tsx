@@ -1,6 +1,5 @@
 // 이슈 변경 이력 타임라인. status/priority/assignee/dueDate/title/labels 변경 기록.
 
-import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
   Calendar,
@@ -9,6 +8,7 @@ import {
   Layers,
   Link,
   Link2Off,
+  type LucideIcon,
   Paperclip,
   Pencil,
   SlidersHorizontal,
@@ -16,6 +16,7 @@ import {
   User,
   Users,
 } from 'lucide-react';
+import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 
@@ -220,14 +221,37 @@ function mapPriorityLabel(v: string | null): string {
   return PRIORITY_LABEL[v] ?? v;
 }
 
+// 접기 기본값: 최근 5건만 표시. "이전 N건 더 보기" 토글로 전체 펼침 (#341).
+const MAX_VISIBLE = 5;
+
 // 이력 항목을 시간순으로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
 export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[] }) {
+  // showAll: 전체 보기 여부. 기본은 최근 MAX_VISIBLE 건만 표시.
+  const [showAll, setShowAll] = useState(false);
+
   if (entries.length === 0) {
     return <p className="text-muted-foreground text-sm">변경 이력 없음</p>;
   }
+
+  // 최신 항목이 마지막에 있으므로 slice(-MAX_VISIBLE)로 최근 항목 추출
+  const visible = showAll ? entries : entries.slice(-MAX_VISIBLE);
+  const hiddenCount = entries.length - MAX_VISIBLE;
+
   return (
-    <ol className="space-y-2 text-sm" role="list" aria-label="활동 타임라인">
-      {entries.map((e) => {
+    <div className="space-y-2">
+      {/* MAX_VISIBLE 초과 시 "이전 N건 더 보기" 토글 버튼 — 상단 배치로 더 오래된 항목 접기 */}
+      {!showAll && hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="text-muted-foreground hover:text-foreground w-full text-center text-xs underline-offset-2 hover:underline"
+          aria-label={`이전 ${hiddenCount}건 활동 더 보기`}
+        >
+          이전 {hiddenCount}건 더 보기
+        </button>
+      )}
+      <ol className="space-y-2 text-sm" role="list" aria-label="활동 타임라인">
+        {visible.map((e) => {
         const isAgent = e.actorKind === 'AGENT';
         return (
           <li
@@ -301,5 +325,17 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
         );
       })}
     </ol>
+      {/* 전체 펼친 상태에서 "접기" 버튼 — 다시 최근 N건으로 축소 */}
+      {showAll && hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll(false)}
+          className="text-muted-foreground hover:text-foreground w-full text-center text-xs underline-offset-2 hover:underline"
+          aria-label="활동 이력 접기"
+        >
+          접기
+        </button>
+      )}
+    </div>
   );
 }
