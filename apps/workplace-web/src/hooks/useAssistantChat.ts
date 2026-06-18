@@ -22,6 +22,10 @@ export interface AssistantChat {
   pendingAction: PendingAction | null;
   /** #333 M2: 확인 카드 응답(승인/취소) 후 폐기. */
   clearPendingAction: () => void;
+  /** #333 M2: 확인 카드 승인 → confirm POST → clear. */
+  onConfirmAction: () => void;
+  /** #333 M2: 확인 카드 취소 → 폐기만(API 미호출). */
+  onCancelAction: () => void;
 }
 
 export function useAssistantChat(): AssistantChat {
@@ -41,5 +45,7 @@ export function useAssistantChat(): AssistantChat {
     delegationLabel: session.delegationLabel,
     pendingAction: session.pendingAction,
     clearPendingAction: session.clearPendingAction,
+    onConfirmAction: session.confirmAction,
+    onCancelAction: session.clearPendingAction,
   };
 }

@@ -564,6 +564,83 @@ test('위임 진행 이벤트가 도크에 위임 버블을 렌더한다 (#333)'
   await expect(page.getByTestId('chat-panel')).toContainText('일정을 확인했어요');
 });
 
+test('확인 카드 — pending_action 이 카드로 렌더되고 승인 시 confirm payload 를 전송한다 (#333)', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  // compose SSE 에 pending_action(done 앞) 포함.
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/compose',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      const sseBody =
+        'event: delta\ndata: {"text":"6/26 10시 팀 미팅을 제안할게요"}\n\n' +
+        'event: pending_action\ndata: {"actionType":"calendar.create_event","summary":"6/26 10시 팀 미팅(1시간)","params":{"title":"팀 미팅","startsAt":"2026-06-26T01:00:00Z","endsAt":"2026-06-26T02:00:00Z","allDay":false}}\n\n' +
+        'event: done\ndata: {"sessionId":"s-conf-1"}\n\n';
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
+    },
+  );
+  // confirm 실행기 모킹 — payload 캡처.
+  let confirmPayload: unknown = null;
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/actions/confirm',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      try { confirmPayload = route.request().postDataJSON(); } catch { confirmPayload = null; }
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 99, title: '팀 미팅' }) });
+    },
+  );
+
+  await page.goto('/');
+  await page.getByTestId('chat-launcher').click();
+  await page.getByTestId('chat-input').fill('다음주 팀미팅 잡아줘');
+  await page.getByRole('button', { name: '보내기' }).click();
+
+  // 1) 확인 카드가 요약과 함께 렌더된다.
+  const card = page.getByTestId('pending-action-card');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('6/26 10시 팀 미팅(1시간)');
+
+  // 2) 승인 클릭 → confirm POST payload 가 actionType+params 그대로.
+  await card.getByRole('button', { name: '승인' }).click();
+  await expect.poll(() => confirmPayload).not.toBeNull();
+  expect(confirmPayload).toMatchObject({
+    actionType: 'calendar.create_event',
+    params: { title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z' },
+  });
+  // 3) 승인 후 카드가 사라진다.
+  await expect(page.getByTestId('pending-action-card')).toHaveCount(0);
+});
+
+test('확인 카드 — 취소 시 confirm API 미호출, 카드 폐기 (#333)', async ({ authenticatedPage: page }) => {
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/compose',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      const sseBody =
+        'event: pending_action\ndata: {"actionType":"calendar.create_event","summary":"취소 대상","params":{"title":"x"}}\n\n' +
+        'event: done\ndata: {"sessionId":"s-conf-2"}\n\n';
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
+    },
+  );
+  let confirmCalled = false;
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/actions/confirm',
+    (route) => { confirmCalled = true; return route.fulfill({ status: 201, body: '{}' }); },
+  );
+
+  await page.goto('/');
+  await page.getByTestId('chat-launcher').click();
+  await page.getByTestId('chat-input').fill('일정 잡아줘');
+  await page.getByRole('button', { name: '보내기' }).click();
+
+  const card = page.getByTestId('pending-action-card');
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: '취소' }).click();
+  // 카드 폐기 + confirm 미호출.
+  await expect(page.getByTestId('pending-action-card')).toHaveCount(0);
+  expect(confirmCalled).toBe(false);
+});
+
 test('챗 도크 응답이 토큰 단위로 점진 렌더된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   // /api/v1/home/compose 를 SSE event-stream 으로 모킹.
   // 단일 delta 에 전체 텍스트가 없어야 '연결이 없으면 표시 불가'를 증명할 수 있다.

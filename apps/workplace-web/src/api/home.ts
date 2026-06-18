@@ -4,6 +4,7 @@ import type {
   ComposeResponse,
   HomeMessage,
   HomeSessionPage,
+  PendingAction,
 } from '@/types/home';
 import type { IssueSearchResponse } from '@/types/issue';
 
@@ -46,4 +47,8 @@ export const homeApi = {
   /** 세션 삭제. */
   deleteSession: (sessionId: string) =>
     client.delete<void>(`/home/sessions/${sessionId}`),
+
+  /** #333 M2: 확인 카드 승인 → 서버 실행기. actionType+params 그대로 전송. */
+  confirmAction: (action: PendingAction) =>
+    client.post('/home/actions/confirm', { actionType: action.actionType, params: action.params }),
 };

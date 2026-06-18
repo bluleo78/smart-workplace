@@ -148,6 +148,24 @@ export function useChatSession() {
     [updateSessionId],
   );
 
+  // #333 M2: 확인 카드 승인 핸들러.
+  // 낙관적 폐기 후 POST → 실패 시 카드 복원(재시도/취소 가능).
+  const confirmAction = useCallback(() => {
+    const action = pendingAction;
+    if (!action) return;
+    setPendingAction(null); // 낙관적 폐기(중복 승인 방지)
+    homeApi
+      .confirmAction(action)
+      .then(() => {
+        // 승인 결과를 대화에 한 줄 추가(시스템 확인 메시지).
+        setTurns((t) => [...t, { role: 'assistant', content: '요청을 처리했어요.' }]);
+      })
+      .catch((e) => {
+        setPendingAction(action); // 실패 시 카드 복원 — 재시도/취소 가능
+        handleApiError(e, '확인 작업에 실패했습니다');
+      });
+  }, [pendingAction]);
+
   // 삭제 — 활성 세션이면 새 세션으로 리셋.
   const deleteSession = useCallback(
     (id: string) => {
@@ -168,6 +186,7 @@ export function useChatSession() {
     delegationLabel,
     pendingAction,
     clearPendingAction,
+    confirmAction,
     submitQuery,
     newSession,
     restoreSession,
