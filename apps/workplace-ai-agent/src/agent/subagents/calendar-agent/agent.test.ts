@@ -10,11 +10,13 @@ describe('calendar-agent 정의', () => {
   it('loadSubagents 로 calendar-agent 가 로드된다', () => {
     expect(loaded['calendar-agent']).toBeDefined();
   });
-  it('tools 는 읽기(list/get) + propose_create_event 만(직접 생성 도구 없음)', () => {
+  it('tools 는 읽기(list/get) + 생성/수정/삭제 제안(직접 쓰기 없음, #333 M4)', () => {
     expect(loaded['calendar-agent'].tools).toEqual([
       'mcp__workplace__list_events',
       'mcp__workplace__get_event',
       'mcp__workplace__propose_create_event',
+      'mcp__workplace__propose_update_event',
+      'mcp__workplace__propose_delete_event',
     ]);
   });
   it('본문에 일정·확인 안내가 있고 maxTurns 가 설정됨', () => {
