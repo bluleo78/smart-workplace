@@ -379,3 +379,13 @@ test('대화 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticat
   // h-14 앱 타이틀 헤더에 "대화"(레일 라벨과 동일) 노출
   await expect(sidebar.getByText('대화', { exact: true })).toBeVisible();
 });
+
+// #297 — 채널·DM 링크 hover 배경 전환이 즉시(0ms) 일어나지 않도록 transition-colors 보유.
+test('대화 사이드바 — 채널·DM 링크에 transition-colors 적용', async ({ authenticatedPage: page }) => {
+  await setupChannelStubs(page, [createChannel({ id: CHANNEL_ID, member: true })], `:\n\n`);
+  await page.goto(`/chat/channels/${CHANNEL_ID}`);
+  // 채널 링크 — hover 페이드를 위한 transition-colors 유틸리티가 className 에 포함되어야 한다
+  await expect(page.getByTestId(`channel-link-${CHANNEL_ID}`)).toHaveClass(/transition-colors/);
+  // self-DM("나") 링크도 동일 DM 목록 패턴 → 동일하게 적용
+  await expect(page.getByTestId('dm-self-link')).toHaveClass(/transition-colors/);
+});

@@ -77,7 +77,7 @@ export function ChannelSidebar() {
               to={`/chat/channels/${c.id}`}
               data-testid={`channel-link-${c.id}`}
               className={cn(
-                'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
+                'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
                 !isDmRoute && activeId === c.id
                   ? 'bg-accent text-accent-foreground'
                   : 'text-muted-foreground hover:bg-accent/50',
@@ -125,7 +125,7 @@ export function ChannelSidebar() {
             to="/chat/dms/self"
             data-testid="dm-self-link"
             className={cn(
-              'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
+              'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
               location.pathname === '/chat/dms/self'
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground hover:bg-accent/50',
@@ -142,7 +142,7 @@ export function ChannelSidebar() {
                 to={`/chat/dms/${dm.id}`}
                 data-testid={`dm-link-${dm.id}`}
                 className={cn(
-                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
+                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
                   isDmRoute && activeId === dm.id
                     ? 'bg-accent text-accent-foreground'
                     : 'text-muted-foreground hover:bg-accent/50',
