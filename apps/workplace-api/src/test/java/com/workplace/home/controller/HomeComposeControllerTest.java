@@ -4,7 +4,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,7 +14,6 @@ import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.home.dto.HomeComposeResponse;
 import com.workplace.home.service.HomeComposeService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
@@ -29,8 +28,9 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** HomeComposeController @WebMvcTest — 보안 하네스는 HomeSessionControllerTest 와 동일. */
+/** HomeComposeController @WebMvcTest — SSE 응답 확인. composeStream 이 SseEmitter 를 반환하는지 검증한다. */
 @SuppressWarnings("null")
 @WebMvcTest(HomeComposeController.class)
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
@@ -55,11 +55,12 @@ class HomeComposeControllerTest {
   }
 
   @Test
-  void compose_정상_200() throws Exception {
+  void compose_정상_SSE응답() throws Exception {
     UUID sid = UUID.randomUUID();
-    var widgets = om.readTree("[{\"type\":\"my_tasks\",\"params\":{}}]");
-    when(composeService.compose(eq(1L), isNull(), eq("내 할 일")))
-        .thenReturn(new HomeComposeResponse(sid, "할 일이에요", widgets));
+    // composeStream 이 SseEmitter 를 반환하면 컨트롤러는 text/event-stream 으로 응답한다.
+    SseEmitter emitter = new SseEmitter();
+    emitter.complete(); // 즉시 완료로 MockMvc 가 hang 없이 응답을 받을 수 있도록.
+    when(composeService.composeStream(eq(1L), isNull(), eq("내 할 일"))).thenReturn(emitter);
 
     mockMvc
         .perform(
@@ -68,9 +69,7 @@ class HomeComposeControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"query\":\"내 할 일\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.sessionId").value(sid.toString()))
-        .andExpect(jsonPath("$.message").value("할 일이에요"))
-        .andExpect(jsonPath("$.widgets[0].type").value("my_tasks"));
+        .andExpect(content().contentTypeCompatibleWith("text/event-stream"));
   }
 
   @Test

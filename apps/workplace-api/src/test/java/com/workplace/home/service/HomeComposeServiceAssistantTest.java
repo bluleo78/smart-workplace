@@ -24,9 +24,10 @@ class HomeComposeServiceAssistantTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
 
   @Test
-  void 비서_미설정_caller_는_compose_시_미설정예외() {
+  void 비서_미설정_caller_는_composeStream_시_미설정예외() {
     long human = TestFixtures.createHuman(dsl);
-    assertThatThrownBy(() -> service.compose(human, null, "안녕"))
+    // composeStream 은 비서 해석을 요청 스레드에서 동기 수행하므로 스트림 전에 예외가 던져진다.
+    assertThatThrownBy(() -> service.composeStream(human, null, "안녕"))
         .isInstanceOf(HomeAssistantNotConfiguredException.class);
   }
 }

@@ -3,26 +3,38 @@ package com.workplace.home.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
-import com.workplace.home.dto.HomeComposeResponse;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.exception.HomeComposeUnavailableException;
 import com.workplace.home.outbound.AiAgentComposeClient;
 import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
-import com.workplace.home.outbound.ComposeMessages.ComposeResult;
 import com.workplace.home.outbound.ComposeMessages.ContextMessage;
+import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
+import java.util.concurrent.Future;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * 홈 컴포즈 오케스트레이션 (7b): 세션 ensure → recentContext 구성 → USER 영속 → ai-agent 호출 → ASSISTANT(위젯 포함) 영속 →
- * 응답. 소유권은 HomeSessionService 가 강제.
+ * 홈 컴포즈 오케스트레이션 (B2): 세션 ensure → recentContext 구성 → 비서 해석 → USER 영속 → ai-agent SSE 구독 → delta 패스스루
+ * → done 시 ASSISTANT 영속.
+ *
+ * <p>권한·비서 해석은 스트림 시작 전 동기 실행 — 실패하면 GlobalExceptionHandler 가 일반 4xx 로 매핑한다(깨진 스트림 X). ASSISTANT
+ * 영속은 펌프 스레드(homeComposeStreamExecutor)에서 수행되므로 TenantContextTaskDecorator 가 GUC 를 전파한다.
  */
+@Slf4j
 @Service
-@RequiredArgsConstructor
 public class HomeComposeService {
+
+  /** SSE 타임아웃 — CLI cold-start(최대 ~60s) + 실행 예산 여유. */
+  private static final long TIMEOUT_MS = 300_000L;
 
   /** follow-up 맥락으로 전달할 직전 메시지 최대 개수(토큰 폭주 방지). */
   private static final int CONTEXT_LIMIT = 6;
@@ -31,39 +43,106 @@ public class HomeComposeService {
   private final AiAgentComposeClient composeClient;
   private final AiAgentProperties aiAgentProperties;
   private final ObjectMapper objectMapper;
-  private final com.workplace.auth.service.AssistantResolver assistantResolver;
+  private final AssistantResolver assistantResolver;
+  private final AsyncTaskExecutor executor;
 
-  /** sessionId null 이면 새 세션 생성. callerId 소유 세션이 아니면 getMessages/appendMessage 가 404. */
-  public HomeComposeResponse compose(long callerId, UUID sessionId, String query) {
+  public HomeComposeService(
+      HomeSessionService sessionService,
+      AiAgentComposeClient composeClient,
+      AiAgentProperties aiAgentProperties,
+      ObjectMapper objectMapper,
+      AssistantResolver assistantResolver,
+      @Qualifier("homeComposeStreamExecutor") AsyncTaskExecutor executor) {
+    this.sessionService = sessionService;
+    this.composeClient = composeClient;
+    this.aiAgentProperties = aiAgentProperties;
+    this.objectMapper = objectMapper;
+    this.assistantResolver = assistantResolver;
+    this.executor = executor;
+  }
+
+  /**
+   * SSE 스트리밍 compose — ai-agent delta 를 emitter 로 패스스루하고, done 시 ASSISTANT 메시지를 영속한다.
+   *
+   * <p>enabled 확인·세션 ensure·recentContext 구성·비서 해석·USER appendMessage 는 요청 스레드에서 동기 수행 → 실패 시 스트림 전
+   * 4xx/5xx 로 단락. ai-agent SSE 소비(펌프)는 전용 executor 스레드에서 비동기 수행.
+   *
+   * @param callerId 요청 사용자 ID
+   * @param sessionId null 이면 새 세션 생성
+   * @param query 자연어 명령
+   * @return SSE emitter
+   */
+  public SseEmitter composeStream(long callerId, UUID sessionId, String query) {
+    // 1) enabled 확인 — 비활성이면 스트림 전 예외로 단락.
     if (!aiAgentProperties.enabled()) {
       throw new HomeComposeUnavailableException("AI 구성 기능이 현재 비활성화되어 있어요.");
     }
 
+    // 2) 세션 ensure — sessionId null 이면 새 세션 생성.
     UUID sid = sessionId != null ? sessionId : sessionService.create(callerId).id();
 
-    // 현재 query 를 적재하기 전, 기존 대화에서 최근 N개를 텍스트 전용 맥락으로.
+    // 3) 현재 query 적재 전, 기존 대화에서 최근 N개를 텍스트 전용 맥락으로 구성.
     List<ContextMessage> recentContext = buildRecentContext(callerId, sid);
 
-    // 홈 비서 해석: 개인 비서 → 공용 비서 순으로 고르고, 둘 다 미설정이면 503(HomeAssistantNotConfiguredException).
-    com.workplace.auth.service.AssistantSpec spec = assistantResolver.resolve(callerId);
+    // 4) 비서 해석 — 미설정이면 HomeAssistantNotConfiguredException(503) 로 단락.
+    AssistantSpec spec = assistantResolver.resolve(callerId);
 
+    // 5) USER 메시지 영속 — 요청 스레드(요청 tx) 에서 즉시 저장.
     sessionService.appendMessage(callerId, sid, "USER", query, null);
 
-    ComposeResult result =
-        composeClient.compose(
-            new ComposeRequest(
-                query,
-                recentContext,
-                spec.agentUserId(),
-                spec.model(),
-                spec.thinkingDepth(),
-                spec.maxTurns(),
-                spec.timeoutMs()));
+    ComposeRequest req =
+        new ComposeRequest(
+            query,
+            recentContext,
+            spec.agentUserId(),
+            spec.model(),
+            spec.thinkingDepth(),
+            spec.maxTurns(),
+            spec.timeoutMs());
 
-    String widgetsJson = serializeWidgets(result.widgets());
-    sessionService.appendMessage(callerId, sid, "ASSISTANT", result.message(), widgetsJson);
+    // 6) emitter 생성 및 펌프 스레드 제출.
+    SseEmitter emitter = newEmitter();
+    StringBuilder fullBuffer = new StringBuilder();
 
-    return new HomeComposeResponse(sid, result.message(), result.widgets());
+    Future<?> task =
+        executor.submit(
+            () -> {
+              composeClient.composeStream(
+                  req,
+                  // delta: 버퍼에 누적 + 즉시 패스스루
+                  delta -> {
+                    fullBuffer.append(delta);
+                    trySend(emitter, "delta", Map.of("text", delta));
+                  },
+                  // done: ASSISTANT 영속 → done 이벤트 발행 → emitter 완료
+                  (fullText, widgets) -> {
+                    String wJson = serializeWidgets(widgets);
+                    try {
+                      sessionService.appendMessage(callerId, sid, "ASSISTANT", fullText, wJson);
+                    } catch (Exception e) {
+                      log.error("ASSISTANT 메시지 영속 실패: {}", e.getMessage(), e);
+                    }
+                    trySend(emitter, "done", Map.of("sessionId", sid.toString()));
+                    emitter.complete();
+                  },
+                  // error: SSE error 이벤트 발행 → emitter 완료
+                  msg -> {
+                    trySend(emitter, "error", Map.of("message", msg));
+                    emitter.complete();
+                  });
+            });
+
+    // 7) emitter 생명주기 → 펌프 취소(자원 누수 방지).
+    emitter.onTimeout(() -> task.cancel(true));
+    emitter.onError(e -> task.cancel(true));
+    emitter.onCompletion(() -> task.cancel(false));
+
+    return emitter;
+  }
+
+  /** SseEmitter 생성 — 테스트에서 스파이/목으로 대체할 수 있도록 분리. */
+  protected SseEmitter newEmitter() {
+    return new SseEmitter(TIMEOUT_MS);
   }
 
   /** 세션의 최근 메시지를 텍스트 전용(role+content)으로, 마지막 CONTEXT_LIMIT 개만. */
@@ -85,6 +164,15 @@ public class HomeComposeService {
     } catch (JsonProcessingException e) {
       // 위젯 직렬화 실패는 응답 자체를 막을 만큼 치명적이지 않음 — 위젯 없이 메시지만 보존.
       return null;
+    }
+  }
+
+  /** SseEmitter 에 이벤트를 안전하게 전송한다. IOException(연결 끊김)은 로그 없이 무시. */
+  private void trySend(SseEmitter emitter, String eventName, Object data) {
+    try {
+      emitter.send(SseEmitter.event().name(eventName).data(data));
+    } catch (IOException ignored) {
+      // 클라이언트 연결 끊김 — 이미 닫힌 소켓에 쓰는 실패는 무시.
     }
   }
 }

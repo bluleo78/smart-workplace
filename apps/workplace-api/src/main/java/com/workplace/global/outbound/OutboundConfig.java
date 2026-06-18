@@ -56,6 +56,24 @@ public class OutboundConfig {
   }
 
   /**
+   * 홈 컴포즈 SSE 스트리밍 전용 executor (B2). 각 작업이 ai-agent SSE 펌프로 스레드를 10–300s 점유하므로 이벤트 발사용 {@code
+   * aiAgentEventExecutor} 와 절대 공유하지 않는다. core/max 4/8, queue 는 작게(동시 스트림 수 제한) — 초과 요청은 호출 스레드에서
+   * reject 되어 빠르게 오류로 떨어지게 둔다.
+   */
+  @Bean(name = "homeComposeStreamExecutor")
+  public org.springframework.core.task.AsyncTaskExecutor homeComposeStreamExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(4);
+    executor.setMaxPoolSize(8);
+    executor.setQueueCapacity(16);
+    executor.setThreadNamePrefix("home-compose-");
+    // TenantContext 전파 — 펌프 스레드에서 ASSISTANT appendMessage 시 GUC 컨텍스트 일관 유지.
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * notify 디스패처 전용 executor. @Async 무인자는 단일 Executor 빈(aiAgentEventExecutor)에 바인딩되거나, 빈이 2개면 모호해져
    * SimpleAsyncTaskExecutor 로 조용히 폴백한다. 따라서 항상 명시 한정(@Async("notifyEventExecutor"))한다. 알림은 가벼운
    * insert+fan-out 이므로 작은 풀로 충분, queue 는 버스트 흡수용으로 넉넉히.
