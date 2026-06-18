@@ -59,17 +59,24 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 제자리에서 어시스�
     totalElements: 0,
     totalPages: 0,
   })
-  // compose 응답은 sessionId + message 만 사용(widgets 는 더 이상 읽지 않음).
-  const composeCapture = await mockApi(
-    page,
-    'POST',
-    '/api/v1/home/compose',
-    {
-      sessionId: 's-nonhome',
-      message: '내 HIGH 이슈를 정리했어요',
+  // compose → SSE 스트리밍 응답으로 모킹(JSON → SSE 전환 후).
+  // capture 를 위해 page.route 직접 사용 후 SSE 형식으로 응답.
+  let composePayload: unknown = null;
+  let resolveCompose: (() => void) | null = null;
+  const composeRequested = new Promise<void>((resolve) => { resolveCompose = resolve; });
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/compose',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      try { composePayload = route.request().postDataJSON(); } catch { composePayload = null; }
+      resolveCompose?.();
+      const sseBody =
+        'event: delta\ndata: {"text":"내 HIGH 이슈를 "}\n\n' +
+        'event: delta\ndata: {"text":"정리했어요"}\n\n' +
+        'event: done\ndata: {"sessionId":"s-nonhome"}\n\n';
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
     },
-    { capture: true },
-  )
+  );
 
   // 1) 이슈 페이지에서 시작(홈이 아님)
   await page.goto('/projects')
@@ -81,8 +88,8 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 제자리에서 어시스�
   await page.getByRole('button', { name: '보내기' }).click()
 
   // 3) compose 요청 페이로드 검증(새 세션이므로 sessionId null, 입력 query 그대로)
-  const req = await composeCapture.waitForRequest()
-  expect(req.payload).toMatchObject({ sessionId: null, query: '내 HIGH 이슈' })
+  await composeRequested
+  expect(composePayload).toMatchObject({ sessionId: null, query: '내 HIGH 이슈' })
 
   // 4) 어시스턴트 응답이 챗 패널에 제자리로 렌더된다(사용자 질의 + 응답 턴)
   await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈')
@@ -383,12 +390,17 @@ test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·�
   // 검증: 첫 chat-turn 의 top 이 칩의 bottom 이상이고, 닫기 X rect 와 겹치지 않는다.
   await page.setViewportSize({ width: 1440, height: 900 })
 
-  // 홈에서 compose 응답을 모킹 — 제출 시 turn 이 렌더되도록.
-  await mockApi(page, 'POST', '/api/v1/home/compose', {
-    sessionId: 's-206',
-    message: '정리했어요',
-    widgets: [{ type: 'issue_list', params: {}, layout: { page: 'current' } }],
-  })
+  // 홈에서 compose → SSE 스트리밍 응답으로 모킹 — 제출 시 turn 이 렌더되도록.
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/compose',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      const sseBody =
+        'event: delta\ndata: {"text":"정리했어요"}\n\n' +
+        'event: done\ndata: {"sessionId":"s-206"}\n\n';
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
+    },
+  );
 
   await page.goto('/')
   // side → fullscreen
@@ -500,4 +512,41 @@ test('모바일(375px) 풀스크린에서 좌측 세션목록이 숨겨지고 �
   await page.getByTestId('ai-fs-mobile-session-switcher').click()
   // 드롭다운 콘텐츠(DropdownMenuContent)에 두 세션이 보여야 함
   await expect(page.getByRole('menu', { name: '대화 선택' })).toBeVisible()
+})
+
+test('챗 도크 응답이 토큰 단위로 점진 렌더된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  // /api/v1/home/compose 를 SSE event-stream 으로 모킹.
+  // 단일 delta 에 전체 텍스트가 없어야 '연결이 없으면 표시 불가'를 증명할 수 있다.
+  // route.fulfill 은 body 를 한 번에 전달하므로 중간 상태 캡처 대신,
+  // 분할 delta 조합이 최종 텍스트를 만드는지를 검증한다.
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/compose',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      // '안' / '녕' / '하세요' 세 토큰으로 분할 — 어떤 단일 delta 에도 전체 문자열이 없다.
+      const sseBody =
+        'event: delta\ndata: {"text":"안"}\n\n' +
+        'event: delta\ndata: {"text":"녕"}\n\n' +
+        'event: delta\ndata: {"text":"하세요"}\n\n' +
+        'event: done\ndata: {"sessionId":"s-stream-1"}\n\n';
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
+    },
+  );
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+
+  // 질의 제출
+  await page.getByTestId('chat-input').fill('인사해줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+
+  // 사용자 턴이 먼저 렌더된다
+  await expect(page.getByTestId('chat-panel')).toContainText('인사해줘')
+
+  // 스트리밍 완료 후 어시스턴트 말풍선에 세 토큰이 합쳐진 '안녕하세요' 가 표시된다.
+  // 세 delta 를 모두 연결해야만 이 텍스트가 나오므로 점진 누적 렌더가 동작함을 증명한다.
+  await expect(page.getByTestId('chat-panel')).toContainText('안녕하세요')
+
+  // 스트리밍 완료 후 3-dot 로딩이 사라진다.
+  await expect(page.getByTestId('chat-pending')).toHaveCount(0)
 })

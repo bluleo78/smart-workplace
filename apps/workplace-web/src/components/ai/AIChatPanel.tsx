@@ -144,7 +144,9 @@ export function AIChatPanel({
           </div>
         ) : (
           <ul className="space-y-2">
-            {turns.map((t, i) => (
+            {turns.map((t, i) =>
+              // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
+              t.role === 'assistant' && t.content === '' ? null : (
               <li
                 key={i}
                 data-testid="chat-turn"
@@ -165,7 +167,9 @@ export function AIChatPanel({
                 </span>
               </li>
             ))}
-            {pending && (
+            {/* 3-dot 로딩 — pending 이고 아직 첫 토큰이 오지 않은 경우에만 표시.
+                첫 토큰 도착 후엔 assistant 말풍선 자체가 점진적으로 채워지므로 중복 표시 방지(#332). */}
+            {pending && turns[turns.length - 1]?.content === '' && (
               <li className="flex justify-start" data-testid="chat-pending">
                 {/* 응답 작성 중 — assistant 말풍선과 동일한 정렬·형태(좌측·bg-muted·rounded-2xl)에
                     타이핑 dot 모션을 둬, 완료된 짧은 메시지가 아니라 '진행 중' 상태로 읽히게 한다(#207). */}
