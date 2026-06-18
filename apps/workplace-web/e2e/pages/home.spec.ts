@@ -308,7 +308,8 @@ test('합성 — 카운트 스트립이 모킹된 카운트로 렌더된다', as
   // 안 읽음(메일 unreadCount=2), 오늘 일정(events 1건), 멘션(COMMENTED 1), 오늘 마감(due=today 1).
   await expect(counts.getByRole('link', { name: '안 읽음 2건' })).toBeVisible()
   await expect(counts.getByRole('link', { name: '오늘 일정 1건' })).toBeVisible()
-  await expect(counts.getByRole('link', { name: '멘션 1건' })).toBeVisible()
+  // 멘션 셀은 라우팅 대신 알림 패널을 여는 버튼이다(#273).
+  await expect(counts.getByRole('button', { name: '멘션 1건' })).toBeVisible()
   await expect(counts.getByRole('link', { name: '오늘 마감 1건' })).toBeVisible()
 
   // 카운트 셀은 모듈 딥링크.
@@ -317,6 +318,46 @@ test('합성 — 카운트 스트립이 모킹된 카운트로 렌더된다', as
     'href',
     '/calendar',
   )
+})
+
+test('합성 — 멘션 셀 클릭 시 라우팅 대신 알림 인박스 패널이 열린다 (refs #273)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // 멘션 프록시 = 안 읽은 COMMENTED 1건 → 멘션 카운트 1 + 인박스 목록에도 노출.
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    {
+      id: 5,
+      type: 'COMMENTED',
+      actorId: 2,
+      actorName: '양동희',
+      actorKind: 'HUMAN',
+      issueId: 1,
+      projectKey: 'WP',
+      issueNumber: 7,
+      issueTitle: '코멘트 달린 이슈',
+      commentId: 9,
+      eventId: null,
+      eventTitle: null,
+      eventStartsAt: null,
+      read: false,
+      createdAt: '2026-06-16T00:00:00Z',
+    },
+  ])
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+
+  // 패널은 처음엔 닫혀 있다(Radix Popover — 닫힘 시 미렌더).
+  await expect(page.getByTestId('inbox-panel')).toHaveCount(0)
+
+  // 멘션 셀은 링크가 아니라 버튼 — 클릭하면 알림 패널을 연다.
+  await page.getByTestId('dashboard-counts').getByRole('button', { name: '멘션 1건' }).click()
+
+  // 알림 인박스 패널이 열리고 멘션(COMMENTED) 알림을 보여준다.
+  await expect(page.getByTestId('inbox-panel')).toBeVisible()
+  await expect(page.getByTestId('inbox-item').first()).toContainText('코멘트 달린 이슈')
+  // 라우팅되지 않고 홈에 머문다(전용 멘션 페이지 없음).
+  await expect(page).toHaveURL(/\/$/)
 })
 
 test('합성 — 주의 필요 리스트가 행을 렌더하고 행 클릭 시 라우팅된다', async ({

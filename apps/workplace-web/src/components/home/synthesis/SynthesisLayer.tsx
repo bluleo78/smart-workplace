@@ -7,6 +7,7 @@
 import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageSquare } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { useInboxPanel } from '@/components/layout/InboxContext'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
@@ -50,31 +51,46 @@ interface AttentionRow {
 }
 
 // 카운트 셀 — 로딩 시 셀만 스켈레톤(격리), 에러 시 '–'.
+// to 가 있으면 모듈 딥링크(Link), onClick 이 있으면 액션 버튼(예: '멘션' → 알림 패널 열기).
 function CountCell({
   label,
   count,
   to,
+  onClick,
   loading,
   error,
 }: {
   label: string
   count: number
-  to: string
+  to?: string
+  onClick?: () => void
   loading: boolean
   error: boolean
 }) {
-  return (
-    <Link
-      to={to}
-      aria-label={error ? `${label} 불러오기 실패` : `${label} ${count}건`}
-      className="flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-md border border-border bg-card px-2 py-2 text-center hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-    >
+  const ariaLabel = error ? `${label} 불러오기 실패` : `${label} ${count}건`
+  const className =
+    'flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-md border border-border bg-card px-2 py-2 text-center hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
+  const inner = (
+    <>
       {loading ? (
         <Skeleton className="h-6 w-8" />
       ) : (
         <span className="text-xl font-semibold text-ai-accent">{error ? '–' : count}</span>
       )}
       <span className="text-xs text-muted-foreground">{label}</span>
+    </>
+  )
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} aria-label={ariaLabel} className={className}>
+        {inner}
+      </button>
+    )
+  }
+  return (
+    <Link to={to ?? '#'} aria-label={ariaLabel} className={className}>
+      {inner}
     </Link>
   )
 }
@@ -87,6 +103,8 @@ const SOURCE_ICON = {
 
 /** ① 합성 레이어 — 카운트 스트립 + 주의 필요 리스트. 소스별 에러/로딩 격리. */
 export function SynthesisLayer() {
+  // '멘션' 셀 클릭 시 AppRail 의 알림 인박스 패널을 연다(전용 멘션 페이지 없음).
+  const { openInbox } = useInboxPanel()
   const today = new Date()
   const todayKey = localDateKey(today)
   const { from, to } = todayRange()
@@ -177,9 +195,16 @@ export function SynthesisLayer() {
   const top = rows.slice(0, 5)
 
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리).
-  const cells = [
+  const cells: {
+    label: string
+    count: number
+    to?: string
+    onClick?: () => void
+    q: { isLoading: boolean; isError: boolean }
+  }[] = [
     { label: '오늘 마감', count: dueTodayCount, to: '/me/tasks/assigned', q: dues },
-    { label: '멘션', count: mentionCount, to: '/me/tasks/assigned', q: notifs },
+    // 멘션: 전용 페이지가 없어 라우팅 대신 알림 인박스 패널을 연다(#273).
+    { label: '멘션', count: mentionCount, onClick: () => openInbox(), q: notifs },
     { label: '안 읽음', count: unreadMail, to: '/mail', q: mail },
     { label: '오늘 일정', count: todayEventCount, to: '/calendar', q: events },
   ]
@@ -195,6 +220,7 @@ export function SynthesisLayer() {
               label={c.label}
               count={c.count}
               to={c.to}
+              onClick={c.onClick}
               loading={c.q.isLoading}
               error={c.q.isError}
             />

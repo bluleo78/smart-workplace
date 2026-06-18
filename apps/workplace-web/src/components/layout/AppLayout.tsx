@@ -7,6 +7,7 @@ import { AIChip } from '@/components/ai/AIChip'
 import { AIFullscreen } from '@/components/ai/AIFullscreen'
 import { AISidePanel } from '@/components/ai/AISidePanel'
 import { AppRail } from '@/components/layout/AppRail'
+import { InboxProvider } from '@/components/layout/InboxContext'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MailComposeDock } from '@/components/mail/MailComposeDock'
 import { ChatSessionProvider } from '@/hooks/ChatSessionContext'
@@ -23,16 +24,19 @@ export function AppLayout() {
     <MailComposeProvider>
       <ChatSessionProvider>
         <AIAssistantProvider>
-          <div className="flex h-screen overflow-hidden bg-background text-foreground">
-            <AppRail />
-            <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0">
-              <Outlet />
-              {/* 풀스크린 — main 의 absolute inset-0 자식 → 콘텐츠 영역만 덮음(AppRail 미포함). */}
-              <AIFullscreen />
-            </main>
-            {/* 사이드 패널 — flex 형제로 본문을 밀어냄(reflow). mode!=='side' 면 null. */}
-            <AISidePanel />
-          </div>
+          {/* 인박스 패널 오픈 상태를 AppRail(InboxPanel)·본문이 공유 — 합성 레이어가 패널을 연다. */}
+          <InboxProvider>
+            <div className="flex h-screen overflow-hidden bg-background text-foreground">
+              <AppRail />
+              <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0">
+                <Outlet />
+                {/* 풀스크린 — main 의 absolute inset-0 자식 → 콘텐츠 영역만 덮음(AppRail 미포함). */}
+                <AIFullscreen />
+              </main>
+              {/* 사이드 패널 — flex 형제로 본문을 밀어냄(reflow). mode!=='side' 면 null. */}
+              <AISidePanel />
+            </div>
+          </InboxProvider>
           {/* AI 칩 — fixed 상단 중앙. */}
           <AIChip />
         </AIAssistantProvider>

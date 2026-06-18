@@ -2,9 +2,9 @@
 // 인박스 — AppRail 하단 종 아이콘 + 안읽음 배지 + Popover 평면 목록.
 // 행 클릭 → 이슈 상세 이동 + 읽음 처리. 헤더 "모두 읽음".
 import { Bell } from 'lucide-react'
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { useInboxPanel } from '@/components/layout/InboxContext'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificationsRead'
@@ -25,7 +25,8 @@ const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
 }
 
 export function InboxPanel() {
-  const [open, setOpen] = useState(false)
+  // 오픈 상태는 컨텍스트 공유 — 합성 레이어 '멘션' 셀 등 외부에서도 패널을 열 수 있다.
+  const { open, setOpen } = useInboxPanel()
   const navigate = useNavigate()
   const { data: unread = 0 } = useUnreadCount()
   const { data: items = [], isLoading } = useNotifications(open)
