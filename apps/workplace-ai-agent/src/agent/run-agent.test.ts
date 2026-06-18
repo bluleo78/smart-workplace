@@ -41,6 +41,9 @@ function client(token: string | Error): WorkplaceApiClient {
     getExternalContact: vi.fn().mockResolvedValue({} as never),
     createExternalContact: vi.fn().mockResolvedValue({} as never),
     updateExternalContact: vi.fn().mockResolvedValue({} as never),
+    listProjects: vi.fn().mockResolvedValue([]),
+    getProject: vi.fn().mockResolvedValue({} as never),
+    listProjectMembers: vi.fn().mockResolvedValue([]),
   };
 }
 

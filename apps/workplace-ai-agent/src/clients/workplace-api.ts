@@ -35,6 +35,21 @@ export interface ContactItem {
   organization: string | null;
 }
 
+// #333 M3: 프로젝트 단건(읽기 그라운딩).
+export interface ProjectItem {
+  key: string;
+  name: string;
+  description: string | null;
+  type: string | null;
+}
+
+// #333 M3: 프로젝트 멤버 단건(읽기 그라운딩).
+export interface ProjectMemberItem {
+  userId: number;
+  name: string;
+  role: string;
+}
+
 // #333 M3: 외부연락처 생성/수정 입력 (선택 필드는 undefined 시 JSON 에서 생략).
 export interface ExternalContactInput {
   name: string;
@@ -148,6 +163,10 @@ export interface WorkplaceApiClient {
   // #333 M3: 메일 읽기 — list/get. 발송은 confirm 실행기가 수행(에이전트는 propose 만).
   listMail(agentId: number, accountId: number, folder: string, query: string | undefined, limit: number): Promise<MailMessageItem[]>;
   getMail(agentId: number, messageId: number): Promise<MailMessageDetail>;
+  // #333 M3: 프로젝트 읽기. 쓰기(생성/소프트삭제/멤버추가)는 confirm 실행기가 수행(에이전트는 propose 만).
+  listProjects(agentId: number, page: number, size: number): Promise<ProjectItem[]>;
+  getProject(agentId: number, key: string): Promise<ProjectItem>;
+  listProjectMembers(agentId: number, key: string): Promise<ProjectMemberItem[]>;
   // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
   listContacts(agentId: number, search: string | undefined, type: string | undefined, limit: number): Promise<ContactItem[]>;
   getExternalContact(agentId: number, id: number): Promise<ContactItem>;
@@ -357,6 +376,20 @@ export function createWorkplaceApiClient(opts: {
     async getMail(agentId, messageId) {
       const r = await http.get(`/mail/messages/${messageId}`, onBehalfOf(agentId));
       return r.data as MailMessageDetail;
+    },
+
+    // #333 M3: 프로젝트 읽기. 쓰기(생성/삭제/멤버)는 confirm 실행기(propose).
+    async listProjects(agentId, page, size) {
+      const r = await http.get(`/projects?page=${page}&size=${size}`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as ProjectItem[]) : (r.data?.content ?? []);
+    },
+    async getProject(agentId, key) {
+      const r = await http.get(`/projects/${key}`, onBehalfOf(agentId));
+      return r.data as ProjectItem;
+    },
+    async listProjectMembers(agentId, key) {
+      const r = await http.get(`/projects/${key}/members`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as ProjectMemberItem[]) : [];
     },
 
     // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).

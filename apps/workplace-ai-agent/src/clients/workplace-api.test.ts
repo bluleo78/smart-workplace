@@ -271,6 +271,41 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   });
 
+  // --- #333 M3: 프로젝트 읽기 ---
+
+  describe('listProjects', () => {
+    it('GET /projects?page&size 로 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects`).query({ page: '0', size: '20' })
+        .reply(200, [{ key: 'ABC', name: '프로젝트', description: null, type: 'TEAM' }]);
+      const out = await newClient().listProjects(7, 0, 20);
+      expect(out[0].key).toBe('ABC');
+      scope.done();
+    });
+  });
+
+  describe('getProject', () => {
+    it('GET /projects/{key} 로 단건 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects/ABC`)
+        .reply(200, { key: 'ABC', name: '프로젝트', description: '설명', type: 'TEAM' });
+      const out = await newClient().getProject(7, 'ABC');
+      expect(out.key).toBe('ABC');
+      expect(out.name).toBe('프로젝트');
+      scope.done();
+    });
+  });
+
+  describe('listProjectMembers', () => {
+    it('GET /projects/{key}/members 로 멤버 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects/ABC/members`)
+        .reply(200, [{ userId: 1, name: '홍길동', role: 'OWNER' }]);
+      const out = await newClient().listProjectMembers(7, 'ABC');
+      expect(out[0].role).toBe('OWNER');
+    });
+  });
+
   // --- #333 M3: 위키 페이지 생성/수정 ---
 
   it('createWikiPage → POST /wiki/spaces/{id}/pages 로 생성하고 본문 반환', async () => {

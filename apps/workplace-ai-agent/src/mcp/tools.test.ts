@@ -44,6 +44,9 @@ function client(): WorkplaceApiClient {
     getExternalContact: vi.fn().mockResolvedValue({}),
     createExternalContact: vi.fn().mockResolvedValue({}),
     updateExternalContact: vi.fn().mockResolvedValue({}),
+    listProjects: vi.fn().mockResolvedValue([]),
+    getProject: vi.fn().mockResolvedValue({}),
+    listProjectMembers: vi.fn().mockResolvedValue([]),
   };
 }
 
