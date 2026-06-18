@@ -196,14 +196,12 @@ test.describe('MessageComposer 4000자 한도 검증', () => {
     await page.getByTestId('message-composer-input').waitFor({ state: 'visible' });
   }
 
-  // TipTap contenteditable 에 execCommand 로 텍스트 삽입 (keyboard.type 보다 빠름).
+  // TipTap contenteditable 에 텍스트 삽입. pressSequentially 로 키보드 이벤트를 발생시켜
+  // React/TipTap 상태를 올바르게 갱신한다 (deprecated execCommand 대체).
   async function insertText(page: import('@playwright/test').Page, text: string) {
-    await page.getByTestId('message-composer-input').click();
-    await page.evaluate((t: string) => {
-      const el = document.querySelector('[data-testid="message-composer-input"]') as HTMLElement;
-      el?.focus();
-      document.execCommand('insertText', false, t);
-    }, text);
+    const input = page.getByTestId('message-composer-input');
+    await input.click();
+    await input.pressSequentially(text, { delay: 0 });
   }
 
   test('4001자 입력 → 전송 버튼 비활성화 + Enter POST 차단', async ({
