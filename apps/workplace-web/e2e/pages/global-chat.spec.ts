@@ -137,6 +137,41 @@ test('사이드 패널 — 휴지통 클릭 시 AlertDialog 확인 다이얼로�
   expect(del.requests.length).toBe(0)
 })
 
+// #353 회귀 가드 — AI 응답 실패 시 에러 버블 표시
+test('AI 응답 실패(5xx) 시 에러 안내 버블이 렌더된다 (refs #353)', async ({
+  authenticatedPage: page,
+}) => {
+  // compose → 500 에러로 모킹(AI 에이전트 내부 오류 시나리오).
+  await page.route(
+    (url) => url.pathname === '/api/v1/home/compose',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'AI agent internal error' }),
+      });
+    },
+  );
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+
+  // 메시지 전송
+  await page.getByTestId('chat-input').fill('현재 진행 중인 프로젝트 목록 알려줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+
+  // 입력→처리→출력 파이프라인 검증:
+  // 1) 사용자 메시지 버블이 남아있어야 한다.
+  await expect(page.getByTestId('chat-panel')).toContainText('현재 진행 중인 프로젝트 목록 알려줘')
+
+  // 2) 빈 어시스턴트 턴이 null로 사라지지 않고 에러 안내 텍스트로 채워져야 한다.
+  await expect(page.getByTestId('chat-turn').last()).toContainText('응답 생성에 실패했습니다')
+
+  // 3) 에러 후 입력 창이 활성화되어 재시도 가능해야 한다.
+  await expect(page.getByTestId('chat-input')).toBeEnabled()
+})
+
 test('사이드 패널 — AlertDialog 삭제 확인 클릭 시 DELETE API 호출됨 (#193)', async ({
   authenticatedPage: page,
 }) => {

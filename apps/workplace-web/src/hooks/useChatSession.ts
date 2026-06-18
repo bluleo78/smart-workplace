@@ -90,9 +90,21 @@ export function useChatSession() {
           }
         })
         .catch((e: unknown) => {
-          // AbortError 는 의도적 취소이므로 무시, 그 외는 토스트.
+          // AbortError 는 의도적 취소이므로 무시, 그 외는 토스트 + 에러 버블 표시.
           if ((e as Error).name !== 'AbortError') {
             handleApiError(e, 'AI 구성에 실패했습니다');
+            // 빈 어시스턴트 턴(로딩 중)을 에러 안내 텍스트로 교체 — 사용자가 상황 파악·재시도 가능.
+            setTurns((t) => {
+              const next = [...t];
+              const last = next[next.length - 1];
+              if (last?.role === 'assistant' && last.content === '') {
+                next[next.length - 1] = {
+                  role: 'assistant',
+                  content: '응답 생성에 실패했습니다. 다시 시도해 주세요.',
+                };
+              }
+              return next;
+            });
           }
         })
         .finally(() => {
