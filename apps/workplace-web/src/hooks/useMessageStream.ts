@@ -13,6 +13,27 @@ import { messagingKeys } from './queries/messagingKeys';
 import { bumpReplyCount } from './queries/useCreateReply';
 import { patchReactionEverywhere } from './queries/useToggleReaction';
 
+// 메시징 진행 이벤트 버스 — AI 에이전트 스트리밍 진행 상황을 컴포넌트에 전달.
+// onMessagingProgress 로 구독, messaging.message.progress SSE 이벤트 수신 시 emitMessagingProgress 로 발행.
+export interface MessagingProgressEvent {
+  channelId: number;
+  streamId: string;
+  agentName: string;
+  phase: 'started' | 'tool' | 'done' | 'error';
+  steps: { label: string; status: 'running' | 'done' }[];
+}
+type MessagingProgressListener = (e: MessagingProgressEvent) => void;
+const messagingProgressListeners = new Set<MessagingProgressListener>();
+export function onMessagingProgress(listener: MessagingProgressListener): () => void {
+  messagingProgressListeners.add(listener);
+  return () => {
+    messagingProgressListeners.delete(listener);
+  };
+}
+function emitMessagingProgress(e: MessagingProgressEvent) {
+  messagingProgressListeners.forEach((l) => l(e));
+}
+
 // messages 캐시 첫 페이지에 메시지 prepend (없으면 무시 — 미오픈 채널). id 중복 시 교체.
 function upsertMessage(qc: QueryClient, channelId: number, msg: MessageResponse) {
   const key = messagingKeys.messages(channelId);
@@ -123,6 +144,15 @@ function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentU
     const id = Number(d.id);
     if (!id) return;
     patchMessage(qc, channelId, id, { deleted: true, body: '(삭제됨)' });
+  } else if (eventName === 'messaging.message.progress') {
+    // AI 에이전트 스트리밍 진행 — progress 버스로 ghost bubble 컴포넌트에 전달.
+    emitMessagingProgress({
+      channelId,
+      streamId: String(d.streamId),
+      agentName: String(d.agentName ?? 'AI'),
+      phase: d.phase as MessagingProgressEvent['phase'],
+      steps: (d.steps ?? []) as MessagingProgressEvent['steps'],
+    });
   } else if (
     eventName === 'messaging.reaction.added' ||
     eventName === 'messaging.reaction.removed'
