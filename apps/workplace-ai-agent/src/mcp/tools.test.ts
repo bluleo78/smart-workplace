@@ -142,6 +142,34 @@ describe('buildTools (agentId bound)', () => {
   });
 });
 
+// #333: assistant 프로파일 — 이슈 + 위키읽기 + home show_* 의 union(M1).
+describe('buildTools(assistant)', () => {
+  const fakeClient = {} as never;
+
+  const names = buildTools(fakeClient, 1, 'assistant').map((t) => t.name).sort();
+
+  it('기존 이슈 + 위키읽기 + home show_* 의 union 을 노출', () => {
+    expect(names).toEqual(
+      [
+        'add_comment',
+        'get_issue_detail',
+        'get_wiki_page',
+        'search_wiki',
+        'show_activity',
+        'show_issue_detail',
+        'show_issue_list',
+        'show_my_tasks',
+        'unassign_self',
+        'update_status',
+      ].sort(),
+    );
+  });
+
+  it('신규 search_issues 는 포함하지 않는다(M1 기존 도구 경계)', () => {
+    expect(names).not.toContain('search_issues');
+  });
+});
+
 // home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분

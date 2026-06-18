@@ -78,7 +78,8 @@ const showActivityInput = z.object({
   layout: layoutSchema,
 });
 
-export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging';
+// #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
+export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
 
 // profile 기본값 'issue' — 이슈 핸들러는 기존 4 도구, chat 핸들러는 읽기+chat 쓰기 도구만.
 export function buildTools(
@@ -172,8 +173,9 @@ export function buildTools(
     ];
   }
 
-  // 7b: home 컴포저 — 표시 지시만(데이터 조회 X). 핸들러는 모두 {displayed:true}.
-  if (profile === 'home') {
+  // 7b: home 표시 지시 도구(데이터 조회 X). home/assistant 프로파일이 공유한다.
+  // 핸들러는 모두 {displayed:true} — 실제 렌더링은 프론트엔드가 담당.
+  const buildShowTools = (): McpTool[] => {
     const displayed = async () => JSON.stringify({ displayed: true });
     return [
       {
@@ -202,43 +204,66 @@ export function buildTools(
         handler: displayed,
       },
     ];
+  };
+
+  // 기존 이슈 쓰기 도구 — issue/assistant 프로파일이 공유한다.
+  const addCommentTool: McpTool = {
+    name: 'add_comment',
+    description: '이슈에 코멘트를 작성합니다. 본문은 마크다운을 지원합니다.',
+    inputSchema: addCommentInput,
+    async handler(args) {
+      const { issueKey: k, body } = addCommentInput.parse(args);
+      await client.addIssueComment(agentId, k, body);
+      return 'ok';
+    },
+  };
+  const updateStatusTool: McpTool = {
+    name: 'update_status',
+    description: '이슈의 상태를 변경합니다. 허용값: TODO / IN_PROGRESS / DONE / CANCELED.',
+    inputSchema: updateStatusInput,
+    async handler(args) {
+      const { issueKey: k, status } = updateStatusInput.parse(args);
+      await client.updateIssueStatus(agentId, k, status);
+      return 'ok';
+    },
+  };
+  const unassignSelfTool: McpTool = {
+    name: 'unassign_self',
+    description: '자기 자신을 이슈 담당자에서 제외합니다. 작업 완료·반려 시 사용합니다.',
+    inputSchema: issueKey,
+    async handler(args) {
+      const { issueKey: k } = issueKey.parse(args);
+      await client.unassignSelf(agentId, k);
+      return 'ok';
+    },
+  };
+
+  // 7b: home 컴포저 — 표시 지시만(데이터 조회 X).
+  if (profile === 'home') {
+    return buildShowTools();
   }
 
+  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시).
+  // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
+  if (profile === 'assistant') {
+    return [
+      getIssueDetailTool,
+      searchWikiTool,
+      getWikiPageTool,
+      addCommentTool,
+      updateStatusTool,
+      unassignSelfTool,
+      ...buildShowTools(),
+    ];
+  }
+
+  // issue 프로파일(기본) — 이슈 읽기/쓰기 + 위키 읽기 그라운딩.
   return [
     getIssueDetailTool,
     searchWikiTool,
     getWikiPageTool,
-    {
-      name: 'add_comment',
-      description: '이슈에 코멘트를 작성합니다. 본문은 마크다운을 지원합니다.',
-      inputSchema: addCommentInput,
-      async handler(args) {
-        const { issueKey: k, body } = addCommentInput.parse(args);
-        await client.addIssueComment(agentId, k, body);
-        return 'ok';
-      },
-    },
-    {
-      name: 'update_status',
-      description:
-        '이슈의 상태를 변경합니다. 허용값: TODO / IN_PROGRESS / DONE / CANCELED.',
-      inputSchema: updateStatusInput,
-      async handler(args) {
-        const { issueKey: k, status } = updateStatusInput.parse(args);
-        await client.updateIssueStatus(agentId, k, status);
-        return 'ok';
-      },
-    },
-    {
-      name: 'unassign_self',
-      description:
-        '자기 자신을 이슈 담당자에서 제외합니다. 작업 완료·반려 시 사용합니다.',
-      inputSchema: issueKey,
-      async handler(args) {
-        const { issueKey: k } = issueKey.parse(args);
-        await client.unassignSelf(agentId, k);
-        return 'ok';
-      },
-    },
+    addCommentTool,
+    updateStatusTool,
+    unassignSelfTool,
   ];
 }

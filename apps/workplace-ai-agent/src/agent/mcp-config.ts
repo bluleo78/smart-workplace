@@ -41,7 +41,7 @@ export function writeTempMcpConfig(opts: {
   agentId: number;
   baseURL: string;
   internalToken: string;
-  profile?: 'issue' | 'chat' | 'home' | 'messaging';
+  profile?: 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
 }): string {
   const { command, args } = resolveMcpServerCommand(here);
   const config = {
