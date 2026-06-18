@@ -83,6 +83,14 @@ export interface ExternalContactInput {
   visibility: 'SHARED' | 'PERSONAL';
 }
 
+// #333 M4: 메일 계정 단건 — accountId 확보용(list_mail/propose_send_mail 의 accountId 인자 해석).
+export interface MailAccountItem {
+  id: number;
+  emailAddress: string;
+  displayName: string;
+  aiEnabled: boolean;
+}
+
 // #333 M3: 메일 메시지 목록 단건(읽기 그라운딩).
 export interface MailMessageItem {
   id: number;
@@ -188,6 +196,9 @@ export interface WorkplaceApiClient {
   // #333 M3: 메일 읽기 — list/get. 발송은 confirm 실행기가 수행(에이전트는 propose 만).
   listMail(agentId: number, accountId: number, folder: string, query: string | undefined, limit: number): Promise<MailMessageItem[]>;
   getMail(agentId: number, messageId: number): Promise<MailMessageDetail>;
+  // #333 M4: 메일 계정 목록 + 수동 동기화 — accountId 확보 경로.
+  listMailAccounts(agentId: number): Promise<MailAccountItem[]>;
+  syncMail(agentId: number, accountId: number): Promise<unknown>;
   // #333 M3: 프로젝트 읽기. 쓰기(생성/소프트삭제/멤버추가)는 confirm 실행기가 수행(에이전트는 propose 만).
   listProjects(agentId: number, page: number, size: number): Promise<ProjectItem[]>;
   getProject(agentId: number, key: string): Promise<ProjectItem>;
@@ -421,6 +432,17 @@ export function createWorkplaceApiClient(opts: {
     async getMail(agentId, messageId) {
       const r = await http.get(`/mail/messages/${messageId}`, onBehalfOf(agentId));
       return r.data as MailMessageDetail;
+    },
+
+    // #333 M4: 메일 계정 목록 — GET /mail/accounts. 발신 accountId 확보 및 계정 존재 확인용.
+    async listMailAccounts(agentId) {
+      const r = await http.get('/mail/accounts', onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as MailAccountItem[]) : [];
+    },
+    // #333 M4: 수동 동기화 — POST /mail/accounts/{accountId}/sync. 소유권은 서버가 검증.
+    async syncMail(agentId, accountId) {
+      const r = await http.post(`/mail/accounts/${accountId}/sync`, {}, onBehalfOf(agentId));
+      return r.data;
     },
 
     // #333 M3: 프로젝트 읽기. 쓰기(생성/삭제/멤버)는 confirm 실행기(propose).

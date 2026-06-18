@@ -100,6 +100,9 @@ const moveFileInput = z.object({ fileId: z.number().int().positive(), targetFold
 const proposeDeleteFileInput = z.object({ summary: z.string().min(1), id: z.number().int().positive() });
 const proposeDeleteFolderInput = z.object({ summary: z.string().min(1), id: z.number().int().positive() });
 
+// #333 M4: 메일 계정 목록 + 수동 동기화 입력.
+const syncMailInput = z.object({ accountId: z.number().int().positive() });
+
 // #333 M3: 메일 읽기 입력.
 const listMailInput = z.object({
   accountId: z.number().int().positive(),
@@ -524,6 +527,30 @@ export function buildTools(
     },
   };
 
+  // #333 M4: 메일 계정 목록 + 수동 동기화 도구 — assistant 프로파일 전용.
+  // list_mail_accounts: accountId 가 없을 때 먼저 호출해 계정 식별자를 확보한다.
+  const listMailAccountsTool: McpTool = {
+    name: 'list_mail_accounts',
+    description:
+      '사용자의 메일 계정 목록을 JSON 으로 반환합니다. list_mail 또는 propose_send_mail 호출 전 accountId 를 모를 때 먼저 호출해 계정 id 를 확인하세요.',
+    inputSchema: z.object({}),
+    async handler(_args) {
+      return JSON.stringify(await client.listMailAccounts(agentId));
+    },
+  };
+  // sync_mail: 서버 소유권 검증 통과 — 호출자 계정만 동기화 가능(직접 실행 안전).
+  const syncMailTool: McpTool = {
+    name: 'sync_mail',
+    description:
+      '지정 메일 계정의 새 메일을 수동으로 가져옵니다(받은편지함 동기화). accountId 는 list_mail_accounts 로 확인하세요.',
+    inputSchema: syncMailInput,
+    async handler(args) {
+      const { accountId } = syncMailInput.parse(args);
+      await client.syncMail(agentId, accountId);
+      return '동기화를 완료했습니다.';
+    },
+  };
+
   // #333 M3: 연락처 읽기/쓰기/삭제제안 도구 — assistant 프로파일 전용.
   const listContactsTool: McpTool = {
     name: 'list_contacts',
@@ -735,6 +762,7 @@ export function buildTools(
       addChannelMessageTool,     // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       listChannelsTool, discoverChannelsTool, // #350: 채널 목록/탐색(이름→channelId 해석)
       listMailTool, getMailTool, proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
+      listMailAccountsTool, syncMailTool, // #333 M4: 메일 계정 목록 + 수동 동기화
       listContactsTool, getExternalContactTool, createExternalContactTool, updateExternalContactTool, proposeDeleteContactTool, // #333 M3: 연락처
       listProjectsTool, getProjectTool, listProjectMembersTool,
       proposeCreateProjectTool, proposeDeleteProjectTool, proposeAddProjectMemberTool, // #333 M3: 프로젝트

@@ -40,6 +40,8 @@ function client(): WorkplaceApiClient {
     updateWikiPage: vi.fn().mockResolvedValue({}),
     listMail: vi.fn().mockResolvedValue([]),
     getMail: vi.fn().mockResolvedValue({}),
+    listMailAccounts: vi.fn().mockResolvedValue([]),
+    syncMail: vi.fn().mockResolvedValue({} as never),
     listContacts: vi.fn().mockResolvedValue([]),
     getExternalContact: vi.fn().mockResolvedValue({}),
     createExternalContact: vi.fn().mockResolvedValue({}),
@@ -296,6 +298,32 @@ describe('buildTools(assistant) 메일 도구 (M3)', () => {
       delete process.env.WORKPLACE_PENDING_ACTION_PATH;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// #333 M4: 메일 계정/동기화 도구 — assistant union 멤버십 테스트.
+describe('buildTools(assistant) 메일 계정·동기화 도구 (M4)', () => {
+  it('assistant union 에 list_mail_accounts/sync_mail 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    expect(names).toContain('list_mail_accounts');
+    expect(names).toContain('sync_mail');
+  });
+
+  it('list_mail_accounts — client.listMailAccounts(agentId) 호출 후 JSON 반환', async () => {
+    const c = client();
+    vi.mocked(c.listMailAccounts).mockResolvedValue([{ id: 3, emailAddress: 'me@test.com', displayName: '내 계정', aiEnabled: true }]);
+    const tool = buildTools(c, AGENT_ID, 'assistant').find((t) => t.name === 'list_mail_accounts')!;
+    const out = await tool.handler({});
+    expect(JSON.parse(out)[0].id).toBe(3);
+    expect(c.listMailAccounts).toHaveBeenCalledWith(AGENT_ID);
+  });
+
+  it('sync_mail — client.syncMail(agentId, accountId) 호출 후 완료 문자열 반환', async () => {
+    const c = client();
+    const tool = buildTools(c, AGENT_ID, 'assistant').find((t) => t.name === 'sync_mail')!;
+    const out = await tool.handler({ accountId: 5 });
+    expect(typeof out).toBe('string');
+    expect(c.syncMail).toHaveBeenCalledWith(AGENT_ID, 5);
   });
 });
 

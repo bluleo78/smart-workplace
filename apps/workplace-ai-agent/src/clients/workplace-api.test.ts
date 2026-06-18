@@ -248,6 +248,31 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   });
 
+  // --- #333 M4: 메일 계정 목록 + 수동 동기화 ---
+
+  describe('listMailAccounts', () => {
+    it('GET /mail/accounts 로 계정 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/mail/accounts`)
+        .reply(200, [{ id: 3, emailAddress: 'me@x.com', displayName: '내 계정', aiEnabled: true }]);
+      const out = await newClient().listMailAccounts(7);
+      expect(out[0].id).toBe(3);
+      expect(out[0].emailAddress).toBe('me@x.com');
+      scope.done();
+    });
+  });
+
+  describe('syncMail', () => {
+    it('POST /mail/accounts/{id}/sync 로 동기화 요청', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .post(`${PREFIX}/mail/accounts/3/sync`, {})
+        .reply(200, { synced: 5 });
+      const out = await newClient().syncMail(7, 3);
+      expect((out as { synced: number }).synced).toBe(5);
+      scope.done();
+    });
+  });
+
   // --- #333 M3: 연락처 조회/생성/수정 ---
 
   describe('listContacts', () => {
