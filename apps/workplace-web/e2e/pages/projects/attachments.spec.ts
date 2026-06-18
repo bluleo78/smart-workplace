@@ -168,8 +168,9 @@ test.describe('이슈 첨부', () => {
       // 오직 드롭존만 표시됨.
       const strip = page.getByTestId('issue-attachment-strip');
       await expect(strip.getByTestId('attachment-dropzone')).toBeVisible();
-      // 목록 자체는 null 반환되지만 dropzone 은 부모 strip 에서 항상 표시됨.
-      await expect(strip.getByText('첨부가 없습니다')).toHaveCount(0);
+      // 삭제된 칩(attachment-row-9001)이 실제로 DOM 에서 사라졌는지 검증.
+      // getByText('첨부가 없습니다')는 strip 모드에서 항상 0이라 삭제 여부를 증명하지 못함.
+      await expect(strip.getByTestId('attachment-row-9001')).toHaveCount(0);
     },
   );
 

@@ -27,7 +27,9 @@ export function IssueBodyTabs({
         <TabsTrigger value="comments">💬 코멘트</TabsTrigger>
         <TabsTrigger value="activity">📜 활동</TabsTrigger>
       </TabsList>
-      <TabsContent value="comments" className="pt-4">
+      {/* forceMount: Radix 가 비활성 탭을 unmount 하면 작성 중인 코멘트 초안이 날아감.
+          data-[state=inactive]:hidden 으로 비활성 시 시각적으로만 숨기고 DOM 유지. */}
+      <TabsContent value="comments" className="pt-4 data-[state=inactive]:hidden" forceMount>
         <IssueCommentList
           projectKey={projectKey}
           issueNumber={issueNumber}

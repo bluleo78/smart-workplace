@@ -242,6 +242,24 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
       ).toHaveCount(0);
     },
   );
+
+  test('코멘트 탭 초안이 활동 탭 전환 후에도 유지된다', async ({ authenticatedPage: page }) => {
+    // 무엇을: 코멘트 작성 중 활동 탭 전환 후 코멘트 탭 복귀 시 초안 유지 검증.
+    // 왜: Radix TabsContent 는 기본 unmount → 초안 소실. forceMount 수정의 회귀 방지.
+    await mockIssueDetail(page, {});
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 코멘트 작성 textarea 에 초안 입력
+    const composer = page.getByPlaceholder('코멘트를 작성하세요');
+    await composer.fill('초안 테스트 텍스트');
+
+    // 활동 탭 → 코멘트 탭 순서로 전환
+    await page.getByRole('tab', { name: /활동/ }).click();
+    await page.getByRole('tab', { name: /코멘트/ }).click();
+
+    // forceMount 덕에 초안이 DOM 에 유지되어야 함
+    await expect(composer).toHaveValue('초안 테스트 텍스트');
+  });
 });
 
 // 반응형 레이아웃 — 좁은 화면(<lg) 세로 스택 검증 (Task 5, #343).
