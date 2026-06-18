@@ -186,4 +186,41 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(scope.isDone()).toBe(true);
     expect(out).toMatchObject({ id: 7, body: '본문', version: 3 });
   });
+
+  // --- #333 M2: 캘린더 읽기 ---
+
+  it('listEvents → GET /calendar/events?from&to with Internal+X-On-Behalf-Of, 배열 반환', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/calendar/events`)
+      .query({ from: '2026-06-19T00:00:00Z', to: '2026-06-26T00:00:00Z' })
+      .reply(200, [
+        {
+          id: 1, title: '회의', description: null,
+          startsAt: '2026-06-20T01:00:00Z', endsAt: '2026-06-20T02:00:00Z',
+          allDay: false, location: null, recurrenceRule: null,
+        },
+      ]);
+    const out = await newClient().listEvents(AGENT_ID, '2026-06-19T00:00:00Z', '2026-06-26T00:00:00Z');
+    expect(scope.isDone()).toBe(true);
+    expect(out).toHaveLength(1);
+    expect(out[0].title).toBe('회의');
+  });
+
+  it('getEvent → GET /calendar/events/{id} with X-On-Behalf-Of, 단건 반환', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/calendar/events/42`)
+      .reply(200, {
+        id: 42, title: '단건', description: '본문',
+        startsAt: '2026-06-20T01:00:00Z', endsAt: '2026-06-20T02:00:00Z',
+        allDay: false, location: '회의실', recurrenceRule: null,
+      });
+    const out = await newClient().getEvent(AGENT_ID, 42);
+    expect(scope.isDone()).toBe(true);
+    expect(out.id).toBe(42);
+    expect(out.location).toBe('회의실');
+  });
 });

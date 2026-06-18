@@ -26,6 +26,18 @@ export interface ChannelMessageItem {
   deleted: boolean;
 }
 
+// #333 M2: 캘린더 이벤트 단건(읽기 그라운딩).
+export interface CalendarEventItem {
+  id: number;
+  title: string;
+  description: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  location: string | null;
+  recurrenceRule: string | null;
+}
+
 // S2: 위키 검색 결과 한 건(읽기 그라운딩).
 export interface WikiSearchItem {
   id: number;
@@ -90,6 +102,9 @@ export interface WorkplaceApiClient {
   // S2: 위키 읽기 그라운딩
   searchWikiPages(agentId: number, query: string): Promise<WikiSearchItem[]>;
   getWikiPage(agentId: number, pageId: number): Promise<WikiPageContent>;
+  // #333 M2: 캘린더 읽기 — list/get. 쓰기(생성)는 서버측 confirm 실행기가 수행(에이전트는 propose 만).
+  listEvents(agentId: number, from: string, to: string): Promise<CalendarEventItem[]>;
+  getEvent(agentId: number, id: number): Promise<CalendarEventItem>;
   // 6c: 이슈 첨부
   listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
   downloadIssueAttachment(
@@ -250,6 +265,19 @@ export function createWorkplaceApiClient(opts: {
       );
       const list: AttachmentMeta[] = Array.isArray(r.data) ? r.data : [];
       return list;
+    },
+
+    // #333 M2: 캘린더 읽기 — list/get. 쓰기(생성)는 서버측 confirm 실행기가 수행(에이전트는 propose 만).
+    async listEvents(agentId, from, to) {
+      const r = await http.get(
+        `/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        onBehalfOf(agentId),
+      );
+      return Array.isArray(r.data) ? (r.data as CalendarEventItem[]) : [];
+    },
+    async getEvent(agentId, id) {
+      const r = await http.get(`/calendar/events/${id}`, onBehalfOf(agentId));
+      return r.data as CalendarEventItem;
     },
 
     async downloadIssueAttachment(agentId, issueKey, fileId) {
