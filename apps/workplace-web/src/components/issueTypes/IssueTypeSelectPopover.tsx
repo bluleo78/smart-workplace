@@ -30,7 +30,7 @@ export function IssueTypeSelectPopover({
           type="button"
           data-testid="issue-type-trigger"
           aria-label="유형 변경"
-          className="inline-flex"
+          className="inline-flex min-h-6"
         >
           <IssueTypeBadge type={current} />
         </button>

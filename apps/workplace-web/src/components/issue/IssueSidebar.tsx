@@ -103,7 +103,7 @@ export function IssueSidebar() {
             <NavLink
               to="/projects"
               aria-label="프로젝트 전체 보기"
-              className="text-muted-foreground hover:text-foreground"
+              className="p-1 text-muted-foreground hover:text-foreground"
             >
               <Plus className="h-4 w-4" />
             </NavLink>

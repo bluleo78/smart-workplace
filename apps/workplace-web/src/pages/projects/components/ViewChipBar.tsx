@@ -81,7 +81,7 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
                 <DropdownMenuTrigger
                   data-testid={`view-chip-menu-${v.id}`}
                   aria-label="뷰 메뉴"
-                  className="ml-0.5 hidden group-hover:inline-flex rounded p-1 text-muted-foreground hover:bg-accent"
+                  className="ml-0.5 hidden group-hover:inline-flex min-w-6 rounded p-1 text-muted-foreground hover:bg-accent"
                 >
                   ⋯
                 </DropdownMenuTrigger>
