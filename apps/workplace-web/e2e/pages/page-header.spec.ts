@@ -17,6 +17,8 @@ test.describe('PageHeader — 프로젝트 목록', () => {
     await expect(header).toBeVisible()
     await expect(header).toContainText('프로젝트')
     await expect(header).toHaveClass(/h-14/)
+    // 제목이 a11y heading(level 1)으로 노출돼야 한다 — span 이 아니라 h1 (refs #121).
+    await expect(header.getByRole('heading', { level: 1, name: '프로젝트' })).toBeVisible()
     await expect(header.getByRole('button', { name: '+ 새 프로젝트' })).toBeVisible()
   })
 })

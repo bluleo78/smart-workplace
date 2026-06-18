@@ -32,7 +32,7 @@ export function PageHeader({ title, icon, meta, actions, className, ...rest }: P
     >
       <div className="flex min-w-0 items-center gap-2">
         {icon}
-        <span className={cn(appTitleTextClass, 'truncate')}>{title}</span>
+        <h1 className={cn(appTitleTextClass, 'truncate')}>{title}</h1>
         {meta}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}

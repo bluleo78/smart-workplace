@@ -58,9 +58,9 @@ export function ChannelHeader({
       data-testid="channel-header"
     >
       {channel.visibility === 'PRIVATE' && <Lock className="h-4 w-4 text-muted-foreground" />}
-      <span className={appTitleTextClass} data-testid="channel-header-name">
+      <h1 className={appTitleTextClass} data-testid="channel-header-name">
         {channel.name}
-      </span>
+      </h1>
       {channel.archived && (
         <Badge variant="secondary" data-testid="channel-archived-badge">
           보관됨

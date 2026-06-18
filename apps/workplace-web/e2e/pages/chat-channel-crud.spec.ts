@@ -272,6 +272,8 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     const header = page.getByTestId('channel-header')
     await expect(header).toHaveClass(/h-14/)
     await expect(page.getByTestId('channel-header-name')).toBeVisible()
+    // 채널명이 a11y heading(level 1)으로 노출돼야 한다 — span 이 아니라 h1 (refs #121).
+    await expect(header.getByRole('heading', { level: 1, name: '헤더테스트' })).toBeVisible()
 
     // 설정 드롭다운이 열리고 이름변경 항목이 보임 — 기능 회귀 없음 확인.
     await page.getByTestId('channel-settings-btn').click()
