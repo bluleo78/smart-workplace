@@ -311,6 +311,32 @@ describe('buildTools(assistant) 연락처 도구 (M3)', () => {
   });
 });
 
+// #333 M3: 프로젝트 도구 — assistant union 멤버십 + propose 사이드카 테스트.
+describe('buildTools(assistant) 프로젝트 도구 (M3)', () => {
+  it('assistant union 에 프로젝트 도구(read 3 + propose 3) 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of ['list_projects', 'get_project', 'list_project_members', 'propose_create_project', 'propose_delete_project', 'propose_add_project_member']) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('propose_create_project 는 사이드카에 project.create_project 제안을 쓴다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-proj-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_create_project')!;
+      await tool.handler({ key: 'NEW', name: '새 프로젝트', summary: '"새 프로젝트"(NEW) 생성' });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('project.create_project');
+      expect(written.params.key).toBe('NEW');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분

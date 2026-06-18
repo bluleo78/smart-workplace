@@ -69,6 +69,25 @@ const createExternalContactInput = z.object(externalContactFields);
 const updateExternalContactInput = z.object({ id: z.number().int().positive(), ...externalContactFields });
 const proposeDeleteContactInput = z.object({ id: z.number().int().positive(), summary: z.string().min(1) });
 
+// #333 M3: 프로젝트 읽기/제안 입력.
+const listProjectsInput = z.object({ page: z.number().int().min(0).default(0), size: z.number().int().min(1).max(100).default(20) });
+const getProjectInput = z.object({ key: z.string().min(1) });
+const listProjectMembersInput = z.object({ key: z.string().min(1) });
+const proposeCreateProjectInput = z.object({
+  key: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/),
+  name: z.string().min(1).max(120),
+  description: z.string().max(2000).optional(),
+  type: z.string().optional(),
+  summary: z.string().min(1),
+});
+const proposeDeleteProjectInput = z.object({ key: z.string().min(1), summary: z.string().min(1) });
+const proposeAddProjectMemberInput = z.object({
+  key: z.string().min(1),
+  userId: z.number().int().positive(),
+  role: z.enum(['OWNER', 'MEMBER']),
+  summary: z.string().min(1),
+});
+
 // #333 M3: 메일 읽기 입력.
 const listMailInput = z.object({
   accountId: z.number().int().positive(),
@@ -470,6 +489,76 @@ export function buildTools(
     },
   };
 
+  // #333 M3: 프로젝트 읽기 도구 — assistant 프로파일 전용. 쓰기는 confirm 실행기(에이전트는 propose 만).
+  const listProjectsTool: McpTool = {
+    name: 'list_projects',
+    description: '프로젝트 목록을 JSON 으로 반환합니다. page/size 로 페이지네이션합니다.',
+    inputSchema: listProjectsInput,
+    async handler(args) {
+      const { page, size } = listProjectsInput.parse(args);
+      return JSON.stringify(await client.listProjects(agentId, page, size));
+    },
+  };
+  const getProjectTool: McpTool = {
+    name: 'get_project',
+    description: '프로젝트 상세(key·name·description·type)를 JSON 으로 반환합니다.',
+    inputSchema: getProjectInput,
+    async handler(args) {
+      const { key } = getProjectInput.parse(args);
+      return JSON.stringify(await client.getProject(agentId, key));
+    },
+  };
+  const listProjectMembersTool: McpTool = {
+    name: 'list_project_members',
+    description: '프로젝트 멤버 목록(userId·name·role)을 JSON 으로 반환합니다.',
+    inputSchema: listProjectMembersInput,
+    async handler(args) {
+      const { key } = listProjectMembersInput.parse(args);
+      return JSON.stringify(await client.listProjectMembers(agentId, key));
+    },
+  };
+
+  // #333 M3: 프로젝트 제안 도구 — API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환.
+  const proposeCreateProjectTool: McpTool = {
+    name: 'propose_create_project',
+    description: '프로젝트 생성을 제안합니다. 직접 생성하지 않고 확인 카드용 제안만 만듭니다. summary 에 한 줄 요약(이름·key)을 넣으세요. 승인 시 서버가 생성합니다.',
+    inputSchema: proposeCreateProjectInput,
+    async handler(args) {
+      const { summary, ...params } = proposeCreateProjectInput.parse(args);
+      const path = process.env.WORKPLACE_PENDING_ACTION_PATH;
+      if (!path) return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(path, JSON.stringify({ actionType: 'project.create_project', summary, params }), 'utf8');
+      return '프로젝트 생성 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+    },
+  };
+  const proposeDeleteProjectTool: McpTool = {
+    name: 'propose_delete_project',
+    description: '프로젝트 삭제(소프트)를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. summary 에 어떤 프로젝트인지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다.',
+    inputSchema: proposeDeleteProjectInput,
+    async handler(args) {
+      const { summary, ...params } = proposeDeleteProjectInput.parse(args);
+      const path = process.env.WORKPLACE_PENDING_ACTION_PATH;
+      if (!path) return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(path, JSON.stringify({ actionType: 'project.delete_project', summary, params }), 'utf8');
+      return '프로젝트 삭제 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+    },
+  };
+  const proposeAddProjectMemberTool: McpTool = {
+    name: 'propose_add_project_member',
+    description: '프로젝트 멤버 추가를 제안합니다. 직접 추가하지 않고 확인 카드용 제안만 만듭니다. summary 에 누구를 어떤 role 로 추가하는지 한 줄로 넣으세요. 승인 시 서버가 추가합니다.',
+    inputSchema: proposeAddProjectMemberInput,
+    async handler(args) {
+      const { summary, ...params } = proposeAddProjectMemberInput.parse(args);
+      const path = process.env.WORKPLACE_PENDING_ACTION_PATH;
+      if (!path) return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(path, JSON.stringify({ actionType: 'project.add_member', summary, params }), 'utf8');
+      return '멤버 추가 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+    },
+  };
+
   // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기+메일).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
@@ -489,6 +578,8 @@ export function buildTools(
       addChannelMessageTool,     // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       listMailTool, getMailTool, proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
       listContactsTool, getExternalContactTool, createExternalContactTool, updateExternalContactTool, proposeDeleteContactTool, // #333 M3: 연락처
+      listProjectsTool, getProjectTool, listProjectMembersTool,
+      proposeCreateProjectTool, proposeDeleteProjectTool, proposeAddProjectMemberTool, // #333 M3: 프로젝트
       ...buildShowTools(),
     ];
   }
