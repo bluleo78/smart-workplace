@@ -31,7 +31,7 @@ workplace:
       temp-expiry-hours: 24
   ai-agent:
     base-url: ${WORKPLACE_AI_AGENT_URL:http://localhost:7070}
-    internal-token: ${WORKPLACE_AI_AGENT_TOKEN:changeme-local}
+    internal-token: ${WORKPLACE_AI_AGENT_TOKEN}  # 기본값 없음 — 미설정 시 앱 기동 실패 (보안)
     enabled: ${WORKPLACE_AI_AGENT_ENABLED:true}
 
 app:

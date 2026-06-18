@@ -79,7 +79,7 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 | `local` | `workplace` (localhost:5434) | 개발 |
 | `test`  | `workplace_test` (localhost:5435) | 통합 테스트 격리 |
 
-환경변수 (프로덕션 필수): `JWT_SECRET` (Base64 256비트 이상), `ENCRYPTION_MASTER_KEY` (Base64 32바이트).
+환경변수 (프로덕션 필수): `JWT_SECRET` (Base64 256비트 이상), `ENCRYPTION_MASTER_KEY` (Base64 32바이트), `WORKPLACE_AI_AGENT_TOKEN` (AI Agent 내부 통신 토큰 — 기본값 없음, 미설정 시 기동 실패).
 
 ## Testing
 
