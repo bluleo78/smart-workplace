@@ -56,6 +56,9 @@ export interface DriveSpaceItem { id: number; name: string; role: string; }
 // #333 M3: 드라이브 노드(폴더/파일) 단건(읽기 그라운딩).
 export interface DriveNode { id: number; kind: 'FOLDER' | 'FILE'; name: string; updatedAt: string; }
 
+// #333 M4: 드라이브 폴더 생성/이름변경 응답 단건.
+export interface DriveFolderItem { id: number; parentId: number | null; name: string; createdAt: string; }
+
 // #333 M3: 외부연락처 생성/수정 입력 (선택 필드는 undefined 시 JSON 에서 생략).
 export interface ExternalContactInput {
   name: string;
@@ -182,6 +185,11 @@ export interface WorkplaceApiClient {
   listMySpaces(agentId: number): Promise<DriveSpaceItem[]>;
   listSpaceItems(agentId: number, spaceId: number, parentId?: number): Promise<DriveNode[]>;
   searchDrive(agentId: number, spaceId: number, q: string): Promise<DriveNode[]>;
+  // #333 M4: 드라이브 폴더/파일 쓰기 — 이동은 204(void).
+  createFolder(agentId: number, spaceId: number, parentId: number | null, name: string): Promise<DriveFolderItem>;
+  renameFolder(agentId: number, folderId: number, name: string): Promise<DriveFolderItem>;
+  moveFolder(agentId: number, folderId: number, targetParentId: number | null): Promise<void>;
+  moveFile(agentId: number, fileId: number, targetFolderId: number | null): Promise<void>;
   // 6c: 이슈 첨부
   listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
   downloadIssueAttachment(
@@ -436,6 +444,22 @@ export function createWorkplaceApiClient(opts: {
     async searchDrive(agentId, spaceId, q) {
       const r = await http.get(`/drive/spaces/${spaceId}/search?q=${encodeURIComponent(q)}`, onBehalfOf(agentId));
       return Array.isArray(r.data) ? (r.data as DriveNode[]) : [];
+    },
+
+    // #333 M4: 드라이브 폴더/파일 쓰기 — 이동은 204(void).
+    async createFolder(agentId, spaceId, parentId, name) {
+      const r = await http.post(`/drive/spaces/${spaceId}/folders`, { parentId: parentId ?? null, name }, onBehalfOf(agentId));
+      return r.data as DriveFolderItem;
+    },
+    async renameFolder(agentId, folderId, name) {
+      const r = await http.patch(`/drive/folders/${folderId}`, { name }, onBehalfOf(agentId));
+      return r.data as DriveFolderItem;
+    },
+    async moveFolder(agentId, folderId, targetParentId) {
+      await http.patch(`/drive/folders/${folderId}/move`, { targetParentId: targetParentId ?? null }, onBehalfOf(agentId));
+    },
+    async moveFile(agentId, fileId, targetFolderId) {
+      await http.patch(`/drive/files/${fileId}/move`, { targetFolderId: targetFolderId ?? null }, onBehalfOf(agentId));
     },
 
     async downloadIssueAttachment(agentId, issueKey, fileId) {

@@ -364,4 +364,75 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       expect(out[0].name).toBe('보고서.pdf');
     });
   });
+
+  // --- #333 M4: 드라이브 폴더/파일 쓰기 ---
+
+  describe('createFolder', () => {
+    it('POST /drive/spaces/{id}/folders 로 폴더 생성하고 DriveFolderItem 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .post(`${PREFIX}/drive/spaces/1/folders`, { parentId: null, name: '새 폴더' })
+        .reply(201, { id: 10, parentId: null, name: '새 폴더', createdAt: '2026-06-19T00:00:00Z' });
+      const out = await newClient().createFolder(AGENT_ID, 1, null, '새 폴더');
+      expect(scope.isDone()).toBe(true);
+      expect(out.id).toBe(10);
+      expect(out.parentId).toBeNull();
+      expect(out.name).toBe('새 폴더');
+    });
+
+    it('parentId 지정 시 body 에 포함', async () => {
+      const scope = nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .post(`${PREFIX}/drive/spaces/1/folders`, { parentId: 5, name: '하위 폴더' })
+        .reply(201, { id: 11, parentId: 5, name: '하위 폴더', createdAt: '2026-06-19T00:00:00Z' });
+      const out = await newClient().createFolder(AGENT_ID, 1, 5, '하위 폴더');
+      expect(scope.isDone()).toBe(true);
+      expect(out.parentId).toBe(5);
+    });
+  });
+
+  describe('renameFolder', () => {
+    it('PATCH /drive/folders/{id} 로 이름 변경하고 DriveFolderItem 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/folders/10`, { name: '변경 폴더' })
+        .reply(200, { id: 10, parentId: null, name: '변경 폴더', createdAt: '2026-06-19T00:00:00Z' });
+      const out = await newClient().renameFolder(AGENT_ID, 10, '변경 폴더');
+      expect(scope.isDone()).toBe(true);
+      expect(out.name).toBe('변경 폴더');
+    });
+  });
+
+  describe('moveFolder', () => {
+    it('PATCH /drive/folders/{id}/move 로 폴더 이동(void)', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/folders/10/move`, { targetParentId: 3 })
+        .reply(204);
+      await newClient().moveFolder(AGENT_ID, 10, 3);
+      expect(scope.isDone()).toBe(true);
+    });
+
+    it('targetParentId null 로 루트 이동(void)', async () => {
+      const scope = nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/folders/10/move`, { targetParentId: null })
+        .reply(204);
+      await newClient().moveFolder(AGENT_ID, 10, null);
+      expect(scope.isDone()).toBe(true);
+    });
+  });
+
+  describe('moveFile', () => {
+    it('PATCH /drive/files/{id}/move 로 파일 이동(void)', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/files/5/move`, { targetFolderId: 10 })
+        .reply(204);
+      await newClient().moveFile(AGENT_ID, 5, 10);
+      expect(scope.isDone()).toBe(true);
+    });
+
+    it('targetFolderId null 로 루트 이동(void)', async () => {
+      const scope = nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/files/5/move`, { targetFolderId: null })
+        .reply(204);
+      await newClient().moveFile(AGENT_ID, 5, null);
+      expect(scope.isDone()).toBe(true);
+    });
+  });
 });

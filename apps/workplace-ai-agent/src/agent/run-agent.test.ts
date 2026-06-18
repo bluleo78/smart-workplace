@@ -47,6 +47,10 @@ function client(token: string | Error): WorkplaceApiClient {
     listMySpaces: vi.fn().mockResolvedValue([]),
     listSpaceItems: vi.fn().mockResolvedValue([]),
     searchDrive: vi.fn().mockResolvedValue([]),
+    createFolder: vi.fn().mockResolvedValue({} as never),
+    renameFolder: vi.fn().mockResolvedValue({} as never),
+    moveFolder: vi.fn().mockResolvedValue(undefined),
+    moveFile: vi.fn().mockResolvedValue(undefined),
   };
 }
 
