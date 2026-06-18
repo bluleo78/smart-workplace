@@ -18,10 +18,11 @@ import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AiContext;
 import java.util.List;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 메일 AI 오케스트레이션(7d): 분류(동기화 잡 best-effort)·요약(캐시)·답장 초안. 모든 경로는 계정 ai_enabled 게이트. 비서 사양은 home 과
@@ -29,7 +30,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class MailAiService {
 
   /** 분류 허용 카테고리(미지 값은 폐기). */
@@ -41,6 +41,23 @@ public class MailAiService {
   private final AiAgentMailClient mailClient;
   private final EmailMessageRepository messageRepo;
   private final AssistantResolver assistantResolver;
+
+  /**
+   * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
+   * RLS GUC(app.tenant_id) 가 주입된다.
+   */
+  private final TransactionTemplate txTemplate;
+
+  public MailAiService(
+      AiAgentMailClient mailClient,
+      EmailMessageRepository messageRepo,
+      AssistantResolver assistantResolver,
+      PlatformTransactionManager txManager) {
+    this.mailClient = mailClient;
+    this.messageRepo = messageRepo;
+    this.assistantResolver = assistantResolver;
+    this.txTemplate = new TransactionTemplate(txManager);
+  }
 
   /** 동기화 잡용 비서 사양. 미설정이면 null → 분류 생략(예외 전파 안 함). */
   public AssistantSpec resolveSpecOrNull(long userId) {
@@ -82,16 +99,17 @@ public class MailAiService {
   /**
    * 메일 요약(캐시 우선). 캐시 없으면 ai-agent 호출 후 저장. ai_enabled=false 면 503.
    *
-   * <p>RLS 도입 후 @Transactional(read-write) 필수 — app_tenant 런타임에서 GUC 미주입 시 첫 RLS 스코프 SELECT 가 빈 결과
-   * → 거짓 404. updateSummary 캐시 쓰기를 동반하므로 read-write. <b>트레이드오프</b>: 캐시 미스 경로에서 LLM 호출(최대 90s) 동안 DB
-   * 커넥션을 점유한다 — 짧은-트랜잭션(읽기/캐시쓰기를 분리한 별도 빈) 리팩터링은 후속 과제(#230 보고서 참조).
+   * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬이라 컨텍스트 조회·캐시 쓰기만 짧은 트랜잭션({@code txTemplate})으로 감싼다 — 없으면 첫
+   * RLS 스코프 SELECT 가 빈 결과 → 거짓 404. LLM 호출(최대 90s)은 트랜잭션 밖에서 수행해 DB 커넥션을 그 동안 점유하지 않는다(#232). 비서 사양
+   * 해석 ({@link AssistantResolver#resolve})은 자체 @Transactional(readOnly) 로 GUC 를 주입하므로 별도 래핑이 필요 없다.
    */
-  @Transactional
   public MailSummary summarize(long userId, long messageId) {
     AiContext ctx =
-        messageRepo
-            .findAiContextByIdAndUser(userId, messageId)
-            .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
+        txTemplate.execute(
+            status ->
+                messageRepo
+                    .findAiContextByIdAndUser(userId, messageId)
+                    .orElseThrow(() -> new EmailMessageNotFoundException(messageId)));
     requireEnabled(ctx);
     if (ctx.summary() != null && !ctx.summary().isBlank()) {
       return new MailSummary(ctx.summary());
@@ -108,7 +126,7 @@ public class MailAiService {
                 spec.model(),
                 MAX_TURNS,
                 spec.timeoutMs()));
-    messageRepo.updateSummary(messageId, r.summary());
+    txTemplate.executeWithoutResult(status -> messageRepo.updateSummary(messageId, r.summary()));
     return new MailSummary(r.summary());
   }
 
