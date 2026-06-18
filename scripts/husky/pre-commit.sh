@@ -78,5 +78,13 @@ else
 fi
 
 # 7) Gradle — 모든 코드 변경 케이스에서 실행. build-cache 로 변경 없으면 즉시 통과.
+#    변경된 Java 파일이 있으면 spotlessCheck 로 Google Java Format 드리프트를 커밋 단계에서 차단
+#    (test 는 spotless 에 의존하지 않아 포맷 누락이 build/CI 까지 새던 문제 — 실패 시 `./gradlew :spotlessApply` 안내).
 [ -n "$PRECOMMIT_DRY_RUN" ] && { echo "[pre-commit][dry-run] gradle test skip"; exit 0; }
-cd apps/workplace-api && ./gradlew test -x generateJooq --build-cache --configuration-cache
+JAVA_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-api/src/(main|test)/java/.*\.java$' || true)
+cd apps/workplace-api
+if [ -n "$JAVA_CHANGED" ]; then
+  ./gradlew spotlessCheck test -x generateJooq --build-cache --configuration-cache
+else
+  ./gradlew test -x generateJooq --build-cache --configuration-cache
+fi
