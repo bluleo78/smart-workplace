@@ -343,7 +343,6 @@ export default function IssueDetailPage() {
             <IssuePropertyRail
               projectKey={key}
               issueNumber={issueNumber}
-              issueId={summary.id}
               isSubtask={isSubtask}
               parent={summary.parent}
               status={summary.status}

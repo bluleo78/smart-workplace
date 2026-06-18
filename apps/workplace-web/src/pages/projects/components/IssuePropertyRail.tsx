@@ -28,7 +28,6 @@ import { IssueStatusSelect } from './IssueStatusSelect';
 interface IssuePropertyRailProps {
   projectKey: string;
   issueNumber: number;
-  issueId: number;            // summary.id
   isSubtask: boolean;
   parent: ParentRef | null;   // summary.parent
   status: IssueStatus;        // summary.status
@@ -71,7 +70,7 @@ export function IssuePropertyRail({
 }: IssuePropertyRailProps) {
   // 분류·관계 그룹 배지 — 라벨 + 의존성(양방향) + 커스텀 필드 합산.
   const classificationCount =
-    labels.length + blockedBy.length + blocks.length + (customFields?.length ?? 0);
+    labels.length + blockedBy.length + blocks.length + customFields.length;
 
   return (
     <div className="space-y-2">
