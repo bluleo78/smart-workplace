@@ -248,6 +248,29 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   });
 
+  // --- #333 M3: 연락처 조회/생성/수정 ---
+
+  describe('listContacts', () => {
+    it('GET /contacts?search&limit 로 통합 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/contacts`).query({ search: '김', limit: '20' })
+        .reply(200, [{ id: 1, kind: 'EXTERNAL', name: '김거래', email: 'k@x.com', organization: 'X사' }]);
+      const out = await newClient().listContacts(7, '김', undefined, 20);
+      expect(out[0].name).toBe('김거래');
+      scope.done();
+    });
+  });
+
+  describe('createExternalContact', () => {
+    it('POST /contacts/external 로 생성하고 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .post(`${PREFIX}/contacts/external`, { name: '신규', email: 'n@x.com', visibility: 'SHARED' })
+        .reply(201, { id: 9, kind: 'EXTERNAL', name: '신규', email: 'n@x.com', organization: null });
+      const out = await newClient().createExternalContact(7, { name: '신규', email: 'n@x.com', visibility: 'SHARED' });
+      expect(out.id).toBe(9);
+    });
+  });
+
   // --- #333 M3: 위키 페이지 생성/수정 ---
 
   it('createWikiPage → POST /wiki/spaces/{id}/pages 로 생성하고 본문 반환', async () => {

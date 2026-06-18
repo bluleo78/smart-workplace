@@ -37,6 +37,10 @@ function client(token: string | Error): WorkplaceApiClient {
     updateWikiPage: vi.fn().mockResolvedValue({} as never),
     listMail: vi.fn().mockResolvedValue([]),
     getMail: vi.fn().mockResolvedValue({} as never),
+    listContacts: vi.fn().mockResolvedValue([]),
+    getExternalContact: vi.fn().mockResolvedValue({} as never),
+    createExternalContact: vi.fn().mockResolvedValue({} as never),
+    updateExternalContact: vi.fn().mockResolvedValue({} as never),
   };
 }
 

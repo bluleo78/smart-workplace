@@ -26,6 +26,26 @@ export interface ChannelMessageItem {
   deleted: boolean;
 }
 
+// #333 M3: 연락처 단건(읽기 그라운딩 + 내부 쓰기).
+export interface ContactItem {
+  id: number;
+  kind: 'MEMBER' | 'EXTERNAL';
+  name: string;
+  email: string | null;
+  organization: string | null;
+}
+
+// #333 M3: 외부연락처 생성/수정 입력 (선택 필드는 undefined 시 JSON 에서 생략).
+export interface ExternalContactInput {
+  name: string;
+  email?: string;
+  phone?: string;
+  organization?: string;
+  title?: string;
+  notes?: string;
+  visibility: 'SHARED' | 'PERSONAL';
+}
+
 // #333 M3: 메일 메시지 목록 단건(읽기 그라운딩).
 export interface MailMessageItem {
   id: number;
@@ -128,6 +148,11 @@ export interface WorkplaceApiClient {
   // #333 M3: 메일 읽기 — list/get. 발송은 confirm 실행기가 수행(에이전트는 propose 만).
   listMail(agentId: number, accountId: number, folder: string, query: string | undefined, limit: number): Promise<MailMessageItem[]>;
   getMail(agentId: number, messageId: number): Promise<MailMessageDetail>;
+  // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
+  listContacts(agentId: number, search: string | undefined, type: string | undefined, limit: number): Promise<ContactItem[]>;
+  getExternalContact(agentId: number, id: number): Promise<ContactItem>;
+  createExternalContact(agentId: number, input: ExternalContactInput): Promise<ContactItem>;
+  updateExternalContact(agentId: number, id: number, input: ExternalContactInput): Promise<ContactItem>;
   // 6c: 이슈 첨부
   listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
   downloadIssueAttachment(
@@ -332,6 +357,27 @@ export function createWorkplaceApiClient(opts: {
     async getMail(agentId, messageId) {
       const r = await http.get(`/mail/messages/${messageId}`, onBehalfOf(agentId));
       return r.data as MailMessageDetail;
+    },
+
+    // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
+    async listContacts(agentId, search, type, limit) {
+      const qs = new URLSearchParams({ limit: String(limit) });
+      if (search) qs.set('search', search);
+      if (type) qs.set('type', type);
+      const r = await http.get(`/contacts?${qs.toString()}`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as ContactItem[]) : [];
+    },
+    async getExternalContact(agentId, id) {
+      const r = await http.get(`/contacts/external/${id}`, onBehalfOf(agentId));
+      return r.data as ContactItem;
+    },
+    async createExternalContact(agentId, input) {
+      const r = await http.post(`/contacts/external`, input, onBehalfOf(agentId));
+      return r.data as ContactItem;
+    },
+    async updateExternalContact(agentId, id, input) {
+      const r = await http.patch(`/contacts/external/${id}`, input, onBehalfOf(agentId));
+      return r.data as ContactItem;
     },
 
     async downloadIssueAttachment(agentId, issueKey, fileId) {
