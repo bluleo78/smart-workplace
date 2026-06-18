@@ -81,4 +81,22 @@ describe('loadSubagents', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // 회귀 테스트: 백슬래시+따옴표 인접 값의 serialize→load 라운드트립 검증.
+  // 구버전 멀티-패스 unescape(\"→" 먼저, \\→\ 나중)는 \\\" 를 잘못 디코딩한다.
+  it('백슬래시+따옴표 인접 description 의 serializeSubagent→loadSubagents 라운드트립', () => {
+    // JS 문자열 값: C:\path "q" end  (백슬래시와 따옴표가 인접)
+    const original = 'C:\\path "q" end';
+    const root = mkdtempSync(path.join(tmpdir(), 'sa-rt-'));
+    try {
+      const def: SubagentDefinition = { description: original, tools: [], prompt: '# body\n' };
+      const agentDir = path.join(root, 'rt-agent');
+      mkdirSync(agentDir, { recursive: true });
+      writeFileSync(path.join(agentDir, 'agent.md'), serializeSubagent('rt-agent', def), 'utf8');
+      const loaded = loadSubagents(root);
+      expect(loaded['rt-agent'].description).toBe(original);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

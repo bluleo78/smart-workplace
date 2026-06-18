@@ -92,7 +92,11 @@ function parseFrontmatter(content: string): { frontmatter: Frontmatter; body: st
       i = j;
       continue;
     }
-    const unquoted = val.replace(/^"(.*)"$/, '$1').replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+    // 단일-패스 unescape: yamlDoubleQuoted 는 \→\\ → "→\" → \n→\\n 순으로 직렬화한다.
+    // 멀티-패스(먼저 \"→" 후 \\→\)는 인접 이스케이프 시퀀스(\\\" 등)를 잘못 디코딩할 수 있으므로,
+    // 각 백슬래시-이스케이프를 정확히 한 번씩 소비하는 단일-패스로 교체한다.
+    const inner = val.replace(/^"(.*)"$/s, '$1');
+    const unquoted = inner.replace(/\\(["\\n])/g, (_m, c) => (c === 'n' ? '\n' : c));
     if (key === 'description') fm.description = unquoted;
     else if (key === 'maxTurns') fm.maxTurns = Number(val);
     else if (key === 'model') fm.model = unquoted;
