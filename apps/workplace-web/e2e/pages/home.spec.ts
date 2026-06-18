@@ -171,6 +171,28 @@ test('대시보드 — 위젯 헤더 클릭 시 딥링크로 이동한다', asyn
   await expect(link).toHaveAttribute('href', '/mail')
 })
 
+test('대시보드 — 알림 위젯 헤더 클릭 시 라우팅 대신 인박스 패널이 열린다 (refs #274)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  const widget = page.locator('[data-widget="notifications"]')
+  // 헤더는 더 이상 딥링크(/me/tasks/assigned)가 아니다 — 링크가 없어야 한다(버그: 알림과 무관한 화면 이동).
+  await expect(widget.getByRole('link', { name: '알림' })).toHaveCount(0)
+  // 패널은 처음엔 닫혀 있다(Radix Popover — 닫힘 시 미렌더).
+  await expect(page.getByTestId('inbox-panel')).toHaveCount(0)
+
+  // 헤더는 링크가 아니라 버튼 — 클릭하면 알림 인박스 패널을 연다.
+  await widget.getByRole('button', { name: '알림' }).click()
+
+  // 알림 인박스 패널이 열리고 알림 목록을 보여준다. URL 은 홈에 머문다(전용 알림 라우트 없음).
+  await expect(page.getByTestId('inbox-panel')).toBeVisible()
+  await expect(page.getByTestId('inbox-item').first()).toContainText('리뷰 요청 이슈')
+  await expect(page).toHaveURL(/\/$/)
+})
+
 test('대시보드 — 안 읽은 대화 위젯 제목과 빈 상태 문구가 일치한다 (refs #272)', async ({
   authenticatedPage: page,
 }) => {

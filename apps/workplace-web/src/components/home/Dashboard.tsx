@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, Pencil, Plus, Undo2 } from 'lucide-rea
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { useInboxPanel } from '@/components/layout/InboxContext'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -20,9 +21,19 @@ import { allDashboardWidgets, type DashboardWidget, getDashboardWidget } from '.
 // 항목 수 선택지 — 백엔드 화이트리스트({3,5,10})와 일치.
 const COUNT_OPTIONS = [3, 5, 10] as const
 
-/** 위젯 한 칸 — 카드 프레임(헤더 클릭 시 딥링크) + 격리된 본문. tall 위젯은 2행 span. */
+/** 위젯 한 칸 — 카드 프레임(헤더 클릭 시 딥링크 또는 인박스 패널) + 격리된 본문. tall 위젯은 2행 span. */
 function WidgetCard({ widget, count }: { widget: DashboardWidget; count: number }) {
   const { title, icon: Icon, Component, deepLink, tall } = widget
+  // 알림처럼 deepLink 가 없는 위젯은 헤더 클릭 시 AppRail 의 인박스 패널을 연다(#274).
+  const { openInbox } = useInboxPanel()
+  const headerClassName =
+    'flex items-center gap-2 text-muted-foreground hover:text-ai-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm'
+  const headerInner = (
+    <>
+      <Icon className="h-4 w-4" />
+      <CardTitle className="text-sm font-medium">{title}</CardTitle>
+    </>
+  )
   return (
     <Card
       // 피드성(tall) 위젯은 lg 에서 2행을 차지(게이트 §1.2). 인덱스 하드코딩이 아닌 정의 속성 기반.
@@ -31,14 +42,16 @@ function WidgetCard({ widget, count }: { widget: DashboardWidget; count: number 
       data-widget={widget.type}
     >
       <CardHeader className="pb-2">
-        {/* 제목/아이콘 클릭 시 해당 모듈로 이동(딥링크). */}
-        <Link
-          to={deepLink}
-          className="flex items-center gap-2 text-muted-foreground hover:text-ai-accent"
-        >
-          <Icon className="h-4 w-4" />
-          <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        </Link>
+        {/* deepLink 있으면 모듈 이동(Link), 없으면 인박스 패널 오픈(button) — SynthesisLayer 의 CountCell 과 동일 패턴. */}
+        {deepLink ? (
+          <Link to={deepLink} className={headerClassName}>
+            {headerInner}
+          </Link>
+        ) : (
+          <button type="button" onClick={() => openInbox()} className={headerClassName}>
+            {headerInner}
+          </button>
+        )}
       </CardHeader>
       <CardContent>
         {/* 본문 lazy 로드 — 위젯별 스켈레톤으로 폴백(격리). count = 표시 항목 수. */}

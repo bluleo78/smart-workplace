@@ -22,14 +22,15 @@ export interface DashboardWidget {
   // 본문은 자체 훅으로 로딩/에러를 격리 처리(한 위젯 실패가 다른 위젯에 영향 X).
   // count prop = 표시할 항목 수(3·5·10). 미지정 시 본문 기본값 5.
   Component: LazyExoticComponent<ComponentType<{ count?: number }>>
-  deepLink: string
+  // 모듈 딥링크. 알림처럼 전용 라우트가 없는 위젯은 미지정 → 헤더 클릭 시 인박스 패널을 연다.
+  deepLink?: string
   // 피드성 위젯은 그리드에서 2행을 차지(row-span). 게이트 §1.2: 활동/알림만 tall.
   tall?: boolean
 }
 
 // 키 → 위젯 정의. 새 위젯 추가 = 항목 한 줄.
 // 딥링크는 App.tsx 라우트에서 검증: /me/tasks/assigned · /calendar · /chat · /mail.
-// 알림은 전용 라우트가 없어(인박스 패널) 가장 합당한 기존 대상으로 /me/tasks/assigned 사용.
+// 알림은 전용 라우트가 없어 deepLink 미지정 → 헤더 클릭 시 인박스 패널(Popover)을 연다(#274).
 const dashboardRegistry: Record<string, DashboardWidget> = {
   my_tasks: {
     type: 'my_tasks',
@@ -50,7 +51,6 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     title: '알림',
     icon: Bell,
     Component: lazy(() => import('./dashboard/NotificationsBody')),
-    deepLink: '/me/tasks/assigned',
     // 활동/알림은 피드성 → 2행 span(게이트 §1.2). 그 외 위젯은 standard.
     tall: true,
   },
