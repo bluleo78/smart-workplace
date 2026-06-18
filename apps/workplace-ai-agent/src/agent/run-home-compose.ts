@@ -3,7 +3,7 @@
 // + 화이트리스트 강제(위반 시 kill+throw) + Agent 위임 시 onProgress 라벨 발행.
 // 데이터 조회는 show_* 도구가 하지 않으므로 토큰은 순수 Claude LLM 인증용(데이터 권한과 무관).
 // 모델/생각의 깊이/maxTurns/timeoutMs 는 workplace-api 가 비서 설정을 해석해 요청 본문으로 전달한다(#50).
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { HOME_SYSTEM_PROMPT } from './home-system-prompt.js';
@@ -50,7 +50,7 @@ export async function runHomeComposeStream(
   onText: (t: string) => void,
   signal: AbortSignal,
   onProgress?: (label: string) => void, // #333: Agent 위임 시작 시 호출('이슈 전문가에게 위임 중')
-): Promise<{ fullText: string; widgets: unknown }> {
+): Promise<{ fullText: string; widgets: unknown; pendingAction: unknown | null }> {
   const agentId = input.assistantAgentId;
   const token = (await deps.client.getOAuthToken(agentId)).token;
   // #333: workDir·mcpConfigPath 를 try 블록 안에서 생성해 writeTempMcpConfig 실패 시
@@ -62,11 +62,13 @@ export async function runHomeComposeStream(
     // #333: 요청마다 임시 작업 디렉토리 생성. .claude/agents/*.md 자동발견 경로.
     // finally 에서 rmSync 로 한 번에 정리해 temp 누수 방지.
     workDir = mkdtempSync(path.join(tmpdir(), `assistant-${agentId}-`));
+    const pendingActionPath = path.join(workDir, 'pending-action.json');
     mcpConfigPath = writeTempMcpConfig({
       agentId,
       baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
       internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
       profile: 'assistant', // home 프로파일 → assistant 프로파일로 교체(#333)
+      pendingActionPath, // #333 M2: propose 핸들러가 제안을 쓸 사이드카(절대경로)
     });
     // #333: 서브에이전트 정의를 workDir 안 .claude/agents/ 에 기록 + 허용 이름 집합 산출.
     const subagents = loadSubagents();
@@ -148,9 +150,18 @@ export async function runHomeComposeStream(
       handle.kill();
       throw new Error(policyDeny);
     }
+    // #333 M2: propose 도구가 사이드카에 제안을 썼으면 읽어 pendingAction 으로 싣는다(스트림 파싱 불가 — collapsed Agent tool_result).
+    let pendingAction: unknown | null = null;
+    if (existsSync(pendingActionPath)) {
+      try {
+        pendingAction = JSON.parse(readFileSync(pendingActionPath, 'utf8'));
+      } catch {
+        pendingAction = null; // 파싱 실패는 무시(확인 카드 없이 진행)
+      }
+    }
     // parseComposeLines 로 최종 message(result 이벤트) + widgets(tool_use 이벤트) 산출.
     const parsed = parseComposeLines(lines);
-    return { fullText: parsed.message || fullText, widgets: parsed.widgets.length > 0 ? parsed.widgets : null };
+    return { fullText: parsed.message || fullText, widgets: parsed.widgets.length > 0 ? parsed.widgets : null, pendingAction };
   } finally {
     // Finding 2: null 가드 — writeTempMcpConfig/mkdtempSync 가 throw 하면 미생성 변수는 정리 생략.
     if (mcpConfigPath) cleanupTempMcpConfig(mcpConfigPath);

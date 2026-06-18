@@ -63,6 +63,10 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         },
       );
       if (!aborted) {
+        // #333 M2: pending_action 을 done 앞에 발행(결정적 순서) — 확인 카드.
+        if (result.pendingAction) {
+          res.write(`event: pending_action\ndata: ${JSON.stringify(result.pendingAction)}\n\n`);
+        }
         res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets })}\n\n`);
         res.end();
       }
