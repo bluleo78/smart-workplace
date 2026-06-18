@@ -4,7 +4,7 @@
 // Phase 5: 스레드 답글 라우팅(parentMessageId) + 리액션 이벤트 패치.
 
 import { type InfiniteData, type QueryClient, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { getAccessToken, refreshAccessToken } from '../api/client';
 import { applyReaction } from '../lib/reactions';
@@ -140,11 +140,17 @@ function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentU
   }
 }
 
-export function useMessageStream(currentUserId: number) {
+/**
+ * messaging SSE 구독 훅. { isConnected } 를 반환해 소비 컴포넌트가 재연결 중 배너를 표시할 수 있다.
+ * isConnected: 스트림이 활성 읽기 중이면 true, 끊김/재연결 대기 중이면 false.
+ */
+export function useMessageStream(currentUserId: number): { isConnected: boolean } {
   const qc = useQueryClient();
   // read 이벤트 필터(본인 읽음만 invalidate)용 — ref 로 보관해 재연결(스트림 재구독) 없이 최신값 참조.
   // 렌더 중 ref 쓰기(부작용) 대신 effect 에서 동기화한다 — 매 렌더 후 최신값 반영.
   const currentUserIdRef = useRef(currentUserId);
+  // SSE 연결 상태 — 연결 성공(스트림 활성) true, 끊김/재연결 대기 false
+  const [isConnected, setIsConnected] = useState(false);
   useEffect(() => {
     currentUserIdRef.current = currentUserId;
   });
@@ -188,6 +194,7 @@ export function useMessageStream(currentUserId: number) {
         }
         if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
         attempt = 0;
+        setIsConnected(true); // 스트림 활성 — 연결됨
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -228,9 +235,11 @@ export function useMessageStream(currentUserId: number) {
             else if (field === 'data') currentData = currentData ? `${currentData}\n${val}` : val;
           }
         }
+        setIsConnected(false); // 스트림 종료 — 재연결 예정
         if (!cancelled) scheduleReconnect();
       } catch (error) {
         if ((error as Error).name === 'AbortError' || cancelled) return;
+        setIsConnected(false); // 오류로 끊김 — 재연결 예정
         scheduleReconnect();
       }
     };
@@ -241,5 +250,7 @@ export function useMessageStream(currentUserId: number) {
       controller?.abort();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [qc]);
+  }, [qc, setIsConnected]);
+
+  return { isConnected };
 }

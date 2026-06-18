@@ -316,6 +316,60 @@ test.describe('MessageComposer 전송 실패 입력 보존', () => {
   });
 });
 
+// SSE 재연결 배너(#167) — 스트림이 끊긴 경우 배너가 표시된다.
+test('SSE 끊김 시 재연결 배너가 표시된다 (#167)', async ({ authenticatedPage: page }) => {
+  const channel = createChannel({ id: CHANNEL_ID, member: true });
+
+  // 채널 목록 모킹
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/channels',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([channel]),
+      });
+    },
+  );
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(channel),
+      });
+    },
+  );
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
+      });
+    },
+  );
+
+  // SSE 스트림 503 — isConnected=false 유지 → 배너 항상 보임
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/stream',
+    (route) => route.fulfill({ status: 503 }),
+  );
+
+  await page.goto(`/chat/channels/${CHANNEL_ID}`);
+
+  // SSE 연결 실패 시 배너가 표시되어야 한다
+  await expect(page.getByTestId('chat-reconnecting-banner')).toBeVisible();
+  // 배너 텍스트 및 ARIA 속성 검증
+  await expect(page.getByTestId('chat-reconnecting-banner')).toHaveAttribute('role', 'status');
+  await expect(page.getByTestId('chat-reconnecting-banner')).toContainText('실시간 연결 중');
+});
+
 // LNB 표준화(#98) — 대화 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
 test('대화 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
   await setupChannelStubs(page, [createChannel({ id: CHANNEL_ID, member: true })], `:\n\n`);
