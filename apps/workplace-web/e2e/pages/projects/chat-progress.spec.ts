@@ -170,6 +170,11 @@ test(
     // ── 페이지 진입 ────────────────────────────────────────────────────────
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
+    // 채팅 패널 펼치기 — 빈 스레드는 #343 레이아웃에서 기본 접힘이라
+    // IssueChatSection(SSE 구독·버블 렌더)이 미마운트된다. 펼쳐야 progress 를 수신.
+    // (접힘 상태에서의 라이브 AI 반영·미읽음 배지는 #352에서 개선 예정)
+    await page.getByTestId('issue-chat-panel-open').click();
+
     // ── 단언 1: 유령 버블이 보이고 도구 단계 레이블 포함 ─────────────────
     // Playwright 자동 대기 — live SSE 인스턴스가 progress 수신 후 React 렌더 완료까지 대기.
     await expect(page.getByTestId('ai-working-bubble')).toBeVisible();
