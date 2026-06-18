@@ -29,8 +29,7 @@ test.describe('메일 작성·발송', () => {
     )
 
     await page.goto('/mail/1')
-    // chat-launcher 고정 버튼이 상단을 덮으므로 dispatchEvent 로 클릭 이벤트 직접 전달.
-    await page.getByTestId('mail-compose-new').dispatchEvent('click')
+    await page.getByTestId('mail-compose-new').click()
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
 
     await page.getByTestId('mail-compose-to').fill('rcpt@test.local')
@@ -124,7 +123,7 @@ test.describe('메일 작성·발송', () => {
     await mockApi(page, 'GET', '/api/v1/projects', [])
 
     await page.goto('/mail/1')
-    await page.getByTestId('mail-compose-new').dispatchEvent('click')
+    await page.getByTestId('mail-compose-new').click()
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
 
     // 수신자·제목 입력 후 모듈 이탈 (앱 레일 클릭 → SPA 클라이언트 내비게이션).
@@ -148,7 +147,7 @@ test.describe('메일 작성·발송', () => {
   test('작성 도크 입력 필드 키보드 포커스 이동 (focus-visible ring)', async ({ authenticatedPage: page }) => {
     // Tab 키로 받는사람 → 제목 필드 이동 시 각 필드에 포커스가 잡혀야 한다 (#303).
     await page.goto('/mail/1')
-    await page.getByTestId('mail-compose-new').dispatchEvent('click')
+    await page.getByTestId('mail-compose-new').click()
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
 
     // 받는사람 클릭 후 Tab × 2 → 제목 필드 이동 검증
