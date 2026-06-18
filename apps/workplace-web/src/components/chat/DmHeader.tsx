@@ -14,9 +14,9 @@ export function DmHeader({ dm, currentUserId }: DmHeaderProps) {
   const hasAgent = dm.participants.some((p) => p.kind === 'AGENT' && p.userId !== currentUserId)
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4" data-testid="dm-header">
-      <span className={appTitleTextClass} data-testid="dm-title">
+      <h1 className={appTitleTextClass} data-testid="dm-title">
         {dmDisplayName(dm, currentUserId)}
-      </span>
+      </h1>
       {hasAgent && <AgentBadge size="xs" />}
       {dm.participants.length > 2 && (
         <span className="text-xs text-muted-foreground">{dm.participants.length}명</span>
