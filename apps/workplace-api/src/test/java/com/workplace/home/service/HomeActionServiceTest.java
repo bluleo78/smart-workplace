@@ -27,7 +27,6 @@ import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
@@ -43,12 +42,6 @@ class HomeActionServiceTest extends IntegrationTestBase {
   @Autowired DriveSpaceService driveSpaceService;
   @Autowired DriveFolderService driveFolderService;
   @Autowired DriveFileService driveFileService;
-
-  /** 드라이브 RLS(app.tenant_id GUC)를 통과하려면 TenantContext 를 설정해야 한다. */
-  @BeforeEach
-  void setTenantContext() {
-    TenantContext.set(1L);
-  }
 
   /** ThreadLocal 누수 방지. */
   @AfterEach
@@ -359,6 +352,8 @@ class HomeActionServiceTest extends IntegrationTestBase {
   @Test
   void drive_delete_folder_확인_시_휴지통으로_이동() throws Exception {
     // 팀 공간 생성 후 폴더를 drive.delete_folder 로 soft-delete(휴지통). trashed_at 세팅 확인.
+    // 드라이브 테이블 RLS — 이 테스트만 테넌트 컨텍스트 필요
+    TenantContext.set(1L);
     long caller = userWith();
     DriveSpaceResponse space = driveSpaceService.createTeamSpace(caller, "테스트 팀 공간");
     DriveFolderResponse folder = driveFolderService.create(caller, space.id(), null, "삭제 대상 폴더");
@@ -392,6 +387,8 @@ class HomeActionServiceTest extends IntegrationTestBase {
   @Test
   void drive_delete_file_확인_시_휴지통으로_이동() throws Exception {
     // 팀 공간 생성 후 파일 업로드 → drive.delete_file 로 soft-delete(휴지통). trashed_at 세팅 확인.
+    // 드라이브 테이블 RLS — 이 테스트만 테넌트 컨텍스트 필요
+    TenantContext.set(1L);
     long caller = userWith();
     DriveSpaceResponse space = driveSpaceService.createTeamSpace(caller, "파일 테스트 공간");
     MockMultipartFile multipart =
