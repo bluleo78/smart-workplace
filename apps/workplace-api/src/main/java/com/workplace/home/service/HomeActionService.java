@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.calendar.dto.CalendarEventRequest;
+import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.contacts.service.ContactService;
 import com.workplace.global.security.PermissionChecker;
@@ -14,6 +15,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -66,7 +68,9 @@ public class HomeActionService {
               "contact:write"), // 실재 시드 코드 — owner/ADMIN 경계는 ContactService 가 추가 강제
           Map.entry("project.create_project", "project:write"), // #333 M3 — 프로젝트 생성
           Map.entry("project.delete_project", "project:manage"), // #333 M3 — 소프트삭제(OWNER 경계 추가 강제)
-          Map.entry("project.add_member", "project:manage")); // #333 M3 — 멤버 추가(OWNER 경계 추가 강제)
+          Map.entry("project.add_member", "project:manage"), // #333 M3 — 멤버 추가(OWNER 경계 추가 강제)
+          Map.entry("calendar.update_event", "calendar:write"), // #333 M4 — 일정 수정
+          Map.entry("calendar.delete_event", "calendar:write")); // #333 M4 — 일정 삭제
 
   /**
    * 확인 카드 승인 실행 — 지원 여부 확인 → 권한 검사(필요 시) → 매핑·검증 → 도메인 실행. 결과 객체 반환(컨트롤러가 201).
@@ -121,6 +125,27 @@ public class HomeActionService {
       AddMemberRequest req = mapAndValidate(paramsWithoutKey, AddMemberRequest.class);
       return projectService.addMember(callerId, key, req);
     }
+    if ("calendar.update_event".equals(actionType)) {
+      // id/scope/occurrenceDate 는 CalendarEventRequest 밖 파라미터 → 분리 추출 후 본문만 매핑(unknown-property
+      // 방지).
+      long id = requireLong(params, "id");
+      EditScope scope = parseScope(params); // 기본 ALL
+      OffsetDateTime occ = parseOffsetDateTime(params, "occurrenceDate"); // 없으면 null
+      ObjectNode body = (ObjectNode) params.deepCopy();
+      body.remove("id");
+      body.remove("scope");
+      body.remove("occurrenceDate");
+      CalendarEventRequest req = mapAndValidate(body, CalendarEventRequest.class);
+      return calendarEventService.update(callerId, id, req, scope, occ);
+    }
+    if ("calendar.delete_event".equals(actionType)) {
+      // id/scope/occurrenceDate 추출 후 CalendarEventService.delete 위임. 서비스가 requireOwner 강제.
+      long id = requireLong(params, "id");
+      EditScope scope = parseScope(params);
+      OffsetDateTime occ = parseOffsetDateTime(params, "occurrenceDate");
+      calendarEventService.delete(callerId, id, scope, occ);
+      return Map.of("deleted", id);
+    }
     throw new IllegalArgumentException("지원하지 않는 actionType: " + actionType);
   }
 
@@ -153,6 +178,38 @@ public class HomeActionService {
       throw new IllegalArgumentException("필수 파라미터 누락: " + field);
     }
     return params.get(field).asText();
+  }
+
+  /**
+   * params 에서 필수 Long 필드를 추출한다. null/비어있으면 IllegalArgumentException.
+   *
+   * <p>id 같은 숫자 식별자를 params 에서 별도 추출할 때 사용.
+   */
+  private long requireLong(JsonNode params, String field) {
+    if (params == null || !params.hasNonNull(field)) {
+      throw new IllegalArgumentException("필수 파라미터 누락: " + field);
+    }
+    return params.get(field).asLong();
+  }
+
+  /**
+   * params 에서 scope 필드를 EditScope 로 변환. 없으면 EditScope.ALL 반환.
+   *
+   * <p>반복 일정 수정/삭제 범위. 단일 일정에는 ALL(기본값)을 사용한다.
+   */
+  private EditScope parseScope(JsonNode params) {
+    if (params == null || !params.hasNonNull("scope")) return EditScope.ALL;
+    return EditScope.valueOf(params.get("scope").asText());
+  }
+
+  /**
+   * params 에서 ISO-8601 OffsetDateTime 필드를 파싱. 없으면 null 반환.
+   *
+   * <p>반복 일정에서 특정 발생일(occurrenceDate)을 지정할 때 사용. 단일 일정이면 null 전달.
+   */
+  private OffsetDateTime parseOffsetDateTime(JsonNode params, String field) {
+    if (params == null || !params.hasNonNull(field)) return null;
+    return OffsetDateTime.parse(params.get(field).asText());
   }
 
   /** JsonNode→DTO 변환 후 bean-validation 명시 수행(@Valid 바인딩 밖이라 자동 발동 안 함). */

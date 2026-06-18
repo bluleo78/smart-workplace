@@ -242,6 +242,75 @@ class HomeActionServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void calendar_update_event_확인_시_일정_수정하고_결과_반환() throws Exception {
+    // calendar:write 로 일정 생성 후 동일 호출자가 수정 — update 는 requireOwner 내부 강제.
+    long caller = userWith("calendar:read", "calendar:write");
+    // 먼저 일정 생성
+    CalendarEventResponse created =
+        (CalendarEventResponse)
+            service.confirm(
+                caller,
+                "calendar.create_event",
+                params(
+                    "{\"title\":\"원본 제목\",\"startsAt\":\"2026-07-01T09:00:00Z\",\"endsAt\":\"2026-07-01T10:00:00Z\",\"allDay\":false}"));
+    long eventId = created.id();
+    // update — id/scope/occurrenceDate 포함 params
+    Object result =
+        service.confirm(
+            caller,
+            "calendar.update_event",
+            params(
+                "{\"id\":"
+                    + eventId
+                    + ",\"title\":\"수정된 제목\",\"startsAt\":\"2026-07-01T09:00:00Z\",\"endsAt\":\"2026-07-01T11:00:00Z\",\"allDay\":false}"));
+    assertThat(result).isInstanceOf(CalendarEventResponse.class);
+    assertThat(((CalendarEventResponse) result).title()).isEqualTo("수정된 제목");
+  }
+
+  @Test
+  void calendar_update_event_write권한_없으면_AccessDenied() throws Exception {
+    // calendar:write 없으면 RBAC 게이트에서 먼저 403.
+    long caller = userWith("calendar:read"); // write 없음
+    assertThatThrownBy(
+            () ->
+                service.confirm(
+                    caller,
+                    "calendar.update_event",
+                    params(
+                        "{\"id\":1,\"title\":\"x\",\"startsAt\":\"2026-07-01T09:00:00Z\",\"endsAt\":\"2026-07-01T10:00:00Z\",\"allDay\":false}")))
+        .isInstanceOf(AccessDeniedException.class);
+  }
+
+  @Test
+  void calendar_delete_event_확인_시_삭제하고_deleted_id_반환() throws Exception {
+    // calendar:write 로 일정 생성 후 삭제 — delete 는 requireOwner 내부 강제.
+    long caller = userWith("calendar:read", "calendar:write");
+    CalendarEventResponse created =
+        (CalendarEventResponse)
+            service.confirm(
+                caller,
+                "calendar.create_event",
+                params(
+                    "{\"title\":\"삭제 대상\",\"startsAt\":\"2026-07-02T09:00:00Z\",\"endsAt\":\"2026-07-02T10:00:00Z\",\"allDay\":false}"));
+    long eventId = created.id();
+    // delete
+    Object result =
+        service.confirm(caller, "calendar.delete_event", params("{\"id\":" + eventId + "}"));
+    assertThat(result).isInstanceOf(Map.class);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> res = (Map<String, Object>) result;
+    assertThat(res.get("deleted")).isEqualTo(eventId);
+  }
+
+  @Test
+  void calendar_delete_event_write권한_없으면_AccessDenied() throws Exception {
+    // calendar:write 없으면 RBAC 게이트에서 먼저 403.
+    long caller = userWith("calendar:read"); // write 없음
+    assertThatThrownBy(() -> service.confirm(caller, "calendar.delete_event", params("{\"id\":1}")))
+        .isInstanceOf(AccessDeniedException.class);
+  }
+
+  @Test
   void project_add_member_확인_시_멤버추가() throws Exception {
     // project:write + project:manage 로 프로젝트 생성 후 다른 사용자 멤버 추가.
     long caller = userWith("project:read", "project:write", "project:manage");
