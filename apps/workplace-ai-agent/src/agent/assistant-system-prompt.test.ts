@@ -66,6 +66,13 @@ describe('drive-agent 라우팅·라벨 (M3)', () => {
   });
 });
 
+describe('한-턴-한-제안 가드 (M3 final-review)', () => {
+  it('한 턴에 propose_* 제안은 하나만 허용한다는 지침이 포함된다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('propose_');
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/제안은 하나만|하나만.*제안/s);
+  });
+});
+
 describe('delegationLabel', () => {
   it('issue-agent → 이슈 전문가에게 위임 중', () => {
     expect(delegationLabel('issue-agent')).toBe('이슈 전문가에게 위임 중');
