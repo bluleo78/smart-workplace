@@ -224,6 +224,30 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(out.location).toBe('회의실');
   });
 
+  // --- #333 M3: 메일 읽기 ---
+
+  describe('listMail', () => {
+    it('GET /mail/accounts/{id}/messages?folder&query&limit 로 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/mail/accounts/5/messages`)
+        .query({ folder: 'INBOX', query: '청구서', limit: '20' })
+        .reply(200, [{ id: 1, subject: '청구서', fromAddress: 'a@x.com', snippet: '...', receivedAt: '2026-06-19T00:00:00Z', seen: false }]);
+      const out = await newClient().listMail(7, 5, 'INBOX', '청구서', 20);
+      expect(out[0].subject).toBe('청구서');
+      scope.done();
+    });
+  });
+
+  describe('getMail', () => {
+    it('GET /mail/messages/{id} 로 본문 포함 단건 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/mail/messages/42`)
+        .reply(200, { id: 42, subject: '제목', fromAddress: 'a@x.com', snippet: 's', receivedAt: '2026-06-19T00:00:00Z', seen: true, bodyText: '본문', bodyHtml: null, toAddresses: ['me@x.com'] });
+      const out = await newClient().getMail(7, 42);
+      expect(out.bodyText).toBe('본문');
+    });
+  });
+
   // --- #333 M3: 위키 페이지 생성/수정 ---
 
   it('createWikiPage → POST /wiki/spaces/{id}/pages 로 생성하고 본문 반환', async () => {

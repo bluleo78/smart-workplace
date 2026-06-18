@@ -26,6 +26,23 @@ export interface ChannelMessageItem {
   deleted: boolean;
 }
 
+// #333 M3: 메일 메시지 목록 단건(읽기 그라운딩).
+export interface MailMessageItem {
+  id: number;
+  subject: string | null;
+  fromAddress: string | null;
+  snippet: string | null;
+  receivedAt: string;
+  seen: boolean;
+}
+
+// #333 M3: 메일 메시지 상세 — 본문(text/html) + 수신자 목록 포함.
+export interface MailMessageDetail extends MailMessageItem {
+  bodyText: string | null;
+  bodyHtml: string | null;
+  toAddresses: string[];
+}
+
 // #333 M2: 캘린더 이벤트 단건(읽기 그라운딩).
 export interface CalendarEventItem {
   id: number;
@@ -108,6 +125,9 @@ export interface WorkplaceApiClient {
   // #333 M2: 캘린더 읽기 — list/get. 쓰기(생성)는 서버측 confirm 실행기가 수행(에이전트는 propose 만).
   listEvents(agentId: number, from: string, to: string): Promise<CalendarEventItem[]>;
   getEvent(agentId: number, id: number): Promise<CalendarEventItem>;
+  // #333 M3: 메일 읽기 — list/get. 발송은 confirm 실행기가 수행(에이전트는 propose 만).
+  listMail(agentId: number, accountId: number, folder: string, query: string | undefined, limit: number): Promise<MailMessageItem[]>;
+  getMail(agentId: number, messageId: number): Promise<MailMessageDetail>;
   // 6c: 이슈 첨부
   listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
   downloadIssueAttachment(
@@ -300,6 +320,18 @@ export function createWorkplaceApiClient(opts: {
     async getEvent(agentId, id) {
       const r = await http.get(`/calendar/events/${id}`, onBehalfOf(agentId));
       return r.data as CalendarEventItem;
+    },
+
+    // #333 M3: 메일 읽기 — list/get. 발송은 서버측 confirm 실행기가 수행(에이전트는 propose 만).
+    async listMail(agentId, accountId, folder, query, limit) {
+      const qs = new URLSearchParams({ folder, limit: String(limit) });
+      if (query) qs.set('query', query);
+      const r = await http.get(`/mail/accounts/${accountId}/messages?${qs.toString()}`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as MailMessageItem[]) : [];
+    },
+    async getMail(agentId, messageId) {
+      const r = await http.get(`/mail/messages/${messageId}`, onBehalfOf(agentId));
+      return r.data as MailMessageDetail;
     },
 
     async downloadIssueAttachment(agentId, issueKey, fileId) {

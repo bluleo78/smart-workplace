@@ -38,6 +38,8 @@ function client(): WorkplaceApiClient {
     getEvent: vi.fn().mockResolvedValue({}),
     createWikiPage: vi.fn().mockResolvedValue({}),
     updateWikiPage: vi.fn().mockResolvedValue({}),
+    listMail: vi.fn().mockResolvedValue([]),
+    getMail: vi.fn().mockResolvedValue({}),
   };
 }
 
