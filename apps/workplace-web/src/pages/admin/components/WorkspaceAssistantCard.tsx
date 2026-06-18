@@ -40,9 +40,9 @@ export function WorkspaceAssistantCard() {
   const handleModelChange = async (model: string) => {
     try {
       await updateSettings.mutateAsync({ model });
-      toast.success('공용 비서 설정을 변경했어요.');
+      toast.success('공용 비서 설정을 변경했습니다.');
     } catch (e) {
-      handleApiError(e, '공용 비서 설정 변경에 실패했어요.');
+      handleApiError(e, '공용 비서 설정 변경에 실패했습니다.');
     }
   };
 
@@ -50,9 +50,9 @@ export function WorkspaceAssistantCard() {
   const handleDepthChange = async (thinkingDepth: ThinkingDepth) => {
     try {
       await updateSettings.mutateAsync({ thinkingDepth });
-      toast.success('공용 비서 설정을 변경했어요.');
+      toast.success('공용 비서 설정을 변경했습니다.');
     } catch (e) {
-      handleApiError(e, '공용 비서 설정 변경에 실패했어요.');
+      handleApiError(e, '공용 비서 설정 변경에 실패했습니다.');
     }
   };
 
@@ -63,10 +63,10 @@ export function WorkspaceAssistantCard() {
         <CardDescription>홈을 기본으로 담당하는 워크스페이스 비서예요.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* 담당 AGENT 지정 */}
+        {/* 담당 에이전트 지정 */}
         <div className="space-y-1">
           <label className="text-sm font-medium" htmlFor="workspace-assistant-agent">
-            담당 AGENT
+            담당 에이전트
           </label>
           <select
             id="workspace-assistant-agent"

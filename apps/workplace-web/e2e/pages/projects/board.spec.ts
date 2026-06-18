@@ -328,12 +328,12 @@ test.describe('태스크 보드/검색', () => {
     const card = page.getByTestId('board-col-TODO').getByTestId('issue-card-1');
     await expect(card).toBeVisible();
 
-    // AGENT 아바타: Bot 마커가 붙고 accessible name 에 이름 + (AGENT) 가 모두 포함.
+    // 에이전트 아바타: Bot 마커가 붙고 accessible name 에 이름 + (에이전트) 가 모두 포함.
     const agentAvatar = card.getByTestId('user-avatar-10');
     await expect(agentAvatar).toBeVisible();
     const agentMarker = card.getByTestId('user-avatar-10-agent-marker');
     await expect(agentMarker).toBeVisible();
-    await expect(agentAvatar).toHaveAttribute('aria-label', 'My AI (AGENT)');
+    await expect(agentAvatar).toHaveAttribute('aria-label', 'My AI (에이전트)');
     await expect(agentAvatar).toHaveAttribute('data-agent', 'true');
     // #208: AGENT 표식 색을 ai-accent 토큰으로 통일(raw purple 회귀 방지).
     await expect(agentAvatar).toHaveClass(/ring-ai-accent/);

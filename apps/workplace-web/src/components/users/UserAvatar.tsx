@@ -36,7 +36,7 @@ export function UserAvatar({
   const seed = user.name || user.username || '?';
   const initial = avatarInitials(seed);
   // AGENT 면 aria-label/title 에 AGENT 표기를 덧붙여 사람 담당자와 구분되게 한다.
-  const label = agent ? `${user.name} (AGENT)` : user.name;
+  const label = agent ? `${user.name} (에이전트)` : user.name;
   // 겹침(-space-x-1) 상황에서도 보이도록 ring 은 AI 강조색으로, 마커는 겹침의 윗면인
   // 우하단 모서리에 배치한다. ring 두께는 AGENT 강조를 위해 사람보다 한 단계 두껍게.
   // #208: raw purple → 시맨틱 토큰 ai-accent(라이트/다크 자동). AGENT 표식 색 통일.

@@ -16,9 +16,9 @@ export function AgentBadge({ size = 'sm' }: AgentBadgeProps) {
     <span
       className={`inline-flex items-center gap-1 rounded ${padding} bg-ai-accent-subtle text-ai-accent`}
       data-testid="agent-badge"
-      aria-label="AGENT 사용자"
+      aria-label="에이전트 사용자"
     >
-      <Bot className="h-3 w-3" /> AGENT
+      <Bot className="h-3 w-3" /> 에이전트
     </span>
   );
 }
