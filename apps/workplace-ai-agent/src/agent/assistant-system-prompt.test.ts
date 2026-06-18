@@ -24,4 +24,11 @@ describe('delegationLabel', () => {
     expect(delegationLabel('general-purpose')).toBeNull();
     expect(delegationLabel('')).toBeNull();
   });
+  it('위임 테이블에 calendar-agent 행이 포함된다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('calendar-agent');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('일정');
+  });
+  it('calendar-agent → 캘린더 전문가에게 위임 중', () => {
+    expect(delegationLabel('calendar-agent')).toBe('캘린더 전문가에게 위임 중');
+  });
 });

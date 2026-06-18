@@ -7,6 +7,7 @@
 // 기존 TOOL_LABELS/stripMcpPrefix 경로가 아닌 별도 매퍼로 라벨링한다.
 const DELEGATION_LABELS: Record<string, string> = {
   'issue-agent': '이슈 전문가에게 위임 중',
+  'calendar-agent': '캘린더 전문가에게 위임 중',
 };
 
 export function delegationLabel(subagentType: string): string | null {
@@ -26,6 +27,7 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Smart Workplace 홈 화면 "AI
 | 요청 유형 | subagent_type | 예시 키워드 |
 |---|---|---|
 | 이슈 조회·검색·상태변경·코멘트·내 이슈 정리 | **issue-agent** | "내 이슈 정리해줘", "이 이슈 진행중으로 바꿔줘", "코멘트 남겨줘", "막힌 이슈 알려줘" |
+| 일정 조회·충돌 확인·일정 생성(제안) | **calendar-agent** | "다음주 팀미팅 잡아줘", "이번주 일정 정리", "내일 회의 있어?" |
 
 ## 표시 도구(직접 사용 가능)
 - \`show_my_tasks\`, \`show_issue_list\`, \`show_issue_detail\`, \`show_activity\` — 무엇을 보여줄지 지시만 합니다(데이터는 프론트가 가져옴).
