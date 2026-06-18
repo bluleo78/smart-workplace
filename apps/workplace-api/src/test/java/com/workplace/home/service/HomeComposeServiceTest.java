@@ -88,7 +88,7 @@ class HomeComposeServiceTest extends IntegrationTestBase {
               return null;
             })
         .when(composeClient)
-        .composeStream(any(), any(), any(), any());
+        .composeStream(any(), any(), any(), any(), any(), any());
 
     SseEmitter emitter = composeService.composeStream(uid, null, "내 할 일");
     assertThat(emitter).isNotNull();
@@ -134,13 +134,13 @@ class HomeComposeServiceTest extends IntegrationTestBase {
               return null;
             })
         .when(composeClient)
-        .composeStream(any(), any(), any(), any());
+        .composeStream(any(), any(), any(), any(), any(), any());
 
     composeService.composeStream(uid, s.id(), "그 중 HIGH 만");
     assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ArgumentCaptor<ComposeRequest> captor = ArgumentCaptor.forClass(ComposeRequest.class);
-    verify(composeClient).composeStream(captor.capture(), any(), any(), any());
+    verify(composeClient).composeStream(captor.capture(), any(), any(), any(), any(), any());
     ComposeRequest sent = captor.getValue();
     assertThat(sent.query()).isEqualTo("그 중 HIGH 만");
     // recentContext: 직전 2개(USER/ASSISTANT) 텍스트만, 현재 query 는 미포함.

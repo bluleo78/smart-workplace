@@ -129,7 +129,11 @@ public class HomeComposeService {
                   msg -> {
                     trySend(emitter, "error", Map.of("message", msg));
                     emitter.complete();
-                  });
+                  },
+                  // #333 M2: progress — 위임 라벨을 클라이언트에 패스스루
+                  label -> trySend(emitter, "progress", Map.of("label", label)),
+                  // #333 M2: pending_action — 확인 카드 제안 객체를 raw JSON 으로 패스스루
+                  node -> trySend(emitter, "pending_action", node));
             });
 
     // 7) emitter 생명주기 → 펌프 취소(자원 누수 방지).

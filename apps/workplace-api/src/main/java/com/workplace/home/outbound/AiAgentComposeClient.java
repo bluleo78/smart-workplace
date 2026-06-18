@@ -61,18 +61,24 @@ public class AiAgentComposeClient {
    *   <li>{@code event: delta} 의 text 토큰 → {@code onDelta}
    *   <li>{@code event: done} 의 fullText/widgets → {@code onDone}
    *   <li>{@code event: error} 또는 비200 응답 → {@code onError} 콜백 후 정상 반환(호출자가 SSE error 전송)
+   *   <li>{@code event: progress} 의 label 문자열 → {@code onProgress} (중간 이벤트, 루프 계속)
+   *   <li>{@code event: pending_action} 의 raw JSON → {@code onPendingAction} (중간 이벤트, 루프 계속)
    * </ul>
    *
    * @param request 직렬화될 에이전트 요청 본문
    * @param onDelta delta 텍스트 토큰 콜백
    * @param onDone done 이벤트 콜백 — fullText, widgets(nullable JsonNode)
    * @param onError 오류 메시지 콜백
+   * @param onProgress 위임 진행 라벨 콜백 (#333 M2)
+   * @param onPendingAction 확인 카드 제안 객체 콜백, raw JsonNode (#333 M2)
    */
   public void composeStream(
       ComposeRequest request,
       Consumer<String> onDelta,
       BiConsumer<String, JsonNode> onDone,
-      Consumer<String> onError) {
+      Consumer<String> onError,
+      Consumer<String> onProgress,
+      Consumer<JsonNode> onPendingAction) {
     try {
       HttpRequest req =
           HttpRequest.newBuilder()
@@ -122,7 +128,20 @@ public class AiAgentComposeClient {
             event = line.substring("event:".length()).trim();
           } else if (line.startsWith("data:")) {
             String data = line.substring("data:".length()).trim();
-            if ("delta".equals(event)) {
+            if ("progress".equals(event)) {
+              // #333 M2: 위임 진행 라벨 — 중간 이벤트이므로 콜백 후 루프 계속(return X).
+              String label = parseProgressLabel(data);
+              if (label != null) {
+                onProgress.accept(label);
+              }
+            } else if ("pending_action".equals(event)) {
+              // #333 M2: 확인 카드용 제안 객체. 타입 계약은 confirm 엔드포인트가 소유하므로
+              // 프록시는 raw JsonNode 로만 흘린다(widgets 와 동일 무계약 패스스루). 루프 계속.
+              JsonNode node = parsePendingAction(data);
+              if (node != null) {
+                onPendingAction.accept(node);
+              }
+            } else if ("delta".equals(event)) {
               String t = parseDeltaText(data);
               if (t != null) {
                 onDelta.accept(t);
@@ -180,6 +199,27 @@ public class AiAgentComposeClient {
       JsonNode node = mapper.readTree(data);
       JsonNode w = node.get("widgets");
       return (w != null && !w.isNull()) ? w : null;
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  /** {@code {"label":"..."}} 에서 label 추출. 형식이 다르면 null. */
+  private String parseProgressLabel(String data) {
+    try {
+      JsonNode node = mapper.readTree(data);
+      JsonNode label = node.get("label");
+      return (label != null && label.isTextual()) ? label.asText() : null;
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  /** pending_action data 전체를 JsonNode 로 파싱(actionType/summary/params). 파싱 실패 시 null. */
+  private JsonNode parsePendingAction(String data) {
+    try {
+      JsonNode node = mapper.readTree(data);
+      return (node != null && node.isObject()) ? node : null;
     } catch (Exception e) {
       return null;
     }

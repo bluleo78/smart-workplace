@@ -18,8 +18,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * 로컬 HttpServer 스텁으로 SSE 를 실제 소켓에 흘려보내고, AiAgentComposeClient(composeStream) 가 delta/done/error 를
- * 올바르게 처리하는지 검증한다. WikiAiAgentStreamClientTest 와 동일한 패턴.
+ * 로컬 HttpServer 스텁으로 SSE 를 실제 소켓에 흘려보내고, AiAgentComposeClient(composeStream) 가
+ * delta/done/error/progress/pending_action 을 올바르게 처리하는지 검증한다. WikiAiAgentStreamClientTest 와 동일한 패턴.
  */
 class AiAgentComposeClientTest {
 
@@ -83,7 +83,9 @@ class AiAgentComposeClientTest {
         },
         msg -> {
           throw new AssertionError("예상치 못한 오류: " + msg);
-        });
+        },
+        label -> {},
+        node -> {});
 
     assertThat(deltas).containsExactly("안녕", "하세요");
     assertThat(done).isTrue();
@@ -96,7 +98,8 @@ class AiAgentComposeClientTest {
     boot(body, 200);
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
-    client.composeStream(dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set);
+    client.composeStream(
+        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {});
 
     assertThat(errorMsg.get()).contains("실패");
   }
@@ -107,7 +110,8 @@ class AiAgentComposeClientTest {
     boot("{\"error\":\"home_composer_not_configured\"}", 503);
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
-    client.composeStream(dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set);
+    client.composeStream(
+        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {});
 
     assertThat(errorMsg.get()).contains("설정되지 않");
   }
@@ -117,8 +121,54 @@ class AiAgentComposeClientTest {
     boot("{\"error\":\"invalid_payload\"}", 400);
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
-    client.composeStream(dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set);
+    client.composeStream(
+        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {});
 
     assertThat(errorMsg.get()).isNotNull();
+  }
+
+  @Test
+  void progress_이벤트는_onProgress_로_전달하고_스트림은_계속된다() {
+    String body =
+        "event: progress\ndata: {\"label\":\"캘린더 전문가에게 위임 중\"}\n\n"
+            + "event: delta\ndata: {\"text\":\"네\"}\n\n"
+            + "event: done\ndata: {\"fullText\":\"네\",\"widgets\":null}\n\n";
+    boot(body, 200);
+
+    java.util.List<String> progress = new ArrayList<>();
+    java.util.List<String> deltas = new ArrayList<>();
+    AtomicBoolean done = new AtomicBoolean(false);
+    client.composeStream(
+        dummyReq(),
+        deltas::add,
+        (ft, w) -> done.set(true),
+        msg -> {
+          throw new AssertionError("예상치 못한 오류: " + msg);
+        },
+        progress::add,
+        node -> {
+          throw new AssertionError("예상치 못한 pending_action: " + node);
+        });
+
+    // progress 가 전달되고, 그 뒤 delta/done 까지 정상 소비(중간 이벤트가 루프를 끊지 않음).
+    assertThat(progress).containsExactly("캘린더 전문가에게 위임 중");
+    assertThat(deltas).containsExactly("네");
+    assertThat(done).isTrue();
+  }
+
+  @Test
+  void pending_action_이벤트는_raw_JsonNode_로_onPendingAction_에_전달() {
+    String body =
+        "event: pending_action\ndata: {\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시 회의\",\"params\":{\"title\":\"회의\"}}\n\n"
+            + "event: done\ndata: {\"fullText\":\"제안했어요\",\"widgets\":null}\n\n";
+    boot(body, 200);
+
+    AtomicReference<com.fasterxml.jackson.databind.JsonNode> pending = new AtomicReference<>();
+    client.composeStream(dummyReq(), d -> {}, (ft, w) -> {}, msg -> {}, label -> {}, pending::set);
+
+    assertThat(pending.get()).isNotNull();
+    assertThat(pending.get().get("actionType").asText()).isEqualTo("calendar.create_event");
+    assertThat(pending.get().get("summary").asText()).isEqualTo("내일 10시 회의");
+    assertThat(pending.get().get("params").get("title").asText()).isEqualTo("회의");
   }
 }
