@@ -64,6 +64,43 @@ class MailMessageServiceTest extends IntegrationTestBase {
     assertThat(messageRepo.findBodyTarget(accountId, id).orElseThrow().bodyFetchedAt()).isNotNull();
   }
 
+  /** get() 호출 시 seen=false → true 로 자동 업데이트(읽음 처리) + 반환 DTO 도 seen=true. */
+  @Test
+  void get_marksSeen_whenUnseen() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "읽음처리 테스트", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+    long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
+
+    // 동기화 직후 seen=false 이어야 함
+    assertThat(messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).seen()).isFalse();
+
+    EmailMessageDetail d = messageService.get(user, id);
+
+    // 반환 DTO 에도 seen=true 반영
+    assertThat(d.seen()).isTrue();
+    // DB 도 seen=true 로 업데이트됨
+    assertThat(messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).seen()).isTrue();
+  }
+
+  /** get() 재호출 시 이미 읽은 메시지는 중복 업데이트 없이 정상 반환. */
+  @Test
+  void get_idempotent_whenAlreadySeen() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "이미읽음 테스트", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+    long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
+
+    messageService.get(user, id); // 1회 → seen=true
+    EmailMessageDetail d2 = messageService.get(user, id); // 2회 → 정상 반환
+
+    assertThat(d2.seen()).isTrue();
+  }
+
   /** 동기화 진행 상태 스냅샷(미동기화 계정은 IDLE). 소유 검증 통과. */
   @Test
   void syncStatus_returnsSnapshot() {

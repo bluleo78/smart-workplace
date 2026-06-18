@@ -1,11 +1,12 @@
 // 받은편지함/보낸편지함 목록·상세 조회 + 동기화·발송 mutation.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { toast } from 'sonner';
 
 import { generateReplyDraft, getMailSummary, getMessage, getSyncStatus, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
-import type { MailFolder, MailSendRequest } from '../../types/mailMessage';
+import type { EmailMessageSummary, MailFolder, MailSendRequest } from '../../types/mailMessage';
 
 export const mailMessageKeys = {
   list: (accountId: number, folder: MailFolder, query: string) =>
@@ -28,13 +29,26 @@ export function useMailMessages(
   });
 }
 
-/** 메시지 단건 상세. messageId 가 없으면 비활성. */
+/** 메시지 단건 상세. messageId 가 없으면 비활성. 성공 시 목록 캐시의 seen 플래그를 낙관적으로 동기화(읽음 처리). */
 export function useMailMessage(messageId: number | null) {
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: mailMessageKeys.detail(messageId ?? 0),
     queryFn: () => getMessage(messageId as number),
     enabled: !!messageId,
   });
+
+  // 상세 조회 성공 시 모든 목록 캐시에서 해당 메시지의 seen=true 로 업데이트
+  useEffect(() => {
+    if (query.isSuccess && messageId) {
+      qc.setQueriesData<EmailMessageSummary[]>(
+        { queryKey: ['mail-messages'], exact: false },
+        (old) => old?.map((msg) => (msg.id === messageId ? { ...msg, seen: true } : msg)),
+      );
+    }
+  }, [query.isSuccess, messageId, qc]);
+
+  return query;
 }
 
 /** 메일 요약 — 열람 시 자동 조회(계정 AI 사용 + messageId 있을 때만). */

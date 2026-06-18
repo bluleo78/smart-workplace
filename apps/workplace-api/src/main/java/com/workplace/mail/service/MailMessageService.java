@@ -12,7 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 받은편지함 읽기(목록·검색·상세). 모든 조회는 본인 소유 계정/메시지로 격리한다. 읽기 전용 — \Seen 등 서버 상태 변경은 하지 않는다(v1). */
+/** 받은편지함 조회(목록·검색·상세). 모든 조회는 본인 소유 계정/메시지로 격리한다. 단건 조회(get) 시 DB seen=true 자동 업데이트(읽음 처리). */
 @Service
 @RequiredArgsConstructor
 public class MailMessageService {
@@ -64,6 +64,27 @@ public class MailMessageService {
           messageRepo
               .findDetailByIdAndUser(userId, messageId)
               .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
+    }
+    // 읽음 처리 — seen=false 인 메시지를 true 로 업데이트하고 DTO 도 동기화
+    if (!detail.seen()) {
+      messageRepo.markSeen(messageId);
+      detail =
+          new EmailMessageDetail(
+              detail.id(),
+              detail.threadId(),
+              detail.messageId(),
+              detail.fromAddress(),
+              detail.fromName(),
+              detail.toAddresses(),
+              detail.ccAddresses(),
+              detail.bccAddresses(),
+              detail.subject(),
+              detail.sentAt(),
+              detail.receivedAt(),
+              true, // seen=true
+              detail.bodyText(),
+              detail.bodyHtml(),
+              detail.attachments());
     }
     return detail;
   }

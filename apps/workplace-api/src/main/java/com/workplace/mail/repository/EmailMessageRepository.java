@@ -274,6 +274,15 @@ public class EmailMessageRepository {
                     r.get(EMAIL_ATTACHMENT.CONTENT_ID)));
   }
 
+  /** 메시지 읽음 처리 — seen=true 로 업데이트. 이미 읽은 건은 스킵(SEEN.isFalse 조건). */
+  public void markSeen(long messageId) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.SEEN, true)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .execute();
+  }
+
   /** 분류 결과 저장(동기화 잡, best-effort). */
   public void updateClassification(long messageId, String category, boolean needsReply) {
     dsl.update(EMAIL_MESSAGE)
