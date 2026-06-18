@@ -221,6 +221,31 @@ describe('buildTools(assistant)', () => {
   });
 });
 
+// #333 M3: wiki 쓰기 도구 — assistant union 멤버십 + 핸들러 단위 테스트.
+describe('buildTools(assistant) wiki 쓰기 도구 (M3)', () => {
+  it('assistant union 에 위키 쓰기 도구(create_wiki_page/update_wiki_page)를 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    expect(names).toContain('create_wiki_page');
+    expect(names).toContain('update_wiki_page');
+  });
+
+  it('create_wiki_page 핸들러가 client.createWikiPage 를 호출한다', async () => {
+    const calls: unknown[] = [];
+    const fake = { createWikiPage: async (...a: unknown[]) => { calls.push(a); return { id: 9 }; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'create_wiki_page')!;
+    await tool.handler({ spaceId: 3, title: '새 페이지' });
+    expect(calls[0]).toEqual([7, 3, '새 페이지', undefined]);
+  });
+
+  it('update_wiki_page 핸들러가 client.updateWikiPage 를 호출한다', async () => {
+    const calls: unknown[] = [];
+    const fake = { updateWikiPage: async (...a: unknown[]) => { calls.push(a); return { id: 9 }; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'update_wiki_page')!;
+    await tool.handler({ pageId: 5, version: 3, title: '수정 제목', body: '수정 본문' });
+    expect(calls[0]).toEqual([7, 5, 3, '수정 제목', '수정 본문']);
+  });
+});
+
 // home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분

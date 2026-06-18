@@ -32,6 +32,19 @@ const getChatThreadInput = z.object({
 const searchWikiInput = z.object({ query: z.string().min(1) });
 const getWikiPageInput = z.object({ pageId: z.number().int().positive() });
 
+// #333 M3: 위키 쓰기 도구 입력.
+const createWikiPageInput = z.object({
+  spaceId: z.number().int().positive(),
+  title: z.string().min(1).max(255),
+  parentId: z.number().int().positive().optional(),
+});
+const updateWikiPageInput = z.object({
+  pageId: z.number().int().positive(),
+  version: z.number().int().min(1), // 낙관적 동시성 — get_wiki_page 의 version 을 그대로 넣는다.
+  title: z.string().max(255).optional(),
+  body: z.string().optional(),
+});
+
 // #333 M2: 캘린더 읽기 도구 입력.
 const listEventsInput = z.object({ from: z.string().min(1), to: z.string().min(1) });
 const getEventInput = z.object({ id: z.number().int().positive() });
@@ -301,13 +314,36 @@ export function buildTools(
     },
   };
 
-  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징 읽기/쓰기).
+  // #333 M3: 위키 쓰기 도구 — 스페이스 멤버십 가드는 서버가 강제하므로 propose/confirm 없이 직접 노출.
+  const createWikiPageTool: McpTool = {
+    name: 'create_wiki_page',
+    description: '위키 스페이스에 새 페이지를 생성합니다. parentId 를 주면 그 하위에 만듭니다. 생성된 페이지(id·version)를 JSON 으로 반환합니다.',
+    inputSchema: createWikiPageInput,
+    async handler(args) {
+      const { spaceId, title, parentId } = createWikiPageInput.parse(args);
+      return JSON.stringify(await client.createWikiPage(agentId, spaceId, title, parentId));
+    },
+  };
+  const updateWikiPageTool: McpTool = {
+    name: 'update_wiki_page',
+    description:
+      '위키 페이지 제목·본문을 저장합니다. version 은 반드시 get_wiki_page 로 읽은 현재 version 을 넣어야 합니다(낙관적 동시성). 충돌(409)이면 다시 읽고 재시도 여부를 사용자에게 확인하세요.',
+    inputSchema: updateWikiPageInput,
+    async handler(args) {
+      const { pageId, version, title, body } = updateWikiPageInput.parse(args);
+      return JSON.stringify(await client.updateWikiPage(agentId, pageId, version, title, body));
+    },
+  };
+
+  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
     return [
       getIssueDetailTool,
       searchWikiTool,
       getWikiPageTool,
+      createWikiPageTool,        // #333 M3: 위키 쓰기(내부)
+      updateWikiPageTool,        // #333 M3: 위키 쓰기(내부)
       addCommentTool,
       updateStatusTool,
       unassignSelfTool,
