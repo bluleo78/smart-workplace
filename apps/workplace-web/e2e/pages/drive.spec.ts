@@ -434,6 +434,76 @@ test('폴더 생성 실패(400) 시 에러 토스트로 사유를 안내한다',
   expect(folderPosted).toBe(true)
 })
 
+// #360 — 빈값 확인 클릭 시 인라인 에러 메시지 표시 (무음 실패 수정)
+test('새 폴더 — 이름 빈값 확인 클릭 시 인라인 에러 메시지를 표시하고 API를 호출하지 않는다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+
+  let folderPosted = false
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/folders`,
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      folderPosted = true
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createFolder()) })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // 빈값으로 확인 클릭 → 인라인 에러 메시지, 다이얼로그 유지, API 미호출
+  await page.getByRole('button', { name: '새 폴더' }).click()
+  await expect(page.getByTestId('folder-name-input')).toBeVisible()
+  // 아무것도 입력하지 않고 확인
+  await page.getByTestId('folder-name-confirm').click()
+
+  await expect(page.getByTestId('folder-name-error')).toBeVisible()
+  await expect(page.getByTestId('folder-name-error')).toContainText('폴더 이름을 입력해주세요')
+  // 다이얼로그가 닫히지 않고 유지되어야 한다
+  await expect(page.getByTestId('folder-name-input')).toBeVisible()
+  // API 호출 없어야 한다
+  expect(folderPosted).toBe(false)
+
+  // 이름 입력 시 에러 메시지 제거, 정상 제출 가능
+  await page.getByTestId('folder-name-input').fill('문서')
+  await expect(page.getByTestId('folder-name-error')).toHaveCount(0)
+  await page.getByTestId('folder-name-confirm').click()
+  expect(folderPosted).toBe(true)
+})
+
+// #360 — 폴더 이름변경 다이얼로그도 동일하게 빈값 인라인 에러 표시
+test('폴더 이름변경 — 이름 지우고 확인 클릭 시 인라인 에러 메시지를 표시한다', async ({ authenticatedPage: page }) => {
+  const folder = createFolder({ id: 10, name: '문서' })
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [folder], files: [] }))
+
+  let patchCalled = false
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/folders/10',
+    (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback()
+      patchCalled = true
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(folder) })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
+
+  // 이름변경 Dialog 열기 — 호버 후 버튼 표시(#292 hover-reveal 패턴)
+  const folderRow = page.getByRole('listitem').filter({ hasText: '문서' })
+  await folderRow.hover()
+  await folderRow.getByRole('button', { name: '이름변경' }).click()
+  await expect(page.getByTestId('folder-name-input')).toHaveValue('문서')
+
+  // 이름 지우고 확인 클릭 → 인라인 에러
+  await page.getByTestId('folder-name-input').fill('')
+  await page.getByTestId('folder-name-confirm').click()
+  await expect(page.getByTestId('folder-name-error')).toBeVisible()
+  expect(patchCalled).toBe(false)
+})
+
 test('업로드 실패(400) 시 에러 토스트를 표시한다', async ({ authenticatedPage: page }) => {
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [], files: [] }))

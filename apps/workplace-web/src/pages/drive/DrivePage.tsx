@@ -71,6 +71,8 @@ export function DrivePage() {
     folderId?: number
   } | null>(null)
   const [nameInput, setNameInput] = useState('')
+  // 빈값 확인 클릭 시 에러 메시지 — 무음 실패 대신 인라인 안내 (#360).
+  const [nameError, setNameError] = useState('')
 
   // 파일 업로드 진행 상태 — 업로드 중 버튼 비활성화·텍스트 변경으로 중복 업로드 방지 (#170).
   const [uploading, setUploading] = useState(false)
@@ -139,11 +141,17 @@ export function DrivePage() {
 
   // 폴더 이름 다이얼로그 확인 — 생성/이름변경 API 호출 후 목록 갱신.
   // trim 없이 raw 값을 전송 — 공백만 입력 시 서버 @NotBlank 400 → 토스트 안내(#116 동작 보존).
+  // 완전 빈값(empty string)은 인라인 에러로 안내 — 무음 실패 방지 (#360).
   async function submitNameDialog() {
-    if (!nameDialog || !nameInput) return
+    if (!nameDialog) return
+    if (!nameInput) {
+      setNameError('폴더 이름을 입력해주세요.')
+      return
+    }
     const dialog = nameDialog
     setNameDialog(null)
     setNameInput('')
+    setNameError('')
     try {
       if (dialog.mode === 'create') {
         await driveApi.createFolder(sid, folderId, nameInput)
@@ -159,6 +167,7 @@ export function DrivePage() {
 
   function onNewFolder() {
     setNameInput('')
+    setNameError('')
     setNameDialog({ mode: 'create' })
   }
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -185,6 +194,7 @@ export function DrivePage() {
   }
   function onRenameFolder(id: number, current: string) {
     setNameInput(current)
+    setNameError('')
     setNameDialog({ mode: 'rename', folderId: id })
   }
   function onDeleteFolder(id: number) {
@@ -590,6 +600,7 @@ export function DrivePage() {
           if (!open) {
             setNameDialog(null)
             setNameInput('')
+            setNameError('')
           }
         }}
       >
@@ -599,20 +610,32 @@ export function DrivePage() {
           </DialogHeader>
           <Input
             value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
+            onChange={(e) => {
+              setNameInput(e.target.value)
+              // 입력 시 에러 메시지 즉시 제거 — 피드백 루프 개선 (#360)
+              if (nameError) setNameError('')
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void submitNameDialog()
             }}
             placeholder="폴더 이름"
             autoFocus
+            aria-invalid={nameError ? 'true' : undefined}
             data-testid="folder-name-input"
           />
+          {/* 빈값 제출 시 인라인 에러 메시지 — 무음 실패 대신 안내 (#360) */}
+          {nameError && (
+            <p className="text-sm text-destructive" role="alert" data-testid="folder-name-error">
+              {nameError}
+            </p>
+          )}
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => {
                 setNameDialog(null)
                 setNameInput('')
+                setNameError('')
               }}
               data-testid="folder-name-cancel"
             >
