@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -30,6 +34,30 @@ function client(): WorkplaceApiClient {
     getWikiPage: vi.fn().mockResolvedValue({
       id: 7, spaceId: 2, parentId: null, title: '릴리스', body: '본문', version: 3, updatedAt: '2026-06-14T00:00:00Z',
     }),
+    listEvents: vi.fn().mockResolvedValue([]),
+    getEvent: vi.fn().mockResolvedValue({}),
+    createWikiPage: vi.fn().mockResolvedValue({}),
+    updateWikiPage: vi.fn().mockResolvedValue({}),
+    listMail: vi.fn().mockResolvedValue([]),
+    getMail: vi.fn().mockResolvedValue({}),
+    listMailAccounts: vi.fn().mockResolvedValue([]),
+    syncMail: vi.fn().mockResolvedValue({} as never),
+    listContacts: vi.fn().mockResolvedValue([]),
+    getExternalContact: vi.fn().mockResolvedValue({}),
+    createExternalContact: vi.fn().mockResolvedValue({}),
+    updateExternalContact: vi.fn().mockResolvedValue({}),
+    listProjects: vi.fn().mockResolvedValue([]),
+    getProject: vi.fn().mockResolvedValue({}),
+    listProjectMembers: vi.fn().mockResolvedValue([]),
+    listMySpaces: vi.fn().mockResolvedValue([]),
+    listSpaceItems: vi.fn().mockResolvedValue([]),
+    searchDrive: vi.fn().mockResolvedValue([]),
+    createFolder: vi.fn().mockResolvedValue({} as never),
+    renameFolder: vi.fn().mockResolvedValue({} as never),
+    moveFolder: vi.fn().mockResolvedValue(undefined),
+    moveFile: vi.fn().mockResolvedValue(undefined),
+    listChannels: vi.fn().mockResolvedValue([]),
+    discoverChannels: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -138,6 +166,346 @@ describe('buildTools (agentId bound)', () => {
     const names = (p: 'issue' | 'chat') => buildTools(client(), AGENT_ID, p).map((t) => t.name);
     for (const p of ['issue', 'chat'] as const) {
       expect(names(p)).toEqual(expect.arrayContaining(['search_wiki', 'get_wiki_page']));
+    }
+  });
+});
+
+// #333 M3: assistant 프로파일 union — 멤버십 단언으로 완화(이후 M3 앱이 자기 도구만 toContain 으로 단언).
+describe('buildTools(assistant) union (M3: 멤버십 단언)', () => {
+  const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+
+  it('M1/M2 핵심 도구를 계속 포함한다(회귀 가드)', () => {
+    for (const n of [
+      'get_issue_detail', 'add_comment', 'update_status', 'unassign_self',
+      'search_wiki', 'get_wiki_page',
+      'list_events', 'get_event', 'propose_create_event',
+      'show_my_tasks', 'show_issue_list', 'show_issue_detail', 'show_activity',
+    ]) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('신규 search_issues 는 여전히 포함하지 않는다(기존 도구 경계)', () => {
+    expect(names).not.toContain('search_issues');
+  });
+
+  it('messaging 읽기/쓰기 도구를 노출한다(get_channel_messages / add_channel_message)', () => {
+    expect(names).toContain('get_channel_messages');
+    expect(names).toContain('add_channel_message');
+  });
+
+  it('#350 채널 목록/탐색 도구를 노출한다(list_channels / discover_channels)', () => {
+    expect(names).toContain('list_channels');
+    expect(names).toContain('discover_channels');
+  });
+});
+
+// #333: assistant 프로파일 — 이슈 + 위키읽기 + home show_* + 캘린더 읽기 의 union(M1+M2).
+describe('buildTools(assistant)', () => {
+  const fakeClient = {} as never;
+
+  const names = buildTools(fakeClient, 1, 'assistant').map((t) => t.name).sort();
+
+  it('신규 search_issues 는 포함하지 않는다(M1 기존 도구 경계)', () => {
+    expect(names).not.toContain('search_issues');
+  });
+
+  it('list_events 핸들러가 client.listEvents 를 호출한다', async () => {
+    const calls: unknown[] = [];
+    const fake = { listEvents: async (...a: unknown[]) => { calls.push(a); return []; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'list_events')!;
+    await tool.handler({ from: '2026-06-19T00:00:00Z', to: '2026-06-26T00:00:00Z' });
+    expect(calls[0]).toEqual([7, '2026-06-19T00:00:00Z', '2026-06-26T00:00:00Z']);
+  });
+
+  it('propose_create_event 는 API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const fake = {} as never; // API 미호출이므로 빈 client
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      const ack = await tool.handler({
+        title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z',
+        allDay: false, summary: '6/26 10시 팀 미팅(1시간)',
+      });
+      expect(typeof ack).toBe('string'); // 서브에이전트용 ack
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('calendar.create_event');
+      expect(written.summary).toBe('6/26 10시 팀 미팅(1시간)');
+      expect(written.params.title).toBe('팀 미팅');
+      expect(written.params.endsAt).toBe('2026-06-26T02:00:00Z');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('assistant union 에 propose_create_event 가 포함된다', () => {
+    expect(buildTools({} as never, 1, 'assistant').map((t) => t.name)).toContain('propose_create_event');
+  });
+});
+
+// #333 M3: wiki 쓰기 도구 — assistant union 멤버십 + 핸들러 단위 테스트.
+describe('buildTools(assistant) wiki 쓰기 도구 (M3)', () => {
+  it('assistant union 에 위키 쓰기 도구(create_wiki_page/update_wiki_page)를 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    expect(names).toContain('create_wiki_page');
+    expect(names).toContain('update_wiki_page');
+  });
+
+  it('create_wiki_page 핸들러가 client.createWikiPage 를 호출한다', async () => {
+    const calls: unknown[] = [];
+    const fake = { createWikiPage: async (...a: unknown[]) => { calls.push(a); return { id: 9 }; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'create_wiki_page')!;
+    await tool.handler({ spaceId: 3, title: '새 페이지' });
+    expect(calls[0]).toEqual([7, 3, '새 페이지', undefined]);
+  });
+
+  it('update_wiki_page 핸들러가 client.updateWikiPage 를 호출한다', async () => {
+    const calls: unknown[] = [];
+    const fake = { updateWikiPage: async (...a: unknown[]) => { calls.push(a); return { id: 9 }; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'update_wiki_page')!;
+    await tool.handler({ pageId: 5, version: 3, title: '수정 제목', body: '수정 본문' });
+    expect(calls[0]).toEqual([7, 5, 3, '수정 제목', '수정 본문']);
+  });
+});
+
+// #333 M3: 메일 도구 — assistant union 멤버십 + propose_send_mail 사이드카 테스트.
+describe('buildTools(assistant) 메일 도구 (M3)', () => {
+  it('assistant union 에 list_mail/get_mail/propose_send_mail 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of ['list_mail', 'get_mail', 'propose_send_mail']) expect(names).toContain(n);
+  });
+
+  it('propose_send_mail 은 API 미호출, 사이드카에 mail.send 제안(accountId 포함)을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-mail-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_send_mail')!;
+      const ack = await tool.handler({
+        accountId: 5, to: ['a@x.com'], subject: '안녕하세요', bodyText: '본문입니다',
+        summary: 'a@x.com 에게 "안녕하세요" 발송',
+      });
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('mail.send');
+      expect(written.summary).toBe('a@x.com 에게 "안녕하세요" 발송');
+      expect(written.params.accountId).toBe(5); // 계정-소유권 경계에 필수
+      expect(written.params.to).toEqual(['a@x.com']);
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// #333 M4: 메일 계정/동기화 도구 — assistant union 멤버십 테스트.
+describe('buildTools(assistant) 메일 계정·동기화 도구 (M4)', () => {
+  it('assistant union 에 list_mail_accounts/sync_mail 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    expect(names).toContain('list_mail_accounts');
+    expect(names).toContain('sync_mail');
+  });
+
+  it('list_mail_accounts — client.listMailAccounts(agentId) 호출 후 JSON 반환', async () => {
+    const c = client();
+    vi.mocked(c.listMailAccounts).mockResolvedValue([{ id: 3, emailAddress: 'me@test.com', displayName: '내 계정', aiEnabled: true }]);
+    const tool = buildTools(c, AGENT_ID, 'assistant').find((t) => t.name === 'list_mail_accounts')!;
+    const out = await tool.handler({});
+    expect(JSON.parse(out)[0].id).toBe(3);
+    expect(c.listMailAccounts).toHaveBeenCalledWith(AGENT_ID);
+  });
+
+  it('sync_mail — client.syncMail(agentId, accountId) 호출 후 완료 문자열 반환', async () => {
+    const c = client();
+    const tool = buildTools(c, AGENT_ID, 'assistant').find((t) => t.name === 'sync_mail')!;
+    const out = await tool.handler({ accountId: 5 });
+    expect(typeof out).toBe('string');
+    expect(c.syncMail).toHaveBeenCalledWith(AGENT_ID, 5);
+  });
+});
+
+// #333 M3: 연락처 도구 — assistant union 멤버십 + propose_delete_contact 사이드카 테스트.
+describe('buildTools(assistant) 연락처 도구 (M3)', () => {
+  it('assistant union 에 연락처 도구(list/get/create/update + propose_delete_contact) 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of ['list_contacts', 'get_external_contact', 'create_external_contact', 'update_external_contact', 'propose_delete_contact']) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('propose_delete_contact 는 API 미호출, 사이드카에 contacts.delete_contact 제안을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-contact-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_contact')!;
+      await tool.handler({ id: 9, summary: '"김거래" 연락처 삭제' });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('contacts.delete_contact');
+      expect(written.params.id).toBe(9);
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// #333 M3: 프로젝트 도구 — assistant union 멤버십 + propose 사이드카 테스트.
+describe('buildTools(assistant) 프로젝트 도구 (M3)', () => {
+  it('assistant union 에 프로젝트 도구(read 3 + propose 3) 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of ['list_projects', 'get_project', 'list_project_members', 'propose_create_project', 'propose_delete_project', 'propose_add_project_member']) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('propose_create_project 는 사이드카에 project.create_project 제안을 쓴다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-proj-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_create_project')!;
+      await tool.handler({ key: 'NEW', name: '새 프로젝트', summary: '"새 프로젝트"(NEW) 생성' });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('project.create_project');
+      expect(written.params.key).toBe('NEW');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// #333 M3: 드라이브 읽기 도구 — assistant union 멤버십 + 핸들러 단위 테스트.
+describe('buildTools(assistant) 드라이브 읽기 도구 (M3)', () => {
+  it('assistant union 에 드라이브 읽기 도구(list_drive_spaces/list_drive_items/search_drive) 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of ['list_drive_spaces', 'list_drive_items', 'search_drive']) expect(names).toContain(n);
+  });
+
+  it('search_drive 핸들러가 client.searchDrive 를 호출한다', async () => {
+    const calls: unknown[] = [];
+    const fake = { searchDrive: async (...a: unknown[]) => { calls.push(a); return []; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'search_drive')!;
+    await tool.handler({ spaceId: 1, q: '보고서' });
+    expect(calls[0]).toEqual([7, 1, '보고서']);
+  });
+});
+
+// #333 M4: 드라이브 쓰기/삭제 도구 — assistant union 멤버십 + 핸들러 단위 테스트.
+describe('buildTools(assistant) 드라이브 쓰기/삭제 도구 (M4)', () => {
+  it('assistant union 에 드라이브 쓰기/삭제 도구 6개 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of [
+      'create_folder', 'rename_folder', 'move_folder', 'move_file',
+      'propose_delete_file', 'propose_delete_folder',
+    ]) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('create_folder 핸들러가 client.createFolder 를 호출한다', async () => {
+    const folder = { id: 10, name: '신규폴더', type: 'FOLDER' };
+    const calls: unknown[] = [];
+    const fake = { createFolder: async (...a: unknown[]) => { calls.push(a); return folder; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'create_folder')!;
+    const out = await tool.handler({ spaceId: 1, name: '신규폴더' });
+    expect(calls[0]).toEqual([7, 1, null, '신규폴더']);
+    expect(JSON.parse(out)).toMatchObject({ id: 10, name: '신규폴더' });
+  });
+
+  it('propose_delete_file 은 API 미호출, 사이드카에 drive.delete_file 제안을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-drive-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_file')!;
+      const ack = await tool.handler({ id: 99, summary: '보고서.pdf 삭제' });
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('drive.delete_file');
+      expect(written.summary).toBe('보고서.pdf 삭제');
+      expect(written.params.id).toBe(99);
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// #333 M4: 같은 턴에 두 번째 propose 는 사이드카를 덮어쓰지 않고 거부된다.
+describe('propose 단일-제안 가드 (M4)', () => {
+  it('사이드카가 이미 있으면 두 번째 propose 는 거부된다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'm4-guard-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tools = buildTools({} as never, 1, 'assistant');
+      const propose = tools.find((t) => t.name === 'propose_create_event')!;
+      const first = await propose.handler({ summary: '첫 제안', title: 'A', startsAt: '2026-07-01T09:00:00Z', endsAt: '2026-07-01T10:00:00Z' });
+      expect(first).toContain('등록');
+      const second = await propose.handler({ summary: '둘째 제안', title: 'B', startsAt: '2026-07-02T09:00:00Z', endsAt: '2026-07-02T10:00:00Z' });
+      expect(second).toContain('이미 대기 중인 제안');
+      // 사이드카는 첫 제안 그대로(덮어쓰기 안 됨).
+      const saved = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(saved.summary).toBe('첫 제안');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// #333 M4: 캘린더 수정/삭제 propose 도구 — assistant union 멤버십 + 사이드카 테스트.
+describe('buildTools(assistant) 캘린더 수정/삭제 제안 도구 (M4)', () => {
+  it('assistant union 에 propose_update_event / propose_delete_event 가 포함된다', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    expect(names).toContain('propose_update_event');
+    expect(names).toContain('propose_delete_event');
+  });
+
+  it('propose_update_event 는 API 미호출, 사이드카에 calendar.update_event 제안을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-upd-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
+      const ack = await tool.handler({
+        id: 42, title: '팀 미팅 (변경)', startsAt: '2026-07-01T01:00:00Z', endsAt: '2026-07-01T02:00:00Z',
+        scope: 'THIS', summary: '#42 팀 미팅 제목 변경',
+      });
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('calendar.update_event');
+      expect(written.summary).toBe('#42 팀 미팅 제목 변경');
+      expect(written.params.id).toBe(42);
+      expect(written.params.title).toBe('팀 미팅 (변경)');
+      expect(written.params.scope).toBe('THIS');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('propose_delete_event 는 API 미호출, 사이드카에 calendar.delete_event 제안을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-del-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_event')!;
+      const ack = await tool.handler({ id: 55, scope: 'ALL', summary: '#55 팀 미팅 전체 삭제' });
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('calendar.delete_event');
+      expect(written.summary).toBe('#55 팀 미팅 전체 삭제');
+      expect(written.params.id).toBe(55);
+      expect(written.params.scope).toBe('ALL');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

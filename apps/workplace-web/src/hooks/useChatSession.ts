@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from 'react';
 import { homeApi } from '@/api/home';
 import { composeStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
 import { handleApiError } from '@/lib/api-error';
-import type { ChatTurn } from '@/types/home';
+import type { ChatTurn, PendingAction } from '@/types/home';
 
 /**
  * 챗 전용 세션 상태 코디네이터 — sessionId / 대화 transcript 를 한 곳에서 전이.
@@ -18,6 +18,12 @@ export function useChatSession() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   // 스트리밍 pending 상태 — 구 compose.isPending 대체.
   const [pending, setPending] = useState(false);
+  // #333 M2: 위임 진행 라벨 — 서브에이전트 위임 중 assistant 말풍선 위에 ghost 버블로 표시.
+  // 완료(finally) 시 null 로 초기화해 버블이 사라진다.
+  const [delegationLabel, setDelegationLabel] = useState<string | null>(null);
+  // #333 M2: 보류 확인 액션 — 2.3 에서 도크가 승인/취소 카드로 렌더. 지금은 state 만 보유.
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const clearPendingAction = useCallback(() => setPendingAction(null), []);
   // '새 대화' 전이 신호(nonce) — newSession() 호출마다 증가. 패널 로컬 입력(미전송 초안)을
   // effect 로 비우기 위한 트리거. 신선한(아직 compose 안 한) 세션에서 sessionId/turns 는
   // 이미 빈 값이라 prop 변화가 패널에 보이지 않으므로, 명시적 카운터로 전이를 전달한다(#204).
@@ -48,6 +54,8 @@ export function useChatSession() {
       const ac = new AbortController();
       abortRef.current = ac;
       setPending(true);
+      setDelegationLabel(null);  // 새 제출 — 이전 진행 라벨 비움
+      setPendingAction(null);    // 새 제출 — 이전 확인 카드 폐기
       composeStream(
         { sessionId: sessionIdRef.current, query },
         (delta) => {
@@ -62,6 +70,16 @@ export function useChatSession() {
           });
         },
         ac.signal,
+        (label) => {
+          // #333 M2: stale 세대면 무시(델타와 동일 가드). 위임 진행 라벨 표시.
+          if (opSeq.current !== gen) return;
+          setDelegationLabel(label);
+        },
+        (action) => {
+          // #333 M2: 보류 확인 액션 수신 — 2.3 에서 카드로 렌더/소비.
+          if (opSeq.current !== gen) return;
+          setPendingAction(action);
+        },
       )
         .then((r) => {
           if (opSeq.current !== gen) return; // stale 세대 폐기
@@ -78,7 +96,10 @@ export function useChatSession() {
           }
         })
         .finally(() => {
-          if (opSeq.current === gen) setPending(false);
+          if (opSeq.current === gen) {
+            setPending(false);
+            setDelegationLabel(null); // 완료 시 진행 버블 제거(pendingAction 은 유지 — 카드 응답 대기)
+          }
         });
     },
     [qc, updateSessionId],
@@ -91,6 +112,8 @@ export function useChatSession() {
     abortRef.current?.abort();
     abortRef.current = null;
     setPending(false);
+    setDelegationLabel(null); // #333 M2: 전이 시 진행 버블/카드 잔여 정리.
+    setPendingAction(null);
     updateSessionId(null);
     setTurns([]);
     // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력 초기화 신호 발행(#204).
@@ -106,6 +129,8 @@ export function useChatSession() {
       abortRef.current?.abort();
       abortRef.current = null;
       setPending(false);
+      setDelegationLabel(null); // #333 M2: 세션 복원 시 진행 버블/카드 잔여 정리.
+      setPendingAction(null);
       try {
         const { data } = await homeApi.sessionMessages(id);
         // fetch 중 더 최신 전이가 있었으면 폐기.
@@ -122,6 +147,29 @@ export function useChatSession() {
     },
     [updateSessionId],
   );
+
+  // #333 M2: 확인 카드 승인 핸들러.
+  // 낙관적 폐기 후 POST → 실패 시 카드 복원(재시도/취소 가능).
+  const confirmAction = useCallback(() => {
+    const action = pendingAction;
+    if (!action) return;
+    // submitQuery 와 동일한 세대 가드 — POST 진행 중 새 대화/세션 전환이 발생해도
+    // stale 세션에 확인 메시지나 복원 카드가 잘못 반영되는 것을 방지한다(#333 M2 final-review).
+    const gen = opSeq.current;
+    setPendingAction(null); // 낙관적 폐기(중복 승인 방지)
+    homeApi
+      .confirmAction(action)
+      .then(() => {
+        if (opSeq.current !== gen) return; // stale 세대 폐기
+        // 승인 결과를 대화에 한 줄 추가(시스템 확인 메시지).
+        setTurns((t) => [...t, { role: 'assistant', content: '요청을 처리했어요.' }]);
+      })
+      .catch((e) => {
+        if (opSeq.current !== gen) return; // stale 세대 폐기 — 오세션에 카드 복원 금지
+        setPendingAction(action); // 실패 시 카드 복원 — 재시도/취소 가능
+        handleApiError(e, '확인 작업에 실패했습니다');
+      });
+  }, [pendingAction]);
 
   // 삭제 — 활성 세션이면 새 세션으로 리셋.
   const deleteSession = useCallback(
@@ -140,6 +188,10 @@ export function useChatSession() {
     turns,
     newSessionNonce,
     pending,
+    delegationLabel,
+    pendingAction,
+    clearPendingAction,
+    confirmAction,
     submitQuery,
     newSession,
     restoreSession,

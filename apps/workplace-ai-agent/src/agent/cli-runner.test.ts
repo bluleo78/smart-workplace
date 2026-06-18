@@ -82,6 +82,48 @@ describe('buildCliArgs', () => {
     expect(allowed).toBe('mcp__workplace__*');
     expect(disallowed.split(',')).toContain('Read');
   });
+
+  it('allowSubagents=true → allowed-tools 에 Agent 포함, disallowed 에서 Agent 제외', () => {
+    const args = buildCliArgs({
+      userMessage: 'm', systemPrompt: 's', model: 'x', maxTurns: 5,
+      mcpConfigPath: '/tmp/c.json', allowSubagents: true,
+    });
+    const allowed = args[args.indexOf('--allowed-tools') + 1];
+    const disallowed = args[args.indexOf('--disallowed-tools') + 1];
+    expect(allowed.split(',')).toContain('Agent');
+    expect(allowed).toContain('mcp__workplace__*');
+    expect(disallowed.split(',')).not.toContain('Agent');
+  });
+
+  it('allowSubagents 생략 → Agent 는 차단(비라우터 기본 동작)', () => {
+    const args = buildCliArgs({
+      userMessage: 'm', systemPrompt: 's', model: 'x', maxTurns: 5, mcpConfigPath: '/tmp/c.json',
+    });
+    const allowed = args[args.indexOf('--allowed-tools') + 1];
+    const disallowed = args[args.indexOf('--disallowed-tools') + 1];
+    expect(allowed.split(',')).not.toContain('Agent');
+    expect(disallowed.split(',')).toContain('Agent');
+  });
+
+  it('systemPromptPath 설정 → --system-prompt-file 사용, 인라인 --system-prompt 미사용', () => {
+    const args = buildCliArgs({
+      userMessage: 'm', systemPrompt: 'INLINE', model: 'x', maxTurns: 5,
+      mcpConfigPath: '/tmp/c.json', systemPromptPath: '/tmp/sp.txt',
+    });
+    expect(args).toContain('--system-prompt-file');
+    expect(args[args.indexOf('--system-prompt-file') + 1]).toBe('/tmp/sp.txt');
+    expect(args).not.toContain('--system-prompt');
+    expect(args).not.toContain('INLINE');
+  });
+
+  it('systemPromptPath 생략 → 기존대로 인라인 --system-prompt', () => {
+    const args = buildCliArgs({
+      userMessage: 'm', systemPrompt: 'INLINE', model: 'x', maxTurns: 5, mcpConfigPath: '/tmp/c.json',
+    });
+    expect(args).toContain('--system-prompt');
+    expect(args).toContain('INLINE');
+    expect(args).not.toContain('--system-prompt-file');
+  });
 });
 
 describe('runClaudeCliStream (라인 스트리밍)', () => {

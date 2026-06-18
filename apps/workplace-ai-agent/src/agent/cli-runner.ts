@@ -13,14 +13,19 @@ export interface CliArgsInput {
   allowFileRead?: boolean;
   // 7b: 컴포즈(요청/응답)는 partial 이벤트가 tool_use input 을 조각내므로 false 로 끈다. 기본 true(기존 동작).
   includePartialMessages?: boolean;
+  // #333: 라우터 경로에서만 true — 호스트 빌트인 Agent 위임 도구를 허용한다(allowFileRead 와 동형).
+  allowSubagents?: boolean;
+  // #333: 설정 시 --system-prompt-file <path> 로 전달(ARG_MAX 회피). 미설정이면 인라인 --system-prompt.
+  systemPromptPath?: string;
 }
 
-// 기본 차단 도구 — Read 는 allowFileRead 시 제외된다.
+// 기본 차단 도구 — Read 는 allowFileRead, Agent 는 allowSubagents 시 제외된다.
 const BASE_DISALLOWED = [
   'Bash', 'BashOutput', 'KillShell',
   'Read', 'Write', 'Edit', 'NotebookEdit',
   'Glob', 'Grep',
   'WebFetch', 'WebSearch',
+  'Agent',
   'Task', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate',
   'TodoWrite',
   'Skill', 'ToolSearch', 'SlashCommand',
@@ -29,30 +34,32 @@ const BASE_DISALLOWED = [
 ];
 
 export function buildCliArgs(i: CliArgsInput): string[] {
-  const allowedTools = i.allowFileRead ? 'mcp__workplace__*,Read' : 'mcp__workplace__*';
-  const disallowed = i.allowFileRead
-    ? BASE_DISALLOWED.filter((t) => t !== 'Read')
-    : BASE_DISALLOWED;
+  // allowed-tools: MCP 도구는 항상. Read/Agent 는 각 플래그가 켜질 때만 추가(allow-list 모델).
+  const extraAllowed: string[] = [];
+  if (i.allowFileRead) extraAllowed.push('Read');
+  if (i.allowSubagents) extraAllowed.push('Agent');
+  const allowedTools = ['mcp__workplace__*', ...extraAllowed].join(',');
+  // disallowed: allowed 로 푼 도구는 제외(둘 다 있으면 disallow 가 이김 → 위임/Read 가 깨짐).
+  const disallowed = BASE_DISALLOWED.filter(
+    (t) => !(t === 'Read' && i.allowFileRead) && !(t === 'Agent' && i.allowSubagents),
+  );
   const includePartial = i.includePartialMessages ?? true;
-  const args = [
-    '--print',
-    i.userMessage,
-    '--system-prompt',
-    i.systemPrompt,
-    '--model',
-    i.model,
-    '--max-turns',
-    String(i.maxTurns),
-    '--allowed-tools',
-    allowedTools,
-    '--disallowed-tools',
-    disallowed.join(','),
-    '--mcp-config',
-    i.mcpConfigPath,
-    '--output-format',
-    'stream-json',
+  const args = ['--print', i.userMessage];
+  // 시스템 프롬프트: 경로가 주어지면 파일 플래그(ARG_MAX 회피), 아니면 인라인.
+  if (i.systemPromptPath) {
+    args.push('--system-prompt-file', i.systemPromptPath);
+  } else {
+    args.push('--system-prompt', i.systemPrompt);
+  }
+  args.push(
+    '--model', i.model,
+    '--max-turns', String(i.maxTurns),
+    '--allowed-tools', allowedTools,
+    '--disallowed-tools', disallowed.join(','),
+    '--mcp-config', i.mcpConfigPath,
+    '--output-format', 'stream-json',
     '--verbose',
-  ];
+  );
   if (includePartial) args.push('--include-partial-messages');
   args.push('--strict-mcp-config', '--disable-slash-commands', '--dangerously-skip-permissions');
   return args;

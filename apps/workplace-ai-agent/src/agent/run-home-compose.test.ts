@@ -10,10 +10,25 @@ vi.mock('./mcp-config.js', () => ({
   writeTempMcpConfig: vi.fn(() => '/tmp/cfg.json'),
   cleanupTempMcpConfig: vi.fn(),
 }));
+vi.mock('./subagent-loader.js', () => ({
+  loadSubagents: vi.fn(() => ({ 'issue-agent': { description: 'd', tools: [], prompt: '' } })),
+  writeSubagentDefinitions: vi.fn(),
+}));
+// mkdtempSync/writeFileSync/rmSync 는 실제 호출 없이 mock 처리해 fs 부작용 제거.
+// #333 M2: existsSync/readFileSync 도 mock 추가 — 사이드카 읽기 경로 테스트용.
+vi.mock('node:fs', () => ({
+  mkdtempSync: vi.fn(() => '/tmp/mock-workdir'),
+  writeFileSync: vi.fn(),
+  rmSync: vi.fn(),
+  existsSync: vi.fn(() => false),
+  readFileSync: vi.fn(),
+}));
 
 import { runHomeCompose, runHomeComposeStream, type ComposeInput } from './run-home-compose.js';
 import { runClaudeCliCollect, runClaudeCliStream, buildCliArgs } from './cli-runner.js';
-import { cleanupTempMcpConfig } from './mcp-config.js';
+import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
+import { writeSubagentDefinitions } from './subagent-loader.js';
+import { existsSync, readFileSync } from 'node:fs';
 
 const fakeClient = { getOAuthToken: vi.fn() } as never;
 
@@ -173,5 +188,107 @@ describe('runHomeComposeStream (스트리밍 — SSE 라우트용)', () => {
     expect(kill).toHaveBeenCalledOnce();
     resolveDone();
     await p;
+  });
+});
+
+describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
+  it('assistant 프로파일 + allowSubagents + systemPromptPath 로 spawn 준비', async () => {
+    vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    // writeTempMcpConfig 에 assistant 프로파일을 전달했는지 확인.
+    const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
+    expect(cfgArg.profile).toBe('assistant');
+    const cliArg = vi.mocked(buildCliArgs).mock.calls[0][0];
+    expect(cliArg.allowSubagents).toBe(true);
+    expect(typeof cliArg.systemPromptPath).toBe('string');
+    // .claude/agents 기록을 시도했는지.
+    expect(writeSubagentDefinitions).toHaveBeenCalled();
+  });
+
+  it('Agent(issue-agent) tool_use → onProgress 로 위임 라벨 발행', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '처리했어요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const labels: string[] = [];
+    await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, (l) => labels.push(l));
+    expect(labels).toContain('이슈 전문가에게 위임 중');
+  });
+
+  it('general-purpose 위임 tool_use → child kill + 에러 전파 (동기 onLine 경로)', async () => {
+    // 이 테스트는 onLine 이 handle 반환 전 동기 실행되는 경로. killer 홀더가 null 이므로
+    // 즉시 kill 은 없고, await handle.done 이후 fallback kill+throw 가 동작함을 검증.
+    const kill = vi.fn();
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'general-purpose' } }] } }));
+      return { done: Promise.resolve(), kill };
+    });
+    await expect(
+      runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
+    ).rejects.toThrow(/blocked by policy/);
+    expect(kill).toHaveBeenCalled();
+  });
+
+  it('pendingActionPath 를 mcp-config 에 주입한다', async () => {
+    vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
+    expect(typeof cfgArg.pendingActionPath).toBe('string');
+    expect(cfgArg.pendingActionPath).toContain('pending-action.json');
+  });
+
+  it('사이드카가 있으면 done 후 읽어 pendingAction 으로 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '제안했어요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ actionType: 'calendar.create_event', summary: 's', params: { title: 't' } }) as never);
+    const out = await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.pendingAction).toMatchObject({ actionType: 'calendar.create_event', summary: 's' });
+  });
+
+  it('사이드카가 없으면 pendingAction 은 null', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'ok' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.pendingAction).toBeNull();
+  });
+
+  it('general-purpose 위임 tool_use → 비동기 onLine 경로에서 kill 이 done 보다 먼저 호출됨 (Finding 1 프로덕션 경로)', async () => {
+    // Finding 1: 프로덕션에서는 onLine 이 handle 반환 후(비동기) 호출된다.
+    // killer 홀더가 채워진 상태이므로 killer?.() 가 onLine 내부에서 즉시 kill 한다.
+    // done 이 resolve 되기 전에 kill 이 호출됐는지를 호출 순서로 검증.
+    const callOrder: string[] = [];
+    const kill = vi.fn(() => { callOrder.push('kill'); });
+    let capturedOnLine!: (line: string) => void;
+    let resolveDone!: () => void;
+
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      capturedOnLine = onLine; // onLine 을 나중에(비동기로) 호출하기 위해 보관
+      return {
+        done: new Promise<void>((r) => {
+          resolveDone = () => { callOrder.push('done'); r(); };
+        }),
+        kill,
+      };
+    });
+
+    const p = runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+
+    // 한 틱 양보해 handle 반환 + killer 홀더 채움이 완료된 후 onLine 을 비동기로 호출.
+    await Promise.resolve();
+    capturedOnLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'general-purpose' } }] } }));
+    // onLine 즉시(동기)로 killer?.() 가 불려 kill 이 기록돼야 한다.
+    expect(callOrder).toContain('kill'); // done resolve 전에 kill 이 기록됨
+
+    // done resolve 후 에러 전파 확인.
+    resolveDone();
+    await expect(p).rejects.toThrow(/blocked by policy/);
+    expect(callOrder.indexOf('kill')).toBeLessThan(callOrder.indexOf('done')); // kill < done 순서 보장
   });
 });

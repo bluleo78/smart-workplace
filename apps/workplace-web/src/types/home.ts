@@ -81,3 +81,16 @@ export interface ActivityPage {
   items: ActivityEntry[];
   nextCursor: string | null;
 }
+
+/**
+ * #333 M2: AI 에이전트가 외부 액션 실행 전 사용자 확인을 요청하는 제안 객체.
+ * 도크의 승인/취소 카드가 이 타입을 기반으로 렌더된다.
+ */
+export interface PendingAction {
+  /** 액션 식별자. 예: 'calendar.create_event', 'issue.assign' */
+  actionType: string;
+  /** 사람이 읽을 수 있는 액션 요약 (카드 본문). */
+  summary: string;
+  /** confirm 요청 시 그대로 재전송할 파라미터 페이로드. */
+  params: Record<string, unknown>;
+}

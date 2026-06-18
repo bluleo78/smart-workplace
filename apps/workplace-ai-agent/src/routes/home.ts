@@ -56,8 +56,17 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
           res.write(`event: delta\ndata: ${JSON.stringify({ text })}\n\n`);
         },
         ac.signal,
+        (label) => {
+          // #333: 위임 진행 버블 — 서브에이전트 위임 시작 시 한 단계 표시.
+          if (aborted) return;
+          res.write(`event: progress\ndata: ${JSON.stringify({ label })}\n\n`);
+        },
       );
       if (!aborted) {
+        // #333 M2: pending_action 을 done 앞에 발행(결정적 순서) — 확인 카드.
+        if (result.pendingAction) {
+          res.write(`event: pending_action\ndata: ${JSON.stringify(result.pendingAction)}\n\n`);
+        }
         res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets })}\n\n`);
         res.end();
       }

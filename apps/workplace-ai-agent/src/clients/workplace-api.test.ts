@@ -186,4 +186,326 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(scope.isDone()).toBe(true);
     expect(out).toMatchObject({ id: 7, body: '본문', version: 3 });
   });
+
+  // --- #333 M2: 캘린더 읽기 ---
+
+  it('listEvents → GET /calendar/events?from&to with Internal+X-On-Behalf-Of, 배열 반환', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/calendar/events`)
+      .query({ from: '2026-06-19T00:00:00Z', to: '2026-06-26T00:00:00Z' })
+      .reply(200, [
+        {
+          id: 1, title: '회의', description: null,
+          startsAt: '2026-06-20T01:00:00Z', endsAt: '2026-06-20T02:00:00Z',
+          allDay: false, location: null, recurrenceRule: null,
+        },
+      ]);
+    const out = await newClient().listEvents(AGENT_ID, '2026-06-19T00:00:00Z', '2026-06-26T00:00:00Z');
+    expect(scope.isDone()).toBe(true);
+    expect(out).toHaveLength(1);
+    expect(out[0].title).toBe('회의');
+  });
+
+  it('getEvent → GET /calendar/events/{id} with X-On-Behalf-Of, 단건 반환', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/calendar/events/42`)
+      .reply(200, {
+        id: 42, title: '단건', description: '본문',
+        startsAt: '2026-06-20T01:00:00Z', endsAt: '2026-06-20T02:00:00Z',
+        allDay: false, location: '회의실', recurrenceRule: null,
+      });
+    const out = await newClient().getEvent(AGENT_ID, 42);
+    expect(scope.isDone()).toBe(true);
+    expect(out.id).toBe(42);
+    expect(out.location).toBe('회의실');
+  });
+
+  // --- #333 M3: 메일 읽기 ---
+
+  describe('listMail', () => {
+    it('GET /mail/accounts/{id}/messages?folder&query&limit 로 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/mail/accounts/5/messages`)
+        .query({ folder: 'INBOX', query: '청구서', limit: '20' })
+        .reply(200, [{ id: 1, subject: '청구서', fromAddress: 'a@x.com', snippet: '...', receivedAt: '2026-06-19T00:00:00Z', seen: false }]);
+      const out = await newClient().listMail(7, 5, 'INBOX', '청구서', 20);
+      expect(out[0].subject).toBe('청구서');
+      scope.done();
+    });
+  });
+
+  describe('getMail', () => {
+    it('GET /mail/messages/{id} 로 본문 포함 단건 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/mail/messages/42`)
+        .reply(200, { id: 42, subject: '제목', fromAddress: 'a@x.com', snippet: 's', receivedAt: '2026-06-19T00:00:00Z', seen: true, bodyText: '본문', bodyHtml: null, toAddresses: ['me@x.com'] });
+      const out = await newClient().getMail(7, 42);
+      expect(out.bodyText).toBe('본문');
+    });
+  });
+
+  // --- #333 M4: 메일 계정 목록 + 수동 동기화 ---
+
+  describe('listMailAccounts', () => {
+    it('GET /mail/accounts 로 계정 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/mail/accounts`)
+        .reply(200, [{ id: 3, emailAddress: 'me@x.com', displayName: '내 계정', aiEnabled: true }]);
+      const out = await newClient().listMailAccounts(7);
+      expect(out[0].id).toBe(3);
+      expect(out[0].emailAddress).toBe('me@x.com');
+      scope.done();
+    });
+  });
+
+  describe('syncMail', () => {
+    it('POST /mail/accounts/{id}/sync 로 동기화 요청', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .post(`${PREFIX}/mail/accounts/3/sync`, {})
+        .reply(200, { synced: 5 });
+      const out = await newClient().syncMail(7, 3);
+      expect((out as { synced: number }).synced).toBe(5);
+      scope.done();
+    });
+  });
+
+  // --- #333 M3: 연락처 조회/생성/수정 ---
+
+  describe('listContacts', () => {
+    it('GET /contacts?search&limit 로 통합 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/contacts`).query({ search: '김', limit: '20' })
+        .reply(200, [{ id: 1, kind: 'EXTERNAL', name: '김거래', email: 'k@x.com', organization: 'X사' }]);
+      const out = await newClient().listContacts(7, '김', undefined, 20);
+      expect(out[0].name).toBe('김거래');
+      scope.done();
+    });
+  });
+
+  describe('createExternalContact', () => {
+    it('POST /contacts/external 로 생성하고 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .post(`${PREFIX}/contacts/external`, { name: '신규', email: 'n@x.com', visibility: 'SHARED' })
+        .reply(201, { id: 9, kind: 'EXTERNAL', name: '신규', email: 'n@x.com', organization: null });
+      const out = await newClient().createExternalContact(7, { name: '신규', email: 'n@x.com', visibility: 'SHARED' });
+      expect(out.id).toBe(9);
+    });
+  });
+
+  // --- #333 M3: 프로젝트 읽기 ---
+
+  describe('listProjects', () => {
+    it('GET /projects?page&size 로 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects`).query({ page: '0', size: '20' })
+        .reply(200, [{ key: 'ABC', name: '프로젝트', description: null, type: 'TEAM' }]);
+      const out = await newClient().listProjects(7, 0, 20);
+      expect(out[0].key).toBe('ABC');
+      scope.done();
+    });
+  });
+
+  describe('getProject', () => {
+    it('GET /projects/{key} 로 단건 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects/ABC`)
+        .reply(200, { key: 'ABC', name: '프로젝트', description: '설명', type: 'TEAM' });
+      const out = await newClient().getProject(7, 'ABC');
+      expect(out.key).toBe('ABC');
+      expect(out.name).toBe('프로젝트');
+      scope.done();
+    });
+  });
+
+  describe('listProjectMembers', () => {
+    it('GET /projects/{key}/members 로 멤버 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects/ABC/members`)
+        .reply(200, [{ userId: 1, name: '홍길동', role: 'OWNER' }]);
+      const out = await newClient().listProjectMembers(7, 'ABC');
+      expect(out[0].role).toBe('OWNER');
+    });
+  });
+
+  // --- #333 M3: 위키 페이지 생성/수정 ---
+
+  it('createWikiPage → POST /wiki/spaces/{id}/pages 로 생성하고 본문 반환', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', '7')
+      .post(`${PREFIX}/wiki/spaces/3/pages`, { parentId: null, title: '새 페이지' })
+      .reply(201, { id: 9, spaceId: 3, parentId: null, title: '새 페이지', body: '', version: 1, updatedAt: '2026-06-19T00:00:00Z' });
+    const out = await newClient().createWikiPage(7, 3, '새 페이지');
+    expect(scope.isDone()).toBe(true);
+    expect(out.id).toBe(9);
+    expect(out.title).toBe('새 페이지');
+  });
+
+  it('createWikiPage → parentId 지정 시 body 에 포함', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', '7')
+      .post(`${PREFIX}/wiki/spaces/3/pages`, { parentId: 5, title: '하위 페이지' })
+      .reply(201, { id: 10, spaceId: 3, parentId: 5, title: '하위 페이지', body: '', version: 1, updatedAt: '2026-06-19T00:00:00Z' });
+    const out = await newClient().createWikiPage(7, 3, '하위 페이지', 5);
+    expect(scope.isDone()).toBe(true);
+    expect(out.parentId).toBe(5);
+  });
+
+  it('updateWikiPage → PUT /wiki/pages/{id} 로 version 동반 저장하고 본문 반환', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', '7')
+      .put(`${PREFIX}/wiki/pages/9`, { title: '수정 제목', body: '본문', version: 1, snapshot: false })
+      .reply(200, { id: 9, spaceId: 3, parentId: null, title: '수정 제목', body: '본문', version: 2, updatedAt: '2026-06-19T01:00:00Z' });
+    const out = await newClient().updateWikiPage(7, 9, 1, '수정 제목', '본문');
+    expect(scope.isDone()).toBe(true);
+    expect(out.version).toBe(2);
+    expect(out.title).toBe('수정 제목');
+  });
+
+  // --- #333 M3: 드라이브 읽기 전용 ---
+
+  describe('listMySpaces', () => {
+    it('GET /drive/spaces 로 내 스페이스 목록 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/drive/spaces`)
+        .reply(200, [{ id: 1, name: '팀 드라이브', role: 'EDITOR' }]);
+      const out = await newClient().listMySpaces(7);
+      expect(out[0].name).toBe('팀 드라이브');
+      scope.done();
+    });
+  });
+
+  describe('searchDrive', () => {
+    it('GET /drive/spaces/{id}/search?q 로 검색 결과 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/drive/spaces/1/search`).query({ q: '보고서' })
+        .reply(200, [{ id: 5, kind: 'FILE', name: '보고서.pdf', updatedAt: '2026-06-19T00:00:00Z' }]);
+      const out = await newClient().searchDrive(7, 1, '보고서');
+      expect(out[0].name).toBe('보고서.pdf');
+    });
+  });
+
+  // --- #333 M4: 드라이브 폴더/파일 쓰기 ---
+
+  describe('createFolder', () => {
+    it('POST /drive/spaces/{id}/folders 로 폴더 생성하고 DriveFolderItem 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .post(`${PREFIX}/drive/spaces/1/folders`, { parentId: null, name: '새 폴더' })
+        .reply(201, { id: 10, parentId: null, name: '새 폴더', createdAt: '2026-06-19T00:00:00Z' });
+      const out = await newClient().createFolder(AGENT_ID, 1, null, '새 폴더');
+      expect(scope.isDone()).toBe(true);
+      expect(out.id).toBe(10);
+      expect(out.parentId).toBeNull();
+      expect(out.name).toBe('새 폴더');
+    });
+
+    it('parentId 지정 시 body 에 포함', async () => {
+      const scope = nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .post(`${PREFIX}/drive/spaces/1/folders`, { parentId: 5, name: '하위 폴더' })
+        .reply(201, { id: 11, parentId: 5, name: '하위 폴더', createdAt: '2026-06-19T00:00:00Z' });
+      const out = await newClient().createFolder(AGENT_ID, 1, 5, '하위 폴더');
+      expect(scope.isDone()).toBe(true);
+      expect(out.parentId).toBe(5);
+    });
+  });
+
+  describe('renameFolder', () => {
+    it('PATCH /drive/folders/{id} 로 이름 변경하고 DriveFolderItem 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/folders/10`, { name: '변경 폴더' })
+        .reply(200, { id: 10, parentId: null, name: '변경 폴더', createdAt: '2026-06-19T00:00:00Z' });
+      const out = await newClient().renameFolder(AGENT_ID, 10, '변경 폴더');
+      expect(scope.isDone()).toBe(true);
+      expect(out.name).toBe('변경 폴더');
+    });
+  });
+
+  describe('moveFolder', () => {
+    it('PATCH /drive/folders/{id}/move 로 폴더 이동(void)', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/folders/10/move`, { targetParentId: 3 })
+        .reply(204);
+      await newClient().moveFolder(AGENT_ID, 10, 3);
+      expect(scope.isDone()).toBe(true);
+    });
+
+    it('targetParentId null 로 루트 이동(void)', async () => {
+      const scope = nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/folders/10/move`, { targetParentId: null })
+        .reply(204);
+      await newClient().moveFolder(AGENT_ID, 10, null);
+      expect(scope.isDone()).toBe(true);
+    });
+  });
+
+  describe('moveFile', () => {
+    it('PATCH /drive/files/{id}/move 로 파일 이동(void)', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/files/5/move`, { targetFolderId: 10 })
+        .reply(204);
+      await newClient().moveFile(AGENT_ID, 5, 10);
+      expect(scope.isDone()).toBe(true);
+    });
+
+    it('targetFolderId null 로 루트 이동(void)', async () => {
+      const scope = nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .patch(`${PREFIX}/drive/files/5/move`, { targetFolderId: null })
+        .reply(204);
+      await newClient().moveFile(AGENT_ID, 5, null);
+      expect(scope.isDone()).toBe(true);
+    });
+  });
+
+  // --- #350: 채널 목록/탐색 ---
+
+  describe('listChannels', () => {
+    it('GET /messaging/channels 로 ChannelItem[] 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .get(`${PREFIX}/messaging/channels`)
+        .reply(200, [
+          { id: 1, kind: 'PUBLIC', name: '일반', visibility: 'PUBLIC', member: true, role: 'MEMBER', archived: false, memberCount: 10, unreadCount: 3 },
+        ]);
+      const out = await newClient().listChannels(AGENT_ID);
+      expect(scope.isDone()).toBe(true);
+      expect(out).toHaveLength(1);
+      expect(out[0].name).toBe('일반');
+      expect(out[0].id).toBe(1);
+    });
+
+    it('응답이 배열이 아니면 빈 배열 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .get(`${PREFIX}/messaging/channels`)
+        .reply(200, {});
+      const out = await newClient().listChannels(AGENT_ID);
+      expect(out).toEqual([]);
+    });
+  });
+
+  describe('discoverChannels', () => {
+    it('GET /messaging/channels/discover?q= 로 ChannelItem[] 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .get(`${PREFIX}/messaging/channels/discover`)
+        .query({ q: '개발팀' })
+        .reply(200, [
+          { id: 2, kind: 'PUBLIC', name: '개발팀', visibility: 'PUBLIC', member: false, role: null, archived: false, memberCount: 5, unreadCount: 0 },
+        ]);
+      const out = await newClient().discoverChannels(AGENT_ID, '개발팀');
+      expect(scope.isDone()).toBe(true);
+      expect(out[0].name).toBe('개발팀');
+    });
+
+    it('특수문자 q 는 encodeURIComponent 처리', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .get(`${PREFIX}/messaging/channels/discover`)
+        .query({ q: '팀 채널' })
+        .reply(200, []);
+      const out = await newClient().discoverChannels(AGENT_ID, '팀 채널');
+      expect(out).toEqual([]);
+    });
+  });
 });

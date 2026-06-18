@@ -34,6 +34,10 @@ export function AIChatPanel({
   onNewSession,
   onSelectSession,
   onDeleteSession,
+  delegationLabel,
+  pendingAction,
+  onConfirmAction,
+  onCancelAction,
   showSessionSwitcher = true,
   autoFocus = false,
 }: Props) {
@@ -136,7 +140,10 @@ export function AIChatPanel({
       )}
 
       <div className="flex-1 overflow-auto p-3">
-        {turns.length === 0 ? (
+        {/* #333 M2: delegationLabel 있는 경우 빈-상태 분기 대신 메시지 목록을 항상 렌더한다.
+            progress 이벤트만 오고 delta 가 아직 없어도(turns 가 비어도) 버블이 보여야 하므로.
+            빈 상태(대화 내용 없음)는 turns 도 없고 delegationLabel 도 없을 때만 표시. */}
+        {turns.length === 0 && !delegationLabel ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <Sparkles className="h-9 w-9 text-muted-foreground/60" />
             <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
@@ -167,6 +174,37 @@ export function AIChatPanel({
                 </span>
               </li>
             ))}
+            {/* #333 M2: 위임 진행 버블 — 서브에이전트 위임 중 한 단계 표시.
+                assistant 말풍선과 동일 정렬(좌측·bg-muted·rounded-2xl)에 라벨 + 스피너 아이콘.
+                완료(done) 시 delegationLabel 이 null 로 초기화되어 자동 제거된다. */}
+            {delegationLabel && (
+              <li className="flex justify-start" data-testid="chat-delegation">
+                <span
+                  className="flex items-center gap-2 rounded-2xl bg-muted px-3 py-2 text-sm text-muted-foreground"
+                  role="status"
+                >
+                  <Sparkles className="h-4 w-4 animate-pulse" />
+                  {delegationLabel}
+                </span>
+              </li>
+            )}
+            {/* #333 M2: 확인 카드 — 외부/비가역 액션 제안. 승인 시 서버 실행기 호출, 취소 시 폐기. */}
+            {pendingAction && (
+              <li className="flex justify-start" data-testid="pending-action-card">
+                <div className="max-w-[85%] rounded-2xl border bg-card p-3 text-sm">
+                  <p className="font-medium text-foreground">확인이 필요해요</p>
+                  <p className="mt-1 text-muted-foreground">{pendingAction.summary}</p>
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" className="bg-ai-accent text-ai-accent-foreground" onClick={onConfirmAction}>
+                      승인
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={onCancelAction}>
+                      취소
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            )}
             {/* 3-dot 로딩 — pending 이고 아직 첫 토큰이 오지 않은 경우에만 표시.
                 첫 토큰 도착 후엔 assistant 말풍선 자체가 점진적으로 채워지므로 중복 표시 방지(#332). */}
             {pending && turns[turns.length - 1]?.content === '' && (
