@@ -1,6 +1,7 @@
 // 이슈 상세 우측 속성 레일 — 3개 접기 그룹으로 속성을 구조화.
-// 무엇을: 상태·담당 / 일정 / 분류·관계 3그룹 + 첨부·활동 (임시 하단 배치).
+// 무엇을: 상태·담당 / 일정 / 분류·관계 3그룹 + 활동 (임시 하단 배치).
 // 왜: 9개 속성이 단일 스크롤에 나열되어 과밀한 기존 aside 를 해소(#343).
+// 첨부 섹션은 Task 2 에서 본문 스트립으로 이동 완료.
 
 import { CyclePickerPopover } from '../../../components/cycle/CyclePickerPopover';
 import { LabelChip } from '../../../components/labels/LabelChip';
@@ -16,8 +17,6 @@ import { AssigneePickerPopover } from './AssigneePickerPopover';
 import { CustomFieldsSection } from './CustomFieldsSection';
 import { DueDatePickerPopover } from './DueDatePickerPopover';
 import { IssueActivityTimeline } from './IssueActivityTimeline';
-import { IssueAttachmentDropzone } from './IssueAttachmentDropzone';
-import { IssueAttachmentList } from './IssueAttachmentList';
 import { IssueDependenciesSection } from './IssueDependenciesSection';
 import { IssueParentSlot } from './IssueParentSlot';
 import { IssuePrioritySelect } from './IssuePrioritySelect';
@@ -40,10 +39,6 @@ interface IssuePropertyRailProps {
   customFields: IssueFieldEntry[];    // summary.customFields
   updatePending: boolean;     // update.isPending
   onPatch: (changes: UpdateIssueRequest) => void;
-  // 첨부 섹션용 (임시 — Task 2 에서 본문으로 이동)
-  attachmentCount: number;    // summary.attachmentCount
-  currentUserId: number | null;
-  isOwner: boolean;
   // 활동 섹션용 (임시 — Task 4 에서 탭으로 이동)
   history: IssueHistoryEntry[];
 }
@@ -63,9 +58,6 @@ export function IssuePropertyRail({
   customFields,
   updatePending,
   onPatch,
-  attachmentCount,
-  currentUserId,
-  isOwner,
   history,
 }: IssuePropertyRailProps) {
   // 분류·관계 그룹 배지 — 라벨 + 의존성(양방향) + 커스텀 필드 합산.
@@ -73,7 +65,7 @@ export function IssuePropertyRail({
     labels.length + blockedBy.length + blocks.length + customFields.length;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="property-rail">
       {/* SUBTASK 상세에서만 부모 슬롯 노출 */}
       {isSubtask && (
         <IssueParentSlot
@@ -202,28 +194,6 @@ export function IssuePropertyRail({
           current={customFields}
         />
       </IssuePropertyGroup>
-
-      {/* 첨부 섹션 — 임시 하단 배치, Task 2 에서 본문으로 이동 */}
-      <section aria-label="첨부" className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-muted-foreground">첨부</span>
-          <span className="text-xs text-muted-foreground">
-            {attachmentCount}/10
-          </span>
-        </div>
-        <IssueAttachmentDropzone
-          projectKey={projectKey}
-          number={issueNumber}
-          currentCount={attachmentCount}
-          disabled={attachmentCount >= 10}
-        />
-        <IssueAttachmentList
-          projectKey={projectKey}
-          number={issueNumber}
-          currentUserId={currentUserId}
-          isOwner={isOwner}
-        />
-      </section>
 
       {/* 활동 섹션 — 임시 하단 배치, Task 4 에서 탭으로 이동 */}
       <div>

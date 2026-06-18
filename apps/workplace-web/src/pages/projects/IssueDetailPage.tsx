@@ -30,6 +30,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatSection } from './components/chat/IssueChatSection';
+import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
 import { IssueCommentList } from './components/IssueCommentList';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
@@ -322,6 +323,14 @@ export default function IssueDetailPage() {
               onSave={(b) => patch({ body: b })}
               disabled={update.isPending}
             />
+            {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
+            <IssueAttachmentStrip
+              projectKey={key}
+              number={issueNumber}
+              attachmentCount={summary.attachmentCount}
+              currentUserId={user?.id ?? null}
+              isOwner={isOwner}
+            />
             {/* 비SUBTASK 상세 본문 아래 — 자식 SUBTASK 진행률/목록/인라인 추가 (Phase 4a). */}
             {!isSubtask && (
               <IssueChildrenSection
@@ -355,9 +364,6 @@ export default function IssueDetailPage() {
               customFields={summary.customFields}
               updatePending={update.isPending}
               onPatch={patch}
-              attachmentCount={summary.attachmentCount}
-              currentUserId={user?.id ?? null}
-              isOwner={isOwner}
               history={history}
             />
           </aside>

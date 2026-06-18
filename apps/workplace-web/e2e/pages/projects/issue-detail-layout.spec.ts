@@ -1,9 +1,11 @@
-// 이슈 상세 레이아웃 — 속성 레일 3그룹 접기/펼침 E2E 테스트 (#343).
-// 무엇을: property-group-classification(분류·관계)이 기본 접힘 + 배지 노출, 클릭 시 펼침 검증.
+// 이슈 상세 레이아웃 — 속성 레일 3그룹 접기/펼침 + 첨부 본문 이동 E2E 테스트 (#343).
+// 무엇을: property-group-classification 기본 접힘·배지 + 첨부가 본문 스트립으로 이동 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { createAttachment } from '../../factories/attachment.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
+import type { IssueAttachment } from '../../../src/types/attachment';
 import type { IssueDetailResponse, IssueResponse } from '../../../src/types/issue';
 import type { LabelSummary } from '../../../src/types/label';
 
@@ -55,6 +57,25 @@ async function mockIssueDetail(
   );
 }
 
+// 첨부 목록 API 스텁 — mockIssueDetail 이후 호출해 attachments 응답을 override.
+// 무엇을: mockIssueDetail 이 attachments→[] 로 스텁하는 것을 실제 목록으로 교체.
+// 왜: Playwright 은 마지막 등록 route 가 우선하므로 mockIssueDetail 후 이걸 등록하면 덮어씀.
+async function mockAttachmentList(
+  page: import('@playwright/test').Page,
+  items: IssueAttachment[],
+) {
+  await page.route(
+    (url) =>
+      url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/attachments`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(items),
+      }),
+  );
+}
+
 test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
   test(
     '분류·관계 그룹은 기본 접힘이고 개수 배지를 보여준다',
@@ -79,4 +100,21 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
       await expect(page.getByTestId('issue-labels')).toBeVisible();
     },
   );
+
+  test('첨부는 본문 설명 아래 스트립으로 표시되고 사이드바엔 없다', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockIssueDetail(page, { attachmentCount: 2 });
+    await mockAttachmentList(page, [
+      createAttachment({ fileId: 1, originalName: 'spec.pdf', mimeType: 'application/pdf', sizeBytes: 1234, attachedById: 9 }),
+      createAttachment({ fileId: 2, originalName: 'shot.png', mimeType: 'image/png', sizeBytes: 5678, attachedById: 9 }),
+    ]);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const strip = page.getByTestId('issue-attachment-strip');
+    await expect(strip).toBeVisible();
+    await expect(strip.getByText('spec.pdf')).toBeVisible();
+    // 사이드바(속성 레일)에 첨부 섹션이 없다
+    await expect(page.getByTestId('property-rail').getByText('첨부')).toHaveCount(0);
+  });
 });
