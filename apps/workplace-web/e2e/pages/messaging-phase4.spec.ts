@@ -223,7 +223,50 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
 
     await page.getByTestId(`message-${MSG_ID}`).hover()
     await page.getByTestId(`message-delete-${MSG_ID}`).click()
-    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('(삭제됨)')
+    // #125: 즉시 삭제되지 않고 Undo 토스트가 뜬다.
+    await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible()
+    // 실행 취소를 누르지 않으면 지연(5s) 후 실제 삭제가 반영된다.
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('(삭제됨)', { timeout: 8000 })
+  })
+
+  // 2-0) #125 — 삭제 클릭 후 '실행 취소' 를 누르면 DELETE 가 호출되지 않고 메시지가 보존된다.
+  test('삭제 후 실행 취소를 누르면 메시지가 삭제되지 않는다', async ({ authenticatedPage: page }) => {
+    const CHANNEL_ID = 209
+    const MSG_ID = 850
+    const channel = createChannel({ id: CHANNEL_ID, name: 'Undo채널', member: true })
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [
+      createMessage({ id: MSG_ID, channelId: CHANNEL_ID, authorId: ME_ID, authorName: '나', body: '살아남을 메시지' }),
+    ])
+
+    // DELETE 가 한 번이라도 호출되면 기록 — 실행 취소 후엔 호출되지 않아야 한다.
+    let deleteCalled = false
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}`,
+      (route) => {
+        if (route.request().method() !== 'DELETE') return route.fallback()
+        deleteCalled = true
+        return route.fulfill({ status: 204 })
+      },
+    )
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
+
+    await page.getByTestId(`message-${MSG_ID}`).hover()
+    await page.getByTestId(`message-delete-${MSG_ID}`).click()
+
+    // Undo 토스트의 '실행 취소' 액션 클릭 → 지연 타이머 취소.
+    await page.getByRole('button', { name: '실행 취소' }).click()
+
+    // 지연(5s) 보다 길게 기다려도 DELETE 가 호출되지 않고 본문이 그대로 유지돼야 한다.
+    await page.waitForTimeout(6000)
+    expect(deleteCalled).toBe(false)
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
   })
 
   // 2-1) #124 회귀 — 수정 실패(PATCH 500) 시 에디터가 강제로 닫히지 않고 입력 내용을 보존해야 한다.

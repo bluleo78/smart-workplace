@@ -12,7 +12,7 @@ export function useCreateChannel() {
   return useMutation<ChannelResponse, unknown, CreateChannelRequest>({
     mutationFn: (payload) => messagingApi.createChannel(payload).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: messagingKeys.channels() }),
-    onError: (err) => handleApiError(err, '채널 생성에 실패했어요'),
+    onError: (err) => handleApiError(err, '채널 생성에 실패했습니다'),
   });
 }
 
@@ -24,7 +24,7 @@ export function useRenameChannel(channelId: number) {
       qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.channels() });
     },
-    onError: (err) => handleApiError(err, '채널 이름 변경에 실패했어요'),
+    onError: (err) => handleApiError(err, '채널 이름 변경에 실패했습니다'),
   });
 }
 
@@ -36,7 +36,7 @@ export function useArchiveChannel(channelId: number) {
       qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.channels() });
     },
-    onError: (err) => handleApiError(err, '채널 보관에 실패했어요'),
+    onError: (err) => handleApiError(err, '채널 보관에 실패했습니다'),
   });
 }
 
@@ -48,7 +48,7 @@ export function useUnarchiveChannel(channelId: number) {
       qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.channels() });
     },
-    onError: (err) => handleApiError(err, '채널 보관 해제에 실패했어요'),
+    onError: (err) => handleApiError(err, '채널 보관 해제에 실패했습니다'),
   });
 }
 
@@ -58,7 +58,7 @@ export function useDeleteChannel() {
   return useMutation<void, unknown, number>({
     mutationFn: (channelId) => messagingApi.deleteChannel(channelId).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: messagingKeys.channels() }),
-    onError: (err) => handleApiError(err, '채널 삭제에 실패했어요'),
+    onError: (err) => handleApiError(err, '채널 삭제에 실패했습니다'),
   });
 }
 
@@ -69,6 +69,6 @@ export function useLeaveChannel() {
     mutationFn: (channelId) => messagingApi.leaveChannel(channelId).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: messagingKeys.channels() }),
     onError: (err) =>
-      handleApiError(err, '먼저 소유권을 다른 멤버에게 넘긴 뒤 나갈 수 있어요'),
+      handleApiError(err, '먼저 소유권을 다른 멤버에게 넘긴 뒤 나갈 수 있습니다'),
   });
 }

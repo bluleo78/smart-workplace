@@ -89,8 +89,8 @@ export default function AgentManagementPage() {
   // AGENT 삭제 — AlertDialog 로 확인 후 실행.
   const onDelete = (id: number, name: string) => {
     setConfirmDialog({
-      title: 'AGENT 삭제',
-      description: `AGENT "${name}" 를 삭제하시겠습니까? 키도 모두 제거됩니다.`,
+      title: '에이전트 삭제',
+      description: `에이전트 "${name}"를 삭제하시겠습니까? 키도 모두 제거됩니다.`,
       actionLabel: '삭제',
       action: () =>
         deleteAgent.mutate(id, {
@@ -107,14 +107,14 @@ export default function AgentManagementPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-[28px] leading-[36px] font-semibold tracking-tight">
-          AGENT 관리
+          에이전트 관리
         </h1>
         <Button
           size="sm"
           onClick={() => setShowNew(true)}
           data-testid="new-agent-trigger"
         >
-          + 신규 AGENT
+          + 신규 에이전트
         </Button>
       </div>
 
@@ -127,7 +127,7 @@ export default function AgentManagementPage() {
           ) : agents.isError ? (
             <p className="text-sm text-destructive p-2">목록을 불러오지 못했습니다</p>
           ) : (agents.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground p-2">AGENT 가 없습니다</p>
+            <p className="text-sm text-muted-foreground p-2">에이전트가 없습니다</p>
           ) : (
             <ul className="space-y-1" role="list">
               {(agents.data ?? []).map((a) => (
@@ -156,7 +156,7 @@ export default function AgentManagementPage() {
 
         <section className="space-y-4">
           {selected == null ? (
-            <p className="text-muted-foreground">왼쪽에서 AGENT 를 선택하세요</p>
+            <p className="text-muted-foreground">왼쪽에서 에이전트를 선택하세요</p>
           ) : (
             <>
               <div className="flex items-center justify-between">
@@ -174,7 +174,7 @@ export default function AgentManagementPage() {
                   disabled={deleteAgent.isPending}
                   data-testid={`agent-delete-${selected.id}`}
                 >
-                  AGENT 삭제
+                  에이전트 삭제
                 </Button>
               </div>
 
@@ -386,7 +386,7 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
       ) : (
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            등록된 토큰 없음. AGENT 는 LLM 호출 불가.
+            등록된 토큰 없음. 에이전트는 LLM 호출 불가.
           </p>
           <Button
             size="sm"
@@ -410,7 +410,7 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
           <AlertDialogHeader>
             <AlertDialogTitle>OAuth 토큰 회수</AlertDialogTitle>
             <AlertDialogDescription>
-              OAuth 토큰을 회수하시겠습니까? AGENT 는 LLM 호출 불가 상태가 됩니다.
+              OAuth 토큰을 회수하시겠습니까? 에이전트는 LLM 호출 불가 상태가 됩니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

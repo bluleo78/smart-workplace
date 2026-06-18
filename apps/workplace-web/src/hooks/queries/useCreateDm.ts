@@ -11,6 +11,6 @@ export function useCreateDm() {
   return useMutation<DmResponse, unknown, number[]>({
     mutationFn: (userIds) => messagingApi.createDm(userIds).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: messagingKeys.dms() }),
-    onError: (err) => handleApiError(err, 'DM 을 만들 수 없어요'),
+    onError: (err) => handleApiError(err, 'DM을 만들 수 없습니다'),
   });
 }

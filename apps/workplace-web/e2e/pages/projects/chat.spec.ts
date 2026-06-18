@@ -482,7 +482,10 @@ test.describe('이슈 chat panel', () => {
     await row601.hover();
     await page.getByTestId('chat-message-delete-601').click();
 
-    await expect.poll(() => stubs.deleteIds).toEqual([601]);
+    // #125: Undo 토스트 — 즉시 DELETE 를 호출하지 않는다.
+    await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible();
+    // 실행 취소가 없으면 지연(5s) 후 실제 DELETE 호출 + 마스킹.
+    await expect.poll(() => stubs.deleteIds, { timeout: 8000 }).toEqual([601]);
     await expect(page.getByTestId('chat-message-body-601')).toContainText('(삭제됨)');
   });
 

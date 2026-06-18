@@ -49,7 +49,7 @@ export function NewAgentDialog({ open, onOpenChange }: NewAgentDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="new-agent-dialog">
         <DialogHeader>
-          <DialogTitle>새 AGENT</DialogTitle>
+          <DialogTitle>새 에이전트</DialogTitle>
         </DialogHeader>
         <form
           onSubmit={(e) => {

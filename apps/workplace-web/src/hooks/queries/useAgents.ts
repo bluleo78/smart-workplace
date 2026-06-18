@@ -23,9 +23,9 @@ export function useCreateAgent() {
     mutationFn: createAgent,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
-      toast.success('AGENT 를 추가했습니다');
+      toast.success('에이전트를 추가했습니다');
     },
-    onError: (e) => handleApiError(e, 'AGENT 추가에 실패했습니다'),
+    onError: (e) => handleApiError(e, '에이전트 추가에 실패했습니다'),
   });
 }
 
@@ -35,8 +35,8 @@ export function useDeleteAgent() {
     mutationFn: deleteAgent,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
-      toast.success('AGENT 를 삭제했습니다');
+      toast.success('에이전트를 삭제했습니다');
     },
-    onError: (e) => handleApiError(e, 'AGENT 삭제에 실패했습니다'),
+    onError: (e) => handleApiError(e, '에이전트 삭제에 실패했습니다'),
   });
 }

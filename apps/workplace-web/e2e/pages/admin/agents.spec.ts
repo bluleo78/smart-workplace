@@ -225,7 +225,7 @@ test.describe('/admin/agents', () => {
       // 1) 페이지 진입 + 신규 AGENT 다이얼로그 열기
       await page.goto('/settings/agents');
       await expect(
-        page.getByRole('heading', { name: 'AGENT 관리' }),
+        page.getByRole('heading', { name: '에이전트 관리' }),
       ).toBeVisible();
 
       await page.getByTestId('new-agent-trigger').click();
@@ -274,7 +274,7 @@ test.describe('/admin/agents', () => {
   test('API 키 회수 AlertDialog 취소 → DELETE 호출 없음', async ({ adminPage: page }) => {
     const counts = await setupStatic(page);
     await page.goto('/settings/agents');
-    await expect(page.getByRole('heading', { name: 'AGENT 관리' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '에이전트 관리' })).toBeVisible();
     await page.getByTestId(`agent-row-${AGENT_ID}`).click();
     const revokeBtn = page.getByTestId(`key-revoke-${KEY_ID}`);
     await expect(revokeBtn).toBeVisible();

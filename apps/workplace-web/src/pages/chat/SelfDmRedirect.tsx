@@ -21,7 +21,7 @@ export default function SelfDmRedirect() {
     mutateAsync([user.id]) // 본인 id → size 1 self-DM
       .then((dm) => navigate(`/chat/dms/${dm.id}`, { replace: true }))
       .catch((err) => {
-        handleApiError(err, '개인 메모를 열 수 없어요')
+        handleApiError(err, '개인 메모를 열 수 없습니다')
         navigate('/chat', { replace: true })
       })
   }, [user, mutateAsync, navigate])

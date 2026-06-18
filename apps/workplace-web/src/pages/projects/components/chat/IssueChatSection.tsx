@@ -17,6 +17,7 @@ import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMes
 import { useAuth } from '../../../../hooks/useAuth';
 import { onChatTyping } from '../../../../hooks/useChatStream';
 import { useDebounceValue } from '../../../../hooks/useDebounceValue';
+import { deleteMessageWithUndo } from '../../../../lib/deleteWithUndo';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
 import { ChatMessageList } from './ChatMessageList';
@@ -132,7 +133,7 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
           <CardTitle className="text-base">이슈 채팅</CardTitle>
         </CardHeader>
         <CardContent className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-          <span>채팅을 불러오지 못했어요.</span>
+          <span>채팅을 불러오지 못했습니다.</span>
           <Button
             size="sm"
             variant="outline"
@@ -166,7 +167,7 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
           isFetchingMore={messagesQ.isFetchingNextPage}
           onLoadMore={() => messagesQ.fetchNextPage()}
           onEdit={(id) => setEditingId(id)}
-          onDelete={(id) => deleteMutation.mutate(id)}
+          onDelete={(id) => deleteMessageWithUndo(() => deleteMutation.mutate(id))}
           onMarkRead={(id) => setPendingReadId(id)}
           editingMessageId={editingId}
           renderEditor={(m) => (

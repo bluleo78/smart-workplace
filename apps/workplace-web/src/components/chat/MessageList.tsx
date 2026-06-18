@@ -19,6 +19,7 @@ import { useDeleteMessage } from '@/hooks/queries/useDeleteMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useToggleReaction } from '@/hooks/queries/useToggleReaction'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
+import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
 import { formatClockTime } from '@/lib/formatters'
 import { shouldStartNewGroup } from '@/lib/messageGrouping'
 import type { MessageResponse } from '@/types/messaging'
@@ -227,7 +228,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                         className="h-6 w-6"
                         aria-label="삭제"
                         data-testid={`message-delete-${m.id}`}
-                        onClick={() => remove.mutate(m.id)}
+                        onClick={() => deleteMessageWithUndo(() => remove.mutate(m.id))}
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>

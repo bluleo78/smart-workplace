@@ -145,7 +145,7 @@ async function setupOAuth(
 async function enterAndSelect(page: import('@playwright/test').Page) {
   await page.goto('/settings/agents');
   await expect(
-    page.getByRole('heading', { name: 'AGENT 관리' }),
+    page.getByRole('heading', { name: '에이전트 관리' }),
   ).toBeVisible();
   await page.getByTestId(`agent-row-${AGENT_ID}`).click();
   await expect(
@@ -170,7 +170,7 @@ test.describe('/admin/agents — OAuthTokenSection', () => {
 
       // 미등록 안내 + 등록 버튼 노출.
       await expect(
-        page.getByText('등록된 토큰 없음. AGENT 는 LLM 호출 불가.'),
+        page.getByText('등록된 토큰 없음. 에이전트는 LLM 호출 불가.'),
       ).toBeVisible();
       const registerBtn = page.getByTestId('oauth-token-register');
       await expect(registerBtn).toBeVisible();
@@ -283,7 +283,7 @@ test.describe('/admin/agents — OAuthTokenSection', () => {
     await expect(page.getByText('토큰을 회수했습니다.')).toBeVisible();
     expect(state.deleteCount).toBe(1);
     await expect(
-      page.getByText('등록된 토큰 없음. AGENT 는 LLM 호출 불가.'),
+      page.getByText('등록된 토큰 없음. 에이전트는 LLM 호출 불가.'),
     ).toBeVisible();
     await expect(page.getByTestId('oauth-token-register')).toBeVisible();
   });

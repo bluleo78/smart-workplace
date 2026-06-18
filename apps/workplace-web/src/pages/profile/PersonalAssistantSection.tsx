@@ -47,15 +47,15 @@ export function PersonalAssistantSection() {
   const submitToken = async () => {
     const t = token.trim();
     if (t.length < 32) {
-      toast.error('토큰 형식이 올바르지 않아요.');
+      toast.error('토큰 형식이 올바르지 않습니다.');
       return;
     }
     try {
       await register.mutateAsync({ token: t });
       setToken('');
-      toast.success('개인 비서 토큰을 저장했어요.');
+      toast.success('개인 비서 토큰을 저장했습니다.');
     } catch (e) {
-      handleApiError(e, '토큰 등록에 실패했어요.');
+      handleApiError(e, '토큰 등록에 실패했습니다.');
     }
   };
 
@@ -63,9 +63,9 @@ export function PersonalAssistantSection() {
   const handleModelChange = async (model: string) => {
     try {
       await updateSettings.mutateAsync({ model });
-      toast.success('비서 설정을 변경했어요.');
+      toast.success('비서 설정을 변경했습니다.');
     } catch (e) {
-      handleApiError(e, '비서 설정 변경에 실패했어요.');
+      handleApiError(e, '비서 설정 변경에 실패했습니다.');
     }
   };
 
@@ -73,9 +73,9 @@ export function PersonalAssistantSection() {
   const handleDepthChange = async (thinkingDepth: ThinkingDepth) => {
     try {
       await updateSettings.mutateAsync({ thinkingDepth });
-      toast.success('비서 설정을 변경했어요.');
+      toast.success('비서 설정을 변경했습니다.');
     } catch (e) {
-      handleApiError(e, '비서 설정 변경에 실패했어요.');
+      handleApiError(e, '비서 설정 변경에 실패했습니다.');
     }
   };
 
@@ -83,9 +83,9 @@ export function PersonalAssistantSection() {
   const handleDisable = async () => {
     try {
       await disable.mutateAsync();
-      toast.success('개인 비서를 해제했어요.');
+      toast.success('개인 비서를 해제했습니다.');
     } catch (e) {
-      handleApiError(e, '개인 비서 해제에 실패했어요.');
+      handleApiError(e, '개인 비서 해제에 실패했습니다.');
     }
   };
 

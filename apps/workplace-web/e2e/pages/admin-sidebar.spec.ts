@@ -23,11 +23,11 @@ test('관리 모듈 2차 사이드바에 AGENT가 포함된다', { tag: '@smoke'
   await expect(sidebar).toBeVisible()
   // 앱 타이틀 헤더("설정")로 현재 앱을 식별할 수 있다(Slack 모델)
   await expect(sidebar.getByText('설정', { exact: true })).toBeVisible()
-  await expect(sidebar.getByRole('link', { name: 'AGENT' })).toBeVisible()
+  await expect(sidebar.getByRole('link', { name: '에이전트' })).toBeVisible()
   await expect(sidebar.getByRole('link', { name: '감사 로그' })).toBeVisible()
 
   // 클릭 → URL 네비게이션까지 검증 (요소 존재만 보면 안 됨 — 입력→처리→출력).
-  await sidebar.getByRole('link', { name: 'AGENT' }).click()
+  await sidebar.getByRole('link', { name: '에이전트' }).click()
   await expect(page).toHaveURL(/\/settings\/agents$/)
 })
 

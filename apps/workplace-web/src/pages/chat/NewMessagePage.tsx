@@ -60,7 +60,7 @@ export default function NewMessagePage() {
       await messagingApi.createMessage(dm.id, { body, fileIds: fileIds.length ? fileIds : undefined })
       navigate(`/chat/dms/${dm.id}`)
     } catch (err) {
-      handleApiError(err, '메시지를 보낼 수 없어요')
+      handleApiError(err, '메시지를 보낼 수 없습니다')
       setSending(false)
     }
   }
