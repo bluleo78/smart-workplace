@@ -3,6 +3,7 @@ package com.workplace.chat.outbound;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadProgressEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadReadEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
@@ -105,6 +106,21 @@ public class ChatSseDispatcher {
     p.put("userId", e.actor().id());
     p.put("name", e.actor().name());
     registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.thread.typing", p);
+  }
+
+  // 진행 이벤트도 typing 과 동일하게 REQUIRES_NEW 로 GUC 재주입 후 thread 전 멤버에게 fan-out.
+  // (notifyProgress 의 readOnly 트랜잭션 안에서 동기 발행 → REQUIRES_NEW 가 보류·새 트랜잭션으로 GUC 재주입)
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  @EventListener
+  public void onProgress(ChatThreadProgressEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("threadId", e.threadId());
+    p.put("streamId", e.streamId());
+    p.put("agentId", e.agentId());
+    p.put("agentName", e.agentName());
+    p.put("phase", e.phase());
+    p.put("steps", e.steps());
+    registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.message.progress", p);
   }
 
   private Map<String, Object> mention(UserSummary u) {

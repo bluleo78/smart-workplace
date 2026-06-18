@@ -10,6 +10,7 @@ import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageDeletedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadProgressEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadReadEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatMessageRepository;
@@ -125,6 +126,19 @@ public class ChatMessageService {
   public void notifyTyping(long callerId, long threadId) {
     ensureMember(threadId, callerId);
     publisher.publishEvent(new ChatThreadTypingEvent(threadId, hydrator.summaryOf(callerId)));
+  }
+
+  /**
+   * 진행 알림 — DB 저장 없이 transient 이벤트만 발행. ai-agent 가 X-On-Behalf-Of 로 AGENT 자격을 받아 호출한다. notifyTyping
+   * 과 동일하게 readOnly 트랜잭션으로 ensureMember(RLS 보호 테이블 읽기)를 감싼다.
+   */
+  @Transactional(readOnly = true)
+  public void notifyProgress(
+      long callerId, long threadId, String streamId, String phase, Object steps) {
+    ensureMember(threadId, callerId);
+    String name = hydrator.summaryOf(callerId).name();
+    publisher.publishEvent(
+        new ChatThreadProgressEvent(threadId, callerId, name, streamId, phase, steps));
   }
 
   private ChatMessageResponse findOne(long messageId) {

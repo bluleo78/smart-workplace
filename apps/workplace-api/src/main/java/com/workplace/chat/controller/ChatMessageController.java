@@ -2,6 +2,7 @@ package com.workplace.chat.controller;
 
 import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.dto.ChatMessageResponse;
+import com.workplace.chat.dto.ChatProgressRequest;
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.dto.MarkChatReadRequest;
 import com.workplace.chat.dto.UpdateChatMessageRequest;
@@ -76,6 +77,16 @@ public class ChatMessageController {
   public ResponseEntity<Void> typing(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long threadId) {
     messageService.notifyTyping(callerId, threadId);
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 진행 알림 — DB 변경 없이 thread 멤버에게 SSE progress 이벤트 발행. ai-agent 전용(Internal+X-On-Behalf-Of). */
+  @PostMapping("/threads/{id}/progress")
+  public ResponseEntity<Void> progress(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long threadId,
+      @RequestBody ChatProgressRequest req) {
+    messageService.notifyProgress(callerId, threadId, req.streamId(), req.phase(), req.steps());
     return ResponseEntity.noContent().build();
   }
 }

@@ -36,4 +36,8 @@ public final class ChatDomainEvents {
 
   /** thread 타이핑 알림 (transient, DB 저장 없음). 비-트랜잭션 이벤트. */
   public record ChatThreadTypingEvent(long threadId, UserSummary actor) {}
+
+  /** thread 진행(progress) 알림 — AI 작업 단계 표시용 transient 이벤트(DB 저장 없음). */
+  public record ChatThreadProgressEvent(
+      long threadId, long agentId, String agentName, String streamId, String phase, Object steps) {}
 }
