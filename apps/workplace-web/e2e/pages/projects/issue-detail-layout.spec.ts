@@ -244,6 +244,22 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
   );
 });
 
+// 반응형 레이아웃 — 좁은 화면(<lg) 세로 스택 검증 (Task 5, #343).
+// 무엇을: 800px 뷰포트에서 본문 스트립·속성 레일이 모두 보임을 확인.
+// 왜: 3구역 flex 레이아웃이 lg 미만에서 flex-col 스택으로 무너지지 않는지 회귀 방지.
+test.describe('반응형 레이아웃 (좁은 화면)', () => {
+  test('좁은 화면(<lg)에서 본문·채팅·레일이 세로로 쌓인다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 800, height: 900 });
+    await mockIssueDetail(page, {});
+    await mockChatThread(page, { threadId: 9, recentMessages: [] });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 본문·레일 모두 보임 — 가로 3분할이 무너지지 않고 세로 스택으로 유지.
+    await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
+    await expect(page.getByTestId('property-rail')).toBeVisible();
+  });
+});
+
 // 채팅 접기 패널 — 자동 토글 + 수동 토글 영속 (Task 4, #343).
 // 무엇을: recentMessages 유무로 패널 자동 펼침/접힘 + 수동 접기 후 새로고침 유지 검증.
 // 왜: 채팅 사용 여부에 따라 공간 자동 배분, 사용자 설정을 localStorage 로 기억.
