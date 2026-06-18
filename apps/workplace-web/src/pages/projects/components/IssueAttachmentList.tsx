@@ -43,6 +43,8 @@ export function IssueAttachmentList({
   }
   const items = q.data ?? [];
   if (items.length === 0) {
+    // strip 모드: 빈 상태는 상위 IssueAttachmentStrip 의 드롭존만 표시 — 이 텍스트 불필요.
+    if (layout === 'strip') return null;
     return <p className="text-xs text-muted-foreground py-2">첨부가 없습니다</p>;
   }
 

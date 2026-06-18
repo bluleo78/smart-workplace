@@ -117,4 +117,25 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
     // 사이드바(속성 레일)에 첨부 섹션이 없다
     await expect(page.getByTestId('property-rail').getByText('첨부')).toHaveCount(0);
   });
+
+  test('첨부가 0개인 스트립에서는 "첨부가 없습니다" 텍스트가 숨겨지고 드롭존만 표시된다', async ({
+    authenticatedPage: page,
+  }) => {
+    // 무엇을: attachmentCount=0, 빈 목록 → "첨부가 없습니다" 텍스트는 strip 모드에서 숨김 (drop-zone만 표시).
+    // 왜: strip 레이아웃에서 빈 상태 텍스트는 불필요 — drop-zone 이 목적을 대신.
+    await mockIssueDetail(page, { attachmentCount: 0 });
+    await mockAttachmentList(page, []);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const strip = page.getByTestId('issue-attachment-strip');
+    await expect(strip).toBeVisible();
+
+    // strip 내에서 "첨부가 없습니다" 텍스트는 보이지 않아야 함
+    await expect(strip.getByText('첨부가 없습니다')).toHaveCount(0);
+
+    // drop-zone 은 여전히 보여야 함
+    const dropzone = strip.getByTestId('attachment-dropzone');
+    await expect(dropzone).toBeVisible();
+    await expect(dropzone).toContainText('파일을 드롭하거나 클릭해 첨부');
+  });
 });
