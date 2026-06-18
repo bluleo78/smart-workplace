@@ -102,18 +102,30 @@ test.describe('chat 실시간 SSE', () => {
           summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'SSE 실시간 테스트' }),
         }),
       };
+      // 패널 자동 펼침을 위해 기존 메시지 1건 시드 — SSE 전달 메시지는 id=999(별개).
+      // 무엇을: IssueChatPanel 이 recentMessages 로 자동 펼침 판정하므로, 빈 목록이면
+      //         패널 접힘 → IssueChatSection 미마운트 → useChatMessages 캐시 미생성
+      //         → upsertMessage 가 캐시 없어 no-op → SSE 메시지 유실. 기존 메시지로 펼침 보장.
+      const existingMsg = createChatMessage({
+        id: 1,
+        threadId: THREAD_ID,
+        authorId: ME_ID,
+        authorName: '테스트 사용자',
+        authorKind: 'HUMAN',
+        body: '기존 메시지',
+      });
       const thread = createChatThread({
         threadId: THREAD_ID,
         issueId: 1,
         members: [
           createChatMember({ userId: ME_ID, username: 'testuser', name: '테스트 사용자' }),
         ],
-        recentMessages: [],
+        recentMessages: [existingMsg],
       });
 
       await setupCommonStubs(page, detailRef);
-      // 빈 메시지 목록으로 세팅 — SSE 를 통해서만 메시지가 나타나야 함.
-      await setupChatStubs(page, thread, []);
+      // 기존 메시지 1건으로 패널 자동 펼침 — SSE 는 추가 메시지(id=999)로 도착.
+      await setupChatStubs(page, thread, [existingMsg]);
 
       // SSE 스트림 모킹: chat.message.created 프레임 1개.
       const msg = createChatMessage({

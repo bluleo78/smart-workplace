@@ -29,7 +29,7 @@ import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle'
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
-import { IssueChatSection } from './components/chat/IssueChatSection';
+import { IssueChatPanel } from './components/chat/IssueChatPanel';
 import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
 import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
@@ -316,8 +316,10 @@ export default function IssueDetailPage() {
         }
       />
       <div className="flex-1 overflow-y-auto">
-        <div className="container mx-auto p-6 grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
-          <div className="space-y-4">
+        {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — lg 이상에서 가로 배치 (#343 Task 4). */}
+        <div className="container mx-auto flex flex-col gap-6 p-6 lg:flex-row">
+          {/* 메인 본문 */}
+          <div className="min-w-0 flex-1 space-y-4">
             <InlineEditableBody
               body={body}
               onSave={(b) => patch({ body: b })}
@@ -347,9 +349,11 @@ export default function IssueDetailPage() {
               comments={comments}
               history={history}
             />
-            <IssueChatSection projectKey={key} issueNumber={issueNumber} />
           </div>
-          <aside className="space-y-4">
+          {/* 채팅 패널 — 접힘/펼침 자동 토글. lg 이상에서 본문과 레일 사이. */}
+          <IssueChatPanel projectKey={key} issueNumber={issueNumber} />
+          {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. */}
+          <aside className="w-full shrink-0 lg:w-[280px]">
             <IssuePropertyRail
               projectKey={key}
               issueNumber={issueNumber}

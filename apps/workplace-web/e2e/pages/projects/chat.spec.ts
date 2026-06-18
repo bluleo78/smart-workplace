@@ -192,6 +192,8 @@ test.describe('이슈 chat panel', () => {
       await setupChatStubs(page, stubs);
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+      // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
+      await page.getByTestId('issue-chat-panel-open').click();
 
       await expect(page.getByTestId('chat-section')).toBeVisible();
       await expect(page.getByTestId('chat-empty')).toBeVisible();
@@ -227,6 +229,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
+    await page.getByTestId('issue-chat-panel-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     const submit = page.getByTestId('chat-composer-submit');
@@ -272,6 +276,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
+    await page.getByTestId('issue-chat-panel-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     const submit = page.getByTestId('chat-composer-submit');
@@ -314,6 +320,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
+    await page.getByTestId('issue-chat-panel-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     await input.click();
@@ -581,6 +589,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
+    await page.getByTestId('issue-chat-panel-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     await input.click();
@@ -678,6 +688,8 @@ test.describe('이슈 chat panel', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
+    await page.getByTestId('issue-chat-panel-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     await input.click();
@@ -714,6 +726,8 @@ test.describe('이슈 chat panel', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
+    await page.getByTestId('issue-chat-panel-open').click();
 
     await page.getByTestId('chat-composer-input').click();
     await page.keyboard.type('타이핑');
@@ -752,6 +766,8 @@ test.describe('이슈 chat panel', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
+    await page.getByTestId('issue-chat-panel-open').click();
 
     // 다른 멤버 typing → 인디케이터 노출. 본인 이벤트는 self-filter 로 표시되지 않는다.
     // (TTL 소멸은 재방출 모킹과 경합해 안정적으로 검증하기 어려워 생략 — TTL 로직은 단위 미검증.)
@@ -793,6 +809,8 @@ test.describe('이슈 chat panel', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
+    await page.getByTestId('issue-chat-panel-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     await input.click();

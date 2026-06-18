@@ -1,8 +1,10 @@
 // 이슈 상세 레이아웃 — 속성 레일 3그룹 접기/펼침 + 첨부 본문 이동 E2E 테스트 (#343).
 // 무엇을: property-group-classification 기본 접힘·배지 + 첨부가 본문 스트립으로 이동 검증.
+// Task 4: 채팅 접기 패널 자동 토글 + 3구역 flex 레이아웃.
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createAttachment } from '../../factories/attachment.factory';
+import { createChatMessage, createChatThread } from '../../factories/chat.factory';
 import {
   createComment,
   createHistoryEntry,
@@ -11,6 +13,7 @@ import {
 } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueAttachment } from '../../../src/types/attachment';
+import type { ChatMessageResponse, ChatThreadResponse } from '../../../src/types/chat';
 import type {
   IssueCommentResponse,
   IssueDetailResponse,
@@ -74,6 +77,20 @@ async function mockIssueDetail(
     (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
+  // IssueChatPanel 이 항상 렌더되므로 기본 빈 thread stub 등록.
+  // 무엇을: 개별 테스트가 mockChatThread 로 override 할 수 있도록 default stub 을 마지막에 등록.
+  // 왜: Playwright 은 마지막 등록 route 가 우선 — mockChatThread 를 뒤에 호출하면 덮어씀.
+  await page.route(
+    (url) =>
+      url.pathname ===
+      `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/chat/thread`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createChatThread({ threadId: 999, recentMessages: [] })),
+      }),
+  );
 }
 
 // 첨부 목록 API 스텁 — mockIssueDetail 이후 호출해 attachments 응답을 override.
@@ -92,6 +109,43 @@ async function mockAttachmentList(
         contentType: 'application/json',
         body: JSON.stringify(items),
       }),
+  );
+}
+
+// chat thread endpoint 모킹.
+// 무엇을: IssueChatPanel 이 호출하는 thread GET 과 messages GET 엔드포인트를 stub.
+// 왜: recentMessages 를 제어해 패널 자동 펼침/접힘 동작을 결정론적으로 검증하기 위해.
+async function mockChatThread(
+  page: import('@playwright/test').Page,
+  overrides: Partial<Omit<ChatThreadResponse, 'recentMessages'>> & {
+    recentMessages?: Partial<ChatMessageResponse>[];
+  } = {},
+) {
+  const { recentMessages: msgs, ...rest } = overrides;
+  const recentMessages = (msgs ?? []).map((m) => createChatMessage(m));
+  const thread = createChatThread({ ...rest, recentMessages });
+  await page.route(
+    (url) =>
+      url.pathname ===
+      `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/chat/thread`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(thread),
+      }),
+  );
+  // 패널이 펼쳐질 때 messages 엔드포인트 stub(IssueChatSection → useChatMessages 가 호출).
+  await page.route(
+    (url) => url.pathname === `/api/v1/chat/threads/${thread.threadId}/messages`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: recentMessages, nextCursor: null, hasMore: false }),
+      });
+    },
   );
 }
 
@@ -188,4 +242,44 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
       ).toHaveCount(0);
     },
   );
+});
+
+// 채팅 접기 패널 — 자동 토글 + 수동 토글 영속 (Task 4, #343).
+// 무엇을: recentMessages 유무로 패널 자동 펼침/접힘 + 수동 접기 후 새로고침 유지 검증.
+// 왜: 채팅 사용 여부에 따라 공간 자동 배분, 사용자 설정을 localStorage 로 기억.
+test.describe('이슈 채팅 패널 (채팅 접기 패널, Task 4)', () => {
+  test(
+    '메시지 있으면 자동 펼침, 수동 접기 후 새로고침 시 접힘 유지',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await mockIssueDetail(page, {});
+      await mockChatThread(page, {
+        threadId: 7,
+        recentMessages: [{ id: 1, threadId: 7, body: '안녕' }],
+      });
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+      // 자동 펼침 — recentMessages 있으므로 패널이 열려있어야 함.
+      await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
+
+      // 수동 접기 → 얇은 세로 토글 바로 전환.
+      await page.getByTestId('issue-chat-panel-collapse').click();
+      await expect(page.getByTestId('issue-chat-panel-body')).toBeHidden();
+      await expect(page.getByTestId('issue-chat-panel-open')).toBeVisible();
+
+      // 새로고침 후에도 접힘 유지(localStorage '0' 기억). routes 는 page 객체에 유지됨.
+      await page.reload();
+      await expect(page.getByTestId('issue-chat-panel-body')).toBeHidden();
+    },
+  );
+
+  test('메시지 없으면 기본 접힘 → 토글 바 표시', async ({ authenticatedPage: page }) => {
+    await mockIssueDetail(page, {});
+    await mockChatThread(page, { threadId: 8, recentMessages: [] });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 메시지 없으면 패널 기본 접힘.
+    await expect(page.getByTestId('issue-chat-panel-body')).toBeHidden();
+    await expect(page.getByTestId('issue-chat-panel-open')).toBeVisible();
+  });
 });
