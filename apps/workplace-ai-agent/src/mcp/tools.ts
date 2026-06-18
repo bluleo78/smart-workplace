@@ -358,6 +358,26 @@ export function buildTools(
     },
   };
 
+  // #333 M4: propose 공통 — 사이드카 단일-제안 하드 가드. propose 는 위임 서브에이전트 안에서 실행되어
+// 라우터의 "한 턴 한 제안" 프롬프트 규칙이 전파되지 않으므로, 핸들러에서 프롬프트-독립으로 강제한다.
+// 사이드카는 run-home-compose 가 사전 생성하지 않으므로 파일 존재 = 이번 턴에 이미 제안됨.
+  async function writeProposal(
+    actionType: string,
+    summary: string,
+    params: Record<string, unknown>,
+  ): Promise<string> {
+    const sidecarPath = process.env.WORKPLACE_PENDING_ACTION_PATH;
+    if (!sidecarPath) {
+      return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
+    }
+    const { existsSync, writeFileSync } = await import('node:fs');
+    if (existsSync(sidecarPath)) {
+      return '이미 대기 중인 제안이 있습니다. 먼저 그 작업을 확인(승인/취소)한 뒤 다음 제안을 해주세요.';
+    }
+    writeFileSync(sidecarPath, JSON.stringify({ actionType, summary, params }), 'utf8');
+    return '제안을 등록했습니다. 사용자 확인을 기다립니다.';
+  }
+
   // #333 M2: 일정 생성 제안 도구 — API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환.
   const proposeCreateEventTool: McpTool = {
     name: 'propose_create_event',
@@ -366,15 +386,7 @@ export function buildTools(
     inputSchema: proposeCreateEventInput,
     async handler(args) {
       const { summary, ...params } = proposeCreateEventInput.parse(args);
-      const sidecarPath = process.env.WORKPLACE_PENDING_ACTION_PATH;
-      if (!sidecarPath) {
-        // 사이드카 경로 미주입 — 확인 플로우 비활성. 서브에이전트에 사유 반환.
-        return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
-      }
-      // 제안 객체를 사이드카에 기록(메인이 done 후 읽어 pending_action 으로 발행).
-      const { writeFileSync } = await import('node:fs');
-      writeFileSync(sidecarPath, JSON.stringify({ actionType: 'calendar.create_event', summary, params }), 'utf8');
-      return '일정 생성 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+      return await writeProposal('calendar.create_event', summary, params);
     },
   };
 
@@ -426,15 +438,7 @@ export function buildTools(
     inputSchema: proposeSendMailInput,
     async handler(args) {
       const { summary, ...params } = proposeSendMailInput.parse(args);
-      const sidecarPath = process.env.WORKPLACE_PENDING_ACTION_PATH;
-      if (!sidecarPath) {
-        // 사이드카 경로 미주입 — 확인 플로우 비활성. 서브에이전트에 사유 반환.
-        return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
-      }
-      // 제안 객체를 사이드카에 기록(메인이 done 후 읽어 pending_action 으로 발행).
-      const { writeFileSync } = await import('node:fs');
-      writeFileSync(sidecarPath, JSON.stringify({ actionType: 'mail.send', summary, params }), 'utf8');
-      return '메일 발송 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+      return await writeProposal('mail.send', summary, params);
     },
   };
 
@@ -481,15 +485,7 @@ export function buildTools(
     inputSchema: proposeDeleteContactInput,
     async handler(args) {
       const { summary, ...params } = proposeDeleteContactInput.parse(args);
-      const sidecarPath = process.env.WORKPLACE_PENDING_ACTION_PATH;
-      if (!sidecarPath) {
-        // 사이드카 경로 미주입 — 확인 플로우 비활성. 서브에이전트에 사유 반환.
-        return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
-      }
-      // 제안 객체를 사이드카에 기록(메인이 done 후 읽어 pending_action 으로 발행).
-      const { writeFileSync } = await import('node:fs');
-      writeFileSync(sidecarPath, JSON.stringify({ actionType: 'contacts.delete_contact', summary, params }), 'utf8');
-      return '연락처 삭제 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+      return await writeProposal('contacts.delete_contact', summary, params);
     },
   };
 
@@ -529,11 +525,7 @@ export function buildTools(
     inputSchema: proposeCreateProjectInput,
     async handler(args) {
       const { summary, ...params } = proposeCreateProjectInput.parse(args);
-      const path = process.env.WORKPLACE_PENDING_ACTION_PATH;
-      if (!path) return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
-      const { writeFileSync } = await import('node:fs');
-      writeFileSync(path, JSON.stringify({ actionType: 'project.create_project', summary, params }), 'utf8');
-      return '프로젝트 생성 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+      return await writeProposal('project.create_project', summary, params);
     },
   };
   const proposeDeleteProjectTool: McpTool = {
@@ -542,11 +534,7 @@ export function buildTools(
     inputSchema: proposeDeleteProjectInput,
     async handler(args) {
       const { summary, ...params } = proposeDeleteProjectInput.parse(args);
-      const path = process.env.WORKPLACE_PENDING_ACTION_PATH;
-      if (!path) return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
-      const { writeFileSync } = await import('node:fs');
-      writeFileSync(path, JSON.stringify({ actionType: 'project.delete_project', summary, params }), 'utf8');
-      return '프로젝트 삭제 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+      return await writeProposal('project.delete_project', summary, params);
     },
   };
   const proposeAddProjectMemberTool: McpTool = {
@@ -555,11 +543,7 @@ export function buildTools(
     inputSchema: proposeAddProjectMemberInput,
     async handler(args) {
       const { summary, ...params } = proposeAddProjectMemberInput.parse(args);
-      const path = process.env.WORKPLACE_PENDING_ACTION_PATH;
-      if (!path) return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
-      const { writeFileSync } = await import('node:fs');
-      writeFileSync(path, JSON.stringify({ actionType: 'project.add_member', summary, params }), 'utf8');
-      return '멤버 추가 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+      return await writeProposal('project.add_member', summary, params);
     },
   };
 

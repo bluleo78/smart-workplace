@@ -356,6 +356,29 @@ describe('buildTools(assistant) 드라이브 읽기 도구 (M3)', () => {
   });
 });
 
+// #333 M4: 같은 턴에 두 번째 propose 는 사이드카를 덮어쓰지 않고 거부된다.
+describe('propose 단일-제안 가드 (M4)', () => {
+  it('사이드카가 이미 있으면 두 번째 propose 는 거부된다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'm4-guard-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tools = buildTools({} as never, 1, 'assistant');
+      const propose = tools.find((t) => t.name === 'propose_create_event')!;
+      const first = await propose.handler({ summary: '첫 제안', title: 'A', startsAt: '2026-07-01T09:00:00Z', endsAt: '2026-07-01T10:00:00Z' });
+      expect(first).toContain('등록');
+      const second = await propose.handler({ summary: '둘째 제안', title: 'B', startsAt: '2026-07-02T09:00:00Z', endsAt: '2026-07-02T10:00:00Z' });
+      expect(second).toContain('이미 대기 중인 제안');
+      // 사이드카는 첫 제안 그대로(덮어쓰기 안 됨).
+      const saved = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(saved.summary).toBe('첫 제안');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분
