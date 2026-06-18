@@ -171,8 +171,8 @@ public class HomeComposeService {
     }
   }
 
-  /** SseEmitter 에 이벤트를 안전하게 전송한다. IOException(연결 끊김)은 로그 없이 무시. */
-  private void trySend(SseEmitter emitter, String eventName, Object data) {
+  /** SseEmitter 에 이벤트를 안전하게 전송한다. IOException(연결 끊김)은 로그 없이 무시. 테스트에서 오버라이드 가능. */
+  protected void trySend(SseEmitter emitter, String eventName, Object data) {
     try {
       emitter.send(SseEmitter.event().name(eventName).data(data));
     } catch (IOException ignored) {
