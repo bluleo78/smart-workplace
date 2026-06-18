@@ -5,12 +5,14 @@ import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEven
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.MessagingChannelProgressEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionAddedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionRemovedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -98,6 +100,25 @@ public class MessageSseDispatcher {
         memberRepo.findMemberIds(e.channelId()),
         "messaging.reaction.removed",
         reactionPayload(e.channelId(), e.messageId(), e.emoji(), e.userId()));
+  }
+
+  /**
+   * 진행 이벤트를 채널 전 멤버에게 fan-out. typing 과 동일하게 일반 @EventListener 사용(transient — DB commit 없음).
+   * notifyProgress 의 readOnly 트랜잭션 안에서 동기 발행 → REQUIRES_NEW 가 그 트랜잭션을 보류하고 새 트랜잭션으로 GUC 재주입.
+   */
+  // progress 는 transient 이벤트 — notifyProgress readOnly tx 안에서 동기 발행됨.
+  // REQUIRES_NEW 로 그 트랜잭션을 보류하고 새 트랜잭션을 열어 GUC 재주입(fail-closed 방지).
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  @EventListener
+  public void onProgress(MessagingChannelProgressEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("channelId", e.channelId());
+    p.put("streamId", e.streamId());
+    p.put("agentId", e.agentId());
+    p.put("agentName", e.agentName());
+    p.put("phase", e.phase());
+    p.put("steps", e.steps());
+    registry.fanOut(memberRepo.findMemberIds(e.channelId()), "messaging.message.progress", p);
   }
 
   /** 리액션 SSE payload {channelId, messageId, emoji, userId}. */

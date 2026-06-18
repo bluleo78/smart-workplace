@@ -22,6 +22,7 @@ import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEven
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.MessagingChannelProgressEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.repository.MessageAttachmentRepository;
@@ -249,6 +250,19 @@ public class MessageService {
     // 첨부 목록 batch hydrate (단건이라도 동일 메서드 재사용).
     var attMap = attachmentRepo.findByMessageIds(java.util.List.of(messageId));
     return response.withAttachments(attMap.getOrDefault(messageId, java.util.List.of()));
+  }
+
+  /**
+   * 진행 알림 — DB 저장 없이 transient 이벤트만 발행. ai-agent 가 X-On-Behalf-Of 로 AGENT 자격을 받아 호출한다. readOnly
+   * 트랜잭션으로 ensureMember(RLS 보호 테이블 읽기)를 감싼다(GUC 재주입).
+   */
+  @Transactional(readOnly = true)
+  public void notifyProgress(
+      long callerId, long channelId, String streamId, String phase, Object steps) {
+    ensureMember(channelId, callerId);
+    String name = mentionHydrator.summaryOf(callerId).name();
+    publisher.publishEvent(
+        new MessagingChannelProgressEvent(channelId, callerId, name, streamId, phase, steps));
   }
 
   private void ensureMember(long channelId, long userId) {

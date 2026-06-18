@@ -4,6 +4,7 @@ import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MarkReadRequest;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageResponse;
+import com.workplace.messaging.dto.MessagingProgressRequest;
 import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.service.MessageService;
 import jakarta.validation.Valid;
@@ -81,6 +82,16 @@ public class MessageController {
   public ResponseEntity<Void> delete(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long messageId) {
     messageService.delete(callerId, messageId);
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 진행 알림 — DB 변경 없이 채널 멤버에게 SSE progress 이벤트 발행. ai-agent 전용(Internal+X-On-Behalf-Of). */
+  @PostMapping("/channels/{id}/progress")
+  public ResponseEntity<Void> progress(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long channelId,
+      @RequestBody MessagingProgressRequest req) {
+    messageService.notifyProgress(callerId, channelId, req.streamId(), req.phase(), req.steps());
     return ResponseEntity.noContent().build();
   }
 }

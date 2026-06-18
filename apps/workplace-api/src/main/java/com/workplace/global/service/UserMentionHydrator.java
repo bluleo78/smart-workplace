@@ -3,6 +3,7 @@ package com.workplace.global.service;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.global.dto.MentionResponse;
+import com.workplace.global.dto.UserSummary;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,6 +20,18 @@ import org.springframework.stereotype.Component;
 public class UserMentionHydrator {
 
   private final DSLContext dsl;
+
+  /** 단건 UserSummary 조회. progress 알림 등 발신자 이름이 필요할 때 사용. chat·messaging 공용. */
+  public UserSummary summaryOf(long userId) {
+    return dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.KIND)
+        .from(USER)
+        .where(USER.ID.eq(userId))
+        .fetchOptional(
+            r ->
+                new UserSummary(
+                    r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND)))
+        .orElseThrow(() -> new IllegalStateException("user not found: " + userId));
+  }
 
   /** mention id 후보 중 실제 존재하는 user.id 만 통과 (입력 순서 보존). */
   public List<Long> filterExistingUserIds(List<Long> ids) {

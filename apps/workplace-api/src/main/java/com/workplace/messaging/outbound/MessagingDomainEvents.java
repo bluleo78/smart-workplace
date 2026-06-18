@@ -32,6 +32,15 @@ public final class MessagingDomainEvents {
   /** 리액션 제거 직후. SSE fan-out 용. */
   public record ReactionRemovedEvent(long channelId, long messageId, String emoji, long userId) {}
 
+  /** 채널 진행(progress) 알림 — AI 작업 단계 표시용 transient 이벤트(DB 저장 없음). */
+  public record MessagingChannelProgressEvent(
+      long channelId,
+      long agentId,
+      String agentName,
+      String streamId,
+      String phase,
+      Object steps) {}
+
   /**
    * messaging 메시지가 AI 응답을 유발할 때만 발행. MessageService.create 가 트리거 조건을 판단해(채널 kind·멤버 정보 보유)
    * respondAsAgentId 를 확정하고 발행한다. AFTER_COMMIT async 디스패처는 단순 forward.
