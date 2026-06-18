@@ -10,11 +10,17 @@ describe('drive-agent 정의', () => {
   it('loadSubagents 로 drive-agent 가 로드된다', () => {
     expect(loaded['drive-agent']).toBeDefined();
   });
-  it('tools 는 읽기 3개만(쓰기 없음 — v1)', () => {
+  it('tools 는 읽기 3개 + 쓰기 4개 + 삭제제안 2개(총 9개)', () => {
     expect(loaded['drive-agent'].tools).toEqual([
       'mcp__workplace__list_drive_spaces',
       'mcp__workplace__list_drive_items',
       'mcp__workplace__search_drive',
+      'mcp__workplace__create_folder',
+      'mcp__workplace__rename_folder',
+      'mcp__workplace__move_folder',
+      'mcp__workplace__move_file',
+      'mcp__workplace__propose_delete_file',
+      'mcp__workplace__propose_delete_folder',
     ]);
   });
   it('maxTurns 설정 + 본문에 드라이브·읽기 안내', () => {

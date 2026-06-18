@@ -360,6 +360,47 @@ describe('buildTools(assistant) 드라이브 읽기 도구 (M3)', () => {
   });
 });
 
+// #333 M4: 드라이브 쓰기/삭제 도구 — assistant union 멤버십 + 핸들러 단위 테스트.
+describe('buildTools(assistant) 드라이브 쓰기/삭제 도구 (M4)', () => {
+  it('assistant union 에 드라이브 쓰기/삭제 도구 6개 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of [
+      'create_folder', 'rename_folder', 'move_folder', 'move_file',
+      'propose_delete_file', 'propose_delete_folder',
+    ]) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('create_folder 핸들러가 client.createFolder 를 호출한다', async () => {
+    const folder = { id: 10, name: '신규폴더', type: 'FOLDER' };
+    const calls: unknown[] = [];
+    const fake = { createFolder: async (...a: unknown[]) => { calls.push(a); return folder; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'create_folder')!;
+    const out = await tool.handler({ spaceId: 1, name: '신규폴더' });
+    expect(calls[0]).toEqual([7, 1, null, '신규폴더']);
+    expect(JSON.parse(out)).toMatchObject({ id: 10, name: '신규폴더' });
+  });
+
+  it('propose_delete_file 은 API 미호출, 사이드카에 drive.delete_file 제안을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-drive-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_file')!;
+      const ack = await tool.handler({ id: 99, summary: '보고서.pdf 삭제' });
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('drive.delete_file');
+      expect(written.summary).toBe('보고서.pdf 삭제');
+      expect(written.params.id).toBe(99);
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // #333 M4: 같은 턴에 두 번째 propose 는 사이드카를 덮어쓰지 않고 거부된다.
 describe('propose 단일-제안 가드 (M4)', () => {
   it('사이드카가 이미 있으면 두 번째 propose 는 거부된다', async () => {

@@ -92,6 +92,14 @@ const proposeAddProjectMemberInput = z.object({
 const listDriveItemsInput = z.object({ spaceId: z.number().int().positive(), parentId: z.number().int().positive().optional() });
 const searchDriveInput = z.object({ spaceId: z.number().int().positive(), q: z.string().min(1) });
 
+// #333 M4: 드라이브 쓰기/삭제 입력.
+const createFolderInput = z.object({ spaceId: z.number().int().positive(), parentId: z.number().int().positive().nullable().optional(), name: z.string().min(1).max(255) });
+const renameFolderInput = z.object({ folderId: z.number().int().positive(), name: z.string().min(1).max(255) });
+const moveFolderInput = z.object({ folderId: z.number().int().positive(), targetParentId: z.number().int().positive().nullable().optional() });
+const moveFileInput = z.object({ fileId: z.number().int().positive(), targetFolderId: z.number().int().positive().nullable().optional() });
+const proposeDeleteFileInput = z.object({ summary: z.string().min(1), id: z.number().int().positive() });
+const proposeDeleteFolderInput = z.object({ summary: z.string().min(1), id: z.number().int().positive() });
+
 // #333 M3: 메일 읽기 입력.
 const listMailInput = z.object({
   accountId: z.number().int().positive(),
@@ -623,7 +631,67 @@ export function buildTools(
     },
   };
 
-  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기+메일+드라이브읽기).
+  // #333 M4: 드라이브 폴더/파일 쓰기 도구 — 비가역성이 낮은 정리 작업(폴더 생성·이름변경·이동)은 직접 실행.
+  const createFolderTool: McpTool = {
+    name: 'create_folder',
+    description: '드라이브 스페이스에 새 폴더를 생성합니다. parentId 를 주면 그 하위에 만들고, 생략하면 스페이스 루트에 생성합니다. 생성된 폴더를 JSON 으로 반환합니다.',
+    inputSchema: createFolderInput,
+    async handler(args) {
+      const { spaceId, parentId, name } = createFolderInput.parse(args);
+      return JSON.stringify(await client.createFolder(agentId, spaceId, parentId ?? null, name));
+    },
+  };
+  const renameFolderTool: McpTool = {
+    name: 'rename_folder',
+    description: '폴더 이름을 변경합니다. 변경된 폴더를 JSON 으로 반환합니다.',
+    inputSchema: renameFolderInput,
+    async handler(args) {
+      const { folderId, name } = renameFolderInput.parse(args);
+      return JSON.stringify(await client.renameFolder(agentId, folderId, name));
+    },
+  };
+  const moveFolderTool: McpTool = {
+    name: 'move_folder',
+    description: '폴더를 다른 상위 폴더로 이동합니다. targetParentId 를 생략하면 스페이스 루트로 이동합니다.',
+    inputSchema: moveFolderInput,
+    async handler(args) {
+      const { folderId, targetParentId } = moveFolderInput.parse(args);
+      await client.moveFolder(agentId, folderId, targetParentId ?? null);
+      return 'ok';
+    },
+  };
+  const moveFileTool: McpTool = {
+    name: 'move_file',
+    description: '파일을 다른 폴더로 이동합니다. targetFolderId 를 생략하면 스페이스 루트로 이동합니다.',
+    inputSchema: moveFileInput,
+    async handler(args) {
+      const { fileId, targetFolderId } = moveFileInput.parse(args);
+      await client.moveFile(agentId, fileId, targetFolderId ?? null);
+      return 'ok';
+    },
+  };
+
+  // #333 M4: 드라이브 삭제 제안 도구 — 파일/폴더 삭제는 soft-delete 이나 비가역 작업으로 분류되어 confirm 필요.
+  const proposeDeleteFileTool: McpTool = {
+    name: 'propose_delete_file',
+    description: '파일 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 확인이 필요합니다. summary 에 어떤 파일을 지우는지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다.',
+    inputSchema: proposeDeleteFileInput,
+    async handler(args) {
+      const { summary, ...params } = proposeDeleteFileInput.parse(args);
+      return await writeProposal('drive.delete_file', summary, params);
+    },
+  };
+  const proposeDeleteFolderTool: McpTool = {
+    name: 'propose_delete_folder',
+    description: '폴더 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 하위 파일·폴더가 포함될 수 있어 확인이 필요합니다. summary 에 어떤 폴더를 지우는지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다.',
+    inputSchema: proposeDeleteFolderInput,
+    async handler(args) {
+      const { summary, ...params } = proposeDeleteFolderInput.parse(args);
+      return await writeProposal('drive.delete_folder', summary, params);
+    },
+  };
+
+  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기+메일+드라이브읽기, M4: 드라이브쓰기+삭제제안).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
     return [
@@ -645,7 +713,9 @@ export function buildTools(
       listContactsTool, getExternalContactTool, createExternalContactTool, updateExternalContactTool, proposeDeleteContactTool, // #333 M3: 연락처
       listProjectsTool, getProjectTool, listProjectMembersTool,
       proposeCreateProjectTool, proposeDeleteProjectTool, proposeAddProjectMemberTool, // #333 M3: 프로젝트
-      listDriveSpacesTool, listDriveItemsTool, searchDriveTool, // #333 M3: 드라이브 읽기(v1 읽기 전용)
+      listDriveSpacesTool, listDriveItemsTool, searchDriveTool, // #333 M3: 드라이브 읽기
+      createFolderTool, renameFolderTool, moveFolderTool, moveFileTool, // #333 M4: 드라이브 쓰기(직접 실행)
+      proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
       ...buildShowTools(),
     ];
   }
