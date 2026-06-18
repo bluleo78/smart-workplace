@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -90,8 +91,26 @@ class HomeActionServiceTest extends IntegrationTestBase {
   @Test
   void 미지원_actionType_은_IllegalArgument() throws Exception {
     long caller = userWith("calendar:read", "calendar:write");
-    assertThatThrownBy(() -> service.confirm(caller, "mail.send", params("{}")))
+    assertThatThrownBy(() -> service.confirm(caller, "unknown.action", params("{}")))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void mail_send_는_RBAC권한_없이도_지원된다_미지원아님() throws Exception {
+    // mail.send 는 빈-sentinel 권한(소유권 경계) — calendar 권한만 가진 유저도 actionType 자체는 지원됨.
+    // 계정-소유권 위반(존재하지 않는 accountId 999999)은 EmailAccountNotFoundException으로 전파됨(미지원 IllegalArgument
+    // 아님).
+    long caller = userWith("calendar:read"); // mail 관련 RBAC 권한 없음
+    assertThatThrownBy(
+            () ->
+                service.confirm(
+                    caller,
+                    "mail.send",
+                    params(
+                        "{\"accountId\":999999,\"to\":[\"a@x.com\"],\"subject\":\"s\",\"bodyText\":\"b\"}")))
+        .isInstanceOf(EmailAccountNotFoundException.class) // 소유권 위반 — 도메인 예외 전파
+        .isNotInstanceOf(IllegalArgumentException.class) // 미지원 400 아님(분기 진입)
+        .isNotInstanceOf(AccessDeniedException.class); // RBAC 게이트 없음(sentinel 권한)
   }
 
   @Test
