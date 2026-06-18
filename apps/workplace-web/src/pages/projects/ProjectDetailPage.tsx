@@ -76,7 +76,7 @@ function IssueArea({ projectKey, onOpenCreate }: { projectKey: string; onOpenCre
       {view === 'board' ? (
         <IssueBoardView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
       ) : (
-        <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} />
+        <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
       )}
     </section>
   );

@@ -2,16 +2,19 @@
 // sentinel 이 뷰포트에 들어오면 다음 페이지를 자동 fetch.
 // 행은 아이콘 중심(상태/우선순위/유형) + 담당자 + 행 전체 클릭으로 상세 이동(#234).
 
+import { LayoutList, SearchX } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
+import { Button } from '../../../components/ui/button';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { formatDateKorean } from '../../../lib/formatters';
+import { filtersToParams } from '../../../lib/issueFilters';
 import { groupIssues } from '../../../lib/issueGrouping';
 import type {
   IssueFilters,
@@ -23,14 +26,18 @@ export function IssueListView({
   projectKey,
   filters,
   groupBy,
+  onOpenCreate,
 }: {
   projectKey: string;
   filters: IssueFilters;
   groupBy: IssueGroupBy | null;
+  /** 초기 빈 상태 CTA — "새 태스크 만들기" 버튼에 연결 */
+  onOpenCreate?: () => void;
 }) {
   const { data, fetchNextPage, hasNextPage, isFetching, isLoading } =
     useIssueSearch(projectKey, filters);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [params, setParams] = useSearchParams();
 
   // IntersectionObserver — sentinel 진입 시 다음 페이지 로드.
   useEffect(() => {
@@ -54,11 +61,67 @@ export function IssueListView({
 
   const items =
     data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [];
+
+  // 검색어·필터가 하나라도 적용된 상태인지 판별.
+  // filtersToParams 는 기본값(빈 배열, 빈 문자열, topLevel=true 등)을 URL 에서 생략하므로
+  // toString() === '' 이면 실질 필터가 없는 초기 상태임.
+  const hasActiveFilters = filtersToParams(filters, 'list', null).toString() !== '';
+
+  // view·group 은 유지하고 나머지 필터 파라미터만 초기화.
+  function handleResetFilters() {
+    const p = new URLSearchParams();
+    const view = params.get('view');
+    const group = params.get('group');
+    if (view) p.set('view', view);
+    if (group) p.set('group', group);
+    setParams(p, { replace: true });
+  }
+
   if (items.length === 0) {
+    if (hasActiveFilters) {
+      // 검색어·필터가 활성 상태에서 결과가 없는 경우 — 디자인 시스템 empty state 4요소 (#337).
+      return (
+        <div
+          className="flex flex-col items-center justify-center gap-3 py-16 text-center"
+          data-testid="empty-filter"
+        >
+          <SearchX className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
+          <div className="space-y-1">
+            <p className="text-sm font-medium">검색 결과가 없습니다</p>
+            <p className="text-xs text-muted-foreground">
+              다른 키워드나 필터 조건을 사용해 보세요.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleResetFilters}
+            data-testid="empty-reset-filter"
+          >
+            필터 초기화
+          </Button>
+        </div>
+      );
+    }
+    // 필터 없는 초기 빈 상태 — 첫 사용 또는 모든 이슈 완료·삭제 후 (#337).
     return (
-      <p className="text-muted-foreground py-8 text-center">
-        표시할 태스크가 없습니다.
-      </p>
+      <div
+        className="flex flex-col items-center justify-center gap-3 py-16 text-center"
+        data-testid="empty-no-issues"
+      >
+        <LayoutList className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
+        <div className="space-y-1">
+          <p className="text-sm font-medium">이슈가 없습니다</p>
+          <p className="text-xs text-muted-foreground">
+            새 태스크를 만들어 프로젝트를 시작하세요.
+          </p>
+        </div>
+        {onOpenCreate && (
+          <Button size="sm" onClick={onOpenCreate} data-testid="empty-create-issue">
+            새 태스크 만들기
+          </Button>
+        )}
+      </div>
     );
   }
 
