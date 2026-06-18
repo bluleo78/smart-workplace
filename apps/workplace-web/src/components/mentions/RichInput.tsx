@@ -5,6 +5,7 @@
 import './chat-rich-input.css';
 
 import Document from '@tiptap/extension-document';
+import HardBreak from '@tiptap/extension-hard-break';
 import Mention from '@tiptap/extension-mention';
 import Paragraph from '@tiptap/extension-paragraph';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -138,6 +139,8 @@ export function RichInput({
       Document,
       Paragraph,
       Text,
+      // Shift+Enter 줄바꿈(<br>) 처리. StarterKit 포함 패키지이므로 별도 설치 불필요.
+      HardBreak,
       Placeholder.configure({ placeholder }),
       // membersRef 는 suggestion items/render 콜백에서만 역참조된다. 이 콜백들은
       // 사용자가 '@' 를 입력할 때 ProseMirror 가 호출하며 렌더 시점에 동기 실행되지 않으므로

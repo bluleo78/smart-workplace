@@ -4,12 +4,14 @@ import type { JSONContent } from '@tiptap/core';
 
 import type { MentionUser } from './types';
 
-// TipTap JSON(doc) → 본문 문자열. mention 노드는 <@id>, 문단 경계는 \n.
+// TipTap JSON(doc) → 본문 문자열. mention 노드는 <@id>, 문단 경계는 \n, hardBreak 노드도 \n.
 export function serializeToBody(doc: JSONContent): string {
   const paragraphs = (doc.content ?? []).map((para) => {
     const inline = (para.content ?? [])
       .map((node) => {
         if (node.type === 'mention') return `<@${node.attrs?.id}>`;
+        // Shift+Enter 로 삽입된 hardBreak 노드 → \n 변환 (#357)
+        if (node.type === 'hardBreak') return '\n';
         return node.text ?? '';
       })
       .join('');

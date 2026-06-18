@@ -948,4 +948,38 @@ test.describe('이슈 chat panel', () => {
     // → day1-msg1, day1-msg2 사이에 구분선 없음 (총 4건 메시지, 3개 구분선)
     await expect(page.getByTestId('date-divider')).toHaveCount(3);
   });
+
+  // 회귀(#357) — Shift+Enter 줄바꿈 미작동 (HardBreak extension 누락)
+  // 과거 버그: extensions 배열에 HardBreak 없음 → Shift+Enter 가 줄바꿈 삽입 안 하고 단일 paragraph 유지.
+  // HardBreak 추가 후 <br> 삽입 → 서버 전송 body에 newline 포함 검증.
+  test('Shift+Enter 줄바꿈 삽입 → 서버 body 에 \\n 포함 (HardBreak 회귀)', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'hard-break 테스트' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-panel-open').click();
+
+    const input = page.getByTestId('chat-composer-input');
+    await input.click();
+
+    // "첫 번째 줄" 입력 → Shift+Enter → "두 번째 줄" 입력
+    await page.keyboard.type('첫 번째 줄');
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.type('두 번째 줄');
+
+    // 핵심 검증: 전송 body에 줄바꿈(\n)이 포함되어야 한다.
+    // HardBreak 없으면 단일 paragraph로 합쳐져 \n 없이 전송됨.
+    await page.getByTestId('chat-composer-submit').click();
+    await expect
+      .poll(() => stubs.createPayloads.map((p) => p.body))
+      .toEqual([expect.stringContaining('\n')]);
+  });
 });
