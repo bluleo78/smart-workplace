@@ -165,29 +165,30 @@ export function buildTools(
     ];
   }
 
+  // #333 M3: 채널 읽기/쓰기 도구 — messaging/assistant 프로파일 공유.
+  const getChannelMessagesTool: McpTool = {
+    name: 'get_channel_messages',
+    description: '현재 채널/DM 의 최근 메시지 목록을 JSON 으로 반환합니다(대화 흐름 확인용).',
+    inputSchema: getChannelMessagesInput,
+    async handler(args) {
+      const { channelId } = getChannelMessagesInput.parse(args);
+      return JSON.stringify(await client.getChannelMessages(agentId, channelId, 50));
+    },
+  };
+  const addChannelMessageTool: McpTool = {
+    name: 'add_channel_message',
+    description:
+      '채널/DM 에 답변 메시지를 작성합니다. 본문은 마크다운 지원. 정확히 한 번만 호출하세요.',
+    inputSchema: addChannelMessageInput,
+    async handler(args) {
+      const { channelId, body } = addChannelMessageInput.parse(args);
+      await client.addChannelMessage(agentId, channelId, body);
+      return 'ok';
+    },
+  };
+
   if (profile === 'messaging') {
-    return [
-      {
-        name: 'get_channel_messages',
-        description: '현재 채널/DM 의 최근 메시지 목록을 JSON 으로 반환합니다(대화 흐름 확인용).',
-        inputSchema: getChannelMessagesInput,
-        async handler(args) {
-          const { channelId } = getChannelMessagesInput.parse(args);
-          return JSON.stringify(await client.getChannelMessages(agentId, channelId, 50));
-        },
-      },
-      {
-        name: 'add_channel_message',
-        description:
-          '채널/DM 에 답변 메시지를 작성합니다. 본문은 마크다운 지원. 정확히 한 번만 호출하세요.',
-        inputSchema: addChannelMessageInput,
-        async handler(args) {
-          const { channelId, body } = addChannelMessageInput.parse(args);
-          await client.addChannelMessage(agentId, channelId, body);
-          return 'ok';
-        },
-      },
-    ];
+    return [getChannelMessagesTool, addChannelMessageTool];
   }
 
   // 7b: home 표시 지시 도구(데이터 조회 X). home/assistant 프로파일이 공유한다.
@@ -300,7 +301,7 @@ export function buildTools(
     },
   };
 
-  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안).
+  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징 읽기/쓰기).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
     return [
@@ -313,6 +314,8 @@ export function buildTools(
       listEventsTool,
       getEventTool,              // #333 M2: 캘린더 읽기
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
+      getChannelMessagesTool,    // #333 M3: 메시징 읽기
+      addChannelMessageTool,     // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       ...buildShowTools(),
     ];
   }

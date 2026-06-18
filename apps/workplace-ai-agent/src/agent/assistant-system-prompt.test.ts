@@ -31,4 +31,11 @@ describe('delegationLabel', () => {
   it('calendar-agent → 캘린더 전문가에게 위임 중', () => {
     expect(delegationLabel('calendar-agent')).toBe('캘린더 전문가에게 위임 중');
   });
+  it('위임 테이블에 messaging-agent 행이 포함된다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('messaging-agent');
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/채널|메시지|대화/);
+  });
+  it('messaging-agent → 메시징 전문가에게 위임 중', () => {
+    expect(delegationLabel('messaging-agent')).toBe('메시징 전문가에게 위임 중');
+  });
 });

@@ -148,22 +148,36 @@ describe('buildTools (agentId bound)', () => {
   });
 });
 
+// #333 M3: assistant 프로파일 union — 멤버십 단언으로 완화(이후 M3 앱이 자기 도구만 toContain 으로 단언).
+describe('buildTools(assistant) union (M3: 멤버십 단언)', () => {
+  const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+
+  it('M1/M2 핵심 도구를 계속 포함한다(회귀 가드)', () => {
+    for (const n of [
+      'get_issue_detail', 'add_comment', 'update_status', 'unassign_self',
+      'search_wiki', 'get_wiki_page',
+      'list_events', 'get_event', 'propose_create_event',
+      'show_my_tasks', 'show_issue_list', 'show_issue_detail', 'show_activity',
+    ]) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('신규 search_issues 는 여전히 포함하지 않는다(기존 도구 경계)', () => {
+    expect(names).not.toContain('search_issues');
+  });
+
+  it('messaging 읽기/쓰기 도구를 노출한다(get_channel_messages / add_channel_message)', () => {
+    expect(names).toContain('get_channel_messages');
+    expect(names).toContain('add_channel_message');
+  });
+});
+
 // #333: assistant 프로파일 — 이슈 + 위키읽기 + home show_* + 캘린더 읽기 의 union(M1+M2).
 describe('buildTools(assistant)', () => {
   const fakeClient = {} as never;
 
   const names = buildTools(fakeClient, 1, 'assistant').map((t) => t.name).sort();
-
-  it('기존 union + 캘린더 읽기/제안 도구(list_events/get_event/propose_create_event)를 노출', () => {
-    expect(names).toEqual(
-      [
-        'add_comment', 'get_issue_detail', 'get_wiki_page', 'search_wiki',
-        'show_activity', 'show_issue_detail', 'show_issue_list', 'show_my_tasks',
-        'unassign_self', 'update_status',
-        'list_events', 'get_event', 'propose_create_event',
-      ].sort(),
-    );
-  });
 
   it('신규 search_issues 는 포함하지 않는다(M1 기존 도구 경계)', () => {
     expect(names).not.toContain('search_issues');
