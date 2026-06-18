@@ -1,7 +1,7 @@
 // 이슈 상세 우측 속성 레일 — 3개 접기 그룹으로 속성을 구조화.
-// 무엇을: 상태·담당 / 일정 / 분류·관계 3그룹 + 활동 (임시 하단 배치).
+// 무엇을: 상태·담당 / 일정 / 분류·관계 3그룹.
 // 왜: 9개 속성이 단일 스크롤에 나열되어 과밀한 기존 aside 를 해소(#343).
-// 첨부 섹션은 Task 2 에서 본문 스트립으로 이동 완료.
+// 첨부 섹션은 Task 2 에서, 활동 섹션은 Task 3 에서 본문 탭으로 이동 완료.
 
 import { CyclePickerPopover } from '../../../components/cycle/CyclePickerPopover';
 import { LabelChip } from '../../../components/labels/LabelChip';
@@ -10,13 +10,11 @@ import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { IssueFieldEntry } from '../../../types/customField';
 import type { IssueLinkSummary, IssuePriority, IssueStatus, ParentRef, UpdateIssueRequest } from '../../../types/issue';
-import type { IssueHistoryEntry } from '../../../types/issue';
 import type { LabelSummary } from '../../../types/label';
 import type { UserSummary } from '../../../types/user';
 import { AssigneePickerPopover } from './AssigneePickerPopover';
 import { CustomFieldsSection } from './CustomFieldsSection';
 import { DueDatePickerPopover } from './DueDatePickerPopover';
-import { IssueActivityTimeline } from './IssueActivityTimeline';
 import { IssueDependenciesSection } from './IssueDependenciesSection';
 import { IssueParentSlot } from './IssueParentSlot';
 import { IssuePrioritySelect } from './IssuePrioritySelect';
@@ -39,8 +37,6 @@ interface IssuePropertyRailProps {
   customFields: IssueFieldEntry[];    // summary.customFields
   updatePending: boolean;     // update.isPending
   onPatch: (changes: UpdateIssueRequest) => void;
-  // 활동 섹션용 (임시 — Task 4 에서 탭으로 이동)
-  history: IssueHistoryEntry[];
 }
 
 export function IssuePropertyRail({
@@ -58,7 +54,6 @@ export function IssuePropertyRail({
   customFields,
   updatePending,
   onPatch,
-  history,
 }: IssuePropertyRailProps) {
   // 분류·관계 그룹 배지 — 라벨 + 의존성(양방향) + 커스텀 필드 합산.
   const classificationCount =
@@ -195,11 +190,6 @@ export function IssuePropertyRail({
         />
       </IssuePropertyGroup>
 
-      {/* 활동 섹션 — 임시 하단 배치, Task 4 에서 탭으로 이동 */}
-      <div>
-        <h3 className="text-sm font-semibold mb-2">활동</h3>
-        <IssueActivityTimeline entries={history} />
-      </div>
     </div>
   );
 }

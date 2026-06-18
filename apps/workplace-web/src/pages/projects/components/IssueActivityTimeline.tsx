@@ -238,7 +238,7 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
   const hiddenCount = entries.length - MAX_VISIBLE;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="issue-activity-timeline">
       {/* MAX_VISIBLE 초과 시 "이전 N건 더 보기" 토글 버튼 — 상단 배치로 더 오래된 항목 접기 */}
       {!showAll && hiddenCount > 0 && (
         <button

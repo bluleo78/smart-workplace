@@ -31,8 +31,8 @@ import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatSection } from './components/chat/IssueChatSection';
 import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
+import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
-import { IssueCommentList } from './components/IssueCommentList';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 
 // 제목 인라인 편집 — 표시 모드(텍스트+연필)와 편집 모드(input) 토글.
@@ -340,11 +340,12 @@ export default function IssueDetailPage() {
                 childDoneCount={summary.childDoneCount}
               />
             )}
-            <IssueCommentList
+            <IssueBodyTabs
               projectKey={key}
               issueNumber={issueNumber}
               issueId={summary.id}
               comments={comments}
+              history={history}
             />
             <IssueChatSection projectKey={key} issueNumber={issueNumber} />
           </div>
@@ -364,7 +365,6 @@ export default function IssueDetailPage() {
               customFields={summary.customFields}
               updatePending={update.isPending}
               onPatch={patch}
-              history={history}
             />
           </aside>
         </div>

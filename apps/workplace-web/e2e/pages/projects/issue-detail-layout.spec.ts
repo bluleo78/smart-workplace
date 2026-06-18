@@ -3,10 +3,20 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createAttachment } from '../../factories/attachment.factory';
-import { createIssue, createIssueDetail } from '../../factories/issue.factory';
+import {
+  createComment,
+  createHistoryEntry,
+  createIssue,
+  createIssueDetail,
+} from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueAttachment } from '../../../src/types/attachment';
-import type { IssueDetailResponse, IssueResponse } from '../../../src/types/issue';
+import type {
+  IssueCommentResponse,
+  IssueDetailResponse,
+  IssueHistoryEntry,
+  IssueResponse,
+} from '../../../src/types/issue';
 import type { LabelSummary } from '../../../src/types/label';
 
 const PROJECT_KEY = 'PROJ';
@@ -15,12 +25,21 @@ const ISSUE_NUMBER = 1;
 // 이슈 상세 페이지 공통 API 스텁 설정.
 // 무엇을: project/members/issue-detail/watchers/labels/attachments 엔드포인트 모킹.
 // 왜: 백엔드 없이 이슈 상세 레이아웃을 테스트하기 위해 issue-comments.spec.ts 패턴 재사용.
+// summaryOverrides 외에 comments/history 도 직접 지정 가능 — 탭 분리(Task 3) 이후 활동 탭 테스트에 필요.
 async function mockIssueDetail(
   page: import('@playwright/test').Page,
-  summaryOverrides: Partial<IssueResponse> = {},
+  overrides: Partial<IssueResponse> & {
+    comments?: IssueCommentResponse[];
+    history?: IssueHistoryEntry[];
+  } = {},
 ) {
+  const { comments, history, ...summaryOverrides } = overrides;
   const summary = { ...createIssue({ projectKey: PROJECT_KEY }), ...summaryOverrides };
-  const detail: IssueDetailResponse = createIssueDetail({ summary });
+  const detail: IssueDetailResponse = createIssueDetail({
+    summary,
+    ...(comments !== undefined && { comments }),
+    ...(history !== undefined && { history }),
+  });
 
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({
@@ -138,4 +157,35 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
     await expect(dropzone).toBeVisible();
     await expect(dropzone).toContainText('파일을 드롭하거나 클릭해 첨부');
   });
+});
+
+// 이슈 본문 탭 — 코멘트/활동 분리 (Task 3, #343).
+// 무엇을: 기본 탭이 코멘트이고 활동 탭 클릭 시 타임라인 표시, 사이드바엔 활동 헤딩 없음 검증.
+// 왜: 활동 로그를 사이드바에서 본문 탭으로 이동해 속성 접근 방해 해소.
+test.describe('이슈 본문 탭 (코멘트/활동)', () => {
+  test(
+    '본문 탭: 코멘트 기본, 활동 탭 클릭 시 타임라인 표시·사이드바엔 활동 없음',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await mockIssueDetail(page, {
+        comments: [createComment({ id: 1, body: '첫 코멘트', authorName: '홍길동' })],
+        history: [createHistoryEntry({ id: 1 })],
+      });
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+      // 코멘트 탭 기본 활성 — 탭이 존재하고 active 상태
+      await expect(page.getByRole('tab', { name: /코멘트/ })).toHaveAttribute('data-state', 'active');
+      // 기본 탭에서 코멘트 본문 보임
+      await expect(page.getByText('첫 코멘트')).toBeVisible();
+
+      // 활동 탭 클릭 → 타임라인 testid 보임
+      await page.getByRole('tab', { name: /활동/ }).click();
+      await expect(page.getByTestId('issue-activity-timeline')).toBeVisible();
+
+      // 사이드바(속성 레일)에 '활동' 헤딩 없음 — 활동 섹션이 본문 탭으로 이동됨
+      await expect(
+        page.getByTestId('property-rail').getByRole('heading', { name: '활동' }),
+      ).toHaveCount(0);
+    },
+  );
 });
