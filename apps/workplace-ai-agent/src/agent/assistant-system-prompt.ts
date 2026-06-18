@@ -13,6 +13,7 @@ const DELEGATION_LABELS: Record<string, string> = {
   'mail-agent': '메일 전문가에게 위임 중',
   'contacts-agent': '연락처 전문가에게 위임 중',
   'project-agent': '프로젝트 전문가에게 위임 중',
+  'drive-agent': '드라이브 전문가에게 위임 중',
 };
 
 export function delegationLabel(subagentType: string): string | null {
@@ -38,6 +39,7 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Smart Workplace 홈 화면 "AI
 | 메일 조회·검색·요약·발송(제안) | **mail-agent** | "안 읽은 메일 정리해줘", "이 메일에 답장 보내줘", "거래처에 메일 보내줘" |
 | 연락처 조회·검색·생성/수정·삭제(제안) | **contacts-agent** | "거래처 연락처 추가해줘", "김부장 이메일 찾아줘", "이 연락처 지워줘" |
 | 프로젝트·멤버 조회·생성/삭제/멤버추가(제안) | **project-agent** | "새 프로젝트 만들어줘", "이 프로젝트 멤버 추가해줘", "프로젝트 목록 보여줘" |
+| 드라이브 스페이스·파일 조회·검색(읽기 전용) | **drive-agent** | "드라이브에서 보고서 찾아줘", "팀 드라이브 파일 보여줘" |
 
 ## 표시 도구(직접 사용 가능)
 - \`show_my_tasks\`, \`show_issue_list\`, \`show_issue_detail\`, \`show_activity\` — 무엇을 보여줄지 지시만 합니다(데이터는 프론트가 가져옴).

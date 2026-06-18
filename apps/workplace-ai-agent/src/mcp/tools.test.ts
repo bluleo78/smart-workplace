@@ -340,6 +340,22 @@ describe('buildTools(assistant) 프로젝트 도구 (M3)', () => {
   });
 });
 
+// #333 M3: 드라이브 읽기 도구 — assistant union 멤버십 + 핸들러 단위 테스트.
+describe('buildTools(assistant) 드라이브 읽기 도구 (M3)', () => {
+  it('assistant union 에 드라이브 읽기 도구(list_drive_spaces/list_drive_items/search_drive) 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of ['list_drive_spaces', 'list_drive_items', 'search_drive']) expect(names).toContain(n);
+  });
+
+  it('search_drive 핸들러가 client.searchDrive 를 호출한다', async () => {
+    const calls: unknown[] = [];
+    const fake = { searchDrive: async (...a: unknown[]) => { calls.push(a); return []; } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'search_drive')!;
+    await tool.handler({ spaceId: 1, q: '보고서' });
+    expect(calls[0]).toEqual([7, 1, '보고서']);
+  });
+});
+
 // home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분

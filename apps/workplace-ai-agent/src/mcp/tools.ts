@@ -88,6 +88,10 @@ const proposeAddProjectMemberInput = z.object({
   summary: z.string().min(1),
 });
 
+// #333 M3: 드라이브 읽기 입력(v1 — 읽기 전용).
+const listDriveItemsInput = z.object({ spaceId: z.number().int().positive(), parentId: z.number().int().positive().optional() });
+const searchDriveInput = z.object({ spaceId: z.number().int().positive(), q: z.string().min(1) });
+
 // #333 M3: 메일 읽기 입력.
 const listMailInput = z.object({
   accountId: z.number().int().positive(),
@@ -559,7 +563,33 @@ export function buildTools(
     },
   };
 
-  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기+메일).
+  // #333 M3: 드라이브 읽기 도구(v1 — 쓰기 연기).
+  const listDriveSpacesTool: McpTool = {
+    name: 'list_drive_spaces',
+    description: '내가 접근 가능한 드라이브 스페이스 목록을 JSON 으로 반환합니다.',
+    inputSchema: z.object({}),
+    async handler() { return JSON.stringify(await client.listMySpaces(agentId)); },
+  };
+  const listDriveItemsTool: McpTool = {
+    name: 'list_drive_items',
+    description: '드라이브 스페이스(또는 parentId 하위)의 폴더/파일 목록을 JSON 으로 반환합니다.',
+    inputSchema: listDriveItemsInput,
+    async handler(args) {
+      const { spaceId, parentId } = listDriveItemsInput.parse(args);
+      return JSON.stringify(await client.listSpaceItems(agentId, spaceId, parentId));
+    },
+  };
+  const searchDriveTool: McpTool = {
+    name: 'search_drive',
+    description: '드라이브 스페이스에서 파일/폴더를 이름으로 검색해 JSON 으로 반환합니다.',
+    inputSchema: searchDriveInput,
+    async handler(args) {
+      const { spaceId, q } = searchDriveInput.parse(args);
+      return JSON.stringify(await client.searchDrive(agentId, spaceId, q));
+    },
+  };
+
+  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기+메일+드라이브읽기).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
     return [
@@ -580,6 +610,7 @@ export function buildTools(
       listContactsTool, getExternalContactTool, createExternalContactTool, updateExternalContactTool, proposeDeleteContactTool, // #333 M3: 연락처
       listProjectsTool, getProjectTool, listProjectMembersTool,
       proposeCreateProjectTool, proposeDeleteProjectTool, proposeAddProjectMemberTool, // #333 M3: 프로젝트
+      listDriveSpacesTool, listDriveItemsTool, searchDriveTool, // #333 M3: 드라이브 읽기(v1 읽기 전용)
       ...buildShowTools(),
     ];
   }
