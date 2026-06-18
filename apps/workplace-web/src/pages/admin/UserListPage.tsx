@@ -88,7 +88,8 @@ export default function UserListPage() {
                     {u.kind === 'AGENT' ? (
                       <AgentBadge size="xs" />
                     ) : (
-                      <span className="text-xs text-muted-foreground">HUMAN</span>
+                      // 같은 '구분' 컬럼에서 AGENT(배지)와 시각 일관성 유지 — HUMAN도 배지로 통일
+                      <Badge variant="secondary">일반</Badge>
                     )}
                   </TableCell>
                   <TableCell>
