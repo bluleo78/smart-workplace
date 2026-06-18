@@ -887,6 +887,51 @@ test('편집(B1) — undo 가 갤러리 추가도 되돌린다(일관성)', asyn
   ).toBeVisible()
 })
 
+// ── #339 회귀 가드 — startsAt null 시 Invalid Date 렌더 ──────────────────
+
+test('오늘 일정 — startsAt null 이벤트 시간 셀이 Invalid Date 대신 하이픈을 렌더한다 (refs #339)', async ({
+  authenticatedPage: page,
+}) => {
+  // startsAt이 null인 이벤트 — 서버가 null을 내려보내는 엣지 케이스 방어 회귀 가드.
+  const nullStartEvent: CalendarEvent[] = [
+    {
+      id: 99,
+      title: 'startsAt null 이벤트',
+      description: null,
+      // 서버가 null을 내려보낼 수 있음 — TS 타입은 string이나 런타임 방어 필요
+      startsAt: null as unknown as string,
+      endsAt: null as unknown as string,
+      allDay: false,
+      location: null,
+      color: null,
+      reminderMinutes: null,
+      recurrenceRule: null,
+      createdAt: '2026-06-18T00:00:00Z',
+      updatedAt: '2026-06-18T00:00:00Z',
+    },
+  ]
+  await mockApi(page, 'GET', '/api/v1/calendar/events', nullStartEvent)
+  await mockApi(page, 'GET', '/api/v1/me/issues', issues())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issues())
+  await mockApi(page, 'GET', '/api/v1/notifications', notifications())
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/messaging/channels', channels())
+  await mockApi(page, 'GET', '/api/v1/messaging/dms', emptyDms)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', mail())
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['calendar_today']))
+  await page.goto('/')
+
+  // 이벤트 행이 렌더되어야 한다.
+  await expect(page.getByTestId('dash-calendar')).toContainText('startsAt null 이벤트')
+  // 시간 셀에 "Invalid Date"가 아닌 '-'가 표시되어야 한다.
+  const timeCell = page
+    .getByTestId('dash-calendar')
+    .getByRole('link', { name: '일정 열기: startsAt null 이벤트' })
+    .locator('span').first()
+  await expect(timeCell).toHaveText('-')
+  await expect(timeCell).not.toHaveText('Invalid Date')
+})
+
 // ── #282 회귀 가드 ─────────────────────────────────────────────────────────
 
 test('내 작업 — 내 담당·워치 카운터가 모두 ai-accent 색으로 일관된다 (refs #282)', async ({

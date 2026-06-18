@@ -409,9 +409,12 @@ export function DrivePage() {
                     {it.originalPath && (
                       <span className="ml-2 text-xs text-muted-foreground">{it.originalPath}</span>
                     )}
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {new Date(it.autoPurgeAt).toLocaleDateString()} 삭제 예정
-                    </span>
+                    {/* autoPurgeAt이 null이면 날짜 표시 생략(서버가 미설정한 경우) */}
+                    {it.autoPurgeAt && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {new Date(it.autoPurgeAt).toLocaleDateString()} 삭제 예정
+                      </span>
+                    )}
                   </span>
                   <button type="button" onClick={() => onRestore(it)} className="text-xs text-primary">
                     복원
