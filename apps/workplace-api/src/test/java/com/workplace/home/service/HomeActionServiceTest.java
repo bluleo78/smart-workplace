@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
+import com.workplace.project.dto.ProjectResponse;
 import com.workplace.support.IntegrationTestBase;
 import java.util.Map;
 import java.util.UUID;
@@ -170,5 +171,93 @@ class HomeActionServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () -> service.confirm(caller, "contacts.delete_contact", params("{\"id\":1}")))
         .isInstanceOf(AccessDeniedException.class);
+  }
+
+  /** key 충돌 방지용 유니크 suffix. 규칙 ^[A-Z][A-Z0-9]{1,9}$ 준수: 최대 9자 이내로 자름. */
+  private String uniqueSuffix() {
+    return UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 7);
+  }
+
+  @Test
+  void project_create_project_확인_시_생성() throws Exception {
+    // project:write 권한으로 프로젝트 생성 — 호출자가 OWNER 로 자동 등록됨.
+    long caller = userWith("project:read", "project:write");
+    Object result =
+        service.confirm(
+            caller,
+            "project.create_project",
+            params("{\"key\":\"N" + uniqueSuffix() + "\",\"name\":\"새 프로젝트\"}"));
+    assertThat(result).isNotNull();
+    assertThat(result).isInstanceOf(ProjectResponse.class);
+  }
+
+  @Test
+  void project_create_project_write권한_없으면_AccessDenied() throws Exception {
+    // project:write 없으면 RBAC 게이트에서 먼저 403.
+    long caller = userWith("project:read"); // write 없음
+    assertThatThrownBy(
+            () ->
+                service.confirm(
+                    caller, "project.create_project", params("{\"key\":\"AAA\",\"name\":\"n\"}")))
+        .isInstanceOf(AccessDeniedException.class);
+  }
+
+  @Test
+  void project_delete_project_는_manage권한_요구() throws Exception {
+    // project:manage 없으면 RBAC 게이트에서 먼저 403.
+    long caller = userWith("project:read", "project:write"); // manage 없음
+    assertThatThrownBy(
+            () -> service.confirm(caller, "project.delete_project", params("{\"key\":\"AAA\"}")))
+        .isInstanceOf(AccessDeniedException.class);
+  }
+
+  @Test
+  void project_delete_project_확인_시_삭제() throws Exception {
+    // project:write + project:manage 로 생성 후 소프트삭제.
+    long caller = userWith("project:read", "project:write", "project:manage");
+    String key = "D" + uniqueSuffix();
+    // 프로젝트 먼저 생성(호출자가 OWNER 로 자동 등록됨)
+    service.confirm(
+        caller, "project.create_project", params("{\"key\":\"" + key + "\",\"name\":\"삭제 대상\"}"));
+    // 소프트삭제 실행
+    Object result =
+        service.confirm(caller, "project.delete_project", params("{\"key\":\"" + key + "\"}"));
+    assertThat(result).isInstanceOf(Map.class);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> res = (Map<String, Object>) result;
+    assertThat(res.get("deleted")).isEqualTo(key);
+  }
+
+  @Test
+  void project_add_member_는_manage권한_요구() throws Exception {
+    // project:manage 없으면 RBAC 게이트에서 먼저 403.
+    long caller = userWith("project:read", "project:write"); // manage 없음
+    assertThatThrownBy(
+            () ->
+                service.confirm(
+                    caller,
+                    "project.add_member",
+                    params("{\"key\":\"AAA\",\"userId\":1,\"role\":\"MEMBER\"}")))
+        .isInstanceOf(AccessDeniedException.class);
+  }
+
+  @Test
+  void project_add_member_확인_시_멤버추가() throws Exception {
+    // project:write + project:manage 로 프로젝트 생성 후 다른 사용자 멤버 추가.
+    long caller = userWith("project:read", "project:write", "project:manage");
+    long newMember = userWith("project:read");
+    String key = "M" + uniqueSuffix();
+    // TEAM 프로젝트 생성(호출자 OWNER 자동 등록)
+    service.confirm(
+        caller,
+        "project.create_project",
+        params("{\"key\":\"" + key + "\",\"name\":\"팀 프로젝트\",\"type\":\"TEAM\"}"));
+    // 멤버 추가 실행
+    Object result =
+        service.confirm(
+            caller,
+            "project.add_member",
+            params("{\"key\":\"" + key + "\",\"userId\":" + newMember + ",\"role\":\"MEMBER\"}"));
+    assertThat(result).isNotNull();
   }
 }

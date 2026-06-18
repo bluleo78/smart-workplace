@@ -9,6 +9,9 @@ import com.workplace.contacts.service.ContactService;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.service.MailComposeService;
+import com.workplace.project.dto.AddMemberRequest;
+import com.workplace.project.dto.CreateProjectRequest;
+import com.workplace.project.service.ProjectService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.util.Map;
@@ -36,6 +39,7 @@ public class HomeActionService {
   private final CalendarEventService calendarEventService;
   private final MailComposeService mailComposeService; // #333 M3 추가
   private final ContactService contactService; // #333 M3 추가
+  private final ProjectService projectService; // #333 M3
   private final PermissionChecker permissionChecker;
   private final Validator validator;
   private final ObjectMapper objectMapper;
@@ -52,12 +56,17 @@ public class HomeActionService {
    * Map.of 는 null 값에 NPE 를 던지므로, 미지원은 맵 부재(null)로만 표현한다. 절대 null 값 사용 금지.
    */
   private static final Map<String, String> REQUIRED_PERMISSION =
-      Map.of(
-          "calendar.create_event", "calendar:write",
-          "mail.send",
-              "", // 계정-소유권 경계 — RBAC 권한 없음(MailComposeService.send 가 findByIdAndUser 로 소유 검증)
-          "contacts.delete_contact",
-              "contact:write"); // 실재 시드 코드 — owner/ADMIN 경계는 ContactService 가 추가 강제
+      Map.ofEntries(
+          Map.entry("calendar.create_event", "calendar:write"),
+          Map.entry(
+              "mail.send",
+              ""), // 계정-소유권 경계 — RBAC 권한 없음(MailComposeService.send 가 findByIdAndUser 로 소유 검증)
+          Map.entry(
+              "contacts.delete_contact",
+              "contact:write"), // 실재 시드 코드 — owner/ADMIN 경계는 ContactService 가 추가 강제
+          Map.entry("project.create_project", "project:write"), // #333 M3 — 프로젝트 생성
+          Map.entry("project.delete_project", "project:manage"), // #333 M3 — 소프트삭제(OWNER 경계 추가 강제)
+          Map.entry("project.add_member", "project:manage")); // #333 M3 — 멤버 추가(OWNER 경계 추가 강제)
 
   /**
    * 확인 카드 승인 실행 — 지원 여부 확인 → 권한 검사(필요 시) → 매핑·검증 → 도메인 실행. 결과 객체 반환(컨트롤러가 201).
@@ -91,6 +100,27 @@ public class HomeActionService {
       contactService.delete(callerId, id);
       return Map.of("deleted", id);
     }
+    if ("project.create_project".equals(actionType)) {
+      // params → CreateProjectRequest 매핑·검증 후 ProjectService.create 로 위임.
+      // 호출자가 OWNER 로 자동 등록되므로 callerId=principal 전달.
+      CreateProjectRequest req = mapAndValidate(params, CreateProjectRequest.class);
+      return projectService.create(callerId, req);
+    }
+    if ("project.delete_project".equals(actionType)) {
+      // params 에서 key 추출 → ProjectService.softDelete(OWNER 경계는 서비스 내부 강제).
+      String key = requireText(params, "key");
+      projectService.softDelete(callerId, key);
+      return Map.of("deleted", key);
+    }
+    if ("project.add_member".equals(actionType)) {
+      // params 에서 key 를 별도 추출 후 AddMemberRequest(userId, role)로 매핑.
+      // key 는 AddMemberRequest 에 없는 필드이므로 unknown-properties 오류 방지를 위해 제거 후 변환.
+      String key = requireText(params, "key");
+      ObjectNode paramsWithoutKey = ((ObjectNode) params.deepCopy());
+      paramsWithoutKey.remove("key");
+      AddMemberRequest req = mapAndValidate(paramsWithoutKey, AddMemberRequest.class);
+      return projectService.addMember(callerId, key, req);
+    }
     throw new IllegalArgumentException("지원하지 않는 actionType: " + actionType);
   }
 
@@ -111,6 +141,18 @@ public class HomeActionService {
     paramsWithoutAccountId.remove("accountId");
     MailSendRequest req = mapAndValidate(paramsWithoutAccountId, MailSendRequest.class);
     return mailComposeService.send(callerId, accountId, req);
+  }
+
+  /**
+   * params 에서 필수 텍스트 필드를 추출한다. null/비어있으면 IllegalArgumentException.
+   *
+   * <p>경로 변수 상당의 필드(key 등)를 params 에서 별도 추출할 때 사용.
+   */
+  private String requireText(JsonNode params, String field) {
+    if (params == null || !params.hasNonNull(field) || params.get(field).asText().isBlank()) {
+      throw new IllegalArgumentException("필수 파라미터 누락: " + field);
+    }
+    return params.get(field).asText();
   }
 
   /** JsonNode→DTO 변환 후 bean-validation 명시 수행(@Valid 바인딩 밖이라 자동 발동 안 함). */
