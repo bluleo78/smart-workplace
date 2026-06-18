@@ -1,4 +1,12 @@
-import { ChevronRight, MoreHorizontal, Sparkles, Trash2 } from 'lucide-react'
+import {
+  Check,
+  ChevronRight,
+  Loader2,
+  MoreHorizontal,
+  Sparkles,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react'
 import { Fragment } from 'react'
 
 import {
@@ -7,6 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { StatusBadge } from '@/components/ui/status-badge'
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'conflict'
 
@@ -58,10 +67,24 @@ export function WikiPageHeader({
         })}
       </nav>
       <div className="flex shrink-0 items-center gap-2">
-        <span className="text-xs text-muted-foreground" data-testid="wiki-save-state">
-          {saveState === 'saving' && '저장 중…'}
-          {saveState === 'saved' && '저장됨'}
-        </span>
+        {saveState === 'saving' && (
+          <StatusBadge type="info" data-testid="wiki-save-state">
+            <Loader2 className="animate-spin" />
+            저장 중…
+          </StatusBadge>
+        )}
+        {saveState === 'saved' && (
+          <StatusBadge type="success" data-testid="wiki-save-state">
+            <Check />
+            저장됨
+          </StatusBadge>
+        )}
+        {saveState === 'conflict' && (
+          <StatusBadge type="error" data-testid="wiki-save-state">
+            <TriangleAlert />
+            충돌
+          </StatusBadge>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="페이지 메뉴"

@@ -229,6 +229,9 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
   // 5) 자동저장 완료 → '저장됨' 노출(debounce 800ms + PUT 라운드트립).
   await expect(page.getByText('저장됨')).toBeVisible({ timeout: 5000 })
 
+  // 5b) '저장됨' 은 헤더 저장상태 칩(StatusBadge) 안에 표시된다(#247 — 시각적 명확성).
+  await expect(page.getByTestId('wiki-save-state')).toHaveText('저장됨')
+
   // PUT payload 에 입력한 제목이 그대로 전송됐는지 검증(라운드트립 증명).
   expect(putTitle).toBe(NEW_TITLE)
 
@@ -320,6 +323,10 @@ test('위키 — 낙관적 동시성 충돌(409): 배너 노출 + 자동저장 �
   await expect(
     page.getByText('다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.'),
   ).toBeVisible({ timeout: 5000 })
+
+  // 3b) 헤더 저장상태 칩에도 '충돌' 피드백이 노출된다 — 콘텐츠 배너와 별개로
+  //     헤더만 보고도 충돌 인지 가능해야 한다(#247). '충돌' 문구는 헤더 칩에만 존재.
+  await expect(page.getByTestId('wiki-save-state')).toHaveText('충돌')
 
   // 4) 자동저장 중단 검증 — 배너 노출 시점의 PUT 수를 기록하고,
   //    추가 입력 후 debounce(800ms)보다 길게 대기해도 PUT 이 늘지 않아야 한다.
