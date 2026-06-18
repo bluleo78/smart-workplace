@@ -340,6 +340,11 @@ test('합성 — 카운트 스트립이 모킹된 카운트로 렌더된다', as
     'href',
     '/calendar',
   )
+  // #275 — 오늘 마감 셀은 dueDate=today 필터 딥링크여야 한다(전체 할당 목록이 아니라 오늘 마감만).
+  await expect(counts.getByRole('link', { name: '오늘 마감 1건' })).toHaveAttribute(
+    'href',
+    '/me/tasks/assigned?dueDate=today',
+  )
 })
 
 test('합성 — 멘션 셀 클릭 시 라우팅 대신 알림 인박스 패널이 열린다 (refs #273)', async ({

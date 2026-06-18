@@ -128,6 +128,30 @@ test('내 작업 — 우선순위 facet 을 선택하면 priority query 로 조�
   expect(cap.lastRequest()?.searchParams.get('assignee')).toBe('me')
 })
 
+// #275 — 홈 '오늘 마감' 셀 딥링크(?dueDate=today)는 오늘 날짜 범위(dueFrom=dueTo=오늘)로
+// /me/issues 를 조회해야 한다(전체 할당 목록이 아니라 오늘 마감만).
+test('내 작업 — dueDate=today 딥링크는 오늘 날짜 범위(dueFrom=dueTo)로 조회한다 (#275)', async ({
+  authenticatedPage: page,
+}) => {
+  const cap = await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([createIssue({ id: 33, title: '오늘 마감 이슈' })]),
+    { capture: true },
+  )
+  await page.goto('/me/tasks/assigned?dueDate=today')
+
+  const req = await cap.waitForRequest()
+  // SynthesisLayer 의 localDateKey 와 동일한 로컬 yyyy-MM-dd 정의.
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  expect(req.searchParams.get('assignee')).toBe('me')
+  expect(req.searchParams.get('dueFrom')).toBe(today)
+  expect(req.searchParams.get('dueTo')).toBe(today)
+  await expect(page.getByTestId('assigned-row-33')).toContainText('오늘 마감 이슈')
+})
+
 // #294 회귀 — 내 작업 목록 상태·우선순위는 텍스트 배지가 아닌 아이콘으로 표시되어야 한다.
 // IssueStatusIcon(role=img aria-label="상태: ...") · IssuePriorityBars(role=img aria-label="우선순위 ...") 사용 검증.
 test('내 작업 — 상태·우선순위가 텍스트 배지 아닌 아이콘으로 렌더된다 (#294)', async ({

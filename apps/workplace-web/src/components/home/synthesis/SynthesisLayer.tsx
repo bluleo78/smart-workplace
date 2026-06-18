@@ -202,7 +202,7 @@ export function SynthesisLayer() {
     onClick?: () => void
     q: { isLoading: boolean; isError: boolean }
   }[] = [
-    { label: '오늘 마감', count: dueTodayCount, to: '/me/tasks/assigned', q: dues },
+    { label: '오늘 마감', count: dueTodayCount, to: '/me/tasks/assigned?dueDate=today', q: dues },
     // 멘션: 전용 페이지가 없어 라우팅 대신 알림 인박스 패널을 연다(#273).
     { label: '멘션', count: mentionCount, onClick: () => openInbox(), q: notifs },
     { label: '안 읽음', count: unreadMail, to: '/mail', q: mail },
