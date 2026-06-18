@@ -26,6 +26,16 @@ describe('wiki-agent 라우팅·라벨 (M3)', () => {
   });
 });
 
+describe('mail-agent 라우팅·라벨 (M3)', () => {
+  it('위임 테이블에 mail-agent 행이 포함된다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('mail-agent');
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/메일|이메일/);
+  });
+  it('mail-agent → 메일 전문가에게 위임 중', () => {
+    expect(delegationLabel('mail-agent')).toBe('메일 전문가에게 위임 중');
+  });
+});
+
 describe('delegationLabel', () => {
   it('issue-agent → 이슈 전문가에게 위임 중', () => {
     expect(delegationLabel('issue-agent')).toBe('이슈 전문가에게 위임 중');

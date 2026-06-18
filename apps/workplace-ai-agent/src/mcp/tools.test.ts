@@ -248,6 +248,36 @@ describe('buildTools(assistant) wiki 쓰기 도구 (M3)', () => {
   });
 });
 
+// #333 M3: 메일 도구 — assistant union 멤버십 + propose_send_mail 사이드카 테스트.
+describe('buildTools(assistant) 메일 도구 (M3)', () => {
+  it('assistant union 에 list_mail/get_mail/propose_send_mail 노출', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    for (const n of ['list_mail', 'get_mail', 'propose_send_mail']) expect(names).toContain(n);
+  });
+
+  it('propose_send_mail 은 API 미호출, 사이드카에 mail.send 제안(accountId 포함)을 쓰고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-mail-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_send_mail')!;
+      const ack = await tool.handler({
+        accountId: 5, to: ['a@x.com'], subject: '안녕하세요', bodyText: '본문입니다',
+        summary: 'a@x.com 에게 "안녕하세요" 발송',
+      });
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('mail.send');
+      expect(written.summary).toBe('a@x.com 에게 "안녕하세요" 발송');
+      expect(written.params.accountId).toBe(5); // 계정-소유권 경계에 필수
+      expect(written.params.to).toEqual(['a@x.com']);
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분

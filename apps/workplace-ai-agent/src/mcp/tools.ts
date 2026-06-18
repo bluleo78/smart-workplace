@@ -49,6 +49,27 @@ const updateWikiPageInput = z.object({
 const listEventsInput = z.object({ from: z.string().min(1), to: z.string().min(1) });
 const getEventInput = z.object({ id: z.number().int().positive() });
 
+// #333 M3: 메일 읽기 입력.
+const listMailInput = z.object({
+  accountId: z.number().int().positive(),
+  folder: z.string().default('INBOX'),
+  query: z.string().optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+});
+const getMailInput = z.object({ messageId: z.number().int().positive() });
+// #333 M3: 메일 발송 제안 입력 — MailSendRequest 미러 + accountId(소유권 경계) + summary(카드 본문).
+const proposeSendMailInput = z.object({
+  accountId: z.number().int().positive(),
+  to: z.array(z.string()).min(1),
+  cc: z.array(z.string()).optional(),
+  bcc: z.array(z.string()).optional(),
+  subject: z.string().optional(),
+  bodyText: z.string().optional(),
+  bodyHtml: z.string().optional(),
+  inReplyToMessageId: z.number().int().positive().optional(),
+  summary: z.string().min(1),
+});
+
 // #333 M2: 일정 생성 제안 입력 — CalendarEventRequest 와 1:1(서버 매핑 단순화) + summary(카드 본문).
 const proposeCreateEventInput = z.object({
   title: z.string().min(1).max(200),
@@ -335,7 +356,46 @@ export function buildTools(
     },
   };
 
-  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기).
+  // #333 M3: 메일 읽기 도구 — assistant 프로파일 전용.
+  const listMailTool: McpTool = {
+    name: 'list_mail',
+    description: '메일 계정의 폴더 메시지 목록을 JSON 으로 반환합니다. query 로 검색, folder 기본 INBOX. accountId 는 사용자의 메일 계정 id 입니다.',
+    inputSchema: listMailInput,
+    async handler(args) {
+      const { accountId, folder, query, limit } = listMailInput.parse(args);
+      return JSON.stringify(await client.listMail(agentId, accountId, folder, query, limit));
+    },
+  };
+  const getMailTool: McpTool = {
+    name: 'get_mail',
+    description: '단일 메일 본문(텍스트/HTML)을 JSON 으로 반환합니다. list_mail 결과의 id 로 호출하세요.',
+    inputSchema: getMailInput,
+    async handler(args) {
+      const { messageId } = getMailInput.parse(args);
+      return JSON.stringify(await client.getMail(agentId, messageId));
+    },
+  };
+  // #333 M3: 메일 발송 제안 도구 — propose_create_event 미러. API 미호출, 사이드카에 제안 기록 후 ack 반환.
+  const proposeSendMailTool: McpTool = {
+    name: 'propose_send_mail',
+    description:
+      '메일 발송을 제안합니다. 직접 발송하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약(수신자·제목)을 넣으세요. accountId 는 발신 계정(본인 소유)입니다. 승인 시 서버가 실제로 발송합니다.',
+    inputSchema: proposeSendMailInput,
+    async handler(args) {
+      const { summary, ...params } = proposeSendMailInput.parse(args);
+      const sidecarPath = process.env.WORKPLACE_PENDING_ACTION_PATH;
+      if (!sidecarPath) {
+        // 사이드카 경로 미주입 — 확인 플로우 비활성. 서브에이전트에 사유 반환.
+        return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
+      }
+      // 제안 객체를 사이드카에 기록(메인이 done 후 읽어 pending_action 으로 발행).
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(sidecarPath, JSON.stringify({ actionType: 'mail.send', summary, params }), 'utf8');
+      return '메일 발송 제안을 등록했습니다. 사용자 확인을 기다립니다.';
+    },
+  };
+
+  // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기+메일).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
     return [
@@ -352,6 +412,7 @@ export function buildTools(
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
       getChannelMessagesTool,    // #333 M3: 메시징 읽기
       addChannelMessageTool,     // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
+      listMailTool, getMailTool, proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
       ...buildShowTools(),
     ];
   }
