@@ -503,6 +503,43 @@ test.describe('태스크 보드/검색', () => {
     ).toBeGreaterThan(0);
   });
 
+  test('보드 카드 — hover 시 배경색 변화로 클릭 어포던스 노출 (#304 회귀)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 무엇을: 카드 컨테이너 className 에 transition-colors + hover:bg-accent/30 이 적용되고,
+    //         실제 hover 시 배경색(computed background-color)이 변하는지 검증한다.
+    // 왜: #304 — 카드가 bg-card 로 고정되어 hover 반응이 없어 클릭 가능 요소임을 직관적으로 알 수 없었음.
+    await stubProjectMeta(page);
+    const issues = [
+      createIssue({ id: 1, number: 3, title: 'hover 배경 테스트', status: 'TODO' }),
+    ];
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(issues)),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    const card = page.getByTestId('issue-card-3');
+    await expect(card).toBeVisible();
+
+    // className 에 transition-colors + hover:bg-accent/30 토큰이 포함되어야 한다(토큰 회귀 방지).
+    const cls = await card.getAttribute('class');
+    expect(cls).toContain('transition-colors');
+    expect(cls).toContain('hover:bg-accent/30');
+
+    // hover 전후 computed background-color 가 실제로 달라지는지 확인(파이프라인 검증).
+    const bgBefore = await card.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await card.hover();
+    await expect
+      .poll(async () => card.evaluate((el) => getComputedStyle(el).backgroundColor), {
+        timeout: 2000,
+      })
+      .not.toBe(bgBefore);
+  });
+
   test('리스트 무한 스크롤 — 두번째 페이지가 cursor 로 자동 로드', async ({
     authenticatedPage: page,
   }) => {

@@ -65,7 +65,7 @@ export function IssueCard({
       style={style}
       {...(asOverlay ? {} : attributes)}
       {...(asOverlay ? {} : listeners)}
-      className={`group relative rounded-md border bg-card p-3 text-sm shadow-sm ${
+      className={`group relative rounded-md border bg-card p-3 text-sm shadow-sm transition-colors hover:bg-accent/30 ${
         asOverlay ? 'shadow-xl ring-2 ring-primary/40' : 'cursor-grab active:cursor-grabbing'
       }`}
       data-testid={`issue-card-${issue.number}`}
