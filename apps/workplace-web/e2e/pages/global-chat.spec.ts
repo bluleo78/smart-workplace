@@ -461,3 +461,43 @@ test('긴 무공백 메시지가 말풍선 안에서 줄바꿈되어 메시지 �
   // 수정 전엔 수백 px 의 가로 오버플로가 났다. 수정 후엔 0(또는 반올림 오차 수준)이어야 한다.
   expect(scrollerOverflow).toBeLessThanOrEqual(2)
 })
+
+test('모바일(375px) 풀스크린에서 좌측 세션목록이 숨겨지고 헤더 드롭다운이 세션 전환을 제공한다 (#203)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀(#203): 375px 모바일 뷰포트에서 좌측 260px 세션목록이 고정폭으로 남아
+  // 채팅 영역이 115px / 입력창 26px 로 압착돼 사용 불가 상태.
+  // 수정: 좌측 목록 hidden md:flex, 모바일 헤더에 드롭다운 세션 스위처 추가.
+  await page.setViewportSize({ width: 375, height: 800 })
+
+  await mockChatSessions(page, {
+    items: [
+      { id: 's-mob1', title: '모바일 대화 1', lastMessageAt: '2026-06-10T00:00:00Z', widgetCount: 0 },
+      { id: 's-mob2', title: '모바일 대화 2', lastMessageAt: '2026-06-10T01:00:00Z', widgetCount: 0 },
+    ],
+    nextCursor: null,
+  })
+
+  await page.goto('/')
+  // side → fullscreen
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+
+  // 1) 좌측 세션 목록이 숨겨짐 (hidden md:flex → 375px 에서 비표시)
+  const fsSessionsBox = await page.getByTestId('ai-fs-sessions').boundingBox()
+  expect(fsSessionsBox).toBeNull()
+
+  // 2) 모바일 세션 스위처가 헤더에 보임
+  await expect(page.getByTestId('ai-fs-mobile-session-switcher')).toBeVisible()
+
+  // 3) 채팅 패널이 전체 폭을 차지해 입력창이 정상 너비(100px+)를 가짐
+  const chatInputBox = await page.getByTestId('chat-input').boundingBox()
+  expect(chatInputBox).not.toBeNull()
+  expect(chatInputBox!.width).toBeGreaterThan(100)
+
+  // 4) 드롭다운 열기 → 세션 목록이 표시됨
+  await page.getByTestId('ai-fs-mobile-session-switcher').click()
+  // 드롭다운 콘텐츠(DropdownMenuContent)에 두 세션이 보여야 함
+  await expect(page.getByRole('menu', { name: '대화 선택' })).toBeVisible()
+})
