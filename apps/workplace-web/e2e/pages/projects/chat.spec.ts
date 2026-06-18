@@ -889,4 +889,45 @@ test.describe('이슈 chat panel', () => {
       '원본메시지테스트_수정중인내용',
     );
   });
+
+  // 회귀(#338) — 멀티데이 대화에서 날짜 구분선이 렌더되어야 한다.
+  // 날짜가 같은 메시지 사이엔 구분선 없음, 날짜가 바뀌는 지점에만 삽입.
+  test('멀티데이 메시지 목록 → 날짜 구분선 삽입 (#338)', async ({ authenticatedPage: page }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'date divider 회귀' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+
+    // 3일에 걸친 메시지 4건: day1 × 2, day2 × 1, day3 × 1.
+    // recentMessages 에 넣어야 initialData 시드로 즉시 렌더된다(staleTime=5s 로 API 재호출 없음).
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: [
+        createChatMessage({ id: 10, body: 'day1-msg1', createdAt: '2026-06-01T01:00:00Z' }),
+        createChatMessage({ id: 11, body: 'day1-msg2', createdAt: '2026-06-01T10:00:00Z' }),
+        createChatMessage({ id: 12, body: 'day2-msg1', createdAt: '2026-06-02T03:00:00Z' }),
+        createChatMessage({ id: 13, body: 'day3-msg1', createdAt: '2026-06-03T06:00:00Z' }),
+      ],
+    };
+    stubs.messages = stubs.thread.recentMessages;
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 날짜 구분선 3개(첫 메시지 앞 + 날짜 전환 2회)
+    await expect(page.getByTestId('date-divider')).toHaveCount(3);
+
+    // 각 구분선의 날짜 텍스트 확인 (KST = UTC+9 → 2026-06-01T01Z = 2026년 6월 1일 KST)
+    const dividers = page.getByTestId('date-divider');
+    await expect(dividers.nth(0)).toContainText('2026년');
+    await expect(dividers.nth(1)).toContainText('2026년');
+    await expect(dividers.nth(2)).toContainText('2026년');
+
+    // 같은 날 메시지 사이엔 구분선이 추가되지 않는다
+    // → day1-msg1, day1-msg2 사이에 구분선 없음 (총 4건 메시지, 3개 구분선)
+    await expect(page.getByTestId('date-divider')).toHaveCount(3);
+  });
 });

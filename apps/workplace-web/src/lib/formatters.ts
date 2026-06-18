@@ -180,6 +180,16 @@ export function formatCellValue(value: unknown, dataType?: string): string {
   return str;
 }
 
+/**
+ * KST 기준 날짜 키를 반환한다 (YYYY-MM-DD 형식).
+ * 채팅 날짜 구분선 삽입 시 인접 메시지의 날짜 비교에 사용된다(이슈 #338).
+ */
+export function getDateKey(dateStr: string): string {
+  const d = parseUtcDate(dateStr);
+  // en-CA 로케일은 YYYY-MM-DD 형식을 안정적으로 반환
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d);
+}
+
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
