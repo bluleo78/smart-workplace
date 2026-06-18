@@ -514,6 +514,56 @@ test('모바일(375px) 풀스크린에서 좌측 세션목록이 숨겨지고 �
   await expect(page.getByRole('menu', { name: '대화 선택' })).toBeVisible()
 })
 
+test('위임 진행 이벤트가 도크에 위임 버블을 렌더한다 (#333)', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  // compose SSE 에 progress 이벤트를 포함 — 도크가 "캘린더 전문가에게 위임 중" 버블을 띄워야.
+  // 전략: fetch API 를 page.addInitScript 로 몽키패치해 /api/v1/home/compose 응답을
+  // ReadableStream 으로 직접 제어한다. progress 청크를 먼저 흘리고 렌더를 기다린 뒤
+  // delta·done 을 flush — done 이전에 버블이 존재함을 assert.
+  //
+  // Playwright page.route 는 전체 body 를 한 번에 flush 해 progress→done 이 동일 task 에
+  // 처리될 수 있으므로, ReadableStream 으로 청크를 타임 분리하는 방식 선택.
+  await page.addInitScript(() => {
+    // 원본 fetch 를 래핑해 compose 요청만 가로챈다.
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (!url.includes('/api/v1/home/compose') || (init?.method ?? 'GET') !== 'POST') {
+        return originalFetch(input, init);
+      }
+      // ReadableStream 으로 SSE 청크를 시간 분리해 전달한다.
+      const enc = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          // 1) progress 이벤트 — 위임 버블 트리거
+          controller.enqueue(enc.encode('event: progress\ndata: {"label":"캘린더 전문가에게 위임 중"}\n\n'));
+          // 렌더 사이클이 돌 시간을 줌 — macrotask 경계 삽입
+          await new Promise((r) => setTimeout(r, 100));
+          // 2) delta + done
+          controller.enqueue(enc.encode('event: delta\ndata: {"text":"일정을 확인했어요"}\n\n'));
+          controller.enqueue(enc.encode('event: done\ndata: {"sessionId":"s-prog-1"}\n\n'));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    };
+  });
+
+  await page.goto('/');
+  await page.getByTestId('chat-launcher').click();
+  await page.getByTestId('chat-input').fill('다음주 회의 잡아줘');
+  await page.getByRole('button', { name: '보내기' }).click();
+
+  // 위임 진행 버블이 라벨과 함께 렌더된다(progress 이벤트 후 100ms 창 내에 관측 가능).
+  await expect(page.getByTestId('chat-delegation')).toContainText('캘린더 전문가에게 위임 중');
+  // 최종 응답도 정상 렌더(progress 가 스트림을 끊지 않음).
+  await expect(page.getByTestId('chat-panel')).toContainText('일정을 확인했어요');
+});
+
 test('챗 도크 응답이 토큰 단위로 점진 렌더된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   // /api/v1/home/compose 를 SSE event-stream 으로 모킹.
   // 단일 delta 에 전체 텍스트가 없어야 '연결이 없으면 표시 불가'를 증명할 수 있다.
