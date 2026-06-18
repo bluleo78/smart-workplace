@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && rm -rf dist/agent/subagents && cp -r src/agent/subagents dist/agent/subagents",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
