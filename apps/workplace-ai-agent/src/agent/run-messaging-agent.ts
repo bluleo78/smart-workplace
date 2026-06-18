@@ -1,12 +1,16 @@
 // 7: messaging.message.posted → respondAsAgentId 로 토큰·대화 준비 → CLI spawn(messaging 프로필).
+// A4: runClaudeCliStream 으로 전환 — spawn 즉시 started, 라인마다 파서→tracker→tool, finally에서 done/error 발행.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import { MESSAGING_SYSTEM_PROMPT } from './messaging-system-prompt.js';
 import { buildMessagingUserMessage } from './messaging-user-message.js';
 import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
-import { buildChildEnv, buildCliArgs, runClaudeCli } from './cli-runner.js';
+import { buildChildEnv, buildCliArgs, runClaudeCliStream } from './cli-runner.js';
+import { parseProgressLine } from './chat-progress-parser.js';
+import { ProgressTracker } from './progress-tracker.js';
 import type { RunAgentDeps } from './run-agent.js';
 import type { MessagingEventEnvelope } from '../types/messaging-events.js';
 
@@ -61,10 +65,32 @@ export async function runMessagingAgent(
       mcpConfigPath,
       allowFileRead: false,
     });
+    // A4: 스트리밍 진행 발행 — 단일 streamId 로 started→tool→done/error 를 API 에 POST.
+    // progress POST 실패는 본 흐름을 막지 않는다(표시용). 에러는 로깅만.
+    const streamId = randomUUID();
+    const tracker = new ProgressTracker();
+    const emit = (phase: 'started' | 'tool' | 'done' | 'error') => {
+      const snap = tracker.snapshot(phase);
+      deps.client
+        .postMessagingProgress(agentId, p.channelId, { streamId, phase, steps: snap.steps })
+        .catch((e: unknown) =>
+          console.error('[run-messaging-agent] progress 발행 실패', { channelId: p.channelId, error: e }),
+        );
+    };
+    emit('started');
     const childEnv = buildChildEnv(process.env, token, agentId);
     const logTag = `messaging-agent:channel${p.channelId}:${agentId}`;
-
-    await runClaudeCli({ args, env: childEnv, timeoutMs, logTag, cwd: workDir });
+    const handle = runClaudeCliStream({ args, env: childEnv, timeoutMs, logTag, cwd: workDir }, (line) => {
+      const sig = parseProgressLine(line);
+      if (tracker.apply(sig)) emit('tool');
+    });
+    try {
+      await handle.done;
+      emit('done');
+    } catch (e) {
+      console.error('[run-messaging-agent] CLI 스트림 실패', { channelId: p.channelId, error: e });
+      emit('error');
+    }
   } finally {
     cleanupTempMcpConfig(mcpConfigPath);
     rmSync(workDir, { recursive: true, force: true });
