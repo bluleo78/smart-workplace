@@ -262,6 +262,36 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
   });
 });
 
+// 이슈 본문 최소 너비 — 채팅 패널 열림 시 224px 압축 회귀 방지 (#355).
+// 무엇을: 1200px 뷰포트에서 채팅 패널 열림 시 이슈 본문이 360px 이상을 유지하는지 검증.
+// 왜: min-w-[360px] 누락 시 채팅(320px)+레일(280px) 고정 너비에 밀려 본문이 224px로 줄어드는 회귀가 발생.
+test.describe('이슈 본문 최소 너비 (#355)', () => {
+  test(
+    '1200px 뷰포트에서 채팅 패널 열림 시 이슈 본문이 360px 이상 유지된다',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: 1200, height: 900 });
+      await mockIssueDetail(page, {});
+      await mockChatThread(page, {
+        threadId: 10,
+        recentMessages: [{ id: 1, threadId: 10, body: '테스트 메시지' }],
+      });
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+      // 채팅 패널이 자동으로 펼쳐진 상태 확인.
+      await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
+
+      // 이슈 본문 영역(채팅 패널의 이전 형제 요소)의 너비가 360px 이상이어야 함.
+      const mainContentWidth = await page.evaluate(() => {
+        const chatPanel = document.querySelector('[data-testid="issue-chat-panel-body"]');
+        const mainContent = chatPanel?.parentElement?.children[0] as HTMLElement | undefined;
+        return mainContent ? Math.round(mainContent.getBoundingClientRect().width) : 0;
+      });
+      expect(mainContentWidth).toBeGreaterThanOrEqual(360);
+    },
+  );
+});
+
 // 반응형 레이아웃 — 좁은 화면(<lg) 세로 스택 검증 (Task 5, #343).
 // 무엇을: 800px 뷰포트에서 본문 스트립·속성 레일이 모두 보임을 확인.
 // 왜: 3구역 flex 레이아웃이 lg 미만에서 flex-col 스택으로 무너지지 않는지 회귀 방지.

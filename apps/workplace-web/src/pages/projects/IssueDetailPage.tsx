@@ -318,8 +318,8 @@ export default function IssueDetailPage() {
       <div className="flex-1 overflow-y-auto">
         {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — lg 이상에서 가로 배치 (#343 Task 4). */}
         <div className="container mx-auto flex flex-col gap-6 p-6 lg:flex-row">
-          {/* 메인 본문 */}
-          <div className="min-w-0 flex-1 space-y-4">
+          {/* 메인 본문 — min-w-[360px]: 채팅/속성 레일 고정 너비에 밀려도 본문이 360px 이하로 압축되지 않도록 (#355). */}
+          <div className="min-w-[360px] flex-1 space-y-4">
             <InlineEditableBody
               body={body}
               onSave={(b) => patch({ body: b })}
