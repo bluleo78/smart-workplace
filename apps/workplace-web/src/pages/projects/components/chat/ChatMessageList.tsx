@@ -2,10 +2,12 @@
 // 최신이 아래(Slack 스타일). 위로 스크롤 시 fetchNextPage.
 // 마지막 메시지가 viewport 진입하면 onMarkRead(lastId) 호출 — debounce 는 부모에서 처리.
 
-import { useEffect, useMemo, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useRef } from 'react';
 
+import { DateDivider } from '../../../../components/chat/DateDivider';
 import { Button } from '../../../../components/ui/button';
 import { ScrollArea } from '../../../../components/ui/scroll-area';
+import { getDateKey } from '../../../../lib/formatters';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { ChatMessageRow } from './ChatMessageRow';
 
@@ -110,27 +112,36 @@ export function ChatMessageList({
             const isPending = m.id < 0;
             const canEdit = m.authorId === currentUserId;
 
+            // 날짜가 바뀌는 지점(또는 첫 메시지) 앞에 날짜 구분선 삽입.
+            const prev = idx > 0 ? sorted[idx - 1] : null;
+            const showDateDivider = !prev || getDateKey(m.createdAt) !== getDateKey(prev.createdAt);
+
             if (isEditing) {
               return (
-                <li
-                  key={m.id}
-                  ref={isLast ? lastRef : undefined}
-                  data-testid={`chat-message-${m.id}`}
-                >
-                  {renderEditor(m)}
-                </li>
+                <Fragment key={m.id}>
+                  {showDateDivider && <DateDivider date={m.createdAt} />}
+                  <li
+                    ref={isLast ? lastRef : undefined}
+                    data-testid={`chat-message-${m.id}`}
+                  >
+                    {renderEditor(m)}
+                  </li>
+                </Fragment>
               );
             }
             return (
-              <div key={m.id} ref={isLast ? (lastRef as unknown as React.Ref<HTMLDivElement>) : undefined}>
-                <ChatMessageRow
-                  message={m}
-                  canEdit={canEdit}
-                  isPending={isPending}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
-                />
-              </div>
+              <Fragment key={m.id}>
+                {showDateDivider && <DateDivider date={m.createdAt} />}
+                <div ref={isLast ? (lastRef as unknown as React.Ref<HTMLDivElement>) : undefined}>
+                  <ChatMessageRow
+                    message={m}
+                    canEdit={canEdit}
+                    isPending={isPending}
+                    onEdit={onEdit}
+                    onDelete={onDelete}
+                  />
+                </div>
+              </Fragment>
             );
           })}
         </ul>

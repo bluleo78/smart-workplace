@@ -103,6 +103,32 @@ test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310)', () => {
   });
 });
 
+test.describe('IssueCommentList 코멘트 본문 디자인 시스템 body-secondary (#344)', () => {
+  test(
+    '코멘트 본문 div — text-sm·leading-6·text-foreground 클래스 적용',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      const myComment: IssueCommentResponse = createComment({
+        id: 40,
+        issueId: ISSUE_ID,
+        authorId: ME_ID,
+        body: '디자인 시스템 body-secondary 테스트',
+      });
+      const detailRef = { current: createIssueDetail({ comments: [myComment] }) };
+      await setupIssueStubs(page, detailRef);
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+      await page.waitForSelector('text=디자인 시스템 body-secondary 테스트');
+
+      // 코멘트 본문 div — body-secondary 규격(text-sm·leading-6·text-foreground) 준수 여부
+      const commentBody = page.locator('section[aria-label="코멘트"] ul li').first().locator('div.whitespace-pre-wrap');
+      await expect(commentBody).toHaveClass(/text-sm/);
+      await expect(commentBody).toHaveClass(/leading-6/);
+      await expect(commentBody).toHaveClass(/text-foreground/);
+    },
+  );
+});
+
 test.describe('IssueCommentList 날짜 포맷 (#320)', () => {
   test(
     '코멘트 날짜가 초 없이 분 단위(YYYY-MM-DD HH:mm)로 표시된다',

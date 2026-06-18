@@ -21,6 +21,8 @@ function todayRange(): { from: string; to: string } {
 function eventTime(ev: CalendarEvent): string {
   if (ev.allDay) return '종일'
   const d = parseUtcDate(ev.startsAt)
+  // startsAt이 null/빈 문자열이면 parseUtcDate가 Invalid Date 반환 → '-'로 폴백
+  if (Number.isNaN(d.getTime())) return '-'
   return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
 

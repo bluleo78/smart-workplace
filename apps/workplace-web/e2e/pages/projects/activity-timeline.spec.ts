@@ -79,6 +79,8 @@ test.describe('IssueActivityTimeline — 액터 보더 색상', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -128,6 +130,8 @@ test.describe('IssueActivityTimeline 날짜 포맷 (#320)', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -173,6 +177,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
 
       // 활동 타임라인 섹션 대기
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
@@ -222,6 +228,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -265,6 +273,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -305,6 +315,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -356,6 +368,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -403,12 +417,174 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
 
       // 매핑 없는 값은 원문 그대로 표시되어야 함 (안전한 폴백).
       await expect(timeline).toContainText('UNKNOWN_STATUS → ANOTHER_STATUS');
+    },
+  );
+});
+
+// #341: 활동 이력 접기 — MAX=5 초과 시 "이전 N건 더 보기" 토글
+test.describe('IssueActivityTimeline — 접기/펼치기 (#341)', () => {
+  // 6건 이력: 기본 5건만 보이고, 더 보기 버튼으로 전체 펼침 후 접기 가능한지 검증
+  test(
+    '항목이 MAX(5) 이하이면 더 보기 버튼이 없고 전체 항목이 표시된다',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      const detail = createIssueDetail({
+        history: Array.from({ length: 5 }, (_, i) =>
+          createHistoryEntry({ id: i + 1, eventType: 'STATUS_CHANGED' }),
+        ),
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
+
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+      // 5건 전부 노출
+      await expect(timeline.locator('li')).toHaveCount(5);
+      // "더 보기" 버튼 없어야 함
+      await expect(page.getByRole('button', { name: /더 보기/ })).not.toBeVisible();
+    },
+  );
+
+  test(
+    '항목이 MAX(5)를 초과하면 최근 5건만 표시되고 "이전 N건 더 보기" 버튼이 노출된다',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      // 8건 이력 — 마지막 5건만 기본 표시, 앞 3건은 숨겨짐
+      const detail = createIssueDetail({
+        history: Array.from({ length: 8 }, (_, i) =>
+          createHistoryEntry({ id: i + 1, eventType: 'STATUS_CHANGED' }),
+        ),
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
+
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toBeVisible();
+      // 기본 5건만 표시
+      await expect(timeline.locator('li')).toHaveCount(5);
+      // "이전 3건 더 보기" 버튼 표시
+      const moreBtn = page.getByRole('button', { name: '이전 3건 활동 더 보기' });
+      await expect(moreBtn).toBeVisible();
+    },
+  );
+
+  test(
+    '"이전 N건 더 보기" 버튼 클릭 시 전체 항목이 표시되고 "접기" 버튼이 나타난다',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      const detail = createIssueDetail({
+        history: Array.from({ length: 8 }, (_, i) =>
+          createHistoryEntry({ id: i + 1, eventType: 'STATUS_CHANGED' }),
+        ),
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
+
+      const moreBtn = page.getByRole('button', { name: '이전 3건 활동 더 보기' });
+      await expect(moreBtn).toBeVisible();
+      await moreBtn.click();
+
+      // 전체 8건 표시
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline.locator('li')).toHaveCount(8);
+
+      // "더 보기" 버튼 사라지고 "접기" 버튼 표시
+      await expect(moreBtn).not.toBeVisible();
+      await expect(page.getByRole('button', { name: '활동 이력 접기' })).toBeVisible();
+    },
+  );
+
+  test(
+    '"접기" 버튼 클릭 시 다시 최근 5건만 표시된다',
+    async ({ authenticatedPage: page }) => {
+      await setupCommonStubs(page);
+
+      const detail = createIssueDetail({
+        history: Array.from({ length: 8 }, (_, i) =>
+          createHistoryEntry({ id: i + 1, eventType: 'STATUS_CHANGED' }),
+        ),
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(detail),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /활동/ }).click();
+
+      // 더 보기 → 접기 사이클
+      await page.getByRole('button', { name: '이전 3건 활동 더 보기' }).click();
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline.locator('li')).toHaveCount(8);
+
+      await page.getByRole('button', { name: '활동 이력 접기' }).click();
+      await expect(timeline.locator('li')).toHaveCount(5);
+      await expect(page.getByRole('button', { name: '이전 3건 활동 더 보기' })).toBeVisible();
     },
   );
 });

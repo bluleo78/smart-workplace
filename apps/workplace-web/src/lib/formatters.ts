@@ -3,8 +3,12 @@
  * 여러 페이지에서 중복 정의되던 함수들을 통합.
  */
 
-/** 서버(UTC)에서 받은 LocalDateTime 문자열에 'Z'를 붙여 UTC로 파싱 */
-export function parseUtcDate(dateStr: string): Date {
+/** 서버(UTC)에서 받은 LocalDateTime 문자열에 'Z'를 붙여 UTC로 파싱.
+ *  null/undefined/빈 문자열 입력 시 Invalid Date(new Date(NaN))를 반환해 호출부가 NaN 가드로 처리.
+ */
+export function parseUtcDate(dateStr: string | null | undefined): Date {
+  // null/undefined/빈 문자열은 Invalid Date 반환 — 호출부에서 Number.isNaN(d.getTime())으로 처리
+  if (!dateStr) return new Date(NaN);
   // 이미 타임존 정보가 있으면 그대로, 없으면 UTC로 간주
   if (/[Z+-]\d{0,4}$/.test(dateStr)) return new Date(dateStr);
   return new Date(dateStr + 'Z');
@@ -178,6 +182,16 @@ export function formatCellValue(value: unknown, dataType?: string): string {
   }
 
   return str;
+}
+
+/**
+ * KST 기준 날짜 키를 반환한다 (YYYY-MM-DD 형식).
+ * 채팅 날짜 구분선 삽입 시 인접 메시지의 날짜 비교에 사용된다(이슈 #338).
+ */
+export function getDateKey(dateStr: string): string {
+  const d = parseUtcDate(dateStr);
+  // en-CA 로케일은 YYYY-MM-DD 형식을 안정적으로 반환
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d);
 }
 
 export function formatFileSize(bytes: number): string {

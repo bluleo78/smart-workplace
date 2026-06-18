@@ -196,14 +196,12 @@ test.describe('MessageComposer 4000자 한도 검증', () => {
     await page.getByTestId('message-composer-input').waitFor({ state: 'visible' });
   }
 
-  // TipTap contenteditable 에 execCommand 로 텍스트 삽입 (keyboard.type 보다 빠름).
+  // TipTap contenteditable 에 텍스트 삽입. pressSequentially 로 키보드 이벤트를 발생시켜
+  // React/TipTap 상태를 올바르게 갱신한다 (deprecated execCommand 대체).
   async function insertText(page: import('@playwright/test').Page, text: string) {
-    await page.getByTestId('message-composer-input').click();
-    await page.evaluate((t: string) => {
-      const el = document.querySelector('[data-testid="message-composer-input"]') as HTMLElement;
-      el?.focus();
-      document.execCommand('insertText', false, t);
-    }, text);
+    const input = page.getByTestId('message-composer-input');
+    await input.click();
+    await input.pressSequentially(text, { delay: 0 });
   }
 
   test('4001자 입력 → 전송 버튼 비활성화 + Enter POST 차단', async ({
@@ -388,4 +386,45 @@ test('대화 사이드바 — 채널·DM 링크에 transition-colors 적용', as
   await expect(page.getByTestId(`channel-link-${CHANNEL_ID}`)).toHaveClass(/transition-colors/);
   // self-DM("나") 링크도 동일 DM 목록 패턴 → 동일하게 적용
   await expect(page.getByTestId('dm-self-link')).toHaveClass(/transition-colors/);
+});
+
+// 회귀(#338) — 팀 채팅 멀티데이 대화에서 날짜 구분선이 렌더되어야 한다.
+test('팀 채팅 — 멀티데이 메시지 목록 → 날짜 구분선 삽입 (#338)', async ({
+  authenticatedPage: page,
+}) => {
+  const channel = createChannel({ id: CHANNEL_ID, member: true });
+
+  // 3일에 걸친 메시지 4건: day1 × 2, day2 × 1, day3 × 1
+  // MessageList는 DESC 정렬로 수신하므로 역순으로 전달(최신이 앞)
+  const messages = [
+    createMessage({ id: 13, channelId: CHANNEL_ID, body: 'day3-msg1', createdAt: '2026-06-03T06:00:00Z' }),
+    createMessage({ id: 12, channelId: CHANNEL_ID, body: 'day2-msg1', createdAt: '2026-06-02T03:00:00Z' }),
+    createMessage({ id: 11, channelId: CHANNEL_ID, body: 'day1-msg2', createdAt: '2026-06-01T10:00:00Z' }),
+    createMessage({ id: 10, channelId: CHANNEL_ID, body: 'day1-msg1', createdAt: '2026-06-01T01:00:00Z' }),
+  ]
+
+  await setupChannelStubs(page, [channel], `:\n\n`)
+
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: messages, nextCursor: null, hasMore: false }),
+      })
+    },
+  )
+
+  await page.goto(`/chat/channels/${CHANNEL_ID}`)
+
+  // 날짜 구분선 3개(첫 메시지 앞 + 날짜 전환 2회)
+  await expect(page.getByTestId('date-divider')).toHaveCount(3)
+
+  // 날짜 텍스트 포함 확인
+  const dividers = page.getByTestId('date-divider')
+  await expect(dividers.nth(0)).toContainText('2026년')
+  await expect(dividers.nth(1)).toContainText('2026년')
+  await expect(dividers.nth(2)).toContainText('2026년')
 });

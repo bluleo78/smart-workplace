@@ -146,6 +146,8 @@ test.describe('의존성', () => {
       );
 
       await page.goto(`/projects/${KEY}/issues/1`);
+      // 분류·관계 그룹은 기본 접힘 — 펼쳐야 의존성 섹션이 DOM 에 마운트됨 (#343).
+      await page.getByRole('button', { name: /분류·관계/ }).click();
       await expect(page.getByTestId('issue-dependencies-section')).toBeVisible();
 
       // 차단 중 슬롯 — picker 열고 number 입력 후 저장.
@@ -228,6 +230,8 @@ test.describe('의존성', () => {
     );
 
     await page.goto(`/projects/${KEY}/issues/1`);
+    // 분류·관계 그룹은 기본 접힘 — 펼쳐야 의존성 섹션이 DOM 에 마운트됨 (#343).
+    await page.getByRole('button', { name: /분류·관계/ }).click();
     await expect(page.getByTestId('issue-dependencies-section')).toBeVisible();
 
     // 차단 중 picker — 번호 입력 후 저장 시도.
@@ -284,6 +288,8 @@ test.describe('의존성', () => {
     );
 
     await page.goto(`/projects/${KEY}/issues/1`);
+    // 분류·관계 그룹은 기본 접힘 — 펼쳐야 의존성 행이 DOM 에 마운트됨 (#343).
+    await page.getByRole('button', { name: /분류·관계/ }).click();
     await expect(page.getByTestId('issue-link-row-99')).toBeVisible();
 
     const row = page.getByTestId('issue-link-row-99');

@@ -136,7 +136,9 @@ test.describe('이슈 첨부', () => {
       const dropzone = page.getByTestId('attachment-dropzone');
       await expect(dropzone).toBeVisible();
       await expect(dropzone).toContainText('파일을 드롭하거나 클릭해 첨부');
-      await expect(page.getByText('첨부가 없습니다')).toBeVisible();
+      // Task #343: 첨부가 본문 스트립으로 이동 → strip 모드에서는 빈 상태 텍스트 미표시 (드롭존만).
+      // 오직 드롭존이 보여야 함 — 첨부가 없습니다 텍스트는 strip 에서 숨김.
+      await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
 
       // 숨겨진 input 으로 파일 주입 — 클릭 핸들러 우회.
       await dropzone.locator('input[type=file]').setInputFiles({
@@ -162,7 +164,13 @@ test.describe('이슈 첨부', () => {
       await page.getByTestId('attachment-delete-confirm').click();
       await expect(page.getByText('첨부를 삭제했습니다')).toBeVisible();
       expect(deleteCount).toBe(1);
-      await expect(page.getByText('첨부가 없습니다')).toBeVisible();
+      // Task #343: 첨부가 본문 스트립으로 이동 → strip 모드에서는 빈 상태 텍스트 미표시.
+      // 오직 드롭존만 표시됨.
+      const strip = page.getByTestId('issue-attachment-strip');
+      await expect(strip.getByTestId('attachment-dropzone')).toBeVisible();
+      // 삭제된 칩(attachment-row-9001)이 실제로 DOM 에서 사라졌는지 검증.
+      // getByText('첨부가 없습니다')는 strip 모드에서 항상 0이라 삭제 여부를 증명하지 못함.
+      await expect(strip.getByTestId('attachment-row-9001')).toHaveCount(0);
     },
   );
 

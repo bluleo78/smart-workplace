@@ -5,9 +5,10 @@
 // Phase 5: hover toolbar 에 이모지 피커 + 답글 버튼 추가. body 아래 ReactionBar + 답글수 링크.
 // Task 5(대화 Phase A): 2-컬럼 레이아웃 — 좌측 아바타 거터 + 우측 본문 컬럼. Slack 패턴 그룹핑.
 import { MessageSquare, Pencil, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
+import { DateDivider } from '@/components/chat/DateDivider'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { ReactionBar } from '@/components/chat/ReactionBar'
@@ -20,7 +21,7 @@ import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useToggleReaction } from '@/hooks/queries/useToggleReaction'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
 import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
-import { formatClockTime } from '@/lib/formatters'
+import { formatClockTime, getDateKey } from '@/lib/formatters'
 import { shouldStartNewGroup } from '@/lib/messageGrouping'
 import type { MessageResponse } from '@/types/messaging'
 
@@ -81,16 +82,20 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
         const prev = idx > 0 ? ordered[idx - 1] : null
         const startsGroup = shouldStartNewGroup(prev, m)
 
+        // 날짜가 바뀌는 지점(또는 첫 메시지) 앞에 날짜 구분선 삽입.
+        const showDateDivider = !prev || getDateKey(m.createdAt) !== getDateKey(prev.createdAt)
+
         return (
-          <div
-            key={m.id}
-            ref={isLast ? lastRef : undefined}
-            data-testid={`message-${m.id}`}
-            data-pending={isPending ? 'true' : undefined}
-            data-group-start={startsGroup ? 'true' : 'false'}
-            data-own={isOwn ? 'true' : 'false'}
-            className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${isOwn ? 'justify-end' : ''}`}
-          >
+          <Fragment key={m.id}>
+            {showDateDivider && <DateDivider date={m.createdAt} />}
+            <div
+              ref={isLast ? lastRef : undefined}
+              data-testid={`message-${m.id}`}
+              data-pending={isPending ? 'true' : undefined}
+              data-group-start={startsGroup ? 'true' : 'false'}
+              data-own={isOwn ? 'true' : 'false'}
+              className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${isOwn ? 'justify-end' : ''}`}
+            >
             {/* 좌측 거터(아바타 폭 고정) — 그룹 첫 줄엔 아바타, 후속 줄엔 hover 시 시각. 본인 메시지는 우측 정렬이라 거터 생략. */}
             {!isOwn && (
               <div className="w-8 shrink-0 pt-0.5">
@@ -251,6 +256,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               )}
             </div>
           </div>
+          </Fragment>
         )
       })}
     </div>

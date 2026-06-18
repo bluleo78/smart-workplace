@@ -20,12 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
-import { CyclePickerPopover } from '../../components/cycle/CyclePickerPopover';
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
-import { LabelChip } from '../../components/labels/LabelChip';
-import { LabelPickerPopover } from '../../components/labels/LabelPickerPopover';
-import { AgentBadge } from '../../components/users/AgentBadge';
-import { UserAvatar } from '../../components/users/UserAvatar';
 import { useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
 import { useDeleteIssue } from '../../hooks/queries/useIssues';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
@@ -34,19 +29,11 @@ import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle'
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
-import { AssigneePickerPopover } from './components/AssigneePickerPopover';
-import { IssueChatSection } from './components/chat/IssueChatSection';
-import { CustomFieldsSection } from './components/CustomFieldsSection';
-import { DueDatePickerPopover } from './components/DueDatePickerPopover';
-import { IssueActivityTimeline } from './components/IssueActivityTimeline';
-import { IssueAttachmentDropzone } from './components/IssueAttachmentDropzone';
-import { IssueAttachmentList } from './components/IssueAttachmentList';
+import { IssueChatPanel } from './components/chat/IssueChatPanel';
+import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
+import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
-import { IssueCommentList } from './components/IssueCommentList';
-import { IssueDependenciesSection } from './components/IssueDependenciesSection';
-import { IssueParentSlot } from './components/IssueParentSlot';
-import { IssuePrioritySelect } from './components/IssuePrioritySelect';
-import { IssueStatusSelect } from './components/IssueStatusSelect';
+import { IssuePropertyRail } from './components/IssuePropertyRail';
 
 // 제목 인라인 편집 — 표시 모드(텍스트+연필)와 편집 모드(input) 토글.
 // 무엇을: 헤더 제목을 클릭/연필로 input 으로 전환, Enter·blur 저장, Escape 취소.
@@ -329,12 +316,22 @@ export default function IssueDetailPage() {
         }
       />
       <div className="flex-1 overflow-y-auto">
-        <div className="container mx-auto p-6 grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
-          <div className="space-y-4">
+        {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — lg 이상에서 가로 배치 (#343 Task 4). */}
+        <div className="container mx-auto flex flex-col gap-6 p-6 lg:flex-row">
+          {/* 메인 본문 */}
+          <div className="min-w-0 flex-1 space-y-4">
             <InlineEditableBody
               body={body}
               onSave={(b) => patch({ body: b })}
               disabled={update.isPending}
+            />
+            {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
+            <IssueAttachmentStrip
+              projectKey={key}
+              number={issueNumber}
+              attachmentCount={summary.attachmentCount}
+              currentUserId={user?.id ?? null}
+              isOwner={isOwner}
             />
             {/* 비SUBTASK 상세 본문 아래 — 자식 SUBTASK 진행률/목록/인라인 추가 (Phase 4a). */}
             {!isSubtask && (
@@ -345,137 +342,34 @@ export default function IssueDetailPage() {
                 childDoneCount={summary.childDoneCount}
               />
             )}
-            <IssueCommentList
+            <IssueBodyTabs
               projectKey={key}
               issueNumber={issueNumber}
               issueId={summary.id}
               comments={comments}
+              history={history}
             />
-            <IssueChatSection projectKey={key} issueNumber={issueNumber} />
           </div>
-          <aside className="space-y-4">
-            {/* SUBTASK 상세에서만 부모 슬롯 노출 (Phase 4a). */}
-            {isSubtask && (
-              <IssueParentSlot
-                projectKey={key}
-                issueNumber={issueNumber}
-                parent={summary.parent}
-              />
-            )}
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">상태</label>
-              <IssueStatusSelect
-                value={summary.status}
-                onChange={(v) => patch({ status: v })}
-                disabled={update.isPending}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">우선순위</label>
-              <IssuePrioritySelect
-                value={summary.priority}
-                onChange={(v) => patch({ priority: v })}
-                disabled={update.isPending}
-              />
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">마감일</span>
-              <DueDatePickerPopover
-                value={summary.dueDate}
-                disabled={update.isPending}
-                onChange={(date) => patch({
-                  dueDate: date,
-                  clearDueDate: !date,
-                })}
-              />
-            </div>
-            <section aria-label="담당자" className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">담당자</span>
-                <AssigneePickerPopover
-                  projectKey={key}
-                  issueNumber={issueNumber}
-                  current={summary.assignees}
-                />
-              </div>
-              <div className="flex flex-wrap gap-2" data-testid="issue-assignees">
-                {summary.assignees.length === 0 ? (
-                  <span className="text-xs text-muted-foreground">미지정</span>
-                ) : (
-                  summary.assignees.map((u) => (
-                    <span
-                      key={u.id}
-                      className="inline-flex items-center gap-1 text-sm"
-                      data-testid={`issue-assignee-${u.id}`}
-                    >
-                      <UserAvatar user={u} size="sm" />
-                      <span>{u.name}</span>
-                      {u.kind === 'AGENT' && <AgentBadge size="xs" />}
-                    </span>
-                  ))
-                )}
-              </div>
-            </section>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">라벨</span>
-                <LabelPickerPopover
-                  projectKey={key}
-                  issueNumber={issueNumber}
-                  current={summary.labels}
-                />
-              </div>
-              <div className="flex flex-wrap gap-1" data-testid="issue-labels">
-                {summary.labels.map((l) => (
-                  <LabelChip key={l.id} label={l} />
-                ))}
-                {summary.labels.length === 0 && (
-                  <span className="text-xs text-muted-foreground">없음</span>
-                )}
-              </div>
-            </div>
-            {/* 사이클 피커 — 이슈에 연결된 사이클 조회·변경 (CyclePickerPopover) */}
-            <section data-testid="issue-cycles-section">
-              <h3 className="mb-1 text-xs font-medium text-muted-foreground">사이클</h3>
-              <CyclePickerPopover projectKey={key} issueNumber={issueNumber} />
-            </section>
-            <section aria-label="첨부" className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">첨부</span>
-                <span className="text-xs text-muted-foreground">
-                  {summary.attachmentCount}/10
-                </span>
-              </div>
-              <IssueAttachmentDropzone
-                projectKey={key}
-                number={issueNumber}
-                currentCount={summary.attachmentCount}
-                disabled={summary.attachmentCount >= 10}
-              />
-              <IssueAttachmentList
-                projectKey={key}
-                number={issueNumber}
-                currentUserId={user?.id ?? null}
-                isOwner={isOwner}
-              />
-            </section>
-            {/* Phase 4b — 의존성 두 슬롯(차단됨/차단 중) + Picker. */}
-            <IssueDependenciesSection
+          {/* 채팅 패널 — 접힘/펼침 자동 토글. lg 이상에서 본문과 레일 사이. */}
+          <IssueChatPanel projectKey={key} issueNumber={issueNumber} />
+          {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. */}
+          <aside className="w-full shrink-0 lg:w-[280px]">
+            <IssuePropertyRail
               projectKey={key}
               issueNumber={issueNumber}
+              isSubtask={isSubtask}
+              parent={summary.parent}
+              status={summary.status}
+              priority={summary.priority}
+              dueDate={summary.dueDate}
+              assignees={summary.assignees}
+              labels={summary.labels}
               blockedBy={summary.blockedBy}
               blocks={summary.blocks}
+              customFields={summary.customFields}
+              updatePending={update.isPending}
+              onPatch={patch}
             />
-            {/* Phase 4c — 프로젝트 커스텀 필드 인라인 편집. 정의 없으면 null. */}
-            <CustomFieldsSection
-              projectKey={key}
-              issueNumber={issueNumber}
-              current={summary.customFields}
-            />
-            <div>
-              <h3 className="text-sm font-semibold mb-2">활동</h3>
-              <IssueActivityTimeline entries={history} />
-            </div>
           </aside>
         </div>
       </div>

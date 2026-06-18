@@ -1,4 +1,7 @@
 // 이슈 첨부 1행 — 다운로드 트리거 + canDelete 시 삭제 버튼.
+// layout='strip' 이면 가로 칩 형태로 렌더(파일유형 아이콘 + 파일명 truncate).
+// 무엇을: 목록(list)·칩 스트립(strip) 두 레이아웃을 prop 으로 분기.
+// 왜: 본문 스트립 이동(#343) 시 동일 다운로드·삭제 기능을 칩 스타일로 재사용하기 위해.
 
 import { FileText, Image as ImageIcon, X } from 'lucide-react';
 
@@ -26,13 +29,51 @@ export function IssueAttachmentItem({
   attachment,
   canDelete,
   onDelete,
+  layout = 'list',
 }: {
   projectKey: string;
   number: number;
   attachment: IssueAttachment;
   canDelete: boolean;
   onDelete: (fileId: number) => void;
+  layout?: 'list' | 'strip';
 }) {
+  const handleDownload = () =>
+    downloadAttachment(projectKey, number, attachment.fileId, attachment.originalName);
+
+  // strip: 가로 칩 — 파일유형 아이콘 + 파일명(truncate) + 크기 + 삭제 버튼.
+  if (layout === 'strip') {
+    return (
+      <li
+        className="group inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-accent/50"
+        data-testid={`attachment-row-${attachment.fileId}`}
+      >
+        {categoryIcon(attachment.mimeType)}
+        <button
+          type="button"
+          className="max-w-[140px] truncate hover:underline text-left"
+          onClick={handleDownload}
+          aria-label={`${attachment.originalName} 다운로드`}
+        >
+          {attachment.originalName}
+        </button>
+        <span className="text-muted-foreground">{humanSize(attachment.sizeBytes)}</span>
+        {canDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="첨부 삭제"
+            className="hidden group-hover:inline-flex h-4 w-4"
+            onClick={() => onDelete(attachment.fileId)}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        )}
+      </li>
+    );
+  }
+
+  // list: 기존 세로 목록 행.
   return (
     <li
       className="group flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-accent/50"
@@ -42,9 +83,7 @@ export function IssueAttachmentItem({
       <button
         type="button"
         className="font-medium hover:underline truncate flex-1 text-left"
-        onClick={() =>
-          downloadAttachment(projectKey, number, attachment.fileId, attachment.originalName)
-        }
+        onClick={handleDownload}
         aria-label={`${attachment.originalName} 다운로드`}
       >
         {attachment.originalName}

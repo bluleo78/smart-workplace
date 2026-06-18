@@ -155,7 +155,8 @@ function CommentItem({
           </div>
         </div>
       ) : (
-        <div className="whitespace-pre-wrap mt-1">{comment.body}</div>
+        /* 디자인 시스템 body-secondary 적용 — text-sm(14px) · leading-6 · text-foreground (#344) */
+        <div className="whitespace-pre-wrap mt-1 text-sm leading-6 text-foreground">{comment.body}</div>
       )}
     </li>
   );

@@ -54,9 +54,12 @@ export function issueDuesOnDay(dues: IssueDueMarker[], day: Date): IssueDueMarke
 // 시간축(0~23시) 슬롯.
 export const HOURS = Array.from({ length: 24 }, (_, h) => h)
 
-// 시:분 표기.
-export function hhmm(iso: string): string {
-  return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+// 시:분 표기. null/빈 문자열 입력 시 '-' 반환.
+export function hhmm(iso: string | null | undefined): string {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '-'
+  return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
 
 export { addDays, endOfMonth, startOfMonth }

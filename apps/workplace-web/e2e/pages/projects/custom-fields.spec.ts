@@ -176,6 +176,8 @@ test.describe('커스텀 필드', () => {
 
       // 2) 이슈 상세에서 값 5 입력 → debounce(300ms) 후 PUT 발생.
       await page.goto(`/projects/${KEY}/issues/1`);
+      // 분류·관계 그룹은 기본 접힘 — 펼쳐야 커스텀 필드 섹션이 DOM 에 마운트됨 (#343).
+      await page.getByRole('button', { name: /분류·관계/ }).click();
       await expect(page.getByTestId('custom-fields-section')).toBeVisible();
       const fieldId = fields.find((f) => f.name === '스토리포인트')!.id;
       await page.getByTestId(`field-input-${fieldId}`).fill('5');
@@ -383,6 +385,8 @@ test.describe('커스텀 필드', () => {
       });
 
       await page.goto(`/projects/${KEY}/issues/1`);
+      // 분류·관계 그룹은 기본 접힘 — 펼쳐야 커스텀 필드 섹션이 DOM 에 마운트됨 (#343).
+      await page.getByRole('button', { name: /분류·관계/ }).click();
       await expect(page.getByTestId('custom-fields-section')).toBeVisible();
 
       // 트리거가 native textbox가 아닌 버튼(shadcn PopoverTrigger)으로 렌더됨을 확인

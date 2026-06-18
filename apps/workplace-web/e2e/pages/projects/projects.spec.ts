@@ -172,6 +172,8 @@ test('상태 변경 시 활동 타임라인에 한국어 라벨로 노출', asyn
   await page.goto('/projects/WP/issues/1');
   await page.getByRole('combobox', { name: '상태' }).click();
   await page.getByRole('option', { name: '진행 중' }).click();
+  // 활동 섹션은 '활동' 탭 안에 있으므로 탭 클릭 후 타임라인 확인 (Task 3 — #343)
+  await page.getByRole('tab', { name: /활동/ }).click();
   await expect(page.getByText('상태 변경')).toBeVisible();
   await expect(page.getByText(/할 일\s*→\s*진행 중/)).toBeVisible();
 });

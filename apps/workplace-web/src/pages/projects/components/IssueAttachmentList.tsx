@@ -1,4 +1,7 @@
 // 이슈 첨부 목록 — 자신이 부착했거나 프로젝트 OWNER 면 삭제 버튼 노출.
+// layout='strip' 이면 flex 가로 래핑 칩 컨테이너로 렌더.
+// 무엇을: 기존 세로 목록(list)과 본문 스트립(strip) 두 레이아웃 지원.
+// 왜: 본문 이동(#343) 시 IssueAttachmentStrip 에서 strip 모드로 재사용.
 
 import { useState } from 'react';
 
@@ -21,11 +24,14 @@ export function IssueAttachmentList({
   number,
   currentUserId,
   isOwner,
+  layout = 'list',
 }: {
   projectKey: string;
   number: number;
   currentUserId: number | null;
   isOwner: boolean;
+  /** 렌더 레이아웃 — 'list': 기존 세로 목록(기본), 'strip': 가로 칩 래핑 */
+  layout?: 'list' | 'strip';
 }) {
   const q = useIssueAttachments(projectKey, number);
   const del = useDeleteIssueAttachment(projectKey, number);
@@ -37,11 +43,17 @@ export function IssueAttachmentList({
   }
   const items = q.data ?? [];
   if (items.length === 0) {
+    // strip 모드: 빈 상태는 상위 IssueAttachmentStrip 의 드롭존만 표시 — 이 텍스트 불필요.
+    if (layout === 'strip') return null;
     return <p className="text-xs text-muted-foreground py-2">첨부가 없습니다</p>;
   }
+
+  // strip 모드: flex 가로 래핑 컨테이너
+  const listClass = layout === 'strip' ? 'flex flex-wrap gap-2' : undefined;
+
   return (
     <>
-      <ul data-testid="attachment-list">
+      <ul data-testid="attachment-list" className={listClass}>
         {items.map((a) => (
           <IssueAttachmentItem
             key={a.fileId}
@@ -49,6 +61,7 @@ export function IssueAttachmentList({
             number={number}
             attachment={a}
             canDelete={a.attachedById === currentUserId || isOwner}
+            layout={layout}
             onDelete={(fileId) => {
               // 삭제 확인은 AlertDialog 에서 처리 — window.confirm 대체 (#148).
               setPendingDeleteId(fileId);
