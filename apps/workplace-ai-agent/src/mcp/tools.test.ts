@@ -54,6 +54,8 @@ function client(): WorkplaceApiClient {
     renameFolder: vi.fn().mockResolvedValue({} as never),
     moveFolder: vi.fn().mockResolvedValue(undefined),
     moveFile: vi.fn().mockResolvedValue(undefined),
+    listChannels: vi.fn().mockResolvedValue([]),
+    discoverChannels: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -188,6 +190,11 @@ describe('buildTools(assistant) union (M3: 멤버십 단언)', () => {
   it('messaging 읽기/쓰기 도구를 노출한다(get_channel_messages / add_channel_message)', () => {
     expect(names).toContain('get_channel_messages');
     expect(names).toContain('add_channel_message');
+  });
+
+  it('#350 채널 목록/탐색 도구를 노출한다(list_channels / discover_channels)', () => {
+    expect(names).toContain('list_channels');
+    expect(names).toContain('discover_channels');
   });
 });
 

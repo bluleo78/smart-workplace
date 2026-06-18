@@ -435,4 +435,52 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       expect(scope.isDone()).toBe(true);
     });
   });
+
+  // --- #350: 채널 목록/탐색 ---
+
+  describe('listChannels', () => {
+    it('GET /messaging/channels 로 ChannelItem[] 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .get(`${PREFIX}/messaging/channels`)
+        .reply(200, [
+          { id: 1, kind: 'PUBLIC', name: '일반', visibility: 'PUBLIC', member: true, role: 'MEMBER', archived: false, memberCount: 10, unreadCount: 3 },
+        ]);
+      const out = await newClient().listChannels(AGENT_ID);
+      expect(scope.isDone()).toBe(true);
+      expect(out).toHaveLength(1);
+      expect(out[0].name).toBe('일반');
+      expect(out[0].id).toBe(1);
+    });
+
+    it('응답이 배열이 아니면 빈 배열 반환', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .get(`${PREFIX}/messaging/channels`)
+        .reply(200, {});
+      const out = await newClient().listChannels(AGENT_ID);
+      expect(out).toEqual([]);
+    });
+  });
+
+  describe('discoverChannels', () => {
+    it('GET /messaging/channels/discover?q= 로 ChannelItem[] 반환', async () => {
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
+        .get(`${PREFIX}/messaging/channels/discover`)
+        .query({ q: '개발팀' })
+        .reply(200, [
+          { id: 2, kind: 'PUBLIC', name: '개발팀', visibility: 'PUBLIC', member: false, role: null, archived: false, memberCount: 5, unreadCount: 0 },
+        ]);
+      const out = await newClient().discoverChannels(AGENT_ID, '개발팀');
+      expect(scope.isDone()).toBe(true);
+      expect(out[0].name).toBe('개발팀');
+    });
+
+    it('특수문자 q 는 encodeURIComponent 처리', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
+        .get(`${PREFIX}/messaging/channels/discover`)
+        .query({ q: '팀 채널' })
+        .reply(200, []);
+      const out = await newClient().discoverChannels(AGENT_ID, '팀 채널');
+      expect(out).toEqual([]);
+    });
+  });
 });

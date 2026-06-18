@@ -51,6 +51,8 @@ function client(token: string | Error): WorkplaceApiClient {
     renameFolder: vi.fn().mockResolvedValue({} as never),
     moveFolder: vi.fn().mockResolvedValue(undefined),
     moveFile: vi.fn().mockResolvedValue(undefined),
+    listChannels: vi.fn().mockResolvedValue([]),
+    discoverChannels: vi.fn().mockResolvedValue([]),
   };
 }
 

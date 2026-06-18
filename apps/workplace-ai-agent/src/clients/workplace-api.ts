@@ -16,6 +16,19 @@ export interface ChatMessageItem {
   deleted: boolean;
 }
 
+// #350: 채널 목록/탐색 응답 단건 — 채널 이름 → channelId 해석에 사용.
+export interface ChannelItem {
+  id: number;
+  kind: string;
+  name: string;
+  visibility: string;
+  member: boolean;
+  role: string | null;
+  archived: boolean;
+  memberCount: number;
+  unreadCount: number;
+}
+
 // 7: 채널 메시지 (LLM 노출용 경량 형태).
 export interface ChannelMessageItem {
   id: number;
@@ -160,6 +173,9 @@ export interface WorkplaceApiClient {
   addChannelMessage(agentId: number, channelId: number, body: string): Promise<void>;
   // A2: 메시징 진행 상태 전송
   postMessagingProgress(agentId: number, channelId: number, payload: ProgressPayload): Promise<void>;
+  // #350: 채널 목록/탐색 — 채널 이름 → channelId 해석 전용 읽기 도구.
+  listChannels(agentId: number): Promise<ChannelItem[]>;
+  discoverChannels(agentId: number, q: string): Promise<ChannelItem[]>;
   // S2: 위키 읽기 그라운딩
   searchWikiPages(agentId: number, query: string): Promise<WikiSearchItem[]>;
   getWikiPage(agentId: number, pageId: number): Promise<WikiPageContent>;
@@ -326,6 +342,17 @@ export function createWorkplaceApiClient(opts: {
 
     async postMessagingProgress(agentId, channelId, payload) {
       await http.post(`/messaging/channels/${channelId}/progress`, payload, onBehalfOf(agentId));
+    },
+
+    // #350: 채널 목록 — agentId 가 속한 채널/DM 목록. 채널 이름 → channelId 해석에 사용.
+    async listChannels(agentId) {
+      const r = await http.get(`/messaging/channels`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as ChannelItem[]) : [];
+    },
+    // #350: 채널 탐색 — 공개 채널을 이름/키워드로 검색. 채널 이름 → channelId 해석에 사용.
+    async discoverChannels(agentId, q) {
+      const r = await http.get(`/messaging/channels/discover?q=${encodeURIComponent(q)}`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as ChannelItem[]) : [];
     },
 
     // #333 M3: 위키 페이지 생성/수정 — 내부 쓰기(스페이스 멤버십 가드는 서버가 강제).

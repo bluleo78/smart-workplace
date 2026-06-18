@@ -166,6 +166,8 @@ const addChannelMessageInput = z.object({
   channelId: z.number().int().positive(),
   body: z.string().min(1),
 });
+// #350: 채널 목록/탐색 도구 입력 — channelId 를 모를 때 채널 이름 → id 해석용.
+const discoverChannelsInput = z.object({ q: z.string().min(1) });
 
 // 7b: home 컴포저 표시 지시 도구 — 모든 도구가 균일한 {params?, layout?} 봉투를 받는다.
 // layout: 캔버스 배치 규칙(프론트 7c 가 해석). page/replace/pageLabel 모두 선택.
@@ -296,8 +298,30 @@ export function buildTools(
     },
   };
 
+  // #350: 채널 목록/탐색 도구 — channelId 를 모를 때 채널 이름 → id 해석 전용 읽기 도구.
+  // add_channel_message / get_channel_messages 호출 전 channelId 를 확보하는 데 사용한다.
+  const listChannelsTool: McpTool = {
+    name: 'list_channels',
+    description:
+      '내가 속한 채널·DM 목록을 JSON 배열로 반환합니다(id·name·kind·visibility 포함). 채널 이름만 알 때 channelId 를 확보한 뒤 get_channel_messages / add_channel_message 에 사용하세요.',
+    inputSchema: z.object({}),
+    async handler() {
+      return JSON.stringify(await client.listChannels(agentId));
+    },
+  };
+  const discoverChannelsTool: McpTool = {
+    name: 'discover_channels',
+    description:
+      '공개 채널을 이름·키워드로 검색해 JSON 배열로 반환합니다(id·name·kind 포함). list_channels 에 없는 공개 채널을 찾아 channelId 를 확보한 뒤 메시지 조회/작성에 사용하세요.',
+    inputSchema: discoverChannelsInput,
+    async handler(args) {
+      const { q } = discoverChannelsInput.parse(args);
+      return JSON.stringify(await client.discoverChannels(agentId, q));
+    },
+  };
+
   if (profile === 'messaging') {
-    return [getChannelMessagesTool, addChannelMessageTool];
+    return [getChannelMessagesTool, addChannelMessageTool, listChannelsTool, discoverChannelsTool];
   }
 
   // 7b: home 표시 지시 도구(데이터 조회 X). home/assistant 프로파일이 공유한다.
@@ -709,6 +733,7 @@ export function buildTools(
       proposeUpdateEventTool, proposeDeleteEventTool, // #333 M4: 일정 수정/삭제 제안
       getChannelMessagesTool,    // #333 M3: 메시징 읽기
       addChannelMessageTool,     // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
+      listChannelsTool, discoverChannelsTool, // #350: 채널 목록/탐색(이름→channelId 해석)
       listMailTool, getMailTool, proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
       listContactsTool, getExternalContactTool, createExternalContactTool, updateExternalContactTool, proposeDeleteContactTool, // #333 M3: 연락처
       listProjectsTool, getProjectTool, listProjectMembersTool,
