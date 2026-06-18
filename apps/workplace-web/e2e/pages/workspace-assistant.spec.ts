@@ -111,6 +111,6 @@ test.describe('admin 공용 비서', () => {
     // 오류 토스트가 표시되어야 한다.
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible();
     // 성공 토스트는 표시되면 안 된다.
-    await expect(page.getByText('공용 비서 설정을 변경했어요.')).not.toBeVisible();
+    await expect(page.getByText('공용 비서 설정을 변경했습니다.')).not.toBeVisible();
   });
 });

@@ -314,7 +314,7 @@ export function Dashboard() {
         setUndoSnapshot(null)
         setLiveMsg('대시보드 레이아웃을 저장했습니다')
       },
-      onError: (err) => handleApiError(err, '대시보드 저장에 실패했어요'),
+      onError: (err) => handleApiError(err, '대시보드 저장에 실패했습니다'),
     })
   }
 

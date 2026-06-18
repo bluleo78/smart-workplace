@@ -85,7 +85,7 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
 
     onError: (err, _body, ctx) => {
       if (ctx?.threadSnap) qc.setQueryData(messagingKeys.thread(parentMessageId), ctx.threadSnap);
-      handleApiError(err, '답글 전송에 실패했어요');
+      handleApiError(err, '답글 전송에 실패했습니다');
     },
   });
 }

@@ -86,7 +86,7 @@ export function useCreateMessage(channelId: number, me: MeContext) {
     onError: (err, _payload, ctx) => {
       const key = messagingKeys.messages(channelId);
       if (ctx?.snapshot) qc.setQueryData(key, ctx.snapshot);
-      handleApiError(err, '메시지 전송에 실패했어요');
+      handleApiError(err, '메시지 전송에 실패했습니다');
     },
   });
 }

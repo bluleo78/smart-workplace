@@ -30,7 +30,7 @@ export function useDeleteChatMessage(threadId: number) {
     },
 
     onError: (err) => {
-      handleApiError(err, '메시지 삭제에 실패했어요');
+      handleApiError(err, '메시지 삭제에 실패했습니다');
     },
   });
 }

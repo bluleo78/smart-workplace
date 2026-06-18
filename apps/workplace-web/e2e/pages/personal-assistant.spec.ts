@@ -173,7 +173,7 @@ test.describe('프로필 개인 비서', () => {
     // 오류 토스트가 표시되어야 한다.
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible()
     // 성공 토스트는 표시되면 안 된다.
-    await expect(page.getByText('개인 비서 토큰을 저장했어요.')).not.toBeVisible()
+    await expect(page.getByText('개인 비서 토큰을 저장했습니다.')).not.toBeVisible()
   })
 
   // #192 — 해제 API 실패 시 오류 토스트가 표시되어야 한다.
@@ -215,7 +215,7 @@ test.describe('프로필 개인 비서', () => {
     // 오류 토스트가 표시되어야 한다.
     await expect(page.getByText('권한이 없습니다.')).toBeVisible()
     // 성공 토스트는 표시되면 안 된다.
-    await expect(page.getByText('개인 비서를 해제했어요.')).not.toBeVisible()
+    await expect(page.getByText('개인 비서를 해제했습니다.')).not.toBeVisible()
   })
 
   // #198 — 모델 변경 PUT /settings 실패 시 오류 토스트가 표시되어야 한다(silent failure 방지).
@@ -256,7 +256,7 @@ test.describe('프로필 개인 비서', () => {
     // 오류 토스트가 표시되어야 한다.
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible()
     // 성공 토스트는 표시되면 안 된다.
-    await expect(page.getByText('비서 설정을 변경했어요.')).not.toBeVisible()
+    await expect(page.getByText('비서 설정을 변경했습니다.')).not.toBeVisible()
   })
 
   // #264 — tokenLabel 이 null 일 때 '(라벨 없음)' 개발자 용어가 노출되면 안 된다.
@@ -353,7 +353,7 @@ test.describe('프로필 개인 비서', () => {
     await page.getByRole('option', { name: '깊게' }).click()
 
     // 성공 토스트가 표시되어야 한다.
-    await expect(page.getByText('비서 설정을 변경했어요.')).toBeVisible()
+    await expect(page.getByText('비서 설정을 변경했습니다.')).toBeVisible()
     // 보낸 payload 가 선택값과 일치해야 한다.
     expect(putBody).toEqual({ thinkingDepth: 'DEEP' })
   })

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
  * 디자인 시스템 06. Feedback States §C(Inline Error: text-destructive + outline 재시도)를 따른다.
  */
 export function WidgetError({
-  message = '불러오지 못했어요',
+  message = '불러오지 못했습니다',
   onRetry,
   testId,
 }: {

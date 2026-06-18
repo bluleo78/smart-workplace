@@ -15,7 +15,7 @@ export function useAddMember(channelId: number) {
       qc.invalidateQueries({ queryKey: messagingKeys.members(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
     },
-    onError: (err) => handleApiError(err, '멤버 추가에 실패했어요'),
+    onError: (err) => handleApiError(err, '멤버 추가에 실패했습니다'),
   });
 }
 
@@ -27,9 +27,9 @@ export function useRemoveMember(channelId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: messagingKeys.members(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
-      toast.success('멤버를 제거했어요');
+      toast.success('멤버를 제거했습니다');
     },
-    onError: (err) => handleApiError(err, '멤버 제거에 실패했어요'),
+    onError: (err) => handleApiError(err, '멤버 제거에 실패했습니다'),
   });
 }
 
@@ -43,6 +43,6 @@ export function useUpdateMemberRole(channelId: number) {
       qc.invalidateQueries({ queryKey: messagingKeys.members(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
     },
-    onError: (err) => handleApiError(err, '역할 변경에 실패했어요'),
+    onError: (err) => handleApiError(err, '역할 변경에 실패했습니다'),
   });
 }

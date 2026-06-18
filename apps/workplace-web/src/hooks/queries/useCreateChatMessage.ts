@@ -97,7 +97,7 @@ export function useCreateChatMessage(
     onError: (err, _payload, ctx) => {
       const key = chatKeys.messages(threadId);
       if (ctx?.snapshot) qc.setQueryData(key, ctx.snapshot);
-      handleApiError(err, '메시지 전송에 실패했어요');
+      handleApiError(err, '메시지 전송에 실패했습니다');
     },
   });
 }

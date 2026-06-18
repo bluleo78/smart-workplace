@@ -34,7 +34,7 @@ export function useToggleReaction(channelId: number) {
       // 정합 복구는 서버 재조회로(간단). 채널·스레드 캐시 무효화.
       qc.invalidateQueries({ queryKey: messagingKeys.messages(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.threads() });
-      handleApiError(err, '리액션 처리에 실패했어요');
+      handleApiError(err, '리액션 처리에 실패했습니다');
     },
   });
 }

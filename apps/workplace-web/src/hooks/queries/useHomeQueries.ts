@@ -57,7 +57,7 @@ export function useDeleteSession() {
   return useMutation({
     mutationFn: (sessionId: string) => homeApi.deleteSession(sessionId).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: homeKeys.sessions() }),
-    onError: (err) => handleApiError(err, '세션 삭제에 실패했어요'),
+    onError: (err) => handleApiError(err, '세션 삭제에 실패했습니다'),
   });
 }
 
@@ -68,6 +68,6 @@ export function useHomeCompose() {
     mutationFn: (body: ComposeRequest) => homeApi.compose(body).then((r) => r.data),
     // 새 세션 생성/마지막 메시지 시각 갱신을 스위처 목록에 반영.
     onSuccess: () => qc.invalidateQueries({ queryKey: homeKeys.sessions() }),
-    onError: (err) => handleApiError(err, 'AI 구성에 실패했어요'),
+    onError: (err) => handleApiError(err, 'AI 구성에 실패했습니다'),
   });
 }

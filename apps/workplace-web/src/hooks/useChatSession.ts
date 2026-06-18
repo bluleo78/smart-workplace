@@ -75,7 +75,7 @@ export function useChatSession() {
         setSessionId(id);
         setTurns(restored);
       } catch (err) {
-        handleApiError(err, '세션을 불러오지 못했어요');
+        handleApiError(err, '세션을 불러오지 못했습니다');
       }
     },
     [compose],

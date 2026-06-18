@@ -60,7 +60,7 @@ export function MessageComposer({
       setPending((prev) => [...prev, ...data])
     } catch (err) {
       // 업로드 실패는 토스트로 알린다(무음 실패 방지).
-      handleApiError(err, '첨부 업로드에 실패했어요')
+      handleApiError(err, '첨부 업로드에 실패했습니다')
     } finally {
       setUploading(false)
       // 같은 파일 재선택을 위해 input 초기화.

@@ -30,7 +30,7 @@ export function useAddWikiMember(spaceId: number) {
     mutationFn: ({ userId, role }) =>
       wikiApi.addMember(spaceId, userId, role).then((r) => r.data),
     onSuccess: () => invalidate(qc, spaceId),
-    onError: (err) => handleApiError(err, '멤버 추가에 실패했어요'),
+    onError: (err) => handleApiError(err, '멤버 추가에 실패했습니다'),
   })
 }
 
@@ -41,7 +41,7 @@ export function useUpdateWikiMemberRole(spaceId: number) {
     mutationFn: ({ userId, role }) =>
       wikiApi.updateMemberRole(spaceId, userId, role).then((r) => r.data),
     onSuccess: () => invalidate(qc, spaceId),
-    onError: (err) => handleApiError(err, '역할 변경에 실패했어요'),
+    onError: (err) => handleApiError(err, '역할 변경에 실패했습니다'),
   })
 }
 
@@ -52,8 +52,8 @@ export function useRemoveWikiMember(spaceId: number) {
     mutationFn: (userId) => wikiApi.removeMember(spaceId, userId).then((r) => r.data),
     onSuccess: () => {
       invalidate(qc, spaceId)
-      toast.success('멤버를 제거했어요')
+      toast.success('멤버를 제거했습니다')
     },
-    onError: (err) => handleApiError(err, '멤버 제거에 실패했어요'),
+    onError: (err) => handleApiError(err, '멤버 제거에 실패했습니다'),
   })
 }

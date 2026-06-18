@@ -10,6 +10,6 @@ export function useJoinChannel() {
   return useMutation({
     mutationFn: (channelId: number) => messagingApi.joinChannel(channelId).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: messagingKeys.channels() }),
-    onError: (err) => handleApiError(err, '채널 참여에 실패했어요'),
+    onError: (err) => handleApiError(err, '채널 참여에 실패했습니다'),
   });
 }

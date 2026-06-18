@@ -30,7 +30,7 @@ export function useUpdateChatMessage(threadId: number) {
     },
 
     onError: (err) => {
-      handleApiError(err, '메시지 수정에 실패했어요');
+      handleApiError(err, '메시지 수정에 실패했습니다');
     },
   });
 }

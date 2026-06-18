@@ -362,7 +362,7 @@ test('합성 — 급한 항목이 없으면 차분한 빈 상태를 보인다', 
   await page.goto('/')
 
   await expect(page.getByTestId('dashboard-attention-empty')).toBeVisible()
-  await expect(page.getByTestId('dashboard-attention-empty')).toContainText('다 확인했어요')
+  await expect(page.getByTestId('dashboard-attention-empty')).toContainText('다 확인했습니다')
   // 디자인 시스템 준수: 이모지 대신 Lucide 아이콘만 사용 (#280)
   await expect(page.getByTestId('dashboard-attention-empty')).not.toContainText('✅')
 })
