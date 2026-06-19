@@ -109,19 +109,18 @@ async function filterIssueDetailWidgets(
   return result;
 }
 
-// #400: 사용자 일정 승인 발화 감지 — calendar-agent 위임 컨텍스트에서 "승인", "확인", "네" 등
-// 응답 시 haiku 가 propose 없이 "생성됐습니다" 환각 응답을 내보내는 비결정적 동작을 차단한다.
-// 이전 대화(recentContext)에 calendar-agent 의 제안 문구가 있고 현재 쿼리가 승인 발화일 때만 감지.
-// 길이 제한(30자)으로 "일정 잡아줘" 같은 새 요청은 제외, 오탐 방지.
-function isCalendarApprovalHallucination(query: string, recentContext: ContextMessage[]): boolean {
+// #400 #409: 비가역 작업 제안 후 승인 발화 시 haiku 가 propose 없이 완료 환각 응답을 내보내는
+// 비결정적 동작을 차단한다. 이전 AI 발화에 캘린더·연락처·드라이브 등 임의 도메인의 제안 문구가 있고
+// 현재 쿼리가 짧은 승인 발화일 때만 감지. 길이 제한(30자)으로 "일정 잡아줘" 같은 새 요청 오탐 방지.
+function isProposalApprovalHallucination(query: string, recentContext: ContextMessage[]): boolean {
   const q = query.trim();
   // 너무 길면 새 요청이므로 제외
   if (q.length > 30) return false;
   // 승인 발화 키워드가 포함되는지 확인
   if (!/네|예|응|좋아|승인|확인|진행|부탁|ㅇㅇ|ㅇㅋ|ok|okay|yes|그래|알겠|좋습니다/i.test(q)) return false;
-  // 이전 AI 발화 중 캘린더 제안("제안했습니다" / "확인 카드") 패턴 확인
+  // 이전 AI 발화 중 제안 패턴 확인 — 캘린더(제안했습니다/확인 카드) + 일반 비가역 작업(하겠습니다+확인해주세요)
   const prevAi = recentContext.filter((m) => m.role === 'ASSISTANT').map((m) => m.content).join('\n');
-  return /제안했습니다|확인 카드|일정.*생성.*제안|propose/i.test(prevAi);
+  return /제안했습니다|확인 카드|일정.*생성.*제안|propose|(삭제|추가|생성|수정|변경)하겠습니다.*확인해주세요|확인.*부탁드립니다/i.test(prevAi);
 }
 
 // #390: 드라이브 미지원 작업 쿼리 감지 — 업로드·멤버 권한 변경은 drive-agent 도구에 없으나
@@ -304,14 +303,14 @@ export async function runAiComposeStream(
     if (isDriveUnsupportedQuery(input.query)) {
       return { fullText: '현재 지원하지 않는 기능입니다.', widgets: null, pendingAction: null };
     }
-    // #400: 캘린더 일정 제안 후 사용자 "승인" 발화 시 haiku가 propose 없이 "생성됐습니다" 환각 응답.
+    // #400 #409: 비가역 작업 제안 후 사용자 "승인" 발화 시 haiku가 propose 없이 완료 환각 응답.
     // pending_action 이 없는데 승인 발화이고 직전 AI 발화에 제안 문구가 있으면 LLM 응답을 버리고
     // 고정 안내로 override 한다. pending_action 이 있으면 정상 제안이므로 통과.
     if (
       !existsSync(pendingActionPath) &&
-      isCalendarApprovalHallucination(input.query, input.recentContext ?? [])
+      isProposalApprovalHallucination(input.query, input.recentContext ?? [])
     ) {
-      return { fullText: '확인 카드에서 승인해주세요. 에이전트가 직접 일정을 생성하지 않습니다.', widgets: null, pendingAction: null };
+      return { fullText: '확인 카드에서 승인해주세요. 에이전트가 직접 작업을 수행하지 않습니다.', widgets: null, pendingAction: null };
     }
     // #333 M2: propose 도구가 사이드카에 제안을 썼으면 읽어 pendingAction 으로 싣는다(스트림 파싱 불가 — collapsed Agent tool_result).
     let pendingAction: unknown | null = null;

@@ -501,8 +501,8 @@ describe('runAiComposeStream — drive 미지원 작업 guard (#390)', () => {
   });
 });
 
-// #400: 캘린더 일정 승인 발화 시 haiku 환각 응답 차단 — pending_action 없이 "생성됐습니다" 방지.
-describe('runAiComposeStream — calendar approval hallucination guard (#400)', () => {
+// #400 #409: 비가역 작업 제안 후 승인 발화 시 haiku 환각 응답 차단 — pending_action 없이 "완료했습니다" 방지.
+describe('runAiComposeStream — proposal approval hallucination guard (#400, #409)', () => {
   it('승인 발화 + 직전 AI 제안 문구 + pendingAction 없음 → 고정 안내 반환', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       // haiku가 "생성됐습니다" 환각 응답을 내보내는 시나리오.
@@ -551,7 +551,7 @@ describe('runAiComposeStream — calendar approval hallucination guard (#400)', 
     expect(out.pendingAction).not.toBeNull();
   });
 
-  it('일반 쿼리("네 알겠어")는 캘린더 컨텍스트 없으면 guard 미적용', async () => {
+  it('일반 쿼리("네 알겠어")는 제안 컨텍스트 없으면 guard 미적용', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '안녕하세요.' }));
       return { done: Promise.resolve(), kill: () => {} };
@@ -563,8 +563,33 @@ describe('runAiComposeStream — calendar approval hallucination guard (#400)', 
       () => {},
       new AbortController().signal,
     );
-    // 캘린더 제안 컨텍스트 없으면 고정 안내로 override 되면 안 됨.
+    // 제안 컨텍스트 없으면 고정 안내로 override 되면 안 됨.
     expect(out.fullText).toBe('안녕하세요.');
+  });
+
+  // #409: 연락처 삭제 제안 후 "확인" 발화 → 환각 차단.
+  it('#409 연락처 삭제 제안("삭제하겠습니다. 확인해주세요") 후 승인 → 고정 안내 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // haiku 가 연락처 삭제 완료 환각 응답을 내보내는 시나리오.
+      onLine(textDelta('김철수 연락처 삭제를 완료했습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '김철수 연락처 삭제를 완료했습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const recentContext = [
+      { role: 'USER', content: '김철수 연락처 삭제해줘' },
+      { role: 'ASSISTANT', content: '김철수 연락처를 삭제하겠습니다. 확인해주세요.' },
+    ];
+    const out = await runAiComposeStream(
+      baseInput({ query: '확인', recentContext }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // 환각 차단 — 고정 안내가 반환되어야 한다.
+    expect(out.fullText).toContain('확인 카드에서 승인해주세요');
+    expect(out.fullText).not.toContain('완료했습니다');
+    expect(out.pendingAction).toBeNull();
   });
 });
 
