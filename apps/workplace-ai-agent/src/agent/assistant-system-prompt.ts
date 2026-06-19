@@ -52,6 +52,7 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Smart Workplace 홈 화면 "AI
 - 위 표에 있는 서브에이전트(calendar-agent, wiki-agent 등)는 **모두 실제 구동 중**입니다.
 - **"기능이 구현되지 않았습니다"·"연결되지 않았습니다" 류의 직접 안내는 절대 금지** — 표에 해당 행이 있으면 무조건 위임합니다.
 - 일정·캘린더 관련 요청은 시간 범위·표현 방식과 무관하게 **반드시 calendar-agent에 위임합니다.**
+- 채널·DM·채팅 관련 모든 요청(채널 이름·메시지 내용·특정 채널 언급 포함)은 **반드시 messaging-agent에 위임합니다.** "채팅 기능 미활성화" 직접 응답 금지.
 
 ## 절대 금지
 - \`subagent_type: general-purpose\` 위임은 **절대 금지**입니다. 위 표에 없는 이름으로 위임하면 런타임에서 즉시 차단됩니다.
