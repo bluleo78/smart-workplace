@@ -306,7 +306,7 @@ describe('runAiComposeStream — unassignError 사이드카 override (#378)', ()
     vi.mocked(existsSync).mockImplementation((p: unknown) =>
       typeof p === 'string' && p.includes('unassign-error.json'),
     );
-    const canonical = '담당자 해제 요청을 처리하지 못했습니다. 오류: 403. 이슈 화면에서 직접 변경해주세요.';
+    const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
     vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ error: '403', canonical }) as never);
     const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(canonical);
@@ -587,5 +587,32 @@ describe('runAiComposeStream — userId → ACTING_USER_ID 전달 (#376)', () =>
       7,                  // assistantAgentId
       42,                 // userId — ACTING_USER_ID 주입 원천
     );
+  });
+});
+
+// #379: 내부 SDK 메시지 필터 — issue-agent 이슈 삭제 요청 시 haiku SDK 내부 문구 노출 차단.
+describe('runAiComposeStream — SDK 내부 메시지 필터 (#379)', () => {
+  it('Agent 도구 미활성화 내부 문구가 포함된 응답을 이슈 삭제 안내로 override', async () => {
+    const sdkLeak = '현재 환경에서 Agent 도구가 활성화되어 있지 않네요. 이슈 삭제는 불가합니다.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: sdkLeak }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe('이슈 삭제는 지원하지 않습니다. CANCELED 상태 변경을 제안합니다.');
+    expect(out.widgets).toBeNull();
+    expect(out.pendingAction).toBeNull();
+  });
+
+  it('SDK 내부 문구 없는 정상 이슈 삭제 거부 응답은 그대로 반환', async () => {
+    const normalResp = '이슈 삭제는 지원하지 않습니다. 상태를 CANCELED로 변경하거나, Smart Workplace 웹 화면에서 관리자 권한으로 직접 삭제해 주세요.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: normalResp }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe(normalResp);
   });
 });

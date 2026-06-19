@@ -242,7 +242,18 @@ export async function runAiComposeStream(
     }
     // parseComposeLines 로 최종 message(result 이벤트) + widgets(tool_use 이벤트) 산출.
     const parsed = parseComposeLines(lines);
-    return { fullText: parsed.message || fullText, widgets: parsed.widgets.length > 0 ? parsed.widgets : null, pendingAction };
+    const finalText = parsed.message || fullText;
+    // #379: issue-agent 가 이슈 삭제 요청에서 내부 SDK 메시지("Agent 도구가 활성화되어 있지 않네요",
+    // "현재 환경에서" 등)를 노출하는 비결정적 동작을 결정론적으로 차단한다.
+    // agent.md 에 금지 규칙이 있으나 haiku 가 무시할 수 있으므로 런타임에서 이중 방어한다.
+    if (/Agent\s*도구가\s*활성화되어\s*있지\s*않|현재\s*환경에서.*(?:Agent|도구)|에이전트\s*도구.*비활성/i.test(finalText)) {
+      return {
+        fullText: '이슈 삭제는 지원하지 않습니다. CANCELED 상태 변경을 제안합니다.',
+        widgets: null,
+        pendingAction: null,
+      };
+    }
+    return { fullText: finalText, widgets: parsed.widgets.length > 0 ? parsed.widgets : null, pendingAction };
   } finally {
     // Finding 2: null 가드 — writeTempMcpConfig/mkdtempSync 가 throw 하면 미생성 변수는 정리 생략.
     if (mcpConfigPath) cleanupTempMcpConfig(mcpConfigPath);
