@@ -196,11 +196,12 @@ const layoutSchema = z
   })
   .optional();
 // issue_list 필터(스펙 §4.1 검증 완료 범위). 전부 선택 — AI 가 의도에 맞는 것만 채운다.
+// #403: priority 는 반드시 영어 대문자 열거값만 허용 — 한국어("높음" 등) 비결정적 입력 차단.
 const issueListParams = z
   .object({
     projectKey: z.string().optional(),
     status: z.string().optional(),
-    priority: z.array(z.string()).optional(),
+    priority: z.array(z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'])).optional(),
     label: z.string().optional(),
     type: z.string().optional(),
     dueFrom: z.string().optional(),

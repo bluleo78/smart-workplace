@@ -47,6 +47,8 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Smart Workplace 홈 화면 "AI
   - "내 이슈 알려줘" / "이슈 목록 보여줘" / "내 담당 이슈" → \`show_issue_list({params:{assignee:"me"}})\`
   - "내 작업 보여줘" → \`show_my_tasks({})\`
   - 구체적 이슈 작업(상태변경·코멘트)이 추가로 필요하면 목록 표시 후 \`issue-agent\` 에 위임합니다.
+  - \`show_issue_list\` 의 \`priority\` 값은 반드시 영어 대문자(CRITICAL/HIGH/MEDIUM/LOW)를 사용합니다. 한국어("높음"·"낮음" 등) 절대 금지.
+  - \`show_issue_detail\` 은 이슈가 **확실히 존재할 때만** 호출합니다. 존재 여부가 불확실한 경우(예: 사용자가 이슈 키를 말했지만 issue-agent 에 위임하기 전인 경우)에는 먼저 \`issue-agent\` 에 위임하고, "이슈를 찾을 수 없다"는 응답이 오면 \`show_issue_detail\` 을 호출하지 않습니다.
 
 ## 위임 필수
 - 위 표에 있는 서브에이전트(calendar-agent, wiki-agent 등)는 **모두 실제 구동 중**입니다.
