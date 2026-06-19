@@ -29,6 +29,7 @@ import { LabelChip } from '../../../components/labels/LabelChip';
 import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
+import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { filtersToParams, parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters';
 import type { IssueFilters, IssueGroupBy, IssuePriority, IssueStatus, IssueView } from '../../../types/issue';
 
@@ -81,10 +82,12 @@ export function IssueFilterBar({
   const groupBy = parseGroupBy(params);
   const [qDraft, setQDraft] = useState(filters.q);
   const labels = useLabels(projectKey);
-  // useCycles/useIssueTypes 는 훅 규칙상 항상 호출하지만, showCycle/showType=false 면
-  // 렌더하지 않는다(개인 프로젝트). 네트워크는 발생하나 결과가 비어 무해.
+  // useCycles/useIssueTypes/useProjectMembers 는 훅 규칙상 항상 호출하지만,
+  // showCycle/showType=false 면 렌더하지 않는다(개인 프로젝트). 네트워크는 발생하나 결과가 비어 무해.
   const cycles = useCycles(projectKey);
   const types = useIssueTypes(projectKey);
+  // 프로젝트 멤버 목록 — 담당자 필터 facet 옵션 구성에 사용.
+  const members = useProjectMembers(projectKey);
 
   // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 동기화한다.
   // 외부 소스(URL)→로컬 draft 동기화는 의도된 effect 패턴이라 규칙을 명시 해제한다.
@@ -136,15 +139,18 @@ export function IssueFilterBar({
     filters.priorities.length > 0 ||
     filters.labelIds.length > 0 ||
     filters.cycleIds.length > 0 ||
-    filters.typeIds.length > 0;
+    filters.typeIds.length > 0 ||
+    filters.assigneeIds.length > 0 ||
+    filters.includeUnassigned;
 
-  // URL filters → 범용 FilterValue. 상태/우선순위는 문자열, 라벨/사이클/유형은 숫자 id.
+  // URL filters → 범용 FilterValue. 상태/우선순위는 문자열, 라벨/사이클/유형/담당자는 숫자 id.
   const filterValue: FilterValue = {
     status: filters.statuses,
     priority: filters.priorities,
     label: filters.labelIds,
     cycle: filters.cycleIds,
     type: filters.typeIds,
+    assignee: filters.assigneeIds,
   };
 
   // facet 정의 — 노출 여부는 showCycle/showType 옵션으로 결정.
@@ -190,6 +196,15 @@ export function IssueFilterBar({
         ),
       })),
     },
+    // 담당자 facet — 프로젝트 멤버 목록을 옵션으로 사용. (#363)
+    {
+      key: 'assignee',
+      label: '담당자',
+      options: (members.data ?? []).map((m) => ({
+        value: m.userId,
+        label: m.name,
+      })),
+    } satisfies FacetDef,
     ...(showCycle
       ? [
           {
@@ -229,6 +244,8 @@ export function IssueFilterBar({
         labelIds: (next.label ?? []) as number[],
         cycleIds: (next.cycle ?? []) as number[],
         typeIds: (next.type ?? []) as number[],
+        // 담당자 필터 — 숫자 id 배열로 왕복. (#363)
+        assigneeIds: (next.assignee ?? []) as number[],
       },
       view,
       groupBy,

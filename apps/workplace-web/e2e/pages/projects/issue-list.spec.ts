@@ -1,7 +1,7 @@
 // 팀 리스트 뷰 E2E — 아이콘 렌더(상태/우선순위/유형/담당자) + 행 전체 클릭으로 상세 이동.
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
-import { createProject } from '../../factories/project.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 
 const KEY = 'WP';
 
@@ -124,6 +124,66 @@ test.describe('팀 리스트 뷰', () => {
       await expect(option).toBeVisible();
       await expect(option.locator('[role="img"]').first()).toBeVisible();
     }
+  });
+
+  test('담당자 필터 facet 이 드롭다운에 노출되고, 선택 시 URL assignee 파라미터가 업데이트된다 (#363)', async ({ authenticatedPage: page }) => {
+    // 수정 전: facets 배열에 assignee 없음 → + 필터 드롭다운에 담당자 항목 미노출.
+    // 수정 후: 프로젝트 멤버 목록으로 담당자 facet 구성 → 드롭다운에 노출·선택 시 URL 반영.
+    const member1 = createMember({ userId: 2, name: '김개발', username: 'kim@example.com' });
+    const member2 = createMember({ userId: 3, name: '이테스트', username: 'lee@example.com', role: 'MEMBER' });
+
+    await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+    );
+    await page.route(`**/api/v1/projects/${KEY}/members`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([member1, member2]) }),
+    );
+    await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.route(`**/api/v1/projects/${KEY}/types`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+
+    const issueRequestUrls: string[] = [];
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+      (route) => {
+        issueRequestUrls.push(route.request().url());
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse([], null)),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}`);
+
+    // ── 담당자 facet 이 + 필터 드롭다운에 노출되어야 한다 ──────────────────
+    await page.getByTestId('add-filter-trigger').click();
+    const assigneeFacetBtn = page.getByTestId('add-filter-facet-assignee');
+    await expect(assigneeFacetBtn).toBeVisible();
+
+    // ── 담당자 facet 클릭 시 멤버 옵션이 렌더되어야 한다 ──────────────────
+    await assigneeFacetBtn.click();
+    await expect(page.getByTestId('facet-value-assignee-2')).toBeVisible();
+    await expect(page.getByTestId('facet-value-assignee-2')).toContainText('김개발');
+    await expect(page.getByTestId('facet-value-assignee-3')).toBeVisible();
+    await expect(page.getByTestId('facet-value-assignee-3')).toContainText('이테스트');
+
+    // ── 멤버 선택 시 URL 에 assignee 파라미터가 반영되어야 한다 (파이프라인 검증) ──
+    // 선택 후 이슈 재조회 요청을 기다린다
+    const issueRefetchPromise = page.waitForRequest(
+      (req) => req.url().includes(`/projects/${KEY}/issues`) && req.url().includes('assignee=2'),
+    );
+    await page.getByTestId('facet-value-assignee-2').click();
+    await expect(page).toHaveURL(new RegExp(`assignee=2`));
+
+    // 이슈 요청에도 assignee 파라미터가 실려야 한다
+    const issueRefetch = await issueRefetchPromise;
+    const lastUrl = new URL(issueRefetch.url());
+    expect(lastUrl.searchParams.get('assignee')).toBe('2');
   });
 
   test('제목 링크 클릭은 history 를 한 번만 쌓는다(뒤로가기 1번에 리스트 복귀) (#234)', async ({ authenticatedPage: page }) => {
