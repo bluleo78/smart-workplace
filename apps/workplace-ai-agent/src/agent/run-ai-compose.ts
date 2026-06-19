@@ -277,23 +277,19 @@ export async function runAiComposeStream(
       handle.kill();
       throw new Error(policyDeny);
     }
-    // #406: 복합 요청에서 unassign_self 미호출 시 직접 API 재처리.
-    // issue-agent 가 복합 요청에서 담당 해제를 건너뛰는 비결정적 동작(haiku)을 런타임에서 보완한다.
-    // 조건: 복합 해제 쿼리 + issue-agent 위임 발생 + 성공 사이드카 없음 + 에러 사이드카 없음.
-    // 성공/에러 사이드카가 있으면 이미 처리됐거나 실패 override 가 뒤따르므로 건너뛴다.
-    if (
-      isUnassignCompoundQuery(input.query) &&
-      delegated &&
-      !existsSync(unassignSuccessPath) &&
-      !existsSync(unassignErrorPath)
-    ) {
+    // #406: 복합 요청에서 unassign_self 미처리 시 userId 로 직접 API 재처리.
+    // 배경: MCP unassign_self 는 agentId 로 호출되므로 실제 사용자(userId) 해제 불가.
+    // 성공 사이드카 없음 = 아직 처리 안 됨. 에러 사이드카 있어도 userId 재시도 가능.
+    // userId 재처리 성공 시 에러 사이드카 삭제 → delta 누적 fullText 살리기.
+    if (isUnassignCompoundQuery(input.query) && delegated && !existsSync(unassignSuccessPath)) {
       const issueKey = extractIssueKeyFromQuery(input.query);
       if (issueKey) {
         try {
           await deps.client.unassignSelf(input.userId, issueKey);
-          // 성공 시 성공 사이드카 기록(중복 재처리 방지) — 에러 시 무시하고 LLM 응답 유지.
+          // userId 직접 재처리 성공 — 에러 사이드카가 있으면 삭제(delta fullText 보존).
+          rmSync(unassignErrorPath, { force: true });
         } catch {
-          // unassign 재처리 실패 — LLM 이 이미 다른 안내를 했을 것이므로 조용히 무시.
+          // userId 재처리도 실패 — 기존 에러 사이드카 유지(canonical override 허용).
         }
       }
     }

@@ -816,7 +816,8 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
     expect(unassignSelf).not.toHaveBeenCalled();
   });
 
-  it('복합 해제 쿼리 + 에러 사이드카 있음 → unassignSelf 미호출(에러 override 로 처리)', async () => {
+  it('복합 해제 쿼리 + 에러 사이드카 있음 → userId 재처리 시도(unassignSelf 호출)', async () => {
+    // 에러 사이드카 있어도 userId 로 직접 재처리를 시도한다(agentId vs userId 불일치 보완).
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
     const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
@@ -824,7 +825,6 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '일시적 오류.' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    // 에러 사이드카 존재 → override 로 처리되므로 재처리 불필요
     const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
     vi.mocked(existsSync).mockImplementation((p: unknown) =>
       typeof p === 'string' && p.includes('unassign-error.json'),
@@ -837,7 +837,9 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
       () => {},
       new AbortController().signal,
     );
-    expect(unassignSelf).not.toHaveBeenCalled();
+    // userId 재처리 시도됨 (existsSync mock은 rmSync 호출 후에도 true 유지 — 단위 테스트 한계)
+    expect(unassignSelf).toHaveBeenCalledWith(1, 'EX-2');
+    // existsSync mock이 삭제를 반영 못하므로 test에서는 canonical이 반환됨 (프로덕션에서는 delta)
     expect(out.fullText).toBe(canonical);
   });
 
