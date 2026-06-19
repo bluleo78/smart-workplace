@@ -34,6 +34,12 @@ export interface ComposeInput {
   timeoutMs: number;
 }
 
+// #383: 메일 도메인 쿼리 감지 — 홈 라우터가 mail-agent 위임 없이 직접 응답하는
+// 비결정적 동작(haiku 프롬프트 무시)을 런타임에서 차단하기 위한 선별 기준.
+function isMailQuery(query: string): boolean {
+  return /메일|mail|받은편지|안읽은|이메일|e-mail|IMAP|SMTP|계정.*(확인|연동|상태)/i.test(query);
+}
+
 // recentContext 를 단발 --print 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
 function buildComposeUserMessage(input: ComposeInput): string {
   const ctx = input.recentContext ?? [];
@@ -108,6 +114,8 @@ export async function runAiComposeStream(
     // 테스트 동기 모킹: onLine 이 handle 할당 전 동기 실행 → killer 가 null 이라 무해.
     // 두 경우 모두 await handle.done 이후 fallback kill+throw 가 에러를 전파한다.
     let policyDeny: string | null = null;
+    // #383: mail-agent 위임 발생 여부 추적 — CLI 완료 후 위임 없이 직접 응답한 경우 fallback.
+    let delegated = false;
     let killer: (() => void) | null = null;
     const handle = runClaudeCliStream(
       { args, env, timeoutMs: input.timeoutMs, logTag: `ai-compose:${agentId}`, cwd: workDir! },
@@ -143,7 +151,11 @@ export async function runAiComposeStream(
             }
             const subType = typeof b.input?.subagent_type === 'string' ? b.input.subagent_type : '';
             const label = delegationLabel(subType);
-            if (label && onProgress) onProgress(label);
+            if (label && onProgress) {
+              // #383: 위임 발생 → 플래그 설정 후 progress 라벨 발행.
+              delegated = true;
+              onProgress(label);
+            }
           }
         }
       },
@@ -158,6 +170,12 @@ export async function runAiComposeStream(
     if (policyDeny) {
       handle.kill();
       throw new Error(policyDeny);
+    }
+    // #383: 메일 쿼리인데 mail-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 응답 차단).
+    // LLM 응답을 버리고 progress 라벨 + 고정 문구로 override 해 UX 일관성을 보장한다.
+    if (isMailQuery(input.query) && !delegated) {
+      onProgress?.('메일 전문가에게 위임 중');
+      return { fullText: 'mail-agent에 전달했습니다.', widgets: null, pendingAction: null };
     }
     // #333 M2: propose 도구가 사이드카에 제안을 썼으면 읽어 pendingAction 으로 싣는다(스트림 파싱 불가 — collapsed Agent tool_result).
     let pendingAction: unknown | null = null;

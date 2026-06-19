@@ -27,7 +27,7 @@ vi.mock('node:fs', () => ({
 import { runAiCompose, runAiComposeStream, type ComposeInput } from './run-ai-compose.js';
 import { runClaudeCliCollect, runClaudeCliStream, buildCliArgs, buildChildEnv } from './cli-runner.js';
 import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
-import { writeSubagentDefinitions } from './subagent-loader.js';
+import { writeSubagentDefinitions, loadSubagents } from './subagent-loader.js';
 import { existsSync, readFileSync } from 'node:fs';
 
 const fakeClient = { getOAuthToken: vi.fn() } as never;
@@ -331,6 +331,74 @@ describe('runAiComposeStream — unassignError 사이드카 override (#378)', ()
     const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
     expect(typeof cfgArg.unassignErrorPath).toBe('string');
     expect(cfgArg.unassignErrorPath).toContain('unassign-error.json');
+  });
+});
+
+// #383: isMailQuery && !delegated → mail fallback override.
+describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
+  it('메일 쿼리 + 위임 없음 → onProgress 발행 + 고정 fallback 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // haiku 가 mail-agent 위임 없이 직접 텍스트로 응답하는 시나리오.
+      onLine(textDelta('계정이 연동되지 않았습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '계정이 연동되지 않았습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const labels: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '메일 계정 연동 상태 확인해줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+      (l) => labels.push(l),
+    );
+    // onProgress 로 위임 라벨이 발행되고 고정 문구로 override 됐는지 검증.
+    expect(labels).toContain('메일 전문가에게 위임 중');
+    expect(out.fullText).toBe('mail-agent에 전달했습니다.');
+    expect(out.widgets).toBeNull();
+    expect(out.pendingAction).toBeNull();
+  });
+
+  it('메일 쿼리 + 위임 있음 → fallback 없이 LLM 응답 그대로 반환', async () => {
+    // mail-agent 를 화이트리스트에 포함시켜 checkSubagentWhitelist 차단을 방지.
+    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'mail-agent': { description: 'm', tools: [], prompt: '' } });
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // 정상 경로: mail-agent 위임 발생 + 결과 반환.
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'mail-agent', prompt: '계정 확인' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '메일 계정: test@example.com' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const labels: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '메일 계정 연동 상태 확인해줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+      (l) => labels.push(l),
+    );
+    // 정상 위임 경로: 라벨은 발행되지만 fallback 없이 LLM 응답 사용.
+    expect(labels).toContain('메일 전문가에게 위임 중');
+    expect(out.fullText).toBe('메일 계정: test@example.com');
+  });
+
+  it('비메일 쿼리 + 위임 없음 → fallback 없이 LLM 응답 그대로 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '안녕하세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const labels: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '오늘 할 일 알려줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+      (l) => labels.push(l),
+    );
+    // 메일 쿼리가 아니므로 fallback 적용 안 됨.
+    expect(labels).not.toContain('메일 전문가에게 위임 중');
+    expect(out.fullText).toBe('안녕하세요.');
   });
 });
 
