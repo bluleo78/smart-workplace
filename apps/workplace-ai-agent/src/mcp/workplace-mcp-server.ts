@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   const client = createWorkplaceApiClient({ baseURL, internalToken });
   // 6c/7b/7(messaging): WORKPLACE_MCP_PROFILE 로 도구셋 결정.
   const raw = process.env.WORKPLACE_MCP_PROFILE;
-  const profile = raw === 'chat' || raw === 'home' || raw === 'messaging' ? raw : 'issue';
+  const profile = raw === 'chat' || raw === 'home' || raw === 'messaging' || raw === 'assistant' ? raw : 'issue';
   const tools = buildTools(client, actingAgentId, profile);
 
   const server = new Server(
