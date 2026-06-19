@@ -73,6 +73,48 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(d.title).toBe('분석');
   });
 
+  // #373: API 응답 comment의 flat author 필드 → nested author 객체 정규화 검증
+  it('getIssueDetail → flat author 필드(authorId/authorName/authorKind)를 nested author 객체로 변환', async () => {
+    nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/projects/WP/issues/5`)
+      .reply(200, {
+        key: 'WP-5',
+        title: '코멘트 이슈',
+        body: '본문',
+        status: 'TODO',
+        priority: 'HIGH',
+        assignees: [],
+        comments: [
+          {
+            id: 1,
+            issueId: 5,
+            authorId: 3,
+            authorName: '홍길동',
+            authorKind: 'HUMAN',
+            body: '테스트 코멘트',
+            createdAt: '2026-06-07T15:06:36.671628Z',
+          },
+          {
+            id: 2,
+            issueId: 5,
+            authorId: 10,
+            authorName: '개인 비서',
+            authorKind: 'AGENT',
+            body: 'AI 코멘트',
+            createdAt: '2026-06-08T10:00:00.000000Z',
+          },
+        ],
+      });
+    const d = await newClient().getIssueDetail(AGENT_ID, 'WP-5');
+    expect(d.comments).toHaveLength(2);
+    // flat 필드가 nested author 객체로 변환되어야 함 — ZodError 없이 파싱 성공
+    expect(d.comments![0].author).toEqual({ id: 3, username: '홍길동', name: '홍길동', kind: 'HUMAN' });
+    expect(d.comments![1].author).toEqual({ id: 10, username: '개인 비서', name: '개인 비서', kind: 'AGENT' });
+    expect(d.comments![0].body).toBe('테스트 코멘트');
+  });
+
   it('unassignSelf → /me 호출 없이 assignees PUT (agentId 본인 제외)', async () => {
     nock(BASE)
       .matchHeader('x-on-behalf-of', String(AGENT_ID))

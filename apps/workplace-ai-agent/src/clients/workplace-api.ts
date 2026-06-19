@@ -290,7 +290,19 @@ export function createWorkplaceApiClient(opts: {
         status: summary.status ?? raw.status ?? '',
         priority: summary.priority ?? raw.priority ?? '',
         assignees: summary.assignees ?? raw.assignees ?? [],
-        comments: raw.comments ?? [],
+        // API 응답의 comment는 flat 필드(authorId/authorName/authorKind)로 오므로
+        // Zod schema가 기대하는 nested author 객체로 변환한다 (#373).
+        comments: (raw.comments ?? []).map((c: Record<string, unknown>) => ({
+          id: c.id,
+          body: c.body,
+          createdAt: c.createdAt,
+          author: {
+            id: c.authorId,
+            username: c.authorName,
+            name: c.authorName,
+            kind: c.authorKind,
+          },
+        })),
       };
       return issueDetail.parse(normalized);
     },
