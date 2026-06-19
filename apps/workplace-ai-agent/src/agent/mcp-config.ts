@@ -43,6 +43,9 @@ export function writeTempMcpConfig(opts: {
   internalToken: string;
   profile?: 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
   pendingActionPath?: string; // #333 M2: propose 핸들러가 제안을 쓸 사이드카 절대경로(cwd 비의존)
+  // #376: 요청자 userId — MCP 서버가 X-On-Behalf-Of 를 assistantAgentId 대신 이 값으로 설정해
+  // 드라이브·캘린더 등 사용자 귀속 리소스를 올바른 userId 기준으로 접근한다.
+  userId?: number;
 }): string {
   const { command, args } = resolveMcpServerCommand(here);
   const config = {
@@ -57,6 +60,9 @@ export function writeTempMcpConfig(opts: {
           WORKPLACE_MCP_PROFILE: opts.profile ?? 'issue',
           // 설정 시에만 키 추가(없으면 propose 핸들러가 동작 안 함 — 정상).
           ...(opts.pendingActionPath ? { WORKPLACE_PENDING_ACTION_PATH: opts.pendingActionPath } : {}),
+          // #376: userId 가 주어지면 MCP child 에도 ACTING_USER_ID 주입. MCP 서버는 claude CLI 가
+          // 별도 child process 로 spawn 하므로 buildChildEnv 만으로는 전달이 안 된다.
+          ...(opts.userId !== undefined ? { ACTING_USER_ID: String(opts.userId) } : {}),
         },
       },
     },

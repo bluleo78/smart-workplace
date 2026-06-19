@@ -422,13 +422,29 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   });
 
+  describe('listSpaceItems', () => {
+    it('GET /drive/spaces/{id}/items 로 folders+files 반환', async () => {
+      // #376: API 응답은 { folders: [], files: [] } 객체 — 배열이 아님에 주의.
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/drive/spaces/1/items`)
+        .reply(200, {
+          folders: [{ id: 1, parentId: null, name: '탐색폴더', createdAt: '2026-06-07T00:00:00Z' }],
+          files: [{ id: 1, folderId: null, fileId: 1, name: 'small.txt', mimeType: 'text/plain', sizeBytes: 15, category: 'TEXT', createdAt: '2026-06-07T00:00:00Z' }],
+        });
+      const out = await newClient().listSpaceItems(7, 1);
+      expect(out.folders[0].name).toBe('탐색폴더');
+      expect(out.files[0].name).toBe('small.txt');
+    });
+  });
+
   describe('searchDrive', () => {
     it('GET /drive/spaces/{id}/search?q 로 검색 결과 반환', async () => {
+      // #376: API 응답은 { folders: [], files: [] } 객체.
       nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
         .get(`${PREFIX}/drive/spaces/1/search`).query({ q: '보고서' })
-        .reply(200, [{ id: 5, kind: 'FILE', name: '보고서.pdf', updatedAt: '2026-06-19T00:00:00Z' }]);
+        .reply(200, { folders: [], files: [{ id: 5, folderId: null, fileId: 5, name: '보고서.pdf', mimeType: 'application/pdf', sizeBytes: 1024, category: 'DOCUMENT', createdAt: '2026-06-19T00:00:00Z' }] });
       const out = await newClient().searchDrive(7, 1, '보고서');
-      expect(out[0].name).toBe('보고서.pdf');
+      expect(out.files[0].name).toBe('보고서.pdf');
     });
   });
 

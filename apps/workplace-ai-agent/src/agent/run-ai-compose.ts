@@ -71,6 +71,7 @@ export async function runAiComposeStream(
       internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
       profile: 'assistant', // home 프로파일 → assistant 프로파일로 교체(#333)
       pendingActionPath, // #333 M2: propose 핸들러가 제안을 쓸 사이드카(절대경로)
+      userId: input.userId, // #376: MCP child env 에도 ACTING_USER_ID 전달
     });
     // #333: 서브에이전트 정의를 workDir 안 .claude/agents/ 에 기록 + 허용 이름 집합 산출.
     const subagents = loadSubagents();
@@ -185,6 +186,7 @@ export async function runAiCompose(
     baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
     internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
     profile: 'home',
+    userId: input.userId, // #376: MCP child env 에도 ACTING_USER_ID 전달
   });
 
   try {
@@ -198,7 +200,7 @@ export async function runAiCompose(
       mcpConfigPath,
       includePartialMessages: false,
     });
-    const env = buildChildEnv(process.env, token, agentId);
+    const env = buildChildEnv(process.env, token, agentId, input.userId); // #376: userId 전달
     const lines = await runClaudeCliCollect({
       args,
       env,

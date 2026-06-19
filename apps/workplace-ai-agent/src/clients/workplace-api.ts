@@ -66,8 +66,18 @@ export interface ProjectMemberItem {
 // #333 M3: 드라이브 스페이스 단건(읽기 그라운딩).
 export interface DriveSpaceItem { id: number; name: string; role: string; }
 
-// #333 M3: 드라이브 노드(폴더/파일) 단건(읽기 그라운딩).
-export interface DriveNode { id: number; kind: 'FOLDER' | 'FILE'; name: string; updatedAt: string; }
+// #333 M3: 드라이브 폴더 단건(listSpaceItems / searchDrive 응답).
+export interface DriveFolderNode { id: number; parentId: number | null; name: string; createdAt: string; }
+
+// #333 M3: 드라이브 파일 단건(listSpaceItems / searchDrive 응답).
+export interface DriveFileNode { id: number; folderId: number | null; fileId: number; name: string; mimeType: string; sizeBytes: number; category: string; createdAt: string; }
+
+// #333 M3: 드라이브 items/search API 응답 래퍼 — folders + files 묶음.
+// #376: 기존 DriveNode(단건 배열)는 API 실제 응답({folders,files})과 불일치 — 수정.
+export interface DriveItemsResponse { folders: DriveFolderNode[]; files: DriveFileNode[]; }
+
+// #376 하위호환: DriveNode alias(외부 참조가 있으면 타입 에러 방지).
+export type DriveNode = DriveItemsResponse;
 
 // #333 M4: 드라이브 폴더 생성/이름변경 응답 단건.
 export interface DriveFolderItem { id: number; parentId: number | null; name: string; createdAt: string; }
@@ -210,8 +220,8 @@ export interface WorkplaceApiClient {
   updateExternalContact(agentId: number, id: number, input: ExternalContactInput): Promise<ContactItem>;
   // #333 M3: 드라이브 읽기 전용(v1 — 쓰기 연기). list/items/search.
   listMySpaces(agentId: number): Promise<DriveSpaceItem[]>;
-  listSpaceItems(agentId: number, spaceId: number, parentId?: number): Promise<DriveNode[]>;
-  searchDrive(agentId: number, spaceId: number, q: string): Promise<DriveNode[]>;
+  listSpaceItems(agentId: number, spaceId: number, parentId?: number): Promise<DriveItemsResponse>;
+  searchDrive(agentId: number, spaceId: number, q: string): Promise<DriveItemsResponse>;
   // #333 M4: 드라이브 폴더/파일 쓰기 — 이동은 204(void).
   createFolder(agentId: number, spaceId: number, parentId: number | null, name: string): Promise<DriveFolderItem>;
   renameFolder(agentId: number, folderId: number, name: string): Promise<DriveFolderItem>;
@@ -500,11 +510,21 @@ export function createWorkplaceApiClient(opts: {
     async listSpaceItems(agentId, spaceId, parentId) {
       const qs = parentId ? `?parentId=${parentId}` : '';
       const r = await http.get(`/drive/spaces/${spaceId}/items${qs}`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as DriveNode[]) : [];
+      // #376: API 응답은 { folders: [], files: [] } 객체. 기존 Array.isArray 가드는 항상 false.
+      const d = r.data as Record<string, unknown>;
+      return {
+        folders: Array.isArray(d.folders) ? (d.folders as DriveFolderNode[]) : [],
+        files: Array.isArray(d.files) ? (d.files as DriveFileNode[]) : [],
+      };
     },
     async searchDrive(agentId, spaceId, q) {
       const r = await http.get(`/drive/spaces/${spaceId}/search?q=${encodeURIComponent(q)}`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as DriveNode[]) : [];
+      // #376: API 응답은 { folders: [], files: [] } 객체.
+      const d = r.data as Record<string, unknown>;
+      return {
+        folders: Array.isArray(d.folders) ? (d.folders as DriveFolderNode[]) : [],
+        files: Array.isArray(d.files) ? (d.files as DriveFileNode[]) : [],
+      };
     },
 
     // #333 M4: 드라이브 폴더/파일 쓰기 — 이동은 204(void).
