@@ -36,7 +36,10 @@ export interface ComposeInput {
 
 // #383: 메일 도메인 쿼리 감지 — 홈 라우터가 mail-agent 위임 없이 직접 응답하는
 // 비결정적 동작(haiku 프롬프트 무시)을 런타임에서 차단하기 위한 선별 기준.
+// #385: 연락처(contacts) 컨텍스트를 가진 쿼리는 메일 쿼리에서 제외 — "이메일" 키워드가
+// 연락처 생성/수정 요청에 포함될 때 오탐해 mail-agent fallback이 contacts-agent 결과를 덮는 버그 방지.
 function isMailQuery(query: string): boolean {
+  if (/연락처|contacts/i.test(query)) return false;
   return /메일|mail|받은편지|안읽은|이메일|e-mail|IMAP|SMTP|계정.*(확인|연동|상태)/i.test(query);
 }
 

@@ -400,6 +400,47 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
     expect(labels).not.toContain('메일 전문가에게 위임 중');
     expect(out.fullText).toBe('안녕하세요.');
   });
+
+  // #385: 연락처 컨텍스트 + "이메일" 키워드 → contacts 컨텍스트가 mail 쿼리로 오탐되면 안 됨.
+  it('연락처 쿼리에 이메일 포함 + 위임 없음 → mail fallback 적용 안 됨 (#385)', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '김민수(kim@test.com) 연락처가 추가되었습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const labels: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '김민수 이메일은 kim@test.com 인데 연락처에 추가해줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+      (l) => labels.push(l),
+    );
+    // 연락처 컨텍스트이므로 mail fallback 적용 안 됨 — contacts-agent 결과 보존.
+    expect(labels).not.toContain('메일 전문가에게 위임 중');
+    expect(out.fullText).toBe('김민수(kim@test.com) 연락처가 추가되었습니다.');
+    expect(out.fullText).not.toBe('mail-agent에 전달했습니다.');
+  });
+
+  it('순수 "이메일" 키워드 + 위임 없음 → mail fallback 적용 (#385 회귀 가드)', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('이메일 확인해볼게요.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '이메일 확인해볼게요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const labels: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '이메일 안 읽은 거 확인해줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+      (l) => labels.push(l),
+    );
+    // 연락처 컨텍스트 없이 이메일 키워드만 있으면 mail fallback 적용.
+    expect(labels).toContain('메일 전문가에게 위임 중');
+    expect(out.fullText).toBe('mail-agent에 전달했습니다.');
+  });
 });
 
 // #376: runAiComposeStream 이 userId 를 buildChildEnv 에 전달하는지 검증.
