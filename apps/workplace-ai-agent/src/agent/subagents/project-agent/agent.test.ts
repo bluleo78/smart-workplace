@@ -24,4 +24,9 @@ describe('project-agent 정의', () => {
     expect(loaded['project-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['project-agent'].prompt).toMatch(/프로젝트|제안/);
   });
+  it('워크플로우에 존재 확인(get_project) 규칙이 명시되어 있다', () => {
+    // 멤버 추가 propose 전 get_project 존재 확인 규칙 (#386)
+    expect(loaded['project-agent'].prompt).toMatch(/get_project/);
+    expect(loaded['project-agent'].prompt).toMatch(/존재/);
+  });
 });
