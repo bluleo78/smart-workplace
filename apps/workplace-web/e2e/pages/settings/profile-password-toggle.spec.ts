@@ -1,5 +1,6 @@
 // ProfileSettingsPage 비밀번호 변경 폼 — 표시/숨김 토글 회귀 테스트 (이슈 #263)
 // 비밀번호 필드 3개(현재/새/확인) 각각의 Eye 버튼 클릭 → type 전환을 검증한다.
+// autocomplete 속성 회귀 테스트 추가 (이슈 #365)
 import { expect, test } from '../../fixtures/auth.fixture'
 
 test.describe('프로필 설정 — 비밀번호 표시/숨김 토글', () => {
@@ -37,4 +38,23 @@ test.describe('프로필 설정 — 비밀번호 표시/숨김 토글', () => {
       await expect(toggleBtn).toHaveAttribute('aria-label', '비밀번호 보기')
     })
   }
+
+  // autocomplete 속성 검증 — 브라우저 비밀번호 매니저 호환 및 콘솔 경고 제거 (이슈 #365)
+  test('현재 비밀번호 필드에 autocomplete="current-password" 속성이 있다', async ({
+    authenticatedPage: page,
+  }) => {
+    await expect(page.locator('#current-password')).toHaveAttribute('autocomplete', 'current-password')
+  })
+
+  test('새 비밀번호 필드에 autocomplete="new-password" 속성이 있다', async ({
+    authenticatedPage: page,
+  }) => {
+    await expect(page.locator('#new-password')).toHaveAttribute('autocomplete', 'new-password')
+  })
+
+  test('비밀번호 확인 필드에 autocomplete="new-password" 속성이 있다', async ({
+    authenticatedPage: page,
+  }) => {
+    await expect(page.locator('#confirm-password')).toHaveAttribute('autocomplete', 'new-password')
+  })
 })
