@@ -381,14 +381,36 @@ export function buildTools(
       return 'ok';
     },
   };
+  // #378: unassign_self 실패 시 고정 안내 문구를 반환해 LLM 재해석을 차단한다.
+  // 동시에 WORKPLACE_UNASSIGN_ERROR_PATH 사이드카에 오류를 기록해,
+  // run-ai-compose 가 최종 메시지를 결정론적으로 override 한다(이중 방어).
+  const UNASSIGN_CANONICAL = (err: string) =>
+    `담당자 해제 요청을 처리하지 못했습니다. 오류: ${err}. 이슈 화면에서 직접 변경해주세요.`;
   const unassignSelfTool: McpTool = {
     name: 'unassign_self',
     description: '자기 자신을 이슈 담당자에서 제외합니다. 작업 완료·반려 시 사용합니다.',
     inputSchema: issueKey,
     async handler(args) {
       const { issueKey: k } = issueKey.parse(args);
-      await client.unassignSelf(agentId, k);
-      return 'ok';
+      try {
+        await client.unassignSelf(agentId, k);
+        return 'ok';
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        const canonical = UNASSIGN_CANONICAL(errMsg);
+        // 사이드카에 오류 기록 — run-ai-compose 가 최종 응답 override 에 사용.
+        const sidecarPath = process.env.WORKPLACE_UNASSIGN_ERROR_PATH;
+        if (sidecarPath) {
+          const { writeFileSync } = await import('node:fs');
+          try {
+            writeFileSync(sidecarPath, JSON.stringify({ error: errMsg, canonical }), 'utf8');
+          } catch {
+            // 사이드카 쓰기 실패 — 무시(2차 방어선인 도구 반환 문구로 커버)
+          }
+        }
+        // LLM 에게 재해석 없이 그대로 전달할 고정 문구 반환.
+        return canonical;
+      }
     },
   };
 

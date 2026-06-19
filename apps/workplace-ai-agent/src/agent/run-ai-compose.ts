@@ -65,12 +65,16 @@ export async function runAiComposeStream(
     // finally 에서 rmSync 로 한 번에 정리해 temp 누수 방지.
     workDir = mkdtempSync(path.join(tmpdir(), `assistant-${agentId}-`));
     const pendingActionPath = path.join(workDir, 'pending-action.json');
+    // #378: unassign_self 실패 시 MCP 핸들러가 오류를 기록할 사이드카.
+    // 실행 후 이 파일이 존재하면 최종 응답을 결정론적으로 override 한다.
+    const unassignErrorPath = path.join(workDir, 'unassign-error.json');
     mcpConfigPath = writeTempMcpConfig({
       agentId,
       baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
       internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
       profile: 'assistant', // home 프로파일 → assistant 프로파일로 교체(#333)
       pendingActionPath, // #333 M2: propose 핸들러가 제안을 쓸 사이드카(절대경로)
+      unassignErrorPath, // #378: unassign_self 실패 사이드카(절대경로)
       userId: input.userId, // #376: MCP child env 에도 ACTING_USER_ID 전달
     });
     // #333: 서브에이전트 정의를 workDir 안 .claude/agents/ 에 기록 + 허용 이름 집합 산출.
@@ -162,6 +166,18 @@ export async function runAiComposeStream(
         pendingAction = JSON.parse(readFileSync(pendingActionPath, 'utf8'));
       } catch {
         pendingAction = null; // 파싱 실패는 무시(확인 카드 없이 진행)
+      }
+    }
+    // #378: unassign_self 실패 사이드카가 존재하면 LLM 응답을 버리고 고정 문구로 override.
+    // haiku 가 도구 에러를 자의적으로 재해석하는 비결정적 동작을 결정론적으로 차단한다.
+    if (existsSync(unassignErrorPath)) {
+      try {
+        const errData = JSON.parse(readFileSync(unassignErrorPath, 'utf8')) as { canonical: string };
+        if (errData.canonical) {
+          return { fullText: errData.canonical, widgets: null, pendingAction: null };
+        }
+      } catch {
+        // 사이드카 파싱 실패 — LLM 응답을 그대로 사용
       }
     }
     // parseComposeLines 로 최종 message(result 이벤트) + widgets(tool_use 이벤트) 산출.

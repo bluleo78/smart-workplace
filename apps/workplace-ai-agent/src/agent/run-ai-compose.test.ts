@@ -295,6 +295,45 @@ describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
   });
 });
 
+// #378: unassign_self 실패 사이드카 override — haiku 재해석 차단.
+describe('runAiComposeStream — unassignError 사이드카 override (#378)', () => {
+  it('unassign-error.json 이 있으면 LLM 응답을 버리고 canonical 로 override', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '일시적 장애가 발생했습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // pendingAction 사이드카는 없고, unassignError 사이드카만 존재하도록 설정.
+    vi.mocked(existsSync).mockImplementation((p: unknown) =>
+      typeof p === 'string' && p.includes('unassign-error.json'),
+    );
+    const canonical = '담당자 해제 요청을 처리하지 못했습니다. 오류: 403. 이슈 화면에서 직접 변경해주세요.';
+    vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ error: '403', canonical }) as never);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe(canonical);
+    expect(out.widgets).toBeNull();
+    expect(out.pendingAction).toBeNull();
+  });
+
+  it('unassign-error.json 이 없으면 LLM 응답을 그대로 사용', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '담당자 해제 완료.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe('담당자 해제 완료.');
+  });
+
+  it('unassignErrorPath 를 mcp-config 에 주입한다', async () => {
+    vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    vi.mocked(existsSync).mockReturnValue(false);
+    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
+    expect(typeof cfgArg.unassignErrorPath).toBe('string');
+    expect(cfgArg.unassignErrorPath).toContain('unassign-error.json');
+  });
+});
+
 // #376: runAiComposeStream 이 userId 를 buildChildEnv 에 전달하는지 검증.
 describe('runAiComposeStream — userId → ACTING_USER_ID 전달 (#376)', () => {
   it('ComposeInput.userId 를 buildChildEnv 4번째 인자로 전달한다', async () => {
