@@ -443,6 +443,60 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
   });
 });
 
+// #390: 드라이브 미지원 작업(업로드·멤버 권한 변경) 쿼리 → 고정 "지원하지 않는 기능" 반환.
+describe('runAiComposeStream — drive 미지원 작업 guard (#390)', () => {
+  it('파일 업로드 쿼리 → LLM 응답 무시하고 고정 문구 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // 홈 라우터가 "정보 주시면 위임하여 업로드 진행" 류로 응답하는 시나리오.
+      onLine(textDelta('이 정보를 알려주시면 drive-agent에 위임하여 업로드를 진행하겠습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '이 정보를 알려주시면 drive-agent에 위임하여 업로드를 진행하겠습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(
+      baseInput({ query: '드라이브에 새 파일 보고서.pdf를 업로드해줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(out.fullText).toBe('현재 지원하지 않는 기능입니다.');
+    expect(out.widgets).toBeNull();
+    expect(out.pendingAction).toBeNull();
+  });
+
+  it('드라이브 멤버 권한 변경 쿼리 → 고정 문구 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '멤버를 추가하겠습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(
+      baseInput({ query: '드라이브 팀 스페이스에 홍길동 멤버 추가해줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(out.fullText).toBe('현재 지원하지 않는 기능입니다.');
+  });
+
+  it('드라이브 파일 조회 쿼리(지원 기능) → guard 미적용, LLM 응답 그대로 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '드라이브 파일 목록입니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(
+      baseInput({ query: '팀 드라이브 파일 목록 보여줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // 조회 요청은 지원 기능이므로 고정 문구로 override 되면 안 됨.
+    expect(out.fullText).toBe('드라이브 파일 목록입니다.');
+    expect(out.fullText).not.toBe('현재 지원하지 않는 기능입니다.');
+  });
+});
+
 // #376: runAiComposeStream 이 userId 를 buildChildEnv 에 전달하는지 검증.
 describe('runAiComposeStream — userId → ACTING_USER_ID 전달 (#376)', () => {
   it('ComposeInput.userId 를 buildChildEnv 4번째 인자로 전달한다', async () => {

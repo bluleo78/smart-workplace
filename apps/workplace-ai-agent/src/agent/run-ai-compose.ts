@@ -43,6 +43,16 @@ function isMailQuery(query: string): boolean {
   return /메일|mail|받은편지|안읽은|이메일|e-mail|IMAP|SMTP|계정.*(확인|연동|상태)/i.test(query);
 }
 
+// #390: 드라이브 미지원 작업 쿼리 감지 — 업로드·멤버 권한 변경은 drive-agent 도구에 없으나
+// 홈 라우터(haiku)가 "위임하여 진행하겠습니다"로 잘못 안내하는 비결정적 동작을 차단한다.
+// 드라이브 조회·검색·폴더 생성·이동 등 지원 기능 쿼리는 배제해 오탐을 최소화한다.
+function isDriveUnsupportedQuery(query: string): boolean {
+  // 지원 기능(조회·검색·폴더 정리·이동)은 제외 — 이들은 drive-agent 가 실제로 수행 가능.
+  if (/목록|찾아줘|보여줘|검색|탐색|폴더.*만들|이름.*바꾸|이동|삭제.*제안/i.test(query)) return false;
+  // 업로드·멤버·권한·공유 관련 쿼리 감지.
+  return /업로드|upload|파일.*올려|올려줘|공유.*권한|멤버.*추가|멤버.*변경|권한.*변경|드라이브.*초대/i.test(query);
+}
+
 // recentContext 를 단발 --print 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
 function buildComposeUserMessage(input: ComposeInput): string {
   const ctx = input.recentContext ?? [];
@@ -179,6 +189,11 @@ export async function runAiComposeStream(
     if (isMailQuery(input.query) && !delegated) {
       onProgress?.('메일 전문가에게 위임 중');
       return { fullText: 'mail-agent에 전달했습니다.', widgets: null, pendingAction: null };
+    }
+    // #390: 드라이브 미지원 작업(업로드·멤버 권한 변경) 쿼리 — drive-agent 에 해당 도구가 없어
+    // 위임해도 진행 불가. 홈 라우터가 "정보 주시면 위임 진행" 류로 오안내하는 경우를 차단한다.
+    if (isDriveUnsupportedQuery(input.query)) {
+      return { fullText: '현재 지원하지 않는 기능입니다.', widgets: null, pendingAction: null };
     }
     // #333 M2: propose 도구가 사이드카에 제안을 썼으면 읽어 pendingAction 으로 싣는다(스트림 파싱 불가 — collapsed Agent tool_result).
     let pendingAction: unknown | null = null;
