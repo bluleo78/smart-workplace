@@ -336,11 +336,19 @@ export async function runAiComposeStream(
     // parseComposeLines 로 최종 message(result 이벤트) + widgets(tool_use 이벤트) 산출.
     const parsed = parseComposeLines(lines);
     const finalText = parsed.message || fullText;
+    // #410: haiku 가 응답 본문에 내부 서브에이전트 식별자(issue-agent, calendar-agent 등)를
+    // 노출하는 비결정적 동작을 결정론적으로 차단한다. 프롬프트 규칙만으로는 비결정적이므로
+    // 후처리 sanitize 로 식별자 + 조사를 제거한다.
+    // 예: "calendar-agent에 확인하겠습니다." → "확인하겠습니다."
+    const sanitizedText = finalText.replace(
+      /\b(?:issue|calendar|messaging|wiki|mail|contacts|project|drive)-agent(?:에게?|가|이|를|을|로|으로|은|는|도|만|와|과|의)?\s*/gi,
+      '',
+    );
     // #379: issue-agent 가 이슈 삭제 요청에서 내부 SDK 메시지("Agent 도구가 활성화되어 있지 않네요",
     // "현재 환경에서" 등)를 노출하는 비결정적 동작을 결정론적으로 차단한다.
     // #407: "advisor에게 상담하겠습니다" 등 SDK 내부 폴백 메시지도 동일 패턴으로 차단한다.
     // agent.md 에 금지 규칙이 있으나 haiku 가 무시할 수 있으므로 런타임에서 이중 방어한다.
-    if (/Agent\s*도구가\s*활성화되어\s*있지\s*않|현재\s*환경에서.*(?:Agent|도구)|에이전트\s*도구.*비활성|advisor에게\s*상담하겠습니다/i.test(finalText)) {
+    if (/Agent\s*도구가\s*활성화되어\s*있지\s*않|현재\s*환경에서.*(?:Agent|도구)|에이전트\s*도구.*비활성|advisor에게\s*상담하겠습니다/i.test(sanitizedText)) {
       return {
         fullText: '죄송합니다. 해당 요청을 처리할 수 없습니다. 다른 방법으로 도움이 필요하시면 말씀해 주세요.',
         widgets: null,
@@ -349,7 +357,7 @@ export async function runAiComposeStream(
     }
     // #404: show_issue_detail 위젯 중 존재하지 않는 이슈 번호를 서버 검증으로 드롭한다.
     const filteredWidgets = await filterIssueDetailWidgets(parsed.widgets, deps.client, agentId);
-    return { fullText: finalText, widgets: filteredWidgets.length > 0 ? filteredWidgets : null, pendingAction };
+    return { fullText: sanitizedText, widgets: filteredWidgets.length > 0 ? filteredWidgets : null, pendingAction };
   } finally {
     // Finding 2: null 가드 — writeTempMcpConfig/mkdtempSync 가 throw 하면 미생성 변수는 정리 생략.
     if (mcpConfigPath) cleanupTempMcpConfig(mcpConfigPath);

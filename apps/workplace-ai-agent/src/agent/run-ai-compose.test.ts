@@ -672,6 +672,40 @@ describe('runAiComposeStream — SDK 내부 메시지 필터 (#379, #407)', () =
   });
 });
 
+// #410: 내부 서브에이전트 식별자 sanitize — haiku 가 응답 본문에 "calendar-agent에" 류를 노출하는 비결정적 동작 차단.
+describe('runAiComposeStream — 내부 식별자 sanitize (#410)', () => {
+  it('calendar-agent 식별자 + 조사가 응답 본문에서 제거된다', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'calendar-agent에 확인하겠습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: '이번 주 화요일 빈 시간 있어?' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).not.toContain('calendar-agent');
+    expect(out.fullText).toContain('확인하겠습니다');
+  });
+
+  it('contacts-agent 식별자가 응답 본문에서 제거된다', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'contacts-agent가 처리합니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: '연락처 찾아줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).not.toContain('contacts-agent');
+  });
+
+  it('식별자 없는 정상 응답은 그대로 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '일정을 확인하겠습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: '오늘 일정 알려줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe('일정을 확인하겠습니다.');
+  });
+});
+
 // #404: show_issue_detail 위젯 — 존재하지 않는 이슈 번호 차단(결정론적 서버 검증).
 // haiku 가 EX-99999 처럼 존재하지 않는 이슈에 show_issue_detail 을 호출하는 비결정적 동작 차단.
 describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () => {
