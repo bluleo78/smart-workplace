@@ -43,6 +43,38 @@ function isMailQuery(query: string): boolean {
   return /메일|mail|받은편지|안읽은|이메일|e-mail|IMAP|SMTP|계정.*(확인|연동|상태)/i.test(query);
 }
 
+// #405: 생성일 필터 쿼리 감지 — "이번 주 생성된 이슈" 처럼 생성일 범위로 이슈를 조회하는 요청.
+// show_issue_list 는 dueFrom/dueTo(마감일)만 지원하고 생성일 필터는 없으므로,
+// haiku 가 dueFrom 으로 오해석하는 비결정적 동작을 런타임에서 차단한다.
+// "이슈 생성해줘" 처럼 이슈를 새로 만드는 요청은 제외(오탐 방지).
+function isCreatedDateFilterQuery(query: string): boolean {
+  // 이슈 생성(create) 요청은 제외
+  if (/이슈.*(만들|생성|추가|등록)해|새.*이슈|이슈.*새로/i.test(query)) return false;
+  // 생성 관련 키워드 + 기간/시간 범위 키워드가 함께 있을 때만 감지
+  const hasCreated = /생성|만들어진|만들어졌|created/i.test(query);
+  const hasTimeRange = /이번\s*주|지난\s*주|오늘|어제|이번\s*달|지난\s*달|최근|last\s*week|this\s*week|\d+일\s*(이내|전|내)|이후|전/i.test(query);
+  return hasCreated && hasTimeRange;
+}
+
+// #406: 이슈 담당 해제 의도가 포함된 복합 쿼리 감지.
+// "담당자에서 나 해제해줘", "나 빼줘", "unassign" 등의 표현을 포함하며
+// 동시에 다른 작업(상태변경·코멘트 등)도 요청하는 복합 요청을 식별한다.
+// 단순 해제 전용 쿼리(다른 요청 없음)는 issue-agent 가 잘 처리하므로 제외.
+function isUnassignCompoundQuery(query: string): boolean {
+  const hasUnassign = /담당.*(해제|빼줘|제외|빼)|나.*담당.*빼|unassign|담당자.*나|나.*빼줘/i.test(query);
+  if (!hasUnassign) return false;
+  // 다른 작업이 함께 있는지 확인(상태변경·코멘트)
+  const hasOtherTask = /바꾸|변경|코멘트|댓글|남겨|IN_PROGRESS|진행중|완료|DONE/i.test(query);
+  return hasOtherTask;
+}
+
+// #406: 쿼리 텍스트에서 이슈 키(예: "EX-2", "SW-123") 추출.
+// 패턴: 대문자 영문자(2~10자) + 하이픈 + 숫자(1~6자리).
+function extractIssueKeyFromQuery(query: string): string | null {
+  const m = query.match(/\b([A-Z]{2,10})-(\d{1,6})\b/);
+  return m ? m[0] : null;
+}
+
 // #404: show_issue_detail 위젯에서 존재하지 않는 이슈 번호를 결정론적으로 차단한다.
 // haiku가 이슈 존재 여부 확인 없이 show_issue_detail을 호출하는 비결정적 동작을
 // 서버 검증으로 이중 방어한다. projectKey 가 없으면 검증 불가이므로 통과(pass-through).
@@ -121,6 +153,14 @@ export async function runAiComposeStream(
   signal: AbortSignal,
   onProgress?: (label: string) => void, // #333: Agent 위임 시작 시 호출('이슈 전문가에게 위임 중')
 ): Promise<{ fullText: string; widgets: unknown; pendingAction: unknown | null }> {
+  // #405: 생성일 필터 쿼리 — LLM 호출 전 결정론적으로 차단. dueFrom 오해석 방지.
+  if (isCreatedDateFilterQuery(input.query)) {
+    return {
+      fullText: '생성 날짜 필터는 지원하지 않습니다. 마감일(dueFrom/dueTo), 담당자, 상태, 우선순위 필터를 사용해 보세요.',
+      widgets: null,
+      pendingAction: null,
+    };
+  }
   const agentId = input.assistantAgentId;
   const token = (await deps.client.getOAuthToken(agentId)).token;
   // #333: workDir·mcpConfigPath 를 try 블록 안에서 생성해 writeTempMcpConfig 실패 시
@@ -136,6 +176,9 @@ export async function runAiComposeStream(
     // #378: unassign_self 실패 시 MCP 핸들러가 오류를 기록할 사이드카.
     // 실행 후 이 파일이 존재하면 최종 응답을 결정론적으로 override 한다.
     const unassignErrorPath = path.join(workDir, 'unassign-error.json');
+    // #406: unassign_self 성공 시 MCP 핸들러가 기록할 사이드카.
+    // CLI 종료 후 이 파일이 없으면(= 도구 미호출) 직접 API 재처리를 시도한다.
+    const unassignSuccessPath = path.join(workDir, 'unassign-success.json');
     mcpConfigPath = writeTempMcpConfig({
       agentId,
       baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
@@ -143,6 +186,7 @@ export async function runAiComposeStream(
       profile: 'assistant', // home 프로파일 → assistant 프로파일로 교체(#333)
       pendingActionPath, // #333 M2: propose 핸들러가 제안을 쓸 사이드카(절대경로)
       unassignErrorPath, // #378: unassign_self 실패 사이드카(절대경로)
+      unassignSuccessPath, // #406: unassign_self 성공 사이드카(절대경로)
       userId: input.userId, // #376: MCP child env 에도 ACTING_USER_ID 전달
     });
     // #333: 서브에이전트 정의를 workDir 안 .claude/agents/ 에 기록 + 허용 이름 집합 산출.
@@ -213,10 +257,10 @@ export async function runAiComposeStream(
             }
             const subType = typeof b.input?.subagent_type === 'string' ? b.input.subagent_type : '';
             const label = delegationLabel(subType);
-            if (label && onProgress) {
-              // #383: 위임 발생 → 플래그 설정 후 progress 라벨 발행.
+            if (label) {
+              // #383: 위임 발생 → 플래그 설정. onProgress 있으면 라벨 발행.
               delegated = true;
-              onProgress(label);
+              if (onProgress) onProgress(label);
             }
           }
         }
@@ -232,6 +276,26 @@ export async function runAiComposeStream(
     if (policyDeny) {
       handle.kill();
       throw new Error(policyDeny);
+    }
+    // #406: 복합 요청에서 unassign_self 미호출 시 직접 API 재처리.
+    // issue-agent 가 복합 요청에서 담당 해제를 건너뛰는 비결정적 동작(haiku)을 런타임에서 보완한다.
+    // 조건: 복합 해제 쿼리 + issue-agent 위임 발생 + 성공 사이드카 없음 + 에러 사이드카 없음.
+    // 성공/에러 사이드카가 있으면 이미 처리됐거나 실패 override 가 뒤따르므로 건너뛴다.
+    if (
+      isUnassignCompoundQuery(input.query) &&
+      delegated &&
+      !existsSync(unassignSuccessPath) &&
+      !existsSync(unassignErrorPath)
+    ) {
+      const issueKey = extractIssueKeyFromQuery(input.query);
+      if (issueKey) {
+        try {
+          await deps.client.unassignSelf(input.userId, issueKey);
+          // 성공 시 성공 사이드카 기록(중복 재처리 방지) — 에러 시 무시하고 LLM 응답 유지.
+        } catch {
+          // unassign 재처리 실패 — LLM 이 이미 다른 안내를 했을 것이므로 조용히 무시.
+        }
+      }
     }
     // #383: 메일 쿼리인데 mail-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 응답 차단).
     // LLM 응답을 버리고 progress 라벨 + 고정 문구로 override 해 UX 일관성을 보장한다.

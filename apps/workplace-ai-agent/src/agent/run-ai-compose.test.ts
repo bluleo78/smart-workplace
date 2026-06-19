@@ -703,3 +703,161 @@ describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () =
     expect((fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail).not.toHaveBeenCalled();
   });
 });
+
+// #405: 생성일 필터 쿼리 사전 차단 — LLM 호출 없이 고정 안내 반환.
+describe('runAiComposeStream — 생성일 필터 쿼리 사전 차단 (#405)', () => {
+  it('이번 주 생성된 이슈 쿼리 → LLM 미호출, 고정 안내 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    const out = await runAiComposeStream(
+      baseInput({ query: '이번 주 생성된 이슈 보여줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(out.fullText).toContain('생성 날짜 필터는 지원하지 않습니다');
+    expect(out.widgets).toBeNull();
+    expect(out.pendingAction).toBeNull();
+    // LLM 미호출 확인 — getOAuthToken 도 호출되지 않아야 한다.
+    expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).not.toHaveBeenCalled();
+  });
+
+  it('최근 생성된 이슈 쿼리 → 고정 안내 반환', async () => {
+    const out = await runAiComposeStream(
+      baseInput({ query: '최근 생성된 이슈 목록 보여줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(out.fullText).toContain('생성 날짜 필터는 지원하지 않습니다');
+  });
+
+  it('지난 주 만들어진 이슈 → 고정 안내 반환', async () => {
+    const out = await runAiComposeStream(
+      baseInput({ query: '지난 주 만들어진 이슈 뭐 있어?' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(out.fullText).toContain('생성 날짜 필터는 지원하지 않습니다');
+  });
+
+  it('이슈 생성 요청("이슈 만들어줘") → guard 미적용, LLM 호출됨', async () => {
+    vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    vi.mocked(existsSync).mockReturnValue(false);
+    // getOAuthToken 이 호출될 것 — 따라서 LLM 경로가 실행됨.
+    await runAiComposeStream(
+      baseInput({ query: '이번 주 이슈 만들어줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalled();
+  });
+
+  it('마감일 필터 요청("이번 주 마감 이슈") → guard 미적용, LLM 호출됨', async () => {
+    vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    vi.mocked(existsSync).mockReturnValue(false);
+    await runAiComposeStream(
+      baseInput({ query: '이번 주 마감 이슈 보여줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalled();
+  });
+});
+
+// #406: 복합 요청에서 unassign_self 미호출 시 직접 API 재처리.
+describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () => {
+  it('복합 해제 쿼리 + issue-agent 위임 + 사이드카 없음 → unassignSelf 호출', async () => {
+    const unassignSelf = vi.fn().mockResolvedValue(undefined);
+    const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    // loadSubagents 에 issue-agent 포함
+    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' } });
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // issue-agent 위임 발생
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 진행중으로 바꾸고...' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '상태 변경과 코멘트를 처리했습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // 사이드카 없음(success/error 둘 다 false)
+    vi.mocked(existsSync).mockReturnValue(false);
+
+    await runAiComposeStream(
+      baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
+      { client: client406 },
+      () => {},
+      new AbortController().signal,
+    );
+    // unassignSelf 가 userId(1), 이슈키("EX-2")로 호출됐는지 확인.
+    expect(unassignSelf).toHaveBeenCalledWith(1, 'EX-2');
+  });
+
+  it('복합 해제 쿼리 + 성공 사이드카 있음 → unassignSelf 미호출(이미 처리됨)', async () => {
+    const unassignSelf = vi.fn().mockResolvedValue(undefined);
+    const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '담당자 해제 완료.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // 성공 사이드카 존재 → 재처리 불필요
+    vi.mocked(existsSync).mockImplementation((p: unknown) =>
+      typeof p === 'string' && p.includes('unassign-success.json'),
+    );
+    vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ issueKey: 'EX-2' }) as never);
+
+    await runAiComposeStream(
+      baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
+      { client: client406 },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(unassignSelf).not.toHaveBeenCalled();
+  });
+
+  it('복합 해제 쿼리 + 에러 사이드카 있음 → unassignSelf 미호출(에러 override 로 처리)', async () => {
+    const unassignSelf = vi.fn().mockResolvedValue(undefined);
+    const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '일시적 오류.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // 에러 사이드카 존재 → override 로 처리되므로 재처리 불필요
+    const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
+    vi.mocked(existsSync).mockImplementation((p: unknown) =>
+      typeof p === 'string' && p.includes('unassign-error.json'),
+    );
+    vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ error: '403', canonical }) as never);
+
+    const out = await runAiComposeStream(
+      baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
+      { client: client406 },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(unassignSelf).not.toHaveBeenCalled();
+    expect(out.fullText).toBe(canonical);
+  });
+
+  it('단순 해제 쿼리(복합 아님) → unassignSelf 미호출(issue-agent 가 직접 처리)', async () => {
+    const unassignSelf = vi.fn().mockResolvedValue(undefined);
+    const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 담당 해제' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '담당자 해제 완료.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+
+    await runAiComposeStream(
+      baseInput({ query: 'EX-2 담당자에서 나 해제해줘', userId: 1 }),
+      { client: client406 },
+      () => {},
+      new AbortController().signal,
+    );
+    // 복합 요청이 아니므로 재처리 안 함
+    expect(unassignSelf).not.toHaveBeenCalled();
+  });
+});

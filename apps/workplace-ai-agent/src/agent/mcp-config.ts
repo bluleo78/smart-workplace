@@ -46,6 +46,9 @@ export function writeTempMcpConfig(opts: {
   // #378: unassign_self 실패 시 MCP 핸들러가 오류를 기록할 사이드카 절대경로.
   // run-ai-compose 가 실행 후 이 파일을 읽어 최종 응답을 결정론적으로 override 한다.
   unassignErrorPath?: string;
+  // #406: unassign_self 성공 시 MCP 핸들러가 기록할 사이드카 절대경로.
+  // run-ai-compose 가 "이미 처리됨" 여부를 판단해 중복 재처리를 방지하는 데 사용한다.
+  unassignSuccessPath?: string;
   // #376: 요청자 userId — MCP 서버가 X-On-Behalf-Of 를 assistantAgentId 대신 이 값으로 설정해
   // 드라이브·캘린더 등 사용자 귀속 리소스를 올바른 userId 기준으로 접근한다.
   userId?: number;
@@ -65,6 +68,8 @@ export function writeTempMcpConfig(opts: {
           ...(opts.pendingActionPath ? { WORKPLACE_PENDING_ACTION_PATH: opts.pendingActionPath } : {}),
           // #378: unassign_self 실패 시 사이드카 경로. 없으면 키 미포함(핸들러가 fallback 문구 반환).
           ...(opts.unassignErrorPath ? { WORKPLACE_UNASSIGN_ERROR_PATH: opts.unassignErrorPath } : {}),
+          // #406: unassign_self 성공 시 사이드카 경로. 없으면 키 미포함(성공 여부 추적 안 함).
+          ...(opts.unassignSuccessPath ? { WORKPLACE_UNASSIGN_SUCCESS_PATH: opts.unassignSuccessPath } : {}),
           // #376: userId 가 주어지면 MCP child 에도 ACTING_USER_ID 주입. MCP 서버는 claude CLI 가
           // 별도 child process 로 spawn 하므로 buildChildEnv 만으로는 전달이 안 된다.
           ...(opts.userId !== undefined ? { ACTING_USER_ID: String(opts.userId) } : {}),

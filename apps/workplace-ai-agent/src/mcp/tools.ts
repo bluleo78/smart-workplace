@@ -413,6 +413,17 @@ export function buildTools(
       const { issueKey: k } = issueKey.parse(args);
       try {
         await client.unassignSelf(agentId, k);
+        // #406: 성공 사이드카 기록 — run-ai-compose 가 "이미 처리됨" 여부 판단에 사용.
+        // 에러 사이드카와 대칭 구조: 성공 시 WORKPLACE_UNASSIGN_SUCCESS_PATH 에 이슈 키를 씀.
+        const successPath = process.env.WORKPLACE_UNASSIGN_SUCCESS_PATH;
+        if (successPath) {
+          const { writeFileSync } = await import('node:fs');
+          try {
+            writeFileSync(successPath, JSON.stringify({ issueKey: k }), 'utf8');
+          } catch {
+            // 사이드카 쓰기 실패 — 무시(기능에는 영향 없음)
+          }
+        }
         return 'ok';
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e);
