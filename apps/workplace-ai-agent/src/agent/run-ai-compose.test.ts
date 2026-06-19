@@ -24,7 +24,7 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
 }));
 
-import { runHomeCompose, runHomeComposeStream, type ComposeInput } from './run-home-compose.js';
+import { runAiCompose, runAiComposeStream, type ComposeInput } from './run-ai-compose.js';
 import { runClaudeCliCollect, runClaudeCliStream, buildCliArgs } from './cli-runner.js';
 import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
 import { writeSubagentDefinitions } from './subagent-loader.js';
@@ -65,13 +65,13 @@ beforeEach(() => {
     vi.fn().mockResolvedValue({ token: 'tok', label: null });
 });
 
-describe('runHomeCompose (블로킹 — 기존 동기 경로)', () => {
+describe('runAiCompose (블로킹 — 기존 동기 경로)', () => {
   it('CLI 출력 라인을 파싱해 {message, widgets} 반환', async () => {
     vi.mocked(runClaudeCliCollect).mockResolvedValue([
       JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'show_my_tasks', input: {} }] } }),
       JSON.stringify({ type: 'result', subtype: 'success', result: '할 일이에요.' }),
     ]);
-    const out = await runHomeCompose(baseInput(), { client: fakeClient });
+    const out = await runAiCompose(baseInput(), { client: fakeClient });
     expect(out).toEqual({ message: '할 일이에요.', widgets: [{ type: 'my_tasks', params: {} }] });
     // 회귀 가드: 비서 토큰을 요청의 assistantAgentId(7)로 실제 fetch 했는지 검증.
     expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalledWith(7);
@@ -79,13 +79,13 @@ describe('runHomeCompose (블로킹 — 기존 동기 경로)', () => {
 
   it('요청의 assistantAgentId 로 토큰을 fetch 한다(env 미사용)', async () => {
     vi.mocked(runClaudeCliCollect).mockResolvedValue([]);
-    await runHomeCompose(baseInput({ assistantAgentId: 42 }), { client: fakeClient });
+    await runAiCompose(baseInput({ assistantAgentId: 42 }), { client: fakeClient });
     expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalledWith(42);
   });
 
   it('thinkingDepth(DEEP) 를 system-prompt 에 반영해 buildCliArgs 에 전달', async () => {
     vi.mocked(runClaudeCliCollect).mockResolvedValue([]);
-    await runHomeCompose(baseInput({ thinkingDepth: 'DEEP' }), { client: fakeClient });
+    await runAiCompose(baseInput({ thinkingDepth: 'DEEP' }), { client: fakeClient });
     const passed = vi.mocked(buildCliArgs).mock.calls[0][0];
     expect(passed.systemPrompt).toContain('신중하게');
     expect(passed.model).toBe('claude-sonnet-4-6');
@@ -94,13 +94,13 @@ describe('runHomeCompose (블로킹 — 기존 동기 경로)', () => {
 
   it('CLI 실패(reject) 가 전파되고 temp config 는 정리된다', async () => {
     vi.mocked(runClaudeCliCollect).mockRejectedValue(new Error('cli boom'));
-    await expect(runHomeCompose(baseInput(), { client: fakeClient })).rejects.toThrow('cli boom');
+    await expect(runAiCompose(baseInput(), { client: fakeClient })).rejects.toThrow('cli boom');
     expect(cleanupTempMcpConfig).toHaveBeenCalledWith('/tmp/cfg.json');
   });
 
   it('recentContext 를 프롬프트에 임베드해 buildCliArgs 에 전달', async () => {
     vi.mocked(runClaudeCliCollect).mockResolvedValue([]);
-    await runHomeCompose(
+    await runAiCompose(
       baseInput({ query: '그 중 HIGH 만', recentContext: [{ role: 'USER', content: '내 담당 보여줘' }] }),
       { client: fakeClient },
     );
@@ -110,7 +110,7 @@ describe('runHomeCompose (블로킹 — 기존 동기 경로)', () => {
   });
 });
 
-describe('runHomeComposeStream (스트리밍 — SSE 라우트용)', () => {
+describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
   it('text_delta 만 onText 로 흘리고 thinking 은 제외', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(thinkingDelta('추론 과정')); // 추론 — 제외
@@ -120,7 +120,7 @@ describe('runHomeComposeStream (스트리밍 — SSE 라우트용)', () => {
       return { done: Promise.resolve(), kill: () => {} };
     });
     const got: string[] = [];
-    const result = await runHomeComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const result = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(got.join('')).toBe('안녕 하세요');
     expect(result.fullText).toBeTruthy(); // fullText 반환
     // 회귀 가드: 비서 토큰을 요청의 assistantAgentId(7)로 fetch 했는지 검증.
@@ -134,14 +134,14 @@ describe('runHomeComposeStream (스트리밍 — SSE 라우트용)', () => {
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '할 일이에요.' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    const result = await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const result = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(result.fullText).toBe('할 일이에요.');
     expect(result.widgets).toEqual([{ type: 'my_tasks', params: {} }]);
   });
 
   it('includePartialMessages:true 로 buildCliArgs 호출', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
-    await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     const passed = vi.mocked(buildCliArgs).mock.calls[0][0];
     expect(passed.includePartialMessages).toBe(true);
   });
@@ -152,7 +152,7 @@ describe('runHomeComposeStream (스트리밍 — SSE 라우트용)', () => {
       kill: () => {},
     });
     await expect(
-      runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
+      runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
     ).rejects.toThrow('cli boom');
     expect(cleanupTempMcpConfig).toHaveBeenCalledWith('/tmp/cfg.json');
   });
@@ -165,7 +165,7 @@ describe('runHomeComposeStream (스트리밍 — SSE 라우트용)', () => {
       kill,
     });
     const ac = new AbortController();
-    const p = runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, ac.signal);
+    const p = runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, ac.signal);
     // 토큰 fetch(microtask) 후 리스너가 붙도록 한 틱 양보한 뒤 abort.
     await new Promise((r) => setTimeout(r, 0));
     ac.abort();
@@ -183,7 +183,7 @@ describe('runHomeComposeStream (스트리밍 — SSE 라우트용)', () => {
     });
     const ac = new AbortController();
     ac.abort(); // fetch 전에 이미 종료된 상태
-    const p = runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, ac.signal);
+    const p = runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, ac.signal);
     await new Promise((r) => setTimeout(r, 0));
     expect(kill).toHaveBeenCalledOnce();
     resolveDone();
@@ -191,10 +191,10 @@ describe('runHomeComposeStream (스트리밍 — SSE 라우트용)', () => {
   });
 });
 
-describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
+describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
   it('assistant 프로파일 + allowSubagents + systemPromptPath 로 spawn 준비', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
-    await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     // writeTempMcpConfig 에 assistant 프로파일을 전달했는지 확인.
     const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
     expect(cfgArg.profile).toBe('assistant');
@@ -212,7 +212,7 @@ describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
       return { done: Promise.resolve(), kill: () => {} };
     });
     const labels: string[] = [];
-    await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, (l) => labels.push(l));
+    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, (l) => labels.push(l));
     expect(labels).toContain('이슈 전문가에게 위임 중');
   });
 
@@ -225,14 +225,14 @@ describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
       return { done: Promise.resolve(), kill };
     });
     await expect(
-      runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
+      runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
     ).rejects.toThrow(/blocked by policy/);
     expect(kill).toHaveBeenCalled();
   });
 
   it('pendingActionPath 를 mcp-config 에 주입한다', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
-    await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
     expect(typeof cfgArg.pendingActionPath).toBe('string');
     expect(cfgArg.pendingActionPath).toContain('pending-action.json');
@@ -245,7 +245,7 @@ describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
     });
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ actionType: 'calendar.create_event', summary: 's', params: { title: 't' } }) as never);
-    const out = await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.pendingAction).toMatchObject({ actionType: 'calendar.create_event', summary: 's' });
   });
 
@@ -255,7 +255,7 @@ describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
       return { done: Promise.resolve(), kill: () => {} };
     });
     vi.mocked(existsSync).mockReturnValue(false);
-    const out = await runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.pendingAction).toBeNull();
   });
 
@@ -278,7 +278,7 @@ describe('runHomeComposeStream (서브에이전트 통합 #333)', () => {
       };
     });
 
-    const p = runHomeComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const p = runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
 
     // 한 틱 양보해 handle 반환 + killer 홀더 채움이 완료된 후 onLine 을 비동기로 호출.
     await Promise.resolve();

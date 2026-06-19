@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { type RunAgentDeps } from '../agent/run-agent.js';
-import { runHomeComposeStream } from '../agent/run-home-compose.js';
+import { runAiComposeStream } from '../agent/run-ai-compose.js';
 
 export const composeSchema = z.object({
   query: z.string().min(1),
@@ -23,7 +23,7 @@ export const composeSchema = z.object({
 export function createHomeRouter(deps: RunAgentDeps): Router {
   const router = Router();
 
-  router.post('/home/compose', async (req, res) => {
+  router.post('/ai/compose', async (req, res) => {
     const parsed = composeSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues });
@@ -48,7 +48,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     });
 
     try {
-      const result = await runHomeComposeStream(
+      const result = await runAiComposeStream(
         parsed.data,
         deps,
         (text) => {
@@ -71,7 +71,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         res.end();
       }
     } catch (e) {
-      console.error('[home-compose] 실패:', e instanceof Error ? e.message : String(e));
+      console.error('[ai-compose] 실패:', e instanceof Error ? e.message : String(e));
       // 연결이 살아 있을 때만 error 발행(닫힌 소켓 write → EPIPE 방지).
       if (!aborted) {
         res.write(`event: error\ndata: ${JSON.stringify({ message: 'compose_failed' })}\n\n`);

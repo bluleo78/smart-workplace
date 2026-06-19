@@ -16,7 +16,7 @@ import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * ai-agent {@code POST /home/compose} SSE 를 JDK {@link HttpClient} 로 스트리밍 소비한다 (B2).
+ * ai-agent {@code POST /ai/compose} SSE 를 JDK {@link HttpClient} 로 스트리밍 소비한다 (B2).
  *
  * <p>WikiAiAgentStreamClient 와 동일한 패턴을 사용한다. webflux/WebClient 미사용.
  *
@@ -82,7 +82,7 @@ public class AiAgentComposeClient {
     try {
       HttpRequest req =
           HttpRequest.newBuilder()
-              .uri(URI.create(props.baseUrl() + "/home/compose"))
+              .uri(URI.create(props.baseUrl() + "/ai/compose"))
               .timeout(REQUEST_TIMEOUT)
               .header("Authorization", "Internal " + props.internalToken())
               .header("Content-Type", "application/json")

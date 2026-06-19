@@ -41,8 +41,8 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
   @Autowired ObjectMapper objectMapper;
 
   @Autowired
-  @org.springframework.beans.factory.annotation.Qualifier("homeComposeStreamExecutor")
-  AsyncTaskExecutor homeComposeStreamExecutor;
+  @org.springframework.beans.factory.annotation.Qualifier("aiComposeStreamExecutor")
+  AsyncTaskExecutor aiComposeStreamExecutor;
 
   /** 전송된 (eventName, data) 쌍을 모으는 기록 컨테이너. */
   static final class SentEvent {
@@ -63,7 +63,7 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
         aiAgentProperties,
         objectMapper,
         assistantResolver,
-        homeComposeStreamExecutor) {
+        aiComposeStreamExecutor) {
       @Override
       protected SseEmitter newEmitter() {
         // 타임아웃 없는 emitter — 테스트 중 만료 방지.

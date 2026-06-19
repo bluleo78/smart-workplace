@@ -41,7 +41,7 @@ class AiAgentComposeClientTest {
   /** 스텁을 기동하고 baseUrl 을 가리키는 client 를 만든다. */
   private void boot(String sseBody, int status) {
     server.createContext(
-        "/home/compose",
+        "/ai/compose",
         exchange -> {
           byte[] payload = sseBody.getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().add("Content-Type", "text/event-stream");

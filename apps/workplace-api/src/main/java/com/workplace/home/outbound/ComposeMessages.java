@@ -3,7 +3,7 @@ package com.workplace.home.outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 
-/** ai-agent /home/compose 요청/응답 계약 (7b). */
+/** ai-agent /ai/compose 요청/응답 계약 (7b). */
 public final class ComposeMessages {
   private ComposeMessages() {}
 

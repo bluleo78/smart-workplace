@@ -147,7 +147,7 @@ export async function runClaudeCli(i: RunCliInput): Promise<void> {
 
 // 7b: stdout 의 NDJSON 라인을 모아 반환(컴포즈 동기 응답용). 기존 runClaudeCli 와 spawn/timeout 동일.
 // 단, 동기·영속 경로라 실패가 빈 결과로 묻히면 안 된다 — spawn-error / non-zero exit / timeout 시
-// reject 하여 호출자(run-home-compose → home.ts)가 실패를 인지하고 502 로 전파하게 한다.
+// reject 하여 호출자(run-ai-compose → home.ts)가 실패를 인지하고 502 로 전파하게 한다.
 export async function runClaudeCliCollect(i: RunCliInput): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
     const child = spawn('claude', i.args, {

@@ -64,7 +64,7 @@ class HomeComposeControllerTest {
 
     mockMvc
         .perform(
-            post("/api/v1/home/compose")
+            post("/api/v1/ai/compose")
                 .header("Authorization", "Bearer v")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"query\":\"내 할 일\"}"))
@@ -76,7 +76,7 @@ class HomeComposeControllerTest {
   void query_공백이면_400() throws Exception {
     mockMvc
         .perform(
-            post("/api/v1/home/compose")
+            post("/api/v1/ai/compose")
                 .header("Authorization", "Bearer v")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"query\":\"\"}"))

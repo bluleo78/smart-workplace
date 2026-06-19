@@ -14,7 +14,7 @@ export const wikiComposeSchema = z.object({
   pageBody: z.string(),
   selection: z.string().optional(),
   prompt: z.string().optional(),
-  // 비서 설정(home/compose 와 동일 계약).
+  // 비서 설정(ai/compose 와 동일 계약).
   assistantAgentId: z.number().int().positive(),
   model: z.string().min(1),
   thinkingDepth: z.enum(['NONE', 'NORMAL', 'DEEP']),

@@ -65,6 +65,7 @@ SESSION="${SESSION_NAME:-explorer#$(openssl rand -hex 3)}"
 이후 모든 명령에 `$SESSION`을 사용한다:
 ```bash
 playwright-cli -s=$SESSION --headed open <URL>
+playwright-cli -s=$SESSION resize 1440 900   # 데스크탑 뷰포트 확보
 playwright-cli -s=$SESSION snapshot
 playwright-cli -s=$SESSION click "button:has-text('저장')"
 playwright-cli -s=$SESSION close
@@ -548,6 +549,7 @@ gh issue view <번호> --json number,title,body,labels,state
 ```bash
 SESSION="${SESSION_NAME:-crosscheck#$(openssl rand -hex 3)}"
 playwright-cli -s=$SESSION --headed open http://localhost:6173
+playwright-cli -s=$SESSION resize 1440 900   # 데스크탑 뷰포트 확보
 playwright-cli -s=$SESSION state-load .playwright-cli/state.json
 # 로그인 확인 후 필요 시 수동 로그인 (Section 1 참조)
 ```

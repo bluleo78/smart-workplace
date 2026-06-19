@@ -44,7 +44,7 @@ function buildComposeUserMessage(input: ComposeInput): string {
 // 완료 후 parseComposeLines 로 최종 message + widgets 를 산출해 반환한다.
 // #333: assistant 프로파일 + per-request workdir + allowSubagents + 화이트리스트 강제.
 // signal abort 시 하위 CLI child 를 kill 해 자원 누수를 막는다(wiki 러너와 동일 패턴).
-export async function runHomeComposeStream(
+export async function runAiComposeStream(
   input: ComposeInput,
   deps: RunAgentDeps,
   onText: (t: string) => void,
@@ -101,7 +101,7 @@ export async function runHomeComposeStream(
     let policyDeny: string | null = null;
     let killer: (() => void) | null = null;
     const handle = runClaudeCliStream(
-      { args, env, timeoutMs: input.timeoutMs, logTag: `assistant:${agentId}`, cwd: workDir! },
+      { args, env, timeoutMs: input.timeoutMs, logTag: `ai-compose:${agentId}`, cwd: workDir! },
       (line) => {
         // 모든 라인을 누적(parseComposeLines 가 위젯/최종메시지 파싱에 사용).
         lines.push(line);
@@ -169,7 +169,7 @@ export async function runHomeComposeStream(
   }
 }
 
-export async function runHomeCompose(
+export async function runAiCompose(
   input: ComposeInput,
   deps: RunAgentDeps,
 ): Promise<ComposeResult> {
@@ -199,7 +199,7 @@ export async function runHomeCompose(
       args,
       env,
       timeoutMs: input.timeoutMs,
-      logTag: `home-compose:${agentId}`,
+      logTag: `ai-compose:${agentId}`,
     });
     return parseComposeLines(lines);
   } finally {

@@ -79,7 +79,7 @@ export async function composeStream(
   onPendingAction?: (action: PendingAction) => void,
 ): Promise<{ sessionId?: string }> {
   const token = getAccessToken();
-  const res = await fetch('/api/v1/home/compose', {
+  const res = await fetch('/api/v1/ai/compose', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,

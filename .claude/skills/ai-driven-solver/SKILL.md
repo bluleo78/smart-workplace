@@ -137,6 +137,7 @@ needs_human 판단 시:
 ```bash
 SESSION="${SESSION_NAME:-solver#$(openssl rand -hex 3)}"
 playwright-cli -s=$SESSION --headed open http://localhost:6173
+playwright-cli -s=$SESSION resize 1440 900   # 데스크탑 뷰포트 확보
 playwright-cli -s=$SESSION state-load .playwright-cli/state.json
 
 # state-load 후 로그인 여부 확인

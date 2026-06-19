@@ -14,7 +14,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 /** 홈 컴포즈 SSE — 자연어 명령을 ai-agent 에 스트리밍 위임하고 delta/done/error 를 패스스루한다 (B2). */
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/home/compose")
+@RequestMapping("/api/v1/ai/compose")
 public class HomeComposeController {
 
   private final HomeComposeService composeService;

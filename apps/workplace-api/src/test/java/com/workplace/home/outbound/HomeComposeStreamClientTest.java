@@ -44,7 +44,7 @@ class HomeComposeStreamClientTest {
 
   private void boot(String sseBody, int status) {
     server.createContext(
-        "/home/compose",
+        "/ai/compose",
         exchange -> {
           byte[] payload = sseBody.getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -106,7 +106,7 @@ class HomeComposeStreamClientTest {
     CountDownLatch firstSeen = new CountDownLatch(1);
     AtomicBoolean latchReleased = new AtomicBoolean(false);
     server.createContext(
-        "/home/compose",
+        "/ai/compose",
         exchange -> {
           exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
           exchange.sendResponseHeaders(200, 0); // chunked

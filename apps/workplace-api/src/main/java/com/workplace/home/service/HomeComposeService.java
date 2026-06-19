@@ -27,7 +27,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * → done 시 ASSISTANT 영속.
  *
  * <p>권한·비서 해석은 스트림 시작 전 동기 실행 — 실패하면 GlobalExceptionHandler 가 일반 4xx 로 매핑한다(깨진 스트림 X). ASSISTANT
- * 영속은 펌프 스레드(homeComposeStreamExecutor)에서 수행되므로 TenantContextTaskDecorator 가 GUC 를 전파한다.
+ * 영속은 펌프 스레드(aiComposeStreamExecutor)에서 수행되므로 TenantContextTaskDecorator 가 GUC 를 전파한다.
  */
 @Slf4j
 @Service
@@ -52,7 +52,7 @@ public class HomeComposeService {
       AiAgentProperties aiAgentProperties,
       ObjectMapper objectMapper,
       AssistantResolver assistantResolver,
-      @Qualifier("homeComposeStreamExecutor") AsyncTaskExecutor executor) {
+      @Qualifier("aiComposeStreamExecutor") AsyncTaskExecutor executor) {
     this.sessionService = sessionService;
     this.composeClient = composeClient;
     this.aiAgentProperties = aiAgentProperties;

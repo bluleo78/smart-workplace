@@ -56,17 +56,17 @@ public class OutboundConfig {
   }
 
   /**
-   * 홈 컴포즈 SSE 스트리밍 전용 executor (B2). 각 작업이 ai-agent SSE 펌프로 스레드를 10–300s 점유하므로 이벤트 발사용 {@code
+   * AI 컴포즈 SSE 스트리밍 전용 executor (B2). 각 작업이 ai-agent SSE 펌프로 스레드를 10–300s 점유하므로 이벤트 발사용 {@code
    * aiAgentEventExecutor} 와 절대 공유하지 않는다. core/max 4/8, queue 는 작게(동시 스트림 수 제한) — 초과 요청은 호출 스레드에서
    * reject 되어 빠르게 오류로 떨어지게 둔다.
    */
-  @Bean(name = "homeComposeStreamExecutor")
-  public org.springframework.core.task.AsyncTaskExecutor homeComposeStreamExecutor() {
+  @Bean(name = "aiComposeStreamExecutor")
+  public org.springframework.core.task.AsyncTaskExecutor aiComposeStreamExecutor() {
     ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
     executor.setCorePoolSize(4);
     executor.setMaxPoolSize(8);
     executor.setQueueCapacity(16);
-    executor.setThreadNamePrefix("home-compose-");
+    executor.setThreadNamePrefix("ai-compose-");
     // TenantContext 전파 — 펌프 스레드에서 ASSISTANT appendMessage 시 GUC 컨텍스트 일관 유지.
     executor.setTaskDecorator(new TenantContextTaskDecorator());
     executor.initialize();
