@@ -25,7 +25,7 @@ vi.mock('node:fs', () => ({
 }));
 
 import { runAiCompose, runAiComposeStream, type ComposeInput } from './run-ai-compose.js';
-import { runClaudeCliCollect, runClaudeCliStream, buildCliArgs } from './cli-runner.js';
+import { runClaudeCliCollect, runClaudeCliStream, buildCliArgs, buildChildEnv } from './cli-runner.js';
 import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
 import { writeSubagentDefinitions } from './subagent-loader.js';
 import { existsSync, readFileSync } from 'node:fs';
@@ -37,6 +37,8 @@ function baseInput(over: Partial<ComposeInput> = {}): ComposeInput {
   return {
     query: '내 할 일',
     assistantAgentId: 7,
+    // #376: 요청 사용자 ID(기본값=1) — MCP 도구 컨텍스트에 전달.
+    userId: 1,
     model: 'claude-sonnet-4-6',
     thinkingDepth: 'NORMAL',
     maxTurns: 8,
@@ -290,5 +292,31 @@ describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
     resolveDone();
     await expect(p).rejects.toThrow(/blocked by policy/);
     expect(callOrder.indexOf('kill')).toBeLessThan(callOrder.indexOf('done')); // kill < done 순서 보장
+  });
+});
+
+// #376: runAiComposeStream 이 userId 를 buildChildEnv 에 전달하는지 검증.
+describe('runAiComposeStream — userId → ACTING_USER_ID 전달 (#376)', () => {
+  it('ComposeInput.userId 를 buildChildEnv 4번째 인자로 전달한다', async () => {
+    // done 을 즉시 resolve 하는 스트림 mock — resolveDone 할당 타이밍 문제 없음.
+    vi.mocked(runClaudeCliStream).mockImplementation(() => ({
+      done: Promise.resolve(),
+      kill: vi.fn(),
+    }));
+
+    await runAiComposeStream(
+      baseInput({ userId: 42 }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+
+    // buildChildEnv 가 (env, token, agentId=7, userId=42) 순으로 호출됐는지 확인.
+    expect(vi.mocked(buildChildEnv)).toHaveBeenCalledWith(
+      expect.any(Object), // process.env
+      expect.any(String), // token
+      7,                  // assistantAgentId
+      42,                 // userId — ACTING_USER_ID 주입 원천
+    );
   });
 });

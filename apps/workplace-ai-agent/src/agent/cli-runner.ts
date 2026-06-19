@@ -67,15 +67,21 @@ export function buildCliArgs(i: CliArgsInput): string[] {
 
 // 구독 모드 강제 + 토큰·agentId 명시 주입. INTERNAL_SERVICE_TOKEN 은 parent 그대로
 // 전달돼 MCP server child 가 사용한다.
+// #376: userId 가 주어지면 ACTING_USER_ID 도 주입 — MCP 서버가 X-On-Behalf-Of 를
+// assistantAgentId 아닌 실제 요청자(userId)로 설정해 드라이브 등 사용자 귀속 리소스를 올바르게 접근.
 export function buildChildEnv(
   parent: NodeJS.ProcessEnv,
   token: string,
   agentId: number,
+  userId?: number,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...parent };
   delete env.ANTHROPIC_API_KEY;
   env.CLAUDE_CODE_OAUTH_TOKEN = token;
   env.ACTING_AGENT_ID = String(agentId);
+  if (userId !== undefined) {
+    env.ACTING_USER_ID = String(userId);
+  }
   return env;
 }
 

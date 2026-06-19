@@ -219,6 +219,19 @@ describe('buildChildEnv', () => {
     const env = buildChildEnv({ ANTHROPIC_API_KEY: 'should-go' }, 'tk-X', 201);
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   });
+
+  // #376: userId 분리 — 홈 compose 는 ACTING_USER_ID 로 MCP 도구 컨텍스트를 요청자로 설정.
+  it('userId 인자 제공 시 ACTING_USER_ID 주입', () => {
+    const env = buildChildEnv({ FOO: 'bar' }, 'tk-X', 2, 1);
+    expect(env.ACTING_AGENT_ID).toBe('2');
+    expect(env.ACTING_USER_ID).toBe('1');
+  });
+
+  it('userId 미제공(이슈 채팅 흐름) 시 ACTING_USER_ID 미주입 — 기존 동작 유지', () => {
+    const env = buildChildEnv({ FOO: 'bar' }, 'tk-X', 2);
+    expect(env.ACTING_AGENT_ID).toBe('2');
+    expect(env.ACTING_USER_ID).toBeUndefined();
+  });
 });
 
 describe('buildCliArgs includePartialMessages=false', () => {

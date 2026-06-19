@@ -26,6 +26,8 @@ export interface ComposeInput {
   recentContext?: ContextMessage[];
   // 비서 설정 — workplace-api 가 요청별로 해석해 전달(env 미사용).
   assistantAgentId: number;
+  // #376: 요청 사용자 ID — MCP 도구(드라이브·캘린더 등)를 assistantAgentId 아닌 실제 요청자 컨텍스트로 실행.
+  userId: number;
   model: string;
   thinkingDepth: 'NONE' | 'NORMAL' | 'DEEP';
   maxTurns: number;
@@ -90,7 +92,9 @@ export async function runAiComposeStream(
       allowSubagents: true, // #333: Agent 도구 허용(라우터 위임에 필요)
       includePartialMessages: true, // partial text_delta 수신(스트리밍)
     });
-    const env = buildChildEnv(process.env, token, agentId);
+    // #376: userId 를 함께 전달 — MCP 서버가 ACTING_USER_ID 를 X-On-Behalf-Of 로 우선 사용해
+    // 드라이브·캘린더 등 사용자 귀속 리소스를 assistantAgentId 아닌 실제 요청자 기준으로 조회.
+    const env = buildChildEnv(process.env, token, agentId, input.userId);
     const lines: string[] = [];
     let fullText = '';
     // #333: 화이트리스트 위반 감지 플래그 + 즉시-kill 홀더(Finding 1).

@@ -59,7 +59,8 @@ class AiAgentComposeClientTest {
   }
 
   private ComposeRequest dummyReq() {
-    return new ComposeRequest("테스트", List.of(), 5L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
+    // #376: userId 추가 — 요청자 ID(MCP 도구 컨텍스트 기준).
+    return new ComposeRequest("테스트", List.of(), 5L, 1L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
   }
 
   @Test

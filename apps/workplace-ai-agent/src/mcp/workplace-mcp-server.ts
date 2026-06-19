@@ -1,5 +1,7 @@
 // Workplace MCP server — Claude CLI 가 stdio child 로 띄우는 entry point.
 // #34: INTERNAL_SERVICE_TOKEN + ACTING_AGENT_ID env 로부터 agentId 를 받아 closure 바인딩.
+// #376: ACTING_USER_ID 가 설정된 경우(홈 compose 흐름) 해당 userId 를 X-On-Behalf-Of 로 우선 사용.
+//       이슈 채팅 이벤트 흐름은 ACTING_USER_ID 없이 ACTING_AGENT_ID 만 설정 — 기존 동작 유지.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -26,11 +28,19 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // #376: ACTING_USER_ID 가 있으면(홈 compose 요청) 해당 userId 를 X-On-Behalf-Of 기준으로 사용.
+  // 이슈 채팅 이벤트 흐름은 ACTING_USER_ID 를 설정하지 않으므로 ACTING_AGENT_ID 로 폴백 — 기존 동작 유지.
+  const actingUserIdRaw = process.env.ACTING_USER_ID;
+  const actingUserId = actingUserIdRaw !== undefined ? Number(actingUserIdRaw) : NaN;
+  const onBehalfOfId = Number.isFinite(actingUserId) ? actingUserId : actingAgentId;
+
   const client = createWorkplaceApiClient({ baseURL, internalToken });
   // 6c/7b/7(messaging): WORKPLACE_MCP_PROFILE 로 도구셋 결정.
   const raw = process.env.WORKPLACE_MCP_PROFILE;
   const profile = raw === 'chat' || raw === 'home' || raw === 'messaging' || raw === 'assistant' ? raw : 'issue';
-  const tools = buildTools(client, actingAgentId, profile);
+  // onBehalfOfId: 도구 호출 시 X-On-Behalf-Of 에 사용할 ID.
+  //   홈 compose → ACTING_USER_ID(요청자) 우선, 미설정(이슈 채팅) → ACTING_AGENT_ID 폴백.
+  const tools = buildTools(client, onBehalfOfId, profile);
 
   const server = new Server(
     { name: 'workplace', version: '0.0.1' },
@@ -72,7 +82,10 @@ async function main(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('[workplace-mcp] connected via stdio (acting as agent', actingAgentId, ')');
+  console.error(
+    '[workplace-mcp] connected via stdio (agentId:', actingAgentId,
+    ', onBehalfOfId:', onBehalfOfId, ')',
+  );
 }
 
 main().catch((e) => {

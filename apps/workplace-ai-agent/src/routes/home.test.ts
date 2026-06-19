@@ -15,6 +15,8 @@ function validBody(over: Record<string, unknown> = {}) {
   return {
     query: '내 할 일',
     assistantAgentId: 7,
+    // #376: userId — MCP 도구 컨텍스트를 요청자로 설정하기 위해 필수 필드로 추가.
+    userId: 1,
     model: 'claude-sonnet-4-6',
     thinkingDepth: 'NORMAL',
     maxTurns: 8,
@@ -45,6 +47,13 @@ describe('composeSchema', () => {
 
   it('thinkingDepth 가 enum 밖이면 파싱 실패', () => {
     expect(composeSchema.safeParse(validBody({ thinkingDepth: 'WAT' })).success).toBe(false);
+  });
+
+  // #376: userId 필수 필드 검증.
+  it('userId 누락 → 파싱 실패', () => {
+    const { userId: _omit, ...rest } = validBody();
+    void _omit;
+    expect(composeSchema.safeParse(rest).success).toBe(false);
   });
 });
 

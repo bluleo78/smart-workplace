@@ -90,11 +90,14 @@ public class HomeComposeService {
     // 5) USER 메시지 영속 — 요청 스레드(요청 tx) 에서 즉시 저장.
     sessionService.appendMessage(callerId, sid, "USER", query, null);
 
+    // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
+    // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
     ComposeRequest req =
         new ComposeRequest(
             query,
             recentContext,
             spec.agentUserId(),
+            callerId,
             spec.model(),
             spec.thinkingDepth(),
             spec.maxTurns(),

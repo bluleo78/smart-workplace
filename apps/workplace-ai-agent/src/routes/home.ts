@@ -14,6 +14,8 @@ export const composeSchema = z.object({
     .array(z.object({ role: z.string(), content: z.string() }))
     .optional(),
   assistantAgentId: z.number().int().positive(),
+  // #376: 요청 사용자 ID — MCP 도구 컨텍스트를 assistantAgentId 아닌 실제 요청자로 설정하기 위해 전달.
+  userId: z.number().int().positive(),
   model: z.string().min(1),
   thinkingDepth: z.enum(['NONE', 'NORMAL', 'DEEP']),
   maxTurns: z.number().int().positive(),
