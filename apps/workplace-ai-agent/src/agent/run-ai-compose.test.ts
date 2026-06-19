@@ -30,7 +30,11 @@ import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
 import { writeSubagentDefinitions, loadSubagents } from './subagent-loader.js';
 import { existsSync, readFileSync } from 'node:fs';
 
-const fakeClient = { getOAuthToken: vi.fn() } as never;
+const fakeClient = {
+  getOAuthToken: vi.fn(),
+  // #404: show_issue_detail 위젯 존재 여부 검증 — 기본값은 존재(resolve).
+  getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: 't' }),
+} as never;
 
 // 비서 설정은 이제 요청 본문으로 온다(env 미사용). 테스트용 기본 입력.
 function baseInput(over: Partial<ComposeInput> = {}): ComposeInput {
@@ -614,5 +618,62 @@ describe('runAiComposeStream — SDK 내부 메시지 필터 (#379)', () => {
     vi.mocked(existsSync).mockReturnValue(false);
     const out = await runAiComposeStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(normalResp);
+  });
+});
+
+// #404: show_issue_detail 위젯 — 존재하지 않는 이슈 번호 차단(결정론적 서버 검증).
+// haiku 가 EX-99999 처럼 존재하지 않는 이슈에 show_issue_detail 을 호출하는 비결정적 동작 차단.
+describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () => {
+  function issueDetailLine(projectKey: string, number: number): string {
+    return JSON.stringify({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't', name: 'show_issue_detail', input: { params: { number, projectKey }, layout: {} } }],
+      },
+    });
+  }
+
+  it('존재하지 않는 이슈 번호(EX-99999) → issue_detail 위젯 드롭', async () => {
+    // getIssueDetail 이 throw 하면 위젯을 드롭해야 한다.
+    (fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail =
+      vi.fn().mockRejectedValue(new Error('404 Not Found'));
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(issueDetailLine('EX', 99999));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'EX-99999 이슈 상세를 표시합니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: 'EX-99999 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    // 위젯이 드롭되어 null 이어야 한다.
+    expect(out.widgets).toBeNull();
+  });
+
+  it('존재하는 이슈(EX-1) → issue_detail 위젯 유지', async () => {
+    (fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail =
+      vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: '기존 이슈' });
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(issueDetailLine('EX', 1));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'EX-1 이슈 상세를 표시합니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: 'EX-1 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.widgets).toEqual([{ type: 'issue_detail', params: { number: 1, projectKey: 'EX' }, layout: {} }]);
+  });
+
+  it('projectKey 없는 issue_detail 위젯은 통과(미검증)', async () => {
+    (fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail = vi.fn();
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // projectKey 없이 호출
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'show_issue_detail', input: { params: { number: 5 }, layout: {} } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '이슈 표시.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: '5번 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    // 검증 불가 → 통과, getIssueDetail 미호출
+    expect(out.widgets).toEqual([{ type: 'issue_detail', params: { number: 5 }, layout: {} }]);
+    expect((fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail).not.toHaveBeenCalled();
   });
 });

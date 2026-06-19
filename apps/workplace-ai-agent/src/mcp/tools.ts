@@ -136,6 +136,7 @@ const proposeSendMailInput = z.object({
 });
 
 // #333 M4: 일정 수정 제안 입력 — CalendarEventRequest 미러 + id/scope/occurrenceDate(경로/쿼리 상당) + summary.
+// #402: attendees 추가 — 참석자 이메일 목록(선택). 스키마에 없으면 haiku가 params에서 생략함(create와 동일).
 const proposeUpdateEventInput = z.object({
   summary: z.string().min(1),
   id: z.number().int().positive(),
@@ -150,6 +151,7 @@ const proposeUpdateEventInput = z.object({
   color: z.string().max(32).optional(),
   reminderMinutes: z.number().int().min(0).optional(),
   recurrenceRule: z.string().max(500).optional(),
+  attendees: z.array(z.string().email()).optional(), // #402: 참석자 이메일 목록(수정 시에도 필수)
 });
 // #333 M4: 일정 삭제 제안 입력 — id + 반복 scope/occurrenceDate + summary.
 const proposeDeleteEventInput = z.object({
@@ -514,7 +516,7 @@ export function buildTools(
   const proposeUpdateEventTool: McpTool = {
     name: 'propose_update_event',
     description:
-      '일정 수정을 제안합니다. 직접 수정하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). 승인 시 서버가 실제로 수정합니다.',
+      '일정 수정을 제안합니다. 직접 수정하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 참석자를 추가/변경할 때는 attendees 배열(이메일 문자열 목록)을 반드시 포함하세요. 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). 승인 시 서버가 실제로 수정합니다.',
     inputSchema: proposeUpdateEventInput,
     async handler(args) {
       const { summary, ...params } = proposeUpdateEventInput.parse(args);

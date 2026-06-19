@@ -626,3 +626,48 @@ describe('propose_create_event 스키마 결정론적 보정 (#393/#394)', () =>
     }
   });
 });
+
+// #402: propose_update_event 스키마에 attendees 필드가 포함되어야 한다.
+// 기존 스키마에 attendees 가 없어 haiku가 참석자 수정 요청 시 params에서 해당 필드를 생략했음.
+describe('propose_update_event attendees 스키마 (#402)', () => {
+  it('attendees 배열(이메일 목록)이 params에 포함된다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'upd-att-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const fake = { getEvent: async () => ({ id: 77 }) } as never;
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
+      await tool.handler({
+        id: 77, title: '팀 회의', startsAt: '2026-07-01T10:00:00+09:00', endsAt: '2026-07-01T11:00:00+09:00',
+        scope: 'THIS', summary: '팀 회의에 김철수 추가',
+        attendees: ['kim@example.com', 'park@example.com'],
+      });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('calendar.update_event');
+      expect(written.params.attendees).toEqual(['kim@example.com', 'park@example.com']);
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('attendees 미포함 시에도 기존 수정 제안은 정상 동작', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'upd-noatt-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const fake = { getEvent: async () => ({ id: 42 }) } as never;
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
+      await tool.handler({
+        id: 42, title: '수정된 제목', startsAt: '2026-07-01T01:00:00Z', endsAt: '2026-07-01T02:00:00Z',
+        scope: 'ALL', summary: '제목만 변경',
+      });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.params.title).toBe('수정된 제목');
+      expect(written.params.attendees).toBeUndefined(); // 선택 필드 — 미포함 시 undefined
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

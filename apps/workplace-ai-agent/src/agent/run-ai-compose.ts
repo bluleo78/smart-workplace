@@ -43,6 +43,40 @@ function isMailQuery(query: string): boolean {
   return /메일|mail|받은편지|안읽은|이메일|e-mail|IMAP|SMTP|계정.*(확인|연동|상태)/i.test(query);
 }
 
+// #404: show_issue_detail 위젯에서 존재하지 않는 이슈 번호를 결정론적으로 차단한다.
+// haiku가 이슈 존재 여부 확인 없이 show_issue_detail을 호출하는 비결정적 동작을
+// 서버 검증으로 이중 방어한다. projectKey 가 없으면 검증 불가이므로 통과(pass-through).
+async function filterIssueDetailWidgets(
+  widgets: import('./compose-parser.js').Widget[],
+  client: import('../clients/workplace-api.js').WorkplaceApiClient,
+  agentId: number,
+): Promise<import('./compose-parser.js').Widget[]> {
+  const result: import('./compose-parser.js').Widget[] = [];
+  for (const w of widgets) {
+    if (w.type !== 'issue_detail') {
+      result.push(w);
+      continue;
+    }
+    const params = w.params as Record<string, unknown>;
+    const num = params.number;
+    const projectKey = params.projectKey;
+    // projectKey 가 없으면 이슈키 구성 불가 — 통과(미검증).
+    if (typeof projectKey !== 'string' || typeof num !== 'number') {
+      result.push(w);
+      continue;
+    }
+    const issueKey = `${projectKey}-${num}`;
+    try {
+      await client.getIssueDetail(agentId, issueKey);
+      result.push(w); // 존재하면 위젯 포함
+    } catch {
+      // 존재하지 않으면 위젯 드롭(not-found 시 에러 throw 하는 verifyEventExists 패턴 동일)
+      console.log(`[run-ai-compose] #404 show_issue_detail 차단: ${issueKey} 없음`);
+    }
+  }
+  return result;
+}
+
 // #400: 사용자 일정 승인 발화 감지 — calendar-agent 위임 컨텍스트에서 "승인", "확인", "네" 등
 // 응답 시 haiku 가 propose 없이 "생성됐습니다" 환각 응답을 내보내는 비결정적 동작을 차단한다.
 // 이전 대화(recentContext)에 calendar-agent 의 제안 문구가 있고 현재 쿼리가 승인 발화일 때만 감지.
@@ -253,7 +287,9 @@ export async function runAiComposeStream(
         pendingAction: null,
       };
     }
-    return { fullText: finalText, widgets: parsed.widgets.length > 0 ? parsed.widgets : null, pendingAction };
+    // #404: show_issue_detail 위젯 중 존재하지 않는 이슈 번호를 서버 검증으로 드롭한다.
+    const filteredWidgets = await filterIssueDetailWidgets(parsed.widgets, deps.client, agentId);
+    return { fullText: finalText, widgets: filteredWidgets.length > 0 ? filteredWidgets : null, pendingAction };
   } finally {
     // Finding 2: null 가드 — writeTempMcpConfig/mkdtempSync 가 throw 하면 미생성 변수는 정리 생략.
     if (mcpConfigPath) cleanupTempMcpConfig(mcpConfigPath);
