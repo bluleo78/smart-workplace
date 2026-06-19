@@ -88,6 +88,12 @@ describe('delegationLabel', () => {
   it('calendar-agent → 캘린더 전문가에게 위임 중', () => {
     expect(delegationLabel('calendar-agent')).toBe('캘린더 전문가에게 위임 중');
   });
+  it('calendar-agent 위임 테이블에 일반 패턴 예시(내 캘린더 일정, 오늘 일정)가 포함된다 (refs #374)', () => {
+    // "내 캘린더 일정 알려줘" 발화가 LLM 위임 매칭에 실패하지 않도록
+    // 예시 키워드에 일반 패턴을 명시적으로 추가해야 한다.
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('내 캘린더 일정 알려줘');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('오늘 일정 보여줘');
+  });
   it('위임 테이블에 messaging-agent 행이 포함된다', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('messaging-agent');
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/채널|메시지|대화/);
