@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -607,6 +608,10 @@ export function DrivePage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{nameDialog?.mode === 'create' ? '새 폴더' : '폴더 이름 변경'}</DialogTitle>
+            {/* 스크린 리더용 다이얼로그 설명 — Radix UI 접근성 경고 해소 (#361) */}
+            <DialogDescription className="sr-only">
+              {nameDialog?.mode === 'create' ? '새 폴더 이름을 입력하세요' : '폴더의 새 이름을 입력하세요'}
+            </DialogDescription>
           </DialogHeader>
           <Input
             value={nameInput}
