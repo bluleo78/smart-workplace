@@ -279,10 +279,11 @@ export async function runAiComposeStream(
     const finalText = parsed.message || fullText;
     // #379: issue-agent 가 이슈 삭제 요청에서 내부 SDK 메시지("Agent 도구가 활성화되어 있지 않네요",
     // "현재 환경에서" 등)를 노출하는 비결정적 동작을 결정론적으로 차단한다.
+    // #407: "advisor에게 상담하겠습니다" 등 SDK 내부 폴백 메시지도 동일 패턴으로 차단한다.
     // agent.md 에 금지 규칙이 있으나 haiku 가 무시할 수 있으므로 런타임에서 이중 방어한다.
-    if (/Agent\s*도구가\s*활성화되어\s*있지\s*않|현재\s*환경에서.*(?:Agent|도구)|에이전트\s*도구.*비활성/i.test(finalText)) {
+    if (/Agent\s*도구가\s*활성화되어\s*있지\s*않|현재\s*환경에서.*(?:Agent|도구)|에이전트\s*도구.*비활성|advisor에게\s*상담하겠습니다/i.test(finalText)) {
       return {
-        fullText: '이슈 삭제는 지원하지 않습니다. CANCELED 상태 변경을 제안합니다.',
+        fullText: '죄송합니다. 해당 요청을 처리할 수 없습니다. 다른 방법으로 도움이 필요하시면 말씀해 주세요.',
         widgets: null,
         pendingAction: null,
       };

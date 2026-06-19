@@ -595,7 +595,8 @@ describe('runAiComposeStream — userId → ACTING_USER_ID 전달 (#376)', () =>
 });
 
 // #379: 내부 SDK 메시지 필터 — issue-agent 이슈 삭제 요청 시 haiku SDK 내부 문구 노출 차단.
-describe('runAiComposeStream — SDK 내부 메시지 필터 (#379)', () => {
+// #407: calendar-agent 위임 실패 시 "advisor에게 상담하겠습니다" SDK 내부 폴백 메시지도 동일 패턴으로 차단.
+describe('runAiComposeStream — SDK 내부 메시지 필터 (#379, #407)', () => {
   it('Agent 도구 미활성화 내부 문구가 포함된 응답을 이슈 삭제 안내로 override', async () => {
     const sdkLeak = '현재 환경에서 Agent 도구가 활성화되어 있지 않네요. 이슈 삭제는 불가합니다.';
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
@@ -604,7 +605,7 @@ describe('runAiComposeStream — SDK 내부 메시지 필터 (#379)', () => {
     });
     vi.mocked(existsSync).mockReturnValue(false);
     const out = await runAiComposeStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(out.fullText).toBe('이슈 삭제는 지원하지 않습니다. CANCELED 상태 변경을 제안합니다.');
+    expect(out.fullText).toBe('죄송합니다. 해당 요청을 처리할 수 없습니다. 다른 방법으로 도움이 필요하시면 말씀해 주세요.');
     expect(out.widgets).toBeNull();
     expect(out.pendingAction).toBeNull();
   });
@@ -617,6 +618,31 @@ describe('runAiComposeStream — SDK 내부 메시지 필터 (#379)', () => {
     });
     vi.mocked(existsSync).mockReturnValue(false);
     const out = await runAiComposeStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe(normalResp);
+  });
+
+  // #407: "advisor에게 상담하겠습니다" SDK 내부 폴백 메시지 차단.
+  it('#407 advisor 폴백 메시지가 포함된 응답을 graceful 안내로 override', async () => {
+    const sdkLeak = '문제가 발생했습니다. 현재 일정 관련 작업을 위임할 수 있는 전문 에이전트 도구가 활성화되지 않았습니다. advisor에게 상담하겠습니다.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: sdkLeak }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: '일정 삭제 취소해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe('죄송합니다. 해당 요청을 처리할 수 없습니다. 다른 방법으로 도움이 필요하시면 말씀해 주세요.');
+    expect(out.widgets).toBeNull();
+    expect(out.pendingAction).toBeNull();
+  });
+
+  it('#407 advisor 폴백 없는 정상 응답은 그대로 반환', async () => {
+    const normalResp = '일정 삭제 취소는 확인 카드를 무시하시면 됩니다.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: normalResp }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: '일정 삭제 취소해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(normalResp);
   });
 });
