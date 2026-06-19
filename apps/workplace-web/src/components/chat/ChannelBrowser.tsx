@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -32,6 +33,7 @@ export function ChannelBrowser({
       <DialogContent data-testid="channel-browser">
         <DialogHeader>
           <DialogTitle>채널 탐색</DialogTitle>
+          <DialogDescription className="sr-only">채널 탐색</DialogDescription>
         </DialogHeader>
         <Input
           data-testid="channel-browser-search"

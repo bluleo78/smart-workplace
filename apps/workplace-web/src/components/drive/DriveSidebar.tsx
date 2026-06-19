@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -101,6 +102,7 @@ export function DriveSidebar() {
         <DialogContent data-testid="space-name-dialog">
           <DialogHeader>
             <DialogTitle>새 팀 공간</DialogTitle>
+            <DialogDescription className="sr-only">새 팀 공간</DialogDescription>
           </DialogHeader>
           <Input
             value={spaceName}

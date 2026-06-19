@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
 import type { DriveFile } from '../../types/drive'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 
 /** 텍스트 미리보기 최대 길이(과대 파일 보호). */
 const TEXT_PREVIEW_LIMIT = 200_000
@@ -54,6 +54,7 @@ export function FilePreviewModal({ file, onClose }: { file: DriveFile; onClose: 
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="truncate">{file.name}</DialogTitle>
+          <DialogDescription className="sr-only">{file.name} 미리보기</DialogDescription>
         </DialogHeader>
         <div className="max-h-[70vh] overflow-auto" data-testid="preview-body">
           {error && <p className="text-sm text-destructive">미리보기를 불러오지 못했습니다.</p>}

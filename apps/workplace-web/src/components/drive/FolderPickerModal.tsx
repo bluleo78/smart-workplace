@@ -6,6 +6,7 @@ import type { DriveFolder } from '../../types/drive'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -38,6 +39,7 @@ export function FolderPickerModal({ spaceId, title, disabledFolderId, onConfirm,
       <DialogContent className="w-80" data-testid="folder-picker">
         <DialogHeader>
           <DialogTitle className="text-sm font-semibold">{title}</DialogTitle>
+          <DialogDescription className="sr-only">{title}</DialogDescription>
         </DialogHeader>
         <div className="mb-2 flex items-center gap-2 text-xs">
           <button

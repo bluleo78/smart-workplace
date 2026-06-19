@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 
 import { contactsApi } from '@/api/contacts'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import {
@@ -140,6 +140,7 @@ export function GroupForm({ open, onOpenChange, group, personalOptions }: Props)
       <DialogContent data-testid="group-form-dialog" className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? '그룹 수정' : '새 그룹'}</DialogTitle>
+          <DialogDescription className="sr-only">{isEdit ? '그룹 수정' : '새 그룹'}</DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-3">
           <FormField label="이름" htmlFor="g-name" error={form.formState.errors.name?.message}>

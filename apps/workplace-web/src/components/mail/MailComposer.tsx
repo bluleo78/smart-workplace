@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -143,6 +144,7 @@ export function MailComposer({ initialHtml = '', onChange }: MailComposerProps) 
         <DialogContent data-testid="link-url-dialog">
           <DialogHeader>
             <DialogTitle>링크 삽입</DialogTitle>
+            <DialogDescription className="sr-only">링크 삽입</DialogDescription>
           </DialogHeader>
           <Input
             value={linkUrl}

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -148,6 +149,7 @@ function AuditLogDetailDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>감사 로그 상세</DialogTitle>
+          <DialogDescription className="sr-only">감사 로그 상세</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm">
           {/* 기본 정보 행 */}

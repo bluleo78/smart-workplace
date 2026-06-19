@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -43,6 +44,7 @@ export function RenameChannelModal({
       <DialogContent data-testid="rename-channel-modal">
         <DialogHeader>
           <DialogTitle>채널 이름 변경</DialogTitle>
+          <DialogDescription className="sr-only">채널 이름 변경</DialogDescription>
         </DialogHeader>
         <Input
           data-testid="rename-channel-name"

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -45,6 +46,7 @@ export function SaveViewDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{isEdit ? '뷰 수정' : '뷰 저장'}</DialogTitle>
+          <DialogDescription className="sr-only">{isEdit ? '뷰 수정' : '뷰 저장'}</DialogDescription>
         </DialogHeader>
         <form
           onSubmit={async (e) => {

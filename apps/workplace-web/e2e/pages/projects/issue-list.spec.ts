@@ -212,6 +212,6 @@ test.describe('팀 리스트 뷰', () => {
     await createBtn.click();
     // IssueCreateDialog 는 "새 태스크" 다이얼로그 타이틀을 포함
     await expect(page.getByRole('dialog')).toBeVisible();
-    await expect(page.getByRole('dialog').getByText('새 태스크')).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('heading', { name: '새 태스크' })).toBeVisible();
   });
 });

@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { type SubmitHandler,useForm } from 'react-hook-form'
 
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import {
@@ -89,6 +89,7 @@ export function ExternalContactFormDialog({ open, onOpenChange, contact }: Props
       <DialogContent data-testid="external-contact-dialog" className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? '외부 연락처 수정' : '새 외부 연락처'}</DialogTitle>
+          <DialogDescription className="sr-only">{isEdit ? '외부 연락처 수정' : '새 외부 연락처'}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">

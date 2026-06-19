@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -65,6 +66,7 @@ export function CycleFormDialog({
       <DialogContent data-testid="cycle-form-dialog">
         <DialogHeader>
           <DialogTitle>{cycle ? '사이클 수정' : '새 사이클'}</DialogTitle>
+          <DialogDescription className="sr-only">{cycle ? '사이클 수정' : '새 사이클'}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <Input

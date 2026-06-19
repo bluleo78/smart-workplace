@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -155,6 +156,7 @@ export function MailAccountDialog({
       >
         <DialogHeader>
           <DialogTitle>{isEdit ? '메일 계정 수정' : '메일 계정 추가'}</DialogTitle>
+          <DialogDescription className="sr-only">{isEdit ? '메일 계정 수정' : '메일 계정 추가'}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">

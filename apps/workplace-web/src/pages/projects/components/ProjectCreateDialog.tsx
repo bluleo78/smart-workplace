@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -59,7 +59,7 @@ export function ProjectCreateDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader><DialogTitle>새 프로젝트</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>새 프로젝트</DialogTitle><DialogDescription className="sr-only">새 프로젝트</DialogDescription></DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-1">
             <span className="text-sm font-medium">유형</span>

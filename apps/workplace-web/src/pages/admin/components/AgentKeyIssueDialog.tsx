@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -39,6 +40,7 @@ export function AgentKeyIssueDialog({
       <DialogContent data-testid="agent-key-issue-dialog">
         <DialogHeader>
           <DialogTitle>새 API 키</DialogTitle>
+          <DialogDescription className="sr-only">새 API 키</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-destructive font-medium">

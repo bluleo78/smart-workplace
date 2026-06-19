@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -44,6 +45,7 @@ export function CreateChannelModal({
       <DialogContent data-testid="create-channel-modal">
         <DialogHeader>
           <DialogTitle>채널 만들기</DialogTitle>
+          <DialogDescription className="sr-only">채널 만들기</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">

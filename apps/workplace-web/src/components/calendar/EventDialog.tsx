@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -265,6 +266,7 @@ export function EventDialog({
       <DialogContent data-testid="calendar-event-dialog" className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? '일정 수정' : '새 일정'}</DialogTitle>
+          <DialogDescription className="sr-only">{isEdit ? '일정 수정' : '새 일정'}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-3">

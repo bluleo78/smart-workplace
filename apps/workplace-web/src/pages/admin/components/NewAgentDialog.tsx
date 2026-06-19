@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -50,6 +51,7 @@ export function NewAgentDialog({ open, onOpenChange }: NewAgentDialogProps) {
       <DialogContent data-testid="new-agent-dialog">
         <DialogHeader>
           <DialogTitle>새 에이전트</DialogTitle>
+          <DialogDescription className="sr-only">새 에이전트</DialogDescription>
         </DialogHeader>
         <form
           onSubmit={(e) => {
