@@ -487,7 +487,10 @@ export function createWorkplaceApiClient(opts: {
       if (search) qs.set('search', search);
       if (type) qs.set('type', type);
       const r = await http.get(`/contacts?${qs.toString()}`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as ContactItem[]) : [];
+      // #384: API 응답이 페이지네이션 형식 { items: [...] } 이므로 .items 를 추출한다.
+      // Array.isArray(r.data) 체크만 하면 객체 응답 시 빈 배열을 반환하는 버그가 발생한다.
+      const data = r.data as { items?: ContactItem[] } | ContactItem[];
+      return Array.isArray(data) ? data : (data?.items ?? []);
     },
     async getExternalContact(agentId, id) {
       const r = await http.get(`/contacts/external/${id}`, onBehalfOf(agentId));

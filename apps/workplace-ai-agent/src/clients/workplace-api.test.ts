@@ -318,12 +318,22 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
   // --- #333 M3: 연락처 조회/생성/수정 ---
 
   describe('listContacts', () => {
-    it('GET /contacts?search&limit 로 통합 목록 반환', async () => {
+    it('GET /contacts?search&limit 로 통합 목록 반환 (배열 응답)', async () => {
       const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
         .get(`${PREFIX}/contacts`).query({ search: '김', limit: '20' })
         .reply(200, [{ id: 1, kind: 'EXTERNAL', name: '김거래', email: 'k@x.com', organization: 'X사' }]);
       const out = await newClient().listContacts(7, '김', undefined, 20);
       expect(out[0].name).toBe('김거래');
+      scope.done();
+    });
+    it('#384: GET /contacts 응답이 페이지네이션 형식 {items:[]} 이면 items 배열을 반환한다', async () => {
+      // API 가 { items: [...] } 구조를 반환할 때 Array.isArray 검사 실패로 빈 배열을 반환하던 버그 회귀 방지.
+      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/contacts`).query({ limit: '50' })
+        .reply(200, { items: [{ id: 6, type: 'EXTERNAL', name: '홍길동', email: 'hong@example.com', organization: null }] });
+      const out = await newClient().listContacts(7, undefined, undefined, 50);
+      expect(out).toHaveLength(1);
+      expect(out[0].name).toBe('홍길동');
       scope.done();
     });
   });
