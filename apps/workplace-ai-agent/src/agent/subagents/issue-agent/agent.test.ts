@@ -12,8 +12,9 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent']).toBeDefined();
   });
 
-  it('tools 는 기존 이슈 MCP 도구만 포함(신규 도구 없음)', () => {
+  it('tools 는 이슈 MCP 도구 + #371 list_issues 를 포함한다', () => {
     expect(loaded['issue-agent'].tools).toEqual([
+      'mcp__workplace__list_issues',
       'mcp__workplace__get_issue_detail',
       'mcp__workplace__update_status',
       'mcp__workplace__add_comment',

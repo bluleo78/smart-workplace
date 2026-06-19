@@ -82,7 +82,7 @@ describe('runMessagingAgent 진행 발행', () => {
         getChannelMessages: vi.fn().mockResolvedValue([]),
         postMessagingProgress,
       },
-    } as any;
+    } as never;
     const envelope = {
       type: 'messaging.message.posted',
       payload: {
@@ -91,7 +91,7 @@ describe('runMessagingAgent 진행 발행', () => {
         body: '@AI 도와줘', mentions: [{ id: 9, username: 'ai', name: 'AI', kind: 'AGENT' }],
         occurredAt: '2026-06-18T00:00:00Z',
       },
-    } as any;
+    } as never;
     await runMessagingAgent(envelope, testDeps);
     const phases = postMessagingProgress.mock.calls.map((c: unknown[]) => (c[2] as { phase: string }).phase);
     expect(phases[0]).toBe('started');

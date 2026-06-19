@@ -101,7 +101,7 @@ describe('runChatAgent 진행 발행', () => {
         downloadIssueAttachment: vi.fn(),
         postChatProgress,
       },
-    } as any;
+    } as never;
     const envelope = {
       type: 'chat.message.posted',
       payload: {
@@ -110,7 +110,7 @@ describe('runChatAgent 진행 발행', () => {
         body: '@AI 도와줘', mentions: [{ id: 9, username: 'ai', name: 'AI', kind: 'AGENT' }],
         occurredAt: '2026-06-18T00:00:00Z',
       },
-    } as any;
+    } as never;
     await runChatAgent(envelope, testDeps);
     const phases = postChatProgress.mock.calls.map((c: unknown[]) => (c[2] as { phase: string }).phase);
     expect(phases[0]).toBe('started');
