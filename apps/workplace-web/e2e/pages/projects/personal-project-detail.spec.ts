@@ -4,9 +4,10 @@ import { createChatMessagePage, createChatThread } from '../../factories/chat.fa
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { systemTypes } from '../../factories/issueType.factory';
 import { createLabel, toLabelSummary } from '../../factories/label.factory';
-import { createProject } from '../../factories/project.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import type { UserSummary } from '../../../src/types/user';
 
 const KEY = 'PME';
 
@@ -549,6 +550,39 @@ test('패널 제목 링크 클릭 → 풀 이슈 상세 페이지(/projects/KEY/
   // 클릭 시 풀 이슈 경로로 이동한다(네비게이션 검증).
   await titleLink.click();
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/1`));
+});
+
+// ─── #362 AssigneePickerPopover 트리거 담당자 표시 회귀 ──────────────────────────
+
+test('패널 담당자 픽커 — current 담당자가 있으면 아이콘 대신 아바타를 렌더한다 (#362)', async ({ authenticatedPage: page }) => {
+  const user: UserSummary = { id: 1, username: 'testuser', name: '테스트 사용자', kind: 'HUMAN' };
+
+  // 담당자 있는 이슈로 패널 오픈 + 멤버 목록 모킹(AssigneePickerPopover 내부 useProjectMembers).
+  await mockPersonal(page, [
+    createIssue({ projectKey: KEY, number: 1, title: '담당자있는작업', assignees: [user] }),
+  ]);
+  const label = createLabel({ id: 5, name: '긴급' });
+  const detail = createIssueDetail({
+    summary: createIssue({ projectKey: KEY, number: 1, title: '담당자있는작업', assignees: [user], labels: [toLabelSummary(label)] }),
+    body: '',
+  });
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1`, detail);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/members`, [
+    createMember({ userId: user.id, username: user.username, name: user.name }),
+  ]);
+  const thread = createChatThread();
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/chat/thread`, thread);
+  await mockApi(page, 'GET', `/api/v1/chat/threads/${thread.threadId}/messages`, createChatMessagePage([]));
+
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  // 패널이 열리면 담당자 픽커 트리거에 아바타(이니셜 또는 img)가 보여야 한다.
+  const trigger = page.getByTestId('assignee-picker-trigger');
+  await expect(trigger).toBeVisible();
+  // UserAvatar fallback 이니셜("테") 또는 img 태그가 트리거 내에 존재해야 한다.
+  // 수정 전 버그: Users 아이콘만 있어 텍스트/이니셜 없음. 수정 후: 아바타 이니셜 "테"가 렌더됨.
+  const hasAvatar = await trigger.locator('img, span:has-text("테")').count();
+  expect(hasAvatar).toBeGreaterThan(0);
 });
 
 test('보드 모달 헤더에 전체 보기 아이콘 버튼(ExternalLink)이 존재하고 풀 이슈 경로 href를 가진다', async ({ authenticatedPage: page }) => {

@@ -63,13 +63,22 @@ export function AssigneePickerPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
+        {/* current 담당자가 있으면 아바타 목록 표시, 없으면 빈 아이콘 */}
         <Button
           variant="outline"
           size="sm"
           aria-label="담당자 편집"
           data-testid="assignee-picker-trigger"
         >
-          <Users className="h-4 w-4" />
+          {current.length > 0 ? (
+            <div className="flex items-center gap-1">
+              {current.map((u) => (
+                <UserAvatar key={u.id} user={u} size="xs" />
+              ))}
+            </div>
+          ) : (
+            <Users className="h-4 w-4" />
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-2" data-testid="assignee-picker">
