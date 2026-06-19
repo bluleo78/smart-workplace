@@ -319,11 +319,12 @@ export function createWorkplaceApiClient(opts: {
 
     async unassignSelf(agentId, issueKey) {
       const { projectKey, number } = parseIssueKey(issueKey);
+      // /assignees GET 엔드포인트 없음(405) — 이슈 상세에서 assignees 배열 읽기.
       const r = await http.get(
-        `/projects/${projectKey}/issues/${number}/assignees`,
+        `/projects/${projectKey}/issues/${number}`,
         onBehalfOf(agentId),
       );
-      const current: { id: number }[] = Array.isArray(r.data) ? r.data : [];
+      const current: { id: number }[] = Array.isArray(r.data?.assignees) ? r.data.assignees : [];
       const next = current.filter((u) => u.id !== agentId).map((u) => u.id);
       await http.put(
         `/projects/${projectKey}/issues/${number}/assignees`,
