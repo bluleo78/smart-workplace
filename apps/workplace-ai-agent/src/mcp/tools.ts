@@ -45,6 +45,17 @@ const updateWikiPageInput = z.object({
   body: z.string().optional(),
 });
 
+// #393/#394: 타임존 오프셋이 없는 naive datetime에 Asia/Seoul(+09:00) 오프셋을 강제로 보정한다.
+// haiku가 agent.md 규칙을 무시하고 "2026-06-20T14:00:00" 형태를 내보내는 비결정적 동작을
+// 핸들러 레이어에서 결정론적으로 차단한다. Z(UTC)가 있으면 그대로 유지.
+// 주의: Zod 4의 z.toJSONSchema 는 transform 을 지원하지 않으므로 스키마가 아닌 핸들러에서 적용.
+function normalizeTimezone(val: string): string {
+  // 이미 오프셋(+HH:MM 또는 Z)이 있으면 그대로 반환
+  if (/[Zz]$/.test(val) || /[+-]\d{2}:\d{2}$/.test(val)) return val;
+  // naive datetime → Asia/Seoul 오프셋 추가
+  return val + '+09:00';
+}
+
 // #333 M2: 캘린더 읽기 도구 입력.
 const listEventsInput = z.object({ from: z.string().min(1), to: z.string().min(1) });
 const getEventInput = z.object({ id: z.number().int().positive() });
@@ -149,15 +160,18 @@ const proposeDeleteEventInput = z.object({
 });
 
 // #333 M2: 일정 생성 제안 입력 — CalendarEventRequest 와 1:1(서버 매핑 단순화) + summary(카드 본문).
+// #393: attendees 추가 — 참석자 이메일 목록(선택). 스키마에 없으면 haiku가 params에서 생략함.
+// #394: startsAt/endsAt 타임존 보정은 핸들러에서 normalizeTimezone 으로 처리(Zod transform 불가).
 const proposeCreateEventInput = z.object({
   title: z.string().min(1).max(200),
   description: z.string().optional(),
-  startsAt: z.string().min(1),   // ISO-8601
+  startsAt: z.string().min(1),   // ISO-8601, 핸들러에서 타임존 보정
   endsAt: z.string().min(1),
   allDay: z.boolean().default(false),
   location: z.string().max(200).optional(),
   reminderMinutes: z.number().int().min(0).optional(),
   recurrenceRule: z.string().max(500).optional(),
+  attendees: z.array(z.string().email()).optional(), // #393: 참석자 이메일 목록
   summary: z.string().min(1),    // 사람이 읽는 카드 요약
 });
 
@@ -420,12 +434,16 @@ export function buildTools(
   }
 
   // #333 M2: 캘린더 읽기 도구 — assistant 프로파일 전용(일정 충돌 확인·요약).
+  // #394: from/to 에 타임존 오프셋이 없으면 normalizeTimezone 으로 +09:00 보정.
+  //       haiku 가 naive datetime 으로 호출 시 API 가 OffsetDateTime 형식 오류를 반환하는 것을 차단.
   const listEventsTool: McpTool = {
     name: 'list_events',
     description: '[from,to) 기간(ISO-8601)의 내 일정 목록을 JSON 으로 반환합니다. 일정 충돌 확인·요약에 사용하세요.',
     inputSchema: listEventsInput,
     async handler(args) {
-      const { from, to } = listEventsInput.parse(args);
+      const parsed = listEventsInput.parse(args);
+      const from = normalizeTimezone(parsed.from);
+      const to = normalizeTimezone(parsed.to);
       return JSON.stringify(await client.listEvents(agentId, from, to));
     },
   };
@@ -460,19 +478,36 @@ export function buildTools(
   }
 
   // #333 M2: 일정 생성 제안 도구 — API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환.
+  // #393: attendees 파라미터를 명시하지 않으면 스키마에 없는 것으로 간주해 haiku가 생략함.
+  // #394: startsAt/endsAt 타임존 보정 — 핸들러에서 normalizeTimezone 으로 처리.
   const proposeCreateEventTool: McpTool = {
     name: 'propose_create_event',
     description:
-      '일정 생성을 제안합니다. 직접 생성하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약(일시·제목)을 넣으세요. 승인 시 서버가 실제로 생성합니다.',
+      '일정 생성을 제안합니다. 직접 생성하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약(일시·제목)을 넣으세요. 참석자가 있으면 attendees 배열(이메일 문자열 목록)을 반드시 포함하세요. startsAt/endsAt 은 반드시 타임존 오프셋 포함 ISO-8601(예: 2026-06-20T14:00:00+09:00)로 채우세요. 승인 시 서버가 실제로 생성합니다.',
     inputSchema: proposeCreateEventInput,
     async handler(args) {
       const { summary, ...params } = proposeCreateEventInput.parse(args);
+      // #394: startsAt/endsAt 에 타임존 오프셋이 없으면 +09:00 보정.
+      params.startsAt = normalizeTimezone(params.startsAt as string);
+      params.endsAt = normalizeTimezone(params.endsAt as string);
       return await writeProposal('calendar.create_event', summary, params);
     },
   };
 
+  // #397: 일정 존재 여부를 서버에서 직접 확인한다. haiku가 get_event 도구 호출 없이 환각으로
+  // "존재하지 않는다"고 응답하는 비결정적 동작을 제안 핸들러 안에서 결정론적으로 차단한다.
+  async function verifyEventExists(id: number): Promise<string | null> {
+    try {
+      await client.getEvent(agentId, id);
+      return null; // 존재함 — 제안 진행 가능
+    } catch {
+      return `해당 일정(id: ${id})을 찾을 수 없습니다. 일정 id 를 다시 확인해주세요.`;
+    }
+  }
+
   // #333 M4: 일정 수정 제안 도구 — API 미호출, 사이드카에 수정 제안을 쓰고 ack 반환.
   // scope: THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체. occurrenceDate=대상 회차 시작시각.
+  // #397: 수정 전 get_event 로 존재 여부 서버 확인 — haiku 환각(no tool call, "not found") 결정론적 차단.
   const proposeUpdateEventTool: McpTool = {
     name: 'propose_update_event',
     description:
@@ -480,12 +515,16 @@ export function buildTools(
     inputSchema: proposeUpdateEventInput,
     async handler(args) {
       const { summary, ...params } = proposeUpdateEventInput.parse(args);
+      // #397: 제안 전 존재 여부 확인 — 존재하지 않으면 에러 메시지 반환, 환각 차단.
+      const notFound = await verifyEventExists(params.id);
+      if (notFound) return notFound;
       return await writeProposal('calendar.update_event', summary, params);
     },
   };
 
   // #333 M4: 일정 삭제 제안 도구 — API 미호출, 사이드카에 삭제 제안을 쓰고 ack 반환.
   // scope/occurrenceDate 는 수정 제안과 동일 의미. 승인 시 서버가 실제로 삭제합니다.
+  // #397: 삭제 전 get_event 로 존재 여부 서버 확인 — haiku 환각(no tool call, "not found") 결정론적 차단.
   const proposeDeleteEventTool: McpTool = {
     name: 'propose_delete_event',
     description:
@@ -493,6 +532,9 @@ export function buildTools(
     inputSchema: proposeDeleteEventInput,
     async handler(args) {
       const { summary, ...params } = proposeDeleteEventInput.parse(args);
+      // #397: 제안 전 존재 여부 확인 — 존재하지 않으면 에러 메시지 반환, 환각 차단.
+      const notFound = await verifyEventExists(params.id);
+      if (notFound) return notFound;
       return await writeProposal('calendar.delete_event', summary, params);
     },
   };

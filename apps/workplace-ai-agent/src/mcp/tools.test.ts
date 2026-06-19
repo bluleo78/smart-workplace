@@ -467,12 +467,14 @@ describe('buildTools(assistant) 캘린더 수정/삭제 제안 도구 (M4)', () 
     expect(names).toContain('propose_delete_event');
   });
 
-  it('propose_update_event 는 API 미호출, 사이드카에 calendar.update_event 제안을 쓰고 ack 반환', async () => {
+  it('propose_update_event 는 사이드카에 calendar.update_event 제안을 쓰고 ack 반환', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pa-upd-'));
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
+      // #397: verifyEventExists 가 getEvent 를 호출하므로 fake client 에 getEvent 필요.
+      const fake = { getEvent: async () => ({ id: 42 }) } as never;
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
       const ack = await tool.handler({
         id: 42, title: '팀 미팅 (변경)', startsAt: '2026-07-01T01:00:00Z', endsAt: '2026-07-01T02:00:00Z',
         scope: 'THIS', summary: '#42 팀 미팅 제목 변경',
@@ -490,12 +492,35 @@ describe('buildTools(assistant) 캘린더 수정/삭제 제안 도구 (M4)', () 
     }
   });
 
-  it('propose_delete_event 는 API 미호출, 사이드카에 calendar.delete_event 제안을 쓰고 ack 반환', async () => {
+  it('propose_update_event — 존재하지 않는 id 는 "찾을 수 없습니다" 반환 (#397)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-upd-nf-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      // #397: getEvent 가 throw 하면 "찾을 수 없습니다" 반환하고 사이드카 미기록.
+      const fake = { getEvent: async () => { throw new Error('404'); } } as never;
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
+      const ack = await tool.handler({
+        id: 9999, title: '변경', startsAt: '2026-07-01T01:00:00Z', endsAt: '2026-07-01T02:00:00Z',
+        scope: 'ALL', summary: 'id 9999 수정',
+      });
+      expect(ack).toContain('찾을 수 없습니다');
+      // 사이드카 파일이 생성되지 않아야 한다.
+      expect(() => readFileSync(sidecar, 'utf8')).toThrow();
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('propose_delete_event 는 사이드카에 calendar.delete_event 제안을 쓰고 ack 반환', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pa-del-'));
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_event')!;
+      // #397: verifyEventExists 가 getEvent 를 호출하므로 fake client 에 getEvent 필요.
+      const fake = { getEvent: async () => ({ id: 55 }) } as never;
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_delete_event')!;
       const ack = await tool.handler({ id: 55, scope: 'ALL', summary: '#55 팀 미팅 전체 삭제' });
       expect(typeof ack).toBe('string');
       const written = JSON.parse(readFileSync(sidecar, 'utf8'));
@@ -539,5 +564,65 @@ describe('buildTools home 프로필', () => {
         layout: { page: 'current' },
       }),
     ).not.toThrow();
+  });
+});
+
+// #393/#394: propose_create_event 스키마 결정론적 보정 테스트.
+describe('propose_create_event 스키마 결정론적 보정 (#393/#394)', () => {
+  it('#393: attendees 배열(이메일 목록)이 params에 포함된다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'att-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      await tool.handler({
+        title: '스프린트 리뷰', startsAt: '2026-06-20T14:00:00+09:00', endsAt: '2026-06-20T15:00:00+09:00',
+        attendees: ['user@example.com', 'admin@company.com'], summary: '스프린트 리뷰',
+      });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.params.attendees).toEqual(['user@example.com', 'admin@company.com']);
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#394: 타임존 오프셋 없는 naive datetime에 +09:00이 자동 보정된다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'tz-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      await tool.handler({
+        title: '업무 점검', startsAt: '2026-06-19T15:00:00', endsAt: '2026-06-19T15:30:00',
+        summary: '6/19 15시 업무 점검',
+      });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      // naive datetime에 +09:00 보정이 적용되어야 한다.
+      expect(written.params.startsAt).toBe('2026-06-19T15:00:00+09:00');
+      expect(written.params.endsAt).toBe('2026-06-19T15:30:00+09:00');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('#394: 이미 오프셋이 있는 datetime은 그대로 유지된다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'tz2-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      await tool.handler({
+        title: '회의', startsAt: '2026-06-20T05:00:00Z', endsAt: '2026-06-20T05:30:00Z',
+        summary: '6/20 14시 회의',
+      });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      // Z 오프셋은 변경되면 안 된다.
+      expect(written.params.startsAt).toBe('2026-06-20T05:00:00Z');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

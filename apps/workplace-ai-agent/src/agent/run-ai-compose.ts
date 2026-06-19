@@ -43,6 +43,21 @@ function isMailQuery(query: string): boolean {
   return /메일|mail|받은편지|안읽은|이메일|e-mail|IMAP|SMTP|계정.*(확인|연동|상태)/i.test(query);
 }
 
+// #400: 사용자 일정 승인 발화 감지 — calendar-agent 위임 컨텍스트에서 "승인", "확인", "네" 등
+// 응답 시 haiku 가 propose 없이 "생성됐습니다" 환각 응답을 내보내는 비결정적 동작을 차단한다.
+// 이전 대화(recentContext)에 calendar-agent 의 제안 문구가 있고 현재 쿼리가 승인 발화일 때만 감지.
+// 길이 제한(30자)으로 "일정 잡아줘" 같은 새 요청은 제외, 오탐 방지.
+function isCalendarApprovalHallucination(query: string, recentContext: ContextMessage[]): boolean {
+  const q = query.trim();
+  // 너무 길면 새 요청이므로 제외
+  if (q.length > 30) return false;
+  // 승인 발화 키워드가 포함되는지 확인
+  if (!/네|예|응|좋아|승인|확인|진행|부탁|ㅇㅇ|ㅇㅋ|ok|okay|yes|그래|알겠|좋습니다/i.test(q)) return false;
+  // 이전 AI 발화 중 캘린더 제안("제안했습니다" / "확인 카드") 패턴 확인
+  const prevAi = recentContext.filter((m) => m.role === 'ASSISTANT').map((m) => m.content).join('\n');
+  return /제안했습니다|확인 카드|일정.*생성.*제안|propose/i.test(prevAi);
+}
+
 // #390: 드라이브 미지원 작업 쿼리 감지 — 업로드·멤버 권한 변경은 drive-agent 도구에 없으나
 // 홈 라우터(haiku)가 "위임하여 진행하겠습니다"로 잘못 안내하는 비결정적 동작을 차단한다.
 // 드라이브 조회·검색·폴더 생성·이동 등 지원 기능 쿼리는 배제해 오탐을 최소화한다.
@@ -194,6 +209,15 @@ export async function runAiComposeStream(
     // 위임해도 진행 불가. 홈 라우터가 "정보 주시면 위임 진행" 류로 오안내하는 경우를 차단한다.
     if (isDriveUnsupportedQuery(input.query)) {
       return { fullText: '현재 지원하지 않는 기능입니다.', widgets: null, pendingAction: null };
+    }
+    // #400: 캘린더 일정 제안 후 사용자 "승인" 발화 시 haiku가 propose 없이 "생성됐습니다" 환각 응답.
+    // pending_action 이 없는데 승인 발화이고 직전 AI 발화에 제안 문구가 있으면 LLM 응답을 버리고
+    // 고정 안내로 override 한다. pending_action 이 있으면 정상 제안이므로 통과.
+    if (
+      !existsSync(pendingActionPath) &&
+      isCalendarApprovalHallucination(input.query, input.recentContext ?? [])
+    ) {
+      return { fullText: '확인 카드에서 승인해주세요. 에이전트가 직접 일정을 생성하지 않습니다.', widgets: null, pendingAction: null };
     }
     // #333 M2: propose 도구가 사이드카에 제안을 썼으면 읽어 pendingAction 으로 싣는다(스트림 파싱 불가 — collapsed Agent tool_result).
     let pendingAction: unknown | null = null;

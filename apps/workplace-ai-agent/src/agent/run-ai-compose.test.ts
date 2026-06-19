@@ -497,6 +497,73 @@ describe('runAiComposeStream — drive 미지원 작업 guard (#390)', () => {
   });
 });
 
+// #400: 캘린더 일정 승인 발화 시 haiku 환각 응답 차단 — pending_action 없이 "생성됐습니다" 방지.
+describe('runAiComposeStream — calendar approval hallucination guard (#400)', () => {
+  it('승인 발화 + 직전 AI 제안 문구 + pendingAction 없음 → 고정 안내 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // haiku가 "생성됐습니다" 환각 응답을 내보내는 시나리오.
+      onLine(textDelta('팀 회의 일정이 생성됐습니다. 오늘 오후 4시~5시에 예약되어 있습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '팀 회의 일정이 생성됐습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // pending_action 사이드카 없음(pendingActionPath 존재 X)
+    vi.mocked(existsSync).mockReturnValue(false);
+    const recentContext = [
+      { role: 'USER', content: '오늘 오후 4시에 팀 회의 일정 만들어줘' },
+      { role: 'ASSISTANT', content: '오늘 오후 4시 팀 회의 1시간 일정 생성을 제안했습니다. 확인 카드에서 승인해주세요.' },
+    ];
+    const out = await runAiComposeStream(
+      baseInput({ query: '네, 승인합니다', recentContext }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // haiku 환각 응답 대신 고정 안내가 반환되어야 한다.
+    expect(out.fullText).toContain('확인 카드에서 승인해주세요');
+    expect(out.fullText).not.toContain('생성됐습니다');
+    expect(out.pendingAction).toBeNull();
+  });
+
+  it('승인 발화이지만 pending_action 이 있으면 정상 흐름 통과', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '제안 등록됐습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // pending_action 사이드카 존재(pendingActionPath)
+    vi.mocked(existsSync).mockImplementation((p: unknown) =>
+      typeof p === 'string' && p.includes('pending-action'),
+    );
+    vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ actionType: 'calendar.create_event', summary: '4시 팀 회의', params: {} }));
+    const recentContext = [
+      { role: 'ASSISTANT', content: '팀 회의 제안했습니다. 확인 카드에서 승인해주세요.' },
+    ];
+    const out = await runAiComposeStream(
+      baseInput({ query: '네', recentContext }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // pending_action 이 있으면 정상적으로 pendingAction 이 반환되어야 한다.
+    expect(out.pendingAction).not.toBeNull();
+  });
+
+  it('일반 쿼리("네 알겠어")는 캘린더 컨텍스트 없으면 guard 미적용', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '안녕하세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(
+      baseInput({ query: '네 알겠어', recentContext: [] }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // 캘린더 제안 컨텍스트 없으면 고정 안내로 override 되면 안 됨.
+    expect(out.fullText).toBe('안녕하세요.');
+  });
+});
+
 // #376: runAiComposeStream 이 userId 를 buildChildEnv 에 전달하는지 검증.
 describe('runAiComposeStream — userId → ACTING_USER_ID 전달 (#376)', () => {
   it('ComposeInput.userId 를 buildChildEnv 4번째 인자로 전달한다', async () => {
