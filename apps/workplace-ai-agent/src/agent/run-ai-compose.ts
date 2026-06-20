@@ -63,16 +63,30 @@ function isCreatedDateFilterQuery(query: string): boolean {
   return hasCreated && hasTimeRange;
 }
 
+// #406/#415: 쿼리에 담당 해제 의도가 있는지 감지하는 공통 헬퍼.
+// isUnassignCompoundQuery / isSimpleUnassignQuery 양쪽에서 재사용해 정규식 중복을 방지한다.
+function hasUnassignIntent(query: string): boolean {
+  return /담당.*(해제|빼줘|제외|빼)|나.*담당.*빼|unassign|담당자.*나|나.*빼줘/i.test(query);
+}
+
 // #406: 이슈 담당 해제 의도가 포함된 복합 쿼리 감지.
 // "담당자에서 나 해제해줘", "나 빼줘", "unassign" 등의 표현을 포함하며
 // 동시에 다른 작업(상태변경·코멘트 등)도 요청하는 복합 요청을 식별한다.
 // 단순 해제 전용 쿼리(다른 요청 없음)는 issue-agent 가 잘 처리하므로 제외.
 function isUnassignCompoundQuery(query: string): boolean {
-  const hasUnassign = /담당.*(해제|빼줘|제외|빼)|나.*담당.*빼|unassign|담당자.*나|나.*빼줘/i.test(query);
-  if (!hasUnassign) return false;
+  if (!hasUnassignIntent(query)) return false;
   // 다른 작업이 함께 있는지 확인(상태변경·코멘트)
   const hasOtherTask = /바꾸|변경|코멘트|댓글|남겨|IN_PROGRESS|진행중|완료|DONE/i.test(query);
   return hasOtherTask;
+}
+
+// #415: 단순 담당 해제 쿼리 감지 — 다른 작업(상태변경·코멘트)이 없는 순수 해제 요청.
+// isUnassignCompoundQuery 가 복합 요청만 처리하므로, 단순 해제 쿼리에서
+// issue-agent 가 unassign_self 없이 허위 성공을 환각하는 경우를 별도로 방어한다.
+function isSimpleUnassignQuery(query: string): boolean {
+  if (!hasUnassignIntent(query)) return false;
+  const hasOtherTask = /바꾸|변경|코멘트|댓글|남겨|IN_PROGRESS|진행중|완료|DONE/i.test(query);
+  return !hasOtherTask;
 }
 
 // #406: 쿼리 텍스트에서 이슈 키(예: "EX-2", "SW-123") 추출.
@@ -299,6 +313,22 @@ export async function runAiComposeStream(
         }
       }
     }
+    // #415: 단순 담당 해제 쿼리 + 위임 시도 + unassign_self 미처리 → 허위 성공 응답 차단.
+    // delegated=true 이나 성공/에러 사이드카 모두 없으면 issue-agent 가 도구 없이 성공을
+    // 환각한 케이스. 에러 사이드카가 있으면 아래 unassignErrorPath override 가 canonical
+    // 메시지를 반환하므로 통과. 성공 사이드카가 있으면 실제 해제됐으므로 통과.
+    if (
+      isSimpleUnassignQuery(input.query) &&
+      delegated &&
+      !existsSync(unassignSuccessPath) &&
+      !existsSync(unassignErrorPath)
+    ) {
+      return {
+        fullText: '담당 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.',
+        widgets: null,
+        pendingAction: null,
+      };
+    }
     // #383: 메일 쿼리인데 mail-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 응답 차단).
     // LLM 응답을 버리고 progress 라벨 + 고정 문구로 override 해 UX 일관성을 보장한다.
     if (isMailQuery(input.query) && !delegated) {
@@ -360,8 +390,9 @@ export async function runAiComposeStream(
     // #379: issue-agent 가 이슈 삭제 요청에서 내부 SDK 메시지("Agent 도구가 활성화되어 있지 않네요",
     // "현재 환경에서" 등)를 노출하는 비결정적 동작을 결정론적으로 차단한다.
     // #407: "advisor에게 상담하겠습니다" 등 SDK 내부 폴백 메시지도 동일 패턴으로 차단한다.
+    // #415: "현재 라우터 기능에 제약이 있어 직접 처리하겠습니다" 위임 실패 내부 메시지도 차단(이중 방어).
     // agent.md 에 금지 규칙이 있으나 haiku 가 무시할 수 있으므로 런타임에서 이중 방어한다.
-    if (/Agent\s*도구가\s*활성화되어\s*있지\s*않|현재\s*환경에서.*(?:Agent|도구)|에이전트\s*도구.*비활성|advisor에게\s*상담하겠습니다/i.test(sanitizedText)) {
+    if (/Agent\s*도구가\s*활성화되어\s*있지\s*않|현재\s*환경에서.*(?:Agent|도구)|에이전트\s*도구.*비활성|advisor에게\s*상담하겠습니다|현재\s*라우터\s*기능에\s*제약|라우터\s*기능.*제약/i.test(sanitizedText)) {
       return {
         fullText: '죄송합니다. 해당 요청을 처리할 수 없습니다. 다른 방법으로 도움이 필요하시면 말씀해 주세요.',
         widgets: null,

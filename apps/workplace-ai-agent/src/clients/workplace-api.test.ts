@@ -178,6 +178,29 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(putScope.isDone()).toBe(true);
   });
 
+  // #415: agentId 가 담당자 목록에 없으면 오류 — 멱등 PUT 성공을 허위 성공으로 오인하는 것을 방지.
+  it('unassignSelf — agentId 가 담당자가 아닐 때 오류 발생(PUT 미호출)', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/projects/WP/issues/42`)
+      .reply(200, {
+        summary: {
+          id: 42,
+          assignees: [{ id: 7, username: 'alice', kind: 'HUMAN' }], // agentId 없음
+        },
+      });
+    // PUT 은 호출되면 안 된다 — nock 을 등록하지 않아 만약 호출되면 nock 오류가 발생.
+    await expect(newClient().unassignSelf(AGENT_ID, 'WP-42')).rejects.toThrow('담당자로 등록되어 있지 않아 해제할 수 없습니다.');
+  });
+
+  it('unassignSelf — assignees 가 빈 배열일 때도 오류 발생(EX-2 시나리오, #415)', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/projects/EX/issues/2`)
+      .reply(200, { summary: { id: 2, assignees: [] } }); // 담당자 없음
+    await expect(newClient().unassignSelf(AGENT_ID, 'EX-2')).rejects.toThrow('담당자로 등록되어 있지 않아 해제할 수 없습니다.');
+  });
+
   it('getOAuthToken → GET /users/me/oauth-token + 헤더', async () => {
     nock(BASE)
       .matchHeader('authorization', 'Internal tk-internal')

@@ -994,3 +994,77 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
     expect(unassignSelf).not.toHaveBeenCalled();
   });
 });
+
+// #415: 단순 해제 쿼리 + 위임 시도 + unassign_self 미처리 → 허위 성공 응답 차단.
+describe('runAiComposeStream — 단순 해제 허위 성공 환각 차단 (#415)', () => {
+  it('단순 해제 쿼리 + 위임 + 사이드카 없음 → 실패 안내 반환(허위 성공 차단)', async () => {
+    // 배경: issue-agent 가 unassign_self 없이 성공을 환각하는 경우. 사이드카 모두 없음.
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // issue-agent 위임 발생 → delegated=true
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 담당 해제' } }] } }));
+      // issue-agent 가 도구 없이 성공 환각
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'EX-2 이슈에서 담당이 해제되었습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // 성공/에러 사이드카 모두 없음
+    vi.mocked(existsSync).mockReturnValue(false);
+
+    const out = await runAiComposeStream(
+      baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // 허위 성공 응답 대신 실패 안내를 반환해야 한다.
+    expect(out.fullText).toBe('담당 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.');
+  });
+
+  it('단순 해제 쿼리 + 위임 + 성공 사이드카 있음 → LLM 응답 통과(실제 해제됨)', async () => {
+    // 배경: issue-agent 가 unassign_self 를 정상 호출해 성공 사이드카가 기록된 케이스.
+    // 가드가 발동하지 않고 LLM 응답(성공 메시지)이 그대로 반환돼야 한다.
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 담당 해제' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'EX-2 이슈 담당 해제 완료.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // 성공 사이드카 존재 → 실제로 unassign_self 가 호출된 상태
+    vi.mocked(existsSync).mockImplementation((p: unknown) =>
+      typeof p === 'string' && p.includes('unassign-success.json'),
+    );
+    vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ issueKey: 'EX-2' }) as never);
+
+    const out = await runAiComposeStream(
+      baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // 성공 사이드카가 있으므로 가드 미발동 → LLM 응답 통과
+    expect(out.fullText).toBe('EX-2 이슈 담당 해제 완료.');
+  });
+
+  it('단순 해제 쿼리 + 위임 + 에러 사이드카 있음 → unassignErrorPath override 통과', async () => {
+    // 배경: issue-agent 가 unassign_self 를 호출했으나 실패(에러 사이드카 기록) → #415 가드 미발동,
+    // 기존 unassignErrorPath override 가 canonical 메시지를 반환.
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 담당 해제' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '처리 중 오류가 발생했습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
+    // 에러 사이드카만 존재 → #415 가드 미발동, #378 override 발동
+    vi.mocked(existsSync).mockImplementation((p: unknown) =>
+      typeof p === 'string' && p.includes('unassign-error.json'),
+    );
+    vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ error: '404', canonical }) as never);
+
+    const out = await runAiComposeStream(
+      baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // #378 canonical override 가 반환돼야 한다
+    expect(out.fullText).toBe(canonical);
+  });
+});

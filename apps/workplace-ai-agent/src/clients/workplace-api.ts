@@ -402,6 +402,12 @@ export function createWorkplaceApiClient(opts: {
         onBehalfOf(agentId),
       );
       const current: { id: number }[] = Array.isArray(r.data?.summary?.assignees) ? r.data.summary.assignees : [];
+      // #415: 담당자로 등록되어 있지 않으면 오류로 처리한다.
+      // 확인 없이 PUT 하면 API 가 멱등(현재=[] → 필터 후=[] → PUT 성공)이어서
+      // 실제 해제 없이 성공을 환각한 것처럼 보이는 허위 성공 응답으로 이어진다.
+      if (!current.some((u) => u.id === agentId)) {
+        throw new Error(`담당자로 등록되어 있지 않아 해제할 수 없습니다. (${issueKey})`);
+      }
       const next = current.filter((u) => u.id !== agentId).map((u) => u.id);
       await http.put(
         `/projects/${projectKey}/issues/${number}/assignees`,
