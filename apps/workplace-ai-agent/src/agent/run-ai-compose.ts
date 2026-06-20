@@ -148,8 +148,10 @@ function isProposalApprovalHallucination(query: string, recentContext: ContextMe
 // 홈 라우터(haiku)가 "위임하여 진행하겠습니다"로 잘못 안내하는 비결정적 동작을 차단한다.
 // 드라이브 조회·검색·폴더 생성·이동 등 지원 기능 쿼리는 배제해 오탐을 최소화한다.
 function isDriveUnsupportedQuery(query: string): boolean {
-  // 지원 기능(조회·검색·폴더 정리·이동)은 제외 — 이들은 drive-agent 가 실제로 수행 가능.
-  if (/목록|찾아줘|보여줘|검색|탐색|폴더.*만들|이름.*바꾸|이동|삭제.*제안/i.test(query)) return false;
+  // 지원 기능(조회·검색·폴더 정리·이동·삭제)은 제외 — 이들은 drive-agent 가 실제로 수행 가능.
+  // #419: 파일명에 'upload'가 포함된 삭제 쿼리("test-upload.txt 삭제해줘")가 오탐되지 않도록
+  // 삭제 키워드를 allow-list 에 포함. propose_delete_file/folder 가 #333 M4에서 지원된다.
+  if (/목록|찾아줘|보여줘|검색|탐색|폴더.*만들|이름.*바꾸|이동|삭제/i.test(query)) return false;
   // 업로드·멤버·권한·공유 관련 쿼리 감지.
   return /업로드|upload|파일.*올려|올려줘|공유.*권한|멤버.*추가|멤버.*변경|권한.*변경|드라이브.*초대/i.test(query);
 }

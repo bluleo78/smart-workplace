@@ -571,6 +571,30 @@ describe('runAiComposeStream — drive 미지원 작업 guard (#390)', () => {
     expect(out.fullText).toBe('드라이브 파일 목록입니다.');
     expect(out.fullText).not.toBe('현재 지원하지 않는 기능입니다.');
   });
+
+  // #419: 파일명에 'upload'가 포함된 삭제 쿼리("test-upload.txt 삭제해줘")는 drive.delete_file 지원 범위.
+  // isDriveUnsupportedQuery 의 deny 패턴 'upload'가 파일명에 오탐하지 않도록 allow-list 에 '삭제' 추가.
+  it('파일명에 upload 포함 삭제 쿼리 → guard 미적용, pendingAction 반환', async () => {
+    const sidecarContent = JSON.stringify({ actionType: 'drive.delete_file', summary: '드라이브 내 "test-upload.txt" 삭제', params: { fileId: 1 } });
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('파일을 찾았습니다. 삭제를 제안합니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '파일을 찾았습니다. 삭제를 제안합니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // 사이드카 존재 — propose_delete_file 이 기록한 pending-action.
+    vi.mocked(existsSync).mockImplementation((p) => typeof p === 'string' && p.endsWith('pending-action.json'));
+    vi.mocked(readFileSync).mockReturnValue(sidecarContent);
+    const out = await runAiComposeStream(
+      baseInput({ query: '드라이브에서 test-upload.txt 파일을 삭제해줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // "현재 지원하지 않는 기능" 으로 override 되면 안 됨.
+    expect(out.fullText).not.toBe('현재 지원하지 않는 기능입니다.');
+    // propose_delete_file 이 기록한 사이드카가 pendingAction 으로 반환되어야 함.
+    expect(out.pendingAction).toMatchObject({ actionType: 'drive.delete_file' });
+  });
 });
 
 // #400 #409: 비가역 작업 제안 후 승인 발화 시 haiku 환각 응답 차단 — pending_action 없이 "완료했습니다" 방지.
