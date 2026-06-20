@@ -117,6 +117,29 @@ export function useChatSession() {
     [qc, updateSessionId],
   );
 
+  // #335: 스트리밍 중단 — 사용자가 진행 중인 AI 응답을 멈춘다.
+  // abort() 가 SSE fetch 를 끊으면 ai-agent 가 연결 종료를 감지해 Claude CLI 자식을 SIGTERM 한다.
+  // opSeq 를 증가시켜 늦게 도착하는 델타/진행/액션을 stale 로 차단하고(부분 응답 오염 방지),
+  // 누적된 부분 응답은 turns 에 그대로 남겨 '커밋'한다(새로고침 전까지 화면 보존).
+  const stopStreaming = useCallback(() => {
+    if (!abortRef.current) return; // 진행 중 스트림이 없으면 무시
+    opSeq.current++;
+    abortRef.current.abort();
+    abortRef.current = null;
+    setPending(false);
+    setDelegationLabel(null);
+    setPendingAction(null);
+    // 첫 토큰 전 중단이면 빈 어시스턴트 말풍선만 남으므로 중단 안내 문구로 대체한다.
+    setTurns((t) => {
+      const next = [...t];
+      const last = next[next.length - 1];
+      if (last?.role === 'assistant' && last.content === '') {
+        next[next.length - 1] = { role: 'assistant', content: '응답을 중단했어요.' };
+      }
+      return next;
+    });
+  }, []);
+
   // 새 세션 — 로컬 리셋만(POST 안 함; 첫 compose 가 서버에서 세션 생성). in-flight 작업 무효화.
   const newSession = useCallback(() => {
     opSeq.current++;
@@ -205,6 +228,7 @@ export function useChatSession() {
     clearPendingAction,
     confirmAction,
     submitQuery,
+    stopStreaming,
     newSession,
     restoreSession,
     deleteSession,
