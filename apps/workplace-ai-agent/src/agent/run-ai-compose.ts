@@ -356,17 +356,19 @@ export async function runAiComposeStream(
       };
     }
     // #383: 메일 쿼리인데 mail-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 응답 차단).
-    // LLM 응답을 버리고 progress 라벨 + 고정 문구로 override 해 UX 일관성을 보장한다.
-    // #421: 이전에는 'mail-agent에 전달했습니다.'를 반환해 내부 식별자가 노출됐음. 사용자 친화적 문구로 교체.
+    // #422: haiku 가 직접 응답한 경우(list_mail 도구 직접 호출 혹은 환각) delta 이벤트에 이미
+    // 내용이 스트리밍됐으므로 done.fullText 도 delta 누적 텍스트와 일치시킨다.
+    // onProgress 는 실제 위임이 없으므로 발행하지 않는다.
+    // fullText 가 비어 있는 극단적 edge case(delta 없이 done 만 온 경우)는 fallback 문구를 사용한다.
     if (isMailQuery(input.query) && !delegated) {
-      onProgress?.('메일 전문가에게 위임 중');
-      return { fullText: '메일 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
+      const sanitized = fullText.replace(SUBAGENT_ID_RE, '').trim();
+      return { fullText: sanitized || '메일 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
     }
     // #408: 연락처 쿼리인데 contacts-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 되묻기 차단).
-    // "어떤 연락처를 찾고 계신가요?" 처럼 라우터가 직접 되묻는 응답을 차단하고 contacts-agent에 전달한다.
+    // #422: 연락처 직접 응답 시 delta 누적 텍스트를 done.fullText 로 반환 — 라우팅 메시지 노출 방지.
     if (isContactsQuery(input.query) && !delegated) {
-      onProgress?.('연락처 전문가에게 위임 중');
-      return { fullText: '연락처 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
+      const sanitized = fullText.replace(SUBAGENT_ID_RE, '').trim();
+      return { fullText: sanitized || '연락처 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
     }
     // #390: 드라이브 미지원 작업(업로드·멤버 권한 변경) 쿼리 — drive-agent 에 해당 도구가 없어
     // 위임해도 진행 불가. 홈 라우터가 "정보 주시면 위임 진행" 류로 오안내하는 경우를 차단한다.

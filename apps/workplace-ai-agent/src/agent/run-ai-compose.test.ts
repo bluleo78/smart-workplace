@@ -359,7 +359,7 @@ describe('runAiComposeStream — unassignError 사이드카 override (#378)', ()
 
 // #383: isMailQuery && !delegated → mail fallback override.
 describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
-  it('메일 쿼리 + 위임 없음 → onProgress 발행 + 고정 fallback 반환', async () => {
+  it('메일 쿼리 + 위임 없음 → delta 누적 텍스트 반환 (#422)', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       // haiku 가 mail-agent 위임 없이 직접 텍스트로 응답하는 시나리오.
       onLine(textDelta('계정이 연동되지 않았습니다.'));
@@ -375,10 +375,10 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
       new AbortController().signal,
       (l) => labels.push(l),
     );
-    // onProgress 로 위임 라벨이 발행되고 고정 문구로 override 됐는지 검증.
-    // #421: 사용자 친화적 문구로 교체 — 내부 식별자 'mail-agent' 미포함.
-    expect(labels).toContain('메일 전문가에게 위임 중');
-    expect(out.fullText).toBe('메일 전문가에게 전달했습니다.');
+    // #422: 위임 없이 직접 응답한 경우 delta 누적 텍스트를 done.fullText 로 반환.
+    // onProgress 는 실제 위임이 없으므로 발행하지 않는다.
+    expect(labels).not.toContain('메일 전문가에게 위임 중');
+    expect(out.fullText).toBe('계정이 연동되지 않았습니다.');
     expect(out.widgets).toBeNull();
     expect(out.pendingAction).toBeNull();
   });
@@ -450,7 +450,7 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
     expect(out.fullText).toBe('김민수(kim@test.com) 연락처가 추가되었습니다.');
   });
 
-  it('순수 "이메일" 키워드 + 위임 없음 → mail fallback 적용 (#385 회귀 가드)', async () => {
+  it('순수 "이메일" 키워드 + 위임 없음 → mail 경로로 delta 텍스트 반환 (#385 + #422)', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(textDelta('이메일 확인해볼게요.'));
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '이메일 확인해볼게요.' }));
@@ -465,16 +465,16 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
       new AbortController().signal,
       (l) => labels.push(l),
     );
-    // 연락처 컨텍스트 없이 이메일 키워드만 있으면 mail fallback 적용.
-    // #421: 사용자 친화적 문구로 교체 — 내부 식별자 'mail-agent' 미포함.
-    expect(labels).toContain('메일 전문가에게 위임 중');
-    expect(out.fullText).toBe('메일 전문가에게 전달했습니다.');
+    // 연락처 컨텍스트 없이 이메일 키워드만 있으면 mail 경로(isMailQuery=true)로 처리.
+    // #422: 위임 없이 직접 응답한 경우 delta 누적 텍스트 반환, progress 라벨 미발행.
+    expect(labels).not.toContain('메일 전문가에게 위임 중');
+    expect(out.fullText).toBe('이메일 확인해볼게요.');
   });
 });
 
 // #408: isContactsQuery && !delegated → contacts fallback override.
 describe('runAiComposeStream — contacts 직접 되묻기 fallback (#408)', () => {
-  it('연락처 쿼리 + 위임 없음 → onProgress 발행 + 고정 fallback 반환', async () => {
+  it('연락처 쿼리 + 위임 없음 → delta 누적 텍스트 반환 (#422)', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       // haiku 가 contacts-agent 위임 없이 직접 되묻는 시나리오(contact-006 재현).
       onLine(textDelta('어떤 연락처를 찾고 계신가요? 이름이나 검색할 키워드를 알려주시면 찾아드리겠습니다.'));
@@ -490,9 +490,10 @@ describe('runAiComposeStream — contacts 직접 되묻기 fallback (#408)', () 
       new AbortController().signal,
       (l) => labels.push(l),
     );
-    // onProgress 로 위임 라벨이 발행되고 고정 문구로 override 됐는지 검증.
-    expect(labels).toContain('연락처 전문가에게 위임 중');
-    expect(out.fullText).toBe('연락처 전문가에게 전달했습니다.');
+    // #422: 위임 없이 직접 응답한 경우 delta 누적 텍스트를 done.fullText 로 반환.
+    // onProgress 는 실제 위임이 없으므로 발행하지 않는다.
+    expect(labels).not.toContain('연락처 전문가에게 위임 중');
+    expect(out.fullText).toBe('어떤 연락처를 찾고 계신가요? 이름이나 검색할 키워드를 알려주시면 찾아드리겠습니다.');
     expect(out.widgets).toBeNull();
     expect(out.pendingAction).toBeNull();
   });
