@@ -167,6 +167,14 @@ function isDriveUnsupportedQuery(query: string): boolean {
   return /업로드|upload|파일.*올려|올려줘|공유.*권한|드라이브.*멤버.*(?:추가|변경)|권한.*변경|드라이브.*초대/i.test(query);
 }
 
+// #440 3차: drive 관련 쿼리 감지 — 드라이브 키워드 또는 파일/폴더 조작 동사를 포함한 쿼리.
+// 위임 전 preamble delta를 버퍼링해 클라이언트 노출을 방지하기 위한 감지 기준.
+// isDriveUnsupportedQuery보다 넓게 감지해 지원/미지원 모든 drive 쿼리를 커버한다.
+function isDriveQuery(query: string): boolean {
+  if (/드라이브/i.test(query)) return true;
+  return /(?:파일|폴더).*(?:삭제|이동|복사|찾아|검색|조회|보여줘|열어줘)|(?:삭제|이동|복사|찾아|검색|조회).*(?:파일|폴더)/i.test(query);
+}
+
 // recentContext 를 단발 --print 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
 function buildComposeUserMessage(input: ComposeInput): string {
   const ctx = input.recentContext ?? [];
@@ -296,6 +304,11 @@ export async function runAiComposeStream(
     // 위임 확정 시 버퍼 flush, !delegated이면 done 후 override 문구를 onText로 전달.
     const isMailQueryRequest = isMailQuery(input.query);
     let mailQueryBuffer = '';
+    // #440 3차: drive 쿼리 판별 — 위임 미확정 구간의 haiku preamble delta를 버퍼링해 frontend 노출 차단.
+    // 정규식 기반 sanitize(1·2차)는 LLM 변형 문장을 완전히 차단하지 못해 회귀 반복.
+    // 버퍼링 방식: 위임 확정 시 sanitize flush, !delegated이면 CLI done 후 parseComposeLines clean 텍스트를 onText로 전달.
+    const isDriveQueryRequest = isDriveQuery(input.query);
+    let driveQueryBuffer = '';
     // #421: 청크 경계에 걸친 서브에이전트 식별자("wiki" + "-agent에 위임하겠습니다.")를
     // sanitize 하기 위한 carry buffer. 최대 30자를 보유하며 handle.done 후 플러시한다.
     let deltaCarry = '';
@@ -320,6 +333,12 @@ export async function runAiComposeStream(
             // haiku가 mail-agent 위임 없이 직접 응답하는 경우(환각 포함) frontend에 노출되지 않도록 차단.
             // 위임 확정(delegated=true) 시 버퍼를 sanitize 후 flush. !delegated이면 done 후 override 전달.
             mailQueryBuffer += delta;
+          } else if (isDriveQueryRequest && !delegated) {
+            // #440 3차: drive 쿼리 + 위임 미확정 → delta 버퍼링.
+            // haiku가 drive-agent 위임 전 preamble("위임하겠습니다.", "드라이브에서 찾아...")을 delta로
+            // 발행하는 비결정적 동작 차단. 정규식 방식(1·2차)은 LLM 변형 문장에 반복 회귀.
+            // 위임 확정 시 sanitize flush; !delegated이면 CLI done 후 parseComposeLines clean 텍스트만 emit.
+            driveQueryBuffer += delta;
           } else {
             // #421: carry buffer 로 청크 경계에 걸친 식별자 패턴을 sanitize.
             // 예: "wiki"(청크1) + "-agent에 위임하겠습니다."(청크2) → 합쳐서 매칭 후 제거.
@@ -367,6 +386,18 @@ export async function runAiComposeStream(
                   .trim();
                 if (sanitizedBuffer) onText(sanitizedBuffer);
                 mailQueryBuffer = '';
+              }
+              // #440 3차: 위임 확정 — 버퍼된 drive delta(haiku preamble)를 sanitize 후 flush.
+              if (isDriveQueryRequest && driveQueryBuffer) {
+                const sanitizedDriveBuffer = driveQueryBuffer
+                  .replace(SUBAGENT_ID_RE, '')
+                  .replace(KOREAN_AGENT_ID_RE, '')
+                  .replace(SUBAGENT_DIRECT_MSG_RE, '')
+                  .replace(HOME_ROUTER_PREAMBLE_RE, '')
+                  .replace(ENUM_PARENTHETICAL_RE, '')
+                  .trim();
+                if (sanitizedDriveBuffer) onText(sanitizedDriveBuffer);
+                driveQueryBuffer = '';
               }
               if (onProgress) onProgress(label);
             }
@@ -510,6 +541,12 @@ export async function runAiComposeStream(
         widgets: null,
         pendingAction: null,
       };
+    }
+    // #440 3차: drive 쿼리 + 위임 미발생 → delta가 driveQueryBuffer에만 누적됐으므로
+    // CLI done 후 parseComposeLines로 산출한 clean sanitizedText를 한 번 emit.
+    // done.fullText도 sanitizedText와 동일하므로 클라이언트가 올바른 최종 텍스트를 받는다.
+    if (isDriveQueryRequest && !delegated && driveQueryBuffer) {
+      onText(sanitizedText);
     }
     // #404: show_issue_detail 위젯 중 존재하지 않는 이슈 번호를 서버 검증으로 드롭한다.
     const filteredWidgets = await filterIssueDetailWidgets(parsed.widgets, deps.client, agentId);

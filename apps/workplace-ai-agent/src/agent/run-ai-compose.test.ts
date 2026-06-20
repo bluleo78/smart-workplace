@@ -1404,8 +1404,8 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble sanitize (#440)',
   });
 
   it('회귀: "찾았습니다. 제안합니"가 carry에 머무르다 "다." 도착 시 청크 경계에서 제거된다', async () => {
-    // drive-t12-004 실측 패턴: "삭제를 제안합니"까지만 온 후 "다."가 다음 청크에 도착.
-    // carry buffer(30자)가 "찾았습니다. 삭제를 제안합니"(21자)를 보유하다 "다."와 합쳐 패턴 매칭.
+    // drive-t12-004 실측 패턴: preamble + clean result 두 청크가 driveQueryBuffer에 누적.
+    // CLI done 후 parseComposeLines clean text만 onText로 한 번 emit → 청크 경계 오탐 없이 차단.
     vi.mocked(existsSync).mockReturnValue(false);
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(textDelta('"업무문서" 폴더를 찾았습니다. 삭제를 제안합니')); // 21자, 마침표 없음
@@ -1418,6 +1418,66 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble sanitize (#440)',
     const streamed = got.join('');
     expect(streamed).not.toContain('찾았습니다. 삭제를 제안합니다.');
     expect(streamed).toContain('폴더 삭제 제안을 등록했습니다.');
+  });
+
+  // #440 3차: 버퍼링 방식 — 정규식 방식 대신 drive 쿼리 delta를 위임 확정 전까지 억제.
+  it('3차: drive 쿼리 + 위임 미발생 → 모든 delta 버퍼링 후 CLI done 시 clean 텍스트만 emit', async () => {
+    // 실제 서버에서 위임 이벤트가 검출되지 않는 경우(traces 검증: event:progress 없음).
+    // driveQueryBuffer에만 누적하다 CLI done 후 parseComposeLines clean result를 한 번 onText.
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('위임하겠습니다.드라이브에서 파일을 직접 찾아 처리하겠습니다.'));
+      onLine(textDelta('"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    // streaming 중 아무것도 emit 안 됨(버퍼링) → CLI done 후 parseComposeLines result 1회 emit
+    expect(got).toHaveLength(1);
+    expect(got[0]).not.toContain('위임하겠습니다.');
+    expect(got[0]).not.toContain('직접 찾아 처리하겠습니다.');
+    expect(got[0]).toContain('small.txt 파일 삭제를 제안했습니다.');
+  });
+
+  it('3차: drive 쿼리 + drive-agent 위임 확정 → 위임 전 preamble 버퍼 sanitize flush 후 결과 스트리밍', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    // drive-agent 를 화이트리스트에 포함 — 차단 없이 delegated=true 달성
+    vi.mocked(loadSubagents).mockReturnValueOnce({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'drive-agent': { description: 'dr', tools: [], prompt: '' } });
+    const agentDelegation = JSON.stringify({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'drive-agent', prompt: '파일 삭제' } }] },
+    });
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('위임하겠습니다.'));
+      onLine(agentDelegation); // 위임 확정 → delegated=true, driveQueryBuffer flush
+      onLine(textDelta('"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    const labels: string[] = [];
+    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, (l) => labels.push(l));
+    const streamed = got.join('');
+    // 위임 전 preamble("위임하겠습니다.")이 sanitize로 제거되어 클라이언트에 도달 안 함
+    expect(streamed).not.toContain('위임하겠습니다.');
+    // 위임 후 결과는 정상 스트리밍
+    expect(streamed).toContain('small.txt 파일 삭제를 제안했습니다.');
+    // drive-agent 위임 progress 라벨 발행
+    expect(labels).toContain('드라이브 전문가에게 위임 중');
+  });
+
+  it('3차: 비드라이브 쿼리 → drive 버퍼링 미적용, 기존 carry buffer 경로 유지', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('안녕하세요. 무엇을 도와드릴까요?'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '안녕하세요. 무엇을 도와드릴까요?' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: '안녕하세요' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    // 비드라이브 쿼리는 carry buffer 경로 → streaming 중 emit 발생
+    expect(got.join('')).toContain('안녕하세요. 무엇을 도와드릴까요?');
   });
 });
 
