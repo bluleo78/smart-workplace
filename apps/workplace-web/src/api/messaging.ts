@@ -1,6 +1,7 @@
 // messaging REST API client. 모든 함수는 AxiosResponse 반환 — 호출처(query 훅)에서 .data unwrap.
 
 import type {
+  ChannelDriveSpaceResponse,
   ChannelMemberResponse,
   ChannelResponse,
   ChannelRole,
@@ -161,6 +162,10 @@ export const messagingApi = {
     a.remove();
     URL.revokeObjectURL(url);
   },
+
+  // #76: 채널 '파일' 탭 — 연동 드라이브 공간 보장 후 spaceId 반환.
+  ensureChannelDriveSpace: (channelId: number) =>
+    client.post<ChannelDriveSpaceResponse>(`/messaging/channels/${channelId}/drive-space`),
 
   // 인라인 이미지 썸네일용 blob fetch — objectURL 은 호출처(훅)에서 생성/revoke.
   fetchAttachmentBlob: (channelId: number, messageId: number, fileId: number) =>

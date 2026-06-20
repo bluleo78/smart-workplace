@@ -2,6 +2,7 @@
 // 단일 사용 패턴: createChannel() / createMessage() 호출 시 sensible defaults + spread overrides.
 
 import type {
+  ChannelDriveSpaceResponse,
   ChannelResponse,
   ChannelMemberResponse,
   DmParticipant,
@@ -10,6 +11,13 @@ import type {
   ReactionResponse,
   ThreadInboxItem,
 } from '../../src/types/messaging';
+
+// #76: 채널 연동 드라이브 공간 ensure 응답 팩토리.
+export function createChannelDriveSpace(
+  overrides: Partial<ChannelDriveSpaceResponse> = {},
+): ChannelDriveSpaceResponse {
+  return { spaceId: 8800, archived: false, ...overrides }
+}
 
 export function createChannel(overrides: Partial<ChannelResponse> = {}): ChannelResponse {
   return {

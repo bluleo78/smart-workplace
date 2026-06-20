@@ -1,6 +1,7 @@
 // 드라이브 백엔드 DTO 와 1:1 매칭되는 TS 인터페이스.
 
-export type DriveSpaceType = 'PERSONAL' | 'TEAM'
+// #76: CHANNEL = 메시징 채널에 연동된 공간.
+export type DriveSpaceType = 'PERSONAL' | 'TEAM' | 'CHANNEL'
 export type DriveRole = 'OWNER' | 'EDITOR' | 'VIEWER'
 
 export interface DriveSpace {
@@ -9,6 +10,8 @@ export interface DriveSpace {
   name: string
   ownerId: number
   role: DriveRole
+  // #76: 보관된 채널에 연동된 공간은 archived=true → 읽기 전용 처리.
+  archived: boolean
   createdAt: string
 }
 

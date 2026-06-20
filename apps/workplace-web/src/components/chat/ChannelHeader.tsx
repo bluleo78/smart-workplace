@@ -1,9 +1,10 @@
 // 채널 헤더 — 이름·멤버수·아카이브 뱃지. 설정 드롭다운(OWNER/ADMIN: 이름변경·아카이브/해제),
 // 멤버 버튼, 시스템 ADMIN: 삭제. 권한 없는 액션은 렌더하지 않는다(1차 방어).
-import { ChevronDown, Lock, Users } from 'lucide-react'
+import { ChevronDown, Folder, Lock, Users } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { messagingApi } from '@/api/messaging'
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
 import {
   AlertDialog,
@@ -52,6 +53,12 @@ export function ChannelHeader({
   // 채널 OWNER/ADMIN 은 이름변경·아카이브 가능.
   const canManage = channel.role === 'OWNER' || channel.role === 'ADMIN'
 
+  // #76: 연동 드라이브 공간 보장 후 드라이브로 진입(lazy 생성 트리거).
+  async function openFiles() {
+    const { data } = await messagingApi.ensureChannelDriveSpace(channel.id)
+    navigate(`/drive/spaces/${data.spaceId}`)
+  }
+
   return (
     <div
       className="flex h-14 shrink-0 items-center gap-2 border-b px-4"
@@ -74,6 +81,17 @@ export function ChannelHeader({
       >
         <Users className="h-4 w-4" />
         <span data-testid="channel-header-membercount">{channel.memberCount}</span>
+      </button>
+
+      {/* #76: '파일' 버튼 — 모든 멤버에게 노출. ensure 호출 후 연동 드라이브 공간으로 이동. */}
+      <button
+        type="button"
+        data-testid="channel-files-button"
+        onClick={() => void openFiles()}
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-accent"
+      >
+        <Folder className="h-4 w-4" />
+        <span>파일</span>
       </button>
 
       {/* 채널 관리자 또는 시스템 ADMIN 에게만 설정 드롭다운 노출. */}

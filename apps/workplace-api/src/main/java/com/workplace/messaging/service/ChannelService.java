@@ -3,10 +3,13 @@ package com.workplace.messaging.service;
 import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +21,7 @@ public class ChannelService {
   private final ChannelRepository channelRepo;
   private final ChannelMemberRepository memberRepo;
   private final ChannelPermissions perms;
+  private final ApplicationEventPublisher publisher;
 
   /** 사이드바 — caller 가 멤버이고 아카이브되지 않은 채널만. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
   @Transactional(readOnly = true)
@@ -85,6 +89,7 @@ public class ChannelService {
     ensureExists(channelId);
     perms.requireOwner(channelId, callerId, "archive");
     channelRepo.setArchived(channelId, true);
+    publisher.publishEvent(new ChannelArchivedEvent(channelId, true, Instant.now()));
   }
 
   /** 아카이브 해제 — OWNER 또는 시스템 ADMIN. */
@@ -93,6 +98,7 @@ public class ChannelService {
     ensureExists(channelId);
     perms.requireOwner(channelId, callerId, "unarchive");
     channelRepo.setArchived(channelId, false);
+    publisher.publishEvent(new ChannelArchivedEvent(channelId, false, Instant.now()));
   }
 
   /** 하드 삭제 — 시스템 ADMIN 만. */

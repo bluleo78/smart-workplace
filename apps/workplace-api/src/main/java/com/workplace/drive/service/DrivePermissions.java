@@ -4,15 +4,19 @@ import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveInvalidRoleException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
+import com.workplace.drive.repository.DriveSpaceRepository;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/** 공간 역할 검증. drive_space_member 만 사용(크로스도메인 없음). */
+/** 공간 역할 검증. drive_space_member + drive_space(archived 확인) 사용. */
 @Component
 @RequiredArgsConstructor
 public class DrivePermissions {
   private final DriveSpaceMemberRepository members;
+
+  /** archived 여부 확인용 공간 저장소. */
+  private final DriveSpaceRepository spaces;
 
   private static final Map<String, Integer> RANK = Map.of("VIEWER", 1, "EDITOR", 2, "OWNER", 3);
 
@@ -34,6 +38,10 @@ public class DrivePermissions {
             .findRole(spaceId, userId)
             .orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
     if (RANK.get(role) < RANK.get(minRole)) {
+      throw new DriveForbiddenException(spaceId, userId);
+    }
+    // 보관된 공간은 읽기전용 — 쓰기 역할(EDITOR 이상=RANK>VIEWER) 요구 시 차단.
+    if (RANK.get(minRole) > RANK.get("VIEWER") && spaces.isArchived(spaceId)) {
       throw new DriveForbiddenException(spaceId, userId);
     }
     return role;

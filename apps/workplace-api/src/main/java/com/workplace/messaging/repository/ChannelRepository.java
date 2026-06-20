@@ -189,6 +189,14 @@ public class ChannelRepository {
         .fetchOptional(ChannelRepository::mapChannel);
   }
 
+  /** 채널 이름 조회. */
+  public java.util.Optional<String> findName(long channelId) {
+    return dsl.select(CHANNEL.NAME)
+        .from(CHANNEL)
+        .where(CHANNEL.ID.eq(channelId))
+        .fetchOptional(CHANNEL.NAME);
+  }
+
   /** 채널 이름 변경. */
   public void rename(long channelId, String name) {
     dsl.update(CHANNEL).set(CHANNEL.NAME, name).where(CHANNEL.ID.eq(channelId)).execute();

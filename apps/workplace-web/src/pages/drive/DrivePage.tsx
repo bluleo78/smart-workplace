@@ -31,7 +31,7 @@ import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { SearchInput } from '../../components/ui/search-input'
-import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveTrashItem } from '../../types/drive'
+import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveSpace, DriveTrashItem } from '../../types/drive'
 
 // 서버 multipart 업로드 한도(application.yml: max-file-size 25MB)와 동일. 초과 시 업로드 전 안내.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -52,6 +52,8 @@ export function DrivePage() {
   const folderParam = searchParams.get('folderId')
   const folderId = folderParam == null ? null : Number(folderParam)
 
+  // #76: 공간 메타데이터 — archived 여부로 읽기 전용 배너·액션 버튼 비활성 결정.
+  const [space, setSpace] = useState<DriveSpace | null>(null)
   const [items, setItems] = useState<DriveItemList>({ folders: [], files: [] })
   const fileInput = useRef<HTMLInputElement>(null)
   const [picker, setPicker] = useState<
@@ -93,10 +95,21 @@ export function DrivePage() {
     const { data } = await driveApi.listItems(sid, folderId)
     setItems(data)
   }
+  // 아이템 목록은 공간/폴더 변경 시마다 갱신(폴더 진입 포함).
   useEffect(() => {
     if (!Number.isNaN(sid)) void reload()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, folderId])
+
+  // #76: 공간 메타데이터(archived 등)는 공간 변경 시 1회 조회 — 실패 시 배너 미표시로 폴백.
+  useEffect(() => {
+    if (!Number.isNaN(sid)) {
+      driveApi
+        .getSpace(sid)
+        .then((r) => setSpace(r.data))
+        .catch(() => undefined)
+    }
+  }, [sid])
 
   // 폴더 진입 시 조상 경로(폴더명) 로드. 루트(null)면 비움. 실패 시 빈 경로로 폴백.
   useEffect(() => {
@@ -323,7 +336,8 @@ export function DrivePage() {
               type="button"
               onClick={onNewFolder}
               data-testid="drive-new-folder"
-              className="rounded border px-2 py-1 text-sm hover:bg-accent/50"
+              disabled={!!space?.archived}
+              className="rounded border px-2 py-1 text-sm hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               새 폴더
             </button>
@@ -331,7 +345,7 @@ export function DrivePage() {
               type="button"
               onClick={() => fileInput.current?.click()}
               data-testid="drive-upload"
-              disabled={uploading}
+              disabled={uploading || !!space?.archived}
               className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {uploading ? '업로드 중…' : '업로드'}
@@ -392,6 +406,15 @@ export function DrivePage() {
         </nav>
       )}
       <div className="flex-1 overflow-y-auto p-4">
+        {/* #76: 보관된 채널에 연동된 공간 — 읽기 전용 배너. */}
+        {space?.archived && (
+          <div
+            data-testid="drive-readonly-banner"
+            className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+          >
+            보관된 채널의 공간입니다 — 읽기 전용입니다.
+          </div>
+        )}
         {trash != null ? (
           <div data-testid="trash-view">
             <div className="mb-2 flex items-center justify-between">
@@ -493,28 +516,32 @@ export function DrivePage() {
                 <button
                   type="button"
                   onClick={() => onRenameFolder(f.id, f.name)}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
+                  disabled={!!space?.archived}
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
                 >
                   이름변경
                 </button>
                 <button
                   type="button"
                   onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
+                  disabled={!!space?.archived}
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
                 >
                   이동
                 </button>
                 <button
                   type="button"
                   onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
+                  disabled={!!space?.archived}
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
                 >
                   복사
                 </button>
                 <button
                   type="button"
                   onClick={() => onDeleteFolder(f.id)}
-                  className="hidden text-xs text-destructive group-hover:inline-flex"
+                  disabled={!!space?.archived}
+                  className="hidden text-xs text-destructive group-hover:inline-flex disabled:opacity-50"
                 >
                   삭제
                 </button>
@@ -540,21 +567,24 @@ export function DrivePage() {
                 <button
                   type="button"
                   onClick={() => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name })}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
+                  disabled={!!space?.archived}
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
                 >
                   이동
                 </button>
                 <button
                   type="button"
                   onClick={() => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name })}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
+                  disabled={!!space?.archived}
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
                 >
                   복사
                 </button>
                 <button
                   type="button"
                   onClick={() => onDeleteFile(f.id)}
-                  className="hidden text-xs text-destructive group-hover:inline-flex"
+                  disabled={!!space?.archived}
+                  className="hidden text-xs text-destructive group-hover:inline-flex disabled:opacity-50"
                 >
                   삭제
                 </button>

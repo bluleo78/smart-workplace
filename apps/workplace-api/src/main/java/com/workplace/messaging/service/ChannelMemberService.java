@@ -5,11 +5,14 @@ import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelMembershipChangedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.tenant.repository.MembershipRepository;
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +25,7 @@ public class ChannelMemberService {
   private final ChannelMemberRepository memberRepo;
   private final ChannelPermissions perms;
   private final MembershipRepository membershipRepo;
+  private final ApplicationEventPublisher publisher;
 
   private static final List<String> VALID_ROLES = List.of("OWNER", "ADMIN", "MEMBER");
 
@@ -44,6 +48,7 @@ public class ChannelMemberService {
       throw new ChannelForbiddenException(channelId, targetUserId, "add-cross-tenant");
     }
     memberRepo.add(channelId, targetUserId, "MEMBER");
+    publishRoster(channelId);
   }
 
   /** 멤버 제거 — OWNER/ADMIN. OWNER 는 제거 불가. */
@@ -55,6 +60,7 @@ public class ChannelMemberService {
       throw new ChannelForbiddenException(channelId, callerId, "remove-owner");
     }
     memberRepo.remove(channelId, targetUserId);
+    publishRoster(channelId);
   }
 
   /** 나가기 — 본인. OWNER 는 소유권 이전 전엔 나갈 수 없음. */
@@ -67,6 +73,7 @@ public class ChannelMemberService {
       throw new OwnershipTransferRequiredException(channelId);
     }
     memberRepo.remove(channelId, callerId);
+    publishRoster(channelId);
   }
 
   /** 역할 변경 — OWNER 만. role=OWNER 면 소유권 이전(대상 OWNER 승격 + 호출자 ADMIN 강등). 한 트랜잭션으로 OWNER 1명 불변식 유지. */
@@ -90,6 +97,18 @@ public class ChannelMemberService {
       }
       memberRepo.updateRole(channelId, targetUserId, normalized);
     }
+    publishRoster(channelId);
+  }
+
+  /** 변경 후 현재 roster 로 멤버십 변경 이벤트 발행 — 드라이브 연동 공간 reconcile 소스. */
+  private void publishRoster(long channelId) {
+    String name = channelRepo.findName(channelId).orElse("");
+    List<ChannelMembershipChangedEvent.Member> roster =
+        memberRepo.listMembers(channelId).stream()
+            .map(m -> new ChannelMembershipChangedEvent.Member(m.userId(), m.role()))
+            .toList();
+    publisher.publishEvent(
+        new ChannelMembershipChangedEvent(channelId, name, roster, Instant.now()));
   }
 
   private void ensureExists(long channelId) {

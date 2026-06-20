@@ -59,4 +59,14 @@ public final class MessagingDomainEvents {
       String body,
       List<MentionResponse> mentions,
       Instant occurredAt) {}
+
+  /** 채널 멤버십 변경 — 연동 드라이브 공간 멤버 reconcile 소스. members 는 변경 후 현재 전체 roster. */
+  public record ChannelMembershipChangedEvent(
+      long channelId, String channelName, List<Member> members, Instant occurredAt) {
+    /** roster 1건 — role 은 채널 역할 OWNER/ADMIN/MEMBER. */
+    public record Member(long userId, String role) {}
+  }
+
+  /** 채널 보관 토글 — 연동 공간 읽기전용 반영 소스. */
+  public record ChannelArchivedEvent(long channelId, boolean archived, Instant occurredAt) {}
 }

@@ -51,6 +51,24 @@ public class DriveSpaceMemberRepository {
         .execute();
   }
 
+  /**
+   * 공간 멤버를 roster 로 reconcile — roster 의 (userId→role) 을 upsert 하고, roster 에 없는 기존 멤버는 제거. 순수 채널 미러
+   * 동기화용. 멱등.
+   */
+  public void reconcileMembers(long spaceId, java.util.Map<Long, String> roleByUser) {
+    for (var e : roleByUser.entrySet()) {
+      add(spaceId, e.getKey(), e.getValue()); // 기존 add = upsert(ON CONFLICT DO UPDATE role)
+    }
+    if (roleByUser.isEmpty()) {
+      dsl.deleteFrom(DRIVE_SPACE_MEMBER).where(DRIVE_SPACE_MEMBER.SPACE_ID.eq(spaceId)).execute();
+    } else {
+      dsl.deleteFrom(DRIVE_SPACE_MEMBER)
+          .where(DRIVE_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+          .and(DRIVE_SPACE_MEMBER.USER_ID.notIn(roleByUser.keySet()))
+          .execute();
+    }
+  }
+
   public List<DriveMemberResponse> listMembers(long spaceId) {
     return dsl.select(DRIVE_SPACE_MEMBER.USER_ID, USER.NAME, DRIVE_SPACE_MEMBER.ROLE)
         .from(DRIVE_SPACE_MEMBER)

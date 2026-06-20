@@ -7,6 +7,8 @@ export function createSpace(overrides: Partial<DriveSpace> = {}): DriveSpace {
     name: '팀 공간',
     ownerId: 1,
     role: 'OWNER',
+    // #76: archived 필드 추가 — DriveSpace 타입과 동기화.
+    archived: false,
     createdAt: new Date('2026-06-01').toISOString(),
     ...overrides,
   }

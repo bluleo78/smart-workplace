@@ -47,6 +47,7 @@ public class DriveSpaceRepository {
             DRIVE_SPACE.NAME,
             DRIVE_SPACE.OWNER_ID,
             DRIVE_SPACE_MEMBER.ROLE,
+            DRIVE_SPACE.ARCHIVED_AT,
             DRIVE_SPACE.CREATED_AT)
         .from(DRIVE_SPACE)
         .join(DRIVE_SPACE_MEMBER)
@@ -67,6 +68,7 @@ public class DriveSpaceRepository {
             DRIVE_SPACE.NAME,
             DRIVE_SPACE.OWNER_ID,
             DRIVE_SPACE_MEMBER.ROLE,
+            DRIVE_SPACE.ARCHIVED_AT,
             DRIVE_SPACE.CREATED_AT)
         .from(DRIVE_SPACE)
         .join(DRIVE_SPACE_MEMBER)
@@ -89,6 +91,54 @@ public class DriveSpaceRepository {
         r.get(DRIVE_SPACE.NAME),
         r.get(DRIVE_SPACE.OWNER_ID),
         r.get(DRIVE_SPACE_MEMBER.ROLE),
+        r.get(DRIVE_SPACE.ARCHIVED_AT) != null,
         r.get(DRIVE_SPACE.CREATED_AT));
+  }
+
+  /** 채널 링크로 연동 공간 id 조회. */
+  public Optional<Long> findIdByLinkedChannel(long channelId) {
+    return dsl.select(DRIVE_SPACE.ID)
+        .from(DRIVE_SPACE)
+        .where(DRIVE_SPACE.LINKED_CHANNEL_ID.eq(channelId))
+        .and(DRIVE_SPACE.TYPE.eq("CHANNEL"))
+        .fetchOptional(DRIVE_SPACE.ID);
+  }
+
+  /**
+   * 채널 연동 공간 생성(type=CHANNEL). 동시 첫 진입 경쟁 시 ON CONFLICT DO NOTHING 으로 unique 위반 대신 빈 Optional
+   * 반환(트랜잭션 비오염) — 충돌이면 호출측이 findIdByLinkedChannel 로 기존 공간 재조회.
+   */
+  public java.util.Optional<Long> insertChannelSpace(String name, long ownerId, long channelId) {
+    return dsl.insertInto(DRIVE_SPACE)
+        .set(DRIVE_SPACE.TYPE, "CHANNEL")
+        .set(DRIVE_SPACE.NAME, name)
+        .set(DRIVE_SPACE.OWNER_ID, ownerId)
+        .set(DRIVE_SPACE.LINKED_CHANNEL_ID, channelId)
+        .onConflict(DRIVE_SPACE.LINKED_CHANNEL_ID)
+        .where(DRIVE_SPACE.TYPE.eq("CHANNEL"))
+        .doNothing()
+        .returning(DRIVE_SPACE.ID)
+        .fetchOptional()
+        .map(r -> r.get(DRIVE_SPACE.ID));
+  }
+
+  /** 공간 보관 여부(archived_at != null). */
+  public boolean isArchived(long spaceId) {
+    return dsl.select(DRIVE_SPACE.ARCHIVED_AT)
+        .from(DRIVE_SPACE)
+        .where(DRIVE_SPACE.ID.eq(spaceId))
+        .fetchOptional(DRIVE_SPACE.ARCHIVED_AT)
+        .map(java.util.Objects::nonNull)
+        .orElse(false);
+  }
+
+  /** 공간 보관 토글 — true 면 archived_at=NOW(), false 면 NULL. */
+  public void setArchived(long spaceId, boolean archived) {
+    dsl.update(DRIVE_SPACE)
+        .set(
+            DRIVE_SPACE.ARCHIVED_AT,
+            archived ? java.time.OffsetDateTime.now() : (java.time.OffsetDateTime) null)
+        .where(DRIVE_SPACE.ID.eq(spaceId))
+        .execute();
   }
 }

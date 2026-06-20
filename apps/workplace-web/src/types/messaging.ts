@@ -134,3 +134,9 @@ export interface DmResponse {
 export interface CreateDmRequest {
   userIds: number[];
 }
+
+// #76: 채널 연동 드라이브 공간 ensure 응답.
+export interface ChannelDriveSpaceResponse {
+  spaceId: number
+  archived: boolean
+}
