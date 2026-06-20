@@ -315,11 +315,15 @@ export default function IssueDetailPage() {
           </>
         }
       />
-      <div className="flex-1 overflow-y-auto">
-        {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — lg 이상에서 가로 배치 (#343 Task 4). */}
-        <div className="container mx-auto flex flex-col gap-6 p-6 lg:flex-row">
-          {/* 메인 본문 — min-w-[360px]: 채팅/속성 레일 고정 너비에 밀려도 본문이 360px 이하로 압축되지 않도록 (#355). */}
-          <div className="min-w-[360px] flex-1 space-y-4">
+      {/* #354: @container 로 "행이 들어갈 실제 너비"를 기준 삼아 3분할↔세로스택을 전환한다(아래 @min-[1032px]).
+          뷰포트 기준 lg 는 AI 사이드패널이 main 을 좁혀도 3분할을 유지해, 좁아진 영역에서 본문이 붕괴되고
+          채팅·레일이 AI 패널 뒤로 밀려 가려졌다(오버레이 증상). */}
+      <div className="@container flex-1 overflow-y-auto">
+        {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — 컨테이너 폭 1032px(본문360+채팅320+레일280+gap/padding) 이상에서 가로 배치 (#343 Task 4, #354). */}
+        <div className="container mx-auto flex flex-col gap-6 p-6 @min-[1032px]:flex-row">
+          {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
+              세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
+          <div className="flex-1 space-y-4 @min-[1032px]:min-w-[360px]">
             <InlineEditableBody
               body={body}
               onSave={(b) => patch({ body: b })}
@@ -352,8 +356,8 @@ export default function IssueDetailPage() {
           </div>
           {/* 채팅 패널 — 접힘/펼침 자동 토글. lg 이상에서 본문과 레일 사이. */}
           <IssueChatPanel projectKey={key} issueNumber={issueNumber} />
-          {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. */}
-          <aside className="w-full shrink-0 lg:w-[280px]">
+          {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. #354: 뷰포트 lg → 컨테이너 1032px 기준. */}
+          <aside className="w-full shrink-0 @min-[1032px]:w-[280px]">
             <IssuePropertyRail
               projectKey={key}
               issueNumber={issueNumber}
