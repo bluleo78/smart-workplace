@@ -43,6 +43,13 @@ function isMailQuery(query: string): boolean {
   return /메일|mail|받은편지|안읽은|이메일|e-mail|IMAP|SMTP|계정.*(확인|연동|상태)/i.test(query);
 }
 
+// #408: 연락처 쿼리 감지 — "연락처 찾아줘" 같은 모호한 요청에서 홈 라우터가
+// contacts-agent 위임 없이 직접 되묻는 비결정적 동작을 차단한다.
+// isMailQuery 가 연락처 컨텍스트를 제외하므로 두 감지기는 상호 배타적이다.
+function isContactsQuery(query: string): boolean {
+  return /연락처|contacts/i.test(query);
+}
+
 // #405: 생성일 필터 쿼리 감지 — "이번 주 생성된 이슈" 처럼 생성일 범위로 이슈를 조회하는 요청.
 // show_issue_list 는 dueFrom/dueTo(마감일)만 지원하고 생성일 필터는 없으므로,
 // haiku 가 dueFrom 으로 오해석하는 비결정적 동작을 런타임에서 차단한다.
@@ -297,6 +304,12 @@ export async function runAiComposeStream(
     if (isMailQuery(input.query) && !delegated) {
       onProgress?.('메일 전문가에게 위임 중');
       return { fullText: 'mail-agent에 전달했습니다.', widgets: null, pendingAction: null };
+    }
+    // #408: 연락처 쿼리인데 contacts-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 되묻기 차단).
+    // "어떤 연락처를 찾고 계신가요?" 처럼 라우터가 직접 되묻는 응답을 차단하고 contacts-agent에 전달한다.
+    if (isContactsQuery(input.query) && !delegated) {
+      onProgress?.('연락처 전문가에게 위임 중');
+      return { fullText: '연락처 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
     }
     // #390: 드라이브 미지원 작업(업로드·멤버 권한 변경) 쿼리 — drive-agent 에 해당 도구가 없어
     // 위임해도 진행 불가. 홈 라우터가 "정보 주시면 위임 진행" 류로 오안내하는 경우를 차단한다.

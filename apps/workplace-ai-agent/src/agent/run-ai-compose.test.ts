@@ -405,9 +405,13 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
     expect(out.fullText).toBe('안녕하세요.');
   });
 
-  // #385: 연락처 컨텍스트 + "이메일" 키워드 → contacts 컨텍스트가 mail 쿼리로 오탐되면 안 됨.
-  it('연락처 쿼리에 이메일 포함 + 위임 없음 → mail fallback 적용 안 됨 (#385)', async () => {
+  // #385: 연락처 컨텍스트 + "이메일" 키워드 → contacts-agent 위임 경로, mail fallback 오탐 방지.
+  // #408: contacts-agent 위임이 있는 정상 경로 — mail·contacts fallback 모두 적용 안 됨.
+  it('연락처 쿼리에 이메일 포함 + contacts-agent 위임 → mail/contacts fallback 미적용 (#385/#408)', async () => {
+    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'contacts-agent': { description: 'c', tools: [], prompt: '' } });
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // 정상 경로: contacts-agent 위임 발생 + 결과 반환.
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'contacts-agent', prompt: '김민수 이메일 kim@test.com 연락처 추가' } }] } }));
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '김민수(kim@test.com) 연락처가 추가되었습니다.' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
@@ -420,10 +424,10 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
       new AbortController().signal,
       (l) => labels.push(l),
     );
-    // 연락처 컨텍스트이므로 mail fallback 적용 안 됨 — contacts-agent 결과 보존.
+    // contacts-agent 위임 정상 발생 — mail fallback 미적용, 위임 라벨 발행, LLM 응답 보존.
     expect(labels).not.toContain('메일 전문가에게 위임 중');
+    expect(labels).toContain('연락처 전문가에게 위임 중');
     expect(out.fullText).toBe('김민수(kim@test.com) 연락처가 추가되었습니다.');
-    expect(out.fullText).not.toBe('mail-agent에 전달했습니다.');
   });
 
   it('순수 "이메일" 키워드 + 위임 없음 → mail fallback 적용 (#385 회귀 가드)', async () => {
@@ -444,6 +448,74 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
     // 연락처 컨텍스트 없이 이메일 키워드만 있으면 mail fallback 적용.
     expect(labels).toContain('메일 전문가에게 위임 중');
     expect(out.fullText).toBe('mail-agent에 전달했습니다.');
+  });
+});
+
+// #408: isContactsQuery && !delegated → contacts fallback override.
+describe('runAiComposeStream — contacts 직접 되묻기 fallback (#408)', () => {
+  it('연락처 쿼리 + 위임 없음 → onProgress 발행 + 고정 fallback 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // haiku 가 contacts-agent 위임 없이 직접 되묻는 시나리오(contact-006 재현).
+      onLine(textDelta('어떤 연락처를 찾고 계신가요? 이름이나 검색할 키워드를 알려주시면 찾아드리겠습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '어떤 연락처를 찾고 계신가요? 이름이나 검색할 키워드를 알려주시면 찾아드리겠습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const labels: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '연락처 찾아줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+      (l) => labels.push(l),
+    );
+    // onProgress 로 위임 라벨이 발행되고 고정 문구로 override 됐는지 검증.
+    expect(labels).toContain('연락처 전문가에게 위임 중');
+    expect(out.fullText).toBe('연락처 전문가에게 전달했습니다.');
+    expect(out.widgets).toBeNull();
+    expect(out.pendingAction).toBeNull();
+  });
+
+  it('연락처 쿼리 + 위임 있음 → fallback 없이 LLM 응답 그대로 반환', async () => {
+    // contacts-agent 를 화이트리스트에 포함시켜 checkSubagentWhitelist 차단을 방지.
+    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'contacts-agent': { description: 'c', tools: [], prompt: '' } });
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // 정상 경로: contacts-agent 위임 발생 + 결과 반환.
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'contacts-agent', prompt: '연락처 찾아줘' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '현재 등록된 연락처가 없습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const labels: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '연락처 찾아줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+      (l) => labels.push(l),
+    );
+    // 정상 위임 경로: 라벨은 발행되지만 fallback 없이 LLM 응답 사용.
+    expect(labels).toContain('연락처 전문가에게 위임 중');
+    expect(out.fullText).toBe('현재 등록된 연락처가 없습니다.');
+  });
+
+  it('비연락처 쿼리 + 위임 없음 → contacts fallback 적용 안 됨', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '안녕하세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const labels: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '오늘 일정 알려줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+      (l) => labels.push(l),
+    );
+    // 연락처 쿼리가 아니므로 fallback 적용 안 됨.
+    expect(labels).not.toContain('연락처 전문가에게 위임 중');
+    expect(out.fullText).toBe('안녕하세요.');
   });
 });
 
