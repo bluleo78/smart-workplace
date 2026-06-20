@@ -2,7 +2,7 @@
 // #345: DM 도 채널이므로 백엔드가 AI 진행 progress 를 fan-out 한다 → ChannelPage 와 동일하게
 // onMessagingProgress 를 구독해 작업 중 유령 버블을 렌더(dm.id 기준).
 import { MessageSquare } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
@@ -56,11 +56,27 @@ export default function DmPage() {
     })
   }, [dmId])
 
-  // 메시지 수가 늘면(실제 AGENT 메시지 도착) 모든 유령 버블 제거 — SSE created 이벤트가 캐시를 늘림.
-  const messageCount = messages.length
+  // 신규 AGENT 메시지가 도착하면(실제 응답 등장) 모든 유령 버블 제거 — done 이벤트 누락/순서 역전 대비 백스톱.
+  // message.id 는 서버 단조 증가 시퀀스이므로 "기준선(초기 로드 시점의 최대 AGENT id) 초과" 만 신규 도착으로 본다.
+  // → 스크롤백 페이지네이션(과거 작은 id prepend)·HUMAN 메시지·낙관적 임시 id 는 트리거하지 않는다 (#346).
+  const messagesLoaded = data !== undefined
+  const maxAgentMsgId = messages.reduce(
+    (mx, m) => (m.authorKind === 'AGENT' && m.id > mx ? m.id : mx),
+    0,
+  )
+  const agentBaselineRef = useRef<number | null>(null)
   useEffect(() => {
-    setWorking(new Map())
-  }, [messageCount])
+    if (!messagesLoaded) return // 첫 메시지 로드 전 — 기준선 미설정(라이브 버블 보호)
+    // 최초 로드: 기존 AGENT 메시지 최대 id 를 기준선으로 잡는다(0 이어도). 이 run 에서는 절대 제거하지 않는다.
+    if (agentBaselineRef.current === null) {
+      agentBaselineRef.current = maxAgentMsgId
+      return
+    }
+    if (maxAgentMsgId > agentBaselineRef.current) {
+      agentBaselineRef.current = maxAgentMsgId
+      setWorking(new Map())
+    }
+  }, [messagesLoaded, maxAgentMsgId])
 
   // TTL 안전망: 60초 무수신 유령 제거 (10초마다 스위프)
   useEffect(() => {
