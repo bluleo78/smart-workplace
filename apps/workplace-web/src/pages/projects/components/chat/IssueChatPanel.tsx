@@ -100,7 +100,9 @@ function ChatPanelInner({
   return (
     <aside
       data-testid="issue-chat-panel-body"
-      className="w-full shrink-0 border-l pl-4 lg:w-[320px]"
+      // #354: 뷰포트 lg → 부모 @container 폭 1032px 기준. 컨테이너가 좁으면(=세로 스택) w-full,
+      // 1032px 이상에서만 320px 고정. 뷰포트 기준이면 AI 패널로 좁아진 영역에서도 320px 를 고집해 오버플로우됐다.
+      className="w-full shrink-0 border-l pl-4 @min-[1032px]:w-[320px]"
     >
       <div className="mb-2 flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-sm font-semibold text-primary">

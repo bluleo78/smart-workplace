@@ -347,3 +347,85 @@ test.describe('이슈 채팅 패널 (채팅 접기 패널, Task 4)', () => {
     await expect(page.getByTestId('issue-chat-panel-open')).toBeVisible();
   });
 });
+
+// AI 사이드패널 + 이슈 채팅 동시 열기 — 레이아웃 붕괴/오버레이 방지 (#354).
+// 무엇을: 3구역 가로배치를 뷰포트(lg)가 아닌 컨테이너 폭(@container 1032px) 기준으로 전환.
+// 왜: AI 사이드패널이 main 을 좁히면 좁아진 영역에서도 3분할을 유지해 본문이 ~180px 로 붕괴되고
+//     채팅·레일이 AI 패널(z-60) 뒤로 밀려 가려졌다(오버레이 증상). 컨테이너 기준이면 좁을 때 세로 스택.
+test.describe('AI 사이드패널 + 이슈 채팅 동시 (#354)', () => {
+  // 행(3구역 부모)의 가로 오버플로우 + 채팅이 AI 패널 좌측 경계를 넘는지 측정.
+  async function probe(page: import('@playwright/test').Page) {
+    return page.evaluate(() => {
+      const chat = document.querySelector('[data-testid="issue-chat-panel-body"]') as HTMLElement;
+      const row = chat.parentElement as HTMLElement;
+      const ai = document.querySelector('[data-testid="ai-side-panel"]') as HTMLElement | null;
+      return {
+        overflow: row.scrollWidth - row.clientWidth,
+        flexDir: getComputedStyle(row).flexDirection,
+        chatRight: Math.round(chat.getBoundingClientRect().right),
+        aiLeft: ai ? Math.round(ai.getBoundingClientRect().left) : Infinity,
+      };
+    });
+  }
+
+  test(
+    '1280px + AI 사이드패널 열림: 세로 스택 + 가로 오버플로우 없음 + 채팅이 AI 패널에 안 가려짐',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await mockIssueDetail(page, {});
+      await mockChatThread(page, {
+        threadId: 11,
+        recentMessages: [{ id: 1, threadId: 11, body: '안녕' }],
+      });
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+      await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
+
+      // AI 사이드패널 열기(chat-launcher 1클릭 → side 모드).
+      await page.getByTestId('chat-launcher').click();
+      await expect(page.getByTestId('ai-side-panel')).toBeVisible();
+
+      const r = await probe(page);
+      expect(r.flexDir).toBe('column'); // 좁아진 영역 → 세로 스택
+      expect(r.overflow).toBeLessThanOrEqual(1); // 가로 오버플로우 없음
+      expect(r.chatRight).toBeLessThanOrEqual(r.aiLeft + 1); // 채팅이 AI 패널 뒤로 안 밀림(가려짐 방지)
+    },
+  );
+
+  test('1024px + AI 사이드패널 열림(가장 좁은 케이스): 오버플로우/가려짐 없음', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await mockIssueDetail(page, {});
+    await mockChatThread(page, {
+      threadId: 13,
+      recentMessages: [{ id: 1, threadId: 13, body: '안녕' }],
+    });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
+    await page.getByTestId('chat-launcher').click();
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible();
+
+    const r = await probe(page);
+    expect(r.overflow).toBeLessThanOrEqual(1);
+    expect(r.chatRight).toBeLessThanOrEqual(r.aiLeft + 1);
+  });
+
+  test('넓은 화면(1700px) no-AI: 3구역 가로 배치(row) 유지', async ({ authenticatedPage: page }) => {
+    // 컨테이너가 충분히 넓으면(≥1032px) 기존 3분할 가로 배치 유지 — 항상-스택 회귀 방지.
+    await page.setViewportSize({ width: 1700, height: 900 });
+    await mockIssueDetail(page, {});
+    await mockChatThread(page, {
+      threadId: 12,
+      recentMessages: [{ id: 1, threadId: 12, body: '안녕' }],
+    });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
+
+    const flexDir = await page.evaluate(() => {
+      const chat = document.querySelector('[data-testid="issue-chat-panel-body"]') as HTMLElement;
+      return getComputedStyle(chat.parentElement as HTMLElement).flexDirection;
+    });
+    expect(flexDir).toBe('row');
+  });
+});
