@@ -37,7 +37,18 @@ class ChatSseDispatcherTest {
   void created_fansOutToAllMembers() {
     dispatcher.onCreated(
         new ChatMessageCreatedEvent(
-            5L, 10L, 100L, "WP", "WP-1", HUMAN, "hi", List.of(), Instant.now()));
+            5L,
+            10L,
+            100L,
+            "WP",
+            "WP-1",
+            "제목",
+            "TODO",
+            "본문",
+            HUMAN,
+            "hi",
+            List.of(),
+            Instant.now()));
     verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.created"), any());
   }
 

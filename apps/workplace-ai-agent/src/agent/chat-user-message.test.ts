@@ -43,4 +43,26 @@ describe('buildChatUserMessage', () => {
   it('첨부 없음 → 첨부 섹션에 없음 표기', () => {
     expect(buildChatUserMessage(payload, recent, [])).toContain('첨부 없음');
   });
+
+  // #368: 이슈 제목·상태·본문을 user message 에 직접 주입(AGENT 비멤버라 get_issue_detail 403 → 미리 주입).
+  it('#368 이슈 컨텍스트(제목·상태·본문) 주입', () => {
+    const enriched: ChatMessagePostedPayload = {
+      ...payload,
+      issueTitle: '로그인 버그',
+      issueStatus: 'IN_PROGRESS',
+      issueBody: '재현 절차: 로그인 시 500 에러',
+    };
+    const msg = buildChatUserMessage(enriched, recent, []);
+    expect(msg).toContain('현재 이슈 컨텍스트');
+    expect(msg).toContain('로그인 버그');
+    expect(msg).toContain('IN_PROGRESS');
+    expect(msg).toContain('재현 절차: 로그인 시 500 에러');
+  });
+
+  // 구버전 이벤트(컨텍스트 필드 부재)에도 깨지지 않고 placeholder 로 graceful 표기.
+  it('#368 이슈 컨텍스트 누락 시 (제목 없음)/(본문 없음) placeholder', () => {
+    const msg = buildChatUserMessage(payload, recent, []);
+    expect(msg).toContain('(제목 없음)');
+    expect(msg).toContain('(본문 없음)');
+  });
 });
