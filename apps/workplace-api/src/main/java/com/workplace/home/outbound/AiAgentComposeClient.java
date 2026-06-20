@@ -160,8 +160,18 @@ public class AiAgentComposeClient {
           }
         }
       }
-      // done 이벤트 없이 스트림이 끝난 경우에도 정상 종료로 마감.
-      onDone.accept("", null);
+      // 여기 도달 = done/error 이벤트 없이 본문 스트림이 끝난 경우. 두 트리거를 구분한다 (#347).
+      // (1) 취소(SseEmitter 타임아웃·클라이언트 끊김 → Future.cancel(true) → 인터럽트로 루프 break):
+      //     emitter 는 이미 정리됐으므로 콜백 없이 조용히 종료. onDone 을 부르면 닫힌 emitter 에
+      //     쓰는 무의미한 동작일 뿐 아니라 빈 ASSISTANT 행을 세션에 영속시킨다.
+      if (Thread.currentThread().isInterrupted()) {
+        return;
+      }
+      // (2) 연결은 살아있는데 done 없이 EOF(에이전트 비정상 종료): ASSISTANT 영속 금지.
+      //     onDone 을 부르지 않아 빈 행을 남기지 않고, onError 로 마감해 살아있는 emitter 가
+      //     300s 타임아웃까지 매달리지 않게 한다.
+      log.error("ai-agent home compose 스트림이 done 이벤트 없이 종료됨");
+      onError.accept("AI 응답이 완료되지 않았어요. 잠시 후 다시 시도해주세요.");
 
     } catch (HomeComposeUnavailableException e) {
       throw e;
