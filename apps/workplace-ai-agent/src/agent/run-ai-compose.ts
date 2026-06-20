@@ -37,9 +37,10 @@ export interface ComposeInput {
 // 비결정적 동작(haiku 프롬프트 무시)을 런타임에서 차단하기 위한 선별 기준.
 // #385: 연락처(contacts) 컨텍스트를 가진 쿼리는 메일 쿼리에서 제외 — "이메일" 키워드가
 // 연락처 생성/수정 요청에 포함될 때 오탐해 mail-agent fallback이 contacts-agent 결과를 덮는 버그 방지.
+// #439: "미읽은"·"unread" 키워드를 명시적으로 추가 — "메일" 없이 해당 키워드만 있는 쿼리도 감지.
 function isMailQuery(query: string): boolean {
   if (/연락처|contacts/i.test(query)) return false;
-  return /메일|mail|받은편지|안읽은|이메일|e-mail|IMAP|SMTP|계정.*(확인|연동|상태)/i.test(query);
+  return /메일|mail|받은편지|안읽은|미읽은|unread|이메일|e-mail|IMAP|SMTP|계정.*(확인|연동|상태)/i.test(query);
 }
 
 // #408: 연락처 쿼리 감지 — "연락처 찾아줘" 같은 모호한 요청에서 홈 라우터가
@@ -390,9 +391,18 @@ export async function runAiComposeStream(
     // 내용이 스트리밍됐으므로 done.fullText 도 delta 누적 텍스트와 일치시킨다.
     // onProgress 는 실제 위임이 없으므로 발행하지 않는다.
     // fullText 가 비어 있는 극단적 edge case(delta 없이 done 만 온 경우)는 fallback 문구를 사용한다.
+    // #439: "없습니다" 류 메일 유무 환각 응답 감지 — 도구 없이 메일 상태를 단정하는 경우
+    // done.fullText 를 중립 안내로 override 한다(delta는 이미 스트리밍됐지만 done으로 정정).
     if (isMailQuery(input.query) && !delegated) {
       const sanitized = fullText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(ENUM_PARENTHETICAL_RE, '').trim();
-      return { fullText: sanitized || '메일 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
+      const hasMailStatusHallucination = /없습니다|없어요|없군요|없네요|없는\s*(것|것으로|듯)/i.test(sanitized);
+      return {
+        fullText: hasMailStatusHallucination
+          ? '메일을 직접 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.'
+          : (sanitized || '메일 전문가에게 전달했습니다.'),
+        widgets: null,
+        pendingAction: null,
+      };
     }
     // #408: 연락처 쿼리인데 contacts-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 되묻기 차단).
     // #422: 연락처 직접 응답 시 delta 누적 텍스트를 done.fullText 로 반환 — 라우팅 메시지 노출 방지.
