@@ -164,6 +164,10 @@ function buildComposeUserMessage(input: ComposeInput): string {
   return `이전 대화:\n${lines.join('\n')}\n\n현재 요청: ${input.query}`;
 }
 
+// #410 #421: 내부 서브에이전트 식별자 sanitize 정규식 — done.fullText 및 delta 스트림 양쪽에 적용.
+// String.prototype.replace 는 gi 플래그 정규식의 lastIndex 를 갱신하지 않으므로 모듈 상수 재사용 안전.
+const SUBAGENT_ID_RE = /\b(?:issue|calendar|messaging|wiki|mail|contacts|project|drive)-agent(?:에게?|가|이|를|을|로|으로|은|는|도|만|와|과|의)?\s*/gi;
+
 // SSE 라우트용 스트리밍 러너 — 토큰이 도착할 때마다 onText 콜백을 호출하고,
 // 완료 후 parseComposeLines 로 최종 message + widgets 를 산출해 반환한다.
 // #333: assistant 프로파일 + per-request workdir + allowSubagents + 화이트리스트 강제.
@@ -244,6 +248,9 @@ export async function runAiComposeStream(
     let policyDeny: string | null = null;
     // #383: mail-agent 위임 발생 여부 추적 — CLI 완료 후 위임 없이 직접 응답한 경우 fallback.
     let delegated = false;
+    // #421: 청크 경계에 걸친 서브에이전트 식별자("wiki" + "-agent에 위임하겠습니다.")를
+    // sanitize 하기 위한 carry buffer. 최대 30자를 보유하며 handle.done 후 플러시한다.
+    let deltaCarry = '';
     let killer: (() => void) | null = null;
     const handle = runClaudeCliStream(
       { args, env, timeoutMs: input.timeoutMs, logTag: `ai-compose:${agentId}`, cwd: workDir! },
@@ -260,7 +267,18 @@ export async function runAiComposeStream(
         const delta = extractTextDelta(obj);
         if (delta) {
           fullText += delta;
-          onText(delta);
+          // #421: carry buffer 로 청크 경계에 걸친 식별자 패턴을 sanitize.
+          // 예: "wiki"(청크1) + "-agent에 위임하겠습니다."(청크2) → 합쳐서 매칭 후 제거.
+          // 최대 30자를 carry 로 보류해 다음 청크와 합쳐 검사 후 플러시한다.
+          const combined = deltaCarry + delta;
+          const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '');
+          const CARRY = 30;
+          if (sanitizedDelta.length > CARRY) {
+            onText(sanitizedDelta.slice(0, sanitizedDelta.length - CARRY));
+            deltaCarry = sanitizedDelta.slice(sanitizedDelta.length - CARRY);
+          } else {
+            deltaCarry = sanitizedDelta; // 다음 청크와 합쳐서 검사
+          }
         }
         // #333: assistant tool_use 중 Agent 위임을 검사·라벨링한다.
         const o = obj as {
@@ -294,6 +312,12 @@ export async function runAiComposeStream(
     if (signal.aborted) handle.kill();
     else signal.addEventListener('abort', () => handle.kill(), { once: true });
     await handle.done;
+    // #421: carry buffer 잔여 플러시 — 청크 경계 sanitize 후 보류된 델타 텍스트를 전송한다.
+    // onText 내부에서 aborted 확인하므로 연결이 끊겼으면 no-op.
+    if (deltaCarry) {
+      onText(deltaCarry);
+      deltaCarry = '';
+    }
     // #333: 위반 감지 시 fallback kill(프로덕션=이미 killed, 동기 모킹=여기서 kill) + throw.
     if (policyDeny) {
       handle.kill();
@@ -333,9 +357,10 @@ export async function runAiComposeStream(
     }
     // #383: 메일 쿼리인데 mail-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 응답 차단).
     // LLM 응답을 버리고 progress 라벨 + 고정 문구로 override 해 UX 일관성을 보장한다.
+    // #421: 이전에는 'mail-agent에 전달했습니다.'를 반환해 내부 식별자가 노출됐음. 사용자 친화적 문구로 교체.
     if (isMailQuery(input.query) && !delegated) {
       onProgress?.('메일 전문가에게 위임 중');
-      return { fullText: 'mail-agent에 전달했습니다.', widgets: null, pendingAction: null };
+      return { fullText: '메일 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
     }
     // #408: 연락처 쿼리인데 contacts-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 되묻기 차단).
     // "어떤 연락처를 찾고 계신가요?" 처럼 라우터가 직접 되묻는 응답을 차단하고 contacts-agent에 전달한다.
@@ -381,14 +406,11 @@ export async function runAiComposeStream(
     // parseComposeLines 로 최종 message(result 이벤트) + widgets(tool_use 이벤트) 산출.
     const parsed = parseComposeLines(lines);
     const finalText = parsed.message || fullText;
-    // #410: haiku 가 응답 본문에 내부 서브에이전트 식별자(issue-agent, calendar-agent 등)를
+    // #410 #421: haiku 가 응답 본문에 내부 서브에이전트 식별자(issue-agent, calendar-agent 등)를
     // 노출하는 비결정적 동작을 결정론적으로 차단한다. 프롬프트 규칙만으로는 비결정적이므로
     // 후처리 sanitize 로 식별자 + 조사를 제거한다.
     // 예: "calendar-agent에 확인하겠습니다." → "확인하겠습니다."
-    const sanitizedText = finalText.replace(
-      /\b(?:issue|calendar|messaging|wiki|mail|contacts|project|drive)-agent(?:에게?|가|이|를|을|로|으로|은|는|도|만|와|과|의)?\s*/gi,
-      '',
-    );
+    const sanitizedText = finalText.replace(SUBAGENT_ID_RE, '');
     // #379: issue-agent 가 이슈 삭제 요청에서 내부 SDK 메시지("Agent 도구가 활성화되어 있지 않네요",
     // "현재 환경에서" 등)를 노출하는 비결정적 동작을 결정론적으로 차단한다.
     // #407: "advisor에게 상담하겠습니다" 등 SDK 내부 폴백 메시지도 동일 패턴으로 차단한다.

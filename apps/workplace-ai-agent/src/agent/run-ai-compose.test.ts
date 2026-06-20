@@ -195,6 +195,25 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     resolveDone();
     await p;
   });
+
+  // #421: 델타 스트림 carry buffer — 청크 경계에 걸친 식별자 sanitize 검증.
+  // wiki-002.sse 패턴: "wiki"(청크1) + "-agent에 위임하겠습니다."(청크2) → carry buffer 합산 후 제거.
+  it('청크 경계에 걸친 agent 식별자를 carry buffer 로 sanitize (#421)', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('wiki'));                         // 청크 1: 식별자 전반부
+      onLine(textDelta('-agent에 위임하겠습니다. '));     // 청크 2: 식별자 후반부 + 조사
+      onLine(textDelta('직접 처리하겠습니다.'));           // 청크 3: 정상 콘텐츠
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '직접 처리하겠습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    // "wiki-agent에 위임하겠습니다." 부분이 delta 스트림에서 제거돼야 한다.
+    expect(streamed).not.toMatch(/wiki-agent|agent에/);
+    expect(streamed).toContain('직접 처리하겠습니다.');
+  });
 });
 
 describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
@@ -357,8 +376,9 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
       (l) => labels.push(l),
     );
     // onProgress 로 위임 라벨이 발행되고 고정 문구로 override 됐는지 검증.
+    // #421: 사용자 친화적 문구로 교체 — 내부 식별자 'mail-agent' 미포함.
     expect(labels).toContain('메일 전문가에게 위임 중');
-    expect(out.fullText).toBe('mail-agent에 전달했습니다.');
+    expect(out.fullText).toBe('메일 전문가에게 전달했습니다.');
     expect(out.widgets).toBeNull();
     expect(out.pendingAction).toBeNull();
   });
@@ -446,8 +466,9 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
       (l) => labels.push(l),
     );
     // 연락처 컨텍스트 없이 이메일 키워드만 있으면 mail fallback 적용.
+    // #421: 사용자 친화적 문구로 교체 — 내부 식별자 'mail-agent' 미포함.
     expect(labels).toContain('메일 전문가에게 위임 중');
-    expect(out.fullText).toBe('mail-agent에 전달했습니다.');
+    expect(out.fullText).toBe('메일 전문가에게 전달했습니다.');
   });
 });
 
