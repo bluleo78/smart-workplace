@@ -1,7 +1,5 @@
 import type {
   ActivityPage,
-  ComposeRequest,
-  ComposeResponse,
   HomeMessage,
   HomeSessionPage,
   PendingAction,
@@ -21,9 +19,6 @@ export function toQueryParams(params: Record<string, unknown> = {}): Record<stri
 }
 
 export const homeApi = {
-  /** 챗 명령 → AI compose(단일 응답). sessionId null 이면 백엔드가 새 세션 생성. */
-  compose: (body: ComposeRequest) => client.post<ComposeResponse>('/ai/compose', body),
-
   /** 프로젝트 횡단 내 이슈 검색 (issue_list/my_tasks 위젯). */
   myIssues: (params: Record<string, unknown>) =>
     client.get<IssueSearchResponse>('/me/issues', { params: toQueryParams(params) }),

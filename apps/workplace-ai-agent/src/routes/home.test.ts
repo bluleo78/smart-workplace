@@ -3,7 +3,6 @@ import express from 'express';
 import request from 'supertest';
 
 vi.mock('../agent/run-ai-compose.js', () => ({
-  runAiCompose: vi.fn(),
   runAiComposeStream: vi.fn(),
 }));
 

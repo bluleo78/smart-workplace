@@ -6,13 +6,12 @@
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { HOME_SYSTEM_PROMPT } from './home-system-prompt.js';
 import { ASSISTANT_SYSTEM_PROMPT, delegationLabel } from './assistant-system-prompt.js';
 import { loadSubagents, writeSubagentDefinitions } from './subagent-loader.js';
 import { checkSubagentWhitelist } from './tool-policy.js';
 import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
-import { buildChildEnv, buildCliArgs, runClaudeCliCollect, runClaudeCliStream } from './cli-runner.js';
-import { parseComposeLines, type ComposeResult } from './compose-parser.js';
+import { buildChildEnv, buildCliArgs, runClaudeCliStream } from './cli-runner.js';
+import { parseComposeLines } from './compose-parser.js';
 import { extractTextDelta } from './wiki-delta-parser.js';
 import { thinkingDirective } from './thinking.js';
 import type { RunAgentDeps } from './run-agent.js';
@@ -452,44 +451,5 @@ export async function runAiComposeStream(
     // Finding 2: null 가드 — writeTempMcpConfig/mkdtempSync 가 throw 하면 미생성 변수는 정리 생략.
     if (mcpConfigPath) cleanupTempMcpConfig(mcpConfigPath);
     if (workDir) rmSync(workDir, { recursive: true, force: true }); // workDir + 내부 system-prompt.txt 정리
-  }
-}
-
-export async function runAiCompose(
-  input: ComposeInput,
-  deps: RunAgentDeps,
-): Promise<ComposeResult> {
-  // 비서 AGENT 의 OAuth 토큰으로 LLM 인증. agentId 는 요청 본문에서 온다.
-  const agentId = input.assistantAgentId;
-  const token = (await deps.client.getOAuthToken(agentId)).token;
-  const mcpConfigPath = writeTempMcpConfig({
-    agentId,
-    baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
-    internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
-    profile: 'home',
-    userId: input.userId, // #376: MCP child env 에도 ACTING_USER_ID 전달
-  });
-
-  try {
-    // 생각의 깊이는 CLI 플래그가 없어 system-prompt 접미 지시문으로 근사한다.
-    const systemPrompt = HOME_SYSTEM_PROMPT + thinkingDirective(input.thinkingDepth);
-    const args = buildCliArgs({
-      userMessage: buildComposeUserMessage(input),
-      systemPrompt,
-      model: input.model,
-      maxTurns: input.maxTurns,
-      mcpConfigPath,
-      includePartialMessages: false,
-    });
-    const env = buildChildEnv(process.env, token, agentId, input.userId); // #376: userId 전달
-    const lines = await runClaudeCliCollect({
-      args,
-      env,
-      timeoutMs: input.timeoutMs,
-      logTag: `ai-compose:${agentId}`,
-    });
-    return parseComposeLines(lines);
-  } finally {
-    cleanupTempMcpConfig(mcpConfigPath);
   }
 }
