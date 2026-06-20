@@ -824,6 +824,71 @@ describe('runAiComposeStream — 내부 식별자 sanitize (#410)', () => {
   });
 });
 
+// #426: 한국어 서브에이전트 식별자 sanitize — "메일 조회 에이전트에 연결할 수 없습니다" 류 노출 차단.
+// 실제 버그 시나리오: mail-agent 위임(delegated=true) 후 실패 → haiku 가 "메일 조회 에이전트에" 포함 응답.
+// SUBAGENT_ID_RE 가 영문 mail-agent 만 처리하므로 한국어 패턴이 finalText sanitize 를 통과하는 버그.
+describe('runAiComposeStream — 한국어 에이전트 식별자 sanitize (#426)', () => {
+  // mail-agent 위임 후 LLM 에러 응답이 finalText 경로로 나오는 시나리오 (delegated=true).
+  // loadSubagents 를 mail-agent 포함으로 override 해 화이트리스트 차단 없이 delegated=true 달성.
+  it('mail-agent 위임 후 실패: finalText 에서 "메일 조회 에이전트에" 를 제거한다', async () => {
+    vi.mocked(loadSubagents).mockReturnValueOnce(
+      { 'mail-agent': { description: 'd', tools: [], prompt: '' } } as never,
+    );
+    const agentToolUse = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Agent', input: { subagent_type: 'mail-agent', prompt: '메일 조회' } }] },
+    });
+    const leaked = '죄송합니다, 잠시 후 다시 시도해 주세요. 현재 메일 조회 에이전트에 연결할 수 없습니다.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(agentToolUse); // delegated=true 설정
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: leaked }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: '메일 확인해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).not.toContain('메일 조회 에이전트');
+    expect(out.fullText).toContain('죄송합니다');
+  });
+
+  it('delta 스트림에서도 "메일 에이전트가" 를 제거한다 (isMailQuery=false 일반 쿼리)', async () => {
+    // isMailQuery=false 인 쿼리로 isMailQuery && !delegated 경로를 피해 delta sanitize 검증.
+    const leaked = '현재 메일 에이전트가 응답하지 않습니다. 잠시 후 다시 시도해 주세요.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta(leaked));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: leaked }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const streamed: string[] = [];
+    const out = await runAiComposeStream(baseInput({ query: '할 일 알려줘' }), { client: fakeClient }, (t) => streamed.push(t), new AbortController().signal);
+    expect(streamed.join('')).not.toContain('메일 에이전트');
+    expect(out.fullText).not.toContain('메일 에이전트');
+  });
+
+  it('도메인 접두어 없는 "에이전트" 는 제거하지 않는다(오탐 방지)', async () => {
+    const normal = '에이전트가 처리합니다.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: normal }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: '할 일 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe('에이전트가 처리합니다.');
+  });
+
+  it('"이슈 에이전트를" 도 finalText 에서 제거한다', async () => {
+    const leaked = '이슈 에이전트를 통해 처리하겠습니다.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: leaked }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: '이슈 처리해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).not.toContain('이슈 에이전트');
+    expect(out.fullText).toContain('통해 처리하겠습니다.');
+  });
+});
+
 // #429: 서브에이전트 직접 호출 불가 내부 구현 메시지 sanitize.
 // D-002 패턴: "서브에이전트를 직접 호출하지 못하는 환경입니다. 직접 처리하겠습니다."
 // D-001b 패턴: "제가 직접 처리하겠습니다."

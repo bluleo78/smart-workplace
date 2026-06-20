@@ -168,6 +168,12 @@ function buildComposeUserMessage(input: ComposeInput): string {
 // String.prototype.replace 는 gi 플래그 정규식의 lastIndex 를 갱신하지 않으므로 모듈 상수 재사용 안전.
 const SUBAGENT_ID_RE = /\b(?:issue|calendar|messaging|wiki|mail|contacts|project|drive)-agent(?:에게?|가|이|를|을|로|으로|은|는|도|만|와|과|의)?\s*/gi;
 
+// #426: 한국어 서브에이전트 식별자 sanitize — "메일 조회 에이전트" 등 도메인 접두어를 가진
+// 한국어 에이전트 명칭이 노출되는 경우를 제거한다.
+// SUBAGENT_ID_RE 가 영문 X-agent 패턴만 처리하므로 한국어 패턴을 별도로 보완한다.
+// 예: "메일 조회 에이전트에 연결할 수 없습니다." → "에 연결할 수 없습니다."
+const KOREAN_AGENT_ID_RE = /(?:메일|이슈|캘린더|연락처|메시지|드라이브|위키|프로젝트)\s*(?:조회\s*)?에이전트(?:에게?|가|이|를|을|로|으로|은|는|도|만|와|과|의)?\s*/gi;
+
 // #429: 서브에이전트 직접 호출 불가 내부 구현 메시지 sanitize.
 // "서브에이전트를 직접 호출하지 못하는 환경입니다. 직접 처리하겠습니다." 및
 // "제가 직접 처리하겠습니다." 패턴이 delta/최종 텍스트에 노출되는 경우를 제거한다.
@@ -278,7 +284,7 @@ export async function runAiComposeStream(
           // 예: "wiki"(청크1) + "-agent에 위임하겠습니다."(청크2) → 합쳐서 매칭 후 제거.
           // 최대 30자를 carry 로 보류해 다음 청크와 합쳐 검사 후 플러시한다.
           const combined = deltaCarry + delta;
-          const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '');
+          const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '');
           const CARRY = 30;
           if (sanitizedDelta.length > CARRY) {
             onText(sanitizedDelta.slice(0, sanitizedDelta.length - CARRY));
@@ -368,13 +374,13 @@ export async function runAiComposeStream(
     // onProgress 는 실제 위임이 없으므로 발행하지 않는다.
     // fullText 가 비어 있는 극단적 edge case(delta 없이 done 만 온 경우)는 fallback 문구를 사용한다.
     if (isMailQuery(input.query) && !delegated) {
-      const sanitized = fullText.replace(SUBAGENT_ID_RE, '').trim();
+      const sanitized = fullText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').trim();
       return { fullText: sanitized || '메일 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
     }
     // #408: 연락처 쿼리인데 contacts-agent 위임이 발생하지 않은 경우(haiku 비결정적 직접 되묻기 차단).
     // #422: 연락처 직접 응답 시 delta 누적 텍스트를 done.fullText 로 반환 — 라우팅 메시지 노출 방지.
     if (isContactsQuery(input.query) && !delegated) {
-      const sanitized = fullText.replace(SUBAGENT_ID_RE, '').trim();
+      const sanitized = fullText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').trim();
       return { fullText: sanitized || '연락처 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
     }
     // #390: 드라이브 미지원 작업(업로드·멤버 권한 변경) 쿼리 — drive-agent 에 해당 도구가 없어
@@ -419,7 +425,7 @@ export async function runAiComposeStream(
     // 노출하는 비결정적 동작을 결정론적으로 차단한다. 프롬프트 규칙만으로는 비결정적이므로
     // 후처리 sanitize 로 식별자 + 조사를 제거한다.
     // 예: "calendar-agent에 확인하겠습니다." → "확인하겠습니다."
-    const sanitizedText = finalText.replace(SUBAGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '');
+    const sanitizedText = finalText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '');
     // #379: issue-agent 가 이슈 삭제 요청에서 내부 SDK 메시지("Agent 도구가 활성화되어 있지 않네요",
     // "현재 환경에서" 등)를 노출하는 비결정적 동작을 결정론적으로 차단한다.
     // #407: "advisor에게 상담하겠습니다" 등 SDK 내부 폴백 메시지도 동일 패턴으로 차단한다.
