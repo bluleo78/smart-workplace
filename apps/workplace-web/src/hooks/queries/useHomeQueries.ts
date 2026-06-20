@@ -141,13 +141,3 @@ export async function composeStream(
   return result;
 }
 
-/** 챗 명령 compose. 성공 시 호출부가 sessionId 추적 + 캔버스 재구성. 에러는 토스트. */
-export function useHomeCompose() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: ComposeRequest) => homeApi.compose(body).then((r) => r.data),
-    // 새 세션 생성/마지막 메시지 시각 갱신을 스위처 목록에 반영.
-    onSuccess: () => qc.invalidateQueries({ queryKey: homeKeys.sessions() }),
-    onError: (err) => handleApiError(err, 'AI 구성에 실패했습니다'),
-  });
-}

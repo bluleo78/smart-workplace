@@ -1,9 +1,8 @@
 package com.workplace.home.outbound;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 
-/** ai-agent /ai/compose 요청/응답 계약 (7b). */
+/** ai-agent /ai/compose 요청 계약 (7b). 응답은 SSE 스트림으로 받으므로 본 파일은 요청 본문만 정의한다. */
 public final class ComposeMessages {
   private ComposeMessages() {}
 
@@ -24,7 +23,4 @@ public final class ComposeMessages {
 
   /** 세션 최근 메시지(텍스트만 — 위젯 jsonb 제외). */
   public record ContextMessage(String role, String content) {}
-
-  /** compose 응답. widgets 는 JSON 배열(JsonNode 로 받아 그대로 영속·반환). */
-  public record ComposeResult(String message, JsonNode widgets) {}
 }

@@ -3,7 +3,6 @@ package com.workplace.home.outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.outbound.AiAgentProperties;
-import com.workplace.home.exception.HomeComposeUnavailableException;
 import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -25,8 +24,8 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <ul>
  *   <li>인증: Authorization: Internal {token}
- *   <li>503 home_composer_not_configured(운영 설정 누락) 는 HomeComposeUnavailableException(503, 명확 메시지)
- *       로, 그 외 실패(IO/4xx/5xx)는 RuntimeException(502 매핑) 으로 변환.
+ *   <li>스트리밍 소비 메서드이므로 실패는 던지지 않고 모두 {@code onError} 콜백으로 흘린다(503 home_composer_not_configured·기타
+ *       IO/4xx/5xx 동일). 호출자가 SSE error 이벤트로 변환한다.
  * </ul>
  */
 @Slf4j
@@ -102,8 +101,7 @@ public class AiAgentComposeClient {
         }
         if (resp.statusCode() == 503 && body.contains("home_composer_not_configured")) {
           log.error("ai-agent home composer 미설정: {}", body);
-          // 스트림 시작 전이면 예외로 던져 GlobalExceptionHandler 가 503 으로 매핑하게 한다.
-          // 스트림 시작 후라면 onError 로 흘린다 — 호출자가 구분 처리한다.
+          // 스트리밍 소비 경로이므로 예외를 던지지 않고 onError 로 흘린다 — 호출자가 SSE error 로 변환한다.
           onError.accept("AI 홈 컴포저가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
           return;
         }
@@ -173,8 +171,6 @@ public class AiAgentComposeClient {
       log.error("ai-agent home compose 스트림이 done 이벤트 없이 종료됨");
       onError.accept("AI 응답이 완료되지 않았어요. 잠시 후 다시 시도해주세요.");
 
-    } catch (HomeComposeUnavailableException e) {
-      throw e;
     } catch (Exception e) {
       log.error("ai-agent home compose 실패: {}", e.getMessage());
       onError.accept("AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.");

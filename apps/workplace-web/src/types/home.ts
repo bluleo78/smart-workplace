@@ -25,13 +25,6 @@ export interface ComposeRequest {
   query: string;
 }
 
-export interface ComposeResponse {
-  sessionId: string;
-  message: string;
-  /** 레거시 캔버스 위젯 스펙 — 더 이상 프론트에서 읽지 않는다(캔버스 제거). 응답에 남아 있어도 무시. */
-  widgets?: WidgetSpec[];
-}
-
 /** 챗 말풍선 한 턴. (챗 세션 훅이 transcript 로 사용) */
 export interface ChatTurn {
   role: 'user' | 'assistant';
