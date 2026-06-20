@@ -1,7 +1,11 @@
 // DM 메시지 뷰 — 기존 메시지 컴포넌트 재사용(DM 채널 id). 헤더는 참여자 기반.
+// #345: DM 도 채널이므로 백엔드가 AI 진행 progress 를 fan-out 한다 → ChannelPage 와 동일하게
+// onMessagingProgress 를 구독해 작업 중 유령 버블을 렌더(dm.id 기준).
 import { MessageSquare } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
+import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
@@ -13,6 +17,7 @@ import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useAuth } from '@/hooks/useAuth'
+import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
 import { dmDisplayName } from '@/lib/dm'
 import type { DmResponse, UserKind } from '@/types/messaging'
 
@@ -32,6 +37,42 @@ export default function DmPage() {
   const { data: dms, isLoading, isError, refetch } = useMyDms()
   const { data } = useChannelMessages(dmId)
   const messages = data?.pages.flatMap((p) => p.items) ?? []
+
+  // AI 작업 중 유령 버블 상태 — streamId → 이벤트+타임스탬프 Map. ChannelPage 의 A9 패턴을
+  // dmId 기준으로 미러링한다(DM 채널의 channelId === dmId).
+  const [working, setWorking] = useState<Map<string, MessagingProgressEvent & { at: number }>>(
+    new Map(),
+  )
+  useEffect(() => {
+    if (dmId == null) return
+    return onMessagingProgress((e) => {
+      if (e.channelId !== dmId) return
+      setWorking((prev) => {
+        const next = new Map(prev)
+        if (e.phase === 'done' || e.phase === 'error') next.delete(e.streamId)
+        else next.set(e.streamId, { ...e, at: Date.now() })
+        return next
+      })
+    })
+  }, [dmId])
+
+  // 메시지 수가 늘면(실제 AGENT 메시지 도착) 모든 유령 버블 제거 — SSE created 이벤트가 캐시를 늘림.
+  const messageCount = messages.length
+  useEffect(() => {
+    setWorking(new Map())
+  }, [messageCount])
+
+  // TTL 안전망: 60초 무수신 유령 제거 (10초마다 스위프)
+  useEffect(() => {
+    const t = setInterval(() => {
+      setWorking((prev) => {
+        const cutoff = Date.now() - 60_000
+        const next = new Map([...prev].filter(([, v]) => v.at >= cutoff))
+        return next.size === prev.size ? prev : next
+      })
+    }, 10_000)
+    return () => clearInterval(t)
+  }, [])
 
   // user 가 없으면 기본값. 정상 흐름에선 ProtectedRoute 가 user 를 보장한다.
   const me = user
@@ -98,6 +139,14 @@ export default function DmPage() {
           }
         />
       </MessageScrollArea>
+      {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 메시지 목록 하단에 렌더 */}
+      {working.size > 0 && (
+        <ul className="px-4 pb-1">
+          {[...working.values()].map((w) => (
+            <AiWorkingBubble key={w.streamId} agentName={w.agentName} steps={w.steps} />
+          ))}
+        </ul>
+      )}
       <MessageComposer
         channelId={dm.id}
         members={mentionMembers}
