@@ -199,22 +199,24 @@ const layoutSchema = z
   .optional();
 // issue_list 필터(스펙 §4.1 검증 완료 범위). 전부 선택 — AI 가 의도에 맞는 것만 채운다.
 // #403: priority 는 반드시 영어 대문자 열거값만 허용 — 한국어("높음" 등) 비결정적 입력 차단.
-const issueListParams = z
-  .object({
-    projectKey: z.string().optional(),
-    status: z.string().optional(),
-    priority: z.array(z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'])).optional(),
-    label: z.string().optional(),
-    type: z.string().optional(),
-    dueFrom: z.string().optional(),
-    dueTo: z.string().optional(),
-    q: z.string().optional(),
-    blocked: z.boolean().optional(),
-    topLevel: z.boolean().optional(),
-    assignee: z.string().optional(), // 'me' | '<id>'
-    size: z.number().int().positive().optional(),
-  })
-  .optional();
+// #371: show_issue_list(표시 지시)와 list_issues(데이터 조회)가 동일 필터 집합을 공유하도록 shape 추출.
+const issueListFilterShape = {
+  projectKey: z.string().optional(),
+  status: z.string().optional(),
+  priority: z.array(z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'])).optional(),
+  label: z.string().optional(),
+  type: z.string().optional(),
+  dueFrom: z.string().optional(),
+  dueTo: z.string().optional(),
+  q: z.string().optional(),
+  blocked: z.boolean().optional(),
+  topLevel: z.boolean().optional(),
+  assignee: z.string().optional(), // 'me' | '<id>'
+  size: z.number().int().positive().optional(),
+};
+const issueListParams = z.object(issueListFilterShape).optional();
+// #371: list_issues 도구 입력 — 표시 지시(params/layout 봉투)와 달리 필터를 직접 받는 데이터 조회 도구.
+const listIssuesInput = z.object(issueListFilterShape);
 const showMyTasksInput = z.object({ params: z.object({}).optional(), layout: layoutSchema });
 const showIssueListInput = z.object({ params: issueListParams, layout: layoutSchema });
 const showIssueDetailInput = z.object({
@@ -243,6 +245,20 @@ export function buildTools(
       const { issueKey: k } = issueKey.parse(args);
       const detail = await client.getIssueDetail(agentId, k);
       return JSON.stringify(detail);
+    },
+  };
+
+  // #371: 이슈 목록 조회 도구 — assistant union(서브에이전트 issue-agent 가 frontmatter 로 선택).
+  // show_issue_list(표시 지시, 데이터 미반환)와 달리 실제 이슈 목록 데이터를 JSON 으로 반환한다.
+  // assignee 미지정 시 클라이언트가 'me' 로 조회하므로 "내 담당 이슈 목록"을 한 번에 가져온다.
+  const listIssuesTool: McpTool = {
+    name: 'list_issues',
+    description:
+      '이슈 목록을 조회해 JSON 배열로 반환합니다. assignee 를 생략하면 내 담당("me") 이슈를, status/priority/projectKey/q/dueTo 등으로 좁힙니다. 각 항목은 issueKey·title·status·priority·assignees·dueDate 를 포함하며, 상세가 필요하면 issueKey 로 get_issue_detail 을 호출하세요.',
+    inputSchema: listIssuesInput,
+    async handler(args) {
+      const params = listIssuesInput.parse(args);
+      return JSON.stringify(await client.listIssues(agentId, params));
     },
   };
 
@@ -827,6 +843,7 @@ export function buildTools(
   if (profile === 'assistant') {
     return [
       getIssueDetailTool,
+      listIssuesTool,            // #371: 이슈 목록 조회(내 담당/필터) — issue-agent 위임용
       searchWikiTool,
       getWikiPageTool,
       createWikiPageTool,        // #333 M3: 위키 쓰기(내부)

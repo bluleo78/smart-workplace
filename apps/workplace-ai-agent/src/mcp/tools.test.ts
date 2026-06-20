@@ -18,6 +18,7 @@ function client(): WorkplaceApiClient {
       priority: 'MID',
       assignees: [],
     }),
+    listIssues: vi.fn().mockResolvedValue([]),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
     getOAuthToken: vi.fn(),
     getChatMessages: vi.fn().mockResolvedValue([]),
@@ -185,7 +186,13 @@ describe('buildTools(assistant) union (M3: 멤버십 단언)', () => {
     }
   });
 
-  it('신규 search_issues 는 여전히 포함하지 않는다(기존 도구 경계)', () => {
+  // #371: 이슈 목록 데이터 조회 도구 list_issues 를 새로 노출한다(기존 "데이터 issue-list 도구 없음" 경계 해제).
+  // 단, 전문(full-text) search_issues 는 여전히 별도로 제공하지 않는다.
+  it('#371 list_issues 를 노출한다', () => {
+    expect(names).toContain('list_issues');
+  });
+
+  it('search_issues(전문 검색)는 여전히 포함하지 않는다(미구현 경계)', () => {
     expect(names).not.toContain('search_issues');
   });
 
@@ -206,8 +213,21 @@ describe('buildTools(assistant)', () => {
 
   const names = buildTools(fakeClient, 1, 'assistant').map((t) => t.name).sort();
 
-  it('신규 search_issues 는 포함하지 않는다(M1 기존 도구 경계)', () => {
+  it('search_issues(전문 검색)는 포함하지 않는다(미구현 경계)', () => {
     expect(names).not.toContain('search_issues');
+  });
+
+  // #371: list_issues 데이터 조회 도구.
+  it('list_issues 핸들러가 client.listIssues 를 호출하고 JSON 배열을 반환한다', async () => {
+    const c = client();
+    vi.mocked(c.listIssues).mockResolvedValue([
+      { issueKey: 'WP-3', title: '버그', status: 'IN_PROGRESS', priority: 'HIGH', assignees: [], dueDate: null, type: null, blocked: false },
+    ]);
+    const tool = buildTools(c, AGENT_ID, 'assistant').find((t) => t.name === 'list_issues')!;
+    const out = await tool.handler({ status: 'IN_PROGRESS', priority: ['HIGH'] });
+    expect(JSON.parse(out)[0]).toMatchObject({ issueKey: 'WP-3', status: 'IN_PROGRESS' });
+    // assignee 미지정 — 핸들러는 파싱된 params 를 그대로 전달, 'me' 기본값은 client.listIssues 가 적용.
+    expect(c.listIssues).toHaveBeenCalledWith(AGENT_ID, { status: 'IN_PROGRESS', priority: ['HIGH'] });
   });
 
   it('list_events 핸들러가 client.listEvents 를 호출한다', async () => {

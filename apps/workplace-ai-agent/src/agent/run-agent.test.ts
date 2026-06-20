@@ -16,6 +16,7 @@ function client(token: string | Error): WorkplaceApiClient {
     addIssueComment: vi.fn().mockResolvedValue(undefined),
     updateIssueStatus: vi.fn().mockResolvedValue(undefined),
     getIssueDetail: vi.fn().mockResolvedValue({} as never),
+    listIssues: vi.fn().mockResolvedValue([]),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
     getOAuthToken:
       token instanceof Error

@@ -171,10 +171,41 @@ export interface ProgressPayload {
   steps: ProgressStepDto[];
 }
 
+// #371: 이슈 목록 조회 필터 — GET /me/issues 의 쿼리 파라미터 부분 집합.
+// 전부 선택. assignee 미지정 시 호출자(principal) 기준 'me' 로 조회한다.
+export interface IssueListParams {
+  projectKey?: string;
+  status?: string;
+  priority?: string[]; // CRITICAL/HIGH/MEDIUM/LOW — CSV 로 직렬화
+  label?: string;
+  type?: string;
+  dueFrom?: string;
+  dueTo?: string;
+  q?: string;
+  blocked?: boolean;
+  topLevel?: boolean;
+  assignee?: string; // 'me'(기본) | '<userId>'
+  size?: number;
+}
+
+// #371: 이슈 목록 한 건(LLM 노출용 경량 형태). issueKey 로 get_issue_detail 호출 가능.
+export interface IssueListItem {
+  issueKey: string;
+  title: string;
+  status: string;
+  priority: string;
+  assignees: { id: number; name: string; kind: 'HUMAN' | 'AGENT' }[];
+  dueDate: string | null;
+  type: string | null;
+  blocked: boolean;
+}
+
 export interface WorkplaceApiClient {
   addIssueComment(agentId: number, issueKey: string, body: string): Promise<void>;
   updateIssueStatus(agentId: number, issueKey: string, statusKey: string): Promise<void>;
   getIssueDetail(agentId: number, issueKey: string): Promise<IssueDetail>;
+  // #371: 이슈 목록 조회 — GET /me/issues. assignee 기본 'me'(서버가 principal 로 해석).
+  listIssues(agentId: number, params: IssueListParams): Promise<IssueListItem[]>;
   unassignSelf(agentId: number, issueKey: string): Promise<void>;
   getOAuthToken(agentId: number): Promise<{ token: string; label: string | null }>;
   // 6c: chat
@@ -315,6 +346,52 @@ export function createWorkplaceApiClient(opts: {
         })),
       };
       return issueDetail.parse(normalized);
+    },
+
+    // #371: 이슈 목록 조회 — GET /me/issues(프로젝트 횡단 "내 이슈"). assignee 미지정 시 'me'.
+    // 서버가 'me' 를 X-On-Behalf-Of principal 로 해석하므로 numeric id 를 몰라도 "내 담당" 조회 가능.
+    async listIssues(agentId, params) {
+      const qs = new URLSearchParams();
+      qs.set('assignee', params.assignee ?? 'me');
+      if (params.projectKey) qs.set('projectKey', params.projectKey);
+      if (params.status) qs.set('status', params.status);
+      if (params.priority?.length) qs.set('priority', params.priority.join(','));
+      if (params.label) qs.set('label', params.label);
+      if (params.type) qs.set('type', params.type);
+      if (params.dueFrom) qs.set('dueFrom', params.dueFrom);
+      if (params.dueTo) qs.set('dueTo', params.dueTo);
+      if (params.q) qs.set('q', params.q);
+      if (params.blocked !== undefined) qs.set('blocked', String(params.blocked));
+      if (params.topLevel !== undefined) qs.set('topLevel', String(params.topLevel));
+      qs.set('size', String(params.size ?? 30));
+      const r = await http.get(`/me/issues?${qs.toString()}`, onBehalfOf(agentId));
+      // 응답 래퍼: { items: IssueResponse[], nextCursor, hasMore }. 방어적으로 bare 배열도 허용.
+      const items: Record<string, unknown>[] = Array.isArray(r.data?.items)
+        ? r.data.items
+        : Array.isArray(r.data)
+          ? r.data
+          : [];
+      return items.map((it) => {
+        const projectKey = it.projectKey as string | undefined;
+        const number = it.number as number | undefined;
+        const rawAssignees = Array.isArray(it.assignees) ? (it.assignees as Record<string, unknown>[]) : [];
+        return {
+          issueKey:
+            (it.issueKey as string | undefined) ??
+            (projectKey && number != null ? `${projectKey}-${number}` : String(it.id ?? '')),
+          title: (it.title as string | undefined) ?? '',
+          status: (it.status as string | undefined) ?? '',
+          priority: (it.priority as string | undefined) ?? '',
+          assignees: rawAssignees.map((a) => ({
+            id: a.id as number,
+            name: (a.name as string | undefined) ?? (a.username as string | undefined) ?? '',
+            kind: (a.kind as 'HUMAN' | 'AGENT' | undefined) ?? 'HUMAN',
+          })),
+          dueDate: (it.dueDate as string | undefined) ?? null,
+          type: (it.type as string | undefined) ?? null,
+          blocked: Boolean(it.blocked),
+        };
+      });
     },
 
     async unassignSelf(agentId, issueKey) {

@@ -73,6 +73,46 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(d.title).toBe('분석');
   });
 
+  // #371: 이슈 목록 조회 — GET /me/issues. assignee 기본 'me' + 필터 직렬화 + 응답 매핑 검증.
+  it('listIssues → GET /me/issues (assignee=me 기본) + items 매핑', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/me/issues`)
+      .query({ assignee: 'me', status: 'IN_PROGRESS', priority: 'HIGH,MEDIUM', size: '30' })
+      .reply(200, {
+        items: [
+          { projectKey: 'WP', number: 7, title: '버그 수정', status: 'IN_PROGRESS', priority: 'HIGH', dueDate: '2026-07-01', type: 'BUG', blocked: false, assignees: [{ id: 201, username: 'ai', name: 'AI', kind: 'AGENT' }] },
+        ],
+        hasMore: false,
+        nextCursor: null,
+      });
+    const list = await newClient().listIssues(AGENT_ID, { status: 'IN_PROGRESS', priority: ['HIGH', 'MEDIUM'] });
+    expect(scope.isDone()).toBe(true);
+    expect(list).toHaveLength(1);
+    // projectKey-number → issueKey 합성 + assignees 경량 매핑.
+    expect(list[0]).toMatchObject({
+      issueKey: 'WP-7',
+      title: '버그 수정',
+      status: 'IN_PROGRESS',
+      priority: 'HIGH',
+      dueDate: '2026-07-01',
+      blocked: false,
+    });
+    expect(list[0].assignees).toEqual([{ id: 201, name: 'AI', kind: 'AGENT' }]);
+  });
+
+  it('listIssues → assignee 명시 시 그대로 전달', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/me/issues`)
+      .query({ assignee: '42', size: '30' })
+      .reply(200, { items: [] });
+    const list = await newClient().listIssues(AGENT_ID, { assignee: '42' });
+    expect(scope.isDone()).toBe(true);
+    expect(list).toEqual([]);
+  });
+
   // #373: API 응답 comment의 flat author 필드 → nested author 객체 정규화 검증
   it('getIssueDetail → flat author 필드(authorId/authorName/authorKind)를 nested author 객체로 변환', async () => {
     nock(BASE)
@@ -115,14 +155,21 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(d.comments![0].body).toBe('테스트 코멘트');
   });
 
-  it('unassignSelf → /me 호출 없이 assignees PUT (agentId 본인 제외)', async () => {
+  // #406: /assignees GET 엔드포인트가 없어(405) 구현이 이슈 상세의 .summary.assignees 를 읽도록 변경됨.
+  // 테스트도 GET /projects/WP/issues/42(상세) 응답을 mock 하도록 정렬한다(기존 /assignees GET mock 드리프트 해소).
+  it('unassignSelf → 이슈 상세의 summary.assignees 읽고 본인 제외 후 PUT', async () => {
     nock(BASE)
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/projects/WP/issues/42/assignees`)
-      .reply(200, [
-        { id: 7, username: 'alice', kind: 'HUMAN' },
-        { id: AGENT_ID, username: 'ai-bot', kind: 'AGENT' },
-      ]);
+      .get(`${PREFIX}/projects/WP/issues/42`)
+      .reply(200, {
+        summary: {
+          id: 42,
+          assignees: [
+            { id: 7, username: 'alice', kind: 'HUMAN' },
+            { id: AGENT_ID, username: 'ai-bot', kind: 'AGENT' },
+          ],
+        },
+      });
     const putScope = nock(BASE)
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
       .put(`${PREFIX}/projects/WP/issues/42/assignees`, { userIds: [7] })
