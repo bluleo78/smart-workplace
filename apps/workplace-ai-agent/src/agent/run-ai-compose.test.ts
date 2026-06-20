@@ -573,6 +573,60 @@ describe('runAiComposeStream — drive 미지원 작업 guard (#390)', () => {
   });
 });
 
+// #436: 위키 삭제 쿼리 → "위키 페이지 삭제 기능은 현재 지원하지 않습니다." 고정 반환.
+describe('runAiComposeStream — wiki 삭제 미지원 guard (#436)', () => {
+  it('위키 페이지 삭제 쿼리 → LLM 응답 무시하고 고정 문구 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // 홈 라우터가 "전달하겠습니다" 환각 응답을 내보내는 시나리오.
+      onLine(textDelta('위키 페이지 삭제 요청을 전달하겠습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '위키 페이지 삭제 요청을 전달하겠습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(
+      baseInput({ query: '위키 페이지 삭제해줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(out.fullText).toBe('위키 페이지 삭제 기능은 현재 지원하지 않습니다.');
+    expect(out.widgets).toBeNull();
+    expect(out.pendingAction).toBeNull();
+  });
+
+  it('위키 페이지 지워줘 쿼리 → 고정 문구 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '위키 페이지를 삭제하겠습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(
+      baseInput({ query: '위키 "프로젝트 소개" 페이지 지워줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(out.fullText).toBe('위키 페이지 삭제 기능은 현재 지원하지 않습니다.');
+  });
+
+  it('위키 페이지 검색 쿼리(지원 기능) → guard 미적용, LLM 응답 그대로 반환', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '프로젝트 소개 페이지를 찾았습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(
+      baseInput({ query: '위키에서 프로젝트 소개 찾아줘' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    // 검색 요청은 지원 기능이므로 고정 문구로 override 되면 안 됨.
+    expect(out.fullText).toBe('프로젝트 소개 페이지를 찾았습니다.');
+    expect(out.fullText).not.toBe('위키 페이지 삭제 기능은 현재 지원하지 않습니다.');
+  });
+});
+
 // #400 #409: 비가역 작업 제안 후 승인 발화 시 haiku 환각 응답 차단 — pending_action 없이 "완료했습니다" 방지.
 describe('runAiComposeStream — proposal approval hallucination guard (#400, #409)', () => {
   it('승인 발화 + 직전 AI 제안 문구 + pendingAction 없음 → 고정 안내 반환', async () => {

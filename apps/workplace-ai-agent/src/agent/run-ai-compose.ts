@@ -143,6 +143,16 @@ function isProposalApprovalHallucination(query: string, recentContext: ContextMe
   return /제안했습니다|확인 카드|일정.*생성.*제안|propose|(삭제|추가|생성|수정|변경)하겠습니다.*확인해주세요|확인.*부탁드립니다/i.test(prevAi);
 }
 
+// #436: 위키 삭제 쿼리 감지 — wiki-agent에 삭제 도구가 없으나
+// 홈 라우터(haiku)가 "전달하겠습니다"로 잘못 안내하는 비결정적 동작을 차단한다.
+// 검색·열람·생성·수정 등 지원 기능 쿼리는 배제해 오탐을 최소화한다.
+function isWikiDeleteQuery(query: string): boolean {
+  // 지원 기능(검색·열람·생성·수정) 쿼리는 제외.
+  if (/검색|찾아줘|보여줘|열어줘|읽어줘|만들|생성|작성|수정|편집|업데이트/i.test(query)) return false;
+  // 위키 + 삭제 키워드 조합 감지.
+  return /위키.*(?:삭제|지워|없애|제거)|(?:삭제|지워|없애|제거).*위키/i.test(query);
+}
+
 // #390: 드라이브 미지원 작업 쿼리 감지 — 업로드·멤버 권한 변경은 drive-agent 도구에 없으나
 // 홈 라우터(haiku)가 "위임하여 진행하겠습니다"로 잘못 안내하는 비결정적 동작을 차단한다.
 // 드라이브 조회·검색·폴더 생성·이동 등 지원 기능 쿼리는 배제해 오탐을 최소화한다.
@@ -388,6 +398,10 @@ export async function runAiComposeStream(
     if (isContactsQuery(input.query) && !delegated) {
       const sanitized = fullText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(ENUM_PARENTHETICAL_RE, '').trim();
       return { fullText: sanitized || '연락처 전문가에게 전달했습니다.', widgets: null, pendingAction: null };
+    }
+    // #436: 위키 삭제 쿼리 — wiki-agent 에 삭제 도구가 없어 "전달하겠습니다" 환각을 차단한다.
+    if (isWikiDeleteQuery(input.query)) {
+      return { fullText: '위키 페이지 삭제 기능은 현재 지원하지 않습니다.', widgets: null, pendingAction: null };
     }
     // #390: 드라이브 미지원 작업(업로드·멤버 권한 변경) 쿼리 — drive-agent 에 해당 도구가 없어
     // 위임해도 진행 불가. 홈 라우터가 "정보 주시면 위임 진행" 류로 오안내하는 경우를 차단한다.
