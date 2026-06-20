@@ -1353,6 +1353,72 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble sanitize (#440)',
     expect(streamed).toContain('삭제를 제안했습니다.');
     expect(out.fullText).toContain('삭제를 제안했습니다.');
   });
+
+  // #440 회귀(round2): LLM preamble 변형 추가 케이스
+  it('회귀: "위임하여 ... 진행합니다." 형태도 delta에서 제거된다', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // "위임하겠습니다" 대신 "위임하여 ... 합니다" 형태로 생성되는 변형 케이스
+      onLine(textDelta('위임하여 파일을 찾고 삭제를 진행합니다.'));
+      onLine(textDelta('"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('위임하여');
+    expect(streamed).toContain('small.txt 파일 삭제를 제안했습니다.');
+  });
+
+  it('회귀: "[domain]에서 직접 찾아 제안합니다." 형태도 delta에서 제거된다', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // "처리하겠습니다" 대신 "제안합니다"로 끝나는 변형 케이스
+      onLine(textDelta('드라이브에서 파일을 직접 찾아 삭제를 제안합니다.'));
+      onLine(textDelta('"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('직접 찾아 삭제를 제안합니다.');
+    expect(streamed).toContain('small.txt 파일 삭제를 제안했습니다.');
+  });
+
+  it('회귀: "찾았습니다. 제안합니다." 연속 preamble 2문장도 delta에서 제거된다', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // drive-t12-004 실측 변형: 과거형 "찾았습니다" + 현재형 "제안합니다" 연속
+      onLine(textDelta('"업무문서" 폴더를 찾았습니다. 삭제를 제안합니다.'));
+      onLine(textDelta('"업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: '"업무문서" 폴더 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('찾았습니다. 삭제를 제안합니다.');
+    expect(streamed).toContain('폴더 삭제 제안을 등록했습니다.');
+  });
+
+  it('회귀: "찾았습니다. 제안합니"가 carry에 머무르다 "다." 도착 시 청크 경계에서 제거된다', async () => {
+    // drive-t12-004 실측 패턴: "삭제를 제안합니"까지만 온 후 "다."가 다음 청크에 도착.
+    // carry buffer(30자)가 "찾았습니다. 삭제를 제안합니"(21자)를 보유하다 "다."와 합쳐 패턴 매칭.
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('"업무문서" 폴더를 찾았습니다. 삭제를 제안합니')); // 21자, 마침표 없음
+      onLine(textDelta('다."업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: '"업무문서" 폴더 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('찾았습니다. 삭제를 제안합니다.');
+    expect(streamed).toContain('폴더 삭제 제안을 등록했습니다.');
+  });
 });
 
 // #415: 단순 해제 쿼리 + 위임 시도 + unassign_self 미처리 → 허위 성공 응답 차단.
