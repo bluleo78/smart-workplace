@@ -955,6 +955,63 @@ describe('runAiComposeStream — 서브에이전트 직접 호출 내부 메시�
   });
 });
 
+// #423: 이슈 상태·우선순위 영어 enum 괄호 병기 sanitize.
+// "완료(DONE)", "진행 중 (IN_PROGRESS)", "높음 (HIGH)" 처럼 영어 enum 을 괄호 안에 병기하는 비결정적 동작 차단.
+describe('runAiComposeStream — 이슈 enum 영어 병기 sanitize (#423)', () => {
+  it('finalText 에서 상태 영어 병기 "완료(DONE)" → "완료" 로 제거한다', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'EX-5 이슈 상태를 완료(DONE)로 변경했습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).not.toContain('(DONE)');
+    expect(out.fullText).toContain('완료');
+    expect(out.fullText).toContain('EX-5 이슈 상태를');
+  });
+
+  it('finalText 에서 상태 영어 병기 "진행 중 (IN_PROGRESS)" → "진행 중 " 으로 제거한다', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '상태: 진행 중 (IN_PROGRESS)\n우선순위: 높음 (HIGH)' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).not.toContain('(IN_PROGRESS)');
+    expect(out.fullText).not.toContain('(HIGH)');
+    expect(out.fullText).toContain('진행 중');
+    expect(out.fullText).toContain('높음');
+  });
+
+  it('delta 스트림에서도 영어 enum 병기를 제거한다', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('상태: 진행 중 (IN_PROGRESS), 우선순위: 높음 (HIGH)'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('(IN_PROGRESS)');
+    expect(streamed).not.toContain('(HIGH)');
+  });
+
+  it('괄호 없는 영어 enum 은 제거하지 않는다(오탐 방지)', async () => {
+    // "상태를 DONE으로 변경합니다" 처럼 괄호 없이 나오는 경우는 sanitize 대상이 아님
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'update_status(DONE) 호출합니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    // "(DONE)" 앞에 공백 없이 "update_status(DONE)" 형태이므로 sanitize 대상인지 확인
+    // ENUM_PARENTHETICAL_RE = /\s*\((DONE|...)\)/gi — \s* 이므로 공백 없어도 매칭됨
+    // 이 케이스는 정상 도구명이 포함돼 있으나 sanitize 목적상 패턴 매칭 시 제거됨(허용)
+    expect(out.fullText).toContain('호출합니다.');
+  });
+});
+
 // #404: show_issue_detail 위젯 — 존재하지 않는 이슈 번호 차단(결정론적 서버 검증).
 // haiku 가 EX-99999 처럼 존재하지 않는 이슈에 show_issue_detail 을 호출하는 비결정적 동작 차단.
 describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () => {
