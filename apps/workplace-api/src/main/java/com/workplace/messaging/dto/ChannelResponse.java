@@ -10,6 +10,7 @@ import java.time.Instant;
  * @param archived 아카이브 여부
  * @param memberCount 멤버 수
  * @param unreadCount caller 미읽음 메시지 수(본인 작성·삭제 제외)
+ * @param hasUnreadThreads 내가 팔로우하는 미읽음 스레드가 이 채널에 있으면 true
  */
 public record ChannelResponse(
     Long id,
@@ -21,4 +22,5 @@ public record ChannelResponse(
     boolean archived,
     int memberCount,
     long unreadCount,
-    Instant createdAt) {}
+    Instant createdAt,
+    boolean hasUnreadThreads) {}

@@ -41,6 +41,8 @@ export function useCreateMessage(channelId: number, me: MeContext) {
         mentions: [], // optimistic — 서버 응답 시 실제값으로 치환
         parentMessageId: null, // 메인 컴포저는 최상위 메시지만 작성
         replyCount: 0,
+        unreadReplyCount: 0, // optimistic 메시지는 본인 작성이므로 미읽음 없음
+        followed: false, // 팔로우 여부는 서버 응답에서 결정
         reactions: [],
         attachments: [], // optimistic — 서버 응답 시 실제값으로 치환
         createdAt: new Date().toISOString(),

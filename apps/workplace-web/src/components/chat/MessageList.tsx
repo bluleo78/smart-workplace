@@ -251,7 +251,16 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                   data-testid={`message-thread-link-${m.id}`}
                   onClick={() => onOpenThread(m.id)}
                 >
-                  <MessageSquare className="h-3.5 w-3.5" /> 답글 {m.replyCount}개
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  답글 {m.replyCount}개
+                  {/* 미읽음 스레드 표시 점 — 팔로우 중이고 미읽음 있을 때만 노출. */}
+                  {m.unreadReplyCount > 0 && (
+                    <span
+                      data-testid={`message-unread-thread-${m.id}`}
+                      className="h-2 w-2 rounded-full bg-destructive"
+                      aria-label={`새 답글 ${m.unreadReplyCount}개`}
+                    />
+                  )}
                 </button>
               )}
             </div>

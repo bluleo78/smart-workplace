@@ -14,6 +14,7 @@ export interface ChannelResponse {
   archived: boolean;
   memberCount: number;
   unreadCount: number; // 읽지 않은 메시지 수
+  hasUnreadThreads: boolean; // 내가 팔로우하는 미읽음 스레드 존재 여부
   createdAt: string;
 }
 
@@ -62,6 +63,8 @@ export interface MessageResponse {
   mentions: MentionResponse[]; // 메시지 내 @멘션 목록
   parentMessageId: number | null; // 스레드 답글이면 부모 id
   replyCount: number; // 이 메시지에 달린 답글 수
+  unreadReplyCount: number; // 내가 팔로우하는 스레드면 미읽음 답글 수, 아니면 0
+  followed: boolean; // 이 스레드(부모) 팔로우 여부
   reactions: ReactionResponse[]; // 이모지별 집계
   attachments: MessageAttachment[]; // 첨부 파일 목록
   createdAt: string;

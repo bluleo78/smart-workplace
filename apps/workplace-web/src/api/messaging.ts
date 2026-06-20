@@ -92,6 +92,10 @@ export const messagingApi = {
   markRead: (channelId: number, uptoMessageId: number) =>
     client.post(`/messaging/channels/${channelId}/read`, { uptoMessageId }).then(() => undefined),
 
+  // 스레드 패널 열기 — 해당 스레드를 최신 답글까지 읽음 표시.
+  markThreadRead: (rootId: number) =>
+    client.post(`/messaging/messages/${rootId}/thread/read`).then(() => undefined),
+
   // 스레드 답글 목록(오래된→최신).
   getReplies: (parentMessageId: number, cursor?: string, limit = 50) => {
     const params = new URLSearchParams();

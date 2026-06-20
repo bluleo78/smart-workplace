@@ -3,6 +3,7 @@ package com.workplace.messaging.repository;
 import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
 import static com.workplace.jooq.Tables.MESSAGE;
+import static com.workplace.jooq.Tables.THREAD_READ_STATE;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.messaging.dto.ChannelResponse;
@@ -104,7 +105,8 @@ public class ChannelRepository {
                 .where(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID))
                 .asField("member_count"),
             CHANNEL_MEMBER.ROLE.as("my_role"),
-            unreadCountField(callerId))
+            unreadCountField(callerId),
+            hasUnreadThreadsField(callerId))
         .from(CHANNEL)
         .join(CHANNEL_MEMBER)
         .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
@@ -356,6 +358,35 @@ public class ChannelRepository {
         .fetch(r -> new DmParticipant(r.get(USER.ID), r.get(USER.NAME), r.get(USER.KIND)));
   }
 
+  /** 이 채널에 caller 가 팔로우하는 미읽음 스레드가 하나라도 있으면 true. */
+  private static org.jooq.Field<Boolean> hasUnreadThreadsField(long callerId) {
+    com.workplace.jooq.tables.Message reply = MESSAGE.as("trs_reply");
+    return DSL.field(
+            DSL.exists(
+                DSL.selectOne()
+                    .from(THREAD_READ_STATE)
+                    .join(MESSAGE)
+                    .on(
+                        MESSAGE
+                            .ID
+                            .eq(THREAD_READ_STATE.THREAD_ROOT_ID)
+                            .and(MESSAGE.CHANNEL_ID.eq(CHANNEL.ID))
+                            .and(MESSAGE.DELETED_AT.isNull()))
+                    .join(reply)
+                    .on(
+                        reply
+                            .PARENT_MESSAGE_ID
+                            .eq(THREAD_READ_STATE.THREAD_ROOT_ID)
+                            .and(reply.DELETED_AT.isNull())
+                            .and(reply.AUTHOR_ID.ne(callerId))
+                            .and(
+                                reply.ID.gt(
+                                    DSL.coalesce(
+                                        THREAD_READ_STATE.LAST_READ_REPLY_ID, DSL.inline(0L)))))
+                    .where(THREAD_READ_STATE.USER_ID.eq(callerId))))
+        .as("has_unread_threads");
+  }
+
   /**
    * caller 의 채널별 미읽음 메시지 수 상관 서브쿼리. caller 의 CHANNEL_MEMBER row 가 조인된 쿼리에서만 사용. 본인 작성·삭제된 메시지는
    * 제외하고, last_read_message_id(없으면 0) 초과 메시지를 센다.
@@ -383,6 +414,11 @@ public class ChannelRepository {
     Integer total = r.get("member_count", Integer.class);
     // unread_count 는 일부 쿼리에만 존재 — 없으면 0 으로 방어적 처리.
     Integer unread = r.field("unread_count") != null ? r.get("unread_count", Integer.class) : 0;
+    // has_unread_threads 는 findMyChannels 에만 존재 — 없으면 false 로 방어적 처리.
+    Boolean hasUnreadThreads =
+        r.field("has_unread_threads") != null
+            ? r.get("has_unread_threads", Boolean.class)
+            : Boolean.FALSE;
     return new ChannelResponse(
         r.get(CHANNEL.ID),
         r.get(CHANNEL.KIND),
@@ -393,6 +429,7 @@ public class ChannelRepository {
         r.get(CHANNEL.ARCHIVED_AT) != null,
         total == null ? 0 : total,
         unread == null ? 0 : unread,
-        created == null ? null : created.toInstant());
+        created == null ? null : created.toInstant(),
+        hasUnreadThreads != null && hasUnreadThreads);
   }
 }

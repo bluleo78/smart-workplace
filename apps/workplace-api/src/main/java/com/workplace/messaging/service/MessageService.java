@@ -29,6 +29,7 @@ import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.repository.MessageRepository.MessageRef;
 import com.workplace.messaging.repository.ReactionRepository;
+import com.workplace.messaging.repository.ThreadReadStateRepository;
 import com.workplace.tenant.repository.MembershipRepository;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +53,7 @@ public class MessageService {
   private final MessageAttachmentRepository attachmentRepo;
   private final AiAgentProperties aiAgentProps;
   private final MembershipRepository membershipRepo;
+  private final ThreadReadStateRepository threadReadRepo;
 
   /** 채널 멤버가 메시지 작성. 본문 @멘션 파싱·검증 후 INSERT, AFTER_COMMIT 이벤트 발행. */
   @Transactional
@@ -66,6 +68,8 @@ public class MessageService {
     }
     // 스레드 답글이면 부모 검증: 존재 + 같은 채널 + 최상위(대댓글 금지).
     Long parentId = req.parentMessageId();
+    // 자동 팔로우를 위해 parentId != null 일 때 ref 를 블록 밖에서 참조할 수 있도록 미리 선언.
+    final MessageRef parentRef;
     if (parentId != null) {
       MessageRef ref =
           messageRepo
@@ -73,6 +77,9 @@ public class MessageService {
               .orElseThrow(() -> new InvalidThreadParentException(parentId));
       if (ref.channelId() != channelId || ref.parentMessageId() != null)
         throw new InvalidThreadParentException(parentId);
+      parentRef = ref;
+    } else {
+      parentRef = null;
     }
     // 본문에서 멘션 토큰 추출 → 실제 존재하는 user.id 만 남긴다. body 가 null 일 수 있어 빈 문자열로 방어.
     java.util.List<Long> mentionIds =
@@ -82,6 +89,16 @@ public class MessageService {
     long messageId = messageRepo.insert(channelId, callerId, req.body(), mentionIds, parentId);
     // 선업로드된 첨부를 이 메시지에 바인딩 + 영구 승격 (같은 트랜잭션).
     attachmentService.bindToMessage(callerId, messageId, req.fileIds());
+    // 스레드 답글이면 자동 팔로우: 루트 작성자(읽음 보존)·본인(읽음 처리)·답글 멘션 대상(읽음 보존).
+    if (parentId != null && parentRef != null) {
+      threadReadRepo.followIfAbsent(parentId, parentRef.authorId());
+      threadReadRepo.markRead(parentId, callerId, messageId);
+      for (Long mentioned : mentionIds) {
+        if (!mentioned.equals(callerId) && !mentioned.equals(parentRef.authorId())) {
+          threadReadRepo.followIfAbsent(parentId, mentioned);
+        }
+      }
+    }
     MessageResponse saved = findOne(messageId, callerId);
     publisher.publishEvent(new MessageCreatedEvent(channelId, saved)); // SSE fan-out (기존)
     maybeTriggerAi(callerId, channelId, saved); // AI 응답 트리거 (신규)
@@ -191,6 +208,17 @@ public class MessageService {
     publisher.publishEvent(new MessageDeletedEvent(channelId, messageId));
   }
 
+  /** 스레드 패널 열기 시 호출 — 해당 스레드를 최신 답글까지 읽음 처리. 비멤버=403. */
+  @Transactional
+  public void markThreadRead(long callerId, long rootId) {
+    MessageRef ref =
+        messageRepo.findRef(rootId).orElseThrow(() -> new MessageNotFoundException(rootId));
+    ensureMember(ref.channelId(), callerId);
+    long maxReply = messageRepo.maxReplyId(rootId);
+    // 답글이 0개여도 팔로우 행은 보장(watermark=0). 이후 새 답글이 미읽음으로 잡힌다.
+    threadReadRepo.markRead(rootId, callerId, maxReply);
+  }
+
   /** 채널 멤버가 uptoMessageId 까지 읽음 표시. watermark 갱신 후 AFTER_COMMIT SSE 발행. */
   @Transactional
   public void markRead(long callerId, long channelId, long uptoMessageId) {
@@ -205,7 +233,7 @@ public class MessageService {
     ensureMember(channelId, callerId);
     MessagePage page =
         messageRepo.findPage(channelId, cursor, limit, mentionHydrator::asMentionResponses);
-    return enrichReactions(page, callerId);
+    return enrichThreadUnread(enrichReactions(page, callerId), callerId);
   }
 
   /** 채널 멤버만 특정 부모 메시지의 답글 조회. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
@@ -220,6 +248,28 @@ public class MessageService {
         messageRepo.findThreadPage(
             parentMessageId, cursor, limit, mentionHydrator::asMentionResponses);
     return enrichReactions(page, callerId);
+  }
+
+  /** 페이지 내 top-level 메시지에 스레드 미읽음 수/팔로우 여부를 batch hydrate. */
+  private MessagePage enrichThreadUnread(MessagePage page, long callerId) {
+    java.util.List<Long> rootIds =
+        page.items().stream()
+            .filter(m -> m.parentMessageId() == null)
+            .map(MessageResponse::id)
+            .toList();
+    if (rootIds.isEmpty()) return page;
+    var unread = threadReadRepo.countUnreadForRoots(rootIds, callerId);
+    var followed = threadReadRepo.followedRoots(rootIds, callerId);
+    java.util.List<MessageResponse> items =
+        page.items().stream()
+            .map(
+                m ->
+                    m.parentMessageId() == null
+                        ? m.withThreadUnread(
+                            unread.getOrDefault(m.id(), 0), followed.contains(m.id()))
+                        : m)
+            .toList();
+    return new MessagePage(items, page.nextCursor(), page.hasMore());
   }
 
   /** 페이지 내 모든 메시지의 리액션 집계 + 첨부 목록을 batch 로 채운다(N+1 회피). */

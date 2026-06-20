@@ -67,6 +67,14 @@ public class MessageController {
     return ResponseEntity.noContent().build();
   }
 
+  /** 스레드 패널 열기 — 해당 스레드를 최신 답글까지 읽음 표시. 204. 비멤버=403. */
+  @PostMapping("/messages/{id}/thread/read")
+  public ResponseEntity<Void> markThreadRead(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long rootId) {
+    messageService.markThreadRead(callerId, rootId);
+    return ResponseEntity.noContent().build();
+  }
+
   /** 특정 부모 메시지의 답글(스레드) 조회. 비멤버=403. */
   @GetMapping("/messages/{id}/replies")
   public ResponseEntity<MessagePage> replies(

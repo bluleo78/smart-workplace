@@ -42,6 +42,8 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
         mentions: [],
         parentMessageId,
         replyCount: 0,
+        unreadReplyCount: 0, // optimistic 답글은 본인 작성이므로 미읽음 아님
+        followed: false, // 답글은 부모가 아니므로 팔로우 무관
         reactions: [],
         attachments: [], // optimistic — 서버 응답 시 실제값으로 치환
         createdAt: new Date().toISOString(),
@@ -88,6 +90,44 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
       handleApiError(err, '답글 전송에 실패했습니다');
     },
   });
+}
+
+/** 채널 캐시에서 부모 메시지의 unreadReplyCount 를 delta 만큼 조정. 음수 방지(최솟값 0). */
+export function bumpUnreadReplyCount(
+  qc: ReturnType<typeof useQueryClient>,
+  channelId: number,
+  parentMessageId: number,
+  delta: number,
+) {
+  qc.setQueryData<InfiniteData<MessagePage>>(messagingKeys.messages(channelId), (old) => {
+    if (!old) return old;
+    return {
+      ...old,
+      pages: old.pages.map((p) => ({
+        ...p,
+        items: p.items.map((m) =>
+          m.id === parentMessageId
+            ? { ...m, unreadReplyCount: Math.max(0, m.unreadReplyCount + delta) }
+            : m,
+        ),
+      })),
+    };
+  });
+}
+
+/** 채널 메시지 캐시에서 부모 메시지가 followed=true 인지 확인. 캐시에 없으면 false(보수적). */
+export function isParentFollowed(
+  qc: ReturnType<typeof useQueryClient>,
+  channelId: number,
+  parentMessageId: number,
+): boolean {
+  const data = qc.getQueryData<InfiniteData<MessagePage>>(messagingKeys.messages(channelId));
+  if (!data) return false;
+  for (const p of data.pages) {
+    const m = p.items.find((it) => it.id === parentMessageId);
+    if (m) return m.followed;
+  }
+  return false;
 }
 
 /** 채널 캐시에서 특정 부모 메시지의 replyCount 를 delta 만큼 조정(SSE created-reply 이벤트에서 사용). */

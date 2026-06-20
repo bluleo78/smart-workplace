@@ -1,12 +1,14 @@
 // 우측 스레드 패널 — 부모 메시지 + 답글 목록 + 답글 컴포저. 부모는 채널 메시지 캐시에서 찾고,
 // 답글은 useThreadReplies. 답글 작성은 useCreateReply(낙관적).
 import { MessageSquare, X } from 'lucide-react'
+import { useEffect } from 'react'
 
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
 import { useCreateReply } from '@/hooks/queries/useCreateReply'
+import { useMarkThreadRead } from '@/hooks/queries/useMarkThreadRead'
 import { useThreadReplies } from '@/hooks/queries/useThreadReplies'
 import type { MessageResponse, UserKind } from '@/types/messaging'
 
@@ -24,6 +26,14 @@ export function ThreadPanel({ channelId, parent, members, me, archived, onClose 
   // 스레드 답글은 ASC 페이지. MessageList 가 내부에서 reverse 하므로 reverse 해서 넘긴다(원복).
   const replies = (data?.pages.flatMap((p) => p.items) ?? []).slice().reverse()
   const reply = useCreateReply(channelId, parent.id, me)
+  const markThreadRead = useMarkThreadRead(channelId)
+
+  // 패널을 연 부모(스레드)를 읽음 처리. 부모가 바뀔 때마다 1회.
+  // markThreadRead/parent.unreadReplyCount 는 deps 에서 의도적으로 제외(부모 전환 시에만 1회 발화).
+   
+  useEffect(() => {
+    markThreadRead(parent.id, parent.unreadReplyCount)
+  }, [parent.id])
 
   return (
     <div

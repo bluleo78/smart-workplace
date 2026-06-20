@@ -98,6 +98,14 @@ export function ChannelSidebar() {
                   {c.unreadCount > 99 ? '99+' : c.unreadCount}
                 </span>
               )}
+              {/* 채널 미읽음 없고 팔로우 중인 미읽음 스레드가 있으면 점 표시(숫자 뱃지보다 낮은 우선순위). */}
+              {c.unreadCount === 0 && c.hasUnreadThreads && (
+                <span
+                  data-testid={`channel-unread-threads-${c.id}`}
+                  className="ml-auto h-2 w-2 rounded-full bg-muted-foreground"
+                  aria-label="미읽은 스레드 있음"
+                />
+              )}
             </Link>
           ))}
         </nav>

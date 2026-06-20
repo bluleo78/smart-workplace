@@ -95,17 +95,31 @@ public class MessageRepository {
             .and(MESSAGE.CHANNEL_ID.eq(channelId)));
   }
 
-  /** 메시지의 channel_id + parent_message_id 조회(스레드 부모 검증용). 미존재 시 empty. */
+  /** 메시지의 channel_id + parent_message_id + author_id 조회(스레드 부모 검증·팔로우용). 미존재 시 empty. */
   public Optional<MessageRef> findRef(long id) {
-    return dsl.select(MESSAGE.CHANNEL_ID, MESSAGE.PARENT_MESSAGE_ID)
+    return dsl.select(MESSAGE.CHANNEL_ID, MESSAGE.PARENT_MESSAGE_ID, MESSAGE.AUTHOR_ID)
         .from(MESSAGE)
         .where(MESSAGE.ID.eq(id))
         .fetchOptional(
-            r -> new MessageRef(r.get(MESSAGE.CHANNEL_ID), r.get(MESSAGE.PARENT_MESSAGE_ID)));
+            r ->
+                new MessageRef(
+                    r.get(MESSAGE.CHANNEL_ID),
+                    r.get(MESSAGE.PARENT_MESSAGE_ID),
+                    r.get(MESSAGE.AUTHOR_ID)));
   }
 
-  /** 메시지 참조(채널 + 부모). parentMessageId == null 이면 최상위 메시지. */
-  public record MessageRef(long channelId, Long parentMessageId) {}
+  /** 부모 검증/팔로우용 경량 메시지 참조. parentMessageId == null 이면 최상위 메시지. */
+  public record MessageRef(long channelId, Long parentMessageId, long authorId) {}
+
+  /** 스레드의 최신 답글 id(없으면 0). 패널 열기 시 watermark 설정용. */
+  public long maxReplyId(long rootId) {
+    Long v =
+        dsl.select(DSL.max(MESSAGE.ID))
+            .from(MESSAGE)
+            .where(MESSAGE.PARENT_MESSAGE_ID.eq(rootId).and(MESSAGE.DELETED_AT.isNull()))
+            .fetchOne(0, Long.class);
+    return v == null ? 0L : v;
+  }
 
   /** 이 메시지에 달린 답글 수 상관 서브쿼리(삭제 포함 — 패널 표시와 일치). */
   private static Field<Integer> replyCountField() {
@@ -265,7 +279,9 @@ public class MessageRepository {
         java.util.List.of(), // attachments 는 service 가 batch enrich
         created == null ? null : created.toInstant(),
         edited == null ? null : edited.toInstant(),
-        deleted);
+        deleted,
+        0, // unreadReplyCount — service 가 enrich
+        false); // followed — service 가 enrich
   }
 
   @SneakyThrows

@@ -7,7 +7,8 @@ import java.util.List;
 /**
  * 메시지 1건. deleted=true 이면 body 는 "(삭제됨)" 으로 마스킹돼 전달된다. authorKind 는 USER.KIND. mentions 는 본문에서 멘션된
  * 사용자(존재하는 user 만 hydrate). parentMessageId 가 있으면 스레드 답글. replyCount 는 이 메시지에 달린 답글 수. reactions 는
- * 이모지별 집계(서비스에서 batch hydrate). attachments 는 첨부 파일 목록(서비스에서 batch hydrate).
+ * 이모지별 집계(서비스에서 batch hydrate). attachments 는 첨부 파일 목록(서비스에서 batch hydrate). unreadReplyCount 는 내가
+ * 팔로우하는 스레드면 미읽음 답글 수, 아니면 0. followed 는 이 스레드(부모 메시지) 팔로우 여부.
  */
 public record MessageResponse(
     Long id,
@@ -23,7 +24,9 @@ public record MessageResponse(
     List<MessageAttachmentResponse> attachments,
     Instant createdAt,
     Instant editedAt,
-    boolean deleted) {
+    boolean deleted,
+    int unreadReplyCount, // 내가 팔로우하는 스레드면 미읽음 답글 수, 아니면 0
+    boolean followed) { // 이 스레드(부모 메시지) 팔로우 여부
 
   /**
    * 리액션 집계를 채워 새 인스턴스 반환(repository 는 reactions 를 비워서 만들고 service 가 enrich). attachments 는 그대로 전달.
@@ -43,7 +46,9 @@ public record MessageResponse(
         attachments,
         createdAt,
         editedAt,
-        deleted);
+        deleted,
+        unreadReplyCount,
+        followed);
   }
 
   /** 첨부 목록을 채워 새 인스턴스 반환(repository 는 attachments 를 비워서 만들고 service 가 enrich). */
@@ -62,6 +67,29 @@ public record MessageResponse(
         attachments,
         createdAt,
         editedAt,
-        deleted);
+        deleted,
+        unreadReplyCount,
+        followed);
+  }
+
+  /** 스레드 미읽음/팔로우 정보를 채워 새 인스턴스 반환(service 가 batch enrich). */
+  public MessageResponse withThreadUnread(int unreadReplyCount, boolean followed) {
+    return new MessageResponse(
+        id,
+        channelId,
+        authorId,
+        authorName,
+        authorKind,
+        body,
+        mentions,
+        parentMessageId,
+        replyCount,
+        reactions,
+        attachments,
+        createdAt,
+        editedAt,
+        deleted,
+        unreadReplyCount,
+        followed);
   }
 }

@@ -21,6 +21,7 @@ export function createChannel(overrides: Partial<ChannelResponse> = {}): Channel
     archived: false,
     memberCount: 1,
     unreadCount: 0,
+    hasUnreadThreads: false,
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     ...overrides,
   };
@@ -75,6 +76,8 @@ export function createMessage(overrides: Partial<MessageResponse> = {}): Message
     mentions: [],
     parentMessageId: null, // Phase 5: 스레드 답글이면 부모 id
     replyCount: 0, // Phase 5: 이 메시지에 달린 답글 수
+    unreadReplyCount: 0, // #65: 미읽음 답글 수(팔로우 중인 스레드)
+    followed: false, // #65: 이 스레드 팔로우 여부
     reactions: [], // Phase 5: 이모지별 집계
     attachments: [], // Phase 6: 첨부 파일 목록(기본 없음 — 첨부 테스트에서 override)
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),

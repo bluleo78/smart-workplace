@@ -10,7 +10,7 @@ import { getAccessToken, refreshAccessToken } from '../api/client';
 import { applyReaction } from '../lib/reactions';
 import type { MessagePage, MessageResponse } from '../types/messaging';
 import { messagingKeys } from './queries/messagingKeys';
-import { bumpReplyCount } from './queries/useCreateReply';
+import { bumpReplyCount, bumpUnreadReplyCount, isParentFollowed } from './queries/useCreateReply';
 import { patchReactionEverywhere } from './queries/useToggleReaction';
 
 // 메시징 진행 이벤트 버스 — AI 에이전트 스트리밍 진행 상황을 컴포넌트에 전달.
@@ -124,6 +124,10 @@ function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentU
       // 모든 클라이언트가 동일하게 +1 → 멀티기기 정합. upsertReply 는 id 멱등이라 중복 없음.
       upsertReply(qc, msg);
       bumpReplyCount(qc, channelId, msg.parentMessageId, +1);
+      // 내가 팔로우하는 스레드이고 내 답글이 아닐 때만 미읽음 +1(부모 캐시 confirmed=followed 확인).
+      if (msg.authorId !== currentUserId && isParentFollowed(qc, channelId, msg.parentMessageId)) {
+        bumpUnreadReplyCount(qc, channelId, msg.parentMessageId, +1);
+      }
     } else {
       upsertMessage(qc, channelId, msg);
     }
