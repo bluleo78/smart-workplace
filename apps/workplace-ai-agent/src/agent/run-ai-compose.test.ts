@@ -1237,6 +1237,76 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
   });
 });
 
+// #440: 홈 라우터 위임 preamble 텍스트 sanitize — drive-agent 위임 시 delta 스트림에
+// 노출되는 "위임하겠습니다.", "드라이브에서 직접 찾아보겠습니다." 등의 내부 추론 문장 차단.
+describe('runAiComposeStream — 홈 라우터 위임 preamble sanitize (#440)', () => {
+  it('"위임하겠습니다." 가 delta 스트림에서 제거된다', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // drive-t12-003 패턴: 위임 선언 후 실제 응답
+      onLine(textDelta('위임하겠습니다.'));
+      onLine(textDelta('"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('위임하겠습니다.');
+    expect(streamed).toContain('small.txt 파일 삭제를 제안했습니다.');
+  });
+
+  it('"드라이브에서 파일을 직접 찾아 처리하겠습니다." 가 delta 스트림에서 제거된다', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // drive-t12-003 실측 delta 누적 패턴
+      onLine(textDelta('위임하겠습니다.드라이브에서 파일을 직접 찾아 처리하겠습니다.'));
+      onLine(textDelta('"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('위임하겠습니다.');
+    expect(streamed).not.toContain('직접 찾아 처리하겠습니다.');
+    expect(streamed).toContain('small.txt 파일 삭제를 제안했습니다.');
+  });
+
+  it('"드라이브에서 직접 폴더를 찾아보겠습니다." 가 delta 스트림에서 제거된다', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // drive-t12-004 실측 delta 누적 패턴
+      onLine(textDelta('드라이브에서 "업무문서" 폴더를 찾아 삭제를 진행하겠습니다.드라이브에서 직접 폴더를 찾아보겠습니다.'));
+      onLine(textDelta('"업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: '"업무문서" 폴더 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('찾아 삭제를 진행하겠습니다.');
+    expect(streamed).not.toContain('직접 폴더를 찾아보겠습니다.');
+    expect(streamed).toContain('폴더 삭제 제안을 등록했습니다.');
+  });
+
+  it('최종 응답 문장("삭제를 제안했습니다.")은 제거하지 않는다(오탐 방지)', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // 실제 드라이브 에이전트 최종 응답만 있는 케이스 — 제거 안 됨
+      onLine(textDelta('"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    const out = await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    // 최종 응답은 preamble이 아니므로 제거하면 안 됨
+    expect(streamed).toContain('삭제를 제안했습니다.');
+    expect(out.fullText).toContain('삭제를 제안했습니다.');
+  });
+});
+
 // #415: 단순 해제 쿼리 + 위임 시도 + unassign_self 미처리 → 허위 성공 응답 차단.
 describe('runAiComposeStream — 단순 해제 허위 성공 환각 차단 (#415)', () => {
   it('단순 해제 쿼리 + 위임 + 사이드카 없음 → 실패 안내 반환(허위 성공 차단)', async () => {

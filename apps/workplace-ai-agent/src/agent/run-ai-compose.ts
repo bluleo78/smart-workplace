@@ -192,6 +192,16 @@ const KOREAN_AGENT_ID_RE = /(?:메일|이슈|캘린더|연락처|메시지|드�
 const SUBAGENT_DIRECT_MSG_RE =
   /(?:죄송합니다\.\s*)?서브에이전트를\s*직접\s*호출하지\s*못하는\s*환경입니다\.\s*직접\s*처리하겠습니다\.|제가\s*직접\s*처리하겠습니다\./gi;
 
+// #440: 홈 라우터 위임 preamble 텍스트 sanitize — drive-agent 위임 시 delta 스트림에
+// 노출되는 내부 추론 문장을 제거한다. SUBAGENT_ID_RE 가 "drive-agent에게" 같은 식별자를
+// 제거하지만 "위임하겠습니다.", "드라이브에서 직접 찾아보겠습니다." 같은 라우팅 preamble
+// 문장 자체는 제거하지 않으므로 별도 패턴으로 보완한다.
+// 매칭 대상: "위임하겠습니다." / "[domain]에서 ... 직접 찾아(보겠습니다|처리하겠습니다)" /
+//           "[domain]에서 ... 찾아 ... 진행하겠습니다."
+// 오탐 방지: 도메인 목록 제한 + "직접" 또는 "찾아+진행" 조합으로 최종 응답 문장은 제외.
+const HOME_ROUTER_PREAMBLE_RE =
+  /위임하겠습니다\.|(?:드라이브|메일|캘린더|이슈|연락처|채널|위키|프로젝트)에서\s*[^.。\n]*?(?:직접\s*[^.。\n]*?(?:찾아보겠습니다|찾아\s*처리하겠습니다)|[^.。\n]*?찾아\s*[^.。\n]*?진행하겠습니다)\./gi;
+
 // #423: 이슈 상태·우선순위 영어 enum 괄호 병기 sanitize.
 // issue-agent 가 "완료(DONE)", "진행 중 (IN_PROGRESS)", "높음 (HIGH)" 처럼
 // 영어 enum 값을 괄호 안에 병기하는 비결정적 동작을 결정론적으로 차단한다.
@@ -302,7 +312,7 @@ export async function runAiComposeStream(
           // 예: "wiki"(청크1) + "-agent에 위임하겠습니다."(청크2) → 합쳐서 매칭 후 제거.
           // 최대 30자를 carry 로 보류해 다음 청크와 합쳐 검사 후 플러시한다.
           const combined = deltaCarry + delta;
-          const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
+          const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(HOME_ROUTER_PREAMBLE_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
           const CARRY = 30;
           if (sanitizedDelta.length > CARRY) {
             onText(sanitizedDelta.slice(0, sanitizedDelta.length - CARRY));
@@ -456,7 +466,7 @@ export async function runAiComposeStream(
     // 노출하는 비결정적 동작을 결정론적으로 차단한다. 프롬프트 규칙만으로는 비결정적이므로
     // 후처리 sanitize 로 식별자 + 조사를 제거한다.
     // 예: "calendar-agent에 확인하겠습니다." → "확인하겠습니다."
-    const sanitizedText = finalText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
+    const sanitizedText = finalText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(HOME_ROUTER_PREAMBLE_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
     // #379: issue-agent 가 이슈 삭제 요청에서 내부 SDK 메시지("Agent 도구가 활성화되어 있지 않네요",
     // "현재 환경에서" 등)를 노출하는 비결정적 동작을 결정론적으로 차단한다.
     // #407: "advisor에게 상담하겠습니다" 등 SDK 내부 폴백 메시지도 동일 패턴으로 차단한다.
