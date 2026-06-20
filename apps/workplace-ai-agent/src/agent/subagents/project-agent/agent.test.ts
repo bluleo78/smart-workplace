@@ -29,4 +29,11 @@ describe('project-agent 정의', () => {
     expect(loaded['project-agent'].prompt).toMatch(/get_project/);
     expect(loaded['project-agent'].prompt).toMatch(/존재/);
   });
+  it('규칙 위반 key 를 수락하지 말고 변환·안내하라는 규칙이 명시되어 있다', () => {
+    // #387: 소문자 등 ^[A-Z][A-Z0-9]{1,9}$ 위반 key 를 그대로 수락 금지 + 대문자 변환/되묻기.
+    const prompt = loaded['project-agent'].prompt;
+    expect(prompt).toMatch(/\^\[A-Z]\[A-Z0-9]\{1,9}\$/);
+    expect(prompt).toMatch(/수락하지 마|수락 금지|그대로 수락/);
+    expect(prompt).toMatch(/ABC/); // abc → ABC 변환 예시
+  });
 });
