@@ -200,6 +200,12 @@ const KOREAN_AGENT_ID_RE = /(?:메일|이슈|캘린더|연락처|메시지|드�
 const SUBAGENT_DIRECT_MSG_RE =
   /(?:죄송합니다\.\s*)?서브에이전트를\s*직접\s*호출하지\s*못하는\s*환경입니다\.\s*직접\s*처리하겠습니다\.|제가\s*직접\s*처리하겠습니다\./gi;
 
+// #441: 홈 라우터가 Agent 도구 없을 때 자기 발화에 내부 SDK 용어를 노출하는 비결정적 동작을 차단한다.
+// "저는 `Agent` 도구가 없으므로 직접 처리하겠습니다." 패턴이 delta 스트림에 노출되는 경우를 제거한다.
+// done.fullText 는 result 이벤트가 최종 응답만 포함해 자연 제거되나, delta sanitize 에는 미적용 상태였음.
+// 관련 이슈: #388, #410, #429 (유사 패턴), pj-r13-003 trace.
+const AGENT_TOOL_ABSENT_RE = /저는\s*`Agent`\s*도구가\s*없으므로[^.。\n]*\./gi;
+
 // #440: 홈 라우터 위임 preamble 텍스트 sanitize — drive-agent 위임 시 delta 스트림에
 // 노출되는 내부 추론 문장을 제거한다. SUBAGENT_ID_RE 가 "drive-agent에게" 같은 식별자를
 // 제거하지만 라우팅 preamble 문장 자체는 제거하지 않으므로 별도 패턴으로 보완한다.
@@ -344,7 +350,7 @@ export async function runAiComposeStream(
             // 예: "wiki"(청크1) + "-agent에 위임하겠습니다."(청크2) → 합쳐서 매칭 후 제거.
             // 최대 30자를 carry 로 보류해 다음 청크와 합쳐 검사 후 플러시한다.
             const combined = deltaCarry + delta;
-            const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(HOME_ROUTER_PREAMBLE_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
+            const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(AGENT_TOOL_ABSENT_RE, '').replace(HOME_ROUTER_PREAMBLE_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
             const CARRY = 30;
             if (sanitizedDelta.length > CARRY) {
               onText(sanitizedDelta.slice(0, sanitizedDelta.length - CARRY));
@@ -381,6 +387,7 @@ export async function runAiComposeStream(
                   .replace(SUBAGENT_ID_RE, '')
                   .replace(KOREAN_AGENT_ID_RE, '')
                   .replace(SUBAGENT_DIRECT_MSG_RE, '')
+                  .replace(AGENT_TOOL_ABSENT_RE, '')
                   .replace(HOME_ROUTER_PREAMBLE_RE, '')
                   .replace(ENUM_PARENTHETICAL_RE, '')
                   .trim();
@@ -393,6 +400,7 @@ export async function runAiComposeStream(
                   .replace(SUBAGENT_ID_RE, '')
                   .replace(KOREAN_AGENT_ID_RE, '')
                   .replace(SUBAGENT_DIRECT_MSG_RE, '')
+                  .replace(AGENT_TOOL_ABSENT_RE, '')
                   .replace(HOME_ROUTER_PREAMBLE_RE, '')
                   .replace(ENUM_PARENTHETICAL_RE, '')
                   .trim();
@@ -529,7 +537,7 @@ export async function runAiComposeStream(
     // 노출하는 비결정적 동작을 결정론적으로 차단한다. 프롬프트 규칙만으로는 비결정적이므로
     // 후처리 sanitize 로 식별자 + 조사를 제거한다.
     // 예: "calendar-agent에 확인하겠습니다." → "확인하겠습니다."
-    const sanitizedText = finalText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(HOME_ROUTER_PREAMBLE_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
+    const sanitizedText = finalText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(AGENT_TOOL_ABSENT_RE, '').replace(HOME_ROUTER_PREAMBLE_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
     // #379: issue-agent 가 이슈 삭제 요청에서 내부 SDK 메시지("Agent 도구가 활성화되어 있지 않네요",
     // "현재 환경에서" 등)를 노출하는 비결정적 동작을 결정론적으로 차단한다.
     // #407: "advisor에게 상담하겠습니다" 등 SDK 내부 폴백 메시지도 동일 패턴으로 차단한다.

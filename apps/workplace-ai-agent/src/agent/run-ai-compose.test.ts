@@ -1011,6 +1011,58 @@ describe('runAiComposeStream — 서브에이전트 직접 호출 내부 메시�
   });
 });
 
+// #441: project-agent delta 스트림에 내부 SDK "Agent 도구가 없으므로" 메시지 노출 차단.
+// pj-r13-003 trace: "저는 `Agent` 도구가 없으므로 직접 처리하겠습니다." 가 delta 1~3에 걸쳐 노출.
+// done.fullText 는 result 이벤트가 최종 응답만 포함해 자연 제거되나, delta sanitize 에는 미적용이었음.
+describe('runAiComposeStream — Agent 도구 없음 내부 메시지 sanitize (#441)', () => {
+  it('delta 에서 "저는 `Agent` 도구가 없으므로 직접 처리하겠습니다." 단일 청크 제거', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('저는 `Agent` 도구가 없으므로 직접 처리하겠습니다.'));
+      onLine(textDelta('프로젝트 설명 수정 기능은 현재 지원하지 않습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '프로젝트 설명 수정 기능은 현재 지원하지 않습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('`Agent` 도구가 없으므로');
+    expect(streamed).not.toContain('저는 `Agent`');
+    expect(streamed).toContain('프로젝트 설명 수정 기능은 현재 지원하지 않습니다.');
+  });
+
+  it('pj-r13-003 실측 패턴: 청크 분할(delta 1~3)된 내부 메시지도 carry buffer 로 제거된다', async () => {
+    // 실측 delta 누적 텍스트: "저는 `Agent`" + " 도구가 없으므로" + " 직접 처리하겠습니다."
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('저는 `Agent`'));
+      onLine(textDelta(' 도구가 없으므로'));
+      onLine(textDelta(' 직접 처리하겠습니다.'));
+      onLine(textDelta('프로젝트 설명 수정 기능은 현재 지원하지 않습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '프로젝트 설명 수정 기능은 현재 지원하지 않습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('`Agent` 도구가 없으므로');
+    expect(streamed).toContain('프로젝트 설명 수정 기능은 현재 지원하지 않습니다.');
+  });
+
+  it('fullText 에서도 "저는 `Agent` 도구가 없으므로" 패턴 제거 (방어적 이중 sanitize)', async () => {
+    // result 이벤트에 패턴이 포함된 극단적 케이스도 방어.
+    const leakedText = '저는 `Agent` 도구가 없으므로 직접 처리하겠습니다.프로젝트 설명 수정 기능은 현재 지원하지 않습니다.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: leakedText }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).not.toContain('`Agent` 도구가 없으므로');
+    expect(out.fullText).toContain('프로젝트 설명 수정 기능은 현재 지원하지 않습니다.');
+  });
+});
+
 // #423: 이슈 상태·우선순위 영어 enum 괄호 병기 sanitize.
 // "완료(DONE)", "진행 중 (IN_PROGRESS)", "높음 (HIGH)" 처럼 영어 enum 을 괄호 안에 병기하는 비결정적 동작 차단.
 describe('runAiComposeStream — 이슈 enum 영어 병기 sanitize (#423)', () => {
