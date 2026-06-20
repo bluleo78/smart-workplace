@@ -13,6 +13,8 @@ export interface AssistantChat {
   /** '새 대화' 전이 신호(nonce) — 증가 시 패널이 미전송 입력 초안을 비운다(#204). */
   newSessionNonce: number;
   onSubmit: (query: string) => void;
+  /** #335: 스트리밍 중단 — 진행 중 AI 응답을 멈춘다(부분 응답은 보존). */
+  onStop: () => void;
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
@@ -39,6 +41,7 @@ export function useAssistantChat(): AssistantChat {
     currentSessionId: session.sessionId,
     newSessionNonce: session.newSessionNonce,
     onSubmit: session.submitQuery,
+    onStop: session.stopStreaming,
     onNewSession: session.newSession,
     onSelectSession: session.restoreSession,
     onDeleteSession: session.deleteSession,

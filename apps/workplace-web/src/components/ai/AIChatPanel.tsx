@@ -1,7 +1,7 @@
 // src/components/ai/AIChatPanel.tsx
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
-import { ChevronDown, MessageSquare, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { ChevronDown, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
@@ -28,6 +28,7 @@ export function AIChatPanel({
   turns,
   pending,
   onSubmit,
+  onStop,
   sessions,
   currentSessionId,
   newSessionNonce,
@@ -241,13 +242,26 @@ export function AIChatPanel({
             placeholder="AI 에게 요청…  (⌘K)"
             data-testid="chat-input"
           />
-          <Button
-            type="submit"
-            disabled={pending || !input.trim()}
-            className="bg-ai-accent text-ai-accent-foreground"
-          >
-            보내기
-          </Button>
+          {/* #335: 스트리밍 중에는 '보내기'를 '중단' 버튼으로 전환 — 클릭 시 진행 중 응답을 멈춘다. */}
+          {pending ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onStop}
+              aria-label="응답 중단"
+              data-testid="chat-stop"
+            >
+              <Square className="h-4 w-4 fill-current" /> 중단
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              disabled={!input.trim()}
+              className="bg-ai-accent text-ai-accent-foreground"
+            >
+              보내기
+            </Button>
+          )}
         </div>
       </form>
     </div>
