@@ -6,6 +6,7 @@ import { Paperclip, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 
 import { messagingApi } from '@/api/messaging'
+import { convertPlaintextMentions } from '@/components/mentions/mentionSerialize'
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { handleApiError } from '@/lib/api-error'
@@ -71,7 +72,8 @@ export function MessageComposer({
   // 본문·첨부 둘 다 비면 전송 차단. 전송 성공 시에만 pending 비움 (#169).
   // RichInput clearOnSubmit 이 반환된 Promise 를 보고 성공 시에만 입력창을 비운다.
   const handleSubmit = async (body: string): Promise<void> => {
-    const trimmed = body.trim()
+    // #366: 평문으로 입력한 @에이전트 멘션을 <@id> 로 변환 — AI 트리거 누락 방지.
+    const trimmed = convertPlaintextMentions(body, members).trim()
     if (!trimmed && pending.length === 0) return
     await onSend(trimmed, pending.map((p) => p.fileId))
     // 성공 경로에서만 도달 — 실패 시 await 에서 throw 되어 pending 도 입력창도 유지됨.
