@@ -424,6 +424,54 @@ describe('runAiComposeStream — mail 직접 응답 fallback (#383)', () => {
     expect(labels).not.toContain('메일 전문가에게 위임 중');
     expect(out.fullText).toBe('이메일 확인해볼게요.');
   });
+
+  // #439 회귀: haiku가 "없습니다" 환각 응답을 delta 스트림으로 흘려보내는 시나리오.
+  // 버퍼링으로 frontend 노출을 차단하고, done 후 onText로 override 전달.
+  it('#439 회귀: 미읽은 메일 환각 → delta 스트림 차단 + onText로 override 전달', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // haiku가 mail-agent 위임 없이 "없습니다" 환각을 직접 스트리밍하는 시나리오.
+      onLine(textDelta('현재 받은편지함에 미읽은 메일이 없습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '현재 받은편지함에 미읽은 메일이 없습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const streamed: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '미읽은 메일 요약해줘' }),
+      { client: fakeClient },
+      (t) => streamed.push(t),
+      new AbortController().signal,
+    );
+    // 환각 텍스트(받은편지함 미읽은 메일 없음)는 delta 스트림에서 차단 — frontend 노출 금지.
+    expect(streamed.join('')).not.toContain('받은편지함에 미읽은 메일이 없습니다');
+    // override 메시지가 onText(done 후)로 전달되어야 한다.
+    expect(streamed.join('')).toContain('메일을 직접 확인할 수 없습니다');
+    expect(out.fullText).toBe('메일을 직접 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+  });
+
+  // #439: 위임 확정 후 mail-agent delta → onText로 정상 전달 (버퍼링이 위임 이후 delta를 차단하지 않아야 함).
+  it('#439: 위임 확정 후 mail-agent delta → onText로 정상 전달', async () => {
+    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'mail-agent': { description: 'm', tools: [], prompt: '' } });
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // 1. 위임 tool_use — delegated=true 설정
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'mail-agent', prompt: '미읽은 메일 조회' } }] } }));
+      // 2. 위임 확정 후 mail-agent의 text_delta — onText로 전달되어야 함
+      onLine(textDelta('받은편지함에 5개의 미읽은 메일이 있습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '받은편지함에 5개의 미읽은 메일이 있습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const streamed: string[] = [];
+    const out = await runAiComposeStream(
+      baseInput({ query: '미읽은 메일 요약해줘' }),
+      { client: fakeClient },
+      (t) => streamed.push(t),
+      new AbortController().signal,
+    );
+    // 위임 이후 mail-agent의 delta는 frontend에 전달되어야 한다 (버퍼링 차단 금지).
+    expect(streamed.join('')).toContain('5개의 미읽은 메일');
+    expect(out.fullText).toBe('받은편지함에 5개의 미읽은 메일이 있습니다.');
+  });
 });
 
 // #408: isContactsQuery && !delegated → contacts fallback override.

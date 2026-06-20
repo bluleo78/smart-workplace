@@ -289,6 +289,10 @@ export async function runAiComposeStream(
     let policyDeny: string | null = null;
     // #383: mail-agent 위임 발생 여부 추적 — CLI 완료 후 위임 없이 직접 응답한 경우 fallback.
     let delegated = false;
+    // #439 회귀: mail 쿼리 판별 — 위임 미확정 구간의 haiku 직접 응답을 버퍼링해 frontend 노출 차단.
+    // 위임 확정 시 버퍼 flush, !delegated이면 done 후 override 문구를 onText로 전달.
+    const isMailQueryRequest = isMailQuery(input.query);
+    let mailQueryBuffer = '';
     // #421: 청크 경계에 걸친 서브에이전트 식별자("wiki" + "-agent에 위임하겠습니다.")를
     // sanitize 하기 위한 carry buffer. 최대 30자를 보유하며 handle.done 후 플러시한다.
     let deltaCarry = '';
@@ -308,17 +312,24 @@ export async function runAiComposeStream(
         const delta = extractTextDelta(obj);
         if (delta) {
           fullText += delta;
-          // #421: carry buffer 로 청크 경계에 걸친 식별자 패턴을 sanitize.
-          // 예: "wiki"(청크1) + "-agent에 위임하겠습니다."(청크2) → 합쳐서 매칭 후 제거.
-          // 최대 30자를 carry 로 보류해 다음 청크와 합쳐 검사 후 플러시한다.
-          const combined = deltaCarry + delta;
-          const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(HOME_ROUTER_PREAMBLE_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
-          const CARRY = 30;
-          if (sanitizedDelta.length > CARRY) {
-            onText(sanitizedDelta.slice(0, sanitizedDelta.length - CARRY));
-            deltaCarry = sanitizedDelta.slice(sanitizedDelta.length - CARRY);
+          if (isMailQueryRequest && !delegated) {
+            // #439 회귀: mail 쿼리 + 위임 미확정 → delta 버퍼링.
+            // haiku가 mail-agent 위임 없이 직접 응답하는 경우(환각 포함) frontend에 노출되지 않도록 차단.
+            // 위임 확정(delegated=true) 시 버퍼를 sanitize 후 flush. !delegated이면 done 후 override 전달.
+            mailQueryBuffer += delta;
           } else {
-            deltaCarry = sanitizedDelta; // 다음 청크와 합쳐서 검사
+            // #421: carry buffer 로 청크 경계에 걸친 식별자 패턴을 sanitize.
+            // 예: "wiki"(청크1) + "-agent에 위임하겠습니다."(청크2) → 합쳐서 매칭 후 제거.
+            // 최대 30자를 carry 로 보류해 다음 청크와 합쳐 검사 후 플러시한다.
+            const combined = deltaCarry + delta;
+            const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '').replace(HOME_ROUTER_PREAMBLE_RE, '').replace(ENUM_PARENTHETICAL_RE, '');
+            const CARRY = 30;
+            if (sanitizedDelta.length > CARRY) {
+              onText(sanitizedDelta.slice(0, sanitizedDelta.length - CARRY));
+              deltaCarry = sanitizedDelta.slice(sanitizedDelta.length - CARRY);
+            } else {
+              deltaCarry = sanitizedDelta; // 다음 청크와 합쳐서 검사
+            }
           }
         }
         // #333: assistant tool_use 중 Agent 위임을 검사·라벨링한다.
@@ -341,6 +352,19 @@ export async function runAiComposeStream(
             if (label) {
               // #383: 위임 발생 → 플래그 설정. onProgress 있으면 라벨 발행.
               delegated = true;
+              // #439 회귀: 위임 확정 — 버퍼된 mail delta(haiku preamble)를 sanitize 후 flush.
+              // HOME_ROUTER_PREAMBLE_RE 등으로 라우팅 안내 문구를 제거하고 남은 텍스트만 전송.
+              if (isMailQueryRequest && mailQueryBuffer) {
+                const sanitizedBuffer = mailQueryBuffer
+                  .replace(SUBAGENT_ID_RE, '')
+                  .replace(KOREAN_AGENT_ID_RE, '')
+                  .replace(SUBAGENT_DIRECT_MSG_RE, '')
+                  .replace(HOME_ROUTER_PREAMBLE_RE, '')
+                  .replace(ENUM_PARENTHETICAL_RE, '')
+                  .trim();
+                if (sanitizedBuffer) onText(sanitizedBuffer);
+                mailQueryBuffer = '';
+              }
               if (onProgress) onProgress(label);
             }
           }
@@ -404,12 +428,17 @@ export async function runAiComposeStream(
     // #439: "없습니다" 류 메일 유무 환각 응답 감지 — 도구 없이 메일 상태를 단정하는 경우
     // done.fullText 를 중립 안내로 override 한다(delta는 이미 스트리밍됐지만 done으로 정정).
     if (isMailQuery(input.query) && !delegated) {
-      const sanitized = fullText.replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(ENUM_PARENTHETICAL_RE, '').trim();
+      const sanitized = (mailQueryBuffer || fullText).replace(SUBAGENT_ID_RE, '').replace(KOREAN_AGENT_ID_RE, '').replace(ENUM_PARENTHETICAL_RE, '').trim();
       const hasMailStatusHallucination = /없습니다|없어요|없군요|없네요|없는\s*(것|것으로|듯)/i.test(sanitized);
+      const overrideText = hasMailStatusHallucination
+        ? '메일을 직접 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.'
+        : (sanitized || '메일 전문가에게 전달했습니다.');
+      // #439 회귀: frontend는 delta 누적 텍스트를 표시하므로 done.fullText가 아닌 onText로 override 전달.
+      // mailQueryBuffer의 haiku 직접 응답은 버퍼링만 되고 frontend 미도달이므로
+      // onText로 override 텍스트를 전송해야 사용자에게 올바른 메시지가 표시된다.
+      onText(overrideText);
       return {
-        fullText: hasMailStatusHallucination
-          ? '메일을 직접 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.'
-          : (sanitized || '메일 전문가에게 전달했습니다.'),
+        fullText: overrideText,
         widgets: null,
         pendingAction: null,
       };
