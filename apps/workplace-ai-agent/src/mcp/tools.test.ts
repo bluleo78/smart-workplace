@@ -134,6 +134,22 @@ describe('buildTools (agentId bound)', () => {
     expect(c.addChatMessage).toHaveBeenCalledWith(AGENT_ID, 5, '답변');
   });
 
+  // #433: add_chat_message 중복 호출 차단 가드 검증.
+  it('add_chat_message 2번째 호출 → API 미호출 + 차단 메시지 반환', async () => {
+    const c = client();
+    // 같은 buildTools 인스턴스(같은 MCP run) 내에서 동일 tool 객체를 2번 호출한다.
+    const tools = buildTools(c, AGENT_ID, 'chat');
+    const t = tools.find((x) => x.name === 'add_chat_message')!;
+
+    const first = await t.handler({ threadId: 5, body: '첫 답변' });
+    expect(first).toBe('ok');
+    expect(c.addChatMessage).toHaveBeenCalledTimes(1);
+
+    const second = await t.handler({ threadId: 5, body: '두 번째 답변' });
+    expect(second).toContain('이미');          // 차단 메시지 포함 확인
+    expect(c.addChatMessage).toHaveBeenCalledTimes(1); // API 재호출 없음
+  });
+
   it('get_chat_thread → client.getChatMessages(agentId, threadId, 50)', async () => {
     const c = client();
     vi.mocked(c.getChatMessages).mockResolvedValue([

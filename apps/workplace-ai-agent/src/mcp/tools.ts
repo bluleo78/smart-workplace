@@ -285,6 +285,10 @@ export function buildTools(
   };
 
   if (profile === 'chat') {
+    // #433: 단일 이벤트 처리 중 add_chat_message 중복 호출 방지.
+    // MCP 서버는 CLI run 당 하나의 프로세스로 실행되어 buildTools 클로저가 run 단위로 격리된다.
+    // 시스템 프롬프트 지시를 AI가 무시하는 비결정적 동작을 코드 레벨에서 결정론적으로 차단한다.
+    let addChatMessageCalled = false;
     return [
       getIssueDetailTool,
       searchWikiTool,
@@ -304,6 +308,12 @@ export function buildTools(
           'chat thread 에 답변 메시지를 작성합니다. 본문은 마크다운 지원. 정확히 한 번만 호출하세요.',
         inputSchema: addChatMessageInput,
         async handler(args) {
+          // #433: 2번째 이후 호출 차단 — 중복 응답 방지.
+          if (addChatMessageCalled) {
+            console.error('[mcp:add_chat_message] 중복 호출 감지 — 차단됨 (threadId 참고: args)');
+            return '이미 이 요청에 대한 답변을 등록했습니다. 추가 호출은 무시됩니다.';
+          }
+          addChatMessageCalled = true;
           const { threadId, body } = addChatMessageInput.parse(args);
           await client.addChatMessage(agentId, threadId, body);
           return 'ok';
