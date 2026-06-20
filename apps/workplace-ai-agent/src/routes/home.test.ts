@@ -45,6 +45,11 @@ describe('composeSchema', () => {
     expect(composeSchema.safeParse(rest).success).toBe(false);
   });
 
+  // #430: 공백 전용 쿼리는 trim 후 min(1) 에서 거부돼야 한다.
+  it('공백 전용 쿼리("   ") → 파싱 실패', () => {
+    expect(composeSchema.safeParse(validBody({ query: '   ' })).success).toBe(false);
+  });
+
   it('thinkingDepth 가 enum 밖이면 파싱 실패', () => {
     expect(composeSchema.safeParse(validBody({ thinkingDepth: 'WAT' })).success).toBe(false);
   });
@@ -84,8 +89,15 @@ describe('POST /ai/compose', () => {
     );
   });
 
-  it('query 누락 → 400 (러너 미호출)', async () => {
+  it('query 누락(빈 문자열) → 400 (러너 미호출)', async () => {
     const res = await request(buildApp()).post('/ai/compose').send(validBody({ query: '' }));
+    expect(res.status).toBe(400);
+    expect(runAiComposeStream).not.toHaveBeenCalled();
+  });
+
+  // #430: 공백 전용 쿼리는 trim 후 비어 있으므로 400 을 반환해야 한다.
+  it('공백 전용 쿼리("   ") → 400 (러너 미호출)', async () => {
+    const res = await request(buildApp()).post('/ai/compose').send(validBody({ query: '   ' }));
     expect(res.status).toBe(400);
     expect(runAiComposeStream).not.toHaveBeenCalled();
   });

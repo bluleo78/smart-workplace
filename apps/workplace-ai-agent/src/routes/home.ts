@@ -9,7 +9,8 @@ import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiComposeStream } from '../agent/run-ai-compose.js';
 
 export const composeSchema = z.object({
-  query: z.string().min(1),
+  // 공백 전용 쿼리("   ")는 trim 후 min(1) 검사로 거부 (#430).
+  query: z.string().trim().min(1),
   recentContext: z
     .array(z.object({ role: z.string(), content: z.string() }))
     .optional(),
