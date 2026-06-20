@@ -106,6 +106,26 @@ class AiAgentComposeClientTest {
   }
 
   @Test
+  void done_없이_EOF로_끝나면_onDone_미호출_onError_로_마감() {
+    // #347: delta 만 오고 done/error 없이 본문 스트림이 끝나는 비정상 종료(인터럽트 아님).
+    // 빈 ASSISTANT 행 영속을 막기 위해 onDone 은 호출되지 않아야 하고, 살아있는 emitter 가
+    // 타임아웃까지 매달리지 않도록 onError 로 마감되어야 한다.
+    String body = "event: delta\ndata: {\"text\":\"진행 중\"}\n\n";
+    boot(body, 200);
+
+    List<String> deltas = new ArrayList<>();
+    AtomicBoolean done = new AtomicBoolean(false);
+    AtomicReference<String> errorMsg = new AtomicReference<>();
+
+    client.composeStream(
+        dummyReq(), deltas::add, (ft, w) -> done.set(true), errorMsg::set, label -> {}, node -> {});
+
+    assertThat(deltas).containsExactly("진행 중");
+    assertThat(done).as("done 이벤트 없이 끝났으므로 onDone 미호출").isFalse();
+    assertThat(errorMsg.get()).contains("완료되지 않");
+  }
+
+  @Test
   void 홈컴포저_미설정_503_은_onError_로_명확메시지_전달() {
     // 503 home_composer_not_configured → 사용자에게 명확한 메시지 전달.
     boot("{\"error\":\"home_composer_not_configured\"}", 503);
