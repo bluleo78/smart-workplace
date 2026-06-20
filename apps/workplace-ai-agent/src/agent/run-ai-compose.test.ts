@@ -824,6 +824,72 @@ describe('runAiComposeStream — 내부 식별자 sanitize (#410)', () => {
   });
 });
 
+// #429: 서브에이전트 직접 호출 불가 내부 구현 메시지 sanitize.
+// D-002 패턴: "서브에이전트를 직접 호출하지 못하는 환경입니다. 직접 처리하겠습니다."
+// D-001b 패턴: "제가 직접 처리하겠습니다."
+describe('runAiComposeStream — 서브에이전트 직접 호출 내부 메시지 sanitize (#429)', () => {
+  it('D-002: fullText 에서 "서브에이전트를 직접 호출하지 못하는 환경" 메시지 제거', async () => {
+    const leakedMsg =
+      '이슈에 코멘트를 남기겠습니다.죄송합니다. 서브에이전트를 직접 호출하지 못하는 환경입니다. 직접 처리하겠습니다.EX-7777 이슈를 찾을 수 없습니다.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: leakedMsg }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).not.toContain('서브에이전트를 직접 호출하지 못하는 환경');
+    expect(out.fullText).not.toContain('죄송합니다. 서브에이전트를');
+    expect(out.fullText).toContain('이슈에 코멘트를 남기겠습니다.');
+    expect(out.fullText).toContain('EX-7777 이슈를 찾을 수 없습니다.');
+  });
+
+  it('D-001b: fullText 에서 "제가 직접 처리하겠습니다." 메시지 제거', async () => {
+    const leakedMsg =
+      'EX-9876 이슈를 진행중 상태로 변경하겠습니다.제가 직접 처리하겠습니다.EX-9876 이슈를 찾을 수 없습니다.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: leakedMsg }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).not.toContain('제가 직접 처리하겠습니다.');
+    expect(out.fullText).toContain('진행중 상태로 변경하겠습니다.');
+    expect(out.fullText).toContain('EX-9876 이슈를 찾을 수 없습니다.');
+  });
+
+  it('D-002: delta 스트림에서도 청크 분할된 내부 메시지 sanitize', async () => {
+    // D-002 실측 패턴: "서브에이전트를 " + "직" + "접 호출하지 못하는 환경입니다. 직접 처리하겠습니다."
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('이슈에 코멘트를 남기'));
+      onLine(textDelta('겠습니다.죄송합니다. 서브에이전트를 '));
+      onLine(textDelta('직'));
+      onLine(textDelta('접 호출하지 못하는 환경입니다. 직접 처리하겠습니다.'));
+      onLine(textDelta('EX-7777 이슈를 찾을 수 없습니다.'));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const streamed = got.join('');
+    expect(streamed).not.toContain('서브에이전트를 직접 호출하지 못하는 환경');
+    expect(streamed).not.toContain('제가 직접 처리하겠습니다');
+    expect(streamed).toContain('이슈에 코멘트를 남기겠습니다.');
+    expect(streamed).toContain('EX-7777 이슈를 찾을 수 없습니다.');
+  });
+
+  it('"직접 처리하겠습니다." 단독(제가/서브에이전트 없음)은 제거하지 않는다(오탐 방지)', async () => {
+    // "제가" 없이 "직접 처리하겠습니다."만 있으면 정상 문구이므로 통과.
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '이슈 상태를 직접 처리하겠습니다.' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(existsSync).mockReturnValue(false);
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toContain('직접 처리하겠습니다.');
+  });
+});
+
 // #404: show_issue_detail 위젯 — 존재하지 않는 이슈 번호 차단(결정론적 서버 검증).
 // haiku 가 EX-99999 처럼 존재하지 않는 이슈에 show_issue_detail 을 호출하는 비결정적 동작 차단.
 describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () => {

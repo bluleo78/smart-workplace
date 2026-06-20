@@ -168,6 +168,13 @@ function buildComposeUserMessage(input: ComposeInput): string {
 // String.prototype.replace 는 gi 플래그 정규식의 lastIndex 를 갱신하지 않으므로 모듈 상수 재사용 안전.
 const SUBAGENT_ID_RE = /\b(?:issue|calendar|messaging|wiki|mail|contacts|project|drive)-agent(?:에게?|가|이|를|을|로|으로|은|는|도|만|와|과|의)?\s*/gi;
 
+// #429: 서브에이전트 직접 호출 불가 내부 구현 메시지 sanitize.
+// "서브에이전트를 직접 호출하지 못하는 환경입니다. 직접 처리하겠습니다." 및
+// "제가 직접 처리하겠습니다." 패턴이 delta/최종 텍스트에 노출되는 경우를 제거한다.
+// SUBAGENT_ID_RE 가 에이전트 이름을 제거하는 것에 더해 메시지 자체를 sanitize 한다.
+const SUBAGENT_DIRECT_MSG_RE =
+  /(?:죄송합니다\.\s*)?서브에이전트를\s*직접\s*호출하지\s*못하는\s*환경입니다\.\s*직접\s*처리하겠습니다\.|제가\s*직접\s*처리하겠습니다\./gi;
+
 // SSE 라우트용 스트리밍 러너 — 토큰이 도착할 때마다 onText 콜백을 호출하고,
 // 완료 후 parseComposeLines 로 최종 message + widgets 를 산출해 반환한다.
 // #333: assistant 프로파일 + per-request workdir + allowSubagents + 화이트리스트 강제.
@@ -271,7 +278,7 @@ export async function runAiComposeStream(
           // 예: "wiki"(청크1) + "-agent에 위임하겠습니다."(청크2) → 합쳐서 매칭 후 제거.
           // 최대 30자를 carry 로 보류해 다음 청크와 합쳐 검사 후 플러시한다.
           const combined = deltaCarry + delta;
-          const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '');
+          const sanitizedDelta = combined.replace(SUBAGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '');
           const CARRY = 30;
           if (sanitizedDelta.length > CARRY) {
             onText(sanitizedDelta.slice(0, sanitizedDelta.length - CARRY));
@@ -412,7 +419,7 @@ export async function runAiComposeStream(
     // 노출하는 비결정적 동작을 결정론적으로 차단한다. 프롬프트 규칙만으로는 비결정적이므로
     // 후처리 sanitize 로 식별자 + 조사를 제거한다.
     // 예: "calendar-agent에 확인하겠습니다." → "확인하겠습니다."
-    const sanitizedText = finalText.replace(SUBAGENT_ID_RE, '');
+    const sanitizedText = finalText.replace(SUBAGENT_ID_RE, '').replace(SUBAGENT_DIRECT_MSG_RE, '');
     // #379: issue-agent 가 이슈 삭제 요청에서 내부 SDK 메시지("Agent 도구가 활성화되어 있지 않네요",
     // "현재 환경에서" 등)를 노출하는 비결정적 동작을 결정론적으로 차단한다.
     // #407: "advisor에게 상담하겠습니다" 등 SDK 내부 폴백 메시지도 동일 패턴으로 차단한다.
