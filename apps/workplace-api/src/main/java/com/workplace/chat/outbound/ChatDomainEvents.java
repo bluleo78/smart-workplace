@@ -19,6 +19,11 @@ public final class ChatDomainEvents {
       long issueId,
       String projectKey,
       String issueKey,
+      // #368: 이슈 채팅 AI 가 컨텍스트를 인지하도록 이슈 제목·상태·본문을 payload 에 동봉.
+      // AGENT 는 비멤버라 get_issue_detail 로 직접 못 읽으므로 작성자 트랜잭션에서 미리 채워 전달한다.
+      String issueTitle,
+      String issueStatus,
+      String issueBody,
       UserSummary actor,
       String body,
       List<UserSummary> mentions,

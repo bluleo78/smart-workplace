@@ -49,6 +49,10 @@ public class ChatEventDispatcher {
     p.put("projectKey", e.projectKey());
     p.put("issueKey", e.issueKey());
     p.put("issueId", e.issueId());
+    // #368: AI 가 이슈 컨텍스트를 인지하도록 제목·상태·본문 동봉. body 는 null 가능(CLOB).
+    p.put("issueTitle", e.issueTitle());
+    p.put("issueStatus", e.issueStatus());
+    p.put("issueBody", e.issueBody());
     p.put("threadId", e.threadId());
     p.put("messageId", e.messageId());
     p.put("actor", toMap(e.actor()));

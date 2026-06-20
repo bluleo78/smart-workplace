@@ -113,6 +113,33 @@ class IssueServiceTest extends IntegrationTestBase {
     assertThat(detail.summary().assignees()).anyMatch(a -> a.id().equals(agent));
   }
 
+  /**
+   * #368 근본원인 실증: AGENT 가 자기 담당 이슈를 직접 읽으려 하면(get_issue_detail 경로) 프로젝트 멤버가 아니므로 거부된다. 개인 프로젝트는
+   * AGENT 를 담당자로 둘 수 있지만(create_personalAllowsAgentAssignee), 담당자라고 project_member 가 되는 것은 아니다.
+   * 채팅 @멘션으로 트리거된 AGENT 도 동일하게 비멤버 → 이슈 본문·제목 컨텍스트를 읽지 못해 "이슈를 모른다"고 답하는 것이 #368 의 핵심. owner(멤버)는
+   * 읽히고 agent(비멤버)는 거부됨을 한 테스트에서 대비시켜 비대칭을 고정한다.
+   *
+   * <p>#368 의 fix(채팅 이벤트 payload 에 이슈 컨텍스트 enrich)는 권한 자체를 바꾸지 않으므로 이 테스트는 fix 후에도 그대로 통과한다 — 즉 "왜
+   * payload 로 미리 주입해야 하는가"를 고정하는 근본원인 회귀 테스트다. (에이전트의 이슈 직접 조회 권한 갭은 #368 범위 밖, 별도 후속 이슈로 추적.)
+   */
+  @Test
+  void get_byAssignedNonMemberAgent_throwsAccessDenied() {
+    Long owner = createUser("owner368");
+    Long agent = createAgentUser("bot368");
+    ProjectResponse personal =
+        projectService.create(owner, new CreateProjectRequest(null, "p368", null, "PERSONAL"));
+    IssueResponse resp =
+        issueService.create(
+            owner,
+            personal.key(),
+            new CreateIssueRequest("이슈제목", "이슈본문", null, null, List.of(agent), null, null));
+    // owner(멤버)는 정상 조회
+    assertThat(issueService.get(owner, personal.key(), resp.number())).isNotNull();
+    // agent(담당자지만 비멤버)는 멤버십 가드에서 거부 — 이슈 컨텍스트를 읽지 못한다.
+    assertThatThrownBy(() -> issueService.get(agent, personal.key(), resp.number()))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
   /** 개인 프로젝트: 소유자/AGENT 가 아닌 일반 HUMAN 은 담당자로 지정 불가 (Unit 4 검증 완화의 경계). */
   @Test
   void create_personalRejectsNonOwnerHuman() {

@@ -38,7 +38,18 @@ class ChatEventDispatcherTest {
 
   private ChatMessageCreatedEvent event(UserSummary actor, List<UserSummary> mentions) {
     return new ChatMessageCreatedEvent(
-        1L, 10L, 100L, "WP", "WP-1", actor, "@ai", mentions, Instant.now());
+        1L,
+        10L,
+        100L,
+        "WP",
+        "WP-1",
+        "로그인 버그",
+        "IN_PROGRESS",
+        "재현 절차: 로그인 시 500",
+        actor,
+        "@ai",
+        mentions,
+        Instant.now());
   }
 
   @Test
@@ -47,6 +58,18 @@ class ChatEventDispatcherTest {
     ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
     verify(client, times(1)).publish(captor.capture());
     assertThat(captor.getValue().type()).isEqualTo("chat.message.posted");
+  }
+
+  /** #368: payload 에 이슈 컨텍스트(title·status·body)가 동봉되어 AI 가 이슈를 인지할 수 있어야 한다. */
+  @Test
+  void publishedPayload_carriesIssueContext() {
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(AGENT)));
+    ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(1)).publish(captor.capture());
+    var payload = captor.getValue().payload();
+    assertThat(payload.get("issueTitle")).isEqualTo("로그인 버그");
+    assertThat(payload.get("issueStatus")).isEqualTo("IN_PROGRESS");
+    assertThat(payload.get("issueBody")).isEqualTo("재현 절차: 로그인 시 500");
   }
 
   @Test
