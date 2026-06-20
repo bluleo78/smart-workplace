@@ -161,8 +161,9 @@ function isDriveUnsupportedQuery(query: string): boolean {
   // #419: 파일명에 'upload'가 포함된 삭제 쿼리("test-upload.txt 삭제해줘")가 오탐되지 않도록
   // 삭제 키워드를 allow-list 에 포함. propose_delete_file/folder 가 #333 M4에서 지원된다.
   if (/목록|찾아줘|보여줘|검색|탐색|폴더.*만들|이름.*바꾸|이동|삭제/i.test(query)) return false;
-  // 업로드·멤버·권한·공유 관련 쿼리 감지.
-  return /업로드|upload|파일.*올려|올려줘|공유.*권한|멤버.*추가|멤버.*변경|권한.*변경|드라이브.*초대/i.test(query);
+  // 업로드·권한·공유 관련 쿼리 감지.
+  // #438: 멤버.*추가|멤버.*변경 → 드라이브.*멤버.*(?:추가|변경) 으로 좁혀 프로젝트 멤버 추가 오탐 방지.
+  return /업로드|upload|파일.*올려|올려줘|공유.*권한|드라이브.*멤버.*(?:추가|변경)|권한.*변경|드라이브.*초대/i.test(query);
 }
 
 // recentContext 를 단발 --print 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
