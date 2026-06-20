@@ -34,6 +34,7 @@ const ChannelPage = lazy(() => import('./pages/chat/ChannelPage'))
 const DmPage = lazy(() => import('./pages/chat/DmPage'))
 const NewMessagePage = lazy(() => import('./pages/chat/NewMessagePage'))
 const SelfDmRedirect = lazy(() => import('./pages/chat/SelfDmRedirect'))
+const ThreadsInboxPage = lazy(() => import('./pages/chat/ThreadsInboxPage'))
 const DriveModuleLayout = lazy(() =>
   import('./components/drive/DriveModuleLayout').then((m) => ({ default: m.DriveModuleLayout })),
 )
@@ -134,6 +135,7 @@ export default function App() {
                 <Route path="chat" element={<ChannelListPage />} />
                 <Route path="chat/new" element={<NewMessagePage />} />
                 <Route path="chat/channels/:id" element={<ChannelPage />} />
+                <Route path="chat/threads/inbox" element={<ThreadsInboxPage />} />
                 <Route path="chat/dms/self" element={<SelfDmRedirect />} />
                 <Route path="chat/dms/:id" element={<DmPage />} />
               </Route>

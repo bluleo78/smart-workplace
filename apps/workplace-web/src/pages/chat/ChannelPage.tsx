@@ -3,7 +3,7 @@
 // A9: AI 에이전트 작업 중 유령 버블 — onMessagingProgress 구독으로 채널별 진행 상태 렌더.
 import { Hash } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
 import { ChannelHeader } from '@/components/chat/ChannelHeader'
@@ -23,7 +23,7 @@ import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useAuth } from '@/hooks/useAuth'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
-import type { UserKind } from '@/types/messaging'
+import type { MessageResponse, UserKind } from '@/types/messaging'
 
 export default function ChannelPage() {
   const { id } = useParams()
@@ -44,11 +44,31 @@ export default function ChannelPage() {
   })()
   const [membersOpen, setMembersOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
+
+  // deep-link: ?thread=<rootId> 파라미터로 스레드 패널 자동 오픈.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const threadParam = searchParams.get('thread')
+
   // 스레드 패널: 어느 부모 메시지 id 가 열려 있는지. null 이면 패널 닫힘.
-  const [openThreadId, setOpenThreadId] = useState<number | null>(null)
-  // 부모 메시지를 채널 캐시(messages)에서 찾는다.
+  // ?thread= 파라미터가 있으면 초기값으로 사용.
+  const [openThreadId, setOpenThreadId] = useState<number | null>(
+    threadParam ? Number(threadParam) : null,
+  )
+
+  // 인박스 → deep-link 진입: ?thread= 가 바뀌면 해당 스레드를 연다.
+  // param 이 사라지면(채널 URL 로 이동) 열린 패널도 닫아 state drift 방지.
+  useEffect(() => {
+    setOpenThreadId(threadParam ? Number(threadParam) : null)
+  }, [threadParam])
+
+  // 패널 parent: 채널 메시지 캐시에서 찾되, 없으면 navigate state(인박스 카드가 넘긴 rootMessage) 사용.
+  const stateParent = (location.state as { threadParent?: MessageResponse } | null)?.threadParent
   const openThreadParent =
-    openThreadId != null ? messages.find((m) => m.id === openThreadId) ?? null : null
+    openThreadId != null
+      ? messages.find((m) => m.id === openThreadId) ??
+        (stateParent && stateParent.id === openThreadId ? stateParent : null)
+      : null
 
   // AI 작업 중 유령 버블 상태 관리 — streamId → 이벤트+타임스탬프 Map.
   // phase done/error 이벤트 수신 시 해당 항목 제거, 신규 AGENT 메시지 도착 시 전체 초기화.
@@ -180,7 +200,14 @@ export default function ChannelPage() {
           members={mentionMembers}
           me={me}
           archived={channel.archived}
-          onClose={() => setOpenThreadId(null)}
+          onClose={() => {
+            setOpenThreadId(null)
+            // ?thread= 파라미터가 있었으면 URL 에서도 제거한다(replace — 히스토리 오염 방지).
+            if (threadParam) {
+              searchParams.delete('thread')
+              setSearchParams(searchParams, { replace: true })
+            }
+          }}
         />
       )}
       <RenameChannelModal

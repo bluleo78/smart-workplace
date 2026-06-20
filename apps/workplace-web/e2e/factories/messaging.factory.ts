@@ -8,6 +8,7 @@ import type {
   DmResponse,
   MessageResponse,
   ReactionResponse,
+  ThreadInboxItem,
 } from '../../src/types/messaging';
 
 export function createChannel(overrides: Partial<ChannelResponse> = {}): ChannelResponse {
@@ -63,6 +64,19 @@ export function createDm(overrides: Partial<DmResponse> = {}): DmResponse {
 /** Phase 5: 이모지 리액션 집계 팩토리. */
 export function createReaction(overrides: Partial<ReactionResponse> = {}): ReactionResponse {
   return { emoji: '👍', count: 1, reacted: false, ...overrides };
+}
+
+/** #65 2단계: 스레드 인박스 아이템 팩토리. */
+export function createThreadInboxItem(
+  overrides: Omit<Partial<ThreadInboxItem>, 'rootMessage'> & { rootMessage?: Partial<MessageResponse> } = {},
+): ThreadInboxItem {
+  const { rootMessage: rootOverrides, ...rest } = overrides;
+  return {
+    rootMessage: createMessage({ unreadReplyCount: 1, followed: true, ...rootOverrides }),
+    channelName: '일반',
+    lastReplyAt: new Date('2026-06-02T00:00:00Z').toISOString(),
+    ...rest,
+  };
 }
 
 export function createMessage(overrides: Partial<MessageResponse> = {}): MessageResponse {

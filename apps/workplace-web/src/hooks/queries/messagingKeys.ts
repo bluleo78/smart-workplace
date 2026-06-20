@@ -9,4 +9,6 @@ export const messagingKeys = {
   threads: () => [...messagingKeys.all, 'thread'] as const,
   thread: (parentMessageId: number) => [...messagingKeys.all, 'thread', parentMessageId] as const,
   dms: () => [...messagingKeys.all, 'dms'] as const,
+  threadsInbox: () => [...messagingKeys.all, 'threads-inbox'] as const,
+  threadsInboxUnreadCount: () => [...messagingKeys.all, 'threads-inbox-unread'] as const,
 };

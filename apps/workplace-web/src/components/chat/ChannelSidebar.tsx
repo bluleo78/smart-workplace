@@ -1,6 +1,6 @@
 // 채널 사이드바 — 내 채널만 노출. 상단 "+ 채널"(생성), "탐색"(브라우저) 액션. 비공개엔 자물쇠.
 // 하단엔 DM 섹션(내 DM 목록 + 새 메시지 버튼).
-import { Hash, Lock, MessageSquare, Plus, Search } from 'lucide-react'
+import { Hash, Inbox, Lock, MessageSquare, Plus, Search } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
@@ -10,6 +10,7 @@ import { AgentBadge } from '@/components/users/AgentBadge'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
+import { useThreadsInboxUnreadCount } from '@/hooks/queries/useThreadsInboxUnreadCount'
 import { useAuth } from '@/hooks/useAuth'
 import { dmDisplayName } from '@/lib/dm'
 import { cn } from '@/lib/utils'
@@ -23,7 +24,9 @@ export function ChannelSidebar() {
   // 채널·DM 라우트가 같은 :id param 을 공유 → 활성 하이라이트가 교차로 켜지지 않도록 경로로 분기.
   const location = useLocation()
   const isDmRoute = location.pathname.startsWith('/chat/dms/')
+  const isThreadsRoute = location.pathname === '/chat/threads/inbox'
   const { data: channels, isLoading } = useMyChannels()
+  const { data: threadUnread = 0 } = useThreadsInboxUnreadCount()
   const { data: dms } = useMyDms()
   const { user } = useAuth()
   const myId = user?.id ?? 0
@@ -39,6 +42,29 @@ export function ChannelSidebar() {
       <div className={sidebarTitleClass}>
         <MessageSquare className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
         대화
+      </div>
+
+      {/* 상단 전역 진입: 스레드 인박스(크로스채널 미읽음). Slack Threads 위치. */}
+      <div className="px-3 pt-2">
+        <Link
+          to="/chat/threads/inbox"
+          data-testid="sidebar-threads-link"
+          className={cn(
+            'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm',
+            isThreadsRoute ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
+          )}
+        >
+          <Inbox className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span>스레드</span>
+          {threadUnread > 0 && (
+            <span
+              data-testid="sidebar-threads-badge"
+              className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
+            >
+              {threadUnread > 99 ? '99+' : threadUnread}
+            </span>
+          )}
+        </Link>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">

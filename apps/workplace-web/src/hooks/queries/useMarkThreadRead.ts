@@ -18,8 +18,12 @@ export function useMarkThreadRead(channelId: number) {
       if (currentUnread <= 0) return; // 미읽음 없으면 호출 생략.
       bumpUnreadReplyCount(qc, channelId, rootId, -currentUnread);
       mutation.mutate(rootId, {
-        // 사이드바 미읽음 스레드 점 동기화.
-        onSuccess: () => qc.invalidateQueries({ queryKey: messagingKeys.channels() }),
+        // 사이드바 미읽음 스레드 점 + 인박스 목록/뱃지 동기화.
+        onSuccess: () => {
+          qc.invalidateQueries({ queryKey: messagingKeys.channels() });
+          qc.invalidateQueries({ queryKey: messagingKeys.threadsInbox() });
+          qc.invalidateQueries({ queryKey: messagingKeys.threadsInboxUnreadCount() });
+        },
       });
     },
     [qc, channelId],

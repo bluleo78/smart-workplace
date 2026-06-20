@@ -133,6 +133,9 @@ function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentU
     }
     // 미오픈 채널 포함 사이드바 배지 갱신.
     invalidateLists(qc);
+    // 인박스(크로스채널 미읽음 스레드)도 답글 생성 시 갱신.
+    qc.invalidateQueries({ queryKey: messagingKeys.threadsInbox() });
+    qc.invalidateQueries({ queryKey: messagingKeys.threadsInboxUnreadCount() });
     return;
   } else if (eventName === 'messaging.message.updated') {
     // payload: {channelId,id,body,mentions,editedAt}
@@ -148,6 +151,9 @@ function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentU
     const id = Number(d.id);
     if (!id) return;
     patchMessage(qc, channelId, id, { deleted: true, body: '(삭제됨)' });
+    // 인박스(크로스채널 미읽음 스레드)도 답글 삭제 시 갱신.
+    qc.invalidateQueries({ queryKey: messagingKeys.threadsInbox() });
+    qc.invalidateQueries({ queryKey: messagingKeys.threadsInboxUnreadCount() });
   } else if (eventName === 'messaging.message.progress') {
     // AI 에이전트 스트리밍 진행 — progress 버스로 ghost bubble 컴포넌트에 전달.
     emitMessagingProgress({

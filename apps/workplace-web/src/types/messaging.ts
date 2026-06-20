@@ -78,6 +78,19 @@ export interface MessagePage {
   hasMore: boolean;
 }
 
+// #65 2단계: 크로스채널 스레드 인박스 카드.
+export interface ThreadInboxItem {
+  rootMessage: MessageResponse; // 스레드 루트(unreadReplyCount/followed 채워짐)
+  channelName: string;
+  lastReplyAt: string; // ISO, 최근 답글 시각
+}
+
+export interface ThreadInboxPage {
+  items: ThreadInboxItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 export interface CreateChannelRequest {
   name: string;
   visibility: ChannelVisibility;

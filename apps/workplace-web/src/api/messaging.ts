@@ -9,6 +9,7 @@ import type {
   DmResponse,
   MessagePage,
   MessageResponse,
+  ThreadInboxPage,
 } from '../types/messaging';
 import { client } from './client';
 
@@ -95,6 +96,19 @@ export const messagingApi = {
   // 스레드 패널 열기 — 해당 스레드를 최신 답글까지 읽음 표시.
   markThreadRead: (rootId: number) =>
     client.post(`/messaging/messages/${rootId}/thread/read`).then(() => undefined),
+
+  // #65 2단계: 크로스채널 미읽음 스레드 목록(활동순, keyset).
+  threadsInbox: (cursor?: string, limit = 50) => {
+    const params = new URLSearchParams();
+    if (cursor) params.set('cursor', cursor);
+    params.set('limit', String(limit));
+    return client.get<ThreadInboxPage>(`/messaging/threads/inbox?${params.toString()}`);
+  },
+  // 미읽음 스레드 개수(뱃지).
+  threadsInboxUnreadCount: () =>
+    client
+      .get<{ count: number }>('/messaging/threads/inbox/unread-count')
+      .then((r) => r.data.count),
 
   // 스레드 답글 목록(오래된→최신).
   getReplies: (parentMessageId: number, cursor?: string, limit = 50) => {
