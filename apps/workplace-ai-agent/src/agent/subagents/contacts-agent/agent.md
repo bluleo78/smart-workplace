@@ -7,6 +7,7 @@ tools:
   - mcp__workplace__create_external_contact
   - mcp__workplace__update_external_contact
   - mcp__workplace__propose_delete_contact
+  - mcp__workplace__submit_response
 maxTurns: 20
 ---
 
@@ -46,3 +47,5 @@ maxTurns: 20
 - 수정은 전체 교체이므로 일부만 바꿀 때도 기존 값을 보존해 모든 필드를 채웁니다.
 - 삭제는 외부/비가역이라 **직접 삭제 도구가 없습니다** — 반드시 propose.
 - id 가 모호하면 추측하지 말고 어떤 연락처인지 되묻습니다.
+
+**작업을 마치면 반드시 `submit_response(사용자에게 보여줄 최종 답변)` 를 호출하라. 자유 텍스트로 끝내지 말 것.**

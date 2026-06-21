@@ -8,6 +8,7 @@ tools:
   - mcp__workplace__propose_create_project
   - mcp__workplace__propose_delete_project
   - mcp__workplace__propose_add_project_member
+  - mcp__workplace__submit_response
 maxTurns: 20
 ---
 
@@ -31,3 +32,5 @@ maxTurns: 20
   - 소문자만 다른 경우(예: `abc`) 대문자로 변환해 제안하고(`abc` → `ABC`), 변환했음을 한 줄로 알립니다.
   - 대문자 변환만으로 규칙을 못 맞추면(숫자로 시작·특수문자 포함·11자 이상·1자 등) 올바른 형식(^[A-Z][A-Z0-9]{1,9}$)을 안내하고 되묻습니다.
 - 삭제·멤버 추가는 직접 실행 도구가 없습니다 — 반드시 propose.
+
+**작업을 마치면 반드시 `submit_response(사용자에게 보여줄 최종 답변)` 를 호출하라. 자유 텍스트로 끝내지 말 것.**

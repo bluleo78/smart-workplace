@@ -522,6 +522,9 @@ export function buildTools(
   // #333 M2: 일정 생성 제안 도구 — API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환.
   // #393: attendees 파라미터를 명시하지 않으면 스키마에 없는 것으로 간주해 haiku가 생략함.
   // #394: startsAt/endsAt 타임존 보정 — 핸들러에서 normalizeTimezone 으로 처리.
+  // #395: 새 일정 시간대 충돌을 서버에서 결정론적으로 확인한다. agent.md 는 propose 전 list_events 를
+  //       MUST 로 규정하지만 모델이 비결정적으로 그 단계를 건너뛰는 회귀가 반복되므로, 핸들러가
+  //       스스로 listEvents 로 겹치는 일정을 조회해 제안에 embed 한다(모델 호출에 의존하지 않음).
   const proposeCreateEventTool: McpTool = {
     name: 'propose_create_event',
     description:
@@ -532,7 +535,39 @@ export function buildTools(
       // #394: startsAt/endsAt 에 타임존 오프셋이 없으면 +09:00 보정.
       params.startsAt = normalizeTimezone(params.startsAt as string);
       params.endsAt = normalizeTimezone(params.endsAt as string);
-      return await writeProposal('calendar.create_event', summary, params);
+
+      // #395: 보정된 시간대 [startsAt, endsAt) 에 겹치는 기존 일정을 서버에서 조회한다.
+      //       listEvents 는 [from,to) 기간 일정을 반환하므로(=window 와 겹치는 일정), 반환 목록을
+      //       그대로 충돌로 본다. 조회 실패(네트워크/권한 등)는 fail-open — 충돌확인 실패가 제안 자체를
+      //       막으면 안 되므로 try/catch 로 감싸고 실패 시 conflicts 없이 정상 진행한다.
+      // params 는 zod 추론 타입이라 index signature 가 없어 새 키(conflicts) 할당이 타입 에러가 된다.
+      // 충돌을 담을 수 있도록 Record 로 복사해 제안 params 를 구성한다.
+      let finalSummary = summary;
+      const proposalParams: Record<string, unknown> = { ...params };
+      try {
+        const overlapping = await client.listEvents(
+          agentId,
+          params.startsAt as string,
+          params.endsAt as string,
+        );
+        if (overlapping.length > 0) {
+          // 충돌 정보를 제안 params 에 구조화해 담는다(확인 실행기/카드가 활용).
+          proposalParams.conflicts = overlapping.map((e) => ({
+            id: e.id,
+            title: e.title,
+            startsAt: e.startsAt,
+            endsAt: e.endsAt,
+          }));
+          // summary 에 충돌 경고 한 줄을 덧붙인다 — 사용자 확인 카드에 노출되는 것은 summary 이므로
+          // 카드에서 충돌을 알 수 있게 하려면 (ack 가 아니라) summary 에 넣어야 한다.
+          const titles = overlapping.map((e) => e.title).join(', ');
+          finalSummary = `${summary}\n[충돌] 같은 시간대에 기존 일정 ${overlapping.length}건이 있습니다: ${titles}`;
+        }
+      } catch {
+        // fail-open: 충돌 조회 실패는 무시하고 충돌 정보 없이 제안을 진행한다.
+      }
+
+      return await writeProposal('calendar.create_event', finalSummary, proposalParams);
     },
   };
 
@@ -848,6 +883,56 @@ export function buildTools(
     },
   };
 
+  // #381: 라우터 구조화 출력 도구 — 라우터(홈 비서)의 자유 prose 가 사용자에게 도달하는 경로를 차단한다.
+  // 라우터가 인사·능력질문·종합 응답을 자유 텍스트로 스트리밍하던 것을 막고, 반드시 이 도구로 답을 "제출"하게 한다.
+  // 핸들러는 WORKPLACE_ROUTER_RESPONSE_PATH 사이드카에 {text} 를 기록하고, run-ai-compose 가 그 파일을 권위 답으로 읽는다.
+  // first-write-guard: 이미 기록돼 있으면 덮어쓰지 않고 ack 만 반환(첫 호출의 답을 보존).
+  const respondChatTool: McpTool = {
+    name: 'respond_chat',
+    description:
+      '사용자에게 보여줄 최종 답변을 제출합니다. 인사·능력 질문·여러 작업 결과의 종합 응답 등 위임이 필요 없는 단순 응답은 반드시 이 도구로 제출하세요. 자유 텍스트로 직접 답하지 마세요. text 에 사용자에게 보여줄 한국어 답변을 넣습니다.',
+    inputSchema: z.object({ text: z.string().min(1) }),
+    async handler(args) {
+      const { text } = z.object({ text: z.string().min(1) }).parse(args);
+      const sidecarPath = process.env.WORKPLACE_ROUTER_RESPONSE_PATH;
+      if (!sidecarPath) {
+        // 사이드카 경로 미설정 — 답 제출 경로가 없으므로 ack 만 반환(정상 흐름에서는 발생하지 않음).
+        return '답변을 확정했습니다.';
+      }
+      const { existsSync, writeFileSync } = await import('node:fs');
+      // first-write-guard: 이미 답이 있으면 덮지 않고 ack 만 반환한다.
+      if (existsSync(sidecarPath)) {
+        return '답변을 확정했습니다.';
+      }
+      writeFileSync(sidecarPath, JSON.stringify({ text }), 'utf8');
+      return '답변을 확정했습니다.';
+    },
+  };
+
+  // #381: 서브에이전트 최종 답변 제출 도구 — 위임된 서브에이전트가 작업을 마치고 사용자에게 보여줄 최종 답변을 제출한다.
+  // Agent tool_result 는 stream-json 에서 collapsed(축약) 되어 추출 불가하므로(run-ai-compose 주석),
+  // 서브에이전트가 직접 WORKPLACE_SUBAGENT_RESPONSE_PATH 사이드카에 답을 기록하고 run-ai-compose 가 권위 답으로 읽는다.
+  // first-write-guard: 첫 호출 답을 보존(중복 호출 시 덮지 않음).
+  const submitResponseTool: McpTool = {
+    name: 'submit_response',
+    description:
+      '작업을 마치고 사용자에게 보여줄 최종 답변을 제출합니다. 서브에이전트는 작업 완료 후 반드시 이 도구를 호출해 답변을 제출해야 합니다. 자유 텍스트로 끝내지 마세요. text 에 사용자에게 보여줄 한국어 최종 답변을 넣습니다.',
+    inputSchema: z.object({ text: z.string().min(1) }),
+    async handler(args) {
+      const { text } = z.object({ text: z.string().min(1) }).parse(args);
+      const sidecarPath = process.env.WORKPLACE_SUBAGENT_RESPONSE_PATH;
+      if (!sidecarPath) {
+        return '답변을 제출했습니다.';
+      }
+      const { existsSync, writeFileSync } = await import('node:fs');
+      if (existsSync(sidecarPath)) {
+        return '답변을 제출했습니다.';
+      }
+      writeFileSync(sidecarPath, JSON.stringify({ text }), 'utf8');
+      return '답변을 제출했습니다.';
+    },
+  };
+
   // #333: assistant — 서브에이전트가 상속하는 전 앱 도구 union(M1: 이슈+위키읽기+표시, M2: 캘린더 읽기+제안, M3: 메시징+위키쓰기+메일+드라이브읽기, M4: 드라이브쓰기+삭제제안).
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
@@ -876,6 +961,8 @@ export function buildTools(
       listDriveSpacesTool, listDriveItemsTool, searchDriveTool, // #333 M3: 드라이브 읽기
       createFolderTool, renameFolderTool, moveFolderTool, moveFileTool, // #333 M4: 드라이브 쓰기(직접 실행)
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
+      respondChatTool,           // #381: 라우터 전용 — 단순 응답 구조화 제출(사이드카 기록)
+      submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)
       ...buildShowTools(),
     ];
   }

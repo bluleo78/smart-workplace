@@ -16,6 +16,7 @@ describe('messaging-agent 정의', () => {
       'mcp__workplace__add_channel_message',
       'mcp__workplace__list_channels',
       'mcp__workplace__discover_channels',
+      'mcp__workplace__submit_response',
     ]);
   });
   it('maxTurns 설정 + 본문에 채널 안내', () => {

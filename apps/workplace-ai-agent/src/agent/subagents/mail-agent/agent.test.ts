@@ -17,6 +17,7 @@ describe('mail-agent 정의', () => {
       'mcp__workplace__propose_send_mail',
       'mcp__workplace__list_mail_accounts',
       'mcp__workplace__sync_mail',
+      'mcp__workplace__submit_response',
     ]);
   });
   it('maxTurns 설정 + 본문에 메일·발송 확인 안내', () => {

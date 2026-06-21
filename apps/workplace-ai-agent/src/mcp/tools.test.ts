@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -279,6 +279,145 @@ describe('buildTools(assistant)', () => {
 
   it('assistant union 에 propose_create_event 가 포함된다', () => {
     expect(buildTools({} as never, 1, 'assistant').map((t) => t.name)).toContain('propose_create_event');
+  });
+
+  // #381: 라우터 구조화 출력 — respond_chat/submit_response 가 답 사이드카에 {text} 를 기록.
+  it('respond_chat 은 router 사이드카에 {text} 를 기록하고 ack 반환', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'rc-'));
+    const sidecar = path.join(dir, 'router-response.json');
+    process.env.WORKPLACE_ROUTER_RESPONSE_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'respond_chat')!;
+      const ack = await tool.handler({ text: '안녕하세요! 무엇을 도와드릴까요?' });
+      expect(typeof ack).toBe('string');
+      expect(JSON.parse(readFileSync(sidecar, 'utf8')).text).toBe('안녕하세요! 무엇을 도와드릴까요?');
+    } finally {
+      delete process.env.WORKPLACE_ROUTER_RESPONSE_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // #381: first-write-guard — 이미 답이 있으면 덮지 않는다(위임 시 subagent 답을 라우터가 못 덮게).
+  it('respond_chat first-write-guard — 기존 사이드카를 덮지 않는다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'rc-guard-'));
+    const sidecar = path.join(dir, 'router-response.json');
+    writeFileSync(sidecar, JSON.stringify({ text: '먼저 쓰인 답' }), 'utf8');
+    process.env.WORKPLACE_ROUTER_RESPONSE_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'respond_chat')!;
+      await tool.handler({ text: '나중 답(무시되어야 함)' });
+      expect(JSON.parse(readFileSync(sidecar, 'utf8')).text).toBe('먼저 쓰인 답');
+    } finally {
+      delete process.env.WORKPLACE_ROUTER_RESPONSE_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // #381: submit_response 는 subagent 사이드카에 {text} 를 기록(위임 답 경로).
+  it('submit_response 는 subagent 사이드카에 {text} 를 기록한다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'sr-'));
+    const sidecar = path.join(dir, 'subagent-response.json');
+    process.env.WORKPLACE_SUBAGENT_RESPONSE_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'submit_response')!;
+      await tool.handler({ text: 'EX-2 상태를 진행 중으로 변경했어요.' });
+      expect(JSON.parse(readFileSync(sidecar, 'utf8')).text).toBe('EX-2 상태를 진행 중으로 변경했어요.');
+    } finally {
+      delete process.env.WORKPLACE_SUBAGENT_RESPONSE_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('assistant union 에 respond_chat / submit_response 가 포함된다', () => {
+    const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
+    expect(names).toContain('respond_chat');
+    expect(names).toContain('submit_response');
+  });
+
+  // #395: 새 일정 충돌을 서버에서 결정론적으로 조회해 제안에 embed (모델 list_events 호출에 비의존).
+  it('propose_create_event — 겹치는 기존 일정이 있으면 conflicts 를 params 에 담고 summary 에 경고를 덧붙인다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-conf-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    const calls: unknown[] = [];
+    try {
+      // listEvents 가 [startsAt,endsAt) 와 겹치는 기존 일정 1건을 반환하도록 mock.
+      const fake = {
+        listEvents: async (...a: unknown[]) => {
+          calls.push(a);
+          return [{
+            id: 11, title: '기존 회의', description: null,
+            startsAt: '2026-06-26T01:30:00Z', endsAt: '2026-06-26T02:30:00Z',
+            allDay: false, location: null, recurrenceRule: null,
+          }];
+        },
+      } as never;
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      const ack = await tool.handler({
+        title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z',
+        allDay: false, summary: '6/26 10시 팀 미팅(1시간)',
+      });
+      // 보정된 시간대로 listEvents 호출됨.
+      expect(calls[0]).toEqual([7, '2026-06-26T01:00:00Z', '2026-06-26T02:00:00Z']);
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('calendar.create_event');
+      // conflicts 가 {id,title,startsAt,endsAt} 형태로 담긴다.
+      expect(written.params.conflicts).toEqual([
+        { id: 11, title: '기존 회의', startsAt: '2026-06-26T01:30:00Z', endsAt: '2026-06-26T02:30:00Z' },
+      ]);
+      // summary 에 충돌 경고가 덧붙고 기존 일정 제목이 포함된다(확인 카드 노출용).
+      expect(written.summary).toContain('6/26 10시 팀 미팅(1시간)');
+      expect(written.summary).toContain('[충돌]');
+      expect(written.summary).toContain('기존 회의');
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('propose_create_event — 겹치는 일정이 없으면 conflicts 없이 기존과 동일하게 동작한다 (#395)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-noconf-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const fake = { listEvents: async () => [] } as never; // 충돌 없음
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      await tool.handler({
+        title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z',
+        allDay: false, summary: '6/26 10시 팀 미팅(1시간)',
+      });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      // summary 는 그대로, conflicts 키는 없다.
+      expect(written.summary).toBe('6/26 10시 팀 미팅(1시간)');
+      expect(written.params.conflicts).toBeUndefined();
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('propose_create_event — listEvents 실패 시 fail-open: 충돌 없이 제안을 정상 진행한다 (#395)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-failopen-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      // listEvents 가 reject(네트워크/권한 등) — 제안 자체는 막히면 안 된다.
+      const fake = { listEvents: async () => { throw new Error('network'); } } as never;
+      const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      const ack = await tool.handler({
+        title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z',
+        allDay: false, summary: '6/26 10시 팀 미팅(1시간)',
+      });
+      expect(typeof ack).toBe('string');
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('calendar.create_event');
+      expect(written.summary).toBe('6/26 10시 팀 미팅(1시간)');
+      expect(written.params.conflicts).toBeUndefined();
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

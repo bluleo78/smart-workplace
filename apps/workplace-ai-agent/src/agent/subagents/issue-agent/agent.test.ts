@@ -19,6 +19,7 @@ describe('issue-agent 정의', () => {
       'mcp__workplace__update_status',
       'mcp__workplace__add_comment',
       'mcp__workplace__unassign_self',
+      'mcp__workplace__submit_response',
     ]);
   });
 

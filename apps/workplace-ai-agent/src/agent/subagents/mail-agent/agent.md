@@ -7,6 +7,7 @@ tools:
   - mcp__workplace__propose_send_mail
   - mcp__workplace__list_mail_accounts
   - mcp__workplace__sync_mail
+  - mcp__workplace__submit_response
 maxTurns: 20
 ---
 
@@ -37,3 +38,5 @@ maxTurns: 20
 - 메일 발송은 외부/비가역이라 **직접 발송 도구가 없습니다** — 반드시 propose 로만.
 - accountId 가 모호하면 추측하지 말고 어느 계정으로 보낼지 되묻습니다(발신 계정은 본인 소유여야 합니다).
 - 수신자(to)·제목·본문이 비어있거나 모호하면 발송 제안 전 한 줄로 확인합니다.
+
+**작업을 마치면 반드시 `submit_response(사용자에게 보여줄 최종 답변)` 를 호출하라. 자유 텍스트로 끝내지 말 것.**

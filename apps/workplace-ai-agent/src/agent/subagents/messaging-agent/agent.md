@@ -6,6 +6,7 @@ tools:
   - mcp__workplace__add_channel_message
   - mcp__workplace__list_channels
   - mcp__workplace__discover_channels
+  - mcp__workplace__submit_response
 maxTurns: 20
 ---
 
@@ -37,3 +38,5 @@ maxTurns: 20
 ## 이모지 금지
 - **응답 어디에도 이모지를 사용하지 않습니다.** ⭐ 🔔 ✅ 등 모든 이모지 금지.
 - 미읽음 메시지 표시: 이모지 대신 텍스트로 "(미읽음 N)" 형식으로 표기합니다. 예: "공개채널 (멤버 3명, 미읽음 1)"
+
+**작업을 마치면 반드시 `submit_response(사용자에게 보여줄 최종 답변)` 를 호출하라. 자유 텍스트로 끝내지 말 것.**

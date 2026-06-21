@@ -7,6 +7,7 @@ tools:
   - mcp__workplace__propose_create_event
   - mcp__workplace__propose_update_event
   - mcp__workplace__propose_delete_event
+  - mcp__workplace__submit_response
 maxTurns: 20
 ---
 
@@ -34,3 +35,5 @@ maxTurns: 20
 - startsAt/endsAt 은 반드시 **타임존 오프셋 포함 ISO-8601** 형식으로 채웁니다(예: `2026-06-20T14:00:00+09:00`). 오프셋 없는 naive datetime(`2026-06-20T14:00:00`) 사용 금지. 시스템 타임존은 Asia/Seoul(UTC+09:00). endsAt 은 startsAt 보다 뒤여야 합니다.
 - 시간이 모호하면 추측하지 말고 무엇을 제안할지 한 줄로 되묻습니다.
 - 사용자가 "승인", "확인", "네", "진행해줘" 등으로 응답해도 에이전트가 직접 일정을 생성하지 않습니다. propose 는 이미 완료됐으며 서버의 confirm API 가 처리합니다. 에이전트는 "확인 카드에서 승인해주세요."라고만 안내하고 종료합니다. 추가 propose 없이 생성 완료 표현을 하는 것은 금지입니다.
+
+**작업을 마치면 반드시 `submit_response(사용자에게 보여줄 최종 답변)` 를 호출하라. 자유 텍스트로 끝내지 말 것.**

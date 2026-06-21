@@ -11,6 +11,7 @@ tools:
   - mcp__workplace__move_file
   - mcp__workplace__propose_delete_file
   - mcp__workplace__propose_delete_folder
+  - mcp__workplace__submit_response
 maxTurns: 20
 ---
 
@@ -46,3 +47,5 @@ maxTurns: 20
 - **삭제는 제안→확인**: propose_delete_file / propose_delete_folder 를 사용합니다. 직접 삭제 API 는 없습니다.
 - **비가역 작업 제안은 한 턴에 하나만**: 한 응답 안에서 propose 도구를 두 번 호출하지 마세요.
 - 업로드·멤버 변경은 미지원입니다 — 요청받으면 "현재 지원하지 않는 기능"이라고 짧게 안내합니다.
+
+**작업을 마치면 반드시 `submit_response(사용자에게 보여줄 최종 답변)` 를 호출하라. 자유 텍스트로 끝내지 말 것.**

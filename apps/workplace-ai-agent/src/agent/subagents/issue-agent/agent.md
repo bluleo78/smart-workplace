@@ -7,6 +7,7 @@ tools:
   - mcp__workplace__update_status
   - mcp__workplace__add_comment
   - mcp__workplace__unassign_self
+  - mcp__workplace__submit_response
 maxTurns: 20
 ---
 
@@ -86,3 +87,5 @@ maxTurns: 20
   - "제대로 지원되지 않을 수 있습니다", "오류가 발생했습니다"만으로 종료
   - "현재 담당자가 아닙니다" (get_issue_detail로 담당자 확인됐을 때)
 - `get_issue_detail`로 담당자 확인 → `unassign_self` 실패 순서라도, 결론은 "해제 실패"이지 "담당자 아님"이 아닙니다. 두 도구 결과를 절대 혼동하지 않습니다.
+
+**작업을 마치면 반드시 `submit_response(사용자에게 보여줄 최종 답변)` 를 호출하라. 자유 텍스트로 끝내지 말 것.**

@@ -10,7 +10,7 @@ describe('project-agent 정의', () => {
   it('loadSubagents 로 project-agent 가 로드된다', () => {
     expect(loaded['project-agent']).toBeDefined();
   });
-  it('tools 는 read 3 + propose 3', () => {
+  it('tools 는 read 3 + propose 3 + submit_response', () => {
     expect(loaded['project-agent'].tools).toEqual([
       'mcp__workplace__list_projects',
       'mcp__workplace__get_project',
@@ -18,6 +18,7 @@ describe('project-agent 정의', () => {
       'mcp__workplace__propose_create_project',
       'mcp__workplace__propose_delete_project',
       'mcp__workplace__propose_add_project_member',
+      'mcp__workplace__submit_response',
     ]);
   });
   it('maxTurns 설정 + 본문에 프로젝트·제안 안내', () => {

@@ -17,6 +17,7 @@ describe('contacts-agent 정의', () => {
       'mcp__workplace__create_external_contact',
       'mcp__workplace__update_external_contact',
       'mcp__workplace__propose_delete_contact',
+      'mcp__workplace__submit_response',
     ]);
   });
   it('maxTurns 설정 + 본문에 연락처·삭제 안내', () => {

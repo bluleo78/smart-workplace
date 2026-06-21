@@ -16,6 +16,7 @@ describe('wiki-agent 정의', () => {
       'mcp__workplace__get_wiki_page',
       'mcp__workplace__create_wiki_page',
       'mcp__workplace__update_wiki_page',
+      'mcp__workplace__submit_response',
     ]);
   });
   it('maxTurns 설정 + 본문에 위키·버전 안내', () => {

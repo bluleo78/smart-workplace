@@ -17,6 +17,7 @@ describe('calendar-agent 정의', () => {
       'mcp__workplace__propose_create_event',
       'mcp__workplace__propose_update_event',
       'mcp__workplace__propose_delete_event',
+      'mcp__workplace__submit_response',
     ]);
   });
   it('본문에 일정·확인 안내가 있고 maxTurns 가 설정됨', () => {
