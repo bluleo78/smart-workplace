@@ -49,6 +49,17 @@ public class DriveFileService {
     return fileUpload.getFileContentTrusted(row.fileId());
   }
 
+  /**
+   * 공유 링크 다운로드. 멤버십 검사 없이(capability URL) 컨텍스트 설정 후 file core 신뢰 read. trashed 파일은 findRow 가 제외 →
+   * 호출부에서 NotFound 처리.
+   */
+  @Transactional(readOnly = true)
+  public FileContentResult downloadViaShareLink(long driveFileId) throws IOException {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    return fileUpload.getFileContentTrusted(row.fileId());
+  }
+
   /** 썸네일. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. 없으면 빈 Optional → 컨트롤러 404. */
   @Transactional(readOnly = true)
   public java.util.Optional<FileContentResult> thumbnail(long callerId, long driveFileId)

@@ -44,6 +44,9 @@ const DrivePage = lazy(() =>
 const DriveIndexRedirect = lazy(() =>
   import('./pages/drive/DriveIndexRedirect').then((m) => ({ default: m.DriveIndexRedirect })),
 )
+// 공개 공유 링크 다운로드 랜딩 — 인증 없이 접근 가능.
+const ShareLinkPage = lazy(() => import('./pages/drive/ShareLinkPage'))
+
 const WikiModuleLayout = lazy(() =>
   import('./components/wiki/WikiModuleLayout').then((m) => ({ default: m.WikiModuleLayout })),
 )
@@ -104,6 +107,8 @@ export default function App() {
           {/* 공개 라우트 */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          {/* 공유 링크 다운로드 랜딩 — 인증 불필요 */}
+          <Route path="/s/:token" element={<ShareLinkPage />} />
 
           {/* 인증 필요 — ProtectedRoute 가 미인증 시 /login 리다이렉트, 통과 시 AppLayout 렌더 */}
           <Route element={<ProtectedRoute />}>

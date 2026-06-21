@@ -4,6 +4,29 @@
 export type DriveSpaceType = 'PERSONAL' | 'TEAM' | 'CHANNEL'
 export type DriveRole = 'OWNER' | 'EDITOR' | 'VIEWER'
 
+// #78: 공유 링크 가시성 — 외부(익명) / 사내(로그인).
+export type ShareLinkAudience = 'EXTERNAL' | 'INTERNAL'
+
+// #78: 공유 링크 생성 응답 — 평문 토큰은 이 응답에서만 1회 노출.
+export interface CreatedShareLink {
+  id: number
+  token: string
+  audience: ShareLinkAudience
+  hasPassword: boolean
+  expiresAt: string | null
+}
+
+// #78: 공유 링크 목록 항목 — 토큰 미포함.
+export interface ShareLink {
+  id: number
+  audience: ShareLinkAudience
+  hasPassword: boolean
+  expiresAt: string | null
+  revoked: boolean
+  createdAt: string
+  createdBy: number
+}
+
 export interface DriveSpace {
   id: number
   type: DriveSpaceType

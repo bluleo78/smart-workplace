@@ -30,6 +30,7 @@ import { driveApi } from '../../api/drive'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
+import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { SearchInput } from '../../components/ui/search-input'
 import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveSpace, DriveTrashItem } from '../../types/drive'
 
@@ -60,6 +61,8 @@ export function DrivePage() {
     { mode: 'move' | 'copy'; kind: 'file' | 'folder'; id: number; name: string } | null
   >(null)
   const [preview, setPreview] = useState<DriveFile | null>(null)
+  // 공유 링크 모달 대상 파일 — null 이면 닫힘.
+  const [shareFile, setShareFile] = useState<DriveFile | null>(null)
 
   // 검색 상태 — query 길이 ≥2 면 results 로 목록을 대체.
   const [query, setQuery] = useState('')
@@ -564,6 +567,16 @@ export function DrivePage() {
                 >
                   다운로드
                 </button>
+                {/* 공유 링크 — 외부/사내 링크 발급 모달 */}
+                <button
+                  type="button"
+                  onClick={() => setShareFile(f)}
+                  className="hidden text-xs text-primary group-hover:inline-flex"
+                  aria-label={`${f.name} 공유 링크`}
+                  data-testid="share-link-btn"
+                >
+                  공유 링크
+                </button>
                 <button
                   type="button"
                   onClick={() => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name })}
@@ -622,6 +635,7 @@ export function DrivePage() {
           />
         )}
         {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
+        {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
       </div>
 
       {/* 폴더 이름 입력 다이얼로그 — 새 폴더 생성 / 이름 변경. window.prompt 대체 (#135). */}

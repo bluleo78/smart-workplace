@@ -269,6 +269,27 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
+  @ExceptionHandler(com.workplace.drive.exception.DriveShareLinkNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleShareLinkNotFound(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  @ExceptionHandler(com.workplace.drive.exception.DriveShareLinkGoneException.class)
+  public ResponseEntity<ErrorResponse> handleShareLinkGone(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.GONE, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.GONE).body(response);
+  }
+
+  @ExceptionHandler(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class)
+  public ResponseEntity<ErrorResponse> handleShareLinkUnauthorized(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.UNAUTHORIZED, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+  }
+
   // 위키 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400) / 낙관적 충돌(409)
   @ExceptionHandler({
     com.workplace.wiki.exception.WikiSpaceNotFoundException.class,

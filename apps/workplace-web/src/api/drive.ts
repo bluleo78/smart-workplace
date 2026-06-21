@@ -1,6 +1,8 @@
 // 드라이브 REST API client. 모든 함수는 AxiosResponse 반환 — 호출처에서 .data unwrap.
 
+import { downloadBlob } from '../lib/download'
 import type {
+  CreatedShareLink,
   DriveFile,
   DriveFolder,
   DriveFolderPathSegment,
@@ -9,8 +11,93 @@ import type {
   DriveSearchResult,
   DriveSpace,
   DriveTrashList,
+  ShareLink,
 } from '../types/drive'
-import { client } from './client'
+import { client, getAccessToken } from './client'
+
+// 공유 링크 타입은 types/drive 에 정의(DTO 단일 출처). 기존 import 처를 위해 재노출.
+export type { CreatedShareLink, ShareLink } from '../types/drive'
+
+// 공유 링크 생성 — audience, 비밀번호(선택), 만료일(선택).
+export async function createShareLink(
+  fileId: number,
+  body: { audience: 'EXTERNAL' | 'INTERNAL'; password?: string; expiresAt?: string },
+): Promise<CreatedShareLink> {
+  const { data } = await client.post<CreatedShareLink>(`/drive/files/${fileId}/share-links`, body);
+  return data;
+}
+
+// 파일에 연결된 공유 링크 목록 조회.
+export async function listShareLinks(fileId: number): Promise<ShareLink[]> {
+  const { data } = await client.get<ShareLink[]>(`/drive/files/${fileId}/share-links`);
+  return data;
+}
+
+// 공유 링크 폐기 — 이후 해당 토큰으로 다운로드 불가.
+export async function revokeShareLink(linkId: number): Promise<void> {
+  await client.delete<void>(`/drive/share-links/${linkId}`);
+}
+
+// 공유 링크 랜딩 페이지 URL — 외부에 배포하는 URL. /s/:token 라우트.
+// 비밀번호 입력 UI가 여기에 있으므로 이 URL 을 공유해야 한다.
+export function shareLandingUrl(token: string): string {
+  return `${window.location.origin}/s/${token}`
+}
+
+// 공개 다운로드 API 경로 내부용 — 실제 파일 다운로드 fetch 시 사용.
+// (shareDownloadUrl 은 이전 호환성을 위해 유지하되 공유 목적으로는 shareLandingUrl 사용)
+export function shareDownloadApiUrl(token: string): string {
+  return `/api/v1/public/drive/share/${encodeURIComponent(token)}/download`
+}
+
+/** 공유 다운로드 에러 — status 코드를 담아 호출처에서 메시지 매핑. */
+export class ShareDownloadError extends Error {
+  readonly status: number
+  constructor(status: number) {
+    super(`Share download failed: ${status}`)
+    this.status = status
+  }
+}
+
+/**
+ * 공유 토큰으로 파일 다운로드.
+ *
+ * - 로그인 중이면 Bearer 헤더를 함께 전송 (INTERNAL 링크 지원).
+ * - 비밀번호가 있으면 X-Share-Password 헤더로 전달 — URL 쿼리 문자열 금지.
+ * - 성공 시 Blob 을 받아 브라우저 다운로드(downloadBlob 재사용).
+ * - 비성공 응답은 ShareDownloadError(status) 를 throw.
+ */
+export async function downloadSharedFile(token: string, password?: string): Promise<void> {
+  const headers: Record<string, string> = {}
+  const tok = getAccessToken()
+  if (tok) {
+    headers['Authorization'] = `Bearer ${tok}`
+  }
+  if (password) {
+    headers['X-Share-Password'] = password
+  }
+
+  const res = await fetch(shareDownloadApiUrl(token), { headers })
+
+  if (!res.ok) {
+    throw new ShareDownloadError(res.status)
+  }
+
+  const blob = await res.blob()
+
+  // Content-Disposition 파싱 — RFC-5987(filename*=UTF-8'') 우선, 없으면 filename="…" 폴백.
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  let filename = 'download'
+  const rfc5987 = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (rfc5987) {
+    filename = decodeURIComponent(rfc5987[1].trim())
+  } else {
+    const plain = disposition.match(/filename="([^"]+)"/i)
+    if (plain) filename = plain[1]
+  }
+
+  downloadBlob(filename, blob)
+}
 
 export const driveApi = {
   listSpaces: () => client.get<DriveSpace[]>('/drive/spaces'),
