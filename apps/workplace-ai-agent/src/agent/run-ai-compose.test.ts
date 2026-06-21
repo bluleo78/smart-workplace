@@ -71,7 +71,7 @@ function thinkingDelta(thinking: string): string {
 interface SidecarSpec {
   subagent?: string; // subagent-response.json 의 text (submit_response)
   router?: string; // router-response.json 의 text (respond_chat)
-  pendingAction?: unknown; // pending-action.json 의 내용(객체)
+  pendingAction?: unknown; // pending-action.json 의 내용(객체, NDJSON 1줄로 직렬화)
   unassignSuccess?: unknown; // unassign-success.json 의 내용(객체)
   unassignError?: unknown; // unassign-error.json 의 내용(객체)
 }
@@ -80,7 +80,8 @@ function mockSidecars(spec: SidecarSpec): void {
   const files: Array<{ name: string; content: string }> = [];
   if (spec.subagent !== undefined) files.push({ name: 'subagent-response.json', content: JSON.stringify({ text: spec.subagent }) });
   if (spec.router !== undefined) files.push({ name: 'router-response.json', content: JSON.stringify({ text: spec.router }) });
-  if (spec.pendingAction !== undefined) files.push({ name: 'pending-action.json', content: JSON.stringify(spec.pendingAction) });
+  // #351: NDJSON 형식 — 단일 객체도 줄 1개로 저장(readPendingActions 가 줄 단위로 파싱).
+  if (spec.pendingAction !== undefined) files.push({ name: 'pending-action.json', content: JSON.stringify(spec.pendingAction) + '\n' });
   if (spec.unassignSuccess !== undefined) files.push({ name: 'unassign-success.json', content: JSON.stringify(spec.unassignSuccess) });
   if (spec.unassignError !== undefined) files.push({ name: 'unassign-error.json', content: JSON.stringify(spec.unassignError) });
   vi.mocked(existsSync).mockImplementation((p: unknown) =>
@@ -204,7 +205,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(out.fullText).toBe('요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.');
     expect(got).toEqual(['요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.']);
-    expect(out.pendingAction).toMatchObject({ actionType: 'mail.send_mail' });
+    expect(out.pendingActions[0]).toMatchObject({ actionType: 'mail.send_mail' });
   });
 
   // #381 불변식: 위젯(show_*)만 + 사이드카 없음 → 빈 텍스트(onText 미호출) + widgets 반환.
@@ -355,25 +356,26 @@ describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
     expect(cfgArg.pendingActionPath).toContain('pending-action.json');
   });
 
-  it('사이드카가 있으면 done 후 읽어 pendingAction 으로 반환', async () => {
+  it('사이드카가 있으면 done 후 읽어 pendingActions 로 반환', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '제안했어요.' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ actionType: 'calendar.create_event', summary: 's', params: { title: 't' } }) as never);
+    // #351: NDJSON 1줄 — readPendingActions 가 split('\n') 후 파싱.
+    vi.mocked(readFileSync).mockReturnValue((JSON.stringify({ actionType: 'calendar.create_event', summary: 's', params: { title: 't' } }) + '\n') as never);
     const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(out.pendingAction).toMatchObject({ actionType: 'calendar.create_event', summary: 's' });
+    expect(out.pendingActions[0]).toMatchObject({ actionType: 'calendar.create_event', summary: 's' });
   });
 
-  it('사이드카가 없으면 pendingAction 은 null', async () => {
+  it('사이드카가 없으면 pendingActions 는 빈 배열', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'ok' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
     vi.mocked(existsSync).mockReturnValue(false);
     const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 
   it('general-purpose 위임 tool_use → 비동기 onLine 경로에서 kill 이 done 보다 먼저 호출됨 (Finding 1 프로덕션 경로)', async () => {
@@ -426,7 +428,7 @@ describe('runAiComposeStream — unassignError 사이드카 override (#378)', ()
     const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(canonical);
     expect(out.widgets).toBeNull();
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 
   it('unassign-error.json 이 없으면 subagent 사이드카 답을 그대로 사용', async () => {
@@ -474,7 +476,7 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     expect(streamed.join('')).not.toContain('계정이 연동되지 않았습니다.');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.widgets).toBeNull();
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 
   it('메일 쿼리 + 위임 있음 → submit_response 사이드카 답 반환', async () => {
@@ -620,7 +622,7 @@ describe('runAiComposeStream — contacts 위임 답 / 미위임 fallback (#381,
     expect(streamed.join('')).not.toContain('어떤 연락처를 찾고 계신가요?');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.widgets).toBeNull();
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 
   it('연락처 쿼리 + 위임 있음 → submit_response 사이드카 답 반환', async () => {
@@ -682,7 +684,7 @@ describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex
     );
     expect(out.fullText).toBe('파일 업로드 기능은 현재 지원하지 않습니다.');
     expect(out.widgets).toBeNull();
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 
   it('드라이브 멤버 권한 변경 쿼리 + 위임 없음 + 사이드카 없음 → fallback (prose 미사용)', async () => {
@@ -721,8 +723,9 @@ describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex
 
   // #419: 파일명에 'upload'가 포함된 삭제 쿼리("test-upload.txt 삭제해줘")는 drive.delete_file 지원 범위.
   // isDriveUnsupportedQuery 의 deny 패턴 'upload'가 파일명에 오탐하지 않도록 allow-list 에 '삭제' 추가.
-  it('파일명에 upload 포함 삭제 쿼리 → guard 미적용, pendingAction 반환', async () => {
-    const sidecarContent = JSON.stringify({ actionType: 'drive.delete_file', summary: '드라이브 내 "test-upload.txt" 삭제', params: { fileId: 1 } });
+  it('파일명에 upload 포함 삭제 쿼리 → guard 미적용, pendingActions 반환', async () => {
+    // #351: NDJSON 1줄
+    const sidecarContent = JSON.stringify({ actionType: 'drive.delete_file', summary: '드라이브 내 "test-upload.txt" 삭제', params: { fileId: 1 } }) + '\n';
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(textDelta('파일을 찾았습니다. 삭제를 제안합니다.'));
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '파일을 찾았습니다. 삭제를 제안합니다.' }));
@@ -739,8 +742,8 @@ describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex
     );
     // "현재 지원하지 않는 기능" 으로 override 되면 안 됨.
     expect(out.fullText).not.toBe('현재 지원하지 않는 기능입니다.');
-    // propose_delete_file 이 기록한 사이드카가 pendingAction 으로 반환되어야 함.
-    expect(out.pendingAction).toMatchObject({ actionType: 'drive.delete_file' });
+    // propose_delete_file 이 기록한 사이드카가 pendingActions 배열로 반환되어야 함.
+    expect(out.pendingActions[0]).toMatchObject({ actionType: 'drive.delete_file' });
   });
 });
 
@@ -763,7 +766,7 @@ describe('runAiComposeStream — wiki 위임 답 / 미위임 fallback (#381, ex-
     );
     expect(out.fullText).toBe('위키 페이지 삭제 기능은 현재 지원하지 않습니다.');
     expect(out.widgets).toBeNull();
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 
   it('위키 페이지 지워줘 쿼리 + 위임 없음 + 사이드카 없음 → fallback (prose 미사용)', async () => {
@@ -803,7 +806,7 @@ describe('runAiComposeStream — wiki 위임 답 / 미위임 fallback (#381, ex-
 
 // #400 #409: 비가역 작업 제안 후 승인 발화 시 haiku 환각 응답 차단 — pending_action 없이 "완료했습니다" 방지.
 describe('runAiComposeStream — proposal approval hallucination guard (#400, #409)', () => {
-  it('승인 발화 + 직전 AI 제안 문구 + pendingAction 없음 → 고정 안내 반환', async () => {
+  it('승인 발화 + 직전 AI 제안 문구 + pendingActions 없음 → 고정 안내 반환', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       // haiku가 "생성됐습니다" 환각 응답을 내보내는 시나리오.
       onLine(textDelta('팀 회의 일정이 생성됐습니다. 오늘 오후 4시~5시에 예약되어 있습니다.'));
@@ -825,7 +828,7 @@ describe('runAiComposeStream — proposal approval hallucination guard (#400, #4
     // haiku 환각 응답 대신 고정 안내가 반환되어야 한다.
     expect(out.fullText).toContain('확인 카드에서 승인해주세요');
     expect(out.fullText).not.toContain('생성됐습니다');
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 
   it('승인 발화이지만 pending_action 이 있으면 정상 흐름 통과', async () => {
@@ -847,8 +850,8 @@ describe('runAiComposeStream — proposal approval hallucination guard (#400, #4
       () => {},
       new AbortController().signal,
     );
-    // pending_action 이 있으면 정상적으로 pendingAction 이 반환되어야 한다.
-    expect(out.pendingAction).not.toBeNull();
+    // pending_action 이 있으면 정상적으로 pendingActions 배열이 비어있지 않아야 한다.
+    expect(out.pendingActions.length).toBeGreaterThan(0);
   });
 
   it('일반 쿼리("네 알겠어")는 제안 컨텍스트 없으면 guard 미적용(사이드카 답 통과)', async () => {
@@ -890,7 +893,7 @@ describe('runAiComposeStream — proposal approval hallucination guard (#400, #4
     // 환각 차단 — 고정 안내가 반환되어야 한다.
     expect(out.fullText).toContain('확인 카드에서 승인해주세요');
     expect(out.fullText).not.toContain('완료했습니다');
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 });
 
@@ -934,7 +937,7 @@ describe('runAiComposeStream — SDK 내부 메시지 누수 가드 (#381, ex-#3
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.fullText).not.toContain('Agent 도구가 활성화');
     expect(out.widgets).toBeNull();
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 
   it('이슈 삭제 거부 안내는 subagent 사이드카 답으로 그대로 반환', async () => {
@@ -960,7 +963,7 @@ describe('runAiComposeStream — SDK 내부 메시지 누수 가드 (#381, ex-#3
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.fullText).not.toContain('advisor');
     expect(out.widgets).toBeNull();
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
   });
 
   it('정상 안내는 router 사이드카 답으로 그대로 반환', async () => {
@@ -1296,7 +1299,7 @@ describe('runAiComposeStream — 생성일 필터 쿼리 사전 차단 (#405)', 
     );
     expect(out.fullText).toContain('생성 날짜 필터는 지원하지 않습니다');
     expect(out.widgets).toBeNull();
-    expect(out.pendingAction).toBeNull();
+    expect(out.pendingActions).toEqual([]);
     // LLM 미호출 확인 — getOAuthToken 도 호출되지 않아야 한다.
     expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).not.toHaveBeenCalled();
   });

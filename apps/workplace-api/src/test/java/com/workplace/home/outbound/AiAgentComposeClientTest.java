@@ -179,6 +179,7 @@ class AiAgentComposeClientTest {
 
   @Test
   void pending_action_이벤트는_raw_JsonNode_로_onPendingAction_에_전달() {
+    // #351 이전 단일 객체는 길이 1 배열로 래핑되어 전달됨.
     String body =
         "event: pending_action\ndata: {\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시 회의\",\"params\":{\"title\":\"회의\"}}\n\n"
             + "event: done\ndata: {\"fullText\":\"제안했어요\",\"widgets\":null}\n\n";
@@ -188,8 +189,29 @@ class AiAgentComposeClientTest {
     client.composeStream(dummyReq(), d -> {}, (ft, w) -> {}, msg -> {}, label -> {}, pending::set);
 
     assertThat(pending.get()).isNotNull();
-    assertThat(pending.get().get("actionType").asText()).isEqualTo("calendar.create_event");
-    assertThat(pending.get().get("summary").asText()).isEqualTo("내일 10시 회의");
-    assertThat(pending.get().get("params").get("title").asText()).isEqualTo("회의");
+    // 단일 객체는 길이 1 배열로 래핑됨.
+    assertThat(pending.get().isArray()).isTrue();
+    assertThat(pending.get().get(0).get("actionType").asText()).isEqualTo("calendar.create_event");
+    assertThat(pending.get().get(0).get("summary").asText()).isEqualTo("내일 10시 회의");
+    assertThat(pending.get().get(0).get("params").get("title").asText()).isEqualTo("회의");
+  }
+
+  @Test
+  void pending_action_배열은_ArrayNode_로_onPendingAction_에_전달() {
+    // #351: ai-agent 가 멀티-액션 배열을 보내면 그대로 ArrayNode 로 전달돼야 한다.
+    String body =
+        "event: pending_action\ndata: [{\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시\",\"params\":{}},"
+            + "{\"actionType\":\"mail.send\",\"summary\":\"메일 보내기\",\"params\":{}}]\n\n"
+            + "event: done\ndata: {\"fullText\":\"제안했어요\",\"widgets\":null}\n\n";
+    boot(body, 200);
+
+    AtomicReference<com.fasterxml.jackson.databind.JsonNode> pending = new AtomicReference<>();
+    client.composeStream(dummyReq(), d -> {}, (ft, w) -> {}, msg -> {}, label -> {}, pending::set);
+
+    assertThat(pending.get()).isNotNull();
+    assertThat(pending.get().isArray()).isTrue();
+    assertThat(pending.get().size()).isEqualTo(2);
+    assertThat(pending.get().get(0).get("actionType").asText()).isEqualTo("calendar.create_event");
+    assertThat(pending.get().get(1).get("actionType").asText()).isEqualTo("mail.send");
   }
 }

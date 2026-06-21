@@ -520,9 +520,9 @@ export function buildTools(
     },
   };
 
-  // #333 M4: propose 공통 — 사이드카 단일-제안 하드 가드. propose 는 위임 서브에이전트 안에서 실행되어
-// 라우터의 "한 턴 한 제안" 프롬프트 규칙이 전파되지 않으므로, 핸들러에서 프롬프트-독립으로 강제한다.
-// 사이드카는 run-home-compose 가 사전 생성하지 않으므로 파일 존재 = 이번 턴에 이미 제안됨.
+  // #351: propose 공통 — 사이드카에 제안을 NDJSON(줄당 1제안)으로 append.
+  // 한 서브에이전트가 동종 비가역 작업을 여러 건 제안하면 run-ai-compose 가 줄 단위로 읽어
+  // pending_action 배열로 발행한다. (이전 #333 M4 단일-제안 하드가드는 #351 로 제거.)
   async function writeProposal(
     actionType: string,
     summary: string,
@@ -532,11 +532,9 @@ export function buildTools(
     if (!sidecarPath) {
       return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
     }
-    const { existsSync, writeFileSync } = await import('node:fs');
-    if (existsSync(sidecarPath)) {
-      return '이미 대기 중인 제안이 있습니다. 먼저 그 작업을 확인(승인/취소)한 뒤 다음 제안을 해주세요.';
-    }
-    writeFileSync(sidecarPath, JSON.stringify({ actionType, summary, params }), 'utf8');
+    const { appendFileSync } = await import('node:fs');
+    // NDJSON: 한 줄당 제안 1건. MCP 서버는 단일 stdio 프로세스·순차 도구호출이라 append 경쟁 없음.
+    appendFileSync(sidecarPath, JSON.stringify({ actionType, summary, params }) + '\n', 'utf8');
     return '제안을 등록했습니다. 사용자 확인을 기다립니다.';
   }
 

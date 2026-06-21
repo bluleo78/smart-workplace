@@ -66,9 +66,9 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         },
       );
       if (!aborted) {
-        // #333 M2: pending_action 을 done 앞에 발행(결정적 순서) — 확인 카드.
-        if (result.pendingAction) {
-          res.write(`event: pending_action\ndata: ${JSON.stringify(result.pendingAction)}\n\n`);
+        // #351: pending_action 을 done 앞에 발행(결정적 순서) — 확인 카드. 다건 제안은 배열로 1회 발행.
+        if (Array.isArray(result.pendingActions) && result.pendingActions.length > 0) {
+          res.write(`event: pending_action\ndata: ${JSON.stringify(result.pendingActions)}\n\n`);
         }
         // #432: done 이벤트에 토큰 사용량(usage) 포함 — 없으면 null.
         res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets, usage: result.usage })}\n\n`);

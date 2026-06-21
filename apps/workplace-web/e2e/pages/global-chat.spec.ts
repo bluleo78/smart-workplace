@@ -609,7 +609,7 @@ test('확인 카드 — pending_action 이 카드로 렌더되고 승인 시 con
       if (route.request().method() !== 'POST') return route.fallback();
       const sseBody =
         'event: delta\ndata: {"text":"6/26 10시 팀 미팅을 제안할게요"}\n\n' +
-        'event: pending_action\ndata: {"actionType":"calendar.create_event","summary":"6/26 10시 팀 미팅(1시간)","params":{"title":"팀 미팅","startsAt":"2026-06-26T01:00:00Z","endsAt":"2026-06-26T02:00:00Z","allDay":false}}\n\n' +
+        'event: pending_action\ndata: [{"actionType":"calendar.create_event","summary":"6/26 10시 팀 미팅(1시간)","params":{"title":"팀 미팅","startsAt":"2026-06-26T01:00:00Z","endsAt":"2026-06-26T02:00:00Z","allDay":false}}]\n\n' +
         'event: done\ndata: {"sessionId":"s-conf-1"}\n\n';
       return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
     },
@@ -652,7 +652,7 @@ test('확인 카드 — 취소 시 confirm API 미호출, 카드 폐기 (#333)',
     (route) => {
       if (route.request().method() !== 'POST') return route.fallback();
       const sseBody =
-        'event: pending_action\ndata: {"actionType":"calendar.create_event","summary":"취소 대상","params":{"title":"x"}}\n\n' +
+        'event: pending_action\ndata: [{"actionType":"calendar.create_event","summary":"취소 대상","params":{"title":"x"}}]\n\n' +
         'event: done\ndata: {"sessionId":"s-conf-2"}\n\n';
       return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
     },
@@ -670,7 +670,7 @@ test('확인 카드 — 취소 시 confirm API 미호출, 카드 폐기 (#333)',
 
   const card = page.getByTestId('pending-action-card');
   await expect(card).toBeVisible();
-  await card.getByRole('button', { name: '취소' }).click();
+  await card.getByRole('button', { name: '거부' }).click();
   // 카드 폐기 + confirm 미호출.
   await expect(page.getByTestId('pending-action-card')).toHaveCount(0);
   expect(confirmCalled).toBe(false);

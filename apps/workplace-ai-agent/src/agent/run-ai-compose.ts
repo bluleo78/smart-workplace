@@ -151,6 +151,26 @@ function readResponseSidecar(p: string): string | null {
   }
 }
 
+// #351: NDJSON 사이드카를 줄 단위로 읽어 제안 배열을 만든다. 파일 없음/빈 줄/깨진 줄은 건너뛴다.
+export function readPendingActions(sidecarPath: string): unknown[] {
+  if (!existsSync(sidecarPath)) return [];
+  try {
+    return readFileSync(sidecarPath, 'utf8')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .flatMap((l) => {
+        try {
+          return [JSON.parse(l)];
+        } catch {
+          return []; // 깨진 줄 무시
+        }
+      });
+  } catch {
+    return [];
+  }
+}
+
 // SSE 라우트용 스트리밍 러너 — 완료 후 구조화된 답(respond_chat/submit_response 사이드카)을 onText 로 1회 emit하고,
 // parseComposeLines 로 위젯을 산출해 반환한다.
 // #333: assistant 프로파일 + per-request workdir + allowSubagents + 화이트리스트 강제.
@@ -162,13 +182,13 @@ export async function runAiComposeStream(
   onText: (t: string) => void,
   signal: AbortSignal,
   onProgress?: (label: string) => void, // #333: Agent 위임 시작 시 호출('이슈 전문가에게 위임 중')
-): Promise<{ fullText: string; widgets: unknown; pendingAction: unknown | null; usage: import('./compose-parser.js').Usage | null }> {
+): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; usage: import('./compose-parser.js').Usage | null }> {
   // #405: 생성일 필터 쿼리 — LLM 호출 전 결정론적으로 차단. dueFrom 오해석 방지.
   if (isCreatedDateFilterQuery(input.query)) {
     return {
       fullText: '생성 날짜 필터는 지원하지 않습니다. 마감일(dueFrom/dueTo), 담당자, 상태, 우선순위 필터를 사용해 보세요.',
       widgets: null,
-      pendingAction: null,
+      pendingActions: [],
       usage: null, // #432: LLM 미호출 — 사용량 없음
     };
   }
@@ -314,7 +334,7 @@ export async function runAiComposeStream(
       return {
         fullText: '담당 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.',
         widgets: null,
-        pendingAction: null,
+        pendingActions: [],
         usage: null, // #432: override 응답 — 사용량 보고 생략
       };
     }
@@ -325,24 +345,17 @@ export async function runAiComposeStream(
       !existsSync(pendingActionPath) &&
       isProposalApprovalHallucination(input.query, input.recentContext ?? [])
     ) {
-      return { fullText: '확인 카드에서 승인해주세요. 에이전트가 직접 작업을 수행하지 않습니다.', widgets: null, pendingAction: null, usage: null };
+      return { fullText: '확인 카드에서 승인해주세요. 에이전트가 직접 작업을 수행하지 않습니다.', widgets: null, pendingActions: [], usage: null };
     }
-    // #333 M2: propose 도구가 사이드카에 제안을 썼으면 읽어 pendingAction 으로 싣는다(스트림 파싱 불가 — collapsed Agent tool_result).
-    let pendingAction: unknown | null = null;
-    if (existsSync(pendingActionPath)) {
-      try {
-        pendingAction = JSON.parse(readFileSync(pendingActionPath, 'utf8'));
-      } catch {
-        pendingAction = null; // 파싱 실패는 무시(확인 카드 없이 진행)
-      }
-    }
+    // #351: propose 도구가 NDJSON 사이드카에 쓴 제안들을 배열로 읽는다(스트림 파싱 불가 — collapsed Agent tool_result).
+    const pendingActions: unknown[] = readPendingActions(pendingActionPath);
     // #378: unassign_self 실패 사이드카가 존재하면 LLM 응답을 버리고 고정 문구로 override.
     // haiku 가 도구 에러를 자의적으로 재해석하는 비결정적 동작을 결정론적으로 차단한다.
     if (existsSync(unassignErrorPath)) {
       try {
         const errData = JSON.parse(readFileSync(unassignErrorPath, 'utf8')) as { canonical: string };
         if (errData.canonical) {
-          return { fullText: errData.canonical, widgets: null, pendingAction: null, usage: null };
+          return { fullText: errData.canonical, widgets: null, pendingActions: [], usage: null };
         }
       } catch {
         // 사이드카 파싱 실패 — LLM 응답을 그대로 사용
@@ -355,7 +368,7 @@ export async function runAiComposeStream(
     const widgets = filteredWidgets.length > 0 ? filteredWidgets : null;
     // #381: 답 텍스트 결정(우선순위) — 라우터 자유 prose 는 절대 사용하지 않는다.
     //   1) submit_response 사이드카(위임 답) → 2) respond_chat 사이드카(pure_chat)
-    //   → 3) pending_action 있으면 제안 안내(서브에이전트가 propose 만 하고 submit_response 누락 시)
+    //   → 3) pendingActions 있으면 제안 안내(서브에이전트가 propose 만 하고 submit_response 누락 시)
     //   → 4) 위젯만 있으면 빈 텍스트(plan §3 — show_* 단독 호출 시 fallback 문구 오노출 방지)
     //   → 5) 결정적 fallback
     const subagentText = readResponseSidecar(subagentResponsePath);
@@ -365,7 +378,7 @@ export async function runAiComposeStream(
       answerText = subagentText;
     } else if (routerText) {
       answerText = routerText;
-    } else if (pendingAction) {
+    } else if (pendingActions.length > 0) {
       // #381 후속: propose 도구는 호출돼 확인 카드(pending_action)는 발행됐으나 서브에이전트가
       // submit_response 를 누락한 경우. fallback("처리하지 못했어요")은 확인 카드와 모순되므로,
       // 제안이 준비됐다는 결정적 안내로 대체한다(모델의 submit_response 호출에 비의존).
@@ -378,7 +391,7 @@ export async function runAiComposeStream(
     // 빈 텍스트는 onText 로 emit 하지 않는다(빈 버블 방지).
     if (answerText) onText(answerText);
     // #432: 라우터 CLI result 이벤트의 토큰 사용량을 done 이벤트로 전달(LLM 인증 비용 가시화).
-    return { fullText: answerText, widgets, pendingAction, usage: parsed.usage };
+    return { fullText: answerText, widgets, pendingActions, usage: parsed.usage };
   } finally {
     // Finding 2: null 가드 — writeTempMcpConfig/mkdtempSync 가 throw 하면 미생성 변수는 정리 생략.
     if (mcpConfigPath) cleanupTempMcpConfig(mcpConfigPath);

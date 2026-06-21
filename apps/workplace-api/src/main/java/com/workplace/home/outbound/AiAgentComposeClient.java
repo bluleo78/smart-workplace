@@ -221,11 +221,28 @@ public class AiAgentComposeClient {
     }
   }
 
-  /** pending_action data 전체를 JsonNode 로 파싱(actionType/summary/params). 파싱 실패 시 null. */
+  /**
+   * #351: pending_action data 를 JsonNode 로 파싱. 단일 객체/배열 모두 허용.
+   *
+   * <ul>
+   *   <li>배열: 비면 무시, 비지 않으면 ArrayNode 그대로 반환.
+   *   <li>단일 객체(하위호환): actionType 필드가 있으면 길이 1 ArrayNode 로 래핑해 반환. 이후 프론트/실행기는 항상 배열 계약만 처리하면 된다.
+   *   <li>파싱 실패 또는 알 수 없는 구조: null 반환.
+   * </ul>
+   */
   private JsonNode parsePendingAction(String data) {
     try {
       JsonNode node = mapper.readTree(data);
-      return (node != null && node.isObject()) ? node : null;
+      if (node == null) return null;
+      if (node.isArray()) {
+        // 배열: 빈 배열은 무시. 원소 형태 검증은 프론트/실행기에 위임.
+        return node.isEmpty() ? null : node;
+      }
+      // 하위호환: 단일 객체가 오면 길이 1 배열로 감싸 항상 배열 계약으로 중계.
+      if (node.isObject() && node.has("actionType")) {
+        return mapper.createArrayNode().add(node);
+      }
+      return null;
     } catch (Exception e) {
       return null;
     }

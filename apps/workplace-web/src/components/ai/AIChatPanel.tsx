@@ -39,9 +39,9 @@ export function AIChatPanel({
   onSelectSession,
   onDeleteSession,
   delegationLabel,
-  pendingAction,
-  onConfirmAction,
-  onCancelAction,
+  pendingActions,
+  onConfirmActionItem,
+  onDismissActionItem,
   showSessionSwitcher = true,
   autoFocus = false,
 }: Props) {
@@ -217,20 +217,36 @@ export function AIChatPanel({
                 </span>
               </li>
             )}
-            {/* #333 M2: 확인 카드 — 외부/비가역 액션 제안. 승인 시 서버 실행기 호출, 취소 시 폐기. */}
-            {pendingAction && (
+            {/* #351: 일괄 확인 카드 — 항목별 승인/거부. 승인=confirm POST, 거부=카드 제거만. */}
+            {pendingActions.length > 0 && (
               <li className="flex justify-start" data-testid="pending-action-card">
                 <div className="max-w-[85%] rounded-2xl border bg-card p-3 text-sm">
                   <p className="font-medium text-foreground">확인이 필요해요</p>
-                  <p className="mt-1 text-muted-foreground">{pendingAction.summary}</p>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" className="bg-ai-accent text-ai-accent-foreground" onClick={onConfirmAction}>
-                      승인
+                  <ul className="mt-2 space-y-2">
+                    {pendingActions.map((action, i) => (
+                      <li key={i} className="flex items-center justify-between gap-2" data-testid="pending-action-item">
+                        <span className="text-muted-foreground">{action.summary}</span>
+                        <span className="flex shrink-0 gap-1">
+                          <Button size="sm" className="bg-ai-accent text-ai-accent-foreground" onClick={() => onConfirmActionItem(action)}>
+                            승인
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => onDismissActionItem(action)}>
+                            거부
+                          </Button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {pendingActions.length > 1 && (
+                    <Button
+                      size="sm"
+                      className="mt-3 bg-ai-accent text-ai-accent-foreground"
+                      onClick={() => pendingActions.forEach((a) => onConfirmActionItem(a))}
+                      data-testid="pending-action-approve-all"
+                    >
+                      모두 승인
                     </Button>
-                    <Button size="sm" variant="outline" onClick={onCancelAction}>
-                      취소
-                    </Button>
-                  </div>
+                  )}
                 </div>
               </li>
             )}

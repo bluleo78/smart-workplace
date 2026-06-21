@@ -200,4 +200,50 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
     assertThat(doneData).contains("sessionId");
     assertThat(doneData).contains("mail_list");
   }
+
+  /**
+   * #351: onPendingAction 콜백이 배열 ArrayNode 를 받으면 SSE pending_action 이벤트에 배열이 그대로 중계되는지 검증.
+   *
+   * <p>ai-agent 가 멀티-액션 턴에서 2건 이상의 제안을 배열로 보낼 수 있다. API 는 ArrayNode 를 그대로 패스스루해야 한다.
+   */
+  @Test
+  void pendingAction_다건_배열_중계() throws Exception {
+    long uid = createAgentUser("fwd-pa-array");
+    stubAssistant();
+
+    // 2건 배열 노드: [{actionType, summary, params}, {...}]
+    com.fasterxml.jackson.databind.node.ArrayNode proposals =
+        (com.fasterxml.jackson.databind.node.ArrayNode)
+            objectMapper.readTree(
+                "[{\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시\",\"params\":{}},"
+                    + "{\"actionType\":\"mail.send\",\"summary\":\"메일 보내기\",\"params\":{}}]");
+    CountDownLatch latch = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              Consumer<JsonNode> onPending = inv.getArgument(5);
+              onPending.accept(proposals);
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("제안했어요", null);
+              latch.countDown();
+              return null;
+            })
+        .when(composeClient)
+        .composeStream(any(), any(), any(), any(), any(), any());
+
+    List<SentEvent> captured = new ArrayList<>();
+    serviceCapturing(captured).composeStream(uid, null, "내일 10시 회의 잡고 메일도 보내줘");
+
+    // 펌프 완료 대기(최대 5초).
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // pending_action 이벤트가 발행되고 배열이 그대로 중계됐는지 검증.
+    List<SentEvent> pendingEvents =
+        captured.stream().filter(e -> "pending_action".equals(e.name)).toList();
+    assertThat(pendingEvents).isNotEmpty();
+    // data 가 ArrayNode 이어야 하고 두 actionType 이 모두 포함돼야 한다.
+    JsonNode pendingData = (JsonNode) pendingEvents.get(0).data;
+    assertThat(pendingData.isArray()).isTrue();
+    assertThat(pendingData.toString()).contains("calendar.create_event");
+    assertThat(pendingData.toString()).contains("mail.send");
+  }
 }

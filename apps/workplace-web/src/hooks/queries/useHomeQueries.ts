@@ -76,7 +76,7 @@ export async function composeStream(
   onDelta: (text: string) => void,
   signal: AbortSignal,
   onProgress?: (label: string) => void,
-  onPendingAction?: (action: PendingAction) => void,
+  onPendingAction?: (actions: PendingAction[]) => void,
 ): Promise<{ sessionId?: string; widgets?: WidgetSpec[] }> {
   const token = getAccessToken();
   const res = await fetch('/api/v1/ai/compose', {
@@ -107,8 +107,11 @@ export async function composeStream(
       if (event === 'delta') onDelta(parsed.text as string);
       // #333 M2: 위임 진행 라벨 — assistant 말풍선 위 ghost 진행 줄로 표시.
       else if (event === 'progress') onProgress?.(parsed.label as string);
-      // #333 M2: 확인 카드 제안 객체 — 도크가 승인/취소 카드로 렌더.
-      else if (event === 'pending_action') onPendingAction?.(parsed as unknown as PendingAction);
+      // #351: data 는 PendingAction 배열(단건도 길이1 배열). 빈 배열/비배열은 무시.
+      else if (event === 'pending_action') {
+        const arr = Array.isArray(parsed) ? (parsed as unknown as PendingAction[]) : [];
+        if (arr.length > 0) onPendingAction?.(arr);
+      }
       // #431: done 이벤트의 widgets[] 를 함께 회수 — 챗 도크가 어시스턴트 턴에 인라인 렌더.
       else if (event === 'done')
         result = {

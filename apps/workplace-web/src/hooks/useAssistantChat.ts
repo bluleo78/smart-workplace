@@ -20,14 +20,12 @@ export interface AssistantChat {
   onDeleteSession: (id: string) => void;
   /** #333 M2: 현재 위임 진행 라벨(없으면 null). 서브에이전트 위임 중 버블로 표시. */
   delegationLabel: string | null;
-  /** #333 M2: 보류 확인 액션(없으면 null). 2.3 에서 카드 렌더. */
-  pendingAction: PendingAction | null;
-  /** #333 M2: 확인 카드 응답(승인/취소) 후 폐기. */
-  clearPendingAction: () => void;
-  /** #333 M2: 확인 카드 승인 → confirm POST → clear. */
-  onConfirmAction: () => void;
-  /** #333 M2: 확인 카드 취소 → 폐기만(API 미호출). */
-  onCancelAction: () => void;
+  /** #351: 보류 확인 액션 배열(없으면 빈 배열). 일괄 카드로 렌더. */
+  pendingActions: PendingAction[];
+  /** #351: 단일 항목 승인 → confirm POST → 카드에서 제거. */
+  onConfirmActionItem: (action: PendingAction) => void;
+  /** #351: 단일 항목 거부 → 서버 호출 없이 카드에서 제거. */
+  onDismissActionItem: (action: PendingAction) => void;
 }
 
 export function useAssistantChat(): AssistantChat {
@@ -46,9 +44,8 @@ export function useAssistantChat(): AssistantChat {
     onSelectSession: session.restoreSession,
     onDeleteSession: session.deleteSession,
     delegationLabel: session.delegationLabel,
-    pendingAction: session.pendingAction,
-    clearPendingAction: session.clearPendingAction,
-    onConfirmAction: session.confirmAction,
-    onCancelAction: session.clearPendingAction,
+    pendingActions: session.pendingActions,
+    onConfirmActionItem: session.confirmActionItem,
+    onDismissActionItem: session.dismissActionItem,
   };
 }

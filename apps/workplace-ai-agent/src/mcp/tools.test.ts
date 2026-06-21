@@ -616,22 +616,22 @@ describe('buildTools(assistant) 드라이브 쓰기/삭제 도구 (M4)', () => {
   });
 });
 
-// #333 M4: 같은 턴에 두 번째 propose 는 사이드카를 덮어쓰지 않고 거부된다.
-describe('propose 단일-제안 가드 (M4)', () => {
-  it('사이드카가 이미 있으면 두 번째 propose 는 거부된다', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'm4-guard-'));
+// #351: propose 사이드카 다건 누적 — 같은 턴에 여러 propose 를 NDJSON 으로 append 한다.
+describe('propose 사이드카 다건 누적 (#351)', () => {
+  it('두 번 propose 하면 NDJSON 두 줄이 쌓인다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'propose-test-'));
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
       const tools = buildTools({} as never, 1, 'assistant');
-      const propose = tools.find((t) => t.name === 'propose_create_event')!;
-      const first = await propose.handler({ summary: '첫 제안', title: 'A', startsAt: '2026-07-01T09:00:00Z', endsAt: '2026-07-01T10:00:00Z' });
-      expect(first).toContain('등록');
-      const second = await propose.handler({ summary: '둘째 제안', title: 'B', startsAt: '2026-07-02T09:00:00Z', endsAt: '2026-07-02T10:00:00Z' });
-      expect(second).toContain('이미 대기 중인 제안');
-      // 사이드카는 첫 제안 그대로(덮어쓰기 안 됨).
-      const saved = JSON.parse(readFileSync(sidecar, 'utf8'));
-      expect(saved.summary).toBe('첫 제안');
+      const del = tools.find((t) => t.name === 'propose_delete_file')!;
+      // propose_delete_file inputSchema: { summary, id: number }
+      await del.handler({ id: 1, summary: '파일 A 삭제' });
+      await del.handler({ id: 2, summary: '파일 B 삭제' });
+      const lines = readFileSync(sidecar, 'utf8').trim().split('\n');
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0]).params.id).toBe(1);
+      expect(JSON.parse(lines[1]).params.id).toBe(2);
     } finally {
       delete process.env.WORKPLACE_PENDING_ACTION_PATH;
       rmSync(dir, { recursive: true, force: true });
