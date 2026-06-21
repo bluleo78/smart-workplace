@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 
 import { driveApi } from '../../api/drive'
-import type { DriveSpace } from '../../types/drive'
+import type { DriveQuota, DriveSpace } from '../../types/drive'
 
 /** 좌측 2차 사이드바 — 내 드라이브 + 팀 공간 목록, 팀 공간 생성. */
 export function DriveSidebar() {
@@ -24,6 +24,8 @@ export function DriveSidebar() {
   // 팀 공간 생성 다이얼로그 — window.prompt 대체 (#148).
   const [spaceDialogOpen, setSpaceDialogOpen] = useState(false)
   const [spaceName, setSpaceName] = useState('')
+  // 드라이브 쿼터 — 사이드바 하단 사용량 바 (#81).
+  const [quota, setQuota] = useState<DriveQuota | null>(null)
 
   async function reload() {
     const { data } = await driveApi.listSpaces()
@@ -32,6 +34,15 @@ export function DriveSidebar() {
   useEffect(() => {
     void reload()
   }, [])
+
+  useEffect(() => {
+    void driveApi.getQuota().then(({ data }) => setQuota(data))
+  }, [])
+
+  const GB = 1024 * 1024 * 1024
+  function fmtGb(bytes: number) {
+    return (bytes / GB).toFixed(1)
+  }
 
   /** 팀 공간 생성 — 다이얼로그 확인 시 호출. */
   async function submitCreate() {
@@ -94,6 +105,24 @@ export function DriveSidebar() {
           ))}
         </nav>
       </div>
+
+      {/* 사용량 바 — 사이드바 하단 고정(#81) */}
+      {quota && (
+        <div className="border-t p-3" data-testid="drive-usage-bar">
+          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>사용량</span>
+            <span data-testid="drive-usage-text">
+              {fmtGb(quota.usedBytes)} / {fmtGb(quota.quotaBytes)} GB
+            </span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-primary"
+              style={{ width: `${Math.min(100, (quota.usedBytes / Math.max(1, quota.quotaBytes)) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* 팀 공간 이름 입력 다이얼로그 — window.prompt 대체 (#148) */}
       <Dialog

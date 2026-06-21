@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { format } from 'date-fns'
 import { ArrowLeft } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -20,6 +20,7 @@ import {
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Input } from '../components/ui/input'
 import { Separator } from '../components/ui/separator'
 import { Skeleton } from '../components/ui/skeleton'
 import {
@@ -90,6 +91,8 @@ export default function TenantDetailPage() {
   const { id } = useParams()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // 드라이브 한도 입력값(GB 단위 문자열) — tenant 로드 후 초기화.
+  const [gb, setGb] = useState('')
 
   // 테넌트 단건 조회. queryKey 는 useParams 의 string id 를 그대로 사용한다
   // — mutation invalidate 키와 byte-identical 해야 재조회가 발동한다.
@@ -113,6 +116,23 @@ export default function TenantDetailPage() {
     queryKey: ['tenant', id, 'members'],
     queryFn: () => platformTenants.members(Number(id)),
     enabled: !!tenant,
+  })
+
+  const GB = 1024 * 1024 * 1024
+
+  // tenant 가 로드되면 GB 입력값을 초기화한다.
+  useEffect(() => {
+    if (tenant) setGb(String(tenant.quotaBytes / GB))
+  }, [tenant, GB])
+
+  // 드라이브 한도 변경 mutation(#81) — 성공 시 ['tenant', id] 무효화.
+  const quotaMutation = useMutation({
+    mutationFn: () => platformTenants.updateQuota(Number(id), Math.round(Number(gb) * GB)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tenant', id] })
+      toast.success('드라이브 한도를 저장했습니다.')
+    },
+    onError: () => toast.error('드라이브 한도 저장에 실패했습니다.'),
   })
 
   // 정지/활성화 mutation — 성공 시 ['tenant', id] 무효화로 상태를 재조회한다.
@@ -236,6 +256,25 @@ export default function TenantDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <Separator />
+
+      {/* 드라이브 한도 카드(#81) */}
+      <div className="rounded-lg border p-4">
+        <h3 className="mb-2 text-sm font-semibold">드라이브 용량 한도 (GB)</h3>
+        <div className="flex items-center gap-2">
+          <Input
+            data-testid="quota-gb-input"
+            type="number"
+            value={gb}
+            onChange={(e) => setGb(e.target.value)}
+            className="w-32"
+          />
+          <Button data-testid="quota-save" onClick={() => quotaMutation.mutate()}>
+            저장
+          </Button>
+        </div>
+      </div>
 
       <Separator />
 

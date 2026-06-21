@@ -157,7 +157,7 @@ public class PlatformTenantRepository {
                     r.get(TENANT.CREATED_AT)));
   }
 
-  /** 단일 테넌트 상세 + 멤버 수. */
+  /** 단일 테넌트 상세 + 멤버 수 + 드라이브 한도(#81). */
   @Transactional(readOnly = true)
   public Optional<TenantDetailResponse> findTenant(Long id) {
     return dsl.select(
@@ -166,7 +166,8 @@ public class PlatformTenantRepository {
             TENANT.NAME,
             TENANT.STATUS,
             DSL.count(MEMBERSHIP.ID).as("member_count"),
-            TENANT.CREATED_AT)
+            TENANT.CREATED_AT,
+            TENANT.QUOTA_BYTES)
         .from(TENANT)
         .leftJoin(MEMBERSHIP)
         .on(MEMBERSHIP.TENANT_ID.eq(TENANT.ID))
@@ -180,7 +181,18 @@ public class PlatformTenantRepository {
                     r.get(TENANT.NAME),
                     r.get(TENANT.STATUS),
                     r.get("member_count", Integer.class).longValue(),
-                    r.get(TENANT.CREATED_AT)));
+                    r.get(TENANT.CREATED_AT),
+                    r.get(TENANT.QUOTA_BYTES)));
+  }
+
+  /**
+   * 테넌트 드라이브 한도 갱신(#81).
+   *
+   * <p>tenant 는 RLS 비대상 테이블이므로 GUC 없이 UPDATE 가능하다.
+   */
+  @Transactional
+  public void updateQuota(Long id, long quotaBytes) {
+    dsl.update(TENANT).set(TENANT.QUOTA_BYTES, quotaBytes).where(TENANT.ID.eq(id)).execute();
   }
 
   /** 테넌트 상태를 갱신하고 영향 행 수를 반환(0 = 미존재). */

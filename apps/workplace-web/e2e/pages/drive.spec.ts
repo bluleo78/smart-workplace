@@ -809,6 +809,22 @@ test('팀 공간 생성 — Dialog 표시, 이름 입력 후 만들기 클릭 �
   await expect(page.getByText('신규팀')).toBeVisible()
 })
 
+// #81 — 드라이브 사용량 바: 사이드바 하단에 사용량/한도 표시 검증
+test('사이드바에 사용량 바가 보인다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await page.route('**/api/v1/drive/quota', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ usedBytes: 2147483648, quotaBytes: 10737418240 }),
+    }),
+  )
+  await page.goto('/drive')
+  await expect(page.getByTestId('drive-usage-bar')).toBeVisible()
+  await expect(page.getByTestId('drive-usage-text')).toContainText('2')   // 2.0 GB
+  await expect(page.getByTestId('drive-usage-text')).toContainText('10')  // / 10.0 GB
+})
+
 // #319 — FolderPickerModal shadcn Dialog 전환: Esc·오버레이 클릭 닫기 검증
 test('FolderPickerModal — Esc 키로 닫힌다', async ({ authenticatedPage: page }) => {
   const FOLDER_ID = 10
@@ -867,4 +883,29 @@ test('FolderPickerModal — 오버레이(배경) 클릭으로 닫힌다', async 
   // 뷰포트 좌상단(모달 콘텐츠 밖 영역)을 클릭하여 오버레이 클릭을 시뮬레이션
   await page.mouse.click(10, 10)
   await expect(page.getByTestId('folder-picker')).not.toBeVisible()
+})
+
+// 용량 초과(409) 업로드 거부 토스트 — 서버 메시지가 그대로 표시돼야 한다.
+test('용량 초과 업로드는 거부 메시지를 보여준다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+  // 파일 업로드 API 가 409 + 서버 메시지를 반환하도록 모킹한다.
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: '저장 용량을 초과했습니다 (사용 10 / 한도 10 바이트).' }),
+      }),
+  )
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  // 파일 인풋에 파일을 설정해 업로드를 트리거한다.
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'big.bin',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('x'),
+  })
+  // handleApiError → extractApiError 가 서버 message 를 추출해 토스트에 표시해야 한다.
+  await expect(page.getByText('저장 용량을 초과했습니다', { exact: false })).toBeVisible()
 })

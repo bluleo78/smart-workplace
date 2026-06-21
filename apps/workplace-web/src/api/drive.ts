@@ -8,6 +8,7 @@ import type {
   DriveFolderPathSegment,
   DriveItemList,
   DriveMember,
+  DriveQuota,
   DriveSearchResult,
   DriveSpace,
   DriveTrashList,
@@ -182,6 +183,9 @@ export const driveApi = {
     a.remove()
     URL.revokeObjectURL(url)
   },
+
+  // 현재 테넌트 드라이브 사용량/한도.
+  getQuota: () => client.get<DriveQuota>('/drive/quota'),
 
   // 공간 전체 이름 검색
   search: (spaceId: number, q: string) =>

@@ -43,8 +43,10 @@ export interface TenantSummary {
   createdAt: string
 }
 
-/** 테넌트 상세 — 목록 항목과 동일한 형태(생성/조회 응답). */
-export type TenantDetail = TenantSummary
+/** 테넌트 상세 — 목록 항목에 드라이브 용량 한도(quotaBytes) 를 추가. */
+export interface TenantDetail extends TenantSummary {
+  quotaBytes: number
+}
 
 /** 테넌트 생성 요청 — name 필수, slug 선택, ownerUserId 필수. */
 export interface CreateTenantRequest {

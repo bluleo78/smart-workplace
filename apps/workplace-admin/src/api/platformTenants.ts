@@ -23,4 +23,7 @@ export const platformTenants = {
   suspend: (id: number) => client.post<void>(`/tenants/${id}/suspend`).then(() => undefined),
   /** 테넌트 활성화. 백엔드는 204 No Content(바디 없음). */
   activate: (id: number) => client.post<void>(`/tenants/${id}/activate`).then(() => undefined),
+  // 테넌트 드라이브 한도 변경.
+  updateQuota: (id: number, quotaBytes: number) =>
+    client.patch<TenantDetail>(`/tenants/${id}/quota`, { quotaBytes }).then((res) => res.data),
 }

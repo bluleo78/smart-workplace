@@ -16,6 +16,7 @@ function tenantDetail(overrides: Partial<TenantDetail> = {}): TenantDetail {
     status: 'ACTIVE',
     memberCount: 2,
     createdAt: '2026-01-15T09:00:00Z',
+    quotaBytes: 10737418240,
     ...overrides,
   }
 }
@@ -132,7 +133,27 @@ test.describe('테넌트 상세', () => {
     await expect(page.getByTestId('suspend-button')).toHaveCount(0)
   })
 
-  // (d) 404 → "찾을 수 없습니다" 안내
+  // (d) 드라이브 한도 수정 → PATCH 호출 + 성공 토스트
+  test('드라이브 한도를 수정하면 PATCH 가 호출된다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail({ quotaBytes: 10737418240 }))
+    await stubMembers(page, [member()])
+    let body: unknown
+    await page.route('**/api/platform/tenants/1/quota', (route) => {
+      body = route.request().postDataJSON()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(tenantDetail({ quotaBytes: 5368709120 })),
+      })
+    })
+    await page.goto('/tenants/1')
+    await page.getByTestId('quota-gb-input').fill('5')
+    await page.getByTestId('quota-save').click()
+    await expect.poll(() => body).toEqual({ quotaBytes: 5368709120 })
+    await expect(page.getByText('한도를 저장했습니다', { exact: false })).toBeVisible()
+  })
+
+  // (e) 404 → "찾을 수 없습니다" 안내
   test('존재하지 않는 테넌트면 안내를 표시한다', async ({ authenticatedPage: page }) => {
     await page.route('**/api/platform/tenants/999', (route) =>
       route.fulfill({

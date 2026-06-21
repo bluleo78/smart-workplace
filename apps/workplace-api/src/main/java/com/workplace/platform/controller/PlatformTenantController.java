@@ -4,6 +4,7 @@ import com.workplace.platform.dto.CreateTenantRequest;
 import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.dto.TenantMemberResponse;
 import com.workplace.platform.dto.TenantSummaryResponse;
+import com.workplace.platform.dto.UpdateTenantQuotaRequest;
 import com.workplace.platform.service.PlatformTenantService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -11,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -67,5 +69,12 @@ public class PlatformTenantController {
   @GetMapping("/{id}/members")
   public ResponseEntity<List<TenantMemberResponse>> members(@PathVariable Long id) {
     return ResponseEntity.ok(platformTenantService.getMembers(id));
+  }
+
+  /** 테넌트 드라이브 한도 변경(플랫폼 운영자, #81). */
+  @PatchMapping("/{id}/quota")
+  public ResponseEntity<TenantDetailResponse> updateQuota(
+      @PathVariable Long id, @Valid @RequestBody UpdateTenantQuotaRequest req) {
+    return ResponseEntity.ok(platformTenantService.updateQuota(id, req.quotaBytes()));
   }
 }

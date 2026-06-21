@@ -19,6 +19,8 @@ spring:
 
 # 이슈 첨부 전용 설정 (file 모듈의 firehub.file.* 와는 별도 키 — 우회 흐름).
 workplace:
+  drive:
+    default-quota-bytes: 10737418240  # 10 GB
   attachment:
     upload-dir: ./uploads/attachments
     max-file-size-bytes: 26214400      # 25MB

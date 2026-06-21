@@ -149,3 +149,9 @@ export interface VirtualAttachmentPage {
   items: VirtualAttachment[]
   nextCursor: string | null
 }
+
+/** 드라이브 쿼터 — 백엔드 DriveQuotaResponse 와 1:1. */
+export interface DriveQuota {
+  usedBytes: number
+  quotaBytes: number
+}

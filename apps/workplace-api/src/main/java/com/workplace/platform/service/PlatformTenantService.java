@@ -82,6 +82,17 @@ public class PlatformTenantService {
     }
   }
 
+  /**
+   * 테넌트 드라이브 한도 변경 후 갱신된 상세를 반환한다(#81).
+   *
+   * <p>없는 테넌트 id 이면 PlatformTenantNotFoundException(404).
+   */
+  @Transactional
+  public TenantDetailResponse updateQuota(Long id, long quotaBytes) {
+    platformTenantRepository.updateQuota(id, quotaBytes);
+    return getTenant(id);
+  }
+
   /** 테넌트 멤버 목록 — 테넌트가 없으면 404. */
   public List<TenantMemberResponse> getMembers(Long tenantId) {
     if (platformTenantRepository.findTenant(tenantId).isEmpty()) {

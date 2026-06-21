@@ -370,10 +370,13 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
-  // 이름 충돌(폴더 UNIQUE 제약 위반) — 409
-  @ExceptionHandler(com.workplace.drive.exception.DriveDuplicateNameException.class)
+  // 이름 충돌(폴더 UNIQUE 제약 위반) / 저장 용량 초과 — 409
+  @ExceptionHandler({
+    com.workplace.drive.exception.DriveDuplicateNameException.class,
+    com.workplace.drive.exception.DriveQuotaExceededException.class
+  })
   public ResponseEntity<ErrorResponse> handleDriveConflict(
-      com.workplace.drive.exception.DriveDuplicateNameException ex, HttpServletRequest request) {
+      RuntimeException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }

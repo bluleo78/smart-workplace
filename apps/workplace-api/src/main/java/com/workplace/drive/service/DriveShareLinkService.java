@@ -1,5 +1,6 @@
 package com.workplace.drive.service;
 
+import com.workplace.audit.service.AuditLogService;
 import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.drive.dto.CreatedShareLinkResponse;
 import com.workplace.drive.dto.ShareLinkResponse;
@@ -8,6 +9,7 @@ import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveShareLinkRepository;
+import com.workplace.user.repository.UserRepository;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -17,6 +19,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -36,6 +39,12 @@ public class DriveShareLinkService {
   private final DrivePermissions perms;
   private final PasswordEncoder passwordEncoder;
   private final SecureRandom secureRandom = new SecureRandom();
+
+  /** 감사 로그 기록(#81). */
+  private final AuditLogService auditLogService;
+
+  /** 사용자명 조회용 — 감사 로그에 username 을 기록한다(#81). */
+  private final UserRepository userRepository;
 
   /** 링크 생성. 파일의 공간 EDITOR 검증 → 토큰 생성 → 해시 저장 → 평문 1회 반환. */
   @Transactional
@@ -60,6 +69,19 @@ public class DriveShareLinkService {
 
     long id =
         links.insert(driveFileId, row.spaceId(), tokenHash, audience, pwHash, expiresAt, callerId);
+    // 감사 로그 — FILE_SHARE(#81), 같은 @Transactional 안에서 기록.
+    auditLogService.log(
+        callerId,
+        usernameOf(callerId),
+        "FILE_SHARE",
+        "drive",
+        String.valueOf(driveFileId),
+        "공유 링크 생성",
+        null,
+        null,
+        "SUCCESS",
+        null,
+        Map.of("spaceId", row.spaceId(), "audience", audience));
     return new CreatedShareLinkResponse(id, token, audience, pwHash != null, expiresAt);
   }
 
@@ -116,6 +138,18 @@ public class DriveShareLinkService {
 
   /** resolve 결과(다운로드 대상). */
   public record ResolvedTarget(long tenantId, long driveFileId) {}
+
+  /**
+   * 감사 로그용 사용자명 조회. 없으면 userId 문자열로 대체(#81).
+   *
+   * <p>AuthService 와 동일하게 UserRepository.findById 를 통해 username 을 얻는다.
+   */
+  private String usernameOf(long userId) {
+    return userRepository
+        .findById(userId)
+        .map(com.workplace.user.dto.UserResponse::username)
+        .orElse(String.valueOf(userId));
+  }
 
   /** sl_ + base62(32 random bytes). */
   private String generateToken() {
