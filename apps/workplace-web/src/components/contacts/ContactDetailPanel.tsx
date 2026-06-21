@@ -1,11 +1,14 @@
+import { Star } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog'
+import { cn } from '@/lib/utils'
 
 import type { ContactSelection } from '../../hooks/queries/useContactDetail'
 import { useContactDetail } from '../../hooks/queries/useContactDetail'
 import { useDeleteExternalContact } from '../../hooks/queries/useExternalContactMutations'
+import { useToggleFavorite } from '../../hooks/queries/useFavoriteMutations'
 import type { ExternalContactDetail, MemberDetail } from '../../types/contact'
 import { ExternalContactFormDialog } from './ExternalContactFormDialog'
 
@@ -30,6 +33,8 @@ export function ContactDetailPanel({
   const { data, isLoading, isError, refetch } = useContactDetail(selected)
   const [editOpen, setEditOpen] = useState(false)
   const del = useDeleteExternalContact()
+  // 즐겨찾기 토글 — 멤버/외부 공통으로 사용
+  const toggle = useToggleFavorite()
 
   if (!selected) {
     return (
@@ -57,7 +62,20 @@ export function ContactDetailPanel({
     const m = data as MemberDetail
     return (
       <div data-testid="contact-detail-member" className="p-6">
-        <h2 className="text-lg font-semibold">{m.name}</h2>
+        <div className="mb-1 flex items-center gap-2">
+          <h2 className="text-lg font-semibold">{m.name}</h2>
+          {/* 멤버 즐겨찾기 토글 버튼 */}
+          <button
+            type="button"
+            data-testid="contact-detail-fav"
+            aria-label={m.isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+            aria-pressed={m.isFavorite}
+            onClick={() => toggle.mutate({ targetType: selected.type, targetId: selected.id, isFavorite: m.isFavorite })}
+            className="rounded p-1 hover:bg-accent"
+          >
+            <Star className={cn('h-5 w-5', m.isFavorite && 'fill-yellow-400 text-yellow-400')} />
+          </button>
+        </div>
         <p className="mb-4 text-sm text-muted-foreground">멤버 · @{m.username}</p>
         <Row label="이메일" value={m.email} />
         <Row label="직책" value={m.title} />
@@ -71,7 +89,20 @@ export function ContactDetailPanel({
     <div data-testid="contact-detail-external" className="p-6">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-lg font-semibold">{e.name}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">{e.name}</h2>
+            {/* 외부 연락처 즐겨찾기 토글 버튼 */}
+            <button
+              type="button"
+              data-testid="contact-detail-fav"
+              aria-label={e.isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+              aria-pressed={e.isFavorite}
+              onClick={() => toggle.mutate({ targetType: selected.type, targetId: selected.id, isFavorite: e.isFavorite })}
+              className="rounded p-1 hover:bg-accent"
+            >
+              <Star className={cn('h-5 w-5', e.isFavorite && 'fill-yellow-400 text-yellow-400')} />
+            </button>
+          </div>
           <p className="text-sm text-muted-foreground">
             외부 연락처 · {e.visibility === 'SHARED' ? '공유' : '개인'}
           </p>

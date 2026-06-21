@@ -1,3 +1,4 @@
+import { Star } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
@@ -11,9 +12,11 @@ import { GroupContactView } from '../../components/contacts/GroupContactView'
 import { parseGroupId } from '../../components/contacts/groupTree.helpers'
 import type { ContactSelection } from '../../hooks/queries/useContactDetail'
 import { useContacts } from '../../hooks/queries/useContacts'
+import { useToggleFavorite } from '../../hooks/queries/useFavoriteMutations'
 import type { ContactSummary, ContactTypeFilter } from '../../types/contact'
 
-// 한 줄 목록 항목 — 멤버/외부 배지 + 이름·보조정보.
+// 한 줄 목록 항목 — 멤버/외부 배지 + 이름·보조정보 + 호버 시 즐겨찾기 별 버튼.
+// 중첩 button 방지를 위해 행 컨테이너는 div, 선택 클릭은 inner button, 별은 형제 button.
 function ContactRow({
   c,
   active,
@@ -23,31 +26,46 @@ function ContactRow({
   active: boolean
   onSelect: () => void
 }) {
+  const toggle = useToggleFavorite()
   return (
-    <button
-      type="button"
+    <div
       data-testid={`contact-row-${c.type}-${c.id}`}
-      onClick={onSelect}
       className={cn(
-        'flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors',
+        'group flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors',
         active ? 'bg-accent' : 'hover:bg-accent/50',
       )}
     >
-      <span
+      <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <span
+          className={cn(
+            'shrink-0 rounded px-1.5 py-0.5 text-xs font-medium',
+            c.type === 'MEMBER' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+          )}
+        >
+          {c.type === 'MEMBER' ? '멤버' : '외부'}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{c.name}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {c.email || c.organization || c.title || ''}
+          </span>
+        </span>
+      </button>
+      {/* 즐겨찾기 토글 — hover 시 표시, 이미 즐겨찾기면 항상 표시 */}
+      <button
+        type="button"
+        data-testid={`contact-fav-${c.type}-${c.id}`}
+        aria-label={c.isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+        aria-pressed={c.isFavorite}
+        onClick={() => toggle.mutate({ targetType: c.type, targetId: c.id, isFavorite: c.isFavorite })}
         className={cn(
-          'shrink-0 rounded px-1.5 py-0.5 text-xs font-medium',
-          c.type === 'MEMBER' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+          'shrink-0 rounded p-1 transition-opacity',
+          c.isFavorite ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
         )}
       >
-        {c.type === 'MEMBER' ? '멤버' : '외부'}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{c.name}</span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {c.email || c.organization || c.title || ''}
-        </span>
-      </span>
-    </button>
+        <Star className={cn('h-4 w-4', c.isFavorite && 'fill-yellow-400 text-yellow-400')} />
+      </button>
+    </div>
   )
 }
 
