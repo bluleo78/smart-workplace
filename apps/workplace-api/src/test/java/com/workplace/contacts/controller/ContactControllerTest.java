@@ -198,4 +198,37 @@ class ContactControllerTest {
         .perform(delete("/api/v1/contacts/external/100").header("Authorization", "Bearer v"))
         .andExpect(status().isNoContent());
   }
+
+  @Test
+  void addFavorite_returns204() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/contacts/favorites")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetType\":\"EXTERNAL\",\"targetId\":100}"))
+        .andExpect(status().isNoContent());
+  }
+
+  @Test
+  void removeFavorite_returns204() throws Exception {
+    mockMvc
+        .perform(
+            delete("/api/v1/contacts/favorites")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetType\":\"MEMBER\",\"targetId\":1}"))
+        .andExpect(status().isNoContent());
+  }
+
+  @Test
+  void addFavorite_rejectsBadTargetType_400() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/contacts/favorites")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetType\":\"GROUP\",\"targetId\":1}"))
+        .andExpect(status().isBadRequest());
+  }
 }

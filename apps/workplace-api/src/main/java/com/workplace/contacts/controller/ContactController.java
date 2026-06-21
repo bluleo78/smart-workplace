@@ -3,6 +3,7 @@ package com.workplace.contacts.controller;
 import com.workplace.contacts.dto.ContactPage;
 import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.ExternalContactRequest;
+import com.workplace.contacts.dto.FavoriteRequest;
 import com.workplace.contacts.dto.MemberDetail;
 import com.workplace.contacts.service.ContactService;
 import com.workplace.global.security.RequirePermission;
@@ -79,6 +80,22 @@ public class ContactController {
   public ResponseEntity<Void> deleteExternal(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long id) {
     service.delete(callerId, id);
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 즐겨찾기 추가 — 멱등. 인증된 owner 스코프(contact:read)면 충분. */
+  @PostMapping("/favorites")
+  public ResponseEntity<Void> addFavorite(
+      @AuthenticationPrincipal Long callerId, @Valid @RequestBody FavoriteRequest req) {
+    service.addFavorite(callerId, req);
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 즐겨찾기 해제 — 멱등(부재여도 204). */
+  @DeleteMapping("/favorites")
+  public ResponseEntity<Void> removeFavorite(
+      @AuthenticationPrincipal Long callerId, @Valid @RequestBody FavoriteRequest req) {
+    service.removeFavorite(callerId, req);
     return ResponseEntity.noContent().build();
   }
 }

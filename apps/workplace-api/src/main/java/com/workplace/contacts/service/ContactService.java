@@ -4,11 +4,13 @@ import com.workplace.contacts.dto.ContactPage;
 import com.workplace.contacts.dto.ContactSummary;
 import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.ExternalContactRequest;
+import com.workplace.contacts.dto.FavoriteRequest;
 import com.workplace.contacts.dto.MemberDetail;
 import com.workplace.contacts.exception.ContactForbiddenException;
 import com.workplace.contacts.exception.ContactNotFoundException;
 import com.workplace.contacts.repository.ContactCursorCodec;
 import com.workplace.contacts.repository.ContactRepository;
+import com.workplace.contacts.repository.FavoriteRepository;
 import com.workplace.global.security.PermissionChecker;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,7 @@ public class ContactService {
 
   private final ContactRepository repo;
   private final PermissionChecker permissionChecker;
+  private final FavoriteRepository favoriteRepo;
 
   /** 통합 목록/검색. favorite=true 면 즐겨찾기 항목만. type 기본 ALL. */
   @Transactional(readOnly = true)
@@ -81,6 +84,33 @@ public class ContactService {
   public void delete(long callerId, long id) {
     requireWritable(callerId, id);
     repo.delete(id);
+  }
+
+  /** 즐겨찾기 추가 — 타깃 존재·가시성 검증 후 멱등 add. 비가시/미존재 타깃은 404(임의 ID 즐겨찾기 차단). */
+  @Transactional
+  public void addFavorite(long callerId, FavoriteRequest req) {
+    requireVisibleTarget(callerId, req.targetType(), req.targetId());
+    favoriteRepo.add(callerId, req.targetType(), req.targetId());
+  }
+
+  /** 즐겨찾기 해제 — 멱등(부재여도 정상). */
+  @Transactional
+  public void removeFavorite(long callerId, FavoriteRequest req) {
+    favoriteRepo.remove(callerId, req.targetType(), req.targetId());
+  }
+
+  /** 즐겨찾기 타깃이 호출자에게 보이는지 검증. MEMBER=HUMAN 존재, EXTERNAL=가시(SHARED|owner|ADMIN). 아니면 404. */
+  private void requireVisibleTarget(long callerId, String targetType, long targetId) {
+    boolean visible;
+    if ("MEMBER".equals(targetType)) {
+      visible = repo.findMember(callerId, targetId).isPresent();
+    } else {
+      boolean admin = permissionChecker.userHasRole(callerId, "ADMIN");
+      visible = repo.findExternal(callerId, admin, targetId).isPresent();
+    }
+    if (!visible) {
+      throw new ContactNotFoundException(targetType, targetId);
+    }
   }
 
   /**

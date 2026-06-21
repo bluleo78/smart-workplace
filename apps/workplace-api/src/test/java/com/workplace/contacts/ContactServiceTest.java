@@ -253,6 +253,46 @@ class ContactServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void addFavorite_thenListFavorite_reflects_andIsIdempotent() {
+    long c = caller();
+    String base = "af" + UUID.randomUUID().toString().substring(0, 4);
+    long e = seedExternal(base + "_z", c);
+
+    service.addFavorite(c, new com.workplace.contacts.dto.FavoriteRequest("EXTERNAL", e));
+    service.addFavorite(c, new com.workplace.contacts.dto.FavoriteRequest("EXTERNAL", e)); // 멱등
+
+    ContactPage fav = service.list(c, base, "ALL", true, null, 30);
+    assertThat(fav.items()).extracting(ContactSummary::name).containsExactly(base + "_z");
+
+    service.removeFavorite(c, new com.workplace.contacts.dto.FavoriteRequest("EXTERNAL", e));
+    assertThat(service.list(c, base, "ALL", true, null, 30).items()).isEmpty();
+  }
+
+  @Test
+  void addFavorite_rejectsInvisibleExternalTarget() {
+    long owner = caller();
+    long other = caller();
+    // owner 의 PERSONAL 연락처 — other 에게 비가시
+    long e = seedExternal("inv" + UUID.randomUUID().toString().substring(0, 4), owner);
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () ->
+                service.addFavorite(
+                    other, new com.workplace.contacts.dto.FavoriteRequest("EXTERNAL", e)))
+        .isInstanceOf(com.workplace.contacts.exception.ContactNotFoundException.class);
+  }
+
+  @Test
+  void addFavorite_rejectsNonexistentMemberTarget() {
+    long c = caller();
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () ->
+                service.addFavorite(
+                    c, new com.workplace.contacts.dto.FavoriteRequest("MEMBER", 999_999L)))
+        .isInstanceOf(com.workplace.contacts.exception.ContactNotFoundException.class);
+  }
+
+  @Test
   void getExternal_personalByAdmin_returnsRow_editableTrue() {
     long owner = caller();
     long admin = caller();
