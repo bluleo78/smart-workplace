@@ -49,6 +49,8 @@ export function useCreateChatMessage(
         body: payload.body,
         // optimistic 단계에서도 멘션 칩이 올바른 이름으로 보이도록 멤버 목록으로 hydrate (#43).
         mentions: hydrateMentions(payload.body, members),
+        attachments: [], // #358: optimistic 단계에서는 빈 배열 (Task 11에서 정제)
+        driveLinks: [], // #358: optimistic 단계에서는 빈 배열 (Task 11에서 정제)
         createdAt: new Date().toISOString(),
         editedAt: null,
         deleted: false,

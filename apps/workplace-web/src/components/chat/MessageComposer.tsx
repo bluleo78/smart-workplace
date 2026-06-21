@@ -4,22 +4,13 @@
 // 본문이 비어도 첨부/드라이브 링크가 있으면 전송 허용(첨부만 있는 메시지).
 // 보관 채널(archived)은 입력기 대신 "보관됨" 안내만, 단순 비활성(disabled)은 입력기를 숨긴다.
 import { Cloud, Paperclip, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { toast } from 'sonner'
 
-import { driveApi } from '@/api/drive'
 import { messagingApi } from '@/api/messaging'
 import { FolderPickerModal } from '@/components/drive/FolderPickerModal'
 import { convertPlaintextMentions } from '@/components/mentions/mentionSerialize'
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
-import { handleApiError } from '@/lib/api-error'
-import type { DriveSpace } from '@/types/drive'
-
-// 사전 업로드 응답 메타(uploadAttachments 반환 항목과 동일).
-type PendingFile = { fileId: number; originalName: string; mimeType: string; sizeBytes: number }
-// 드라이브에서 선택된 파일의 pending 메타.
-type PendingDriveFile = { driveFileId: number; name: string }
+import { useAttachmentDraft } from '@/hooks/useAttachmentDraft'
 
 export function MessageComposer({
   channelId,
@@ -40,31 +31,27 @@ export function MessageComposer({
   // 보관된 채널 — "보관됨" 안내만 표시하고 입력기를 띄우지 않는다.
   archived?: boolean
 }) {
-  // 사전 업로드된(아직 전송 안 된) 첨부.
-  const [pending, setPending] = useState<PendingFile[]>([])
-  const [uploading, setUploading] = useState(false)
-  const inputRef = useRef<HTMLInputElement | null>(null)
-  // #80: 드라이브에서 선택된(아직 전송 안 된) 파일 링크.
-  const [pendingDrive, setPendingDrive] = useState<PendingDriveFile[]>([])
-  const [drivePickerOpen, setDrivePickerOpen] = useState(false)
-  // 개인 스페이스 id — 파일 피커 시작 위치.
-  const [personalSpaceId, setPersonalSpaceId] = useState<number | null>(null)
-  const [spacesResolved, setSpacesResolved] = useState(false)
-
-  // 마운트 시 PERSONAL 스페이스 조회 — IssueAttachmentStrip 패턴과 동일.
-  useEffect(() => {
-    void driveApi
-      .listSpaces()
-      .then(({ data }) => {
-        const personal = (data as DriveSpace[]).find((s) => s.type === 'PERSONAL')
-        if (personal) setPersonalSpaceId(personal.id)
-        setSpacesResolved(true)
-      })
-      .catch(() => {
-        setSpacesResolved(true)
-        toast.error('드라이브 스페이스를 불러오지 못했습니다.')
-      })
-  }, [])
+  // 첨부 초안 상태 — 파일 사전 업로드(pending) + 드라이브 링크(pendingDrive) + 개인 스페이스 피커.
+  // uploadFn 으로 팀 채팅 업로드 API 주입 (#358 공유 훅).
+  // inputRef 를 별도 구조분해 — react-hooks/refs 가 객체 전체를 ref로 오판하는 오탐 방지.
+  const {
+    inputRef: attachInputRef,
+    pending,
+    pendingDrive,
+    uploading,
+    hasAny,
+    fileIds,
+    driveFileIds,
+    spacesResolved,
+    personalSpaceId,
+    drivePickerOpen,
+    setDrivePickerOpen,
+    onFiles,
+    removeFile,
+    removeDrive,
+    addDrive,
+    reset,
+  } = useAttachmentDraft((files) => messagingApi.uploadAttachments(channelId, files))
 
   // 보관된 채널은 입력기를 띄우지 않고 안내만 표시(전송 자체를 차단).
   if (archived) {
@@ -80,42 +67,20 @@ export function MessageComposer({
     return null
   }
 
-  // 파일 선택 시 즉시 사전 업로드 → pending 에 메타 누적.
-  const onFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return
-    setUploading(true)
-    try {
-      const { data } = await messagingApi.uploadAttachments(channelId, Array.from(files))
-      setPending((prev) => [...prev, ...data])
-    } catch (err) {
-      // 업로드 실패는 토스트로 알린다(무음 실패 방지).
-      handleApiError(err, '첨부 업로드에 실패했습니다')
-    } finally {
-      setUploading(false)
-      // 같은 파일 재선택을 위해 input 초기화.
-      if (inputRef.current) inputRef.current.value = ''
-    }
-  }
-
   // 본문·첨부·드라이브 링크 모두 비면 전송 차단. 전송 성공 시에만 pending 비움 (#169).
   // RichInput clearOnSubmit 이 반환된 Promise 를 보고 성공 시에만 입력창을 비운다.
   const handleSubmit = async (body: string): Promise<void> => {
     // #366: 평문으로 입력한 @에이전트 멘션을 <@id> 로 변환 — AI 트리거 누락 방지.
     const trimmed = convertPlaintextMentions(body, members).trim()
-    if (!trimmed && pending.length === 0 && pendingDrive.length === 0) return
-    await onSend(
-      trimmed,
-      pending.map((p) => p.fileId),
-      pendingDrive.map((d) => d.driveFileId),
-    )
+    if (!trimmed && !hasAny) return
+    await onSend(trimmed, fileIds, driveFileIds)
     // 성공 경로에서만 도달 — 실패 시 await 에서 throw 되어 pending 도 입력창도 유지됨.
-    setPending([])
-    setPendingDrive([])
+    reset()
   }
 
   return (
     <div className="border-t p-3" data-testid="message-composer">
-      {(pending.length > 0 || pendingDrive.length > 0) && (
+      {hasAny && (
         <ul className="mb-2 flex flex-wrap gap-2" data-testid="composer-attachments">
           {pending.map((p) => (
             <li
@@ -126,9 +91,7 @@ export function MessageComposer({
               <button
                 type="button"
                 aria-label="첨부 제거"
-                onClick={() =>
-                  setPending((prev) => prev.filter((x) => x.fileId !== p.fileId))
-                }
+                onClick={() => removeFile(p.fileId)}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -146,9 +109,7 @@ export function MessageComposer({
               <button
                 type="button"
                 aria-label="드라이브 링크 제거"
-                onClick={() =>
-                  setPendingDrive((prev) => prev.filter((x) => x.driveFileId !== d.driveFileId))
-                }
+                onClick={() => removeDrive(d.driveFileId)}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -157,7 +118,7 @@ export function MessageComposer({
         </ul>
       )}
       <input
-        ref={inputRef}
+        ref={attachInputRef}
         type="file"
         multiple
         className="hidden"
@@ -170,7 +131,7 @@ export function MessageComposer({
         members={members}
         onSubmit={handleSubmit}
         clearOnSubmit
-        allowEmptySubmit={pending.length > 0 || pendingDrive.length > 0}
+        allowEmptySubmit={hasAny}
         disableWhenEmpty
         placeholder="메시지를 입력하세요"
         submitLabel={uploading ? '업로드 중…' : '보내기'}
@@ -183,7 +144,7 @@ export function MessageComposer({
               aria-label="파일 첨부"
               data-testid="composer-attach-button"
               className="rounded-md p-2 hover:bg-accent/40"
-              onClick={() => inputRef.current?.click()}
+              onClick={() => attachInputRef.current?.click()}
             >
               <Paperclip className="h-4 w-4" />
             </button>
@@ -215,12 +176,7 @@ export function MessageComposer({
           title="링크할 파일 선택"
           mode="file"
           onPickFile={(driveFileId, name) => {
-            // 중복 선택 방지.
-            setPendingDrive((prev) =>
-              prev.some((x) => x.driveFileId === driveFileId)
-                ? prev
-                : [...prev, { driveFileId, name }],
-            )
+            addDrive(driveFileId, name)
             setDrivePickerOpen(false)
           }}
           onClose={() => setDrivePickerOpen(false)}

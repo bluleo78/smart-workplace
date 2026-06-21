@@ -48,6 +48,8 @@ class ChatSseDispatcherTest {
             HUMAN,
             "hi",
             List.of(),
+            List.of(),
+            List.of(),
             Instant.now()));
     verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.created"), any());
   }

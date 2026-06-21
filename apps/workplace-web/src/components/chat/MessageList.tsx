@@ -7,11 +7,14 @@
 import { MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
+import { downloadMessageDriveLink } from '@/api/driveLinks'
+import { messagingApi } from '@/api/messaging'
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
 import { DateDivider } from '@/components/chat/DateDivider'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
+import { MessageImage } from '@/components/chat/MessageImage'
 import { ReactionBar } from '@/components/chat/ReactionBar'
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
@@ -196,13 +199,18 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 </div>
               )}
 
-              {/* #80: driveLinks 도 MessageAttachmentList 에서 함께 렌더. */}
+              {/* #80: driveLinks 도 MessageAttachmentList 에서 함께 렌더. 팀 채팅 도메인 핸들러·이미지 렌더 주입. */}
               {!m.deleted && ((m.attachments?.length ?? 0) > 0 || (m.driveLinks?.length ?? 0) > 0) && (
                 <MessageAttachmentList
-                  channelId={channelId}
-                  messageId={m.id}
                   attachments={m.attachments ?? []}
                   driveLinks={m.driveLinks ?? []}
+                  onDownloadAttachment={(a) =>
+                    messagingApi.downloadAttachment(channelId, a.messageId, a.fileId, a.originalName)
+                  }
+                  onDownloadDriveLink={(dl) =>
+                    void downloadMessageDriveLink(channelId, m.id, dl.driveFileId, dl.name)
+                  }
+                  renderImage={(a) => <MessageImage channelId={channelId} attachment={a} />}
                 />
               )}
 

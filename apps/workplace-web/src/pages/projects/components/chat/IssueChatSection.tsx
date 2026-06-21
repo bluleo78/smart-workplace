@@ -254,8 +254,11 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
             </ul>
           ))}
         <ChatComposer
+          threadId={threadId}
           members={thread.members}
-          onSubmit={(body) => createMutation.mutateAsync({ body })}
+          onSubmit={(body, fileIds, driveFileIds) =>
+            createMutation.mutateAsync({ body, fileIds, driveFileIds })
+          }
           onTyping={handleTyping}
         />
       </CardContent>

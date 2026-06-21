@@ -1,5 +1,7 @@
 package com.workplace.chat.outbound;
 
+import com.workplace.chat.dto.ChatMessageAttachmentResponse;
+import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.global.dto.UserSummary;
 import java.time.Instant;
 import java.util.List;
@@ -27,6 +29,9 @@ public final class ChatDomainEvents {
       UserSummary actor,
       String body,
       List<UserSummary> mentions,
+      // #358: 첨부 및 드라이브 링크를 이벤트에 동봉 — SSE fan-out 시 클라이언트가 추가 조회 없이 렌더링 가능.
+      List<ChatMessageAttachmentResponse> attachments,
+      List<DriveLinkResponse> driveLinks,
       Instant occurredAt) {}
 
   /** chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. */

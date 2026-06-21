@@ -57,4 +57,45 @@ export const chatApi = {
       `/chat/threads/${threadId}/members`,
       payload,
     ),
+
+  // #358: 첨부 사전 업로드 — multipart/form-data, 필드명 `files`.
+  uploadAttachments: (threadId: number, files: File[]) => {
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    return client.post<
+      { fileId: number; originalName: string; mimeType: string; sizeBytes: number }[]
+    >(`/chat/threads/${threadId}/attachments`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  // #358: 첨부 다운로드 — blob → a[download].
+  downloadAttachment: async (
+    threadId: number,
+    messageId: number,
+    fileId: number,
+    fileName: string,
+  ) => {
+    const { data } = await client.get<Blob>(
+      `/chat/threads/${threadId}/messages/${messageId}/attachments/${fileId}/content`,
+      { responseType: 'blob' },
+    );
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  // #358: 인라인 이미지 썸네일용 blob fetch.
+  fetchAttachmentBlob: (threadId: number, messageId: number, fileId: number) =>
+    client
+      .get<Blob>(
+        `/chat/threads/${threadId}/messages/${messageId}/attachments/${fileId}/content`,
+        { responseType: 'blob' },
+      )
+      .then((r) => r.data),
 };

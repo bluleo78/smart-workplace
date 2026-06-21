@@ -188,9 +188,20 @@ public class ChatMessageRepository {
         r.get(USER.KIND),
         body,
         mentions,
+        java.util.List.of(), // attachments — 서비스에서 하이드레이트
+        java.util.List.of(), // driveLinks — 서비스에서 하이드레이트
         created == null ? null : created.toInstant(),
         edited == null ? null : edited.toInstant(),
         deleted);
+  }
+
+  /** 메시지가 해당 thread 소속인지 — 크로스-스레드 첨부 접근 차단용. */
+  public boolean belongsToThread(long messageId, long threadId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(CHAT_MESSAGE)
+            .where(CHAT_MESSAGE.ID.eq(messageId))
+            .and(CHAT_MESSAGE.THREAD_ID.eq(threadId)));
   }
 
   @SneakyThrows

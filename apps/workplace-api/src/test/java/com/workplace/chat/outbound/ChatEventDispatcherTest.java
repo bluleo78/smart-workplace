@@ -49,6 +49,8 @@ class ChatEventDispatcherTest {
         actor,
         "@ai",
         mentions,
+        List.of(),
+        List.of(),
         Instant.now());
   }
 

@@ -6,13 +6,17 @@
 
 import { Pencil, Trash2 } from 'lucide-react';
 
+import { chatApi } from '@/api/chat';
+import { downloadChatDriveLink } from '@/api/driveLinks';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
+import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList';
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
 
 import { Button } from '../../../../components/ui/button';
 import { AgentBadge } from '../../../../components/users/AgentBadge';
 import type { ChatMessageResponse } from '../../../../types/chat';
+import { ChatMessageImage } from './ChatMessageImage';
 import { formatChatTimestamp } from './formatChatTimestamp';
 
 interface ChatMessageRowProps {
@@ -105,6 +109,29 @@ export function ChatMessageRow({
             )
           )}
         </div>
+        {/* #358: 삭제되지 않은 메시지의 첨부·드라이브 링크 렌더 — 이미지는 ChatMessageImage 위임. */}
+        {!message.deleted &&
+          ((message.attachments?.length ?? 0) > 0 ||
+            (message.driveLinks?.length ?? 0) > 0) && (
+            <MessageAttachmentList
+              attachments={message.attachments}
+              driveLinks={message.driveLinks}
+              onDownloadAttachment={(att) =>
+                void chatApi.downloadAttachment(
+                  message.threadId,
+                  att.messageId,
+                  att.fileId,
+                  att.originalName,
+                )
+              }
+              onDownloadDriveLink={(dl) =>
+                void downloadChatDriveLink(message.threadId, message.id, dl.driveFileId, dl.name)
+              }
+              renderImage={(att) => (
+                <ChatMessageImage threadId={message.threadId} attachment={att} />
+              )}
+            />
+          )}
       </div>
 
       {showToolbar && (

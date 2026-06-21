@@ -49,6 +49,20 @@ export async function downloadIssueDriveLink(
 
 // ─── 메시지 드라이브 링크 ──────────────────────────────────────────────────────
 
+/** #358: 이슈 채팅 메시지 드라이브 링크 파일 다운로드 — blob → a[download]. */
+export async function downloadChatDriveLink(
+  threadId: number,
+  messageId: number,
+  driveFileId: number,
+  fileName: string,
+): Promise<void> {
+  const { data } = await client.get<Blob>(
+    `/chat/threads/${threadId}/messages/${messageId}/drive-links/${driveFileId}/content`,
+    { responseType: 'blob' },
+  )
+  downloadBlob(fileName, data)
+}
+
 /** 메시지 드라이브 링크 파일 다운로드 — blob 으로 받아 a[download] 트리거. */
 export async function downloadMessageDriveLink(
   channelId: number,

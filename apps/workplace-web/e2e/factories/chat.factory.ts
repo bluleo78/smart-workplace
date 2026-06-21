@@ -48,6 +48,8 @@ export function createChatMessage(
     authorKind: 'HUMAN',
     body: '안녕하세요',
     mentions: [],
+    attachments: [], // #358
+    driveLinks: [], // #358
     createdAt: now(),
     editedAt: null,
     deleted: false,

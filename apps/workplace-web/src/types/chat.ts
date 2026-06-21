@@ -1,6 +1,9 @@
 // 6a 백엔드 ChatThread/Message/Member/Mention DTO 와 1:1 매칭.
 // 모든 시간 필드는 ISO 8601 string. nullable 은 `... | null`.
 
+import type { DriveLink } from './drive';
+import type { MessageAttachment } from './messaging';
+
 export type UserKind = 'HUMAN' | 'AGENT';
 
 export interface ChatMentionResponse {
@@ -27,6 +30,8 @@ export interface ChatMessageResponse {
   authorKind: UserKind;
   body: string;
   mentions: ChatMentionResponse[];
+  attachments: MessageAttachment[]; // #358: 첨부 파일 목록
+  driveLinks: DriveLink[]; // #358: 드라이브 연결 파일 링크 목록
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
@@ -48,6 +53,8 @@ export interface ChatMessagePage {
 
 export interface CreateChatMessageRequest {
   body: string;
+  fileIds?: number[]; // #358: 사전 업로드된 첨부 파일 id 목록
+  driveFileIds?: number[]; // #358: 드라이브 연결 파일 id 목록
 }
 
 export interface UpdateChatMessageRequest {

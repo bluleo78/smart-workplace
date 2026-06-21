@@ -208,7 +208,10 @@ test.describe('이슈 chat panel', () => {
       ).toContainText('안녕하세요');
 
       // 서버 확정 — pending 사라지고 영구 id 의 row 가 보임.
-      await expect.poll(() => stubs.createPayloads).toEqual([{ body: '안녕하세요' }]);
+      // #358: fileIds/driveFileIds 빈 배열이 함께 전송됨 (첨부 없는 경우)
+      await expect.poll(() => stubs.createPayloads).toEqual([
+        { body: '안녕하세요', fileIds: [], driveFileIds: [] },
+      ]);
       await expect(page.getByTestId(`chat-message-${1001}`)).toBeVisible();
     },
   );

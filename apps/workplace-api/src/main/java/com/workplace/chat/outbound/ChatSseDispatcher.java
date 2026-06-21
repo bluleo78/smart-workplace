@@ -58,6 +58,9 @@ public class ChatSseDispatcher {
     p.put("createdAt", e.occurredAt().toString());
     p.put("editedAt", null);
     p.put("deleted", false);
+    // 첨부 파일·드라이브 링크를 SSE 페이로드에 포함 — 프론트 ChatMessageResponse 캐스트와 필드 일치.
+    p.put("attachments", e.attachments());
+    p.put("driveLinks", e.driveLinks());
     registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.message.created", p);
   }
 

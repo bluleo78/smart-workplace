@@ -65,7 +65,18 @@ class ChatMessageControllerTest {
 
   private ChatMessageResponse sample() {
     return new ChatMessageResponse(
-        10L, 1L, 1L, "me", "HUMAN", "hello", List.of(), Instant.now(), null, false);
+        10L,
+        1L,
+        1L,
+        "me",
+        "HUMAN",
+        "hello",
+        List.of(),
+        List.of(),
+        List.of(),
+        Instant.now(),
+        null,
+        false);
   }
 
   @Test

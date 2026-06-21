@@ -9,6 +9,8 @@ import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
 import com.workplace.chat.exception.ChatMessageNotFoundException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
+import com.workplace.chat.exception.EmptyChatMessageException;
+import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.cycle.exception.CycleNameDuplicatedException;
 import com.workplace.cycle.exception.CycleNotFoundException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
@@ -446,6 +448,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(EmptyMessageException.class)
   public ResponseEntity<ErrorResponse> handleEmptyMessage(
       EmptyMessageException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  // chat: 본문도 첨부도 드라이브 링크도 없는 빈 chat 메시지 → 400
+  @ExceptionHandler(EmptyChatMessageException.class)
+  public ResponseEntity<ErrorResponse> handleEmptyChatMessage(
+      EmptyChatMessageException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
@@ -953,6 +963,14 @@ public class GlobalExceptionHandler {
       ChatMessageAuthorMismatchException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.FORBIDDEN)
         .body(buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request));
+  }
+
+  /** #358 — chat 첨부 바인딩 검증 실패(미소유·만료·이미바인딩·개수/크기 초과) → 400. */
+  @ExceptionHandler(InvalidChatAttachmentException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidChatAttachment(
+      InvalidChatAttachmentException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
   /** Phase 6a — chat 메시지 id 미존재 또는 soft-deleted → 404. */
