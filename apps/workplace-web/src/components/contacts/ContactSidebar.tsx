@@ -8,16 +8,17 @@ import type { ContactTypeFilter } from '../../types/contact'
 import { GroupTree } from './GroupTree'
 import { parseGroupId } from './groupTree.helpers'
 
-// 타입 퀵필터 정의 — 전체/멤버/외부 (즐겨찾기는 후속 이슈)
+// 타입 퀵필터 정의 — 전체/멤버/외부/즐겨찾기
 const TYPE_FILTERS: { value: ContactTypeFilter; label: string }[] = [
   { value: 'ALL', label: '전체' },
   { value: 'MEMBER', label: '멤버' },
   { value: 'EXTERNAL', label: '외부' },
+  { value: 'FAVORITE', label: '즐겨찾기' },
 ]
 
 /**
  * 연락처 2차 사이드바. 검색·타입필터는 URL searchParams(q·type)로 ContactsPage 와 공유.
- * 즐겨찾기 필터·그룹 트리는 후속 이슈 — 비활성 placeholder 로 표시.
+ * 그룹 트리는 후속 이슈.
  */
 export function ContactSidebar() {
   const [params, setParams] = useSearchParams()
@@ -67,7 +68,7 @@ export function ContactSidebar() {
           className="mb-4 w-full rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
         />
 
-        {/* 타입 퀵필터 */}
+        {/* 타입 퀵필터 — ALL/MEMBER/EXTERNAL/FAVORITE */}
         <nav className="space-y-1">
         {TYPE_FILTERS.map((f) => (
           <button
@@ -84,23 +85,17 @@ export function ContactSidebar() {
                 : 'text-muted-foreground hover:bg-accent/50',
             )}
           >
-            <Users className="h-4 w-4 shrink-0" />
+            {/* FAVORITE 모드는 별 아이콘, 나머지는 그룹 아이콘 */}
+            {f.value === 'FAVORITE' ? (
+              <Star className="h-4 w-4 shrink-0" />
+            ) : (
+              <Users className="h-4 w-4 shrink-0" />
+            )}
             {f.label}
           </button>
         ))}
       </nav>
 
-        {/* 후속 이슈 placeholder — 즐겨찾기(#94)는 유지 */}
-        <div className="mt-6 space-y-1 opacity-50">
-          <div
-            aria-disabled="true"
-            data-testid="contact-favorites-placeholder"
-            className="flex cursor-default items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground"
-          >
-            <Star className="h-4 w-4 shrink-0" />
-            즐겨찾기 <span className="text-xs">(준비 중)</span>
-          </div>
-        </div>
         {/* #93 그룹 트리 */}
         <GroupTree selectedId={selectedGroupId} onSelect={selectGroup} />
       </div>

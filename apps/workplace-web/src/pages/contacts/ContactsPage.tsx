@@ -104,8 +104,9 @@ export function ContactsPage() {
                 <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
               </div>
             ) : items.length === 0 ? (
-              <div data-testid="contact-list-empty" className="p-6 text-sm text-muted-foreground">
-                연락처가 없습니다
+              // 빈 상태 — 즐겨찾기 모드일 때 전용 메시지, 그 외 기본 메시지
+              <div data-testid="contact-empty" className="p-8 text-center text-sm text-muted-foreground">
+                {type === 'FAVORITE' ? '즐겨찾기한 연락처가 없습니다' : '연락처가 없습니다'}
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto">

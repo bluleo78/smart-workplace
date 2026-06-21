@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 import { external, member, memberDetail, page as makePage } from '../factories/contacts.factory'
 import { expect, test } from '../fixtures/auth.fixture'
 
-// /api/v1/contacts 목록 — search·type 쿼리에 따라 분기.
+// /api/v1/contacts 목록 — search·type·favorite 쿼리에 따라 분기.
 async function stubList(page: Page) {
   await page.route(
     (url) => url.pathname === '/api/v1/contacts',
@@ -12,13 +12,16 @@ async function stubList(page: Page) {
       const u = new URL(req.url())
       const type = u.searchParams.get('type') ?? 'ALL'
       const q = (u.searchParams.get('search') ?? '').toLowerCase()
-      let items = [member(), external()]
+      const favorite = u.searchParams.get('favorite') === 'true'
+      // 첫 번째 멤버를 즐겨찾기 표시 — 즐겨찾기 필터 테스트용
+      let items = [member({ isFavorite: true }), external()]
       if (type === 'MEMBER') items = items.filter((c) => c.type === 'MEMBER')
       if (type === 'EXTERNAL') items = items.filter((c) => c.type === 'EXTERNAL')
       if (q)
         items = items.filter(
           (c) => c.name.toLowerCase().includes(q) || (c.email ?? '').toLowerCase().includes(q),
         )
+      if (favorite) items = items.filter((c) => c.isFavorite)
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -129,4 +132,38 @@ test('연락처 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenti
   await expect(sidebar).toBeVisible()
   // h-14 앱 타이틀 헤더에 "연락처"(레일 라벨과 동일) 노출
   await expect(sidebar.getByText('연락처', { exact: true })).toBeVisible()
+})
+
+// #327/#94 즐겨찾기 필터 — 즐겨찾기 항목만 노출
+test('즐겨찾기 필터 — 즐겨찾기 항목만 노출', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  await stubList(page)
+  await page.goto('/contacts')
+
+  await expect(page.getByTestId('contact-row-MEMBER-1')).toBeVisible()
+  await expect(page.getByTestId('contact-row-EXTERNAL-100')).toBeVisible()
+
+  // 즐겨찾기 필터 → 멤버(즐겨찾기됨)만, 외부(미즐겨찾기) 숨김
+  await page.getByTestId('contact-filter-FAVORITE').click()
+  await expect(page.getByTestId('contact-row-MEMBER-1')).toBeVisible()
+  await expect(page.getByTestId('contact-row-EXTERNAL-100')).toHaveCount(0)
+})
+
+// #327/#94 즐겨찾기 필터 — 빈 상태
+test('즐겨찾기 필터 — 빈 상태', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts',
+    (route, req) => {
+      const u = new URL(req.url())
+      const favorite = u.searchParams.get('favorite') === 'true'
+      const items = favorite ? [] : [member(), external()]
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(makePage(items)),
+      })
+    },
+  )
+  await page.goto('/contacts')
+  await page.getByTestId('contact-filter-FAVORITE').click()
+  await expect(page.getByTestId('contact-empty')).toContainText('즐겨찾기한 연락처가 없습니다')
 })

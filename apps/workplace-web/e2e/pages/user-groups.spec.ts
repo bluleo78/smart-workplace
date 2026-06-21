@@ -53,7 +53,7 @@ test('조직도(공유) 선택 시 트리+직속 멤버 렌더', { tag: '@smoke'
   // 같은 노드 재클릭 → 선택 해제, 통합 목록(빈 상태) 복원
   await page.getByTestId('group-node-10').click()
   await expect(page.getByTestId('org-chart-view')).toBeHidden()
-  await expect(page.getByTestId('contact-list-empty')).toBeVisible()
+  await expect(page.getByTestId('contact-empty')).toBeVisible()
 })
 
 test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
