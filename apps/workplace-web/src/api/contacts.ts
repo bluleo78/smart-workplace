@@ -1,6 +1,7 @@
 // 연락처 REST API client. 모든 함수는 AxiosResponse 반환 — 호출처에서 .data unwrap.
 
 import type {
+  ContactFacets,
   ContactPage,
   ContactType,
   ContactTypeFilter,
@@ -11,9 +12,18 @@ import type {
 import { client } from './client'
 
 export const contactsApi = {
-  // 멤버+외부 통합 목록/검색. cursor 없으면 첫 페이지. favorite=true 면 즐겨찾기만 필터.
-  list: (params: { search?: string; type?: ContactTypeFilter; favorite?: boolean; cursor?: string }) =>
-    client.get<ContactPage>('/contacts', { params }),
+  // 멤버+외부 통합 목록/검색. cursor 없으면 첫 페이지. organization·title 은 외부 고급 필터(정확 일치).
+  list: (params: {
+    search?: string
+    type?: ContactTypeFilter
+    favorite?: boolean
+    organization?: string
+    title?: string
+    cursor?: string
+  }) => client.get<ContactPage>('/contacts', { params }),
+
+  // 외부 연락처 조직·직책 distinct 목록 — 고급 필터 드롭다운 옵션.
+  getFacets: () => client.get<ContactFacets>('/contacts/facets'),
 
   getMember: (userId: number) => client.get<MemberDetail>(`/contacts/members/${userId}`),
 

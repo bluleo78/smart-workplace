@@ -64,7 +64,7 @@ class ContactRepositoryTest extends IntegrationTestBase {
     long m = seedUser(p + "_AA_member", "HUMAN");
     long e = seedExternal(p + "_BB_external", "SHARED", caller);
 
-    List<ContactSummary> rows = repo.findPage(caller, p, "ALL", false, null, 100);
+    List<ContactSummary> rows = repo.findPage(caller, p, "ALL", false, null, null, null, 100);
 
     assertThat(rows).extracting(ContactSummary::id).contains(m, e, caller);
     assertThat(rows).extracting(ContactSummary::type).contains("MEMBER", "EXTERNAL");
@@ -79,7 +79,7 @@ class ContactRepositoryTest extends IntegrationTestBase {
     long caller = seedUser("caller_" + tag(), "HUMAN");
     long agent = seedUser("agent_" + tag(), "AGENT");
 
-    List<ContactSummary> rows = repo.findPage(caller, null, "ALL", false, null, 100);
+    List<ContactSummary> rows = repo.findPage(caller, null, "ALL", false, null, null, null, 100);
 
     assertThat(rows).extracting(ContactSummary::id).doesNotContain(agent);
   }
@@ -91,7 +91,7 @@ class ContactRepositoryTest extends IntegrationTestBase {
     String p = "tfx" + tag();
     long e = seedExternal(p + "_ext", "SHARED", caller);
 
-    List<ContactSummary> rows = repo.findPage(caller, p, "EXTERNAL", false, null, 100);
+    List<ContactSummary> rows = repo.findPage(caller, p, "EXTERNAL", false, null, null, null, 100);
 
     assertThat(rows).isNotEmpty();
     assertThat(rows).allMatch(r -> r.type().equals("EXTERNAL"));
@@ -104,7 +104,8 @@ class ContactRepositoryTest extends IntegrationTestBase {
     String uniq = "Zenith" + tag();
     long e = seedExternal(uniq, "SHARED", caller);
 
-    List<ContactSummary> rows = repo.findPage(caller, uniq.toLowerCase(), "ALL", false, null, 100);
+    List<ContactSummary> rows =
+        repo.findPage(caller, uniq.toLowerCase(), "ALL", false, null, null, null, 100);
 
     assertThat(rows).extracting(ContactSummary::id).containsExactly(e);
   }
@@ -116,8 +117,10 @@ class ContactRepositoryTest extends IntegrationTestBase {
     String uniq = "Secret" + tag();
     seedExternal(uniq, "PERSONAL", owner);
 
-    List<ContactSummary> ownerView = repo.findPage(owner, uniq, "ALL", false, null, 100);
-    List<ContactSummary> otherView = repo.findPage(other, uniq, "ALL", false, null, 100);
+    List<ContactSummary> ownerView =
+        repo.findPage(owner, uniq, "ALL", false, null, null, null, 100);
+    List<ContactSummary> otherView =
+        repo.findPage(other, uniq, "ALL", false, null, null, null, 100);
 
     assertThat(ownerView).hasSize(1);
     assertThat(otherView).isEmpty();
@@ -230,14 +233,14 @@ class ContactRepositoryTest extends IntegrationTestBase {
     long c = seedExternal(p + "_c", "SHARED", caller);
 
     // 1페이지: limit 2 → [a, b]
-    List<ContactSummary> page1 = repo.findPage(caller, p, "EXTERNAL", false, null, 2);
+    List<ContactSummary> page1 = repo.findPage(caller, p, "EXTERNAL", false, null, null, null, 2);
     assertThat(page1).extracting(ContactSummary::id).containsExactly(a, b);
 
     // 마지막 표시행으로 커서 구성 → 2페이지는 그 다음(c)부터, 겹침 없이
     ContactSummary last = page1.get(page1.size() - 1);
     ContactCursorCodec.Decoded cursor =
         new ContactCursorCodec.Decoded(last.name(), last.type(), last.id());
-    List<ContactSummary> page2 = repo.findPage(caller, p, "EXTERNAL", false, cursor, 2);
+    List<ContactSummary> page2 = repo.findPage(caller, p, "EXTERNAL", false, null, null, cursor, 2);
     assertThat(page2).extracting(ContactSummary::id).containsExactly(c);
     assertThat(page2).extracting(ContactSummary::id).doesNotContain(a, b);
   }

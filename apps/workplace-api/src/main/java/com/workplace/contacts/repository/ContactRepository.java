@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 
+import com.workplace.contacts.dto.ContactFacets;
 import com.workplace.contacts.dto.ContactSummary;
 import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.ExternalContactRequest;
@@ -39,6 +40,8 @@ public class ContactRepository {
    * @param search null/blank 면 전체. name/email ILIKE
    * @param type ALL | MEMBER | EXTERNAL
    * @param favorite true 면 즐겨찾기 항목만
+   * @param organization null/blank 면 무시. 외부 조직 정확 일치
+   * @param title null/blank 면 무시. 직책 정확 일치
    * @param cursor 디코드된 커서(없으면 null). 이 값 다음(엄격히 큰) 행부터
    * @param limit 가져올 행 수
    */
@@ -47,6 +50,8 @@ public class ContactRepository {
       String search,
       String type,
       boolean favorite,
+      String organization,
+      String title,
       ContactCursorCodec.Decoded cursor,
       int limit) {
     // 멤버 브랜치 — kind=HUMAN. is_favorite = (MEMBER, user.id) 즐겨찾기 존재 여부
@@ -109,6 +114,13 @@ public class ContactRepository {
     if (favorite) {
       where = where.and(dFav.isTrue());
     }
+    // 조직·직책 정확 일치(값이 facet 목록에서 옴 — LIKE 아님). EXTERNAL 분기만 organization 보유.
+    if (organization != null && !organization.isBlank()) {
+      where = where.and(dOrg.eq(organization));
+    }
+    if (title != null && !title.isBlank()) {
+      where = where.and(dTitle.eq(title));
+    }
     if (cursor != null) {
       // (name, type, id) > (커서) — 사전식 키셋
       where =
@@ -131,6 +143,35 @@ public class ContactRepository {
                     r.get(dTitle),
                     r.get(dOrg),
                     Boolean.TRUE.equals(r.get(dFav))));
+  }
+
+  /**
+   * 가시 외부 연락처의 organization·title distinct 목록. 가시성은 목록과 동일(SHARED 전체 + 본인 PERSONAL)으로 적용해 타인
+   * PERSONAL 값 누출을 막는다. null/공백 제외, 알파벳 오름차순. 멤버(user)는 외부 전용 필터라 미포함.
+   */
+  public ContactFacets distinctExternalFacets(long callerId) {
+    Condition visible =
+        CONTACT_ENTRY.VISIBILITY.eq("SHARED").or(CONTACT_ENTRY.OWNER_ID.eq(callerId));
+
+    List<String> orgs =
+        dsl.selectDistinct(CONTACT_ENTRY.ORGANIZATION)
+            .from(CONTACT_ENTRY)
+            .where(visible)
+            .and(CONTACT_ENTRY.ORGANIZATION.isNotNull())
+            .and(DSL.trim(CONTACT_ENTRY.ORGANIZATION).ne(""))
+            .orderBy(CONTACT_ENTRY.ORGANIZATION.asc())
+            .fetch(CONTACT_ENTRY.ORGANIZATION);
+
+    List<String> titles =
+        dsl.selectDistinct(CONTACT_ENTRY.TITLE)
+            .from(CONTACT_ENTRY)
+            .where(visible)
+            .and(CONTACT_ENTRY.TITLE.isNotNull())
+            .and(DSL.trim(CONTACT_ENTRY.TITLE).ne(""))
+            .orderBy(CONTACT_ENTRY.TITLE.asc())
+            .fetch(CONTACT_ENTRY.TITLE);
+
+    return new ContactFacets(orgs, titles);
   }
 
   /** callerId 기준 (targetType,targetId) 즐겨찾기 존재 여부. 상세 조회의 isFavorite 계산용. */

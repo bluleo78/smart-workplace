@@ -1,5 +1,6 @@
 package com.workplace.contacts.controller;
 
+import com.workplace.contacts.dto.ContactFacets;
 import com.workplace.contacts.dto.ContactPage;
 import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.ExternalContactRequest;
@@ -37,9 +38,18 @@ public class ContactController {
       @RequestParam(value = "search", required = false) String search,
       @RequestParam(value = "type", required = false, defaultValue = "ALL") String type,
       @RequestParam(value = "favorite", required = false, defaultValue = "false") boolean favorite,
+      @RequestParam(value = "organization", required = false) String organization,
+      @RequestParam(value = "title", required = false) String title,
       @RequestParam(value = "cursor", required = false) String cursor,
       @RequestParam(value = "limit", required = false, defaultValue = "0") int limit) {
-    return ResponseEntity.ok(service.list(callerId, search, type, favorite, cursor, limit));
+    return ResponseEntity.ok(
+        service.list(callerId, search, type, favorite, organization, title, cursor, limit));
+  }
+
+  /** 외부 연락처 고급 필터용 조직·직책 distinct 목록. contact:read 로 충분. */
+  @GetMapping("/facets")
+  public ResponseEntity<ContactFacets> facets(@AuthenticationPrincipal Long callerId) {
+    return ResponseEntity.ok(service.facets(callerId));
   }
 
   /** 멤버 상세(프로필 + 소속 그룹). */
