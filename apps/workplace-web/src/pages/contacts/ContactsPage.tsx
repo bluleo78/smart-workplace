@@ -71,7 +71,7 @@ function ContactRow({
 
 /** 통합 연락처 목록 + 마스터-디테일. 검색·타입은 URL searchParams 와 공유(ContactSidebar). */
 export function ContactsPage() {
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
   const type = ((params.get('type') as ContactTypeFilter) ?? 'ALL') as ContactTypeFilter
   const groupParam = params.get('group')
@@ -79,6 +79,13 @@ export function ContactsPage() {
 
   const [selected, setSelected] = useState<ContactSelection | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+
+  // 보던 조직도 그룹이 삭제되면 URL group 파라미터 제거 → 통합 목록 복귀.
+  const clearGroupSelection = () => {
+    const next = new URLSearchParams(params)
+    next.delete('group')
+    setParams(next, { replace: true })
+  }
 
   // 그룹·타입·검색 등 목록 필터 전환 시 이전 선택(상세 패널) 초기화 — 좁은 화면에서 사이드바 필터를 바꿔도 상세가 남지 않도록.
   useEffect(() => {
@@ -113,7 +120,12 @@ export function ContactsPage() {
             data-testid="contact-list"
           >
             {groupId != null ? (
-              <GroupContactView groupId={groupId} selected={selected} onSelect={setSelected} />
+              <GroupContactView
+                groupId={groupId}
+                selected={selected}
+                onSelect={setSelected}
+                onGroupDeleted={clearGroupSelection}
+              />
             ) : isLoading ? (
               <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
             ) : isError ? (

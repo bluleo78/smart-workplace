@@ -16,8 +16,9 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useDeleteUserGroup } from '@/hooks/queries/useUserGroupMutations'
 import { useUserGroups } from '@/hooks/queries/useUserGroups'
+import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
-import type { UserGroupDetail, UserGroupNode } from '@/types/userGroup'
+import type { UserGroupDetail, UserGroupNode, UserGroupVisibility } from '@/types/userGroup'
 
 import { GroupForm } from './GroupForm'
 import { findNode, flattenGroups } from './groupTree.helpers'
@@ -116,11 +117,15 @@ interface Props {
 export function GroupTree({ selectedId, onSelect }: Props) {
   const { data, isLoading } = useUserGroups()
   const del = useDeleteUserGroup()
+  const { isAdmin } = useAuth()
   const [formOpen, setFormOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<UserGroupDetail | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<UserGroupNode | null>(null)
+  // 생성 다이얼로그가 개인/공유 중 무엇을 만드는지 — 헤더의 어느 + 를 눌렀는지로 결정.
+  const [createVisibility, setCreateVisibility] = useState<UserGroupVisibility>('PERSONAL')
 
   const personalOptions = flattenGroups(data?.personal ?? [])
+  const sharedOptions = flattenGroups(data?.shared ?? [])
 
   // 같은 노드를 다시 클릭하면 선택 해제(통합 목록 복원).
   const handleSelect = (id: number) => onSelect(selectedId === id ? null : id)
@@ -130,12 +135,14 @@ export function GroupTree({ selectedId, onSelect }: Props) {
     try {
       const detail = await userGroupsApi.detail(node.id).then((r) => r.data)
       setEditTarget(detail)
+      setCreateVisibility('PERSONAL') // 편집은 항상 개인 그룹 — 직전 org-create('SHARED')가 남긴 visibility 리셋
       setFormOpen(true)
     } catch {
       toast.error('그룹 정보를 불러오지 못했습니다')
     }
   }
-  const openCreate = () => {
+  const openCreate = (visibility: UserGroupVisibility) => {
+    setCreateVisibility(visibility)
     setEditTarget(null)
     setFormOpen(true)
   }
@@ -151,7 +158,20 @@ export function GroupTree({ selectedId, onSelect }: Props) {
     <div className="mt-6 space-y-3">
       {/* 공유 조직도 — 읽기 전용 */}
       <div>
-        <div className="px-3 pb-1 text-xs font-semibold text-muted-foreground/70">조직도</div>
+        <div className="flex items-center justify-between px-3 pb-1">
+          <span className="text-xs font-semibold text-muted-foreground/70">조직도</span>
+          {isAdmin && (
+            <button
+              type="button"
+              data-testid="org-create"
+              onClick={() => openCreate('SHARED')}
+              aria-label="새 조직 그룹"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         {isLoading ? (
           <div className="px-3 py-1 text-xs text-muted-foreground/60">불러오는 중…</div>
         ) : (data?.shared.length ?? 0) === 0 ? (
@@ -177,7 +197,7 @@ export function GroupTree({ selectedId, onSelect }: Props) {
           <button
             type="button"
             data-testid="group-create"
-            onClick={openCreate}
+            onClick={() => openCreate('PERSONAL')}
             aria-label="새 그룹"
             className="text-muted-foreground hover:text-foreground"
           >
@@ -206,7 +226,8 @@ export function GroupTree({ selectedId, onSelect }: Props) {
         open={formOpen}
         onOpenChange={setFormOpen}
         group={editTarget}
-        personalOptions={personalOptions}
+        visibility={createVisibility}
+        parentOptions={createVisibility === 'SHARED' ? sharedOptions : personalOptions}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>

@@ -19,15 +19,19 @@ import {
 } from '@/hooks/queries/useUserGroupMutations'
 import { type UserGroupFormData, userGroupSchema } from '@/lib/validations/userGroup'
 import type { ContactSummary } from '@/types/contact'
-import type { GroupMemberType, UserGroupDetail } from '@/types/userGroup'
+import type { GroupMemberType, UserGroupDetail, UserGroupVisibility } from '@/types/userGroup'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** 편집 대상(직속 멤버 포함). null 이면 생성 모드. */
   group: UserGroupDetail | null
-  /** 부모 선택 후보(개인 그룹 평면 목록). */
-  personalOptions: { id: number; name: string }[]
+  /** 부모 선택 후보(같은 visibility 그룹 평면 목록). */
+  parentOptions: { id: number; name: string }[]
+  /** 생성 시 그룹 종류. 기본 개인. */
+  visibility?: UserGroupVisibility
+  /** 생성 모드에서 미리 채울 상위 그룹 id(하위 추가용). */
+  defaultParentId?: number | null
 }
 
 interface PickedMember {
@@ -36,8 +40,10 @@ interface PickedMember {
   name: string
 }
 
-/** 개인 그룹 생성/편집 + 멤버 통합 검색 피커. */
-export function GroupForm({ open, onOpenChange, group, personalOptions }: Props) {
+/** 개인/공유 그룹 생성·편집 + 멤버 통합 검색 피커. visibility prop 으로 그룹 종류를 구분. */
+export function GroupForm({
+  open, onOpenChange, group, parentOptions, visibility = 'PERSONAL', defaultParentId = null,
+}: Props) {
   const isEdit = !!group
   const create = useCreateUserGroup()
   const update = useUpdateUserGroup()
@@ -61,12 +67,13 @@ export function GroupForm({ open, onOpenChange, group, personalOptions }: Props)
         group.members.map((m) => ({ targetType: m.targetType, targetId: m.targetId, name: m.name })),
       )
     } else {
-      form.reset({ name: '', parentId: null })
+      // 생성 모드: defaultParentId 가 있으면 하위 추가용으로 미리 채움
+      form.reset({ name: '', parentId: defaultParentId ?? null })
       setPicked([])
     }
     setMemberSearch('')
     setResults([])
-  }, [open, group, form])
+  }, [open, group, form, defaultParentId])
 
   // 멤버 검색 — contacts 통합 목록 재사용(디바운스 300ms)
   useEffect(() => {
@@ -97,9 +104,10 @@ export function GroupForm({ open, onOpenChange, group, personalOptions }: Props)
   const onSubmit = form.handleSubmit(async (data) => {
     try {
       if (isEdit && group) {
+        // 편집 시 기존 code 값 보존 — 덮어써서 null 로 만들지 않음
         await update.mutateAsync({
           id: group.id,
-          body: { name: data.name, parentId: data.parentId, code: null, sortOrder: group.sortOrder },
+          body: { name: data.name, parentId: data.parentId, code: group.code ?? null, sortOrder: group.sortOrder },
         })
         // 멤버 diff 적용
         const before = group.members
@@ -116,10 +124,11 @@ export function GroupForm({ open, onOpenChange, group, personalOptions }: Props)
           await addMember.mutateAsync({ id: group.id, body: { targetType: a.targetType, targetId: a.targetId } })
         }
       } else {
+        // visibility prop 으로 동적화 — PERSONAL(기본) · SHARED 모두 지원
         const created = await create.mutateAsync({
           name: data.name,
           parentId: data.parentId,
-          visibility: 'PERSONAL',
+          visibility,
           code: null,
           sortOrder: 0,
         })
@@ -160,7 +169,7 @@ export function GroupForm({ open, onOpenChange, group, personalOptions }: Props)
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__top__">최상위</SelectItem>
-                {personalOptions
+                {parentOptions
                   .filter((o) => !group || o.id !== group.id)
                   .map((o) => (
                     <SelectItem key={o.id} value={String(o.id)}>
