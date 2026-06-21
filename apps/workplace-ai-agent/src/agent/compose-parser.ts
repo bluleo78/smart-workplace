@@ -7,9 +7,28 @@ export interface Widget {
   layout?: Record<string, unknown>;
 }
 
+// #432: claude CLI result 이벤트의 토큰 사용량(LLM 인증 비용 가시화용).
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface ComposeResult {
   message: string;
   widgets: Widget[];
+  usage: Usage | null;
+}
+
+// #432: result 이벤트의 usage 객체에서 토큰 수를 추출. CLI 는 snake_case(input_tokens)로 내보내지만
+// 변형 대비 camelCase 도 허용한다. 형식 불명/누락 시 null.
+function extractUsage(obj: { usage?: unknown }): Usage | null {
+  const u = obj.usage;
+  if (!u || typeof u !== 'object') return null;
+  const uu = u as Record<string, unknown>;
+  const inp = uu.input_tokens ?? uu.inputTokens;
+  const out = uu.output_tokens ?? uu.outputTokens;
+  if (typeof inp !== 'number' || typeof out !== 'number') return null;
+  return { inputTokens: inp, outputTokens: out };
 }
 
 // 'mcp__workplace__show_issue_list' / 'show_issue_list' → 'issue_list'. show_* 가 아니면 null.
@@ -62,12 +81,18 @@ export function parseCompose(events: unknown[]): ComposeResult {
   const widgets: Widget[] = [];
   const textParts: string[] = [];
   let resultText: string | null = null;
+  let usage: Usage | null = null;
   for (const ev of events) {
     const r = handleEvent(ev, widgets, textParts);
     if (r != null) resultText = r;
+    // #432: 종료(result) 이벤트의 토큰 사용량 수집(마지막 값 사용).
+    if (ev && typeof ev === 'object' && (ev as { type?: string }).type === 'result') {
+      const u = extractUsage(ev as { usage?: unknown });
+      if (u) usage = u;
+    }
   }
   const message = (resultText ?? textParts.join('\n')).trim();
-  return { message, widgets };
+  return { message, widgets, usage };
 }
 
 // NDJSON 문자열 라인 배열을 안전 파싱(잘못된 줄 건너뜀) 후 parseCompose.

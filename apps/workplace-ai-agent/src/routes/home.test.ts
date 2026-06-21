@@ -67,7 +67,7 @@ describe('POST /ai/compose', () => {
     vi.mocked(runAiComposeStream).mockImplementation(async (_i, _d, onText) => {
       onText('안');
       onText('녕');
-      return { fullText: '안녕', widgets: null, pendingAction: null };
+      return { fullText: '안녕', widgets: null, pendingAction: null, usage: { inputTokens: 100, outputTokens: 20 } };
     });
     const res = await request(buildApp()).post('/ai/compose').send(validBody());
     expect(res.status).toBe(200);
@@ -78,6 +78,8 @@ describe('POST /ai/compose', () => {
     expect(res.text).toContain('data: {"text":"녕"}');
     expect(res.text).toContain('event: done');
     expect(res.text).toContain('"fullText":"안녕"');
+    // #432: done 이벤트에 usage(토큰 사용량) 포함.
+    expect(res.text).toContain('"usage":{"inputTokens":100,"outputTokens":20}');
     // 러너에 파싱된 페이로드가 그대로 전달됐는지 회귀 가드(5번째 onProgress 인자 포함).
     expect(runAiComposeStream).toHaveBeenCalledWith(
       expect.objectContaining({ query: '내 할 일', assistantAgentId: 7 }),
@@ -116,7 +118,7 @@ describe('POST /ai/compose', () => {
 
   it('pendingAction 이 있으면 event: pending_action 을 done 앞에 발행', async () => {
     // #333 M2: propose 도구가 사이드카에 제안을 쓴 경우 — 라우트가 done 앞에 pending_action 발행.
-    vi.mocked(runAiComposeStream).mockResolvedValue({ fullText: '제안했어요', widgets: null, pendingAction: { actionType: 'calendar.create_event', summary: 's', params: {} } });
+    vi.mocked(runAiComposeStream).mockResolvedValue({ fullText: '제안했어요', widgets: null, pendingAction: { actionType: 'calendar.create_event', summary: 's', params: {} }, usage: null });
     const res = await request(buildApp()).post('/ai/compose').send(validBody());
     expect(res.text).toContain('event: pending_action');
     expect(res.text).toContain('"actionType":"calendar.create_event"');
@@ -129,7 +131,7 @@ describe('POST /ai/compose', () => {
     // 라우트가 5번째 인자로 onProgress 콜백을 전달하고 event: progress 로 직렬화하는지 검증.
     vi.mocked(runAiComposeStream).mockImplementation(async (_i, _d, _onText, _signal, onProgress) => {
       onProgress?.('이슈 전문가에게 위임 중');
-      return { fullText: '처리했어요.', widgets: null, pendingAction: null };
+      return { fullText: '처리했어요.', widgets: null, pendingAction: null, usage: null };
     });
     const res = await request(buildApp()).post('/ai/compose').send(validBody());
     expect(res.status).toBe(200);

@@ -162,13 +162,14 @@ export async function runAiComposeStream(
   onText: (t: string) => void,
   signal: AbortSignal,
   onProgress?: (label: string) => void, // #333: Agent 위임 시작 시 호출('이슈 전문가에게 위임 중')
-): Promise<{ fullText: string; widgets: unknown; pendingAction: unknown | null }> {
+): Promise<{ fullText: string; widgets: unknown; pendingAction: unknown | null; usage: import('./compose-parser.js').Usage | null }> {
   // #405: 생성일 필터 쿼리 — LLM 호출 전 결정론적으로 차단. dueFrom 오해석 방지.
   if (isCreatedDateFilterQuery(input.query)) {
     return {
       fullText: '생성 날짜 필터는 지원하지 않습니다. 마감일(dueFrom/dueTo), 담당자, 상태, 우선순위 필터를 사용해 보세요.',
       widgets: null,
       pendingAction: null,
+      usage: null, // #432: LLM 미호출 — 사용량 없음
     };
   }
   const agentId = input.assistantAgentId;
@@ -314,6 +315,7 @@ export async function runAiComposeStream(
         fullText: '담당 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.',
         widgets: null,
         pendingAction: null,
+        usage: null, // #432: override 응답 — 사용량 보고 생략
       };
     }
     // #400 #409: 비가역 작업 제안 후 사용자 "승인" 발화 시 haiku가 propose 없이 완료 환각 응답.
@@ -323,7 +325,7 @@ export async function runAiComposeStream(
       !existsSync(pendingActionPath) &&
       isProposalApprovalHallucination(input.query, input.recentContext ?? [])
     ) {
-      return { fullText: '확인 카드에서 승인해주세요. 에이전트가 직접 작업을 수행하지 않습니다.', widgets: null, pendingAction: null };
+      return { fullText: '확인 카드에서 승인해주세요. 에이전트가 직접 작업을 수행하지 않습니다.', widgets: null, pendingAction: null, usage: null };
     }
     // #333 M2: propose 도구가 사이드카에 제안을 썼으면 읽어 pendingAction 으로 싣는다(스트림 파싱 불가 — collapsed Agent tool_result).
     let pendingAction: unknown | null = null;
@@ -340,7 +342,7 @@ export async function runAiComposeStream(
       try {
         const errData = JSON.parse(readFileSync(unassignErrorPath, 'utf8')) as { canonical: string };
         if (errData.canonical) {
-          return { fullText: errData.canonical, widgets: null, pendingAction: null };
+          return { fullText: errData.canonical, widgets: null, pendingAction: null, usage: null };
         }
       } catch {
         // 사이드카 파싱 실패 — LLM 응답을 그대로 사용
@@ -375,7 +377,8 @@ export async function runAiComposeStream(
     }
     // 빈 텍스트는 onText 로 emit 하지 않는다(빈 버블 방지).
     if (answerText) onText(answerText);
-    return { fullText: answerText, widgets, pendingAction };
+    // #432: 라우터 CLI result 이벤트의 토큰 사용량을 done 이벤트로 전달(LLM 인증 비용 가시화).
+    return { fullText: answerText, widgets, pendingAction, usage: parsed.usage };
   } finally {
     // Finding 2: null 가드 — writeTempMcpConfig/mkdtempSync 가 throw 하면 미생성 변수는 정리 생략.
     if (mcpConfigPath) cleanupTempMcpConfig(mcpConfigPath);

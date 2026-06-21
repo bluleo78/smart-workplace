@@ -71,7 +71,7 @@ describe('parseCompose', () => {
   });
 
   it('빈 입력 → 빈 위젯 + 빈 message', () => {
-    expect(parseCompose([])).toEqual({ message: '', widgets: [] });
+    expect(parseCompose([])).toEqual({ message: '', widgets: [], usage: null });
   });
 
   it('parseComposeLines: 비 JSON·공백 줄은 건너뛰고 유효 줄만 파싱', () => {
@@ -90,7 +90,20 @@ describe('parseCompose', () => {
     expect(out).toEqual({
       message: '한 개 위젯을 보여드려요.',
       widgets: [{ type: 'issue_list', params: { assignee: 'me' } }],
+      usage: null,
     });
+  });
+
+  it('#432: result 이벤트의 usage(input_tokens/output_tokens) 를 추출', () => {
+    const events = [
+      { type: 'result', subtype: 'success', is_error: false, result: '완료', usage: { input_tokens: 1234, output_tokens: 56 } },
+    ];
+    expect(parseCompose(events).usage).toEqual({ inputTokens: 1234, outputTokens: 56 });
+  });
+
+  it('#432: usage 누락/형식 불명이면 null', () => {
+    expect(parseCompose([{ type: 'result', result: '완료' }]).usage).toBeNull();
+    expect(parseCompose([{ type: 'result', result: '완료', usage: { foo: 'bar' } }]).usage).toBeNull();
   });
 
   it('result 가 있으면 assistant text 보다 우선', () => {

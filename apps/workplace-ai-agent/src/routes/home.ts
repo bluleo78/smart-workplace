@@ -70,7 +70,8 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         if (result.pendingAction) {
           res.write(`event: pending_action\ndata: ${JSON.stringify(result.pendingAction)}\n\n`);
         }
-        res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets })}\n\n`);
+        // #432: done 이벤트에 토큰 사용량(usage) 포함 — 없으면 null.
+        res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets, usage: result.usage })}\n\n`);
         res.end();
       }
     } catch (e) {
