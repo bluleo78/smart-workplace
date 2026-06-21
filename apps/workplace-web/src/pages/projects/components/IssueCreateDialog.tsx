@@ -103,8 +103,9 @@ export function IssueCreateDialog({
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="issue-type">유형</label>
                 {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+                {/* shadcn Select — value 는 항상 string 이어야 controlled 유지(undefined 면 mount→로드 사이 uncontrolled→controlled 전환 경고, #364). 미선택은 '' 로 표현. */}
                 <Select
-                  value={currentTypeId !== undefined ? String(currentTypeId) : undefined}
+                  value={currentTypeId !== undefined ? String(currentTypeId) : ''}
                   onValueChange={(v) => setValue('typeId', Number(v))}
                 >
                   <SelectTrigger

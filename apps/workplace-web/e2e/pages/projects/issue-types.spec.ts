@@ -249,6 +249,57 @@ test.describe('이슈 유형', () => {
   );
 
   test(
+    '새 태스크 다이얼로그를 types 로딩 중에 열어도 Select controlled/uncontrolled 경고가 없다 (#364)',
+    async ({ authenticatedPage: page }) => {
+      const types = systemTypes();
+
+      // 프로젝트 상세 + 이슈 목록 stub (즉시 응답).
+      await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP' }));
+      await mockApi(
+        page,
+        'GET',
+        '/api/v1/projects/WP/issues',
+        createIssueSearchResponse([]),
+      );
+
+      // /types 만 gate 로 잡아둔다 — 다이얼로그가 types 로딩 중에 열리도록 해서
+      // Select 가 currentTypeId=undefined(uncontrolled) 로 마운트되게 한다(#364 load-race).
+      let releaseTypes!: () => void;
+      const typesGate = new Promise<void>((r) => (releaseTypes = r));
+      await page.route('**/api/v1/projects/WP/types', async (route) => {
+        await typesGate;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(types),
+        });
+      });
+
+      // 콘솔 경고 수집 — 다이얼로그를 열기 전에 리스너를 건다.
+      const warnings: string[] = [];
+      page.on('console', (msg) => {
+        if (/is changing from (controlled|uncontrolled)/.test(msg.text())) {
+          warnings.push(msg.text());
+        }
+      });
+
+      await page.goto('/projects/WP');
+
+      // types 가 아직 pending 인 동안 다이얼로그 오픈 → Select 가 uncontrolled 로 마운트.
+      await page.getByRole('button', { name: '+ 새 태스크' }).click();
+      const trigger = page.getByTestId('create-type-select');
+      await expect(trigger).toBeVisible();
+
+      // 이제 types 풀어줌 → effect 가 typeId 채우며 controlled 전환(경고 트리거 지점).
+      releaseTypes();
+      await expect(trigger).toContainText('태스크');
+
+      // controlled↔uncontrolled 전환 경고가 없어야 한다 (#364).
+      expect(warnings, warnings.join('\n')).toHaveLength(0);
+    },
+  );
+
+  test(
     '이슈 유형 이름 변경 — shadcn Dialog 로 PATCH 발생, window.prompt 없음 (#160)',
     async ({ authenticatedPage: page }) => {
       // CUSTOM 유형 1개 (isSystem:false 여야 이름 변경 버튼이 렌더됨)
