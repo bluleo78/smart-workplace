@@ -2,6 +2,7 @@ package com.workplace.drive.service;
 
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.drive.dto.DriveFileResponse;
+import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
@@ -42,7 +43,13 @@ public class DriveFileService {
   /** 사용자명 조회용 — 감사 로그에 username 을 기록한다(#81). */
   private final UserRepository userRepository;
 
-  /** 업로드 → 쿼터 검사(advisory lock) → file core 저장 → 영구화 → drive_file 바인딩. */
+  /** 파일 버전 레포지토리 — 동명 업로드 자동 버전화(#79). */
+  private final com.workplace.drive.repository.DriveFileVersionRepository versions;
+
+  /**
+   * 업로드 → 쿼터 검사(advisory lock) → file core 저장 → 영구화 → drive_file 바인딩. 동명 활성 파일이 있으면 새 버전으로 흡수(#79),
+   * 없으면 새 파일 + v1.
+   */
   @Transactional
   public DriveFileResponse upload(long callerId, long spaceId, Long folderId, MultipartFile file)
       throws IOException {
@@ -55,25 +62,55 @@ public class DriveFileService {
     quota.assertWithinQuota(file.getSize());
     FileUploadResponse uploaded = fileUpload.uploadFiles(List.of(file), callerId).get(0);
     files.promoteFile(uploaded.id());
-    long driveFileId = files.insert(spaceId, folderId, uploaded.id(), uploaded.originalName());
-    // 감사 로그 — FILE_UPLOAD(#81), 같은 @Transactional 안에서 기록.
+
+    String name = uploaded.originalName();
+    long driveFileId;
+    String actionType;
+    int versionNo;
+    // 동명 활성 파일이 있으면 새 버전으로 흡수, 없으면 새 파일 + v1 (#79)
+    var existing = files.findActiveByName(spaceId, folderId, name);
+    if (existing.isPresent()) {
+      driveFileId = existing.get();
+      versionNo = versions.nextVersionNo(driveFileId);
+      versions.insert(driveFileId, versionNo, uploaded.id(), file.getSize(), callerId, null);
+      files.setCurrentVersion(driveFileId, uploaded.id(), versionNo);
+      actionType = "FILE_VERSION_CREATED";
+    } else {
+      // insertWithInitialVersion 이 drive_file + v1 버전 행을 원자적으로 생성(#79 불변식 강제)
+      driveFileId =
+          files.insertWithInitialVersion(
+              spaceId, folderId, uploaded.id(), name, file.getSize(), callerId);
+      versionNo = 1;
+      actionType = "FILE_UPLOAD";
+    }
+
+    // 감사 로그 — 같은 @Transactional 안에서 기록(#81).
     auditLogService.log(
         callerId,
         usernameOf(callerId),
-        "FILE_UPLOAD",
+        actionType,
         "drive",
         String.valueOf(driveFileId),
-        "드라이브 파일 업로드: " + uploaded.originalName(),
+        ("FILE_VERSION_CREATED".equals(actionType) ? "드라이브 파일 새 버전: " : "드라이브 파일 업로드: ")
+            + name
+            + " (v"
+            + versionNo
+            + ")",
         null,
         null,
         "SUCCESS",
         null,
         Map.of(
-            "spaceId", spaceId, "fileName", uploaded.originalName(), "sizeBytes", file.getSize()));
+            "spaceId", spaceId,
+            "fileName", name,
+            "sizeBytes", file.getSize(),
+            "versionNo", versionNo));
+
+    final long fid = driveFileId;
     return files.listInFolder(spaceId, folderId).stream()
-        .filter(f -> f.id() == driveFileId)
+        .filter(f -> f.id() == fid)
         .findFirst()
-        .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+        .orElseThrow(() -> new DriveFileNotFoundException(fid));
   }
 
   /** 다운로드. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. */
@@ -129,13 +166,110 @@ public class DriveFileService {
         Map.of("spaceId", row.spaceId(), "fileName", row.name()));
   }
 
-  /** 이동 — 같은 공간 다른 폴더로 folder_id 변경. */
+  /** 버전 이력 목록(VIEWER). 최신(version_no 최대) 행을 current 로 표시. */
+  @Transactional(readOnly = true)
+  public java.util.List<com.workplace.drive.dto.DriveFileVersionResponse> listVersions(
+      long callerId, long driveFileId) {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    var rows = versions.listForDriveFile(driveFileId); // version_no DESC
+    java.util.List<com.workplace.drive.dto.DriveFileVersionResponse> out =
+        new java.util.ArrayList<>();
+    for (int i = 0; i < rows.size(); i++) {
+      var v = rows.get(i);
+      out.add(
+          new com.workplace.drive.dto.DriveFileVersionResponse(
+              v.versionNo(),
+              v.fileId(),
+              v.sizeBytes(),
+              v.uploadedBy(),
+              v.uploadedByName(),
+              v.createdAt(),
+              v.comment(),
+              i == 0)); // DESC 정렬의 첫 행이 최신=현재
+    }
+    return out;
+  }
+
+  /** 특정 버전 blob 다운로드(VIEWER). */
+  @Transactional(readOnly = true)
+  public FileContentResult downloadVersion(long callerId, long driveFileId, int versionNo)
+      throws IOException {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    var v =
+        versions
+            .findVersion(driveFileId, versionNo)
+            .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    return fileUpload.getFileContentTrusted(v.fileId());
+  }
+
+  /** 롤백(#79) — 대상 버전 blob 을 물리 클론해 새 버전으로 append(비파괴). EDITOR. */
+  @Transactional
+  public DriveFileResponse rollback(long callerId, long driveFileId, int targetVersionNo)
+      throws IOException {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    var target =
+        versions
+            .findVersion(driveFileId, targetVersionNo)
+            .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    // 새 blob 이 생기므로 쿼터 검사(테넌트 직렬화 잠금).
+    Long tenantId = TenantContext.get();
+    if (tenantId != null) {
+      quotaRepo.advisoryLockTenant(tenantId);
+    }
+    quota.assertWithinQuota(target.sizeBytes());
+    long newFileId = fileUpload.copyFile(target.fileId(), callerId);
+    int newVersionNo = versions.nextVersionNo(driveFileId);
+    versions.insert(
+        driveFileId,
+        newVersionNo,
+        newFileId,
+        target.sizeBytes(),
+        callerId,
+        "v" + targetVersionNo + "에서 복원");
+    files.setCurrentVersion(driveFileId, newFileId, newVersionNo);
+
+    auditLogService.log(
+        callerId,
+        usernameOf(callerId),
+        "FILE_ROLLBACK",
+        "drive",
+        String.valueOf(driveFileId),
+        "드라이브 파일 롤백: " + row.name() + " (v" + targetVersionNo + " → v" + newVersionNo + ")",
+        null,
+        null,
+        "SUCCESS",
+        null,
+        Map.of(
+            "fromVersionNo", targetVersionNo,
+            "toVersionNo", newVersionNo,
+            "fileName", row.name()));
+
+    return files
+        .findResponse(driveFileId)
+        .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+  }
+
+  /** 이동 — 같은 공간 다른 폴더로 folder_id 변경. 같은 폴더면 no-op. 동명 충돌 시 409. */
   @Transactional
   public void move(long callerId, long driveFileId, Long targetFolderId) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
     validateTargetSameSpace(row.spaceId(), targetFolderId);
+    // 같은 폴더로의 이동은 no-op — 자기 자신과의 이름 충돌로 인한 잘못된 409 방지
+    if (java.util.Objects.equals(row.folderId(), targetFolderId)) {
+      return;
+    }
+    // 대상 폴더에 동명 활성 파일이 있으면 충돌(#79 부분 유니크 인덱스 대응)
+    if (files.findActiveByName(row.spaceId(), targetFolderId, row.name()).isPresent()) {
+      throw new DriveDuplicateNameException(row.name());
+    }
     files.updateFolder(driveFileId, targetFolderId);
   }
 
@@ -159,8 +293,20 @@ public class DriveFileService {
             .where(com.workplace.jooq.Tables.FILE.ID.eq(row.fileId()))
             .fetchOne(com.workplace.jooq.Tables.FILE.SIZE_BYTES);
     quota.assertWithinQuota(copiedSizeBytes == null ? 0L : copiedSizeBytes);
+    // 대상 폴더에 동명 활성 파일이 있으면 충돌(#79 부분 유니크 인덱스 대응)
+    if (files.findActiveByName(row.spaceId(), targetFolderId, row.name()).isPresent()) {
+      throw new DriveDuplicateNameException(row.name());
+    }
     long newFileId = fileUpload.copyFile(row.fileId(), callerId);
-    long newDriveFileId = files.insert(row.spaceId(), targetFolderId, newFileId, row.name());
+    // insertWithInitialVersion 으로 복사본도 v1 버전 행을 즉시 생성(#79 불변식 — copy 도 quota 집계·purge 대상)
+    long newDriveFileId =
+        files.insertWithInitialVersion(
+            row.spaceId(),
+            targetFolderId,
+            newFileId,
+            row.name(),
+            copiedSizeBytes == null ? 0L : copiedSizeBytes,
+            callerId);
     return files.listInFolder(row.spaceId(), targetFolderId).stream()
         .filter(f -> f.id() == newDriveFileId)
         .findFirst()

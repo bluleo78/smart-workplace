@@ -321,9 +321,12 @@ public class DriveFolderRepository {
               .where(DRIVE_FOLDER.PARENT_ID.eq(cur))
               .fetch(DRIVE_FOLDER.ID));
     }
-    return dsl.select(DRIVE_FILE.FILE_ID)
-        .from(DRIVE_FILE)
+    // 서브트리 내 모든 drive_file 의 "전 버전" blob file_id (#79 — 과거 버전 누락 방지)
+    return dsl.select(com.workplace.jooq.Tables.DRIVE_FILE_VERSION.FILE_ID)
+        .from(com.workplace.jooq.Tables.DRIVE_FILE_VERSION)
+        .join(DRIVE_FILE)
+        .on(DRIVE_FILE.ID.eq(com.workplace.jooq.Tables.DRIVE_FILE_VERSION.DRIVE_FILE_ID))
         .where(DRIVE_FILE.FOLDER_ID.in(subtree))
-        .fetch(DRIVE_FILE.FILE_ID);
+        .fetch(com.workplace.jooq.Tables.DRIVE_FILE_VERSION.FILE_ID);
   }
 }

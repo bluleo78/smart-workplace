@@ -4,6 +4,7 @@ import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveTrashItemResponse;
 import com.workplace.drive.dto.DriveTrashListResponse;
 import com.workplace.drive.repository.DriveFileRepository;
+import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class DriveTrashService {
   private final DriveFolderRepository folders;
   private final DriveFileRepository files;
+  private final DriveFileVersionRepository versions; // 전 버전 blob file_id 조회 (#79)
   private final DrivePermissions perms;
 
   /** 휴지통 보존기간(일). 경과 시 자동 영구삭제. */
@@ -91,7 +93,12 @@ public class DriveTrashService {
     files.restoreByOp(meta.opId());
   }
 
-  /** 파일 복원 — op 단위 일괄 + 폴더 보정. 파일명은 충돌 제약 없음. EDITOR. */
+  /**
+   * 파일 복원 — 이름 충돌 자동 리네임을 '아직 trashed 인 상태'에서 먼저 처리한 뒤 op 단위 복원 + 폴더 보정. EDITOR.
+   *
+   * <p>부분 유니크 인덱스 uq_drive_file_active_name(V81)은 trashed_at IS NULL 행만 검사한다. 따라서 이름 확정은 반드시
+   * trashed 상태에서 먼저 완료해야 하며, 그 뒤에야 restoreByOp 의 trashed_at=NULL 갱신이 충돌 없이 통과한다.
+   */
   @Transactional
   public void restoreFile(long callerId, long driveFileId) {
     var meta =
@@ -102,11 +109,18 @@ public class DriveTrashService {
                     new com.workplace.drive.exception.DriveNotInTrashException(
                         "file", driveFileId));
     perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    // 1) 복원 대상 폴더 확정 — 원래 부모가 없거나 아직 휴지통이면 루트
+    Long targetFolderId = meta.folderId();
+    if (targetFolderId != null && !folders.liveFolderExists(targetFolderId)) {
+      files.setFolderToRoot(driveFileId);
+      targetFolderId = null;
+    }
+    // 2) 살아있는 동명 파일과 충돌 시 자동 리네임 — 아직 trashed 라 부분 인덱스에 안 걸림
+    String name = resolveFileName(meta.spaceId(), targetFolderId, meta.name());
+    if (!name.equals(meta.name())) files.rename(driveFileId, name);
+    // 3) 안전한 이름 확정 후 op 단위 복원(trashed_at=NULL)
     folders.restoreByOp(meta.opId());
     files.restoreByOp(meta.opId());
-    if (meta.folderId() != null && !folders.liveFolderExists(meta.folderId())) {
-      files.setFolderToRoot(driveFileId);
-    }
   }
 
   /** 파일 영구삭제 — trash_root 확인 후 blob 만료 + 행 하드삭제. EDITOR. */
@@ -120,7 +134,8 @@ public class DriveTrashService {
                     new com.workplace.drive.exception.DriveNotInTrashException(
                         "file", driveFileId));
     perms.requireRole(meta.spaceId(), callerId, "EDITOR");
-    files.fileIdOf(driveFileId).ifPresent(fid -> files.expireFiles(java.util.List.of(fid)));
+    // 현재 버전뿐 아니라 전 버전 blob 모두 만료 처리 (#79)
+    files.expireFiles(versions.fileIdsForDriveFile(driveFileId));
     files.delete(driveFileId);
   }
 
@@ -154,15 +169,30 @@ public class DriveTrashService {
       files.expireFiles(folders.findFileIdsUnderFolder(folderId));
       folders.delete(folderId);
     }
-    for (long fileId : files.expiredTrashRootFileIds(cutoff)) {
-      files.fileIdOf(fileId).ifPresent(fid -> files.expireFiles(java.util.List.of(fid)));
-      files.delete(fileId);
+    // driveFileId 단위로 전 버전 blob 만료 후 행 삭제(ON DELETE CASCADE 로 drive_file_version 정리)
+    for (long driveFileId : files.expiredTrashRootFileIds(cutoff)) {
+      files.expireFiles(versions.fileIdsForDriveFile(driveFileId));
+      files.delete(driveFileId);
     }
   }
 
   /** 보존기간(일) — 잡이 cutoff 계산에 사용. */
   public int retentionDays() {
     return retentionDays;
+  }
+
+  /**
+   * 살아있는 형제 파일과 충돌하면 " (복원됨)", 그래도 충돌하면 " (2)", " (3)"… 부여. 파일은 아직 trashed 상태이므로 findActiveByName 의
+   * trashed_at IS NULL 조건에 걸리지 않아 자기 자신과 충돌하지 않는다.
+   */
+  private String resolveFileName(long spaceId, Long folderId, String base) {
+    if (files.findActiveByName(spaceId, folderId, base).isEmpty()) return base;
+    String candidate = base + " (복원됨)";
+    int n = 2;
+    while (files.findActiveByName(spaceId, folderId, candidate).isPresent()) {
+      candidate = base + " (" + n++ + ")";
+    }
+    return candidate;
   }
 
   /** 살아있는 형제 폴더와 충돌하면 " (복원됨)", 그래도 충돌하면 " (2)", " (3)"… 부여. */

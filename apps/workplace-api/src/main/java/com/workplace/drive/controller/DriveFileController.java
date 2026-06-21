@@ -1,6 +1,7 @@
 package com.workplace.drive.controller;
 
 import com.workplace.drive.dto.DriveFileResponse;
+import com.workplace.drive.dto.DriveFileVersionResponse;
 import com.workplace.drive.dto.TargetFolderRequest;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
@@ -101,6 +102,39 @@ public class DriveFileController {
       @RequestBody TargetFolderRequest req) {
     fileService.move(callerId, driveFileId, req.targetFolderId());
     return ResponseEntity.noContent().build();
+  }
+
+  /** 버전 이력 목록(#79). */
+  @GetMapping("/files/{id}/versions")
+  public ResponseEntity<java.util.List<DriveFileVersionResponse>> versions(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
+    return ResponseEntity.ok(fileService.listVersions(callerId, driveFileId));
+  }
+
+  /** 특정 버전 다운로드(#79). */
+  @GetMapping("/files/{id}/versions/{versionNo}/download")
+  public ResponseEntity<Resource> downloadVersion(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long driveFileId,
+      @PathVariable("versionNo") int versionNo)
+      throws IOException {
+    FileContentResult c = fileService.downloadVersion(callerId, driveFileId, versionNo);
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.parseMediaType(c.mimeType()));
+    headers.setContentDisposition(
+        ContentDisposition.attachment().filename(c.originalName(), StandardCharsets.UTF_8).build());
+    headers.setContentLength(c.size());
+    return ResponseEntity.ok().headers(headers).body(c.resource());
+  }
+
+  /** 특정 버전으로 롤백(#79) — 새 버전 생성. */
+  @PostMapping("/files/{id}/versions/{versionNo}/rollback")
+  public ResponseEntity<DriveFileResponse> rollback(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long driveFileId,
+      @PathVariable("versionNo") int versionNo)
+      throws IOException {
+    return ResponseEntity.ok(fileService.rollback(callerId, driveFileId, versionNo));
   }
 
   @PostMapping("/files/{id}/copy")

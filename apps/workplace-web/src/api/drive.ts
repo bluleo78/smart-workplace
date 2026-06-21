@@ -6,6 +6,7 @@ import type {
   BulkSelection,
   CreatedShareLink,
   DriveFile,
+  DriveFileVersion,
   DriveFolder,
   DriveFolderPathSegment,
   DriveItemList,
@@ -207,6 +208,28 @@ export const driveApi = {
     const a = document.createElement('a')
     a.href = url
     a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+
+  // 버전 이력(#79)
+  listVersions: (driveFileId: number) =>
+    client.get<DriveFileVersion[]>(`/drive/files/${driveFileId}/versions`),
+
+  rollbackVersion: (driveFileId: number, versionNo: number) =>
+    client.post<DriveFile>(`/drive/files/${driveFileId}/versions/${versionNo}/rollback`),
+
+  downloadVersion: async (driveFileId: number, versionNo: number, name: string) => {
+    const { data } = await client.get<Blob>(
+      `/drive/files/${driveFileId}/versions/${versionNo}/download`,
+      { responseType: 'blob' },
+    )
+    const url = URL.createObjectURL(data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
     document.body.appendChild(a)
     a.click()
     a.remove()

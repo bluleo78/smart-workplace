@@ -1,4 +1,4 @@
-import type { DriveFile, DriveFolder, DriveSpace, DriveTrashList } from '../../src/types/drive'
+import type { DriveFile, DriveFileVersion, DriveFolder, DriveSpace, DriveTrashList } from '../../src/types/drive'
 
 export function createSpace(overrides: Partial<DriveSpace> = {}): DriveSpace {
   return {
@@ -38,6 +38,23 @@ export function createFile(overrides: Partial<DriveFile> = {}): DriveFile {
     sizeBytes: 5,
     category: 'TEXT',
     createdAt: new Date('2026-06-01').toISOString(),
+    // #79: 기본 버전 수 1
+    versionCount: 1,
+    ...overrides,
+  }
+}
+
+// #79: 버전 팩토리 — DriveFileVersion 모킹 데이터 생성.
+export function createVersion(overrides: Partial<DriveFileVersion> = {}): DriveFileVersion {
+  return {
+    versionNo: 1,
+    fileId: 10,
+    sizeBytes: 100,
+    uploadedBy: 1,
+    uploadedByName: '홍길동',
+    createdAt: '2026-06-21T00:00:00Z',
+    comment: null,
+    current: true,
     ...overrides,
   }
 }

@@ -1,6 +1,7 @@
 package com.workplace.drive.repository;
 
 import static com.workplace.jooq.Tables.DRIVE_FILE;
+import static com.workplace.jooq.Tables.DRIVE_FILE_VERSION;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.TENANT;
 
@@ -19,17 +20,20 @@ public class DriveQuotaRepository {
   }
 
   /**
-   * 현재 테넌트의 드라이브 사용량(바이트) — live 파일만.
+   * 현재 테넌트의 드라이브 사용량(바이트) — 비휴지통 drive_file 의 모든 버전 blob 합(#79).
    *
-   * <p>drive_file 조인으로 chat/messaging 첨부를 배제하고, trashed_at IS NULL 로 휴지통을 제외한다. 테넌트 격리는
-   * RLS(app.tenant_id)가 처리하므로 명시 tenant_id 조건은 두지 않는다.
+   * <p>각 버전이 자체 blob 1개를 소유(클론-롤백)하므로 버전 단위 합산이 곧 물리 사용량과 일치한다. drive_file_version 을 기준으로
+   * drive_file 과 file 을 조인하여 전 버전 blob 의 크기를 누적한다. trashed_at IS NULL 로 휴지통을 제외하고, 테넌트 격리는
+   * RLS(app.tenant_id)가 처리한다.
    */
   public long sumDriveUsageBytes() {
     Long result =
         dsl.select(DSL.coalesce(DSL.sum(FILE.SIZE_BYTES), DSL.inline(0L)))
-            .from(DRIVE_FILE)
+            .from(DRIVE_FILE_VERSION)
+            .join(DRIVE_FILE)
+            .on(DRIVE_FILE.ID.eq(DRIVE_FILE_VERSION.DRIVE_FILE_ID))
             .join(FILE)
-            .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
+            .on(FILE.ID.eq(DRIVE_FILE_VERSION.FILE_ID))
             .where(DRIVE_FILE.TRASHED_AT.isNull())
             .fetchOne(0, Long.class);
     return result == null ? 0L : result;

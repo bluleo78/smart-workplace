@@ -157,8 +157,19 @@ class DriveTrashServiceTest extends IntegrationTestBase {
   void autoCleanup_purgesOnlyExpired() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
-    DriveFileResponse old = fileService.upload(u, sp.id(), null, txt());
-    DriveFileResponse fresh = fileService.upload(u, sp.id(), null, txt());
+    // 동명 업로드는 버전화(#79) → 다른 이름으로 두 파일 생성
+    DriveFileResponse old =
+        fileService.upload(
+            u,
+            sp.id(),
+            null,
+            new MockMultipartFile("file", "old.txt", "text/plain", "hello".getBytes()));
+    DriveFileResponse fresh =
+        fileService.upload(
+            u,
+            sp.id(),
+            null,
+            new MockMultipartFile("file", "fresh.txt", "text/plain", "hello".getBytes()));
     fileService.delete(u, old.id());
     fileService.delete(u, fresh.id());
     // old 의 trashed_at 을 31일 전으로 조작
@@ -234,6 +245,31 @@ class DriveTrashServiceTest extends IntegrationTestBase {
     // 원본·대체 둘 다 살아있고, 원본은 리네임됨
     assertThat(folders).anyMatch(f -> f.id() == replacement.id() && f.name().equals("보고서"));
     assertThat(folders).anyMatch(f -> f.id() == original.id() && f.name().equals("보고서 (복원됨)"));
+    assertThat(trashService.listTrash(u, sp.id()).items()).isEmpty();
+  }
+
+  /** 파일 복원 시 살아있는 동명 파일이 있으면 자동 리네임("보고서.txt (복원됨)") — 부분 유니크 인덱스 위반 없이 통과(#79). */
+  @Test
+  void restore_file_autoRenamesOnLiveNameCollision() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    // 루트에 보고서.txt 업로드 후 삭제(휴지통)
+    MockMultipartFile report =
+        new MockMultipartFile("file", "보고서.txt", "text/plain", "orig".getBytes());
+    DriveFileResponse original = fileService.upload(u, sp.id(), null, report);
+    fileService.delete(u, original.id());
+    // 같은 이름으로 새 파일 업로드(활성)
+    MockMultipartFile report2 =
+        new MockMultipartFile("file", "보고서.txt", "text/plain", "new".getBytes());
+    fileService.upload(u, sp.id(), null, report2);
+
+    // 복원 시 충돌 → 자동 리네임 기대
+    trashService.restoreFile(u, original.id());
+
+    var liveFiles = folderService.listItems(u, sp.id(), null).files();
+    // 대체 파일("보고서.txt")과 원본 리네임("보고서.txt (복원됨)") 둘 다 살아있어야 함
+    assertThat(liveFiles).anyMatch(f -> f.name().equals("보고서.txt"));
+    assertThat(liveFiles).anyMatch(f -> f.name().equals("보고서.txt (복원됨)"));
     assertThat(trashService.listTrash(u, sp.id()).items()).isEmpty();
   }
 

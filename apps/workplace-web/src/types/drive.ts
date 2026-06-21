@@ -66,6 +66,20 @@ export interface DriveFile {
   sizeBytes: number
   category: string
   createdAt: string
+  // #79: 버전 수 — 업로드/롤백 시 갱신.
+  versionCount: number
+}
+
+// #79: 드라이브 파일 버전 — 백엔드 DriveFileVersionResponse 와 1:1.
+export interface DriveFileVersion {
+  versionNo: number
+  fileId: number
+  sizeBytes: number
+  uploadedBy: number
+  uploadedByName: string
+  createdAt: string
+  comment: string | null
+  current: boolean
 }
 
 export interface DriveItemList {

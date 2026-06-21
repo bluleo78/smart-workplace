@@ -160,7 +160,9 @@ public class DriveFolderService {
     long newFolderId = folders.insert(spaceId, destParentId, name);
     for (DriveFileResponse f : files.listInFolder(spaceId, srcFolderId)) {
       long newFid = fileUpload.copyFile(f.fileId(), callerId);
-      files.insert(spaceId, newFolderId, newFid, f.name());
+      // insertWithInitialVersion 으로 폴더 복사 내 파일도 v1 버전 행 생성(#79 불변식 강제)
+      files.insertWithInitialVersion(
+          spaceId, newFolderId, newFid, f.name(), f.sizeBytes(), callerId);
     }
     for (DriveFolderResponse child : folders.listChildFolders(spaceId, srcFolderId)) {
       copyTree(callerId, spaceId, child.id(), newFolderId, child.name());

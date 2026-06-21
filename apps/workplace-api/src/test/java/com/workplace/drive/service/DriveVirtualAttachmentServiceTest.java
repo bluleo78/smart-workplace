@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.VirtualAttachmentPage;
 import com.workplace.drive.exception.DriveForbiddenException;
+import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueRepository;
@@ -36,6 +37,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired DriveLinkService service;
+  @Autowired DriveFileVersionRepository versionRepo;
+  @Autowired DriveQuotaService quotaService;
   @Autowired ProjectService projectService;
   @Autowired IssueRepository issueRepo;
   @Autowired ChannelRepository channelRepo;
@@ -338,5 +341,38 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> service.importAttachment(editor, spaceId, null, otherFileId))
         .isInstanceOf(DriveForbiddenException.class);
+  }
+
+  /**
+   * 버전 모델(#79) 제외 불변 검증: importAttachment 는 drive_file_version 행을 생성하지 않으며, 따라서 테넌트 드라이브
+   * 쿼터(usedBytes)에 영향을 주지 않는다.
+   *
+   * <p>설계 근거: imported 첨부는 원본 blob 을 공유(바이트 복사 없음)하므로 새로운 물리 저장량을 소비하지 않는다. 쿼터 집계는
+   * drive_file_version.size_bytes 합산 기반이므로 버전 행이 없으면 쿼터에 영향을 주지 않는다.
+   */
+  @Test
+  void importAttachment_excludedFromVersionModel_noVersionRow_noQuota() {
+    long caller = seedUser("editor8");
+    long spaceId = seedSpace(caller, "EDITOR");
+
+    // 이슈 첨부 시드
+    ProjectResponse proj = newProject(caller, "EV");
+    IssueRow issue = issueRepo.insert(proj.id(), 1, "버전제외 이슈", null, "MID", null, caller);
+    long fileId = seedFile(caller, "versionless.txt", null);
+    bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
+
+    // import 전 쿼터 사용량 스냅샷
+    long usedBefore = quotaService.usedBytes();
+
+    DriveFileResponse resp = service.importAttachment(caller, spaceId, null, fileId);
+
+    // 1) drive_file_version 행 없음 — 버전 모델에서 완전 제외
+    assertThat(versionRepo.listForDriveFile(resp.id()))
+        .as("importAttachment 결과 drive_file 에 버전 행이 없어야 한다")
+        .isEmpty();
+
+    // 2) 쿼터 사용량 불변 — 공유 blob 은 추가 드라이브 용량을 소비하지 않는다
+    long usedAfter = quotaService.usedBytes();
+    assertThat(usedAfter).as("importAttachment 후 드라이브 쿼터 사용량이 증가하면 안 된다").isEqualTo(usedBefore);
   }
 }

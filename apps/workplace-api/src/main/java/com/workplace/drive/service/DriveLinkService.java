@@ -271,7 +271,14 @@ public class DriveLinkService {
     if (!accessible) {
       throw new DriveForbiddenException("첨부에 접근할 수 없습니다");
     }
-    // 동일 file.id 로 drive_file 생성(바이트 공유, 복사 없음)
+    // 동일 file.id 로 drive_file 생성(바이트 공유, 복사 없음).
+    // ★ 버전 모델(#79) 제외 설계: importAttachment 는 drive_file_version 행을 생성하지 않는다.
+    //   - 이유: 이 drive_file 은 원본 첨부(이슈/메시지)의 blob 을 공유할 뿐이며,
+    //     새로운 물리 바이트를 소비하지 않으므로 테넌트 드라이브 쿼터 집계 대상이 아니다.
+    //   - 영구화(promoteFile): 원본 첨부의 file.expires_at 을 NULL 로 만들어 만료를 방지한다.
+    //     이로 인해 trash-purge 가 이 드라이브 파일을 삭제해도 원본 첨부의 blob 은
+    //     drive_file_version 기반 fileIdsForDriveFile 에 포함되지 않아 만료 처리되지 않는다
+    //     — 원본 이슈/메시지의 첨부가 보호된다.
     String name = fileRepo.findFileOriginalName(fileId);
     long driveFileId = fileRepo.insert(spaceId, folderId, fileId, name);
     fileRepo.promoteFile(fileId); // expires_at = NULL(영구화)

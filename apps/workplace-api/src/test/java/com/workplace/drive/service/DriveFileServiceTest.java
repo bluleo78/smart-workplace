@@ -6,8 +6,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.drive.dto.DriveFileResponse;
+import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveSpaceResponse;
+import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFileNotFoundException;
+import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.global.tenant.TenantContext;
@@ -31,6 +34,8 @@ class DriveFileServiceTest extends IntegrationTestBase {
   @Autowired DriveSpaceService spaceService;
   @Autowired DriveFileService fileService;
   @Autowired DriveFolderService folderService;
+  @Autowired DriveQuotaService quotaService;
+  @Autowired DriveFileVersionRepository versionsRepo;
 
   /** drive 복사(copyFile)는 TenantContext 를 요구한다 — 테스트에선 tenant#1 로 고정. */
   @BeforeEach
@@ -172,13 +177,16 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(moved).isEqualTo(folder.id());
   }
 
+  /** 복사 — 대상 폴더(서브폴더)에 blob 물리 복제 + 독립 스토리지 경로 검증. 동명이 없는 폴더로 복사하므로 충돌 없음(#79). */
   @Test
   void copy_physicallyDuplicatesBlob_independentStoragePath() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+    // 대상: 루트가 아닌 서브폴더 — 동명 파일 없으므로 충돌 없이 복사
+    DriveFolderResponse dest = folderService.create(u, sp.id(), null, "대상");
 
-    DriveFileResponse copy = fileService.copy(u, f.id(), null);
+    DriveFileResponse copy = fileService.copy(u, f.id(), dest.id());
 
     assertThat(copy.id()).isNotEqualTo(f.id());
     assertThat(copy.fileId()).isNotEqualTo(f.fileId());
@@ -201,6 +209,36 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(exp).isNull();
     fileService.delete(u, f.id());
     assertThat(fileService.download(u, copy.id()).originalName()).isEqualTo("memo.txt");
+  }
+
+  /** 대상 폴더에 동명 파일이 있으면 복사 시 DriveDuplicateNameException(#79). */
+  @Test
+  void copy_whenTargetHasSameName_conflicts() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    // 루트에 memo.txt 업로드
+    DriveFileResponse src = fileService.upload(u, sp.id(), null, txt());
+    // 서브폴더에도 동명 파일 업로드
+    DriveFolderResponse sub = folderService.create(u, sp.id(), null, "하위");
+    fileService.upload(u, sp.id(), sub.id(), txt());
+
+    // 루트 파일을 서브폴더로 복사 → 동명 충돌 → 409
+    assertThatThrownBy(() -> fileService.copy(u, src.id(), sub.id()))
+        .isInstanceOf(DriveDuplicateNameException.class);
+  }
+
+  /** 대상 폴더에 동명 파일이 있으면 이동 시 DriveDuplicateNameException(#79). */
+  @Test
+  void move_whenTargetHasSameName_conflicts() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse src = fileService.upload(u, sp.id(), null, txt());
+    DriveFolderResponse sub = folderService.create(u, sp.id(), null, "하위");
+    fileService.upload(u, sp.id(), sub.id(), txt());
+
+    // 루트 파일을 서브폴더로 이동 → 동명 충돌 → 409
+    assertThatThrownBy(() -> fileService.move(u, src.id(), sub.id()))
+        .isInstanceOf(DriveDuplicateNameException.class);
   }
 
   @Test
@@ -239,5 +277,36 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> fileService.move(u, f.id(), folder.id()))
         .isInstanceOf(DriveFileNotFoundException.class);
+  }
+
+  /**
+   * C1 회귀 테스트(#79): 복사된 파일이 quota 집계 대상에 포함되고 v1 버전 행이 생성된다.
+   *
+   * <p>이전에는 copy() 가 drive_file 만 삽입하고 drive_file_version 을 생성하지 않아 sumDriveUsageBytes
+   * (drive_file_version JOIN 기반)에서 복사본이 누락됐다(quota bypass). 이 테스트는 원본 업로드 후 복사했을 때 usedBytes 가 원본
+   * 크기만큼 증가하고 복사본에 정확히 1개의 버전 행이 존재함을 검증한다.
+   */
+  @Test
+  void copy_countsTowardQuota_andHasOneVersionRow() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFolderResponse dest = folderService.create(u, sp.id(), null, "대상");
+
+    // 업로드 후 기준 사용량 측정
+    DriveFileResponse original = fileService.upload(u, sp.id(), null, txt());
+    long usedAfterUpload = quotaService.usedBytes();
+
+    // 복사 — copy 전후로 usedBytes 가 원본 크기만큼 증가해야 한다(#79 C1 버그: 이전엔 불변)
+    DriveFileResponse copy = fileService.copy(u, original.id(), dest.id());
+    long usedAfterCopy = quotaService.usedBytes();
+
+    long copiedSize = original.sizeBytes();
+    assertThat(usedAfterCopy).as("복사본도 quota 에 반영돼야 한다").isEqualTo(usedAfterUpload + copiedSize);
+
+    // 복사본에 정확히 v1 버전 행 1개 존재 검증
+    var versions = versionsRepo.listForDriveFile(copy.id());
+    assertThat(versions).as("복사본은 v1 버전 행 1개를 가져야 한다").hasSize(1);
+    assertThat(versions.get(0).versionNo()).isEqualTo(1);
+    assertThat(versions.get(0).sizeBytes()).isEqualTo(copiedSize);
   }
 }

@@ -31,6 +31,7 @@ import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
+import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
 import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveSpace, DriveTrashItem } from '../../types/drive'
 import { type DroppedFile,readDroppedTree } from './folderUpload'
@@ -64,6 +65,8 @@ export function DrivePage() {
   const [preview, setPreview] = useState<DriveFile | null>(null)
   // 공유 링크 모달 대상 파일 — null 이면 닫힘.
   const [shareFile, setShareFile] = useState<DriveFile | null>(null)
+  // 버전 이력 모달 대상 파일 — null 이면 닫힘.
+  const [versionFile, setVersionFile] = useState<DriveFile | null>(null)
 
   // 검색 상태 — query 길이 ≥2 면 results 로 목록을 대체.
   const [query, setQuery] = useState('')
@@ -785,6 +788,15 @@ export function DrivePage() {
                 >
                   {f.name}
                 </button>
+                {/* 버전 뱃지 — 버전이 2개 이상일 때만 표시(#79) */}
+                {f.versionCount > 1 && (
+                  <span
+                    className="rounded bg-muted px-1 text-xs text-muted-foreground"
+                    data-testid="version-badge"
+                  >
+                    v{f.versionCount}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => driveApi.downloadFile(f.id, f.name)}
@@ -801,6 +813,16 @@ export function DrivePage() {
                   data-testid="share-link-btn"
                 >
                   공유 링크
+                </button>
+                {/* 버전 이력 — 버전 목록·다운로드·롤백 모달(#79) */}
+                <button
+                  type="button"
+                  onClick={() => setVersionFile(f)}
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
+                  aria-label={`${f.name} 버전 이력`}
+                  data-testid="version-history-btn"
+                >
+                  버전 이력
                 </button>
                 <button
                   type="button"
@@ -871,6 +893,14 @@ export function DrivePage() {
         )}
         {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
         {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
+        {versionFile && (
+          <VersionHistoryModal
+            file={versionFile}
+            open={!!versionFile}
+            onClose={() => setVersionFile(null)}
+            onChanged={reload}
+          />
+        )}
       </div>
 
       {/* 폴더 이름 입력 다이얼로그 — 새 폴더 생성 / 이름 변경. window.prompt 대체 (#135). */}
