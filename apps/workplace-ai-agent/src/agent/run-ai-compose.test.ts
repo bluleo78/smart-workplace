@@ -192,6 +192,21 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     expect(got).toEqual(['요청을 처리하지 못했어요. 다시 시도해 주세요.']);
   });
 
+  // #381 후속: propose 로 pending_action 은 발행됐으나 submit_response 누락 → fallback 대신 제안 안내.
+  it('pending_action 있음 + 응답 사이드카 없음 → 제안 안내 문구(확인 카드 모순 방지)', async () => {
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    // propose 핸들러가 pending-action 만 쓰고 submit_response 사이드카는 없는 상황.
+    mockSidecars({ pendingAction: { actionType: 'mail.send_mail', summary: 'hong 에게 메일', params: {} } });
+    const got: string[] = [];
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    expect(out.fullText).toBe('요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.');
+    expect(got).toEqual(['요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.']);
+    expect(out.pendingAction).toMatchObject({ actionType: 'mail.send_mail' });
+  });
+
   // #381 불변식: 위젯(show_*)만 + 사이드카 없음 → 빈 텍스트(onText 미호출) + widgets 반환.
   it('위젯(show_*)만 + 사이드카 없음 → onText 미호출 + widgets 반환', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {

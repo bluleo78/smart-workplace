@@ -353,8 +353,9 @@ export async function runAiComposeStream(
     const widgets = filteredWidgets.length > 0 ? filteredWidgets : null;
     // #381: 답 텍스트 결정(우선순위) — 라우터 자유 prose 는 절대 사용하지 않는다.
     //   1) submit_response 사이드카(위임 답) → 2) respond_chat 사이드카(pure_chat)
-    //   → 3) 위젯만 있으면 빈 텍스트(plan §3 — show_* 단독 호출 시 fallback 문구 오노출 방지)
-    //   → 4) 결정적 fallback
+    //   → 3) pending_action 있으면 제안 안내(서브에이전트가 propose 만 하고 submit_response 누락 시)
+    //   → 4) 위젯만 있으면 빈 텍스트(plan §3 — show_* 단독 호출 시 fallback 문구 오노출 방지)
+    //   → 5) 결정적 fallback
     const subagentText = readResponseSidecar(subagentResponsePath);
     const routerText = readResponseSidecar(routerResponsePath);
     let answerText: string;
@@ -362,6 +363,11 @@ export async function runAiComposeStream(
       answerText = subagentText;
     } else if (routerText) {
       answerText = routerText;
+    } else if (pendingAction) {
+      // #381 후속: propose 도구는 호출돼 확인 카드(pending_action)는 발행됐으나 서브에이전트가
+      // submit_response 를 누락한 경우. fallback("처리하지 못했어요")은 확인 카드와 모순되므로,
+      // 제안이 준비됐다는 결정적 안내로 대체한다(모델의 submit_response 호출에 비의존).
+      answerText = '요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.';
     } else if (widgets) {
       answerText = ''; // 위젯만 표시 — 빈 텍스트(빈 버블 emit 안 함)
     } else {
