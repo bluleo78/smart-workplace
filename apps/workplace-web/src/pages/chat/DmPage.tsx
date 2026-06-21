@@ -166,8 +166,12 @@ export default function DmPage() {
       <MessageComposer
         channelId={dm.id}
         members={mentionMembers}
-        onSend={(body, fileIds) =>
-          create.mutateAsync({ body, fileIds: fileIds.length ? fileIds : undefined })
+        onSend={(body, fileIds, driveFileIds) =>
+          create.mutateAsync({
+            body,
+            fileIds: fileIds.length ? fileIds : undefined,
+            driveFileIds: driveFileIds.length ? driveFileIds : undefined,
+          })
         }
       />
     </div>

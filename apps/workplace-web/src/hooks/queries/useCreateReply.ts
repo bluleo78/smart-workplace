@@ -16,13 +16,14 @@ interface MeContext {
 export function useCreateReply(channelId: number, parentMessageId: number, me: MeContext) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ body, fileIds }: { body: string; fileIds?: number[] }) =>
+    mutationFn: ({ body, fileIds, driveFileIds }: { body: string; fileIds?: number[]; driveFileIds?: number[] }) =>
       messagingApi
-        // fileIds 빈 배열이면 키 자체를 생략(텍스트 전용 payload 오염 방지).
+        // fileIds/driveFileIds 빈 배열이면 키 자체를 생략(텍스트 전용 payload 오염 방지).
         .createMessage(channelId, {
           body,
           parentMessageId,
           fileIds: fileIds?.length ? fileIds : undefined,
+          driveFileIds: driveFileIds?.length ? driveFileIds : undefined,
         })
         .then((r) => r.data),
 
@@ -46,6 +47,7 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
         followed: false, // 답글은 부모가 아니므로 팔로우 무관
         reactions: [],
         attachments: [], // optimistic — 서버 응답 시 실제값으로 치환
+        driveLinks: [], // optimistic — 서버 응답 시 실제값으로 치환 (#80)
         createdAt: new Date().toISOString(),
         editedAt: null,
         deleted: false,

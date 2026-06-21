@@ -277,6 +277,7 @@ public class MessageRepository {
         replyCount == null ? 0 : replyCount,
         java.util.List.of(), // reactions 는 service 가 batch enrich
         java.util.List.of(), // attachments 는 service 가 batch enrich
+        java.util.List.of(), // driveLinks 는 service 가 batch enrich
         created == null ? null : created.toInstant(),
         edited == null ? null : edited.toInstant(),
         deleted,

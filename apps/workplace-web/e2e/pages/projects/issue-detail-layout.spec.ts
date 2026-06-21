@@ -77,6 +77,19 @@ async function mockIssueDetail(
     (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
+  // #80: 드라이브 링크·공간 쿼리 — IssueAttachmentList 가 항상 호출하므로 빈 배열로 스텁.
+  await page.route(
+    (url) =>
+      url.pathname ===
+      `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/drive-links`,
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces',
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
   // IssueChatPanel 이 항상 렌더되므로 기본 빈 thread stub 등록.
   // 무엇을: 개별 테스트가 mockChatThread 로 override 할 수 있도록 default stub 을 마지막에 등록.
   // 왜: Playwright 은 마지막 등록 route 가 우선 — mockChatThread 를 뒤에 호출하면 덮어씀.

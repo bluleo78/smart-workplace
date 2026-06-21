@@ -1,6 +1,7 @@
 package com.workplace.drive.repository;
 
 import static com.workplace.jooq.Tables.DRIVE_FILE;
+import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.FILE;
 
 import com.workplace.drive.dto.DriveFileResponse;
@@ -260,4 +261,84 @@ public class DriveFileRepository {
 
   /** 복원 메타. */
   public record TrashRootMeta(long spaceId, Long folderId, long opId, String name) {}
+
+  /** import 시 drive_file 이름으로 사용할 FILE.ORIGINAL_NAME 조회. */
+  public String findFileOriginalName(long fileId) {
+    return dsl.select(FILE.ORIGINAL_NAME)
+        .from(FILE)
+        .where(FILE.ID.eq(fileId))
+        .fetchOne(FILE.ORIGINAL_NAME);
+  }
+
+  /** driveFileId 단건 조회 (insert 직후 응답 빌딩용). listInFolder 와 동일 컬럼 조인. */
+  public java.util.Optional<DriveFileResponse> findResponse(long driveFileId) {
+    return dsl.select(
+            DRIVE_FILE.ID,
+            DRIVE_FILE.FOLDER_ID,
+            DRIVE_FILE.FILE_ID,
+            DRIVE_FILE.NAME,
+            FILE.MIME_TYPE,
+            FILE.SIZE_BYTES,
+            FILE.CATEGORY,
+            DRIVE_FILE.CREATED_AT)
+        .from(DRIVE_FILE)
+        .join(FILE)
+        .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
+        .where(DRIVE_FILE.ID.eq(driveFileId))
+        .fetchOptional(
+            r ->
+                new DriveFileResponse(
+                    r.get(DRIVE_FILE.ID),
+                    r.get(DRIVE_FILE.FOLDER_ID),
+                    r.get(DRIVE_FILE.FILE_ID),
+                    r.get(DRIVE_FILE.NAME),
+                    r.get(FILE.MIME_TYPE),
+                    r.get(FILE.SIZE_BYTES),
+                    r.get(FILE.CATEGORY),
+                    r.get(DRIVE_FILE.CREATED_AT)));
+  }
+
+  /** 링크 렌더용 메타. 휴지통(trashed) 파일도 포함하며 trashed 플래그로 가용성 표시. */
+  public record LinkMeta(
+      long driveFileId,
+      long spaceId,
+      long fileId,
+      String spaceName,
+      String name,
+      String mimeType,
+      long sizeBytes,
+      boolean hasThumbnail,
+      boolean trashed) {}
+
+  /** 상태 무관(trashed 포함) 링크 렌더 메타 조회. DRIVE_FILE ⨝ DRIVE_SPACE ⨝ FILE 조인. */
+  public Optional<LinkMeta> findLinkMeta(long driveFileId) {
+    return dsl.select(
+            DRIVE_FILE.ID,
+            DRIVE_FILE.SPACE_ID,
+            DRIVE_FILE.FILE_ID,
+            DRIVE_SPACE.NAME,
+            DRIVE_FILE.NAME,
+            FILE.MIME_TYPE,
+            FILE.SIZE_BYTES,
+            FILE.THUMBNAIL_PATH,
+            DRIVE_FILE.TRASHED_AT)
+        .from(DRIVE_FILE)
+        .join(DRIVE_SPACE)
+        .on(DRIVE_SPACE.ID.eq(DRIVE_FILE.SPACE_ID))
+        .join(FILE)
+        .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
+        .where(DRIVE_FILE.ID.eq(driveFileId))
+        .fetchOptional(
+            r ->
+                new LinkMeta(
+                    r.get(DRIVE_FILE.ID),
+                    r.get(DRIVE_FILE.SPACE_ID),
+                    r.get(DRIVE_FILE.FILE_ID),
+                    r.get(DRIVE_SPACE.NAME),
+                    r.get(DRIVE_FILE.NAME),
+                    r.get(FILE.MIME_TYPE),
+                    r.get(FILE.SIZE_BYTES),
+                    r.get(FILE.THUMBNAIL_PATH) != null,
+                    r.get(DRIVE_FILE.TRASHED_AT) != null));
+  }
 }

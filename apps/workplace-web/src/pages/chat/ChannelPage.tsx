@@ -187,8 +187,12 @@ export default function ChannelPage() {
           channelId={channel.id}
           members={mentionMembers}
           archived={channel.archived}
-          onSend={(body, fileIds) =>
-            create.mutateAsync({ body, fileIds: fileIds.length ? fileIds : undefined })
+          onSend={(body, fileIds, driveFileIds) =>
+            create.mutateAsync({
+              body,
+              fileIds: fileIds.length ? fileIds : undefined,
+              driveFileIds: driveFileIds.length ? driveFileIds : undefined,
+            })
           }
         />
       </div>

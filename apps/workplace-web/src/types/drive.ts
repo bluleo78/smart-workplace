@@ -101,3 +101,51 @@ export interface DriveTrashItem {
 export interface DriveTrashList {
   items: DriveTrashItem[]
 }
+
+// #80: 드라이브 교차링크 — 이슈↔드라이브 파일 연결.
+
+/** 드라이브 링크 가용성 — 파일이 활성/휴지통/삭제 상태인지. */
+export type LinkAvailability = 'ACTIVE' | 'TRASHED' | 'DELETED'
+
+/** 이슈에 연결된 드라이브 파일 링크 (백엔드 DriveLinkResponse 1:1). */
+export interface DriveLink {
+  driveFileId: number
+  fileId: number
+  name: string
+  mimeType: string
+  sizeBytes: number
+  hasThumbnail: boolean
+  spaceId: number
+  spaceName: string
+  availability: LinkAvailability
+  createdById: number
+  createdAt: string
+}
+
+/** 드라이브 파일이 참조된 출처 — 이슈 또는 메시지. */
+export interface Backlink {
+  sourceType: 'ISSUE' | 'MESSAGE'
+  sourceId: number
+  label: string
+  deepLink: string
+}
+
+/** 이슈/메시지에서 업로드된 파일을 드라이브 가상 첨부로 표현한 DTO. */
+export interface VirtualAttachment {
+  fileId: number
+  name: string
+  mimeType: string
+  sizeBytes: number
+  hasThumbnail: boolean
+  sourceType: 'ISSUE' | 'MESSAGE'
+  sourceLabel: string
+  deepLink: string
+  downloadUrl: string
+  attachedAt: string
+}
+
+/** 가상 첨부 cursor 페이지. */
+export interface VirtualAttachmentPage {
+  items: VirtualAttachment[]
+  nextCursor: string | null
+}

@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.CreateIssueRequest;
@@ -63,6 +64,7 @@ public class IssueService {
   private final com.workplace.watcher.service.WatcherAutoEnroller watcherAutoEnroller;
   private final ApplicationEventPublisher publisher;
   private final UserRepository userRepository;
+  private final DriveLinkService driveLinkService;
 
   /**
    * 신규 이슈 생성. priority 기본값(MID)을 서비스에서 보정. assigneeIds 가 비어있지 않으면 issue_assignee 매핑까지 동시 INSERT.
@@ -406,9 +408,14 @@ public class IssueService {
       throw new ProjectAccessDeniedException("이슈 삭제는 reporter 또는 OWNER 만 가능합니다");
     }
     // Phase 4a — 부모 자체와 활성 자식들에 동일 timestamp 로 cascade soft-delete.
+    // 자식 id 는 softDeleteChildren 호출 전에 수집해야 한다 (삭제 후엔 DELETED_AT 필터로 목록이 비어버림).
+    var childIds = issueRepository.findActiveChildIds(row.id());
     var now = Instant.now();
     issueRepository.softDelete(row.id(), now);
     issueRepository.softDeleteChildren(row.id(), now);
+    // 이슈(부모+자식) 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
+    driveLinkService.purgeSource("ISSUE", row.id());
+    driveLinkService.purgeSources("ISSUE", childIds);
   }
 
   /**

@@ -72,6 +72,18 @@ async function setupCommonStubs(
     (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
+
+  // #80: 드라이브 링크·공간 쿼리 — IssueAttachmentList 가 항상 호출하므로 빈 배열로 스텁.
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/drive-links`,
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces',
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
 }
 
 test.describe('이슈 첨부', () => {

@@ -1,8 +1,8 @@
-import { HardDrive, Plus } from 'lucide-react'
+import { HardDrive, Paperclip, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
-import { sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -57,6 +57,18 @@ export function DriveSidebar() {
 
       <div className="flex-1 overflow-y-auto p-3">
         {/* 공간 섹션 헤더 — 팀 공간 생성 액션을 섹션 헤더에 배치(표준 사이드바 패턴) */}
+        {/* 가상 뷰 — 이슈/메시지 첨부 크로스링크 (#80) */}
+        <nav className="mb-3 space-y-1">
+          <NavLink
+            to="/drive/attachments"
+            data-testid="drive-nav-attachments"
+            className={({ isActive }) => sidebarLinkClass({ isActive })}
+          >
+            <Paperclip className="h-4 w-4 shrink-0" />
+            이슈/메시지 첨부
+          </NavLink>
+        </nav>
+
         <div className="flex items-center justify-between px-3">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             공간
@@ -75,13 +87,7 @@ export function DriveSidebar() {
             <NavLink
               key={s.id}
               to={`/drive/spaces/${s.id}`}
-              className={({ isActive }) =>
-                `flex items-center gap-2 truncate rounded-md px-3 py-2 text-sm ${
-                  isActive
-                    ? 'bg-accent font-medium text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-accent/50'
-                }`
-              }
+              className={({ isActive }) => sidebarLinkClass({ isActive })}
             >
               {s.type === 'PERSONAL' ? '내 드라이브' : s.name}
             </NavLink>

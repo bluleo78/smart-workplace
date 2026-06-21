@@ -39,6 +39,7 @@ public class ThreadInboxService {
                           0, // replyCount — 카드 불필요
                           List.of(), // reactions — 카드 불필요
                           List.of(), // attachments — 카드 불필요
+                          List.of(), // driveLinks — 카드 불필요
                           row.createdAt(),
                           null, // editedAt
                           false, // deleted

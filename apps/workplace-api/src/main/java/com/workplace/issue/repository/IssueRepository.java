@@ -621,6 +621,14 @@ public class IssueRepository {
         .execute();
   }
 
+  /** 부모의 활성(미삭제) 자식 이슈 id 목록 조회. softDeleteChildren 호출 전에 사용해 purge 대상 id 를 수집한다. */
+  public List<Long> findActiveChildIds(Long parentId) {
+    return dsl.select(ISSUE.ID)
+        .from(ISSUE)
+        .where(ISSUE.PARENT_ISSUE_ID.eq(parentId).and(ISSUE.DELETED_AT.isNull()))
+        .fetch(ISSUE.ID);
+  }
+
   /**
    * N+1 회피 — 자식 id 집합 → 부모 요약. self-alias 로 부모 row 와 부모 type 을 함께 fetch. 부모가 없는 id 는 결과 맵에서 제외된다.
    */

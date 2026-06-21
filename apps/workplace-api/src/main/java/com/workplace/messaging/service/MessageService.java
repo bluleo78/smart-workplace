@@ -1,5 +1,7 @@
 package com.workplace.messaging.service;
 
+import com.workplace.drive.service.DriveLinkService;
+import com.workplace.file.service.FileUploadService;
 import com.workplace.global.dto.MentionResponse;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.service.UserMentionHydrator;
@@ -31,6 +33,7 @@ import com.workplace.messaging.repository.MessageRepository.MessageRef;
 import com.workplace.messaging.repository.ReactionRepository;
 import com.workplace.messaging.repository.ThreadReadStateRepository;
 import com.workplace.tenant.repository.MembershipRepository;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +57,7 @@ public class MessageService {
   private final AiAgentProperties aiAgentProps;
   private final MembershipRepository membershipRepo;
   private final ThreadReadStateRepository threadReadRepo;
+  private final DriveLinkService driveLinkService;
 
   /** 채널 멤버가 메시지 작성. 본문 @멘션 파싱·검증 후 INSERT, AFTER_COMMIT 이벤트 발행. */
   @Transactional
@@ -61,9 +65,9 @@ public class MessageService {
     ensureMember(channelId, callerId);
     // 아카이브된 채널에는 새 메시지를 작성할 수 없다 (409).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
-    // 빈 메시지 거부: 본문도 첨부도 없으면 작성 불가 (400).
+    // 빈 메시지 거부: 본문도 첨부도 드라이브 링크도 없으면 작성 불가 (400).
     boolean bodyEmpty = req.body() == null || req.body().isBlank();
-    if (bodyEmpty && req.fileIds().isEmpty()) {
+    if (bodyEmpty && req.fileIds().isEmpty() && req.driveFileIds().isEmpty()) {
       throw new EmptyMessageException();
     }
     // 스레드 답글이면 부모 검증: 존재 + 같은 채널 + 최상위(대댓글 금지).
@@ -89,6 +93,10 @@ public class MessageService {
     long messageId = messageRepo.insert(channelId, callerId, req.body(), mentionIds, parentId);
     // 선업로드된 첨부를 이 메시지에 바인딩 + 영구 승격 (같은 트랜잭션).
     attachmentService.bindToMessage(callerId, messageId, req.fileIds());
+    // 드라이브 파일 교차링크 생성 — 발신자 채널 멤버(ensureMember 통과) + 각 파일 ≥VIEWER 권한 검증.
+    for (Long driveFileId : req.driveFileIds()) {
+      driveLinkService.createLink(callerId, driveFileId, "MESSAGE", messageId);
+    }
     // 스레드 답글이면 자동 팔로우: 루트 작성자(읽음 보존)·본인(읽음 처리)·답글 멘션 대상(읽음 보존).
     if (parentId != null && parentRef != null) {
       threadReadRepo.followIfAbsent(parentId, parentRef.authorId());
@@ -205,6 +213,8 @@ public class MessageService {
             .findChannelId(messageId)
             .orElseThrow(() -> new MessageNotFoundException(messageId));
     messageRepo.softDelete(messageId);
+    // 메시지 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
+    driveLinkService.purgeSource("MESSAGE", messageId);
     publisher.publishEvent(new MessageDeletedEvent(channelId, messageId));
   }
 
@@ -272,17 +282,19 @@ public class MessageService {
     return new MessagePage(items, page.nextCursor(), page.hasMore());
   }
 
-  /** 페이지 내 모든 메시지의 리액션 집계 + 첨부 목록을 batch 로 채운다(N+1 회피). */
+  /** 페이지 내 모든 메시지의 리액션 집계 + 첨부 목록 + 드라이브 링크를 batch 로 채운다(N+1 회피). */
   private MessagePage enrichReactions(MessagePage page, long callerId) {
     java.util.List<Long> ids = page.items().stream().map(MessageResponse::id).toList();
     Map<Long, java.util.List<ReactionResponse>> rmap = reactionRepo.summariesFor(ids, callerId);
     var amap = attachmentRepo.findByMessageIds(ids);
+    var dmap = driveLinkService.listLinksBatch("MESSAGE", ids);
     java.util.List<MessageResponse> enriched =
         page.items().stream()
             .map(
                 m ->
                     m.withReactions(rmap.getOrDefault(m.id(), java.util.List.of()))
-                        .withAttachments(amap.getOrDefault(m.id(), java.util.List.of())))
+                        .withAttachments(amap.getOrDefault(m.id(), java.util.List.of()))
+                        .withDriveLinks(dmap.getOrDefault(m.id(), java.util.List.of())))
             .toList();
     return new MessagePage(enriched, page.nextCursor(), page.hasMore());
   }
@@ -299,7 +311,11 @@ public class MessageService {
                 .getOrDefault(messageId, java.util.List.of()));
     // 첨부 목록 batch hydrate (단건이라도 동일 메서드 재사용).
     var attMap = attachmentRepo.findByMessageIds(java.util.List.of(messageId));
-    return response.withAttachments(attMap.getOrDefault(messageId, java.util.List.of()));
+    // 드라이브 링크 단건 hydrate.
+    var driveLinks = driveLinkService.listLinks("MESSAGE", messageId);
+    return response
+        .withAttachments(attMap.getOrDefault(messageId, java.util.List.of()))
+        .withDriveLinks(driveLinks);
   }
 
   /**
@@ -313,6 +329,21 @@ public class MessageService {
     String name = mentionHydrator.summaryOf(callerId).name();
     publisher.publishEvent(
         new MessagingChannelProgressEvent(channelId, callerId, name, streamId, phase, steps));
+  }
+
+  /**
+   * 채널 멤버십 검증 후 메시지에 첨부된 드라이브 파일 콘텐츠 반환. 채널 멤버십이 다운로드 인가 기준이다.
+   *
+   * <p>보안: messageId 가 channelId 에 속하는지 추가 검증 — 순차 ID 를 이용한 크로스채널 정보 유출 차단.
+   */
+  @Transactional(readOnly = true)
+  public FileUploadService.FileContentResult driveLinkContent(
+      long callerId, long channelId, long messageId, long driveFileId) throws IOException {
+    ensureMember(channelId, callerId); // 채널 멤버십 = 다운로드 인가
+    // 메시지가 해당 채널 소속인지 확인 — 다른 채널의 messageId 를 주입한 크로스채널 접근 차단
+    if (!messageRepo.belongsToChannel(messageId, channelId))
+      throw new MessageNotFoundException(messageId);
+    return driveLinkService.getLinkContent("MESSAGE", messageId, driveFileId);
   }
 
   private void ensureMember(long channelId, long userId) {

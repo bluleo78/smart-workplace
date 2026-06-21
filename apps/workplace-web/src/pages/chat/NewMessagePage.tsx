@@ -44,7 +44,7 @@ export default function NewMessagePage() {
   const removeRecipient = (id: number) => setSelected((prev) => prev.filter((u) => u.id !== id))
 
   // 첫 전송: DM find-or-create → 메시지 전송 → DM 페이지로 이동
-  const handleSend = async (body: string, fileIds: number[]) => {
+  const handleSend = async (body: string, fileIds: number[], driveFileIds: number[]) => {
     if (selected.length === 0 || sending) return
     setSending(true)
     // DM find-or-create — 실패 시 useCreateDm.onError 가 토스트하므로 여기선 조용히 중단.
@@ -57,7 +57,11 @@ export default function NewMessagePage() {
     }
     // 첫 메시지 전송 — 이 호출은 hook-level onError 가 없으므로 여기서 처리.
     try {
-      await messagingApi.createMessage(dm.id, { body, fileIds: fileIds.length ? fileIds : undefined })
+      await messagingApi.createMessage(dm.id, {
+        body,
+        fileIds: fileIds.length ? fileIds : undefined,
+        driveFileIds: driveFileIds.length ? driveFileIds : undefined,
+      })
       navigate(`/chat/dms/${dm.id}`)
     } catch (err) {
       handleApiError(err, '메시지를 보낼 수 없습니다')

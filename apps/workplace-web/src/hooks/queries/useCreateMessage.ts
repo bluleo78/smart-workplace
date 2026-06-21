@@ -45,6 +45,7 @@ export function useCreateMessage(channelId: number, me: MeContext) {
         followed: false, // 팔로우 여부는 서버 응답에서 결정
         reactions: [],
         attachments: [], // optimistic — 서버 응답 시 실제값으로 치환
+        driveLinks: [], // optimistic — 서버 응답 시 실제값으로 치환 (#80)
         createdAt: new Date().toISOString(),
         editedAt: null,
         deleted: false,

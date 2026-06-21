@@ -196,8 +196,14 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 </div>
               )}
 
-              {!m.deleted && m.attachments?.length > 0 && (
-                <MessageAttachmentList channelId={channelId} attachments={m.attachments} />
+              {/* #80: driveLinks 도 MessageAttachmentList 에서 함께 렌더. */}
+              {!m.deleted && ((m.attachments?.length ?? 0) > 0 || (m.driveLinks?.length ?? 0) > 0) && (
+                <MessageAttachmentList
+                  channelId={channelId}
+                  messageId={m.id}
+                  attachments={m.attachments ?? []}
+                  driveLinks={m.driveLinks ?? []}
+                />
               )}
 
               {!isEditing && (

@@ -8,7 +8,7 @@ function msg(over: Partial<MessageResponse>): MessageResponse {
   return {
     id: 1, channelId: 1, authorId: 10, authorName: 'A', authorKind: 'HUMAN',
     body: 'x', mentions: [], parentMessageId: null, replyCount: 0, unreadReplyCount: 0, followed: false, reactions: [],
-    attachments: [], createdAt: '2026-06-06T03:00:00', editedAt: null, deleted: false,
+    attachments: [], driveLinks: [], createdAt: '2026-06-06T03:00:00', editedAt: null, deleted: false,
     ...over,
   }
 }

@@ -1,5 +1,7 @@
 // messaging 백엔드 DTO 와 1:1 매칭. 시간 필드는 ISO 8601 string, nullable 은 `... | null`.
 
+import type { DriveLink } from './drive'
+
 export type UserKind = 'HUMAN' | 'AGENT';
 export type ChannelVisibility = 'PUBLIC' | 'PRIVATE';
 export type ChannelRole = 'OWNER' | 'ADMIN' | 'MEMBER';
@@ -67,6 +69,7 @@ export interface MessageResponse {
   followed: boolean; // 이 스레드(부모) 팔로우 여부
   reactions: ReactionResponse[]; // 이모지별 집계
   attachments: MessageAttachment[]; // 첨부 파일 목록
+  driveLinks: DriveLink[]; // 드라이브 연결 파일 링크 목록 (#80)
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
@@ -112,6 +115,7 @@ export interface CreateMessageRequest {
   body: string;
   parentMessageId?: number | null; // 스레드 답글 작성 시
   fileIds?: number[]; // 사전 업로드된 첨부 파일 id 목록
+  driveFileIds?: number[]; // 드라이브 연결 파일 id 목록 (#80)
 }
 
 /** DM 참여자(본인 포함). */

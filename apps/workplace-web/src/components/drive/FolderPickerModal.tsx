@@ -2,7 +2,7 @@ import { Folder } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
-import type { DriveFolder } from '../../types/drive'
+import type { DriveFile, DriveFolder } from '../../types/drive'
 import {
   Dialog,
   DialogContent,
@@ -11,26 +11,45 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog'
+import { DriveThumbnail } from './DriveThumbnail'
 
 interface Props {
   spaceId: number
   title: string
+  /** 선택 모드: 'folder'(기본) = 폴더 탐색 후 대상 확정, 'file' = 파일 클릭으로 즉시 선택 */
+  mode?: 'folder' | 'file'
   // 비활성화할 폴더(이동 중인 폴더 자신) — 진입·선택 불가. 하위 폴더(서브트리) 차단은 백엔드(400)가 담당.
   disabledFolderId?: number
-  onConfirm: (targetId: number | null) => void
+  /** mode='folder' 일 때 확정 콜백 */
+  onConfirm?: (targetId: number | null) => void
+  /** mode='file' 일 때 파일 선택 콜백 */
+  onPickFile?: (driveFileId: number, name: string) => void
   onClose: () => void
 }
 
 /**
  * 같은 공간의 폴더 트리를 탐색해 이동/복사 대상 폴더(또는 루트)를 고르는 모달.
+ * mode='file' 시 파일 행도 렌더하고 클릭 시 onPickFile 호출 (footer 확정 버튼 숨김).
  * shadcn Dialog로 래핑하여 Esc 닫기·오버레이 클릭 닫기·포커스 트랩을 Radix가 자동 처리.
  */
-export function FolderPickerModal({ spaceId, title, disabledFolderId, onConfirm, onClose }: Props) {
+export function FolderPickerModal({
+  spaceId,
+  title,
+  mode = 'folder',
+  disabledFolderId,
+  onConfirm,
+  onPickFile,
+  onClose,
+}: Props) {
   const [current, setCurrent] = useState<number | null>(null)
   const [folders, setFolders] = useState<DriveFolder[]>([])
+  const [files, setFiles] = useState<DriveFile[]>([])
 
   useEffect(() => {
-    void driveApi.listItems(spaceId, current).then(({ data }) => setFolders(data.folders))
+    void driveApi.listItems(spaceId, current).then(({ data }) => {
+      setFolders(data.folders)
+      setFiles(data.files)
+    })
   }, [spaceId, current])
 
   return (
@@ -66,23 +85,43 @@ export function FolderPickerModal({ spaceId, title, disabledFolderId, onConfirm,
               </button>
             </li>
           ))}
-          {folders.length === 0 && (
-            <li className="py-4 text-center text-xs text-muted-foreground">하위 폴더 없음</li>
+          {/* file 모드: 파일 행도 렌더. 클릭 시 onPickFile 즉시 호출 */}
+          {mode === 'file' &&
+            files.map((f) => (
+              <li key={`file-${f.id}`}>
+                <button
+                  type="button"
+                  onClick={() => onPickFile?.(f.fileId, f.name)}
+                  className="flex w-full items-center gap-2 py-1.5 text-left text-sm hover:bg-accent/50"
+                  data-testid={`file-picker-file-${f.id}`}
+                >
+                  <DriveThumbnail fileId={f.fileId} category={f.category} />
+                  <span className="truncate">{f.name}</span>
+                </button>
+              </li>
+            ))}
+          {(mode === 'folder' ? folders.length === 0 : files.length === 0) && (
+            <li className="py-4 text-center text-xs text-muted-foreground">
+              {mode === 'file' ? '파일 없음' : '하위 폴더 없음'}
+            </li>
           )}
         </ul>
         <DialogFooter>
           <button type="button" onClick={onClose} className="rounded border px-2 py-1 text-sm">
             취소
           </button>
-          <button
-            type="button"
-            disabled={current === disabledFolderId}
-            onClick={() => onConfirm(current)}
-            className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground disabled:opacity-40"
-            data-testid="folder-picker-confirm"
-          >
-            여기로
-          </button>
+          {/* folder 모드에서만 확정 버튼 표시 */}
+          {mode === 'folder' && (
+            <button
+              type="button"
+              disabled={current === disabledFolderId}
+              onClick={() => onConfirm?.(current)}
+              className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground disabled:opacity-40"
+              data-testid="folder-picker-confirm"
+            >
+              여기로
+            </button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

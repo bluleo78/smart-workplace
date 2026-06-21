@@ -46,6 +46,10 @@ const DriveIndexRedirect = lazy(() =>
 )
 // 공개 공유 링크 다운로드 랜딩 — 인증 없이 접근 가능.
 const ShareLinkPage = lazy(() => import('./pages/drive/ShareLinkPage'))
+// #80: 가상 첨부 뷰 — 이슈/메시지 업로드 파일 크로스링크.
+const DriveAttachmentsView = lazy(() =>
+  import('./pages/drive/DriveAttachmentsView').then((m) => ({ default: m.DriveAttachmentsView })),
+)
 
 const WikiModuleLayout = lazy(() =>
   import('./components/wiki/WikiModuleLayout').then((m) => ({ default: m.WikiModuleLayout })),
@@ -149,6 +153,8 @@ export default function App() {
               <Route element={<DriveModuleLayout />}>
                 <Route path="drive" element={<DriveIndexRedirect />} />
                 <Route path="drive/spaces/:spaceId" element={<DrivePage />} />
+                {/* #80: 가상 첨부 뷰 — 이슈/메시지 업로드 파일 크로스링크 */}
+                <Route path="drive/attachments" element={<DriveAttachmentsView />} />
               </Route>
 
               {/* 위키 모듈 — 2차 사이드바(스페이스/페이지 트리) 가 감싼다 */}
