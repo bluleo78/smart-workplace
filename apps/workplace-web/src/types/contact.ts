@@ -1,7 +1,7 @@
 // 연락처 백엔드 DTO 와 1:1 매칭되는 TS 타입.
 
 export type ContactType = 'MEMBER' | 'EXTERNAL'
-export type ContactTypeFilter = 'ALL' | 'MEMBER' | 'EXTERNAL'
+export type ContactTypeFilter = 'ALL' | 'MEMBER' | 'EXTERNAL' | 'FAVORITE'
 export type ContactVisibility = 'SHARED' | 'PERSONAL'
 
 export interface ContactSummary {
@@ -11,6 +11,7 @@ export interface ContactSummary {
   email: string | null
   title: string | null
   organization: string | null
+  isFavorite: boolean
 }
 
 export interface ContactPage {
@@ -27,6 +28,7 @@ export interface MemberDetail {
   title: string | null
   kind: string
   groups: string[]
+  isFavorite: boolean
 }
 
 export interface ExternalContactDetail {
@@ -39,6 +41,7 @@ export interface ExternalContactDetail {
   notes: string | null
   visibility: ContactVisibility
   editable: boolean
+  isFavorite: boolean
   createdAt: string
   updatedAt: string
 }

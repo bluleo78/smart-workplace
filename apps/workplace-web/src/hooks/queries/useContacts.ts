@@ -13,7 +13,9 @@ export function useContacts(search: string, type: ContactTypeFilter) {
       contactsApi
         .list({
           search: search.trim() || undefined,
-          type,
+          // FAVORITE 모드는 type 대신 favorite=true 로 변환(서버 필터 재사용)
+          type: type === 'FAVORITE' ? undefined : type,
+          favorite: type === 'FAVORITE' ? true : undefined,
           cursor: pageParam as string | undefined,
         })
         .then((r) => r.data),
