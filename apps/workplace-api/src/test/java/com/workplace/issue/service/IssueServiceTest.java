@@ -114,18 +114,17 @@ class IssueServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * #368 근본원인 실증: AGENT 가 자기 담당 이슈를 직접 읽으려 하면(get_issue_detail 경로) 프로젝트 멤버가 아니므로 거부된다. 개인 프로젝트는
-   * AGENT 를 담당자로 둘 수 있지만(create_personalAllowsAgentAssignee), 담당자라고 project_member 가 되는 것은 아니다.
-   * 채팅 @멘션으로 트리거된 AGENT 도 동일하게 비멤버 → 이슈 본문·제목 컨텍스트를 읽지 못해 "이슈를 모른다"고 답하는 것이 #368 의 핵심. owner(멤버)는
-   * 읽히고 agent(비멤버)는 거부됨을 한 테스트에서 대비시켜 비대칭을 고정한다.
+   * #418: AGENT 가 자기 담당 이슈를 직접 읽을 때(get_issue_detail 경로) 프로젝트 비멤버여도 조회를 허용한다. 개인 프로젝트는 AGENT 를 담당자로
+   * 둘 수 있지만(create_personalAllowsAgentAssignee) 담당자라고 project_member 가 되는 것은 아니어서 과거엔 403 이었다(#368
+   * 은 채팅 payload enrich 로 우회). #418 은 상세 조회(get) 한정으로 "담당자면 멤버십 없이 허용" 규칙을 추가해 갭을 해소한다.
    *
-   * <p>#368 의 fix(채팅 이벤트 payload 에 이슈 컨텍스트 enrich)는 권한 자체를 바꾸지 않으므로 이 테스트는 fix 후에도 그대로 통과한다 — 즉 "왜
-   * payload 로 미리 주입해야 하는가"를 고정하는 근본원인 회귀 테스트다. (에이전트의 이슈 직접 조회 권한 갭은 #368 범위 밖, 별도 후속 이슈로 추적.)
+   * <p>보안 경계: 멤버십 가드(assertMember) 자체는 완화하지 않으므로, 담당자가 아닌 비멤버는 여전히 거부된다(쓰기 경로도 그대로).
    */
   @Test
-  void get_byAssignedNonMemberAgent_throwsAccessDenied() {
+  void get_byAssignedNonMemberAgent_allowed() {
     Long owner = createUser("owner368");
     Long agent = createAgentUser("bot368");
+    Long stranger = createUser("stranger368");
     ProjectResponse personal =
         projectService.create(owner, new CreateProjectRequest(null, "p368", null, "PERSONAL"));
     IssueResponse resp =
@@ -135,8 +134,12 @@ class IssueServiceTest extends IntegrationTestBase {
             new CreateIssueRequest("이슈제목", "이슈본문", null, null, List.of(agent), null, null));
     // owner(멤버)는 정상 조회
     assertThat(issueService.get(owner, personal.key(), resp.number())).isNotNull();
-    // agent(담당자지만 비멤버)는 멤버십 가드에서 거부 — 이슈 컨텍스트를 읽지 못한다.
-    assertThatThrownBy(() -> issueService.get(agent, personal.key(), resp.number()))
+    // #418: agent(담당자지만 비멤버)도 이제 상세 조회 허용 — 본문·제목 컨텍스트를 읽는다.
+    IssueDetailResponse agentView = issueService.get(agent, personal.key(), resp.number());
+    assertThat(agentView.body()).isEqualTo("이슈본문");
+    assertThat(agentView.summary().title()).isEqualTo("이슈제목");
+    // 보안 경계: 담당자도 멤버도 아닌 비멤버(stranger)는 여전히 거부.
+    assertThatThrownBy(() -> issueService.get(stranger, personal.key(), resp.number()))
         .isInstanceOf(ProjectAccessDeniedException.class);
   }
 

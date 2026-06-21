@@ -209,11 +209,18 @@ public class IssueService {
   /** 이슈 상세 조회 (요약 + 본문 + 코멘트 + 히스토리 + 담당자 + 유형). */
   @Transactional(readOnly = true)
   public IssueDetailResponse get(Long callerId, String projectKey, int number) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    // #418: 프로젝트는 멤버십 검증 없이 먼저 resolve 한 뒤 이슈를 로드한다.
+    var project = accessGuard.resolve(projectKey);
     var row =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    // #418: 호출자가 이 이슈의 담당자(assignee)면 프로젝트 비멤버여도 상세 조회를 허용한다.
+    // (AI AGENT 가 자기 담당 이슈의 컨텍스트를 읽지 못하던 403 갭 해소.) 담당자가 아니면 멤버십을 강제한다.
+    // 멤버십 가드(assertMember) 자체는 완화하지 않으므로 수정·상태변경 등 쓰기 경로의 보안은 그대로 유지된다.
+    if (!assigneeRepository.findUserIdsByIssue(row.id()).contains(callerId)) {
+      accessGuard.assertMember(projectKey, callerId);
+    }
     var labels = issueLabelRepository.findLabelsByIssue(row.id());
     var attachments = issueAttachmentRepository.findByIssue(row.id());
     var assignees = assigneeRepository.findByIssue(row.id());

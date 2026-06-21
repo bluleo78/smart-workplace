@@ -33,6 +33,18 @@ public class ProjectAccessGuard {
   }
 
   /**
+   * 프로젝트 존재만 확인하고 row 반환 (멤버십 미검증). 멤버십 분기 전에 프로젝트를 먼저 resolve 해야 하는 경우 사용한다 (예: #418 — 이슈 담당자면
+   * 비멤버여도 상세 조회 허용).
+   *
+   * @throws ProjectNotFoundException 프로젝트가 없거나 soft-deleted 인 경우
+   */
+  public ProjectRow resolve(String projectKey) {
+    return projectRepository
+        .findByKey(projectKey)
+        .orElseThrow(() -> new ProjectNotFoundException(projectKey));
+  }
+
+  /**
    * 프로젝트 멤버십을 보장하며, requiredRole 이 지정되면 해당 역할 보유까지 검증. ADMIN 은 모든 검증을 우회.
    *
    * @param projectKey 프로젝트 key
