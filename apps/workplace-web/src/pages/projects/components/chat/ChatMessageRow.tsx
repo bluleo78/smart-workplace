@@ -6,6 +6,7 @@
 
 import { Pencil, Trash2 } from 'lucide-react';
 
+import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
 
@@ -76,28 +77,33 @@ export function ChatMessageRow({
           }`}
           data-testid={`chat-message-body-${message.id}`}
         >
-          {message.deleted
-            ? '(삭제됨)'
-            : parseMessageSegments(message.body, message.mentions).map((seg, i) =>
-                seg.type === 'text' ? (
-                  <span key={i}>{seg.value}</span>
-                ) : (
-                  <span
-                    key={i}
-                    data-testid={`chat-mention-chip-${seg.id}`}
-                    // #208: AGENT 멘션칩은 ai-accent 토큰으로 통일(배지/아바타와 동일 색).
-                    // 사람(HUMAN) 칩은 raw blue 팔레트(DS 위반) 대신 중립 시맨틱 토큰으로
-                    // 정리해 AGENT 칩과 시각 구분을 유지하면서 다크모드도 자동 대응.
-                    className={`rounded px-1 font-medium ${
-                      seg.kind === 'AGENT'
-                        ? 'bg-ai-accent-subtle text-ai-accent'
-                        : 'bg-muted text-foreground'
-                    }`}
-                  >
-                    @{seg.name}
-                  </span>
-                ),
-              )}
+          {message.deleted ? (
+            '(삭제됨)'
+          ) : isAgent ? (
+            // #356: AI(에이전트) 메시지는 마크다운 렌더(사람 메시지는 멘션칩 포함 plain text 유지).
+            <MarkdownMessage>{message.body}</MarkdownMessage>
+          ) : (
+            parseMessageSegments(message.body, message.mentions).map((seg, i) =>
+              seg.type === 'text' ? (
+                <span key={i}>{seg.value}</span>
+              ) : (
+                <span
+                  key={i}
+                  data-testid={`chat-mention-chip-${seg.id}`}
+                  // #208: AGENT 멘션칩은 ai-accent 토큰으로 통일(배지/아바타와 동일 색).
+                  // 사람(HUMAN) 칩은 raw blue 팔레트(DS 위반) 대신 중립 시맨틱 토큰으로
+                  // 정리해 AGENT 칩과 시각 구분을 유지하면서 다크모드도 자동 대응.
+                  className={`rounded px-1 font-medium ${
+                    seg.kind === 'AGENT'
+                      ? 'bg-ai-accent-subtle text-ai-accent'
+                      : 'bg-muted text-foreground'
+                  }`}
+                >
+                  @{seg.name}
+                </span>
+              ),
+            )
+          )}
         </div>
       </div>
 

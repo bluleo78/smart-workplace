@@ -5,6 +5,7 @@ import { ChevronDown, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'luci
 import { useEffect, useRef, useState } from 'react';
 
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
+import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { relTime } from '@/components/ai/relTime';
 import { Button } from '@/components/ui/button';
 import {
@@ -160,19 +161,23 @@ export function AIChatPanel({
                 data-testid="chat-turn"
                 className={cn('flex', t.role === 'assistant' ? 'justify-start' : 'justify-end')}
               >
-                <span
-                  className={cn(
-                    // whitespace-pre-wrap 로 공백/개행은 보존하되,
-                    // [overflow-wrap:anywhere] 로 URL·토큰 등 무공백 긴 문자열도 강제 줄바꿈해
-                    // 말풍선이 max-w-[80%] 를 넘어 가로 오버플로하지 않도록 한다 (#202)
-                    'max-w-[80%] whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl px-3 py-1.5 text-sm',
-                    t.role === 'assistant'
-                      ? 'bg-muted text-foreground'
-                      : 'bg-ai-accent text-ai-accent-foreground',
-                  )}
-                >
-                  {t.content}
-                </span>
+                {t.role === 'assistant' ? (
+                  // #356: AI 응답은 마크다운 렌더(## ** 표 등 원시 기호 노출 방지).
+                  <div className="max-w-[80%] rounded-2xl bg-muted px-3 py-1.5 text-foreground">
+                    <MarkdownMessage>{t.content}</MarkdownMessage>
+                  </div>
+                ) : (
+                  <span
+                    className={cn(
+                      // whitespace-pre-wrap 로 공백/개행은 보존하되,
+                      // [overflow-wrap:anywhere] 로 URL·토큰 등 무공백 긴 문자열도 강제 줄바꿈해
+                      // 말풍선이 max-w-[80%] 를 넘어 가로 오버플로하지 않도록 한다 (#202)
+                      'max-w-[80%] whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl bg-ai-accent px-3 py-1.5 text-sm text-ai-accent-foreground',
+                    )}
+                  >
+                    {t.content}
+                  </span>
+                )}
               </li>
             ))}
             {/* #333 M2: 위임 진행 버블 — 서브에이전트 위임 중 한 단계 표시.

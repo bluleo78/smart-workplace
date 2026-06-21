@@ -7,6 +7,7 @@
 import { MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
+import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
 import { DateDivider } from '@/components/chat/DateDivider'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
@@ -158,12 +159,16 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                     m.deleted ? 'italic text-muted-foreground' : ''
                   } ${isOwn ? 'rounded-2xl bg-primary/10 px-3 py-1.5' : ''}`}
                 >
-                  {m.deleted
-                    ? '(삭제됨)'
-                    : parseMessageSegments(m.body, m.mentions).map((seg, i) =>
-                        seg.type === 'text' ? (
-                          <span key={i}>{seg.value}</span>
-                        ) : (
+                  {m.deleted ? (
+                    '(삭제됨)'
+                  ) : m.authorKind === 'AGENT' ? (
+                    // #356: AI(에이전트) 메시지는 마크다운 렌더(사람 메시지는 멘션칩 포함 plain text 유지).
+                    <MarkdownMessage>{m.body}</MarkdownMessage>
+                  ) : (
+                    parseMessageSegments(m.body, m.mentions).map((seg, i) =>
+                      seg.type === 'text' ? (
+                        <span key={i}>{seg.value}</span>
+                      ) : (
                           <span
                             key={i}
                             data-testid={`mention-chip-${seg.id}`}
@@ -176,7 +181,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                             @{seg.name}
                           </span>
                         ),
-                      )}
+                      )
+                  )}
                   {/* 수정됨 표시 — 그룹 첫 줄/후속 줄 모두 노출되도록 본문 끝에 인라인 렌더(삭제됨 메시지는 제외). */}
                   {m.editedAt && !m.deleted && (
                     <span

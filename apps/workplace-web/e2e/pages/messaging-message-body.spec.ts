@@ -466,3 +466,78 @@ test.describe('본인 메시지 우측 정렬', () => {
     },
   )
 })
+
+// ── #356: AI(에이전트) 메시지 마크다운 렌더링 ─────────────────────────────────────
+// AI 버블만 마크다운(##, **, 리스트)을 파싱 렌더하고, 사람 메시지는 원시 텍스트 그대로 유지.
+
+const MD_CHANNEL_ID = 702
+
+test.describe('#356 AI 메시지 마크다운 렌더링', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: MD_CHANNEL_ID, name: '마크다운테스트', memberCount: 2 })
+
+    // AGENT(id 50): 마크다운 본문 / HUMAN(id 51): 마크다운 기호가 든 본문(원시 유지 기대)
+    const mdMessages = [
+      createMessage({
+        id: 50,
+        channelId: MD_CHANNEL_ID,
+        authorId: 99,
+        authorName: 'My AI',
+        authorKind: 'AGENT',
+        body: '## 보고서 제목\n\n- 항목 하나\n- 항목 둘\n\n**중요** 강조',
+        createdAt: '2026-06-06T03:00:00',
+      }),
+      createMessage({
+        id: 51,
+        channelId: MD_CHANNEL_ID,
+        authorId: 10,
+        authorName: 'bluleo78',
+        authorKind: 'HUMAN',
+        body: '## 사람 메시지는 ** 그대로',
+        createdAt: '2026-06-06T03:05:00',
+      }),
+    ]
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, MD_CHANNEL_ID, [
+      createChannelMember({ userId: 10, name: 'bluleo78', kind: 'HUMAN' }),
+      createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
+    ])
+    await stubMessages(page, MD_CHANNEL_ID, [...mdMessages].reverse())
+    await stubMarkRead(page, MD_CHANNEL_ID)
+    await stubUsers(page)
+
+    await page.goto(`/chat/channels/${MD_CHANNEL_ID}`)
+    await expect(page.getByTestId('message-list')).toBeVisible()
+  })
+
+  test('AGENT 메시지는 마크다운으로 렌더(heading/list/strong), 원시 기호 미노출', async ({
+    authenticatedPage: page,
+  }) => {
+    const body = page.getByTestId('message-body-50')
+    // 마크다운 컨테이너 존재
+    await expect(body.getByTestId('markdown-content')).toBeVisible()
+    // ## → heading 요소로 렌더
+    await expect(body.getByRole('heading', { name: '보고서 제목' })).toBeVisible()
+    // - 항목 → 리스트 아이템
+    await expect(body.locator('li', { hasText: '항목 하나' })).toBeVisible()
+    // ** 강조 → strong 요소
+    await expect(body.locator('strong', { hasText: '중요' })).toBeVisible()
+    // 원시 마크다운 기호(##, **)는 그대로 노출되지 않아야 함
+    await expect(body).not.toContainText('##')
+    await expect(body).not.toContainText('**')
+  })
+
+  test('사람(HUMAN) 메시지는 마크다운을 파싱하지 않고 원시 텍스트 유지', async ({
+    authenticatedPage: page,
+  }) => {
+    const body = page.getByTestId('message-body-51')
+    // 마크다운 렌더 컨테이너가 없어야 함
+    await expect(body.getByTestId('markdown-content')).toHaveCount(0)
+    // 원시 기호가 그대로 보임
+    await expect(body).toContainText('## 사람 메시지는 ** 그대로')
+  })
+})
