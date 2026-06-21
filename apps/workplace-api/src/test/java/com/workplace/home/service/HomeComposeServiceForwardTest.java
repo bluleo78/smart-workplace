@@ -161,4 +161,43 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
     // data 는 raw JsonNode — actionType 값 검증.
     assertThat(pendingEvents.get(0).data.toString()).contains("calendar.create_event");
   }
+
+  /**
+   * #431: onDone 이 위젯 스펙과 함께 호출되면 done 이벤트 data 에 widgets 가 포함되는지 검증.
+   *
+   * <p>위젯 렌더 표면 복원의 핵심 — API 가 done 이벤트로 widgets[] 를 클라이언트에 패스스루해야 챗 도크가 메일/이슈 목록을 인라인 렌더할 수 있다.
+   * 과거(#234 재설계)엔 sessionId 만 발행해 위젯이 유실됐다.
+   */
+  @Test
+  void done_콜백의_위젯을_done_이벤트_data_에_포함한다() throws Exception {
+    long uid = createAgentUser("fwd-widgets");
+    stubAssistant();
+
+    JsonNode widgets =
+        objectMapper.readTree("[{\"type\":\"mail_list\",\"params\":{\"folder\":\"INBOX\"}}]");
+    CountDownLatch latch = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              // show_mail_list 단독 응답 — fullText 는 비어 있고 widgets 만 존재.
+              onDone.accept("", widgets);
+              latch.countDown();
+              return null;
+            })
+        .when(composeClient)
+        .composeStream(any(), any(), any(), any(), any(), any());
+
+    List<SentEvent> captured = new ArrayList<>();
+    serviceCapturing(captured).composeStream(uid, null, "메일 보여줘");
+
+    // 펌프 완료 대기(최대 5초).
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // done 이벤트가 발행되고 sessionId + widgets(mail_list) 가 함께 실렸는지 검증.
+    List<SentEvent> doneEvents = captured.stream().filter(e -> "done".equals(e.name)).toList();
+    assertThat(doneEvents).isNotEmpty();
+    String doneData = doneEvents.get(0).data.toString();
+    assertThat(doneData).contains("sessionId");
+    assertThat(doneData).contains("mail_list");
+  }
 }

@@ -83,6 +83,17 @@ export function useChatSession() {
       )
         .then((r) => {
           if (opSeq.current !== gen) return; // stale 세대 폐기
+          // #431: done 이벤트의 위젯을 마지막 어시스턴트 턴에 부착 — 챗 도크가 인라인 렌더.
+          // show_* 단독 응답은 content 가 빈 문자열이므로, 위젯이 있으면 빈 버블 대신 위젯이 보인다.
+          if (r.widgets && r.widgets.length > 0) {
+            setTurns((t) => {
+              const next = [...t];
+              const last = next[next.length - 1];
+              if (last?.role !== 'assistant') return t; // 방어 — turns 리셋된 경우 skip.
+              next[next.length - 1] = { ...last, widgets: r.widgets };
+              return next;
+            });
+          }
           if (r.sessionId) {
             updateSessionId(r.sessionId);
             // 새 세션 생성 / 마지막 메시지 시각 갱신을 세션 스위처 목록에 반영.
@@ -170,9 +181,11 @@ export function useChatSession() {
         const { data } = await homeApi.sessionMessages(id);
         // fetch 중 더 최신 전이가 있었으면 폐기.
         if (opSeq.current !== gen) return;
+        // #431: 복원 시에도 ASSISTANT 위젯을 함께 재현(서버가 widgets 영속) — 빈 버블 방지.
         const restored: ChatTurn[] = data.map((m) => ({
           role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
           content: m.content,
+          widgets: m.widgets ?? undefined,
         }));
         updateSessionId(id);
         setTurns(restored);

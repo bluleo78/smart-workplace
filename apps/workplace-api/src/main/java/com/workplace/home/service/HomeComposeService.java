@@ -12,6 +12,7 @@ import com.workplace.home.outbound.AiAgentComposeClient;
 import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
 import com.workplace.home.outbound.ComposeMessages.ContextMessage;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -125,7 +126,12 @@ public class HomeComposeService {
                     } catch (Exception e) {
                       log.error("ASSISTANT 메시지 영속 실패: {}", e.getMessage(), e);
                     }
-                    trySend(emitter, "done", Map.of("sessionId", sid.toString()));
+                    // #431: 위젯 스펙을 done 이벤트로 클라이언트에 패스스루 — 챗 도크가 인라인 렌더.
+                    // widgets 가 null 이면 HashMap 으로 null 값을 허용(Map.of 는 null 불가).
+                    Map<String, Object> donePayload = new HashMap<>();
+                    donePayload.put("sessionId", sid.toString());
+                    donePayload.put("widgets", widgets);
+                    trySend(emitter, "done", donePayload);
                     emitter.complete();
                   },
                   // error: SSE error 이벤트 발행 → emitter 완료

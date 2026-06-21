@@ -227,6 +227,19 @@ const showActivityInput = z.object({
   params: z.object({ actorKind: z.enum(['HUMAN', 'AGENT']).optional() }).optional(),
   layout: layoutSchema,
 });
+// #431: 메일 목록 표시 지시 — 데이터(20행 표)를 LLM 이 토큰으로 생성하던 비용을 위젯 렌더로 대체.
+// accountId 미지정 시 프론트가 기본 계정을 해석한다. folder 미지정 시 INBOX. limit 미지정 시 20.
+const showMailListInput = z.object({
+  params: z
+    .object({
+      accountId: z.number().int().positive().optional(),
+      folder: z.string().optional(),
+      query: z.string().optional(),
+      limit: z.number().int().positive().optional(),
+    })
+    .optional(),
+  layout: layoutSchema,
+});
 
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
 export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
@@ -398,6 +411,14 @@ export function buildTools(
         name: 'show_activity',
         description: '최근 활동 피드를 표시합니다. actorKind="AGENT" 면 AI 가 한 일만 봅니다.',
         inputSchema: showActivityInput,
+        handler: displayed,
+      },
+      {
+        // #431: 메일 목록 단순 조회는 mail-agent 위임(표 텍스트 생성, 느림) 대신 이 위젯으로 직접 표시.
+        name: 'show_mail_list',
+        description:
+          '받은편지함 등 메일 목록을 화면에 표시합니다. folder(기본 INBOX)·query·limit(기본 20)로 좁힙니다. 단순 목록 조회 전용 — 요약·검색·발송·특정 메일 작업은 mail-agent 에 위임하세요.',
+        inputSchema: showMailListInput,
         handler: displayed,
       },
     ];

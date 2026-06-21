@@ -1,8 +1,8 @@
 // 7c: 홈 compose/위젯 계약. 백엔드 HomeComposeResponse·ActivityEntryResponse 와 1:1.
 
-// 아래 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 레거시 캔버스 잔재다.
-// 캔버스 UI 는 제거됐지만 백엔드 메시지 DTO(HomeMessage.widgets)·compose 응답에 필드가
-// 남아 있어, 타입 호환을 위해 형태만 유지한다(프론트에서 렌더에 쓰지 않음).
+// 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 AI 비서 응답(show_* 도구)이 지시하는
+// 표시 위젯 계약이다. #431 에서 챗 도크 인라인 렌더로 부활(composeRegistry).
+// compose done 이벤트의 widgets[] 및 복원용 HomeMessage.widgets 가 이 형태를 따른다.
 
 /** 위젯 캔버스 배치 힌트 (compose 응답). fire-hub canvas 스키마 미러. */
 export interface WidgetLayout {
@@ -11,7 +11,7 @@ export interface WidgetLayout {
   pageLabel?: string; // page='new' 일 때 새 페이지 라벨
 }
 
-export type WidgetType = 'my_tasks' | 'issue_list' | 'issue_detail' | 'activity';
+export type WidgetType = 'my_tasks' | 'issue_list' | 'issue_detail' | 'activity' | 'mail_list';
 
 /** compose 가 돌려주는 위젯 스펙. params 는 위젯별 자유 형태(이슈 검색 필터 등). */
 export interface WidgetSpec {
@@ -29,6 +29,8 @@ export interface ComposeRequest {
 export interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;
+  /** #431: AI 응답이 지시한 표시 위젯(이슈/메일 목록 등). 챗 도크가 인라인 렌더. */
+  widgets?: WidgetSpec[];
 }
 
 /** 세션 스위처 목록 항목 (GET /home/sessions). */

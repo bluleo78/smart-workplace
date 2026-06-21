@@ -2,11 +2,12 @@
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
 import { ChevronDown, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { relTime } from '@/components/ai/relTime';
+import { getComposeWidget } from '@/components/home/widgets/composeRegistry';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
 import { cn } from '@/lib/utils';
 
@@ -155,17 +157,38 @@ export function AIChatPanel({
           <ul className="space-y-2">
             {turns.map((t, i) =>
               // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
-              t.role === 'assistant' && t.content === '' ? null : (
+              // 단, 위젯이 있으면(show_* 단독 응답) content 가 비어도 위젯을 렌더해야 하므로 skip 안 함(#431).
+              t.role === 'assistant' && t.content === '' && !t.widgets?.length ? null : (
               <li
                 key={i}
                 data-testid="chat-turn"
                 className={cn('flex', t.role === 'assistant' ? 'justify-start' : 'justify-end')}
               >
                 {t.role === 'assistant' ? (
-                  // #356: AI 응답은 마크다운 렌더(## ** 표 등 원시 기호 노출 방지).
-                  <div className="max-w-[80%] rounded-2xl bg-muted px-3 py-1.5 text-foreground">
-                    <MarkdownMessage>{t.content}</MarkdownMessage>
-                  </div>
+                  // #431: 위젯이 있으면 인라인 위젯 카드(들)를 렌더. 텍스트가 함께 있으면 위에 말풍선도 표시.
+                  t.widgets?.length ? (
+                    <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
+                      {t.content && (
+                        <div className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground">
+                          <MarkdownMessage>{t.content}</MarkdownMessage>
+                        </div>
+                      )}
+                      {t.widgets.map((w, wi) => {
+                        const Widget = getComposeWidget(w.type);
+                        if (!Widget) return null; // 미등록 위젯 타입은 skip.
+                        return (
+                          <Suspense key={wi} fallback={<Skeleton className="h-24 w-full" />}>
+                            <Widget params={w.params} />
+                          </Suspense>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    // #356: AI 응답은 마크다운 렌더(## ** 표 등 원시 기호 노출 방지).
+                    <div className="max-w-[80%] rounded-2xl bg-muted px-3 py-1.5 text-foreground">
+                      <MarkdownMessage>{t.content}</MarkdownMessage>
+                    </div>
+                  )
                 ) : (
                   <span
                     className={cn(

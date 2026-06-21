@@ -202,6 +202,11 @@ describe('buildTools(assistant) union (M3: 멤버십 단언)', () => {
     }
   });
 
+  // #431: 메일 목록 표시 위젯 도구 — mail-agent 위임(표 텍스트 생성) 대신 직접 표시.
+  it('#431 show_mail_list 를 노출한다', () => {
+    expect(names).toContain('show_mail_list');
+  });
+
   // #371: 이슈 목록 데이터 조회 도구 list_issues 를 새로 노출한다(기존 "데이터 issue-list 도구 없음" 경계 해제).
   // 단, 전문(full-text) search_issues 는 여전히 별도로 제공하지 않는다.
   it('#371 list_issues 를 노출한다', () => {
@@ -710,16 +715,17 @@ describe('buildTools(assistant) 캘린더 수정/삭제 제안 도구 (M4)', () 
   });
 });
 
-// home 프로필은 4개의 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
+// home 프로필은 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분
   const tools = buildTools(fakeClient, 1, 'home');
 
-  it('show_* 4개 도구만 노출', () => {
+  it('show_* 표시 도구만 노출(#431 show_mail_list 포함)', () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       'show_activity',
       'show_issue_detail',
       'show_issue_list',
+      'show_mail_list',
       'show_my_tasks',
     ]);
   });

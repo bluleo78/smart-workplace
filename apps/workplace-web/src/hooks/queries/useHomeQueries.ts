@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAccessToken } from '@/api/client';
 import { homeApi } from '@/api/home';
 import { handleApiError } from '@/lib/api-error';
-import type { ComposeRequest, PendingAction } from '@/types/home';
+import type { ComposeRequest, PendingAction, WidgetSpec } from '@/types/home';
 
 export const homeKeys = {
   all: ['home'] as const,
@@ -77,7 +77,7 @@ export async function composeStream(
   signal: AbortSignal,
   onProgress?: (label: string) => void,
   onPendingAction?: (action: PendingAction) => void,
-): Promise<{ sessionId?: string }> {
+): Promise<{ sessionId?: string; widgets?: WidgetSpec[] }> {
   const token = getAccessToken();
   const res = await fetch('/api/v1/ai/compose', {
     method: 'POST',
@@ -98,7 +98,7 @@ export async function composeStream(
   let buffer = '';
   let event = 'message';
   let data = '';
-  let result: { sessionId?: string } = {};
+  let result: { sessionId?: string; widgets?: WidgetSpec[] } = {};
 
   // 완성된 이벤트 디스패치 — event/data 조합을 처리 후 상태 리셋.
   const dispatch = () => {
@@ -109,7 +109,12 @@ export async function composeStream(
       else if (event === 'progress') onProgress?.(parsed.label as string);
       // #333 M2: 확인 카드 제안 객체 — 도크가 승인/취소 카드로 렌더.
       else if (event === 'pending_action') onPendingAction?.(parsed as unknown as PendingAction);
-      else if (event === 'done') result = { sessionId: parsed.sessionId as string | undefined };
+      // #431: done 이벤트의 widgets[] 를 함께 회수 — 챗 도크가 어시스턴트 턴에 인라인 렌더.
+      else if (event === 'done')
+        result = {
+          sessionId: parsed.sessionId as string | undefined,
+          widgets: (parsed.widgets as WidgetSpec[] | null) ?? undefined,
+        };
       else if (event === 'error') throw new Error((parsed.message as string | undefined) ?? 'compose_failed');
     }
     event = 'message';

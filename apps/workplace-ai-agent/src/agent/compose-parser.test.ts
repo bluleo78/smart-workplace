@@ -56,6 +56,13 @@ describe('parseCompose', () => {
     expect(out.widgets).toEqual([{ type: 'issue_list', params: { status: 'IN_PROGRESS' } }]);
   });
 
+  it('#431 show_mail_list 를 mail_list 위젯으로 수집(params 보존)', () => {
+    const out = parseCompose([
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'm', name: 'mcp__workplace__show_mail_list', input: { params: { folder: 'INBOX', limit: 20 } } }] } },
+    ]);
+    expect(out.widgets).toEqual([{ type: 'mail_list', params: { folder: 'INBOX', limit: 20 } }]);
+  });
+
   it('params 없는 show_my_tasks 는 빈 params', () => {
     const out = parseCompose([
       { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'show_my_tasks', input: {} }] } },
