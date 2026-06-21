@@ -25,14 +25,16 @@ public class ContactService {
   private final ContactRepository repo;
   private final PermissionChecker permissionChecker;
 
-  /** 통합 목록/검색. type 기본 ALL. cursor 디코드 실패 시 첫 페이지로 폴백(codec 이 null 반환). */
+  /** 통합 목록/검색. favorite=true 면 즐겨찾기 항목만. type 기본 ALL. */
   @Transactional(readOnly = true)
-  public ContactPage list(long callerId, String search, String type, String cursor, int limit) {
+  public ContactPage list(
+      long callerId, String search, String type, boolean favorite, String cursor, int limit) {
     int safeLimit = Math.min(limit <= 0 ? DEFAULT_LIMIT : limit, MAX_LIMIT);
     String safeType = type == null ? "ALL" : type;
     ContactCursorCodec.Decoded decoded = ContactCursorCodec.decode(cursor);
 
-    List<ContactSummary> rows = repo.findPage(callerId, search, safeType, decoded, safeLimit + 1);
+    List<ContactSummary> rows =
+        repo.findPage(callerId, search, safeType, favorite, decoded, safeLimit + 1);
 
     boolean hasMore = rows.size() > safeLimit;
     List<ContactSummary> page = hasMore ? rows.subList(0, safeLimit) : rows;
@@ -46,8 +48,8 @@ public class ContactService {
 
   /** 멤버 상세. 미존재(또는 AGENT)면 404. */
   @Transactional(readOnly = true)
-  public MemberDetail getMember(long userId) {
-    return repo.findMember(userId)
+  public MemberDetail getMember(long callerId, long userId) {
+    return repo.findMember(callerId, userId)
         .orElseThrow(() -> new ContactNotFoundException("MEMBER", userId));
   }
 

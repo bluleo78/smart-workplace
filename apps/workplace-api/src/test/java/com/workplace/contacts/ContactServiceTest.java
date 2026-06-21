@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.contacts.dto.ContactPage;
 import com.workplace.contacts.dto.ContactSummary;
 import com.workplace.contacts.exception.ContactNotFoundException;
+import com.workplace.contacts.repository.FavoriteRepository;
 import com.workplace.contacts.service.ContactService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 class ContactServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired ContactService service;
+  @Autowired FavoriteRepository favoriteRepo;
 
   private long seedExternal(String name, long owner) {
     return dsl.insertInto(CONTACT_ENTRY)
@@ -54,7 +56,7 @@ class ContactServiceTest extends IntegrationTestBase {
     seedExternal(base + "_0", c);
     seedExternal(base + "_1", c);
 
-    ContactPage p1 = service.list(c, base, "EXTERNAL", null, 2);
+    ContactPage p1 = service.list(c, base, "EXTERNAL", false, null, 2);
     assertThat(p1.items()).hasSize(2);
     assertThat(p1.hasMore()).isTrue();
     assertThat(p1.nextCursor()).isNotNull();
@@ -62,7 +64,7 @@ class ContactServiceTest extends IntegrationTestBase {
         .extracting(ContactSummary::name)
         .containsExactly(base + "_0", base + "_1");
 
-    ContactPage p2 = service.list(c, base, "EXTERNAL", p1.nextCursor(), 2);
+    ContactPage p2 = service.list(c, base, "EXTERNAL", false, p1.nextCursor(), 2);
     assertThat(p2.items()).extracting(ContactSummary::name).containsExactly(base + "_2");
     assertThat(p2.hasMore()).isFalse();
     assertThat(p2.nextCursor()).isNull();
@@ -70,7 +72,8 @@ class ContactServiceTest extends IntegrationTestBase {
 
   @Test
   void getMember_missing_throwsNotFound() {
-    assertThatThrownBy(() -> service.getMember(99_999_999L))
+    long c = caller();
+    assertThatThrownBy(() -> service.getMember(c, 99_999_999L))
         .isInstanceOf(ContactNotFoundException.class);
   }
 
@@ -274,5 +277,51 @@ class ContactServiceTest extends IntegrationTestBase {
             new com.workplace.contacts.dto.ExternalContactRequest(
                 "byadmin", null, null, null, null, null, "PERSONAL"));
     assertThat(d.name()).isEqualTo("byadmin");
+  }
+
+  @Test
+  void list_favoriteFilter_returnsOnlyFavorited_andFlagsIsFavorite() {
+    long c = caller();
+    String base = "fav" + UUID.randomUUID().toString().substring(0, 4);
+    long e1 = seedExternal(base + "_a", c);
+    seedExternal(base + "_b", c); // 즐겨찾기 안 함
+    favoriteRepo.add(c, "EXTERNAL", e1);
+
+    // 전체 목록: e1 만 isFavorite=true
+    ContactPage all = service.list(c, base, "EXTERNAL", false, null, 30);
+    assertThat(all.items()).hasSize(2);
+    assertThat(all.items())
+        .filteredOn(ContactSummary::isFavorite)
+        .extracting(ContactSummary::name)
+        .containsExactly(base + "_a");
+
+    // favorite=true 필터: e1 만
+    ContactPage fav = service.list(c, base, "ALL", true, null, 30);
+    assertThat(fav.items()).extracting(ContactSummary::name).containsExactly(base + "_a");
+    assertThat(fav.items()).allMatch(ContactSummary::isFavorite);
+  }
+
+  @Test
+  void list_favoriteIsOwnerScoped() {
+    long owner = caller();
+    long other = caller();
+    String base = "own" + UUID.randomUUID().toString().substring(0, 4);
+    long e = seedExternal(base + "_x", owner);
+    favoriteRepo.add(owner, "EXTERNAL", e); // owner 만 즐겨찾기
+
+    // 타인(other)에게는 isFavorite=false, favorite 필터 시 미노출
+    ContactPage allForOther = service.list(other, base, "EXTERNAL", false, null, 30);
+    assertThat(allForOther.items()).allMatch(s -> !s.isFavorite());
+    ContactPage favForOther = service.list(other, base, "ALL", true, null, 30);
+    assertThat(favForOther.items()).isEmpty();
+  }
+
+  @Test
+  void getExternal_reflectsIsFavorite() {
+    long c = caller();
+    long e = seedExternal("d" + UUID.randomUUID().toString().substring(0, 4), c);
+    assertThat(service.getExternal(c, e).isFavorite()).isFalse();
+    favoriteRepo.add(c, "EXTERNAL", e);
+    assertThat(service.getExternal(c, e).isFavorite()).isTrue();
   }
 }

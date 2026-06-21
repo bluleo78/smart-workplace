@@ -66,7 +66,7 @@ class ContactControllerTest {
 
   @Test
   void list_returnsPage() throws Exception {
-    when(service.list(eq(1L), isNull(), eq("ALL"), isNull(), anyInt()))
+    when(service.list(eq(1L), isNull(), eq("ALL"), eq(false), isNull(), anyInt()))
         .thenReturn(new ContactPage(List.of(), null, false));
     mockMvc
         .perform(get("/api/v1/contacts").header("Authorization", "Bearer v"))
@@ -76,7 +76,8 @@ class ContactControllerTest {
 
   @Test
   void member_notFound_returns404() throws Exception {
-    when(service.getMember(anyLong())).thenThrow(new ContactNotFoundException("MEMBER", 9L));
+    when(service.getMember(anyLong(), anyLong()))
+        .thenThrow(new ContactNotFoundException("MEMBER", 9L));
     mockMvc
         .perform(get("/api/v1/contacts/members/9").header("Authorization", "Bearer v"))
         .andExpect(status().isNotFound());
@@ -84,9 +85,10 @@ class ContactControllerTest {
 
   @Test
   void member_ok_returnsDetail() throws Exception {
-    when(service.getMember(5L))
+    when(service.getMember(eq(1L), eq(5L)))
         .thenReturn(
-            new MemberDetail(5L, "u5", "김멤버", "u5@example.com", "팀장", "HUMAN", List.of("개발팀")));
+            new MemberDetail(
+                5L, "u5", "김멤버", "u5@example.com", "팀장", "HUMAN", List.of("개발팀"), false));
     mockMvc
         .perform(get("/api/v1/contacts/members/5").header("Authorization", "Bearer v"))
         .andExpect(status().isOk())
@@ -99,7 +101,7 @@ class ContactControllerTest {
 
   private ExternalContactDetail sampleDetail() {
     return new ExternalContactDetail(
-        100L, "박외부", "p@x.com", null, null, null, null, "PERSONAL", true, null, null);
+        100L, "박외부", "p@x.com", null, null, null, null, "PERSONAL", true, false, null, null);
   }
 
   @Test

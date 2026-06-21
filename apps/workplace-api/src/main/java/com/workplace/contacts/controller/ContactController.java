@@ -29,22 +29,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class ContactController {
   private final ContactService service;
 
-  /** 멤버+외부 통합 목록/검색. type 기본 ALL, 커서 페이지네이션. */
+  /** 멤버+외부 통합 목록/검색. type 기본 ALL, favorite 필터, 커서 페이지네이션. */
   @GetMapping
   public ResponseEntity<ContactPage> list(
       @AuthenticationPrincipal Long callerId,
       @RequestParam(value = "search", required = false) String search,
       @RequestParam(value = "type", required = false, defaultValue = "ALL") String type,
+      @RequestParam(value = "favorite", required = false, defaultValue = "false") boolean favorite,
       @RequestParam(value = "cursor", required = false) String cursor,
       @RequestParam(value = "limit", required = false, defaultValue = "0") int limit) {
-    return ResponseEntity.ok(service.list(callerId, search, type, cursor, limit));
+    return ResponseEntity.ok(service.list(callerId, search, type, favorite, cursor, limit));
   }
 
   /** 멤버 상세(프로필 + 소속 그룹). */
   @GetMapping("/members/{userId}")
   public ResponseEntity<MemberDetail> member(
       @AuthenticationPrincipal Long callerId, @PathVariable("userId") long userId) {
-    return ResponseEntity.ok(service.getMember(userId));
+    return ResponseEntity.ok(service.getMember(callerId, userId));
   }
 
   /** 외부 연락처 상세. PERSONAL 은 owner 만(아니면 404). */

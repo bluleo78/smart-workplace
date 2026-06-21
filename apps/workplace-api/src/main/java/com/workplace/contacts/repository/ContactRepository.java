@@ -1,6 +1,7 @@
 package com.workplace.contacts.repository;
 
 import static com.workplace.jooq.Tables.CONTACT_ENTRY;
+import static com.workplace.jooq.Tables.CONTACT_FAVORITE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
@@ -31,17 +32,24 @@ public class ContactRepository {
   private final DSLContext dsl;
 
   /**
-   * 통합 목록 1페이지. limit 개 초과 여부 판단은 service 가 limit+1 로 호출.
+   * 통합 목록 1페이지. favorite=true 면 호출자가 즐겨찾기한 항목만. isFavorite 플래그는 callerId 기준 EXISTS 로 계산. limit 개 초과
+   * 여부 판단은 service 가 limit+1 로 호출.
    *
-   * @param callerId 호출자(외부 PERSONAL 격리 기준)
+   * @param callerId 호출자(외부 PERSONAL 격리 기준, isFavorite 계산 기준)
    * @param search null/blank 면 전체. name/email ILIKE
    * @param type ALL | MEMBER | EXTERNAL
+   * @param favorite true 면 즐겨찾기 항목만
    * @param cursor 디코드된 커서(없으면 null). 이 값 다음(엄격히 큰) 행부터
    * @param limit 가져올 행 수
    */
   public List<ContactSummary> findPage(
-      long callerId, String search, String type, ContactCursorCodec.Decoded cursor, int limit) {
-    // 멤버 브랜치 — kind=HUMAN, organization 은 없음(null)
+      long callerId,
+      String search,
+      String type,
+      boolean favorite,
+      ContactCursorCodec.Decoded cursor,
+      int limit) {
+    // 멤버 브랜치 — kind=HUMAN. is_favorite = (MEMBER, user.id) 즐겨찾기 존재 여부
     var members =
         dsl.select(
                 DSL.inline("MEMBER").as("type"),
@@ -49,11 +57,19 @@ public class ContactRepository {
                 USER.NAME.as("name"),
                 USER.EMAIL.as("email"),
                 USER.TITLE.as("title"),
-                DSL.castNull(SQLDataType.VARCHAR).as("organization"))
+                DSL.castNull(SQLDataType.VARCHAR).as("organization"),
+                DSL.field(
+                        DSL.exists(
+                            DSL.selectOne()
+                                .from(CONTACT_FAVORITE)
+                                .where(CONTACT_FAVORITE.OWNER_ID.eq(callerId))
+                                .and(CONTACT_FAVORITE.TARGET_TYPE.eq("MEMBER"))
+                                .and(CONTACT_FAVORITE.TARGET_ID.eq(USER.ID))))
+                    .as("is_favorite"))
             .from(USER)
             .where(USER.KIND.eq("HUMAN"));
 
-    // 외부 브랜치 — SHARED 전체 + 본인 PERSONAL
+    // 외부 브랜치 — SHARED 전체 + 본인 PERSONAL. is_favorite = (EXTERNAL, contact_entry.id)
     var external =
         dsl.select(
                 DSL.inline("EXTERNAL").as("type"),
@@ -61,7 +77,15 @@ public class ContactRepository {
                 CONTACT_ENTRY.NAME.as("name"),
                 CONTACT_ENTRY.EMAIL.as("email"),
                 CONTACT_ENTRY.TITLE.as("title"),
-                CONTACT_ENTRY.ORGANIZATION.as("organization"))
+                CONTACT_ENTRY.ORGANIZATION.as("organization"),
+                DSL.field(
+                        DSL.exists(
+                            DSL.selectOne()
+                                .from(CONTACT_FAVORITE)
+                                .where(CONTACT_FAVORITE.OWNER_ID.eq(callerId))
+                                .and(CONTACT_FAVORITE.TARGET_TYPE.eq("EXTERNAL"))
+                                .and(CONTACT_FAVORITE.TARGET_ID.eq(CONTACT_ENTRY.ID))))
+                    .as("is_favorite"))
             .from(CONTACT_ENTRY)
             .where(CONTACT_ENTRY.VISIBILITY.eq("SHARED").or(CONTACT_ENTRY.OWNER_ID.eq(callerId)));
 
@@ -72,6 +96,7 @@ public class ContactRepository {
     Field<String> dEmail = d.field("email", String.class);
     Field<String> dTitle = d.field("title", String.class);
     Field<String> dOrg = d.field("organization", String.class);
+    Field<Boolean> dFav = d.field("is_favorite", Boolean.class);
 
     Condition where = DSL.noCondition();
     if (search != null && !search.isBlank()) {
@@ -81,6 +106,9 @@ public class ContactRepository {
     if (!"ALL".equals(type)) {
       where = where.and(dType.eq(type));
     }
+    if (favorite) {
+      where = where.and(dFav.isTrue());
+    }
     if (cursor != null) {
       // (name, type, id) > (커서) — 사전식 키셋
       where =
@@ -88,7 +116,7 @@ public class ContactRepository {
               DSL.row(dName, dType, dId).gt(DSL.row(cursor.name(), cursor.type(), cursor.id())));
     }
 
-    return dsl.select(dType, dId, dName, dEmail, dTitle, dOrg)
+    return dsl.select(dType, dId, dName, dEmail, dTitle, dOrg, dFav)
         .from(d)
         .where(where)
         .orderBy(dName.asc(), dType.asc(), dId.asc())
@@ -101,11 +129,22 @@ public class ContactRepository {
                     r.get(dName),
                     r.get(dEmail),
                     r.get(dTitle),
-                    r.get(dOrg)));
+                    r.get(dOrg),
+                    Boolean.TRUE.equals(r.get(dFav))));
   }
 
-  /** 멤버 상세 — kind=HUMAN 만. 소속 그룹명 포함. 없으면 empty. */
-  public Optional<MemberDetail> findMember(long userId) {
+  /** callerId 기준 (targetType,targetId) 즐겨찾기 존재 여부. 상세 조회의 isFavorite 계산용. */
+  private boolean isFavorite(long callerId, String targetType, long targetId) {
+    return dsl.fetchExists(
+        DSL.selectOne()
+            .from(CONTACT_FAVORITE)
+            .where(CONTACT_FAVORITE.OWNER_ID.eq(callerId))
+            .and(CONTACT_FAVORITE.TARGET_TYPE.eq(targetType))
+            .and(CONTACT_FAVORITE.TARGET_ID.eq(targetId)));
+  }
+
+  /** 멤버 상세 — kind=HUMAN 만. 소속 그룹명·callerId 기준 즐겨찾기 여부 포함. 없으면 empty. */
+  public Optional<MemberDetail> findMember(long callerId, long userId) {
     var profile =
         dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.EMAIL, USER.TITLE, USER.KIND)
             .from(USER)
@@ -132,7 +171,8 @@ public class ContactRepository {
             profile.get(USER.EMAIL),
             profile.get(USER.TITLE),
             profile.get(USER.KIND),
-            groups));
+            groups,
+            isFavorite(callerId, "MEMBER", userId)));
   }
 
   /** 외부 상세 — SHARED 또는 본인 PERSONAL 만. editable = 본인 owner || isAdmin. 격리 위반/미존재는 empty. */
@@ -169,6 +209,7 @@ public class ContactRepository {
                     r.get(CONTACT_ENTRY.NOTES),
                     r.get(CONTACT_ENTRY.VISIBILITY),
                     isAdmin || r.get(CONTACT_ENTRY.OWNER_ID).equals(callerId),
+                    isFavorite(callerId, "EXTERNAL", id),
                     r.get(CONTACT_ENTRY.CREATED_AT),
                     r.get(CONTACT_ENTRY.UPDATED_AT)));
   }
