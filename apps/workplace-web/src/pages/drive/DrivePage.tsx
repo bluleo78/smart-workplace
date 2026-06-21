@@ -33,6 +33,7 @@ import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { SearchInput } from '../../components/ui/search-input'
 import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveSpace, DriveTrashItem } from '../../types/drive'
+import { type DroppedFile,readDroppedTree } from './folderUpload'
 
 // 서버 multipart 업로드 한도(application.yml: max-file-size 25MB)와 동일. 초과 시 업로드 전 안내.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -83,6 +84,30 @@ export function DrivePage() {
   // 파일 업로드 진행 상태 — 업로드 중 버튼 비활성화·텍스트 변경으로 중복 업로드 방지 (#170).
   const [uploading, setUploading] = useState(false)
 
+  // #82: 폴더 드래그앤드롭 업로드 상태.
+  const [dropProgress, setDropProgress] = useState<{ done: number; total: number } | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+
+  // #82: 멀티셀렉트 상태 — 선택된 파일/폴더 id 집합 + 벌크 이동 picker 가시성.
+  const [selFiles, setSelFiles] = useState<Set<number>>(new Set())
+  const [selFolders, setSelFolders] = useState<Set<number>>(new Set())
+  const [bulkPicker, setBulkPicker] = useState(false)
+  const selCount = selFiles.size + selFolders.size
+
+  // 토글 헬퍼 — 집합에 id 가 있으면 제거, 없으면 추가해 새 집합 반환.
+  function toggleSel(set: Set<number>, id: number): Set<number> {
+    const next = new Set(set)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  }
+
+  // 선택 초기화 — 폴더/아이템 변경 시 호출.
+  function clearSel() {
+    setSelFiles(new Set())
+    setSelFolders(new Set())
+  }
+
   // 파괴적 작업 확인 AlertDialog — 삭제/영구삭제/휴지통 비우기. window.confirm 대체 (#135).
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string
@@ -97,6 +122,8 @@ export function DrivePage() {
   async function reload() {
     const { data } = await driveApi.listItems(sid, folderId)
     setItems(data)
+    // 폴더/공간 변경 시 선택 초기화 — stale 선택이 벌크 작업에 섞이지 않도록.
+    clearSel()
   }
   // 아이템 목록은 공간/폴더 변경 시마다 갱신(폴더 진입 포함).
   useEffect(() => {
@@ -182,6 +209,59 @@ export function DrivePage() {
     }
   }
 
+  // #82: 드롭된 폴더 트리를 구조 재생(resolveFolder=merge) 후 파일을 순차 업로드.
+  // 부분 실패는 성공분 유지 + 실패 요약 토스트(롤백 없음).
+  async function uploadDroppedTree(dropped: DroppedFile[]) {
+    if (dropped.length === 0) return
+    setDropProgress({ done: 0, total: dropped.length })
+    // 경로(상위 폴더 체인) → folderId 캐시. 루트는 현재 folderId.
+    const folderCache = new Map<string, number | null>()
+    folderCache.set('', folderId)
+    const failures: string[] = []
+
+    async function ensureFolder(path: string[]): Promise<number | null> {
+      const key = path.join('/')
+      if (folderCache.has(key)) return folderCache.get(key)!
+      const parent = await ensureFolder(path.slice(0, -1))
+      const { data } = await driveApi.resolveFolder(sid, parent, path[path.length - 1])
+      folderCache.set(key, data.id)
+      return data.id
+    }
+
+    let done = 0
+    for (const d of dropped) {
+      try {
+        if (d.file.size > MAX_UPLOAD_BYTES) {
+          failures.push(`${d.file.name} (25MB 초과)`)
+        } else {
+          const target = await ensureFolder(d.relativePath)
+          await driveApi.uploadFile(sid, target, d.file)
+        }
+      } catch {
+        failures.push(d.file.name)
+      } finally {
+        done += 1
+        setDropProgress({ done, total: dropped.length })
+      }
+    }
+
+    setDropProgress(null)
+    await reload()
+    if (failures.length > 0) {
+      toast.error(`${failures.length}개 항목 업로드 실패: ${failures.slice(0, 3).join(', ')}${failures.length > 3 ? ' 외' : ''}`)
+    } else {
+      toast.success(`${dropped.length}개 파일 업로드 완료`)
+    }
+  }
+
+  async function onDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragOver(false)
+    if (space?.archived) return
+    const dropped = await readDroppedTree(e.dataTransfer.items)
+    await uploadDroppedTree(dropped)
+  }
+
   function onNewFolder() {
     setNameInput('')
     setNameError('')
@@ -261,6 +341,49 @@ export function DrivePage() {
       handleApiError(e, '이동/복사할 수 없는 위치입니다.')
     } finally {
       setPicker(null)
+      await reload()
+    }
+  }
+
+  // #82: 벌크 작업 공통 선택 body 생성.
+  function selectionBody() {
+    return { fileIds: [...selFiles], folderIds: [...selFolders] }
+  }
+
+  async function onBulkZip() {
+    try {
+      await driveApi.downloadZip(sid, selectionBody())
+    } catch (e) {
+      handleApiError(e, 'ZIP 다운로드에 실패했습니다.')
+    }
+  }
+
+  function onBulkDelete() {
+    // window.confirm 대신 기존 단건 삭제와 동일한 confirmDialog AlertDialog 패턴으로 통일 (#82 폴리시).
+    const body = selectionBody()
+    const count = selCount
+    setConfirmDialog({
+      title: '벌크 삭제',
+      description: `선택한 ${count}개 항목을 휴지통으로 보낼까요? 30일 후 자동 삭제됩니다.`,
+      actionLabel: '삭제',
+      action: async () => {
+        try {
+          await driveApi.bulkDelete(sid, body)
+          await reload()
+        } catch (e) {
+          handleApiError(e, '삭제에 실패했습니다.')
+        }
+      },
+    })
+  }
+
+  async function onBulkMoveTarget(targetId: number | null) {
+    try {
+      await driveApi.bulkMove(sid, { ...selectionBody(), targetFolderId: targetId })
+    } catch (e) {
+      handleApiError(e, '이동할 수 없는 위치입니다.')
+    } finally {
+      setBulkPicker(false)
       await reload()
     }
   }
@@ -408,7 +531,17 @@ export function DrivePage() {
           )}
         </nav>
       )}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div
+        className="flex-1 overflow-y-auto p-4"
+        data-testid="drive-dropzone"
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        style={dragOver ? { outline: '2px solid var(--color-primary)', borderRadius: '0.375rem' } : undefined}
+      >
         {/* #76: 보관된 채널에 연동된 공간 — 읽기 전용 배너. */}
         {space?.archived && (
           <div
@@ -416,6 +549,12 @@ export function DrivePage() {
             className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
           >
             보관된 채널의 공간입니다 — 읽기 전용입니다.
+          </div>
+        )}
+        {/* #82: 폴더 드롭 업로드 진행 표시 */}
+        {dropProgress && (
+          <div data-testid="drop-progress" className="mb-2 text-sm text-muted-foreground">
+            업로드 중… {dropProgress.done}/{dropProgress.total}
           </div>
         )}
         {trash != null ? (
@@ -504,9 +643,87 @@ export function DrivePage() {
             )}
           </ul>
         ) : (
+          <>
+            {/* #82: 벌크 툴바 — 1개 이상 선택 시 표시. */}
+            {selCount > 0 && (
+              <div
+                data-testid="bulk-toolbar"
+                className="mb-2 flex items-center gap-2 rounded bg-muted px-3 py-2 text-sm"
+              >
+                <span>선택 {selCount}개</span>
+                <button
+                  type="button"
+                  data-testid="bulk-move"
+                  onClick={() => setBulkPicker(true)}
+                  disabled={!!space?.archived}
+                  className="text-muted-foreground hover:underline disabled:opacity-50"
+                >
+                  이동
+                </button>
+                <button
+                  type="button"
+                  data-testid="bulk-zip"
+                  onClick={onBulkZip}
+                  className="text-primary hover:underline"
+                >
+                  ZIP 다운로드
+                </button>
+                <button
+                  type="button"
+                  data-testid="bulk-delete"
+                  onClick={onBulkDelete}
+                  disabled={!!space?.archived}
+                  className="text-destructive hover:underline disabled:opacity-50"
+                >
+                  삭제
+                </button>
+                <button
+                  type="button"
+                  data-testid="bulk-clear"
+                  onClick={clearSel}
+                  className="ml-auto text-muted-foreground hover:underline"
+                >
+                  선택 해제
+                </button>
+              </div>
+            )}
+          {/* #82: 전체선택 체크박스 — 목록이 비어있지 않을 때만 표시. */}
+          {(items.folders.length > 0 || items.files.length > 0) && (
+            <div className="mb-1 flex items-center gap-2 px-0.5 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={
+                  selCount > 0 &&
+                  selCount === items.folders.length + items.files.length
+                }
+                onChange={() => {
+                  const allSelected =
+                    selCount > 0 &&
+                    selCount === items.folders.length + items.files.length
+                  if (allSelected) {
+                    clearSel()
+                  } else {
+                    setSelFolders(new Set(items.folders.map((f) => f.id)))
+                    setSelFiles(new Set(items.files.map((f) => f.id)))
+                  }
+                }}
+                data-testid="select-all"
+                className="h-4 w-4 shrink-0"
+              />
+              <span>전체선택</span>
+            </div>
+          )}
           <ul className="divide-y divide-border">
             {items.folders.map((f) => (
               <li key={`folder-${f.id}`} className="group flex items-center gap-2 py-2">
+                {/* #82: 폴더 행 체크박스 — 멀티셀렉트용. */}
+                <input
+                  type="checkbox"
+                  checked={selFolders.has(f.id)}
+                  onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
+                  data-testid={`select-folder-${f.id}`}
+                  className="h-4 w-4 shrink-0"
+                />
                 {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
                 <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
                 <button
@@ -552,6 +769,14 @@ export function DrivePage() {
             ))}
             {items.files.map((f) => (
               <li key={`file-${f.id}`} className="group flex items-center gap-2 py-2">
+                {/* #82: 파일 행 체크박스 — 멀티셀렉트용. */}
+                <input
+                  type="checkbox"
+                  checked={selFiles.has(f.id)}
+                  onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
+                  data-testid={`select-file-${f.id}`}
+                  className="h-4 w-4 shrink-0"
+                />
                 <DriveThumbnail fileId={f.id} category={f.category} />
                 <button
                   type="button"
@@ -623,6 +848,7 @@ export function DrivePage() {
               </li>
             )}
           </ul>
+          </>
         )}
 
         {picker && (
@@ -632,6 +858,15 @@ export function DrivePage() {
             disabledFolderId={picker.kind === 'folder' ? picker.id : undefined}
             onConfirm={onPickTarget}
             onClose={() => setPicker(null)}
+          />
+        )}
+        {/* #82: 벌크 이동 picker — 선택 항목을 대상 폴더로 일괄 이동. */}
+        {bulkPicker && (
+          <FolderPickerModal
+            spaceId={sid}
+            title={`${selCount}개 항목 이동`}
+            onConfirm={onBulkMoveTarget}
+            onClose={() => setBulkPicker(false)}
           />
         )}
         {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}

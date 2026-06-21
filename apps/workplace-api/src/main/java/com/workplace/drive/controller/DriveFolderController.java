@@ -56,6 +56,16 @@ public class DriveFolderController {
         .body(folderService.create(callerId, spaceId, req.parentId(), req.name()));
   }
 
+  /** 폴더 merge 해석 — 같은 이름이 있으면 기존 폴더 반환, 없으면 생성. 폴더 업로드(구조 재생)용. */
+  @PostMapping("/spaces/{id}/folders/resolve")
+  public ResponseEntity<DriveFolderResponse> resolve(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long spaceId,
+      @Valid @RequestBody CreateFolderRequest req) {
+    return ResponseEntity.ok(
+        folderService.resolveOrCreate(callerId, spaceId, req.parentId(), req.name()));
+  }
+
   @PatchMapping("/folders/{id}")
   public ResponseEntity<DriveFolderResponse> rename(
       @AuthenticationPrincipal Long callerId,

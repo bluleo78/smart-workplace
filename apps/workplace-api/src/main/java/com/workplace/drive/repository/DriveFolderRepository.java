@@ -43,6 +43,20 @@ public class DriveFolderRepository {
             .and(DRIVE_FOLDER.TRASHED_AT.isNull()));
   }
 
+  /** existsInSpace 와 동일 조건의 live 폴더 id 를 반환. resolveOrCreate(merge)용. */
+  public Optional<Long> findIdInSpace(long spaceId, Long parentId, String name) {
+    Condition parentCond =
+        parentId == null ? DRIVE_FOLDER.PARENT_ID.isNull() : DRIVE_FOLDER.PARENT_ID.eq(parentId);
+    return dsl.select(DRIVE_FOLDER.ID)
+        .from(DRIVE_FOLDER)
+        .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
+        .and(parentCond)
+        .and(DRIVE_FOLDER.NAME.eq(name))
+        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
+        .limit(1)
+        .fetchOptional(DRIVE_FOLDER.ID);
+  }
+
   public Optional<Long> findSpaceId(long folderId) {
     return dsl.select(DRIVE_FOLDER.SPACE_ID)
         .from(DRIVE_FOLDER)

@@ -41,6 +41,24 @@ public class DriveFolderService {
     return folders.findById(id).orElseThrow(() -> new DriveFolderNotFoundException(id));
   }
 
+  /**
+   * 폴더 merge 해석 — 같은 (space, parent, name) live 폴더가 있으면 그 id 를 반환하고, 없으면 새로 만든다. 폴더 업로드의 구조
+   * 재생(merge-on-conflict)에서 사용한다.
+   */
+  @Transactional
+  public DriveFolderResponse resolveOrCreate(
+      long callerId, long spaceId, Long parentId, String name) {
+    perms.requireRole(spaceId, callerId, "EDITOR");
+    return folders
+        .findIdInSpace(spaceId, parentId, name)
+        .flatMap(folders::findById)
+        .orElseGet(
+            () -> {
+              long id = folders.insert(spaceId, parentId, name);
+              return folders.findById(id).orElseThrow(() -> new DriveFolderNotFoundException(id));
+            });
+  }
+
   @Transactional
   public DriveFolderResponse rename(long callerId, long folderId, String name) {
     requireFolderSpace(callerId, folderId, "EDITOR");

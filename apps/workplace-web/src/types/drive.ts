@@ -155,3 +155,14 @@ export interface DriveQuota {
   usedBytes: number
   quotaBytes: number
 }
+
+// #82: 벌크 선택 — fileIds + folderIds 를 함께 다루는 공통 DTO.
+export interface BulkSelection {
+  fileIds: number[]
+  folderIds: number[]
+}
+
+// #82: 벌크 이동 — 선택 항목을 targetFolderId(null=루트) 로 이동.
+export interface BulkMoveBody extends BulkSelection {
+  targetFolderId: number | null
+}

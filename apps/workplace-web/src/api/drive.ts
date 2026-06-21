@@ -2,6 +2,8 @@
 
 import { downloadBlob } from '../lib/download'
 import type {
+  BulkMoveBody,
+  BulkSelection,
   CreatedShareLink,
   DriveFile,
   DriveFolder,
@@ -149,6 +151,33 @@ export const driveApi = {
 
   copyFolder: (folderId: number, targetParentId: number | null) =>
     client.post<DriveFolder>(`/drive/folders/${folderId}/copy`, { targetParentId }),
+
+  // #82: 벌크 이동 — 선택된 파일·폴더를 targetFolderId(null=루트) 로 일괄 이동.
+  bulkMove: (spaceId: number, body: BulkMoveBody) =>
+    client.patch<void>(`/drive/spaces/${spaceId}/items/move`, body),
+
+  // #82: 벌크 삭제 — 선택된 파일·폴더를 일괄 휴지통 이동.
+  bulkDelete: (spaceId: number, body: BulkSelection) =>
+    client.delete<void>(`/drive/spaces/${spaceId}/items`, { data: body }),
+
+  // #82: 폴더 resolve — 경로(parentId + name) 에 해당하는 폴더를 조회하거나 생성.
+  resolveFolder: (spaceId: number, parentId: number | null, name: string) =>
+    client.post<DriveFolder>(`/drive/spaces/${spaceId}/folders/resolve`, { parentId, name }),
+
+  // #82: 벌크 ZIP 다운로드 — 선택 항목을 ZIP 으로 묶어 브라우저 다운로드 트리거.
+  downloadZip: async (spaceId: number, body: BulkSelection) => {
+    const { data } = await client.post<Blob>(`/drive/spaces/${spaceId}/download-zip`, body, {
+      responseType: 'blob',
+    })
+    const url = URL.createObjectURL(data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'drive-export.zip'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
 
   // 휴지통
   listTrash: (spaceId: number) =>
