@@ -1,5 +1,6 @@
 package com.workplace.contacts.service;
 
+import com.workplace.contacts.dto.ContactFacets;
 import com.workplace.contacts.dto.ContactPage;
 import com.workplace.contacts.dto.ContactSummary;
 import com.workplace.contacts.dto.ExternalContactDetail;
@@ -31,13 +32,27 @@ public class ContactService {
   /** 통합 목록/검색. favorite=true 면 즐겨찾기 항목만. type 기본 ALL. */
   @Transactional(readOnly = true)
   public ContactPage list(
-      long callerId, String search, String type, boolean favorite, String cursor, int limit) {
+      long callerId,
+      String search,
+      String type,
+      boolean favorite,
+      String organization,
+      String title,
+      String cursor,
+      int limit) {
     int safeLimit = Math.min(limit <= 0 ? DEFAULT_LIMIT : limit, MAX_LIMIT);
     String safeType = type == null ? "ALL" : type;
+    // 조직·직책 고급 필터는 외부 전용 — 하나라도 활성이면 EXTERNAL 로 강제(멤버 직책 누수 방지)
+    boolean advanced =
+        (organization != null && !organization.isBlank()) || (title != null && !title.isBlank());
+    if (advanced) {
+      safeType = "EXTERNAL";
+    }
     ContactCursorCodec.Decoded decoded = ContactCursorCodec.decode(cursor);
 
     List<ContactSummary> rows =
-        repo.findPage(callerId, search, safeType, favorite, decoded, safeLimit + 1);
+        repo.findPage(
+            callerId, search, safeType, favorite, organization, title, decoded, safeLimit + 1);
 
     boolean hasMore = rows.size() > safeLimit;
     List<ContactSummary> page = hasMore ? rows.subList(0, safeLimit) : rows;
@@ -47,6 +62,12 @@ public class ContactService {
       nextCursor = ContactCursorCodec.encode(last.name(), last.type(), last.id());
     }
     return new ContactPage(page, nextCursor, hasMore);
+  }
+
+  /** 외부 연락처 조직·직책 distinct 목록(고급 필터 드롭다운). 가시 범위만. */
+  @Transactional(readOnly = true)
+  public ContactFacets facets(long callerId) {
+    return repo.distinctExternalFacets(callerId);
   }
 
   /** 멤버 상세. 미존재(또는 AGENT)면 404. */

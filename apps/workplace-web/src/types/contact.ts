@@ -46,6 +46,12 @@ export interface ExternalContactDetail {
   updatedAt: string
 }
 
+// 외부 연락처 고급 필터 드롭다운 옵션 — 백엔드 ContactFacets 와 1:1.
+export interface ContactFacets {
+  organizations: string[]
+  titles: string[]
+}
+
 // 외부 연락처 생성/수정 요청 바디 (백엔드 ExternalContactRequest 와 1:1).
 export interface ExternalContactRequest {
   name: string

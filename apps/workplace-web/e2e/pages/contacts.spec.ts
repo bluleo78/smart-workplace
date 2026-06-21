@@ -22,12 +22,29 @@ async function stubList(page: Page) {
           (c) => c.name.toLowerCase().includes(q) || (c.email ?? '').toLowerCase().includes(q),
         )
       if (favorite) items = items.filter((c) => c.isFavorite)
+      const org = u.searchParams.get('organization')
+      const titleParam = u.searchParams.get('title')
+      if (org) items = items.filter((c) => c.organization === org)
+      if (titleParam) items = items.filter((c) => c.title === titleParam)
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(makePage(items)),
       })
     },
+  )
+}
+
+// /api/v1/contacts/facets — 고급 필터 드롭다운 옵션.
+async function stubFacets(page: Page) {
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts/facets',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ organizations: ['Corp', 'Globex'], titles: ['대표'] }),
+      }),
   )
 }
 
@@ -166,4 +183,58 @@ test('즐겨찾기 필터 — 빈 상태', { tag: '@smoke' }, async ({ authentic
   await page.goto('/contacts')
   await page.getByTestId('contact-filter-FAVORITE').click()
   await expect(page.getByTestId('contact-empty')).toContainText('즐겨찾기한 연락처가 없습니다')
+})
+
+// #329 외부 고급 필터 — 노출 조건·조직 선택·초기화·탭 이탈 정리
+test('외부 고급 필터(조직·직책)', async ({ authenticatedPage: page }) => {
+  await stubList(page)
+  await stubFacets(page)
+  await page.goto('/contacts')
+
+  // 비-외부(ALL) 탭에선 고급 필터 숨김
+  await expect(page.getByTestId('contact-advanced-filter')).toHaveCount(0)
+
+  // 외부 탭 → 고급 필터 노출 + 트리거 보임
+  await page.getByTestId('contact-filter-EXTERNAL').click()
+  await expect(page.getByTestId('contact-advanced-filter')).toBeVisible()
+  await expect(page.getByTestId('contact-filter-org')).toBeVisible()
+
+  // 조직=Globex 선택(shadcn Select: 트리거 클릭 → 항목 클릭) → list 쿼리에 organization 반영 + external() org='Corp' 이라 0건
+  const listReq = page.waitForRequest(
+    (r) =>
+      r.url().includes('/api/v1/contacts?') &&
+      new URL(r.url()).searchParams.get('organization') === 'Globex',
+  )
+  await page.getByTestId('contact-filter-org').click()
+  await page.getByTestId('contact-filter-org-Globex').click()
+  await listReq
+  await expect(page.getByTestId('contact-row-EXTERNAL-100')).toHaveCount(0)
+  await expect(page.getByTestId('contact-empty')).toBeVisible()
+
+  // 초기화 → 외부 행 복귀 + 초기화 버튼 사라짐
+  await page.getByTestId('contact-filter-reset').click()
+  await expect(page.getByTestId('contact-row-EXTERNAL-100')).toBeVisible()
+  await expect(page.getByTestId('contact-filter-reset')).toHaveCount(0)
+
+  // 직책=대표 선택 → list 쿼리에 title 반영. external() 의 title=null 이라 0건 → 빈 상태.
+  const titleReq = page.waitForRequest(
+    (r) =>
+      r.url().includes('/api/v1/contacts?') &&
+      new URL(r.url()).searchParams.get('title') === '대표',
+  )
+  await page.getByTestId('contact-filter-title').click()
+  await page.getByTestId('contact-filter-title-대표').click()
+  await titleReq
+  await expect(page.getByTestId('contact-row-EXTERNAL-100')).toHaveCount(0)
+  await expect(page.getByTestId('contact-empty')).toBeVisible()
+
+  // 초기화 → 외부 행 복귀
+  await page.getByTestId('contact-filter-reset').click()
+  await expect(page.getByTestId('contact-row-EXTERNAL-100')).toBeVisible()
+  await expect(page.getByTestId('contact-filter-reset')).toHaveCount(0)
+
+  // 다른 탭 전환 → 고급 필터 숨김 + URL 파라미터 제거
+  await page.getByTestId('contact-filter-ALL').click()
+  await expect(page.getByTestId('contact-advanced-filter')).toHaveCount(0)
+  expect(new URL(page.url()).searchParams.get('organization')).toBeNull()
 })

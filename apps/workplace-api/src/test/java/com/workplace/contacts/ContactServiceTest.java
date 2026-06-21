@@ -56,7 +56,7 @@ class ContactServiceTest extends IntegrationTestBase {
     seedExternal(base + "_0", c);
     seedExternal(base + "_1", c);
 
-    ContactPage p1 = service.list(c, base, "EXTERNAL", false, null, 2);
+    ContactPage p1 = service.list(c, base, "EXTERNAL", false, null, null, null, 2);
     assertThat(p1.items()).hasSize(2);
     assertThat(p1.hasMore()).isTrue();
     assertThat(p1.nextCursor()).isNotNull();
@@ -64,7 +64,7 @@ class ContactServiceTest extends IntegrationTestBase {
         .extracting(ContactSummary::name)
         .containsExactly(base + "_0", base + "_1");
 
-    ContactPage p2 = service.list(c, base, "EXTERNAL", false, p1.nextCursor(), 2);
+    ContactPage p2 = service.list(c, base, "EXTERNAL", false, null, null, p1.nextCursor(), 2);
     assertThat(p2.items()).extracting(ContactSummary::name).containsExactly(base + "_2");
     assertThat(p2.hasMore()).isFalse();
     assertThat(p2.nextCursor()).isNull();
@@ -84,6 +84,20 @@ class ContactServiceTest extends IntegrationTestBase {
     long id = seedExternal("priv" + UUID.randomUUID().toString().substring(0, 4), owner);
     assertThatThrownBy(() -> service.getExternal(other, id))
         .isInstanceOf(ContactNotFoundException.class);
+  }
+
+  // organization·title 까지 지정하는 외부 시드 (고급 필터 테스트용)
+  private long seedExternalFull(
+      String name, long owner, String visibility, String org, String title) {
+    return dsl.insertInto(CONTACT_ENTRY)
+        .set(CONTACT_ENTRY.NAME, name)
+        .set(CONTACT_ENTRY.OWNER_ID, owner)
+        .set(CONTACT_ENTRY.VISIBILITY, visibility)
+        .set(CONTACT_ENTRY.ORGANIZATION, org)
+        .set(CONTACT_ENTRY.TITLE, title)
+        .returning(CONTACT_ENTRY.ID)
+        .fetchOne()
+        .getId();
   }
 
   // === Task A5 추가 ===
@@ -261,11 +275,11 @@ class ContactServiceTest extends IntegrationTestBase {
     service.addFavorite(c, new com.workplace.contacts.dto.FavoriteRequest("EXTERNAL", e));
     service.addFavorite(c, new com.workplace.contacts.dto.FavoriteRequest("EXTERNAL", e)); // 멱등
 
-    ContactPage fav = service.list(c, base, "ALL", true, null, 30);
+    ContactPage fav = service.list(c, base, "ALL", true, null, null, null, 30);
     assertThat(fav.items()).extracting(ContactSummary::name).containsExactly(base + "_z");
 
     service.removeFavorite(c, new com.workplace.contacts.dto.FavoriteRequest("EXTERNAL", e));
-    assertThat(service.list(c, base, "ALL", true, null, 30).items()).isEmpty();
+    assertThat(service.list(c, base, "ALL", true, null, null, null, 30).items()).isEmpty();
   }
 
   @Test
@@ -328,7 +342,7 @@ class ContactServiceTest extends IntegrationTestBase {
     favoriteRepo.add(c, "EXTERNAL", e1);
 
     // 전체 목록: e1 만 isFavorite=true
-    ContactPage all = service.list(c, base, "EXTERNAL", false, null, 30);
+    ContactPage all = service.list(c, base, "EXTERNAL", false, null, null, null, 30);
     assertThat(all.items()).hasSize(2);
     assertThat(all.items())
         .filteredOn(ContactSummary::isFavorite)
@@ -336,7 +350,7 @@ class ContactServiceTest extends IntegrationTestBase {
         .containsExactly(base + "_a");
 
     // favorite=true 필터: e1 만
-    ContactPage fav = service.list(c, base, "ALL", true, null, 30);
+    ContactPage fav = service.list(c, base, "ALL", true, null, null, null, 30);
     assertThat(fav.items()).extracting(ContactSummary::name).containsExactly(base + "_a");
     assertThat(fav.items()).allMatch(ContactSummary::isFavorite);
   }
@@ -350,9 +364,9 @@ class ContactServiceTest extends IntegrationTestBase {
     favoriteRepo.add(owner, "EXTERNAL", e); // owner 만 즐겨찾기
 
     // 타인(other)에게는 isFavorite=false, favorite 필터 시 미노출
-    ContactPage allForOther = service.list(other, base, "EXTERNAL", false, null, 30);
+    ContactPage allForOther = service.list(other, base, "EXTERNAL", false, null, null, null, 30);
     assertThat(allForOther.items()).allMatch(s -> !s.isFavorite());
-    ContactPage favForOther = service.list(other, base, "ALL", true, null, 30);
+    ContactPage favForOther = service.list(other, base, "ALL", true, null, null, null, 30);
     assertThat(favForOther.items()).isEmpty();
   }
 
@@ -363,5 +377,67 @@ class ContactServiceTest extends IntegrationTestBase {
     assertThat(service.getExternal(c, e).isFavorite()).isFalse();
     favoriteRepo.add(c, "EXTERNAL", e);
     assertThat(service.getExternal(c, e).isFavorite()).isTrue();
+  }
+
+  @Test
+  void list_filtersByOrganization_exactMatch_externalOnly() {
+    long c = caller();
+    String tag = "of" + UUID.randomUUID().toString().substring(0, 4);
+    long hit = seedExternalFull(tag + "_a", c, "PERSONAL", tag + "_Acme", "대표");
+    seedExternalFull(tag + "_b", c, "PERSONAL", tag + "_Globex", "엔지니어");
+
+    ContactPage p = service.list(c, tag, "EXTERNAL", false, tag + "_Acme", null, null, 30);
+
+    assertThat(p.items()).extracting(ContactSummary::id).containsExactly(hit);
+  }
+
+  @Test
+  void list_titleFilter_forcesExternal_excludesMembers() {
+    long c = caller();
+    String tag = "tf" + UUID.randomUUID().toString().substring(0, 4);
+    // 같은 직책의 외부 1건 — 멤버는 직책이 일치해도 제외되어야 함(EXTERNAL 강제)
+    long ext = seedExternalFull(tag + "_x", c, "PERSONAL", null, tag + "_매니저");
+
+    // type=ALL 로 호출해도 title 필터가 있으면 EXTERNAL 로 강제됨
+    ContactPage p = service.list(c, null, "ALL", false, null, tag + "_매니저", null, 30);
+
+    assertThat(p.items()).extracting(ContactSummary::id).containsExactly(ext);
+    assertThat(p.items()).extracting(ContactSummary::type).containsOnly("EXTERNAL");
+  }
+
+  @Test
+  void list_organizationAndTitle_combineWithAnd() {
+    long c = caller();
+    String tag = "at" + UUID.randomUUID().toString().substring(0, 4);
+    long both = seedExternalFull(tag + "_1", c, "PERSONAL", tag + "_Acme", tag + "_리드");
+    seedExternalFull(tag + "_2", c, "PERSONAL", tag + "_Acme", tag + "_사원"); // org만 일치
+    seedExternalFull(tag + "_3", c, "PERSONAL", tag + "_Other", tag + "_리드"); // title만 일치
+
+    ContactPage p = service.list(c, null, "EXTERNAL", false, tag + "_Acme", tag + "_리드", null, 30);
+
+    assertThat(p.items()).extracting(ContactSummary::id).containsExactly(both);
+  }
+
+  @Test
+  void facets_returnsVisibleDistinct_excludesOthersPersonal() {
+    long a = caller();
+    long b = caller();
+    String tag = "fc" + UUID.randomUUID().toString().substring(0, 4);
+    // A 본인 PERSONAL — 보여야 함 (동일 org 중복 시드로 distinct 확인)
+    seedExternalFull(tag + "1", a, "PERSONAL", tag + "_Acme", tag + "_대표");
+    seedExternalFull(tag + "1b", a, "PERSONAL", tag + "_Acme", null);
+    // 타인 소유 SHARED — 보여야 함
+    seedExternalFull(tag + "2", b, "SHARED", tag + "_Globex", tag + "_엔지니어");
+    // 타인(B) PERSONAL — A 에게 누출되면 안 됨
+    seedExternalFull(tag + "3", b, "PERSONAL", tag + "_Secret", tag + "_비밀");
+
+    var f = service.facets(a);
+
+    assertThat(f.organizations()).contains(tag + "_Acme", tag + "_Globex");
+    assertThat(f.organizations()).doesNotContain(tag + "_Secret"); // 누출 방지
+    assertThat(f.organizations().stream().filter((o) -> o.equals(tag + "_Acme")).count())
+        .isEqualTo(1L); // distinct
+    assertThat(f.titles()).contains(tag + "_대표", tag + "_엔지니어");
+    assertThat(f.titles()).doesNotContain(tag + "_비밀"); // 누출 방지
   }
 }

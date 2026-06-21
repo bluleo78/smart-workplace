@@ -5,9 +5,14 @@ import { contactsApi } from '../../api/contacts'
 import type { ContactPage, ContactTypeFilter } from '../../types/contact'
 import { contactKeys } from './contactKeys'
 
-export function useContacts(search: string, type: ContactTypeFilter) {
+export function useContacts(
+  search: string,
+  type: ContactTypeFilter,
+  organization?: string,
+  title?: string,
+) {
   return useInfiniteQuery<ContactPage>({
-    queryKey: contactKeys.list(search, type),
+    queryKey: contactKeys.list(search, type, organization, title),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       contactsApi
@@ -16,6 +21,8 @@ export function useContacts(search: string, type: ContactTypeFilter) {
           // FAVORITE 모드는 type 대신 favorite=true 로 변환(서버 필터 재사용)
           type: type === 'FAVORITE' ? undefined : type,
           favorite: type === 'FAVORITE' ? true : undefined,
+          organization: organization || undefined,
+          title: title || undefined,
           cursor: pageParam as string | undefined,
         })
         .then((r) => r.data),

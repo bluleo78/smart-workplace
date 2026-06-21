@@ -74,6 +74,8 @@ export function ContactsPage() {
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
   const type = ((params.get('type') as ContactTypeFilter) ?? 'ALL') as ContactTypeFilter
+  const organization = params.get('organization') ?? ''
+  const title = params.get('title') ?? ''
   const groupParam = params.get('group')
   const groupId = parseGroupId(groupParam)
 
@@ -90,11 +92,9 @@ export function ContactsPage() {
   // 그룹·타입·검색 등 목록 필터 전환 시 이전 선택(상세 패널) 초기화 — 좁은 화면에서 사이드바 필터를 바꿔도 상세가 남지 않도록.
   useEffect(() => {
     setSelected(null)
-  }, [groupId, search, type])
-  const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useContacts(
-    search,
-    type,
-  )
+  }, [groupId, search, type, organization, title])
+  const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useContacts(search, type, organization, title)
 
   const items = data?.pages.flatMap((p) => p.items) ?? []
 

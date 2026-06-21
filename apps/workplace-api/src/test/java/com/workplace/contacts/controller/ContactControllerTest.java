@@ -66,7 +66,8 @@ class ContactControllerTest {
 
   @Test
   void list_returnsPage() throws Exception {
-    when(service.list(eq(1L), isNull(), eq("ALL"), eq(false), isNull(), anyInt()))
+    when(service.list(
+            eq(1L), isNull(), eq("ALL"), eq(false), isNull(), isNull(), isNull(), anyInt()))
         .thenReturn(new ContactPage(List.of(), null, false));
     mockMvc
         .perform(get("/api/v1/contacts").header("Authorization", "Bearer v"))
