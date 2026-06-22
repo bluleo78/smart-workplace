@@ -171,15 +171,45 @@ export function AIChatPanel({
             {turns.map((t, i) =>
               // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
               // 단, 위젯이 있으면(show_* 단독 응답) content 가 비어도 위젯을 렌더해야 하므로 skip 안 함(#431).
-              t.role === 'assistant' && t.content === '' && !t.widgets?.length && !visibleSteps(t.steps ?? []).length ? null : (
+              t.role === 'assistant' && t.content === '' && !t.widgets?.length && !t.contentBlocks?.length && !visibleSteps(t.steps ?? []).length ? null : (
               <li
                 key={i}
                 data-testid="chat-turn"
                 className={cn('flex', t.role === 'assistant' ? 'justify-start' : 'justify-end')}
               >
                 {t.role === 'assistant' ? (
-                  // #431: 위젯이 있으면 인라인 위젯 카드(들)를 렌더. 텍스트가 함께 있으면 위에 말풍선도 표시.
-                  t.widgets?.length ? (
+                  t.contentBlocks?.length ? (
+                    // #463: 라이브 인터리브 — 블록 도착순으로 text↔widget 렌더.
+                    <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
+                      {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
+                      {t.contentBlocks.map((b, bi) => {
+                        if (b.kind === 'text') {
+                          // 이 텍스트 블록의 범위 = textStart ~ 다음 text 블록의 textStart(없으면 끝까지).
+                          // 위젯 블록은 textStart 가 없어 슬라이스에 영향 없음 → 위젯 사이 텍스트도 정확 분리.
+                          const next = t.contentBlocks!.slice(bi + 1).find((x) => x.kind === 'text') as
+                            | { kind: 'text'; textStart: number }
+                            | undefined;
+                          const text = t.content.slice(b.textStart, next?.textStart);
+                          if (!text.trim()) return null;
+                          return (
+                            <div key={bi} className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground" data-testid="chat-block">
+                              <MarkdownMessage>{text}</MarkdownMessage>
+                            </div>
+                          );
+                        }
+                        const Widget = getChatWidget(b.widget.type);
+                        if (!Widget) return null;
+                        return (
+                          <div key={bi} data-testid="chat-block">
+                            <Suspense fallback={<Skeleton className="h-24 w-full" />}>
+                              <Widget params={b.widget.params} />
+                            </Suspense>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : t.widgets?.length ? (
+                    // #431: 히스토리/위젯-only 폴백(기존 2-섹션). contentBlocks 없을 때 사용.
                     <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
                       {/* 도구 호출 단계 인라인 표시 — 위젯 위에 렌더. 표시 가능 step 이 있을 때만. */}
                       {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
