@@ -57,9 +57,11 @@ export function AIChatPanel({
 
   // 자동 하단 스크롤(#452) — 전송/스트리밍 델타/도구 단계/확인 카드 변화를 depKey 로 묶어,
   // 사용자가 하단 근처를 보고 있을 때만 새 내용으로 따라 내려간다(useStickToBottom 정책).
+  // resetKey=currentSessionId — 세션 전환은 의도적 전환이므로 위로 올려둔 상태여도
+  // 무조건 최신 메시지(하단)로 내려가게 한다(#455).
   const last = turns[turns.length - 1];
   const scrollDep = `${turns.length}:${last?.content.length ?? 0}:${last?.steps?.length ?? 0}:${pendingActions.length}`;
-  const scrollRef = useStickToBottom(scrollDep);
+  const scrollRef = useStickToBottom(scrollDep, currentSessionId);
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();

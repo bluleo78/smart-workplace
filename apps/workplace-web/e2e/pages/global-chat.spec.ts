@@ -851,3 +851,112 @@ test('앱 레일에서 앱 전환 시 AI side 모드는 그대로 유지된다 (
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
 })
+
+test('이전 세션 선택 시 위로 스크롤한 상태여도 맨 아래로 내려간다 (#455)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀(#455): 이전 메시지를 보려 위로 올린(stuck=false) 상태에서 다른 세션을 선택하면
+  // depKey 변경만으로는 하단 고정이 발동하지 않아 맨 위/중간에 머물렀다.
+  // 수정: resetKey(currentSessionId) 변경 시 무조건 하단으로 리셋.
+  // 데스크톱 폭(≥1024)으로 도킹 사이드 패널 상태에서 검증(모바일 오버레이 회피).
+  await page.setViewportSize({ width: 1280, height: 520 })
+  await mockChatSessions(page, {
+    items: [
+      { id: 's-a', title: '대화 A', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 },
+      { id: 's-b', title: '대화 B', lastMessageAt: '2026-06-08T01:00:00Z', widgetCount: 0 },
+    ],
+    nextCursor: null,
+  })
+  const many = (prefix: string): HomeMessage[] =>
+    Array.from({ length: 30 }, (_, i) => ({
+      id: i + 1,
+      role: i % 2 === 0 ? 'USER' : 'ASSISTANT',
+      content: `${prefix} 메시지 ${i + 1}`,
+      widgets: null,
+      toolCalls: null,
+      createdAt: '2026-06-08T00:00:00Z',
+    }))
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-a/messages', many('A'))
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-b/messages', many('B'))
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  const scroll = page.getByTestId('chat-scroll')
+
+  // 1) 세션 A 선택 → 로드 + 하단
+  await page.getByTestId('chat-session-switcher').click()
+  await page.getByTestId('chat-session-select').first().click()
+  // 드롭다운이 완전히 닫힌 뒤(다음 오픈을 막는 pointer-events 락 해제) 진행.
+  await expect(page.getByTestId('chat-session-item')).toHaveCount(0)
+  await expect(page.getByTestId('chat-panel')).toContainText('A 메시지 30')
+  await expect
+    .poll(async () => scroll.evaluate((el) => el.scrollHeight - el.clientHeight))
+    .toBeGreaterThan(40)
+
+  // 2) 위로 끝까지 스크롤(stuck=false 로 만든다)
+  await scroll.evaluate((el) => {
+    el.scrollTop = 0
+    el.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(async () => scroll.evaluate((el) => el.scrollTop)).toBe(0)
+
+  // 3) 세션 B 선택 → 위로 올라가 있었어도 맨 아래로 내려가야 함
+  await page.getByTestId('chat-session-switcher').click()
+  await expect(page.getByTestId('chat-session-select').nth(1)).toBeVisible()
+  await page.getByTestId('chat-session-select').nth(1).click()
+  await expect(page.getByTestId('chat-session-item')).toHaveCount(0)
+  await expect(page.getByTestId('chat-panel')).toContainText('B 메시지 30')
+  await expect
+    .poll(async () => scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThanOrEqual(80)
+})
+
+test('세션 로드 후 콘텐츠 높이가 비동기로 커져도 하단 고정이 유지된다 (#455 ResizeObserver)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀(#455 핵심): 마크다운/지연(Suspense) 위젯이 렌더 후 높이를 키우면, 동기적으로 한 번만
+  // scrollTop=scrollHeight 한 값은 늘어난 만큼 하단에서 밀려난다. useStickToBottom 의 ResizeObserver 가
+  // 하단 고정 상태에서 콘텐츠 높이 증가를 잡아 다시 하단으로 붙여야 한다.
+  // (RO 효과를 제거하면 이 테스트는 실패한다 — 핵심 경로 판별 가드.)
+  await page.setViewportSize({ width: 1280, height: 520 })
+  await mockChatSessions(page, {
+    items: [{ id: 's-grow', title: '성장 대화', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  const messages: HomeMessage[] = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1,
+    role: i % 2 === 0 ? 'USER' : 'ASSISTANT',
+    content: `메시지 ${i + 1}`,
+    widgets: null,
+    toolCalls: null,
+    createdAt: '2026-06-08T00:00:00Z',
+  }))
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-grow/messages', messages)
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-session-switcher').click()
+  await page.getByTestId('chat-session-select').first().click()
+  await expect(page.getByTestId('chat-panel')).toContainText('메시지 30')
+
+  const scroll = page.getByTestId('chat-scroll')
+  // 세션 로드 직후 하단(resetKey)
+  await expect
+    .poll(async () => scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThanOrEqual(80)
+
+  // 비동기 콘텐츠 렌더로 높이가 나중에 커지는 상황을 모사 — 관찰 대상(ul)에 큰 노드 추가.
+  await scroll.evaluate((el) => {
+    const ul = el.querySelector('ul')
+    if (!ul) throw new Error('message list(ul) not found')
+    const tall = document.createElement('li')
+    tall.style.height = '1200px'
+    tall.textContent = '늦게 렌더된 큰 콘텐츠'
+    ul.appendChild(tall)
+  })
+
+  // RO 가 높이 증가를 잡아 다시 하단으로 붙여야 함(없으면 1200px 만큼 밀려나 실패).
+  await expect
+    .poll(async () => scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThanOrEqual(80)
+})
