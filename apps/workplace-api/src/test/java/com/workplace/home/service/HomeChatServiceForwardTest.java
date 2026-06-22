@@ -12,7 +12,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.home.dto.HomeMessageResponse;
-import com.workplace.home.outbound.AiAgentComposeClient;
+import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -29,14 +29,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * HomeComposeService 의 progress·pending_action 콜백 → SSE 이벤트 포워드 검증.
+ * HomeChatService 의 progress·pending_action 콜백 → SSE 이벤트 포워드 검증.
  *
  * <p>trySend() 를 오버라이드한 서브클래스 인스턴스로 (eventName, data) 쌍을 캡처한다. newEmitter() 오버라이드로 emitter 교체.
  */
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class HomeComposeServiceForwardTest extends IntegrationTestBase {
+class HomeChatServiceForwardTest extends IntegrationTestBase {
 
-  @MockitoBean AiAgentComposeClient composeClient;
+  @MockitoBean AiAgentChatClient composeClient;
   @MockitoBean AssistantResolver assistantResolver;
   @Autowired HomeSessionService sessionService;
   @Autowired AiAgentProperties aiAgentProperties;
@@ -58,8 +58,8 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
   }
 
   /** trySend() 를 가로채 전송 이벤트를 캡처하는 서비스 서브클래스. newEmitter() 도 기본 SseEmitter 로 고정(타임아웃 없음). */
-  private HomeComposeService serviceCapturing(List<SentEvent> captured) {
-    return new HomeComposeService(
+  private HomeChatService serviceCapturing(List<SentEvent> captured) {
+    return new HomeChatService(
         sessionService,
         composeClient,
         aiAgentProperties,
@@ -283,7 +283,7 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    HomeComposeService svc = serviceCapturing(captured);
+    HomeChatService svc = serviceCapturing(captured);
     svc.composeStream(uid, null, "이슈 10번 완료 처리해줘");
 
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();

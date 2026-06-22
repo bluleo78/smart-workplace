@@ -16,7 +16,7 @@ import com.workplace.cycle.exception.CycleNotFoundException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.exception.InvalidCycleStatusException;
 import com.workplace.global.dto.ErrorResponse;
-import com.workplace.home.exception.HomeComposeUnavailableException;
+import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentComposeException;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.exception.AttachmentNotFoundException;
@@ -998,12 +998,12 @@ public class GlobalExceptionHandler {
   }
 
   /**
-   * #50 — 홈 compose 불가(ai-agent 연동 비활성 또는 컴포저 AGENT 미설정) → 503 + 사유 메시지 노출. 캐치올(500)보다 우선 매칭되어
+   * #50 — 홈 채팅 불가(ai-agent 연동 비활성 또는 컴포저 AGENT 미설정) → 503 + 사유 메시지 노출. 캐치올(500)보다 우선 매칭되어
    * 사용자에게 명확·실행가능한 메시지를 전달한다.
    */
-  @ExceptionHandler(HomeComposeUnavailableException.class)
-  public ResponseEntity<ErrorResponse> handleHomeComposeUnavailable(
-      HomeComposeUnavailableException ex, HttpServletRequest request) {
+  @ExceptionHandler(HomeChatUnavailableException.class)
+  public ResponseEntity<ErrorResponse> handleHomeChatUnavailable(
+      HomeChatUnavailableException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
         .body(buildError(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), null, request));
   }

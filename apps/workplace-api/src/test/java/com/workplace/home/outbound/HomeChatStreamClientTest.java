@@ -20,15 +20,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * AiAgentComposeClient(JDK HttpClient ofLines) SSE 스트리밍 점진 전달 증명 테스트.
+ * AiAgentChatClient(JDK HttpClient ofLines) SSE 스트리밍 점진 전달 증명 테스트.
  *
  * <p>WikiAiAgentStreamClientTest 와 동일한 패턴. 로컬 HttpServer 스텁으로 SSE 를 실제 소켓에 흘려보내고, delta 토큰이 전체 본문
  * 도착 전에 점진적으로 소비되는지 검증한다.
  */
-class HomeComposeStreamClientTest {
+class HomeChatStreamClientTest {
 
   private HttpServer server;
-  private AiAgentComposeClient client;
+  private AiAgentChatClient client;
 
   @BeforeEach
   void start() throws Exception {
@@ -44,7 +44,7 @@ class HomeComposeStreamClientTest {
 
   private void boot(String sseBody, int status) {
     server.createContext(
-        "/ai/compose",
+        "/ai/chat",
         exchange -> {
           byte[] payload = sseBody.getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -58,7 +58,7 @@ class HomeComposeStreamClientTest {
     int port = server.getAddress().getPort();
     AiAgentProperties props =
         new AiAgentProperties("http://127.0.0.1:" + port, "changeme-local", true);
-    client = new AiAgentComposeClient(props, HttpClient.newHttpClient());
+    client = new AiAgentChatClient(props, HttpClient.newHttpClient());
   }
 
   private ComposeRequest dummyReq() {
@@ -108,7 +108,7 @@ class HomeComposeStreamClientTest {
     CountDownLatch firstSeen = new CountDownLatch(1);
     AtomicBoolean latchReleased = new AtomicBoolean(false);
     server.createContext(
-        "/ai/compose",
+        "/ai/chat",
         exchange -> {
           exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
           exchange.sendResponseHeaders(200, 0); // chunked
@@ -131,7 +131,7 @@ class HomeComposeStreamClientTest {
     int port = server.getAddress().getPort();
     AiAgentProperties props =
         new AiAgentProperties("http://127.0.0.1:" + port, "changeme-local", true);
-    client = new AiAgentComposeClient(props, HttpClient.newHttpClient());
+    client = new AiAgentChatClient(props, HttpClient.newHttpClient());
 
     List<String> deltas = new ArrayList<>();
     AtomicBoolean done = new AtomicBoolean(false);

@@ -14,7 +14,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeSessionSummary;
-import com.workplace.home.outbound.AiAgentComposeClient;
+import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
@@ -30,20 +30,20 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * HomeComposeService 통합 테스트 — SSE 패스스루 + done 영속 검증.
+ * HomeChatService 통합 테스트 — SSE 패스스루 + done 영속 검증.
  *
- * <p>AiAgentComposeClient 는 Mockito bean 으로 대체해 실제 ai-agent 없이 테스트한다. composeStream 은 비동기 펌프를 제출하므로
+ * <p>AiAgentChatClient 는 Mockito bean 으로 대체해 실제 ai-agent 없이 테스트한다. composeStream 은 비동기 펌프를 제출하므로
  * CountDownLatch 로 done 완료를 기다린다. @Transactional 을 쓰지 않는다 — 펌프 스레드의 ASSISTANT appendMessage 가 별도 tx
  * 로 커밋되어야 하기 때문이다.
  */
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class HomeComposeServiceTest extends IntegrationTestBase {
+class HomeChatServiceTest extends IntegrationTestBase {
 
-  @Autowired HomeComposeService composeService;
+  @Autowired HomeChatService composeService;
   @Autowired HomeSessionService sessionService;
   @Autowired ObjectMapper objectMapper;
   @Autowired DSLContext dsl;
-  @MockitoBean AiAgentComposeClient composeClient;
+  @MockitoBean AiAgentChatClient composeClient;
   @MockitoBean AssistantResolver assistantResolver;
 
   private void stubAssistant() {

@@ -7,8 +7,8 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.home.dto.HomeMessageResponse;
-import com.workplace.home.exception.HomeComposeUnavailableException;
-import com.workplace.home.outbound.AiAgentComposeClient;
+import com.workplace.home.exception.HomeChatUnavailableException;
+import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
 import com.workplace.home.outbound.ComposeMessages.ContextMessage;
 import java.io.IOException;
@@ -26,7 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * 홈 컴포즈 오케스트레이션 (B2): 세션 ensure → recentContext 구성 → 비서 해석 → USER 영속 → ai-agent SSE 구독 → delta 패스스루
+ * 홈 채팅 오케스트레이션 (B2): 세션 ensure → recentContext 구성 → 비서 해석 → USER 영속 → ai-agent SSE 구독 → delta 패스스루
  * → done 시 ASSISTANT 영속.
  *
  * <p>권한·비서 해석은 스트림 시작 전 동기 실행 — 실패하면 GlobalExceptionHandler 가 일반 4xx 로 매핑한다(깨진 스트림 X). ASSISTANT
@@ -34,7 +34,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  */
 @Slf4j
 @Service
-public class HomeComposeService {
+public class HomeChatService {
 
   /** SSE 타임아웃 — CLI cold-start(최대 ~60s) + 실행 예산 여유. */
   private static final long TIMEOUT_MS = 300_000L;
@@ -53,21 +53,21 @@ public class HomeComposeService {
   private static final int CONTEXT_LIMIT = 6;
 
   private final HomeSessionService sessionService;
-  private final AiAgentComposeClient composeClient;
+  private final AiAgentChatClient chatClient;
   private final AiAgentProperties aiAgentProperties;
   private final ObjectMapper objectMapper;
   private final AssistantResolver assistantResolver;
   private final AsyncTaskExecutor executor;
 
-  public HomeComposeService(
+  public HomeChatService(
       HomeSessionService sessionService,
-      AiAgentComposeClient composeClient,
+      AiAgentChatClient chatClient,
       AiAgentProperties aiAgentProperties,
       ObjectMapper objectMapper,
       AssistantResolver assistantResolver,
       @Qualifier("aiComposeStreamExecutor") AsyncTaskExecutor executor) {
     this.sessionService = sessionService;
-    this.composeClient = composeClient;
+    this.chatClient = chatClient;
     this.aiAgentProperties = aiAgentProperties;
     this.objectMapper = objectMapper;
     this.assistantResolver = assistantResolver;
@@ -88,7 +88,7 @@ public class HomeComposeService {
   public SseEmitter composeStream(long callerId, UUID sessionId, String query) {
     // 1) enabled 확인 — 비활성이면 스트림 전 예외로 단락.
     if (!aiAgentProperties.enabled()) {
-      throw new HomeComposeUnavailableException("AI 구성 기능이 현재 비활성화되어 있어요.");
+      throw new HomeChatUnavailableException("AI 채팅 기능이 현재 비활성화되어 있어요.");
     }
 
     // 2) 세션 ensure — sessionId null 이면 새 세션 생성.
@@ -128,7 +128,7 @@ public class HomeComposeService {
     Future<?> task =
         executor.submit(
             () -> {
-              composeClient.composeStream(
+              chatClient.composeStream(
                   req,
                   // delta: 버퍼에 누적 + 즉시 패스스루
                   delta -> {

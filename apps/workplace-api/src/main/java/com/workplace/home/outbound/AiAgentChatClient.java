@@ -15,7 +15,7 @@ import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * ai-agent {@code POST /ai/compose} SSE 를 JDK {@link HttpClient} 로 스트리밍 소비한다 (B2).
+ * ai-agent {@code POST /ai/chat} SSE 를 JDK {@link HttpClient} 로 스트리밍 소비한다 (B2).
  *
  * <p>WikiAiAgentStreamClient 와 동일한 패턴을 사용한다. webflux/WebClient 미사용.
  *
@@ -29,7 +29,7 @@ import lombok.extern.slf4j.Slf4j;
  * </ul>
  */
 @Slf4j
-public class AiAgentComposeClient {
+public class AiAgentChatClient {
 
   /** 요청 전체 타임아웃 — SseEmitter 타임아웃(300s)과 정렬. */
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(300);
@@ -42,13 +42,13 @@ public class AiAgentComposeClient {
   private final ObjectMapper mapper = new ObjectMapper();
 
   /** 프로덕션 생성자 — props 에서 baseUrl/internalToken 을 읽는다. */
-  public AiAgentComposeClient(AiAgentProperties props) {
+  public AiAgentChatClient(AiAgentProperties props) {
     this.props = props;
     this.http = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
   }
 
   /** 테스트용 — HttpClient 주입(로컬 HttpServer 스텁 대상). */
-  AiAgentComposeClient(AiAgentProperties props, HttpClient http) {
+  AiAgentChatClient(AiAgentProperties props, HttpClient http) {
     this.props = props;
     this.http = http;
   }
@@ -84,7 +84,7 @@ public class AiAgentComposeClient {
     try {
       HttpRequest req =
           HttpRequest.newBuilder()
-              .uri(URI.create(props.baseUrl() + "/ai/compose"))
+              .uri(URI.create(props.baseUrl() + "/ai/chat"))
               .timeout(REQUEST_TIMEOUT)
               .header("Authorization", "Internal " + props.internalToken())
               .header("Content-Type", "application/json")
@@ -108,7 +108,7 @@ public class AiAgentComposeClient {
           onError.accept("AI 홈 컴포저가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
           return;
         }
-        log.error("ai-agent compose 비정상 상태: {} body={}", resp.statusCode(), body);
+        log.error("ai-agent chat 비정상 상태: {} body={}", resp.statusCode(), body);
         onError.accept("AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.");
         return;
       }
@@ -164,7 +164,7 @@ public class AiAgentComposeClient {
               onDone.accept(fullText != null ? fullText : "", widgets);
               return;
             } else if ("error".equals(event)) {
-              log.error("ai-agent home compose stream error: {}", data);
+              log.error("ai-agent home chat stream error: {}", data);
               onError.accept("AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.");
               return;
             }
@@ -181,11 +181,11 @@ public class AiAgentComposeClient {
       // (2) 연결은 살아있는데 done 없이 EOF(에이전트 비정상 종료): ASSISTANT 영속 금지.
       //     onDone 을 부르지 않아 빈 행을 남기지 않고, onError 로 마감해 살아있는 emitter 가
       //     300s 타임아웃까지 매달리지 않게 한다.
-      log.error("ai-agent home compose 스트림이 done 이벤트 없이 종료됨");
+      log.error("ai-agent home chat 스트림이 done 이벤트 없이 종료됨");
       onError.accept("AI 응답이 완료되지 않았어요. 잠시 후 다시 시도해주세요.");
 
     } catch (Exception e) {
-      log.error("ai-agent home compose 실패: {}", e.getMessage());
+      log.error("ai-agent home chat 실패: {}", e.getMessage());
       onError.accept("AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.");
     }
   }

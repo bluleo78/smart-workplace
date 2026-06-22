@@ -18,13 +18,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * 로컬 HttpServer 스텁으로 SSE 를 실제 소켓에 흘려보내고, AiAgentComposeClient(composeStream) 가
+ * 로컬 HttpServer 스텁으로 SSE 를 실제 소켓에 흘려보내고, AiAgentChatClient(composeStream) 가
  * delta/done/error/progress/pending_action 을 올바르게 처리하는지 검증한다. WikiAiAgentStreamClientTest 와 동일한 패턴.
  */
-class AiAgentComposeClientTest {
+class AiAgentChatClientTest {
 
   private HttpServer server;
-  private AiAgentComposeClient client;
+  private AiAgentChatClient client;
 
   @BeforeEach
   void start() throws Exception {
@@ -41,7 +41,7 @@ class AiAgentComposeClientTest {
   /** 스텁을 기동하고 baseUrl 을 가리키는 client 를 만든다. */
   private void boot(String sseBody, int status) {
     server.createContext(
-        "/ai/compose",
+        "/ai/chat",
         exchange -> {
           byte[] payload = sseBody.getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -55,7 +55,7 @@ class AiAgentComposeClientTest {
     int port = server.getAddress().getPort();
     AiAgentProperties props =
         new AiAgentProperties("http://127.0.0.1:" + port, "changeme-local", true);
-    client = new AiAgentComposeClient(props, HttpClient.newHttpClient());
+    client = new AiAgentChatClient(props, HttpClient.newHttpClient());
   }
 
   private ComposeRequest dummyReq() {
@@ -96,7 +96,7 @@ class AiAgentComposeClientTest {
 
   @Test
   void error_이벤트는_onError_콜백으로_전달() {
-    String body = "event: error\ndata: {\"message\":\"compose_failed\"}\n\n";
+    String body = "event: error\ndata: {\"message\":\"chat_failed\"}\n\n";
     boot(body, 200);
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
