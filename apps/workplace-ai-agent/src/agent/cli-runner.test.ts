@@ -108,6 +108,17 @@ describe('buildCliArgs', () => {
     expect(disallowed.split(',')).toContain('Agent');
   });
 
+  it('disallowed-tools 에 SlashCommand 미포함 — --disable-slash-commands 로 충분(#457)', () => {
+    const args = buildCliArgs({
+      userMessage: 'm', systemPrompt: 's', model: 'x', maxTurns: 5, mcpConfigPath: '/tmp/c.json',
+    });
+    const disallowed = args[args.indexOf('--disallowed-tools') + 1];
+    // SlashCommand 를 deny 목록에 두면 CLI 가 '알려진 도구 없음' 경고를 낸다.
+    expect(disallowed.split(',')).not.toContain('SlashCommand');
+    // 슬래시 커맨드는 전용 플래그로 비활성화된다.
+    expect(args).toContain('--disable-slash-commands');
+  });
+
   it('systemPromptPath 설정 → --system-prompt-file 사용, 인라인 --system-prompt 미사용', () => {
     const args = buildCliArgs({
       userMessage: 'm', systemPrompt: 'INLINE', model: 'x', maxTurns: 5,
