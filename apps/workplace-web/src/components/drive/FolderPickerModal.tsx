@@ -91,7 +91,7 @@ export function FolderPickerModal({
               <li key={`file-${f.id}`}>
                 <button
                   type="button"
-                  onClick={() => onPickFile?.(f.fileId, f.name)}
+                  onClick={() => onPickFile?.(f.id, f.name)}
                   className="flex w-full items-center gap-2 py-1.5 text-left text-sm hover:bg-accent/50"
                   data-testid={`file-picker-file-${f.id}`}
                 >
