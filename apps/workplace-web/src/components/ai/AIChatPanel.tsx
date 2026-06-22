@@ -18,6 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
+import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { cn } from '@/lib/utils';
 
@@ -49,7 +50,16 @@ export function AIChatPanel({
   const current = sessions.find((s) => s.id === currentSessionId);
   const [input, setInput] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  // 세션 스위처 드롭다운 open 상태(#451) — 세션 항목이 DropdownMenuItem 이 아닌 일반 button 이라
+  // Radix 자동 닫힘이 동작하지 않으므로, controlled 로 두고 선택 직후 명시적으로 닫는다.
+  const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // 자동 하단 스크롤(#452) — 전송/스트리밍 델타/도구 단계/확인 카드 변화를 depKey 로 묶어,
+  // 사용자가 하단 근처를 보고 있을 때만 새 내용으로 따라 내려간다(useStickToBottom 정책).
+  const last = turns[turns.length - 1];
+  const scrollDep = `${turns.length}:${last?.content.length ?? 0}:${last?.steps?.length ?? 0}:${pendingActions.length}`;
+  const scrollRef = useStickToBottom(scrollDep);
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
@@ -85,7 +95,7 @@ export function AIChatPanel({
       {/* 헤더 — 좌: 대화 선택 드롭다운 / 우: ＋새 대화. */}
       {showSessionSwitcher && (
         <div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
-          <DropdownMenu>
+          <DropdownMenu open={sessionMenuOpen} onOpenChange={setSessionMenuOpen}>
             <DropdownMenuTrigger
               className="flex items-center gap-1.5 rounded px-2 py-1 text-sm font-medium hover:bg-muted"
               data-testid="chat-session-switcher"
@@ -111,7 +121,10 @@ export function AIChatPanel({
                       type="button"
                       data-testid="chat-session-select"
                       className="min-w-0 flex-1 text-left"
-                      onClick={() => onSelectSession(s.id)}
+                      onClick={() => {
+                        onSelectSession(s.id);
+                        setSessionMenuOpen(false); // 선택 후 드롭다운 닫기(#451)
+                      }}
                     >
                       <div className="truncate">{s.title}</div>
                       <div className="text-xs text-muted-foreground">{relTime(s.lastMessageAt)}</div>
@@ -144,7 +157,7 @@ export function AIChatPanel({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto p-3">
+      <div ref={scrollRef} data-testid="chat-scroll" className="flex-1 overflow-auto p-3">
         {turns.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <Sparkles className="h-9 w-9 text-muted-foreground/60" />

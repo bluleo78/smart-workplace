@@ -21,6 +21,8 @@ export function AIFullscreen() {
   const { mode, close } = useAssistant();
   const chat = useAssistantChat();
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  // 모바일 세션 스위처 드롭다운 open 상태(#451) — 선택 직후 명시적으로 닫는다.
+  const [mobileSessionMenuOpen, setMobileSessionMenuOpen] = useState(false);
 
   if (mode !== 'fullscreen') return null;
 
@@ -104,7 +106,7 @@ export function AIFullscreen() {
         <div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
           {/* 모바일 전용 세션 스위처 — md+ 에서는 좌측 패널이 대신 */}
           <div className="flex items-center gap-1 md:hidden">
-            <DropdownMenu>
+            <DropdownMenu open={mobileSessionMenuOpen} onOpenChange={setMobileSessionMenuOpen}>
               <DropdownMenuTrigger
                 className="flex items-center gap-1.5 rounded px-2 py-1 text-sm font-medium hover:bg-muted"
                 data-testid="ai-fs-mobile-session-switcher"
@@ -132,7 +134,10 @@ export function AIFullscreen() {
                       <button
                         type="button"
                         className="min-w-0 flex-1 text-left"
-                        onClick={() => chat.onSelectSession(s.id)}
+                        onClick={() => {
+                          chat.onSelectSession(s.id);
+                          setMobileSessionMenuOpen(false); // 선택 후 드롭다운 닫기(#451)
+                        }}
                       >
                         <div className="truncate">{s.title}</div>
                         <div className="text-xs text-muted-foreground">{relTime(s.lastMessageAt)}</div>

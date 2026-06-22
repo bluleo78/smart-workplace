@@ -525,6 +525,8 @@ test('모바일(375px) 풀스크린에서 좌측 세션목록이 숨겨지고 �
     ],
     nextCursor: null,
   })
+  // 세션 선택 시 메시지 fetch — 빈 transcript 로 모킹.
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-mob1/messages', [])
 
   await page.goto('/')
   // side → fullscreen
@@ -548,6 +550,10 @@ test('모바일(375px) 풀스크린에서 좌측 세션목록이 숨겨지고 �
   await page.getByTestId('ai-fs-mobile-session-switcher').click()
   // 드롭다운 콘텐츠(DropdownMenuContent)에 두 세션이 보여야 함
   await expect(page.getByRole('menu', { name: '대화 선택' })).toBeVisible()
+
+  // 5) 세션 선택 시 드롭다운이 닫힌다(#451) — 모바일 스위처도 controlled 닫힘 적용
+  await page.getByRole('menu', { name: '대화 선택' }).getByText('모바일 대화 1').click()
+  await expect(page.getByRole('menu', { name: '대화 선택' })).toHaveCount(0)
 })
 
 test('위임 진행 이벤트가 도크에 위임 버블을 렌더한다 (#333)', { tag: '@smoke' }, async ({
@@ -712,4 +718,91 @@ test('챗 도크 응답이 토큰 단위로 점진 렌더된다', { tag: '@smoke
 
   // 스트리밍 완료 후 3-dot 로딩이 사라진다.
   await expect(page.getByTestId('chat-pending')).toHaveCount(0)
+})
+
+test('사이드패널: 세션 선택 시 세션 스위처 드롭다운이 닫힌다 (#451)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀(#451): 세션 항목이 DropdownMenuItem 이 아닌 일반 button 이라 Radix 자동 닫힘이 안 됨.
+  // 수정: DropdownMenu 를 controlled(open/onOpenChange)로 두고 선택 직후 setOpen(false).
+  await mockChatSessions(page, {
+    items: [
+      { id: 's-a', title: '대화 A', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 },
+      { id: 's-b', title: '대화 B', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 },
+    ],
+    nextCursor: null,
+  })
+  // 세션 선택 시 메시지 fetch — 빈 transcript 로 모킹.
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-a/messages', [])
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click() // side 모드
+
+  // 스위처를 열어 세션 목록(드롭다운)이 보이는지 확인
+  await page.getByTestId('chat-session-switcher').click()
+  await expect(page.getByTestId('chat-session-select').first()).toBeVisible()
+
+  // 세션 선택 → 드롭다운이 닫혀 세션 항목이 DOM 에서 사라져야 함
+  await page.getByTestId('chat-session-select').first().click()
+  await expect(page.getByTestId('chat-session-item')).toHaveCount(0)
+})
+
+test('사이드패널: 세션 로드/전송 시 채팅이 맨 아래로 자동 스크롤된다 (#452)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀(#452): 메시지 컨테이너에 자동 스크롤 로직이 없어 전송/스트리밍 시 하단으로 안 내려감.
+  // 수정: useStickToBottom 을 컨테이너에 연결(전송/스트리밍/단계/확인카드 변화를 depKey 로).
+  await page.setViewportSize({ width: 1000, height: 500 })
+  await mockChatSessions(page, {
+    items: [{ id: 's-scroll', title: '스크롤 대화', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  // 컨테이너를 넘치게(스크롤 가능) 할 만큼 많은 메시지
+  const messages: HomeMessage[] = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1,
+    role: i % 2 === 0 ? 'USER' : 'ASSISTANT',
+    content: `메시지 ${i + 1}`,
+    widgets: null,
+    toolCalls: null,
+    createdAt: '2026-06-08T00:00:00Z',
+  }))
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-scroll/messages', messages)
+  // 전송 검증용 compose SSE
+  await page.route(
+    (url) => url.pathname === '/api/v1/ai/compose',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      const sseBody =
+        'event: delta\ndata: {"text":"새 응답입니다"}\n\n' +
+        'event: done\ndata: {"sessionId":"s-scroll"}\n\n'
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody })
+    },
+  )
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+
+  // 세션 선택
+  await page.getByTestId('chat-session-switcher').click()
+  await expect(page.getByTestId('chat-session-select').first()).toBeVisible()
+  await page.getByTestId('chat-session-select').first().click()
+  await expect(page.getByTestId('chat-panel').getByTestId('chat-turn').first()).toBeVisible()
+
+  const scroll = page.getByTestId('chat-scroll')
+  // 전제: 컨테이너가 실제로 오버플로해야(스크롤 가능) 검증이 유의미
+  await expect
+    .poll(async () => scroll.evaluate((el) => el.scrollHeight - el.clientHeight))
+    .toBeGreaterThan(40)
+  // 로드 직후 하단 근처(scrollHeight - scrollTop - clientHeight <= 80)
+  await expect
+    .poll(async () => scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThanOrEqual(80)
+
+  // 전송 → 새 응답 누적 후에도 하단 유지
+  await page.getByTestId('chat-input').fill('추가 질문')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await expect(page.getByTestId('chat-panel')).toContainText('새 응답입니다')
+  await expect
+    .poll(async () => scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThanOrEqual(80)
 })
