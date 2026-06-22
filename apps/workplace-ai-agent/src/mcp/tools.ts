@@ -241,6 +241,48 @@ const showMailListInput = z.object({
   layout: layoutSchema,
 });
 
+// #460 Layer2: 도메인 표시 위젯 입력 — 핸들러는 데이터를 반환하지 않으므로(displayed) 프론트가 params 로 fetch.
+const showCalendarInput = z.object({
+  params: z.object({ from: z.string().optional(), to: z.string().optional() }).optional(),
+  layout: layoutSchema,
+});
+const showEventInput = z.object({
+  params: z.object({ eventId: z.number().int().positive() }),
+  layout: layoutSchema,
+});
+const showChannelsInput = z.object({ params: z.object({}).optional(), layout: layoutSchema });
+const showWikiInput = z.object({
+  params: z.object({ spaceId: z.number().int().positive().optional(), query: z.string().optional() }).optional(),
+  layout: layoutSchema,
+});
+const showWikiPageInput = z.object({
+  params: z.object({ pageId: z.number().int().positive() }),
+  layout: layoutSchema,
+});
+const showContactsInput = z.object({
+  params: z.object({
+    search: z.string().optional(), type: z.string().optional(),
+    org: z.string().optional(), title: z.string().optional(),
+  }).optional(),
+  layout: layoutSchema,
+});
+const showContactInput = z.object({
+  params: z.object({ contactId: z.number().int().positive() }),
+  layout: layoutSchema,
+});
+const showProjectsInput = z.object({ params: z.object({}).optional(), layout: layoutSchema });
+const showProjectInput = z.object({
+  params: z.object({ projectKey: z.string().min(1) }),
+  layout: layoutSchema,
+});
+const showDriveInput = z.object({
+  params: z.object({
+    spaceId: z.number().int().positive().optional(),
+    folderId: z.number().int().positive().optional(),
+  }).optional(),
+  layout: layoutSchema,
+});
+
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
 export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
 
@@ -983,6 +1025,23 @@ export function buildTools(
       respondChatTool,           // #381: 라우터 전용 — 단순 응답 구조화 제출(사이드카 기록)
       submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)
       ...buildShowTools(),
+      // #460 Layer2: 도메인 단순 조회 표시 위젯 — 위임(서브에이전트 nested loop, 느림) 대신 직접 표시.
+      // buildShowTools() 내부 displayed 와 동일 시맨틱 — 데이터 미반환, 프론트가 params 로 fetch.
+      ...((): McpTool[] => {
+        const displayed = async () => JSON.stringify({ displayed: true });
+        return [
+      { name: 'show_calendar', description: '지정 기간(기본 오늘)의 내 일정 목록을 화면에 표시합니다. 일정 조회/확인 요청에 사용. 생성·수정·삭제는 calendar-agent 에 위임.', inputSchema: showCalendarInput, handler: displayed },
+      { name: 'show_event', description: '단일 일정 상세(eventId 지정)를 화면에 표시합니다. eventId 를 모르면 먼저 list_events 로 확보하세요.', inputSchema: showEventInput, handler: displayed },
+      { name: 'show_channels', description: '내가 속한 채널·DM 목록을 화면에 표시합니다. 채널 목록/확인 요청에 사용.', inputSchema: showChannelsInput, handler: displayed },
+      { name: 'show_wiki', description: '위키 페이지 목록/검색 결과를 화면에 표시합니다. query 로 검색, spaceId 로 특정 스페이스 트리.', inputSchema: showWikiInput, handler: displayed },
+      { name: 'show_wiki_page', description: '단일 위키 페이지 본문(pageId 지정)을 화면에 표시합니다. pageId 를 모르면 먼저 search_wiki 로 확보하세요.', inputSchema: showWikiPageInput, handler: displayed },
+      { name: 'show_contacts', description: '연락처 목록을 화면에 표시합니다. search/org/title/type 로 좁힙니다. 단순 조회 전용 — 생성·수정·삭제는 contacts-agent 위임.', inputSchema: showContactsInput, handler: displayed },
+      { name: 'show_contact', description: '단일 연락처 상세(contactId 지정)를 화면에 표시합니다.', inputSchema: showContactInput, handler: displayed },
+      { name: 'show_projects', description: '프로젝트 목록을 화면에 표시합니다. 단순 조회 전용 — 생성·삭제·멤버추가는 project-agent 위임.', inputSchema: showProjectsInput, handler: displayed },
+      { name: 'show_project', description: '단일 프로젝트 상세·멤버(projectKey 지정)를 화면에 표시합니다.', inputSchema: showProjectInput, handler: displayed },
+      { name: 'show_drive', description: '드라이브 스페이스/폴더의 파일·폴더 목록을 화면에 표시합니다. spaceId/folderId 로 좁힙니다. 단순 조회 전용 — 이동·삭제는 drive-agent 위임.', inputSchema: showDriveInput, handler: displayed },
+        ];
+      })(),
     ];
   }
 

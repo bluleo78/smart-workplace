@@ -11,7 +11,7 @@ export interface WidgetLayout {
   pageLabel?: string; // page='new' 일 때 새 페이지 라벨
 }
 
-export type WidgetType = 'my_tasks' | 'issue_list' | 'issue_detail' | 'activity' | 'mail_list';
+export type WidgetType = 'my_tasks' | 'issue_list' | 'issue_detail' | 'activity' | 'mail_list' | 'calendar' | 'event' | 'channels' | 'wiki' | 'wiki_page' | 'contacts' | 'contact' | 'projects' | 'project' | 'drive';
 
 /** compose 가 돌려주는 위젯 스펙. params 는 위젯별 자유 형태(이슈 검색 필터 등). */
 export interface WidgetSpec {

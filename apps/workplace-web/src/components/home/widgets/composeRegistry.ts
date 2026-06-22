@@ -20,6 +20,22 @@ const composeRegistry: Record<WidgetType, WidgetComponent> = {
   activity: lazy(() => import('./ActivityWidget')),
   // #431: 메일 목록 위젯 — show_mail_list 지시를 받아 받은편지함을 표시.
   mail_list: lazy(() => import('./MailListWidget')),
+  // #460: 캘린더 위젯
+  calendar: lazy(() => import('./CalendarWidget')),
+  event: lazy(() => import('./EventWidget')),
+  // #460: 채널 목록 위젯 — show_channels 지시를 받아 내가 속한 채널 목록을 표시.
+  channels: lazy(() => import('./ChannelsWidget')),
+  // #460: 위키 위젯 — show_wiki/show_wiki_page 지시를 받아 스페이스·페이지 목록 및 상세 표시.
+  wiki: lazy(() => import('./WikiWidget')),
+  wiki_page: lazy(() => import('./WikiPageWidget')),
+  // #460: 연락처 위젯 — show_contacts/show_contact 지시를 받아 연락처 목록 및 상세 표시.
+  contacts: lazy(() => import('./ContactsWidget')),
+  contact: lazy(() => import('./ContactWidget')),
+  // #460: 프로젝트 위젯 — show_projects/show_project 지시를 받아 프로젝트 목록 및 상세 표시.
+  projects: lazy(() => import('./ProjectsWidget')),
+  project: lazy(() => import('./ProjectWidget')),
+  // #460: 드라이브 위젯 — show_drive 지시를 받아 스페이스 목록 또는 아이템 목록 표시.
+  drive: lazy(() => import('./DriveWidget')),
 };
 
 /** 위젯 타입 → 컴포넌트. 미등록 타입이면 undefined(렌더 측에서 skip). */
