@@ -944,32 +944,6 @@ export function buildTools(
     },
   };
 
-  // #381: 라우터 구조화 출력 도구 — 라우터(홈 비서)의 자유 prose 가 사용자에게 도달하는 경로를 차단한다.
-  // 라우터가 인사·능력질문·종합 응답을 자유 텍스트로 스트리밍하던 것을 막고, 반드시 이 도구로 답을 "제출"하게 한다.
-  // 핸들러는 WORKPLACE_ROUTER_RESPONSE_PATH 사이드카에 {text} 를 기록하고, run-ai-compose 가 그 파일을 권위 답으로 읽는다.
-  // first-write-guard: 이미 기록돼 있으면 덮어쓰지 않고 ack 만 반환(첫 호출의 답을 보존).
-  const respondChatTool: McpTool = {
-    name: 'respond_chat',
-    description:
-      '사용자에게 보여줄 최종 답변을 제출합니다. 인사·능력 질문·여러 작업 결과의 종합 응답 등 위임이 필요 없는 단순 응답은 반드시 이 도구로 제출하세요. 자유 텍스트로 직접 답하지 마세요. text 에 사용자에게 보여줄 한국어 답변을 넣습니다.',
-    inputSchema: z.object({ text: z.string().min(1) }),
-    async handler(args) {
-      const { text } = z.object({ text: z.string().min(1) }).parse(args);
-      const sidecarPath = process.env.WORKPLACE_ROUTER_RESPONSE_PATH;
-      if (!sidecarPath) {
-        // 사이드카 경로 미설정 — 답 제출 경로가 없으므로 ack 만 반환(정상 흐름에서는 발생하지 않음).
-        return '답변을 확정했습니다.';
-      }
-      const { existsSync, writeFileSync } = await import('node:fs');
-      // first-write-guard: 이미 답이 있으면 덮지 않고 ack 만 반환한다.
-      if (existsSync(sidecarPath)) {
-        return '답변을 확정했습니다.';
-      }
-      writeFileSync(sidecarPath, JSON.stringify({ text }), 'utf8');
-      return '답변을 확정했습니다.';
-    },
-  };
-
   // #381: 서브에이전트 최종 답변 제출 도구 — 위임된 서브에이전트가 작업을 마치고 사용자에게 보여줄 최종 답변을 제출한다.
   // Agent tool_result 는 stream-json 에서 collapsed(축약) 되어 추출 불가하므로(run-ai-compose 주석),
   // 서브에이전트가 직접 WORKPLACE_SUBAGENT_RESPONSE_PATH 사이드카에 답을 기록하고 run-ai-compose 가 권위 답으로 읽는다.
@@ -1022,7 +996,6 @@ export function buildTools(
       listDriveSpacesTool, listDriveItemsTool, searchDriveTool, // #333 M3: 드라이브 읽기
       createFolderTool, renameFolderTool, moveFolderTool, moveFileTool, // #333 M4: 드라이브 쓰기(직접 실행)
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
-      respondChatTool,           // #381: 라우터 전용 — 단순 응답 구조화 제출(사이드카 기록)
       submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)
       ...buildShowTools(),
       // #460 Layer2: 도메인 단순 조회 표시 위젯 — 위임(서브에이전트 nested loop, 느림) 대신 직접 표시.

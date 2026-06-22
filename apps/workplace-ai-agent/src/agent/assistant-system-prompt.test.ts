@@ -124,10 +124,11 @@ describe('ASSISTANT_SYSTEM_PROMPT — 동사 기반 라우팅(#460)', () => {
     expect(p).toContain('show_mail_list');
   });
 
-  it('자유 텍스트 금지·respond_chat 통로·general-purpose 금지를 유지한다', () => {
-    expect(p).toContain('respond_chat');
+  // #463: respond_chat 제거 — general-purpose 금지·내부 추론 노출 금지는 유지.
+  it('general-purpose 금지·내부 추론 노출 금지를 유지한다', () => {
+    expect(p).not.toContain('respond_chat');
     expect(p).toContain('general-purpose');
-    expect(p).toMatch(/자유 텍스트/);
+    expect(p).toContain('내부 추론');
   });
 
   it('8개 도메인 위임 라벨은 불변', () => {

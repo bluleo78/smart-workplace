@@ -95,6 +95,22 @@ export function parseCompose(events: unknown[]): ComposeResult {
   return { message, widgets, usage };
 }
 
+// #463: 라우터 자기 텍스트(text_delta)만 추출. parent_tool_use_id 가 null 인 stream_event 의
+//   content_block_delta/text_delta 텍스트를 반환. 서브에이전트 누수(parent 설정)·비-text 는 null.
+//   이 필터가 없으면 위임 중 서브에이전트 내부 prose 가 사용자에게 노출된다(이중 답변 위험).
+export function extractRouterTextDelta(obj: unknown): string | null {
+  if (!obj || typeof obj !== 'object') return null;
+  const o = obj as {
+    type?: string;
+    parent_tool_use_id?: unknown;
+    event?: { type?: string; delta?: { type?: string; text?: unknown } };
+  };
+  if (o.type !== 'stream_event' || o.parent_tool_use_id != null) return null;
+  const d = o.event?.delta;
+  if (o.event?.type !== 'content_block_delta' || d?.type !== 'text_delta') return null;
+  return typeof d.text === 'string' && d.text ? d.text : null;
+}
+
 // NDJSON 문자열 라인 배열을 안전 파싱(잘못된 줄 건너뜀) 후 parseCompose.
 export function parseComposeLines(lines: string[]): ComposeResult {
   const events: unknown[] = [];

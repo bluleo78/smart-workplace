@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCompose, parseComposeLines } from './compose-parser.js';
+import { parseCompose, parseComposeLines, extractRouterTextDelta } from './compose-parser.js';
 
 // 실제 stream-json 형상을 본뜬 fixture: system → assistant(tool_use 2개) → user(tool_result) → result.
 const fixture = [
@@ -124,5 +124,35 @@ describe('parseCompose', () => {
     const out = parseCompose(events);
     expect(out.message).toBe('최종 결과예요');
     expect(out.widgets).toEqual([{ type: 'issue_list', params: { status: 'IN_PROGRESS' } }]);
+  });
+});
+
+// #463: 라우터 자기 텍스트 추출 — parent_tool_use_id null 필터로 서브에이전트 prose 누수 방지.
+describe('extractRouterTextDelta (#463)', () => {
+  it('라우터 자기 text_delta (parent_tool_use_id 없음) → 텍스트 반환', () => {
+    const line = {
+      type: 'stream_event',
+      parent_tool_use_id: null,
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '안녕하세요' } },
+    };
+    expect(extractRouterTextDelta(line)).toBe('안녕하세요');
+  });
+
+  it('parent_tool_use_id 가 설정된(서브에이전트) text_delta → null', () => {
+    const line = {
+      type: 'stream_event',
+      parent_tool_use_id: 'tu_sub_123',
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '서브에이전트 prose' } },
+    };
+    expect(extractRouterTextDelta(line)).toBeNull();
+  });
+
+  it('type 이 stream_event 가 아닌 줄 → null', () => {
+    const line = {
+      type: 'assistant',
+      parent_tool_use_id: null,
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '무관' } },
+    };
+    expect(extractRouterTextDelta(line)).toBeNull();
   });
 });

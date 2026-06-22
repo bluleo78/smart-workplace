@@ -91,6 +91,11 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
           if (line.event === 'tool_result') payload.isError = line.isError ?? false;
           res.write(`event: tool\ndata: ${JSON.stringify(payload)}\n\n`);
         },
+        (text) => {
+          // #463: 라우터 자유 prose 라이브 delta — onText(위임 답)와 동일 채널.
+          if (aborted) return;
+          res.write(`event: delta\ndata: ${JSON.stringify({ text })}\n\n`);
+        },
       );
       if (!aborted) {
         // #351: pending_action 을 done 앞에 발행(결정적 순서) — 확인 카드. 다건 제안은 배열로 1회 발행.

@@ -83,12 +83,13 @@ describe('POST /ai/compose', () => {
     expect(res.text).toContain('"fullText":"안녕"');
     // #432: done 이벤트에 usage(토큰 사용량) 포함.
     expect(res.text).toContain('"usage":{"inputTokens":100,"outputTokens":20}');
-    // 러너에 파싱된 페이로드가 그대로 전달됐는지 회귀 가드(5번째 onProgress, 6번째 onTool 인자 포함).
+    // 러너에 파싱된 페이로드가 그대로 전달됐는지 회귀 가드(5번째 onProgress, 6번째 onTool, 7번째 onDelta 인자 포함).
     expect(runAiComposeStream).toHaveBeenCalledWith(
       expect.objectContaining({ query: '내 할 일', assistantAgentId: 7 }),
       expect.anything(),
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.any(Function),
       expect.any(Function),
       expect.any(Function),
     );
@@ -141,7 +142,7 @@ describe('POST /ai/compose', () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain('event: progress');
     expect(res.text).toContain('"label":"이슈 전문가에게 위임 중"');
-    // 라우트가 onProgress(5번째 인자), onTool(6번째 인자)를 함수로 전달했는지 회귀 가드.
+    // 라우트가 onProgress(5번째 인자), onTool(6번째 인자), onDelta(7번째 인자)를 함수로 전달했는지 회귀 가드.
     expect(runAiComposeStream).toHaveBeenCalledWith(
       expect.objectContaining({ query: '내 할 일' }),
       expect.anything(),
@@ -149,7 +150,38 @@ describe('POST /ai/compose', () => {
       expect.any(AbortSignal),
       expect.any(Function),
       expect.any(Function),
+      expect.any(Function),
     );
+  });
+
+  // #463: 라우터 prose 라이브 스트리밍 — onDelta 호출 시 event: delta 다건 발행.
+  it('라우터 prose 라이브 → event: delta 다건 발행', async () => {
+    vi.mocked(runAiComposeStream).mockImplementation(async (_i, _d, _onText, _sig, _onProg, _onTool, onDelta) => {
+      onDelta?.('오늘 일정은 ');
+      onDelta?.('2건입니다.');
+      return { fullText: '오늘 일정은 2건입니다.', widgets: null, pendingActions: [], usage: null };
+    });
+    const res = await request(buildApp()).post('/ai/compose').send(validBody());
+    expect(res.status).toBe(200);
+    const deltaEvents = res.text.match(/event: delta\n/g) ?? [];
+    expect(deltaEvents).toHaveLength(2);
+    expect(res.text).toContain('data: {"text":"오늘 일정은 "}');
+    expect(res.text).toContain('data: {"text":"2건입니다."}');
+    expect(res.text).toContain('event: done');
+  });
+
+  // #463: 위임 답(onText 경로) — 사이드카 최종 답은 event: delta 1건으로 발행.
+  it('위임 답은 최종 delta 1건으로 발행', async () => {
+    vi.mocked(runAiComposeStream).mockImplementation(async (_i, _d, onText) => {
+      onText('연락처 3건을 정리했어요.');
+      return { fullText: '연락처 3건을 정리했어요.', widgets: null, pendingActions: [], usage: null };
+    });
+    const res = await request(buildApp()).post('/ai/compose').send(validBody());
+    expect(res.status).toBe(200);
+    const deltaEvents = res.text.match(/event: delta\n/g) ?? [];
+    expect(deltaEvents).toHaveLength(1);
+    expect(res.text).toContain('data: {"text":"연락처 3건을 정리했어요."}');
+    expect(res.text).toContain('event: done');
   });
 });
 

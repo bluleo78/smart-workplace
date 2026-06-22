@@ -105,51 +105,54 @@ beforeEach(() => {
 });
 
 describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
-  // #381: 라우터 자유 prose(text_delta)는 사용자에게 emit 하지 않는다. 답은 사이드카에서 온다.
-  it('라우터 prose(text_delta/thinking)는 onText 로 흘리지 않고, 답은 router 사이드카에서 1회 emit', async () => {
+  // #463: 라우터 자유 prose(text_delta)는 onDelta 로 라이브 emit 된다. onText 는 위임 답(subagent sidecar)에만 사용.
+  it('라우터 prose(text_delta)는 onDelta 로 라이브 emit, fullText = 누적 streamedText', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(thinkingDelta('추론 과정')); // 추론 — 제외
-      onLine(textDelta('안녕 ')); // 라우터 prose — emit 금지
+      onLine(thinkingDelta('추론 과정')); // thinking_delta — extractRouterTextDelta 가 null 반환(text_delta 아님)
+      onLine(textDelta('안녕 ')); // 라우터 prose → onDelta 경유 라이브 emit
       onLine(textDelta('하세요'));
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '라우터 synthesis prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    // respond_chat 사이드카가 권위 답이다.
-    mockSidecars({ router: '안녕하세요. 무엇을 도와드릴까요?' });
-    const got: string[] = [];
-    const result = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
-    // delta 는 emit 되지 않고, 사이드카 답만 1회 emit.
-    expect(got).toEqual(['안녕하세요. 무엇을 도와드릴까요?']);
-    expect(result.fullText).toBe('안녕하세요. 무엇을 도와드릴까요?');
+    mockSidecars({}); // 사이드카 없음 — streamedText 가 답
+    const got: string[] = []; // onText 수집(라우터 prose 는 오지 않음)
+    const deltas: string[] = []; // onDelta 수집
+    const result = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    // 라우터 prose 는 onDelta 로만 나가고 onText 는 호출 안 됨.
+    expect(got).toHaveLength(0);
+    expect(deltas).toEqual(['안녕 ', '하세요']);
+    expect(result.fullText).toBe('안녕 하세요'); // streamedText 누적
     // 회귀 가드: 비서 토큰을 요청의 assistantAgentId(7)로 fetch 했는지 검증.
     expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalledWith(7);
   });
 
-  it('done 에서 parseComposeLines 로 widgets 산출 + 사이드카 답을 fullText 로 반환', async () => {
+  it('done 에서 parseComposeLines 로 widgets 산출 + 위젯만 있으면 fullText 빈 문자열', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       // tool_use 라인은 delta 아님 — lines 에만 쌓여 parseComposeLines 가 처리
       onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'show_my_tasks', input: {} }] } }));
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '라우터 prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    // 위젯 + respond_chat 동반(콤보) 케이스.
-    mockSidecars({ router: '할 일이에요.' });
+    // 위젯만 있고 텍스트 없는 케이스 — #463: routerSidecar 제거, 위젯 단독이면 빈 텍스트.
+    mockSidecars({});
     const result = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(result.fullText).toBe('할 일이에요.');
+    expect(result.fullText).toBe('');
     expect(result.widgets).toEqual([{ type: 'my_tasks', params: {} }]);
   });
 
-  // #381 불변식: respond_chat 사이드카만 존재 → 답 = 그 text, onText 1회.
-  it('respond_chat 사이드카만 존재 → 답 = 그 text, onText 1회 emit', async () => {
+  // #463: 라우터 prose(textDelta) 는 사이드카 없이도 직접 onDelta + fullText 로.
+  it('라우터 prose(textDelta) 사이드카 없음 → onDelta emit + fullText = 스트리밍 텍스트', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta('라우터 자유 prose 누출 시도')); // emit 금지
+      onLine(textDelta('저는 이슈·메일·일정 등을 도와드릴 수 있어요.'));
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ router: '저는 이슈·메일·일정 등을 도와드릴 수 있어요.' });
+    mockSidecars({});
     const got: string[] = [];
-    const out = await runAiComposeStream(baseInput({ query: '뭐 할 수 있어?' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
-    expect(got).toEqual(['저는 이슈·메일·일정 등을 도와드릴 수 있어요.']);
+    const deltas: string[] = [];
+    const out = await runAiComposeStream(baseInput({ query: '뭐 할 수 있어?' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    expect(got).toHaveLength(0); // onText 미호출 — streamedText 는 이미 onDelta 로 나감
+    expect(deltas).toEqual(['저는 이슈·메일·일정 등을 도와드릴 수 있어요.']);
     expect(out.fullText).toBe('저는 이슈·메일·일정 등을 도와드릴 수 있어요.');
   });
 
@@ -167,24 +170,24 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     expect(out.fullText).toBe('EX-2 이슈를 진행 중으로 변경했어요.');
   });
 
-  // #381 불변식: subagent 사이드카가 router 사이드카보다 우선(둘 다 있을 때).
-  it('subagent 와 router 사이드카가 둘 다 있으면 subagent 답이 우선', async () => {
+  // #463: subagent 사이드카가 streamedText 보다 우선(위임 답이 라우터 prose 보다 강).
+  it('subagent 사이드카는 streamedText 보다 우선 — 위임 답이 onText 로 1회 emit', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }));
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ subagent: 'SUB 답변', router: 'ROUTER 답변' });
+    mockSidecars({ subagent: 'SUB 답변' });
     const got: string[] = [];
     const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(out.fullText).toBe('SUB 답변');
     expect(got).toEqual(['SUB 답변']);
   });
 
-  // #381 불변식: 사이드카 없음 + 위젯 없음 → 결정적 fallback.
-  it('사이드카 없음 + 위젯 없음 → fallback 텍스트', async () => {
+  // #463: 사이드카 없음 + 위젯 없음 + streamedText 없음 → 결정적 fallback.
+  it('사이드카 없음 + 위젯 없음 + streamedText 없음 → fallback 텍스트', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta('라우터가 도구 없이 날조한 prose')); // emit 금지
+      // textDelta 를 보내지 않음 — streamedText 가 비어서 fallback 발동
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
@@ -225,19 +228,24 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     expect(out.widgets).toEqual([{ type: 'my_tasks', params: {} }]);
   });
 
-  // #381 누수 회귀 가드: 라우터 자유 prose 가 와도 onText 로 사용자에게 안 나간다.
-  it('누수 가드: 라우터 자유 prose(text_delta)는 답으로 사용되지 않고 사이드카 답만 나간다', async () => {
-    const leak = '저는 issue-agent에게 위임하겠습니다. 잠시만요.';
+  // #463: 서브에이전트 누수 가드 — parent_tool_use_id 있는 text_delta 는 onDelta 로 나가지 않는다.
+  it('서브에이전트 누수 가드: parent_tool_use_id 있는 text_delta 는 onDelta 미발행', async () => {
+    const subLeak = '서브에이전트 내부 처리 중...';
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta(leak));
-      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: leak }));
+      // parent_tool_use_id 설정 → 서브에이전트 내부 prose → extractRouterTextDelta 가 null 반환
+      onLine(JSON.stringify({ type: 'stream_event', parent_tool_use_id: 'tu_sub', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: subLeak } } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ router: '처리했어요.' });
+    mockSidecars({ subagent: '처리했어요.' });
     const got: string[] = [];
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
-    expect(got.join('')).toBe('처리했어요.');
-    expect(got.join('')).not.toContain('위임하겠습니다');
+    const deltas: string[] = [];
+    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    // 서브에이전트 prose 는 onDelta 에 안 나감
+    expect(deltas).toHaveLength(0);
+    expect(deltas.join('')).not.toContain(subLeak);
+    // 위임 답(subagent sidecar)은 onText 로 emit
+    expect(got).toEqual(['처리했어요.']);
     expect(out.fullText).toBe('처리했어요.');
   });
 
@@ -457,11 +465,10 @@ describe('runAiComposeStream — unassignError 사이드카 override (#378)', ()
 
 // #383→#381: mail 직접-응답 fallback override 는 삭제됨. 메일은 위임 → submit_response 사이드카로 답한다.
 describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-#383)', () => {
-  it('메일 쿼리 + 위임 없음 + 사이드카 없음 → 결정적 fallback (라우터 prose 미사용)', async () => {
+  it('메일 쿼리 + 위임 없음 + streamedText 없음 + 사이드카 없음 → 결정적 fallback', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      // 라우터가 mail-agent 위임 없이 직접 prose 로 답하는 시나리오 — prose 는 버려진다.
-      onLine(textDelta('계정이 연동되지 않았습니다.'));
-      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '계정이 연동되지 않았습니다.' }));
+      // #463: textDelta 없음 — streamedText 비어서 fallback 발동
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
@@ -475,7 +482,6 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
       (l) => labels.push(l),
     );
     expect(labels).not.toContain('메일 전문가에게 위임 중');
-    expect(streamed.join('')).not.toContain('계정이 연동되지 않았습니다.');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.widgets).toBeNull();
     expect(out.pendingActions).toEqual([]);
@@ -502,12 +508,13 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     expect(out.fullText).toBe('메일 계정: test@example.com');
   });
 
-  it('비메일 쿼리 + 위임 없음 + router 사이드카 → respond_chat 답 반환', async () => {
+  it('비메일 쿼리 + 위임 없음 + streamedText → prose 답 반환', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('안녕하세요.')); // #463: textDelta → streamedText → fullText
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ router: '안녕하세요.' });
+    mockSidecars({});
     const labels: string[] = [];
     const out = await runAiComposeStream(
       baseInput({ query: '오늘 할 일 알려줘' }),
@@ -542,10 +549,10 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     expect(out.fullText).toBe('김민수(kim@test.com) 연락처가 추가되었습니다.');
   });
 
-  it('순수 "이메일" 키워드 + 위임 없음 + 사이드카 없음 → fallback', async () => {
+  it('순수 "이메일" 키워드 + 위임 없음 + streamedText 없음 + 사이드카 없음 → fallback', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta('이메일 확인해볼게요.'));
-      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '이메일 확인해볼게요.' }));
+      // #463: textDelta 없음 — streamedText 비어서 fallback 발동
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
@@ -561,8 +568,8 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
   });
 
-  // #439→#381: 라우터가 위임 없이 "없습니다" 환각 prose 를 흘려도 delta 는 사용자에게 안 나간다.
-  it('#439 회귀: 라우터 미읽은 메일 환각 prose → delta 미emit + fallback 반환', async () => {
+  // #439→#463: 라우터가 위임 없이 prose 를 스트리밍하면 그것이 그대로 답이 된다(streamedText).
+  it('#439→#463: 라우터 미읽은 메일 prose → streamedText 가 fullText, onText 미호출', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(textDelta('현재 받은편지함에 미읽은 메일이 없습니다.'));
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '현재 받은편지함에 미읽은 메일이 없습니다.' }));
@@ -570,14 +577,19 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     });
     mockSidecars({});
     const streamed: string[] = [];
+    const deltas: string[] = [];
     const out = await runAiComposeStream(
       baseInput({ query: '미읽은 메일 요약해줘' }),
       { client: fakeClient },
       (t) => streamed.push(t),
       new AbortController().signal,
+      undefined, undefined,
+      (t) => deltas.push(t),
     );
-    expect(streamed.join('')).not.toContain('받은편지함에 미읽은 메일이 없습니다');
-    expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
+    // onText 는 미호출 — 라우터 prose 는 이미 onDelta 로 나감
+    expect(streamed).toHaveLength(0);
+    expect(deltas).toEqual(['현재 받은편지함에 미읽은 메일이 없습니다.']);
+    expect(out.fullText).toBe('현재 받은편지함에 미읽은 메일이 없습니다.');
   });
 
   // #439→#381: 위임 확정 후 mail-agent 답은 submit_response 사이드카로 도착(토큰 스트리밍 없음, done 후 1회).
@@ -604,10 +616,10 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
 
 // #408→#381: contacts 직접-응답 fallback override 는 삭제됨. 연락처는 위임 → 사이드카로 답한다.
 describe('runAiComposeStream — contacts 위임 답 / 미위임 fallback (#381, ex-#408)', () => {
-  it('연락처 쿼리 + 위임 없음 + 사이드카 없음 → fallback (라우터 prose 미사용)', async () => {
+  it('연락처 쿼리 + 위임 없음 + streamedText 없음 + 사이드카 없음 → fallback', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta('어떤 연락처를 찾고 계신가요?'));
-      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '어떤 연락처를 찾고 계신가요?' }));
+      // #463: textDelta 없음 — streamedText 비어서 fallback 발동
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
@@ -621,7 +633,6 @@ describe('runAiComposeStream — contacts 위임 답 / 미위임 fallback (#381,
       (l) => labels.push(l),
     );
     expect(labels).not.toContain('연락처 전문가에게 위임 중');
-    expect(streamed.join('')).not.toContain('어떤 연락처를 찾고 계신가요?');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.widgets).toBeNull();
     expect(out.pendingActions).toEqual([]);
@@ -647,12 +658,13 @@ describe('runAiComposeStream — contacts 위임 답 / 미위임 fallback (#381,
     expect(out.fullText).toBe('현재 등록된 연락처가 없습니다.');
   });
 
-  it('비연락처 쿼리 + 위임 없음 + router 사이드카 → respond_chat 답 반환', async () => {
+  it('비연락처 쿼리 + 위임 없음 + streamedText → prose 답 반환', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('안녕하세요.')); // #463: textDelta → streamedText → fullText
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ router: '안녕하세요.' });
+    mockSidecars({});
     const labels: string[] = [];
     const out = await runAiComposeStream(
       baseInput({ query: '오늘 일정 알려줘' }),
@@ -689,10 +701,10 @@ describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex
     expect(out.pendingActions).toEqual([]);
   });
 
-  it('드라이브 멤버 권한 변경 쿼리 + 위임 없음 + 사이드카 없음 → fallback (prose 미사용)', async () => {
+  it('드라이브 멤버 권한 변경 쿼리 + 위임 없음 + streamedText 없음 → fallback', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta('멤버를 추가하겠습니다.'));
-      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '멤버를 추가하겠습니다.' }));
+      // #463: textDelta 없음 — streamedText 비어서 fallback 발동
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
@@ -771,10 +783,10 @@ describe('runAiComposeStream — wiki 위임 답 / 미위임 fallback (#381, ex-
     expect(out.pendingActions).toEqual([]);
   });
 
-  it('위키 페이지 지워줘 쿼리 + 위임 없음 + 사이드카 없음 → fallback (prose 미사용)', async () => {
+  it('위키 페이지 지워줘 쿼리 + 위임 없음 + streamedText 없음 → fallback', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta('위키 페이지를 삭제하겠습니다.'));
-      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '위키 페이지를 삭제하겠습니다.' }));
+      // #463: textDelta 없음 — streamedText 비어서 fallback 발동
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
@@ -856,13 +868,14 @@ describe('runAiComposeStream — proposal approval hallucination guard (#400, #4
     expect(out.pendingActions.length).toBeGreaterThan(0);
   });
 
-  it('일반 쿼리("네 알겠어")는 제안 컨텍스트 없으면 guard 미적용(사이드카 답 통과)', async () => {
+  it('일반 쿼리("네 알겠어")는 제안 컨텍스트 없으면 guard 미적용(streamedText 답 통과)', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('안녕하세요.')); // #463: textDelta → streamedText → fullText
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    // 제안 컨텍스트 없음 → guard 미발동, router 사이드카 답이 그대로 반환.
-    mockSidecars({ router: '안녕하세요.' });
+    // 제안 컨텍스트 없음 → guard 미발동, streamedText 답이 그대로 반환.
+    mockSidecars({});
     const out = await runAiComposeStream(
       baseInput({ query: '네 알겠어', recentContext: [] }),
       { client: fakeClient },
@@ -968,13 +981,14 @@ describe('runAiComposeStream — SDK 내부 메시지 누수 가드 (#381, ex-#3
     expect(out.pendingActions).toEqual([]);
   });
 
-  it('정상 안내는 router 사이드카 답으로 그대로 반환', async () => {
+  it('정상 안내는 streamedText(textDelta) 로 그대로 반환', async () => {
     const normalResp = '일정 삭제 취소는 확인 카드를 무시하시면 됩니다.';
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta(normalResp)); // #463: textDelta → streamedText → fullText
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ router: normalResp });
+    mockSidecars({});
     const out = await runAiComposeStream(baseInput({ query: '일정 삭제 취소해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(normalResp);
   });
@@ -1004,12 +1018,13 @@ describe('runAiComposeStream — 내부 식별자 누수 가드 (#381, ex-#410)'
     expect(out.fullText).not.toContain('contacts-agent');
   });
 
-  it('정상 답은 사이드카에서 그대로 반환(식별자 없음)', async () => {
+  it('정상 답은 streamedText(textDelta) 로 그대로 반환(식별자 없음)', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('일정을 확인하겠습니다.')); // #463: textDelta → streamedText
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ router: '일정을 확인하겠습니다.' });
+    mockSidecars({});
     const out = await runAiComposeStream(baseInput({ query: '오늘 일정 알려줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('일정을 확인하겠습니다.');
   });
@@ -1039,27 +1054,30 @@ describe('runAiComposeStream — 한국어 에이전트 식별자 누수 가드 
     expect(out.fullText).toBe('죄송합니다, 잠시 후 다시 시도해 주세요.');
   });
 
-  it('라우터 delta/result 의 "메일 에이전트가" prose 는 delta·fullText 어디에도 안 나간다', async () => {
-    const leaked = '현재 메일 에이전트가 응답하지 않습니다.';
+  it('#426→#463: 라우터 textDelta 는 onDelta 로 emit — streamed(onText) 에는 안 나간다', async () => {
+    // #463: textDelta 는 onDelta 로 라이브 emit 됨. onText(streamed) 에는 도달 안 함.
+    const prose = '오늘 할 일 목록을 보여드릴게요.';
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta(leaked));
-      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: leaked }));
+      onLine(textDelta(prose));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: prose }));
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
     const streamed: string[] = [];
-    const out = await runAiComposeStream(baseInput({ query: '할 일 알려줘' }), { client: fakeClient }, (t) => streamed.push(t), new AbortController().signal);
-    expect(streamed.join('')).not.toContain('메일 에이전트');
-    expect(out.fullText).not.toContain('메일 에이전트');
-    expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
+    const deltas: string[] = [];
+    const out = await runAiComposeStream(baseInput({ query: '할 일 알려줘' }), { client: fakeClient }, (t) => streamed.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    expect(streamed).toHaveLength(0); // onText 는 미호출
+    expect(deltas).toContain(prose);  // onDelta 로 emit 됨
+    expect(out.fullText).toBe(prose); // streamedText 가 fullText
   });
 
-  it('정상 답(식별자 없음)은 router 사이드카로 그대로 반환', async () => {
+  it('정상 답(식별자 없음)은 streamedText 로 그대로 반환', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('에이전트가 처리합니다.')); // #463: textDelta → streamedText
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ router: '에이전트가 처리합니다.' });
+    mockSidecars({});
     const out = await runAiComposeStream(baseInput({ query: '할 일 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('에이전트가 처리합니다.');
   });
@@ -1221,12 +1239,13 @@ describe('runAiComposeStream — 이슈 enum 답은 사이드카 그대로 (#381
     expect(streamed).toBe('상태: 진행 중, 우선순위: 높음');
   });
 
-  it('사이드카 답에 도구명 류 텍스트가 있으면 그대로 보존(sanitize 없음)', async () => {
+  it('streamedText 에 도구명 류 텍스트가 있으면 그대로 보존(sanitize 없음)', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      onLine(textDelta('update_status(DONE) 호출합니다.')); // #463: textDelta → streamedText
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ router: 'update_status(DONE) 호출합니다.' });
+    mockSidecars({});
     const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('update_status(DONE) 호출합니다.');
   });
@@ -1578,9 +1597,9 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     expect(streamed).toContain('폴더 삭제 제안을 등록했습니다.');
   });
 
-  it('drive 쿼리 + 위임 미발생 + 사이드카 없음 → preamble delta 미emit + fallback 1회', async () => {
+  it('drive 쿼리 + 위임 미발생 + streamedText 없음 → fallback 1회(onText)', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta('위임하겠습니다.드라이브에서 파일을 직접 찾아 처리하겠습니다.'));
+      // #463: textDelta 없음 — streamedText 비어서 fallback 발동
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
@@ -1588,8 +1607,6 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     const got: string[] = [];
     await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(got).toHaveLength(1);
-    expect(got[0]).not.toContain('위임하겠습니다.');
-    expect(got[0]).not.toContain('직접 찾아 처리하겠습니다.');
     expect(got[0]).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
   });
 
@@ -1611,17 +1628,18 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     expect(labels).toContain('드라이브 전문가에게 위임 중');
   });
 
-  it('비드라이브 인사 쿼리 → router 사이드카 답 반환', async () => {
+  it('비드라이브 인사 쿼리 → streamedText(textDelta) 답 반환', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
-      onLine(textDelta('안녕하세요. 무엇을 도와드릴까요?'));
+      onLine(textDelta('안녕하세요. 무엇을 도와드릴까요?')); // #463: textDelta → streamedText
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
-    mockSidecars({ router: '안녕하세요. 무엇을 도와드릴까요?' });
-    const got: string[] = [];
-    const out = await runAiComposeStream(baseInput({ query: '안녕하세요' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    mockSidecars({});
+    const got: string[] = []; // onText — streamedText 는 onDelta 경유라 got 에 없음
+    const deltas: string[] = [];
+    const out = await runAiComposeStream(baseInput({ query: '안녕하세요' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
     expect(out.fullText).toBe('안녕하세요. 무엇을 도와드릴까요?');
-    expect(got.join('')).toContain('안녕하세요. 무엇을 도와드릴까요?');
+    expect(deltas.join('')).toContain('안녕하세요. 무엇을 도와드릴까요?');
   });
 });
 

@@ -52,9 +52,6 @@ export function writeTempMcpConfig(opts: {
   // #376: 요청자 userId — MCP 서버가 X-On-Behalf-Of 를 assistantAgentId 대신 이 값으로 설정해
   // 드라이브·캘린더 등 사용자 귀속 리소스를 올바른 userId 기준으로 접근한다.
   userId?: number;
-  // #381: 라우터가 respond_chat 으로 단순 응답을 기록할 사이드카 절대경로.
-  // 설정 시 run-ai-compose 가 이 파일을 라우터 답으로 읽는다(pure_chat).
-  routerResponsePath?: string;
   // #381: 서브에이전트가 submit_response 로 최종 답변을 기록할 사이드카 절대경로.
   // 설정 시 run-ai-compose 가 위임 답으로 우선 읽는다.
   subagentResponsePath?: string;
@@ -81,8 +78,6 @@ export function writeTempMcpConfig(opts: {
           // #376: userId 가 주어지면 MCP child 에도 ACTING_USER_ID 주입. MCP 서버는 claude CLI 가
           // 별도 child process 로 spawn 하므로 buildChildEnv 만으로는 전달이 안 된다.
           ...(opts.userId !== undefined ? { ACTING_USER_ID: String(opts.userId) } : {}),
-          // #381: respond_chat 사이드카 경로. 없으면 핸들러가 답을 기록하지 못하고 ack 만 반환.
-          ...(opts.routerResponsePath ? { WORKPLACE_ROUTER_RESPONSE_PATH: opts.routerResponsePath } : {}),
           // #381: submit_response 사이드카 경로. 없으면 핸들러가 답을 기록하지 못하고 ack 만 반환.
           ...(opts.subagentResponsePath ? { WORKPLACE_SUBAGENT_RESPONSE_PATH: opts.subagentResponsePath } : {}),
           // Task 1-2: 도구 호출 로깅 사이드카 경로. 없으면 핸들러가 로깅하지 못함.

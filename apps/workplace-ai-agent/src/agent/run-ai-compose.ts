@@ -18,7 +18,7 @@ import { loadSubagents, writeSubagentDefinitions } from './subagent-loader.js';
 import { checkSubagentWhitelist } from './tool-policy.js';
 import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
 import { buildChildEnv, buildCliArgs, runClaudeCliStream } from './cli-runner.js';
-import { parseComposeLines } from './compose-parser.js';
+import { parseComposeLines, extractRouterTextDelta } from './compose-parser.js';
 import { thinkingDirective } from './thinking.js';
 import type { RunAgentDeps } from './run-agent.js';
 
@@ -177,10 +177,11 @@ export function readPendingActions(sidecarPath: string): unknown[] {
   }
 }
 
-// SSE 라우트용 스트리밍 러너 — 완료 후 구조화된 답(respond_chat/submit_response 사이드카)을 onText 로 1회 emit하고,
+// SSE 라우트용 스트리밍 러너 — 라우터 자유 prose 를 onDelta 로 라이브 emit 하고,
+// 서브에이전트 위임 답은 submit_response 사이드카에서 onText 로 1회 emit 한다.
 // parseComposeLines 로 위젯을 산출해 반환한다.
 // #333: assistant 프로파일 + per-request workdir + allowSubagents + 화이트리스트 강제.
-// #381: 라우터 text_delta 는 사용자에게 emit 하지 않는다(자유 prose 차단). 답 텍스트는 사이드카에서만 온다.
+// #463: respond_chat 제거 → 라우터는 자연 prose 로 직접 답변. parent_tool_use_id null 필터로 서브에이전트 누수 방지.
 // signal abort 시 하위 CLI child 를 kill 해 자원 누수를 막는다(wiki 러너와 동일 패턴).
 export async function runAiComposeStream(
   input: ComposeInput,
@@ -189,6 +190,7 @@ export async function runAiComposeStream(
   signal: AbortSignal,
   onProgress?: (label: string) => void, // #333: Agent 위임 시작 시 호출('이슈 전문가에게 위임 중')
   onTool?: (line: ToolUseLine) => void, // 도구 호출 라이브 발행(사이드카 테일)
+  onDelta?: (text: string) => void, // #463: 라우터 자유 prose 라이브 스트리밍(text_delta 단위)
 ): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; usage: import('./compose-parser.js').Usage | null }> {
   // #405: 생성일 필터 쿼리 — LLM 호출 전 결정론적으로 차단. dueFrom 오해석 방지.
   if (isCreatedDateFilterQuery(input.query)) {
@@ -238,8 +240,7 @@ export async function runAiComposeStream(
     // #406: unassign_self 성공 시 MCP 핸들러가 기록할 사이드카.
     // CLI 종료 후 이 파일이 없으면(= 도구 미호출) 직접 API 재처리를 시도한다.
     const unassignSuccessPath = path.join(workDir, 'unassign-success.json');
-    // #381: 라우터(respond_chat) / 서브에이전트(submit_response) 답 사이드카 경로.
-    const routerResponsePath = path.join(workDir, 'router-response.json');
+    // #463: 서브에이전트(submit_response) 답 사이드카 경로. respond_chat(routerResponsePath) 제거.
     const subagentResponsePath = path.join(workDir, 'subagent-response.json');
     mcpConfigPath = writeTempMcpConfig({
       agentId,
@@ -250,7 +251,6 @@ export async function runAiComposeStream(
       unassignErrorPath, // #378: unassign_self 실패 사이드카(절대경로)
       unassignSuccessPath, // #406: unassign_self 성공 사이드카(절대경로)
       userId: input.userId, // #376: MCP child env 에도 ACTING_USER_ID 전달
-      routerResponsePath, // #381: respond_chat 사이드카(절대경로)
       subagentResponsePath, // #381: submit_response 사이드카(절대경로)
       toolUseLogPath, // 도구 호출 로깅 사이드카
     });
@@ -279,6 +279,8 @@ export async function runAiComposeStream(
     // 드라이브·캘린더 등 사용자 귀속 리소스를 assistantAgentId 아닌 실제 요청자 기준으로 조회.
     const env = buildChildEnv(process.env, token, agentId, input.userId);
     const lines: string[] = [];
+    // #463: 라우터 자유 prose 를 onDelta 로 라이브 emit 하면서 동시에 누적. CLI 완료 후 답 결정에 사용.
+    let streamedText = '';
     // #333: 화이트리스트 위반 감지 플래그 + 즉시-kill 홀더(Finding 1).
     // killer 홀더를 먼저 선언해 onLine 콜백 안에서 TDZ 없이 참조 가능하도록 한다.
     let policyDeny: string | null = null;
@@ -322,8 +324,13 @@ export async function runAiComposeStream(
         } catch {
           return; // 비JSON 라인 무시
         }
-        // #381: 라우터 text_delta 는 사용자에게 emit 하지 않는다(자유 prose 차단 불변식).
-        //   답 텍스트는 done 후 respond_chat/submit_response 사이드카에서만 결정된다.
+        // #463: 라우터 자기 text_delta 를 라이브 emit(parent_tool_use_id null 필터 — 서브에이전트 누수 방지).
+        //   누적한 streamedText 를 CLI 완료 후 답 결정 우선순위 2위로 사용한다.
+        const delta = extractRouterTextDelta(obj);
+        if (delta) {
+          streamedText += delta;
+          onDelta?.(delta);
+        }
         // #333: assistant tool_use 중 Agent 위임을 검사·라벨링한다.
         const o = obj as {
           type?: string;
@@ -445,54 +452,51 @@ export async function runAiComposeStream(
         // 사이드카 파싱 실패 — LLM 응답을 그대로 사용
       }
     }
-    // parseComposeLines 로 위젯(tool_use 이벤트)만 산출한다. 텍스트(result 이벤트)는 라우터 prose 이므로 쓰지 않는다(#381).
+    // #463: parseComposeLines 로 위젯(tool_use 이벤트)만 산출. 텍스트는 아래 우선순위로 결정한다.
     const parsed = parseComposeLines(lines);
     // #404: show_issue_detail 위젯 중 존재하지 않는 이슈 번호를 서버 검증으로 드롭한다.
     const filteredWidgets = await filterIssueDetailWidgets(parsed.widgets, deps.client, agentId);
     const widgets = filteredWidgets.length > 0 ? filteredWidgets : null;
-    // #381: 답 텍스트 결정(우선순위) — 라우터 자유 prose 는 절대 사용하지 않는다.
-    //   1) submit_response 사이드카(위임 답) → 2) respond_chat 사이드카(pure_chat)
-    //   → 3) pendingActions 있으면 제안 안내(서브에이전트가 propose 만 하고 submit_response 누락 시)
-    //   → 4) 위젯만 있으면 빈 텍스트(plan §3 — show_* 단독 호출 시 fallback 문구 오노출 방지)
-    //   → 5) 결정적 fallback
+    // #463: 답 텍스트 결정(우선순위)
+    //   1) submit_response 사이드카(위임 답) — 서브에이전트가 직접 작성한 텍스트
+    //   2) streamedText — onDelta 로 이미 라이브 emit 된 라우터 prose(별도 onText 불필요)
+    //   3) pendingActions 있으면 제안 안내(서브에이전트가 propose 만 하고 submit_response 누락 시)
+    //   4) 위젯만 있으면 빈 텍스트(show_* 단독 호출 — fallback 문구 오노출 방지)
+    //   5) 결정적 fallback
     const subagentText = readResponseSidecar(subagentResponsePath);
-    const routerText = readResponseSidecar(routerResponsePath);
     let answerText: string;
     if (subagentText) {
+      // 위임 답은 onText 로 1회 emit(onDelta 미경유 — 최종 완성 텍스트).
       answerText = subagentText;
-    } else if (routerText) {
-      answerText = routerText;
+      onText(answerText);
+    } else if (streamedText.trim()) {
+      // 라우터 prose 는 이미 onDelta 로 라이브 emit 됨 — onText 재호출 불필요.
+      answerText = streamedText;
     } else if (pendingActions.length > 0) {
-      // #381 후속: propose 도구는 호출돼 확인 카드(pending_action)는 발행됐으나 서브에이전트가
-      // submit_response 를 누락한 경우. fallback("처리하지 못했어요")은 확인 카드와 모순되므로,
-      // 제안이 준비됐다는 결정적 안내로 대체한다(모델의 submit_response 호출에 비의존).
+      // #381 후속: propose 도구 호출됐으나 submit_response 누락. 확인 카드와 모순되지 않는 결정적 안내.
       answerText = '요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.';
-      log.warn('ai-compose', 'fallback', {
-        requestId: input.requestId,
-        reason: 'pending_action_only',
-      });
+      onText(answerText);
     } else if (widgets) {
-      answerText = ''; // 위젯만 표시 — 빈 텍스트(빈 버블 emit 안 함)
+      answerText = ''; // 위젯만 표시 — 빈 버블 emit 안 함
     } else {
       answerText = ROUTER_FALLBACK_TEXT;
-      log.warn('ai-compose', 'fallback', { requestId: input.requestId, reason: 'no_sidecar' });
+      onText(answerText);
+      log.warn('ai-compose', 'fallback', { requestId: input.requestId, reason: 'no_output' });
     }
-    // 빈 텍스트는 onText 로 emit 하지 않는다(빈 버블 방지).
-    if (answerText) onText(answerText);
     // #432: 라우터 CLI result 이벤트의 토큰 사용량을 done 이벤트로 전달(LLM 인증 비용 가시화).
     log.info('ai-compose', 'cli_done', {
       requestId: input.requestId,
-      routerSidecar: !!routerText,
       subagentSidecar: !!subagentText,
+      streamedChars: streamedText.length,
       widgetCount: widgets ? widgets.length : 0,
     });
-    // #458: 트랜스크립트 종료 레코드 — 최종 답·위젯·사용량·답 출처(사이드카). 라인별 ts 와 합쳐 전체 분석.
+    // #458: 트랜스크립트 종료 레코드 — 최종 답·위젯·사용량·답 출처. 라인별 ts 와 합쳐 전체 분석.
     transcriptResult(input.requestId, {
       answerText,
       widgetCount: widgets ? widgets.length : 0,
       pendingActionCount: pendingActions.length,
       usage: parsed.usage,
-      source: subagentText ? 'subagent' : routerText ? 'router' : widgets ? 'widget' : 'fallback',
+      source: subagentText ? 'subagent' : streamedText.trim() ? 'router_prose' : widgets ? 'widget' : 'fallback',
     });
     return { fullText: answerText, widgets, pendingActions, usage: parsed.usage };
   } finally {

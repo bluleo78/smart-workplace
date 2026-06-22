@@ -286,37 +286,7 @@ describe('buildTools(assistant)', () => {
     expect(buildTools({} as never, 1, 'assistant').map((t) => t.name)).toContain('propose_create_event');
   });
 
-  // #381: 라우터 구조화 출력 — respond_chat/submit_response 가 답 사이드카에 {text} 를 기록.
-  it('respond_chat 은 router 사이드카에 {text} 를 기록하고 ack 반환', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'rc-'));
-    const sidecar = path.join(dir, 'router-response.json');
-    process.env.WORKPLACE_ROUTER_RESPONSE_PATH = sidecar;
-    try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'respond_chat')!;
-      const ack = await tool.handler({ text: '안녕하세요! 무엇을 도와드릴까요?' });
-      expect(typeof ack).toBe('string');
-      expect(JSON.parse(readFileSync(sidecar, 'utf8')).text).toBe('안녕하세요! 무엇을 도와드릴까요?');
-    } finally {
-      delete process.env.WORKPLACE_ROUTER_RESPONSE_PATH;
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  // #381: first-write-guard — 이미 답이 있으면 덮지 않는다(위임 시 subagent 답을 라우터가 못 덮게).
-  it('respond_chat first-write-guard — 기존 사이드카를 덮지 않는다', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'rc-guard-'));
-    const sidecar = path.join(dir, 'router-response.json');
-    writeFileSync(sidecar, JSON.stringify({ text: '먼저 쓰인 답' }), 'utf8');
-    process.env.WORKPLACE_ROUTER_RESPONSE_PATH = sidecar;
-    try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'respond_chat')!;
-      await tool.handler({ text: '나중 답(무시되어야 함)' });
-      expect(JSON.parse(readFileSync(sidecar, 'utf8')).text).toBe('먼저 쓰인 답');
-    } finally {
-      delete process.env.WORKPLACE_ROUTER_RESPONSE_PATH;
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+  // #463: respond_chat 제거됨 — 라우터는 자유 prose 로 직접 답한다. submit_response 만 잔존.
 
   // #381: submit_response 는 subagent 사이드카에 {text} 를 기록(위임 답 경로).
   it('submit_response 는 subagent 사이드카에 {text} 를 기록한다', async () => {
@@ -333,10 +303,11 @@ describe('buildTools(assistant)', () => {
     }
   });
 
-  it('assistant union 에 respond_chat / submit_response 가 포함된다', () => {
+  // #463: respond_chat 제거 — submit_response 만 잔존.
+  it('assistant union 에 submit_response 가 포함되고 respond_chat 은 없다', () => {
     const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
-    expect(names).toContain('respond_chat');
     expect(names).toContain('submit_response');
+    expect(names).not.toContain('respond_chat');
   });
 
   // #395: 새 일정 충돌을 서버에서 결정론적으로 조회해 제안에 embed (모델 list_events 호출에 비의존).
