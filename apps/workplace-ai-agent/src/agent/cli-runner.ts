@@ -29,7 +29,9 @@ const BASE_DISALLOWED = [
   'Agent',
   'Task', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate',
   'TodoWrite',
-  'Skill', 'ToolSearch', 'SlashCommand',
+  'Skill', 'ToolSearch',
+  // SlashCommand 는 제외: 아래 --disable-slash-commands 로 이미 비활성화되어
+  // CLI 의 '알려진 도구'가 아니다. deny 목록에 두면 매칭 실패 경고만 남는다(#457).
   'AskUserQuestion', 'SendUserFile', 'ScheduleWakeup', 'ShareOnboardingGuide',
   'Monitor', 'LSP',
 ];

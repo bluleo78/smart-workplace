@@ -13,6 +13,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.outbound.AiAgentComposeClient;
+import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
@@ -308,6 +309,41 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
     // tool 항목(kind:tool, toolName, status:done) 포함 검증
     assertThat(toolCallsStr).contains("update_issue_status");
     assertThat(toolCallsStr).contains("done");
+  }
+
+  /**
+   * #456: compose 가 ai-agent 로 보내는 ComposeRequest 의 timeoutMs 가 compose 하한(180s)으로 상향되는지 검증.
+   *
+   * <p>비서 기본 timeoutMs 는 60s(AssistantDefaults.TIMEOUT_MS)인데, Global Chat 은 다중 도메인 위임으로 60s 를 종종
+   * 초과한다. compose 경로는 하한을 적용해 ≥180s 를 전달해야 한다. 상수 비교가 아닌 실제 전송된 요청 본문을 캡처해 검증한다.
+   */
+  @Test
+  void compose_요청_timeoutMs_를_180s_하한으로_상향한다() throws Exception {
+    long uid = createAgentUser("fwd-timeout-floor");
+    // 기본 비서: timeoutMs=60000 (공유 기본값).
+    stubAssistant();
+
+    CountDownLatch latch = new CountDownLatch(1);
+    var reqCaptor = org.mockito.ArgumentCaptor.forClass(ComposeRequest.class);
+    doAnswer(
+            inv -> {
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("처리했어요", null);
+              latch.countDown();
+              return null;
+            })
+        .when(composeClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    List<SentEvent> captured = new ArrayList<>();
+    serviceCapturing(captured).composeStream(uid, null, "오늘 일정 확인 + 메일도");
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // 전송된 ComposeRequest 를 캡처해 timeoutMs 가 하한(180_000)으로 상향됐는지 검증.
+    org.mockito.Mockito.verify(composeClient)
+        .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
+    assertThat(reqCaptor.getValue().timeoutMs()).isEqualTo(180_000);
   }
 
   /**
