@@ -3,8 +3,9 @@ import { useCallback, useRef, useState } from 'react';
 
 import { homeApi } from '@/api/home';
 import { composeStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
+import { widgetTypeFromToolName } from '@/lib/aiToolLabels';
 import { handleApiError } from '@/lib/api-error';
-import type { ChatTurn, PendingAction, ToolEventDto } from '@/types/home';
+import type { ChatTurn, PendingAction, ToolEventDto, WidgetSpec, WidgetType } from '@/types/home';
 
 /**
  * 챗 전용 세션 상태 코디네이터 — sessionId / 대화 transcript 를 한 곳에서 전이.
@@ -94,13 +95,27 @@ export function useChatSession() {
             const last = next[next.length - 1];
             if (last?.role !== 'assistant') return t;
             const steps = [...(last.steps ?? [])];
+            // #461: 점진 렌더 — show_* 도구는 done 을 기다리지 않고 도착 즉시 위젯을 누적해
+            // 인라인 렌더한다(체감 지연 단축). done 이벤트가 최종 위젯 목록으로 덮어쓰므로
+            // (authoritative) 여기 누적은 조기 표시용이며 같은 순서·내용이라 깜빡임이 없다.
+            let widgets = last.widgets;
             if (evt.phase === 'start') {
               steps.push({ kind: 'tool', seq: evt.seq, toolName: evt.toolName, args: evt.args, status: 'running' });
+              const wtype = evt.toolName ? widgetTypeFromToolName(evt.toolName) : null;
+              if (wtype) {
+                const w: WidgetSpec = {
+                  type: wtype as WidgetType,
+                  params: (evt.args?.params as Record<string, unknown>) ?? {},
+                };
+                const layout = evt.args?.layout as WidgetSpec['layout'] | undefined;
+                if (layout) w.layout = layout;
+                widgets = [...(last.widgets ?? []), w];
+              }
             } else {
               const idx = steps.findIndex((s) => s.kind === 'tool' && s.seq === evt.seq && s.status === 'running');
               if (idx !== -1) steps[idx] = { ...steps[idx], status: evt.isError ? 'error' : 'done' };
             }
-            next[next.length - 1] = { ...last, steps };
+            next[next.length - 1] = { ...last, steps, widgets };
             return next;
           });
         },

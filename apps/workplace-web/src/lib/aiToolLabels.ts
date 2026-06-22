@@ -49,6 +49,13 @@ export function getToolDisplay(toolName: string): { label: string; icon: string 
   return TOOL_LABELS[strip(toolName)] ?? { label: strip(toolName), icon: '🔧' };
 }
 
+// #461: show_* 도구명에서 위젯 타입 추출(점진 렌더용). 백엔드 compose-parser 와 동일 규칙.
+// 'mcp__workplace__show_calendar' / 'show_calendar' → 'calendar'. show_* 가 아니면 null.
+export function widgetTypeFromToolName(toolName: string): string | null {
+  const m = /show_([a-z_]+)$/.exec(strip(toolName));
+  return m ? m[1] : null;
+}
+
 // 표시 제외: 위젯(show_*)·내부 응답 배관(respond_chat/submit_response)·제안(propose_* → 확인 카드 중복).
 export function isDisplayableTool(toolName: string): boolean {
   const n = strip(toolName);
