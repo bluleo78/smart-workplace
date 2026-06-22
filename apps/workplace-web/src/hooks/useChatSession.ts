@@ -61,7 +61,9 @@ export function useChatSession() {
             const next = [...t];
             const last = next[next.length - 1];
             if (!last || last.role !== 'assistant') return t; // 방어 — turns 가 리셋된 경우 skip.
-            next[next.length - 1] = { role: 'assistant', content: last.content + delta };
+            // ...last 로 steps/widgets 등 기존 필드 보존 — delta 가 turn 을 통째 교체하면
+            // 도구 호출 단계(steps)가 최종 응답 도착 순간 사라진다(#449).
+            next[next.length - 1] = { ...last, content: last.content + delta };
             return next;
           });
         },

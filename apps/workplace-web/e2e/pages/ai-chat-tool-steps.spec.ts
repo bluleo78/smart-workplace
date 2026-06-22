@@ -77,6 +77,13 @@ test('도구 호출이 인라인으로 중첩 렌더되고 상태가 done(✓) �
 
   // 최종 delta 텍스트가 말풍선에 렌더된다.
   await expect(page.getByTestId('chat-panel')).toContainText('상태를 변경했어요.')
+
+  // 회귀(#449): 최종 응답(delta) 도착 후에도 도구 행/위임 헤더가 사라지지 않고 잔존한다.
+  // delta 핸들러가 turn 을 교체할 때 steps 를 보존해야 한다(과거 ...last 누락으로 done 순간 증발).
+  await expect(page.getByTestId('tool-step-delegation')).toBeVisible()
+  await expect(toolRow).toBeVisible()
+  await expect(toolRow).toContainText('상태 변경')
+  await expect(toolRow).toContainText('✓')
 })
 
 // ── 케이스 2: 오류 상태(✗ 실패) ─────────────────────────────────────────────
