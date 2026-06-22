@@ -2,11 +2,14 @@
 // 본문에 비서 설정(assistantAgentId/model/thinkingDepth/maxTurns/timeoutMs) + 쿼리를 포함한다(#50).
 // 토큰은 event: delta 로 점진 발행, 종료는 event: done {fullText, widgets}, 실패는 event: error.
 // 연결 종료(req close) 시 AbortController 로 하위 CLI child 를 kill 해 자원 누수를 막는다.
+import { randomUUID } from 'node:crypto';
+
 import { Router } from 'express';
 import { z } from 'zod';
 
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiComposeStream } from '../agent/run-ai-compose.js';
+import { log } from '../logger.js';
 
 export const composeSchema = z.object({
   // 공백 전용 쿼리("   ")는 trim 후 min(1) 검사로 거부 (#430).
@@ -40,6 +43,21 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
+    // 요청별 고유 ID 생성 — 시작/완료/오류 로그를 end-to-end 로 추적하기 위해 사용한다.
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+    const d = parsed.data;
+    log.info('ai-compose', 'start', {
+      requestId,
+      agentId: d.assistantAgentId,
+      userId: d.userId,
+      model: d.model,
+      thinkingDepth: d.thinkingDepth,
+      maxTurns: d.maxTurns,
+      queryLen: d.query.length,
+      query: d.query.slice(0, 200),
+    });
+
     // 연결 종료 감지 — abort 시 (1) 추가 write 중단, (2) 하위 CLI child kill.
     // 단, 정상 종료(res.end 후)로 인한 close 는 무시한다(이미 끝난 응답을 abort 로 오인 금지).
     let aborted = false;
@@ -52,7 +70,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
 
     try {
       const result = await runAiComposeStream(
-        parsed.data,
+        { ...parsed.data, requestId },
         deps,
         (text) => {
           if (aborted) return;
@@ -73,9 +91,23 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         // #432: done 이벤트에 토큰 사용량(usage) 포함 — 없으면 null.
         res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets, usage: result.usage })}\n\n`);
         res.end();
+        log.info('ai-compose', 'done', {
+          requestId,
+          durationMs: Date.now() - startedAt,
+          answerLen: result.fullText.length,
+          widgetCount: Array.isArray(result.widgets) ? result.widgets.length : 0,
+        });
+      } else {
+        // 클라이언트 연결이 끊긴 채 완료 — 중단으로 기록.
+        log.info('ai-compose', 'aborted', { requestId, durationMs: Date.now() - startedAt });
       }
     } catch (e) {
       console.error('[ai-compose] 실패:', e instanceof Error ? e.message : String(e));
+      log.error('ai-compose', 'error', {
+        requestId,
+        durationMs: Date.now() - startedAt,
+        error: e instanceof Error ? e.message : String(e),
+      });
       // 연결이 살아 있을 때만 error 발행(닫힌 소켓 write → EPIPE 방지).
       if (!aborted) {
         res.write(`event: error\ndata: ${JSON.stringify({ message: 'compose_failed' })}\n\n`);

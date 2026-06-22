@@ -6,6 +6,9 @@ vi.mock('../agent/run-ai-compose.js', () => ({
   runAiComposeStream: vi.fn(),
 }));
 
+const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('../logger.js', () => ({ log: logMock }));
+
 import { createHomeRouter, composeSchema } from './home.js';
 import { runAiComposeStream } from '../agent/run-ai-compose.js';
 
@@ -145,5 +148,35 @@ describe('POST /ai/compose', () => {
       expect.any(AbortSignal),
       expect.any(Function),
     );
+  });
+});
+
+describe('/ai/compose 로그', () => {
+  beforeEach(() => {
+    logMock.info.mockClear();
+    logMock.error.mockClear();
+  });
+
+  it('요청 시작 시 start 로그를 requestId·query 와 함께 발행한다', async () => {
+    vi.mocked(runAiComposeStream).mockImplementation(async (_input, _deps, onText) => {
+      onText('답변');
+      return { fullText: '답변', widgets: null, pendingActions: [], usage: null };
+    });
+    await request(buildApp()).post('/ai/compose').send(validBody({ query: '내 현황' }));
+    const startCall = logMock.info.mock.calls.find((c) => c[1] === 'start');
+    expect(startCall).toBeTruthy();
+    expect(startCall![2]).toMatchObject({ query: expect.stringContaining('내 현황'), agentId: 7 });
+    expect(typeof startCall![2].requestId).toBe('string');
+  });
+
+  it('동일 requestId 가 start 와 done 에 함께 찍힌다', async () => {
+    vi.mocked(runAiComposeStream).mockImplementation(async (_input, _deps, onText) => {
+      onText('답변');
+      return { fullText: '답변', widgets: null, pendingActions: [], usage: null };
+    });
+    await request(buildApp()).post('/ai/compose').send(validBody());
+    const start = logMock.info.mock.calls.find((c) => c[1] === 'start');
+    const done = logMock.info.mock.calls.find((c) => c[1] === 'done');
+    expect(start![2].requestId).toBe(done![2].requestId);
   });
 });

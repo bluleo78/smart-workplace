@@ -7,6 +7,7 @@
 // 데이터 조회는 show_* 도구가 하지 않으므로 토큰은 순수 Claude LLM 인증용(데이터 권한과 무관).
 // 모델/생각의 깊이/maxTurns/timeoutMs 는 workplace-api 가 비서 설정을 해석해 요청 본문으로 전달한다(#50).
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { log } from '../logger.js';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ASSISTANT_SYSTEM_PROMPT, delegationLabel } from './assistant-system-prompt.js';
@@ -33,6 +34,8 @@ export interface ComposeInput {
   thinkingDepth: 'NONE' | 'NORMAL' | 'DEEP';
   maxTurns: number;
   timeoutMs: number;
+  // 요청 단위 추적 ID — 로그를 한 요청으로 묶는다(home.ts 가 생성·전달).
+  requestId?: string;
 }
 
 // #405: 생성일 필터 쿼리 감지 — "이번 주 생성된 이슈" 처럼 생성일 범위로 이슈를 조회하는 요청.
@@ -185,6 +188,10 @@ export async function runAiComposeStream(
 ): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; usage: import('./compose-parser.js').Usage | null }> {
   // #405: 생성일 필터 쿼리 — LLM 호출 전 결정론적으로 차단. dueFrom 오해석 방지.
   if (isCreatedDateFilterQuery(input.query)) {
+    log.warn('ai-compose', 'fallback', {
+      requestId: input.requestId,
+      reason: 'created_date_filter_blocked',
+    });
     return {
       fullText: '생성 날짜 필터는 지원하지 않습니다. 마감일(dueFrom/dueTo), 담당자, 상태, 우선순위 필터를 사용해 보세요.',
       widgets: null,
@@ -193,7 +200,23 @@ export async function runAiComposeStream(
     };
   }
   const agentId = input.assistantAgentId;
-  const token = (await deps.client.getOAuthToken(agentId)).token;
+  let token: string;
+  const tokenStart = Date.now();
+  try {
+    token = (await deps.client.getOAuthToken(agentId)).token;
+    log.info('ai-compose', 'token_fetch_ok', {
+      requestId: input.requestId,
+      agentId,
+      durationMs: Date.now() - tokenStart,
+    });
+  } catch (e) {
+    log.error('ai-compose', 'token_fetch_fail', {
+      requestId: input.requestId,
+      agentId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
+  }
   // #333: workDir·mcpConfigPath 를 try 블록 안에서 생성해 writeTempMcpConfig 실패 시
   // finally 누수가 없도록 한다(Finding 2). let 으로 선언해 finally 에서 조건부 정리.
   let workDir: string | null = null;
@@ -255,8 +278,21 @@ export async function runAiComposeStream(
     // #381: Agent 위임 발생 여부 추적 — #406/#415 의 unassign 재처리 가드에서 사용한다.
     let delegated = false;
     let killer: (() => void) | null = null;
+    log.info('ai-compose', 'cli_spawn', {
+      requestId: input.requestId,
+      model: input.model,
+      maxTurns: input.maxTurns,
+      allowSubagents: true,
+    });
     const handle = runClaudeCliStream(
-      { args, env, timeoutMs: input.timeoutMs, logTag: `ai-compose:${agentId}`, cwd: workDir! },
+      {
+        args,
+        env,
+        timeoutMs: input.timeoutMs,
+        logTag: `ai-compose:${agentId}`,
+        cwd: workDir!,
+        requestId: input.requestId,
+      },
       (line) => {
         // 모든 라인을 누적(parseComposeLines 가 위젯 파싱에 사용).
         lines.push(line);
@@ -303,6 +339,10 @@ export async function runAiComposeStream(
     // #333: 위반 감지 시 fallback kill(프로덕션=이미 killed, 동기 모킹=여기서 kill) + throw.
     if (policyDeny) {
       handle.kill();
+      log.warn('ai-compose', 'whitelist_block', {
+        requestId: input.requestId,
+        deniedType: policyDeny,
+      });
       throw new Error(policyDeny);
     }
     // #406: 복합 요청에서 unassign_self 미처리 시 userId 로 직접 API 재처리.
@@ -331,6 +371,10 @@ export async function runAiComposeStream(
       !existsSync(unassignSuccessPath) &&
       !existsSync(unassignErrorPath)
     ) {
+      log.warn('ai-compose', 'fallback', {
+        requestId: input.requestId,
+        reason: 'unassign_not_executed',
+      });
       return {
         fullText: '담당 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.',
         widgets: null,
@@ -345,6 +389,10 @@ export async function runAiComposeStream(
       !existsSync(pendingActionPath) &&
       isProposalApprovalHallucination(input.query, input.recentContext ?? [])
     ) {
+      log.warn('ai-compose', 'fallback', {
+        requestId: input.requestId,
+        reason: 'hallucination_guard',
+      });
       return { fullText: '확인 카드에서 승인해주세요. 에이전트가 직접 작업을 수행하지 않습니다.', widgets: null, pendingActions: [], usage: null };
     }
     // #351: propose 도구가 NDJSON 사이드카에 쓴 제안들을 배열로 읽는다(스트림 파싱 불가 — collapsed Agent tool_result).
@@ -355,6 +403,10 @@ export async function runAiComposeStream(
       try {
         const errData = JSON.parse(readFileSync(unassignErrorPath, 'utf8')) as { canonical: string };
         if (errData.canonical) {
+          log.warn('ai-compose', 'fallback', {
+            requestId: input.requestId,
+            reason: 'unassign_error',
+          });
           return { fullText: errData.canonical, widgets: null, pendingActions: [], usage: null };
         }
       } catch {
@@ -383,14 +435,25 @@ export async function runAiComposeStream(
       // submit_response 를 누락한 경우. fallback("처리하지 못했어요")은 확인 카드와 모순되므로,
       // 제안이 준비됐다는 결정적 안내로 대체한다(모델의 submit_response 호출에 비의존).
       answerText = '요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.';
+      log.warn('ai-compose', 'fallback', {
+        requestId: input.requestId,
+        reason: 'pending_action_only',
+      });
     } else if (widgets) {
       answerText = ''; // 위젯만 표시 — 빈 텍스트(빈 버블 emit 안 함)
     } else {
       answerText = ROUTER_FALLBACK_TEXT;
+      log.warn('ai-compose', 'fallback', { requestId: input.requestId, reason: 'no_sidecar' });
     }
     // 빈 텍스트는 onText 로 emit 하지 않는다(빈 버블 방지).
     if (answerText) onText(answerText);
     // #432: 라우터 CLI result 이벤트의 토큰 사용량을 done 이벤트로 전달(LLM 인증 비용 가시화).
+    log.info('ai-compose', 'cli_done', {
+      requestId: input.requestId,
+      routerSidecar: !!routerText,
+      subagentSidecar: !!subagentText,
+      widgetCount: widgets ? widgets.length : 0,
+    });
     return { fullText: answerText, widgets, pendingActions, usage: parsed.usage };
   } finally {
     // Finding 2: null 가드 — writeTempMcpConfig/mkdtempSync 가 throw 하면 미생성 변수는 정리 생략.

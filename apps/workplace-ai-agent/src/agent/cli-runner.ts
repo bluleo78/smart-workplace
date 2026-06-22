@@ -2,6 +2,7 @@
 // firehub/apps/firehub-ai-agent/src/agent/agent-cli.ts 패턴 차용.
 import { spawn } from 'node:child_process';
 import os from 'node:os';
+import { log } from '../logger.js';
 
 export interface CliArgsInput {
   userMessage: string;
@@ -92,6 +93,8 @@ export interface RunCliInput {
   logTag: string;
   // 6c: chat 은 첨부가 담긴 per-run 임시폴더를 cwd 로 줘서 Read 를 그 폴더로 한정.
   cwd?: string;
+  // 요청 단위 추적 ID — 로그 엔트리를 한 요청으로 묶는다. 미지정이면 로그에서 생략.
+  requestId?: string;
 }
 
 export async function runClaudeCli(i: RunCliInput): Promise<void> {
@@ -235,6 +238,7 @@ export function runClaudeCliStream(
 
     let buf = '';
     let killed = false;
+    const startedAt = Date.now();
 
     const timer = setTimeout(() => {
       killed = true;
@@ -255,26 +259,43 @@ export function runClaudeCliStream(
       }
     });
 
+    let stderrTail = '';
     child.stderr!.on('data', (chunk: Buffer) => {
-      console.error(`[${i.logTag}] stderr: ${chunk.toString('utf8').trim()}`);
+      const s = chunk.toString('utf8');
+      stderrTail = (stderrTail + s).slice(-500); // 마지막 500자만 보관(로그 폭주 방지)
+      console.error(`[${i.logTag}] stderr: ${s.trim()}`);
     });
 
     child.on('close', (code) => {
       clearTimeout(timer);
       if (buf.trim()) onLine(buf.trim()); // 마지막 개행 없는 잔여 라인
+      const durationMs = Date.now() - startedAt;
       if (manuallyKilled) {
         // 상위 연결 종료로 인한 의도적 kill — 정상 종료로 간주(에러 발행 안 함).
         console.error(`[${i.logTag}] killed (client closed)`);
+        log.info('cli-runner', 'cli_killed', { requestId: i.requestId, durationMs });
         resolve();
       } else if (killed) {
         // timeout-kill: 부분 결과를 성공으로 오인하지 않도록 reject
         console.error(`[${i.logTag}] killed (timeout)`);
+        log.error('cli-runner', 'cli_timeout', {
+          requestId: i.requestId,
+          timeoutMs: i.timeoutMs,
+          durationMs,
+        });
         reject(new Error(`${i.logTag} timeout after ${i.timeoutMs}ms`));
       } else if (code !== 0) {
         console.error(`[${i.logTag}] exit ${code}`);
+        log.error('cli-runner', 'cli_exit', {
+          requestId: i.requestId,
+          exitCode: code,
+          durationMs,
+          stderr: stderrTail,
+        });
         reject(new Error(`${i.logTag} exited ${code}`));
       } else {
         console.log(`[${i.logTag}] done (stream)`);
+        log.info('cli-runner', 'cli_done', { requestId: i.requestId, durationMs });
         resolve();
       }
     });
@@ -282,6 +303,10 @@ export function runClaudeCliStream(
     child.on('error', (e) => {
       clearTimeout(timer);
       console.error(`[${i.logTag}] spawn error:`, e);
+      log.error('cli-runner', 'cli_spawn_error', {
+        requestId: i.requestId,
+        error: e instanceof Error ? e.message : String(e),
+      });
       reject(e);
     });
   });

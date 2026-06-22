@@ -13,6 +13,8 @@ vi.mock('./subagent-loader.js', () => ({
   loadSubagents: vi.fn(() => ({ 'issue-agent': { description: 'd', tools: [], prompt: '' } })),
   writeSubagentDefinitions: vi.fn(),
 }));
+const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('../logger.js', () => ({ log: logMock }));
 // mkdtempSync/writeFileSync/rmSync 는 실제 호출 없이 mock 처리해 fs 부작용 제거.
 // #333 M2: existsSync/readFileSync 도 mock 추가 — 사이드카 읽기 경로 테스트용.
 vi.mock('node:fs', () => ({
@@ -1692,5 +1694,37 @@ describe('runAiComposeStream — 단순 해제 허위 성공 환각 차단 (#415
     );
     // #378 canonical override 가 반환돼야 한다
     expect(out.fullText).toBe(canonical);
+  });
+});
+
+describe('runAiComposeStream 로그', () => {
+  beforeEach(() => {
+    logMock.info.mockClear();
+    logMock.warn.mockClear();
+    logMock.error.mockClear();
+  });
+
+  it('생성일 필터 쿼리는 fallback(reason=created_date_filter_blocked) 을 발행한다', async () => {
+    const deps = { client: { getOAuthToken: vi.fn() } } as never;
+    await runAiComposeStream(
+      {
+        query: '이번 주 생성된 이슈 보여줘',
+        assistantAgentId: 2,
+        userId: 1,
+        model: 'claude-sonnet-4-6',
+        thinkingDepth: 'NORMAL',
+        maxTurns: 8,
+        timeoutMs: 1000,
+        requestId: 'rq1',
+      },
+      deps,
+      () => {},
+      new AbortController().signal,
+    );
+    expect(logMock.warn).toHaveBeenCalledWith(
+      'ai-compose',
+      'fallback',
+      expect.objectContaining({ requestId: 'rq1', reason: 'created_date_filter_blocked' }),
+    );
   });
 });

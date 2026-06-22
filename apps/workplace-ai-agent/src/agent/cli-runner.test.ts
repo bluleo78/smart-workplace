@@ -6,6 +6,9 @@ import { EventEmitter } from 'node:events';
 const spawnMock = vi.hoisted(() => vi.fn());
 vi.mock('node:child_process', () => ({ spawn: spawnMock }));
 
+const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('../logger.js', () => ({ log: logMock }));
+
 import { buildCliArgs, buildChildEnv, runClaudeCliStream } from './cli-runner.js';
 
 // 가짜 child: stdout/stderr 는 EventEmitter, kill 은 spy.
@@ -185,6 +188,84 @@ describe('runClaudeCliStream (라인 스트리밍)', () => {
     const handle = runClaudeCliStream(input, () => {});
     child.emit('error', new Error('spawn boom'));
     await expect(handle.done).rejects.toThrow('spawn boom');
+  });
+});
+
+describe('runClaudeCliStream 로그', () => {
+  beforeEach(() => {
+    logMock.info.mockClear();
+    logMock.error.mockClear();
+  });
+
+  it('정상 종료 시 cli_done(INFO) 를 requestId 와 함께 발행한다', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+    const handle = runClaudeCliStream(
+      { args: [], env: {}, timeoutMs: 1000, logTag: 't', requestId: 'r1' },
+      () => {},
+    );
+    child.emit('close', 0);
+    await handle.done;
+    expect(logMock.info).toHaveBeenCalledWith(
+      'cli-runner',
+      'cli_done',
+      expect.objectContaining({ requestId: 'r1', durationMs: expect.any(Number) }),
+    );
+  });
+
+  it('비정상 종료 시 cli_exit(ERROR) 를 exitCode·stderr 와 함께 발행한다', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+    const handle = runClaudeCliStream(
+      { args: [], env: {}, timeoutMs: 1000, logTag: 't', requestId: 'r2' },
+      () => {},
+    );
+    child.stderr.emit('data', Buffer.from('boom error'));
+    child.emit('close', 1);
+    await expect(handle.done).rejects.toThrow();
+    expect(logMock.error).toHaveBeenCalledWith(
+      'cli-runner',
+      'cli_exit',
+      expect.objectContaining({
+        requestId: 'r2',
+        exitCode: 1,
+        durationMs: expect.any(Number),
+        stderr: expect.stringContaining('boom'),
+      }),
+    );
+  });
+
+  it('spawn error 시 cli_spawn_error(ERROR) 를 발행한다', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+    const handle = runClaudeCliStream(
+      { args: [], env: {}, timeoutMs: 1000, logTag: 't', requestId: 'r3' },
+      () => {},
+    );
+    child.emit('error', new Error('ENOENT'));
+    await expect(handle.done).rejects.toThrow();
+    expect(logMock.error).toHaveBeenCalledWith(
+      'cli-runner',
+      'cli_spawn_error',
+      expect.objectContaining({ requestId: 'r3' }),
+    );
+  });
+
+  it('상위 연결 종료(kill)로 종료되면 cli_killed(INFO) 를 발행한다', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+    const handle = runClaudeCliStream(
+      { args: [], env: {}, timeoutMs: 1000, logTag: 't', requestId: 'r4' },
+      () => {},
+    );
+    handle.kill(); // manuallyKilled=true 설정
+    child.emit('close', null); // kill 후 child 종료
+    await handle.done; // 의도적 kill 은 정상 종료(resolve)
+    expect(logMock.info).toHaveBeenCalledWith(
+      'cli-runner',
+      'cli_killed',
+      expect.objectContaining({ requestId: 'r4', durationMs: expect.any(Number) }),
+    );
   });
 });
 
