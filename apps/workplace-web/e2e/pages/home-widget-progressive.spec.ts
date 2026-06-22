@@ -14,7 +14,7 @@ test.describe('#461 홈 챗 도크 위젯 점진 렌더', () => {
       // tool(start)로 show_calendar 가 도착하고 done.widgets 는 빈 배열.
       // 점진 렌더가 동작하면 tool 이벤트만으로 캘린더 위젯이 떠야 한다.
       await page.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -58,7 +58,7 @@ test.describe('#461 홈 챗 도크 위젯 점진 렌더', () => {
   }) => {
     // tool 로 한 번 누적된 뒤 done 이 같은 위젯을 authoritative 로 줘도 캘린더 위젯은 1개만 렌더.
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,

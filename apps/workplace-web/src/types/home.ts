@@ -1,7 +1,7 @@
 // 7c: 홈 compose/위젯 계약. 백엔드 HomeComposeResponse·ActivityEntryResponse 와 1:1.
 
 // 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 AI 비서 응답(show_* 도구)이 지시하는
-// 표시 위젯 계약이다. #431 에서 챗 도크 인라인 렌더로 부활(composeRegistry).
+// 표시 위젯 계약이다. #431 에서 챗 도크 인라인 렌더로 부활(chatWidgetRegistry).
 // compose done 이벤트의 widgets[] 및 복원용 HomeMessage.widgets 가 이 형태를 따른다.
 
 /** 위젯 캔버스 배치 힌트 (compose 응답). fire-hub canvas 스키마 미러. */
@@ -20,7 +20,7 @@ export interface WidgetSpec {
   layout?: WidgetLayout;
 }
 
-export interface ComposeRequest {
+export interface ChatRequest {
   sessionId: string | null;
   query: string;
 }

@@ -2,7 +2,7 @@
 // 배경: #234/#348 재설계로 위젯 렌더 표면이 제거돼, compose done 의 widgets[] 가 클라이언트에서
 //   버려지고 있었다(이슈/메일 목록 조회 시 빈 버블). 본 스펙은 렌더 표면 복원 + 메일 위젯을 검증한다.
 //
-// 전략: /api/v1/ai/compose 를 done-only SSE(빈 텍스트 + widgets[])로 모킹하고,
+// 전략: /api/v1/ai/chat 를 done-only SSE(빈 텍스트 + widgets[])로 모킹하고,
 //   위젯이 자체 훅으로 호출하는 데이터 API(/me/issues, /mail/accounts/{id}/messages)를 모킹한다.
 //   LLM 이 표를 생성하지 않고 위젯이 구조화 데이터를 렌더하는 것이 이 기능의 핵심이다.
 
@@ -16,7 +16,7 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
   }) => {
     // 1) compose 는 텍스트 없이 mail_list 위젯만 지시(show_mail_list 단독 응답 모사).
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,
@@ -77,7 +77,7 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
   }) => {
     // compose 는 텍스트 없이 issue_list 위젯만 지시 — 과거엔 widgets 가 버려져 빈 버블이 됐다.
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,

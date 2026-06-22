@@ -18,7 +18,7 @@ test(
       window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-        if (!url.includes('/api/v1/ai/compose') || (init?.method ?? 'GET') !== 'POST') {
+        if (!url.includes('/api/v1/ai/chat') || (init?.method ?? 'GET') !== 'POST') {
           return originalFetch(input, init);
         }
         const signal = init?.signal ?? undefined;

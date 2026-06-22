@@ -45,7 +45,7 @@ test.describe('#460 홈 챗 도크 프로젝트 위젯 렌더', () => {
     async ({ authenticatedPage: pg }) => {
       // 1) compose → projects 위젯 지시.
       await pg.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -87,7 +87,7 @@ test.describe('#460 홈 챗 도크 프로젝트 위젯 렌더', () => {
 
   test('projects 위젯이 결과 없으면 빈 상태를 표시한다', async ({ authenticatedPage: pg }) => {
     await pg.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,
@@ -121,7 +121,7 @@ test.describe('#460 홈 챗 도크 프로젝트 위젯 렌더', () => {
     async ({ authenticatedPage: pg }) => {
       // compose → project 위젯(projectKey='ALPHA') 지시.
       await pg.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -173,7 +173,7 @@ test.describe('#460 홈 챗 도크 프로젝트 위젯 렌더', () => {
   test('project 위젯 projectKey 누락 시 안내 메시지를 표시한다', async ({ authenticatedPage: pg }) => {
     // compose → project 위젯(projectKey 없음) 지시.
     await pg.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,

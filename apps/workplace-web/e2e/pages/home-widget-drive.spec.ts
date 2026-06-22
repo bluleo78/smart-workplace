@@ -35,7 +35,7 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
     async ({ authenticatedPage: pg }) => {
       // 1) compose → drive 위젯(spaceId 없음) 지시.
       await pg.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -77,7 +77,7 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
     async ({ authenticatedPage: pg }) => {
       // 1) compose → drive 위젯(spaceId=3) 지시.
       await pg.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -143,7 +143,7 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
 
   test('drive 위젯이 스페이스 0건이면 빈 상태를 표시한다', async ({ authenticatedPage: pg }) => {
     await pg.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,

@@ -13,7 +13,7 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
     async ({ authenticatedPage: page }) => {
       // 1) compose 는 텍스트 없이 calendar 위젯만 지시.
       await page.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -62,7 +62,7 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
     // @DateTimeFormat(ISO.DATE_TIME) OffsetDateTime 을 요구하므로 위젯이 ISO datetime 으로
     // 정규화해야 한다. date-only 를 그대로 보내면 400 → 위젯 에러(#460 회귀).
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,
@@ -100,7 +100,7 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
 
   test('일정이 없으면 빈 상태를 표시한다', async ({ authenticatedPage: page }) => {
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,
@@ -132,7 +132,7 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
   test('event 위젯이 단일 일정 상세를 렌더한다', async ({ authenticatedPage: page }) => {
     // compose 는 텍스트 없이 event 위젯(eventId=5) 지시.
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,

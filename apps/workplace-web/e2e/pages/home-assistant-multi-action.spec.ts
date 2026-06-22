@@ -1,15 +1,15 @@
 // #351: 홈 비서 다건 제안 일괄 확인 카드 E2E.
 // SSE pending_action 이벤트에 배열(2건)을 흘려 카드 2행 렌더 → 1건 승인(confirm POST 1회) → 1건 거부(카드 소멸).
-// 전략: /api/v1/ai/compose 를 delta + pending_action 배열 + done SSE 로 모킹.
+// 전략: /api/v1/ai/chat 를 delta + pending_action 배열 + done SSE 로 모킹.
 //   /api/v1/home/actions/confirm 을 201 스텁 + 호출 카운트로 검증.
 //   auth.fixture 의 authenticatedPage + home-compose-widgets.spec.ts 의 SSE 스텁 패턴 재사용.
 
 import { expect, test } from '../fixtures/auth.fixture';
 
 test('다건 제안 — 일부 승인 / 일부 거부', async ({ authenticatedPage: page }) => {
-  // /api/v1/ai/compose: delta 1개 + pending_action 배열(2건) + done
+  // /api/v1/ai/chat: delta 1개 + pending_action 배열(2건) + done
   await page.route(
-    (url) => url.pathname === '/api/v1/ai/compose',
+    (url) => url.pathname === '/api/v1/ai/chat',
     (route) =>
       route.fulfill({
         status: 200,

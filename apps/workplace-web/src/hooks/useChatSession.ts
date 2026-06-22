@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 
 import { homeApi } from '@/api/home';
-import { composeStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
+import { chatStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
 import { widgetTypeFromToolName } from '@/lib/aiToolLabels';
 import { handleApiError } from '@/lib/api-error';
 import type { ChatTurn, PendingAction, ToolEventDto, WidgetSpec, WidgetType } from '@/types/home';
@@ -53,7 +53,7 @@ export function useChatSession() {
       abortRef.current = ac;
       setPending(true);
       setPendingActions([]);      // #351: 새 제출 — 이전 확인 카드 배열 폐기
-      composeStream(
+      chatStream(
         { sessionId: sessionIdRef.current, query },
         (delta) => {
           // stale 세대(newSession/restore 가 끼어든 경우)면 델타를 버린다.

@@ -8,7 +8,7 @@ import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { relTime } from '@/components/ai/relTime';
 import { ToolStepList } from '@/components/ai/ToolStepList';
-import { getComposeWidget } from '@/components/home/widgets/composeRegistry';
+import { getChatWidget } from '@/components/home/widgets/chatWidgetRegistry';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -189,7 +189,7 @@ export function AIChatPanel({
                         </div>
                       )}
                       {t.widgets.map((w, wi) => {
-                        const Widget = getComposeWidget(w.type);
+                        const Widget = getChatWidget(w.type);
                         if (!Widget) return null; // 미등록 위젯 타입은 skip.
                         return (
                           <Suspense key={wi} fallback={<Skeleton className="h-24 w-full" />}>

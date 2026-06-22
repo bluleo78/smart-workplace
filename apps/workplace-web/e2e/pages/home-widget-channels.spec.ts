@@ -29,7 +29,7 @@ test.describe('#460 홈 챗 도크 채널 목록 위젯 렌더', () => {
     async ({ authenticatedPage: page }) => {
       // 1) compose 는 텍스트 없이 channels 위젯만 지시.
       await page.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -73,7 +73,7 @@ test.describe('#460 홈 챗 도크 채널 목록 위젯 렌더', () => {
 
   test('채널이 없으면 빈 상태를 표시한다', async ({ authenticatedPage: page }) => {
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,

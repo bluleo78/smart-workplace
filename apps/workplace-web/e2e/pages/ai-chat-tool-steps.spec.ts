@@ -23,7 +23,7 @@ function mockComposeSse(chunks: string[]) {
             : input instanceof URL
               ? input.href
               : (input as Request).url
-        if (!url.includes('/api/v1/ai/compose') || (init?.method ?? 'GET') !== 'POST') {
+        if (!url.includes('/api/v1/ai/chat') || (init?.method ?? 'GET') !== 'POST') {
           return originalFetch(input, init)
         }
         const enc = new TextEncoder()

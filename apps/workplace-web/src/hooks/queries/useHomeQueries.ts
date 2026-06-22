@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAccessToken } from '@/api/client';
 import { homeApi } from '@/api/home';
 import { handleApiError } from '@/lib/api-error';
-import type { ComposeRequest, PendingAction, ToolEventDto, WidgetSpec } from '@/types/home';
+import type { ChatRequest, PendingAction, ToolEventDto, WidgetSpec } from '@/types/home';
 
 export const homeKeys = {
   all: ['home'] as const,
@@ -71,8 +71,8 @@ export function useDeleteSession() {
  * - onProgress: 위임 진행 라벨 — assistant 말풍선 위 ghost 진행 줄로 표시.
  * - onPendingAction: 확인 카드 제안 객체 — 도크가 승인/취소 카드로 렌더.
  */
-export async function composeStream(
-  body: ComposeRequest,
+export async function chatStream(
+  body: ChatRequest,
   onDelta: (text: string) => void,
   signal: AbortSignal,
   onProgress?: (label: string) => void,
@@ -80,7 +80,7 @@ export async function composeStream(
   onTool?: (evt: ToolEventDto) => void,
 ): Promise<{ sessionId?: string; widgets?: WidgetSpec[] }> {
   const token = getAccessToken();
-  const res = await fetch('/api/v1/ai/compose', {
+  const res = await fetch('/api/v1/ai/chat', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -120,7 +120,7 @@ export async function composeStream(
           sessionId: parsed.sessionId as string | undefined,
           widgets: (parsed.widgets as WidgetSpec[] | null) ?? undefined,
         };
-      else if (event === 'error') throw new Error((parsed.message as string | undefined) ?? 'compose_failed');
+      else if (event === 'error') throw new Error((parsed.message as string | undefined) ?? 'chat_failed');
     }
     event = 'message';
     data = '';

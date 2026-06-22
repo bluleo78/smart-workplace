@@ -14,7 +14,7 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
     async ({ authenticatedPage: page }) => {
       // 1) compose → wiki 위젯(spaceId 없음) 지시.
       await page.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -53,7 +53,7 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
   test('wiki 위젯이 spaceId 있을 때 페이지 목록을 렌더한다', async ({ authenticatedPage: page }) => {
     // compose → wiki 위젯(spaceId=1) 지시.
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,
@@ -89,7 +89,7 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
 
   test('wiki 위젯이 스페이스 없으면 빈 상태를 표시한다', async ({ authenticatedPage: page }) => {
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,
@@ -123,7 +123,7 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
     async ({ authenticatedPage: page }) => {
       // compose → wiki_page 위젯(pageId=101) 지시.
       await page.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -164,7 +164,7 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
   test('wiki_page 위젯 pageId 누락 시 안내 메시지를 표시한다', async ({ authenticatedPage: page }) => {
     // compose → wiki_page 위젯(pageId 없음) 지시.
     await page.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,

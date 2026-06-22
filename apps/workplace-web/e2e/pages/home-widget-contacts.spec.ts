@@ -13,7 +13,7 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
     async ({ authenticatedPage: pg }) => {
       // 1) compose → contacts 위젯(필터 없음) 지시.
       await pg.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -56,7 +56,7 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
   test('contacts 위젯이 필터 파라미터를 API 쿼리로 전달한다', async ({ authenticatedPage: pg }) => {
     // compose → contacts 위젯(search+org 필터) 지시.
     await pg.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,
@@ -95,7 +95,7 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
 
   test('contacts 위젯이 결과 없으면 빈 상태를 표시한다', async ({ authenticatedPage: pg }) => {
     await pg.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,
@@ -129,7 +129,7 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
     async ({ authenticatedPage: pg }) => {
       // compose → contact 위젯(contactId=100) 지시.
       await pg.route(
-        (url) => url.pathname === '/api/v1/ai/compose',
+        (url) => url.pathname === '/api/v1/ai/chat',
         (route) =>
           route.fulfill({
             status: 200,
@@ -177,7 +177,7 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
   test('contact 위젯 contactId 누락 시 안내 메시지를 표시한다', async ({ authenticatedPage: pg }) => {
     // compose → contact 위젯(contactId 없음) 지시.
     await pg.route(
-      (url) => url.pathname === '/api/v1/ai/compose',
+      (url) => url.pathname === '/api/v1/ai/chat',
       (route) =>
         route.fulfill({
           status: 200,
