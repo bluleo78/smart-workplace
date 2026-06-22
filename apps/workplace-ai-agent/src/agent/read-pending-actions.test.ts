@@ -10,7 +10,7 @@ describe('readPendingActions', () => {
     const p = path.join(dir, 'pending-action.json');
     writeFileSync(p, '{"actionType":"a","summary":"A","params":{}}\nbroken\n{"actionType":"b","summary":"B","params":{}}\n');
     const out = readPendingActions(p);
-    expect(out.map((x: any) => x.actionType)).toEqual(['a', 'b']);
+    expect(out.map((x) => (x as { actionType: string }).actionType)).toEqual(['a', 'b']);
     rmSync(dir, { recursive: true, force: true });
   });
   it('파일 없으면 빈 배열', () => {
