@@ -18,7 +18,7 @@ import { loadSubagents, writeSubagentDefinitions } from './subagent-loader.js';
 import { checkSubagentWhitelist } from './tool-policy.js';
 import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
 import { buildChildEnv, buildCliArgs, runClaudeCliStream } from './cli-runner.js';
-import { parseComposeLines, extractRouterTextDelta } from './compose-parser.js';
+import { parseChatLines, extractRouterTextDelta } from './chat-parser.js';
 import { thinkingDirective } from './thinking.js';
 import type { RunAgentDeps } from './run-agent.js';
 
@@ -26,7 +26,7 @@ export interface ContextMessage {
   role: string; // 'USER' | 'ASSISTANT'
   content: string;
 }
-export interface ComposeInput {
+export interface ChatInput {
   query: string;
   recentContext?: ContextMessage[];
   // 비서 설정 — workplace-api 가 요청별로 해석해 전달(env 미사용).
@@ -91,11 +91,11 @@ function extractIssueKeyFromQuery(query: string): string | null {
 // haiku가 이슈 존재 여부 확인 없이 show_issue_detail을 호출하는 비결정적 동작을
 // 서버 검증으로 이중 방어한다. projectKey 가 없으면 검증 불가이므로 통과(pass-through).
 async function filterIssueDetailWidgets(
-  widgets: import('./compose-parser.js').Widget[],
+  widgets: import('./chat-parser.js').Widget[],
   client: import('../clients/workplace-api.js').WorkplaceApiClient,
   agentId: number,
-): Promise<import('./compose-parser.js').Widget[]> {
-  const result: import('./compose-parser.js').Widget[] = [];
+): Promise<import('./chat-parser.js').Widget[]> {
+  const result: import('./chat-parser.js').Widget[] = [];
   for (const w of widgets) {
     if (w.type !== 'issue_detail') {
       result.push(w);
@@ -115,7 +115,7 @@ async function filterIssueDetailWidgets(
       result.push(w); // 존재하면 위젯 포함
     } catch {
       // 존재하지 않으면 위젯 드롭(not-found 시 에러 throw 하는 verifyEventExists 패턴 동일)
-      console.log(`[run-ai-compose] #404 show_issue_detail 차단: ${issueKey} 없음`);
+      console.log(`[run-ai-chat] #404 show_issue_detail 차단: ${issueKey} 없음`);
     }
   }
   return result;
@@ -136,7 +136,7 @@ function isProposalApprovalHallucination(query: string, recentContext: ContextMe
 }
 
 // recentContext 를 단발 --print 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
-function buildComposeUserMessage(input: ComposeInput): string {
+function buildChatUserMessage(input: ChatInput): string {
   const ctx = input.recentContext ?? [];
   if (ctx.length === 0) return input.query;
   const lines = ctx.map((m) => `${m.role === 'ASSISTANT' ? 'AI' : '사용자'}: ${m.content}`);
@@ -179,22 +179,22 @@ export function readPendingActions(sidecarPath: string): unknown[] {
 
 // SSE 라우트용 스트리밍 러너 — 라우터 자유 prose 를 onDelta 로 라이브 emit 하고,
 // 서브에이전트 위임 답은 submit_response 사이드카에서 onText 로 1회 emit 한다.
-// parseComposeLines 로 위젯을 산출해 반환한다.
+// parseChatLines 로 위젯을 산출해 반환한다.
 // #333: assistant 프로파일 + per-request workdir + allowSubagents + 화이트리스트 강제.
 // #463: respond_chat 제거 → 라우터는 자연 prose 로 직접 답변. parent_tool_use_id null 필터로 서브에이전트 누수 방지.
 // signal abort 시 하위 CLI child 를 kill 해 자원 누수를 막는다(wiki 러너와 동일 패턴).
-export async function runAiComposeStream(
-  input: ComposeInput,
+export async function runAiChatStream(
+  input: ChatInput,
   deps: RunAgentDeps,
   onText: (t: string) => void,
   signal: AbortSignal,
   onProgress?: (label: string) => void, // #333: Agent 위임 시작 시 호출('이슈 전문가에게 위임 중')
   onTool?: (line: ToolUseLine) => void, // 도구 호출 라이브 발행(사이드카 테일)
   onDelta?: (text: string) => void, // #463: 라우터 자유 prose 라이브 스트리밍(text_delta 단위)
-): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; usage: import('./compose-parser.js').Usage | null }> {
+): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; usage: import('./chat-parser.js').Usage | null }> {
   // #405: 생성일 필터 쿼리 — LLM 호출 전 결정론적으로 차단. dueFrom 오해석 방지.
   if (isCreatedDateFilterQuery(input.query)) {
-    log.warn('ai-compose', 'fallback', {
+    log.warn('ai-chat', 'fallback', {
       requestId: input.requestId,
       reason: 'created_date_filter_blocked',
     });
@@ -210,13 +210,13 @@ export async function runAiComposeStream(
   const tokenStart = Date.now();
   try {
     token = (await deps.client.getOAuthToken(agentId)).token;
-    log.info('ai-compose', 'token_fetch_ok', {
+    log.info('ai-chat', 'token_fetch_ok', {
       requestId: input.requestId,
       agentId,
       durationMs: Date.now() - tokenStart,
     });
   } catch (e) {
-    log.error('ai-compose', 'token_fetch_fail', {
+    log.error('ai-chat', 'token_fetch_fail', {
       requestId: input.requestId,
       agentId,
       error: e instanceof Error ? e.message : String(e),
@@ -264,7 +264,7 @@ export async function runAiComposeStream(
     const systemPromptPath = path.join(workDir, 'system-prompt.txt');
     writeFileSync(systemPromptPath, systemPrompt, 'utf8');
 
-    const userMessage = buildComposeUserMessage(input);
+    const userMessage = buildChatUserMessage(input);
     const args = buildCliArgs({
       userMessage,
       systemPrompt, // systemPromptPath 가 있으면 buildCliArgs 가 --system-prompt-file 을 우선 사용.
@@ -287,7 +287,7 @@ export async function runAiComposeStream(
     // #381: Agent 위임 발생 여부 추적 — #406/#415 의 unassign 재처리 가드에서 사용한다.
     let delegated = false;
     let killer: (() => void) | null = null;
-    log.info('ai-compose', 'cli_spawn', {
+    log.info('ai-chat', 'cli_spawn', {
       requestId: input.requestId,
       model: input.model,
       maxTurns: input.maxTurns,
@@ -309,12 +309,12 @@ export async function runAiComposeStream(
         args,
         env,
         timeoutMs: input.timeoutMs,
-        logTag: `ai-compose:${agentId}`,
+        logTag: `ai-chat:${agentId}`,
         cwd: workDir!,
         requestId: input.requestId,
       },
       (line) => {
-        // 모든 라인을 누적(parseComposeLines 가 위젯 파싱에 사용).
+        // 모든 라인을 누적(parseChatLines 가 위젯 파싱에 사용).
         lines.push(line);
         // #458: 수신 즉시 트랜스크립트에 기록 — 라인 간 ts 간격이 곧 단계별 지연(LLM/도구) 분해 근거.
         transcriptStreamLine(input.requestId, line);
@@ -378,7 +378,7 @@ export async function runAiComposeStream(
     // #333: 위반 감지 시 fallback kill(프로덕션=이미 killed, 동기 모킹=여기서 kill) + throw.
     if (policyDeny) {
       handle.kill();
-      log.warn('ai-compose', 'whitelist_block', {
+      log.warn('ai-chat', 'whitelist_block', {
         requestId: input.requestId,
         deniedType: policyDeny,
       });
@@ -410,7 +410,7 @@ export async function runAiComposeStream(
       !existsSync(unassignSuccessPath) &&
       !existsSync(unassignErrorPath)
     ) {
-      log.warn('ai-compose', 'fallback', {
+      log.warn('ai-chat', 'fallback', {
         requestId: input.requestId,
         reason: 'unassign_not_executed',
       });
@@ -428,7 +428,7 @@ export async function runAiComposeStream(
       !existsSync(pendingActionPath) &&
       isProposalApprovalHallucination(input.query, input.recentContext ?? [])
     ) {
-      log.warn('ai-compose', 'fallback', {
+      log.warn('ai-chat', 'fallback', {
         requestId: input.requestId,
         reason: 'hallucination_guard',
       });
@@ -442,7 +442,7 @@ export async function runAiComposeStream(
       try {
         const errData = JSON.parse(readFileSync(unassignErrorPath, 'utf8')) as { canonical: string };
         if (errData.canonical) {
-          log.warn('ai-compose', 'fallback', {
+          log.warn('ai-chat', 'fallback', {
             requestId: input.requestId,
             reason: 'unassign_error',
           });
@@ -452,8 +452,8 @@ export async function runAiComposeStream(
         // 사이드카 파싱 실패 — LLM 응답을 그대로 사용
       }
     }
-    // #463: parseComposeLines 로 위젯(tool_use 이벤트)만 산출. 텍스트는 아래 우선순위로 결정한다.
-    const parsed = parseComposeLines(lines);
+    // #463: parseChatLines 로 위젯(tool_use 이벤트)만 산출. 텍스트는 아래 우선순위로 결정한다.
+    const parsed = parseChatLines(lines);
     // #404: show_issue_detail 위젯 중 존재하지 않는 이슈 번호를 서버 검증으로 드롭한다.
     const filteredWidgets = await filterIssueDetailWidgets(parsed.widgets, deps.client, agentId);
     const widgets = filteredWidgets.length > 0 ? filteredWidgets : null;
@@ -481,10 +481,10 @@ export async function runAiComposeStream(
     } else {
       answerText = ROUTER_FALLBACK_TEXT;
       onText(answerText);
-      log.warn('ai-compose', 'fallback', { requestId: input.requestId, reason: 'no_output' });
+      log.warn('ai-chat', 'fallback', { requestId: input.requestId, reason: 'no_output' });
     }
     // #432: 라우터 CLI result 이벤트의 토큰 사용량을 done 이벤트로 전달(LLM 인증 비용 가시화).
-    log.info('ai-compose', 'cli_done', {
+    log.info('ai-chat', 'cli_done', {
       requestId: input.requestId,
       subagentSidecar: !!subagentText,
       streamedChars: streamedText.length,

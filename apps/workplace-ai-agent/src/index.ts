@@ -62,7 +62,7 @@ const server = app.listen(PORT, () => {
   console.log(`workplace-ai-agent listening on :${PORT}`);
   console.log(`  GET  /health`);
   console.log(`  POST /events`);
-  console.log('  POST /ai/compose');
+  console.log('  POST /ai/chat');
   console.log('  POST /mail/classify | /mail/summarize | /mail/reply-draft');
   console.log('  POST /wiki/compose (SSE)');
 });

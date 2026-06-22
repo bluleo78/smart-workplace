@@ -13,7 +13,7 @@ export interface Usage {
   outputTokens: number;
 }
 
-export interface ComposeResult {
+export interface ChatResult {
   message: string;
   widgets: Widget[];
   usage: Usage | null;
@@ -77,7 +77,7 @@ function handleEvent(ev: unknown, widgets: Widget[], textParts: string[]): strin
   return null;
 }
 
-export function parseCompose(events: unknown[]): ComposeResult {
+export function parseChat(events: unknown[]): ChatResult {
   const widgets: Widget[] = [];
   const textParts: string[] = [];
   let resultText: string | null = null;
@@ -111,8 +111,8 @@ export function extractRouterTextDelta(obj: unknown): string | null {
   return typeof d.text === 'string' && d.text ? d.text : null;
 }
 
-// NDJSON 문자열 라인 배열을 안전 파싱(잘못된 줄 건너뜀) 후 parseCompose.
-export function parseComposeLines(lines: string[]): ComposeResult {
+// NDJSON 문자열 라인 배열을 안전 파싱(잘못된 줄 건너뜀) 후 parseChat.
+export function parseChatLines(lines: string[]): ChatResult {
   const events: unknown[] = [];
   for (const line of lines) {
     const t = line.trim();
@@ -123,5 +123,5 @@ export function parseComposeLines(lines: string[]): ComposeResult {
       // 비 JSON 줄 무시
     }
   }
-  return parseCompose(events);
+  return parseChat(events);
 }

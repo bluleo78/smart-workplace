@@ -25,7 +25,7 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
 }));
 
-import { runAiComposeStream, type ComposeInput } from './run-ai-compose.js';
+import { runAiChatStream, type ChatInput } from './run-ai-chat.js';
 import { runClaudeCliStream, buildCliArgs, buildChildEnv } from './cli-runner.js';
 import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
 import { writeSubagentDefinitions, loadSubagents } from './subagent-loader.js';
@@ -38,7 +38,7 @@ const fakeClient = {
 } as never;
 
 // 비서 설정은 이제 요청 본문으로 온다(env 미사용). 테스트용 기본 입력.
-function baseInput(over: Partial<ComposeInput> = {}): ComposeInput {
+function baseInput(over: Partial<ChatInput> = {}): ChatInput {
   return {
     query: '내 할 일',
     assistantAgentId: 7,
@@ -104,7 +104,7 @@ beforeEach(() => {
     vi.fn().mockResolvedValue({ token: 'tok', label: null });
 });
 
-describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
+describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
   // #463: 라우터 자유 prose(text_delta)는 onDelta 로 라이브 emit 된다. onText 는 위임 답(subagent sidecar)에만 사용.
   it('라우터 prose(text_delta)는 onDelta 로 라이브 emit, fullText = 누적 streamedText', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
@@ -117,7 +117,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     mockSidecars({}); // 사이드카 없음 — streamedText 가 답
     const got: string[] = []; // onText 수집(라우터 prose 는 오지 않음)
     const deltas: string[] = []; // onDelta 수집
-    const result = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    const result = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
     // 라우터 prose 는 onDelta 로만 나가고 onText 는 호출 안 됨.
     expect(got).toHaveLength(0);
     expect(deltas).toEqual(['안녕 ', '하세요']);
@@ -135,7 +135,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     });
     // 위젯만 있고 텍스트 없는 케이스 — #463: routerSidecar 제거, 위젯 단독이면 빈 텍스트.
     mockSidecars({});
-    const result = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const result = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(result.fullText).toBe('');
     expect(result.widgets).toEqual([{ type: 'my_tasks', params: {} }]);
   });
@@ -150,7 +150,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     mockSidecars({});
     const got: string[] = [];
     const deltas: string[] = [];
-    const out = await runAiComposeStream(baseInput({ query: '뭐 할 수 있어?' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    const out = await runAiChatStream(baseInput({ query: '뭐 할 수 있어?' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
     expect(got).toHaveLength(0); // onText 미호출 — streamedText 는 이미 onDelta 로 나감
     expect(deltas).toEqual(['저는 이슈·메일·일정 등을 도와드릴 수 있어요.']);
     expect(out.fullText).toBe('저는 이슈·메일·일정 등을 도와드릴 수 있어요.');
@@ -165,7 +165,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     });
     mockSidecars({ subagent: 'EX-2 이슈를 진행 중으로 변경했어요.' });
     const got: string[] = [];
-    const out = await runAiComposeStream(baseInput({ query: 'EX-2 진행중으로 바꿔줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: 'EX-2 진행중으로 바꿔줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(got).toEqual(['EX-2 이슈를 진행 중으로 변경했어요.']);
     expect(out.fullText).toBe('EX-2 이슈를 진행 중으로 변경했어요.');
   });
@@ -179,7 +179,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     });
     mockSidecars({ subagent: 'SUB 답변' });
     const got: string[] = [];
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(out.fullText).toBe('SUB 답변');
     expect(got).toEqual(['SUB 답변']);
   });
@@ -193,7 +193,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     });
     mockSidecars({}); // 어떤 사이드카도 없음
     const got: string[] = [];
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(got).toEqual(['요청을 처리하지 못했어요. 다시 시도해 주세요.']);
   });
@@ -207,7 +207,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     // propose 핸들러가 pending-action 만 쓰고 submit_response 사이드카는 없는 상황.
     mockSidecars({ pendingAction: { actionType: 'mail.send_mail', summary: 'hong 에게 메일', params: {} } });
     const got: string[] = [];
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(out.fullText).toBe('요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.');
     expect(got).toEqual(['요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.']);
     expect(out.pendingActions[0]).toMatchObject({ actionType: 'mail.send_mail' });
@@ -222,7 +222,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     });
     mockSidecars({});
     const got: string[] = [];
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(got).toHaveLength(0); // 빈 텍스트는 emit 하지 않음
     expect(out.fullText).toBe('');
     expect(out.widgets).toEqual([{ type: 'my_tasks', params: {} }]);
@@ -240,7 +240,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     mockSidecars({ subagent: '처리했어요.' });
     const got: string[] = [];
     const deltas: string[] = [];
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
     // 서브에이전트 prose 는 onDelta 에 안 나감
     expect(deltas).toHaveLength(0);
     expect(deltas.join('')).not.toContain(subLeak);
@@ -265,7 +265,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     mockSidecars({ subagent: subagentText });
     const got: string[] = [];    // onText 수집 (위임 답만 도달해야 함)
     const deltas: string[] = []; // onDelta 수집 (프리앰블 prose 가 라이브로 도달해야 함)
-    const out = await runAiComposeStream(baseInput({ query: '메일 확인해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    const out = await runAiChatStream(baseInput({ query: '메일 확인해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
     // 프리앰블 prose 는 onDelta 로 라이브 노출(의도된 동작)
     expect(deltas).toContain('메일을 확인해볼게요');
     // 최종 fullText 는 subagent 사이드카 답이 우선
@@ -276,7 +276,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
 
   it('includePartialMessages:true 로 buildCliArgs 호출', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
-    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     const passed = vi.mocked(buildCliArgs).mock.calls[0][0];
     expect(passed.includePartialMessages).toBe(true);
   });
@@ -287,7 +287,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
       kill: () => {},
     });
     await expect(
-      runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
+      runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
     ).rejects.toThrow('cli boom');
     expect(cleanupTempMcpConfig).toHaveBeenCalledWith('/tmp/cfg.json');
   });
@@ -300,7 +300,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
       kill,
     });
     const ac = new AbortController();
-    const p = runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, ac.signal);
+    const p = runAiChatStream(baseInput(), { client: fakeClient }, () => {}, ac.signal);
     // 토큰 fetch(microtask) 후 리스너가 붙도록 한 틱 양보한 뒤 abort.
     await new Promise((r) => setTimeout(r, 0));
     ac.abort();
@@ -318,7 +318,7 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     });
     const ac = new AbortController();
     ac.abort(); // fetch 전에 이미 종료된 상태
-    const p = runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, ac.signal);
+    const p = runAiChatStream(baseInput(), { client: fakeClient }, () => {}, ac.signal);
     await new Promise((r) => setTimeout(r, 0));
     expect(kill).toHaveBeenCalledOnce();
     resolveDone();
@@ -337,17 +337,17 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     });
     mockSidecars({ subagent: '위키 페이지를 찾았어요.' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toMatch(/wiki-agent|agent에|위임하겠습니다/);
     expect(streamed).toBe('위키 페이지를 찾았어요.');
   });
 });
 
-describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
+describe('runAiChatStream (서브에이전트 통합 #333)', () => {
   it('assistant 프로파일 + allowSubagents + systemPromptPath 로 spawn 준비', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
-    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     // writeTempMcpConfig 에 assistant 프로파일을 전달했는지 확인.
     const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
     expect(cfgArg.profile).toBe('assistant');
@@ -365,7 +365,7 @@ describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
       return { done: Promise.resolve(), kill: () => {} };
     });
     const labels: string[] = [];
-    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, (l) => labels.push(l));
+    await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, (l) => labels.push(l));
     expect(labels).toContain('이슈 전문가에게 위임 중');
   });
 
@@ -378,14 +378,14 @@ describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
       return { done: Promise.resolve(), kill };
     });
     await expect(
-      runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
+      runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
     ).rejects.toThrow(/blocked by policy/);
     expect(kill).toHaveBeenCalled();
   });
 
   it('pendingActionPath 를 mcp-config 에 주입한다', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
-    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
     expect(typeof cfgArg.pendingActionPath).toBe('string');
     expect(cfgArg.pendingActionPath).toContain('pending-action.json');
@@ -399,7 +399,7 @@ describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
     vi.mocked(existsSync).mockReturnValue(true);
     // #351: NDJSON 1줄 — readPendingActions 가 split('\n') 후 파싱.
     vi.mocked(readFileSync).mockReturnValue((JSON.stringify({ actionType: 'calendar.create_event', summary: 's', params: { title: 't' } }) + '\n') as never);
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.pendingActions[0]).toMatchObject({ actionType: 'calendar.create_event', summary: 's' });
   });
 
@@ -409,7 +409,7 @@ describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
       return { done: Promise.resolve(), kill: () => {} };
     });
     vi.mocked(existsSync).mockReturnValue(false);
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.pendingActions).toEqual([]);
   });
 
@@ -432,7 +432,7 @@ describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
       };
     });
 
-    const p = runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const p = runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
 
     // 한 틱 양보해 handle 반환 + killer 홀더 채움이 완료된 후 onLine 을 비동기로 호출.
     await Promise.resolve();
@@ -448,7 +448,7 @@ describe('runAiComposeStream (서브에이전트 통합 #333)', () => {
 });
 
 // #378: unassign_self 실패 사이드카 override — haiku 재해석 차단.
-describe('runAiComposeStream — unassignError 사이드카 override (#378)', () => {
+describe('runAiChatStream — unassignError 사이드카 override (#378)', () => {
   it('unassign-error.json 이 있으면 LLM 응답을 버리고 canonical 로 override', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '일시적 장애가 발생했습니다.' }));
@@ -460,7 +460,7 @@ describe('runAiComposeStream — unassignError 사이드카 override (#378)', ()
     );
     const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
     vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ error: '403', canonical }) as never);
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(canonical);
     expect(out.widgets).toBeNull();
     expect(out.pendingActions).toEqual([]);
@@ -474,14 +474,14 @@ describe('runAiComposeStream — unassignError 사이드카 override (#378)', ()
     });
     // 에러 사이드카 없음 + 성공 사이드카 + subagent 답 존재 → override 미발동, 사이드카 답 사용.
     mockSidecars({ unassignSuccess: { issueKey: 'EX-2' }, subagent: '담당자 해제 완료.' });
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('담당자 해제 완료.');
   });
 
   it('unassignErrorPath 를 mcp-config 에 주입한다', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
     vi.mocked(existsSync).mockReturnValue(false);
-    await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     const cfgArg = vi.mocked(writeTempMcpConfig).mock.calls[0][0];
     expect(typeof cfgArg.unassignErrorPath).toBe('string');
     expect(cfgArg.unassignErrorPath).toContain('unassign-error.json');
@@ -489,7 +489,7 @@ describe('runAiComposeStream — unassignError 사이드카 override (#378)', ()
 });
 
 // #383→#381: mail 직접-응답 fallback override 는 삭제됨. 메일은 위임 → submit_response 사이드카로 답한다.
-describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-#383)', () => {
+describe('runAiChatStream — mail 위임 답 / 미위임 fallback (#381, ex-#383)', () => {
   it('메일 쿼리 + 위임 없음 + streamedText 없음 + 사이드카 없음 → 결정적 fallback', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       // #463: textDelta 없음 — streamedText 비어서 fallback 발동
@@ -499,7 +499,7 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     mockSidecars({});
     const labels: string[] = [];
     const streamed: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '메일 계정 연동 상태 확인해줘' }),
       { client: fakeClient },
       (t) => streamed.push(t),
@@ -522,7 +522,7 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     });
     mockSidecars({ subagent: '메일 계정: test@example.com' });
     const labels: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '메일 계정 연동 상태 확인해줘' }),
       { client: fakeClient },
       () => {},
@@ -541,7 +541,7 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     });
     mockSidecars({});
     const labels: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '오늘 할 일 알려줘' }),
       { client: fakeClient },
       () => {},
@@ -562,7 +562,7 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     });
     mockSidecars({ subagent: '김민수(kim@test.com) 연락처가 추가되었습니다.' });
     const labels: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '김민수 이메일은 kim@test.com 인데 연락처에 추가해줘' }),
       { client: fakeClient },
       () => {},
@@ -582,7 +582,7 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     });
     mockSidecars({});
     const labels: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '이메일 안 읽은 거 확인해줘' }),
       { client: fakeClient },
       () => {},
@@ -603,7 +603,7 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     mockSidecars({});
     const streamed: string[] = [];
     const deltas: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '미읽은 메일 요약해줘' }),
       { client: fakeClient },
       (t) => streamed.push(t),
@@ -628,7 +628,7 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
     });
     mockSidecars({ subagent: '받은편지함에 5개의 미읽은 메일이 있습니다.' });
     const streamed: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '미읽은 메일 요약해줘' }),
       { client: fakeClient },
       (t) => streamed.push(t),
@@ -640,7 +640,7 @@ describe('runAiComposeStream — mail 위임 답 / 미위임 fallback (#381, ex-
 });
 
 // #408→#381: contacts 직접-응답 fallback override 는 삭제됨. 연락처는 위임 → 사이드카로 답한다.
-describe('runAiComposeStream — contacts 위임 답 / 미위임 fallback (#381, ex-#408)', () => {
+describe('runAiChatStream — contacts 위임 답 / 미위임 fallback (#381, ex-#408)', () => {
   it('연락처 쿼리 + 위임 없음 + streamedText 없음 + 사이드카 없음 → fallback', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       // #463: textDelta 없음 — streamedText 비어서 fallback 발동
@@ -650,7 +650,7 @@ describe('runAiComposeStream — contacts 위임 답 / 미위임 fallback (#381,
     mockSidecars({});
     const labels: string[] = [];
     const streamed: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '연락처 찾아줘' }),
       { client: fakeClient },
       (t) => streamed.push(t),
@@ -672,7 +672,7 @@ describe('runAiComposeStream — contacts 위임 답 / 미위임 fallback (#381,
     });
     mockSidecars({ subagent: '현재 등록된 연락처가 없습니다.' });
     const labels: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '연락처 찾아줘' }),
       { client: fakeClient },
       () => {},
@@ -691,7 +691,7 @@ describe('runAiComposeStream — contacts 위임 답 / 미위임 fallback (#381,
     });
     mockSidecars({});
     const labels: string[] = [];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '오늘 일정 알려줘' }),
       { client: fakeClient },
       () => {},
@@ -705,7 +705,7 @@ describe('runAiComposeStream — contacts 위임 답 / 미위임 fallback (#381,
 
 // #390→#381: drive 미지원-작업 고정 override 는 삭제됨. "미지원" 안내는 이제 subagent 가 사이드카로 답하고,
 // 라우터가 위임 없이 prose 로 답하면 그 prose 는 버려지고 fallback 이 반환된다.
-describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex-#390)', () => {
+describe('runAiChatStream — drive 위임 답 / 미위임 fallback (#381, ex-#390)', () => {
   it('파일 업로드 쿼리 + 위임 + 사이드카 "미지원" → 사이드카 답 반환', async () => {
     vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'drive-agent': { description: 'dr', tools: [], prompt: '' } });
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
@@ -715,7 +715,7 @@ describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({ subagent: '파일 업로드 기능은 현재 지원하지 않습니다.' });
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '드라이브에 새 파일 보고서.pdf를 업로드해줘' }),
       { client: fakeClient },
       () => {},
@@ -733,7 +733,7 @@ describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '드라이브 팀 스페이스에 홍길동 멤버 추가해줘' }),
       { client: fakeClient },
       () => {},
@@ -750,7 +750,7 @@ describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({ subagent: '드라이브 파일 목록입니다.' });
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '팀 드라이브 파일 목록 보여줘' }),
       { client: fakeClient },
       () => {},
@@ -773,7 +773,7 @@ describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex
     // 사이드카 존재 — propose_delete_file 이 기록한 pending-action.
     vi.mocked(existsSync).mockImplementation((p) => typeof p === 'string' && p.endsWith('pending-action.json'));
     vi.mocked(readFileSync).mockReturnValue(sidecarContent);
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '드라이브에서 test-upload.txt 파일을 삭제해줘' }),
       { client: fakeClient },
       () => {},
@@ -787,7 +787,7 @@ describe('runAiComposeStream — drive 위임 답 / 미위임 fallback (#381, ex
 });
 
 // #436→#381: wiki 삭제 미지원 고정 override 는 삭제됨. "미지원" 안내는 wiki-agent 가 사이드카로 답한다.
-describe('runAiComposeStream — wiki 위임 답 / 미위임 fallback (#381, ex-#436)', () => {
+describe('runAiChatStream — wiki 위임 답 / 미위임 fallback (#381, ex-#436)', () => {
   it('위키 페이지 삭제 쿼리 + 위임 + 사이드카 "미지원" → 사이드카 답 반환', async () => {
     vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'wiki-agent': { description: 'w', tools: [], prompt: '' } });
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
@@ -797,7 +797,7 @@ describe('runAiComposeStream — wiki 위임 답 / 미위임 fallback (#381, ex-
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({ subagent: '위키 페이지 삭제 기능은 현재 지원하지 않습니다.' });
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '위키 페이지 삭제해줘' }),
       { client: fakeClient },
       () => {},
@@ -815,7 +815,7 @@ describe('runAiComposeStream — wiki 위임 답 / 미위임 fallback (#381, ex-
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '위키 "프로젝트 소개" 페이지 지워줘' }),
       { client: fakeClient },
       () => {},
@@ -832,7 +832,7 @@ describe('runAiComposeStream — wiki 위임 답 / 미위임 fallback (#381, ex-
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({ subagent: '프로젝트 소개 페이지를 찾았습니다.' });
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '위키에서 프로젝트 소개 찾아줘' }),
       { client: fakeClient },
       () => {},
@@ -844,7 +844,7 @@ describe('runAiComposeStream — wiki 위임 답 / 미위임 fallback (#381, ex-
 });
 
 // #400 #409: 비가역 작업 제안 후 승인 발화 시 haiku 환각 응답 차단 — pending_action 없이 "완료했습니다" 방지.
-describe('runAiComposeStream — proposal approval hallucination guard (#400, #409)', () => {
+describe('runAiChatStream — proposal approval hallucination guard (#400, #409)', () => {
   it('승인 발화 + 직전 AI 제안 문구 + pendingActions 없음 → 고정 안내 반환', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       // haiku가 "생성됐습니다" 환각 응답을 내보내는 시나리오.
@@ -858,7 +858,7 @@ describe('runAiComposeStream — proposal approval hallucination guard (#400, #4
       { role: 'USER', content: '오늘 오후 4시에 팀 회의 일정 만들어줘' },
       { role: 'ASSISTANT', content: '오늘 오후 4시 팀 회의 1시간 일정 생성을 제안했습니다. 확인 카드에서 승인해주세요.' },
     ];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '네, 승인합니다', recentContext }),
       { client: fakeClient },
       () => {},
@@ -883,7 +883,7 @@ describe('runAiComposeStream — proposal approval hallucination guard (#400, #4
     const recentContext = [
       { role: 'ASSISTANT', content: '팀 회의 제안했습니다. 확인 카드에서 승인해주세요.' },
     ];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '네', recentContext }),
       { client: fakeClient },
       () => {},
@@ -901,7 +901,7 @@ describe('runAiComposeStream — proposal approval hallucination guard (#400, #4
     });
     // 제안 컨텍스트 없음 → guard 미발동, streamedText 답이 그대로 반환.
     mockSidecars({});
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '네 알겠어', recentContext: [] }),
       { client: fakeClient },
       () => {},
@@ -924,7 +924,7 @@ describe('runAiComposeStream — proposal approval hallucination guard (#400, #4
       { role: 'USER', content: '김철수 연락처 삭제해줘' },
       { role: 'ASSISTANT', content: '김철수 연락처를 삭제하겠습니다. 확인해주세요.' },
     ];
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '확인', recentContext }),
       { client: fakeClient },
       () => {},
@@ -937,16 +937,16 @@ describe('runAiComposeStream — proposal approval hallucination guard (#400, #4
   });
 });
 
-// #376: runAiComposeStream 이 userId 를 buildChildEnv 에 전달하는지 검증.
-describe('runAiComposeStream — userId → ACTING_USER_ID 전달 (#376)', () => {
-  it('ComposeInput.userId 를 buildChildEnv 4번째 인자로 전달한다', async () => {
+// #376: runAiChatStream 이 userId 를 buildChildEnv 에 전달하는지 검증.
+describe('runAiChatStream — userId → ACTING_USER_ID 전달 (#376)', () => {
+  it('ChatInput.userId 를 buildChildEnv 4번째 인자로 전달한다', async () => {
     // done 을 즉시 resolve 하는 스트림 mock — resolveDone 할당 타이밍 문제 없음.
     vi.mocked(runClaudeCliStream).mockImplementation(() => ({
       done: Promise.resolve(),
       kill: vi.fn(),
     }));
 
-    await runAiComposeStream(
+    await runAiChatStream(
       baseInput({ userId: 42 }),
       { client: fakeClient },
       () => {},
@@ -965,7 +965,7 @@ describe('runAiComposeStream — userId → ACTING_USER_ID 전달 (#376)', () =>
 
 // #379/#407→#381: SDK 내부-메시지 정규식 override 는 삭제됨. 라우터 SDK-leak prose 는 result/delta 로 와도
 // 사용자에게 안 나간다(구조적). 답은 사이드카(없으면 fallback)에서만 온다.
-describe('runAiComposeStream — SDK 내부 메시지 누수 가드 (#381, ex-#379/#407)', () => {
+describe('runAiChatStream — SDK 내부 메시지 누수 가드 (#381, ex-#379/#407)', () => {
   it('라우터 result 에 SDK-leak prose 가 있어도 fullText 는 fallback (prose 미사용)', async () => {
     const sdkLeak = '현재 환경에서 Agent 도구가 활성화되어 있지 않네요. 이슈 삭제는 불가합니다.';
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
@@ -973,7 +973,7 @@ describe('runAiComposeStream — SDK 내부 메시지 누수 가드 (#381, ex-#3
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.fullText).not.toContain('Agent 도구가 활성화');
     expect(out.widgets).toBeNull();
@@ -988,7 +988,7 @@ describe('runAiComposeStream — SDK 내부 메시지 누수 가드 (#381, ex-#3
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({ subagent: normalResp });
-    const out = await runAiComposeStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(normalResp);
   });
 
@@ -999,7 +999,7 @@ describe('runAiComposeStream — SDK 내부 메시지 누수 가드 (#381, ex-#3
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput({ query: '일정 삭제 취소해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: '일정 삭제 취소해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.fullText).not.toContain('advisor');
     expect(out.widgets).toBeNull();
@@ -1014,21 +1014,21 @@ describe('runAiComposeStream — SDK 내부 메시지 누수 가드 (#381, ex-#3
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput({ query: '일정 삭제 취소해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: '일정 삭제 취소해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(normalResp);
   });
 });
 
 // #410→#381: 내부 식별자 sanitize 정규식은 삭제됨. 라우터가 result/delta 에 "calendar-agent에" 류를 노출해도
 // 그 prose 는 사용자에게 안 나간다(구조적). 답은 사이드카에서만 온다.
-describe('runAiComposeStream — 내부 식별자 누수 가드 (#381, ex-#410)', () => {
+describe('runAiChatStream — 내부 식별자 누수 가드 (#381, ex-#410)', () => {
   it('라우터 result 의 calendar-agent 식별자 prose 는 fullText 로 안 나간다 → fallback', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'calendar-agent에 확인하겠습니다.' }));
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput({ query: '이번 주 화요일 빈 시간 있어?' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: '이번 주 화요일 빈 시간 있어?' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('calendar-agent');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
   });
@@ -1039,7 +1039,7 @@ describe('runAiComposeStream — 내부 식별자 누수 가드 (#381, ex-#410)'
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput({ query: '연락처 찾아줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: '연락처 찾아줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('contacts-agent');
   });
 
@@ -1050,14 +1050,14 @@ describe('runAiComposeStream — 내부 식별자 누수 가드 (#381, ex-#410)'
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput({ query: '오늘 일정 알려줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: '오늘 일정 알려줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('일정을 확인하겠습니다.');
   });
 });
 
 // #426→#381: 한국어 식별자 sanitize 정규식은 삭제됨. 라우터의 "메일 조회 에이전트에" 류 prose 는
 // result/delta 어디에 와도 사용자에게 안 나간다(구조적). 위임 실패 답은 subagent 사이드카로만 온다.
-describe('runAiComposeStream — 한국어 에이전트 식별자 누수 가드 (#381, ex-#426)', () => {
+describe('runAiChatStream — 한국어 에이전트 식별자 누수 가드 (#381, ex-#426)', () => {
   it('mail-agent 위임 후 실패: 라우터 result prose 미사용, subagent 사이드카 답 반환', async () => {
     vi.mocked(loadSubagents).mockReturnValueOnce(
       { 'mail-agent': { description: 'd', tools: [], prompt: '' } } as never,
@@ -1074,7 +1074,7 @@ describe('runAiComposeStream — 한국어 에이전트 식별자 누수 가드 
     });
     // subagent 가 식별자 없는 안내를 사이드카에 기록.
     mockSidecars({ subagent: '죄송합니다, 잠시 후 다시 시도해 주세요.' });
-    const out = await runAiComposeStream(baseInput({ query: '메일 확인해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: '메일 확인해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('메일 조회 에이전트');
     expect(out.fullText).toBe('죄송합니다, 잠시 후 다시 시도해 주세요.');
   });
@@ -1090,7 +1090,7 @@ describe('runAiComposeStream — 한국어 에이전트 식별자 누수 가드 
     mockSidecars({});
     const streamed: string[] = [];
     const deltas: string[] = [];
-    const out = await runAiComposeStream(baseInput({ query: '할 일 알려줘' }), { client: fakeClient }, (t) => streamed.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    const out = await runAiChatStream(baseInput({ query: '할 일 알려줘' }), { client: fakeClient }, (t) => streamed.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
     expect(streamed).toHaveLength(0); // onText 는 미호출
     expect(deltas).toContain(prose);  // onDelta 로 emit 됨
     expect(out.fullText).toBe(prose); // streamedText 가 fullText
@@ -1103,14 +1103,14 @@ describe('runAiComposeStream — 한국어 에이전트 식별자 누수 가드 
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput({ query: '할 일 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: '할 일 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('에이전트가 처리합니다.');
   });
 });
 
 // #429→#381: "서브에이전트 직접 호출 불가" 내부 메시지 sanitize 는 삭제됨.
 // 그 내부 prose 는 result/delta 어디에 와도 사용자에게 안 나간다(구조적). 답은 사이드카에서만 온다.
-describe('runAiComposeStream — 서브에이전트 직접 호출 내부 메시지 누수 가드 (#381, ex-#429)', () => {
+describe('runAiChatStream — 서브에이전트 직접 호출 내부 메시지 누수 가드 (#381, ex-#429)', () => {
   it('D-002: 라우터 result 의 "직접 호출하지 못하는 환경" prose 는 fullText 로 안 나감 → 사이드카 답', async () => {
     const leakedMsg =
       '이슈에 코멘트를 남기겠습니다.죄송합니다. 서브에이전트를 직접 호출하지 못하는 환경입니다. 직접 처리하겠습니다.EX-7777 이슈를 찾을 수 없습니다.';
@@ -1120,7 +1120,7 @@ describe('runAiComposeStream — 서브에이전트 직접 호출 내부 메시�
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({ subagent: 'EX-7777 이슈를 찾을 수 없습니다.' });
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('서브에이전트를 직접 호출하지 못하는 환경');
     expect(out.fullText).toBe('EX-7777 이슈를 찾을 수 없습니다.');
   });
@@ -1134,7 +1134,7 @@ describe('runAiComposeStream — 서브에이전트 직접 호출 내부 메시�
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({ subagent: 'EX-9876 이슈를 찾을 수 없습니다.' });
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('제가 직접 처리하겠습니다.');
     expect(out.fullText).toBe('EX-9876 이슈를 찾을 수 없습니다.');
   });
@@ -1151,7 +1151,7 @@ describe('runAiComposeStream — 서브에이전트 직접 호출 내부 메시�
     });
     mockSidecars({ subagent: 'EX-7777 이슈를 찾을 수 없습니다.' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toContain('서브에이전트를 직접 호출하지 못하는 환경');
     expect(streamed).not.toContain('직접 처리하겠습니다');
@@ -1164,14 +1164,14 @@ describe('runAiComposeStream — 서브에이전트 직접 호출 내부 메시�
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({ subagent: '이슈 상태를 직접 처리하겠습니다.' });
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('이슈 상태를 직접 처리하겠습니다.');
   });
 });
 
 // #441→#381: project-agent delta 의 "Agent 도구가 없으므로" 내부 SDK 메시지 sanitize 는 삭제됨.
 // 그 delta prose 는 어떤 청크 형태든 사용자에게 안 나간다(구조적). 답은 사이드카에서만 온다.
-describe('runAiComposeStream — Agent 도구 없음 내부 메시지 누수 가드 (#381, ex-#441)', () => {
+describe('runAiChatStream — Agent 도구 없음 내부 메시지 누수 가드 (#381, ex-#441)', () => {
   it('delta(단일 청크)의 "Agent 도구가 없으므로" prose 는 안 나가고 사이드카 답만 emit', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(textDelta('저는 `Agent` 도구가 없으므로 직접 처리하겠습니다.'));
@@ -1183,7 +1183,7 @@ describe('runAiComposeStream — Agent 도구 없음 내부 메시지 누수 가
     vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'project-agent': { description: 'p', tools: [], prompt: '' } });
     mockSidecars({ subagent: '프로젝트 설명 수정 기능은 현재 지원하지 않습니다.' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toContain('`Agent` 도구가 없으므로');
     expect(streamed).not.toContain('저는 `Agent`');
@@ -1202,7 +1202,7 @@ describe('runAiComposeStream — Agent 도구 없음 내부 메시지 누수 가
     vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'project-agent': { description: 'p', tools: [], prompt: '' } });
     mockSidecars({ subagent: '프로젝트 설명 수정 기능은 현재 지원하지 않습니다.' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toContain('`Agent` 도구가 없으므로');
     expect(streamed).toBe('프로젝트 설명 수정 기능은 현재 지원하지 않습니다.');
@@ -1215,7 +1215,7 @@ describe('runAiComposeStream — Agent 도구 없음 내부 메시지 누수 가
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('`Agent` 도구가 없으므로');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
   });
@@ -1224,7 +1224,7 @@ describe('runAiComposeStream — Agent 도구 없음 내부 메시지 누수 가
 // #423→#381: 이슈 enum 영어 괄호 병기 sanitize 정규식은 삭제됨.
 // 라우터 prose 는 사용자에게 안 나가고(구조적), 답은 subagent 사이드카가 작성한 텍스트 그대로다.
 // (subagent 가 한국어로만 쓰면 영어 병기 자체가 없다 — sanitize 불필요.)
-describe('runAiComposeStream — 이슈 enum 답은 사이드카 그대로 (#381, ex-#423)', () => {
+describe('runAiChatStream — 이슈 enum 답은 사이드카 그대로 (#381, ex-#423)', () => {
   it('subagent 사이드카에 한국어 상태 답 → 그대로 반환(영어 병기 없음)', async () => {
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
       onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }));
@@ -1232,7 +1232,7 @@ describe('runAiComposeStream — 이슈 enum 답은 사이드카 그대로 (#381
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({ subagent: 'EX-5 이슈 상태를 완료로 변경했습니다.' });
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('(DONE)');
     expect(out.fullText).toBe('EX-5 이슈 상태를 완료로 변경했습니다.');
   });
@@ -1243,7 +1243,7 @@ describe('runAiComposeStream — 이슈 enum 답은 사이드카 그대로 (#381
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('(IN_PROGRESS)');
     expect(out.fullText).not.toContain('(HIGH)');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
@@ -1257,7 +1257,7 @@ describe('runAiComposeStream — 이슈 enum 답은 사이드카 그대로 (#381
     });
     mockSidecars({ subagent: '상태: 진행 중, 우선순위: 높음' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toContain('(IN_PROGRESS)');
     expect(streamed).not.toContain('(HIGH)');
@@ -1271,14 +1271,14 @@ describe('runAiComposeStream — 이슈 enum 답은 사이드카 그대로 (#381
       return { done: Promise.resolve(), kill: () => {} };
     });
     mockSidecars({});
-    const out = await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('update_status(DONE) 호출합니다.');
   });
 });
 
 // #404: show_issue_detail 위젯 — 존재하지 않는 이슈 번호 차단(결정론적 서버 검증).
 // haiku 가 EX-99999 처럼 존재하지 않는 이슈에 show_issue_detail 을 호출하는 비결정적 동작 차단.
-describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () => {
+describe('runAiChatStream — show_issue_detail not-found guard (#404)', () => {
   function issueDetailLine(projectKey: string, number: number): string {
     return JSON.stringify({
       type: 'assistant',
@@ -1299,7 +1299,7 @@ describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () =
       return { done: Promise.resolve(), kill: () => {} };
     });
     vi.mocked(existsSync).mockReturnValue(false);
-    const out = await runAiComposeStream(baseInput({ query: 'EX-99999 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: 'EX-99999 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     // 위젯이 드롭되어 null 이어야 한다.
     expect(out.widgets).toBeNull();
   });
@@ -1313,7 +1313,7 @@ describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () =
       return { done: Promise.resolve(), kill: () => {} };
     });
     vi.mocked(existsSync).mockReturnValue(false);
-    const out = await runAiComposeStream(baseInput({ query: 'EX-1 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: 'EX-1 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.widgets).toEqual([{ type: 'issue_detail', params: { number: 1, projectKey: 'EX' }, layout: {} }]);
   });
 
@@ -1326,7 +1326,7 @@ describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () =
       return { done: Promise.resolve(), kill: () => {} };
     });
     vi.mocked(existsSync).mockReturnValue(false);
-    const out = await runAiComposeStream(baseInput({ query: '5번 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: '5번 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     // 검증 불가 → 통과, getIssueDetail 미호출
     expect(out.widgets).toEqual([{ type: 'issue_detail', params: { number: 5 }, layout: {} }]);
     expect((fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail).not.toHaveBeenCalled();
@@ -1334,10 +1334,10 @@ describe('runAiComposeStream — show_issue_detail not-found guard (#404)', () =
 });
 
 // #405: 생성일 필터 쿼리 사전 차단 — LLM 호출 없이 고정 안내 반환.
-describe('runAiComposeStream — 생성일 필터 쿼리 사전 차단 (#405)', () => {
+describe('runAiChatStream — 생성일 필터 쿼리 사전 차단 (#405)', () => {
   it('이번 주 생성된 이슈 쿼리 → LLM 미호출, 고정 안내 반환', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '이번 주 생성된 이슈 보여줘' }),
       { client: fakeClient },
       () => {},
@@ -1351,7 +1351,7 @@ describe('runAiComposeStream — 생성일 필터 쿼리 사전 차단 (#405)', 
   });
 
   it('최근 생성된 이슈 쿼리 → 고정 안내 반환', async () => {
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '최근 생성된 이슈 목록 보여줘' }),
       { client: fakeClient },
       () => {},
@@ -1361,7 +1361,7 @@ describe('runAiComposeStream — 생성일 필터 쿼리 사전 차단 (#405)', 
   });
 
   it('지난 주 만들어진 이슈 → 고정 안내 반환', async () => {
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: '지난 주 만들어진 이슈 뭐 있어?' }),
       { client: fakeClient },
       () => {},
@@ -1374,7 +1374,7 @@ describe('runAiComposeStream — 생성일 필터 쿼리 사전 차단 (#405)', 
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
     vi.mocked(existsSync).mockReturnValue(false);
     // getOAuthToken 이 호출될 것 — 따라서 LLM 경로가 실행됨.
-    await runAiComposeStream(
+    await runAiChatStream(
       baseInput({ query: '이번 주 이슈 만들어줘' }),
       { client: fakeClient },
       () => {},
@@ -1386,7 +1386,7 @@ describe('runAiComposeStream — 생성일 필터 쿼리 사전 차단 (#405)', 
   it('마감일 필터 요청("이번 주 마감 이슈") → guard 미적용, LLM 호출됨', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
     vi.mocked(existsSync).mockReturnValue(false);
-    await runAiComposeStream(
+    await runAiChatStream(
       baseInput({ query: '이번 주 마감 이슈 보여줘' }),
       { client: fakeClient },
       () => {},
@@ -1397,7 +1397,7 @@ describe('runAiComposeStream — 생성일 필터 쿼리 사전 차단 (#405)', 
 });
 
 // #406: 복합 요청에서 unassign_self 미호출 시 직접 API 재처리.
-describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () => {
+describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
   it('복합 해제 쿼리 + issue-agent 위임 + 사이드카 없음 → unassignSelf 호출', async () => {
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
     const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
@@ -1412,7 +1412,7 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
     // 사이드카 없음(success/error 둘 다 false)
     vi.mocked(existsSync).mockReturnValue(false);
 
-    await runAiComposeStream(
+    await runAiChatStream(
       baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
       { client: client406 },
       () => {},
@@ -1436,7 +1436,7 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
     );
     vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ issueKey: 'EX-2' }) as never);
 
-    await runAiComposeStream(
+    await runAiChatStream(
       baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
       { client: client406 },
       () => {},
@@ -1460,7 +1460,7 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
     );
     vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ error: '403', canonical }) as never);
 
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
       { client: client406 },
       () => {},
@@ -1482,7 +1482,7 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
     });
     vi.mocked(existsSync).mockReturnValue(false);
 
-    await runAiComposeStream(
+    await runAiChatStream(
       baseInput({ query: 'EX-2 담당자에서 나 해제해줘', userId: 1 }),
       { client: client406 },
       () => {},
@@ -1496,7 +1496,7 @@ describe('runAiComposeStream — 복합 요청 unassign 재처리 (#406)', () =>
 // #440->#381: 홈 라우터 위임 preamble("위임하겠습니다." 등) delta sanitize(정규식/버퍼)는 전부 삭제됨.
 // 라우터의 위임 preamble/추론 prose 는 어떤 변형/청크 형태든 사용자에게 안 나간다(구조적 불변식).
 // 위임 답은 drive-agent 의 submit_response 사이드카로만, 미위임이면 fallback 으로 온다.
-describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#381, ex-#440)', () => {
+describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381, ex-#440)', () => {
   // drive-agent 를 화이트리스트에 포함하는 헬퍼(차단 없이 delegated=true 달성).
   function allowDrive(): void {
     vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'drive-agent': { description: 'dr', tools: [], prompt: '' } });
@@ -1518,7 +1518,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     mockSidecars({ subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' });
     const got: string[] = [];
     const labels: string[] = [];
-    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, (l) => labels.push(l));
+    await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, (l) => labels.push(l));
     const streamed = got.join('');
     expect(streamed).not.toContain('위임하겠습니다.');
     expect(streamed).toBe('"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.');
@@ -1535,7 +1535,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     });
     mockSidecars({ subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toContain('위임하겠습니다.');
     expect(streamed).not.toContain('직접 찾아 처리하겠습니다.');
@@ -1552,7 +1552,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     });
     mockSidecars({ subagent: '"업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput({ query: '"업무문서" 폴더 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput({ query: '"업무문서" 폴더 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toContain('찾아 삭제를 진행하겠습니다.');
     expect(streamed).not.toContain('직접 폴더를 찾아보겠습니다.');
@@ -1568,7 +1568,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     });
     mockSidecars({ subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' });
     const got: string[] = [];
-    const out = await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    const out = await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(got.join('')).toContain('삭제를 제안했습니다.');
     expect(out.fullText).toContain('삭제를 제안했습니다.');
   });
@@ -1583,7 +1583,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     });
     mockSidecars({ subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toContain('위임하여');
     expect(streamed).toContain('small.txt 파일 삭제를 제안했습니다.');
@@ -1599,7 +1599,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     });
     mockSidecars({ subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toContain('직접 찾아 삭제를 제안합니다.');
     expect(streamed).toContain('small.txt 파일 삭제를 제안했습니다.');
@@ -1616,7 +1616,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     });
     mockSidecars({ subagent: '"업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.' });
     const got: string[] = [];
-    await runAiComposeStream(baseInput({ query: '"업무문서" 폴더 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput({ query: '"업무문서" 폴더 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     const streamed = got.join('');
     expect(streamed).not.toContain('찾았습니다. 삭제를 제안합니다.');
     expect(streamed).toContain('폴더 삭제 제안을 등록했습니다.');
@@ -1630,7 +1630,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     });
     mockSidecars({});
     const got: string[] = [];
-    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(got).toHaveLength(1);
     expect(got[0]).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
   });
@@ -1646,7 +1646,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     mockSidecars({ subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' });
     const got: string[] = [];
     const labels: string[] = [];
-    await runAiComposeStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, (l) => labels.push(l));
+    await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, (l) => labels.push(l));
     const streamed = got.join('');
     expect(streamed).not.toContain('위임하겠습니다.');
     expect(streamed).toContain('small.txt 파일 삭제를 제안했습니다.');
@@ -1662,7 +1662,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
     mockSidecars({});
     const got: string[] = []; // onText — streamedText 는 onDelta 경유라 got 에 없음
     const deltas: string[] = [];
-    const out = await runAiComposeStream(baseInput({ query: '안녕하세요' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    const out = await runAiChatStream(baseInput({ query: '안녕하세요' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
     expect(out.fullText).toBe('안녕하세요. 무엇을 도와드릴까요?');
     expect(deltas.join('')).toContain('안녕하세요. 무엇을 도와드릴까요?');
   });
@@ -1670,7 +1670,7 @@ describe('runAiComposeStream — 홈 라우터 위임 preamble 누수 가드 (#3
 
 
 // #415: 단순 해제 쿼리 + 위임 시도 + unassign_self 미처리 → 허위 성공 응답 차단.
-describe('runAiComposeStream — 단순 해제 허위 성공 환각 차단 (#415)', () => {
+describe('runAiChatStream — 단순 해제 허위 성공 환각 차단 (#415)', () => {
   it('단순 해제 쿼리 + 위임 + 사이드카 없음 → 실패 안내 반환(허위 성공 차단)', async () => {
     // 배경: issue-agent 가 unassign_self 없이 성공을 환각하는 경우. 사이드카 모두 없음.
     vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
@@ -1683,7 +1683,7 @@ describe('runAiComposeStream — 단순 해제 허위 성공 환각 차단 (#415
     // 성공/에러 사이드카 모두 없음
     vi.mocked(existsSync).mockReturnValue(false);
 
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
       { client: fakeClient },
       () => {},
@@ -1704,7 +1704,7 @@ describe('runAiComposeStream — 단순 해제 허위 성공 환각 차단 (#415
     // 성공 사이드카 존재(실제 해제됨) + subagent 답 사이드카.
     mockSidecars({ unassignSuccess: { issueKey: 'EX-2' }, subagent: 'EX-2 이슈 담당 해제 완료.' });
 
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
       { client: fakeClient },
       () => {},
@@ -1729,7 +1729,7 @@ describe('runAiComposeStream — 단순 해제 허위 성공 환각 차단 (#415
     );
     vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ error: '404', canonical }) as never);
 
-    const out = await runAiComposeStream(
+    const out = await runAiChatStream(
       baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
       { client: fakeClient },
       () => {},
@@ -1740,7 +1740,7 @@ describe('runAiComposeStream — 단순 해제 허위 성공 환각 차단 (#415
   });
 });
 
-describe('runAiComposeStream 로그', () => {
+describe('runAiChatStream 로그', () => {
   beforeEach(() => {
     logMock.info.mockClear();
     logMock.warn.mockClear();
@@ -1749,7 +1749,7 @@ describe('runAiComposeStream 로그', () => {
 
   it('생성일 필터 쿼리는 fallback(reason=created_date_filter_blocked) 을 발행한다', async () => {
     const deps = { client: { getOAuthToken: vi.fn() } } as never;
-    await runAiComposeStream(
+    await runAiChatStream(
       {
         query: '이번 주 생성된 이슈 보여줘',
         assistantAgentId: 2,
@@ -1765,7 +1765,7 @@ describe('runAiComposeStream 로그', () => {
       new AbortController().signal,
     );
     expect(logMock.warn).toHaveBeenCalledWith(
-      'ai-compose',
+      'ai-chat',
       'fallback',
       expect.objectContaining({ requestId: 'rq1', reason: 'created_date_filter_blocked' }),
     );

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { readPendingActions } from './run-ai-compose.js';
+import { readPendingActions } from './run-ai-chat.js';
 
 describe('readPendingActions', () => {
   it('NDJSON 여러 줄을 배열로 파싱하고 깨진 줄은 건너뛴다', () => {

@@ -8,10 +8,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { type RunAgentDeps } from '../agent/run-agent.js';
-import { runAiComposeStream } from '../agent/run-ai-compose.js';
+import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { log } from '../logger.js';
 
-export const composeSchema = z.object({
+export const chatSchema = z.object({
   // 공백 전용 쿼리("   ")는 trim 후 min(1) 검사로 거부 (#430).
   query: z.string().trim().min(1),
   recentContext: z
@@ -29,8 +29,8 @@ export const composeSchema = z.object({
 export function createHomeRouter(deps: RunAgentDeps): Router {
   const router = Router();
 
-  router.post('/ai/compose', async (req, res) => {
-    const parsed = composeSchema.safeParse(req.body);
+  router.post('/ai/chat', async (req, res) => {
+    const parsed = chatSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues });
       return;
@@ -47,7 +47,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     const requestId = randomUUID();
     const startedAt = Date.now();
     const d = parsed.data;
-    log.info('ai-compose', 'start', {
+    log.info('ai-chat', 'start', {
       requestId,
       agentId: d.assistantAgentId,
       userId: d.userId,
@@ -69,7 +69,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     });
 
     try {
-      const result = await runAiComposeStream(
+      const result = await runAiChatStream(
         { ...parsed.data, requestId },
         deps,
         (text) => {
@@ -105,7 +105,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         // #432: done 이벤트에 토큰 사용량(usage) 포함 — 없으면 null.
         res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets, usage: result.usage })}\n\n`);
         res.end();
-        log.info('ai-compose', 'done', {
+        log.info('ai-chat', 'done', {
           requestId,
           durationMs: Date.now() - startedAt,
           answerLen: result.fullText.length,
@@ -113,18 +113,18 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         });
       } else {
         // 클라이언트 연결이 끊긴 채 완료 — 중단으로 기록.
-        log.info('ai-compose', 'aborted', { requestId, durationMs: Date.now() - startedAt });
+        log.info('ai-chat', 'aborted', { requestId, durationMs: Date.now() - startedAt });
       }
     } catch (e) {
-      console.error('[ai-compose] 실패:', e instanceof Error ? e.message : String(e));
-      log.error('ai-compose', 'error', {
+      console.error('[ai-chat] 실패:', e instanceof Error ? e.message : String(e));
+      log.error('ai-chat', 'error', {
         requestId,
         durationMs: Date.now() - startedAt,
         error: e instanceof Error ? e.message : String(e),
       });
       // 연결이 살아 있을 때만 error 발행(닫힌 소켓 write → EPIPE 방지).
       if (!aborted) {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: 'compose_failed' })}\n\n`);
+        res.write(`event: error\ndata: ${JSON.stringify({ message: 'chat_failed' })}\n\n`);
         res.end();
       }
     }
