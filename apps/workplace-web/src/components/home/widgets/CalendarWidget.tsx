@@ -7,14 +7,28 @@ import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents';
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
 
-// 오늘 00:00 ~ 24:00 ISO 문자열 계산 — params.from/to 미지정 시 기본값.
-function todayRange(): { from: string; to: string } {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  const from = d.toISOString();
-  d.setHours(24, 0, 0, 0);
-  const to = d.toISOString();
-  return { from, to };
+// from/to 범위를 ISO datetime 으로 정규화한다(#460).
+// AI 가 show_calendar 에 date-only("2026-06-22") 를 줄 수 있으나, 백엔드 /calendar/events 는
+// @DateTimeFormat(ISO.DATE_TIME) OffsetDateTime 을 요구하므로 date-only 를 그대로 보내면 400 이 난다.
+// from = 시작일 00:00, to = 종료일 +1일 00:00(종료일 포함 = exclusive end). 미지정 시 오늘.
+// from==to(단일일)·to 미지정·역전 범위 모두 최소 하루 범위로 보정해 빈 범위를 방지한다.
+function resolveRange(params?: Record<string, unknown>): { from: string; to: string } {
+  // 문자열(date-only 또는 ISO)을 그 날 로컬 00:00 Date 로 파싱. 유효하지 않으면 null.
+  const startOfDay = (v: unknown): Date | null => {
+    if (typeof v !== 'string' || !v.trim()) return null;
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const fromDate = startOfDay(params?.from) ?? today;
+  const toDay = startOfDay(params?.to) ?? fromDate;
+  // 종료일을 포함하도록 +1일. 역전(to<from) 시 from 기준으로 보정.
+  const toExclusive = new Date(Math.max(toDay.getTime(), fromDate.getTime()));
+  toExclusive.setDate(toExclusive.getDate() + 1);
+  return { from: fromDate.toISOString(), to: toExclusive.toISOString() };
 }
 
 // 일정 시작시각을 로컬 HH:mm 으로 포맷.
@@ -30,9 +44,7 @@ function shortTime(iso: string): string {
  * 항목 클릭 시 /calendar 딥링크.
  */
 export default function CalendarWidget({ params }: { params?: Record<string, unknown> }) {
-  const defaults = todayRange();
-  const from = (params?.from as string) || defaults.from;
-  const to = (params?.to as string) || defaults.to;
+  const { from, to } = resolveRange(params);
 
   const { data, isLoading, isError, refetch } = useCalendarEvents(from, to);
 
