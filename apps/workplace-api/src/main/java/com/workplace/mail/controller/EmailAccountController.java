@@ -57,10 +57,22 @@ public class EmailAccountController {
     return ResponseEntity.noContent().build();
   }
 
-  /** 저장 없이 연결만 테스트. */
+  /** 저장 없이 연결만 테스트(추가 폼). 비밀번호는 본문 값을 그대로 사용. */
   @PostMapping("/test")
   public ConnectionTestResult test(
       @AuthenticationPrincipal Long callerId, @Valid @RequestBody EmailAccountRequest req) {
     return service.test(req);
+  }
+
+  /**
+   * 기존 계정 연결 테스트(수정 폼) — 비밀번호 미입력 시 저장된 비밀번호로 폴백. 본인 소유 아니면 404. #448: 수정 폼은 비밀번호를 비워두므로 이 경로가 없으면
+   * 인증 실패한다.
+   */
+  @PostMapping("/{id}/test")
+  public ConnectionTestResult testExisting(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @Valid @RequestBody EmailAccountRequest req) {
+    return service.test(callerId, id, req);
   }
 }

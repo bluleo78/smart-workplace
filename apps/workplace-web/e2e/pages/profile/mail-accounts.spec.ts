@@ -128,6 +128,37 @@ test.describe('메일 계정 설정', () => {
     expect((req.payload as Record<string, unknown>).aiEnabled).toBe(true);
   });
 
+  test('수정 다이얼로그 — 비밀번호 미입력 연결 테스트는 id 기반 엔드포인트 호출 + 성공 표시 (#448)', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [account()]);
+    // 수정 모드 테스트는 /accounts/{id}/test 로 가야 한다(저장 비밀번호 폴백). payload 캡처.
+    const capture = await mockApi(
+      page,
+      'POST',
+      '/api/v1/mail/accounts/1/test',
+      { imapOk: true, imapError: null, smtpOk: true, smtpError: null },
+      { capture: true },
+    );
+
+    await page.goto('/settings/mail');
+
+    // 수정 다이얼로그 열기 — 비밀번호는 프리필되지 않아 빈 값
+    await page.getByTestId('mail-account-row-1').getByRole('button', { name: '수정' }).click();
+    await expect(page.getByTestId('mail-account-dialog')).toBeVisible();
+    await expect(page.locator('#mail-pw')).toHaveValue('');
+
+    // 비밀번호 입력 없이 연결 테스트
+    await page.getByTestId('mail-test-button').click();
+    await expect(page.getByTestId('mail-test-imap')).toContainText('IMAP 연결됨');
+    await expect(page.getByTestId('mail-test-smtp')).toContainText('SMTP 연결됨');
+
+    // id 기반 엔드포인트로 갔고, 비밀번호는 빈 값으로 전송됨(서버가 저장값으로 폴백)
+    const req = await capture.waitForRequest();
+    expect(req.url.pathname).toBe('/api/v1/mail/accounts/1/test');
+    expect((req.payload as Record<string, unknown>).password).toBe('');
+  });
+
   test('계정 삭제 — 확인 AlertDialog 후 실행', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [account()]);
     await mockApi(page, 'DELETE', '/api/v1/mail/accounts/1', {}, { status: 204 });

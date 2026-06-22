@@ -32,10 +32,24 @@ public class EmailAccountService {
     return repo.listByUser(userId);
   }
 
-  /** 저장 없이 연결만 테스트(등록 폼의 [연결 테스트] 버튼). */
+  /** 저장 없이 연결만 테스트(등록 폼의 [연결 테스트] 버튼). 비밀번호는 요청 본문 값을 그대로 사용한다. */
   @Transactional(readOnly = true)
   public ConnectionTestResult test(EmailAccountRequest req) {
     return runTest(req, req.password());
+  }
+
+  /**
+   * 기존 계정의 [연결 테스트] — 수정 폼은 보안상 비밀번호를 미리 채우지 않으므로, 비밀번호가 비어 있으면 저장된 암호문을 복호화해 사용한다(update() 와 동일
+   * 폴백). 본인 소유가 아니거나 없는 계정이면 404. 이를 통해 동기화는 되는데 테스트만 인증 실패하던 비대칭(#448)을 제거한다.
+   */
+  @Transactional(readOnly = true)
+  public ConnectionTestResult test(long userId, long id, EmailAccountRequest req) {
+    String storedEnc =
+        repo.findEncryptedPassword(userId, id)
+            .orElseThrow(() -> new EmailAccountNotFoundException(id));
+    String effectivePassword =
+        isBlank(req.password()) ? encryption.decrypt(storedEnc) : req.password();
+    return runTest(req, effectivePassword);
   }
 
   /** 계정 등록 — 비밀번호 필수, 중복 금지, 연결 테스트 통과 필수. */

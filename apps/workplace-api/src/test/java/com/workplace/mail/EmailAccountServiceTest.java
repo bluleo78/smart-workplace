@@ -164,6 +164,41 @@ class EmailAccountServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void testExisting_blankPassword_usesStoredPassword() {
+    // #448: 수정 폼은 비밀번호를 비워두므로, 저장된 비밀번호로 폴백해야 IMAP/SMTP 인증이 통과한다.
+    long user = TestFixtures.createHuman(dsl);
+    EmailAccountResponse created = service.create(user, greenMailReq("pw"));
+
+    var result = service.test(user, created.id(), greenMailReq(""));
+
+    assertThat(result.success()).isTrue();
+    assertThat(result.imapOk()).isTrue();
+    assertThat(result.smtpOk()).isTrue();
+  }
+
+  @Test
+  void testExisting_explicitPassword_overridesStored() {
+    // 비밀번호를 새로 입력하면 저장값 대신 입력값으로 테스트한다(틀린 비번 → 인증 실패).
+    long user = TestFixtures.createHuman(dsl);
+    EmailAccountResponse created = service.create(user, greenMailReq("pw"));
+
+    var result = service.test(user, created.id(), greenMailReq("wrong-pw"));
+
+    assertThat(result.success()).isFalse();
+    assertThat(result.imapOk()).isFalse();
+  }
+
+  @Test
+  void testExisting_otherUser_throwsNotFound() {
+    long owner = TestFixtures.createHuman(dsl);
+    long other = TestFixtures.createHuman(dsl);
+    EmailAccountResponse created = service.create(owner, greenMailReq("pw"));
+
+    assertThatThrownBy(() -> service.test(other, created.id(), greenMailReq("")))
+        .isInstanceOf(EmailAccountNotFoundException.class);
+  }
+
+  @Test
   void update_toExistingActiveAddress_throwsConflict() {
     long user = TestFixtures.createHuman(dsl);
     // 활성 계정 A: box@test.local (정상 생성)

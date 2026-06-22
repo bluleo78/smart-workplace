@@ -37,3 +37,15 @@ export async function testMailConnection(
   const { data } = await client.post<ConnectionTestResult>('/mail/accounts/test', body);
   return data;
 }
+
+// 기존 계정 연결 테스트 — 비밀번호 미입력 시 서버가 저장된 비밀번호로 폴백(#448).
+export async function testMailConnectionForAccount(
+  id: number,
+  body: MailAccountRequest,
+): Promise<ConnectionTestResult> {
+  const { data } = await client.post<ConnectionTestResult>(
+    `/mail/accounts/${id}/test`,
+    body,
+  );
+  return data;
+}

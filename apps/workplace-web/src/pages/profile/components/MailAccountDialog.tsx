@@ -28,6 +28,7 @@ import { Switch } from '@/components/ui/switch';
 import {
   useCreateMailAccount,
   useTestMailConnection,
+  useTestMailConnectionForAccount,
   useUpdateMailAccount,
 } from '@/hooks/queries/useMailAccounts';
 import {
@@ -72,6 +73,8 @@ export function MailAccountDialog({
   const create = useCreateMailAccount();
   const update = useUpdateMailAccount();
   const testConn = useTestMailConnection();
+  // 수정 모드는 비밀번호 미입력 시 저장된 비밀번호로 폴백하는 id 기반 테스트를 사용(#448)
+  const testConnExisting = useTestMailConnectionForAccount();
   // 연결 테스트 결과 — 추가 모드에서 저장 가능 여부 판단에 사용
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
 
@@ -125,7 +128,12 @@ export function MailAccountDialog({
     if (!valid) return;
     setTestResult(null);
     // getValues() 는 input 타입(coerce 전)이라 schema.parse 로 output 타입(number 포트) 변환
-    const result = await testConn.mutateAsync(mailAccountSchema.parse(form.getValues()));
+    const body = mailAccountSchema.parse(form.getValues());
+    // 수정 모드: 비밀번호 빈 값이면 서버가 저장된 비밀번호로 폴백(#448). 추가 모드: 본문 비밀번호 사용.
+    const result =
+      isEdit && account
+        ? await testConnExisting.mutateAsync({ id: account.id, body })
+        : await testConn.mutateAsync(body);
     setTestResult(result);
   };
 
@@ -355,10 +363,12 @@ export function MailAccountDialog({
               type="button"
               variant="outline"
               onClick={() => void onTest()}
-              disabled={testConn.isPending || saving}
+              disabled={testConn.isPending || testConnExisting.isPending || saving}
               data-testid="mail-test-button"
             >
-              {testConn.isPending ? '테스트 중…' : '연결 테스트'}
+              {testConn.isPending || testConnExisting.isPending
+                ? '테스트 중…'
+                : '연결 테스트'}
             </Button>
             <div className="flex gap-2">
               <Button

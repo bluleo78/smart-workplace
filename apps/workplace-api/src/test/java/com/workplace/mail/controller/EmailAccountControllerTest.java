@@ -188,6 +188,63 @@ class EmailAccountControllerTest {
   }
 
   @Test
+  void testExisting_returnsConnectionResult() throws Exception {
+    when(service.test(eq(1L), eq(10L), any()))
+        .thenReturn(new ConnectionTestResult(true, null, true, null));
+    mockMvc
+        .perform(
+            post("/api/v1/mail/accounts/10/test")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(sampleRequest())))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.imapOk").value(true))
+        .andExpect(jsonPath("$.smtpOk").value(true));
+    verify(service).test(eq(1L), eq(10L), any());
+  }
+
+  @Test
+  void testExisting_blankPassword_passesValidationAndReturns200() throws Exception {
+    // #448 실제 시나리오: 수정 폼은 비밀번호를 비워 보낸다. @Valid 가 빈 비밀번호를 거부하지 않고
+    // 서비스(저장값 폴백)로 위임되어야 200 이어야 한다.
+    EmailAccountRequest blankPw =
+        new EmailAccountRequest(
+            "box@test.local",
+            "박스",
+            "imap.x.com",
+            993,
+            MailSecurity.SSL_TLS,
+            "box@test.local",
+            "smtp.x.com",
+            587,
+            MailSecurity.STARTTLS,
+            "box@test.local",
+            "",
+            false);
+    when(service.test(eq(1L), eq(10L), any()))
+        .thenReturn(new ConnectionTestResult(true, null, true, null));
+    mockMvc
+        .perform(
+            post("/api/v1/mail/accounts/10/test")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(blankPw)))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  void testExisting_notFound_returns404() throws Exception {
+    when(service.test(eq(1L), eq(999L), any())).thenThrow(new EmailAccountNotFoundException(999L));
+    mockMvc
+        .perform(
+            post("/api/v1/mail/accounts/999/test")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(sampleRequest())))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
   void delete_returns204() throws Exception {
     mockMvc
         .perform(delete("/api/v1/mail/accounts/10").header("Authorization", "Bearer v"))

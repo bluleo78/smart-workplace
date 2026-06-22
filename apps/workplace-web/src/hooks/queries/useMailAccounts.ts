@@ -8,6 +8,7 @@ import {
   deleteMailAccount,
   listMailAccounts,
   testMailConnection,
+  testMailConnectionForAccount,
   updateMailAccount,
 } from '../../api/mailAccounts';
 import { handleApiError } from '../../lib/api-error';
@@ -65,5 +66,13 @@ export function useDeleteMailAccount() {
 export function useTestMailConnection() {
   return useMutation({
     mutationFn: (body: MailAccountRequest) => testMailConnection(body),
+  });
+}
+
+// 기존 계정 연결 테스트(수정 폼) — 비밀번호 미입력 시 저장된 비밀번호로 폴백(#448).
+export function useTestMailConnectionForAccount() {
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: MailAccountRequest }) =>
+      testMailConnectionForAccount(id, body),
   });
 }
