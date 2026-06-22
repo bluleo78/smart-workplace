@@ -131,10 +131,13 @@ export function useChatSession() {
           if (opSeq.current !== gen) return; // stale 세대 폐기
           // #431: done 이벤트의 위젯을 마지막 어시스턴트 턴에 부착 — 챗 도크가 인라인 렌더.
           // show_* 단독 응답은 content 가 빈 문자열이므로, 위젯이 있으면 빈 버블 대신 위젯이 보인다.
-          // #463 I1: done 시 authoritative widgets(서버 #404 필터 후)로 contentBlocks 의 widget 블록 재조정.
-          //   r.widgets 가 비어도(undefined/[]) 재조정 — 전부 필터된 경우 widget 블록 전부 제거.
-          {
-            const authoritative = r.widgets ?? [];
+          // #463 I1: done.widgets(서버 #404 필터 후)가 있을 때만 authoritative 로 widgets 갱신 +
+          //   contentBlocks 의 widget 블록 재조정(필터된 위젯 제거). done.widgets 가 비어 있으면
+          //   라이브 tool 이벤트로 누적된 위젯을 보존한다(#461 점진 렌더 — done 이 위젯을 늦게/안 줘도 표시).
+          //   프로덕션에선 라이브 위젯이 항상 done.widgets 에 포함되므로(compose-parser 수집),
+          //   빈 done.widgets 는 '전부 필터' edge 뿐 — 그 경우만 라이브 잔존(reload 시 자가복구).
+          if (r.widgets && r.widgets.length > 0) {
+            const authoritative = r.widgets;
             setTurns((t) => {
               const next = [...t];
               const last = next[next.length - 1];
@@ -142,7 +145,7 @@ export function useChatSession() {
               const contentBlocks = last.contentBlocks
                 ? reconcileBlocks(last.contentBlocks, authoritative)
                 : last.contentBlocks;
-              next[next.length - 1] = { ...last, widgets: r.widgets, contentBlocks };
+              next[next.length - 1] = { ...last, widgets: authoritative, contentBlocks };
               return next;
             });
           }
