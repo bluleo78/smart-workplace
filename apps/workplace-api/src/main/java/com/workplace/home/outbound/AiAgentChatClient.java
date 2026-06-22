@@ -3,7 +3,7 @@ package com.workplace.home.outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.outbound.AiAgentProperties;
-import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
+import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -74,7 +74,7 @@ public class AiAgentChatClient {
    * @param onTool 도구 호출 이벤트 콜백, raw JsonNode({seq, phase, toolName, args?, isError?})
    */
   public void composeStream(
-      ComposeRequest request,
+      ChatRequest request,
       Consumer<String> onDelta,
       BiConsumer<String, JsonNode> onDone,
       Consumer<String> onError,

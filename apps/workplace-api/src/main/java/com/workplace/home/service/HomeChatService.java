@@ -9,8 +9,8 @@ import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentChatClient;
-import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
-import com.workplace.home.outbound.ComposeMessages.ContextMessage;
+import com.workplace.home.outbound.ChatMessages.ChatRequest;
+import com.workplace.home.outbound.ChatMessages.ContextMessage;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -30,7 +30,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * → done 시 ASSISTANT 영속.
  *
  * <p>권한·비서 해석은 스트림 시작 전 동기 실행 — 실패하면 GlobalExceptionHandler 가 일반 4xx 로 매핑한다(깨진 스트림 X). ASSISTANT
- * 영속은 펌프 스레드(aiComposeStreamExecutor)에서 수행되므로 TenantContextTaskDecorator 가 GUC 를 전파한다.
+ * 영속은 펌프 스레드(aiChatStreamExecutor)에서 수행되므로 TenantContextTaskDecorator 가 GUC 를 전파한다.
  */
 @Slf4j
 @Service
@@ -65,7 +65,7 @@ public class HomeChatService {
       AiAgentProperties aiAgentProperties,
       ObjectMapper objectMapper,
       AssistantResolver assistantResolver,
-      @Qualifier("aiComposeStreamExecutor") AsyncTaskExecutor executor) {
+      @Qualifier("aiChatStreamExecutor") AsyncTaskExecutor executor) {
     this.sessionService = sessionService;
     this.chatClient = chatClient;
     this.aiAgentProperties = aiAgentProperties;
@@ -85,7 +85,7 @@ public class HomeChatService {
    * @param query 자연어 명령
    * @return SSE emitter
    */
-  public SseEmitter composeStream(long callerId, UUID sessionId, String query) {
+  public SseEmitter chatStream(long callerId, UUID sessionId, String query) {
     // 1) enabled 확인 — 비활성이면 스트림 전 예외로 단락.
     if (!aiAgentProperties.enabled()) {
       throw new HomeChatUnavailableException("AI 채팅 기능이 현재 비활성화되어 있어요.");
@@ -105,8 +105,8 @@ public class HomeChatService {
 
     // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
     // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
-    ComposeRequest req =
-        new ComposeRequest(
+    ChatRequest req =
+        new ChatRequest(
             query,
             recentContext,
             spec.agentUserId(),

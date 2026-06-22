@@ -27,6 +27,6 @@ public class HomeChatController {
   @PostMapping
   public SseEmitter chat(
       @AuthenticationPrincipal Long callerId, @Valid @RequestBody HomeChatRequest request) {
-    return chatService.composeStream(callerId, request.sessionId(), request.query());
+    return chatService.chatStream(callerId, request.sessionId(), request.query());
   }
 }

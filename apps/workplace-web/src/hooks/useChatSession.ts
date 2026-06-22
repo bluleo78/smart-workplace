@@ -18,17 +18,17 @@ export function useChatSession() {
   const qc = useQueryClient();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
-  // 스트리밍 pending 상태 — 구 compose.isPending 대체.
+  // 스트리밍 pending 상태 — 구 AI chat isPending 대체.
   const [pending, setPending] = useState(false);
   // #351: 보류 확인 액션 배열 — 일괄 카드 렌더. 단건도 길이1 배열로 관리.
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const clearPendingActions = useCallback(() => setPendingActions([]), []);
   // '새 대화' 전이 신호(nonce) — newSession() 호출마다 증가. 패널 로컬 입력(미전송 초안)을
-  // effect 로 비우기 위한 트리거. 신선한(아직 compose 안 한) 세션에서 sessionId/turns 는
+  // effect 로 비우기 위한 트리거. 신선한(아직 chat 안 한) 세션에서 sessionId/turns 는
   // 이미 빈 값이라 prop 변화가 패널에 보이지 않으므로, 명시적 카운터로 전이를 전달한다(#204).
   const [newSessionNonce, setNewSessionNonce] = useState(0);
-  // 작업 세대 카운터 — 사용자 전이(compose/새세션/복원)마다 증가. 비동기 결과는
-  // 자신이 캡처한 세대가 여전히 최신일 때만 반영(in-flight compose 와 세션 전환의 레이스로
+  // 작업 세대 카운터 — 사용자 전이(chat/새세션/복원)마다 증가. 비동기 결과는
+  // 자신이 캡처한 세대가 여전히 최신일 때만 반영(in-flight AI chat 과 세션 전환의 레이스로
   // stale 응답이 복원/리셋 상태를 덮어쓰는 것 방지).
   const opSeq = useRef(0);
   // sessionId ref — submitQuery 의 클로저에서 최신 sessionId 를 읽기 위한 미러.
@@ -43,7 +43,7 @@ export function useChatSession() {
     setSessionId(id);
   }, []);
 
-  // 챗 명령 → SSE compose. 빈 assistant 턴을 먼저 추가하고,
+  // 챗 명령 → SSE AI chat. 빈 assistant 턴을 먼저 추가하고,
   // delta 마다 마지막 턴의 content 에 누적 → done 에서 sessionId 확정.
   const submitQuery = useCallback(
     (query: string) => {
@@ -201,7 +201,7 @@ export function useChatSession() {
     });
   }, []);
 
-  // 새 세션 — 로컬 리셋만(POST 안 함; 첫 compose 가 서버에서 세션 생성). in-flight 작업 무효화.
+  // 새 세션 — 로컬 리셋만(POST 안 함; 첫 chat 이 서버에서 세션 생성). in-flight 작업 무효화.
   const newSession = useCallback(() => {
     opSeq.current++;
     // in-flight SSE 스트림 취소 — 취소 후 stale 델타가 빈 turns 배열에 접근하는 것 방지.

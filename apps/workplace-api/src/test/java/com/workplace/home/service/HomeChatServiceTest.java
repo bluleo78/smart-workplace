@@ -15,7 +15,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeSessionSummary;
 import com.workplace.home.outbound.AiAgentChatClient;
-import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
+import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.UUID;
@@ -43,7 +43,7 @@ class HomeChatServiceTest extends IntegrationTestBase {
   @Autowired HomeSessionService sessionService;
   @Autowired ObjectMapper objectMapper;
   @Autowired DSLContext dsl;
-  @MockitoBean AiAgentChatClient composeClient;
+  @MockitoBean AiAgentChatClient chatClient;
   @MockitoBean AssistantResolver assistantResolver;
 
   private void stubAssistant() {
@@ -87,10 +87,10 @@ class HomeChatServiceTest extends IntegrationTestBase {
               doneLatch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    SseEmitter emitter = composeService.composeStream(uid, null, "내 할 일");
+    SseEmitter emitter = composeService.chatStream(uid, null, "내 할 일");
     assertThat(emitter).isNotNull();
 
     // 펌프 완료 대기(최대 5초).
@@ -160,10 +160,10 @@ class HomeChatServiceTest extends IntegrationTestBase {
               doneLatch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    composeService.composeStream(uid, null, "EX-1 상태 변경해줘");
+    composeService.chatStream(uid, null, "EX-1 상태 변경해줘");
     assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
     List<HomeSessionSummary> summaries = sessionService.list(uid, null, 10).items();
@@ -209,10 +209,10 @@ class HomeChatServiceTest extends IntegrationTestBase {
               doneLatch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    composeService.composeStream(uid, null, "안녕");
+    composeService.chatStream(uid, null, "안녕");
     assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
     List<HomeSessionSummary> summaries = sessionService.list(uid, null, 10).items();
@@ -248,15 +248,15 @@ class HomeChatServiceTest extends IntegrationTestBase {
               doneLatch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    composeService.composeStream(uid, s.id(), "그 중 HIGH 만");
+    composeService.chatStream(uid, s.id(), "그 중 HIGH 만");
     assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
-    ArgumentCaptor<ComposeRequest> captor = ArgumentCaptor.forClass(ComposeRequest.class);
-    verify(composeClient).composeStream(captor.capture(), any(), any(), any(), any(), any(), any());
-    ComposeRequest sent = captor.getValue();
+    ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+    verify(chatClient).composeStream(captor.capture(), any(), any(), any(), any(), any(), any());
+    ChatRequest sent = captor.getValue();
     assertThat(sent.query()).isEqualTo("그 중 HIGH 만");
     // recentContext: 직전 2개(USER/ASSISTANT) 텍스트만, 현재 query 는 미포함.
     assertThat(sent.recentContext()).extracting("content").containsExactly("내 담당 보여줘", "내 담당이에요");

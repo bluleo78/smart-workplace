@@ -13,7 +13,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
-import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
+import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,15 +36,15 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class HomeChatServiceForwardTest extends IntegrationTestBase {
 
-  @MockitoBean AiAgentChatClient composeClient;
+  @MockitoBean AiAgentChatClient chatClient;
   @MockitoBean AssistantResolver assistantResolver;
   @Autowired HomeSessionService sessionService;
   @Autowired AiAgentProperties aiAgentProperties;
   @Autowired ObjectMapper objectMapper;
 
   @Autowired
-  @org.springframework.beans.factory.annotation.Qualifier("aiComposeStreamExecutor")
-  AsyncTaskExecutor aiComposeStreamExecutor;
+  @org.springframework.beans.factory.annotation.Qualifier("aiChatStreamExecutor")
+  AsyncTaskExecutor aiChatStreamExecutor;
 
   /** 전송된 (eventName, data) 쌍을 모으는 기록 컨테이너. */
   static final class SentEvent {
@@ -61,11 +61,11 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   private HomeChatService serviceCapturing(List<SentEvent> captured) {
     return new HomeChatService(
         sessionService,
-        composeClient,
+        chatClient,
         aiAgentProperties,
         objectMapper,
         assistantResolver,
-        aiComposeStreamExecutor) {
+        aiChatStreamExecutor) {
       @Override
       protected SseEmitter newEmitter() {
         // 타임아웃 없는 emitter — 테스트 중 만료 방지.
@@ -106,11 +106,11 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
               latch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).composeStream(uid, null, "다음주 회의 잡아줘");
+    serviceCapturing(captured).chatStream(uid, null, "다음주 회의 잡아줘");
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
@@ -147,11 +147,11 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
               latch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).composeStream(uid, null, "내일 10시 회의 잡아줘");
+    serviceCapturing(captured).chatStream(uid, null, "내일 10시 회의 잡아줘");
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
@@ -186,11 +186,11 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
               latch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).composeStream(uid, null, "메일 보여줘");
+    serviceCapturing(captured).chatStream(uid, null, "메일 보여줘");
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
@@ -229,11 +229,11 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
               latch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).composeStream(uid, null, "내일 10시 회의 잡고 메일도 보내줘");
+    serviceCapturing(captured).chatStream(uid, null, "내일 10시 회의 잡고 메일도 보내줘");
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
@@ -279,12 +279,12 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
               latch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     HomeChatService svc = serviceCapturing(captured);
-    svc.composeStream(uid, null, "이슈 10번 완료 처리해줘");
+    svc.chatStream(uid, null, "이슈 10번 완료 처리해줘");
 
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
@@ -312,7 +312,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   }
 
   /**
-   * #456: compose 가 ai-agent 로 보내는 ComposeRequest 의 timeoutMs 가 compose 하한(180s)으로 상향되는지 검증.
+   * #456: compose 가 ai-agent 로 보내는 ChatRequest 의 timeoutMs 가 compose 하한(180s)으로 상향되는지 검증.
    *
    * <p>비서 기본 timeoutMs 는 60s(AssistantDefaults.TIMEOUT_MS)인데, Global Chat 은 다중 도메인 위임으로 60s 를 종종
    * 초과한다. compose 경로는 하한을 적용해 ≥180s 를 전달해야 한다. 상수 비교가 아닌 실제 전송된 요청 본문을 캡처해 검증한다.
@@ -324,7 +324,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
     stubAssistant();
 
     CountDownLatch latch = new CountDownLatch(1);
-    var reqCaptor = org.mockito.ArgumentCaptor.forClass(ComposeRequest.class);
+    var reqCaptor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
     doAnswer(
             inv -> {
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
@@ -332,16 +332,16 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
               latch.countDown();
               return null;
             })
-        .when(composeClient)
+        .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).composeStream(uid, null, "오늘 일정 확인 + 메일도");
+    serviceCapturing(captured).chatStream(uid, null, "오늘 일정 확인 + 메일도");
 
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
-    // 전송된 ComposeRequest 를 캡처해 timeoutMs 가 하한(180_000)으로 상향됐는지 검증.
-    org.mockito.Mockito.verify(composeClient)
+    // 전송된 ChatRequest 를 캡처해 timeoutMs 가 하한(180_000)으로 상향됐는지 검증.
+    org.mockito.Mockito.verify(chatClient)
         .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
     assertThat(reqCaptor.getValue().timeoutMs()).isEqualTo(180_000);
   }

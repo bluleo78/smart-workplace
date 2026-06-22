@@ -1,10 +1,10 @@
-// 7c: 홈 compose/위젯 계약. 백엔드 HomeComposeResponse·ActivityEntryResponse 와 1:1.
+// 7c: 홈 AI chat/위젯 계약. 백엔드 HomeComposeResponse·ActivityEntryResponse 와 1:1.
 
 // 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 AI 비서 응답(show_* 도구)이 지시하는
 // 표시 위젯 계약이다. #431 에서 챗 도크 인라인 렌더로 부활(chatWidgetRegistry).
-// compose done 이벤트의 widgets[] 및 복원용 HomeMessage.widgets 가 이 형태를 따른다.
+// AI chat done 이벤트의 widgets[] 및 복원용 HomeMessage.widgets 가 이 형태를 따른다.
 
-/** 위젯 캔버스 배치 힌트 (compose 응답). fire-hub canvas 스키마 미러. */
+/** 위젯 캔버스 배치 힌트 (AI chat 응답). fire-hub canvas 스키마 미러. */
 export interface WidgetLayout {
   page?: 'new' | 'current';
   replace?: string; // 교체 대상 위젯 id
@@ -13,7 +13,7 @@ export interface WidgetLayout {
 
 export type WidgetType = 'my_tasks' | 'issue_list' | 'issue_detail' | 'activity' | 'mail_list' | 'calendar' | 'event' | 'channels' | 'wiki' | 'wiki_page' | 'contacts' | 'contact' | 'projects' | 'project' | 'drive';
 
-/** compose 가 돌려주는 위젯 스펙. params 는 위젯별 자유 형태(이슈 검색 필터 등). */
+/** AI chat 이 돌려주는 위젯 스펙. params 는 위젯별 자유 형태(이슈 검색 필터 등). */
 export interface WidgetSpec {
   type: WidgetType;
   params?: Record<string, unknown>;
@@ -35,7 +35,7 @@ export interface ToolStep {
   status?: 'running' | 'done' | 'error'; // tool
 }
 
-/** compose 의 라이브 tool SSE 이벤트(start/result). */
+/** AI chat 의 라이브 tool SSE 이벤트(start/result). */
 export interface ToolEventDto {
   seq: number;
   phase: 'start' | 'result';

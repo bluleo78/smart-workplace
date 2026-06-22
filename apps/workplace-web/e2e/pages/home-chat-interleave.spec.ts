@@ -2,7 +2,7 @@
 import { calendarEvent } from '../factories/calendar.factory';
 import { expect, test } from '../fixtures/auth.fixture';
 
-test('delta→show_calendar→delta 가 text·widget·text 순서로 렌더', async ({ authenticatedPage: page }) => {
+test('delta→show_calendar→delta 가 text·widget·text 순서로 렌더', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/ai/chat', (route) =>
     route.fulfill({ status: 200, contentType: 'text/event-stream',
       body:

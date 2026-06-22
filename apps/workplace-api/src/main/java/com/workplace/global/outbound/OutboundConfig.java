@@ -60,8 +60,8 @@ public class OutboundConfig {
    * aiAgentEventExecutor} 와 절대 공유하지 않는다. core/max 4/8, queue 는 작게(동시 스트림 수 제한) — 초과 요청은 호출 스레드에서
    * reject 되어 빠르게 오류로 떨어지게 둔다.
    */
-  @Bean(name = "aiComposeStreamExecutor")
-  public org.springframework.core.task.AsyncTaskExecutor aiComposeStreamExecutor() {
+  @Bean(name = "aiChatStreamExecutor")
+  public org.springframework.core.task.AsyncTaskExecutor aiChatStreamExecutor() {
     ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
     executor.setCorePoolSize(4);
     executor.setMaxPoolSize(8);

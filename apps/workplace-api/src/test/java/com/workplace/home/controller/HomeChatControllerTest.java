@@ -60,7 +60,7 @@ class HomeChatControllerTest {
     // composeStream 이 SseEmitter 를 반환하면 컨트롤러는 text/event-stream 으로 응답한다.
     SseEmitter emitter = new SseEmitter();
     emitter.complete(); // 즉시 완료로 MockMvc 가 hang 없이 응답을 받을 수 있도록.
-    when(chatService.composeStream(eq(1L), isNull(), eq("내 할 일"))).thenReturn(emitter);
+    when(chatService.chatStream(eq(1L), isNull(), eq("내 할 일"))).thenReturn(emitter);
 
     mockMvc
         .perform(
