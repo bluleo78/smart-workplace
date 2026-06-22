@@ -5,7 +5,7 @@ import { homeApi } from '@/api/home';
 import { chatStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
 import { widgetTypeFromToolName } from '@/lib/aiToolLabels';
 import { handleApiError } from '@/lib/api-error';
-import { pushTextBlock, pushWidgetBlock } from '@/lib/chatBlocks';
+import { pushTextBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
 import type { ChatTurn, PendingAction, ToolEventDto, WidgetSpec, WidgetType } from '@/types/home';
 
 /**
@@ -131,12 +131,18 @@ export function useChatSession() {
           if (opSeq.current !== gen) return; // stale 세대 폐기
           // #431: done 이벤트의 위젯을 마지막 어시스턴트 턴에 부착 — 챗 도크가 인라인 렌더.
           // show_* 단독 응답은 content 가 빈 문자열이므로, 위젯이 있으면 빈 버블 대신 위젯이 보인다.
-          if (r.widgets && r.widgets.length > 0) {
+          // #463 I1: done 시 authoritative widgets(서버 #404 필터 후)로 contentBlocks 의 widget 블록 재조정.
+          //   r.widgets 가 비어도(undefined/[]) 재조정 — 전부 필터된 경우 widget 블록 전부 제거.
+          {
+            const authoritative = r.widgets ?? [];
             setTurns((t) => {
               const next = [...t];
               const last = next[next.length - 1];
               if (last?.role !== 'assistant') return t; // 방어 — turns 리셋된 경우 skip.
-              next[next.length - 1] = { ...last, widgets: r.widgets };
+              const contentBlocks = last.contentBlocks
+                ? reconcileBlocks(last.contentBlocks, authoritative)
+                : last.contentBlocks;
+              next[next.length - 1] = { ...last, widgets: r.widgets, contentBlocks };
               return next;
             });
           }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ContentBlock } from '@/types/home';
 
-import { pushTextBlock, pushWidgetBlock } from './chatBlocks';
+import { pushTextBlock, pushWidgetBlock, reconcileBlocks } from './chatBlocks';
 
 // #463: ContentBlock 인터리브 누적 로직 — delta·tool 이벤트 시퀀스 검증.
 describe('pushTextBlock', () => {
@@ -39,6 +39,43 @@ describe('pushWidgetBlock', () => {
     const result = pushWidgetBlock(blocks, { type: 'mail_list' });
     expect(result).toHaveLength(2);
     expect(result[1]).toEqual({ kind: 'widget', widget: { type: 'mail_list' } });
+  });
+});
+
+describe('reconcileBlocks', () => {
+  it('widgets=[] 이면 모든 widget 블록을 제거하고 text 블록만 남긴다', () => {
+    const blocks: ContentBlock[] = [
+      { kind: 'text', textStart: 0 },
+      { kind: 'widget', widget: { type: 'issue_detail', params: { issueId: 999 } } },
+      { kind: 'text', textStart: 10 },
+    ];
+    const result = reconcileBlocks(blocks, []);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ kind: 'text', textStart: 0 });
+    expect(result[1]).toEqual({ kind: 'text', textStart: 10 });
+  });
+
+  it('widgets 에 해당 위젯이 있으면 widget 블록을 유지한다', () => {
+    const widget = { type: 'my_tasks' as const, params: {} };
+    const blocks: ContentBlock[] = [
+      { kind: 'text', textStart: 0 },
+      { kind: 'widget', widget },
+    ];
+    const result = reconcileBlocks(blocks, [widget]);
+    expect(result).toHaveLength(2);
+    expect(result[1]).toEqual({ kind: 'widget', widget });
+  });
+
+  it('widgets 에 없는 위젯만 제거한다(다른 위젯은 유지)', () => {
+    const good = { type: 'my_tasks' as const, params: {} };
+    const bad = { type: 'issue_detail' as const, params: { issueId: 999 } };
+    const blocks: ContentBlock[] = [
+      { kind: 'widget', widget: bad },
+      { kind: 'widget', widget: good },
+    ];
+    const result = reconcileBlocks(blocks, [good]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ kind: 'widget', widget: good });
   });
 });
 
