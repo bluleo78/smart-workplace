@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from 'react';
 import { homeApi } from '@/api/home';
 import { composeStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
 import { handleApiError } from '@/lib/api-error';
-import type { ChatTurn, PendingAction } from '@/types/home';
+import type { ChatTurn, PendingAction, ToolEventDto } from '@/types/home';
 
 /**
  * 챗 전용 세션 상태 코디네이터 — sessionId / 대화 transcript 를 한 곳에서 전이.
@@ -18,9 +18,6 @@ export function useChatSession() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   // 스트리밍 pending 상태 — 구 compose.isPending 대체.
   const [pending, setPending] = useState(false);
-  // #333 M2: 위임 진행 라벨 — 서브에이전트 위임 중 assistant 말풍선 위에 ghost 버블로 표시.
-  // 완료(finally) 시 null 로 초기화해 버블이 사라진다.
-  const [delegationLabel, setDelegationLabel] = useState<string | null>(null);
   // #351: 보류 확인 액션 배열 — 일괄 카드 렌더. 단건도 길이1 배열로 관리.
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const clearPendingActions = useCallback(() => setPendingActions([]), []);
@@ -54,7 +51,6 @@ export function useChatSession() {
       const ac = new AbortController();
       abortRef.current = ac;
       setPending(true);
-      setDelegationLabel(null);   // 새 제출 — 이전 진행 라벨 비움
       setPendingActions([]);      // #351: 새 제출 — 이전 확인 카드 배열 폐기
       composeStream(
         { sessionId: sessionIdRef.current, query },
@@ -71,14 +67,40 @@ export function useChatSession() {
         },
         ac.signal,
         (label) => {
-          // #333 M2: stale 세대면 무시(델타와 동일 가드). 위임 진행 라벨 표시.
+          // #333 M2: stale 세대면 무시(델타와 동일 가드). 위임 진행 라벨을 마지막 어시스턴트 턴의
+          // steps 에 delegation 단계로 추가 — ToolStepList 가 버블 안에 중첩 렌더.
           if (opSeq.current !== gen) return;
-          setDelegationLabel(label);
+          setTurns((t) => {
+            const next = [...t];
+            const last = next[next.length - 1];
+            if (last?.role !== 'assistant') return t;
+            const steps = [...(last.steps ?? []), { kind: 'delegation' as const, label }];
+            next[next.length - 1] = { ...last, steps };
+            return next;
+          });
         },
         (actions) => {
           // #351: 보류 확인 액션들 수신 — 일괄 카드로 렌더.
           if (opSeq.current !== gen) return;
           setPendingActions(actions);
+        },
+        (evt: ToolEventDto) => {
+          // tool SSE 이벤트 — start: running step 추가, result: 상태 갱신(done/error).
+          if (opSeq.current !== gen) return;
+          setTurns((t) => {
+            const next = [...t];
+            const last = next[next.length - 1];
+            if (last?.role !== 'assistant') return t;
+            const steps = [...(last.steps ?? [])];
+            if (evt.phase === 'start') {
+              steps.push({ kind: 'tool', seq: evt.seq, toolName: evt.toolName, args: evt.args, status: 'running' });
+            } else {
+              const idx = steps.findIndex((s) => s.kind === 'tool' && s.seq === evt.seq && s.status === 'running');
+              if (idx !== -1) steps[idx] = { ...steps[idx], status: evt.isError ? 'error' : 'done' };
+            }
+            next[next.length - 1] = { ...last, steps };
+            return next;
+          });
         },
       )
         .then((r) => {
@@ -121,7 +143,6 @@ export function useChatSession() {
         .finally(() => {
           if (opSeq.current === gen) {
             setPending(false);
-            setDelegationLabel(null); // 완료 시 진행 버블 제거(pendingActions 는 유지 — 카드 응답 대기)
           }
         });
     },
@@ -138,7 +159,6 @@ export function useChatSession() {
     abortRef.current.abort();
     abortRef.current = null;
     setPending(false);
-    setDelegationLabel(null);
     setPendingActions([]); // #351: 중단 시 확인 카드 배열 폐기
     // 첫 토큰 전 중단이면 빈 어시스턴트 말풍선만 남으므로 중단 안내 문구로 대체한다.
     setTurns((t) => {
@@ -158,7 +178,6 @@ export function useChatSession() {
     abortRef.current?.abort();
     abortRef.current = null;
     setPending(false);
-    setDelegationLabel(null); // #333 M2: 전이 시 진행 버블/카드 잔여 정리.
     setPendingActions([]); // #351: 새 세션 시 확인 카드 배열 초기화
     updateSessionId(null);
     setTurns([]);
@@ -175,17 +194,18 @@ export function useChatSession() {
       abortRef.current?.abort();
       abortRef.current = null;
       setPending(false);
-      setDelegationLabel(null); // #333 M2: 세션 복원 시 진행 버블/카드 잔여 정리.
       setPendingActions([]); // #351: 세션 복원 시 확인 카드 배열 초기화
       try {
         const { data } = await homeApi.sessionMessages(id);
         // fetch 중 더 최신 전이가 있었으면 폐기.
         if (opSeq.current !== gen) return;
         // #431: 복원 시에도 ASSISTANT 위젯을 함께 재현(서버가 widgets 영속) — 빈 버블 방지.
+        // toolCalls → steps 매핑: 서버가 영속한 도구 호출 단계를 인라인 표시로 복원.
         const restored: ChatTurn[] = data.map((m) => ({
           role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
           content: m.content,
           widgets: m.widgets ?? undefined,
+          steps: m.toolCalls ?? undefined,
         }));
         updateSessionId(id);
         setTurns(restored);
@@ -235,7 +255,6 @@ export function useChatSession() {
     turns,
     newSessionNonce,
     pending,
-    delegationLabel,
     pendingActions,
     clearPendingActions,
     confirmActionItem,

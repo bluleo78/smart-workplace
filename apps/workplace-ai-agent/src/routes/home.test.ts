@@ -83,12 +83,13 @@ describe('POST /ai/compose', () => {
     expect(res.text).toContain('"fullText":"안녕"');
     // #432: done 이벤트에 usage(토큰 사용량) 포함.
     expect(res.text).toContain('"usage":{"inputTokens":100,"outputTokens":20}');
-    // 러너에 파싱된 페이로드가 그대로 전달됐는지 회귀 가드(5번째 onProgress 인자 포함).
+    // 러너에 파싱된 페이로드가 그대로 전달됐는지 회귀 가드(5번째 onProgress, 6번째 onTool 인자 포함).
     expect(runAiComposeStream).toHaveBeenCalledWith(
       expect.objectContaining({ query: '내 할 일', assistantAgentId: 7 }),
       expect.anything(),
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.any(Function),
       expect.any(Function),
     );
   });
@@ -140,12 +141,13 @@ describe('POST /ai/compose', () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain('event: progress');
     expect(res.text).toContain('"label":"이슈 전문가에게 위임 중"');
-    // 라우트가 onProgress(5번째 인자)를 함수로 전달했는지 회귀 가드.
+    // 라우트가 onProgress(5번째 인자), onTool(6번째 인자)를 함수로 전달했는지 회귀 가드.
     expect(runAiComposeStream).toHaveBeenCalledWith(
       expect.objectContaining({ query: '내 할 일' }),
       expect.anything(),
       expect.any(Function),
       expect.any(AbortSignal),
+      expect.any(Function),
       expect.any(Function),
     );
   });

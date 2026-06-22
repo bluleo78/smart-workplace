@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAccessToken } from '@/api/client';
 import { homeApi } from '@/api/home';
 import { handleApiError } from '@/lib/api-error';
-import type { ComposeRequest, PendingAction, WidgetSpec } from '@/types/home';
+import type { ComposeRequest, PendingAction, ToolEventDto, WidgetSpec } from '@/types/home';
 
 export const homeKeys = {
   all: ['home'] as const,
@@ -77,6 +77,7 @@ export async function composeStream(
   signal: AbortSignal,
   onProgress?: (label: string) => void,
   onPendingAction?: (actions: PendingAction[]) => void,
+  onTool?: (evt: ToolEventDto) => void,
 ): Promise<{ sessionId?: string; widgets?: WidgetSpec[] }> {
   const token = getAccessToken();
   const res = await fetch('/api/v1/ai/compose', {
@@ -112,6 +113,7 @@ export async function composeStream(
         const arr = Array.isArray(parsed) ? (parsed as unknown as PendingAction[]) : [];
         if (arr.length > 0) onPendingAction?.(arr);
       }
+      else if (event === 'tool') onTool?.(parsed as unknown as ToolEventDto);
       // #431: done 이벤트의 widgets[] 를 함께 회수 — 챗 도크가 어시스턴트 턴에 인라인 렌더.
       else if (event === 'done')
         result = {

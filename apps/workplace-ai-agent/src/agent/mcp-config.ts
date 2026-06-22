@@ -58,6 +58,8 @@ export function writeTempMcpConfig(opts: {
   // #381: 서브에이전트가 submit_response 로 최종 답변을 기록할 사이드카 절대경로.
   // 설정 시 run-ai-compose 가 위임 답으로 우선 읽는다.
   subagentResponsePath?: string;
+  // Task 1-2: 도구 호출 로깅 사이드카 절대경로(설정 시 디스패처가 기록)
+  toolUseLogPath?: string;
 }): string {
   const { command, args } = resolveMcpServerCommand(here);
   const config = {
@@ -83,6 +85,8 @@ export function writeTempMcpConfig(opts: {
           ...(opts.routerResponsePath ? { WORKPLACE_ROUTER_RESPONSE_PATH: opts.routerResponsePath } : {}),
           // #381: submit_response 사이드카 경로. 없으면 핸들러가 답을 기록하지 못하고 ack 만 반환.
           ...(opts.subagentResponsePath ? { WORKPLACE_SUBAGENT_RESPONSE_PATH: opts.subagentResponsePath } : {}),
+          // Task 1-2: 도구 호출 로깅 사이드카 경로. 없으면 핸들러가 로깅하지 못함.
+          ...(opts.toolUseLogPath ? { WORKPLACE_TOOL_USE_LOG_PATH: opts.toolUseLogPath } : {}),
         },
       },
     },

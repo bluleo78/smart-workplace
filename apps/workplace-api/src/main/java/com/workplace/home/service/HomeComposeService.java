@@ -13,9 +13,11 @@ import com.workplace.home.outbound.ComposeMessages.ComposeRequest;
 import com.workplace.home.outbound.ComposeMessages.ContextMessage;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Future;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -88,8 +90,8 @@ public class HomeComposeService {
     // 4) 비서 해석 — 미설정이면 HomeAssistantNotConfiguredException(503) 로 단락.
     AssistantSpec spec = assistantResolver.resolve(callerId);
 
-    // 5) USER 메시지 영속 — 요청 스레드(요청 tx) 에서 즉시 저장.
-    sessionService.appendMessage(callerId, sid, "USER", query, null);
+    // 5) USER 메시지 영속 — 요청 스레드(요청 tx) 에서 즉시 저장(tool_calls 는 USER 메시지에 없음).
+    sessionService.appendMessage(callerId, sid, "USER", query, null, null);
 
     // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
     // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
@@ -108,6 +110,10 @@ public class HomeComposeService {
     SseEmitter emitter = newEmitter();
     StringBuilder fullBuffer = new StringBuilder();
 
+    // 위임 라벨 + 도구 호출을 도착 순서로 누적(done 시 home_message.tool_calls 로 영속).
+    // CopyOnWriteArrayList: 펌프 스레드에서 쓰고 done 핸들러에서 읽는 구조에 안전.
+    List<Map<String, Object>> steps = new CopyOnWriteArrayList<>();
+
     Future<?> task =
         executor.submit(
             () -> {
@@ -121,8 +127,10 @@ public class HomeComposeService {
                   // done: ASSISTANT 영속 → done 이벤트 발행 → emitter 완료
                   (fullText, widgets) -> {
                     String wJson = serializeWidgets(widgets);
+                    String toolCallsJson = serializeSteps(steps);
                     try {
-                      sessionService.appendMessage(callerId, sid, "ASSISTANT", fullText, wJson);
+                      sessionService.appendMessage(
+                          callerId, sid, "ASSISTANT", fullText, wJson, toolCallsJson);
                     } catch (Exception e) {
                       log.error("ASSISTANT 메시지 영속 실패: {}", e.getMessage(), e);
                     }
@@ -139,10 +147,46 @@ public class HomeComposeService {
                     trySend(emitter, "error", Map.of("message", msg));
                     emitter.complete();
                   },
-                  // #333 M2: progress — 위임 라벨을 클라이언트에 패스스루
-                  label -> trySend(emitter, "progress", Map.of("label", label)),
+                  // #333 M2: progress — 위임 라벨 누적 + 클라이언트 패스스루
+                  label -> {
+                    steps.add(Map.of("kind", "delegation", "label", label));
+                    trySend(emitter, "progress", Map.of("label", label));
+                  },
                   // #333 M2: pending_action — 확인 카드 제안 객체를 raw JSON 으로 패스스루
-                  node -> trySend(emitter, "pending_action", node));
+                  node -> trySend(emitter, "pending_action", node),
+                  // 도구 호출 이벤트 누적 + 클라이언트 패스스루
+                  toolNode -> {
+                    String phase = toolNode.path("phase").asText();
+                    int seq = toolNode.path("seq").asInt();
+                    if ("start".equals(phase)) {
+                      // 도구 호출 시작: 표시 가능 도구만 영속 리스트에 추가(숨김 도구는 SSE 패스스루만).
+                      String toolName = toolNode.path("toolName").asText();
+                      if (isDisplayableTool(toolName)) {
+                        Map<String, Object> step = new LinkedHashMap<>();
+                        step.put("kind", "tool");
+                        step.put("seq", seq);
+                        step.put("toolName", toolName);
+                        if (toolNode.has("args")) {
+                          step.put(
+                              "args", objectMapper.convertValue(toolNode.get("args"), Map.class));
+                        }
+                        step.put("status", "running");
+                        steps.add(step);
+                      }
+                    } else {
+                      // result: 매칭되는 running 항목의 status 를 done/error 로 갱신
+                      boolean isError = toolNode.path("isError").asBoolean(false);
+                      for (Map<String, Object> s : steps) {
+                        if ("tool".equals(s.get("kind"))
+                            && Integer.valueOf(seq).equals(s.get("seq"))
+                            && "running".equals(s.get("status"))) {
+                          s.put("status", isError ? "error" : "done");
+                          break;
+                        }
+                      }
+                    }
+                    trySend(emitter, "tool", toolNode);
+                  });
             });
 
     // 7) emitter 생명주기 → 펌프 취소(자원 누수 방지).
@@ -151,6 +195,20 @@ public class HomeComposeService {
     emitter.onCompletion(() -> task.cancel(false));
 
     return emitter;
+  }
+
+  /**
+   * 도구 이름이 화면에 표시되는 도구인지 판별한다. 프론트 aiToolLabels.ts 의 isDisplayableTool 과 동일 정책.
+   *
+   * <p>영속 대상(tool_calls)은 표시 가능 도구만 포함한다. show_* / propose_* 는 위젯·확인 카드로 이미 표현되고, respond_chat /
+   * submit_response 는 내부 응답 배관으로 사용자에게 의미 없는 반복 정보다.
+   */
+  private boolean isDisplayableTool(String toolName) {
+    // MCP 프리픽스 제거: mcp__workplace__update_status → update_status
+    String n = toolName.replaceAll("^mcp__[^_]+__(.+)$", "$1");
+    if (n.startsWith("show_") || n.startsWith("propose_")) return false;
+    if (n.equals("respond_chat") || n.equals("submit_response")) return false;
+    return true;
   }
 
   /** SseEmitter 생성 — 테스트에서 스파이/목으로 대체할 수 있도록 분리. */
@@ -176,6 +234,20 @@ public class HomeComposeService {
       return objectMapper.writeValueAsString(widgets);
     } catch (JsonProcessingException e) {
       // 위젯 직렬화 실패는 응답 자체를 막을 만큼 치명적이지 않음 — 위젯 없이 메시지만 보존.
+      return null;
+    }
+  }
+
+  /** 누적 steps → 영속용 JSON 문자열. 빈 리스트면 null(tool_calls 미저장 컨벤션과 동일). */
+  private String serializeSteps(List<Map<String, Object>> steps) {
+    if (steps == null || steps.isEmpty()) {
+      return null;
+    }
+    try {
+      return objectMapper.writeValueAsString(steps);
+    } catch (JsonProcessingException e) {
+      // 직렬화 실패는 응답 자체를 막을 만큼 치명적이지 않음 — tool_calls 없이 메시지만 보존.
+      log.warn("tool_calls 직렬화 실패 — null 로 저장: {}", e.getMessage());
       return null;
     }
   }

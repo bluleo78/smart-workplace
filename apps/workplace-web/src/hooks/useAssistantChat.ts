@@ -18,8 +18,6 @@ export interface AssistantChat {
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
-  /** #333 M2: 현재 위임 진행 라벨(없으면 null). 서브에이전트 위임 중 버블로 표시. */
-  delegationLabel: string | null;
   /** #351: 보류 확인 액션 배열(없으면 빈 배열). 일괄 카드로 렌더. */
   pendingActions: PendingAction[];
   /** #351: 단일 항목 승인 → confirm POST → 카드에서 제거. */
@@ -43,7 +41,6 @@ export function useAssistantChat(): AssistantChat {
     onNewSession: session.newSession,
     onSelectSession: session.restoreSession,
     onDeleteSession: session.deleteSession,
-    delegationLabel: session.delegationLabel,
     pendingActions: session.pendingActions,
     onConfirmActionItem: session.confirmActionItem,
     onDismissActionItem: session.dismissActionItem,

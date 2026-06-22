@@ -56,16 +56,31 @@ public class HomeSessionService {
         .map(
             m ->
                 new HomeMessageResponse(
-                    m.id(), m.role(), m.content(), parse(m.widgetsJson()), m.createdAt()))
+                    m.id(),
+                    m.role(),
+                    m.content(),
+                    parse(m.widgetsJson()),
+                    parse(m.toolCallsJson()),
+                    m.createdAt()))
         .toList();
   }
 
-  /** 7b(compose)가 호출. USER 첫 메시지면 제목 자동 설정. widgetsJson 은 ASSISTANT 위젯 스펙(nullable). */
+  /**
+   * 7b(compose)가 호출. USER 첫 메시지면 제목 자동 설정.
+   *
+   * @param widgetsJson ASSISTANT 위젯 스펙(nullable)
+   * @param toolCallsJson AI 도구 호출/위임 단계 JSON(ASSISTANT 전용, nullable)
+   */
   @Transactional
   public long appendMessage(
-      long callerId, UUID sessionId, String role, String content, String widgetsJson) {
+      long callerId,
+      UUID sessionId,
+      String role,
+      String content,
+      String widgetsJson,
+      String toolCallsJson) {
     ensureOwner(callerId, sessionId);
-    long id = messageRepo.insert(sessionId, role, content, widgetsJson);
+    long id = messageRepo.insert(sessionId, role, content, widgetsJson, toolCallsJson);
     String titleIfNull = "USER".equals(role) ? trimTitle(content) : null;
     sessionRepo.touch(sessionId, titleIfNull);
     return id;

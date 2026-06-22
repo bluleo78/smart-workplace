@@ -385,12 +385,13 @@ test('풀스크린 2단: 세션 선택 시 우측 채팅 패널에 transcript �
     nextCursor: null,
   })
   const messages: HomeMessage[] = [
-    { id: 1, role: 'USER', content: '풀스크린 질문', widgets: null, createdAt: '2026-06-08T00:00:00Z' },
+    { id: 1, role: 'USER', content: '풀스크린 질문', widgets: null, toolCalls: null, createdAt: '2026-06-08T00:00:00Z' },
     {
       id: 2,
       role: 'ASSISTANT',
       content: '풀스크린 응답입니다',
       widgets: [{ type: 'issue_list', params: {}, layout: { page: 'current' } }],
+      toolCalls: null,
       createdAt: '2026-06-08T00:00:01Z',
     },
   ]
@@ -480,8 +481,8 @@ test('긴 무공백 메시지가 말풍선 안에서 줄바꿈되어 메시지 �
     nextCursor: null,
   })
   const messages: HomeMessage[] = [
-    { id: 1, role: 'USER', content: longToken, widgets: null, createdAt: '2026-06-08T00:00:00Z' },
-    { id: 2, role: 'ASSISTANT', content: longToken, widgets: null, createdAt: '2026-06-08T00:00:01Z' },
+    { id: 1, role: 'USER', content: longToken, widgets: null, toolCalls: null, createdAt: '2026-06-08T00:00:00Z' },
+    { id: 2, role: 'ASSISTANT', content: longToken, widgets: null, toolCalls: null, createdAt: '2026-06-08T00:00:01Z' },
   ]
   await mockApi(page, 'GET', '/api/v1/home/sessions/s-lw1/messages', messages)
 
@@ -594,7 +595,7 @@ test('위임 진행 이벤트가 도크에 위임 버블을 렌더한다 (#333)'
   await page.getByRole('button', { name: '보내기' }).click();
 
   // 위임 진행 버블이 라벨과 함께 렌더된다(progress 이벤트 후 100ms 창 내에 관측 가능).
-  await expect(page.getByTestId('chat-delegation')).toContainText('캘린더 전문가에게 위임 중');
+  await expect(page.getByTestId('tool-step-delegation')).toContainText('캘린더 전문가에게 위임 중');
   // 최종 응답도 정상 렌더(progress 가 스트림을 끊지 않음).
   await expect(page.getByTestId('chat-panel')).toContainText('일정을 확인했어요');
 });

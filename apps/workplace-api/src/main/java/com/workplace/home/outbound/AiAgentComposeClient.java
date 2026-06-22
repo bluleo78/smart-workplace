@@ -62,6 +62,7 @@ public class AiAgentComposeClient {
    *   <li>{@code event: error} 또는 비200 응답 → {@code onError} 콜백 후 정상 반환(호출자가 SSE error 전송)
    *   <li>{@code event: progress} 의 label 문자열 → {@code onProgress} (중간 이벤트, 루프 계속)
    *   <li>{@code event: pending_action} 의 raw JSON → {@code onPendingAction} (중간 이벤트, 루프 계속)
+   *   <li>{@code event: tool} 의 raw JSON → {@code onTool} (도구 호출 라이브 이벤트, 루프 계속)
    * </ul>
    *
    * @param request 직렬화될 에이전트 요청 본문
@@ -70,6 +71,7 @@ public class AiAgentComposeClient {
    * @param onError 오류 메시지 콜백
    * @param onProgress 위임 진행 라벨 콜백 (#333 M2)
    * @param onPendingAction 확인 카드 제안 객체 콜백, raw JsonNode (#333 M2)
+   * @param onTool 도구 호출 이벤트 콜백, raw JsonNode({seq, phase, toolName, args?, isError?})
    */
   public void composeStream(
       ComposeRequest request,
@@ -77,7 +79,8 @@ public class AiAgentComposeClient {
       BiConsumer<String, JsonNode> onDone,
       Consumer<String> onError,
       Consumer<String> onProgress,
-      Consumer<JsonNode> onPendingAction) {
+      Consumer<JsonNode> onPendingAction,
+      Consumer<JsonNode> onTool) {
     try {
       HttpRequest req =
           HttpRequest.newBuilder()
@@ -138,6 +141,16 @@ public class AiAgentComposeClient {
               JsonNode node = parsePendingAction(data);
               if (node != null) {
                 onPendingAction.accept(node);
+              }
+            } else if ("tool".equals(event)) {
+              // 도구 호출 라이브 이벤트 — 상위로 패스스루(표시·누적용). 루프 계속.
+              try {
+                JsonNode node = mapper.readTree(data);
+                if (node != null && onTool != null) {
+                  onTool.accept(node);
+                }
+              } catch (Exception e) {
+                // 파싱 실패는 무시(중간 이벤트이므로 스트림을 끊지 않음)
               }
             } else if ("delta".equals(event)) {
               String t = parseDeltaText(data);

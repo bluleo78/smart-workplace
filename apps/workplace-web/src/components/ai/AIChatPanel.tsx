@@ -7,6 +7,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { relTime } from '@/components/ai/relTime';
+import { ToolStepList } from '@/components/ai/ToolStepList';
 import { getComposeWidget } from '@/components/home/widgets/composeRegistry';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,6 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
+import { visibleSteps } from '@/lib/aiToolLabels';
 import { cn } from '@/lib/utils';
 
 interface Props extends AssistantChat {
@@ -38,7 +40,6 @@ export function AIChatPanel({
   onNewSession,
   onSelectSession,
   onDeleteSession,
-  delegationLabel,
   pendingActions,
   onConfirmActionItem,
   onDismissActionItem,
@@ -144,10 +145,7 @@ export function AIChatPanel({
       )}
 
       <div className="flex-1 overflow-auto p-3">
-        {/* #333 M2: delegationLabel 있는 경우 빈-상태 분기 대신 메시지 목록을 항상 렌더한다.
-            progress 이벤트만 오고 delta 가 아직 없어도(turns 가 비어도) 버블이 보여야 하므로.
-            빈 상태(대화 내용 없음)는 turns 도 없고 delegationLabel 도 없을 때만 표시. */}
-        {turns.length === 0 && !delegationLabel ? (
+        {turns.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <Sparkles className="h-9 w-9 text-muted-foreground/60" />
             <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
@@ -158,7 +156,7 @@ export function AIChatPanel({
             {turns.map((t, i) =>
               // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
               // 단, 위젯이 있으면(show_* 단독 응답) content 가 비어도 위젯을 렌더해야 하므로 skip 안 함(#431).
-              t.role === 'assistant' && t.content === '' && !t.widgets?.length ? null : (
+              t.role === 'assistant' && t.content === '' && !t.widgets?.length && !visibleSteps(t.steps ?? []).length ? null : (
               <li
                 key={i}
                 data-testid="chat-turn"
@@ -168,6 +166,8 @@ export function AIChatPanel({
                   // #431: 위젯이 있으면 인라인 위젯 카드(들)를 렌더. 텍스트가 함께 있으면 위에 말풍선도 표시.
                   t.widgets?.length ? (
                     <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
+                      {/* 도구 호출 단계 인라인 표시 — 위젯 위에 렌더. 표시 가능 step 이 있을 때만. */}
+                      {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
                       {t.content && (
                         <div className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground">
                           <MarkdownMessage>{t.content}</MarkdownMessage>
@@ -186,6 +186,8 @@ export function AIChatPanel({
                   ) : (
                     // #356: AI 응답은 마크다운 렌더(## ** 표 등 원시 기호 노출 방지).
                     <div className="max-w-[80%] rounded-2xl bg-muted px-3 py-1.5 text-foreground">
+                      {/* 도구 호출 단계 인라인 표시 — 본문 위에 렌더. 표시 가능 step 이 있을 때만. */}
+                      {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
                       <MarkdownMessage>{t.content}</MarkdownMessage>
                     </div>
                   )
@@ -203,20 +205,6 @@ export function AIChatPanel({
                 )}
               </li>
             ))}
-            {/* #333 M2: 위임 진행 버블 — 서브에이전트 위임 중 한 단계 표시.
-                assistant 말풍선과 동일 정렬(좌측·bg-muted·rounded-2xl)에 라벨 + 스피너 아이콘.
-                완료(done) 시 delegationLabel 이 null 로 초기화되어 자동 제거된다. */}
-            {delegationLabel && (
-              <li className="flex justify-start" data-testid="chat-delegation">
-                <span
-                  className="flex items-center gap-2 rounded-2xl bg-muted px-3 py-2 text-sm text-muted-foreground"
-                  role="status"
-                >
-                  <Sparkles className="h-4 w-4 animate-pulse" />
-                  {delegationLabel}
-                </span>
-              </li>
-            )}
             {/* #351: 일괄 확인 카드 — 항목별 승인/거부. 승인=confirm POST, 거부=카드 제거만. */}
             {pendingActions.length > 0 && (
               <li className="flex justify-start" data-testid="pending-action-card">

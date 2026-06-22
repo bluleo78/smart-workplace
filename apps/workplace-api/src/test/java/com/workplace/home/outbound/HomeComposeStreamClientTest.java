@@ -91,7 +91,8 @@ class HomeComposeStreamClientTest {
           throw new AssertionError("예상치 못한 오류: " + msg);
         },
         label -> {},
-        node -> {});
+        node -> {},
+        tn -> {});
 
     assertThat(deltas).containsExactly("a", "b", "c");
     assertThat(done).isTrue();
@@ -147,7 +148,8 @@ class HomeComposeStreamClientTest {
           throw new AssertionError("예상치 못한 오류: " + msg);
         },
         label -> {},
-        node -> {});
+        node -> {},
+        tn -> {});
 
     // 점진 전달 증명의 핵심 단언: latch 가 실제로 풀렸어야 한다.
     assertThat(latchReleased).isTrue();
@@ -163,7 +165,7 @@ class HomeComposeStreamClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {});
+        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
 
     assertThat(errorMsg.get()).isNotNull();
   }
@@ -175,7 +177,7 @@ class HomeComposeStreamClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {});
+        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
 
     assertThat(errorMsg.get()).contains("설정되지 않");
   }

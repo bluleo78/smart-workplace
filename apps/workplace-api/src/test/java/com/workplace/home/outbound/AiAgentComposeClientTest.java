@@ -86,7 +86,8 @@ class AiAgentComposeClientTest {
           throw new AssertionError("예상치 못한 오류: " + msg);
         },
         label -> {},
-        node -> {});
+        node -> {},
+        toolNode -> {});
 
     assertThat(deltas).containsExactly("안녕", "하세요");
     assertThat(done).isTrue();
@@ -100,7 +101,7 @@ class AiAgentComposeClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {});
+        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
 
     assertThat(errorMsg.get()).contains("실패");
   }
@@ -118,7 +119,13 @@ class AiAgentComposeClientTest {
     AtomicReference<String> errorMsg = new AtomicReference<>();
 
     client.composeStream(
-        dummyReq(), deltas::add, (ft, w) -> done.set(true), errorMsg::set, label -> {}, node -> {});
+        dummyReq(),
+        deltas::add,
+        (ft, w) -> done.set(true),
+        errorMsg::set,
+        label -> {},
+        node -> {},
+        tn -> {});
 
     assertThat(deltas).containsExactly("진행 중");
     assertThat(done).as("done 이벤트 없이 끝났으므로 onDone 미호출").isFalse();
@@ -132,7 +139,7 @@ class AiAgentComposeClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {});
+        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
 
     assertThat(errorMsg.get()).contains("설정되지 않");
   }
@@ -143,7 +150,7 @@ class AiAgentComposeClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {});
+        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
 
     assertThat(errorMsg.get()).isNotNull();
   }
@@ -169,7 +176,8 @@ class AiAgentComposeClientTest {
         progress::add,
         node -> {
           throw new AssertionError("예상치 못한 pending_action: " + node);
-        });
+        },
+        tn -> {});
 
     // progress 가 전달되고, 그 뒤 delta/done 까지 정상 소비(중간 이벤트가 루프를 끊지 않음).
     assertThat(progress).containsExactly("캘린더 전문가에게 위임 중");
@@ -186,7 +194,8 @@ class AiAgentComposeClientTest {
     boot(body, 200);
 
     AtomicReference<com.fasterxml.jackson.databind.JsonNode> pending = new AtomicReference<>();
-    client.composeStream(dummyReq(), d -> {}, (ft, w) -> {}, msg -> {}, label -> {}, pending::set);
+    client.composeStream(
+        dummyReq(), d -> {}, (ft, w) -> {}, msg -> {}, label -> {}, pending::set, tn -> {});
 
     assertThat(pending.get()).isNotNull();
     // 단일 객체는 길이 1 배열로 래핑됨.
@@ -206,12 +215,45 @@ class AiAgentComposeClientTest {
     boot(body, 200);
 
     AtomicReference<com.fasterxml.jackson.databind.JsonNode> pending = new AtomicReference<>();
-    client.composeStream(dummyReq(), d -> {}, (ft, w) -> {}, msg -> {}, label -> {}, pending::set);
+    client.composeStream(
+        dummyReq(), d -> {}, (ft, w) -> {}, msg -> {}, label -> {}, pending::set, tn -> {});
 
     assertThat(pending.get()).isNotNull();
     assertThat(pending.get().isArray()).isTrue();
     assertThat(pending.get().size()).isEqualTo(2);
     assertThat(pending.get().get(0).get("actionType").asText()).isEqualTo("calendar.create_event");
     assertThat(pending.get().get(1).get("actionType").asText()).isEqualTo("mail.send");
+  }
+
+  @Test
+  void tool_이벤트를_onTool_콜백으로_전달한다() {
+    // tool start + tool result + done 시퀀스 — tool 이벤트가 onTool 로 전달되고 스트림은 계속된다.
+    String body =
+        "event: tool\ndata: {\"seq\":1,\"phase\":\"start\",\"toolName\":\"get_issue_detail\",\"args\":{\"id\":42}}\n\n"
+            + "event: tool\ndata: {\"seq\":1,\"phase\":\"result\",\"isError\":false}\n\n"
+            + "event: done\ndata: {\"fullText\":\"이슈를 조회했어요\",\"widgets\":null}\n\n";
+    boot(body, 200);
+
+    List<com.fasterxml.jackson.databind.JsonNode> tools = new ArrayList<>();
+    AtomicBoolean done = new AtomicBoolean(false);
+    client.composeStream(
+        dummyReq(),
+        d -> {},
+        (ft, w) -> done.set(true),
+        msg -> {
+          throw new AssertionError("예상치 못한 오류: " + msg);
+        },
+        label -> {},
+        node -> {},
+        tools::add);
+
+    // tool 이벤트가 onTool 으로 전달됐는지 검증.
+    assertThat(tools).hasSize(2);
+    assertThat(tools.get(0).get("toolName").asText()).isEqualTo("get_issue_detail");
+    assertThat(tools.get(0).get("phase").asText()).isEqualTo("start");
+    assertThat(tools.get(1).get("phase").asText()).isEqualTo("result");
+    assertThat(tools.get(1).get("isError").asBoolean()).isFalse();
+    // tool 이벤트가 스트림을 끊지 않아 done 까지 소비되는지 검증.
+    assertThat(done).isTrue();
   }
 }

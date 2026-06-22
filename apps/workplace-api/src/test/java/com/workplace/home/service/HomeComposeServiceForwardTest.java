@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
+import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.outbound.AiAgentComposeClient;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -105,7 +106,7 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
               return null;
             })
         .when(composeClient)
-        .composeStream(any(), any(), any(), any(), any(), any());
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     serviceCapturing(captured).composeStream(uid, null, "다음주 회의 잡아줘");
@@ -146,7 +147,7 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
               return null;
             })
         .when(composeClient)
-        .composeStream(any(), any(), any(), any(), any(), any());
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     serviceCapturing(captured).composeStream(uid, null, "내일 10시 회의 잡아줘");
@@ -185,7 +186,7 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
               return null;
             })
         .when(composeClient)
-        .composeStream(any(), any(), any(), any(), any(), any());
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     serviceCapturing(captured).composeStream(uid, null, "메일 보여줘");
@@ -228,7 +229,7 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
               return null;
             })
         .when(composeClient)
-        .composeStream(any(), any(), any(), any(), any(), any());
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
     serviceCapturing(captured).composeStream(uid, null, "내일 10시 회의 잡고 메일도 보내줘");
@@ -245,5 +246,91 @@ class HomeComposeServiceForwardTest extends IntegrationTestBase {
     assertThat(pendingData.isArray()).isTrue();
     assertThat(pendingData.toString()).contains("calendar.create_event");
     assertThat(pendingData.toString()).contains("mail.send");
+  }
+
+  /**
+   * Task 8: progress + tool 이벤트를 누적해 ASSISTANT 메시지 tool_calls 에 저장하고 SSE 로 패스스루하는지 검증.
+   *
+   * <p>onProgress("위임중") → onTool(start) → onTool(result) → onDone 순으로 즉시 호출하고, 저장된 ASSISTANT 메시지의
+   * toolCalls 와 캡처된 SSE 이벤트를 단언한다.
+   */
+  @Test
+  void progress와_tool_이벤트를_누적해_ASSISTANT_메시지에_저장하고_SSE로_패스스루한다() throws Exception {
+    long uid = createAgentUser("fwd-tool-persist");
+    stubAssistant();
+
+    JsonNode toolStart =
+        objectMapper.readTree(
+            "{\"seq\":1,\"phase\":\"start\",\"toolName\":\"update_issue_status\",\"args\":{\"id\":10}}");
+    JsonNode toolResult =
+        objectMapper.readTree("{\"seq\":1,\"phase\":\"result\",\"isError\":false}");
+
+    CountDownLatch latch = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              Consumer<String> onProgress = inv.getArgument(4);
+              onProgress.accept("이슈 전문가에게 위임 중");
+              Consumer<JsonNode> onTool = inv.getArgument(6);
+              onTool.accept(toolStart);
+              onTool.accept(toolResult);
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("이슈 상태를 변경했어요", null);
+              latch.countDown();
+              return null;
+            })
+        .when(composeClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    List<SentEvent> captured = new ArrayList<>();
+    HomeComposeService svc = serviceCapturing(captured);
+    svc.composeStream(uid, null, "이슈 10번 완료 처리해줘");
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // SSE: tool 이벤트가 최소 2회 패스스루됐는지 검증.
+    List<SentEvent> toolEvents = captured.stream().filter(e -> "tool".equals(e.name)).toList();
+    assertThat(toolEvents).hasSize(2);
+    assertThat(toolEvents.get(0).data.toString()).contains("update_issue_status");
+
+    // DB: ASSISTANT 메시지의 tool_calls 가 누적 내용으로 저장됐는지 검증.
+    List<HomeMessageResponse> all =
+        sessionService.list(uid, null, 1).items().stream()
+            .findFirst()
+            .map(s -> sessionService.getMessages(uid, s.id()))
+            .orElseThrow();
+    HomeMessageResponse assistant =
+        all.stream().filter(m -> "ASSISTANT".equals(m.role())).findFirst().orElseThrow();
+    assertThat(assistant.toolCalls()).isNotNull();
+    String toolCallsStr = assistant.toolCalls().toString();
+    // delegation 항목(kind:delegation, label) 포함 검증
+    assertThat(toolCallsStr).contains("delegation");
+    assertThat(toolCallsStr).contains("이슈 전문가에게 위임 중");
+    // tool 항목(kind:tool, toolName, status:done) 포함 검증
+    assertThat(toolCallsStr).contains("update_issue_status");
+    assertThat(toolCallsStr).contains("done");
+  }
+
+  /**
+   * Task 9: 세션 메시지 복원 응답에 toolCalls 가 포함되는지 검증.
+   *
+   * <p>tool_calls 가 채워진 ASSISTANT 메시지를 직접 appendMessage 로 삽입하고 getMessages 응답에 toolCalls 가 나오는지
+   * 단언한다.
+   */
+  @Test
+  void 복원_응답에_tool_calls_가_포함된다() {
+    long uid = createAgentUser("restore-tool-calls");
+    var s = sessionService.create(uid);
+    String toolCallsJson =
+        "[{\"kind\":\"delegation\",\"label\":\"전문가 위임\"},{\"kind\":\"tool\",\"seq\":1,\"toolName\":\"get_issue\",\"status\":\"done\"}]";
+    sessionService.appendMessage(uid, s.id(), "USER", "이슈 조회해줘", null, null);
+    sessionService.appendMessage(uid, s.id(), "ASSISTANT", "조회했어요", null, toolCallsJson);
+
+    List<HomeMessageResponse> msgs = sessionService.getMessages(uid, s.id());
+    HomeMessageResponse assistant =
+        msgs.stream().filter(m -> "ASSISTANT".equals(m.role())).findFirst().orElseThrow();
+    assertThat(assistant.toolCalls()).isNotNull();
+    assertThat(assistant.toolCalls().isArray()).isTrue();
+    assertThat(assistant.toolCalls().toString()).contains("get_issue");
+    assertThat(assistant.toolCalls().toString()).contains("delegation");
   }
 }

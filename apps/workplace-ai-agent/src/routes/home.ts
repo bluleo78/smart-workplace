@@ -82,6 +82,15 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
           if (aborted) return;
           res.write(`event: progress\ndata: ${JSON.stringify({ label })}\n\n`);
         },
+        (line) => {
+          // 도구 호출 라이브 — start/result 를 phase 로 정규화해 발행. raw result 문자열은 제외.
+          if (aborted) return;
+          const phase = line.event === 'tool_use_start' ? 'start' : 'result';
+          const payload: Record<string, unknown> = { seq: line.seq, phase, toolName: line.toolName };
+          if (line.args) payload.args = line.args;
+          if (line.event === 'tool_result') payload.isError = line.isError ?? false;
+          res.write(`event: tool\ndata: ${JSON.stringify(payload)}\n\n`);
+        },
       );
       if (!aborted) {
         // #351: pending_action 을 done 앞에 발행(결정적 순서) — 확인 카드. 다건 제안은 배열로 1회 발행.

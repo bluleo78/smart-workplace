@@ -25,12 +25,33 @@ export interface ComposeRequest {
   query: string;
 }
 
+/** AI 도구 호출/위임 단계 — 어시스턴트 턴 인라인 표시 + 복원. */
+export interface ToolStep {
+  kind: 'delegation' | 'tool';
+  label?: string; // delegation
+  seq?: number; // tool — start/result 매칭
+  toolName?: string; // tool
+  args?: Record<string, unknown>; // tool
+  status?: 'running' | 'done' | 'error'; // tool
+}
+
+/** compose 의 라이브 tool SSE 이벤트(start/result). */
+export interface ToolEventDto {
+  seq: number;
+  phase: 'start' | 'result';
+  toolName: string;
+  args?: Record<string, unknown>;
+  isError?: boolean;
+}
+
 /** 챗 말풍선 한 턴. (챗 세션 훅이 transcript 로 사용) */
 export interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;
   /** #431: AI 응답이 지시한 표시 위젯(이슈/메일 목록 등). 챗 도크가 인라인 렌더. */
   widgets?: WidgetSpec[];
+  /** AI 도구 호출/위임 단계(인라인 표시). */
+  steps?: ToolStep[];
 }
 
 /** 세션 스위처 목록 항목 (GET /home/sessions). */
@@ -53,6 +74,7 @@ export interface HomeMessage {
   role: 'USER' | 'ASSISTANT';
   content: string;
   widgets: WidgetSpec[] | null;
+  toolCalls: ToolStep[] | null;
   createdAt: string; // ISO 8601
 }
 

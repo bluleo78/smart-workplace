@@ -12,6 +12,7 @@ import { z } from 'zod';
 
 import { createWorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools } from './tools.js';
+import { appendToolUse } from '../agent/tool-use-log.js';
 
 async function main(): Promise<void> {
   const baseURL = process.env.WORKPLACE_API_BASE_URL;
@@ -62,20 +63,25 @@ async function main(): Promise<void> {
     return out;
   });
 
+  let toolSeq = 0; // 도구 호출 순번(start/result 매칭) — 단일 프로세스라 동기 증가 안전
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
-    console.error('[workplace-mcp] callTool:', req.params.name);
-    const tool = tools.find((t) => t.name === req.params.name);
+    const seq = ++toolSeq;
+    const toolName = req.params.name;
+    console.error('[workplace-mcp] callTool:', toolName);
+    // 도구 시작 기록 — 사이드카 활성 시에만(헬퍼가 no-op 가드)
+    appendToolUse({ seq, event: 'tool_use_start', toolName, args: req.params.arguments ?? {} });
+    const tool = tools.find((t) => t.name === toolName);
     if (!tool) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: `unknown tool: ${req.params.name}` }],
-      };
+      appendToolUse({ seq, event: 'tool_result', toolName, isError: true, result: 'unknown tool' });
+      return { isError: true, content: [{ type: 'text', text: `unknown tool: ${toolName}` }] };
     }
     try {
       const out = await tool.handler(req.params.arguments ?? {});
+      appendToolUse({ seq, event: 'tool_result', toolName, isError: false, result: out });
       return { content: [{ type: 'text', text: out }] };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      appendToolUse({ seq, event: 'tool_result', toolName, isError: true, result: msg });
       return { isError: true, content: [{ type: 'text', text: msg }] };
     }
   });

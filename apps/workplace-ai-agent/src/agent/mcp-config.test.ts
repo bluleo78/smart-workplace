@@ -52,4 +52,15 @@ describe('writeTempMcpConfig profile', () => {
     cleanupTempMcpConfig(p);
     p = ''; // afterEach 중복 정리 방지
   });
+
+  it('toolUseLogPath 를 주면 WORKPLACE_TOOL_USE_LOG_PATH env 를 주입한다', () => {
+    p = writeTempMcpConfig({
+      agentId: 7, baseURL: 'http://x', internalToken: 't',
+      profile: 'assistant', toolUseLogPath: '/tmp/wd/tool-use.log',
+    });
+    const cfg = JSON.parse(readFileSync(p, 'utf8'));
+    expect(cfg.mcpServers.workplace.env.WORKPLACE_TOOL_USE_LOG_PATH).toBe('/tmp/wd/tool-use.log');
+    cleanupTempMcpConfig(p);
+    p = ''; // afterEach 중복 정리 방지
+  });
 });

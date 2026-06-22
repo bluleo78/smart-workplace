@@ -88,7 +88,7 @@ class HomeComposeServiceTest extends IntegrationTestBase {
               return null;
             })
         .when(composeClient)
-        .composeStream(any(), any(), any(), any(), any(), any());
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     SseEmitter emitter = composeService.composeStream(uid, null, "내 할 일");
     assertThat(emitter).isNotNull();
@@ -110,19 +110,134 @@ class HomeComposeServiceTest extends IntegrationTestBase {
     assertThat(msgs.get(1).widgets().get(0).get("type").asText()).isEqualTo("my_tasks");
   }
 
+  /**
+   * 표시 가능 도구(update_status)와 숨김 도구(respond_chat, show_issue_list)를 동시에 포함하는 스트림에서 tool_calls 가 표시
+   * 가능 도구만 영속하는지 검증. 숨김 도구는 SSE 패스스루만 되고 tool_calls 에 포함되지 않아야 한다.
+   */
+  @Test
+  void 표시가능_도구만_tool_calls_에_영속되고_숨김_도구는_제외() throws Exception {
+    long uid = user("toolfilter" + System.nanoTime());
+    stubAssistant();
+
+    CountDownLatch doneLatch = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              java.util.function.Consumer<com.fasterxml.jackson.databind.JsonNode> onTool =
+                  inv.getArgument(6);
+
+              // 숨김 도구: respond_chat (내부 응답 배관)
+              onTool.accept(
+                  objectMapper.readTree(
+                      "{\"phase\":\"start\",\"seq\":1,\"toolName\":\"respond_chat\","
+                          + "\"args\":{\"response\":\"안녕하세요\"}}"));
+              onTool.accept(
+                  objectMapper.readTree(
+                      "{\"phase\":\"result\",\"seq\":1,\"toolName\":\"respond_chat\","
+                          + "\"isError\":false}"));
+
+              // 표시 가능 도구: update_status
+              onTool.accept(
+                  objectMapper.readTree(
+                      "{\"phase\":\"start\",\"seq\":2,\"toolName\":\"update_status\","
+                          + "\"args\":{\"issueKey\":\"EX-1\",\"status\":\"IN_PROGRESS\"}}"));
+              onTool.accept(
+                  objectMapper.readTree(
+                      "{\"phase\":\"result\",\"seq\":2,\"toolName\":\"update_status\","
+                          + "\"isError\":false}"));
+
+              // 숨김 도구: show_issue_list (위젯으로 표시됨)
+              onTool.accept(
+                  objectMapper.readTree(
+                      "{\"phase\":\"start\",\"seq\":3,\"toolName\":\"show_issue_list\","
+                          + "\"args\":{}}"));
+              onTool.accept(
+                  objectMapper.readTree(
+                      "{\"phase\":\"result\",\"seq\":3,\"toolName\":\"show_issue_list\","
+                          + "\"isError\":false}"));
+
+              onDone.accept("상태를 변경했어요", null);
+              doneLatch.countDown();
+              return null;
+            })
+        .when(composeClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    composeService.composeStream(uid, null, "EX-1 상태 변경해줘");
+    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    List<HomeSessionSummary> summaries = sessionService.list(uid, null, 10).items();
+    UUID sid = summaries.get(0).id();
+    List<HomeMessageResponse> msgs = sessionService.getMessages(uid, sid);
+    HomeMessageResponse assistant = msgs.get(1);
+
+    // tool_calls 에 update_status 만 포함, respond_chat / show_issue_list 는 제외.
+    assertThat(assistant.toolCalls()).isNotNull();
+    assertThat(assistant.toolCalls().isArray()).isTrue();
+    assertThat(assistant.toolCalls()).hasSize(1);
+    assertThat(assistant.toolCalls().get(0).get("toolName").asText()).isEqualTo("update_status");
+    assertThat(assistant.toolCalls().get(0).get("status").asText()).isEqualTo("done");
+  }
+
+  /**
+   * 숨김 도구만 있는 스트림(respond_chat 단독)은 tool_calls 가 null 로 영속되는지 검증. steps 리스트가 비어 있으면 serializeSteps
+   * 가 null 을 반환한다.
+   */
+  @Test
+  void 숨김_도구만_있으면_tool_calls_는_null_로_영속() throws Exception {
+    long uid = user("toolnull" + System.nanoTime());
+    stubAssistant();
+
+    CountDownLatch doneLatch = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              java.util.function.Consumer<com.fasterxml.jackson.databind.JsonNode> onTool =
+                  inv.getArgument(6);
+
+              // 숨김 도구만
+              onTool.accept(
+                  objectMapper.readTree(
+                      "{\"phase\":\"start\",\"seq\":1,\"toolName\":\"respond_chat\","
+                          + "\"args\":{\"response\":\"안녕\"}}"));
+              onTool.accept(
+                  objectMapper.readTree(
+                      "{\"phase\":\"result\",\"seq\":1,\"toolName\":\"respond_chat\","
+                          + "\"isError\":false}"));
+
+              onDone.accept("안녕하세요", null);
+              doneLatch.countDown();
+              return null;
+            })
+        .when(composeClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    composeService.composeStream(uid, null, "안녕");
+    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    List<HomeSessionSummary> summaries = sessionService.list(uid, null, 10).items();
+    UUID sid = summaries.get(0).id();
+    List<HomeMessageResponse> msgs = sessionService.getMessages(uid, sid);
+    HomeMessageResponse assistant = msgs.get(1);
+
+    // 숨김 도구만 → tool_calls null
+    assertThat(assistant.toolCalls()).isNull();
+  }
+
   /** 기존 세션의 최근 메시지를 recentContext 로 전달하는지 검증. */
   @Test
   void 기존_세션의_최근메시지를_recentContext_로_전달_현재query_제외() throws Exception {
     long uid = user("ctx" + System.nanoTime());
     var s = sessionService.create(uid);
     // 사전 대화 1턴 적재.
-    sessionService.appendMessage(uid, s.id(), "USER", "내 담당 보여줘", null);
+    sessionService.appendMessage(uid, s.id(), "USER", "내 담당 보여줘", null, null);
     sessionService.appendMessage(
         uid,
         s.id(),
         "ASSISTANT",
         "내 담당이에요",
-        "[{\"type\":\"issue_list\",\"params\":{\"assignee\":\"me\"}}]");
+        "[{\"type\":\"issue_list\",\"params\":{\"assignee\":\"me\"}}]",
+        null);
     stubAssistant();
 
     CountDownLatch doneLatch = new CountDownLatch(1);
@@ -134,13 +249,13 @@ class HomeComposeServiceTest extends IntegrationTestBase {
               return null;
             })
         .when(composeClient)
-        .composeStream(any(), any(), any(), any(), any(), any());
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     composeService.composeStream(uid, s.id(), "그 중 HIGH 만");
     assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ArgumentCaptor<ComposeRequest> captor = ArgumentCaptor.forClass(ComposeRequest.class);
-    verify(composeClient).composeStream(captor.capture(), any(), any(), any(), any(), any());
+    verify(composeClient).composeStream(captor.capture(), any(), any(), any(), any(), any(), any());
     ComposeRequest sent = captor.getValue();
     assertThat(sent.query()).isEqualTo("그 중 HIGH 만");
     // recentContext: 직전 2개(USER/ASSISTANT) 텍스트만, 현재 query 는 미포함.

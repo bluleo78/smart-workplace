@@ -11,6 +11,8 @@ import { log } from '../logger.js';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ASSISTANT_SYSTEM_PROMPT, delegationLabel } from './assistant-system-prompt.js';
+import { ToolUseTailer } from './tool-use-tailer.js';
+import type { ToolUseLine } from './tool-use-log.js';
 import { loadSubagents, writeSubagentDefinitions } from './subagent-loader.js';
 import { checkSubagentWhitelist } from './tool-policy.js';
 import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
@@ -185,6 +187,7 @@ export async function runAiComposeStream(
   onText: (t: string) => void,
   signal: AbortSignal,
   onProgress?: (label: string) => void, // #333: Agent 위임 시작 시 호출('이슈 전문가에게 위임 중')
+  onTool?: (line: ToolUseLine) => void, // 도구 호출 라이브 발행(사이드카 테일)
 ): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; usage: import('./compose-parser.js').Usage | null }> {
   // #405: 생성일 필터 쿼리 — LLM 호출 전 결정론적으로 차단. dueFrom 오해석 방지.
   if (isCreatedDateFilterQuery(input.query)) {
@@ -227,6 +230,7 @@ export async function runAiComposeStream(
     // finally 에서 rmSync 로 한 번에 정리해 temp 누수 방지.
     workDir = mkdtempSync(path.join(tmpdir(), `assistant-${agentId}-`));
     const pendingActionPath = path.join(workDir, 'pending-action.json');
+    const toolUseLogPath = path.join(workDir, 'tool-use.log');
     // #378: unassign_self 실패 시 MCP 핸들러가 오류를 기록할 사이드카.
     // 실행 후 이 파일이 존재하면 최종 응답을 결정론적으로 override 한다.
     const unassignErrorPath = path.join(workDir, 'unassign-error.json');
@@ -247,6 +251,7 @@ export async function runAiComposeStream(
       userId: input.userId, // #376: MCP child env 에도 ACTING_USER_ID 전달
       routerResponsePath, // #381: respond_chat 사이드카(절대경로)
       subagentResponsePath, // #381: submit_response 사이드카(절대경로)
+      toolUseLogPath, // 도구 호출 로깅 사이드카
     });
     // #333: 서브에이전트 정의를 workDir 안 .claude/agents/ 에 기록 + 허용 이름 집합 산출.
     const subagents = loadSubagents();
@@ -335,7 +340,19 @@ export async function runAiComposeStream(
     // 상위 연결 종료 시 child 종료(자원 누수 방지). 이미 abort 된 신호면 즉시 kill.
     if (signal.aborted) handle.kill();
     else signal.addEventListener('abort', () => handle.kill(), { once: true });
-    await handle.done;
+    // 도구 호출 사이드카 라이브 테일 — 150ms 폴링으로 새 줄을 onTool 발행.
+    const tailer = new ToolUseTailer(toolUseLogPath);
+    const flush = () => {
+      if (!onTool) return;
+      for (const line of tailer.readNew()) onTool(line);
+    };
+    const pollTimer = onTool ? setInterval(flush, 150) : null;
+    try {
+      await handle.done;
+    } finally {
+      if (pollTimer) clearInterval(pollTimer);
+      flush(); // done 직후 잔여 줄 최종 발행(트레일링 손실 방지)
+    }
     // #333: 위반 감지 시 fallback kill(프로덕션=이미 killed, 동기 모킹=여기서 kill) + throw.
     if (policyDeny) {
       handle.kill();
