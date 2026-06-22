@@ -806,3 +806,48 @@ test('사이드패널: 세션 로드/전송 시 채팅이 맨 아래로 자동 �
     .poll(async () => scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
     .toBeLessThanOrEqual(80)
 })
+
+test('앱 레일에서 앱 전환 시 AI 풀스크린이면 side 패널로 강등된다 (#454)', async ({
+  authenticatedPage: page,
+}) => {
+  // #454: 풀스크린 AI 가 콘텐츠를 덮어, 레일로 앱을 바꿔도 전환된 앱이 가려진다.
+  // 기대: 레일 네비게이션 시 풀스크린이면 side 로 강등 → 새 앱 + AI 가 함께 보임.
+  await mockApi(page, 'GET', '/api/v1/projects', {
+    content: [], page: 0, size: 20, totalElements: 0, totalPages: 0,
+  })
+
+  await page.goto('/')
+  // side → fullscreen (칩 2회 클릭)
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+
+  // 앱 레일에서 '작업 관리'(/projects)로 전환
+  await page.getByTestId('rail-link-/projects').click()
+
+  // ① 해당 라우트로 이동 ② 풀스크린 해제 + side 패널 표시
+  await expect(page).toHaveURL(/\/projects/)
+  await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+})
+
+test('앱 레일에서 앱 전환 시 AI side 모드는 그대로 유지된다 (#454 회귀가드)', async ({
+  authenticatedPage: page,
+}) => {
+  // side/closed 모드에서는 레일 네비게이션이 AI 모드를 바꾸지 않아야 한다.
+  await mockApi(page, 'GET', '/api/v1/projects', {
+    content: [], page: 0, size: 20, totalElements: 0, totalPages: 0,
+  })
+
+  await page.goto('/')
+  // side 모드로만 연다(칩 1회).
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+
+  await page.getByTestId('rail-link-/projects').click()
+
+  // side 유지 + 풀스크린으로 승격되지 않음
+  await expect(page).toHaveURL(/\/projects/)
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
+})

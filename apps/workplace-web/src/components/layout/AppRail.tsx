@@ -19,6 +19,7 @@ import {
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
+import { useAssistant } from '@/components/ai/AIAssistantContext'
 import {
   Tooltip,
   TooltipContent,
@@ -116,8 +117,20 @@ function RailLink({
 export function AppRail() {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
+  // AI 어시스턴트 표시 모드 — 앱 전환 시 풀스크린을 side 로 강등(#454).
+  const { mode, open: openAssistant } = useAssistant()
 
+  // 모바일 드로어 닫기(백드롭/Escape 용) — AI 모드는 건드리지 않는다.
   const closeMobile = () => setMobileOpen(false)
+
+  // 레일에서 앱으로 네비게이션할 때 공통 처리:
+  // - 모바일 드로어 닫기
+  // - AI 가 풀스크린이면 side 패널로 강등(#454) — 풀스크린이 콘텐츠를 덮어 전환된 앱이
+  //   가려지므로, 새 앱 화면과 AI 가 함께 보이도록 내린다. side/closed 면 그대로 둔다.
+  const onNavigate = () => {
+    setMobileOpen(false)
+    if (mode === 'fullscreen') openAssistant('side')
+  }
 
   // 모바일 오버레이가 열려 있을 때 Escape 로 닫을 수 있게 한다(키보드 접근성).
   useEffect(() => {
@@ -169,7 +182,7 @@ export function AppRail() {
               key={item.href}
               item={item}
               active={isActive(location.pathname, item)}
-              onNavigate={closeMobile}
+              onNavigate={onNavigate}
             />
           ))}
 
