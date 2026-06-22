@@ -249,6 +249,31 @@ describe('runAiComposeStream (스트리밍 — SSE 라우트용)', () => {
     expect(out.fullText).toBe('처리했어요.');
   });
 
+  // #463: 위임 프리앰블은 라이브 노출되고 최종 답은 위임 답.
+  // 과도한 중복은 프롬프트 가드+라이브 스모크로 관리.
+  it('위임 시 라우터 프리앰블 prose 는 onDelta 로 라이브 노출되고 최종 fullText 는 subagent 사이드카 답', async () => {
+    const subagentText = '메일함에 3개의 미읽은 메일이 있어요.';
+    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+      // 라우터 자기 prose (parent_tool_use_id 없음 → extractRouterTextDelta 가 텍스트 반환)
+      onLine(textDelta('메일을 확인해볼게요'));
+      // 위임 tool_use
+      onLine(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'mail-agent', prompt: '미읽은 메일 조회' } }] } }));
+      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: 'prose' }));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'mail-agent': { description: 'm', tools: [], prompt: '' } });
+    mockSidecars({ subagent: subagentText });
+    const got: string[] = [];    // onText 수집 (위임 답만 도달해야 함)
+    const deltas: string[] = []; // onDelta 수집 (프리앰블 prose 가 라이브로 도달해야 함)
+    const out = await runAiComposeStream(baseInput({ query: '메일 확인해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    // 프리앰블 prose 는 onDelta 로 라이브 노출(의도된 동작)
+    expect(deltas).toContain('메일을 확인해볼게요');
+    // 최종 fullText 는 subagent 사이드카 답이 우선
+    expect(out.fullText).toBe(subagentText);
+    // onText 는 위임 답(sidecar)만 1회 emit
+    expect(got).toEqual([subagentText]);
+  });
+
   it('includePartialMessages:true 로 buildCliArgs 호출', async () => {
     vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
     await runAiComposeStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);

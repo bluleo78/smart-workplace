@@ -155,4 +155,8 @@ describe('extractRouterTextDelta (#463)', () => {
     };
     expect(extractRouterTextDelta(line)).toBeNull();
   });
+
+  it('stream_event 이지만 content_block_delta 가 아닌 이벤트(message_start) → null', () => {
+    expect(extractRouterTextDelta({ type: 'stream_event', event: { type: 'message_start' }, parent_tool_use_id: null })).toBeNull();
+  });
 });
