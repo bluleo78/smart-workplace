@@ -39,6 +39,16 @@ public class HomeComposeService {
   /** SSE 타임아웃 — CLI cold-start(최대 ~60s) + 실행 예산 여유. */
   private static final long TIMEOUT_MS = 300_000L;
 
+  /**
+   * compose 전용 CLI 예산 하한(#456). Global Chat 라우터는 여러 도메인 전문가(캘린더+메일 등)에 순차 위임하고 sync_mail(IMAP) 같은
+   * 느린 도구를 거쳐, 공유 기본값 60s(AssistantDefaults.TIMEOUT_MS)를 종종 초과한다. compose 의 HTTP
+   * read(AiAgentComposeClient 300s)·SseEmitter(300s)가 이를 충분히 감싸므로 180s 로 상향한다.
+   *
+   * <p>공유 기본값을 올리지 않는 이유: 같은 값을 쓰는 mail/wiki 경로의 HTTP read 가 각각 90s/120s 라, 기본값을 180s 로 올리면 그 경로들이
+   * CLI 완주 전에 잘린다. 따라서 compose 경로에서만 하한을 적용한다. 비서별 설정으로 더 큰 timeoutMs 가 지정되면 그 값을 존중한다(하한이므로).
+   */
+  private static final int COMPOSE_MIN_TIMEOUT_MS = 180_000;
+
   /** follow-up 맥락으로 전달할 직전 메시지 최대 개수(토큰 폭주 방지). */
   private static final int CONTEXT_LIMIT = 6;
 
@@ -104,7 +114,8 @@ public class HomeComposeService {
             spec.model(),
             spec.thinkingDepth(),
             spec.maxTurns(),
-            spec.timeoutMs());
+            // #456: compose 는 다중 도메인 위임으로 기본 60s 를 넘기 쉬워 하한(180s)을 적용.
+            Math.max(spec.timeoutMs(), COMPOSE_MIN_TIMEOUT_MS));
 
     // 6) emitter 생성 및 펌프 스레드 제출.
     SseEmitter emitter = newEmitter();
