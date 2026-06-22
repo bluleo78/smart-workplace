@@ -5,6 +5,7 @@ import { homeApi } from '@/api/home';
 import { chatStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
 import { widgetTypeFromToolName } from '@/lib/aiToolLabels';
 import { handleApiError } from '@/lib/api-error';
+import { pushTextBlock, pushWidgetBlock } from '@/lib/chatBlocks';
 import type { ChatTurn, PendingAction, ToolEventDto, WidgetSpec, WidgetType } from '@/types/home';
 
 /**
@@ -64,7 +65,9 @@ export function useChatSession() {
             if (!last || last.role !== 'assistant') return t; // 방어 — turns 가 리셋된 경우 skip.
             // ...last 로 steps/widgets 등 기존 필드 보존 — delta 가 turn 을 통째 교체하면
             // 도구 호출 단계(steps)가 최종 응답 도착 순간 사라진다(#449).
-            next[next.length - 1] = { ...last, content: last.content + delta };
+            // #463: 텍스트 블록 누적 — 직전 블록이 text 가 아닐 때만 새 블록 추가(현재 content 길이=슬라이스 오프셋).
+            const contentBlocks = pushTextBlock(last.contentBlocks ?? [], last.content.length);
+            next[next.length - 1] = { ...last, content: last.content + delta, contentBlocks };
             return next;
           });
         },
@@ -99,6 +102,8 @@ export function useChatSession() {
             // 인라인 렌더한다(체감 지연 단축). done 이벤트가 최종 위젯 목록으로 덮어쓰므로
             // (authoritative) 여기 누적은 조기 표시용이며 같은 순서·내용이라 깜빡임이 없다.
             let widgets = last.widgets;
+            // #463: contentBlocks — 위젯 도착 시 pushWidgetBlock 으로 도착순 인터리브 유지.
+            let contentBlocks = last.contentBlocks ?? [];
             if (evt.phase === 'start') {
               steps.push({ kind: 'tool', seq: evt.seq, toolName: evt.toolName, args: evt.args, status: 'running' });
               const wtype = evt.toolName ? widgetTypeFromToolName(evt.toolName) : null;
@@ -110,12 +115,14 @@ export function useChatSession() {
                 const layout = evt.args?.layout as WidgetSpec['layout'] | undefined;
                 if (layout) w.layout = layout;
                 widgets = [...(last.widgets ?? []), w];
+                // #463: 위젯 블록을 도착순으로 누적(텍스트 사이에 위젯이 오는 인터리브 지원).
+                contentBlocks = pushWidgetBlock(contentBlocks, w);
               }
             } else {
               const idx = steps.findIndex((s) => s.kind === 'tool' && s.seq === evt.seq && s.status === 'running');
               if (idx !== -1) steps[idx] = { ...steps[idx], status: evt.isError ? 'error' : 'done' };
             }
-            next[next.length - 1] = { ...last, steps, widgets };
+            next[next.length - 1] = { ...last, steps, widgets, contentBlocks };
             return next;
           });
         },

@@ -44,6 +44,15 @@ export interface ToolEventDto {
   isError?: boolean;
 }
 
+/**
+ * #463: 어시스턴트 응답 인터리브 블록 — 텍스트 델타와 위젯이 도착 순서를 유지하도록
+ * 배열로 누적된다. 텍스트 블록은 content 슬라이스 오프셋(textStart)만 보유해 불변 문자열
+ * 복사 없이 ChatTurn.content 를 공유한다.
+ */
+export type ContentBlock =
+  | { kind: 'text'; textStart: number }
+  | { kind: 'widget'; widget: WidgetSpec };
+
 /** 챗 말풍선 한 턴. (챗 세션 훅이 transcript 로 사용) */
 export interface ChatTurn {
   role: 'user' | 'assistant';
@@ -52,6 +61,8 @@ export interface ChatTurn {
   widgets?: WidgetSpec[];
   /** AI 도구 호출/위임 단계(인라인 표시). */
   steps?: ToolStep[];
+  /** #463: 도착 순 인터리브 블록(텍스트/위젯). Task 6 렌더러가 소비. */
+  contentBlocks?: ContentBlock[];
 }
 
 /** 세션 스위처 목록 항목 (GET /home/sessions). */
