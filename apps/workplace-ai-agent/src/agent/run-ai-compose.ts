@@ -13,6 +13,7 @@ import path from 'node:path';
 import { ASSISTANT_SYSTEM_PROMPT, delegationLabel } from './assistant-system-prompt.js';
 import { ToolUseTailer } from './tool-use-tailer.js';
 import type { ToolUseLine } from './tool-use-log.js';
+import { transcriptRequest, transcriptStreamLine, transcriptResult } from './ai-transcript-log.js';
 import { loadSubagents, writeSubagentDefinitions } from './subagent-loader.js';
 import { checkSubagentWhitelist } from './tool-policy.js';
 import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
@@ -263,8 +264,9 @@ export async function runAiComposeStream(
     const systemPromptPath = path.join(workDir, 'system-prompt.txt');
     writeFileSync(systemPromptPath, systemPrompt, 'utf8');
 
+    const userMessage = buildComposeUserMessage(input);
     const args = buildCliArgs({
-      userMessage: buildComposeUserMessage(input),
+      userMessage,
       systemPrompt, // systemPromptPath 가 있으면 buildCliArgs 가 --system-prompt-file 을 우선 사용.
       systemPromptPath,
       model: input.model,
@@ -289,6 +291,17 @@ export async function runAiComposeStream(
       maxTurns: input.maxTurns,
       allowSubagents: true,
     });
+    // #458: 전체 트랜스크립트 — 보낸 요청 본문(쿼리·맥락·예산·CLI로 넘긴 실제 userMessage·시스템프롬프트 길이) 기록.
+    transcriptRequest(input.requestId, {
+      query: input.query,
+      recentContext: input.recentContext ?? [],
+      userMessage,
+      model: input.model,
+      thinkingDepth: input.thinkingDepth,
+      maxTurns: input.maxTurns,
+      timeoutMs: input.timeoutMs,
+      systemPromptChars: systemPrompt.length,
+    });
     const handle = runClaudeCliStream(
       {
         args,
@@ -301,6 +314,8 @@ export async function runAiComposeStream(
       (line) => {
         // 모든 라인을 누적(parseComposeLines 가 위젯 파싱에 사용).
         lines.push(line);
+        // #458: 수신 즉시 트랜스크립트에 기록 — 라인 간 ts 간격이 곧 단계별 지연(LLM/도구) 분해 근거.
+        transcriptStreamLine(input.requestId, line);
         let obj: unknown;
         try {
           obj = JSON.parse(line);
@@ -470,6 +485,14 @@ export async function runAiComposeStream(
       routerSidecar: !!routerText,
       subagentSidecar: !!subagentText,
       widgetCount: widgets ? widgets.length : 0,
+    });
+    // #458: 트랜스크립트 종료 레코드 — 최종 답·위젯·사용량·답 출처(사이드카). 라인별 ts 와 합쳐 전체 분석.
+    transcriptResult(input.requestId, {
+      answerText,
+      widgetCount: widgets ? widgets.length : 0,
+      pendingActionCount: pendingActions.length,
+      usage: parsed.usage,
+      source: subagentText ? 'subagent' : routerText ? 'router' : widgets ? 'widget' : 'fallback',
     });
     return { fullText: answerText, widgets, pendingActions, usage: parsed.usage };
   } finally {
