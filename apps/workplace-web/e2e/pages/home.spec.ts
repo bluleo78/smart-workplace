@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
+import { mailAccount, summary as mailRow } from '../factories/mail.factory'
 import type { CalendarEvent } from '../../src/types/calendar'
 import type {
   DashboardLayout,
@@ -89,6 +90,7 @@ function channels(): ChannelResponse[] {
       archived: false,
       memberCount: 5,
       unreadCount: 3,
+      hasUnreadThreads: false,
       createdAt: '2026-06-01T00:00:00Z',
     },
   ]
@@ -947,4 +949,89 @@ test('내 작업 — 내 담당·워치 카운터가 모두 ai-accent 색으로 
   const counters = mytasks.locator('.text-2xl')
   await expect(counters.nth(0)).toHaveClass(/text-ai-accent/) // 내 담당
   await expect(counters.nth(1)).toHaveClass(/text-ai-accent/) // 워치
+})
+
+// ── #444 회귀 가드 ─────────────────────────────────────────────────────────
+// 메일함에서 동기화하면 홈의 안 읽은 메일 위젯도 즉시 갱신되어야 한다.
+// (useSyncMailbox.onSuccess 가 ['mail-summary'] 캐시를 무효화하지 않으면,
+//  staleTime 30초 동안 위젯이 옛 카운트를 유지하던 버그 — #444.)
+// 핵심: page.goto 풀 리로드는 QueryClient 캐시를 초기화해 invalidation 효과가
+//       관찰되지 않으므로, 메일함↔홈 이동은 반드시 SPA 라우팅(클릭)으로 한다.
+test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
+
+  // mail-summary 동적 응답: 동기화 전 2건 → 동기화 후 3건(새 메일 '긴급 공지' 추가).
+  // mockWidgets 의 정적 mail-summary 라우트보다 나중에 등록 → 우선 적용(Playwright LIFO).
+  let synced = false
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/mail-summary',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      const body: MailSummary = synced
+        ? {
+            unreadCount: 3,
+            recent: [
+              {
+                id: 200,
+                subject: '긴급 공지',
+                fromAddress: 'ceo@example.com',
+                fromName: '대표',
+                receivedAt: '2026-06-16T02:00:00Z',
+                seen: false,
+              },
+              ...mail().recent,
+            ],
+          }
+        : mail()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      })
+    },
+  )
+
+  // 메일함(/mail/1) 진입·동기화에 필요한 스텁.
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [mailRow()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', {
+    phase: 'IDLE',
+    total: 0,
+    done: 0,
+    running: false,
+  })
+  // 동기화 호출 시 플래그 전환 → 이후 mail-summary 가 3건을 반환.
+  await page.route(
+    (url) => url.pathname === '/api/v1/mail/accounts/1/sync',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      synced = true
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ fetched: 1, saved: 1 }),
+      })
+    },
+  )
+
+  // 1) 홈 진입 — 위젯에 동기화 전 상태(안 읽음 2건).
+  await page.goto('/')
+  await expect(page.getByTestId('dash-mail')).toContainText('안 읽음 2건')
+
+  // 2) 위젯의 메일 링크로 메일함 SPA 이동(/mail → /mail/1 replace 리다이렉트). 풀 리로드 금지.
+  await page.getByTestId('dash-mail').getByRole('link').first().click()
+  await expect(page).toHaveURL(/\/mail\/1$/)
+
+  // 3) 동기화 클릭 → sync 성공(saved:1) → ['mail-summary'] 무효화.
+  await page.getByTestId('mail-sync').click()
+  await expect(page.getByText('새 메일 1건을 받았습니다')).toBeVisible()
+
+  // 4) 앱 레일 홈 링크로 SPA 복귀 — 위젯 재마운트 시 stale 캐시 재페치 → 갱신된 3건.
+  await page.getByTestId('rail-link-/').click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByTestId('dash-mail')).toContainText('안 읽음 3건')
+  await expect(page.getByTestId('dash-mail')).toContainText('긴급 공지')
 })

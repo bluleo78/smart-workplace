@@ -71,7 +71,7 @@ export function useSyncStatus(accountId: number | undefined, active: boolean) {
   });
 }
 
-/** INBOX 수동 동기화 — 성공 시 해당 계정의 목록 캐시 무효화. */
+/** INBOX 수동 동기화 — 성공 시 해당 계정의 목록 캐시 + 홈 메일 요약 무효화. */
 export function useSyncMailbox(accountId: number | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -79,6 +79,10 @@ export function useSyncMailbox(accountId: number | undefined) {
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['mail-messages', accountId] });
       qc.invalidateQueries({ queryKey: mailMessageKeys.syncStatus(accountId ?? 0) });
+      // 홈 대시보드 안읽은 메일 위젯(useMailSummary, queryKey ['mail-summary'])도 갱신.
+      // exact: true — 메시지별 AI 요약 ['mail-summary', messageId]까지 무효화해
+      // 불필요한 AI 재생성이 일어나지 않도록 홈 요약 단건만 정확히 무효화한다.
+      qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true });
       toast.success(
         result.saved > 0
           ? `새 메일 ${result.saved}건을 받았습니다`

@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
+import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
@@ -57,6 +58,19 @@ public class MailMessageService {
     int effective = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
     String folderName = (folder == null || folder.isBlank()) ? "INBOX" : folder;
     return messageRepo.listByAccount(accountId, folderName, query, effective);
+  }
+
+  /**
+   * 홈 위젯용 메일 요약 — 본인 INBOX 안읽음 수 + 최근 안읽은 메일 N건.
+   *
+   * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬({@code set_config(...,true)})이라 반드시 트랜잭션 경계 안에서 읽어야 한다. 경계가
+   * 없으면 GUC 미주입 → RLS fail-closed 로 0행이 되어 안읽음이 항상 0으로 보이는 버그(#444). countUnread· listRecentUnread
+   * 두 읽기를 하나의 읽기 전용 트랜잭션으로 묶어 GUC 주입을 보장한다.
+   */
+  @Transactional(readOnly = true)
+  public MailSummaryResponse summary(long userId, int recentLimit) {
+    return new MailSummaryResponse(
+        messageRepo.countUnread(userId), messageRepo.listRecentUnread(userId, recentLimit));
   }
 
   /**

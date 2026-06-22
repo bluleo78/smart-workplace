@@ -389,7 +389,31 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page, sse)
+    // React StrictMode 가 첫 SSE 연결을 abort 하므로 gate 패턴은 동작하지 않는다.
+    // 대신: 초기 연결은 모두 즉시 heartbeat 반환 → 재연결이 ~1s 주기로 계속 시도.
+    // 답글 제출 후 deliverEvent=true 를 세우면 다음 재연결에서 self-echo 이벤트를
+    // 정확히 1회 발화한다. 이 시점에 messages 캐시가 이미 채워져 bumpReplyCount 가 동작.
+    let deliverEvent = false
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/stream',
+      (route) => {
+        if (deliverEvent) {
+          deliverEvent = false
+          return route.fulfill({
+            status: 200,
+            contentType: 'text/event-stream',
+            headers: { 'cache-control': 'no-cache' },
+            body: sse,
+          })
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          headers: { 'cache-control': 'no-cache' },
+          body: `:\n\n`,
+        })
+      },
+    )
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
     await stubMessages(page, CHANNEL_ID, [parent])
@@ -432,6 +456,9 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await composer.click()
     await composer.fill('내 답글')
     await page.getByTestId('thread-panel').getByTestId('message-composer-submit').click()
+
+    // 답글 제출 후 플래그 활성화 → 다음 SSE 재연결에서 self-echo 이벤트를 정확히 1회 발화.
+    deliverEvent = true
 
     // SSE self-echo 적용 후 "답글 1개" (2개 아님 — 이중 카운트 없음).
     await expect(page.getByTestId(`message-thread-link-${PARENT_ID}`)).toHaveText('답글 1개')
