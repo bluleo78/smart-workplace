@@ -891,7 +891,7 @@ test('편집(B1) — undo 가 갤러리 추가도 되돌린다(일관성)', asyn
 
 // ── #339 회귀 가드 — startsAt null 시 Invalid Date 렌더 ──────────────────
 
-test('오늘 일정 — startsAt null 이벤트 시간 셀이 Invalid Date 대신 하이픈을 렌더한다 (refs #339)', async ({
+test('오늘 일정 — startsAt null 이벤트 시간 셀이 Invalid Date 대신 "미정"을 렌더한다 (refs #339)', async ({
   authenticatedPage: page,
 }) => {
   // startsAt이 null인 이벤트 — 서버가 null을 내려보내는 엣지 케이스 방어 회귀 가드.
@@ -925,13 +925,88 @@ test('오늘 일정 — startsAt null 이벤트 시간 셀이 Invalid Date 대�
 
   // 이벤트 행이 렌더되어야 한다.
   await expect(page.getByTestId('dash-calendar')).toContainText('startsAt null 이벤트')
-  // 시간 셀에 "Invalid Date"가 아닌 '-'가 표시되어야 한다.
+  // 시간 셀에 "Invalid Date"/'-'(무의미 placeholder)가 아닌 '미정'이 표시되어야 한다.
   const timeCell = page
     .getByTestId('dash-calendar')
     .getByRole('link', { name: '일정 열기: startsAt null 이벤트' })
-    .locator('span').first()
-  await expect(timeCell).toHaveText('-')
+    .getByTestId('cal-time')
+  await expect(timeCell).toHaveText('미정')
   await expect(timeCell).not.toHaveText('Invalid Date')
+})
+
+// ── 오늘 일정 — 미정 정렬/헤더 힌트 ─────────────────────────────────────────
+
+test('오늘 일정 — 종일·시각·미정 혼재 시 미정은 맨 뒤로 정렬하고 헤더에 미정 건수를 표시한다', async ({
+  authenticatedPage: page,
+}) => {
+  // 입력 순서를 일부러 섞어 정렬 동작을 검증한다(미정 → 종일 → 시각).
+  const mixed: CalendarEvent[] = [
+    {
+      id: 1,
+      title: '미정 일정',
+      description: null,
+      startsAt: null as unknown as string,
+      endsAt: null as unknown as string,
+      allDay: false,
+      location: null,
+      color: null,
+      reminderMinutes: null,
+      recurrenceRule: null,
+      createdAt: '2026-06-18T00:00:00Z',
+      updatedAt: '2026-06-18T00:00:00Z',
+    },
+    {
+      id: 2,
+      title: '종일 일정',
+      description: null,
+      startsAt: '2026-06-18T00:00:00Z',
+      endsAt: '2026-06-18T23:59:00Z',
+      allDay: true,
+      location: null,
+      color: null,
+      reminderMinutes: null,
+      recurrenceRule: null,
+      createdAt: '2026-06-18T00:00:00Z',
+      updatedAt: '2026-06-18T00:00:00Z',
+    },
+    {
+      id: 3,
+      title: '오후 회의',
+      description: null,
+      startsAt: '2026-06-18T05:00:00Z',
+      endsAt: '2026-06-18T06:00:00Z',
+      allDay: false,
+      location: null,
+      color: null,
+      reminderMinutes: null,
+      recurrenceRule: null,
+      createdAt: '2026-06-18T00:00:00Z',
+      updatedAt: '2026-06-18T00:00:00Z',
+    },
+  ]
+  await mockApi(page, 'GET', '/api/v1/calendar/events', mixed)
+  await mockApi(page, 'GET', '/api/v1/me/issues', issues())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issues())
+  await mockApi(page, 'GET', '/api/v1/notifications', notifications())
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/messaging/channels', channels())
+  await mockApi(page, 'GET', '/api/v1/messaging/dms', emptyDms)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', mail())
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['calendar_today']))
+  await page.goto('/')
+
+  // 헤더: 총 3건 + 미정 1건 힌트.
+  await expect(page.getByTestId('dash-calendar')).toContainText('오늘 3건 · 미정 1')
+
+  // 정렬: 종일(startsAt 00:00) → 시각(05:00) → 미정(맨 뒤).
+  const titles = page.getByTestId('dash-calendar').getByRole('link')
+  await expect(titles.nth(0)).toContainText('종일 일정')
+  await expect(titles.nth(1)).toContainText('오후 회의')
+  await expect(titles.nth(2)).toContainText('미정 일정')
+
+  // 시각 라벨은 24시간제(예: 14:00)로 렌더된다 — '오후' 등 12시간 표기 금지.
+  const timed = titles.filter({ hasText: '오후 회의' }).getByTestId('cal-time')
+  await expect(timed).toHaveText(/^\d{2}:\d{2}$/)
 })
 
 // ── #282 회귀 가드 ─────────────────────────────────────────────────────────
