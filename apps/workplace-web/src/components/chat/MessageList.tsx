@@ -26,7 +26,7 @@ import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useToggleReaction } from '@/hooks/queries/useToggleReaction'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
 import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
-import { formatClockTime, getDateKey } from '@/lib/formatters'
+import { formatClockTime, formatClockTimeCompact, getDateKey } from '@/lib/formatters'
 import { shouldStartNewGroup } from '@/lib/messageGrouping'
 import type { MessageResponse } from '@/types/messaging'
 
@@ -79,7 +79,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
       {ordered.length === 0 && emptyState}
       {ordered.map((m, idx) => {
         const isPending = m.id < 0
-        // 본인 메시지(우측 버블 정렬 대상). AGENT 는 currentUserId 와 다르므로 항상 좌측.
+        // 본인 메시지 여부 — 편집/삭제 권한 판정용. (정렬은 Slack식 균일 좌측이라 본인/타인 구분 없음.)
         const isOwn = m.authorId === currentUserId
         // 본인·미삭제·미전송중 메시지만 toolbar 노출.
         const canEdit = isOwn && !m.deleted && !isPending
@@ -102,36 +102,33 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               data-pending={isPending ? 'true' : undefined}
               data-group-start={startsGroup ? 'true' : 'false'}
               data-own={isOwn ? 'true' : 'false'}
-              className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${isOwn ? 'justify-end' : ''}`}
+              className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''}`}
             >
-            {/* 좌측 거터(아바타 폭 고정) — 그룹 첫 줄엔 아바타, 후속 줄엔 hover 시 시각. 본인 메시지는 우측 정렬이라 거터 생략. */}
-            {!isOwn && (
-              <div className="w-8 shrink-0 pt-0.5">
-                {startsGroup ? (
-                  <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
-                ) : (
-                  <span
-                    className="hidden pt-px text-right text-xs leading-4 text-muted-foreground group-hover:block"
-                    data-testid={`message-hovertime-${m.id}`}
-                  >
-                    {formatClockTime(m.createdAt)}
-                  </span>
-                )}
-              </div>
-            )}
+            {/* 좌측 거터(고정폭) — 본인/타인 동일(Slack식 균일 좌측). 그룹 첫 줄엔 아바타,
+                후속 줄엔 hover 시 컴팩트 시각. 시각은 opacity 토글(자리 항상 예약)+nowrap 으로
+                hover 시 행 높이/줄바꿈 점프를 막는다. */}
+            <div className="w-10 shrink-0 pt-0.5">
+              {startsGroup ? (
+                <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
+              ) : (
+                <span
+                  className="block whitespace-nowrap pt-px text-right text-xs leading-4 tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                  data-testid={`message-hovertime-${m.id}`}
+                >
+                  {formatClockTimeCompact(m.createdAt)}
+                </span>
+              )}
+            </div>
 
-            {/* 본문 컬럼 — 헤더/본문/첨부/toolbar/리액션/답글 전체. */}
-            {/* 본인 메시지: 우측 정렬 + 폭 제한(max-w) + items-end. 단, 인라인 수정 중엔 풀폭 좌측(에디터가 버블 안에서 눌리지 않도록). */}
-            <div className={`min-w-0 ${isOwn && !isEditing ? 'flex max-w-[75%] flex-col items-end' : 'flex-1'}`}>
-              {/* 그룹 첫 줄에만 작성자 헤더(이름 + 시각 + 수정됨 표시) 노출. 본인 메시지는 이름 생략(자명) — 시각만. */}
+            {/* 본문 컬럼 — 헤더/본문/첨부/toolbar/리액션/답글 전체. 균일 좌측 정렬(풀폭). */}
+            <div className="min-w-0 flex-1">
+              {/* 그룹 첫 줄에만 작성자 헤더(이름 + 시각) 노출. 균일 좌측 정렬이라 본인 메시지도 이름 표시(Slack식). */}
               {startsGroup && (
                 <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
-                  {!isOwn && (
-                    <span className="font-semibold text-foreground">
-                      {m.authorName}
-                      {m.authorKind === 'AGENT' && ' 🤖'}
-                    </span>
-                  )}
+                  <span className="font-semibold text-foreground">
+                    {m.authorName}
+                    {m.authorKind === 'AGENT' && ' 🤖'}
+                  </span>
                   <span data-testid={`message-time-${m.id}`}>{formatClockTime(m.createdAt)}</span>
                 </div>
               )}
@@ -164,7 +161,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                   data-testid={`message-body-${m.id}`}
                   className={`text-sm whitespace-pre-wrap break-words ${
                     m.deleted ? 'italic text-muted-foreground' : ''
-                  } ${isOwn ? 'rounded-2xl bg-primary/10 px-3 py-1.5' : ''}`}
+                  }`}
                 >
                   {m.deleted ? (
                     '(삭제됨)'
@@ -219,7 +216,10 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               )}
 
               {!isEditing && (
-                <div data-testid={`message-toolbar-${m.id}`} className="absolute top-0 hidden gap-0.5 group-hover:flex right-2">
+                <div
+                  data-testid={`message-toolbar-${m.id}`}
+                  className="absolute -top-3 right-2 z-10 hidden items-center gap-0.5 rounded-md border bg-popover p-0.5 shadow-sm group-hover:flex"
+                >
                   {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
                   {!isPending && (
                     <EmojiPicker

@@ -358,12 +358,12 @@ test.describe('@멘션 칩 시맨틱 토큰', () => {
   )
 })
 
-// ── 본인 메시지 우측 정렬 버블 ────────────────────────────────────────────────
-// currentUserId(=1) 의 메시지는 우측 정렬 + 버블, 타인/AGENT 는 좌측(아바타+이름) 유지.
+// ── 균일 좌측 정렬(Slack식) ──────────────────────────────────────────────────
+// 본인/타인/AGENT 모두 동일한 좌측 행(아바타 거터 + 이름 헤더). 우측 버블·우측 정렬 없음.
 
 const OWN_CHANNEL_ID = 702
 
-test.describe('본인 메시지 우측 정렬', () => {
+test.describe('메시지 균일 좌측 정렬', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
     const channel = createChannel({ id: OWN_CHANNEL_ID, name: '정렬테스트', memberCount: 3 })
 
@@ -414,57 +414,111 @@ test.describe('본인 메시지 우측 정렬', () => {
   })
 
   test(
-    '본인 메시지는 data-own=true + 우측 정렬 버블, 이름 헤더 없음',
+    '본인 메시지도 좌측 정렬 — 우측 버블 없음, 이름 헤더 표시',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
-      // 본인 메시지: 행에 data-own=true + justify-end, 본문은 버블(rounded-2xl bg-primary/10).
+      // 본인 메시지: data-own=true 는 유지(편집권한 메타)하되, 우측 정렬/버블은 제거됨.
       const ownRow = page.getByTestId('message-30')
       await expect(ownRow).toHaveAttribute('data-own', 'true')
-      await expect(ownRow).toHaveClass(/justify-end/)
-      await expect(page.getByTestId('message-body-30')).toHaveClass(/rounded-2xl/)
-      // 본인 메시지엔 이름('me') 헤더가 없다(자명) — 본문 영역에 작성자명 미노출.
-      await expect(ownRow.getByText('me', { exact: true })).toHaveCount(0)
+      await expect(ownRow).not.toHaveClass(/justify-end/)
+      // 본문은 버블 스타일(둥근 모서리/배경)을 쓰지 않는다(균일 plain text).
+      await expect(page.getByTestId('message-body-30')).not.toHaveClass(/rounded-2xl/)
+      await expect(page.getByTestId('message-body-30')).not.toHaveClass(/bg-primary\/10/)
+      // 균일 좌측이므로 본인 메시지도 아바타 거터 + 이름('me') 헤더가 노출된다.
+      await expect(page.getByTestId('chat-avatar-1')).toBeVisible()
+      await expect(ownRow.getByText('me', { exact: true })).toBeVisible()
     },
   )
 
   test(
-    '타인·AGENT 메시지는 data-own=false + 좌측(아바타) 유지',
+    '타인·AGENT 메시지도 좌측(아바타) — 본인과 동일 레이아웃',
     async ({ authenticatedPage: page }) => {
-      // 동료(타인) 메시지: 좌측 유지, 아바타·이름 노출.
+      // 동료(타인) 메시지: 좌측, 아바타·이름 노출, 버블 없음.
       await expect(page.getByTestId('message-31')).toHaveAttribute('data-own', 'false')
       await expect(page.getByTestId('chat-avatar-20')).toBeVisible()
       await expect(page.getByTestId('message-body-31')).not.toHaveClass(/bg-primary\/10/)
 
-      // AGENT 는 본인이 아니므로 좌측 유지.
+      // AGENT 도 좌측 동일.
       await expect(page.getByTestId('message-32')).toHaveAttribute('data-own', 'false')
       await expect(page.getByTestId('chat-avatar-agent-99')).toBeVisible()
     },
   )
 
   test(
-    // #290 회귀 — 본인 메시지 hover 툴바가 right-2에 위치해야 함 (left-2 버그 수정)
-    '본인 메시지 hover 툴바 — 메시지 버블과 인접한 right-2에 표시됨',
+    '본인 메시지 hover 툴바 — 우상단(right-2) 오버레이로 표시됨',
     async ({ authenticatedPage: page }) => {
       const ownRow = page.getByTestId('message-30')
       const toolbar = page.getByTestId('message-toolbar-30')
 
       // 본인 메시지 행에 호버 → 툴바가 flex로 나타남
       await ownRow.hover()
-
-      // 툴바가 화면에 보여야 함
       await expect(toolbar).toBeVisible()
 
-      // 툴바 위치 검증: right-2 배치이므로 메시지 버블(우측)과 인접해야 함.
-      // 컨테이너 우단 근처(right edge 기준 ≤ 60px)에 위치해야 하며,
-      // 버그(left-2) 때는 뷰포트 왼쪽 끝(x≈0~10)에 나타났었음.
+      // 툴바는 행 우측(right-2) 오버레이. 좌측정렬 본문 위가 아닌 우측 빈 공간에 떠야 한다.
       const toolbarBox = await toolbar.boundingBox()
       const viewportSize = page.viewportSize()
       expect(toolbarBox).not.toBeNull()
       expect(viewportSize).not.toBeNull()
-      // 툴바 왼쪽 끝이 뷰포트 우측 절반에 위치해야 함 (중앙 기준 우측)
+      // 툴바 왼쪽 끝이 뷰포트 우측 절반에 위치(중앙 기준 우측).
       expect(toolbarBox!.x).toBeGreaterThan(viewportSize!.width / 2)
     },
   )
+
+})
+
+// ── 후속 줄 hover 시각(거터) — 컴팩트 24h + opacity 토글(레이아웃 점프 방지) ──────────
+// 같은 작성자 연속 메시지의 2번째(그룹 비시작) 행은 아바타 대신 hover 시각을 거터에 둔다.
+const HOVERTIME_CHANNEL_ID = 703
+
+test.describe('후속 줄 hover 시각', () => {
+  test('컴팩트 24h 포맷 + 호버 전 opacity 0 → 호버 시 1 (행 높이 불변)', async ({
+    authenticatedPage: page,
+  }) => {
+    const channel = createChannel({ id: HOVERTIME_CHANNEL_ID, name: '시각테스트', memberCount: 2 })
+    // 동일 작성자(id 20) 연속 2건 → 2번째(id 41)는 그룹 비시작 → 거터에 hover 시각.
+    const first = createMessage({
+      id: 40,
+      channelId: HOVERTIME_CHANNEL_ID,
+      authorId: 20,
+      authorName: '동료',
+      authorKind: 'HUMAN',
+      body: '첫 줄',
+      createdAt: '2026-06-06T13:00:00Z',
+    })
+    const second = createMessage({
+      id: 41,
+      channelId: HOVERTIME_CHANNEL_ID,
+      authorId: 20,
+      authorName: '동료',
+      authorKind: 'HUMAN',
+      body: '후속 줄',
+      createdAt: '2026-06-06T13:00:30Z',
+    })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, HOVERTIME_CHANNEL_ID, [
+      createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
+      createChannelMember({ userId: 20, name: '동료', kind: 'HUMAN' }),
+    ])
+    await stubMessages(page, HOVERTIME_CHANNEL_ID, [second, first]) // DESC
+    await stubMarkRead(page, HOVERTIME_CHANNEL_ID)
+    await stubUsers(page)
+
+    await page.goto(`/chat/channels/${HOVERTIME_CHANNEL_ID}`)
+    await expect(page.getByTestId('message-list')).toBeVisible()
+
+    const hoverTime = page.getByTestId('message-hovertime-41')
+    // 13:00:30Z = KST 22:00 → 컴팩트 24h "22:00"(오전/오후 없음, 한 줄).
+    await expect(hoverTime).toHaveText('22:00')
+    // 호버 전: opacity 0 (자리는 차지하되 보이지 않음 — display:none 아님이라 행 높이 고정).
+    await expect(hoverTime).toHaveCSS('opacity', '0')
+    // 행 호버 → opacity 1 로 드러남.
+    await page.getByTestId('message-41').hover()
+    await expect(hoverTime).toHaveCSS('opacity', '1')
+  })
 })
 
 // ── #356: AI(에이전트) 메시지 마크다운 렌더링 ─────────────────────────────────────

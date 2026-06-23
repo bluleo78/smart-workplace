@@ -334,6 +334,19 @@ export function formatClockTime(dateStr: string | null | undefined): string {
 }
 
 /**
+ * 컴팩트 시각(24시간 "HH:mm") — 채팅 메시지 좌측 거터의 hover 시각용.
+ * 오전/오후 접두어가 없어 좁은 거터(40px)에 한 줄로 들어간다(줄바꿈→박스 점프 방지).
+ */
+export function formatClockTimeCompact(dateStr: string | null | undefined): string {
+  if (!dateStr) return '-';
+  const d = parseUtcDate(dateStr);
+  if (Number.isNaN(d.getTime())) return '-';
+  return new Intl.DateTimeFormat('ko-KR', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul',
+  }).format(d);
+}
+
+/**
  * 상대 시간 포맷 (elapsed ms → "N초 전")
  */
 export function formatElapsedTime(ms: number): string {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatClockTime } from './formatters'
+import { formatClockTime, formatClockTimeCompact } from './formatters'
 
 describe('formatClockTime', () => {
   it('null/undefined → "-"', () => {
@@ -18,5 +18,22 @@ describe('formatClockTime', () => {
     // ICU full: "오전 9:05", ICU small: "AM 9:05" — 환경 의존이므로 패턴만 검사
     const result = formatClockTime('2026-06-06T00:05:00')
     expect(result).toMatch(/9:05/)
+  })
+})
+
+describe('formatClockTimeCompact', () => {
+  it('null/undefined → "-"', () => {
+    expect(formatClockTimeCompact(null)).toBe('-')
+    expect(formatClockTimeCompact(undefined)).toBe('-')
+  })
+  it('24시간 "HH:mm" — 오전/오후 접두어 없음', () => {
+    // 13:00 UTC = KST 22:00 → "22:00", 오전/오후 문자 없음
+    const pm = formatClockTimeCompact('2026-06-06T13:00:00Z')
+    expect(pm).toBe('22:00')
+    expect(pm).not.toMatch(/오전|오후/)
+  })
+  it('자정 이전 한 자리 시간도 2자리로 zero-pad', () => {
+    // 00:05 UTC = KST 09:05 → "09:05"
+    expect(formatClockTimeCompact('2026-06-06T00:05:00')).toBe('09:05')
   })
 })
