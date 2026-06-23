@@ -66,9 +66,9 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
 
   return (
     <div data-testid="dash-mytasks">
-      {/* 헤더 부제 — 기다리는 건수 또는 워치 총량 (형제 위젯과 동일한 mb-2 text-sm) */}
+      {/* 헤더 부제 — 기다리는 건수 또는 구독 총량 (형제 위젯과 동일한 mb-2 text-sm) */}
       <div className="mb-2 text-sm text-muted-foreground">
-        {result.isEmpty ? `워치 ${result.watchedTotal}` : `${result.waitingCount}건이 나를 기다림`}
+        {result.isEmpty ? `구독 중 ${result.watchedTotal}건` : `${result.waitingCount}건이 나를 기다림`}
       </div>
 
       {result.isEmpty ? (
@@ -82,7 +82,7 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
               to="/me/tasks/watched"
               className="mt-3 inline-block rounded px-2 py-1 text-xs text-ai-accent hover:underline"
             >
-              워치 {result.watchedTotal}건 중 오늘 {result.watchedToday}건 변동 →
+              구독 중 오늘 {result.watchedToday}건 변동 →
             </Link>
           )}
         </div>
