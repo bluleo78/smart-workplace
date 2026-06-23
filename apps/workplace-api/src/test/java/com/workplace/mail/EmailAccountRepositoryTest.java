@@ -2,6 +2,7 @@ package com.workplace.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.mail.dto.AiAccountRef;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailSecurity;
@@ -36,6 +37,22 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
         email,
         "plain-pw",
         false);
+  }
+
+  private EmailAccountRequest aiReq(String email) {
+    return new EmailAccountRequest(
+        email,
+        "AI 계정",
+        "imap.example.com",
+        993,
+        MailSecurity.SSL_TLS,
+        email,
+        "smtp.example.com",
+        587,
+        MailSecurity.STARTTLS,
+        email,
+        "plain-pw",
+        true); // aiEnabled=true
   }
 
   @Test
@@ -129,6 +146,19 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
     assertThat(repo.softDelete(user, id)).isEqualTo(1);
     assertThat(repo.listByUser(user)).isEmpty();
     assertThat(repo.softDelete(user, id)).isEqualTo(0);
+  }
+
+  /** AI ON 활성 계정만 listAiEnabledAccounts 에 포함되어야 한다. AI OFF / disabled 계정은 제외. */
+  @Test
+  void listAiEnabledAccounts_활성_AI_ON_계정만() {
+    long userId = TestFixtures.createHuman(dsl);
+    long aiOn = repo.insert(userId, aiReq("ai-on@example.com"), "ENC"); // ai_enabled, not disabled
+    repo.insert(userId, sampleReq("ai-off@example.com"), "ENC"); // ai off — 제외
+    long aiOnDisabled = repo.insert(userId, aiReq("ai-on-disabled@example.com"), "ENC");
+    repo.softDelete(userId, aiOnDisabled); // disabled — 제외
+
+    List<AiAccountRef> refs = repo.listAiEnabledAccounts();
+    assertThat(refs).extracting(AiAccountRef::accountId).containsExactly(aiOn);
   }
 
   /** aiEnabled=true 로 저장한 계정을 재조회하면 aiEnabled 가 true 이어야 한다. */

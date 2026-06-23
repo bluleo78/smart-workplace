@@ -352,6 +352,21 @@ public class EmailMessageRepository {
         .execute();
   }
 
+  /** 선제 배치 요약 대상 — INBOX 안읽음 중 미요약(ai_summary IS NULL) 최근 limit건. */
+  public List<Long> listRecentUnreadUnsummarizedIds(long accountId, int limit) {
+    return dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .and(EMAIL_MESSAGE.AI_SUMMARY.isNull())
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
+        .limit(limit)
+        .fetch(EMAIL_MESSAGE.ID);
+  }
+
   /**
    * classify 백필용 — 계정의 최근 안읽은·미분류(ai_needs_reply IS NULL) INBOX 메일 id N건(최신순). 본문 유무는 가리지 않는다(분류는
    * subject/from/snippet 으로 best-effort 동작).

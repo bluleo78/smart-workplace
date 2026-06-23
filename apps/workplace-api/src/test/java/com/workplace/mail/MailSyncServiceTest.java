@@ -21,6 +21,7 @@ import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailBackfillService;
+import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.support.IntegrationTestBase;
@@ -72,6 +73,9 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
   /** 비동기 본문 보충을 목킹 — sync 의 백필 트리거를 무동작으로 만들어 메타전용 단언을 결정적으로 만든다. */
   @MockitoBean MailBackfillService backfillService;
+
+  /** 선제 요약 백필을 목킹 — sync 완료 후 호출 여부만 검증하고 실제 LLM/IMAP 은 실행하지 않는다. */
+  @MockitoBean MailSummaryBackfillService summaryBackfillService;
 
   /** ai-agent 실호출 차단 — 더미 응답으로 고정. */
   @MockitoBean AiAgentMailClient mailClient;
@@ -376,6 +380,23 @@ class MailSyncServiceTest extends IntegrationTestBase {
     msg.setContent(mp);
     msg.saveChanges();
     return msg;
+  }
+
+  /**
+   * 동기화 정상 완료 후 선제 요약 백필이 트리거된다 — @Async 라 sync 의 짧은 TX 들이 모두 커밋된 뒤 별도 스레드에서 실행.
+   * 조기 반환 경로(진행 중 가드)에서는 호출되지 않아야 한다.
+   */
+  @Test
+  void sync_완료후_선제요약_트리거() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "요약 대상 메일", "본문입니다");
+    greenMail.waitForIncomingEmail(1);
+
+    syncService.sync(user, accountId);
+
+    // 정상 완료 경로에서 선제 요약 백필이 호출된다
+    verify(summaryBackfillService).summarizeRecentUnread(user, accountId);
   }
 
   private Session session() {

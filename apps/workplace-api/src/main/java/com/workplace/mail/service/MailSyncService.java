@@ -67,6 +67,9 @@ public class MailSyncService {
   private final MailSyncProgress progress;
   private final MailBackfillService backfillService;
 
+  /** 선제 배치 요약 서비스 — 동기화 완료 후 @Async 로 새 안읽은 메일을 미리 요약. */
+  private final MailSummaryBackfillService summaryBackfillService;
+
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
    * RLS GUC(app.tenant_id) 가 주입된다.
@@ -82,6 +85,7 @@ public class MailSyncService {
       MailMessageParser parser,
       MailSyncProgress progress,
       MailBackfillService backfillService,
+      MailSummaryBackfillService summaryBackfillService,
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.folderRepo = folderRepo;
@@ -91,6 +95,7 @@ public class MailSyncService {
     this.parser = parser;
     this.progress = progress;
     this.backfillService = backfillService;
+    this.summaryBackfillService = summaryBackfillService;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -143,6 +148,8 @@ public class MailSyncService {
       // 동기화 성공 — 마지막 동기화 시각 기록(자동·수동 공통). tx-local GUC 위해 txTemplate 사용.
       txTemplate.executeWithoutResult(
           status -> accountRepo.updateLastSyncedAt(accountId, OffsetDateTime.now()));
+      // 동기화로 적재된 새 메일을 선제 요약(@Async — 짧은 TX 들이 모두 커밋된 뒤 별도 스레드에서 실행되어 새 메일이 가시). best-effort.
+      summaryBackfillService.summarizeRecentUnread(userId, accountId);
       return result;
     } catch (MessagingException e) {
       throw new MailSyncException("받은편지함 동기화에 실패했습니다", e);

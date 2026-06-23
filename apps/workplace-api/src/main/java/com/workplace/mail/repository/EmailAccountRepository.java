@@ -2,6 +2,7 @@ package com.workplace.mail.repository;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 
+import com.workplace.mail.dto.AiAccountRef;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailSecurity;
@@ -117,6 +118,15 @@ public class EmailAccountRepository {
             .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
             .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
             .and(EMAIL_ACCOUNT.AI_ENABLED.isTrue()));
+  }
+
+  /** 테넌트 범위(RLS GUC) 내 AI 활성 계정의 (userId, accountId) 목록 — 선제 요약 스케줄러용. */
+  public List<AiAccountRef> listAiEnabledAccounts() {
+    return dsl.select(EMAIL_ACCOUNT.USER_ID, EMAIL_ACCOUNT.ID)
+        .from(EMAIL_ACCOUNT)
+        .where(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .and(EMAIL_ACCOUNT.AI_ENABLED.isTrue())
+        .fetch(r -> new AiAccountRef(r.get(EMAIL_ACCOUNT.USER_ID), r.get(EMAIL_ACCOUNT.ID)));
   }
 
   /** 본인 활성 계정 중 같은 이메일 주소 존재 여부(중복 등록 방지). */

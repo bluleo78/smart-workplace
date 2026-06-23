@@ -185,8 +185,8 @@ function MessageDetailPanel({
   aiDraftPending: boolean
 }) {
   const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
-  // AI 사용 계정 + messageId 가 있을 때만 요약 자동 조회.
-  const { data: summaryData } = useMailSummary(messageId, aiEnabled)
+  // AI 사용 계정 + messageId 가 있을 때만 요약 자동 조회. isFetching 으로 생성 중 스켈레톤 표시.
+  const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiEnabled)
 
   if (!messageId) {
     return (
@@ -213,12 +213,33 @@ function MessageDetailPanel({
   return (
     <div data-testid="mail-detail" className="flex h-full flex-col overflow-y-auto">
       <div className="border-b p-4">
-        {/* AI 요약 스트립 — AI 사용 계정 + 요약 있을 때만 표시. */}
-        {aiEnabled && summaryData?.summary && (
-          <details data-testid="mail-ai-summary" open className="mb-2 rounded border bg-muted/40 p-2 text-xs">
-            <summary className="cursor-pointer font-medium text-muted-foreground">요약 (AI)</summary>
-            <div className="mt-1 whitespace-pre-wrap">{summaryData.summary}</div>
-          </details>
+        {/* AI 요약 강조 카드 — AI 사용 계정이고 요약이 있거나 생성 중일 때 항상 표시. */}
+        {aiEnabled && (summaryData?.summary || summaryFetching) && (
+          <div
+            data-testid="mail-ai-summary"
+            className="mb-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2"
+          >
+            {/* 카드 헤더: ✦ AI 요약 레이블 + 생성 중 안내 */}
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary">
+              <Sparkles className="h-3 w-3" /> AI 요약
+              {summaryFetching && !summaryData?.summary && (
+                <span className="font-medium normal-case tracking-normal text-primary/70">· 생성 중…</span>
+              )}
+            </div>
+            {summaryData?.summary ? (
+              // 요약 본문 — 줄바꿈 보존.
+              <div className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                {summaryData.summary}
+              </div>
+            ) : (
+              // 생성 중 스켈레톤 — 레이아웃 점프 없이 자리 예약.
+              <div data-testid="mail-ai-summary-loading" className="mt-2 flex flex-col gap-1.5">
+                <div className="h-2 w-full animate-pulse rounded bg-primary/20" />
+                <div className="h-2 w-3/4 animate-pulse rounded bg-primary/20" />
+                <div className="h-2 w-1/2 animate-pulse rounded bg-primary/20" />
+              </div>
+            )}
+          </div>
         )}
         <h2 className="text-lg font-semibold">{detail.subject || '(제목 없음)'}</h2>
         <div className="mt-1 text-sm text-muted-foreground">
