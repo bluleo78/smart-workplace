@@ -47,6 +47,9 @@ export function useMailMessage(messageId: number | null) {
         { queryKey: ['mail-messages'], exact: false },
         (old) => old?.map((msg) => (msg.id === messageId ? { ...msg, seen: true } : msg)),
       );
+      // 홈 대시보드 메일 요약(useMailSummary, ['mail-summary'])도 무효화 — 읽음으로 회신 필요/안읽음 수 즉시 반영.
+      // exact: true — 메시지별 AI 요약 ['mail-summary', messageId] 의 불필요한 재생성 방지(useSyncMailbox 와 동일).
+      qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true });
     }
   }, [query.isSuccess, messageId, qc]);
 

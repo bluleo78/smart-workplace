@@ -2,6 +2,9 @@ package com.workplace.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
@@ -16,12 +19,14 @@ import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.EmailAccountService;
+import com.workplace.mail.service.MailClassifyBackfillService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -41,6 +46,8 @@ class EmailAccountServiceTest extends IntegrationTestBase {
   @Autowired EmailAccountService service;
   @Autowired EmailAccountRepository repo;
   @Autowired EncryptionService encryption;
+  /** AI 분류 백필 서비스 — 호출 여부만 검증하므로 mock. */
+  @MockBean MailClassifyBackfillService classifyBackfillService;
 
   /** GreenMail 에 붙는 정상 요청(비밀번호 password). */
   private EmailAccountRequest greenMailReq(String password) {
@@ -196,6 +203,36 @@ class EmailAccountServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> service.test(other, created.id(), greenMailReq("")))
         .isInstanceOf(EmailAccountNotFoundException.class);
+  }
+
+  @Test
+  void update_triggers_classifyBackfill_only_on_false_to_true() {
+    // aiEnabled=false 로 계정 생성 후 off→on 전환 시 classify 백필이 1회 호출되어야 한다.
+    // 이미 on 상태에서 다시 on 으로 PUT 하면 호출이 없어야 한다(가드=중복 방지).
+    long user = TestFixtures.createHuman(dsl);
+    EmailAccountResponse created = service.create(user, greenMailReq("pw")); // aiEnabled=false
+
+    // off→on: classify 백필 1회 호출
+    EmailAccountRequest onReq =
+        new EmailAccountRequest(
+            "box@test.local",
+            "테스트박스",
+            "127.0.0.1",
+            3143,
+            MailSecurity.NONE,
+            "box@test.local",
+            "127.0.0.1",
+            3025,
+            MailSecurity.NONE,
+            "box@test.local",
+            "pw",
+            true /* aiEnabled = true */);
+    service.update(user, created.id(), onReq);
+    verify(classifyBackfillService, times(1)).classifyRecentUnread(user, created.id());
+
+    // on→on: 이미 on 이므로 추가 호출 없음
+    service.update(user, created.id(), onReq);
+    verifyNoMoreInteractions(classifyBackfillService);
   }
 
   @Test

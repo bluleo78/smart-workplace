@@ -104,6 +104,7 @@ public class EmailMessageRepository {
     }
     return dsl.select(
             EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
             EMAIL_MESSAGE.THREAD_ID,
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_MESSAGE.FROM_NAME,
@@ -142,12 +143,34 @@ public class EmailMessageRepository {
   }
 
   /**
+   * 홈 위젯용 — 사용자 본인 INBOX 의 "회신 필요" 메일 건수(#474).
+   *
+   * <p>countUnread 와 동일한 소유·INBOX·seen=false 조건에 {@code ai_needs_reply = true} 를 추가한다.
+   * pending(null) 과 false 는 제외된다 — isTrue() 가 null-safe FALSE 처리를 포함한다.
+   */
+  public long countNeedsReply(long callerId) {
+    return dsl.fetchCount(
+        dsl.selectOne()
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_ACCOUNT)
+            .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+            .join(EMAIL_FOLDER)
+            .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+            .where(EMAIL_ACCOUNT.USER_ID.eq(callerId))
+            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+            .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+            .and(EMAIL_MESSAGE.SEEN.isFalse())
+            .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue()));
+  }
+
+  /**
    * 홈 위젯용 — 사용자 본인 INBOX 의 최근 안읽은 메일 N건(최신순). countUnread 와 동일한 소유·INBOX·seen=false 필터를 쓰고,
    * listByAccount 의 select 컬럼/정렬/매퍼(toSummary)를 그대로 재사용해 DTO 를 동일하게 만든다.
    */
   public List<EmailMessageSummary> listRecentUnread(long callerId, int limit) {
     return dsl.select(
             EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
             EMAIL_MESSAGE.THREAD_ID,
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_MESSAGE.FROM_NAME,
@@ -321,6 +344,24 @@ public class EmailMessageRepository {
         .set(EMAIL_MESSAGE.BODY_FETCHED_AT, OffsetDateTime.now())
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .execute();
+  }
+
+  /**
+   * classify 백필용 — 계정의 최근 안읽은·미분류(ai_needs_reply IS NULL) INBOX 메일 id N건(최신순).
+   * 본문 유무는 가리지 않는다(분류는 subject/from/snippet 으로 best-effort 동작).
+   */
+  public List<Long> listRecentUnreadUnclassifiedIds(long accountId, int limit) {
+    return dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isNull())
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
+        .limit(limit)
+        .fetch(EMAIL_MESSAGE.ID);
   }
 
   /** 본문 미적재 대상(account 별, 최근순). imap_uid 없는 로컬 보낸메일 제외. */
@@ -499,6 +540,7 @@ public class EmailMessageRepository {
     OffsetDateTime received = r.get(EMAIL_MESSAGE.RECEIVED_AT);
     return new EmailMessageSummary(
         r.get(EMAIL_MESSAGE.ID),
+        r.get(EMAIL_MESSAGE.ACCOUNT_ID),
         r.get(EMAIL_MESSAGE.THREAD_ID),
         r.get(EMAIL_MESSAGE.FROM_ADDRESS),
         r.get(EMAIL_MESSAGE.FROM_NAME),

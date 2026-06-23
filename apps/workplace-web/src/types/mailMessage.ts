@@ -3,6 +3,7 @@
 /** 메일 목록 한 행(본문 제외, 미리보기 snippet 포함). */
 export interface EmailMessageSummary {
   id: number;
+  accountId: number;
   threadId: string;
   fromAddress: string | null;
   fromName: string | null;

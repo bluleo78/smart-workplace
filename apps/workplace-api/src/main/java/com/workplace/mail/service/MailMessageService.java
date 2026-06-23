@@ -61,16 +61,18 @@ public class MailMessageService {
   }
 
   /**
-   * 홈 위젯용 메일 요약 — 본인 INBOX 안읽음 수 + 최근 안읽은 메일 N건.
+   * 홈 위젯용 메일 요약 — 본인 INBOX 안읽음 수 + 회신 필요 수 + 분류 활성 여부 + 최근 안읽은 메일 N건(#474).
    *
    * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬({@code set_config(...,true)})이라 반드시 트랜잭션 경계 안에서 읽어야 한다. 경계가
-   * 없으면 GUC 미주입 → RLS fail-closed 로 0행이 되어 안읽음이 항상 0으로 보이는 버그(#444). countUnread· listRecentUnread
-   * 두 읽기를 하나의 읽기 전용 트랜잭션으로 묶어 GUC 주입을 보장한다.
+   * 없으면 GUC 미주입 → RLS fail-closed 로 0행이 되는 버그(#444). 네 읽기 모두 하나의 읽기 전용 트랜잭션으로 묶어 GUC 주입을 보장한다.
    */
   @Transactional(readOnly = true)
   public MailSummaryResponse summary(long userId, int recentLimit) {
     return new MailSummaryResponse(
-        messageRepo.countUnread(userId), messageRepo.listRecentUnread(userId, recentLimit));
+        messageRepo.countUnread(userId),
+        messageRepo.countNeedsReply(userId),
+        accountRepo.existsAiEnabledAccount(userId),
+        messageRepo.listRecentUnread(userId, recentLimit));
   }
 
   /**

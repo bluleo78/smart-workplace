@@ -1,10 +1,11 @@
 // ① 합성 레이어 — 게이트 §1.1. 클라이언트 단순·설명가능 규칙으로
 // 이미 받아온 위젯 데이터를 재가공한다(새 백엔드·AI 없음).
-//   - 상태 카운트 스트립: 오늘 마감 · @멘션 · 안 읽음 · 오늘 일정 (각 셀 = 모듈 딥링크)
-//   - 지금 신경 쓸 일: 크로스앱 급한 것만(마감 지난/오늘 + 멘션), 최상위 포커스 카드 + 행 딥링크
+//   - 상태 카운트 스트립: 오늘 마감 · @멘션 · 안 읽음(또는 회신 필요) · 오늘 일정 (각 셀 = 모듈 딥링크)
+//   - 지금 신경 쓸 일: 크로스앱 급한 것만(마감 지난/오늘 + 멘션 + 회신 필요 메일), 최상위 포커스 카드 + 행 딥링크
 // 페치 정책: notifications·mail·calendar 훅은 ③ 위젯 바디와 동일 키 → TanStack Query 가 dedupe(이중 페치 없음).
 //   단 useMyIssueDues 는 어느 ③ 바디도 쓰지 않는 합성 전용 추가 쿼리다(마감 마커 — 스펙 허용).
-import { AlertTriangle, CalendarClock, CheckCircle2, MessageSquare } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageSquare, Sparkles, X } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
@@ -38,19 +39,21 @@ function localDateKey(d: Date): string {
 }
 
 // 지금 신경 쓸 일 한 행의 표준 모델.
+// source: 소스 앱 구분 — '이슈'(urgency 0), '멘션'(urgency 1), '메일'(urgency 2, AI 회신 필요).
 interface AttentionRow {
   key: string
-  source: '이슈' | '멘션'
+  source: '이슈' | '멘션' | '메일'
   title: string
   meta: string // 우측 정렬 메타(마감/시각)
   to: string
   ariaLabel: string
-  urgency: number // 작을수록 위(0=마감지남/오늘, 1=멘션)
+  urgency: number // 작을수록 위(0=마감지남/오늘, 1=멘션, 2=회신필요메일)
   recency: number // 동일 urgency 내 최신순(epoch ms, 클수록 위)
 }
 
 // 카운트 셀 — 로딩 시 셀만 스켈레톤(격리), 에러 시 '–'.
 // to 가 있으면 모듈 딥링크(Link), onClick 이 있으면 액션 버튼(예: '멘션' → 알림 패널 열기).
+// ai=true 이면 AI 분류 활성 신호(🤖 배지 + text-ai-accent 강조).
 function CountCell({
   label,
   count,
@@ -58,6 +61,7 @@ function CountCell({
   onClick,
   loading,
   error,
+  ai,
 }: {
   label: string
   count: number
@@ -65,6 +69,7 @@ function CountCell({
   onClick?: () => void
   loading: boolean
   error: boolean
+  ai?: boolean
 }) {
   const ariaLabel = error ? `${label} 불러오기 실패` : `${label} ${count}건`
   const className =
@@ -74,7 +79,11 @@ function CountCell({
       {loading ? (
         <Skeleton className="h-6 w-8" />
       ) : (
-        <span className="text-xl font-semibold text-ai-accent">{error ? '–' : count}</span>
+        <span className="flex items-center gap-0.5 text-xl font-semibold text-ai-accent">
+          {error ? '–' : count}
+          {/* AI 분류 활성 시 🤖 배지로 AI 신호 표시(Phase 1 focus card 와 동일 토큰). */}
+          {ai && !error && <span className="text-xs leading-none">🤖</span>}
+        </span>
       )}
       <span className="text-xs text-muted-foreground">{label}</span>
     </>
@@ -94,15 +103,26 @@ function CountCell({
   )
 }
 
+// 소스별 아이콘 — 이슈(마감), 멘션(코멘트), 메일(AI 회신 필요).
 const SOURCE_ICON = {
   이슈: CalendarClock,
   멘션: MessageSquare,
+  메일: Mail,
 } as const
 
 /** ① 합성 레이어 — 카운트 스트립 + 지금 신경 쓸 일 리스트. 소스별 에러/로딩 격리. */
 export function SynthesisLayer() {
   // '멘션' 셀 클릭 시 AppRail 의 알림 인박스 패널을 연다(전용 멘션 페이지 없음).
   const { openInbox } = useInboxPanel()
+
+  // CTA dismiss 상태 — localStorage 영속(reload 후에도 유지). key: home.mailCta.dismissed.
+  const [ctaDismissed, setCtaDismissed] = useState(
+    () => localStorage.getItem('home.mailCta.dismissed') === '1',
+  )
+  const dismissCta = () => {
+    localStorage.setItem('home.mailCta.dismissed', '1')
+    setCtaDismissed(true)
+  }
   const today = new Date()
   const todayKey = localDateKey(today)
   const { from, to } = todayRange()
@@ -126,7 +146,11 @@ export function SynthesisLayer() {
   const notifItems: NotificationResponse[] = notifs.data ?? []
   const mentionCount = notifItems.filter((n) => isMentionLike(n) && !n.read).length
 
+  // 메일 카운트 — AI 분류 활성이면 "회신 필요 N", 비활성이면 "안 읽음 N".
   const unreadMail = mail.data?.unreadCount ?? 0
+  const needsReply = mail.data?.needsReplyCount ?? 0
+  // classificationActive: 하나라도 aiEnabled 계정이 있으면 true(백엔드 집계).
+  const classifyOn = mail.data?.classificationActive ?? false
 
   const todayEventCount = (events.data ?? []).length
 
@@ -171,22 +195,47 @@ export function SynthesisLayer() {
     }
   }
 
+  // 3) 회신 필요 메일(분류 활성 + aiNeedsReply===true && 안읽음) — urgency 2.
+  // pending(aiNeedsReply null)은 제외 — AI 판정 전 상태라 노이즈.
+  if (!mail.isError) {
+    for (const m of mail.data?.recent ?? []) {
+      if (m.aiNeedsReply === true && !m.seen) {
+        rows.push({
+          key: `mail-${m.id}`,
+          source: '메일',
+          title: m.subject ?? '(제목 없음)',
+          meta: '회신 필요',
+          // accountId 기반 딥링크 — Task 6 가 소비.
+          to: `/mail/${m.accountId}?messageId=${m.id}`,
+          ariaLabel: `메일 열기: ${m.subject ?? '(제목 없음)'}`,
+          urgency: 2,
+          recency: parseUtcDate(m.receivedAt ?? '1970-01-01T00:00:00Z').getTime(),
+        })
+      }
+    }
+  }
+
   // 긴급도 우선, 동일 긴급도 내 최신순. 상위 5건.
   rows.sort((a, b) => a.urgency - b.urgency || b.recency - a.recency)
   const top = rows.slice(0, 5)
 
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리).
+  // ai=true 이면 CountCell 이 🤖 배지를 표시(AI 분류 활성 신호).
   const cells: {
     label: string
     count: number
     to?: string
     onClick?: () => void
     q: { isLoading: boolean; isError: boolean }
+    ai?: boolean
   }[] = [
     { label: '오늘 마감', count: dueTodayCount, to: '/me/tasks/assigned?dueDate=today', q: dues },
     // 멘션: 전용 페이지가 없어 라우팅 대신 알림 인박스 패널을 연다(#273).
     { label: '멘션', count: mentionCount, onClick: () => openInbox(), q: notifs },
-    { label: '안 읽음', count: unreadMail, to: '/mail', q: mail },
+    // 메일 KPI 스왑: 분류 활성 시 "회신 필요 N"(🤖), 비활성 시 "안 읽음 N".
+    classifyOn
+      ? { label: '회신 필요', count: needsReply, to: '/mail', q: mail, ai: true }
+      : { label: '안 읽음', count: unreadMail, to: '/mail', q: mail },
     { label: '오늘 일정', count: todayEventCount, to: '/calendar', q: events },
   ]
 
@@ -204,6 +253,7 @@ export function SynthesisLayer() {
               onClick={c.onClick}
               loading={c.q.isLoading}
               error={c.q.isError}
+              ai={c.ai}
             />
           ))}
         </div>
@@ -274,6 +324,27 @@ export function SynthesisLayer() {
             </div>
           )}
         </div>
+        {/* AI 메일 분류 CTA — 분류 OFF + dismiss 안 했을 때만 표시. localStorage 로 dismiss 영속. */}
+        {!classifyOn && !ctaDismissed && (
+          <div
+            data-testid="dashboard-mail-cta"
+            className="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-ai-accent/40 bg-ai-accent-subtle/40 px-3 py-2 text-xs text-muted-foreground"
+          >
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-ai-accent" />
+            <span>AI로 회신이 필요한 메일을 가려낼 수 있어요</span>
+            <Link to="/settings/mail" className="font-medium text-ai-accent hover:underline">
+              켜기
+            </Link>
+            <button
+              type="button"
+              aria-label="닫기"
+              onClick={dismissCta}
+              className="ml-auto text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

@@ -5,6 +5,7 @@ import java.time.Instant;
 /** 메일 목록 한 행(본문 제외, 미리보기 snippet 포함). */
 public record EmailMessageSummary(
     long id,
+    long accountId,
     String threadId,
     String fromAddress,
     String fromName,

@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
-import { mailAccount, summary as mailRow } from '../factories/mail.factory'
+import { detail as mailDetail, mailAccount, summary as mailRow } from '../factories/mail.factory'
 import type { CalendarEvent } from '../../src/types/calendar'
 import type {
   DashboardLayout,
@@ -99,17 +99,23 @@ function channels(): ChannelResponse[] {
 const emptyDms: DmResponse[] = []
 
 // 메일 요약(안 읽음 2 + 최근 1건).
+// needsReplyCount/classificationActive 기본값: 기존 "안 읽음" 폴백 테스트 호환.
 function mail(): MailSummary {
   return {
     unreadCount: 2,
+    needsReplyCount: 0,
+    classificationActive: false,
     recent: [
       {
         id: 100,
+        accountId: 1,
         subject: '월간 보고서',
         fromAddress: 'boss@example.com',
         fromName: '김부장',
         receivedAt: '2026-06-16T00:00:00Z',
         seen: false,
+        aiCategory: null,
+        aiNeedsReply: null,
       },
     ],
   }
@@ -1081,14 +1087,19 @@ test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', asy
       const body: MailSummary = synced
         ? {
             unreadCount: 3,
+            needsReplyCount: 0,
+            classificationActive: false,
             recent: [
               {
                 id: 200,
+                accountId: 1,
                 subject: '긴급 공지',
                 fromAddress: 'ceo@example.com',
                 fromName: '대표',
                 receivedAt: '2026-06-16T02:00:00Z',
                 seen: false,
+                aiCategory: null,
+                aiNeedsReply: null,
               },
               ...mail().recent,
             ],
@@ -1142,4 +1153,156 @@ test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', asy
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByTestId('dash-mail')).toContainText('안 읽음 3건')
   await expect(page.getByTestId('dash-mail')).toContainText('긴급 공지')
+})
+
+// ── #474 KPI 스왑 / 메일 행 / CTA ───────────────────────────────────────────
+
+test('합성 — 분류 활성 시 "안 읽음" KPI 가 "회신 필요 N"으로 스왑된다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
+    unreadCount: 9,
+    needsReplyCount: 4,
+    classificationActive: true,
+    recent: [],
+  } satisfies MailSummary)
+  await page.goto('/')
+  const counts = page.getByTestId('dashboard-counts')
+  // 회신 필요 N KPI 가 렌더되어야 한다.
+  await expect(counts.getByRole('link', { name: /회신 필요 4건/ })).toBeVisible()
+  // 안 읽음 KPI 는 노출되지 않는다.
+  await expect(counts).not.toContainText('안 읽음 9건')
+})
+
+test('합성 — 회신 필요 메일은 "지금 신경 쓸 일" 행으로(이슈·멘션 뒤), pending 은 제외', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
+    unreadCount: 3,
+    needsReplyCount: 1,
+    classificationActive: true,
+    recent: [
+      {
+        id: 100,
+        accountId: 1,
+        subject: '계약서 회신 요청',
+        fromAddress: 'a@b.com',
+        fromName: '거래처',
+        receivedAt: '2026-06-16T00:00:00Z',
+        seen: false,
+        aiCategory: 'ACTION',
+        aiNeedsReply: true,
+      },
+      {
+        id: 101,
+        accountId: 1,
+        subject: '뉴스레터',
+        fromAddress: 'n@b.com',
+        fromName: 'NL',
+        receivedAt: '2026-06-16T01:00:00Z',
+        seen: false,
+        aiCategory: null,
+        aiNeedsReply: null, // pending — 제외 대상
+      },
+    ],
+  } satisfies MailSummary)
+  await page.goto('/')
+  const attention = page.getByTestId('dashboard-attention')
+  // 회신 필요 메일이 행으로 진입해야 한다.
+  await expect(attention).toContainText('계약서 회신 요청')
+  await expect(attention).toContainText('회신 필요')
+  // pending(aiNeedsReply null) 메일은 제외.
+  await expect(attention).not.toContainText('뉴스레터')
+})
+
+test('합성 — 분류 OFF 면 회신 필요 CTA 가 뜨고, dismiss 하면 사라지고 재방문해도 유지', async ({
+  authenticatedPage: page,
+}) => {
+  // mockWidgets 의 mail() 기본값이 classificationActive=false 이므로 CTA 표시 조건 충족.
+  await mockWidgets(page)
+  await page.goto('/')
+  const cta = page.getByTestId('dashboard-mail-cta')
+  await expect(cta).toBeVisible()
+  await expect(cta).toContainText('회신이 필요한 메일')
+  // 닫기 버튼 클릭 → CTA 사라짐.
+  await cta.getByRole('button', { name: '닫기' }).click()
+  await expect(cta).toBeHidden()
+  // reload 후에도 localStorage 영속 → CTA 미표시.
+  await page.reload()
+  await expect(page.getByTestId('dashboard-mail-cta')).toBeHidden()
+})
+
+// ── #474 신선도 — 메일 읽음 시 홈 요약 즉시 갱신 ──────────────────────────────
+// useMailMessage 상세 조회 성공 시 ['mail-summary'] 캐시를 무효화하지 않으면
+// 홈 복귀 시 회신 필요/안 읽음 KPI 가 stale 값을 유지한다.
+
+test('메일 읽음 후 홈 회신 필요 KPI 가 즉시 갱신된다 (#474)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // SynthesisLayer 는 항상 렌더(layout 불문). dashboard-counts 사용을 위해 synthesis 전용 deps 스텁 추가.
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+
+  // mail-summary 동적 응답: 읽기 전 needsReplyCount=2 → 메시지 상세 GET 후 1.
+  // mockWidgets 의 정적 mail-summary 라우트보다 나중에 등록 → 우선 적용(Playwright LIFO).
+  let messageRead = false
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/mail-summary',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          unreadCount: messageRead ? 2 : 3,
+          needsReplyCount: messageRead ? 1 : 2,
+          classificationActive: true,
+          recent: [],
+        } satisfies MailSummary),
+      })
+    },
+  )
+
+  // 메일함 진입·메시지 상세 스텁.
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [mailRow()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', {
+    phase: 'IDLE',
+    total: 0,
+    done: 0,
+    running: false,
+  })
+  // 메시지 상세 GET 시 플래그 전환 → 이후 mail-summary 가 낮은 카운트를 반환.
+  await page.route(
+    (url) => url.pathname === '/api/v1/mail/messages/10',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      messageRead = true
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mailDetail()),
+      })
+    },
+  )
+
+  // 1) 홈 진입 — 분류 활성 → "회신 필요 2건" KPI(SynthesisLayer dashboard-counts).
+  await page.goto('/')
+  const counts = page.getByTestId('dashboard-counts')
+  await expect(counts.getByRole('link', { name: /회신 필요 2건/ })).toBeVisible()
+
+  // 2) "회신 필요" 카운트 링크 클릭 → /mail SPA 이동(풀 리로드 금지 — QueryClient 캐시 보존 필수).
+  await counts.getByRole('link', { name: /회신 필요 2건/ }).click()
+  await expect(page).toHaveURL(/\/mail\/1$/)
+
+  // 3) 메시지 행 클릭 → 상세 GET → messageRead=true → useMailMessage invalidate 발동.
+  await page.getByTestId('mail-row-10').click()
+  await expect(page.getByTestId('mail-detail')).toBeVisible()
+
+  // 4) 앱 레일 홈 링크로 SPA 복귀 — ['mail-summary'] 캐시 무효화 → 재페치 → 갱신된 1건.
+  await page.getByTestId('rail-link-/').click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(counts.getByRole('link', { name: /회신 필요 1건/ })).toBeVisible()
 })

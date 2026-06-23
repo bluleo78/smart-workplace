@@ -25,6 +25,8 @@ public class EmailAccountService {
   private final EmailAccountRepository repo;
   private final EncryptionService encryption;
   private final MailConnectionTester tester;
+  /** AI 분류 off→on 전환 시 최근 안읽음 classify 를 비동기로 수행하는 서비스. */
+  private final MailClassifyBackfillService classifyBackfillService;
 
   /** 본인 계정 목록. */
   @Transactional(readOnly = true)
@@ -72,6 +74,9 @@ public class EmailAccountService {
   /** 계정 수정 — 비밀번호 빈 값이면 기존 유지. 연결 테스트 통과 필수. 본인 소유 아니면 404. */
   @Transactional
   public EmailAccountResponse update(long userId, long id, EmailAccountRequest req) {
+    // 수정 전 현재 상태를 읽어 aiEnabled off→on 전환 감지에 사용한다.
+    EmailAccountResponse before =
+        repo.findByIdAndUser(userId, id).orElseThrow(() -> new EmailAccountNotFoundException(id));
     String storedEnc =
         repo.findEncryptedPassword(userId, id)
             .orElseThrow(() -> new EmailAccountNotFoundException(id));
@@ -86,6 +91,11 @@ public class EmailAccountService {
       throw new MailConnectionException(result);
     }
     repo.update(userId, id, req, encryption.encrypt(effectivePassword));
+
+    // AI 분류 off→on 전환 시에만 최근 안읽음 classify 백필(비동기). 가드가 곧 중복 방지.
+    if (!before.aiEnabled() && req.aiEnabled()) {
+      classifyBackfillService.classifyRecentUnread(userId, id);
+    }
     return repo.findByIdAndUser(userId, id).orElseThrow();
   }
 

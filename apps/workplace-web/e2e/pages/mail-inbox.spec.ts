@@ -195,6 +195,71 @@ test.describe('받은편지함', () => {
     await expect(page.getByTestId('mail-back')).toBeHidden()
   })
 
+  // #474 딥링크 — ?messageId=N 직접 로드 시 해당 메시지가 선택(상세 패널에 표시)된다.
+  // 리셋 effect 가 마운트 시 첫 실행을 건너뛰지 않으면 selectedId 가 null 로 덮여 실패한다.
+  test('메일 — ?messageId 직접 로드 시 해당 메시지가 선택된다 (#474)', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    // 목록: 메시지 100 포함
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            summary({ id: 100, subject: '월간 보고서', snippet: '이번 달 실적을 공유합니다', seen: false }),
+          ]),
+        }),
+    )
+    // 상세: 메시지 100
+    await mockApi(page, 'GET', '/api/v1/mail/messages/100', detail({ id: 100, subject: '월간 보고서', bodyText: '이번 달 실적을 공유합니다.' }))
+
+    // 직접 로드(클릭이 아님) — 리셋 effect 회귀를 잡는다
+    await page.goto('/mail/1?messageId=100')
+    await expect(page.getByTestId('mail-detail')).toContainText('월간 보고서')
+  })
+
+  // #474 회귀 — 딥링크로 진입 후 계정 전환 시 이전 선택이 초기화돼야 한다.
+  test('메일 — 계정 전환 시 이전 선택이 해제된다 (#474 회귀)', async ({ authenticatedPage: page }) => {
+    const account2 = mailAccount({ id: 2, emailAddress: 'work@example.com' })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount(), account2])
+    // 계정 1 메시지 목록 + 상세
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            summary({ id: 100, subject: '월간 보고서', snippet: '이번 달 실적을 공유합니다', seen: false }),
+          ]),
+        }),
+    )
+    await mockApi(page, 'GET', '/api/v1/mail/messages/100', detail({ id: 100, subject: '월간 보고서', bodyText: '이번 달 실적을 공유합니다.' }))
+    // 계정 2 메시지 목록(빈 목록)
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/2/messages',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([]),
+        }),
+    )
+
+    // 직접 로드 → 메시지 100 선택돼 있어야 함
+    await page.goto('/mail/1?messageId=100')
+    await expect(page.getByTestId('mail-detail')).toContainText('월간 보고서')
+
+    // 계정 전환: 스위처 열고 계정 2 클릭
+    await page.getByTestId('mail-account-switcher').click()
+    await page.getByTestId('mail-account-2').click()
+
+    // 계정 2로 이동 후 선택 해제 — 빈 디테일 패널
+    await expect(page).toHaveURL(/\/mail\/2/)
+    await expect(page.getByTestId('mail-detail-empty')).toBeVisible()
+  })
+
   // LNB 표준화(#98) — 메일 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
   test('메일 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])

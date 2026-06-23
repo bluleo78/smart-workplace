@@ -300,15 +300,26 @@ export function MailInboxPage() {
   const { accountId } = useParams()
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  // URL ?messageId=N 으로 초기 선택(홈 위젯 딥링크). 없으면 null.
+  const [selectedId, setSelectedId] = useState<number | null>(
+    () => Number(params.get('messageId')) || null,
+  )
 
   // 폴더 파라미터: ?folder=sent → SENT, 기본 INBOX.
   const folderParam = (params.get('folder') === 'sent' ? 'SENT' : 'INBOX') as MailFolder
 
   // 계정·폴더 전환 시 이전 선택 메시지가 남지 않도록 초기화.
-  // (좁은 화면에서 폴더 전환 후에도 디테일 패널이 강제로 열려 있는 문제 방지)
+  // prevRef 로 이전값을 추적해 "실제로 바뀐 경우"에만 초기화 — 마운트·StrictMode 이중실행 모두 안전.
+  const prevRef = useRef<{ accountId: string | undefined; folderParam: string } | null>(null)
   useEffect(() => {
-    setSelectedId(null)
+    const prev = prevRef.current
+    prevRef.current = { accountId, folderParam }
+    // 이전값이 없으면(최초 마운트) 건너뜀 — ?messageId 초기 선택 보호
+    if (!prev) return
+    // 실제로 값이 바뀐 경우에만 초기화
+    if (prev.accountId !== accountId || prev.folderParam !== folderParam) {
+      setSelectedId(null)
+    }
   }, [accountId, folderParam])
 
   const { data: accounts, isLoading: accountsLoading } = useMailAccounts()

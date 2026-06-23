@@ -8,6 +8,7 @@ import com.icegreen.greenmail.util.GreenMailUtil;
 import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailMessageDetail;
+import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -154,5 +155,116 @@ class MailMessageServiceTest extends IntegrationTestBase {
 
     assertThat(s.phase()).isEqualTo("IDLE");
     assertThat(s.running()).isFalse();
+  }
+
+  /** #474: listByAccount 와 listRecentUnread 의 요약 항목이 accountId 를 담는다(딥링크용). */
+  @Test
+  void listByAccount_returns_accountId() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "accountId 테스트", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+
+    var rows = messageRepo.listByAccount(accountId, "INBOX", null, 10);
+
+    assertThat(rows).isNotEmpty();
+    assertThat(rows.get(0).accountId()).isEqualTo(accountId);
+  }
+
+  /** #474: listRecentUnread 의 요약 항목도 accountId 를 담는다(딥링크용). */
+  @Test
+  void listRecentUnread_returns_accountId() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "accountId in unread", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+
+    var rows = messageRepo.listRecentUnread(user, 5);
+
+    assertThat(rows).isNotEmpty();
+    assertThat(rows.get(0).accountId()).isEqualTo(accountId);
+  }
+
+  /**
+   * #474: countNeedsReply — aiNeedsReply=true AND seen=false AND INBOX 만 집계한다.
+   * pending(null)/false 및 읽은(seen=true) 메시지는 제외된다.
+   */
+  @Test
+  void countNeedsReply_countsOnlyTrueAndUnseen() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, true);
+
+    // 메일 4건 동기화 (3번째=분류됨, 4번째=미분류 pending)
+    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "회신필요-안읽음", "본문");
+    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "회신불필요-안읽음", "본문");
+    GreenMailUtil.sendTextEmailTest("box@test.local", "c@x.com", "회신필요-읽음", "본문");
+    GreenMailUtil.sendTextEmailTest("box@test.local", "d@x.com", "미분류-pending", "본문");
+    greenMail.waitForIncomingEmail(4);
+    syncService.sync(user, accountId);
+
+    // aiNeedsReply 를 직접 세팅: "회신필요-안읽음" → true, "회신불필요-안읽음" → false, "회신필요-읽음" → true(읽음)
+    long needsReplyUnread =
+        messageRepo.listByAccount(accountId, "INBOX", "회신필요-안읽음", 10).get(0).id();
+    long noReplyUnread =
+        messageRepo.listByAccount(accountId, "INBOX", "회신불필요-안읽음", 10).get(0).id();
+    long needsReplyRead =
+        messageRepo.listByAccount(accountId, "INBOX", "회신필요-읽음", 10).get(0).id();
+
+    messageRepo.updateClassification(needsReplyUnread, "업무", true);
+    messageRepo.updateClassification(noReplyUnread, "일반", false);
+    messageRepo.updateClassification(needsReplyRead, "업무", true);
+    // "회신필요-읽음" 을 읽음 처리(seen=true)
+    messageService.get(user, needsReplyRead);
+
+    // aiNeedsReply=true && seen=false 인 건만 1건
+    assertThat(messageRepo.countNeedsReply(user)).isEqualTo(1);
+  }
+
+  /**
+   * #474: existsAiEnabledAccount — aiEnabled=true 인 활성 계정이 존재하면 true, 없으면 false.
+   * 두 사용자(aiDisabledUser, aiEnabledUser)를 별도로 생성해 충돌 없이 검증한다.
+   */
+  @Test
+  void existsAiEnabledAccount_reflectsAiEnabled() {
+    // aiEnabled=false 계정만 가진 사용자: false
+    long aiDisabledUser = TestFixtures.createHuman(dsl);
+    MailTestSupport.insertAccount(accountRepo, encryption, aiDisabledUser, false);
+    assertThat(accountRepo.existsAiEnabledAccount(aiDisabledUser)).isFalse();
+
+    // aiEnabled=true 계정을 가진 별도 사용자: true
+    long aiEnabledUser = TestFixtures.createHuman(dsl);
+    MailTestSupport.insertAccount(accountRepo, encryption, aiEnabledUser, true);
+    assertThat(accountRepo.existsAiEnabledAccount(aiEnabledUser)).isTrue();
+  }
+
+  /**
+   * #474: summary() 가 needsReplyCount 와 classificationActive 를 포함한 MailSummaryResponse 를 반환한다.
+   * 두 값은 @Transactional 경계 안에서 RLS GUC 주입 하에 조회된다(#444 교훈).
+   */
+  @Test
+  void summary_includesNeedsReplyCountAndClassificationActive() {
+    long user = TestFixtures.createHuman(dsl);
+    // aiEnabled=true 계정 → classificationActive=true
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, true);
+
+    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "회신필요건", "본문");
+    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "회신불요건", "본문");
+    greenMail.waitForIncomingEmail(2);
+    syncService.sync(user, accountId);
+
+    long replyId = messageRepo.listByAccount(accountId, "INBOX", "회신필요건", 10).get(0).id();
+    messageRepo.updateClassification(replyId, "업무", true);
+
+    MailSummaryResponse resp = messageService.summary(user, 5);
+
+    // 전체 안읽음 2건
+    assertThat(resp.unreadCount()).isEqualTo(2);
+    // 회신필요: aiNeedsReply=true && seen=false 1건
+    assertThat(resp.needsReplyCount()).isEqualTo(1);
+    // aiEnabled 계정 존재 → true
+    assertThat(resp.classificationActive()).isTrue();
+    assertThat(resp.recent()).hasSize(2);
   }
 }

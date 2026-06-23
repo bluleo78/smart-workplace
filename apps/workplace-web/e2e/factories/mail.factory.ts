@@ -31,6 +31,7 @@ export function mailAccount(overrides?: Partial<MailAccountResponse>): MailAccou
 export function summary(overrides?: Partial<EmailMessageSummary>): EmailMessageSummary {
   return {
     id: 10,
+    accountId: 1,
     threadId: 'root@example.com',
     fromAddress: 'alice@example.com',
     fromName: '앨리스',
