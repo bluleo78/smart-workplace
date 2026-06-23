@@ -20,7 +20,7 @@ function Badge({ c }: { c: ConversationSummaryItem }) {
     return (
       <span
         data-testid="dash-chat-badge-mention"
-        className="flex-none rounded-full bg-violet-100 px-1.5 text-[10px] font-semibold text-violet-700"
+        className="flex-none rounded-full bg-violet-100 px-1.5 text-xs font-semibold text-violet-700"
       >
         멘션
       </span>
@@ -29,7 +29,7 @@ function Badge({ c }: { c: ConversationSummaryItem }) {
     return (
       <span
         data-testid="dash-chat-badge-reply"
-        className="flex-none rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-700"
+        className="flex-none rounded-full bg-amber-100 px-1.5 text-xs font-semibold text-amber-700"
       >
         회신대기
       </span>
@@ -38,7 +38,7 @@ function Badge({ c }: { c: ConversationSummaryItem }) {
     return (
       <span
         data-testid="dash-chat-badge-thread"
-        className="flex-none rounded-full bg-sky-100 px-1.5 text-[10px] font-semibold text-sky-700"
+        className="flex-none rounded-full bg-sky-100 px-1.5 text-xs font-semibold text-sky-700"
       >
         새 답글 {c.newThreadReplyCount}
       </span>
@@ -65,6 +65,7 @@ export default function ConversationsBody({ count = 5 }: { count?: number }) {
 
   const recent = data?.recent ?? []
   const needsReplyCount = data?.needsReplyCount ?? 0
+  const unreadCount = data?.unreadConversationCount ?? 0
 
   // 빈 상태: 최근 대화 없음 → 조용한 메시지.
   if (recent.length === 0)
@@ -81,12 +82,17 @@ export default function ConversationsBody({ count = 5 }: { count?: number }) {
 
   return (
     <div data-testid="dash-chat">
-      {/* 회신 대기 힌트 — needsReplyCount > 0 일 때만 강조 표시. */}
-      {needsReplyCount > 0 && (
-        <div className="mb-2 text-xs text-muted-foreground" data-testid="dash-chat-hint">
-          <span className="font-medium text-ai-accent">회신 대기 {needsReplyCount}</span>
-        </div>
-      )}
+      {/* 헤더 집계 — 회신 대기(강조) · 안읽음. 메일 위젯과 동일한 "A · B" 형태(text-sm). */}
+      <div className="mb-2 text-sm text-muted-foreground" data-testid="dash-chat-hint">
+        {needsReplyCount > 0 ? (
+          <>
+            <span className="font-medium text-ai-accent">회신 대기 {needsReplyCount}</span> · 안읽음{' '}
+            {unreadCount}
+          </>
+        ) : (
+          <>안읽음 {unreadCount}</>
+        )}
+      </div>
       <ul className="space-y-0.5">
         {recent.slice(0, count).map((c) => (
           <li key={`${c.kind}-${c.conversationId}`}>
@@ -99,7 +105,7 @@ export default function ConversationsBody({ count = 5 }: { count?: number }) {
             >
               {/* DM: 이름 첫 글자 아바타 / 채널: # 아이콘(ai-accent 배경). */}
               {c.kind === 'DM' ? (
-                <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-muted text-[11px] font-medium">
+                <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-muted text-xs font-medium">
                   {c.label.charAt(0)}
                 </span>
               ) : (
@@ -111,7 +117,7 @@ export default function ConversationsBody({ count = 5 }: { count?: number }) {
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-sm font-medium">{c.label}</span>
                   <Badge c={c} />
-                  <span className="ml-auto flex-none text-[11px] text-muted-foreground">
+                  <span className="ml-auto flex-none text-xs text-muted-foreground">
                     {c.lastMessageAt ? relTime(c.lastMessageAt) : ''}
                   </span>
                 </span>

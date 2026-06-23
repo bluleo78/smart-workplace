@@ -1,4 +1,5 @@
 import { Mail, Paperclip } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { relTime } from '@/components/ai/relTime'
@@ -25,6 +26,8 @@ function initial(item: MailSummaryItem): string {
  */
 export default function UnreadMailBody({ count = 5 }: { count?: number }) {
   const { data, isLoading, isError, refetch } = useMailSummary()
+  // "회신 필요" 토글 — 켜면 aiNeedsReply 메일만 필터(헤더 칩 클릭). 위젯 로컬 상태.
+  const [needsReplyOnly, setNeedsReplyOnly] = useState(false)
 
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
   if (isLoading)
@@ -64,20 +67,36 @@ export default function UnreadMailBody({ count = 5 }: { count?: number }) {
     return bt - at
   })
 
+  // 토글 켜짐 → 회신 필요만. recent 는 회신필요 우선 정렬이라 상단부터 채워진다.
+  const visible = needsReplyOnly ? rows.filter((m) => m.aiNeedsReply) : rows
+
   return (
     <div data-testid="dash-mail">
-      <div className="mb-2 text-xs text-muted-foreground" data-testid="dash-mail-hint">
-        {classificationActive ? (
+      <div className="mb-2 text-sm text-muted-foreground" data-testid="dash-mail-hint">
+        {classificationActive && needsReplyCount > 0 ? (
           <>
-            <span className="font-medium text-ai-accent">회신 필요 {needsReplyCount}</span> ·
-            안읽음 {unreadCount}
+            {/* 회신 필요 칩 = 필터 토글. 활성 시 ai-accent 채움으로 "필터 켜짐" 표시. */}
+            <button
+              type="button"
+              onClick={() => setNeedsReplyOnly((v) => !v)}
+              aria-pressed={needsReplyOnly}
+              data-testid="dash-mail-filter"
+              className={`rounded px-1.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                needsReplyOnly
+                  ? 'bg-ai-accent text-ai-accent-foreground'
+                  : 'text-ai-accent hover:bg-ai-accent/10'
+              }`}
+            >
+              회신 필요 {needsReplyCount}
+            </button>{' '}
+            · 안읽음 {unreadCount}
           </>
         ) : (
           <>안읽음 {unreadCount}</>
         )}
       </div>
       <ul className="space-y-0.5">
-        {rows.slice(0, count).map((m) => (
+        {visible.slice(0, count).map((m) => (
           <li key={m.id}>
             <Link
               to="/mail"
@@ -85,7 +104,7 @@ export default function UnreadMailBody({ count = 5 }: { count?: number }) {
               aria-label={`메일 열기: ${m.subject?.trim() || '(제목 없음)'}`}
               className="flex gap-2 rounded px-1 py-1.5 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-muted text-[11px] font-medium">
+              <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-muted text-xs font-medium">
                 {initial(m)}
               </span>
               <span className="min-w-0 flex-1">
@@ -94,16 +113,16 @@ export default function UnreadMailBody({ count = 5 }: { count?: number }) {
                   {classificationActive && m.aiNeedsReply && (
                     <span
                       data-testid="dash-mail-badge-reply"
-                      className="flex-none rounded-full bg-red-100 px-1.5 text-[10px] font-semibold text-red-600"
+                      className="flex-none rounded-full bg-red-100 px-1.5 text-xs font-semibold text-red-600"
                     >
                       회신필요
                     </span>
                   )}
-                  <span className="ml-auto flex-none text-[11px] text-muted-foreground">
+                  <span className="ml-auto flex-none text-xs text-muted-foreground">
                     {m.receivedAt ? relTime(m.receivedAt) : ''}
                   </span>
                 </span>
-                <span className="block truncate text-[13px] text-foreground/90">
+                <span className="block truncate text-sm text-foreground/90">
                   {m.subject?.trim() || '(제목 없음)'}
                 </span>
                 <span className="flex items-center gap-1">

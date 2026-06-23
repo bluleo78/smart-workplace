@@ -184,8 +184,10 @@ test('대시보드 — 위젯 헤더 클릭 시 딥링크로 이동한다', asyn
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
   await page.goto('/')
 
-  // 메일 위젯 헤더 링크 → /mail.
-  const link = page.getByTestId('dashboard-widget').getByRole('link', { name: /안 읽은 메일/ })
+  // 메일 위젯 헤더 링크 → /mail. (제목 "메일" exact — 행의 "메일 열기:" 라벨과 구분)
+  const link = page
+    .getByTestId('dashboard-widget')
+    .getByRole('link', { name: '메일', exact: true })
   await expect(link).toHaveAttribute('href', '/mail')
 })
 
@@ -853,7 +855,7 @@ test('편집(B1) — 부재 위젯 갤러리: 추가 → draft 반영 → 저장
     .locator('[data-testid="dashboard-add-card"][data-widget="unread_mail"]')
     .getByTestId('widget-add')
     .click()
-  await expect(page.getByTestId('dashboard-edit-live')).toHaveText('안 읽은 메일 위젯을 추가했습니다')
+  await expect(page.getByTestId('dashboard-edit-live')).toHaveText('메일 위젯을 추가했습니다')
   await expect(
     page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]'),
   ).toBeVisible()
@@ -1515,6 +1517,41 @@ test('홈 메일 위젯 — 회신필요 배지·미리보기·시각 렌더', a
   await expect(page.getByTestId('dash-mail-hint')).toContainText('회신 필요 1')
 })
 
+test('홈 메일 위젯 — "회신 필요" 칩 토글로 회신필요 메일만 필터된다', async ({
+  authenticatedPage: page,
+}) => {
+  // 회신필요 2건 + 그 외 1건 = 총 3행. 칩 토글 시 2행으로 필터.
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
+    unreadCount: 3,
+    needsReplyCount: 2,
+    classificationActive: true,
+    recent: [
+      { id: 1, accountId: 1, subject: 'Q3 예산안', fromAddress: 'a@x.com', fromName: '김팀장', snippet: '내일까지', receivedAt: new Date(Date.now() - 2 * 60000).toISOString(), seen: false, hasAttachment: false, aiCategory: 'ACTION', aiNeedsReply: true },
+      { id: 2, accountId: 1, subject: '시안 컨펌', fromAddress: 'b@x.com', fromName: '박서연', snippet: 'v3 확인', receivedAt: new Date(Date.now() - 40 * 60000).toISOString(), seen: false, hasAttachment: false, aiCategory: 'ACTION', aiNeedsReply: true },
+      { id: 3, accountId: 1, subject: '주간 회의록', fromAddress: 'c@x.com', fromName: '이준호', snippet: '공유합니다', receivedAt: new Date(Date.now() - 3 * 3600000).toISOString(), seen: false, hasAttachment: false, aiCategory: 'FYI', aiNeedsReply: false },
+    ],
+  } satisfies MailSummary)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
+
+  await page.goto('/')
+  // 초기: 전체 3행.
+  await expect(page.getByTestId('dash-mail-row')).toHaveCount(3)
+
+  // 칩 클릭 → 회신필요 2행만, aria-pressed=true.
+  const filter = page.getByTestId('dash-mail-filter')
+  await expect(filter).toHaveAttribute('aria-pressed', 'false')
+  await filter.click()
+  await expect(filter).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('dash-mail-row')).toHaveCount(2)
+  await expect(page.getByText('주간 회의록')).toHaveCount(0) // 회신필요 아닌 행 제외
+
+  // 다시 클릭 → 전체 복귀.
+  await filter.click()
+  await expect(filter).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByTestId('dash-mail-row')).toHaveCount(3)
+})
+
 // ── 대화 위젯 ──────────────────────────────────────────────────────────────
 
 test('홈 대화 위젯 — 멘션·회신대기 배지·미리보기·딥링크', async ({
@@ -1564,8 +1601,8 @@ test('홈 대화 위젯 — 멘션·회신대기 배지·미리보기·딥링크
   // DM 딥링크: conversationId=7 → /chat/dms/7
   await expect(dm).toHaveAttribute('href', '/chat/dms/7')
 
-  // 회신 대기 힌트
-  await expect(page.getByTestId('dash-chat-hint')).toContainText('회신 대기 3')
+  // 회신 대기 힌트 — 메일과 대칭인 "회신 대기 N · 안읽음 M" 이중 집계
+  await expect(page.getByTestId('dash-chat-hint')).toContainText('회신 대기 3 · 안읽음 3')
 
   // 채널 행 — 멘션 배지 + 딥링크
   const ch = page.getByTestId('dash-chat-row').nth(1)

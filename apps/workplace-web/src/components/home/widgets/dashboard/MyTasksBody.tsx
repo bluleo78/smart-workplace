@@ -97,12 +97,12 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
       {/* 헤더 부제 — 기다리는 건수(→할당) 또는 구독 총량(→구독). 숫자 자체가 필터 조회로 가는 링크. */}
       <div className="mb-2 text-sm text-muted-foreground">
         {result.isEmpty ? (
-          <Link to="/me/tasks/watched" className="hover:text-ai-accent hover:underline">
-            구독 중 {result.watchedTotal}건
+          <Link to="/me/tasks/watched" className="hover:underline">
+            구독 중 <span className="font-medium text-ai-accent">{result.watchedTotal}건</span>
           </Link>
         ) : (
-          <Link to="/me/tasks/assigned" className="hover:text-ai-accent hover:underline">
-            {result.waitingCount}건이 나를 기다림
+          <Link to="/me/tasks/assigned" className="hover:underline">
+            <span className="font-medium text-ai-accent">{result.waitingCount}건</span>이 나를 기다림
           </Link>
         )}
       </div>

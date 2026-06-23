@@ -63,7 +63,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
   },
   unread_mail: {
     type: 'unread_mail',
-    title: '안 읽은 메일',
+    title: '메일',
     icon: Mail,
     Component: lazy(() => import('./dashboard/UnreadMailBody')),
     deepLink: '/mail',

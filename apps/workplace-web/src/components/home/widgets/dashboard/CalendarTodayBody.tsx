@@ -83,7 +83,8 @@ export default function CalendarTodayBody({ count = 5 }: { count?: number }) {
   return (
     <div data-testid="dash-calendar">
       <div className="mb-2 text-sm text-muted-foreground">
-        오늘 {events.length}건{untimedCount > 0 && ` · 미정 ${untimedCount}`}
+        <span className="font-medium text-ai-accent">오늘 {events.length}건</span>
+        {untimedCount > 0 && ` · 미정 ${untimedCount}`}
       </div>
       <ul className="space-y-0.5">
         {top.map((ev) => {

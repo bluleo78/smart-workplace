@@ -74,7 +74,7 @@ export default function NotificationsBody({ count = 5 }: { count?: number }) {
       {mine.length > 0 && (
         <div data-testid="dash-notif-mine">
           <div className="mb-1 text-sm font-medium text-muted-foreground">
-            내 차례 <span className="text-primary">{mine.length}</span>
+            내 차례 <span className="text-ai-accent">{mine.length}</span>
           </div>
           <ul className="space-y-0.5">
             {mine.map((g) => (
@@ -91,7 +91,7 @@ export default function NotificationsBody({ count = 5 }: { count?: number }) {
             className="mb-1 text-sm font-medium text-muted-foreground"
             data-testid="dash-notif-updates-header"
           >
-            업데이트 <span className="text-primary">{updatesAll.length}</span>
+            업데이트 <span className="text-ai-accent">{updatesAll.length}</span>
           </div>
           <ul className="space-y-0.5" data-testid="dash-notif-updates">
             {updates.map((g) => (
