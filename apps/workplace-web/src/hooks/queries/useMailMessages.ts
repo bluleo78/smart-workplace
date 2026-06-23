@@ -28,6 +28,8 @@ export function useMailMessages(
     queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread),
     queryFn: () => listMessages(accountId as number, folder, query || undefined, unread),
     enabled: !!accountId,
+    refetchInterval: 60_000,       // 백그라운드 자동 동기화로 들어온 새 메일을 주기 반영
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -85,7 +85,8 @@ class EmailAccountControllerTest {
         Instant.now(),
         Instant.now(),
         Instant.now(),
-        false);
+        false,
+        null);
   }
 
   private EmailAccountRequest sampleRequest() {

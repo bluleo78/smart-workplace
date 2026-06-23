@@ -42,7 +42,8 @@ class MailSmtpSenderTest {
         null,
         null,
         null,
-        false);
+        false,
+        null);
   }
 
   @Test

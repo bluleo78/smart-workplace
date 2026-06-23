@@ -340,6 +340,44 @@ test.describe('받은편지함', () => {
   })
 })
 
+  // #481 — 받은편지함 리스트 툴바 좌측에 새로고침 아이콘 + 상대시간 표시.
+  test('받은편지함 툴바 좌측에 새로고침 아이콘 + "N분 전 동기화됨" 표시 + 클릭 시 sync', async ({
+    authenticatedPage: page,
+  }) => {
+    const twoMinAgo = new Date(Date.now() - 2 * 60_000).toISOString()
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ lastSyncedAt: twoMinAgo })])
+    await stubMessages(page)
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', {
+      phase: 'IDLE', total: 0, done: 0, running: false,
+    })
+    let syncCalled = false
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/sync',
+      (route) => { syncCalled = true; return route.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify({ fetched: 0, saved: 0 }),
+      }) },
+    )
+
+    await page.goto('/mail/1')
+    await expect(page.getByTestId('mail-synced-at')).toContainText('2분 전')
+    await page.getByTestId('mail-sync').click()
+    await expect.poll(() => syncCalled).toBe(true)
+  })
+
+  // #481 — lastSyncedAt=null 이면 회색 점+"동기화 안 됨" 표시, 녹색 점 없음.
+  test('lastSyncedAt=null 이면 "동기화 안 됨" + 녹색 점 없음', async ({ authenticatedPage: page }) => {
+    // 기본 mailAccount() 는 lastSyncedAt: null
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+
+    await page.goto('/mail/1')
+
+    // "동기화 안 됨" 텍스트가 표시돼야 한다.
+    await expect(page.getByTestId('mail-synced-at')).toContainText('동기화 안 됨')
+    // 녹색 점(bg-green-500)이 없어야 한다 — 정직 신호.
+    await expect(page.locator('[data-testid="mail-synced-at"] .bg-green-500')).toHaveCount(0)
+  })
+
   // #181 — 메일 열람 시 목록의 해당 항목이 굵음(bold) 상태에서 일반 상태로 전환되어야 한다.
   test('메일 열람 시 목록 항목의 읽음 상태(seen)가 업데이트된다 (#181)', async ({
     authenticatedPage: page,

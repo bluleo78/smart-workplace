@@ -45,7 +45,8 @@ class MailSentAppenderTest {
         null,
         null,
         null,
-        false);
+        false,
+        null);
   }
 
   private MimeMessage simpleMessage() throws Exception {

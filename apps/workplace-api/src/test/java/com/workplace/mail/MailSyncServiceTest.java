@@ -263,6 +263,22 @@ class MailSyncServiceTest extends IntegrationTestBase {
     verify(backfillService).backfill(user, accountId);
   }
 
+  @Test
+  @org.junit.jupiter.api.DisplayName("동기화 성공 시 last_synced_at 이 갱신된다")
+  void syncUpdatesLastSyncedAt() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "제목", "본문");
+    greenMail.waitForIncomingEmail(1);
+
+    syncService.sync(user, accountId);
+
+    // 동기화 성공 후 last_synced_at 이 기록됐는지 확인
+    java.time.Instant lastSynced =
+        accountRepo.findByIdAndUser(user, accountId).orElseThrow().lastSyncedAt();
+    assertThat(lastSynced).isNotNull();
+  }
+
   /** 진행 중 가드: progress.tryStart 가 false 면 sync 는 즉시 빈 결과를 반환한다(데드락 없음). */
   @Test
   void sync_secondCallWhileRunning_isGuarded() {

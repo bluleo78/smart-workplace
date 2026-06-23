@@ -18,6 +18,7 @@ import jakarta.mail.UIDFolder;
 import jakarta.mail.search.ComparisonTerm;
 import jakarta.mail.search.ReceivedDateTerm;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Date;
@@ -139,6 +140,9 @@ public class MailSyncService {
         backfillService.backfill(userId, accountId);
         triggeredBackfill = true;
       }
+      // 동기화 성공 — 마지막 동기화 시각 기록(자동·수동 공통). tx-local GUC 위해 txTemplate 사용.
+      txTemplate.executeWithoutResult(
+          status -> accountRepo.updateLastSyncedAt(accountId, OffsetDateTime.now()));
       return result;
     } catch (MessagingException e) {
       throw new MailSyncException("받은편지함 동기화에 실패했습니다", e);

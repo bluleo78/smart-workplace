@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
+import { formatRelativeTime } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 
 import { downloadMailAttachment } from '../../api/mailMessages'
@@ -353,10 +354,12 @@ export function MailInboxPage() {
     prevRunning.current = running
   }, [syncStatus.data?.running, accountIdNum, qc])
 
+  // 현재 계정 객체 — 이메일 주소·AI 활성화 여부·마지막 동기화 시각에 사용.
+  const currentAccount = accounts?.find((a) => a.id === accountIdNum)
   // 본인 이메일 주소(전체답장에서 자신을 수신자에서 제외).
-  const selfAddress = accounts?.find((a) => a.id === accountIdNum)?.emailAddress ?? ''
+  const selfAddress = currentAccount?.emailAddress ?? ''
   // 현재 계정의 AI 사용 여부 — 요약 스트립 표시 여부에 사용.
-  const aiEnabled = accounts?.find((a) => a.id === accountIdNum)?.aiEnabled ?? false
+  const aiEnabled = currentAccount?.aiEnabled ?? false
 
   // 답장 draft 생성.
   function buildReply(detail: EmailMessageDetail, all: boolean): ComposeDraft {
@@ -429,31 +432,6 @@ export function MailInboxPage() {
         title={folderParam === 'SENT' ? '보낸편지함' : '받은편지함'}
         actions={
           <>
-            {folderParam === 'INBOX' && (
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  data-testid="mail-sync"
-                  onClick={() => sync.mutate()}
-                  disabled={sync.isPending || (syncStatus.data?.running ?? false)}
-                  className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent/50 disabled:opacity-50"
-                >
-                  <RefreshCw
-                    className={cn(
-                      'h-4 w-4',
-                      (sync.isPending || syncStatus.data?.running) && 'animate-spin',
-                    )}
-                  />
-                  동기화
-                </button>
-                {/* 본문 보충 진행률 — BODIES 단계 + total 이 있을 때만. */}
-                {syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0 && (
-                  <span data-testid="mail-sync-progress" className="text-xs text-muted-foreground">
-                    본문 {syncStatus.data.done}/{syncStatus.data.total}
-                  </span>
-                )}
-              </div>
-            )}
             <input
               type="search"
               data-testid="mail-search"
@@ -476,6 +454,43 @@ export function MailInboxPage() {
           </>
         }
       />
+      {/* 리스트 툴바 — INBOX 전용: 아이콘 새로고침 + 마지막 동기화 상대시각 + 진행률. */}
+      {folderParam === 'INBOX' && (
+        <div className="flex items-center gap-2 border-b px-3 py-1.5">
+          <button
+            type="button"
+            data-testid="mail-sync"
+            aria-label="지금 새로고침"
+            onClick={() => sync.mutate()}
+            disabled={sync.isPending || (syncStatus.data?.running ?? false)}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw
+              className={cn('h-4 w-4', (sync.isPending || syncStatus.data?.running) && 'animate-spin')}
+            />
+          </button>
+          {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시. */}
+          <span data-testid="mail-synced-at" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {currentAccount?.lastSyncedAt ? (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
+                {`${formatRelativeTime(currentAccount.lastSyncedAt)} 동기화됨`}
+              </>
+            ) : (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" aria-hidden />
+                동기화 안 됨
+              </>
+            )}
+          </span>
+          {/* 본문 보충 진행률 — 기존 로직 유지 */}
+          {syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0 && (
+            <span data-testid="mail-sync-progress" className="text-xs text-muted-foreground">
+              본문 {syncStatus.data.done}/{syncStatus.data.total}
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex min-h-0 flex-1">
         {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}
         <div

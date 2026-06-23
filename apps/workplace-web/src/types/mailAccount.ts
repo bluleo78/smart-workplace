@@ -16,6 +16,7 @@ export interface MailAccountResponse {
   /** AI 비서 기능 활성화 여부 */
   aiEnabled: boolean;
   lastTestedAt: string | null;
+  lastSyncedAt: string | null; // 마지막 성공 동기화 시각(미동기화면 null)
   createdAt: string;
   updatedAt: string;
 }

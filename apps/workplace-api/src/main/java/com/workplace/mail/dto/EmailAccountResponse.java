@@ -18,4 +18,5 @@ public record EmailAccountResponse(
     Instant lastTestedAt,
     Instant createdAt,
     Instant updatedAt,
-    boolean aiEnabled) {} // aiEnabled: AI 비서 활성화 여부(기본 false)
+    boolean aiEnabled,
+    Instant lastSyncedAt) {} // lastSyncedAt: 마지막 성공 동기화 시각(미동기화면 null)

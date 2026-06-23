@@ -59,7 +59,8 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.LAST_TESTED_AT,
             EMAIL_ACCOUNT.CREATED_AT,
             EMAIL_ACCOUNT.UPDATED_AT,
-            EMAIL_ACCOUNT.AI_ENABLED)
+            EMAIL_ACCOUNT.AI_ENABLED,
+            EMAIL_ACCOUNT.LAST_SYNCED_AT)
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.ID.eq(id))
         .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
@@ -84,7 +85,8 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.LAST_TESTED_AT,
             EMAIL_ACCOUNT.CREATED_AT,
             EMAIL_ACCOUNT.UPDATED_AT,
-            EMAIL_ACCOUNT.AI_ENABLED)
+            EMAIL_ACCOUNT.AI_ENABLED,
+            EMAIL_ACCOUNT.LAST_SYNCED_AT)
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
@@ -105,7 +107,8 @@ public class EmailAccountRepository {
   /**
    * AI 분류가 활성화된 본인 계정 존재 여부(#474).
    *
-   * <p>홈 위젯이 "분류 활성" 배지를 표시할지 판단하는 데 쓰인다. ai_enabled=true 이면서 비활성(disabled_at)되지 않은 계정이 하나라도 있으면 true.
+   * <p>홈 위젯이 "분류 활성" 배지를 표시할지 판단하는 데 쓰인다. ai_enabled=true 이면서 비활성(disabled_at)되지 않은 계정이 하나라도 있으면
+   * true.
    */
   public boolean existsAiEnabledAccount(long userId) {
     return dsl.fetchExists(
@@ -191,6 +194,29 @@ public class EmailAccountRepository {
         tested == null ? null : tested.toInstant(),
         created == null ? null : created.toInstant(),
         updated == null ? null : updated.toInstant(),
-        Boolean.TRUE.equals(r.get(EMAIL_ACCOUNT.AI_ENABLED)));
+        Boolean.TRUE.equals(r.get(EMAIL_ACCOUNT.AI_ENABLED)),
+        r.get(EMAIL_ACCOUNT.LAST_SYNCED_AT) == null
+            ? null
+            : r.get(EMAIL_ACCOUNT.LAST_SYNCED_AT).toInstant());
   }
+
+  /** 동기화 성공 시 마지막 동기화 시각을 기록한다. 반드시 호출자가 트랜잭션 안에서 실행(RLS GUC). */
+  public void updateLastSyncedAt(long accountId, OffsetDateTime when) {
+    dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.LAST_SYNCED_AT, when)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .execute();
+  }
+
+  /** 현재 테넌트(RLS 컨텍스트)의 활성 계정 목록 — 스케줄러 자동 동기화 대상. */
+  @org.springframework.transaction.annotation.Transactional(readOnly = true)
+  public List<ActiveAccount> findActiveForSync() {
+    return dsl.select(EMAIL_ACCOUNT.ID, EMAIL_ACCOUNT.USER_ID)
+        .from(EMAIL_ACCOUNT)
+        .where(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetch(r -> new ActiveAccount(r.get(EMAIL_ACCOUNT.ID), r.get(EMAIL_ACCOUNT.USER_ID)));
+  }
+
+  /** 자동 동기화 대상 계정 식별자. */
+  public record ActiveAccount(long accountId, long userId) {}
 }
