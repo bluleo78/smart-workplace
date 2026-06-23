@@ -1,13 +1,14 @@
 // src/components/layout/AppRail.tsx
 // 앱 런처 LNB — 명시적으로 모듈(앱)을 띄우는 레일. 기능 카탈로그가 아님.
-// 정체성: Slack 워크스페이스 레일 / macOS 독처럼 "항상 아이콘 레일"(확장 모드 없음).
-// 모듈 내부의 텍스트 맥락(라벨/깊은 네비)은 각 모듈의 2차 사이드바가 책임진다.
-// 데스크톱(lg) = 56px 아이콘 레일(라벨은 Tooltip), 모바일 = 오버레이 드로어(아이콘+라벨).
+// 정체성: Slack 워크스페이스 레일 / macOS 독. 상단의 브랜드 마크가 확장 토글을 겸한다(#471).
+// 모듈 내부의 텍스트 맥락(깊은 네비)은 각 모듈의 2차 사이드바가 책임진다.
+// 데스크톱(lg) = 기본 56px 아이콘 레일(라벨은 Tooltip), 펼치면 152px(아이콘+라벨).
+//   축소 시 상단 마크 클릭 → 펼치기, 확장 시 « 클릭 → 접기. localStorage 영속.
+// 모바일 = 오버레이 드로어(브랜드 로고 + 아이콘+라벨).
 import {
   BookOpen,
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
+  ChevronsLeft,
   HardDrive,
   Home,
   LayoutList,
@@ -31,6 +32,8 @@ import {
 import { cn } from '@/lib/utils'
 
 import { AppRailUserMenu } from './AppRailUserMenu'
+import { BrandLogo } from './BrandLogo'
+import { BrandMark } from './BrandMark'
 import { InboxPanel } from './InboxPanel'
 import { useRailExpanded } from './useRailExpanded'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
@@ -177,13 +180,45 @@ export function AppRail() {
         className={cn(
           'fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r bg-sidebar transition-[transform,width] duration-200',
           'lg:static lg:translate-x-0',
-          expanded ? 'lg:w-44' : 'lg:w-[56px]',
+          expanded ? 'lg:w-[152px]' : 'lg:w-[56px]',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        {/* 상단 — 워크스페이스 스위처(활성 테넌트 없으면 미렌더) + 확장 시 접기 토글. */}
-        <div className="flex h-14 shrink-0 items-center gap-1 border-b px-2 lg:px-1">
-          <WorkspaceSwitcher expanded={expanded} />
+        {/* 상단 — 브랜드 마크 = 확장 토글(fire-hub식).
+            · 모바일 드로어/데스크톱 확장: 브랜드 로고(마크+워드마크) 표시
+            · 데스크톱 축소: 마크 자체가 펼치기 토글 버튼(로고는 lg:hidden 으로 숨김)
+            · 데스크톱 확장: 우측 « 접기 버튼 */}
+        <div
+          className={cn(
+            'flex h-14 shrink-0 items-center border-b px-2 lg:px-1',
+            expanded ? 'lg:justify-between' : 'lg:justify-center',
+          )}
+        >
+          {/* 로고 — 모바일 항상, 데스크톱은 확장일 때만(축소 시 lg:hidden, 아래 마크 버튼이 대신). */}
+          <BrandLogo expanded={expanded} className={expanded ? 'flex' : 'flex lg:hidden'} />
+
+          {/* 데스크톱 축소 전용 — 마크 = 펼치기 토글. */}
+          {!expanded && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={toggle}
+                  aria-label="사이드바 펼치기"
+                  aria-expanded={false}
+                  data-testid="rail-toggle"
+                  className="hidden shrink-0 rounded-md transition-opacity hover:opacity-80 lg:flex"
+                >
+                  <BrandMark />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+                펼치기
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* 데스크톱 확장 전용 — 접기 버튼. */}
           {expanded && (
             <button
               type="button"
@@ -193,7 +228,7 @@ export function AppRail() {
               data-testid="rail-collapse"
               className="hidden shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground lg:flex"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronsLeft className="h-4 w-4" />
             </button>
           )}
         </div>
@@ -238,30 +273,11 @@ export function AppRail() {
             })}
           </div>
 
-          {/* 데스크톱 축소 시에만 펼치기 토글 — 좁은 레일에서도 펼칠 진입점 보장(#471). */}
-          {!expanded && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={toggle}
-                  aria-label="사이드바 펼치기"
-                  aria-expanded={false}
-                  data-testid="rail-expand"
-                  className="mt-1 hidden w-full items-center justify-center rounded-md px-2 py-2.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground lg:flex"
-                >
-                  <ChevronRight className="h-5 w-5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
-                펼치기
-              </TooltipContent>
-            </Tooltip>
-          )}
         </nav>
 
-        {/* 하단: 알림 인박스 + 유저 메뉴 */}
+        {/* 하단: 워크스페이스 스위처 + 알림 인박스 + 유저 메뉴 (내 컨텍스트 묶음) */}
         <div className="shrink-0 space-y-1 border-t p-2">
+          <WorkspaceSwitcher expanded={expanded} />
           <InboxPanel expanded={expanded} />
           <AppRailUserMenu expanded={expanded} />
         </div>
