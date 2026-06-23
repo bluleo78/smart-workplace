@@ -1306,3 +1306,168 @@ test('메일 읽음 후 홈 회신 필요 KPI 가 즉시 갱신된다 (#474)', a
   await expect(page).toHaveURL(/\/$/)
   await expect(counts.getByRole('link', { name: /회신 필요 1건/ })).toBeVisible()
 })
+
+// ── 알림 위젯 캐치업 재설계 ───────────────────────────────────────────────
+
+// 같은 이슈에 코멘트 2 + 상태변경 1 (모두 안 읽음) → 한 그룹.
+function groupedNotifs(): NotificationResponse[] {
+  const base = {
+    actorId: 2,
+    actorName: '양동희',
+    actorKind: 'HUMAN' as const,
+    issueId: 1,
+    projectKey: 'WP',
+    issueNumber: 9,
+    issueTitle: '배포 점검',
+    commentId: null,
+    eventId: null,
+    eventTitle: null,
+    eventStartsAt: null,
+    read: false,
+  }
+  return [
+    { ...base, id: 11, type: 'COMMENTED', createdAt: '2026-06-16T01:00:00Z' },
+    { ...base, id: 12, type: 'COMMENTED', createdAt: '2026-06-16T02:00:00Z' },
+    { ...base, id: 13, type: 'STATUS_CHANGED', createdAt: '2026-06-16T03:00:00Z' },
+  ]
+}
+
+test('알림 위젯 — 같은 이슈 알림을 한 그룹으로 묶고 델타를 집계한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/notifications', groupedNotifs())
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  // 업데이트 섹션은 접힘 없이 바로 보인다(다른 위젯과 동일한 평면 리스트).
+  const rows = page.getByTestId('dash-notif-updates').getByTestId('dash-notif-row')
+  // 3건이 1개 그룹 행으로 묶인다.
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('WP-9 · 배포 점검')
+  await expect(rows.first()).toContainText('코멘트 2건 · 상태 변경')
+})
+
+test('알림 위젯 — ASSIGNED 는 내 차례, 그 외는 업데이트로 분류된다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    {
+      id: 21, type: 'ASSIGNED', actorId: 2, actorName: '양동희', actorKind: 'HUMAN',
+      issueId: 1, projectKey: 'WP', issueNumber: 7, issueTitle: '리뷰 요청 이슈',
+      commentId: null, eventId: null, eventTitle: null, eventStartsAt: null,
+      read: false, createdAt: '2026-06-16T05:00:00Z',
+    },
+    {
+      id: 22, type: 'COMMENTED', actorId: 3, actorName: '김개발', actorKind: 'HUMAN',
+      issueId: 2, projectKey: 'WP', issueNumber: 8, issueTitle: '문서 정리',
+      commentId: null, eventId: null, eventTitle: null, eventStartsAt: null,
+      read: false, createdAt: '2026-06-16T06:00:00Z',
+    },
+  ])
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  // 내 차례 섹션엔 ASSIGNED(리뷰 요청 이슈).
+  await expect(page.getByTestId('dash-notif-mine')).toContainText('리뷰 요청 이슈')
+  // 업데이트 섹션엔 COMMENTED(문서 정리) — 접힘 없이 바로 노출.
+  await expect(page.getByTestId('dash-notif-updates')).toContainText('문서 정리')
+})
+
+test('알림 위젯 — 행 ✓ 클릭 시 그룹의 미읽음을 read 처리한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/notifications', notifications()) // 단건 ASSIGNED(id:1)
+  const readCapture = await mockApi(page, 'POST', '/api/v1/notifications/1/read', {}, { status: 204, capture: true })
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  await page.getByTestId('dash-notif-ack').first().click()
+  // waitForRequest 는 POST 가 도착하면 resolve, 10초 내 미도착이면 reject.
+  await expect(readCapture.waitForRequest()).resolves.toBeTruthy()
+})
+
+test('알림 위젯 — "전부 확인" 클릭 시 read-all 을 호출한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/notifications', notifications())
+  const allCapture = await mockApi(page, 'POST', '/api/v1/notifications/read-all', {}, { status: 204, capture: true })
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  await page.getByTestId('dash-notif-ack-all').click()
+  await expect(allCapture.waitForRequest()).resolves.toBeTruthy()
+})
+
+test('알림 위젯 — 미읽음이 없으면 "다 따라잡았어요" 빈 상태를 보인다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // 모두 읽음 → 미읽음 그룹 0.
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    {
+      id: 31, type: 'COMMENTED', actorId: 2, actorName: '양동희', actorKind: 'HUMAN',
+      issueId: 1, projectKey: 'WP', issueNumber: 7, issueTitle: '리뷰 요청 이슈',
+      commentId: null, eventId: null, eventTitle: null, eventStartsAt: null,
+      read: true, createdAt: '2026-06-16T00:00:00Z',
+    },
+  ])
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  await expect(page.getByTestId('dash-notif-empty')).toContainText('다 따라잡았어요')
+})
+
+test('알림 위젯 — AI(AGENT) 행위자 그룹에 AI 배지를 표시한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    {
+      id: 41, type: 'ASSIGNED', actorId: 9, actorName: 'AI 비서', actorKind: 'AGENT',
+      issueId: 1, projectKey: 'WP', issueNumber: 7, issueTitle: '리뷰 요청 이슈',
+      commentId: null, eventId: null, eventTitle: null, eventStartsAt: null,
+      read: false, createdAt: '2026-06-16T07:00:00Z',
+    },
+  ])
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  await expect(page.getByTestId('dash-notif-mine').getByText('AI', { exact: true })).toBeVisible()
+})
+
+test('알림 위젯 — 업데이트가 표시 개수를 넘으면 헤더는 전체 수, 초과분은 "+N건 더"로 정직 표시', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // 서로 다른 이슈 6건(모두 COMMENTED·미읽음) → 6개 업데이트 그룹. 기본 표시 개수 5 초과.
+  const many = Array.from({ length: 6 }, (_, i) => ({
+    id: 50 + i,
+    type: 'COMMENTED' as const,
+    actorId: 2,
+    actorName: '양동희',
+    actorKind: 'HUMAN' as const,
+    issueId: 100 + i,
+    projectKey: 'WP',
+    issueNumber: 100 + i,
+    issueTitle: `이슈 ${100 + i}`,
+    commentId: null,
+    eventId: null,
+    eventTitle: null,
+    eventStartsAt: null,
+    read: false,
+    createdAt: `2026-06-16T0${i}:00:00Z`,
+  }))
+  await mockApi(page, 'GET', '/api/v1/notifications', many)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  // 헤더는 잘린 수가 아니라 전체 6을 보여준다.
+  await expect(page.getByTestId('dash-notif-updates-header')).toContainText('업데이트 6')
+  // 5개만 렌더 + 초과 1건 안내.
+  await expect(page.getByTestId('dash-notif-updates').getByTestId('dash-notif-row')).toHaveCount(5)
+  await expect(page.getByTestId('dash-notif-overflow')).toContainText('+1건 더')
+})
