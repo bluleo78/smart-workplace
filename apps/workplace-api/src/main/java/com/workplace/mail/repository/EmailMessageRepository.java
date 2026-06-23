@@ -190,7 +190,12 @@ public class EmailMessageRepository {
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
-        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
+        // 회신필요(aiNeedsReply=true) 우선 → 최신순. 적은 회신필요 메일이 항상 상위 N 에 끼게 해
+        // 홈 위젯/필터가 전역 needsReplyCount 와 어긋나지 않도록 한다(분류 off 면 전부 null → 최신순).
+        .orderBy(
+            EMAIL_MESSAGE.AI_NEEDS_REPLY.desc().nullsLast(),
+            EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(),
+            EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(this::toSummary);
   }

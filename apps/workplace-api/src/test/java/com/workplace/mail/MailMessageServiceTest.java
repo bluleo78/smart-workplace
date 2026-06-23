@@ -188,6 +188,30 @@ class MailMessageServiceTest extends IntegrationTestBase {
   }
 
   /**
+   * recent 는 회신필요(aiNeedsReply=true) 우선 정렬 — 적은 회신필요 메일이 최신 메일에 밀려 limit 밖으로 빠지지 않는다.
+   * (홈 위젯 필터가 전역 needsReplyCount 와 어긋나 "0건"으로 보이던 버그 방지.)
+   */
+  @Test
+  void listRecentUnread_prioritizesNeedsReply_overRecency() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, true);
+    // 회신필요 메일을 먼저(가장 오래됨/작은 id) → 그 뒤 회신불필요 2건(더 최신/큰 id).
+    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "회신필요-오래됨", "본문");
+    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "뉴스레터1", "본문");
+    GreenMailUtil.sendTextEmailTest("box@test.local", "c@x.com", "뉴스레터2", "본문");
+    greenMail.waitForIncomingEmail(3);
+    syncService.sync(user, accountId);
+
+    long needsReply =
+        messageRepo.listByAccount(accountId, "INBOX", "회신필요-오래됨", 10).get(0).id();
+    messageRepo.updateClassification(needsReply, "업무", true);
+
+    // limit=2 — 최신순만이면 뉴스레터 2건에 밀려 회신필요가 빠지지만, 회신필요 우선이라 맨 앞에 와야 한다.
+    var rows = messageRepo.listRecentUnread(user, 2);
+    assertThat(rows.get(0).id()).isEqualTo(needsReply);
+  }
+
+  /**
    * #474: countNeedsReply — aiNeedsReply=true AND seen=false AND INBOX 만 집계한다.
    * pending(null)/false 및 읽은(seen=true) 메시지는 제외된다.
    */
