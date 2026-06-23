@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runMessagingClassify, messagingClassifyInput } from '../agent/run-messaging-ai.js';
+import { runMessagingCatchup, messagingCatchupInput } from '../agent/run-messaging-catchup.js';
 
 // 공통 assistant 설정 필드 — mail.ts 의 baseConfig 와 동일.
 const baseConfig = {
@@ -14,6 +15,7 @@ const baseConfig = {
 };
 
 export const classifySchema = messagingClassifyInput.extend(baseConfig);
+export const catchupSchema = messagingCatchupInput.extend(baseConfig);
 
 // 공통 핸들러 팩토리 — zod 검증 → 러너 호출 → 400/200/502 응답. mail.ts 미러.
 function handler<T>(
@@ -43,6 +45,9 @@ export function createMessagingRouter(deps: RunAgentDeps): Router {
 
   // 메시징 분류: 안읽은 채널 메시지 배치 → 암묵적 관련 멤버 목록 반환.
   router.post('/messaging/classify', handler(classifySchema, runMessagingClassify, deps, 'messaging-classify'));
+
+  // 메시징 캐치업: 안읽은 메시지 → 구조화 요약 (결정/오간이야기).
+  router.post('/messaging/catchup', handler(catchupSchema, runMessagingCatchup, deps, 'messaging-catchup'));
 
   return router;
 }

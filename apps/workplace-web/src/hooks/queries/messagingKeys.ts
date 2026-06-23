@@ -11,4 +11,6 @@ export const messagingKeys = {
   dms: () => [...messagingKeys.all, 'dms'] as const,
   threadsInbox: () => [...messagingKeys.all, 'threads-inbox'] as const,
   threadsInboxUnreadCount: () => [...messagingKeys.all, 'threads-inbox-unread'] as const,
+  catchup: (channelId: number, since: number) =>
+    [...messagingKeys.all, 'catchup', channelId, since] as const,
 };

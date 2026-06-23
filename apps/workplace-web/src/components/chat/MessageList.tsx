@@ -44,9 +44,11 @@ interface MessageListProps {
   emptyState?: React.ReactNode
   // 이 메시지 id 바로 앞에 "여기까지 읽음" 구분선을 그린다. null/미전달이면 안 그림.
   unreadDividerBeforeId?: number | null
+  // 캐치업 카드 슬롯. 구분선 위치에 같이 렌더(구분선이 로드뷰 밖이면 목록 상단). 미전달이면 안 그림.
+  catchupSlot?: React.ReactNode
 }
 
-export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId }: MessageListProps) {
+export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot }: MessageListProps) {
   // 페이지는 DESC 로 쌓이므로 화면에는 ASC(오래된 위)로 뒤집어 보여준다.
   const ordered = [...messages].reverse()
   // 현재 인라인 수정 중인 메시지 id (한 번에 하나).
@@ -77,6 +79,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   return (
     <div className="flex flex-col gap-2 p-4" data-testid="message-list">
       {ordered.length === 0 && emptyState}
+      {/* 구분선이 로드된 메시지 범위 밖(전부 미읽음)일 땐 카드를 목록 상단에 렌더. */}
+      {catchupSlot != null && unreadDividerBeforeId == null && catchupSlot}
       {ordered.map((m, idx) => {
         const isPending = m.id < 0
         // 본인 메시지 여부 — 편집/삭제 권한 판정용. (정렬은 Slack식 균일 좌측이라 본인/타인 구분 없음.)
@@ -95,7 +99,12 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
         return (
           <Fragment key={m.id}>
             {showDateDivider && <DateDivider date={m.createdAt} />}
-            {unreadDividerBeforeId != null && m.id === unreadDividerBeforeId && <UnreadDivider />}
+            {unreadDividerBeforeId != null && m.id === unreadDividerBeforeId && (
+              <>
+                <UnreadDivider />
+                {catchupSlot}
+              </>
+            )}
             <div
               ref={isLast ? lastRef : undefined}
               data-testid={`message-${m.id}`}

@@ -998,8 +998,8 @@ public class GlobalExceptionHandler {
   }
 
   /**
-   * #50 — 홈 채팅 불가(ai-agent 연동 비활성 또는 컴포저 AGENT 미설정) → 503 + 사유 메시지 노출. 캐치올(500)보다 우선 매칭되어
-   * 사용자에게 명확·실행가능한 메시지를 전달한다.
+   * #50 — 홈 채팅 불가(ai-agent 연동 비활성 또는 컴포저 AGENT 미설정) → 503 + 사유 메시지 노출. 캐치올(500)보다 우선 매칭되어 사용자에게
+   * 명확·실행가능한 메시지를 전달한다.
    */
   @ExceptionHandler(HomeChatUnavailableException.class)
   public ResponseEntity<ErrorResponse> handleHomeChatUnavailable(
@@ -1021,6 +1021,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(AiAgentComposeException.class)
   public ResponseEntity<ErrorResponse> handleAiAgentCompose(
       AiAgentComposeException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
+  }
+
+  /** AI 메시징(분류·캐치업) 호출 실패 → 502(캐치올 500 으로 뭉개지지 않도록 사유 메시지 노출). */
+  @ExceptionHandler(com.workplace.messaging.exception.MessagingAiException.class)
+  public ResponseEntity<ErrorResponse> handleMessagingAi(
+      com.workplace.messaging.exception.MessagingAiException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
         .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
   }

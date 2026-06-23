@@ -145,3 +145,21 @@ export interface ChannelDriveSpaceResponse {
   spaceId: number
   archived: boolean
 }
+
+export interface CatchupGroup {
+  text: string
+  sourceMessageIds: number[]
+}
+
+export interface CatchupMention {
+  messageId: number
+  authorName: string
+  snippet: string
+}
+
+export interface ChannelCatchupResponse {
+  unreadCount: number
+  decisions: CatchupGroup[]
+  yourTurn: CatchupMention[]
+  discussion: CatchupGroup[]
+}

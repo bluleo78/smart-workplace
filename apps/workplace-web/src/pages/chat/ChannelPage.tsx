@@ -1,11 +1,12 @@
 // 채널 메시지 뷰 — 헤더 + 히스토리 + 실시간 + optimistic 전송. 비공개 비멤버는 404 → 채널 없음.
 // Phase 5: 우측 스레드 패널(ThreadPanel) — openThreadId state 로 토글.
 // A9: AI 에이전트 작업 중 유령 버블 — onMessagingProgress 구독으로 채널별 진행 상태 렌더.
-import { Hash } from 'lucide-react'
+import { Hash, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
+import { ChannelCatchupCard } from '@/components/chat/ChannelCatchupCard'
 import { ChannelHeader } from '@/components/chat/ChannelHeader'
 import { ChannelMembersPanel } from '@/components/chat/ChannelMembersPanel'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
@@ -16,13 +17,16 @@ import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
+import { useChannelCatchup } from '@/hooks/queries/useChannelCatchup'
 import { useChannelDetail } from '@/hooks/queries/useChannelDetail'
 import { useChannelMembers } from '@/hooks/queries/useChannelMembers'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
+import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useAuth } from '@/hooks/useAuth'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
+import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { firstUnreadMessageId } from '@/lib/unreadBoundary'
 import type { MessageResponse, UserKind } from '@/types/messaging'
 
@@ -128,6 +132,62 @@ export default function ChannelPage() {
   // ChannelPage 는 detail.data 가 있을 때만 본문 렌더(아래 early-return 보장)하므로 여기선 항상 non-null.
   const unreadDividerBeforeId = firstUnreadMessageId(messages, detail.data?.lastReadMessageId ?? null)
 
+  // 캐치업 카드 — 진입 시 미읽음을 AI가 요약. 구분선과 같은 진입-고정 watermark(detail.lastReadMessageId) 사용.
+  const watermark = detail.data?.lastReadMessageId ?? null
+  // 로드된 메시지 중 watermark 초과 미삭제 = 미읽음 카운트(자동 임계 게이트용). 첫 페이지로 ≥5 판별 충분.
+  const unreadCount =
+    watermark != null ? messages.filter((m) => m.id > watermark && !m.deleted).length : 0
+  const [catchupManual, setCatchupManual] = useState(false)
+  const [catchupDismissed, setCatchupDismissed] = useState(false)
+  // 채널 전환 시 카드 상태 리셋(이전 채널의 트리거/닫힘이 새 채널로 새지 않도록).
+  useEffect(() => {
+    setCatchupManual(false)
+    setCatchupDismissed(false)
+  }, [channelId])
+
+  const showCatchupCard =
+    !catchupDismissed && watermark != null && (shouldAutoShowCatchup(unreadCount) || catchupManual)
+  const showCatchupButton =
+    !catchupDismissed && !showCatchupCard && watermark != null && unreadCount >= 1 && unreadCount <= 4
+  const catchup = useChannelCatchup(channelId, watermark, showCatchupCard)
+  const markReadFromCatchup = useMarkMessageRead(channelId)
+
+  // 근거/내차례 "원문 보기" → 해당 메시지로 스크롤(메시지 래퍼의 data-testid 앵커).
+  const jumpToMessage = (messageId: number) => {
+    document
+      .querySelector(`[data-testid="message-${messageId}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+  // "확인했어요 → 최신으로" = 최신까지 읽음 처리 + 카드 닫기 + 맨 아래로 점프.
+  const confirmCatchup = () => {
+    const latest = messages.reduce((mx, m) => (m.id > mx ? m.id : mx), 0)
+    if (latest > 0) markReadFromCatchup(latest)
+    setCatchupDismissed(true)
+    if (latest > 0) jumpToMessage(latest)
+  }
+
+  const catchupSlot = showCatchupCard ? (
+    <ChannelCatchupCard
+      data={catchup.data}
+      isLoading={catchup.isLoading}
+      isError={catchup.isError}
+      onConfirm={confirmCatchup}
+      onClose={() => setCatchupDismissed(true)}
+      onJumpToMessage={jumpToMessage}
+    />
+  ) : showCatchupButton ? (
+    <div className="mx-4 my-2">
+      <button
+        type="button"
+        data-testid="catchup-summarize-btn"
+        onClick={() => setCatchupManual(true)}
+        className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[12px] font-medium text-indigo-700 hover:bg-indigo-100"
+      >
+        <Sparkles className="h-3.5 w-3.5" /> 놓친 대화 ✨요약
+      </button>
+    </div>
+  ) : null
+
   // user 가 없으면 작성 비활성 대비 기본값. 정상 흐름에선 ProtectedRoute 가 user 를 보장한다.
   const me = user
     ? { id: user.id, name: user.name, kind: (user.kind ?? 'HUMAN') as UserKind }
@@ -172,6 +232,7 @@ export default function ChannelPage() {
             members={mentionMembers}
             onOpenThread={setOpenThreadId}
             unreadDividerBeforeId={unreadDividerBeforeId}
+            catchupSlot={catchupSlot}
             emptyState={
               data ? (
                 <ChatEmptyState

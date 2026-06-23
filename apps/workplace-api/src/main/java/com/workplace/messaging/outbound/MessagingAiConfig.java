@@ -31,4 +31,19 @@ public class MessagingAiConfig {
     var builder = RestClient.builder().baseUrl(props.baseUrl()).requestFactory(factory);
     return new AiAgentMessagingClient(builder, props.internalToken());
   }
+
+  /**
+   * 캐치업 요약 클라이언트 — 메시징 분류와 동일한 타임아웃 정책(connect 5s / read 90s).
+   * 미읽은 메시지를 구조화 요약으로 변환하는 ai-agent /messaging/catchup 호출.
+   */
+  @Bean
+  public AiAgentCatchupClient aiAgentCatchupClient(AiAgentProperties props) {
+    var settings =
+        ClientHttpRequestFactorySettings.defaults()
+            .withConnectTimeout(Duration.ofSeconds(5))
+            .withReadTimeout(Duration.ofSeconds(90));
+    var factory = ClientHttpRequestFactoryBuilder.detect().build(settings);
+    var builder = RestClient.builder().baseUrl(props.baseUrl()).requestFactory(factory);
+    return new AiAgentCatchupClient(builder, props.internalToken());
+  }
 }

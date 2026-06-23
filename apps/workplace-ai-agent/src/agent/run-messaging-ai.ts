@@ -27,7 +27,7 @@ const MESSAGING_CLASSIFY_PROMPT =
   '관련된 멤버만 JSON 으로: {"relevant":[{"userId":<id>,"reason":"<왜 한 문장>"}]}. 없으면 {"relevant":[]}.';
 
 // 공통 텍스트 러너 — 토큰 fetch → 임시 MCP config → CLI 단발 실행 → 최종 텍스트. run-mail-ai.ts 미러.
-async function runText(
+export async function runText(
   systemPrompt: string,
   userMessage: string,
   cfg: BaseConfig,
