@@ -27,15 +27,17 @@ export async function getSyncStatus(accountId: number): Promise<MailSyncStatus> 
   return data;
 }
 
-/** 계정의 메시지 목록(폴더 스코프, 최신순, 선택 검색어). */
+/** 계정의 메시지 목록(폴더 스코프, 최신순, 선택 검색어, 선택 unread 필터). */
 export async function listMessages(
   accountId: number,
   folder: MailFolder,
   query?: string,
+  unread?: boolean,
 ): Promise<EmailMessageSummary[]> {
   const { data } = await client.get<EmailMessageSummary[]>(
     `/mail/accounts/${accountId}/messages`,
-    { params: { folder, ...(query ? { query } : {}) } },
+    // #469: unread=true 면 안 읽은 메일만(API 의 unread 필터로 전달).
+    { params: { folder, ...(query ? { query } : {}), ...(unread ? { unread: true } : {}) } },
   );
   return data;
 }

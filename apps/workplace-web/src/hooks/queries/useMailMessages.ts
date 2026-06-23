@@ -9,22 +9,24 @@ import { handleApiError } from '../../lib/api-error';
 import type { EmailMessageSummary, MailFolder, MailSendRequest } from '../../types/mailMessage';
 
 export const mailMessageKeys = {
-  list: (accountId: number, folder: MailFolder, query: string) =>
-    ['mail-messages', accountId, folder, query] as const,
+  // #469: unread 필터를 캐시 키에 포함(읽음 목록과 안읽음 목록 캐시 분리).
+  list: (accountId: number, folder: MailFolder, query: string, unread = false) =>
+    ['mail-messages', accountId, folder, query, unread] as const,
   detail: (messageId: number) => ['mail-message', messageId] as const,
   summary: (messageId: number) => ['mail-summary', messageId] as const,
   syncStatus: (accountId: number) => ['mail-sync-status', accountId] as const,
 };
 
-/** 계정의 메시지 목록(폴더·검색어). accountId 가 없으면 비활성. */
+/** 계정의 메시지 목록(폴더·검색어·선택 unread 필터). accountId 가 없으면 비활성. */
 export function useMailMessages(
   accountId: number | undefined,
   folder: MailFolder,
   query: string,
+  unread = false,
 ) {
   return useQuery({
-    queryKey: mailMessageKeys.list(accountId ?? 0, folder, query),
-    queryFn: () => listMessages(accountId as number, folder, query || undefined),
+    queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread),
+    queryFn: () => listMessages(accountId as number, folder, query || undefined, unread),
     enabled: !!accountId,
   });
 }

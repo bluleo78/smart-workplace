@@ -207,6 +207,15 @@ describe('buildTools(assistant) union (M3: 멤버십 단언)', () => {
     expect(names).toContain('show_mail_list');
   });
 
+  // #469: 안 읽은 메일 위젯 — show_mail_list 가 params.unreadOnly 를 허용해야 한다.
+  it('#469 show_mail_list 가 params.unreadOnly 를 허용한다', () => {
+    const tool = buildTools({} as never, 1, 'assistant').find((t) => t.name === 'show_mail_list')!;
+    const parsed = tool.inputSchema.parse({ params: { folder: 'INBOX', unreadOnly: true } }) as {
+      params: { unreadOnly?: boolean };
+    };
+    expect(parsed.params.unreadOnly).toBe(true);
+  });
+
   // #371: 이슈 목록 데이터 조회 도구 list_issues 를 새로 노출한다(기존 "데이터 issue-list 도구 없음" 경계 해제).
   // 단, 전문(full-text) search_issues 는 여전히 별도로 제공하지 않는다.
   it('#371 list_issues 를 노출한다', () => {

@@ -237,6 +237,8 @@ const showMailListInput = z.object({
       accountId: z.number().int().positive().optional(),
       folder: z.string().optional(),
       query: z.string().optional(),
+      // #469: true 면 안 읽은 메일만 표시. "안 읽은 메일" 목록 요청에 사용(query 검색어 대신).
+      unreadOnly: z.boolean().optional(),
       limit: z.number().int().positive().optional(),
     })
     .optional(),
@@ -461,7 +463,7 @@ export function buildTools(
         // #431: 메일 목록 단순 조회는 mail-agent 위임(표 텍스트 생성, 느림) 대신 이 위젯으로 직접 표시.
         name: 'show_mail_list',
         description:
-          '받은편지함 등 메일 목록을 화면에 표시합니다. folder(기본 INBOX)·query·limit(기본 20)로 좁힙니다. 단순 목록 조회 전용 — 요약·검색·발송·특정 메일 작업은 mail-agent 에 위임하세요.',
+          '받은편지함 등 메일 목록을 화면에 표시합니다. folder(기본 INBOX)·query·limit(기본 20)로 좁힙니다. 안 읽은 메일만 표시하려면 query 에 "is:unread" 같은 검색어를 쓰지 말고 params.unreadOnly:true 를 사용하세요. 단순 목록 조회 전용 — 요약·검색·발송·특정 메일 작업은 mail-agent 에 위임하세요.',
         inputSchema: showMailListInput,
         handler: displayed,
       },

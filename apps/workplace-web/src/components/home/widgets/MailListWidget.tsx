@@ -25,18 +25,20 @@ function shortDate(iso: string | null): string {
 /**
  * #431: 메일 목록 위젯 — show_mail_list 위젯 지시를 받아 받은편지함 목록을 표시한다.
  * LLM 이 20행 마크다운 표를 토큰으로 생성하던 비용(약 2,500토큰/50초)을 클라이언트 렌더로 대체.
- * params: { accountId?, folder?, query?, limit? }. accountId 미지정 시 첫 계정을 기본으로 해석한다.
+ * params: { accountId?, folder?, query?, unreadOnly?, limit? }. accountId 미지정 시 첫 계정을 기본으로 해석한다.
  */
 export default function MailListWidget({ params }: { params?: Record<string, unknown> }) {
   const folder = ((params?.folder as string) || 'INBOX') as MailFolder;
   const query = (params?.query as string) || '';
+  // #469: unreadOnly=true 면 안 읽은 메일만 표시(AI 가 "안 읽은 메일" 위젯 요청 시 사용).
+  const unreadOnly = params?.unreadOnly === true;
   const limit = typeof params?.limit === 'number' ? params.limit : 20;
 
   const accounts = useMailAccounts();
   // accountId 가 지정되면 그대로, 아니면 첫 계정. 계정 로딩 전엔 undefined(목록 쿼리 비활성).
   const accountId =
     (params?.accountId as number | undefined) ?? accounts.data?.[0]?.id ?? undefined;
-  const messages = useMailMessages(accountId, folder, query);
+  const messages = useMailMessages(accountId, folder, query, unreadOnly);
 
   const title = folder === 'SENT' ? '보낸편지함' : '받은편지함';
 

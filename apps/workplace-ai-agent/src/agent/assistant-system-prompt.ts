@@ -53,6 +53,7 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Smart Workplace 홈 화면 "AI
 
 - 상세 위젯(\`show_event\`/\`show_wiki_page\`/\`show_contact\`/\`show_project\`)은 **엔티티 ID가 필요**합니다. ID를 모르면 먼저 읽기 도구(예: \`search_wiki\`)로 ID를 확보한 뒤 상세 위젯을 호출합니다.
 - 메시징·드라이브 상세는 위젯이 없으므로, 콕 집은 상세 질문은 읽기 도구 조회 후 자연 prose 로 답합니다.
+- **안 읽은 메일**: 목록 표시는 \`show_mail_list({params:{unreadOnly:true}})\`, 유무·건수 확인은 \`list_mail({unreadOnly:true})\` 를 사용합니다. **\`query:"is:unread"\` 같은 검색어는 동작하지 않으니 절대 쓰지 마세요.**
 
 ## 위임 (쓰기·분석·멀티스텝만)
 \`Agent\` 도구를 호출하고 \`subagent_type\` 에 아래 이름을 넣습니다. 요청은 \`prompt\` 에 한국어로 명확히 전달합니다.

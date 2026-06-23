@@ -72,6 +72,59 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     await expect(page.getByTestId('chat-panel')).not.toContainText('| # |');
   });
 
+  test('mail_list 위젯 — params.unreadOnly 가 unread=true 쿼리로 전파(#469)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 1) compose 가 unreadOnly:true 인 mail_list 위젯을 지시("안 읽은 메일" 표시 모사).
+    await page.route(
+      (url) => url.pathname === '/api/v1/ai/chat',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          body:
+            'event: done\ndata: {"sessionId":"s-mail-unread","widgets":[{"type":"mail_list","params":{"folder":"INBOX","unreadOnly":true}}]}\n\n',
+        }),
+    );
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([mailAccount({ id: 1 })]),
+        }),
+    );
+    // 데이터 API 가 unread=true 로 호출돼야 하고, 안 읽은 메일만 반환한다.
+    let listUnread: string | null = null;
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => {
+        listUnread = new URL(route.request().url()).searchParams.get('unread');
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            summary({ id: 20, subject: '안 읽은 공지', fromName: '캐럴', seen: false }),
+          ]),
+        });
+      },
+    );
+
+    await page.goto('/');
+    await page.getByTestId('chat-launcher').click();
+    await page.getByTestId('chat-input').fill('안 읽은 메일 보여줘');
+    await page.getByRole('button', { name: '보내기' }).click();
+
+    // 출력: 위젯이 안 읽은 메일을 렌더한다.
+    const items = page.getByTestId('maillist-items');
+    await expect(items).toBeVisible();
+    await expect(items).toContainText('안 읽은 공지');
+
+    // 처리: params.unreadOnly → 데이터 API 에 unread=true 로 전파됐는지 검증.
+    expect(listUnread).toBe('true');
+  });
+
   test('issue_list 위젯 — 빈 버블 회귀 방지(show_issue_list done 을 렌더)', async ({
     authenticatedPage: page,
   }) => {
