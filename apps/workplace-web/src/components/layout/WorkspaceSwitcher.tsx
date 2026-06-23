@@ -19,7 +19,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 import type { Membership } from '@/types/auth'
 
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({ expanded = false }: { expanded?: boolean }) {
   const { activeTenant, selectTenant } = useAuth()
   const [options, setOptions] = useState<Membership[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -58,21 +58,25 @@ export function WorkspaceSwitcher() {
               data-testid="workspace-switcher"
               className={cn(
                 'flex w-full items-center gap-2 rounded-md p-2 text-sm transition-colors hover:bg-accent/50',
-                'lg:justify-center',
+                expanded ? 'lg:justify-start' : 'lg:justify-center',
               )}
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground font-semibold">
                 {initial}
               </span>
-              <span className="min-w-0 flex-1 truncate text-left font-semibold lg:hidden">
+              <span
+                className={cn('min-w-0 flex-1 truncate text-left font-semibold', expanded ? '' : 'lg:hidden')}
+              >
                 {activeTenant.tenantName}
               </span>
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
-          {activeTenant.tenantName}
-        </TooltipContent>
+        {!expanded && (
+          <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+            {activeTenant.tenantName}
+          </TooltipContent>
+        )}
       </Tooltip>
       <DropdownMenuContent side="right" align="start" className="w-56">
         <DropdownMenuLabel className="truncate">

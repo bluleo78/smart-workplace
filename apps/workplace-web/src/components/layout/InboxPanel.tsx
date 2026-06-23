@@ -24,7 +24,7 @@ const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   REMINDER: '일정 알림',
 }
 
-export function InboxPanel() {
+export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
   // 오픈 상태는 컨텍스트 공유 — 합성 레이어 '멘션' 셀 등 외부에서도 패널을 열 수 있다.
   const { open, setOpen } = useInboxPanel()
   const navigate = useNavigate()
@@ -54,24 +54,33 @@ export function InboxPanel() {
               type="button"
               aria-label="알림"
               data-testid="inbox-trigger"
-              className="relative flex w-full items-center justify-center rounded-md px-2 py-2.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-            >
-              <Bell className="h-5 w-5" />
-              {unread > 0 && (
-                <span
-                  data-testid="inbox-badge"
-                  className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
-                >
-                  {unread > 99 ? '99+' : unread}
-                </span>
+              className={cn(
+                'relative flex w-full items-center rounded-md px-2 py-2.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground',
+                expanded ? 'lg:justify-start lg:gap-3 lg:px-3' : 'justify-center',
               )}
+            >
+              <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                <Bell className="h-5 w-5" />
+                {unread > 0 && (
+                  <span
+                    data-testid="inbox-badge"
+                    className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
+                  >
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                )}
+              </span>
+              {/* 확장 시 데스크톱에서만 "알림" 라벨 노출. */}
+              {expanded && <span className="hidden text-sm font-medium lg:block">알림</span>}
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
-        {/* 데스크톱 아이콘 레일에서 hover 시 라벨 노출 (nav 링크와 동일 패턴) */}
-        <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
-          알림
-        </TooltipContent>
+        {/* 축소 시에만 hover 툴팁(확장 시엔 라벨이 직접 보임). */}
+        {!expanded && (
+          <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+            알림
+          </TooltipContent>
+        )}
       </Tooltip>
       <PopoverContent side="right" align="end" className="w-80 p-0" data-testid="inbox-panel">
         <div className="flex items-center justify-between border-b px-3 py-2">

@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 
-export function AppRailUserMenu() {
+export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
   const navigate = useNavigate()
   const { resolvedTheme, setTheme } = useTheme()
   const { user, logout } = useAuth()
@@ -39,23 +39,30 @@ export function AppRailUserMenu() {
               data-testid="rail-user-menu"
               className={cn(
                 'flex w-full items-center gap-2 rounded-md p-2 text-sm transition-colors hover:bg-accent/50',
-                'lg:justify-center',
+                expanded ? 'lg:justify-start' : 'lg:justify-center',
               )}
             >
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <UserIcon className="h-4 w-4" />
               </span>
-              {/* 모바일 드로어에서만 이름 노출. 데스크톱 아이콘 레일은 아바타만. */}
-              <span className="min-w-0 flex-1 truncate text-left font-medium lg:hidden">
+              {/* 모바일 드로어에서는 항상, 데스크톱은 확장 시에만 이름 노출. */}
+              <span
+                className={cn(
+                  'min-w-0 flex-1 truncate text-left font-medium',
+                  expanded ? '' : 'lg:hidden',
+                )}
+              >
                 {user?.name ?? user?.username ?? '사용자'}
               </span>
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        {/* 데스크톱 아이콘 레일에서 hover 시 라벨 노출 (nav 링크와 동일 패턴) */}
-        <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
-          내 계정
-        </TooltipContent>
+        {/* 축소 시에만 hover 툴팁(확장 시엔 이름이 직접 보임). */}
+        {!expanded && (
+          <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+            내 계정
+          </TooltipContent>
+        )}
       </Tooltip>
       <DropdownMenuContent side="right" align="start" className="w-48">
         <DropdownMenuLabel className="truncate">
