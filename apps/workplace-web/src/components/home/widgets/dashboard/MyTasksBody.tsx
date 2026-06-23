@@ -3,22 +3,22 @@ import { Link } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMyIssues, useWatchedIssues } from '@/hooks/queries/useHomeQueries'
 import { formatRelativeTime } from '@/lib/formatters'
-import { buildMyTaskRows, dueLabel, type MyTaskBucket } from '@/lib/myTasks'
+import { buildMyTaskRows, dueLabel, type MyTaskBucket, type MyTaskRow } from '@/lib/myTasks'
 
 import { WidgetError } from '../WidgetError'
 
-// 버킷별 행 앞 아이콘 — 위급도를 한눈에. (텍스트 글리프로 토큰 의존 없이 표기)
-const BUCKET_ICON: Record<MyTaskBucket, string> = {
-  due: '⏰',
-  blocked: '🚧',
-  ai_followup: '🤖',
-  mention: '💬',
-  in_progress: '▸',
-  todo: '○',
-  watched: '·',
+// 버킷별 그룹 헤더 라벨 — 위급도 범주를 한 줄로 표시(행은 그룹 아래 정렬).
+const BUCKET_LABEL: Record<MyTaskBucket, string> = {
+  due: '마감 임박',
+  blocked: '막힘',
+  in_progress: '진행 중',
+  todo: '미시작',
+  ai_followup: 'AI 되묻기',
+  mention: '멘션·리뷰',
+  watched: '구독 최근 변동',
 }
 
-/** 내 작업 위젯 본문 — 나를 기다리는 열린 루프를 위급도 순 리스트로, 비면 긍정적 빈 상태로 렌더. */
+/** 내 작업 위젯 본문 — 나를 기다리는 열린 루프를 위급도 그룹 리스트로, 비면 긍정적 빈 상태로 렌더. */
 export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
   const assigned = useMyIssues({ assignee: 'me', size: 50 })
   const watched = useWatchedIssues()
@@ -52,23 +52,57 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
     now,
   )
 
-  // 행별 우측 메타 — 버킷에 따라 마감/대기/진행중/상대시간.
+  // due 버킷 필터용 상한 = 오늘+1(YYYY-MM-DD) — buildMyTaskRows 의 임박 기준과 동일.
+  const dueToDate = new Date(now)
+  dueToDate.setDate(dueToDate.getDate() + 1)
+  const dueToParam = `${dueToDate.getFullYear()}-${String(dueToDate.getMonth() + 1).padStart(2, '0')}-${String(dueToDate.getDate()).padStart(2, '0')}`
+
+  // 버킷 → 필터링된 조회 화면 딥링크. blocked/ai_followup/mention 은 me-탭 필터 배관 미연결이라 링크 없음(후속).
+  function groupLink(bucket: MyTaskBucket): string | undefined {
+    switch (bucket) {
+      case 'due':
+        return `/me/tasks/assigned?dueTo=${dueToParam}`
+      case 'in_progress':
+        return '/me/tasks/assigned?status=IN_PROGRESS'
+      case 'todo':
+        return '/me/tasks/assigned?status=TODO'
+      case 'watched':
+        return '/me/tasks/watched'
+      default:
+        return undefined
+    }
+  }
+
+  // 행별 우측 메타 — 그룹 헤더가 못 담는 "가변" 정보만(마감 D-n, 구독 변동 상대시간).
   function meta(bucket: MyTaskBucket, dueDate: string | null, updatedAt: string) {
     if (bucket === 'due' && dueDate)
       return <span className="shrink-0 text-xs font-semibold text-destructive">{dueLabel(dueDate, now)}</span>
-    if (bucket === 'blocked') return <span className="shrink-0 text-xs text-muted-foreground">대기</span>
-    if (bucket === 'in_progress')
-      return <span className="shrink-0 rounded-full bg-ai-accent/10 px-2 py-0.5 text-[10px] text-ai-accent">진행중</span>
     if (bucket === 'watched')
       return <span className="shrink-0 text-xs text-muted-foreground">{formatRelativeTime(updatedAt)}</span>
     return null
   }
 
+  // rows 는 이미 버킷 순 정렬 — 연속 동일 버킷을 그룹으로 묶는다.
+  const groups: { bucket: MyTaskBucket; rows: MyTaskRow[] }[] = []
+  for (const row of result.rows) {
+    const last = groups[groups.length - 1]
+    if (last && last.bucket === row.bucket) last.rows.push(row)
+    else groups.push({ bucket: row.bucket, rows: [row] })
+  }
+
   return (
     <div data-testid="dash-mytasks">
-      {/* 헤더 부제 — 기다리는 건수 또는 구독 총량 (형제 위젯과 동일한 mb-2 text-sm) */}
+      {/* 헤더 부제 — 기다리는 건수(→할당) 또는 구독 총량(→구독). 숫자 자체가 필터 조회로 가는 링크. */}
       <div className="mb-2 text-sm text-muted-foreground">
-        {result.isEmpty ? `구독 중 ${result.watchedTotal}건` : `${result.waitingCount}건이 나를 기다림`}
+        {result.isEmpty ? (
+          <Link to="/me/tasks/watched" className="hover:text-ai-accent hover:underline">
+            구독 중 {result.watchedTotal}건
+          </Link>
+        ) : (
+          <Link to="/me/tasks/assigned" className="hover:text-ai-accent hover:underline">
+            {result.waitingCount}건이 나를 기다림
+          </Link>
+        )}
       </div>
 
       {result.isEmpty ? (
@@ -88,26 +122,44 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
         </div>
       ) : (
         <>
-          <ul className="space-y-0.5">
-            {result.rows.map(({ issue, bucket }) => (
-              <li key={issue.id}>
-                <Link
-                  to={`/projects/${issue.projectKey}/issues/${issue.number}`}
-                  aria-label={`이슈 열기: ${issue.title}`}
-                  className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  <span aria-hidden className="w-4 shrink-0 text-center text-xs">
-                    {BUCKET_ICON[bucket]}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {issue.projectKey}-{issue.number}
-                  </span>
-                  <span className="flex-1 truncate">{issue.title}</span>
-                  {meta(bucket, issue.dueDate, issue.updatedAt)}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {groups.map((group) => {
+            const to = groupLink(group.bucket)
+            const label = BUCKET_LABEL[group.bucket]
+            return (
+              <div key={group.bucket} className="mb-1.5 last:mb-0">
+                {/* 그룹 헤더 — 링크면 해당 범주의 필터링된 조회 화면으로 이동. */}
+                <div className="mb-0.5 px-1">
+                  {to ? (
+                    <Link
+                      to={to}
+                      className="text-xs font-medium text-muted-foreground hover:text-ai-accent hover:underline"
+                    >
+                      {label} →
+                    </Link>
+                  ) : (
+                    <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                  )}
+                </div>
+                <ul className="space-y-0.5">
+                  {group.rows.map(({ issue, bucket }) => (
+                    <li key={issue.id}>
+                      <Link
+                        to={`/projects/${issue.projectKey}/issues/${issue.number}`}
+                        aria-label={`이슈 열기: ${issue.title}`}
+                        className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      >
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {issue.projectKey}-{issue.number}
+                        </span>
+                        <span className="flex-1 truncate">{issue.title}</span>
+                        {meta(bucket, issue.dueDate, issue.updatedAt)}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })}
           <Link to="/me/tasks/assigned" className="mt-2 inline-block px-1 py-1 text-xs text-ai-accent hover:underline">
             전체 보기 →
           </Link>

@@ -45,12 +45,31 @@ test(
     await expect(rows.nth(0)).toContainText('마감 임박 작업')
     await expect(rows.nth(1)).toContainText('막힌 작업')
     await expect(rows.nth(2)).toContainText('진행중 작업')
-    await expect(w).toContainText('오늘') // 마감 메타
-    await expect(w).toContainText('대기') // blocked 메타
-    await expect(w).toContainText('진행중') // in_progress 메타
+    await expect(w).toContainText('오늘') // 마감 D-n 메타(가변, 유지)
+    await expect(w).toContainText('마감 임박') // due 그룹 헤더
+    await expect(w).toContainText('막힘') // blocked 그룹 헤더
+    await expect(w).toContainText('진행 중') // in_progress 그룹 헤더
     await expect(w).toContainText('3건이 나를 기다림')
   },
 )
+
+test('그룹 헤더 클릭 시 필터링된 조회 화면으로 이동한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockTasks(
+    page,
+    [
+      createIssue({ id: 1, number: 1, title: '진행 작업', status: 'IN_PROGRESS' }),
+      createIssue({ id: 2, number: 2, title: '미시작 작업', status: 'TODO' }),
+    ],
+    [],
+  )
+  await page.goto('/')
+  const w = page.getByTestId('dash-mytasks')
+  // "진행 중" 그룹 헤더 → 진행중 필터가 걸린 할당 탭으로.
+  await w.getByRole('link', { name: '진행 중 →' }).click()
+  await expect(page).toHaveURL(/\/me\/tasks\/assigned\?status=IN_PROGRESS/)
+})
 
 test('여러 버킷에 해당하는 이슈는 한 번만 렌더된다', async ({
   authenticatedPage: page,
