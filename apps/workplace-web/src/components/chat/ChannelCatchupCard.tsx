@@ -2,6 +2,9 @@ import { Sparkles, X } from 'lucide-react'
 
 import type { ChannelCatchupResponse } from '@/types/messaging'
 
+// 내차례 표시 상한 — 1:1 DM 등에서 폭주 방지. 초과분은 "+N건 더"로 고지.
+const YOUR_TURN_MAX = 3
+
 interface Props {
   data?: ChannelCatchupResponse
   isLoading: boolean
@@ -85,7 +88,7 @@ export function ChannelCatchupCard({
             <section className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
               <div className="mb-1.5 text-[11px] font-bold text-amber-700">📌 내 차례</div>
               <ul className="flex flex-col gap-1.5">
-                {data.yourTurn.map((m) => (
+                {data.yourTurn.slice(0, YOUR_TURN_MAX).map((m) => (
                   <li key={m.messageId} className="text-[13px] leading-relaxed text-foreground">
                     <b>{m.authorName}</b>님이 회신을 기다려요 — “{m.snippet}”
                     <button
@@ -98,6 +101,14 @@ export function ChannelCatchupCard({
                   </li>
                 ))}
               </ul>
+              {data.yourTurn.length > YOUR_TURN_MAX && (
+                <div
+                  className="mt-1 text-[11px] text-amber-700/80"
+                  data-testid="catchup-yourturn-more"
+                >
+                  +{data.yourTurn.length - YOUR_TURN_MAX}건 더
+                </div>
+              )}
             </section>
           )}
 

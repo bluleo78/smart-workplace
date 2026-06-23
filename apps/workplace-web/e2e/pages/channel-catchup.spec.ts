@@ -139,6 +139,34 @@ test.describe('채널 캐치업 카드', () => {
     await expect(page.getByTestId('message-list')).toBeVisible();
   });
 
+  test('내 차례가 3건을 넘으면 3건만 보이고 "+N건 더" 표기', async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: CHANNEL_ID, member: true, lastReadMessageId: 100 });
+    await setupChannelStubs(page, channel);
+    await stubMessages(page, readPlusUnread(6));
+    const yourTurn = Array.from({ length: 4 }, (_, i) => ({
+      messageId: 101 + i,
+      authorName: `사람${i + 1}`,
+      snippet: `요청 ${i + 1}`,
+    }));
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/catchup`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ unreadCount: 6, decisions: [], yourTurn, discussion: [] }),
+        }),
+    );
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`);
+
+    await expect(page.getByTestId('catchup-card')).toBeVisible();
+    await expect(page.getByText('요청 1')).toBeVisible();
+    await expect(page.getByText('요청 3')).toBeVisible();
+    await expect(page.getByText('요청 4')).toHaveCount(0);
+    await expect(page.getByTestId('catchup-yourturn-more')).toHaveText('+1건 더');
+  });
+
   test('"확인했어요" 클릭 시 읽음 처리(POST /read) 호출 + 카드 사라짐', async ({ authenticatedPage: page }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true, lastReadMessageId: 100 });
     await setupChannelStubs(page, channel);

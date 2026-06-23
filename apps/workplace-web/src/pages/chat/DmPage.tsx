@@ -1,11 +1,12 @@
 // DM 메시지 뷰 — 기존 메시지 컴포넌트 재사용(DM 채널 id). 헤더는 참여자 기반.
 // #345: DM 도 채널이므로 백엔드가 AI 진행 progress 를 fan-out 한다 → ChannelPage 와 동일하게
 // onMessagingProgress 를 구독해 작업 중 유령 버블을 렌더(dm.id 기준).
-import { MessageSquare } from 'lucide-react'
+import { MessageSquare, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
+import { ChannelCatchupCard } from '@/components/chat/ChannelCatchupCard'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
@@ -13,19 +14,24 @@ import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
+import { useChannelCatchup } from '@/hooks/queries/useChannelCatchup'
+import { useChannelDetail } from '@/hooks/queries/useChannelDetail'
 import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
+import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useAuth } from '@/hooks/useAuth'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
+import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { dmDisplayName } from '@/lib/dm'
+import { firstUnreadMessageId } from '@/lib/unreadBoundary'
 import type { DmResponse, UserKind } from '@/types/messaging'
 
 // DM 빈 상태 설명 — self/1:1/그룹 분기.
 function dmEmptyDescription(dm: DmResponse, myId: number): string {
   const others = dm.participants.filter((p) => p.userId !== myId)
   if (others.length === 0) return '나에게만 보이는 공간입니다. 메모·링크·할 일을 남겨보세요.'
-  if (others.length === 1) return `${others[0].name} 님과의 다이렉트 메시지 시작입니다.`
+  if (others.length === 1) return `${others[0].name} 님과의 메시지 시작입니다.`
   // 그룹은 쉼표로 묶인 이름 리스트라 "님" 경어 대신 자연스러운 그룹 문구로.
   return `${others.map((p) => p.name).join(', ')} 님과 함께하는 그룹 대화의 시작입니다.`
 }
@@ -97,6 +103,61 @@ export default function DmPage() {
     return () => clearInterval(t)
   }, [])
 
+  // ── 캐치업(L1) 배선 — ChannelPage 와 동일 로직, dmId 기준. DM 도 채널이므로 watermark·요약 API 재사용.
+  const detail = useChannelDetail(dmId)
+  const watermark = detail.data?.lastReadMessageId ?? null
+  const unreadDividerBeforeId = firstUnreadMessageId(messages, watermark)
+  // 로드된 메시지 중 watermark 초과 미삭제 = 미읽음 카운트(자동 임계 게이트).
+  const unreadCount =
+    watermark != null ? messages.filter((m) => m.id > watermark && !m.deleted).length : 0
+  const [catchupManual, setCatchupManual] = useState(false)
+  const [catchupDismissed, setCatchupDismissed] = useState(false)
+  // DM 전환 시 카드 상태 리셋(이전 DM 의 트리거/닫힘이 새 DM 으로 새지 않도록).
+  useEffect(() => {
+    setCatchupManual(false)
+    setCatchupDismissed(false)
+  }, [dmId])
+  const showCatchupCard =
+    !catchupDismissed && watermark != null && (shouldAutoShowCatchup(unreadCount) || catchupManual)
+  const showCatchupButton =
+    !catchupDismissed && !showCatchupCard && watermark != null && unreadCount >= 1 && unreadCount <= 4
+  const catchup = useChannelCatchup(dmId, watermark, showCatchupCard)
+  const markReadFromCatchup = useMarkMessageRead(dmId)
+  // 근거/내차례 "원문 보기" → 해당 메시지로 스크롤(메시지 래퍼의 data-testid 앵커).
+  const jumpToMessage = (messageId: number) => {
+    document
+      .querySelector(`[data-testid="message-${messageId}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+  // "확인했어요 → 최신으로" = 최신까지 읽음 처리 + 카드 닫기 + 맨 아래로 점프.
+  const confirmCatchup = () => {
+    const latest = messages.reduce((mx, m) => (m.id > mx ? m.id : mx), 0)
+    if (latest > 0) markReadFromCatchup(latest)
+    setCatchupDismissed(true)
+    if (latest > 0) jumpToMessage(latest)
+  }
+  const catchupSlot = showCatchupCard ? (
+    <ChannelCatchupCard
+      data={catchup.data}
+      isLoading={catchup.isLoading}
+      isError={catchup.isError}
+      onConfirm={confirmCatchup}
+      onClose={() => setCatchupDismissed(true)}
+      onJumpToMessage={jumpToMessage}
+    />
+  ) : showCatchupButton ? (
+    <div className="mx-4 my-2">
+      <button
+        type="button"
+        data-testid="catchup-summarize-btn"
+        onClick={() => setCatchupManual(true)}
+        className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[12px] font-medium text-indigo-700 hover:bg-indigo-100"
+      >
+        <Sparkles className="h-3.5 w-3.5" /> 놓친 대화 ✨요약
+      </button>
+    </div>
+  ) : null
+
   // user 가 없으면 기본값. 정상 흐름에선 ProtectedRoute 가 user 를 보장한다.
   const me = user
     ? { id: user.id, name: user.name, kind: (user.kind ?? 'HUMAN') as UserKind }
@@ -145,12 +206,17 @@ export default function DmPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <DmHeader dm={dm} currentUserId={me.id} />
-      <MessageScrollArea depKey={`${messages.length}:${messages[0]?.id ?? 0}`}>
+      <MessageScrollArea
+        depKey={`${messages.length}:${messages[0]?.id ?? 0}`}
+        initialAnchorId={unreadDividerBeforeId != null ? 'unread-divider' : undefined}
+      >
         <MessageList
           messages={messages}
           channelId={dm.id}
           currentUserId={me.id}
           members={mentionMembers}
+          unreadDividerBeforeId={unreadDividerBeforeId}
+          catchupSlot={catchupSlot}
           emptyState={
             data ? (
               <ChatEmptyState

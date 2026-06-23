@@ -50,11 +50,13 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
 
   private long callerA;
   private long userB;
+  private long userC;
 
   @BeforeEach
   void seedUsers() {
     callerA = seedUser("a");
     userB = seedUser("b");
+    userC = seedUser("c");
   }
 
   /** 고유 사용자 시드 헬퍼. */
@@ -70,12 +72,26 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
         .getId();
   }
 
-  /** 채널 생성 + callerA·userB 가입. 채널 id 반환. */
+  /** 채널 생성 + callerA·userB·userC 가입(3인 그룹 — 멘션 규칙 적용). 채널 id 반환. */
   private long seedChannelWithMembers() {
     long c = channelRepo.insertPublic("catchup-" + UUID.randomUUID(), userB);
     channelService.join(userB, c);
     channelService.join(callerA, c);
+    channelService.join(userC, c);
     return c;
+  }
+
+  /** 2인 채널(callerA·userB) — 1:1 DM 규칙(상대 발화=내 차례) 검증용. */
+  private long seedTwoMemberChannel() {
+    long c = channelRepo.insertPublic("catchup-dm-" + UUID.randomUUID(), userB);
+    channelService.join(userB, c);
+    channelService.join(callerA, c);
+    return c;
+  }
+
+  /** callerA 가 채널에 메시지 작성. 메시지 id 반환. */
+  private long postByA(long channelId, String body) {
+    return messageService.create(callerA, channelId, new CreateMessageRequest(body)).id();
   }
 
   /** userB 가 채널에 메시지 작성. mentionUserId 가 있으면 그 사람을 멘션. 메시지 id 반환. */
@@ -200,6 +216,38 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
     // isMember 가 RLS fail-closed(0행) → 비멤버 취급 → 403.
     assertThatThrownBy(() -> service.summarize(callerA, foreignChannel, 0))
         .isInstanceOf(ResponseStatusException.class);
+  }
+
+  @Test
+  void 이인대화는_상대_발화_전부가_내차례() {
+    long channelId = seedTwoMemberChannel();
+    long m1 = postByB(channelId, "안녕 확인 좀", null);
+    long m2 = postByB(channelId, "이것도 봐줘", null);
+    long since = m1 - 1;
+
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    var res = service.summarize(callerA, channelId, since);
+
+    // 멘션이 없어도 2인 대화이므로 상대(userB) 발화 전부가 내 차례.
+    assertThat(res.yourTurn()).extracting("messageId").containsExactly(m1, m2);
+  }
+
+  @Test
+  void 이인대화에서_내가_보낸건_내차례_아님() {
+    long channelId = seedTwoMemberChannel();
+    long mB = postByB(channelId, "상대 발화", null);
+    long mA = postByA(channelId, "내 발화");
+    long since = mB - 1;
+
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    var res = service.summarize(callerA, channelId, since);
+
+    // 내가 보낸 mA 는 제외, 상대 mB 만.
+    assertThat(res.yourTurn()).extracting("messageId").containsExactly(mB);
   }
 
   /** 트랜잭션-로컬 GUC 설정(true = 현재 tx 안에서만 유효, 롤백 시 사라짐). */

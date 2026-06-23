@@ -139,7 +139,7 @@ export function ChannelSidebar() {
         {/* DM 섹션 헤더 — 내 DM 목록 + 새 메시지 버튼. */}
         <div className="mt-5 flex items-center justify-between px-3">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            다이렉트 메시지
+            메시지
           </span>
           <Button
             size="icon"

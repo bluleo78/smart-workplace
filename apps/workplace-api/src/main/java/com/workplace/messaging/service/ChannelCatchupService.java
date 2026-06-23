@@ -53,10 +53,15 @@ public class ChannelCatchupService {
       return new ChannelCatchupResponse(0, List.of(), List.of(), List.of());
     }
 
-    // 📌 내 차례 = 나를 멘션한 미읽음(결정론적 규칙, AI 무관).
+    // 멤버 수 — 2인 대화(1:1 DM/2인 채널)는 상대 발화 전부가 내 차례.
+    int memberCount = memberRepo.countMembers(channelId);
+    // 📌 내 차례 = 나를 멘션한 미읽음 OR (2인 대화에서 상대가 보낸 미읽음). 결정론적 규칙, AI 무관.
     List<MentionItem> yourTurn =
         unread.stream()
-            .filter(m -> m.mentions() != null && m.mentions().contains(callerId))
+            .filter(
+                m ->
+                    (m.mentions() != null && m.mentions().contains(callerId))
+                        || (memberCount == 2 && m.authorId() != callerId))
             .map(m -> new MentionItem(m.id(), m.authorName(), snippet(m.body())))
             .toList();
 
