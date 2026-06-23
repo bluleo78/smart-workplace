@@ -93,6 +93,7 @@ function channels(): ChannelResponse[] {
       memberCount: 5,
       unreadCount: 3,
       hasUnreadThreads: false,
+      lastReadMessageId: null,
       createdAt: '2026-06-01T00:00:00Z',
     },
   ]

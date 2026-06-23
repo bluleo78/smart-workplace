@@ -95,6 +95,18 @@ class ChannelRepositoryTest extends IntegrationTestBase {
   }
 
   @Test
+  void findDetail_returnsCallerLastReadWatermark() {
+    long u = seedUser();
+    long ch = channelRepo.insert("워터마크채널", "PUBLIC", u);
+    memberRepo.add(ch, u, "OWNER");
+    // 워터마크를 임의 값으로 전진(GREATEST 갱신).
+    memberRepo.markRead(ch, u, 4242L);
+
+    ChannelResponse detail = channelRepo.findDetail(ch, u).orElseThrow();
+    assertThat(detail.lastReadMessageId()).isEqualTo(4242L);
+  }
+
+  @Test
   void rename_archive_unarchive_hardDelete() {
     long owner = seedUser();
     long ch = channelRepo.insert("원래이름", "PUBLIC", owner);

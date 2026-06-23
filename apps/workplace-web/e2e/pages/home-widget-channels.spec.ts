@@ -17,6 +17,7 @@ function channel(overrides: Partial<ChannelResponse> & { id: number; name: strin
     memberCount: 3,
     unreadCount: 0,
     hasUnreadThreads: false,
+    lastReadMessageId: null,
     createdAt: '2026-01-01T00:00:00Z',
     ...overrides,
   };

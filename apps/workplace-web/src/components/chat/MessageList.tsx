@@ -16,6 +16,7 @@ import { EmojiPicker } from '@/components/chat/EmojiPicker'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { MessageImage } from '@/components/chat/MessageImage'
 import { ReactionBar } from '@/components/chat/ReactionBar'
+import { UnreadDivider } from '@/components/chat/UnreadDivider'
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
@@ -41,9 +42,11 @@ interface MessageListProps {
   disableMarkRead?: boolean
   // 메시지 0건일 때 보여줄 빈 상태(부모가 맥락 문구를 조립해 전달). 미전달 시 빈 화면 유지.
   emptyState?: React.ReactNode
+  // 이 메시지 id 바로 앞에 "여기까지 읽음" 구분선을 그린다. null/미전달이면 안 그림.
+  unreadDividerBeforeId?: number | null
 }
 
-export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState }: MessageListProps) {
+export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId }: MessageListProps) {
   // 페이지는 DESC 로 쌓이므로 화면에는 ASC(오래된 위)로 뒤집어 보여준다.
   const ordered = [...messages].reverse()
   // 현재 인라인 수정 중인 메시지 id (한 번에 하나).
@@ -92,6 +95,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
         return (
           <Fragment key={m.id}>
             {showDateDivider && <DateDivider date={m.createdAt} />}
+            {unreadDividerBeforeId != null && m.id === unreadDividerBeforeId && <UnreadDivider />}
             <div
               ref={isLast ? lastRef : undefined}
               data-testid={`message-${m.id}`}

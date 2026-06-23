@@ -23,6 +23,7 @@ import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useAuth } from '@/hooks/useAuth'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
+import { firstUnreadMessageId } from '@/lib/unreadBoundary'
 import type { MessageResponse, UserKind } from '@/types/messaging'
 
 export default function ChannelPage() {
@@ -123,6 +124,10 @@ export default function ChannelPage() {
     return () => clearInterval(t)
   }, [])
 
+  // 채널 상세 워터마크는 방문 중 무효화되지 않아(detail 키 invalidate 없음) 자연히 안정적 → 스냅샷 불필요.
+  // ChannelPage 는 detail.data 가 있을 때만 본문 렌더(아래 early-return 보장)하므로 여기선 항상 non-null.
+  const unreadDividerBeforeId = firstUnreadMessageId(messages, detail.data?.lastReadMessageId ?? null)
+
   // user 가 없으면 작성 비활성 대비 기본값. 정상 흐름에선 ProtectedRoute 가 user 를 보장한다.
   const me = user
     ? { id: user.id, name: user.name, kind: (user.kind ?? 'HUMAN') as UserKind }
@@ -156,13 +161,17 @@ export default function ChannelPage() {
           onOpenMembers={() => setMembersOpen(true)}
           onOpenRename={() => setRenameOpen(true)}
         />
-        <MessageScrollArea depKey={`${messages.length}:${messages[0]?.id ?? 0}`}>
+        <MessageScrollArea
+          depKey={`${messages.length}:${messages[0]?.id ?? 0}`}
+          initialAnchorId={unreadDividerBeforeId != null ? 'unread-divider' : undefined}
+        >
           <MessageList
             messages={messages}
             channelId={channel.id}
             currentUserId={me.id}
             members={mentionMembers}
             onOpenThread={setOpenThreadId}
+            unreadDividerBeforeId={unreadDividerBeforeId}
             emptyState={
               data ? (
                 <ChatEmptyState

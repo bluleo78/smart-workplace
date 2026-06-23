@@ -183,7 +183,16 @@ public class ChannelRepository {
                         .CHANNEL_ID
                         .eq(CHANNEL.ID)
                         .and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
-                .asField("my_role"))
+                .asField("my_role"),
+            // caller 의 읽음 워터마크 — 미읽음 경계 계산용(프론트가 스냅샷해서 사용).
+            dsl.select(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID)
+                .from(CHANNEL_MEMBER)
+                .where(
+                    CHANNEL_MEMBER
+                        .CHANNEL_ID
+                        .eq(CHANNEL.ID)
+                        .and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
+                .asField("last_read_message_id"))
         .from(CHANNEL)
         .where(CHANNEL.ID.eq(channelId))
         .fetchOptional(ChannelRepository::mapChannel);
@@ -427,6 +436,9 @@ public class ChannelRepository {
         r.field("has_unread_threads") != null
             ? r.get("has_unread_threads", Boolean.class)
             : Boolean.FALSE;
+    // last_read_message_id 는 findDetail 에만 존재 — 없으면 null(방어적).
+    Long lastRead =
+        r.field("last_read_message_id") != null ? r.get("last_read_message_id", Long.class) : null;
     return new ChannelResponse(
         r.get(CHANNEL.ID),
         r.get(CHANNEL.KIND),
@@ -438,6 +450,7 @@ public class ChannelRepository {
         total == null ? 0 : total,
         unread == null ? 0 : unread,
         created == null ? null : created.toInstant(),
-        hasUnreadThreads != null && hasUnreadThreads);
+        hasUnreadThreads != null && hasUnreadThreads,
+        lastRead);
   }
 }

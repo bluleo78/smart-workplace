@@ -11,6 +11,7 @@ import java.time.Instant;
  * @param memberCount 멤버 수
  * @param unreadCount caller 미읽음 메시지 수(본인 작성·삭제 제외)
  * @param hasUnreadThreads 내가 팔로우하는 미읽음 스레드가 이 채널에 있으면 true
+ * @param lastReadMessageId caller 의 읽음 워터마크(이보다 id 가 큰 메시지가 미읽음). 비멤버·미선택 시 null
  */
 public record ChannelResponse(
     Long id,
@@ -23,4 +24,5 @@ public record ChannelResponse(
     int memberCount,
     long unreadCount,
     Instant createdAt,
-    boolean hasUnreadThreads) {}
+    boolean hasUnreadThreads,
+    Long lastReadMessageId) {}

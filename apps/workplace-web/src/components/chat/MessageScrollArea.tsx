@@ -7,11 +7,13 @@ import { useStickToBottom } from '@/hooks/useStickToBottom'
 interface MessageScrollAreaProps {
   // 하단 고정 트리거 — 보통 마지막 메시지 id + 개수 조합.
   depKey: unknown
+  // 최초 진입 시 이 DOM id 요소로 스크롤(미읽음 구분선). 미전달이면 하단.
+  initialAnchorId?: string
   children: ReactNode
 }
 
-export function MessageScrollArea({ depKey, children }: MessageScrollAreaProps) {
-  const ref = useStickToBottom(depKey)
+export function MessageScrollArea({ depKey, initialAnchorId, children }: MessageScrollAreaProps) {
+  const ref = useStickToBottom(depKey, undefined, initialAnchorId)
   return (
     <div ref={ref} className="min-h-0 flex-1 overflow-y-auto" data-testid="message-scroll-area">
       {children}

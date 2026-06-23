@@ -31,6 +31,7 @@ export function createChannel(overrides: Partial<ChannelResponse> = {}): Channel
     memberCount: 1,
     unreadCount: 0,
     hasUnreadThreads: false,
+    lastReadMessageId: null, // 진입 시 읽음 워터마크. null 이면 구분선 없음.
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     ...overrides,
   };
@@ -102,6 +103,7 @@ export function createMessage(overrides: Partial<MessageResponse> = {}): Message
     followed: false, // #65: 이 스레드 팔로우 여부
     reactions: [], // Phase 5: 이모지별 집계
     attachments: [], // Phase 6: 첨부 파일 목록(기본 없음 — 첨부 테스트에서 override)
+    driveLinks: [], // #80: 드라이브 연결 파일 링크 목록(기본 없음)
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     editedAt: null,
     deleted: false,

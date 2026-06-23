@@ -17,6 +17,7 @@ export interface ChannelResponse {
   memberCount: number;
   unreadCount: number; // 읽지 않은 메시지 수
   hasUnreadThreads: boolean; // 내가 팔로우하는 미읽음 스레드 존재 여부
+  lastReadMessageId: number | null; // 내 읽음 워터마크(이보다 id 큰 메시지가 미읽음). 비멤버 null
   createdAt: string;
 }
 

@@ -428,3 +428,72 @@ test('팀 채팅 — 멀티데이 메시지 목록 → 날짜 구분선 삽입 (
   await expect(dividers.nth(1)).toContainText('2026년')
   await expect(dividers.nth(2)).toContainText('2026년')
 });
+
+// 진입 시 첫 미읽음(구분선)으로 스크롤 — 30개 메시지(id 1~30), watermark=10 이면
+// 구분선이 뷰포트 안에 보여야 하고(맨 아래가 아님) 메시지 30개가 모두 로드된다.
+test('진입 시 첫 미읽음(구분선)으로 스크롤된다', async ({ authenticatedPage: page }) => {
+  const many = Array.from({ length: 30 }, (_, i) => createMessage({ id: i + 1, channelId: 78, createdAt: new Date(Date.UTC(2026, 5, 1, 0, i)).toISOString() }))
+  const channel = createChannel({ id: 78, lastReadMessageId: 10 })
+
+  await setupChannelStubs(page, [channel], `:\n\n`)
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/channels/78/messages',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [...many].reverse(), nextCursor: null, hasMore: false }),
+      })
+    },
+  )
+
+  await page.goto('/chat/channels/78')
+
+  // 구분선(id=11 앞)이 로드 직후 뷰포트 안에 보여야 한다(맨 아래로 가지 않음).
+  const divider = page.getByTestId('unread-divider')
+  await expect(divider).toBeInViewport()
+})
+
+// 미읽음 구분선(#unread-divider) — watermark=2 이면 id=3 메시지 바로 앞에 구분선이 렌더된다.
+test('미읽음 구분선이 첫 미읽음 메시지 앞에 렌더된다', async ({ authenticatedPage: page }) => {
+  // 채널 상세 watermark=2, 메시지 id 1~4 → 구분선은 id=3 앞.
+  const channel = createChannel({ id: 77, lastReadMessageId: 2 })
+
+  await setupChannelStubs(page, [channel], `:\n\n`)
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/channels/77/messages',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          // MessageList 는 DESC 수신 후 reverse() 로 오래된 메시지를 위에 렌더한다.
+          items: [
+            createMessage({ id: 4, channelId: 77, createdAt: '2026-06-01T04:00:00Z' }),
+            createMessage({ id: 3, channelId: 77, createdAt: '2026-06-01T03:00:00Z' }),
+            createMessage({ id: 2, channelId: 77, createdAt: '2026-06-01T02:00:00Z' }),
+            createMessage({ id: 1, channelId: 77, createdAt: '2026-06-01T01:00:00Z' }),
+          ],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      })
+    },
+  )
+
+  await page.goto('/chat/channels/77')
+
+  const divider = page.getByTestId('unread-divider')
+  await expect(divider).toBeVisible()
+
+  // 구분선의 Y 가 message-2 아래, message-3 위.
+  const yDivider = (await divider.boundingBox())!.y
+  const y2 = (await page.getByTestId('message-2').boundingBox())!.y
+  const y3 = (await page.getByTestId('message-3').boundingBox())!.y
+  expect(y2).toBeLessThan(yDivider)
+  expect(yDivider).toBeLessThan(y3)
+})
