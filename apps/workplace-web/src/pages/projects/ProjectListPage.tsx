@@ -29,8 +29,10 @@ export default function ProjectListPage() {
         ? a.name.localeCompare(b.name, 'ko')
         : new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     items.sort(cmp)
-    const pinned = items.filter((p) => isFav(p.key))
-    const rest = items.filter((p) => !isFav(p.key))
+    // 즐겨찾기 핀은 팀 프로젝트만(개인은 즐겨찾기 불가 — 스테일 항목 방지).
+    const isPinned = (p: typeof items[number]) => p.type !== 'PERSONAL' && isFav(p.key)
+    const pinned = items.filter(isPinned)
+    const rest = items.filter((p) => !isPinned(p))
     return { pinned, rest }
   }, [data, sort, favs])
 
@@ -64,13 +66,12 @@ export default function ProjectListPage() {
             </div>
           ) : (
             <div className="overflow-hidden rounded-xl border bg-card" role="list" aria-label="프로젝트 목록">
-              {/* 헤더 — 정렬 토글 */}
-              <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <span>프로젝트</span>
+              {/* 헤더 — 정렬 토글만(페이지 타이틀이 이미 "프로젝트"라 라벨 중복 제거) */}
+              <div className="flex items-center justify-end border-b bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
                 <button
                   type="button"
                   data-testid="project-sort-toggle"
-                  className="font-normal normal-case hover:text-foreground"
+                  className="hover:text-foreground"
                   onClick={() => setSort((s) => (s === 'recent' ? 'name' : 'recent'))}
                 >
                   정렬: {sort === 'recent' ? '최근 활동순' : '이름순'} ▾

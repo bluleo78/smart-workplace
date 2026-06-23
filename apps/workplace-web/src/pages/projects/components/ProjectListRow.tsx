@@ -107,17 +107,21 @@ export function ProjectListRow({
         </span>
       </div>
 
-      {/* 즐겨찾기 토글 버튼 */}
-      <button
-        type="button"
-        data-testid={`fav-toggle-${p.key}`}
-        aria-label={fav ? '즐겨찾기 해제' : '즐겨찾기'}
-        aria-pressed={fav}
-        onClick={() => onToggleFav(p.key)}
-        className="justify-self-end p-1"
-      >
-        <Star className={cn('h-4 w-4', fav ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40')} />
-      </button>
+      {/* 즐겨찾기 토글 — 팀 프로젝트만. 개인 프로젝트는 즐겨찾기 불가(항상 기본 노출)라 빈 칸. */}
+      {isPersonal ? (
+        <span />
+      ) : (
+        <button
+          type="button"
+          data-testid={`fav-toggle-${p.key}`}
+          aria-label={fav ? '즐겨찾기 해제' : '즐겨찾기'}
+          aria-pressed={fav}
+          onClick={() => onToggleFav(p.key)}
+          className="justify-self-end p-1"
+        >
+          <Star className={cn('h-4 w-4', fav ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40')} />
+        </button>
+      )}
     </div>
   )
 }

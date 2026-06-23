@@ -1,5 +1,5 @@
 // 이슈 모듈 2차 사이드바 — 개인 영역(내 작업/AI 위임) + 프로젝트(컬러 식별자).
-import { FolderKanban, LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide-react'
+import { LayoutGrid, LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
@@ -8,6 +8,7 @@ import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDi
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { useProjects } from '@/hooks/queries/useProjects'
 import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
+import { useProjectFavorites } from '@/hooks/useProjectFavorites'
 import { projectColor, projectInitial } from '@/lib/project-color'
 
 export function IssueSidebar() {
@@ -18,10 +19,13 @@ export function IssueSidebar() {
   // 사용자가 고정한 뷰 — 프로젝트 교차 빠른 접근(사이드바 상단 노출).
   const pinned = useMyPinnedViews()
 
-  // 프로젝트를 개인(PERSONAL)/팀(TEAM)으로 분리 — 개인 프로젝트는 별도 섹션에 노출한다.
+  // 즐겨찾기(localStorage) — 사이드바 팀 프로젝트 목록은 즐겨찾기한 것만 노출한다.
+  const { isFav } = useProjectFavorites()
+
+  // 프로젝트를 개인(PERSONAL)/팀(TEAM)으로 분리. 개인은 항상 노출, 팀은 즐겨찾기만.
   const all = projects.data?.content ?? []
   const personal = all.filter((p) => p.type === 'PERSONAL')
-  const team = all.filter((p) => p.type !== 'PERSONAL')
+  const favTeam = all.filter((p) => p.type !== 'PERSONAL' && isFav(p.key))
 
   return (
     <>
@@ -43,10 +47,6 @@ export function IssueSidebar() {
           </NavLink>
           <NavLink to="/me/ai-tasks" className={sidebarLinkClass}>
             <Sparkles className="h-4 w-4" /> AI 위임 작업
-          </NavLink>
-          {/* 프로젝트 목록(전체 보기) — 1급 목적지로 승격(이전엔 +아이콘에만 숨어 있었음) */}
-          <NavLink to="/projects" end data-testid="sidebar-all-projects" className={sidebarLinkClass}>
-            <FolderKanban className="h-4 w-4" /> 프로젝트
           </NavLink>
         </nav>
 
@@ -107,10 +107,11 @@ export function IssueSidebar() {
 
         <div className="mt-5">
           <div className="flex items-center justify-between px-3">
+            {/* 평범한 섹션 라벨(클릭 불가) — 진입로는 아래 "전체 보기" 항목이 담당 */}
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               프로젝트
             </span>
-            {/* + 버튼: 이전에는 /projects 링크였으나 1급 항목으로 승격 — 여기선 생성 트리거로 전환 */}
+            {/* + 버튼: 새 프로젝트 생성 트리거 */}
             <button
               type="button"
               data-testid="sidebar-create-project"
@@ -122,7 +123,17 @@ export function IssueSidebar() {
             </button>
           </div>
           <nav className="mt-2 space-y-1">
-            {team.map((p) => {
+            {/* 첫 항목 = 전체 보기(전체 목록 /projects 진입로) */}
+            <NavLink
+              to="/projects"
+              end
+              data-testid="sidebar-all-projects"
+              className={sidebarLinkClass}
+            >
+              <LayoutGrid className="h-4 w-4" /> 전체 보기
+            </NavLink>
+            {/* 즐겨찾기한 팀 프로젝트만 노출(전체는 위 "전체 보기"). 개인 프로젝트는 위 "개인" 섹션에 항상 노출. */}
+            {favTeam.map((p) => {
               // 백엔드에 색상 필드가 없어 key 해시로 결정적 컬러 식별자 생성(아이콘 일관성).
               const c = projectColor(p.key)
               return (
