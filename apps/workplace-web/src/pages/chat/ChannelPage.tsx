@@ -81,14 +81,21 @@ export default function ChannelPage() {
   const [working, setWorking] = useState<Map<string, MessagingProgressEvent & { at: number }>>(
     new Map(),
   )
+  // 종료된(done/error) streamId 기록 — fire-and-forget progress POST 의 순서 역전으로 'done' 이후
+  // 뒤늦게 도착한 'tool'/'started' 이벤트가 유령 버블을 되살리는 것을 차단(부활 방지).
+  const endedStreamsRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     if (channelId == null) return
     return onMessagingProgress((e) => {
       if (e.channelId !== channelId) return
       setWorking((prev) => {
         const next = new Map(prev)
-        if (e.phase === 'done' || e.phase === 'error') next.delete(e.streamId)
-        else next.set(e.streamId, { ...e, at: Date.now() })
+        if (e.phase === 'done' || e.phase === 'error') {
+          endedStreamsRef.current.add(e.streamId)
+          next.delete(e.streamId)
+        } else if (!endedStreamsRef.current.has(e.streamId)) {
+          next.set(e.streamId, { ...e, at: Date.now() })
+        }
         return next
       })
     })
