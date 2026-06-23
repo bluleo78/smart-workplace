@@ -2,6 +2,7 @@ package com.workplace.messaging.repository;
 
 import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
+import static com.workplace.jooq.Tables.CONVERSATION_ATTENTION;
 import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.USER;
 
@@ -193,5 +194,70 @@ public class MessagingSummaryRepository {
             .where(CHANNEL.ARCHIVED_AT.isNull())
             .and(CHANNEL.KIND.in("CHANNEL", "DM"))
             .and(dmUnread.or(hasUnreadMention)));
+  }
+
+  /**
+   * "확인 필요" 대화 수(KPI 단일값) — 회신 대기 ∪ AI 발굴 안읽음의 합집합 distinct 채널 수. KPI 가 needsReplyCount +
+   * aiAttentionCount 를 단순 합산하면 한 채널이 두 신호를 모두 가질 때 이중 집계되므로, 합집합을 한 쿼리로 dedup 해 센다.
+   *
+   * <p>합집합 조건: (DM 이며 안읽음>0) OR (안읽은 멘션 존재) OR (AI 발굴 마크 존재 AND 안읽음>0). channel_member 조인이
+   * caller 당 채널마다 1행이라 채널당 한 번만 세어지므로 DISTINCT 불필요(countNeedsReply 와 동일 보장).
+   *
+   * <p>AI 마크 분기는 inner join 이 아닌 EXISTS 로 작성 — join 으로 묶으면 마크 없는 DM/멘션 채널이 결과에서 탈락한다.
+   */
+  public long countAttentionConversations(long callerId) {
+    JSONB needle = JSONB.valueOf("[" + callerId + "]");
+    org.jooq.Condition dmUnread =
+        CHANNEL.KIND.eq("DM").and(unreadCountScalar(callerId).asField().gt(0));
+    org.jooq.Condition hasUnreadMention =
+        DSL.exists(
+            dsl.selectOne()
+                .from(MESSAGE)
+                .where(MESSAGE.CHANNEL_ID.eq(CHANNEL.ID))
+                .and(MESSAGE.DELETED_AT.isNull())
+                .and(
+                    MESSAGE.ID.gt(
+                        DSL.coalesce(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID, DSL.inline(0L))))
+                // 자기 멘션(셀프 @mention) 제외 — unreadCountScalar 와 동일 기준
+                .and(MESSAGE.AUTHOR_ID.ne(callerId))
+                // 스레드 답글 멘션은 채널 워터마크 기준이 아닌 스레드 읽음 상태로 판정 — 최상위만
+                .and(MESSAGE.PARENT_MESSAGE_ID.isNull())
+                .and(DSL.condition("{0} @> {1}", MESSAGE.MENTIONS, DSL.val(needle))));
+    org.jooq.Condition aiMarkUnread =
+        DSL.exists(
+                dsl.selectOne()
+                    .from(CONVERSATION_ATTENTION)
+                    .where(CONVERSATION_ATTENTION.CHANNEL_ID.eq(CHANNEL.ID))
+                    .and(CONVERSATION_ATTENTION.USER_ID.eq(callerId)))
+            .and(unreadCountScalar(callerId).asField().gt(0));
+    return dsl.fetchCount(
+        dsl.selectOne()
+            .from(CHANNEL)
+            .join(CHANNEL_MEMBER)
+            .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
+            .where(CHANNEL.ARCHIVED_AT.isNull())
+            .and(CHANNEL.KIND.in("CHANNEL", "DM"))
+            .and(dmUnread.or(hasUnreadMention).or(aiMarkUnread)));
+  }
+
+  /**
+   * AI 발굴 마크가 있고 callerId 에게 여전히 안읽음인 대화 수(헤더 "AI 주목 N"). 전역 집계 — recency 후보 K 캡과 무관.
+   * countNeedsReply 의 안읽음 판정(unreadCountScalar) 패턴 재사용.
+   */
+  public long countAiAttentionUnread(long callerId) {
+    return dsl.fetchCount(
+        dsl.selectOne()
+            .from(CHANNEL)
+            .join(CHANNEL_MEMBER)
+            .on(CHANNEL_MEMBER.CHANNEL_ID.eq(CHANNEL.ID).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
+            .join(CONVERSATION_ATTENTION)
+            .on(
+                CONVERSATION_ATTENTION
+                    .CHANNEL_ID
+                    .eq(CHANNEL.ID)
+                    .and(CONVERSATION_ATTENTION.USER_ID.eq(callerId)))
+            .where(CHANNEL.ARCHIVED_AT.isNull())
+            .and(CHANNEL.KIND.in("CHANNEL", "DM"))
+            .and(unreadCountScalar(callerId).asField().gt(0)));
   }
 }

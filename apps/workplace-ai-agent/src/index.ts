@@ -11,6 +11,7 @@ import { healthRouter } from './routes/health.js';
 import { createEventsRouter } from './routes/events.js';
 import { createHomeRouter } from './routes/home.js';
 import { createMailRouter } from './routes/mail.js';
+import { createMessagingRouter } from './routes/messaging.js';
 import { createWikiRouter } from './routes/wiki.js';
 
 dotenv.config({ path: '.env.local' });
@@ -42,6 +43,7 @@ app.use(internalAuth);
 app.use(createEventsRouter({ client: workplaceApi }));
 app.use(createHomeRouter({ client: workplaceApi }));
 app.use(createMailRouter({ client: workplaceApi }));
+app.use(createMessagingRouter({ client: workplaceApi }));
 app.use(createWikiRouter({ client: workplaceApi }));
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
@@ -64,6 +66,7 @@ const server = app.listen(PORT, () => {
   console.log(`  POST /events`);
   console.log('  POST /ai/chat');
   console.log('  POST /mail/classify | /mail/summarize | /mail/reply-draft');
+  console.log('  POST /messaging/classify');
   console.log('  POST /wiki/compose (SSE)');
 });
 

@@ -13,9 +13,20 @@ function href(c: ConversationSummaryItem): string {
   return c.kind === 'DM' ? `/chat/dms/${c.conversationId}` : `/chat/channels/${c.conversationId}`
 }
 
-// 신호 배지(우선순위: 멘션 > 회신대기 > 새 답글).
-// 멘션은 violet, 회신대기는 amber, 새 답글은 sky 계열.
+// 신호 배지(우선순위: AI 발굴 > 멘션 > 회신대기 > 새 답글).
+// AI 발굴은 ai-accent 시맨틱 토큰, 멘션은 violet, 회신대기는 amber, 새 답글은 sky 계열.
 function Badge({ c }: { c: ConversationSummaryItem }) {
+  // AI가 발굴한 암묵적 관련성 — 최우선 배지, tooltip 에 사유 표시.
+  if (c.aiReason != null)
+    return (
+      <span
+        data-testid="dash-chat-badge-ai"
+        title={c.aiReason}
+        className="flex-none rounded-full bg-ai-accent-subtle px-1.5 text-[10px] font-semibold text-ai-accent"
+      >
+        확인 필요
+      </span>
+    )
   if (c.mentioned)
     return (
       <span

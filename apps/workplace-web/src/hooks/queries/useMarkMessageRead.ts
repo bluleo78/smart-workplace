@@ -4,12 +4,13 @@
 // 메시지 id 는 전역 증가라 리셋 없이는 새 채널의 작은 id 가 잘못 억제된다.
 // 응답 무시, 실패 시 silent — 다음 intersection 에서 재시도.
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 
 import { messagingApi } from '../../api/messaging';
 
 export function useMarkMessageRead(channelId: number | undefined) {
+  const qc = useQueryClient();
   const lastMarked = useRef<number>(-1);
 
   // 채널 전환 시 중복 억제 기준 리셋.
@@ -20,6 +21,10 @@ export function useMarkMessageRead(channelId: number | undefined) {
   const mutation = useMutation({
     mutationFn: (uptoMessageId: number) =>
       messagingApi.markRead(channelId as number, uptoMessageId),
+    // 읽음 처리 성공 시 홈 어텐션/KPI 신선도 유지를 위해 messaging-summary 캐시 무효화.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['messaging-summary'], exact: true });
+    },
   });
 
   // 마지막 메시지 id 로 읽음 요청. 미오픈/낙관적(음수)·중복 id 는 무시.

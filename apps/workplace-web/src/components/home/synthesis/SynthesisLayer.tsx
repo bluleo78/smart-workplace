@@ -4,7 +4,7 @@
 //   - 지금 신경 쓸 일: 크로스앱 급한 것만(마감 지난/오늘 + 멘션 + 회신 필요 메일), 최상위 포커스 카드 + 행 딥링크
 // 페치 정책: notifications·mail·calendar 훅은 ③ 위젯 바디와 동일 키 → TanStack Query 가 dedupe(이중 페치 없음).
 //   단 useMyIssueDues 는 어느 ③ 바디도 쓰지 않는 합성 전용 추가 쿼리다(마감 마커 — 스펙 허용).
-import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageSquare, Sparkles, X } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageCircle, MessageSquare, Sparkles, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
 import { useMailSummary } from '@/hooks/queries/useMailSummary'
+import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useNotifications } from '@/hooks/queries/useNotifications'
 import { parseUtcDate } from '@/lib/formatters'
@@ -39,21 +40,24 @@ function localDateKey(d: Date): string {
 }
 
 // 지금 신경 쓸 일 한 행의 표준 모델.
-// source: 소스 앱 구분 — '이슈'(urgency 0), '멘션'(urgency 1), '메일'(urgency 2, AI 회신 필요).
+// source: 소스 앱 구분 — '이슈'(urgency 0), '멘션'·'메시지'(urgency 1), '메일'(urgency 2, AI 회신 필요).
+// isAi: AI 발굴 신호 — meta 를 text-ai-accent 로 강조 표시.
 interface AttentionRow {
   key: string
-  source: '이슈' | '멘션' | '메일'
+  source: '이슈' | '멘션' | '메일' | '메시지'
   title: string
   meta: string // 우측 정렬 메타(마감/시각)
   to: string
   ariaLabel: string
-  urgency: number // 작을수록 위(0=마감지남/오늘, 1=멘션, 2=회신필요메일)
+  urgency: number // 작을수록 위(0=마감지남/오늘, 1=멘션·메시지, 2=회신필요메일)
   recency: number // 동일 urgency 내 최신순(epoch ms, 클수록 위)
+  isAi?: boolean // AI 발굴 신호(메시지 aiReason, 메일 aiNeedsReply)
 }
 
 // 카운트 셀 — 로딩 시 셀만 스켈레톤(격리), 에러 시 '–'.
 // to 가 있으면 모듈 딥링크(Link), onClick 이 있으면 액션 버튼(예: '멘션' → 알림 패널 열기).
 // ai=true 이면 AI 분류 활성 신호(🤖 배지 + text-ai-accent 강조).
+// testId: data-testid 속성 전달(E2E 셀 단위 검증용).
 function CountCell({
   label,
   count,
@@ -62,6 +66,7 @@ function CountCell({
   loading,
   error,
   ai,
+  testId,
 }: {
   label: string
   count: number
@@ -70,6 +75,7 @@ function CountCell({
   loading: boolean
   error: boolean
   ai?: boolean
+  testId?: string
 }) {
   const ariaLabel = error ? `${label} 불러오기 실패` : `${label} ${count}건`
   const className =
@@ -91,23 +97,25 @@ function CountCell({
 
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} aria-label={ariaLabel} className={className}>
+      <button type="button" onClick={onClick} aria-label={ariaLabel} data-testid={testId} className={className}>
         {inner}
       </button>
     )
   }
   return (
-    <Link to={to ?? '#'} aria-label={ariaLabel} className={className}>
+    <Link to={to ?? '#'} aria-label={ariaLabel} data-testid={testId} className={className}>
       {inner}
     </Link>
   )
 }
 
-// 소스별 아이콘 — 이슈(마감), 멘션(코멘트), 메일(AI 회신 필요).
+// 소스별 아이콘 — 이슈(마감), 멘션(코멘트), 메일(AI 회신 필요), 메시지(DM/채널 대화).
+// 메시지는 MessageCircle 로 멘션(MessageSquare) 과 구분.
 const SOURCE_ICON = {
   이슈: CalendarClock,
   멘션: MessageSquare,
   메일: Mail,
+  메시지: MessageCircle,
 } as const
 
 /** ① 합성 레이어 — 카운트 스트립 + 지금 신경 쓸 일 리스트. 소스별 에러/로딩 격리. */
@@ -138,6 +146,8 @@ export function SynthesisLayer() {
   const mail = useMailSummary()
   // 오늘 일정.
   const events = useCalendarEvents(from, to)
+  // 메시징 요약 — 회신대기 + AI 발굴 대화 카운트·recent 목록(홈 위젯과 동일 키 → TanStack Query dedupe).
+  const messaging = useMessagingSummary()
 
   // ── 카운트 산출(소스별 에러/로딩 격리) ──────────────────────────────────
   const dueItems: IssueDueMarker[] = dues.data ?? []
@@ -153,6 +163,10 @@ export function SynthesisLayer() {
   const classifyOn = mail.data?.classificationActive ?? false
 
   const todayEventCount = (events.data ?? []).length
+
+  // 메시징 KPI: 회신대기 ∪ AI 발굴(여전히 안읽음)의 합집합 dedup 카운트 → "확인 필요 N".
+  // (needsReplyCount + aiAttentionCount 단순 합산은 한 채널이 두 신호를 모두 가질 때 이중 집계됨 → 백엔드 attentionCount 단일값 사용.)
+  const chatNeedsAttention = messaging.data?.attentionCount ?? 0
 
   // ── 지금 신경 쓸 일 병합(클라이언트 규칙) ────────────────────────────────────
   const rows: AttentionRow[] = []
@@ -215,12 +229,46 @@ export function SynthesisLayer() {
     }
   }
 
+  // 4) 메시징 어텐션 대화 — urgency 1(멘션과 동렬, recency 로 교차 정렬).
+  // 필터: 멘션·회신대기·AI발굴·새 스레드 답글 중 하나라도 있는 것만.
+  if (!messaging.isError) {
+    for (const c of messaging.data?.recent ?? []) {
+      const isAttention =
+        c.mentioned || c.needsReply || c.aiReason != null || c.newThreadReplyCount > 0
+      if (!isAttention) continue
+
+      // meta: 신호 우선순위(AI발굴 > 멘션 > 회신 > 새 답글).
+      const meta =
+        c.aiReason != null
+          ? '확인 필요'
+          : c.mentioned
+            ? '멘션'
+            : c.needsReply
+              ? '회신'
+              : `새 답글 ${c.newThreadReplyCount}`
+
+      rows.push({
+        key: `chat-${c.conversationId}`,
+        source: '메시지',
+        title: c.label,
+        meta,
+        // DM은 /chat/dms/:id, 채널은 /chat/channels/:id 딥링크.
+        to: c.kind === 'DM' ? `/chat/dms/${c.conversationId}` : `/chat/channels/${c.conversationId}`,
+        ariaLabel: `대화 열기: ${c.label}`,
+        urgency: 1,
+        recency: c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : 0,
+        isAi: c.aiReason != null,
+      })
+    }
+  }
+
   // 긴급도 우선, 동일 긴급도 내 최신순. 상위 5건.
   rows.sort((a, b) => a.urgency - b.urgency || b.recency - a.recency)
   const top = rows.slice(0, 5)
 
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리).
   // ai=true 이면 CountCell 이 🤖 배지를 표시(AI 분류 활성 신호).
+  // testId: E2E 셀 단위 testid(선택적).
   const cells: {
     label: string
     count: number
@@ -228,6 +276,7 @@ export function SynthesisLayer() {
     onClick?: () => void
     q: { isLoading: boolean; isError: boolean }
     ai?: boolean
+    testId?: string
   }[] = [
     { label: '오늘 마감', count: dueTodayCount, to: '/me/tasks/assigned?dueDate=today', q: dues },
     // 멘션: 전용 페이지가 없어 라우팅 대신 알림 인박스 패널을 연다(#273).
@@ -237,13 +286,15 @@ export function SynthesisLayer() {
       ? { label: '회신 필요', count: needsReply, to: '/mail', q: mail, ai: true }
       : { label: '안 읽음', count: unreadMail, to: '/mail', q: mail },
     { label: '오늘 일정', count: todayEventCount, to: '/calendar', q: events },
+    // 메시징 KPI — 회신대기 + AI 발굴 합산. AI 신호 배지 표시. 딥링크: /chat.
+    { label: '확인 필요', count: chatNeedsAttention, to: '/chat', q: messaging, ai: true, testId: 'kpi-messaging' },
   ]
 
   return (
     <Card className="border-l-2 border-l-ai-accent" data-testid="dashboard-synthesis">
       <CardContent className="space-y-4 pt-4">
-        {/* 상태 카운트 스트립 — 4셀, 각 셀 모듈 딥링크. */}
-        <div className="grid grid-cols-4 gap-4" data-testid="dashboard-counts">
+        {/* 상태 카운트 스트립 — 5셀(이슈·멘션·메일·일정·메시징), 각 셀 모듈 딥링크. */}
+        <div className="grid grid-cols-5 gap-4" data-testid="dashboard-counts">
           {cells.map((c) => (
             <CountCell
               key={c.label}
@@ -254,6 +305,7 @@ export function SynthesisLayer() {
               loading={c.q.isLoading}
               error={c.q.isError}
               ai={c.ai}
+              testId={c.testId}
             />
           ))}
         </div>
@@ -314,7 +366,8 @@ export function SynthesisLayer() {
                             {r.source}
                           </span>
                           <span className="truncate">{r.title}</span>
-                          <span className="ml-auto shrink-0 text-xs text-muted-foreground">{r.meta}</span>
+                          {/* AI 발굴 신호 행은 meta 를 ai-accent 로 강조. */}
+                          <span className={`ml-auto shrink-0 text-xs ${r.isAi ? 'text-ai-accent' : 'text-muted-foreground'}`}>{r.meta}</span>
                         </Link>
                       </li>
                     )

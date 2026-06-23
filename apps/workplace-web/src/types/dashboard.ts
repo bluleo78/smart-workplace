@@ -46,6 +46,7 @@ export interface MailSummary {
 // 홈 대화 요약 위젯 — 대화 한 행. 백엔드 ConversationSummaryItem 미러.
 // kind: DM(1:1 직접 메시지) vs CHANNEL(채널 대화).
 // needsReply: DM 안 읽음 기반 회신 대기 신호. mentioned: 멘션 포함 여부.
+// aiReason: AI가 발굴한 암묵적 관련성 사유(없으면 null).
 export interface ConversationSummaryItem {
   kind: 'DM' | 'CHANNEL'
   conversationId: number
@@ -57,12 +58,17 @@ export interface ConversationSummaryItem {
   mentioned: boolean
   needsReply: boolean
   newThreadReplyCount: number
+  aiReason: string | null
 }
 
 // 홈 대화 요약 위젯 데이터(백엔드 MessagingSummaryResponse 와 1:1).
 // unreadConversationCount: 안 읽은 대화 수. needsReplyCount: 회신 대기 대화 수.
+// aiAttentionCount: 여전히 안읽음인 AI 발굴 대화 수.
+// attentionCount: "확인 필요" KPI 합집합 dedup 카운트(needsReply ∪ aiAttention distinct 채널 수).
 export interface MessagingSummary {
   unreadConversationCount: number
   needsReplyCount: number
+  aiAttentionCount: number
+  attentionCount: number
   recent: ConversationSummaryItem[]
 }

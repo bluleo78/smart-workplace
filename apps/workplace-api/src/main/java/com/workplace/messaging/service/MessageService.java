@@ -108,7 +108,9 @@ public class MessageService {
       }
     }
     MessageResponse saved = findOne(messageId, callerId);
-    publisher.publishEvent(new MessageCreatedEvent(channelId, saved)); // SSE fan-out (기존)
+    // SSE fan-out(기존) + 어텐션 AI 발굴(AFTER_COMMIT 리스너). 커밋 전 직접 호출은 워커 재조회 레이스를 유발하므로
+    // 암묵적 관련성 발굴은 MessagingAttentionDispatcher 가 커밋 후에 발사한다(directed 제외 판정 포함).
+    publisher.publishEvent(new MessageCreatedEvent(channelId, saved));
     maybeTriggerAi(callerId, channelId, saved); // AI 응답 트리거 (신규)
     return saved;
   }

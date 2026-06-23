@@ -23,6 +23,8 @@ export function useMarkThreadRead(channelId: number) {
           qc.invalidateQueries({ queryKey: messagingKeys.channels() });
           qc.invalidateQueries({ queryKey: messagingKeys.threadsInbox() });
           qc.invalidateQueries({ queryKey: messagingKeys.threadsInboxUnreadCount() });
+          // 스레드 읽음 처리 후 홈 어텐션/KPI 신선도 유지를 위해 messaging-summary 캐시 무효화.
+          qc.invalidateQueries({ queryKey: ['messaging-summary'], exact: true });
         },
       });
     },

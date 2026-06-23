@@ -4,6 +4,7 @@ import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
 import { detail as mailDetail, mailAccount, summary as mailRow } from '../factories/mail.factory'
+import { createChannel, createChannelMember, createMessage } from '../factories/messaging.factory'
 import type { CalendarEvent } from '../../src/types/calendar'
 import type {
   DashboardLayout,
@@ -126,7 +127,7 @@ function mail(): MailSummary {
 
 // 대화 요약 기본 mock — 빈 recent, 카운트 0.
 function messagingSummary(): MessagingSummary {
-  return { unreadConversationCount: 0, needsReplyCount: 0, recent: [] }
+  return { unreadConversationCount: 0, needsReplyCount: 0, aiAttentionCount: 0, attentionCount: 0, recent: [] } satisfies MessagingSummary
 }
 
 // 5종 위젯 데이터 전부 정상 모킹.
@@ -220,6 +221,8 @@ test('대시보드 — 대화 위젯 제목과 빈 상태 문구가 일치한다
   await mockApi(page, 'GET', '/api/v1/me/messaging-summary', {
     unreadConversationCount: 0,
     needsReplyCount: 0,
+    aiAttentionCount: 0,
+    attentionCount: 0,
     recent: [],
   } satisfies MessagingSummary)
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['recent_chats']))
@@ -1562,6 +1565,8 @@ test('홈 대화 위젯 — 멘션·회신대기 배지·미리보기·딥링크
   await mockApi(page, 'GET', '/api/v1/me/messaging-summary', {
     unreadConversationCount: 3,
     needsReplyCount: 3,
+    aiAttentionCount: 0,
+    attentionCount: 3,
     recent: [
       {
         kind: 'DM',
@@ -1574,6 +1579,7 @@ test('홈 대화 위젯 — 멘션·회신대기 배지·미리보기·딥링크
         mentioned: false,
         needsReply: true,
         newThreadReplyCount: 0,
+        aiReason: null,
       },
       {
         kind: 'CHANNEL',
@@ -1586,6 +1592,7 @@ test('홈 대화 위젯 — 멘션·회신대기 배지·미리보기·딥링크
         mentioned: true,
         needsReply: false,
         newThreadReplyCount: 0,
+        aiReason: null,
       },
     ],
   } satisfies MessagingSummary)
@@ -1608,4 +1615,358 @@ test('홈 대화 위젯 — 멘션·회신대기 배지·미리보기·딥링크
   const ch = page.getByTestId('dash-chat-row').nth(1)
   await expect(ch.getByTestId('dash-chat-badge-mention')).toBeVisible()
   await expect(ch).toHaveAttribute('href', '/chat/channels/3')
+})
+
+// ── SynthesisLayer 메시징 어텐션 ──────────────────────────────────────────────
+
+// 합성 레이어 메시징 모킹 헬퍼 — SynthesisLayer 가 필요한 모든 엔드포인트 세팅.
+// mockWidgets 위에 messaging-summary 와 dashboard(synthesis 위젯만)를 덮어씌운다.
+// Playwright page.route 는 LIFO — 나중 등록이 우선 매칭되어 이전 mock 을 덮는다.
+async function mockSynthesis(
+  page: Page,
+  overrides: Partial<MessagingSummary> = {},
+) {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/messaging-summary', {
+    unreadConversationCount: 0,
+    needsReplyCount: 2,
+    aiAttentionCount: 1,
+    attentionCount: 2,
+    recent: [],
+    ...overrides,
+  } satisfies MessagingSummary)
+  // SynthesisLayer 는 dashboard 외부에 항상 렌더됨 — layout mock 은 빈 위젯 그리드(로딩 차단 방지).
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+}
+
+test('메시징 — 확인 필요 KPI 셀이 attentionCount 단일값(dedup)을 표시한다', async ({
+  authenticatedPage: page,
+}) => {
+  // needsReplyCount=2, aiAttentionCount=1 이지만 한 채널이 두 신호를 모두 가져 합집합 dedup=2.
+  // KPI 는 단순 합산(3)이 아니라 백엔드 attentionCount(2) 단일값을 표시해야 한다(이중 집계 제거).
+  await mockSynthesis(page, {
+    needsReplyCount: 2,
+    aiAttentionCount: 1,
+    attentionCount: 2,
+    recent: [],
+  })
+  await page.goto('/')
+
+  // KPI 셀 "확인 필요" 가 보이고 dedup 카운트 2 를 표시해야 한다(3 이 아님).
+  const kpiCell = page.getByTestId('kpi-messaging')
+  await expect(kpiCell).toBeVisible()
+  await expect(kpiCell).toContainText('확인 필요')
+  await expect(kpiCell).toContainText('2')
+  await expect(kpiCell).not.toContainText('3')
+})
+
+test('메시징 — AI 발굴 어텐션 행이 "지금 신경 쓸 일"에 진입하고 채널 딥링크로 이동한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockSynthesis(page, {
+    needsReplyCount: 0,
+    aiAttentionCount: 1,
+    attentionCount: 1,
+    recent: [
+      {
+        kind: 'CHANNEL',
+        conversationId: 12,
+        label: '#dev',
+        lastAuthorName: '박서연',
+        lastMessagePreview: '배포 여부 확인',
+        lastMessageAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        unreadCount: 1,
+        mentioned: false,
+        needsReply: false,
+        newThreadReplyCount: 0,
+        aiReason: '배포 여부 질문',
+      },
+    ],
+  })
+  await page.goto('/')
+
+  // AI 발굴 행이 어텐션 영역에 나타나야 하며 meta 가 "확인 필요" 여야 한다.
+  const attentionArea = page.getByTestId('dashboard-attention')
+  await expect(attentionArea).toContainText('#dev')
+  await expect(attentionArea).toContainText('확인 필요')
+
+  // 클릭 시 /chat/channels/12 로 이동.
+  const link = attentionArea.getByRole('link', { name: /대화 열기: #dev/ })
+  await link.click()
+  await expect(page).toHaveURL('/chat/channels/12')
+})
+
+test('메시징 — DM 회신 행이 어텐션 영역에 진입하고 DM 딥링크로 이동한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockSynthesis(page, {
+    needsReplyCount: 1,
+    aiAttentionCount: 0,
+    attentionCount: 1,
+    recent: [
+      {
+        kind: 'DM',
+        conversationId: 7,
+        label: '이대리',
+        lastAuthorName: '이대리',
+        lastMessagePreview: '확인해주세요',
+        lastMessageAt: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+        unreadCount: 1,
+        mentioned: false,
+        needsReply: true,
+        newThreadReplyCount: 0,
+        aiReason: null,
+      },
+    ],
+  })
+  await page.goto('/')
+
+  // DM 회신 행이 어텐션 영역에 나타나야 한다.
+  const attentionArea = page.getByTestId('dashboard-attention')
+  await expect(attentionArea).toContainText('이대리')
+
+  // 클릭 시 /chat/dms/7 로 이동.
+  const link = attentionArea.getByRole('link', { name: /대화 열기: 이대리/ })
+  await link.click()
+  await expect(page).toHaveURL('/chat/dms/7')
+})
+
+test('메시징 — 어텐션 신호 없는 대화는 "지금 신경 쓸 일"에 나타나지 않는다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockSynthesis(page, {
+    needsReplyCount: 0,
+    aiAttentionCount: 0,
+    attentionCount: 0,
+    recent: [
+      {
+        kind: 'CHANNEL',
+        conversationId: 99,
+        label: '#잡담',
+        lastAuthorName: '동료A',
+        lastMessagePreview: '점심 뭐먹지',
+        lastMessageAt: new Date(Date.now() - 1 * 60 * 1000).toISOString(),
+        unreadCount: 0,
+        mentioned: false,
+        needsReply: false,
+        newThreadReplyCount: 0,
+        aiReason: null,
+      },
+    ],
+  })
+  await page.goto('/')
+
+  // 어텐션 영역에 #잡담 행이 없어야 한다.
+  await expect(page.getByTestId('dashboard-attention')).not.toContainText('#잡담')
+})
+
+test('합성 — 크로스앱 정렬: 이슈(urgency 0)→메시지(urgency 1)→메일(urgency 2) 순서로 렌더된다', async ({
+  authenticatedPage: page,
+}) => {
+  // 이슈(urgency 0), 메시지(urgency 1), 회신 필요 메일(urgency 2) 동시 존재 시
+  // "지금 신경 쓸 일" 리스트에서 urgency asc 정렬이 보장되어야 한다.
+  await mockWidgets(page)
+
+  // 마감 지난 이슈 — urgency 0.
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([
+      createIssue({ id: 1, projectKey: 'WP', number: 7, title: '마감 지난 이슈', dueDate: '2020-01-01' }),
+    ]),
+  )
+
+  // 회신 필요 메일 — urgency 2.
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
+    unreadCount: 1,
+    needsReplyCount: 1,
+    classificationActive: true,
+    recent: [
+      {
+        id: 200,
+        accountId: 1,
+        subject: '계약 검토 요청',
+        fromAddress: 'a@b.com',
+        fromName: '거래처',
+        snippet: null,
+        receivedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+        seen: false,
+        hasAttachment: false,
+        aiCategory: 'ACTION',
+        aiNeedsReply: true,
+      },
+    ],
+  } satisfies MailSummary)
+
+  // 메시지 AI 발굴 대화 — urgency 1.
+  await mockApi(page, 'GET', '/api/v1/me/messaging-summary', {
+    unreadConversationCount: 1,
+    needsReplyCount: 0,
+    aiAttentionCount: 1,
+    attentionCount: 1,
+    recent: [
+      {
+        kind: 'CHANNEL',
+        conversationId: 5,
+        label: '#dev',
+        lastAuthorName: '박서연',
+        lastMessagePreview: '배포 확인 부탁',
+        lastMessageAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        unreadCount: 1,
+        mentioned: false,
+        needsReply: false,
+        newThreadReplyCount: 0,
+        aiReason: '배포 여부 질문',
+      },
+    ],
+  } satisfies MessagingSummary)
+
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  await page.goto('/')
+
+  // "지금 신경 쓸 일" 영역에 세 행이 모두 있어야 한다.
+  const attention = page.getByTestId('dashboard-attention')
+  await expect(attention).toContainText('마감 지난 이슈')
+  await expect(attention).toContainText('#dev')
+  await expect(attention).toContainText('계약 검토 요청')
+
+  // 포커스 카드(최상위 = urgency 0 이슈)가 이슈여야 한다.
+  await expect(page.getByTestId('dashboard-attention-focus')).toContainText('마감 지난 이슈')
+
+  // 나머지 행의 DOM 순서: 메시지(urgency 1) → 메일(urgency 2).
+  // dashboard-attention 내 링크 목록에서 포커스 카드(첫 번째)를 제외한 순서 검증.
+  const links = attention.getByRole('link')
+  // links.nth(0) = 포커스 카드(이슈), nth(1) = 첫 번째 리스트 행(메시지), nth(2) = 두 번째 리스트 행(메일).
+  await expect(links.nth(1)).toContainText('#dev')
+  await expect(links.nth(2)).toContainText('계약 검토 요청')
+})
+
+// ── 메시징 신선도 — 읽음 후 messaging-summary 재조회 (#476) ─────────────────
+
+test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회된다 (#476)', async ({
+  authenticatedPage: page,
+}) => {
+  // messaging-summary 호출 횟수 추적.
+  // 읽음 onSuccess invalidate 발동 → 홈 복귀 시 stale 재조회 포함 2회 이상이어야 한다.
+  let summaryCallCount = 0
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/messaging-summary',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      summaryCallCount++
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          unreadConversationCount: summaryCallCount > 1 ? 0 : 1,
+          needsReplyCount: 0,
+          aiAttentionCount: 0,
+          attentionCount: 0,
+          recent: [],
+        } satisfies MessagingSummary),
+      })
+    },
+  )
+
+  // 채널 목록·SSE·메시지 스텁.
+  const CHANNEL_ID = 500
+  const channel = createChannel({ id: CHANNEL_ID, name: '#general', unreadCount: 1 })
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/channels',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([channel]) })
+        : route.fallback(),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/dms',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+        : route.fallback(),
+  )
+  // SSE 스텁 — 미스텁 flake 방지(빈 keep-alive 스트림).
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/stream',
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: `:\n\n` }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(channel) })
+        : route.fallback(),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/members`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([createChannelMember({ userId: 1 })]),
+          })
+        : route.fallback(),
+  )
+  // 메시지 목록 — id:100 이 viewport 에 진입 시 IntersectionObserver → markRead(100) 발화.
+  const msg = createMessage({ id: 100, channelId: CHANNEL_ID, authorId: 2, body: '안녕하세요' })
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ items: [msg], nextCursor: null, hasMore: false }),
+          })
+        : route.fallback(),
+  )
+  // mark-read POST stub — 204 응답 후 onSuccess invalidate 발동.
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/read`,
+    (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 204, body: '' })
+        : route.fallback(),
+  )
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  // SynthesisLayer 가 필요한 공통 스텁 (auth.fixture 기본 스텁 미포함 항목).
+  await mockApi(page, 'GET', '/api/v1/notifications', [])
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  await mockApi(page, 'GET', '/api/v1/me/issues', { items: [], nextCursor: null, hasMore: false })
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', { unreadCount: 0, recent: [] })
+
+  // 1) 홈 진입 → SynthesisLayer 마운트 → messaging-summary 첫 조회.
+  //    waitForResponse 는 route.fulfill 완료 후 발화 → 카운터 increment 보장.
+  const firstSummaryPromise = page.waitForResponse(
+    (res) => res.url().includes('/me/messaging-summary') && res.request().method() === 'GET',
+    { timeout: 5000 },
+  )
+  await page.goto('/')
+  await firstSummaryPromise
+  expect(summaryCallCount).toBeGreaterThanOrEqual(1)
+
+  // 2) 채널 진입 + markRead POST 대기를 동시에 설정.
+  //    waitForResponse 는 goto 이전에 Promise 로 미리 걸어야 한다.
+  const markReadPromise = page.waitForResponse(
+    (res) => res.url().includes(`/channels/${CHANNEL_ID}/read`) && res.request().method() === 'POST',
+    { timeout: 8000 },
+  )
+  await page.goto(`/chat/channels/${CHANNEL_ID}`)
+  await expect(page.getByText('안녕하세요')).toBeVisible()
+  // IntersectionObserver 가 메시지를 감지하고 markRead 를 호출할 때까지 대기.
+  await markReadPromise
+
+  // 3) 홈으로 복귀 → invalidate 로 stale 된 ['messaging-summary'] 가 재조회된다.
+  const summaryRefetchPromise = page.waitForResponse(
+    (res) => res.url().includes('/me/messaging-summary') && res.request().method() === 'GET',
+    { timeout: 5000 },
+  )
+  await page.goto('/')
+  await summaryRefetchPromise
+
+  // invalidate + 재조회로 총 2회 이상 호출됐어야 한다.
+  expect(summaryCallCount).toBeGreaterThanOrEqual(2)
 })
