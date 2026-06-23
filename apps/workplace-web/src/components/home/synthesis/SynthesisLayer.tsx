@@ -1,10 +1,10 @@
 // ① 합성 레이어 — 게이트 §1.1. 클라이언트 단순·설명가능 규칙으로
 // 이미 받아온 위젯 데이터를 재가공한다(새 백엔드·AI 없음).
 //   - 상태 카운트 스트립: 오늘 마감 · @멘션 · 안 읽음 · 오늘 일정 (각 셀 = 모듈 딥링크)
-//   - 주의 필요: 크로스앱 급한 것만(마감 지난/오늘 + 멘션 + 중요 메일), 행 딥링크
+//   - 지금 신경 쓸 일: 크로스앱 급한 것만(마감 지난/오늘 + 멘션), 최상위 포커스 카드 + 행 딥링크
 // 페치 정책: notifications·mail·calendar 훅은 ③ 위젯 바디와 동일 키 → TanStack Query 가 dedupe(이중 페치 없음).
 //   단 useMyIssueDues 는 어느 ③ 바디도 쓰지 않는 합성 전용 추가 쿼리다(마감 마커 — 스펙 허용).
-import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageSquare } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, MessageSquare } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
@@ -16,7 +16,6 @@ import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useNotifications } from '@/hooks/queries/useNotifications'
 import { parseUtcDate } from '@/lib/formatters'
 import type { IssueDueMarker } from '@/types/calendar'
-import type { MailSummaryItem } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
 import { isMentionLike, notifLabel, notifTarget } from '../notifTarget'
@@ -38,15 +37,15 @@ function localDateKey(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-// 주의 필요 한 행의 표준 모델.
+// 지금 신경 쓸 일 한 행의 표준 모델.
 interface AttentionRow {
   key: string
-  source: '이슈' | '멘션' | '메일'
+  source: '이슈' | '멘션'
   title: string
-  meta: string // 우측 정렬 메타(마감/시각/중요)
+  meta: string // 우측 정렬 메타(마감/시각)
   to: string
   ariaLabel: string
-  urgency: number // 작을수록 위(0=마감지남/오늘, 1=멘션, 2=중요메일)
+  urgency: number // 작을수록 위(0=마감지남/오늘, 1=멘션)
   recency: number // 동일 urgency 내 최신순(epoch ms, 클수록 위)
 }
 
@@ -98,10 +97,9 @@ function CountCell({
 const SOURCE_ICON = {
   이슈: CalendarClock,
   멘션: MessageSquare,
-  메일: Mail,
 } as const
 
-/** ① 합성 레이어 — 카운트 스트립 + 주의 필요 리스트. 소스별 에러/로딩 격리. */
+/** ① 합성 레이어 — 카운트 스트립 + 지금 신경 쓸 일 리스트. 소스별 에러/로딩 격리. */
 export function SynthesisLayer() {
   // '멘션' 셀 클릭 시 AppRail 의 알림 인박스 패널을 연다(전용 멘션 페이지 없음).
   const { openInbox } = useInboxPanel()
@@ -132,7 +130,7 @@ export function SynthesisLayer() {
 
   const todayEventCount = (events.data ?? []).length
 
-  // ── 주의 필요 병합(클라이언트 규칙) ────────────────────────────────────
+  // ── 지금 신경 쓸 일 병합(클라이언트 규칙) ────────────────────────────────────
   const rows: AttentionRow[] = []
 
   // 1) 마감 지남/오늘 이슈 — urgency 0.
@@ -173,23 +171,6 @@ export function SynthesisLayer() {
     }
   }
 
-  // 3) 중요/안 읽은 메일 — recent 상위(안 읽은 것) urgency 2.
-  if (!mail.isError) {
-    const recent: MailSummaryItem[] = mail.data?.recent ?? []
-    for (const m of recent.filter((x) => !x.seen).slice(0, 3)) {
-      rows.push({
-        key: `mail-${m.id}`,
-        source: '메일',
-        title: m.subject?.trim() || '(제목 없음)',
-        meta: '중요',
-        to: '/mail',
-        ariaLabel: `메일 열기: ${m.subject?.trim() || '(제목 없음)'}`,
-        urgency: 2,
-        recency: m.receivedAt ? parseUtcDate(m.receivedAt).getTime() : 0,
-      })
-    }
-  }
-
   // 긴급도 우선, 동일 긴급도 내 최신순. 상위 5건.
   rows.sort((a, b) => a.urgency - b.urgency || b.recency - a.recency)
   const top = rows.slice(0, 5)
@@ -227,14 +208,14 @@ export function SynthesisLayer() {
           ))}
         </div>
 
-        {/* 주의 필요 — 크로스앱 급한 것만. 비면 차분한 빈 상태. */}
+        {/* 지금 신경 쓸 일 — 크로스앱(이슈·멘션) 급한 것만. 최상위 1건은 포커스 카드로 강조. 비면 차분한 빈 상태. */}
         <div data-testid="dashboard-attention">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium">
             {/* 빈 상태(0건)면 경고 색 제거 — 경고 아이콘이 긍정 메시지와 모순되지 않도록. */}
             <AlertTriangle
               className={`h-4 w-4 ${top.length > 0 ? 'text-destructive' : 'text-muted-foreground'}`}
             />
-            주의 필요{top.length > 0 ? ` (${top.length})` : ''}
+            지금 신경 쓸 일{top.length > 0 ? ` (${top.length})` : ''}
           </div>
           {top.length === 0 ? (
             <div
@@ -245,30 +226,52 @@ export function SynthesisLayer() {
               다 확인했습니다
             </div>
           ) : (
-            <ul className="space-y-0.5 border-l-2 border-l-destructive pl-2">
-              {top.map((r) => {
-                const Icon = SOURCE_ICON[r.source]
+            <div className="space-y-2">
+              {/* 포커스 카드 — 최상위 1건을 강조(ai-accent 보더 + subtle 배경). 규칙 기반 이유 표시(AI 내레이션은 후속 Phase). */}
+              {(() => {
+                const f = top[0]
+                const FIcon = SOURCE_ICON[f.source]
                 return (
-                  <li key={r.key}>
-                    <Link
-                      to={r.to}
-                      aria-label={r.ariaLabel}
-                      className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                    >
-                      {/* 소스 라벨 칩 */}
-                      <span className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                        <Icon className="h-3 w-3" />
-                        {r.source}
-                      </span>
-                      <span className="truncate">{r.title}</span>
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                        {r.meta}
-                      </span>
-                    </Link>
-                  </li>
+                  <Link
+                    to={f.to}
+                    aria-label={f.ariaLabel}
+                    data-testid="dashboard-attention-focus"
+                    className="flex items-center gap-3 rounded-lg border border-ai-accent bg-ai-accent-subtle px-3 py-2.5 hover:bg-ai-accent-subtle/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    <span className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                      <FIcon className="h-3 w-3" />
+                      {f.source}
+                    </span>
+                    <span className="truncate text-sm font-medium">{f.title}</span>
+                    <span className="ml-auto shrink-0 text-xs font-medium text-ai-accent">{f.meta}</span>
+                  </Link>
                 )
-              })}
-            </ul>
+              })()}
+              {/* 나머지 항목 — 차분한 리스트. */}
+              {top.length > 1 && (
+                <ul className="space-y-0.5 border-l-2 border-l-destructive pl-2">
+                  {top.slice(1).map((r) => {
+                    const Icon = SOURCE_ICON[r.source]
+                    return (
+                      <li key={r.key}>
+                        <Link
+                          to={r.to}
+                          aria-label={r.ariaLabel}
+                          className="flex min-h-6 items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        >
+                          <span className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                            <Icon className="h-3 w-3" />
+                            {r.source}
+                          </span>
+                          <span className="truncate">{r.title}</span>
+                          <span className="ml-auto shrink-0 text-xs text-muted-foreground">{r.meta}</span>
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
           )}
         </div>
       </CardContent>

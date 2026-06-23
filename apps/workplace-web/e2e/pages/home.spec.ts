@@ -1010,6 +1010,38 @@ test('오늘 일정 — 종일·시각·미정 혼재 시 미정은 맨 뒤로 �
   await expect(timed).toHaveText(/^\d{2}:\d{2}$/)
 })
 
+test('합성 — 메일은 "지금 신경 쓸 일"에 끼지 않고, 최상위는 포커스 카드로 강조된다', async ({
+  authenticatedPage: page,
+}) => {
+  // mockWidgets 는 안 읽은 메일 "월간 보고서"(seen:false)를 포함한 mail-summary 를 모킹한다.
+  await mockWidgets(page)
+  // 마감 지난 이슈 1건 → 주의 최상위.
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([
+      createIssue({ id: 1, projectKey: 'WP', number: 7, title: '지연된 이슈', dueDate: '2020-01-01' }),
+    ]),
+  )
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+
+  const attention = page.getByTestId('dashboard-attention')
+  // (출력) 안 읽은 메일이 있어도 주의 영역에 메일 행이 없다 — 가짜 "중요" 제거.
+  await expect(attention).not.toContainText('월간 보고서')
+  await expect(attention).not.toContainText('중요')
+  // (출력) 최상위 항목은 포커스 카드로 강조되고, 정직한 이유("마감 지남")와 딥링크를 가진다.
+  const focus = page.getByTestId('dashboard-attention-focus')
+  await expect(focus).toBeVisible()
+  await expect(focus).toContainText('지연된 이슈')
+  await expect(focus).toContainText('마감 지남')
+  await expect(focus).toHaveAttribute('href', '/projects/WP/issues/7')
+  // (출력) 영역 용어 교체: '주의 필요' → '지금 신경 쓸 일'.
+  await expect(attention).toContainText('지금 신경 쓸 일')
+  await expect(attention).not.toContainText('주의 필요')
+})
+
 // ── #282 회귀 가드 ─────────────────────────────────────────────────────────
 
 test('내 작업 — 이슈 행 딥링크와 헤더 부제가 렌더된다 (refs #282)', async ({

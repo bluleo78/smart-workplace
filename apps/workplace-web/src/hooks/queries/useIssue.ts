@@ -25,6 +25,9 @@ export function useUpdateIssue(projectKey: string, number: number) {
       // 검색/목록 캐시 무효화 — issueKeys.lists 는 어떤 useQuery도 사용하지 않으므로
       // 실제 목록·보드가 사용하는 issueKeys.search 키를 무효화한다 (#175).
       qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
+      // 홈 합성 위젯의 마감 마커(useMyIssueDues, ['my-issue-dues', from, to])도 무효화 —
+      // 마감일 변경이 홈 "오늘 마감" 카운트·주의 항목에 즉시 반영되도록 prefix 로 모든 날짜범위를 무효화한다.
+      qc.invalidateQueries({ queryKey: ['my-issue-dues'] });
     },
   });
 }
