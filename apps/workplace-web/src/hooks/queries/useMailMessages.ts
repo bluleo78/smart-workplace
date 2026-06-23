@@ -86,6 +86,10 @@ export function useSyncMailbox(accountId: number | undefined) {
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['mail-messages', accountId] });
       qc.invalidateQueries({ queryKey: mailMessageKeys.syncStatus(accountId ?? 0) });
+      // 계정 목록(['mail-accounts'])도 무효화 — 받은편지함 헤더의 "N분 전 동기화됨"
+      // 표시가 이 쿼리의 lastSyncedAt 에서 오므로, 무효화하지 않으면 동기화 후에도
+      // "동기화 안 됨"이 갱신되지 않는다.
+      qc.invalidateQueries({ queryKey: ['mail-accounts'] });
       // 홈 대시보드 안읽은 메일 위젯(useMailSummary, queryKey ['mail-summary'])도 갱신.
       // exact: true — 메시지별 AI 요약 ['mail-summary', messageId]까지 무효화해
       // 불필요한 AI 재생성이 일어나지 않도록 홈 요약 단건만 정확히 무효화한다.

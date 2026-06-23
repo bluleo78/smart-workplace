@@ -378,6 +378,48 @@ test.describe('받은편지함', () => {
     await expect(page.locator('[data-testid="mail-synced-at"] .bg-green-500')).toHaveCount(0)
   })
 
+  // #481 회귀 — 수동 동기화 성공 후 계정 목록(['mail-accounts'])이 무효화되어
+  // 상태 텍스트가 "동기화 안 됨"→"동기화됨"으로 갱신되어야 한다. useSyncMailbox 가
+  // 계정 쿼리를 무효화하지 않으면 동기화해도 stale 값이 그대로 남는다.
+  test('수동 동기화 완료 후 "동기화됨"으로 갱신된다 (#481 회귀)', async ({
+    authenticatedPage: page,
+  }) => {
+    let synced = false
+    // 계정 목록: 동기화 전 lastSyncedAt=null, 동기화 후 방금 시각.
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            mailAccount({ lastSyncedAt: synced ? new Date().toISOString() : null }),
+          ]),
+        }),
+    )
+    await stubMessages(page)
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', {
+      phase: 'IDLE', total: 0, done: 0, running: false,
+    })
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/sync',
+      (route) => {
+        synced = true
+        return route.fulfill({
+          status: 200, contentType: 'application/json', body: JSON.stringify({ fetched: 1, saved: 1 }),
+        })
+      },
+    )
+
+    await page.goto('/mail/1')
+    // 초기: 동기화 안 됨
+    await expect(page.getByTestId('mail-synced-at')).toContainText('동기화 안 됨')
+    // 동기화 클릭 → 성공 시 계정 목록 무효화 → 재조회로 "동기화됨"으로 갱신
+    await page.getByTestId('mail-sync').click()
+    await expect(page.getByTestId('mail-synced-at')).toContainText('동기화됨')
+    await expect(page.getByTestId('mail-synced-at')).not.toContainText('동기화 안 됨')
+  })
+
   // #181 — 메일 열람 시 목록의 해당 항목이 굵음(bold) 상태에서 일반 상태로 전환되어야 한다.
   test('메일 열람 시 목록 항목의 읽음 상태(seen)가 업데이트된다 (#181)', async ({
     authenticatedPage: page,
