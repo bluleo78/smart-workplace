@@ -1,6 +1,9 @@
 // 이슈 모듈 2차 사이드바 — 개인 영역(내 작업/AI 위임) + 프로젝트(컬러 식별자).
-import { LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide-react'
+import { FolderKanban, LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide-react'
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
+
+import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDialog'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { useProjects } from '@/hooks/queries/useProjects'
@@ -8,6 +11,8 @@ import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { projectColor, projectInitial } from '@/lib/project-color'
 
 export function IssueSidebar() {
+  // 프로젝트 생성 다이얼로그 열림 상태 — 섹션 헤더 + 버튼이 트리거한다.
+  const [createOpen, setCreateOpen] = useState(false)
   // 프로젝트 목록은 PageResponse<ProjectResponse> 형태 — data.content 로 접근한다.
   const projects = useProjects()
   // 사용자가 고정한 뷰 — 프로젝트 교차 빠른 접근(사이드바 상단 노출).
@@ -19,6 +24,7 @@ export function IssueSidebar() {
   const team = all.filter((p) => p.type !== 'PERSONAL')
 
   return (
+    <>
     <aside
       className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40"
       data-testid="issue-sidebar"
@@ -37,6 +43,10 @@ export function IssueSidebar() {
           </NavLink>
           <NavLink to="/me/ai-tasks" className={sidebarLinkClass}>
             <Sparkles className="h-4 w-4" /> AI 위임 작업
+          </NavLink>
+          {/* 프로젝트 목록(전체 보기) — 1급 목적지로 승격(이전엔 +아이콘에만 숨어 있었음) */}
+          <NavLink to="/projects" end data-testid="sidebar-all-projects" className={sidebarLinkClass}>
+            <FolderKanban className="h-4 w-4" /> 프로젝트
           </NavLink>
         </nav>
 
@@ -100,13 +110,16 @@ export function IssueSidebar() {
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               프로젝트
             </span>
-            <NavLink
-              to="/projects"
-              aria-label="프로젝트 전체 보기"
+            {/* + 버튼: 이전에는 /projects 링크였으나 1급 항목으로 승격 — 여기선 생성 트리거로 전환 */}
+            <button
+              type="button"
+              data-testid="sidebar-create-project"
+              aria-label="새 프로젝트"
+              onClick={() => setCreateOpen(true)}
               className="p-1 text-muted-foreground hover:text-foreground"
             >
               <Plus className="h-4 w-4" />
-            </NavLink>
+            </button>
           </div>
           <nav className="mt-2 space-y-1">
             {team.map((p) => {
@@ -135,5 +148,8 @@ export function IssueSidebar() {
         </div>
       </div>
     </aside>
+    {/* 프로젝트 생성 다이얼로그 — aside 형제로 렌더해 z-index 스택 충돌 방지 */}
+    <ProjectCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+    </>
   )
 }

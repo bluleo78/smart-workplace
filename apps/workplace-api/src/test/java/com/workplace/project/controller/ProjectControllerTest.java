@@ -70,7 +70,19 @@ class ProjectControllerTest {
 
   private ProjectResponse sampleProject() {
     return new ProjectResponse(
-        10L, "WP", "Workplace", "v1", 1L, "TEAM", false, Instant.now(), Instant.now());
+        10L,
+        "WP",
+        "Workplace",
+        "v1",
+        1L,
+        "TEAM",
+        false,
+        Instant.now(),
+        Instant.now(),
+        0,
+        0,
+        0,
+        java.util.List.of());
   }
 
   @Test
@@ -96,7 +108,19 @@ class ProjectControllerTest {
     mockAuthentication("project:write");
     ProjectResponse personal =
         new ProjectResponse(
-            11L, "P-1", "개인 작업", null, 1L, "PERSONAL", false, Instant.now(), Instant.now());
+            11L,
+            "P-1",
+            "개인 작업",
+            null,
+            1L,
+            "PERSONAL",
+            false,
+            Instant.now(),
+            Instant.now(),
+            0,
+            0,
+            0,
+            java.util.List.of());
     when(projectService.create(eq(1L), any())).thenReturn(personal);
 
     mockMvc

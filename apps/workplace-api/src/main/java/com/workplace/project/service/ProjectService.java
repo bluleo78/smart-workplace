@@ -2,6 +2,7 @@ package com.workplace.project.service;
 
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueTypeService;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -19,6 +20,7 @@ import com.workplace.project.repository.ProjectRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +41,7 @@ public class ProjectService {
   private final IssueTypeService issueTypeService;
   private final PersonalProjectProvisioner provisioner;
   private final UserRepository userRepository;
+  private final IssueRepository issueRepository;
 
   /**
    * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, 아니면 TEAM 경로. 호출자를 OWNER 로 등록 → 이슈
@@ -64,7 +67,8 @@ public class ProjectService {
 
   /**
    * 사용자에게 보이는 프로젝트 목록 페이지 조회. 조회 전에 기본 개인 프로젝트를 지연 프로비저닝(HUMAN 한정)한다 — provisioner 의 REQUIRES_NEW
-   * 서브 트랜잭션이 먼저 커밋되므로 본 readOnly 조회가 깨끗한 커넥션에서 기본 프로젝트를 볼 수 있다. ADMIN 은 전체, 일반 사용자는 본인 멤버 프로젝트만.
+   * 서브 트랜잭션이 먼저 커밋되므로 본 readOnly 조회가 깨끗한 커넥션에서 기본 프로젝트를 볼 수 있다. ADMIN 은 전체, 일반 사용자는 본인 멤버 프로젝트만. 배치
+   * 집계(N+1 회피): 상태별 이슈 수·멤버 이름·(멤버 없는 경우용) 소유자 이름을 한 쿼리씩 조회.
    */
   @Transactional(readOnly = true)
   public PageResponse<ProjectResponse> list(Long callerId, int page, int size) {
@@ -72,9 +76,41 @@ public class ProjectService {
     boolean isAdmin = permissionChecker.userHasRole(callerId, "ADMIN");
     long total = projectRepository.countForUser(callerId, isAdmin);
     List<ProjectRow> rows = projectRepository.findAllForUser(callerId, isAdmin, page, size);
+
+    // 배치 집계(N+1 회피): 상태별 이슈 수 + 멤버 이름 + 소유자 이름(멤버 없는 프로젝트 폴백용)
+    List<Long> projectIds = rows.stream().map(ProjectRow::id).toList();
+    var statusCounts = issueRepository.countByStatusForProjects(projectIds);
+    var memberNamesMap = memberRepository.findMemberNamesByProjects(projectIds);
+    var ownerNames = userRepository.findNamesByIds(rows.stream().map(ProjectRow::ownerId).toList());
+
+    List<ProjectResponse> content =
+        rows.stream()
+            .map(
+                row -> {
+                  var byStatus = statusCounts.getOrDefault(row.id(), Map.of());
+                  int all = byStatus.values().stream().mapToInt(Integer::intValue).sum();
+                  int canceled = byStatus.getOrDefault("CANCELED", 0);
+                  int done = byStatus.getOrDefault("DONE", 0);
+                  int issueTotal = all - canceled; // 취소는 진행률 분모에서 제외
+
+                  List<String> members = memberNamesMap.getOrDefault(row.id(), List.of());
+                  int memberCount;
+                  List<String> topNames;
+                  if (members.isEmpty()) {
+                    // 멤버 행이 없으면 소유자로 폴백(개인 프로젝트 등)
+                    String owner = ownerNames.get(row.ownerId());
+                    topNames = owner == null ? List.of() : List.of(owner);
+                    memberCount = owner == null ? 0 : 1;
+                  } else {
+                    memberCount = members.size();
+                    topNames = members.stream().limit(3).toList();
+                  }
+                  return ProjectResponse.from(row, issueTotal, done, memberCount, topNames);
+                })
+            .toList();
+
     int totalPages = (size == 0) ? 0 : (int) Math.ceil((double) total / size);
-    return new PageResponse<>(
-        rows.stream().map(ProjectResponse::from).toList(), page, size, total, totalPages);
+    return new PageResponse<>(content, page, size, total, totalPages);
   }
 
   /** 단일 프로젝트 조회. 호출자가 멤버(또는 ADMIN)여야 함. */

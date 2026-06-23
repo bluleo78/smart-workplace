@@ -17,3 +17,17 @@ export function projectColor(key: string): { bg: string; fg: string } {
 export function projectInitial(key: string): string {
   return key.slice(0, 2).toUpperCase()
 }
+
+/** 이름 문자열 → 결정적 HSL 색(멤버 아바타 배경). */
+export function nameColor(name: string): { bg: string; fg: string } {
+  let h = 0
+  for (let i = 0; i < name.length; i++) {
+    h = (Math.imul(h, 31) + name.charCodeAt(i)) >>> 0
+  }
+  return { bg: `hsl(${h % 360} 60% 45%)`, fg: 'hsl(0 0% 100%)' }
+}
+
+/** 이름 첫 글자(대문자) — 아바타 안에 표시. */
+export function nameInitial(name: string): string {
+  return (name.trim()[0] ?? '?').toUpperCase()
+}

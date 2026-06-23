@@ -1,5 +1,7 @@
 package com.workplace.project.service;
 
+import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
@@ -9,10 +11,12 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.dto.PageResponse;
+import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectConflictException;
+import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -35,6 +39,7 @@ class ProjectProvisioningTest extends IntegrationTestBase {
 
   @Autowired private ProjectService projectService;
   @Autowired private ProjectRepository projectRepository;
+  @Autowired private ProjectIssueSequenceRepository sequenceRepository;
   @Autowired private DSLContext dsl;
 
   // 만든 user id 추적 → @AfterEach 에서 project(소유)+user_role+user 회수 (병렬세션 안전: 전역 truncate 금지).
@@ -43,6 +48,16 @@ class ProjectProvisioningTest extends IntegrationTestBase {
   @AfterEach
   void cleanup() {
     if (createdUserIds.isEmpty()) return;
+    // issue.project_id FK 는 NO ACTION — project 삭제 전 issue 를 먼저 제거한다.
+    // (project_id 서브쿼리: createdUserIds 소유 프로젝트 범위만 삭제해 병렬세션 안전)
+    var ownedProjectIds =
+        dsl.select(PROJECT.ID)
+            .from(PROJECT)
+            .where(PROJECT.OWNER_ID.in(createdUserIds))
+            .fetch(PROJECT.ID);
+    if (!ownedProjectIds.isEmpty()) {
+      dsl.deleteFrom(ISSUE).where(ISSUE.PROJECT_ID.in(ownedProjectIds)).execute();
+    }
     // project.owner_id 는 ON DELETE CASCADE 아님 → project 를 먼저 지워야 user 삭제 가능.
     dsl.deleteFrom(PROJECT).where(PROJECT.OWNER_ID.in(createdUserIds)).execute();
     dsl.deleteFrom(USER_ROLE).where(USER_ROLE.USER_ID.in(createdUserIds)).execute();
@@ -160,5 +175,88 @@ class ProjectProvisioningTest extends IntegrationTestBase {
         projectService.create(human, new CreateProjectRequest(null, "삭제가능", null, "PERSONAL"));
     assertThatCode(() -> projectService.softDelete(human, personal.key()))
         .doesNotThrowAnyException();
+  }
+
+  /**
+   * list() 가 이슈 진행률·멤버를 올바르게 집계한다. DONE 2 / CANCELED 1 / TODO 2 → issueTotal=4(CANCELED 제외),
+   * issueDone=2, memberCount=2. 다른 프로젝트(누수 가드) 이슈는 집계에 포함되지 않아야 한다.
+   */
+  @Test
+  void list_이슈진행률과_멤버를_집계한다() {
+    Long ownerId = createUser("owner");
+    Long otherId = createUser("other");
+
+    // 팀 프로젝트 생성(OWNER 멤버 자동 등록) + MEMBER 추가 → memberCount=2
+    String aggKey = uniqueKey("AGG");
+    ProjectResponse aggProj =
+        projectService.create(
+            ownerId, new CreateProjectRequest(aggKey, aggKey + " 프로젝트", null, "TEAM"));
+    projectService.addMember(ownerId, aggKey, new AddMemberRequest(otherId, "MEMBER"));
+
+    insertIssue(aggProj.id(), "DONE", ownerId);
+    insertIssue(aggProj.id(), "DONE", ownerId);
+    insertIssue(aggProj.id(), "CANCELED", ownerId);
+    insertIssue(aggProj.id(), "TODO", ownerId);
+    insertIssue(aggProj.id(), "TODO", ownerId);
+
+    // 누수 가드: 다른 프로젝트(같은 테넌트) 이슈는 집계에 포함되면 안 됨
+    String othKey = uniqueKey("OTH");
+    ProjectResponse othProj =
+        projectService.create(
+            otherId, new CreateProjectRequest(othKey, othKey + " 프로젝트", null, "TEAM"));
+    insertIssue(othProj.id(), "DONE", otherId);
+
+    var page = projectService.list(ownerId, 0, 20);
+    var agg = page.content().stream().filter(p -> p.key().equals(aggKey)).findFirst().orElseThrow();
+
+    assertThat(agg.issueTotal()).isEqualTo(4);
+    assertThat(agg.issueDone()).isEqualTo(2);
+    assertThat(agg.memberCount()).isEqualTo(2);
+    assertThat(agg.memberNames()).hasSize(2);
+  }
+
+  /**
+   * 개인 프로젝트는 OWNER 멤버 행이 있으므로 memberNames 에 소유자 이름이 포함된다. (project_member 에 OWNER 행이 있어 멤버 경로로 정상
+   * 반환됨을 검증)
+   */
+  @Test
+  void list_개인프로젝트는_소유자가_멤버로_노출된다() {
+    Long human = createUser("soloowner");
+    var page = projectService.list(human, 0, 20);
+    var personal =
+        page.content().stream().filter(p -> p.type().equals("PERSONAL")).findFirst().orElseThrow();
+    assertThat(personal.memberCount()).isEqualTo(1);
+    assertThat(personal.memberNames()).containsExactly("soloowner");
+  }
+
+  /** 이슈가 없는 프로젝트는 issueTotal=0, issueDone=0 */
+  @Test
+  void list_이슈없으면_total0() {
+    Long human = createUser("emptyowner");
+    String empKey = uniqueKey("EMP");
+    projectService.create(human, new CreateProjectRequest(empKey, empKey + " 프로젝트", null, "TEAM"));
+    var page = projectService.list(human, 0, 20);
+    var emp = page.content().stream().filter(p -> p.key().equals(empKey)).findFirst().orElseThrow();
+    assertThat(emp.issueTotal()).isZero();
+    assertThat(emp.issueDone()).isZero();
+  }
+
+  /** 이슈 직접 삽입 헬퍼. type_id 는 프로젝트 시스템 유형 중 하나를 자동 조회. */
+  private void insertIssue(Long pid, String status, Long reporterId) {
+    Long typeId =
+        dsl.select(ISSUE_TYPE_DEF.ID)
+            .from(ISSUE_TYPE_DEF)
+            .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(pid))
+            .limit(1)
+            .fetchOne(ISSUE_TYPE_DEF.ID);
+    int num = sequenceRepository.allocateNext(pid);
+    dsl.insertInto(ISSUE)
+        .set(ISSUE.PROJECT_ID, pid)
+        .set(ISSUE.NUMBER, num)
+        .set(ISSUE.TITLE, "t")
+        .set(ISSUE.STATUS, status)
+        .set(ISSUE.REPORTER_ID, reporterId)
+        .set(ISSUE.TYPE_ID, typeId)
+        .execute();
   }
 }

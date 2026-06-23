@@ -1,16 +1,12 @@
 // 컨텐츠 헤더(PageHeader) 표준 — 프로젝트 목록·이슈 상세에 헤더 바가 제목·메타·액션과 함께 렌더.
 import { createIssue, createIssueDetail } from '../factories/issue.factory'
 import { createProject } from '../factories/project.factory'
-import { mockApi } from '../fixtures/api-mock'
+import { createPageResponse, mockApi } from '../fixtures/api-mock'
 import { expect, test } from '../fixtures/auth.fixture'
 
 test.describe('PageHeader — 프로젝트 목록', () => {
   test('헤더 바에 제목 "프로젝트" + 새 프로젝트 액션', async ({ authenticatedPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/projects', {
-      content: [{ key: 'EX', name: '예제', description: '샘플' }],
-      totalPages: 1,
-      totalElements: 1,
-    })
+    await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([createProject({ key: 'EX', name: '예제' })]))
     await page.goto('/projects')
 
     const header = page.getByTestId('page-header')

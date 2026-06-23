@@ -135,4 +135,29 @@ public class ProjectMemberRepository {
             .from(PROJECT_MEMBER)
             .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId).and(PROJECT_MEMBER.USER_ID.eq(userId))));
   }
+
+  /**
+   * 여러 프로젝트의 멤버 이름을 created_at asc 순으로 한 쿼리에 모은다(N+1 회피).
+   *
+   * @return projectId → 멤버 이름 리스트(가입순)
+   */
+  public java.util.Map<Long, java.util.List<String>> findMemberNamesByProjects(
+      java.util.List<Long> projectIds) {
+    java.util.Map<Long, java.util.List<String>> result = new java.util.LinkedHashMap<>();
+    if (projectIds.isEmpty()) return result;
+    dsl.select(PROJECT_MEMBER.PROJECT_ID, USER.NAME)
+        .from(PROJECT_MEMBER)
+        .join(USER)
+        .on(USER.ID.eq(PROJECT_MEMBER.USER_ID))
+        .where(PROJECT_MEMBER.PROJECT_ID.in(projectIds))
+        .orderBy(PROJECT_MEMBER.PROJECT_ID.asc(), PROJECT_MEMBER.CREATED_AT.asc())
+        .fetch()
+        .forEach(
+            r ->
+                result
+                    .computeIfAbsent(
+                        r.get(PROJECT_MEMBER.PROJECT_ID), k -> new java.util.ArrayList<>())
+                    .add(r.get(USER.NAME)));
+    return result;
+  }
 }

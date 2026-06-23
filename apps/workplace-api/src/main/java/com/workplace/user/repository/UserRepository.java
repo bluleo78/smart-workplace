@@ -316,4 +316,16 @@ public class UserRepository {
       insert.execute();
     }
   }
+
+  /** userId 목록 → name 맵(개인 프로젝트 소유자 폴백용). */
+  public java.util.Map<Long, String> findNamesByIds(java.util.Collection<Long> ids) {
+    java.util.Map<Long, String> result = new java.util.LinkedHashMap<>();
+    if (ids.isEmpty()) return result;
+    dsl.select(USER.ID, USER.NAME)
+        .from(USER)
+        .where(USER.ID.in(ids))
+        .fetch()
+        .forEach(r -> result.put(r.get(USER.ID), r.get(USER.NAME)));
+    return result;
+  }
 }

@@ -48,15 +48,15 @@ interface RailItem {
   match?: string | string[]
 }
 
-// 활성화된 모듈 런처 항목
+// 활성화된 모듈 런처 항목 — 일일 사용 빈도 우선 순서.
+// 소통 묶음(대화·메일·연락처)을 앞에 인접 배치, 작업관리는 그 다음, 파일/노트는 끝.
 const MODULES: RailItem[] = [
   { label: '홈', href: '/', icon: Home },
-  { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
-  // 소통 묶음 — 대화·메일·연락처를 인접 배치, 파일(드라이브)은 끝으로.
   { label: '대화', href: '/chat', icon: MessageSquare },
   { label: '메일', href: '/mail', icon: Mail },
   { label: '연락처', href: '/contacts', icon: Users },
   { label: '캘린더', href: '/calendar', icon: CalendarDays },
+  { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
   { label: '드라이브', href: '/drive', icon: HardDrive },
   { label: '노트', href: '/wiki', icon: BookOpen },
   { label: '설정', href: '/settings/profile', icon: Settings, match: ['/settings', '/admin'] },

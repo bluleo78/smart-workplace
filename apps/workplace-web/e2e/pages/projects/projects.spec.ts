@@ -133,7 +133,7 @@ test('프로젝트 목록 API 실패 시 오류 메시지와 재시도 버튼이
   // 재시도 클릭 → 정상 목록 표시
   await page.getByRole('button', { name: '다시 시도' }).click();
   await expect(page.getByText('프로젝트 목록을 불러오지 못했습니다.')).not.toBeVisible();
-  await expect(page.getByRole('list').getByRole('link', { name: /Workplace/ })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('link', { name: /Workplace/ }).first()).toBeVisible();
 });
 
 // non-smoke: 비멤버 프로젝트 접근 시 403 → 에러 메시지 노출

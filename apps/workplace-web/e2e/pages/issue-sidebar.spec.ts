@@ -33,6 +33,10 @@ test('사이드바가 프로젝트 응답을 링크로 렌더한다 (name → hr
     isDefault: false,
     createdAt: '',
     updatedAt: '',
+    issueTotal: 0,
+    issueDone: 0,
+    memberCount: 0,
+    memberNames: [],
   }
   await page.route('**/api/v1/projects**', (route) =>
     route.fulfill({
@@ -45,6 +49,6 @@ test('사이드바가 프로젝트 응답을 링크로 렌더한다 (name → hr
   const link = page.getByTestId('issue-sidebar').getByRole('link', { name: 'Engineering' })
   await expect(link).toBeVisible()
   await expect(link).toHaveAttribute('href', '/projects/ENG')
-  // 프로젝트 항목은 컬러 식별자(이니셜 배지)를 갖는다 — 아이콘 일관성.
-  await expect(page.getByTestId('project-badge-ENG')).toHaveText('EN')
+  // 프로젝트 항목은 컬러 식별자(이니셜 배지)를 갖는다 — 아이콘 일관성. 사이드바 내로 스코핑.
+  await expect(page.getByTestId('issue-sidebar').getByTestId('project-badge-ENG')).toHaveText('EN')
 })

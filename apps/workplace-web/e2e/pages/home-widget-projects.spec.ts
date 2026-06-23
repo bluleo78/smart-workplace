@@ -19,6 +19,10 @@ function makeProject(overrides: Partial<ProjectResponse> & { key: string }): Pro
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
     name: `프로젝트-${overrides.key}`,
+    issueTotal: 0,
+    issueDone: 0,
+    memberCount: 0,
+    memberNames: [],
     ...overrides, // key·name 등 호출자 지정이 기본값을 덮음
   }
 }

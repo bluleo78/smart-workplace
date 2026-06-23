@@ -13,6 +13,11 @@ export function createProject(overrides: Partial<ProjectResponse> = {}): Project
     isDefault: false,
     createdAt: now,
     updatedAt: now,
+    // 목록 화면 집계 — 기본값(개별 테스트에서 overrides 로 지정).
+    issueTotal: 0,
+    issueDone: 0,
+    memberCount: 0,
+    memberNames: [],
     ...overrides,
   };
 }

@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -777,5 +778,26 @@ public class IssueRepository {
                     r.get(com.workplace.jooq.Tables.PROJECT.KEY),
                     r.get(ISSUE.NUMBER),
                     r.get(ISSUE.TITLE)));
+  }
+
+  /**
+   * 여러 프로젝트의 상태별 이슈 개수를 한 쿼리로 집계한다(N+1 회피). 삭제된 이슈(deleted_at IS NOT NULL) 제외.
+   *
+   * @return projectId → (status → count)
+   */
+  public Map<Long, Map<String, Integer>> countByStatusForProjects(List<Long> projectIds) {
+    Map<Long, Map<String, Integer>> result = new LinkedHashMap<>();
+    if (projectIds.isEmpty()) return result;
+    dsl.select(ISSUE.PROJECT_ID, ISSUE.STATUS, count())
+        .from(ISSUE)
+        .where(ISSUE.PROJECT_ID.in(projectIds).and(ISSUE.DELETED_AT.isNull()))
+        .groupBy(ISSUE.PROJECT_ID, ISSUE.STATUS)
+        .fetch()
+        .forEach(
+            r ->
+                result
+                    .computeIfAbsent(r.get(ISSUE.PROJECT_ID), k -> new LinkedHashMap<>())
+                    .put(r.get(ISSUE.STATUS), r.get(count())));
+    return result;
   }
 }

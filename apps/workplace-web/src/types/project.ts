@@ -16,6 +16,11 @@ export interface ProjectResponse {
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
+  // 목록 화면 집계 — 상세/생성 응답에선 0/빈배열일 수 있음
+  issueTotal: number;
+  issueDone: number;
+  memberCount: number;
+  memberNames: string[];
 }
 
 export type ProjectMemberRole = 'OWNER' | 'MEMBER';
