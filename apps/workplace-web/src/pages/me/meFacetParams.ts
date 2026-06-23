@@ -17,6 +17,11 @@ export function meFacetParams(params: URLSearchParams): Record<string, string> {
   const out: Record<string, string> = {}
   if (f.statuses.length) out.status = f.statuses.join(',')
   if (f.priorities.length) out.priority = f.priorities.join(',')
+  // 마감 범위(dueFrom/dueTo) 직통과 — 내 작업 위젯 '마감 임박' 그룹 딥링크(?dueTo=오늘+1) 등.
+  if (f.dueFrom) out.dueFrom = f.dueFrom
+  if (f.dueTo) out.dueTo = f.dueTo
+  // 막힘(blocked) 필터 — 내 작업 위젯 '막힘' 그룹 딥링크(?blocked=true). 백엔드 /me/issues 가 이미 지원.
+  if (f.blocked) out.blocked = 'true'
   // 홈 '오늘 마감' 셀 딥링크(#275) — dueDate=today 를 오늘 날짜 범위(dueFrom=dueTo=오늘)로 변환해
   // 서버의 DUE_DATE 필터로 합친다. URL 은 ?dueDate=today 로 안정 유지(북마크 가능).
   if (params.get('dueDate') === 'today') {

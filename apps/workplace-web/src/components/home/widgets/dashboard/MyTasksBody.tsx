@@ -57,11 +57,13 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
   dueToDate.setDate(dueToDate.getDate() + 1)
   const dueToParam = `${dueToDate.getFullYear()}-${String(dueToDate.getMonth() + 1).padStart(2, '0')}-${String(dueToDate.getDate()).padStart(2, '0')}`
 
-  // 버킷 → 필터링된 조회 화면 딥링크. blocked/ai_followup/mention 은 me-탭 필터 배관 미연결이라 링크 없음(후속).
+  // 버킷 → 필터링된 조회 화면 딥링크. ai_followup/mention 은 데이터 소스 미존재라 링크 없음(향후).
   function groupLink(bucket: MyTaskBucket): string | undefined {
     switch (bucket) {
       case 'due':
         return `/me/tasks/assigned?dueTo=${dueToParam}`
+      case 'blocked':
+        return '/me/tasks/assigned?blocked=true'
       case 'in_progress':
         return '/me/tasks/assigned?status=IN_PROGRESS'
       case 'todo':

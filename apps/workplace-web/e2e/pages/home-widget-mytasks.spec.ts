@@ -71,6 +71,15 @@ test('그룹 헤더 클릭 시 필터링된 조회 화면으로 이동한다', a
   await expect(page).toHaveURL(/\/me\/tasks\/assigned\?status=IN_PROGRESS/)
 })
 
+test('막힘 그룹 헤더 클릭 시 blocked 필터 조회 화면으로 이동한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockTasks(page, [createIssue({ id: 5, number: 5, title: '막힌 작업', blocked: true })], [])
+  await page.goto('/')
+  await page.getByTestId('dash-mytasks').getByRole('link', { name: '막힘 →' }).click()
+  await expect(page).toHaveURL(/\/me\/tasks\/assigned\?blocked=true/)
+})
+
 test('여러 버킷에 해당하는 이슈는 한 번만 렌더된다', async ({
   authenticatedPage: page,
 }) => {
