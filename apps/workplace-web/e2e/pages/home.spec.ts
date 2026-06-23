@@ -9,6 +9,7 @@ import type {
   DashboardLayout,
   DashboardWidgetConfig,
   MailSummary,
+  MessagingSummary,
 } from '../../src/types/dashboard'
 import type { ChannelResponse, DmResponse } from '../../src/types/messaging'
 import type { NotificationResponse } from '../../src/types/notification'
@@ -112,13 +113,20 @@ function mail(): MailSummary {
         subject: '월간 보고서',
         fromAddress: 'boss@example.com',
         fromName: '김부장',
+        snippet: null,
         receivedAt: '2026-06-16T00:00:00Z',
         seen: false,
+        hasAttachment: false,
         aiCategory: null,
         aiNeedsReply: null,
       },
     ],
   }
+}
+
+// 대화 요약 기본 mock — 빈 recent, 카운트 0.
+function messagingSummary(): MessagingSummary {
+  return { unreadConversationCount: 0, needsReplyCount: 0, recent: [] }
 }
 
 // 5종 위젯 데이터 전부 정상 모킹.
@@ -131,6 +139,7 @@ async function mockWidgets(page: Page) {
   await mockApi(page, 'GET', '/api/v1/messaging/channels', channels())
   await mockApi(page, 'GET', '/api/v1/messaging/dms', emptyDms)
   await mockApi(page, 'GET', '/api/v1/me/mail-summary', mail())
+  await mockApi(page, 'GET', '/api/v1/me/messaging-summary', messagingSummary())
 }
 
 test('대시보드 — 저장 레이아웃 순서로 5종 위젯이 렌더된다', { tag: '@smoke' }, async ({
@@ -151,7 +160,8 @@ test('대시보드 — 저장 레이아웃 순서로 5종 위젯이 렌더된다
   // 각 위젯 본문이 데이터로 채워졌는지(요소 존재가 아니라 내용 검증).
   await expect(page.getByTestId('dash-calendar')).toContainText('스탠드업 미팅')
   await expect(page.getByTestId('dash-notif')).toContainText('리뷰 요청 이슈')
-  await expect(page.getByTestId('dash-chats')).toContainText('general')
+  // 대화 위젯: messaging-summary 빈 recent → 빈 상태 렌더 확인.
+  await expect(page.getByTestId('dash-chat-empty')).toBeVisible()
   await expect(page.getByTestId('dash-mail')).toContainText('월간 보고서')
 
   // 홈에 하단 AI 챗 입력이 없어야 한다(대시보드 전환 핵심 요건).
@@ -201,36 +211,26 @@ test('대시보드 — 알림 위젯 헤더 클릭 시 라우팅 대신 인박�
   await expect(page).toHaveURL(/\/$/)
 })
 
-test('대시보드 — 안 읽은 대화 위젯 제목과 빈 상태 문구가 일치한다 (refs #272)', async ({
+test('대시보드 — 대화 위젯 제목과 빈 상태 문구가 일치한다 (refs #272)', async ({
   authenticatedPage: page,
 }) => {
-  // 모든 채널/DM 안 읽음 수 0 → 빈 상태.
-  await mockApi(page, 'GET', '/api/v1/messaging/channels', [
-    {
-      id: 10,
-      kind: 'CHANNEL',
-      name: 'general',
-      visibility: 'PUBLIC',
-      member: true,
-      role: 'MEMBER',
-      archived: false,
-      memberCount: 5,
-      unreadCount: 0,
-      createdAt: '2026-06-01T00:00:00Z',
-    },
-  ])
-  await mockApi(page, 'GET', '/api/v1/messaging/dms', [])
+  // messaging-summary 빈 recent → 빈 상태.
+  await mockApi(page, 'GET', '/api/v1/me/messaging-summary', {
+    unreadConversationCount: 0,
+    needsReplyCount: 0,
+    recent: [],
+  } satisfies MessagingSummary)
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['recent_chats']))
   await page.goto('/')
 
-  // 위젯 헤더 제목이 '안 읽은 대화' 여야 한다 (title vs 빈 상태 불일치 회귀 방지).
+  // 위젯 헤더 제목이 '대화' 여야 한다 (title vs 빈 상태 불일치 회귀 방지).
   const headerLink = page
     .getByTestId('dashboard-widget')
-    .getByRole('link', { name: /안 읽은 대화/ })
+    .getByRole('link', { name: /^대화$/ })
   await expect(headerLink).toBeVisible()
 
-  // 빈 상태 메시지가 제목과 동일한 맥락('안 읽은 대화가 없어요').
-  await expect(page.getByTestId('dash-chats-empty')).toContainText('안 읽은 대화가 없어요')
+  // 빈 상태: "조용하네요 — 새 대화가 없어요".
+  await expect(page.getByTestId('dash-chat-empty')).toContainText('새 대화가 없어요')
 })
 
 test('대시보드 — 각 위젯 행이 해당 항목 상세로 딥링크된다', async ({
@@ -260,10 +260,9 @@ test('대시보드 — 각 위젯 행이 해당 항목 상세로 딥링크된다
     page.getByTestId('dash-notif').getByRole('link', { name: '알림 열기: 리뷰 요청 이슈' }),
   ).toHaveAttribute('href', '/projects/WP/issues/7')
 
-  // 안 읽은 대화 행(채널) → 채널 상세.
-  await expect(
-    page.getByTestId('dash-chats').getByRole('link', { name: '대화 열기: # general' }),
-  ).toHaveAttribute('href', '/chat/channels/10')
+  // 대화 행(채널) → 채널 상세 딥링크. ConversationsBody 의 dash-chat-row 사용.
+  // mockWidgets 의 messaging-summary 는 빈 recent → 딥링크 행 없음, 빈 상태만 확인.
+  await expect(page.getByTestId('dash-chat-empty')).toBeVisible()
 
   // 안 읽은 메일 행 → 메일함(전용 메시지 라우트 없음 → 폴백).
   await expect(
@@ -1096,8 +1095,10 @@ test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', asy
                 subject: '긴급 공지',
                 fromAddress: 'ceo@example.com',
                 fromName: '대표',
+                snippet: null,
                 receivedAt: '2026-06-16T02:00:00Z',
                 seen: false,
+                hasAttachment: false,
                 aiCategory: null,
                 aiNeedsReply: null,
               },
@@ -1136,9 +1137,9 @@ test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', asy
     },
   )
 
-  // 1) 홈 진입 — 위젯에 동기화 전 상태(안 읽음 2건).
+  // 1) 홈 진입 — 위젯에 동기화 전 상태(안읽음 2).
   await page.goto('/')
-  await expect(page.getByTestId('dash-mail')).toContainText('안 읽음 2건')
+  await expect(page.getByTestId('dash-mail')).toContainText('안읽음 2')
 
   // 2) 위젯의 메일 링크로 메일함 SPA 이동(/mail → /mail/1 replace 리다이렉트). 풀 리로드 금지.
   await page.getByTestId('dash-mail').getByRole('link').first().click()
@@ -1151,7 +1152,7 @@ test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', asy
   // 4) 앱 레일 홈 링크로 SPA 복귀 — 위젯 재마운트 시 stale 캐시 재페치 → 갱신된 3건.
   await page.getByTestId('rail-link-/').click()
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('dash-mail')).toContainText('안 읽음 3건')
+  await expect(page.getByTestId('dash-mail')).toContainText('안읽음 3')
   await expect(page.getByTestId('dash-mail')).toContainText('긴급 공지')
 })
 
@@ -1190,8 +1191,10 @@ test('합성 — 회신 필요 메일은 "지금 신경 쓸 일" 행으로(이�
         subject: '계약서 회신 요청',
         fromAddress: 'a@b.com',
         fromName: '거래처',
+        snippet: null,
         receivedAt: '2026-06-16T00:00:00Z',
         seen: false,
+        hasAttachment: false,
         aiCategory: 'ACTION',
         aiNeedsReply: true,
       },
@@ -1201,8 +1204,10 @@ test('합성 — 회신 필요 메일은 "지금 신경 쓸 일" 행으로(이�
         subject: '뉴스레터',
         fromAddress: 'n@b.com',
         fromName: 'NL',
+        snippet: null,
         receivedAt: '2026-06-16T01:00:00Z',
         seen: false,
+        hasAttachment: false,
         aiCategory: null,
         aiNeedsReply: null, // pending — 제외 대상
       },
@@ -1470,4 +1475,100 @@ test('알림 위젯 — 업데이트가 표시 개수를 넘으면 헤더는 전
   // 5개만 렌더 + 초과 1건 안내.
   await expect(page.getByTestId('dash-notif-updates').getByTestId('dash-notif-row')).toHaveCount(5)
   await expect(page.getByTestId('dash-notif-overflow')).toContainText('+1건 더')
+})
+
+// ── 메일 위젯 리치 렌더 ──────────────────────────────────────────────────────
+
+test('홈 메일 위젯 — 회신필요 배지·미리보기·시각 렌더', async ({
+  authenticatedPage: page,
+}) => {
+  // 분류 활성 + 회신필요 1건 + snippet·hasAttachment 포함 mock.
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
+    unreadCount: 3,
+    needsReplyCount: 1,
+    classificationActive: true,
+    recent: [
+      {
+        id: 1,
+        accountId: 1,
+        subject: 'Q3 예산안',
+        fromAddress: 'manager@example.com',
+        fromName: '김팀장',
+        snippet: '내일까지 의견',
+        receivedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5분 전
+        seen: false,
+        hasAttachment: true,
+        aiCategory: 'ACTION',
+        aiNeedsReply: true,
+      },
+    ],
+  } satisfies MailSummary)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
+
+  await page.goto('/')
+  const row = page.getByTestId('dash-mail-row').first()
+  await expect(row).toContainText('김팀장')
+  await expect(row).toContainText('Q3 예산안')
+  await expect(row).toContainText('내일까지 의견')   // snippet
+  await expect(row.getByTestId('dash-mail-badge-reply')).toBeVisible()  // 회신필요 배지
+  await expect(page.getByTestId('dash-mail-hint')).toContainText('회신 필요 1')
+})
+
+// ── 대화 위젯 ──────────────────────────────────────────────────────────────
+
+test('홈 대화 위젯 — 멘션·회신대기 배지·미리보기·딥링크', async ({
+  authenticatedPage: page,
+}) => {
+  // messagingSummary: needsReplyCount=3, recent=[DM 회신대기, CHANNEL 멘션]
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/messaging-summary', {
+    unreadConversationCount: 3,
+    needsReplyCount: 3,
+    recent: [
+      {
+        kind: 'DM',
+        conversationId: 7,
+        label: '홍길동',
+        lastAuthorName: '홍길동',
+        lastMessagePreview: '네 그렇게 진행할게요',
+        lastMessageAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2분 전
+        unreadCount: 1,
+        mentioned: false,
+        needsReply: true,
+        newThreadReplyCount: 0,
+      },
+      {
+        kind: 'CHANNEL',
+        conversationId: 3,
+        label: '프로덕트',
+        lastAuthorName: '박서연',
+        lastMessagePreview: '@나 확인 부탁',
+        lastMessageAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10분 전
+        unreadCount: 2,
+        mentioned: true,
+        needsReply: false,
+        newThreadReplyCount: 0,
+      },
+    ],
+  } satisfies MessagingSummary)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['recent_chats']))
+
+  await page.goto('/')
+
+  // DM 행 — 회신대기 배지 + 미리보기 + 딥링크
+  const dm = page.getByTestId('dash-chat-row').first()
+  await expect(dm).toContainText('홍길동')
+  await expect(dm).toContainText('네 그렇게 진행할게요')
+  await expect(dm.getByTestId('dash-chat-badge-reply')).toBeVisible()
+  // DM 딥링크: conversationId=7 → /chat/dms/7
+  await expect(dm).toHaveAttribute('href', '/chat/dms/7')
+
+  // 회신 대기 힌트
+  await expect(page.getByTestId('dash-chat-hint')).toContainText('회신 대기 3')
+
+  // 채널 행 — 멘션 배지 + 딥링크
+  const ch = page.getByTestId('dash-chat-row').nth(1)
+  await expect(ch.getByTestId('dash-chat-badge-mention')).toBeVisible()
+  await expect(ch).toHaveAttribute('href', '/chat/channels/3')
 })

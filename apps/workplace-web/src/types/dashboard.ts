@@ -20,7 +20,17 @@ export interface DashboardLayout {
 // accountId: AI 분류 회신 필요 메일의 딥링크(/mail/${accountId}?messageId=${id}) 생성에 사용.
 export type MailSummaryItem = Pick<
   EmailMessageSummary,
-  'id' | 'accountId' | 'subject' | 'fromAddress' | 'fromName' | 'receivedAt' | 'seen' | 'aiCategory' | 'aiNeedsReply'
+  | 'id'
+  | 'accountId'
+  | 'subject'
+  | 'fromAddress'
+  | 'fromName'
+  | 'snippet'        // 본문 미리보기(백엔드 이미 전송)
+  | 'receivedAt'
+  | 'seen'
+  | 'hasAttachment'  // 첨부 표시(백엔드 이미 전송)
+  | 'aiCategory'
+  | 'aiNeedsReply'
 >
 
 // 메일 요약 위젯 데이터(백엔드 MailSummaryResponse 와 1:1).
@@ -31,4 +41,28 @@ export interface MailSummary {
   needsReplyCount: number
   classificationActive: boolean
   recent: MailSummaryItem[]
+}
+
+// 홈 대화 요약 위젯 — 대화 한 행. 백엔드 ConversationSummaryItem 미러.
+// kind: DM(1:1 직접 메시지) vs CHANNEL(채널 대화).
+// needsReply: DM 안 읽음 기반 회신 대기 신호. mentioned: 멘션 포함 여부.
+export interface ConversationSummaryItem {
+  kind: 'DM' | 'CHANNEL'
+  conversationId: number
+  label: string
+  lastAuthorName: string | null
+  lastMessagePreview: string
+  lastMessageAt: string | null
+  unreadCount: number
+  mentioned: boolean
+  needsReply: boolean
+  newThreadReplyCount: number
+}
+
+// 홈 대화 요약 위젯 데이터(백엔드 MessagingSummaryResponse 와 1:1).
+// unreadConversationCount: 안 읽은 대화 수. needsReplyCount: 회신 대기 대화 수.
+export interface MessagingSummary {
+  unreadConversationCount: number
+  needsReplyCount: number
+  recent: ConversationSummaryItem[]
 }

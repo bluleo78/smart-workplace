@@ -232,4 +232,21 @@ public class ThreadReadStateRepository {
         .forEach(r -> out.put(r.value1(), r.value2()));
     return out;
   }
+
+  /** 채널별 안읽은 스레드 답글 수(callerId 가 팔로우한 스레드 한정). */
+  public Map<Long, Integer> countUnreadThreadsByChannel(List<Long> channelIds, long userId) {
+    if (channelIds.isEmpty()) return Map.of();
+    com.workplace.jooq.tables.Message root = MESSAGE.as("root");
+    com.workplace.jooq.tables.Message reply = MESSAGE.as("reply");
+    return dsl.select(root.CHANNEL_ID, DSL.count(reply.ID))
+        .from(THREAD_READ_STATE)
+        .join(root)
+        .on(root.ID.eq(THREAD_READ_STATE.THREAD_ROOT_ID).and(root.DELETED_AT.isNull()))
+        .join(reply)
+        .on(unreadReplyJoinCond(reply, userId))
+        .where(THREAD_READ_STATE.USER_ID.eq(userId))
+        .and(root.CHANNEL_ID.in(channelIds))
+        .groupBy(root.CHANNEL_ID)
+        .fetchMap(root.CHANNEL_ID, DSL.count(reply.ID));
+  }
 }
