@@ -136,3 +136,20 @@ describe('ASSISTANT_SYSTEM_PROMPT — 동사 기반 라우팅(#460)', () => {
     expect(delegationLabel('unknown')).toBeNull();
   });
 });
+
+describe('#465: 빈 목록 게이트 — list 선행 확인 후 show', () => {
+  const p = ASSISTANT_SYSTEM_PROMPT;
+
+  it('표시 전 읽기 도구로 결과 유무를 확인하라고 지시한다', () => {
+    expect(p).toMatch(/먼저 대응 읽기 도구.*결과 유무를 확인/s);
+  });
+
+  it('결과가 없으면 show_* 대신 prose 로 안내(빈 위젯 금지)', () => {
+    expect(p).toMatch(/없으면.*show_.*호출하지 말고/s);
+    expect(p).toContain('빈 위젯 카드를 띄우지 않습니다');
+  });
+
+  it('여러 도메인 요청은 도메인별 독립 판단', () => {
+    expect(p).toMatch(/여러 도메인.*독립 판단/s);
+  });
+});
