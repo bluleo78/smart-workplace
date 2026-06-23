@@ -46,4 +46,35 @@ test.describe('메일 AI 비서', () => {
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
     await expect(page.getByTestId('mail-composer-body')).toContainText('AI가 작성한 답장')
   })
+
+  // 초안 생성은 LLM 호출이라 수 초 걸린다 — 그동안 버튼이 로딩(비활성+스피너 라벨)을 보여야 한다(클릭 후 무반응 방지).
+  test('AI 답장 초안 — 생성 중 로딩 상태 표시', async ({ authenticatedPage: page }) => {
+    await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify([summary({ id: 7, fromAddress: 'alice@example.com' })]) }))
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7', detail({ id: 7, fromAddress: 'alice@example.com', bodyText: '원문' }))
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7/summary', { summary: '• 요약' })
+
+    // reply-draft 응답을 게이트로 잡아둬 인-플라이트 상태를 결정적으로 검증.
+    let release: () => void = () => {}
+    const gate = new Promise<void>((res) => { release = res })
+    await page.route((u) => u.pathname === '/api/v1/mail/messages/7/reply-draft', async (route) => {
+      await gate
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ draftBody: 'AI가 작성한 답장' }) })
+    })
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    const btn = page.getByTestId('mail-ai-reply-draft')
+    await btn.click()
+
+    // 응답 전: 로딩 라벨 + 비활성.
+    await expect(btn).toContainText('초안 작성 중')
+    await expect(btn).toBeDisabled()
+
+    // 응답 후: 도크 오픈 + 본문 프리필, 버튼 원복.
+    release()
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+    await expect(page.getByTestId('mail-composer-body')).toContainText('AI가 작성한 답장')
+  })
 })

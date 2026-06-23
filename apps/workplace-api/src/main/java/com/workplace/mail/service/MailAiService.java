@@ -16,6 +16,7 @@ import com.workplace.mail.outbound.MailAiMessages.SummarizeResult;
 import com.workplace.mail.outbound.MailAiMessages.ThreadMessage;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AiContext;
+import com.workplace.mail.util.MailBodyText;
 import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -115,7 +116,7 @@ public class MailAiService {
       return new MailSummary(ctx.summary());
     }
     AssistantSpec spec = requireSpec(userId);
-    String body = ctx.bodyText() != null ? ctx.bodyText() : stripHtml(ctx.bodyHtml());
+    String body = MailBodyText.effectiveBody(ctx.bodyText(), ctx.bodyHtml());
     SummarizeResult r =
         mailClient.summarize(
             new SummarizeRequest(
@@ -170,11 +171,6 @@ public class MailAiService {
     } catch (Exception e) {
       throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
     }
-  }
-
-  /** 아주 단순한 HTML 태그 제거(요약 입력용). */
-  private String stripHtml(String html) {
-    return html == null ? "" : html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
   }
 
   private String nz(String s) {

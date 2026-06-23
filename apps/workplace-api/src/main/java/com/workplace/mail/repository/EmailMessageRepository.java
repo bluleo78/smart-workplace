@@ -13,6 +13,7 @@ import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.dto.ReplyContext;
 import com.workplace.mail.outbound.MailAiMessages;
+import com.workplace.mail.util.MailBodyText;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -82,8 +83,8 @@ public class EmailMessageRepository {
   }
 
   /**
-   * 계정 + 폴더 스코프 목록(최신순, 본문 제외). query 가 있으면 제목/보낸사람/스니펫 부분일치.
-   * unreadOnly=true 면 seen=false(안 읽은) 메일만 반환한다(#466). 소유 검증은 호출 측에서 수행.
+   * 계정 + 폴더 스코프 목록(최신순, 본문 제외). query 가 있으면 제목/보낸사람/스니펫 부분일치. unreadOnly=true 면 seen=false(안 읽은)
+   * 메일만 반환한다(#466). 소유 검증은 호출 측에서 수행.
    */
   public List<EmailMessageSummary> listByAccount(
       long accountId, String folderName, String query, boolean unreadOnly, int limit) {
@@ -352,8 +353,8 @@ public class EmailMessageRepository {
   }
 
   /**
-   * classify 백필용 — 계정의 최근 안읽은·미분류(ai_needs_reply IS NULL) INBOX 메일 id N건(최신순).
-   * 본문 유무는 가리지 않는다(분류는 subject/from/snippet 으로 best-effort 동작).
+   * classify 백필용 — 계정의 최근 안읽은·미분류(ai_needs_reply IS NULL) INBOX 메일 id N건(최신순). 본문 유무는 가리지 않는다(분류는
+   * subject/from/snippet 으로 best-effort 동작).
    */
   public List<Long> listRecentUnreadUnclassifiedIds(long accountId, int limit) {
     return dsl.select(EMAIL_MESSAGE.ID)
@@ -490,7 +491,10 @@ public class EmailMessageRepository {
       return List.of();
     }
     return dsl.select(
-            EMAIL_MESSAGE.FROM_ADDRESS, EMAIL_MESSAGE.RECEIVED_AT, EMAIL_MESSAGE.BODY_TEXT)
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_MESSAGE.RECEIVED_AT,
+            EMAIL_MESSAGE.BODY_TEXT,
+            EMAIL_MESSAGE.BODY_HTML)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -505,7 +509,9 @@ public class EmailMessageRepository {
                     r.get(EMAIL_MESSAGE.RECEIVED_AT) == null
                         ? ""
                         : r.get(EMAIL_MESSAGE.RECEIVED_AT).toString(),
-                    r.get(EMAIL_MESSAGE.BODY_TEXT) == null ? "" : r.get(EMAIL_MESSAGE.BODY_TEXT)));
+                    // HTML 전용 메일은 BODY_TEXT 가 비어 답장 초안이 본문 없이 호출되던 버그 — HTML 폴백으로 일원화.
+                    MailBodyText.effectiveBody(
+                        r.get(EMAIL_MESSAGE.BODY_TEXT), r.get(EMAIL_MESSAGE.BODY_HTML))));
   }
 
   /**

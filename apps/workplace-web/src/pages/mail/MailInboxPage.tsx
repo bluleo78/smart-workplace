@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Download, Forward, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles } from 'lucide-react'
+import { Download, Forward, Loader2, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -173,6 +173,7 @@ function MessageDetailPanel({
   onReplyAll,
   onForward,
   onAiReplyDraft,
+  aiDraftPending,
 }: {
   messageId: number | null
   aiEnabled: boolean
@@ -180,6 +181,7 @@ function MessageDetailPanel({
   onReplyAll: (detail: EmailMessageDetail) => void
   onForward: (detail: EmailMessageDetail) => void
   onAiReplyDraft: (detail: EmailMessageDetail) => void
+  aiDraftPending: boolean
 }) {
   const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
   // AI 사용 계정 + messageId 가 있을 때만 요약 자동 조회.
@@ -262,9 +264,18 @@ function MessageDetailPanel({
               variant="outline"
               size="sm"
               data-testid="mail-ai-reply-draft"
+              disabled={aiDraftPending}
               onClick={() => onAiReplyDraft(detail)}
             >
-              <Sparkles className="h-3.5 w-3.5" /> AI 답장 초안
+              {aiDraftPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 초안 작성 중…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" /> AI 답장 초안
+                </>
+              )}
             </Button>
           )}
         </div>
@@ -523,6 +534,7 @@ export function MailInboxPage() {
           <MessageDetailPanel
             messageId={selectedId}
             aiEnabled={aiEnabled}
+            aiDraftPending={replyDraft.isPending}
             onReply={onReply}
             onReplyAll={onReplyAll}
             onForward={onForward}

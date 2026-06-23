@@ -155,6 +155,65 @@ class EmailMessageAiRepositoryTest extends IntegrationTestBase {
     assertThat(thread.get(1).body()).isEqualTo("두 번째 본문");
   }
 
+  /**
+   * HTML 전용 메일(BODY_TEXT 없음)도 findThreadByIdAndUser 가 HTML→평문 폴백으로 본문을 채운다 — 과거 BODY_TEXT 만 읽어 답장
+   * 초안이 본문 없이 호출되던 회귀 가드. {@code <style>} 블록 내용은 본문에서 제외된다.
+   */
+  @Test
+  void findThread_htmlOnly_fallsBackToStrippedHtml() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "html-user@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId =
+        insertHtmlMessage(
+            accountId,
+            folderId,
+            "html@test.local",
+            "t-html",
+            "<html><head><style>.x{color:red}</style></head>"
+                + "<body><p>안녕하세요</p><p>본문 내용입니다</p></body></html>");
+
+    List<MailAiMessages.ThreadMessage> thread = messageRepo.findThreadByIdAndUser(userId, msgId);
+
+    assertThat(thread).hasSize(1);
+    String body = thread.get(0).body();
+    assertThat(body).contains("안녕하세요").contains("본문 내용입니다");
+    assertThat(body).doesNotContain("color:red"); // <style> 내용 미포함
+  }
+
+  /** BODY_TEXT 없이 BODY_HTML 만 채운 메시지 삽입(HTML 전용 메일 시뮬레이션). */
+  private long insertHtmlMessage(
+      long accountId, long folderId, String messageId, String threadId, String bodyHtml) {
+    return dsl.insertInto(
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ACCOUNT_ID,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FOLDER_ID,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.MESSAGE_ID,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.THREAD_ID,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FROM_ADDRESS,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SUBJECT,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.BODY_HTML,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SNIPPET,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SEEN,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.HAS_ATTACHMENT,
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.RECEIVED_AT)
+        .values(
+            accountId,
+            folderId,
+            messageId,
+            threadId,
+            "sender@example.com",
+            "테스트 제목",
+            bodyHtml,
+            "스니펫",
+            false,
+            false,
+            java.time.OffsetDateTime.ofInstant(Instant.now(), java.time.ZoneOffset.UTC))
+        .returning(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID)
+        .fetchOne()
+        .get(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID);
+  }
+
   /** 다른 사용자의 메시지로 findThreadByIdAndUser 를 호출하면 빈 리스트 반환. */
   @Test
   void findThread_otherUser_returnsEmpty() {
