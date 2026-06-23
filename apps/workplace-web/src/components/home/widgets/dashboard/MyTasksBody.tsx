@@ -66,8 +66,8 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
 
   return (
     <div data-testid="dash-mytasks">
-      {/* 헤더 부제 — 기다리는 건수 또는 워치 총량 */}
-      <div className="mb-1 text-xs text-muted-foreground">
+      {/* 헤더 부제 — 기다리는 건수 또는 워치 총량 (형제 위젯과 동일한 mb-2 text-sm) */}
+      <div className="mb-2 text-sm text-muted-foreground">
         {result.isEmpty ? `워치 ${result.watchedTotal}` : `${result.waitingCount}건이 나를 기다림`}
       </div>
 
