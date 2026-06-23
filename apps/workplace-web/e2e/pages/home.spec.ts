@@ -525,10 +525,11 @@ test('대시보드 — 한 위젯 데이터 실패는 격리되어 다른 위젯
 // ── 객체-배열 컨트랙트 + 편집 모드 ───────────────────────────────────────
 
 // 내 작업 위젯에 N건의 이슈를 제공(count:10 렌더 검증용).
+// IN_PROGRESS 상태로 생성해야 위젯의 in_progress 버킷에 들어가 행으로 렌더된다(TODO는 버킷 없음).
 function manyIssues(n: number) {
   return createIssueSearchResponse(
     Array.from({ length: n }, (_, i) =>
-      createIssue({ id: i + 1, projectKey: 'WP', number: i + 1, title: `이슈 ${i + 1}` }),
+      createIssue({ id: i + 1, projectKey: 'WP', number: i + 1, title: `이슈 ${i + 1}`, status: 'IN_PROGRESS' }),
     ),
   )
 }
@@ -1011,7 +1012,7 @@ test('오늘 일정 — 종일·시각·미정 혼재 시 미정은 맨 뒤로 �
 
 // ── #282 회귀 가드 ─────────────────────────────────────────────────────────
 
-test('내 작업 — 내 담당·워치 카운터가 모두 ai-accent 색으로 일관된다 (refs #282)', async ({
+test('내 작업 — 이슈 행 딥링크와 헤더 부제가 렌더된다 (refs #282)', async ({
   authenticatedPage: page,
 }) => {
   await mockApi(page, 'GET', '/api/v1/me/issues', issues())
@@ -1019,11 +1020,11 @@ test('내 작업 — 내 담당·워치 카운터가 모두 ai-accent 색으로 
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
   await page.goto('/')
 
-  // 두 카운터 모두 text-ai-accent 클래스 — 시각 일관성 회귀 가드 (refs #282).
+  // 위급도 리스트 렌더: IN_PROGRESS 이슈 1건이 행으로 표시된다 (refs #282 후속 — 듀얼 카운터 UI 폐기).
   const mytasks = page.getByTestId('dash-mytasks')
-  const counters = mytasks.locator('.text-2xl')
-  await expect(counters.nth(0)).toHaveClass(/text-ai-accent/) // 내 담당
-  await expect(counters.nth(1)).toHaveClass(/text-ai-accent/) // 워치
+  await expect(mytasks.getByRole('link', { name: '이슈 열기: 로그인 버그' })).toBeVisible()
+  // 헤더 부제 — "N건이 나를 기다림"
+  await expect(mytasks).toContainText('건이 나를 기다림')
 })
 
 // ── #444 회귀 가드 ─────────────────────────────────────────────────────────
