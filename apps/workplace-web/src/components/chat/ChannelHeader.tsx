@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { messagingApi } from '@/api/messaging'
+import { DriveSpaceDrawer } from '@/components/drive/DriveSpaceDrawer'
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
 import {
   AlertDialog,
@@ -53,10 +54,11 @@ export function ChannelHeader({
   // 채널 OWNER/ADMIN 은 이름변경·아카이브 가능.
   const canManage = channel.role === 'OWNER' || channel.role === 'ADMIN'
 
-  // #76: 연동 드라이브 공간 보장 후 드라이브로 진입(lazy 생성 트리거).
+  // #76 → 채널 파일 드로워: 연동 공간 보장 후 드로워로 인라인 표시(풀 네비게이션 폐기).
+  const [filesSpaceId, setFilesSpaceId] = useState<number | null>(null)
   async function openFiles() {
     const { data } = await messagingApi.ensureChannelDriveSpace(channel.id)
-    navigate(`/drive/spaces/${data.spaceId}`)
+    setFilesSpaceId(data.spaceId)
   }
 
   return (
@@ -172,6 +174,13 @@ export function ChannelHeader({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 채널 파일 드로워 — 대화 컨텍스트를 유지한 채 연동 드라이브 공간 표시. */}
+      <DriveSpaceDrawer
+        spaceId={filesSpaceId}
+        title={channel.name}
+        onClose={() => setFilesSpaceId(null)}
+      />
     </div>
   )
 }

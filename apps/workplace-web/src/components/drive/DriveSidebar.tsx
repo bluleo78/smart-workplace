@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { partitionSpaces } from '@/lib/driveSpaces'
 
 import { driveApi } from '../../api/drive'
 import type { DriveQuota, DriveSpace } from '../../types/drive'
@@ -55,6 +56,8 @@ export function DriveSidebar() {
     navigate(`/drive/spaces/${data.id}`)
   }
 
+  const { primary, channel } = partitionSpaces(spaces)
+
   return (
     <aside
       data-testid="drive-sidebar"
@@ -93,8 +96,8 @@ export function DriveSidebar() {
             <Plus className="h-4 w-4" />
           </button>
         </div>
-        <nav className="mt-2 space-y-1">
-          {spaces.map((s) => (
+        <nav className="mt-2 space-y-1" data-testid="drive-space-list">
+          {primary.map((s) => (
             <NavLink
               key={s.id}
               to={`/drive/spaces/${s.id}`}
@@ -104,6 +107,27 @@ export function DriveSidebar() {
             </NavLink>
           ))}
         </nav>
+        {/* 채널 연동 공간 — 내 드라이브·팀과 분리된 '채널' 섹션. 채널 파일의 집은 채널이므로 동급 피어로 평면 나열하지 않는다. */}
+        {channel.length > 0 && (
+          <>
+            <div className="mt-4 px-3">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                채널
+              </span>
+            </div>
+            <nav className="mt-2 space-y-1" data-testid="drive-channel-space-list">
+              {channel.map((s) => (
+                <NavLink
+                  key={s.id}
+                  to={`/drive/spaces/${s.id}`}
+                  className={({ isActive }) => sidebarLinkClass({ isActive })}
+                >
+                  {s.name}
+                </NavLink>
+              ))}
+            </nav>
+          </>
+        )}
       </div>
 
       {/* 사용량 바 — 사이드바 하단 고정(#81) */}

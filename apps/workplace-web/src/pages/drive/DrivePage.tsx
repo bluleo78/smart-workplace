@@ -1,6 +1,6 @@
 import { FileText, Folder, FolderOpen, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -35,6 +35,7 @@ import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
 import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveSpace, DriveTrashItem } from '../../types/drive'
 import { type DroppedFile,readDroppedTree } from './folderUpload'
+import { useFolderNavigation } from './useFolderNavigation'
 
 // 서버 multipart 업로드 한도(application.yml: max-file-size 25MB)와 동일. 초과 시 업로드 전 안내.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -47,13 +48,15 @@ function collapseCrumbs(
   return [crumbs[0], null, crumbs[crumbs.length - 2], crumbs[crumbs.length - 1]]
 }
 
-/** 폴더 브라우저 — 검색 + 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드. */
-export function DrivePage() {
-  const { spaceId } = useParams()
-  const sid = Number(spaceId)
-  const [searchParams, setSearchParams] = useSearchParams()
-  const folderParam = searchParams.get('folderId')
-  const folderId = folderParam == null ? null : Number(folderParam)
+/** 폴더 브라우저 — 검색 + 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드.
+ *  spaceId prop 이 오면 임베드(드로워) 모드 — 폴더 탐색을 state 로 보관해 상위 URL 을 건드리지 않는다.
+ *  미지정 시 URL(useParams/useSearchParams) 로 구동하는 풀페이지 모드. */
+export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
+  const params = useParams()
+  const sid = spaceIdProp ?? Number(params.spaceId)
+  const embedded = spaceIdProp != null
+  const folderNav = useFolderNavigation(embedded ? 'state' : 'url')
+  const folderId = folderNav.folderId
 
   // #76: 공간 메타데이터 — archived 여부로 읽기 전용 배너·액션 버튼 비활성 결정.
   const [space, setSpace] = useState<DriveSpace | null>(null)
@@ -180,10 +183,10 @@ export function DrivePage() {
   function openFolder(id: number) {
     setQuery('')
     setResults(null)
-    setSearchParams({ folderId: String(id) })
+    folderNav.openFolder(id)
   }
   function goRoot() {
-    setSearchParams({})
+    folderNav.goRoot()
   }
 
   // 폴더 이름 다이얼로그 확인 — 생성/이름변경 API 호출 후 목록 갱신.

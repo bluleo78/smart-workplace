@@ -909,3 +909,72 @@ test('용량 초과 업로드는 거부 메시지를 보여준다', async ({ aut
   // handleApiError → extractApiError 가 서버 message 를 추출해 토스트에 표시해야 한다.
   await expect(page.getByText('저장 용량을 초과했습니다', { exact: false })).toBeVisible()
 })
+
+test('풀페이지에서 폴더 진입은 URL folderId 쿼리를 갱신한다', async ({ authenticatedPage: page }) => {
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces/1',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' }) }),
+  )
+  // 루트 목록엔 폴더 10 하나, 폴더 10 내부는 빈 목록.
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces/1/items',
+    (route) => {
+      const folderId = new URL(route.request().url()).searchParams.get('folderId')
+      const body = folderId
+        ? { folders: [], files: [] }
+        : { folders: [{ id: 10, name: '폴더A' }], files: [] }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/folders/10/path',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 10, name: '폴더A' }]) }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/quota',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ usedBytes: 0, quotaBytes: 10737418240 }) }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' }]) }),
+  )
+
+  await page.goto('/drive/spaces/1')
+  await page.getByRole('button', { name: '폴더A' }).click()
+  await expect(page).toHaveURL(/folderId=10/)
+})
+
+test('사이드바는 채널 공간을 별도 섹션으로 묶는다', async ({ authenticatedPage: page }) => {
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([
+              { id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' },
+              { id: 2, type: 'CHANNEL', name: '마케팅', ownerId: 1, role: 'EDITOR', archived: false, createdAt: '2026-06-01T00:00:00Z' },
+            ]),
+          })
+        : route.fallback(),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/quota',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ usedBytes: 0, quotaBytes: 10737418240 }) }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces/1',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' }) }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces/1/items',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ folders: [], files: [] }) }),
+  )
+
+  await page.goto('/drive/spaces/1')
+  // 개인 공간은 기본 목록에, 채널 공간은 '채널' 섹션 목록에.
+  await expect(page.getByTestId('drive-space-list')).toContainText('내 드라이브')
+  await expect(page.getByTestId('drive-channel-space-list')).toContainText('마케팅')
+  await expect(page.getByTestId('drive-space-list')).not.toContainText('마케팅')
+})

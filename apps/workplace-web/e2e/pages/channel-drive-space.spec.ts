@@ -98,52 +98,133 @@ async function stubChannelView(page: Page) {
   )
 }
 
-test('채널 파일 버튼 → 드라이브 공간 진입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+test('채널 파일 버튼 → 드로워로 파일 공간 인라인 표시', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await stubChannelView(page)
-  // ensure 엔드포인트 → spaceId 반환.
   await page.route(
     (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/drive-space`,
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ spaceId: SPACE_ID, archived: false }),
-      }),
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ spaceId: SPACE_ID, archived: false }) }),
   )
-  // 드라이브 공간 조회 — archived false.
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`,
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: SPACE_ID,
-          type: 'CHANNEL',
-          name: '파일채널',
-          ownerId: 1,
-          role: 'EDITOR',
-          archived: false,
-          createdAt: '2026-06-01T00:00:00Z',
-        }),
-      }),
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: SPACE_ID, type: 'CHANNEL', name: '파일채널', ownerId: 1, role: 'EDITOR', archived: false, createdAt: '2026-06-01T00:00:00Z' }) }),
   )
-  // 공간 아이템 빈 목록.
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ folders: [], files: [] }),
-      }),
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ folders: [], files: [] }) }),
   )
 
   await page.goto(`/chat/channels/${CHANNEL_ID}`)
   await page.getByTestId('channel-files-button').click()
+
+  // 드로워가 열리고 DrivePage 가 그 안에 렌더된다. 페이지는 여전히 채널 URL.
+  await expect(page.getByTestId('drive-space-drawer')).toBeVisible()
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/chat/channels/${CHANNEL_ID}`))
+  // 대화 컨텍스트(채널 헤더)가 사라지지 않았다.
+  await expect(page.getByTestId('channel-header')).toBeVisible()
+
+  // "전체에서 열기" → 풀페이지 드라이브로.
+  await page.getByTestId('drive-drawer-open-full').click()
   await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}`))
-  await expect(page.getByTestId('drive-readonly-banner')).toHaveCount(0)
 })
+
+test('드로워는 ESC 로 닫힌다', async ({ authenticatedPage: page }) => {
+  await stubChannelView(page)
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/drive-space`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ spaceId: SPACE_ID, archived: false }) }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: SPACE_ID, type: 'CHANNEL', name: '파일채널', ownerId: 1, role: 'EDITOR', archived: false, createdAt: '2026-06-01T00:00:00Z' }) }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ folders: [], files: [] }) }),
+  )
+
+  await page.goto(`/chat/channels/${CHANNEL_ID}`)
+  await page.getByTestId('channel-files-button').click()
+  await expect(page.getByTestId('drive-space-drawer')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('drive-space-drawer')).toHaveCount(0)
+})
+
+test(
+  '드로워 폴더 진입 시 상위 URL 에 folderId 가 노출되지 않는다',
+  { tag: '@smoke' },
+  async ({ authenticatedPage: page }) => {
+    // 루트 items — 폴더 1개(하위탐색 대상).
+    const FOLDER_ID = 100
+
+    await stubChannelView(page)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/drive-space`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ spaceId: SPACE_ID, archived: false }),
+        }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: SPACE_ID,
+            type: 'CHANNEL',
+            name: '파일채널',
+            ownerId: 1,
+            role: 'EDITOR',
+            archived: false,
+            createdAt: '2026-06-01T00:00:00Z',
+          }),
+        }),
+    )
+    // items 스텁: 루트 → 폴더 1개, 하위(parentId=FOLDER_ID) → 빈 목록.
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+      (route) => {
+        const parentId = new URL(route.request().url()).searchParams.get('parentId')
+        const body =
+          parentId === String(FOLDER_ID)
+            ? { folders: [], files: [] }
+            : { folders: [{ id: FOLDER_ID, parentId: null, name: '테스트폴더', createdAt: '2026-06-01T00:00:00Z' }], files: [] }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+      },
+    )
+    // 폴더 진입 시 breadcrumb 경로 로드 — FOLDER_ID 폴더명 반환.
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/folders/${FOLDER_ID}/path`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{ id: FOLDER_ID, name: '테스트폴더' }]),
+        }),
+    )
+
+    // 1. 채널 페이지 진입 → "파일" 클릭 → 드로워 열림.
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    await page.getByTestId('channel-files-button').click()
+    await expect(page.getByTestId('drive-space-drawer')).toBeVisible()
+    await expect(page.getByTestId('drive-page')).toBeVisible()
+
+    // 2. 드로워 안 폴더 행 클릭(상위 채널 URL 유지).
+    const drawer = page.getByTestId('drive-space-drawer')
+    await drawer.getByRole('button', { name: '테스트폴더' }).click()
+
+    // 3. 핵심 단언: 상위 URL 에 folderId 가 없음 — 드로워는 state 모드 폴더 탐색.
+    await expect(page).toHaveURL(new RegExp(`/chat/channels/${CHANNEL_ID}`))
+    expect(new URL(page.url()).searchParams.get('folderId')).toBeNull()
+
+    // 4. 폴더 진입이 실제로 일어났는지 보강 — 빈 폴더 empty-state 표시.
+    await expect(drawer.getByTestId('drive-empty-folder')).toBeVisible()
+  },
+)
 
 test('보관 채널 공간은 읽기전용 배너', async ({ authenticatedPage: page }) => {
   // 드라이브 공간 조회 — archived true.
