@@ -41,11 +41,10 @@ export function AIChip() {
       className={cn(
         // 치수: 인라인 raw px 제거 → 디자인 시스템 유틸/토큰 사용(text-xs, gap-1.5, px-4/py-1.5, pill).
         'min-w-[140px] gap-1.5 rounded-full px-4 py-1.5 text-xs',
-        // 데스크톱(lg+): 칩을 "콘텐츠 영역"(뷰포트−사이드패널폭) 중앙에 정렬한다.
-        // side 모드에서 --ai-side-width 가 설정되면 칩이 패널과 안 겹치도록 좌측으로 이동.
-        // 변수 미설정(closed/fullscreen, 또는 모바일)이면 0px → 기존처럼 뷰포트 중앙(+28 AppRail 보정).
-        // 모바일은 패널이 풀스크린 오버레이라 콘텐츠-중앙 계산이 부적합하므로 left-1/2 유지.
-        'fixed left-1/2 top-2 z-[70] inline-flex -translate-x-1/2 items-center border font-medium shadow-md backdrop-blur transition-[left,background-color,color,border-color] duration-200 ease-in-out lg:left-[calc((100%-var(--ai-side-width,0px))/2+28px)]',
+        // 데스크톱(lg+): 칩을 뷰포트 중앙(+28 AppRail 보정)에 고정한다.
+        // 사이드 패널 열림/닫힘과 무관하게 위치가 바뀌지 않도록 --ai-side-width 반응을 제거.
+        // 모바일은 AppRail 보정이 불필요하므로 left-1/2 유지.
+        'fixed left-1/2 top-2 z-[70] inline-flex -translate-x-1/2 items-center border font-medium shadow-md backdrop-blur transition-[background-color,color,border-color] duration-200 ease-in-out lg:left-[calc(50%+28px)]',
         open
           ? 'border-ai-accent bg-card text-ai-accent'
           : 'bg-card/90 text-muted-foreground hover:text-foreground',

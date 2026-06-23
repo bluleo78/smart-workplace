@@ -6,7 +6,6 @@ import {
   type ReactNode,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
 } from 'react';
@@ -76,19 +75,6 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
     if (persist) localStorage.setItem(WIDTH_KEY, String(clamped));
     setWidth(clamped);
   }, []);
-
-  // side 모드일 때만 현재 사이드 패널 폭을 :root CSS 변수로 노출한다.
-  // AIChip 은 document.body 로 portal 되므로(콘텐츠 flex 트리 밖) 패널 폭을 직접 알 수 없다.
-  // → documentElement 에 변수를 심어, 칩이 콘텐츠 영역(뷰포트−패널폭) 중앙에 정렬되도록 한다.
-  // side 가 아니면 변수를 제거해 칩이 기본(뷰포트 중앙) 위치로 복귀하게 한다.
-  useEffect(() => {
-    const root = document.documentElement;
-    if (mode === 'side') root.style.setProperty('--ai-side-width', `${sidePanelWidth}px`);
-    else root.style.removeProperty('--ai-side-width');
-    return () => {
-      root.style.removeProperty('--ai-side-width');
-    };
-  }, [mode, sidePanelWidth]);
 
   const value = useMemo<AIAssistantValue>(
     () => ({ mode, sidePanelWidth, open, close, cycleMode, toggle, resize }),
