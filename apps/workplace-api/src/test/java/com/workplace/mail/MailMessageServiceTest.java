@@ -101,6 +101,49 @@ class MailMessageServiceTest extends IntegrationTestBase {
     assertThat(d2.seen()).isTrue();
   }
 
+  /** #466: unreadOnly=true 면 seen=false 메일만 반환. read 처리된 메일은 제외된다. */
+  @Test
+  void listByAccount_unreadOnly_returnsOnlyUnseen() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "안읽음1", "본문");
+    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "곧읽음", "본문");
+    greenMail.waitForIncomingEmail(2);
+    syncService.sync(user, accountId);
+
+    // 한 건을 get() 으로 읽음 처리(seen=true)
+    long readId =
+        messageRepo.listByAccount(accountId, "INBOX", "곧읽음", 10).get(0).id();
+    messageService.get(user, readId);
+
+    // unreadOnly=true → 읽음 처리한 "곧읽음" 은 빠지고 "안읽음1" 만 남는다
+    var unread = messageRepo.listByAccount(accountId, "INBOX", null, true, 10);
+    assertThat(unread).extracting(s -> s.subject()).containsExactly("안읽음1");
+    assertThat(unread).allMatch(s -> !s.seen());
+
+    // unreadOnly=false(기존 4-arg) → 두 건 모두
+    assertThat(messageRepo.listByAccount(accountId, "INBOX", null, 10)).hasSize(2);
+  }
+
+  /** #466: service.list 가 unread=true 를 repo 로 관통한다. */
+  @Test
+  void list_unread_passesThroughToRepo() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "남을것", "본문");
+    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "읽을것", "본문");
+    greenMail.waitForIncomingEmail(2);
+    syncService.sync(user, accountId);
+    long readId = messageRepo.listByAccount(accountId, "INBOX", "읽을것", 10).get(0).id();
+    messageService.get(user, readId);
+
+    var unread = messageService.list(user, accountId, "INBOX", null, true, 10);
+    assertThat(unread).extracting(s -> s.subject()).containsExactly("남을것");
+
+    var all = messageService.list(user, accountId, "INBOX", null, false, 10);
+    assertThat(all).hasSize(2);
+  }
+
   /** 동기화 진행 상태 스냅샷(미동기화 계정은 IDLE). 소유 검증 통과. */
   @Test
   void syncStatus_returnsSnapshot() {

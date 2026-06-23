@@ -42,15 +42,16 @@ public class MailInboxController {
     return syncService.sync(callerId, accountId);
   }
 
-  /** 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, limit). */
+  /** 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, #466 unread, limit). */
   @GetMapping("/accounts/{accountId}/messages")
   public List<EmailMessageSummary> messages(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long accountId,
       @RequestParam(required = false, defaultValue = "INBOX") String folder,
       @RequestParam(required = false) String query,
+      @RequestParam(required = false, defaultValue = "false") boolean unread,
       @RequestParam(required = false, defaultValue = "0") int limit) {
-    return messageService.list(callerId, accountId, folder, query, limit);
+    return messageService.list(callerId, accountId, folder, query, unread, limit);
   }
 
   /** 메시지 단건 상세(본문 + 첨부 메타). 본문 미적재면 OnDemand 로 적재 후 반환. */

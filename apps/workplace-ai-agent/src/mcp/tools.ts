@@ -119,6 +119,8 @@ const listMailInput = z.object({
   accountId: z.number().int().positive(),
   folder: z.string().default('INBOX'),
   query: z.string().optional(),
+  // #466: true 면 안 읽은(미읽음) 메일만. "안 읽은/미읽음" 요청에 사용.
+  unreadOnly: z.boolean().optional(),
   limit: z.number().int().min(1).max(100).default(20),
 });
 const getMailInput = z.object({ messageId: z.number().int().positive() });
@@ -701,11 +703,14 @@ export function buildTools(
   // #333 M3: 메일 읽기 도구 — assistant 프로파일 전용.
   const listMailTool: McpTool = {
     name: 'list_mail',
-    description: '메일 계정의 폴더 메시지 목록을 JSON 으로 반환합니다. query 로 검색, folder 기본 INBOX. accountId 는 사용자의 메일 계정 id 입니다.',
+    description:
+      '메일 계정의 폴더 메시지 목록을 JSON 으로 반환합니다. folder 기본 INBOX, query 로 내용 검색(제목/발신/스니펫). ' +
+      '안 읽은 메일만 보려면 query 에 "is:unread" 같은 검색어를 쓰지 말고 unreadOnly:true 를 사용하세요. ' +
+      'accountId 는 사용자의 메일 계정 id 입니다.',
     inputSchema: listMailInput,
     async handler(args) {
-      const { accountId, folder, query, limit } = listMailInput.parse(args);
-      return JSON.stringify(await client.listMail(agentId, accountId, folder, query, limit));
+      const { accountId, folder, query, unreadOnly, limit } = listMailInput.parse(args);
+      return JSON.stringify(await client.listMail(agentId, accountId, folder, query, unreadOnly, limit));
     },
   };
   const getMailTool: McpTool = {

@@ -344,9 +344,18 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
         .get(`${PREFIX}/mail/accounts/5/messages`)
         .query({ folder: 'INBOX', query: '청구서', limit: '20' })
         .reply(200, [{ id: 1, subject: '청구서', fromAddress: 'a@x.com', snippet: '...', receivedAt: '2026-06-19T00:00:00Z', seen: false }]);
-      const out = await newClient().listMail(7, 5, 'INBOX', '청구서', 20);
+      const out = await newClient().listMail(7, 5, 'INBOX', '청구서', undefined, 20);
       expect(out[0].subject).toBe('청구서');
       scope.done();
+    });
+
+    it('listMail: unreadOnly=true 면 unread=true 쿼리스트링을 보낸다 (#466)', async () => {
+      const scope = nock(BASE)
+        .get(`${PREFIX}/mail/accounts/1/messages`)
+        .query((q) => q.unread === 'true' && q.folder === 'INBOX')
+        .reply(200, []);
+      await newClient().listMail(7, 1, 'INBOX', undefined, true, 20);
+      expect(scope.isDone()).toBe(true);
     });
   });
 

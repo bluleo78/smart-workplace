@@ -450,6 +450,13 @@ describe('buildTools(assistant) 메일 도구 (M3)', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('list_mail: unreadOnly 를 클라이언트로 관통한다 (#466)', async () => {
+    const c = client();
+    const tool = buildTools(c, AGENT_ID, 'assistant').find((t) => t.name === 'list_mail')!;
+    await tool.handler({ accountId: 1, folder: 'INBOX', unreadOnly: true, limit: 20 });
+    expect(c.listMail).toHaveBeenCalledWith(AGENT_ID, 1, 'INBOX', undefined, true, 20);
+  });
 });
 
 // #333 M4: 메일 계정/동기화 도구 — assistant union 멤버십 테스트.

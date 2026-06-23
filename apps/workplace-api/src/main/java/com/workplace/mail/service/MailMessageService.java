@@ -48,16 +48,16 @@ public class MailMessageService {
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
-  /** 계정의 메시지 목록(폴더 스코프·최신순·선택 검색어). 계정이 본인 소유가 아니면 404. */
+  /** 계정의 메시지 목록(폴더 스코프·최신순·선택 검색어·#466 unread 필터). 계정이 본인 소유가 아니면 404. */
   @Transactional(readOnly = true)
   public List<EmailMessageSummary> list(
-      long userId, long accountId, String folder, String query, int limit) {
+      long userId, long accountId, String folder, String query, boolean unread, int limit) {
     accountRepo
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     int effective = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
     String folderName = (folder == null || folder.isBlank()) ? "INBOX" : folder;
-    return messageRepo.listByAccount(accountId, folderName, query, effective);
+    return messageRepo.listByAccount(accountId, folderName, query, unread, effective);
   }
 
   /**

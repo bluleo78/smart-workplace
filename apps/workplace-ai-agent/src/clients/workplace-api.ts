@@ -235,7 +235,7 @@ export interface WorkplaceApiClient {
   listEvents(agentId: number, from: string, to: string): Promise<CalendarEventItem[]>;
   getEvent(agentId: number, id: number): Promise<CalendarEventItem>;
   // #333 M3: 메일 읽기 — list/get. 발송은 confirm 실행기가 수행(에이전트는 propose 만).
-  listMail(agentId: number, accountId: number, folder: string, query: string | undefined, limit: number): Promise<MailMessageItem[]>;
+  listMail(agentId: number, accountId: number, folder: string, query: string | undefined, unreadOnly: boolean | undefined, limit: number): Promise<MailMessageItem[]>;
   getMail(agentId: number, messageId: number): Promise<MailMessageDetail>;
   // #333 M4: 메일 계정 목록 + 수동 동기화 — accountId 확보 경로.
   listMailAccounts(agentId: number): Promise<MailAccountItem[]>;
@@ -529,9 +529,11 @@ export function createWorkplaceApiClient(opts: {
     },
 
     // #333 M3: 메일 읽기 — list/get. 발송은 서버측 confirm 실행기가 수행(에이전트는 propose 만).
-    async listMail(agentId, accountId, folder, query, limit) {
+    async listMail(agentId, accountId, folder, query, unreadOnly, limit) {
       const qs = new URLSearchParams({ folder, limit: String(limit) });
       if (query) qs.set('query', query);
+      // #466: 안 읽은 메일만 — API 의 unread 필터 파라미터로 전달.
+      if (unreadOnly) qs.set('unread', 'true');
       const r = await http.get(`/mail/accounts/${accountId}/messages?${qs.toString()}`, onBehalfOf(agentId));
       return Array.isArray(r.data) ? (r.data as MailMessageItem[]) : [];
     },

@@ -75,13 +75,22 @@ public class EmailMessageRepository {
     return listByAccount(accountId, "INBOX", query, limit);
   }
 
-  /**
-   * 계정 + 폴더(INBOX/SENT) 스코프 목록(최신순, 본문 제외). query 가 있으면 제목/보낸사람/스니펫 부분일치. 폴더 분리를 위해 email_folder 와
-   * 조인해 folder.name 으로 필터한다. 소유 검증은 호출 측에서 수행.
-   */
+  /** 기존 호출 호환 — unread 필터 없이(모든 메일) 조회. */
   public List<EmailMessageSummary> listByAccount(
       long accountId, String folderName, String query, int limit) {
+    return listByAccount(accountId, folderName, query, false, limit);
+  }
+
+  /**
+   * 계정 + 폴더 스코프 목록(최신순, 본문 제외). query 가 있으면 제목/보낸사람/스니펫 부분일치.
+   * unreadOnly=true 면 seen=false(안 읽은) 메일만 반환한다(#466). 소유 검증은 호출 측에서 수행.
+   */
+  public List<EmailMessageSummary> listByAccount(
+      long accountId, String folderName, String query, boolean unreadOnly, int limit) {
     Condition where = EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(EMAIL_FOLDER.NAME.eq(folderName));
+    if (unreadOnly) {
+      where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
+    }
     if (query != null && !query.isBlank()) {
       String like = "%" + query.trim() + "%";
       where =
