@@ -944,7 +944,7 @@ test('풀페이지에서 폴더 진입은 URL folderId 쿼리를 갱신한다', 
   await expect(page).toHaveURL(/folderId=10/)
 })
 
-test('사이드바는 채널 공간을 별도 섹션으로 묶는다', async ({ authenticatedPage: page }) => {
+test('사이드바는 채널 공간을 노출하지 않는다(진입은 채널 드로워)', async ({ authenticatedPage: page }) => {
   await page.route(
     (url) => url.pathname === '/api/v1/drive/spaces',
     (route) =>
@@ -973,8 +973,12 @@ test('사이드바는 채널 공간을 별도 섹션으로 묶는다', async ({ 
   )
 
   await page.goto('/drive/spaces/1')
-  // 개인 공간은 기본 목록에, 채널 공간은 '채널' 섹션 목록에.
+  // 개인 공간은 사이드바 목록에 보이지만, 채널 연동 공간('마케팅')은
+  // 사이드바 어디에도 노출되지 않는다 — 파일의 집은 채널이므로 진입은 채널 드로워가 담당.
   await expect(page.getByTestId('drive-space-list')).toContainText('내 드라이브')
-  await expect(page.getByTestId('drive-channel-space-list')).toContainText('마케팅')
   await expect(page.getByTestId('drive-space-list')).not.toContainText('마케팅')
+  // '채널' 섹션 목록 자체가 렌더되지 않는다.
+  await expect(page.getByTestId('drive-channel-space-list')).toHaveCount(0)
+  // 사이드바 전체에도 채널 공간명이 등장하지 않는다.
+  await expect(page.getByTestId('drive-sidebar')).not.toContainText('마케팅')
 })

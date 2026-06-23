@@ -56,7 +56,11 @@ export function DriveSidebar() {
     navigate(`/drive/spaces/${data.id}`)
   }
 
-  const { primary, channel } = partitionSpaces(spaces)
+  // 채널 연동 space(type==='CHANNEL')는 드라이브 사이드바에 노출하지 않는다.
+  // 파일의 집은 대화 컨텍스트(채널) — 채널 "파일" 드로워가 진입점이고, 풀페이지는
+  // 드로워의 "전체에서 열기" 딥링크로 도달한다. 전역 드라이브에 채널 수만큼 평면
+  // 나열하면 "두 개의 집" 문제가 재발하므로 primary(개인·팀)만 렌더한다.
+  const { primary } = partitionSpaces(spaces)
 
   return (
     <aside
@@ -107,27 +111,6 @@ export function DriveSidebar() {
             </NavLink>
           ))}
         </nav>
-        {/* 채널 연동 공간 — 내 드라이브·팀과 분리된 '채널' 섹션. 채널 파일의 집은 채널이므로 동급 피어로 평면 나열하지 않는다. */}
-        {channel.length > 0 && (
-          <>
-            <div className="mt-4 px-3">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                채널
-              </span>
-            </div>
-            <nav className="mt-2 space-y-1" data-testid="drive-channel-space-list">
-              {channel.map((s) => (
-                <NavLink
-                  key={s.id}
-                  to={`/drive/spaces/${s.id}`}
-                  className={({ isActive }) => sidebarLinkClass({ isActive })}
-                >
-                  {s.name}
-                </NavLink>
-              ))}
-            </nav>
-          </>
-        )}
       </div>
 
       {/* 사용량 바 — 사이드바 하단 고정(#81) */}
