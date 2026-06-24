@@ -20,13 +20,16 @@ import com.workplace.issue.service.IssueTypeService;
 import com.workplace.messaging.dto.CreateProposalRequest;
 import com.workplace.messaging.dto.ProjectCandidateDto;
 import com.workplace.messaging.exception.InvalidDelegationProjectException;
+import com.workplace.messaging.exception.NoDelegationCandidateException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.MessagingProposalService;
+import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.PersonalProjectProvisioner;
+import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,6 +57,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
   @Autowired PersonalProjectProvisioner provisioner;
   @Autowired ProjectRepository projectRepo;
   @Autowired ProjectMemberRepository projectMemberRepo;
+  @Autowired ProjectService projectService;
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelMemberRepository channelMemberRepo;
   @Autowired DSLContext dsl;
@@ -202,6 +206,11 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
     return projectRepo.findDefaultPersonal(userId).orElseThrow().name();
   }
 
+  /** 위임자 기본 개인 프로젝트 key 조회. */
+  private String personalKey(long userId) {
+    return projectRepo.findDefaultPersonal(userId).orElseThrow().key();
+  }
+
   // ── 테스트 ────────────────────────────────────────────────────────────────
 
   /**
@@ -215,8 +224,10 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
    */
   @Test
   void candidateProjects_personalPlusSharedTeam_excludesNonSharedTeam() {
-    // 위임자(delegator) 개인 프로젝트 보장.
+    // 위임자(delegator) 개인 프로젝트 보장 + AI 도 멤버로 추가(개인 자동 포함 없음, 명시 추가 필수).
     provisioner.ensureDefaultPersonal(delegator);
+    projectService.addMember(
+        delegator, personalKey(delegator), new AddMemberRequest(agentId, "MEMBER"));
 
     // 팀1: D, A 둘 다 멤버 → 후보 포함.
     long t1 = createTeamProject(delegator, "공유팀");
@@ -237,8 +248,8 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
     assertThat(names).contains("공유팀");
     // D만 멤버인 팀 및 D 미가입 팀은 제외.
     assertThat(names).doesNotContain("내전용팀", "남팀");
-    // 개인 프로젝트가 맨 앞.
-    assertThat(cands.get(0).name()).isEqualTo(defaultPersonalName(delegator));
+    // 개인 프로젝트도 AI 멤버이므로 후보에 포함 (순서는 updated_at 기준이라 위치 비보장).
+    assertThat(names).contains(defaultPersonalName(delegator));
   }
 
   /**
@@ -251,8 +262,10 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
    */
   @Test
   void propose_aiProjectKeyInCandidates_usesIt_elseFallsBackToPersonal() {
-    // 위임자 개인 프로젝트 보장.
+    // 위임자 개인 프로젝트 보장 + AI 멤버 추가(개인도 명시 추가 필수).
     provisioner.ensureDefaultPersonal(delegator);
+    projectService.addMember(
+        delegator, personalKey(delegator), new AddMemberRequest(agentId, "MEMBER"));
 
     // 팀 프로젝트 생성 + AI(agentId) 도 멤버 추가 → 후보 포함 대상.
     long t1 = createTeamProject(delegator, "공유팀");
@@ -270,15 +283,16 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
     // candidates 배열에 팀 프로젝트 키가 포함되어야 한다.
     assertThat(r1.proposal().candidates()).extracting(ProjectCandidateDto::key).contains(teamKey);
 
-    // 후보 밖 키 → 개인 기본(첫 후보) 폴백.
+    // 후보 밖 키 → 첫 후보(updated_at 최신)로 폴백 — 어떤 후보든 candidates 안에 있어야 한다.
     var r2 =
         proposalService.propose(
             agentId,
             channelId,
             new CreateProposalRequest(
                 "CREATE_ISSUE", "T2", null, "MID", delegator, null, "NOPE-999"));
-    String personalKey = projectRepo.findDefaultPersonal(delegator).get().key();
-    assertThat(r2.proposal().projectKey()).isEqualTo(personalKey);
+    assertThat(r2.proposal().candidates())
+        .extracting(ProjectCandidateDto::key)
+        .contains(r2.proposal().projectKey());
   }
 
   /**
@@ -287,7 +301,10 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
    */
   @Test
   void propose_nullProjectKey_fallsBackToPersonal_candidatesExposed() {
+    // 개인 프로젝트 보장 + AI 멤버 추가(개인도 명시 추가 필수).
     provisioner.ensureDefaultPersonal(delegator);
+    projectService.addMember(
+        delegator, personalKey(delegator), new AddMemberRequest(agentId, "MEMBER"));
     // 팀 프로젝트 생성 + AI 멤버 → 후보 2개 이상.
     long t1 = createTeamProject(delegator, "팀A");
     projectMemberRepo.insert(t1, agentId, "MEMBER");
@@ -299,9 +316,11 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
             new CreateProposalRequest(
                 "CREATE_ISSUE", "후보 노출 테스트", null, "MID", delegator, null, null));
 
-    // null 키 → 개인 기본 폴백.
     String personalKey = projectRepo.findDefaultPersonal(delegator).get().key();
-    assertThat(resp.proposal().projectKey()).isEqualTo(personalKey);
+    // null 키 → 첫 후보 폴백 — 어느 후보든 candidates 안에 있어야 한다.
+    assertThat(resp.proposal().candidates())
+        .extracting(ProjectCandidateDto::key)
+        .contains(resp.proposal().projectKey());
     // candidates 에 개인 + 팀 모두 포함.
     assertThat(resp.proposal().candidates()).hasSizeGreaterThanOrEqualTo(2);
     assertThat(resp.proposal().candidates())
@@ -315,15 +334,17 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
    */
   @Test
   void confirm_projectKeyOverride_createsInChosenTeamProject_withAiAssignee() {
-    // 위임자 개인 프로젝트 보장.
+    // 위임자 개인 프로젝트 보장 + AI 멤버 추가(개인도 명시 추가 필수).
     provisioner.ensureDefaultPersonal(delegator);
+    projectService.addMember(
+        delegator, personalKey(delegator), new AddMemberRequest(agentId, "MEMBER"));
 
     // 팀 프로젝트 생성 + delegator, agentId 둘 다 멤버 → 후보 포함.
     long t1 = createTeamProject(delegator, "공유팀");
     projectMemberRepo.insert(t1, agentId, "MEMBER");
     String teamKey = projectRepo.findById(t1).get().key();
 
-    // 개인 프로젝트로 제안 생성(projectKey=null → 개인 기본).
+    // 개인 프로젝트로 제안 생성(projectKey=null → 개인 기본, AI 멤버이므로 후보에 포함됨).
     var prop =
         proposalService.propose(
             agentId,
@@ -351,7 +372,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
    */
   @Test
   void confirm_storedProjectKeyStale_noOverride_throwsInvalidDelegationProjectException() {
-    // 위임자 개인 프로젝트 보장.
+    // 위임자 개인 프로젝트 보장(팀 제안 시 개인 미사용이라도 ensureDefaultPersonal 은 유지).
     provisioner.ensureDefaultPersonal(delegator);
 
     // 팀 프로젝트 생성 + delegator·agentId 둘 다 멤버 → 처음엔 후보 포함.
@@ -376,13 +397,55 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
         .isInstanceOf(InvalidDelegationProjectException.class);
   }
 
+  /**
+   * Task 2: candidateProjects — AI 가 멤버인 프로젝트만 후보. 개인 자동 포함 없음 — 명시 추가 후에만 후보.
+   *
+   * <ul>
+   *   <li>AGENT 멤버 추가 전 → 빈 목록
+   *   <li>개인 프로젝트에 AGENT 추가 후 → 개인 프로젝트 포함
+   * </ul>
+   */
+  @Test
+  void candidateProjects_onlyProjectsWhereAgentIsMember_personalIncludedWhenAgentMember() {
+    // 개인 프로젝트 생성(AGENT 아직 멤버 아님).
+    provisioner.ensureDefaultPersonal(delegator);
+
+    // AGENT 멤버 추가 전 → 후보 없음.
+    assertThat(proposalService.candidateProjects(delegator, agentId)).isEmpty();
+
+    // 개인 프로젝트에 AGENT 명시 추가 → 후보에 개인 프로젝트 포함.
+    projectService.addMember(
+        delegator, personalKey(delegator), new AddMemberRequest(agentId, "MEMBER"));
+    assertThat(proposalService.candidateProjects(delegator, agentId))
+        .extracting(ProjectCandidateDto::key)
+        .contains(personalKey(delegator));
+  }
+
+  /** Task 2: propose — AGENT 가 어느 프로젝트 멤버도 아니면 NoDelegationCandidateException(400) 반환. */
+  @Test
+  void propose_noCandidates_throwsNoDelegationCandidate() {
+    // 개인 프로젝트는 있으나 AGENT 는 멤버 아님 → 후보 없음 → 위임 불가.
+    provisioner.ensureDefaultPersonal(delegator);
+
+    assertThatThrownBy(
+            () ->
+                proposalService.propose(
+                    agentId,
+                    channelId,
+                    new CreateProposalRequest(
+                        "CREATE_ISSUE", "테스트", null, "MID", delegator, null, null)))
+        .isInstanceOf(NoDelegationCandidateException.class);
+  }
+
   /** Task 3: confirm 시 후보 밖 projectKey override → InvalidDelegationProjectException(400 상당). */
   @Test
   void confirm_projectKeyOutsideCandidates_throwsInvalidDelegationProjectException() {
-    // 위임자 개인 프로젝트 보장.
+    // 위임자 개인 프로젝트 보장 + AI 멤버 추가(개인도 명시 추가 필수).
     provisioner.ensureDefaultPersonal(delegator);
+    projectService.addMember(
+        delegator, personalKey(delegator), new AddMemberRequest(agentId, "MEMBER"));
 
-    // 제안 생성(개인 기본 프로젝트).
+    // 제안 생성(개인 기본 프로젝트, AI 멤버이므로 후보 포함됨).
     var prop =
         proposalService.propose(
             agentId,

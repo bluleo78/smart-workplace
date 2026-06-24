@@ -10,6 +10,7 @@ import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.dto.ProjectCandidateDto;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidDelegationProjectException;
+import com.workplace.messaging.exception.NoDelegationCandidateException;
 import com.workplace.messaging.exception.ProposalNotDelegatorException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
@@ -17,7 +18,6 @@ import com.workplace.messaging.repository.MessageActionProposalRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
-import com.workplace.project.service.PersonalProjectProvisioner;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -35,14 +35,14 @@ public class MessagingProposalService {
   private final ProjectRepository projectRepo;
   private final ProjectMemberRepository projectMemberRepo; // Task 1: 프로젝트 멤버십 검증용(후보 계산)
   private final ChannelMemberRepository memberRepo; // Fix 1: 채널 멤버십 검증용
-  private final PersonalProjectProvisioner provisioner; // Fix 5: 개인 프로젝트 온디맨드 프로비저닝
   private final MessageService messageService; // findOneForProposal enrich 재사용
   private final ApplicationEventPublisher publisher;
   private final ObjectMapper objectMapper;
   private final IssueService issueService; // Task 4: 승인 시 이슈 생성
 
   /**
-   * AI 제안 — 채널에 AGENT 작성 카드 메시지 + 제안 행(PENDING) 생성. 프로젝트 기본값=위임자 개인 프로젝트.
+   * AI 제안 — 채널에 AGENT 작성 카드 메시지 + 제안 행(PENDING) 생성. 프로젝트는 후보(위임자·AI 둘 다 멤버) 중 AI 가 고른 projectKey,
+   * 없으면 첫 후보(updated_at 최신순). 후보 0건이면 NoDelegationCandidateException.
    *
    * <p>제안 행을 메시지 publish 전에 INSERT 해 AFTER_COMMIT SSE 가 proposal 을 enrich 한 응답을 전파하도록 한다.
    */
@@ -55,16 +55,16 @@ public class MessagingProposalService {
     if (!memberRepo.isMember(channelId, req.proposedByUserId()))
       throw new ChannelNotMemberException(channelId, req.proposedByUserId());
 
-    // 후보 계산(candidateProjects 내부에서 개인 프로젝트 온디맨드 프로비저닝 포함).
-    // AI 가 준 projectKey 가 후보에 있으면 그것을, 아니면 개인 기본(첫 후보=맨 앞)을 선택한다.
+    // 후보 계산(위임자·AI 둘 다 멤버인 프로젝트 목록).
+    // AI 가 준 projectKey 가 후보에 있으면 그것을, 아니면 첫 후보(updated_at 최신순)를 선택한다.
     var candidates = candidateProjects(req.proposedByUserId(), agentId);
-    if (candidates.isEmpty())
-      throw new IllegalStateException("위임 후보 프로젝트 없음: " + req.proposedByUserId());
+    // 위임자·AI 공유 프로젝트가 없으면 친화적 400 예외 — 사용자에게 "함께하는 프로젝트 없음" 안내.
+    if (candidates.isEmpty()) throw new NoDelegationCandidateException();
     var chosen =
         candidates.stream()
             .filter(c -> c.key().equals(req.projectKey()))
             .findFirst()
-            .orElse(candidates.get(0)); // 폴백=첫 후보(개인 기본)
+            .orElse(candidates.get(0)); // 폴백=첫 후보(updated_at 최신순)
     var project =
         projectRepo
             .findByKey(chosen.key())
@@ -151,6 +151,7 @@ public class MessagingProposalService {
     String body = p.hasNonNull("body") ? p.get("body").asText() : null;
 
     // 사람(callerId) 권한으로 이슈 생성. assigneeIds=[agentId] — AGENT 가 담당.
+    // AI 자동 멤버 등록 없음 — 멤버십은 사용자 명시 액션(ProjectService.addMember)으로만 생성.
     var issue =
         issueService.create(
             callerId,
@@ -185,21 +186,17 @@ public class MessagingProposalService {
   }
 
   /**
-   * L3 위임 후보 프로젝트 = 위임자 기본 개인 프로젝트(맨 앞=기본값) + (위임자·AI 둘 다 멤버인 TEAM 프로젝트).
+   * L3 위임 후보 프로젝트 = 위임자가 속한 프로젝트(개인·팀 모두) 중 AI(agentId)도 멤버인 것.
    *
-   * <p>AssigneePolicy 정합: 개인은 모든 AGENT 담당 가능, 팀은 둘 다 멤버라야 AI 담당 가능.
+   * <p>개인 프로젝트도 AI 가 명시적으로 멤버로 추가된 경우에만 후보가 된다(개인 자동 포함 없음). AGENT 멤버십은 사용자 명시
+   * 액션(ProjectService.addMember)으로만 생성 — 자동추가 절대 없음(#418 정책 통일).
    */
   @Transactional(readOnly = true)
   public List<ProjectCandidateDto> candidateProjects(long delegatorId, long agentId) {
     List<ProjectCandidateDto> out = new ArrayList<>();
-    // 엣지: 개인 프로젝트가 아직 없으면 생성(REQUIRES_NEW 서브 트랜잭션 독립 커밋).
-    provisioner.ensureDefaultPersonal(delegatorId);
-    projectRepo
-        .findDefaultPersonal(delegatorId)
-        .ifPresent(p -> out.add(new ProjectCandidateDto(p.key(), p.name())));
-    // 위임자가 속한 TEAM 프로젝트 중 AI 도 멤버인 것만 추가.
+    // 위임자가 속한 프로젝트(개인·팀 공통)를 순회하며 AI 멤버 여부만 확인.
     for (var p : projectRepo.findAllForUser(delegatorId, false, 0, 500)) {
-      if ("TEAM".equals(p.type()) && projectMemberRepo.isMember(p.id(), agentId)) {
+      if (projectMemberRepo.isMember(p.id(), agentId)) {
         out.add(new ProjectCandidateDto(p.key(), p.name()));
       }
     }

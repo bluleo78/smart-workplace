@@ -223,9 +223,9 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     assertThat(result).isEmpty();
   }
 
-  /** 개인 프로젝트: AGENT 담당 지정 허용, 멤버 아닌 HUMAN 은 거부 (Unit 4 검증 완화). */
+  /** 개인 프로젝트: 멤버만 담당자로 지정 가능 — 비멤버 AGENT·HUMAN 모두 거부, 멤버 AGENT 는 통과 (#418 정책 통일). */
   @Test
-  void replace_personalAllowsAgentRejectsHuman() {
+  void replace_personalMemberOnlyPolicy() {
     Long owner = createUser("owner5");
     Long agent = createAgentUser("bot5");
     Long stranger = createUser("stranger5");
@@ -234,11 +234,17 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     IssueResponse issue =
         issueService.create(
             owner, personal.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
-    assertThatCode(() -> service.replace(owner, personal.key(), issue.number(), List.of(agent)))
-        .doesNotThrowAnyException();
+    // 비멤버 AGENT → 거부
+    assertThatThrownBy(() -> service.replace(owner, personal.key(), issue.number(), List.of(agent)))
+        .isInstanceOf(InvalidAssigneeForProjectException.class);
+    // 비멤버 HUMAN → 거부
     assertThatThrownBy(
             () -> service.replace(owner, personal.key(), issue.number(), List.of(stranger)))
         .isInstanceOf(InvalidAssigneeForProjectException.class);
+    // AGENT 멤버 등록 후 → 담당 가능
+    projectService.addMember(owner, personal.key(), new AddMemberRequest(agent, "MEMBER"));
+    assertThatCode(() -> service.replace(owner, personal.key(), issue.number(), List.of(agent)))
+        .doesNotThrowAnyException();
   }
 
   @Test

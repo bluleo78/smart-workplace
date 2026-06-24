@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
 import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,8 +18,11 @@ import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.messaging.service.MessagingProposalService;
+import com.workplace.project.dto.AddMemberRequest;
+import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.PersonalProjectProvisioner;
+import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +49,8 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
   @Autowired MessageService messageService;
   @Autowired PersonalProjectProvisioner provisioner;
   @Autowired ProjectRepository projectRepo;
+  @Autowired ProjectMemberRepository projectMemberRepo;
+  @Autowired ProjectService projectService;
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelMemberRepository memberRepo;
   @Autowired DSLContext dsl;
@@ -79,6 +85,9 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
 
     // 위임자(human)의 기본 개인 프로젝트 프로비저닝 (REQUIRES_NEW 서브 트랜잭션으로 커밋됨).
     provisioner.ensureDefaultPersonal(human);
+    // 개인 프로젝트에 AI 멤버 추가 — 개인 자동 포함 없음, 명시 추가 필수(#418 정책 통일).
+    String humanPersonalKey = projectRepo.findDefaultPersonal(human).orElseThrow().key();
+    projectService.addMember(human, humanPersonalKey, new AddMemberRequest(agentId, "MEMBER"));
   }
 
   @AfterEach
@@ -97,8 +106,14 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
           .execute();
       dsl.deleteFrom(CHANNEL).where(CHANNEL.ID.in(createdChannelIds)).execute();
     }
-    // project → user_role → user 회수 (FK 순서).
+    // project_member → project → user_role → user 회수 (FK 순서).
     if (!createdUserIds.isEmpty()) {
+      // project_member 먼저 삭제(FK: project_member.project_id → project.id).
+      dsl.deleteFrom(PROJECT_MEMBER)
+          .where(
+              PROJECT_MEMBER.PROJECT_ID.in(
+                  dsl.select(PROJECT.ID).from(PROJECT).where(PROJECT.OWNER_ID.in(createdUserIds))))
+          .execute();
       dsl.deleteFrom(PROJECT).where(PROJECT.OWNER_ID.in(createdUserIds)).execute();
       dsl.deleteFrom(USER_ROLE).where(USER_ROLE.USER_ID.in(createdUserIds)).execute();
       dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
@@ -209,29 +224,32 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * Fix 5: 위임자에게 기본 개인 프로젝트가 미프로비저닝된 상태에서도 propose() 가 성공해야 한다.
+   * AI 가 멤버인 개인 프로젝트가 있으면 propose() 가 성공해야 한다.
    *
-   * <p>propose() 내부에서 ensureDefaultPersonal 을 호출해 REQUIRES_NEW 로 프로젝트를 생성하므로 orElseThrow 가 통과한다.
+   * <p>Task 2: 개인 자동 포함 폐기 — AI 가 명시적으로 멤버 추가된 경우에만 후보가 되어 propose 성공. 미추가 시
+   * NoDelegationCandidateException.
    */
   @Test
-  void propose_delegatorWithoutPersonalProject_provisionsOnDemandAndSucceeds() {
-    // setUp() 에서 human 의 프로젝트를 프로비저닝했으므로 별도의 신규 사용자를 생성한다.
+  void propose_delegatorPersonalProjectWithAgentMember_succeeds() {
+    // setUp() 에서 human 의 프로젝트를 프로비저닝하고 AI 를 멤버로 추가했으므로 별도의 신규 사용자를 생성해 독립 검증.
     long freshHuman = seedUser("fresh_human", "HUMAN");
     memberRepo.add(channelId, freshHuman, "MEMBER");
-    // freshHuman 의 프로젝트는 여기서 명시적으로 프로비저닝하지 않는다.
+    // freshHuman 의 기본 개인 프로젝트 프로비저닝 + AI 명시 추가.
+    provisioner.ensureDefaultPersonal(freshHuman);
+    String freshPersonalKey = projectRepo.findDefaultPersonal(freshHuman).orElseThrow().key();
+    projectService.addMember(freshHuman, freshPersonalKey, new AddMemberRequest(agentId, "MEMBER"));
 
     var resp =
         proposalService.propose(
             agentId,
             channelId,
             new CreateProposalRequest(
-                "CREATE_ISSUE", "온디맨드 프로젝트 테스트", null, null, freshHuman, null, null));
+                "CREATE_ISSUE", "AI 멤버 프로젝트 테스트", null, null, freshHuman, null, null));
 
-    // 제안이 성공하고 프로젝트명이 freshHuman 의 기본 개인 프로젝트명과 일치해야 한다.
+    // 제안이 성공하고 AI 가 멤버인 개인 프로젝트가 사용되어야 한다.
     assertThat(resp.proposal()).isNotNull();
     assertThat(resp.proposal().status()).isEqualTo("PENDING");
-    String provisionedProjectName =
-        projectRepo.findDefaultPersonal(freshHuman).orElseThrow().name();
-    assertThat(resp.proposal().projectName()).isEqualTo(provisionedProjectName);
+    assertThat(resp.proposal().projectName())
+        .isEqualTo(projectRepo.findDefaultPersonal(freshHuman).orElseThrow().name());
   }
 }

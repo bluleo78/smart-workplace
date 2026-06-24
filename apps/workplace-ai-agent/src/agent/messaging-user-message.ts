@@ -21,10 +21,11 @@ export function buildMessagingUserMessage(
   const where = payload.channelKind === 'DM' ? '1:1 DM' : '채널';
   const actorName = payload.actor.name ?? '사용자';
 
-  // 후보가 있으면 각 항목을 "- 이름 (KEY)" 형태로, 없으면 안내 문구.
+  // 후보가 있으면 각 항목을 "- 이름 (KEY)" 형태로, 없으면 멤버 추가 요청 안내.
+  // AI 가 멤버로 등록된 프로젝트가 없으면 propose_create_issue 호출 금지 — 개인 폴백 없음.
   const projectList = candidates.length
     ? candidates.map((c) => `- ${c.name} (${c.key})`).join('\n')
-    : '- (후보 없음 — 위임 시 개인 작업으로 생성)';
+    : '- (없음) — 사용자가 일을 위임하려 하면 propose_create_issue 를 호출하지 말고, "먼저 프로젝트에 저를 멤버로 추가해 주세요" 라고 답하세요.';
 
   return (
     `[이벤트: messaging.message.posted]\n` +
@@ -35,7 +36,7 @@ export function buildMessagingUserMessage(
     `더 과거 대화가 필요하면 get_channel_messages(${payload.channelId}). ` +
     `파악이 끝나면 add_channel_message(${payload.channelId}, 답변) 을 정확히 한 번 호출해 답하세요.\n\n` +
     `## 위임 가능 프로젝트\n${projectList}\n` +
-    `사용자가 일을 이슈로 만들어 당신에게 맡기려 하면 propose_create_issue 를 호출하세요. ` +
-    `대화 맥락에 맞는 프로젝트의 projectKey 를 위 목록에서 고르고(적합한 게 없으면 생략 → 개인 작업), 제목/본문/우선순위만 정하세요. 위치·담당은 시스템이 정합니다.`
+    `사용자가 일을 이슈로 만들어 당신에게 맡기려 하면 위 목록에서 projectKey 를 골라 propose_create_issue 를 호출하세요. ` +
+    `제목/본문/우선순위만 정하세요. 위치·담당은 시스템이 정합니다. 목록이 비어있으면 위 안내대로 멤버 추가를 요청하세요.`
   );
 }

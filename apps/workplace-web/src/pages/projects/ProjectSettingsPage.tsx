@@ -105,8 +105,10 @@ export default function ProjectSettingsPage() {
         <Button type="submit" disabled={update.isPending}>{update.isPending ? '저장 중…' : '저장'}</Button>
       </form>
 
-      {/* 개인 프로젝트는 멤버가 없으므로 멤버 관리 섹션 숨김 */}
-      {!isPersonal && <MemberManagement projectKey={key} />}
+      {/* 개인 프로젝트는 AI 어시스턴트만 추가 가능(agentOnly), 팀 프로젝트는 일반 멤버 관리 */}
+      {isPersonal
+        ? <MemberManagement projectKey={key} agentOnly />
+        : <MemberManagement projectKey={key} />}
 
       <LabelManagement projectKey={key} isOwner={isOwner} />
 

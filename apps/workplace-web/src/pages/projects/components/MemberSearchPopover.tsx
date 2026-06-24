@@ -38,6 +38,8 @@ export interface MemberSearchPopoverProps {
   trigger: React.ReactNode;
   // 검색 결과에서 완전히 제외할 사용자 id(예: DM compose 의 본인). 미전달 시 제외 없음.
   excludeUserIds?: Set<number>;
+  // true 면 AGENT 만 선택 가능 — kind 토글 숨기고 AGENT 필터 고정 (개인 프로젝트 AI 추가 전용).
+  agentOnly?: boolean;
 }
 
 export function MemberSearchPopover({
@@ -47,9 +49,11 @@ export function MemberSearchPopover({
   onSelect,
   trigger,
   excludeUserIds,
+  agentOnly = false,
 }: MemberSearchPopoverProps) {
   const [query, setQuery] = useState('');
-  const [kindFilter, setKindFilter] = useState<KindFilter>('ALL');
+  // agentOnly 모드면 AGENT 필터 고정 — 사람 토글 노출 안 함.
+  const [kindFilter, setKindFilter] = useState<KindFilter>(agentOnly ? 'AGENT' : 'ALL');
   const debounced = useDebounceValue(query, 300);
   const search = useUserSearch(debounced);
 
@@ -80,26 +84,29 @@ export function MemberSearchPopover({
             placeholder="이름·아이디·이메일로 검색"
             aria-label="멤버 검색"
           />
-          <div
-            className="flex gap-1 p-2 border-b"
-            role="tablist"
-            aria-label="kind 필터"
-          >
-            {(['ALL', 'HUMAN', 'AGENT'] as const).map((k) => (
-              <Button
-                key={k}
-                type="button"
-                size="sm"
-                variant={kindFilter === k ? 'default' : 'ghost'}
-                onClick={() => setKindFilter(k)}
-                role="tab"
-                aria-selected={kindFilter === k}
-                data-testid={`member-search-filter-${k}`}
-              >
-                {k === 'ALL' ? '전체' : k === 'HUMAN' ? '사람' : '에이전트'}
-              </Button>
-            ))}
-          </div>
+          {/* agentOnly 모드면 kind 토글 숨김 — AGENT 만 선택 가능하므로 토글 불필요. */}
+          {!agentOnly && (
+            <div
+              className="flex gap-1 p-2 border-b"
+              role="tablist"
+              aria-label="kind 필터"
+            >
+              {(['ALL', 'HUMAN', 'AGENT'] as const).map((k) => (
+                <Button
+                  key={k}
+                  type="button"
+                  size="sm"
+                  variant={kindFilter === k ? 'default' : 'ghost'}
+                  onClick={() => setKindFilter(k)}
+                  role="tab"
+                  aria-selected={kindFilter === k}
+                  data-testid={`member-search-filter-${k}`}
+                >
+                  {k === 'ALL' ? '전체' : k === 'HUMAN' ? '사람' : '에이전트'}
+                </Button>
+              ))}
+            </div>
+          )}
           <CommandList>
             {debounced.trim().length < 1 ? (
               <CommandEmpty>이름·아이디·이메일로 검색하세요</CommandEmpty>

@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_ISSUE_SEQUENCE;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,6 +21,8 @@ import com.workplace.messaging.exception.ProposalNotDelegatorException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.MessagingProposalService;
+import com.workplace.project.repository.ProjectMemberRepository;
+import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.PersonalProjectProvisioner;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -45,6 +48,8 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
   @Autowired PersonalProjectProvisioner provisioner;
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelMemberRepository memberRepo;
+  @Autowired ProjectRepository projectRepo;
+  @Autowired ProjectMemberRepository projectMemberRepo;
   @Autowired DSLContext dsl;
 
   // AiAgentMessagingClient 모킹 — MessagingAttentionDispatcher 차단.
@@ -77,6 +82,15 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
 
     // 위임자(human)의 기본 개인 프로젝트 프로비저닝 (REQUIRES_NEW 서브 트랜잭션으로 커밋됨).
     provisioner.ensureDefaultPersonal(human);
+
+    // AGENT 를 개인 프로젝트 멤버로 명시 등록 — 자동추가 없음 정책에 따라 테스트에서 직접 설정.
+    // 프로덕션에서는 사용자 명시 액션(ProjectService.addMember)으로만 멤버십이 생긴다.
+    Long personalProjectId =
+        projectRepo
+            .findDefaultPersonal(human)
+            .orElseThrow(() -> new IllegalStateException("개인 프로젝트 미생성"))
+            .id();
+    projectMemberRepo.insert(personalProjectId, agentId, "MEMBER");
   }
 
   @AfterEach
@@ -118,8 +132,17 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
           .execute();
       dsl.deleteFrom(CHANNEL).where(CHANNEL.ID.in(createdChannelIds)).execute();
     }
-    // project → user_role → user 회수.
+    // project_member → project → user_role → user 회수.
     if (!createdUserIds.isEmpty()) {
+      List<Long> projectIds2 =
+          dsl.select(PROJECT.ID)
+              .from(PROJECT)
+              .where(PROJECT.OWNER_ID.in(createdUserIds))
+              .fetchInto(Long.class);
+      if (!projectIds2.isEmpty()) {
+        // 테스트에서 명시 등록한 AGENT 멤버십 포함 전체 프로젝트 멤버 회수.
+        dsl.deleteFrom(PROJECT_MEMBER).where(PROJECT_MEMBER.PROJECT_ID.in(projectIds2)).execute();
+      }
       dsl.deleteFrom(PROJECT).where(PROJECT.OWNER_ID.in(createdUserIds)).execute();
       dsl.deleteFrom(USER_ROLE).where(USER_ROLE.USER_ID.in(createdUserIds)).execute();
       dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();

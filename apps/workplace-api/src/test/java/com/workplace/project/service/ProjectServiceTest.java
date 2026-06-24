@@ -58,16 +58,43 @@ class ProjectServiceTest extends IntegrationTestBase {
     return (prefix + suffix).substring(0, Math.min(10, (prefix + suffix).length()));
   }
 
-  /** 개인 프로젝트 멤버 목록은 OWNER + AGENT 담당 후보를 함께 노출한다. */
+  /** 개인 프로젝트 멤버 목록: 합성 AGENT 주입 없음 — AGENT 추가 전에는 OWNER 만, 추가 후에는 실제 멤버 행만 (#418 정책 통일). */
   @Test
-  void listMembers_personalIncludesAgents() {
+  void listMembers_personal_noSyntheticAgents() {
     Long owner = createUser("owner4");
     Long agent = createAgentUser("bot");
     ProjectResponse personal =
         projectService.create(owner, new CreateProjectRequest(null, "AI랑", null, "PERSONAL"));
-    List<MemberResponse> members = projectService.listMembers(owner, personal.key());
-    assertThat(members).anyMatch(m -> m.userId().equals(owner) && "OWNER".equals(m.role()));
-    assertThat(members).anyMatch(m -> m.userId().equals(agent) && "AGENT".equals(m.kind()));
+    // AGENT 추가 전: OWNER 만 (합성 주입 없음)
+    List<MemberResponse> before = projectService.listMembers(owner, personal.key());
+    assertThat(before).hasSize(1);
+    assertThat(before).anyMatch(m -> m.userId().equals(owner) && "OWNER".equals(m.role()));
+    assertThat(before).noneMatch(m -> "AGENT".equals(m.kind()) && !m.userId().equals(owner));
+    // AGENT 멤버 추가 후: 실제 AGENT 행 포함
+    projectService.addMember(owner, personal.key(), new AddMemberRequest(agent, "MEMBER"));
+    List<MemberResponse> after = projectService.listMembers(owner, personal.key());
+    assertThat(after).anyMatch(m -> m.userId().equals(agent));
+  }
+
+  /** 개인 프로젝트: AGENT 멤버 추가 허용, HUMAN 추가는 여전히 거부 (#418 정책 통일). */
+  @Test
+  void addMember_personalProject_allowsAgent_rejectsHuman() {
+    Long owner = createUser("owner-pa");
+    Long agent = createAgentUser("bot-pa");
+    Long otherHuman = createUser("human-pa");
+    ProjectResponse personal =
+        projectService.create(owner, new CreateProjectRequest(null, "개인PA", null, "PERSONAL"));
+    // AGENT 추가 성공
+    MemberResponse m =
+        projectService.addMember(owner, personal.key(), new AddMemberRequest(agent, "MEMBER"));
+    assertThat(m.userId()).isEqualTo(agent);
+    assertThat(m.role()).isEqualTo("MEMBER"); // 개인 프로젝트 AGENT 는 항상 MEMBER 강제
+    // HUMAN 추가는 거부
+    assertThatThrownBy(
+            () ->
+                projectService.addMember(
+                    owner, personal.key(), new AddMemberRequest(otherHuman, "MEMBER")))
+        .isInstanceOf(ProjectConflictException.class);
   }
 
   @Test
@@ -203,9 +230,9 @@ class ProjectServiceTest extends IntegrationTestBase {
         .isInstanceOf(ProjectConflictException.class);
   }
 
-  /** 개인 프로젝트에는 사람 멤버를 추가할 수 없음 (혼자만 사용). */
+  /** 개인 프로젝트에는 사람(HUMAN) 멤버를 추가할 수 없음 — AGENT 만 허용 (#418 정책 통일). */
   @Test
-  void addMember_blockedOnPersonalProject() {
+  void addMember_blockedOnPersonalProject_forHuman() {
     ProjectResponse personal =
         projectService.create(ownerId, new CreateProjectRequest(null, "혼자", null, "PERSONAL"));
     assertThatThrownBy(

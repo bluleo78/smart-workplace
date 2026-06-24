@@ -27,8 +27,14 @@ import type { UserResponse } from '../../../types/auth';
 import type { ProjectMemberRole } from '../../../types/project';
 import { MemberSearchPopover } from './MemberSearchPopover';
 
+interface MemberManagementProps {
+  projectKey: string;
+  // true 면 AI 어시스턴트(AGENT) 만 추가 가능 — 개인 프로젝트 전용 모드.
+  agentOnly?: boolean;
+}
+
 // 프로젝트 멤버 관리 — 검색 picker 로 추가, 역할 변경/제거.
-export function MemberManagement({ projectKey }: { projectKey: string }) {
+export function MemberManagement({ projectKey, agentOnly = false }: MemberManagementProps) {
   const members = useProjectMembers(projectKey);
   const addMember = useAddMember(projectKey);
   const updateRole = useUpdateMemberRole(projectKey);
@@ -45,10 +51,10 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
     [members.data],
   );
 
-  // picker 에서 사용자 선택 시 호출 — 선택된 role 로 즉시 추가.
+  // picker 에서 사용자 선택 시 호출 — agentOnly 면 항상 MEMBER, 아니면 선택된 role 로 추가.
   const onPick = async (user: UserResponse) => {
     try {
-      await addMember.mutateAsync({ userId: user.id, role: newRole });
+      await addMember.mutateAsync({ userId: user.id, role: agentOnly ? 'MEMBER' : newRole });
       toast.success(`${user.name} 을(를) 추가했습니다`);
     } catch (e) {
       handleApiError(e, '멤버 추가에 실패했습니다');
@@ -83,32 +89,38 @@ export function MemberManagement({ projectKey }: { projectKey: string }) {
   return (
     <>
     <section className="space-y-3">
-      <h2 className="text-lg font-semibold">멤버</h2>
+      {/* agentOnly 모드(개인 프로젝트)면 "AI 어시스턴트" 헤딩, 팀 프로젝트면 "멤버" */}
+      <h2 className="text-lg font-semibold">{agentOnly ? 'AI 어시스턴트' : '멤버'}</h2>
 
       <div className="flex gap-2 items-end">
-        <div className="space-y-1">
-          <label className="text-sm font-medium" htmlFor="new-member-role">
-            역할
-          </label>
-          {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
-          <Select value={newRole} onValueChange={(v) => setNewRole(v as ProjectMemberRole)}>
-            <SelectTrigger id="new-member-role" className="w-auto">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="MEMBER">멤버</SelectItem>
-              <SelectItem value="OWNER">소유자</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {/* agentOnly 모드면 역할 Select 숨김 — 항상 MEMBER 로 고정. */}
+        {!agentOnly && (
+          <div className="space-y-1">
+            <label className="text-sm font-medium" htmlFor="new-member-role">
+              역할
+            </label>
+            {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+            <Select value={newRole} onValueChange={(v) => setNewRole(v as ProjectMemberRole)}>
+              <SelectTrigger id="new-member-role" className="w-auto">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="MEMBER">멤버</SelectItem>
+                <SelectItem value="OWNER">소유자</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <MemberSearchPopover
           open={pickerOpen}
           onOpenChange={setPickerOpen}
           existingMemberIds={existingIds}
           onSelect={onPick}
+          agentOnly={agentOnly}
           trigger={
             <Button type="button" data-testid="member-add-trigger">
-              + 멤버 추가
+              {/* agentOnly 모드면 AI 어시스턴트 추가 버튼 라벨 */}
+              {agentOnly ? '+ AI 어시스턴트 추가' : '+ 멤버 추가'}
             </Button>
           }
         />

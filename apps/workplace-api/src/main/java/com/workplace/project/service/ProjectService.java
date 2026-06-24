@@ -142,42 +142,39 @@ public class ProjectService {
   }
 
   /**
-   * 프로젝트 멤버 목록 조회. 멤버 권한 필요. 개인 프로젝트는 멤버(OWNER 혼자) 외에 AGENT 사용자들을 담당 후보로 함께 노출한다 (멤버는 아니지만 assignee
-   * 가능 — Unit 4). TEAM 프로젝트는 순수 멤버 목록 그대로 반환.
+   * 프로젝트 멤버 목록 조회. 멤버 권한 필요. 실제 project_member 행만 반환 — 합성 AGENT 주입 없음. 개인 프로젝트에 AGENT 를 담당자로 쓰려면
+   * addMember 로 실제 멤버 등록 후 issueService 에서 담당 지정한다 (#418 정책 통일).
    */
   @Transactional(readOnly = true)
   public List<MemberResponse> listMembers(Long callerId, String projectKey) {
     ProjectRow project = accessGuard.assertMember(projectKey, callerId);
-    List<MemberResponse> members = memberRepository.findAllByProject(project.id());
-    if (!"PERSONAL".equals(project.type())) {
-      return members;
-    }
-    // 개인 프로젝트: 담당 후보로 AGENT 사용자도 노출 (멤버는 아니지만 assignee 가능)
-    java.util.Set<Long> ids =
-        members.stream().map(MemberResponse::userId).collect(java.util.stream.Collectors.toSet());
-    List<MemberResponse> agents =
-        userRepository.findByKind(UserKind.AGENT).stream()
-            .filter(u -> !ids.contains(u.id()))
-            // AGENT 후보는 합성 행(실제 project_member 아님)이라 createdAt 미사용 → null (TZ 변환 회피)
-            .map(
-                u ->
-                    new MemberResponse(
-                        u.id(), u.username(), u.name(), UserKind.AGENT, "MEMBER", null))
-            .toList();
-    return java.util.stream.Stream.concat(members.stream(), agents.stream()).toList();
+    return memberRepository.findAllByProject(project.id());
   }
 
-  /** 멤버 추가. OWNER 권한 필요. 중복 시 409. */
+  /**
+   * 멤버 추가. OWNER 권한 필요. 중복 시 409. 개인 프로젝트는 비공개 유지(HUMAN 멤버 불가), AGENT 는 담당자로 쓸 수 있도록 멤버 추가 허용
+   * (#418).
+   */
   public MemberResponse addMember(Long callerId, String projectKey, AddMemberRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
-    // 개인 프로젝트는 소유자 혼자만 사용 — 다른 사람 멤버 추가 차단
+    // 개인 프로젝트: AGENT 만 멤버로 추가 허용 (담당자 지정용). HUMAN 은 비공개 유지 정책으로 차단.
+    // AGENT 는 요청 role 과 무관하게 항상 MEMBER 로 강제 — 개인 프로젝트 OWNER 는 사람만.
+    String roleToInsert = req.role();
     if ("PERSONAL".equals(project.type())) {
-      throw new ProjectConflictException("개인 프로젝트에는 멤버를 추가할 수 없습니다");
+      var added =
+          userRepository
+              .findById(req.userId())
+              .orElseThrow(() -> new IllegalArgumentException("사용자 없음: " + req.userId()));
+      if (!UserKind.isAgent(added.kind())) {
+        throw new ProjectConflictException("개인 프로젝트에는 사람 멤버를 추가할 수 없습니다");
+      }
+      // 개인 프로젝트의 AGENT 는 MEMBER 고정 — OWNER 역할 요청이 들어와도 무시한다.
+      roleToInsert = "MEMBER";
     }
     if (memberRepository.isMember(project.id(), req.userId())) {
       throw new ProjectConflictException("이미 멤버입니다");
     }
-    memberRepository.insert(project.id(), req.userId(), req.role());
+    memberRepository.insert(project.id(), req.userId(), roleToInsert);
     // username/name 채워서 응답 (단건 조회로 N+1 회피)
     return memberRepository
         .findMemberWithUser(project.id(), req.userId())

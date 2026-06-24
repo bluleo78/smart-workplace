@@ -96,37 +96,42 @@ class IssueServiceTest extends IntegrationTestBase {
     assertThat(second.number()).isEqualTo(2);
   }
 
-  /** 개인 프로젝트: 멤버 아닌 AGENT 도 담당자로 지정 가능 (Unit 4 검증 완화). */
+  /** 개인 프로젝트: AGENT 가 멤버가 아니면 담당자로 지정 불가. 멤버 등록 후에는 담당 가능 (#418 정책 통일). */
   @Test
-  void create_personalAllowsAgentAssignee() {
+  void create_personalRequiresAgentMembership() {
     Long owner = createUser("owner6");
     Long agent = createAgentUser("bot6");
     ProjectResponse personal =
         projectService.create(owner, new CreateProjectRequest(null, "p6", null, "PERSONAL"));
+    // 멤버 아닌 AGENT → 담당 불가
+    assertThatThrownBy(
+            () ->
+                issueService.create(
+                    owner,
+                    personal.key(),
+                    new CreateIssueRequest("T", null, "MID", null, List.of(agent), null, null)))
+        .isInstanceOf(InvalidAssigneeForProjectException.class);
+    // AGENT 를 멤버로 추가하면 담당 가능
+    projectService.addMember(owner, personal.key(), new AddMemberRequest(agent, "MEMBER"));
     IssueResponse resp =
         issueService.create(
             owner,
             personal.key(),
-            new CreateIssueRequest("t", null, null, null, List.of(agent), null, null));
-    // create() 응답 DTO 는 assignees 를 채우지 않으므로(IssueResponse.from), 읽기 경로(get)로 실제 배정 확인
+            new CreateIssueRequest("T2", null, "MID", null, List.of(agent), null, null));
     IssueDetailResponse detail = issueService.get(owner, personal.key(), resp.number());
     assertThat(detail.summary().assignees()).anyMatch(a -> a.id().equals(agent));
   }
 
-  /**
-   * #418: AGENT 가 자기 담당 이슈를 직접 읽을 때(get_issue_detail 경로) 프로젝트 비멤버여도 조회를 허용한다. 개인 프로젝트는 AGENT 를 담당자로
-   * 둘 수 있지만(create_personalAllowsAgentAssignee) 담당자라고 project_member 가 되는 것은 아니어서 과거엔 403 이었다(#368
-   * 은 채팅 payload enrich 로 우회). #418 은 상세 조회(get) 한정으로 "담당자면 멤버십 없이 허용" 규칙을 추가해 갭을 해소한다.
-   *
-   * <p>보안 경계: 멤버십 가드(assertMember) 자체는 완화하지 않으므로, 담당자가 아닌 비멤버는 여전히 거부된다(쓰기 경로도 그대로).
-   */
+  /** AGENT 가 멤버로 등록된 개인 프로젝트 이슈 조회 — 멤버이므로 프로젝트 접근 가능 (#418 후속 검증). */
   @Test
-  void get_byAssignedNonMemberAgent_allowed() {
+  void get_byMemberAgent_allowed() {
     Long owner = createUser("owner368");
     Long agent = createAgentUser("bot368");
     Long stranger = createUser("stranger368");
     ProjectResponse personal =
         projectService.create(owner, new CreateProjectRequest(null, "p368", null, "PERSONAL"));
+    // AGENT 를 멤버로 추가해 담당자 지정 가능하게 함
+    projectService.addMember(owner, personal.key(), new AddMemberRequest(agent, "MEMBER"));
     IssueResponse resp =
         issueService.create(
             owner,
@@ -134,16 +139,16 @@ class IssueServiceTest extends IntegrationTestBase {
             new CreateIssueRequest("이슈제목", "이슈본문", null, null, List.of(agent), null, null));
     // owner(멤버)는 정상 조회
     assertThat(issueService.get(owner, personal.key(), resp.number())).isNotNull();
-    // #418: agent(담당자지만 비멤버)도 이제 상세 조회 허용 — 본문·제목 컨텍스트를 읽는다.
+    // agent(멤버 + 담당자) 조회 가능
     IssueDetailResponse agentView = issueService.get(agent, personal.key(), resp.number());
     assertThat(agentView.body()).isEqualTo("이슈본문");
     assertThat(agentView.summary().title()).isEqualTo("이슈제목");
-    // 보안 경계: 담당자도 멤버도 아닌 비멤버(stranger)는 여전히 거부.
+    // 보안 경계: 멤버도 담당자도 아닌 비멤버는 여전히 거부
     assertThatThrownBy(() -> issueService.get(stranger, personal.key(), resp.number()))
         .isInstanceOf(ProjectAccessDeniedException.class);
   }
 
-  /** 개인 프로젝트: 소유자/AGENT 가 아닌 일반 HUMAN 은 담당자로 지정 불가 (Unit 4 검증 완화의 경계). */
+  /** 개인 프로젝트: 일반 HUMAN 은 담당자로 지정 불가 (멤버 추가 자체가 차단). */
   @Test
   void create_personalRejectsNonOwnerHuman() {
     Long owner = createUser("owner6b");

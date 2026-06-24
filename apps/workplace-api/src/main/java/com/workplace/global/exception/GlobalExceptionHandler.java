@@ -199,6 +199,15 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** L3 위임 후보 프로젝트가 없음(위임자·AI 공유 프로젝트 0개) → 400. */
+  @ExceptionHandler(com.workplace.messaging.exception.NoDelegationCandidateException.class)
+  public ResponseEntity<ErrorResponse> handleNoDelegationCandidate(
+      com.workplace.messaging.exception.NoDelegationCandidateException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   /**
    * DB 무결성 위반 예외 처리.
    *

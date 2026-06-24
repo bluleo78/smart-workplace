@@ -44,13 +44,19 @@ describe('buildMessagingUserMessage', () => {
     expect(msg).toContain('- 프론트엔드 (FRONT)');
   });
 
-  it('candidates 빈 배열이면 후보 없음 안내 표시', () => {
+  // Task 3: 후보 0건이면 개인 폴백 문구 제거 → 멤버 추가 요청 안내.
+  it('후보 0건이면 멤버 추가 요청 안내를 포함한다', () => {
     const msg = buildMessagingUserMessage(payload, recent, []);
-    expect(msg).toContain('(후보 없음');
+    expect(msg).toContain('멤버로 추가');
   });
 
-  it('candidates 생략(기본값)이면 후보 없음 안내 표시', () => {
+  it('candidates 빈 배열이면 개인 작업 폴백 문구가 없다', () => {
+    const msg = buildMessagingUserMessage(payload, recent, []);
+    expect(msg).not.toContain('개인 작업으로 생성');
+  });
+
+  it('candidates 생략(기본값)이면 멤버 추가 요청 안내를 포함한다', () => {
     const msg = buildMessagingUserMessage(payload, recent);
-    expect(msg).toContain('(후보 없음');
+    expect(msg).toContain('멤버로 추가');
   });
 });
