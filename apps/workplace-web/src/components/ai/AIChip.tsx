@@ -41,10 +41,14 @@ export function AIChip() {
       className={cn(
         // 치수: 인라인 raw px 제거 → 디자인 시스템 유틸/토큰 사용(text-xs, gap-1.5, px-4/py-1.5, pill).
         'min-w-[140px] gap-1.5 rounded-full px-4 py-1.5 text-xs',
-        // 데스크톱(lg+): 칩을 뷰포트 중앙(+28 AppRail 보정)에 고정한다.
-        // 사이드 패널 열림/닫힘과 무관하게 위치가 바뀌지 않도록 --ai-side-width 반응을 제거.
+        // 데스크톱(lg+): 칩을 뷰포트 중앙(+28 AppRail 보정)에 고정하되, 사이드 패널이 칩을
+        // 침범할 만큼 넓어지면(#195) 그때만 콘텐츠 영역 쪽으로 클램프한다. min() 의 두 항:
+        //  1) calc(50%+28px)            — 기본 정적 중앙(패널 닫힘/좁음일 땐 항상 이 값)
+        //  2) calc(100%-패널폭-70px)    — 칩 우측 끝(반폭 70px)이 패널 좌단에 닿는 최댓값
+        // 패널이 좁으면 (2)>(1) 이라 정적 유지, 넓으면 (2)<(1) 이라 좌측으로 밀려 비겹침 보장.
+        // --ai-side-width 미설정(closed/fullscreen/모바일)이면 (2)=100%-70px 라 항상 (1) 채택.
         // 모바일은 AppRail 보정이 불필요하므로 left-1/2 유지.
-        'fixed left-1/2 top-2 z-[70] inline-flex -translate-x-1/2 items-center border font-medium shadow-md backdrop-blur transition-[background-color,color,border-color] duration-200 ease-in-out lg:left-[calc(50%+28px)]',
+        'fixed left-1/2 top-2 z-[70] inline-flex -translate-x-1/2 items-center border font-medium shadow-md backdrop-blur transition-[left,background-color,color,border-color] duration-200 ease-in-out lg:left-[min(calc(50%+28px),calc(100%-var(--ai-side-width,0px)-70px))]',
         open
           ? 'border-ai-accent bg-card text-ai-accent'
           : 'bg-card/90 text-muted-foreground hover:text-foreground',

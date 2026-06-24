@@ -197,7 +197,7 @@ test.describe('1:1 DM 빈 상태', () => {
     async ({ authenticatedPage: page }) => {
       const emptyState = page.getByTestId('chat-empty-state')
       await expect(emptyState).toBeVisible()
-      await expect(emptyState).toContainText(`${OTHER_NAME} 님과의 다이렉트 메시지 시작입니다.`)
+      await expect(emptyState).toContainText(`${OTHER_NAME} 님과의 메시지 시작입니다.`)
     },
   )
 })
