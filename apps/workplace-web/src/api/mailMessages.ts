@@ -1,8 +1,10 @@
 // 받은편지함/보낸편지함 동기화·읽기·발송 API. baseURL '/api/v1' 가 client 에 포함.
 import { downloadBlob } from '../lib/download';
 import type {
+  DraftCoachingRequest,
   EmailMessageDetail,
   EmailMessageSummary,
+  MailDraftCoaching,
   MailFolder,
   MailSendRequest,
   MailSyncResult,
@@ -87,6 +89,12 @@ export async function getMailSummary(messageId: number): Promise<{ summary: stri
 /** AI 답장 초안 생성(미영속). */
 export async function generateReplyDraft(messageId: number): Promise<{ draftBody: string }> {
   const { data } = await client.post<{ draftBody: string }>(`/mail/messages/${messageId}/reply-draft`)
+  return data
+}
+
+/** 내 초안 코칭(미영속). */
+export async function coachDraft(req: DraftCoachingRequest): Promise<MailDraftCoaching> {
+  const { data } = await client.post<MailDraftCoaching>('/mail/draft-coaching', req)
   return data
 }
 

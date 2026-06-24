@@ -2,18 +2,26 @@ package com.workplace.mail.service;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.mail.dto.CoachingNote;
+import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.dto.MailDraftCoaching;
+import com.workplace.mail.dto.MailDraftCoachingRequest;
 import com.workplace.mail.dto.MailReplyDraft;
 import com.workplace.mail.dto.MailSummary;
+import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyRequest;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
+import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
+import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftResult;
 import com.workplace.mail.outbound.MailAiMessages.SummarizeRequest;
 import com.workplace.mail.outbound.MailAiMessages.SummarizeResult;
 import com.workplace.mail.outbound.MailAiMessages.ThreadMessage;
+import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AiContext;
 import com.workplace.mail.util.MailBodyText;
@@ -41,6 +49,7 @@ public class MailAiService {
 
   private final AiAgentMailClient mailClient;
   private final EmailMessageRepository messageRepo;
+  private final EmailAccountRepository accountRepo;
   private final AssistantResolver assistantResolver;
 
   /**
@@ -52,10 +61,12 @@ public class MailAiService {
   public MailAiService(
       AiAgentMailClient mailClient,
       EmailMessageRepository messageRepo,
+      EmailAccountRepository accountRepo,
       AssistantResolver assistantResolver,
       PlatformTransactionManager txManager) {
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
+    this.accountRepo = accountRepo;
     this.assistantResolver = assistantResolver;
     this.txTemplate = new TransactionTemplate(txManager);
   }
@@ -157,6 +168,47 @@ public class MailAiService {
                 MAX_TURNS,
                 spec.timeoutMs()));
     return new MailReplyDraft(r.draftBody());
+  }
+
+  /**
+   * 초안 코칭(미영속): 내 초안을 톤·명료성(답장이면 완결성까지) 관점으로 코칭하고 개선본을 제시한다. ai_enabled=false 면 503, 타 계정이면 404.
+   * 소유권·ai_enabled 게이트를 LLM 호출보다 먼저 통과시킨다.
+   *
+   * <p>RLS GUC 주입을 위해 @Transactional(readOnly) — DB 쓰기 없음. LLM 호출(최대 timeoutMs) 동안 커넥션 점유는
+   * reply-draft 와 동일한 후속 과제(#230).
+   */
+  @Transactional(readOnly = true)
+  public MailDraftCoaching coachDraft(long userId, MailDraftCoachingRequest req) {
+    // 소유권 검증 먼저 — 타 계정/없음이면 404.
+    EmailAccountResponse acct =
+        accountRepo
+            .findByIdAndUser(userId, req.accountId())
+            .orElseThrow(() -> new EmailAccountNotFoundException(req.accountId()));
+    // ai_enabled 게이트.
+    if (!acct.aiEnabled()) {
+      throw new MailAiUnavailableException("이 계정은 AI 비서가 꺼져 있어요. 계정 설정에서 켜주세요.");
+    }
+    AssistantSpec spec = requireSpec(userId);
+    // 답장이면 원문 스레드 동봉(소유 검증 포함), 새 메일이면 빈 리스트.
+    List<ThreadMessage> thread =
+        req.inReplyToMessageId() == null
+            ? List.of()
+            : messageRepo.findThreadByIdAndUser(userId, req.inReplyToMessageId());
+    DraftCoachingResult r =
+        mailClient.coachDraft(
+            new DraftCoachingRequest(
+                nz(req.bodyText()),
+                thread,
+                nz(acct.emailAddress()),
+                spec.agentUserId(),
+                spec.model(),
+                MAX_TURNS,
+                spec.timeoutMs()));
+    List<CoachingNote> notes =
+        r.notes() == null
+            ? List.of()
+            : r.notes().stream().map(n -> new CoachingNote(n.dimension(), n.message())).toList();
+    return new MailDraftCoaching(notes, nz(r.improvedBodyHtml()));
   }
 
   private void requireEnabled(AiContext ctx) {

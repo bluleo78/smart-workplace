@@ -7,10 +7,11 @@ vi.mock('../agent/run-mail-ai.js', () => ({
   runMailClassify: vi.fn(),
   runMailSummarize: vi.fn(),
   runMailReplyDraft: vi.fn(),
+  runMailDraftCoaching: vi.fn(),
 }));
 
 import { createMailRouter } from './mail.js';
-import { runMailClassify, runMailSummarize, runMailReplyDraft } from '../agent/run-mail-ai.js';
+import { runMailClassify, runMailSummarize, runMailReplyDraft, runMailDraftCoaching } from '../agent/run-mail-ai.js';
 
 function app() {
   const a = express();
@@ -81,6 +82,36 @@ describe('POST /mail/reply-draft', () => {
   it('러너 실패 502', async () => {
     vi.mocked(runMailReplyDraft).mockRejectedValue(new Error('boom'));
     const res = await request(app()).post('/mail/reply-draft').send(valid);
+    expect(res.status).toBe(502);
+  });
+});
+
+describe('POST /mail/draft-coaching', () => {
+  const valid = {
+    draftBody: '빨리 보내',
+    thread: [],
+    replyingAs: 'me@example.com',
+    assistantAgentId: 7,
+    model: 'm',
+    maxTurns: 1,
+    timeoutMs: 60000,
+  };
+  it('정상 200 + 결과', async () => {
+    vi.mocked(runMailDraftCoaching).mockResolvedValue({
+      notes: [{ dimension: 'TONE', message: '명령조' }],
+      improvedBodyHtml: '<p>개선</p>',
+    });
+    const res = await request(app()).post('/mail/draft-coaching').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ notes: [{ dimension: 'TONE', message: '명령조' }], improvedBodyHtml: '<p>개선</p>' });
+  });
+  it('스키마 위반 400', async () => {
+    const res = await request(app()).post('/mail/draft-coaching').send({ draftBody: 'x' });
+    expect(res.status).toBe(400);
+  });
+  it('러너 실패 502', async () => {
+    vi.mocked(runMailDraftCoaching).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/mail/draft-coaching').send(valid);
     expect(res.status).toBe(502);
   });
 });

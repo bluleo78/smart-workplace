@@ -27,3 +27,35 @@ export function parseClassifyJson(text: string): { category: string; needsReply:
   const category = typeof obj.category === 'string' && CATEGORIES.includes(obj.category) ? obj.category : '업무';
   return { category, needsReply: obj.needsReply === true };
 }
+
+/** 코칭 평가 차원 화이트리스트. */
+const COACHING_DIMENSIONS = ['TONE', 'CLARITY', 'COMPLETENESS'];
+
+/**
+ * 초안 코칭 JSON 파싱: {notes:[{dimension,message}], improvedBodyHtml}.
+ * 알 수 없는 dimension 노트는 (유효 JSON 안에서만) 제외한다.
+ * ⚠️ JSON 이 없거나 깨졌으면 throw — 빈 결과로 폴백하면 "고칠 곳 없어요"라는 거짓 신호가 되므로
+ * 호출부(러너→라우트)가 502 로 전파하고 프론트는 에러 UI 를 띄운다.
+ */
+export function parseDraftCoachingJson(text: string): {
+  notes: { dimension: string; message: string }[];
+  improvedBodyHtml: string;
+} {
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error(`코칭 JSON 없음: ${text.slice(0, 120)}`);
+  // JSON.parse 실패 시 그대로 throw (폴백 금지).
+  const obj = JSON.parse(m[0]) as { notes?: unknown; improvedBodyHtml?: unknown };
+  const rawNotes = Array.isArray(obj.notes) ? obj.notes : [];
+  const notes = rawNotes
+    .map((n) => n as { dimension?: unknown; message?: unknown })
+    .filter(
+      (n) =>
+        typeof n.dimension === 'string' &&
+        COACHING_DIMENSIONS.includes(n.dimension) &&
+        typeof n.message === 'string' &&
+        n.message.length > 0,
+    )
+    .map((n) => ({ dimension: n.dimension as string, message: n.message as string }));
+  const improvedBodyHtml = typeof obj.improvedBodyHtml === 'string' ? obj.improvedBodyHtml : '';
+  return { notes, improvedBodyHtml };
+}

@@ -13,10 +13,16 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountRequest;
+import com.workplace.mail.dto.MailDraftCoaching;
+import com.workplace.mail.dto.MailDraftCoachingRequest;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.MailSummary;
+import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
+import com.workplace.mail.outbound.MailAiMessages.CoachingNoteWire;
+import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
+import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.SummarizeResult;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
@@ -25,8 +31,10 @@ import com.workplace.mail.service.MailAiService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
+import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -140,5 +148,75 @@ class MailAiServiceTest extends IntegrationTestBase {
         .isInstanceOf(MailAiUnavailableException.class);
 
     verify(mailClient, never()).summarize(any());
+  }
+
+  /** 새 메일 초안(inReplyToMessageId=null): thread 빈 리스트로 호출, 결과 매핑. */
+  @Test
+  void coachDraft_새메일_thread비어있음() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai@test.local", true);
+    when(mailClient.coachDraft(any()))
+        .thenReturn(
+            new DraftCoachingResult(
+                List.of(new CoachingNoteWire("TONE", "명령조가 강해요")), "<p>개선</p>"));
+
+    MailDraftCoaching out =
+        mailAiService.coachDraft(
+            userId, new MailDraftCoachingRequest(accountId, "<p>빨리</p>", "빨리", null));
+
+    assertThat(out.notes()).hasSize(1);
+    assertThat(out.notes().get(0).dimension()).isEqualTo("TONE");
+    assertThat(out.improvedBodyHtml()).isEqualTo("<p>개선</p>");
+    ArgumentCaptor<DraftCoachingRequest> cap = ArgumentCaptor.forClass(DraftCoachingRequest.class);
+    verify(mailClient).coachDraft(cap.capture());
+    assertThat(cap.getValue().thread()).isEmpty();
+    assertThat(cap.getValue().draftBody()).isEqualTo("빨리");
+    assertThat(cap.getValue().replyingAs()).isEqualTo("ai@test.local");
+  }
+
+  /** 답장 초안(inReplyToMessageId 지정): 원문 스레드가 동봉되어 호출된다. */
+  @Test
+  void coachDraft_답장_스레드동봉() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai2@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "co-msg-1@test.local", "co-thread-1");
+    when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
+
+    mailAiService.coachDraft(
+        userId, new MailDraftCoachingRequest(accountId, "<p>답장</p>", "답장", msgId));
+
+    ArgumentCaptor<DraftCoachingRequest> cap = ArgumentCaptor.forClass(DraftCoachingRequest.class);
+    verify(mailClient).coachDraft(cap.capture());
+    assertThat(cap.getValue().thread()).isNotEmpty();
+  }
+
+  /** ai_enabled=false 계정 → coachDraft 차단(503). */
+  @Test
+  void coachDraft_aiEnabled_false_차단() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "no-ai-co@test.local", false);
+
+    assertThatThrownBy(
+            () ->
+                mailAiService.coachDraft(
+                    userId, new MailDraftCoachingRequest(accountId, "<p>x</p>", "x", null)))
+        .isInstanceOf(MailAiUnavailableException.class);
+  }
+
+  /** 타 계정 accountId → 404(EmailAccountNotFoundException). */
+  @Test
+  void coachDraft_타계정_404() {
+    long owner = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(owner, "owner-co@test.local", true);
+    long stranger = TestFixtures.createHuman(dsl);
+
+    assertThatThrownBy(
+            () ->
+                mailAiService.coachDraft(
+                    stranger, new MailDraftCoachingRequest(accountId, "<p>x</p>", "x", null)))
+        .isInstanceOf(EmailAccountNotFoundException.class);
   }
 }

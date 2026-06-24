@@ -2,9 +2,10 @@
 // 분류/요약/답장 모두 도구 없이 텍스트 in/out. assistant 설정은 workplace-api 가 요청 본문으로 전달.
 import { buildChildEnv, buildCliArgs, runClaudeCliCollect } from './cli-runner.js';
 import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
-import { extractResultText, parseClassifyJson } from './mail-parser.js';
+import { extractResultText, parseClassifyJson, parseDraftCoachingJson } from './mail-parser.js';
 import {
   MAIL_CLASSIFY_PROMPT,
+  MAIL_DRAFT_COACHING_PROMPT,
   MAIL_REPLY_DRAFT_PROMPT,
   MAIL_SUMMARIZE_PROMPT,
 } from './mail-system-prompt.js';
@@ -20,6 +21,11 @@ export interface ClassifyInput extends BaseConfig { subject: string; from: strin
 export interface SummarizeInput extends BaseConfig { subject: string; from: string; body: string; }
 export interface ThreadMsg { from: string; date: string; body: string; }
 export interface ReplyDraftInput extends BaseConfig { thread: ThreadMsg[]; replyingAs: string; }
+export interface DraftCoachingInput extends BaseConfig {
+  draftBody: string;
+  thread: ThreadMsg[];
+  replyingAs: string;
+}
 
 // 공통: 토큰 fetch → 임시 MCP config → CLI 단발 실행 → 최종 텍스트. finally 로 config 정리.
 async function runText(
@@ -84,4 +90,16 @@ export async function runMailReplyDraft(
   const convo = input.thread.map((m) => `--- ${m.from} (${m.date})\n${m.body}`).join('\n\n');
   const userMessage = `당신은 ${input.replyingAs} 로서 아래 대화의 마지막 메일에 답장합니다.\n\n${convo}`;
   return { draftBody: (await runText(MAIL_REPLY_DRAFT_PROMPT, userMessage, input, deps, 'mail-reply-draft')).trim() };
+}
+
+// 초안 코칭: 내 초안(+답장이면 원문 스레드) → {notes, improvedBodyHtml}
+export async function runMailDraftCoaching(
+  input: DraftCoachingInput,
+  deps: RunAgentDeps,
+): Promise<{ notes: { dimension: string; message: string }[]; improvedBodyHtml: string }> {
+  const convo = input.thread.map((m) => `--- ${m.from} (${m.date})\n${m.body}`).join('\n\n');
+  const context = convo ? `원문 대화(답장 상황):\n${convo}\n\n` : '';
+  const userMessage = `${context}당신은 ${input.replyingAs} 입니다. 아래 내 초안을 코칭하세요.\n\n내 초안:\n${input.draftBody}`;
+  const text = await runText(MAIL_DRAFT_COACHING_PROMPT, userMessage, input, deps, 'mail-draft-coaching');
+  return parseDraftCoachingJson(text);
 }

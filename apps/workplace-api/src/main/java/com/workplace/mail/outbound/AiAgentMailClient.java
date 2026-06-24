@@ -4,6 +4,8 @@ import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyRequest;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
+import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
+import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftResult;
 import com.workplace.mail.outbound.MailAiMessages.SummarizeRequest;
@@ -42,6 +44,11 @@ public class AiAgentMailClient {
   /** 답장 초안 요청 → 초안 본문. */
   public ReplyDraftResult replyDraft(ReplyDraftRequest req) {
     return post("/mail/reply-draft", req, ReplyDraftResult.class);
+  }
+
+  /** 초안 코칭 요청 → 코칭 노트 + 개선본. */
+  public DraftCoachingResult coachDraft(DraftCoachingRequest req) {
+    return post("/mail/draft-coaching", req, DraftCoachingResult.class);
   }
 
   /**

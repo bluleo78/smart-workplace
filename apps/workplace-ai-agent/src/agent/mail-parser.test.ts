@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractResultText, parseClassifyJson } from './mail-parser.js';
+import { extractResultText, parseClassifyJson, parseDraftCoachingJson } from './mail-parser.js';
 
 describe('extractResultText', () => {
   it('result 이벤트의 최종 텍스트를 반환', () => {
@@ -25,5 +25,26 @@ describe('parseClassifyJson', () => {
   });
   it('JSON 없으면 throw', () => {
     expect(() => parseClassifyJson('분류 불가')).toThrow();
+  });
+});
+
+describe('parseDraftCoachingJson', () => {
+  it('notes + improvedBodyHtml 파싱', () => {
+    const text = '{"notes":[{"dimension":"TONE","message":"명령조"}],"improvedBodyHtml":"<p>개선</p>"}';
+    const out = parseDraftCoachingJson(text);
+    expect(out.notes).toEqual([{ dimension: 'TONE', message: '명령조' }]);
+    expect(out.improvedBodyHtml).toBe('<p>개선</p>');
+  });
+  it('알 수 없는 dimension 은 제외', () => {
+    const text = '{"notes":[{"dimension":"WEIRD","message":"x"},{"dimension":"CLARITY","message":"y"}],"improvedBodyHtml":"<p>h</p>"}';
+    const out = parseDraftCoachingJson(text);
+    expect(out.notes).toEqual([{ dimension: 'CLARITY', message: 'y' }]);
+  });
+  it('JSON 없으면 throw (→ 502 → UI 에러)', () => {
+    // 파싱 실패를 빈 결과로 폴백하면 "고칠 곳 없어요"라는 거짓 신호가 됨 → 반드시 throw.
+    expect(() => parseDraftCoachingJson('설명만 있고 JSON 없음')).toThrow();
+  });
+  it('깨진 JSON 도 throw', () => {
+    expect(() => parseDraftCoachingJson('{"notes": [oops')).toThrow();
   });
 });

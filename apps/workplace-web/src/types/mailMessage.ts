@@ -78,3 +78,23 @@ export interface SendResult {
   localMessageId: number;
   messageId: string;
 }
+
+/** 초안 코칭 노트 1건. */
+export interface CoachingNote {
+  dimension: 'TONE' | 'CLARITY' | 'COMPLETENESS'
+  message: string
+}
+
+/** 초안 코칭 응답. */
+export interface MailDraftCoaching {
+  notes: CoachingNote[]
+  improvedBodyHtml: string
+}
+
+/** 초안 코칭 요청. */
+export interface DraftCoachingRequest {
+  accountId: number
+  bodyHtml: string
+  bodyText: string
+  inReplyToMessageId: number | null
+}

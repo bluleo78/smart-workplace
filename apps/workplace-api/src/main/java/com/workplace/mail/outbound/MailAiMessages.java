@@ -42,4 +42,20 @@ public final class MailAiMessages {
       int timeoutMs) {}
 
   public record ReplyDraftResult(String draftBody) {}
+
+  /** 초안 코칭 노트 1건(ai-agent 와이어). */
+  public record CoachingNoteWire(String dimension, String message) {}
+
+  /** 초안 코칭 요청: 초안 평문 + (답장이면) 원문 스레드. 새 메일이면 thread 빈 리스트. */
+  public record DraftCoachingRequest(
+      String draftBody,
+      List<ThreadMessage> thread,
+      String replyingAs,
+      long assistantAgentId,
+      String model,
+      int maxTurns,
+      int timeoutMs) {}
+
+  /** 초안 코칭 결과: 코칭 노트 목록 + 다듬은 개선본 HTML. */
+  public record DraftCoachingResult(List<CoachingNoteWire> notes, String improvedBodyHtml) {}
 }

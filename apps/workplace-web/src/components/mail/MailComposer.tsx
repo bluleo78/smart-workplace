@@ -7,7 +7,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Bold, Italic, Link2, List, ListOrdered } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { forwardRef, useImperativeHandle, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -57,8 +57,14 @@ function ToolbarButton({
   );
 }
 
+/** 부모(작성 도크)가 본문을 통째로 교체할 수 있게 노출하는 핸들. */
+export interface MailComposerHandle {
+  setContent: (html: string) => void
+}
+
 /** 메일 본문 작성 에디터. */
-export function MailComposer({ initialHtml = '', onChange }: MailComposerProps) {
+export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
+  function MailComposer({ initialHtml = '', onChange }, ref) {
   // 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148).
   const [linkDialog, setLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -82,6 +88,18 @@ export function MailComposer({ initialHtml = '', onChange }: MailComposerProps) 
       },
     },
   });
+
+  // 개선본 교체용 — emitUpdate=true 로 onChange 도 발화되고 undo 히스토리에 쌓임.
+  useImperativeHandle(
+    ref,
+    () => ({
+      setContent: (html: string) => {
+        // Tiptap v2.27 — setContent(content, emitUpdate) 위치 인자. emitUpdate=true 로 onChange 발화 + undo 누적.
+        editor?.chain().focus().setContent(html, true).run()
+      },
+    }),
+    [editor],
+  )
 
   if (!editor) return null;
 
@@ -186,4 +204,5 @@ export function MailComposer({ initialHtml = '', onChange }: MailComposerProps) 
     }
     editor.chain().focus().extendMarkRange('link').setLink({ href: linkUrl.trim() }).run();
   }
-}
+},
+)

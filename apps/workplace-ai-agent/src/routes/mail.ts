@@ -4,7 +4,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
 import { type RunAgentDeps } from '../agent/run-agent.js';
-import { runMailClassify, runMailReplyDraft, runMailSummarize } from '../agent/run-mail-ai.js';
+import { runMailClassify, runMailDraftCoaching, runMailReplyDraft, runMailSummarize } from '../agent/run-mail-ai.js';
 
 // 공통 assistant 설정 필드 — 모든 엔드포인트에서 공유.
 const baseConfig = {
@@ -17,6 +17,12 @@ const baseConfig = {
 export const classifySchema = z.object({ subject: z.string(), from: z.string(), snippet: z.string(), ...baseConfig });
 export const summarizeSchema = z.object({ subject: z.string(), from: z.string(), body: z.string(), ...baseConfig });
 export const replyDraftSchema = z.object({
+  thread: z.array(z.object({ from: z.string(), date: z.string(), body: z.string() })),
+  replyingAs: z.string(),
+  ...baseConfig,
+});
+export const coachDraftSchema = z.object({
+  draftBody: z.string(),
   thread: z.array(z.object({ from: z.string(), date: z.string(), body: z.string() })),
   replyingAs: z.string(),
   ...baseConfig,
@@ -53,6 +59,8 @@ export function createMailRouter(deps: RunAgentDeps): Router {
   router.post('/mail/summarize', handler(summarizeSchema, runMailSummarize, deps, 'mail-summarize'));
   // 답장 초안 생성: draft 텍스트 반환.
   router.post('/mail/reply-draft', handler(replyDraftSchema, runMailReplyDraft, deps, 'mail-reply-draft'));
+  // 초안 코칭: notes + improvedBodyHtml 반환.
+  router.post('/mail/draft-coaching', handler(coachDraftSchema, runMailDraftCoaching, deps, 'mail-draft-coaching'));
 
   return router;
 }

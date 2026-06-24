@@ -10,7 +10,7 @@ vi.mock('./mcp-config.js', () => ({
   cleanupTempMcpConfig: vi.fn(),
 }));
 
-import { runMailClassify, runMailSummarize, runMailReplyDraft } from './run-mail-ai.js';
+import { runMailClassify, runMailSummarize, runMailReplyDraft, runMailDraftCoaching } from './run-mail-ai.js';
 import { runClaudeCliCollect } from './cli-runner.js';
 import { cleanupTempMcpConfig } from './mcp-config.js';
 
@@ -51,6 +51,25 @@ describe('runMailReplyDraft', () => {
     ]);
     const out = await runMailReplyDraft({ ...cfg, replyingAs: 'me@x', thread: [{ from: 'a@b', date: 'd', body: '원문' }] }, { client: fakeClient });
     expect(out.draftBody).toContain('안녕하세요');
+    expect(cleanupTempMcpConfig).toHaveBeenCalledWith('/tmp/cfg.json');
+  });
+});
+
+describe('runMailDraftCoaching', () => {
+  it('코칭 JSON 파싱 결과 반환', async () => {
+    vi.mocked(runClaudeCliCollect).mockResolvedValue([
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        result: '{"notes":[{"dimension":"TONE","message":"명령조"}],"improvedBodyHtml":"<p>개선</p>"}',
+      }),
+    ]);
+    const out = await runMailDraftCoaching(
+      { ...cfg, replyingAs: 'me@x', draftBody: '빨리 보내', thread: [] },
+      { client: fakeClient },
+    );
+    expect(out.notes).toEqual([{ dimension: 'TONE', message: '명령조' }]);
+    expect(out.improvedBodyHtml).toBe('<p>개선</p>');
     expect(cleanupTempMcpConfig).toHaveBeenCalledWith('/tmp/cfg.json');
   });
 });
