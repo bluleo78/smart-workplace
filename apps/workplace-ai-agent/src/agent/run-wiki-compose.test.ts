@@ -1,19 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('./cli-runner.js', () => ({
-  buildCliArgs: vi.fn(() => ['--print', 'x']),
-  buildChildEnv: vi.fn(() => ({})),
-  runClaudeCliStream: vi.fn(),
-}));
-vi.mock('./mcp-config.js', () => ({
-  writeEmptyMcpConfig: vi.fn(() => '/tmp/empty.json'),
-  cleanupTempMcpConfig: vi.fn(),
+vi.mock('./sdk-runner.js', () => ({
+  runSdkStream: vi.fn(),
 }));
 
 import { runWikiCompose } from './run-wiki-compose.js';
 import { type WikiComposeInput } from './wiki-prompt.js';
-import { runClaudeCliStream, buildCliArgs } from './cli-runner.js';
-import { cleanupTempMcpConfig } from './mcp-config.js';
+import { runSdkStream } from './sdk-runner.js';
 
 const fakeClient = { getOAuthToken: vi.fn() } as never;
 
@@ -54,7 +47,7 @@ beforeEach(() => {
 
 describe('runWikiCompose', () => {
   it('text_delta 만 onDelta 로 흘리고 thinking·result 는 제외', async () => {
-    vi.mocked(runClaudeCliStream).mockImplementation((_i, onLine) => {
+    vi.mocked(runSdkStream).mockImplementation((_i, onLine) => {
       onLine(thinkingDelta('X')); // 추론 — 제외
       onLine(textDelta('요약: '));
       onLine(textDelta('핵심'));
@@ -68,30 +61,31 @@ describe('runWikiCompose', () => {
     expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalledWith(7);
   });
 
-  it('includePartialMessages:true 로 buildCliArgs 호출', async () => {
-    vi.mocked(runClaudeCliStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+  it('includePartialMessages:true 로 runSdkStream 호출', async () => {
+    vi.mocked(runSdkStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
     await runWikiCompose(baseInput('continue'), { client: fakeClient }, () => {});
-    const passed = vi.mocked(buildCliArgs).mock.calls[0][0];
+    const passed = vi.mocked(runSdkStream).mock.calls[0][0];
     expect(passed.includePartialMessages).toBe(true);
     expect(passed.systemPrompt).toContain('위키 문서 작성 보조자');
+    expect(passed.token).toBe('tok'); // 비서 토큰이 sdk-runner 로 전달
+    expect(passed.agentId).toBe(7);
   });
 
-  it('CLI 실패(reject) 가 전파되고 temp config 는 정리된다', async () => {
-    vi.mocked(runClaudeCliStream).mockReturnValue({
-      done: Promise.reject(new Error('cli boom')),
+  it('러너 실패(reject) 가 전파된다', async () => {
+    vi.mocked(runSdkStream).mockReturnValue({
+      done: Promise.reject(new Error('sdk boom')),
       kill: () => {},
     });
     await expect(
       runWikiCompose(baseInput('summarize'), { client: fakeClient }, () => {}),
-    ).rejects.toThrow('cli boom');
-    expect(cleanupTempMcpConfig).toHaveBeenCalledWith('/tmp/empty.json');
+    ).rejects.toThrow('sdk boom');
   });
 
   it('스트리밍 중 abort(addEventListener 경로) → handle.kill 호출', async () => {
     // 프로덕션 경로: 신호가 살아있을 때 리스너가 붙고, 이후 연결 종료로 abort 가 발생.
     const kill = vi.fn();
     let resolveDone!: () => void;
-    vi.mocked(runClaudeCliStream).mockReturnValue({
+    vi.mocked(runSdkStream).mockReturnValue({
       done: new Promise<void>((r) => { resolveDone = r; }),
       kill,
     });
@@ -108,7 +102,7 @@ describe('runWikiCompose', () => {
   it('이미 abort 된 신호 → 즉시 handle.kill 호출', async () => {
     const kill = vi.fn();
     let resolveDone!: () => void;
-    vi.mocked(runClaudeCliStream).mockReturnValue({
+    vi.mocked(runSdkStream).mockReturnValue({
       done: new Promise<void>((r) => { resolveDone = r; }),
       kill,
     });

@@ -3,6 +3,7 @@
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import { log } from '../logger.js';
+import { computeToolPolicy } from './tool-allowlist.js';
 
 export interface CliArgsInput {
   userMessage: string;
@@ -20,32 +21,13 @@ export interface CliArgsInput {
   systemPromptPath?: string;
 }
 
-// 기본 차단 도구 — Read 는 allowFileRead, Agent 는 allowSubagents 시 제외된다.
-const BASE_DISALLOWED = [
-  'Bash', 'BashOutput', 'KillShell',
-  'Read', 'Write', 'Edit', 'NotebookEdit',
-  'Glob', 'Grep',
-  'WebFetch', 'WebSearch',
-  'Agent',
-  'Task', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate',
-  'TodoWrite',
-  'Skill', 'ToolSearch',
-  // SlashCommand 는 제외: 아래 --disable-slash-commands 로 이미 비활성화되어
-  // CLI 의 '알려진 도구'가 아니다. deny 목록에 두면 매칭 실패 경고만 남는다(#457).
-  'AskUserQuestion', 'SendUserFile', 'ScheduleWakeup', 'ShareOnboardingGuide',
-  'Monitor', 'LSP',
-];
-
 export function buildCliArgs(i: CliArgsInput): string[] {
-  // allowed-tools: MCP 도구는 항상. Read/Agent 는 각 플래그가 켜질 때만 추가(allow-list 모델).
-  const extraAllowed: string[] = [];
-  if (i.allowFileRead) extraAllowed.push('Read');
-  if (i.allowSubagents) extraAllowed.push('Agent');
-  const allowedTools = ['mcp__workplace__*', ...extraAllowed].join(',');
-  // disallowed: allowed 로 푼 도구는 제외(둘 다 있으면 disallow 가 이김 → 위임/Read 가 깨짐).
-  const disallowed = BASE_DISALLOWED.filter(
-    (t) => !(t === 'Read' && i.allowFileRead) && !(t === 'Agent' && i.allowSubagents),
-  );
+  // 도구 정책은 sdk-runner 와 공용(tool-allowlist). allowed/disallowed 를 한 곳에서 계산.
+  const { allowed, disallowed: disallowedArr } = computeToolPolicy({
+    allowFileRead: i.allowFileRead,
+    allowSubagents: i.allowSubagents,
+  });
+  const allowedTools = allowed.join(',');
   const includePartial = i.includePartialMessages ?? true;
   const args = ['--print', i.userMessage];
   // 시스템 프롬프트: 경로가 주어지면 파일 플래그(ARG_MAX 회피), 아니면 인라인.
@@ -58,7 +40,7 @@ export function buildCliArgs(i: CliArgsInput): string[] {
     '--model', i.model,
     '--max-turns', String(i.maxTurns),
     '--allowed-tools', allowedTools,
-    '--disallowed-tools', disallowed.join(','),
+    '--disallowed-tools', disallowedArr.join(','),
     '--mcp-config', i.mcpConfigPath,
     '--output-format', 'stream-json',
     '--verbose',
