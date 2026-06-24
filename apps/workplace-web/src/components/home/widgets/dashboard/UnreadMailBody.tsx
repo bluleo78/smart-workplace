@@ -22,7 +22,8 @@ function initial(item: MailSummaryItem): string {
 /**
  * 안 읽은 메일 위젯 — "회신 의무로 분류한 받은편지함 엿보기".
  * 회신필요(aiNeedsReply) 먼저 → 최신순. 발신자·제목·미리보기·시각·배지/첨부.
- * 프레임/딥링크(/mail)는 Dashboard 담당. per-message 라우트가 없어 행 클릭=/mail.
+ * 행 클릭 = 해당 메일 딥링크(/mail/{accountId}?messageId={id}) — MailInboxPage 가
+ * ?messageId 를 읽어 상세 패널을 자동으로 연다(#447). 헤더/프레임은 Dashboard 담당.
  */
 export default function UnreadMailBody({ count = 5 }: { count?: number }) {
   const { data, isLoading, isError, refetch } = useMailSummary()
@@ -100,7 +101,7 @@ export default function UnreadMailBody({ count = 5 }: { count?: number }) {
         {visible.slice(0, count).map((m) => (
           <li key={m.id}>
             <Link
-              to="/mail"
+              to={`/mail/${m.accountId}?messageId=${m.id}`}
               data-testid="dash-mail-row"
               aria-label={`메일 열기: ${m.subject?.trim() || '(제목 없음)'}`}
               className="flex gap-2 rounded px-1 py-1.5 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"

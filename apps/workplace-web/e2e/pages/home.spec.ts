@@ -271,10 +271,10 @@ test('대시보드 — 각 위젯 행이 해당 항목 상세로 딥링크된다
   // mockWidgets 의 messaging-summary 는 빈 recent → 딥링크 행 없음, 빈 상태만 확인.
   await expect(page.getByTestId('dash-chat-empty')).toBeVisible()
 
-  // 안 읽은 메일 행 → 메일함(전용 메시지 라우트 없음 → 폴백).
+  // 안 읽은 메일 행 → 해당 메일 딥링크(/mail/{accountId}?messageId={id}, #447).
   await expect(
     page.getByTestId('dash-mail').getByRole('link', { name: '메일 열기: 월간 보고서' }),
-  ).toHaveAttribute('href', '/mail')
+  ).toHaveAttribute('href', '/mail/1?messageId=100')
 })
 
 test('대시보드 — 행 클릭 시 실제로 라우팅된다(이슈 상세)', async ({
@@ -1125,6 +1125,8 @@ test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', asy
   // 메일함(/mail/1) 진입·동기화에 필요한 스텁.
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [mailRow()])
+  // 딥링크(?messageId=100, #447) 진입 시 상세 패널이 여는 메시지 상세 스텁.
+  await mockApi(page, 'GET', '/api/v1/mail/messages/100', mailDetail({ id: 100, subject: '월간 보고서' }))
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', {
     phase: 'IDLE',
     total: 0,
@@ -1149,9 +1151,9 @@ test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', asy
   await page.goto('/')
   await expect(page.getByTestId('dash-mail')).toContainText('안읽음 2')
 
-  // 2) 위젯의 메일 링크로 메일함 SPA 이동(/mail → /mail/1 replace 리다이렉트). 풀 리로드 금지.
-  await page.getByTestId('dash-mail').getByRole('link').first().click()
-  await expect(page).toHaveURL(/\/mail\/1$/)
+  // 2) 위젯의 메일 행 클릭 → 해당 메일 딥링크(/mail/1?messageId=100, #447) SPA 이동. 풀 리로드 금지.
+  await page.getByTestId('dash-mail').getByTestId('dash-mail-row').first().click()
+  await expect(page).toHaveURL(/\/mail\/1\?messageId=100$/)
 
   // 3) 동기화 클릭 → sync 성공(saved:1) → ['mail-summary'] 무효화.
   await page.getByTestId('mail-sync').click()
@@ -1160,6 +1162,109 @@ test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', asy
   // 4) 앱 레일 홈 링크로 SPA 복귀 — 위젯 재마운트 시 stale 캐시 재페치 → 갱신된 3건.
   await page.getByTestId('rail-link-/').click()
   await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByTestId('dash-mail')).toContainText('안읽음 3')
+  await expect(page.getByTestId('dash-mail')).toContainText('긴급 공지')
+})
+
+// #447 — 위젯 메일 행 클릭 시 메일함(/mail)이 아니라 "해당 메일 상세"가 열려야 한다.
+// 핵심: href 만 검증하면 라우트가 맞아도 상세가 안 열리는 경우를 놓친다 → 상세 패널 렌더까지 본다.
+test('안 읽은 메일 위젯 행 클릭 → 해당 메일 상세가 열린다 (#447)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
+  // 메일함 진입 + 상세 조회 스텁.
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [mailRow()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', {
+    phase: 'IDLE',
+    total: 0,
+    done: 0,
+    running: false,
+  })
+  // 위젯 행(id=100, accountId=1)이 딥링크하는 메시지의 상세.
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/mail/messages/100',
+    mailDetail({ id: 100, subject: '월간 보고서', fromAddress: 'boss@example.com', fromName: '김부장' }),
+  )
+
+  await page.goto('/')
+
+  // 1) 행 링크가 딥링크 href(/mail/{accountId}?messageId={id})를 갖는다.
+  const row = page.getByTestId('dash-mail').getByTestId('dash-mail-row').first()
+  await expect(row).toHaveAttribute('href', '/mail/1?messageId=100')
+
+  // 2) 행 클릭 → 메일함 딥링크로 SPA 이동.
+  await row.click()
+  await expect(page).toHaveURL(/\/mail\/1\?messageId=100$/)
+
+  // 3) 핵심 — 메일함만 뜨는 게 아니라 클릭한 메일 상세 패널이 실제로 렌더된다.
+  const detail = page.getByTestId('mail-detail')
+  await expect(detail).toBeVisible()
+  await expect(detail).toContainText('월간 보고서') // 상세 제목(detail scope)
+  await expect(detail).toContainText('boss@example.com') // 상세에만 노출되는 발신자 주소
+})
+
+// #445 — 새 메일이 백그라운드 자동 동기화(#481, 3분 주기)로 적재되면, 사용자의 수동
+// 동기화 없이도 위젯이 (준)실시간 갱신돼야 한다. useMailSummary 의 60초 폴링을 가짜
+// 타이머로 검증 — 사용자 액션 0, 시간 경과만으로 카운트가 늘어나는지.
+test('안 읽은 메일 위젯이 수동 동기화 없이 주기적으로 갱신된다 (#445)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.install({ time: new Date('2026-06-16T03:00:00Z') })
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
+
+  // mail-summary 동적 응답: 처음 2건 → 백그라운드 적재 후 3건('긴급 공지' 추가).
+  // mockWidgets 의 정적 라우트보다 나중 등록 → 우선(Playwright LIFO).
+  let arrived = false
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/mail-summary',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      const body: MailSummary = arrived
+        ? {
+            unreadCount: 3,
+            needsReplyCount: 0,
+            classificationActive: false,
+            recent: [
+              {
+                id: 200,
+                accountId: 1,
+                subject: '긴급 공지',
+                fromAddress: 'ceo@example.com',
+                fromName: '대표',
+                snippet: null,
+                receivedAt: '2026-06-16T02:00:00Z',
+                seen: false,
+                hasAttachment: false,
+                aiCategory: null,
+                aiNeedsReply: null,
+                needsReplyDoneAt: null,
+              },
+              ...mail().recent,
+            ],
+          }
+        : mail()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      })
+    },
+  )
+
+  // 1) 홈 진입 — 동기화 전 2건.
+  await page.goto('/')
+  await expect(page.getByTestId('dash-mail')).toContainText('안읽음 2')
+
+  // 2) 백그라운드 자동 동기화로 새 메일 적재(사용자는 아무것도 하지 않음).
+  arrived = true
+
+  // 3) 60초 폴링 주기 경과 → 위젯이 스스로 재페치해 갱신.
+  await page.clock.runFor(61_000)
   await expect(page.getByTestId('dash-mail')).toContainText('안읽음 3')
   await expect(page.getByTestId('dash-mail')).toContainText('긴급 공지')
 })
