@@ -59,6 +59,7 @@ function client(): WorkplaceApiClient {
     moveFile: vi.fn().mockResolvedValue(undefined),
     listChannels: vi.fn().mockResolvedValue([]),
     discoverChannels: vi.fn().mockResolvedValue([]),
+    proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -728,6 +729,62 @@ describe('buildTools threadBinding — add_channel_message 스레드 mirror', ()
     const tool = tools.find((t) => t.name === 'add_channel_message')!;
     await tool.handler({ channelId: 5, body: '딴채널' });
     expect(calls[0]).toEqual([2, 5, '딴채널', undefined]);
+  });
+});
+
+// L3 위임: propose_create_issue — delegationContext 존재 여부에 따른 도구 노출/차단 검증.
+describe('buildTools messaging 위임 — propose_create_issue', () => {
+  it('propose_create_issue: delegationContext 의 위임자/채널/parent 를 스탬프하고 add_channel_message 를 호출하지 않는다', async () => {
+    const calls: { propose: unknown[]; add: number } = { propose: [], add: 0 };
+    const c = {
+      proposeCreateIssue: async (...a: unknown[]) => { calls.propose.push(a); },
+      addChannelMessage: async () => { calls.add++; },
+    } as any;
+    const tools = buildTools(c, 2, 'messaging', undefined, { actorId: 7, channelId: 9, parentMessageId: 100 });
+    const tool = tools.find((t) => t.name === 'propose_create_issue')!;
+    expect(tool).toBeTruthy();
+    const out = await tool.handler({ title: '로그인 버그', body: '상세', priority: 'HIGH' });
+    expect(calls.add).toBe(0); // add_channel_message 미호출
+    const [agentId, channelId, req] = calls.propose[0] as [number, number, Record<string, unknown>];
+    expect(agentId).toBe(2);
+    expect(channelId).toBe(9);
+    expect(req).toMatchObject({ title: '로그인 버그', body: '상세', priority: 'HIGH', proposedByUserId: 7, parentMessageId: 100 });
+    expect(typeof out).toBe('string');
+  });
+
+  it('propose_create_issue: delegationContext 가 없으면 messaging 프로파일에 노출되지 않는다', () => {
+    const tools = buildTools({} as any, 2, 'messaging');
+    expect(tools.find((t) => t.name === 'propose_create_issue')).toBeUndefined();
+  });
+
+  // guard 를 await 성공 후 설정: 실패 시 재시도 가능 검증.
+  it('propose_create_issue: 첫 호출 실패(reject) 시 오류 문자열 반환 + guard 미래치 — 재시도 시 client 재호출', async () => {
+    let callCount = 0;
+    const c = {
+      // 첫 호출은 reject, 두 번째는 resolve.
+      proposeCreateIssue: vi.fn().mockImplementationOnce(() => {
+        callCount++;
+        return Promise.reject(new Error('서버 500'));
+      }).mockImplementationOnce(() => {
+        callCount++;
+        return Promise.resolve(undefined);
+      }),
+      addChannelMessage: vi.fn(),
+    } as any;
+    const tools = buildTools(c, 3, 'messaging', undefined, { actorId: 5, channelId: 11 });
+    const tool = tools.find((t) => t.name === 'propose_create_issue')!;
+
+    // 1차 호출 — 실패: 오류 문자열 반환, 예외 미전파.
+    const firstResult = await tool.handler({ title: '버그 보고', priority: 'HIGH' });
+    expect(typeof firstResult).toBe('string');
+    expect(firstResult).toContain('실패');
+    expect(firstResult).toContain('서버 500');
+    expect(callCount).toBe(1);
+
+    // 2차 호출 — guard 가 세워지지 않았으므로 client 를 다시 호출해야 한다.
+    const secondResult = await tool.handler({ title: '버그 보고', priority: 'HIGH' });
+    expect(secondResult).toBe('제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.');
+    expect(callCount).toBe(2); // 재시도 시 실제로 API 재호출됨
   });
 });
 

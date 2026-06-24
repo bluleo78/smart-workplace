@@ -15,6 +15,7 @@ import { DateDivider } from '@/components/chat/DateDivider'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { MessageImage } from '@/components/chat/MessageImage'
+import { ProposalCard } from '@/components/chat/ProposalCard'
 import { ReactionBar } from '@/components/chat/ReactionBar'
 import { UnreadDivider } from '@/components/chat/UnreadDivider'
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments'
@@ -23,6 +24,7 @@ import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
 import { useDeleteMessage } from '@/hooks/queries/useDeleteMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
+import { useProposalActions } from '@/hooks/queries/useProposalActions'
 import { useToggleReaction } from '@/hooks/queries/useToggleReaction'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
 import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
@@ -57,6 +59,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   const update = useUpdateMessage(channelId)
   const remove = useDeleteMessage(channelId)
   const toggleReaction = useToggleReaction(channelId)
+  // L3 위임 제안 승인/거부 뮤테이션 — 성공 시 이 채널 메시지 목록 무효화.
+  const proposalActions = useProposalActions(channelId)
 
   // 마지막(최신) 메시지가 viewport 진입하면 읽음 처리(mark-read). 중복 억제는 훅 내부 ref 가 담당.
   const markRead = useMarkMessageRead(channelId)
@@ -165,6 +169,15 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                     cancelTestId={`message-editor-cancel-${m.id}`}
                   />
                 </div>
+              ) : m.proposal ? (
+                // L3 위임 제안이 있는 메시지 — 본문 대신 확인 카드 렌더.
+                <ProposalCard
+                  proposal={m.proposal}
+                  currentUserId={currentUserId}
+                  busy={proposalActions.confirm.isPending || proposalActions.reject.isPending}
+                  onConfirm={() => proposalActions.confirm.mutate(m.proposal!.id)}
+                  onReject={() => proposalActions.reject.mutate(m.proposal!.id)}
+                />
               ) : (
                 <div
                   data-testid={`message-body-${m.id}`}

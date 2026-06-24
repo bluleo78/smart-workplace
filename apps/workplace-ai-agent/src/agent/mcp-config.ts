@@ -57,8 +57,11 @@ export function writeTempMcpConfig(opts: {
   subagentResponsePath?: string;
   // Task 1-2: 도구 호출 로깅 사이드카 절대경로(설정 시 디스패처가 기록)
   toolUseLogPath?: string;
+  // L3 위임: 트리거 actor(위임자) ID. channelId 와 함께 있으면 delegationContext 로 propose_create_issue 노출.
+  triggerActorId?: number;
   // 스레드 mirror: 트리거가 스레드 안일 때 그 채널/루트를 바인딩 — add_channel_message 가
   // 이 채널에 한해 답을 해당 스레드에 넣는다. 인라인 멘션이면 미설정(바인딩 없음).
+  // 위임(L3)에서는 channelId 단독으로도 주입해 propose_create_issue 가 코드로 스탬프하게 한다.
   triggerChannelId?: number;
   triggerThreadParentId?: number;
 }): string {
@@ -86,13 +89,11 @@ export function writeTempMcpConfig(opts: {
           ...(opts.subagentResponsePath ? { WORKPLACE_SUBAGENT_RESPONSE_PATH: opts.subagentResponsePath } : {}),
           // Task 1-2: 도구 호출 로깅 사이드카 경로. 없으면 핸들러가 로깅하지 못함.
           ...(opts.toolUseLogPath ? { WORKPLACE_TOOL_USE_LOG_PATH: opts.toolUseLogPath } : {}),
-          // 스레드 mirror: 둘 다 있을 때만 주입. MCP 서버가 읽어 add_channel_message 의 parent 를 바인딩.
-          ...(opts.triggerChannelId !== undefined && opts.triggerThreadParentId !== undefined
-            ? {
-                WORKPLACE_TRIGGER_CHANNEL_ID: String(opts.triggerChannelId),
-                WORKPLACE_TRIGGER_THREAD_PARENT_ID: String(opts.triggerThreadParentId),
-              }
-            : {}),
+          // 위임/스레드 컨텍스트 — 각 값이 정의됐을 때만 독립 주입.
+          // (channelId 는 위임 제안과 thread mirror 공용; triggerActorId 는 위임 전용)
+          ...(opts.triggerActorId !== undefined ? { WORKPLACE_TRIGGER_ACTOR_ID: String(opts.triggerActorId) } : {}),
+          ...(opts.triggerChannelId !== undefined ? { WORKPLACE_TRIGGER_CHANNEL_ID: String(opts.triggerChannelId) } : {}),
+          ...(opts.triggerThreadParentId !== undefined ? { WORKPLACE_TRIGGER_THREAD_PARENT_ID: String(opts.triggerThreadParentId) } : {}),
         },
       },
     },

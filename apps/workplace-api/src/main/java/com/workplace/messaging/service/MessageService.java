@@ -1,5 +1,7 @@
 package com.workplace.messaging.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.global.dto.MentionResponse;
@@ -10,6 +12,7 @@ import com.workplace.global.util.MentionParser;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessagePage;
+import com.workplace.messaging.dto.MessageProposalResponse;
 import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.dto.ReactionResponse;
 import com.workplace.messaging.dto.UpdateMessageRequest;
@@ -27,6 +30,7 @@ import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEven
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessagingChannelProgressEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
+import com.workplace.messaging.repository.MessageActionProposalRepository;
 import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.repository.MessageRepository.MessageRef;
@@ -58,6 +62,9 @@ public class MessageService {
   private final MembershipRepository membershipRepo;
   private final ThreadReadStateRepository threadReadRepo;
   private final DriveLinkService driveLinkService;
+  // L3 위임 제안 enrich 용 의존성
+  private final MessageActionProposalRepository proposalRepo;
+  private final ObjectMapper objectMapper;
 
   /** 채널 멤버가 메시지 작성. 본문 @멘션 파싱·검증 후 INSERT, AFTER_COMMIT 이벤트 발행. */
   @Transactional
@@ -241,13 +248,13 @@ public class MessageService {
     publisher.publishEvent(new MessageReadEvent(channelId, callerId, uptoMessageId));
   }
 
-  /** 채널 멤버만 히스토리 조회. 리액션 집계 batch enrich 포함. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  /** 채널 멤버만 히스토리 조회. 리액션 집계 + 제안 batch enrich 포함. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
   @Transactional(readOnly = true)
   public MessagePage list(long callerId, long channelId, String cursor, int limit) {
     ensureMember(channelId, callerId);
     MessagePage page =
         messageRepo.findPage(channelId, cursor, limit, mentionHydrator::asMentionResponses);
-    return enrichThreadUnread(enrichReactions(page, callerId), callerId);
+    return enrichProposals(enrichThreadUnread(enrichReactions(page, callerId), callerId));
   }
 
   /** 채널 멤버만 특정 부모 메시지의 답글 조회. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
@@ -261,7 +268,7 @@ public class MessageService {
     MessagePage page =
         messageRepo.findThreadPage(
             parentMessageId, cursor, limit, mentionHydrator::asMentionResponses);
-    return enrichReactions(page, callerId);
+    return enrichProposals(enrichReactions(page, callerId));
   }
 
   /** 페이지 내 top-level 메시지에 스레드 미읽음 수/팔로우 여부를 batch hydrate. */
@@ -301,6 +308,54 @@ public class MessageService {
                         .withDriveLinks(dmap.getOrDefault(m.id(), java.util.List.of())))
             .toList();
     return new MessagePage(enriched, page.nextCursor(), page.hasMore());
+  }
+
+  /** 제안(L3 위임) batch enrich — 메시지 id 들로 proposal 을 한 번에 조회해 매핑(N+1 회피). 제안이 없는 메시지는 그대로 반환. */
+  private MessagePage enrichProposals(MessagePage page) {
+    if (page.items().isEmpty()) return page;
+    java.util.List<Long> ids = page.items().stream().map(MessageResponse::id).toList();
+    var byMessageId =
+        proposalRepo.findByMessageIds(ids).stream()
+            .collect(
+                java.util.stream.Collectors.toMap(
+                    MessageActionProposalRepository.ProposalRow::messageId,
+                    this::toProposalResponse));
+    java.util.List<MessageResponse> enriched =
+        page.items().stream()
+            .map(m -> byMessageId.containsKey(m.id()) ? m.withProposal(byMessageId.get(m.id())) : m)
+            .toList();
+    return new MessagePage(enriched, page.nextCursor(), page.hasMore());
+  }
+
+  /** payload(JSON)에서 title/priority/projectName 추출해 MessageProposalResponse 로 변환. 누락 필드는 null. */
+  private MessageProposalResponse toProposalResponse(
+      MessageActionProposalRepository.ProposalRow r) {
+    JsonNode p;
+    try {
+      p = objectMapper.readTree(r.payloadJson());
+    } catch (Exception e) {
+      p = objectMapper.createObjectNode();
+    }
+    return new MessageProposalResponse(
+        r.id(),
+        r.proposedByUserId(),
+        r.actionType(),
+        r.status(),
+        p.path("title").asText(null),
+        p.path("priority").asText(null),
+        p.path("projectName").asText(null),
+        r.resultIssueKey());
+  }
+
+  /**
+   * L3 위임 제안용 단건 조회 — findOne 에 proposal enrich 를 추가로 통과시켜 반환. MessagingProposalService 에서 INSERT
+   * proposal 직후 호출하므로 proposal 이 포함된 응답을 보장. 패키지-가시(package-private): 동일 패키지인
+   * MessagingProposalService 에서만 사용.
+   */
+  MessageResponse findOneForProposal(long messageId, long callerId) {
+    MessageResponse m = findOne(messageId, callerId);
+    // enrichProposals 는 MessagePage 를 받으므로 단건 래핑 후 첫 번째 아이템 반환.
+    return enrichProposals(new MessagePage(java.util.List.of(m), null, false)).items().get(0);
   }
 
   private MessageResponse findOne(long messageId, long callerId) {

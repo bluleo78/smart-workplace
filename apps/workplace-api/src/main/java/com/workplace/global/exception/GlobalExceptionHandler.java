@@ -181,6 +181,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  /** L3 위임 제안 승인/거부를 위임자가 아닌 사용자가 시도 → 403. */
+  @ExceptionHandler(com.workplace.messaging.exception.ProposalNotDelegatorException.class)
+  public ResponseEntity<ErrorResponse> handleProposalNotDelegator(
+      com.workplace.messaging.exception.ProposalNotDelegatorException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   /**
    * DB 무결성 위반 예외 처리.
    *

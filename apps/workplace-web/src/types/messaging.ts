@@ -56,6 +56,18 @@ export interface MessageAttachment {
   attachedAt: string;
 }
 
+/** L3 위임 확인 제안. AI 가 이슈 생성을 제안할 때 메시지에 첨부되는 객체. */
+export interface MessageProposal {
+  id: number;
+  proposedByUserId: number; // 위임 요청자(이 userId 만 승인/거부 가능)
+  actionType: string; // 현재 'CREATE_ISSUE'
+  status: 'PENDING' | 'CONFIRMED' | 'REJECTED';
+  title: string | null; // 생성할 이슈 제목
+  priority: string | null; // 우선순위(선택)
+  projectName: string | null; // 대상 프로젝트명(선택)
+  resultIssueKey: string | null; // 승인 후 생성된 이슈 키(CONFIRMED 일 때만 채워짐)
+}
+
 export interface MessageResponse {
   id: number;
   channelId: number;
@@ -74,6 +86,7 @@ export interface MessageResponse {
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
+  proposal?: MessageProposal | null; // L3 위임 제안(제안 없는 메시지엔 null/undefined)
 }
 
 export interface MessagePage {

@@ -56,6 +56,7 @@ function client(token: string | Error): WorkplaceApiClient {
     moveFile: vi.fn().mockResolvedValue(undefined),
     listChannels: vi.fn().mockResolvedValue([]),
     discoverChannels: vi.fn().mockResolvedValue([]),
+    proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
   };
 }
 

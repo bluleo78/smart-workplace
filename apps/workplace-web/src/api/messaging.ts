@@ -167,6 +167,14 @@ export const messagingApi = {
   ensureChannelDriveSpace: (channelId: number) =>
     client.post<ChannelDriveSpaceResponse>(`/messaging/channels/${channelId}/drive-space`),
 
+  // L3 위임 제안 승인 — 이슈 생성 + AI 담당 할당. 갱신된 카드 메시지 반환.
+  confirmProposal: (proposalId: number) =>
+    client.post<MessageResponse>(`/messaging/proposals/${proposalId}/confirm`).then((r) => r.data),
+
+  // L3 위임 제안 거부. 갱신된 카드 메시지 반환.
+  rejectProposal: (proposalId: number) =>
+    client.post<MessageResponse>(`/messaging/proposals/${proposalId}/reject`).then((r) => r.data),
+
   // 인라인 이미지 썸네일용 blob fetch — objectURL 은 호출처(훅)에서 생성/revoke.
   fetchAttachmentBlob: (channelId: number, messageId: number, fileId: number) =>
     client

@@ -290,6 +290,14 @@ const showDriveInput = z.object({
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
 export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
 
+// L3 위임: 이슈 생성 제안 도구 입력 스키마.
+// channelId·위임자·parent 는 코드가 env 에서 스탬프 — AI 입력에서 제외(가스라이팅 방지).
+const proposeCreateIssueInput = z.object({
+  title: z.string().min(1).max(200),
+  body: z.string().max(10000).optional(),
+  priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
+});
+
 // profile 기본값 'issue' — 이슈 핸들러는 기존 4 도구, chat 핸들러는 읽기+chat 쓰기 도구만.
 export function buildTools(
   client: WorkplaceApiClient,
@@ -298,6 +306,8 @@ export function buildTools(
   // 스레드 mirror: 트리거가 스레드 안일 때 {channelId, parentMessageId}. 이 채널에 add_channel_message 하면
   // 그 스레드에 답이 들어간다(인라인 멘션이면 undefined — 현행 인라인 동작).
   threadBinding?: { channelId: number; parentMessageId: number },
+  // L3 위임: 트리거 actor(위임자)+채널+(스레드)parent. 있으면 propose_create_issue 노출.
+  delegationContext?: { actorId: number; channelId: number; parentMessageId?: number },
 ): McpTool[] {
   const getIssueDetailTool: McpTool = {
     name: 'get_issue_detail',
@@ -434,7 +444,37 @@ export function buildTools(
   };
 
   if (profile === 'messaging') {
-    return [getChannelMessagesTool, addChannelMessageTool, listChannelsTool, discoverChannelsTool];
+    const tools: McpTool[] = [getChannelMessagesTool, addChannelMessageTool, listChannelsTool, discoverChannelsTool];
+    // L3 위임: 위임 컨텍스트가 있을 때만 노출. channelId·위임자·parent 는 코드가 스탬프(AI 입력 아님).
+    if (delegationContext) {
+      const dc = delegationContext;
+      let proposed = false;
+      tools.push({
+        name: 'propose_create_issue',
+        description:
+          '사용자가 무언가를 이슈로 만들어 당신에게 맡기려 할 때(위임) 호출합니다. 이슈 생성 "제안 카드"를 그 자리에 올립니다(실제 생성은 위임자의 승인 후). title·body·priority 만 정하세요 — 프로젝트·담당·위치는 시스템이 정합니다. 호출 시 add_channel_message 는 호출하지 마세요(제안 카드가 곧 응답).',
+        inputSchema: proposeCreateIssueInput,
+        async handler(args) {
+          // guard: 이미 성공적으로 제안을 등록한 경우 재호출 차단.
+          if (proposed) return '이미 이 요청에 대한 제안을 등록했습니다.';
+          const { title, body, priority } = proposeCreateIssueInput.parse(args);
+          try {
+            await client.proposeCreateIssue(agentId, dc.channelId, {
+              title, body, priority,
+              proposedByUserId: dc.actorId,
+              parentMessageId: dc.parentMessageId,
+            });
+          } catch (e) {
+            // 실패 시 guard 를 세우지 않아 재시도 가능. 채팅에 읽을 수 있는 오류 반환.
+            return `이슈 제안 등록에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`;
+          }
+          // await 성공 후에만 guard 설정 — 실패 시 재시도 허용.
+          proposed = true;
+          return '제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.';
+        },
+      });
+    }
+    return tools;
   }
 
   // 7b: home 표시 지시 도구(데이터 조회 X). home/assistant 프로파일이 공유한다.

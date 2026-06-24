@@ -282,7 +282,8 @@ public class MessageRepository {
         edited == null ? null : edited.toInstant(),
         deleted,
         0, // unreadReplyCount — service 가 enrich
-        false); // followed — service 가 enrich
+        false, // followed — service 가 enrich
+        null); // proposal — service 가 batch enrich
   }
 
   @SneakyThrows
@@ -308,35 +309,35 @@ public class MessageRepository {
       long channelId, long uptoExclusiveReadId, int limit) {
     return dsl.select(MESSAGE.ID, MESSAGE.AUTHOR_ID, USER.NAME, MESSAGE.BODY, MESSAGE.MENTIONS)
         .from(MESSAGE)
-        .join(USER).on(USER.ID.eq(MESSAGE.AUTHOR_ID))
+        .join(USER)
+        .on(USER.ID.eq(MESSAGE.AUTHOR_ID))
         .where(MESSAGE.CHANNEL_ID.eq(channelId))
         .and(MESSAGE.DELETED_AT.isNull())
-        .and(MESSAGE.PARENT_MESSAGE_ID.isNull())   // 스레드 답글 제외 — 채널 본문만 분류
+        .and(MESSAGE.PARENT_MESSAGE_ID.isNull()) // 스레드 답글 제외 — 채널 본문만 분류
         .and(MESSAGE.ID.gt(uptoExclusiveReadId))
         .orderBy(MESSAGE.ID.asc())
         .limit(limit)
-        .fetch(r -> new RecentUnread(r.value1(), r.value2(), r.value3(), r.value4(),
-            fromJson(r.value5())));
+        .fetch(
+            r ->
+                new RecentUnread(
+                    r.value1(), r.value2(), r.value3(), r.value4(), fromJson(r.value5())));
   }
 
   /** watermark 게이트용 — 채널의 미삭제 최신 채널 본문 메시지 id. 메시지 없으면 0. */
   public long maxMessageId(long channelId) {
-    Long v = dsl.select(DSL.max(MESSAGE.ID))
-        .from(MESSAGE)
-        .where(MESSAGE.CHANNEL_ID.eq(channelId))
-        .and(MESSAGE.DELETED_AT.isNull())
-        .and(MESSAGE.PARENT_MESSAGE_ID.isNull())
-        .fetchOne(0, Long.class);
+    Long v =
+        dsl.select(DSL.max(MESSAGE.ID))
+            .from(MESSAGE)
+            .where(MESSAGE.CHANNEL_ID.eq(channelId))
+            .and(MESSAGE.DELETED_AT.isNull())
+            .and(MESSAGE.PARENT_MESSAGE_ID.isNull())
+            .fetchOne(0, Long.class);
     return v == null ? 0L : v;
   }
 
   /** 분류 입력 배치용 메시지 경량 레코드. */
   public record RecentUnread(
-      long id,
-      long authorId,
-      String authorName,
-      String body,
-      List<Long> mentions) {}
+      long id, long authorId, String authorName, String body, List<Long> mentions) {}
 
   /** mentionUserIds → MentionResponse[] 변환 책임. */
   public interface MentionResolver {

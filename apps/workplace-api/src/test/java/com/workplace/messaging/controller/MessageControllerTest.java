@@ -76,7 +76,8 @@ class MessageControllerTest {
         null,
         false,
         0,
-        false);
+        false,
+        null);
   }
 
   @Test

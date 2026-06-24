@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, unlinkSync } from 'node:fs';
 
 import {
   writeTempMcpConfig,
@@ -85,5 +85,28 @@ describe('writeTempMcpConfig 트리거 바인딩 env', () => {
     const env = readEnv(base);
     expect(env.WORKPLACE_TRIGGER_CHANNEL_ID).toBeUndefined();
     expect(env.WORKPLACE_TRIGGER_THREAD_PARENT_ID).toBeUndefined();
+  });
+
+  // L3 위임: triggerActorId/triggerChannelId 독립 주입 검증.
+  it('triggerActorId/triggerChannelId 를 주면 위임 env 를 주입한다', () => {
+    const p = writeTempMcpConfig({
+      agentId: 2, baseURL: 'http://x', internalToken: 't', profile: 'messaging',
+      triggerActorId: 7, triggerChannelId: 9,
+    });
+    const env = JSON.parse(readFileSync(p, 'utf8')).mcpServers.workplace.env;
+    expect(env.WORKPLACE_TRIGGER_ACTOR_ID).toBe('7');
+    expect(env.WORKPLACE_TRIGGER_CHANNEL_ID).toBe('9');
+    expect(env.WORKPLACE_TRIGGER_THREAD_PARENT_ID).toBeUndefined();
+    unlinkSync(p);
+  });
+
+  it('thread parent 가 있으면 thread mirror env 도 함께 주입', () => {
+    const p = writeTempMcpConfig({
+      agentId: 2, baseURL: 'http://x', internalToken: 't', profile: 'messaging',
+      triggerActorId: 7, triggerChannelId: 9, triggerThreadParentId: 100,
+    });
+    const env = JSON.parse(readFileSync(p, 'utf8')).mcpServers.workplace.env;
+    expect(env.WORKPLACE_TRIGGER_THREAD_PARENT_ID).toBe('100');
+    unlinkSync(p);
   });
 });

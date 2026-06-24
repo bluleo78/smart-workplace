@@ -48,7 +48,17 @@ async function main(): Promise<void> {
     Number.isFinite(triggerChannelId) && Number.isFinite(triggerThreadParentId)
       ? { channelId: triggerChannelId, parentMessageId: triggerThreadParentId }
       : undefined;
-  const tools = buildTools(client, onBehalfOfId, profile, threadBinding);
+  // 위임(L3): 트리거 actor(위임자)+channelId 가 유효하면 propose_create_issue 가 쓸 컨텍스트 구성.
+  const triggerActorId = Number(process.env.WORKPLACE_TRIGGER_ACTOR_ID);
+  const delegationContext =
+    Number.isFinite(triggerActorId) && Number.isFinite(triggerChannelId)
+      ? {
+          actorId: triggerActorId,
+          channelId: triggerChannelId,
+          parentMessageId: Number.isFinite(triggerThreadParentId) ? triggerThreadParentId : undefined,
+        }
+      : undefined;
+  const tools = buildTools(client, onBehalfOfId, profile, threadBinding, delegationContext);
 
   const server = new Server(
     { name: 'workplace', version: '0.0.1' },

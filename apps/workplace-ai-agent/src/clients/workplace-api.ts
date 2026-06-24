@@ -263,6 +263,12 @@ export interface WorkplaceApiClient {
   renameFolder(agentId: number, folderId: number, name: string): Promise<DriveFolderItem>;
   moveFolder(agentId: number, folderId: number, targetParentId: number | null): Promise<void>;
   moveFile(agentId: number, fileId: number, targetFolderId: number | null): Promise<void>;
+  // L3 위임: AI 제안 카드 생성(on-behalf AGENT). proposedByUserId=위임자, parentMessageId=스레드 미러.
+  proposeCreateIssue(
+    agentId: number,
+    channelId: number,
+    req: { title: string; body?: string; priority?: string; proposedByUserId: number; parentMessageId?: number },
+  ): Promise<void>;
   // 6c: 이슈 첨부
   listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
   downloadIssueAttachment(
@@ -459,6 +465,15 @@ export function createWorkplaceApiClient(opts: {
         `/messaging/channels/${channelId}/messages`,
         // parentMessageId 가 있으면 그 스레드에 답(mirror). 없으면 채널 인라인.
         parentMessageId != null ? { body, parentMessageId } : { body },
+        onBehalfOf(agentId),
+      );
+    },
+
+    // L3 위임: 이슈 생성 제안 카드. actionType='CREATE_ISSUE' + 위임 컨텍스트를 담아 proposals API 호출.
+    async proposeCreateIssue(agentId, channelId, req) {
+      await http.post(
+        `/messaging/channels/${channelId}/proposals`,
+        { actionType: 'CREATE_ISSUE', ...req },
         onBehalfOf(agentId),
       );
     },
