@@ -1,5 +1,6 @@
-import { Sparkles, X } from 'lucide-react'
+import { CircleCheck, MessagesSquare, Pin, Sparkles, X } from 'lucide-react'
 
+import { Button } from '@/components/ui/button'
 import type { ChannelCatchupResponse } from '@/types/messaging'
 
 // 내차례 표시 상한 — 1:1 DM 등에서 폭주 방지. 초과분은 "+N건 더"로 고지.
@@ -24,14 +25,16 @@ export function ChannelCatchupCard({
   onJumpToMessage,
 }: Props) {
   return (
+    // 캐치업 카드 — AI 생성 요약임을 ai-accent 테두리/배경으로 표시. indigo 하드코딩 제거.
     <div
       data-testid="catchup-card"
-      className="mx-4 my-2 overflow-hidden rounded-xl border border-indigo-100 bg-gradient-to-b from-indigo-50/40 to-background"
+      className="mx-4 my-2 overflow-hidden rounded-xl border border-ai-accent/20 bg-ai-accent-subtle/30"
     >
-      <div className="flex items-center justify-between border-b border-indigo-100/70 px-3.5 py-2.5">
+      {/* 헤더: AiLabel(✨+텍스트) + 안읽은 카운트 + 닫기 버튼 */}
+      <div className="flex items-center justify-between border-b border-ai-accent/20 px-3.5 py-2.5">
         <div className="flex items-center gap-1.5">
-          <Sparkles className="h-4 w-4 text-indigo-500" />
-          <span className="text-[13px] font-bold text-indigo-800">놓친 대화 요약</span>
+          <Sparkles className="h-4 w-4 text-ai-accent" />
+          <span className="text-[13px] font-bold text-ai-accent">놓친 대화 요약</span>
           {data && (
             <span className="text-[11px] text-muted-foreground">· 안 읽은 {data.unreadCount}건</span>
           )}
@@ -64,7 +67,11 @@ export function ChannelCatchupCard({
         <div className="flex flex-col gap-3 p-3.5">
           {data.decisions.length > 0 && (
             <section>
-              <div className="mb-1.5 text-[11px] font-bold text-green-600">✅ 결정된 것</div>
+              {/* ✅ → lucide CircleCheck(ai-accent) */}
+              <div className="mb-1.5 flex items-center gap-1 text-[11px] font-bold text-foreground">
+                <CircleCheck className="h-3.5 w-3.5 text-ai-accent" />
+                결정된 것
+              </div>
               <ul className="flex flex-col gap-1.5">
                 {data.decisions.map((g, i) => (
                   <li key={`d${i}`} className="text-[13px] leading-relaxed text-foreground">
@@ -73,7 +80,7 @@ export function ChannelCatchupCard({
                       <button
                         type="button"
                         onClick={() => onJumpToMessage(g.sourceMessageIds[0])}
-                        className="ml-1 text-[11px] text-indigo-500 hover:underline"
+                        className="ml-1 text-[11px] text-ai-accent hover:underline"
                       >
                         · 원문 {g.sourceMessageIds.length}건
                       </button>
@@ -86,7 +93,11 @@ export function ChannelCatchupCard({
 
           {data.yourTurn.length > 0 && (
             <section className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-              <div className="mb-1.5 text-[11px] font-bold text-amber-700">📌 내 차례</div>
+              {/* 📌 → lucide Pin(ai-accent) */}
+              <div className="mb-1.5 flex items-center gap-1 text-[11px] font-bold text-amber-700">
+                <Pin className="h-3.5 w-3.5 text-ai-accent" />
+                내 차례
+              </div>
               <ul className="flex flex-col gap-1.5">
                 {data.yourTurn.slice(0, YOUR_TURN_MAX).map((m) => (
                   <li key={m.messageId} className="text-[13px] leading-relaxed text-foreground">
@@ -94,7 +105,7 @@ export function ChannelCatchupCard({
                     <button
                       type="button"
                       onClick={() => onJumpToMessage(m.messageId)}
-                      className="ml-1 text-[11px] text-indigo-500 hover:underline"
+                      className="ml-1 text-[11px] text-ai-accent hover:underline"
                     >
                       · 원문 보기
                     </button>
@@ -114,7 +125,11 @@ export function ChannelCatchupCard({
 
           {data.discussion.length > 0 && (
             <section>
-              <div className="mb-1.5 text-[11px] font-bold text-muted-foreground">💬 오간 이야기</div>
+              {/* 💬 → lucide MessagesSquare(ai-accent) */}
+              <div className="mb-1.5 flex items-center gap-1 text-[11px] font-bold text-muted-foreground">
+                <MessagesSquare className="h-3.5 w-3.5 text-ai-accent" />
+                오간 이야기
+              </div>
               <ul className="flex flex-col gap-1.5">
                 {data.discussion.map((g, i) => (
                   <li key={`t${i}`} className="text-[13px] leading-relaxed text-muted-foreground">
@@ -123,7 +138,7 @@ export function ChannelCatchupCard({
                       <button
                         type="button"
                         onClick={() => onJumpToMessage(g.sourceMessageIds[0])}
-                        className="ml-1 text-[11px] text-indigo-500 hover:underline"
+                        className="ml-1 text-[11px] text-ai-accent hover:underline"
                       >
                         · 원문 {g.sourceMessageIds.length}건
                       </button>
@@ -142,17 +157,17 @@ export function ChannelCatchupCard({
         </div>
       )}
 
+      {/* 푸터: AI 요약 근거 표기 + 확인 버튼(shadcn Button, 토큰 사용) */}
       {data && !isLoading && !isError && (
-        <div className="flex items-center justify-between border-t border-indigo-100/70 bg-background/60 px-3.5 py-2.5">
+        <div className="flex items-center justify-between border-t border-ai-accent/20 bg-background/60 px-3.5 py-2.5">
           <span className="text-[11px] text-muted-foreground">AI 요약 · 근거 {data.unreadCount}건 기준</span>
-          <button
-            type="button"
+          <Button
+            size="sm"
             onClick={onConfirm}
             data-testid="catchup-confirm"
-            className="rounded-md bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700"
           >
             확인했어요 → 최신으로 ↓
-          </button>
+          </Button>
         </div>
       )}
     </div>

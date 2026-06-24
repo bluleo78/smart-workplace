@@ -5,8 +5,10 @@
 // - CONFIRMED: 생성된 이슈 키 표시.
 // - REJECTED: 거부됨 표시.
 
+import { Bot, CircleCheck } from 'lucide-react'
 import { useState } from 'react'
 
+import { AiContent } from '@/components/ai/AiContent'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -55,13 +57,13 @@ export function ProposalCard({
       data-testid={`proposal-card-${proposal.id}`}
       className="rounded-md border bg-card p-3 text-sm"
     >
-      {/* 카드 헤더 */}
-      <div className="mb-1 font-medium text-foreground">💡 AI가 이슈 생성을 제안했어요</div>
-
-      {/* 이슈 제목 */}
-      {proposal.title && (
-        <div className="text-foreground">{proposal.title}</div>
-      )}
+      {/* 카드 헤더 + 이슈 제목: AI 제안 생성물 — AiContent 아우라로 감쌈. 💡 장식 이모지 제거. */}
+      <AiContent label="AI 제안">
+        <div className="font-medium text-foreground">AI가 이슈 생성을 제안했어요</div>
+        {proposal.title && (
+          <div className="mt-1 text-foreground">{proposal.title}</div>
+        )}
+      </AiContent>
 
       {/* 메타 정보(프로젝트·우선순위·담당 AI 배지) */}
       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -90,7 +92,10 @@ export function ProposalCard({
           proposal.projectName && <span>프로젝트: {proposal.projectName}</span>
         )}
         {proposal.priority && <span>우선순위: {proposal.priority}</span>}
-        <span className="rounded bg-primary/15 px-1 font-medium text-primary">담당: AI 🤖</span>
+        {/* 담당: AI 배지 — primary 토큰에서 ai-accent 시맨틱 토큰으로 통일, 🤖 → Bot 아이콘. */}
+        <span className="inline-flex items-center gap-0.5 rounded bg-ai-accent-subtle px-1 font-medium text-ai-accent">
+          담당: AI <Bot className="h-3 w-3" aria-label="에이전트" />
+        </span>
       </div>
 
       {/* PENDING + 위임자: 승인/거부 버튼 */}
@@ -129,10 +134,12 @@ export function ProposalCard({
       {/* CONFIRMED: 생성된 이슈 키 */}
       {proposal.status === 'CONFIRMED' && (
         <div
-          className="mt-2 text-xs text-muted-foreground"
+          className="mt-2 flex items-center gap-1 text-xs text-muted-foreground"
           data-testid={`proposal-confirmed-${proposal.id}`}
         >
-          ✅ 생성됨 {proposal.resultIssueKey}
+          {/* 장식 이모지(✅) 대신 lucide CircleCheck 사용(디자인 시스템 아이콘 단일 소스) */}
+          <CircleCheck className="h-3.5 w-3.5 text-ai-accent" />
+          생성됨 {proposal.resultIssueKey}
         </div>
       )}
 

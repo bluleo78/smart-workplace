@@ -8,6 +8,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageCircle, Messag
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { AiContent } from '@/components/ai/AiContent'
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -56,7 +57,7 @@ interface AttentionRow {
 
 // 카운트 셀 — 로딩 시 셀만 스켈레톤(격리), 에러 시 '–'.
 // to 가 있으면 모듈 딥링크(Link), onClick 이 있으면 액션 버튼(예: '멘션' → 알림 패널 열기).
-// ai=true 이면 AI 분류 활성 신호(🤖 배지 + text-ai-accent 강조).
+// ai=true 이면 AI 분류 활성 신호(Sparkles 배지 + text-ai-accent 강조).
 // testId: data-testid 속성 전달(E2E 셀 단위 검증용).
 function CountCell({
   label,
@@ -87,8 +88,8 @@ function CountCell({
       ) : (
         <span className="flex items-center gap-0.5 text-xl font-semibold text-ai-accent">
           {error ? '–' : count}
-          {/* AI 분류 활성 시 🤖 배지로 AI 신호 표시(Phase 1 focus card 와 동일 토큰). */}
-          {ai && !error && <span className="text-xs leading-none">🤖</span>}
+          {/* AI 분류 활성 시 Sparkles 아이콘으로 AI 신호 표시 — 이모지 대신 lucide 아이콘(ai-accent 토큰). */}
+          {ai && !error && <Sparkles className="inline h-3 w-3 text-ai-accent" />}
         </span>
       )}
       <span className="text-xs text-muted-foreground">{label}</span>
@@ -267,7 +268,7 @@ export function SynthesisLayer() {
   const top = rows.slice(0, 5)
 
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리).
-  // ai=true 이면 CountCell 이 🤖 배지를 표시(AI 분류 활성 신호).
+  // ai=true 이면 CountCell 이 Sparkles 배지를 표시(AI 분류 활성 신호).
   // testId: E2E 셀 단위 testid(선택적).
   const cells: {
     label: string
@@ -281,7 +282,7 @@ export function SynthesisLayer() {
     { label: '오늘 마감', count: dueTodayCount, to: '/me/tasks/assigned?dueDate=today', q: dues },
     // 멘션: 전용 페이지가 없어 라우팅 대신 알림 인박스 패널을 연다(#273).
     { label: '멘션', count: mentionCount, onClick: () => openInbox(), q: notifs },
-    // 메일 KPI 스왑: 분류 활성 시 "회신 필요 N"(🤖), 비활성 시 "안 읽음 N".
+    // 메일 KPI 스왑: 분류 활성 시 "회신 필요 N"(Sparkles), 비활성 시 "안 읽음 N".
     classifyOn
       ? { label: '회신 필요', count: needsReply, to: '/mail', q: mail, ai: true }
       : { label: '안 읽음', count: unreadMail, to: '/mail', q: mail },
@@ -291,7 +292,8 @@ export function SynthesisLayer() {
   ]
 
   return (
-    <Card className="border-l-2 border-l-ai-accent" data-testid="dashboard-synthesis">
+    // 합성 레이어 카드 — 규칙 기반 집계이므로 외부 카드는 표준 Card. AI 발굴 행은 포커스 카드 내 AiContent 로 마킹.
+    <Card data-testid="dashboard-synthesis">
       <CardContent className="space-y-4 pt-4">
         {/* 상태 카운트 스트립 — 5셀(이슈·멘션·메일·일정·메시징), 각 셀 모듈 딥링크. */}
         <div className="grid grid-cols-5 gap-4" data-testid="dashboard-counts">
@@ -329,11 +331,11 @@ export function SynthesisLayer() {
             </div>
           ) : (
             <div className="space-y-2">
-              {/* 포커스 카드 — 최상위 1건을 강조(ai-accent 보더 + subtle 배경). 규칙 기반 이유 표시(AI 내레이션은 후속 Phase). */}
+              {/* 포커스 카드 — 최상위 1건 강조. AI 발굴(isAi)이면 AiContent 아우라로 마킹, 아니면 표준 ai-accent 보더. */}
               {(() => {
                 const f = top[0]
                 const FIcon = SOURCE_ICON[f.source]
-                return (
+                const linkEl = (
                   <Link
                     to={f.to}
                     aria-label={f.ariaLabel}
@@ -348,6 +350,12 @@ export function SynthesisLayer() {
                     <span className="ml-auto shrink-0 text-xs font-medium text-ai-accent">{f.meta}</span>
                   </Link>
                 )
+                // AI 발굴 신호가 있을 때만 AiContent 아우라 추가(aiReason 이 있는 대화 행).
+                return f.isAi ? (
+                  <AiContent label="AI 발굴" data-testid="dashboard-synthesis-ai-focus">
+                    {linkEl}
+                  </AiContent>
+                ) : linkEl
               })()}
               {/* 나머지 항목 — 차분한 리스트. */}
               {top.length > 1 && (
@@ -378,10 +386,11 @@ export function SynthesisLayer() {
           )}
         </div>
         {/* AI 메일 분류 CTA — 분류 OFF + dismiss 안 했을 때만 표시. localStorage 로 dismiss 영속. */}
+        {/* CTA 테두리 가시성 상향 — border-ai-accent/40 → /70 으로 대비 강화. */}
         {!classifyOn && !ctaDismissed && (
           <div
             data-testid="dashboard-mail-cta"
-            className="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-ai-accent/40 bg-ai-accent-subtle/40 px-3 py-2 text-xs text-muted-foreground"
+            className="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-ai-accent/70 bg-ai-accent-subtle/40 px-3 py-2 text-xs text-muted-foreground"
           >
             <Sparkles className="h-3.5 w-3.5 shrink-0 text-ai-accent" />
             <span>AI로 회신이 필요한 메일을 가려낼 수 있어요</span>

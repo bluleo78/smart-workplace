@@ -2,9 +2,10 @@
 // MailComposeProvider 의 draft 가 있으면 렌더, 없으면 null.
 
 import axios from 'axios';
-import { Minus, Send, X } from 'lucide-react';
+import { Minus, Send, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+import { AiContent } from '@/components/ai/AiContent';
 import { cn } from '@/lib/utils';
 
 import { useCoachDraft, useSendMail } from '../../hooks/queries/useMailMessages';
@@ -188,7 +189,11 @@ export function MailComposeDock() {
                 runCoaching();
               }}
             >
-              ✦ AI 검토
+              {/* 장식 기호 → lucide 아이콘으로 교체 */}
+              <span className="inline-flex items-center justify-center gap-1">
+                <Sparkles className="h-3 w-3" />
+                AI 검토
+              </span>
             </button>
           </div>
 
@@ -206,9 +211,10 @@ export function MailComposeDock() {
             />
           </div>
 
-          {/* 코칭 패널(검토 탭) */}
+          {/* 코칭 패널(검토 탭) — AI 생성물이므로 AiContent 아우라로 감쌈 */}
           {tab === 'review' && (
-            <div className="flex flex-col gap-2 p-3 text-sm" data-testid="mail-coaching-panel">
+            <AiContent label="AI 검토" data-testid="mail-coaching-panel">
+            <div className="flex flex-col gap-2 text-sm">
               {coach.isPending && (
                 <p className="text-muted-foreground" data-testid="mail-coaching-loading">
                   AI가 초안을 검토하는 중…
@@ -284,6 +290,7 @@ export function MailComposeDock() {
                 </>
               )}
             </div>
+            </AiContent>
           )}
 
           {/* 액션 */}

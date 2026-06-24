@@ -72,12 +72,12 @@ test('체크리스트는 작업 행과 AI 위임 배지를 렌더한다', async 
 
   await expect(page.getByTestId('personal-task-row-1')).toContainText('블로그 초안');
   await expect(page.getByTestId('personal-task-row-2')).toContainText('운동 계획');
-  // AGENT 담당 + 진행중 → "처리중" 아바타(텍스트 없음, title 로 상태). 비위임 행엔 배지 없음.
-  await expect(page.getByTestId('ai-delegation-badge-1')).toHaveAttribute('title', /처리중/);
+  // AGENT 담당 + 진행중 → AiSignalBadge "AI 처리중"(✨+텍스트). 비위임 행엔 배지 없음.
+  await expect(page.getByTestId('ai-delegation-badge-1')).toContainText('AI 처리중');
   await expect(page.getByTestId('ai-delegation-badge-2')).toHaveCount(0);
-  // AGENT 담당 + TODO → "위임" 아바타(아직 처리 시작 전).
-  await expect(page.getByTestId('ai-delegation-badge-3')).toHaveAttribute('title', /위임/);
-  await expect(page.getByTestId('ai-delegation-badge-3')).not.toHaveAttribute('title', /처리중/);
+  // AGENT 담당 + TODO → AiSignalBadge "AI 위임"(아직 처리 시작 전).
+  await expect(page.getByTestId('ai-delegation-badge-3')).toContainText('AI 위임');
+  await expect(page.getByTestId('ai-delegation-badge-3')).not.toContainText('처리중');
 });
 
 test('보드 뷰는 팀 리치카드를 상태 3컬럼으로 배치한다(CANCELED 컬럼 부재)', async ({ authenticatedPage: page }) => {

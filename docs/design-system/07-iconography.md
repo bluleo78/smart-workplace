@@ -220,7 +220,64 @@ Button(`button.tsx`)은 `[&_svg:not([class*='size-'])]:size-4` 로 내부 `<svg>
 
 > 실측 근거: `sonner.tsx`(`CircleCheck`/`Info`/`TriangleAlert`/`OctagonX`/`Loader2`), `table-empty.tsx`(`SearchX`), `simple-pagination.tsx`(`Chevron*`), `search-input.tsx`(`Search`/`X`), `password-input.tsx`(`Eye`/`EyeOff`), `searchable-select.tsx`(`Check`/`ChevronsUpDown`), `PageErrorBoundary.tsx`(`AlertTriangle`/`RefreshCw`).
 
-### 7.2 금지 패턴
+### 7.2 AI 마커 어휘
+
+AI 생성물과 AI 신호를 UI에 표현할 때는 아래 어휘 표와 원칙을 따른다. 모든 프리미티브는 `@/components/ai` 디렉터리의 파일별 경로로 임포트한다(배럴 index 없음 — 프로젝트 컨벤션).
+
+#### 원칙
+
+- **아이콘 1차**: AI의 1차 식별자는 `Sparkles`(생성물·인라인) 또는 `Bot`(에이전트 주체) 아이콘이다.
+- **색은 보조**: `ai-accent` 시맨틱 토큰(`text-ai-accent`, `bg-ai-accent`, `bg-ai-accent-subtle`)은 아이콘을 보조하는 역할로만 쓴다. 색 단독으로 AI 여부를 표현하지 않는다.
+- **비-AI 신호 미부착**: AI와 무관한 상태·알림·액션에는 AI 아이콘(`Sparkles`/`Bot`)을 붙이지 않는다.
+
+#### 마커 어휘 표
+
+| 용도 | 컴포넌트 | 특성 | 예시 |
+|------|---------|------|------|
+| ② AI 생성물 컨테이너 | `AiContent` | 아우라(border + 배경) 래퍼. `label` prop으로 보조 텍스트 표시. | 메일 요약 카드, 코칭 결과, 캐치업 인라인 카드 |
+| ③ AI 신호 — 강조 | `AiSignalBadge variant="action"` | 솔리드 `ai-accent` 배경 뱃지. 사용자 행동을 유도하는 신호. | "회신 필요" 뱃지, "내 차례" 뱃지 |
+| ③ AI 신호 — 정보 | `AiSignalBadge variant="info"` | 연한 `ai-accent-subtle` 배경 뱃지. 정보 전달 신호. | "AI 분류됨" 뱃지, 사이드바 AI 표식 |
+| 인라인 텍스트 레이블 | `AiLabel` | `Sparkles` 아이콘 + 텍스트 인라인 조합. | "AI 요약", "AI 초안" 레이블 |
+
+```tsx
+// 파일별 경로로 임포트(배럴 index 없음)
+import { AiContent } from '@/components/ai/AiContent';
+import { AiSignalBadge } from '@/components/ai/AiSignalBadge';
+import { AiLabel } from '@/components/ai/AiLabel';
+
+// ② 생성물 — AI가 생성한 콘텐츠 블록을 감싼다
+<AiContent label="AI 요약">
+  <p className="text-sm">{summary}</p>
+</AiContent>
+
+// ③ 신호 — action(강조) / info(정보)
+<AiSignalBadge variant="action">회신 필요</AiSignalBadge>
+<AiSignalBadge variant="info">AI 분류됨</AiSignalBadge>
+
+// 인라인 레이블
+<AiLabel>AI 초안</AiLabel>
+```
+
+#### 금지
+
+```tsx
+// 금지: AI 맥락 장식 이모지
+// 🤖 💡 ✨ ✅ 💬 📌 — AI 관련 UI에 이모지로 표현하지 않는다
+
+// 금지: 하드코딩 색으로 AI 표현
+<span className="text-indigo-600">AI 요약</span>   // X
+<span className="text-violet-500">AI 분류됨</span> // X
+<span className="text-primary">AI 신호</span>      // X — ai-accent 사용
+
+// 올바른 표현
+<AiSignalBadge variant="info">AI 분류됨</AiSignalBadge>  // ✓
+```
+
+#### 재사용 의무
+
+AI 표면을 신규 개발하거나 기존 UI를 수정할 때는 반드시 `@/components/ai`의 프리미티브(`AiContent`, `AiSignalBadge`, `AiLabel`)를 사용한다. 직접 className을 조합해 AI 마커를 만드는 패턴은 금지한다.
+
+### 7.3 금지 패턴
 
 ```tsx
 // 금지: 동일 개념에 다른 아이콘 혼용

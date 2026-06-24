@@ -72,7 +72,8 @@ test.describe('DM 캐치업 카드', () => {
     await page.goto(`/chat/dms/${DM_ID}`);
 
     await expect(page.getByTestId('catchup-card')).toBeVisible();
-    await expect(page.getByText('📌 내 차례')).toBeVisible();
+    // 섹션 헤더: 이모지 → lucide 아이콘으로 교체됨. 텍스트만 검증.
+    await expect(page.getByText('내 차례')).toBeVisible();
     await expect(page.getByText('점심 12시로 확정')).toBeVisible();
   });
 

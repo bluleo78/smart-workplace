@@ -15,7 +15,8 @@ test.describe('메일 AI 비서', () => {
         body: JSON.stringify([summary({ id: 7, aiCategory: '업무', aiNeedsReply: true })]) }),
     )
     await page.goto('/mail/1')
-    await expect(page.getByTestId('mail-badge-category-7')).toHaveText('업무')
+    // AiSignalBadge 는 sr-only "AI " 접두(스크린리더용)를 포함하므로 가시 텍스트는 toContainText 로 검증.
+    await expect(page.getByTestId('mail-badge-category-7')).toContainText('업무')
     await expect(page.getByTestId('mail-badge-needsreply-7')).toBeVisible()
   })
 
@@ -30,6 +31,22 @@ test.describe('메일 AI 비서', () => {
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-7').click()
     await expect(page.getByTestId('mail-ai-summary')).toContainText('자동요약')
+  })
+
+  test('메일 AI 요약은 AI 라벨이 붙은 아우라로 표시된다', async ({ authenticatedPage: page }) => {
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify([summary({ id: 7 })]) }),
+    )
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7', detail({ id: 7, bodyText: '본문' }))
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7/summary', { summary: '• AI 아우라 요약 텍스트' })
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    const summaryEl = page.getByTestId('mail-ai-summary')
+    await expect(summaryEl).toBeVisible()
+    await expect(summaryEl).toContainText('AI 요약')
+    await expect(summaryEl).toContainText('AI 아우라 요약 텍스트')
   })
 
   test('AI 답장 초안 → 작성 도크 본문 프리필', async ({ authenticatedPage: page }) => {

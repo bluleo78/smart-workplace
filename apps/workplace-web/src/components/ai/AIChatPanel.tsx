@@ -4,6 +4,7 @@
 import { ChevronDown, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
+import { AiLabel } from '@/components/ai/AiLabel';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { relTime } from '@/components/ai/relTime';
@@ -230,10 +231,16 @@ export function AIChatPanel({
                     </div>
                   ) : (
                     // #356: AI 응답은 마크다운 렌더(## ** 표 등 원시 기호 노출 방지).
-                    <div className="max-w-[80%] rounded-2xl bg-muted px-3 py-1.5 text-foreground">
-                      {/* 도구 호출 단계 인라인 표시 — 본문 위에 렌더. 표시 가능 step 이 있을 때만. */}
-                      {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
-                      <MarkdownMessage>{t.content}</MarkdownMessage>
+                    // AI 답변 블록 — AiLabel(✨ AI)로 AI 생성임을 명시(패널 자체가 AI 맥락이라 아우라 컨테이너는 생략).
+                    // 폭 제약(max-w-[80%])·min-w-0 은 래퍼가 담당 — flex 아이템 기본 min-width:auto 로 무공백 긴 토큰이
+                    // 80% 를 넘겨 가로 오버플로하던 회귀(#202) 방지. 내부 말풍선은 래퍼 폭을 채운다.
+                    <div className="flex min-w-0 max-w-[80%] flex-col gap-0.5">
+                      <AiLabel>AI</AiLabel>
+                      <div className="min-w-0 rounded-2xl bg-muted px-3 py-1.5 text-foreground">
+                        {/* 도구 호출 단계 인라인 표시 — 본문 위에 렌더. 표시 가능 step 이 있을 때만. */}
+                        {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
+                        <MarkdownMessage>{t.content}</MarkdownMessage>
+                      </div>
                     </div>
                   )
                 ) : (

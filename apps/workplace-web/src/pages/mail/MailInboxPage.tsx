@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { AiContent } from '@/components/ai/AiContent'
+import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { formatRelativeTime } from '@/lib/formatters'
@@ -87,26 +89,24 @@ function MessageRow({
       {/* P2: 배지 술어 통일 — needsReplyDoneAt 있으면 답장필요 배지 숨김. 분류 배지는 클릭 필터. */}
       {(m.aiCategory || (m.aiNeedsReply && !m.needsReplyDoneAt)) && (
         <span className="mt-0.5 flex items-center gap-1">
+          {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
           {m.aiCategory && (
-            <button
-              type="button"
+            <AiSignalBadge
+              variant="info"
               data-testid={`mail-badge-category-${m.id}`}
               onClick={(e) => {
                 e.stopPropagation()
                 navigate(`/mail/${m.accountId}?category=${encodeURIComponent(m.aiCategory!)}`)
               }}
-              className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted/80"
             >
               {m.aiCategory}
-            </button>
+            </AiSignalBadge>
           )}
+          {/* 회신필요 배지 — action 변형으로 사용자 행동 필요를 강조. 처리완료된 경우 숨김. */}
           {m.aiNeedsReply && !m.needsReplyDoneAt && (
-            <span
-              data-testid={`mail-badge-needsreply-${m.id}`}
-              className="inline-flex items-center gap-0.5 text-xs font-medium text-primary"
-            >
-              ● 답장필요
-            </span>
+            <AiSignalBadge variant="action" data-testid={`mail-badge-needsreply-${m.id}`}>
+              답장필요
+            </AiSignalBadge>
           )}
         </span>
       )}
@@ -236,33 +236,28 @@ function MessageDetailPanel({
   return (
     <div data-testid="mail-detail" className="flex h-full flex-col overflow-y-auto">
       <div className="border-b p-4">
-        {/* AI 요약 강조 카드 — AI 사용 계정이고 요약이 있거나 생성 중일 때 항상 표시. */}
+        {/* AI 요약 강조 카드 — AiContent 아우라로 마킹. AI 사용 계정이고 요약이 있거나 생성 중일 때 표시. */}
         {aiEnabled && (summaryData?.summary || summaryFetching) && (
-          <div
+          <AiContent
+            label="AI 요약"
+            collapsible
+            defaultOpen
+            className="mb-3"
             data-testid="mail-ai-summary"
-            className="mb-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2"
           >
-            {/* 카드 헤더: ✦ AI 요약 레이블 + 생성 중 안내 */}
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary">
-              <Sparkles className="h-3 w-3" /> AI 요약
-              {summaryFetching && !summaryData?.summary && (
-                <span className="font-medium normal-case tracking-normal text-primary/70">· 생성 중…</span>
-              )}
-            </div>
             {summaryData?.summary ? (
               // 요약 본문 — 줄바꿈 보존.
-              <div className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                {summaryData.summary}
-              </div>
+              <span>{summaryData.summary}</span>
             ) : (
               // 생성 중 스켈레톤 — 레이아웃 점프 없이 자리 예약.
               <div data-testid="mail-ai-summary-loading" className="mt-2 flex flex-col gap-1.5">
-                <div className="h-2 w-full animate-pulse rounded bg-primary/20" />
-                <div className="h-2 w-3/4 animate-pulse rounded bg-primary/20" />
-                <div className="h-2 w-1/2 animate-pulse rounded bg-primary/20" />
+                {/* AI 표면이므로 스켈레톤도 ai-accent 토큰 사용(primary 하드코딩 금지) */}
+                <div className="h-2 w-full animate-pulse rounded bg-ai-accent/20" />
+                <div className="h-2 w-3/4 animate-pulse rounded bg-ai-accent/20" />
+                <div className="h-2 w-1/2 animate-pulse rounded bg-ai-accent/20" />
               </div>
             )}
-          </div>
+          </AiContent>
         )}
         <h2 className="text-lg font-semibold">{detail.subject || '(제목 없음)'}</h2>
         <div className="mt-1 text-sm text-muted-foreground">

@@ -2,6 +2,7 @@ import { Mail, Paperclip } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { relTime } from '@/components/ai/relTime'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMailSummary } from '@/hooks/queries/useMailSummary'
@@ -112,13 +113,11 @@ export default function UnreadMailBody({ count = 5 }: { count?: number }) {
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-sm font-medium">{sender(m)}</span>
+                  {/* 회신필요 배지 — AI action 스타일(빨강 제거). 비-AI 멘션/회신대기 배지와 시각적으로 구분. */}
                   {classificationActive && m.aiNeedsReply && (
-                    <span
-                      data-testid="dash-mail-badge-reply"
-                      className="flex-none rounded-full bg-red-100 px-1.5 text-xs font-semibold text-red-600"
-                    >
+                    <AiSignalBadge variant="action" data-testid="dash-mail-badge-reply">
                       회신필요
-                    </span>
+                    </AiSignalBadge>
                   )}
                   <span className="ml-auto flex-none text-xs text-muted-foreground">
                     {m.receivedAt ? relTime(m.receivedAt) : ''}

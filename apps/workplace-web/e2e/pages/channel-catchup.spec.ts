@@ -81,9 +81,10 @@ test.describe('채널 캐치업 카드', () => {
     await page.goto(`/chat/channels/${CHANNEL_ID}`);
 
     await expect(page.getByTestId('catchup-card')).toBeVisible();
-    await expect(page.getByText('✅ 결정된 것')).toBeVisible();
-    await expect(page.getByText('📌 내 차례')).toBeVisible();
-    await expect(page.getByText('💬 오간 이야기')).toBeVisible();
+    // 섹션 헤더: 이모지 → lucide 아이콘으로 교체됨. 텍스트만 검증.
+    await expect(page.getByText('결정된 것')).toBeVisible();
+    await expect(page.getByText('내 차례')).toBeVisible();
+    await expect(page.getByText('오간 이야기')).toBeVisible();
     await expect(page.getByText('출시일 6/30 확정')).toBeVisible();
   });
 

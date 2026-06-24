@@ -1666,6 +1666,50 @@ test('홈 메일 위젯 — "회신 필요" 칩 토글로 회신필요 메일만
   await expect(page.getByTestId('dash-mail-row')).toHaveCount(3)
 })
 
+// ── AI 판단신호 배지 회귀가드 ─────────────────────────────────────────────────
+
+// 빨강(bg-red-*) 완전 제거 + AiSignalBadge action 스타일 적용 회귀가드.
+test('대시보드 회신필요 배지는 AI action 스타일(빨강 아님)이다', async ({
+  authenticatedPage: page,
+}) => {
+  // 회신필요 메일 1건 모킹 — classificationActive=true 로 배지 노출 조건 충족.
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
+    unreadCount: 1,
+    needsReplyCount: 1,
+    classificationActive: true,
+    recent: [
+      {
+        id: 42,
+        accountId: 1,
+        subject: '긴급 회신 요청',
+        fromAddress: 'sender@example.com',
+        fromName: '발신자',
+        snippet: '확인 부탁드립니다',
+        receivedAt: new Date(Date.now() - 10 * 60000).toISOString(),
+        seen: false,
+        hasAttachment: false,
+        aiCategory: null,
+        aiNeedsReply: true,
+        needsReplyDoneAt: null,
+      },
+    ],
+  } satisfies MailSummary)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
+
+  await page.goto('/')
+
+  // 배지가 보이고 텍스트 포함 확인.
+  const badge = page.getByTestId('dash-mail-badge-reply')
+  await expect(badge).toBeVisible()
+  await expect(badge).toContainText('회신필요')
+
+  // 회귀가드: 더 이상 빨강(bg-red-*) 사용하지 않음.
+  const cls = (await badge.getAttribute('class')) ?? ''
+  expect(cls).not.toContain('bg-red')        // 빨강 제거 회귀가드
+  expect(cls).toContain('bg-ai-accent')       // action = 솔리드 ai-accent
+})
+
 // ── 대화 위젯 ──────────────────────────────────────────────────────────────
 
 test('홈 대화 위젯 — 멘션·회신대기 배지·미리보기·딥링크', async ({

@@ -46,7 +46,8 @@ export function NotificationGroupRow({
         {/* secondary: 행위자 + AI배지 + 델타 + 상대시간 한 줄(muted). */}
         <span className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
           {group.actorName && <span className="truncate">{group.actorName}</span>}
-          {group.hasAgent && <span className="rounded bg-primary/10 px-1 text-primary">AI</span>}
+          {/* AI 배지 — primary 토큰에서 ai-accent 시맨틱 토큰으로 통일. */}
+          {group.hasAgent && <span className="rounded bg-ai-accent-subtle px-1 text-ai-accent">AI</span>}
           <span className="truncate">{group.deltaSummary} · {formatRelativeTime(group.latestAt)}</span>
         </span>
       </Link>

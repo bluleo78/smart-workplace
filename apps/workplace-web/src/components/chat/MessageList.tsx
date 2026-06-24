@@ -4,7 +4,7 @@
 // 수정 → 인라인 RichInput 에디터(chat 의 ChatMessageEditor 미러). 삭제됨 메시지는 '(삭제됨)' 마스킹.
 // Phase 5: hover toolbar 에 이모지 피커 + 답글 버튼 추가. body 아래 ReactionBar + 답글수 링크.
 // Task 5(대화 Phase A): 2-컬럼 레이아웃 — 좌측 아바타 거터 + 우측 본문 컬럼. Slack 패턴 그룹핑.
-import { MessageSquare, Pencil, Trash2 } from 'lucide-react'
+import { Bot, MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { downloadMessageDriveLink } from '@/api/driveLinks'
@@ -140,7 +140,10 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
                   <span className="font-semibold text-foreground">
                     {m.authorName}
-                    {m.authorKind === 'AGENT' && ' 🤖'}
+                    {/* AI 에이전트 작성자 표시 — 이모지 대신 lucide Bot 아이콘(ai-accent 토큰). */}
+                    {m.authorKind === 'AGENT' && (
+                      <Bot className="ml-0.5 inline h-3 w-3 align-[-0.125em] text-ai-accent" aria-label="에이전트" />
+                    )}
                   </span>
                   <span data-testid={`message-time-${m.id}`}>{formatClockTime(m.createdAt)}</span>
                 </div>
