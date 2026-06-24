@@ -20,16 +20,17 @@ test('데스크톱에서 앱 레일은 축소 시 아이콘 전용이다(워드�
 
 // LNB 표준화(#98) — 레일 라벨 한글화(대화·드라이브) + 소통 묶음 순서.
 // #99 — '설정' 모듈을 어드민 전용에서 전체 사용자 노출로 전환, 드라이브 다음(끝)에 배치.
-// #477 — 소통 우선 순서: 소통 묶음(대화·메일·연락처) 앞에 인접 배치, 작업관리는 그 다음.
-test('앱 레일 — 한글 라벨과 소통 우선 순서(홈·대화·메일·연락처·캘린더·작업관리·드라이브·노트·설정)', async ({
+// #477 — 소통 우선 순서: 소통 묶음(대화·메일) 앞에 인접 배치, 작업관리는 그 다음.
+// 연락처는 노트 다음·설정 직전으로 이동(앱 레일 재배치).
+test('앱 레일 — 한글 라벨과 소통 우선 순서(홈·대화·메일·캘린더·작업관리·드라이브·노트·연락처·설정)', async ({
   authenticatedPage: page,
 }) => {
   await page.goto('/')
   // 영문 라벨(Chat/Drive) 제거 — 레일 항목 텍스트가 한글이다.
   await expect(page.getByTestId('rail-link-/chat')).toContainText('대화')
   await expect(page.getByTestId('rail-link-/drive')).toContainText('드라이브')
-  // 순서: 홈 · 대화 · 메일 · 연락처 · 캘린더 · 작업 관리 · 드라이브 · 노트 · 설정
-  // (소통 앱 인접 우선, 작업관리는 그 다음, 파일/노트는 끝. #477)
+  // 순서: 홈 · 대화 · 메일 · 캘린더 · 작업 관리 · 드라이브 · 노트 · 연락처 · 설정
+  // (소통 앱 인접 우선, 작업관리는 그 다음, 파일/노트, 연락처는 설정 직전. #477)
   const order = await page
     .locator('[data-testid^="rail-link-"]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
@@ -37,11 +38,11 @@ test('앱 레일 — 한글 라벨과 소통 우선 순서(홈·대화·메일·
     'rail-link-/',
     'rail-link-/chat',
     'rail-link-/mail',
-    'rail-link-/contacts',
     'rail-link-/calendar',
     'rail-link-/projects',
     'rail-link-/drive',
     'rail-link-/wiki',
+    'rail-link-/contacts',
     'rail-link-/settings/profile',
   ])
 })
