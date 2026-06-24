@@ -1,7 +1,6 @@
-// 7d: 메일 AI 러너 — 비서 OAuth 토큰 fetch → home MCP config(도구 미사용) → CLI(단발 --print) → 파서.
-// 분류/요약/답장 모두 도구 없이 텍스트 in/out. assistant 설정은 workplace-api 가 요청 본문으로 전달.
-import { buildChildEnv, buildCliArgs, runClaudeCliCollect } from './cli-runner.js';
-import { cleanupTempMcpConfig, writeTempMcpConfig } from './mcp-config.js';
+// 7d: 메일 AI 러너 — 비서 OAuth 토큰 fetch → SDK 단발 실행 → 파서.
+// 분류/요약/답장 모두 도구 미사용 텍스트 in/out. MCP 서버·임시 config 불필요.
+import { runSdkCollect } from './sdk-runner.js';
 import { extractResultText, parseClassifyJson, parseDraftCoachingJson } from './mail-parser.js';
 import {
   MAIL_CLASSIFY_PROMPT,
@@ -27,7 +26,7 @@ export interface DraftCoachingInput extends BaseConfig {
   replyingAs: string;
 }
 
-// 공통: 토큰 fetch → 임시 MCP config → CLI 단발 실행 → 최종 텍스트. finally 로 config 정리.
+// 공통: 토큰 fetch → SDK 단발 실행 → 최종 텍스트. 도구 미사용이라 MCP 서버/임시 config 불필요.
 async function runText(
   systemPrompt: string,
   userMessage: string,
@@ -36,32 +35,18 @@ async function runText(
   tag: string,
 ): Promise<string> {
   const token = (await deps.client.getOAuthToken(cfg.assistantAgentId)).token;
-  const mcpConfigPath = writeTempMcpConfig({
+  const lines = await runSdkCollect({
+    userMessage,
+    systemPrompt,
+    model: cfg.model,
+    maxTurns: cfg.maxTurns,
+    token,
     agentId: cfg.assistantAgentId,
-    baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
-    internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
-    profile: 'home',
+    timeoutMs: cfg.timeoutMs,
+    logTag: `${tag}:${cfg.assistantAgentId}`,
+    includePartialMessages: false,
   });
-  try {
-    const args = buildCliArgs({
-      userMessage,
-      systemPrompt,
-      model: cfg.model,
-      maxTurns: cfg.maxTurns,
-      mcpConfigPath,
-      includePartialMessages: false,
-    });
-    const env = buildChildEnv(process.env, token, cfg.assistantAgentId);
-    const lines = await runClaudeCliCollect({
-      args,
-      env,
-      timeoutMs: cfg.timeoutMs,
-      logTag: `${tag}:${cfg.assistantAgentId}`,
-    });
-    return extractResultText(lines);
-  } finally {
-    cleanupTempMcpConfig(mcpConfigPath);
-  }
+  return extractResultText(lines);
 }
 
 // 메일 분류: 제목·보낸사람·미리보기 → {category, needsReply}

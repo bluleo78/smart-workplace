@@ -3,7 +3,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
 vi.mock('../logger.js', () => ({ log: { info: vi.fn(), error: vi.fn() } }));
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { describe, expect, it } from 'vitest';
-import { buildSdkOptions, runSdkStream, type SdkRunInput } from './sdk-runner.js';
+import { buildSdkOptions, runSdkCollect, runSdkStream, type SdkRunInput } from './sdk-runner.js';
 
 function baseInput(over: Partial<SdkRunInput> = {}): SdkRunInput {
   return {
@@ -103,8 +103,8 @@ describe('runSdkStream', () => {
     expect(lines).toEqual(msgs.map((m) => JSON.stringify(m)));
   });
 
-  it('result.is_error=true 면 done reject', async () => {
-    vi.mocked(query).mockReturnValue(makeQuery([{ type: 'result', subtype: 'error', is_error: true }]) as never);
+  it('result subtype 가 success 가 아니면 done reject', async () => {
+    vi.mocked(query).mockReturnValue(makeQuery([{ type: 'result', subtype: 'error_during_execution', is_error: true }]) as never);
     const h = runSdkStream(input(), () => {});
     await expect(h.done).rejects.toThrow();
   });
@@ -124,6 +124,40 @@ describe('runSdkStream', () => {
     vi.mocked(query).mockReturnValue(q as never);
     const h = runSdkStream({ ...input(), timeoutMs: 20 }, () => {});
     await expect(h.done).rejects.toThrow(/timeout/);
+    expect(q.interrupt).toHaveBeenCalled();
+  });
+});
+
+describe('runSdkCollect', () => {
+  const input = (): SdkRunInput => ({
+    userMessage: 'u', systemPrompt: 's', model: 'm', maxTurns: 1,
+    token: 't', agentId: 1, timeoutMs: 60_000, logTag: 'mail-classify:1',
+  });
+
+  it('각 SDKMessage 를 JSON.stringify 해 배열로 수집하고 정상 종료 시 resolve', async () => {
+    const msgs = [
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } },
+      { type: 'result', subtype: 'success', is_error: false, result: '{"category":"업무"}' },
+    ];
+    vi.mocked(query).mockReturnValue(makeQuery(msgs) as never);
+    const lines = await runSdkCollect(input());
+    expect(lines).toEqual(msgs.map((m) => JSON.stringify(m)));
+  });
+
+  it('result subtype 가 success 가 아니면 reject(빈 결과를 성공으로 오인 방지)', async () => {
+    vi.mocked(query).mockReturnValue(makeQuery([{ type: 'result', subtype: 'error_during_execution', is_error: true }]) as never);
+    await expect(runSdkCollect(input())).rejects.toThrow();
+  });
+
+  it('error subtype + is_error=false 여도 reject (subtype 판별, is_error 신뢰 안 함)', async () => {
+    vi.mocked(query).mockReturnValue(makeQuery([{ type: 'result', subtype: 'error_max_turns', is_error: false }]) as never);
+    await expect(runSdkCollect(input())).rejects.toThrow();
+  });
+
+  it('timeout → interrupt 호출 + reject(timeout)', async () => {
+    const q = makeQuery([{ type: 'assistant', message: { content: [] } }], { hang: true, gate: true });
+    vi.mocked(query).mockReturnValue(q as never);
+    await expect(runSdkCollect({ ...input(), timeoutMs: 20 })).rejects.toThrow(/timeout/);
     expect(q.interrupt).toHaveBeenCalled();
   });
 });
