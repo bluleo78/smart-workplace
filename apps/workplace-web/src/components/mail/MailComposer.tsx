@@ -84,7 +84,8 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
         'data-testid': 'mail-composer-body',
         'aria-label': '메일 본문',
         class:
-          'prose prose-sm max-w-none min-h-[180px] overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          // 본문이 길어도 도크가 무한정 늘어나지 않도록 최대 높이 + 세로 스크롤.
+          'prose prose-sm max-w-none min-h-[180px] max-h-[40vh] overflow-y-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       },
     },
   });
