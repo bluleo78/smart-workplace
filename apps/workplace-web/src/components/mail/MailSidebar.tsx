@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Inbox, Mail, PenSquare, Send, Settings, Tag } from 'lucide-react'
+import { Check, ChevronDown, Inbox, Mail, PenSquare, Send, Settings, Sparkles, Tag } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -160,8 +160,9 @@ export function MailSidebar() {
             )}
 
             {/* P2: 분류 — AI 분류별 좁혀보기(라벨만, 건수 없음). 고정 5종, 순서 유지. */}
-            <div className="mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              분류
+            {/* AI 자동 분류임을 Sparkles 아이콘으로 표식. */}
+            <div className="mt-4 flex items-center gap-1 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Sparkles className="h-3 w-3 shrink-0" aria-hidden /> 분류
             </div>
             <nav className="mt-1 space-y-1">
               {CATEGORIES.map((cat) => (
