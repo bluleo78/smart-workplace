@@ -1,9 +1,12 @@
 package com.workplace.messaging.controller;
 
+import com.workplace.messaging.dto.ConfirmProposalRequest;
 import com.workplace.messaging.dto.CreateProposalRequest;
 import com.workplace.messaging.dto.MessageResponse;
+import com.workplace.messaging.dto.ProjectCandidateDto;
 import com.workplace.messaging.service.MessagingProposalService;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -28,11 +31,14 @@ public class MessageProposalController {
         .body(proposalService.propose(agentId, channelId, request));
   }
 
-  /** 위임자 승인 — principal = 위임자(사람). 이슈 생성 + 결과 메시지 게시. */
+  /** 위임자 승인 — principal = 위임자(사람). 이슈 생성 + 결과 메시지 게시. body.projectKey 로 팀 프로젝트 override 가능. */
   @PostMapping("/proposals/{id}/confirm")
   public ResponseEntity<MessageResponse> confirm(
-      @AuthenticationPrincipal Long callerId, @PathVariable long id) {
-    return ResponseEntity.ok(proposalService.confirm(callerId, id));
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @RequestBody(required = false) ConfirmProposalRequest body) {
+    return ResponseEntity.ok(
+        proposalService.confirm(callerId, id, body == null ? null : body.projectKey()));
   }
 
   /** 위임자 거부 — 제안 REJECTED, 결과 메시지 없음. */
@@ -40,5 +46,12 @@ public class MessageProposalController {
   public ResponseEntity<MessageResponse> reject(
       @AuthenticationPrincipal Long callerId, @PathVariable long id) {
     return ResponseEntity.ok(proposalService.reject(callerId, id));
+  }
+
+  /** AI prefetch — 위임 후보 프로젝트 목록(on-behalf AGENT=principal, delegatorId=쿼리). */
+  @GetMapping("/delegation-candidates")
+  public List<ProjectCandidateDto> candidates(
+      @AuthenticationPrincipal Long agentId, @RequestParam long delegatorId) {
+    return proposalService.candidateProjects(delegatorId, agentId);
   }
 }

@@ -55,7 +55,17 @@ export async function runMessagingAgent(
   try {
     // 최근 채널 메시지 PREFETCH 개 조회 → 대화 컨텍스트 구성
     const recent = await deps.client.getChannelMessages(agentId, p.channelId, PREFETCH);
-    const userMessage = buildMessagingUserMessage(p, recent);
+    // L3 위임 후보 프로젝트 — AI 가 이슈 라우팅을 맥락으로 추측할 소스(실패해도 빈 배열로 진행).
+    let candidates: { key: string; name: string }[] = [];
+    try {
+      candidates = await deps.client.listDelegationCandidates(agentId, p.actor.id);
+    } catch (e) {
+      console.error('[run-messaging-agent] 위임 후보 조회 실패', {
+        channelId: p.channelId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+    const userMessage = buildMessagingUserMessage(p, recent, candidates);
 
     const model = process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
     const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);

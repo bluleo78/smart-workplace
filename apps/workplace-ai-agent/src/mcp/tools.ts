@@ -292,10 +292,12 @@ export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
 
 // L3 위임: 이슈 생성 제안 도구 입력 스키마.
 // channelId·위임자·parent 는 코드가 env 에서 스탬프 — AI 입력에서 제외(가스라이팅 방지).
+// projectKey: AI 가 위임 후보 목록에서 추론해 고름. 맞는 게 없으면 생략(백엔드 개인 작업 폴백).
 const proposeCreateIssueInput = z.object({
   title: z.string().min(1).max(200),
   body: z.string().max(10000).optional(),
   priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
+  projectKey: z.string().optional(),
 });
 
 // profile 기본값 'issue' — 이슈 핸들러는 기존 4 도구, chat 핸들러는 읽기+chat 쓰기 도구만.
@@ -457,12 +459,14 @@ export function buildTools(
         async handler(args) {
           // guard: 이미 성공적으로 제안을 등록한 경우 재호출 차단.
           if (proposed) return '이미 이 요청에 대한 제안을 등록했습니다.';
-          const { title, body, priority } = proposeCreateIssueInput.parse(args);
+          const { title, body, priority, projectKey } = proposeCreateIssueInput.parse(args);
           try {
             await client.proposeCreateIssue(agentId, dc.channelId, {
               title, body, priority,
               proposedByUserId: dc.actorId,
               parentMessageId: dc.parentMessageId,
+              // L3 위임: AI 가 후보 목록에서 추론한 projectKey. 없으면 백엔드 개인 작업 폴백.
+              projectKey,
             });
           } catch (e) {
             // 실패 시 guard 를 세우지 않아 재시도 가능. 채팅에 읽을 수 있는 오류 반환.

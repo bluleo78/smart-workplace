@@ -65,6 +65,8 @@ export interface MessageProposal {
   title: string | null; // 생성할 이슈 제목
   priority: string | null; // 우선순위(선택)
   projectName: string | null; // 대상 프로젝트명(선택)
+  projectKey: string | null; // 대상 프로젝트 키(선택 — 승인 시 override 가능)
+  candidates: { key: string; name: string }[]; // 위임 가능한 프로젝트 후보 목록
   resultIssueKey: string | null; // 승인 후 생성된 이슈 키(CONFIRMED 일 때만 채워짐)
 }
 

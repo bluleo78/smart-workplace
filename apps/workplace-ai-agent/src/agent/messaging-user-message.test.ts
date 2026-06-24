@@ -31,4 +31,26 @@ describe('buildMessagingUserMessage', () => {
     const dm = { ...payload, channelKind: 'DM' };
     expect(buildMessagingUserMessage(dm, recent)).toContain('1:1 DM');
   });
+
+  // L3 위임 Task 4: 위임 가능 프로젝트 섹션 주입.
+  it('candidates 있으면 ## 위임 가능 프로젝트 섹션에 목록 표시', () => {
+    const candidates = [
+      { key: 'DESIGN', name: '디자인팀' },
+      { key: 'FRONT', name: '프론트엔드' },
+    ];
+    const msg = buildMessagingUserMessage(payload, recent, candidates);
+    expect(msg).toContain('## 위임 가능 프로젝트');
+    expect(msg).toContain('- 디자인팀 (DESIGN)');
+    expect(msg).toContain('- 프론트엔드 (FRONT)');
+  });
+
+  it('candidates 빈 배열이면 후보 없음 안내 표시', () => {
+    const msg = buildMessagingUserMessage(payload, recent, []);
+    expect(msg).toContain('(후보 없음');
+  });
+
+  it('candidates 생략(기본값)이면 후보 없음 안내 표시', () => {
+    const msg = buildMessagingUserMessage(payload, recent);
+    expect(msg).toContain('(후보 없음');
+  });
 });

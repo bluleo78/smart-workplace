@@ -18,6 +18,27 @@ function makeProposal(proposedByUserId: number): MessageProposal {
     title: '로그인 버그',
     priority: 'HIGH',
     projectName: 'Smart Workplace',
+    projectKey: null,
+    candidates: [],
+    resultIssueKey: null,
+  }
+}
+
+// 후보 프로젝트 2개 포함 제안 — 드롭다운 테스트용.
+function makeProposalWithCandidates(proposedByUserId: number): MessageProposal {
+  return {
+    id: PROPOSAL_ID,
+    proposedByUserId,
+    actionType: 'CREATE_ISSUE',
+    status: 'PENDING',
+    title: '로그인 버그',
+    priority: 'HIGH',
+    projectName: '개인 작업',
+    projectKey: 'P1',
+    candidates: [
+      { key: 'P1', name: '개인 작업' },
+      { key: 'DESIGN', name: '디자인팀' },
+    ],
     resultIssueKey: null,
   }
 }
@@ -96,6 +117,35 @@ async function stubMessagesWithProposal(
     body: '일반 메시지',
   })
   // DESC 정렬로 반환(최신→오래된).
+  const items = [proposalMessage, normalMessage]
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items, nextCursor: null, hasMore: false }),
+      })
+    },
+  )
+}
+
+// 메시지 목록 모킹 — 후보 프로젝트 2개를 가진 proposal 포함.
+async function stubMessagesWithCandidateProposal(
+  page: import('@playwright/test').Page,
+  proposedByUserId: number,
+) {
+  const proposalMessage = createMessage({
+    id: 200,
+    channelId: CHANNEL_ID,
+    authorId: 99,
+    authorName: 'AI 어시스턴트',
+    authorKind: 'AGENT',
+    body: '이슈 생성을 제안합니다.',
+    proposal: makeProposalWithCandidates(proposedByUserId),
+  })
+  const normalMessage = createMessage({ id: 199, channelId: CHANNEL_ID, body: '일반 메시지' })
   const items = [proposalMessage, normalMessage]
   await page.route(
     (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
@@ -234,6 +284,53 @@ test.describe('L3 위임 확인 카드', () => {
       await expect(page.getByTestId(`proposal-reject-${PROPOSAL_ID}`)).toBeVisible()
       await page.getByTestId(`proposal-reject-${PROPOSAL_ID}`).click()
       await expect.poll(() => rejectCalled).toBe(true)
+    },
+  )
+
+  test(
+    '제안 카드: 프로젝트 드롭다운 변경 후 승인 시 projectKey 전달',
+    async ({ authenticatedPage: page }) => {
+      // proposedByUserId = 1 → 위임자(delegator). candidates 2개.
+      const DELEGATOR_USER_ID = 1
+      const channel = createChannel({ id: CHANNEL_ID, member: true })
+      await setupChannelStubs(page, channel)
+      await stubMembers(page)
+      await stubMessagesWithCandidateProposal(page, DELEGATOR_USER_ID)
+
+      // 승인 POST body 캡처.
+      let body: Record<string, unknown> | null = null
+      await page.route(
+        (url) => url.pathname === `/api/v1/messaging/proposals/${PROPOSAL_ID}/confirm`,
+        (route) => {
+          if (route.request().method() !== 'POST') return route.fallback()
+          body = route.request().postDataJSON() as Record<string, unknown>
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(
+              createMessage({
+                id: 200,
+                channelId: CHANNEL_ID,
+                authorKind: 'AGENT',
+                proposal: { ...makeProposalWithCandidates(DELEGATOR_USER_ID), status: 'CONFIRMED', resultIssueKey: 'DESIGN-1' },
+              }),
+            ),
+          })
+        },
+      )
+
+      await page.goto(`/chat/channels/${CHANNEL_ID}`)
+
+      // 드롭다운(SelectTrigger)이 렌더된다.
+      await expect(page.getByTestId(`proposal-project-${PROPOSAL_ID}`)).toBeVisible()
+
+      // 드롭다운에서 '디자인팀' 선택.
+      await page.getByTestId(`proposal-project-${PROPOSAL_ID}`).click()
+      await page.getByRole('option', { name: '디자인팀' }).click()
+
+      // 승인 클릭 → confirm 호출 시 body 에 projectKey:'DESIGN' 포함.
+      await page.getByTestId(`proposal-confirm-${PROPOSAL_ID}`).click()
+      await expect.poll(() => body).toEqual({ projectKey: 'DESIGN' })
     },
   )
 })

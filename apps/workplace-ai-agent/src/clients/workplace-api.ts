@@ -264,11 +264,14 @@ export interface WorkplaceApiClient {
   moveFolder(agentId: number, folderId: number, targetParentId: number | null): Promise<void>;
   moveFile(agentId: number, fileId: number, targetFolderId: number | null): Promise<void>;
   // L3 위임: AI 제안 카드 생성(on-behalf AGENT). proposedByUserId=위임자, parentMessageId=스레드 미러.
+  // projectKey: AI 가 후보 목록에서 추론해 고른 프로젝트 키. 없으면 백엔드 개인 작업 폴백.
   proposeCreateIssue(
     agentId: number,
     channelId: number,
-    req: { title: string; body?: string; priority?: string; proposedByUserId: number; parentMessageId?: number },
+    req: { title: string; body?: string; priority?: string; proposedByUserId: number; parentMessageId?: number; projectKey?: string },
   ): Promise<void>;
+  // L3 위임: 위임자(delegatorId)가 참여 중인 프로젝트 목록 — AI 가 이슈 라우팅 projectKey 를 고를 소스.
+  listDelegationCandidates(agentId: number, delegatorId: number): Promise<{ key: string; name: string }[]>;
   // 6c: 이슈 첨부
   listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
   downloadIssueAttachment(
@@ -476,6 +479,16 @@ export function createWorkplaceApiClient(opts: {
         { actionType: 'CREATE_ISSUE', ...req },
         onBehalfOf(agentId),
       );
+    },
+
+    // L3 위임: 후보 프로젝트 목록(AI 가 맥락으로 고를 소스).
+    // delegatorId 가 참여 중인 프로젝트 key+name 배열 반환. 비-배열 응답은 빈 배열로 방어.
+    async listDelegationCandidates(agentId, delegatorId) {
+      const r = await http.get(
+        `/messaging/delegation-candidates?delegatorId=${delegatorId}`,
+        onBehalfOf(agentId),
+      );
+      return Array.isArray(r.data) ? (r.data as { key: string; name: string }[]) : [];
     },
 
     async postMessagingProgress(agentId, channelId, payload) {

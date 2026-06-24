@@ -168,8 +168,14 @@ export const messagingApi = {
     client.post<ChannelDriveSpaceResponse>(`/messaging/channels/${channelId}/drive-space`),
 
   // L3 위임 제안 승인 — 이슈 생성 + AI 담당 할당. 갱신된 카드 메시지 반환.
-  confirmProposal: (proposalId: number) =>
-    client.post<MessageResponse>(`/messaging/proposals/${proposalId}/confirm`).then((r) => r.data),
+  // projectKey 를 전달하면 AI 가 추천한 프로젝트 대신 해당 프로젝트로 이슈가 생성된다.
+  confirmProposal: (proposalId: number, projectKey?: string) =>
+    client
+      .post<MessageResponse>(
+        `/messaging/proposals/${proposalId}/confirm`,
+        projectKey ? { projectKey } : {},
+      )
+      .then((r) => r.data),
 
   // L3 위임 제안 거부. 갱신된 카드 메시지 반환.
   rejectProposal: (proposalId: number) =>

@@ -190,6 +190,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  /** L3 위임 승인 override 프로젝트가 후보 밖 → 400. */
+  @ExceptionHandler(com.workplace.messaging.exception.InvalidDelegationProjectException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidDelegationProject(
+      com.workplace.messaging.exception.InvalidDelegationProjectException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   /**
    * DB 무결성 위반 예외 처리.
    *

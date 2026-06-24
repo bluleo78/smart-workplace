@@ -160,7 +160,8 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "로그인 버그 고치기", "상세 본문", "HIGH", human, null));
+            new CreateProposalRequest(
+                "CREATE_ISSUE", "로그인 버그 고치기", "상세 본문", "HIGH", human, null, null));
 
     // 메시지 1건(AGENT 작성) 추가됨.
     assertThat(countMessages(channelId)).isEqualTo(messageBefore + 1);
@@ -182,7 +183,7 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "T", null, null, human, root));
+            new CreateProposalRequest("CREATE_ISSUE", "T", null, null, human, root, null));
     assertThat(resp.parentMessageId()).isEqualTo(root);
   }
 
@@ -202,7 +203,8 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
                 proposalService.propose(
                     agentId,
                     channelId,
-                    new CreateProposalRequest("CREATE_ISSUE", "T", null, null, outsider, null)))
+                    new CreateProposalRequest(
+                        "CREATE_ISSUE", "T", null, null, outsider, null, null)))
         .isInstanceOf(ChannelNotMemberException.class);
   }
 
@@ -223,7 +225,7 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
             agentId,
             channelId,
             new CreateProposalRequest(
-                "CREATE_ISSUE", "온디맨드 프로젝트 테스트", null, null, freshHuman, null));
+                "CREATE_ISSUE", "온디맨드 프로젝트 테스트", null, null, freshHuman, null, null));
 
     // 제안이 성공하고 프로젝트명이 freshHuman 의 기본 개인 프로젝트명과 일치해야 한다.
     assertThat(resp.proposal()).isNotNull();

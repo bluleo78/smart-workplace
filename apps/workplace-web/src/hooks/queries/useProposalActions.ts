@@ -17,8 +17,10 @@ export function useProposalActions(channelId: number) {
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: messagingKeys.messages(channelId) })
 
+  // confirm 은 { proposalId, projectKey? } 객체를 받아 승인 요청. projectKey 미전달 시 AI 추천 프로젝트 사용.
   const confirm = useMutation({
-    mutationFn: (proposalId: number) => messagingApi.confirmProposal(proposalId),
+    mutationFn: ({ proposalId, projectKey }: { proposalId: number; projectKey?: string }) =>
+      messagingApi.confirmProposal(proposalId, projectKey),
     onSuccess: invalidate,
     onError: (error: unknown) => handleApiError(error, '승인 실패'),
   })

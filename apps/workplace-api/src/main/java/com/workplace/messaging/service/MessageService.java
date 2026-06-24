@@ -327,7 +327,10 @@ public class MessageService {
     return new MessagePage(enriched, page.nextCursor(), page.hasMore());
   }
 
-  /** payload(JSON)에서 title/priority/projectName 추출해 MessageProposalResponse 로 변환. 누락 필드는 null. */
+  /**
+   * payload(JSON)에서 title/priority/projectName/projectKey/candidates 추출해 MessageProposalResponse 로
+   * 변환. 누락 필드는 null.
+   */
   private MessageProposalResponse toProposalResponse(
       MessageActionProposalRepository.ProposalRow r) {
     JsonNode p;
@@ -335,6 +338,17 @@ public class MessageService {
       p = objectMapper.readTree(r.payloadJson());
     } catch (Exception e) {
       p = objectMapper.createObjectNode();
+    }
+    // L3 후보 라우팅: payload 에 저장된 projectKey + candidates 배열 복원.
+    String projectKey = p.path("projectKey").asText(null);
+    java.util.List<com.workplace.messaging.dto.ProjectCandidateDto> cands =
+        new java.util.ArrayList<>();
+    if (p.has("candidates") && p.get("candidates").isArray()) {
+      for (JsonNode c : p.get("candidates")) {
+        cands.add(
+            new com.workplace.messaging.dto.ProjectCandidateDto(
+                c.path("key").asText(null), c.path("name").asText(null)));
+      }
     }
     return new MessageProposalResponse(
         r.id(),
@@ -344,7 +358,9 @@ public class MessageService {
         p.path("title").asText(null),
         p.path("priority").asText(null),
         p.path("projectName").asText(null),
-        r.resultIssueKey());
+        r.resultIssueKey(),
+        projectKey,
+        cands);
   }
 
   /**

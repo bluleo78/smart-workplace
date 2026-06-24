@@ -216,11 +216,11 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "로그인 버그", "본문", "HIGH", human, null));
+            new CreateProposalRequest("CREATE_ISSUE", "로그인 버그", "본문", "HIGH", human, null, null));
     long proposalId = proposal.proposal().id();
     long messagesBefore = countMessages(channelId);
 
-    var result = proposalService.confirm(human, proposalId);
+    var result = proposalService.confirm(human, proposalId, null);
 
     // 제안 상태 CONFIRMED.
     assertThat(result.proposal().status()).isEqualTo("CONFIRMED");
@@ -246,8 +246,8 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "T", null, null, human, null));
-    assertThatThrownBy(() -> proposalService.confirm(otherHuman, proposal.proposal().id()))
+            new CreateProposalRequest("CREATE_ISSUE", "T", null, null, human, null, null));
+    assertThatThrownBy(() -> proposalService.confirm(otherHuman, proposal.proposal().id(), null))
         .isInstanceOf(ProposalNotDelegatorException.class);
   }
 
@@ -258,11 +258,11 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "T", null, null, human, null));
+            new CreateProposalRequest("CREATE_ISSUE", "T", null, null, human, null, null));
     long id = proposal.proposal().id();
-    proposalService.confirm(human, id);
+    proposalService.confirm(human, id, null);
     long issuesAfterFirst = countIssues();
-    assertThatThrownBy(() -> proposalService.confirm(human, id))
+    assertThatThrownBy(() -> proposalService.confirm(human, id, null))
         .isInstanceOf(IllegalStateException.class);
     assertThat(countIssues()).isEqualTo(issuesAfterFirst); // 중복 생성 없음.
   }
@@ -274,7 +274,7 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "T", null, null, human, null));
+            new CreateProposalRequest("CREATE_ISSUE", "T", null, null, human, null, null));
     long messagesBefore = countMessages(channelId);
     var result = proposalService.reject(human, proposal.proposal().id());
     assertThat(result.proposal().status()).isEqualTo("REJECTED");

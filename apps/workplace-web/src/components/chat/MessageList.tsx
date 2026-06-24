@@ -175,7 +175,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                   proposal={m.proposal}
                   currentUserId={currentUserId}
                   busy={proposalActions.confirm.isPending || proposalActions.reject.isPending}
-                  onConfirm={() => proposalActions.confirm.mutate(m.proposal!.id)}
+                  onConfirm={(pk) => proposalActions.confirm.mutate({ proposalId: m.proposal!.id, projectKey: pk })}
                   onReject={() => proposalActions.reject.mutate(m.proposal!.id)}
                 />
               ) : (

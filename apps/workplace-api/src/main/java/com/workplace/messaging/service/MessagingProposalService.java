@@ -7,14 +7,18 @@ import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.service.IssueService;
 import com.workplace.messaging.dto.CreateProposalRequest;
 import com.workplace.messaging.dto.MessageResponse;
+import com.workplace.messaging.dto.ProjectCandidateDto;
 import com.workplace.messaging.exception.ChannelNotMemberException;
+import com.workplace.messaging.exception.InvalidDelegationProjectException;
 import com.workplace.messaging.exception.ProposalNotDelegatorException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.MessageActionProposalRepository;
 import com.workplace.messaging.repository.MessageRepository;
+import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.PersonalProjectProvisioner;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -29,6 +33,7 @@ public class MessagingProposalService {
   private final MessageRepository messageRepo;
   private final MessageActionProposalRepository proposalRepo;
   private final ProjectRepository projectRepo;
+  private final ProjectMemberRepository projectMemberRepo; // Task 1: 프로젝트 멤버십 검증용(후보 계산)
   private final ChannelMemberRepository memberRepo; // Fix 1: 채널 멤버십 검증용
   private final PersonalProjectProvisioner provisioner; // Fix 5: 개인 프로젝트 온디맨드 프로비저닝
   private final MessageService messageService; // findOneForProposal enrich 재사용
@@ -50,16 +55,20 @@ public class MessagingProposalService {
     if (!memberRepo.isMember(channelId, req.proposedByUserId()))
       throw new ChannelNotMemberException(channelId, req.proposedByUserId());
 
-    // Fix 5: 위임자 기본 개인 프로젝트 온디맨드 프로비저닝 — REQUIRES_NEW 로 독립 커밋.
-    // HUMAN 최초 위임 시 프로젝트가 아직 없을 수 있으므로 선행 보장 후 조회한다.
-    provisioner.ensureDefaultPersonal(req.proposedByUserId());
-
-    // 위임자의 기본 개인 프로젝트 조회 — 없으면 제안 불가(오케스트레이션 전제 조건).
+    // 후보 계산(candidateProjects 내부에서 개인 프로젝트 온디맨드 프로비저닝 포함).
+    // AI 가 준 projectKey 가 후보에 있으면 그것을, 아니면 개인 기본(첫 후보=맨 앞)을 선택한다.
+    var candidates = candidateProjects(req.proposedByUserId(), agentId);
+    if (candidates.isEmpty())
+      throw new IllegalStateException("위임 후보 프로젝트 없음: " + req.proposedByUserId());
+    var chosen =
+        candidates.stream()
+            .filter(c -> c.key().equals(req.projectKey()))
+            .findFirst()
+            .orElse(candidates.get(0)); // 폴백=첫 후보(개인 기본)
     var project =
         projectRepo
-            .findDefaultPersonal(req.proposedByUserId())
-            .orElseThrow(
-                () -> new IllegalStateException("위임자 개인 프로젝트 없음: " + req.proposedByUserId()));
+            .findByKey(chosen.key())
+            .orElseThrow(() -> new IllegalStateException("프로젝트 조회 실패: " + chosen.key()));
 
     // 카드 fallback 본문 — 마크다운 미지원 클라이언트·접근성용.
     String fallback = "💡 이슈 생성을 제안했어요: **" + req.title() + "** (프로젝트: " + project.name() + ")";
@@ -75,6 +84,13 @@ public class MessagingProposalService {
     payload.put("projectId", project.id());
     payload.put("projectKey", project.key());
     payload.put("projectName", project.name());
+    // 후보 목록 직렬화 — 카드 노출 및 다음 태스크(confirm override) 검증에 사용.
+    com.fasterxml.jackson.databind.node.ArrayNode arr = payload.putArray("candidates");
+    for (var c : candidates) {
+      var o = arr.addObject();
+      o.put("key", c.key());
+      o.put("name", c.name());
+    }
     // 제안 행 INSERT(PENDING). proposal enrich fetch 전에 삽입해야 findOneForProposal 이 proposal 을 포함.
     proposalRepo.insert(
         messageId, channelId, req.proposedByUserId(), req.actionType(), payload.toString());
@@ -89,9 +105,11 @@ public class MessagingProposalService {
    * 위임자 승인 — 사람 권한으로 이슈 생성(AGENT 자기담당), 제안 CONFIRMED, 결과 메시지(AGENT 작성) 게시.
    *
    * <p>이슈 생성 시 발행되는 IssueCreated/Assigned 이벤트가 기존 이슈-AI 흐름을 자동 발화한다.
+   *
+   * @param projectKeyOverride 위임자가 카드 드롭다운으로 선택한 override 키. null 이면 제안 저장값 사용.
    */
   @Transactional
-  public MessageResponse confirm(long callerId, long proposalId) {
+  public MessageResponse confirm(long callerId, long proposalId, String projectKeyOverride) {
     var row =
         proposalRepo
             .findById(proposalId)
@@ -109,17 +127,28 @@ public class MessagingProposalService {
     } catch (Exception e) {
       throw new IllegalStateException("payload 파싱 실패", e);
     }
-    String projectKey = p.path("projectKey").asText();
-    String title = p.path("title").asText();
-    String priority = p.hasNonNull("priority") ? p.get("priority").asText() : "MID";
-    String body = p.hasNonNull("body") ? p.get("body").asText() : null;
 
-    // 담당 AGENT id = 제안 카드 메시지 작성자(AI). findRef 로 회수.
+    // 담당 AGENT id = 제안 카드 메시지 작성자(AI). override 검증(candidateProjects)에 필요하므로 projectKey 결정 전 회수.
     long agentId =
         messageRepo
             .findRef(row.messageId())
             .map(MessageRepository.MessageRef::authorId)
             .orElseThrow(() -> new IllegalStateException("제안 메시지 없음: " + row.messageId()));
+
+    // 유효 projectKey 결정 — override 있으면 그것, 없으면 payload 저장값.
+    // 왜: 두 경로 일관 검증 — override 경로뿐 아니라 저장값도 propose→confirm 사이에 스테일될 수 있으므로
+    // 둘 다 후보 재계산으로 검증해 도메인 에러(InvalidDelegationProjectException)를 일관되게 발생시킨다.
+    String projectKey =
+        (projectKeyOverride != null && !projectKeyOverride.isBlank())
+            ? projectKeyOverride
+            : p.path("projectKey").asText();
+    if (candidateProjects(row.proposedByUserId(), agentId).stream()
+        .noneMatch(c -> c.key().equals(projectKey)))
+      throw new InvalidDelegationProjectException(projectKey);
+
+    String title = p.path("title").asText();
+    String priority = p.hasNonNull("priority") ? p.get("priority").asText() : "MID";
+    String body = p.hasNonNull("body") ? p.get("body").asText() : null;
 
     // 사람(callerId) 권한으로 이슈 생성. assigneeIds=[agentId] — AGENT 가 담당.
     var issue =
@@ -153,6 +182,28 @@ public class MessagingProposalService {
 
     // 갱신된 카드(CONFIRMED proposal 포함)를 HTTP 응답으로 반환 — 웹이 채널 쿼리 invalidate.
     return messageService.findOneForProposal(row.messageId(), agentId);
+  }
+
+  /**
+   * L3 위임 후보 프로젝트 = 위임자 기본 개인 프로젝트(맨 앞=기본값) + (위임자·AI 둘 다 멤버인 TEAM 프로젝트).
+   *
+   * <p>AssigneePolicy 정합: 개인은 모든 AGENT 담당 가능, 팀은 둘 다 멤버라야 AI 담당 가능.
+   */
+  @Transactional(readOnly = true)
+  public List<ProjectCandidateDto> candidateProjects(long delegatorId, long agentId) {
+    List<ProjectCandidateDto> out = new ArrayList<>();
+    // 엣지: 개인 프로젝트가 아직 없으면 생성(REQUIRES_NEW 서브 트랜잭션 독립 커밋).
+    provisioner.ensureDefaultPersonal(delegatorId);
+    projectRepo
+        .findDefaultPersonal(delegatorId)
+        .ifPresent(p -> out.add(new ProjectCandidateDto(p.key(), p.name())));
+    // 위임자가 속한 TEAM 프로젝트 중 AI 도 멤버인 것만 추가.
+    for (var p : projectRepo.findAllForUser(delegatorId, false, 0, 500)) {
+      if ("TEAM".equals(p.type()) && projectMemberRepo.isMember(p.id(), agentId)) {
+        out.add(new ProjectCandidateDto(p.key(), p.name()));
+      }
+    }
+    return out;
   }
 
   /** 위임자 거부 — 제안 REJECTED, 결과 메시지 없음. 갱신된 카드 메시지 반환. */

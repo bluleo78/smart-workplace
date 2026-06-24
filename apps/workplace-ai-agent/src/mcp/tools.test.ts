@@ -60,6 +60,8 @@ function client(): WorkplaceApiClient {
     listChannels: vi.fn().mockResolvedValue([]),
     discoverChannels: vi.fn().mockResolvedValue([]),
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
+    // L3 위임: 후보 프로젝트 목록 조회(Task 4 신규).
+    listDelegationCandidates: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -185,6 +187,23 @@ describe('buildTools (agentId bound)', () => {
     for (const p of ['issue', 'chat'] as const) {
       expect(names(p)).toEqual(expect.arrayContaining(['search_wiki', 'get_wiki_page']));
     }
+  });
+
+  // L3 위임 Task 4: propose_create_issue 가 projectKey 를 client 로 전달한다.
+  it('propose_create_issue: projectKey 를 client 로 전달한다', async () => {
+    const calls: unknown[] = [];
+    const c = {
+      proposeCreateIssue: async (...a: unknown[]) => { calls.push(a); },
+      addChannelMessage: async () => {},
+      listDelegationCandidates: async () => [],
+    } as never;
+    const tools = buildTools(c, 2, 'messaging', undefined, { actorId: 7, channelId: 9 });
+    const tool = tools.find((t) => t.name === 'propose_create_issue')!;
+    await tool.handler({ title: 'T', priority: 'HIGH', projectKey: 'DESIGN' });
+    // 3번째 인자(req)에 projectKey 가 포함되어야 한다.
+    expect(calls[0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: 'T', priority: 'HIGH', proposedByUserId: 7, projectKey: 'DESIGN' }),
+    ]));
   });
 });
 
