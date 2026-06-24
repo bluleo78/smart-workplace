@@ -27,7 +27,7 @@ import {
   useUpdateEvent,
 } from '@/hooks/queries/useCalendarMutations'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
-import { visibleRange } from '@/lib/calendar'
+import { type CalendarLayers, loadLayers, saveLayers, visibleRange } from '@/lib/calendar'
 import type {
   CalendarEvent,
   CalendarEventRequest,
@@ -58,6 +58,15 @@ export function CalendarPage() {
   const [pendingBody, setPendingBody] = useState<CalendarEventRequest | null>(null)
   // 단일 일정 삭제 확인 다이얼로그 표시 여부 (이슈 #128)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+
+  // 사이드바 표시 레이어 토글 — localStorage 에서 초기화.
+  const [layers, setLayers] = useState<CalendarLayers>(loadLayers)
+  // saveLayers 를 setState 업데이터 밖에서 호출 — StrictMode 이중 실행(사이드 이펙트) 방지.
+  const toggleLayer = (key: keyof CalendarLayers, value: boolean) => {
+    const next = { ...layers, [key]: value }
+    saveLayers(next)
+    setLayers(next)
+  }
 
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
@@ -150,8 +159,8 @@ export function CalendarPage() {
     navigate(`/projects/${m.projectKey}/issues/${m.number}`)
 
   const viewProps = {
-    events,
-    issueDues,
+    events: layers.events ? events : [],
+    issueDues: layers.issueDues ? issueDues : [],
     anchor,
     onSelectEvent: openEdit,
     onSelectIssue: openIssue,
@@ -160,7 +169,13 @@ export function CalendarPage() {
 
   return (
     <>
-      <CalendarSidebar onNew={() => openNew()} />
+      <CalendarSidebar
+        onNew={() => openNew()}
+        anchor={anchor}
+        onSelectDate={(d) => setAnchor(startOfDay(d))}
+        layers={layers}
+        onToggleLayer={toggleLayer}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환 */}
         <PageHeader

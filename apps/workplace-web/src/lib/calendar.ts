@@ -63,3 +63,38 @@ export function hhmm(iso: string | null | undefined): string {
 }
 
 export { addDays, endOfMonth, startOfMonth }
+
+// 사이드바 "표시" 레이어 토글 상태 — 본문에 겹쳐 보일 레이어 on/off.
+export interface CalendarLayers {
+  events: boolean
+  issueDues: boolean
+}
+
+const LAYERS_KEY = 'calendar.layers'
+
+// 기본 레이어 상태 — 모두 표시. 분기별 중복 제거용 공통 상수.
+const DEFAULT_LAYERS: CalendarLayers = { events: true, issueDues: true }
+
+// 저장된 레이어 상태 로드(없거나 손상 시 모두 표시 기본값).
+export function loadLayers(): CalendarLayers {
+  try {
+    const raw = localStorage.getItem(LAYERS_KEY)
+    if (!raw) return { ...DEFAULT_LAYERS }
+    const parsed = JSON.parse(raw) as Partial<CalendarLayers>
+    return {
+      events: parsed.events ?? DEFAULT_LAYERS.events,
+      issueDues: parsed.issueDues ?? DEFAULT_LAYERS.issueDues,
+    }
+  } catch {
+    return { ...DEFAULT_LAYERS }
+  }
+}
+
+// 레이어 상태 저장(localStorage 불가 환경은 무시).
+export function saveLayers(layers: CalendarLayers): void {
+  try {
+    localStorage.setItem(LAYERS_KEY, JSON.stringify(layers))
+  } catch {
+    // 저장 불가 — 무시(다음 세션 기본값 복귀).
+  }
+}
