@@ -49,16 +49,16 @@ interface RailItem {
 }
 
 // 활성화된 모듈 런처 항목 — 일일 사용 빈도 우선 순서.
-// 소통 묶음(대화·메일·연락처)을 앞에 인접 배치, 작업관리는 그 다음, 파일/노트는 끝.
+// 소통 묶음(대화·메일)을 앞에 인접 배치, 작업관리는 그 다음, 파일/노트, 연락처는 설정 직전.
 const MODULES: RailItem[] = [
   { label: '홈', href: '/', icon: Home },
   { label: '대화', href: '/chat', icon: MessageSquare },
   { label: '메일', href: '/mail', icon: Mail },
-  { label: '연락처', href: '/contacts', icon: Users },
   { label: '캘린더', href: '/calendar', icon: CalendarDays },
   { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
   { label: '드라이브', href: '/drive', icon: HardDrive },
   { label: '노트', href: '/wiki', icon: BookOpen },
+  { label: '연락처', href: '/contacts', icon: Users },
   { label: '설정', href: '/settings/profile', icon: Settings, match: ['/settings', '/admin'] },
 ]
 // 예정 모듈 — 현재 없음(노트 활성화로 비활성 앱 소진).
