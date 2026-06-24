@@ -92,6 +92,58 @@ test('표시 토글로 일정/이슈 레이어를 끄고 켤 수 있다', async 
   await expect(page.getByTestId('calendar-event-1')).toHaveCount(0)
 })
 
+test('미니 캘린더가 일정/마감 있는 날에 점을 표시한다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  // 6/11 에 일정 1건. 미니 그리드(6월) 범위로 조회됨.
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [
+    calendarEvent({ id: 1, title: '팀 회의', startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
+  ])
+  await stubDueIssue(page) // 6/11 마감 이슈(id 7) — calendar-sidebar.spec.ts 상단 헬퍼
+
+  await page.goto('/calendar')
+  const mini = page.getByTestId('calendar-mini')
+
+  // react-day-picker v10 modifiersClassNames 는 Day(<td> gridcell)에 적용됨 — data-day=ISO(2026-06-11).
+  // 6/11 셀에는 점(day-has-items), 6/15 셀에는 없음.
+  await expect(mini.locator('[data-day="2026-06-11"]')).toHaveClass(/day-has-items/)
+  await expect(mini.locator('[data-day="2026-06-15"]')).not.toHaveClass(/day-has-items/)
+})
+
+test('표시 토글을 끄면 미니 캘린더 점도 사라진다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  // 6/11 에 일정만(이슈 마감 없음) → "내 일정" 끄면 점 사라져야 함.
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [
+    calendarEvent({ id: 1, title: '팀 회의', startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
+  ])
+  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([]))
+
+  await page.goto('/calendar')
+  const mini = page.getByTestId('calendar-mini')
+  // react-day-picker v10: modifiersClassNames 는 Day(<td> gridcell, data-day=ISO) 에 적용.
+  const cell = mini.locator('[data-day="2026-06-11"]')
+
+  await expect(cell).toHaveClass(/day-has-items/)
+  // "내 일정" 토글 끄기 → 점 사라짐.
+  await page.getByTestId('calendar-layer-events').click()
+  await expect(cell).not.toHaveClass(/day-has-items/)
+})
+
+test('이슈 마감일 토글을 끄면 마감 점도 사라진다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  // 6/11 에 마감 이슈만(일정 없음) → "내 이슈 마감일" 끄면 점 사라져야 함(issueDues 분기 검증).
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  await stubDueIssue(page) // 6/11 마감 이슈(id 7)
+
+  await page.goto('/calendar')
+  const mini = page.getByTestId('calendar-mini')
+  const cell = mini.locator('[data-day="2026-06-11"]')
+
+  await expect(cell).toHaveClass(/day-has-items/)
+  // "내 이슈 마감일" 토글 끄기 → 점 사라짐.
+  await page.getByTestId('calendar-layer-issue-dues').click()
+  await expect(cell).not.toHaveClass(/day-has-items/)
+})
+
 test('표시 토글 상태가 새로고침 후에도 유지된다(localStorage)', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])

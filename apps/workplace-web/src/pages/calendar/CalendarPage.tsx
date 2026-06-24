@@ -27,7 +27,15 @@ import {
   useUpdateEvent,
 } from '@/hooks/queries/useCalendarMutations'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
-import { type CalendarLayers, loadLayers, saveLayers, visibleRange } from '@/lib/calendar'
+import {
+  type CalendarLayers,
+  eventsOnDay,
+  issueDuesOnDay,
+  loadLayers,
+  monthMatrix,
+  saveLayers,
+  visibleRange,
+} from '@/lib/calendar'
 import type {
   CalendarEvent,
   CalendarEventRequest,
@@ -73,6 +81,23 @@ export function CalendarPage() {
   const { data: events = [] } = useCalendarEvents(from, to)
   // 내게 할당된 이슈 마감일을 같은 가시 범위로 조회해 읽기전용 오버레이.
   const { data: issueDues = [] } = useMyIssueDues(from, to)
+
+  // 미니 캘린더는 항상 anchor 의 한 달(6주 그리드)을 보여주므로, 본문 범위와 별개로
+  // 그 그리드 범위의 일정/마감을 조회한다. 월 보기에선 from/to 가 본문과 같아 자동 dedup.
+  const miniRange = useMemo(() => visibleRange('month', anchor), [anchor])
+  const { data: miniEvents = [] } = useCalendarEvents(miniRange.from, miniRange.to)
+  const { data: miniDues = [] } = useMyIssueDues(miniRange.from, miniRange.to)
+
+  // 점 찍을 날 — 표시 토글을 존중. 다일 일정도 eventsOnDay 로 걸친 날 전부 판정.
+  const markedDates = useMemo(
+    () =>
+      monthMatrix(anchor).filter(
+        (day) =>
+          (layers.events && eventsOnDay(miniEvents, day).length > 0) ||
+          (layers.issueDues && issueDuesOnDay(miniDues, day).length > 0),
+      ),
+    [anchor, layers, miniEvents, miniDues],
+  )
 
   const create = useCreateEvent()
   const update = useUpdateEvent()
@@ -175,6 +200,7 @@ export function CalendarPage() {
         onSelectDate={(d) => setAnchor(startOfDay(d))}
         layers={layers}
         onToggleLayer={toggleLayer}
+        markedDates={markedDates}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환 */}

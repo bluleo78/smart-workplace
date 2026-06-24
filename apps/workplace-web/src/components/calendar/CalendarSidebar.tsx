@@ -16,10 +16,12 @@ interface CalendarSidebarProps {
   layers: CalendarLayers
   // 레이어 토글 변경.
   onToggleLayer: (key: keyof CalendarLayers, value: boolean) => void
+  // 일정/마감이 있어 점(dot)을 찍을 날짜들.
+  markedDates: Date[]
 }
 
 /** 캘린더 2차 사이드바 — 타이틀 + 새 일정 + 미니 캘린더 + 표시 레이어 토글. */
-export function CalendarSidebar({ onNew, anchor, onSelectDate, layers, onToggleLayer }: CalendarSidebarProps) {
+export function CalendarSidebar({ onNew, anchor, onSelectDate, layers, onToggleLayer, markedDates }: CalendarSidebarProps) {
   return (
     <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r bg-sidebar/40">
       <div className={sidebarTitleClass}>
@@ -43,6 +45,12 @@ export function CalendarSidebar({ onNew, anchor, onSelectDate, layers, onToggleL
           onSelect={(d) => d && onSelectDate(d)}
           onMonthChange={onSelectDate}
           className="w-full px-2 pb-2 [--cell-size:1.75rem]"
+          modifiers={{ hasItems: markedDates }}
+          modifiersClassNames={{
+            // day-has-items = E2E 셀렉트용 안정 토큰. after:* = 날짜 숫자 아래 primary 점.
+            hasItems:
+              'day-has-items relative after:absolute after:bottom-0.5 after:left-1/2 after:size-1 after:-translate-x-1/2 after:rounded-full after:bg-primary',
+          }}
         />
       </div>
 
