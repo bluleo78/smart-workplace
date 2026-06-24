@@ -41,7 +41,14 @@ async function main(): Promise<void> {
   const profile = raw === 'chat' || raw === 'home' || raw === 'messaging' || raw === 'assistant' ? raw : 'issue';
   // onBehalfOfId: 도구 호출 시 X-On-Behalf-Of 에 사용할 ID.
   //   홈 compose → ACTING_USER_ID(요청자) 우선, 미설정(이슈 채팅) → ACTING_AGENT_ID 폴백.
-  const tools = buildTools(client, onBehalfOfId, profile);
+  // 스레드 mirror: 트리거가 스레드 안이면 백엔드가 두 env 를 주입 — add_channel_message 의 parent 바인딩.
+  const triggerChannelId = Number(process.env.WORKPLACE_TRIGGER_CHANNEL_ID);
+  const triggerThreadParentId = Number(process.env.WORKPLACE_TRIGGER_THREAD_PARENT_ID);
+  const threadBinding =
+    Number.isFinite(triggerChannelId) && Number.isFinite(triggerThreadParentId)
+      ? { channelId: triggerChannelId, parentMessageId: triggerThreadParentId }
+      : undefined;
+  const tools = buildTools(client, onBehalfOfId, profile, threadBinding);
 
   const server = new Server(
     { name: 'workplace', version: '0.0.1' },

@@ -42,6 +42,8 @@ public class MessagingAiDispatcher {
     p.put("actor", actorMap(e));
     p.put("body", e.body());
     p.put("mentions", e.mentions().stream().map(this::mentionMap).toList());
+    // null 이면 인라인 멘션 — ai-agent 가 바인딩하지 않는다(payload 엔 null 로 전달).
+    p.put("triggerParentMessageId", e.triggerParentMessageId());
     p.put("occurredAt", e.occurredAt().toString());
     return p;
   }

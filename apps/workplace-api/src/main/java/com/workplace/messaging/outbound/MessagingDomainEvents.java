@@ -58,6 +58,9 @@ public final class MessagingDomainEvents {
       String actorKind,
       String body,
       List<MentionResponse> mentions,
+      // 트리거 메시지의 parentMessageId(스레드 루트). null 이면 채널 인라인 멘션 — AI 답도 인라인.
+      // 비-null 이면 AI 답이 그 스레드에 들어가도록 ai-agent 가 MCP 세션에 바인딩(mirror).
+      Long triggerParentMessageId,
       Instant occurredAt) {}
 
   /** 채널 멤버십 변경 — 연동 드라이브 공간 멤버 reconcile 소스. members 는 변경 후 현재 전체 roster. */

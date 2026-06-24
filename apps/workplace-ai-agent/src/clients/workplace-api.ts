@@ -219,7 +219,12 @@ export interface WorkplaceApiClient {
     channelId: number,
     limit: number,
   ): Promise<ChannelMessageItem[]>;
-  addChannelMessage(agentId: number, channelId: number, body: string): Promise<void>;
+  addChannelMessage(
+    agentId: number,
+    channelId: number,
+    body: string,
+    parentMessageId?: number,
+  ): Promise<void>;
   // A2: 메시징 진행 상태 전송
   postMessagingProgress(agentId: number, channelId: number, payload: ProgressPayload): Promise<void>;
   // #350: 채널 목록/탐색 — 채널 이름 → channelId 해석 전용 읽기 도구.
@@ -449,10 +454,11 @@ export function createWorkplaceApiClient(opts: {
       const items: ChannelMessageItem[] = Array.isArray(r.data?.items) ? r.data.items : [];
       return items;
     },
-    async addChannelMessage(agentId, channelId, body) {
+    async addChannelMessage(agentId, channelId, body, parentMessageId) {
       await http.post(
         `/messaging/channels/${channelId}/messages`,
-        { body },
+        // parentMessageId 가 있으면 그 스레드에 답(mirror). 없으면 채널 인라인.
+        parentMessageId != null ? { body, parentMessageId } : { body },
         onBehalfOf(agentId),
       );
     },

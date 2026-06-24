@@ -178,6 +178,8 @@ public class MessageService {
             saved.authorKind(),
             saved.body(),
             saved.mentions(),
+            // mirror: AI 답이 트리거와 같은 자리(스레드/인라인)에 떨어지도록 트리거의 parent 운반.
+            saved.parentMessageId(),
             saved.createdAt()));
   }
 

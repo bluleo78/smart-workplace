@@ -217,4 +217,35 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
     Thread.sleep(800);
     verify(client, never()).publish(any());
   }
+
+  /** 스레드 답글에서 AGENT 를 멘션하면 payload 에 트리거 메시지의 parent(루트 id)가 담긴다 — mirror 의 근거. */
+  @Test
+  void channel_threadReplyMentionsAgent_payloadCarriesTriggerParent() {
+    long human = seedUser("HUMAN");
+    long agent = seedUser("AGENT");
+    long channelId = channelRepo.insertPublic("c7t", human);
+    channelService.join(human, channelId);
+    // 루트 메시지 작성 후, 그 스레드 안에서 AGENT 멘션.
+    var root = messageService.create(human, channelId, new CreateMessageRequest("스레드 루트"));
+    messageService.create(
+        human, channelId, new CreateMessageRequest("<@" + agent + "> 정리해줘", root.id()));
+
+    ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, timeout(2000).times(1)).publish(captor.capture());
+    assertThat(captor.getValue().payload().get("triggerParentMessageId")).isEqualTo(root.id());
+  }
+
+  /** 채널 인라인(스레드 아님) 멘션이면 triggerParentMessageId 는 null 이다 — 인라인 유지. */
+  @Test
+  void channel_inlineMention_triggerParentIsNull() {
+    long human = seedUser("HUMAN");
+    long agent = seedUser("AGENT");
+    long channelId = channelRepo.insertPublic("c7i", human);
+    channelService.join(human, channelId);
+    messageService.create(human, channelId, new CreateMessageRequest("<@" + agent + "> 처리"));
+
+    ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, timeout(2000).times(1)).publish(captor.capture());
+    assertThat(captor.getValue().payload().get("triggerParentMessageId")).isNull();
+  }
 }

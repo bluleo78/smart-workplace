@@ -295,6 +295,9 @@ export function buildTools(
   client: WorkplaceApiClient,
   agentId: number,
   profile: McpProfile = 'issue',
+  // 스레드 mirror: 트리거가 스레드 안일 때 {channelId, parentMessageId}. 이 채널에 add_channel_message 하면
+  // 그 스레드에 답이 들어간다(인라인 멘션이면 undefined — 현행 인라인 동작).
+  threadBinding?: { channelId: number; parentMessageId: number },
 ): McpTool[] {
   const getIssueDetailTool: McpTool = {
     name: 'get_issue_detail',
@@ -398,7 +401,12 @@ export function buildTools(
     inputSchema: addChannelMessageInput,
     async handler(args) {
       const { channelId, body } = addChannelMessageInput.parse(args);
-      await client.addChannelMessage(agentId, channelId, body);
+      // mirror: 바인딩된 트리거 채널에 한해 그 스레드 parent 로 답(다른 채널은 인라인).
+      const parentMessageId =
+        threadBinding && threadBinding.channelId === channelId
+          ? threadBinding.parentMessageId
+          : undefined;
+      await client.addChannelMessage(agentId, channelId, body, parentMessageId);
       return 'ok';
     },
   };

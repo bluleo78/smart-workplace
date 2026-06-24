@@ -57,6 +57,10 @@ export function writeTempMcpConfig(opts: {
   subagentResponsePath?: string;
   // Task 1-2: 도구 호출 로깅 사이드카 절대경로(설정 시 디스패처가 기록)
   toolUseLogPath?: string;
+  // 스레드 mirror: 트리거가 스레드 안일 때 그 채널/루트를 바인딩 — add_channel_message 가
+  // 이 채널에 한해 답을 해당 스레드에 넣는다. 인라인 멘션이면 미설정(바인딩 없음).
+  triggerChannelId?: number;
+  triggerThreadParentId?: number;
 }): string {
   const { command, args } = resolveMcpServerCommand(here);
   const config = {
@@ -82,6 +86,13 @@ export function writeTempMcpConfig(opts: {
           ...(opts.subagentResponsePath ? { WORKPLACE_SUBAGENT_RESPONSE_PATH: opts.subagentResponsePath } : {}),
           // Task 1-2: 도구 호출 로깅 사이드카 경로. 없으면 핸들러가 로깅하지 못함.
           ...(opts.toolUseLogPath ? { WORKPLACE_TOOL_USE_LOG_PATH: opts.toolUseLogPath } : {}),
+          // 스레드 mirror: 둘 다 있을 때만 주입. MCP 서버가 읽어 add_channel_message 의 parent 를 바인딩.
+          ...(opts.triggerChannelId !== undefined && opts.triggerThreadParentId !== undefined
+            ? {
+                WORKPLACE_TRIGGER_CHANNEL_ID: String(opts.triggerChannelId),
+                WORKPLACE_TRIGGER_THREAD_PARENT_ID: String(opts.triggerThreadParentId),
+              }
+            : {}),
         },
       },
     },

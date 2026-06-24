@@ -64,3 +64,26 @@ describe('writeTempMcpConfig profile', () => {
     p = ''; // afterEach 중복 정리 방지
   });
 });
+
+function readEnv(opts: Parameters<typeof writeTempMcpConfig>[0]) {
+  const p = writeTempMcpConfig(opts);
+  const cfg = JSON.parse(readFileSync(p, 'utf8'));
+  cleanupTempMcpConfig(p);
+  return cfg.mcpServers.workplace.env as Record<string, string>;
+}
+
+describe('writeTempMcpConfig 트리거 바인딩 env', () => {
+  const base = { agentId: 2, baseURL: 'http://x', internalToken: 't', profile: 'messaging' as const };
+
+  it('triggerChannelId+triggerThreadParentId 를 주면 두 env 키를 주입한다', () => {
+    const env = readEnv({ ...base, triggerChannelId: 9, triggerThreadParentId: 210 });
+    expect(env.WORKPLACE_TRIGGER_CHANNEL_ID).toBe('9');
+    expect(env.WORKPLACE_TRIGGER_THREAD_PARENT_ID).toBe('210');
+  });
+
+  it('트리거 바인딩을 안 주면 두 env 키가 없다(인라인)', () => {
+    const env = readEnv(base);
+    expect(env.WORKPLACE_TRIGGER_CHANNEL_ID).toBeUndefined();
+    expect(env.WORKPLACE_TRIGGER_THREAD_PARENT_ID).toBeUndefined();
+  });
+});

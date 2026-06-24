@@ -45,6 +45,10 @@ export async function runMessagingAgent(
     baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
     internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
     profile: 'messaging',
+    // mirror: 트리거가 스레드 안(parent 비-null)일 때만 바인딩 — 인라인이면 미전달.
+    ...(p.triggerParentMessageId != null
+      ? { triggerChannelId: p.channelId, triggerThreadParentId: p.triggerParentMessageId }
+      : {}),
   });
 
   try {

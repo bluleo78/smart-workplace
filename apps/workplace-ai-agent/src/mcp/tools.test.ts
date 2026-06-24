@@ -702,6 +702,35 @@ describe('buildTools(assistant) 캘린더 수정/삭제 제안 도구 (M4)', () 
   });
 });
 
+// 스레드 mirror: threadBinding — add_channel_message 가 바인딩 채널에 parentMessageId 를 전달.
+describe('buildTools threadBinding — add_channel_message 스레드 mirror', () => {
+  it('threadBinding 채널과 일치하면 add_channel_message 가 parentMessageId 를 넘긴다', async () => {
+    const calls: Array<[number, number, string, number | undefined]> = [];
+    const fake = {
+      addChannelMessage: async (a: number, c: number, b: string, pid?: number) => {
+        calls.push([a, c, b, pid]);
+      },
+    } as never;
+    const tools = buildTools(fake, 2, 'messaging', { channelId: 9, parentMessageId: 210 });
+    const tool = tools.find((t) => t.name === 'add_channel_message')!;
+    await tool.handler({ channelId: 9, body: '답' });
+    expect(calls[0]).toEqual([2, 9, '답', 210]);
+  });
+
+  it('threadBinding 과 다른 채널이면 parentMessageId 없이(인라인) 넘긴다', async () => {
+    const calls: Array<[number, number, string, number | undefined]> = [];
+    const fake = {
+      addChannelMessage: async (a: number, c: number, b: string, pid?: number) => {
+        calls.push([a, c, b, pid]);
+      },
+    } as never;
+    const tools = buildTools(fake, 2, 'messaging', { channelId: 9, parentMessageId: 210 });
+    const tool = tools.find((t) => t.name === 'add_channel_message')!;
+    await tool.handler({ channelId: 5, body: '딴채널' });
+    expect(calls[0]).toEqual([2, 5, '딴채널', undefined]);
+  });
+});
+
 // home 프로필은 표시 지시 도구만 노출하고 데이터 조회를 하지 않는다.
 describe('buildTools home 프로필', () => {
   const fakeClient = {} as never; // home 도구는 client 를 호출하지 않으므로 빈 객체로 충분

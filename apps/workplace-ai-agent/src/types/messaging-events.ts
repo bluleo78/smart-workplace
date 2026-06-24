@@ -22,6 +22,8 @@ export const messagingMessagePostedPayload = z.object({
   actor,
   body: z.string(),
   mentions: z.array(mentionUser),
+  // 트리거 메시지의 parent(스레드 루트). null/미존재면 채널 인라인 멘션.
+  triggerParentMessageId: z.number().nullable().optional(),
   occurredAt: z.string(),
 });
 
