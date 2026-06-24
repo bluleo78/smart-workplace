@@ -655,4 +655,56 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       expect(out).toEqual([]);
     });
   });
+
+  // --- L3 위임(일정): 채팅 @AI 대화 → 일정 제안 카드 ---
+
+  describe('proposeCreateEvent', () => {
+    it('POST /messaging/channels/{id}/proposals with actionType=calendar.create_event + payload', async () => {
+      // proposeCreateIssue 패턴 미러: nock 으로 HTTP 가로채 body/헤더 검증.
+      const scope = nock(BASE)
+        .matchHeader('authorization', 'Internal tk-internal')
+        .matchHeader('x-on-behalf-of', String(AGENT_ID))
+        .post(`${PREFIX}/messaging/channels/9/proposals`, {
+          actionType: 'calendar.create_event',
+          title: '팀 미팅',
+          startsAt: '2026-07-01T10:00:00Z',
+          endsAt: '2026-07-01T11:00:00Z',
+          proposedByUserId: 5,
+        })
+        .reply(201, {});
+      await newClient().proposeCreateEvent(AGENT_ID, 9, {
+        title: '팀 미팅',
+        startsAt: '2026-07-01T10:00:00Z',
+        endsAt: '2026-07-01T11:00:00Z',
+        proposedByUserId: 5,
+      });
+      expect(scope.isDone()).toBe(true);
+    });
+
+    it('선택 필드(allDay/location/parentMessageId) 포함 시 body 에 함께 전달', async () => {
+      const scope = nock(BASE)
+        .matchHeader('x-on-behalf-of', String(AGENT_ID))
+        .post(`${PREFIX}/messaging/channels/9/proposals`, {
+          actionType: 'calendar.create_event',
+          title: '전사 워크숍',
+          startsAt: '2026-07-10T00:00:00Z',
+          endsAt: '2026-07-11T00:00:00Z',
+          allDay: true,
+          location: '제주',
+          proposedByUserId: 3,
+          parentMessageId: 42,
+        })
+        .reply(201, {});
+      await newClient().proposeCreateEvent(AGENT_ID, 9, {
+        title: '전사 워크숍',
+        startsAt: '2026-07-10T00:00:00Z',
+        endsAt: '2026-07-11T00:00:00Z',
+        allDay: true,
+        location: '제주',
+        proposedByUserId: 3,
+        parentMessageId: 42,
+      });
+      expect(scope.isDone()).toBe(true);
+    });
+  });
 });

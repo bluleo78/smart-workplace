@@ -57,6 +57,7 @@ function client(token: string | Error): WorkplaceApiClient {
     listChannels: vi.fn().mockResolvedValue([]),
     discoverChannels: vi.fn().mockResolvedValue([]),
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
+    proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     // L3 위임: 후보 프로젝트 목록 조회(Task 4 신규).
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
   };

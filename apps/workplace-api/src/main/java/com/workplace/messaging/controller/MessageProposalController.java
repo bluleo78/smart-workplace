@@ -31,14 +31,13 @@ public class MessageProposalController {
         .body(proposalService.propose(agentId, channelId, request));
   }
 
-  /** 위임자 승인 — principal = 위임자(사람). 이슈 생성 + 결과 메시지 게시. body.projectKey 로 팀 프로젝트 override 가능. */
+  /** 위임자 승인 — principal = 위임자(사람). 이슈/일정 생성 + 결과 메시지 게시. body 로 편집 override 전달. */
   @PostMapping("/proposals/{id}/confirm")
   public ResponseEntity<MessageResponse> confirm(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long id,
       @RequestBody(required = false) ConfirmProposalRequest body) {
-    return ResponseEntity.ok(
-        proposalService.confirm(callerId, id, body == null ? null : body.projectKey()));
+    return ResponseEntity.ok(proposalService.confirmWithBody(callerId, id, body));
   }
 
   /** 위임자 거부 — 제안 REJECTED, 결과 메시지 없음. */

@@ -270,6 +270,23 @@ export interface WorkplaceApiClient {
     channelId: number,
     req: { title: string; body?: string; priority?: string; proposedByUserId: number; parentMessageId?: number; projectKey?: string },
   ): Promise<void>;
+  // L3 위임(일정): AI 일정 제안 카드 생성(on-behalf AGENT). actionType='calendar.create_event'.
+  proposeCreateEvent(
+    agentId: number,
+    channelId: number,
+    req: {
+      title: string;
+      startsAt: string;
+      endsAt: string;
+      allDay?: boolean;
+      location?: string;
+      reminderMinutes?: number;
+      recurrenceRule?: string;
+      conflicts?: { id: number; title: string; startsAt: string; endsAt: string }[];
+      proposedByUserId: number;
+      parentMessageId?: number;
+    },
+  ): Promise<void>;
   // L3 위임: 위임자(delegatorId)가 참여 중인 프로젝트 목록 — AI 가 이슈 라우팅 projectKey 를 고를 소스.
   listDelegationCandidates(agentId: number, delegatorId: number): Promise<{ key: string; name: string }[]>;
   // 6c: 이슈 첨부
@@ -477,6 +494,15 @@ export function createWorkplaceApiClient(opts: {
       await http.post(
         `/messaging/channels/${channelId}/proposals`,
         { actionType: 'CREATE_ISSUE', ...req },
+        onBehalfOf(agentId),
+      );
+    },
+
+    // L3 위임(일정): 일정 생성 제안 카드. actionType='calendar.create_event' + 일정 컨텍스트를 담아 proposals API 호출.
+    async proposeCreateEvent(agentId, channelId, req) {
+      await http.post(
+        `/messaging/channels/${channelId}/proposals`,
+        { actionType: 'calendar.create_event', ...req },
         onBehalfOf(agentId),
       );
     },

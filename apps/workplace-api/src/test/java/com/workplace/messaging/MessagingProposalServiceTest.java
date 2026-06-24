@@ -176,7 +176,20 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
             agentId,
             channelId,
             new CreateProposalRequest(
-                "CREATE_ISSUE", "로그인 버그 고치기", "상세 본문", "HIGH", human, null, null));
+                "CREATE_ISSUE",
+                "로그인 버그 고치기",
+                "상세 본문",
+                "HIGH",
+                null,
+                human,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
 
     // 메시지 1건(AGENT 작성) 추가됨.
     assertThat(countMessages(channelId)).isEqualTo(messageBefore + 1);
@@ -198,7 +211,21 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "T", null, null, human, root, null));
+            new CreateProposalRequest(
+                "CREATE_ISSUE",
+                "T",
+                null,
+                null,
+                null,
+                human,
+                root,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
     assertThat(resp.parentMessageId()).isEqualTo(root);
   }
 
@@ -219,7 +246,20 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
                     agentId,
                     channelId,
                     new CreateProposalRequest(
-                        "CREATE_ISSUE", "T", null, null, outsider, null, null)))
+                        "CREATE_ISSUE",
+                        "T",
+                        null,
+                        null,
+                        null,
+                        outsider,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null)))
         .isInstanceOf(ChannelNotMemberException.class);
   }
 
@@ -244,7 +284,20 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
             agentId,
             channelId,
             new CreateProposalRequest(
-                "CREATE_ISSUE", "AI 멤버 프로젝트 테스트", null, null, freshHuman, null, null));
+                "CREATE_ISSUE",
+                "AI 멤버 프로젝트 테스트",
+                null,
+                null,
+                null,
+                freshHuman,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
 
     // 제안이 성공하고 AI 가 멤버인 개인 프로젝트가 사용되어야 한다.
     assertThat(resp.proposal()).isNotNull();

@@ -350,6 +350,20 @@ public class MessageService {
                 c.path("key").asText(null), c.path("name").asText(null)));
       }
     }
+    // 일정(calendar.create_event) 전용 필드 — payload 에서 추출(없으면 null).
+    java.util.List<com.workplace.messaging.dto.EventConflictDto> conflicts =
+        new java.util.ArrayList<>();
+    if (p.has("conflicts") && p.get("conflicts").isArray()) {
+      for (JsonNode c : p.get("conflicts")) {
+        conflicts.add(
+            new com.workplace.messaging.dto.EventConflictDto(
+                c.path("id").asLong(),
+                c.path("title").asText(null),
+                c.path("startsAt").asText(null),
+                c.path("endsAt").asText(null)));
+      }
+    }
+
     return new MessageProposalResponse(
         r.id(),
         r.proposedByUserId(),
@@ -360,7 +374,12 @@ public class MessageService {
         p.path("projectName").asText(null),
         r.resultIssueKey(),
         projectKey,
-        cands);
+        cands,
+        p.path("startsAt").asText(null),
+        p.path("endsAt").asText(null),
+        p.path("location").asText(null),
+        p.has("allDay") ? p.path("allDay").asBoolean(false) : null,
+        conflicts.isEmpty() ? null : conflicts);
   }
 
   /**

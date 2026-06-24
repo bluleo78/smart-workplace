@@ -60,6 +60,7 @@ function client(): WorkplaceApiClient {
     listChannels: vi.fn().mockResolvedValue([]),
     discoverChannels: vi.fn().mockResolvedValue([]),
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
+    proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     // L3 위임: 후보 프로젝트 목록 조회(Task 4 신규).
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
   };
@@ -804,6 +805,42 @@ describe('buildTools messaging 위임 — propose_create_issue', () => {
     const secondResult = await tool.handler({ title: '버그 보고', priority: 'HIGH' });
     expect(secondResult).toBe('제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.');
     expect(callCount).toBe(2); // 재시도 시 실제로 API 재호출됨
+  });
+});
+
+// L3 위임: propose_create_event — messaging 프로파일에서 delegationContext 유무에 따른 노출/차단 검증.
+describe('buildTools messaging 위임 — propose_create_event', () => {
+  it('messaging profile exposes propose_create_event under delegationContext and calls client', async () => {
+    const calls: any[] = [];
+    const client = {
+      // 필요한 메서드만 스텁 — listEvents 는 충돌 없음([]) 반환.
+      listEvents: async () => [],
+      proposeCreateEvent: async (...args: any[]) => { calls.push(args); },
+    } as any;
+    const tools = buildTools(client, 42, 'messaging', undefined, {
+      actorId: 7,
+      channelId: 9,
+      parentMessageId: undefined,
+    });
+    const tool = tools.find((t) => t.name === 'propose_create_event');
+    expect(tool).toBeDefined();
+
+    await tool!.handler({
+      title: '스프린트 리뷰',
+      startsAt: '2026-07-05T14:00:00+09:00',
+      endsAt: '2026-07-05T15:00:00+09:00',
+      summary: '7/5 14:00 스프린트 리뷰',
+    });
+    expect(calls).toHaveLength(1);
+    // [agentId, channelId, req] — req.proposedByUserId=actorId, actionType 은 client 가 스탬프.
+    expect(calls[0][1]).toBe(9);
+    expect(calls[0][2].title).toBe('스프린트 리뷰');
+    expect(calls[0][2].proposedByUserId).toBe(7);
+  });
+
+  it('messaging profile WITHOUT delegationContext does not expose propose_create_event', () => {
+    const tools = buildTools({} as any, 42, 'messaging');
+    expect(tools.find((t) => t.name === 'propose_create_event')).toBeUndefined();
   });
 });
 

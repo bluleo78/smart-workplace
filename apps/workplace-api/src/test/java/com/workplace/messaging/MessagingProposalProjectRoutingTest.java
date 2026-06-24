@@ -278,7 +278,21 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "T1", null, "MID", delegator, null, teamKey));
+            new CreateProposalRequest(
+                "CREATE_ISSUE",
+                "T1",
+                null,
+                "MID",
+                teamKey,
+                delegator,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
     assertThat(r1.proposal().projectKey()).isEqualTo(teamKey);
     // candidates 배열에 팀 프로젝트 키가 포함되어야 한다.
     assertThat(r1.proposal().candidates()).extracting(ProjectCandidateDto::key).contains(teamKey);
@@ -289,7 +303,20 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
             agentId,
             channelId,
             new CreateProposalRequest(
-                "CREATE_ISSUE", "T2", null, "MID", delegator, null, "NOPE-999"));
+                "CREATE_ISSUE",
+                "T2",
+                null,
+                "MID",
+                "NOPE-999",
+                delegator,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
     assertThat(r2.proposal().candidates())
         .extracting(ProjectCandidateDto::key)
         .contains(r2.proposal().projectKey());
@@ -314,7 +341,20 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
             agentId,
             channelId,
             new CreateProposalRequest(
-                "CREATE_ISSUE", "후보 노출 테스트", null, "MID", delegator, null, null));
+                "CREATE_ISSUE",
+                "후보 노출 테스트",
+                null,
+                "MID",
+                null,
+                delegator,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
 
     String personalKey = projectRepo.findDefaultPersonal(delegator).get().key();
     // null 키 → 첫 후보 폴백 — 어느 후보든 candidates 안에 있어야 한다.
@@ -349,7 +389,21 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "팀 작업", null, "HIGH", delegator, null, null));
+            new CreateProposalRequest(
+                "CREATE_ISSUE",
+                "팀 작업",
+                null,
+                "HIGH",
+                null,
+                delegator,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
 
     // confirm 시 teamKey 로 override.
     var res = proposalService.confirm(delegator, prop.proposal().id(), teamKey);
@@ -386,7 +440,20 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
             agentId,
             channelId,
             new CreateProposalRequest(
-                "CREATE_ISSUE", "스테일 테스트 이슈", null, "MID", delegator, null, teamKey));
+                "CREATE_ISSUE",
+                "스테일 테스트 이슈",
+                null,
+                "MID",
+                teamKey,
+                delegator,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
     assertThat(prop.proposal().projectKey()).isEqualTo(teamKey);
 
     // propose → confirm 사이에 AGENT 를 팀 프로젝트에서 제거 → 저장된 teamKey 가 스테일됨.
@@ -433,7 +500,20 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
                     agentId,
                     channelId,
                     new CreateProposalRequest(
-                        "CREATE_ISSUE", "테스트", null, "MID", delegator, null, null)))
+                        "CREATE_ISSUE",
+                        "테스트",
+                        null,
+                        "MID",
+                        null,
+                        delegator,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null)))
         .isInstanceOf(NoDelegationCandidateException.class);
   }
 
@@ -450,7 +530,21 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
         proposalService.propose(
             agentId,
             channelId,
-            new CreateProposalRequest("CREATE_ISSUE", "T", null, "MID", delegator, null, null));
+            new CreateProposalRequest(
+                "CREATE_ISSUE",
+                "T",
+                null,
+                "MID",
+                null,
+                delegator,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
 
     // 후보 밖 키로 override → InvalidDelegationProjectException.
     assertThatThrownBy(() -> proposalService.confirm(delegator, prop.proposal().id(), "NOPE-999"))

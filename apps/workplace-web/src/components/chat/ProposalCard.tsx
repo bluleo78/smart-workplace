@@ -1,14 +1,15 @@
 // L3 위임 확인 카드 컴포넌트.
-// AI 가 이슈 생성을 제안할 때 메시지 본문 대신 렌더되는 카드.
-// - PENDING + 위임자(currentUserId === proposedByUserId): 프로젝트 드롭다운 + 승인/거부 버튼 활성.
+// actionType 으로 분기 — 이슈: 프로젝트 드롭다운 카드, 일정: EventProposalCard 위임.
+// - PENDING + 위임자(currentUserId === proposedByUserId): 편집 폼 + 승인/거부 버튼 활성.
 // - PENDING + 비위임자: "확인 대기 중" 표시만.
-// - CONFIRMED: 생성된 이슈 키 표시.
+// - CONFIRMED: 생성된 이슈 키 / 일정 보기 링크 표시.
 // - REJECTED: 거부됨 표시.
 
 import { Bot, CircleCheck } from 'lucide-react'
 import { useState } from 'react'
 
 import { AiContent } from '@/components/ai/AiContent'
+import { EventProposalCard } from '@/components/chat/EventProposalCard'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -23,8 +24,14 @@ interface ProposalCardProps {
   proposal: MessageProposal
   /** 현재 로그인 사용자 id — 위임자 여부(승인/거부 권한) 판정에 사용. */
   currentUserId: number
-  /** 승인 버튼 클릭 핸들러. projectKey 를 받아 확인 시 선택된 프로젝트 키 전달. */
-  onConfirm: (projectKey?: string) => void
+  /**
+   * 승인 버튼 클릭 핸들러.
+   * - 이슈: projectKey(string | undefined) 전달.
+   * - 일정: 편집 override 객체({ title?, startsAt?, endsAt?, location? }) 전달.
+   */
+  onConfirm: (
+    arg?: string | { title?: string; startsAt?: string; endsAt?: string; location?: string },
+  ) => void
   /** 거부 버튼 클릭 핸들러. */
   onReject: () => void
   /** 뮤테이션 진행 중(버튼 비활성화용). */
@@ -32,25 +39,35 @@ interface ProposalCardProps {
 }
 
 /**
- * 채팅 L3 위임 확인 카드. AI 가 올린 이슈 생성 제안.
- * 위임자(currentUserId === proposedByUserId)이고 PENDING 일 때만 프로젝트 드롭다운 + 승인/거부 버튼 활성,
- * 그 외엔 상태 표시(대기/생성됨/거부됨).
+ * 채팅 L3 위임 확인 카드. actionType 으로 분기해 이슈/일정 전용 카드를 렌더한다.
+ * - calendar.create_event → EventProposalCard (편집 폼 + 충돌 배지)
+ * - 그 외(CREATE_ISSUE) → 기존 프로젝트 드롭다운 카드
  */
-export function ProposalCard({
-  proposal,
-  currentUserId,
-  onConfirm,
-  onReject,
-  busy,
-}: ProposalCardProps) {
-  // 위임자 여부 — 이 사람만 승인/거부 가능.
-  const isDelegator = currentUserId === proposal.proposedByUserId
-  const isPending = proposal.status === 'PENDING'
+export function ProposalCard(props: ProposalCardProps) {
+  const { proposal, currentUserId, onConfirm, onReject, busy } = props
 
   // 위임자 PENDING 상태에서 선택된 프로젝트 키 — 초기값은 proposal.projectKey 또는 첫 후보.
+  // Hook 은 조건부 return 전에 선언해야 한다(Rules of Hooks).
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | undefined>(
     proposal.projectKey ?? proposal.candidates[0]?.key,
   )
+
+  // 일정 제안은 전용 편집 카드로 위임.
+  if (proposal.actionType === 'calendar.create_event') {
+    return (
+      <EventProposalCard
+        proposal={proposal}
+        currentUserId={currentUserId}
+        onConfirm={(overrides) => onConfirm(overrides)}
+        onReject={onReject}
+        busy={busy}
+      />
+    )
+  }
+
+  // 위임자 여부 — 이 사람만 승인/거부 가능.
+  const isDelegator = currentUserId === proposal.proposedByUserId
+  const isPending = proposal.status === 'PENDING'
 
   return (
     <div

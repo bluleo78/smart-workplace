@@ -167,13 +167,17 @@ export const messagingApi = {
   ensureChannelDriveSpace: (channelId: number) =>
     client.post<ChannelDriveSpaceResponse>(`/messaging/channels/${channelId}/drive-space`),
 
-  // L3 위임 제안 승인 — 이슈 생성 + AI 담당 할당. 갱신된 카드 메시지 반환.
-  // projectKey 를 전달하면 AI 가 추천한 프로젝트 대신 해당 프로젝트로 이슈가 생성된다.
-  confirmProposal: (proposalId: number, projectKey?: string) =>
+  // L3 위임 제안 승인 — 이슈 또는 일정 생성. 갱신된 카드 메시지 반환.
+  // - 이슈: projectKey 전달 시 해당 프로젝트로 이슈 생성.
+  // - 일정: 편집 override(title/startsAt/endsAt/location) 전달 시 수정된 필드로 일정 생성.
+  confirmProposal: (
+    proposalId: number,
+    body?: string | { title?: string; startsAt?: string; endsAt?: string; location?: string },
+  ) =>
     client
       .post<MessageResponse>(
         `/messaging/proposals/${proposalId}/confirm`,
-        projectKey ? { projectKey } : {},
+        typeof body === 'string' ? { projectKey: body } : (body ?? {}),
       )
       .then((r) => r.data),
 

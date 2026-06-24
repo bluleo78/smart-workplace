@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.repository.MessageActionProposalRepository;
+import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.IntegrationTestBase;
@@ -24,6 +25,7 @@ class MessageProposalEnrichTest extends IntegrationTestBase {
   @Autowired ChannelService channelService;
   @Autowired MessageService messageService;
   @Autowired ChannelRepository channelRepo;
+  @Autowired MessageRepository messageRepo;
   @Autowired MessageActionProposalRepository proposalRepo;
 
   private long human;
@@ -89,5 +91,29 @@ class MessageProposalEnrichTest extends IntegrationTestBase {
     assertThat(withProposal.proposal().status()).isEqualTo("PENDING");
     assertThat(withProposal.proposal().actionType()).isEqualTo("CREATE_ISSUE");
     assertThat(withProposal.proposal().proposedByUserId()).isEqualTo(human);
+  }
+
+  /** calendar.create_event 페이로드를 가진 제안이 enrich 시 시간·장소·충돌 필드를 올바르게 노출하는지 검증. */
+  @Test
+  void enrich_calendarProposal_surfacesTimeAndConflicts() {
+    // calendar.create_event payload 로 제안 행을 직접 INSERT 후 enrich 결과 확인.
+    String payload =
+        "{\"title\":\"리뷰 미팅\",\"startsAt\":\"2026-07-04T13:00:00+09:00\","
+            + "\"endsAt\":\"2026-07-04T14:00:00+09:00\",\"location\":\"3층\",\"allDay\":false,"
+            + "\"conflicts\":[{\"id\":7,\"title\":\"기존 회의\",\"startsAt\":\"2026-07-04T13:30:00+09:00\","
+            + "\"endsAt\":\"2026-07-04T14:30:00+09:00\"}]}";
+    long messageId =
+        messageRepo.insert(channelId, agent, "💡 일정 생성을 제안했어요", java.util.List.of(), null);
+    proposalRepo.insert(messageId, channelId, human, "calendar.create_event", payload);
+
+    // list() 를 통해 proposal enrich 경로 전체를 검증한다.
+    var page = messageService.list(human, channelId, null, 50);
+    var m = page.items().stream().filter(msg -> msg.id() == messageId).findFirst().orElseThrow();
+
+    assertThat(m.proposal().actionType()).isEqualTo("calendar.create_event");
+    assertThat(m.proposal().startsAt()).isEqualTo("2026-07-04T13:00:00+09:00");
+    assertThat(m.proposal().location()).isEqualTo("3층");
+    assertThat(m.proposal().conflicts()).hasSize(1);
+    assertThat(m.proposal().conflicts().get(0).title()).isEqualTo("기존 회의");
   }
 }

@@ -56,18 +56,24 @@ export interface MessageAttachment {
   attachedAt: string;
 }
 
-/** L3 위임 확인 제안. AI 가 이슈 생성을 제안할 때 메시지에 첨부되는 객체. */
+/** L3 위임 확인 제안. AI 가 이슈 또는 일정 생성을 제안할 때 메시지에 첨부되는 객체. */
 export interface MessageProposal {
   id: number;
   proposedByUserId: number; // 위임 요청자(이 userId 만 승인/거부 가능)
-  actionType: string; // 현재 'CREATE_ISSUE'
+  actionType: string; // 'CREATE_ISSUE' | 'calendar.create_event'
   status: 'PENDING' | 'CONFIRMED' | 'REJECTED';
-  title: string | null; // 생성할 이슈 제목
-  priority: string | null; // 우선순위(선택)
-  projectName: string | null; // 대상 프로젝트명(선택)
-  projectKey: string | null; // 대상 프로젝트 키(선택 — 승인 시 override 가능)
-  candidates: { key: string; name: string }[]; // 위임 가능한 프로젝트 후보 목록
-  resultIssueKey: string | null; // 승인 후 생성된 이슈 키(CONFIRMED 일 때만 채워짐)
+  title: string | null; // 생성할 이슈/일정 제목
+  priority: string | null; // 우선순위(선택 — 이슈 전용)
+  projectName: string | null; // 대상 프로젝트명(선택 — 이슈 전용)
+  projectKey: string | null; // 대상 프로젝트 키(선택 — 이슈 전용)
+  candidates: { key: string; name: string }[]; // 위임 가능한 프로젝트 후보 목록(이슈 전용)
+  resultIssueKey: string | null; // 이슈=이슈키, 일정="event:{id}" (CONFIRMED 일 때만)
+  // --- 일정(calendar.create_event) 전용 필드 ---
+  startsAt: string | null; // 시작 일시(OffsetDateTime ISO 문자열)
+  endsAt: string | null; // 종료 일시(OffsetDateTime ISO 문자열)
+  location: string | null; // 장소(선택)
+  allDay: boolean | null; // 하루종일 여부
+  conflicts: { id: number; title: string; startsAt: string; endsAt: string }[] | null; // 서버 계산 충돌 일정 목록
 }
 
 export interface MessageResponse {

@@ -477,6 +477,61 @@ export function buildTools(
           return '제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.';
         },
       });
+
+      // L3 위임(일정): 대화에서 일정을 추출해 제안 카드를 올린다. 위치·위임자는 코드가 스탬프(AI 입력 아님).
+      // 충돌 검사는 핸들러가 listEvents 로 결정적으로 수행(모델 의존 금지). 사이드카가 아니라 message_action_proposal 행을 만든다.
+      let eventProposed = false;
+      tools.push({
+        name: 'propose_create_event',
+        description:
+          '사용자가 대화 내용을 일정으로 잡아달라고 할 때 호출합니다. 일정 생성 "확인 카드"를 그 자리에 올립니다(실제 생성은 위임자 승인 후). title·startsAt·endsAt(타임존 오프셋 포함 ISO-8601, 예: 2026-06-20T14:00:00+09:00)을 채우고, 필요하면 location/reminderMinutes 를 넣으세요. 위치·위임자는 시스템이 정합니다. 호출 시 add_channel_message 는 호출하지 마세요(카드가 곧 응답).',
+        inputSchema: proposeCreateEventInput,
+        async handler(args) {
+          if (eventProposed) return '이미 이 요청에 대한 일정 제안을 등록했습니다.';
+          const { summary: _summary, attendees: _attendees, ...params } =
+            proposeCreateEventInput.parse(args);
+          // 타임존 보정(+09:00) — naive datetime 방어.
+          const startsAt = normalizeTimezone(params.startsAt as string);
+          const endsAt = normalizeTimezone(params.endsAt as string);
+          // 결정적 충돌 계산 — listEvents 결과를 그대로 충돌로 본다(fail-open).
+          let conflicts:
+            | { id: number; title: string; startsAt: string; endsAt: string }[]
+            | undefined;
+          try {
+            const overlapping = await client.listEvents(agentId, startsAt, endsAt);
+            if (overlapping.length > 0) {
+              conflicts = overlapping.map((e) => ({
+                id: e.id,
+                title: e.title,
+                startsAt: e.startsAt,
+                endsAt: e.endsAt,
+              }));
+            }
+          } catch {
+            // fail-open: 충돌 조회 실패는 무시.
+          }
+          try {
+            await client.proposeCreateEvent(agentId, dc.channelId, {
+              title: params.title,
+              startsAt,
+              endsAt,
+              allDay: params.allDay,
+              location: params.location,
+              reminderMinutes: params.reminderMinutes,
+              recurrenceRule: params.recurrenceRule,
+              conflicts,
+              proposedByUserId: dc.actorId,
+              parentMessageId: dc.parentMessageId,
+            });
+          } catch (e) {
+            // POST 실패 시 guard 미설정 — 재시도 허용. 채팅에 읽을 수 있는 오류 반환.
+            return `일정 제안 등록에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`;
+          }
+          // await 성공 후에만 guard 설정 — 실패 시 재시도 허용.
+          eventProposed = true;
+          return '일정 제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.';
+        },
+      });
     }
     return tools;
   }

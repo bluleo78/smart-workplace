@@ -17,10 +17,17 @@ export function useProposalActions(channelId: number) {
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: messagingKeys.messages(channelId) })
 
-  // confirm 은 { proposalId, projectKey? } 객체를 받아 승인 요청. projectKey 미전달 시 AI 추천 프로젝트 사용.
+  // confirm 은 { proposalId, arg? } 객체를 받아 승인 요청.
+  // - 이슈: arg = projectKey(string) — 미전달 시 AI 추천 프로젝트 사용.
+  // - 일정: arg = override 객체({ title?, startsAt?, endsAt?, location? }).
   const confirm = useMutation({
-    mutationFn: ({ proposalId, projectKey }: { proposalId: number; projectKey?: string }) =>
-      messagingApi.confirmProposal(proposalId, projectKey),
+    mutationFn: ({
+      proposalId,
+      arg,
+    }: {
+      proposalId: number
+      arg?: string | { title?: string; startsAt?: string; endsAt?: string; location?: string }
+    }) => messagingApi.confirmProposal(proposalId, arg),
     onSuccess: invalidate,
     onError: (error: unknown) => handleApiError(error, '승인 실패'),
   })
