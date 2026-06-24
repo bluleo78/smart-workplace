@@ -27,19 +27,49 @@ export async function getSyncStatus(accountId: number): Promise<MailSyncStatus> 
   return data;
 }
 
-/** 계정의 메시지 목록(폴더 스코프, 최신순, 선택 검색어, 선택 unread 필터). */
+/** 계정의 메시지 목록(폴더 스코프, 최신순, 선택 검색어·unread·category·needsReply 필터). */
 export async function listMessages(
   accountId: number,
   folder: MailFolder,
   query?: string,
   unread?: boolean,
+  category?: string,
+  needsReply?: boolean,
 ): Promise<EmailMessageSummary[]> {
   const { data } = await client.get<EmailMessageSummary[]>(
     `/mail/accounts/${accountId}/messages`,
-    // #469: unread=true 면 안 읽은 메일만(API 의 unread 필터로 전달).
-    { params: { folder, ...(query ? { query } : {}), ...(unread ? { unread: true } : {}) } },
+    {
+      params: {
+        folder,
+        ...(query ? { query } : {}),
+        // #469: unread=true 면 안 읽은 메일만.
+        ...(unread ? { unread: true } : {}),
+        // P2: AI 분류 필터.
+        ...(category ? { category } : {}),
+        // P2: 회신필요(미처리) 필터.
+        ...(needsReply ? { needsReply: true } : {}),
+      },
+    },
   );
   return data;
+}
+
+/** P2: 계정의 회신필요(미처리) 메일 건수. 사이드바 배지용. */
+export async function getNeedsReplyCount(accountId: number): Promise<number> {
+  const { data } = await client.get<{ count: number }>(
+    `/mail/accounts/${accountId}/needs-reply-count`,
+  );
+  return data.count;
+}
+
+/** P2: 회신필요 처리완료 표시. */
+export async function markNeedsReplyDone(accountId: number, messageId: number): Promise<void> {
+  await client.post(`/mail/accounts/${accountId}/messages/${messageId}/needs-reply-done`);
+}
+
+/** P2: 회신필요 처리완료 취소. */
+export async function clearNeedsReplyDone(accountId: number, messageId: number): Promise<void> {
+  await client.delete(`/mail/accounts/${accountId}/messages/${messageId}/needs-reply-done`);
 }
 
 /** 메시지 단건 상세(본문 + 첨부 메타). */

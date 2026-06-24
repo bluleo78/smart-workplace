@@ -16,6 +16,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,7 +43,7 @@ public class MailInboxController {
     return syncService.sync(callerId, accountId);
   }
 
-  /** 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, #466 unread, limit). */
+  /** 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, #466 unread, P2 category/needsReply, limit). */
   @GetMapping("/accounts/{accountId}/messages")
   public List<EmailMessageSummary> messages(
       @AuthenticationPrincipal Long callerId,
@@ -50,9 +51,39 @@ public class MailInboxController {
       @RequestParam(required = false, defaultValue = "INBOX") String folder,
       @RequestParam(required = false) String query,
       @RequestParam(required = false, defaultValue = "false") boolean unread,
+      @RequestParam(required = false) String category, // P2: 분류 필터(업무/개인/알림/프로모션/뉴스레터)
+      @RequestParam(required = false, defaultValue = "false") boolean needsReply, // P2: 회신필요 필터
       @RequestParam(required = false, defaultValue = "0") int limit) {
-    return messageService.list(callerId, accountId, folder, query, unread, limit);
+    return messageService.list(callerId, accountId, folder, query, unread, category, needsReply, limit);
   }
+
+  /** P2: 회신필요 처리완료(해결). needs_reply_done_at 에 현재 시각 기록. */
+  @PostMapping("/accounts/{accountId}/messages/{messageId}/needs-reply-done")
+  public void markNeedsReplyDone(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long accountId,
+      @PathVariable long messageId) {
+    messageService.markNeedsReplyDone(callerId, accountId, messageId);
+  }
+
+  /** P2: 처리완료 되돌리기. needs_reply_done_at 을 NULL 로 초기화. */
+  @DeleteMapping("/accounts/{accountId}/messages/{messageId}/needs-reply-done")
+  public void clearNeedsReplyDone(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long accountId,
+      @PathVariable long messageId) {
+    messageService.clearNeedsReplyDone(callerId, accountId, messageId);
+  }
+
+  /** P2: 사이드바용 계정단위 회신필요 건수. */
+  @GetMapping("/accounts/{accountId}/needs-reply-count")
+  public NeedsReplyCount needsReplyCount(
+      @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
+    return new NeedsReplyCount(messageService.countNeedsReplyForAccount(callerId, accountId));
+  }
+
+  /** P2: 사이드바 카운트 응답 DTO. */
+  public record NeedsReplyCount(long count) {}
 
   /** 메시지 단건 상세(본문 + 첨부 메타). 본문 미적재면 OnDemand 로 적재 후 반환. */
   @GetMapping("/messages/{messageId}")

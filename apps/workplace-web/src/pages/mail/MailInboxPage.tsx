@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Download, Forward, Loader2, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles } from 'lucide-react'
+import { Check, Download, Forward, Loader2, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -16,6 +16,7 @@ import {
   useMailMessage,
   useMailMessages,
   useMailSummary,
+  useMarkNeedsReplyDone,
   useReplyDraft,
   useSyncMailbox,
   useSyncStatus,
@@ -34,22 +35,27 @@ function formatReceivedAt(iso: string | null): string {
 }
 
 // 목록 한 행 — 안 읽음은 굵게, 첨부 클립 표시.
+// P2: onResolve — 회신필요(미처리) 행 호버 시 처리완료 pill 클릭 핸들러.
 function MessageRow({
   m,
   active,
   onSelect,
+  onResolve,
 }: {
   m: EmailMessageSummary
   active: boolean
   onSelect: () => void
+  onResolve: (id: number) => void
 }) {
+  const navigate = useNavigate()
   return (
+    // group/relative: 호버 처리완료 pill 의 절대 위치와 group-hover 표시에 필요.
     <button
       type="button"
       data-testid={`mail-row-${m.id}`}
       onClick={onSelect}
       className={cn(
-        'flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
+        'group relative flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
         active ? 'bg-accent' : 'hover:bg-accent/50',
       )}
     >
@@ -78,17 +84,23 @@ function MessageRow({
           {m.snippet}
         </span>
       )}
-      {(m.aiCategory || m.aiNeedsReply) && (
+      {/* P2: 배지 술어 통일 — needsReplyDoneAt 있으면 답장필요 배지 숨김. 분류 배지는 클릭 필터. */}
+      {(m.aiCategory || (m.aiNeedsReply && !m.needsReplyDoneAt)) && (
         <span className="mt-0.5 flex items-center gap-1">
           {m.aiCategory && (
-            <span
+            <button
+              type="button"
               data-testid={`mail-badge-category-${m.id}`}
-              className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/mail/${m.accountId}?category=${encodeURIComponent(m.aiCategory!)}`)
+              }}
+              className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted/80"
             >
               {m.aiCategory}
-            </span>
+            </button>
           )}
-          {m.aiNeedsReply && (
+          {m.aiNeedsReply && !m.needsReplyDoneAt && (
             <span
               data-testid={`mail-badge-needsreply-${m.id}`}
               className="inline-flex items-center gap-0.5 text-xs font-medium text-primary"
@@ -97,6 +109,17 @@ function MessageRow({
             </span>
           )}
         </span>
+      )}
+      {/* P2: 회신필요(미처리) 행에만 호버 처리완료 pill — outline/secondary 톤으로 "답장필요" 채움 배지와 시각 구분. */}
+      {m.aiNeedsReply && !m.needsReplyDoneAt && (
+        <button
+          type="button"
+          data-testid={`mail-resolve-${m.id}`}
+          onClick={(e) => { e.stopPropagation(); onResolve(m.id) }}
+          className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-sm hover:bg-accent group-hover:inline-flex"
+        >
+          <Check className="h-3.5 w-3.5" /> 처리완료
+        </button>
       )}
     </button>
   )
@@ -357,7 +380,16 @@ export function MailInboxPage() {
 
   const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
   const accountIdNum = accountId ? Number(accountId) : undefined
-  const { data: messages, isLoading, isError, refetch: refetchMessages } = useMailMessages(accountIdNum, folderParam, search)
+
+  // P2: URL ?category=업무, ?needsReply=true → 목록 필터로 전달(사이드바 nav 가 설정).
+  const categoryParam = params.get('category') ?? ''
+  const needsReplyParam = params.get('needsReply') === 'true'
+
+  const { data: messages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
+    accountIdNum, folderParam, search, false, categoryParam, needsReplyParam,
+  )
+  // P2: 회신필요 처리완료 mutation — 행 hover pill 에서 사용.
+  const markDone = useMarkNeedsReplyDone(accountIdNum)
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
@@ -529,13 +561,26 @@ export function MailInboxPage() {
               <Button variant="outline" size="sm" onClick={() => refetchMessages()}>다시 시도</Button>
             </div>
           ) : !messages || messages.length === 0 ? (
-            <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
-              {search
-                ? '검색 결과가 없습니다'
-                : folderParam === 'SENT'
-                  ? '보낸 메일이 없습니다.'
-                  : '받은 메일이 없습니다. 동기화를 눌러보세요.'}
-            </div>
+            // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.
+            needsReplyParam ? (
+              <div data-testid="mail-needsreply-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                <Check className="h-8 w-8 text-primary" />
+                <p className="text-sm font-medium">회신필요를 다 처리했어요 🎉</p>
+              </div>
+            ) : categoryParam ? (
+              // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
+              <div data-testid="mail-category-empty" className="p-6 text-sm text-muted-foreground">
+                이 분류에 해당하는 메일이 없습니다.
+              </div>
+            ) : (
+              <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
+                {search
+                  ? '검색 결과가 없습니다'
+                  : folderParam === 'SENT'
+                    ? '보낸 메일이 없습니다.'
+                    : '받은 메일이 없습니다. 동기화를 눌러보세요.'}
+              </div>
+            )
           ) : (
             <div className="flex-1 overflow-y-auto">
               {messages.map((m) => (
@@ -544,6 +589,7 @@ export function MailInboxPage() {
                   m={m}
                   active={selectedId === m.id}
                   onSelect={() => setSelectedId(m.id)}
+                  onResolve={(id) => markDone.mutate(id)}
                 />
               ))}
             </div>

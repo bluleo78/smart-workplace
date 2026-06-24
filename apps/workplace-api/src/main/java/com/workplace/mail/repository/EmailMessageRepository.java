@@ -82,15 +82,38 @@ public class EmailMessageRepository {
     return listByAccount(accountId, folderName, query, false, limit);
   }
 
-  /**
-   * 계정 + 폴더 스코프 목록(최신순, 본문 제외). query 가 있으면 제목/보낸사람/스니펫 부분일치. unreadOnly=true 면 seen=false(안 읽은)
-   * 메일만 반환한다(#466). 소유 검증은 호출 측에서 수행.
-   */
+  /** 기존 5-arg → 신규 7-arg 위임(하위호환). */
   public List<EmailMessageSummary> listByAccount(
       long accountId, String folderName, String query, boolean unreadOnly, int limit) {
+    return listByAccount(accountId, folderName, query, unreadOnly, null, false, limit);
+  }
+
+  /**
+   * P2: 계정 + 폴더 스코프 목록(최신순, 본문 제외). category/needsReply 필터 추가. 회신필요는 통일 술어(ai_needs_reply IS TRUE
+   * AND done_at IS NULL). query 가 있으면 제목/보낸사람/스니펫 부분일치. unreadOnly=true 면 seen=false(안 읽은) 메일만
+   * 반환한다. 소유 검증은 호출 측에서 수행.
+   */
+  public List<EmailMessageSummary> listByAccount(
+      long accountId,
+      String folderName,
+      String query,
+      boolean unreadOnly,
+      String category,
+      boolean needsReply,
+      int limit) {
     Condition where = EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(EMAIL_FOLDER.NAME.eq(folderName));
     if (unreadOnly) {
       where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
+    }
+    if (category != null && !category.isBlank()) {
+      where = where.and(EMAIL_MESSAGE.AI_CATEGORY.eq(category));
+    }
+    if (needsReply) {
+      // 회신필요 통일 술어: AI 판정=true + 사용자 처리완료 아님
+      where =
+          where
+              .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue())
+              .and(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT.isNull());
     }
     if (query != null && !query.isBlank()) {
       String like = "%" + query.trim() + "%";
@@ -115,7 +138,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             EMAIL_MESSAGE.AI_CATEGORY,
-            EMAIL_MESSAGE.AI_NEEDS_REPLY)
+            EMAIL_MESSAGE.AI_NEEDS_REPLY,
+            EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -161,7 +185,8 @@ public class EmailMessageRepository {
             .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
             .and(EMAIL_FOLDER.NAME.eq("INBOX"))
             .and(EMAIL_MESSAGE.SEEN.isFalse())
-            .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue()));
+            .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue())
+            .and(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT.isNull())); // P2: 처리완료 제외(통일 술어)
   }
 
   /**
@@ -181,7 +206,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             EMAIL_MESSAGE.AI_CATEGORY,
-            EMAIL_MESSAGE.AI_NEEDS_REPLY)
+            EMAIL_MESSAGE.AI_NEEDS_REPLY,
+            EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2: toSummary 매퍼에서 필요
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -328,6 +354,35 @@ public class EmailMessageRepository {
         .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, needsReply)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .execute();
+  }
+
+  /** P2: 회신필요 처리완료(해결) 마커 기록. 계정 소유 스코프(account_id)로 타 계정 메시지 차단. 반환값=갱신된 행 수(1=성공, 0=미존재). */
+  public int markNeedsReplyDone(long messageId, long accountId) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT, OffsetDateTime.now())
+        .where(EMAIL_MESSAGE.ID.eq(messageId).and(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId)))
+        .execute();
+  }
+
+  /** P2: 처리완료 되돌리기. done_at 을 null 로. 반환값=갱신된 행 수(1=성공, 0=미존재). */
+  public int clearNeedsReplyDone(long messageId, long accountId) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT, (OffsetDateTime) null)
+        .where(EMAIL_MESSAGE.ID.eq(messageId).and(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId)))
+        .execute();
+  }
+
+  /** P2: 사이드바용 — 특정 계정 INBOX 의 미처리 회신필요 건수. 목록 필터(needsReply)와 일치해야 하므로 seen 무관(seen 축 제외). */
+  public long countNeedsReplyForAccount(long accountId) {
+    return dsl.fetchCount(
+        dsl.selectOne()
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_FOLDER)
+            .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+            .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue())
+            .and(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT.isNull()));
   }
 
   /** 요약 캐시 저장. */
@@ -564,6 +619,7 @@ public class EmailMessageRepository {
 
   private EmailMessageSummary toSummary(Record r) {
     OffsetDateTime received = r.get(EMAIL_MESSAGE.RECEIVED_AT);
+    OffsetDateTime doneAt = r.get(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT); // P2
     return new EmailMessageSummary(
         r.get(EMAIL_MESSAGE.ID),
         r.get(EMAIL_MESSAGE.ACCOUNT_ID),
@@ -576,7 +632,8 @@ public class EmailMessageRepository {
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.HAS_ATTACHMENT)),
         r.get(EMAIL_MESSAGE.AI_CATEGORY),
-        r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY));
+        r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY),
+        doneAt == null ? null : doneAt.toInstant()); // P2
   }
 
   private EmailMessageDetail toDetail(Record r, List<EmailAttachmentMeta> attachments) {

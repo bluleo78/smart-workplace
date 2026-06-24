@@ -121,6 +121,7 @@ function mail(): MailSummary {
         hasAttachment: false,
         aiCategory: null,
         aiNeedsReply: null,
+        needsReplyDoneAt: null,
       },
     ],
   }
@@ -1107,6 +1108,7 @@ test('동기화 후 안 읽은 메일 위젯이 즉시 갱신된다 (#444)', asy
                 hasAttachment: false,
                 aiCategory: null,
                 aiNeedsReply: null,
+                needsReplyDoneAt: null,
               },
               ...mail().recent,
             ],
@@ -1203,6 +1205,7 @@ test('합성 — 회신 필요 메일은 "지금 신경 쓸 일" 행으로(이�
         hasAttachment: false,
         aiCategory: 'ACTION',
         aiNeedsReply: true,
+        needsReplyDoneAt: null,
       },
       {
         id: 101,
@@ -1216,6 +1219,7 @@ test('합성 — 회신 필요 메일은 "지금 신경 쓸 일" 행으로(이�
         hasAttachment: false,
         aiCategory: null,
         aiNeedsReply: null, // pending — 제외 대상
+        needsReplyDoneAt: null,
       },
     ],
   } satisfies MailSummary)
@@ -1507,6 +1511,7 @@ test('홈 메일 위젯 — 회신필요 배지·미리보기·시각 렌더', a
         hasAttachment: true,
         aiCategory: 'ACTION',
         aiNeedsReply: true,
+        needsReplyDoneAt: null,
       },
     ],
   } satisfies MailSummary)
@@ -1531,9 +1536,9 @@ test('홈 메일 위젯 — "회신 필요" 칩 토글로 회신필요 메일만
     needsReplyCount: 2,
     classificationActive: true,
     recent: [
-      { id: 1, accountId: 1, subject: 'Q3 예산안', fromAddress: 'a@x.com', fromName: '김팀장', snippet: '내일까지', receivedAt: new Date(Date.now() - 2 * 60000).toISOString(), seen: false, hasAttachment: false, aiCategory: 'ACTION', aiNeedsReply: true },
-      { id: 2, accountId: 1, subject: '시안 컨펌', fromAddress: 'b@x.com', fromName: '박서연', snippet: 'v3 확인', receivedAt: new Date(Date.now() - 40 * 60000).toISOString(), seen: false, hasAttachment: false, aiCategory: 'ACTION', aiNeedsReply: true },
-      { id: 3, accountId: 1, subject: '주간 회의록', fromAddress: 'c@x.com', fromName: '이준호', snippet: '공유합니다', receivedAt: new Date(Date.now() - 3 * 3600000).toISOString(), seen: false, hasAttachment: false, aiCategory: 'FYI', aiNeedsReply: false },
+      { id: 1, accountId: 1, subject: 'Q3 예산안', fromAddress: 'a@x.com', fromName: '김팀장', snippet: '내일까지', receivedAt: new Date(Date.now() - 2 * 60000).toISOString(), seen: false, hasAttachment: false, aiCategory: 'ACTION', aiNeedsReply: true, needsReplyDoneAt: null },
+      { id: 2, accountId: 1, subject: '시안 컨펌', fromAddress: 'b@x.com', fromName: '박서연', snippet: 'v3 확인', receivedAt: new Date(Date.now() - 40 * 60000).toISOString(), seen: false, hasAttachment: false, aiCategory: 'ACTION', aiNeedsReply: true, needsReplyDoneAt: null },
+      { id: 3, accountId: 1, subject: '주간 회의록', fromAddress: 'c@x.com', fromName: '이준호', snippet: '공유합니다', receivedAt: new Date(Date.now() - 3 * 3600000).toISOString(), seen: false, hasAttachment: false, aiCategory: 'FYI', aiNeedsReply: false, needsReplyDoneAt: null },
     ],
   } satisfies MailSummary)
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
@@ -1796,6 +1801,7 @@ test('합성 — 크로스앱 정렬: 이슈(urgency 0)→메시지(urgency 1)�
         hasAttachment: false,
         aiCategory: 'ACTION',
         aiNeedsReply: true,
+        needsReplyDoneAt: null,
       },
     ],
   } satisfies MailSummary)

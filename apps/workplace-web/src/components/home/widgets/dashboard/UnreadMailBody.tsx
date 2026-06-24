@@ -67,8 +67,9 @@ export default function UnreadMailBody({ count = 5 }: { count?: number }) {
     return bt - at
   })
 
-  // 토글 켜짐 → 회신 필요만. recent 는 회신필요 우선 정렬이라 상단부터 채워진다.
-  const visible = needsReplyOnly ? rows.filter((m) => m.aiNeedsReply) : rows
+  // P2: 통일 술어 — 처리완료(needsReplyDoneAt) 된 회신필요는 제외.
+  // 토글 켜짐 → 회신 필요(미처리)만. recent 는 회신필요 우선 정렬이라 상단부터 채워진다.
+  const visible = needsReplyOnly ? rows.filter((m) => m.aiNeedsReply && !m.needsReplyDoneAt) : rows
 
   return (
     <div data-testid="dash-mail">

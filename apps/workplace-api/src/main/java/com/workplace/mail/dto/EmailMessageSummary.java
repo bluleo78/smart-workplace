@@ -15,4 +15,5 @@ public record EmailMessageSummary(
     boolean seen,
     boolean hasAttachment,
     String aiCategory,
-    Boolean aiNeedsReply) {}
+    Boolean aiNeedsReply,
+    Instant needsReplyDoneAt) {} // P2: 사용자 처리완료 시각(null=미처리). "회신필요" 술어에 사용.

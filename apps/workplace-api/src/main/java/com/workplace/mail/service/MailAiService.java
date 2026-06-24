@@ -33,7 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class MailAiService {
 
-  /** 분류 허용 카테고리(미지 값은 폐기). */
+  /** 분류 허용 카테고리(미지 값은 폐기). ⚠️ 프론트 MailSidebar.CATEGORIES 와 값·순서 일치 유지 */
   private static final Set<String> CATEGORIES = Set.of("업무", "개인", "알림", "프로모션", "뉴스레터");
 
   /** 단발 호출이라 turn 1 고정. */

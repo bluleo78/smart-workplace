@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Inbox, Mail, PenSquare, Send, Settings } from 'lucide-react'
+import { Check, ChevronDown, Inbox, Mail, PenSquare, Send, Settings, Tag } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils'
 
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
+import { useNeedsReplyCount } from '../../hooks/queries/useMailMessages'
 import { useMailCompose } from './MailComposeContext'
 
 /**
@@ -28,6 +29,17 @@ export function MailSidebar() {
   const current = accounts?.find((a) => String(a.id) === accountId) ?? accounts?.[0] ?? null
   // 현재 폴더: ?folder=sent → SENT, 기본 INBOX(폴더 nav active 판정용).
   const folder = params.get('folder') === 'sent' ? 'SENT' : 'INBOX'
+
+  // P2: 회신필요 건수(사이드바 배지 + AI 필터 섹션 표시 여부 판단).
+  const { data: needsReplyCount } = useNeedsReplyCount(current?.id)
+  // P2: URL 필터 상태 — needsReply > category > 받은편지함(plain) 우선순위.
+  const activeNeedsReply = params.get('needsReply') === 'true'
+  const activeCategory = params.get('category') ?? ''
+  // 받은편지함 active = INBOX 이면서 필터 미적용일 때만(필터 적용 중엔 해제).
+  const inboxPlain = folder === 'INBOX' && !activeCategory && !activeNeedsReply
+
+  // P2: AI 분류 카테고리(고정 5종, 순서 유지). ⚠️ 백엔드 MailAiService.CATEGORIES 와 값·순서 일치 유지(분류 필터가 이 값으로 조회)
+  const CATEGORIES = ['업무', '개인', '알림', '프로모션', '뉴스레터'] as const
 
   // 빈 새 메일 작성 도크 오픈(현재 계정으로).
   function onCompose() {
@@ -105,11 +117,12 @@ export function MailSidebar() {
 
             {/* 폴더 nav — 받은편지함/보낸편지함(현재 계정 기준, URL ?folder 로 active) */}
             <nav className="mt-4 space-y-1" data-testid="mail-folder-toggle">
+              {/* 받은편지함: 필터 미적용 상태일 때만 active(필터 nav 와 상호배타) */}
               <Link
                 to={`/mail/${current?.id}`}
                 data-testid="mail-folder-inbox"
-                aria-current={folder === 'INBOX' ? 'page' : undefined}
-                className={folderClass(folder === 'INBOX')}
+                aria-current={inboxPlain ? 'page' : undefined}
+                className={folderClass(inboxPlain)}
               >
                 <Inbox className="h-4 w-4 shrink-0" /> 받은편지함
               </Link>
@@ -121,6 +134,47 @@ export function MailSidebar() {
               >
                 <Send className="h-4 w-4 shrink-0" /> 보낸편지함
               </Link>
+            </nav>
+
+            {/* P2: AI 필터 — 회신필요 미처리 건수. 건수 > 0 일 때만 표시. */}
+            {needsReplyCount != null && needsReplyCount > 0 && (
+              <>
+                <div className="mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  AI 필터
+                </div>
+                <nav className="mt-1 space-y-1">
+                  <Link
+                    to={`/mail/${current?.id}?needsReply=true`}
+                    data-testid="mail-filter-needsreply"
+                    aria-current={activeNeedsReply ? 'page' : undefined}
+                    className={folderClass(activeNeedsReply)}
+                  >
+                    {/* 회신필요 강조 점 — primary 색상 */}
+                    <span className="text-primary">●</span> 회신필요
+                    <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                      {needsReplyCount}
+                    </span>
+                  </Link>
+                </nav>
+              </>
+            )}
+
+            {/* P2: 분류 — AI 분류별 좁혀보기(라벨만, 건수 없음). 고정 5종, 순서 유지. */}
+            <div className="mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              분류
+            </div>
+            <nav className="mt-1 space-y-1">
+              {CATEGORIES.map((cat) => (
+                <Link
+                  key={cat}
+                  to={`/mail/${current?.id}?category=${encodeURIComponent(cat)}`}
+                  data-testid={`mail-filter-category-${cat}`}
+                  aria-current={activeCategory === cat ? 'page' : undefined}
+                  className={folderClass(activeCategory === cat)}
+                >
+                  <Tag className="h-4 w-4 shrink-0" /> {cat}
+                </Link>
+              ))}
             </nav>
           </>
         )}

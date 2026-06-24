@@ -43,6 +43,7 @@ export function summary(overrides?: Partial<EmailMessageSummary>): EmailMessageS
     hasAttachment: true,
     aiCategory: null,
     aiNeedsReply: null,
+    needsReplyDoneAt: null, // P2: 회신필요 처리완료 시각
     ...overrides,
   }
 }

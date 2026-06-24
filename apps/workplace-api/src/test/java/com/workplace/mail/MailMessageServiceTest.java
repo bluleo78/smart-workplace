@@ -113,8 +113,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     syncService.sync(user, accountId);
 
     // 한 건을 get() 으로 읽음 처리(seen=true)
-    long readId =
-        messageRepo.listByAccount(accountId, "INBOX", "곧읽음", 10).get(0).id();
+    long readId = messageRepo.listByAccount(accountId, "INBOX", "곧읽음", 10).get(0).id();
     messageService.get(user, readId);
 
     // unreadOnly=true → 읽음 처리한 "곧읽음" 은 빠지고 "안읽음1" 만 남는다
@@ -138,10 +137,10 @@ class MailMessageServiceTest extends IntegrationTestBase {
     long readId = messageRepo.listByAccount(accountId, "INBOX", "읽을것", 10).get(0).id();
     messageService.get(user, readId);
 
-    var unread = messageService.list(user, accountId, "INBOX", null, true, 10);
+    var unread = messageService.list(user, accountId, "INBOX", null, true, null, false, 10);
     assertThat(unread).extracting(s -> s.subject()).containsExactly("남을것");
 
-    var all = messageService.list(user, accountId, "INBOX", null, false, 10);
+    var all = messageService.list(user, accountId, "INBOX", null, false, null, false, 10);
     assertThat(all).hasSize(2);
   }
 
@@ -188,8 +187,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * recent 는 회신필요(aiNeedsReply=true) 우선 정렬 — 적은 회신필요 메일이 최신 메일에 밀려 limit 밖으로 빠지지 않는다.
-   * (홈 위젯 필터가 전역 needsReplyCount 와 어긋나 "0건"으로 보이던 버그 방지.)
+   * recent 는 회신필요(aiNeedsReply=true) 우선 정렬 — 적은 회신필요 메일이 최신 메일에 밀려 limit 밖으로 빠지지 않는다. (홈 위젯 필터가 전역
+   * needsReplyCount 와 어긋나 "0건"으로 보이던 버그 방지.)
    */
   @Test
   void listRecentUnread_prioritizesNeedsReply_overRecency() {
@@ -202,8 +201,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     greenMail.waitForIncomingEmail(3);
     syncService.sync(user, accountId);
 
-    long needsReply =
-        messageRepo.listByAccount(accountId, "INBOX", "회신필요-오래됨", 10).get(0).id();
+    long needsReply = messageRepo.listByAccount(accountId, "INBOX", "회신필요-오래됨", 10).get(0).id();
     messageRepo.updateClassification(needsReply, "업무", true);
 
     // limit=2 — 최신순만이면 뉴스레터 2건에 밀려 회신필요가 빠지지만, 회신필요 우선이라 맨 앞에 와야 한다.
@@ -212,8 +210,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * #474: countNeedsReply — aiNeedsReply=true AND seen=false AND INBOX 만 집계한다.
-   * pending(null)/false 및 읽은(seen=true) 메시지는 제외된다.
+   * #474: countNeedsReply — aiNeedsReply=true AND seen=false AND INBOX 만 집계한다. pending(null)/false
+   * 및 읽은(seen=true) 메시지는 제외된다.
    */
   @Test
   void countNeedsReply_countsOnlyTrueAndUnseen() {
@@ -231,10 +229,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
     // aiNeedsReply 를 직접 세팅: "회신필요-안읽음" → true, "회신불필요-안읽음" → false, "회신필요-읽음" → true(읽음)
     long needsReplyUnread =
         messageRepo.listByAccount(accountId, "INBOX", "회신필요-안읽음", 10).get(0).id();
-    long noReplyUnread =
-        messageRepo.listByAccount(accountId, "INBOX", "회신불필요-안읽음", 10).get(0).id();
-    long needsReplyRead =
-        messageRepo.listByAccount(accountId, "INBOX", "회신필요-읽음", 10).get(0).id();
+    long noReplyUnread = messageRepo.listByAccount(accountId, "INBOX", "회신불필요-안읽음", 10).get(0).id();
+    long needsReplyRead = messageRepo.listByAccount(accountId, "INBOX", "회신필요-읽음", 10).get(0).id();
 
     messageRepo.updateClassification(needsReplyUnread, "업무", true);
     messageRepo.updateClassification(noReplyUnread, "일반", false);
@@ -247,8 +243,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * #474: existsAiEnabledAccount — aiEnabled=true 인 활성 계정이 존재하면 true, 없으면 false.
-   * 두 사용자(aiDisabledUser, aiEnabledUser)를 별도로 생성해 충돌 없이 검증한다.
+   * #474: existsAiEnabledAccount — aiEnabled=true 인 활성 계정이 존재하면 true, 없으면 false. 두
+   * 사용자(aiDisabledUser, aiEnabledUser)를 별도로 생성해 충돌 없이 검증한다.
    */
   @Test
   void existsAiEnabledAccount_reflectsAiEnabled() {
@@ -264,8 +260,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * #474: summary() 가 needsReplyCount 와 classificationActive 를 포함한 MailSummaryResponse 를 반환한다.
-   * 두 값은 @Transactional 경계 안에서 RLS GUC 주입 하에 조회된다(#444 교훈).
+   * #474: summary() 가 needsReplyCount 와 classificationActive 를 포함한 MailSummaryResponse 를 반환한다. 두
+   * 값은 @Transactional 경계 안에서 RLS GUC 주입 하에 조회된다(#444 교훈).
    */
   @Test
   void summary_includesNeedsReplyCountAndClassificationActive() {

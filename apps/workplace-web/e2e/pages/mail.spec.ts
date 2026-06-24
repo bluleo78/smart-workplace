@@ -27,6 +27,122 @@ async function openFirstMail(page: import('@playwright/test').Page, aiEnabled = 
   await expect(page.getByTestId('mail-detail')).toBeVisible()
 }
 
+// P2: 사이드바 필터 nav — needsReply / category.
+test.describe('사이드바 필터', () => {
+  test('사이드바 회신필요 클릭 → needsReply 필터로 목록 조회', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
+    // 회신필요 건수(>0 이어야 사이드바에 표시).
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 2 })
+
+    // 메시지 목록 요청을 가로채 needsReply 파라미터 캡처.
+    let lastNeedsReply: string | null = null
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => {
+        lastNeedsReply = new URL(route.request().url()).searchParams.get('needsReply')
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+      },
+    )
+
+    await page.goto('/mail/1')
+
+    // 회신필요 필터 nav 항목 클릭.
+    await page.getByTestId('mail-filter-needsreply').click()
+
+    // URL 에 needsReply=true 반영.
+    await expect(page).toHaveURL(/needsReply=true/)
+    // 목록 API 에 needsReply 파라미터 전송.
+    await expect.poll(() => lastNeedsReply).toBe('true')
+  })
+
+  test('사이드바 분류(업무) 클릭 → category 필터로 목록 조회', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
+
+    // 메시지 목록 요청을 가로채 category 파라미터 캡처.
+    let lastCategory: string | null = null
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => {
+        lastCategory = new URL(route.request().url()).searchParams.get('category')
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+      },
+    )
+
+    await page.goto('/mail/1')
+
+    // 분류 > 업무 필터 nav 항목 클릭.
+    await page.getByTestId('mail-filter-category-업무').click()
+
+    // URL 에 category=업무 반영(URL 인코딩).
+    await expect(page).toHaveURL(/category=%EC%97%85%EB%AC%B4/)
+    // 목록 API 에 category 파라미터 전송.
+    await expect.poll(() => lastCategory).toBe('업무')
+  })
+})
+
+// P2: 회신필요 처리완료 pill + 긍정 빈 상태.
+test.describe('회신필요 처리완료', () => {
+  test('회신필요 행 처리완료 → POST 호출 + 행 제거 + 되돌리기 토스트', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 1 })
+    let listCall = 0
+    await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/messages', (route) => {
+      listCall += 1
+      // 1차 조회: 회신필요 메일 1건. invalidate 후 2차 조회: 빈 목록(처리완료로 빠짐).
+      const rows = listCall === 1
+        ? [mailSummary({ id: 10, subject: '검토 요청', aiCategory: '업무', aiNeedsReply: true })]
+        : []
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+    })
+    let posted = false
+    await page.route('**/mail/accounts/1/messages/10/needs-reply-done', (route) => {
+      if (route.request().method() === 'POST') posted = true
+      route.fulfill({ status: 200, body: '' })
+    })
+    await page.goto('/mail/1?needsReply=true')
+    await page.getByTestId('mail-row-10').hover()
+    await page.getByTestId('mail-resolve-10').click()
+    await expect.poll(() => posted).toBe(true)
+    await expect(page.getByText('처리완료')).toBeVisible()
+    await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
+  })
+
+  test('회신필요 0건 → 긍정 빈 상태', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
+    await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
+    await page.goto('/mail/1?needsReply=true')
+    await expect(page.getByTestId('mail-needsreply-empty')).toBeVisible()
+  })
+})
+
+// P2: 분류 필터 빈 상태 — 해당 분류 메일 없을 때 중립 문구.
+test.describe('분류 필터 빈 상태', () => {
+  test('category 필터 0건 → mail-category-empty 표시', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
+    // 업무 분류 메일 0건.
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+
+    await page.goto('/mail/1?category=%EC%97%85%EB%AC%B4')
+
+    // 분류 필터 중립 빈 상태 표시, 일반 빈 상태 미표시.
+    await expect(page.getByTestId('mail-category-empty')).toBeVisible()
+    await expect(page.getByTestId('mail-list-empty')).toHaveCount(0)
+    await expect(page.getByTestId('mail-needsreply-empty')).toHaveCount(0)
+  })
+})
+
 test.describe('메일 AI 요약', () => {
   test(
     'AI 요약 카드와 생성중 스켈레톤',

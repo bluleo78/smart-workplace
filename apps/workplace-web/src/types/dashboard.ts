@@ -31,6 +31,7 @@ export type MailSummaryItem = Pick<
   | 'hasAttachment'  // 첨부 표시(백엔드 이미 전송)
   | 'aiCategory'
   | 'aiNeedsReply'
+  | 'needsReplyDoneAt' // P2: 처리완료 시각 — 홈 위젯 로컬 필터 술어 통일에 사용
 >
 
 // 메일 요약 위젯 데이터(백엔드 MailSummaryResponse 와 1:1).

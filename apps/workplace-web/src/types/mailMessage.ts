@@ -14,6 +14,7 @@ export interface EmailMessageSummary {
   hasAttachment: boolean;
   aiCategory: string | null;
   aiNeedsReply: boolean | null;
+  needsReplyDoneAt: string | null; // P2: 회신필요 처리완료 시각(null=미처리)
 }
 
 /** 첨부 메타(바이너리 미저장 — 다운로드는 후속). */

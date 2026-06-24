@@ -17,10 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * EmailMessageRepository — 미요약 안읽은 메일 조회 쿼리 통합 테스트.
- * 공유 test DB 환경 — 테스트별 트랜잭션 롤백으로 격리.
- */
+/** EmailMessageRepository — 미요약 안읽은 메일 조회 쿼리 통합 테스트. 공유 test DB 환경 — 테스트별 트랜잭션 롤백으로 격리. */
 @Transactional
 class EmailMessageRepositoryTest extends IntegrationTestBase {
 
@@ -90,9 +87,7 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     return msg;
   }
 
-  /**
-   * listRecentUnreadUnsummarizedIds — 안읽음·미요약 메일만 반환하고, 요약 있음과 읽음 메일은 제외한다.
-   */
+  /** listRecentUnreadUnsummarizedIds — 안읽음·미요약 메일만 반환하고, 요약 있음과 읽음 메일은 제외한다. */
   @Test
   void listRecentUnreadUnsummarizedIds_안읽음_미요약만_반환() {
     // given: 계정 + INBOX 폴더 시드, 메일 3건
@@ -100,14 +95,65 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     long accountId = createAccount(userId, "unsummarized-test@test.local");
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
 
-    long unreadUnsummarized = seedMessage(accountId, folderId, false, null);    // (a) 포함 대상
-    seedMessage(accountId, folderId, false, "이미 요약");                        // (b) 요약 있음 — 제외
-    seedMessage(accountId, folderId, true, null);                               // (c) 읽음 — 제외
+    long unreadUnsummarized = seedMessage(accountId, folderId, false, null); // (a) 포함 대상
+    seedMessage(accountId, folderId, false, "이미 요약"); // (b) 요약 있음 — 제외
+    seedMessage(accountId, folderId, true, null); // (c) 읽음 — 제외
 
     // when
     List<Long> ids = messageRepo.listRecentUnreadUnsummarizedIds(accountId, 20);
 
     // then
     assertThat(ids).containsExactly(unreadUnsummarized);
+  }
+
+  /** P2: listByAccount — category/needsReply 필터 + done_at 제외 검증. */
+  @Test
+  void listByAccount_filtersByCategoryAndNeedsReply() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "f@test.local");
+    long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long work = seedMessage(accountId, inbox, false, null);
+    long promo = seedMessage(accountId, inbox, false, null);
+    long workDone = seedMessage(accountId, inbox, false, null);
+    messageRepo.updateClassification(work, "업무", true);
+    messageRepo.updateClassification(promo, "프로모션", false);
+    messageRepo.updateClassification(workDone, "업무", true);
+    messageRepo.markNeedsReplyDone(workDone, accountId); // 처리완료된 회신필요
+
+    // category=업무 → work, workDone (2건)
+    var byCat = messageRepo.listByAccount(accountId, "INBOX", null, false, "업무", false, 50);
+    assertThat(byCat)
+        .extracting(com.workplace.mail.dto.EmailMessageSummary::id)
+        .containsExactlyInAnyOrder(work, workDone);
+
+    // needsReply=true → work 만 (workDone 은 done_at 으로 제외)
+    var byReply = messageRepo.listByAccount(accountId, "INBOX", null, false, null, true, 50);
+    assertThat(byReply)
+        .extracting(com.workplace.mail.dto.EmailMessageSummary::id)
+        .containsExactly(work);
+  }
+
+  /** P2: markNeedsReplyDone — 처리완료가 3 소비처(목록·계정카운트·홈카운트)에서 동시에 빠지는지 검증. */
+  @Test
+  void markNeedsReplyDone_removesFromAllNeedsReplyConsumers() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "g@test.local");
+    long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long m = seedMessage(accountId, inbox, false, null); // seen=false
+    messageRepo.updateClassification(m, "업무", true);
+
+    assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
+    assertThat(messageRepo.countNeedsReply(userId)).isEqualTo(1);
+
+    assertThat(messageRepo.markNeedsReplyDone(m, accountId)).isEqualTo(1);
+
+    assertThat(messageRepo.listByAccount(accountId, "INBOX", null, false, null, true, 50))
+        .isEmpty();
+    assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isZero();
+    assertThat(messageRepo.countNeedsReply(userId)).isZero();
+
+    // 되돌리기 → 복귀
+    assertThat(messageRepo.clearNeedsReplyDone(m, accountId)).isEqualTo(1);
+    assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
   }
 }

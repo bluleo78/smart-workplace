@@ -4,33 +4,79 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 
-import { generateReplyDraft, getMailSummary, getMessage, getSyncStatus, listMessages, sendMail, syncMailbox } from '../../api/mailMessages';
+import { clearNeedsReplyDone, generateReplyDraft, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, markNeedsReplyDone, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import type { EmailMessageSummary, MailFolder, MailSendRequest } from '../../types/mailMessage';
 
 export const mailMessageKeys = {
   // #469: unread 필터를 캐시 키에 포함(읽음 목록과 안읽음 목록 캐시 분리).
-  list: (accountId: number, folder: MailFolder, query: string, unread = false) =>
-    ['mail-messages', accountId, folder, query, unread] as const,
+  // P2: category/needsReply 필터도 캐시 키에 포함.
+  list: (accountId: number, folder: MailFolder, query: string, unread = false,
+         category = '', needsReply = false) =>
+    ['mail-messages', accountId, folder, query, unread, category, needsReply] as const,
   detail: (messageId: number) => ['mail-message', messageId] as const,
   summary: (messageId: number) => ['mail-summary', messageId] as const,
   syncStatus: (accountId: number) => ['mail-sync-status', accountId] as const,
 };
 
-/** 계정의 메시지 목록(폴더·검색어·선택 unread 필터). accountId 가 없으면 비활성. */
+/** 계정의 메시지 목록(폴더·검색어·unread·category·needsReply 필터). accountId 가 없으면 비활성. */
 export function useMailMessages(
   accountId: number | undefined,
   folder: MailFolder,
   query: string,
   unread = false,
+  category = '',
+  needsReply = false,
 ) {
   return useQuery({
-    queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread),
-    queryFn: () => listMessages(accountId as number, folder, query || undefined, unread),
+    queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread, category, needsReply),
+    queryFn: () =>
+      listMessages(accountId as number, folder, query || undefined, unread,
+                   category || undefined, needsReply),
     enabled: !!accountId,
     refetchInterval: 60_000,       // 백그라운드 자동 동기화로 들어온 새 메일을 주기 반영
     refetchOnWindowFocus: true,
   });
+}
+
+/** P2: 계정의 회신필요(미처리) 메일 건수(사이드바 배지). accountId 없으면 비활성. */
+export function useNeedsReplyCount(accountId: number | undefined) {
+  return useQuery({
+    queryKey: ['mail-needs-reply-count', accountId ?? 0] as const,
+    queryFn: () => getNeedsReplyCount(accountId as number),
+    enabled: !!accountId,
+    refetchInterval: 60_000,
+  });
+}
+
+/**
+ * P2: 회신필요 처리완료 mutation — 성공 시 목록·사이드바 카운트·홈 위젯 요약 무효화.
+ * Sonner 토스트 "처리완료" + "되돌리기" 액션(DELETE 호출 후 재무효화).
+ */
+export function useMarkNeedsReplyDone(accountId: number | undefined) {
+  const qc = useQueryClient()
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['mail-messages', accountId] })
+    qc.invalidateQueries({ queryKey: ['mail-needs-reply-count', accountId] })
+    // 홈 위젯 회신필요 카운트 갱신 — exact:true 로 메시지별 AI 요약 키 불필요 재생성 방지.
+    qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true })
+  }
+  return useMutation({
+    mutationFn: (messageId: number) => markNeedsReplyDone(accountId as number, messageId),
+    onSuccess: (_d, messageId) => {
+      invalidate()
+      toast.success('처리완료', {
+        action: {
+          label: '되돌리기',
+          onClick: async () => {
+            await clearNeedsReplyDone(accountId as number, messageId)
+            invalidate()
+          },
+        },
+      })
+    },
+    onError: (e) => handleApiError(e, '처리완료에 실패했습니다'),
+  })
 }
 
 /** 메시지 단건 상세. messageId 가 없으면 비활성. 성공 시 목록 캐시의 seen 플래그를 낙관적으로 동기화(읽음 처리). */
