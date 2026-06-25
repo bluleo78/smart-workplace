@@ -53,10 +53,11 @@ async function stubMessages(page: import('@playwright/test').Page, items: Return
 }
 
 // read(100) + unread(101..100+n) — DESC 정렬로 반환.
+// 미읽음은 "남(authorId=2)이 보낸" 메시지여야 한다 — 내가 보낸 메시지는 미읽음/캐치업 대상이 아니므로(#491).
 function readPlusUnread(n: number) {
   const read = createMessage({ id: 100, channelId: CHANNEL_ID, body: '읽은 메시지' });
   const unread = Array.from({ length: n }, (_, i) =>
-    createMessage({ id: 101 + i, channelId: CHANNEL_ID, body: `미읽음 ${i + 1}` }),
+    createMessage({ id: 101 + i, channelId: CHANNEL_ID, authorId: 2, body: `미읽음 ${i + 1}` }),
   );
   return [...unread, read].sort((a, b) => b.id - a.id); // DESC
 }
@@ -121,6 +122,26 @@ test.describe('채널 캐치업 카드', () => {
     await page.goto(`/chat/channels/${CHANNEL_ID}`);
 
     await expect(page.getByTestId('message-list')).toBeVisible();
+    await expect(page.getByTestId('catchup-card')).toHaveCount(0);
+    await expect(page.getByTestId('catchup-summarize-btn')).toHaveCount(0);
+  });
+
+  // #491 회귀: 다 읽은 방에서 내가 메시지를 보내면(진입-고정 watermark < 내 메시지 id)
+  // 유령 미읽음 구분선/캐치업이 부활하면 안 된다. 내 메시지는 미읽음 대상에서 제외돼야 한다.
+  test('다 읽은 방에서 내가 보낸 메시지는 유령 구분선/캐치업을 만들지 않는다', async ({ authenticatedPage: page }) => {
+    // 진입 시 100까지 다 읽음. 진입 후 내(authorId=1)가 메시지 101 전송 → 목록에 포함.
+    const channel = createChannel({ id: CHANNEL_ID, member: true, lastReadMessageId: 100 });
+    await setupChannelStubs(page, channel);
+    const read = createMessage({ id: 100, channelId: CHANNEL_ID, body: '읽은 메시지' });
+    const mine = createMessage({ id: 101, channelId: CHANNEL_ID, authorId: 1, body: '내가 방금 보낸 메시지' });
+    await stubMessages(page, [mine, read].sort((a, b) => b.id - a.id));
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`);
+
+    await expect(page.getByTestId('message-list')).toBeVisible();
+    await expect(page.getByText('내가 방금 보낸 메시지')).toBeVisible();
+    // 내 메시지뿐이므로 미읽음 0 → 구분선·카드·버튼 모두 없음.
+    await expect(page.getByTestId('unread-divider')).toHaveCount(0);
     await expect(page.getByTestId('catchup-card')).toHaveCount(0);
     await expect(page.getByTestId('catchup-summarize-btn')).toHaveCount(0);
   });

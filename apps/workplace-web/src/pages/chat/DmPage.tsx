@@ -24,7 +24,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { dmDisplayName } from '@/lib/dm'
-import { firstUnreadMessageId } from '@/lib/unreadBoundary'
+import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
 import type { DmResponse, UserKind } from '@/types/messaging'
 
 // DM 빈 상태 설명 — self/1:1/그룹 분기.
@@ -106,10 +106,10 @@ export default function DmPage() {
   // ── 캐치업(L1) 배선 — ChannelPage 와 동일 로직, dmId 기준. DM 도 채널이므로 watermark·요약 API 재사용.
   const detail = useChannelDetail(dmId)
   const watermark = detail.data?.lastReadMessageId ?? null
-  const unreadDividerBeforeId = firstUnreadMessageId(messages, watermark)
-  // 로드된 메시지 중 watermark 초과 미삭제 = 미읽음 카운트(자동 임계 게이트).
-  const unreadCount =
-    watermark != null ? messages.filter((m) => m.id > watermark && !m.deleted).length : 0
+  // 내가 보낸 메시지는 미읽음 경계에서 제외(#491) — user?.id 전달.
+  const unreadDividerBeforeId = firstUnreadMessageId(messages, watermark, user?.id)
+  // 로드된 메시지 중 watermark 초과 미삭제 + 내가 보내지 않은 = 미읽음 카운트(자동 임계 게이트).
+  const unreadCount = unreadFromOthersCount(messages, watermark, user?.id)
   const [catchupManual, setCatchupManual] = useState(false)
   const [catchupDismissed, setCatchupDismissed] = useState(false)
   // DM 전환 시 카드 상태 리셋(이전 DM 의 트리거/닫힘이 새 DM 으로 새지 않도록).

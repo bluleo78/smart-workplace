@@ -44,10 +44,11 @@ async function stubMessages(page: import('@playwright/test').Page, items: Return
   );
 }
 
+// 미읽음은 "상대(authorId=2)가 보낸" 메시지여야 한다 — 내가 보낸 메시지는 미읽음/캐치업 대상이 아니므로(#491).
 function readPlusUnread(n: number) {
   const read = createMessage({ id: 100, channelId: DM_ID, body: '읽은 메시지' });
   const unread = Array.from({ length: n }, (_, i) =>
-    createMessage({ id: 101 + i, channelId: DM_ID, body: `미읽음 ${i + 1}` }),
+    createMessage({ id: 101 + i, channelId: DM_ID, authorId: 2, body: `미읽음 ${i + 1}` }),
   );
   return [...unread, read].sort((a, b) => b.id - a.id);
 }
@@ -108,6 +109,23 @@ test.describe('DM 캐치업 카드', () => {
     await page.goto(`/chat/dms/${DM_ID}`);
 
     await expect(page.getByTestId('message-list')).toBeVisible();
+    await expect(page.getByTestId('catchup-card')).toHaveCount(0);
+    await expect(page.getByTestId('catchup-summarize-btn')).toHaveCount(0);
+  });
+
+  // #491 회귀: 다 읽은 DM 에서 내가 메시지를 보내면 유령 구분선/캐치업이 부활하면 안 된다.
+  test('다 읽은 DM 에서 내가 보낸 메시지는 유령 구분선/캐치업을 만들지 않는다', async ({ authenticatedPage: page }) => {
+    const detail = createChannel({ id: DM_ID, kind: 'DM', member: true, lastReadMessageId: 100 });
+    await setupDmStubs(page, detail);
+    const read = createMessage({ id: 100, channelId: DM_ID, body: '읽은 메시지' });
+    const mine = createMessage({ id: 101, channelId: DM_ID, authorId: 1, body: '내가 방금 보낸 메시지' });
+    await stubMessages(page, [mine, read].sort((a, b) => b.id - a.id));
+
+    await page.goto(`/chat/dms/${DM_ID}`);
+
+    await expect(page.getByTestId('message-list')).toBeVisible();
+    await expect(page.getByText('내가 방금 보낸 메시지')).toBeVisible();
+    await expect(page.getByTestId('unread-divider')).toHaveCount(0);
     await expect(page.getByTestId('catchup-card')).toHaveCount(0);
     await expect(page.getByTestId('catchup-summarize-btn')).toHaveCount(0);
   });

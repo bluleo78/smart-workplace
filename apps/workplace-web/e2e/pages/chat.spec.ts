@@ -432,7 +432,8 @@ test('팀 채팅 — 멀티데이 메시지 목록 → 날짜 구분선 삽입 (
 // 진입 시 첫 미읽음(구분선)으로 스크롤 — 30개 메시지(id 1~30), watermark=10 이면
 // 구분선이 뷰포트 안에 보여야 하고(맨 아래가 아님) 메시지 30개가 모두 로드된다.
 test('진입 시 첫 미읽음(구분선)으로 스크롤된다', async ({ authenticatedPage: page }) => {
-  const many = Array.from({ length: 30 }, (_, i) => createMessage({ id: i + 1, channelId: 78, createdAt: new Date(Date.UTC(2026, 5, 1, 0, i)).toISOString() }))
+  // 미읽음(id>10)은 남(authorId=2)이 보낸 메시지여야 구분선이 뜬다 — 내 메시지는 미읽음 제외(#491).
+  const many = Array.from({ length: 30 }, (_, i) => createMessage({ id: i + 1, channelId: 78, authorId: 2, createdAt: new Date(Date.UTC(2026, 5, 1, 0, i)).toISOString() }))
   const channel = createChannel({ id: 78, lastReadMessageId: 10 })
 
   await setupChannelStubs(page, [channel], `:\n\n`)
@@ -472,9 +473,10 @@ test('미읽음 구분선이 첫 미읽음 메시지 앞에 렌더된다', async
         contentType: 'application/json',
         body: JSON.stringify({
           // MessageList 는 DESC 수신 후 reverse() 로 오래된 메시지를 위에 렌더한다.
+          // 미읽음(id 3,4)은 남(authorId=2)이 보낸 메시지여야 구분선이 뜬다 — 내 메시지는 미읽음 제외(#491).
           items: [
-            createMessage({ id: 4, channelId: 77, createdAt: '2026-06-01T04:00:00Z' }),
-            createMessage({ id: 3, channelId: 77, createdAt: '2026-06-01T03:00:00Z' }),
+            createMessage({ id: 4, channelId: 77, authorId: 2, createdAt: '2026-06-01T04:00:00Z' }),
+            createMessage({ id: 3, channelId: 77, authorId: 2, createdAt: '2026-06-01T03:00:00Z' }),
             createMessage({ id: 2, channelId: 77, createdAt: '2026-06-01T02:00:00Z' }),
             createMessage({ id: 1, channelId: 77, createdAt: '2026-06-01T01:00:00Z' }),
           ],
