@@ -4,7 +4,7 @@
 
 ## 이 앱의 목적
 
-Smart Workplace 의 **AI Agent 서비스**. Phase 5c-2 부터 Claude CLI + 구독 OAuth 토큰으로 LLM 응답을 수행한다. 4 종 이슈 이벤트 envelope 을 받아 `claude` CLI 를 child process 로 spawn 하고, MCP 서버 (별 entry point `dist/mcp/workplace-mcp-server.js`) 가 workplace-api 호출 도구 4 개를 노출한다.
+Smart Workplace 의 **AI Agent 서비스**. `@anthropic-ai/claude-agent-sdk` 를 **인-프로세스로 구동**해 구독 OAuth 토큰으로 LLM 응답을 수행한다(#462 CLI→SDK 전환 완료). 이슈 이벤트 envelope 과 홈/메일/채팅/위키 컴포즈 요청을 받아 `query()` 를 우리 Node 서버 안에서 직접 실행하고, workplace-api 호출 도구는 `createSdkMcpServer` 로 **인-프로세스 MCP 서버**(`agent/sdk-mcp-server.ts`)에 등록한다 — 별도 CLI/MCP 자식 프로세스 spawn 없음.
 
 ## Commands
 
@@ -20,7 +20,7 @@ pnpm typecheck
 
 ## Stack
 
-Node.js 22 + TypeScript (ES2022, NodeNext), Express 4, Zod 4, axios, dotenv, `@modelcontextprotocol/sdk`, `@anthropic-ai/claude-agent-sdk` (의존성만 유지 — 향후 SDK 모드 추가 시 사용), Vitest 4 + supertest + nock. 외부 의존: 시스템에 설치된 `claude` CLI (`@anthropic-ai/claude-code`) + `CLAUDE_CODE_OAUTH_TOKEN` 구독 토큰.
+Node.js 22 + TypeScript (ES2022, NodeNext), Express 4, Zod 4, axios, dotenv, `@anthropic-ai/claude-agent-sdk` (LLM 구동 + 인-프로세스 MCP), Vitest 4 + supertest + nock. (`@modelcontextprotocol/sdk` 는 stdio MCP 서버 제거로 vestigial — 후속 제거 후보.) 런타임 의존: `@anthropic-ai/claude-agent-sdk` 가 내부적으로 Claude Code 실행파일을 사용하므로 이미지에 `@anthropic-ai/claude-code` 설치 필요 + `CLAUDE_CODE_OAUTH_TOKEN` 구독 토큰(우리가 직접 CLI 를 spawn 하지는 않음).
 
 ## Layered Structure
 
@@ -28,14 +28,15 @@ Node.js 22 + TypeScript (ES2022, NodeNext), Express 4, Zod 4, axios, dotenv, `@m
 src/
   agent/
     event-handler         # envelope → runAgent fire-and-forget
-    run-agent             # CLI spawn 엔트리
-    cli-runner            # claude CLI 인자/env 빌더 + spawn
+    run-agent             # 이슈 이벤트 → 인-프로세스 SDK 실행 (runSdkCollect)
+    sdk-runner            # Agent SDK query() 러너 (buildSdkOptions / runSdkStream / runSdkCollect)
+    sdk-mcp-server        # 인-프로세스 MCP 서버 (createSdkMcpServer + buildTools 어댑트)
+    subagent-loader       # 코드정의 서브에이전트 로드 → options.agents
+    tool-allowlist        # built-in 도구 차단 정책 (computeToolPolicy)
     system-prompt         # LLM 시스템 프롬프트 상수
     user-message          # 4 type 별 user message 빌더
-    mcp-config            # MCP config 파일 경로 export
   mcp/
-    workplace-mcp-server  # 별 entry point — stdio MCP 서버
-    tools                 # 4 도구 정의 (get_issue_detail / add_comment / update_status / unassign_self)
+    tools                 # 도구 정의 단일 진실원천 (프로필별 buildTools — 이슈/채팅/홈/메시징/어시스턴트)
   clients/              # workplace-api 호출용 axios client (코멘트/상태/담당자/조회 4 메서드)
   middleware/           # internal-auth (Authorization: Internal {token})
   routes/               # health, events

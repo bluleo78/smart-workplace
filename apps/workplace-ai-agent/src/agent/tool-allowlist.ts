@@ -1,6 +1,5 @@
-// cli-runner·sdk-runner 공용 도구 정책 — allow-list 모델.
-// 두 러너가 같은 화이트리스트/차단목록을 쓰도록 단일 출처로 둔다(drift 방지).
-// 위임 도구 화이트리스트(checkSubagentWhitelist)는 tool-policy.ts 의 별개 관심사다.
+// sdk-runner 도구 정책 — allow-list 모델. built-in 도구(Bash/Edit/Write 등)를 화이트리스트로 차단한다.
+// (과거 cli-runner 와 공용이었으나 #462 슬라이스6 에서 cli-runner 제거 → 현재 sdk-runner 전용.)
 
 // 기본 차단 도구 — Read 는 allowFileRead, Agent 는 allowSubagents 시 제외된다.
 // SlashCommand 는 --disable-slash-commands(또는 settingSources:[])로 이미 비활성이라 목록에 두지 않는다(#457).

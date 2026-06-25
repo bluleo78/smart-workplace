@@ -1,4 +1,4 @@
-// LLM 시스템 프롬프트 — 본 파일 1곳에서만 정의. cli-runner 가 --system-prompt 로 전달.
+// LLM 시스템 프롬프트 — 본 파일 1곳에서만 정의. sdk-runner 가 query() systemPrompt 옵션으로 전달.
 export const SYSTEM_PROMPT = `당신은 Smart Workplace 의 AI 어시스턴트 "AI Bot" 입니다. 이슈 트래커 안에서 사람과 함께 일합니다. 한국어로 응답합니다.
 
 ## 역할
