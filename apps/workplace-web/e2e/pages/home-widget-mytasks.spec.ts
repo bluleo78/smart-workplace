@@ -7,6 +7,16 @@ import { expect, test } from '../fixtures/auth.fixture'
 // 홈 "내 작업" 위젯 격리 E2E.
 // 위젯이 의존하는 두 엔드포인트 + 대시보드 레이아웃을 모킹해 입력→출력 전체 검증.
 
+// 위젯의 dueLabel/마감 임박 판정은 로컬 타임존 자정 기준(myTasks.ts dateKeyLocal).
+// dueDate 도 동일하게 "로컬 오늘"(YYYY-MM-DD) 로 만들어야 한다 — toISOString().slice(0,10) 은
+// UTC 날짜라 UTC 와 로컬 날짜가 갈리는 구간(예: KST 새벽 0~9시)에서 '오늘' 판정이 어긋나 flaky.
+function localDateKey(d: Date): string {
+  const y = d.getFullYear()
+  const m = `${d.getMonth() + 1}`.padStart(2, '0')
+  const day = `${d.getDate()}`.padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 /** 내 작업 위젯 두 엔드포인트 + 레이아웃을 한 번에 모킹하는 헬퍼.
  * LIFO 라우트 우선순위 때문에 page.goto 직전에 호출한다. */
 async function mockTasks(
@@ -27,7 +37,7 @@ test(
   '담당 이슈가 위급도 순으로 렌더되고 메타가 정확하다',
   { tag: '@smoke' },
   async ({ authenticatedPage: page }) => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDateKey(new Date())
     await mockTasks(
       page,
       [

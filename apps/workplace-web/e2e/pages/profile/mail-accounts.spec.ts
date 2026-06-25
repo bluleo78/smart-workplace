@@ -20,6 +20,7 @@ function account(overrides?: Partial<MailAccountResponse>): MailAccountResponse 
     smtpSecurity: 'STARTTLS',
     smtpUsername: 'me@example.com',
     aiEnabled: false,
+    lastSyncedAt: null, // #481 자동동기화로 추가된 필수 필드 — 미동기화 기본값
     lastTestedAt: '2026-06-03T00:00:00Z',
     createdAt: '2026-06-03T00:00:00Z',
     updatedAt: '2026-06-03T00:00:00Z',

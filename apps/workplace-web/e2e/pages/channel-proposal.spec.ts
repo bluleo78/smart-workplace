@@ -21,6 +21,12 @@ function makeProposal(proposedByUserId: number): MessageProposal {
     projectKey: null,
     candidates: [],
     resultIssueKey: null,
+    // 일정 전용 필드 — 이슈 제안이므로 모두 비어 있음(#490 MessageProposal 확장).
+    startsAt: null,
+    endsAt: null,
+    location: null,
+    allDay: null,
+    conflicts: null,
   }
 }
 
@@ -40,6 +46,12 @@ function makeProposalWithCandidates(proposedByUserId: number): MessageProposal {
       { key: 'DESIGN', name: '디자인팀' },
     ],
     resultIssueKey: null,
+    // 일정 전용 필드 — 이슈 제안이므로 모두 비어 있음(#490 MessageProposal 확장).
+    startsAt: null,
+    endsAt: null,
+    location: null,
+    allDay: null,
+    conflicts: null,
   }
 }
 

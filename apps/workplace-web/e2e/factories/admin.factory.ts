@@ -1,13 +1,37 @@
 /**
  * 관리자 도메인 모킹 데이터 팩토리
- * src/types/api-connection.ts, auditLog.ts, role.ts, settings.ts 타입 기반으로 테스트용 객체를 생성한다.
+ * auditLog.ts, role.ts 타입 기반으로 테스트용 객체를 생성한다.
  * overrides 파라미터로 특정 필드만 덮어쓸 수 있다.
  */
 
-import type { ApiConnectionResponse } from '@/types/api-connection';
 import type { AuditLogResponse } from '@/types/auditLog';
 import type { PermissionResponse, RoleDetailResponse } from '@/types/role';
-import type { SettingResponse } from '@/types/settings';
+
+// ApiConnection·Setting 응답 형태는 src/types 에 더 이상 존재하지 않는다(firehub 잔재 —
+// smart-workplace 엔 해당 admin 페이지가 없다). 깨진 import 대신 팩토리·fixture 가 쓰는
+// 형태만 로컬로 정의해 e2e 타입체크를 통과시킨다. 제거는 별도 정리 작업으로 분리한다.
+interface ApiConnectionResponse {
+  id: number;
+  name: string;
+  description: string;
+  authType: string;
+  maskedAuthConfig: Record<string, string>;
+  baseUrl: string;
+  healthCheckPath: string;
+  lastStatus: string;
+  lastCheckedAt: string;
+  lastLatencyMs: number;
+  lastErrorMessage: string | null;
+  createdBy: number;
+  createdAt: string;
+  updatedAt: string;
+}
+interface SettingResponse {
+  key: string;
+  value: string;
+  description: string;
+  updatedAt: string;
+}
 
 /** 권한(Permission) 응답 객체 생성 */
 export function createPermission(overrides?: Partial<PermissionResponse>): PermissionResponse {
