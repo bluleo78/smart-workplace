@@ -67,6 +67,14 @@ describe('buildSdkOptions', () => {
     expect(buildSdkOptions(baseInput({ userId: 12 })).env!.ACTING_USER_ID).toBe('12');
     expect(buildSdkOptions(baseInput()).env!.ACTING_USER_ID).toBeUndefined();
   });
+
+  it('mcpServers 지정 시 options.mcpServers 로 패스스루, 미지정 시 미설정', () => {
+    const fakeServer = { type: 'sdk' as const, name: 'workplace', instance: {} as never };
+    const withServers = buildSdkOptions(baseInput({ mcpServers: { workplace: fakeServer } }));
+    expect(withServers.mcpServers).toEqual({ workplace: fakeServer });
+    const without = buildSdkOptions(baseInput());
+    expect(without.mcpServers).toBeUndefined();
+  });
 });
 
 // 가짜 Query: 메시지 배열을 yield + interrupt() 보유. mode='gate' 면 interrupt 까지 대기 후 throw(SDK 실측 동작).

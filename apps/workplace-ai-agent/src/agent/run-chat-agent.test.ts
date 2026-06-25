@@ -1,26 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// cli-runner 전체 mock — runClaudeCli(기존 테스트 호환) + runClaudeCliStream(신규 테스트) 모두 포함.
-// runClaudeCliStream: onLine 으로 가짜 stream-json 3라인 즉시 주입 후 done resolve.
-vi.mock('./cli-runner.js', () => ({
-  buildCliArgs: vi.fn(() => ['ARGS']),
-  buildChildEnv: vi.fn(() => ({})),
-  runClaudeCli: vi.fn(async () => undefined),
-  runClaudeCliStream: vi.fn((_i: unknown, onLine: (l: string) => void) => {
+// sdk-runner mock — runSdkStream: onLine 으로 가짜 SDKMessage 3라인 즉시 주입 후 done resolve.
+vi.mock('./sdk-runner.js', () => ({
+  runSdkStream: vi.fn((_i: unknown, onLine: (l: string) => void) => {
     onLine(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__workplace__search_wiki' }] } }));
     onLine(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result' }] } }));
     onLine(JSON.stringify({ type: 'result', subtype: 'success' }));
     return { done: Promise.resolve(), kill: vi.fn() };
   }),
 }));
-vi.mock('./mcp-config.js', () => ({
-  writeTempMcpConfig: vi.fn(() => '/tmp/cfg.json'),
-  cleanupTempMcpConfig: vi.fn(),
+vi.mock('./sdk-mcp-server.js', () => ({
+  buildInProcessWorkplaceMcpServer: vi.fn(() => ({ type: 'sdk', name: 'workplace', instance: {} })),
 }));
 vi.mock('./attachment-prep.js', () => ({ prepareAttachments: vi.fn(async () => []) }));
 
 import { runChatAgent } from './run-chat-agent.js';
-import { runClaudeCliStream, buildCliArgs } from './cli-runner.js';
+import { runSdkStream } from './sdk-runner.js';
+import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import { prepareAttachments } from './attachment-prep.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -60,14 +56,22 @@ describe('runChatAgent', () => {
     vi.mocked(prepareAttachments).mockResolvedValue([]);
   });
 
-  it('mentions AGENT → 토큰 fetch + 첨부 준비 + CLI spawn(allowFileRead, cwd)', async () => {
+  it('mentions AGENT → 토큰 fetch + 첨부 준비 + SDK spawn(allowFileRead, cwd, mcpServers, partial=false)', async () => {
     await runChatAgent(env, deps());
     expect(prepareAttachments).toHaveBeenCalled();
-    expect(runClaudeCliStream).toHaveBeenCalledOnce();
-    const argCall = vi.mocked(buildCliArgs).mock.calls[0][0];
-    expect(argCall.allowFileRead).toBe(true);
-    const runCall = vi.mocked(runClaudeCliStream).mock.calls[0][0];
+    expect(runSdkStream).toHaveBeenCalledOnce();
+    const runCall = vi.mocked(runSdkStream).mock.calls[0][0] as {
+      allowFileRead?: boolean; cwd?: string; includePartialMessages?: boolean;
+      mcpServers?: Record<string, unknown>;
+    };
+    expect(runCall.allowFileRead).toBe(true);
     expect(typeof runCall.cwd).toBe('string');
+    expect(runCall.includePartialMessages).toBe(false);
+    expect(runCall.mcpServers?.workplace).toBeDefined();
+    // 인-프로세스 서버는 chat 프로필 + 멘션된 agentId(99)로 빌드
+    expect(buildInProcessWorkplaceMcpServer).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: 'chat', onBehalfOfId: 99 }),
+    );
   });
 
   it('mentions 에 AGENT 없으면 spawn 생략', async () => {
@@ -79,7 +83,7 @@ describe('runChatAgent', () => {
       },
     };
     await runChatAgent(noAgent, deps());
-    expect(runClaudeCliStream).not.toHaveBeenCalled();
+    expect(runSdkStream).not.toHaveBeenCalled();
   });
 });
 

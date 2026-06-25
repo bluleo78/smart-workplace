@@ -1,5 +1,5 @@
-// 6c: chat.message.posted → AGENT 결정 → 토큰·thread·첨부 준비 → CLI spawn(chat 프로필).
-// A3: runClaudeCliStream 으로 전환 — spawn 즉시 started, 라인마다 파서→tracker→tool, finally에서 done/error 발행.
+// 6c: chat.message.posted → AGENT 결정 → 토큰·thread·첨부 준비 → 인-프로세스 MCP(chat) + SDK 실행.
+// 슬라이스 3: runSdkStream + buildInProcessWorkplaceMcpServer 로 전환(stdio MCP 서브프로세스 제거).
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,8 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
 import { buildChatUserMessage } from './chat-user-message.js';
 import { prepareAttachments } from './attachment-prep.js';
-import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
-import { buildChildEnv, buildCliArgs, runClaudeCliStream } from './cli-runner.js';
+import { runSdkStream } from './sdk-runner.js';
+import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import { parseProgressLine } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
 import { pickMentionedAgentId } from './chat-agent-resolver.js';
@@ -44,12 +44,12 @@ export async function runChatAgent(
     return;
   }
 
-  // per-run 임시폴더 — 첨부 다운로드 + CLI cwd. Read 는 이 폴더 한정.
+  // per-run 임시폴더 — 첨부 다운로드 + Read cwd. Read 는 이 폴더 한정.
   const workDir = mkdtempSync(path.join(tmpdir(), `chat-agent-${p.threadId}-`));
-  const mcpConfigPath = writeTempMcpConfig({
-    agentId,
-    baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
-    internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
+  // 인-프로세스 MCP 서버(chat 프로필) — onBehalfOf = 멘션된 agentId(ACTING_USER_ID 없음).
+  const workplace = buildInProcessWorkplaceMcpServer({
+    client: deps.client,
+    onBehalfOfId: agentId,
     profile: 'chat',
   });
 
@@ -62,16 +62,7 @@ export async function runChatAgent(
     const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
     const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
-    const args = buildCliArgs({
-      userMessage,
-      systemPrompt: CHAT_SYSTEM_PROMPT,
-      model,
-      maxTurns,
-      mcpConfigPath,
-      allowFileRead: true,
-    });
-
-    // A3: 스트리밍 진행 발행 — 단일 streamId 로 started→tool→done/error 를 API 에 POST.
+    // 스트리밍 진행 발행 — 단일 streamId 로 started→tool→done/error 를 API 에 POST.
     // progress POST 실패는 본 흐름을 막지 않는다(표시용). 에러는 로깅만.
     const streamId = randomUUID();
     const tracker = new ProgressTracker();
@@ -85,21 +76,35 @@ export async function runChatAgent(
     };
 
     emit('started');
-    const childEnv = buildChildEnv(process.env, token, agentId);
     const logTag = `chat-agent:${p.issueKey}:thread${p.threadId}:${agentId}`;
-    const handle = runClaudeCliStream({ args, env: childEnv, timeoutMs, logTag, cwd: workDir }, (line) => {
-      const sig = parseProgressLine(line);
-      if (tracker.apply(sig)) emit('tool');
-    });
+    const handle = runSdkStream(
+      {
+        userMessage,
+        systemPrompt: CHAT_SYSTEM_PROMPT,
+        model,
+        maxTurns,
+        token,
+        agentId,
+        timeoutMs,
+        logTag,
+        cwd: workDir, // 첨부 Read 스코프 — 누락 시 tmpdir 로 새 스코프(첨부 읽기 조용히 실패)
+        allowFileRead: true,
+        includePartialMessages: false, // CLI 가 partial 미전달이었음 — 파서 입력 계약 동일 유지
+        mcpServers: { workplace },
+      },
+      (line) => {
+        const sig = parseProgressLine(line);
+        if (tracker.apply(sig)) emit('tool');
+      },
+    );
     try {
       await handle.done;
       emit('done');
     } catch (e) {
-      console.error('[run-chat-agent] CLI 스트림 실패', { threadId: p.threadId, error: e });
+      console.error('[run-chat-agent] SDK 스트림 실패', { threadId: p.threadId, error: e });
       emit('error');
     }
   } finally {
-    cleanupTempMcpConfig(mcpConfigPath);
     rmSync(workDir, { recursive: true, force: true });
   }
 }

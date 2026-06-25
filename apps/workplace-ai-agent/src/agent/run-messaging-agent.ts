@@ -1,14 +1,11 @@
-// 7: messaging.message.posted → respondAsAgentId 로 토큰·대화 준비 → CLI spawn(messaging 프로필).
-// A4: runClaudeCliStream 으로 전환 — spawn 즉시 started, 라인마다 파서→tracker→tool, finally에서 done/error 발행.
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+// 7: messaging.message.posted → respondAsAgentId 로 토큰·대화 준비 → 인-프로세스 MCP(messaging) + SDK 실행.
+// 슬라이스 3: runSdkStream + buildInProcessWorkplaceMcpServer 로 전환(stdio MCP 서브프로세스 제거).
 import { randomUUID } from 'node:crypto';
 
 import { MESSAGING_SYSTEM_PROMPT } from './messaging-system-prompt.js';
 import { buildMessagingUserMessage } from './messaging-user-message.js';
-import { writeTempMcpConfig, cleanupTempMcpConfig } from './mcp-config.js';
-import { buildChildEnv, buildCliArgs, runClaudeCliStream } from './cli-runner.js';
+import { runSdkStream } from './sdk-runner.js';
+import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import { parseProgressLine } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
 import type { RunAgentDeps } from './run-agent.js';
@@ -38,76 +35,80 @@ export async function runMessagingAgent(
     return;
   }
 
-  // per-run 임시폴더 — CLI cwd. 채팅과 달리 첨부 없음.
-  const workDir = mkdtempSync(path.join(tmpdir(), `messaging-agent-${p.channelId}-`));
-  const mcpConfigPath = writeTempMcpConfig({
-    agentId,
-    baseURL: process.env.WORKPLACE_API_BASE_URL ?? '',
-    internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
+  // 인-프로세스 MCP 서버(messaging 프로필). 첨부 없음 → workDir/cwd 불필요(SDK 기본 tmpdir).
+  // 위임(L3): 트리거 actor=위임자, channelId 항상; 스레드 안(parent 비-null)이면 thread 바인딩.
+  const threadBinding =
+    p.triggerParentMessageId != null
+      ? { channelId: p.channelId, parentMessageId: p.triggerParentMessageId }
+      : undefined;
+  const workplace = buildInProcessWorkplaceMcpServer({
+    client: deps.client,
+    onBehalfOfId: agentId,
     profile: 'messaging',
-    // 위임(L3): 트리거 actor=위임자, channelId 는 항상 — propose_create_issue 가 코드로 스탬프.
-    triggerActorId: p.actor.id,
-    triggerChannelId: p.channelId,
-    // mirror: 스레드 안(parent 비-null)일 때만 thread 바인딩.
-    ...(p.triggerParentMessageId != null ? { triggerThreadParentId: p.triggerParentMessageId } : {}),
+    threadBinding,
+    delegationContext: {
+      actorId: p.actor.id,
+      channelId: p.channelId,
+      parentMessageId: p.triggerParentMessageId ?? undefined,
+    },
   });
 
+  // 최근 채널 메시지 PREFETCH 개 조회 → 대화 컨텍스트 구성
+  const recent = await deps.client.getChannelMessages(agentId, p.channelId, PREFETCH);
+  // L3 위임 후보 프로젝트 — AI 가 이슈 라우팅을 맥락으로 추측할 소스(실패해도 빈 배열로 진행).
+  let candidates: { key: string; name: string }[] = [];
   try {
-    // 최근 채널 메시지 PREFETCH 개 조회 → 대화 컨텍스트 구성
-    const recent = await deps.client.getChannelMessages(agentId, p.channelId, PREFETCH);
-    // L3 위임 후보 프로젝트 — AI 가 이슈 라우팅을 맥락으로 추측할 소스(실패해도 빈 배열로 진행).
-    let candidates: { key: string; name: string }[] = [];
-    try {
-      candidates = await deps.client.listDelegationCandidates(agentId, p.actor.id);
-    } catch (e) {
-      console.error('[run-messaging-agent] 위임 후보 조회 실패', {
-        channelId: p.channelId,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-    const userMessage = buildMessagingUserMessage(p, recent, candidates);
+    candidates = await deps.client.listDelegationCandidates(agentId, p.actor.id);
+  } catch (e) {
+    console.error('[run-messaging-agent] 위임 후보 조회 실패', {
+      channelId: p.channelId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+  const userMessage = buildMessagingUserMessage(p, recent, candidates);
 
-    const model = process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
-    const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
-    const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
+  const model = process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
+  const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
+  const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
-    // messaging 은 첨부 없음 → allowFileRead: false
-    const args = buildCliArgs({
+  // 스트리밍 진행 발행 — 단일 streamId 로 started→tool→done/error 를 API 에 POST.
+  // progress POST 실패는 본 흐름을 막지 않는다(표시용). 에러는 로깅만.
+  const streamId = randomUUID();
+  const tracker = new ProgressTracker();
+  const emit = (phase: 'started' | 'tool' | 'done' | 'error') => {
+    const snap = tracker.snapshot(phase);
+    deps.client
+      .postMessagingProgress(agentId, p.channelId, { streamId, phase, steps: snap.steps })
+      .catch((e: unknown) =>
+        console.error('[run-messaging-agent] progress 발행 실패', { channelId: p.channelId, error: e }),
+      );
+  };
+  emit('started');
+  const logTag = `messaging-agent:channel${p.channelId}:${agentId}`;
+  const handle = runSdkStream(
+    {
       userMessage,
       systemPrompt: MESSAGING_SYSTEM_PROMPT,
       model,
       maxTurns,
-      mcpConfigPath,
-      allowFileRead: false,
-    });
-    // A4: 스트리밍 진행 발행 — 단일 streamId 로 started→tool→done/error 를 API 에 POST.
-    // progress POST 실패는 본 흐름을 막지 않는다(표시용). 에러는 로깅만.
-    const streamId = randomUUID();
-    const tracker = new ProgressTracker();
-    const emit = (phase: 'started' | 'tool' | 'done' | 'error') => {
-      const snap = tracker.snapshot(phase);
-      deps.client
-        .postMessagingProgress(agentId, p.channelId, { streamId, phase, steps: snap.steps })
-        .catch((e: unknown) =>
-          console.error('[run-messaging-agent] progress 발행 실패', { channelId: p.channelId, error: e }),
-        );
-    };
-    emit('started');
-    const childEnv = buildChildEnv(process.env, token, agentId);
-    const logTag = `messaging-agent:channel${p.channelId}:${agentId}`;
-    const handle = runClaudeCliStream({ args, env: childEnv, timeoutMs, logTag, cwd: workDir }, (line) => {
+      token,
+      agentId,
+      timeoutMs,
+      logTag,
+      allowFileRead: false, // messaging 은 첨부 없음
+      includePartialMessages: false, // CLI 가 partial 미전달이었음 — 파서 입력 계약 동일 유지
+      mcpServers: { workplace },
+    },
+    (line) => {
       const sig = parseProgressLine(line);
       if (tracker.apply(sig)) emit('tool');
-    });
-    try {
-      await handle.done;
-      emit('done');
-    } catch (e) {
-      console.error('[run-messaging-agent] CLI 스트림 실패', { channelId: p.channelId, error: e });
-      emit('error');
-    }
-  } finally {
-    cleanupTempMcpConfig(mcpConfigPath);
-    rmSync(workDir, { recursive: true, force: true });
+    },
+  );
+  try {
+    await handle.done;
+    emit('done');
+  } catch (e) {
+    console.error('[run-messaging-agent] 스트림 실패', { channelId: p.channelId, error: e });
+    emit('error');
   }
 }
