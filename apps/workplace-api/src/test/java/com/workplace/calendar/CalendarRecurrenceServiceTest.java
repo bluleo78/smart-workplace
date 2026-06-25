@@ -43,12 +43,13 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
 
   /** RRULE 포함 일정 요청 헬퍼. */
   private CalendarEventRequest recurringReq(String rrule, OffsetDateTime s, OffsetDateTime e) {
-    return new CalendarEventRequest("회의", null, s, e, false, null, null, null, rrule);
+    return new CalendarEventRequest("회의", null, s, e, false, null, null, null, rrule, null);
   }
 
   /** 제목 지정 편집 요청 헬퍼(클라이언트가 회차 시작을 그대로 echo 하는 상황 모사). */
   private CalendarEventRequest editReq(String title, String rrule, OffsetDateTime s) {
-    return new CalendarEventRequest(title, null, s, s.plusHours(1), false, null, null, null, rrule);
+    return new CalendarEventRequest(
+        title, null, s, s.plusHours(1), false, null, null, null, rrule, null);
   }
 
   /** 마스터의 예외 행에 저장된 override_event_id 조회(없으면 null). */
@@ -269,7 +270,7 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
 
     CalendarEventRequest edit =
         new CalendarEventRequest(
-            "매일회의", null, BASE, BASE.plusHours(1), false, null, null, null, "FREQ=DAILY");
+            "매일회의", null, BASE, BASE.plusHours(1), false, null, null, null, "FREQ=DAILY", null);
     service.update(u, master.id(), edit, EditScope.ALL, null);
 
     // BASE 부터 7일 범위 → 일간 7회, 모두 새 제목.

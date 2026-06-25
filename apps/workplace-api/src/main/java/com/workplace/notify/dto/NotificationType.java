@@ -8,5 +8,7 @@ public enum NotificationType {
   ASSIGNED,
   COMMENTED,
   STATUS_CHANGED,
-  REMINDER
+  REMINDER,
+  CALENDAR_INVITED, // 일정 초대 수신(피초대자)
+  CALENDAR_RSVP_CHANGED // 참석자 RSVP 변경(주최자 수신)
 }

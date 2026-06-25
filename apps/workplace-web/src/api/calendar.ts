@@ -1,4 +1,4 @@
-import type { CalendarEvent, CalendarEventRequest, EditScope } from '../types/calendar'
+import type { CalendarEvent, CalendarEventRequest, EditScope, RsvpStatus } from '../types/calendar'
 import { client } from './client'
 
 // 반복 일정 편집/삭제 시 적용 범위·회차 식별용 쿼리 파라미터 (이슈 #111)
@@ -19,4 +19,13 @@ export const calendarApi = {
     client.patch<CalendarEvent>(`/calendar/events/${id}`, body, { params }),
   remove: (id: number, params?: ScopeParams) =>
     client.delete<void>(`/calendar/events/${id}`, { params }),
+  // 일정에 참석자 초대 — POST /calendar/events/{id}/attendees (이슈 #489)
+  invite: (id: number, userIds: number[]) =>
+    client.post<void>(`/calendar/events/${id}/attendees`, { userIds }),
+  // 참석자 제거 — DELETE /calendar/events/{id}/attendees/{userId} (이슈 #489)
+  removeAttendee: (id: number, userId: number) =>
+    client.delete<void>(`/calendar/events/${id}/attendees/${userId}`),
+  // 내 RSVP 응답 — PATCH /calendar/events/{id}/rsvp (이슈 #489)
+  rsvp: (id: number, status: RsvpStatus) =>
+    client.patch<void>(`/calendar/events/${id}/rsvp`, { status }),
 }

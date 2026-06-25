@@ -5,6 +5,23 @@ export type CalendarViewType = 'month' | 'week' | 'day' | 'agenda'
 // THIS = 이 회차만, THIS_AND_FOLLOWING = 이후 모든 회차, ALL = 전체 시리즈
 export type EditScope = 'THIS' | 'THIS_AND_FOLLOWING' | 'ALL'
 
+// 참석자 RSVP 응답 상태 (이슈 #489)
+export type RsvpStatus = 'NEEDS_ACTION' | 'ACCEPTED' | 'DECLINED' | 'TENTATIVE'
+
+// 참석자 역할 — ORGANIZER(주최자) | ATTENDEE(참석자)
+export type AttendeeRole = 'ORGANIZER' | 'ATTENDEE'
+
+/** 일정 참석자 (GET /events/{id} 에서만 반환) */
+export interface Attendee {
+  userId: number
+  username: string
+  name: string
+  kind: 'HUMAN' | 'AGENT'
+  role: AttendeeRole
+  rsvpStatus: RsvpStatus
+  invitedByUserId: number | null
+}
+
 export interface CalendarEvent {
   id: number
   title: string
@@ -24,6 +41,12 @@ export interface CalendarEvent {
   occurrenceDate?: string | null
   createdAt: string
   updatedAt: string
+  // 참석자 카운트 (주최자 포함). 목록/상세 모두 반환. (이슈 #489)
+  attendeeCount?: number
+  // 현재 사용자의 RSVP 상태. 참석자가 아니면 null. (이슈 #489)
+  myRsvpStatus?: RsvpStatus | null
+  // 참석자 목록 — GET /events/{id} 에서만 채워짐. (이슈 #489)
+  attendees?: Attendee[] | null
 }
 
 // 캘린더에 읽기전용으로 오버레이되는 "내게 할당된 이슈 마감일" 마커.
@@ -48,4 +71,6 @@ export interface CalendarEventRequest {
   reminderMinutes: number | null
   // RRULE 문자열(반복 규칙). null = 반복 없음 (이슈 #111)
   recurrenceRule: string | null
+  // 생성 시 초대할 참석자 userId 목록 (주최자 제외). 미전달 시 빈 배열. (이슈 #489)
+  attendeeUserIds?: number[]
 }

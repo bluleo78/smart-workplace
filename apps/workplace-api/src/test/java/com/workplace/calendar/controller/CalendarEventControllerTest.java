@@ -66,7 +66,8 @@ class CalendarEventControllerTest {
   /** 샘플 응답 — create/list 에서 재사용. */
   private CalendarEventResponse sample() {
     return new CalendarEventResponse(
-        1L, "회의", null, STARTS, ENDS, false, null, null, null, null, null, null, STARTS, ENDS);
+        1L, "회의", null, STARTS, ENDS, false, null, null, null, null, null, null, STARTS, ENDS,
+        0, null, null);
   }
 
   @BeforeEach
@@ -82,7 +83,7 @@ class CalendarEventControllerTest {
     when(service.create(eq(1L), any())).thenReturn(sample());
 
     CalendarEventRequest req =
-        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null);
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null, null);
 
     mockMvc
         .perform(
@@ -98,7 +99,7 @@ class CalendarEventControllerTest {
   void create_endsBeforeStarts_returns400() throws Exception {
     // endsAt 이 startsAt 보다 앞 → @AssertTrue isValidRange 위반 → 400
     CalendarEventRequest req =
-        new CalendarEventRequest("회의", null, ENDS, STARTS, false, null, null, null, null);
+        new CalendarEventRequest("회의", null, ENDS, STARTS, false, null, null, null, null, null);
 
     mockMvc
         .perform(
@@ -128,7 +129,7 @@ class CalendarEventControllerTest {
     // scope/occurrenceDate 쿼리 파라미터가 서비스로 그대로 전달되는지 확인.
     when(service.update(eq(1L), eq(1L), any(), any(), any())).thenReturn(sample());
     CalendarEventRequest req =
-        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null);
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null, null);
 
     mockMvc
         .perform(
@@ -154,7 +155,7 @@ class CalendarEventControllerTest {
     // @DateTimeFormat(ISO.DATE_TIME) 이 초 생략 형식을 동일 instant 로 바인딩하는지 검증.
     when(service.update(eq(1L), eq(1L), any(), any(), any())).thenReturn(sample());
     CalendarEventRequest req =
-        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null);
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null, null);
 
     mockMvc
         .perform(
@@ -176,7 +177,7 @@ class CalendarEventControllerTest {
     // scope 미지정 시 ALL, occurrenceDate 미지정 시 null.
     when(service.update(eq(1L), eq(1L), any(), any(), isNull())).thenReturn(sample());
     CalendarEventRequest req =
-        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null);
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null, null);
 
     mockMvc
         .perform(
@@ -206,7 +207,7 @@ class CalendarEventControllerTest {
   @Test
   void create_unauthenticated_returns401() throws Exception {
     CalendarEventRequest req =
-        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null);
+        new CalendarEventRequest("회의", null, STARTS, ENDS, false, null, null, null, null, null);
 
     mockMvc
         .perform(

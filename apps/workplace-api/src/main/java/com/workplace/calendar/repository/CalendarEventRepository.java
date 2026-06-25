@@ -1,6 +1,7 @@
 package com.workplace.calendar.repository;
 
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.EVENT_REMINDER;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
@@ -9,15 +10,33 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
-/** calendar_event jOOQ 접근. 권한(owner) 검증은 service 책임. */
+/** calendar_event jOOQ 접근. 읽기 접근은 owner OR event_attendee 참석자(accessibleBy 술어). */
 @Repository
 @RequiredArgsConstructor
 public class CalendarEventRepository {
   private final DSLContext dsl;
+
+  /**
+   * 읽기 접근 술어: owner 이거나 event_attendee 테이블에 참석자 행이 있으면 접근 가능. list(구체/반복마스터)와 단건 조회 세 경로에 공통 적용해
+   * 초대받은 사용자도 자신의 일정을 볼 수 있도록 한다(가시성 역전).
+   */
+  public static Condition accessibleBy(long callerId) {
+    return CALENDAR_EVENT
+        .OWNER_ID
+        .eq(callerId)
+        .or(
+            DSL.exists(
+                DSL.selectOne()
+                    .from(EVENT_ATTENDEE)
+                    .where(EVENT_ATTENDEE.EVENT_ID.eq(CALENDAR_EVENT.ID))
+                    .and(EVENT_ATTENDEE.USER_ID.eq(callerId))));
+  }
 
   /** 일정 생성 — 생성된 id 반환. */
   public long insert(long ownerId, CalendarEventRequest req) {
@@ -36,13 +55,17 @@ public class CalendarEventRepository {
         .getId();
   }
 
-  /** 단건 조회(owner 무관) — service 에서 owner 검증. event_reminder 를 left join 해 reminderMinutes 포함. */
-  public Optional<CalendarEventResponse> findById(long id) {
+  /**
+   * 단건 조회 — callerId 가 owner 이거나 참석자인 경우에만 반환(없으면 Optional.empty → service 가 404 처리).
+   * event_reminder 를 left join 해 reminderMinutes 포함.
+   */
+  public Optional<CalendarEventResponse> findById(long callerId, long id) {
     return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
         .from(CALENDAR_EVENT)
         .leftJoin(EVENT_REMINDER)
         .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
         .where(CALENDAR_EVENT.ID.eq(id))
+        .and(accessibleBy(callerId))
         .fetchOptional()
         .map(CalendarEventRepository::toResponse);
   }
@@ -56,16 +79,16 @@ public class CalendarEventRepository {
   }
 
   /**
-   * owner 의 [from,to) 와 겹치는 구체(비반복) 일정 — starts_at < to AND ends_at > from. 반복 마스터(RRULE 보유)는 회차
-   * 전개로 별도 처리하므로 제외한다. 오버라이드 일정은 RRULE 이 null 이라 여기서 그대로 반환된다.
+   * callerId 가 접근 가능한(owner 또는 참석자) 구체(비반복) 일정 중 [from, to) 와 겹치는 것. 반복 마스터(RRULE 보유)는 회차 전개로 별도
+   * 처리하므로 제외. 오버라이드 일정은 RRULE 이 null 이라 여기서 그대로 반환된다.
    */
   public List<CalendarEventResponse> listByRange(
-      long ownerId, OffsetDateTime from, OffsetDateTime to) {
+      long callerId, OffsetDateTime from, OffsetDateTime to) {
     return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
         .from(CALENDAR_EVENT)
         .leftJoin(EVENT_REMINDER)
         .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
-        .where(CALENDAR_EVENT.OWNER_ID.eq(ownerId))
+        .where(accessibleBy(callerId))
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
         .and(CALENDAR_EVENT.ENDS_AT.gt(from))
         .and(CALENDAR_EVENT.RECURRENCE_RULE.isNull())
@@ -74,15 +97,15 @@ public class CalendarEventRepository {
   }
 
   /**
-   * owner 의 반복 마스터(RRULE 보유) 중 시작이 to 이전인 것 — starts_at < to. from 하한은 회차 전개(fastForward) 가 처리하므로
-   * 두지 않는다(과거에 시작한 마스터의 미래 회차도 잡아야 함).
+   * callerId 가 접근 가능한(owner 또는 참석자) 반복 마스터(RRULE 보유) 중 시작이 to 이전인 것. from 하한은 회차 전개(fastForward) 가
+   * 처리하므로 두지 않는다(과거에 시작한 마스터의 미래 회차도 잡아야 함).
    */
-  public List<CalendarEventResponse> listRecurringMasters(long ownerId, OffsetDateTime to) {
+  public List<CalendarEventResponse> listRecurringMasters(long callerId, OffsetDateTime to) {
     return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
         .from(CALENDAR_EVENT)
         .leftJoin(EVENT_REMINDER)
         .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
-        .where(CALENDAR_EVENT.OWNER_ID.eq(ownerId))
+        .where(accessibleBy(callerId))
         .and(CALENDAR_EVENT.RECURRENCE_RULE.isNotNull())
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
         .fetch(CalendarEventRepository::toResponse);
@@ -141,7 +164,10 @@ public class CalendarEventRepository {
         null, // masterEventId — 구체/마스터 행은 회차가 아니므로 null
         null, // occurrenceDate — 가상 회차에서만 채워짐
         r.get(CALENDAR_EVENT.CREATED_AT),
-        r.get(CALENDAR_EVENT.UPDATED_AT));
+        r.get(CALENDAR_EVENT.UPDATED_AT),
+        0, // attendeeCount — 서비스 계층 enrich 전 기본값
+        null, // myRsvpStatus — 서비스 계층 enrich 전 기본값
+        null); // attendees — 서비스 계층 enrich 전 기본값
   }
 
   private static String nullIfBlank(String s) {

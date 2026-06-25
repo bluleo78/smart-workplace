@@ -66,6 +66,20 @@ public class NotificationService {
   }
 
   /**
+   * 캘린더 참석자 알림 — 초대(CALENDAR_INVITED) 또는 RSVP 변경(CALENDAR_RSVP_CHANGED). actor==recipient 이면 자기 자신
+   * 알림 스킵. insert 후 동일 수신자에게 SSE fan-out.
+   */
+  @Transactional
+  public void createEventNotificationAndFanOut(
+      long recipientId, NotificationType type, long actorId, long eventId) {
+    // 본인 행위 → 자기 자신에게 알림 없음
+    if (actorId == recipientId) return;
+    repo.insertEventNotification(recipientId, type, actorId, eventId);
+    registry.fanOut(
+        List.of(recipientId), "notify.created", Map.of("type", type.name(), "eventId", eventId));
+  }
+
+  /**
    * 캘린더 리마인더 알림 — 수신자=일정 소유자 1인, actor 없음. insert 후 동일 수신자에게 SSE fan-out. (이슈 경로와 분리 — issue_id 없는
    * 알림을 안전히 생성하고 Map.of NPE 회피)
    */

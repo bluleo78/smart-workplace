@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 
 import { calendarApi, type ScopeParams } from '../../api/calendar'
 import { handleApiError } from '../../lib/api-error'
-import type { CalendarEventRequest, EditScope } from '../../types/calendar'
+import type { CalendarEventRequest, EditScope, RsvpStatus } from '../../types/calendar'
 import { calendarKeys } from './calendarKeys'
 
 // scope/occurrenceDate 를 쿼리 파라미터로 정리 — 값이 있을 때만 포함(반복 일정에서만 전달).
@@ -70,5 +70,52 @@ export function useDeleteEvent() {
       toast.success('일정을 삭제했습니다')
     },
     onError: (e) => handleApiError(e, '일정 삭제에 실패했습니다'),
+  })
+}
+
+// ────────────────────────────────────────────────────────────
+// 참석자 관련 mutation 훅 (이슈 #489)
+// ────────────────────────────────────────────────────────────
+
+/** 참석자 초대 — 성공 시 캘린더 캐시 무효화 */
+export function useInviteAttendees(eventId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (userIds: number[]) =>
+      calendarApi.invite(eventId, userIds).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: calendarKeys.all })
+      qc.invalidateQueries({ queryKey: ['calendar', 'event', eventId] })
+    },
+    onError: (e) => handleApiError(e, '참석자 초대에 실패했습니다'),
+  })
+}
+
+/** 참석자 제거 — 성공 시 캘린더 캐시 무효화 */
+export function useRemoveAttendee(eventId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (userId: number) =>
+      calendarApi.removeAttendee(eventId, userId).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: calendarKeys.all })
+      qc.invalidateQueries({ queryKey: ['calendar', 'event', eventId] })
+    },
+    onError: (e) => handleApiError(e, '참석자 제거에 실패했습니다'),
+  })
+}
+
+/** 내 RSVP 응답 — 성공 시 캘린더 캐시 무효화 */
+export function useRsvp(eventId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (status: RsvpStatus) =>
+      calendarApi.rsvp(eventId, status).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: calendarKeys.all })
+      qc.invalidateQueries({ queryKey: ['calendar', 'event', eventId] })
+      toast.success('참석 여부를 업데이트했습니다')
+    },
+    onError: (e) => handleApiError(e, 'RSVP 업데이트에 실패했습니다'),
   })
 }

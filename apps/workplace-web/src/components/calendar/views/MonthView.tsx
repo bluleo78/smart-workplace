@@ -61,7 +61,7 @@ export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIs
                 {format(day, 'd')}
               </div>
 
-              {/* 이벤트 칩 (최대 3개) */}
+              {/* 이벤트 칩 (최대 3개) — DECLINED 는 반투명 처리 (이슈 #489) */}
               {visible.map((e) => (
                 <button
                   key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
@@ -70,7 +70,7 @@ export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIs
                     ev.stopPropagation()
                     onSelectEvent(e)
                   }}
-                  className="w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded bg-primary text-primary-foreground truncate block"
+                  className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded bg-primary text-primary-foreground truncate block ${e.myRsvpStatus === 'DECLINED' ? 'opacity-40' : ''}`}
                 >
                   {e.title}
                 </button>

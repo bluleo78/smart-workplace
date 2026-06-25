@@ -1,6 +1,7 @@
 package com.workplace.calendar.dto;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 /**
  * 일정 응답.
@@ -9,6 +10,9 @@ import java.time.OffsetDateTime;
  * @param recurrenceRule 저장된 RRULE(반복 마스터/가상 회차에 채워짐). 단일 일정은 null.
  * @param masterEventId 가상 회차일 때 원본(마스터) 일정 id. 구체 일정은 null.
  * @param occurrenceDate 가상 회차의 시작 시각(ISO-8601 UTC 문자열) — 회차 식별 키. 구체 일정은 null.
+ * @param attendeeCount 참석자 총원(주최자 포함). list 경량 응답에서도 채움.
+ * @param myRsvpStatus 호출자 본인의 RSVP 상태. 참석자가 아니면 null.
+ * @param attendees 전체 참석자 목록. get() 에서만 채움, list() 는 null.
  */
 public record CalendarEventResponse(
     long id,
@@ -24,4 +28,7 @@ public record CalendarEventResponse(
     Long masterEventId,
     String occurrenceDate,
     OffsetDateTime createdAt,
-    OffsetDateTime updatedAt) {}
+    OffsetDateTime updatedAt,
+    int attendeeCount,
+    String myRsvpStatus,
+    List<AttendeeResponse> attendees) {}

@@ -1,10 +1,12 @@
 // 일정 생성/편집 다이얼로그.
 // event prop 이 있으면 편집 모드, 없으면 생성 모드.
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
+import { AttendeeSection, type SelectedMember } from '@/components/calendar/AttendeeSection'
+import { RsvpControls } from '@/components/calendar/RsvpControls'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -25,6 +27,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useCalendarEvent } from '@/hooks/queries/useCalendarEvent'
+import {
+  useInviteAttendees,
+  useRemoveAttendee,
+} from '@/hooks/queries/useCalendarMutations'
+import { useAuth } from '@/hooks/useAuth'
 import { buildRRule, parseRRule, type RecurrenceForm } from '@/lib/recurrence'
 import type { CalendarEvent, CalendarEventRequest } from '@/types/calendar'
 
@@ -168,6 +176,28 @@ export function EventDialog({
   isPending = false,
 }: EventDialogProps) {
   const isEdit = !!event
+  const { user } = useAuth()
+
+  // 생성 모드에서 선택된 참석자 목록 — id+이름+종류 저장으로 칩에 실명 표시 (이슈 #489)
+  const [selectedAttendees, setSelectedAttendees] = useState<SelectedMember[]>([])
+
+  // 편집 모드에서 상세 데이터(attendees 포함) 로드 — 목록 이벤트에는 attendees 가 없음 (이슈 #489)
+  const { data: detailEvent } = useCalendarEvent(isEdit && open ? event?.id : undefined)
+  // detailEvent 가 있으면 그것을, 없으면 prop event 를 사용 (생성 모드 / 로딩 중)
+  const eventWithDetail = detailEvent ?? event
+
+  // 편집 모드 참석자 invite/remove 뮤테이션 — eventId 0 은 dummy(생성 모드에서 훅 호출 유지) (이슈 #489)
+  const inviteAttendees = useInviteAttendees(event?.id ?? 0)
+  const removeAttendee = useRemoveAttendee(event?.id ?? 0)
+
+  // 현재 사용자가 참석자이고 주최자가 아니며 AGENT 가 아닌 경우 RSVP 컨트롤 표시 (이슈 #489)
+  const myAttendee = user && eventWithDetail?.attendees?.find((a) => a.userId === user.id)
+  const showRsvp =
+    isEdit &&
+    myAttendee != null &&
+    myAttendee.role !== 'ORGANIZER' &&
+    myAttendee.kind !== 'AGENT' &&
+    eventWithDetail?.myRsvpStatus != null
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -187,9 +217,11 @@ export function EventDialog({
     },
   })
 
-  // 다이얼로그가 열릴 때마다 폼 초기화
+  // 다이얼로그가 열릴 때마다 폼 초기화 + 참석자 선택 초기화
   useEffect(() => {
     if (!open) return
+    // 생성 모드 진입 시 참석자 선택 초기화
+    if (!event) setSelectedAttendees([])
 
     // 반복 규칙(RRULE) → 평탄한 폼 필드로 변환. 생성 모드(이벤트 없음)면 NONE 기본값.
     const rec = parseRRule(event?.recurrenceRule ?? null)
@@ -257,6 +289,9 @@ export function EventDialog({
       reminderMinutes: values.reminderMinutes === 'none' ? null : Number(values.reminderMinutes),
       // 반복 규칙 — freq=NONE 이면 buildRRule 이 null 반환 (이슈 #111)
       recurrenceRule: buildRRule(recForm),
+      // 참석자 초대 — 생성 모드에서만 의미있음. 편집은 별도 invite/remove API (이슈 #489)
+      // selectedAttendees 에서 id 만 추출해 요청 바디에 담음
+      attendeeUserIds: isEdit ? undefined : selectedAttendees.map((m) => m.id),
     }
     onSubmit(body)
   }
@@ -468,6 +503,15 @@ export function EventDialog({
             </>
           )}
 
+          {/* 참석자 섹션 — 생성 모드: 로컬 선택, 편집 모드: 상세 attendees + 즉시 invite/remove (이슈 #489) */}
+          <AttendeeSection
+            selectedMembers={selectedAttendees}
+            onChange={setSelectedAttendees}
+            attendees={eventWithDetail?.attendees}
+            onInvite={isEdit ? (userId) => inviteAttendees.mutate([userId]) : undefined}
+            onRemove={isEdit ? (userId) => removeAttendee.mutate(userId) : undefined}
+          />
+
           {/* 설명 */}
           <FormField label="설명" htmlFor="ev-description">
             <Textarea
@@ -478,6 +522,14 @@ export function EventDialog({
               {...form.register('description')}
             />
           </FormField>
+
+          {/* RSVP 응답 — 본인이 참석자이고 주최자·AGENT 가 아닌 경우에만 표시 (이슈 #489) */}
+          {showRsvp && eventWithDetail && (
+            <RsvpControls
+              eventId={eventWithDetail.id}
+              current={eventWithDetail.myRsvpStatus!}
+            />
+          )}
 
           <DialogFooter className="pt-2">
             {/* 편집 모드에서 onDelete 제공 시 삭제 버튼 표시 */}

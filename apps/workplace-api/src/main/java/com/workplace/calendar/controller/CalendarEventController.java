@@ -3,6 +3,8 @@ package com.workplace.calendar.controller;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.EditScope;
+import com.workplace.calendar.dto.InviteAttendeesRequest;
+import com.workplace.calendar.dto.RsvpRequest;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.global.security.RequirePermission;
 import jakarta.validation.Valid;
@@ -61,6 +63,38 @@ public class CalendarEventController {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
           OffsetDateTime occurrenceDate) {
     return ResponseEntity.ok(service.update(callerId, id, req, scope, occurrenceDate));
+  }
+
+  /**
+   * RSVP 응답. 참석자 본인만 가능(비참석자 → 404 은닉). calendar:read 권한으로 충분(쓰기 권한 없는 참석자도 응답 가능).
+   */
+  @PatchMapping("/{id}/rsvp")
+  public ResponseEntity<Void> rsvp(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @Valid @RequestBody RsvpRequest req) {
+    service.respondRsvp(callerId, id, req.status());
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 참석자 추가. 주최자만 가능. */
+  @PostMapping("/{id}/attendees")
+  @RequirePermission("calendar:write")
+  public ResponseEntity<Void> invite(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long id,
+      @Valid @RequestBody InviteAttendeesRequest req) {
+    service.inviteAttendees(callerId, id, req.userIds());
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 참석자 제거. 주최자만 가능. */
+  @DeleteMapping("/{id}/attendees/{userId}")
+  @RequirePermission("calendar:write")
+  public ResponseEntity<Void> removeAttendee(
+      @AuthenticationPrincipal Long callerId, @PathVariable long id, @PathVariable long userId) {
+    service.removeAttendee(callerId, id, userId);
+    return ResponseEntity.noContent().build();
   }
 
   /** 일정 삭제. 반복 일정은 scope/occurrenceDate 로 적용 범위 지정. scope 미지정 시 ALL(시리즈 전체 삭제). */

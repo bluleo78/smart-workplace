@@ -1,5 +1,7 @@
 package com.workplace.notify.outbound;
 
+import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
+import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChangedEvent;
 import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
@@ -42,6 +44,38 @@ public class NotificationDispatcher {
           NotificationType.ASSIGNED, recipients, actorId(e.actor()), e.issueId(), null);
     } catch (Exception ex) {
       log.warn("[notify] assigned 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
+    }
+  }
+
+  /** 일정 초대 → 피초대자(HUMAN)에게 CALENDAR_INVITED 알림. */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onCalendarAttendeeInvited(CalendarAttendeeInvitedEvent e) {
+    try {
+      service.createEventNotificationAndFanOut(
+          e.recipientId(), NotificationType.CALENDAR_INVITED, e.actorId(), e.eventId());
+    } catch (Exception ex) {
+      log.warn(
+          "[notify] 초대 알림 실패 eventId={} recipientId={}: {}",
+          e.eventId(),
+          e.recipientId(),
+          ex.getMessage());
+    }
+  }
+
+  /** RSVP 변경 → 주최자에게 CALENDAR_RSVP_CHANGED 알림. */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onCalendarRsvpChanged(CalendarRsvpChangedEvent e) {
+    try {
+      service.createEventNotificationAndFanOut(
+          e.recipientId(), NotificationType.CALENDAR_RSVP_CHANGED, e.actorId(), e.eventId());
+    } catch (Exception ex) {
+      log.warn(
+          "[notify] RSVP 알림 실패 eventId={} recipientId={}: {}",
+          e.eventId(),
+          e.recipientId(),
+          ex.getMessage());
     }
   }
 

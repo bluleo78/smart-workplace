@@ -40,6 +40,20 @@ public class NotificationRepository {
     dsl.batch(rows).execute();
   }
 
+  /**
+   * 이벤트 기반 알림 1건 insert — actor 있음, issue_id null, event_id 사용. 초대(CALENDAR_INVITED)/RSVP 변경
+   * (CALENDAR_RSVP_CHANGED) 등 캘린더 참석자 알림에 사용.
+   */
+  public void insertEventNotification(
+      long recipientId, NotificationType type, Long actorId, long eventId) {
+    dsl.insertInto(NOTIFICATION)
+        .set(NOTIFICATION.RECIPIENT_ID, recipientId)
+        .set(NOTIFICATION.ACTOR_ID, actorId)
+        .set(NOTIFICATION.TYPE, type.name())
+        .set(NOTIFICATION.EVENT_ID, eventId)
+        .execute();
+  }
+
   /** REMINDER 알림 1건 insert — actor/issue 없음(event_id 만), type=REMINDER, 안읽음. */
   public void insertReminder(long recipientId, long eventId) {
     dsl.insertInto(NOTIFICATION)
