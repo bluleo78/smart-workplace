@@ -1,4 +1,4 @@
-// 개인 메일 계정 목록 섹션 — 계정 추가/수정/삭제. ProfilePage 의 카드 섹션.
+// 개인 메일 계정 목록 섹션 — 계정 추가/수정/삭제. MailSettingsPage 의 카드 섹션.
 
 import { useState } from 'react';
 
@@ -7,6 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { useDeleteMailAccount, useMailAccounts } from '@/hooks/queries/useMailAccounts';
 import type { MailAccountResponse } from '@/types/mailAccount';
+
+/** 공급자 라벨 — IMAP은 IMAP 호스트, M365_GRAPH는 'Outlook (Microsoft 365)' */
+function providerLabel(acc: MailAccountResponse): string {
+  if (acc.provider === 'M365_GRAPH') return 'Outlook (Microsoft 365)';
+  return acc.imapHost || 'IMAP';
+}
 
 import { MailAccountDialog } from './components/MailAccountDialog';
 
@@ -48,7 +54,8 @@ export function MailAccountsSection() {
             <div className="min-w-0">
               <p className="truncate font-medium">{acc.emailAddress}</p>
               <p className="truncate text-xs text-muted-foreground">
-                {acc.imapHost} · {acc.lastTestedAt ? '연결됨' : '미검증'}
+                {/* M365_GRAPH는 'Outlook' 라벨, IMAP는 호스트 주소 표시 */}
+                {providerLabel(acc)} · {acc.lastTestedAt ? '연결됨' : '미검증'}
               </p>
             </div>
             <div className="flex gap-2">

@@ -6,6 +6,7 @@ import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
 import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.service.MailSentAppender;
 import jakarta.mail.Folder;
@@ -46,7 +47,8 @@ class MailSentAppenderTest {
         null,
         null,
         false,
-        null);
+        null,
+        MailProvider.IMAP);
   }
 
   private MimeMessage simpleMessage() throws Exception {

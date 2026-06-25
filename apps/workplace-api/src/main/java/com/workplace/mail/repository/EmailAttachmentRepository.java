@@ -21,16 +21,22 @@ public class EmailAttachmentRepository {
 
   /**
    * 다운로드에 필요한 첨부 컨텍스트. 소유 검증(account.user_id + disabled_at)을 포함하며, 첨부의 메시지 내 순서(ordinal)를 서브쿼리로 계산해
-   * 반환한다.
+   * 반환한다. provider 로 IMAP/Graph 다운로드 경로를 분기한다.
+   *
+   * <p>providerAttachmentId: Graph 첨부의 안정 id — V91 이전 동기화 행은 null. IMAP 행도 null.
    */
   public record AttachmentDownloadContext(
       long attachmentId,
       String filename,
       String contentType,
-      int ordinal, // 메시지 내 0-based 삽입 순서 (id 오름차순 = MIME 순회 순서)
+      int ordinal, // 메시지 내 0-based 삽입 순서 (id 오름차순 = MIME 순회 순서, IMAP 경로 사용)
       long accountId,
       long imapUid,
-      String folderName) {}
+      String folderName,
+      String provider, // 'IMAP' or 'M365_GRAPH' — 다운로드 경로 분기
+      String providerMessageId, // Graph 메시지 id (IMAP 계정은 null)
+      String providerAttachmentId) // Graph 첨부 안정 id (V91+, 미저장 행은 null)
+  {}
 
   /** 첨부 ID + 소유자 userId 로 다운로드 컨텍스트 조회. 없거나 타인 소유면 empty. */
   public Optional<AttachmentDownloadContext> findContextForDownload(
@@ -50,7 +56,10 @@ public class EmailAttachmentRepository {
             ordinalSubquery.asField("ordinal"),
             EMAIL_MESSAGE.ACCOUNT_ID,
             EMAIL_MESSAGE.IMAP_UID,
-            EMAIL_FOLDER.NAME)
+            EMAIL_FOLDER.NAME,
+            EMAIL_ACCOUNT.PROVIDER,
+            EMAIL_MESSAGE.PROVIDER_MESSAGE_ID,
+            EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID)
         .from(EMAIL_ATTACHMENT)
         .join(EMAIL_MESSAGE)
         .on(EMAIL_MESSAGE.ID.eq(EMAIL_ATTACHMENT.MESSAGE_ID))
@@ -70,10 +79,13 @@ public class EmailAttachmentRepository {
                     r.get("ordinal", Integer.class),
                     r.get(EMAIL_MESSAGE.ACCOUNT_ID),
                     r.get(EMAIL_MESSAGE.IMAP_UID) == null ? 0L : r.get(EMAIL_MESSAGE.IMAP_UID),
-                    r.get(EMAIL_FOLDER.NAME)));
+                    r.get(EMAIL_FOLDER.NAME),
+                    r.get(EMAIL_ACCOUNT.PROVIDER),
+                    r.get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID),
+                    r.get(EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID)));
   }
 
-  /** 메시지에 첨부 메타 1건 저장. */
+  /** 메시지에 첨부 메타 1건 저장. Graph 첨부의 경우 provider_attachment_id 도 저장한다(IMAP 은 null). */
   public void insert(long messageId, ParsedAttachment a) {
     dsl.insertInto(EMAIL_ATTACHMENT)
         .set(EMAIL_ATTACHMENT.MESSAGE_ID, messageId)
@@ -81,6 +93,7 @@ public class EmailAttachmentRepository {
         .set(EMAIL_ATTACHMENT.CONTENT_TYPE, a.contentType())
         .set(EMAIL_ATTACHMENT.SIZE_BYTES, a.sizeBytes())
         .set(EMAIL_ATTACHMENT.CONTENT_ID, a.contentId())
+        .set(EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID, a.providerAttachmentId())
         .execute();
   }
 }

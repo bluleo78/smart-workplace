@@ -19,6 +19,14 @@ spring:
 
 # 이슈 첨부 전용 설정 (file 모듈의 firehub.file.* 와는 별도 키 — 우회 흐름).
 workplace:
+  mail:
+    m365:
+      # M365 Graph OAuth2 설정 — client-secret 은 반드시 환경변수로만 주입(평문 커밋 금지)
+      client-id: ${M365_CLIENT_ID:}
+      tenant-id: ${M365_TENANT_ID:}
+      client-secret: ${M365_CLIENT_SECRET:}
+      redirect-uri: ${M365_REDIRECT_URI:http://localhost:9090/api/v1/mail/oauth/m365/callback}
+      web-base-url: ${WEB_BASE_URL:http://localhost:6173}
   drive:
     default-quota-bytes: 10737418240  # 10 GB
   attachment:

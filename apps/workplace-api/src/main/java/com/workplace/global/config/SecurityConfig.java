@@ -61,8 +61,12 @@ public class SecurityConfig {
                     // firehub-channel → firehub-api Internal 전용 inbound 엔드포인트
                     .requestMatchers("/api/v1/channels/slack/inbound")
                     .permitAll()
-                    // OAuth 콜백은 외부 서비스(Kakao/Slack)에서 리다이렉트되므로 Bearer 헤더 없음
-                    .requestMatchers("/api/v1/oauth/kakao/callback", "/api/v1/oauth/slack/callback")
+                    // OAuth 콜백은 외부 서비스(Kakao/Slack/AAD)에서 리다이렉트되므로 Bearer 헤더 없음
+                    // M365 콜백은 state 로 사용자 식별 — start 는 인증 유지
+                    .requestMatchers(
+                        "/api/v1/oauth/kakao/callback",
+                        "/api/v1/oauth/slack/callback",
+                        "/api/v1/mail/oauth/m365/callback")
                     .permitAll()
                     // 공유 링크 공개 다운로드 — 인증 없이 토큰으로 접근(capability URL)
                     .requestMatchers("/api/v1/public/drive/share/**")

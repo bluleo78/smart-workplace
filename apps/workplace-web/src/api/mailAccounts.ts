@@ -38,6 +38,17 @@ export async function testMailConnection(
   return data;
 }
 
+/**
+ * M365 Graph OAuth 인가 URL을 인증된 axios로 조회한다(C1 수정).
+ *
+ * 기존 window.location.href = '/start' top-level 이동은 Bearer 헤더를 실을 수 없어
+ * @AuthenticationPrincipal userId가 null → NPE 500. 대신 axios로 받고 location.href 이동.
+ */
+export async function getM365AuthorizeUrl(): Promise<string> {
+  const { data } = await client.get<{ authorizeUrl: string }>('/mail/oauth/m365/start');
+  return data.authorizeUrl;
+}
+
 // 기존 계정 연결 테스트 — 비밀번호 미입력 시 서버가 저장된 비밀번호로 폴백(#448).
 export async function testMailConnectionForAccount(
   id: number,

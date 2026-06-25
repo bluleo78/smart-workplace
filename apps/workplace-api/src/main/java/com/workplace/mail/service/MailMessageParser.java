@@ -195,8 +195,9 @@ public class MailMessageParser {
       contentId = contentId.replaceAll("[<>]", "").trim();
     }
     int size = part.getSize();
+    // IMAP 경로는 providerAttachmentId 없음(null) — Graph 첨부만 저장
     return new ParsedAttachment(
-        filename, stripParams(part.getContentType()), Math.max(size, 0), contentId);
+        filename, stripParams(part.getContentType()), Math.max(size, 0), contentId, null);
   }
 
   /** "text/plain; charset=utf-8" → "text/plain". */

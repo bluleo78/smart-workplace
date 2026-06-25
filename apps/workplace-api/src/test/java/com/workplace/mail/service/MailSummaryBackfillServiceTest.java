@@ -22,9 +22,8 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 /**
- * MailSummaryBackfillService 단위 테스트.
- * Spring 컨텍스트 없이 Mockito 만으로 서비스 로직 검증 — (a) 본문 있음 → 요약 호출,
- * (b) 빈본문 → 요약 미호출, (c) resolveSpecOrNull=null → 아무것도 안 함.
+ * MailSummaryBackfillService 단위 테스트. Spring 컨텍스트 없이 Mockito 만으로 서비스 로직 검증 — (a) 본문 있음 → 요약 호출, (b)
+ * 빈본문 → 요약 미호출, (c) resolveSpecOrNull=null → 아무것도 안 함.
  */
 @ExtendWith(MockitoExtension.class)
 class MailSummaryBackfillServiceTest {
@@ -46,15 +45,20 @@ class MailSummaryBackfillServiceTest {
     // → execute(callback) 이 콜백을 동기 실행하도록 허용.
     // lenient: resolveSpec=null 단축 경로에서는 txManager 가 호출되지 않아도 무시.
     org.mockito.Mockito.lenient()
-        .when(txManager.getTransaction(org.mockito.ArgumentMatchers.any(TransactionDefinition.class)))
+        .when(
+            txManager.getTransaction(org.mockito.ArgumentMatchers.any(TransactionDefinition.class)))
         .thenReturn(new SimpleTransactionStatus());
     service = new MailSummaryBackfillService(messageRepo, bodyFetcher, mailAiService, txManager);
     spec = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
   }
 
-  /** AiContext 생성 헬퍼 — 필드 순서: aiEnabled, selfAddress, subject, fromAddress, bodyText, bodyHtml, summary */
+  /**
+   * AiContext 생성 헬퍼 — 필드 순서: aiEnabled, selfAddress, subject, fromAddress, bodyText, bodyHtml,
+   * summary
+   */
   private static AiContext aiContext(String bodyText, String bodyHtml) {
-    return new AiContext(true, "self@test.local", "제목", "from@test.local", bodyText, bodyHtml, null);
+    return new AiContext(
+        true, "self@test.local", "제목", "from@test.local", bodyText, bodyHtml, null);
   }
 
   @Test
@@ -82,7 +86,8 @@ class MailSummaryBackfillServiceTest {
 
     service.summarizeRecentUnreadNow(USER, ACCOUNT);
 
-    verify(messageRepo, never()).listRecentUnreadUnsummarizedIds(anyLong(), org.mockito.ArgumentMatchers.anyInt());
+    verify(messageRepo, never())
+        .listRecentUnreadUnsummarizedIds(anyLong(), org.mockito.ArgumentMatchers.anyInt());
     verify(mailAiService, never()).summarize(anyLong(), anyLong());
   }
 
@@ -92,7 +97,7 @@ class MailSummaryBackfillServiceTest {
     given(mailAiService.resolveSpecOrNull(USER)).willReturn(spec);
     given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20)).willReturn(List.of(20L));
     // bodyTarget 이 fetch 필요(imapUid=5, bodyFetchedAt=null)
-    BodyTarget fetchNeeded = new BodyTarget(20L, 99L, 5L, "INBOX", null);
+    BodyTarget fetchNeeded = new BodyTarget(20L, 99L, 5L, "INBOX", null, null);
     given(messageRepo.findBodyTargetForUser(USER, 20L)).willReturn(Optional.of(fetchNeeded));
     // fetch 후에도 본문이 빈 경우
     given(messageRepo.findAiContextByIdAndUser(USER, 20L))

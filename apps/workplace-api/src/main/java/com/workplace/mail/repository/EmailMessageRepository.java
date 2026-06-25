@@ -71,6 +71,81 @@ public class EmailMessageRepository {
         .map(r -> r.get(EMAIL_MESSAGE.ID));
   }
 
+  /**
+   * Graph provider_message_id 키로 메시지를 UPSERT 한다.
+   *
+   * <p>부분 유니크 {@code (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL} 충돌 시
+   * NO-OP(멱등). 슬라이스1: read-state delta(isRead 변경 등) 갱신은 미구현 — 충돌 시 DO NOTHING 으로 첫 삽입만 유효.
+   *
+   * <p>imapUid 는 Graph 계정에서 사용하지 않으므로 null 저장(IMAP 분기와 구별).
+   *
+   * @param accountId 계정 id
+   * @param folderId 폴더 id
+   * @param m 매핑된 ParsedMessage(imapUid 는 무시됨)
+   * @param providerMessageId Graph 메시지 id
+   * @return 신규 삽입이면 true, 이미 존재(충돌 무시)하면 false
+   */
+  public boolean upsertByProviderId(
+      long accountId, long folderId, ParsedMessage m, String providerMessageId) {
+    return dsl.insertInto(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
+        .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+        .set(EMAIL_MESSAGE.IMAP_UID, (Long) null) // Graph 계정: IMAP UID 없음
+        .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId)
+        .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
+        .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
+        .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
+        .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
+        .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
+        .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
+        .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
+        .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
+        .set(EMAIL_MESSAGE.SUBJECT, m.subject())
+        .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
+        .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
+        .set(EMAIL_MESSAGE.SEEN, m.seen())
+        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
+        .set(EMAIL_MESSAGE.BODY_TEXT, m.bodyText())
+        .set(EMAIL_MESSAGE.BODY_HTML, m.bodyHtml())
+        .set(EMAIL_MESSAGE.SNIPPET, m.snippet())
+        .onConflictDoNothing()
+        .returning(EMAIL_MESSAGE.ID)
+        .fetchOptional()
+        .isPresent();
+  }
+
+  /**
+   * Graph provider_message_id 로 메시지를 삭제한다.
+   *
+   * <p>Graph delta 에서 {@code @removed} 마커가 있는 항목을 DB 에서 제거한다. 이미 없는 경우(멱등) 무시한다.
+   *
+   * @param accountId 계정 id(타 계정 메시지 차단)
+   * @param providerMessageId 삭제할 Graph 메시지 id
+   */
+  public void deleteByProviderId(long accountId, String providerMessageId) {
+    dsl.deleteFrom(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
+        .execute();
+  }
+
+  /**
+   * 테스트용 — provider_message_id 로 메시지 id(PK)를 조회한다.
+   *
+   * <p>fetchNewMessages_appliesDeltaAndRemovals 에서 G1/G2 존재 여부를 단언할 때 사용.
+   *
+   * @param accountId 계정 id
+   * @param providerMessageId Graph 메시지 id
+   * @return 존재하면 메시지 PK, 없으면 empty
+   */
+  public Optional<Long> findByProviderId(long accountId, String providerMessageId) {
+    return dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
+        .fetchOptional(EMAIL_MESSAGE.ID);
+  }
+
   /** 기존 호출 호환(받은편지함). 폴더 미지정은 INBOX 로 스코프. */
   public List<EmailMessageSummary> listByAccount(long accountId, String query, int limit) {
     return listByAccount(accountId, "INBOX", query, limit);
@@ -440,32 +515,45 @@ public class EmailMessageRepository {
         .fetch(EMAIL_MESSAGE.ID);
   }
 
-  /** 본문 미적재 대상(account 별, 최근순). imap_uid 없는 로컬 보낸메일 제외. */
+  /**
+   * 본문 미적재 대상(account 별, 최근순). imap_uid 없는 로컬 보낸메일 제외.
+   *
+   * <p>IMAP 계정: imap_uid IS NOT NULL 조건으로 필터. Graph 계정: provider_message_id 가 있으므로 포함.
+   */
   public List<BodyTarget> listMissingBody(long accountId, int limit) {
     return dsl.select(
             EMAIL_MESSAGE.ID,
             EMAIL_MESSAGE.ACCOUNT_ID,
             EMAIL_MESSAGE.IMAP_UID,
             EMAIL_FOLDER.NAME,
-            EMAIL_MESSAGE.BODY_FETCHED_AT)
+            EMAIL_MESSAGE.BODY_FETCHED_AT,
+            EMAIL_MESSAGE.PROVIDER_MESSAGE_ID)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_MESSAGE.BODY_FETCHED_AT.isNull())
-        .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
+        .and(EMAIL_MESSAGE.IMAP_UID.isNotNull().or(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.isNotNull()))
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast())
         .limit(limit)
         .fetch(this::toBodyTarget);
   }
 
-  /** 본문 미적재 건수(account 별). 진행률 total 산정용. */
+  /**
+   * 본문 미적재 건수(account 별). 진행률 total 산정용.
+   *
+   * <p>IMAP(imap_uid) 과 Graph(provider_message_id) 메시지를 모두 포함한다 — listMissingBody 와 동일 조건.
+   */
   public int countMissingBody(long accountId) {
     return dsl.fetchCount(
         dsl.selectFrom(EMAIL_MESSAGE)
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
             .and(EMAIL_MESSAGE.BODY_FETCHED_AT.isNull())
-            .and(EMAIL_MESSAGE.IMAP_UID.isNotNull()));
+            .and(
+                EMAIL_MESSAGE
+                    .IMAP_UID
+                    .isNotNull()
+                    .or(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.isNotNull())));
   }
 
   /** 단건 본문 적재 대상 조회(account 기준 — 호출 측에서 소유 검증 선행). */
@@ -475,7 +563,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.ACCOUNT_ID,
             EMAIL_MESSAGE.IMAP_UID,
             EMAIL_FOLDER.NAME,
-            EMAIL_MESSAGE.BODY_FETCHED_AT)
+            EMAIL_MESSAGE.BODY_FETCHED_AT,
+            EMAIL_MESSAGE.PROVIDER_MESSAGE_ID)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -494,7 +583,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.ACCOUNT_ID,
             EMAIL_MESSAGE.IMAP_UID,
             EMAIL_FOLDER.NAME,
-            EMAIL_MESSAGE.BODY_FETCHED_AT)
+            EMAIL_MESSAGE.BODY_FETCHED_AT,
+            EMAIL_MESSAGE.PROVIDER_MESSAGE_ID)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -506,7 +596,11 @@ public class EmailMessageRepository {
         .fetchOptional(this::toBodyTarget);
   }
 
-  /** Record → BodyTarget. imap_uid null→0L, body_fetched_at null→null else Instant. */
+  /**
+   * Record → BodyTarget. imap_uid null→0L, body_fetched_at null→null else Instant.
+   *
+   * <p>PROVIDER_MESSAGE_ID: Graph 계정의 메시지 ID. IMAP 계정은 null.
+   */
   private BodyTarget toBodyTarget(Record r) {
     Long uid = r.get(EMAIL_MESSAGE.IMAP_UID);
     OffsetDateTime fetched = r.get(EMAIL_MESSAGE.BODY_FETCHED_AT);
@@ -515,7 +609,8 @@ public class EmailMessageRepository {
         r.get(EMAIL_MESSAGE.ACCOUNT_ID),
         uid == null ? 0L : uid,
         r.get(EMAIL_FOLDER.NAME),
-        fetched == null ? null : fetched.toInstant());
+        fetched == null ? null : fetched.toInstant(),
+        r.get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID));
   }
 
   /** AI 요약/답장용 컨텍스트(계정 ai_enabled·본인 이메일 + 메시지 본문/요약). 소유 검증 포함. */

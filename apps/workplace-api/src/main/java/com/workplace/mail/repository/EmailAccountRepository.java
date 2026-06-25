@@ -1,10 +1,12 @@
 package com.workplace.mail.repository;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static org.jooq.impl.DSL.val;
 
 import com.workplace.mail.dto.AiAccountRef;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -13,6 +15,8 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.springframework.stereotype.Repository;
+
+// GraphTokenService 에서 사용하는 OAuth 토큰 DTO — 암호문 그대로 반환(복호화는 서비스 담당)
 
 /** email_account jOOQ 리포지토리. 모든 조회/변경은 userId 스코프로 격리한다. */
 @Repository
@@ -61,7 +65,8 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.CREATED_AT,
             EMAIL_ACCOUNT.UPDATED_AT,
             EMAIL_ACCOUNT.AI_ENABLED,
-            EMAIL_ACCOUNT.LAST_SYNCED_AT)
+            EMAIL_ACCOUNT.LAST_SYNCED_AT,
+            EMAIL_ACCOUNT.PROVIDER) // V90: 공급자 필드
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.ID.eq(id))
         .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
@@ -87,7 +92,8 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.CREATED_AT,
             EMAIL_ACCOUNT.UPDATED_AT,
             EMAIL_ACCOUNT.AI_ENABLED,
-            EMAIL_ACCOUNT.LAST_SYNCED_AT)
+            EMAIL_ACCOUNT.LAST_SYNCED_AT,
+            EMAIL_ACCOUNT.PROVIDER) // V90: 공급자 필드
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
@@ -184,22 +190,38 @@ public class EmailAccountRepository {
         .execute();
   }
 
-  /** jOOQ Record → EmailAccountResponse. security 문자열 → enum, OffsetDateTime → Instant. */
+  /**
+   * jOOQ Record → EmailAccountResponse. security 문자열 → enum, OffsetDateTime → Instant. provider: DB
+   * 값 → MailProvider enum. null 또는 미인식 값이면 IMAP 폴백(기존 행 안전).
+   */
   private EmailAccountResponse toResponse(Record r) {
     OffsetDateTime tested = r.get(EMAIL_ACCOUNT.LAST_TESTED_AT);
     OffsetDateTime created = r.get(EMAIL_ACCOUNT.CREATED_AT);
     OffsetDateTime updated = r.get(EMAIL_ACCOUNT.UPDATED_AT);
+    // provider: V90 이후 NOT NULL DEFAULT 'IMAP'. null 이면 기존 행 폴백.
+    String providerStr = r.get(EMAIL_ACCOUNT.PROVIDER);
+    MailProvider provider;
+    try {
+      provider = providerStr != null ? MailProvider.valueOf(providerStr) : MailProvider.IMAP;
+    } catch (IllegalArgumentException e) {
+      provider = MailProvider.IMAP; // 미인식 값은 IMAP 폴백
+    }
+    // imap_security / smtp_security: V90 이후 nullable. IMAP 계정만 값 존재.
+    String imapSec = r.get(EMAIL_ACCOUNT.IMAP_SECURITY);
+    String smtpSec = r.get(EMAIL_ACCOUNT.SMTP_SECURITY);
+    Integer imapPort = r.get(EMAIL_ACCOUNT.IMAP_PORT);
+    Integer smtpPort = r.get(EMAIL_ACCOUNT.SMTP_PORT);
     return new EmailAccountResponse(
         r.get(EMAIL_ACCOUNT.ID),
         r.get(EMAIL_ACCOUNT.EMAIL_ADDRESS),
         r.get(EMAIL_ACCOUNT.DISPLAY_NAME),
         r.get(EMAIL_ACCOUNT.IMAP_HOST),
-        r.get(EMAIL_ACCOUNT.IMAP_PORT),
-        MailSecurity.valueOf(r.get(EMAIL_ACCOUNT.IMAP_SECURITY)),
+        imapPort, // M365 계정은 null, IMAP 계정은 항상 non-null
+        imapSec != null ? MailSecurity.valueOf(imapSec) : null,
         r.get(EMAIL_ACCOUNT.IMAP_USERNAME),
         r.get(EMAIL_ACCOUNT.SMTP_HOST),
-        r.get(EMAIL_ACCOUNT.SMTP_PORT),
-        MailSecurity.valueOf(r.get(EMAIL_ACCOUNT.SMTP_SECURITY)),
+        smtpPort, // M365 계정은 null, IMAP 계정은 항상 non-null
+        smtpSec != null ? MailSecurity.valueOf(smtpSec) : null,
         r.get(EMAIL_ACCOUNT.SMTP_USERNAME),
         tested == null ? null : tested.toInstant(),
         created == null ? null : created.toInstant(),
@@ -207,7 +229,104 @@ public class EmailAccountRepository {
         Boolean.TRUE.equals(r.get(EMAIL_ACCOUNT.AI_ENABLED)),
         r.get(EMAIL_ACCOUNT.LAST_SYNCED_AT) == null
             ? null
-            : r.get(EMAIL_ACCOUNT.LAST_SYNCED_AT).toInstant());
+            : r.get(EMAIL_ACCOUNT.LAST_SYNCED_AT).toInstant(),
+        provider);
+  }
+
+  /**
+   * M365 Graph 계정을 upsert 한다.
+   *
+   * <p>동일 (userId, email)의 활성(disabled_at IS NULL) 행이 있으면 그 행을 Graph 계정으로 전환(UPDATE)하고, 없으면 INSERT
+   * 한다. IMAP 관련 컬럼(imap/smtp host·port·security·username·encrypted_password)은 M365 계정에서 NULL 로
+   * 소거한다.
+   *
+   * <p>⚠️ @Transactional 컨텍스트 + TenantContext.set() 선행 필수 — GUC 미주입 시 FORCE RLS fail-closed.
+   *
+   * @param userId 계정 소유자
+   * @param emailAddress M365 계정 이메일 주소
+   * @param encRefreshToken 암호화된 refresh_token
+   * @param encAccessToken 암호화된 access_token
+   * @param expiresAt access_token 만료 시각
+   * @return 생성 또는 갱신된 account ID
+   */
+  public long upsertGraphAccount(
+      long userId,
+      String emailAddress,
+      String encRefreshToken,
+      String encAccessToken,
+      OffsetDateTime expiresAt) {
+    // INSERT ... ON CONFLICT ... DO UPDATE — 단일 원자 쿼리로 TOCTOU 경쟁 제거.
+    //
+    // 충돌 타깃: 부분 인덱스 uq_email_account_user_addr ON (tenant_id, user_id, email_address)
+    //   WHERE disabled_at IS NULL
+    // 비활성(disabled_at NOT NULL) 동명 행은 인덱스 밖이므로 충돌 없이 새 활성 행 INSERT — 의도된 동작.
+    // DO UPDATE: 기존 활성 IMAP 행을 Graph 계정으로 전환(IMAP 컬럼 소거, OAuth 토큰 채움).
+    return dsl.insertInto(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.USER_ID, userId)
+        .set(EMAIL_ACCOUNT.EMAIL_ADDRESS, emailAddress)
+        .set(EMAIL_ACCOUNT.DISPLAY_NAME, emailAddress) // 표시 이름 기본값: 이메일 주소
+        .set(EMAIL_ACCOUNT.PROVIDER, "M365_GRAPH")
+        .set(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN, encRefreshToken)
+        .set(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN, encAccessToken)
+        .set(EMAIL_ACCOUNT.OAUTH_TOKEN_EXPIRES_AT, expiresAt)
+        .set(EMAIL_ACCOUNT.AI_ENABLED, false)
+        .onConflict(EMAIL_ACCOUNT.TENANT_ID, EMAIL_ACCOUNT.USER_ID, EMAIL_ACCOUNT.EMAIL_ADDRESS)
+        .where(EMAIL_ACCOUNT.DISABLED_AT.isNull()) // 부분 인덱스 술어와 일치
+        .doUpdate()
+        // 기존 활성 IMAP → Graph 전환: provider 변경 + IMAP 컬럼 소거 + 토큰 갱신
+        .set(EMAIL_ACCOUNT.PROVIDER, val("M365_GRAPH"))
+        .setNull(EMAIL_ACCOUNT.IMAP_HOST)
+        .setNull(EMAIL_ACCOUNT.IMAP_PORT)
+        .setNull(EMAIL_ACCOUNT.IMAP_SECURITY)
+        .setNull(EMAIL_ACCOUNT.IMAP_USERNAME)
+        .setNull(EMAIL_ACCOUNT.SMTP_HOST)
+        .setNull(EMAIL_ACCOUNT.SMTP_PORT)
+        .setNull(EMAIL_ACCOUNT.SMTP_SECURITY)
+        .setNull(EMAIL_ACCOUNT.SMTP_USERNAME)
+        .setNull(EMAIL_ACCOUNT.ENCRYPTED_PASSWORD)
+        .set(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN, val(encRefreshToken))
+        .set(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN, val(encAccessToken))
+        .set(EMAIL_ACCOUNT.OAUTH_TOKEN_EXPIRES_AT, val(expiresAt))
+        .set(EMAIL_ACCOUNT.UPDATED_AT, val(OffsetDateTime.now()))
+        .returning(EMAIL_ACCOUNT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /**
+   * 본인 활성 계정 중 이메일 주소로 첫 번째 계정을 조회한다.
+   *
+   * <p>OAuth 콜백 후 생성 확인 등에 사용한다. RLS GUC 주입을 위해 @Transactional 컨텍스트에서 호출해야 한다.
+   *
+   * @param userId 계정 소유자
+   * @param emailAddress 이메일 주소
+   * @return 활성 계정(없으면 empty)
+   */
+  public Optional<EmailAccountResponse> findFirstByUserAndEmail(long userId, String emailAddress) {
+    return dsl.select(
+            EMAIL_ACCOUNT.ID,
+            EMAIL_ACCOUNT.EMAIL_ADDRESS,
+            EMAIL_ACCOUNT.DISPLAY_NAME,
+            EMAIL_ACCOUNT.IMAP_HOST,
+            EMAIL_ACCOUNT.IMAP_PORT,
+            EMAIL_ACCOUNT.IMAP_SECURITY,
+            EMAIL_ACCOUNT.IMAP_USERNAME,
+            EMAIL_ACCOUNT.SMTP_HOST,
+            EMAIL_ACCOUNT.SMTP_PORT,
+            EMAIL_ACCOUNT.SMTP_SECURITY,
+            EMAIL_ACCOUNT.SMTP_USERNAME,
+            EMAIL_ACCOUNT.LAST_TESTED_AT,
+            EMAIL_ACCOUNT.CREATED_AT,
+            EMAIL_ACCOUNT.UPDATED_AT,
+            EMAIL_ACCOUNT.AI_ENABLED,
+            EMAIL_ACCOUNT.LAST_SYNCED_AT,
+            EMAIL_ACCOUNT.PROVIDER)
+        .from(EMAIL_ACCOUNT)
+        .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.EMAIL_ADDRESS.eq(emailAddress))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .limit(1)
+        .fetchOptional(this::toResponse);
   }
 
   /** 동기화 성공 시 마지막 동기화 시각을 기록한다. 반드시 호출자가 트랜잭션 안에서 실행(RLS GUC). */
@@ -229,4 +348,60 @@ public class EmailAccountRepository {
 
   /** 자동 동기화 대상 계정 식별자. */
   public record ActiveAccount(long accountId, long userId) {}
+
+  /**
+   * OAuth 토큰 레코드 — 암호화 상태 그대로 반환한다. 복호화는 GraphTokenService 책임.
+   *
+   * @param refreshToken 암호화된 refresh_token
+   * @param accessToken 암호화된 access_token(없으면 null)
+   * @param expiresAt access_token 만료 시각(없으면 null)
+   */
+  public record OAuthTokens(String refreshToken, String accessToken, OffsetDateTime expiresAt) {}
+
+  /**
+   * M365 Graph 계정의 OAuth 토큰을 조회한다(userId 소유 검증 포함).
+   *
+   * <p>RLS GUC 주입을 위해 반드시 @Transactional 컨텍스트 안에서 호출해야 한다(호출자 GraphTokenService 의 책임).
+   *
+   * @param userId 계정 소유자
+   * @param accountId 메일 계정 ID
+   * @return 암호화된 토큰 레코드(없거나 타인 소유이면 empty)
+   */
+  public Optional<OAuthTokens> findOAuthTokens(long userId, long accountId) {
+    return dsl.select(
+            EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN,
+            EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN,
+            EMAIL_ACCOUNT.OAUTH_TOKEN_EXPIRES_AT)
+        .from(EMAIL_ACCOUNT)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(
+            r ->
+                new OAuthTokens(
+                    r.get(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN),
+                    r.get(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN),
+                    r.get(EMAIL_ACCOUNT.OAUTH_TOKEN_EXPIRES_AT)));
+  }
+
+  /**
+   * M365 계정의 OAuth 토큰을 갱신·저장한다(AAD refresh_token 회전 대응).
+   *
+   * <p>반드시 @Transactional 컨텍스트 안에서 호출해야 한다 — RLS GUC 미주입 시 fail-closed(#444/#492 패턴).
+   *
+   * @param accountId 메일 계정 ID
+   * @param encRefresh 암호화된 새 refresh_token
+   * @param encAccess 암호화된 새 access_token
+   * @param expiresAt 새 access_token 만료 시각
+   */
+  public void updateOAuthTokens(
+      long accountId, String encRefresh, String encAccess, OffsetDateTime expiresAt) {
+    dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN, encRefresh)
+        .set(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN, encAccess)
+        .set(EMAIL_ACCOUNT.OAUTH_TOKEN_EXPIRES_AT, expiresAt)
+        .set(EMAIL_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .execute();
+  }
 }

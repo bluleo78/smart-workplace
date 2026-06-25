@@ -1,5 +1,5 @@
 // 메일 계정 추가/수정 다이얼로그.
-// - 추가 모드: 프리셋 드롭다운 → 호스트/포트/보안 자동 채움. 저장은 연결 테스트 성공 후에만 활성화.
+// - 추가 모드: 공급자 선택(IMAP/M365_GRAPH) → IMAP은 프리셋+폼, M365는 OAuth 버튼만.
 // - 수정 모드: 기존 값 프리필. 비밀번호 빈 값이면 서버에서 기존 유지. 저장 버튼 항상 활성화.
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -7,6 +7,7 @@ import { Check, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { type SubmitHandler,useForm } from 'react-hook-form';
 
+import { getM365AuthorizeUrl } from '@/api/mailAccounts';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -32,6 +33,7 @@ import {
   useUpdateMailAccount,
 } from '@/hooks/queries/useMailAccounts';
 import {
+  MAIL_PROVIDER_OPTIONS,
   MAIL_PROVIDER_PRESETS,
   MAIL_SECURITY_OPTIONS,
 } from '@/lib/constants/mailAccount';
@@ -40,7 +42,7 @@ import {
   type MailAccountFormInput,
   mailAccountSchema,
 } from '@/lib/validations/mailAccount';
-import type { ConnectionTestResult, MailAccountResponse } from '@/types/mailAccount';
+import type { ConnectionTestResult, MailAccountResponse, MailProvider } from '@/types/mailAccount';
 
 interface MailAccountDialogProps {
   open: boolean;
@@ -77,6 +79,8 @@ export function MailAccountDialog({
   const testConnExisting = useTestMailConnectionForAccount();
   // 연결 테스트 결과 — 추가 모드에서 저장 가능 여부 판단에 사용
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  // 공급자 선택 — 추가 모드에서만 선택 가능(수정 모드는 기존 provider 고정)
+  const [provider, setProvider] = useState<MailProvider>('IMAP');
 
   // z.coerce 로 input·output 타입이 달라 RHF 3-제네릭(input, context, output) 사용
   const form = useForm<MailAccountFormInput, unknown, MailAccountFormData>({
@@ -84,10 +88,12 @@ export function MailAccountDialog({
     defaultValues: EMPTY,
   });
 
-  // 다이얼로그가 열릴 때마다 폼 초기화
+  // 다이얼로그가 열릴 때마다 폼 초기화 + 공급자 초기화
   useEffect(() => {
     if (!open) return;
     setTestResult(null);
+    // 수정 모드는 기존 계정 공급자, 추가 모드는 IMAP 기본값
+    setProvider(account?.provider ?? 'IMAP');
     if (account) {
       form.reset({
         emailAddress: account.emailAddress,
@@ -152,6 +158,8 @@ export function MailAccountDialog({
   };
 
   const saving = create.isPending || update.isPending;
+  // OAuth 공급자는 저장 버튼 자체를 숨김(콜백이 계정 생성). IMAP은 연결 테스트 성공 후 허용.
+  const isOAuth = provider === 'M365_GRAPH';
   // 추가 모드는 IMAP + SMTP 모두 성공 후에만 저장 허용; 수정 모드는 항상 허용
   const canSave =
     isEdit || (testResult?.imapOk === true && testResult?.smtpOk === true);
@@ -168,74 +176,15 @@ export function MailAccountDialog({
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
-          {/* 추가 모드에서만 provider 프리셋 드롭다운 표시 */}
+          {/* 추가 모드에서만 공급자 선택 드롭다운 표시 — 수정 모드는 기존 공급자 고정 */}
           {!isEdit && (
-            <FormField label="빠른 설정(provider)" htmlFor="mail-preset">
-              <Select onValueChange={applyPreset}>
-                <SelectTrigger id="mail-preset" aria-label="provider 프리셋" className="w-full">
-                  <SelectValue placeholder="직접 입력" />
-                </SelectTrigger>
-                <SelectContent>
-                  {MAIL_PROVIDER_PRESETS.map((p) => (
-                    <SelectItem key={p.name} value={p.name}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormField>
-          )}
-
-          <FormField
-            label="이메일 주소"
-            htmlFor="mail-email"
-            error={form.formState.errors.emailAddress?.message}
-          >
-            <Input id="mail-email" type="email" {...form.register('emailAddress')} />
-          </FormField>
-
-          <FormField label="표시 이름(선택)" htmlFor="mail-display">
-            <Input id="mail-display" {...form.register('displayName')} />
-          </FormField>
-
-          {/* ── 받기(IMAP) ── */}
-          <p className="pt-1 text-sm font-medium text-muted-foreground">받기(IMAP)</p>
-          <div className="grid grid-cols-2 gap-2">
-            <FormField
-              label="IMAP 호스트"
-              htmlFor="mail-imap-host"
-              error={form.formState.errors.imapHost?.message}
-            >
-              <Input id="mail-imap-host" {...form.register('imapHost')} />
-            </FormField>
-            <FormField
-              label="포트"
-              htmlFor="mail-imap-port"
-              error={form.formState.errors.imapPort?.message}
-            >
-              <Input
-                id="mail-imap-port"
-                type="number"
-                {...form.register('imapPort', { valueAsNumber: true })}
-              />
-            </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <FormField label="IMAP 보안" htmlFor="mail-imap-sec">
-              <Select
-                value={form.watch('imapSecurity')}
-                onValueChange={(v) =>
-                  form.setValue(
-                    'imapSecurity',
-                    v as MailAccountFormData['imapSecurity'],
-                  )
-                }
-              >
-                <SelectTrigger id="mail-imap-sec" aria-label="IMAP 보안" className="w-full">
+            <FormField label="공급자" htmlFor="mail-provider">
+              <Select value={provider} onValueChange={(v) => setProvider(v as MailProvider)}>
+                <SelectTrigger id="mail-provider" aria-label="공급자" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {MAIL_SECURITY_OPTIONS.map((o) => (
+                  {MAIL_PROVIDER_OPTIONS.map((o) => (
                     <SelectItem key={o.value} value={o.value}>
                       {o.label}
                     </SelectItem>
@@ -243,150 +192,264 @@ export function MailAccountDialog({
                 </SelectContent>
               </Select>
             </FormField>
-            <FormField
-              label="IMAP 사용자명"
-              htmlFor="mail-imap-user"
-              error={form.formState.errors.imapUsername?.message}
-            >
-              <Input id="mail-imap-user" {...form.register('imapUsername')} />
-            </FormField>
-          </div>
-
-          {/* ── 보내기(SMTP) ── */}
-          <p className="pt-1 text-sm font-medium text-muted-foreground">보내기(SMTP)</p>
-          <div className="grid grid-cols-2 gap-2">
-            <FormField
-              label="SMTP 호스트"
-              htmlFor="mail-smtp-host"
-              error={form.formState.errors.smtpHost?.message}
-            >
-              <Input id="mail-smtp-host" {...form.register('smtpHost')} />
-            </FormField>
-            <FormField
-              label="포트"
-              htmlFor="mail-smtp-port"
-              error={form.formState.errors.smtpPort?.message}
-            >
-              <Input
-                id="mail-smtp-port"
-                type="number"
-                {...form.register('smtpPort', { valueAsNumber: true })}
-              />
-            </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <FormField label="SMTP 보안" htmlFor="mail-smtp-sec">
-              <Select
-                value={form.watch('smtpSecurity')}
-                onValueChange={(v) =>
-                  form.setValue(
-                    'smtpSecurity',
-                    v as MailAccountFormData['smtpSecurity'],
-                  )
-                }
-              >
-                <SelectTrigger id="mail-smtp-sec" aria-label="SMTP 보안" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MAIL_SECURITY_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormField>
-            <FormField
-              label="SMTP 사용자명"
-              htmlFor="mail-smtp-user"
-              error={form.formState.errors.smtpUsername?.message}
-            >
-              <Input id="mail-smtp-user" {...form.register('smtpUsername')} />
-            </FormField>
-          </div>
-
-          <FormField
-            label={isEdit ? '비밀번호(변경 시에만 입력)' : '비밀번호(앱 비밀번호)'}
-            htmlFor="mail-pw"
-            error={form.formState.errors.password?.message}
-          >
-            <Input
-              id="mail-pw"
-              type="password"
-              autoComplete="new-password"
-              {...form.register('password')}
-            />
-          </FormField>
-          <p className="text-xs text-muted-foreground">
-            Gmail·Outlook 등은 로그인 비밀번호 대신{' '}
-            <strong>앱 비밀번호</strong>가 필요합니다.
-          </p>
-
-          {/* AI 비서 사용 토글 — 활성화 시 메일 본문이 AI 서비스로 전송됨 */}
-          <FormField label="AI 비서 사용" htmlFor="mail-ai-enabled">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="mail-ai-enabled"
-                data-testid="mail-ai-enabled"
-                checked={form.watch('aiEnabled')}
-                onCheckedChange={(v) => form.setValue('aiEnabled', v)}
-              />
-              <span className="text-xs text-muted-foreground">
-                메일 요약·분류·답장 초안에 본문이 AI로 전송됩니다(기본 꺼짐).
-              </span>
-            </div>
-          </FormField>
-
-          {/* 연결 테스트 결과 인라인 표시 */}
-          {testResult && (
-            <div data-testid="mail-test-result" className="rounded border p-2 text-sm">
-              <p
-                data-testid="mail-test-imap"
-                className={`flex items-center gap-1 ${testResult.imapOk ? 'text-success' : 'text-destructive'}`}
-              >
-                {testResult.imapOk ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                IMAP {testResult.imapOk ? '연결됨' : (testResult.imapError ?? '실패')}
-              </p>
-              <p
-                data-testid="mail-test-smtp"
-                className={`flex items-center gap-1 ${testResult.smtpOk ? 'text-success' : 'text-destructive'}`}
-              >
-                {testResult.smtpOk ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                SMTP {testResult.smtpOk ? '연결됨' : (testResult.smtpError ?? '실패')}
-              </p>
-            </div>
           )}
 
-          <div className="flex justify-between gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void onTest()}
-              disabled={testConn.isPending || testConnExisting.isPending || saving}
-              data-testid="mail-test-button"
-            >
-              {testConn.isPending || testConnExisting.isPending
-                ? '테스트 중…'
-                : '연결 테스트'}
-            </Button>
-            <div className="flex gap-2">
+          {/* Outlook(M365 Graph) OAuth 연결 안내 — IMAP 폼 전체 숨김 */}
+          {isOAuth ? (
+            <div className="space-y-4 py-2">
+              <p className="text-sm text-muted-foreground">
+                Microsoft 계정으로 이동해 권한을 허용하면 자동으로 계정이 연결됩니다.
+                창이 닫히면 메일 설정 페이지로 돌아와 확인하세요.
+              </p>
+              <Button
+                type="button"
+                className="w-full"
+                onClick={async () => {
+                  try {
+                    // 인증된 axios로 인가 URL 조회 후 이동(C1 수정):
+                    // top-level GET /start는 Bearer 헤더 미포함 → userId null → NPE 500.
+                    // axios GET → 응답 URL로 window.location.href 이동으로 변경.
+                    const url = await getM365AuthorizeUrl();
+                    window.location.href = url;
+                  } catch {
+                    /* 토스트는 mutation onError 가 처리 — axios 인터셉터가 토스트 표시 */
+                  }
+                }}
+              >
+                Outlook 계정 연결
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
+                className="w-full"
                 onClick={() => onOpenChange(false)}
               >
                 취소
               </Button>
-              <Button
-                type="submit"
-                disabled={saving || !canSave}
-                data-testid="mail-save-button"
-              >
-                {saving ? '저장 중…' : '저장'}
-              </Button>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* ── IMAP 방식: 추가 모드 프리셋 + 전체 폼 ── */}
+              {!isEdit && (
+                <FormField label="빠른 설정(provider)" htmlFor="mail-preset">
+                  <Select onValueChange={applyPreset}>
+                    <SelectTrigger id="mail-preset" aria-label="provider 프리셋" className="w-full">
+                      <SelectValue placeholder="직접 입력" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MAIL_PROVIDER_PRESETS.map((p) => (
+                        <SelectItem key={p.name} value={p.name}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+              )}
+
+              <FormField
+                label="이메일 주소"
+                htmlFor="mail-email"
+                error={form.formState.errors.emailAddress?.message}
+              >
+                <Input id="mail-email" type="email" {...form.register('emailAddress')} />
+              </FormField>
+
+              <FormField label="표시 이름(선택)" htmlFor="mail-display">
+                <Input id="mail-display" {...form.register('displayName')} />
+              </FormField>
+
+              {/* ── 받기(IMAP) ── */}
+              <p className="pt-1 text-sm font-medium text-muted-foreground">받기(IMAP)</p>
+              <div className="grid grid-cols-2 gap-2">
+                <FormField
+                  label="IMAP 호스트"
+                  htmlFor="mail-imap-host"
+                  error={form.formState.errors.imapHost?.message}
+                >
+                  <Input id="mail-imap-host" {...form.register('imapHost')} />
+                </FormField>
+                <FormField
+                  label="포트"
+                  htmlFor="mail-imap-port"
+                  error={form.formState.errors.imapPort?.message}
+                >
+                  <Input
+                    id="mail-imap-port"
+                    type="number"
+                    {...form.register('imapPort', { valueAsNumber: true })}
+                  />
+                </FormField>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <FormField label="IMAP 보안" htmlFor="mail-imap-sec">
+                  <Select
+                    value={form.watch('imapSecurity')}
+                    onValueChange={(v) =>
+                      form.setValue(
+                        'imapSecurity',
+                        v as MailAccountFormData['imapSecurity'],
+                      )
+                    }
+                  >
+                    <SelectTrigger id="mail-imap-sec" aria-label="IMAP 보안" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MAIL_SECURITY_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField
+                  label="IMAP 사용자명"
+                  htmlFor="mail-imap-user"
+                  error={form.formState.errors.imapUsername?.message}
+                >
+                  <Input id="mail-imap-user" {...form.register('imapUsername')} />
+                </FormField>
+              </div>
+
+              {/* ── 보내기(SMTP) ── */}
+              <p className="pt-1 text-sm font-medium text-muted-foreground">보내기(SMTP)</p>
+              <div className="grid grid-cols-2 gap-2">
+                <FormField
+                  label="SMTP 호스트"
+                  htmlFor="mail-smtp-host"
+                  error={form.formState.errors.smtpHost?.message}
+                >
+                  <Input id="mail-smtp-host" {...form.register('smtpHost')} />
+                </FormField>
+                <FormField
+                  label="포트"
+                  htmlFor="mail-smtp-port"
+                  error={form.formState.errors.smtpPort?.message}
+                >
+                  <Input
+                    id="mail-smtp-port"
+                    type="number"
+                    {...form.register('smtpPort', { valueAsNumber: true })}
+                  />
+                </FormField>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <FormField label="SMTP 보안" htmlFor="mail-smtp-sec">
+                  <Select
+                    value={form.watch('smtpSecurity')}
+                    onValueChange={(v) =>
+                      form.setValue(
+                        'smtpSecurity',
+                        v as MailAccountFormData['smtpSecurity'],
+                      )
+                    }
+                  >
+                    <SelectTrigger id="mail-smtp-sec" aria-label="SMTP 보안" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MAIL_SECURITY_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField
+                  label="SMTP 사용자명"
+                  htmlFor="mail-smtp-user"
+                  error={form.formState.errors.smtpUsername?.message}
+                >
+                  <Input id="mail-smtp-user" {...form.register('smtpUsername')} />
+                </FormField>
+              </div>
+
+              <FormField
+                label={isEdit ? '비밀번호(변경 시에만 입력)' : '비밀번호(앱 비밀번호)'}
+                htmlFor="mail-pw"
+                error={form.formState.errors.password?.message}
+              >
+                <Input
+                  id="mail-pw"
+                  type="password"
+                  autoComplete="new-password"
+                  {...form.register('password')}
+                />
+              </FormField>
+              <p className="text-xs text-muted-foreground">
+                Gmail·Outlook 등은 로그인 비밀번호 대신{' '}
+                <strong>앱 비밀번호</strong>가 필요합니다.
+              </p>
+
+              {/* AI 비서 사용 토글 — 활성화 시 메일 본문이 AI 서비스로 전송됨 */}
+              <FormField label="AI 비서 사용" htmlFor="mail-ai-enabled">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="mail-ai-enabled"
+                    data-testid="mail-ai-enabled"
+                    checked={form.watch('aiEnabled')}
+                    onCheckedChange={(v) => form.setValue('aiEnabled', v)}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    메일 요약·분류·답장 초안에 본문이 AI로 전송됩니다(기본 꺼짐).
+                  </span>
+                </div>
+              </FormField>
+
+              {/* 연결 테스트 결과 인라인 표시 */}
+              {testResult && (
+                <div data-testid="mail-test-result" className="rounded border p-2 text-sm">
+                  <p
+                    data-testid="mail-test-imap"
+                    className={`flex items-center gap-1 ${testResult.imapOk ? 'text-success' : 'text-destructive'}`}
+                  >
+                    {testResult.imapOk ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                    IMAP {testResult.imapOk ? '연결됨' : (testResult.imapError ?? '실패')}
+                  </p>
+                  <p
+                    data-testid="mail-test-smtp"
+                    className={`flex items-center gap-1 ${testResult.smtpOk ? 'text-success' : 'text-destructive'}`}
+                  >
+                    {testResult.smtpOk ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                    SMTP {testResult.smtpOk ? '연결됨' : (testResult.smtpError ?? '실패')}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-between gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void onTest()}
+                  disabled={testConn.isPending || testConnExisting.isPending || saving}
+                  data-testid="mail-test-button"
+                >
+                  {testConn.isPending || testConnExisting.isPending
+                    ? '테스트 중…'
+                    : '연결 테스트'}
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    취소
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={saving || !canSave}
+                    data-testid="mail-save-button"
+                  >
+                    {saving ? '저장 중…' : '저장'}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </form>
       </DialogContent>
     </Dialog>

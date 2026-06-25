@@ -1,4 +1,4 @@
-import type { MailSecurity } from '../../types/mailAccount';
+import type { MailProvider, MailSecurity } from '../../types/mailAccount';
 
 export const MAIL_SECURITY_OPTIONS: { value: MailSecurity; label: string }[] = [
   { value: 'SSL_TLS', label: 'SSL/TLS' },
@@ -16,6 +16,12 @@ export interface MailProviderPreset {
   smtpSecurity: MailSecurity;
   appPasswordUrl?: string;
 }
+
+/** 공급자 선택 옵션 — IMAP(앱 비밀번호 방식)과 M365 Graph(OAuth2 위임 방식) */
+export const MAIL_PROVIDER_OPTIONS: { value: MailProvider; label: string }[] = [
+  { value: 'IMAP', label: 'IMAP (앱 비밀번호)' },
+  { value: 'M365_GRAPH', label: 'Outlook (Microsoft 365)' },
+];
 
 // '직접 입력' 은 프리셋 없이 사용자가 모두 채운다(드롭다운에서 별도 처리).
 export const MAIL_PROVIDER_PRESETS: MailProviderPreset[] = [

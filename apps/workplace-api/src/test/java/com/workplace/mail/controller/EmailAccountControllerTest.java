@@ -20,6 +20,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailConnectionException;
@@ -86,7 +87,8 @@ class EmailAccountControllerTest {
         Instant.now(),
         Instant.now(),
         false,
-        null);
+        null,
+        MailProvider.IMAP);
   }
 
   private EmailAccountRequest sampleRequest() {

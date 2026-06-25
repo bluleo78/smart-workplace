@@ -1,8 +1,13 @@
 // 백엔드 com.workplace.mail.dto 와 1:1 대응. 비밀번호는 요청에만 존재, 응답엔 없음.
 export type MailSecurity = 'NONE' | 'STARTTLS' | 'SSL_TLS';
 
+/** 메일 계정 공급자 — IMAP(앱 비밀번호) 또는 M365 Graph(OAuth2) */
+export type MailProvider = 'IMAP' | 'M365_GRAPH';
+
 export interface MailAccountResponse {
   id: number;
+  /** 계정 공급자 타입 — 백엔드 Task 1/5 에서 추가된 필드 */
+  provider: MailProvider;
   emailAddress: string;
   displayName: string | null;
   imapHost: string;

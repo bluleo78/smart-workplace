@@ -8,15 +8,16 @@ public record EmailAccountResponse(
     String emailAddress,
     String displayName,
     String imapHost,
-    int imapPort,
+    Integer imapPort, // M365 등 OAuth 계정은 null (IMAP 계정만 포트 존재)
     MailSecurity imapSecurity,
     String imapUsername,
     String smtpHost,
-    int smtpPort,
+    Integer smtpPort, // M365 등 OAuth 계정은 null (IMAP 계정만 포트 존재)
     MailSecurity smtpSecurity,
     String smtpUsername,
     Instant lastTestedAt,
     Instant createdAt,
     Instant updatedAt,
     boolean aiEnabled,
-    Instant lastSyncedAt) {} // lastSyncedAt: 마지막 성공 동기화 시각(미동기화면 null)
+    Instant lastSyncedAt,
+    MailProvider provider) {} // provider: 메일 공급자(IMAP 기본값, M365_GRAPH 등)

@@ -9,6 +9,7 @@ import type {
 export function mailAccount(overrides?: Partial<MailAccountResponse>): MailAccountResponse {
   return {
     id: 1,
+    provider: 'IMAP', // #499 — provider 필드 추가
     emailAddress: 'me@example.com',
     displayName: '내 계정',
     imapHost: 'imap.example.com',

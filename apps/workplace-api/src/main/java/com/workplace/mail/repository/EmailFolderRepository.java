@@ -3,6 +3,7 @@ package com.workplace.mail.repository;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 
 import java.time.OffsetDateTime;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -39,6 +40,36 @@ public class EmailFolderRepository {
                     r.get(EMAIL_FOLDER.ID),
                     r.get(EMAIL_FOLDER.UID_VALIDITY),
                     r.get(EMAIL_FOLDER.LAST_SEEN_UID)));
+  }
+
+  /**
+   * Graph 증분 커서({@code @odata.deltaLink}) 조회. IMAP 폴더에는 null 이 저장되므로 empty 를 반환한다.
+   *
+   * @param folderId 대상 폴더 id
+   * @return deltaLink Optional — 없으면 empty(첫 동기화 또는 IMAP 폴더)
+   */
+  public Optional<String> getDeltaLink(long folderId) {
+    String link =
+        dsl.select(EMAIL_FOLDER.DELTA_LINK)
+            .from(EMAIL_FOLDER)
+            .where(EMAIL_FOLDER.ID.eq(folderId))
+            .fetchOne(EMAIL_FOLDER.DELTA_LINK);
+    return Optional.ofNullable(link);
+  }
+
+  /**
+   * Graph 증분 커서({@code @odata.deltaLink}) 저장. 동기화 마지막 페이지에서 수신한 deltaLink 를 보관해 다음 동기화 시 시작점으로
+   * 사용한다.
+   *
+   * @param folderId 대상 폴더 id
+   * @param deltaLink 저장할 deltaLink URL
+   */
+  public void setDeltaLink(long folderId, String deltaLink) {
+    dsl.update(EMAIL_FOLDER)
+        .set(EMAIL_FOLDER.DELTA_LINK, deltaLink)
+        .set(EMAIL_FOLDER.UPDATED_AT, OffsetDateTime.now())
+        .where(EMAIL_FOLDER.ID.eq(folderId))
+        .execute();
   }
 
   /** 동기화 커서 갱신(UIDVALIDITY · 마지막 동기화 UID · updated_at). */

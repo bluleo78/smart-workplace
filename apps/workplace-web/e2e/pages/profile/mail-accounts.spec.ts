@@ -9,6 +9,7 @@ import type { MailAccountResponse } from '../../../src/types/mailAccount';
 function account(overrides?: Partial<MailAccountResponse>): MailAccountResponse {
   return {
     id: 1,
+    provider: 'IMAP', // #499 — provider 필드 필수
     emailAddress: 'me@example.com',
     displayName: '내 계정',
     imapHost: 'imap.gmail.com',
@@ -191,5 +192,66 @@ test.describe('메일 계정 설정', () => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
     await page.goto('/settings/mail');
     await expect(page.getByRole('heading', { name: '메일 설정' })).toBeVisible();
+  });
+
+  // #499 — provider 선택 분기 검증
+  test('Outlook provider 선택 시 OAuth 버튼 렌더', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
+    await page.goto('/settings/mail');
+    // 다이얼로그 열기
+    await page.getByTestId('mail-add-trigger').click();
+    await expect(page.getByTestId('mail-account-dialog')).toBeVisible();
+
+    // 공급자 셀렉트(shadcn/Radix combobox) — trigger 클릭 → option 선택
+    await page.getByRole('combobox', { name: '공급자' }).click();
+    await page.getByRole('option', { name: 'Outlook (Microsoft 365)' }).click();
+
+    // "Outlook 계정 연결" 버튼이 표시되고, IMAP 호스트 필드는 사라져야 함
+    await expect(page.getByRole('button', { name: 'Outlook 계정 연결' })).toBeVisible();
+    await expect(page.locator('#mail-imap-host')).toHaveCount(0);
+  });
+
+  // #499 — OAuth 콜백 복귀(mail_connected=1) 시 토스트 + 목록 refetch
+  test('?mail_connected=1 복귀 시 성공 토스트 표시', async ({ authenticatedPage: page }) => {
+    // /profile?mail_connected=1 → React Router Navigate → /settings/profile?mail_connected=1
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [account({ provider: 'M365_GRAPH' })]);
+    await page.goto('/settings/profile?mail_connected=1');
+    // 성공 토스트가 표시돼야 함
+    await expect(page.getByText('Outlook 메일 계정이 연결되었습니다.')).toBeVisible();
+  });
+
+  // #499 — Outlook 버튼 클릭 시 인증 axios로 /start 조회 후 AAD URL로 이동
+  test('Outlook 계정 연결 버튼 클릭 시 axios GET /start → AAD URL로 이동', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
+    // /start 가 JSON {authorizeUrl} 반환하도록 모킹(C1 수정: 302 대신 200 JSON)
+    await mockApi(page, 'GET', '/api/v1/mail/oauth/m365/start', {
+      authorizeUrl: 'https://login.microsoftonline.com/test-tenant/oauth2/v2.0/authorize?state=test',
+    });
+    // AAD URL 실제 탐색 차단 — 빈 응답으로 fulfill
+    await page.route('**login.microsoftonline.com**', (route) => route.fulfill({ status: 200, body: '' }));
+
+    await page.goto('/settings/mail');
+    await page.getByTestId('mail-add-trigger').click();
+
+    // Outlook 공급자 선택
+    await page.getByRole('combobox', { name: '공급자' }).click();
+    await page.getByRole('option', { name: 'Outlook (Microsoft 365)' }).click();
+
+    // "Outlook 계정 연결" 버튼 클릭
+    await page.getByRole('button', { name: 'Outlook 계정 연결' }).click();
+
+    // AAD URL로 이동됐는지 확인 (login.microsoftonline.com)
+    await expect(page).toHaveURL(/login\.microsoftonline\.com/, { timeout: 5000 });
+  });
+
+  // #499 — M365_GRAPH provider 계정 행에 'Outlook' 라벨 표시
+  test('M365_GRAPH 계정 행에 Outlook 라벨 표시', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [
+      account({ provider: 'M365_GRAPH', imapHost: '', lastTestedAt: null }),
+    ]);
+    await page.goto('/settings/mail');
+    const row = page.getByTestId('mail-account-row-1');
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('Outlook');
   });
 });
