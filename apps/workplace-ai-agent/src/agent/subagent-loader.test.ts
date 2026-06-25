@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { serializeSubagent, writeSubagentDefinitions, loadSubagents, type SubagentDefinition } from './subagent-loader.js';
+import { serializeSubagent, writeSubagentDefinitions, loadSubagents, toAgentDefinitions, type SubagentDefinition } from './subagent-loader.js';
 
 const issueDef: SubagentDefinition = {
   description: '이슈 조회·상태변경·코멘트',
@@ -119,5 +119,28 @@ describe('loadSubagents', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('toAgentDefinitions (#462 슬라이스4)', () => {
+  it('SubagentDefinition → AgentDefinition(mcpServers:[workplace], prompt=본문)', () => {
+    const out = toAgentDefinitions({
+      'issue-agent': { description: '이슈', tools: ['mcp__workplace__list_issues'], maxTurns: 20, model: 'inherit', prompt: '역할...' },
+    });
+    expect(out['issue-agent']).toEqual({
+      description: '이슈',
+      prompt: '역할...',
+      tools: ['mcp__workplace__list_issues'],
+      mcpServers: ['workplace'],
+      maxTurns: 20,
+      model: 'inherit',
+    });
+  });
+
+  it('model 미지정 시 model 키 생략', () => {
+    const out = toAgentDefinitions({ 'a': { description: 'd', tools: [], prompt: 'p' } });
+    expect(out['a']).toEqual({ description: 'd', prompt: 'p', tools: [], mcpServers: ['workplace'] });
+    expect('model' in out['a']).toBe(false);
+    expect('maxTurns' in out['a']).toBe(false);
   });
 });

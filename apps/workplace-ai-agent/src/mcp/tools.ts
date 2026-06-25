@@ -290,6 +290,15 @@ const showDriveInput = z.object({
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
 export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
 
+// #462 슬라이스4: 인-프로세스 호스트 브리지 — propose/submit_response/unassign_self 의
+// 구조화 출력을 파일 사이드카(WORKPLACE_*_PATH) 대신 요청별 콜백으로 호스트에 직접 전달한다.
+// (인-프로세스에선 process.env 가 전역 공유라 동시요청 경쟁 발생 → 콜백 클로저로 격리.)
+export interface HostBridge {
+  onProposal(p: { actionType: string; summary: string; params: Record<string, unknown> }): void;
+  onSubmitResponse(text: string): void;
+  onUnassignResult(r: { ok: boolean; canonical?: string }): void;
+}
+
 // L3 위임: 이슈 생성 제안 도구 입력 스키마.
 // channelId·위임자·parent 는 코드가 env 에서 스탬프 — AI 입력에서 제외(가스라이팅 방지).
 // projectKey: AI 가 위임 후보 목록에서 추론해 고름. 맞는 게 없으면 생략(백엔드 개인 작업 폴백).
@@ -310,6 +319,8 @@ export function buildTools(
   threadBinding?: { channelId: number; parentMessageId: number },
   // L3 위임: 트리거 actor(위임자)+채널+(스레드)parent. 있으면 propose_create_issue 노출.
   delegationContext?: { actorId: number; channelId: number; parentMessageId?: number },
+  // #462 슬라이스4: 인-프로세스 호스트 브리지. 지정 시 propose/submit/unassign 이 파일 대신 콜백 사용.
+  hostBridge?: HostBridge,
 ): McpTool[] {
   const getIssueDetailTool: McpTool = {
     name: 'get_issue_detail',
@@ -613,8 +624,12 @@ export function buildTools(
       const { issueKey: k } = issueKey.parse(args);
       try {
         await client.unassignSelf(agentId, k);
-        // #406: 성공 사이드카 기록 — run-ai-compose 가 "이미 처리됨" 여부 판단에 사용.
-        // 에러 사이드카와 대칭 구조: 성공 시 WORKPLACE_UNASSIGN_SUCCESS_PATH 에 이슈 키를 씀.
+        // #462 슬라이스4: 브리지 우선 — 성공 통지.
+        if (hostBridge) {
+          hostBridge.onUnassignResult({ ok: true });
+          return 'ok';
+        }
+        // 폴백(stdio MCP 경로): 성공 사이드카 기록.
         const successPath = process.env.WORKPLACE_UNASSIGN_SUCCESS_PATH;
         if (successPath) {
           const { writeFileSync } = await import('node:fs');
@@ -628,7 +643,12 @@ export function buildTools(
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e);
         const canonical = UNASSIGN_CANONICAL();
-        // 사이드카에 오류 기록 — run-ai-compose 가 최종 응답 override 에 사용.
+        // #462 슬라이스4: 브리지 우선 — 실패 통지(canonical 동봉).
+        if (hostBridge) {
+          hostBridge.onUnassignResult({ ok: false, canonical });
+          return canonical;
+        }
+        // 폴백(stdio MCP 경로): 에러 사이드카 기록.
         const sidecarPath = process.env.WORKPLACE_UNASSIGN_ERROR_PATH;
         if (sidecarPath) {
           const { writeFileSync } = await import('node:fs');
@@ -638,7 +658,6 @@ export function buildTools(
             // 사이드카 쓰기 실패 — 무시(2차 방어선인 도구 반환 문구로 커버)
           }
         }
-        // LLM 에게 재해석 없이 그대로 전달할 고정 문구 반환.
         return canonical;
       }
     },
@@ -681,6 +700,12 @@ export function buildTools(
     summary: string,
     params: Record<string, unknown>,
   ): Promise<string> {
+    // #462 슬라이스4: 브리지가 있으면 호스트 콜백으로 제안 전달(인-프로세스 — 파일 IPC 불필요).
+    if (hostBridge) {
+      hostBridge.onProposal({ actionType, summary, params });
+      return '제안을 등록했습니다. 사용자 확인을 기다립니다.';
+    }
+    // 폴백(CLI stdio MCP 경로 — 슬라이스 5 까지 잔존): env 사이드카 NDJSON append.
     const sidecarPath = process.env.WORKPLACE_PENDING_ACTION_PATH;
     if (!sidecarPath) {
       return '확인 플로우가 설정되지 않아 제안을 등록하지 못했습니다.';
@@ -1069,6 +1094,12 @@ export function buildTools(
     inputSchema: z.object({ text: z.string().min(1) }),
     async handler(args) {
       const { text } = z.object({ text: z.string().min(1) }).parse(args);
+      // #462 슬라이스4: 브리지가 있으면 호스트 콜백으로 답 제출(first-write-guard 는 호스트가 수행).
+      if (hostBridge) {
+        hostBridge.onSubmitResponse(text);
+        return '답변을 제출했습니다.';
+      }
+      // 폴백(stdio MCP 경로): 사이드카 first-write-guard.
       const sidecarPath = process.env.WORKPLACE_SUBAGENT_RESPONSE_PATH;
       if (!sidecarPath) {
         return '답변을 제출했습니다.';

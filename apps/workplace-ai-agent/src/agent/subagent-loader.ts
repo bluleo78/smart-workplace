@@ -4,6 +4,7 @@
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, unlinkSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -142,6 +143,27 @@ export function loadSubagents(subagentsDir: string = path.resolve(here, 'subagen
       model: frontmatter.model,
       prompt: body,
     };
+  }
+  return out;
+}
+
+// #462 슬라이스4: SubagentDefinition → SDK AgentDefinition 매핑.
+// .claude/agents/*.md 파일 자동발견(CLI) 대신 Options.agents 로 코드 전달한다.
+// mcpServers:['workplace'] 문자열 참조 → top-level 인-프로세스 workplace 서버 공유(런타임 검증됨).
+export function toAgentDefinitions(
+  defs: Record<string, SubagentDefinition>,
+): Record<string, AgentDefinition> {
+  const out: Record<string, AgentDefinition> = {};
+  for (const [name, d] of Object.entries(defs)) {
+    const def: AgentDefinition = {
+      description: d.description,
+      prompt: d.prompt,
+      tools: d.tools,
+      mcpServers: ['workplace'],
+    };
+    if (d.model) def.model = d.model;
+    if (typeof d.maxTurns === 'number') def.maxTurns = d.maxTurns;
+    out[name] = def;
   }
   return out;
 }

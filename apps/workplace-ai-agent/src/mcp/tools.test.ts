@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { buildTools } from './tools.js';
+import { buildTools, type HostBridge } from './tools.js';
 
 function client(): WorkplaceApiClient {
   return {
@@ -979,5 +979,57 @@ describe('propose_update_event attendees 스키마 (#402)', () => {
       delete process.env.WORKPLACE_PENDING_ACTION_PATH;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('HostBridge 콜백 (#462 슬라이스4)', () => {
+  function findTool(tools: ReturnType<typeof buildTools>, name: string) {
+    const t = tools.find((x) => x.name === name);
+    if (!t) throw new Error(`tool ${name} not found`);
+    return t;
+  }
+  const fakeClient = {
+    unassignSelf: async () => { /* 성공 */ },
+  } as never;
+
+  it('propose_* 핸들러가 hostBridge.onProposal 을 호출(파일 미사용)', async () => {
+    const proposals: unknown[] = [];
+    const bridge: HostBridge = { onProposal: (p) => proposals.push(p), onSubmitResponse: () => {}, onUnassignResult: () => {} };
+    const tools = buildTools(fakeClient, 1, 'assistant', undefined, undefined, bridge);
+    const propose = findTool(tools, 'propose_create_event');
+    const out = await propose.handler({ title: '회의', summary: '회의', startsAt: '2026-06-26T10:00:00+09:00', endsAt: '2026-06-26T11:00:00+09:00' });
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]).toMatchObject({ actionType: 'calendar.create_event' });
+    expect(out).toContain('제안');
+  });
+
+  it('submit_response 핸들러가 hostBridge.onSubmitResponse 를 호출', async () => {
+    let submitted: string | null = null;
+    const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: (t) => { submitted = t; }, onUnassignResult: () => {} };
+    const tools = buildTools(fakeClient, 1, 'assistant', undefined, undefined, bridge);
+    const submit = findTool(tools, 'submit_response');
+    await submit.handler({ text: '최종 답변' });
+    expect(submitted).toBe('최종 답변');
+  });
+
+  it('unassign_self 성공 시 onUnassignResult({ok:true})', async () => {
+    const results: Array<{ ok: boolean; canonical?: string }> = [];
+    const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: (r) => results.push(r) };
+    const tools = buildTools(fakeClient, 1, 'assistant', undefined, undefined, bridge);
+    const unassign = findTool(tools, 'unassign_self');
+    await unassign.handler({ issueKey: 'EX-2' });
+    expect(results).toEqual([{ ok: true }]);
+  });
+
+  it('unassign_self 실패 시 onUnassignResult({ok:false, canonical}) + canonical 반환', async () => {
+    const failingClient = { unassignSelf: async () => { throw new Error('403'); } } as never;
+    const results: Array<{ ok: boolean; canonical?: string }> = [];
+    const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: (r) => results.push(r) };
+    const tools = buildTools(failingClient, 1, 'assistant', undefined, undefined, bridge);
+    const unassign = findTool(tools, 'unassign_self');
+    const out = await unassign.handler({ issueKey: 'EX-2' });
+    expect(results[0].ok).toBe(false);
+    expect(results[0].canonical).toContain('담당자 해제 요청을 처리하지 못했습니다');
+    expect(out).toContain('담당자 해제 요청을 처리하지 못했습니다');
   });
 });

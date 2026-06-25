@@ -75,6 +75,25 @@ describe('buildSdkOptions', () => {
     const without = buildSdkOptions(baseInput());
     expect(without.mcpServers).toBeUndefined();
   });
+
+  it('agents 가 지정되면 Options.agents 로 전달된다', () => {
+    const agents = {
+      'issue-agent': { description: 'd', prompt: 'p', tools: ['mcp__workplace__list_issues'], mcpServers: ['workplace'] },
+    };
+    const opts = buildSdkOptions({
+      userMessage: 'q', systemPrompt: 's', model: 'claude-sonnet-4-6', maxTurns: 8,
+      token: 'tok', agentId: 1, timeoutMs: 1000, logTag: 't', agents,
+    });
+    expect(opts.agents).toBe(agents);
+  });
+
+  it('agents 미지정 시 Options.agents 는 undefined', () => {
+    const opts = buildSdkOptions({
+      userMessage: 'q', systemPrompt: 's', model: 'm', maxTurns: 1,
+      token: 'tok', agentId: 1, timeoutMs: 1000, logTag: 't',
+    });
+    expect(opts.agents).toBeUndefined();
+  });
 });
 
 // 가짜 Query: 메시지 배열을 yield + interrupt() 보유. mode='gate' 면 interrupt 까지 대기 후 throw(SDK 실측 동작).
