@@ -25,6 +25,7 @@ import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useAuth } from '@/hooks/useAuth'
+import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
@@ -137,17 +138,15 @@ export default function ChannelPage() {
 
   // 채널 상세 워터마크는 방문 중 무효화되지 않아(detail 키 invalidate 없음) 자연히 안정적 → 스냅샷 불필요.
   // ChannelPage 는 detail.data 가 있을 때만 본문 렌더(아래 early-return 보장)하므로 여기선 항상 non-null.
-  // 내가 보낸 메시지는 미읽음 경계에서 제외(#491) — user?.id 전달.
-  const unreadDividerBeforeId = firstUnreadMessageId(
-    messages,
-    detail.data?.lastReadMessageId ?? null,
-    user?.id,
-  )
-
-  // 캐치업 카드 — 진입 시 미읽음을 AI가 요약. 구분선과 같은 진입-고정 watermark(detail.lastReadMessageId) 사용.
   const watermark = detail.data?.lastReadMessageId ?? null
-  // 로드된 메시지 중 watermark 초과 미삭제 + 내가 보내지 않은 = 미읽음 카운트(자동 임계 게이트용). 첫 페이지로 ≥5 판별 충분.
-  const unreadCount = unreadFromOthersCount(messages, watermark, user?.id)
+  // 진입 시점 최대 메시지 id — 진입 후 도착한 라이브 메시지(내 전송·AI 답글·남의 신규)를 미읽음 경계에서 제외(#491).
+  const entryMaxId = useEntryMaxMessageId(channelId, messages)
+  // 미읽음 = watermark 초과 + 진입 시점 이하(라이브 제외) + 내가 보내지 않은 메시지.
+  const unreadDividerBeforeId = firstUnreadMessageId(messages, watermark, user?.id, entryMaxId)
+
+  // 캐치업 카드 — 진입 시 미읽음을 AI가 요약. 구분선과 같은 진입-고정 watermark + 진입 스냅샷 사용.
+  // 자동 임계 게이트용 미읽음 카운트(첫 페이지로 ≥5 판별 충분).
+  const unreadCount = unreadFromOthersCount(messages, watermark, user?.id, entryMaxId)
   const [catchupManual, setCatchupManual] = useState(false)
   const [catchupDismissed, setCatchupDismissed] = useState(false)
   // 채널 전환 시 카드 상태 리셋(이전 채널의 트리거/닫힘이 새 채널로 새지 않도록).

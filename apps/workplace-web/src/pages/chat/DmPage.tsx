@@ -21,6 +21,7 @@ import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useAuth } from '@/hooks/useAuth'
+import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { dmDisplayName } from '@/lib/dm'
@@ -106,10 +107,11 @@ export default function DmPage() {
   // ── 캐치업(L1) 배선 — ChannelPage 와 동일 로직, dmId 기준. DM 도 채널이므로 watermark·요약 API 재사용.
   const detail = useChannelDetail(dmId)
   const watermark = detail.data?.lastReadMessageId ?? null
-  // 내가 보낸 메시지는 미읽음 경계에서 제외(#491) — user?.id 전달.
-  const unreadDividerBeforeId = firstUnreadMessageId(messages, watermark, user?.id)
-  // 로드된 메시지 중 watermark 초과 미삭제 + 내가 보내지 않은 = 미읽음 카운트(자동 임계 게이트).
-  const unreadCount = unreadFromOthersCount(messages, watermark, user?.id)
+  // 진입 시점 최대 메시지 id — 진입 후 도착한 라이브 메시지(내 전송·AI 답글·상대 신규)를 미읽음 경계에서 제외(#491).
+  const entryMaxId = useEntryMaxMessageId(dmId, messages)
+  // 미읽음 = watermark 초과 + 진입 시점 이하(라이브 제외) + 내가 보내지 않은 메시지.
+  const unreadDividerBeforeId = firstUnreadMessageId(messages, watermark, user?.id, entryMaxId)
+  const unreadCount = unreadFromOthersCount(messages, watermark, user?.id, entryMaxId)
   const [catchupManual, setCatchupManual] = useState(false)
   const [catchupDismissed, setCatchupDismissed] = useState(false)
   // DM 전환 시 카드 상태 리셋(이전 DM 의 트리거/닫힘이 새 DM 으로 새지 않도록).

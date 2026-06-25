@@ -146,6 +146,53 @@ test.describe('채널 캐치업 카드', () => {
     await expect(page.getByTestId('catchup-summarize-btn')).toHaveCount(0);
   });
 
+  // #491 회귀(보고된 정확한 트리거): 다 읽은 방 진입 후 AI 답글이 SSE 로 "라이브 도착"해도
+  // 진입 시점 이후 메시지이므로 유령 구분선/캐치업이 부활하면 안 된다. 진입 스냅샷(entryMaxId)으로 제외.
+  test('진입 후 AI 답글이 SSE 로 도착해도 유령 구분선/캐치업이 생기지 않는다', async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: CHANNEL_ID, member: true, lastReadMessageId: 100 });
+    await setupChannelStubs(page, channel);
+    // 진입 시점 목록 = 읽은 메시지 1건(id=100) → entryMaxId=100, 미읽음 0.
+    await stubMessages(page, [createMessage({ id: 100, channelId: CHANNEL_ID, body: '읽은 메시지' })]);
+    // 스트림 — 테스트가 __emitLive 를 세팅(진입 스냅샷 고정 후)할 때까지 대기 후 AI(authorId=2) 메시지 101 created 발행.
+    // LIFO 라우트 우선순위로 setupChannelStubs 의 빈 스트림을 덮어쓴다.
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/stream',
+      async (route) => {
+        await page.waitForFunction(() => (window as unknown as { __emitLive?: boolean }).__emitLive === true);
+        const live = createMessage({
+          id: 101,
+          channelId: CHANNEL_ID,
+          authorId: 2,
+          authorName: 'AI 비서',
+          authorKind: 'AGENT',
+          body: 'AI 답글 도착',
+        });
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          headers: { 'cache-control': 'no-cache' },
+          body: `event: messaging.message.created\ndata: ${JSON.stringify(live)}\n\n`,
+        });
+      },
+    );
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`);
+    // 진입 직후: 읽은 메시지만 보이고 미읽음 0 → 구분선 없음.
+    await expect(page.getByText('읽은 메시지')).toBeVisible();
+    await expect(page.getByTestId('unread-divider')).toHaveCount(0);
+
+    // 진입 스냅샷(entryMaxId=100) 고정 후 라이브 AI 답글 도착 트리거.
+    await page.evaluate(() => {
+      (window as unknown as { __emitLive?: boolean }).__emitLive = true;
+    });
+    await expect(page.getByText('AI 답글 도착')).toBeVisible();
+
+    // AI 답글(id=101 > entryMaxId=100)은 진입 후 도착 → 미읽음 아님 → 유령 구분선/캐치업 없음.
+    await expect(page.getByTestId('unread-divider')).toHaveCount(0);
+    await expect(page.getByTestId('catchup-card')).toHaveCount(0);
+    await expect(page.getByTestId('catchup-summarize-btn')).toHaveCount(0);
+  });
+
   test('catchup API 실패 시 에러 폴백, 메시지 리스트는 정상', async ({ authenticatedPage: page }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true, lastReadMessageId: 100 });
     await setupChannelStubs(page, channel);

@@ -49,6 +49,30 @@ describe('firstUnreadMessageId', () => {
   it('currentUserId 미지정 시 author 필터를 건너뛴다(하위호환)', () => {
     expect(firstUnreadMessageId(msgs(1, 2, 3), 2)).toBe(3)
   })
+
+  // #491: ceiling(진입 시점 최대 id) 초과 메시지는 진입 후 도착한 라이브 → 미읽음 아님.
+  it('ceiling 초과(진입 후 도착) 메시지뿐이면 null — AI 답글/남의 라이브 메시지 포함', () => {
+    // 진입 시 1,2 존재(watermark=2, ceiling=2). 진입 후 AI(authorId=9)가 3 전송.
+    const messages = [
+      { id: 1, authorId: 7 },
+      { id: 2, authorId: 7 },
+      { id: 3, authorId: 9 }, // 진입 후 도착(>ceiling) → 미읽음 아님
+    ]
+    expect(firstUnreadMessageId(messages, 2, 5, 2)).toBeNull()
+  })
+
+  it('ceiling 이하 backlog 만 미읽음 — 진입 후 도착(>ceiling)은 경계에서 제외', () => {
+    // watermark=2, ceiling=4. 3,4 는 진입 전 backlog(남) → 미읽음. 5,6 은 진입 후 도착 → 제외.
+    const messages = [
+      { id: 1, authorId: 7 },
+      { id: 2, authorId: 7 },
+      { id: 3, authorId: 7 },
+      { id: 4, authorId: 7 },
+      { id: 5, authorId: 9 },
+      { id: 6, authorId: 5 },
+    ]
+    expect(firstUnreadMessageId(messages, 2, 5, 4)).toBe(3)
+  })
 })
 
 describe('unreadFromOthersCount', () => {
@@ -73,5 +97,15 @@ describe('unreadFromOthersCount', () => {
 
   it('watermark 가 null 이면 0', () => {
     expect(unreadFromOthersCount([{ id: 1, authorId: 7 }], null, 5)).toBe(0)
+  })
+
+  it('ceiling 초과(진입 후 도착) 메시지는 카운트하지 않는다 (#491)', () => {
+    const messages = [
+      { id: 1, authorId: 7 },
+      { id: 2, authorId: 7 }, // backlog(남) → 카운트
+      { id: 3, authorId: 9 }, // 진입 후 AI 답글(>ceiling) → 제외
+      { id: 4, authorId: 7 }, // 진입 후 도착(>ceiling) → 제외
+    ]
+    expect(unreadFromOthersCount(messages, 1, 5, 2)).toBe(1)
   })
 })
