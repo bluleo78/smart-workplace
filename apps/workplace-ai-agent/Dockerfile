@@ -5,7 +5,9 @@ RUN corepack enable && corepack prepare pnpm@10.11.0 --activate
 
 WORKDIR /app
 
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+# .npmrc(shamefully-hoist=true) 포함 — 미포함 시 node_modules 비평탄화로 tsc TS2742
+# (@types/express-serve-static-core 명명 불가) 빌드 실패.
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY apps/workplace-ai-agent/package.json ./apps/workplace-ai-agent/
 
 RUN pnpm install --frozen-lockfile --filter @smart-workplace/workplace-ai-agent...

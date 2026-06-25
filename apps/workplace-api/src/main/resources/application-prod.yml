@@ -1,0 +1,30 @@
+# 운영 프로파일 — 모든 민감값은 환경변수로 주입한다.
+# JWT_SECRET / ENCRYPTION_MASTER_KEY / WORKPLACE_AI_AGENT_TOKEN 은 base application.yml 이
+# 기본값 없이 ${...} 로 읽으므로 미설정 시 기동 실패(fail-closed).
+spring:
+  datasource:
+    # 런타임 트래픽은 비특권 app_tenant 롤(RLS fail-closed)로 흐른다.
+    # 비번은 V44 마이그레이션이 생성한 롤의 고정 비번('app_tenant')과 일치해야 한다.
+    url: jdbc:postgresql://${POSTGRES_HOST:db}:${POSTGRES_PORT:5432}/${POSTGRES_DB:workplace}
+    username: ${POSTGRES_RUNTIME_USER:app_tenant}
+    password: ${POSTGRES_RUNTIME_PASSWORD:app_tenant}
+    hikari:
+      # app_tenant 롤/GRANT 는 Flyway(app)가 만든다. 첫 부팅 시 마이그레이션 전 접속 실패를
+      # 피하려고 시작 접속 시도를 끄고 첫 쿼리에서 지연 접속한다.
+      initialization-fail-timeout: -1
+  flyway:
+    # 마이그레이션은 롤 생성·GRANT 가 필요하므로 소유자 롤(app)로 실행한다.
+    url: jdbc:postgresql://${POSTGRES_HOST:db}:${POSTGRES_PORT:5432}/${POSTGRES_DB:workplace}
+    user: ${POSTGRES_USER:app}
+    password: ${POSTGRES_PASSWORD}
+
+app:
+  cors:
+    # web(:10000)·admin(:10001) 및 외부 호스트 오리진. 콤마 구분 문자열이 List 로 바인딩된다.
+    # 미설정 시 빈 문자열 → SecurityConfig 가 blank 를 필터(허용 오리진 없음 = 동일 출처만).
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+
+workplace:
+  ai-agent:
+    # 내부망 서비스명으로 ai-agent 호출. internal-token 은 base 에서 ${WORKPLACE_AI_AGENT_TOKEN}.
+    base-url: ${WORKPLACE_AI_AGENT_URL:http://ai-agent:7070}

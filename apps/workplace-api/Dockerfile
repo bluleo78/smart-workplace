@@ -11,7 +11,8 @@ RUN chmod +x gradlew && ./gradlew dependencies --no-daemon || true
 
 COPY src/ src/
 
-RUN ./gradlew bootJar -x test --no-daemon
+# 코드젠 결과(src/main/generated)는 커밋되어 있으므로 generateJooq(DB 필요) 제외.
+RUN ./gradlew bootJar -x test -x generateJooq --no-daemon
 
 # === Stage 2: Runtime ===
 FROM eclipse-temurin:21-jre
