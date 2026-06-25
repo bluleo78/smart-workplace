@@ -6,12 +6,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
 import java.util.List;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,9 +24,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class UserServiceTest extends IntegrationTestBase {
 
+  // V44 가 시드하는 기본 테넌트(id=1, ACTIVE). 사용자 목록은 active 테넌트로 스코프된다.
+  private static final Long TENANT_ID = 1L;
+
   @Autowired private UserService userService;
 
   @Autowired private PasswordEncoder passwordEncoder;
+
+  @Autowired private MembershipRepository membershipRepository;
 
   @Autowired private DSLContext dsl;
 
@@ -31,6 +39,8 @@ class UserServiceTest extends IntegrationTestBase {
 
   @BeforeEach
   void setUp() {
+    // 사용자 목록 조회는 인증된 ADMIN 요청이라 active 테넌트가 항상 존재한다 — 테스트에서도 시뮬레이트.
+    TenantContext.set(TENANT_ID);
     testUserId =
         dsl.insertInto(USER)
             .set(USER.USERNAME, "testuser@example.com")
@@ -40,6 +50,14 @@ class UserServiceTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    // testUser 를 active 테넌트 멤버로 귀속 — 목록에 노출되려면 멤버십이 있어야 한다.
+    membershipRepository.create(testUserId, TENANT_ID, "ACTIVE");
+  }
+
+  @AfterEach
+  void clearTenant() {
+    // ThreadLocal 누수 방지 — 공유 스레드에 테넌트가 남으면 후속 테스트 클래스에 오염된다.
+    TenantContext.clear();
   }
 
   @Test
@@ -51,6 +69,80 @@ class UserServiceTest extends IntegrationTestBase {
         .isTrue();
     assertThat(result.page()).isEqualTo(0);
     assertThat(result.size()).isEqualTo(20);
+  }
+
+  @Test
+  void getUsers_excludesOtherTenantMembers() {
+    // 동일 검색어를 갖는 두 사용자를 서로 다른 테넌트에 배치 → active 테넌트(1) 멤버만 반환되어야 한다.
+    // 전역(스코프 없는) 쿼리라면 둘 다 반환되어 이 테스트가 실패한다 — 테넌트 격리의 핵심 가드.
+    String tag = "scopetag-" + System.nanoTime();
+    Long inTenant1 = seedUser(tag + "-a@example.com", tag);
+    membershipRepository.create(inTenant1, TENANT_ID, "ACTIVE");
+
+    Long otherTenant =
+        dsl.insertInto(TENANT)
+            .set(TENANT.SLUG, "t2-" + System.nanoTime())
+            .set(TENANT.NAME, "Tenant 2")
+            .set(TENANT.STATUS, "ACTIVE")
+            .returning(TENANT.ID)
+            .fetchOne()
+            .getId();
+    Long inTenant2 = seedUser(tag + "-b@example.com", tag);
+    membershipRepository.create(inTenant2, otherTenant, "ACTIVE");
+
+    PageResponse<UserResponse> result = userService.getUsers(tag, 0, 20);
+    List<Long> ids = result.content().stream().map(UserResponse::id).toList();
+
+    assertThat(ids).contains(inTenant1);
+    assertThat(ids).doesNotContain(inTenant2);
+  }
+
+  @Test
+  void listByKind_excludesOtherTenantAgents() {
+    // AGENT 목록(AGENT 관리 화면)도 active 테넌트로 스코프된다 — 다른 테넌트 AGENT 누출 방지.
+    Long agentT1 = seedAgent("agent-t1-" + System.nanoTime());
+    membershipRepository.create(agentT1, TENANT_ID, "ACTIVE");
+
+    Long otherTenant =
+        dsl.insertInto(TENANT)
+            .set(TENANT.SLUG, "t3-" + System.nanoTime())
+            .set(TENANT.NAME, "Tenant 3")
+            .set(TENANT.STATUS, "ACTIVE")
+            .returning(TENANT.ID)
+            .fetchOne()
+            .getId();
+    Long agentT2 = seedAgent("agent-t2-" + System.nanoTime());
+    membershipRepository.create(agentT2, otherTenant, "ACTIVE");
+
+    List<UserResponse> agents = userService.listByKind("AGENT");
+    List<Long> ids = agents.stream().map(UserResponse::id).toList();
+
+    assertThat(ids).contains(agentT1);
+    assertThat(ids).doesNotContain(agentT2);
+  }
+
+  /** 검색 가능한 이름(tag)을 가진 HUMAN 사용자 시드. */
+  private Long seedUser(String email, String name) {
+    return dsl.insertInto(USER)
+        .set(USER.USERNAME, email)
+        .set(USER.PASSWORD, passwordEncoder.encode("Password123"))
+        .set(USER.NAME, name)
+        .set(USER.EMAIL, email)
+        .returning(USER.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** kind='AGENT' 사용자 시드. */
+  private Long seedAgent(String username) {
+    return dsl.insertInto(USER)
+        .set(USER.USERNAME, username)
+        .set(USER.NAME, username)
+        .set(USER.EMAIL, username + "@example.com")
+        .set(USER.KIND, "AGENT")
+        .returning(USER.ID)
+        .fetchOne()
+        .getId();
   }
 
   @Test

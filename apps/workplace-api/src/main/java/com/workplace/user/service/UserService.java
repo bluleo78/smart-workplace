@@ -32,10 +32,23 @@ public class UserService {
 
   @Transactional(readOnly = true)
   public PageResponse<UserResponse> getUsers(String search, int page, int size) {
-    List<UserResponse> content = userRepository.findAllPaginated(search, page, size);
-    long totalElements = userRepository.countAll(search);
+    Long tenantId = requireTenant();
+    List<UserResponse> content = userRepository.findAllPaginated(tenantId, search, page, size);
+    long totalElements = userRepository.countByTenant(tenantId, search);
     int totalPages = (int) Math.ceil((double) totalElements / size);
     return new PageResponse<>(content, page, size, totalElements, totalPages);
+  }
+
+  /**
+   * 사용자 목록 계열 조회의 active 테넌트를 확정한다. user 는 전역 테이블이라 RLS 로 자동 격리되지 않으므로, 인증된 요청의 테넌트
+   * 컨텍스트를 명시적으로 읽어 멤버만 노출한다(다른 테넌트 사용자 누출 방지). 인증된 ADMIN 경로라 컨텍스트가 반드시 있어야 한다.
+   */
+  private Long requireTenant() {
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) {
+      throw new IllegalStateException("사용자 목록 조회에는 active 테넌트 컨텍스트가 필요합니다.");
+    }
+    return tenantId;
   }
 
   @Transactional(readOnly = true)
@@ -56,10 +69,10 @@ public class UserService {
         user.kind());
   }
 
-  /** Phase 5a — kind 별 사용자 목록 (AGENT 관리 화면 등). */
+  /** Phase 5a — kind 별 사용자 목록 (AGENT 관리 화면 등). active 테넌트 멤버로 스코프된다. */
   @Transactional(readOnly = true)
   public List<UserResponse> listByKind(String kind) {
-    return userRepository.findByKind(kind);
+    return userRepository.findByKind(requireTenant(), kind);
   }
 
   /** 감사 로그용 username 조회 — caller 사용자가 없는 테스트 환경에서는 "system" 으로 대체. */

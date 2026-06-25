@@ -79,7 +79,11 @@ public class UserRepository {
   }
 
   /** kind 별 사용자 목록 (예: 모든 AGENT). 이름 오름차순. */
-  public List<UserResponse> findByKind(String kind) {
+  /**
+   * kind 별 사용자 목록을 active 테넌트로 스코프한다. user 는 전역 테이블이라 RLS 가 걸리지 않으므로 membership 조인으로
+   * 명시적으로 테넌트 멤버만 거른다(다른 테넌트 AGENT 누출 방지). membership.(user_id, tenant_id) 는 유일하므로 행 중복 없음.
+   */
+  public List<UserResponse> findByKind(Long tenantId, String kind) {
     return dsl.select(
             USER.ID,
             USER.USERNAME,
@@ -89,7 +93,10 @@ public class UserRepository {
             USER.CREATED_AT,
             USER.KIND)
         .from(USER)
-        .where(USER.KIND.eq(kind))
+        .join(MEMBERSHIP)
+        .on(USER.ID.eq(MEMBERSHIP.USER_ID))
+        .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .and(USER.KIND.eq(kind))
         .orderBy(USER.NAME.asc(), USER.ID.asc())
         .fetch(this::mapToUserResponse);
   }
@@ -186,19 +193,12 @@ public class UserRepository {
         .fetchOne(USER.ID);
   }
 
-  public List<UserResponse> findAllPaginated(String search, int page, int size) {
-    Condition condition = trueCondition();
-
-    if (search != null && !search.isBlank()) {
-      String pattern = LikePatternUtils.containsPattern(search);
-      condition =
-          condition.and(
-              USER.USERNAME
-                  .likeIgnoreCase(pattern, '\\')
-                  .or(USER.NAME.likeIgnoreCase(pattern, '\\'))
-                  .or(USER.EMAIL.likeIgnoreCase(pattern, '\\')));
-    }
-
+  /**
+   * 사용자 목록을 active 테넌트로 스코프한다(설정 > 사용자 관리). user 는 전역 테이블이라 RLS 가 걸리지 않으므로 membership
+   * 조인으로 명시적으로 테넌트 멤버만 거른다(다른 테넌트 사용자 누출 방지). membership.(user_id, tenant_id) 는 유일하므로 행
+   * 중복 없음. {@link #countByTenant} 와 동일 조인을 사용해 count 와 page 가 일치한다.
+   */
+  public List<UserResponse> findAllPaginated(Long tenantId, String search, int page, int size) {
     return dsl.select(
             USER.ID,
             USER.USERNAME,
@@ -208,13 +208,41 @@ public class UserRepository {
             USER.CREATED_AT,
             USER.KIND)
         .from(USER)
-        .where(condition)
+        .join(MEMBERSHIP)
+        .on(USER.ID.eq(MEMBERSHIP.USER_ID))
+        .where(tenantSearchCondition(tenantId, search))
         .orderBy(USER.ID.asc())
         .limit(size)
         .offset(page * size)
         .fetch(this::mapToUserResponse);
   }
 
+  /** active 테넌트 멤버 수(설정 > 사용자 관리 페이지네이션용). */
+  public long countByTenant(Long tenantId, String search) {
+    return dsl.select(count())
+        .from(USER)
+        .join(MEMBERSHIP)
+        .on(USER.ID.eq(MEMBERSHIP.USER_ID))
+        .where(tenantSearchCondition(tenantId, search))
+        .fetchOne(0, Long.class);
+  }
+
+  /** 테넌트 멤버십 + (선택) 검색어 조건 — 목록/카운트 쿼리 공용. */
+  private Condition tenantSearchCondition(Long tenantId, String search) {
+    Condition condition = MEMBERSHIP.TENANT_ID.eq(tenantId);
+    if (search != null && !search.isBlank()) {
+      String pattern = LikePatternUtils.containsPattern(search);
+      condition =
+          condition.and(
+              USER.USERNAME
+                  .likeIgnoreCase(pattern, '\\')
+                  .or(USER.NAME.likeIgnoreCase(pattern, '\\'))
+                  .or(USER.EMAIL.likeIgnoreCase(pattern, '\\')));
+    }
+    return condition;
+  }
+
+  /** 전역 사용자 수(테넌트 무관). 가입 부트스트랩("첫 사용자") 판정 등 시스템 전역 집계에만 사용. */
   public long countAll(String search) {
     Condition condition = trueCondition();
 
