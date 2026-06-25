@@ -1,4 +1,5 @@
 import type {
+  AddTenantMemberRequest,
   CreateTenantRequest,
   TenantDetail,
   TenantMember,
@@ -19,6 +20,9 @@ export const platformTenants = {
   /** 테넌트 멤버 목록(상세·Task 4). */
   members: (id: number) =>
     client.get<TenantMember[]>(`/tenants/${id}/members`).then((res) => res.data),
+  /** 테넌트 멤버(계정) 추가(#497·201) → 생성된 TenantMember. */
+  addMember: (id: number, req: AddTenantMemberRequest) =>
+    client.post<TenantMember>(`/tenants/${id}/members`, req).then((res) => res.data),
   /** 테넌트 정지. 백엔드는 204 No Content(바디 없음). */
   suspend: (id: number) => client.post<void>(`/tenants/${id}/suspend`).then(() => undefined),
   /** 테넌트 활성화. 백엔드는 204 No Content(바디 없음). */

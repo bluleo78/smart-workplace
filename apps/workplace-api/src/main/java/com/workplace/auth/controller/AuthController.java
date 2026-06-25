@@ -3,8 +3,10 @@ package com.workplace.auth.controller;
 import com.workplace.auth.dto.LoginRequest;
 import com.workplace.auth.dto.LoginResponse;
 import com.workplace.auth.dto.SelectTenantRequest;
+import com.workplace.auth.dto.SignupAvailableResponse;
 import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
+import com.workplace.auth.exception.SignupDisabledException;
 import com.workplace.auth.service.AuthService;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.tenant.TenantContext;
@@ -47,8 +49,25 @@ public class AuthController {
     this.permissionService = permissionService;
   }
 
+  /**
+   * 공개 셀프 회원가입 가용성 — 부트스트랩(첫 사용자) 전에는 true, 이후 false.
+   *
+   * <p>웹 가입 화면이 폼 노출 여부를 판단한다. 가입 차단 집행({@link #signup})과 동일한 술어({@code
+   * AuthService.isSignupAvailable})를 읽어 표시·집행이 어긋나지 않게 한다.
+   */
+  @GetMapping("/signup-available")
+  public ResponseEntity<SignupAvailableResponse> signupAvailable() {
+    return ResponseEntity.ok(new SignupAvailableResponse(authService.isSignupAvailable()));
+  }
+
   @PostMapping("/signup")
   public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignupRequest request) {
+    // 공개 셀프 가입 게이트 — 부트스트랩(첫 사용자) 이후에는 웹 가입을 막는다(403). 신규 사용자는 운영자 콘솔에서
+    // 테넌트 멤버로 추가하며 계정이 생성된다(#495/#497). authService.signup 자체는 멤버 추가 등 내부 경로의
+    // 재사용 가능한 프리미티브로 남기고, "공개 가입 가능 여부" 정책은 이 HTTP 경계에서만 집행한다.
+    if (!authService.isSignupAvailable()) {
+      throw new SignupDisabledException("회원가입이 비활성화되어 있습니다. 관리자에게 문의하세요.");
+    }
     // signup 은 과도기 모델에서 tenant#1 컨텍스트로 처리한다(전역 시스템 role 조회/할당이 RLS 하에서
     // 동작하도록). @Transactional 인 AuthService.signup 안에서 설정하면 TenantAwareTransactionManager
     // 가 tx-start(doBegin) 시점에 TenantContext 를 읽으므로 이미 늦다 → 비-트랜잭션 컨트롤러 경계에서 설정.

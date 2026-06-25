@@ -48,11 +48,22 @@ export interface TenantDetail extends TenantSummary {
   quotaBytes: number
 }
 
-/** 테넌트 생성 요청 — name 필수, slug 선택, ownerUserId 필수. */
+/** 테넌트 생성 요청 — name 필수, slug 선택, ownerUserId 선택(#496).
+ *  ownerUserId 를 생략하면 소유자 없는 빈 테넌트가 생성된다. */
 export interface CreateTenantRequest {
   name: string
   slug?: string
-  ownerUserId: number
+  ownerUserId?: number
+}
+
+/** 테넌트 멤버(계정) 추가 요청(#497).
+ *  email 은 로그인 아이디로도 쓰인다. role 에 따라 멤버십/RBAC 역할이 결정된다
+ *  (OWNER → 멤버십 OWNER + RBAC ADMIN, MEMBER → 멤버십 MEMBER + RBAC USER). */
+export interface AddTenantMemberRequest {
+  email: string
+  name: string
+  password: string
+  role: 'OWNER' | 'MEMBER'
 }
 
 /** 테넌트 멤버(상세 화면·Task 4 에서 사용). */

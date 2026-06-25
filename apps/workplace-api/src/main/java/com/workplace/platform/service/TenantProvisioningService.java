@@ -53,7 +53,8 @@ public class TenantProvisioningService {
    * 신규 테넌트의 기본 RBAC 를 현재 트랜잭션 안에서 시드한다.
    *
    * @param tenantId 신규 테넌트 id (이미 같은 트랜잭션에 INSERT 됨, 미커밋)
-   * @param ownerUserId 초기 소유자 — 테넌트 ADMIN 역할을 부여받는다
+   * @param ownerUserId 초기 소유자 — 테넌트 ADMIN 역할을 부여받는다. null 이면 소유자 없는 테넌트이므로 역할(ADMIN/USER/AGENT)만
+   *     시드하고 소유자 ADMIN 할당은 건너뛴다. 이렇게 해도 ADMIN/USER/AGENT 역할은 존재하므로 이후 멤버 추가(#497)가 찾아 쓸 수 있다.
    */
   public void seedDefaultRoles(Long tenantId, Long ownerUserId) {
     // 트랜잭션-로컬 GUC 를 신규 테넌트로 → 이후 role/role_permission/user_role INSERT 가 RLS·DEFAULT 충전을 통과.
@@ -67,8 +68,10 @@ public class TenantProvisioningService {
       platformTenantRepository.grantAllPermissions(adminRoleId);
       platformTenantRepository.grantPermissionsByCode(userRoleId, USER_ROLE_PERMISSION_CODES);
       platformTenantRepository.grantPermissionsByCode(agentRoleId, AGENT_ROLE_PERMISSION_CODES);
-      // 초기 Owner 가 테넌트를 실제로 사용할 수 있도록 ADMIN 역할 할당.
-      platformTenantRepository.assignUserRole(ownerUserId, adminRoleId);
+      // 초기 Owner 가 테넌트를 실제로 사용할 수 있도록 ADMIN 역할 할당(소유자 미지정 시 건너뜀).
+      if (ownerUserId != null) {
+        platformTenantRepository.assignUserRole(ownerUserId, adminRoleId);
+      }
     } finally {
       // 같은 tx 의 후속 작업(findTenant 등)이 시드 GUC 를 물려받지 않게 빈 문자열로 리셋.
       platformTenantRepository.clearTenantGuc();

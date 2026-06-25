@@ -45,6 +45,15 @@ class AuthServiceTest extends IntegrationTestBase {
 
   @Autowired private PlatformRoleRepository platformRoleRepository;
 
+  /**
+   * 가입 가용성 술어 — 공유 테스트 DB 는 시드 사용자가 있어 비어있지 않으므로 false 여야 한다(부트스트랩 이후 = 공개 가입 차단). 가입 게이트가 읽는 단일
+   * 술어의 회귀 가드.
+   */
+  @Test
+  void isSignupAvailable_falseWhenUsersExist() {
+    assertThat(authService.isSignupAvailable()).isFalse();
+  }
+
   @Test
   void signup_firstUser_assignsAdminAndUserRoles() {
     SignupRequest request =

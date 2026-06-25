@@ -153,6 +153,155 @@ test.describe('테넌트 상세', () => {
     await expect(page.getByText('한도를 저장했습니다', { exact: false })).toBeVisible()
   })
 
+  // (f) 멤버 추가(#497): 폼 입력 → POST payload 검증 → 201 → 목록/카운트 반영, 성공 토스트.
+  test('멤버를 추가하면 목록과 카운트에 반영된다', async ({ authenticatedPage: page }) => {
+    const detailState = await stubTenantDetail(page, tenantDetail({ memberCount: 1 }))
+    // 멤버 목록을 mutable 로 스텁 — 추가 성공 시 새 멤버를 push 하고 memberCount 도 올려
+    // invalidate→재조회로 변화가 보이게 한다.
+    const membersState = { list: [member({ userId: 1, name: '소유자', role: 'OWNER' })] }
+    await page.route('**/api/platform/tenants/1/members', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(membersState.list),
+        })
+      }
+      return route.fallback()
+    })
+
+    let body: Record<string, unknown> | undefined
+    await page.route('**/api/platform/tenants/1/members', async (route) => {
+      if (route.request().method() === 'POST') {
+        body = route.request().postDataJSON()
+        const created = member({
+          userId: 2,
+          username: 'newbie@example.com',
+          name: '신규멤버',
+          email: 'newbie@example.com',
+          role: 'MEMBER',
+          status: 'ACTIVE',
+        })
+        membersState.list = [...membersState.list, created]
+        detailState.tenant = { ...detailState.tenant, memberCount: 2 }
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(created),
+        })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/tenants/1')
+    await expect(page.getByTestId('member-row')).toHaveCount(1)
+    await expect(page.getByTestId('tenant-member-count')).toHaveText('1')
+
+    await page.getByTestId('add-member-button').click()
+    await page.getByTestId('add-member-email').fill('newbie@example.com')
+    await page.getByTestId('add-member-name').fill('신규멤버')
+    await page.getByTestId('add-member-password').fill('Passw0rd')
+    // 역할은 기본값 MEMBER 로 둔다.
+    await page.getByTestId('add-member-submit').click()
+
+    await expect(page.getByText('멤버를 추가했습니다.')).toBeVisible()
+    // POST payload 검증 — {email, name, password, role}.
+    expect(body).toEqual({
+      email: 'newbie@example.com',
+      name: '신규멤버',
+      password: 'Passw0rd',
+      role: 'MEMBER',
+    })
+    // invalidate→재조회로 멤버 행 2개 + 멤버수 2 반영.
+    // 행 카운트는 ['tenant', id, 'members'], 멤버수 카드는 ['tenant', id] 무효화를 각각 검증한다.
+    await expect(page.getByTestId('member-row')).toHaveCount(2)
+    await expect(page.getByRole('cell', { name: '신규멤버' })).toBeVisible()
+    await expect(page.getByTestId('tenant-member-count')).toHaveText('2')
+  })
+
+  // (g) 멤버 추가 — 역할 '소유자' 선택 → payload.role 이 OWNER 로 전송된다(#497).
+  test('역할로 소유자를 선택하면 OWNER 로 전송된다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    let body: Record<string, unknown> | undefined
+    await page.route('**/api/platform/tenants/1/members', async (route) => {
+      if (route.request().method() === 'POST') {
+        body = route.request().postDataJSON()
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            member({ userId: 3, name: '대표', email: 'boss@example.com', role: 'OWNER' }),
+          ),
+        })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/tenants/1')
+    await page.getByTestId('add-member-button').click()
+    await page.getByTestId('add-member-email').fill('boss@example.com')
+    await page.getByTestId('add-member-name').fill('대표')
+    await page.getByTestId('add-member-password').fill('Passw0rd')
+    // 소유자(대표관리자) 라디오 선택.
+    await page.getByTestId('add-member-role-owner').check()
+    await page.getByTestId('add-member-submit').click()
+
+    await expect(page.getByText('멤버를 추가했습니다.')).toBeVisible()
+    expect(body?.role).toBe('OWNER')
+  })
+
+  // (h) 멤버 추가 — 이메일 중복(409) → 에러 표시, 다이얼로그 유지(#497).
+  test('이메일이 중복이면 에러를 표시하고 다이얼로그를 유지한다', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/tenants/1/members', (route) => {
+      if (route.request().method() === 'POST') {
+        return route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            status: 409,
+            error: 'Conflict',
+            message: '이미 사용 중인 이메일입니다.',
+          }),
+        })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/tenants/1')
+    await page.getByTestId('add-member-button').click()
+    await page.getByTestId('add-member-email').fill('dup@example.com')
+    await page.getByTestId('add-member-name').fill('중복')
+    await page.getByTestId('add-member-password').fill('Passw0rd')
+    await page.getByTestId('add-member-submit').click()
+
+    await expect(page.getByTestId('add-member-error')).toHaveText('이미 사용 중인 이메일입니다.')
+    // 다이얼로그 유지 — 제출 버튼이 여전히 보인다.
+    await expect(page.getByTestId('add-member-submit')).toBeVisible()
+  })
+
+  // (i) 멤버 추가 — 비밀번호 규칙 위반 시 인라인 검증 에러(#497).
+  test('비밀번호 규칙 위반 시 인라인 에러를 표시한다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+
+    await page.goto('/tenants/1')
+    await page.getByTestId('add-member-button').click()
+    await page.getByTestId('add-member-email').fill('weak@example.com')
+    await page.getByTestId('add-member-name').fill('약한비번')
+    // 대문자/숫자 없는 8자 미만 비밀번호.
+    await page.getByTestId('add-member-password').fill('abc')
+    await page.getByTestId('add-member-submit').click()
+
+    // zod 인라인 검증 메시지가 보이고, 다이얼로그는 닫히지 않는다.
+    await expect(page.getByText('비밀번호는 8자 이상이어야 합니다')).toBeVisible()
+    await expect(page.getByTestId('add-member-submit')).toBeVisible()
+  })
+
   // (e) 404 → "찾을 수 없습니다" 안내
   test('존재하지 않는 테넌트면 안내를 표시한다', async ({ authenticatedPage: page }) => {
     await page.route('**/api/platform/tenants/999', (route) =>

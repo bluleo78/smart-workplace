@@ -72,6 +72,8 @@ class AuthControllerTest {
             LocalDateTime.now(),
             "HUMAN");
 
+    // 가입 게이트는 가용성 술어를 먼저 읽는다 — 부트스트랩 가능 상태로 둔다.
+    when(authService.isSignupAvailable()).thenReturn(true);
     when(authService.signup(any(SignupRequest.class))).thenReturn(response);
 
     mockMvc
@@ -82,6 +84,40 @@ class AuthControllerTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.username").value("test@example.com"))
         .andExpect(jsonPath("$.name").value("Test User"));
+  }
+
+  /** 부트스트랩(첫 사용자) 이후 공개 가입은 막힌다 — 가용성 false → 403, signup 미호출. */
+  @Test
+  void signup_whenDisabled_returnsForbidden() throws Exception {
+    SignupRequest request =
+        new SignupRequest("blocked@example.com", "blocked@example.com", "Password123", "Blocked");
+
+    when(authService.isSignupAvailable()).thenReturn(false);
+
+    mockMvc
+        .perform(
+            post("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+        .andExpect(status().isForbidden());
+
+    verify(authService, org.mockito.Mockito.never()).signup(any(SignupRequest.class));
+  }
+
+  /** 가용성 조회 — 게이트와 동일한 술어를 그대로 노출한다. */
+  @Test
+  void signupAvailable_reflectsPredicate() throws Exception {
+    when(authService.isSignupAvailable()).thenReturn(true);
+    mockMvc
+        .perform(get("/api/v1/auth/signup-available"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.available").value(true));
+
+    when(authService.isSignupAvailable()).thenReturn(false);
+    mockMvc
+        .perform(get("/api/v1/auth/signup-available"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.available").value(false));
   }
 
   @Test

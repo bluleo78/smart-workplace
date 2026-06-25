@@ -1,5 +1,6 @@
 package com.workplace.platform.controller;
 
+import com.workplace.platform.dto.AddTenantMemberRequest;
 import com.workplace.platform.dto.CreateTenantRequest;
 import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.dto.TenantMemberResponse;
@@ -69,6 +70,14 @@ public class PlatformTenantController {
   @GetMapping("/{id}/members")
   public ResponseEntity<List<TenantMemberResponse>> members(@PathVariable Long id) {
     return ResponseEntity.ok(platformTenantService.getMembers(id));
+  }
+
+  /** 테넌트에 멤버(소유자/일반) 추가 — 계정 생성 포함. 201 + 추가된 멤버(#497). */
+  @PostMapping("/{id}/members")
+  public ResponseEntity<TenantMemberResponse> addMember(
+      @PathVariable Long id, @Valid @RequestBody AddTenantMemberRequest req) {
+    TenantMemberResponse added = platformTenantService.addMember(id, req);
+    return ResponseEntity.status(HttpStatus.CREATED).body(added);
   }
 
   /** 테넌트 드라이브 한도 변경(플랫폼 운영자, #81). */

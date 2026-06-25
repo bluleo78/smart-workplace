@@ -100,6 +100,65 @@ test.describe('테넌트 목록', () => {
     await expect(page.getByTestId('tenant-row')).toHaveCount(1)
   })
 
+  // (c-1) 소유자를 비우고 생성 → payload 에 ownerUserId 키가 없어야 한다(#496).
+  test('소유자를 비우면 payload 에 ownerUserId 가 없다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantList(page, [])
+    let body: Record<string, unknown> | undefined
+    await page.route('**/api/platform/tenants', async (route) => {
+      if (route.request().method() === 'POST') {
+        body = route.request().postDataJSON()
+        const created = tenant({ id: 11, name: 'Ownerless', memberCount: 0 })
+        state.list = [created]
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(created),
+        })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/')
+    await page.getByTestId('create-tenant-button').click()
+    await page.getByTestId('create-tenant-name').fill('Ownerless')
+    // 소유자 ID 는 비워둔다.
+    await page.getByTestId('create-tenant-submit').click()
+
+    await expect(page.getByText('테넌트를 생성했습니다.')).toBeVisible()
+    // payload 에 name 만 있고 ownerUserId 키는 아예 없어야 한다.
+    expect(body).toEqual({ name: 'Ownerless' })
+    expect(body && 'ownerUserId' in body).toBe(false)
+  })
+
+  // (c-2) 소유자를 채우면 payload 에 ownerUserId(number) 가 포함된다(#496).
+  test('소유자를 채우면 payload 에 ownerUserId 가 포함된다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantList(page, [])
+    let body: Record<string, unknown> | undefined
+    await page.route('**/api/platform/tenants', async (route) => {
+      if (route.request().method() === 'POST') {
+        body = route.request().postDataJSON()
+        const created = tenant({ id: 12, name: 'Owned' })
+        state.list = [created]
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(created),
+        })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/')
+    await page.getByTestId('create-tenant-button').click()
+    await page.getByTestId('create-tenant-name').fill('Owned')
+    await page.getByTestId('create-tenant-owner').fill('7')
+    await page.getByTestId('create-tenant-submit').click()
+
+    await expect(page.getByText('테넌트를 생성했습니다.')).toBeVisible()
+    // ownerUserId 가 number 7 로 포함돼야 한다(문자열 아님).
+    expect(body).toEqual({ name: 'Owned', ownerUserId: 7 })
+  })
+
   // (d) 생성 중복 slug(400) → 에러 메시지 표시, 다이얼로그 유지
   test('생성 실패 시 에러를 표시하고 다이얼로그를 유지한다', async ({
     authenticatedPage: page,

@@ -7,6 +7,7 @@ import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { platformTenants } from '../api/platformTenants'
+import { AddTenantMemberDialog } from '../components/AddTenantMemberDialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -91,6 +92,8 @@ export default function TenantDetailPage() {
   const { id } = useParams()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // 멤버 추가 다이얼로그(#497) 열림 상태.
+  const [addMemberOpen, setAddMemberOpen] = useState(false)
   // 드라이브 한도 입력값(GB 단위 문자열) — tenant 로드 후 초기화.
   const [gb, setGb] = useState('')
 
@@ -250,7 +253,7 @@ export default function TenantDetailPage() {
                 <dt className="text-muted-foreground">생성일</dt>
                 <dd>{formatDate(tenant.createdAt)}</dd>
                 <dt className="text-muted-foreground">멤버수</dt>
-                <dd>{tenant.memberCount}</dd>
+                <dd data-testid="tenant-member-count">{tenant.memberCount}</dd>
               </dl>
             )
           )}
@@ -280,7 +283,20 @@ export default function TenantDetailPage() {
 
       {/* 멤버 테이블 */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">멤버</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">멤버</h2>
+          {/* 소유자/멤버 추가(#497) — 테넌트가 정상 조회됐을 때만 노출. */}
+          {tenant && (
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="add-member-button"
+              onClick={() => setAddMemberOpen(true)}
+            >
+              멤버 추가
+            </Button>
+          )}
+        </div>
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -317,6 +333,11 @@ export default function TenantDetailPage() {
           </Table>
         </div>
       </section>
+
+      {/* 멤버 추가 다이얼로그(#497) — id 는 invalidate 키와 byte-identical 한 string 으로 넘긴다. */}
+      {id && (
+        <AddTenantMemberDialog tenantId={id} open={addMemberOpen} onOpenChange={setAddMemberOpen} />
+      )}
 
       {/* 정지/활성화 확인 다이얼로그 */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

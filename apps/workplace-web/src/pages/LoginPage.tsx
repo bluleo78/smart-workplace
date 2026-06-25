@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { PasswordInput } from '../components/ui/password-input';
+import { useSignupAvailable } from '../hooks/queries/useSignupAvailable';
 import { useAuth } from '../hooks/useAuth';
 import type { LoginFormData } from '../lib/validations/auth';
 import { loginSchema } from '../lib/validations/auth';
@@ -18,6 +19,8 @@ import type { ErrorResponse } from '../types/auth';
 export default function LoginPage() {
   const { login, isAuthenticated, tenantOptions } = useAuth();
   const [serverError, setServerError] = useState('');
+  // 가입이 잠긴 상태면 회원가입 링크를 숨긴다(부트스트랩 이후).
+  const { data: signupAvailable } = useSignupAvailable();
 
   const {
     register,
@@ -100,11 +103,14 @@ export default function LoginPage() {
               {isSubmitting ? '로그인 중...' : '로그인'}
             </Button>
           </form>
-          <div className="mt-4 text-center text-sm">
-            <Link to="/signup" className="text-primary underline-offset-4 hover:underline">
-              계정이 없으신가요? 회원가입
-            </Link>
-          </div>
+          {/* 가입이 명시적으로 잠긴 경우(false)만 링크를 숨긴다. 로딩/조회실패(undefined)에는 기본 노출. */}
+          {signupAvailable !== false && (
+            <div className="mt-4 text-center text-sm">
+              <Link to="/signup" className="text-primary underline-offset-4 hover:underline">
+                계정이 없으신가요? 회원가입
+              </Link>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -3,6 +3,8 @@ import { mockApi } from '../fixtures/api-mock'
 
 // 로그인 페이지 자체 진입 (인증 불필요)
 test('로그인 페이지가 보인다', { tag: '@smoke' }, async ({ page }) => {
+  // #495 — 로그인 페이지가 마운트 시 가입 가용성을 조회하므로 기본 스텁(가용)으로 백엔드 누수 방지.
+  await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
   await page.goto('/login')
   await expect(page.getByText('Smart Workplace')).toBeVisible()
   await expect(page.getByRole('button', { name: /로그인/ })).toBeVisible()

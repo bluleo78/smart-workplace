@@ -148,6 +148,14 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
   }
 
+  /** 공개 셀프 회원가입이 닫힌 상태(부트스트랩 이후)에서 가입 시도 → 403. */
+  @ExceptionHandler(com.workplace.auth.exception.SignupDisabledException.class)
+  public ResponseEntity<ErrorResponse> handleSignupDisabled(
+      com.workplace.auth.exception.SignupDisabledException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   @ExceptionHandler(InvalidTokenException.class)
   public ResponseEntity<ErrorResponse> handleInvalidToken(
       InvalidTokenException ex, HttpServletRequest request) {

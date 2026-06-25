@@ -46,9 +46,11 @@ public class PlatformTenantRepository {
   private final MembershipRepository membershipRepository;
 
   /**
-   * 테넌트 행(ACTIVE) + 초기 소유자 OWNER 멤버십을 생성한다. {@code @Transactional} 은 호출자(createTenant)의 트랜잭션에
-   * REQUIRED 로 합류하며, 커밋은 호출자 트랜잭션이 담당한다(단일-tx 설계 — 같은 커넥션에서 RBAC 시드가 이어진다). 멤버십 role 컬럼은 baseline
-   * jOOQ 코드젠에 없어 name-based field 로 기록하는 {@link MembershipRepository#createWithRole} 를 재사용한다.
+   * 테넌트 행(ACTIVE)을 생성하고, {@code ownerUserId} 가 주어지면 초기 소유자 OWNER 멤버십도 만든다. {@code ownerUserId} 가
+   * null 이면 소유자 없는 빈 테넌트만 만든다(소유자는 이후 멤버 추가로 붙임, #496/#497). {@code @Transactional} 은
+   * 호출자(createTenant)의 트랜잭션에 REQUIRED 로 합류하며, 커밋은 호출자 트랜잭션이 담당한다(단일-tx 설계 — 같은 커넥션에서 RBAC 시드가
+   * 이어진다). 멤버십 role 컬럼은 baseline jOOQ 코드젠에 없어 name-based field 로 기록하는 {@link
+   * MembershipRepository#createWithRole} 를 재사용한다.
    *
    * @return 생성된 tenant id
    */
@@ -62,7 +64,10 @@ public class PlatformTenantRepository {
             .returning(TENANT.ID)
             .fetchOne()
             .getId();
-    membershipRepository.createWithRole(ownerUserId, tenantId, "ACTIVE", "OWNER");
+    // 소유자 미지정(null) 이면 멤버십을 만들지 않는다 — 빈 테넌트.
+    if (ownerUserId != null) {
+      membershipRepository.createWithRole(ownerUserId, tenantId, "ACTIVE", "OWNER");
+    }
     return tenantId;
   }
 
@@ -123,6 +128,37 @@ public class PlatformTenantRepository {
         .set(USER_ROLE.USER_ID, userId)
         .set(USER_ROLE.ROLE_ID, roleId)
         .execute();
+  }
+
+  /**
+   * 기존 테넌트에 멤버십을 추가한다(전역 테이블, GUC 무관). role 은 멤버십 직위(OWNER/MEMBER). 멤버 추가(#497)에 사용한다.
+   *
+   * <p>{@code @Transactional} 은 호출자 트랜잭션에 REQUIRED 로 합류한다.
+   */
+  @Transactional
+  public void addMembership(Long userId, Long tenantId, String role) {
+    membershipRepository.createWithRole(userId, tenantId, "ACTIVE", role);
+  }
+
+  /**
+   * 지정 테넌트의 RBAC 역할(이름 기준, 예: ADMIN/USER)을 사용자에게 부여한다 — 멤버 추가(#497)에 사용. role/user_role 은 RLS 대상이므로
+   * 신규 테넌트 GUC 를 트랜잭션-로컬로 설정한 뒤 역할 조회·할당을 수행하고 finally 에서 빈 문자열로 리셋한다(seedDefaultRoles 와 동일 패턴).
+   * 호출자({@code @Transactional})의 바운드 커넥션에서 set_config 와 INSERT 가 같은 트랜잭션을 공유해야 하므로 자체
+   * {@code @Transactional} 을 붙이지 않는다.
+   *
+   * @throws IllegalStateException 해당 테넌트에 그 이름의 역할이 없을 때(시드 누락 — 정상 흐름에선 발생하지 않음)
+   */
+  public void assignTenantRoleByName(Long tenantId, Long userId, String roleName) {
+    setTenantGuc(tenantId);
+    try {
+      Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq(roleName)).fetchOne(ROLE.ID);
+      if (roleId == null) {
+        throw new IllegalStateException("테넌트(" + tenantId + ")에 역할이 없습니다: " + roleName);
+      }
+      assignUserRole(userId, roleId);
+    } finally {
+      clearTenantGuc();
+    }
   }
 
   /** 동일 slug 테넌트가 이미 존재하는지(slug != null 일 때만 의미 있음). */

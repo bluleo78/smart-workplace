@@ -64,6 +64,17 @@ public class AuthService {
       long expiresIn,
       List<MembershipResponse> memberships) {}
 
+  /**
+   * 공개 셀프 회원가입 허용 여부 — 사용자가 한 명도 없을 때(부트스트랩)만 true.
+   *
+   * <p>가입 게이트(컨트롤러)와 가용성 조회 엔드포인트, 웹 가입 화면이 모두 이 단일 술어를 읽어 "가능 여부" 판정을 일원화한다(표시·집행 분기 방지). {@code
+   * user} 는 전역(RLS 비대상) 테이블이라 테넌트 컨텍스트 없이 집계 가능하다.
+   */
+  @Transactional(readOnly = true)
+  public boolean isSignupAvailable() {
+    return userRepository.countAll(null) == 0;
+  }
+
   @Transactional
   public UserResponse signup(SignupRequest request) {
     if (userRepository.existsByUsername(request.username())) {

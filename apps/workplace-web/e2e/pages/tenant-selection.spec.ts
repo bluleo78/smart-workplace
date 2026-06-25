@@ -13,6 +13,8 @@ import { expect, test } from '../fixtures/auth.fixture'
 async function setupHomeBattery(page: Page) {
   // 리로드 후 init: hasSession → refresh → users/me.
   await mockApi(page, 'POST', '/api/v1/auth/refresh', createTokenResponse())
+  // #495 — 로그인 페이지가 마운트 시 가입 가용성을 조회하므로 기본 스텁으로 백엔드 누수 방지.
+  await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
   await mockApi(page, 'GET', '/api/v1/users/me', createUserDetail())
   // 홈 셸 기본 위젯 데이터(my_tasks/issue_list/activity/pinned-views/sessions).
   await mockApi(page, 'GET', '/api/v1/me/issues', { items: [], nextCursor: null, hasMore: false })
@@ -91,6 +93,8 @@ test('단일소속 로그인 → 선택 카드 없이 바로 홈 진입', async 
 test('무소속(NO_WORKSPACE) 로그인 → 선택 카드 없이 전용 안내 표시', async ({ page }) => {
   // login 을 멤버십 0개로 목 — login() 이 throw 'NO_WORKSPACE' → 인증 미완료(/ 이동 안 함).
   await mockApi(page, 'POST', '/api/v1/auth/login', createLoginResponse({ memberships: [] }))
+  // #495 — 로그인 페이지의 가입 가용성 조회 기본 스텁(백엔드 누수 방지).
+  await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
 
   await page.goto('/login')
   await page.getByLabel('아이디 (이메일)').fill('user@example.com')
@@ -111,6 +115,8 @@ test('다중소속 로그인 → select-tenant 실패(5xx) 시 에러 안내 + �
   await mockApi(page, 'POST', '/api/v1/auth/login', createLoginResponse({ memberships: [acme, globex] }))
   // select-tenant 를 500 으로 목 — 리로드 안 일어나므로 홈 스텁 불필요.
   await mockApi(page, 'POST', '/api/v1/auth/select-tenant', { message: '서버 오류' }, { status: 500 })
+  // #495 — 로그인 페이지의 가입 가용성 조회 기본 스텁(백엔드 누수 방지).
+  await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
 
   await page.goto('/login')
   await page.getByLabel('아이디 (이메일)').fill('user@example.com')

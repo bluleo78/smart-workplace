@@ -23,14 +23,20 @@ import { Input } from './ui/input'
 // 테넌트 생성 폼 스키마.
 // - name: 필수
 // - slug: 선택(빈 문자열은 미전송)
-// - ownerUserId: 필수 양의 정수. input 은 문자열이므로 coerce 후 검증.
+// - ownerUserId: 선택(#496). 비우면 소유자 없는 빈 테넌트 생성.
+//   input 은 문자열이라 빈 값('')을 먼저 undefined 로 정규화한 뒤(coerce 가 ''→0 으로 만들어
+//   .positive() 에 걸리는 함정을 피한다), 값이 있을 때만 양의 정수로 검증한다.
 const createTenantSchema = z.object({
   name: z.string().min(1, '이름을 입력하세요'),
   slug: z.string().optional(),
-  ownerUserId: z.coerce
-    .number({ message: '소유자 사용자 ID를 입력하세요' })
-    .int('정수를 입력하세요')
-    .positive('올바른 사용자 ID를 입력하세요'),
+  ownerUserId: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.coerce
+      .number({ message: '소유자 사용자 ID를 입력하세요' })
+      .int('정수를 입력하세요')
+      .positive('올바른 사용자 ID를 입력하세요')
+      .optional(),
+  ),
 })
 
 // react-hook-form 폼 값 타입은 input(변환 전: ownerUserId 가 문자열 입력) 기준.
@@ -88,10 +94,13 @@ export function CreateTenantDialog({ open, onOpenChange }: CreateTenantDialogPro
   const onSubmit = (data: CreateTenantFormData) => {
     setServerError('')
     const slug = data.slug?.trim()
+    // ownerUserId 는 비웠으면(undefined) payload 에서 생략 — 소유자 없는 빈 테넌트로 생성된다.
+    // (data.ownerUserId 는 preprocess 단계에서 ''→undefined 로 정규화됨)
+    const owner = data.ownerUserId
     mutation.mutate({
       name: data.name,
       ...(slug ? { slug } : {}),
-      ownerUserId: Number(data.ownerUserId),
+      ...(owner == null || owner === '' ? {} : { ownerUserId: Number(owner) }),
     })
   }
 
@@ -120,14 +129,14 @@ export function CreateTenantDialog({ open, onOpenChange }: CreateTenantDialogPro
             />
           </FormField>
           <FormField
-            label="소유자 사용자 ID"
+            label="소유자 사용자 ID (선택)"
             htmlFor="tenant-owner"
-            required
             error={errors.ownerUserId?.message}
           >
             <Input
               id="tenant-owner"
               type="number"
+              placeholder="(선택) 비우면 소유자 없는 빈 테넌트"
               data-testid="create-tenant-owner"
               {...register('ownerUserId')}
             />
