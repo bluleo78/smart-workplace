@@ -9,6 +9,7 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { isoToLocalInput } from '@/lib/calendar'
 import type { MessageProposal } from '@/types/messaging'
 
 interface EventProposalCardProps {
@@ -25,12 +26,7 @@ interface EventProposalCardProps {
   busy?: boolean
 }
 
-// datetime-local 입력은 'YYYY-MM-DDTHH:mm'(초·오프셋 없음). 서버가 준 ISO 문자열 ↔ datetime-local 변환.
-function toLocalInput(iso: string | null): string {
-  if (!iso) return ''
-  // 'YYYY-MM-DDTHH:mm' 까지만 사용(앞 16자).
-  return iso.slice(0, 16)
-}
+// 표시(ISO → datetime-local)는 공용 isoToLocalInput 사용 — 브라우저 로컬 변환(오프셋 무시 slice 금지, 06시 버그).
 
 // ⚠️ datetime-local 값(오프셋 없음)을 서버 OffsetDateTime 으로 보내려면 오프셋이 있는 ISO 로 변환해야 한다.
 // 오프셋 없는 'YYYY-MM-DDTHH:mm' 를 그대로 보내면 백엔드 OffsetDateTime.parse 가 실패한다(라이브에서만 터지는 버그).
@@ -51,8 +47,8 @@ export function EventProposalCard({
   const isPending = proposal.status === 'PENDING'
 
   const [title, setTitle] = useState(proposal.title ?? '')
-  const [startsAt, setStartsAt] = useState(toLocalInput(proposal.startsAt))
-  const [endsAt, setEndsAt] = useState(toLocalInput(proposal.endsAt))
+  const [startsAt, setStartsAt] = useState(isoToLocalInput(proposal.startsAt))
+  const [endsAt, setEndsAt] = useState(isoToLocalInput(proposal.endsAt))
   const [location, setLocation] = useState(proposal.location ?? '')
 
   const conflictCount = proposal.conflicts?.length ?? 0
@@ -148,8 +144,8 @@ export function EventProposalCard({
           <div>{proposal.title}</div>
           {proposal.startsAt && (
             <div>
-              {proposal.startsAt.slice(0, 16).replace('T', ' ')}
-              {proposal.endsAt ? ` ~ ${proposal.endsAt.slice(11, 16)}` : ''}
+              {isoToLocalInput(proposal.startsAt).replace('T', ' ')}
+              {proposal.endsAt ? ` ~ ${isoToLocalInput(proposal.endsAt).slice(11, 16)}` : ''}
             </div>
           )}
           {proposal.location && <div>장소: {proposal.location}</div>}
@@ -161,8 +157,8 @@ export function EventProposalCard({
           <div>{proposal.title}</div>
           {proposal.startsAt && (
             <div>
-              {proposal.startsAt.slice(0, 16).replace('T', ' ')}
-              {proposal.endsAt ? ` ~ ${proposal.endsAt.slice(11, 16)}` : ''}
+              {isoToLocalInput(proposal.startsAt).replace('T', ' ')}
+              {proposal.endsAt ? ` ~ ${isoToLocalInput(proposal.endsAt).slice(11, 16)}` : ''}
             </div>
           )}
           {proposal.location && <div>장소: {proposal.location}</div>}

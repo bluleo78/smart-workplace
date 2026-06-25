@@ -24,12 +24,14 @@ function makeEventProposal(): MessageProposal {
     projectKey: null,
     candidates: [],
     resultIssueKey: null,
-    startsAt: '2026-07-05T14:00:00+09:00',
-    endsAt: '2026-07-05T15:00:00+09:00',
+    // ⭐백엔드는 일정 instant 를 UTC('Z')로 저장한다(DB message_action_proposal.payload 확인).
+    // 06:00Z == 15:00 KST(오후 3시), 07:00Z == 16:00 KST. 카드는 KST 로 변환해 표시해야 한다.
+    startsAt: '2026-07-05T06:00:00Z',
+    endsAt: '2026-07-05T07:00:00Z',
     location: null,
     allDay: false,
     conflicts: [
-      { id: 7, title: '기존 회의', startsAt: '2026-07-05T14:30:00+09:00', endsAt: '2026-07-05T15:30:00+09:00' },
+      { id: 7, title: '기존 회의', startsAt: '2026-07-05T06:30:00Z', endsAt: '2026-07-05T07:30:00Z' },
     ],
   }
 }
@@ -90,8 +92,12 @@ async function stubMembers(page: import('@playwright/test').Page) {
 }
 
 test.describe('채팅 일정 제안 카드', () => {
+  // ⭐타임존 고정 — 시각 변환은 브라우저 로컬 기준이라, 핀하지 않으면 UTC 호스트에서
+  // 버그(나이브 slice)와 수정(로컬 변환)이 같은 06:00 을 내 red/green 구분이 불가능하다.
+  test.use({ timezoneId: 'Asia/Seoul' })
+
   test(
-    '일정 제안 카드: 충돌 배지 + 편집 후 승인 payload 검증',
+    '일정 제안 카드: UTC payload 를 KST 로 표시 + 충돌 배지 + 승인 시 instant 보존',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       const channel = createChannel({ id: CHANNEL_ID, member: true })
@@ -144,17 +150,60 @@ test.describe('채팅 일정 제안 카드', () => {
       // 2. 충돌 배지 노출 — '충돌 1건' 텍스트 포함(exact=false).
       await expect(page.getByTestId(`event-proposal-conflicts-${PROPOSAL_ID}`)).toContainText('충돌 1건')
 
-      // 3. 제목 입력란 편집.
+      // 3. ⭐핵심 회귀: UTC payload(06:00Z/07:00Z)가 datetime-local 입력에 KST(15:00/16:00)로 표시돼야 한다.
+      //    버그(나이브 slice)면 06:00/07:00 이 그대로 떠 실패한다.
+      await expect(page.getByTestId(`event-proposal-starts-${PROPOSAL_ID}`)).toHaveValue('2026-07-05T15:00')
+      await expect(page.getByTestId(`event-proposal-ends-${PROPOSAL_ID}`)).toHaveValue('2026-07-05T16:00')
+
+      // 4. 제목만 편집(시간은 그대로) → 승인 round-trip 으로 instant 보존 확인.
       await page.getByTestId(`event-proposal-title-${PROPOSAL_ID}`).fill('스프린트 리뷰(수정)')
 
-      // 4. 승인 버튼 클릭 → confirm POST 호출.
+      // 5. 승인 버튼 클릭 → confirm POST 호출.
       await page.getByTestId(`event-proposal-confirm-${PROPOSAL_ID}`).click()
 
-      // 5. 승인 payload 에 편집된 제목이 실렸는지 검증.
+      // 6. 승인 payload: 편집된 제목 + 시간은 원본 instant 그대로(KST 표시 → toOffsetIso → UTC 복원).
       await expect.poll(() => confirmBody?.title).toBe('스프린트 리뷰(수정)')
-      // startsAt 은 toOffsetIso 변환 결과(문자열)여야 한다 — 정확한 값 대신 truthy 만 검증.
-      // non-null 단언 — 위 poll 이 통과했으면 confirmBody 는 반드시 채워져 있다.
-      expect((confirmBody as unknown as Record<string, unknown>).startsAt).toBeTruthy()
+      // 표시값 15:00 KST 를 미수정 승인 → 06:00Z 로 복원(input == output instant). 0.000 밀리초 포함.
+      expect((confirmBody as unknown as Record<string, unknown>).startsAt).toBe('2026-07-05T06:00:00.000Z')
+      expect((confirmBody as unknown as Record<string, unknown>).endsAt).toBe('2026-07-05T07:00:00.000Z')
+    },
+  )
+
+  test(
+    '비위임자 읽기전용 뷰도 UTC payload 를 KST 로 표시한다',
+    async ({ authenticatedPage: page }) => {
+      const channel = createChannel({ id: CHANNEL_ID, member: true })
+      await setupChannelStubs(page, channel)
+      await stubMembers(page)
+
+      // proposedByUserId=2(≠ME) → 비위임자 → 읽기전용 "확인 대기 중" 블록(편집 폼 아님).
+      const proposalMessage = createMessage({
+        id: 301,
+        channelId: CHANNEL_ID,
+        authorId: 99,
+        authorName: 'AI 어시스턴트',
+        authorKind: 'AGENT',
+        body: '💡 일정 생성을 제안했어요',
+        proposal: { ...makeEventProposal(), proposedByUserId: 2 },
+      })
+      await page.route(
+        (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback()
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ items: [proposalMessage], nextCursor: null, hasMore: false }),
+          })
+        },
+      )
+
+      await page.goto(`/chat/channels/${CHANNEL_ID}`)
+
+      // 읽기전용 블록(별도 표시 지점)도 06:00Z/07:00Z → KST 15:00 ~ 16:00. 버그면 '06:00' 이 떠 실패.
+      await expect(page.getByTestId(`event-proposal-pending-${PROPOSAL_ID}`)).toContainText(
+        '2026-07-05 15:00 ~ 16:00',
+      )
     },
   )
 })

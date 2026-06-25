@@ -54,6 +54,17 @@ export function issueDuesOnDay(dues: IssueDueMarker[], day: Date): IssueDueMarke
 // 시간축(0~23시) 슬롯.
 export const HOURS = Array.from({ length: 24 }, (_, h) => h)
 
+// ISO instant(UTC 'Z' 또는 오프셋 포함) → datetime-local 표시 문자열 'YYYY-MM-DDTHH:mm'.
+// 반드시 브라우저 로컬 타임존으로 변환한다 — 오프셋을 무시하고 iso.slice(0,16) 하면
+// 백엔드가 UTC('06:00Z')로 저장한 시각이 KST 사용자에게 9시간 이른 시각으로 표시된다(일정 카드 06시 버그).
+// EventDialog 의 ISO↔datetime-local 변환과 동일 로직. null/빈/파싱불가 입력은 '' 반환.
+export function isoToLocalInput(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
+
 // 시:분 표기. null/빈 문자열 입력 시 '-' 반환.
 export function hhmm(iso: string | null | undefined): string {
   if (!iso) return '-'
