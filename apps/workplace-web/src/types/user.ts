@@ -40,3 +40,22 @@ export interface UserSummary {
   name: string;
   kind: UserKind;
 }
+
+// 구성원(계정) 추가 요청 — 백엔드 CreateMemberRequest 와 1:1. email 은 선택값.
+export interface CreateMemberRequest {
+  username: string;
+  email?: string;
+  name: string;
+  password: string;
+  role: 'ADMIN' | 'USER';
+}
+
+// 구성원 추가 응답 — 백엔드 MemberResponse 와 1:1.
+export interface MemberResponse {
+  userId: number;
+  username: string;
+  name: string;
+  email: string | null;
+  role: string;
+  status: string;
+}

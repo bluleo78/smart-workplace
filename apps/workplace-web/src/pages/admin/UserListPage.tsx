@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { pageTitleClass } from '@/components/layout/sidebar-link';
+import { Button } from '@/components/ui/button';
 import { SearchInput } from '@/components/ui/search-input';
 import { SimplePagination } from '@/components/ui/simple-pagination';
 import { TableEmptyRow } from '@/components/ui/table-empty';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
+import { AddMemberDialog } from '@/components/users/AddMemberDialog';
 import { useDebounceValue } from '@/hooks/useDebounceValue';
 
 import { Badge } from '../../components/ui/badge';
@@ -25,6 +27,7 @@ export default function UserListPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
   const [page, setPage] = useState(0);
+  const [addOpen, setAddOpen] = useState(false);
   const pageSize = 10;
 
   const handleSearchChange = (value: string) => {
@@ -40,7 +43,12 @@ export default function UserListPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className={pageTitleClass}>사용자 관리</h1>
+      <div className="flex items-center justify-between">
+        <h1 className={pageTitleClass}>구성원 관리</h1>
+        <Button data-testid="add-member-button" onClick={() => setAddOpen(true)}>
+          구성원 추가
+        </Button>
+      </div>
 
       <SearchInput
         placeholder="이름 또는 아이디로 검색..."
@@ -120,6 +128,8 @@ export default function UserListPage() {
           pageSize={pageSize}
         />
       )}
+
+      <AddMemberDialog open={addOpen} onOpenChange={setAddOpen} />
     </div>
   );
 }

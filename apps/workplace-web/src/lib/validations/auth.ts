@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 export const loginSchema = z.object({
-  username: z.email("유효한 이메일 형식의 아이디를 입력하세요"),
+  // 아이디는 로그인 ID(이메일 형식이 아닐 수 있음). 이메일 강제 제거 — 임의 문자열 허용.
+  username: z.string().min(1, "아이디를 입력하세요"),
   password: z.string().min(1, "비밀번호를 입력하세요"),
 });
 

@@ -9,6 +9,8 @@ import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.CreateAgentRequest;
+import com.workplace.user.dto.CreateMemberRequest;
+import com.workplace.user.dto.MemberResponse;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -40,8 +42,8 @@ public class UserService {
   }
 
   /**
-   * 사용자 목록 계열 조회의 active 테넌트를 확정한다. user 는 전역 테이블이라 RLS 로 자동 격리되지 않으므로, 인증된 요청의 테넌트
-   * 컨텍스트를 명시적으로 읽어 멤버만 노출한다(다른 테넌트 사용자 누출 방지). 인증된 ADMIN 경로라 컨텍스트가 반드시 있어야 한다.
+   * 사용자 목록 계열 조회의 active 테넌트를 확정한다. user 는 전역 테이블이라 RLS 로 자동 격리되지 않으므로, 인증된 요청의 테넌트 컨텍스트를 명시적으로 읽어
+   * 멤버만 노출한다(다른 테넌트 사용자 누출 방지). 인증된 ADMIN 경로라 컨텍스트가 반드시 있어야 한다.
    */
   private Long requireTenant() {
     Long tenantId = TenantContext.get();
@@ -116,6 +118,62 @@ public class UserService {
         null,
         java.util.Map.of("username", created.username(), "name", created.name()));
     return created;
+  }
+
+  /**
+   * 테넌트 관리자가 새 구성원을 추가한다(고객 콘솔 셀프서비스).
+   *
+   * <p>계정 생성 + 멤버십(MEMBER) + RBAC 역할(관리자=ADMIN/일반=USER)을 단일 트랜잭션으로 처리한다. 멤버십 직위는 항상 MEMBER — 워크스페이스
+   * OWNER 는 셀프서비스로 부여하지 않는다. RBAC 역할 부여(user_role insert)는 현재 테넌트 GUC 하에서 일어난다(RLS). 계정 생성 + 역할 부여는
+   * 민감 작업이라 createAgent 와 동일하게 감사 로그를 남긴다.
+   */
+  @Transactional
+  public MemberResponse createMember(CreateMemberRequest req, Long callerId) {
+    // 아이디(로그인 ID) 중복 → 409
+    if (userRepository.existsByUsername(req.username())) {
+      throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
+    }
+    // 이메일은 선택값. 공백/널이면 null 로 저장하고, 값이 있으면 중복 검사.
+    String email = (req.email() == null || req.email().isBlank()) ? null : req.email();
+    if (email != null && userRepository.existsByEmail(email)) {
+      throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다.");
+    }
+    // 인증된 ADMIN 경로이므로 active 테넌트가 반드시 있어야 한다(테넌트 없는 고아 계정 방지) — createAgent 동일 가드.
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) {
+      throw new IllegalStateException("구성원 추가에는 active 테넌트 컨텍스트가 필요합니다.");
+    }
+    // 계정 생성 — 로그인이 검증하는 동일 인코더로. is_active 는 DB DEFAULT TRUE(즉시 로그인 가능).
+    String encoded = passwordEncoder.encode(req.password());
+    UserResponse user = userRepository.save(req.username(), email, encoded, req.name());
+
+    // 멤버십 직위는 항상 MEMBER.
+    membershipRepository.createWithRole(user.id(), tenantId, "ACTIVE", "MEMBER");
+
+    // RBAC 역할 부여 — 현재 테넌트 GUC 하 user_role insert.
+    Long roleId =
+        roleRepository
+            .findByName(req.role())
+            .orElseThrow(() -> new IllegalStateException("역할이 없습니다: " + req.role()))
+            .id();
+    userRepository.setRoles(user.id(), List.of(roleId));
+
+    // 감사 로그 — MEMBER_CREATED (createAgent 의 AGENT_CREATED 와 동형).
+    auditLogService.log(
+        callerId,
+        resolveUsername(callerId),
+        "MEMBER_CREATED",
+        "user",
+        String.valueOf(user.id()),
+        "구성원 계정 생성: " + user.username() + " (역할 " + req.role() + ")",
+        null,
+        null,
+        "SUCCESS",
+        null,
+        java.util.Map.of("username", user.username(), "role", req.role()));
+
+    return new MemberResponse(
+        user.id(), user.username(), user.name(), user.email(), req.role(), "ACTIVE");
   }
 
   /**

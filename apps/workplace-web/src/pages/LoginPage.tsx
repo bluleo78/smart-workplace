@@ -53,7 +53,7 @@ export default function LoginPage() {
         // 401 응답은 서버 영문 메시지 대신 한국어 고정 메시지로 교체
         // (서버가 "Invalid username or password" 영문 메시지를 반환하기 때문)
         if (error.response.status === 401) {
-          setServerError('이메일 또는 비밀번호가 올바르지 않습니다.');
+          setServerError('아이디 또는 비밀번호가 올바르지 않습니다.');
         } else {
           const errData = error.response.data as ErrorResponse;
           setServerError(errData.message || '로그인에 실패했습니다.');
@@ -73,11 +73,11 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">아이디 (이메일)</Label>
+              <Label htmlFor="username">아이디</Label>
               <Input
                 id="username"
                 type="text"
-                placeholder="email@example.com"
+                placeholder="아이디를 입력하세요"
                 autoComplete="username"
                 {...register('username')}
               />

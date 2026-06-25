@@ -15,7 +15,7 @@ const PERSONAL_ITEMS = [
 
 // 워크스페이스 관리 — 어드민에게만 노출.
 const ADMIN_ITEMS = [
-  { label: '사용자', href: '/settings/users', icon: Users },
+  { label: '구성원', href: '/settings/users', icon: Users },
   { label: '역할', href: '/settings/roles', icon: Shield },
   { label: '감사 로그', href: '/settings/audit-logs', icon: FileText },
   { label: '에이전트', href: '/settings/agents', icon: Bot },

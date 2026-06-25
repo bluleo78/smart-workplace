@@ -7,6 +7,7 @@ import com.workplace.user.service.UserService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
@@ -20,6 +21,21 @@ import org.springframework.web.bind.annotation.*;
 public class UserController {
 
   private final UserService userService;
+
+  /**
+   * 구성원(계정) 추가 — 테넌트 ADMIN 셀프서비스.
+   *
+   * <p>생성=user:write + 역할부여=role:assign 두 권한을 모두 요구한다(둘 다 필요). user:write 만으로 ADMIN 역할 구성원을 만들어내는
+   * 권한 상승을 막기 위함. callerId 는 감사 로그용으로 서비스에 전달.
+   */
+  @PostMapping
+  @RequirePermission({"user:write", "role:assign"})
+  public ResponseEntity<MemberResponse> createMember(
+      Authentication authentication, @Valid @RequestBody CreateMemberRequest req) {
+    Long callerId = (Long) authentication.getPrincipal();
+    MemberResponse created = userService.createMember(req, callerId);
+    return ResponseEntity.status(HttpStatus.CREATED).body(created);
+  }
 
   @GetMapping("/me")
   public ResponseEntity<UserDetailResponse> getMyProfile(Authentication authentication) {

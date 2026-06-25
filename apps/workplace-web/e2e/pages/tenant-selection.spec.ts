@@ -55,7 +55,7 @@ test('다중소속 로그인 → 워크스페이스 선택 → select-tenant 호
 
   await page.goto('/login')
   // 로그인 폼 입력(username 은 zod email 검증 통과해야 제출됨) → 제출.
-  await page.getByLabel('아이디 (이메일)').fill('user@example.com')
+  await page.getByLabel('아이디').fill('user@example.com')
   await page.locator('#password').fill('Workplace1')
   await page.getByRole('button', { name: '로그인' }).click()
 
@@ -80,7 +80,7 @@ test('단일소속 로그인 → 선택 카드 없이 바로 홈 진입', async 
   await setupHomeBattery(page)
 
   await page.goto('/login')
-  await page.getByLabel('아이디 (이메일)').fill('user@example.com')
+  await page.getByLabel('아이디').fill('user@example.com')
   await page.locator('#password').fill('Workplace1')
   await page.getByRole('button', { name: '로그인' }).click()
 
@@ -97,7 +97,7 @@ test('무소속(NO_WORKSPACE) 로그인 → 선택 카드 없이 전용 안내 �
   await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
 
   await page.goto('/login')
-  await page.getByLabel('아이디 (이메일)').fill('user@example.com')
+  await page.getByLabel('아이디').fill('user@example.com')
   await page.locator('#password').fill('Workplace1')
   await page.getByRole('button', { name: '로그인' }).click()
 
@@ -119,7 +119,7 @@ test('다중소속 로그인 → select-tenant 실패(5xx) 시 에러 안내 + �
   await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
 
   await page.goto('/login')
-  await page.getByLabel('아이디 (이메일)').fill('user@example.com')
+  await page.getByLabel('아이디').fill('user@example.com')
   await page.locator('#password').fill('Workplace1')
   await page.getByRole('button', { name: '로그인' }).click()
 
