@@ -19,6 +19,19 @@ test.describe('운영자 로그인', () => {
     await expect(page.getByTestId('admin-home')).toBeVisible()
   })
 
+  // (a-2) 로그인 화면 타이틀 — 'Platform' 배지 + '플랫폼 콘솔'(주인공) + 'Smart Workplace'(브랜드 보조).
+  // 고객 포탈(Smart Workplace 로그인)과 구분되는 플랫폼 전용 표기인지 검증.
+  test('로그인 화면이 플랫폼 콘솔 타이틀로 표기된다', async ({ page }) => {
+    await setupPlatformAuthMocks(page)
+    await page.goto('/login')
+
+    await expect(page.getByTestId('login-platform-badge')).toBeVisible()
+    await expect(page.getByText('플랫폼 콘솔')).toBeVisible()
+    await expect(page.getByText('Smart Workplace')).toBeVisible()
+    // 한 줄 혼합("Smart Workplace 운영자 콘솔")이 제거됐는지 회귀 가드.
+    await expect(page.getByText('Smart Workplace 운영자 콘솔')).toHaveCount(0)
+  })
+
   // (b) login 403 → "운영자 권한이 없습니다." 표시, 미인증 유지
   test('운영자 권한이 없으면 에러를 표시한다', async ({ page }) => {
     await setupPlatformAuthMocks(page)

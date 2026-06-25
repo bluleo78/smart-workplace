@@ -14,7 +14,7 @@ export function AdminLayout() {
       <header className="border-b">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <Link to="/" className="font-semibold" data-testid="admin-home">
-            운영자 콘솔
+            플랫폼 콘솔
           </Link>
           <div className="flex items-center gap-3">
             {user && <span className="text-sm text-muted-foreground">{user.name}</span>}
