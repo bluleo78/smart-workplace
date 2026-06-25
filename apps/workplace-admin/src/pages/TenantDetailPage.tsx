@@ -78,7 +78,8 @@ function RoleBadge({ role }: { role: TenantMember['role'] }) {
   return <Badge variant="secondary">{ROLE_LABEL[role] ?? role}</Badge>
 }
 
-const MEMBER_COLUMN_COUNT = 4
+// 멤버 테이블 컬럼 수: 이름 / 사용자 ID / 이메일 / 역할 / 상태
+const MEMBER_COLUMN_COUNT = 5
 
 // axios 404 판별 — 테넌트 단건 조회 실패가 "없음" 인지 구분한다.
 function isNotFound(error: unknown): boolean {
@@ -302,6 +303,7 @@ export default function TenantDetailPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>이름</TableHead>
+                <TableHead>사용자 ID</TableHead>
                 <TableHead>이메일</TableHead>
                 <TableHead>역할</TableHead>
                 <TableHead>상태</TableHead>
@@ -318,7 +320,19 @@ export default function TenantDetailPage() {
               ) : members && members.length > 0 ? (
                 members.map((member) => (
                   <TableRow key={member.userId} data-testid="member-row">
-                    <TableCell className="font-medium">{member.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {member.name}
+                      {/* 플랫폼 운영자 계정에만 핀 표시 */}
+                      {member.isPlatformOperator && (
+                        <span
+                          data-testid="operator-pin"
+                          className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
+                        >
+                          운영자
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>{member.username}</TableCell>
                     <TableCell className="text-muted-foreground">{member.email ?? '-'}</TableCell>
                     <TableCell>
                       <RoleBadge role={member.role} />

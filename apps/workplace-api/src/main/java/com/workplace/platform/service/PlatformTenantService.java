@@ -9,6 +9,7 @@ import com.workplace.platform.dto.TenantMemberResponse;
 import com.workplace.platform.dto.TenantSummaryResponse;
 import com.workplace.platform.exception.PlatformTenantNotFoundException;
 import com.workplace.platform.repository.PlatformTenantRepository;
+import com.workplace.platform.util.IdentityMasking;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
@@ -100,12 +101,32 @@ public class PlatformTenantService {
     return getTenant(id);
   }
 
-  /** 테넌트 멤버 목록 — 테넌트가 없으면 404. */
+  /**
+   * 테넌트 멤버 목록 — 테넌트가 없으면 404.
+   *
+   * <p>운영자는 개별 멤버를 식별할 수 없어야 하므로, 플랫폼 운영자(isPlatformOperator)가 아닌 멤버의 이름·username·email 을 서버측에서 부분
+   * 마스킹해 반환한다(원본 PII 는 클라이언트로 내려보내지 않는다). 본인(조회 운영자)도 플랫폼 운영자이므로 이 규칙으로 함께 원본 노출된다.
+   */
   public List<TenantMemberResponse> getMembers(Long tenantId) {
     if (platformTenantRepository.findTenant(tenantId).isEmpty()) {
       throw new PlatformTenantNotFoundException("테넌트를 찾을 수 없습니다: " + tenantId);
     }
-    return platformTenantRepository.findMembers(tenantId);
+    return platformTenantRepository.findMembers(tenantId).stream().map(this::maskIfNeeded).toList();
+  }
+
+  /** 플랫폼 운영자가 아닌 멤버의 신원(이름·username·email)을 부분 마스킹한다. */
+  private TenantMemberResponse maskIfNeeded(TenantMemberResponse m) {
+    if (m.isPlatformOperator()) {
+      return m;
+    }
+    return new TenantMemberResponse(
+        m.userId(),
+        IdentityMasking.maskEmailLike(m.username()),
+        IdentityMasking.maskName(m.name()),
+        IdentityMasking.maskEmailLike(m.email()),
+        m.role(),
+        m.status(),
+        false);
   }
 
   /**
@@ -148,6 +169,6 @@ public class PlatformTenantService {
     platformTenantRepository.assignTenantRoleByName(tenantId, user.id(), rbacRole);
 
     return new TenantMemberResponse(
-        user.id(), user.username(), user.name(), user.email(), membershipRole, "ACTIVE");
+        user.id(), user.username(), user.name(), user.email(), membershipRole, "ACTIVE", false);
   }
 }

@@ -1,5 +1,7 @@
 package com.workplace.platform;
 
+import static com.workplace.jooq.Tables.PLATFORM_ROLE;
+import static com.workplace.jooq.Tables.PLATFORM_USER_ROLE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -257,5 +259,56 @@ class PlatformTenantServiceTest extends IntegrationTestBase {
   void suspend_unknownId_throwsNotFound() {
     assertThatThrownBy(() -> service.suspend(9_999_999L))
         .isInstanceOf(PlatformTenantNotFoundException.class);
+  }
+
+  /**
+   * #Task8 — getMembers 서버측 마스킹: 일반 멤버는 이름·username·email 이 부분 마스킹, 플랫폼 운영자는 원본 노출.
+   *
+   * <p>일반 멤버(홍길동, member-xxx@corp.com) → 이름 "홍**", username/email "m***@c***.com". 운영자(운영자김,
+   * op-xxx@corp.com) → 원본 그대로.
+   */
+  @Test
+  void getMembers_masksNonOperator_revealsOperator() {
+    // 테넌트 + 소유자(운영자 아님) 생성
+    TenantDetailResponse t = service.createTenant(new CreateTenantRequest("마스킹테넌트", null, null));
+    // 일반 멤버 추가(username=email)
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    String email = "member-" + suffix + "@corp.com";
+    TenantMemberResponse added =
+        service.addMember(
+            t.id(), new AddTenantMemberRequest(email, "홍길동", "Password123", "MEMBER"));
+
+    // 두 번째 멤버 — 플랫폼 운영자로 표시
+    String opEmail = "op-" + suffix + "@corp.com";
+    TenantMemberResponse op =
+        service.addMember(
+            t.id(), new AddTenantMemberRequest(opEmail, "운영자김", "Password123", "MEMBER"));
+    Long superAdminRoleId =
+        dsl.select(PLATFORM_ROLE.ID)
+            .from(PLATFORM_ROLE)
+            .where(PLATFORM_ROLE.NAME.eq("SUPER_ADMIN"))
+            .fetchOne(PLATFORM_ROLE.ID);
+    dsl.insertInto(PLATFORM_USER_ROLE)
+        .set(PLATFORM_USER_ROLE.USER_ID, op.userId())
+        .set(PLATFORM_USER_ROLE.PLATFORM_ROLE_ID, superAdminRoleId)
+        .execute();
+
+    List<TenantMemberResponse> members = service.getMembers(t.id());
+
+    TenantMemberResponse maskedMember =
+        members.stream().filter(m -> m.userId().equals(added.userId())).findFirst().orElseThrow();
+    TenantMemberResponse operatorMember =
+        members.stream().filter(m -> m.userId().equals(op.userId())).findFirst().orElseThrow();
+
+    // 일반 멤버: 이름·username·email 부분 마스킹
+    assertThat(maskedMember.name()).isEqualTo("홍**");
+    assertThat(maskedMember.username()).isEqualTo("m***@c***.com");
+    assertThat(maskedMember.email()).isEqualTo("m***@c***.com");
+    assertThat(maskedMember.isPlatformOperator()).isFalse();
+
+    // 운영자 멤버: 원본 노출
+    assertThat(operatorMember.name()).isEqualTo("운영자김");
+    assertThat(operatorMember.username()).isEqualTo(opEmail);
+    assertThat(operatorMember.isPlatformOperator()).isTrue();
   }
 }

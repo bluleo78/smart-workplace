@@ -2,6 +2,7 @@ package com.workplace.platform.repository;
 
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PERMISSION;
+import static com.workplace.jooq.Tables.PLATFORM_USER_ROLE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.ROLE_PERMISSION;
 import static com.workplace.jooq.Tables.TENANT;
@@ -237,11 +238,24 @@ public class PlatformTenantRepository {
     return dsl.update(TENANT).set(TENANT.STATUS, status).where(TENANT.ID.eq(id)).execute();
   }
 
-  /** 테넌트 멤버 목록 — MEMBERSHIP join USER. role 은 V69 추가 컬럼이라 name-based field 로 읽는다. */
+  /** 테넌트 멤버 목록 — MEMBERSHIP join USER. isPlatformOperator 는 platform_user_role 보유 여부(마스킹 예외용). */
   @Transactional(readOnly = true)
   public List<TenantMemberResponse> findMembers(Long tenantId) {
     var roleField = DSL.field(DSL.name("membership", "role"), String.class);
-    return dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.EMAIL, roleField, MEMBERSHIP.STATUS)
+    var isOperatorField =
+        DSL.field(
+            DSL.exists(
+                DSL.selectOne()
+                    .from(PLATFORM_USER_ROLE)
+                    .where(PLATFORM_USER_ROLE.USER_ID.eq(USER.ID))));
+    return dsl.select(
+            USER.ID,
+            USER.USERNAME,
+            USER.NAME,
+            USER.EMAIL,
+            roleField,
+            MEMBERSHIP.STATUS,
+            isOperatorField)
         .from(MEMBERSHIP)
         .join(USER)
         .on(USER.ID.eq(MEMBERSHIP.USER_ID))
@@ -255,6 +269,7 @@ public class PlatformTenantRepository {
                     r.get(USER.NAME),
                     r.get(USER.EMAIL),
                     r.get(roleField),
-                    r.get(MEMBERSHIP.STATUS)));
+                    r.get(MEMBERSHIP.STATUS),
+                    r.get(isOperatorField)));
   }
 }

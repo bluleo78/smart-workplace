@@ -29,6 +29,7 @@ function member(overrides: Partial<TenantMember> = {}): TenantMember {
     email: 'owner@example.com',
     role: 'OWNER',
     status: 'ACTIVE',
+    isPlatformOperator: false,
     ...overrides,
   }
 }
@@ -90,6 +91,25 @@ test.describe('테넌트 상세', () => {
     await expect(page.getByRole('cell', { name: '멤버' })).toBeVisible()
     // member status — 한국어 번역 표시 (refs #255)
     await expect(page.getByRole('cell', { name: '활성' }).first()).toBeVisible()
+  })
+
+  // (a-2) 멤버 테이블 컬럼 분리: username(사용자 ID) 과 email 이 별도 열로 표시돼야 한다.
+  test('멤버 테이블이 이름/사용자 ID/이메일을 분리해 보여준다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail())
+    // username ≠ email 인 멤버를 포함해 두 컬럼이 독립적으로 검증된다.
+    await stubMembers(page, [
+      member({ userId: 1, username: 'a@x.kr', name: '홍길동', email: 'b@y.kr', role: 'MEMBER', status: 'ACTIVE' }),
+    ])
+
+    await page.goto('/tenants/1')
+
+    const row = page.getByTestId('member-row').first()
+    // 사용자 ID(username) 셀 — input 이 'a@x.kr'
+    await expect(row.getByText('a@x.kr')).toBeVisible()
+    // 이메일 셀 — output 은 'b@y.kr' (username 과 다른 값)
+    await expect(row.getByText('b@y.kr')).toBeVisible()
+    // 헤더에 "사용자 ID" 컬럼이 있어야 한다
+    await expect(page.getByRole('columnheader', { name: '사용자 ID' })).toBeVisible()
   })
 
   // (b) 정지: ACTIVE → 정지 클릭 → 확인 → POST suspend → 재조회로 SUSPENDED 반영
@@ -316,5 +336,24 @@ test.describe('테넌트 상세', () => {
 
     await expect(page.getByTestId('tenant-not-found')).toBeVisible()
     await expect(page.getByTestId('tenant-detail-name')).toHaveCount(0)
+  })
+
+  // (j) 운영자 핀 — isPlatformOperator=true 멤버에만 핀이 표시된다.
+  test('운영자 계정 멤버는 핀이 표시되고 원본이 보인다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [
+      member({ userId: 1, username: 'm***@c***.com', name: '홍**', email: 'm***@c***.com', role: 'MEMBER', status: 'ACTIVE', isPlatformOperator: false }),
+      member({ userId: 2, username: 'op@corp.com', name: '운영자김', email: 'op@corp.com', role: 'MEMBER', status: 'ACTIVE', isPlatformOperator: true }),
+    ])
+
+    await page.goto('/tenants/1')
+
+    // 운영자 멤버 행에는 핀이 표시된다.
+    const opRow = page.getByTestId('member-row').filter({ hasText: '운영자김' })
+    await expect(opRow.getByTestId('operator-pin')).toBeVisible()
+
+    // 일반(마스킹) 멤버 행에는 핀이 없다.
+    const maskedRow = page.getByTestId('member-row').filter({ hasText: '홍**' })
+    await expect(maskedRow.getByTestId('operator-pin')).toHaveCount(0)
   })
 })

@@ -66,7 +66,8 @@ export interface AddTenantMemberRequest {
   role: 'OWNER' | 'MEMBER'
 }
 
-/** 테넌트 멤버(상세 화면·Task 4 에서 사용). */
+/** 테넌트 멤버(상세 화면). 일반 멤버의 name/username/email 은 서버측 부분 마스킹됨.
+ *  isPlatformOperator=true(플랫폼 운영자 계정)인 멤버만 원본 노출 + 핀 표시. */
 export interface TenantMember {
   userId: number
   username: string
@@ -74,4 +75,5 @@ export interface TenantMember {
   email: string | null
   role: 'OWNER' | 'ADMIN' | 'MEMBER'
   status: string
+  isPlatformOperator: boolean
 }
