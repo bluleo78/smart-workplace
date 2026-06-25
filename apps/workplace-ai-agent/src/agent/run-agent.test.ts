@@ -1,13 +1,18 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('./cli-runner.js', () => ({
-  buildCliArgs: vi.fn(() => ['--print', 'fake-msg']),
-  buildChildEnv: vi.fn((p, t, a) => ({ ...p, CLAUDE_CODE_OAUTH_TOKEN: t, ACTING_AGENT_ID: String(a) })),
-  runClaudeCli: vi.fn().mockResolvedValue(undefined),
+// 인-프로세스 러너·MCP 서버를 모킹 — 호출 인자만 검증(LLM/네트워크 미실행).
+vi.mock('./sdk-runner.js', () => ({
+  runSdkCollect: vi.fn().mockResolvedValue([]),
+}));
+const MCP_SENTINEL = { __sentinel: 'workplace-mcp' };
+vi.mock('./sdk-mcp-server.js', () => ({
+  buildInProcessWorkplaceMcpServer: vi.fn(() => MCP_SENTINEL),
 }));
 
 import { runAgent } from './run-agent.js';
-import { buildCliArgs, buildChildEnv, runClaudeCli } from './cli-runner.js';
+import { runSdkCollect } from './sdk-runner.js';
+import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
+import { SYSTEM_PROMPT } from './system-prompt.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { IssueEventEnvelope } from '../types/issue-events.js';
 
@@ -58,7 +63,6 @@ function client(token: string | Error): WorkplaceApiClient {
     discoverChannels: vi.fn().mockResolvedValue([]),
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
     proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
-    // L3 위임: 후보 프로젝트 목록 조회(Task 4 신규).
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
   };
 }
@@ -96,11 +100,12 @@ function envHumanOnly(): IssueEventEnvelope {
   };
 }
 
-describe('runAgent', () => {
+describe('runAgent (인-프로세스 SDK)', () => {
   beforeEach(() => {
-    vi.mocked(buildCliArgs).mockClear();
-    vi.mocked(buildChildEnv).mockClear();
-    vi.mocked(runClaudeCli).mockClear();
+    vi.mocked(runSdkCollect).mockClear();
+    vi.mocked(buildInProcessWorkplaceMcpServer).mockClear();
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    vi.mocked(buildInProcessWorkplaceMcpServer).mockReturnValue(MCP_SENTINEL as never);
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -109,25 +114,52 @@ describe('runAgent', () => {
     vi.restoreAllMocks();
   });
 
-  it('AGENT assignee 1명 → getOAuthToken(201) + buildChildEnv(_, token, 201)', async () => {
+  it('AGENT assignee 1명 → getOAuthToken(201) + runSdkCollect 1회', async () => {
     const c = client('tk-X');
     await runAgent(envWithAgent(), { client: c });
     expect(c.getOAuthToken).toHaveBeenCalledWith(201);
-    expect(buildChildEnv).toHaveBeenCalledWith(expect.anything(), 'tk-X', 201);
-    expect(runClaudeCli).toHaveBeenCalledOnce();
+    expect(runSdkCollect).toHaveBeenCalledOnce();
   });
 
-  it('AGENT 없는 envelope → spawn 생략 + console.warn', async () => {
+  it('runSdkCollect 호출 인자: token·agentId·systemPrompt·mcpServers 보존', async () => {
+    const c = client('tk-X');
+    await runAgent(envWithAgent(), { client: c });
+    const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(arg.token).toBe('tk-X');
+    expect(arg.agentId).toBe(201);
+    expect(arg.systemPrompt).toBe(SYSTEM_PROMPT);
+    expect(arg.model).toBeTruthy();
+    expect(arg.maxTurns).toBeGreaterThan(0);
+    expect(arg.timeoutMs).toBeGreaterThan(0);
+    // MCP 서버 인스턴스가 그대로 전달되는지(동일성).
+    expect(arg.mcpServers?.workplace).toBe(MCP_SENTINEL);
+    // 이슈 경로는 요청자 user 가 없음 — userId 미전달.
+    expect(arg.userId).toBeUndefined();
+  });
+
+  it('MCP 서버는 onBehalfOfId=agentId·profile=issue·브리지 미전달로 생성', async () => {
+    const c = client('tk-X');
+    await runAgent(envWithAgent(), { client: c });
+    const arg = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0];
+    expect(arg.onBehalfOfId).toBe(201);
+    expect(arg.profile).toBe('issue');
+    expect(arg.hostBridge).toBeUndefined();
+    expect(arg.onTool).toBeUndefined();
+    expect(arg.client).toBe(c);
+  });
+
+  it('AGENT 없는 envelope → 실행 생략', async () => {
     const c = client('tk-X');
     await runAgent(envHumanOnly(), { client: c });
     expect(c.getOAuthToken).not.toHaveBeenCalled();
-    expect(runClaudeCli).not.toHaveBeenCalled();
+    expect(runSdkCollect).not.toHaveBeenCalled();
+    expect(buildInProcessWorkplaceMcpServer).not.toHaveBeenCalled();
   });
 
-  it('token fetch 실패 → spawn 생략', async () => {
+  it('token fetch 실패 → 실행 생략', async () => {
     const c = client(new Error('boom'));
     await runAgent(envWithAgent(), { client: c });
     expect(c.getOAuthToken).toHaveBeenCalledOnce();
-    expect(runClaudeCli).not.toHaveBeenCalled();
+    expect(runSdkCollect).not.toHaveBeenCalled();
   });
 });
