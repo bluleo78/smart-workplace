@@ -54,8 +54,11 @@ public class PersonalProjectProvisioner {
     throw new ProjectConflictException("개인 프로젝트 key 생성 실패");
   }
 
-  /** HUMAN 사용자가 기본 개인 프로젝트가 없으면 1개 생성. 레이스/제약위반을 외부 트랜잭션과 격리하기 위해 REQUIRES_NEW. AGENT 는 만들지 않음. */
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  /**
+   * 기본 개인 프로젝트 지연 프로비저닝의 실제 로직(일반 propagation — 호출자 트랜잭션에 합류). HUMAN 사용자가 기본 개인 프로젝트가 없으면 1개 생성,
+   * AGENT 는 만들지 않음. 호출자 트랜잭션과 함께 커밋/롤백되므로 통합 테스트는 이 메서드를 직접 호출해 롤백으로 격리한다. 외부 트랜잭션과 격리된 독립 커밋이
+   * 필요하면(예: readOnly 인 list()) {@link #ensureDefaultPersonalInNewTx(Long)} 를 호출한다.
+   */
   public void ensureDefaultPersonal(Long callerId) {
     var user =
         userRepository
@@ -66,7 +69,17 @@ public class PersonalProjectProvisioner {
     try {
       createPersonal(callerId, "개인 작업", null, true);
     } catch (org.springframework.dao.DuplicateKeyException e) {
-      // REQUIRES_NEW 서브 트랜잭션만 롤백되고 외부 list() 트랜잭션은 유효 — 이미 존재로 간주하고 무시
+      // 동시 생성 레이스 — 이미 존재로 간주하고 무시
     }
+  }
+
+  /**
+   * {@link #ensureDefaultPersonal(Long)} 을 REQUIRES_NEW 서브 트랜잭션으로 감싼 변형. 레이스/제약위반을 외부 트랜잭션과 격리하고,
+   * 외부가 readOnly(예: list())여도 별도 커밋으로 기본 프로젝트를 보장한다. 별도 서브 트랜잭션에서 커밋되므로 통합 테스트의 @Transactional
+   * 롤백으로는 격리되지 않는다 — 테스트는 일반 메서드 {@link #ensureDefaultPersonal(Long)} 를 호출한다.
+   */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void ensureDefaultPersonalInNewTx(Long callerId) {
+    ensureDefaultPersonal(callerId);
   }
 }

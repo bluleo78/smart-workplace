@@ -2,7 +2,6 @@ package com.workplace.project.service;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
-import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -11,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -19,66 +19,55 @@ import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.support.IntegrationTestBase;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 기본 개인 프로젝트 지연 프로비저닝 통합 테스트.
+ * 기본 개인 프로젝트 지연 프로비저닝 + 목록 집계/RLS 통합 테스트.
  *
- * <p>provisioner.ensureDefaultPersonal 은 REQUIRES_NEW 서브 트랜잭션에서 실제로 커밋하므로 클래스-레벨 @Transactional
- * 롤백으로는 격리되지 않는다(커밋된 caller 가 필요하고, 생성된 "개인 작업" 프로젝트가 롤백을 통과해 잔존). 따라서 비-Tx 로 두고 자기-id
- * 스코프 @AfterEach 로 회수한다 — project.owner_id 는 CASCADE 아님이라 project 를 먼저
- * 삭제(member/sequence/issue_type CASCADE), 다음 user_role, 마지막 user 순.
+ * <p>클래스-레벨 @Transactional 로 각 테스트는 끝나면 롤백되어 격리된다(수동 정리 불필요). 핵심은 프로비저닝을 <b>커밋하는</b> REQUIRES_NEW
+ * 진입점({@link PersonalProjectProvisioner#ensureDefaultPersonalInNewTx})이 아니라 호출자 트랜잭션에 합류하는 {@link
+ * PersonalProjectProvisioner#ensureDefaultPersonal} 를 직접 호출하고, 목록 동작은 지연 프로비저닝과 분리된 {@link
+ * ProjectService#queryProjects} 로 검증한다는 점이다 — 그래야 커밋이 남지 않아 테넌트 GUC·RLS 와 경합하는 잔여 데이터가 생기지 않는다.
+ *
+ * <p>테넌트 컨텍스트는 {@code WikiSpaceServiceTest} 등 다른 도메인 통합 테스트와 동일하게 @BeforeEach 에서 기본 테넌트(1)로
+ * 고정한다(project.tenant_id 는 app.tenant_id GUC 기본값을 따른다).
  */
+@Transactional
 class ProjectProvisioningTest extends IntegrationTestBase {
 
   @Autowired private ProjectService projectService;
+  @Autowired private PersonalProjectProvisioner provisioner;
   @Autowired private ProjectRepository projectRepository;
   @Autowired private ProjectIssueSequenceRepository sequenceRepository;
   @Autowired private DSLContext dsl;
 
-  // 만든 user id 추적 → @AfterEach 에서 project(소유)+user_role+user 회수 (병렬세션 안전: 전역 truncate 금지).
-  private final List<Long> createdUserIds = new ArrayList<>();
-
-  @AfterEach
-  void cleanup() {
-    if (createdUserIds.isEmpty()) return;
-    // issue.project_id FK 는 NO ACTION — project 삭제 전 issue 를 먼저 제거한다.
-    // (project_id 서브쿼리: createdUserIds 소유 프로젝트 범위만 삭제해 병렬세션 안전)
-    var ownedProjectIds =
-        dsl.select(PROJECT.ID)
-            .from(PROJECT)
-            .where(PROJECT.OWNER_ID.in(createdUserIds))
-            .fetch(PROJECT.ID);
-    if (!ownedProjectIds.isEmpty()) {
-      dsl.deleteFrom(ISSUE).where(ISSUE.PROJECT_ID.in(ownedProjectIds)).execute();
-    }
-    // project.owner_id 는 ON DELETE CASCADE 아님 → project 를 먼저 지워야 user 삭제 가능.
-    dsl.deleteFrom(PROJECT).where(PROJECT.OWNER_ID.in(createdUserIds)).execute();
-    dsl.deleteFrom(USER_ROLE).where(USER_ROLE.USER_ID.in(createdUserIds)).execute();
-    dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
-    createdUserIds.clear();
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
   }
 
-  /** 유니크 username 으로 HUMAN 사용자 시드 후 id 추적. */
+  @AfterEach
+  void clearTenant() {
+    TenantContext.clear();
+  }
+
+  /** 유니크 username 으로 HUMAN 사용자 시드. 테스트 트랜잭션에 합류하므로 롤백으로 회수된다. */
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
-    Long id =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, prefix + "-" + suffix)
-            .set(USER.PASSWORD, "pw")
-            .set(USER.NAME, prefix)
-            .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
-    createdUserIds.add(id);
-    return id;
+    return dsl.insertInto(USER)
+        .set(USER.USERNAME, prefix + "-" + suffix)
+        .set(USER.PASSWORD, "pw")
+        .set(USER.NAME, prefix)
+        .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
+        .returning(USER.ID)
+        .fetchOne()
+        .getId();
   }
 
   /** role_name 의 역할을 user 에게 부여. */
@@ -97,14 +86,16 @@ class ProjectProvisioningTest extends IntegrationTestBase {
   }
 
   @Test
-  void list_provisionsDefaultPersonalForHuman() {
+  void ensureDefaultPersonal_provisionsForHuman() {
     Long human = createUser("solo");
-    var page = projectService.list(human, 0, 50);
+    provisioner.ensureDefaultPersonal(human);
+    var page = projectService.queryProjects(human, 0, 50);
     long defaults =
         page.content().stream().filter(p -> "PERSONAL".equals(p.type()) && p.isDefault()).count();
     assertThat(defaults).isEqualTo(1);
     // 두 번째 호출에서도 기본 개인 프로젝트는 정확히 1개 (멱등 — 이미 존재하면 추가 생성 안 함).
-    var page2 = projectService.list(human, 0, 50);
+    provisioner.ensureDefaultPersonal(human);
+    var page2 = projectService.queryProjects(human, 0, 50);
     long defaults2 =
         page2.content().stream().filter(p -> "PERSONAL".equals(p.type()) && p.isDefault()).count();
     assertThat(defaults2).isEqualTo(1);
@@ -121,7 +112,7 @@ class ProjectProvisioningTest extends IntegrationTestBase {
     // owner 에게 ADMIN 역할 부여
     grantRole(ownerId, "ADMIN");
 
-    PageResponse<ProjectResponse> result = projectService.list(ownerId, 0, 50);
+    PageResponse<ProjectResponse> result = projectService.queryProjects(ownerId, 0, 50);
     assertThat(result.content().stream().anyMatch(p -> p.key().equals(key))).isTrue();
   }
 
@@ -134,7 +125,7 @@ class ProjectProvisioningTest extends IntegrationTestBase {
     projectService.create(otherUserId, new CreateProjectRequest(key, "By Other", null));
 
     // owner 는 비-멤버, 비-ADMIN
-    PageResponse<ProjectResponse> result = projectService.list(ownerId, 0, 50);
+    PageResponse<ProjectResponse> result = projectService.queryProjects(ownerId, 0, 50);
     assertThat(result.content().stream().noneMatch(p -> p.key().equals(key))).isTrue();
   }
 
@@ -145,7 +136,9 @@ class ProjectProvisioningTest extends IntegrationTestBase {
     projectService.create(other, new CreateProjectRequest(null, "남의 개인", null, "PERSONAL"));
     Long admin = createUser("admin");
     grantRole(admin, "ADMIN");
-    var page = projectService.list(admin, 0, 100);
+    // 본인 기본 개인 프로젝트 — ADMIN 도 본인 것은 보여야 함
+    provisioner.ensureDefaultPersonal(admin);
+    var page = projectService.queryProjects(admin, 0, 100);
     boolean seesOthersPersonal =
         page.content().stream()
             .anyMatch(p -> "PERSONAL".equals(p.type()) && p.ownerId().equals(other));
@@ -161,7 +154,7 @@ class ProjectProvisioningTest extends IntegrationTestBase {
   @Test
   void softDelete_blocksDefaultPersonal() {
     Long human = createUser("solo2");
-    projectService.list(human, 0, 10); // 기본 개인 프로젝트 프로비저닝
+    provisioner.ensureDefaultPersonal(human); // 기본 개인 프로젝트 프로비저닝
     ProjectRow def = projectRepository.findDefaultPersonal(human).orElseThrow();
     assertThatThrownBy(() -> projectService.softDelete(human, def.key()))
         .isInstanceOf(ProjectConflictException.class);
@@ -178,8 +171,8 @@ class ProjectProvisioningTest extends IntegrationTestBase {
   }
 
   /**
-   * list() 가 이슈 진행률·멤버를 올바르게 집계한다. DONE 2 / CANCELED 1 / TODO 2 → issueTotal=4(CANCELED 제외),
-   * issueDone=2, memberCount=2. 다른 프로젝트(누수 가드) 이슈는 집계에 포함되지 않아야 한다.
+   * queryProjects() 가 이슈 진행률·멤버를 올바르게 집계한다. DONE 2 / CANCELED 1 / TODO 2 → issueTotal=4(CANCELED
+   * 제외), issueDone=2, memberCount=2. 다른 프로젝트(누수 가드) 이슈는 집계에 포함되지 않아야 한다.
    */
   @Test
   void list_이슈진행률과_멤버를_집계한다() {
@@ -206,7 +199,7 @@ class ProjectProvisioningTest extends IntegrationTestBase {
             otherId, new CreateProjectRequest(othKey, othKey + " 프로젝트", null, "TEAM"));
     insertIssue(othProj.id(), "DONE", otherId);
 
-    var page = projectService.list(ownerId, 0, 20);
+    var page = projectService.queryProjects(ownerId, 0, 20);
     var agg = page.content().stream().filter(p -> p.key().equals(aggKey)).findFirst().orElseThrow();
 
     assertThat(agg.issueTotal()).isEqualTo(4);
@@ -222,7 +215,8 @@ class ProjectProvisioningTest extends IntegrationTestBase {
   @Test
   void list_개인프로젝트는_소유자가_멤버로_노출된다() {
     Long human = createUser("soloowner");
-    var page = projectService.list(human, 0, 20);
+    provisioner.ensureDefaultPersonal(human);
+    var page = projectService.queryProjects(human, 0, 20);
     var personal =
         page.content().stream().filter(p -> p.type().equals("PERSONAL")).findFirst().orElseThrow();
     assertThat(personal.memberCount()).isEqualTo(1);
@@ -235,7 +229,7 @@ class ProjectProvisioningTest extends IntegrationTestBase {
     Long human = createUser("emptyowner");
     String empKey = uniqueKey("EMP");
     projectService.create(human, new CreateProjectRequest(empKey, empKey + " 프로젝트", null, "TEAM"));
-    var page = projectService.list(human, 0, 20);
+    var page = projectService.queryProjects(human, 0, 20);
     var emp = page.content().stream().filter(p -> p.key().equals(empKey)).findFirst().orElseThrow();
     assertThat(emp.issueTotal()).isZero();
     assertThat(emp.issueDone()).isZero();

@@ -72,7 +72,17 @@ public class ProjectService {
    */
   @Transactional(readOnly = true)
   public PageResponse<ProjectResponse> list(Long callerId, int page, int size) {
-    provisioner.ensureDefaultPersonal(callerId);
+    provisioner.ensureDefaultPersonalInNewTx(callerId);
+    return queryProjects(callerId, page, size);
+  }
+
+  /**
+   * 프로젝트 목록 조회·집계 — 지연 프로비저닝({@link PersonalProjectProvisioner#ensureDefaultPersonal})과 분리한 순수 조회
+   * 경로. 프로비저닝은 readOnly 외부 트랜잭션에서 쓰기를 위해 REQUIRES_NEW 로 커밋되므로 테스트의 롤백으로 격리되지 않는다 — 집계/RLS 동작은 이
+   * 메서드를 @Transactional 테스트에서 직접 호출해 커밋 없이 검증한다.
+   */
+  @Transactional(readOnly = true)
+  public PageResponse<ProjectResponse> queryProjects(Long callerId, int page, int size) {
     boolean isAdmin = permissionChecker.userHasRole(callerId, "ADMIN");
     long total = projectRepository.countForUser(callerId, isAdmin);
     List<ProjectRow> rows = projectRepository.findAllForUser(callerId, isAdmin, page, size);
