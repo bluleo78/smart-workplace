@@ -42,9 +42,9 @@ async function setupChannelStubs(
     );
   }
 
-  // GET /messaging/stream — SSE (fetch + ReadableStream 방식이므로 canned body 사용)
+  // GET /events — 통합 SSE 단일 스트림 (#506). 모든 도메인 이벤트(chat·messaging·notify)를 한 커넥션으로.
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,
@@ -353,9 +353,9 @@ test('SSE 끊김 시 재연결 배너가 표시된다 (#167)', async ({ authenti
     },
   );
 
-  // SSE 스트림 503 — isConnected=false 유지 → 배너 항상 보임
+  // 통합 SSE 스트림 503 — isConnected=false 유지 → 배너 항상 보임 (#506)
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) => route.fulfill({ status: 503 }),
   );
 
@@ -408,9 +408,9 @@ test('정상 연결(유예 내)에는 재연결 배너가 깜빡이지 않는다
     },
   );
 
-  // SSE 스트림을 유예(800ms) 미만인 500ms 지연 후 정상(200) 응답 → 정상 연결로 간주돼야 한다.
+  // 통합 SSE 스트림을 유예(800ms) 미만인 500ms 지연 후 정상(200) 응답 → 정상 연결로 간주돼야 한다 (#506).
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     async (route) => {
       await new Promise((r) => setTimeout(r, 500));
       return route.fulfill({

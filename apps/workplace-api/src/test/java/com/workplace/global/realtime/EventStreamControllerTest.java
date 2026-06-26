@@ -1,4 +1,4 @@
-package com.workplace.chat.controller;
+package com.workplace.global.realtime;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -8,7 +8,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
@@ -26,18 +25,17 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** ChatStreamController @WebMvcTest — SSE 구독 엔드포인트 테스트. */
+/** EventStreamController @WebMvcTest — chat·messaging·notify 통합 단일 SSE 엔드포인트 테스트. */
 @SuppressWarnings("null")
-@WebMvcTest(ChatStreamController.class)
+@WebMvcTest(EventStreamController.class)
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
-class ChatStreamControllerTest {
+class EventStreamControllerTest {
 
   @Autowired MockMvc mockMvc;
   @MockitoBean SseRegistry registry;
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
-
   @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserRepository userRepository;
@@ -53,7 +51,7 @@ class ChatStreamControllerTest {
   void stream_registersEmitterForCaller() throws Exception {
     when(registry.register(1L)).thenReturn(new SseEmitter());
     mockMvc
-        .perform(get("/api/v1/chat/stream").header("Authorization", "Bearer v"))
+        .perform(get("/api/v1/events").header("Authorization", "Bearer v"))
         .andExpect(request().asyncStarted())
         .andExpect(status().isOk());
     verify(registry).register(1L);
@@ -61,6 +59,6 @@ class ChatStreamControllerTest {
 
   @Test
   void stream_unauthenticated_401() throws Exception {
-    mockMvc.perform(get("/api/v1/chat/stream")).andExpect(status().isUnauthorized());
+    mockMvc.perform(get("/api/v1/events")).andExpect(status().isUnauthorized());
   }
 }

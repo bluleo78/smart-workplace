@@ -14,19 +14,13 @@ import { MailComposeDock } from '@/components/mail/MailComposeDock'
 import { ChatSessionProvider } from '@/hooks/ChatSessionContext'
 import { MessagingConnectionContext } from '@/hooks/MessagingConnectionContext'
 import { useAuth } from '@/hooks/useAuth'
-import { useChatStream } from '@/hooks/useChatStream'
-import { useMessageStream } from '@/hooks/useMessageStream'
-import { useNotificationStream } from '@/hooks/useNotificationStream'
+import { useEventStream } from '@/hooks/useEventStream'
 
 export function AppLayout() {
   const { user } = useAuth()
-  // 인증된 앱 셸에서 chat 실시간 SSE 를 1회 구독 (유저당 글로벌 스트림).
-  useChatStream()
-  // 알림 실시간 SSE 를 앱 셸에서 1회 구독.
-  useNotificationStream()
-  // 메시징 실시간 SSE 도 형제 스트림과 동일하게 앱 셸에서 1회 구독해 세션 내내 유지한다.
-  // (과거 ChatModuleLayout 에 묶여 "대화" 모듈 진입마다 재연결 → "실시간 연결 중" 배너 깜빡임을 유발)
-  const { isConnected } = useMessageStream(user?.id ?? 0)
+  // 인증된 앱 셸에서 통합 실시간 SSE 를 1회 구독(유저당 단일 커넥션). chat·messaging·notify 이벤트를
+  // 이름 prefix 로 fan-out 한다. 과거 3개 스트림(커넥션 3개)을 단일 /api/v1/events 로 통합(#506).
+  const { isConnected } = useEventStream(user?.id ?? 0)
   // 연결 상태를 하위 채팅 UI(끊김 배너)로 전달 — isConnected 변동 시에만 새 value.
   const messagingConn = useMemo(() => ({ isConnected }), [isConnected])
 

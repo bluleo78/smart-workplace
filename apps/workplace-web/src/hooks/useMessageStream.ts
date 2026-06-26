@@ -1,12 +1,10 @@
-// messaging 글로벌 SSE 구독 훅 — 유저당 스트림 1개로 본인이 멤버인 모든 채널 이벤트 수신.
-// fetch + ReadableStream 으로 Authorization 헤더 전송(native EventSource 헤더 미지원).
-// messaging.message.created 는 react-query messages 캐시를 channelId 로 직접 갱신.
+// messaging.* SSE 이벤트 핸들러 — 통합 스트림 라우터(Task 4)가 호출.
+// 트랜스포트(fetch 루프·백오프·401) 제거, 캐시 변이 + 이벤트 버스 발행만 담당.
+// 이벤트 버스(onMessagingProgress 등)와 타입 export 는 소비처 import 경로 보존을 위해 그대로 유지.
 // Phase 5: 스레드 답글 라우팅(parentMessageId) + 리액션 이벤트 패치.
 
-import { type InfiniteData, type QueryClient, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { type InfiniteData, type QueryClient } from '@tanstack/react-query';
 
-import { getAccessToken, refreshAccessToken } from '../api/client';
 import { applyReaction } from '../lib/reactions';
 import type { MessagePage, MessageResponse } from '../types/messaging';
 import { messagingKeys } from './queries/messagingKeys';
@@ -107,7 +105,13 @@ function upsertReply(qc: QueryClient, msg: MessageResponse) {
   });
 }
 
-function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentUserId: number) {
+// messaging.* SSE 이벤트를 처리한다(통합 스트림 라우터가 호출). currentUserId 로 self-echo·본인 읽음을 가린다.
+export function handleMessagingEvent(
+  qc: QueryClient,
+  eventName: string,
+  data: unknown,
+  currentUserId: number,
+) {
   const d = data as Record<string, unknown>;
   // read 이벤트: payload {channelId,userId,lastReadMessageId}. 본인 읽음일 때만 배지 재계산.
   if (eventName === 'messaging.message.read') {
@@ -178,119 +182,4 @@ function handleEvent(qc: QueryClient, eventName: string, data: unknown, currentU
       applyReaction(rs, String(d.emoji), delta, isMe),
     );
   }
-}
-
-/**
- * messaging SSE 구독 훅. { isConnected } 를 반환해 소비 컴포넌트가 재연결 중 배너를 표시할 수 있다.
- * isConnected: 스트림이 활성 읽기 중이면 true, 끊김/재연결 대기 중이면 false.
- */
-export function useMessageStream(currentUserId: number): { isConnected: boolean } {
-  const qc = useQueryClient();
-  // read 이벤트 필터(본인 읽음만 invalidate)용 — ref 로 보관해 재연결(스트림 재구독) 없이 최신값 참조.
-  // 렌더 중 ref 쓰기(부작용) 대신 effect 에서 동기화한다 — 매 렌더 후 최신값 반영.
-  const currentUserIdRef = useRef(currentUserId);
-  // SSE 연결 상태 — 연결 성공(스트림 활성) true, 끊김/재연결 대기 false
-  const [isConnected, setIsConnected] = useState(false);
-  useEffect(() => {
-    currentUserIdRef.current = currentUserId;
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    let attempt = 0;
-    let controller: AbortController | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const scheduleReconnect = () => {
-      if (cancelled) return;
-      const delay = Math.min(1000 * Math.pow(2, attempt), 60_000) + Math.random() * 1000;
-      attempt++;
-      reconnectTimer = setTimeout(connect, delay);
-    };
-
-    const connect = async () => {
-      if (cancelled) return;
-      const token = getAccessToken();
-      if (!token) {
-        scheduleReconnect();
-        return;
-      }
-      controller = new AbortController();
-      try {
-        const response = await fetch('/api/v1/messaging/stream', {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
-          signal: controller.signal,
-          credentials: 'include',
-        });
-        if (response.status === 401) {
-          const refreshed = await refreshAccessToken();
-          if (!refreshed) {
-            cancelled = true;
-            return;
-          }
-          scheduleReconnect();
-          return;
-        }
-        if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
-        attempt = 0;
-        setIsConnected(true); // 스트림 활성 — 연결됨
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let currentEvent = 'message';
-        let currentData = '';
-
-        const dispatch = () => {
-          if (currentData) {
-            try {
-              handleEvent(qc, currentEvent, JSON.parse(currentData), currentUserIdRef.current);
-            } catch {
-              // 잘못된 SSE 데이터 무시
-            }
-          }
-          currentEvent = 'message';
-          currentData = '';
-        };
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let nl: number;
-          while ((nl = buffer.indexOf('\n')) !== -1) {
-            const line = buffer.slice(0, nl).replace(/\r$/, '');
-            buffer = buffer.slice(nl + 1);
-            if (line === '') {
-              dispatch();
-              continue;
-            }
-            if (line.startsWith(':')) continue; // heartbeat/comment
-            const ci = line.indexOf(':');
-            const field = ci === -1 ? line : line.slice(0, ci);
-            const raw = ci === -1 ? '' : line.slice(ci + 1);
-            const val = raw.startsWith(' ') ? raw.slice(1) : raw;
-            if (field === 'event') currentEvent = val;
-            else if (field === 'data') currentData = currentData ? `${currentData}\n${val}` : val;
-          }
-        }
-        setIsConnected(false); // 스트림 종료 — 재연결 예정
-        if (!cancelled) scheduleReconnect();
-      } catch (error) {
-        if ((error as Error).name === 'AbortError' || cancelled) return;
-        setIsConnected(false); // 오류로 끊김 — 재연결 예정
-        scheduleReconnect();
-      }
-    };
-
-    connect();
-    return () => {
-      cancelled = true;
-      controller?.abort();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-    };
-  }, [qc, setIsConnected]);
-
-  return { isConnected };
 }

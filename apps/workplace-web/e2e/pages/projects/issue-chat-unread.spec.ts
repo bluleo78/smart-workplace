@@ -106,7 +106,7 @@ test(
     const oneCreated = `event: chat.message.created\ndata: ${JSON.stringify(incoming)}\n\n`;
     const sseCreated = oneCreated + oneCreated;
     await page.route(
-      (url) => url.pathname === '/api/v1/chat/stream',
+      (url) => url.pathname === '/api/v1/events',
       async (route) => {
         await threadReady;
         // 접힘 패널의 onChatMessageCreated 구독 등록 대기.

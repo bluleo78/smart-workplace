@@ -158,7 +158,7 @@ test(
 
     // ── Phase 1 SSE: 모든 초기 연결에 started+tool 전달(StrictMode 이중 마운트 대응) ──
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       async (route) => {
         await channelReady;
         await new Promise((resolve) => setTimeout(resolve, 200));
@@ -179,7 +179,7 @@ test(
 
     // ── Phase 2: done 전달 → 버블 제거 ──
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) =>
         route.fulfill({
           status: 200,
@@ -192,7 +192,7 @@ test(
 
     // ── Phase 3(핵심 회귀): 뒤늦은 tool(같은 streamId) → 버블이 되살아나면 안 된다 ──
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) =>
         route.fulfill({
           status: 200,

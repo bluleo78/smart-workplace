@@ -77,7 +77,7 @@ async function stubDmsList(page: Page) {
 
 async function stubStream(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,
@@ -268,7 +268,7 @@ test.describe('@멘션 칩 시맨틱 토큰', () => {
           : route.fallback(),
     )
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) =>
         route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: ':\n\n' }),
     )

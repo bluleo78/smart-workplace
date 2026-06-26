@@ -41,7 +41,7 @@ async function stubDmsList(page: Page) {
 // SSE 스트림 stub — body 로 임의 이벤트(또는 keep-alive)를 흘릴 수 있다.
 async function stubStream(page: Page, body = `:\n\n`) {
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,
@@ -424,7 +424,7 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     // 스트림 — 테스트가 window.__emitRead 플래그를 세팅할 때까지 대기 후 본인 read 이벤트 fulfill.
     // 이로써 "배지 노출 → read → 배지 사라짐" 순서가 결정적으로 보장된다.
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       async (route) => {
         await page.waitForFunction(() => (window as unknown as { __emitRead?: boolean }).__emitRead === true)
         return route.fulfill({

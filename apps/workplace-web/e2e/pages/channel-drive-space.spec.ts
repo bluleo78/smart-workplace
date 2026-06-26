@@ -87,7 +87,7 @@ async function stubChannelView(page: Page) {
   )
   // SSE 스트림 — 즉시 닫히는 빈 event-stream(미스텁 시 frame-detached 타임아웃 발생).
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,

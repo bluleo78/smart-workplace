@@ -16,7 +16,7 @@ async function stubBase(page: Page, channel: ReturnType<typeof createChannel>) {
         : route.fallback(),
   )
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: ':\n\n' }),
   )
   await page.route(

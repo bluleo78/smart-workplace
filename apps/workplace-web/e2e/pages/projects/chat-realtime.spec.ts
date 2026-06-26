@@ -1,5 +1,5 @@
 // Phase 6b — chat 실시간 SSE E2E.
-// /chat/stream 을 canned text/event-stream 본문으로 모킹 → 메시지가 create POST 없이 렌더되는지 검증.
+// /api/v1/events(통합 SSE #506) 를 canned text/event-stream 본문으로 모킹 → 메시지가 create POST 없이 렌더되는지 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createChatMember, createChatMessage, createChatThread } from '../../factories/chat.factory';
@@ -141,7 +141,7 @@ test.describe('chat 실시간 SSE', () => {
         `data: ${JSON.stringify(msg)}\n\n`;
 
       await page.route(
-        (url) => url.pathname === '/api/v1/chat/stream',
+        (url) => url.pathname === '/api/v1/events',
         (route) =>
           route.fulfill({
             status: 200,
@@ -237,7 +237,7 @@ test.describe('chat 실시간 SSE', () => {
 
     // SSE 스트림 — heartbeat 만 (실제 echo 는 GET 시드로 모델링했으므로 불필요). 프록시 에러 회피용.
     await page.route(
-      (url) => url.pathname === '/api/v1/chat/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) =>
         route.fulfill({
           status: 200,

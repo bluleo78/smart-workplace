@@ -26,7 +26,7 @@ async function setupChannelStubs(
     },
   );
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,
@@ -156,7 +156,7 @@ test.describe('채널 캐치업 카드', () => {
     // 스트림 — 테스트가 __emitLive 를 세팅(진입 스냅샷 고정 후)할 때까지 대기 후 AI(authorId=2) 메시지 101 created 발행.
     // LIFO 라우트 우선순위로 setupChannelStubs 의 빈 스트림을 덮어쓴다.
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       async (route) => {
         await page.waitForFunction(() => (window as unknown as { __emitLive?: boolean }).__emitLive === true);
         const live = createMessage({

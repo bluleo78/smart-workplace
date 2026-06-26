@@ -2044,7 +2044,7 @@ test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회�
   )
   // SSE 스텁 — 미스텁 flake 방지(빈 keep-alive 스트림).
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: `:\n\n` }),
   )

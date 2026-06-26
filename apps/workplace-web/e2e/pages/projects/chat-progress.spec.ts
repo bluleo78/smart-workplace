@@ -153,7 +153,7 @@ test(
     // 두 연결 모두 progress 를 받아 live 인스턴스가 확실히 수신하도록 한다.
     // threadReady 이후 React 리렌더 시간(200ms)을 두어 threadId=100 listener 등록 보장.
     await page.route(
-      (url) => url.pathname === '/api/v1/chat/stream',
+      (url) => url.pathname === '/api/v1/events',
       async (route) => {
         await threadReady;
         // React useEffect 재실행(threadId=100 listener 등록) 대기
@@ -184,7 +184,7 @@ test(
     // page.route()는 LIFO — 새 핸들러가 기존 핸들러보다 먼저 매칭된다.
     // 다음 SSE 재연결(~1s 백오프)이 이 핸들러에 걸려 created 수신 → 버블 제거.
     await page.route(
-      (url) => url.pathname === '/api/v1/chat/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) =>
         route.fulfill({
           status: 200,

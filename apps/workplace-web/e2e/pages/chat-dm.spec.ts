@@ -5,7 +5,7 @@ import { createDm, createDmParticipant, createMessage } from '../factories/messa
 import { expect, test } from '../fixtures/auth.fixture'
 
 // 채널·DM 사이드바 목록 + SSE 스트림 stub.
-// ChatModuleLayout 이 useMessageStream() 으로 /messaging/stream 을 항상 구독하므로 함께 stub.
+// AppLayout 이 useEventStream() 으로 /api/v1/events 를 항상 구독하므로 함께 stub (#506).
 async function stubLists(page: Page, dms: ReturnType<typeof createDm>[]) {
   await page.route(
     (url) => url.pathname === '/api/v1/messaging/channels',
@@ -35,7 +35,7 @@ async function stubLists(page: Page, dms: ReturnType<typeof createDm>[]) {
 // SSE 스트림 stub — 빈 keep-alive body.
 async function stubStream(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,

@@ -113,7 +113,7 @@ test(
 
     // ── Phase 1 SSE 핸들러: 모든 초기 연결에 progress 전달 (StrictMode 이중 마운트 대응) ──
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       async (route) => {
         await dmReady;
         // React useEffect 재실행(dmId 리스너 등록) 대기
@@ -136,7 +136,7 @@ test(
 
     // ── Phase 2: bubble 확인 완료 → created 핸들러로 교체 (page.route LIFO) ──
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) =>
         route.fulfill({
           status: 200,

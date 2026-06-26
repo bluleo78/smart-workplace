@@ -44,7 +44,7 @@ async function stubDmsList(page: Page) {
 // SSE 스트림 stub — keep-alive 로 즉시 닫는다.
 async function stubStream(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,

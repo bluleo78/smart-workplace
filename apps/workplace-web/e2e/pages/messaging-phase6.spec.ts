@@ -49,7 +49,7 @@ async function stubDmsList(page: Page) {
 // SSE 스트림 stub — keep-alive 만 흘린다(첨부 렌더는 POST 응답으로 충분).
 async function stubStream(page: Page, body = `:\n\n`) {
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,

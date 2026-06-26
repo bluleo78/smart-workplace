@@ -32,7 +32,7 @@ async function stubDmsList(page: Page) {
 
 async function stubStream(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,

@@ -36,7 +36,7 @@ async function stubCommon(page: import('@playwright/test').Page) {
 
   // SSE 스트림 (빈 스트림)
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,

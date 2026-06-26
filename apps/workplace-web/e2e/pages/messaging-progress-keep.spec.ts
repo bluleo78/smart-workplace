@@ -165,7 +165,7 @@ test(
 
     // ── Phase 1 SSE: 모든 초기 연결에 progress 만 전달(StrictMode 이중 마운트 대응) ──
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       async (route) => {
         await channelReady;
         await new Promise((resolve) => setTimeout(resolve, 200));
@@ -186,7 +186,7 @@ test(
 
     // ── Phase 2(핵심 회귀): HUMAN created 만 전달(LIFO route swap) ──
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) =>
         route.fulfill({
           status: 200,
@@ -203,7 +203,7 @@ test(
 
     // ── Phase 3: AGENT created 만 전달 → 비로소 버블 제거 + AI 메시지 표시(백스톱 보존) ──
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) =>
         route.fulfill({
           status: 200,

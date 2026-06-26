@@ -47,7 +47,7 @@ async function stubDmsList(page: Page, dms: ReturnType<typeof createDm>[] = []) 
 
 async function stubStream(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,
@@ -297,7 +297,7 @@ test.describe('/chat 빈 첫 진입 CTA', () => {
             : route.fallback(),
       )
       await page.route(
-        (url) => url.pathname === '/api/v1/messaging/stream',
+        (url) => url.pathname === '/api/v1/events',
         (route) =>
           route.fulfill({
             status: 200,

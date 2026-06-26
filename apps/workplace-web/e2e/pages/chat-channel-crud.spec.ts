@@ -18,7 +18,7 @@ async function stubSidebar(page: Page, channels: ReturnType<typeof createChannel
     },
   );
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,
@@ -141,7 +141,7 @@ test.describe('messaging 채널 탐색·참여', () => {
       },
     )
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: ':\n\n' }),
     )
     // GET /channels/discover — 검색 결과.
@@ -185,7 +185,7 @@ async function stubChannelView(
         : route.fallback(),
   )
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: ':\n\n' }),
   )
   await page.route(

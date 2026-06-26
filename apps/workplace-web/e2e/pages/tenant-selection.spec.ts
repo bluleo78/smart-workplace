@@ -35,10 +35,7 @@ async function setupHomeBattery(page: Page) {
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   // SSE 스트림은 즉시 닫히는 빈 event-stream 으로 스텁(실네트워크 차단 — 리로드 레이스/frame detached 방지).
-  await page.route('**/api/v1/notifications/stream', (route) =>
-    route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }),
-  )
-  await page.route('**/api/v1/chat/stream', (route) =>
+  await page.route('**/api/v1/events', (route) =>
     route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }),
   )
 }

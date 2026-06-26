@@ -754,7 +754,7 @@ test.describe('이슈 chat panel', () => {
     // 컴포넌트 구독 시점과의 경합을 피하려 재연결마다 재방출(스트림은 finite → 재연결됨).
     // 본인(ME_ID) 이벤트는 self-filter 로 무시되고, 다른 멤버만 인디케이터에 보여야 한다.
     await page.route(
-      (url) => url.pathname === '/api/v1/chat/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) =>
         route.fulfill({
           status: 200,

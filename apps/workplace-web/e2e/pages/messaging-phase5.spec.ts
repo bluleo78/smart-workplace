@@ -42,7 +42,7 @@ async function stubDmsList(page: Page) {
 // SSE 스트림 stub — body 로 임의 이벤트(또는 keep-alive)를 흘릴 수 있다.
 async function stubStream(page: Page, body = `:\n\n`) {
   await page.route(
-    (url) => url.pathname === '/api/v1/messaging/stream',
+    (url) => url.pathname === '/api/v1/events',
     (route) =>
       route.fulfill({
         status: 200,
@@ -395,7 +395,7 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     // 정확히 1회 발화한다. 이 시점에 messages 캐시가 이미 채워져 bumpReplyCount 가 동작.
     let deliverEvent = false
     await page.route(
-      (url) => url.pathname === '/api/v1/messaging/stream',
+      (url) => url.pathname === '/api/v1/events',
       (route) => {
         if (deliverEvent) {
           deliverEvent = false
