@@ -1,13 +1,18 @@
 package com.workplace.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
 import com.icegreen.greenmail.util.ServerSetupTest;
+import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
+import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.MailSentAppender;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
@@ -15,11 +20,20 @@ import jakarta.mail.Session;
 import jakarta.mail.Store;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
+import java.util.Optional;
 import java.util.Properties;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-/** MailSentAppender — 서버 Sent 폴더가 있으면 APPEND, 없으면 조용히 skip(예외 없음). */
+/**
+ * MailSentAppender — 서버 Sent 폴더가 있으면 APPEND, 없으면 조용히 skip(예외 없음). 비밀번호 복호화는 내부에서 처리하므로
+ * repo/encryption 을 Mockito 로 주입한다.
+ */
+@ExtendWith(MockitoExtension.class)
 class MailSentAppenderTest {
 
   @RegisterExtension
@@ -28,7 +42,19 @@ class MailSentAppenderTest {
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("me@test.local", "me@test.local", "pw"));
 
-  private final MailSentAppender appender = new MailSentAppender();
+  @Mock EmailAccountRepository accountRepo;
+  @Mock EncryptionService encryption;
+
+  private MailSentAppender appender;
+
+  @BeforeEach
+  void setUp() {
+    appender = new MailSentAppender(accountRepo, encryption);
+    // 비밀번호 스텁: findEncryptedPassword(1L, 1L) → "encrypted_pw" → decrypt → "pw"
+    when(accountRepo.findEncryptedPassword(anyLong(), anyLong()))
+        .thenReturn(Optional.of("encrypted_pw"));
+    when(encryption.decrypt(eq("encrypted_pw"))).thenReturn("pw");
+  }
 
   private EmailAccountResponse account() {
     return new EmailAccountResponse(
@@ -69,7 +95,7 @@ class MailSentAppenderTest {
     sent.create(Folder.HOLDS_MESSAGES);
     store.close();
 
-    appender.appendQuietly(account(), "pw", simpleMessage());
+    appender.appendQuietly(account(), 1L, simpleMessage());
 
     Store s2 = imapStore();
     Folder sentReopen = s2.getFolder("Sent");
@@ -86,7 +112,7 @@ class MailSentAppenderTest {
   @Test
   void append_noSentFolder_doesNotThrow() throws Exception {
     // Sent 폴더가 없어도 예외 없이 조용히 종료.
-    appender.appendQuietly(account(), "pw", simpleMessage());
+    appender.appendQuietly(account(), 1L, simpleMessage());
   }
 
   private Store imapStore() throws Exception {

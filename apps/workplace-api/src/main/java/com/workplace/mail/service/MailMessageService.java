@@ -1,15 +1,18 @@
 package com.workplace.mail.service;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
+import com.workplace.mail.event.MessageMarkedReadEvent;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +31,7 @@ public class MailMessageService {
   private final EmailMessageRepository messageRepo;
   private final MailBodyFetcher bodyFetcher;
   private final MailSyncProgress progress;
+  private final ApplicationEventPublisher eventPublisher;
 
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
@@ -40,11 +44,13 @@ public class MailMessageService {
       EmailMessageRepository messageRepo,
       MailBodyFetcher bodyFetcher,
       MailSyncProgress progress,
+      ApplicationEventPublisher eventPublisher,
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
     this.bodyFetcher = bodyFetcher;
     this.progress = progress;
+    this.eventPublisher = eventPublisher;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -138,6 +144,13 @@ public class MailMessageService {
     // 읽음 처리 — seen=false 인 메시지를 true 로 업데이트하고 DTO 도 동기화
     if (!detail.seen()) {
       txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
+      // markSeen 커밋 완료 후 역동기화 이벤트 발행 — @Async @TransactionalEventListener(AFTER_COMMIT,
+      // fallbackExecution=true) 리스너가 수신해 원본 서버에 isRead 를 반영한다(best-effort).
+      // TenantContext 가 null 이면 테넌트 컨텍스트 없는 내부 경로이므로 발행 생략(방어적).
+      Long tenantId = TenantContext.get();
+      if (tenantId != null) {
+        eventPublisher.publishEvent(new MessageMarkedReadEvent(tenantId, userId, messageId));
+      }
       detail =
           new EmailMessageDetail(
               detail.id(),

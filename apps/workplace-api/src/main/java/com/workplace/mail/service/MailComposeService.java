@@ -1,7 +1,7 @@
 package com.workplace.mail.service;
 
-import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.ReplyContext;
@@ -29,11 +29,12 @@ import org.springframework.transaction.annotation.Transactional;
  * 메일 작성+발송 오케스트레이션. 순서가 핵심:
  *
  * <ol>
- *   <li>계정 소유 검증 + 비밀번호 복호화.
+ *   <li>계정 소유 검증.
  *   <li>수신자 검증, Message-ID 직접 생성, 답장이면 부모 thread_id/Message-ID/References 상속.
- *   <li>SMTP 발송 — 유일한 사용자 노출 실패 지점(실패 시 502, 로컬 저장 안 함).
+ *   <li>MIME 조립(공유 MailMimeBuilder) + 공급자별 전송기(MailTransport) 디스패치 — 유일한 사용자 노출 실패 지점(실패 시 502, 로컬
+ *       저장 안 함).
  *   <li>로컬 SENT 행 저장(표시 원본).
- *   <li>best-effort IMAP APPEND(실패 무시).
+ *   <li>IMAP 계정만 best-effort APPEND(Graph 는 saveToSentItems 로 서버가 자동 저장).
  * </ol>
  */
 @Service
@@ -46,8 +47,8 @@ public class MailComposeService {
   private final EmailAccountRepository accountRepo;
   private final EmailFolderRepository folderRepo;
   private final EmailMessageRepository messageRepo;
-  private final EncryptionService encryption;
-  private final MailSmtpSender sender;
+  private final MailMimeBuilder mimeBuilder;
+  private final List<MailTransport> transports;
   private final MailSentAppender appender;
 
   /** 본인 계정으로 메일 발송. 발송 성공 시 로컬 SENT 행 id + Message-ID 반환. */
@@ -56,11 +57,6 @@ public class MailComposeService {
     EmailAccountResponse account =
         accountRepo
             .findByIdAndUser(userId, accountId)
-            .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
-    String password =
-        accountRepo
-            .findEncryptedPassword(userId, accountId)
-            .map(encryption::decrypt)
             .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
 
     List<String> to = clean(req.to());
@@ -108,22 +104,33 @@ public class MailComposeService {
             snippet(req.bodyText()),
             now);
 
-    // 1) SMTP 발송 — 유일한 사용자 노출 실패.
-    MimeMessage sent;
+    // 1) MIME 조립(공유 빌더) + 공급자별 전송기 디스패치 — 유일한 사용자 노출 실패.
+    MimeMessage message;
     try {
-      sent = sender.send(account, password, mail);
+      message = mimeBuilder.build(account, mail);
     } catch (MessagingException e) {
-      throw new MailSendException("메일 발송에 실패했습니다", e);
+      throw new MailSendException("메일 구성에 실패했습니다", e);
     }
+    transportFor(account.provider()).transmit(userId, account, message, mail);
 
     // 2) 로컬 SENT 행(표시 원본).
     long folderId = folderRepo.ensureFolder(accountId, SENT).id();
     long localId = messageRepo.insertSent(accountId, folderId, mail);
 
-    // 3) best-effort IMAP APPEND(실패 무시).
-    appender.appendQuietly(account, password, sent);
+    // 3) IMAP 계정만 best-effort APPEND(Graph 는 saveToSentItems 로 서버가 자동 저장).
+    if (account.provider() == MailProvider.IMAP) {
+      appender.appendQuietly(account, userId, message);
+    }
 
     return new SendResult(localId, messageId);
+  }
+
+  /** 공급자에 맞는 전송기 선택. 미지원 공급자는 MailSendException 으로 조기 실패. */
+  private MailTransport transportFor(MailProvider provider) {
+    return transports.stream()
+        .filter(t -> t.provider() == provider)
+        .findFirst()
+        .orElseThrow(() -> new MailSendException("지원하지 않는 메일 공급자: " + provider));
   }
 
   /** null 제거 + trim + 공백 제거. */

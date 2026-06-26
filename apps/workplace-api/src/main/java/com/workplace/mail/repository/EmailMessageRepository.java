@@ -9,8 +9,10 @@ import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailAttachmentMeta;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
+import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.ParsedMessage;
+import com.workplace.mail.dto.ReadSyncLocator;
 import com.workplace.mail.dto.ReplyContext;
 import com.workplace.mail.outbound.MailAiMessages;
 import com.workplace.mail.util.MailBodyText;
@@ -411,6 +413,37 @@ public class EmailMessageRepository {
                         ? 0L
                         : r.get(EMAIL_ATTACHMENT.SIZE_BYTES),
                     r.get(EMAIL_ATTACHMENT.CONTENT_ID)));
+  }
+
+  /**
+   * 읽음 역동기화 식별자 조회(테넌트 RLS 스코프).
+   *
+   * <p>email_message → email_account(provider) → email_folder(name) 조인으로 역동기화에 필요한 식별자를 한 번에 조회한다.
+   *
+   * @param messageId 메시지 id
+   * @return 역동기화 식별자; 메시지가 없으면 empty
+   */
+  public Optional<ReadSyncLocator> findReadSyncLocator(long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_ACCOUNT.PROVIDER,
+            EMAIL_MESSAGE.PROVIDER_MESSAGE_ID,
+            EMAIL_MESSAGE.IMAP_UID,
+            EMAIL_FOLDER.NAME)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .fetchOptional(
+            r ->
+                new ReadSyncLocator(
+                    r.value1(),
+                    MailProvider.valueOf(r.value2()),
+                    r.value3(),
+                    r.value4(),
+                    r.value5()));
   }
 
   /** 메시지 읽음 처리 — seen=true 로 업데이트. 이미 읽은 건은 스킵(SEEN.isFalse 조건). */

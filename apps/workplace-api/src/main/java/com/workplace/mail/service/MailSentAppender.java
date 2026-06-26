@@ -1,7 +1,10 @@
 package com.workplace.mail.service;
 
+import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailSecurity;
+import com.workplace.mail.exception.EmailAccountNotFoundException;
+import com.workplace.mail.repository.EmailAccountRepository;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
@@ -9,15 +12,19 @@ import jakarta.mail.Session;
 import jakarta.mail.Store;
 import jakarta.mail.internet.MimeMessage;
 import java.util.Properties;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
  * 발송한 메시지를 서버 IMAP Sent 폴더에 추가(best-effort). 표시 원본은 로컬 SENT 행이므로 APPEND 실패/폴더 부재는 로그만 남기고 무시한다(발송
  * 자체는 이미 성공). 폴더는 일반적인 Sent 후보명으로 탐색한다(OAuth/SPECIAL-USE 미지원 서버 폭넓게 수용).
+ *
+ * <p>비밀번호 복호화는 이 클래스 내에서 직접 수행한다(MailComposeService 에서 비번 의존 제거).
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class MailSentAppender {
 
   private static final int TIMEOUT_MS = 10_000;
@@ -27,10 +34,26 @@ public class MailSentAppender {
     "Sent", "Sent Items", "[Gmail]/Sent Mail", "Sent Messages", "INBOX.Sent"
   };
 
-  /** 발송본을 Sent 폴더에 추가. 어떤 실패도 던지지 않는다(로그만). */
-  public void appendQuietly(EmailAccountResponse account, String password, MimeMessage message) {
+  private final EmailAccountRepository accountRepo;
+  private final EncryptionService encryption;
+
+  /**
+   * 발송본을 Sent 폴더에 추가. 비밀번호는 내부에서 직접 조회·복호화한다. 어떤 실패도 던지지 않는다(로그만).
+   *
+   * @param account 발신 계정
+   * @param userId 계정 소유자 ID(비밀번호 조회 스코프)
+   * @param message 전송된 MimeMessage
+   */
+  public void appendQuietly(EmailAccountResponse account, long userId, MimeMessage message) {
     Store store = null;
     try {
+      // 암호화된 비밀번호 조회 후 복호화 — 자격증명은 MailSentAppender 가 직접 관리
+      String password =
+          accountRepo
+              .findEncryptedPassword(userId, account.id())
+              .map(encryption::decrypt)
+              .orElseThrow(() -> new EmailAccountNotFoundException(account.id()));
+
       store = connect(account, password);
       Folder sent = findSentFolder(store);
       if (sent == null) {

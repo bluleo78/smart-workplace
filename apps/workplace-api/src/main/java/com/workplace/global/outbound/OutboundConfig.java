@@ -74,6 +74,26 @@ public class OutboundConfig {
   }
 
   /**
+   * 메일 읽음 동기화(MailReadSyncListener) 전용 실행기.
+   *
+   * <p>IMAP STORE / Graph PATCH 작업은 스레드를 수 초간 점유하므로 경량 aiAgentEventExecutor 와 분리해야 한다(공유 시 이벤트 디스패치
+   * 고갈). bare {@code @Async} 는 Executor 빈이 여러 개면 SimpleAsyncTaskExecutor(스레드 무제한 생성)로 조용히 폴백하므로 반드시
+   * 전용 빈을 명시 한정한다.
+   */
+  @Bean(name = "mailReadSyncExecutor")
+  public Executor mailReadSyncExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(2);
+    executor.setMaxPoolSize(4);
+    executor.setQueueCapacity(100);
+    executor.setThreadNamePrefix("mail-readsync-");
+    // TenantContext 전파 — MailReadSyncListener 가 명시 주입하지만 데코레이터를 이중 방어선으로.
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * notify 디스패처 전용 executor. @Async 무인자는 단일 Executor 빈(aiAgentEventExecutor)에 바인딩되거나, 빈이 2개면 모호해져
    * SimpleAsyncTaskExecutor 로 조용히 폴백한다. 따라서 항상 명시 한정(@Async("notifyEventExecutor"))한다. 알림은 가벼운
    * insert+fan-out 이므로 작은 풀로 충분, queue 는 버스트 흡수용으로 넉넉히.

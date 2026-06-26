@@ -3,6 +3,7 @@ package com.workplace.mail.outbound;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.config.M365GraphProperties;
+import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailSyncException;
 import java.io.IOException;
 import java.net.URI;
@@ -147,6 +148,69 @@ public class GraphApiClient {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new MailSyncException("Graph API 요청이 중단됨", e);
+    }
+  }
+
+  /**
+   * MIME 메시지를 Graph로 발송한다(POST /me/sendMail, base64 MIME).
+   *
+   * <p>JSON Message가 아닌 raw MIME 모드를 쓰는 이유: Graph의 internetMessageHeaders는 x- 접두 커스텀 헤더만 허용해
+   * In-Reply-To/References 표준 헤더를 거부한다. base64 MIME 모드는 우리가 헤더를 직접 제어하므로 SMTP 경로와 동일한 스레딩을 유지한다.
+   * Graph는 saveToSentItems 기본 동작으로 서버 Sent 폴더에 자동 저장한다.
+   *
+   * @param accessToken Mail.Send scope 를 포함한 유효 access_token(평문)
+   * @param base64Mime base64 인코딩된 완전한 MIME 메시지
+   * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
+   */
+  public void sendMail(String accessToken, String base64Mime) {
+    HttpRequest req =
+        HttpRequest.newBuilder()
+            .uri(URI.create(GRAPH_BASE_URL + "/me/sendMail"))
+            .header("Authorization", "Bearer " + accessToken)
+            .header("Content-Type", "text/plain")
+            .POST(HttpRequest.BodyPublishers.ofString(base64Mime))
+            .build();
+    sendWrite(req, "sendMail");
+  }
+
+  /**
+   * Graph 리소스에 PATCH 요청을 전송한다(예: 메시지 isRead 갱신).
+   *
+   * @param accessToken Mail.ReadWrite scope 를 포함한 유효 access_token(평문)
+   * @param path Graph 상대경로(예: "/me/messages/{id}")
+   * @param jsonBody application/json 본문
+   * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
+   */
+  public void patch(String accessToken, String path, String jsonBody) {
+    HttpRequest req =
+        HttpRequest.newBuilder()
+            .uri(URI.create(GRAPH_BASE_URL + path))
+            .header("Authorization", "Bearer " + accessToken)
+            .header("Content-Type", "application/json")
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(jsonBody))
+            .build();
+    sendWrite(req, "patch");
+  }
+
+  /** 쓰기 요청 공통 전송 — 2xx 외에는 민감정보 없이 코드만 로그하고 MailSendException. */
+  private void sendWrite(HttpRequest req, String op) {
+    try {
+      HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+      if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+        log.error(
+            "Graph 쓰기 오류: op={} status={} errorCode={}",
+            op,
+            resp.statusCode(),
+            extractErrorCode(resp.body()));
+        throw new MailSendException("Graph " + op + " 실패: " + resp.statusCode());
+      }
+    } catch (MailSendException e) {
+      throw e;
+    } catch (IOException e) {
+      throw new MailSendException("Graph " + op + " 네트워크 오류", e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new MailSendException("Graph " + op + " 요청이 중단됨", e);
     }
   }
 
