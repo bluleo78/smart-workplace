@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,6 +36,13 @@ public class WorkspaceAssistantController {
   public ResponseEntity<Void> set(
       Authentication auth, @Valid @RequestBody SetWorkspaceAssistantRequest req) {
     service.setAgent((Long) auth.getPrincipal(), req.agentUserId());
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 공용 비서 지정 해제. */
+  @DeleteMapping
+  public ResponseEntity<Void> clear() {
+    service.clear();
     return ResponseEntity.noContent().build();
   }
 

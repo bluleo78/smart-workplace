@@ -44,4 +44,13 @@ public class WorkspaceAssistantRepository {
         agentUserId,
         updatedBy);
   }
+
+  /**
+   * 현재 테넌트의 공용 비서 지정을 삭제(미지정 상태로 복귀).
+   *
+   * <p>RLS 가 현재 테넌트 행만 보이게 하므로 WHERE 없이도 자기 테넌트 1행만 삭제된다.
+   */
+  public void deleteAssistant() {
+    dsl.deleteFrom(WORKSPACE_ASSISTANT).execute();
+  }
 }

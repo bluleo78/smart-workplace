@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import { pageTitleClass } from '@/components/layout/sidebar-link';
+import { SettingsPage } from '@/components/layout/SettingsPage';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { FormField } from '@/components/ui/form-field';
 import { TableEmptyRow } from '@/components/ui/table-empty';
@@ -102,9 +102,9 @@ export default function RoleListPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className={pageTitleClass}>역할 관리</h1>
+    <SettingsPage
+      title="역할 관리"
+      actions={
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -146,8 +146,8 @@ export default function RoleListPage() {
             </form>
           </DialogContent>
         </Dialog>
-      </div>
-
+      }
+    >
       <div className="rounded-md border">
         <Table aria-label="역할 목록">
           <TableHeader>
@@ -204,6 +204,6 @@ export default function RoleListPage() {
           </TableBody>
         </Table>
       </div>
-    </div>
+    </SettingsPage>
   );
 }

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 import { permissionsApi } from '../../api/permissions';
 import { rolesApi } from '../../api/roles';
+import { SettingsPage } from '../../components/layout/SettingsPage';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -130,35 +131,47 @@ export default function RoleDetailPage() {
     }
   };
 
+  // 뒤로가기 버튼 — 제목 왼쪽에 배치하는 관례 준수 (#102)
+  const backButton = (
+    <Button variant="ghost" size="icon" onClick={() => navigate('/settings/roles')} aria-label="목록으로 돌아가기" title="목록으로 돌아가기">
+      <ArrowLeft className="h-4 w-4" />
+    </Button>
+  );
+
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-2xl space-y-6">
-        <Skeleton className="h-8 w-48" />
+      <SettingsPage
+        title={
+          <span className="flex items-center gap-2">
+            {backButton}
+            역할 상세
+          </span>
+        }
+        width="form"
+      >
         <Card>
           <CardContent className="space-y-4 pt-6">
             <Skeleton className="h-4 w-64" />
             <Skeleton className="h-4 w-48" />
           </CardContent>
         </Card>
-      </div>
+      </SettingsPage>
     );
   }
 
   if (!role) return null;
 
-  return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center gap-4">
-        {/* 역할 목록으로 돌아가는 뒤로가기 버튼 — 접근성 보강 (#102) */}
-        <Button variant="ghost" size="icon" onClick={() => navigate('/settings/roles')} aria-label="목록으로 돌아가기" title="목록으로 돌아가기">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <h1 className="text-[28px] leading-[36px] font-semibold tracking-tight">역할 상세</h1>
-        {role.isSystem && (
-          <Badge variant="outline">시스템 역할</Badge>
-        )}
-      </div>
+  // 시스템 역할 배지를 제목 옆에 배치하고 뒤로가기 버튼을 좌측에 포함한 title 슬롯
+  const pageTitle = (
+    <span className="flex items-center gap-2">
+      {backButton}
+      역할 상세
+      {role.isSystem && <Badge variant="outline">시스템 역할</Badge>}
+    </span>
+  );
 
+  return (
+    <SettingsPage title={pageTitle} width="form">
       <Card>
         <CardHeader>
           <CardTitle>역할 정보</CardTitle>
@@ -233,6 +246,6 @@ export default function RoleDetailPage() {
           </Button>
         </CardContent>
       </Card>
-    </div>
+    </SettingsPage>
   );
 }

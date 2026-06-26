@@ -8,7 +8,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { usersApi } from '@/api/users'
-import { pageTitleClass } from '@/components/layout/sidebar-link'
+import { SettingsPage } from '@/components/layout/SettingsPage'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormField } from '@/components/ui/form-field'
@@ -99,9 +99,7 @@ export default function ProfileSettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <h1 className={pageTitleClass}>프로필</h1>
-
+    <SettingsPage title="프로필" width="form">
       <Card>
         <CardHeader>
           <CardTitle>프로필 정보</CardTitle>
@@ -178,6 +176,6 @@ export default function ProfileSettingsPage() {
           </form>
         </CardContent>
       </Card>
-    </div>
+    </SettingsPage>
   )
 }

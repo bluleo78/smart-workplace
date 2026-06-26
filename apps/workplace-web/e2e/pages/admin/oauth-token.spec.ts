@@ -20,7 +20,7 @@ const AGENTS_FIXTURE = [
   },
 ];
 
-// 공통 — agents 목록 + agents/{id}/keys 빈 목록 모킹.
+// 공통 — agents 목록 + agents/{id}/keys 빈 목록 + workspace-assistant 미지정 모킹.
 // 토큰 라우트는 각 테스트가 setupOAuth() 로 추가 주입한다.
 async function setupBase(page: import('@playwright/test').Page) {
   await page.route(/\/api\/v1\/admin\/agents$/, (route) => {
@@ -39,6 +39,23 @@ async function setupBase(page: import('@playwright/test').Page) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([]),
+      });
+    }
+    return route.fallback();
+  });
+  // 공통 비서 — 미지정 상태(빈 상태 배너 + WorkspaceAssistantSection용).
+  await page.route('**/api/v1/admin/workspace-assistant', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          agentUserId: null,
+          agentName: null,
+          hasActiveToken: false,
+          model: null,
+          thinkingDepth: null,
+        }),
       });
     }
     return route.fallback();
@@ -145,7 +162,7 @@ async function setupOAuth(
 async function enterAndSelect(page: import('@playwright/test').Page) {
   await page.goto('/settings/agents');
   await expect(
-    page.getByRole('heading', { name: '에이전트 관리' }),
+    page.getByRole('heading', { name: '에이전트' }),
   ).toBeVisible();
   await page.getByTestId(`agent-row-${AGENT_ID}`).click();
   await expect(

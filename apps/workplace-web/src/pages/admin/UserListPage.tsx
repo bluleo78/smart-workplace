@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { pageTitleClass } from '@/components/layout/sidebar-link';
+import { SettingsPage } from '@/components/layout/SettingsPage';
 import { Button } from '@/components/ui/button';
 import { SearchInput } from '@/components/ui/search-input';
 import { SimplePagination } from '@/components/ui/simple-pagination';
@@ -42,14 +42,14 @@ export default function UserListPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className={pageTitleClass}>구성원 관리</h1>
+    <SettingsPage
+      title="구성원 관리"
+      actions={
         <Button data-testid="add-member-button" onClick={() => setAddOpen(true)}>
           구성원 추가
         </Button>
-      </div>
-
+      }
+    >
       <SearchInput
         placeholder="이름 또는 아이디로 검색..."
         value={search}
@@ -130,6 +130,6 @@ export default function UserListPage() {
       )}
 
       <AddMemberDialog open={addOpen} onOpenChange={setAddOpen} />
-    </div>
+    </SettingsPage>
   );
 }

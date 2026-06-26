@@ -96,7 +96,7 @@ export function PersonalAssistantSection() {
       </CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground mb-4">
-          개인 비서를 설정하면 홈을 공용 비서 대신 내 비서가 담당해요.
+          개인 비서를 설정하면 홈을 공통 비서 대신 내 비서가 담당해요.
         </p>
 
         {status?.configured ? (

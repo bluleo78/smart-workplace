@@ -1,10 +1,11 @@
 // ADMIN — AGENT 유저 + API 키 관리 페이지.
-// 좌측: AGENT 목록 (선택 가능). 우측: 선택된 AGENT 의 키 발급/회수.
+// 좌측: AGENT 목록 (선택 가능). 우측: 선택된 AGENT 의 공통 비서 섹션 + 인증(API 키/OAuth).
 // 키 발급 응답에 포함된 plaintextKey 는 즉시 dialog 로 표시 (1회).
 
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { SettingsPage } from '@/components/layout/SettingsPage';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,11 +30,12 @@ import {
   useRevokeAgentOAuthToken,
 } from '../../hooks/queries/useAgentOAuthToken';
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
+import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
 import { handleApiError } from '../../lib/api-error';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
 import { NewAgentDialog } from './components/NewAgentDialog';
 import { OAuthTokenDialog } from './components/OAuthTokenDialog';
-import { WorkspaceAssistantCard } from './components/WorkspaceAssistantCard';
+import { WorkspaceAssistantSection } from './components/WorkspaceAssistantSection';
 
 // 시간 표시 공통 — null/빈값 폴백.
 function fmtDateTime(iso: string | null): string {
@@ -48,6 +50,8 @@ function fmtDateTime(iso: string | null): string {
 export default function AgentManagementPage() {
   const agents = useAgents();
   const deleteAgent = useDeleteAgent();
+  // 공통 비서 상태 — 목록 행 배지 + 빈 상태 배너에 사용.
+  const ws = useWorkspaceAssistant();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const keys = useAgentKeys(selectedId);
   // selectedId 가 null 인 경우 0 으로 두지만, enabled=false 이므로 호출은 안 됨.
@@ -104,21 +108,28 @@ export default function AgentManagementPage() {
   const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-[28px] leading-[36px] font-semibold tracking-tight">
-          에이전트 관리
-        </h1>
+    <SettingsPage
+      title="에이전트"
+      actions={
         <Button
           size="sm"
           onClick={() => setShowNew(true)}
           data-testid="new-agent-trigger"
         >
-          + 신규 에이전트
+          + 새 에이전트
         </Button>
-      </div>
-
-      <WorkspaceAssistantCard />
+      }
+    >
+      {/* 공통 비서 미지정 시 안내 배너 — ws.data가 로드되었고 agentUserId가 없을 때만 노출. */}
+      {ws.data && ws.data.agentUserId == null ? (
+        <div
+          data-testid="workspace-assistant-empty"
+          className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
+        >
+          아직 공통 비서가 없어요 — 개인 비서를 지정하지 않은 구성원은 AI를 쓸 수 없습니다.
+          아래에서 토큰이 등록된 에이전트를 공통 비서로 지정하세요.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
         <aside className="space-y-2 border rounded-md p-2">
@@ -147,6 +158,12 @@ export default function AgentManagementPage() {
                     <span className="text-xs text-muted-foreground truncate">
                       @{a.username}
                     </span>
+                    {/* 현재 공통 비서인 에이전트에 "공통" 배지 표시. */}
+                    {ws.data?.agentUserId === a.id ? (
+                      <span className="ml-auto rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                        공통
+                      </span>
+                    ) : null}
                   </button>
                 </li>
               ))}
@@ -177,6 +194,9 @@ export default function AgentManagementPage() {
                   에이전트 삭제
                 </Button>
               </div>
+
+              {/* 신원 헤더 아래, 인증(API 키/OAuth) 섹션 위에 공통 비서 섹션 삽입. */}
+              <WorkspaceAssistantSection agentUserId={selected.id} />
 
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">API 키</h3>
@@ -316,7 +336,7 @@ export default function AgentManagementPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </SettingsPage>
   );
 }
 

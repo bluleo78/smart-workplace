@@ -52,6 +52,12 @@ public class WorkspaceAssistantService {
     configRepo.upsert(agentId, model, thinkingDepth, cur.maxTurns(), cur.timeoutMs());
   }
 
+  /** 공용 비서 지정 해제 — 행 삭제(미지정 상태). */
+  @Transactional
+  public void clear() {
+    workspaceRepo.deleteAssistant();
+  }
+
   /** 공용 비서 상태 조회. 미지정이면 agentUserId=null. 모델/사고 깊이는 시스템 디폴트로 머지한다. */
   @Transactional(readOnly = true)
   public WorkspaceAssistantResponse get() {

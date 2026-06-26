@@ -98,6 +98,23 @@ async function setupStatic(page: import('@playwright/test').Page) {
     }
     return route.fallback();
   });
+  // 공통 비서 — 미지정 상태(빈 상태 배너 방지용 최소 모킹).
+  await page.route('**/api/v1/admin/workspace-assistant', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          agentUserId: null,
+          agentName: null,
+          hasActiveToken: false,
+          model: null,
+          thinkingDepth: null,
+        }),
+      });
+    }
+    return route.fallback();
+  });
 
   return { getDeleteCount: () => deleteCount, getRevokeCount: () => revokeCount };
 }
@@ -222,10 +239,39 @@ test.describe('/admin/agents', () => {
         return route.fallback();
       });
 
+      // 공통 비서 — 미지정 상태(빈 상태 배너 + WorkspaceAssistantSection용).
+      await page.route('**/api/v1/admin/workspace-assistant', (route) => {
+        if (route.request().method() === 'GET') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              agentUserId: null,
+              agentName: null,
+              hasActiveToken: false,
+              model: null,
+              thinkingDepth: null,
+            }),
+          });
+        }
+        return route.fallback();
+      });
+      // OAuth 토큰 없음(404) — WorkspaceAssistantSection 토큰게이트용.
+      await page.route(/\/api\/v1\/admin\/agents\/\d+\/oauth-token$/, (route) => {
+        if (route.request().method() === 'GET') {
+          return route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: '없음' }),
+          });
+        }
+        return route.fallback();
+      });
+
       // 1) 페이지 진입 + 신규 AGENT 다이얼로그 열기
       await page.goto('/settings/agents');
       await expect(
-        page.getByRole('heading', { name: '에이전트 관리' }),
+        page.getByRole('heading', { name: '에이전트' }),
       ).toBeVisible();
 
       await page.getByTestId('new-agent-trigger').click();
@@ -274,7 +320,7 @@ test.describe('/admin/agents', () => {
   test('API 키 회수 AlertDialog 취소 → DELETE 호출 없음', async ({ adminPage: page }) => {
     const counts = await setupStatic(page);
     await page.goto('/settings/agents');
-    await expect(page.getByRole('heading', { name: '에이전트 관리' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '에이전트' })).toBeVisible();
     await page.getByTestId(`agent-row-${AGENT_ID}`).click();
     const revokeBtn = page.getByTestId(`key-revoke-${KEY_ID}`);
     await expect(revokeBtn).toBeVisible();

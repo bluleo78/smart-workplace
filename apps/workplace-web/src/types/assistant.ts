@@ -12,7 +12,7 @@ export interface AssistantStatus {
   thinkingDepth: ThinkingDepth | null;
 }
 
-// 공용 비서(admin) 상태. agentUserId 가 null 이면 미지정 상태.
+// 공통 비서(admin) 상태. agentUserId 가 null 이면 미지정 상태.
 export interface WorkspaceAssistant {
   agentUserId: number | null;
   agentName: string | null;

@@ -8,7 +8,7 @@ export function SettingsModuleLayout() {
   return (
     <div className="flex h-full min-h-0 flex-1">
       <SettingsSidebar />
-      <div className="min-w-0 flex-1 overflow-y-auto">
+      <div className="min-w-0 flex-1">
         <Outlet />
       </div>
     </div>

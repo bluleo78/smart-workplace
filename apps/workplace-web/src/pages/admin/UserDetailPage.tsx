@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import { rolesApi } from '../../api/roles';
 import { usersApi } from '../../api/users';
+import { SettingsPage } from '../../components/layout/SettingsPage';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -141,10 +142,24 @@ export default function UserDetailPage() {
     }
   };
 
+  // 뒤로가기 버튼 — 제목 왼쪽에 배치하는 관례 준수 (#102)
+  const backButton = (
+    <Button variant="ghost" size="icon" onClick={() => navigate('/settings/users')} aria-label="목록으로 돌아가기" title="목록으로 돌아가기">
+      <ArrowLeft className="h-4 w-4" />
+    </Button>
+  );
+
+  // 뒤로가기 버튼을 제목 왼쪽에 포함한 title 슬롯 — 좌측 상단 관례 적용
+  const pageTitle = (
+    <span className="flex items-center gap-2">
+      {backButton}
+      사용자 상세
+    </span>
+  );
+
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-2xl space-y-6">
-        <Skeleton className="h-8 w-48" />
+      <SettingsPage title={pageTitle} width="form">
         <Card>
           <CardContent className="space-y-4 pt-6">
             <Skeleton className="h-4 w-64" />
@@ -152,22 +167,14 @@ export default function UserDetailPage() {
             <Skeleton className="h-4 w-56" />
           </CardContent>
         </Card>
-      </div>
+      </SettingsPage>
     );
   }
 
   if (!user) return null;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center gap-4">
-        {/* 사용자 목록으로 돌아가는 뒤로가기 버튼 — 접근성 보강 (#102) */}
-        <Button variant="ghost" size="icon" onClick={() => navigate('/settings/users')} aria-label="목록으로 돌아가기" title="목록으로 돌아가기">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <h1 className="text-[28px] leading-[36px] font-semibold tracking-tight">사용자 상세</h1>
-      </div>
-
+    <SettingsPage title={pageTitle} width="form">
       <Card>
         <CardHeader>
           <CardTitle>기본 정보</CardTitle>
@@ -270,6 +277,6 @@ export default function UserDetailPage() {
           </Button>
         </CardContent>
       </Card>
-    </div>
+    </SettingsPage>
   );
 }

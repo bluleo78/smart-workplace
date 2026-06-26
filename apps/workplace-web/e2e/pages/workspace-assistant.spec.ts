@@ -1,62 +1,28 @@
-// /admin/agents 공용 비서 카드 E2E.
-// 공용 비서가 지정되어 있으나 활성 OAuth 토큰이 없는 상태에서 경고가 노출되는지 검증.
-// 백엔드 없이 GET /admin/workspace-assistant + GET /admin/agents 를 page.route 로 모킹.
+// /settings/agents 공통 비서 E2E — 기존 WorkspaceAssistantCard 제거(Task 7) 후 갱신.
+// 상단 카드 기준 케이스는 모두 agent-workspace-assistant.spec.ts 로 이관.
+// 이 파일은 모델 변경 에러 토스트(#198) 회귀 테스트를 에이전트 상세 섹션 기준으로 유지한다.
+//
+// WorkspaceAssistantSection 의 Radix Select 는 네이티브 <select> 가 아니므로
+// .selectOption() 이 아닌 .click() + getByRole('option') 패턴을 사용한다.
 
 import { expect, test } from '../fixtures/auth.fixture';
 
-test.describe('admin 공용 비서', () => {
-  test('지정 + 토큰 없음 경고', async ({ adminPage: page }) => {
-    // 공용 비서: agentUserId=5 지정, 활성 토큰 없음.
-    await page.route('**/api/v1/admin/workspace-assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            agentUserId: 5,
-            agentName: 'AI',
-            hasActiveToken: false,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-          }),
-        });
-      }
-      return route.fallback();
-    });
+const AGENT_ID = 5;
+const AGENT_FIXTURE = {
+  id: AGENT_ID,
+  username: 'ai_bot',
+  name: 'AI 봇',
+  email: 'ai@bot.local',
+  kind: 'AGENT' as const,
+  isActive: true,
+  createdAt: '2026-05-31T00:00:00Z',
+};
 
-    // AGENT 목록 — UserResponse[] 형태 (id/name/username).
-    await page.route(/\/api\/v1\/admin\/agents$/, (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([
-            {
-              id: 5,
-              username: 'ai',
-              name: 'AI',
-              email: 'ai@example.com',
-              kind: 'AGENT',
-              isActive: true,
-              createdAt: '2026-05-31T00:00:00Z',
-            },
-          ]),
-        });
-      }
-      return route.fallback();
-    });
-
-    await page.goto('/settings/agents');
-
-    // 지정된 AGENT 가 select 에 반영되고, 활성 토큰 없음 경고가 노출되어야 한다.
-    await expect(page.getByTestId('workspace-assistant-agent')).toHaveValue('5');
-    await expect(page.getByTestId('workspace-assistant-warn')).toBeVisible();
-  });
-
-  // #198 — 모델 변경 PUT /settings 실패 시 오류 토스트가 표시되어야 한다(silent failure 방지).
+test.describe('admin 공통 비서', () => {
+  // #198 회귀 — 모델 변경 PUT /settings 실패 시 오류 토스트.
+  // WorkspaceAssistantSection(에이전트 상세)에서 isCurrent=true일 때 모델 드롭다운이 노출된다.
   test('모델 변경 API 실패 시 오류 토스트 표시', async ({ adminPage: page }) => {
-    // PUT /admin/workspace-assistant/settings — 500 에러 반환(설정 변경 경로).
-    // GET /admin/workspace-assistant 보다 먼저 등록해 settings 경로를 우선 가로챈다.
+    // PUT /admin/workspace-assistant/settings — 500 에러(설정 변경 경로).
     await page.route('**/api/v1/admin/workspace-assistant/settings', (route) =>
       route.fulfill({
         status: 500,
@@ -65,15 +31,15 @@ test.describe('admin 공용 비서', () => {
       }),
     );
 
-    // 공용 비서: agentUserId=5 지정, 활성 토큰 있음.
+    // 공통 비서 = AGENT_ID, 활성 토큰 있음 → 모델 드롭다운 노출 조건(isCurrent=true).
     await page.route('**/api/v1/admin/workspace-assistant', (route) => {
       if (route.request().method() === 'GET') {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            agentUserId: 5,
-            agentName: 'AI',
+            agentUserId: AGENT_ID,
+            agentName: AGENT_FIXTURE.name,
             hasActiveToken: true,
             model: 'claude-sonnet-4-6',
             thinkingDepth: 'NORMAL',
@@ -88,29 +54,53 @@ test.describe('admin 공용 비서', () => {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([
-            {
-              id: 5,
-              username: 'ai',
-              name: 'AI',
-              email: 'ai@example.com',
-              kind: 'AGENT',
-              isActive: true,
-              createdAt: '2026-05-31T00:00:00Z',
-            },
-          ]),
+          body: JSON.stringify([AGENT_FIXTURE]),
         });
       }
       return route.fallback();
     });
 
+    // OAuth 토큰 있음(200) — WorkspaceAssistantSection 토큰게이트 비활성.
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/oauth-token$/, (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 1,
+            label: 'ai-token',
+            createdAt: '2026-05-31T00:00:00Z',
+            lastUsedAt: null,
+          }),
+        });
+      }
+      return route.fallback();
+    });
+
+    // API 키 목록 — 빈 배열.
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/keys$/, (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      }
+      return route.fallback();
+    });
+
     await page.goto('/settings/agents');
-    // 모델 드롭다운 변경 → onChange 가 PUT settings 호출(500).
-    await page.getByTestId('workspace-assistant-model').selectOption('claude-opus-4-8');
+
+    // 에이전트 행 선택 → 상세 패널(WorkspaceAssistantSection 표시).
+    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
+
+    // isCurrent=true → 모델 Select 트리거 클릭.
+    const modelTrigger = page.getByTestId('workspace-assistant-model');
+    await expect(modelTrigger).toBeVisible();
+    await modelTrigger.click();
+
+    // Radix Select 옵션 선택 — Claude Opus 4.8.
+    await page.getByRole('option', { name: 'Claude Opus 4.8' }).click();
 
     // 오류 토스트가 표시되어야 한다.
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible();
     // 성공 토스트는 표시되면 안 된다.
-    await expect(page.getByText('공용 비서 설정을 변경했습니다.')).not.toBeVisible();
+    await expect(page.getByText('설정을 변경했습니다.')).not.toBeVisible();
   });
 });

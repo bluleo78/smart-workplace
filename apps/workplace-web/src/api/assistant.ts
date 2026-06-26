@@ -34,20 +34,25 @@ export async function disableMyAssistant(): Promise<void> {
   await client.delete<void>('/users/me/assistant');
 }
 
-// 공용 비서(admin) 상태 조회 — 미지정이면 agentUserId=null.
+// 공통 비서(admin) 상태 조회 — 미지정이면 agentUserId=null.
 export async function getWorkspaceAssistant(): Promise<WorkspaceAssistant> {
   const { data } = await client.get<WorkspaceAssistant>('/admin/workspace-assistant');
   return data;
 }
 
-// 공용 비서 AGENT 유저 지정.
+// 공통 비서 AGENT 유저 지정.
 export async function setWorkspaceAssistant(agentUserId: number): Promise<void> {
   await client.put<void>('/admin/workspace-assistant', { agentUserId });
 }
 
-// 공용 비서 설정(모델/추론 깊이) 변경. 미지정 필드는 변경 없음.
+// 공통 비서 설정(모델/추론 깊이) 변경. 미지정 필드는 변경 없음.
 export async function updateWorkspaceAssistantSettings(
   body: UpdateAssistantSettings,
 ): Promise<void> {
   await client.put<void>('/admin/workspace-assistant/settings', body);
+}
+
+// 공통 비서 지정 해제.
+export async function clearWorkspaceAssistant(): Promise<void> {
+  await client.delete<void>('/admin/workspace-assistant');
 }

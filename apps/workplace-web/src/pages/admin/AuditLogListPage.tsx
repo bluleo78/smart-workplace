@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter';
-import { pageTitleClass } from '@/components/layout/sidebar-link';
+import { SettingsPage } from '@/components/layout/SettingsPage';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -348,9 +348,7 @@ export default function AuditLogListPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <h1 className={pageTitleClass}>감사 로그</h1>
-
+    <SettingsPage title="감사 로그">
       <div className="flex flex-wrap items-center gap-4">
         <SearchInput
           placeholder="설명으로 검색..."
@@ -518,6 +516,6 @@ export default function AuditLogListPage() {
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
       />
-    </div>
+    </SettingsPage>
   );
 }

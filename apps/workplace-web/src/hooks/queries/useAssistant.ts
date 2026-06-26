@@ -4,6 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  clearWorkspaceAssistant,
   disableMyAssistant,
   getMyAssistant,
   getWorkspaceAssistant,
@@ -52,7 +53,7 @@ export function useDisableMyAssistant() {
   });
 }
 
-// 공용 비서 상태 조회.
+// 공통 비서 상태 조회.
 export function useWorkspaceAssistant() {
   return useQuery({
     queryKey: assistantKeys.workspace,
@@ -60,7 +61,7 @@ export function useWorkspaceAssistant() {
   });
 }
 
-// 공용 비서 AGENT 유저 지정.
+// 공통 비서 AGENT 유저 지정.
 export function useSetWorkspaceAssistant() {
   const qc = useQueryClient();
   return useMutation({
@@ -69,12 +70,21 @@ export function useSetWorkspaceAssistant() {
   });
 }
 
-// 공용 비서 설정 변경.
+// 공통 비서 설정 변경.
 export function useUpdateWorkspaceAssistantSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: UpdateAssistantSettings) =>
       updateWorkspaceAssistantSettings(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: assistantKeys.workspace }),
+  });
+}
+
+// 공통 비서 지정 해제.
+export function useClearWorkspaceAssistant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => clearWorkspaceAssistant(),
     onSuccess: () => qc.invalidateQueries({ queryKey: assistantKeys.workspace }),
   });
 }
