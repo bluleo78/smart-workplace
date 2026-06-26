@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "set -a; [ -f ../../.env ] && . ../../.env; set +a; ./gradlew bootRun --args='--spring.profiles.active=local'",
+    "dev": "set -a; [ -f ../../.env ] && . ../../.env; set +a; exec ./gradlew bootRun --args='--spring.profiles.active=local'",
     "build": "./gradlew build -x test",
     "test": "./gradlew test",
     "lint": "./gradlew spotlessCheck",
