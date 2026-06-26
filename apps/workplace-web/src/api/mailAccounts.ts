@@ -49,6 +49,21 @@ export async function getM365AuthorizeUrl(): Promise<string> {
   return data.authorizeUrl;
 }
 
+/**
+ * 팝업 콜백 페이지가 AAD 인가 코드를 백엔드로 중계한다(공개 경로 — state 로 신원 복원).
+ * 성공 200 {connected:true}, 실패 시 axios 가 4xx 로 throw.
+ */
+export async function completeM365OAuth(body: {
+  code: string
+  state: string
+}): Promise<{ connected: boolean }> {
+  const { data } = await client.post<{ connected: boolean }>(
+    '/mail/oauth/m365/complete',
+    body,
+  )
+  return data
+}
+
 // 기존 계정 연결 테스트 — 비밀번호 미입력 시 서버가 저장된 비밀번호로 폴백(#448).
 export async function testMailConnectionForAccount(
   id: number,

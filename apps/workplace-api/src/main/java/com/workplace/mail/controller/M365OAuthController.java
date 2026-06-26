@@ -1,11 +1,11 @@
 package com.workplace.mail.controller;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.config.M365GraphProperties;
 import com.workplace.mail.service.M365OAuthService;
 import com.workplace.mail.service.OAuthStateStore;
 import com.workplace.mail.service.OAuthStateStore.StateData;
-import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
@@ -15,8 +15,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -25,8 +26,8 @@ import org.springframework.web.bind.annotation.RestController;
  * <ul>
  *   <li>{@code GET /api/v1/mail/oauth/m365/start} — 인증 필수. AAD 인가 URL을 JSON(200)으로 반환. 프론트가 인증된
  *       axios로 받아 window.location.href로 이동한다(C1: Bearer 헤더 유실 방지).
- *   <li>{@code GET /api/v1/mail/oauth/m365/callback} — 공개 경로(SecurityConfig 등록). AAD 브라우저 리다이렉트 수신
- *       → state 검증 → token 교환 → 계정 upsert → 웹 앱 리다이렉트.
+ *   <li>{@code POST /api/v1/mail/oauth/m365/complete} — 공개 경로(SecurityConfig 등록). 프론트 콜백 라우트가
+ *       code/state 를 JSON 으로 중계 → state 검증 → token 교환 → 계정 upsert → JSON 응답(302 없음).
  * </ul>
  */
 @Slf4j
@@ -88,66 +89,60 @@ public class M365OAuthController {
     return ResponseEntity.ok(new M365AuthorizeUrlResponse(authorizeUrl));
   }
 
+  /** /complete 요청 DTO — 프론트 콜백 페이지가 code/state 를 JSON 으로 전달. */
+  public record M365CompleteRequest(
+      /** AAD 인가 코드 — 토큰 교환에 사용. */
+      String code,
+      /** CSRF/replay 방지용 state — 발급 시 userId/tenantId 결속, 1회 소비. */
+      String state) {}
+
   /**
-   * AAD 인가 콜백을 처리한다.
+   * /complete 응답 DTO — 연결 성공 여부.
+   *
+   * <p>{@code @JsonInclude(NON_NULL)}: 성공 시 error 가 null 이므로 직렬화에서 생략 → 계약 {connected:true} 유지.
+   */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public record M365CompleteResponse(
+      /** 연결 성공 여부. */
+      boolean connected,
+      /** 실패 사유 코드(invalid_request/connect_failed) — 성공 시 null 로 직렬화에서 생략. */
+      String error) {}
+
+  /**
+   * 프론트 콜백 라우트가 중계한 인가 코드를 처리한다(302 대신 JSON).
    *
    * <p>⚠️ 이 엔드포인트는 JWT 없는 공개 경로다 — JwtAuthenticationFilter 가 실행되지 않아 TenantContext 가 비어 있다. {@link
-   * #oauthService#connect} 는 @Transactional 이므로 TenantAwareTransactionManager.doBegin 이
+   * M365OAuthService#connect} 는 @Transactional 이므로 TenantAwareTransactionManager.doBegin 이
    * TenantContext 를 읽어 GUC 를 주입한다. 컨텍스트가 비면 GUC 미주입 → FORCE RLS fail-closed(#444/#492 패턴). 따라서
-   * stateStore.consume 으로 StateData 를 얻은 후 connect() 호출을 TenantContext.set/finally-clear 로 감싼다(스케줄러
-   * forEachActiveTenant 와 동일 패턴).
+   * stateStore.consume 으로 StateData 를 얻은 후 connect() 호출을 TenantContext.set/finally-clear 로 감싼다.
    *
-   * <p>AAD 동의 거부 시 code 없이 error 파라미터로 리다이렉트됨 — graceful 복귀를 위해 code 는 optional 처리.
+   * <p>AAD 동의 거부(error 파라미터)는 프론트 콜백 페이지가 백엔드를 호출하지 않고 처리하므로, 이 엔드포인트는 code 경로만 다룬다.
    *
-   * @param code AAD 인가 코드 (동의 거부 시 null)
-   * @param error AAD 에러 코드 (동의 거부 시 access_denied 등, 정상 시 null)
-   * @param state CSRF 방지용 state 문자열
-   * @return 302 → 웹 프론트엔드 (성공: ?mail_connected=1, 실패: ?mail_connected=error)
+   * @param req code/state JSON 본문
+   * @return 성공 200 {connected:true} / 유효하지 않은 state·교환 실패 400 {connected:false, error}
    */
-  @GetMapping("/callback")
-  public ResponseEntity<Void> callback(
-      @RequestParam(required = false) String code,
-      @RequestParam(required = false) String error,
-      @RequestParam(required = false) String state) {
-    // AAD 동의 거부 시 graceful 복귀: code 없거나 error 파라미터가 있으면 토큰 교환 없이 에러 페이지로.
-    // state 가 있으면 consume 해 누수를 방지(만료/불일치이면 empty 반환 — 무해).
-    if (code == null || error != null) {
-      log.warn("M365 OAuth 콜백: 동의 거부 또는 에러 수신 (error={})", error);
-      if (state != null) {
-        stateStore.consume(state); // state 누수 방지 — 결과는 사용하지 않음
-      }
-      // 실제 settings/profile 라우트로 직접 리다이렉트(쿼리 유실 방지 — App.tsx /profile→/settings/profile
-      // Navigate는 정적 to라 쿼리스트링을 보존하지 않으므로 백엔드에서 직접 정합)
-      return redirect(props.webBaseUrl() + "/settings/profile?mail_connected=error");
-    }
-
-    Optional<StateData> stateData = stateStore.consume(state);
-    if (stateData.isEmpty()) {
-      // 알 수 없거나 만료된 state — CSRF 거부 또는 만료
-      log.warn("M365 OAuth 콜백: 유효하지 않은 state 거부");
-      // 실제 settings/profile 라우트로 직접 리다이렉트(쿼리 유실 방지)
-      return redirect(props.webBaseUrl() + "/settings/profile?mail_connected=error");
+  @PostMapping("/complete")
+  public ResponseEntity<M365CompleteResponse> complete(@RequestBody M365CompleteRequest req) {
+    // state 1회 소비 — 유효하지 않거나 만료면 거부(CSRF/replay 방어)
+    Optional<StateData> stateData =
+        req.state() == null ? Optional.empty() : stateStore.consume(req.state());
+    if (stateData.isEmpty() || req.code() == null || req.code().isBlank()) {
+      log.warn("M365 OAuth complete: 유효하지 않은 state 또는 code 누락");
+      return ResponseEntity.badRequest().body(new M365CompleteResponse(false, "invalid_request"));
     }
 
     StateData sd = stateData.get();
     // ⚠️ 핵심: JWT 없는 공개 경로 → TenantContext 수동 설정 → GUC 주입 → RLS 통과
     TenantContext.set(sd.tenantId());
     try {
-      oauthService.connect(code, sd);
+      oauthService.connect(req.code(), sd);
+      return ResponseEntity.ok(new M365CompleteResponse(true, null));
     } catch (Exception e) {
       log.error("M365 OAuth 계정 연결 실패: userId={}", sd.userId(), e);
-      // 실제 settings/profile 라우트로 직접 리다이렉트(쿼리 유실 방지)
-      return redirect(props.webBaseUrl() + "/settings/profile?mail_connected=error");
+      return ResponseEntity.badRequest().body(new M365CompleteResponse(false, "connect_failed"));
     } finally {
       TenantContext.clear(); // 공개 경로이므로 다음 요청에 컨텍스트 누수 방지
     }
-
-    // 실제 settings/profile 라우트로 직접 리다이렉트(쿼리 유실 방지)
-    return redirect(props.webBaseUrl() + "/settings/profile?mail_connected=1");
-  }
-
-  private ResponseEntity<Void> redirect(String url) {
-    return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(url)).build();
   }
 
   private static String encode(String value) {

@@ -5,7 +5,8 @@ import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.global.tenant.TenantContext;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -216,11 +218,13 @@ class M365OAuthServiceTest extends IntegrationTestBase {
     // TenantContext 비워 미인증 상태 재현
     TenantContext.clear();
 
-    // 공개 HTTP 경로 호출 — 인증 없음
+    // 공개 HTTP 경로 호출 — 인증 없음. POST /complete JSON.
     mockMvc
         .perform(
-            get("/api/v1/mail/oauth/m365/callback").param("code", "CODE").param("state", state))
-        .andExpect(status().is3xxRedirection());
+            post("/api/v1/mail/oauth/m365/complete")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"code\":\"CODE\",\"state\":\"" + state + "\"}"))
+        .andExpect(status().isOk());
 
     // 검증: TenantContext=tid2 로 (트랜잭션 안에서) 계정이 조회되어야 한다.
     // findFirstByUserAndEmail 이 @Transactional 이 아니므로 TenantAwareTransactionManager.doBegin 이 발화하지
@@ -238,5 +242,22 @@ class M365OAuthServiceTest extends IntegrationTestBase {
     createdAccountId = found.get().id();
     createdTenantId = finalTid2;
     assertThat(found.get().provider()).isEqualTo(com.workplace.mail.dto.MailProvider.M365_GRAPH);
+  }
+
+  /**
+   * 유효하지 않은(미발급/만료) state 는 400 + 응답 {connected:false} (CSRF/replay 방어).
+   *
+   * <p>bogus state 는 stateStore.consume 에서 empty 를 반환하므로 토큰 교환·DB 도달 전에 early-return — 계정이 생성되지
+   * 않는다. (bogus state 에는 결속된 user/tenant 가 없어 DB 미생성 직접 조회는 비현실적이므로 응답 본문 계약으로 검증한다.)
+   */
+  @Test
+  void complete_rejectsInvalidState() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/mail/oauth/m365/complete")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"code\":\"CODE\",\"state\":\"bogus-state\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.connected").value(false));
   }
 }

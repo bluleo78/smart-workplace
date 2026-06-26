@@ -80,6 +80,7 @@ const MailModuleLayout = lazy(() =>
 const MailInboxPage = lazy(() =>
   import('./pages/mail/MailInboxPage').then((m) => ({ default: m.MailInboxPage })),
 )
+const M365CallbackPage = lazy(() => import('./pages/oauth/M365CallbackPage'))
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettingsPage'))
 const MailSettingsPage = lazy(() => import('./pages/settings/MailSettingsPage'))
 const AssistantSettingsPage = lazy(() => import('./pages/settings/AssistantSettingsPage'))
@@ -113,6 +114,8 @@ export default function App() {
           <Route path="/signup" element={<SignupPage />} />
           {/* 공유 링크 다운로드 랜딩 — 인증 불필요 */}
           <Route path="/s/:token" element={<ShareLinkPage />} />
+          {/* M365 OAuth 팝업 콜백 — 토큰 없는 팝업이 착지하므로 ProtectedRoute 밖 공개 라우트 */}
+          <Route path="/oauth/m365/callback" element={<M365CallbackPage />} />
 
           {/* 인증 필요 — ProtectedRoute 가 미인증 시 /login 리다이렉트, 통과 시 AppLayout 렌더 */}
           <Route element={<ProtectedRoute />}>

@@ -21,11 +21,8 @@ public record M365GraphProperties(
     /** Azure AD 앱 클라이언트 시크릿 — 환경변수 M365_CLIENT_SECRET 으로만 주입. */
     String clientSecret,
 
-    /** OAuth2 인증코드 흐름의 리다이렉트 URI. */
-    String redirectUri,
-
-    /** 웹 프론트엔드 베이스 URL(OAuth 완료 후 리다이렉트 등). */
-    String webBaseUrl) {
+    /** OAuth2 인증코드 흐름의 리다이렉트 URI(= 프론트 콜백 라우트). */
+    String redirectUri) {
 
   /**
    * 읽기 슬라이스 최소 권한 scope — 단일 출처 상수.

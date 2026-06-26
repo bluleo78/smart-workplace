@@ -25,8 +25,9 @@ workplace:
       client-id: ${M365_CLIENT_ID:}
       tenant-id: ${M365_TENANT_ID:}
       client-secret: ${M365_CLIENT_SECRET:}
-      redirect-uri: ${M365_REDIRECT_URI:http://localhost:9090/api/v1/mail/oauth/m365/callback}
-      web-base-url: ${WEB_BASE_URL:http://localhost:6173}
+      # 프론트 콜백 라우트(팝업 착지). ⚠️ Azure 앱 등록 시 이 URI 를 "Web" 플랫폼으로 추가해야 함
+      # — "SPA" 로 등록하면 server-side client_secret 교환이 거부됨(AADSTS9002327).
+      redirect-uri: ${M365_REDIRECT_URI:http://localhost:6173/oauth/m365/callback}
   drive:
     default-quota-bytes: 10737418240  # 10 GB
   attachment:

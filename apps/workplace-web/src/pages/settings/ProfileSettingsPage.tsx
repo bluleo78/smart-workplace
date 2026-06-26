@@ -1,10 +1,8 @@
 // apps/workplace-web/src/pages/settings/ProfileSettingsPage.tsx
 // 설정 > 개인 > 프로필 — 프로필 정보 수정 + 비밀번호 변경. (구 ProfilePage 에서 이전)
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
-import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { usersApi } from '@/api/users'
@@ -22,31 +20,6 @@ import { changePasswordSchema, updateProfileSchema } from '@/lib/validations/use
 
 export default function ProfileSettingsPage() {
   const { user, refreshUser } = useAuth()
-  const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-
-  // StrictMode 이중 실행 방어 — toast+navigate를 한 번만 실행하는 가드 ref
-  const mailConnectedHandled = useRef(false)
-
-  // OAuth 콜백 복귀 감지 — 백엔드가 /profile?mail_connected=1 또는 ?mail_connected=error 로 리다이렉트.
-  // React Router Navigate(/profile → /settings/profile)가 쿼리스트링을 보존하므로 여기서 감지.
-  useEffect(() => {
-    const mailConnected = searchParams.get('mail_connected')
-    if (!mailConnected || mailConnectedHandled.current) return
-    mailConnectedHandled.current = true
-
-    if (mailConnected === '1') {
-      toast.success('Outlook 메일 계정이 연결되었습니다.')
-      // 메일 계정 목록 캐시 무효화 — /settings/mail 진입 시 즉시 최신 목록 표시
-      void queryClient.invalidateQueries({ queryKey: ['mail-accounts'] })
-    } else {
-      toast.error('Outlook 계정 연결에 실패했습니다. 다시 시도해 주세요.')
-    }
-
-    // 쿼리스트링 제거(replace: 히스토리 오염 방지)
-    void navigate('/settings/profile', { replace: true })
-  }, [searchParams, navigate, queryClient])
 
   const profileForm = useForm<UpdateProfileFormData>({
     resolver: zodResolver(updateProfileSchema),

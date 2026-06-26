@@ -3,9 +3,10 @@
 // - 수정 모드: 기존 값 프리필. 비밀번호 빈 값이면 서버에서 기존 유지. 저장 버튼 항상 활성화.
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Check, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { type SubmitHandler,useForm } from 'react-hook-form';
+import { useQueryClient } from '@tanstack/react-query';
+import { Check, Loader2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { type SubmitHandler, useForm } from 'react-hook-form';
 
 import { getM365AuthorizeUrl } from '@/api/mailAccounts';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,7 @@ import {
   MAIL_PROVIDER_PRESETS,
   MAIL_SECURITY_OPTIONS,
 } from '@/lib/constants/mailAccount';
+import { M365_OAUTH_CHANNEL, M365_OAUTH_SOURCE, type M365OAuthResult } from '@/lib/m365-oauth';
 import {
   type MailAccountFormData,
   type MailAccountFormInput,
@@ -82,6 +84,97 @@ export function MailAccountDialog({
   // 공급자 선택 — 추가 모드에서만 선택 가능(수정 모드는 기존 provider 고정)
   const [provider, setProvider] = useState<MailProvider>('IMAP');
 
+  const queryClient = useQueryClient();
+  // M365 OAuth 팝업 흐름 상태. idle→connecting→(success 는 닫힘으로 표현)/error/blocked/cancelled.
+  // error=일반 연결 실패, blocked=팝업 차단(window.open null). 메시지 분기를 phase 로 명시(popupRef 비대칭 제거).
+  const [oauthPhase, setOauthPhase] = useState<'idle' | 'connecting' | 'error' | 'blocked' | 'cancelled'>('idle');
+  const popupRef = useRef<Window | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  // 팝업 결과 수신(postMessage + BroadcastChannel) + 사용자 취소(closed) 감지.
+  // connecting 동안에만 활성. 결과 1회 처리 후 정리.
+  useEffect(() => {
+    if (oauthPhase !== 'connecting') return;
+
+    let done = false;
+    const finish = (result: M365OAuthResult) => {
+      if (done) return; // idempotent — postMessage/BroadcastChannel 중복 수신 방어
+      done = true;
+      cleanup();
+      if (result.ok) {
+        setOauthPhase('idle');
+        void queryClient.invalidateQueries({ queryKey: ['mail-accounts'] });
+        onOpenChange(false);
+        // 성공 토스트는 부모(MailSettingsPage) 패턴과 일관되게 여기서 표시
+        void import('sonner').then(({ toast }) => toast.success('Outlook 메일 계정이 연결되었습니다.'));
+      } else {
+        setOauthPhase('error');
+      }
+    };
+
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return; // 출처 검증(보안)
+      const data = e.data as M365OAuthResult | undefined;
+      if (data?.source === M365_OAUTH_SOURCE) finish(data);
+    };
+    const channel = (() => {
+      try {
+        return new BroadcastChannel(M365_OAUTH_CHANNEL);
+      } catch {
+        return null;
+      }
+    })();
+    if (channel) {
+      channel.onmessage = (e: MessageEvent) => {
+        const data = e.data as M365OAuthResult | undefined;
+        if (data?.source === M365_OAUTH_SOURCE) finish(data);
+      };
+    }
+    window.addEventListener('message', onMessage);
+
+    // 결과 없이 팝업이 닫히면 취소로 간주
+    pollRef.current = window.setInterval(() => {
+      if (popupRef.current?.closed && !done) {
+        done = true;
+        cleanup();
+        setOauthPhase('cancelled');
+      }
+    }, 600);
+
+    function cleanup() {
+      window.removeEventListener('message', onMessage);
+      channel?.close();
+      if (pollRef.current != null) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    }
+    return cleanup;
+  }, [oauthPhase, onOpenChange, queryClient]);
+
+  // "Outlook 계정 연결" 클릭: 동기 window.open(팝업 차단 회피) → /start → popup.location.
+  const handleConnectOutlook = () => {
+    // ⚠️ 동기 open 필수 — 비동기 fetch 이후 open 은 사용자 제스처가 풀려 팝업 차단됨.
+    const popup = window.open('', 'm365-oauth', 'width=520,height=640');
+    if (!popup) {
+      setOauthPhase('blocked');
+      popupRef.current = null;
+      return; // 차단 → blocked 상태(아래 안내 문구 분기)
+    }
+    popupRef.current = popup;
+    setOauthPhase('connecting');
+    void getM365AuthorizeUrl()
+      .then((url) => {
+        popup.location.href = url;
+      })
+      .catch(() => {
+        // 인가 URL 조회 실패(일반 연결 실패) — 팝업 닫고 ref 정리 후 error 상태
+        popup.close();
+        popupRef.current = null;
+        setOauthPhase('error');
+      });
+  };
+
   // z.coerce 로 input·output 타입이 달라 RHF 3-제네릭(input, context, output) 사용
   const form = useForm<MailAccountFormInput, unknown, MailAccountFormData>({
     resolver: zodResolver(mailAccountSchema),
@@ -92,6 +185,9 @@ export function MailAccountDialog({
   useEffect(() => {
     if (!open) return;
     setTestResult(null);
+    // OAuth 팝업 상태도 재오픈 시 idle 로 복귀 — stale 한 error/cancelled 잔존 방지
+    setOauthPhase('idle');
+    popupRef.current = null;
     // 수정 모드는 기존 계정 공급자, 추가 모드는 IMAP 기본값
     setProvider(account?.provider ?? 'IMAP');
     if (account) {
@@ -194,38 +290,48 @@ export function MailAccountDialog({
             </FormField>
           )}
 
-          {/* Outlook(M365 Graph) OAuth 연결 안내 — IMAP 폼 전체 숨김 */}
+          {/* Outlook(M365 Graph) OAuth 연결 — 팝업 상태 머신(idle/connecting/error/cancelled) */}
           {isOAuth ? (
-            <div className="space-y-4 py-2">
-              <p className="text-sm text-muted-foreground">
-                Microsoft 계정으로 이동해 권한을 허용하면 자동으로 계정이 연결됩니다.
-                창이 닫히면 메일 설정 페이지로 돌아와 확인하세요.
-              </p>
-              <Button
-                type="button"
-                className="w-full"
-                onClick={async () => {
-                  try {
-                    // 인증된 axios로 인가 URL 조회 후 이동(C1 수정):
-                    // top-level GET /start는 Bearer 헤더 미포함 → userId null → NPE 500.
-                    // axios GET → 응답 URL로 window.location.href 이동으로 변경.
-                    const url = await getM365AuthorizeUrl();
-                    window.location.href = url;
-                  } catch {
-                    /* 토스트는 mutation onError 가 처리 — axios 인터셉터가 토스트 표시 */
-                  }
-                }}
-              >
-                Outlook 계정 연결
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full"
-                onClick={() => onOpenChange(false)}
-              >
-                취소
-              </Button>
+            <div className="space-y-4 py-2" role="status" aria-live="polite">
+              {oauthPhase === 'connecting' ? (
+                <div className="flex flex-col items-center gap-3 py-4 text-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
+                  <p className="text-sm font-medium">Microsoft 창에서 인증을 진행하세요…</p>
+                  <p className="text-xs text-muted-foreground">창이 보이지 않으면 팝업 차단을 확인하세요.</p>
+                </div>
+              ) : (
+                <>
+                  {oauthPhase === 'blocked' && (
+                    <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                      팝업이 차단되었습니다. 팝업을 허용한 뒤 다시 시도하세요.
+                    </div>
+                  )}
+                  {oauthPhase === 'error' && (
+                    <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                      Outlook 계정 연결에 실패했습니다. 다시 시도하세요.
+                    </div>
+                  )}
+                  {oauthPhase === 'cancelled' && (
+                    <p className="text-sm text-muted-foreground">연결이 취소되었습니다.</p>
+                  )}
+                  <p className="text-sm text-muted-foreground">
+                    별도 창에서 Microsoft 로그인이 열립니다. 권한을 허용하면 자동으로 계정이 연결됩니다.
+                  </p>
+                  <Button type="button" className="w-full" onClick={handleConnectOutlook}>
+                    {oauthPhase === 'error' || oauthPhase === 'blocked' || oauthPhase === 'cancelled'
+                      ? '다시 시도'
+                      : 'Outlook 계정 연결'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    취소
+                  </Button>
+                </>
+              )}
             </div>
           ) : (
             <>

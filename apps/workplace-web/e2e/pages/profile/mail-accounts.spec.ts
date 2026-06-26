@@ -211,38 +211,108 @@ test.describe('메일 계정 설정', () => {
     await expect(page.locator('#mail-imap-host')).toHaveCount(0);
   });
 
-  // #499 — OAuth 콜백 복귀(mail_connected=1) 시 토스트 + 목록 refetch
-  test('?mail_connected=1 복귀 시 성공 토스트 표시', async ({ authenticatedPage: page }) => {
-    // /profile?mail_connected=1 → React Router Navigate → /settings/profile?mail_connected=1
-    await mockApi(page, 'GET', '/api/v1/mail/accounts', [account({ provider: 'M365_GRAPH' })]);
-    await page.goto('/settings/profile?mail_connected=1');
-    // 성공 토스트가 표시돼야 함
-    await expect(page.getByText('Outlook 메일 계정이 연결되었습니다.')).toBeVisible();
-  });
+  // M365 Outlook 연결 — 팝업 흐름
 
-  // #499 — Outlook 버튼 클릭 시 인증 axios로 /start 조회 후 AAD URL로 이동
-  test('Outlook 계정 연결 버튼 클릭 시 axios GET /start → AAD URL로 이동', async ({ authenticatedPage: page }) => {
+  /**
+   * M365 팝업 흐름 공통 진입 헬퍼.
+   * 다이얼로그를 열고 공급자를 Outlook(M365_GRAPH)으로 선택한다.
+   * `/api/v1/mail/accounts` 빈 목록 모킹을 포함한다.
+   */
+  async function openMailDialogWithM365(page: import('@playwright/test').Page) {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
-    // /start 가 JSON {authorizeUrl} 반환하도록 모킹(C1 수정: 302 대신 200 JSON)
-    await mockApi(page, 'GET', '/api/v1/mail/oauth/m365/start', {
-      authorizeUrl: 'https://login.microsoftonline.com/test-tenant/oauth2/v2.0/authorize?state=test',
-    });
-    // AAD URL 실제 탐색 차단 — 빈 응답으로 fulfill
-    await page.route('**login.microsoftonline.com**', (route) => route.fulfill({ status: 200, body: '' }));
-
     await page.goto('/settings/mail');
     await page.getByTestId('mail-add-trigger').click();
-
-    // Outlook 공급자 선택
+    await expect(page.getByTestId('mail-account-dialog')).toBeVisible();
     await page.getByRole('combobox', { name: '공급자' }).click();
     await page.getByRole('option', { name: 'Outlook (Microsoft 365)' }).click();
+    // "Outlook 계정 연결" 버튼이 노출될 때까지 대기
+    await expect(page.getByRole('button', { name: 'Outlook 계정 연결' })).toBeVisible();
+  }
 
-    // "Outlook 계정 연결" 버튼 클릭
-    await page.getByRole('button', { name: 'Outlook 계정 연결' }).click();
+  test.describe('M365 Outlook 연결 — 팝업 흐름', () => {
+    test('연결 버튼 → 팝업 open + /start 호출 + connecting 상태, 성공 메시지 수신 시 토스트', async ({
+      authenticatedPage: page,
+    }) => {
+      // window.open 을 제어 가능한 가짜 팝업으로 스텁(실제 MS 이동 방지)
+      await page.addInitScript(() => {
+        ;(window as unknown as { __openCalls: string[] }).__openCalls = []
+        const fakePopup = {
+          location: { href: '' },
+          closed: false,
+          close() {
+            this.closed = true
+          },
+        }
+        window.open = ((url?: string) => {
+          ;(window as unknown as { __openCalls: string[] }).__openCalls.push(url ?? '')
+          ;(window as unknown as { __popup: typeof fakePopup }).__popup = fakePopup
+          return fakePopup as unknown as Window
+        }) as typeof window.open
+      })
 
-    // AAD URL로 이동됐는지 확인 (login.microsoftonline.com)
-    await expect(page).toHaveURL(/login\.microsoftonline\.com/, { timeout: 5000 });
-  });
+      await page.route('**/api/v1/mail/oauth/m365/start', async (route) => {
+        await route.fulfill({ status: 200, json: { authorizeUrl: 'https://login.microsoftonline.com/authorize?x=1' } })
+      })
+
+      await openMailDialogWithM365(page)
+
+      await page.getByRole('button', { name: 'Outlook 계정 연결' }).click()
+
+      // window.open 동기 호출 + 이후 authorizeUrl 로드 검증
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __openCalls: string[] }).__openCalls.length)).toBeGreaterThan(0)
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __popup: { location: { href: string } } }).__popup.location.href)).toContain('login.microsoftonline.com')
+
+      // connecting 상태 노출
+      await expect(page.getByText('Microsoft 창에서 인증을 진행하세요')).toBeVisible()
+
+      // 성공 메시지 수신 모사(postMessage)
+      await page.evaluate(() => {
+        window.postMessage({ source: 'm365-oauth', ok: true }, window.location.origin)
+      })
+
+      await expect(page.getByText('Outlook 메일 계정이 연결되었습니다.')).toBeVisible()
+      // 성공 시 다이얼로그가 닫혀야 함
+      await expect(page.getByTestId('mail-account-dialog')).toBeHidden()
+    })
+
+    test('실패 메시지 수신 시 인라인 에러', async ({ authenticatedPage: page }) => {
+      await page.addInitScript(() => {
+        window.open = (() => ({ location: { href: '' }, closed: false, close() {} } as unknown as Window)) as typeof window.open
+      })
+      await page.route('**/api/v1/mail/oauth/m365/start', async (route) => {
+        await route.fulfill({ status: 200, json: { authorizeUrl: 'https://login.microsoftonline.com/authorize' } })
+      })
+      await openMailDialogWithM365(page)
+      await page.getByRole('button', { name: 'Outlook 계정 연결' }).click()
+      await page.evaluate(() => window.postMessage({ source: 'm365-oauth', ok: false, error: 'connect_failed' }, window.location.origin))
+      await expect(page.getByText('Outlook 계정 연결에 실패했습니다')).toBeVisible()
+    })
+
+    test('팝업 차단(window.open null) 시 즉시 에러', async ({ authenticatedPage: page }) => {
+      await page.addInitScript(() => {
+        window.open = (() => null) as typeof window.open
+      })
+      // window.open null 즉시 return 이라 /start 는 호출되지 않음 → 모킹 불필요
+      await openMailDialogWithM365(page)
+      await page.getByRole('button', { name: 'Outlook 계정 연결' }).click()
+      await expect(page.getByText('팝업이 차단되었습니다')).toBeVisible()
+    })
+
+    test('/start 조회 실패 시 일반 연결 실패 에러(팝업차단과 구분)', async ({ authenticatedPage: page }) => {
+      // 팝업은 정상 열리지만 authorizeUrl 조회가 5xx 로 실패 → .catch 경로 → error phase
+      await page.addInitScript(() => {
+        window.open = (() => ({ location: { href: '' }, closed: false, close() {} } as unknown as Window)) as typeof window.open
+      })
+      await page.route('**/api/v1/mail/oauth/m365/start', async (route) => {
+        await route.fulfill({ status: 500, json: { message: 'server error' } })
+      })
+      await openMailDialogWithM365(page)
+      await page.getByRole('button', { name: 'Outlook 계정 연결' }).click()
+      // 팝업차단 문구가 아니라 일반 연결 실패 문구가 떠야 함
+      await expect(page.getByText('Outlook 계정 연결에 실패했습니다')).toBeVisible()
+      await expect(page.getByText('팝업이 차단되었습니다')).toBeHidden()
+    })
+  })
 
   // #499 — M365_GRAPH provider 계정 행에 'Outlook' 라벨 표시
   test('M365_GRAPH 계정 행에 Outlook 라벨 표시', async ({ authenticatedPage: page }) => {
