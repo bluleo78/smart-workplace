@@ -87,8 +87,8 @@ test('앱 레일 — 데스크톱 모듈 링크 9개가 접근 가능한 이름(
   await expect(nav.getByRole('link')).toHaveCount(9)
 })
 
-// #471 — 브랜드 마크 = 확장 토글. 축소: 마크 클릭→펼치기 / 확장: « 접기.
-test('앱 레일 — 마크 클릭으로 펼치고 « 로 접는다 (#471)', async ({
+// #471 — 브랜드 로고/마크 = 확장 토글. 축소: 마크 클릭→펼치기 / 확장: 로고 클릭→접기(별도 버튼 없음).
+test('앱 레일 — 마크 클릭으로 펼치고 로고 클릭으로 접는다 (#471)', async ({
   authenticatedPage: page,
 }) => {
   await page.goto('/')
@@ -99,7 +99,7 @@ test('앱 레일 — 마크 클릭으로 펼치고 « 로 접는다 (#471)', asy
   await expect(markToggle).toHaveAttribute('aria-label', '사이드바 펼치기')
   await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeHidden()
 
-  // 펼치기 → 라벨 + 워드마크("Workplace") 노출, 접기 버튼(«)으로 전환.
+  // 펼치기 → 라벨 + 워드마크("Workplace") 노출, 로고가 접기 토글로 노출.
   await markToggle.click()
   await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeVisible()
   await expect(page.getByTestId('app-rail').getByText('Workplace')).toBeVisible()
@@ -107,8 +107,9 @@ test('앱 레일 — 마크 클릭으로 펼치고 « 로 접는다 (#471)', asy
   const collapse = page.getByTestId('rail-collapse')
   await expect(collapse).toBeVisible()
   await expect(collapse).toHaveAttribute('aria-expanded', 'true')
+  await expect(collapse).toHaveAttribute('aria-label', '사이드바 접기')
 
-  // 접기 복귀.
+  // 로고 클릭으로 접기 복귀.
   await collapse.click()
   await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeHidden()
 })

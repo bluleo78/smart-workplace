@@ -1,14 +1,13 @@
 // src/components/layout/AppRail.tsx
 // 앱 런처 LNB — 명시적으로 모듈(앱)을 띄우는 레일. 기능 카탈로그가 아님.
-// 정체성: Slack 워크스페이스 레일 / macOS 독. 상단의 브랜드 마크가 확장 토글을 겸한다(#471).
+// 정체성: Slack 워크스페이스 레일 / macOS 독. 상단의 브랜드 로고/마크가 확장 토글을 겸한다(#471).
 // 모듈 내부의 텍스트 맥락(깊은 네비)은 각 모듈의 2차 사이드바가 책임진다.
 // 데스크톱(lg) = 기본 56px 아이콘 레일(라벨은 Tooltip), 펼치면 152px(아이콘+라벨).
-//   축소 시 상단 마크 클릭 → 펼치기, 확장 시 « 클릭 → 접기. localStorage 영속.
+//   축소 시 상단 마크 클릭 → 펼치기, 확장 시 로고 클릭 → 접기(별도 접기 버튼 없음). localStorage 영속.
 // 모바일 = 오버레이 드로어(브랜드 로고 + 아이콘+라벨).
 import {
   BookOpen,
   CalendarDays,
-  ChevronsLeft,
   HardDrive,
   Home,
   LayoutList,
@@ -184,19 +183,16 @@ export function AppRail() {
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        {/* 상단 — 브랜드 마크 = 확장 토글(fire-hub식).
-            · 모바일 드로어/데스크톱 확장: 브랜드 로고(마크+워드마크) 표시
+        {/* 상단 — 브랜드 로고/마크 클릭이 확장 토글을 겸한다(fire-hub식, 별도 접기 버튼 없음).
             · 데스크톱 축소: 마크 자체가 펼치기 토글 버튼(로고는 lg:hidden 으로 숨김)
-            · 데스크톱 확장: 우측 « 접기 버튼 */}
+            · 데스크톱 확장: 로고 클릭이 접기 토글
+            · 모바일 드로어: 로고 표시(토글은 데스크톱 폭 개념이라 화면엔 영향 없음) */}
         <div
           className={cn(
             'flex h-14 shrink-0 items-center border-b px-2 lg:px-1',
-            expanded ? 'lg:justify-between' : 'lg:justify-center',
+            'lg:justify-center',
           )}
         >
-          {/* 로고 — 모바일 항상, 데스크톱은 확장일 때만(축소 시 lg:hidden, 아래 마크 버튼이 대신). */}
-          <BrandLogo expanded={expanded} className={expanded ? 'flex' : 'flex lg:hidden'} />
-
           {/* 데스크톱 축소 전용 — 마크 = 펼치기 토글. */}
           {!expanded && (
             <Tooltip>
@@ -218,19 +214,29 @@ export function AppRail() {
             </Tooltip>
           )}
 
-          {/* 데스크톱 확장 전용 — 접기 버튼. */}
-          {expanded && (
-            <button
-              type="button"
-              onClick={toggle}
-              aria-label="사이드바 접기"
-              aria-expanded
-              data-testid="rail-collapse"
-              className="hidden shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground lg:flex"
-            >
-              <ChevronsLeft className="h-4 w-4" />
-            </button>
-          )}
+          {/* 로고 — 모바일 항상, 데스크톱은 확장일 때만. 클릭하면 접힌다(별도 접기 버튼 없음). */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={toggle}
+                aria-label="사이드바 접기"
+                aria-expanded
+                data-testid="rail-collapse"
+                className={cn(
+                  'shrink-0 rounded-md transition-opacity hover:opacity-80',
+                  expanded ? 'flex' : 'flex lg:hidden',
+                )}
+              >
+                <BrandLogo expanded={expanded} />
+              </button>
+            </TooltipTrigger>
+            {expanded && (
+              <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+                접기
+              </TooltipContent>
+            )}
+          </Tooltip>
         </div>
 
         {/* 모듈 런처 */}
