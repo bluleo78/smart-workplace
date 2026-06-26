@@ -759,7 +759,7 @@ describe('buildTools messaging 위임 — propose_create_issue', () => {
     const c = {
       proposeCreateIssue: async (...a: unknown[]) => { calls.propose.push(a); },
       addChannelMessage: async () => { calls.add++; },
-    } as any;
+    } as unknown as WorkplaceApiClient;
     const tools = buildTools(c, 2, 'messaging', undefined, { actorId: 7, channelId: 9, parentMessageId: 100 });
     const tool = tools.find((t) => t.name === 'propose_create_issue')!;
     expect(tool).toBeTruthy();
@@ -773,7 +773,7 @@ describe('buildTools messaging 위임 — propose_create_issue', () => {
   });
 
   it('propose_create_issue: delegationContext 가 없으면 messaging 프로파일에 노출되지 않는다', () => {
-    const tools = buildTools({} as any, 2, 'messaging');
+    const tools = buildTools({} as unknown as WorkplaceApiClient, 2, 'messaging');
     expect(tools.find((t) => t.name === 'propose_create_issue')).toBeUndefined();
   });
 
@@ -790,7 +790,7 @@ describe('buildTools messaging 위임 — propose_create_issue', () => {
         return Promise.resolve(undefined);
       }),
       addChannelMessage: vi.fn(),
-    } as any;
+    } as unknown as WorkplaceApiClient;
     const tools = buildTools(c, 3, 'messaging', undefined, { actorId: 5, channelId: 11 });
     const tool = tools.find((t) => t.name === 'propose_create_issue')!;
 
@@ -811,12 +811,12 @@ describe('buildTools messaging 위임 — propose_create_issue', () => {
 // L3 위임: propose_create_event — messaging 프로파일에서 delegationContext 유무에 따른 노출/차단 검증.
 describe('buildTools messaging 위임 — propose_create_event', () => {
   it('messaging profile exposes propose_create_event under delegationContext and calls client', async () => {
-    const calls: any[] = [];
+    const calls: unknown[][] = [];
     const client = {
       // 필요한 메서드만 스텁 — listEvents 는 충돌 없음([]) 반환.
       listEvents: async () => [],
-      proposeCreateEvent: async (...args: any[]) => { calls.push(args); },
-    } as any;
+      proposeCreateEvent: async (...args: unknown[]) => { calls.push(args); },
+    } as unknown as WorkplaceApiClient;
     const tools = buildTools(client, 42, 'messaging', undefined, {
       actorId: 7,
       channelId: 9,
@@ -833,13 +833,14 @@ describe('buildTools messaging 위임 — propose_create_event', () => {
     });
     expect(calls).toHaveLength(1);
     // [agentId, channelId, req] — req.proposedByUserId=actorId, actionType 은 client 가 스탬프.
-    expect(calls[0][1]).toBe(9);
-    expect(calls[0][2].title).toBe('스프린트 리뷰');
-    expect(calls[0][2].proposedByUserId).toBe(7);
+    const [, channelId, req] = calls[0] as [number, number, { title: string; proposedByUserId: number }];
+    expect(channelId).toBe(9);
+    expect(req.title).toBe('스프린트 리뷰');
+    expect(req.proposedByUserId).toBe(7);
   });
 
   it('messaging profile WITHOUT delegationContext does not expose propose_create_event', () => {
-    const tools = buildTools({} as any, 42, 'messaging');
+    const tools = buildTools({} as unknown as WorkplaceApiClient, 42, 'messaging');
     expect(tools.find((t) => t.name === 'propose_create_event')).toBeUndefined();
   });
 });

@@ -32,6 +32,8 @@ interface AdaptCtx {
 // - handler: string 반환 → {content:[{type:'text',text}]}, throw → {isError:true,...}.
 // - ctx 있으면 호출 직전/직후 onTool 로 라이브 발행(같은 seq 로 start/result 매칭).
 // 반환 제네릭은 SdkMcpToolDefinition<any> — <z.ZodRawShape> 로 좁히면 InferShape 가 never 추론.
+// (의도적 any: SDK 타입의 한계로 정확한 shape 제네릭을 줄 수 없음 → 룰 단건 비활성)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function adaptMcpTool(t: McpTool, ctx?: AdaptCtx): SdkMcpToolDefinition<any> {
   const shape = (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape;
   return {
