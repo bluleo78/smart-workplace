@@ -51,15 +51,32 @@ class HomeChatServiceTest extends IntegrationTestBase {
         .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
   }
 
+  private final java.util.List<Long> createdUserIds = new java.util.ArrayList<>();
+
+  /**
+   * #512 누수 차단: 비동기 펌프가 커밋한 home_session(메시지 CASCADE)은 user 삭제로 함께 회수된다. USER 는 RLS 비대상이라 트랜잭션 없이
+   * 삭제 가능.
+   */
+  @org.junit.jupiter.api.AfterEach
+  void cleanupUsers() {
+    if (!createdUserIds.isEmpty()) {
+      dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
+      createdUserIds.clear();
+    }
+  }
+
   private long user(String n) {
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, n)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, n)
-        .set(USER.EMAIL, n + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, n)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, n)
+            .set(USER.EMAIL, n + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    createdUserIds.add(id);
+    return id;
   }
 
   private JsonNode widgets(String json) throws Exception {

@@ -46,6 +46,30 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   @org.springframework.beans.factory.annotation.Qualifier("aiChatStreamExecutor")
   AsyncTaskExecutor aiChatStreamExecutor;
 
+  private final List<Long> createdUserIds = new ArrayList<>();
+
+  /**
+   * #512 누수 차단: 비동기 펌프가 커밋한 home_session(메시지 CASCADE)은 user 삭제로 함께 회수된다. USER 는 RLS 비대상이라 트랜잭션 없이
+   * 삭제 가능.
+   */
+  @org.junit.jupiter.api.AfterEach
+  void cleanupUsers() {
+    if (!createdUserIds.isEmpty()) {
+      baseDsl
+          .deleteFrom(com.workplace.jooq.Tables.USER)
+          .where(com.workplace.jooq.Tables.USER.ID.in(createdUserIds))
+          .execute();
+      createdUserIds.clear();
+    }
+  }
+
+  /** createAgentUser(base) + 생성 id 추적 — @AfterEach 에서 회수. */
+  private long seedAgent(String prefix) {
+    long id = createAgentUser(prefix);
+    createdUserIds.add(id);
+    return id;
+  }
+
   /** 전송된 (eventName, data) 쌍을 모으는 기록 컨테이너. */
   static final class SentEvent {
     final String name;
@@ -93,7 +117,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
    */
   @Test
   void progress_콜백을_받으면_SSE_progress_이벤트를_발행한다() throws Exception {
-    long uid = createAgentUser("fwd-prog");
+    long uid = seedAgent("fwd-prog");
     stubAssistant();
 
     CountDownLatch latch = new CountDownLatch(1);
@@ -131,7 +155,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
    */
   @Test
   void pending_action_콜백을_받으면_SSE_pending_action_이벤트를_발행한다() throws Exception {
-    long uid = createAgentUser("fwd-pa");
+    long uid = seedAgent("fwd-pa");
     stubAssistant();
 
     JsonNode proposal =
@@ -172,7 +196,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
    */
   @Test
   void done_콜백의_위젯을_done_이벤트_data_에_포함한다() throws Exception {
-    long uid = createAgentUser("fwd-widgets");
+    long uid = seedAgent("fwd-widgets");
     stubAssistant();
 
     JsonNode widgets =
@@ -210,7 +234,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
    */
   @Test
   void pendingAction_다건_배열_중계() throws Exception {
-    long uid = createAgentUser("fwd-pa-array");
+    long uid = seedAgent("fwd-pa-array");
     stubAssistant();
 
     // 2건 배열 노드: [{actionType, summary, params}, {...}]
@@ -257,7 +281,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
    */
   @Test
   void progress와_tool_이벤트를_누적해_ASSISTANT_메시지에_저장하고_SSE로_패스스루한다() throws Exception {
-    long uid = createAgentUser("fwd-tool-persist");
+    long uid = seedAgent("fwd-tool-persist");
     stubAssistant();
 
     JsonNode toolStart =
@@ -319,7 +343,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
    */
   @Test
   void compose_요청_timeoutMs_를_180s_하한으로_상향한다() throws Exception {
-    long uid = createAgentUser("fwd-timeout-floor");
+    long uid = seedAgent("fwd-timeout-floor");
     // 기본 비서: timeoutMs=60000 (공유 기본값).
     stubAssistant();
 
@@ -354,7 +378,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
    */
   @Test
   void 복원_응답에_tool_calls_가_포함된다() {
-    long uid = createAgentUser("restore-tool-calls");
+    long uid = seedAgent("restore-tool-calls");
     var s = sessionService.create(uid);
     String toolCallsJson =
         "[{\"kind\":\"delegation\",\"label\":\"전문가 위임\"},{\"kind\":\"tool\",\"seq\":1,\"toolName\":\"get_issue\",\"status\":\"done\"}]";

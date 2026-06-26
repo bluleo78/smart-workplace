@@ -52,7 +52,16 @@ class MessagingCalendarProposalTest extends IntegrationTestBase {
 
   @AfterEach
   void tearDown() {
-    TenantContext.clear();
+    // #512 누수 차단: 생성한 proposal/channel/user 를 테넌트 GUC 주입 트랜잭션 안에서 회수(RLS-안전).
+    cleanupInTenant(
+        1L,
+        () -> {
+          dsl.deleteFrom(MESSAGE_ACTION_PROPOSAL)
+              .where(MESSAGE_ACTION_PROPOSAL.CHANNEL_ID.eq(channelId))
+              .execute();
+          channelRepo.hardDelete(channelId); // channel_member/message CASCADE
+          dsl.deleteFrom(USER).where(USER.ID.in(human, agentId)).execute(); // user_role CASCADE
+        });
   }
 
   @Test

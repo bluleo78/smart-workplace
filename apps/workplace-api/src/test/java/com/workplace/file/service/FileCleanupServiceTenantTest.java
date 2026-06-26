@@ -123,6 +123,10 @@ class FileCleanupServiceTenantTest extends IntegrationTestBase {
           dsl.deleteFrom(FILE).where(FILE.ID.eq(fileId2)).execute();
           return null;
         });
+    // 시드 USER 정리(USER 는 RLS 비대상 — FILE 삭제 후 NO ACTION FK 해소되어 삭제 가능). #512 누수 차단.
+    if (userId1 != 0L || userId2 != 0L) {
+      dsl.deleteFrom(USER).where(USER.ID.in(userId1, userId2)).execute();
+    }
     TenantContext.clear();
   }
 

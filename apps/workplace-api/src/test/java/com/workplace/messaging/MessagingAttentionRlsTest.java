@@ -50,20 +50,29 @@ class MessagingAttentionRlsTest {
   /** 테스트가 생성한 채널 ID — @AfterEach 에서 정리 대상. */
   private Long testChannelId;
 
-  /** 테스트 데이터 정리: tenant 1 GUC 로 conversation_attention 삭제 후 채널(CASCADE 포함) 삭제. */
+  /** 테스트가 생성한 USER id — @AfterEach 에서 회수(#512 누수 차단). */
+  private final java.util.List<Long> createdUserIds = new java.util.ArrayList<>();
+
+  /** 테스트 데이터 정리: tenant 1 GUC 로 conversation_attention 삭제 후 채널(CASCADE 포함)·user 삭제. */
   @AfterEach
   void cleanup() {
-    if (testChannelId == null) return;
+    if (testChannelId == null && createdUserIds.isEmpty()) return;
     new TransactionTemplate(txManager)
         .executeWithoutResult(
             status -> {
-              // conversation_attention 은 channel 에 FK CASCADE 없으므로 명시 삭제
               setGuc(1L);
-              dsl.deleteFrom(CONVERSATION_ATTENTION)
-                  .where(CONVERSATION_ATTENTION.CHANNEL_ID.eq(testChannelId))
-                  .execute();
-              // channel_member / message 는 channel 삭제 시 CASCADE 로 제거됨
-              channelRepo.hardDelete(testChannelId);
+              if (testChannelId != null) {
+                // conversation_attention 은 channel 에 FK CASCADE 없으므로 명시 삭제
+                dsl.deleteFrom(CONVERSATION_ATTENTION)
+                    .where(CONVERSATION_ATTENTION.CHANNEL_ID.eq(testChannelId))
+                    .execute();
+                // channel_member / message 는 channel 삭제 시 CASCADE 로 제거됨
+                channelRepo.hardDelete(testChannelId);
+              }
+              // 채널 삭제로 NO ACTION FK(created_by/author_id) 해소 후 user 삭제(USER 는 RLS 비대상)
+              if (!createdUserIds.isEmpty()) {
+                dsl.deleteFrom(USER).where(USER.ID.in(createdUserIds)).execute();
+              }
             });
     TenantContext.clear();
   }
@@ -146,14 +155,17 @@ class MessagingAttentionRlsTest {
 
   /** UUID suffix 유니크 유저 INSERT 후 ID 반환. 호출 시 GUC 가 이미 설정된 트랜잭션 안에서 실행되어야 RLS WITH CHECK 통과. */
   private long insertUser(String name, String suffix) {
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, name + "_" + suffix)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, name)
-        .set(USER.EMAIL, name + "_" + suffix + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, name + "_" + suffix)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, name)
+            .set(USER.EMAIL, name + "_" + suffix + "@example.com")
+            .set(USER.KIND, "HUMAN")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    createdUserIds.add(id);
+    return id;
   }
 }
