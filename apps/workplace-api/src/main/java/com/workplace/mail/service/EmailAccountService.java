@@ -8,9 +8,11 @@ import com.workplace.mail.exception.DuplicateEmailAccountException;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.exception.MailValidationException;
+import com.workplace.mail.outbound.MailDomainEvents.MailAccountConnectedEvent;
 import com.workplace.mail.repository.EmailAccountRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +30,9 @@ public class EmailAccountService {
 
   /** AI 분류 off→on 전환 시 최근 안읽음 classify 를 비동기로 수행하는 서비스. */
   private final MailClassifyBackfillService classifyBackfillService;
+
+  /** 계정 연결 직후 즉시 동기화(#514)를 트리거하기 위한 도메인 이벤트 발행기. */
+  private final ApplicationEventPublisher events;
 
   /** 본인 계정 목록. */
   @Transactional(readOnly = true)
@@ -69,6 +74,8 @@ public class EmailAccountService {
       throw new MailConnectionException(result);
     }
     long id = repo.insert(userId, req, encryption.encrypt(req.password()));
+    // 첫 동기화를 3분 주기 스케줄러까지 기다리지 않도록 즉시 동기화를 트리거(AFTER_COMMIT 에서 소비 — 커밋 후 신규 행이 보여야 sync 가능).
+    events.publishEvent(new MailAccountConnectedEvent(userId, id));
     return repo.findByIdAndUser(userId, id).orElseThrow();
   }
 

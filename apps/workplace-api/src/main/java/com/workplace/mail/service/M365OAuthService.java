@@ -4,12 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.outbound.GraphApiClient;
+import com.workplace.mail.outbound.MailDomainEvents.MailAccountConnectedEvent;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.OAuthStateStore.StateData;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,9 @@ public class M365OAuthService {
   private final EmailAccountRepository accountRepo;
   private final EncryptionService encryption;
   private final ObjectMapper objectMapper;
+
+  /** 계정 연결 직후 즉시 동기화(#514)를 트리거하기 위한 도메인 이벤트 발행기. */
+  private final ApplicationEventPublisher events;
 
   /**
    * OAuth2 인가 코드를 교환하고 M365 계정을 DB 에 upsert 한다.
@@ -59,6 +64,9 @@ public class M365OAuthService {
     long accountId =
         accountRepo.upsertGraphAccount(
             state.userId(), emailAddress, encRefresh, encAccess, expiresAt);
+
+    // 첫 동기화를 3분 주기 스케줄러까지 기다리지 않도록 즉시 동기화를 트리거. 토큰이 막 발급돼 가장 신선한 시점이다(AFTER_COMMIT 소비).
+    events.publishEvent(new MailAccountConnectedEvent(state.userId(), accountId));
 
     log.info("M365 Graph 계정 연결 완료: userId={} accountId={}", state.userId(), accountId);
     return accountId;
