@@ -46,11 +46,24 @@ class AuthServiceTest extends IntegrationTestBase {
   @Autowired private PlatformRoleRepository platformRoleRepository;
 
   /**
-   * 가입 가용성 술어 — 공유 테스트 DB 는 시드 사용자가 있어 비어있지 않으므로 false 여야 한다(부트스트랩 이후 = 공개 가입 차단). 가입 게이트가 읽는 단일
-   * 술어의 회귀 가드.
+   * #512: "사용자 존재" 선행조건을 공유 DB 누적에 의존하지 않고 테스트 트랜잭션 안에서 직접 만든다(롤백됨). signup 의 최초가입 부트스트랩 트리거를 피하려
+   * bare USER 행만 삽입(role 미부여).
    */
+  private void seedExistingUser() {
+    String u = "seed-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+    baseDsl
+        .insertInto(com.workplace.jooq.Tables.USER)
+        .set(com.workplace.jooq.Tables.USER.USERNAME, u)
+        .set(com.workplace.jooq.Tables.USER.PASSWORD, "pw")
+        .set(com.workplace.jooq.Tables.USER.NAME, u)
+        .set(com.workplace.jooq.Tables.USER.EMAIL, u + "@example.com")
+        .execute();
+  }
+
+  /** 가입 가용성 술어 — 사용자가 존재하면 false 여야 한다(부트스트랩 이후 = 공개 가입 차단). 가입 게이트가 읽는 단일 술어의 회귀 가드. */
   @Test
   void isSignupAvailable_falseWhenUsersExist() {
+    seedExistingUser();
     assertThat(authService.isSignupAvailable()).isFalse();
   }
 
@@ -87,6 +100,7 @@ class AuthServiceTest extends IntegrationTestBase {
    */
   @Test
   void signup_subsequentUser_doesNotGrantPlatformRole() {
+    seedExistingUser(); // #512: 선행 사용자 → 이 가입자는 비-최초 → 플랫폼 역할 미부여
     UserResponse result =
         authService.signup(
             new SignupRequest(

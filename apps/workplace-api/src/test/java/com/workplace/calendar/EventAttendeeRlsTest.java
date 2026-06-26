@@ -44,7 +44,16 @@ class EventAttendeeRlsTest extends IntegrationTestBase {
               dsl.execute("SELECT set_config('app.tenant_id', '" + tid2 + "', true)");
 
               // tid2 컨텍스트에서 이벤트 + 참석자 삽입(tenant_id 명시)
-              Long ownerId = dsl.select(USER.ID).from(USER).limit(1).fetchOne().value1();
+              // #512: 빈 DB 에서도 동작하도록 소유자 USER 를 직접 시드(USER 는 RLS 비대상, 트랜잭션과 함께 롤백).
+              Long ownerId =
+                  dsl.insertInto(USER)
+                      .set(USER.USERNAME, "rls-attendee-owner-" + suffix)
+                      .set(USER.PASSWORD, "pw")
+                      .set(USER.NAME, "owner")
+                      .set(USER.EMAIL, "rls-attendee-owner-" + suffix + "@example.com")
+                      .returning(USER.ID)
+                      .fetchOne()
+                      .getId();
               Long eventId =
                   dsl.insertInto(CALENDAR_EVENT)
                       .set(CALENDAR_EVENT.OWNER_ID, ownerId)
