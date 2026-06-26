@@ -2,11 +2,12 @@
 //   ① 합성 레이어(카운트 + 주의 필요) → ② 빠른 액션 → ③ 소스별 위젯 그리드(커스터마이즈 대상).
 // ①② 는 그리드 밖(풀폭) 고정, ③ 만 사용자 저장 레이아웃 순서로 렌더한다.
 // 편집 모드는 ③(위젯 그리드)에만 적용: 표시/숨김·순서 이동·항목 수·되돌리기 → 저장/취소.
-import { ArrowDown, ArrowUp, Eye, EyeOff, Pencil, Plus, Undo2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Eye, EyeOff, Home, Pencil, Plus, Undo2 } from 'lucide-react'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
+import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -331,11 +332,17 @@ export function Dashboard() {
     })
   }
 
-  // 레이아웃 로딩 중에는 ①② 도 데이터가 무의미하므로 전체 스켈레톤(③ 자리).
+  // 홈 상단 헤더 — 타 모듈과 동일한 '아이콘 + 모듈명' PageHeader(#505). 사이드바 없는 홈의 타이틀 담당.
+  const homeIcon = <Home className="h-5 w-5 text-muted-foreground" />
+
+  // 레이아웃 로딩 중에는 ①② 도 데이터가 무의미하므로 전체 스켈레톤(③ 자리). 헤더는 동일 유지.
   if (isLoading)
     return (
-      <div className="h-full overflow-auto p-4">
-        <DashboardSkeleton />
+      <div className="flex h-full flex-col overflow-hidden">
+        <PageHeader data-testid="canvas-header" title="홈" icon={homeIcon} />
+        <div className="flex-1 overflow-auto p-4">
+          <DashboardSkeleton />
+        </div>
       </div>
     )
 
@@ -353,25 +360,30 @@ export function Dashboard() {
   const absentWidgets = allDashboardWidgets().filter((w) => !draftTypes.has(w.type))
 
   return (
-    <div className="h-full space-y-4 overflow-auto p-4">
-      {/* 인사/편집 헤더 — 우측 상단에 편집 토글. */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">홈</h1>
-        {!editing && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-testid="dashboard-edit-toggle"
-            onClick={enterEdit}
-          >
-            <Pencil className="h-4 w-4" />
-            편집
-          </Button>
-        )}
-      </div>
-
-      {/* ① 합성 레이어 — 풀폭(그리드 밖). 편집 중에는 비편집 영역으로 데이터 의미가 약하므로 dim. */}
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* 상단 헤더 — 모듈명(아이콘+'홈')은 PageHeader 가, 편집 진입 토글은 우측 actions 가 담당(#505).
+          편집 중에는 헤더 토글을 숨기고 본문 편집 배너(저장/취소/되돌리기)가 컨트롤을 맡는다. */}
+      <PageHeader
+        data-testid="canvas-header"
+        title="홈"
+        icon={homeIcon}
+        actions={
+          !editing && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="dashboard-edit-toggle"
+              onClick={enterEdit}
+            >
+              <Pencil className="h-4 w-4" />
+              편집
+            </Button>
+          )
+        }
+      />
+      <div className="flex-1 space-y-4 overflow-auto p-4">
+        {/* ① 합성 레이어 — 풀폭(그리드 밖). 편집 중에는 비편집 영역으로 데이터 의미가 약하므로 dim. */}
       <div className={editing ? 'pointer-events-none opacity-60' : undefined}>
         <SynthesisLayer />
         {/* ② 빠른 액션 — 풀폭(그리드 밖). */}
@@ -497,6 +509,7 @@ export function Dashboard() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

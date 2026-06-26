@@ -15,8 +15,8 @@ test('인증 상태에서 홈에 진입한다', { tag: '@smoke' }, async ({ auth
   await page.goto('/')
   // 셸 전환 — 좌측 앱 레일(LNB)이 보이면 인증 셸 진입 성공.
   await expect(page.getByTestId('app-rail')).toBeVisible()
-  // 홈은 사이드바 대신 상단 헤더가 앱 타이틀("Smart Workplace")을 보여준다.
-  await expect(page.getByTestId('canvas-header').getByText('Smart Workplace')).toBeVisible()
+  // 홈은 사이드바 대신 상단 헤더가 모듈 타이틀("홈")을 타 모듈과 동일하게 보여준다(#505).
+  await expect(page.getByTestId('canvas-header').getByText('홈')).toBeVisible()
 })
 
 // 헤더 사용자 메뉴에서 로그아웃 — 서버 호출 + 로그인 페이지 이동
