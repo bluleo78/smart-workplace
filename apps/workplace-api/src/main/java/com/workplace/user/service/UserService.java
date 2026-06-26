@@ -77,6 +77,15 @@ public class UserService {
     return userRepository.findByKind(requireTenant(), kind);
   }
 
+  /**
+   * AGENT 목록 — 워크스페이스 에이전트 관리용. includePersonal=false(기본)면 개인 비서(자동 생성 AGENT)를 제외한다. 개인 비서는 사용자별
+   * 비공개라 기본 목록에서 숨기고, 토글로만 포함한다.
+   */
+  @Transactional(readOnly = true)
+  public List<com.workplace.user.dto.AgentResponse> listAgents(boolean includePersonal) {
+    return userRepository.findAgents(requireTenant(), includePersonal);
+  }
+
   /** 감사 로그용 username 조회 — caller 사용자가 없는 테스트 환경에서는 "system" 으로 대체. */
   private String resolveUsername(Long callerId) {
     if (callerId == null) return "system";

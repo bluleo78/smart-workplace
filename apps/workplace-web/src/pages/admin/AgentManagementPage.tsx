@@ -1,5 +1,5 @@
 // ADMIN — AGENT 유저 + API 키 관리 페이지.
-// 좌측: AGENT 목록 (선택 가능). 우측: 선택된 AGENT 의 공통 비서 섹션 + 인증(API 키/OAuth).
+// 목록은 테이블, 상세(공통 비서 지정 + 인증)는 우측 Drawer(Sheet)로 표시한다.
 // 키 발급 응답에 포함된 plaintextKey 는 즉시 dialog 로 표시 (1회).
 
 import { useState } from 'react';
@@ -16,8 +16,26 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { Switch } from '@/components/ui/switch';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
 import {
@@ -47,11 +65,24 @@ function fmtDateTime(iso: string | null): string {
   }
 }
 
+// 날짜만 간단 표기(테이블 셀용).
+function fmtDate(iso: string | null): string {
+  if (!iso) return '-';
+  try {
+    return new Date(iso).toLocaleDateString('ko-KR');
+  } catch {
+    return iso;
+  }
+}
+
 export default function AgentManagementPage() {
-  const agents = useAgents();
+  // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 숨김 — 워크스페이스 에이전트만 노출.
+  const [includePersonal, setIncludePersonal] = useState(false);
+  const agents = useAgents(includePersonal);
   const deleteAgent = useDeleteAgent();
-  // 공통 비서 상태 — 목록 행 배지 + 빈 상태 배너에 사용.
+  // 공통 비서 상태 — 테이블 배지 + 빈 상태 배너에 사용.
   const ws = useWorkspaceAssistant();
+  // 선택된 에이전트 = Drawer 열림 상태.
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const keys = useAgentKeys(selectedId);
   // selectedId 가 null 인 경우 0 으로 두지만, enabled=false 이므로 호출은 안 됨.
@@ -90,7 +121,7 @@ export default function AgentManagementPage() {
     });
   };
 
-  // AGENT 삭제 — AlertDialog 로 확인 후 실행.
+  // AGENT 삭제 — AlertDialog 로 확인 후 실행. 삭제되면 Drawer 닫는다.
   const onDelete = (id: number, name: string) => {
     setConfirmDialog({
       title: '에이전트 삭제',
@@ -106,6 +137,8 @@ export default function AgentManagementPage() {
   };
 
   const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
+  const isEmpty =
+    !agents.isLoading && !agents.isError && (agents.data ?? []).length === 0;
 
   return (
     <SettingsPage
@@ -120,73 +153,244 @@ export default function AgentManagementPage() {
         </Button>
       }
     >
-      {/* 공통 비서 미지정 시 안내 배너 — ws.data가 로드되었고 agentUserId가 없을 때만 노출. */}
-      {ws.data && ws.data.agentUserId == null ? (
+      {/* 진입 시 안내 배너 — 두 상태를 구분한다.
+          ① 에이전트가 하나도 없으면 먼저 추가하도록 안내(지정할 대상이 없음).
+          ② 에이전트는 있으나 공통 비서가 미지정이면 지정하도록 안내. */}
+      {isEmpty ? (
+        <div
+          data-testid="agent-roster-empty"
+          className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
+        >
+          아직 에이전트가 없어요 — 위 ‘+ 새 에이전트’로 에이전트를 추가한 뒤 공통 비서로
+          지정하세요. 공통 비서가 없으면 개인 비서를 지정하지 않은 구성원은 AI를 쓸 수 없습니다.
+        </div>
+      ) : ws.data && ws.data.agentUserId == null ? (
         <div
           data-testid="workspace-assistant-empty"
           className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
         >
           아직 공통 비서가 없어요 — 개인 비서를 지정하지 않은 구성원은 AI를 쓸 수 없습니다.
-          아래에서 토큰이 등록된 에이전트를 공통 비서로 지정하세요.
+          아래 표에서 토큰이 등록된 에이전트를 골라 공통 비서로 지정하세요.
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-        <aside className="space-y-2 border rounded-md p-2">
-          {agents.isLoading ? (
-            <p className="text-sm text-muted-foreground p-2">로딩 중…</p>
-          ) : agents.isError ? (
-            <p className="text-sm text-destructive p-2">목록을 불러오지 못했습니다</p>
-          ) : (agents.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground p-2">에이전트가 없습니다</p>
-          ) : (
-            <ul className="space-y-1" role="list">
-              {(agents.data ?? []).map((a) => (
-                <li key={a.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(a.id)}
-                    className={`w-full text-left flex items-center gap-2 p-2 rounded transition-colors ${
-                      selectedId === a.id
-                        ? 'bg-accent'
-                        : 'hover:bg-accent/50'
-                    }`}
-                    data-testid={`agent-row-${a.id}`}
-                  >
-                    <AgentBadge size="xs" />
-                    <span className="font-medium truncate">{a.name}</span>
-                    <span className="text-xs text-muted-foreground truncate">
-                      @{a.username}
-                    </span>
-                    {/* 현재 공통 비서인 에이전트에 "공통" 배지 표시. */}
-                    {ws.data?.agentUserId === a.id ? (
-                      <span className="ml-auto rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                        공통
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
+      {/* 개인 비서 포함 토글 — 기본 숨김. 켜면 자동 생성된 개인 비서까지 목록에 표시. */}
+      <div className="flex items-center justify-end gap-2">
+        <Switch
+          id="include-personal"
+          checked={includePersonal}
+          onCheckedChange={setIncludePersonal}
+          data-testid="include-personal-toggle"
+        />
+        <Label htmlFor="include-personal" className="text-sm text-muted-foreground">
+          개인 비서 표시
+        </Label>
+      </div>
 
-        <section className="space-y-4">
-          {selected == null ? (
-            <p className="text-muted-foreground">왼쪽에서 에이전트를 선택하세요</p>
-          ) : (
+      {/* 에이전트 목록 — 테이블. 행 클릭 시 우측 Drawer 로 상세를 연다. */}
+      <div className="rounded-md border">
+        <Table aria-label="에이전트 목록">
+          <TableHeader>
+            <TableRow>
+              <TableHead>에이전트</TableHead>
+              <TableHead>아이디</TableHead>
+              <TableHead>유형</TableHead>
+              <TableHead>생성일</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {agents.isLoading ? (
+              <TableRow>
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                  로딩 중…
+                </TableCell>
+              </TableRow>
+            ) : agents.isError ? (
+              <TableRow>
+                <TableCell colSpan={4} className="py-8 text-center text-destructive">
+                  목록을 불러오지 못했습니다
+                </TableCell>
+              </TableRow>
+            ) : isEmpty ? (
+              <TableRow>
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                  에이전트가 없습니다
+                </TableCell>
+              </TableRow>
+            ) : (
+              (agents.data ?? []).map((a) => (
+                <TableRow
+                  key={a.id}
+                  className="cursor-pointer"
+                  onClick={() => setSelectedId(a.id)}
+                  data-testid={`agent-row-${a.id}`}
+                >
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      {/* 아바타 — 이름 첫 글자. AGENT 정체성 색(ai-accent). */}
+                      <span
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
+                        aria-hidden
+                      >
+                        {a.name.slice(0, 1)}
+                      </span>
+                      <span className="font-medium">{a.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {a.username}
+                  </TableCell>
+                  <TableCell data-testid={`agent-type-${a.id}`}>
+                    {a.type === 'WORKSPACE' ? (
+                      // 공통 비서 = 이 페이지의 초점이므로 채워진 primary 배지로 강조.
+                      <Badge variant="default">공통</Badge>
+                    ) : a.type === 'PERSONAL' ? (
+                      // 개인 비서 = secondary 배지 + 소유자 이름(누구의 비서인지). 줄바꿈 방지.
+                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                        <Badge variant="secondary">개인</Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {a.ownerName ?? '소유자 미상'}
+                        </span>
+                      </span>
+                    ) : (
+                      // 일반 에이전트 = 가장 낮은 강조의 outline 배지.
+                      <Badge variant="outline">일반</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {fmtDate(a.createdAt)}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* 상세 Drawer — 행 클릭 시 우측에서 슬라이드. */}
+      <Sheet
+        open={selected != null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedId(null);
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl"
+          data-testid="agent-detail-drawer"
+        >
+          {selected != null ? (
             <>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-semibold">{selected.name}</h2>
-                  <AgentBadge size="xs" />
-                  <span className="text-sm text-muted-foreground">
-                    @{selected.username}
+              <SheetHeader className="shrink-0 space-y-0 border-b px-6 py-4">
+                <SheetTitle className="flex items-center gap-2">
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
+                    aria-hidden
+                  >
+                    {selected.name.slice(0, 1)}
                   </span>
+                  {selected.name}
+                  <AgentBadge size="xs" />
+                </SheetTitle>
+                <SheetDescription>{selected.username}</SheetDescription>
+              </SheetHeader>
+
+              <div className="flex-1 space-y-4 px-6 py-4">
+                {/* 공통 비서 섹션. */}
+                <WorkspaceAssistantSection agentUserId={selected.id} />
+
+                {/* 인증 — API 키. */}
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">API 키</h3>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void onIssue();
+                    }}
+                    className="flex gap-2"
+                    data-testid="key-issue-form"
+                  >
+                    <Input
+                      value={label}
+                      onChange={(e) => setLabel(e.target.value)}
+                      placeholder="label (선택)"
+                      maxLength={80}
+                      aria-label="키 label"
+                    />
+                    <Button type="submit" disabled={issue.isPending}>
+                      키 발급
+                    </Button>
+                  </form>
+
+                  <div className="rounded-md border overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-muted-foreground border-b">
+                          <th className="py-2 px-3">prefix</th>
+                          <th className="px-3">label</th>
+                          <th className="px-3">발급</th>
+                          <th className="px-3">마지막 사용</th>
+                          <th className="px-3">회수</th>
+                          <th className="px-3"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {keys.isLoading ? (
+                          <tr>
+                            <td colSpan={6} className="py-4 text-muted-foreground text-center">
+                              로딩 중…
+                            </td>
+                          </tr>
+                        ) : (keys.data ?? []).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-4 text-muted-foreground text-center">
+                              키가 없습니다
+                            </td>
+                          </tr>
+                        ) : (
+                          (keys.data ?? []).map((k) => (
+                            <tr key={k.id} className="border-b" data-testid={`key-row-${k.id}`}>
+                              <td className="py-2 px-3 font-mono">{k.keyPrefix}…</td>
+                              <td className="px-3">{k.label ?? '-'}</td>
+                              <td className="px-3 text-xs text-muted-foreground">
+                                {fmtDateTime(k.createdAt)}
+                              </td>
+                              <td className="px-3 text-xs text-muted-foreground">
+                                {fmtDateTime(k.lastUsedAt)}
+                              </td>
+                              <td className="px-3 text-xs text-muted-foreground">
+                                {fmtDateTime(k.revokedAt)}
+                              </td>
+                              <td className="px-3">
+                                {k.revokedAt == null && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => onRevoke(k.id)}
+                                    data-testid={`key-revoke-${k.id}`}
+                                  >
+                                    회수
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
+
+                {/* 인증 — OAuth 토큰. */}
+                <OAuthTokenSection agentUserId={selected.id} />
+              </div>
+
+              {/* 위험 영역 — 에이전트 삭제. */}
+              <div className="shrink-0 border-t px-6 py-4">
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="text-destructive hover:text-destructive"
                   onClick={() => onDelete(selected.id, selected.name)}
                   disabled={deleteAgent.isPending}
                   data-testid={`agent-delete-${selected.id}`}
@@ -194,108 +398,10 @@ export default function AgentManagementPage() {
                   에이전트 삭제
                 </Button>
               </div>
-
-              {/* 신원 헤더 아래, 인증(API 키/OAuth) 섹션 위에 공통 비서 섹션 삽입. */}
-              <WorkspaceAssistantSection agentUserId={selected.id} />
-
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium">API 키</h3>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void onIssue();
-                  }}
-                  className="flex gap-2"
-                  data-testid="key-issue-form"
-                >
-                  <Input
-                    value={label}
-                    onChange={(e) => setLabel(e.target.value)}
-                    placeholder="label (선택)"
-                    maxLength={80}
-                    aria-label="키 label"
-                  />
-                  <Button type="submit" disabled={issue.isPending}>
-                    키 발급
-                  </Button>
-                </form>
-
-                <div className="rounded-md border overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-muted-foreground border-b">
-                        <th className="py-2 px-3">prefix</th>
-                        <th className="px-3">label</th>
-                        <th className="px-3">발급</th>
-                        <th className="px-3">마지막 사용</th>
-                        <th className="px-3">회수</th>
-                        <th className="px-3"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {keys.isLoading ? (
-                        <tr>
-                          <td
-                            colSpan={6}
-                            className="py-4 text-muted-foreground text-center"
-                          >
-                            로딩 중…
-                          </td>
-                        </tr>
-                      ) : (keys.data ?? []).length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={6}
-                            className="py-4 text-muted-foreground text-center"
-                          >
-                            키가 없습니다
-                          </td>
-                        </tr>
-                      ) : (
-                        (keys.data ?? []).map((k) => (
-                          <tr
-                            key={k.id}
-                            className="border-b"
-                            data-testid={`key-row-${k.id}`}
-                          >
-                            <td className="py-2 px-3 font-mono">
-                              {k.keyPrefix}…
-                            </td>
-                            <td className="px-3">{k.label ?? '-'}</td>
-                            <td className="px-3 text-xs text-muted-foreground">
-                              {fmtDateTime(k.createdAt)}
-                            </td>
-                            <td className="px-3 text-xs text-muted-foreground">
-                              {fmtDateTime(k.lastUsedAt)}
-                            </td>
-                            <td className="px-3 text-xs text-muted-foreground">
-                              {fmtDateTime(k.revokedAt)}
-                            </td>
-                            <td className="px-3">
-                              {k.revokedAt == null && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => onRevoke(k.id)}
-                                  data-testid={`key-revoke-${k.id}`}
-                                >
-                                  회수
-                                </Button>
-                              )}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <OAuthTokenSection agentUserId={selected.id} />
             </>
-          )}
-        </section>
-      </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
 
       <NewAgentDialog open={showNew} onOpenChange={setShowNew} />
       <AgentKeyIssueDialog

@@ -9,6 +9,7 @@ import com.workplace.global.dto.PageResponse;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
@@ -119,6 +120,41 @@ class UserServiceTest extends IntegrationTestBase {
 
     assertThat(ids).contains(agentT1);
     assertThat(ids).doesNotContain(agentT2);
+  }
+
+  @Test
+  void listAgents_excludesPersonalAssistantsByDefault_includesWhenRequested() {
+    // 워크스페이스 에이전트(관리자 생성) 1개 + 개인 비서 형태(__assistant_u*) 1개를 같은 테넌트에 시드.
+    long nano = System.nanoTime();
+    Long workspaceAgent = seedAgent("ws-agent-" + nano);
+    membershipRepository.create(workspaceAgent, TENANT_ID, "ACTIVE");
+    Long personalAgent = seedAgent("__assistant_u" + nano);
+    membershipRepository.create(personalAgent, TENANT_ID, "ACTIVE");
+    // testUser 를 personalAgent 의 소유자로 연결 → ownerName 검증.
+    dsl.update(USER)
+        .set(USER.PERSONAL_ASSISTANT_AGENT_ID, personalAgent)
+        .where(USER.ID.eq(testUserId))
+        .execute();
+
+    // 기본(includePersonal=false): 개인 비서는 제외, 워크스페이스 에이전트만.
+    List<Long> defaultIds = userService.listAgents(false).stream().map(AgentResponse::id).toList();
+    assertThat(defaultIds).contains(workspaceAgent);
+    assertThat(defaultIds).doesNotContain(personalAgent);
+
+    // includePersonal=true: 둘 다 포함 + 유형/소유자 분류.
+    List<AgentResponse> all = userService.listAgents(true);
+    assertThat(all.stream().map(AgentResponse::id).toList())
+        .contains(workspaceAgent, personalAgent);
+
+    AgentResponse personal =
+        all.stream().filter(a -> a.id().equals(personalAgent)).findFirst().orElseThrow();
+    assertThat(personal.type()).isEqualTo(AgentResponse.TYPE_PERSONAL);
+    assertThat(personal.ownerName()).isEqualTo("Test User");
+
+    AgentResponse workspace =
+        all.stream().filter(a -> a.id().equals(workspaceAgent)).findFirst().orElseThrow();
+    assertThat(workspace.type()).isEqualTo(AgentResponse.TYPE_REGULAR);
+    assertThat(workspace.ownerName()).isNull();
   }
 
   /** 검색 가능한 이름(tag)을 가진 HUMAN 사용자 시드. */

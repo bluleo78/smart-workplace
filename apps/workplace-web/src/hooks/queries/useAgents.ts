@@ -8,12 +8,14 @@ import { handleApiError } from '../../lib/api-error';
 
 export const agentKeys = {
   all: ['agents'] as const,
+  list: (includePersonal: boolean) => ['agents', { includePersonal }] as const,
 };
 
-export function useAgents() {
+// includePersonal=true 면 개인 비서(자동 생성 AGENT)까지 포함해 조회한다.
+export function useAgents(includePersonal = false) {
   return useQuery({
-    queryKey: agentKeys.all,
-    queryFn: listAgents,
+    queryKey: agentKeys.list(includePersonal),
+    queryFn: () => listAgents(includePersonal),
   });
 }
 

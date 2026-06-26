@@ -1,8 +1,8 @@
 package com.workplace.auth.controller;
 
 import com.workplace.global.security.RequirePermission;
+import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.CreateAgentRequest;
-import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.service.UserService;
 import jakarta.validation.Valid;
@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Phase 5a — ADMIN 의 AGENT 유저 CRUD. user:write 권한이 필요하다 (ADMIN 만 보유). */
@@ -26,11 +27,12 @@ public class AdminAgentController {
 
   private final UserService userService;
 
-  /** AGENT 목록. */
+  /** AGENT 목록. includePersonal=false(기본)면 개인 비서(자동 생성 AGENT)를 제외한다. */
   @GetMapping
   @RequirePermission("user:write")
-  public ResponseEntity<List<UserResponse>> list() {
-    return ResponseEntity.ok(userService.listByKind(UserKind.AGENT));
+  public ResponseEntity<List<AgentResponse>> list(
+      @RequestParam(name = "includePersonal", defaultValue = "false") boolean includePersonal) {
+    return ResponseEntity.ok(userService.listAgents(includePersonal));
   }
 
   /** AGENT 생성. */

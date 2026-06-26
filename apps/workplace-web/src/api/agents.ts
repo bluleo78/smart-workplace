@@ -1,6 +1,7 @@
 // AGENT 유저 + API 키 ADMIN 엔드포인트 — 권한 `user:manage` 필요.
 // baseURL `/api/v1` 가 client 에 포함되어 있어 경로는 상대로 작성.
 
+import type { AgentResponse } from '../types/agent';
 import type { AgentApiKey, AgentApiKeyIssueResponse } from '../types/agentKey';
 import type {
   OAuthTokenMeta,
@@ -9,9 +10,12 @@ import type {
 import type { UserResponse } from '../types/auth';
 import { client } from './client';
 
-// AGENT 유저 목록 조회 — kind=AGENT 만 반환됨.
-export async function listAgents(): Promise<UserResponse[]> {
-  const { data } = await client.get<UserResponse[]>('/admin/agents');
+// AGENT 유저 목록 조회 — kind=AGENT 만 반환됨. 응답엔 유형(type)·소유자(ownerName) 포함.
+// includePersonal=false(기본)면 개인 비서(자동 생성 AGENT)는 제외된다.
+export async function listAgents(includePersonal = false): Promise<AgentResponse[]> {
+  const { data } = await client.get<AgentResponse[]>('/admin/agents', {
+    params: includePersonal ? { includePersonal: true } : undefined,
+  });
   return data;
 }
 

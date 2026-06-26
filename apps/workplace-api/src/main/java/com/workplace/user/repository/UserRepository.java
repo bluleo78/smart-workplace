@@ -101,6 +101,66 @@ public class UserRepository {
         .fetch(this::mapToUserResponse);
   }
 
+  /**
+   * AGENT 목록을 active 테넌트로 스코프한다. includePersonal=false 면 개인 비서로 자동 생성된 AGENT(username 접두어
+   * `__assistant_u`)를 제외한다 — 개인 비서는 사용자별 비공개이며 각자 /settings/assistant 에서 관리하므로 워크스페이스 에이전트 관리 목록의
+   * 기본 노출 대상이 아니다. (접두어는 PersonalAssistantService.ensurePersonalAgent 의 생성 규칙과 일치.)
+   */
+  public List<com.workplace.user.dto.AgentResponse> findAgents(
+      Long tenantId, boolean includePersonal) {
+    // 개인 비서 소유자(사람) 이름을 얻기 위한 self-join: owner.personal_assistant_agent_id = agent.id.
+    com.workplace.jooq.tables.User owner = USER.as("owner");
+    Condition where =
+        MEMBERSHIP.TENANT_ID.eq(tenantId).and(USER.KIND.eq(com.workplace.user.dto.UserKind.AGENT));
+    if (!includePersonal) {
+      // startsWith 는 LIKE 와일드카드를 이스케이프하므로 `__` 가 임의문자로 해석되지 않는다.
+      where = where.and(USER.USERNAME.startsWith("__assistant_u").not());
+    }
+    return dsl.select(
+            USER.ID,
+            USER.USERNAME,
+            USER.EMAIL,
+            USER.NAME,
+            USER.IS_ACTIVE,
+            USER.CREATED_AT,
+            owner.NAME,
+            WORKSPACE_ASSISTANT.AGENT_USER_ID)
+        .from(USER)
+        .join(MEMBERSHIP)
+        .on(USER.ID.eq(MEMBERSHIP.USER_ID))
+        // 소유자(개인 비서 주인) — 없으면 null.
+        .leftJoin(owner)
+        .on(owner.PERSONAL_ASSISTANT_AGENT_ID.eq(USER.ID))
+        // 이 테넌트의 공통 비서로 지정됐는지(RLS 로 현재 테넌트 행만 보임).
+        .leftJoin(WORKSPACE_ASSISTANT)
+        .on(WORKSPACE_ASSISTANT.AGENT_USER_ID.eq(USER.ID))
+        .where(where)
+        .orderBy(USER.NAME.asc(), USER.ID.asc())
+        .fetch(
+            r -> {
+              String username = r.get(USER.USERNAME);
+              String ownerName = r.get(owner.NAME);
+              Long wsAgentId = r.get(WORKSPACE_ASSISTANT.AGENT_USER_ID);
+              // 유형 우선순위: 개인(__assistant_u 접두어) > 공통(지정) > 일반.
+              boolean isPersonal = username != null && username.startsWith("__assistant_u");
+              String type =
+                  isPersonal
+                      ? com.workplace.user.dto.AgentResponse.TYPE_PERSONAL
+                      : (wsAgentId != null
+                          ? com.workplace.user.dto.AgentResponse.TYPE_WORKSPACE
+                          : com.workplace.user.dto.AgentResponse.TYPE_REGULAR);
+              return new com.workplace.user.dto.AgentResponse(
+                  r.get(USER.ID),
+                  username,
+                  r.get(USER.EMAIL),
+                  r.get(USER.NAME),
+                  Boolean.TRUE.equals(r.get(USER.IS_ACTIVE)),
+                  r.get(USER.CREATED_AT),
+                  type,
+                  isPersonal ? ownerName : null);
+            });
+  }
+
   public Optional<String> findPasswordByUsername(String username) {
     return dsl.select(USER.PASSWORD)
         .from(USER)

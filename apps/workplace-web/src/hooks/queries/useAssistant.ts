@@ -66,7 +66,11 @@ export function useSetWorkspaceAssistant() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (agentUserId: number) => setWorkspaceAssistant(agentUserId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: assistantKeys.workspace }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: assistantKeys.workspace });
+      // 에이전트 목록의 '유형' 컬럼(공통/일반)도 갱신.
+      qc.invalidateQueries({ queryKey: ['agents'] });
+    },
   });
 }
 
@@ -85,6 +89,10 @@ export function useClearWorkspaceAssistant() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => clearWorkspaceAssistant(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: assistantKeys.workspace }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: assistantKeys.workspace });
+      // 에이전트 목록의 '유형' 컬럼(공통/일반)도 갱신.
+      qc.invalidateQueries({ queryKey: ['agents'] });
+    },
   });
 }

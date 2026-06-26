@@ -16,6 +16,8 @@ const AGENT_FIXTURE = {
   kind: 'AGENT' as const,
   isActive: true,
   createdAt: '2026-05-31T00:00:00Z',
+  type: 'REGULAR' as const,
+  ownerName: null,
 };
 
 // OAuth 토큰 메타 픽스처 — 등록 상태.
@@ -272,8 +274,8 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
     await expect(page.getByTestId('workspace-assistant-warn')).toBeVisible();
   });
 
-  // 시나리오 4: 공통 비서 미지정 → 빈 상태 배너 노출.
-  test('공통 비서 미지정 시 상단 배너를 보인다', async ({ adminPage: page }) => {
+  // 시나리오 4: 에이전트는 있으나 공통 비서 미지정 → 지정 안내 배너 노출.
+  test('에이전트 있음 + 공통 비서 미지정 → 지정 안내 배너', async ({ adminPage: page }) => {
     await page.route('**/api/v1/admin/workspace-assistant', (route) => {
       if (route.request().method() === 'GET') {
         return route.fulfill({
@@ -291,6 +293,35 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       return route.fallback();
     });
 
+    // 에이전트는 존재(setupBase 가 [AGENT_FIXTURE] 반환).
+    await setupBase(page);
+    await page.goto('/settings/agents');
+
+    // 공통 비서 지정 안내 배너가 보이고, 에이전트 없음 배너는 안 보여야 한다.
+    await expect(page.getByTestId('workspace-assistant-empty')).toBeVisible();
+    await expect(page.getByTestId('agent-roster-empty')).toHaveCount(0);
+  });
+
+  // 시나리오 6: 에이전트가 하나도 없음 → 에이전트 추가 안내 배너(공통 비서 지정 안내 아님).
+  test('에이전트 0개 → 에이전트 추가 안내 배너', async ({ adminPage: page }) => {
+    await page.route('**/api/v1/admin/workspace-assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            agentUserId: null,
+            agentName: null,
+            hasActiveToken: false,
+            model: null,
+            thinkingDepth: null,
+          } satisfies WorkspaceAssistant),
+        });
+      }
+      return route.fallback();
+    });
+
+    // 에이전트 목록 빈 배열.
     await page.route(/\/api\/v1\/admin\/agents$/, (route) => {
       if (route.request().method() === 'GET') {
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
@@ -300,7 +331,85 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
 
     await page.goto('/settings/agents');
 
-    // 빈 상태 배너가 표시되어야 한다.
-    await expect(page.getByTestId('workspace-assistant-empty')).toBeVisible();
+    // 에이전트 추가 안내 배너가 보이고, 공통 비서 지정 안내 배너는 안 보여야 한다.
+    await expect(page.getByTestId('agent-roster-empty')).toBeVisible();
+    await expect(page.getByTestId('workspace-assistant-empty')).toHaveCount(0);
+  });
+
+  // 시나리오 7: 개인 비서 표시 토글 — 기본 숨김, 켜면 includePersonal=true 로 재조회해 포함.
+  test('개인 비서 표시 토글 — 기본 숨김, 켜면 포함 + 아이디에 @ 프리픽스 없음', async ({
+    adminPage: page,
+  }) => {
+    const wsAgent = {
+      id: 5,
+      username: 'ws_bot',
+      name: 'WS 봇',
+      email: 'ws@bot.local',
+      kind: 'AGENT' as const,
+      isActive: true,
+      createdAt: '2026-05-31T00:00:00Z',
+      type: 'REGULAR' as const,
+      ownerName: null,
+    };
+    const personalAgent = {
+      id: 9,
+      username: '__assistant_u1',
+      name: '개인 비서',
+      email: 'assistant.u1@workplace.local',
+      kind: 'AGENT' as const,
+      isActive: true,
+      createdAt: '2026-05-31T00:00:00Z',
+      type: 'PERSONAL' as const,
+      ownerName: '양동희',
+    };
+
+    // includePersonal 쿼리에 따라 목록을 분기 — 백엔드 필터 동작을 모킹.
+    await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const include =
+        new URL(route.request().url()).searchParams.get('includePersonal') === 'true';
+      const body = include ? [personalAgent, wsAgent] : [wsAgent];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      });
+    });
+    await page.route('**/api/v1/admin/workspace-assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            agentUserId: null,
+            agentName: null,
+            hasActiveToken: false,
+            model: null,
+            thinkingDepth: null,
+          } satisfies WorkspaceAssistant),
+        });
+      }
+      return route.fallback();
+    });
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/keys$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+
+    await page.goto('/settings/agents');
+
+    // 기본: 워크스페이스 에이전트만, 개인 비서 숨김.
+    await expect(page.getByTestId('agent-row-5')).toBeVisible();
+    await expect(page.getByTestId('agent-row-9')).toHaveCount(0);
+    // 아이디 컬럼에 @ 프리픽스가 없어야 한다.
+    await expect(page.getByTestId('agent-row-5')).toContainText('ws_bot');
+    await expect(page.getByTestId('agent-row-5')).not.toContainText('@ws_bot');
+    // 유형 컬럼: 워크스페이스 에이전트는 '일반'.
+    await expect(page.getByTestId('agent-type-5')).toContainText('일반');
+
+    // 토글 ON → 개인 비서 포함 + 유형 '개인' + 소유자 이름 표시.
+    await page.getByTestId('include-personal-toggle').click();
+    await expect(page.getByTestId('agent-row-9')).toBeVisible();
+    await expect(page.getByTestId('agent-type-9')).toContainText('개인');
+    await expect(page.getByTestId('agent-type-9')).toContainText('양동희');
   });
 });
