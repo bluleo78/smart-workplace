@@ -47,8 +47,8 @@ public class M365OAuthService {
     // 인가 코드 → access_token / refresh_token / id_token 교환
     GraphApiClient.TokenResponse tokens = graphApiClient.exchangeCode(code);
 
-    // id_token 에서 이메일 추출 (서명 검증 불필요 — TLS HTTPS 직접 수신)
-    String emailAddress = extractEmailFromIdToken(tokens.idToken());
+    // 실제 메일박스 주소 확보 — 로그인 ID(UPN)와 메일 주소가 다를 수 있으므로 Graph /me 의 mail(주 SMTP)을 우선.
+    String emailAddress = resolveMailboxAddress(tokens.accessToken(), tokens.idToken());
 
     // 토큰 암호화 — 평문이 로그/DB 에 노출되지 않도록
     String encRefresh = encryption.encrypt(tokens.refreshToken());
@@ -62,6 +62,37 @@ public class M365OAuthService {
 
     log.info("M365 Graph 계정 연결 완료: userId={} accountId={}", state.userId(), accountId);
     return accountId;
+  }
+
+  /**
+   * 연결할 메일박스의 실제 주소를 확보한다.
+   *
+   * <p>로그인 ID(UPN)와 메일 주소가 다를 수 있으므로, Graph {@code /me} 의 {@code mail}(주 SMTP 주소)을 우선 사용하고,
+   * 비어 있으면 {@code userPrincipalName}(로그인 UPN)으로 폴백한다. {@code /me} 호출이 실패하면 id_token 클레임으로 최종 폴백한다.
+   * 동기화는 {@code /me/messages}(로그인 사용자 본인 메일박스)를 사용하므로, 저장 주소는 표시·식별 용도다.
+   *
+   * @param accessToken Graph 호출용 access_token
+   * @param idToken 폴백용 id_token
+   * @return 메일박스 주소
+   */
+  private String resolveMailboxAddress(String accessToken, String idToken) {
+    try {
+      JsonNode me = graphApiClient.get(accessToken, "/me?$select=mail,userPrincipalName", JsonNode.class);
+      if (me != null) {
+        JsonNode mail = me.get("mail");
+        if (mail != null && !mail.isNull() && !mail.asText().isBlank()) {
+          return mail.asText();
+        }
+        JsonNode upn = me.get("userPrincipalName");
+        if (upn != null && !upn.isNull() && !upn.asText().isBlank()) {
+          return upn.asText();
+        }
+      }
+    } catch (Exception e) {
+      // 토큰/주소 노출 방지를 위해 예외 요약만 기록 후 id_token 폴백
+      log.warn("Graph /me 메일박스 주소 조회 실패 — id_token 폴백: {}", e.toString());
+    }
+    return extractEmailFromIdToken(idToken);
   }
 
   /**
