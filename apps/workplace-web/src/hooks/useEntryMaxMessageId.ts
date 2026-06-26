@@ -13,6 +13,10 @@ export function useEntryMaxMessageId(
   messages: { id: number }[],
 ): number | null {
   const ref = useRef<{ channelId: number; maxId: number } | null>(null)
+  // 의도적 렌더타임 ref 스냅샷(#491): 진입 시점의 maxId 를 채널별로 1회 고정한다.
+  // effect 로 옮기면 스냅샷이 렌더 이후로 밀려 진입 직후 메시지들이 미읽음으로 잡히고
+  // 유령 구분선/캐치업이 부활한다 → react-hooks/refs 룰을 이 블록에 한해 비활성.
+  /* eslint-disable react-hooks/refs */
   if (channelId != null && messages.length > 0) {
     if (ref.current === null || ref.current.channelId !== channelId) {
       ref.current = {
@@ -22,4 +26,5 @@ export function useEntryMaxMessageId(
     }
   }
   return ref.current && ref.current.channelId === channelId ? ref.current.maxId : null
+  /* eslint-enable react-hooks/refs */
 }

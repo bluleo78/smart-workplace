@@ -3,13 +3,12 @@ import { LayoutGrid, LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
-import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDialog'
-
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { useProjects } from '@/hooks/queries/useProjects'
 import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
 import { projectColor, projectInitial } from '@/lib/project-color'
+import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDialog'
 
 export function IssueSidebar() {
   // 프로젝트 생성 다이얼로그 열림 상태 — 섹션 헤더 + 버튼이 트리거한다.
