@@ -14,9 +14,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 선제 배치 요약 — 안읽은·미요약 최근 메일의 본문을 (필요 시 IMAP) 적재한 뒤 요약을 미리 채운다.
- * 분류 백필({@link MailClassifyBackfillService})과 달리 본문이 필요하므로 미적재 시 fetchBody 로 IMAP 왕복.
- * best-effort: 메시지별 실패는 삼키고 다음으로. 빈본문은 요약 저장 skip(쓰레기 캐싱 방지, #480).
+ * 선제 배치 요약 — 안읽은·미요약 최근 메일의 본문을 (필요 시 IMAP) 적재한 뒤 요약을 미리 채운다. 분류 백필({@link
+ * MailClassifyBackfillService})과 달리 본문이 필요하므로 미적재 시 fetchBody 로 IMAP 왕복. best-effort: 메시지별 실패는 삼키고
+ * 다음으로. 빈본문은 요약 저장 skip(쓰레기 캐싱 방지, #480).
  */
 @Slf4j
 @Service

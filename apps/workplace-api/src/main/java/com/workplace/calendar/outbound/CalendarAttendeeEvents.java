@@ -1,8 +1,8 @@
 package com.workplace.calendar.outbound;
 
 /**
- * 캘린더 참석자 도메인 이벤트. CalendarEventService 가 커밋 시 발행하고, notify 도메인의 NotificationDispatcher 가 AFTER_COMMIT
- * 에서 소비해 인박스 알림 + SSE fan-out 한다.
+ * 캘린더 참석자 도메인 이벤트. CalendarEventService 가 커밋 시 발행하고, notify 도메인의 NotificationDispatcher 가
+ * AFTER_COMMIT 에서 소비해 인박스 알림 + SSE fan-out 한다.
  *
  * <p>모듈 경계 = 이벤트 통신 — calendar 도메인에서 notify 도메인을 직접 import 하지 않음.
  */

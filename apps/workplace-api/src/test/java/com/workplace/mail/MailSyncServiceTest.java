@@ -383,8 +383,8 @@ class MailSyncServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 동기화 정상 완료 후 선제 요약 백필이 트리거된다 — @Async 라 sync 의 짧은 TX 들이 모두 커밋된 뒤 별도 스레드에서 실행.
-   * 조기 반환 경로(진행 중 가드)에서는 호출되지 않아야 한다.
+   * 동기화 정상 완료 후 선제 요약 백필이 트리거된다 — @Async 라 sync 의 짧은 TX 들이 모두 커밋된 뒤 별도 스레드에서 실행. 조기 반환 경로(진행 중
+   * 가드)에서는 호출되지 않아야 한다.
    */
   @Test
   void sync_완료후_선제요약_트리거() {

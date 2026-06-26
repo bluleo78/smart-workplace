@@ -67,9 +67,7 @@ public class MessageActionProposalRepository {
         .fetchOptional(this::map);
   }
 
-  /**
-   * 여러 message_id 에 해당하는 제안을 일괄 조회(배치 enrich 용). messageIds 가 비어 있으면 DB 쿼리 없이 빈 리스트 반환.
-   */
+  /** 여러 message_id 에 해당하는 제안을 일괄 조회(배치 enrich 용). messageIds 가 비어 있으면 DB 쿼리 없이 빈 리스트 반환. */
   public List<ProposalRow> findByMessageIds(Collection<Long> messageIds) {
     if (messageIds.isEmpty()) return List.of();
     return dsl.selectFrom(MESSAGE_ACTION_PROPOSAL)
@@ -77,9 +75,7 @@ public class MessageActionProposalRepository {
         .fetch(this::map);
   }
 
-  /**
-   * status 전이 — PENDING 일 때만 UPDATE(멱등 가드). resultIssueKey 는 null 가능(거부 시). 영향 행 수 > 0 이면 true.
-   */
+  /** status 전이 — PENDING 일 때만 UPDATE(멱등 가드). resultIssueKey 는 null 가능(거부 시). 영향 행 수 > 0 이면 true. */
   public boolean updateStatus(long id, String status, String resultIssueKey, long resolvedBy) {
     return dsl.update(MESSAGE_ACTION_PROPOSAL)
             .set(MESSAGE_ACTION_PROPOSAL.STATUS, status)

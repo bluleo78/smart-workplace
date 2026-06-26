@@ -54,7 +54,8 @@ public class MailInboxController {
       @RequestParam(required = false) String category, // P2: 분류 필터(업무/개인/알림/프로모션/뉴스레터)
       @RequestParam(required = false, defaultValue = "false") boolean needsReply, // P2: 회신필요 필터
       @RequestParam(required = false, defaultValue = "0") int limit) {
-    return messageService.list(callerId, accountId, folder, query, unread, category, needsReply, limit);
+    return messageService.list(
+        callerId, accountId, folder, query, unread, category, needsReply, limit);
   }
 
   /** P2: 회신필요 처리완료(해결). needs_reply_done_at 에 현재 시각 기록. */

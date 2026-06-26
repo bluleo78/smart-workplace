@@ -33,13 +33,13 @@ public record M365GraphProperties(
    * <ul>
    *   <li>{@code openid} — id_token 수신 필수. 누락 시 AAD가 id_token 을 반환하지 않아 connect() 에서
    *       IllegalArgumentException 발생.
-   *   <li>{@code profile email} — id_token 에 {@code preferred_username}/{@code email} 클레임 포함시켜
-   *       계정 이메일 추출(extractEmailFromIdToken)에 사용. 표준 OIDC scope 라 관리자 동의 불필요.
+   *   <li>{@code profile email} — id_token 에 {@code preferred_username}/{@code email} 클레임 포함시켜 계정
+   *       이메일 추출(extractEmailFromIdToken)에 사용. 표준 OIDC scope 라 관리자 동의 불필요.
    *   <li>{@code offline_access} — refresh_token 발급 필수.
-   *   <li>{@code Mail.ReadWrite} — 메일 접근. 읽기 슬라이스(#499)는 읽기만 쓰지만, 테넌트(iacloud.kr)가
-   *       사용자 동의를 차단하고 관리자 동의는 {@code Mail.ReadWrite} 에 대해 이미 부여돼 있다. {@code Mail.Read}는
-   *       별개 scope라 미동의 → "관리자 승인 필요"가 다시 뜨므로, 이미 동의된 {@code Mail.ReadWrite}를 쓴다(#500
-   *       발송에서도 동일 권한 필요). 추가 관리자 작업 없이 통과시키기 위한 선택.
+   *   <li>{@code Mail.ReadWrite} — 메일 접근. 읽기 슬라이스(#499)는 읽기만 쓰지만, 테넌트(iacloud.kr)가 사용자 동의를 차단하고 관리자
+   *       동의는 {@code Mail.ReadWrite} 에 대해 이미 부여돼 있다. {@code Mail.Read}는 별개 scope라 미동의 → "관리자 승인
+   *       필요"가 다시 뜨므로, 이미 동의된 {@code Mail.ReadWrite}를 쓴다(#500 발송에서도 동일 권한 필요). 추가 관리자 작업 없이 통과시키기
+   *       위한 선택.
    * </ul>
    *
    * <p>인가 URL(M365OAuthController), 토큰 교환(GraphApiClient.exchangeCode), 토큰 갱신

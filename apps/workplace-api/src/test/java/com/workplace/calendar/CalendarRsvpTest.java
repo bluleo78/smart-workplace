@@ -41,8 +41,7 @@ class CalendarRsvpTest extends IntegrationTestBase {
   /** 일정 요청 헬퍼(참석자 목록 지정). */
   private CalendarEventRequest newReq(
       String title, OffsetDateTime s, OffsetDateTime e, List<Long> attendees) {
-    return new CalendarEventRequest(
-        title, null, s, e, false, null, null, null, null, attendees);
+    return new CalendarEventRequest(title, null, s, e, false, null, null, null, null, attendees);
   }
 
   // 참석자는 본인 RSVP 만 변경할 수 있다.
@@ -50,8 +49,7 @@ class CalendarRsvpTest extends IntegrationTestBase {
   void attendee_respondsOwnRsvp() {
     long org = seedUser("org");
     long guest = seedUser("g");
-    long eventId =
-        service.create(org, newReq("m", now, now.plusHours(1), List.of(guest))).id();
+    long eventId = service.create(org, newReq("m", now, now.plusHours(1), List.of(guest))).id();
     service.respondRsvp(guest, eventId, "ACCEPTED");
     var mine = service.get(guest, eventId);
     assertThat(mine.myRsvpStatus()).isEqualTo("ACCEPTED");
@@ -62,8 +60,7 @@ class CalendarRsvpTest extends IntegrationTestBase {
   void nonAttendee_cannotRsvp() {
     long org = seedUser("org");
     long stranger = seedUser("x");
-    long eventId =
-        service.create(org, newReq("m", now, now.plusHours(1), List.of())).id();
+    long eventId = service.create(org, newReq("m", now, now.plusHours(1), List.of())).id();
     assertThatThrownBy(() -> service.respondRsvp(stranger, eventId, "ACCEPTED"))
         .isInstanceOf(CalendarEventNotFoundException.class);
   }
@@ -73,8 +70,7 @@ class CalendarRsvpTest extends IntegrationTestBase {
   void list_returnsLightweightAttendeeInfo() {
     long org = seedUser("org");
     long guest = seedUser("g");
-    long eventId =
-        service.create(org, newReq("m", now, now.plusHours(1), List.of(guest))).id();
+    long eventId = service.create(org, newReq("m", now, now.plusHours(1), List.of(guest))).id();
     var listed =
         service.list(org, now.minusDays(1), now.plusDays(1)).stream()
             .filter(e -> e.id() == eventId)

@@ -80,8 +80,8 @@ public class UserRepository {
 
   /** kind 별 사용자 목록 (예: 모든 AGENT). 이름 오름차순. */
   /**
-   * kind 별 사용자 목록을 active 테넌트로 스코프한다. user 는 전역 테이블이라 RLS 가 걸리지 않으므로 membership 조인으로
-   * 명시적으로 테넌트 멤버만 거른다(다른 테넌트 AGENT 누출 방지). membership.(user_id, tenant_id) 는 유일하므로 행 중복 없음.
+   * kind 별 사용자 목록을 active 테넌트로 스코프한다. user 는 전역 테이블이라 RLS 가 걸리지 않으므로 membership 조인으로 명시적으로 테넌트 멤버만
+   * 거른다(다른 테넌트 AGENT 누출 방지). membership.(user_id, tenant_id) 는 유일하므로 행 중복 없음.
    */
   public List<UserResponse> findByKind(Long tenantId, String kind) {
     return dsl.select(
@@ -194,9 +194,9 @@ public class UserRepository {
   }
 
   /**
-   * 사용자 목록을 active 테넌트로 스코프한다(설정 > 사용자 관리). user 는 전역 테이블이라 RLS 가 걸리지 않으므로 membership
-   * 조인으로 명시적으로 테넌트 멤버만 거른다(다른 테넌트 사용자 누출 방지). membership.(user_id, tenant_id) 는 유일하므로 행
-   * 중복 없음. {@link #countByTenant} 와 동일 조인을 사용해 count 와 page 가 일치한다.
+   * 사용자 목록을 active 테넌트로 스코프한다(설정 > 사용자 관리). user 는 전역 테이블이라 RLS 가 걸리지 않으므로 membership 조인으로 명시적으로
+   * 테넌트 멤버만 거른다(다른 테넌트 사용자 누출 방지). membership.(user_id, tenant_id) 는 유일하므로 행 중복 없음. {@link
+   * #countByTenant} 와 동일 조인을 사용해 count 와 page 가 일치한다.
    */
   public List<UserResponse> findAllPaginated(Long tenantId, String search, int page, int size) {
     return dsl.select(

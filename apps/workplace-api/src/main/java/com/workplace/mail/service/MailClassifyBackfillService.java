@@ -11,9 +11,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 계정 AI 분류 활성화(off→on) 시 호출 — 최근 안읽은·미분류 메일을 분류해 회신 필요 신호를 채운다.
- * 기존 sync 가 본문을 이미 적재한 미분류 메일까지 다루므로(MailBackfillService 와 달리 본문 유무 무관),
- * 켠 직후 홈 위젯의 "회신 필요" 카운트가 의미를 갖는다. best-effort: 실패는 삼킨다.
+ * 계정 AI 분류 활성화(off→on) 시 호출 — 최근 안읽은·미분류 메일을 분류해 회신 필요 신호를 채운다. 기존 sync 가 본문을 이미 적재한 미분류 메일까지
+ * 다루므로(MailBackfillService 와 달리 본문 유무 무관), 켠 직후 홈 위젯의 "회신 필요" 카운트가 의미를 갖는다. best-effort: 실패는 삼킨다.
  */
 @Slf4j
 @Service
@@ -26,8 +25,8 @@ public class MailClassifyBackfillService {
   private final MailAiService mailAiService;
 
   /**
-   * TransactionTemplate 은 @Primary {@code TenantAwareTransactionManager} 로 구성 —
-   * 분류 쿼리와 updateClassification(RLS write) 모두 트랜잭션 진입 시 GUC(app.tenant_id) 주입이 필요하다.
+   * TransactionTemplate 은 @Primary {@code TenantAwareTransactionManager} 로 구성 — 분류 쿼리와
+   * updateClassification(RLS write) 모두 트랜잭션 진입 시 GUC(app.tenant_id) 주입이 필요하다.
    */
   private final TransactionTemplate txTemplate;
 
@@ -41,8 +40,8 @@ public class MailClassifyBackfillService {
   }
 
   /**
-   * off→on 전환 비동기 진입점. TenantContext 는 TenantContextTaskDecorator 가 전파.
-   * null 가드: 전파 실패 시 GUC 미설정으로 RLS fail-closed 되므로 명시적으로 경고 후 skip.
+   * off→on 전환 비동기 진입점. TenantContext 는 TenantContextTaskDecorator 가 전파. null 가드: 전파 실패 시 GUC 미설정으로
+   * RLS fail-closed 되므로 명시적으로 경고 후 skip.
    */
   @Async("aiAgentEventExecutor")
   public void classifyRecentUnread(long userId, long accountId) {
@@ -66,8 +65,7 @@ public class MailClassifyBackfillService {
     }
     // 분류 결과 저장(updateClassification)은 RLS write → 메시지별 짧은 트랜잭션으로 GUC 주입.
     for (Long id : ids) {
-      txTemplate.executeWithoutResult(
-          status -> mailAiService.classifyAndStore(userId, id, spec));
+      txTemplate.executeWithoutResult(status -> mailAiService.classifyAndStore(userId, id, spec));
     }
   }
 }

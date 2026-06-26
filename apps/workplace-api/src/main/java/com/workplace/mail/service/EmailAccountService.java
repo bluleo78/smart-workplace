@@ -25,6 +25,7 @@ public class EmailAccountService {
   private final EmailAccountRepository repo;
   private final EncryptionService encryption;
   private final MailConnectionTester tester;
+
   /** AI 분류 off→on 전환 시 최근 안읽음 classify 를 비동기로 수행하는 서비스. */
   private final MailClassifyBackfillService classifyBackfillService;
 

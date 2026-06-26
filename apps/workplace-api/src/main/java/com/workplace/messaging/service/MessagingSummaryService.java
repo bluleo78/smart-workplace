@@ -34,6 +34,7 @@ public class MessagingSummaryService {
 
   private final MessagingSummaryRepository repo;
   private final ThreadReadStateRepository threadRepo;
+
   /** AI 발굴 마크 리포 — 안읽음 대화에 aiReason 신호를 싣기 위해 주입. */
   private final ConversationAttentionRepository conversationAttentionRepo;
 
@@ -63,7 +64,8 @@ public class MessagingSummaryService {
 
     List<ConversationSummaryItem> items =
         rows.stream()
-            .map(r -> toItem(r, callerId, mentioned, threadReplies, participants, aiReasonByChannel))
+            .map(
+                r -> toItem(r, callerId, mentioned, threadReplies, participants, aiReasonByChannel))
             .sorted(bySignalThenRecency())
             .limit(recentLimit)
             .toList();

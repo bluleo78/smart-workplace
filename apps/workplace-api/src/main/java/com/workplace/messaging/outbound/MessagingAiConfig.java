@@ -33,8 +33,8 @@ public class MessagingAiConfig {
   }
 
   /**
-   * 캐치업 요약 클라이언트 — 메시징 분류와 동일한 타임아웃 정책(connect 5s / read 90s).
-   * 미읽은 메시지를 구조화 요약으로 변환하는 ai-agent /messaging/catchup 호출.
+   * 캐치업 요약 클라이언트 — 메시징 분류와 동일한 타임아웃 정책(connect 5s / read 90s). 미읽은 메시지를 구조화 요약으로 변환하는 ai-agent
+   * /messaging/catchup 호출.
    */
   @Bean
   public AiAgentCatchupClient aiAgentCatchupClient(AiAgentProperties props) {

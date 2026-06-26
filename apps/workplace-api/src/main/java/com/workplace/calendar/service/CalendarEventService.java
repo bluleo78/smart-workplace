@@ -14,7 +14,6 @@ import com.workplace.calendar.repository.EventAttendeeRepository.AttendeeRow;
 import com.workplace.calendar.repository.EventReminderRepository;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
-import org.springframework.context.ApplicationEventPublisher;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -27,6 +26,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -119,8 +119,8 @@ public class CalendarEventService {
   }
 
   /**
-   * 마스터 + 회차 시작시각 → 가상 회차 응답. id 는 마스터 id 를 그대로 쓰고 masterEventId/occurrenceDate 로 회차를 식별한다.
-   * 참석자 정보(attendeeCount/myRsvpStatus/attendees)는 enrich 단계에서 채워지므로 기본값(0/null/null) 설정.
+   * 마스터 + 회차 시작시각 → 가상 회차 응답. id 는 마스터 id 를 그대로 쓰고 masterEventId/occurrenceDate 로 회차를 식별한다. 참석자
+   * 정보(attendeeCount/myRsvpStatus/attendees)는 enrich 단계에서 채워지므로 기본값(0/null/null) 설정.
    */
   private static CalendarEventResponse toOccurrence(
       CalendarEventResponse m, OffsetDateTime s, Duration duration) {
@@ -345,9 +345,7 @@ public class CalendarEventService {
         .toList();
   }
 
-  /**
-   * get() 용 전체 enrich: 마스터(또는 구체) id 로 단건 조회 → 전체 참석자 목록 포함. 가상 회차는 masterEventId 키 사용.
-   */
+  /** get() 용 전체 enrich: 마스터(또는 구체) id 로 단건 조회 → 전체 참석자 목록 포함. 가상 회차는 masterEventId 키 사용. */
   private CalendarEventResponse enrichForGet(long callerId, CalendarEventResponse e) {
     long key = e.masterEventId() != null ? e.masterEventId() : e.id();
     var rows = attendeeRepo.findByEvent(key);
@@ -374,8 +372,8 @@ public class CalendarEventService {
   }
 
   /**
-   * CalendarEventResponse 레코드를 복사하며 참석자 3필드(attendeeCount/myRsvpStatus/attendees)만 교체. Java record 는
-   * with-copy 미지원이므로 명시적 생성.
+   * CalendarEventResponse 레코드를 복사하며 참석자 3필드(attendeeCount/myRsvpStatus/attendees)만 교체. Java record
+   * 는 with-copy 미지원이므로 명시적 생성.
    */
   private static CalendarEventResponse withAttendeeInfo(
       CalendarEventResponse e, int count, String myRsvpStatus, List<AttendeeResponse> attendees) {
@@ -400,8 +398,8 @@ public class CalendarEventService {
   }
 
   /**
-   * 참석자 복사 — fromEventId 의 모든 참석자 행(ORGANIZER 포함)을 toEventId 에 그대로 복제한다. role, rsvp_status, invited_by
-   * 를 보존하여 오버라이드/분할 이후에도 참석자 구성이 유지되도록 한다.
+   * 참석자 복사 — fromEventId 의 모든 참석자 행(ORGANIZER 포함)을 toEventId 에 그대로 복제한다. role, rsvp_status,
+   * invited_by 를 보존하여 오버라이드/분할 이후에도 참석자 구성이 유지되도록 한다.
    */
   private void copyAttendees(long fromEventId, long toEventId) {
     for (AttendeeRow a : attendeeRepo.findByEvent(fromEventId)) {

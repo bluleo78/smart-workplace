@@ -39,8 +39,8 @@ import org.springframework.test.context.TestPropertySource;
  * 전체 경로를 검증한다. 커밋 전 직접 호출(레이스) 대신 AFTER_COMMIT 로 전환된 배선이 깨지지 않음을 보장하는 회귀 가드.
  *
  * <p>이 클래스는 @Transactional 을 절대 붙이지 않는다 — 외부 트랜잭션 안에서는 AFTER_COMMIT 이 발화하지 않아 검증이 무력화된다. 커밋된 row 를
- * 추적해 @AfterEach 에서 회수한다. tenant 는 ThreadLocal(TenantContext)로 주입 — @Async 워커에 decorator 가 전파해
- * 새 트랜잭션의 GUC 를 채운다(세션 GUC trick 은 풀 커넥션 전환 시 무력).
+ * 추적해 @AfterEach 에서 회수한다. tenant 는 ThreadLocal(TenantContext)로 주입 — @Async 워커에 decorator 가 전파해 새
+ * 트랜잭션의 GUC 를 채운다(세션 GUC trick 은 풀 커넥션 전환 시 무력).
  *
  * <p>ai-agent enabled=true override — 어텐션 분류 경로는 enabled 게이트를 받지 않지만, 일관성을 위해 통합 환경에서 활성화한다.
  */

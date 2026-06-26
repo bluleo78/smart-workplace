@@ -50,9 +50,7 @@ class MessageActionProposalRepositoryTest extends IntegrationTestBase {
 
   /** 채널에 메시지 1건을 INSERT 하고 id 를 반환하는 헬퍼. */
   private long seedMessage() {
-    return messageService
-        .create(delegatorId, channelId, new CreateMessageRequest("테스트 메시지"))
-        .id();
+    return messageService.create(delegatorId, channelId, new CreateMessageRequest("테스트 메시지")).id();
   }
 
   /** insert 후 findById 로 필드값이 정확히 복원되는지 검증. */
@@ -102,7 +100,9 @@ class MessageActionProposalRepositoryTest extends IntegrationTestBase {
 
     // m1 은 존재, 999999 는 없는 id
     var rows = repo.findByMessageIds(List.of(m1, 999999L));
-    assertThat(rows).extracting(MessageActionProposalRepository.ProposalRow::id).containsExactly(id);
+    assertThat(rows)
+        .extracting(MessageActionProposalRepository.ProposalRow::id)
+        .containsExactly(id);
   }
 
   /** findByMessageIds 에 빈 컬렉션 전달 시 빈 리스트 반환(쿼리 실행 안 함). */

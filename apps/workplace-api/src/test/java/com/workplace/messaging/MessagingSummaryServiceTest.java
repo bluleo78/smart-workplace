@@ -21,12 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * MessagingSummaryService AI 발굴 신호 통합 테스트 (#476).
  *
- * <p>인프로세스 @Transactional + BeforeEach GUC 주입으로 RLS 통과.
- * - AI 마크가 안읽음 대화에 aiReason 으로 실린다.
- * - 읽은 대화에는 aiReason 이 null.
- * - aiAttentionCount 는 여전히 안읽음인 AI 발굴 대화 수.
- * - 기계적 신호(mentioned/needsReply/needsReplyCount/unreadConversationCount) 불변.
- * - aiReason 있는 대화가 신호 없는 대화보다 정렬 우선.
+ * <p>인프로세스 @Transactional + BeforeEach GUC 주입으로 RLS 통과. - AI 마크가 안읽음 대화에 aiReason 으로 실린다. - 읽은 대화에는
+ * aiReason 이 null. - aiAttentionCount 는 여전히 안읽음인 AI 발굴 대화 수. - 기계적
+ * 신호(mentioned/needsReply/needsReplyCount/unreadConversationCount) 불변. - aiReason 있는 대화가 신호 없는 대화보다
+ * 정렬 우선.
  */
 @Transactional
 class MessagingSummaryServiceTest extends IntegrationTestBase {
@@ -97,16 +95,15 @@ class MessagingSummaryServiceTest extends IntegrationTestBase {
   private void markRead(long callerId, long channelId, long messageId) {
     dsl.update(CHANNEL_MEMBER)
         .set(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID, messageId)
-        .where(
-            CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
+        .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.USER_ID.eq(callerId)))
         .execute();
   }
 
   // ── 테스트 ────────────────────────────────────────────────────────────────
 
   /**
-   * AI 마크가 안읽음 대화에 aiReason 으로 실린다.
-   * 채널에 안읽음 메시지 시드 + AI 마크 upsert → recent 의 해당 item.aiReason() 이 non-null.
+   * AI 마크가 안읽음 대화에 aiReason 으로 실린다. 채널에 안읽음 메시지 시드 + AI 마크 upsert → recent 의 해당 item.aiReason() 이
+   * non-null.
    */
   @Test
   void aiMark_안읽음_대화에_aiReason이_실린다() {
@@ -128,8 +125,8 @@ class MessagingSummaryServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 읽으면 aiReason null + aiAttentionCount 미포함.
-   * 채널을 읽음 처리(last_read_message_id = 최신 메시지) 후 aiReason 이 null 이어야 한다.
+   * 읽으면 aiReason null + aiAttentionCount 미포함. 채널을 읽음 처리(last_read_message_id = 최신 메시지) 후 aiReason 이
+   * null 이어야 한다.
    */
   @Test
   void 읽은대화_aiReason_null() {
@@ -156,10 +153,7 @@ class MessagingSummaryServiceTest extends IntegrationTestBase {
     assertThat(resp.aiAttentionCount()).isEqualTo(0L);
   }
 
-  /**
-   * aiAttentionCount = 안읽음 AI 마크 수.
-   * AI 마크 2건: 채널 A(안읽음), 채널 B(읽음) → aiAttentionCount == 1.
-   */
+  /** aiAttentionCount = 안읽음 AI 마크 수. AI 마크 2건: 채널 A(안읽음), 채널 B(읽음) → aiAttentionCount == 1. */
   @Test
   void aiAttentionCount_안읽음_AI_대화수() {
     long caller = seedUser("attcount");
@@ -183,8 +177,8 @@ class MessagingSummaryServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 기계적 신호 불변 — mentioned/needsReply/needsReplyCount/unreadConversationCount 동작이 깨지지 않는다.
-   * 멘션 대화가 있으면 mentioned=true + needsReplyCount>=1.
+   * 기계적 신호 불변 — mentioned/needsReply/needsReplyCount/unreadConversationCount 동작이 깨지지 않는다. 멘션 대화가
+   * 있으면 mentioned=true + needsReplyCount>=1.
    */
   @Test
   void 기계적_신호_불변() {
@@ -210,8 +204,8 @@ class MessagingSummaryServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * attentionCount dedup — 멘션 + AI 마크 둘 다인 채널이 합집합 카운트에 1로만 세진다(이중 집계 없음, #476 I2).
-   * 같은 채널이 needsReply(멘션) 와 aiAttention(마크) 두 신호를 모두 가져도 attentionCount 는 1.
+   * attentionCount dedup — 멘션 + AI 마크 둘 다인 채널이 합집합 카운트에 1로만 세진다(이중 집계 없음, #476 I2). 같은 채널이
+   * needsReply(멘션) 와 aiAttention(마크) 두 신호를 모두 가져도 attentionCount 는 1.
    */
   @Test
   void attentionCount_멘션과_AI마크_겹치는_채널은_1로만() {
@@ -240,9 +234,7 @@ class MessagingSummaryServiceTest extends IntegrationTestBase {
     assertThat(resp.attentionCount()).isEqualTo(1L); // 단순 합(>=2) 아닌 dedup=1
   }
 
-  /**
-   * 정렬 — aiReason 있는 대화가 신호 없는 일반 대화보다 앞에 온다.
-   */
+  /** 정렬 — aiReason 있는 대화가 신호 없는 일반 대화보다 앞에 온다. */
   @Test
   void 정렬_aiReason있는_대화가_우선() {
     long caller = seedUser("sorttest");

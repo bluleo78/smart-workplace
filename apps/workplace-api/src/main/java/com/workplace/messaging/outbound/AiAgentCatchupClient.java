@@ -10,8 +10,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 /**
- * ai-agent /messaging/catchup 호출 — 안 읽은 메시지를 구조화 요약으로 변환.
- * Internal 토큰 인증, 무재시도. AiAgentMessagingClient 미러.
+ * ai-agent /messaging/catchup 호출 — 안 읽은 메시지를 구조화 요약으로 변환. Internal 토큰 인증, 무재시도.
+ * AiAgentMessagingClient 미러.
  */
 @Slf4j
 public class AiAgentCatchupClient {
@@ -48,9 +48,7 @@ public class AiAgentCatchupClient {
           .body(CatchupSummarizeResult.class);
     } catch (HttpStatusCodeException e) {
       log.error(
-          "ai-agent catchup 실패: status={} body={}",
-          e.getStatusCode(),
-          e.getResponseBodyAsString());
+          "ai-agent catchup 실패: status={} body={}", e.getStatusCode(), e.getResponseBodyAsString());
       throw new MessagingAiException("AI 캐치업 요약 요청에 실패했어요.", e);
     } catch (RestClientException e) {
       log.error("ai-agent catchup 실패: {}", e.getMessage());

@@ -18,7 +18,6 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import org.jooq.DSLContext;
-import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -101,9 +100,7 @@ class MailInboxControllerTest extends IntegrationTestBase {
     return msg;
   }
 
-  /**
-   * 처리완료 POST→카운트 0→처리완료 DELETE→카운트 1 왕복 검증. 회신필요 메시지를 처리완료하면 카운트에서 제외되고, 되돌리면 다시 포함된다.
-   */
+  /** 처리완료 POST→카운트 0→처리완료 DELETE→카운트 1 왕복 검증. 회신필요 메시지를 처리완료하면 카운트에서 제외되고, 되돌리면 다시 포함된다. */
   @Test
   void needsReplyDone_marksAndClears() throws Exception {
     // 시드: 사용자/계정/INBOX 폴더/회신필요 메시지
@@ -145,9 +142,7 @@ class MailInboxControllerTest extends IntegrationTestBase {
     assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
   }
 
-  /**
-   * 다른 사용자 소유 계정에 처리완료 시도 시 404. 계정 소유 검사가 실제로 차단하는지 검증하고, DB는 변경되지 않음을 확인한다.
-   */
+  /** 다른 사용자 소유 계정에 처리완료 시도 시 404. 계정 소유 검사가 실제로 차단하는지 검증하고, DB는 변경되지 않음을 확인한다. */
   @Test
   void needsReplyDone_deniedForOtherUsersAccount() throws Exception {
     // 계정 소유자(owner)와 다른 사용자(other)

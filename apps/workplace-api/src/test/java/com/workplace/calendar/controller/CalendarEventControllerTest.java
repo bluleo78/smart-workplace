@@ -66,8 +66,8 @@ class CalendarEventControllerTest {
   /** 샘플 응답 — create/list 에서 재사용. */
   private CalendarEventResponse sample() {
     return new CalendarEventResponse(
-        1L, "회의", null, STARTS, ENDS, false, null, null, null, null, null, null, STARTS, ENDS,
-        0, null, null);
+        1L, "회의", null, STARTS, ENDS, false, null, null, null, null, null, null, STARTS, ENDS, 0,
+        null, null);
   }
 
   @BeforeEach

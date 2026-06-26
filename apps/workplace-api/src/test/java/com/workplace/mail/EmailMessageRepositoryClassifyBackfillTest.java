@@ -16,8 +16,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * EmailMessageRepository.listRecentUnreadUnclassifiedIds 통합 테스트.
- * 안읽음·미분류·INBOX 조건에 맞는 메시지 id 만 반환하고, 읽은/분류완료 메시지는 제외되는지 검증한다.
+ * EmailMessageRepository.listRecentUnreadUnclassifiedIds 통합 테스트. 안읽음·미분류·INBOX 조건에 맞는 메시지 id 만
+ * 반환하고, 읽은/분류완료 메시지는 제외되는지 검증한다.
  */
 @Transactional
 class EmailMessageRepositoryClassifyBackfillTest extends IntegrationTestBase {
@@ -33,9 +33,7 @@ class EmailMessageRepositoryClassifyBackfillTest extends IntegrationTestBase {
     return MailTestSupport.insertAccount(accountRepo, encryption, userId, true);
   }
 
-  /**
-   * INBOX 폴더에 메시지를 직접 삽입. seen·aiNeedsReply 를 파라미터로 제어해 필터 조합을 시드한다.
-   */
+  /** INBOX 폴더에 메시지를 직접 삽입. seen·aiNeedsReply 를 파라미터로 제어해 필터 조합을 시드한다. */
   private long insertMessage(long accountId, long folderId, boolean seen, Boolean aiNeedsReply) {
     var id =
         dsl.insertInto(
@@ -71,18 +69,16 @@ class EmailMessageRepositoryClassifyBackfillTest extends IntegrationTestBase {
     return id;
   }
 
-  /**
-   * 안읽음·미분류(null) 메시지만 포함하고, 분류완료(true)·읽음(seen=true)은 제외되는지 검증.
-   */
+  /** 안읽음·미분류(null) 메시지만 포함하고, 분류완료(true)·읽음(seen=true)은 제외되는지 검증. */
   @Test
   void listRecentUnreadUnclassifiedIds_filters_correctly() {
     long userId = TestFixtures.createHuman(dsl);
     long accountId = createAccountWithInbox(userId);
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
 
-    long target = insertMessage(accountId, folderId, /*seen*/ false, /*aiNeedsReply*/ null);         // 포함
-    insertMessage(accountId, folderId, /*seen*/ false, /*aiNeedsReply*/ Boolean.TRUE);              // 제외(분류완료)
-    insertMessage(accountId, folderId, /*seen*/ true,  /*aiNeedsReply*/ null);                       // 제외(읽음)
+    long target = insertMessage(accountId, folderId, /*seen*/ false, /*aiNeedsReply*/ null); // 포함
+    insertMessage(accountId, folderId, /*seen*/ false, /*aiNeedsReply*/ Boolean.TRUE); // 제외(분류완료)
+    insertMessage(accountId, folderId, /*seen*/ true, /*aiNeedsReply*/ null); // 제외(읽음)
 
     List<Long> ids = messageRepo.listRecentUnreadUnclassifiedIds(accountId, 50);
 

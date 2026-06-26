@@ -63,9 +63,7 @@ class CalendarRecurrenceAttendeeTest extends IntegrationTestBase {
     long guest = seedUser("g");
     // 매일 반복 일정 생성(주최자 + 게스트 1명)
     long masterId =
-        service
-            .create(org, newRecurringReq("daily", BASE, BASE.plusHours(1), List.of(guest)))
-            .id();
+        service.create(org, newRecurringReq("daily", BASE, BASE.plusHours(1), List.of(guest))).id();
 
     // 두 번째 회차를 THIS 로 수정 → 오버라이드 calendar_event 행 생성
     OffsetDateTime occ2 = BASE.plusDays(1);
@@ -88,8 +86,8 @@ class CalendarRecurrenceAttendeeTest extends IntegrationTestBase {
   }
 
   /**
-   * scope=THIS_AND_FOLLOWING 분할 시 기존 마스터의 참석자가 새 마스터 행으로 복사된다. 주최자(ORGANIZER/ACCEPTED) + 게스트 모두 복사됨을
-   * 검증.
+   * scope=THIS_AND_FOLLOWING 분할 시 기존 마스터의 참석자가 새 마스터 행으로 복사된다. 주최자(ORGANIZER/ACCEPTED) + 게스트 모두
+   * 복사됨을 검증.
    */
   @Test
   void splitSeries_copiesAttendeesToNewMaster() {
@@ -97,9 +95,7 @@ class CalendarRecurrenceAttendeeTest extends IntegrationTestBase {
     long guest = seedUser("g");
     // 매일 반복 일정 생성(주최자 + 게스트 1명)
     long oldMasterId =
-        service
-            .create(org, newRecurringReq("daily", BASE, BASE.plusHours(1), List.of(guest)))
-            .id();
+        service.create(org, newRecurringReq("daily", BASE, BASE.plusHours(1), List.of(guest))).id();
 
     // 3번째 회차부터 THIS_AND_FOLLOWING 으로 분할 → 새 마스터 행 생성
     OffsetDateTime occ3 = BASE.plusDays(2);

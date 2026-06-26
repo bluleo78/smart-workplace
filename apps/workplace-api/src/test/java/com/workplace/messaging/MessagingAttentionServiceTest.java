@@ -1,5 +1,6 @@
 package com.workplace.messaging;
 
+import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
@@ -26,13 +27,9 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
-import static com.workplace.jooq.Tables.USER;
-import static com.workplace.jooq.Tables.CHANNEL;
-
 /**
- * MessagingAttentionService 비용 깔때기 통합 테스트.
- * 이름 프리필터·watermark 게이트·버스트 코얼레싱·relevant 없어도 watermark 전진 검증.
+ * MessagingAttentionService 비용 깔때기 통합 테스트. 이름 프리필터·watermark 게이트·버스트 코얼레싱·relevant 없어도 watermark 전진
+ * 검증.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -54,10 +51,7 @@ class MessagingAttentionServiceTest {
     dsl.execute("set app.tenant_id='1'");
   }
 
-  /**
-   * 채널을 PUBLIC 으로 생성하고, 주어진 이름의 멤버를 추가한 뒤 채널 ID 반환.
-   * 멤버 이름은 USER.NAME 필드에 저장된다(이름 프리필터 매핑 기준).
-   */
+  /** 채널을 PUBLIC 으로 생성하고, 주어진 이름의 멤버를 추가한 뒤 채널 ID 반환. 멤버 이름은 USER.NAME 필드에 저장된다(이름 프리필터 매핑 기준). */
   private long seedChannelWithMembers(List<String> memberNames) {
     String suffix = UUID.randomUUID().toString().replaceAll("-", "").substring(0, 6);
     // 임시 소유자 생성
@@ -111,13 +105,16 @@ class MessagingAttentionServiceTest {
     seedMessage(ch, "김PM", "동희가 배포했나?", List.of());
     // 멤버 중 userId=1 이 relevant 로 반환되도록 모킹
     // (실제 시드된 userId 와 무관하게 upsert 동작 확인)
-    long memberId = memberRepo.listMembers(ch).stream()
-        .filter(m -> "양동희".equals(m.name()))
-        .map(m -> m.userId())
-        .findFirst().orElseThrow();
-    when(aiClient.classify(any())).thenReturn(
-        new MessagingClassifyResult(
-            List.of(new MessagingClassifyResult.Relevant(memberId, "배포 여부 질문"))));
+    long memberId =
+        memberRepo.listMembers(ch).stream()
+            .filter(m -> "양동희".equals(m.name()))
+            .map(m -> m.userId())
+            .findFirst()
+            .orElseThrow();
+    when(aiClient.classify(any()))
+        .thenReturn(
+            new MessagingClassifyResult(
+                List.of(new MessagingClassifyResult.Relevant(memberId, "배포 여부 질문"))));
     svc.onChannelMessageSync(ch);
     assertThat(attnRepo.isFlagged(ch, memberId)).isTrue();
   }
@@ -127,7 +124,7 @@ class MessagingAttentionServiceTest {
     // watermark 가 이미 최신 메시지 id 이상 → maxId<=wm → 호출 0 ("변함없는 대화는 0")
     long ch = seedChannelWithMembers(List.of("양동희"));
     long mid = seedMessage(ch, "김PM", "동희 어때?", List.of());
-    wmRepo.advance(ch, mid);                 // 이미 mid 까지 분류함
+    wmRepo.advance(ch, mid); // 이미 mid 까지 분류함
     svc.onChannelMessageSync(ch);
     verifyNoInteractions(aiClient);
   }
@@ -138,8 +135,8 @@ class MessagingAttentionServiceTest {
     seedMessage(ch, "김PM", "동희 1", List.of());
     seedMessage(ch, "김PM", "동희 2", List.of());
     when(aiClient.classify(any())).thenReturn(new MessagingClassifyResult(List.of()));
-    svc.onChannelMessageSync(ch);            // 1회 분류 → watermark=last
-    svc.onChannelMessageSync(ch);            // 새 메시지 없음 → 스킵
+    svc.onChannelMessageSync(ch); // 1회 분류 → watermark=last
+    svc.onChannelMessageSync(ch); // 새 메시지 없음 → 스킵
     verify(aiClient, times(1)).classify(any());
   }
 

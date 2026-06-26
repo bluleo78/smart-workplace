@@ -24,9 +24,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * MailClassifyBackfillService 통합 테스트.
- * 비동기 진입점이 아닌 동기 본체 {@link MailClassifyBackfillService#classifyRecentUnreadNow} 를 직접 호출해
- * 같은 스레드에서 결과를 단언한다. AiAgentMailClient 는 @MockitoBean 으로 실호출 차단, 결정적 응답 반환.
+ * MailClassifyBackfillService 통합 테스트. 비동기 진입점이 아닌 동기 본체 {@link
+ * MailClassifyBackfillService#classifyRecentUnreadNow} 를 직접 호출해 같은 스레드에서 결과를 단언한다.
+ * AiAgentMailClient 는 @MockitoBean 으로 실호출 차단, 결정적 응답 반환.
  */
 @Transactional
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
@@ -51,8 +51,8 @@ class MailClassifyBackfillServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 분류가 필요한 안읽음·미분류 메시지가 classifyRecentUnreadNow 후 aiNeedsReply 가 채워지는지 검증.
-   * mailClient.classify 는 needsReply=true 를 반환하도록 stub.
+   * 분류가 필요한 안읽음·미분류 메시지가 classifyRecentUnreadNow 후 aiNeedsReply 가 채워지는지 검증. mailClient.classify 는
+   * needsReply=true 를 반환하도록 stub.
    */
   @Test
   void classifyRecentUnreadNow_classifies_unread_unclassified() {
@@ -98,10 +98,7 @@ class MailClassifyBackfillServiceTest extends IntegrationTestBase {
     assertThat(remaining).contains(msgId);
   }
 
-  /**
-   * 테스트용 안읽음·미분류 메시지를 INBOX 에 직접 삽입하고 id 를 반환.
-   * aiNeedsReply 는 null(미분류 상태)로 둔다.
-   */
+  /** 테스트용 안읽음·미분류 메시지를 INBOX 에 직접 삽입하고 id 를 반환. aiNeedsReply 는 null(미분류 상태)로 둔다. */
   private long insertMessage(long accountId, long folderId) {
     return dsl.insertInto(
             com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE,

@@ -200,8 +200,8 @@ public class MessagingSummaryRepository {
    * "확인 필요" 대화 수(KPI 단일값) — 회신 대기 ∪ AI 발굴 안읽음의 합집합 distinct 채널 수. KPI 가 needsReplyCount +
    * aiAttentionCount 를 단순 합산하면 한 채널이 두 신호를 모두 가질 때 이중 집계되므로, 합집합을 한 쿼리로 dedup 해 센다.
    *
-   * <p>합집합 조건: (DM 이며 안읽음>0) OR (안읽은 멘션 존재) OR (AI 발굴 마크 존재 AND 안읽음>0). channel_member 조인이
-   * caller 당 채널마다 1행이라 채널당 한 번만 세어지므로 DISTINCT 불필요(countNeedsReply 와 동일 보장).
+   * <p>합집합 조건: (DM 이며 안읽음>0) OR (안읽은 멘션 존재) OR (AI 발굴 마크 존재 AND 안읽음>0). channel_member 조인이 caller 당
+   * 채널마다 1행이라 채널당 한 번만 세어지므로 DISTINCT 불필요(countNeedsReply 와 동일 보장).
    *
    * <p>AI 마크 분기는 inner join 이 아닌 EXISTS 로 작성 — join 으로 묶으면 마크 없는 DM/멘션 채널이 결과에서 탈락한다.
    */

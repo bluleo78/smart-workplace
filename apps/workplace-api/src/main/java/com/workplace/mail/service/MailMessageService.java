@@ -48,9 +48,7 @@ public class MailMessageService {
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
-  /**
-   * 계정의 메시지 목록(폴더 스코프·최신순·선택 검색어·#466 unread·P2 category/needsReply 필터). 계정이 본인 소유가 아니면 404.
-   */
+  /** 계정의 메시지 목록(폴더 스코프·최신순·선택 검색어·#466 unread·P2 category/needsReply 필터). 계정이 본인 소유가 아니면 404. */
   @Transactional(readOnly = true)
   public List<EmailMessageSummary> list(
       long userId,
@@ -66,12 +64,11 @@ public class MailMessageService {
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     int effective = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
     String folderName = (folder == null || folder.isBlank()) ? "INBOX" : folder;
-    return messageRepo.listByAccount(accountId, folderName, query, unread, category, needsReply, effective);
+    return messageRepo.listByAccount(
+        accountId, folderName, query, unread, category, needsReply, effective);
   }
 
-  /**
-   * P2: 회신필요 처리완료(해결). 계정 소유 검사 후 마커 기록. account_id 스코프로 메시지-계정 일치 보장. 계정이 본인 소유가 아니면 404.
-   */
+  /** P2: 회신필요 처리완료(해결). 계정 소유 검사 후 마커 기록. account_id 스코프로 메시지-계정 일치 보장. 계정이 본인 소유가 아니면 404. */
   @Transactional
   public void markNeedsReplyDone(long userId, long accountId, long messageId) {
     accountRepo
@@ -80,9 +77,7 @@ public class MailMessageService {
     messageRepo.markNeedsReplyDone(messageId, accountId);
   }
 
-  /**
-   * P2: 처리완료 되돌리기. 계정 소유 검사 후 마커 제거. 계정이 본인 소유가 아니면 404.
-   */
+  /** P2: 처리완료 되돌리기. 계정 소유 검사 후 마커 제거. 계정이 본인 소유가 아니면 404. */
   @Transactional
   public void clearNeedsReplyDone(long userId, long accountId, long messageId) {
     accountRepo
@@ -91,9 +86,7 @@ public class MailMessageService {
     messageRepo.clearNeedsReplyDone(messageId, accountId);
   }
 
-  /**
-   * P2: 사이드바용 계정단위 회신필요 건수(ai_needs_reply IS TRUE AND done_at IS NULL). 계정이 본인 소유가 아니면 404.
-   */
+  /** P2: 사이드바용 계정단위 회신필요 건수(ai_needs_reply IS TRUE AND done_at IS NULL). 계정이 본인 소유가 아니면 404. */
   @Transactional(readOnly = true)
   public long countNeedsReplyForAccount(long userId, long accountId) {
     accountRepo

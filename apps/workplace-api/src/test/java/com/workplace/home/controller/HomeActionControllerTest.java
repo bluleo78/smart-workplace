@@ -58,8 +58,23 @@ class HomeActionControllerTest {
     OffsetDateTime s = OffsetDateTime.parse("2026-06-26T01:00:00Z");
     CalendarEventResponse created =
         new CalendarEventResponse(
-            7L, "팀 미팅", null, s, s.plusHours(1), false, null, null, null, null, null, null, s, s,
-            0, null, null);
+            7L,
+            "팀 미팅",
+            null,
+            s,
+            s.plusHours(1),
+            false,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            s,
+            s,
+            0,
+            null,
+            null);
     when(actionService.confirm(eq(1L), eq("calendar.create_event"), any(JsonNode.class)))
         .thenReturn(created);
 

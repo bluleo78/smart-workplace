@@ -46,6 +46,7 @@ class EmailAccountServiceTest extends IntegrationTestBase {
   @Autowired EmailAccountService service;
   @Autowired EmailAccountRepository repo;
   @Autowired EncryptionService encryption;
+
   /** AI 분류 백필 서비스 — 호출 여부만 검증하므로 mock. */
   @MockBean MailClassifyBackfillService classifyBackfillService;
 

@@ -65,9 +65,7 @@ public class CalendarEventController {
     return ResponseEntity.ok(service.update(callerId, id, req, scope, occurrenceDate));
   }
 
-  /**
-   * RSVP 응답. 참석자 본인만 가능(비참석자 → 404 은닉). calendar:read 권한으로 충분(쓰기 권한 없는 참석자도 응답 가능).
-   */
+  /** RSVP 응답. 참석자 본인만 가능(비참석자 → 404 은닉). calendar:read 권한으로 충분(쓰기 권한 없는 참석자도 응답 가능). */
   @PatchMapping("/{id}/rsvp")
   public ResponseEntity<Void> rsvp(
       @AuthenticationPrincipal Long callerId,

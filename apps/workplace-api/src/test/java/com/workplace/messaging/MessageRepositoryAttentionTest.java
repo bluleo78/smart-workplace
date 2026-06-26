@@ -15,9 +15,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * MessageRepository 어텐션 신호 조회 통합 테스트.
- * - listRecentUnreadForChannel: watermark 이후 메시지만 반환
- * - maxMessageId: 채널 최신 메시지 id
+ * MessageRepository 어텐션 신호 조회 통합 테스트. - listRecentUnreadForChannel: watermark 이후 메시지만 반환 -
+ * maxMessageId: 채널 최신 메시지 id
  */
 @Transactional
 class MessageRepositoryAttentionTest extends IntegrationTestBase {
@@ -56,10 +55,7 @@ class MessageRepositoryAttentionTest extends IntegrationTestBase {
     return repo.insert(channelId, authorId, body, mentions, null);
   }
 
-  /**
-   * watermark(uptoExclusiveReadId) 이후 메시지만 반환하는지 검증.
-   * m1 이후 메시지(m2)만 결과에 포함되어야 한다.
-   */
+  /** watermark(uptoExclusiveReadId) 이후 메시지만 반환하는지 검증. m1 이후 메시지(m2)만 결과에 포함되어야 한다. */
   @Test
   void listRecentUnreadForChannel_watermark이후만() {
     long owner = seedUser("owner");
@@ -69,13 +65,10 @@ class MessageRepositoryAttentionTest extends IntegrationTestBase {
 
     // uptoExclusiveReadId=m1 → m1 초과인 m2 만 반환.
     var rows = repo.listRecentUnreadForChannel(ch, m1, 50);
-    assertThat(rows).extracting(MessageRepository.RecentUnread::id)
-        .containsExactly(m2);
+    assertThat(rows).extracting(MessageRepository.RecentUnread::id).containsExactly(m2);
   }
 
-  /**
-   * 스레드 답글(parent_message_id 있음)은 listRecentUnreadForChannel 에서 제외되어야 한다.
-   */
+  /** 스레드 답글(parent_message_id 있음)은 listRecentUnreadForChannel 에서 제외되어야 한다. */
   @Test
   void listRecentUnreadForChannel_스레드답글_제외() {
     long owner = seedUser("thr");
@@ -85,13 +78,12 @@ class MessageRepositoryAttentionTest extends IntegrationTestBase {
     repo.insert(ch, owner, "reply", List.of(), root);
 
     var rows = repo.listRecentUnreadForChannel(ch, 0L, 50);
-    assertThat(rows).extracting(MessageRepository.RecentUnread::id)
+    assertThat(rows)
+        .extracting(MessageRepository.RecentUnread::id)
         .containsExactly(root); // 답글 제외, root만
   }
 
-  /**
-   * maxMessageId 는 채널 최신 미삭제 메시지 id 를 반환, 없으면 0.
-   */
+  /** maxMessageId 는 채널 최신 미삭제 메시지 id 를 반환, 없으면 0. */
   @Test
   void maxMessageId_최신메시지id() {
     long owner = seedUser("maxid");

@@ -104,14 +104,14 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
   void create_invitesHuman_createsInvitedNotification() {
     long org = seedUser("org");
     long guest = seedUser("g");
-    long eventId =
-        service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(guest))).id();
+    long eventId = service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(guest))).id();
     createdEventIds.add(eventId);
 
     // AFTER_COMMIT + @Async 비동기 알림 생성 대기
     await()
         .atMost(Duration.ofSeconds(3))
-        .untilAsserted(() -> assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(1));
+        .untilAsserted(
+            () -> assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(1));
   }
 
   @Test
@@ -119,8 +119,7 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
   void create_invitesAgent_noNotification() throws Exception {
     long org = seedUser("org");
     long agent = seedAgent("agent");
-    long eventId =
-        service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(agent))).id();
+    long eventId = service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(agent))).id();
     createdEventIds.add(eventId);
 
     // 비동기 처리 시간 충분히 대기 후 알림 없음 확인
@@ -133,15 +132,15 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
   void inviteAttendees_createsInvitedNotification() {
     long org = seedUser("org");
     long guest = seedUser("g");
-    long eventId =
-        service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of())).id();
+    long eventId = service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of())).id();
     createdEventIds.add(eventId);
 
     service.inviteAttendees(org, eventId, List.of(guest));
 
     await()
         .atMost(Duration.ofSeconds(3))
-        .untilAsserted(() -> assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(1));
+        .untilAsserted(
+            () -> assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(1));
   }
 
   @Test
@@ -149,8 +148,7 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
   void rsvp_notifiesOrganizer() {
     long org = seedUser("org");
     long guest = seedUser("g");
-    long eventId =
-        service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(guest))).id();
+    long eventId = service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(guest))).id();
     createdEventIds.add(eventId);
 
     service.respondRsvp(guest, eventId, "DECLINED");
@@ -165,8 +163,7 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
   @DisplayName("주최자 본인 RSVP 변경 시 자기 자신에게 알림이 생성되지 않는다(self-notify 방지)")
   void rsvp_bySelf_noSelfNotification() throws Exception {
     long org = seedUser("org");
-    long eventId =
-        service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of())).id();
+    long eventId = service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of())).id();
     createdEventIds.add(eventId);
 
     // org 가 ORGANIZER/ACCEPTED 이므로 RSVP 갱신 — 행이 있으면 성공, 주최자=수신자 → self-notify 없음
