@@ -10,6 +10,7 @@ import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.service.CalendarEventService;
+import com.workplace.calendar.service.CalendarService;
 import com.workplace.support.IntegrationTestBase;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 class CalendarRecurrenceServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired CalendarEventService service;
+  @Autowired CalendarService calendarService;
 
   private static final OffsetDateTime BASE = OffsetDateTime.parse("2026-06-10T09:00:00Z");
 
@@ -43,13 +45,13 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
 
   /** RRULE 포함 일정 요청 헬퍼. */
   private CalendarEventRequest recurringReq(String rrule, OffsetDateTime s, OffsetDateTime e) {
-    return new CalendarEventRequest("회의", null, s, e, false, null, null, null, rrule, null);
+    return new CalendarEventRequest("회의", null, s, e, false, null, null, null, rrule, null, null);
   }
 
   /** 제목 지정 편집 요청 헬퍼(클라이언트가 회차 시작을 그대로 echo 하는 상황 모사). */
   private CalendarEventRequest editReq(String title, String rrule, OffsetDateTime s) {
     return new CalendarEventRequest(
-        title, null, s, s.plusHours(1), false, null, null, null, rrule, null);
+        title, null, s, s.plusHours(1), false, null, null, null, rrule, null, null);
   }
 
   /** 마스터의 예외 행에 저장된 override_event_id 조회(없으면 null). */
@@ -270,7 +272,17 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
 
     CalendarEventRequest edit =
         new CalendarEventRequest(
-            "매일회의", null, BASE, BASE.plusHours(1), false, null, null, null, "FREQ=DAILY", null);
+            "매일회의",
+            null,
+            BASE,
+            BASE.plusHours(1),
+            false,
+            null,
+            null,
+            null,
+            "FREQ=DAILY",
+            null,
+            null);
     service.update(u, master.id(), edit, EditScope.ALL, null);
 
     // BASE 부터 7일 범위 → 일간 7회, 모두 새 제목.
@@ -315,13 +327,15 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
     long u = user();
     // 정상 주간 마스터.
     service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
-    // 손상된 규칙을 가진 마스터를 DB 에 직접 삽입(쓰기 검증 우회).
+    // 손상된 규칙을 가진 마스터를 DB 에 직접 삽입(쓰기 검증 우회). V104 NOT NULL: calendar_id 필수.
+    long calId = calendarService.ensureDefault(u);
     dsl.insertInto(CALENDAR_EVENT)
         .set(CALENDAR_EVENT.OWNER_ID, u)
         .set(CALENDAR_EVENT.TITLE, "손상")
         .set(CALENDAR_EVENT.STARTS_AT, BASE)
         .set(CALENDAR_EVENT.ENDS_AT, BASE.plusHours(1))
         .set(CALENDAR_EVENT.ALL_DAY, false)
+        .set(CALENDAR_EVENT.CALENDAR_ID, calId)
         .set(CALENDAR_EVENT.RECURRENCE_RULE, "GARBAGE")
         .execute();
 

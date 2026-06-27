@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.calendar.service.CalendarService;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.support.IntegrationTestBase;
@@ -23,6 +24,7 @@ class NotificationRepositoryTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired NotificationRepository repo;
+  @Autowired CalendarService calendarService;
 
   private String tok() {
     return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
@@ -73,8 +75,9 @@ class NotificationRepositoryTest extends IntegrationTestBase {
         .getId();
   }
 
-  /** ownerId 의 일정 1건 시드 후 eventId 반환. */
+  /** ownerId 의 일정 1건 시드 후 eventId 반환. V104 NOT NULL: calendar_id 필수 — 기본 캘린더 보장. */
   private long seedEvent(long ownerId, String title) {
+    long calId = calendarService.ensureDefault(ownerId);
     var now = java.time.OffsetDateTime.now();
     return dsl.insertInto(CALENDAR_EVENT)
         .set(CALENDAR_EVENT.OWNER_ID, ownerId)
@@ -82,6 +85,7 @@ class NotificationRepositoryTest extends IntegrationTestBase {
         .set(CALENDAR_EVENT.STARTS_AT, now.plusHours(1))
         .set(CALENDAR_EVENT.ENDS_AT, now.plusHours(2))
         .set(CALENDAR_EVENT.ALL_DAY, false)
+        .set(CALENDAR_EVENT.CALENDAR_ID, calId)
         .returning(CALENDAR_EVENT.ID)
         .fetchOne()
         .getId();

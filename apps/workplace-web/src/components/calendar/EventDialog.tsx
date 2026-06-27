@@ -32,7 +32,9 @@ import {
   useInviteAttendees,
   useRemoveAttendee,
 } from '@/hooks/queries/useCalendarMutations'
+import { useCalendars } from '@/hooks/queries/useCalendars'
 import { useAuth } from '@/hooks/useAuth'
+import { PALETTE_KEYS, resolvePalette } from '@/lib/calendarPalette'
 import { buildRRule, parseRRule, type RecurrenceForm } from '@/lib/recurrence'
 import type { CalendarEvent, CalendarEventRequest } from '@/types/calendar'
 
@@ -47,6 +49,10 @@ const schema = z
     end: z.string().min(1, '종료를 입력하세요'),
     location: z.string().max(200, '장소는 200자 이하여야 합니다').optional(),
     description: z.string().optional(),
+    // 캘린더 컨테이너 — undefined 이면 기본 캘린더로 폴백
+    calendarId: z.number().optional(),
+    // 색 override — null 이면 캘린더 색 상속
+    color: z.string().nullable(),
     // 리마인더 — select 값은 문자열('none' = 없음, 그 외 분 단위). 제출 시 number|null 로 변환.
     // (Radix Select 는 빈 문자열 value 를 허용하지 않아 'none' 센티넬 사용)
     reminderMinutes: z.enum(['none', '10', '60', '1440']),
@@ -178,6 +184,11 @@ export function EventDialog({
   const isEdit = !!event
   const { user } = useAuth()
 
+  // 개인 캘린더 목록 — 드롭다운에 표시. 로드 전은 빈 배열.
+  const { data: calendars = [] } = useCalendars()
+  // 기본 캘린더 id — isDefault=true 우선, 없으면 첫 번째.
+  const defaultCalendarId = calendars.find((c) => c.isDefault)?.id ?? calendars[0]?.id
+
   // 생성 모드에서 선택된 참석자 목록 — id+이름+종류 저장으로 칩에 실명 표시 (이슈 #489)
   const [selectedAttendees, setSelectedAttendees] = useState<SelectedMember[]>([])
 
@@ -214,6 +225,8 @@ export function EventDialog({
       recurrenceEnd: 'none',
       recurrenceUntil: '',
       recurrenceCount: 1,
+      calendarId: undefined,
+      color: null,
     },
   })
 
@@ -244,6 +257,9 @@ export function EventDialog({
         description: event.description ?? '',
         reminderMinutes: (event.reminderMinutes?.toString() ??
           'none') as FormValues['reminderMinutes'],
+        // 캘린더·색 복원 — color=null 이면 상속 칩 활성 상태로 복원
+        calendarId: event.calendarId,
+        color: event.color ?? null,
         ...recFields,
       })
     } else {
@@ -258,10 +274,20 @@ export function EventDialog({
         location: '',
         description: '',
         reminderMinutes: 'none',
+        // 생성 모드: 기본 캘린더 프리필. calendars 로드 전이면 undefined 유지.
+        calendarId: defaultCalendarId,
+        color: null,
         ...recFields,
       })
     }
   }, [open, event, defaultStart, form])
+
+  // 생성 모드: 캘린더 목록이 늦게 로드되면 기본 캘린더만 채운다(전체 reset 금지 — 사용자 입력 보존).
+  useEffect(() => {
+    if (open && !isEdit && defaultCalendarId != null && form.getValues('calendarId') == null) {
+      form.setValue('calendarId', defaultCalendarId)
+    }
+  }, [open, isEdit, defaultCalendarId, form])
 
   // 폼 제출 핸들러
   function handleSubmit(values: FormValues) {
@@ -284,7 +310,10 @@ export function EventDialog({
       endsAt: toIso(values.end),
       location: values.location?.trim() || null,
       description: values.description?.trim() || null,
-      color: null,
+      // 색 override — null 이면 캘린더 색 상속
+      color: values.color,
+      // 캘린더 컨테이너 — 미선택 시 기본 캘린더로 폴백
+      calendarId: values.calendarId ?? defaultCalendarId,
       // 'none'(없음) → null, 그 외 분 단위 숫자로 변환
       reminderMinutes: values.reminderMinutes === 'none' ? null : Number(values.reminderMinutes),
       // 반복 규칙 — freq=NONE 이면 buildRRule 이 null 반환 (이슈 #111)
@@ -379,6 +408,63 @@ export function EventDialog({
               placeholder="장소 (선택)"
               {...form.register('location')}
             />
+          </FormField>
+
+          {/* 캘린더 — 드롭다운으로 컨테이너 선택. 기본값=isDefault 캘린더 */}
+          <FormField label="캘린더" htmlFor="ev-calendar">
+            <Controller
+              control={form.control}
+              name="calendarId"
+              render={({ field }) => (
+                <Select
+                  value={field.value?.toString() ?? ''}
+                  onValueChange={(v) => field.onChange(Number(v))}
+                >
+                  <SelectTrigger
+                    id="ev-calendar"
+                    data-testid="calendar-form-calendar"
+                    className="w-full"
+                  >
+                    <SelectValue placeholder="캘린더 선택" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {calendars.map((c) => (
+                      <SelectItem key={c.id} value={c.id.toString()}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </FormField>
+
+          {/* 색 — '상속' 칩(점선, color=null) + 8색 override 칩 */}
+          <FormField label="색" htmlFor="ev-color">
+            <div className="flex flex-wrap items-center gap-2" data-testid="calendar-form-color">
+              <button
+                type="button"
+                data-testid="calendar-color-inherit"
+                onClick={() => form.setValue('color', null)}
+                className={`flex size-7 items-center justify-center rounded-full border-2 border-dashed text-[10px] ${
+                  form.watch('color') === null ? 'border-foreground' : 'border-muted-foreground/40'
+                }`}
+              >
+                상속
+              </button>
+              {PALETTE_KEYS.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  data-testid={`calendar-color-${k}`}
+                  onClick={() => form.setValue('color', k)}
+                  className={`size-7 rounded-full border-2 ${resolvePalette(k).dotClass} ${
+                    form.watch('color') === k ? 'border-foreground' : 'border-transparent'
+                  }`}
+                  aria-label={resolvePalette(k).label}
+                />
+              ))}
+            </div>
           </FormField>
 
           {/* 알림(리마인더) — 시작 N분 전 알림 */}

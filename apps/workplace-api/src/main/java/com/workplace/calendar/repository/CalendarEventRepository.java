@@ -1,5 +1,6 @@
 package com.workplace.calendar.repository;
 
+import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.EVENT_REMINDER;
@@ -38,10 +39,11 @@ public class CalendarEventRepository {
                     .and(EVENT_ATTENDEE.USER_ID.eq(callerId))));
   }
 
-  /** 일정 생성 — 생성된 id 반환. */
-  public long insert(long ownerId, CalendarEventRequest req) {
+  /** 일정 생성 — calendarId resolve 완료 후 호출. 생성된 id 반환. */
+  public long insert(long ownerId, long calendarId, CalendarEventRequest req) {
     return dsl.insertInto(CALENDAR_EVENT)
         .set(CALENDAR_EVENT.OWNER_ID, ownerId)
+        .set(CALENDAR_EVENT.CALENDAR_ID, calendarId)
         .set(CALENDAR_EVENT.TITLE, req.title())
         .set(CALENDAR_EVENT.DESCRIPTION, nullIfBlank(req.description()))
         .set(CALENDAR_EVENT.STARTS_AT, req.startsAt())
@@ -55,15 +57,30 @@ public class CalendarEventRepository {
         .getId();
   }
 
+  /** 단일 일정의 소속 캘린더 변경(수정 시 캘린더 이동). */
+  public void moveSingleEventToCalendar(long id, long calendarId) {
+    dsl.update(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.CALENDAR_ID, calendarId)
+        .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
+        .where(CALENDAR_EVENT.ID.eq(id))
+        .execute();
+  }
+
   /**
    * 단건 조회 — callerId 가 owner 이거나 참석자인 경우에만 반환(없으면 Optional.empty → service 가 404 처리).
    * event_reminder 를 left join 해 reminderMinutes 포함.
    */
   public Optional<CalendarEventResponse> findById(long callerId, long id) {
-    return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
+    return dsl.select(
+            CALENDAR_EVENT.asterisk(),
+            EVENT_REMINDER.LEAD_MINUTES,
+            CALENDAR.NAME.as("cal_name"),
+            CALENDAR.COLOR.as("cal_color"))
         .from(CALENDAR_EVENT)
         .leftJoin(EVENT_REMINDER)
         .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
+        .leftJoin(CALENDAR)
+        .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
         .where(CALENDAR_EVENT.ID.eq(id))
         .and(accessibleBy(callerId))
         .fetchOptional()
@@ -84,10 +101,16 @@ public class CalendarEventRepository {
    */
   public List<CalendarEventResponse> listByRange(
       long callerId, OffsetDateTime from, OffsetDateTime to) {
-    return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
+    return dsl.select(
+            CALENDAR_EVENT.asterisk(),
+            EVENT_REMINDER.LEAD_MINUTES,
+            CALENDAR.NAME.as("cal_name"),
+            CALENDAR.COLOR.as("cal_color"))
         .from(CALENDAR_EVENT)
         .leftJoin(EVENT_REMINDER)
         .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
+        .leftJoin(CALENDAR)
+        .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
         .where(accessibleBy(callerId))
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
         .and(CALENDAR_EVENT.ENDS_AT.gt(from))
@@ -101,10 +124,16 @@ public class CalendarEventRepository {
    * 처리하므로 두지 않는다(과거에 시작한 마스터의 미래 회차도 잡아야 함).
    */
   public List<CalendarEventResponse> listRecurringMasters(long callerId, OffsetDateTime to) {
-    return dsl.select(CALENDAR_EVENT.asterisk(), EVENT_REMINDER.LEAD_MINUTES)
+    return dsl.select(
+            CALENDAR_EVENT.asterisk(),
+            EVENT_REMINDER.LEAD_MINUTES,
+            CALENDAR.NAME.as("cal_name"),
+            CALENDAR.COLOR.as("cal_color"))
         .from(CALENDAR_EVENT)
         .leftJoin(EVENT_REMINDER)
         .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
+        .leftJoin(CALENDAR)
+        .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
         .where(accessibleBy(callerId))
         .and(CALENDAR_EVENT.RECURRENCE_RULE.isNotNull())
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
@@ -150,6 +179,11 @@ public class CalendarEventRepository {
   }
 
   private static CalendarEventResponse toResponse(Record r) {
+    String override = r.get(CALENDAR_EVENT.COLOR);
+    String calColor = r.get("cal_color", String.class); // alias 로 충돌 회피. 조인 없으면 null
+    String calName = r.get("cal_name", String.class);
+    // 표시용 해석 색: override 우선 → 캘린더 색 → 팔레트 기본('blue'). 항상 non-null.
+    String effective = override != null ? override : (calColor != null ? calColor : "blue");
     return new CalendarEventResponse(
         r.get(CALENDAR_EVENT.ID),
         r.get(CALENDAR_EVENT.TITLE),
@@ -158,7 +192,10 @@ public class CalendarEventRepository {
         r.get(CALENDAR_EVENT.ENDS_AT),
         r.get(CALENDAR_EVENT.ALL_DAY),
         r.get(CALENDAR_EVENT.LOCATION),
-        r.get(CALENDAR_EVENT.COLOR),
+        override,
+        r.get(CALENDAR_EVENT.CALENDAR_ID),
+        calName,
+        effective,
         r.get(EVENT_REMINDER.LEAD_MINUTES),
         r.get(CALENDAR_EVENT.RECURRENCE_RULE),
         null, // masterEventId — 구체/마스터 행은 회차가 아니므로 null

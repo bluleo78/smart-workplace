@@ -45,7 +45,8 @@ class CalendarAttendeeAccessTest extends IntegrationTestBase {
   /** 일정 요청 헬퍼 — attendeeUserIds 포함. */
   private CalendarEventRequest newReq(
       String title, OffsetDateTime s, OffsetDateTime e, List<Long> attendees) {
-    return new CalendarEventRequest(title, null, s, e, false, null, null, null, null, attendees);
+    return new CalendarEventRequest(
+        title, null, s, e, false, null, null, null, null, attendees, null);
   }
 
   /** 초대받은 참석자는 자신의 list/get 에서 그 일정을 볼 수 있다(가시성 역전). */

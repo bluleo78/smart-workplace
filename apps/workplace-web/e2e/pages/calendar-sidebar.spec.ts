@@ -1,12 +1,19 @@
 // 캘린더 사이드바 미니 캘린더 + 표시 토글 E2E.
-// 백엔드 없이 /calendar/events 와 /me/issues 를 page.route 로 모킹한다.
+// 백엔드 없이 /calendar/events, /calendars, /me/issues 를 page.route 로 모킹한다.
 // (Playwright 기본 로케일 en-US → 미니 캘린더 캡션/nav 라벨이 영어로 결정적.)
 import type { Page } from '@playwright/test'
 
 import { mockApi } from '../fixtures/api-mock'
 import { expect, test } from '../fixtures/auth.fixture'
-import { calendarEvent } from '../factories/calendar.factory'
+import { calendar, calendarEvent } from '../factories/calendar.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../factories/issue.factory'
+
+// 기본 캘린더 목록 스텁 — 사이드바 렌더에 필요.
+const DEFAULT_CALENDARS = [calendar({ id: 1, name: '기본', color: 'blue', isDefault: true })]
+
+async function stubCalendars(page: Page): Promise<void> {
+  await mockApi(page, 'GET', '/api/v1/calendars', DEFAULT_CALENDARS)
+}
 
 // 2026-06-11 마감 이슈 1건 + 그 이슈 상세 빈 스텁(이동 시 프록시 누수 방지).
 async function stubDueIssue(page: Page): Promise<void> {
@@ -23,6 +30,7 @@ async function stubDueIssue(page: Page): Promise<void> {
 
 test('미니 캘린더가 anchor 와 양방향 동기화된다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendars(page)
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
   await stubDueIssue(page)
 
@@ -47,6 +55,7 @@ test('미니 캘린더가 anchor 와 양방향 동기화된다', async ({ authen
 
 test('미니 캘린더 날짜 클릭 시 선택일(anchor)이 갱신된다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendars(page)
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
   await stubDueIssue(page)
 
@@ -67,9 +76,10 @@ test('미니 캘린더 날짜 클릭 시 선택일(anchor)이 갱신된다', asy
 
 test('표시 토글로 일정/이슈 레이어를 끄고 켤 수 있다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-  // 6월 그리드에 보이는 일정 1건.
+  // 기본 캘린더(id=1) + 6월 그리드에 보이는 일정 1건(calendarId=1).
+  await stubCalendars(page)
   await mockApi(page, 'GET', '/api/v1/calendar/events', [
-    calendarEvent({ id: 1, title: '팀 회의', startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
+    calendarEvent({ id: 1, title: '팀 회의', calendarId: 1, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
   ])
   await stubDueIssue(page)
 
@@ -79,24 +89,25 @@ test('표시 토글로 일정/이슈 레이어를 끄고 켤 수 있다', async 
   await expect(page.getByTestId('calendar-event-1')).toBeVisible()
   await expect(page.getByTestId('calendar-issue-due-7')).toBeVisible()
 
-  // aria-label 접근성 이름이 올바르게 연결됐는지 검증 (Fix 1 회귀 가드).
-  await expect(page.getByRole('checkbox', { name: '내 일정' })).toBeVisible()
+  // 캘린더별 체크박스 접근성 이름 확인 (회귀 가드).
+  await expect(page.getByRole('checkbox', { name: '캘린더 표시: 기본' })).toBeVisible()
 
   // 이슈 마감일 레이어 끄기 → 이슈 칩만 사라지고 일정은 유지.
   await page.getByTestId('calendar-layer-issue-dues').click()
   await expect(page.getByTestId('calendar-issue-due-7')).toHaveCount(0)
   await expect(page.getByTestId('calendar-event-1')).toBeVisible()
 
-  // 일정 레이어 끄기 → 일정도 사라짐.
-  await page.getByTestId('calendar-layer-events').click()
+  // 캘린더 1 토글 끄기 → 일정도 사라짐.
+  await page.getByTestId('calendar-toggle-1').click()
   await expect(page.getByTestId('calendar-event-1')).toHaveCount(0)
 })
 
 test('미니 캘린더가 일정/마감 있는 날에 점을 표시한다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-  // 6/11 에 일정 1건. 미니 그리드(6월) 범위로 조회됨.
+  await stubCalendars(page)
+  // 6/11 에 일정 1건(calendarId=1). 미니 그리드(6월) 범위로 조회됨.
   await mockApi(page, 'GET', '/api/v1/calendar/events', [
-    calendarEvent({ id: 1, title: '팀 회의', startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
+    calendarEvent({ id: 1, title: '팀 회의', calendarId: 1, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
   ])
   await stubDueIssue(page) // 6/11 마감 이슈(id 7) — calendar-sidebar.spec.ts 상단 헬퍼
 
@@ -111,9 +122,10 @@ test('미니 캘린더가 일정/마감 있는 날에 점을 표시한다', asyn
 
 test('표시 토글을 끄면 미니 캘린더 점도 사라진다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-  // 6/11 에 일정만(이슈 마감 없음) → "내 일정" 끄면 점 사라져야 함.
+  await stubCalendars(page)
+  // 6/11 에 일정만(이슈 마감 없음, calendarId=1) → 캘린더 1 끄면 점 사라져야 함.
   await mockApi(page, 'GET', '/api/v1/calendar/events', [
-    calendarEvent({ id: 1, title: '팀 회의', startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
+    calendarEvent({ id: 1, title: '팀 회의', calendarId: 1, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
   ])
   await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([]))
 
@@ -123,13 +135,14 @@ test('표시 토글을 끄면 미니 캘린더 점도 사라진다', async ({ au
   const cell = mini.locator('[data-day="2026-06-11"]')
 
   await expect(cell).toHaveClass(/day-has-items/)
-  // "내 일정" 토글 끄기 → 점 사라짐.
-  await page.getByTestId('calendar-layer-events').click()
+  // 캘린더 1 토글 끄기 → 점 사라짐.
+  await page.getByTestId('calendar-toggle-1').click()
   await expect(cell).not.toHaveClass(/day-has-items/)
 })
 
 test('이슈 마감일 토글을 끄면 마감 점도 사라진다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendars(page)
   // 6/11 에 마감 이슈만(일정 없음) → "내 이슈 마감일" 끄면 점 사라져야 함(issueDues 분기 검증).
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
   await stubDueIssue(page) // 6/11 마감 이슈(id 7)
@@ -146,6 +159,7 @@ test('이슈 마감일 토글을 끄면 마감 점도 사라진다', async ({ au
 
 test('표시 토글 상태가 새로고침 후에도 유지된다(localStorage)', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendars(page)
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
   await stubDueIssue(page)
 

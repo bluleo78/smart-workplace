@@ -2,6 +2,7 @@ import { addDays, addMonths, format, startOfDay } from 'date-fns'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { CalendarEditDialog } from '@/components/calendar/CalendarEditDialog'
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
 import { EventDialog } from '@/components/calendar/EventDialog'
 import { RecurrenceScopeDialog } from '@/components/calendar/RecurrenceScopeDialog'
@@ -26,19 +27,24 @@ import {
   useDeleteEvent,
   useUpdateEvent,
 } from '@/hooks/queries/useCalendarMutations'
+import { useCalendars, useCreateCalendar, useDeleteCalendar, useUpdateCalendar } from '@/hooks/queries/useCalendars'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import {
   type CalendarLayers,
   eventsOnDay,
+  isCalendarVisible,
   issueDuesOnDay,
   loadLayers,
   monthMatrix,
   saveLayers,
+  toggleCalendar,
   visibleRange,
 } from '@/lib/calendar'
 import type {
+  Calendar,
   CalendarEvent,
   CalendarEventRequest,
+  CalendarRequest,
   CalendarViewType,
   EditScope,
   IssueDueMarker,
@@ -52,7 +58,7 @@ const VIEWS: { key: CalendarViewType; label: string }[] = [
   { key: 'agenda', label: '목록' },
 ]
 
-/** 캘린더 페이지 — 뷰 전환·날짜 네비·일정 CRUD 를 통합 관리. */
+/** 캘린더 페이지 — 뷰 전환·날짜 네비·일정 CRUD + 캘린더 컨테이너 CRUD + 필터를 통합 관리. */
 export function CalendarPage() {
   const navigate = useNavigate()
   const [view, setView] = useState<CalendarViewType>('month')
@@ -60,21 +66,28 @@ export function CalendarPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
   const [defaultStart, setDefaultStart] = useState<Date | undefined>()
-  // 반복 회차 수정/삭제 시 scope 선택 다이얼로그 모드(null=닫힘) (이슈 #111)
+  // 반복 회차 수정/삭제 시 scope 선택 다이얼로그 모드(null=닫힘)
   const [scopeMode, setScopeMode] = useState<'edit' | 'delete' | null>(null)
   // scope 선택 전까지 보류하는 수정 body
   const [pendingBody, setPendingBody] = useState<CalendarEventRequest | null>(null)
-  // 단일 일정 삭제 확인 다이얼로그 표시 여부 (이슈 #128)
+  // 단일 일정 삭제 확인 다이얼로그 표시 여부
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+
+  // 캘린더 컨테이너 CRUD 다이얼로그 상태.
+  const [calEditOpen, setCalEditOpen] = useState(false)
+  const [editingCal, setEditingCal] = useState<Calendar | null>(null)
 
   // 사이드바 표시 레이어 토글 — localStorage 에서 초기화.
   const [layers, setLayers] = useState<CalendarLayers>(loadLayers)
-  // saveLayers 를 setState 업데이터 밖에서 호출 — StrictMode 이중 실행(사이드 이펙트) 방지.
-  const toggleLayer = (key: keyof CalendarLayers, value: boolean) => {
-    const next = { ...layers, [key]: value }
-    saveLayers(next)
-    setLayers(next)
-  }
+
+  // 내 캘린더 목록.
+  const { data: calendars = [] } = useCalendars()
+  // 내 캘린더 id 집합 — filterByCalendar 에서 "내 캘린더인지" 판별.
+  const myCalendarIds = useMemo(() => new Set(calendars.map((c) => c.id)), [calendars])
+
+  const createCal = useCreateCalendar()
+  const updateCal = useUpdateCalendar()
+  const deleteCal = useDeleteCalendar()
 
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
@@ -88,20 +101,44 @@ export function CalendarPage() {
   const { data: miniEvents = [] } = useCalendarEvents(miniRange.from, miniRange.to)
   const { data: miniDues = [] } = useMyIssueDues(miniRange.from, miniRange.to)
 
-  // 점 찍을 날 — 표시 토글을 존중. 다일 일정도 eventsOnDay 로 걸친 날 전부 판정.
+  // 캘린더 표시 토글 + 초대받은 일정 토글 존중.
+  // 내 캘린더(myCalendarIds) 면 캘린더별 토글, 아니면 invited 토글.
+  const filterByCalendar = useMemo(
+    () => (e: CalendarEvent) =>
+      myCalendarIds.has(e.calendarId) ? isCalendarVisible(layers, e.calendarId) : layers.invited,
+    [myCalendarIds, layers],
+  )
+
+  const visibleEvents = useMemo(() => events.filter(filterByCalendar), [events, filterByCalendar])
+
+  // 점 찍을 날 — 표시 토글을 존중.
   const markedDates = useMemo(
     () =>
       monthMatrix(anchor).filter(
         (day) =>
-          (layers.events && eventsOnDay(miniEvents, day).length > 0) ||
+          eventsOnDay(miniEvents.filter(filterByCalendar), day).length > 0 ||
           (layers.issueDues && issueDuesOnDay(miniDues, day).length > 0),
       ),
-    [anchor, layers, miniEvents, miniDues],
+    [anchor, layers, miniEvents, miniDues, filterByCalendar],
   )
 
   const create = useCreateEvent()
   const update = useUpdateEvent()
   const remove = useDeleteEvent()
+
+  // issueDues / invited 토글(keyof Pick 으로 타입 안전).
+  const toggleLayer = (key: keyof Pick<CalendarLayers, 'issueDues' | 'invited'>, value: boolean) => {
+    const next = { ...layers, [key]: value }
+    saveLayers(next)
+    setLayers(next)
+  }
+
+  // 캘린더 컨테이너 표시 토글.
+  const onToggleCalendar = (id: number) => {
+    const next = toggleCalendar(layers, id)
+    saveLayers(next)
+    setLayers(next)
+  }
 
   // 방향(dir)과 현재 뷰에 따라 anchor 이동
   const step = (dir: 1 | -1) =>
@@ -125,14 +162,12 @@ export function CalendarPage() {
   // 생성·수정 공용 submit 핸들러
   const submit = (body: CalendarEventRequest) => {
     if (editing) {
-      // 반복 회차(occurrenceDate 존재) → body 보류 후 EventDialog 닫고 scope 선택 다이얼로그 표시.
       if (editing.occurrenceDate != null) {
         setPendingBody(body)
         setDialogOpen(false)
         setScopeMode('edit')
         return
       }
-      // 단일 일정 → scope 없이 바로 수정(서버 기본 ALL)
       update.mutate({ id: editing.id, body }, { onSuccess: () => setDialogOpen(false) })
     } else {
       create.mutate(body, { onSuccess: () => setDialogOpen(false) })
@@ -141,25 +176,21 @@ export function CalendarPage() {
 
   const onDelete = () => {
     if (!editing) return
-    // 반복 회차 → EventDialog 닫고 scope 선택 다이얼로그 표시.
     if (editing.occurrenceDate != null) {
       setDialogOpen(false)
       setScopeMode('delete')
       return
     }
-    // 단일 일정 → EventDialog 닫고 삭제 확인 다이얼로그 표시. (이슈 #128)
     setDialogOpen(false)
     setConfirmDeleteOpen(true)
   }
 
-  // 단일 일정 삭제 확인 후 실행
   const confirmDelete = () => {
     if (!editing) return
     remove.mutate({ id: editing.id }, { onSuccess: () => setConfirmDeleteOpen(false) })
     setConfirmDeleteOpen(false)
   }
 
-  // scope 선택 후 실행 — 반복은 마스터 id 로, occurrenceDate 는 서버 값 그대로 전달.
   const onPickScope = (scope: EditScope) => {
     if (!editing) return
     const id = editing.masterEventId ?? editing.id
@@ -173,7 +204,6 @@ export function CalendarPage() {
     setPendingBody(null)
   }
 
-  // scope 다이얼로그 취소 — 보류 상태 정리
   const cancelScope = () => {
     setScopeMode(null)
     setPendingBody(null)
@@ -183,8 +213,29 @@ export function CalendarPage() {
   const openIssue = (m: IssueDueMarker) =>
     navigate(`/projects/${m.projectKey}/issues/${m.number}`)
 
+  // 캘린더 컨테이너 추가/수정 핸들러.
+  const openAddCalendar = () => {
+    setEditingCal(null)
+    setCalEditOpen(true)
+  }
+  const openEditCalendar = (c: Calendar) => {
+    setEditingCal(c)
+    setCalEditOpen(true)
+  }
+  const submitCalendar = (body: CalendarRequest) => {
+    if (editingCal) {
+      updateCal.mutate({ id: editingCal.id, body }, { onSuccess: () => setCalEditOpen(false) })
+    } else {
+      createCal.mutate(body, { onSuccess: () => setCalEditOpen(false) })
+    }
+  }
+  const deleteCalendar = () => {
+    if (!editingCal) return
+    deleteCal.mutate(editingCal.id, { onSuccess: () => setCalEditOpen(false) })
+  }
+
   const viewProps = {
-    events: layers.events ? events : [],
+    events: visibleEvents,
     issueDues: layers.issueDues ? issueDues : [],
     anchor,
     onSelectEvent: openEdit,
@@ -200,6 +251,10 @@ export function CalendarPage() {
         onSelectDate={(d) => setAnchor(startOfDay(d))}
         layers={layers}
         onToggleLayer={toggleLayer}
+        calendars={calendars}
+        onToggleCalendar={onToggleCalendar}
+        onAddCalendar={openAddCalendar}
+        onEditCalendar={openEditCalendar}
         markedDates={markedDates}
       />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -254,7 +309,7 @@ export function CalendarPage() {
         {view === 'agenda' && <AgendaView {...viewProps} />}
       </div>
 
-      {/* isPending: API 진행 중일 때 저장 버튼 비활성화 — 중복 제출 방지 (이슈 #130) */}
+      {/* 일정 생성/편집 다이얼로그 */}
       <EventDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -265,7 +320,17 @@ export function CalendarPage() {
         isPending={create.isPending || update.isPending}
       />
 
-      {/* 반복 회차 수정/삭제 시 적용 범위 선택 (이슈 #111) */}
+      {/* 캘린더 컨테이너 추가/편집 다이얼로그 */}
+      <CalendarEditDialog
+        open={calEditOpen}
+        onOpenChange={setCalEditOpen}
+        calendar={editingCal}
+        onSubmit={submitCalendar}
+        onDelete={deleteCalendar}
+        isPending={createCal.isPending || updateCal.isPending}
+      />
+
+      {/* 반복 회차 수정/삭제 시 적용 범위 선택 */}
       {scopeMode && (
         <RecurrenceScopeDialog
           open={!!scopeMode}
@@ -275,7 +340,7 @@ export function CalendarPage() {
         />
       )}
 
-      {/* 단일 일정 삭제 확인 다이얼로그 — 되돌릴 수 없으므로 confirm 필요 (이슈 #128) */}
+      {/* 단일 일정 삭제 확인 다이얼로그 */}
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent data-testid="calendar-confirm-delete-dialog">
           <AlertDialogHeader>
@@ -286,7 +351,6 @@ export function CalendarPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="calendar-confirm-delete-cancel">취소</AlertDialogCancel>
-            {/* 파괴적 작업임을 시각적으로 표시 */}
             <AlertDialogAction
               variant="destructive"
               data-testid="calendar-confirm-delete-confirm"

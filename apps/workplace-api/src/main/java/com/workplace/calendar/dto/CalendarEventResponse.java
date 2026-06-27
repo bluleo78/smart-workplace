@@ -6,6 +6,8 @@ import java.util.List;
 /**
  * 일정 응답.
  *
+ * @param calendarId 소속 캘린더 id. @param calendarName 소속 캘린더 이름.
+ * @param effectiveColor 표시용 해석 색 = color(override) ?? 캘린더 색 ?? 'blue'. 항상 non-null.
  * @param reminderMinutes 설정된 리마인더(시작 N분 전). 없으면 null.
  * @param recurrenceRule 저장된 RRULE(반복 마스터/가상 회차에 채워짐). 단일 일정은 null.
  * @param masterEventId 가상 회차일 때 원본(마스터) 일정 id. 구체 일정은 null.
@@ -23,6 +25,9 @@ public record CalendarEventResponse(
     boolean allDay,
     String location,
     String color,
+    Long calendarId,
+    String calendarName,
+    String effectiveColor,
     Integer reminderMinutes,
     String recurrenceRule,
     Long masterEventId,

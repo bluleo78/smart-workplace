@@ -1,25 +1,31 @@
-package com.workplace.home.controller;
+package com.workplace.calendar.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.AgentApiKeyRepository;
-import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.CalendarRequest;
+import com.workplace.calendar.dto.CalendarResponse;
+import com.workplace.calendar.exception.DefaultCalendarDeletionException;
+import com.workplace.calendar.service.CalendarService;
 import com.workplace.global.config.SecurityConfig;
+import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.home.service.HomeActionService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
-import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,20 +36,27 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-/** HomeActionController @WebMvcTest — 인증 통과 시 confirm 결과를 201 로 응답하는지 검증. */
+/** CalendarController 라우팅·인증 테스트. 서비스는 Mockito. */
 @SuppressWarnings("null")
-@WebMvcTest(HomeActionController.class)
+@WebMvcTest(controllers = CalendarController.class)
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
-class HomeActionControllerTest {
+class CalendarControllerTest {
 
   @Autowired MockMvc mockMvc;
-  @MockitoBean HomeActionService actionService;
+  @Autowired ObjectMapper objectMapper;
+
+  @MockitoBean CalendarService service;
+  @MockitoBean SseRegistry registry;
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
   @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserRepository userRepository;
+
+  private CalendarResponse sample() {
+    return new CalendarResponse(1L, "기본", "blue", true, 0);
+  }
 
   @BeforeEach
   void auth() {
@@ -54,41 +67,44 @@ class HomeActionControllerTest {
   }
 
   @Test
-  void confirm_정상_201_반환() throws Exception {
-    OffsetDateTime s = OffsetDateTime.parse("2026-06-26T01:00:00Z");
-    CalendarEventResponse created =
-        new CalendarEventResponse(
-            7L,
-            "팀 미팅",
-            null,
-            s,
-            s.plusHours(1),
-            false,
-            null,
-            null,
-            null,
-            null,
-            "blue",
-            null,
-            null,
-            null,
-            null,
-            s,
-            s,
-            0,
-            null,
-            null);
-    when(actionService.confirm(eq(1L), eq("calendar.create_event"), any(JsonNode.class)))
-        .thenReturn(created);
+  void list_returns200_with_default_calendar() throws Exception {
+    when(service.list(1L)).thenReturn(List.of(sample()));
+
+    mockMvc
+        .perform(get("/api/v1/calendars").header("Authorization", "Bearer v"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].isDefault").value(true))
+        .andExpect(jsonPath("$[0].color").value("blue"));
+  }
+
+  @Test
+  void create_valid_returns201() throws Exception {
+    when(service.create(eq(1L), any())).thenReturn(new CalendarResponse(2L, "업무", "red", false, 1));
+
+    CalendarRequest req = new CalendarRequest("업무", "red", null);
 
     mockMvc
         .perform(
-            post("/api/v1/home/actions/confirm")
+            post("/api/v1/calendars")
                 .header("Authorization", "Bearer v")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    "{\"actionType\":\"calendar.create_event\",\"params\":{\"title\":\"팀 미팅\"}}"))
+                .content(objectMapper.writeValueAsString(req)))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.title").value("팀 미팅"));
+        .andExpect(jsonPath("$.name").value("업무"))
+        .andExpect(jsonPath("$.color").value("red"));
+  }
+
+  @Test
+  void delete_default_returns400() throws Exception {
+    doThrow(new DefaultCalendarDeletionException()).when(service).delete(1L, 1L);
+
+    mockMvc
+        .perform(delete("/api/v1/calendars/1").header("Authorization", "Bearer v"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void list_unauthenticated_returns401() throws Exception {
+    mockMvc.perform(get("/api/v1/calendars")).andExpect(status().isUnauthorized());
   }
 }

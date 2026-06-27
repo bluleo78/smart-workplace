@@ -41,7 +41,8 @@ class CalendarRsvpTest extends IntegrationTestBase {
   /** 일정 요청 헬퍼(참석자 목록 지정). */
   private CalendarEventRequest newReq(
       String title, OffsetDateTime s, OffsetDateTime e, List<Long> attendees) {
-    return new CalendarEventRequest(title, null, s, e, false, null, null, null, null, attendees);
+    return new CalendarEventRequest(
+        title, null, s, e, false, null, null, null, null, attendees, null);
   }
 
   // 참석자는 본인 RSVP 만 변경할 수 있다.

@@ -75,37 +75,53 @@ export function hhmm(iso: string | null | undefined): string {
 
 export { addDays, endOfMonth, startOfMonth }
 
-// 사이드바 "표시" 레이어 토글 상태 — 본문에 겹쳐 보일 레이어 on/off.
+// 사이드바 표시 토글 상태.
+// hiddenCalendarIds: 명시적으로 숨긴 캘린더(목록에 없으면 표시 = 신규 캘린더 자동 표시).
+// invited: 내 캘린더가 아닌 '초대받은 일정' 표시 여부. issueDues: 이슈 마감 오버레이.
 export interface CalendarLayers {
-  events: boolean
+  hiddenCalendarIds: number[]
   issueDues: boolean
+  invited: boolean
 }
 
 const LAYERS_KEY = 'calendar.layers'
+const DEFAULT_LAYERS: CalendarLayers = { hiddenCalendarIds: [], issueDues: true, invited: true }
 
-// 기본 레이어 상태 — 모두 표시. 분기별 중복 제거용 공통 상수.
-const DEFAULT_LAYERS: CalendarLayers = { events: true, issueDues: true }
-
-// 저장된 레이어 상태 로드(없거나 손상 시 모두 표시 기본값).
 export function loadLayers(): CalendarLayers {
   try {
     const raw = localStorage.getItem(LAYERS_KEY)
-    if (!raw) return { ...DEFAULT_LAYERS }
-    const parsed = JSON.parse(raw) as Partial<CalendarLayers>
+    if (!raw) return { ...DEFAULT_LAYERS, hiddenCalendarIds: [] }
+    const p = JSON.parse(raw) as Partial<CalendarLayers>
     return {
-      events: parsed.events ?? DEFAULT_LAYERS.events,
-      issueDues: parsed.issueDues ?? DEFAULT_LAYERS.issueDues,
+      hiddenCalendarIds: Array.isArray(p.hiddenCalendarIds) ? p.hiddenCalendarIds : [],
+      issueDues: p.issueDues ?? DEFAULT_LAYERS.issueDues,
+      invited: p.invited ?? DEFAULT_LAYERS.invited,
     }
   } catch {
-    return { ...DEFAULT_LAYERS }
+    return { ...DEFAULT_LAYERS, hiddenCalendarIds: [] }
   }
 }
 
-// 레이어 상태 저장(localStorage 불가 환경은 무시).
 export function saveLayers(layers: CalendarLayers): void {
   try {
     localStorage.setItem(LAYERS_KEY, JSON.stringify(layers))
   } catch {
-    // 저장 불가 — 무시(다음 세션 기본값 복귀).
+    // 저장 불가 — 무시.
+  }
+}
+
+// 캘린더 표시 여부 — hiddenCalendarIds 에 없으면 표시(기본 표시).
+export function isCalendarVisible(layers: CalendarLayers, calendarId: number): boolean {
+  return !layers.hiddenCalendarIds.includes(calendarId)
+}
+
+// 캘린더 표시 토글 — 새 layers 반환.
+export function toggleCalendar(layers: CalendarLayers, calendarId: number): CalendarLayers {
+  const hidden = isCalendarVisible(layers, calendarId)
+  return {
+    ...layers,
+    hiddenCalendarIds: hidden
+      ? [...layers.hiddenCalendarIds, calendarId]
+      : layers.hiddenCalendarIds.filter((id) => id !== calendarId),
   }
 }

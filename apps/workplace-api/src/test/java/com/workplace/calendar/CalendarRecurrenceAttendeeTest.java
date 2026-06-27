@@ -45,13 +45,14 @@ class CalendarRecurrenceAttendeeTest extends IntegrationTestBase {
   private CalendarEventRequest newRecurringReq(
       String freq, OffsetDateTime s, OffsetDateTime e, List<Long> attendees) {
     return new CalendarEventRequest(
-        "회의", null, s, e, false, null, null, null, "FREQ=" + freq.toUpperCase(), attendees);
+        "회의", null, s, e, false, null, null, null, "FREQ=" + freq.toUpperCase(), attendees, null);
   }
 
   /** 단순 일정 요청 헬퍼(RRULE 없음). */
   private CalendarEventRequest newReq(
       String title, OffsetDateTime s, OffsetDateTime e, List<Long> attendees) {
-    return new CalendarEventRequest(title, null, s, e, false, null, null, null, null, attendees);
+    return new CalendarEventRequest(
+        title, null, s, e, false, null, null, null, null, attendees, null);
   }
 
   /**

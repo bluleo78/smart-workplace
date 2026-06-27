@@ -31,6 +31,9 @@ export interface CalendarEvent {
   allDay: boolean
   location: string | null
   color: string | null
+  calendarId: number
+  calendarName: string | null
+  effectiveColor: string
   // 시작 N분 전 리마인더(분). null = 알림 없음 (이슈 #110)
   reminderMinutes: number | null
   // RRULE 문자열(반복 규칙). null = 반복 없음 (이슈 #111)
@@ -73,4 +76,21 @@ export interface CalendarEventRequest {
   recurrenceRule: string | null
   // 생성 시 초대할 참석자 userId 목록 (주최자 제외). 미전달 시 빈 배열. (이슈 #489)
   attendeeUserIds?: number[]
+  calendarId?: number | null
+}
+
+// 개인 캘린더(컨테이너).
+export interface Calendar {
+  id: number
+  name: string
+  color: string
+  isDefault: boolean
+  position: number
+}
+
+// 캘린더 생성/수정 요청.
+export interface CalendarRequest {
+  name: string
+  color: string
+  position?: number
 }

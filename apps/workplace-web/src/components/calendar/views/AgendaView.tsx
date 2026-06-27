@@ -4,6 +4,7 @@ import { ko } from 'date-fns/locale'
 import { Flag } from 'lucide-react'
 
 import { hhmm } from '@/lib/calendar'
+import { resolvePalette } from '@/lib/calendarPalette'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import type { ViewProps } from './TimeGrid'
@@ -47,6 +48,11 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
               <span className="text-sm text-muted-foreground w-16 shrink-0">
                 {row.event.allDay ? '종일' : hhmm(row.event.startsAt)}
               </span>
+              {/* 색 점 — effectiveColor 기반 */}
+              <span
+                className={`size-2 rounded-full shrink-0 self-center ${resolvePalette(row.event.effectiveColor).dotClass}`}
+                aria-hidden="true"
+              />
               {/* 제목 */}
               <span className="text-sm font-medium">{row.event.title}</span>
             </button>

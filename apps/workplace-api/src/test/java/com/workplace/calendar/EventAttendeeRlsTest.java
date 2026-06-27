@@ -1,5 +1,6 @@
 package com.workplace.calendar;
 
+import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.TENANT;
@@ -54,6 +55,17 @@ class EventAttendeeRlsTest extends IntegrationTestBase {
                       .returning(USER.ID)
                       .fetchOne()
                       .getId();
+              // V104 NOT NULL: calendar_id 필수 — tid2 GUC 컨텍스트에서 기본 캘린더를 직접 삽입.
+              Long calendarId =
+                  dsl.insertInto(CALENDAR)
+                      .set(CALENDAR.OWNER_ID, ownerId)
+                      .set(CALENDAR.NAME, "기본")
+                      .set(CALENDAR.COLOR, "blue")
+                      .set(CALENDAR.IS_DEFAULT, true)
+                      .set(CALENDAR.TENANT_ID, tid2)
+                      .returning(CALENDAR.ID)
+                      .fetchOne()
+                      .getId();
               Long eventId =
                   dsl.insertInto(CALENDAR_EVENT)
                       .set(CALENDAR_EVENT.OWNER_ID, ownerId)
@@ -61,6 +73,7 @@ class EventAttendeeRlsTest extends IntegrationTestBase {
                       .set(CALENDAR_EVENT.STARTS_AT, OffsetDateTime.now())
                       .set(CALENDAR_EVENT.ENDS_AT, OffsetDateTime.now().plusHours(1))
                       .set(CALENDAR_EVENT.TENANT_ID, tid2)
+                      .set(CALENDAR_EVENT.CALENDAR_ID, calendarId)
                       .returning(CALENDAR_EVENT.ID)
                       .fetchOne()
                       .getId();

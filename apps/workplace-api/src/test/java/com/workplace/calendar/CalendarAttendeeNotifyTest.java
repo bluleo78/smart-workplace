@@ -85,7 +85,8 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
   /** 일정 요청 헬퍼. */
   private CalendarEventRequest newReq(
       String title, OffsetDateTime s, OffsetDateTime e, List<Long> attendees) {
-    return new CalendarEventRequest(title, null, s, e, false, null, null, null, null, attendees);
+    return new CalendarEventRequest(
+        title, null, s, e, false, null, null, null, null, attendees, null);
   }
 
   /** notification 행 수 조회 헬퍼 — type 및 recipient/event 조건. */

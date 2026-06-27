@@ -1,5 +1,6 @@
 package com.workplace.calendar;
 
+import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT_EXCEPTION;
 import static com.workplace.jooq.Tables.EVENT_REMINDER;
@@ -59,6 +60,17 @@ class CalendarDomainRlsTest extends IntegrationTestBase {
               // tid2 컨텍스트로 전환 후 calendar_event + 자식 삽입 (RLS WITH CHECK 통과)
               setGuc(tid2);
               OffsetDateTime now = OffsetDateTime.now();
+              // V104 NOT NULL: calendar_id 필수 — tid2 컨텍스트(GUC)에서 기본 캘린더를 직접 삽입.
+              Long calendarId =
+                  dsl.insertInto(CALENDAR)
+                      .set(CALENDAR.OWNER_ID, ownerId)
+                      .set(CALENDAR.NAME, "기본")
+                      .set(CALENDAR.COLOR, "blue")
+                      .set(CALENDAR.IS_DEFAULT, true)
+                      .set(CALENDAR.TENANT_ID, tid2)
+                      .returning(CALENDAR.ID)
+                      .fetchOne()
+                      .getId();
               Long eventId =
                   dsl.insertInto(CALENDAR_EVENT)
                       .set(CALENDAR_EVENT.OWNER_ID, ownerId)
@@ -66,6 +78,7 @@ class CalendarDomainRlsTest extends IntegrationTestBase {
                       .set(CALENDAR_EVENT.STARTS_AT, now)
                       .set(CALENDAR_EVENT.ENDS_AT, now.plusHours(1))
                       .set(CALENDAR_EVENT.TENANT_ID, tid2)
+                      .set(CALENDAR_EVENT.CALENDAR_ID, calendarId)
                       .returning(CALENDAR_EVENT.ID)
                       .fetchOne()
                       .getId();

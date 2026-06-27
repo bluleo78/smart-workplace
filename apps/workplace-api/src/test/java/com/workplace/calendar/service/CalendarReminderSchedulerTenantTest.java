@@ -1,5 +1,6 @@
 package com.workplace.calendar.service;
 
+import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.TENANT;
@@ -81,8 +82,20 @@ class CalendarReminderSchedulerTenantTest extends IntegrationTestBase {
         .getId();
   }
 
-  /** 현재 세션 GUC 컨텍스트에 due 리마인더(시작 2분 후, 10분 전 리마인더 → 발화시점 이미 지남) 시드. eventId 반환. */
+  /**
+   * 현재 세션 GUC 컨텍스트에 due 리마인더(시작 2분 후, 10분 전 리마인더 → 발화시점 이미 지남) 시드. eventId 반환. V104 NOT NULL: 현재
+   * GUC 컨텍스트에서 기본 캘린더를 직접 삽입 후 calendar_id 설정.
+   */
   private long seedDueReminder(long ownerId) {
+    long calId =
+        dsl.insertInto(CALENDAR)
+            .set(CALENDAR.OWNER_ID, ownerId)
+            .set(CALENDAR.NAME, "기본")
+            .set(CALENDAR.COLOR, "blue")
+            .set(CALENDAR.IS_DEFAULT, true)
+            .returning(CALENDAR.ID)
+            .fetchOne()
+            .getId();
     long eventId =
         dsl.insertInto(CALENDAR_EVENT)
             .set(CALENDAR_EVENT.OWNER_ID, ownerId)
@@ -90,6 +103,7 @@ class CalendarReminderSchedulerTenantTest extends IntegrationTestBase {
             .set(CALENDAR_EVENT.STARTS_AT, OffsetDateTime.now().plus(2, ChronoUnit.MINUTES))
             .set(CALENDAR_EVENT.ENDS_AT, OffsetDateTime.now().plus(62, ChronoUnit.MINUTES))
             .set(CALENDAR_EVENT.ALL_DAY, false)
+            .set(CALENDAR_EVENT.CALENDAR_ID, calId)
             .returning(CALENDAR_EVENT.ID)
             .fetchOne()
             .getId();

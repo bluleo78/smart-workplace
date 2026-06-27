@@ -383,6 +383,23 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
+  // 캘린더 컨테이너 — 미존재/비소유(404)
+  @ExceptionHandler(com.workplace.calendar.exception.CalendarNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleCalendarNotFound(
+      com.workplace.calendar.exception.CalendarNotFoundException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  // 캘린더 컨테이너 — 기본 캘린더 삭제 거부(400)
+  @ExceptionHandler(com.workplace.calendar.exception.DefaultCalendarDeletionException.class)
+  public ResponseEntity<ErrorResponse> handleDefaultCalendarDeletion(
+      com.workplace.calendar.exception.DefaultCalendarDeletionException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+  }
+
   // 사용자 그룹 도메인 — 미존재/격리(404)
   @ExceptionHandler(com.workplace.user.exception.UserGroupNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleUserGroupNotFound(

@@ -5,7 +5,8 @@ import { eventsOnDay,monthMatrix, visibleRange, weekDays } from './calendar'
 
 const ev = (id: number, startsAt: string, endsAt: string, allDay = false): CalendarEvent => ({
   id, title: `e${id}`, description: null, startsAt, endsAt, allDay,
-  location: null, color: null, reminderMinutes: null, recurrenceRule: null, createdAt: startsAt, updatedAt: startsAt,
+  location: null, color: null, calendarId: 1, calendarName: '기본', effectiveColor: 'blue',
+  reminderMinutes: null, recurrenceRule: null, createdAt: startsAt, updatedAt: startsAt,
 })
 
 describe('monthMatrix', () => {

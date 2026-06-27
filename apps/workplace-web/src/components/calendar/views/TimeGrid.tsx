@@ -5,6 +5,7 @@ import { ko } from 'date-fns/locale'
 
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { eventsOnDay, hhmm, HOURS, issueDuesOnDay } from '@/lib/calendar'
+import { resolvePalette } from '@/lib/calendarPalette'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 // ─────────────────────────────────────────────────────────────
@@ -99,7 +100,7 @@ export function TimeGrid({
                   key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
                   data-testid={`calendar-event-${e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id}`}
                   onClick={() => onSelectEvent(e)}
-                  className="w-full text-left text-xs px-1 py-0.5 rounded bg-primary text-primary-foreground truncate"
+                  className={`w-full text-left text-xs px-1 py-0.5 rounded ${resolvePalette(e.effectiveColor).chipClass} truncate`}
                 >
                   {e.title}
                 </button>
@@ -158,7 +159,7 @@ export function TimeGrid({
                       ev.stopPropagation()
                       onSelectEvent(e)
                     }}
-                    className="text-xs text-left px-1 rounded bg-primary text-primary-foreground overflow-hidden"
+                    className={`text-xs text-left px-1 rounded ${resolvePalette(e.effectiveColor).chipClass} overflow-hidden`}
                   >
                     {hhmm(e.startsAt)} {e.title}
                   </button>

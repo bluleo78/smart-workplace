@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.calendar.repository.EventReminderRepository.DueReminder;
+import com.workplace.calendar.service.CalendarService;
 import com.workplace.support.IntegrationTestBase;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 class EventReminderRepositoryTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired EventReminderRepository repo;
+  @Autowired CalendarService calendarService;
 
   private long user() {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
@@ -34,14 +36,16 @@ class EventReminderRepositoryTest extends IntegrationTestBase {
         .getId();
   }
 
-  /** ownerId 의 일정 1건 시드(starts_at 지정) 후 eventId 반환. */
+  /** ownerId 의 일정 1건 시드(starts_at 지정) 후 eventId 반환. V104 NOT NULL: calendar_id 필수 — 기본 캘린더 보장. */
   private long event(long ownerId, OffsetDateTime startsAt) {
+    long calId = calendarService.ensureDefault(ownerId);
     return dsl.insertInto(CALENDAR_EVENT)
         .set(CALENDAR_EVENT.OWNER_ID, ownerId)
         .set(CALENDAR_EVENT.TITLE, "회의")
         .set(CALENDAR_EVENT.STARTS_AT, startsAt)
         .set(CALENDAR_EVENT.ENDS_AT, startsAt.plusHours(1))
         .set(CALENDAR_EVENT.ALL_DAY, false)
+        .set(CALENDAR_EVENT.CALENDAR_ID, calId)
         .returning(CALENDAR_EVENT.ID)
         .fetchOne()
         .getId();

@@ -8,6 +8,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.workplace.calendar.repository.EventReminderRepository;
 import com.workplace.calendar.service.CalendarReminderScheduler;
+import com.workplace.calendar.service.CalendarService;
 import com.workplace.support.IntegrationTestBase;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
@@ -33,6 +34,7 @@ class CalendarReminderNotifyIntegrationTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired EventReminderRepository reminderRepo;
   @Autowired CalendarReminderScheduler scheduler;
+  @Autowired CalendarService calendarService;
 
   private final List<Long> createdEventIds = new ArrayList<>();
   private final List<Long> createdUserIds = new ArrayList<>();
@@ -67,6 +69,8 @@ class CalendarReminderNotifyIntegrationTest extends IntegrationTestBase {
   }
 
   private long event(long ownerId, OffsetDateTime startsAt) {
+    // V104 NOT NULL: calendar_id 필수 — 기본 캘린더 보장 후 설정.
+    long calId = calendarService.ensureDefault(ownerId);
     long id =
         dsl.insertInto(CALENDAR_EVENT)
             .set(CALENDAR_EVENT.OWNER_ID, ownerId)
@@ -74,6 +78,7 @@ class CalendarReminderNotifyIntegrationTest extends IntegrationTestBase {
             .set(CALENDAR_EVENT.STARTS_AT, startsAt)
             .set(CALENDAR_EVENT.ENDS_AT, startsAt.plusHours(1))
             .set(CALENDAR_EVENT.ALL_DAY, false)
+            .set(CALENDAR_EVENT.CALENDAR_ID, calId)
             .returning(CALENDAR_EVENT.ID)
             .fetchOne()
             .getId();

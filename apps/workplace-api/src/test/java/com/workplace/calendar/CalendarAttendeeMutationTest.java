@@ -44,7 +44,8 @@ class CalendarAttendeeMutationTest extends IntegrationTestBase {
   /** 일정 요청 헬퍼. */
   private CalendarEventRequest newReq(
       String title, OffsetDateTime s, OffsetDateTime e, List<Long> attendees) {
-    return new CalendarEventRequest(title, null, s, e, false, null, null, null, null, attendees);
+    return new CalendarEventRequest(
+        title, null, s, e, false, null, null, null, null, attendees, null);
   }
 
   // 주최자만 참석자를 추가할 수 있다.

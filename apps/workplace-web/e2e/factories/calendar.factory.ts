@@ -1,5 +1,5 @@
-// 캘린더 E2E 팩토리 — 일정 응답 모킹용.
-import type { CalendarEvent } from '../../src/types/calendar'
+// 캘린더 E2E 팩토리 — 일정·캘린더 컨테이너 응답 모킹용.
+import type { Calendar, CalendarEvent } from '../../src/types/calendar'
 
 export function calendarEvent(over: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
@@ -11,10 +11,26 @@ export function calendarEvent(over: Partial<CalendarEvent> = {}): CalendarEvent 
     allDay: false,
     location: null,
     color: null,
+    // 개인 캘린더 컨테이너 필드 — Task 8 이후 필수.
+    calendarId: 1,
+    calendarName: '기본',
+    effectiveColor: 'blue',
     reminderMinutes: null,
     recurrenceRule: null,
     createdAt: '2026-06-10T01:00:00Z',
     updatedAt: '2026-06-10T01:00:00Z',
+    ...over,
+  }
+}
+
+/** 개인 캘린더(컨테이너) 팩토리 */
+export function calendar(over: Partial<Calendar> = {}): Calendar {
+  return {
+    id: 1,
+    name: '기본',
+    color: 'blue',
+    isDefault: true,
+    position: 0,
     ...over,
   }
 }

@@ -4,6 +4,7 @@ import { format, isSameMonth, isToday } from 'date-fns'
 
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
 import { eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
+import { resolvePalette } from '@/lib/calendarPalette'
 
 import type { ViewProps } from './TimeGrid'
 
@@ -70,7 +71,7 @@ export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIs
                     ev.stopPropagation()
                     onSelectEvent(e)
                   }}
-                  className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded bg-primary text-primary-foreground truncate block ${e.myRsvpStatus === 'DECLINED' ? 'opacity-40' : ''}`}
+                  className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded ${resolvePalette(e.effectiveColor).chipClass} truncate block ${e.myRsvpStatus === 'DECLINED' ? 'opacity-40' : ''}`}
                 >
                   {e.title}
                 </button>

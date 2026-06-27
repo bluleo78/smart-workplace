@@ -44,6 +44,7 @@ public class CalendarEventService {
   private final EventAttendeeRepository attendeeRepo;
   private final UserRepository userRepo;
   private final ApplicationEventPublisher eventPublisher;
+  private final CalendarService calendarService;
 
   /**
    * 일정 생성 — owner=caller. RRULE 이 있으면 쓰기 시점에 검증(잘못된 규칙→400). 주최자 본인의 ORGANIZER/ACCEPTED 행을 자동 삽입하고,
@@ -52,7 +53,9 @@ public class CalendarEventService {
   @Transactional
   public CalendarEventResponse create(long callerId, CalendarEventRequest req) {
     validateRecurrence(req.recurrenceRule());
-    long id = repo.insert(callerId, req);
+    validateColorOverride(req.color());
+    long calendarId = resolveCalendarId(callerId, req.calendarId());
+    long id = repo.insert(callerId, calendarId, req);
     applyReminder(id, req.reminderMinutes());
 
     // 주최자 본인 행: 항상 ORGANIZER/ACCEPTED, invited_by=null.
@@ -133,6 +136,9 @@ public class CalendarEventService {
         m.allDay(),
         m.location(),
         m.color(),
+        m.calendarId(),
+        m.calendarName(),
+        m.effectiveColor(),
         m.reminderMinutes(),
         m.recurrenceRule(),
         m.id(),
@@ -157,12 +163,17 @@ public class CalendarEventService {
       OffsetDateTime occurrenceDate) {
     requireOwner(callerId, id);
     validateRecurrence(req.recurrenceRule());
+    validateColorOverride(req.color());
     // requireOwner 통과 후 조회: owner 이므로 accessibleBy 술어 만족 보장.
     CalendarEventResponse target =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
 
     // 단일 일정 또는 ALL → 마스터 행 전체 교체(RRULE 포함). 기존 예외는 유지(v1b 한계).
     if (target.recurrenceRule() == null || scope == EditScope.ALL) {
+      if (req.calendarId() != null) {
+        long resolved = resolveCalendarId(callerId, req.calendarId());
+        repo.moveSingleEventToCalendar(id, resolved);
+      }
       repo.update(id, req);
       applyReminder(id, req.reminderMinutes());
       return get(callerId, id);
@@ -182,6 +193,13 @@ public class CalendarEventService {
   private CalendarEventResponse updateThisOccurrence(
       long callerId, long masterId, CalendarEventRequest req, OffsetDateTime occurrenceDate) {
     CalendarEventRequest overrideReq = withoutRecurrence(req);
+    // 마스터의 calendarId 상속: req 에 지정 없으면 마스터 것, 지정 있으면 resolve 검증 후 사용.
+    CalendarEventResponse master =
+        repo.findById(callerId, masterId)
+            .orElseThrow(() -> new CalendarEventNotFoundException(masterId));
+    long calId =
+        resolveCalendarId(
+            callerId, req.calendarId() != null ? req.calendarId() : master.calendarId());
     // 신규 생성 여부 추적 — 기존 오버라이드 갱신 시에는 참석자를 재복사하지 않는다(이미 보유).
     boolean[] isNew = {false};
     long overrideId =
@@ -189,13 +207,14 @@ public class CalendarEventService {
             .findOverrideEventId(masterId, occurrenceDate)
             .map(
                 existing -> {
+                  repo.moveSingleEventToCalendar(existing, calId);
                   repo.update(existing, overrideReq);
                   return existing;
                 })
             .orElseGet(
                 () -> {
                   isNew[0] = true;
-                  return repo.insert(callerId, overrideReq);
+                  return repo.insert(callerId, calId, overrideReq);
                 });
     applyReminder(overrideId, req.reminderMinutes());
     exceptionRepo.upsertOverride(masterId, occurrenceDate, overrideId);
@@ -219,7 +238,11 @@ public class CalendarEventService {
     String truncated =
         RecurrenceExpander.withUntil(master.recurrenceRule(), occurrenceDate.minusSeconds(1));
     repo.updateRecurrenceRule(master.id(), truncated);
-    long newMasterId = repo.insert(callerId, req);
+    // 새 마스터: req.calendarId 지정 시 검증, 없으면 기존 마스터의 캘린더 상속.
+    long calId =
+        resolveCalendarId(
+            callerId, req.calendarId() != null ? req.calendarId() : master.calendarId());
+    long newMasterId = repo.insert(callerId, calId, req);
     applyReminder(newMasterId, req.reminderMinutes());
     truncateExceptionsFrom(master.id(), occurrenceDate);
     // 기존 마스터의 참석자(ORGANIZER 포함)를 새 마스터에 복제. role/rsvp_status/invited_by 보존.
@@ -386,6 +409,9 @@ public class CalendarEventService {
         e.allDay(),
         e.location(),
         e.color(),
+        e.calendarId(),
+        e.calendarName(),
+        e.effectiveColor(),
         e.reminderMinutes(),
         e.recurrenceRule(),
         e.masterEventId(),
@@ -407,6 +433,22 @@ public class CalendarEventService {
     }
   }
 
+  /** override 색 검증 — null 은 상속(허용), 값이 있으면 팔레트 키만 허용. */
+  private void validateColorOverride(String color) {
+    if (color != null && !com.workplace.calendar.CalendarPalette.isValid(color)) {
+      throw new IllegalArgumentException("허용되지 않은 색입니다: " + color);
+    }
+  }
+
+  /** calendarId resolve — null 이면 기본 캘린더, 지정이면 소유 검증 후 그대로. 일정 생성/수정 공통 chokepoint. */
+  private long resolveCalendarId(long callerId, Long calendarId) {
+    if (calendarId == null) {
+      return calendarService.ensureDefault(callerId);
+    }
+    calendarService.requireOwnedCalendar(callerId, calendarId);
+    return calendarId;
+  }
+
   /** 반복 일정의 THIS/THIS_AND_FOLLOWING 는 회차 식별자(occurrenceDate)가 필수 — 누락 시 400. */
   private static void requireOccurrenceDate(EditScope scope, OffsetDateTime occurrenceDate) {
     if (occurrenceDate == null) {
@@ -414,7 +456,7 @@ public class CalendarEventService {
     }
   }
 
-  /** 오버라이드 일정은 단일 일정이어야 하므로 RRULE 을 제거한 요청 복제. */
+  /** 오버라이드 일정은 단일 일정이어야 하므로 RRULE 을 제거한 요청 복제. calendarId 는 보존. */
   private static CalendarEventRequest withoutRecurrence(CalendarEventRequest req) {
     return new CalendarEventRequest(
         req.title(),
@@ -426,7 +468,8 @@ public class CalendarEventService {
         req.color(),
         req.reminderMinutes(),
         null,
-        null); // 오버라이드 일정은 단일이므로 참석자 인수 제거
+        null, // 오버라이드 일정은 단일이므로 참석자 인수 제거
+        req.calendarId()); // calendarId 보존 — resolve 는 호출측에서 수행
   }
 
   /** RRULE 쓰기 검증 — 비어있지 않으면 파싱 시도(잘못된 규칙→IllegalArgumentException→400). null/공백은 단일 일정이라 통과. */
