@@ -90,8 +90,11 @@ public class ImapBodyLoader implements MailBodyLoader {
       contentRepo.updateBody(target.contentId(), body.bodyText(), body.bodyHtml(), body.snippet());
       // has_attachment 는 envelope 속성(첨부 존재 표시)으로 유지
       messageRepo.markHasAttachment(target.messageId(), body.hasAttachment());
-      for (ParsedAttachment a : body.attachments()) {
-        attachmentRepo.insert(target.messageId(), a);
+      java.util.List<ParsedAttachment> attachments = body.attachments();
+      for (int i = 0; i < attachments.size(); i++) {
+        // ordinal = MIME 순서(0-based). content_attachment 를 find-or-create 해 같은 메일 수신자끼리 manifest
+        // 공유.
+        attachmentRepo.insert(target.messageId(), target.contentId(), i, attachments.get(i));
       }
       // V97: per-envelope 마커 — 이 envelope 의 첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());

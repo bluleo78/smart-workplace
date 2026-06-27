@@ -1,25 +1,32 @@
 package com.workplace.mail.service;
 
 import com.workplace.global.security.EncryptionService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.exception.EmailAttachmentNotFoundException;
 import com.workplace.mail.outbound.GraphApiClient;
+import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository.AttachmentDownloadContext;
+import com.workplace.mail.repository.MailAttachmentBlobRepository;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.Store;
 import jakarta.mail.UIDFolder;
+import java.security.MessageDigest;
 import java.util.Base64;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 메일 첨부 파일 다운로드 서비스. DB 에 저장된 첨부 메타(ordinal)를 기반으로 IMAP 에서 해당 파트의 바이너리를 재조회해 반환한다. ordinal 은 {@link
- * EmailAttachmentRepository} 의 id 오름차순과 {@link MailMessageParser} 의 MIME DFS 순서가 일치함을 활용한다.
+ * 메일 첨부 파일 다운로드 서비스. DB 에 저장된 첨부 메타(ordinal)를 기반으로 IMAP 또는 Graph API 에서 바이너리를 재조회해 반환한다.
+ *
+ * <p>cache hit/miss/재fetch/TTL 슬라이딩/25MB knob 를 구현한다(slice③). provider fetch 는 content_hash 기반 blob
+ * 캐시가 miss 일 때만 발생한다.
  */
 @Slf4j
 @Service
@@ -33,54 +40,92 @@ public class MailAttachmentService {
   private final MailMessageParser parser;
   private final GraphTokenService graphTokenService;
   private final GraphApiClient graphApiClient;
+  private final MailAttachmentBlobRepository blobRepo;
+  private final MailAttachmentBlobStore blobStore;
+  private final ContentAttachmentRepository contentAttachmentRepo;
+
+  /** 첨부 캐시 최대 크기(바이트). 초과하는 첨부는 매번 provider 에서 재fetch 하고 blob 에 저장하지 않는다. 기본값 25MiB(26214400). */
+  @Value("${app.mail.attachment-cache.max-cache-bytes:26214400}")
+  private long maxCacheBytes;
 
   /** 다운로드 결과 캐리어. */
   public record AttachmentDownload(byte[] content, String filename, String contentType) {}
 
   /**
-   * 첨부 파일 바이너리 다운로드. 소유 검증 포함. imap_uid 가 없는 로컬 보낸메일이나 IMAP 재조회 실패 시 404/500 반환.
+   * 첨부 파일 바이너리 다운로드. 소유 검증 포함. 캐시 hit 시 blob 에서 즉시 반환, miss 시 provider fetch 후 캐시에 등록한다.
    *
    * <p>RLS GUC 주입 위해 @Transactional 필요 — 없으면 소유 검증 SELECT 가 빈 결과 → 거짓 404(local/prod fail-closed).
-   * <b>readOnly 아닌 이유</b>: Graph 경로에서 {@link GraphTokenService#getAccessToken}이 토큰 만료 시 DB 에 토큰을 갱신
-   * (UPDATE)하므로 readOnly=true 이면 write 가 차단되어 첨부 다운로드가 500 으로 실패한다. <b>트레이드오프</b>: IMAP 왕복 동안 DB
-   * 커넥션을 점유한다 — 짧은-트랜잭션 리팩터링은 후속 과제(#230 보고서 참조).
+   * <b>readOnly 아닌 이유</b>: touch/insertIfAbsent/setContentHashIfNull/Graph 토큰갱신 등 쓰기 가 발생하므로
+   * readOnly=true 이면 실패한다.
    *
-   * <p>provider 로 IMAP/Graph 경로를 분기한다. Graph 경로: provider_attachment_id 로 단건 직접 조회 → contentBytes
-   * base64 디코드.
+   * <p>provider 로 IMAP/Graph 경로를 분기한다.
    */
   @Transactional
   public AttachmentDownload download(long userId, long attachmentId) {
+    // §3 소유 검증 — userId 미소유/없음이면 empty → 404
     AttachmentDownloadContext ctx =
         attachmentRepo
             .findContextForDownload(userId, attachmentId)
             .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId));
 
-    // Graph 경로: provider_attachment_id 로 단건 직접 조회 → contentBytes 디코드
-    if ("M365_GRAPH".equals(ctx.provider())) {
-      return downloadFromGraph(userId, ctx, attachmentId);
+    String filename = ctx.filename() != null ? ctx.filename() : "attachment";
+    String contentType = ctx.contentType() != null ? ctx.contentType() : "application/octet-stream";
+
+    // 1) 캐시 hit: content_hash 가 있고 blob 행이 존재하면 provider fetch 없이 서빙.
+    if (ctx.contentHash() != null) {
+      var hit = blobRepo.findByHash(ctx.contentHash());
+      if (hit.isPresent()) {
+        // 슬라이딩 TTL 갱신
+        blobRepo.touch(ctx.contentHash());
+        byte[] cached = blobStore.load(hit.get().fileRef());
+        return new AttachmentDownload(cached, filename, contentType);
+      }
     }
 
+    // 2) miss: 요청자(caller) 좌표로 provider 에서 fetch.
+    byte[] content = fetchFromProvider(userId, ctx, attachmentId);
+
+    // 3) 25MB knob: 대용량은 캐시하지 않고 그대로 서빙(blob 미영속).
+    //    legacy unmanifested row(contentAttachmentId==0)도 캐시하지 않는다.
+    if (content.length <= maxCacheBytes && ctx.contentAttachmentId() != 0) {
+      String hash = sha256Hex(content);
+      long tenantId = TenantContext.get();
+      String fileRef = blobStore.store(tenantId, hash, content);
+      // ON CONFLICT DO NOTHING — 동시 경쟁 흡수. 패배 시 fileRef 는 orphan → GC 스윕 처리.
+      blobRepo.insertIfAbsent(hash, fileRef, content.length);
+      // 불변 content_hash 1회 기록(이미 non-null 이면 NO-OP).
+      contentAttachmentRepo.setContentHashIfNull(ctx.contentAttachmentId(), hash);
+    }
+
+    return new AttachmentDownload(content, filename, contentType);
+  }
+
+  /**
+   * provider 분기 — IMAP 또는 Graph 에서 바이트를 가져온다. 404 가드(imapUid==0, providerMessageId==null 등)는 내부에서
+   * 처리한다.
+   */
+  private byte[] fetchFromProvider(long userId, AttachmentDownloadContext ctx, long attachmentId) {
+    if ("M365_GRAPH".equals(ctx.provider())) {
+      return graphBytes(userId, ctx, attachmentId);
+    }
     // 로컬에서 작성한 보낸메일(imap_uid=0) — IMAP 에 파트 없으므로 404.
     if (ctx.imapUid() == 0L) {
       throw new EmailAttachmentNotFoundException(attachmentId);
     }
-
-    return downloadFromImap(userId, ctx, attachmentId);
+    return imapBytes(userId, ctx, attachmentId);
   }
 
   /**
-   * Graph API 에서 첨부를 다운로드한다. GET /me/messages/{msgId}/attachments/{attachId} 로 단건 직접 조회 — ordinal
-   * 의존 없이 안정 id 기반. contentBytes 는 base64 인코딩되어 있어 디코드해 반환한다.
+   * Graph API 에서 첨부 바이트를 가져온다. GET /me/messages/{msgId}/attachments/{attachId} — ordinal 의존 없이 안정
+   * id 기반. contentBytes 는 base64 인코딩되어 있어 디코드해 반환한다.
    *
    * <p>V91 이전 동기화 행(provider_attachment_id=null)은 404 처리한다.
    */
-  private AttachmentDownload downloadFromGraph(
-      long userId, AttachmentDownloadContext ctx, long attachmentId) {
+  private byte[] graphBytes(long userId, AttachmentDownloadContext ctx, long attachmentId) {
     if (ctx.providerMessageId() == null) {
       log.warn("Graph 첨부 다운로드: provider_message_id 없음 (attachmentId={})", attachmentId);
       throw new EmailAttachmentNotFoundException(attachmentId);
     }
-    // V91 이전 동기화 행 — provider_attachment_id 없음 → 직접 조회 불가
     if (ctx.providerAttachmentId() == null) {
       log.warn(
           "Graph 첨부 다운로드: provider_attachment_id 없음(V91 이전 동기화 행) (attachmentId={})", attachmentId);
@@ -88,7 +133,6 @@ public class MailAttachmentService {
     }
     try {
       String accessToken = graphTokenService.getAccessToken(userId, ctx.accountId());
-      // 단건 첨부 직접 조회 — 목록+ordinal 불필요. contentBytes 는 fileAttachment GET 에서 기본 반환
       String url =
           "/me/messages/" + ctx.providerMessageId() + "/attachments/" + ctx.providerAttachmentId();
       GraphAttachment attachment = graphApiClient.get(accessToken, url, GraphAttachment.class);
@@ -97,12 +141,7 @@ public class MailAttachmentService {
         log.warn("Graph 첨부 다운로드: contentBytes 없음 (attachmentId={})", attachmentId);
         throw new EmailAttachmentNotFoundException(attachmentId);
       }
-
-      byte[] content = Base64.getDecoder().decode(attachment.contentBytes());
-      String filename = ctx.filename() != null ? ctx.filename() : "attachment";
-      String contentType =
-          ctx.contentType() != null ? ctx.contentType() : "application/octet-stream";
-      return new AttachmentDownload(content, filename, contentType);
+      return Base64.getDecoder().decode(attachment.contentBytes());
     } catch (EmailAttachmentNotFoundException e) {
       throw e;
     } catch (Exception e) {
@@ -111,9 +150,8 @@ public class MailAttachmentService {
     }
   }
 
-  /** IMAP 에서 첨부를 다운로드한다. */
-  private AttachmentDownload downloadFromImap(
-      long userId, AttachmentDownloadContext ctx, long attachmentId) {
+  /** IMAP 에서 첨부 바이트를 가져온다. */
+  private byte[] imapBytes(long userId, AttachmentDownloadContext ctx, long attachmentId) {
     EmailAccountResponse account =
         accountRepo
             .findByIdAndUser(userId, ctx.accountId())
@@ -141,11 +179,7 @@ public class MailAttachmentService {
         log.warn("첨부 다운로드: ordinal 불일치 (attachmentId={}, ordinal={})", attachmentId, ctx.ordinal());
         throw new EmailAttachmentNotFoundException(attachmentId);
       }
-
-      String filename = ctx.filename() != null ? ctx.filename() : "attachment";
-      String contentType =
-          ctx.contentType() != null ? ctx.contentType() : "application/octet-stream";
-      return new AttachmentDownload(content, filename, contentType);
+      return content;
     } catch (EmailAttachmentNotFoundException e) {
       throw e;
     } catch (Exception e) {
@@ -153,6 +187,24 @@ public class MailAttachmentService {
       throw new RuntimeException("첨부 파일 다운로드에 실패했습니다", e);
     } finally {
       closeQuietly(folder, store);
+    }
+  }
+
+  /**
+   * SHA-256 hex 다이제스트. 첨부 바이트의 content_hash 계산에 사용한다. MessageDigest 는 스레드-안전하지 않으므로 매번 new 인스턴스를
+   * 생성한다(성능 트레이드오프 vs 동시성).
+   */
+  static String sha256Hex(byte[] data) {
+    try {
+      MessageDigest md = MessageDigest.getInstance("SHA-256");
+      byte[] digest = md.digest(data);
+      StringBuilder sb = new StringBuilder(digest.length * 2);
+      for (byte b : digest) {
+        sb.append(String.format("%02x", b));
+      }
+      return sb.toString();
+    } catch (Exception e) {
+      throw new RuntimeException("SHA-256 계산 실패", e);
     }
   }
 

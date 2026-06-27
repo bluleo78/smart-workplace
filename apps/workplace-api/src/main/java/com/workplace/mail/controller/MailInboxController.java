@@ -1,9 +1,11 @@
 package com.workplace.mail.controller;
 
+import com.workplace.mail.dto.AttachmentCacheUsage;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
+import com.workplace.mail.service.MailAttachmentMeteringService;
 import com.workplace.mail.service.MailAttachmentService;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
 import com.workplace.mail.service.MailMessageService;
@@ -36,6 +38,7 @@ public class MailInboxController {
   private final MailSyncService syncService;
   private final MailMessageService messageService;
   private final MailAttachmentService attachmentService;
+  private final MailAttachmentMeteringService meteringService;
 
   /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
   @PostMapping("/accounts/{accountId}/sync")
@@ -98,6 +101,14 @@ public class MailInboxController {
   public MailSyncStatus syncStatus(
       @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
     return messageService.syncStatus(callerId, accountId);
+  }
+
+  /** 첨부 캐시 사용량 메터링(물리/논리/blob 수). 쿼터 강제 없이 가시성만 제공. */
+  @GetMapping("/attachment-cache/usage")
+  public AttachmentCacheUsage attachmentCacheUsage(
+      // callerId 는 인증 게이트 전용 — 메터링은 RLS 로 테넌트 전체 집계(사용자 스코프 아님).
+      @AuthenticationPrincipal Long callerId) {
+    return meteringService.currentTenantUsage();
   }
 
   /**

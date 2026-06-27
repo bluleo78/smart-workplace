@@ -1111,12 +1111,8 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
                 messageRepo.markFetched(envA);
                 // accA 첨부 행 삽입
                 dsl.insertInto(
-                        EMAIL_ATTACHMENT,
-                        EMAIL_ATTACHMENT.MESSAGE_ID,
-                        EMAIL_ATTACHMENT.FILENAME,
-                        EMAIL_ATTACHMENT.CONTENT_TYPE,
-                        EMAIL_ATTACHMENT.TENANT_ID)
-                    .values(envA, "report.pdf", "application/pdf", 1L)
+                        EMAIL_ATTACHMENT, EMAIL_ATTACHMENT.MESSAGE_ID, EMAIL_ATTACHMENT.TENANT_ID)
+                    .values(envA, 1L)
                     .execute();
 
                 // [핵심 단언 1] accA fetch 후에도 accB 는 listMissingBody 에 포함되어야 한다
@@ -1137,12 +1133,8 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
                 // accB 도 적재 완료 시뮬레이션
                 messageRepo.markFetched(envB);
                 dsl.insertInto(
-                        EMAIL_ATTACHMENT,
-                        EMAIL_ATTACHMENT.MESSAGE_ID,
-                        EMAIL_ATTACHMENT.FILENAME,
-                        EMAIL_ATTACHMENT.CONTENT_TYPE,
-                        EMAIL_ATTACHMENT.TENANT_ID)
-                    .values(envB, "report.pdf", "application/pdf", 1L)
+                        EMAIL_ATTACHMENT, EMAIL_ATTACHMENT.MESSAGE_ID, EMAIL_ATTACHMENT.TENANT_ID)
+                    .values(envB, 1L)
                     .execute();
 
                 // [핵심 단언 3] accB 적재 완료 후 listMissingBody 에서 제외되어야 한다

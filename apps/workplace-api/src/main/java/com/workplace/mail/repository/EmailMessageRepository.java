@@ -1,5 +1,6 @@
 package com.workplace.mail.repository;
 
+import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_CONTENT;
@@ -477,27 +478,32 @@ public class EmailMessageRepository {
     return Optional.of(toDetail(d, attachments));
   }
 
-  /** 메시지의 첨부 메타 목록. */
+  /**
+   * 메시지의 첨부 메타 목록. filename/content_type/size_bytes 는 content_attachment(공유 manifest)에서 읽는다(Task5).
+   * V102 이후 email_attachment 에 메타 컬럼이 없으므로 폴백 없음 — manifest 미매핑 레거시 행은 null 메타로 반환된다.
+   */
   private List<EmailAttachmentMeta> listAttachments(long messageId) {
     return dsl.select(
             EMAIL_ATTACHMENT.ID,
-            EMAIL_ATTACHMENT.FILENAME,
-            EMAIL_ATTACHMENT.CONTENT_TYPE,
-            EMAIL_ATTACHMENT.SIZE_BYTES,
-            EMAIL_ATTACHMENT.CONTENT_ID)
+            CONTENT_ATTACHMENT.FILENAME,
+            CONTENT_ATTACHMENT.CONTENT_TYPE,
+            CONTENT_ATTACHMENT.SIZE_BYTES,
+            CONTENT_ATTACHMENT.MIME_CONTENT_ID)
         .from(EMAIL_ATTACHMENT)
+        .leftJoin(CONTENT_ATTACHMENT)
+        .on(CONTENT_ATTACHMENT.ID.eq(EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID))
         .where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId))
-        .orderBy(EMAIL_ATTACHMENT.ID.asc())
+        .orderBy(EMAIL_ATTACHMENT.ORDINAL.asc().nullsLast(), EMAIL_ATTACHMENT.ID.asc())
         .fetch(
             r ->
                 new EmailAttachmentMeta(
                     r.get(EMAIL_ATTACHMENT.ID),
-                    r.get(EMAIL_ATTACHMENT.FILENAME),
-                    r.get(EMAIL_ATTACHMENT.CONTENT_TYPE),
-                    r.get(EMAIL_ATTACHMENT.SIZE_BYTES) == null
+                    r.get(CONTENT_ATTACHMENT.FILENAME),
+                    r.get(CONTENT_ATTACHMENT.CONTENT_TYPE),
+                    r.get(CONTENT_ATTACHMENT.SIZE_BYTES) == null
                         ? 0L
-                        : r.get(EMAIL_ATTACHMENT.SIZE_BYTES),
-                    r.get(EMAIL_ATTACHMENT.CONTENT_ID)));
+                        : r.get(CONTENT_ATTACHMENT.SIZE_BYTES),
+                    r.get(CONTENT_ATTACHMENT.MIME_CONTENT_ID)));
   }
 
   /**

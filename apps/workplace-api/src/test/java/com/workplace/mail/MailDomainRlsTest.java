@@ -68,7 +68,6 @@ class MailDomainRlsTest extends IntegrationTestBase {
             .getId();
     dsl.insertInto(EMAIL_ATTACHMENT)
         .set(EMAIL_ATTACHMENT.MESSAGE_ID, messageId)
-        .set(EMAIL_ATTACHMENT.FILENAME, "a.txt")
         .set(EMAIL_ATTACHMENT.TENANT_ID, tenantId)
         .execute();
     return messageId;

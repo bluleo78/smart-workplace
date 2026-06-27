@@ -29,7 +29,8 @@ public class EncryptionService {
     secretKey = new SecretKeySpec(keyBytes, "AES");
   }
 
-  // Package-private constructor for unit tests
+  // 단위 테스트용 package-private 생성자 — Spring 컨텍스트 없이 키를 직접 주입.
+  // 같은 패키지의 TestEncryptionFactory 를 통해서만 외부 테스트가 호출.
   EncryptionService(String masterKeyBase64) {
     byte[] keyBytes = Base64.getDecoder().decode(masterKeyBase64);
     this.secretKey = new SecretKeySpec(keyBytes, "AES");
@@ -85,6 +86,44 @@ public class EncryptionService {
       throw e;
     } catch (Exception e) {
       throw new CryptoException("Decryption failed", e);
+    }
+  }
+
+  /**
+   * 바이너리를 AES-256-GCM 으로 암호화한다. blob 마다 새 12바이트 IV 를 생성하고 {@code iv(12) ‖ ciphertext+tag} 형식의 raw
+   * 바이트를 반환한다(String/Base64 경로와 달리 바이너리 낭비 없음).
+   */
+  public byte[] encryptBytes(byte[] plain) {
+    try {
+      byte[] iv = new byte[IV_LENGTH];
+      new SecureRandom().nextBytes(iv);
+      Cipher cipher = Cipher.getInstance(ALGORITHM);
+      cipher.init(Cipher.ENCRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+      byte[] cipherBytes = cipher.doFinal(plain);
+      byte[] out = new byte[IV_LENGTH + cipherBytes.length];
+      System.arraycopy(iv, 0, out, 0, IV_LENGTH);
+      System.arraycopy(cipherBytes, 0, out, IV_LENGTH, cipherBytes.length);
+      return out;
+    } catch (Exception e) {
+      throw new CryptoException("Binary encryption failed", e);
+    }
+  }
+
+  /** {@link #encryptBytes} 의 역 — 앞 12바이트를 IV 로 읽어 복호화한다. 변조 시 GCM 태그 검증 실패로 예외. */
+  public byte[] decryptBytes(byte[] data) {
+    try {
+      if (data.length < IV_LENGTH) {
+        throw new IllegalArgumentException("Invalid encrypted blob — too short");
+      }
+      byte[] iv = new byte[IV_LENGTH];
+      System.arraycopy(data, 0, iv, 0, IV_LENGTH);
+      Cipher cipher = Cipher.getInstance(ALGORITHM);
+      cipher.init(Cipher.DECRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+      return cipher.doFinal(data, IV_LENGTH, data.length - IV_LENGTH);
+    } catch (RuntimeException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new CryptoException("Binary decryption failed", e);
     }
   }
 

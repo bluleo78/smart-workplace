@@ -75,6 +75,9 @@ playwright-report/
 db-data/
 db-test-data/
 
+# 메일 첨부 캐시(암호화 blob) — 로컬/테스트 런타임 산출물, 커밋 금지
+apps/workplace-api/data/
+
 # File uploads (runtime/storage)
 **/uploads/
 

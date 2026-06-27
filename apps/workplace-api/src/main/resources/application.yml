@@ -52,6 +52,11 @@ app:
     refresh-expiration: 604800000     # 7일
   encryption:
     master-key: ${ENCRYPTION_MASTER_KEY}
+  mail:
+    attachment-cache:
+      dir: ${MAIL_ATTACHMENT_CACHE_DIR:./data/mail-attachment-cache}
+      ttl-days: 7
+      max-cache-bytes: 26214400   # 25MB — 이보다 큰 첨부는 캐시 안 함(on-demand)
 
 server:
   port: 9090

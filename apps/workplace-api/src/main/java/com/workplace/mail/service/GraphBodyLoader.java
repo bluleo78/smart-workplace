@@ -105,7 +105,7 @@ public class GraphBodyLoader implements MailBodyLoader {
 
       // 첨부 메타 적재 — hasAttachments=true 일 때만 추가 Graph 호출
       if (hasAttachment) {
-        loadAttachmentMeta(accessToken, providerMessageId, target.messageId());
+        loadAttachmentMeta(accessToken, providerMessageId, target.messageId(), target.contentId());
       }
       // V97: per-envelope 마커 — 이 envelope 의 본문/첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());
@@ -122,9 +122,11 @@ public class GraphBodyLoader implements MailBodyLoader {
    * Graph 첨부 메타 조회 후 DB 에 삽입한다.
    *
    * <p>GET /me/messages/{id}/attachments?$select=id,name,contentType,size — 바이너리(contentBytes) 는
-   * 요청하지 않는다(메타만). id 를 provider_attachment_id 로 저장해 다운로드 시 ordinal 의존 없이 직접 조회할 수 있도록 한다.
+   * 요청하지 않는다(메타만). id 를 provider_attachment_id 로 저장해 다운로드 시 ordinal 의존 없이 직접 조회할 수 있도록 한다. ordinal
+   * 은 Graph 응답 배열 인덱스(0-based)로 할당해 content_attachment manifest 의 안정 좌표로 사용한다.
    */
-  private void loadAttachmentMeta(String accessToken, String providerMessageId, long messageId) {
+  private void loadAttachmentMeta(
+      String accessToken, String providerMessageId, long messageId, long contentId) {
     try {
       String url =
           "/me/messages/" + providerMessageId + "/attachments?$select=id,name,contentType,size";
@@ -134,7 +136,9 @@ public class GraphBodyLoader implements MailBodyLoader {
       if (listResp == null || listResp.value() == null) {
         return;
       }
-      for (GraphAttachmentItem item : listResp.value()) {
+      List<GraphAttachmentItem> items = listResp.value();
+      for (int i = 0; i < items.size(); i++) {
+        GraphAttachmentItem item = items.get(i);
         ParsedAttachment parsed =
             new ParsedAttachment(
                 item.name(),
@@ -143,7 +147,8 @@ public class GraphBodyLoader implements MailBodyLoader {
                 null, // Graph 첨부는 contentId 없음(인라인 img 는 별도 처리 대상)
                 item.id() // Graph 첨부 안정 id — 다운로드 경로에서 사용
                 );
-        attachmentRepo.insert(messageId, parsed);
+        // ordinal = Graph 응답 배열 인덱스(0-based). content_attachment find-or-create 로 manifest 공유.
+        attachmentRepo.insert(messageId, contentId, i, parsed);
       }
     } catch (Exception e) {
       // 첨부 메타 적재 실패는 best-effort — 본문 적재는 이미 완료
