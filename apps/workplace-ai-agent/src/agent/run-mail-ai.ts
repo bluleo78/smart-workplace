@@ -27,7 +27,8 @@ export interface DraftCoachingInput extends BaseConfig {
 }
 
 // 공통: 토큰 fetch → SDK 단발 실행 → 최종 텍스트. 도구 미사용이라 MCP 서버/임시 config 불필요.
-async function runText(
+// export: issue 등 다른 AI 러너도 동일 패턴으로 재사용.
+export async function runText(
   systemPrompt: string,
   userMessage: string,
   cfg: BaseConfig,

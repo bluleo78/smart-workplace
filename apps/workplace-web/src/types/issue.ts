@@ -103,6 +103,20 @@ export interface IssueHistoryEntry {
   createdAt: string;
 }
 
+// AI가 탐지한 블로커 배지 — type 별 심각도가 다르다(BLOCKED>OVERDUE>STALE).
+export interface IssueBlockerBadge {
+  type: 'BLOCKED' | 'OVERDUE' | 'STALE';
+  message: string;
+}
+
+// 이슈 AI 즉각 컨텍스트 — 백엔드 #517 Task 5/6 완료 후 채워짐. 카드 컴포넌트는 null/undefined 면 미렌더.
+export interface IssueAiContext {
+  summary: string | null;
+  nextAction: string | null;
+  generatedAt: string | null;
+  blockers: IssueBlockerBadge[];
+}
+
 export interface IssueDetailResponse {
   summary: IssueResponse;
   body: string | null;
@@ -110,6 +124,8 @@ export interface IssueDetailResponse {
   history: IssueHistoryEntry[];
   // 이슈에 부착된 첨부 목록 — 상세 진입 시 함께 응답.
   attachments: IssueAttachment[];
+  // AI 즉각 컨텍스트 (#517) — 백엔드 미완료 시 undefined. 카드는 graceful하게 미렌더.
+  aiContext?: IssueAiContext | null;
 }
 
 export interface CreateIssueRequest {

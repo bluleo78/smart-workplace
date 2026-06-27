@@ -4,6 +4,7 @@ import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueTypeSummary;
@@ -20,6 +21,7 @@ import com.workplace.issue.exception.SubtaskParentRequiredException;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
@@ -65,6 +67,12 @@ public class IssueService {
   private final ApplicationEventPublisher publisher;
   private final UserRepository userRepository;
   private final DriveLinkService driveLinkService;
+
+  /** AI 즉시 컨텍스트: 저장 요약 조회. */
+  private final IssueAiSummaryRepository aiSummaryRepository;
+
+  /** AI 즉시 컨텍스트: 블로커 결정적 계산기 (새 쿼리 0). */
+  private final IssueBlockerCalculator blockerCalculator;
 
   /**
    * 신규 이슈 생성. priority 기본값(MID)을 서비스에서 보정. assigneeIds 가 비어있지 않으면 issue_assignee 매핑까지 동시 INSERT.
@@ -240,7 +248,8 @@ public class IssueService {
     var blockedMap = dependencyRepository.findBlockedFlags(ids);
     // Phase 4c — custom field 값 batch (단일 이슈 경로도 동일 API).
     var fieldsByIssue = fieldValueRepository.findByIssueIds(ids);
-    return new IssueDetailResponse(
+    // 이미 로드된 IssueResponse 로 블로커를 결정적으로 계산한다(새 쿼리 0).
+    var summaryResponse =
         IssueResponse.fromWithCustomFields(
             project.key(),
             row,
@@ -254,11 +263,21 @@ public class IssueService {
             blockedByMap.getOrDefault(row.id(), List.of()),
             blocksMap.getOrDefault(row.id(), List.of()),
             blockedMap.getOrDefault(row.id(), false),
-            fieldsByIssue.getOrDefault(row.id(), List.of())),
-        row.body(),
-        comments,
-        history,
-        attachments);
+            fieldsByIssue.getOrDefault(row.id(), List.of()));
+    // AI Instant Context: 저장된 요약(있으면) + 결정적 블로커 3종을 합친다.
+    var blockers = blockerCalculator.compute(summaryResponse, LocalDate.now(), Instant.now());
+    var stored = aiSummaryRepository.find(row.id()).orElse(null);
+    IssueAiContext aiContext = null;
+    if (stored != null || !blockers.isEmpty()) {
+      aiContext =
+          new IssueAiContext(
+              stored != null ? stored.summary() : null,
+              stored != null ? stored.nextAction() : null,
+              stored != null ? stored.generatedAt() : null,
+              blockers);
+    }
+    return new IssueDetailResponse(
+        summaryResponse, row.body(), comments, history, attachments, aiContext);
   }
 
   /** 이슈 부분 수정. null 필드는 변경 없음, clearDueDate 플래그로 명시적 NULL 설정 지원. 담당자는 별도 PUT /assignees 흐름에서 관리. */

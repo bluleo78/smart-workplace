@@ -33,6 +33,7 @@ import { IssueChatPanel } from './components/chat/IssueChatPanel';
 import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
 import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
+import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 
 // 제목 인라인 편집 — 표시 모드(텍스트+연필)와 편집 모드(input) 토글.
@@ -324,6 +325,8 @@ export default function IssueDetailPage() {
           {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
               세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
           <div className="flex-1 space-y-4 @min-[1032px]:min-w-[360px]">
+            {/* AI 즉각 컨텍스트 카드 (#517) — 내용 없으면 미렌더(graceful). */}
+            <IssueInstantContextCard aiContext={data.aiContext} />
             <InlineEditableBody
               body={body}
               onSave={(b) => patch({ body: b })}

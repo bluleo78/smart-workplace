@@ -94,6 +94,25 @@ public class OutboundConfig {
   }
 
   /**
+   * 이슈 Instant Context 요약 생성 전용 executor (#517). 요약 HTTP(read 90s)는 스레드를 장시간 점유하므로 경량
+   * aiAgentEventExecutor(이벤트 발사)와 공유 금지(공유 시 이벤트 디스패치 고갈). 데코레이터로 TenantContext 전파 → @Async
+   * AFTER_COMMIT 핸들러가 워커 스레드에서 트랜잭션 시작 시 GUC 주입(issue_ai_summary RLS fail-closed 회피).
+   */
+  @Bean(name = "issueAiSummaryExecutor")
+  public Executor issueAiSummaryExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(2);
+    executor.setMaxPoolSize(4);
+    executor.setQueueCapacity(100);
+    executor.setThreadNamePrefix("issue-ai-summary-");
+    // TenantContext 전파 — @Async AFTER_COMMIT 핸들러가 워커 스레드에서 트랜잭션 시작 시
+    // TenantAwareTransactionManager 가 GUC(app.tenant_id) 를 주입할 수 있도록.
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * notify 디스패처 전용 executor. @Async 무인자는 단일 Executor 빈(aiAgentEventExecutor)에 바인딩되거나, 빈이 2개면 모호해져
    * SimpleAsyncTaskExecutor 로 조용히 폴백한다. 따라서 항상 명시 한정(@Async("notifyEventExecutor"))한다. 알림은 가벼운
    * insert+fan-out 이므로 작은 풀로 충분, queue 는 버스트 흡수용으로 넉넉히.
