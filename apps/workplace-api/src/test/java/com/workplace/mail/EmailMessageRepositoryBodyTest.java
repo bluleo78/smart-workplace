@@ -3,11 +3,13 @@ package com.workplace.mail;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.security.EncryptionService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.support.IntegrationTestBase;
@@ -21,14 +23,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * EmailMessageRepository 본문 적재 메서드 통합 테스트 — 메타만 저장된 메시지를 미적재 대상으로 잡고(updateBody 전), updateBody 후
- * body_fetched_at 이 채워져 대상에서 빠지는지 검증한다. imap_uid/folderName 매핑도 함께 확인.
+ * EmailMessageRepository 본문 적재 메서드 통합 테스트 — 메타만 저장된 메시지를 미적재 대상으로 잡고(content.updateBody 전),
+ * contentRepo.updateBody 후 content.body_fetched_at 이 채워져 대상에서 빠지는지 검증한다(Task5 멱등 가드).
+ * imap_uid/folderName 매핑도 함께 확인.
  */
 @Transactional
 class EmailMessageRepositoryBodyTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired EmailMessageRepository messageRepo;
+  @Autowired EmailContentRepository contentRepo;
   @Autowired EmailFolderRepository folderRepo;
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EncryptionService encryption;
@@ -75,26 +79,56 @@ class EmailMessageRepositoryBodyTest extends IntegrationTestBase {
         List.of());
   }
 
+  /**
+   * V97(per-envelope): 미적재 판정은 email_message.fetched_at IS NULL 기준으로 전환. contentRepo.updateBody
+   * 만으로는 미적재 목록에서 제외되지 않는다 — markFetched(envelope) 까지 호출해야 제외된다. findBodyTarget.bodyFetchedAt 은
+   * email_message.fetched_at 에서 읽는다. imap_uid/folderName 매핑도 함께 확인.
+   *
+   * <p>insertIgnoreConflict 는 TenantContext 에서 tenantId 를 읽으므로, connection-init-sql 이 tenant=1 로
+   * 설정된 test 프로파일에서는 TenantContext 없이도 동작한다(requireTenantId fallback 경로).
+   */
   @Test
-  void updateBody_setsBodyAndFetchedAt() {
-    long user = TestFixtures.createHuman(dsl);
-    long account = insertAccount(user);
-    long folderId = folderRepo.ensureFolder(account, "INBOX").id();
-    long id = messageRepo.insertIgnoreConflict(account, folderId, meta(1, "<m1@x>")).orElseThrow();
+  void contentUpdateBody_setsBodyFetchedAtAndDropsFromMissingList() {
+    TenantContext.set(1L); // insertIgnoreConflict requireTenantId 보장
+    try {
+      long user = TestFixtures.createHuman(dsl);
+      long account = insertAccount(user);
+      long folderId = folderRepo.ensureFolder(account, "INBOX").id();
+      long id =
+          messageRepo
+              .insertIgnoreConflict(account, folderId, meta(1, "<m1-task5@x>"))
+              .orElseThrow();
 
-    // 적재 전: 미적재 대상으로 잡힘
-    List<BodyTarget> pending = messageRepo.listMissingBody(account, 10);
-    assertThat(pending).extracting(BodyTarget::messageId).contains(id);
-    assertThat(messageRepo.countMissingBody(account)).isEqualTo(1);
+      // 적재 전: 미적재 대상으로 잡힘(email_message.fetched_at IS NULL)
+      List<BodyTarget> pending = messageRepo.listMissingBody(account, 10);
+      assertThat(pending).extracting(BodyTarget::messageId).contains(id);
+      assertThat(messageRepo.countMissingBody(account)).isEqualTo(1);
 
-    messageRepo.updateBody(id, "본문", null, "본문", false);
+      // contentId 조회 후 content 에 본문 기록(V97: content.updateBody 만으로는 미적재 목록에서 제외되지 않음)
+      BodyTarget before = messageRepo.findBodyTarget(account, id).orElseThrow();
+      assertThat(before.contentId()).as("content_id 가 0 이면 안 된다").isGreaterThan(0L);
+      contentRepo.updateBody(before.contentId(), "본문", null, "본문");
 
-    // 적재 후: 대상에서 빠짐
-    assertThat(messageRepo.countMissingBody(account)).isEqualTo(0);
-    Optional<BodyTarget> t = messageRepo.findBodyTarget(account, id);
-    assertThat(t).isPresent();
-    assertThat(t.get().bodyFetchedAt()).isNotNull();
-    assertThat(t.get().imapUid()).isEqualTo(1L);
-    assertThat(t.get().folderName()).isEqualTo("INBOX");
+      // V97: content.body_fetched_at 설정 후에도 envelope.fetched_at = NULL → 여전히 목록에 포함
+      assertThat(messageRepo.countMissingBody(account))
+          .as("content.updateBody 만으로는 envelope 가 목록에서 제외되지 않아야 한다(per-envelope 게이트)")
+          .isEqualTo(1);
+
+      // per-envelope 마커 기록 → 이제 제외됨
+      messageRepo.markFetched(id);
+      assertThat(messageRepo.countMissingBody(account))
+          .as("markFetched 후 envelope 는 미적재 목록에서 제외되어야 한다")
+          .isEqualTo(0);
+
+      Optional<BodyTarget> t = messageRepo.findBodyTarget(account, id);
+      assertThat(t).isPresent();
+      assertThat(t.get().bodyFetchedAt())
+          .as("markFetched 후 bodyFetchedAt(email_message.fetched_at) 이 null 이면 안 된다")
+          .isNotNull();
+      assertThat(t.get().imapUid()).isEqualTo(1L);
+      assertThat(t.get().folderName()).isEqualTo("INBOX");
+    } finally {
+      TenantContext.clear();
+    }
   }
 }

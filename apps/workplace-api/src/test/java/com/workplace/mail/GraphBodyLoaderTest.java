@@ -1,6 +1,8 @@
 package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.EMAIL_CONTENT;
+import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -13,6 +15,7 @@ import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.GraphBodyLoader;
@@ -44,6 +47,7 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
   @Autowired GraphBodyLoader graphBodyLoader;
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EmailMessageRepository messageRepo;
+  @Autowired EmailContentRepository contentRepo;
   @Autowired EmailFolderRepository folderRepo;
   @Autowired EncryptionService encryption;
 
@@ -146,10 +150,10 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
   }
 
   /**
-   * Graph 메시지 GET 응답의 body(html)·bodyPreview 가 email_message 에 적재된다.
+   * Graph 메시지 GET 응답의 body(html)·bodyPreview 가 email_content 에 적재된다(Task5).
    *
-   * <p>GraphApiClient.get 을 스텁해 Graph 응답을 모사하고, updateBody 후 messageRepo.findDetailByIdAndUser 로
-   * 검증한다.
+   * <p>GraphApiClient.get 을 스텁해 Graph 응답을 모사하고, loadBody 후 email_content 직접 조회로 검증한다. Task6 이전에
+   * findDetailByIdAndUser 는 email_message.body_html 을 읽으므로 사용하지 않는다.
    */
   @Test
   void loadBody_storesHtmlAndSnippet() {
@@ -165,8 +169,15 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
     BodyTarget target = messageRepo.findBodyTarget(accountId, messageId).orElseThrow();
     graphBodyLoader.loadBody(userId, target, accountOf(accountId));
 
-    EmailMessageDetail d = messageRepo.findDetailByIdAndUser(userId, messageId).orElseThrow();
-    assertThat(d.bodyHtml()).contains("hi");
+    // Task5: 본문이 email_content 에 기록됐는지 확인(envelope JOIN content)
+    String bodyHtmlViaContent =
+        dsl.select(EMAIL_CONTENT.BODY_HTML)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .fetchOneInto(String.class);
+    assertThat(bodyHtmlViaContent).contains("hi");
   }
 
   /** body.contentType="text" 이면 bodyText 에 저장되고 bodyHtml 은 null. */
@@ -184,9 +195,16 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
     BodyTarget target = messageRepo.findBodyTarget(accountId, messageId).orElseThrow();
     graphBodyLoader.loadBody(userId, target, accountOf(accountId));
 
-    EmailMessageDetail d = messageRepo.findDetailByIdAndUser(userId, messageId).orElseThrow();
-    assertThat(d.bodyText()).contains("plain text body");
-    assertThat(d.bodyHtml()).isNull();
+    // Task5: 본문이 email_content 에 기록됐는지 확인
+    var row =
+        dsl.select(EMAIL_CONTENT.BODY_TEXT, EMAIL_CONTENT.BODY_HTML)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .fetchOne();
+    assertThat(row.value1()).contains("plain text body");
+    assertThat(row.value2()).isNull();
   }
 
   /** hasAttachments=true 이면 첨부 메타 조회 추가 호출 후 email_attachment 에 삽입된다. */
@@ -213,20 +231,32 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
     BodyTarget target = messageRepo.findBodyTarget(accountId, messageId).orElseThrow();
     graphBodyLoader.loadBody(userId, target, accountOf(accountId));
 
+    // Task5: 본문이 email_content 에 기록됐는지 확인
+    String bodyHtmlViaContent =
+        dsl.select(EMAIL_CONTENT.BODY_HTML)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .fetchOneInto(String.class);
+    assertThat(bodyHtmlViaContent).contains("hi");
+
+    // 첨부가 1건 삽입됐는지 확인 — 첨부는 여전히 envelope(messageId) 키로 저장
     EmailMessageDetail d = messageRepo.findDetailByIdAndUser(userId, messageId).orElseThrow();
-    assertThat(d.bodyHtml()).contains("hi");
-    // 첨부가 1건 삽입됐는지 확인
     assertThat(d.attachments()).hasSize(1);
     assertThat(d.attachments().get(0).filename()).isEqualTo("report.pdf");
   }
 
-  /** providerMessageId 가 null 이면 no-op — body_fetched_at 이 갱신되지 않는다. */
+  /**
+   * providerMessageId 가 null 이면 no-op — body_fetched_at 이 갱신되지 않는다. contentId=0 이면 contentId 없음
+   * 가드(Task5)가 먼저 적용될 수 있으나, 어느 경우든 graphApiClient 호출 없이 false 반환해야 한다.
+   */
   @Test
   void loadBody_nullProviderMessageId_noOp() {
     long userId = TestFixtures.createHuman(dsl);
     long accountId = seedGraphAccount(userId, "TEST_AT");
-    // providerMessageId 없이 직접 BodyTarget 생성
-    BodyTarget target = new BodyTarget(9999L, accountId, 0L, "INBOX", null, null);
+    // providerMessageId 없이 직접 BodyTarget 생성(contentId=0 → contentId 없음 가드 + providerMessageId=null)
+    BodyTarget target = new BodyTarget(9999L, accountId, 0L, "INBOX", null, null, 0L);
 
     // 예외 없이 반환돼야 함
     graphBodyLoader.loadBody(userId, target, accountOf(accountId));

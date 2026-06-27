@@ -67,7 +67,7 @@ class MailBodyFetcherUnitTest {
     MailBodyFetcher fetcher = new MailBodyFetcher(accountRepo, mailAiService, List.of(loader));
 
     // bodyFetchedAt=null 인 BodyTarget(미적재 상태)
-    BodyTarget target = new BodyTarget(10L, 1L, 0L, "INBOX", null, null);
+    BodyTarget target = new BodyTarget(10L, 1L, 0L, "INBOX", null, null, 0L);
 
     fetcher.fetchBody(1L, target);
 

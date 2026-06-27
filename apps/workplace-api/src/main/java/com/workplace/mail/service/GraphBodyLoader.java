@@ -8,6 +8,7 @@ import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.ParsedAttachment;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailAttachmentRepository;
+import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,10 @@ import org.springframework.stereotype.Service;
 public class GraphBodyLoader implements MailBodyLoader {
 
   private final EmailMessageRepository messageRepo;
+
+  /** Task5: 본문·스니펫을 email_content 에 기록한다. */
+  private final EmailContentRepository contentRepo;
+
   private final EmailAttachmentRepository attachmentRepo;
   private final GraphTokenService graphTokenService;
   private final GraphApiClient graphApiClient;
@@ -50,8 +55,11 @@ public class GraphBodyLoader implements MailBodyLoader {
    * <p>providerMessageId 가 null 이면 Graph 메시지 조회가 불가하므로 false 반환한다. body.contentType="html" 이면
    * bodyHtml 에, "text" 이면 bodyText 에 저장한다. 첨부 메타는 hasAttachments=true 일 때만 추가 조회한다.
    *
-   * @return true: 적재 성공(updateBody 호출 완료). false: providerMessageId 없음 또는 네트워크/파싱 실패(재시도 가능). 적재 실패
-   *     시 분류 skip — 빈 스니펫 기반 영구 오분류 방지(I1 수정).
+   * <p>Task5: 본문·스니펫은 email_content 에 기록(contentRepo.updateBody). has_attachment 만 envelope 에 남긴다.
+   * contentId=0 이면 content 미연결 — false 반환.
+   *
+   * @return true: 적재 성공(contentRepo.updateBody 호출 완료). false: providerMessageId
+   *     없음·contentId=0·네트워크/파싱 실패(재시도 가능). 적재 실패 시 분류 skip — 빈 스니펫 기반 영구 오분류 방지(I1 수정).
    */
   @Override
   public boolean loadBody(long userId, BodyTarget target, EmailAccountResponse account) {
@@ -59,6 +67,11 @@ public class GraphBodyLoader implements MailBodyLoader {
     if (providerMessageId == null) {
       // Graph 계정이지만 provider_message_id 없음 — 적재 불가, 분류도 skip
       log.warn("GraphBodyLoader: provider_message_id 없음 (messageId={})", target.messageId());
+      return false;
+    }
+    // contentId=0: content 행이 연결되지 않은 legacy envelope — 본문 저장 불가
+    if (target.contentId() == 0L) {
+      log.warn("GraphBodyLoader: content_id 없음 — 적재 skip (messageId={})", target.messageId());
       return false;
     }
 
@@ -85,12 +98,17 @@ public class GraphBodyLoader implements MailBodyLoader {
       String snippet = msgResp.bodyPreview();
       boolean hasAttachment = Boolean.TRUE.equals(msgResp.hasAttachments());
 
-      messageRepo.updateBody(target.messageId(), bodyText, bodyHtml, snippet, hasAttachment);
+      // 본문·스니펫은 공유 content 에 기록 — 같은 message_id 를 수신한 다른 envelope 도 즉시 본문 보유
+      contentRepo.updateBody(target.contentId(), bodyText, bodyHtml, snippet);
+      // has_attachment 는 envelope 속성(첨부 존재 표시)으로 유지
+      messageRepo.markHasAttachment(target.messageId(), hasAttachment);
 
       // 첨부 메타 적재 — hasAttachments=true 일 때만 추가 Graph 호출
       if (hasAttachment) {
         loadAttachmentMeta(accessToken, providerMessageId, target.messageId());
       }
+      // V97: per-envelope 마커 — 이 envelope 의 본문/첨부 적재가 완료됐음을 기록
+      messageRepo.markFetched(target.messageId());
       return true;
     } catch (Exception e) {
       // 토큰·민감정보 노출 방지 — messageId 와 예외 요약만 기록

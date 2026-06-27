@@ -17,6 +17,7 @@ import com.workplace.mail.dto.MailDraftCoaching;
 import com.workplace.mail.dto.MailDraftCoachingRequest;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.MailSummary;
+import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
@@ -25,6 +26,7 @@ import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.SummarizeResult;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailAiService;
@@ -50,6 +52,7 @@ class MailAiServiceTest extends IntegrationTestBase {
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EmailFolderRepository folderRepo;
   @Autowired EmailMessageRepository messageRepo;
+  @Autowired EmailContentRepository contentRepo;
   @Autowired EncryptionService encryption;
 
   /** ai-agent 실호출 차단 — 더미 응답으로 고정. */
@@ -82,36 +85,43 @@ class MailAiServiceTest extends IntegrationTestBase {
     return accountRepo.insert(userId, req, encryption.encrypt("pw"));
   }
 
-  /** 테스트용 메시지를 INBOX 폴더에 삽입하고 생성된 id 반환. */
+  /**
+   * 테스트용 메시지를 INBOX 폴더에 삽입하고 생성된 envelope id 반환.
+   *
+   * <p>Task9 이후 email_message 에는 subject/body/snippet 컬럼이 없다 — ParsedMessage + insertIgnoreConflict
+   * 경로로 email_content 행을 생성하고 content_id 를 연결한다. 이를 통해 MailAiService 가 email_content JOIN 에서
+   * subject/body 를 실제로 읽는지 검증할 수 있다.
+   */
   private long insertMessage(long accountId, long folderId, String msgId, String threadId) {
-    return dsl.insertInto(
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ACCOUNT_ID,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FOLDER_ID,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.MESSAGE_ID,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.THREAD_ID,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FROM_ADDRESS,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SUBJECT,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.BODY_TEXT,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SNIPPET,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SEEN,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.HAS_ATTACHMENT,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.RECEIVED_AT)
-        .values(
-            accountId,
-            folderId,
+    ParsedMessage msg =
+        new ParsedMessage(
+            System.nanoTime(),
             msgId,
             threadId,
+            null,
+            null,
             "sender@example.com",
-            "테스트 제목",
-            "본문 내용 입니다",
+            null,
+            null,
+            null,
+            "테스트 제목", // subject → email_content 에 저장
+            Instant.now(),
+            Instant.now(),
+            false,
+            false,
+            null,
+            null,
             "스니펫",
-            false,
-            false,
-            java.time.OffsetDateTime.ofInstant(Instant.now(), java.time.ZoneOffset.UTC))
-        .returning(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID)
-        .fetchOne()
-        .get(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID);
+            List.of());
+    long envId = messageRepo.insertIgnoreConflict(accountId, folderId, msg).orElseThrow();
+    // content_id 를 통해 본문 적재 — 서비스가 JOIN 으로 읽음을 보장
+    Long contentId =
+        dsl.select(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.CONTENT_ID)
+            .from(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+            .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(envId))
+            .fetchOneInto(Long.class);
+    contentRepo.updateBody(contentId, "테스트 본문", null, "스니펫");
+    return envId;
   }
 
   /** 캐시 miss 시 ai-agent 호출 후 저장, 두 번째 호출은 캐시 hit → 재호출 없음. */

@@ -97,7 +97,7 @@ class MailSummaryBackfillServiceTest {
     given(mailAiService.resolveSpecOrNull(USER)).willReturn(spec);
     given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20)).willReturn(List.of(20L));
     // bodyTarget 이 fetch 필요(imapUid=5, bodyFetchedAt=null)
-    BodyTarget fetchNeeded = new BodyTarget(20L, 99L, 5L, "INBOX", null, null);
+    BodyTarget fetchNeeded = new BodyTarget(20L, 99L, 5L, "INBOX", null, null, 0L);
     given(messageRepo.findBodyTargetForUser(USER, 20L)).willReturn(Optional.of(fetchNeeded));
     // fetch 후에도 본문이 빈 경우
     given(messageRepo.findAiContextByIdAndUser(USER, 20L))

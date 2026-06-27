@@ -43,8 +43,7 @@ class EmailMessageRepositoryClassifyBackfillTest extends IntegrationTestBase {
                 com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.MESSAGE_ID,
                 com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.THREAD_ID,
                 com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FROM_ADDRESS,
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SUBJECT,
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SNIPPET,
+                // subject/snippet 은 email_content 로 이전(Task9: envelope 컬럼 제거)
                 com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SEEN,
                 com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.HAS_ATTACHMENT,
                 com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.RECEIVED_AT)
@@ -54,8 +53,7 @@ class EmailMessageRepositoryClassifyBackfillTest extends IntegrationTestBase {
                 "msg-" + System.nanoTime() + "@test.local",
                 "thread-" + System.nanoTime(),
                 "sender@example.com",
-                "테스트 제목",
-                "스니펫",
+                // subject/snippet 값 제거
                 seen,
                 false,
                 java.time.OffsetDateTime.ofInstant(Instant.now(), java.time.ZoneOffset.UTC))

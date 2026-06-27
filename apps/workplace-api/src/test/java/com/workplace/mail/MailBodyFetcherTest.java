@@ -1,5 +1,7 @@
 package com.workplace.mail;
 
+import static com.workplace.jooq.Tables.EMAIL_CONTENT;
+import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -13,7 +15,6 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.BodyTarget;
-import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
@@ -72,9 +73,17 @@ class MailBodyFetcherTest extends IntegrationTestBase {
     bodyFetcher.fetchBody(user, messageRepo.findBodyTarget(accountId, messageId).orElseThrow());
 
     BodyTarget after = messageRepo.findBodyTarget(accountId, messageId).orElseThrow();
+    // Task5: bodyFetchedAt 은 email_content.body_fetched_at 기준
     assertThat(after.bodyFetchedAt()).isNotNull();
-    EmailMessageDetail d = messageRepo.findDetailByIdAndUser(user, messageId).orElseThrow();
-    assertThat(d.bodyText()).contains("본문입니다");
+    // Task5: 본문은 email_content 에 기록됨 — envelope JOIN content 로 검증(Task6 이전까지 reader 미이관)
+    String bodyViaContent =
+        dsl.select(EMAIL_CONTENT.BODY_TEXT)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .fetchOneInto(String.class);
+    assertThat(bodyViaContent).contains("본문입니다");
   }
 
   /** 이미 적재된 대상(body_fetched_at != null)은 no-op — IMAP 미접속. */

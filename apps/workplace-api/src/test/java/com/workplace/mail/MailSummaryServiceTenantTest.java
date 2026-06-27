@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -108,16 +109,29 @@ class MailSummaryServiceTenantTest extends IntegrationTestBase {
     return accountId;
   }
 
+  /**
+   * Task6: subject 를 email_content 에 저장하고 content_id 로 email_message 에 연결한다. listRecentUnread 가
+   * email_content JOIN 으로 subject 를 읽으므로 직접 email_message.subject 를 쓰면 NULL 이 반환된다.
+   */
   private void seedMessage(
       long accountId, long folderId, long uid, String subject, boolean seen, Instant receivedAt) {
+    // GUC 는 호출 시점에 tid2 가 세션 수준으로 설정되어 있음 → email_content RLS 통과
+    Long contentId =
+        dsl.insertInto(EMAIL_CONTENT)
+            .set(EMAIL_CONTENT.TENANT_ID, tid2)
+            .set(EMAIL_CONTENT.THREAD_ID, "thread-" + uid)
+            .set(EMAIL_CONTENT.SUBJECT, subject)
+            .returning(EMAIL_CONTENT.ID)
+            .fetchOne()
+            .getId();
     dsl.insertInto(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
         .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
         .set(EMAIL_MESSAGE.IMAP_UID, uid)
         .set(EMAIL_MESSAGE.THREAD_ID, "thread-" + uid)
-        .set(EMAIL_MESSAGE.SUBJECT, subject)
         .set(EMAIL_MESSAGE.SEEN, seen)
         .set(EMAIL_MESSAGE.RECEIVED_AT, receivedAt.atOffset(java.time.ZoneOffset.UTC))
+        .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
         .execute();
   }
 
