@@ -218,7 +218,7 @@ public class EmailMessageRepository {
       where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
     }
     if (category != null && !category.isBlank()) {
-      where = where.and(EMAIL_MESSAGE.AI_CATEGORY.eq(category));
+      where = where.and(EMAIL_CONTENT.AI_CATEGORY.eq(category)); // 슬라이스②: content 출처
     }
     if (needsReply) {
       // 회신필요 통일 술어: AI 판정=true + 사용자 처리완료 아님
@@ -255,7 +255,7 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
-            EMAIL_MESSAGE.AI_CATEGORY,
+            EMAIL_CONTENT.AI_CATEGORY, // 슬라이스②: content 에서 읽음
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
             EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2
         .from(EMAIL_MESSAGE)
@@ -327,7 +327,7 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
-            EMAIL_MESSAGE.AI_CATEGORY,
+            EMAIL_CONTENT.AI_CATEGORY, // 슬라이스②: content 에서 읽음
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
             EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2: toSummary 매퍼에서 필요
         .from(EMAIL_MESSAGE)
@@ -552,10 +552,17 @@ public class EmailMessageRepository {
         .execute();
   }
 
-  /** 분류 결과 저장(동기화 잡, best-effort). */
+  /** 분류 결과 저장(동기화 잡, best-effort) — 슬라이스②: category 는 공유 content, needs_reply 는 envelope(사람별). */
   public void updateClassification(long messageId, String category, boolean needsReply) {
+    // category → 공유 email_content (envelope 조인으로 content 특정)
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_CATEGORY, category)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .execute();
+    // needs_reply → envelope 잔류(#485 통일 술어 소비)
     dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.AI_CATEGORY, category)
         .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, needsReply)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .execute();
@@ -590,12 +597,14 @@ public class EmailMessageRepository {
             .and(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT.isNull()));
   }
 
-  /** 요약 캐시 저장. */
+  /** 요약 캐시 저장 — 슬라이스②: 공유 email_content 에 기록(envelope 조인으로 content 특정). */
   public void updateSummary(long messageId, String summary) {
-    dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.AI_SUMMARY, summary)
-        .set(EMAIL_MESSAGE.AI_SUMMARIZED_AT, OffsetDateTime.now())
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_SUMMARY, summary)
+        .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
+        .from(EMAIL_MESSAGE)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
         .execute();
   }
 
@@ -610,16 +619,18 @@ public class EmailMessageRepository {
         .execute();
   }
 
-  /** 선제 배치 요약 대상 — INBOX 안읽음 중 미요약(ai_summary IS NULL) 최근 limit건. */
+  /** 선제 배치 요약 대상 — INBOX 안읽음 중 공유 content 미요약(c.ai_summary IS NULL) 최근 limit건. */
   public List<Long> listRecentUnreadUnsummarizedIds(long accountId, int limit) {
     return dsl.select(EMAIL_MESSAGE.ID)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
-        .and(EMAIL_MESSAGE.AI_SUMMARY.isNull())
+        .and(EMAIL_CONTENT.AI_SUMMARY.isNull()) // 슬라이스②: 공유 content 미요약 기준
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(EMAIL_MESSAGE.ID);
@@ -775,8 +786,9 @@ public class EmailMessageRepository {
   /**
    * AI 요약/답장용 컨텍스트(계정 ai_enabled·본인 이메일 + 메시지 본문/요약). 소유 검증 포함.
    *
-   * <p>Task6: 제목·본문은 email_content LEFT JOIN 으로 읽는다. FROM_ADDRESS·AI_SUMMARY 는 envelope 잔존(봉투 속성 /
-   * Task② 이전).
+   * <p>Task6: 제목·본문은 email_content LEFT JOIN 으로 읽는다. FROM_ADDRESS 는 envelope 잔존(봉투 속성).
+   *
+   * <p>슬라이스②: ai_summary 도 공유 email_content 에서 읽는다(N→1 dedup).
    */
   public Optional<AiContext> findAiContextByIdAndUser(long userId, long messageId) {
     return dsl.select(
@@ -786,11 +798,11 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_CONTENT.BODY_TEXT, // content 에서 읽음
             EMAIL_CONTENT.BODY_HTML, // content 에서 읽음
-            EMAIL_MESSAGE.AI_SUMMARY) // ai_summary 는 envelope 잔존(Task② 이전)
+            EMAIL_CONTENT.AI_SUMMARY) // 슬라이스②: ai_summary 를 content 에서 읽음
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
-        .leftJoin(EMAIL_CONTENT) // 본문·제목을 content 에서 읽기 위한 LEFT JOIN
+        .leftJoin(EMAIL_CONTENT) // 본문·제목·요약을 content 에서 읽기 위한 LEFT JOIN
         .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
@@ -804,7 +816,7 @@ public class EmailMessageRepository {
                     r.get(EMAIL_MESSAGE.FROM_ADDRESS),
                     r.get(EMAIL_CONTENT.BODY_TEXT),
                     r.get(EMAIL_CONTENT.BODY_HTML),
-                    r.get(EMAIL_MESSAGE.AI_SUMMARY)));
+                    r.get(EMAIL_CONTENT.AI_SUMMARY))); // 슬라이스②: content 출처
   }
 
   /**
@@ -906,7 +918,7 @@ public class EmailMessageRepository {
         received == null ? null : received.toInstant(),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.HAS_ATTACHMENT)),
-        r.get(EMAIL_MESSAGE.AI_CATEGORY),
+        r.get(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
         r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY),
         doneAt == null ? null : doneAt.toInstant()); // P2
   }

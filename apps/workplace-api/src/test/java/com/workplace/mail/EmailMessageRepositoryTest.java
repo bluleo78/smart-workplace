@@ -1,11 +1,14 @@
 package com.workplace.mail;
 
+import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailSecurity;
+import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.support.IntegrationTestBase;
@@ -25,6 +28,7 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EmailFolderRepository folderRepo;
   @Autowired EmailMessageRepository messageRepo;
+  @Autowired EmailContentRepository contentRepo;
   @Autowired EncryptionService encryption;
 
   /** 테스트용 이메일 계정 생성 헬퍼. */
@@ -49,40 +53,46 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
   /**
    * 테스트용 메시지를 지정 폴더에 삽입하고 생성된 id 반환.
    *
+   * <p>슬라이스②: insertIgnoreConflict 경로로 email_content find-or-create + content_id 연결 —
+   * category/summary 를 content 에 쓰는 경로가 올바르게 동작하려면 content_id 가 설정되어야 한다.
+   *
    * @param seen true=읽음, false=안읽음
    * @param aiSummary null=미요약, 문자열=요약 있음
    */
   private long seedMessage(long accountId, long folderId, boolean seen, String aiSummary) {
-    var msg =
-        dsl.insertInto(
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE,
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ACCOUNT_ID,
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FOLDER_ID,
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.MESSAGE_ID,
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.THREAD_ID,
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FROM_ADDRESS,
-                // subject/snippet 은 email_content 로 이전(Task9: envelope 컬럼 제거)
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SEEN,
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.HAS_ATTACHMENT,
-                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.RECEIVED_AT)
-            .values(
-                accountId,
-                folderId,
-                "msg-" + System.nanoTime() + "@test.local",
-                "thread-" + System.nanoTime(),
-                "sender@example.com",
-                // subject/snippet 값 제거
-                seen,
-                false,
-                java.time.OffsetDateTime.ofInstant(Instant.now(), java.time.ZoneOffset.UTC))
-            .returning(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID)
-            .fetchOne()
-            .get(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID);
-
+    String messageId = "msg-" + System.nanoTime() + "@test.local";
+    ParsedMessage parsed =
+        new ParsedMessage(
+            System.nanoTime(),
+            messageId,
+            "thread-" + System.nanoTime(),
+            null,
+            null,
+            "sender@example.com",
+            null,
+            null,
+            null,
+            "테스트 제목",
+            Instant.now(),
+            Instant.now(),
+            seen,
+            false,
+            null,
+            null,
+            null,
+            List.of());
+    long envId = messageRepo.insertIgnoreConflict(accountId, folderId, parsed).orElseThrow();
+    // updateSummary 경로 검증용: aiSummary 있으면 content 에 요약 기록
     if (aiSummary != null) {
-      messageRepo.updateSummary(msg, aiSummary);
+      Long contentId =
+          dsl.select(EMAIL_MESSAGE.CONTENT_ID)
+              .from(EMAIL_MESSAGE)
+              .where(EMAIL_MESSAGE.ID.eq(envId))
+              .fetchOneInto(Long.class);
+      contentRepo.updateBody(contentId, aiSummary, null, null); // body 에 텍스트를 채워 요약으로 간주
+      messageRepo.updateSummary(envId, aiSummary);
     }
-    return msg;
+    return envId;
   }
 
   /** listRecentUnreadUnsummarizedIds — 안읽음·미요약 메일만 반환하고, 요약 있음과 읽음 메일은 제외한다. */
