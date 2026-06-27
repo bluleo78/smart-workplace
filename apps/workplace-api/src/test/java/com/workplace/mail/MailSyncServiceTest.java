@@ -384,12 +384,12 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
   /**
    * 동기화 정상 완료 후 선제 요약 백필이 트리거된다 — @Async 라 sync 의 짧은 TX 들이 모두 커밋된 뒤 별도 스레드에서 실행. 조기 반환 경로(진행 중
-   * 가드)에서는 호출되지 않아야 한다.
+   * 가드)에서는 호출되지 않아야 한다. AI ON 계정(ai_enabled=true)에서만 트리거된다.
    */
   @Test
   void sync_완료후_선제요약_트리거() {
     long user = TestFixtures.createHuman(dsl);
-    long accountId = insertAccount(user);
+    long accountId = insertAccount(user, true);
     GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "요약 대상 메일", "본문입니다");
     greenMail.waitForIncomingEmail(1);
 
@@ -397,6 +397,23 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
     // 정상 완료 경로에서 선제 요약 백필이 호출된다
     verify(summaryBackfillService).summarizeRecentUnread(user, accountId);
+  }
+
+  /**
+   * AI 꺼진 계정(ai_enabled=false)은 동기화가 정상 완료돼도 선제 요약 백필을 트리거하지 않는다 — 백필이 메시지마다 요약을 시도하다
+   * MailAiUnavailableException 을 던져 스택트레이스 스팸 + 불필요한 IMAP 본문 fetch 를 유발하던 회귀 방지.
+   */
+  @Test
+  void sync_aiOff_선제요약_미트리거() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user, false);
+    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "요약 대상 메일", "본문입니다");
+    greenMail.waitForIncomingEmail(1);
+
+    syncService.sync(user, accountId);
+
+    // AI OFF 계정은 선제 요약 백필이 호출되지 않는다
+    verify(summaryBackfillService, never()).summarizeRecentUnread(anyLong(), anyLong());
   }
 
   private Session session() {

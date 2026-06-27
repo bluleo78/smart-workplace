@@ -103,7 +103,11 @@ public class MailSyncService {
       txTemplate.executeWithoutResult(
           status -> accountRepo.updateLastSyncedAt(accountId, OffsetDateTime.now()));
       // 동기화로 적재된 새 메일을 선제 요약(@Async — 짧은 TX 들이 모두 커밋된 뒤 별도 스레드에서 실행되어 새 메일이 가시). best-effort.
-      summaryBackfillService.summarizeRecentUnread(userId, accountId);
+      // AI 게이트는 계정 단위(ai_enabled) — 호출자가 책임진다. 백필 유닛의 자체 게이트(resolveSpecOrNull)는
+      // 유저/비서 설정 단위라 계정 ai_enabled 와 어긋나므로, 여기서 OFF 계정을 미리 거른다(불필요한 IMAP fetch·요약 예외 스팸 방지).
+      if (account.aiEnabled()) {
+        summaryBackfillService.summarizeRecentUnread(userId, accountId);
+      }
       return result;
     } finally {
       // 보충할 게 없거나 에러로 끝났으면 여기서 즉시 종료(백필을 트리거했다면 백필이 종료 책임).
