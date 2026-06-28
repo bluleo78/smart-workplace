@@ -42,6 +42,10 @@ workplace:
     # 로컬 개발 전용 기본값. workplace-ai-agent/.env.local의 INTERNAL_SERVICE_TOKEN과 동일 값.
     # 프로덕션에서는 환경변수 WORKPLACE_AI_AGENT_TOKEN 으로 반드시 교체.
     internal-token: ${WORKPLACE_AI_AGENT_TOKEN:changeme-local}
+  worker:
+    # 워커 콜백 인증 토큰. 로컬 기본값을 ai-agent 와 동일하게 둬야 워커→api 콜백이 통과한다
+    # (없으면 빈 토큰 → fail-closed 로 모든 콜백 401 → 추출이 EXTRACTING 에서 정체). 프로덕션은 env 주입.
+    internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:changeme-local}}
   mail:
     m365:
       # 스파이크에서 확인된 Azure AD 앱 등록 ID — iacloud.kr 테넌트. client-secret 은 환경변수로만 주입.
