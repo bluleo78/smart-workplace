@@ -3,6 +3,7 @@ package com.workplace.auth.controller;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.CreateAgentRequest;
+import com.workplace.user.dto.RenameAgentRequest;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.service.UserService;
 import jakarta.validation.Valid;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -42,6 +44,16 @@ public class AdminAgentController {
       Authentication auth, @Valid @RequestBody CreateAgentRequest req) {
     Long callerId = (Long) auth.getPrincipal();
     return ResponseEntity.ok(userService.createAgent(callerId, req));
+  }
+
+  /** AGENT 이름/식별자 변경. 개인 비서는 거부(403). */
+  @PutMapping("/{userId}")
+  @RequirePermission("user:write")
+  public ResponseEntity<Void> rename(
+      Authentication auth, @PathVariable Long userId, @Valid @RequestBody RenameAgentRequest req) {
+    Long callerId = (Long) auth.getPrincipal();
+    userService.renameAgent(callerId, userId, req);
+    return ResponseEntity.noContent().build();
   }
 
   /** AGENT 삭제 (CASCADE 로 키도 함께 제거). */

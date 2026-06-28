@@ -269,6 +269,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
+  // 관리자의 개인 비서 이름 변경 차단 — 403.
+  @ExceptionHandler(com.workplace.user.exception.PersonalAssistantRenameForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handlePersonalAssistantRenameForbidden(
+      com.workplace.user.exception.PersonalAssistantRenameForbiddenException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   @ExceptionHandler(ChannelNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleChannelNotFound(
       ChannelNotFoundException ex, HttpServletRequest request) {

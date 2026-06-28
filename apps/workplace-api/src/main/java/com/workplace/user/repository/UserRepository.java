@@ -114,7 +114,11 @@ public class UserRepository {
         MEMBERSHIP.TENANT_ID.eq(tenantId).and(USER.KIND.eq(com.workplace.user.dto.UserKind.AGENT));
     if (!includePersonal) {
       // startsWith 는 LIKE 와일드카드를 이스케이프하므로 `__` 가 임의문자로 해석되지 않는다.
-      where = where.and(USER.USERNAME.startsWith("__assistant_u").not());
+      where =
+          where.and(
+              USER.USERNAME
+                  .startsWith(com.workplace.user.dto.AgentUsernames.PERSONAL_ASSISTANT_PREFIX)
+                  .not());
     }
     return dsl.select(
             USER.ID,
@@ -142,7 +146,8 @@ public class UserRepository {
               String ownerName = r.get(owner.NAME);
               Long wsAgentId = r.get(WORKSPACE_ASSISTANT.AGENT_USER_ID);
               // 유형 우선순위: 개인(__assistant_u 접두어) > 공통(지정) > 일반.
-              boolean isPersonal = username != null && username.startsWith("__assistant_u");
+              boolean isPersonal =
+                  com.workplace.user.dto.AgentUsernames.isPersonalAssistant(username);
               String type =
                   isPersonal
                       ? com.workplace.user.dto.AgentResponse.TYPE_PERSONAL
@@ -186,6 +191,35 @@ public class UserRepository {
   public boolean existsByEmailExcludingUser(String email, Long excludeUserId) {
     return dsl.fetchExists(
         dsl.selectOne().from(USER).where(USER.EMAIL.eq(email).and(USER.ID.ne(excludeUserId))));
+  }
+
+  /** username 중복 검사 — 자신(excludeUserId)은 제외. 관리자 rename 시 이름 무변경도 통과시키기 위함. */
+  public boolean existsByUsernameExcludingUser(String username, Long excludeUserId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(USER)
+            .where(USER.USERNAME.eq(username).and(USER.ID.ne(excludeUserId))));
+  }
+
+  /**
+   * AGENT 의 식별자(username)와 표시 이름(name)만 변경한다. email/password 등 다른 필드는 절대 건드리지 않는다(관리자 rename 전용).
+   */
+  public void renameAgentIdentity(Long id, String username, String name) {
+    dsl.update(USER)
+        .set(USER.USERNAME, username)
+        .set(USER.NAME, name)
+        .set(USER.UPDATED_AT, LocalDateTime.now())
+        .where(USER.ID.eq(id))
+        .execute();
+  }
+
+  /** 표시 이름(name)만 변경한다 — 개인 비서 이름 변경 등. email/username 은 보존. */
+  public void updateName(Long id, String name) {
+    dsl.update(USER)
+        .set(USER.NAME, name)
+        .set(USER.UPDATED_AT, LocalDateTime.now())
+        .where(USER.ID.eq(id))
+        .execute();
   }
 
   public boolean existsById(Long id) {

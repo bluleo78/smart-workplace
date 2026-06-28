@@ -50,6 +50,7 @@ import {
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
 import { handleApiError } from '../../lib/api-error';
+import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
 import { NewAgentDialog } from './components/NewAgentDialog';
 import { OAuthTokenDialog } from './components/OAuthTokenDialog';
@@ -296,6 +297,9 @@ export default function AgentManagementPage() {
               </SheetHeader>
 
               <div className="flex-1 space-y-4 px-6 py-4">
+                {/* 에이전트 정보(이름/아이디) 편집 — 개인 비서는 컴포넌트 내부에서 숨김. key 로 행 전환 시 입력 리셋. */}
+                <AgentIdentitySection key={selected.id} agent={selected} />
+
                 {/* 공통 비서 섹션. */}
                 <WorkspaceAssistantSection agentUserId={selected.id} />
 

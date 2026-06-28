@@ -18,6 +18,7 @@ import {
   useDisableMyAssistant,
   useMyAssistant,
   useRegisterMyAssistantToken,
+  useUpdateMyAssistantName,
   useUpdateMyAssistantSettings,
 } from '../../hooks/queries/useAssistant';
 import { handleApiError } from '../../lib/api-error';
@@ -36,8 +37,12 @@ export function PersonalAssistantSection() {
   const { data: status } = useMyAssistant();
   const register = useRegisterMyAssistantToken();
   const updateSettings = useUpdateMyAssistantSettings();
+  const updateName = useUpdateMyAssistantName();
   const disable = useDisableMyAssistant();
   const [token, setToken] = useState('');
+  // 이름 편집 draft — null 이면 서버값을 그대로 표시(미편집), 입력 시작 시 draft 로 전환.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const nameValue = nameDraft ?? status?.name ?? '';
 
   // 토큰 등록 — 형식(최소 32자) 검증 후 평문 전송, 성공 시 입력 비움.
   const submitToken = async () => {
@@ -52,6 +57,22 @@ export function PersonalAssistantSection() {
       toast.success('개인 비서 토큰을 저장했습니다.');
     } catch (e) {
       handleApiError(e, '토큰 등록에 실패했습니다.');
+    }
+  };
+
+  // 이름 변경 — 명시적 저장(키 입력마다 PUT 금지). 빈값 거부, 성공 시 서버값으로 재동기화.
+  const handleNameSave = async () => {
+    const trimmed = nameValue.trim();
+    if (trimmed.length === 0) {
+      toast.error('이름을 입력해주세요.');
+      return;
+    }
+    try {
+      await updateName.mutateAsync(trimmed);
+      setNameDraft(null);
+      toast.success('개인 비서 이름을 변경했습니다.');
+    } catch (e) {
+      handleApiError(e, '이름 변경에 실패했습니다.');
     }
   };
 
@@ -101,6 +122,31 @@ export function PersonalAssistantSection() {
             <p className="text-sm" data-testid="assistant-configured">
               설정됨{status.tokenLabel ? ` · ${status.tokenLabel}` : ''}
             </p>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="assistant-name">
+                이름
+              </label>
+              {/* 명시적 저장 — 입력 후 저장 버튼을 눌러야 반영(키 입력마다 PUT 방지). */}
+              <div className="flex gap-2">
+                <Input
+                  id="assistant-name"
+                  data-testid="assistant-name-input"
+                  value={nameValue}
+                  maxLength={50}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                />
+                <Button
+                  onClick={handleNameSave}
+                  disabled={
+                    updateName.isPending || nameValue.trim() === (status.name ?? '')
+                  }
+                  data-testid="assistant-name-save"
+                >
+                  저장
+                </Button>
+              </div>
+            </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="assistant-model">

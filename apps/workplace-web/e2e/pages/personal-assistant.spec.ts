@@ -301,6 +301,46 @@ test.describe('프로필 개인 비서', () => {
     expect(putBody).toEqual({ model: 'claude-haiku-4-5' })
   })
 
+  // 개인 비서 이름 변경 — 명시적 저장 후 PUT /name payload 검증 + 성공 토스트.
+  test('개인 비서 이름 변경 → PUT /name payload + 성공 토스트', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route('**/api/v1/users/me/assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            configured: true,
+            tokenLabel: null,
+            tokenLastUsedAt: null,
+            model: 'claude-sonnet-4-6',
+            thinkingDepth: 'NORMAL',
+            name: '개인 비서',
+          }),
+        })
+      }
+      return route.fallback()
+    })
+    // PUT /name — payload 캡처 후 성공 응답.
+    let putBody: { name?: string } | null = null
+    await page.route('**/api/v1/users/me/assistant/name', (route) => {
+      putBody = route.request().postDataJSON()
+      return route.fulfill({ status: 204, body: '' })
+    })
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+
+    // 기본 이름이 프리필되어 있어야 한다.
+    await expect(page.getByTestId('assistant-name-input')).toHaveValue('개인 비서')
+    await page.getByTestId('assistant-name-input').fill('나만의 비서')
+    await page.getByTestId('assistant-name-save').click()
+
+    await expect(page.getByText('개인 비서 이름을 변경했습니다.')).toBeVisible()
+    expect(putBody).toEqual({ name: '나만의 비서' })
+  })
+
   // #264 — tokenLabel 이 null 일 때 '(라벨 없음)' 개발자 용어가 노출되면 안 된다.
   test('tokenLabel null 시 라벨 없음 문구가 표시되지 않는다', async ({
     authenticatedPage: page,

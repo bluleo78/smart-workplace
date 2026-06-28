@@ -10,6 +10,7 @@ export interface AssistantStatus {
   tokenLastUsedAt: string | null; // ISO 타임스탬프(Instant 직렬화)
   model: string | null;
   thinkingDepth: ThinkingDepth | null;
+  name: string | null; // 비서 표시 이름(미설정이면 null)
 }
 
 // 공통 비서(admin) 상태. agentUserId 가 null 이면 미지정 상태.

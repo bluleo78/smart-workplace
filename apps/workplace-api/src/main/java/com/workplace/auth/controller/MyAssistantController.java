@@ -2,6 +2,7 @@ package com.workplace.auth.controller;
 
 import com.workplace.auth.dto.AssistantStatusResponse;
 import com.workplace.auth.dto.RegisterAssistantTokenRequest;
+import com.workplace.auth.dto.UpdateAssistantNameRequest;
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.service.PersonalAssistantService;
 import jakarta.validation.Valid;
@@ -47,6 +48,14 @@ public class MyAssistantController {
       @AuthenticationPrincipal Long callerId,
       @Valid @RequestBody UpdateAssistantSettingsRequest req) {
     service.updateSettings(callerId, req.model(), req.thinkingDepth());
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 개인 비서 표시 이름 변경 — 본인만(설정/모델과 분리된 전용 엔드포인트). */
+  @PutMapping("/name")
+  public ResponseEntity<Void> updateName(
+      @AuthenticationPrincipal Long callerId, @Valid @RequestBody UpdateAssistantNameRequest req) {
+    service.updateName(callerId, req.name());
     return ResponseEntity.noContent().build();
   }
 

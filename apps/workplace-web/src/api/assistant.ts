@@ -29,6 +29,11 @@ export async function updateMyAssistantSettings(
   await client.put<void>('/users/me/assistant/settings', body);
 }
 
+// 개인 비서 표시 이름 변경 — 설정과 분리된 전용 엔드포인트.
+export async function updateMyAssistantName(name: string): Promise<void> {
+  await client.put<void>('/users/me/assistant/name', { name });
+}
+
 // 개인 비서 비활성화 — 토큰/설정 제거.
 export async function disableMyAssistant(): Promise<void> {
   await client.delete<void>('/users/me/assistant');

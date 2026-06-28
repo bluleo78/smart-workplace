@@ -47,6 +47,15 @@ public class PersonalAssistantService {
     configRepo.upsert(agentId, model, thinkingDepth, cur.maxTurns(), cur.timeoutMs());
   }
 
+  /** 개인 비서 표시 이름 변경 — 본인(callerId)의 비서만. 비서 미설정이면 예외. email/username 은 보존. */
+  public void updateName(long callerId, String name) {
+    long agentId =
+        personalRepo
+            .findAgentId(callerId)
+            .orElseThrow(() -> new IllegalStateException("개인 비서가 설정되지 않았어요."));
+    userRepository.updateName(agentId, name);
+  }
+
   /** 개인 비서 해제 — active 토큰을 revoke 하고 FK 를 null 로 끊는다(AGENT row 는 보존). */
   public void disable(long callerId) {
     personalRepo
@@ -63,7 +72,7 @@ public class PersonalAssistantService {
   public AssistantStatusResponse getStatus(long callerId) {
     var agentOpt = personalRepo.findAgentId(callerId);
     if (agentOpt.isEmpty()) {
-      return new AssistantStatusResponse(false, null, null, null, null);
+      return new AssistantStatusResponse(false, null, null, null, null, null);
     }
     long agentId = agentOpt.get();
 
@@ -76,7 +85,10 @@ public class PersonalAssistantService {
     String label = tokenOpt.map(r -> r.label()).orElse(null);
     var lastUsedAt = tokenOpt.map(r -> r.lastUsedAt()).orElse(null);
 
-    return new AssistantStatusResponse(true, label, lastUsedAt, model, depth);
+    // 비서 표시 이름 — 프로필 화면 프리필/표시용.
+    String name = userRepository.findById(agentId).map(u -> u.name()).orElse(null);
+
+    return new AssistantStatusResponse(true, label, lastUsedAt, model, depth, name);
   }
 
   /**
@@ -90,7 +102,7 @@ public class PersonalAssistantService {
     if (linked.isPresent()) {
       return linked.get();
     }
-    String username = "__assistant_u" + callerId;
+    String username = com.workplace.user.dto.AgentUsernames.PERSONAL_ASSISTANT_PREFIX + callerId;
     long agentId =
         userRepository
             .findByUsername(username)

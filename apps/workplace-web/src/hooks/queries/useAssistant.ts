@@ -10,6 +10,7 @@ import {
   getWorkspaceAssistant,
   registerMyAssistantToken,
   setWorkspaceAssistant,
+  updateMyAssistantName,
   updateMyAssistantSettings,
   updateWorkspaceAssistantSettings,
 } from '../../api/assistant';
@@ -40,6 +41,15 @@ export function useUpdateMyAssistantSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: UpdateAssistantSettings) => updateMyAssistantSettings(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: assistantKeys.me }),
+  });
+}
+
+// 개인 비서 표시 이름 변경.
+export function useUpdateMyAssistantName() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => updateMyAssistantName(name),
     onSuccess: () => qc.invalidateQueries({ queryKey: assistantKeys.me }),
   });
 }

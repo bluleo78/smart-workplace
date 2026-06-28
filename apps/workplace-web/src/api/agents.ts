@@ -29,6 +29,14 @@ export async function createAgent(body: {
   return data;
 }
 
+// AGENT 이름/식별자 변경 — username·name. 개인 비서는 백엔드에서 403 거부.
+export async function renameAgent(
+  userId: number,
+  body: { username: string; name: string },
+): Promise<void> {
+  await client.put<void>(`/admin/agents/${userId}`, body);
+}
+
 // AGENT 유저 삭제 — cascade 로 키도 함께 제거.
 export async function deleteAgent(userId: number): Promise<void> {
   await client.delete<void>(`/admin/agents/${userId}`);

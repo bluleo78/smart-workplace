@@ -366,4 +366,30 @@ test.describe('/admin/agents', () => {
     expect(counts.getDeleteCount()).toBe(0);
     await expect(deleteBtn).toBeVisible();
   });
+
+  // 에이전트 이름/아이디 변경 → PUT payload 검증 + 성공 토스트.
+  test('에이전트 이름·아이디 변경 → PUT payload + 성공 토스트', async ({ adminPage: page }) => {
+    await setupStatic(page);
+    // PUT 캡처 — setupStatic 의 DELETE 핸들러보다 나중에 등록해 PUT 을 가로채고, 그 외는 fallback.
+    let putBody: { username?: string; name?: string } | null = null;
+    await page.route(/\/api\/v1\/admin\/agents\/\d+$/, (route) => {
+      if (route.request().method() === 'PUT') {
+        putBody = route.request().postDataJSON();
+        return route.fulfill({ status: 204, body: '' });
+      }
+      return route.fallback();
+    });
+
+    await page.goto('/settings/agents');
+    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
+
+    // 편집 섹션 노출(일반 에이전트) → 이름/아이디 변경 → 저장.
+    await expect(page.getByTestId('agent-identity-section')).toBeVisible();
+    await page.getByTestId('agent-name-input').fill('Claude 봇 v2');
+    await page.getByTestId('agent-username-input').fill('claude_bot_v2');
+    await page.getByTestId('agent-identity-save').click();
+
+    await expect(page.getByText('에이전트를 변경했습니다')).toBeVisible();
+    expect(putBody).toEqual({ username: 'claude_bot_v2', name: 'Claude 봇 v2' });
+  });
 });

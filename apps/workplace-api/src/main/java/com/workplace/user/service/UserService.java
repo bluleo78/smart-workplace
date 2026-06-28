@@ -8,12 +8,15 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.CreateMemberRequest;
 import com.workplace.user.dto.MemberResponse;
+import com.workplace.user.dto.RenameAgentRequest;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
+import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
@@ -212,6 +215,55 @@ public class UserService {
         "SUCCESS",
         null,
         null);
+  }
+
+  /**
+   * Phase 5a — ADMIN 의 AGENT 이름/식별자 변경. 공통 비서·일반 AGENT 만 대상이며, 개인 비서는 거부(403)한다(소유자만 프로필에서 변경).
+   * email 은 변경하지 않는다.
+   *
+   * <p>가드 순서: 존재 → AGENT 종류 → 개인 비서 거부 → 예약 접두어(__assistant_u) 차단 → username 중복(자신 제외).
+   */
+  @Transactional
+  public void renameAgent(Long callerId, Long userId, RenameAgentRequest req) {
+    UserResponse user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+    if (!UserKind.isAgent(user.kind())) {
+      throw new IllegalArgumentException("AGENT 유저만 이름을 변경할 수 있습니다");
+    }
+    // 개인 비서는 관리자가 변경 불가 — 소유자가 자신의 프로필(/settings/assistant)에서만 변경.
+    if (AgentUsernames.isPersonalAssistant(user.username())) {
+      throw new PersonalAssistantRenameForbiddenException(
+          "개인 비서는 관리자가 변경할 수 없습니다. 소유자가 프로필에서 변경할 수 있어요.");
+    }
+    // 예약 접두어로 username 을 바꾸면 목록에서 사라지고(개인 비서로 오인) 이후 rename 도 막히므로 차단.
+    if (AgentUsernames.isPersonalAssistant(req.username())) {
+      throw new IllegalArgumentException("사용할 수 없는 아이디입니다.");
+    }
+    // username 변경 시에만 중복 검사(자신 제외) — 이름만 바꾸는 경우 통과.
+    if (!req.username().equals(user.username())
+        && userRepository.existsByUsernameExcludingUser(req.username(), userId)) {
+      throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
+    }
+    userRepository.renameAgentIdentity(userId, req.username(), req.name());
+    // 감사 로그 — AGENT_RENAMED (이전/이후 username·name 메타).
+    auditLogService.log(
+        callerId,
+        resolveUsername(callerId),
+        "AGENT_RENAMED",
+        "user",
+        String.valueOf(userId),
+        "AGENT 유저 변경: " + user.username() + " → " + req.username(),
+        null,
+        null,
+        "SUCCESS",
+        null,
+        java.util.Map.of(
+            "oldUsername", user.username(),
+            "newUsername", req.username(),
+            "oldName", user.name(),
+            "newName", req.name()));
   }
 
   @Transactional

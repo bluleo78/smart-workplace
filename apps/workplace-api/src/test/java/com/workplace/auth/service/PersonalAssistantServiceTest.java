@@ -111,6 +111,25 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void 이름변경_후_상태에_반영_그리고_기본이름_프리필() {
+    long human = TestFixtures.createHuman(dsl);
+    service.registerToken(human, TOKEN, "t");
+    // 프로비저닝 직후 기본 이름은 "개인 비서" — 프로필 프리필용으로 status.name 에 노출된다.
+    assertThat(service.getStatus(human).name()).isEqualTo("개인 비서");
+
+    service.updateName(human, "나만의 비서");
+
+    assertThat(service.getStatus(human).name()).isEqualTo("나만의 비서");
+  }
+
+  @Test
+  void 미설정이면_이름변경_예외() {
+    long human = TestFixtures.createHuman(dsl);
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.updateName(human, "x"))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
   void 해제후_재등록하면_기존_개인AGENT_재사용_그리고_unique충돌_없음() {
     // disable 은 FK 를 NULL 로 비우되 개인 AGENT row(결정적 username)는 보존한다.
     // 재등록 시 그 row 를 재사용해야 username unique 충돌(500) 없이 동작한다.
