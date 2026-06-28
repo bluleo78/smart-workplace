@@ -6,8 +6,8 @@ import { ISSUE_PROGRESS_SUMMARY_PROMPT } from './issue-system-prompt.js'
 // 이슈 현황 요약 입력 스키마 — 제목·본문·상태·우선순위·마감·코멘트·변경이력·채팅 + 에이전트 실행 설정.
 export interface IssueSummaryInput {
   title: string
-  // 이슈 본문(description). 없으면 빈 문자열.
-  body?: string
+  // 이슈 본문(description). 없으면 빈 문자열 또는 null(본문 없는 이슈).
+  body?: string | null
   status: string
   priority: string
   dueDate: string | null

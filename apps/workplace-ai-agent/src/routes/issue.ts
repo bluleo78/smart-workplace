@@ -7,8 +7,8 @@ import { runIssueProgressSummary } from '../agent/run-issue-summary.js'
 // 요청 바디 검증 스키마.
 const summarySchema = z.object({
   title: z.string(),
-  // 이슈 본문(description). 없으면 빈 문자열.
-  body: z.string().optional().default(''),
+  // 이슈 본문(description). 없으면 빈 문자열. null(본문 없는 이슈)도 허용 — 거부(400) 방지.
+  body: z.string().nullable().optional().default(''),
   status: z.string(),
   priority: z.string(),
   dueDate: z.string().nullable(),

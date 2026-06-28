@@ -165,7 +165,10 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
   // Case 2: generateOnDemand — 활동 0(코멘트·히스토리 없음)이라도 생성됨(활동 게이트 제거)
   // ─────────────────────────────────────────────────────────────────────────
 
-  /** 코멘트/히스토리 없어도 온디맨드 생성은 body 만으로도 요약을 생성한다(활동 게이트 없음). */
+  /**
+   * 코멘트/히스토리 없어도 온디맨드 생성은 body 만으로도 요약을 생성한다(활동 게이트 없음). 또한 본문이 null 인 이슈는 ai-agent 요청에
+   * body="" 로 변환되어야 한다(zod string 이 null 거부(400)하지 않도록 — 라이브에서 잡힌 회귀).
+   */
   @Test
   void generateOnDemand_noActivity_stillGenerates() {
     when(client.summarizeProgress(any())).thenReturn(new IssueSummaryResult("빠른 생성", "대기"));
@@ -178,12 +181,18 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
           projectService
               .create(userId, new CreateProjectRequest(uniqueKey("C2N"), "케이스2무활동", "x"))
               .id();
+      // body=null 이슈
       issueId = issueRepo.insert(projectId, 1, "활동없는 이슈", null, "MID", null, userId).id();
       // 코멘트·히스토리 없음
 
       service.generateOnDemand(issueId);
 
       assertThat(summaryRepo.find(issueId)).isPresent();
+      // null 본문 → 요청 body 는 빈 문자열(널 아님)
+      ArgumentCaptor<IssueSummaryRequest> captor =
+          ArgumentCaptor.forClass(IssueSummaryRequest.class);
+      verify(client).summarizeProgress(captor.capture());
+      assertThat(captor.getValue().body()).isEqualTo("");
     } finally {
       if (issueId != -1) {
         long fid = issueId;

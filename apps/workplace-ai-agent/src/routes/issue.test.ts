@@ -70,6 +70,15 @@ describe('POST /issue/progress-summary', () => {
     expect(arg.chat?.[1]).toMatchObject({ author: 'AI', kind: 'AGENT', body: '리뷰 대기 중입니다' });
   });
 
+  // 회귀 가드: 본문 없는 이슈는 api 가 body:null 을 보낸다 — zod 가 거부(400)하지 않고 통과해야 한다.
+  it('body 가 null 이어도 400 아님(본문 없는 이슈)', async () => {
+    vi.mocked(runIssueProgressSummary).mockResolvedValue({ summary: 's', nextAction: '' });
+    const res = await request(app())
+      .post('/issue/progress-summary')
+      .send({ ...valid, body: null });
+    expect(res.status).toBe(200);
+  });
+
   // body·chat 미제공 시 기본값(빈 문자열·빈 배열)으로 채워진다.
   it('body·chat 생략 시 기본값', async () => {
     vi.mocked(runIssueProgressSummary).mockResolvedValue({ summary: 's', nextAction: '' });
