@@ -59,3 +59,22 @@ export function parseDraftCoachingJson(text: string): {
   const improvedBodyHtml = typeof obj.improvedBodyHtml === 'string' ? obj.improvedBodyHtml : '';
   return { notes, improvedBodyHtml };
 }
+
+// #520 메일→이슈 초안 JSON 파싱. 코드펜스 제거 후 JSON.parse. 실패 시 throw(빈 폴백 금지 — 거짓 성공 신호 방지).
+export function parseIssueDraftJson(text: string): {
+  title: string;
+  body: string;
+  priority: string;
+  projectKey?: string;
+} {
+  const cleaned = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  const obj = JSON.parse(cleaned) as Record<string, unknown>;
+  const title = String(obj.title ?? '').trim();
+  const body = String(obj.body ?? '').trim();
+  if (!title) throw new Error('issue-draft: title 누락');
+  const rawPriority = String(obj.priority ?? 'MID').toUpperCase();
+  const priority = ['LOW', 'MID', 'HIGH'].includes(rawPriority) ? rawPriority : 'MID';
+  const projectKey =
+    typeof obj.projectKey === 'string' && obj.projectKey.trim() ? obj.projectKey.trim() : undefined;
+  return { title, body, priority, projectKey };
+}

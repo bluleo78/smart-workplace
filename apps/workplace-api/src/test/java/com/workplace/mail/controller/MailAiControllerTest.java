@@ -18,6 +18,7 @@ import com.workplace.mail.dto.MailReplyDraft;
 import com.workplace.mail.dto.MailSummary;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.service.MailAiService;
+import com.workplace.mail.service.MailIssueService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
@@ -44,6 +45,7 @@ class MailAiControllerTest {
   @Autowired MockMvc mockMvc;
 
   @MockitoBean MailAiService aiService;
+  @MockitoBean MailIssueService issueService;
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;

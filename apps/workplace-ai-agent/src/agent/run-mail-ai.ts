@@ -1,10 +1,11 @@
 // 7d: 메일 AI 러너 — 비서 OAuth 토큰 fetch → SDK 단발 실행 → 파서.
 // 분류/요약/답장 모두 도구 미사용 텍스트 in/out. MCP 서버·임시 config 불필요.
 import { runSdkCollect } from './sdk-runner.js';
-import { extractResultText, parseClassifyJson, parseDraftCoachingJson } from './mail-parser.js';
+import { extractResultText, parseClassifyJson, parseDraftCoachingJson, parseIssueDraftJson } from './mail-parser.js';
 import {
   MAIL_CLASSIFY_PROMPT,
   MAIL_DRAFT_COACHING_PROMPT,
+  MAIL_ISSUE_DRAFT_PROMPT,
   MAIL_REPLY_DRAFT_PROMPT,
   MAIL_SUMMARIZE_PROMPT,
 } from './mail-system-prompt.js';
@@ -76,6 +77,24 @@ export async function runMailReplyDraft(
   const convo = input.thread.map((m) => `--- ${m.from} (${m.date})\n${m.body}`).join('\n\n');
   const userMessage = `당신은 ${input.replyingAs} 로서 아래 대화의 마지막 메일에 답장합니다.\n\n${convo}`;
   return { draftBody: (await runText(MAIL_REPLY_DRAFT_PROMPT, userMessage, input, deps, 'mail-reply-draft')).trim() };
+}
+
+export interface IssueDraftInput extends BaseConfig {
+  subject: string;
+  body: string;
+  candidateProjects: { key: string; name: string }[];
+}
+
+// #520 메일→이슈 초안: 제목·본문·우선순위 + 후보 중 추천 projectKey.
+export async function runMailIssueDraft(
+  input: IssueDraftInput,
+  deps: RunAgentDeps,
+): Promise<{ title: string; body: string; priority: string; projectKey?: string }> {
+  const projects = input.candidateProjects.map((p) => `- ${p.key}: ${p.name}`).join('\n') || '- (없음)';
+  const userMessage = `제목: ${input.subject}\n\n본문:\n${input.body}\n\n후보 프로젝트:\n${projects}`;
+  return parseIssueDraftJson(
+    await runText(MAIL_ISSUE_DRAFT_PROMPT, userMessage, input, deps, 'mail-issue-draft'),
+  );
 }
 
 // 초안 코칭: 내 초안(+답장이면 원문 스레드) → {notes, improvedBodyHtml}

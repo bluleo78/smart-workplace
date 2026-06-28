@@ -51,6 +51,11 @@ public class AiAgentMailClient {
     return post("/mail/draft-coaching", req, DraftCoachingResult.class);
   }
 
+  /** #520 이슈 초안 요청 → 제목·본문·우선순위·추천 프로젝트. */
+  public MailAiMessages.IssueDraftResult issueDraft(MailAiMessages.IssueDraftRequest req) {
+    return post("/mail/issue-draft", req, MailAiMessages.IssueDraftResult.class);
+  }
+
   /**
    * ai-agent 에 POST 요청을 전송한다.
    *

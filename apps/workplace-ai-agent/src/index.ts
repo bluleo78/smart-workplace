@@ -69,7 +69,7 @@ const server = app.listen(PORT, () => {
   console.log(`  GET  /health`);
   console.log(`  POST /events`);
   console.log('  POST /ai/chat');
-  console.log('  POST /mail/classify | /mail/summarize | /mail/reply-draft');
+  console.log('  POST /mail/classify | /mail/summarize | /mail/reply-draft | /mail/issue-draft');
   console.log('  POST /messaging/classify');
   console.log('  POST /wiki/compose (SSE)');
 });

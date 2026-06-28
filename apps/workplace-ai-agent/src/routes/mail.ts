@@ -4,7 +4,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
 import { type RunAgentDeps } from '../agent/run-agent.js';
-import { runMailClassify, runMailDraftCoaching, runMailReplyDraft, runMailSummarize } from '../agent/run-mail-ai.js';
+import { runMailClassify, runMailDraftCoaching, runMailIssueDraft, runMailReplyDraft, runMailSummarize } from '../agent/run-mail-ai.js';
 
 // 공통 assistant 설정 필드 — 모든 엔드포인트에서 공유.
 const baseConfig = {
@@ -25,6 +25,12 @@ export const coachDraftSchema = z.object({
   draftBody: z.string(),
   thread: z.array(z.object({ from: z.string(), date: z.string(), body: z.string() })),
   replyingAs: z.string(),
+  ...baseConfig,
+});
+export const issueDraftSchema = z.object({
+  subject: z.string(),
+  body: z.string(),
+  candidateProjects: z.array(z.object({ key: z.string(), name: z.string() })),
   ...baseConfig,
 });
 
@@ -61,6 +67,8 @@ export function createMailRouter(deps: RunAgentDeps): Router {
   router.post('/mail/reply-draft', handler(replyDraftSchema, runMailReplyDraft, deps, 'mail-reply-draft'));
   // 초안 코칭: notes + improvedBodyHtml 반환.
   router.post('/mail/draft-coaching', handler(coachDraftSchema, runMailDraftCoaching, deps, 'mail-draft-coaching'));
+  // #520 메일→이슈 초안: title/body/priority/projectKey 반환.
+  router.post('/mail/issue-draft', handler(issueDraftSchema, runMailIssueDraft, deps, 'mail-issue-draft'));
 
   return router;
 }

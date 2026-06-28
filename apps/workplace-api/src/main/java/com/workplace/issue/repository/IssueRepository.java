@@ -2,6 +2,7 @@ package com.workplace.issue.repository;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.PROJECT;
 import static org.jooq.impl.DSL.count;
 
 import com.workplace.issue.dto.IssueRow;
@@ -799,5 +800,29 @@ public class IssueRepository {
                     .computeIfAbsent(r.get(ISSUE.PROJECT_ID), k -> new LinkedHashMap<>())
                     .put(r.get(ISSUE.STATUS), r.get(count())));
     return result;
+  }
+
+  /** #520 이슈 출처(cross-app source) 백레퍼런스 갱신. source_type/source_id 는 nullable. */
+  public void updateSource(long issueId, String sourceType, Long sourceId) {
+    dsl.update(ISSUE)
+        .set(ISSUE.SOURCE_TYPE, sourceType)
+        .set(ISSUE.SOURCE_ID, sourceId)
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
+  }
+
+  /** #520 출처로 연결된 이슈 키 조회(메일 배지용). 반환값은 "{projectKey}-{number}". 테넌트 RLS 내에서만 보이는 이슈로 한정된다. */
+  public Optional<String> findSourceIssueKey(String sourceType, long sourceId) {
+    return dsl.select(PROJECT.KEY, ISSUE.NUMBER)
+        .from(ISSUE)
+        .join(PROJECT)
+        .on(ISSUE.PROJECT_ID.eq(PROJECT.ID))
+        .where(ISSUE.SOURCE_TYPE.eq(sourceType))
+        .and(ISSUE.SOURCE_ID.eq(sourceId))
+        .and(ISSUE.DELETED_AT.isNull())
+        .orderBy(ISSUE.ID.desc())
+        .limit(1)
+        .fetchOptional()
+        .map(r -> r.value1() + "-" + r.value2());
   }
 }

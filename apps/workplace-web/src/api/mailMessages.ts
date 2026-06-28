@@ -6,9 +6,11 @@ import type {
   EmailMessageSummary,
   MailDraftCoaching,
   MailFolder,
+  MailIssueDraft,
   MailSendRequest,
   MailSyncResult,
   MailSyncStatus,
+  PromoteToIssuePayload,
   SendResult,
 } from '../types/mailMessage';
 import { client } from './client';
@@ -89,6 +91,27 @@ export async function getMailSummary(messageId: number): Promise<{ summary: stri
 /** AI 답장 초안 생성(미영속). */
 export async function generateReplyDraft(messageId: number): Promise<{ draftBody: string }> {
   const { data } = await client.post<{ draftBody: string }>(`/mail/messages/${messageId}/reply-draft`)
+  return data
+}
+
+/** #520 AI 이슈 초안 생성(미영속). */
+export async function generateIssueDraft(messageId: number): Promise<MailIssueDraft> {
+  const { data } = await client.post<MailIssueDraft>(`/mail/messages/${messageId}/issue-draft`)
+  return data
+}
+
+/** #520 메일→이슈 승격(생성). */
+export async function promoteMailToIssue(
+  messageId: number,
+  payload: PromoteToIssuePayload,
+): Promise<{ issueKey: string }> {
+  const { data } = await client.post<{ issueKey: string }>(`/mail/messages/${messageId}/issue`, payload)
+  return data
+}
+
+/** #520 메일에 연결된 이슈 키 조회(배지). */
+export async function getLinkedIssue(messageId: number): Promise<{ issueKey: string | null }> {
+  const { data } = await client.get<{ issueKey: string | null }>(`/mail/messages/${messageId}/linked-issue`)
   return data
 }
 

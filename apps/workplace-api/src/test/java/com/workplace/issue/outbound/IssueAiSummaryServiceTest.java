@@ -166,8 +166,8 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * 코멘트/히스토리 없어도 온디맨드 생성은 body 만으로도 요약을 생성한다(활동 게이트 없음). 또한 본문이 null 인 이슈는 ai-agent 요청에
-   * body="" 로 변환되어야 한다(zod string 이 null 거부(400)하지 않도록 — 라이브에서 잡힌 회귀).
+   * 코멘트/히스토리 없어도 온디맨드 생성은 body 만으로도 요약을 생성한다(활동 게이트 없음). 또한 본문이 null 인 이슈는 ai-agent 요청에 body="" 로
+   * 변환되어야 한다(zod string 이 null 거부(400)하지 않도록 — 라이브에서 잡힌 회귀).
    */
   @Test
   void generateOnDemand_noActivity_stillGenerates() {

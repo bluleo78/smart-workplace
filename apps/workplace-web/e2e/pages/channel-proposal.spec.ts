@@ -220,7 +220,8 @@ test.describe('L3 위임 확인 카드', () => {
       await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toBeVisible()
       await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toContainText('로그인 버그')
       await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toContainText('Smart Workplace')
-      await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toContainText('HIGH')
+      // IssueDraftFields editable=false 가 우선순위를 한국어 레이블로 렌더한다.
+      await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toContainText('높음')
       // AI 배지 — 🤖 이모지에서 Bot lucide 아이콘으로 변경(SVG는 텍스트 미포함).
       await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toContainText('담당: AI')
 

@@ -98,3 +98,21 @@ export interface DraftCoachingRequest {
   bodyText: string
   inReplyToMessageId: number | null
 }
+
+/** #520 메일→이슈 AI 초안(미영속). */
+export interface MailIssueDraft {
+  title: string
+  body: string
+  priority: 'LOW' | 'MID' | 'HIGH'
+  suggestedProjectKey: string | null
+  candidateProjects: { key: string; name: string }[]
+}
+
+/** #520 메일→이슈 승격 요청. */
+export interface PromoteToIssuePayload {
+  projectKey: string
+  title: string
+  body?: string
+  priority?: 'LOW' | 'MID' | 'HIGH'
+  assigneeIds?: number[]
+}

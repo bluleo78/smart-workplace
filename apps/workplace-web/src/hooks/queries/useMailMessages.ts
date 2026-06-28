@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 
-import { clearNeedsReplyDone, coachDraft, generateReplyDraft, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, markNeedsReplyDone, sendMail, syncMailbox } from '../../api/mailMessages';
+import { clearNeedsReplyDone, coachDraft, generateIssueDraft, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, markNeedsReplyDone, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
-import type { DraftCoachingRequest, EmailMessageSummary, MailFolder, MailSendRequest } from '../../types/mailMessage';
+import type { DraftCoachingRequest, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
 
 export const mailMessageKeys = {
   // #469: unread 필터를 캐시 키에 포함(읽음 목록과 안읽음 목록 캐시 분리).
@@ -163,6 +163,35 @@ export function useCoachDraft() {
   return useMutation({
     mutationFn: (req: DraftCoachingRequest) => coachDraft(req),
     onError: (e) => handleApiError(e, 'AI 검토에 실패했습니다'),
+  })
+}
+
+/** #520 AI 이슈 초안 — 버튼 클릭 시 1회 생성. */
+export function useIssueDraft() {
+  return useMutation({
+    mutationFn: (messageId: number) => generateIssueDraft(messageId),
+    onError: (e) => handleApiError(e, 'AI 이슈 초안 생성에 실패했습니다'),
+  })
+}
+
+/** #520 메일→이슈 승격(생성). 성공 시 linked-issue 무효화로 배지 갱신. */
+export function usePromoteToIssue() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ messageId, payload }: { messageId: number; payload: PromoteToIssuePayload }) =>
+      promoteMailToIssue(messageId, payload),
+    onSuccess: (_d, v) =>
+      qc.invalidateQueries({ queryKey: ['mail', 'linked-issue', v.messageId] }),
+    onError: (e) => handleApiError(e, '이슈 생성에 실패했습니다'),
+  })
+}
+
+/** #520 메일 연결 이슈(배지). */
+export function useLinkedIssue(messageId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['mail', 'linked-issue', messageId],
+    queryFn: () => getLinkedIssue(messageId as number),
+    enabled: enabled && messageId != null,
   })
 }
 

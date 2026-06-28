@@ -58,4 +58,20 @@ public final class MailAiMessages {
 
   /** 초안 코칭 결과: 코칭 노트 목록 + 다듬은 개선본 HTML. */
   public record DraftCoachingResult(List<CoachingNoteWire> notes, String improvedBodyHtml) {}
+
+  /** #520 이슈 초안 요청. candidateProjects 로 AI 가 projectKey 를 고른다. */
+  public record IssueDraftRequest(
+      String subject,
+      String body,
+      java.util.List<CandidateProject> candidateProjects,
+      long assistantAgentId,
+      String model,
+      int maxTurns,
+      int timeoutMs) {}
+
+  /** 후보 프로젝트(key+name) — ai-agent 전송용. */
+  public record CandidateProject(String key, String name) {}
+
+  /** #520 이슈 초안 응답. suggestedProjectKey 는 후보 중 하나 또는 null. */
+  public record IssueDraftResult(String title, String body, String priority, String projectKey) {}
 }

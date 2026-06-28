@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractResultText, parseClassifyJson, parseDraftCoachingJson } from './mail-parser.js';
+import { extractResultText, parseClassifyJson, parseDraftCoachingJson, parseIssueDraftJson } from './mail-parser.js';
 
 describe('extractResultText', () => {
   it('result 이벤트의 최종 텍스트를 반환', () => {
@@ -46,5 +46,23 @@ describe('parseDraftCoachingJson', () => {
   });
   it('깨진 JSON 도 throw', () => {
     expect(() => parseDraftCoachingJson('{"notes": [oops')).toThrow();
+  });
+});
+
+describe('parseIssueDraftJson', () => {
+  it('정상 JSON 파싱', () => {
+    const r = parseIssueDraftJson('{"title":"정산 검토","body":"- 5월 자료 확인","priority":"HIGH","projectKey":"FIN"}');
+    expect(r).toEqual({ title: '정산 검토', body: '- 5월 자료 확인', priority: 'HIGH', projectKey: 'FIN' });
+  });
+  it('projectKey 생략 허용', () => {
+    const r = parseIssueDraftJson('{"title":"t","body":"b","priority":"MID"}');
+    expect(r.projectKey).toBeUndefined();
+  });
+  it('잘못된 priority 는 MID 로 보정', () => {
+    const r = parseIssueDraftJson('{"title":"t","body":"b","priority":"URGENT"}');
+    expect(r.priority).toBe('MID');
+  });
+  it('파싱 실패 시 throw(빈 폴백 금지)', () => {
+    expect(() => parseIssueDraftJson('not json')).toThrow();
   });
 });

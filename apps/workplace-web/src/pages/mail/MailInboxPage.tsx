@@ -15,6 +15,8 @@ import { downloadMailAttachment } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
+  useIssueDraft,
+  useLinkedIssue,
   useMailMessage,
   useMailMessages,
   useMailSummary,
@@ -23,7 +25,8 @@ import {
   useSyncMailbox,
   useSyncStatus,
 } from '../../hooks/queries/useMailMessages'
-import type { EmailMessageDetail, EmailMessageSummary, MailFolder } from '../../types/mailMessage'
+import type { EmailMessageDetail, EmailMessageSummary, MailFolder, MailIssueDraft } from '../../types/mailMessage'
+import { MailToIssueDialog } from './MailToIssueDialog'
 
 // 수신 시각을 간략 표기(오늘=시각, 그 외=월/일).
 function formatReceivedAt(iso: string | null): string {
@@ -198,6 +201,8 @@ function MessageDetailPanel({
   onForward,
   onAiReplyDraft,
   aiDraftPending,
+  onAiIssue,
+  issueDraftPending,
 }: {
   messageId: number | null
   aiEnabled: boolean
@@ -206,10 +211,14 @@ function MessageDetailPanel({
   onForward: (detail: EmailMessageDetail) => void
   onAiReplyDraft: (detail: EmailMessageDetail) => void
   aiDraftPending: boolean
+  onAiIssue: (detail: EmailMessageDetail) => void
+  issueDraftPending: boolean
 }) {
   const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
   // AI 사용 계정 + messageId 가 있을 때만 요약 자동 조회. isFetching 으로 생성 중 스켈레톤 표시.
   const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiEnabled)
+  // #520 연결된 이슈 키 조회 — issueKey 있으면 배지 표시.
+  const linked = useLinkedIssue(messageId, aiEnabled)
 
   if (!messageId) {
     return (
@@ -260,6 +269,15 @@ function MessageDetailPanel({
           </AiContent>
         )}
         <h2 className="text-lg font-semibold">{detail.subject || '(제목 없음)'}</h2>
+        {/* #520 이슈 승격 배지 — issueKey 있을 때만 표시. AI 표면이므로 ai-accent 시맨틱 토큰 사용. */}
+        {linked.data?.issueKey && (
+          <span
+            data-testid="mail-linked-issue"
+            className="inline-flex items-center gap-1 rounded bg-ai-accent-subtle px-1.5 py-0.5 text-xs text-ai-accent"
+          >
+            이슈로 만듦: {linked.data.issueKey}
+          </span>
+        )}
         <div className="mt-1 text-sm text-muted-foreground">
           {detail.fromName ? `${detail.fromName} <${detail.fromAddress}>` : detail.fromAddress}
         </div>
@@ -314,6 +332,26 @@ function MessageDetailPanel({
               ) : (
                 <>
                   <Sparkles className="h-3.5 w-3.5" /> AI 답장 초안
+                </>
+              )}
+            </Button>
+          )}
+          {/* AI 이슈 생성 버튼 — AI 사용 계정에서만 노출. #520 */}
+          {aiEnabled && (
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="mail-ai-issue"
+              disabled={issueDraftPending}
+              onClick={() => onAiIssue(detail)}
+            >
+              {issueDraftPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 이슈 작성 중…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" /> AI 이슈 생성
                 </>
               )}
             </Button>
@@ -388,6 +426,10 @@ export function MailInboxPage() {
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
+  // #520 AI 이슈 초안 — 버튼 클릭 시 모달 오픈 후 초안 로드.
+  const issueDraft = useIssueDraft()
+  const [issueDialog, setIssueDialog] = useState<{ messageId: number; subject: string } | null>(null)
+  const [draftData, setDraftData] = useState<MailIssueDraft | null>(null)
 
   // 동기화 진행 상태 구독 — 동기화 트리거(성공/진행 중) 동안만 폴링.
   const syncStatus = useSyncStatus(accountIdNum, sync.isSuccess || sync.isPending)
@@ -450,6 +492,17 @@ export function MailInboxPage() {
     try {
       const { draftBody } = await replyDraft.mutateAsync(d.id)
       openCompose({ ...base, initialHtml: `<p>${draftBody.replace(/\n/g, '<br/>')}</p>${base.initialHtml}` })
+    } catch {
+      /* 토스트는 훅 onError 가 처리 */
+    }
+  }
+  // #520 AI 이슈 생성 — 모달을 열고 AI 초안을 로드해 사전채움.
+  async function onAiIssue(d: EmailMessageDetail) {
+    setDraftData(null)
+    setIssueDialog({ messageId: d.id, subject: d.subject ?? '' })
+    try {
+      const draft = await issueDraft.mutateAsync(d.id)
+      setDraftData(draft)
     } catch {
       /* 토스트는 훅 onError 가 처리 */
     }
@@ -616,9 +669,22 @@ export function MailInboxPage() {
             onReplyAll={onReplyAll}
             onForward={onForward}
             onAiReplyDraft={onAiReplyDraft}
+            onAiIssue={onAiIssue}
+            issueDraftPending={issueDraft.isPending}
           />
         </div>
       </div>
+      {/* #520 메일→이슈 승격 모달 */}
+      {issueDialog && (
+        <MailToIssueDialog
+          open
+          messageId={issueDialog.messageId}
+          mailSubject={issueDialog.subject}
+          draft={draftData}
+          onOpenChange={(v) => { if (!v) setIssueDialog(null) }}
+          onCreated={() => { /* linked-issue 무효화는 usePromoteToIssue 훅이 처리 */ }}
+        />
+      )}
     </div>
   )
 }

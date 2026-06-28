@@ -10,6 +10,7 @@ import { useState } from 'react'
 
 import { AiContent } from '@/components/ai/AiContent'
 import { EventProposalCard } from '@/components/chat/EventProposalCard'
+import { IssueDraftFields } from '@/components/issue/IssueDraftFields'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -74,41 +75,57 @@ export function ProposalCard(props: ProposalCardProps) {
       data-testid={`proposal-card-${proposal.id}`}
       className="rounded-md border bg-card p-3 text-sm"
     >
-      {/* 카드 헤더 + 이슈 제목: AI 제안 생성물 — AiContent 아우라로 감쌈. 💡 장식 이모지 제거. */}
+      {/* 카드 헤더: AI 제안 생성물 — AiContent 아우라로 감쌈. */}
       <AiContent label="AI 제안">
         <div className="font-medium text-foreground">AI가 이슈 생성을 제안했어요</div>
-        {proposal.title && (
-          <div className="mt-1 text-foreground">{proposal.title}</div>
-        )}
       </AiContent>
 
-      {/* 메타 정보(프로젝트·우선순위·담당 AI 배지) */}
+      {/* 이슈 필드 정적 표시 — 공유 IssueDraftFields(editable=false). 제목·우선순위를 렌더.
+          showProject: 위임자+PENDING+후보 있을 때만 false — 아래 드롭다운이 프로젝트를 표시하므로 중복 방지.
+          candidateProjects: 후보가 없을 때 projectName 폴백을 포함한 합성 목록을 사용해 이름을 표시. */}
+      <div className="mt-1">
+        <IssueDraftFields
+          editable={false}
+          showProject={!(isPending && isDelegator && proposal.candidates.length > 0)}
+          value={{
+            title: proposal.title ?? '',
+            body: '',
+            priority: (proposal.priority as 'LOW' | 'MID' | 'HIGH') ?? 'MID',
+            projectKey: proposal.projectKey ?? proposal.projectName ?? '',
+            assigneeIds: [],
+          }}
+          onChange={() => {}}
+          candidateProjects={
+            proposal.candidates.length > 0
+              ? proposal.candidates
+              : proposal.projectName
+                ? [{ key: proposal.projectName, name: proposal.projectName }]
+                : []
+          }
+          members={[]}
+        />
+      </div>
+
+      {/* 메타 정보: 위임자 PENDING 프로젝트 드롭다운 + 담당 AI 배지 */}
       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        {/* 위임자 + PENDING: 프로젝트 드롭다운(후보 변경 가능). 그 외: 정적 텍스트. */}
-        {isPending && isDelegator ? (
-          proposal.candidates.length > 0 ? (
-            <Select value={selectedProjectKey} onValueChange={setSelectedProjectKey}>
-              <SelectTrigger
-                data-testid={`proposal-project-${proposal.id}`}
-                className="h-7 w-auto text-xs"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {proposal.candidates.map((c) => (
-                  <SelectItem key={c.key} value={c.key}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            proposal.projectName && <span>프로젝트: {proposal.projectName}</span>
-          )
-        ) : (
-          proposal.projectName && <span>프로젝트: {proposal.projectName}</span>
+        {/* 위임자 + PENDING: 프로젝트 드롭다운(후보 변경 가능). */}
+        {isPending && isDelegator && proposal.candidates.length > 0 && (
+          <Select value={selectedProjectKey} onValueChange={setSelectedProjectKey}>
+            <SelectTrigger
+              data-testid={`proposal-project-${proposal.id}`}
+              className="h-7 w-auto text-xs"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {proposal.candidates.map((c) => (
+                <SelectItem key={c.key} value={c.key}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
-        {proposal.priority && <span>우선순위: {proposal.priority}</span>}
         {/* 담당: AI 배지 — primary 토큰에서 ai-accent 시맨틱 토큰으로 통일, 🤖 → Bot 아이콘. */}
         <span className="inline-flex items-center gap-0.5 rounded bg-ai-accent-subtle px-1 font-medium text-ai-accent">
           담당: AI <Bot className="h-3 w-3" aria-label="에이전트" />
