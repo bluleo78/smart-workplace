@@ -7,6 +7,8 @@ import { runIssueProgressSummary } from '../agent/run-issue-summary.js'
 // 요청 바디 검증 스키마.
 const summarySchema = z.object({
   title: z.string(),
+  // 이슈 본문(description). 없으면 빈 문자열.
+  body: z.string().optional().default(''),
   status: z.string(),
   priority: z.string(),
   dueDate: z.string().nullable(),
@@ -18,6 +20,13 @@ const summarySchema = z.object({
     toValue: z.string().nullable(),
     createdAt: z.string(),
   })),
+  // 이슈 채팅(사람↔AI 대화) 발췌 — 시간 오름차순. kind 로 USER/AGENT 구분. createdAt 은 nullable.
+  chat: z.array(z.object({
+    author: z.string(),
+    kind: z.string(),
+    body: z.string(),
+    createdAt: z.string().nullable().optional(),
+  })).optional().default([]),
   assistantAgentId: z.number(),
   model: z.string(),
   maxTurns: z.number(),

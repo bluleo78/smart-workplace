@@ -2,11 +2,13 @@ package com.workplace.issue.controller;
 
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.dto.UpdateStatusRequest;
+import com.workplace.issue.outbound.IssueAiSummaryService;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
 import jakarta.validation.Valid;
@@ -32,6 +34,7 @@ public class IssueController {
 
   private final IssueService issueService;
   private final IssueSearchService issueSearchService;
+  private final IssueAiSummaryService aiSummaryService;
 
   /** 검색/필터 + cursor 페이징 단일 엔드포인트. */
   @GetMapping
@@ -102,5 +105,22 @@ public class IssueController {
       Authentication auth, @PathVariable String key, @PathVariable int number) {
     issueService.softDelete((Long) auth.getPrincipal(), key, number);
     return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * 이슈 AI 현황 요약 생성(사용자 요청 버튼).
+   *
+   * <p>3단계 — issueId 해석(@Transactional) → generateOnDemand(자체 tx + HTTP 는 tx 밖) →
+   * 읽기(@Transactional). 각 단계를 분리 호출해 프록시 경유 @Transactional 로 GUC 가 주입되도록
+   * 한다(self-invocation·bare-read 시 RLS fail-closed 회피). agent 미설정/빈 요약은 service 가 4xx/5xx 예외로 전파.
+   */
+  @PostMapping("/{number}/ai-summary")
+  @RequirePermission("project:read")
+  public ResponseEntity<IssueAiContext> generateAiSummary(
+      Authentication auth, @PathVariable String key, @PathVariable int number) {
+    Long callerId = (Long) auth.getPrincipal();
+    long issueId = issueService.resolveAccessibleIssueId(callerId, key, number);
+    aiSummaryService.generateOnDemand(issueId);
+    return ResponseEntity.ok(issueService.get(callerId, key, number).aiContext());
   }
 }

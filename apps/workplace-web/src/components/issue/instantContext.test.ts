@@ -1,29 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { badgeVariant, hasCardContent } from './IssueInstantContextCard'
+import { badgeVariant } from './IssueInstantContextCard'
 
 // AiSignalVariant 실제 어휘: 'action' | 'info' (aiMarker.ts)
 // BLOCKED/OVERDUE → 'action'(사용자 행동 필요), STALE → 'info'(정보성)
+// hasCardContent 는 온디맨드 재설계(Task 6)로 제거됨 — 카드가 항상 렌더하므로 "내용 있냐" 게이트 불필요.
+// 렌더 동작(생성 버튼 노출 여부 등)은 issue-instant-context.spec.ts(E2E)가 검증.
 describe('badgeVariant', () => {
   it('BLOCKED→action, OVERDUE→action, STALE→info', () => {
     expect(badgeVariant('BLOCKED')).toBe('action')
     expect(badgeVariant('OVERDUE')).toBe('action')
     expect(badgeVariant('STALE')).toBe('info')
-  })
-})
-
-describe('hasCardContent', () => {
-  it('summary 있으면 true', () => {
-    expect(hasCardContent({ summary: 'x', nextAction: null, generatedAt: null, blockers: [] })).toBe(true)
-  })
-  it('공백만인 summary는 false', () => {
-    expect(hasCardContent({ summary: '   ', nextAction: null, generatedAt: null, blockers: [] })).toBe(false)
-  })
-  it('blocker 있으면 true', () => {
-    expect(hasCardContent({ summary: null, nextAction: null, generatedAt: null, blockers: [{ type: 'OVERDUE', message: 'm' }] })).toBe(true)
-  })
-  it('둘 다 없으면 false', () => {
-    expect(hasCardContent({ summary: null, nextAction: null, generatedAt: null, blockers: [] })).toBe(false)
-    expect(hasCardContent(null)).toBe(false)
-    expect(hasCardContent(undefined)).toBe(false)
   })
 })

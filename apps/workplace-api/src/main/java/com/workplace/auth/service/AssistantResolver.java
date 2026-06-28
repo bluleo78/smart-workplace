@@ -34,6 +34,28 @@ public class AssistantResolver {
     return buildSpec(agentId);
   }
 
+  /**
+   * 개인 비서(토큰 보유) → 공용 비서(토큰 보유) 순으로 해석. 둘 다 없으면 empty(예외 없음 — 호출 측이 skip/4xx 분기).
+   *
+   * <p>이슈 요약처럼 caller 신원이 있는 PERSONAL 프로젝트에서 사용한다.
+   */
+  @Transactional(readOnly = true)
+  public Optional<AssistantSpec> resolveOrEmpty(long callerId) {
+    return pickWithActiveToken(personalRepo.findAgentId(callerId))
+        .or(() -> pickWithActiveToken(workspaceRepo.findAgentId()))
+        .map(this::buildSpec);
+  }
+
+  /**
+   * 테넌트 공용 비서(토큰 보유)만 해석. 없으면 empty(예외 없음).
+   *
+   * <p>이슈 요약처럼 특정 소유자가 없는 TEAM 프로젝트에서 사용한다.
+   */
+  @Transactional(readOnly = true)
+  public Optional<AssistantSpec> resolveWorkspaceOrEmpty() {
+    return pickWithActiveToken(workspaceRepo.findAgentId()).map(this::buildSpec);
+  }
+
   /** 후보 AGENT 에 active OAuth 토큰이 있을 때만 통과. */
   private Optional<Long> pickWithActiveToken(Optional<Long> candidate) {
     return candidate.filter(id -> credentialRepo.findActive(id).isPresent());

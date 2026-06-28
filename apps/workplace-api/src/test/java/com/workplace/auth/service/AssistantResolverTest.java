@@ -74,4 +74,52 @@ class AssistantResolverTest extends IntegrationTestBase {
     AssistantSpec spec = resolver.resolve(human);
     assertThat(spec.agentUserId()).isEqualTo(workspaceAgent);
   }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // resolveOrEmpty / resolveWorkspaceOrEmpty — Optional 변형 (이슈 요약 경로용)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  @Test
+  void resolveOrEmpty_개인비서_토큰있음_present() {
+    long human = TestFixtures.createHuman(dsl);
+    long agent = TestFixtures.createAgentWithToken(dsl, credentialService, human);
+    personalRepo.setAgentId(human, agent);
+
+    var result = resolver.resolveOrEmpty(human);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().agentUserId()).isEqualTo(agent);
+  }
+
+  @Test
+  void resolveOrEmpty_토큰없는_후보만_있으면_empty() {
+    long human = TestFixtures.createHuman(dsl);
+    long agentNoToken = TestFixtures.createAgentNoToken(dsl);
+    // 개인 비서만 지정(토큰 없음), 공용 비서 미설정 → 둘 다 pickWithActiveToken 통과 불가
+    personalRepo.setAgentId(human, agentNoToken);
+
+    var result = resolver.resolveOrEmpty(human);
+
+    assertThat(result).isEmpty();
+  }
+
+  @Test
+  void resolveWorkspaceOrEmpty_공용비서_토큰있음_present() {
+    long admin = TestFixtures.createHuman(dsl);
+    long agent = TestFixtures.createAgentWithToken(dsl, credentialService, admin);
+    workspaceRepo.upsert(agent, admin);
+
+    var result = resolver.resolveWorkspaceOrEmpty();
+
+    assertThat(result).isPresent();
+    assertThat(result.get().agentUserId()).isEqualTo(agent);
+  }
+
+  @Test
+  void resolveWorkspaceOrEmpty_공용비서_미설정이면_empty() {
+    // 공용 비서 행을 등록하지 않음 → empty
+    var result = resolver.resolveWorkspaceOrEmpty();
+
+    assertThat(result).isEmpty();
+  }
 }

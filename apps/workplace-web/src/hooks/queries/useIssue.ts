@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { issuesApi } from '../../api/issues';
+import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { issueKeys } from './useIssues';
 
@@ -34,3 +35,14 @@ export function useUpdateIssue(projectKey: string, number: number) {
 
 // NOTE: useDeleteIssue 는 useIssues.ts 의 버전이 실제로 사용된다.
 // 여기서 정의된 버전은 미사용 코드였으므로 제거 (#175).
+
+// 이슈 AI 현황 요약 생성/재생성 mutation.
+// 성공 시 이슈 상세 캐시를 무효화해 카드가 최신 summary 를 즉시 반영한다.
+export function useGenerateAiSummary(projectKey: string, number: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => issuesApi.generateAiSummary(projectKey, number).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: issueKeys.detail(projectKey, number) }),
+    onError: (e) => handleApiError(e, 'AI 요약 생성에 실패했습니다'),
+  })
+}

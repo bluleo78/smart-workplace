@@ -21,7 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
-import { useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
+import { useGenerateAiSummary, useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
 import { useDeleteIssue } from '../../hooks/queries/useIssues';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useProject } from '../../hooks/queries/useProjects';
@@ -200,6 +200,8 @@ export default function IssueDetailPage() {
   const { data, isLoading, refetch } = useIssue(key, issueNumber);
   const update = useUpdateIssue(key, issueNumber);
   const remove = useDeleteIssue(key, issueNumber);
+  // AI 현황 요약 온디맨드 생성 mutation — Rules of Hooks: 조기 반환 이전에 선언.
+  const genSummary = useGenerateAiSummary(key, issueNumber);
   const { user } = useAuth();
   const watchers = useWatchers(key, issueNumber);
   const toggleWatch = useWatchToggle(key, issueNumber, user?.id ?? null);
@@ -325,8 +327,12 @@ export default function IssueDetailPage() {
           {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
               세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
           <div className="flex-1 space-y-4 @min-[1032px]:min-w-[360px]">
-            {/* AI 즉각 컨텍스트 카드 (#517) — 내용 없으면 미렌더(graceful). */}
-            <IssueInstantContextCard aiContext={data.aiContext} />
+            {/* AI 즉각 컨텍스트 카드 (#517) — 항상 렌더. 생성/재생성 버튼 포함. */}
+            <IssueInstantContextCard
+              aiContext={data.aiContext}
+              onGenerate={() => genSummary.mutate()}
+              isGenerating={genSummary.isPending}
+            />
             <InlineEditableBody
               body={body}
               onSave={(b) => patch({ body: b })}

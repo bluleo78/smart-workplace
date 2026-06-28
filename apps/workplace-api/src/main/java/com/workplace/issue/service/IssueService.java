@@ -264,20 +264,33 @@ public class IssueService {
             blocksMap.getOrDefault(row.id(), List.of()),
             blockedMap.getOrDefault(row.id(), false),
             fieldsByIssue.getOrDefault(row.id(), List.of()));
-    // AI Instant Context: 저장된 요약(있으면) + 결정적 블로커 3종을 합친다.
+    // AI Instant Context: 항상 반환 — 블로커는 항상 계산, summary/nextAction/generatedAt 은 저장본 없으면 null.
+    // 생성 버튼은 항상 렌더(aiContext non-null)해야 하므로 저장본/블로커 여부와 무관하게 인스턴스화.
     var blockers = blockerCalculator.compute(summaryResponse, LocalDate.now(), Instant.now());
     var stored = aiSummaryRepository.find(row.id()).orElse(null);
-    IssueAiContext aiContext = null;
-    if (stored != null || !blockers.isEmpty()) {
-      aiContext =
-          new IssueAiContext(
-              stored != null ? stored.summary() : null,
-              stored != null ? stored.nextAction() : null,
-              stored != null ? stored.generatedAt() : null,
-              blockers);
-    }
+    IssueAiContext aiContext =
+        new IssueAiContext(
+            stored != null ? stored.summary() : null,
+            stored != null ? stored.nextAction() : null,
+            stored != null ? stored.generatedAt() : null,
+            blockers);
     return new IssueDetailResponse(
         summaryResponse, row.body(), comments, history, attachments, aiContext);
+  }
+
+  /**
+   * 멤버 권한 확인 후 issueId 해석. 컨트롤러의 AI 요약 엔드포인트가 프록시 경유 @Transactional 호출로 GUC 주입을 보장받기 위해 사용한다.
+   *
+   * <p>⚠️ self-invocation 금지: 이 메서드와 get() 을 같은 빈 내부에서 조합하면 @Transactional 프록시를 우회해 GUC 미주입 → RLS
+   * fail-closed. 오케스트레이션은 반드시 컨트롤러에서 각각 독립 호출한다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveAccessibleIssueId(Long callerId, String projectKey, int number) {
+    var project = accessGuard.assertMember(projectKey, callerId);
+    return issueRepository
+        .findByProjectAndNumber(project.id(), number)
+        .orElseThrow(() -> new IssueNotFoundException(projectKey, number))
+        .id();
   }
 
   /** 이슈 부분 수정. null 필드는 변경 없음, clearDueDate 플래그로 명시적 NULL 설정 지원. 담당자는 별도 PUT /assignees 흐름에서 관리. */

@@ -20,7 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * IssueService.get() 이 저장된 요약 + 계산된 블로커를 aiContext 로 내려주는지 검증.
  *
- * <p>케이스 A: 저장 요약 있음 → aiContext 비-null, summary 일치. 케이스 B: 저장 요약 없음 + 블로커 없음 → aiContext null.
+ * <p>케이스 A: 저장 요약 있음 → aiContext 비-null, summary 일치. 케이스 B: 저장 요약 없음 + 블로커 없음 → aiContext
+ * 는 (온디맨드 재설계 후) 항상 비-null, summary/nextAction/generatedAt null·blockers 빈 리스트(프론트가 항상 카드+생성
+ * 버튼을 렌더할 수 있도록).
  */
 @Transactional
 class IssueDetailAiContextTest extends IntegrationTestBase {
@@ -58,9 +60,12 @@ class IssueDetailAiContextTest extends IntegrationTestBase {
 
   // ── 케이스 B: 저장 요약 없음 + 블로커 없음 ────────────────────────────────────────
 
-  /** 저장 요약이 없고 블로커도 없으면(TODO 상태, 마감 없음, 선행 이슈 없음) aiContext 가 null 이어야 한다. 프론트 카드 미렌더 조건. */
+  /**
+   * 저장 요약이 없고 블로커도 없어도(TODO 상태, 마감 없음, 선행 이슈 없음) aiContext 는 항상 비-null 이어야 한다(온디맨드 재설계). 단
+   * summary/nextAction/generatedAt 은 null, blockers 는 빈 리스트 — 프론트가 항상 카드+"생성" 버튼을 노출하기 위함.
+   */
   @Test
-  void get_aiContextNull_whenNoStoredSummary_andNoBlockers() {
+  void get_aiContextAlwaysPresent_whenNoStoredSummary_andNoBlockers() {
     // 픽스처: 사용자 + 프로젝트 + 이슈 (요약 없음, status=TODO, dueDate=null, blocked=false)
     long userId = createUser("aic-b");
     TenantContext.set(1L);
@@ -71,7 +76,11 @@ class IssueDetailAiContextTest extends IntegrationTestBase {
 
     var detail = issueService.get(userId, projKey, 1);
 
-    assertThat(detail.aiContext()).isNull();
+    assertThat(detail.aiContext()).isNotNull();
+    assertThat(detail.aiContext().summary()).isNull();
+    assertThat(detail.aiContext().nextAction()).isNull();
+    assertThat(detail.aiContext().generatedAt()).isNull();
+    assertThat(detail.aiContext().blockers()).isEmpty();
   }
 
   // ── 헬퍼 ────────────────────────────────────────────────────────────────────────

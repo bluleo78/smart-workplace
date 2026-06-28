@@ -2,6 +2,7 @@
 
 import type {
   CreateIssueRequest,
+  IssueAiContext,
   IssueDetailResponse,
   IssueFilters,
   IssueResponse,
@@ -20,6 +21,9 @@ export const issuesApi = {
     client.patch<IssueDetailResponse>(`/projects/${key}/issues/${number}`, data),
   remove: (key: string, number: number) =>
     client.delete<void>(`/projects/${key}/issues/${number}`),
+  // AI 현황 요약 온디맨드 생성 — 성공 시 최신 IssueAiContext 반환.
+  generateAiSummary: (key: string, number: number) =>
+    client.post<IssueAiContext>(`/projects/${key}/issues/${number}/ai-summary`),
 };
 
 // 이슈 검색 — cursor 페이지네이션 + 필터 단일 엔드포인트.

@@ -1093,6 +1093,14 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
   }
 
+  /** AI 이슈 요약(ai-agent) 호출 실패·빈 요약 → 502(형제 AI 예외와 동일, 캐치올 500 회피하고 사유 노출). */
+  @ExceptionHandler(com.workplace.issue.exception.IssueAiException.class)
+  public ResponseEntity<ErrorResponse> handleIssueAi(
+      com.workplace.issue.exception.IssueAiException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
+  }
+
   /**
    * 위키 인에디터 /ai 전용 executor(wikiAiStreamExecutor) 의 큐가 가득 찼을 때(동시 스트림 과다) AbortPolicy 가 던지는
    * TaskRejectedException → 503. 캐치올 500 으로 뭉개지지 않고 사용자에게 '잠시 후 재시도' 를 안내한다.

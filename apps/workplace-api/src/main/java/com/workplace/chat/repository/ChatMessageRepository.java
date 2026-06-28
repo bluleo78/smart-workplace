@@ -218,6 +218,37 @@ public class ChatMessageRepository {
     return raw.stream().map(n -> ((Number) n).longValue()).toList();
   }
 
+  /**
+   * AI 요약 입력용 경량 조회 — 멘션 하이드레이션 없이 작성자명·kind·본문·시각만, 삭제 제외, 오름차순.
+   *
+   * @param threadId 조회 대상 chat_thread.id
+   * @param limit 최대 조회 건수 (MAX_LIMIT 이 상한)
+   */
+  public List<SummaryLine> findForSummary(long threadId, int limit) {
+    return dsl.select(USER.NAME, USER.KIND, CHAT_MESSAGE.BODY, CHAT_MESSAGE.CREATED_AT)
+        .from(CHAT_MESSAGE)
+        .join(USER)
+        .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
+        .where(CHAT_MESSAGE.THREAD_ID.eq(threadId).and(CHAT_MESSAGE.DELETED_AT.isNull()))
+        .orderBy(CHAT_MESSAGE.CREATED_AT.asc(), CHAT_MESSAGE.ID.asc())
+        .limit(Math.min(limit, MAX_LIMIT))
+        .fetch(
+            r ->
+                new SummaryLine(
+                    r.get(USER.NAME),
+                    r.get(USER.KIND),
+                    r.get(CHAT_MESSAGE.BODY),
+                    toInstant(r.get(CHAT_MESSAGE.CREATED_AT))));
+  }
+
+  /** findForSummary 결과 1줄(chat 모듈 내부 표현). */
+  public record SummaryLine(String authorName, String authorKind, String body, Instant createdAt) {}
+
+  /** OffsetDateTime → Instant 변환 헬퍼. null-safe. */
+  private static Instant toInstant(OffsetDateTime odt) {
+    return odt == null ? null : odt.toInstant();
+  }
+
   /** mentionUserIds → MentionResponse[] 변환 책임. */
   public interface MentionResolver {
     List<MentionResponse> resolve(List<Long> mentionUserIds);

@@ -20,11 +20,13 @@ import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueAiSummaryService;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.permission.service.PermissionService;
@@ -53,6 +55,7 @@ class IssueControllerTest {
 
   @MockitoBean private IssueService issueService;
   @MockitoBean private IssueSearchService issueSearchService;
+  @MockitoBean private IssueAiSummaryService aiSummaryService;
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
   @MockitoBean private PermissionService permissionService;
@@ -244,5 +247,38 @@ class IssueControllerTest {
     mockMvc
         .perform(get("/api/v1/projects/WP/issues/99").header("Authorization", "Bearer valid-token"))
         .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void generateAiSummary_happyPath_returnsAiContext() throws Exception {
+    // AI 요약 생성 엔드포인트 — service 스텁이 aiContext 를 반환할 때 200 + aiContext 필드 검증.
+    mockAuthentication("project:read");
+    when(issueService.resolveAccessibleIssueId(1L, "WP", 1)).thenReturn(100L);
+    IssueAiContext aiCtx = new IssueAiContext("요약 내용", "다음 행동", Instant.now(), List.of());
+    IssueDetailResponse detail =
+        new IssueDetailResponse(sampleIssue(), "body", List.of(), List.of(), List.of(), aiCtx);
+    when(issueService.get(1L, "WP", 1)).thenReturn(detail);
+
+    mockMvc
+        .perform(
+            post("/api/v1/projects/WP/issues/1/ai-summary")
+                .header("Authorization", "Bearer valid-token"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.summary").value("요약 내용"))
+        .andExpect(jsonPath("$.nextAction").value("다음 행동"));
+  }
+
+  @Test
+  void generateAiSummary_nonMember_returns403() throws Exception {
+    // 멤버 아닌 사용자 → 403 거부 검증.
+    mockAuthentication("project:read");
+    when(issueService.resolveAccessibleIssueId(1L, "WP", 1))
+        .thenThrow(new com.workplace.project.exception.ProjectAccessDeniedException("멤버 아님"));
+
+    mockMvc
+        .perform(
+            post("/api/v1/projects/WP/issues/1/ai-summary")
+                .header("Authorization", "Bearer valid-token"))
+        .andExpect(status().isForbidden());
   }
 }

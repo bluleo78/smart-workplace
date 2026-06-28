@@ -6,8 +6,8 @@ import java.util.List;
 /**
  * 이슈 Instant Context 카드 페이로드. summary 는 저장본(없으면 null), blockers 는 읽기 시 결정적으로 계산.
  *
- * <p>저장 요약도 없고 블로커도 없으면 IssueDetailResponse.aiContext() 자체가 null 이므로 이 레코드가 인스턴스화되는 시점에는 반드시 하나 이상의
- * 필드가 유효하다.
+ * <p>IssueDetailResponse.aiContext() 는 항상 non-null — 온디맨드 생성 버튼을 항상 노출하기 위해 저장본·블로커 여부와 무관하게
+ * 인스턴스화한다. summary/nextAction/generatedAt 은 저장본이 없으면 null.
  */
 public record IssueAiContext(
     /** AI 생성 요약 문자열 (없으면 null). */
