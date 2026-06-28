@@ -133,6 +133,7 @@ test.describe('프로필 개인 비서', () => {
     await page.getByRole('combobox', { name: '모델' }).click()
     await expect(page.getByRole('option', { name: 'Claude Sonnet 4.6' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Opus 4.8' })).toBeVisible()
+    await expect(page.getByRole('option', { name: 'Claude Haiku 4.5' })).toBeVisible()
     // 내부 ID 형식('claude-sonnet-4-6')은 옵션 레이블로 노출되면 안 된다.
     await expect(page.getByRole('option', { name: 'claude-sonnet-4-6' })).not.toBeVisible()
     await expect(page.getByRole('option', { name: 'claude-opus-4-8' })).not.toBeVisible()
@@ -257,6 +258,47 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible()
     // 성공 토스트는 표시되면 안 된다.
     await expect(page.getByText('비서 설정을 변경했습니다.')).not.toBeVisible()
+  })
+
+  // 모델로 Claude Haiku 4.5 를 선택하면 내부 ID('claude-haiku-4-5')가 PUT payload 로 전송된다.
+  test('Haiku 4.5 선택 시 올바른 모델 ID 가 PUT 으로 전송된다', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route('**/api/v1/users/me/assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            configured: true,
+            tokenLabel: null,
+            tokenLastUsedAt: null,
+            model: 'claude-sonnet-4-6',
+            thinkingDepth: 'NORMAL',
+          }),
+        })
+      }
+      return route.fallback()
+    })
+    // PUT /settings — payload 캡처 후 성공 응답.
+    let putBody: { model?: string } | null = null
+    await page.route('**/api/v1/users/me/assistant/settings', (route) => {
+      putBody = route.request().postDataJSON()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      })
+    })
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+    await page.getByRole('combobox', { name: '모델' }).click()
+    await page.getByRole('option', { name: 'Claude Haiku 4.5' }).click()
+
+    // 성공 토스트 + 전송된 모델 ID 검증(레이블 아닌 내부 ID).
+    await expect(page.getByText('비서 설정을 변경했습니다.')).toBeVisible()
+    expect(putBody).toEqual({ model: 'claude-haiku-4-5' })
   })
 
   // #264 — tokenLabel 이 null 일 때 '(라벨 없음)' 개발자 용어가 노출되면 안 된다.

@@ -21,13 +21,9 @@ import {
   useUpdateMyAssistantSettings,
 } from '../../hooks/queries/useAssistant';
 import { handleApiError } from '../../lib/api-error';
+import { MODEL_OPTIONS } from '../../lib/assistant-models';
 import type { ThinkingDepth } from '../../types/assistant';
 
-// 선택 가능한 모델 목록 — value(내부 ID)와 label(사용자 표시명)을 분리한다.
-const MODELS: { id: string; label: string }[] = [
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-];
 // 생각의 깊이 옵션.
 const DEPTHS: { value: ThinkingDepth; label: string }[] = [
   { value: 'NONE', label: '없음' },
@@ -116,7 +112,7 @@ export function PersonalAssistantSection() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {MODELS.map((m) => (
+                  {MODEL_OPTIONS.map((m) => (
                     <SelectItem key={m.id} value={m.id}>
                       {m.label}
                     </SelectItem>
