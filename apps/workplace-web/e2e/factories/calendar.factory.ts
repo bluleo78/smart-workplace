@@ -31,6 +31,8 @@ export function calendar(over: Partial<Calendar> = {}): Calendar {
     color: 'blue',
     isDefault: true,
     position: 0,
+    // 기본값 false — 로컬 캘린더. M365 동기화 캘린더는 true 로 오버라이드. (이슈 #501)
+    isReadOnly: false,
     ...over,
   }
 }

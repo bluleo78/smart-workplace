@@ -55,7 +55,7 @@ class CalendarControllerTest {
   @MockitoBean UserRepository userRepository;
 
   private CalendarResponse sample() {
-    return new CalendarResponse(1L, "기본", "blue", true, 0);
+    return new CalendarResponse(1L, "기본", "blue", true, 0, false);
   }
 
   @BeforeEach
@@ -79,7 +79,8 @@ class CalendarControllerTest {
 
   @Test
   void create_valid_returns201() throws Exception {
-    when(service.create(eq(1L), any())).thenReturn(new CalendarResponse(2L, "업무", "red", false, 1));
+    when(service.create(eq(1L), any()))
+        .thenReturn(new CalendarResponse(2L, "업무", "red", false, 1, false));
 
     CalendarRequest req = new CalendarRequest("업무", "red", null);
 

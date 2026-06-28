@@ -186,6 +186,12 @@ export function EventDialog({
 
   // 개인 캘린더 목록 — 드롭다운에 표시. 로드 전은 빈 배열.
   const { data: calendars = [] } = useCalendars()
+
+  // 이벤트가 속한 캘린더가 읽기전용(외부 동기화)인지 여부 — calendarId 로 파생.
+  // 이벤트 API 응답을 건드리지 않고 캘린더 목록에서 derive. (이슈 #501)
+  const isReadOnly = isEdit
+    ? (calendars.find((c) => c.id === event?.calendarId)?.isReadOnly ?? false)
+    : false
   // 기본 캘린더 id — isDefault=true 우선, 없으면 첫 번째.
   const defaultCalendarId = calendars.find((c) => c.isDefault)?.id ?? calendars[0]?.id
 
@@ -331,6 +337,15 @@ export function EventDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? '일정 수정' : '새 일정'}</DialogTitle>
           <DialogDescription className="sr-only">{isEdit ? '일정 수정' : '새 일정'}</DialogDescription>
+          {/* 외부 동기화 캘린더 이벤트는 읽기전용임을 사용자에게 안내. (이슈 #501) */}
+          {isReadOnly && (
+            <span
+              data-testid="event-synced-label"
+              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+            >
+              M365에서 동기화됨
+            </span>
+          )}
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-3">
@@ -345,6 +360,7 @@ export function EventDialog({
               id="ev-title"
               data-testid="calendar-form-title"
               placeholder="일정 제목"
+              disabled={isReadOnly}
               {...form.register('title')}
             />
           </FormField>
@@ -360,6 +376,7 @@ export function EventDialog({
                   data-testid="calendar-form-allday"
                   checked={field.value}
                   onCheckedChange={field.onChange}
+                  disabled={isReadOnly}
                 />
               )}
             />
@@ -379,6 +396,7 @@ export function EventDialog({
                 id="ev-start"
                 type="datetime-local"
                 data-testid="calendar-form-start"
+                disabled={isReadOnly}
                 {...form.register('start')}
               />
             </FormField>
@@ -391,6 +409,7 @@ export function EventDialog({
                 id="ev-end"
                 type="datetime-local"
                 data-testid="calendar-form-end"
+                disabled={isReadOnly}
                 {...form.register('end')}
               />
             </FormField>
@@ -406,6 +425,7 @@ export function EventDialog({
               id="ev-location"
               data-testid="calendar-form-location"
               placeholder="장소 (선택)"
+              disabled={isReadOnly}
               {...form.register('location')}
             />
           </FormField>
@@ -419,6 +439,7 @@ export function EventDialog({
                 <Select
                   value={field.value?.toString() ?? ''}
                   onValueChange={(v) => field.onChange(Number(v))}
+                  disabled={isReadOnly}
                 >
                   <SelectTrigger
                     id="ev-calendar"
@@ -428,11 +449,14 @@ export function EventDialog({
                     <SelectValue placeholder="캘린더 선택" />
                   </SelectTrigger>
                   <SelectContent>
-                    {calendars.map((c) => (
-                      <SelectItem key={c.id} value={c.id.toString()}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
+                    {/* 읽기전용(외부 동기화) 컨테이너는 생성/이동 대상에서 제외 — 백엔드 resolveCalendarId 가드와 일치 */}
+                    {calendars
+                      .filter((c) => !c.isReadOnly)
+                      .map((c) => (
+                        <SelectItem key={c.id} value={c.id.toString()}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               )}
@@ -446,6 +470,7 @@ export function EventDialog({
                 type="button"
                 data-testid="calendar-color-inherit"
                 onClick={() => form.setValue('color', null)}
+                disabled={isReadOnly}
                 className={`flex size-7 items-center justify-center rounded-full border-2 border-dashed text-[10px] ${
                   form.watch('color') === null ? 'border-foreground' : 'border-muted-foreground/40'
                 }`}
@@ -457,6 +482,7 @@ export function EventDialog({
                   key={k}
                   type="button"
                   data-testid={`calendar-color-${k}`}
+                  disabled={isReadOnly}
                   onClick={() => form.setValue('color', k)}
                   className={`size-7 rounded-full border-2 ${resolvePalette(k).dotClass} ${
                     form.watch('color') === k ? 'border-foreground' : 'border-transparent'
@@ -474,6 +500,7 @@ export function EventDialog({
               onValueChange={(v) =>
                 form.setValue('reminderMinutes', v as FormValues['reminderMinutes'])
               }
+              disabled={isReadOnly}
             >
               <SelectTrigger
                 id="ev-reminder"
@@ -498,6 +525,7 @@ export function EventDialog({
               onValueChange={(v) =>
                 form.setValue('recurrenceFreq', v as FormValues['recurrenceFreq'])
               }
+              disabled={isReadOnly}
             >
               <SelectTrigger
                 id="ev-recurrence-freq"
@@ -605,6 +633,7 @@ export function EventDialog({
               data-testid="calendar-form-description"
               placeholder="설명 (선택)"
               rows={3}
+              disabled={isReadOnly}
               {...form.register('description')}
             />
           </FormField>
@@ -618,8 +647,8 @@ export function EventDialog({
           )}
 
           <DialogFooter className="pt-2">
-            {/* 편집 모드에서 onDelete 제공 시 삭제 버튼 표시 */}
-            {isEdit && onDelete && (
+            {/* 편집 모드에서 onDelete 제공 시 삭제 버튼 표시 — 읽기전용이면 숨김 (이슈 #501) */}
+            {isEdit && onDelete && !isReadOnly && (
               <Button
                 type="button"
                 variant="destructive"
@@ -635,11 +664,14 @@ export function EventDialog({
                 variant="ghost"
                 onClick={() => onOpenChange(false)}
               >
-                취소
+                {isReadOnly ? '닫기' : '취소'}
               </Button>
-              <Button type="submit" data-testid="calendar-form-submit" disabled={isPending}>
-                {isPending ? '저장 중…' : isEdit ? '수정' : '저장'}
-              </Button>
+              {/* 읽기전용 캘린더 이벤트는 저장 버튼 숨김 (이슈 #501) */}
+              {!isReadOnly && (
+                <Button type="submit" data-testid="calendar-form-submit" disabled={isPending}>
+                  {isPending ? '저장 중…' : isEdit ? '수정' : '저장'}
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </form>

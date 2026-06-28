@@ -5,6 +5,7 @@ import com.workplace.calendar.dto.CalendarRequest;
 import com.workplace.calendar.dto.CalendarResponse;
 import com.workplace.calendar.exception.CalendarNotFoundException;
 import com.workplace.calendar.exception.DefaultCalendarDeletionException;
+import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.repository.CalendarRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -40,19 +41,21 @@ public class CalendarService {
     return repo.findByIdForOwner(callerId, id).orElseThrow(() -> new CalendarNotFoundException(id));
   }
 
-  /** 캘린더 수정 — 소유 검증 + 색 팔레트 검증. */
+  /** 캘린더 수정 — 소유 검증 + 읽기전용 거부 + 색 팔레트 검증. */
   @Transactional
   public CalendarResponse update(long callerId, long id, CalendarRequest req) {
     requireOwnedCalendar(callerId, id);
+    if (repo.isReadOnly(id)) throw new ReadOnlyCalendarException(id);
     validateColor(req.color());
     repo.update(id, req.name(), req.color(), req.position());
     return repo.findByIdForOwner(callerId, id).orElseThrow(() -> new CalendarNotFoundException(id));
   }
 
-  /** 캘린더 삭제 — 기본은 거부, 비기본은 소속 일정을 기본으로 이동 후 삭제(데이터 보존). */
+  /** 캘린더 삭제 — 소유 검증 + 읽기전용 거부, 기본은 거부, 비기본은 소속 일정을 기본으로 이동 후 삭제(데이터 보존). */
   @Transactional
   public void delete(long callerId, long id) {
     requireOwnedCalendar(callerId, id);
+    if (repo.isReadOnly(id)) throw new ReadOnlyCalendarException(id);
     if (repo.isDefault(id)) {
       throw new DefaultCalendarDeletionException();
     }
@@ -68,6 +71,17 @@ public class CalendarService {
     if (ownerId != callerId) {
       throw new CalendarNotFoundException(calendarId);
     }
+  }
+
+  /**
+   * 소유 + 쓰기가능(읽기전용 외부 컨테이너 아님) 검증. 일정 생성/이동 chokepoint 용.
+   *
+   * <p>외부 동기화 컨테이너는 owner_id = 동기화 유저이므로 소유 검증만으론 막히지 않는다. 읽기전용이면 추가로
+   * ReadOnlyCalendarException(409) 을 던진다.
+   */
+  public void requireWritableCalendar(long callerId, long calendarId) {
+    requireOwnedCalendar(callerId, calendarId);
+    if (repo.isReadOnly(calendarId)) throw new ReadOnlyCalendarException(calendarId);
   }
 
   /** 색 팔레트 키 검증 — 미허용 색은 400. */

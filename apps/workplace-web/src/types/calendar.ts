@@ -86,6 +86,8 @@ export interface Calendar {
   color: string
   isDefault: boolean
   position: number
+  // M365 등 외부 동기화 컨테이너인 경우 true — 이름·색 편집·삭제 불가. (이슈 #501)
+  isReadOnly: boolean
 }
 
 // 캘린더 생성/수정 요청.

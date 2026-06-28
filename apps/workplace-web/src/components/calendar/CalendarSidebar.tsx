@@ -2,6 +2,7 @@
 import { CalendarDays, Pencil, Plus } from 'lucide-react'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -109,20 +110,31 @@ export function CalendarSidebar({
               {/* 캘린더 색 점 */}
               <span className={`size-2.5 shrink-0 rounded-sm ${palette.dotClass}`} aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">{c.name}</span>
-              {/* 편집 버튼 — hover 시만 노출 */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 opacity-0 transition-opacity group-hover:opacity-100"
-                data-testid={`calendar-edit-${c.id}`}
-                aria-label={`${c.name} 편집`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onEditCalendar(c)
-                }}
-              >
-                <Pencil className="h-3 w-3" />
-              </Button>
+              {/* 외부 동기화 캘린더: 읽기전용 배지 표시, 편집 버튼 숨김 (이슈 #501) */}
+              {c.isReadOnly ? (
+                <Badge
+                  variant="secondary"
+                  className="h-4 shrink-0 px-1 text-[10px]"
+                  data-testid="calendar-readonly-badge"
+                >
+                  읽기 전용
+                </Badge>
+              ) : (
+                /* 편집 버튼 — hover 시만 노출 */
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 opacity-0 transition-opacity group-hover:opacity-100"
+                  data-testid={`calendar-edit-${c.id}`}
+                  aria-label={`${c.name} 편집`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEditCalendar(c)
+                  }}
+                >
+                  <Pencil className="h-3 w-3" />
+                </Button>
+              )}
             </div>
           )
         })}

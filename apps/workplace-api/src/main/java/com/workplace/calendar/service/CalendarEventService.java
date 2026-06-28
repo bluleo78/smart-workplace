@@ -5,6 +5,7 @@ import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
+import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChangedEvent;
 import com.workplace.calendar.repository.CalendarEventExceptionRepository;
@@ -162,6 +163,7 @@ public class CalendarEventService {
       EditScope scope,
       OffsetDateTime occurrenceDate) {
     requireOwner(callerId, id);
+    requireWritableEvent(id);
     validateRecurrence(req.recurrenceRule());
     validateColorOverride(req.color());
     // requireOwner 통과 후 조회: owner 이므로 accessibleBy 술어 만족 보장.
@@ -267,6 +269,7 @@ public class CalendarEventService {
   @Transactional
   public void delete(long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
     requireOwner(callerId, id);
+    requireWritableEvent(id);
     // requireOwner 통과 후 조회: owner 이므로 accessibleBy 술어 만족 보장.
     CalendarEventResponse target =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
@@ -300,6 +303,7 @@ public class CalendarEventService {
   @Transactional
   public void inviteAttendees(long callerId, long eventId, List<Long> userIds) {
     requireOwner(callerId, eventId); // 비주최자 → CalendarEventNotFoundException(404 은닉)
+    requireWritableEvent(eventId);
     for (Long uid : userIds) {
       if (uid == null || uid == callerId) continue;
       String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
@@ -315,6 +319,7 @@ public class CalendarEventService {
   @Transactional
   public void removeAttendee(long callerId, long eventId, long userId) {
     requireOwner(callerId, eventId); // 비주최자 → CalendarEventNotFoundException(404 은닉)
+    requireWritableEvent(eventId);
     if (userId == callerId) return; // 주최자 본인 행 보호
     attendeeRepo.deleteByEventAndUser(eventId, userId);
   }
@@ -326,8 +331,10 @@ public class CalendarEventService {
   @Transactional
   public void respondRsvp(long callerId, long eventId, String status) {
     int updated = attendeeRepo.updateRsvp(eventId, callerId, status);
-    // 참석자 아님 → 이벤트 존재 자체를 은닉(404)
+    // 참석자 아님(존재 불명) → 이벤트 존재 자체를 은닉(404). 읽기전용 이벤트는 참석자 행이 없으므로 여기서 먼저 404 로 차단됨.
     if (updated == 0) throw new CalendarEventNotFoundException(eventId);
+    // 참석자 행 존재 확정 후 읽기전용 검사 — 비참석자에게 읽기전용 여부(409)를 노출하지 않도록 순서 보장.
+    requireWritableEvent(eventId);
     // 주최자에게 RSVP 변경 알림 발행(주최자==caller 이면 self-notify — service 에서 skip).
     repo.findOwnerId(eventId)
         .ifPresent(
@@ -440,12 +447,17 @@ public class CalendarEventService {
     }
   }
 
-  /** calendarId resolve — null 이면 기본 캘린더, 지정이면 소유 검증 후 그대로. 일정 생성/수정 공통 chokepoint. */
+  /**
+   * calendarId resolve — null 이면 기본 캘린더, 지정이면 소유 + 쓰기가능 검증 후 그대로.
+   *
+   * <p>일정 생성/이동 공통 chokepoint. 읽기전용 외부 컨테이너는 owner_id = 동기화 유저이므로 소유 검증만으론 막히지 않는다.
+   * requireWritableCalendar 가 추가로 is_read_only 를 확인하여 ReadOnlyCalendarException(409) 을 던진다.
+   */
   private long resolveCalendarId(long callerId, Long calendarId) {
     if (calendarId == null) {
       return calendarService.ensureDefault(callerId);
     }
-    calendarService.requireOwnedCalendar(callerId, calendarId);
+    calendarService.requireWritableCalendar(callerId, calendarId);
     return calendarId;
   }
 
@@ -485,6 +497,13 @@ public class CalendarEventService {
       reminderRepo.deleteByEvent(eventId);
     } else {
       reminderRepo.upsert(eventId, reminderMinutes);
+    }
+  }
+
+  /** 읽기전용(외부 동기화) 컨테이너 소속 이벤트는 로컬 변경 불가 — 동기화만 관리. requireOwner 통과 후 호출. */
+  private void requireWritableEvent(long eventId) {
+    if (repo.isEventCalendarReadOnly(eventId)) {
+      throw new ReadOnlyCalendarException(eventId);
     }
   }
 

@@ -2,6 +2,7 @@ package com.workplace.mail.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.outbound.GraphApiClient;
+import com.workplace.mail.outbound.GraphCalendarClient;
 import java.net.http.HttpClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,5 +25,15 @@ public class GraphApiConfig {
   public GraphApiClient graphApiClient(ObjectMapper objectMapper, M365GraphProperties props) {
     HttpClient httpClient = HttpClient.newHttpClient();
     return new GraphApiClient(httpClient, objectMapper, props);
+  }
+
+  /**
+   * Graph 캘린더 읽기 클라이언트 빈.
+   *
+   * <p>{@link GraphApiClient} 를 주입받아 /me/calendars·/calendarView 조회를 담당한다.
+   */
+  @Bean
+  public GraphCalendarClient graphCalendarClient(GraphApiClient graphApiClient) {
+    return new GraphCalendarClient(graphApiClient);
   }
 }

@@ -65,6 +65,15 @@ public class CalendarRepository {
             .fetchOne(CALENDAR.IS_DEFAULT));
   }
 
+  /** 읽기전용(외부 동기화) 컨테이너 여부. 존재하지 않는 id 는 false 반환. */
+  public boolean isReadOnly(long calendarId) {
+    return Boolean.TRUE.equals(
+        dsl.select(CALENDAR.IS_READ_ONLY)
+            .from(CALENDAR)
+            .where(CALENDAR.ID.eq(calendarId))
+            .fetchOne(CALENDAR.IS_READ_ONLY));
+  }
+
   /** 소유자의 기본 캘린더 id(없으면 empty). */
   public Optional<Long> findDefaultId(long ownerId) {
     return dsl.select(CALENDAR.ID)
@@ -112,6 +121,7 @@ public class CalendarRepository {
         r.get(CALENDAR.NAME),
         r.get(CALENDAR.COLOR),
         r.get(CALENDAR.IS_DEFAULT),
-        r.get(CALENDAR.POSITION));
+        r.get(CALENDAR.POSITION),
+        Boolean.TRUE.equals(r.get(CALENDAR.IS_READ_ONLY)));
   }
 }

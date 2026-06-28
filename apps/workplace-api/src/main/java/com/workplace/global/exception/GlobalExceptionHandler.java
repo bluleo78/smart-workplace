@@ -400,6 +400,14 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
+  // 읽기전용(외부 동기화) 캘린더·일정 쓰기 거부(409)
+  @ExceptionHandler(com.workplace.calendar.exception.ReadOnlyCalendarException.class)
+  public ResponseEntity<ErrorResponse> handleReadOnlyCalendar(
+      com.workplace.calendar.exception.ReadOnlyCalendarException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   // 사용자 그룹 도메인 — 미존재/격리(404)
   @ExceptionHandler(com.workplace.user.exception.UserGroupNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleUserGroupNotFound(

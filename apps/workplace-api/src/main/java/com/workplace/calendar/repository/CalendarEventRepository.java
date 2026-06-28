@@ -95,6 +95,17 @@ public class CalendarEventRepository {
         .fetchOptional(CALENDAR_EVENT.OWNER_ID);
   }
 
+  /** 일정이 속한 캘린더의 읽기전용 여부. 존재하지 않는 id 는 false 반환. */
+  public boolean isEventCalendarReadOnly(long eventId) {
+    return Boolean.TRUE.equals(
+        dsl.select(CALENDAR.IS_READ_ONLY)
+            .from(CALENDAR_EVENT)
+            .join(CALENDAR)
+            .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+            .where(CALENDAR_EVENT.ID.eq(eventId))
+            .fetchOne(CALENDAR.IS_READ_ONLY));
+  }
+
   /**
    * callerId 가 접근 가능한(owner 또는 참석자) 구체(비반복) 일정 중 [from, to) 와 겹치는 것. 반복 마스터(RRULE 보유)는 회차 전개로 별도
    * 처리하므로 제외. 오버라이드 일정은 RRULE 이 null 이라 여기서 그대로 반환된다.
