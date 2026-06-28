@@ -25,7 +25,7 @@ public record M365GraphProperties(
     String redirectUri) {
 
   /**
-   * 읽기 슬라이스 최소 권한 단일 출처. Mail.ReadWrite/Send(메일) + Calendars.Read(일정 읽기 #501).
+   * 권한 단일 출처. Mail.ReadWrite/Send(메일) + Calendars.ReadWrite(일정 #501).
    *
    * <ul>
    *   <li>{@code openid profile email} — id_token/계정 이메일 추출.
@@ -33,11 +33,12 @@ public record M365GraphProperties(
    *   <li>{@code Mail.ReadWrite} — 메일 조회·읽음표시(PATCH isRead). 관리자 동의 완료.
    *   <li>{@code Mail.Send} — 메일 발송(POST /me/sendMail). Mail.ReadWrite로는 발송 불가라 별도 필요. 에픽 #498에서
    *       관리자 동의 완료 → 추가 동의 불필요. (#500에서 추가)
-   *   <li>{@code Calendars.Read} — 일정 조회(GET /me/calendars, /calendarView). (#501에서 추가)
+   *   <li>{@code Calendars.ReadWrite} — 일정 조회(GET /me/calendars, /calendarView). 이번 슬라이스(#501)는 읽기
+   *       전용이나, 후속 양방향 쓰기(#502) 재동의를 한 번으로 끝내기 위해 ReadWrite 로 동의. (#501에서 추가)
    * </ul>
    *
    * <p>⚠️ 변경 시 기존 연결 계정 재동의(관리자 동의) 필요 — 배포 게이트.
    */
   public static final String SCOPE =
-      "Mail.ReadWrite Mail.Send Calendars.Read offline_access openid profile email";
+      "Mail.ReadWrite Mail.Send Calendars.ReadWrite offline_access openid profile email";
 }

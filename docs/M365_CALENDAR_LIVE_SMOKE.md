@@ -4,10 +4,10 @@
 
 ## 사전 준비
 
-### 1. ⚠️ Azure 앱 등록 — `Calendars.Read` 권한 추가 + 관리자 동의
+### 1. ⚠️ Azure 앱 등록 — `Calendars.ReadWrite` 권한 추가 + 관리자 동의
 
 1. [Azure 포털](https://portal.azure.com) → 앱 등록 → `aa9c80a9-...` 앱 선택.
-2. **API 사용 권한** → **권한 추가** → Microsoft Graph → **위임된 권한** → `Calendars.Read` 추가.
+2. **API 사용 권한** → **권한 추가** → Microsoft Graph → **위임된 권한** → `Calendars.ReadWrite` 추가.
 3. **"iacloud.kr에 대한 관리자 동의 허용"** 버튼 클릭 → 상태가 ✅ 녹색으로 바뀌는지 확인.
    - ⚠️ 테넌트 사용자 동의 차단 정책으로 인해 사용자가 직접 동의할 수 없음(버튼 회색).
    - 관리자 동의 없이 OAuth 흐름 진행 시 `AADSTS65001` 오류 발생.
@@ -15,7 +15,7 @@
 ### 2. 기존 M365 계정 재연결 (새 스코프 동의)
 
 1. 앱 **설정 → 계정 연결** 에서 기존 M365 계정 연결 해제.
-2. **M365 Graph 계정 재연결** — OAuth 팝업 흐름으로 새 `Calendars.Read` 스코프 동의.
+2. **M365 Graph 계정 재연결** — OAuth 팝업 흐름으로 새 `Calendars.ReadWrite` 스코프 동의.
 3. 재연결 후 `refresh_token` 갱신 완료 확인 (`email_account.oauth_refresh_token` 업데이트).
 
 ### 3. API 재시작 + 스케줄러 대기
@@ -69,4 +69,4 @@ curl -X PATCH http://localhost:9090/api/v1/calendar/events/27 \
 - 동기화 창: 현재 기준 **과거 1개월 ~ 미래 3개월**.
 - 외부 이벤트 식별: `calendar_event.external_id` 에 Graph API 이벤트 ID 저장, 소속 컨테이너 `calendar.is_read_only = true` + `calendar.external_account_id` 로 확인.
 - 다중 캘린더: M365 계정의 모든 캘린더를 순회하여 각각 컨테이너 생성 + 이벤트 동기화.
-- 스코프 추가 확인: 메일 스코프(`Mail.Read`, `Mail.Send`)와 함께 `Calendars.Read` 포함 여부.
+- 스코프 추가 확인: 메일 스코프(`Mail.Read`, `Mail.Send`)와 함께 `Calendars.ReadWrite` 포함 여부.
