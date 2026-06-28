@@ -95,7 +95,8 @@ services:
     environment:
       # api 업로드 볼륨 마운트 경로. api 의 uploadDir 과 동일 볼륨을 읽기 전용으로 마운트한다.
       WORKER_BLOB_BASE: /data/uploads
-      WORKPLACE_API_BASE_URL: http://api:9090/api/v1
+      # 콜백 대상 /internal/worker/** 는 루트 경로(컨텍스트패스/api/v1 없음). ai-agent 와 달리 /api/v1 붙이면 404.
+      WORKPLACE_API_BASE_URL: http://api:9090
       # api 의 WORKPLACE_AI_AGENT_TOKEN 과 동일 시크릿을 재사용(내부 서비스 공통 토큰).
       INTERNAL_SERVICE_TOKEN: ${WORKPLACE_AI_AGENT_TOKEN:?WORKPLACE_AI_AGENT_TOKEN is required}
     volumes:

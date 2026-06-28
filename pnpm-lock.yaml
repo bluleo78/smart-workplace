@@ -434,6 +434,8 @@ importers:
         specifier: ^4.1.4
         version: 4.1.7(@types/node@24.12.4)(@vitest/coverage-v8@4.1.7)(msw@2.14.6(@types/node@24.12.4)(typescript@5.9.3))(vite@7.3.3(@types/node@24.12.4)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.3)(yaml@2.9.0))
 
+  apps/workplace-worker: {}
+
 packages:
 
   '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.2.141':

@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Smart Workplace 운영 배포 스크립트
 # 이미지를 multiplatform 으로 빌드해 ghcr.io 에 푸시하고, 운영 디렉터리에서 pull+재기동한다.
-# Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|all]
-# all = api + ai-agent + web + admin (4개 앱 전부, DB 는 표준 postgres:16 이라 빌드 대상 아님)
+# Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|worker|all]
+# all = api + ai-agent + web + admin + worker (5개 앱 전부, DB 는 표준 postgres:16 이라 빌드 대상 아님)
 
 REGISTRY="ghcr.io/bluleo78/smart-workplace"
 PROD_DIR="$HOME/prod/smart-workplace"
@@ -51,8 +51,13 @@ build_and_push() {
       log "Building + pushing $app (context: project root)"
       docker buildx build --platform "$PLATFORM" -t "$REGISTRY/admin:latest" -f apps/workplace-admin/Dockerfile --push .
       ;;
+    worker)
+      # worker: context = apps/workplace-worker/ (Python, 자기 디렉터리만 COPY — api 와 동일 패턴)
+      log "Building + pushing $app (context: apps/workplace-worker/)"
+      docker buildx build --platform "$PLATFORM" -t "$REGISTRY/worker:latest" --push apps/workplace-worker/
+      ;;
     *)
-      error "Unknown app: $app (valid: api, ai-agent, web, admin)"
+      error "Unknown app: $app (valid: api, ai-agent, web, admin, worker)"
       ;;
   esac
 }
@@ -89,7 +94,7 @@ if ! grep -q "ghcr.io" "$HOME/.docker/config.json" 2>/dev/null; then
 fi
 
 if [ "$TARGET" = "all" ]; then
-  APPS=("api" "ai-agent" "web" "admin")
+  APPS=("api" "ai-agent" "web" "admin" "worker")
 else
   APPS=("$TARGET")
 fi
