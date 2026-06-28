@@ -28,8 +28,8 @@ export const coachDraftSchema = z.object({
   ...baseConfig,
 });
 
-// 공통 핸들러 팩토리 — zod 검증 → 러너 호출 → 400/200/502 응답.
-function handler<T>(
+// 공통 핸들러 팩토리 — zod 검증 → 러너 호출 → 400/200/502 응답. drive 등 타 라우터에서도 재사용.
+export function handler<T>(
   schema: z.ZodType<T>,
   run: (input: T, deps: RunAgentDeps) => Promise<unknown>,
   deps: RunAgentDeps,

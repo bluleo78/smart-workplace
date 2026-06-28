@@ -37,7 +37,17 @@ services:
       ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:?ENCRYPTION_MASTER_KEY is required}
       WORKPLACE_AI_AGENT_TOKEN: ${WORKPLACE_AI_AGENT_TOKEN:?WORKPLACE_AI_AGENT_TOKEN is required}
       WORKPLACE_AI_AGENT_URL: http://ai-agent:7070
+      WORKPLACE_WORKER_URL: http://worker:7080
+      # worker 콜백 인증에 사용하는 내부 서비스 토큰(ai-agent 와 동일 값).
+      INTERNAL_SERVICE_TOKEN: ${WORKPLACE_AI_AGENT_TOKEN}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # C2: api 업로드 디렉터리를 worker 가 마운트하는 동일 공유 볼륨 경로로 고정.
+      # FileUploadService @Value("${firehub.file.upload-dir:./uploads}") 기본값(./uploads→/app/uploads)이
+      # uploads-data 볼륨(/data/uploads)과 어긋나는 문제를 수정한다.
+      FIREHUB_FILE_UPLOAD_DIR: /data/uploads
+    volumes:
+      # worker 가 읽기 전용으로 마운트하는 동일 업로드 볼륨을 api 는 읽기/쓰기로 마운트한다.
+      - uploads-data:/data/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -78,6 +88,32 @@ services:
       retries: 5
     restart: unless-stopped
 
+  worker:
+    image: ghcr.io/bluleo78/smart-workplace/worker:latest
+    build:
+      context: ./apps/workplace-worker
+    environment:
+      # api 업로드 볼륨 마운트 경로. api 의 uploadDir 과 동일 볼륨을 읽기 전용으로 마운트한다.
+      WORKER_BLOB_BASE: /data/uploads
+      WORKPLACE_API_BASE_URL: http://api:9090/api/v1
+      # api 의 WORKPLACE_AI_AGENT_TOKEN 과 동일 시크릿을 재사용(내부 서비스 공통 토큰).
+      INTERNAL_SERVICE_TOKEN: ${WORKPLACE_AI_AGENT_TOKEN:?WORKPLACE_AI_AGENT_TOKEN is required}
+    volumes:
+      # api 가 파일을 기록하는 동일 업로드 볼륨을 읽기 전용으로 마운트한다.
+      # api 서비스에도 같은 볼륨(uploads-data:/data/uploads)을 rw 로 마운트해야 한다.
+      - uploads-data:/data/uploads:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - workplace-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   web:
     image: ghcr.io/bluleo78/smart-workplace/web:latest
     build:
@@ -109,3 +145,8 @@ services:
 networks:
   workplace-net:
     driver: bridge
+
+volumes:
+  # api(rw)·worker(ro) 공유 업로드 볼륨.
+  # api 가 쓴 파일을 worker 가 storageKey 경로로 직접 읽는다(HTTP 재전송 없음).
+  uploads-data:

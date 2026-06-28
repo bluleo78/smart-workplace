@@ -20,9 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * IssueService.get() 이 저장된 요약 + 계산된 블로커를 aiContext 로 내려주는지 검증.
  *
- * <p>케이스 A: 저장 요약 있음 → aiContext 비-null, summary 일치. 케이스 B: 저장 요약 없음 + 블로커 없음 → aiContext
- * 는 (온디맨드 재설계 후) 항상 비-null, summary/nextAction/generatedAt null·blockers 빈 리스트(프론트가 항상 카드+생성
- * 버튼을 렌더할 수 있도록).
+ * <p>케이스 A: 저장 요약 있음 → aiContext 비-null, summary 일치. 케이스 B: 저장 요약 없음 + 블로커 없음 → aiContext 는 (온디맨드
+ * 재설계 후) 항상 비-null, summary/nextAction/generatedAt null·blockers 빈 리스트(프론트가 항상 카드+생성 버튼을 렌더할 수
+ * 있도록).
  */
 @Transactional
 class IssueDetailAiContextTest extends IntegrationTestBase {

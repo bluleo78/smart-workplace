@@ -28,3 +28,9 @@ workplace:
   ai-agent:
     # 내부망 서비스명으로 ai-agent 호출. internal-token 은 base 에서 ${WORKPLACE_AI_AGENT_TOKEN}.
     base-url: ${WORKPLACE_AI_AGENT_URL:http://ai-agent:7070}
+  worker:
+    # Python 파일 추출 워커. 내부망 서비스명으로 호출.
+    # internal-token 은 ai-agent 와 동일 INTERNAL_SERVICE_TOKEN 환경변수를 공유한다.
+    base-url: ${WORKPLACE_WORKER_URL:http://worker:7080}
+    internal-token: ${INTERNAL_SERVICE_TOKEN}
+    enabled: true

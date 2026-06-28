@@ -41,3 +41,7 @@ workplace:
     base-url: http://localhost:7070
     internal-token: test-token
     enabled: false
+  worker:
+    base-url: http://localhost:7080
+    internal-token: test-token
+    enabled: false

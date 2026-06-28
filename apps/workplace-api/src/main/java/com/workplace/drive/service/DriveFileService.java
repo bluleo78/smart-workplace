@@ -6,6 +6,7 @@ import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
+import com.workplace.drive.outbound.DriveFileUploadedEvent;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.drive.repository.DriveQuotaRepository;
@@ -18,6 +19,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -106,6 +108,22 @@ public class DriveFileService {
             "sizeBytes", file.getSize(),
             "versionNo", versionNo));
 
+    // 추출 파이프라인 트리거 — 커밋 후 FileExtractionListener 가 file_extraction 행을 생성(PENDING/SKIPPED).
+    // storageKey 는 file 테이블의 storage_path(워커가 blob 위치 특정에 사용).
+    String storageKey =
+        dsl.select(com.workplace.jooq.Tables.FILE.STORAGE_PATH)
+            .from(com.workplace.jooq.Tables.FILE)
+            .where(com.workplace.jooq.Tables.FILE.ID.eq(uploaded.id()))
+            .fetchOne(com.workplace.jooq.Tables.FILE.STORAGE_PATH);
+    eventPublisher.publishEvent(
+        new DriveFileUploadedEvent(
+            uploaded.id(),
+            tenantId != null ? tenantId : 0L,
+            uploaded.mimeType(),
+            uploaded.fileCategory(),
+            file.getSize(),
+            storageKey != null ? storageKey : ""));
+
     final long fid = driveFileId;
     return files.listInFolder(spaceId, folderId).stream()
         .filter(f -> f.id() == fid)
@@ -165,6 +183,9 @@ public class DriveFileService {
         null,
         Map.of("spaceId", row.spaceId(), "fileName", row.name()));
   }
+
+  /** 추출 파이프라인 이벤트 발행용 — 업로드 커밋 후 FileExtractionListener 가 file_extraction 행 생성. */
+  private final ApplicationEventPublisher eventPublisher;
 
   /** 버전 이력 목록(VIEWER). 최신(version_no 최대) 행을 current 로 표시. */
   @Transactional(readOnly = true)

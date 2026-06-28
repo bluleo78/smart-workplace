@@ -14,6 +14,7 @@ import { createMailRouter } from './routes/mail.js';
 import { createMessagingRouter } from './routes/messaging.js';
 import { createWikiRouter } from './routes/wiki.js';
 import { createIssueRouter } from './routes/issue.js';
+import { createDriveRouter } from './routes/drive.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -47,6 +48,7 @@ app.use(createMailRouter({ client: workplaceApi }));
 app.use(createMessagingRouter({ client: workplaceApi }));
 app.use(createWikiRouter({ client: workplaceApi }));
 app.use(createIssueRouter({ client: workplaceApi }));
+app.use(createDriveRouter({ client: workplaceApi }));
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[ai-agent] unhandled error:', err);
