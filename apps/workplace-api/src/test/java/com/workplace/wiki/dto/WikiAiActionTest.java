@@ -40,6 +40,29 @@ class WikiAiActionTest {
   }
 
   @Test
+  void serialize_transformActions_toLowercaseWire() throws Exception {
+    // 변형 액션 5종도 소문자 wire 로 직렬화돼야 ai-agent zod enum 이 수용한다.
+    assertThat(mapper.writeValueAsString(WikiAiAction.REWRITE_TONE)).isEqualTo("\"rewrite_tone\"");
+    assertThat(mapper.writeValueAsString(WikiAiAction.TRANSLATE)).isEqualTo("\"translate\"");
+    assertThat(mapper.writeValueAsString(WikiAiAction.EXPAND)).isEqualTo("\"expand\"");
+    assertThat(mapper.writeValueAsString(WikiAiAction.CONDENSE)).isEqualTo("\"condense\"");
+    assertThat(mapper.writeValueAsString(WikiAiAction.POLISH)).isEqualTo("\"polish\"");
+  }
+
+  @Test
+  void deserialize_transformActions_fromLowercaseJson() throws Exception {
+    // 프론트가 보낸 소문자 변형 액션이 enum 으로 바인딩되는지.
+    assertThat(mapper.readValue("\"rewrite_tone\"", WikiAiAction.class))
+        .isEqualTo(WikiAiAction.REWRITE_TONE);
+    assertThat(mapper.readValue("\"translate\"", WikiAiAction.class))
+        .isEqualTo(WikiAiAction.TRANSLATE);
+    assertThat(mapper.readValue("\"expand\"", WikiAiAction.class)).isEqualTo(WikiAiAction.EXPAND);
+    assertThat(mapper.readValue("\"condense\"", WikiAiAction.class))
+        .isEqualTo(WikiAiAction.CONDENSE);
+    assertThat(mapper.readValue("\"polish\"", WikiAiAction.class)).isEqualTo(WikiAiAction.POLISH);
+  }
+
+  @Test
   void deserialize_unknown_throws() {
     assertThatThrownBy(() -> mapper.readValue("\"bogus\"", WikiAiAction.class))
         .hasMessageContaining("bogus");

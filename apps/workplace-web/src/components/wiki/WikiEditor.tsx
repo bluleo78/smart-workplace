@@ -20,6 +20,8 @@ import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
+import { type TransformActionKey } from './wikiAiActions'
+import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { buildBreadcrumb } from './wikiBreadcrumb'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
@@ -123,6 +125,53 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         onDone: () => {
           setAiBusy(false)
           abortRef.current = null
+        },
+        onError: (message) => {
+          setAiBusy(false)
+          abortRef.current = null
+          toast.error(message)
+        },
+      })
+      abortRef.current = handle.abort
+    },
+    [page.id],
+  )
+
+  // 변형 액션(선택영역 제자리 교체) — 스트림을 버퍼링했다가 done 시 1회 교체(단일 undo).
+  // 생성 계열(runAction)과 달리 선택 텍스트를 입력으로 보내고 결과로 그 범위를 대체한다.
+  const runTransform = useCallback(
+    (action: TransformActionKey, param?: string) => {
+      const ed = editorRef.current
+      if (!ed) return
+      const { from, to } = ed.state.selection
+      if (from === to) return // 선택 없음 — 방어(툴바는 선택 시에만 노출)
+      const selection = ed.state.doc.textBetween(from, to, '\n')
+      abortRef.current?.()
+      abortRef.current = null
+      setAiBusy(true)
+      let buffer = ''
+      const handle = startWikiAiStream({
+        pageId: page.id,
+        action,
+        prompt: param,
+        selection,
+        onDelta: (text) => {
+          buffer += text
+        },
+        onDone: () => {
+          setAiBusy(false)
+          abortRef.current = null
+          const e2 = editorRef.current
+          if (!e2 || !buffer) return
+          // 캡처한 범위를 결과로 1회 교체(삭제+삽입 단일 트랜잭션 → 단일 undo).
+          // 스트림 중 문서가 바뀌었을 수 있어 from/to 를 현재 문서 크기로 클램프한다.
+          // from 도 클램프하지 않으면 스트림 중 대량 삭제 시 범위가 문서 끝을 초과해 예외가 난다.
+          const size = e2.state.doc.content.size
+          e2
+            .chain()
+            .focus()
+            .insertContentAt({ from: Math.min(from, size), to: Math.min(to, size) }, buffer)
+            .run()
         },
         onError: (message) => {
           setAiBusy(false)
@@ -350,6 +399,12 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             editor={editor}
             onClick={onChipClick}
             className="[&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
+          />
+          {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출. */}
+          <WikiAiBubbleToolbar
+            editor={editor}
+            disabled={!canUseAi || aiBusy}
+            onAction={runTransform}
           />
           {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
           <WikiBacklinksPanel pageId={page.id} />

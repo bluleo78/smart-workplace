@@ -255,6 +255,114 @@ test('위키 /ai 슬래시 메뉴 — max-height(240px) 클래스 적용으로 �
   expect(maxHeight).toBeLessThanOrEqual(240)
 })
 
+// ── 변형 툴바 (#541) ───────────────────────────────────────────────────────
+// 변형 결과 본문 — 선택영역을 이 텍스트로 교체.
+const TRANSFORM_SSE =
+  'event: delta\ndata: {"text":"다듬어진 "}\n\nevent: delta\ndata: {"text":"문장"}\n\nevent: done\ndata: {}\n\n'
+
+// 에디터에 텍스트를 넣고 전체 선택 → 변형 툴바를 띄운다.
+async function typeAndSelectAll(page: import('@playwright/test').Page, text: string) {
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type(text)
+  await page.keyboard.press('ControlOrMeta+a')
+}
+
+test('위키 변형 — 선택 후 다듬기: polish payload + 선택영역 교체', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+  let aiBody: { action: string; selection?: string } | null = null
+  await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
+    aiBody = route.request().postDataJSON() as { action: string; selection?: string }
+    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: TRANSFORM_SSE })
+  })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await typeAndSelectAll(page, '원본 문장')
+
+  // 선택 시 변형 툴바 노출 → '다듬기' 클릭.
+  await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
+  await page.getByTestId('wiki-ai-tb-polish').click()
+
+  // payload: action=polish, selection=선택 텍스트.
+  await expect.poll(() => aiBody?.action).toBe('polish')
+  expect((aiBody as { selection?: string } | null)?.selection).toBe('원본 문장')
+
+  // 선택영역이 결과로 교체됨(원본 사라지고 결과만).
+  await expect(page.locator('.ProseMirror')).toContainText('다듬어진 문장')
+  await expect(page.locator('.ProseMirror')).not.toContainText('원본 문장')
+})
+
+test('위키 변형 — 톤 드롭다운: rewrite_tone payload(prompt=격식체)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+  let aiBody: { action: string; prompt?: string } | null = null
+  await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
+    aiBody = route.request().postDataJSON() as { action: string; prompt?: string }
+    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: TRANSFORM_SSE })
+  })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await typeAndSelectAll(page, '원본 문장')
+
+  // '톤' 클릭 → 드롭다운 → '격식'.
+  await page.getByTestId('wiki-ai-tb-rewrite_tone').click()
+  await page.getByTestId('wiki-ai-tone-격식체').click()
+
+  await expect.poll(() => aiBody?.action).toBe('rewrite_tone')
+  expect((aiBody as { prompt?: string } | null)?.prompt).toBe('격식체')
+})
+
+test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'VIEWER')
+  let aiCalled = 0
+  await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
+    aiCalled += 1
+    return route.fulfill({ status: 200, contentType: 'text/event-stream', body: TRANSFORM_SSE })
+  })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await typeAndSelectAll(page, '원본 문장')
+
+  await page.waitForTimeout(500)
+  await expect(page.getByTestId('wiki-ai-toolbar')).toHaveCount(0)
+  expect(aiCalled).toBe(0)
+})
+
+test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+  await page.route('**/api/v1/wiki/pages/*/ai', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', body: TRANSFORM_SSE }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await typeAndSelectAll(page, '원본 문장')
+  // tiptap 의 history grouping 딜레이(기본 500ms)를 넘겨야 타이핑과 insertContentAt 이
+  // 별개 undo 스텝으로 분리되어 단일 Ctrl+Z 가 transform 만 되돌린다.
+  await page.waitForTimeout(600)
+
+  // 변형 툴바 → 다듬기 클릭 → 교체 확인.
+  await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
+  await page.getByTestId('wiki-ai-tb-polish').click()
+  await expect(page.locator('.ProseMirror')).toContainText('다듬어진 문장')
+  await expect(page.locator('.ProseMirror')).not.toContainText('원본 문장')
+
+  // 에디터 포커스 후 단일 undo — 원본으로 복원(변형이 1트랜잭션이므로 Ctrl+Z 1회 충분).
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(page.locator('.ProseMirror')).toContainText('원본 문장')
+  await expect(page.locator('.ProseMirror')).not.toContainText('다듬어진 문장')
+})
+
 test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', async ({
   authenticatedPage: page,
 }) => {

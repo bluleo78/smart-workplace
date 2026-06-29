@@ -9,7 +9,16 @@ import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runWikiCompose } from '../agent/run-wiki-compose.js';
 
 export const wikiComposeSchema = z.object({
-  action: z.enum(['summarize', 'draft', 'continue']),
+  action: z.enum([
+    'summarize',
+    'draft',
+    'continue',
+    'rewrite_tone',
+    'translate',
+    'expand',
+    'condense',
+    'polish',
+  ]),
   pageTitle: z.string(),
   pageBody: z.string(),
   selection: z.string().optional(),

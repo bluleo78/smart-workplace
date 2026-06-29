@@ -7,7 +7,15 @@ import { getAccessToken, refreshAccessToken } from '../api/client'
 
 export interface WikiAiStreamArgs {
   pageId: number
-  action: 'summarize' | 'draft' | 'continue'
+  action:
+    | 'summarize'
+    | 'draft'
+    | 'continue'
+    | 'rewrite_tone'
+    | 'translate'
+    | 'expand'
+    | 'condense'
+    | 'polish'
   prompt?: string
   selection?: string
   // 토큰 델타 1개 — 커서 위치에 즉시 삽입.

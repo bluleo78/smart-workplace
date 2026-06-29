@@ -3,7 +3,15 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
-export type WikiAiAction = 'summarize' | 'draft' | 'continue'
+export type WikiAiAction =
+  | 'summarize'
+  | 'draft'
+  | 'continue'
+  | 'rewrite_tone'
+  | 'translate'
+  | 'expand'
+  | 'condense'
+  | 'polish'
 
 export interface WikiSlashItem {
   key: WikiAiAction

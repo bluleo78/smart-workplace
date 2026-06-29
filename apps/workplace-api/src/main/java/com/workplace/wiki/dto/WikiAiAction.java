@@ -11,7 +11,13 @@ import com.fasterxml.jackson.annotation.JsonValue;
 public enum WikiAiAction {
   SUMMARIZE("summarize"),
   DRAFT("draft"),
-  CONTINUE("continue");
+  CONTINUE("continue"),
+  // 변형 계열(선택영역 제자리 교체) — 톤 변경/번역/확장/축약/다듬기.
+  REWRITE_TONE("rewrite_tone"),
+  TRANSLATE("translate"),
+  EXPAND("expand"),
+  CONDENSE("condense"),
+  POLISH("polish");
 
   private final String wire;
 
