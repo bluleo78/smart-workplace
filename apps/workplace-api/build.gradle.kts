@@ -63,6 +63,10 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // pre-commit 이 변경분 기반으로 --tests 필터를 넘길 때, 매칭 테스트가 없어도 커밋이
+    // 깨지지 않도록 한다(누락분은 pre-push 의 필터 없는 전체 test 가 잡는다).
+    // 필터가 없는 전체 실행(pre-push)에는 영향 없음.
+    filter { isFailOnNoMatchingTests = false }
     // JDK 25 + Mockito inline mock-maker + ByteBuddy 호환을 위한 JVM 옵션
     jvmArgs(
         "--add-opens", "java.base/java.lang=ALL-UNNAMED",

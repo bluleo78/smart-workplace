@@ -77,14 +77,71 @@ else
   echo "[pre-commit] workplace-web 변경 없음 — E2E skip (gradle 단계에서 회귀 검증)"
 fi
 
-# 7) Gradle — 모든 코드 변경 케이스에서 실행. build-cache 로 변경 없으면 즉시 통과.
-#    변경된 Java 파일이 있으면 spotlessCheck 로 Google Java Format 드리프트를 커밋 단계에서 차단
-#    (test 는 spotless 에 의존하지 않아 포맷 누락이 build/CI 까지 새던 문제 — 실패 시 `./gradlew :spotlessApply` 안내).
-[ -n "$PRECOMMIT_DRY_RUN" ] && { echo "[pre-commit][dry-run] gradle test skip"; exit 0; }
-JAVA_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-api/src/(main|test)/java/.*\.java$' || true)
-cd apps/workplace-api
-if [ -n "$JAVA_CHANGED" ]; then
-  ./gradlew spotlessCheck test -x generateJooq --build-cache --configuration-cache
-else
-  ./gradlew test -x generateJooq --build-cache --configuration-cache
+# 7) Gradle — 변경분 기반 선택 실행 (타임아웃 회피). 풀 회귀는 pre-push 가 담당.
+#    - 변경된 Java 에서 실행할 테스트 클래스를 도출:
+#        · 테스트 파일 변경 → 그 클래스 자신(--tests "*Xxx")
+#        · 메인 파일 변경   → 이름 규칙(Foo*Test/Foo*Tests/Foo*IT) 매칭 테스트를 파일시스템에서 검색
+#    - 매칭 테스트 있음 → spotlessCheck + 해당 --tests 만 실행(빠른 피드백)
+#    - Java/마이그/빌드 변경됐으나 매칭 테스트 없음 → spotlessCheck + compileTestJava 만(전체 test 는 pre-push 위임)
+#    - api 변경 없음 → skip
+#    spotlessCheck 로 Google Java Format 드리프트도 커밋 단계에서 차단(실패 시 `./gradlew :spotlessApply` 안내).
+
+API_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-api/' || true)
+if [ -z "$API_CHANGED" ]; then
+  echo "[pre-commit] workplace-api 변경 없음 — gradle skip"
+  exit 0
 fi
+
+JAVA_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-api/src/(main|test)/java/.*\.java$' || true)
+
+# 변경된 Java → 실행할 테스트 --tests 패턴 누적(중복 제거)
+TEST_ARGS=""
+add_test() {
+  case " $TEST_ARGS " in
+    *" --tests \"$1\" "*) : ;;               # 이미 있음
+    *) TEST_ARGS="$TEST_ARGS --tests \"$1\"" ;;
+  esac
+}
+
+for f in $JAVA_CHANGED; do
+  base=$(basename "$f" .java)
+  case "$f" in
+    apps/workplace-api/src/test/java/*)
+      # 테스트 파일 변경 → 그 클래스 자신. 단 @Test 가 있는 구체 테스트일 때만(추상 베이스
+      # /헬퍼는 0개 매칭 → vacuous green 위험이라 제외 → compile-only 로 떨어져 pre-push 위임).
+      if grep -qE '@Test|@ParameterizedTest|@RepeatedTest|@TestFactory' "$f" 2>/dev/null; then
+        add_test "*$base"
+      fi
+      ;;
+    apps/workplace-api/src/main/java/*)
+      # 메인 파일 변경 → 이름 규칙 매칭 테스트를 파일시스템에서 검색(없으면 추가 안 함 → No tests found 회피)
+      while IFS= read -r tf; do
+        [ -n "$tf" ] || continue
+        add_test "*$(basename "$tf" .java)"
+      done <<EOF
+$(find apps/workplace-api/src/test/java -type f \( -name "${base}*Test.java" -o -name "${base}*Tests.java" -o -name "${base}*IT.java" \) 2>/dev/null)
+EOF
+      ;;
+  esac
+done
+
+cd apps/workplace-api
+GRADLE_BASE="-x generateJooq --build-cache --configuration-cache"
+if [ -n "$TEST_ARGS" ]; then
+  CMD="./gradlew spotlessCheck test$TEST_ARGS $GRADLE_BASE"
+  echo "[pre-commit] 변경분 한정 gradle:$TEST_ARGS"
+elif [ -n "$JAVA_CHANGED" ]; then
+  CMD="./gradlew spotlessCheck compileTestJava $GRADLE_BASE"
+  echo "[pre-commit] 매칭 테스트 없음(이름 규칙 밖) — compile/format 만, 전체 test 는 pre-push 위임"
+else
+  # Java 변경이 없으므로 spotlessCheck(자바 포맷)는 무의미 — compile 만(관련 없는 기존 드리프트로
+  # 마이그/설정-only 커밋이 깨지지 않게). 전체 test 는 pre-push 위임.
+  CMD="./gradlew compileTestJava $GRADLE_BASE"
+  echo "[pre-commit] api 비-Java 변경(마이그/설정 등) — compile 만, 전체 test 는 pre-push 위임"
+fi
+
+if [ -n "$PRECOMMIT_DRY_RUN" ]; then
+  echo "[pre-commit][dry-run] $CMD"
+  exit 0
+fi
+eval "$CMD"
