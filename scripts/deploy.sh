@@ -5,6 +5,10 @@ set -euo pipefail
 # 이미지를 multiplatform 으로 빌드해 ghcr.io 에 푸시하고, 운영 디렉터리에서 pull+재기동한다.
 # Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|worker|all]
 # all = api + ai-agent + web + admin + worker (5개 앱 전부, DB 는 표준 postgres:16 이라 빌드 대상 아님)
+#
+# 환경변수:
+#   BUILD_ONLY=1 — 빌드+푸시만 수행하고 배포(pull+재기동)·검증 단계는 건너뛴다.
+#                  (ghcr 이미지만 갱신하고 운영 컨테이너는 그대로 둘 때)
 
 REGISTRY="ghcr.io/bluleo78/smart-workplace"
 PROD_DIR="$HOME/prod/smart-workplace"
@@ -105,6 +109,12 @@ ensure_builder
 for app in "${APPS[@]}"; do
   build_and_push "$app"
 done
+
+if [ -n "${BUILD_ONLY:-}" ]; then
+  log "=== BUILD_ONLY=1 — 배포·검증 단계 건너뜀 (ghcr 이미지만 갱신) ==="
+  log "=== Build + Push Complete ==="
+  exit 0
+fi
 
 # 2. Deploy
 log "=== Deploy Phase ==="
