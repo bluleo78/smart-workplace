@@ -42,11 +42,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 /**
  * Task 6: 스케줄러 두 패스(T1 객관적·T2 개인) 통합 테스트.
  *
- * <p>backfill 은 실제 빈 사용 — mailClient(LLM I/O)만 Mock. 공통/개인 비서를 직접 시드해 T1/T2 분기를 실제 DB 에 기록하는지
- * 확인한다.
+ * <p>backfill 은 실제 빈 사용 — mailClient(LLM I/O)만 Mock. 공통/개인 비서를 직접 시드해 T1/T2 분기를 실제 DB 에 기록하는지 확인한다.
  *
- * <p>비-@Transactional: 스케줄러 내부 트랜잭션(TenantScopedRunner·TransactionTemplate)이 분리 커밋해야 RLS GUC 가
- * 올바르게 주입된다. 시드 데이터는 auto-commit → 스케줄러가 별도 커넥션에서 읽을 수 있다.
+ * <p>비-@Transactional: 스케줄러 내부 트랜잭션(TenantScopedRunner·TransactionTemplate)이 분리 커밋해야 RLS GUC 가 올바르게
+ * 주입된다. 시드 데이터는 auto-commit → 스케줄러가 별도 커넥션에서 읽을 수 있다.
  *
  * <p>테스트 풀 커넥션은 connection-init-sql 로 세션 GUC=1 이 기본 설정돼 있어 tenant 1 작업에 별도 GUC 세팅 불필요.
  */
@@ -94,8 +93,10 @@ class MailSummarySchedulerTest extends IntegrationTestBase {
     // 두 사용자(AI ON/OFF) + 각각의 메일 계정 생성 — 세션 GUC=1 이므로 tenant#1 자동.
     long userEnabled = TestFixtures.createHuman(dsl);
     long userDisabled = TestFixtures.createHuman(dsl);
-    accountAiEnabled = createAccount(userEnabled, "sched2-on-" + System.nanoTime() + "@t.local", true);
-    accountAiDisabled = createAccount(userDisabled, "sched2-off-" + System.nanoTime() + "@t.local", false);
+    accountAiEnabled =
+        createAccount(userEnabled, "sched2-on-" + System.nanoTime() + "@t.local", true);
+    accountAiDisabled =
+        createAccount(userDisabled, "sched2-off-" + System.nanoTime() + "@t.local", false);
     accountOwner.put(accountAiEnabled, userEnabled);
     accountOwner.put(accountAiDisabled, userDisabled);
     usersToDelete.add(userEnabled);
@@ -130,8 +131,7 @@ class MailSummarySchedulerTest extends IntegrationTestBase {
           // ai_agent_credential: user_id(agent) + created_by(admin) 양방향 FK.
           for (long id : usersToDelete) {
             dsl.deleteFrom(AI_AGENT_CREDENTIAL)
-                .where(
-                    AI_AGENT_CREDENTIAL.USER_ID.eq(id).or(AI_AGENT_CREDENTIAL.CREATED_BY.eq(id)))
+                .where(AI_AGENT_CREDENTIAL.USER_ID.eq(id).or(AI_AGENT_CREDENTIAL.CREATED_BY.eq(id)))
                 .execute();
           }
           // audit_log.user_id FK.

@@ -30,8 +30,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * 패스가 자기 테넌트의 계정만 본다(상대 테넌트 PHANTOM 격리)는 것을 단언한다.
  *
  * <p>두 테넌트(1, tid2)에 각각 AI ON 계정과 공통 비서를 시드하고 {@code runOnce()} 1회 → backfill spy 가 (userA,
- * accountA) 와 (userB, accountB) 를 각각 정확히 1회 받았는지 검증한다. 만약 테넌트 A 수집이 상대 테넌트 계정을 누수했다면 backfill
- * 이 같은 (userB, accountB) 를 2회 받아 {@code times(1)} 이 깨진다(격리 위반 적발).
+ * accountA) 와 (userB, accountB) 를 각각 정확히 1회 받았는지 검증한다. 만약 테넌트 A 수집이 상대 테넌트 계정을 누수했다면 backfill 이 같은
+ * (userB, accountB) 를 2회 받아 {@code times(1)} 이 깨진다(격리 위반 적발).
  *
  * <p>backfill 은 mock — 실제 IMAP/LLM I/O 를 차단하고 호출 인자(userId, accountId)만 수집한다.
  *
@@ -137,8 +137,8 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
   /**
    * 현재 세션 GUC 테넌트에 공통 비서를 직접 시드한다. credentialService.register() 를 피해 audit_log 의존 없이 최소 행만 삽입.
    *
-   * <p>resolveWorkspaceOrEmpty() 는 workspace_assistant.agent_user_id + ai_agent_credential.revoked_at
-   * IS NULL 을 확인한다.
+   * <p>resolveWorkspaceOrEmpty() 는 workspace_assistant.agent_user_id +
+   * ai_agent_credential.revoked_at IS NULL 을 확인한다.
    *
    * @param adminId created_by 참조용 사용자 ID
    * @return 생성된 AGENT user ID (정리 대상 추적용)

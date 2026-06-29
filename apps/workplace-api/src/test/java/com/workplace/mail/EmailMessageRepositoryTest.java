@@ -160,8 +160,8 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
   }
 
   /**
-   * Task3: listRecentUnreadUnpersonalizedIds — 개인요약 완료(b)는 제외, 공통요약만 있는 미개인화(a)는 포함.
-   * 술어가 envelope 기준임을 검증(content.ai_summary 와 독립).
+   * Task3: listRecentUnreadUnpersonalizedIds — 개인요약 완료(b)는 제외, 공통요약만 있는 미개인화(a)는 포함. 술어가 envelope
+   * 기준임을 검증(content.ai_summary 와 독립).
    */
   @Test
   void listRecentUnreadUnpersonalizedIds_excludesAlreadyPersonalized() {

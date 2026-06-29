@@ -626,8 +626,8 @@ public class EmailMessageRepository {
   /**
    * T2 개인 요약 대상 — INBOX 안읽음 중 개인 요약 미생성(email_message.ai_personal_summary IS NULL) 최근 limit건.
    *
-   * <p>⚠️ listRecentUnreadUnsummarizedIds(공통 content.ai_summary 기준)와 별개다 — 공통 요약이 이미 있어도
-   * 개인 요약이 없으면 포함해야 하므로 envelope 컬럼으로 스캔한다.
+   * <p>⚠️ listRecentUnreadUnsummarizedIds(공통 content.ai_summary 기준)와 별개다 — 공통 요약이 이미 있어도 개인 요약이 없으면
+   * 포함해야 하므로 envelope 컬럼으로 스캔한다.
    */
   public List<Long> listRecentUnreadUnpersonalizedIds(long accountId, int limit) {
     return dsl.select(EMAIL_MESSAGE.ID)

@@ -195,9 +195,7 @@ class MailTwoTierSummaryTest extends IntegrationTestBase {
         .isNull();
   }
 
-  /**
-   * LLM 응답이 빈 문자열일 때 → 저장하지 않음(무한 재시도 방지). 다음 호출 시 같은 skip 조건으로 LLM 재호출하지 않는다.
-   */
+  /** LLM 응답이 빈 문자열일 때 → 저장하지 않음(무한 재시도 방지). 다음 호출 시 같은 skip 조건으로 LLM 재호출하지 않는다. */
   @Test
   void ensureObjectiveSummary_doesNotPersist_whenLlmReturnsBlank() {
     seedWorkspaceAssistantWithToken();
