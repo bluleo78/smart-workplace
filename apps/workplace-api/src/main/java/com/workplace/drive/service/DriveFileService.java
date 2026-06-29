@@ -2,6 +2,7 @@ package com.workplace.drive.service;
 
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.drive.dto.DriveFileResponse;
+import com.workplace.drive.dto.FileSummaryResponse;
 import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
@@ -47,6 +48,9 @@ public class DriveFileService {
 
   /** 파일 버전 레포지토리 — 동명 업로드 자동 버전화(#79). */
   private final com.workplace.drive.repository.DriveFileVersionRepository versions;
+
+  /** 파일 콘텐츠 요약 읽기(#526) — file_extraction.summary 조회. */
+  private final com.workplace.drive.repository.DriveFileSummaryRepository summaries;
 
   /**
    * 업로드 → 쿼터 검사(advisory lock) → file core 저장 → 영구화 → drive_file 바인딩. 동명 활성 파일이 있으면 새 버전으로 흡수(#79),
@@ -138,6 +142,18 @@ public class DriveFileService {
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "VIEWER");
     return fileUpload.getFileContentTrusted(row.fileId());
+  }
+
+  /**
+   * 파일 콘텐츠 요약 조회(#526). drive 권한(VIEWER+)으로 인가 후 file_extraction 신뢰 read. 접근 게이트는 download 와
+   * 동일(스페이스 멤버십). 트랜잭션 안에서 호출되어 테넌트 GUC 가 주입된다.
+   */
+  @Transactional(readOnly = true)
+  public FileSummaryResponse fileSummary(long callerId, long driveFileId) {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    return summaries.findSummary(row.fileId());
   }
 
   /**

@@ -153,6 +153,12 @@ export const driveApi = {
   copyFolder: (folderId: number, targetParentId: number | null) =>
     client.post<DriveFolder>(`/drive/folders/${folderId}/copy`, { targetParentId }),
 
+  // #526: 파일 콘텐츠 요약(파이프라인 저장본) 조회.
+  getFileSummary: (driveFileId: number) =>
+    client.get<{ summary: string | null; status: string | null }>(
+      `/drive/files/${driveFileId}/summary`,
+    ),
+
   // #82: 벌크 이동 — 선택된 파일·폴더를 targetFolderId(null=루트) 로 일괄 이동.
   bulkMove: (spaceId: number, body: BulkMoveBody) =>
     client.patch<void>(`/drive/spaces/${spaceId}/items/move`, body),

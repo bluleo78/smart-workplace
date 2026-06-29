@@ -2,6 +2,7 @@ package com.workplace.drive.controller;
 
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveFileVersionResponse;
+import com.workplace.drive.dto.FileSummaryResponse;
 import com.workplace.drive.dto.TargetFolderRequest;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
@@ -102,6 +103,13 @@ public class DriveFileController {
       @RequestBody TargetFolderRequest req) {
     fileService.move(callerId, driveFileId, req.targetFolderId());
     return ResponseEntity.noContent().build();
+  }
+
+  /** 파일 콘텐츠 요약(#526) — 파이프라인이 저장한 요약·상태 조회. download 와 동일 게이트. */
+  @GetMapping("/files/{id}/summary")
+  public ResponseEntity<FileSummaryResponse> summary(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
+    return ResponseEntity.ok(fileService.fileSummary(callerId, driveFileId));
   }
 
   /** 버전 이력 목록(#79). */
