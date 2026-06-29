@@ -340,7 +340,7 @@ export function buildTools(
   const listIssuesTool: McpTool = {
     name: 'list_issues',
     description:
-      '이슈 목록을 조회해 JSON 배열로 반환합니다. assignee 를 생략하면 내 담당("me") 이슈를, status/priority/projectKey/q/dueTo 등으로 좁힙니다. 각 항목은 issueKey·title·status·priority·assignees·dueDate 를 포함하며, 상세가 필요하면 issueKey 로 get_issue_detail 을 호출하세요.',
+      '이슈 목록을 JSON 배열로 반환합니다. **네가 이슈 내용을 직접 읽고 분석/요약/판단해서 답해야 할 때만** 사용하세요(예: "이번 주 뭐부터 할까?", "내 업무량 어때?"). 단순히 사용자가 목록을 "보고 싶어"하면(보여줘/찾아줘/뭐 있어/목록) 이 도구 대신 show_issue_list 로 화면에 표시하세요. assignee 생략 시 내 담당("me"), status/priority/projectKey/q/dueTo 등으로 좁힙니다. 각 항목은 issueKey·title·status·priority·assignees·dueDate 를 포함하며, 상세는 issueKey 로 get_issue_detail 을 호출하세요.',
     inputSchema: listIssuesInput,
     async handler(args) {
       const params = listIssuesInput.parse(args);
@@ -562,7 +562,7 @@ export function buildTools(
       {
         name: 'show_issue_list',
         description:
-          '필터(params)에 맞는 이슈 목록을 화면에 표시합니다. assignee="me" 로 내 담당만, priority/status/dueTo 등으로 좁힙니다.',
+          '필터(params)에 맞는 이슈 목록을 화면에 카드로 표시합니다. **사용자가 이슈 목록을 보고 싶어할 때의 기본 도구**입니다("내 이슈 보여줘", "급한 거 뭐 있어", "이번 주 마감 이슈", "담당자 없는 이슈"). 건수·마감 초과 집계는 화면이 자동 계산하므로 너는 건수를 직접 세지 말고 표시만 하면 됩니다. assignee="me" 내 담당, assignee="null" 담당 없음, reporter="me" 내가 만든, priority/status/dueFrom/dueTo/blocked 등으로 좁힙니다.',
         inputSchema: showIssueListInput,
         handler: displayed,
       },

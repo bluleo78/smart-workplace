@@ -38,32 +38,40 @@ cd apps/workplace-api
 pnpm dev
 ```
 
-### 2. Eval 실행
+### 2. 대행 AGENT / 사용자 확인
+
+eval 은 ai-agent `/ai/chat` 를 직접 호출하므로 **OAuth 토큰이 등록된 AGENT** 와 유효한 사용자 ID 가 필요하다.
+
+```bash
+# 활성 자격증명 보유 AGENT 조회 (dev DB)
+docker exec smart-workplace-db-1 psql -U app -d workplace -t -c \
+  "SELECT u.id, u.username FROM \"user\" u JOIN ai_agent_credential c ON c.user_id=u.id AND c.revoked_at IS NULL WHERE u.kind='AGENT';"
+# 모델은 assistant_config.model 참고 (예: agent 2 → claude-sonnet-4-6)
+```
+
+개인비서(`__assistant_u{userId}`)와 그 소유자 사용자를 짝지어 쓰는 것이 자연스럽다(예: user 1 ↔ agent 2).
+
+### 3. Eval 실행
 
 ```bash
 cd apps/workplace-ai-agent
 
-# 기본값 사용 (ai-agent:7070 로컬, 테스트 토큰)
-EVAL_TOKEN=test node eval/run-text-to-filter-eval.mjs
-
-# 또는 명시적 URL/토큰
-EVAL_BASE_URL=http://localhost:7070/ai/chat EVAL_TOKEN=<bearer-token> \
-  node eval/run-text-to-filter-eval.mjs
-
-# API 거쳐 호출
-EVAL_BASE_URL=http://localhost:9090/api/v1/ai/chat EVAL_TOKEN=<user-jwt> \
+# 인증은 Internal 스킴(INTERNAL_SERVICE_TOKEN, .env.local 기본 changeme-local)
+EVAL_TOKEN=changeme-local EVAL_AGENT_ID=2 EVAL_USER_ID=1 EVAL_MODEL=claude-sonnet-4-6 \
   node eval/run-text-to-filter-eval.mjs
 ```
 
-### 3. 선택 환경변수
+### 4. 선택 환경변수
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `EVAL_BASE_URL` | `http://localhost:7070/ai/chat` | ai-agent chat 엔드포인트 |
-| `EVAL_TOKEN` | _(필수)_ | Bearer 토큰 |
-| `EVAL_AGENT_ID` | `1` | 대행 에이전트 ID |
+| `EVAL_TOKEN` | _(필수)_ | `Authorization: Internal <token>` 값(INTERNAL_SERVICE_TOKEN) |
+| `EVAL_AGENT_ID` | `1` | 대행 에이전트 ID (OAuth 자격 필요) |
 | `EVAL_USER_ID` | `1` | 요청 사용자 ID |
-| `EVAL_MODEL` | `claude-3-5-sonnet-20241022` | LLM 모델 |
+| `EVAL_MODEL` | `claude-3-5-sonnet-20241022` | LLM 모델 (실제 운영 기본은 `claude-sonnet-4-6`) |
+| `EVAL_MAX_TURNS` | `6` | 도구 호출(turn 1) 후 최종 응답까지 완료하려면 ≥2 필수 |
+| `EVAL_GAP_MS` | `3000` | 케이스 간 간격. 너무 짧으면(≤1s) 구독 토큰 rate-limit 으로 도구 호출이 간헐 누락돼 위양성 발생 |
 
 ## 판정 기준
 
@@ -86,10 +94,12 @@ eval 실행 중 FAIL 이 나면:
    # 특정 케이스만 디버그 (아래 runner 수정)
    ```
 
-2. **파라미터 검사** — 실제 LLM 출력의 params 비교
+2. **파라미터 검사** — 실제 LLM 출력의 params 비교(runner 가 FAIL 시 자동 출력)
    ```
-   실제 params: {"assignee":"me","priority":["HIGH","MEDIUM"]}
+   실제 params: {"assignee":"me","priority":["HIGH"]}
    ```
+   - "위젯 없음" = LLM 이 show_issue_list 대신 list_issues 를 부르거나 prose 로만 답함.
+     도구 description/프롬프트의 "보여줘 → show_issue_list" 유도가 약하거나 rate-limit(EVAL_GAP_MS ↑) 의심.
 
 3. **프롬프트 재검토** — assistant-system-prompt.ts 의 필터 지시 확인
    - `priority` 는 `LOW`/`MID`/`HIGH` 만 (CRITICAL·MEDIUM 없음)

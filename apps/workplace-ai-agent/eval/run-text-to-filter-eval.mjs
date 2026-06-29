@@ -28,6 +28,9 @@ const TOKEN = process.env.EVAL_TOKEN;
 const AGENT_ID = Number(process.env.EVAL_AGENT_ID ?? '1');
 const USER_ID = Number(process.env.EVAL_USER_ID ?? '1');
 const MODEL = process.env.EVAL_MODEL ?? 'claude-3-5-sonnet-20241022';
+// 도구 호출(turn 1) 후 최종 응답(turn 2+)까지 완료하려면 maxTurns ≥ 2 필요.
+// maxTurns:1 이면 도구 호출 직후 chat_failed 로 끊겨 done 이벤트가 안 옴.
+const MAX_TURNS = Number(process.env.EVAL_MAX_TURNS ?? '6');
 
 if (!TOKEN) {
   console.error('❌ EVAL_TOKEN 환경변수 필수');
@@ -45,8 +48,10 @@ console.log(`\n총 ${spec.cases.length}개 케이스\n`);
  */
 function thisWeekRange() {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
-  const d = new Date(today + 'T00:00:00+09:00');
-  const dow = (d.getUTCDay() + 6) % 7; // 월=0, 일=6 → 월=0, 일=6
+  // Seoul 달력일을 그대로 쓰려면 UTC 자정으로 파싱한다(+09:00 으로 파싱하면 UTC 로 전날 시프트돼
+  // getUTCDay 가 하루 밀려 전주를 계산하는 버그가 생긴다).
+  const d = new Date(today + 'T00:00:00Z');
+  const dow = (d.getUTCDay() + 6) % 7; // 월=0 … 일=6
   const mon = new Date(d);
   mon.setUTCDate(d.getUTCDate() - dow);
   const sun = new Date(mon);
@@ -65,15 +70,15 @@ async function ask(query) {
     userId: USER_ID,
     model: MODEL,
     thinkingDepth: 'NONE',
-    maxTurns: 1,
-    timeoutMs: 30000,
+    maxTurns: MAX_TURNS,
+    timeoutMs: 60000,
   });
 
   const res = await fetch(CHAT_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${TOKEN}`,
+      Authorization: `Internal ${TOKEN}`,
     },
     body,
   });
@@ -130,15 +135,17 @@ function checkExpect(expectObj, got, week) {
   // 1. degradation 케이스 — 필터 최소화 + 안내 prose
   if (expectObj.degraded) {
     const hasNoDateFilter = !params.dueFrom && !params.dueTo;
-    const hasExplanation = /지원하지\s*않/.test(got.prose);
+    // 미지원 차원을 정직하게 안내했는지 — 동의어 허용(지원하지 않/미지원/불가/어렵).
+    const hasExplanation = /지원(하지\s*않|되지\s*않|안\s*[함됨됩]|불가)|미지원|할\s*수\s*없|어렵습니다/.test(got.prose);
     const fieldCount = Object.keys(params).length;
 
-    if (hasNoDateFilter && (hasExplanation || fieldCount === 0)) {
-      return { pass: true, detail: '필터 비움 + 안내 정상' };
+    // vacuous 통과 방지: 위젯 없음만으로는 불충분 — 반드시 안내 prose 가 있어야 한다.
+    if (hasNoDateFilter && hasExplanation) {
+      return { pass: true, detail: `정직한 거절 안내 확인(필드 ${fieldCount}개)` };
     }
     return {
       pass: false,
-      detail: `degradation 실패: hasNoDateFilter=${hasNoDateFilter}, hasExplanation=${hasExplanation}, fieldCount=${fieldCount}`,
+      detail: `degradation 실패: hasNoDateFilter=${hasNoDateFilter}, hasExplanation=${hasExplanation}, fieldCount=${fieldCount}, prose="${got.prose.slice(0, 80)}"`,
     };
   }
 
@@ -155,6 +162,21 @@ function checkExpect(expectObj, got, week) {
         failures.push(`필드 누락: dueFrom=${dueFrom}, dueTo=${dueTo}`);
       } else if (dueFrom < week.from || dueTo > week.to) {
         failures.push(`범위 오류: dueFrom=${dueFrom}, dueTo=${dueTo} ∉ [${week.from}, ${week.to}]`);
+      }
+      continue;
+    }
+
+    // status 는 CSV 문자열 필드(z.string) — 토큰 집합으로 순서 무관 비교.
+    if (key === 'status') {
+      const toSet = (v) =>
+        (Array.isArray(v) ? v : String(v ?? '').split(','))
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .sort();
+      const expSet = toSet(expectedValue);
+      const actSet = toSet(params[key]);
+      if (JSON.stringify(expSet) !== JSON.stringify(actSet)) {
+        failures.push(`status: expected {${expSet}}, got {${actSet}}`);
       }
       continue;
     }
@@ -218,8 +240,9 @@ for (const caseObj of spec.cases) {
     failed++;
   }
 
-  // 여유(rate limiting 회피)
-  await new Promise((r) => setTimeout(r, 500));
+  // 여유(rate limiting 회피) — 구독 토큰은 빠른 연속 호출에서 간헐적으로
+  // 도구 호출을 건너뛰는 경향이 있어 케이스 간 충분히 띄운다.
+  await new Promise((r) => setTimeout(r, Number(process.env.EVAL_GAP_MS ?? '3000')));
 }
 
 console.log(`\n${'='.repeat(50)}`);
