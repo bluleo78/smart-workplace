@@ -4,7 +4,7 @@
   "private": true,
   "description": "범용 비동기 워커 (Python/FastAPI) — 파일 텍스트 추출 등. pnpm 은 dev 오케스트레이션용 래퍼만 제공하고 실제 런타임은 uv/uvicorn.",
   "scripts": {
-    "dev": "set -a; [ -f ../../.env ] && . ../../.env; set +a; export WORKER_BLOB_BASE=\"${WORKER_BLOB_BASE:-$(cd ../workplace-api && pwd)/uploads}\"; export WORKPLACE_API_BASE_URL=\"${WORKPLACE_API_BASE_URL:-http://localhost:9090}\"; export INTERNAL_SERVICE_TOKEN=\"${INTERNAL_SERVICE_TOKEN:-${WORKPLACE_AI_AGENT_TOKEN:-changeme-local}}\"; trap 'kill 0' INT TERM; uv run uvicorn app.main:app --reload --port 7080 & wait",
+    "dev": "set -a; [ -f ../../.env ] && . ../../.env; set +a; export WORKER_BLOB_BASE=\"${WORKER_BLOB_BASE:-$(cd ../workplace-api && pwd)/file-data}\"; export WORKPLACE_API_BASE_URL=\"${WORKPLACE_API_BASE_URL:-http://localhost:9090}\"; export INTERNAL_SERVICE_TOKEN=\"${INTERNAL_SERVICE_TOKEN:-${WORKPLACE_AI_AGENT_TOKEN:-changeme-local}}\"; trap 'kill 0' INT TERM; uv run uvicorn app.main:app --reload --port 7080 & wait",
     "test": "uv run pytest -q"
   }
 }
