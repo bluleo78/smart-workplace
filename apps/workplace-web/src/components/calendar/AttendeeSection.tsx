@@ -66,7 +66,8 @@ export function AttendeeSection({
   // 참석자 선택 핸들러 — 중복 방지.
   // 편집 모드(onInvite 있음): 즉시 invite API 호출. 생성 모드: 로컬 state 업데이트(이름+종류 포함).
   const handleSelect = (user: UserResponse) => {
-    const existingIds = attendees?.map((a) => a.userId) ?? selectedMembers.map((m) => m.id)
+    // 외부 참석자(userId=null)는 피커에서 선택 불가 — 내부 userId 만 비교
+    const existingIds = attendees?.map((a) => a.userId).filter((id): id is number => id != null) ?? selectedMembers.map((m) => m.id)
     if (existingIds.includes(user.id)) return
     if (onInvite) {
       onInvite(user.id)
@@ -75,8 +76,8 @@ export function AttendeeSection({
     }
   }
 
-  // 기존 멤버 id Set — 팝오버가 "이미 선택됨" 표시를 위해 사용
-  const existingSet = new Set(attendees?.map((a) => a.userId) ?? selectedMembers.map((m) => m.id))
+  // 기존 멤버 id Set — 팝오버가 "이미 선택됨" 표시를 위해 사용. 외부 참석자(null) 는 제외.
+  const existingSet = new Set(attendees?.map((a) => a.userId).filter((id): id is number => id != null) ?? selectedMembers.map((m) => m.id))
 
   // 주최자를 먼저 정렬
   const sortedAttendees = attendees
@@ -94,29 +95,33 @@ export function AttendeeSection({
       {/* 참석자 칩 목록 */}
       {sortedAttendees && sortedAttendees.length > 0 && (
         <div className="flex flex-wrap gap-1.5" data-testid="attendee-chips">
-          {sortedAttendees.map((a) => (
-            <span
-              key={a.userId}
-              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
-              data-testid={`attendee-chip-${a.userId}`}
-            >
-              <span>{a.name}</span>
-              {a.kind === 'AGENT' && <AgentBadge size="xs" />}
-              <RsvpIcon status={a.rsvpStatus} />
-              {/* 주최자가 아닌 참석자는 제거 가능 */}
-              {a.role !== 'ORGANIZER' && onRemove && (
-                <button
-                  type="button"
-                  className="ml-0.5 rounded-full hover:text-destructive"
-                  onClick={() => onRemove(a.userId)}
-                  aria-label={`${a.name} 제거`}
-                  data-testid={`attendee-remove-${a.userId}`}
+          {sortedAttendees.map((a) => {
+              const chipKey = a.userId != null ? `u-${a.userId}` : `e-${a.externalEmail}`
+              const removeId = a.userId // 외부 참석자는 제거 대상 아님(null)
+              return (
+                <span
+                  key={chipKey}
+                  className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+                  data-testid={`attendee-chip-${chipKey}`}
                 >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </span>
-          ))}
+                  <span>{a.kind === 'EXTERNAL' ? (a.externalEmail ?? a.name) : a.name}</span>
+                  {a.kind === 'AGENT' && <AgentBadge size="xs" />}
+                  <RsvpIcon status={a.rsvpStatus} />
+                  {/* 주최자·외부 참석자가 아닌 경우에만 제거 버튼 표시 */}
+                  {a.role !== 'ORGANIZER' && a.kind !== 'EXTERNAL' && onRemove && removeId != null && (
+                    <button
+                      type="button"
+                      className="ml-0.5 rounded-full hover:text-destructive"
+                      onClick={() => onRemove(removeId)}
+                      aria-label={`${a.name} 제거`}
+                      data-testid={`attendee-remove-${removeId}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              )
+            })}
         </div>
       )}
 

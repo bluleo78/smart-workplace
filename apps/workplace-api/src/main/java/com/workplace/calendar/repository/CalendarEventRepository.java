@@ -259,7 +259,9 @@ public class CalendarEventRepository {
         r.get(CALENDAR_EVENT.UPDATED_AT),
         0, // attendeeCount — 서비스 계층 enrich 전 기본값
         null, // myRsvpStatus — 서비스 계층 enrich 전 기본값
-        null); // attendees — 서비스 계층 enrich 전 기본값
+        null, // attendees — 서비스 계층 enrich 전 기본값
+        false, // external — 서비스 계층 enrichForGet 에서 채워짐
+        null); // myRole — 서비스 계층 enrichForGet 에서 채워짐
   }
 
   private static String nullIfBlank(String s) {

@@ -447,6 +447,25 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
   }
 
+  /** 비주최자의 외부 일정 참석자 변경 시도 → 409. */
+  @ExceptionHandler(
+      com.workplace.calendar.exception.ExternalEventAttendeeNotOrganizerException.class)
+  public ResponseEntity<ErrorResponse> handleExternalEventAttendeeNotOrganizer(
+      com.workplace.calendar.exception.ExternalEventAttendeeNotOrganizerException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
+  /** 외부 동기화 일정 인앱 RSVP 시도 → 409. */
+  @ExceptionHandler(com.workplace.calendar.exception.ExternalEventRsvpNotSupportedException.class)
+  public ResponseEntity<ErrorResponse> handleExternalEventRsvpNotSupported(
+      com.workplace.calendar.exception.ExternalEventRsvpNotSupportedException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   /** 외부 동기화 일정 캘린더 이동 미지원 → 422. */
   @ExceptionHandler(com.workplace.calendar.exception.ExternalEventMoveNotSupportedException.class)
   public ResponseEntity<ErrorResponse> handleExternalEventMove(

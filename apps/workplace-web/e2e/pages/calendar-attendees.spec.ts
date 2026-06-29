@@ -18,6 +18,7 @@ const ATTENDEE_USER: Attendee = {
   role: 'ATTENDEE',
   rsvpStatus: 'NEEDS_ACTION',
   invitedByUserId: 1,
+  externalEmail: null,
 }
 
 const AGENT_ATTENDEE: Attendee = {
@@ -28,6 +29,7 @@ const AGENT_ATTENDEE: Attendee = {
   role: 'ATTENDEE',
   rsvpStatus: 'ACCEPTED',
   invitedByUserId: 1,
+  externalEmail: null,
 }
 
 const ORGANIZER_ATTENDEE: Attendee = {
@@ -38,6 +40,7 @@ const ORGANIZER_ATTENDEE: Attendee = {
   role: 'ORGANIZER',
   rsvpStatus: 'ACCEPTED',
   invitedByUserId: null,
+  externalEmail: null,
 }
 
 /** 단일 이벤트 + 참석자 스텁(GET /events/{id}) */
@@ -47,6 +50,8 @@ function makeDetailEvent(over: Partial<CalendarEvent> = {}): CalendarEvent {
     title: '참석자 테스트 일정',
     attendeeCount: 3,
     myRsvpStatus: 'NEEDS_ACTION',
+    // 기본적으로 현재 사용자가 ORGANIZER — 참석자 편집 게이팅 통과 (#547)
+    myRole: 'ORGANIZER',
     attendees: [ORGANIZER_ATTENDEE, ATTENDEE_USER, AGENT_ATTENDEE],
     ...over,
   })
@@ -263,8 +268,8 @@ test(
     // 참석자 칩 섹션 표시 확인
     await expect(page.getByTestId('attendee-chips')).toBeVisible()
 
-    // AGENT 참석자에 뱃지 표시 확인
-    const agentChip = page.getByTestId('attendee-chip-99')
+    // AGENT 참석자에 뱃지 표시 확인 (chipKey = u-{userId})
+    const agentChip = page.getByTestId('attendee-chip-u-99')
     await expect(agentChip).toBeVisible()
     await expect(agentChip.getByTestId('agent-badge')).toBeVisible()
   },
@@ -285,6 +290,7 @@ test(
       role: 'ATTENDEE',
       rsvpStatus: 'NEEDS_ACTION',
       invitedByUserId: null,
+      externalEmail: null,
     }
     const store: CalendarEvent[] = [calendarEvent({ id: 100, title: 'RSVP 테스트' })]
     const detail = makeDetailEvent({
@@ -380,6 +386,77 @@ test(
     await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
 
     // 주최자이므로 RSVP 컨트롤 없음
+    await expect(page.getByTestId('rsvp-controls')).toHaveCount(0)
+  },
+)
+
+test(
+  '외부 참석자 이메일이 칩으로 표시된다 (#547)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const EXTERNAL_ATTENDEE: Attendee = {
+      userId: null,
+      username: null,
+      name: 'Client Lee',
+      kind: 'EXTERNAL',
+      role: 'ATTENDEE',
+      rsvpStatus: 'ACCEPTED',
+      invitedByUserId: null,
+      externalEmail: 'client@partner.com',
+    }
+
+    const store: CalendarEvent[] = [calendarEvent({ id: 100, title: '외부 참석자 일정' })]
+    const detail = makeDetailEvent({
+      attendees: [ORGANIZER_ATTENDEE, EXTERNAL_ATTENDEE],
+    })
+    await stubCalendar(page, store, detail)
+
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-event-100').first().click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 외부 참석자 칩에 이메일이 표시되어야 함
+    const externalChip = page.getByTestId('attendee-chip-e-client@partner.com')
+    await expect(externalChip).toBeVisible()
+    await expect(externalChip).toContainText('client@partner.com')
+
+    // 외부 참석자 칩에는 제거 버튼이 없어야 함
+    await expect(externalChip.locator('button')).toHaveCount(0)
+  },
+)
+
+test(
+  '외부(external) 일정에서는 RSVP 컨트롤이 노출되지 않는다 (#547)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    // 현재 사용자(id=1)는 ATTENDEE(not organizer), 외부 일정
+    const myAttendee: Attendee = {
+      userId: 1,
+      username: 'user1',
+      name: '나',
+      kind: 'HUMAN',
+      role: 'ATTENDEE',
+      rsvpStatus: 'NEEDS_ACTION',
+      invitedByUserId: null,
+      externalEmail: null,
+    }
+
+    const store: CalendarEvent[] = [calendarEvent({ id: 100, title: '외부 일정' })]
+    const detail = makeDetailEvent({
+      attendees: [{ ...ORGANIZER_ATTENDEE, userId: 10 }, myAttendee],
+      myRsvpStatus: 'NEEDS_ACTION',
+      // external=true: M365 동기화 일정 — RSVP 컨트롤 숨김
+      external: true,
+    })
+    await stubCalendar(page, store, detail)
+
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-event-100').first().click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 외부 일정이므로 RSVP 컨트롤 없음
     await expect(page.getByTestId('rsvp-controls')).toHaveCount(0)
   },
 )

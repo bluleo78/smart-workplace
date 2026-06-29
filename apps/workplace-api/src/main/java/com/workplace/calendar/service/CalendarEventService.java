@@ -6,7 +6,9 @@ import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException;
+import com.workplace.calendar.exception.ExternalEventAttendeeNotOrganizerException;
 import com.workplace.calendar.exception.ExternalEventMoveNotSupportedException;
+import com.workplace.calendar.exception.ExternalEventRsvpNotSupportedException;
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.exception.RecurringNotSupportedOnExternalCalendarException;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
@@ -19,7 +21,9 @@ import com.workplace.calendar.repository.EventAttendeeRepository.AttendeeRow;
 import com.workplace.calendar.repository.EventReminderRepository;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
+import com.workplace.mail.outbound.GraphCalendarClient.GraphAttendeeWrite;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphDateTime;
+import com.workplace.mail.outbound.GraphCalendarClient.GraphEmail;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEventWrite;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphItemBody;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphLocation;
@@ -124,10 +128,14 @@ public class CalendarEventService {
       if (req.recurrenceRule() != null && !req.recurrenceRule().isBlank()) {
         throw new RecurringNotSupportedOnExternalCalendarException();
       }
+      // target.attendees() 는 resolveWriteTarget(tx 안) 에서 이미 해석됨 — RLS GUC 보장.
       externalId =
           transportFor(target.account().provider())
               .createEvent(
-                  callerId, target.account(), target.externalCalendarId(), toGraphWrite(req));
+                  callerId,
+                  target.account(),
+                  target.externalCalendarId(),
+                  toGraphWrite(req, target.attendees()));
     }
 
     // ③ persist — 로컬 저장(+최종 조회). external_id 동반이면 prune 안전.
@@ -160,20 +168,45 @@ public class CalendarEventService {
     return get(callerId, id);
   }
 
-  /** 생성 대상 분류 — calendarId resolve + 외부 쓰기 캘린더면 account/externalId 동반. txTemplate 안에서만 호출. */
+  /**
+   * 생성 대상 분류 — calendarId resolve + 외부 쓰기 캘린더면 account/externalId/attendees 동반.
+   *
+   * <p>txTemplate 안에서만 호출. attendees 해석(userRepo.findByIds)도 여기서 수행해 RLS GUC 보장. 외부 쓰기 캘린더가 아니면
+   * attendees=null(Graph 불필요).
+   */
   private WriteTarget resolveWriteTarget(long callerId, CalendarEventRequest req) {
     long calendarId = resolveCalendarId(callerId, req.calendarId()); // 소유/RO(409) 검증
     var ext = calendarRepo.findExternalRef(calendarId).orElse(null);
     if (ext == null || ext.externalAccountId() == null) {
-      return new WriteTarget(calendarId, false, null, null);
+      return new WriteTarget(calendarId, false, null, null, null);
     }
     // 외부 쓰기 캘린더 — 계정 로드(토큰/전송기 식별). 계정 없으면 로컬로 폴백(외부 전송 불가).
     EmailAccountResponse account =
         emailAccountRepo.findByIdAndUser(callerId, ext.externalAccountId()).orElse(null);
     if (account == null) {
-      return new WriteTarget(calendarId, false, null, null);
+      return new WriteTarget(calendarId, false, null, null, null);
     }
-    return new WriteTarget(calendarId, true, account, ext.externalId());
+    // 외부 쓰기 — 초대 대상(내부 user)을 Graph attendee(이메일)로 해석. tx 안에서 조회(RLS GUC 보장).
+    List<GraphAttendeeWrite> attendees =
+        resolveGraphAttendees(callerId, req.attendeeUserIdsOrEmpty());
+    return new WriteTarget(calendarId, true, account, ext.externalId(), attendees);
+  }
+
+  /**
+   * 내부 user id 목록 → Graph attendee(이메일) 목록.
+   *
+   * <p>주최자(callerId) 자신과 AGENT 사용자는 제외 — 주최자는 organizer 필드로, AGENT 는 로컬 전용. 비면 null 반환(
+   * {@code @JsonInclude(NON_NULL)} 에 의해 Graph 페이로드에서 생략). txTemplate 안에서만 호출해야 RLS GUC 보장.
+   */
+  private List<GraphAttendeeWrite> resolveGraphAttendees(long callerId, List<Long> userIds) {
+    if (userIds.isEmpty()) return null;
+    List<GraphAttendeeWrite> list =
+        userRepo.findByIds(userIds).stream()
+            .filter(u -> !Long.valueOf(callerId).equals(u.id()))
+            .filter(u -> !"AGENT".equals(u.kind()))
+            .map(u -> new GraphAttendeeWrite(new GraphEmail(u.name(), u.email()), "required"))
+            .toList();
+    return list.isEmpty() ? null : list;
   }
 
   /** 공급자 전송기 조회 — 호출 시점 해소(구성 시 캐싱 금지). 미지원이면 IllegalStateException(라우팅 누락 가드). */
@@ -184,8 +217,13 @@ public class CalendarEventService {
         .orElseThrow(() -> new IllegalStateException("일정 역동기화 전송기 없음: " + provider));
   }
 
-  /** 로컬 일정 → Graph 쓰기 페이로드. 종일은 저장값 그대로(half-open), 시각은 UTC dateTime+timeZone. 참석자·반복 미포함. */
-  private GraphEventWrite toGraphWrite(CalendarEventRequest req) {
+  /**
+   * 로컬 일정 → Graph 쓰기 페이로드. 종일은 저장값 그대로(half-open), 시각은 UTC dateTime+timeZone.
+   *
+   * @param attendees Graph 참석자 목록 — create 시 함께 전송, update 시 null(PATCH 는 attendees 변경 미지원).
+   */
+  private GraphEventWrite toGraphWrite(
+      CalendarEventRequest req, List<GraphAttendeeWrite> attendees) {
     GraphItemBody body =
         (req.description() == null || req.description().isBlank())
             ? null
@@ -201,7 +239,7 @@ public class CalendarEventService {
         toGraphDateTime(req.endsAt(), req.allDay()),
         req.allDay(),
         location,
-        null); // 참석자는 별도 patchAttendees 로 전송 (#547)
+        attendees);
   }
 
   /**
@@ -226,12 +264,13 @@ public class CalendarEventService {
         t.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime().toString(), "UTC");
   }
 
-  /** 쓰기 대상 분류 결과 — externalWritable 이면 Graph 역동기화 경로. */
+  /** 쓰기 대상 분류 결과 — externalWritable 이면 Graph 역동기화 경로. attendees 는 외부 쓰기 경로에서만 해석됨(로컬은 null). */
   private record WriteTarget(
       long calendarId,
       boolean externalWritable,
       EmailAccountResponse account,
-      String externalCalendarId) {}
+      String externalCalendarId,
+      List<GraphAttendeeWrite> attendees) {}
 
   /**
    * 단건 조회 — owner 또는 참석자면 반환, 그 외 404. repo.findById 의 accessibleBy 술어가 두 가지를 모두 처리하므로 requireOwner
@@ -306,7 +345,9 @@ public class CalendarEventService {
         m.updatedAt(),
         0, // attendeeCount — enrichForList 에서 채워짐
         null, // myRsvpStatus — enrichForList 에서 채워짐
-        null); // attendees — list 경량 응답이므로 null
+        null, // attendees — list 경량 응답이므로 null
+        false, // external — list 에서는 미사용(기본 false)
+        null); // myRole — list 에서는 미사용
   }
 
   /**
@@ -364,8 +405,9 @@ public class CalendarEventService {
       if (req.calendarId() != null && !req.calendarId().equals(ctx.currentCalendarId())) {
         throw new ExternalEventMoveNotSupportedException();
       }
+      // update 는 참석자 변경 미지원 — attendees=null 로 Graph PATCH 에서 생략.
       transportFor(ctx.account().provider())
-          .updateEvent(callerId, ctx.account(), ctx.externalId(), toGraphWrite(req));
+          .updateEvent(callerId, ctx.account(), ctx.externalId(), toGraphWrite(req, null));
       // ③ 로컬 반영 — 필드만 갱신(캘린더 이동 없음). 동기화 컨테이너 유지. 최종 get() 도 tx 안.
       return txTemplate.execute(
           s -> {
@@ -578,39 +620,168 @@ public class CalendarEventService {
   }
 
   /**
-   * 주최자만 참석자 추가. AGENT 사용자는 ACCEPTED 강제, HUMAN 은 NEEDS_ACTION. caller 자신·null 은 건너뜀. HUMAN 초대자에게
-   * CALENDAR_INVITED 알림 이벤트 발행.
+   * 참석자 추가. 외부(내가 주최한) 일정이면 Graph 참석자 컬렉션을 갱신 후 로컬 반영. 비주최자의 외부 일정 변경은 거부(409).
+   *
+   * <p>비-@Transactional: Graph HTTP 는 txTemplate 밖에서 실행(#232/#492 회피).
    */
-  @Transactional
   public void inviteAttendees(long callerId, long eventId, List<Long> userIds) {
-    requireOwner(callerId, eventId); // 비주최자 → CalendarEventNotFoundException(404 은닉)
-    requireWritableEvent(eventId);
-    for (Long uid : userIds) {
-      if (uid == null || uid == callerId) continue;
-      String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
-      attendeeRepo.insert(eventId, uid, callerId, "ATTENDEE", status);
-      // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행.
-      if (!isAgent(uid)) {
-        eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(eventId, uid, callerId));
+    // ① resolve(tx): owner·RO 검증 + 외부참조 + (외부면) 조직자 판정 + Graph 전송 목록 사전 계산.
+    InviteCtx ctx =
+        txTemplate.execute(
+            s -> {
+              requireOwner(callerId, eventId);
+              requireWritableEvent(eventId);
+              var ref = repo.findExternalRef(eventId).orElse(null);
+              boolean external =
+                  ref != null && ref.externalAccountId() != null && ref.eventExternalId() != null;
+              if (!external) {
+                return new InviteCtx(false, null, null, null);
+              }
+              if (!attendeeRepo.isOrganizer(eventId, callerId)) {
+                throw new ExternalEventAttendeeNotOrganizerException();
+              }
+              EmailAccountResponse acc =
+                  emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
+              if (acc == null) return new InviteCtx(false, null, null, null);
+              // 초대 후 전체 Graph attendee 목록(기존 HUMAN/외부 + 신규 HUMAN) 계산.
+              List<GraphAttendeeWrite> full = buildGraphAttendees(eventId, userIds, null);
+              return new InviteCtx(true, acc, ref.eventExternalId(), full);
+            });
+
+    // ② 외부면 Graph HTTP(tx 밖) — 가드 후 전송.
+    if (ctx.external()) {
+      if (TransactionSynchronizationManager.isActualTransactionActive()) {
+        throw new ExternalCalendarWriteInTransactionException();
       }
+      transportFor(ctx.account().provider())
+          .updateAttendees(callerId, ctx.account(), ctx.externalId(), ctx.attendees());
     }
+
+    // ③ 로컬 반영(tx) — 기존 동작 보존(AGENT 포함 로컬 행 + 알림).
+    txTemplate.execute(
+        s -> {
+          for (Long uid : userIds) {
+            if (uid == null || uid == callerId) continue;
+            String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
+            attendeeRepo.insert(eventId, uid, callerId, "ATTENDEE", status);
+            // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행.
+            if (!isAgent(uid)) {
+              eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(eventId, uid, callerId));
+            }
+          }
+          return null;
+        });
   }
 
-  /** 주최자만 참석자 제거. 주최자 본인 행(ORGANIZER)은 제거 불가 — 역할 보호. 등록되지 않은 사용자는 0행 삭제로 무시. */
-  @Transactional
+  /** 참석자 제거. 외부(내가 주최한) 일정이면 Graph 참석자 컬렉션 갱신 후 로컬 삭제. 비주최자 외부 변경 거부(409). AGENT 제거는 로컬 전용. */
   public void removeAttendee(long callerId, long eventId, long userId) {
-    requireOwner(callerId, eventId); // 비주최자 → CalendarEventNotFoundException(404 은닉)
-    requireWritableEvent(eventId);
-    if (userId == callerId) return; // 주최자 본인 행 보호
-    attendeeRepo.deleteByEventAndUser(eventId, userId);
+    RemoveCtx ctx =
+        txTemplate.execute(
+            s -> {
+              requireOwner(callerId, eventId);
+              requireWritableEvent(eventId);
+              if (userId == callerId) {
+                return new RemoveCtx(false, false, null, null, null); // 주최자 본인 보호 — 아무것도 안 함
+              }
+              var ref = repo.findExternalRef(eventId).orElse(null);
+              boolean external =
+                  ref != null && ref.externalAccountId() != null && ref.eventExternalId() != null;
+              if (!external) {
+                return new RemoveCtx(true, false, null, null, null);
+              }
+              if (!attendeeRepo.isOrganizer(eventId, callerId)) {
+                throw new ExternalEventAttendeeNotOrganizerException();
+              }
+              // AGENT 는 Graph 에 없음 → HTTP 불필요(로컬만 삭제).
+              boolean agent = isAgent(userId);
+              EmailAccountResponse acc =
+                  emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
+              if (acc == null || agent) {
+                return new RemoveCtx(true, false, null, null, null);
+              }
+              List<GraphAttendeeWrite> remaining = buildGraphAttendees(eventId, List.of(), userId);
+              return new RemoveCtx(true, true, acc, ref.eventExternalId(), remaining);
+            });
+
+    if (!ctx.proceed()) return;
+
+    if (ctx.external()) {
+      if (TransactionSynchronizationManager.isActualTransactionActive()) {
+        throw new ExternalCalendarWriteInTransactionException();
+      }
+      transportFor(ctx.account().provider())
+          .updateAttendees(callerId, ctx.account(), ctx.externalId(), ctx.attendees());
+    }
+
+    txTemplate.execute(
+        s -> {
+          attendeeRepo.deleteByEventAndUser(eventId, userId);
+          return null;
+        });
+  }
+
+  /** invite 컨텍스트 record — resolve(tx) 결과. */
+  private record InviteCtx(
+      boolean external,
+      EmailAccountResponse account,
+      String externalId,
+      List<GraphAttendeeWrite> attendees) {}
+
+  /** remove 컨텍스트 record — resolve(tx) 결과. */
+  private record RemoveCtx(
+      boolean proceed,
+      boolean external,
+      EmailAccountResponse account,
+      String externalId,
+      List<GraphAttendeeWrite> attendees) {}
+
+  /**
+   * 일정의 Graph attendee 목록 계산 — 기존 ATTENDEE 행(HUMAN→user.email, 외부→external_email) + 신규 HUMAN userId
+   * - 제외 userId. ORGANIZER·AGENT 는 제외(Graph attendees 는 조직자 미포함, AGENT 는 로컬 전용).
+   */
+  private List<GraphAttendeeWrite> buildGraphAttendees(
+      long eventId, List<Long> addUserIds, Long excludeUserId) {
+    List<GraphAttendeeWrite> out = new ArrayList<>();
+    for (var r : attendeeRepo.findByEvent(eventId)) {
+      if ("ORGANIZER".equals(r.role())) continue;
+      if (excludeUserId != null && excludeUserId.equals(r.userId())) continue;
+      if (r.userId() != null) {
+        if ("AGENT".equals(r.kind())) continue; // AGENT 는 Graph 미전송
+        userRepo
+            .findById(r.userId())
+            .ifPresent(
+                u ->
+                    out.add(
+                        new GraphAttendeeWrite(new GraphEmail(u.name(), u.email()), "required")));
+      } else {
+        out.add(new GraphAttendeeWrite(new GraphEmail(r.name(), r.externalEmail()), "required"));
+      }
+    }
+    for (Long uid : addUserIds) {
+      if (uid == null) continue;
+      userRepo
+          .findById(uid)
+          .filter(u -> !"AGENT".equals(u.kind()))
+          .ifPresent(
+              u ->
+                  out.add(new GraphAttendeeWrite(new GraphEmail(u.name(), u.email()), "required")));
+    }
+    return out;
   }
 
   /**
    * 본인 RSVP 변경. 참석자 행이 없으면 비가시(404). 변경 성공 시 주최자에게 CALENDAR_RSVP_CHANGED 알림 이벤트 발행(self-notify 는
-   * NotificationService 에서 스킵).
+   * NotificationService 에서 스킵). 외부 동기화 일정은 인앱 RSVP 불가(409) — Graph 로 역전송 안 하므로 다음 sync 가 덮어쓴다.
    */
   @Transactional
   public void respondRsvp(long callerId, long eventId, String status) {
+    // 외부 동기화 일정은 인앱 RSVP 불가 — Graph 로 역전송 안 하므로 다음 sync 가 덮어쓴다.
+    repo.findExternalRef(eventId)
+        .filter(ref -> ref.eventExternalId() != null)
+        .ifPresent(
+            ref -> {
+              throw new ExternalEventRsvpNotSupportedException();
+            });
     int updated = attendeeRepo.updateRsvp(eventId, callerId, status);
     // 참석자 아님(존재 불명) → 이벤트 존재 자체를 은닉(404). 읽기전용 이벤트는 참석자 행이 없으므로 여기서 먼저 404 로 차단됨.
     if (updated == 0) throw new CalendarEventNotFoundException(eventId);
@@ -645,27 +816,42 @@ public class CalendarEventService {
               long key = e.masterEventId() != null ? e.masterEventId() : e.id();
               var rows = byEvent.getOrDefault(key, List.of());
               int count = rows.size();
+              // 내 RSVP 상태 — 외부 참석자 행(userId=null) NPE 방지
               String mine =
                   rows.stream()
-                      .filter(r -> r.userId() == callerId)
+                      .filter(r -> r.userId() != null && r.userId() == callerId)
                       .map(AttendeeRow::rsvpStatus)
                       .findFirst()
                       .orElse(null);
-              return withAttendeeInfo(e, count, mine, null);
+              return withAttendeeInfo(e, count, mine, null, false, null);
             })
         .toList();
   }
 
-  /** get() 용 전체 enrich: 마스터(또는 구체) id 로 단건 조회 → 전체 참석자 목록 포함. 가상 회차는 masterEventId 키 사용. */
+  /**
+   * get() 용 전체 enrich: 마스터(또는 구체) id 로 단건 조회 → 전체 참석자 목록 포함. 가상 회차는 masterEventId 키 사용.
+   *
+   * <p>외부 참석자 행(userId=null)을 처리하기 위해 userId 비교 시 null 체크 필수. external 플래그 = 일정에 external_id 가 있으면
+   * true. myRole = 호출자의 역할(ORGANIZER/ATTENDEE), 참석자가 아니면 null.
+   */
   private CalendarEventResponse enrichForGet(long callerId, CalendarEventResponse e) {
     long key = e.masterEventId() != null ? e.masterEventId() : e.id();
     var rows = attendeeRepo.findByEvent(key);
+    // 내 RSVP 상태 — 외부 참석자 행(userId=null) NPE 방지
     String mine =
         rows.stream()
-            .filter(r -> r.userId() == callerId)
+            .filter(r -> r.userId() != null && r.userId() == callerId)
             .map(AttendeeRow::rsvpStatus)
             .findFirst()
             .orElse(null);
+    // 내 역할(ORGANIZER/ATTENDEE) — 참석자 아니면 null
+    String myRole =
+        rows.stream()
+            .filter(r -> r.userId() != null && r.userId() == callerId)
+            .map(AttendeeRow::role)
+            .findFirst()
+            .orElse(null);
+    // 전체 참석자 목록 DTO 변환 — 외부 참석자는 externalEmail 채움, userId null
     var dtos =
         rows.stream()
             .map(
@@ -677,17 +863,26 @@ public class CalendarEventService {
                         r.kind(),
                         r.role(),
                         r.rsvpStatus(),
-                        r.invitedByUserId()))
+                        r.invitedByUserId(),
+                        r.externalEmail()))
             .toList();
-    return withAttendeeInfo(e, rows.size(), mine, dtos);
+    // external 플래그 = 일정에 external_id 가 있으면 true(외부 동기화 일정)
+    boolean external =
+        repo.findExternalRef(key).map(ref -> ref.eventExternalId() != null).orElse(false);
+    return withAttendeeInfo(e, rows.size(), mine, dtos, external, myRole);
   }
 
   /**
-   * CalendarEventResponse 레코드를 복사하며 참석자 3필드(attendeeCount/myRsvpStatus/attendees)만 교체. Java record
-   * 는 with-copy 미지원이므로 명시적 생성.
+   * CalendarEventResponse 레코드를 복사하며 참석자 5필드(attendeeCount/myRsvpStatus/attendees/external/myRole)
+   * 교체. Java record 는 with-copy 미지원이므로 명시적 생성. external/myRole 은 list() 경로에서 false/null 로 전달.
    */
   private static CalendarEventResponse withAttendeeInfo(
-      CalendarEventResponse e, int count, String myRsvpStatus, List<AttendeeResponse> attendees) {
+      CalendarEventResponse e,
+      int count,
+      String myRsvpStatus,
+      List<AttendeeResponse> attendees,
+      boolean external,
+      String myRole) {
     return new CalendarEventResponse(
         e.id(),
         e.title(),
@@ -708,16 +903,23 @@ public class CalendarEventService {
         e.updatedAt(),
         count,
         myRsvpStatus,
-        attendees);
+        attendees,
+        external,
+        myRole);
   }
 
   /**
    * 참석자 복사 — fromEventId 의 모든 참석자 행(ORGANIZER 포함)을 toEventId 에 그대로 복제한다. role, rsvp_status,
-   * invited_by 를 보존하여 오버라이드/분할 이후에도 참석자 구성이 유지되도록 한다.
+   * invited_by 를 보존하여 오버라이드/분할 이후에도 참석자 구성이 유지되도록 한다. 외부 참석자(userId=null)는 insertExternal 로 복사.
    */
   private void copyAttendees(long fromEventId, long toEventId) {
     for (AttendeeRow a : attendeeRepo.findByEvent(fromEventId)) {
-      attendeeRepo.insert(toEventId, a.userId(), a.invitedByUserId(), a.role(), a.rsvpStatus());
+      if (a.userId() != null) {
+        attendeeRepo.insert(toEventId, a.userId(), a.invitedByUserId(), a.role(), a.rsvpStatus());
+      } else {
+        attendeeRepo.insertExternal(
+            toEventId, a.externalEmail(), a.name(), a.role(), a.rsvpStatus());
+      }
     }
   }
 

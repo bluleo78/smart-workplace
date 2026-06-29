@@ -618,12 +618,21 @@ export function EventDialog({
           )}
 
           {/* 참석자 섹션 — 생성 모드: 로컬 선택, 편집 모드: 상세 attendees + 즉시 invite/remove (이슈 #489) */}
+          {/* onInvite/onRemove 는 내가 ORGANIZER 일 때만 노출 — 외부 일정은 읽기 전용 (#547) */}
           <AttendeeSection
             selectedMembers={selectedAttendees}
             onChange={setSelectedAttendees}
             attendees={eventWithDetail?.attendees}
-            onInvite={isEdit ? (userId) => inviteAttendees.mutate([userId]) : undefined}
-            onRemove={isEdit ? (userId) => removeAttendee.mutate(userId) : undefined}
+            onInvite={
+              isEdit && eventWithDetail?.myRole === 'ORGANIZER'
+                ? (userId) => inviteAttendees.mutate([userId])
+                : undefined
+            }
+            onRemove={
+              isEdit && eventWithDetail?.myRole === 'ORGANIZER'
+                ? (userId) => removeAttendee.mutate(userId)
+                : undefined
+            }
           />
 
           {/* 설명 */}
@@ -638,8 +647,8 @@ export function EventDialog({
             />
           </FormField>
 
-          {/* RSVP 응답 — 본인이 참석자이고 주최자·AGENT 가 아닌 경우에만 표시 (이슈 #489) */}
-          {showRsvp && eventWithDetail && (
+          {/* RSVP 응답 — 본인이 참석자이고 주최자·AGENT·외부 일정이 아닌 경우에만 표시 (이슈 #489, #547) */}
+          {showRsvp && !eventWithDetail?.external && eventWithDetail && (
             <RsvpControls
               eventId={eventWithDetail.id}
               current={eventWithDetail.myRsvpStatus!}

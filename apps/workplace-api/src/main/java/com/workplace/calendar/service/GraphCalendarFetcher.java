@@ -1,6 +1,7 @@
 package com.workplace.calendar.service;
 
 import com.workplace.calendar.CalendarPalette;
+import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository.ExternalEventRow;
 import com.workplace.mail.dto.EmailAccountResponse;
@@ -8,13 +9,16 @@ import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.outbound.GraphCalendarClient;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEvent;
+import com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee;
 import com.workplace.mail.service.GraphTokenService;
+import com.workplace.user.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.Period;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,9 +61,15 @@ public class GraphCalendarFetcher implements CalendarFetcher {
           "lightBrown", "brown",
           "lightGray", "gray");
 
+  /** 참석자 diff 행 스펙(내부 userId 또는 외부 email). */
+  private record Spec(
+      Long userId, String externalEmail, String externalName, String role, String rsvp) {}
+
   private final GraphTokenService tokenService;
   private final GraphCalendarClient graphClient;
   private final ExternalCalendarRepository extRepo;
+  private final EventAttendeeRepository attendeeRepo;
+  private final UserRepository userRepo;
 
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary TenantAwareTransactionManager 로 구성해 트랜잭션 진입 시 RLS
@@ -71,10 +81,14 @@ public class GraphCalendarFetcher implements CalendarFetcher {
       GraphTokenService tokenService,
       GraphCalendarClient graphClient,
       ExternalCalendarRepository extRepo,
+      EventAttendeeRepository attendeeRepo,
+      UserRepository userRepo,
       PlatformTransactionManager txManager) {
     this.tokenService = tokenService;
     this.graphClient = graphClient;
     this.extRepo = extRepo;
+    this.attendeeRepo = attendeeRepo;
+    this.userRepo = userRepo;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -135,7 +149,11 @@ public class GraphCalendarFetcher implements CalendarFetcher {
                 continue;
               }
               ExternalEventRow row = mapEvent(evt);
-              extRepo.upsertExternalEvent(userId, calId, evt.id(), row);
+              long localEventId = extRepo.upsertExternalEvent(userId, calId, evt.id(), row);
+              // writable 캘린더의 일정만 참석자 동기화(공휴일·생일 등 read-only 는 skip).
+              if (cal.canEdit()) {
+                syncAttendees(localEventId, evt, userId, account.emailAddress());
+              }
               keep.add(evt.id());
               count[0]++;
             }
@@ -207,6 +225,112 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     // 앱 내 all_day=true 이벤트는 일관되게 half-open [start, end) 으로 표현한다(CalendarEventService 기준).
 
     return new ExternalEventRow(title, description, startsAt, endsAt, evt.isAllDay(), location);
+  }
+
+  /**
+   * 한 외부 일정의 참석자를 Graph organizer+attendees 와 일치하도록 diff-upsert 한다.
+   *
+   * <p>이메일 매칭: ① 동기화 계정 이메일이면 동기화 user, ② findByEmailIgnoreCase, ③ 외부 행. organizer 는
+   * ORGANIZER/ACCEPTED, attendees 는 ATTENDEE + responseStatus 매핑. target 에 없는 기존 행은 삭제(organizer 는
+   * target 에 항상 포함돼 보존).
+   */
+  private void syncAttendees(
+      long eventId, GraphEvent evt, long syncUserId, String syncAccountEmail) {
+    boolean hasAttendees = evt.attendees() != null && !evt.attendees().isEmpty();
+    boolean hasOrganizer =
+        evt.organizer() != null
+            && evt.organizer().emailAddress() != null
+            && evt.organizer().emailAddress().address() != null;
+    if (!hasAttendees && !hasOrganizer) return; // 참석자 정보 없음 — 건드리지 않음
+
+    // 1) target 구성: identity(키) → 행 스펙.
+    Map<String, Spec> target = new LinkedHashMap<>();
+
+    if (hasOrganizer) {
+      var em = evt.organizer().emailAddress();
+      Spec s =
+          resolveSpec(
+              em.name(), em.address(), "ORGANIZER", "ACCEPTED", syncUserId, syncAccountEmail);
+      target.put(identity(s.userId(), s.externalEmail()), s);
+    }
+    if (hasAttendees) {
+      for (GraphEventAttendee a : evt.attendees()) {
+        if (a.emailAddress() == null || a.emailAddress().address() == null) continue;
+        String rsvp =
+            GraphCalendarClient.rsvpFromGraphResponse(
+                a.status() == null ? null : a.status().response());
+        Spec s =
+            resolveSpec(
+                a.emailAddress().name(),
+                a.emailAddress().address(),
+                "ATTENDEE",
+                rsvp,
+                syncUserId,
+                syncAccountEmail);
+        // 조직자가 attendees 에도 들어오면(드묾) ORGANIZER 우선 — 이미 있으면 덮어쓰지 않음.
+        target.putIfAbsent(identity(s.userId(), s.externalEmail()), s);
+      }
+    }
+
+    // 2) 기존 행 로드 + identity 집합 + RSVP 맵(변경 여부 guard 용).
+    var existing = attendeeRepo.findByEvent(eventId);
+    Set<String> existingIds = new HashSet<>();
+    java.util.Map<String, String> existingRsvp = new java.util.HashMap<>();
+    for (var r : existing) {
+      String key = identity(r.userId(), r.externalEmail());
+      existingIds.add(key);
+      existingRsvp.put(key, r.rsvpStatus());
+    }
+
+    // 3) 삭제: 기존에 있지만 target 에 없는 행.
+    for (var r : existing) {
+      // AGENT 는 Graph 에 전송하지 않는 로컬 전용 구성 — sync 가 지우면 안 됨.
+      if ("AGENT".equals(r.kind())) continue;
+      String id = identity(r.userId(), r.externalEmail());
+      if (!target.containsKey(id)) {
+        if (r.userId() != null) attendeeRepo.deleteByEventAndUser(eventId, r.userId());
+        else attendeeRepo.deleteByEventAndExternalEmail(eventId, r.externalEmail());
+      }
+    }
+
+    // 4) 추가/갱신.
+    for (var e : target.entrySet()) {
+      Spec s = e.getValue();
+      if (!existingIds.contains(e.getKey())) {
+        if (s.userId() != null) attendeeRepo.insert(eventId, s.userId(), null, s.role(), s.rsvp());
+        else
+          attendeeRepo.insertExternal(
+              eventId, s.externalEmail(), s.externalName(), s.role(), s.rsvp());
+      } else if (!"ORGANIZER".equals(s.role()) && !s.rsvp().equals(existingRsvp.get(e.getKey()))) {
+        // RSVP 변경 반영(조직자는 항상 ACCEPTED 고정 — 갱신 안 함).
+        if (s.userId() != null) attendeeRepo.updateRsvp(eventId, s.userId(), s.rsvp());
+        else attendeeRepo.updateRsvpByExternalEmail(eventId, s.externalEmail(), s.rsvp());
+      }
+    }
+  }
+
+  /** 이메일 → 내부 user(매칭) 또는 외부 스펙 결정. */
+  private Spec resolveSpec(
+      String name,
+      String email,
+      String role,
+      String rsvp,
+      long syncUserId,
+      String syncAccountEmail) {
+    // ① 동기화 계정 이메일(alias/proxy 포함) → 동기화 user
+    if (syncAccountEmail != null && syncAccountEmail.equalsIgnoreCase(email)) {
+      return new Spec(syncUserId, null, null, role, rsvp);
+    }
+    // ② 내부 user 이메일 매칭
+    Long matched = userRepo.findByEmailIgnoreCase(email).map(u -> u.id()).orElse(null);
+    if (matched != null) return new Spec(matched, null, null, role, rsvp);
+    // ③ 외부 참석자 행
+    return new Spec(null, email, name, role, rsvp);
+  }
+
+  /** 내부/외부 참석자 동일성 키. */
+  private static String identity(Long userId, String externalEmail) {
+    return userId != null ? "U:" + userId : "E:" + externalEmail.toLowerCase();
   }
 
   /**

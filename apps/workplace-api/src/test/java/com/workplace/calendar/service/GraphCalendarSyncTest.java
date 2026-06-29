@@ -4,10 +4,12 @@ import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import com.workplace.calendar.repository.CalendarRepository;
+import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
@@ -43,6 +45,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   @Autowired ExternalCalendarRepository extRepo;
   @Autowired CalendarRepository calendarRepo;
   @Autowired CalendarEventService eventService;
+  @Autowired EventAttendeeRepository attendeeRepo;
   @Autowired DSLContext dsl;
   @Autowired EncryptionService encryption;
 
@@ -258,6 +261,198 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
                         dsl.selectFrom(CALENDAR_EVENT)
                             .where(CALENDAR_EVENT.EXTERNAL_ID.eq("ext-far"))));
     assertThat(remaining).isEqualTo(1);
+  }
+
+  /** Graph 이벤트 1건(조직자+참석자) 빌더. */
+  private com.workplace.mail.outbound.GraphCalendarClient.GraphEvent graphEventWith(
+      String id,
+      String organizerEmail,
+      java.util.List<com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee>
+          attendees) {
+    var start =
+        new com.workplace.mail.outbound.GraphCalendarClient.GraphDateTime(
+            "2026-07-10T09:00:00.0000000", "UTC");
+    var end =
+        new com.workplace.mail.outbound.GraphCalendarClient.GraphDateTime(
+            "2026-07-10T10:00:00.0000000", "UTC");
+    var organizer =
+        new com.workplace.mail.outbound.GraphCalendarClient.GraphRecipient(
+            new com.workplace.mail.outbound.GraphCalendarClient.GraphEmail("주최", organizerEmail));
+    return new com.workplace.mail.outbound.GraphCalendarClient.GraphEvent(
+        id, "동기화 회의", "본문", start, end, false, null, organizer, attendees, false);
+  }
+
+  private com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee attendee(
+      String name, String email, String response) {
+    return new com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee(
+        new com.workplace.mail.outbound.GraphCalendarClient.GraphEmail(name, email),
+        new com.workplace.mail.outbound.GraphCalendarClient.GraphAttendeeStatus(response, null),
+        "required");
+  }
+
+  @Test
+  void sync_maps_internal_and_external_attendees_with_rsvp() {
+    // writable 캘린더 1개 + 이벤트 1건(내부 user 1명 + 외부 1명).
+    var cal =
+        new com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar(
+            "gcal", "Calendar", "auto", "#0078d4", true, true);
+    long internalAttendeeId =
+        new TransactionTemplate(txManager)
+            .execute(s -> TestFixtures.createHumanWithEmail(dsl, "member@iacloud.kr"));
+
+    when(graphTokenService.getAccessToken(anyLong(), anyLong())).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok")).thenReturn(java.util.List.of(cal));
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal"), any(), any()))
+        .thenReturn(
+            java.util.List.of(
+                graphEventWith(
+                    "EVT1",
+                    "organizer@partner.com", // 외부 조직자
+                    java.util.List.of(
+                        attendee("멤버", "member@iacloud.kr", "accepted"), // 내부 매칭
+                        attendee("Guest", "guest@other.com", "declined"))))); // 외부
+
+    syncService.sync(ownerId, accountId);
+
+    var rows =
+        new TransactionTemplate(txManager)
+            .execute(
+                s -> {
+                  long evtId =
+                      dsl.select(CALENDAR_EVENT.ID)
+                          .from(CALENDAR_EVENT)
+                          .where(CALENDAR_EVENT.EXTERNAL_ID.eq("EVT1"))
+                          .fetchOne(CALENDAR_EVENT.ID);
+                  return attendeeRepo.findByEvent(evtId);
+                });
+
+    // 조직자(외부) + 내부 멤버 + 외부 게스트 = 3행.
+    assertThat(rows).hasSize(3);
+    assertThat(rows)
+        .anySatisfy(
+            r -> {
+              assertThat(r.role()).isEqualTo("ORGANIZER");
+              assertThat(r.externalEmail()).isEqualTo("organizer@partner.com");
+              assertThat(r.rsvpStatus()).isEqualTo("ACCEPTED");
+            });
+    assertThat(rows)
+        .anySatisfy(
+            r -> {
+              assertThat(r.userId()).isEqualTo(internalAttendeeId);
+              assertThat(r.rsvpStatus()).isEqualTo("ACCEPTED");
+            });
+    assertThat(rows)
+        .anySatisfy(
+            r -> {
+              assertThat(r.externalEmail()).isEqualTo("guest@other.com");
+              assertThat(r.rsvpStatus()).isEqualTo("DECLINED");
+            });
+
+    cleanupInTenant(
+        TENANT_ID, () -> dsl.execute("DELETE FROM \"user\" WHERE id = ?", internalAttendeeId));
+  }
+
+  @Test
+  void sync_removes_attendee_no_longer_in_graph() {
+    var cal =
+        new com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar(
+            "gcal", "Calendar", "auto", "#0078d4", true, true);
+    when(graphTokenService.getAccessToken(anyLong(), anyLong())).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok")).thenReturn(java.util.List.of(cal));
+
+    // 1차 sync: 외부 게스트 2명.
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal"), any(), any()))
+        .thenReturn(
+            java.util.List.of(
+                graphEventWith(
+                    "EVT2",
+                    "org@partner.com",
+                    java.util.List.of(
+                        attendee("A", "a@x.com", "none"), attendee("B", "b@x.com", "none")))));
+    syncService.sync(ownerId, accountId);
+
+    // 2차 sync: A 만 남음.
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal"), any(), any()))
+        .thenReturn(
+            java.util.List.of(
+                graphEventWith(
+                    "EVT2",
+                    "org@partner.com",
+                    java.util.List.of(attendee("A", "a@x.com", "none")))));
+    syncService.sync(ownerId, accountId);
+
+    var rows =
+        new TransactionTemplate(txManager)
+            .execute(
+                s -> {
+                  long evtId =
+                      dsl.select(CALENDAR_EVENT.ID)
+                          .from(CALENDAR_EVENT)
+                          .where(CALENDAR_EVENT.EXTERNAL_ID.eq("EVT2"))
+                          .fetchOne(CALENDAR_EVENT.ID);
+                  return attendeeRepo.findByEvent(evtId);
+                });
+    // 조직자 + A = 2행 (B 삭제됨).
+    assertThat(rows).hasSize(2); // 조직자 + A = 2행 (B 삭제됨)
+    assertThat(rows).extracting(r -> r.externalEmail()).doesNotContain("b@x.com");
+    assertThat(rows).extracting(r -> r.externalEmail()).contains("a@x.com");
+  }
+
+  /**
+   * AGENT 참석자는 Graph 에 전송하지 않는 로컬 전용 구성이므로, read-sync 가 AGENT 행을 삭제해서는 안 된다.
+   *
+   * <p>C1 회귀 검증: 재동기화 후 AGENT 행이 그대로 남아 있어야 한다.
+   */
+  @Test
+  void sync_does_not_delete_agent_attendee_on_resync() {
+    var cal =
+        new com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar(
+            "gcalA", "Calendar", "auto", "#0078d4", true, true);
+    long agentId =
+        new TransactionTemplate(txManager).execute(s -> TestFixtures.createAgentNoToken(dsl));
+
+    when(graphTokenService.getAccessToken(anyLong(), anyLong())).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok")).thenReturn(java.util.List.of(cal));
+
+    // 1차 sync: 외부 조직자만 포함.
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalA"), any(), any()))
+        .thenReturn(
+            java.util.List.of(graphEventWith("EVT_AGENT", "org@partner.com", java.util.List.of())));
+    syncService.sync(ownerId, accountId);
+
+    // AGENT 참석자를 로컬에서 직접 삽입(초대 시뮬레이션 — Graph 미전송).
+    new TransactionTemplate(txManager)
+        .execute(
+            s -> {
+              long evtId =
+                  dsl.select(CALENDAR_EVENT.ID)
+                      .from(CALENDAR_EVENT)
+                      .where(CALENDAR_EVENT.EXTERNAL_ID.eq("EVT_AGENT"))
+                      .fetchOne(CALENDAR_EVENT.ID);
+              attendeeRepo.insert(evtId, agentId, null, "ATTENDEE", "ACCEPTED");
+              return null;
+            });
+
+    // 2차 sync: Graph 응답은 동일(AGENT 없음) — AGENT 행이 삭제되면 안 됨.
+    syncService.sync(ownerId, accountId);
+
+    var rows =
+        new TransactionTemplate(txManager)
+            .execute(
+                s -> {
+                  long evtId =
+                      dsl.select(CALENDAR_EVENT.ID)
+                          .from(CALENDAR_EVENT)
+                          .where(CALENDAR_EVENT.EXTERNAL_ID.eq("EVT_AGENT"))
+                          .fetchOne(CALENDAR_EVENT.ID);
+                  return attendeeRepo.findByEvent(evtId);
+                });
+
+    // 조직자(외부) + AGENT = 2행.
+    assertThat(rows).hasSize(2);
+    assertThat(rows).anySatisfy(r -> assertThat(r.kind()).isEqualTo("AGENT"));
+
+    cleanupInTenant(TENANT_ID, () -> dsl.execute("DELETE FROM \"user\" WHERE id = ?", agentId));
   }
 
   /**

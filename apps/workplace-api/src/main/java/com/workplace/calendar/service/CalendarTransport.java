@@ -28,4 +28,11 @@ public interface CalendarTransport {
 
   /** 외부 일정 삭제(404=이미 없음은 성공). */
   void deleteEvent(long userId, EmailAccountResponse account, String externalEventId);
+
+  /** 외부 일정의 참석자 컬렉션만 교체(attendees-only PATCH). */
+  void updateAttendees(
+      long userId,
+      EmailAccountResponse account,
+      String externalEventId,
+      java.util.List<com.workplace.mail.outbound.GraphCalendarClient.GraphAttendeeWrite> attendees);
 }

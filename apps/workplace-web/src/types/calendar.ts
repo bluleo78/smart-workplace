@@ -13,13 +13,14 @@ export type AttendeeRole = 'ORGANIZER' | 'ATTENDEE'
 
 /** 일정 참석자 (GET /events/{id} 에서만 반환) */
 export interface Attendee {
-  userId: number
-  username: string
+  userId: number | null // 외부 참석자는 null
+  username: string | null
   name: string
-  kind: 'HUMAN' | 'AGENT'
+  kind: 'HUMAN' | 'AGENT' | 'EXTERNAL'
   role: AttendeeRole
   rsvpStatus: RsvpStatus
   invitedByUserId: number | null
+  externalEmail: string | null
 }
 
 export interface CalendarEvent {
@@ -50,6 +51,10 @@ export interface CalendarEvent {
   myRsvpStatus?: RsvpStatus | null
   // 참석자 목록 — GET /events/{id} 에서만 채워짐. (이슈 #489)
   attendees?: Attendee[] | null
+  // 외부 동기화 일정 여부(GET 에서만). true 면 참석자/RSVP 읽기 전용. (#547)
+  external?: boolean
+  // 현재 사용자의 참석자 역할(GET 에서만). 'ORGANIZER' 면 참석자 편집 가능. (#547)
+  myRole?: string | null
 }
 
 // 캘린더에 읽기전용으로 오버레이되는 "내게 할당된 이슈 마감일" 마커.

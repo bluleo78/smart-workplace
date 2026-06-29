@@ -3,6 +3,7 @@ package com.workplace.calendar.service;
 import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -22,9 +23,12 @@ import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEventWrite;
 import com.workplace.mail.service.GraphTokenService;
+import com.workplace.notify.outbound.NotificationDispatcher;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.user.dto.UserKind;
 import java.time.OffsetDateTime;
+import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,11 +38,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** create/update/delete write-through 통합 테스트 — CalendarTransport·GraphTokenService 를 모킹한다. */
+/**
+ * create/update/delete write-through 통합 테스트 — CalendarTransport·GraphTokenService 를 모킹한다.
+ * NotificationDispatcher 도 모킹해 AFTER_COMMIT @Async 알림 스레드가 테스트 정리 시 FK 경합을 유발하지 않도록 한다.
+ */
 class CalendarEventWriteThroughTest extends IntegrationTestBase {
 
   @MockitoBean CalendarTransport calendarTransport;
   @MockitoBean GraphTokenService graphTokenService;
+  @MockitoBean NotificationDispatcher notificationDispatcher;
 
   @Autowired CalendarEventService eventService;
   @Autowired CalendarRepository calendarRepo;
@@ -555,5 +563,108 @@ class CalendarEventWriteThroughTest extends IntegrationTestBase {
     CalendarEventResponse created = eventService.create(ownerId, req(localCal, null));
     eventService.delete(ownerId, created.id(), com.workplace.calendar.dto.EditScope.ALL, null);
     verify(calendarTransport, never()).deleteEvent(anyLong(), any(), any());
+  }
+
+  // ── Task 5: create 시 참석자 Graph 전송 (#547) ────────────────────────────────
+
+  /**
+   * 외부 쓰기 캘린더 + 내부 멤버 1명 초대 → Graph createEvent 페이로드에 attendees 포함.
+   *
+   * <p>초대된 내부 사용자의 이메일이 GraphEventWrite.attendees 에 포함되는지 단언. AGENT·주최자 제외 규칙도 함께 검증.
+   */
+  @Test
+  void create_on_external_calendar_sends_attendees_to_graph() {
+    // 초대 대상: 알려진 이메일로 직접 삽입(email 값을 단언에 써야 하므로 inline 생성).
+    long inviteeId =
+        new TransactionTemplate(txManager)
+            .execute(
+                s -> {
+                  long n = System.nanoTime();
+                  return dsl.insertInto(USER)
+                      .set(USER.USERNAME, "invitee-" + n)
+                      .set(USER.NAME, "초대자")
+                      .set(USER.EMAIL, "invitee-" + n + "@iacloud.kr")
+                      .set(USER.PASSWORD, "pw")
+                      .set(USER.KIND, UserKind.HUMAN)
+                      .returning(USER.ID, USER.EMAIL)
+                      .fetchOne()
+                      .getId();
+                });
+    // 초대 대상 이메일 조회 — 단언용.
+    String inviteeEmail =
+        new TransactionTemplate(txManager)
+            .execute(
+                s ->
+                    dsl.select(USER.EMAIL)
+                        .from(USER)
+                        .where(USER.ID.eq(inviteeId))
+                        .fetchOne(USER.EMAIL));
+
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("EXT-ATTENDEE-1");
+
+    CalendarEventRequest reqWithAttendee =
+        new CalendarEventRequest(
+            "외부 회의",
+            null,
+            OffsetDateTime.parse("2026-07-10T09:00:00Z"),
+            OffsetDateTime.parse("2026-07-10T10:00:00Z"),
+            false,
+            null,
+            null,
+            null,
+            null,
+            List.of(inviteeId),
+            extCalId);
+    eventService.create(ownerId, reqWithAttendee);
+
+    ArgumentCaptor<GraphEventWrite> body = ArgumentCaptor.forClass(GraphEventWrite.class);
+    verify(calendarTransport).createEvent(eq(ownerId), any(), eq("gcal-write"), body.capture());
+    // attendees 비어있지 않고 초대된 사용자의 이메일을 포함해야 함.
+    assertThat(body.getValue().attendees()).isNotNull();
+    assertThat(body.getValue().attendees())
+        .anySatisfy(a -> assertThat(a.emailAddress().address()).isEqualTo(inviteeEmail));
+
+    // 정리: 알림 디스패처 모킹으로 notification 행 없음 — 사용자만 제거.
+    cleanupInTenant(TENANT_ID, () -> dsl.execute("DELETE FROM \"user\" WHERE id = ?", inviteeId));
+  }
+
+  /** 외부 쓰기 캘린더 + 참석자 없음 → attendees=null (Graph 페이로드에서 생략). 주최자만 있는 경우. */
+  @Test
+  void create_on_external_calendar_without_attendees_sends_null_attendees() {
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("EXT-NO-ATTENDEES");
+
+    eventService.create(ownerId, req(extCalId, null));
+
+    ArgumentCaptor<GraphEventWrite> body = ArgumentCaptor.forClass(GraphEventWrite.class);
+    verify(calendarTransport).createEvent(eq(ownerId), any(), eq("gcal-write"), body.capture());
+    // 참석자 없으면 null — @JsonInclude(NON_NULL) 에 의해 Graph 페이로드에서 생략.
+    assertThat(body.getValue().attendees()).isNull();
+  }
+
+  /**
+   * 로컬 캘린더 일정 생성 → transport 미호출(attendees 전송 없음).
+   *
+   * <p>참석자가 있더라도 로컬 캘린더면 Graph 로 전송하지 않는다.
+   */
+  @Test
+  void create_on_local_calendar_does_not_send_attendees_to_graph() {
+    long localCal = calendarRepo.insert(ownerId, "로컬캘", "teal", true, 2);
+    CalendarEventRequest reqWithAttendee =
+        new CalendarEventRequest(
+            "로컬 회의",
+            null,
+            OffsetDateTime.parse("2026-07-10T09:00:00Z"),
+            OffsetDateTime.parse("2026-07-10T10:00:00Z"),
+            false,
+            null,
+            null,
+            null,
+            null,
+            null, // attendeeUserIds=null → 빈 리스트 정규화
+            localCal);
+    eventService.create(ownerId, reqWithAttendee);
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
   }
 }

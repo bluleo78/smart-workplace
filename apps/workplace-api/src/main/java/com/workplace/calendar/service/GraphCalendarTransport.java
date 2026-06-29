@@ -58,4 +58,19 @@ public class GraphCalendarTransport implements CalendarTransport {
       throw new ExternalCalendarWriteException("Graph 일정 삭제 실패", e);
     }
   }
+
+  @Override
+  public void updateAttendees(
+      long userId,
+      EmailAccountResponse account,
+      String externalEventId,
+      java.util.List<com.workplace.mail.outbound.GraphCalendarClient.GraphAttendeeWrite>
+          attendees) {
+    try {
+      String token = tokenService.getAccessToken(userId, account.id());
+      graphClient.patchAttendees(token, externalEventId, attendees);
+    } catch (RuntimeException e) {
+      throw new ExternalCalendarWriteException("Graph 참석자 갱신 실패", e);
+    }
+  }
 }

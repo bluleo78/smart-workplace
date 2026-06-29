@@ -48,6 +48,22 @@ public class UserRepository {
         .fetchOptional(this::mapToUserResponse);
   }
 
+  /** 이메일로 사용자 조회 (대소문자 무시). */
+  public Optional<UserResponse> findByEmailIgnoreCase(String email) {
+    return dsl.select(
+            USER.ID,
+            USER.USERNAME,
+            USER.EMAIL,
+            USER.NAME,
+            USER.IS_ACTIVE,
+            USER.CREATED_AT,
+            USER.KIND)
+        .from(USER)
+        .where(USER.EMAIL.equalIgnoreCase(email))
+        .limit(1)
+        .fetchOptional(this::mapToUserResponse);
+  }
+
   /** id 집합으로 일괄 조회 (N+1 회피). 빈 입력은 빈 리스트 반환. */
   public List<UserResponse> findByIds(List<Long> ids) {
     if (ids == null || ids.isEmpty()) return List.of();

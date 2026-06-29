@@ -15,6 +15,8 @@ import java.util.List;
  * @param attendeeCount 참석자 총원(주최자 포함). list 경량 응답에서도 채움.
  * @param myRsvpStatus 호출자 본인의 RSVP 상태. 참석자가 아니면 null.
  * @param attendees 전체 참석자 목록. get() 에서만 채움, list() 는 null.
+ * @param external 외부 동기화 일정 여부(external_id 존재). get() 에서만 채움, list() 는 false.
+ * @param myRole 호출자의 역할(ORGANIZER/ATTENDEE). 참석자 아니면 null. get() 에서만 채움.
  */
 public record CalendarEventResponse(
     long id,
@@ -36,4 +38,6 @@ public record CalendarEventResponse(
     OffsetDateTime updatedAt,
     int attendeeCount,
     String myRsvpStatus,
-    List<AttendeeResponse> attendees) {}
+    List<AttendeeResponse> attendees,
+    boolean external,
+    String myRole) {}

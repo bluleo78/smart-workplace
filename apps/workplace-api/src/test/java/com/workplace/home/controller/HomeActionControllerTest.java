@@ -77,6 +77,8 @@ class HomeActionControllerTest {
             s,
             0,
             null,
+            null,
+            false,
             null);
     when(actionService.confirm(eq(1L), eq("calendar.create_event"), any(JsonNode.class)))
         .thenReturn(created);

@@ -49,6 +49,30 @@ public final class TestFixtures {
   }
 
   /**
+   * 지정 이메일로 HUMAN 사용자 생성 — 외부 캘린더 참석자 매칭 테스트용.
+   *
+   * @return 생성된 user id
+   */
+  public static long createHumanWithEmail(DSLContext dsl, String email) {
+    // SELECT-first: 이전 실행이 남긴 행이 있으면 재사용(onConflictDoNothing + returning 은 기존 행 있으면 null 반환).
+    Long existing = dsl.select(USER.ID).from(USER).where(USER.EMAIL.eq(email)).fetchOne(USER.ID);
+    if (existing != null) return existing;
+    Long inserted =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, email)
+            .set(USER.EMAIL, email)
+            .set(USER.NAME, "Member " + email)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.KIND, UserKind.HUMAN)
+            .onConflictDoNothing()
+            .returning(USER.ID)
+            .fetchOne(USER.ID);
+    // 레이스 조건(SELECT 후 다른 tx 가 먼저 INSERT) 방어 — 다시 조회.
+    if (inserted != null) return inserted;
+    return dsl.select(USER.ID).from(USER).where(USER.EMAIL.eq(email)).fetchOne(USER.ID);
+  }
+
+  /**
    * AGENT 사용자 1명 생성 (password=null, kind=AGENT). OAuth 토큰은 등록하지 않는다.
    *
    * @return 생성된 user id
