@@ -7,6 +7,7 @@ INTERNAL_TOKEN = os.environ["INTERNAL_SERVICE_TOKEN"]
 MAX_BYTES = int(os.environ.get("WORKER_EXTRACT_MAX_BYTES", str(25 * 1024 * 1024)))
 MAX_CHARS = int(os.environ.get("WORKER_EXTRACT_MAX_CHARS", str(1_000_000)))  # ~1MB chars
 # 임베딩 모델(설정 가능). 기본 BGE-M3. 차원은 api 마이그레이션 vector(1024) 와 일치해야 한다.
-EMBED_MODEL = os.getenv("WORKER_EMBED_MODEL", "BAAI/bge-m3")
+EMBED_MODEL = os.getenv("WORKER_EMBED_MODEL", "bge-m3")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 # 임베딩 입력 최대 문자 수(BGE-M3 8192 토큰 ≈ 안전 컷). 초과분은 절단.
 EMBED_MAX_CHARS = int(os.getenv("WORKER_EMBED_MAX_CHARS", "8000"))

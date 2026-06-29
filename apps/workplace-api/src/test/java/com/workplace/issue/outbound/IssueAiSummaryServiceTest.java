@@ -51,10 +51,11 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
 
   @MockBean private AiAgentIssueClient client;
   @MockBean private AssistantResolver assistantResolver;
+
   /**
    * MailSummaryScheduler 가 @Scheduled(fixedRate=600_000) 로 TenantScopedRunner.forEachActiveTenant
-   * 콜백 안에서 resolveWorkspaceOrEmpty() 를 호출해 verify 카운트를 오염시킨다. TenantScopedRunner 를 목으로 교체하면
-   * 콜백 자체가 실행되지 않아 오염이 원천 차단된다.
+   * 콜백 안에서 resolveWorkspaceOrEmpty() 를 호출해 verify 카운트를 오염시킨다. TenantScopedRunner 를 목으로 교체하면 콜백 자체가
+   * 실행되지 않아 오염이 원천 차단된다.
    */
   @MockBean private TenantScopedRunner tenantScopedRunner;
 

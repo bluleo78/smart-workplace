@@ -85,14 +85,11 @@ public class IssueAiClassifyService {
                       .findByKey(projectKey)
                       .orElseThrow(
                           () ->
-                              new ResponseStatusException(
-                                  HttpStatus.NOT_FOUND, "프로젝트를 찾을 수 없습니다"));
+                              new ResponseStatusException(HttpStatus.NOT_FOUND, "프로젝트를 찾을 수 없습니다"));
 
               // 프로젝트 라벨 이름 목록 — allowlist 로 ai-agent 에 전달.
               List<String> projectLabels =
-                  labelRepository.findByProject(project.id()).stream()
-                      .map(l -> l.name())
-                      .toList();
+                  labelRepository.findByProject(project.id()).stream().map(l -> l.name()).toList();
 
               // 프로젝트 유형별 어시스턴트 해석.
               boolean isPersonal = "PERSONAL".equals(project.type());
@@ -100,8 +97,7 @@ public class IssueAiClassifyService {
                   isPersonal
                       ? assistantResolver.resolveOrEmpty(project.ownerId())
                       : assistantResolver.resolveWorkspaceOrEmpty();
-              AssistantSpec spec =
-                  specOpt.orElseThrow(IssueAiAssistantUnavailableException::new);
+              AssistantSpec spec = specOpt.orElseThrow(IssueAiAssistantUnavailableException::new);
 
               return new Gathered(project, projectLabels, spec);
             });

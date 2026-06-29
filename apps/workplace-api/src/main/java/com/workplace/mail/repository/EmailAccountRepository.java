@@ -252,8 +252,8 @@ public class EmailAccountRepository {
   /**
    * 사용자의 모든 활성 메일 계정에 ai_enabled 를 일괄 설정한다.
    *
-   * <p>전역 "개인 비서 사용" 토글이 단일 PATCH 로 모든 계정을 동시 변경할 때 사용한다. 반드시 @Transactional 컨텍스트(RLS GUC 주입) 안에서 호출해야
-   * 한다.
+   * <p>전역 "개인 비서 사용" 토글이 단일 PATCH 로 모든 계정을 동시 변경할 때 사용한다. 반드시 @Transactional 컨텍스트(RLS GUC 주입) 안에서
+   * 호출해야 한다.
    *
    * @param userId 계정 소유자
    * @param aiEnabled 설정할 값

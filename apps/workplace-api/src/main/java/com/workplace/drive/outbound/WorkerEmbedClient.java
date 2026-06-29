@@ -12,6 +12,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -21,12 +23,18 @@ import org.springframework.stereotype.Service;
 @Service
 public class WorkerEmbedClient {
 
+  private static final Logger log = LoggerFactory.getLogger(WorkerEmbedClient.class);
+
   private static final Duration TIMEOUT = Duration.ofSeconds(5);
   private static final int CACHE_MAX = 200;
 
   private final WorkerProperties props;
+  // uvicorn(FastAPI)은 H2C(cleartext HTTP/2) 업그레이드를 거부해 400 을 반환하므로 HTTP/1.1 고정.
   private final HttpClient http =
-      HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+      HttpClient.newBuilder()
+          .connectTimeout(Duration.ofSeconds(2))
+          .version(HttpClient.Version.HTTP_1_1)
+          .build();
   private final ObjectMapper mapper = new ObjectMapper();
   // 최근 쿼리 임베딩 LRU(동일 쿼리 반복 시 워커 왕복 회피).
   private final Map<String, float[]> cache =
@@ -64,6 +72,7 @@ public class WorkerEmbedClient {
               .build();
       HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
       if (resp.statusCode() != 200) {
+        log.warn("embed-query 비정상 응답: status={} body={}", resp.statusCode(), resp.body());
         return Optional.empty();
       }
       JsonNode arr = mapper.readTree(resp.body()).get("embedding");
@@ -77,6 +86,7 @@ public class WorkerEmbedClient {
       cache.put(query, vec);
       return Optional.of(vec);
     } catch (Exception e) {
+      log.warn("embed-query 실패 — 키워드 전용 강등: query={} error={}", query, e.getMessage(), e);
       return Optional.empty(); // graceful degradation
     }
   }

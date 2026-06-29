@@ -33,7 +33,12 @@ public class DriveOverviewStreamClient {
   @Autowired
   public DriveOverviewStreamClient(AiAgentProperties props) {
     this.props = props;
-    this.http = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+    // uvicorn(FastAPI)은 H2C 업그레이드를 거부하므로 HTTP/1.1 고정(WorkerEmbedClient 동일 패턴).
+    this.http =
+        HttpClient.newBuilder()
+            .connectTimeout(CONNECT_TIMEOUT)
+            .version(HttpClient.Version.HTTP_1_1)
+            .build();
   }
 
   /** 테스트용 — HttpClient 주입(로컬 HttpServer 스텁 대상). */
