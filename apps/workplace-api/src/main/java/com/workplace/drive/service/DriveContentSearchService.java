@@ -4,6 +4,7 @@ import com.workplace.drive.dto.DriveContentHit;
 import com.workplace.drive.dto.DriveContentSearchResponse;
 import com.workplace.drive.outbound.WorkerEmbedClient;
 import com.workplace.drive.repository.DriveContentSearchRepository;
+import com.workplace.global.util.UnicodeNames;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
@@ -39,7 +40,8 @@ public class DriveContentSearchService {
    */
   @Transactional(readOnly = true)
   public DriveContentSearchResponse search(long userId, String q, Integer limit) {
-    String norm = q == null ? "" : q.trim();
+    // 검색어 NFC 정규화 — 본문 tsvector(추출 텍스트=NFC)와 일관되게 매칭(UnicodeNames 참조).
+    String norm = q == null ? "" : UnicodeNames.toNfc(q).trim();
     if (norm.length() < MIN_QUERY) {
       return new DriveContentSearchResponse(List.of(), false);
     }

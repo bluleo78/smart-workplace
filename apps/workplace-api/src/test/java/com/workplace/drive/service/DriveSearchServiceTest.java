@@ -104,6 +104,44 @@ class DriveSearchServiceTest extends IntegrationTestBase {
     assertThat(res.files().get(0).name()).isEqualTo("a%b.txt");
   }
 
+  /**
+   * macOS(HFS+/APFS)는 파일명 한글을 NFD(분해형)로 전달한다. 저장은 NFC 로 정규화되어, 일반 NFC 검색어로 매칭되어야 한다. (이전: NFD 저장 ≠
+   * NFC 쿼리 → ILIKE 영구 미스)
+   */
+  @Test
+  void search_matchesNfdUploadedName_withNfcQuery() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    // 업로드 파일명을 NFD 로(맥 업로드 재현), 검색어는 NFC 로.
+    String nfd = java.text.Normalizer.normalize("이력서.txt", java.text.Normalizer.Form.NFD);
+    String nfc = java.text.Normalizer.normalize("이력서.txt", java.text.Normalizer.Form.NFC);
+    assertThat(nfd).isNotEqualTo(nfc); // 사전조건: 두 형태의 바이트열이 다름
+    fileService.upload(u, sp.id(), null, txt(nfd));
+    String nfcQuery = java.text.Normalizer.normalize("이력서", java.text.Normalizer.Form.NFC);
+
+    DriveSearchResponse res = searchService.search(u, sp.id(), nfcQuery);
+
+    assertThat(res.files()).hasSize(1);
+    // 저장·반환 이름은 NFC 로 정규화되어 있어야 한다.
+    assertThat(res.files().get(0).name()).isEqualTo(nfc);
+  }
+
+  /** 폴더 이름도 동일하게 NFC 정규화되어 NFD 입력이 NFC 검색어로 매칭되어야 한다. */
+  @Test
+  void search_matchesNfdFolderName_withNfcQuery() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    String nfd = java.text.Normalizer.normalize("이력서모음", java.text.Normalizer.Form.NFD);
+    folderService.create(u, sp.id(), null, nfd);
+    String nfcQuery = java.text.Normalizer.normalize("이력서", java.text.Normalizer.Form.NFC);
+
+    DriveSearchResponse res = searchService.search(u, sp.id(), nfcQuery);
+
+    assertThat(res.folders()).hasSize(1);
+    assertThat(res.folders().get(0).name())
+        .isEqualTo(java.text.Normalizer.normalize("이력서모음", java.text.Normalizer.Form.NFC));
+  }
+
   /** 비멤버는 검색 불가(존재 은닉 → NotFound). */
   @Test
   void search_byNonMember_isRejected() throws Exception {

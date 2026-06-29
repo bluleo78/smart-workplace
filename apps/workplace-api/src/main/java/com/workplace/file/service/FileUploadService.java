@@ -9,6 +9,7 @@ import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
+import com.workplace.global.util.UnicodeNames;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -134,7 +135,11 @@ public class FileUploadService {
       throw new FileSizeLimitExceededException(category, sizeLimit);
     }
 
-    String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "file";
+    // 파일명은 NFC 로 정규화해 저장한다. macOS 업로드는 NFD(분해형)로 들어와, NFC 검색어와 ILIKE 미스를 유발하기 때문(UnicodeNames 참조).
+    // 이 값은 FileUploadResponse → drive_file.name 및 첨부 import 경로까지 흐르므로, 여기 한 곳이 모든 파일명 쓰기 통로다.
+    String originalName =
+        UnicodeNames.toNfc(
+            file.getOriginalFilename() != null ? file.getOriginalFilename() : "file");
 
     // FilePathBuilder 가 테넌트 prefix + 도메인 세그먼트(files) + 날짜 + UUID 를 조립한다(테넌트 컨텍스트 필수).
     // 경로 예: tenant-1/files/2024-01-15/{uuid}.png

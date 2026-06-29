@@ -6,6 +6,7 @@ import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveSearchResponse;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
+import com.workplace.global.util.UnicodeNames;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
@@ -29,7 +30,8 @@ public class DriveSearchService {
   @Transactional(readOnly = true)
   public DriveSearchResponse search(long callerId, long spaceId, String q) {
     perms.requireRole(spaceId, callerId, "VIEWER");
-    String norm = q == null ? "" : q.trim();
+    // 검색어도 NFC 로 정규화한다. 저장 이름이 NFC 이므로 쿼리가 NFD(예: 맥 파일명에서 복사)로 와도 매칭되도록 통일(UnicodeNames 참조).
+    String norm = q == null ? "" : UnicodeNames.toNfc(q).trim();
     if (norm.length() < MIN_QUERY) {
       return new DriveSearchResponse(List.of(), List.of());
     }
