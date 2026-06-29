@@ -48,6 +48,11 @@ workplace:
     base-url: ${WORKPLACE_WORKER_URL:http://localhost:7080}
     internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:}}  # 단일 내부 토큰 — ai-agent 와 동일
     enabled: ${WORKPLACE_WORKER_ENABLED:true}
+    embed:
+      # 임베딩 모델(설정 가능). 차원은 마이그레이션 vector(1024) 와 일치해야 한다.
+      model: ${WORKER_EMBED_MODEL:BAAI/bge-m3}
+      dimensions: ${WORKER_EMBED_DIMENSIONS:1024}
+      max-chars: ${WORKER_EMBED_MAX_CHARS:8000}
 
 app:
   jwt:

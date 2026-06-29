@@ -1,13 +1,14 @@
 package com.workplace.fileai.controller;
 
+import com.workplace.fileai.dto.EmbedResult;
 import com.workplace.fileai.outbound.WorkerProperties;
+import com.workplace.fileai.service.FileEmbeddingPipeline;
 import com.workplace.fileai.service.FileExtractionPipeline;
 import com.workplace.fileai.service.FileExtractionPipeline.ExtractResult;
 import com.workplace.global.tenant.TenantContext;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
@@ -27,11 +28,20 @@ import org.springframework.web.bind.annotation.RestController;
 @Slf4j
 @RestController
 @RequestMapping("/internal/worker")
-@RequiredArgsConstructor
 public class WorkerCallbackController {
 
   private final FileExtractionPipeline pipeline;
+  private final FileEmbeddingPipeline embeddingPipeline;
   private final WorkerProperties workerProperties;
+
+  public WorkerCallbackController(
+      FileExtractionPipeline pipeline,
+      FileEmbeddingPipeline embeddingPipeline,
+      WorkerProperties workerProperties) {
+    this.pipeline = pipeline;
+    this.embeddingPipeline = embeddingPipeline;
+    this.workerProperties = workerProperties;
+  }
 
   /**
    * 워커 추출 완료/실패 콜백. worker_job DONE 마킹 + file_extraction EXTRACTING→TEXT_READY/SKIPPED 전이.
@@ -58,6 +68,31 @@ public class WorkerCallbackController {
       TenantContext.clear();
     }
     return ResponseEntity.ok().build();
+  }
+
+  /**
+   * 워커 임베딩 결과 콜백. extract 경로와 분리(라이브 검증된 /result 무변경).
+   *
+   * <p>C1 RLS 수정: tenantId echo → TenantContext.set 으로 RLS GUC 복원. tenantId 미포함 콜백은 400.
+   */
+  @PostMapping("/jobs/{jobId}/embed-result")
+  public ResponseEntity<Void> embedResult(
+      @PathVariable long jobId, @RequestBody EmbedResult result, HttpServletRequest request) {
+    if (!validateInternalToken(request)) {
+      return ResponseEntity.status(401).build();
+    }
+    if (result.tenantId() == null) {
+      log.warn("embed-result tenantId 없음 — 400 반환: jobId={}", jobId);
+      return ResponseEntity.badRequest().build();
+    }
+    // 워커가 에코한 tenantId 로 TenantContext 복원 → @Transactional 진입 시 RLS GUC 주입(C1 패턴)
+    TenantContext.set(result.tenantId());
+    try {
+      embeddingPipeline.applyEmbedResult(jobId, result);
+      return ResponseEntity.ok().build();
+    } finally {
+      TenantContext.clear();
+    }
   }
 
   /**

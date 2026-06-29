@@ -4,8 +4,9 @@ import httpx
 from . import config
 
 
-def post_result(job_id: int, payload: dict) -> None:
-    url = f"{config.API_BASE}/internal/worker/jobs/{job_id}/result"
+def post_result(job_id: int, payload: dict, path: str = "result") -> None:
+    """워커 결과를 api 콜백으로 전송. path='result'(추출) | 'embed-result'(임베딩). 4회 백오프 재시도."""
+    url = f"{config.API_BASE}/internal/worker/jobs/{job_id}/{path}"
     headers = {"Authorization": f"Internal {config.INTERNAL_TOKEN}"}
     for attempt in range(4):
         try:

@@ -6,7 +6,7 @@ name: smart-workplace-prod
 
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16   # pgvector 확장 포함 — Drive 콘텐츠 벡터 검색(#527)
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-workplace}
       POSTGRES_USER: ${POSTGRES_USER:-app}

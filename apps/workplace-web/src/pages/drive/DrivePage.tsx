@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { handleApiError } from '@/lib/api-error'
 
 import { driveApi } from '../../api/drive'
+import { DriveSearchBar } from '../../components/drive/DriveSearchBar'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
@@ -548,6 +549,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         onDrop={onDrop}
         style={dragOver ? { outline: '2px solid var(--color-primary)', borderRadius: '0.375rem' } : undefined}
       >
+        {/* 콘텐츠 시맨틱 검색 — 스페이스 범위 파일명 검색과 별도로 전체 콘텐츠 하이브리드 검색 제공. */}
+        {!embedded && <div className="mb-4" data-testid="drive-content-search"><DriveSearchBar /></div>}
         {/* #76: 보관된 채널에 연동된 공간 — 읽기 전용 배너. */}
         {space?.archived && (
           <div

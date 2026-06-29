@@ -9,9 +9,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** worker_job + file_extraction CAS 전이 레포지토리. */
@@ -328,4 +330,152 @@ public class WorkerJobRepository {
 
   /** 요약 컨텍스트 — ai-agent 호출에 필요한 파일 정보. */
   public record SummaryContext(String text, String fileName, String mime, long tenantId) {}
+
+  // ─────────────────── 임베딩 큐 메서드 ───────────────────
+
+  /** 임베딩 lease 기간 — 추출과 동일 10분. 워커 크래시 시 만료 후 재디스패치 가능. */
+  private static final java.time.Duration EMBED_LEASE_DURATION = java.time.Duration.ofMinutes(10);
+
+  /**
+   * 임베딩 단말 실패 상한. 이 횟수 이상 FAILED embed 잡이 쌓인 파일은 독성 루프 방지를 위해 백필에서 영구 제외한다(#525 추출 MAX_ATTEMPTS
+   * 미러).
+   */
+  private static final int MAX_EMBED_ATTEMPTS = 3;
+
+  /**
+   * embed 잡 생성. params 에 fileId 보관, RUNNING + lease(now+10분). lease 로 크래시 후 재디스패치 가능.
+   *
+   * @param tenantId 테넌트 ID
+   * @param fileId 대상 파일 ID
+   * @param text 임베딩할 텍스트 (전달 전용, DB 저장 안 함)
+   * @return 생성된 worker_job.id
+   */
+  public long createEmbedJob(long tenantId, long fileId, String text) {
+    try {
+      String params = objectMapper.writeValueAsString(Map.of("fileId", fileId));
+      return dsl.insertInto(WORKER_JOB)
+          .set(WORKER_JOB.TASK_TYPE, "embed")
+          .set(WORKER_JOB.PARAMS, JSONB.valueOf(params))
+          .set(WORKER_JOB.STATUS, "RUNNING")
+          .set(WORKER_JOB.LEASED_UNTIL, OffsetDateTime.now().plus(EMBED_LEASE_DURATION))
+          .set(WORKER_JOB.TENANT_ID, tenantId)
+          .returning(WORKER_JOB.ID)
+          .fetchOne(WORKER_JOB.ID);
+    } catch (JsonProcessingException e) {
+      throw new IllegalStateException("embed job params 직렬화 실패", e);
+    }
+  }
+
+  /**
+   * 임베딩 결과를 멱등 적용. embedding IS NULL 인 행만 UPDATE(중복 콜백 무해). 영향 행 수 반환.
+   *
+   * <p>search_tv 는 GENERATED ALWAYS STORED → 절대 SET 하지 않는다.
+   *
+   * @param fileId 대상 파일 ID
+   * @param vectorLiteral pgvector 텍스트 리터럴 (예: "[0.1,0.2,...]")
+   * @return 업데이트된 행 수 (0=멱등, 1=적용)
+   */
+  public int applyEmbedResult(long fileId, String vectorLiteral) {
+    // EMBEDDING 컬럼은 Object 타입(커스텀 pg vector) — UpdateSetMoreStep 의 set(Field<T>, T) 오버로드를 명시적으로 선택.
+    // DSL.field("cast(? as vector)", ...) 는 Field<Object> 로 ambiguous → execute 전 plain SQL UPDATE
+    // 사용.
+    return dsl.execute(
+        "UPDATE file_extraction SET embedding = cast(? as vector)"
+            + " WHERE file_id = ? AND status = 'DONE' AND embedding IS NULL",
+        vectorLiteral,
+        fileId);
+  }
+
+  /**
+   * 재디스패치 가드: 살아있는(lease 미만료) RUNNING embed 잡이 있으면 true. 만료 lease 는 false(재디스패치 허용).
+   *
+   * @param fileId 대상 파일 ID
+   * @return true 이면 중복 디스패치 방지
+   */
+  public boolean hasPendingEmbedJob(long fileId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(WORKER_JOB)
+            .where(WORKER_JOB.TASK_TYPE.eq("embed"))
+            .and(WORKER_JOB.STATUS.eq("RUNNING"))
+            .and(WORKER_JOB.LEASED_UNTIL.gt(OffsetDateTime.now()))
+            .and(
+                DSL.field("{0} ->> {1}", String.class, WORKER_JOB.PARAMS, DSL.inline("fileId"))
+                    .eq(String.valueOf(fileId))));
+  }
+
+  /**
+   * 임베딩 컨텍스트(DONE 상태 추출 텍스트 + tenant). DONE 아니면 empty.
+   *
+   * @param fileId 대상 파일 ID
+   * @return (text, tenantId) 또는 empty(추출 미완료 또는 없는 파일)
+   */
+  public Optional<EmbedContext> findEmbedContext(long fileId) {
+    return dsl.select(FILE_EXTRACTION.EXTRACTED_TEXT, FILE_EXTRACTION.TENANT_ID)
+        .from(FILE_EXTRACTION)
+        .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+        .and(FILE_EXTRACTION.STATUS.eq("DONE"))
+        .fetchOptional(
+            r ->
+                new EmbedContext(
+                    r.get(FILE_EXTRACTION.EXTRACTED_TEXT), r.get(FILE_EXTRACTION.TENANT_ID)));
+  }
+
+  /**
+   * worker_job 을 FAILED 로 마킹한다(임베딩 단말 실패 — 파일 검색성은 키워드로 유지).
+   *
+   * @param jobId worker_job.id
+   * @param error 오류 메시지
+   */
+  public void markEmbedJobFailed(long jobId, String error) {
+    dsl.update(WORKER_JOB)
+        .set(WORKER_JOB.STATUS, "FAILED")
+        .set(
+            WORKER_JOB.ERROR,
+            error == null ? null : error.substring(0, Math.min(error.length(), 500)))
+        .set(WORKER_JOB.UPDATED_AT, OffsetDateTime.now())
+        .where(WORKER_JOB.ID.eq(jobId))
+        .execute();
+  }
+
+  /**
+   * 백필 대상: status=DONE 이고 embedding 이 아직 NULL 인 file_id 목록.
+   *
+   * <p>제외 조건 2가지: (1) 살아있는(lease 미만료) RUNNING embed 잡이 있는 파일, (2) FAILED embed 잡이
+   * MAX_EMBED_ATTEMPTS 회 이상 쌓인 파일(영구 실패 — 매 틱 재디스패치되어 worker_job 행이 무한 누적되는 독성 루프 차단).
+   *
+   * @param limit 최대 반환 건수
+   * @return 임베딩 대기 파일 ID 목록
+   */
+  public List<Long> findEmbeddable(int limit) {
+    return dsl.select(FILE_EXTRACTION.FILE_ID)
+        .from(FILE_EXTRACTION)
+        .where(FILE_EXTRACTION.STATUS.eq("DONE"))
+        .and(FILE_EXTRACTION.EMBEDDING.isNull())
+        // (1) 살아있는 RUNNING embed 잡이 없는 것만
+        .and(
+            DSL.notExists(
+                dsl.selectOne()
+                    .from(WORKER_JOB)
+                    .where(WORKER_JOB.TASK_TYPE.eq("embed"))
+                    .and(WORKER_JOB.STATUS.eq("RUNNING"))
+                    .and(WORKER_JOB.LEASED_UNTIL.gt(OffsetDateTime.now()))
+                    .and(
+                        DSL.field(
+                                "{0} ->> {1}",
+                                String.class, WORKER_JOB.PARAMS, DSL.inline("fileId"))
+                            .eq(FILE_EXTRACTION.FILE_ID.cast(String.class)))))
+        // (2) FAILED embed 잡이 MAX_EMBED_ATTEMPTS 미만인 것만(영구 실패 파일 영구 제외)
+        .and(
+            DSL.field(
+                    "(SELECT count(*) FROM worker_job wj WHERE wj.task_type = 'embed'"
+                        + " AND wj.status = 'FAILED' AND wj.params ->> 'fileId' = {0}::text)",
+                    Integer.class, FILE_EXTRACTION.FILE_ID)
+                .lt(MAX_EMBED_ATTEMPTS))
+        .limit(limit)
+        .fetch(FILE_EXTRACTION.FILE_ID);
+  }
+
+  /** 임베딩 디스패치 컨텍스트 — dispatchEmbed 에서 사용. */
+  public record EmbedContext(String text, long tenantId) {}
 }

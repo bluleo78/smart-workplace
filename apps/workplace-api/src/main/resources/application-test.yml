@@ -47,3 +47,7 @@ workplace:
     base-url: http://localhost:7080
     internal-token: test-token
     enabled: false
+    embed:
+      model: BAAI/bge-m3
+      dimensions: 1024
+      max-chars: 8000

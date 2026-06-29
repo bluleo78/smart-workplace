@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.fileai.event.FileExtractionDoneEvent;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.repository.WorkerJobRepository;
@@ -15,6 +16,7 @@ import java.util.concurrent.Executor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -69,6 +71,9 @@ public class FileExtractionPipeline {
    */
   private final Executor summaryExecutor;
 
+  /** DONE 이벤트 발행 — 임베딩 nudge 트리거. markSummarized txTemplate 안에서 publishEvent 해야 AFTER_COMMIT 발화. */
+  private final ApplicationEventPublisher events;
+
   public FileExtractionPipeline(
       WorkerJobRepository jobs,
       WorkerClient worker,
@@ -76,7 +81,8 @@ public class FileExtractionPipeline {
       AssistantResolver assistantResolver,
       DSLContext dsl,
       PlatformTransactionManager txManager,
-      @Qualifier("issueAiSummaryExecutor") Executor summaryExecutor) {
+      @Qualifier("issueAiSummaryExecutor") Executor summaryExecutor,
+      ApplicationEventPublisher events) {
     this.jobs = jobs;
     this.worker = worker;
     this.driveClient = driveClient;
@@ -84,6 +90,7 @@ public class FileExtractionPipeline {
     this.dsl = dsl;
     this.txTemplate = new TransactionTemplate(txManager);
     this.summaryExecutor = summaryExecutor;
+    this.events = events;
   }
 
   /**
@@ -313,10 +320,17 @@ public class FileExtractionPipeline {
       throw ex;
     }
 
-    // ③-성공: DONE 저장
+    // ③-성공: DONE 저장 + 임베딩 nudge 이벤트 발행(같은 트랜잭션 안 — AFTER_COMMIT 리스너 정상 발화 보장)
     final String summary = res.summary();
     final String model = spec.model();
-    txTemplate.executeWithoutResult(status -> jobs.markSummarized(fileId, summary, model));
+    final long tenantId = ctx.tenantId();
+    txTemplate.executeWithoutResult(
+        status -> {
+          jobs.markSummarized(fileId, summary, model);
+          // DONE 행이 커밋된 후 FileEmbeddingListener.onDone 이 dispatchEmbed 를 nudge.
+          // 이벤트를 txTemplate 밖에서 발행하면 트랜잭션이 없어 AFTER_COMMIT 리스너가 silently dropped 됨.
+          events.publishEvent(new FileExtractionDoneEvent(fileId, tenantId));
+        });
     log.debug("파일 요약 완료: fileId={}", fileId);
   }
 }

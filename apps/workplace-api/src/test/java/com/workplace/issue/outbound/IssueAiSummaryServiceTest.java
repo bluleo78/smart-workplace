@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.issue.exception.IssueAiAssistantUnavailableException;
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.dto.IssueSummaryRequest;
@@ -50,6 +51,12 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
 
   @MockBean private AiAgentIssueClient client;
   @MockBean private AssistantResolver assistantResolver;
+  /**
+   * MailSummaryScheduler 가 @Scheduled(fixedRate=600_000) 로 TenantScopedRunner.forEachActiveTenant
+   * 콜백 안에서 resolveWorkspaceOrEmpty() 를 호출해 verify 카운트를 오염시킨다. TenantScopedRunner 를 목으로 교체하면
+   * 콜백 자체가 실행되지 않아 오염이 원천 차단된다.
+   */
+  @MockBean private TenantScopedRunner tenantScopedRunner;
 
   /** 테스트용 고정 AssistantSpec — agentUserId=999. */
   private static final AssistantSpec MOCK_SPEC =

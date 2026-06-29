@@ -8,5 +8,6 @@ export function useMessagingSummary() {
     queryKey: ['messaging-summary'],
     queryFn: messagingSummaryApi.get,
     staleTime: 30_000,
+    retry: false,
   })
 }
