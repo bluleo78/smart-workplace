@@ -5,6 +5,8 @@
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
+import { createUser } from '../../factories/auth.factory';
+import { mockApi } from '../../fixtures/api-mock';
 import type { IssueAiContext, IssueDetailResponse } from '../../../src/types/issue';
 
 const PROJECT_KEY = 'PROJ';
@@ -281,6 +283,29 @@ test.describe('이슈 Instant Context 카드 (#517 온디맨드)', () => {
 
       // 생성 버튼도 함께 표시.
       await expect(page.getByTestId('issue-summary-generate')).toBeVisible();
+    },
+  );
+
+  test(
+    'aiAvailable=false 이면 AI 카드가 렌더되지 않는다',
+    async ({ authenticatedPage: page }) => {
+      // aiAvailable:false — 비서 없는 사용자. fixture 기본값(true) 위에 LIFO 재정의.
+      await mockApi(page, 'GET', '/api/v1/users/me', createUser({ aiAvailable: false }));
+
+      const detail: IssueDetailResponse = createIssueDetail({
+        summary: createIssue({ projectKey: PROJECT_KEY }),
+        aiContext: {
+          summary: '요약 있음',
+          nextAction: null,
+          generatedAt: new Date().toISOString(),
+          blockers: [],
+        } satisfies IssueAiContext,
+      });
+      await mockIssueDetail(page, detail);
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+      // AI 카드가 DOM 에 없어야 한다 (aiAvailable 게이트).
+      await expect(page.getByTestId('issue-instant-context')).not.toBeVisible();
     },
   );
 });

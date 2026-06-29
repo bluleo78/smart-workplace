@@ -20,6 +20,7 @@ import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useMyDms } from '@/hooks/queries/useMyDms'
+import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
@@ -167,13 +168,12 @@ export default function DmPage() {
   const create = useCreateMessage(dmId ?? 0, me)
 
   const dm = dms?.find((d) => d.id === dmId)
+  const aiAvailable = useAiAvailable()
   // @멘션 후보 = DM 참여자. RichInput 이 기대하는 chat 멤버 형태로 매핑(username 은 name 으로 대체).
-  const mentionMembers: MentionCandidate[] = (dm?.participants ?? []).map((p) => ({
-    userId: p.userId,
-    username: p.name,
-    name: p.name,
-    kind: p.kind,
-  }))
+  // 비서 비가용(aiAvailable=false)이면 AGENT 후보 제외 — AI 와의 DM 자체는 유지, 멘션만 게이트.
+  const mentionMembers: MentionCandidate[] = (dm?.participants ?? [])
+    .map((p) => ({ userId: p.userId, username: p.name, name: p.name, kind: p.kind }))
+    .filter((m) => aiAvailable || m.kind !== 'AGENT')
 
   // DM 목록 API 오류 — 로드 실패와 실제 미존재를 구분해 사용자 오해 방지.
   if (isError) {

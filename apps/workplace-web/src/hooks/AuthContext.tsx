@@ -56,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isActive: userDetail.isActive,
       createdAt: userDetail.createdAt,
       kind: userDetail.kind,
+      aiAvailable: userDetail.aiAvailable,
     };
     setUser(userResponse);
     setRoles(userDetail.roles);

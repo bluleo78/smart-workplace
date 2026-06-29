@@ -26,6 +26,7 @@ import { useDeleteIssue } from '../../hooks/queries/useIssues';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useProject } from '../../hooks/queries/useProjects';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
+import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
@@ -203,6 +204,8 @@ export default function IssueDetailPage() {
   // AI 현황 요약 온디맨드 생성 mutation — Rules of Hooks: 조기 반환 이전에 선언.
   const genSummary = useGenerateAiSummary(key, issueNumber);
   const { user } = useAuth();
+  // AI 가용성 — 비서 없으면 AI 카드 미렌더(#517 게이트).
+  const aiAvailable = useAiAvailable();
   const watchers = useWatchers(key, issueNumber);
   const toggleWatch = useWatchToggle(key, issueNumber, user?.id ?? null);
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
@@ -327,12 +330,14 @@ export default function IssueDetailPage() {
           {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
               세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
           <div className="flex-1 space-y-4 @min-[1032px]:min-w-[360px]">
-            {/* AI 즉각 컨텍스트 카드 (#517) — 항상 렌더. 생성/재생성 버튼 포함. */}
-            <IssueInstantContextCard
-              aiContext={data.aiContext}
-              onGenerate={() => genSummary.mutate()}
-              isGenerating={genSummary.isPending}
-            />
+            {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). */}
+            {aiAvailable && (
+              <IssueInstantContextCard
+                aiContext={data.aiContext}
+                onGenerate={() => genSummary.mutate()}
+                isGenerating={genSummary.isPending}
+              />
+            )}
             <InlineEditableBody
               body={body}
               onSave={(b) => patch({ body: b })}

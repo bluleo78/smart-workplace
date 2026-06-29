@@ -109,25 +109,81 @@ public class MailAiService {
   }
 
   /**
-   * 메일 요약(캐시 우선). 캐시 없으면 ai-agent 호출 후 저장. ai_enabled=false 면 503.
+   * T1 객관적 요약(공통비서 전용, best-effort). 공통비서가 없거나·이미 요약됐거나·본문이 비면 skip. 계정 ai_enabled 와 무관 — 공통비서가 있으면
+   * 모든 메일을 객관적으로 요약한다.
+   */
+  public void ensureObjectiveSummary(long userId, long messageId) {
+    AiContext ctx = readContext(userId, messageId);
+    if (ctx == null || (ctx.summary() != null && !ctx.summary().isBlank())) {
+      return; // 미존재 또는 이미 공통요약 있음
+    }
+    AssistantSpec spec = assistantResolver.resolveWorkspaceOrEmpty().orElse(null);
+    if (spec == null) {
+      return; // 공통비서 미설정 — T1 skip
+    }
+    String summary = callSummarize(ctx, spec);
+    if (summary == null) {
+      return; // 빈본문
+    }
+    txTemplate.executeWithoutResult(status -> messageRepo.updateSummary(messageId, summary));
+  }
+
+  /**
+   * T2 개인 맞춤 요약(개인비서 전용, best-effort). aiEnabled=false 거나·개인비서 없거나·이미 개인요약됐거나· 본문이 비면 skip. 공통비서로
+   * 폴백하지 않는다(객관적 요약 중복 방지).
+   */
+  public void ensurePersonalSummary(long userId, long messageId) {
+    AiContext ctx = readContext(userId, messageId);
+    if (ctx == null || !ctx.aiEnabled()) {
+      return; // 미존재 또는 개인 AI opt-in 아님
+    }
+    if (ctx.personalSummary() != null && !ctx.personalSummary().isBlank()) {
+      return; // 이미 개인요약 있음
+    }
+    AssistantSpec spec = assistantResolver.resolvePersonalOrEmpty(userId).orElse(null);
+    if (spec == null) {
+      return; // 진짜 개인비서 없음 — T2 skip
+    }
+    String summary = callSummarize(ctx, spec);
+    if (summary == null) {
+      return;
+    }
+    txTemplate.executeWithoutResult(
+        status -> messageRepo.updatePersonalSummary(messageId, summary));
+  }
+
+  /**
+   * 온디맨드 표시용 요약. 개인 ?? 공통. 캐시 없으면 가능한 쪽을 생성: aiEnabled+개인비서면 개인요약, 아니면 공통비서면 객관적요약. 둘 다 불가하면 503.
    *
-   * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬이라 컨텍스트 조회·캐시 쓰기만 짧은 트랜잭션({@code txTemplate})으로 감싼다 — 없으면 첫
-   * RLS 스코프 SELECT 가 빈 결과 → 거짓 404. LLM 호출(최대 90s)은 트랜잭션 밖에서 수행해 DB 커넥션을 그 동안 점유하지 않는다(#232). 비서 사양
-   * 해석 ({@link AssistantResolver#resolve})은 자체 @Transactional(readOnly) 로 GUC 를 주입하므로 별도 래핑이 필요 없다.
+   * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬이라 컨텍스트 조회·캐시 쓰기만 짧은 트랜잭션({@code txTemplate})으로 감싼다. LLM 호출은
+   * 트랜잭션 밖(#232). 비서 사양 해석은 자체 @Transactional(readOnly) 로 GUC 를 주입한다.
    */
   public MailSummary summarize(long userId, long messageId) {
-    AiContext ctx =
-        txTemplate.execute(
-            status ->
-                messageRepo
-                    .findAiContextByIdAndUser(userId, messageId)
-                    .orElseThrow(() -> new EmailMessageNotFoundException(messageId)));
-    requireEnabled(ctx);
-    if (ctx.summary() != null && !ctx.summary().isBlank()) {
-      return new MailSummary(ctx.summary());
+    AiContext ctx = readContextOrThrow(userId, messageId);
+    String display = firstNonBlank(ctx.personalSummary(), ctx.summary());
+    if (display != null) {
+      return new MailSummary(display);
     }
-    AssistantSpec spec = requireSpec(userId);
+    // 캐시 미스 — 생성 시도.
+    if (ctx.aiEnabled() && assistantResolver.resolvePersonalOrEmpty(userId).isPresent()) {
+      ensurePersonalSummary(userId, messageId);
+    } else {
+      ensureObjectiveSummary(userId, messageId);
+    }
+    AiContext after = readContextOrThrow(userId, messageId);
+    String result = firstNonBlank(after.personalSummary(), after.summary());
+    if (result == null) {
+      throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+    }
+    return new MailSummary(result);
+  }
+
+  /** 공통비서/개인비서 spec 으로 본문 요약 LLM 호출. 본문이 비거나 LLM 응답이 비면 null(저장 skip 신호). */
+  private String callSummarize(AiContext ctx, AssistantSpec spec) {
     String body = MailBodyText.effectiveBody(ctx.bodyText(), ctx.bodyHtml());
+    if (body == null || body.isBlank()) {
+      return null;
+    }
     SummarizeResult r =
         mailClient.summarize(
             new SummarizeRequest(
@@ -138,8 +194,33 @@ public class MailAiService {
                 spec.model(),
                 MAX_TURNS,
                 spec.timeoutMs()));
-    txTemplate.executeWithoutResult(status -> messageRepo.updateSummary(messageId, r.summary()));
-    return new MailSummary(r.summary());
+    String summary = r.summary();
+    // 빈 LLM 응답을 저장하면 skip 조건이 false 라 무한 재시도되므로 저장하지 않음.
+    if (summary == null || summary.isBlank()) {
+      return null;
+    }
+    return summary;
+  }
+
+  /** RLS GUC 주입 짧은 트랜잭션으로 컨텍스트 조회(없으면 null). */
+  private AiContext readContext(long userId, long messageId) {
+    return txTemplate.execute(
+        status -> messageRepo.findAiContextByIdAndUser(userId, messageId).orElse(null));
+  }
+
+  private AiContext readContextOrThrow(long userId, long messageId) {
+    AiContext ctx = readContext(userId, messageId);
+    if (ctx == null) {
+      throw new EmailMessageNotFoundException(messageId);
+    }
+    return ctx;
+  }
+
+  private String firstNonBlank(String a, String b) {
+    if (a != null && !a.isBlank()) {
+      return a;
+    }
+    return (b != null && !b.isBlank()) ? b : null;
   }
 
   /**

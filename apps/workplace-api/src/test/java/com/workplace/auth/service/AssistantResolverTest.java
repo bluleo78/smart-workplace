@@ -122,4 +122,28 @@ class AssistantResolverTest extends IntegrationTestBase {
 
     assertThat(result).isEmpty();
   }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // resolvePersonalOrEmpty — 개인 전용(공통 비서 폴백 없음, 메일 개인 요약용)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  @Test
+  void resolvePersonalOrEmpty_공용비서만_있으면_empty() {
+    // 공통 비서만 있고 개인 비서는 없는 사용자 → 개인 전용 해석은 empty(공통으로 폴백하지 않음)
+    long human = TestFixtures.createHuman(dsl);
+    long workspaceAgent = TestFixtures.createAgentWithToken(dsl, credentialService, human);
+    workspaceRepo.upsert(workspaceAgent, human);
+
+    assertThat(resolver.resolvePersonalOrEmpty(human)).isEmpty();
+  }
+
+  @Test
+  void resolvePersonalOrEmpty_개인비서_토큰있으면_present() {
+    // 개인 비서 + active token → present
+    long human = TestFixtures.createHuman(dsl);
+    long personalAgent = TestFixtures.createAgentWithToken(dsl, credentialService, human);
+    personalRepo.setAgentId(human, personalAgent);
+
+    assertThat(resolver.resolvePersonalOrEmpty(human)).isPresent();
+  }
 }

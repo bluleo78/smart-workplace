@@ -13,11 +13,14 @@ import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MailComposeDock } from '@/components/mail/MailComposeDock'
 import { ChatSessionProvider } from '@/hooks/ChatSessionContext'
 import { MessagingConnectionContext } from '@/hooks/MessagingConnectionContext'
+import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
 
 export function AppLayout() {
   const { user } = useAuth()
+  // AI 가용성 — 비서 없으면 AIChip·AISidePanel·AIFullscreen 미렌더.
+  const aiAvailable = useAiAvailable()
   // 인증된 앱 셸에서 통합 실시간 SSE 를 1회 구독(유저당 단일 커넥션). chat·messaging·notify 이벤트를
   // 이름 prefix 로 fan-out 한다. 과거 3개 스트림(커넥션 3개)을 단일 /api/v1/events 로 통합(#506).
   const { isConnected } = useEventStream(user?.id ?? 0)
@@ -36,16 +39,16 @@ export function AppLayout() {
                 <AppRail />
                 <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0">
                   <Outlet />
-                  {/* 풀스크린 — main 의 absolute inset-0 자식 → 콘텐츠 영역만 덮음(AppRail 미포함). */}
-                  <AIFullscreen />
+                  {/* 풀스크린 — main 의 absolute inset-0 자식 → 콘텐츠 영역만 덮음(AppRail 미포함). 비서 있을 때만. */}
+                  {aiAvailable && <AIFullscreen />}
                 </main>
-                {/* 사이드 패널 — flex 형제로 본문을 밀어냄(reflow). mode!=='side' 면 null. */}
-                <AISidePanel />
+                {/* 사이드 패널 — flex 형제로 본문을 밀어냄(reflow). mode!=='side' 면 null. 비서 있을 때만. */}
+                {aiAvailable && <AISidePanel />}
               </div>
             </MessagingConnectionContext.Provider>
           </InboxProvider>
-          {/* AI 칩 — fixed 상단 중앙. */}
-          <AIChip />
+          {/* AI 칩 — fixed 상단 중앙. 비서 있을 때만. */}
+          {aiAvailable && <AIChip />}
         </AIAssistantProvider>
       </ChatSessionProvider>
       {/* 메일 작성 도크 — fixed, 앱 전역. draft 없으면 null. */}

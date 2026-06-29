@@ -24,6 +24,7 @@ import { useChannelMessages } from '@/hooks/queries/useChannelMessages'
 import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
+import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
@@ -40,13 +41,16 @@ export default function ChannelPage() {
   const messages = data?.pages.flatMap((p) => p.items) ?? []
   const { data: channelMembers } = useChannelMembers(channelId)
   const { data: agentCandidates } = useMentionAgents()
+  const aiAvailable = useAiAvailable()
   // @멘션 후보 = 채널 멤버 ∪ 워크스페이스 AGENT(비멤버 AGENT 초대용). userId 로 dedup.
+  // 비서 비가용(aiAvailable=false)이면 AGENT(=AI) 후보를 제외 — 멘션으로 AI 를 트리거하지 않도록 게이트.
   const mentionMembers: MentionCandidate[] = (() => {
     const byId = new Map<number, MentionCandidate>()
     for (const m of channelMembers ?? [])
       byId.set(m.userId, { userId: m.userId, username: m.name, name: m.name, kind: m.kind })
     for (const a of agentCandidates ?? []) if (!byId.has(a.userId)) byId.set(a.userId, a)
-    return [...byId.values()]
+    const all = [...byId.values()]
+    return aiAvailable ? all : all.filter((m) => m.kind !== 'AGENT')
   })()
   const [membersOpen, setMembersOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)

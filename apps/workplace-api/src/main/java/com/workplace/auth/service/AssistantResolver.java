@@ -47,6 +47,17 @@ public class AssistantResolver {
   }
 
   /**
+   * caller 의 개인 비서(토큰 보유)만 해석. 없으면 empty(공통 비서로 폴백하지 않음).
+   *
+   * <p>메일 개인 요약(T2)처럼, 공통 비서로 폴백하면 객관적 요약과 동일 결과를 사람별로 중복 저장하게 되는
+   * 경우에 쓴다. 개인 비서가 실제로 있을 때만 개인 산출물을 만든다.
+   */
+  @Transactional(readOnly = true)
+  public Optional<AssistantSpec> resolvePersonalOrEmpty(long callerId) {
+    return pickWithActiveToken(personalRepo.findAgentId(callerId)).map(this::buildSpec);
+  }
+
+  /**
    * 테넌트 공용 비서(토큰 보유)만 해석. 없으면 empty(예외 없음).
    *
    * <p>이슈 요약처럼 특정 소유자가 없는 TEAM 프로젝트에서 사용한다.

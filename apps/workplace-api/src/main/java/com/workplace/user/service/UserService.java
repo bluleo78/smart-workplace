@@ -3,6 +3,7 @@ package com.workplace.user.service;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
+import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.role.dto.RoleResponse;
@@ -34,6 +35,8 @@ public class UserService {
   private final PasswordEncoder passwordEncoder;
   private final AuditLogService auditLogService;
   private final MembershipRepository membershipRepository;
+  // AI 가용성 해석 — 개인/공통 비서 중 active token 보유 여부를 판단. /users/me 응답에 aiAvailable 노출.
+  private final AssistantResolver assistantResolver;
 
   @Transactional(readOnly = true)
   public PageResponse<UserResponse> getUsers(String search, int page, int size) {
@@ -63,6 +66,8 @@ public class UserService {
             .findById(id)
             .orElseThrow(() -> new UserNotFoundException("User not found: " + id));
     List<RoleResponse> roles = roleRepository.findByUserId(id);
+    // AI 가용성 — 개인 또는 공통 비서(active token) 보유 여부. 프론트가 AI affordance 게이트에 사용.
+    boolean aiAvailable = assistantResolver.resolveOrEmpty(id).isPresent();
     return new UserDetailResponse(
         user.id(),
         user.username(),
@@ -71,7 +76,8 @@ public class UserService {
         user.isActive(),
         user.createdAt(),
         roles,
-        user.kind());
+        user.kind(),
+        aiAvailable);
   }
 
   /** Phase 5a — kind 별 사용자 목록 (AGENT 관리 화면 등). active 테넌트 멤버로 스코프된다. */

@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
+import { createUser } from '../factories/auth.factory'
 import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
 
 // global-chat.spec.ts — AI 어시스턴트 신규 모드(side/fullscreen/chip) E2E.
@@ -959,4 +960,13 @@ test('세션 로드 후 콘텐츠 높이가 비동기로 커져도 하단 고정
   await expect
     .poll(async () => scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
     .toBeLessThanOrEqual(80)
+})
+
+// aiAvailable 게이트 — 비서 없으면 AIChip(chat-launcher) 미렌더.
+test('aiAvailable=false 이면 AIChip(chat-launcher) 이 렌더되지 않는다', async ({ authenticatedPage: page }) => {
+  // aiAvailable:false 로 재정의(fixture 기본값 true 위에 LIFO 우선).
+  await mockApi(page, 'GET', '/api/v1/users/me', createUser({ aiAvailable: false }))
+  await page.goto('/')
+  // AIChip 이 DOM 에 없어야 한다 (aiAvailable 게이트).
+  await expect(page.getByTestId('chat-launcher')).not.toBeVisible()
 })

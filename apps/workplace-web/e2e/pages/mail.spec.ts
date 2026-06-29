@@ -1,4 +1,5 @@
 // 메일 상세 E2E — AI 요약 카드 + 생성 중 스켈레톤.
+import { createUser } from '../factories/auth.factory'
 import { detail as mailDetail, mailAccount, summary as mailSummary } from '../factories/mail.factory'
 import { mockApi } from '../fixtures/api-mock'
 import { expect, test } from '../fixtures/auth.fixture'
@@ -6,8 +7,13 @@ import { expect, test } from '../fixtures/auth.fixture'
 /**
  * 메일 페이지 공통 모킹 + 첫 번째 메일 상세 열기.
  * aiEnabled: 계정의 AI 사용 여부.
+ * aiAvailable: 사용자 수준 AI 비서 활성화 여부(기본 true — 요약 게이트 통과용).
  */
-async function openFirstMail(page: import('@playwright/test').Page, aiEnabled = true) {
+async function openFirstMail(page: import('@playwright/test').Page, aiEnabled = true, aiAvailable = true) {
+  // aiAvailable: true 일 때만 /users/me 를 덮어써 요약 게이트를 통과시킨다.
+  if (aiAvailable) {
+    await mockApi(page, 'GET', '/api/v1/users/me', { ...createUser({ aiAvailable: true }), roles: [{ id: 2, name: 'USER', description: '일반 사용자', isSystem: true }] })
+  }
   // 계정 목록: AI 사용 상태 제어.
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled })])
   // 동기화 상태.
@@ -168,11 +174,22 @@ test.describe('메일 AI 요약', () => {
     },
   )
 
-  test('AI OFF 계정은 요약 카드 미표시', async ({ authenticatedPage: page }) => {
-    // AI 비활성 계정 — 요약 API 호출 없음.
+  test('개인 비서 OFF 계정, 객관 요약 없음 → 카드 미표시', async ({ authenticatedPage: page }) => {
+    // 개인 비서 비활성 + 객관 요약도 없는 경우 — 카드가 표시되지 않아야 한다.
     await mockApi(page, 'GET', '/api/v1/mail/messages/10/summary', { summary: null })
     await openFirstMail(page, false)
     await expect(page.getByTestId('mail-ai-summary')).toHaveCount(0)
+    await expect(page.getByTestId('mail-ai-summary-loading')).toHaveCount(0)
+  })
+
+  test('개인 비서 OFF 계정이어도 객관 요약이 있으면 카드 표시', async ({ authenticatedPage: page }) => {
+    // 개인 비서(aiEnabled=false)지만 공통 비서가 생성한 객관 요약이 있으면 카드가 표시되어야 한다.
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10/summary', { summary: '• 객관 요약 텍스트' })
+    await openFirstMail(page, false)
+    const summaryEl = page.getByTestId('mail-ai-summary')
+    await expect(summaryEl).toBeVisible()
+    await expect(summaryEl).toContainText('객관 요약 텍스트')
+    // 개인 비서 꺼짐이므로 생성 중 스켈레톤은 미표시
     await expect(page.getByTestId('mail-ai-summary-loading')).toHaveCount(0)
   })
 })

@@ -1,10 +1,13 @@
 // 메일 AI 비서 E2E — 배지/요약/답장 초안. 백엔드 없이 page.route 모킹.
+import { createUser } from '../factories/auth.factory'
 import { detail, mailAccount, summary } from '../factories/mail.factory'
 import { mockApi } from '../fixtures/api-mock'
 import { expect, test } from '../fixtures/auth.fixture'
 
 test.describe('메일 AI 비서', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
+    // aiAvailable: true — AI 비서가 활성화된 사용자 모킹(기본값 false 를 덮어씀).
+    await mockApi(page, 'GET', '/api/v1/users/me', { ...createUser({ aiAvailable: true }), roles: [{ id: 2, name: 'USER', description: '일반 사용자', isSystem: true }] })
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
   })
 
@@ -93,6 +96,34 @@ test.describe('메일 AI 비서', () => {
     release()
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
     await expect(page.getByTestId('mail-composer-body')).toContainText('AI가 작성한 답장')
+  })
+
+  // aiAvailable false 일 때 — 요약 카드·답장 버튼 미렌더 + 요약 API 요청 0건.
+  test('aiAvailable false — 요약 카드·답장 버튼 숨김, 요약 API 미호출', async ({ authenticatedPage: page }) => {
+    // aiAvailable: false 로 덮어씀 — beforeEach 의 true 모킹보다 나중에 등록되어 우선 적용.
+    await mockApi(page, 'GET', '/api/v1/users/me', { ...createUser({ aiAvailable: false }), roles: [{ id: 2, name: 'USER', description: '일반 사용자', isSystem: true }] })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify([summary({ id: 7 })]) }),
+    )
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7', detail({ id: 7, bodyText: '본문' }))
+
+    // 요약 API 요청이 들어오면 테스트 실패 — aiAvailable false 일 때 fetch 자체를 안 해야 한다.
+    let summaryRequested = false
+    await page.route((u) => /\/mail\/messages\/\d+\/summary/.test(u.pathname), (route) => {
+      summaryRequested = true
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ summary: '요약' }) })
+    })
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await page.getByTestId('mail-detail').waitFor()
+
+    expect(summaryRequested).toBe(false)
+    await expect(page.getByTestId('mail-ai-summary')).not.toBeVisible()
+    await expect(page.getByTestId('mail-ai-reply-draft')).not.toBeVisible()
   })
 
   // 본문이 길면 작성창이 무한정 늘어나지 않고 에디터 영역이 스크롤돼야 한다(도크 높이 고정).

@@ -12,6 +12,8 @@ export interface UserDetailResponse {
   createdAt: string;
   roles: RoleResponse[];
   kind: UserKind;
+  // AI 가용성 — 개인/공통 비서 보유 여부. AI affordance 게이트용.
+  aiAvailable: boolean;
 }
 
 

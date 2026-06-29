@@ -21,6 +21,7 @@ import {
   useUpdateMyAssistantName,
   useUpdateMyAssistantSettings,
 } from '../../hooks/queries/useAssistant';
+import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import { MODEL_OPTIONS } from '../../lib/assistant-models';
 import type { ThinkingDepth } from '../../types/assistant';
@@ -34,6 +35,8 @@ const DEPTHS: { value: ThinkingDepth; label: string }[] = [
 
 export function PersonalAssistantSection() {
   // 훅은 컴포넌트 최상위에서만 호출 — 핸들러 안에서 호출 금지.
+  // 비서 가용성(aiAvailable) 변경 시 AuthContext user 캐시를 즉시 갱신해 페이지 새로고침 없이 반영.
+  const { refreshUser } = useAuth();
   const { data: status } = useMyAssistant();
   const register = useRegisterMyAssistantToken();
   const updateSettings = useUpdateMyAssistantSettings();
@@ -44,7 +47,7 @@ export function PersonalAssistantSection() {
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const nameValue = nameDraft ?? status?.name ?? '';
 
-  // 토큰 등록 — 형식(최소 32자) 검증 후 평문 전송, 성공 시 입력 비움.
+  // 토큰 등록 — 형식(최소 32자) 검증 후 평문 전송, 성공 시 입력 비우고 user 갱신(aiAvailable 즉시 반영).
   const submitToken = async () => {
     const t = token.trim();
     if (t.length < 32) {
@@ -55,6 +58,7 @@ export function PersonalAssistantSection() {
       await register.mutateAsync({ token: t });
       setToken('');
       toast.success('개인 비서 토큰을 저장했습니다.');
+      void refreshUser();
     } catch (e) {
       handleApiError(e, '토큰 등록에 실패했습니다.');
     }
@@ -96,11 +100,12 @@ export function PersonalAssistantSection() {
     }
   };
 
-  // 개인 비서 해제.
+  // 개인 비서 해제 — 성공 시 user 갱신(aiAvailable false 로 즉시 반영).
   const handleDisable = async () => {
     try {
       await disable.mutateAsync();
       toast.success('개인 비서를 해제했습니다.');
+      void refreshUser();
     } catch (e) {
       handleApiError(e, '개인 비서 해제에 실패했습니다.');
     }

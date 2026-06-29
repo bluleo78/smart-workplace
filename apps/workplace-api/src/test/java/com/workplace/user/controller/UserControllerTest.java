@@ -72,7 +72,8 @@ class UserControllerTest {
             true,
             LocalDateTime.now(),
             List.of(new RoleResponse(1L, "USER", "Regular user", true)),
-            "HUMAN");
+            "HUMAN",
+            false);
     when(userService.getUserById(1L)).thenReturn(detail);
 
     mockMvc
@@ -153,7 +154,8 @@ class UserControllerTest {
             true,
             LocalDateTime.now(),
             List.of(),
-            "HUMAN");
+            "HUMAN",
+            false);
     when(userService.getUserById(2L)).thenReturn(detail);
 
     mockMvc

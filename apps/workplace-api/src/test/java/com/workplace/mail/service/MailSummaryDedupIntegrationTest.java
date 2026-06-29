@@ -106,8 +106,13 @@ class MailSummaryDedupIntegrationTest extends IntegrationTestBase {
     String msgId = "<dedup-" + nano + "@corp>";
 
     // 비서 해석·LLM 호출 mock
+    // resolveSpecOrNull(backfill gate) 는 resolve() 사용. summarize() 는 resolveWorkspaceOrEmpty()
+    // 사용(2-tier).
     AssistantSpec spec = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
     given(assistantResolver.resolve(any(Long.class))).willReturn(spec);
+    given(assistantResolver.resolveWorkspaceOrEmpty()).willReturn(java.util.Optional.of(spec));
+    given(assistantResolver.resolvePersonalOrEmpty(any(Long.class)))
+        .willReturn(java.util.Optional.empty());
     given(mailClient.summarize(any())).willReturn(new SummarizeResult("DEDUP 요약"));
 
     TenantContext.set(1L);
@@ -140,9 +145,9 @@ class MailSummaryDedupIntegrationTest extends IntegrationTestBase {
     envA = seedEnvelope(accA, fldA, "<thread-a-" + nano + ">", msgId);
     envB = seedEnvelope(accB, fldB, "<thread-b-" + nano + ">", msgId);
 
-    // 배치 요약을 두 계정에 구동(스케줄러가 테넌트별로 하는 것과 동일).
-    backfill.summarizeRecentUnreadNow(userId, accA);
-    backfill.summarizeRecentUnreadNow(userId, accB);
+    // T1 객관적 패스를 두 계정에 구동 — content.ai_summary N→1 dedup 검증 대상은 공통 요약.
+    backfill.summarizeObjectiveRecentNow(userId, accA);
+    backfill.summarizeObjectiveRecentNow(userId, accB);
 
     // [게이트] LLM 요약 호출은 정확히 1회(N→1). 가드 제거 시 2회로 FAIL.
     verify(mailClient, times(1)).summarize(any());

@@ -614,6 +614,35 @@ public class EmailMessageRepository {
         .execute();
   }
 
+  /** 개인 비서(T2) 맞춤 요약 저장 — envelope(사람별) email_message 에 기록. */
+  public void updatePersonalSummary(long messageId, String summary) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, summary)
+        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, OffsetDateTime.now())
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /**
+   * T2 개인 요약 대상 — INBOX 안읽음 중 개인 요약 미생성(email_message.ai_personal_summary IS NULL) 최근 limit건.
+   *
+   * <p>⚠️ listRecentUnreadUnsummarizedIds(공통 content.ai_summary 기준)와 별개다 — 공통 요약이 이미 있어도
+   * 개인 요약이 없으면 포함해야 하므로 envelope 컬럼으로 스캔한다.
+   */
+  public List<Long> listRecentUnreadUnpersonalizedIds(long accountId, int limit) {
+    return dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .and(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY.isNull())
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
+        .limit(limit)
+        .fetch(EMAIL_MESSAGE.ID);
+  }
+
   /**
    * 첨부플래그(has_attachment)만 envelope 에 기록한다. Task5 이후 본문·스니펫은 email_content 에 저장하고, 첨부 존재 여부만
    * envelope 속성으로 남긴다(수신자별로 동일 메일도 첨부 보기 상태가 다를 수 있으므로 envelope 컬럼 유지).
@@ -795,6 +824,8 @@ public class EmailMessageRepository {
    * <p>Task6: 제목·본문은 email_content LEFT JOIN 으로 읽는다. FROM_ADDRESS 는 envelope 잔존(봉투 속성).
    *
    * <p>슬라이스②: ai_summary 도 공유 email_content 에서 읽는다(N→1 dedup).
+   *
+   * <p>Task3(2-tier): personalSummary 는 envelope email_message.ai_personal_summary 에서 읽는다(사람별).
    */
   public Optional<AiContext> findAiContextByIdAndUser(long userId, long messageId) {
     return dsl.select(
@@ -804,7 +835,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_CONTENT.BODY_TEXT, // content 에서 읽음
             EMAIL_CONTENT.BODY_HTML, // content 에서 읽음
-            EMAIL_CONTENT.AI_SUMMARY) // 슬라이스②: ai_summary 를 content 에서 읽음
+            EMAIL_CONTENT.AI_SUMMARY, // 슬라이스②: 공통(객관적) 요약 — content 공유
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY) // Task3: 개인 요약 — envelope(사람별)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -822,7 +854,8 @@ public class EmailMessageRepository {
                     r.get(EMAIL_MESSAGE.FROM_ADDRESS),
                     r.get(EMAIL_CONTENT.BODY_TEXT),
                     r.get(EMAIL_CONTENT.BODY_HTML),
-                    r.get(EMAIL_CONTENT.AI_SUMMARY))); // 슬라이스②: content 출처
+                    r.get(EMAIL_CONTENT.AI_SUMMARY), // 슬라이스②: content 출처
+                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY))); // Task3: envelope 출처
   }
 
   /**
@@ -899,7 +932,7 @@ public class EmailMessageRepository {
   /** 분류 입력 행(제목/보낸사람/미리보기). */
   public record ClassifyContext(String subject, String fromAddress, String snippet) {}
 
-  /** AI 컨텍스트 행. */
+  /** AI 컨텍스트 행. summary=공통(객관적, content), personalSummary=개인(envelope). */
   public record AiContext(
       boolean aiEnabled,
       String selfAddress,
@@ -907,7 +940,8 @@ public class EmailMessageRepository {
       String fromAddress,
       String bodyText,
       String bodyHtml,
-      String summary) {}
+      String summary,
+      String personalSummary) {}
 
   /** Task6: subject·snippet 은 email_content 에서 읽는다(LEFT JOIN 후 호출). */
   private EmailMessageSummary toSummary(Record r) {

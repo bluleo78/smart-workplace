@@ -490,8 +490,8 @@ export function MailAccountDialog({
                 <strong>앱 비밀번호</strong>가 필요합니다.
               </p>
 
-              {/* AI 비서 사용 토글 — 활성화 시 메일 본문이 AI 서비스로 전송됨 */}
-              <FormField label="AI 비서 사용" htmlFor="mail-ai-enabled">
+              {/* 개인 비서 opt-in — 켜면 개인 비서가 이 계정 메일을 개인 맞춤 처리(요약·회신·답장). */}
+              <FormField label="개인 비서 사용" htmlFor="mail-ai-enabled">
                 <div className="flex items-center gap-2">
                   <Switch
                     id="mail-ai-enabled"
@@ -500,7 +500,7 @@ export function MailAccountDialog({
                     onCheckedChange={(v) => form.setValue('aiEnabled', v)}
                   />
                   <span className="text-xs text-muted-foreground">
-                    메일 요약·분류·답장 초안에 본문이 AI로 전송됩니다(기본 꺼짐).
+                    켜면 개인 비서가 이 계정 메일을 개인 맞춤 요약하고, 회신 필요 여부·답장 초안을 돕습니다(본문이 개인 비서 AI로 전송됨, 기본 꺼짐).
                   </span>
                 </div>
               </FormField>

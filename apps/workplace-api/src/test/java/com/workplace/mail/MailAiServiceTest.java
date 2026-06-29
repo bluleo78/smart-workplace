@@ -34,6 +34,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -62,8 +63,12 @@ class MailAiServiceTest extends IntegrationTestBase {
   @MockitoBean AssistantResolver assistantResolver;
 
   private void stubAssistant() {
-    when(assistantResolver.resolve(anyLong()))
-        .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+    AssistantSpec spec = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
+    // coachDraft / replyDraft 는 requireSpec → resolve 경로 사용
+    when(assistantResolver.resolve(anyLong())).thenReturn(spec);
+    // summarize 는 resolveWorkspaceOrEmpty / resolvePersonalOrEmpty 경로 사용(2-tier)
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
+    when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.empty());
   }
 
   /** AI 활성화된 계정 생성 헬퍼. */
@@ -146,9 +151,12 @@ class MailAiServiceTest extends IntegrationTestBase {
     verify(mailClient, times(1)).summarize(any());
   }
 
-  /** ai_enabled=false 계정은 요약 호출 전에 503(MailAiUnavailableException) 으로 단락된다. */
+  /**
+   * ai_enabled=false + 공통비서 없음 → 503(MailAiUnavailableException). 새 모델: ai_enabled=false 자체는 게이트가
+   * 아님 — 공통비서(resolveWorkspaceOrEmpty)로 T1 시도 후 둘 다 없으면 503.
+   */
   @Test
-  void summarize_aiEnabled_false_요약차단() {
+  void summarize_aiEnabled_false_공통비서없음_요약차단() {
     long userId = TestFixtures.createHuman(dsl);
     long accountId = createAccount(userId, "no-ai@test.local", false);
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();

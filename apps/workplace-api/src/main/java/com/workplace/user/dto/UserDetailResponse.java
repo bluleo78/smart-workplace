@@ -12,5 +12,7 @@ public record UserDetailResponse(
     boolean isActive,
     LocalDateTime createdAt,
     List<RoleResponse> roles,
-    // Phase 5a — HUMAN | AGENT (마지막 위치 추가)
-    String kind) {}
+    // Phase 5a — HUMAN | AGENT
+    String kind,
+    // AI 가용성 — 개인/공통 비서(active token) 중 하나라도 있으면 true. 프론트 AI affordance 게이트용.
+    boolean aiAvailable) {}

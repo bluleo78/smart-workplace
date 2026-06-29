@@ -141,6 +141,41 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
         .containsExactly(work);
   }
 
+  /** 개인 요약 테스트용 — INBOX 미읽음 메시지(content 연결)를 생성하고 id 반환. */
+  private long seedInboxMessageWithContent(long accountId) {
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    return seedMessage(accountId, folderId, false, null);
+  }
+
+  /** Task3: updatePersonalSummary — envelope 컬럼에 기록하고 findAiContextByIdAndUser 로 읽히는지 검증. */
+  @Test
+  void updatePersonalSummary_writesEnvelopeColumn_andContextReadsIt() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "personal-t1-" + System.nanoTime() + "@test.local");
+    long messageId = seedInboxMessageWithContent(accountId);
+    messageRepo.updatePersonalSummary(messageId, "• 개인 맞춤 요약");
+    EmailMessageRepository.AiContext ctx =
+        messageRepo.findAiContextByIdAndUser(userId, messageId).orElseThrow();
+    assertThat(ctx.personalSummary()).isEqualTo("• 개인 맞춤 요약");
+  }
+
+  /**
+   * Task3: listRecentUnreadUnpersonalizedIds — 개인요약 완료(b)는 제외, 공통요약만 있는 미개인화(a)는 포함.
+   * 술어가 envelope 기준임을 검증(content.ai_summary 와 독립).
+   */
+  @Test
+  void listRecentUnreadUnpersonalizedIds_excludesAlreadyPersonalized() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "personal-t2-" + System.nanoTime() + "@test.local");
+    long a = seedInboxMessageWithContent(accountId);
+    long b = seedInboxMessageWithContent(accountId);
+    messageRepo.updatePersonalSummary(b, "• 이미 개인요약됨");
+    // 공통요약(content.ai_summary)이 있어도 개인요약 없는 a 는 포함되어야 한다(스캔 술어가 envelope 기준).
+    messageRepo.updateSummary(a, "• 공통요약만 있음");
+    List<Long> ids = messageRepo.listRecentUnreadUnpersonalizedIds(accountId, 20);
+    assertThat(ids).contains(a).doesNotContain(b);
+  }
+
   /** P2: markNeedsReplyDone — 처리완료가 3 소비처(목록·계정카운트·홈카운트)에서 동시에 빠지는지 검증. */
   @Test
   void markNeedsReplyDone_removesFromAllNeedsReplyConsumers() {

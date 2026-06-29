@@ -1,8 +1,10 @@
 package com.workplace.mail.service;
 
+import static com.workplace.jooq.Tables.AI_AGENT_CREDENTIAL;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.WORKSPACE_ASSISTANT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -21,16 +23,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
- * Task 5: 선제 요약 스케줄러 per-tenant 순회 RLS 격리 검증 — {@code runOnce()} 의 ① 수집 단계가 {@link
- * com.workplace.global.tenant.TenantScopedRunner#forEachActiveTenant} 로 테넌트별 GUC 를 주입하므로, {@code
- * listAiEnabledAccounts()} 가 자기 테넌트의 AI 계정만 본다(상대 테넌트 PHANTOM 격리)는 것을 단언한다.
+ * Task 5·6: 선제 요약 스케줄러 per-tenant 순회 RLS 격리 검증.
  *
- * <p>두 테넌트(1, tid2)에 각각 AI ON 계정을 시드하고 {@code runOnce()} 1회 → backfill spy 가 (userA, accountA) 와
- * (userB, accountB) 를 각각 정확히 1회 받았는지 검증한다. 만약 테넌트 A 수집이 상대 테넌트 계정을 누수했다면 backfill 이 같은 (userB,
- * accountB) 를 2회 받아 {@code times(1)} 이 깨진다(격리 위반 적발).
+ * <p>{@code runOnce()} 의 ① 수집 단계가 {@link
+ * com.workplace.global.tenant.TenantScopedRunner#forEachActiveTenant} 로 테넌트별 GUC 를 주입하므로, T1 객관적
+ * 패스가 자기 테넌트의 계정만 본다(상대 테넌트 PHANTOM 격리)는 것을 단언한다.
  *
- * <p>backfill 은 mock — 실제 IMAP/LLM I/O 를 차단하고 호출 인자(userId, accountId)만 수집한다. 따라서 메일 메시지는 시드하지
- * 않는다(listAiEnabledAccounts 는 EMAIL_ACCOUNT 만 본다).
+ * <p>두 테넌트(1, tid2)에 각각 AI ON 계정과 공통 비서를 시드하고 {@code runOnce()} 1회 → backfill spy 가 (userA,
+ * accountA) 와 (userB, accountB) 를 각각 정확히 1회 받았는지 검증한다. 만약 테넌트 A 수집이 상대 테넌트 계정을 누수했다면 backfill
+ * 이 같은 (userB, accountB) 를 2회 받아 {@code times(1)} 이 깨진다(격리 위반 적발).
+ *
+ * <p>backfill 은 mock — 실제 IMAP/LLM I/O 를 차단하고 호출 인자(userId, accountId)만 수집한다.
  *
  * <p>공유 test DB 에는 다른 테스트가 만든 ACTIVE 테넌트가 누적될 수 있어({@code app_tenant} 는 tenant DELETE 불가, V46)
  * {@code findActiveTenantIds()} 가 2개 초과를 돌 수 있다. 그래서 전수 {@code verifyNoMoreInteractions} 대신 시드한 두
@@ -58,6 +61,11 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
   private Long user2;
   private long tid2;
 
+  /** 공통 비서 에이전트 ID (워크스페이스별 정리용). */
+  private Long wsAgent1;
+
+  private Long wsAgent2;
+
   /** 세션 GUC 를 대상 테넌트로 전환(autocommit 시드/조회용). */
   private void setSessionGuc(long tenantId) {
     dsl.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', false)");
@@ -79,7 +87,7 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
         .getId();
   }
 
-  /** 현재 세션 GUC 컨텍스트에 user 1명 생성. */
+  /** 현재 세션 GUC 컨텍스트에 HUMAN user 1명 생성. */
   private long seedUser() {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     return dsl.insertInto(USER)
@@ -88,6 +96,19 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
         .set(USER.NAME, "U" + t)
         .set(USER.EMAIL, t + "@example.com")
         .set(USER.KIND, "HUMAN")
+        .returning(USER.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** 현재 세션 GUC 컨텍스트에 AGENT user 1명 생성. */
+  private long seedAgentUser() {
+    String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    return dsl.insertInto(USER)
+        .set(USER.USERNAME, "agent_" + t)
+        .set(USER.NAME, "Agent_" + t)
+        .set(USER.EMAIL, "agent_" + t + "@example.com")
+        .set(USER.KIND, "AGENT")
         .returning(USER.ID)
         .fetchOne()
         .getId();
@@ -113,8 +134,63 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
         .getId();
   }
 
+  /**
+   * 현재 세션 GUC 테넌트에 공통 비서를 직접 시드한다. credentialService.register() 를 피해 audit_log 의존 없이 최소 행만 삽입.
+   *
+   * <p>resolveWorkspaceOrEmpty() 는 workspace_assistant.agent_user_id + ai_agent_credential.revoked_at
+   * IS NULL 을 확인한다.
+   *
+   * @param adminId created_by 참조용 사용자 ID
+   * @return 생성된 AGENT user ID (정리 대상 추적용)
+   */
+  private long seedWorkspaceAssistant(long adminId) {
+    long agentId = seedAgentUser();
+    // ai_agent_credential: tenant_id 없음(전역) — revoked_at IS NULL 이면 active.
+    dsl.insertInto(AI_AGENT_CREDENTIAL)
+        .set(AI_AGENT_CREDENTIAL.USER_ID, agentId)
+        .set(AI_AGENT_CREDENTIAL.ENCRYPTED_TOKEN, "enc-test-token")
+        .set(AI_AGENT_CREDENTIAL.LABEL, "sched-it-test")
+        .set(AI_AGENT_CREDENTIAL.CREATED_BY, adminId)
+        .execute();
+    // workspace_assistant: tenant_id = 현재 세션 GUC(ON CONFLICT (tenant_id) DO UPDATE).
+    dsl.execute(
+        "INSERT INTO workspace_assistant (agent_user_id, updated_by, updated_at)"
+            + " VALUES (?, ?, now())"
+            + " ON CONFLICT (tenant_id) DO UPDATE SET"
+            + " agent_user_id = excluded.agent_user_id,"
+            + " updated_by = excluded.updated_by,"
+            + " updated_at = now()",
+        agentId,
+        adminId);
+    return agentId;
+  }
+
   @AfterEach
   void cleanup() {
+    // 공통 비서 정리 — tenant_id 기반 RLS 가 적용되므로 cleanupInTenant 로 tx-local GUC 주입.
+    if (wsAgent1 != null) {
+      cleanupInTenant(
+          1L,
+          () -> {
+            dsl.deleteFrom(WORKSPACE_ASSISTANT).execute(); // RLS 로 tenant#1 행만 삭제
+            dsl.deleteFrom(AI_AGENT_CREDENTIAL)
+                .where(AI_AGENT_CREDENTIAL.USER_ID.eq(wsAgent1))
+                .execute();
+            dsl.deleteFrom(USER).where(USER.ID.eq(wsAgent1)).execute();
+          });
+    }
+    if (wsAgent2 != null) {
+      cleanupInTenant(
+          tid2,
+          () -> {
+            dsl.deleteFrom(WORKSPACE_ASSISTANT).execute();
+            dsl.deleteFrom(AI_AGENT_CREDENTIAL)
+                .where(AI_AGENT_CREDENTIAL.USER_ID.eq(wsAgent2))
+                .execute();
+            dsl.deleteFrom(USER).where(USER.ID.eq(wsAgent2)).execute();
+          });
+    }
+    // 메일 계정 + 사용자 정리
     if (account1 != null) {
       setSessionGuc(1L);
       dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(account1)).execute();
@@ -130,31 +206,33 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
   }
 
   @Test
-  @DisplayName("두 테넌트 AI 계정 → runOnce() 1회 → 각 계정 자기 테넌트 컨텍스트에서만 요약")
+  @DisplayName("두 테넌트 AI 계정 + 공통비서 → runOnce() 1회 → 각 계정 자기 테넌트 컨텍스트에서만 T1 요약")
   void runOnce_테넌트별_AI계정만_자기메일_요약() {
     tid2 = ensureSecondTenant();
 
-    // backfill 은 호출 인자 + 호출시점 TenantContext 를 기록만 한다(실 I/O 없음).
+    // T1 패스만 기록 — 두 패스 모두 같은 루프 내 동일 TenantContext 에서 호출되므로 T1 으로 컨텍스트 검증 가능.
     Mockito.doAnswer(
             inv -> {
               calls.add(new Call(inv.getArgument(0), inv.getArgument(1), TenantContext.get()));
               return null;
             })
         .when(backfill)
-        .summarizeRecentUnreadNow(
+        .summarizeObjectiveRecentNow(
             org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong());
 
     String run = UUID.randomUUID().toString().substring(0, 8);
 
-    // tenant#1 AI 계정 시드
+    // tenant#1: AI 계정 + 공통 비서 시드 (T1 패스 활성화).
     setSessionGuc(1L);
     user1 = seedUser();
     account1 = seedAiAccount(user1, "u1-" + run + "@x.com");
+    wsAgent1 = seedWorkspaceAssistant(user1); // T1: resolveWorkspaceOrEmpty() 가 이 비서 반환
 
-    // tenant#2 AI 계정 시드(세션 GUC 를 tid2 로 전환)
+    // tenant#2: AI 계정 + 공통 비서 시드.
     setSessionGuc(tid2);
     user2 = seedUser();
     account2 = seedAiAccount(user2, "u2-" + run + "@x.com");
+    wsAgent2 = seedWorkspaceAssistant(user2);
 
     // 세션 GUC 를 기본값(1)으로 복원 — 스케줄러는 TenantContext 를 자체 주입하므로 호출 전 세션 상태와 무관.
     setSessionGuc(1L);
@@ -166,9 +244,9 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
     final long fA1 = account1;
     final long fU2 = user2;
     final long fA2 = account2;
-    // 각 계정이 정확히 1회만 — 누수면 (userB, accountB) 가 2회 잡혀 깨진다(무관 테넌트 호출은 다른 인자라 무시).
-    verify(backfill, times(1)).summarizeRecentUnreadNow(fU1, fA1);
-    verify(backfill, times(1)).summarizeRecentUnreadNow(fU2, fA2);
+    // 각 계정 T1 패스가 정확히 1회만 — 누수면 (userB, accountB) 가 2회 잡혀 깨진다.
+    verify(backfill, times(1)).summarizeObjectiveRecentNow(fU1, fA1);
+    verify(backfill, times(1)).summarizeObjectiveRecentNow(fU2, fA2);
 
     // 디스패치 컨텍스트 검증 — A 는 tenant 1, B 는 tid2 컨텍스트에서 요약(stage② TenantContext 주입 증명).
     Long ctxA =

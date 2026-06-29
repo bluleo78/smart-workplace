@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { formatRelativeTime } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
+import { useAiAvailable } from '@/hooks/useAiAvailable'
 
 import { downloadMailAttachment } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
@@ -215,8 +216,9 @@ function MessageDetailPanel({
   issueDraftPending: boolean
 }) {
   const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
-  // AI 사용 계정 + messageId 가 있을 때만 요약 자동 조회. isFetching 으로 생성 중 스켈레톤 표시.
-  const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiEnabled)
+  // 비서가 있을 때만 요약 조회 — aiAvailable false면 fetch 자체를 생략해 불필요한 API 호출을 막는다.
+  const aiAvailable = useAiAvailable()
+  const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiAvailable)
   // #520 연결된 이슈 키 조회 — issueKey 있으면 배지 표시.
   const linked = useLinkedIssue(messageId, aiEnabled)
 
@@ -245,8 +247,8 @@ function MessageDetailPanel({
   return (
     <div data-testid="mail-detail" className="flex h-full flex-col overflow-y-auto">
       <div className="border-b p-4">
-        {/* AI 요약 강조 카드 — AiContent 아우라로 마킹. AI 사용 계정이고 요약이 있거나 생성 중일 때 표시. */}
-        {aiEnabled && (summaryData?.summary || summaryFetching) && (
+        {/* AI 요약 카드 — 비서 있을 때만. 객관 요약은 동의 불필요. */}
+        {aiAvailable && (summaryData?.summary || summaryFetching) && (
           <AiContent
             label="AI 요약"
             collapsible
@@ -255,12 +257,9 @@ function MessageDetailPanel({
             data-testid="mail-ai-summary"
           >
             {summaryData?.summary ? (
-              // 요약 본문 — 줄바꿈 보존.
               <span>{summaryData.summary}</span>
             ) : (
-              // 생성 중 스켈레톤 — 레이아웃 점프 없이 자리 예약.
               <div data-testid="mail-ai-summary-loading" className="mt-2 flex flex-col gap-1.5">
-                {/* AI 표면이므로 스켈레톤도 ai-accent 토큰 사용(primary 하드코딩 금지) */}
                 <div className="h-2 w-full animate-pulse rounded bg-ai-accent/20" />
                 <div className="h-2 w-3/4 animate-pulse rounded bg-ai-accent/20" />
                 <div className="h-2 w-1/2 animate-pulse rounded bg-ai-accent/20" />
@@ -316,8 +315,8 @@ function MessageDetailPanel({
           >
             <Forward className="h-3.5 w-3.5" /> 전달
           </Button>
-          {/* AI 답장 초안 버튼 — AI 사용 계정에서만 노출. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
-          {aiEnabled && (
+          {/* AI 답장 초안 버튼 — 비서 있고 AI 사용 계정에서만 노출. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
+          {aiAvailable && aiEnabled && (
             <Button
               variant="outline"
               size="sm"
@@ -337,8 +336,8 @@ function MessageDetailPanel({
               )}
             </Button>
           )}
-          {/* AI 이슈 생성 버튼 — AI 사용 계정에서만 노출. #520. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
-          {aiEnabled && (
+          {/* AI 이슈 생성 버튼 — 비서 있고 AI 사용 계정에서만 노출. #520. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
+          {aiAvailable && aiEnabled && (
             <Button
               variant="outline"
               size="sm"

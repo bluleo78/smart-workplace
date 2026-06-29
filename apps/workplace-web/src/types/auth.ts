@@ -45,6 +45,8 @@ export interface UserResponse {
   isActive: boolean;
   createdAt: string;
   kind: UserKind;
+  // AI 가용성 — 개인/공통 비서 보유 여부.
+  aiAvailable: boolean;
 }
 
 export interface ErrorResponse {

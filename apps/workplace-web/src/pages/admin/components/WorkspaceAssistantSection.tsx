@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+import { useAuth } from '../../../hooks/useAuth';
 import { useAgentOAuthTokenMeta } from '../../../hooks/queries/useAgentOAuthToken';
 import {
   useClearWorkspaceAssistant,
@@ -48,6 +49,8 @@ interface Props {
  * - 공통 비서일 때만 모델·생각깊이 설정을 노출.
  */
 export function WorkspaceAssistantSection({ agentUserId }: Props) {
+  // 공통 비서 변경 시 관리자 본인의 aiAvailable 도 즉시 갱신(페이지 새로고침 불필요).
+  const { refreshUser } = useAuth();
   const { data } = useWorkspaceAssistant();
   const { data: oauthMeta } = useAgentOAuthTokenMeta(agentUserId);
   const setAssistant = useSetWorkspaceAssistant();
@@ -59,21 +62,23 @@ export function WorkspaceAssistantSection({ agentUserId }: Props) {
   // OAuth 토큰 등록 여부 — null이면 미등록.
   const hasToken = oauthMeta != null;
 
-  // 공통 비서 지정 — 실패 시 토스트.
+  // 공통 비서 지정 — 성공 시 aiAvailable 즉시 갱신.
   const onAssign = async () => {
     try {
       await setAssistant.mutateAsync(agentUserId);
       toast.success('공통 비서로 지정했습니다.');
+      void refreshUser();
     } catch (e) {
       handleApiError(e, '공통 비서 지정에 실패했습니다.');
     }
   };
 
-  // 공통 비서 지정 해제 — 실패 시 토스트.
+  // 공통 비서 지정 해제 — 성공 시 aiAvailable 즉시 갱신.
   const onClear = async () => {
     try {
       await clearAssistant.mutateAsync();
       toast.success('공통 비서 지정을 해제했습니다.');
+      void refreshUser();
     } catch (e) {
       handleApiError(e, '공통 비서 해제에 실패했습니다.');
     }

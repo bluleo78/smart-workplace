@@ -107,7 +107,7 @@ test.describe('메일 계정 설정', () => {
     await expect(page.getByTestId('mail-save-button')).toBeDisabled();
   });
 
-  test('수정 다이얼로그 — AI 비서 토글 활성화 후 저장 시 PUT payload 에 aiEnabled: true 포함', async ({ authenticatedPage: page }) => {
+  test('수정 다이얼로그 — 개인 비서 토글 활성화 후 저장 시 PUT payload 에 aiEnabled: true 포함', async ({ authenticatedPage: page }) => {
     // GET: aiEnabled=false 인 계정 1건
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [account({ aiEnabled: false })]);
     // PUT /api/v1/mail/accounts/1 — capture: true 로 payload 캡처

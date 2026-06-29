@@ -112,7 +112,8 @@ type AuthFixtures = {
 
 export const test = base.extend<AuthFixtures>({
   authenticatedPage: async ({ page }, use) => {
-    await setupAuthMocks(page, createUser(), [MOCK_USER_ROLE], createTokenResponse())
+    // aiAvailable:true — 기존 AI affordance 테스트들이 칩/카드를 기대하므로 기본 활성.
+    await setupAuthMocks(page, createUser({ aiAvailable: true }), [MOCK_USER_ROLE], createTokenResponse())
     await use(page)
   },
   adminPage: async ({ page }, use) => {
