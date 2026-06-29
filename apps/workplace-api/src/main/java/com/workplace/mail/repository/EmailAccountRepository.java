@@ -269,6 +269,7 @@ public class EmailAccountRepository {
         .set(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN, encRefreshToken)
         .set(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN, encAccessToken)
         .set(EMAIL_ACCOUNT.OAUTH_TOKEN_EXPIRES_AT, expiresAt)
+        .set(EMAIL_ACCOUNT.LAST_TESTED_AT, OffsetDateTime.now()) // OAuth 콜백 성공 = 연결 확인
         .set(EMAIL_ACCOUNT.AI_ENABLED, false)
         .onConflict(EMAIL_ACCOUNT.TENANT_ID, EMAIL_ACCOUNT.USER_ID, EMAIL_ACCOUNT.EMAIL_ADDRESS)
         .where(EMAIL_ACCOUNT.DISABLED_AT.isNull()) // 부분 인덱스 술어와 일치
@@ -287,6 +288,7 @@ public class EmailAccountRepository {
         .set(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN, val(encRefreshToken))
         .set(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN, val(encAccessToken))
         .set(EMAIL_ACCOUNT.OAUTH_TOKEN_EXPIRES_AT, val(expiresAt))
+        .set(EMAIL_ACCOUNT.LAST_TESTED_AT, val(OffsetDateTime.now())) // 재연결 시에도 갱신
         .set(EMAIL_ACCOUNT.UPDATED_AT, val(OffsetDateTime.now()))
         .returning(EMAIL_ACCOUNT.ID)
         .fetchOne()

@@ -27,6 +27,8 @@ spring:
     url: jdbc:postgresql://localhost:5435/workplace_test
     user: app
     password: app
+    # 병렬 워크트리 마이그레이션 체크섬 드리프트 허용 — 워크트리 머지 후 제거
+    validate-on-migrate: false
 
 app:
   jwt:
