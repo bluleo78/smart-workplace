@@ -16,11 +16,31 @@ M365 Graph에서 동기화된 일정의 참석자를 앱에서 볼 수 있고, �
 | 방향 | 포함 |
 |------|------|
 | Graph → 로컬 | attendees 배열 읽기, 내부 user 매칭 + 외부 이메일 행, RSVP 상태 동기화 |
-| 로컬 → Graph | create 시 attendees 전송, invite/remove 시 PATCH |
+| 로컬 → Graph | create 시 attendees 전송, invite/remove 시 attendees-only PATCH |
 | 외부 email 참석자 | 스키마 확장으로 표시 (로컬 invite 대상은 내부 user만) |
-| RSVP | Graph response status → 로컬 rsvp_status 매핑 |
+| RSVP | Graph response status → 로컬 rsvp_status 매핑 (읽기) |
 | 반복 일정 참석자 | 제외 (#546) |
 | AI/chat confirm 경로 M365 쓰기 | 제외 (#548) |
+
+### ⭐ 핵심 스코프 결정: 쓰기는 주최자 일정만 (advisor 적발 데이터 손실 2건 회피)
+
+attendees 컬렉션 변경은 **주최자(ORGANIZER) 액션**이다. 동기화로 받은(내가 ORGANIZER 가 아닌)
+일정에 대해서는:
+
+- **참석자 변경(invite/remove) 차단**: Graph 가 비주최자 attendee mutation 을 거부 → 502.
+  `requireWritableEvent`(캘린더 canEdit)만으로는 불충분 — 추가로 **caller 가 해당 일정의
+  ORGANIZER attendee 행인지** 확인. 아니면 외부 쓰기 거부(409, 로컬도 변경 안 함 — 다음 sync 가
+  덮어쓰므로 무의미).
+- **인앱 RSVP 차단**: `respondRsvp` 를 외부 일정(external_id 보유)에서 거부(409). Graph 로
+  역전송하지 않으므로 인앱 RSVP 는 다음 read-sync 가 `notResponded`→`NEEDS_ACTION` 으로
+  덮어써 사라진다. RSVP 는 read-sync 가 채운 **읽기 전용 표시**.
+
+판정 기준은 caller 의 ORGANIZER 여부 하나로 통일된다:
+- 로컬 일정: create 가 caller 를 ORGANIZER 로 넣음 → 항상 편집 가능
+- 외부-내가 주최(Outlook 에서 내가 만든 일정 동기화): organizer == 나 → 편집 가능
+- 외부-내가 초대받음: organizer == 타인 → 참석자/RSVP 읽기 전용
+
+RSVP 역전송(Graph `/accept|/decline|/tentativelyAccept` 액션)은 후속 이슈.
 
 ---
 
@@ -39,10 +59,10 @@ ALTER TABLE event_attendee
   ADD CONSTRAINT event_attendee_identity_chk
   CHECK ((user_id IS NOT NULL) OR (external_email IS NOT NULL));
 
--- 기존 UNIQUE (event_id, user_id) 제거 → 타입별 partial unique
-ALTER TABLE event_attendee DROP CONSTRAINT event_attendee_uq;
-CREATE UNIQUE INDEX event_attendee_user_uq
-  ON event_attendee(event_id, user_id) WHERE user_id IS NOT NULL;
+-- 외부 참석자 partial unique 만 추가. 기존 event_attendee_uq UNIQUE(event_id, user_id) 는 유지.
+-- (user_id nullable + PG NULLS DISTINCT → 외부 행의 NULL user_id 는 서로 충돌 안 함.
+--  기존 UNIQUE 를 partial index 로 바꾸면 insert() 의 ON CONFLICT(event_id, user_id) 가
+--  "no unique constraint matching" 런타임 오류 → 절대 교체 금지.)
 CREATE UNIQUE INDEX event_attendee_ext_uq
   ON event_attendee(event_id, external_email) WHERE external_email IS NOT NULL;
 ```
