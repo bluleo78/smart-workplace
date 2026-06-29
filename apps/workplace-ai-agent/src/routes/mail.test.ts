@@ -8,6 +8,7 @@ vi.mock('../agent/run-mail-ai.js', () => ({
   runMailSummarize: vi.fn(),
   runMailReplyDraft: vi.fn(),
   runMailDraftCoaching: vi.fn(),
+  runMailIssueDraft: vi.fn(),
 }));
 
 import { createMailRouter } from './mail.js';

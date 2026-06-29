@@ -1,0 +1,60 @@
+{
+  "description": "#519 NL→이슈 필터 held-out eval 케이스. show_issue_list params 와 대조.",
+  "note": "프롬프트 few-shot 예시와 겹치지 않도록 패러프레이즈. dueFrom/dueTo 는 today 앵커 의존이라 'thisWeek' 로 표기하고 러너가 검증 시 해석.",
+  "cases": [
+    {
+      "id": 1,
+      "query": "내가 맡은 급한 거",
+      "expect": {
+        "assignee": "me",
+        "priority": ["HIGH"]
+      },
+      "note": "담당=나 + 우선순위 HIGH"
+    },
+    {
+      "id": 2,
+      "query": "담당자 없는 가장 급한 이슈",
+      "expect": {
+        "assignee": "null",
+        "priority": ["HIGH"]
+      },
+      "note": "담당 없음 + 우선순위 HIGH (null 은 리터럴 문자열, 백엔드가 'null' 로 매핑)"
+    },
+    {
+      "id": 3,
+      "query": "이번 주에 마감인 내 이슈",
+      "expect": {
+        "assignee": "me",
+        "dueRange": "thisWeek"
+      },
+      "note": "today 앵커 기반 월~일 범위. 러너가 해석해 dueFrom/dueTo 검증"
+    },
+    {
+      "id": 4,
+      "query": "내가 만든 막힌 이슈",
+      "expect": {
+        "reporter": "me",
+        "blocked": true
+      },
+      "note": "reporter + blocked"
+    },
+    {
+      "id": 5,
+      "query": "아직 안 끝난 내 작업",
+      "expect": {
+        "assignee": "me",
+        "status": ["TODO", "IN_PROGRESS"]
+      },
+      "note": "미완료 상태"
+    },
+    {
+      "id": 6,
+      "query": "지난주에 등록한 이슈",
+      "expect": {
+        "degraded": true,
+        "filterEmptyOrNoDateField": true
+      },
+      "note": "생성일 필터 미지원 — 안내 후 필터 비우거나 최소화. prose 에서 '지원하지 않' 류 문구 확인"
+    }
+  ]
+}

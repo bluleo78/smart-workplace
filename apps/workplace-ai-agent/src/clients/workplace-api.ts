@@ -176,7 +176,7 @@ export interface ProgressPayload {
 export interface IssueListParams {
   projectKey?: string;
   status?: string;
-  priority?: string[]; // CRITICAL/HIGH/MEDIUM/LOW — CSV 로 직렬화
+  priority?: string[]; // LOW/MID/HIGH — CSV 로 직렬화
   label?: string;
   type?: string;
   dueFrom?: string;
@@ -185,6 +185,7 @@ export interface IssueListParams {
   blocked?: boolean;
   topLevel?: boolean;
   assignee?: string; // 'me'(기본) | '<userId>'
+  reporter?: string; // 'me' | '<userId>'
   size?: number;
 }
 

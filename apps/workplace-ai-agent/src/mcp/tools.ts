@@ -205,7 +205,7 @@ const layoutSchema = z
 const issueListFilterShape = {
   projectKey: z.string().optional(),
   status: z.string().optional(),
-  priority: z.array(z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'])).optional(),
+  priority: z.array(z.enum(['LOW', 'MID', 'HIGH'])).optional(),
   label: z.string().optional(),
   type: z.string().optional(),
   dueFrom: z.string().optional(),
@@ -214,6 +214,7 @@ const issueListFilterShape = {
   blocked: z.boolean().optional(),
   topLevel: z.boolean().optional(),
   assignee: z.string().optional(), // 'me' | '<id>'
+  reporter: z.string().optional(),
   size: z.number().int().positive().optional(),
 };
 const issueListParams = z.object(issueListFilterShape).optional();

@@ -6,7 +6,7 @@
 //   runClaudeCliStream → runSdkStream, MCP stdio child → buildInProcessWorkplaceMcpServer,
 //   사이드카 파일 읽기 → HostBridge 인메모리 콜백.
 import { log } from '../logger.js';
-import { ASSISTANT_SYSTEM_PROMPT, delegationLabel } from './assistant-system-prompt.js';
+import { ASSISTANT_SYSTEM_PROMPT, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
 import type { ToolUseLine } from './sdk-mcp-server.js';
 import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import { transcriptRequest, transcriptStreamLine, transcriptResult } from './ai-transcript-log.js';
@@ -229,7 +229,9 @@ export async function runAiChatStream(
   const subagentDefs = loadSubagents();
   const agents = toAgentDefinitions(subagentDefs);
 
-  const systemPrompt = ASSISTANT_SYSTEM_PROMPT + thinkingDirective(input.thinkingDepth);
+  // 요청 시점 Seoul 기준 오늘 날짜를 계산해 상대 날짜 필터 앵커로 주입한다.
+  const seoulToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+  const systemPrompt = ASSISTANT_SYSTEM_PROMPT + dateContextDirective(seoulToday) + thinkingDirective(input.thinkingDepth);
   const userMessage = buildChatUserMessage(input);
 
   const lines: string[] = [];

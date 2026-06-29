@@ -281,6 +281,29 @@ describe('buildTools(assistant)', () => {
     expect(c.listIssues).toHaveBeenCalledWith(AGENT_ID, { status: 'IN_PROGRESS', priority: ['HIGH'] });
   });
 
+  // #519: issueListFilterShape 스키마 검증 — reporter 필드 및 priority 열거값 변경.
+  it('#519 list_issues 필터에 reporter 필드가 허용된다', async () => {
+    const c = client();
+    vi.mocked(c.listIssues).mockResolvedValue([]);
+    const tool = buildTools(c, AGENT_ID, 'assistant').find((t) => t.name === 'list_issues')!;
+    await tool.handler({ reporter: 'user42' });
+    expect(c.listIssues).toHaveBeenCalledWith(AGENT_ID, { reporter: 'user42' });
+  });
+
+  it('#519 priority MID 가 zod 파싱을 통과한다', async () => {
+    const c = client();
+    vi.mocked(c.listIssues).mockResolvedValue([]);
+    const tool = buildTools(c, AGENT_ID, 'assistant').find((t) => t.name === 'list_issues')!;
+    await expect(tool.handler({ priority: ['MID'] })).resolves.toBeDefined();
+  });
+
+  it('#519 priority MEDIUM/CRITICAL 은 zod 파싱에서 거부된다', async () => {
+    const c = client();
+    const tool = buildTools(c, AGENT_ID, 'assistant').find((t) => t.name === 'list_issues')!;
+    await expect(tool.handler({ priority: ['MEDIUM'] })).rejects.toThrow();
+    await expect(tool.handler({ priority: ['CRITICAL'] })).rejects.toThrow();
+  });
+
   it('list_events 핸들러가 client.listEvents 를 호출한다', async () => {
     const calls: unknown[] = [];
     const fake = { listEvents: async (...a: unknown[]) => { calls.push(a); return []; } } as never;

@@ -79,7 +79,7 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       .matchHeader('authorization', 'Internal tk-internal')
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
       .get(`${PREFIX}/me/issues`)
-      .query({ assignee: 'me', status: 'IN_PROGRESS', priority: 'HIGH,MEDIUM', size: '30' })
+      .query({ assignee: 'me', status: 'IN_PROGRESS', priority: 'HIGH,MID', size: '30' })
       .reply(200, {
         items: [
           { projectKey: 'WP', number: 7, title: '버그 수정', status: 'IN_PROGRESS', priority: 'HIGH', dueDate: '2026-07-01', type: 'BUG', blocked: false, assignees: [{ id: 201, username: 'ai', name: 'AI', kind: 'AGENT' }] },
@@ -87,7 +87,7 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
         hasMore: false,
         nextCursor: null,
       });
-    const list = await newClient().listIssues(AGENT_ID, { status: 'IN_PROGRESS', priority: ['HIGH', 'MEDIUM'] });
+    const list = await newClient().listIssues(AGENT_ID, { status: 'IN_PROGRESS', priority: ['HIGH', 'MID'] });
     expect(scope.isDone()).toBe(true);
     expect(list).toHaveLength(1);
     // projectKey-number → issueKey 합성 + assignees 경량 매핑.

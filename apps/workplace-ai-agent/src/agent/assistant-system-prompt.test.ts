@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ASSISTANT_SYSTEM_PROMPT, delegationLabel } from './assistant-system-prompt.js';
+import { ASSISTANT_SYSTEM_PROMPT, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
 
 describe('ASSISTANT_SYSTEM_PROMPT', () => {
   it('순수 라우터 지시 + issue-agent 위임 테이블 + general-purpose 금지 문구 포함', () => {
@@ -151,5 +151,29 @@ describe('#465: 빈 목록 게이트 — list 선행 확인 후 show', () => {
 
   it('여러 도메인 요청은 도메인별 독립 판단', () => {
     expect(p).toMatch(/여러 도메인.*독립 판단/s);
+  });
+});
+
+describe('#519 NL→필터 매핑 프롬프트', () => {
+  it('priority 구 어휘(CRITICAL/HIGH/MEDIUM/LOW)가 없다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).not.toContain('CRITICAL/HIGH/MEDIUM/LOW');
+  });
+
+  it('priority 현행 어휘(LOW/MID/HIGH)가 있다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('LOW / MID / HIGH');
+  });
+
+  it('dateContextDirective 에 Asia/Seoul 포함', () => {
+    const out = dateContextDirective('2026-06-29');
+    expect(out).toContain('Asia/Seoul');
+    expect(out).toContain('2026-06-29');
+  });
+
+  it('reporter 매핑 규칙이 있다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('reporter');
+  });
+
+  it('정량 단언 금지 규칙이 있다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('정량 단언');
   });
 });
