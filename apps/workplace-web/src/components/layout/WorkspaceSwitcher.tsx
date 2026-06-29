@@ -57,15 +57,19 @@ export function WorkspaceSwitcher({ expanded = false }: { expanded?: boolean }) 
               aria-label="워크스페이스 전환"
               data-testid="workspace-switcher"
               className={cn(
+                // 데스크톱: p-1 고정으로 아바타 위치 불변(justify 전환 제거). 모바일: p-2.
                 'flex w-full items-center gap-2 rounded-md p-2 text-sm transition-colors hover:bg-accent/50',
-                expanded ? 'lg:justify-start' : 'lg:justify-center',
+                'lg:p-1',
               )}
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground font-semibold">
                 {initial}
               </span>
               <span
-                className={cn('min-w-0 flex-1 truncate text-left font-semibold', expanded ? '' : 'lg:hidden')}
+                className={cn(
+                  'min-w-0 flex-1 truncate text-left font-semibold overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-200',
+                  expanded ? 'lg:max-w-[80px] lg:opacity-100' : 'lg:max-w-0 lg:opacity-0',
+                )}
               >
                 {activeTenant.tenantName}
               </span>

@@ -60,10 +60,13 @@ public class M365OAuthService {
     String encAccess = encryption.encrypt(tokens.accessToken());
     OffsetDateTime expiresAt = OffsetDateTime.now().plusSeconds(tokens.expiresInSec());
 
+    // 전역 ai_enabled 설정 상속 — 사용자가 기존 계정에서 이미 켜 뒀으면 신규 M365 계정도 켜진 상태로 생성.
+    boolean aiEnabled = accountRepo.isAnyAiEnabled(state.userId());
+
     // 기존 활성 IMAP 행이 있으면 Graph 로 전환, 없으면 신규 INSERT
     long accountId =
         accountRepo.upsertGraphAccount(
-            state.userId(), emailAddress, encRefresh, encAccess, expiresAt);
+            state.userId(), emailAddress, encRefresh, encAccess, expiresAt, aiEnabled);
 
     // 첫 동기화를 3분 주기 스케줄러까지 기다리지 않도록 즉시 동기화를 트리거. 토큰이 막 발급돼 가장 신선한 시점이다(AFTER_COMMIT 소비).
     events.publishEvent(new MailAccountConnectedEvent(state.userId(), accountId));

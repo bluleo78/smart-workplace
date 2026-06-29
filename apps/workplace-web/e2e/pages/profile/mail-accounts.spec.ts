@@ -107,27 +107,57 @@ test.describe('메일 계정 설정', () => {
     await expect(page.getByTestId('mail-save-button')).toBeDisabled();
   });
 
-  test('수정 다이얼로그 — 개인 비서 토글 활성화 후 저장 시 PUT payload 에 aiEnabled: true 포함', async ({ authenticatedPage: page }) => {
-    // GET: aiEnabled=false 인 계정 1건
+  // 전역 AI 토글
+  test('계정 없을 때 전역 개인 비서 토글 숨김', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
+    await page.goto('/settings/mail');
+    await expect(page.getByTestId('mail-ai-global-section')).toBeHidden();
+  });
+
+  test('전역 토글 ON → PATCH /ai-enabled payload 확인 + 토스트', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+    // 초기: aiEnabled=false 계정 1건
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [account({ aiEnabled: false })]);
-    // PUT /api/v1/mail/accounts/1 — capture: true 로 payload 캡처
-    const capture = await mockApi(page, 'PUT', '/api/v1/mail/accounts/1', account({ aiEnabled: true }), { capture: true });
+    const capture = await mockApi(
+      page,
+      'PATCH',
+      '/api/v1/mail/accounts/ai-enabled',
+      {},
+      { status: 204, capture: true },
+    );
 
     await page.goto('/settings/mail');
 
-    // 수정 버튼 클릭 → 수정 다이얼로그 열기
-    await page.getByTestId('mail-account-row-1').getByRole('button', { name: '수정' }).click();
-    await expect(page.getByTestId('mail-account-dialog')).toBeVisible();
+    // 전역 토글이 OFF 상태로 표시되어야 함
+    const toggle = page.getByTestId('mail-ai-global');
+    await expect(toggle).toBeVisible();
+    await expect(toggle).not.toBeChecked();
 
-    // AI 비서 토글 클릭 (false → true)
-    await page.getByTestId('mail-ai-enabled').click();
+    // 목록 갱신용 응답 등록 후 토글 클릭
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [account({ aiEnabled: true })]);
+    await toggle.click();
 
-    // 저장
-    await page.getByTestId('mail-save-button').click();
-
-    // PUT body 에 aiEnabled: true 포함 확인
+    // PATCH payload 확인
     const req = await capture.waitForRequest();
     expect((req.payload as Record<string, unknown>).aiEnabled).toBe(true);
+
+    // 성공 토스트 표시
+    await expect(page.getByText('개인 비서를 켰습니다')).toBeVisible();
+  });
+
+  test('전역 토글 ON 상태 반영 — accounts.some(aiEnabled) 기반', async ({ authenticatedPage: page }) => {
+    // aiEnabled=true 인 계정이 하나라도 있으면 토글이 ON 이어야 함
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [account({ aiEnabled: true })]);
+    await page.goto('/settings/mail');
+    await expect(page.getByTestId('mail-ai-global')).toBeChecked();
+  });
+
+  test('수정 다이얼로그에 per-account AI 토글 없음', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [account()]);
+    await page.goto('/settings/mail');
+    await page.getByTestId('mail-account-row-1').getByRole('button', { name: '수정' }).click();
+    await expect(page.getByTestId('mail-account-dialog')).toBeVisible();
+    // 다이얼로그 안에 per-account ai-enabled 토글이 없어야 함
+    await expect(page.getByTestId('mail-ai-enabled')).toBeHidden();
   });
 
   test('수정 다이얼로그 — 비밀번호 미입력 연결 테스트는 id 기반 엔드포인트 호출 + 성공 표시 (#448)', async ({

@@ -249,12 +249,49 @@ public class EmailAccountRepository {
    * @param expiresAt access_token 만료 시각
    * @return 생성 또는 갱신된 account ID
    */
+  /**
+   * 사용자의 모든 활성 메일 계정에 ai_enabled 를 일괄 설정한다.
+   *
+   * <p>전역 "개인 비서 사용" 토글이 단일 PATCH 로 모든 계정을 동시 변경할 때 사용한다. 반드시 @Transactional 컨텍스트(RLS GUC 주입) 안에서 호출해야
+   * 한다.
+   *
+   * @param userId 계정 소유자
+   * @param aiEnabled 설정할 값
+   * @return 영향받은 행 수
+   */
+  public int updateAiEnabledForAll(long userId, boolean aiEnabled) {
+    return dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.AI_ENABLED, aiEnabled)
+        .set(EMAIL_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
+        .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .execute();
+  }
+
+  /**
+   * 사용자의 활성 계정 중 하나 이상이 ai_enabled=true 인지 확인한다.
+   *
+   * <p>M365 신규 계정 upsert 시 전역 설정을 상속하기 위해 사용한다.
+   *
+   * @param userId 계정 소유자
+   * @return ai_enabled=true 인 활성 계정이 하나 이상 있으면 true
+   */
+  public boolean isAnyAiEnabled(long userId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(EMAIL_ACCOUNT)
+            .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
+            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+            .and(EMAIL_ACCOUNT.AI_ENABLED.isTrue()));
+  }
+
   public long upsertGraphAccount(
       long userId,
       String emailAddress,
       String encRefreshToken,
       String encAccessToken,
-      OffsetDateTime expiresAt) {
+      OffsetDateTime expiresAt,
+      boolean aiEnabled) {
     // INSERT ... ON CONFLICT ... DO UPDATE — 단일 원자 쿼리로 TOCTOU 경쟁 제거.
     //
     // 충돌 타깃: 부분 인덱스 uq_email_account_user_addr ON (tenant_id, user_id, email_address)
@@ -270,7 +307,7 @@ public class EmailAccountRepository {
         .set(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN, encAccessToken)
         .set(EMAIL_ACCOUNT.OAUTH_TOKEN_EXPIRES_AT, expiresAt)
         .set(EMAIL_ACCOUNT.LAST_TESTED_AT, OffsetDateTime.now()) // OAuth 콜백 성공 = 연결 확인
-        .set(EMAIL_ACCOUNT.AI_ENABLED, false)
+        .set(EMAIL_ACCOUNT.AI_ENABLED, aiEnabled) // 전역 ai_enabled 설정 상속
         .onConflict(EMAIL_ACCOUNT.TENANT_ID, EMAIL_ACCOUNT.USER_ID, EMAIL_ACCOUNT.EMAIL_ADDRESS)
         .where(EMAIL_ACCOUNT.DISABLED_AT.isNull()) // 부분 인덱스 술어와 일치
         .doUpdate()

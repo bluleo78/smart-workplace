@@ -100,17 +100,25 @@ function RailLink({
           aria-label={item.label}
           aria-current={active ? 'page' : undefined}
           className={cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-            // 확장 시 데스크톱에서도 모바일 드로어처럼 좌측 정렬+라벨, 축소 시 중앙 아이콘.
-            expanded ? 'lg:gap-3 lg:px-3 lg:py-2' : 'lg:justify-center lg:gap-0 lg:px-2 lg:py-2.5',
+            // 모바일: px-3 기본. 데스크톱: pl-[10px] 고정으로 아이콘 위치 불변
+            // (nav p-2=8px + pl-[10px] = 18px → 56px 레일 중앙 일치, 확장 시도 동일 좌표).
+            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200',
+            'lg:pl-[10px] lg:pr-2',
             active
               ? 'bg-accent text-accent-foreground nav-active-indicator'
               : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground',
           )}
         >
           <Icon className="h-5 w-5 shrink-0" />
-          {/* 모바일 드로어는 항상, 데스크톱은 확장 시에만 라벨 노출. */}
-          <span className={expanded ? '' : 'lg:hidden'}>{item.label}</span>
+          {/* 모바일: 항상 표시. 데스크톱: max-width+opacity 전환으로 아이콘 위치 유지하며 라벨만 확장. */}
+          <span
+            className={cn(
+              'overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-200',
+              expanded ? 'lg:max-w-[100px] lg:opacity-100' : 'lg:max-w-0 lg:opacity-0',
+            )}
+          >
+            {item.label}
+          </span>
         </Link>
       </TooltipTrigger>
       {/* 축소 상태에서만 hover 라벨 Tooltip. 확장 시엔 라벨이 직접 보인다. */}

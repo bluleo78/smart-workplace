@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -63,6 +64,21 @@ public class EmailAccountController {
       @AuthenticationPrincipal Long callerId, @Valid @RequestBody EmailAccountRequest req) {
     return service.test(req);
   }
+
+  /**
+   * 전역 개인 비서 사용 여부 — 사용자의 모든 활성 메일 계정을 일괄 변경한다.
+   *
+   * <p>프론트엔드의 "개인 비서 사용" 전역 토글에서 호출한다.
+   */
+  @PatchMapping("/ai-enabled")
+  public ResponseEntity<Void> setAiEnabled(
+      @AuthenticationPrincipal Long callerId, @RequestBody AiEnabledRequest req) {
+    service.setAiEnabledForAll(callerId, req.aiEnabled());
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 전역 AI 설정 요청 DTO. */
+  record AiEnabledRequest(boolean aiEnabled) {}
 
   /**
    * 기존 계정 연결 테스트(수정 폼) — 비밀번호 미입력 시 저장된 비밀번호로 폴백. 본인 소유 아니면 404. #448: 수정 폼은 비밀번호를 비워두므로 이 경로가 없으면

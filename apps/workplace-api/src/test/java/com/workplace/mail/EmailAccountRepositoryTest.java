@@ -161,6 +161,39 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
     assertThat(refs).extracting(AiAccountRef::accountId).containsExactly(aiOn);
   }
 
+  /** updateAiEnabledForAll — caller 계정만 변경, 타인 계정 불변(크로스-유저 격리). */
+  @Test
+  void updateAiEnabledForAll_callerOnly_otherUserUnchanged() {
+    long caller = TestFixtures.createHuman(dsl);
+    long other = TestFixtures.createHuman(dsl);
+
+    long id1 = repo.insert(caller, sampleReq("x1@example.com"), "ENC"); // aiEnabled=false
+    long id2 = repo.insert(caller, sampleReq("x2@example.com"), "ENC"); // aiEnabled=false
+    long idOther = repo.insert(other, sampleReq("y1@example.com"), "ENC"); // aiEnabled=false
+
+    int affected = repo.updateAiEnabledForAll(caller, true);
+    assertThat(affected).isEqualTo(2); // caller 2건만
+
+    // caller 계정 모두 true 로 변경
+    assertThat(repo.findByIdAndUser(caller, id1).orElseThrow().aiEnabled()).isTrue();
+    assertThat(repo.findByIdAndUser(caller, id2).orElseThrow().aiEnabled()).isTrue();
+    // other 계정 불변
+    assertThat(repo.findByIdAndUser(other, idOther).orElseThrow().aiEnabled()).isFalse();
+  }
+
+  /** isAnyAiEnabled — ai_enabled=true 인 계정이 하나라도 있을 때 true, 없으면 false. */
+  @Test
+  void isAnyAiEnabled_returnsTrueWhenAtLeastOneEnabled() {
+    long user = TestFixtures.createHuman(dsl);
+    assertThat(repo.isAnyAiEnabled(user)).isFalse(); // 계정 없음
+
+    repo.insert(user, sampleReq("z1@example.com"), "ENC"); // aiEnabled=false
+    assertThat(repo.isAnyAiEnabled(user)).isFalse();
+
+    repo.insert(user, aiReq("z2@example.com"), "ENC"); // aiEnabled=true
+    assertThat(repo.isAnyAiEnabled(user)).isTrue();
+  }
+
   /** aiEnabled=true 로 저장한 계정을 재조회하면 aiEnabled 가 true 이어야 한다. */
   @Test
   void insert_withAiEnabled_true_isPersistedAndReturned() {

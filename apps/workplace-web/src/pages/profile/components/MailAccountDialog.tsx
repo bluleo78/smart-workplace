@@ -26,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import {
   useCreateMailAccount,
   useTestMailConnection,
@@ -50,6 +49,8 @@ interface MailAccountDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   account?: MailAccountResponse | null;
+  /** 새 계정 추가 시 적용할 전역 ai_enabled 값. 수정 모드에서는 기존 계정값을 그대로 사용. */
+  defaultAiEnabled?: boolean;
 }
 
 /** 빈 폼 초기값 */
@@ -72,6 +73,7 @@ export function MailAccountDialog({
   open,
   onOpenChange,
   account,
+  defaultAiEnabled = false,
 }: MailAccountDialogProps) {
   const isEdit = !!account;
   const create = useCreateMailAccount();
@@ -206,9 +208,10 @@ export function MailAccountDialog({
         aiEnabled: account.aiEnabled,
       });
     } else {
-      form.reset(EMPTY);
+      // 추가 모드 — 전역 ai_enabled 값 상속(부모 MailAccountsSection 에서 주입)
+      form.reset({ ...EMPTY, aiEnabled: defaultAiEnabled });
     }
-  }, [open, account, form]);
+  }, [open, account, form, defaultAiEnabled]);
 
   /** provider 프리셋 선택 시 IMAP/SMTP 호스트·포트·보안 자동 채움 */
   const applyPreset = (name: string) => {
@@ -489,21 +492,6 @@ export function MailAccountDialog({
                 Gmail·Outlook 등은 로그인 비밀번호 대신{' '}
                 <strong>앱 비밀번호</strong>가 필요합니다.
               </p>
-
-              {/* 개인 비서 opt-in — 켜면 개인 비서가 이 계정 메일을 개인 맞춤 처리(요약·회신·답장). */}
-              <FormField label="개인 비서 사용" htmlFor="mail-ai-enabled">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="mail-ai-enabled"
-                    data-testid="mail-ai-enabled"
-                    checked={form.watch('aiEnabled')}
-                    onCheckedChange={(v) => form.setValue('aiEnabled', v)}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    켜면 개인 비서가 이 계정 메일을 개인 맞춤 요약하고, 회신 필요 여부·답장 초안을 돕습니다(본문이 개인 비서 AI로 전송됨, 기본 꺼짐).
-                  </span>
-                </div>
-              </FormField>
 
               {/* 연결 테스트 결과 인라인 표시 */}
               {testResult && (

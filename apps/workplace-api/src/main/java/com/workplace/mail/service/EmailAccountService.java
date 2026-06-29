@@ -107,6 +107,28 @@ public class EmailAccountService {
     return repo.findByIdAndUser(userId, id).orElseThrow();
   }
 
+  /**
+   * 사용자의 모든 활성 메일 계정에 개인 비서 사용 여부를 일괄 설정한다(전역 토글).
+   *
+   * <p>off→on 전환 시 각 계정에 대해 최근 안읽음 classify 백필을 비동기로 트리거한다.
+   *
+   * @param userId 계정 소유자
+   * @param aiEnabled 설정할 값
+   */
+  @Transactional
+  public void setAiEnabledForAll(long userId, boolean aiEnabled) {
+    // 전환 전 상태를 읽어 off→on 전환 계정만 백필한다.
+    List<EmailAccountResponse> before = repo.listByUser(userId);
+    repo.updateAiEnabledForAll(userId, aiEnabled);
+
+    if (aiEnabled) {
+      // off→on 전환된 계정만 백필 트리거 — 이미 켜져 있던 계정은 건너뜀.
+      before.stream()
+          .filter(acc -> !acc.aiEnabled())
+          .forEach(acc -> classifyBackfillService.classifyRecentUnread(userId, acc.id()));
+    }
+  }
+
   /** 계정 비활성화(soft delete). 본인 소유 아니면 404. */
   @Transactional
   public void delete(long userId, long id) {

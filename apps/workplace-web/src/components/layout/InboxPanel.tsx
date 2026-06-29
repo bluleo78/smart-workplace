@@ -55,8 +55,9 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
               aria-label="알림"
               data-testid="inbox-trigger"
               className={cn(
-                'relative flex w-full items-center rounded-md px-2 py-2.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground',
-                expanded ? 'lg:justify-start lg:gap-3 lg:px-3' : 'justify-center',
+                // 데스크톱: pl-[10px] 고정으로 아이콘 위치 불변(NavLink와 동일 좌표). 모바일: px-3 py-2.
+                'relative flex w-full items-center gap-3 rounded-md px-3 py-2 text-muted-foreground transition-all duration-200 hover:bg-accent/50 hover:text-accent-foreground',
+                'lg:pl-[10px] lg:pr-2',
               )}
             >
               <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
@@ -70,8 +71,14 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
                   </span>
                 )}
               </span>
-              {/* 확장 시 데스크톱에서만 "알림" 라벨 노출. */}
-              {expanded && <span className="hidden text-sm font-medium lg:block">알림</span>}
+              <span
+                className={cn(
+                  'overflow-hidden whitespace-nowrap text-sm font-medium transition-[max-width,opacity] duration-200',
+                  expanded ? 'lg:max-w-[100px] lg:opacity-100' : 'lg:max-w-0 lg:opacity-0',
+                )}
+              >
+                알림
+              </span>
             </button>
           </PopoverTrigger>
         </TooltipTrigger>

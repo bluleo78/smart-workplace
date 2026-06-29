@@ -7,6 +7,7 @@ import {
   createMailAccount,
   deleteMailAccount,
   listMailAccounts,
+  setMailAiEnabled,
   testMailConnection,
   testMailConnectionForAccount,
   updateMailAccount,
@@ -66,6 +67,19 @@ export function useDeleteMailAccount() {
 export function useTestMailConnection() {
   return useMutation({
     mutationFn: (body: MailAccountRequest) => testMailConnection(body),
+  });
+}
+
+/** 모든 활성 메일 계정의 개인 비서 사용 여부를 일괄 변경한다(전역 토글). */
+export function useSetMailAiEnabled() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (aiEnabled: boolean) => setMailAiEnabled(aiEnabled),
+    onSuccess: (_data, aiEnabled) => {
+      qc.invalidateQueries({ queryKey: mailAccountKeys.all });
+      toast.success(aiEnabled ? '개인 비서를 켰습니다' : '개인 비서를 껐습니다');
+    },
+    onError: (e) => handleApiError(e, '개인 비서 설정에 실패했습니다'),
   });
 }
 

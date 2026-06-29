@@ -64,6 +64,11 @@ export async function completeM365OAuth(body: {
   return data
 }
 
+/** 사용자의 모든 활성 메일 계정에 개인 비서 사용 여부를 일괄 설정한다(전역 토글). */
+export async function setMailAiEnabled(aiEnabled: boolean): Promise<void> {
+  await client.patch('/mail/accounts/ai-enabled', { aiEnabled });
+}
+
 // 기존 계정 연결 테스트 — 비밀번호 미입력 시 서버가 저장된 비밀번호로 폴백(#448).
 export async function testMailConnectionForAccount(
   id: number,

@@ -38,18 +38,19 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
               aria-label="사용자 메뉴"
               data-testid="rail-user-menu"
               className={cn(
+                // 데스크톱: p-1 고정으로 아바타 위치 불변(justify 전환 제거). 모바일: p-2.
                 'flex w-full items-center gap-2 rounded-md p-2 text-sm transition-colors hover:bg-accent/50',
-                expanded ? 'lg:justify-start' : 'lg:justify-center',
+                'lg:p-1',
               )}
             >
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <UserIcon className="h-4 w-4" />
               </span>
-              {/* 모바일 드로어에서는 항상, 데스크톱은 확장 시에만 이름 노출. */}
+              {/* 모바일 드로어에서는 항상, 데스크톱은 max-width+opacity 전환으로 부드럽게 숨김/표시. */}
               <span
                 className={cn(
-                  'min-w-0 flex-1 truncate text-left font-medium',
-                  expanded ? '' : 'lg:hidden',
+                  'min-w-0 flex-1 truncate text-left font-medium overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-200',
+                  expanded ? 'lg:max-w-[80px] lg:opacity-100' : 'lg:max-w-0 lg:opacity-0',
                 )}
               >
                 {user?.name ?? user?.username ?? '사용자'}
