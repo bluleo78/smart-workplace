@@ -18,6 +18,7 @@ const HUMAN1: UserResponse = {
   isActive: true,
   createdAt: '2026-01-01T00:00:00Z',
   kind: 'HUMAN',
+  aiAvailable: false,
 };
 const HUMAN2: UserResponse = {
   id: 102,
@@ -27,6 +28,7 @@ const HUMAN2: UserResponse = {
   isActive: true,
   createdAt: '2026-01-01T00:00:00Z',
   kind: 'HUMAN',
+  aiAvailable: false,
 };
 const AGENT1: UserResponse = {
   id: 201,
@@ -36,6 +38,7 @@ const AGENT1: UserResponse = {
   isActive: true,
   createdAt: '2026-01-01T00:00:00Z',
   kind: 'AGENT',
+  aiAvailable: false,
 };
 
 type StubMember = {

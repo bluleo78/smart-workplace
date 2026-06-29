@@ -56,6 +56,7 @@ const USER: UserResponse = {
   isActive: true,
   createdAt: '2026-06-01T00:00:00Z',
   kind: 'HUMAN',
+  aiAvailable: false,
 }
 const WIKI_PAGE: WikiSearchResult = {
   id: 55,
@@ -465,6 +466,7 @@ test('위키 @ 멘션 팝업 — 결과 多 경우 max-height(240px) 적용으�
     isActive: true,
     createdAt: '2026-06-01T00:00:00Z',
     kind: 'HUMAN' as const,
+    aiAvailable: false,
   }))
   const MANY_PAGES: WikiSearchResult[] = Array.from({ length: 5 }, (_, i) => ({
     id: 100 + i,

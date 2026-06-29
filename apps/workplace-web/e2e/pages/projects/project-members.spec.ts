@@ -20,6 +20,7 @@ const AGENT_USER: UserResponse = {
   isActive: true,
   createdAt: '2026-01-01T00:00:00Z',
   kind: 'AGENT',
+  aiAvailable: false,
 };
 
 // 사람 후보 (agentOnly 모드에선 노출 안 돼야 함)
@@ -31,6 +32,7 @@ const HUMAN_USER: UserResponse = {
   isActive: true,
   createdAt: '2026-01-01T00:00:00Z',
   kind: 'HUMAN',
+  aiAvailable: false,
 };
 
 type StubMember = Pick<MemberResponse, 'userId' | 'username' | 'name' | 'kind' | 'role' | 'createdAt'>;
