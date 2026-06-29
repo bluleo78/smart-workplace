@@ -28,12 +28,14 @@ public class GraphApiConfig {
   }
 
   /**
-   * Graph 캘린더 읽기 클라이언트 빈.
+   * Graph 캘린더 읽기/쓰기 클라이언트 빈.
    *
-   * <p>{@link GraphApiClient} 를 주입받아 /me/calendars·/calendarView 조회를 담당한다.
+   * <p>{@link GraphApiClient} 와 {@link ObjectMapper} 를 주입받아 /me/calendars·/calendarView 조회 및 일정
+   * 생성·수정·삭제를 담당한다.
    */
   @Bean
-  public GraphCalendarClient graphCalendarClient(GraphApiClient graphApiClient) {
-    return new GraphCalendarClient(graphApiClient);
+  public GraphCalendarClient graphCalendarClient(
+      GraphApiClient graphApiClient, ObjectMapper objectMapper) {
+    return new GraphCalendarClient(graphApiClient, objectMapper);
   }
 }

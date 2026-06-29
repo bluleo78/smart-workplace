@@ -92,6 +92,23 @@ public class CalendarRepository {
     step.where(CALENDAR.ID.eq(id)).execute();
   }
 
+  /** 캘린더의 외부 동기화 참조 — external_account_id/external_id/is_read_only. 미존재 시 empty. */
+  public record CalendarExternalRef(Long externalAccountId, String externalId, boolean readOnly) {}
+
+  /** 컨테이너의 외부 참조 조회(외부 쓰기 라우팅 판정용). */
+  public Optional<CalendarExternalRef> findExternalRef(long calendarId) {
+    return dsl.select(CALENDAR.EXTERNAL_ACCOUNT_ID, CALENDAR.EXTERNAL_ID, CALENDAR.IS_READ_ONLY)
+        .from(CALENDAR)
+        .where(CALENDAR.ID.eq(calendarId))
+        .fetchOptional()
+        .map(
+            r ->
+                new CalendarExternalRef(
+                    r.get(CALENDAR.EXTERNAL_ACCOUNT_ID),
+                    r.get(CALENDAR.EXTERNAL_ID),
+                    Boolean.TRUE.equals(r.get(CALENDAR.IS_READ_ONLY))));
+  }
+
   /** 삭제. */
   public void delete(long id) {
     dsl.deleteFrom(CALENDAR).where(CALENDAR.ID.eq(id)).execute();

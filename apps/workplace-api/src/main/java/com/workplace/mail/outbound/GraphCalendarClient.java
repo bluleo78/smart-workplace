@@ -1,6 +1,7 @@
 package com.workplace.mail.outbound;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -9,17 +10,18 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Microsoft Graph API 캘린더 읽기 클라이언트.
+ * Microsoft Graph API 캘린더 읽기·쓰기 클라이언트.
  *
- * <p>/me/calendars (달력 목록) 와 /me/calendars/{id}/calendarView (구간 내 일정) 를 조회하며, {@code
- * @odata.nextLink} 를 끝까지 따라가 모든 페이지를 집계한다.
+ * <p>/me/calendars (달력 목록) 와 /me/calendars/{id}/calendarView (구간 내 일정) 조회, 일정 생성·수정·삭제를 담당하며,
+ * {@code @odata.nextLink} 를 끝까지 따라가 모든 페이지를 집계한다.
  *
- * <p>OAuth scope {@code Calendars.Read} 필요 — M365GraphProperties.SCOPE 에서 관리.
+ * <p>OAuth scope {@code Calendars.ReadWrite} 필요 — M365GraphProperties.SCOPE 에서 관리.
  */
 @RequiredArgsConstructor
 public class GraphCalendarClient {
 
   private final GraphApiClient api;
+  private final ObjectMapper mapper; // GraphEventWrite 직렬화용
 
   // ── 응답 봉투 ────────────────────────────────────────────────────────────────
 
@@ -53,9 +55,15 @@ public class GraphCalendarClient {
    * @param color Graph 색상 키워드 (예: "auto", "lightBlue")
    * @param hexColor 16진수 색상 코드 (예: "#0078d4")
    * @param isDefaultCalendar 기본 캘린더 여부
+   * @param canEdit 편집 가능 여부 (공휴일·생일 캘린더는 false)
    */
   public record GraphCalendar(
-      String id, String name, String color, String hexColor, boolean isDefaultCalendar) {}
+      String id,
+      String name,
+      String color,
+      String hexColor,
+      boolean isDefaultCalendar,
+      boolean canEdit) {}
 
   /**
    * Graph 일정 항목.
@@ -93,6 +101,21 @@ public class GraphCalendarClient {
   /** Graph emailAddress 구조 — 이름 + 주소. */
   public record GraphEmail(String name, String address) {}
 
+  /** Graph event body — contentType("text"|"html") + content. */
+  public record GraphItemBody(String contentType, String content) {}
+
+  /** Graph 일정 쓰기 페이로드 — 생성/수정 공용. 참석자·반복은 미포함(#547/#546). */
+  public record GraphEventWrite(
+      String subject,
+      GraphItemBody body,
+      GraphDateTime start,
+      GraphDateTime end,
+      boolean isAllDay,
+      GraphLocation location) {}
+
+  /** Graph 일정 생성 응답 — id 만 사용. */
+  public record GraphEventCreated(@JsonProperty("id") String id) {}
+
   // ── 조회 메서드 ───────────────────────────────────────────────────────────────
 
   /**
@@ -105,7 +128,7 @@ public class GraphCalendarClient {
    */
   public List<GraphCalendar> listCalendars(String accessToken) {
     List<GraphCalendar> all = new ArrayList<>();
-    String url = "/me/calendars?$select=id,name,color,hexColor,isDefaultCalendar";
+    String url = "/me/calendars?$select=id,name,color,hexColor,isDefaultCalendar,canEdit";
     while (url != null) {
       GraphCalendarPage page = api.get(accessToken, url, GraphCalendarPage.class);
       if (page.value() != null) all.addAll(page.value());
@@ -147,5 +170,64 @@ public class GraphCalendarClient {
       url = page.nextLink(); // 절대 URL — GraphApiClient.get() 이 직접 수락
     }
     return all;
+  }
+
+  // ── 쓰기 메서드 ───────────────────────────────────────────────────────────────
+
+  /**
+   * 외부 캘린더에 일정을 생성한다(POST /me/calendars/{calendarId}/events).
+   *
+   * @param accessToken Graph API Bearer 토큰
+   * @param externalCalendarId 대상 캘린더 Graph ID
+   * @param body 생성 페이로드 (제목·본문·시작·종료·종일·장소)
+   * @return 생성된 Graph 일정 id (역동기화 external_id 로 로컬 저장)
+   */
+  public String createEvent(String accessToken, String externalCalendarId, GraphEventWrite body) {
+    String json = serialize(body);
+    GraphEventCreated created =
+        api.post(
+            accessToken,
+            "/me/calendars/" + externalCalendarId + "/events",
+            json,
+            GraphEventCreated.class);
+    return created.id();
+  }
+
+  /**
+   * 외부 일정을 수정한다(PATCH /me/events/{id}).
+   *
+   * <p>종일 일정 start/end 는 DB 저장값(half-open) 그대로 전송 — minusDays(1) 변환 금지.
+   *
+   * @param accessToken Graph API Bearer 토큰
+   * @param externalEventId 수정할 Graph 일정 ID
+   * @param body 수정 페이로드
+   */
+  public void updateEvent(String accessToken, String externalEventId, GraphEventWrite body) {
+    api.patch(accessToken, "/me/events/" + externalEventId, serialize(body));
+  }
+
+  /**
+   * 외부 일정을 삭제한다(DELETE /me/events/{id}).
+   *
+   * <p>404 는 {@link GraphApiClient} 가 성공으로 처리한다.
+   *
+   * @param accessToken Graph API Bearer 토큰
+   * @param externalEventId 삭제할 Graph 일정 ID
+   */
+  public void deleteEvent(String accessToken, String externalEventId) {
+    api.delete(accessToken, "/me/events/" + externalEventId);
+  }
+
+  /**
+   * GraphEventWrite 를 JSON 문자열로 직렬화한다.
+   *
+   * @throws com.workplace.mail.exception.MailSendException 직렬화 실패 시
+   */
+  private String serialize(GraphEventWrite body) {
+    try {
+      return mapper.writeValueAsString(body);
+    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+      throw new com.workplace.mail.exception.MailSendException("Graph 일정 직렬화 실패", e);
+    }
   }
 }

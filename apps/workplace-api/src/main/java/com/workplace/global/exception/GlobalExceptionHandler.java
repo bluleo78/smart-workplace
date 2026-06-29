@@ -417,6 +417,46 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  // ambient 트랜잭션(AI·채팅) 컨텍스트에서 외부 동기화 캘린더 쓰기 거부(409) — 후속 #548
+  @ExceptionHandler(
+      com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException.class)
+  public ResponseEntity<ErrorResponse> handleExternalCalendarWriteInTx(
+      com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
+  /** 외부 공급자 일정 쓰기 실패 → 502(캐치올 500 회피, 사유 노출). */
+  @ExceptionHandler(com.workplace.calendar.exception.ExternalCalendarWriteException.class)
+  public ResponseEntity<ErrorResponse> handleExternalCalendarWrite(
+      com.workplace.calendar.exception.ExternalCalendarWriteException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(response);
+  }
+
+  /** 외부 캘린더 반복 일정 미지원 → 422. */
+  @ExceptionHandler(
+      com.workplace.calendar.exception.RecurringNotSupportedOnExternalCalendarException.class)
+  public ResponseEntity<ErrorResponse> handleRecurringExternal(
+      com.workplace.calendar.exception.RecurringNotSupportedOnExternalCalendarException ex,
+      HttpServletRequest request) {
+    ErrorResponse response =
+        buildError(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
+  }
+
+  /** 외부 동기화 일정 캘린더 이동 미지원 → 422. */
+  @ExceptionHandler(com.workplace.calendar.exception.ExternalEventMoveNotSupportedException.class)
+  public ResponseEntity<ErrorResponse> handleExternalEventMove(
+      com.workplace.calendar.exception.ExternalEventMoveNotSupportedException ex,
+      HttpServletRequest request) {
+    ErrorResponse response =
+        buildError(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
+  }
+
   // 사용자 그룹 도메인 — 미존재/격리(404)
   @ExceptionHandler(com.workplace.user.exception.UserGroupNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleUserGroupNotFound(

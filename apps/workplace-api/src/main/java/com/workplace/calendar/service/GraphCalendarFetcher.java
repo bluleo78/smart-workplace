@@ -122,8 +122,10 @@ public class GraphCalendarFetcher implements CalendarFetcher {
 
       txTemplate.execute(
           status -> {
+            // canEdit=false(공휴일·생일 등) → is_read_only=true, canEdit=true → is_read_only=false
             long calId =
-                extRepo.upsertExternalCalendar(userId, accountId, cal.id(), cal.name(), color);
+                extRepo.upsertExternalCalendar(
+                    userId, accountId, cal.id(), cal.name(), color, !cal.canEdit());
             calIdHolder[0] = calId;
 
             Set<String> keep = new HashSet<>();
@@ -137,7 +139,7 @@ public class GraphCalendarFetcher implements CalendarFetcher {
               keep.add(evt.id());
               count[0]++;
             }
-            extRepo.pruneEventsNotIn(calId, keep);
+            extRepo.pruneEventsNotIn(calId, keep, from, to);
             return null;
           });
 

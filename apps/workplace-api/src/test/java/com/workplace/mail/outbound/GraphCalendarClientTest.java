@@ -40,7 +40,7 @@ class GraphCalendarClientTest {
             eq(GraphCalendarClient.GraphEventPage.class)))
         .thenReturn(mapPage(page2));
 
-    GraphCalendarClient client = new GraphCalendarClient(api);
+    GraphCalendarClient client = new GraphCalendarClient(api, MAPPER);
     List<GraphCalendarClient.GraphEvent> events =
         client.listCalendarView(
             "tok",
@@ -64,7 +64,7 @@ class GraphCalendarClientTest {
             eq("tok"), contains("/me/calendars"), eq(GraphCalendarClient.GraphCalendarPage.class)))
         .thenReturn(mapCalPage(page));
 
-    GraphCalendarClient client = new GraphCalendarClient(api);
+    GraphCalendarClient client = new GraphCalendarClient(api, MAPPER);
     List<GraphCalendarClient.GraphCalendar> cals = client.listCalendars("tok");
 
     assertThat(cals).hasSize(1);

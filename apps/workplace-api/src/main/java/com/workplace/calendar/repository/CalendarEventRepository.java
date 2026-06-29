@@ -57,6 +57,50 @@ public class CalendarEventRepository {
         .getId();
   }
 
+  /**
+   * external_id 동반 일정 생성 — write-through 생성 일정이 born-with-external_id 로 prune(읽기 동기화)에서 보호되도록 한다.
+   * insert() 와 동일하되 EXTERNAL_ID 를 세팅한다.
+   */
+  public long insertWithExternalId(
+      long ownerId, long calendarId, CalendarEventRequest req, String externalId) {
+    return dsl.insertInto(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.OWNER_ID, ownerId)
+        .set(CALENDAR_EVENT.CALENDAR_ID, calendarId)
+        .set(CALENDAR_EVENT.EXTERNAL_ID, externalId)
+        .set(CALENDAR_EVENT.TITLE, req.title())
+        .set(CALENDAR_EVENT.DESCRIPTION, nullIfBlank(req.description()))
+        .set(CALENDAR_EVENT.STARTS_AT, req.startsAt())
+        .set(CALENDAR_EVENT.ENDS_AT, req.endsAt())
+        .set(CALENDAR_EVENT.ALL_DAY, req.allDay())
+        .set(CALENDAR_EVENT.LOCATION, nullIfBlank(req.location()))
+        .set(CALENDAR_EVENT.COLOR, nullIfBlank(req.color()))
+        .set(CALENDAR_EVENT.RECURRENCE_RULE, nullIfBlank(req.recurrenceRule()))
+        .returning(CALENDAR_EVENT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** 일정의 외부 동기화 참조 — 일정 external_id + 소속 캘린더의 external_account_id/is_read_only. */
+  public record ExternalEventRef(
+      String eventExternalId, Long externalAccountId, boolean calendarReadOnly) {}
+
+  /** 일정→캘린더 join 으로 외부 참조 조회. 일정 미존재 시 empty. */
+  public Optional<ExternalEventRef> findExternalRef(long eventId) {
+    return dsl.select(
+            CALENDAR_EVENT.EXTERNAL_ID, CALENDAR.EXTERNAL_ACCOUNT_ID, CALENDAR.IS_READ_ONLY)
+        .from(CALENDAR_EVENT)
+        .join(CALENDAR)
+        .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+        .where(CALENDAR_EVENT.ID.eq(eventId))
+        .fetchOptional()
+        .map(
+            r ->
+                new ExternalEventRef(
+                    r.get(CALENDAR_EVENT.EXTERNAL_ID),
+                    r.get(CALENDAR.EXTERNAL_ACCOUNT_ID),
+                    Boolean.TRUE.equals(r.get(CALENDAR.IS_READ_ONLY))));
+  }
+
   /** 단일 일정의 소속 캘린더 변경(수정 시 캘린더 이동). */
   public void moveSingleEventToCalendar(long id, long calendarId) {
     dsl.update(CALENDAR_EVENT)

@@ -5,19 +5,31 @@ import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
+import com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException;
+import com.workplace.calendar.exception.ExternalEventMoveNotSupportedException;
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
+import com.workplace.calendar.exception.RecurringNotSupportedOnExternalCalendarException;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChangedEvent;
 import com.workplace.calendar.repository.CalendarEventExceptionRepository;
 import com.workplace.calendar.repository.CalendarEventRepository;
+import com.workplace.calendar.repository.CalendarRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository.AttendeeRow;
 import com.workplace.calendar.repository.EventReminderRepository;
+import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.dto.MailProvider;
+import com.workplace.mail.outbound.GraphCalendarClient.GraphDateTime;
+import com.workplace.mail.outbound.GraphCalendarClient.GraphEventWrite;
+import com.workplace.mail.outbound.GraphCalendarClient.GraphItemBody;
+import com.workplace.mail.outbound.GraphCalendarClient.GraphLocation;
+import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -25,18 +37,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 개인 일정 CRUD 유스케이스. 읽기: owner 또는 event_attendee 참석자(가시성 역전). 쓰기(수정/삭제): owner 전용(requireOwner 유지).
  */
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class CalendarEventService {
   private final CalendarEventRepository repo;
   private final EventReminderRepository reminderRepo;
@@ -46,17 +59,89 @@ public class CalendarEventService {
   private final UserRepository userRepo;
   private final ApplicationEventPublisher eventPublisher;
   private final CalendarService calendarService;
+  private final CalendarRepository calendarRepo;
+  private final EmailAccountRepository emailAccountRepo;
+  // 일정 역동기화 전송기 목록 — 공급자별 분기는 호출 시점에 transportFor 로 해소(구성 시 캐싱 금지).
+  private final List<CalendarTransport> transports;
+  // 비-@Transactional 오케스트레이터의 모든 DB 접근을 감싸는 트랜잭션 템플릿(GraphCalendarFetcher 패턴).
+  private final TransactionTemplate txTemplate;
 
   /**
-   * 일정 생성 — owner=caller. RRULE 이 있으면 쓰기 시점에 검증(잘못된 규칙→400). 주최자 본인의 ORGANIZER/ACCEPTED 행을 자동 삽입하고,
-   * 초대 참석자도 함께 추가한다.
+   * 명시적 생성자 — TransactionTemplate 을 PlatformTransactionManager 로 구성해야 하므로 @RequiredArgsConstructor
+   * 를 쓰지 않는다. 기존 의존성 전부 + 신규(calendarRepo/emailAccountRepo/transports/txTemplate)를 대입한다.
    */
-  @Transactional
+  public CalendarEventService(
+      CalendarEventRepository repo,
+      EventReminderRepository reminderRepo,
+      CalendarEventExceptionRepository exceptionRepo,
+      RecurrenceExpander expander,
+      EventAttendeeRepository attendeeRepo,
+      UserRepository userRepo,
+      ApplicationEventPublisher eventPublisher,
+      CalendarService calendarService,
+      CalendarRepository calendarRepo,
+      EmailAccountRepository emailAccountRepo,
+      List<CalendarTransport> transports,
+      PlatformTransactionManager txManager) {
+    this.repo = repo;
+    this.reminderRepo = reminderRepo;
+    this.exceptionRepo = exceptionRepo;
+    this.expander = expander;
+    this.attendeeRepo = attendeeRepo;
+    this.userRepo = userRepo;
+    this.eventPublisher = eventPublisher;
+    this.calendarService = calendarService;
+    this.calendarRepo = calendarRepo;
+    this.emailAccountRepo = emailAccountRepo;
+    this.transports = transports;
+    this.txTemplate = new TransactionTemplate(txManager);
+  }
+
+  /**
+   * 일정 생성 — 외부 쓰기 캘린더면 Graph 로 write-through(동기) 후 external_id 동반 저장, 그 외 순수 로컬.
+   *
+   * <p>비-@Transactional 오케스트레이터: resolve(tx) → Graph HTTP(tx 밖) → persist(tx). HTTP 를 tx 안에서 호출하면
+   * 커넥션 점유(#232)·RLS GUC 부재(#492). 모든 DB 접근은 txTemplate 안에서만 수행한다. Graph 실패는 persist 진입 전에 던져지므로 로컬
+   * 행이 남지 않는다.
+   */
   public CalendarEventResponse create(long callerId, CalendarEventRequest req) {
     validateRecurrence(req.recurrenceRule());
     validateColorOverride(req.color());
-    long calendarId = resolveCalendarId(callerId, req.calendarId());
-    long id = repo.insert(callerId, calendarId, req);
+
+    // ① resolve — 대상 캘린더 분류(tx 안: requireWritableCalendar 의 RLS·소유/RO 검증 + 외부 참조 로드)
+    WriteTarget target = txTemplate.execute(s -> resolveWriteTarget(callerId, req));
+
+    // ② 외부 쓰기 → Graph HTTP (tx 밖)
+    String externalId = null;
+    if (target.externalWritable()) {
+      // 가드: 이 지점은 오케스트레이터의 txTemplate '밖'이므로 활성 tx == 호출자(AI·채팅)의 ambient tx 다.
+      // 호출자 tx 가 열려 있으면 REQUIRED txTemplate 이 그 tx 에 합류해 아래 Graph HTTP 가 tx 안에서 실행된다
+      // (#232 커넥션 점유, "HTTP 는 어떤 tx 안에서도 금지" 위반). 정식 수정(confirm 서비스 @Transactional 범위
+      // 축소)은 후속 #548. 그때까지는 Graph HTTP 도달 전에 차단한다.
+      if (TransactionSynchronizationManager.isActualTransactionActive()) {
+        throw new ExternalCalendarWriteInTransactionException();
+      }
+      if (req.recurrenceRule() != null && !req.recurrenceRule().isBlank()) {
+        throw new RecurringNotSupportedOnExternalCalendarException();
+      }
+      externalId =
+          transportFor(target.account().provider())
+              .createEvent(
+                  callerId, target.account(), target.externalCalendarId(), toGraphWrite(req));
+    }
+
+    // ③ persist — 로컬 저장(+최종 조회). external_id 동반이면 prune 안전.
+    final String extId = externalId;
+    return txTemplate.execute(s -> doCreateLocal(callerId, target.calendarId(), req, extId));
+  }
+
+  /** create 의 로컬 저장 단계 — 기존 create 본문 + external_id 동반 insert 분기. txTemplate 안에서만 호출. */
+  private CalendarEventResponse doCreateLocal(
+      long callerId, long calendarId, CalendarEventRequest req, String externalId) {
+    long id =
+        (externalId == null)
+            ? repo.insert(callerId, calendarId, req)
+            : repo.insertWithExternalId(callerId, calendarId, req, externalId);
     applyReminder(id, req.reminderMinutes());
 
     // 주최자 본인 행: 항상 ORGANIZER/ACCEPTED, invited_by=null.
@@ -74,6 +159,78 @@ public class CalendarEventService {
     }
     return get(callerId, id);
   }
+
+  /** 생성 대상 분류 — calendarId resolve + 외부 쓰기 캘린더면 account/externalId 동반. txTemplate 안에서만 호출. */
+  private WriteTarget resolveWriteTarget(long callerId, CalendarEventRequest req) {
+    long calendarId = resolveCalendarId(callerId, req.calendarId()); // 소유/RO(409) 검증
+    var ext = calendarRepo.findExternalRef(calendarId).orElse(null);
+    if (ext == null || ext.externalAccountId() == null) {
+      return new WriteTarget(calendarId, false, null, null);
+    }
+    // 외부 쓰기 캘린더 — 계정 로드(토큰/전송기 식별). 계정 없으면 로컬로 폴백(외부 전송 불가).
+    EmailAccountResponse account =
+        emailAccountRepo.findByIdAndUser(callerId, ext.externalAccountId()).orElse(null);
+    if (account == null) {
+      return new WriteTarget(calendarId, false, null, null);
+    }
+    return new WriteTarget(calendarId, true, account, ext.externalId());
+  }
+
+  /** 공급자 전송기 조회 — 호출 시점 해소(구성 시 캐싱 금지). 미지원이면 IllegalStateException(라우팅 누락 가드). */
+  private CalendarTransport transportFor(MailProvider provider) {
+    return transports.stream()
+        .filter(t -> t.provider() == provider)
+        .findFirst()
+        .orElseThrow(() -> new IllegalStateException("일정 역동기화 전송기 없음: " + provider));
+  }
+
+  /** 로컬 일정 → Graph 쓰기 페이로드. 종일은 저장값 그대로(half-open), 시각은 UTC dateTime+timeZone. 참석자·반복 미포함. */
+  private GraphEventWrite toGraphWrite(CalendarEventRequest req) {
+    GraphItemBody body =
+        (req.description() == null || req.description().isBlank())
+            ? null
+            : new GraphItemBody("text", req.description());
+    GraphLocation location =
+        (req.location() == null || req.location().isBlank())
+            ? null
+            : new GraphLocation(req.location());
+    return new GraphEventWrite(
+        req.title(),
+        body,
+        toGraphDateTime(req.startsAt(), req.allDay()),
+        toGraphDateTime(req.endsAt(), req.allDay()),
+        req.allDay(),
+        location);
+  }
+
+  /**
+   * OffsetDateTime → Graph dateTimeTimeZone(UTC).
+   *
+   * <p><b>시각(allDay=false)</b>: 오프셋 제거한 instant 의 LocalDateTime + timeZone="UTC".
+   *
+   * <p><b>종일(allDay=true)</b>: Graph 는 종일 start/end 가 자정(00:00:00)이길 요구한다. 그런데 사용자가 만든 종일 일정은 "현지
+   * 자정"을 instant 로 저장하므로(KST 종일 "2026-07-10" → 저장값 {@code 2026-07-09T15:00:00Z}) 그대로 보내면 비-자정값이 되어
+   * Graph 400 → 502. 핵심: 종일이라는 사실(all_day 플래그)만으로 원래 시각이 현지 자정이었음을 알 수 있고, 저장된 UTC 시각(시·분)은 생성자의
+   * 오프셋을 인코딩한다. 따라서 외부 타임존 소스 없이도, 저장 instant 에 +12시간을 더해 가장 가까운 UTC 자정으로 반올림하면 의도한 캘린더 날짜가
+   * 복원된다(±12h 안의 일반 오프셋에서 정확; KST +09 는 충분히 안쪽). start·end 모두 동일 규칙으로 반올림하므로 앱의 half-open
+   * [start,end) 가 보존된다(1일 종일 → 날짜 D / D+1).
+   */
+  private static GraphDateTime toGraphDateTime(OffsetDateTime t, boolean allDay) {
+    if (allDay) {
+      java.time.LocalDate d = t.withOffsetSameInstant(ZoneOffset.UTC).plusHours(12).toLocalDate();
+      // LocalDate.toString() 은 항상 zero-padded yyyy-MM-dd. 초 생략 회피 위해 "T00:00:00" 명시.
+      return new GraphDateTime(d + "T00:00:00", "UTC");
+    }
+    return new GraphDateTime(
+        t.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime().toString(), "UTC");
+  }
+
+  /** 쓰기 대상 분류 결과 — externalWritable 이면 Graph 역동기화 경로. */
+  private record WriteTarget(
+      long calendarId,
+      boolean externalWritable,
+      EmailAccountResponse account,
+      String externalCalendarId) {}
 
   /**
    * 단건 조회 — owner 또는 참석자면 반환, 그 외 404. repo.findById 의 accessibleBy 술어가 두 가지를 모두 처리하므로 requireOwner
@@ -152,21 +309,86 @@ public class CalendarEventService {
   }
 
   /**
-   * 일정 수정 — 비-owner→404. RRULE 검증(400). 단일 일정이거나 scope=ALL 이면 전체 교체(마스터 자체 수정). 반복 일정의 THIS/
-   * THIS_AND_FOLLOWING 는 occurrenceDate 가 가리키는 회차를 기준으로 분기한다(id 는 마스터 id).
+   * 일정 수정 — 외부 동기화 일정이면 Graph PATCH(필드 수정만) 후 로컬 반영, 그 외 기존 로컬 로직(반복 scope 포함).
+   *
+   * <p>비-@Transactional 오케스트레이터: resolve(tx) → Graph HTTP(tx 밖) → persist(tx). create 와 동일한 3단계로
+   * HTTP 를 어떤 tx 안에서도 호출하지 않는다(#232 커넥션 점유, #492 GUC 부재 회피). Graph 실패는 persist 진입 전에 던져지므로 로컬 행이
+   * 변경되지 않는다. 외부 일정은 단일(recurrence_rule=null)이므로 scope 분기는 로컬 경로에서만 의미. 외부 일정에 반복 전환·캘린더 이동은 미지원(둘
+   * 다 422 로 명시 차단 — 조용한 무시 아님).
    */
-  @Transactional
   public CalendarEventResponse update(
       long callerId,
       long id,
       CalendarEventRequest req,
       EditScope scope,
       OffsetDateTime occurrenceDate) {
-    requireOwner(callerId, id);
-    requireWritableEvent(id);
     validateRecurrence(req.recurrenceRule());
     validateColorOverride(req.color());
-    // requireOwner 통과 후 조회: owner 이므로 accessibleBy 술어 만족 보장.
+
+    // ① resolve — owner(404)·RO(409) 검증 + 외부 참조 + 현재 소속 캘린더(이동 차단용). requireWritableEvent 는 RO
+    // 캘린더(공휴일)만 차단.
+    ExternalWriteCtx ctx =
+        txTemplate.execute(
+            s -> {
+              requireOwner(callerId, id);
+              requireWritableEvent(id);
+              CalendarEventResponse cur =
+                  repo.findById(callerId, id)
+                      .orElseThrow(() -> new CalendarEventNotFoundException(id));
+              var ref =
+                  repo.findExternalRef(id)
+                      .orElseThrow(() -> new CalendarEventNotFoundException(id));
+              if (ref.externalAccountId() == null || ref.eventExternalId() == null) {
+                return new ExternalWriteCtx(false, null, null, cur.calendarId());
+              }
+              EmailAccountResponse acc =
+                  emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
+              return acc == null
+                  ? new ExternalWriteCtx(false, null, null, cur.calendarId())
+                  : new ExternalWriteCtx(true, acc, ref.eventExternalId(), cur.calendarId());
+            });
+
+    if (ctx.external()) {
+      // ② 외부 쓰기 → Graph HTTP (tx 밖). 가드: 호출자 ambient tx(AI·채팅 confirm) 안이면 REQUIRED txTemplate 이 그
+      // tx 에
+      // 합류해 아래 Graph HTTP 가 tx 안에서 실행된다("HTTP 는 어떤 tx 안에서도 금지" 위반). 정식 수정은 후속 #548 — 그때까지 차단.
+      if (TransactionSynchronizationManager.isActualTransactionActive()) {
+        throw new ExternalCalendarWriteInTransactionException();
+      }
+      // 외부 일정은 단일 — 반복 전환 차단(#546).
+      if (req.recurrenceRule() != null && !req.recurrenceRule().isBlank()) {
+        throw new RecurringNotSupportedOnExternalCalendarException();
+      }
+      // 동기화 일정의 다른 캘린더 이동 차단(#502 범위 밖 — Graph move 별도 API). 조용히 무시하지 않고 422 로 명시.
+      if (req.calendarId() != null && !req.calendarId().equals(ctx.currentCalendarId())) {
+        throw new ExternalEventMoveNotSupportedException();
+      }
+      transportFor(ctx.account().provider())
+          .updateEvent(callerId, ctx.account(), ctx.externalId(), toGraphWrite(req));
+      // ③ 로컬 반영 — 필드만 갱신(캘린더 이동 없음). 동기화 컨테이너 유지. 최종 get() 도 tx 안.
+      return txTemplate.execute(
+          s -> {
+            repo.update(id, req);
+            applyReminder(id, req.reminderMinutes());
+            return get(callerId, id);
+          });
+    }
+
+    return txTemplate.execute(s -> doUpdateLocal(callerId, id, req, scope, occurrenceDate));
+  }
+
+  /**
+   * update 의 로컬 경로 — 기존 update 본문(반복 scope 분기 포함). txTemplate 안에서만 호출.
+   *
+   * <p>requireOwner/requireWritableEvent 는 resolve 단계에서 이미 통과했으므로 재검증하지 않는다(이중 검증 불필요). target 재조회만
+   * 유지.
+   */
+  private CalendarEventResponse doUpdateLocal(
+      long callerId,
+      long id,
+      CalendarEventRequest req,
+      EditScope scope,
+      OffsetDateTime occurrenceDate) {
     CalendarEventResponse target =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
 
@@ -187,6 +409,10 @@ public class CalendarEventService {
     }
     return updateFollowing(callerId, target, req, occurrenceDate);
   }
+
+  /** 외부 쓰기 컨텍스트 — update resolve 산출물. currentCalendarId 는 이동 차단 비교용. */
+  private record ExternalWriteCtx(
+      boolean external, EmailAccountResponse account, String externalId, Long currentCalendarId) {}
 
   /**
    * THIS 수정 — 회차를 대체할 독립 일정(RRULE=null, owner=마스터 owner)을 만들고 예외 행에 오버라이드로 연결한다. 이미 오버라이드가 있으면 중복
@@ -263,14 +489,68 @@ public class CalendarEventService {
   }
 
   /**
-   * 일정 삭제 — 비-owner→404. 단일 일정이거나 scope=ALL 이면 마스터 삭제(예외·리마인더 cascade). 오버라이드 별도 일정은 cascade 되지
-   * 않으므로 직접 제거. THIS=회차 취소, THIS_AND_FOLLOWING=시리즈 잘라내기.
+   * 일정 삭제 — 외부 동기화 일정이면 Graph DELETE(404=이미 없음 성공) 후 로컬 삭제, 그 외 기존 로컬 로직(반복 scope 포함).
+   *
+   * <p>비-@Transactional 오케스트레이터: resolve(tx) → Graph HTTP(tx 밖) → persist(tx). create/update 와 동일한
+   * 3단계로 HTTP 를 어떤 tx 안에서도 호출하지 않는다(#232 커넥션 점유, #492 GUC 부재 회피). delete 는 페이로드(날짜·타임존)를 보내지 않으므로
+   * 종일/타임존 관심사가 없다. Graph DELETE 가 502(non-404)로 실패하면 persist 진입 전에 던져져 로컬 행이 남는다. 404 는 transport
+   * 가 정상 반환하므로(이미 없음=삭제 목표 상태) 502 로 둔갑하지 않고 로컬 삭제를 진행한다.
    */
-  @Transactional
   public void delete(long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
-    requireOwner(callerId, id);
-    requireWritableEvent(id);
-    // requireOwner 통과 후 조회: owner 이므로 accessibleBy 술어 만족 보장.
+    // ① resolve — owner(404)·RO(409) 검증 + 외부 참조(externalId/account) 로드. delete 는 이동이 없어
+    // currentCalendarId 불필요(null).
+    ExternalWriteCtx ctx =
+        txTemplate.execute(
+            s -> {
+              requireOwner(callerId, id);
+              requireWritableEvent(id);
+              var ref =
+                  repo.findExternalRef(id)
+                      .orElseThrow(() -> new CalendarEventNotFoundException(id));
+              if (ref.externalAccountId() == null || ref.eventExternalId() == null) {
+                return new ExternalWriteCtx(false, null, null, null);
+              }
+              EmailAccountResponse acc =
+                  emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
+              return acc == null
+                  ? new ExternalWriteCtx(false, null, null, null)
+                  : new ExternalWriteCtx(true, acc, ref.eventExternalId(), null);
+            });
+
+    if (ctx.external()) {
+      // ② 외부 삭제 → Graph HTTP(tx 밖). 가드: 호출자 ambient tx(AI·채팅 confirm) 안이면 REQUIRED txTemplate 이 그
+      // tx 에
+      // 합류해 아래 Graph HTTP 가 tx 안에서 실행된다("HTTP 는 어떤 tx 안에서도 금지" 위반). 정식 수정은 후속 #548 — 그때까지 차단.
+      if (TransactionSynchronizationManager.isActualTransactionActive()) {
+        throw new ExternalCalendarWriteInTransactionException();
+      }
+      // 404(이미 없음)는 transport 가 예외 없이 반환 → 로컬 삭제 진행. 502(non-404)는 여기서 던져져 로컬 삭제를 막는다.
+      transportFor(ctx.account().provider()).deleteEvent(callerId, ctx.account(), ctx.externalId());
+      // ③ 로컬 삭제 — 외부 일정은 단일이라 scope 무관(마스터 행 제거). 동기화 prune 은 external_id 부재로 영향 없음.
+      txTemplate.execute(
+          s -> {
+            repo.delete(id);
+            return null;
+          });
+      return;
+    }
+
+    txTemplate.execute(
+        s -> {
+          doDeleteLocal(callerId, id, scope, occurrenceDate);
+          return null;
+        });
+  }
+
+  /**
+   * delete 의 로컬 경로 — 기존 delete 본문(반복 scope 분기 포함). txTemplate 안에서만 호출.
+   *
+   * <p>requireOwner/requireWritableEvent 는 resolve 단계에서 이미 통과했으므로 재검증하지 않는다(이중 검증 불필요). 단일 일정이거나
+   * scope=ALL 이면 마스터 삭제(예외·리마인더 cascade). 오버라이드 별도 일정은 cascade 되지 않으므로 직접 제거. THIS=회차 취소,
+   * THIS_AND_FOLLOWING=시리즈 잘라내기.
+   */
+  private void doDeleteLocal(
+      long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
     CalendarEventResponse target =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
 

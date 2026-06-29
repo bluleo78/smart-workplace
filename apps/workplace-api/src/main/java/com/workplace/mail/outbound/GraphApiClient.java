@@ -192,6 +192,78 @@ public class GraphApiClient {
     sendWrite(req, "patch");
   }
 
+  /**
+   * Graph 리소스에 POST(application/json) 요청을 전송하고 2xx 응답 바디를 역직렬화한다.
+   *
+   * @param accessToken 유효 access_token(평문)
+   * @param path Graph 상대경로(예: "/me/calendars/{id}/events")
+   * @param jsonBody application/json 본문
+   * @param type 응답 역직렬화 타입
+   * @return 역직렬화된 응답
+   * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
+   */
+  public <T> T post(String accessToken, String path, String jsonBody, Class<T> type) {
+    HttpRequest req =
+        HttpRequest.newBuilder()
+            .uri(URI.create(GRAPH_BASE_URL + path))
+            .header("Authorization", "Bearer " + accessToken)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+            .build();
+    try {
+      HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+      if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+        log.error(
+            "Graph post 오류: status={} errorCode={}",
+            resp.statusCode(),
+            extractErrorCode(resp.body()));
+        throw new MailSendException("Graph post 실패: " + resp.statusCode());
+      }
+      return mapper.readValue(resp.body(), type);
+    } catch (MailSendException e) {
+      throw e;
+    } catch (IOException e) {
+      throw new MailSendException("Graph post 네트워크 오류", e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new MailSendException("Graph post 요청이 중단됨", e);
+    }
+  }
+
+  /**
+   * Graph 리소스에 DELETE 요청을 전송한다. 멱등 삭제이므로 404(이미 없음)는 성공으로 간주한다.
+   *
+   * @param accessToken 유효 access_token(평문)
+   * @param path Graph 상대경로(예: "/me/events/{id}")
+   * @throws MailSendException 2xx·404 외 응답 또는 네트워크 실패
+   */
+  public void delete(String accessToken, String path) {
+    HttpRequest req =
+        HttpRequest.newBuilder()
+            .uri(URI.create(GRAPH_BASE_URL + path))
+            .header("Authorization", "Bearer " + accessToken)
+            .DELETE()
+            .build();
+    try {
+      HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+      int sc = resp.statusCode();
+      // 404 = 이미 삭제됨 → 삭제의 목표 상태이므로 성공 취급
+      if (sc == 404) return;
+      if (sc < 200 || sc >= 300) {
+        log.error("Graph delete 오류: status={} errorCode={}", sc, extractErrorCode(resp.body()));
+        throw new MailSendException("Graph delete 실패: " + sc);
+      }
+    } catch (MailSendException e) {
+      throw e;
+    } catch (IOException e) {
+      throw new MailSendException("Graph delete 네트워크 오류", e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new MailSendException("Graph delete 요청이 중단됨", e);
+    }
+  }
+
   /** 쓰기 요청 공통 전송 — 2xx 외에는 민감정보 없이 코드만 로그하고 MailSendException. */
   private void sendWrite(HttpRequest req, String op) {
     try {

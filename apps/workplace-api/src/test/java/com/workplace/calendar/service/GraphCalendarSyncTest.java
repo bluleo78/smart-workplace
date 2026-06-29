@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+import com.workplace.calendar.repository.CalendarRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
@@ -40,6 +41,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
 
   @Autowired CalendarSyncService syncService;
   @Autowired ExternalCalendarRepository extRepo;
+  @Autowired CalendarRepository calendarRepo;
   @Autowired CalendarEventService eventService;
   @Autowired DSLContext dsl;
   @Autowired EncryptionService encryption;
@@ -121,7 +123,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_maps_allDay_endExclusive_minusOneDay_and_utc() {
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcal", "업무", "lightBlue", "", true)));
+        .thenReturn(List.of(new GraphCalendar("gcal", "업무", "lightBlue", "", true, true)));
 
     // 종일 1일 일정: Graph end 는 배타적(다음날 자정) 2026-07-11T00:00:00Z — 그대로 저장
     GraphEvent allDay =
@@ -171,7 +173,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_blankSubject_fallsBackToPlaceholder() {
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcal2", "개인", "auto", "", false)));
+        .thenReturn(List.of(new GraphCalendar("gcal2", "개인", "auto", "", false, true)));
 
     // subject = "" (빈 문자열)
     GraphEvent blankSubject =
@@ -210,5 +212,73 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
 
     long placeholderCount = events.stream().filter(x -> "(제목 없음)".equals(x.title())).count();
     assertThat(placeholderCount).isEqualTo(2);
+  }
+
+  /**
+   * write-through 로 동기화 윈도우(−1mo/+3mo) 밖에 생성된 외부 일정은 prune 으로 삭제되지 않는다. (#501 stranded 버그의 거울상 차단)
+   */
+  @Test
+  void sync_prune_does_not_delete_out_of_window_events() {
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(List.of(new GraphCalendar("gcalP", "업무", "lightBlue", "", true, true)));
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalP"), any(), any()))
+        .thenReturn(List.of()); // 서버는 윈도우 내 일정 0건
+
+    // 1차 동기화로 컨테이너 생성
+    syncService.sync(ownerId, accountId);
+    long calId = extRepo.listExternalCalendarIds(accountId).get(0);
+
+    // 윈도우 밖(+4개월) external_id 보유 일정을 직접 삽입(write-through 결과 시뮬레이션)
+    OffsetDateTime farStart = OffsetDateTime.now(java.time.ZoneOffset.UTC).plusMonths(4);
+    new TransactionTemplate(txManager)
+        .execute(
+            s ->
+                dsl.insertInto(CALENDAR_EVENT)
+                    .set(CALENDAR_EVENT.OWNER_ID, ownerId)
+                    .set(CALENDAR_EVENT.CALENDAR_ID, calId)
+                    .set(CALENDAR_EVENT.EXTERNAL_ID, "ext-far")
+                    .set(CALENDAR_EVENT.TITLE, "먼미래")
+                    .set(CALENDAR_EVENT.STARTS_AT, farStart)
+                    .set(CALENDAR_EVENT.ENDS_AT, farStart.plusHours(1))
+                    .set(CALENDAR_EVENT.ALL_DAY, false)
+                    .execute());
+
+    // 2차 동기화: 서버는 여전히 윈도우 내 0건. prune 이 윈도우 한정이면 먼미래 일정 생존.
+    syncService.sync(ownerId, accountId);
+
+    int remaining =
+        new TransactionTemplate(txManager)
+            .execute(
+                s ->
+                    dsl.fetchCount(
+                        dsl.selectFrom(CALENDAR_EVENT)
+                            .where(CALENDAR_EVENT.EXTERNAL_ID.eq("ext-far"))));
+    assertThat(remaining).isEqualTo(1);
+  }
+
+  /**
+   * canEdit=true 캘린더는 쓰기 가능(isReadOnly=false)으로, canEdit=false 캘린더는 읽기전용으로 동기화된다. 재동기화 시 canEdit
+   * 변화가 is_read_only 에 반영된다(doUpdate 갱신).
+   */
+  @Test
+  void sync_sets_isReadOnly_from_canEdit_and_reflects_on_resync() {
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+
+    // 1차: 편집 가능 달력으로 동기화 → isReadOnly=false
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(List.of(new GraphCalendar("gcalW", "업무", "lightBlue", "", true, true)));
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalW"), any(), any()))
+        .thenReturn(List.of());
+    syncService.sync(ownerId, accountId);
+
+    long calId = extRepo.listExternalCalendarIds(accountId).get(0);
+    assertThat(calendarRepo.isReadOnly(calId)).isFalse();
+
+    // 2차: 같은 달력이 canEdit=false 로 바뀌면 isReadOnly=true 로 플립(doUpdate)
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(List.of(new GraphCalendar("gcalW", "업무", "lightBlue", "", true, false)));
+    syncService.sync(ownerId, accountId);
+    assertThat(calendarRepo.isReadOnly(calId)).isTrue();
   }
 }

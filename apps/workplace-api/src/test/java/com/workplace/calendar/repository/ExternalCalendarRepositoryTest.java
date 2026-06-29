@@ -108,7 +108,7 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
               long accountId = emailAccount(ownerId);
 
               long calId =
-                  repo.upsertExternalCalendar(ownerId, accountId, "graphCal1", "업무", "blue");
+                  repo.upsertExternalCalendar(ownerId, accountId, "graphCal1", "업무", "blue", true);
 
               var row =
                   new ExternalCalendarRepository.ExternalEventRow(
@@ -144,11 +144,14 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
               long ownerId = TestFixtures.createHuman(dsl);
               long accountId = emailAccount(ownerId);
 
-              long calId = repo.upsertExternalCalendar(ownerId, accountId, "c", "업무", "blue");
+              long calId = repo.upsertExternalCalendar(ownerId, accountId, "c", "업무", "blue", true);
               long keep = repo.upsertExternalEvent(ownerId, calId, "keep", sampleRow());
               long gone = repo.upsertExternalEvent(ownerId, calId, "gone", sampleRow());
 
-              int deleted = repo.pruneEventsNotIn(calId, Set.of("keep"));
+              // from/to 는 sampleRow 의 starts_at(현재 시각 근방)을 포함하는 넓은 윈도우
+              OffsetDateTime from = OffsetDateTime.now().minusMonths(1);
+              OffsetDateTime to = OffsetDateTime.now().plusMonths(3);
+              int deleted = repo.pruneEventsNotIn(calId, Set.of("keep"), from, to);
 
               assertThat(deleted).isEqualTo(1);
               assertThat(existsById(keep)).isTrue();

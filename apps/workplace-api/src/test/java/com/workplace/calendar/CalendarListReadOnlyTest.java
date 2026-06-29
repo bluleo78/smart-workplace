@@ -71,7 +71,7 @@ class CalendarListReadOnlyTest extends IntegrationTestBase {
 
               // 외부 컨테이너 생성 (is_read_only=true)
               externalCalendarRepo.upsertExternalCalendar(
-                  ownerId, accountId, "extCal1", "M365 달력", "blue");
+                  ownerId, accountId, "extCal1", "M365 달력", "blue", true);
 
               // list() 호출 — 기본 캘린더 lazy 생성 + 외부 컨테이너 포함
               List<CalendarResponse> cals = calendarService.list(ownerId);

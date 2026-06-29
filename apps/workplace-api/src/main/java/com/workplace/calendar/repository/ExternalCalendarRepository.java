@@ -26,25 +26,32 @@ public class ExternalCalendarRepository {
   /**
    * 외부 달력 컨테이너 upsert.
    *
-   * <p>(external_account_id, external_id) 충돌 시 name/color 만 갱신, 신규이면 is_read_only=true,
-   * is_default=false, position=0 으로 INSERT. tenant_id 는 GUC DEFAULT 가 채운다.
+   * <p>(external_account_id, external_id) 충돌 시 name/color/is_read_only 를 갱신, 신규이면 is_default=false,
+   * position=0 으로 INSERT. tenant_id 는 GUC DEFAULT 가 채운다.
    *
    * @param ownerId 달력 소유자 user id
    * @param externalAccountId email_account.id (FK)
    * @param externalId 공급자 측 달력 식별자
    * @param name 달력 이름
    * @param color 달력 색
+   * @param readOnly Graph canEdit=false 이면 true (공휴일·생일 달력 등 편집 불가 컨테이너). 재동기화 시 doUpdate 에도 반영해
+   *     canEdit 변화를 즉시 반영한다.
    * @return 컨테이너 calendar.id
    */
   public long upsertExternalCalendar(
-      long ownerId, long externalAccountId, String externalId, String name, String color) {
+      long ownerId,
+      long externalAccountId,
+      String externalId,
+      String name,
+      String color,
+      boolean readOnly) {
     return dsl.insertInto(CALENDAR)
         .set(CALENDAR.OWNER_ID, ownerId)
         .set(CALENDAR.EXTERNAL_ACCOUNT_ID, externalAccountId)
         .set(CALENDAR.EXTERNAL_ID, externalId)
         .set(CALENDAR.NAME, name)
         .set(CALENDAR.COLOR, color)
-        .set(CALENDAR.IS_READ_ONLY, true)
+        .set(CALENDAR.IS_READ_ONLY, readOnly)
         .set(CALENDAR.IS_DEFAULT, false)
         .set(CALENDAR.POSITION, 0)
         // 부분 유니크 인덱스(WHERE external_account_id IS NOT NULL) 기준 충돌
@@ -53,6 +60,7 @@ public class ExternalCalendarRepository {
         .doUpdate()
         .set(CALENDAR.NAME, name)
         .set(CALENDAR.COLOR, color)
+        .set(CALENDAR.IS_READ_ONLY, readOnly) // canEdit 변화 반영 — 배포 후 첫 동기화에서 기존 RO 정정
         .set(CALENDAR.UPDATED_AT, OffsetDateTime.now())
         .returning(CALENDAR.ID)
         .fetchOne()
@@ -100,17 +108,26 @@ public class ExternalCalendarRepository {
   }
 
   /**
-   * 동기 창에서 수신되지 않은 외부 일정 삭제.
+   * 동기 창에서 수신되지 않은 외부 일정 삭제 — 단, 동기화 윈도우 [from, to) 안의 일정만 prune 대상.
    *
-   * <p>keep 집합에 없는 external_id 를 가진 일정을 삭제한다. keep 가 비어있으면 해당 컨테이너의 모든 외부 일정을 삭제.
+   * <p>윈도우 밖(예: 미래로 멀리 떨어진 write-through 생성 일정)은 calendarView 가 가져오지 못해 keep 에 들지 않으므로, 날짜 경계를 두지
+   * 않으면 잘못 삭제된다(#502 — #501 stranded 버그의 거울상).
    *
    * @param calendarId 대상 컨테이너 id
    * @param keepExternalIds 유지할 external_id 집합
+   * @param from 동기화 윈도우 시작(포함)
+   * @param to 동기화 윈도우 끝(배타)
    * @return 삭제된 행 수
    */
-  public int pruneEventsNotIn(long calendarId, Set<String> keepExternalIds) {
+  public int pruneEventsNotIn(
+      long calendarId, Set<String> keepExternalIds, OffsetDateTime from, OffsetDateTime to) {
     Condition cond =
-        CALENDAR_EVENT.CALENDAR_ID.eq(calendarId).and(CALENDAR_EVENT.EXTERNAL_ID.isNotNull());
+        CALENDAR_EVENT
+            .CALENDAR_ID
+            .eq(calendarId)
+            .and(CALENDAR_EVENT.EXTERNAL_ID.isNotNull())
+            .and(CALENDAR_EVENT.STARTS_AT.ge(from))
+            .and(CALENDAR_EVENT.STARTS_AT.lt(to));
     if (!keepExternalIds.isEmpty()) {
       cond = cond.and(CALENDAR_EVENT.EXTERNAL_ID.notIn(keepExternalIds));
     }

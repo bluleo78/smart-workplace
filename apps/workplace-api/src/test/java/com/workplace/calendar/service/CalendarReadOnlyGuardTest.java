@@ -54,7 +54,8 @@ class CalendarReadOnlyGuardTest extends IntegrationTestBase {
               ownerId = TestFixtures.createHuman(dsl);
               accountId = seedGraphAccount(ownerId);
               externalCalendarId =
-                  extRepo.upsertExternalCalendar(ownerId, accountId, "ext-cal-1", "업무", "blue");
+                  extRepo.upsertExternalCalendar(
+                      ownerId, accountId, "ext-cal-1", "업무", "blue", true);
               externalEventId =
                   extRepo.upsertExternalEvent(
                       ownerId,
