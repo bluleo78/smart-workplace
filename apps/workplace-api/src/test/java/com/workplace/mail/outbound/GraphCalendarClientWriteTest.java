@@ -55,6 +55,44 @@ class GraphCalendarClientWriteTest {
     assertThat(json.getValue()).contains("\"isAllDay\":false");
   }
 
+  /**
+   * 본문/장소 없는 일정 직렬화 — body/location 이 null 이면 JSON 키 자체를 생략해야 한다. Graph 는 {@code "body": null} 을
+   * 400 ErrorInvalidRequest 로 거부하므로(라이브 스모크 적발), {@code @JsonInclude(NON_NULL)} 동작을 고정한다.
+   */
+  @Test
+  void createEvent_omits_null_body_and_location() {
+    GraphEventWrite noBodyNoLocation =
+        new GraphEventWrite(
+            "[스모크] 시각 일정 생성",
+            null, // body 없음
+            new GraphDateTime("2026-06-29T01:51:00", "UTC"),
+            new GraphDateTime("2026-06-29T02:51:00", "UTC"),
+            false,
+            null); // location 없음
+    when(api.post(
+            eq("tok"),
+            eq("/me/calendars/gcal/events"),
+            org.mockito.ArgumentMatchers.anyString(),
+            eq(GraphEventCreated.class)))
+        .thenReturn(new GraphEventCreated("NEW2"));
+    client.createEvent("tok", "gcal", noBodyNoLocation);
+
+    ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+    verify(api)
+        .post(
+            eq("tok"),
+            eq("/me/calendars/gcal/events"),
+            json.capture(),
+            eq(GraphEventCreated.class));
+    // null 필드 키가 통째로 빠져야 함 — "body":null / "location":null 금지(Graph 400 유발).
+    assertThat(json.getValue()).doesNotContain("\"body\"");
+    assertThat(json.getValue()).doesNotContain("\"location\"");
+    assertThat(json.getValue()).doesNotContain("null");
+    // 존재 필드는 정상 직렬화.
+    assertThat(json.getValue()).contains("\"subject\":\"[스모크] 시각 일정 생성\"");
+    assertThat(json.getValue()).contains("\"isAllDay\":false");
+  }
+
   @Test
   void updateEvent_patches_event_path() {
     client.updateEvent("tok", "EV9", timed());

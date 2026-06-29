@@ -1,5 +1,6 @@
 package com.workplace.mail.outbound;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URLEncoder;
@@ -104,7 +105,14 @@ public class GraphCalendarClient {
   /** Graph event body — contentType("text"|"html") + content. */
   public record GraphItemBody(String contentType, String content) {}
 
-  /** Graph 일정 쓰기 페이로드 — 생성/수정 공용. 참석자·반복은 미포함(#547/#546). */
+  /**
+   * Graph 일정 쓰기 페이로드 — 생성/수정 공용. 참석자·반복은 미포함(#547/#546).
+   *
+   * <p>{@code @JsonInclude(NON_NULL)} 필수: 본문/장소가 없는 일정은 {@code body}/{@code location} 이 null 인데,
+   * Graph 는 {@code "body": null} 을 받으면 400 ErrorInvalidRequest("The body of the item is invalid") 로
+   * 거부한다. null 필드는 직렬화에서 생략해 키 자체를 빼야 한다(라이브 스모크에서 적발).
+   */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
   public record GraphEventWrite(
       String subject,
       GraphItemBody body,
