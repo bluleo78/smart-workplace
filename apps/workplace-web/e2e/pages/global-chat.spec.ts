@@ -625,7 +625,7 @@ test('확인 카드 — pending_action 이 카드로 렌더되고 승인 시 con
   // confirm 실행기 모킹 — payload 캡처.
   let confirmPayload: unknown = null;
   await page.route(
-    (url) => url.pathname === '/api/v1/home/actions/confirm',
+    (url) => url.pathname === '/api/v1/actions/confirm',
     (route) => {
       if (route.request().method() !== 'POST') return route.fallback();
       try { confirmPayload = route.request().postDataJSON(); } catch { confirmPayload = null; }
@@ -667,7 +667,7 @@ test('확인 카드 — 취소 시 confirm API 미호출, 카드 폐기 (#333)',
   );
   let confirmCalled = false;
   await page.route(
-    (url) => url.pathname === '/api/v1/home/actions/confirm',
+    (url) => url.pathname === '/api/v1/actions/confirm',
     (route) => { confirmCalled = true; return route.fulfill({ status: 201, body: '{}' }); },
   );
 
