@@ -42,7 +42,8 @@ public class FileEmbeddingPipeline {
    */
   @Transactional
   public void dispatchEmbed(long fileId) {
-    if (!props.enabled()) {
+    // 워커 비활성 또는 임베딩 게이트 off → 임베딩 미생성(키워드 검색은 추출이 계속 공급)
+    if (!props.enabled() || !props.embed().enabled()) {
       return;
     }
     if (jobs.hasPendingEmbedJob(fileId)) {

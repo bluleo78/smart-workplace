@@ -51,3 +51,4 @@ workplace:
       model: BAAI/bge-m3
       dimensions: 1024
       max-chars: 8000
+      enabled: true

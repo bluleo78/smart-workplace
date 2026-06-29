@@ -71,6 +71,21 @@ public class WorkerJobRepository {
   }
 
   /**
+   * 추출 claim 해제: EXTRACTING→PENDING (lease 클리어). 워커 디스패치 실패(도달 불가) 시 즉시 재개 가능하게 한다.
+   *
+   * <p>멱등 — 이미 다른 콜백이 TEXT_READY/SKIPPED 등으로 전이했으면 0행(EXTRACTING 조건 불충족). 연결 실패는 FAILED 가 아닌
+   * PENDING 으로 되돌려 transient 로 취급한다(lease 만료 대기 회피).
+   */
+  public void releaseExtractionClaim(long fileId) {
+    dsl.update(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.STATUS, "PENDING")
+        .set(FILE_EXTRACTION.LEASED_UNTIL, (OffsetDateTime) null)
+        .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+        .and(FILE_EXTRACTION.STATUS.eq("EXTRACTING"))
+        .execute();
+  }
+
+  /**
    * extract 워커 잡을 RUNNING 상태로 생성해 id 를 반환한다.
    *
    * <p>params JSONB 는 Jackson ObjectMapper 로 직렬화해 수동 문자열 조합의 이스케이프 버그를 방지한다.

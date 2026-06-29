@@ -35,7 +35,7 @@ class WorkerClientTest {
             "http://localhost:" + server.getAddress().getPort(),
             "tok",
             true,
-            new WorkerProperties.Embed("BAAI/bge-m3", 1024, 8000));
+            new WorkerProperties.Embed("BAAI/bge-m3", 1024, 8000, true));
     var client = new WorkerClient(props);
 
     client.dispatchExtract(10L, "uploads/file.pdf", "application/pdf", 3L);
@@ -69,7 +69,7 @@ class WorkerClientTest {
             "http://localhost:" + server.getAddress().getPort(),
             "tok",
             true,
-            new WorkerProperties.Embed("BAAI/bge-m3", 1024, 8000));
+            new WorkerProperties.Embed("BAAI/bge-m3", 1024, 8000, true));
     var client = new WorkerClient(props);
 
     client.dispatchEmbed(42L, "hello", 7L);

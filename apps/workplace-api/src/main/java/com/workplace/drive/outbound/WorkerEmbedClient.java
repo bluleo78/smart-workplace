@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -29,12 +30,7 @@ public class WorkerEmbedClient {
   private static final int CACHE_MAX = 200;
 
   private final WorkerProperties props;
-  // uvicorn(FastAPI)은 H2C(cleartext HTTP/2) 업그레이드를 거부해 400 을 반환하므로 HTTP/1.1 고정.
-  private final HttpClient http =
-      HttpClient.newBuilder()
-          .connectTimeout(Duration.ofSeconds(2))
-          .version(HttpClient.Version.HTTP_1_1)
-          .build();
+  private final HttpClient http;
   private final ObjectMapper mapper = new ObjectMapper();
   // 최근 쿼리 임베딩 LRU(동일 쿼리 반복 시 워커 왕복 회피).
   private final Map<String, float[]> cache =
@@ -46,13 +42,27 @@ public class WorkerEmbedClient {
             }
           });
 
+  @Autowired
   public WorkerEmbedClient(WorkerProperties props) {
+    // uvicorn(FastAPI)은 H2C(cleartext HTTP/2) 업그레이드를 거부해 400 을 반환하므로 HTTP/1.1 고정.
+    this(
+        props,
+        HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(2))
+            .version(HttpClient.Version.HTTP_1_1)
+            .build());
+  }
+
+  /** 테스트용 — HttpClient 주입(게이트 off 시 HTTP 미호출 검증). */
+  WorkerEmbedClient(WorkerProperties props, HttpClient http) {
     this.props = props;
+    this.http = http;
   }
 
   /** 쿼리 임베딩. 실패/비활성/타임아웃 시 empty(키워드 전용 강등). */
   public Optional<float[]> embedQuery(String query) {
-    if (!props.enabled() || query == null || query.isBlank()) {
+    // 워커 비활성·임베딩 게이트 off·빈 쿼리 → empty(키워드 전용 강등)
+    if (!props.enabled() || !props.embed().enabled() || query == null || query.isBlank()) {
       return Optional.empty();
     }
     float[] cached = cache.get(query);

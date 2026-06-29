@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -30,17 +31,24 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.RestClientException;
 
 /**
  * FileExtractionPipeline + WorkerCallbackController 통합 테스트.
  *
  * <p>PENDING→EXTRACTING CAS, worker_job 생성, WorkerClient push(mock), 콜백 TEXT_READY 전이, 스테일 콜백 무시를
  * 검증한다. WorkerClient 는 MockitoBean 으로 대체해 실제 워커 HTTP 호출을 차단한다.
+ *
+ * <p>workplace.worker.enabled=true 로 오버라이드 — application-test.yml 기본값(false) 하에서는 dispatchPending 이
+ * enabled 가드에 걸려 PENDING 유지(Task 2 하드닝). 이 클래스의 테스트는 실제 디스패치 경로(EXTRACTING·워커호출)를 검증하므로 명시적으로
+ * 활성화한다.
  */
 @AutoConfigureMockMvc
+@TestPropertySource(properties = "workplace.worker.enabled=true")
 class ExtractionPipelineTest extends IntegrationTestBase {
 
   /** 테스트 프로파일의 workplace.worker.internal-token 값 (WorkerProperties.internalToken()). */
@@ -313,6 +321,30 @@ class ExtractionPipelineTest extends IntegrationTestBase {
         .describedAs("tenantId 콜백 후 신규 테넌트 행이 TEXT_READY 여야 함(C1 픽스 검증)")
         .isEqualTo("TEXT_READY");
     assertThat(readText(dynTenantId, fileId)).isEqualTo("dynTenant text");
+  }
+
+  /**
+   * 워커 도달 불가(dispatchExtract 가 RestClientException) 시 추출 claim 이 해제되어 PENDING 으로 복귀하고, FAILED 로
+   * 표시되지 않음을 검증한다(transient 재개).
+   */
+  @Test
+  void dispatch_workerUnreachable_revertsToPending_notFailed() {
+    doThrow(new RestClientException("connection refused"))
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+
+    long fileId = createPendingFile(1L);
+
+    // dispatchPending: PENDING→EXTRACTING claim → afterCommit 에서 dispatchExtract 실패 → claim 해제
+    TenantContext.set(1L);
+    try {
+      pipeline.dispatchPending(fileId);
+    } finally {
+      TenantContext.clear();
+    }
+
+    // 연결 실패 후 PENDING 복귀(EXTRACTING 고착 아님, FAILED 아님)
+    assertThat(readStatus(1L, fileId)).isEqualTo("PENDING");
   }
 
   // ── 헬퍼 ──

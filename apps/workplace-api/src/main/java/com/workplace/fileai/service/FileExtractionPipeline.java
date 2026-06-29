@@ -9,6 +9,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.event.FileExtractionDoneEvent;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
 import com.workplace.fileai.outbound.WorkerClient;
+import com.workplace.fileai.outbound.WorkerProperties;
 import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.fileai.repository.WorkerJobRepository.SummaryContext;
 import com.workplace.global.tenant.TenantContext;
@@ -55,6 +56,7 @@ public class FileExtractionPipeline {
 
   private final WorkerJobRepository jobs;
   private final WorkerClient worker;
+  private final WorkerProperties props;
   private final AiAgentDriveClient driveClient;
   private final AssistantResolver assistantResolver;
   private final DSLContext dsl;
@@ -77,6 +79,7 @@ public class FileExtractionPipeline {
   public FileExtractionPipeline(
       WorkerJobRepository jobs,
       WorkerClient worker,
+      WorkerProperties props,
       AiAgentDriveClient driveClient,
       AssistantResolver assistantResolver,
       DSLContext dsl,
@@ -85,6 +88,7 @@ public class FileExtractionPipeline {
       ApplicationEventPublisher events) {
     this.jobs = jobs;
     this.worker = worker;
+    this.props = props;
     this.driveClient = driveClient;
     this.assistantResolver = assistantResolver;
     this.dsl = dsl;
@@ -105,6 +109,13 @@ public class FileExtractionPipeline {
    */
   @Transactional
   public void dispatchPending(long fileId) {
+    // 워커 비활성 → claim 도 디스패치도 하지 않음. 행은 PENDING 유지(워커 켜지면 스케줄러가 재개).
+    // 비활성 배포에서 매 틱 EXTRACTING claim→HTTP 실패→로그 스팸·고착을 원천 차단한다.
+    if (!props.enabled()) {
+      log.debug("워커 비활성 — 추출 디스패치 skip(PENDING 유지): fileId={}", fileId);
+      return;
+    }
+
     // PENDING→EXTRACTING CAS: 실패 시 다른 디스패처가 이미 가져간 것 → 무시
     if (!jobs.claimForExtraction(fileId)) {
       log.debug("파일 추출 CAS 실패 — 다른 디스패처가 소유: fileId={}", fileId);
@@ -133,9 +144,8 @@ public class FileExtractionPipeline {
     long jobId = jobs.createExtractJob(tenantId, fileId, storageKey, mime);
 
     // TransactionSynchronization.afterCommit 으로 커밋 완료 후 HTTP push 등록.
-    // 이 시점 트랜잭션은 아직 커밋 전이므로 jobId 가 DB 에 가시화된 이후에만 워커를 호출한다.
-    // 롤백 시 afterCommit 은 발화하지 않아 미커밋 jobId 로 워커를 오염시키지 않는다.
     final long capturedJobId = jobId;
+    final long capturedFileId = fileId;
     final String capturedStorageKey = storageKey;
     final String capturedMime = mime;
     final long capturedTenantId = tenantId;
@@ -143,10 +153,23 @@ public class FileExtractionPipeline {
         new TransactionSynchronization() {
           @Override
           public void afterCommit() {
-            // tenantId 를 페이로드에 포함해 워커가 콜백 시 에코하도록 한다.
-            // 콜백 컨트롤러가 TenantContext.set(tenantId) 로 RLS GUC 를 복원한다(C1 수정).
-            worker.dispatchExtract(
-                capturedJobId, capturedStorageKey, capturedMime, capturedTenantId);
+            try {
+              // tenantId 를 페이로드에 포함해 워커가 콜백 시 에코하도록 한다(콜백 컨트롤러가 TenantContext 복원).
+              worker.dispatchExtract(
+                  capturedJobId, capturedStorageKey, capturedMime, capturedTenantId);
+            } catch (RuntimeException ex) {
+              // 워커 도달 불가 — 추출 claim 을 해제(EXTRACTING→PENDING)해 다음 스케줄러 틱에 조용히 재개한다.
+              // 연결 실패는 FAILED 아님(FAILED 는 워커 실 처리 후 오류용). lease 만료(10분) 대기를 회피한다.
+              //
+              // ⚠️ TenantContext 를 set/clear 하지 않는다. afterCommit 은 커밋 스레드에서 동기 실행되며 그 스레드의
+              // ambient TenantContext 는 이미 set 되어 있다(직전 claimForExtraction RLS UPDATE 가 성공했으므로).
+              // 여기서 clear 하면 호출자(FileExtractionScheduler.runOnce 의 다음 줄 summarizePending)가 컨텍스트를
+              // 잃어 RLS fail-closed 가 된다. txTemplate(TenantAwareTransactionManager) 가 ambient 로 GUC
+              // 를 주입한다.
+              // (대조: 같은 파일의 summarizePending 은 pooled summaryExecutor 스레드로 hop 하므로 set/clear 가 정당.)
+              log.debug("워커 추출 디스패치 실패 — claim 해제 후 재개 예약: jobId={}", capturedJobId, ex);
+              txTemplate.executeWithoutResult(s -> jobs.releaseExtractionClaim(capturedFileId));
+            }
           }
         });
   }

@@ -55,6 +55,8 @@ workplace:
       model: ${WORKER_EMBED_MODEL:BAAI/bge-m3}
       dimensions: ${WORKER_EMBED_DIMENSIONS:1024}
       max-chars: ${WORKER_EMBED_MAX_CHARS:8000}
+      # 임베딩 게이트(기본 true). false 면 시맨틱 검색 비활성·키워드 전용. 보류된 테넌트별 공급자 설계의 seam.
+      enabled: ${WORKER_EMBED_ENABLED:true}
 
 app:
   jwt:

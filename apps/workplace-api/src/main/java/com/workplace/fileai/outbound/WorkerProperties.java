@@ -24,6 +24,7 @@ public record WorkerProperties(String baseUrl, String internalToken, boolean ena
    * @param model 임베딩 모델명 (예: BAAI/bge-m3)
    * @param dimensions 벡터 차원 수 — DB 컬럼 vector(N) 과 반드시 일치
    * @param maxChars 임베딩 전 텍스트 최대 길이 (초과분 잘림)
+   * @param enabled 임베딩 생성·검색 활성화 여부. false 면 임베딩 미생성 + 검색 키워드 전용 강등(추출은 무영향).
    */
-  public record Embed(String model, int dimensions, int maxChars) {}
+  public record Embed(String model, int dimensions, int maxChars, boolean enabled) {}
 }

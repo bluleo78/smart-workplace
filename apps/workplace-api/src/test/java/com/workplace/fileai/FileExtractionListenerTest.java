@@ -18,6 +18,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -27,6 +28,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>AFTER_COMMIT 리스너가 실제로 커밋 후 PENDING/SKIPPED 행을 생성하는지 확인한다. REQUIRES_NEW 로 커밋되므로 단일 롤백-트랜잭션 패턴
  * 사용 불가 — @AfterEach 에서 cleanupInTenant 로 잔여 행을 삭제한다(#512 방지).
  */
+@TestPropertySource(properties = "workplace.worker.enabled=true")
 class FileExtractionListenerTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
@@ -75,7 +77,7 @@ class FileExtractionListenerTest extends IntegrationTestBase {
         1L, new DriveFileUploadedEvent(fileId, 1L, "text/plain", "TEXT", 10, "x/f.txt"));
     String status = readStatusInTenant(1L, fileId);
     // nudge 로 EXTRACTING 까지 전이 (PENDING 은 nudge 성공 시 즉시 소비됨)
-    assertThat(status).isIn("PENDING", "EXTRACTING");
+    assertThat(status).isEqualTo("EXTRACTING");
   }
 
   @Test
