@@ -27,6 +27,7 @@ import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueAiSummaryService;
+import com.workplace.issue.service.IssueAiClassifyService;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.permission.service.PermissionService;
@@ -55,6 +56,7 @@ class IssueControllerTest {
 
   @MockitoBean private IssueService issueService;
   @MockitoBean private IssueSearchService issueSearchService;
+  @MockitoBean private IssueAiClassifyService issueAiClassifyService;
   @MockitoBean private IssueAiSummaryService aiSummaryService;
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
