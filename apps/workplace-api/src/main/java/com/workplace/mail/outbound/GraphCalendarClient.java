@@ -77,6 +77,7 @@ public class GraphCalendarClient {
    * @param isAllDay 종일 일정 여부
    * @param location 위치
    * @param organizer 주최자
+   * @param attendees 참석자 목록 (Graph 응답에 없으면 null)
    * @param isCancelled 취소 여부
    */
   public record GraphEvent(
@@ -88,6 +89,7 @@ public class GraphCalendarClient {
       boolean isAllDay,
       GraphLocation location,
       GraphRecipient organizer,
+      List<GraphEventAttendee> attendees,
       boolean isCancelled) {}
 
   /** Graph dateTimeTimeZone 구조 — dateTime + timeZone 문자열 쌍. */
@@ -102,15 +104,23 @@ public class GraphCalendarClient {
   /** Graph emailAddress 구조 — 이름 + 주소. */
   public record GraphEmail(String name, String address) {}
 
+  /** Graph attendee 항목 — emailAddress + status(응답상태) + type(required|optional). */
+  public record GraphEventAttendee(
+      GraphEmail emailAddress, GraphAttendeeStatus status, String type) {}
+
+  /** Graph attendee 응답상태 — response(none|accepted|declined|tentativelyAccepted|notResponded). */
+  public record GraphAttendeeStatus(String response, String time) {}
+
   /** Graph event body — contentType("text"|"html") + content. */
   public record GraphItemBody(String contentType, String content) {}
 
   /**
-   * Graph 일정 쓰기 페이로드 — 생성/수정 공용. 참석자·반복은 미포함(#547/#546).
+   * Graph 일정 쓰기 페이로드 — 생성/수정 공용.
    *
    * <p>{@code @JsonInclude(NON_NULL)} 필수: 본문/장소가 없는 일정은 {@code body}/{@code location} 이 null 인데,
    * Graph 는 {@code "body": null} 을 받으면 400 ErrorInvalidRequest("The body of the item is invalid") 로
-   * 거부한다. null 필드는 직렬화에서 생략해 키 자체를 빼야 한다(라이브 스모크에서 적발).
+   * 거부한다. null 필드는 직렬화에서 생략해 키 자체를 빼야 한다(라이브 스모크에서 적발). {@code attendees} 도 null 이면 생략 — 참석자 없는 일정
+   * 생성 시 Graph 오류 방지.
    */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public record GraphEventWrite(
@@ -119,7 +129,19 @@ public class GraphCalendarClient {
       GraphDateTime start,
       GraphDateTime end,
       boolean isAllDay,
-      GraphLocation location) {}
+      GraphLocation location,
+      List<GraphAttendeeWrite> attendees) {}
+
+  /** Graph 일정 쓰기 attendee — emailAddress + type("required"|"optional"). */
+  public record GraphAttendeeWrite(GraphEmail emailAddress, String type) {}
+
+  /**
+   * attendees 만 갱신하는 부분 PATCH 봉투(제목·시각 등 다른 필드 미전송).
+   *
+   * <p>{@code @JsonInclude(NON_NULL)} 을 붙여 null attendees 가 직렬화되지 않도록 한다.
+   */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public record GraphAttendeesPatch(List<GraphAttendeeWrite> attendees) {}
 
   /** Graph 일정 생성 응답 — id 만 사용. */
   public record GraphEventCreated(@JsonProperty("id") String id) {}
@@ -170,7 +192,7 @@ public class GraphCalendarClient {
             + start
             + "&endDateTime="
             + end
-            + "&$select=id,subject,bodyPreview,start,end,isAllDay,location,organizer,isCancelled"
+            + "&$select=id,subject,bodyPreview,start,end,isAllDay,location,organizer,attendees,isCancelled"
             + "&$top=200";
     while (url != null) {
       GraphEventPage page = api.get(accessToken, url, GraphEventPage.class);
@@ -227,6 +249,40 @@ public class GraphCalendarClient {
   }
 
   /**
+   * 외부 일정의 참석자 컬렉션만 교체한다(PATCH /me/events/{id}, body={"attendees":[...]}).
+   *
+   * <p>제목·시각 등은 보내지 않아 Graph 측 다른 필드를 덮어쓰지 않는다(부분 PATCH).
+   *
+   * @param accessToken Graph API Bearer 토큰
+   * @param externalEventId 수정할 Graph 일정 ID
+   * @param attendees 새 참석자 목록
+   */
+  public void patchAttendees(
+      String accessToken, String externalEventId, List<GraphAttendeeWrite> attendees) {
+    String json = serializeAttendees(new GraphAttendeesPatch(attendees));
+    api.patch(accessToken, "/me/events/" + externalEventId, json);
+  }
+
+  /**
+   * Graph attendee responseStatus.response → 로컬 rsvp_status 문자열로 변환한다.
+   *
+   * <p>미인식·null 은 {@code "NEEDS_ACTION"} 으로 폴백한다.
+   *
+   * @param response Graph 응답 문자열
+   *     (accepted|organizer|declined|tentativelyAccepted|none|notResponded|null)
+   * @return "ACCEPTED"|"DECLINED"|"TENTATIVE"|"NEEDS_ACTION"
+   */
+  public static String rsvpFromGraphResponse(String response) {
+    if (response == null) return "NEEDS_ACTION";
+    return switch (response) {
+      case "accepted", "organizer" -> "ACCEPTED";
+      case "declined" -> "DECLINED";
+      case "tentativelyAccepted" -> "TENTATIVE";
+      default -> "NEEDS_ACTION"; // none, notResponded, 기타
+    };
+  }
+
+  /**
    * GraphEventWrite 를 JSON 문자열로 직렬화한다.
    *
    * @throws com.workplace.mail.exception.MailSendException 직렬화 실패 시
@@ -236,6 +292,19 @@ public class GraphCalendarClient {
       return mapper.writeValueAsString(body);
     } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
       throw new com.workplace.mail.exception.MailSendException("Graph 일정 직렬화 실패", e);
+    }
+  }
+
+  /**
+   * GraphAttendeesPatch 를 JSON 문자열로 직렬화한다.
+   *
+   * @throws com.workplace.mail.exception.MailSendException 직렬화 실패 시
+   */
+  private String serializeAttendees(GraphAttendeesPatch patch) {
+    try {
+      return mapper.writeValueAsString(patch);
+    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+      throw new com.workplace.mail.exception.MailSendException("Graph 참석자 직렬화 실패", e);
     }
   }
 }

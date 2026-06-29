@@ -136,6 +136,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             true,
             null,
             null,
+            null,
             false);
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal"), any(), any()))
         .thenReturn(List.of(allDay));
@@ -186,6 +187,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             false,
             null,
             null,
+            null,
             false);
     // subject = null
     GraphEvent nullSubject =
@@ -196,6 +198,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             gdt("2026-07-16T10:00:00.0000000", "UTC"),
             gdt("2026-07-16T11:00:00.0000000", "UTC"),
             false,
+            null,
             null,
             null,
             false);

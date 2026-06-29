@@ -200,7 +200,8 @@ public class CalendarEventService {
         toGraphDateTime(req.startsAt(), req.allDay()),
         toGraphDateTime(req.endsAt(), req.allDay()),
         req.allDay(),
-        location);
+        location,
+        null); // 참석자는 별도 patchAttendees 로 전송 (#547)
   }
 
   /**
