@@ -76,6 +76,9 @@ test.describe('메일→이슈 승격', () => {
     await page.getByTestId('mail-row-7').click()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
 
+    // AI 버튼은 ai-accent 보조 컬러 사용(디자인시스템 §7.2 — 아이콘+색).
+    await expect(page.getByTestId('mail-ai-issue')).toHaveClass(/text-ai-accent/)
+
     // "AI 이슈 생성" 버튼 클릭 → 모달 오픈.
     await page.getByTestId('mail-ai-issue').click()
     await expect(page.getByTestId('mail-to-issue-dialog')).toBeVisible()

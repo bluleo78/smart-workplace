@@ -316,12 +316,13 @@ function MessageDetailPanel({
           >
             <Forward className="h-3.5 w-3.5" /> 전달
           </Button>
-          {/* AI 답장 초안 버튼 — AI 사용 계정에서만 노출. */}
+          {/* AI 답장 초안 버튼 — AI 사용 계정에서만 노출. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
           {aiEnabled && (
             <Button
               variant="outline"
               size="sm"
               data-testid="mail-ai-reply-draft"
+              className="border-ai-accent/50 text-ai-accent hover:bg-ai-accent-subtle hover:text-ai-accent"
               disabled={aiDraftPending}
               onClick={() => onAiReplyDraft(detail)}
             >
@@ -336,12 +337,13 @@ function MessageDetailPanel({
               )}
             </Button>
           )}
-          {/* AI 이슈 생성 버튼 — AI 사용 계정에서만 노출. #520 */}
+          {/* AI 이슈 생성 버튼 — AI 사용 계정에서만 노출. #520. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
           {aiEnabled && (
             <Button
               variant="outline"
               size="sm"
               data-testid="mail-ai-issue"
+              className="border-ai-accent/50 text-ai-accent hover:bg-ai-accent-subtle hover:text-ai-accent"
               disabled={issueDraftPending}
               onClick={() => onAiIssue(detail)}
             >
