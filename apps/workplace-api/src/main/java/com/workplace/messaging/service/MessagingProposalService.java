@@ -4,9 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.time.format.DateTimeFormatter;
 import com.workplace.action.ConfirmActionDispatcher;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.issue.dto.IssueResponse;
 import com.workplace.messaging.dto.ConfirmProposalRequest;
 import com.workplace.messaging.dto.CreateProposalRequest;
 import com.workplace.messaging.dto.MessageResponse;
@@ -15,13 +15,13 @@ import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidDelegationProjectException;
 import com.workplace.messaging.exception.NoDelegationCandidateException;
 import com.workplace.messaging.exception.ProposalNotDelegatorException;
-import com.workplace.issue.dto.IssueResponse;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.MessageActionProposalRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -201,8 +201,7 @@ public class MessagingProposalService {
     if (issueBody != null) issueParams.put("body", issueBody);
     issueParams.put("priority", priority);
     issueParams.set("assigneeIds", objectMapper.valueToTree(List.of(agentId)));
-    var issue =
-        (IssueResponse) confirmDispatcher.confirm(callerId, "issue.create", issueParams);
+    var issue = (IssueResponse) confirmDispatcher.confirm(callerId, "issue.create", issueParams);
     String issueKey = issue.projectKey() + "-" + issue.number();
 
     // Fix 2: 동시 이중-confirm 방어 — updateStatus 는 WHERE status='PENDING' 조건을 갖는다.
@@ -296,8 +295,7 @@ public class MessagingProposalService {
     // 카드 fallback 본문 — 마크다운 미지원 클라이언트·접근성용.
     String fallback = "💡 일정 생성을 제안했어요: **" + req.title() + "**";
     long messageId =
-        messageRepo.insert(
-            channelId, agentId, fallback, List.of(), req.parentMessageId());
+        messageRepo.insert(channelId, agentId, fallback, List.of(), req.parentMessageId());
 
     // payload JSON — 승인 시 일정 생성에 필요한 필드. 이슈 전용 필드(projectKey 등)는 넣지 않는다.
     // ISO_OFFSET_DATE_TIME 로 직렬화해 초 단위를 포함한 전체 형식("T10:00:00+09:00")을 보존한다.
