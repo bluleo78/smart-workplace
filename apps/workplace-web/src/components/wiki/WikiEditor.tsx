@@ -24,6 +24,7 @@ import { type TransformActionKey } from './wikiAiActions'
 import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { buildBreadcrumb } from './wikiBreadcrumb'
+import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { hydrateWikiMentions } from './wikiMentionHydrate'
 import { WikiMention } from './wikiMentionNode'
@@ -96,6 +97,13 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const abortRef = useRef<(() => void) | null>(null)
   // draft 토픽 입력 다이얼로그 상태.
   const [draftOpen, setDraftOpen] = useState(false)
+  // 노트→이슈 다이얼로그 상태 + 캡처한 선택(제목/본문/삽입 위치).
+  const [issueDialog, setIssueDialog] = useState<{
+    open: boolean
+    title: string
+    body: string
+    insertAt: number
+  }>({ open: false, title: '', body: '', insertAt: 0 })
 
   // 슬래시 확장이 스테일 없이 참조할 ref 들(canUseAi·액션 콜백). 확장은 1회 생성되므로
   // 최신값은 effect 에서 ref 에 동기화한다(RichInput 의 membersRef/onSubmitRef 패턴).
@@ -182,6 +190,37 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       abortRef.current = handle.abort
     },
     [page.id],
+  )
+
+  // "이슈로 만들기" — 선택 텍스트를 제목(첫 줄)/본문으로, 삽입 위치(선택 끝)를 캡처해 다이얼로그를 연다.
+  const onCreateIssue = useCallback(() => {
+    const ed = editorRef.current
+    if (!ed) return
+    const { from, to } = ed.state.selection
+    if (from === to) return
+    const selected = ed.state.doc.textBetween(from, to, '\n')
+    const firstLine = selected.split('\n').find((l) => l.trim()) ?? selected
+    setIssueDialog({ open: true, title: firstLine.trim().slice(0, 200), body: selected, insertAt: to })
+  }, [])
+
+  // 이슈 생성 성공 → 삽입 위치에 ISSUE 멘션 칩 + 공백 삽입.
+  // 저장 시 <#issue:id> 토큰으로 직렬화돼 WikiReferenceParser 가 wiki_reference 에 링크를 기록한다.
+  const onIssueCreated = useCallback(
+    (issue: CreatedIssue) => {
+      const ed = editorRef.current
+      if (!ed) return
+      const label = `${issue.projectKey}-${issue.number} ${issue.title}`
+      ed
+        .chain()
+        .focus()
+        .insertContentAt(issueDialog.insertAt, [
+          { type: 'wikiMention', attrs: { mtype: 'ISSUE', id: issue.id, label } },
+          { type: 'text', text: ' ' },
+        ])
+        .run()
+      toast.success(`${issue.projectKey}-${issue.number} 이슈를 만들었어요.`)
+    },
+    [issueDialog.insertAt],
   )
 
   // 슬래시 메뉴 선택 콜백 — draft 면 토픽 입력 다이얼로그를 먼저 연다.
@@ -400,11 +439,21 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             onClick={onChipClick}
             className="[&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
           />
-          {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출. */}
+          {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
+              canUseAi(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다. */}
           <WikiAiBubbleToolbar
             editor={editor}
             disabled={!canUseAi || aiBusy}
             onAction={runTransform}
+            onCreateIssue={canUseAi ? onCreateIssue : undefined}
+          />
+          {/* 노트→이슈 생성 다이얼로그 — canUseAi 게이트는 onCreateIssue 전달 여부로 이미 처리됨. */}
+          <WikiCreateIssueDialog
+            open={issueDialog.open}
+            initialTitle={issueDialog.title}
+            initialBody={issueDialog.body}
+            onCreated={onIssueCreated}
+            onClose={() => setIssueDialog((s) => ({ ...s, open: false }))}
           />
           {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
           <WikiBacklinksPanel pageId={page.id} />

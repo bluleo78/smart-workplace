@@ -2,11 +2,11 @@ package com.workplace.messaging.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.time.format.DateTimeFormatter;
 import com.workplace.action.ConfirmActionDispatcher;
 import com.workplace.calendar.dto.CalendarEventResponse;
-import com.workplace.issue.dto.CreateIssueRequest;
-import com.workplace.issue.service.IssueService;
 import com.workplace.messaging.dto.ConfirmProposalRequest;
 import com.workplace.messaging.dto.CreateProposalRequest;
 import com.workplace.messaging.dto.MessageResponse;
@@ -15,6 +15,7 @@ import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidDelegationProjectException;
 import com.workplace.messaging.exception.NoDelegationCandidateException;
 import com.workplace.messaging.exception.ProposalNotDelegatorException;
+import com.workplace.issue.dto.IssueResponse;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.MessageActionProposalRepository;
@@ -41,8 +42,7 @@ public class MessagingProposalService {
   private final MessageService messageService; // findOneForProposal enrich 재사용
   private final ApplicationEventPublisher publisher;
   private final ObjectMapper objectMapper;
-  private final IssueService issueService; // Task 4: 승인 시 이슈 생성
-  private final ConfirmActionDispatcher confirmDispatcher; // Task 5: 일정 생성 위임
+  private final ConfirmActionDispatcher confirmDispatcher; // 공용 액션 디스패처(이슈·일정 생성 위임)
 
   /**
    * AI 제안 — 채널에 AGENT 작성 카드 메시지 + 제안 행(PENDING) 생성. 프로젝트는 후보(위임자·AI 둘 다 멤버) 중 AI 가 고른 projectKey,
@@ -94,7 +94,7 @@ public class MessagingProposalService {
     payload.put("projectKey", project.key());
     payload.put("projectName", project.name());
     // 후보 목록 직렬화 — 카드 노출 및 다음 태스크(confirm override) 검증에 사용.
-    com.fasterxml.jackson.databind.node.ArrayNode arr = payload.putArray("candidates");
+    ArrayNode arr = payload.putArray("candidates");
     for (var c : candidates) {
       var o = arr.addObject();
       o.put("key", c.key());
@@ -192,13 +192,17 @@ public class MessagingProposalService {
     // 이슈 본문 — payload 저장값 사용(body 파라미터는 일정 override 용, 이슈 본문은 항상 제안 저장값).
     String issueBody = p.hasNonNull("body") ? p.get("body").asText() : null;
 
-    // 사람(callerId) 권한으로 이슈 생성. assigneeIds=[agentId] — AGENT 가 담당.
-    // AI 자동 멤버 등록 없음 — 멤버십은 사용자 명시 액션(ProjectService.addMember)으로만 생성.
+    // #540: 이슈 생성을 공용 ConfirmActionDispatcher(issue.create)로 통일.
+    // candidateProjects 검증(위)은 채팅 위임 고유 가드이므로 유지하고, 실행만 디스패처로 위임한다.
+    // confirmWithBody 가 @Transactional 이므로 디스패처는 동일 tx 안에서 실행돼 RLS GUC 주입 보장.
+    ObjectNode issueParams = objectMapper.createObjectNode();
+    issueParams.put("projectKey", projectKey);
+    issueParams.put("title", title);
+    if (issueBody != null) issueParams.put("body", issueBody);
+    issueParams.put("priority", priority);
+    issueParams.set("assigneeIds", objectMapper.valueToTree(List.of(agentId)));
     var issue =
-        issueService.create(
-            callerId,
-            projectKey,
-            new CreateIssueRequest(title, issueBody, priority, null, List.of(agentId), null, null));
+        (IssueResponse) confirmDispatcher.confirm(callerId, "issue.create", issueParams);
     String issueKey = issue.projectKey() + "-" + issue.number();
 
     // Fix 2: 동시 이중-confirm 방어 — updateStatus 는 WHERE status='PENDING' 조건을 갖는다.
@@ -293,12 +297,11 @@ public class MessagingProposalService {
     String fallback = "💡 일정 생성을 제안했어요: **" + req.title() + "**";
     long messageId =
         messageRepo.insert(
-            channelId, agentId, fallback, java.util.List.of(), req.parentMessageId());
+            channelId, agentId, fallback, List.of(), req.parentMessageId());
 
     // payload JSON — 승인 시 일정 생성에 필요한 필드. 이슈 전용 필드(projectKey 등)는 넣지 않는다.
     // ISO_OFFSET_DATE_TIME 로 직렬화해 초 단위를 포함한 전체 형식("T10:00:00+09:00")을 보존한다.
-    java.time.format.DateTimeFormatter isoFmt =
-        java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+    DateTimeFormatter isoFmt = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
     ObjectNode payload = objectMapper.createObjectNode();
     payload.put("title", req.title());
     if (req.startsAt() != null) payload.put("startsAt", isoFmt.format(req.startsAt()));
@@ -309,7 +312,7 @@ public class MessagingProposalService {
     if (req.recurrenceRule() != null) payload.put("recurrenceRule", req.recurrenceRule());
     // 충돌 목록 직렬화(카드 노출용). ai-agent 가 보낸 그대로 운반.
     if (req.conflicts() != null && !req.conflicts().isEmpty()) {
-      com.fasterxml.jackson.databind.node.ArrayNode arr = payload.putArray("conflicts");
+      ArrayNode arr = payload.putArray("conflicts");
       for (var c : req.conflicts()) {
         var o = arr.addObject();
         o.put("id", c.id());

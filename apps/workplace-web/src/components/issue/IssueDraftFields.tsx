@@ -35,6 +35,12 @@ export interface IssueDraftFieldsProps {
    * editable=true 브랜치에는 영향을 주지 않는다.
    */
   showProject?: boolean
+  /**
+   * 담당(assignee) 피커 표시 여부 (기본 true).
+   * 위키 이슈 다이얼로그처럼 담당자 없이 생성하는 소비처는 false 를 넘겨 빈 드롭다운을 숨긴다.
+   * editable=false 브랜치에도 동일하게 적용된다.
+   */
+  showAssignee?: boolean
 }
 
 /** 우선순위 레이블 */
@@ -45,7 +51,7 @@ const PRIORITY_LABEL: Record<IssueDraftValue['priority'], string> = {
 }
 
 export function IssueDraftFields(props: IssueDraftFieldsProps) {
-  const { value, onChange, candidateProjects, members, editable, showProject = true } = props
+  const { value, onChange, candidateProjects, members, editable, showProject = true, showAssignee = true } = props
   // 담당 단일 선택(현재 스코프: 0 또는 1명). '' = 미지정.
   const assignee = value.assigneeIds[0]
   const projectName =
@@ -90,7 +96,7 @@ export function IssueDraftFields(props: IssueDraftFieldsProps) {
           onChange={(e) => onChange({ body: e.target.value })}
         />
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className={`grid gap-3 ${showAssignee ? 'grid-cols-3' : 'grid-cols-2'}`}>
         <div className="space-y-1">
           <label className="text-sm font-medium">프로젝트</label>
           <Select
@@ -127,29 +133,31 @@ export function IssueDraftFields(props: IssueDraftFieldsProps) {
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium">담당</label>
-          <Select
-            value={assignee !== undefined ? String(assignee) : ''}
-            onValueChange={(v) => onChange({ assigneeIds: v ? [Number(v)] : [] })}
-          >
-            <SelectTrigger data-testid="issue-draft-assignee">
-              <SelectValue placeholder="미지정" />
-            </SelectTrigger>
-            <SelectContent>
-              {members.map((m) => (
-                <SelectItem key={m.userId} value={String(m.userId)}>
-                  <span className="inline-flex items-center gap-1">
-                    {m.name}
-                    {m.kind === 'AGENT' && (
-                      <Bot className="h-3 w-3" aria-label="에이전트" />
-                    )}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {showAssignee && (
+          <div className="space-y-1">
+            <label className="text-sm font-medium">담당</label>
+            <Select
+              value={assignee !== undefined ? String(assignee) : ''}
+              onValueChange={(v) => onChange({ assigneeIds: v ? [Number(v)] : [] })}
+            >
+              <SelectTrigger data-testid="issue-draft-assignee">
+                <SelectValue placeholder="미지정" />
+              </SelectTrigger>
+              <SelectContent>
+                {members.map((m) => (
+                  <SelectItem key={m.userId} value={String(m.userId)}>
+                    <span className="inline-flex items-center gap-1">
+                      {m.name}
+                      {m.kind === 'AGENT' && (
+                        <Bot className="h-3 w-3" aria-label="에이전트" />
+                      )}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
     </div>
   )

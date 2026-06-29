@@ -10,6 +10,8 @@ import com.workplace.contacts.service.ContactService;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveFolderService;
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.service.IssueService;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.project.dto.AddMemberRequest;
@@ -41,6 +43,7 @@ public class ConfirmActionDispatcher {
   private final ProjectService projectService; // #333 M3
   private final DriveFileService driveFileService; // #333 M4 추가
   private final DriveFolderService driveFolderService; // #333 M4 추가
+  private final IssueService issueService; // #540 노트→이슈
   private final PermissionChecker permissionChecker;
   private final Validator validator;
   private final ObjectMapper objectMapper;
@@ -73,7 +76,10 @@ public class ConfirmActionDispatcher {
           Map.entry(
               "drive.delete_file", ""), // 드라이브는 글로벌 RBAC 권한 없음 — space role(EDITOR) 경계를 서비스가 강제
           Map.entry(
-              "drive.delete_folder", "")); // 드라이브는 글로벌 RBAC 권한 없음 — space role(EDITOR) 경계를 서비스가 강제
+              "drive.delete_folder", ""), // 드라이브는 글로벌 RBAC 권한 없음 — space role(EDITOR) 경계를 서비스가 강제
+          Map.entry(
+              "issue.create",
+              "")); // #540 — 멤버십+RLS 로 가드(IssueService.create 내 assertMember), 전역 RBAC 없음
 
   /**
    * 확인 카드 승인 실행 — 지원 여부 확인 → 권한 검사(필요 시) → 매핑·검증 → 도메인 실행. 결과 객체 반환(컨트롤러가 201).
@@ -160,6 +166,15 @@ public class ConfirmActionDispatcher {
       long id = requireLong(params, "id");
       driveFolderService.delete(callerId, id);
       return Map.of("deleted", id);
+    }
+    if ("issue.create".equals(actionType)) {
+      // projectKey 는 IssueService.create 의 경로변수성 인자 — 별도 추출 후 나머지를 CreateIssueRequest 로 매핑.
+      // project.add_member 의 "키 분리+나머지 매핑" 패턴과 동형(unknown-property 오류 방지).
+      String projectKey = requireText(params, "projectKey");
+      ObjectNode paramsWithoutKey = ((ObjectNode) params.deepCopy());
+      paramsWithoutKey.remove("projectKey");
+      CreateIssueRequest req = mapAndValidate(paramsWithoutKey, CreateIssueRequest.class);
+      return issueService.create(callerId, projectKey, req);
     }
     throw new IllegalArgumentException("지원하지 않는 actionType: " + actionType);
   }

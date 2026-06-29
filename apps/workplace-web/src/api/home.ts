@@ -44,6 +44,7 @@ export const homeApi = {
     client.delete<void>(`/home/sessions/${sessionId}`),
 
   /** #333 M2: 확인 카드 승인 → 서버 실행기. actionType+params 그대로 전송. */
+  // #540: 공용 중립 엔드포인트로 통일.
   confirmAction: (action: PendingAction) =>
-    client.post('/home/actions/confirm', { actionType: action.actionType, params: action.params }),
+    client.post('/actions/confirm', { actionType: action.actionType, params: action.params }),
 };

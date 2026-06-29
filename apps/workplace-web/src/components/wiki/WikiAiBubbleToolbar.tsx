@@ -17,15 +17,18 @@ import {
 
 /** 선택 텍스트 변형 툴바 — 비어있지 않은 선택에서 선택영역 위에 표시(tiptap BubbleMenu).
  *  param 액션(톤/번역)은 드롭다운으로 프리셋을 고른 뒤, 그 외는 즉시 onAction 을 호출한다.
- *  disabled(뷰어/생성 중)면 아예 렌더하지 않는다. */
+ *  disabled(뷰어/생성 중)면 아예 렌더하지 않는다.
+ *  onCreateIssue: EDITOR 권한 사용자가 선택 텍스트를 이슈로 만들 때 호출된다. */
 export function WikiAiBubbleToolbar({
   editor,
   disabled,
   onAction,
+  onCreateIssue,
 }: {
   editor: Editor | null
   disabled: boolean
   onAction: (action: TransformActionKey, param?: string) => void
+  onCreateIssue?: () => void
 }) {
   if (!editor) return null
 
@@ -85,6 +88,21 @@ export function WikiAiBubbleToolbar({
             </DropdownMenu>
           )
         })}
+        {/* "이슈로 만들기" — EDITOR(onCreateIssue 전달 시)만 노출. 변형 버튼 뒤에 위치. */}
+        {onCreateIssue && (
+          <>
+            <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+            <button
+              type="button"
+              data-testid="wiki-ai-tb-create-issue"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onCreateIssue}
+              className="rounded px-2 py-1 text-xs hover:bg-accent"
+            >
+              이슈로 만들기
+            </button>
+          </>
+        )}
       </div>
     </BubbleMenu>
   )
