@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
+import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
+import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { handleApiError } from '../../../lib/api-error';
@@ -28,6 +30,9 @@ export function IssueCreateDialog({
   projectKey, open, onOpenChange, personal = false,
 }: { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean }) {
   const create = useCreateIssue(projectKey);
+  const classify = useIssueAiClassify(projectKey);
+  // AI 제안 이유 — 제안 후 버튼 아래 표시.
+  const [classifyReason, setClassifyReason] = useState<string | null>(null);
   const types = useIssueTypes(projectKey);
   const {
     register,
@@ -45,6 +50,7 @@ export function IssueCreateDialog({
   useEffect(() => {
     if (!open) return;
     reset({ priority: 'MID' });
+    setClassifyReason(null); // AI 제안 이유 초기화
   }, [open, reset]);
 
   // 유형 목록 로드 시 기본값 세팅 — name === 'TASK' 우선, 없으면 첫 항목.
@@ -64,6 +70,31 @@ export function IssueCreateDialog({
   // 선택된 유형이 SUBTASK 인지 — parentNumber 입력 동적 노출 + 송신 분기에 사용 (Phase 4a).
   const selectedType = (types.data ?? []).find((t) => t.id === currentTypeId);
   const isSubtaskSelected = selectedType?.name === 'SUBTASK';
+
+  // AI 제안 핸들러 — 현재 폼 제목·본문으로 분류 요청.
+  // 성공 시 type/priority 덮어쓰기, reason 표시. AI 제안 실패해도 폼 동작 보존.
+  const handleClassify = () => {
+    const title = watch('title') ?? '';
+    const body = watch('body') ?? '';
+    classify.mutate(
+      { title, body },
+      {
+        onSuccess: (result) => {
+          // 유형 제안 — 개인 프로젝트(personal=true)는 result.type 이 null 이므로 skip.
+          if (result.type && types.data) {
+            const matched = types.data.find((t) => t.name === result.type);
+            if (matched) setValue('typeId', matched.id);
+          }
+          // 우선순위 덮어쓰기.
+          setValue('priority', result.priority);
+          setClassifyReason(result.reason);
+        },
+        onError: () => {
+          toast.error('AI 제안을 받지 못했습니다');
+        },
+      },
+    );
+  };
 
   const onSubmit = async (data: CreateIssueFormData) => {
     const payload = {
@@ -97,6 +128,13 @@ export function IssueCreateDialog({
             <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
             <Textarea id="issue-body" {...register('body')} rows={6} />
           </div>
+          {/* AI 분류 제안 버튼 — 제목이 있을 때만 활성화. */}
+          <AiClassifyButton
+            hasTitle={!!(watch('title') ?? '').trim()}
+            isPending={classify.isPending}
+            reason={classifyReason}
+            onClick={handleClassify}
+          />
           <div className={personal ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-3 gap-3'}>
             {/* 개인 프로젝트는 TASK 단일 유형(#226) — 유형 select 를 숨긴다(typeId 는 effect 가 TASK 로 채움). */}
             {!personal && (

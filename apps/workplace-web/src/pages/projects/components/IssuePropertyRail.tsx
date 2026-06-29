@@ -4,6 +4,7 @@
 // 첨부 섹션은 Task 2 에서, 활동 섹션은 Task 3 에서 본문 탭으로 이동 완료.
 
 import { CyclePickerPopover } from '../../../components/cycle/CyclePickerPopover';
+import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../../components/labels/LabelPickerPopover';
 import { AgentBadge } from '../../../components/users/AgentBadge';
@@ -37,6 +38,10 @@ interface IssuePropertyRailProps {
   customFields: IssueFieldEntry[];    // summary.customFields
   updatePending: boolean;     // update.isPending
   onPatch: (changes: UpdateIssueRequest) => void;
+  /** AI 분류 제안 버튼 — undefined 이면 렌더 안 함 */
+  onAiClassify?: () => void;
+  isAiClassifying?: boolean;
+  aiClassifyReason?: string | null;
 }
 
 export function IssuePropertyRail({
@@ -54,6 +59,9 @@ export function IssuePropertyRail({
   customFields,
   updatePending,
   onPatch,
+  onAiClassify,
+  isAiClassifying,
+  aiClassifyReason,
 }: IssuePropertyRailProps) {
   // 분류·관계 그룹 배지 — 라벨 + 의존성(양방향) + 커스텀 필드 합산.
   const classificationCount =
@@ -93,6 +101,15 @@ export function IssuePropertyRail({
             disabled={updatePending}
           />
         </div>
+        {/* AI 분류 제안 버튼 — 이슈 편집 화면(IssueDetailPage)에서 onAiClassify prop 전달 시 노출. */}
+        {onAiClassify !== undefined && (
+          <AiClassifyButton
+            hasTitle={true}
+            isPending={isAiClassifying ?? false}
+            reason={aiClassifyReason}
+            onClick={onAiClassify}
+          />
+        )}
         <section aria-label="담당자" className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground">담당자</span>

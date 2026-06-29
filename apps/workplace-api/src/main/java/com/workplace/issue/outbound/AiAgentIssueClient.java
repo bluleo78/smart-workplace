@@ -1,6 +1,8 @@
 package com.workplace.issue.outbound;
 
 import com.workplace.issue.exception.IssueAiException;
+import com.workplace.issue.outbound.dto.IssueClassifyRequest;
+import com.workplace.issue.outbound.dto.IssueClassifyResult;
 import com.workplace.issue.outbound.dto.IssueSummaryRequest;
 import com.workplace.issue.outbound.dto.IssueSummaryResult;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +55,34 @@ public class AiAgentIssueClient {
     } catch (RestClientException e) {
       log.error("ai-agent issue summary 실패: {}", e.getMessage());
       throw new IssueAiException("AI 이슈 요약 요청에 실패했어요.", e);
+    }
+  }
+
+  /**
+   * 이슈 제목·본문·라벨 목록을 보내 분류 제안을 받는다. 실패 시 IssueAiException.
+   *
+   * @param req 요청 DTO(제목·본문·프로젝트 라벨 목록·어시스턴트 ID)
+   * @return AI 제안 유형·우선순위·라벨·이유
+   */
+  public IssueClassifyResult classify(IssueClassifyRequest req) {
+    try {
+      return restClient
+          .post()
+          .uri("/issue/classify")
+          .header("Authorization", "Internal " + internalToken)
+          .contentType(MediaType.APPLICATION_JSON)
+          .body(req)
+          .retrieve()
+          .body(IssueClassifyResult.class);
+    } catch (HttpStatusCodeException e) {
+      log.error(
+          "ai-agent issue classify 실패: status={} body={}",
+          e.getStatusCode(),
+          e.getResponseBodyAsString());
+      throw new IssueAiException("AI 이슈 분류 요청에 실패했어요.", e);
+    } catch (RestClientException e) {
+      log.error("ai-agent issue classify 실패: {}", e.getMessage());
+      throw new IssueAiException("AI 이슈 분류 요청에 실패했어요.", e);
     }
   }
 }

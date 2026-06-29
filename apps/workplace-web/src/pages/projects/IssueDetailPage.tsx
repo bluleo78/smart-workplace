@@ -20,11 +20,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
+import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
 import { useGenerateAiSummary, useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
+import { useIssueAiClassify } from '../../hooks/queries/useIssueAiClassify';
 import { useDeleteIssue } from '../../hooks/queries/useIssues';
+import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
+import { useLabels } from '../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useProject } from '../../hooks/queries/useProjects';
+import { useUpdateIssueLabels } from '../../hooks/queries/useUpdateIssueLabels';
+import { useUpdateIssueType } from '../../hooks/queries/useUpdateIssueType';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
@@ -34,7 +40,6 @@ import { IssueChatPanel } from './components/chat/IssueChatPanel';
 import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
 import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
-import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 
 // 제목 인라인 편집 — 표시 모드(텍스트+연필)와 편집 모드(input) 토글.
@@ -203,6 +208,17 @@ export default function IssueDetailPage() {
   const remove = useDeleteIssue(key, issueNumber);
   // AI 현황 요약 온디맨드 생성 mutation — Rules of Hooks: 조기 반환 이전에 선언.
   const genSummary = useGenerateAiSummary(key, issueNumber);
+  // AI 분류 제안 mutation — 편집 화면 속성 레일 버튼에서 사용.
+  const classify = useIssueAiClassify(key);
+  const [classifyReason, setClassifyReason] = useState<string | null>(null);
+  // 라벨 목록 — AI 제안 라벨 이름→ID 매핑에 사용.
+  const allLabels = useLabels(key);
+  // 라벨 교체 mutation — AI 제안 라벨 적용 시 별도 엔드포인트로 호출.
+  const updateLabels = useUpdateIssueLabels(key, issueNumber);
+  // 이슈 유형 목록 — AI 제안 유형 이름→ID 매핑에 사용.
+  const allIssueTypes = useIssueTypes(key);
+  // 이슈 유형 변경 mutation — AI 제안 유형 적용 시 별도 엔드포인트로 호출.
+  const updateType = useUpdateIssueType(key, issueNumber);
   const { user } = useAuth();
   // AI 가용성 — 비서 없으면 AI 카드 미렌더(#517 게이트).
   const aiAvailable = useAiAvailable();
@@ -255,6 +271,38 @@ export default function IssueDetailPage() {
     } catch (e) {
       handleApiError(e, '변경에 실패했습니다');
     }
+  };
+
+  // 편집 화면 AI 분류 핸들러 — 현재 제목·본문으로 제안 요청 후 즉시 반영.
+  const handleClassify = () => {
+    classify.mutate(
+      { title: summary.title, body: body ?? '' },
+      {
+        onSuccess: (result) => {
+          // 우선순위 패치 적용.
+          void patch({ priority: result.priority as 'LOW' | 'MID' | 'HIGH' });
+          // 유형 제안 — 이름→ID 매핑 후 별도 엔드포인트로 적용.
+          // 왜: IssueTypeSelectPopover 에서 유형 변경 시 updateType.mutate(typeId) 패턴과 동일.
+          if (result.type && allIssueTypes.data) {
+            const suggestedType = allIssueTypes.data.find((t) => t.name === result.type);
+            if (suggestedType) {
+              updateType.mutate(suggestedType.id);
+            }
+          }
+          // 라벨 제안 — 이름→ID 매핑 후 현재 라벨에 병합하여 교체.
+          if (result.labels.length > 0 && allLabels.data) {
+            const currentIds = (summary.labels ?? []).map((l) => l.id);
+            const suggestedIds = result.labels
+              .map((name) => allLabels.data!.find((l) => l.name === name)?.id)
+              .filter((id): id is number => id !== undefined);
+            const merged = Array.from(new Set([...currentIds, ...suggestedIds]));
+            updateLabels.mutate(merged);
+          }
+          setClassifyReason(result.reason);
+        },
+        onError: () => toast.error('AI 제안을 받지 못했습니다'),
+      },
+    );
   };
 
   return (
@@ -387,6 +435,9 @@ export default function IssueDetailPage() {
               customFields={summary.customFields}
               updatePending={update.isPending}
               onPatch={patch}
+              onAiClassify={handleClassify}
+              isAiClassifying={classify.isPending}
+              aiClassifyReason={classifyReason}
             />
           </aside>
         </div>

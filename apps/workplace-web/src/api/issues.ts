@@ -2,6 +2,7 @@
 
 import type {
   CreateIssueRequest,
+  IssueAiClassifyResponse,
   IssueAiContext,
   IssueDetailResponse,
   IssueFilters,
@@ -24,6 +25,9 @@ export const issuesApi = {
   // AI 현황 요약 온디맨드 생성 — 성공 시 최신 IssueAiContext 반환.
   generateAiSummary: (key: string, number: number) =>
     client.post<IssueAiContext>(`/projects/${key}/issues/${number}/ai-summary`),
+  /** 이슈 AI 분류 제안 — 제목·본문 → 유형·우선순위·라벨·이유. DB 저장 없음. */
+  aiClassify: (key: string, data: { title: string; body: string }) =>
+    client.post<IssueAiClassifyResponse>(`/projects/${key}/issues/ai-classify`, data),
 };
 
 // 이슈 검색 — cursor 페이지네이션 + 필터 단일 엔드포인트.

@@ -1,8 +1,9 @@
-// 이슈 AI 라우트 — workplace-api 가 동기 호출. 코멘트+이력으로 현황 요약 생성.
+// 이슈 AI 라우트 — workplace-api 가 동기 호출. 현황 요약 및 분류 생성.
 import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
 import type { RunAgentDeps } from '../agent/run-agent.js'
 import { runIssueProgressSummary } from '../agent/run-issue-summary.js'
+import { issueClassifyInputSchema, runIssueClassify } from '../agent/run-issue-classify-ai.js'
 
 // 요청 바디 검증 스키마.
 const summarySchema = z.object({
@@ -49,5 +50,21 @@ export function createIssueRouter(deps: RunAgentDeps): Router {
       res.status(502).json({ error: 'issue_progress_summary_failed' })
     }
   })
+
+  // 이슈 분류 — 제목+본문+라벨 목록 → 유형·우선순위·라벨·이유 반환.
+  router.post('/issue/classify', async (req: Request, res: Response): Promise<void> => {
+    const parsed = issueClassifyInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues })
+      return
+    }
+    try {
+      res.status(200).json(await runIssueClassify(parsed.data, deps))
+    } catch (e) {
+      console.error('[issue-classify] 실패:', e instanceof Error ? e.message : String(e))
+      res.status(502).json({ error: 'issue_classify_failed' })
+    }
+  })
+
   return router
 }

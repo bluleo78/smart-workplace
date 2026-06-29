@@ -2,6 +2,7 @@ package com.workplace.issue.controller;
 
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.IssueAiClassifyResponse;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
@@ -9,6 +10,7 @@ import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.dto.UpdateStatusRequest;
 import com.workplace.issue.outbound.IssueAiSummaryService;
+import com.workplace.issue.service.IssueAiClassifyService;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
 import jakarta.validation.Valid;
@@ -35,6 +37,7 @@ public class IssueController {
   private final IssueService issueService;
   private final IssueSearchService issueSearchService;
   private final IssueAiSummaryService aiSummaryService;
+  private final IssueAiClassifyService issueAiClassifyService;
 
   /** 검색/필터 + cursor 페이징 단일 엔드포인트. */
   @GetMapping
@@ -106,6 +109,24 @@ public class IssueController {
     issueService.softDelete((Long) auth.getPrincipal(), key, number);
     return ResponseEntity.noContent().build();
   }
+
+  /**
+   * 이슈 AI 분류 제안 — 제목·본문으로 유형·우선순위·라벨을 추천받는다.
+   *
+   * <p>Migration-0: DB 저장 없음 — 응답을 폼에 채우는 용도.
+   */
+  @PostMapping("/ai-classify")
+  @RequirePermission("project:read")
+  public ResponseEntity<IssueAiClassifyResponse> aiClassify(
+      Authentication auth, @PathVariable String key, @Valid @RequestBody AiClassifyRequest req) {
+    Long callerId = (Long) auth.getPrincipal();
+    return ResponseEntity.ok(
+        issueAiClassifyService.classify(callerId, key, req.title(), req.body()));
+  }
+
+  /** AI 분류 요청 바디 — 제목 필수, 본문 선택. */
+  public record AiClassifyRequest(
+      @jakarta.validation.constraints.NotBlank String title, String body) {}
 
   /**
    * 이슈 AI 현황 요약 생성(사용자 요청 버튼).
