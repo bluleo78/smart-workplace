@@ -17,8 +17,20 @@ spring:
       max-file-size: 25MB
       max-request-size: 275MB
 
-# 이슈 첨부 전용 설정 (file 모듈의 firehub.file.* 와는 별도 키 — 우회 흐름).
+# 파일 저장·첨부 통합 설정 (workplace.storage.* 단일 네임스페이스 — 모든 도메인 공유).
 workplace:
+  storage:
+    root-dir: ${WORKPLACE_STORAGE_ROOT_DIR:./file-data}
+    max-files-per-request: 3
+    expiry-hours: 24
+    attachment:
+      max-file-size-bytes: 26214400   # 25MB
+      max-per-issue: 10
+      max-per-message: 10
+      temp-expiry-hours: 24
+    mail:
+      ttl-days: 7
+      max-cache-bytes: 26214400   # 25MB — 이보다 큰 첨부는 캐시 안 함(on-demand)
   mail:
     m365:
       # M365 Graph OAuth2 설정 — client-secret 은 반드시 환경변수로만 주입(평문 커밋 금지)
@@ -30,16 +42,6 @@ workplace:
       redirect-uri: ${M365_REDIRECT_URI:http://localhost:6173/oauth/m365/callback}
   drive:
     default-quota-bytes: 10737418240  # 10 GB
-  attachment:
-    upload-dir: ./uploads/attachments
-    max-file-size-bytes: 26214400      # 25MB
-    max-per-issue: 10
-  messaging:
-    attachment:
-      upload-dir: ./uploads/messaging-attachments
-      max-file-size-bytes: 26214400   # 25MB
-      max-per-message: 10
-      temp-expiry-hours: 24
   ai-agent:
     base-url: ${WORKPLACE_AI_AGENT_URL:http://localhost:7070}
     internal-token: ${WORKPLACE_AI_AGENT_TOKEN}  # 기본값 없음 — 미설정 시 앱 기동 실패 (보안)
@@ -61,12 +63,6 @@ app:
     refresh-expiration: 604800000     # 7일
   encryption:
     master-key: ${ENCRYPTION_MASTER_KEY}
-  mail:
-    attachment-cache:
-      dir: ${MAIL_ATTACHMENT_CACHE_DIR:./data/mail-attachment-cache}
-      ttl-days: 7
-      max-cache-bytes: 26214400   # 25MB — 이보다 큰 첨부는 캐시 안 함(on-demand)
-
 server:
   port: 9090
 

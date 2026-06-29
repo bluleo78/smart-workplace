@@ -1,11 +1,13 @@
 package com.workplace.issue.service;
 
+import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.exception.AttachmentTooLargeException;
@@ -19,9 +21,12 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
@@ -32,12 +37,31 @@ import org.springframework.web.multipart.MultipartFile;
 @Transactional
 class IssueAttachmentServiceTest extends IntegrationTestBase {
 
+  /** 테스트 테넌트 ID — connection-init-sql 의 app.tenant_id=1 과 일치. */
+  private static final long TEST_TENANT_ID = 1L;
+
   @Autowired DSLContext dsl;
   @Autowired IssueAttachmentService service;
+  @Autowired IssueAttachmentStorage storage;
   @Autowired IssueAttachmentRepository repo;
   @Autowired IssueRepository issueRepository;
   @Autowired IssueHistoryRepository historyRepository;
   @Autowired ProjectService projectService;
+
+  /**
+   * FilePathBuilder 가 TenantContext.get() 을 사용하므로 테스트 시작 전 테넌트를 설정. connection-init-sql 의
+   * GUC(app.tenant_id=1) 와 동일한 값을 Java ThreadLocal 에도 주입.
+   */
+  @BeforeEach
+  void setUpTenantContext() {
+    TenantContext.set(TEST_TENANT_ID);
+  }
+
+  /** 테스트 종료 후 ThreadLocal 정리 — 다른 테스트로 누수 방지. */
+  @AfterEach
+  void clearTenantContext() {
+    TenantContext.clear();
+  }
 
   /** USER + USER_ROLE 직접 INSERT — Phase 3a IssueLabelServiceTest 패턴. */
   private Long createUser(String prefix) {
@@ -84,6 +108,53 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     assertThat(result.get(0).originalName()).isEqualTo("a.txt");
     assertThat(historyRepository.findByIssue(issue.id()))
         .anyMatch(h -> "ATTACHMENTS_CHANGED".equals(h.eventType()));
+  }
+
+  @Test
+  void storage_path_is_relative_with_tenant_prefix() throws IOException {
+    // STORAGE_PATH 에는 절대경로가 아닌 tenant-{id}/issue/{date}/... 상대경로가 저장돼야 한다.
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "RP");
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+
+    service.upload(owner, p.key(), 1, List.of(mockFile("hello.txt", new byte[] {7, 8, 9})));
+
+    Long fileId =
+        repo.findByIssue(issueRepository.findByProjectAndNumber(p.id(), 1).orElseThrow().id())
+            .get(0)
+            .fileId();
+
+    String storedPath =
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(fileId))
+            .fetchOne(FILE.STORAGE_PATH);
+
+    // 상대경로: tenant-1/issue/yyyy-MM-dd/uuid.txt 패턴
+    assertThat(storedPath)
+        .startsWith("tenant-" + TEST_TENANT_ID + "/issue/")
+        .doesNotStartWith("/"); // 절대경로 아님
+  }
+
+  @Test
+  void upload_download_byte_roundtrip() throws IOException {
+    // 업로드한 파일 바이너리를 다운로드 경로를 통해 그대로 읽을 수 있어야 한다.
+    byte[] content = new byte[] {10, 20, 30, 40, 50};
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "RT");
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+
+    service.upload(owner, p.key(), 1, List.of(mockFile("data.bin", content)));
+
+    Long fileId =
+        repo.findByIssue(issueRepository.findByProjectAndNumber(p.id(), 1).orElseThrow().id())
+            .get(0)
+            .fileId();
+
+    // load() 가 반환하는 path() 는 FileStore.resolve() 를 거친 절대경로여야 한다.
+    IssueAttachmentStorage.StoredFile sf = storage.load(fileId);
+    assertThat(sf.path().isAbsolute()).isTrue();
+    assertThat(Files.readAllBytes(sf.path())).isEqualTo(content);
   }
 
   @Test

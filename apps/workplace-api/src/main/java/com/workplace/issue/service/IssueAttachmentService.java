@@ -9,7 +9,6 @@ import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -30,15 +29,15 @@ public class IssueAttachmentService {
   private final ProjectAccessGuard accessGuard;
   private final IssueHistoryRecorder historyRecorder;
 
-  @Value("${workplace.attachment.max-file-size-bytes:26214400}")
+  @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
 
-  @Value("${workplace.attachment.max-per-issue:10}")
+  @Value("${workplace.storage.attachment.max-per-issue:10}")
   private int maxPerIssue;
 
   /** 다중 multipart 업로드 — 멤버 + 사이즈 + 누적 한도 가드 후 일괄 저장 + history 1건. */
   public List<IssueAttachmentResponse> upload(
-      Long callerId, String projectKey, int number, List<MultipartFile> files) throws IOException {
+      Long callerId, String projectKey, int number, List<MultipartFile> files) {
     var project = accessGuard.assertMember(projectKey, callerId);
     var issue =
         issueRepository

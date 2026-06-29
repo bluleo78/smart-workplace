@@ -2,11 +2,11 @@ package com.workplace.file.service;
 
 import static com.workplace.jooq.Tables.FILE;
 
+import com.workplace.file.storage.FileStore;
 import com.workplace.global.tenant.TenantScopedRunner;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -26,6 +26,8 @@ public class FileCleanupService {
   // FILE 은 RLS 적용 테이블 — 스케줄러/부팅 잡은 요청 스레드가 아니어서 GUC 가 비어 있다.
   // 활성 테넌트마다 컨텍스트+트랜잭션을 열어 GUC 를 주입(미주입 시 RLS fail-closed → 0행 삭제 버그)한다.
   private final TenantScopedRunner tenantScopedRunner;
+  // 상대경로(신규) 및 절대경로(레거시) 모두 올바른 디스크 경로로 복원하기 위해 FileStore 경유.
+  private final FileStore fileStore;
 
   @PostConstruct
   public void cleanupOnStartup() {
@@ -73,11 +75,11 @@ public class FileCleanupService {
       String storagePath = row.get(FILE.STORAGE_PATH);
       String thumbnailPath = row.get(FILE.THUMBNAIL_PATH);
       try {
-        Files.deleteIfExists(Path.of(storagePath));
+        Files.deleteIfExists(fileStore.resolve(storagePath));
         successfullyDeletedPaths.add(storagePath);
         if (thumbnailPath != null) {
           try {
-            Files.deleteIfExists(Path.of(thumbnailPath));
+            Files.deleteIfExists(fileStore.resolve(thumbnailPath));
           } catch (IOException te) {
             log.warn("썸네일 삭제 실패(무시): {}: {}", thumbnailPath, te.getMessage());
           }

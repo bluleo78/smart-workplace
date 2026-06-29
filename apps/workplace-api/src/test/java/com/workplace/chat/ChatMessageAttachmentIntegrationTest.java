@@ -6,16 +6,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.EmptyChatMessageException;
+import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.service.ChatFixtures;
 import com.workplace.chat.service.ChatMessageAttachmentService;
 import com.workplace.chat.service.ChatMessageService;
 import com.workplace.chat.service.ChatThreadService;
+import com.workplace.file.storage.FileStore;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import java.nio.file.Files;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
@@ -25,6 +30,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * #358: 이슈 채팅 첨부 업로드→바인딩→하이드레이션 통합 검증.
  *
  * <p>비-Tx 통합 테스트 — 서비스가 자체 트랜잭션을 커밋해야 첨부 조회 가능. fixture 데이터는 @AfterEach 에서 cleanupAll() 로 회수.
+ *
+ * <p>FilePathBuilder 는 TenantContext 를 읽어 경로를 생성하므로 @BeforeEach 에서 테넌트(1) 를 설정하고 @AfterEach 에서
+ * 해제한다.
  */
 class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
 
@@ -33,10 +41,17 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
   @Autowired ChatThreadService threadService;
   @Autowired ChatFixtures fx;
   @Autowired DSLContext dsl;
+  @Autowired FileStore fileStore;
 
   // SSE / ai-agent 외부 호출 차단 — 실제 네트워크 없이 테스트 가능.
   @MockitoBean SseRegistry sseRegistry;
   @MockitoBean AiAgentEventClient aiAgentEventClient;
+
+  /** FilePathBuilder 가 TenantContext 를 필요로 하므로 테스트 실행 전 테넌트(1) 세팅. */
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
 
   @AfterEach
   void cleanup() {
@@ -47,6 +62,7 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
             + " WHERE cma.file_id = f.id AND f.category = 'ATTACHMENT'");
     dsl.execute("DELETE FROM file WHERE category = 'ATTACHMENT'");
     fx.cleanupAll();
+    TenantContext.clear();
   }
 
   /** MockMultipartFile 생성 헬퍼. */
@@ -77,6 +93,61 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
     // then: 응답에 첨부 1건, 파일명 일치.
     assertThat(resp.attachments()).hasSize(1);
     assertThat(resp.attachments().get(0).originalName()).isEqualTo("a.txt");
+  }
+
+  @Test
+  void 업로드_storage_path_가_상대경로_형식이다() throws Exception {
+    // given: 스레드 + 멤버.
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    long threadId = thread.threadId();
+    long callerId = s.reporterId();
+
+    // when: 파일 선업로드.
+    var uploaded =
+        attachmentService.upload(
+            callerId, threadId, List.of(mockMultipart("rel.txt", "text/plain", "data".getBytes())));
+    long fileId = uploaded.get(0).fileId();
+
+    // then: STORAGE_PATH 가 상대경로(tenant-1/chat/... 형식) 임을 DB 에서 직접 검증.
+    String storagePath =
+        dsl.select(com.workplace.jooq.tables.File.FILE.STORAGE_PATH)
+            .from(com.workplace.jooq.tables.File.FILE)
+            .where(com.workplace.jooq.tables.File.FILE.ID.eq(fileId))
+            .fetchOne(0, String.class);
+
+    assertThat(storagePath).startsWith("tenant-1/chat/");
+    // 절대경로면 "/" 로 시작하므로 상대경로임을 이중 확인
+    assertThat(storagePath).doesNotStartWith("/");
+  }
+
+  @Test
+  void 업로드_후_바인딩하면_다운로드_round_trip_이_성공한다() throws Exception {
+    // given: 스레드 + 멤버.
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    long threadId = thread.threadId();
+    long callerId = s.reporterId();
+    byte[] content = "round-trip-content".getBytes();
+
+    // when: 업로드 후 메시지에 바인딩(promoteToPermanent 호출됨).
+    var uploaded =
+        attachmentService.upload(
+            callerId, threadId, List.of(mockMultipart("rt.txt", "text/plain", content)));
+    long fileId = uploaded.get(0).fileId();
+    var msg =
+        chatMessageService.create(
+            callerId, threadId, new CreateChatMessageRequest("body", List.of(fileId), List.of()));
+    long messageId = msg.id();
+
+    // then: download() 가 절대경로를 반환하고, 실제 파일 바이트가 일치한다.
+    ChatMessageAttachmentRepository.StoredFileRow row =
+        attachmentService.download(callerId, threadId, messageId, fileId);
+
+    assertThat(java.nio.file.Path.of(row.path()).isAbsolute())
+        .isTrue(); // 절대경로여야 FileSystemResource 가 동작
+    byte[] actual = Files.readAllBytes(java.nio.file.Path.of(row.path()));
+    assertThat(actual).isEqualTo(content);
   }
 
   @Test

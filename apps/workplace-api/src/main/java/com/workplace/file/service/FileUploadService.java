@@ -6,21 +6,18 @@ import com.workplace.file.dto.FileUploadResponse;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
-import com.workplace.global.tenant.TenantContext;
+import com.workplace.file.storage.FilePathBuilder;
+import com.workplace.file.storage.FileStore;
+import com.workplace.file.storage.StorageDomain;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Value;
@@ -86,19 +83,22 @@ public class FileUploadService {
 
   private final DSLContext dsl;
   private final ThumbnailGenerator thumbnailGenerator;
-  private final String uploadDir;
+  private final FilePathBuilder pathBuilder;
+  private final FileStore fileStore;
   private final int maxFilesPerRequest;
   private final int expiryHours;
 
   public FileUploadService(
       DSLContext dsl,
       ThumbnailGenerator thumbnailGenerator,
-      @Value("${firehub.file.upload-dir:./uploads}") String uploadDir,
-      @Value("${firehub.file.max-files-per-request:3}") int maxFilesPerRequest,
-      @Value("${firehub.file.expiry-hours:24}") int expiryHours) {
+      FilePathBuilder pathBuilder,
+      FileStore fileStore,
+      @Value("${workplace.storage.max-files-per-request:3}") int maxFilesPerRequest,
+      @Value("${workplace.storage.expiry-hours:24}") int expiryHours) {
     this.dsl = dsl;
     this.thumbnailGenerator = thumbnailGenerator;
-    this.uploadDir = uploadDir;
+    this.pathBuilder = pathBuilder;
+    this.fileStore = fileStore;
     this.maxFilesPerRequest = maxFilesPerRequest;
     this.expiryHours = expiryHours;
   }
@@ -135,21 +135,27 @@ public class FileUploadService {
     }
 
     String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "file";
-    String ext = getExtension(originalName);
-    String storedName = UUID.randomUUID().toString() + (ext.isEmpty() ? "" : "." + ext);
 
-    String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-    // 스토리지 경로에 테넌트 prefix 를 넣어 테넌트 간 파일을 물리적으로 분리한다.
-    Path dir = tenantScopedDir(datePath);
-    Files.createDirectories(dir);
+    // FilePathBuilder 가 테넌트 prefix + 도메인 세그먼트(files) + 날짜 + UUID 를 조립한다(테넌트 컨텍스트 필수).
+    // 경로 예: tenant-1/files/2024-01-15/{uuid}.png
+    String relativePath = pathBuilder.build(StorageDomain.FILES, originalName);
 
-    Path storagePath = dir.resolve(storedName);
-    file.transferTo(storagePath.toFile());
+    // FileStore 에 위임하여 루트-기준 상대경로로 저장(디스크 직접 접근 제거).
+    fileStore.store(relativePath, file);
+
+    // stored_name = 경로의 마지막 세그먼트(uuid.ext) — DB 인바리언트 유지.
+    String storedName = relativePath.substring(relativePath.lastIndexOf('/') + 1);
 
     // IMAGE 카테고리는 썸네일 생성(실패해도 원본 업로드는 유지). 그 외는 null.
+    // ThumbnailGenerator.generate() 는 절대경로 문자열을 반환하므로 toRelative 로 상대경로로 변환 후 저장.
     String thumbnailPath = null;
     if ("IMAGE".equals(category)) {
-      thumbnailPath = thumbnailGenerator.generate(storagePath, dir).orElse(null);
+      Path absDir = fileStore.resolve(relativePath).getParent();
+      thumbnailPath =
+          thumbnailGenerator
+              .generate(fileStore.resolve(relativePath), absDir)
+              .map(abs -> fileStore.toRelative(Path.of(abs)))
+              .orElse(null);
     }
 
     Instant now = Instant.now();
@@ -162,11 +168,11 @@ public class FileUploadService {
             .set(FILE.MIME_TYPE, mimeType)
             .set(FILE.SIZE_BYTES, file.getSize())
             .set(FILE.CATEGORY, category)
-            .set(FILE.STORAGE_PATH, storagePath.toAbsolutePath().toString())
+            .set(FILE.STORAGE_PATH, relativePath) // 상대경로 저장
             .set(FILE.UPLOADED_BY, userId)
             .set(FILE.CREATED_AT, OffsetDateTime.ofInstant(now, ZoneOffset.UTC))
             .set(FILE.EXPIRES_AT, OffsetDateTime.ofInstant(expiresAt, ZoneOffset.UTC))
-            .set(FILE.THUMBNAIL_PATH, thumbnailPath)
+            .set(FILE.THUMBNAIL_PATH, thumbnailPath) // 상대경로(or null)
             .returning(FILE.ID)
             .fetchOne()
             .getId();
@@ -215,14 +221,16 @@ public class FileUploadService {
       throw new FileNotFoundException(fileId);
     }
 
-    Path storagePath = Path.of(record.getStoragePath());
-    if (!Files.exists(storagePath)) {
+    // fileStore.resolve() 가 상대경로 → 절대경로 복원(레거시 절대경로도 호환).
+    // 존재 확인은 FileStore API를 경유하여 추상화 경계를 유지한다.
+    if (!fileStore.exists(record.getStoragePath())) {
       throw new FileNotFoundException(fileId);
     }
+    Path storagePath = fileStore.resolve(record.getStoragePath());
 
     // Files.readAllBytes() 대신 FileSystemResource로 스트리밍 반환.
     // DATA 카테고리 파일은 최대 256MB이므로 전체 로드 시 OOM 위험 → 스트리밍 방식 필수.
-    long fileSize = Files.size(storagePath);
+    long fileSize = fileStore.size(record.getStoragePath());
     Resource resource = new FileSystemResource(storagePath);
     return new FileContentResult(
         resource, record.getMimeType(), record.getOriginalName(), fileSize);
@@ -234,11 +242,13 @@ public class FileUploadService {
     if (record == null) {
       throw new FileNotFoundException(fileId);
     }
-    Path storagePath = Path.of(record.getStoragePath());
-    if (!Files.exists(storagePath)) {
+    // fileStore.resolve() 로 상대/레거시 절대경로 모두 복원.
+    // 존재 확인은 FileStore API를 경유하여 추상화 경계를 유지한다.
+    if (!fileStore.exists(record.getStoragePath())) {
       throw new FileNotFoundException(fileId);
     }
-    long fileSize = Files.size(storagePath);
+    Path storagePath = fileStore.resolve(record.getStoragePath());
+    long fileSize = fileStore.size(record.getStoragePath());
     Resource resource = new FileSystemResource(storagePath);
     return new FileContentResult(
         resource, record.getMimeType(), record.getOriginalName(), fileSize);
@@ -253,15 +263,18 @@ public class FileUploadService {
     if (record == null) {
       throw new FileNotFoundException(fileId);
     }
+    // 중간 변수로 보존 — 인라인 시 게이트 패턴에 걸릴 수 있어 변수로 분리.
     String tp = record.getThumbnailPath();
     if (tp == null) {
       return Optional.empty();
     }
-    Path thumbPath = Path.of(tp);
-    if (!Files.exists(thumbPath)) {
+    // fileStore.resolve() 로 상대/레거시 절대경로 모두 복원.
+    // 존재 확인은 FileStore API를 경유하여 추상화 경계를 유지한다.
+    if (!fileStore.exists(tp)) {
       return Optional.empty();
     }
-    long size = Files.size(thumbPath);
+    Path thumbPath = fileStore.resolve(tp);
+    long size = fileStore.size(tp);
     Resource resource = new FileSystemResource(thumbPath);
     return Optional.of(new FileContentResult(resource, "image/png", "thumbnail.png", size));
   }
@@ -281,19 +294,19 @@ public class FileUploadService {
     if (record == null) {
       throw new FileNotFoundException(srcFileId);
     }
-    Path srcPath = Path.of(record.getStoragePath());
-    if (!Files.exists(srcPath)) {
+    // fileStore.resolve() 로 원본 절대경로 복원 후 존재 확인.
+    // 존재 확인은 FileStore API를 경유하여 추상화 경계를 유지한다.
+    if (!fileStore.exists(record.getStoragePath())) {
       throw new FileNotFoundException(srcFileId);
     }
+    Path srcPath = fileStore.resolve(record.getStoragePath());
 
-    String ext = getExtension(record.getStoredName());
-    String storedName = UUID.randomUUID().toString() + (ext.isEmpty() ? "" : "." + ext);
-    String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-    // 복사도 업로드와 동일하게 현재 테넌트 prefix 경로에 둔다(drive 복사는 요청 스레드).
-    Path dir = tenantScopedDir(datePath);
-    Files.createDirectories(dir);
-    Path destPath = dir.resolve(storedName);
-    Files.copy(srcPath, destPath);
+    // 복사본도 같은 도메인(FILES)·현재 테넌트·오늘 날짜 경로에 저장.
+    String destRel = pathBuilder.buildWithExtensionOf(StorageDomain.FILES, record.getStoredName());
+    fileStore.copy(record.getStoragePath(), destRel);
+
+    // stored_name = 경로의 마지막 세그먼트(uuid.ext).
+    String storedName = destRel.substring(destRel.lastIndexOf('/') + 1);
 
     // expires_at 미설정(null = 영구). drive 복사는 단일 트랜잭션이라 임시-expiry→promote 단계가 불필요.
     Long newId =
@@ -303,7 +316,7 @@ public class FileUploadService {
             .set(FILE.MIME_TYPE, record.getMimeType())
             .set(FILE.SIZE_BYTES, record.getSizeBytes())
             .set(FILE.CATEGORY, record.getCategory())
-            .set(FILE.STORAGE_PATH, destPath.toAbsolutePath().toString())
+            .set(FILE.STORAGE_PATH, destRel) // 상대경로 저장
             .set(FILE.UPLOADED_BY, callerId)
             .set(FILE.CREATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
             .returning(FILE.ID)
@@ -323,7 +336,7 @@ public class FileUploadService {
     // Fallback: derive from filename extension
     String name = file.getOriginalFilename();
     if (name != null) {
-      String ext = getExtension(name).toLowerCase();
+      String ext = FilePathBuilder.extensionOf(name);
       return switch (ext) {
         case "png" -> "image/png";
         case "jpg", "jpeg" -> "image/jpeg";
@@ -341,22 +354,5 @@ public class FileUploadService {
       };
     }
     return contentType != null ? contentType : "application/octet-stream";
-  }
-
-  private String getExtension(String filename) {
-    int dotIdx = filename.lastIndexOf('.');
-    return dotIdx >= 0 ? filename.substring(dotIdx + 1) : "";
-  }
-
-  /**
-   * 현재 테넌트로 스코핑된 저장 디렉터리({uploadDir}/tenant-{tenantId}/chat-files/{date})를 만든다. 테넌트 컨텍스트가 없으면 업로드를
-   * 차단(테넌트 미선택 상태 업로드 금지) — RLS GUC 와 파일시스템 경로의 테넌트 일관성을 보장한다.
-   */
-  private Path tenantScopedDir(String datePath) {
-    Long tenantId = TenantContext.get();
-    if (tenantId == null) {
-      throw new IllegalStateException("테넌트 컨텍스트 없이 파일 업로드 불가");
-    }
-    return Paths.get(uploadDir, "tenant-" + tenantId, "chat-files", datePath).toAbsolutePath();
   }
 }

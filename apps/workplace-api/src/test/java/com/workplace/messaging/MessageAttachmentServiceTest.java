@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.exception.InvalidMessageAttachmentException;
 import com.workplace.messaging.exception.MessageAttachmentTooLargeException;
@@ -14,15 +15,19 @@ import com.workplace.messaging.service.MessageAttachmentService;
 import com.workplace.messaging.service.MessageAttachmentStorage;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.IntegrationTestBase;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
-/** MessageAttachmentService 통합 테스트 — 업로드 게이트 + 바인딩 검증. */
+/** MessageAttachmentService 통합 테스트 — 업로드 게이트 + 바인딩 검증 + 상대경로 단언. */
 @Transactional
 class MessageAttachmentServiceTest extends IntegrationTestBase {
 
@@ -33,6 +38,18 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
   @Autowired MessageAttachmentStorage storage;
   @Autowired MessageAttachmentRepository attachmentRepo;
   @Autowired MessageAttachmentService attachmentService;
+
+  /** FilePathBuilder 가 TenantContext 를 읽어 경로를 생성하므로 테스트 실행 전 테넌트(1) 세팅. */
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
+
+  /** 테스트 종료 후 TenantContext 해제 — 다른 테스트에 누출 방지. */
+  @AfterEach
+  void clearTenant() {
+    TenantContext.clear();
+  }
 
   /** 테스트 격리용 유니크 유저 INSERT. */
   private long seedUser() {
@@ -109,5 +126,61 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
     assertThat(bindable).isPresent();
     assertThat(bindable.get().bound()).isTrue();
     assertThat(bindable.get().expiresAt()).isNull();
+  }
+
+  /**
+   * upload_storagePath_isRelative: STORAGE_PATH 가 절대경로가 아닌 상대경로(tenant-1/messaging/...)로 저장됨을 확인.
+   */
+  @Test
+  void upload_storagePath_isRelative() throws Exception {
+    long userId = seedUser();
+    long channelId = channelRepo.insertPublic("test-rel-path", userId);
+    channelService.join(userId, channelId);
+
+    // 파일 선업로드 후 DB STORAGE_PATH 직접 조회
+    var mf = new MockMultipartFile("files", "rel.txt", "text/plain", "data".getBytes());
+    var uploaded = attachmentService.upload(userId, channelId, List.of(mf));
+    Long fileId = uploaded.get(0).fileId();
+
+    String storagePath =
+        dsl.select(com.workplace.jooq.tables.File.FILE.STORAGE_PATH)
+            .from(com.workplace.jooq.tables.File.FILE)
+            .where(com.workplace.jooq.tables.File.FILE.ID.eq(fileId))
+            .fetchOne(0, String.class);
+
+    // tenant-1/messaging/... 형태의 상대경로여야 한다
+    assertThat(storagePath).startsWith("tenant-1/messaging/");
+    // 절대경로(플랫폼 중립 단언)가 아님을 확인
+    assertThat(Path.of(storagePath).isAbsolute()).isFalse();
+  }
+
+  /**
+   * upload_thenBind_downloadRoundTrip: 업로드→바인딩→다운로드 시 반환 경로가 절대경로이고 파일 바이트가 일치한다.
+   *
+   * <p>비-@Transactional 이 아닌 @Transactional 컨텍스트 안에서 storeTemporary 를 직접 호출해 round-trip 을 검증한다.
+   * download() 는 서비스 내부에서 fileStore.resolve() 로 절대경로를 복원하므로 FileSystemResource 에서 읽을 수 있어야 한다.
+   */
+  @Test
+  void upload_thenBind_downloadRoundTrip() throws Exception {
+    long userId = seedUser();
+    long channelId = channelRepo.insertPublic("test-roundtrip", userId);
+    channelService.join(userId, channelId);
+
+    byte[] content = "round-trip-messaging".getBytes();
+    var mf = new MockMultipartFile("files", "rt.txt", "text/plain", content);
+
+    // 직접 storeTemporary 후 bind — 트랜잭션 내에서 일관된 테넌트 컨텍스트 사용
+    Long fileId = storage.storeTemporary(mf, userId);
+    var msg = messageService.create(userId, channelId, new CreateMessageRequest("body"));
+    attachmentService.bindToMessage(userId, msg.id(), List.of(fileId));
+
+    // download() 가 절대경로를 반환하고 실제 파일 바이트가 일치해야 한다
+    var row = attachmentService.download(userId, channelId, msg.id(), fileId);
+
+    // 절대경로 단언(플랫폼 중립)
+    assertThat(Path.of(row.path()).isAbsolute()).isTrue();
+    // 바이트 라운드트립 확인
+    byte[] actual = Files.readAllBytes(Path.of(row.path()));
+    assertThat(actual).isEqualTo(content);
   }
 }

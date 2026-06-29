@@ -4,12 +4,14 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.tables.File.FILE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.records.FileRecord;
 import com.workplace.messaging.service.MessageAttachmentStorage;
 import com.workplace.support.IntegrationTestBase;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,9 +40,17 @@ class MessageAttachmentStorageTest extends IntegrationTestBase {
         .getId();
   }
 
+  /** FilePathBuilder 가 TenantContext 를 읽어 경로를 생성하므로 테스트 실행 전 테넌트(1) 세팅. */
   @BeforeEach
   void setUp() {
+    TenantContext.set(1L);
     uploaderId = seedUser();
+  }
+
+  /** 테스트 종료 후 TenantContext 해제 — 다른 테스트에 누출 방지. */
+  @AfterEach
+  void clearTenant() {
+    TenantContext.clear();
   }
 
   @Test

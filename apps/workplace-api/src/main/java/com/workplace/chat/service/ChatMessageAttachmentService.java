@@ -5,6 +5,7 @@ import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
+import com.workplace.file.storage.FileStore;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -29,23 +30,28 @@ public class ChatMessageAttachmentService {
   private final ChatThreadMemberRepository memberRepo;
   private final ChatMessageRepository messageRepo;
 
+  /** 코어 파일 저장소 — 다운로드 시 상대경로를 절대경로로 복원. */
+  private final FileStore fileStore;
+
   /** 파일 1개당 최대 크기(바이트). 기본 25MB. */
-  @Value("${workplace.chat.attachment.max-file-size-bytes:26214400}")
+  @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
 
   /** 메시지당 최대 첨부 개수. 기본 10개. */
-  @Value("${workplace.chat.attachment.max-per-message:10}")
+  @Value("${workplace.storage.attachment.max-per-message:10}")
   private int maxPerMessage;
 
   public ChatMessageAttachmentService(
       ChatMessageAttachmentStorage storage,
       ChatMessageAttachmentRepository repo,
       ChatThreadMemberRepository memberRepo,
-      ChatMessageRepository messageRepo) {
+      ChatMessageRepository messageRepo,
+      FileStore fileStore) {
     this.storage = storage;
     this.repo = repo;
     this.memberRepo = memberRepo;
     this.messageRepo = messageRepo;
+    this.fileStore = fileStore;
   }
 
   /**
@@ -115,7 +121,10 @@ public class ChatMessageAttachmentService {
   /**
    * thread 멤버만 다운로드. 메시지-thread 정합성 + 멤버십 검증 후 저장 파일 정보 반환.
    *
-   * @return 다운로드용 파일 메타(경로·이름·MIME·크기)
+   * <p>STORAGE_PATH 는 상대경로이므로 FileStore.resolve() 로 절대경로를 복원한다. 컨트롤러가 path() 를 FileSystemResource 에
+   * 그대로 넘기므로 절대경로여야 한다.
+   *
+   * @return 다운로드용 파일 메타(절대 경로·이름·MIME·크기)
    */
   @Transactional(readOnly = true)
   public ChatMessageAttachmentRepository.StoredFileRow download(
@@ -124,7 +133,14 @@ public class ChatMessageAttachmentService {
     if (!messageRepo.belongsToThread(messageId, threadId)) {
       throw new InvalidChatAttachmentException();
     }
-    return repo.findStoredFile(fileId, messageId).orElseThrow(InvalidChatAttachmentException::new);
+    var row =
+        repo.findStoredFile(fileId, messageId).orElseThrow(InvalidChatAttachmentException::new);
+    // 상대경로를 절대경로로 복원 — FileSystemResource 에 넘기기 전에 반드시 resolve 필요
+    return new ChatMessageAttachmentRepository.StoredFileRow(
+        fileStore.resolve(row.path()).toString(),
+        row.originalName(),
+        row.mimeType(),
+        row.sizeBytes());
   }
 
   /** thread 멤버가 아니면 ChatThreadNotMemberException. */

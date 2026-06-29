@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -18,6 +19,8 @@ import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -40,6 +43,18 @@ class MessageAttachmentControllerTest extends IntegrationTestBase {
   @Autowired ChannelService channelService;
   @Autowired MessageService messageService;
   @Autowired MessageAttachmentStorage storage;
+
+  /** FilePathBuilder 가 TenantContext 를 읽어 경로를 생성하므로 테스트 실행 전 테넌트(1) 세팅. */
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
+
+  /** 테스트 종료 후 TenantContext 해제 — 다른 테스트에 누출 방지. */
+  @AfterEach
+  void clearTenant() {
+    TenantContext.clear();
+  }
 
   /** 테스트 격리용 유니크 유저 INSERT 후 ID 반환. */
   private long seedUser() {

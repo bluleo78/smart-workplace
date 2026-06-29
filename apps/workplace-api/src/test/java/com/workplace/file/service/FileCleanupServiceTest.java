@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.file.storage.FileStore;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.io.IOException;
@@ -30,6 +31,7 @@ class FileCleanupServiceTest extends IntegrationTestBase {
 
   @Autowired private FileCleanupService fileCleanupService;
   @Autowired private DSLContext dsl;
+  @Autowired private FileStore fileStore;
 
   /** 테스트용 사용자 ID — uploaded_by FK 제약 충족을 위해 필요 */
   private Long testUserId;
@@ -167,6 +169,42 @@ class FileCleanupServiceTest extends IntegrationTestBase {
       // 테스트 후 디렉토리 쓰기 권한 복원 (TempDir 정리를 위해)
       undeletableFile.toFile().getParentFile().setWritable(true);
     }
+  }
+
+  /**
+   * 회귀 가드: DB 에 상대경로로 저장된 만료 파일이 FileStore.resolve() 를 경유해 올바르게 삭제되어야 한다.
+   *
+   * <p>storage_path 를 상대경로(예: tenant-1/files/uuid.txt) 로 저장하고 FileStore 루트 기준으로 실제 파일을 생성한다.
+   * cleanup 호출 후 디스크 파일이 삭제되고 DB 레코드도 제거됨을 검증한다. 이전 코드(Path.of(relativeStoragePath)) 는 CWD 기준으로 해석해
+   * 파일을 찾지 못해 이 테스트가 실패했을 것이다.
+   */
+  @Test
+  void cleanupExpiredFiles_relativeStoragePath_deletesFileAndDbRow() throws IOException {
+    // 상대경로로 저장되는 신규 방식 경로 (storage root 기준)
+    String relativeStoragePath = "tenant-1/files/cleanup-regression-test.txt";
+    Path absolutePath = fileStore.resolve(relativeStoragePath);
+    Files.createDirectories(absolutePath.getParent());
+    Files.writeString(absolutePath, "regression-guard");
+
+    OffsetDateTime expiredAt = OffsetDateTime.now(ZoneOffset.UTC).minusHours(1);
+    dsl.insertInto(FILE)
+        .set(FILE.ORIGINAL_NAME, "cleanup-regression-test.txt")
+        .set(FILE.STORED_NAME, "cleanup-regression-test.txt")
+        .set(FILE.STORAGE_PATH, relativeStoragePath) // 상대경로 저장
+        .set(FILE.MIME_TYPE, "text/plain")
+        .set(FILE.SIZE_BYTES, 16L)
+        .set(FILE.CATEGORY, "IMPORT")
+        .set(FILE.UPLOADED_BY, testUserId)
+        .set(FILE.EXPIRES_AT, expiredAt)
+        .execute();
+
+    fileCleanupService.cleanupExpiredForCurrentTenant();
+
+    // 디스크 파일이 삭제되어야 함 (이전 코드는 CWD 에서 찾아 실패 → 파일 잔존)
+    assertThat(absolutePath).doesNotExist();
+    // DB 레코드도 삭제되어야 함
+    int remaining = dsl.fetchCount(FILE, FILE.STORAGE_PATH.eq(relativeStoragePath));
+    assertThat(remaining).isEqualTo(0);
   }
 
   /**

@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageAttachmentResponse;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,14 +52,22 @@ class MessageAttachmentRepositoryTest extends IntegrationTestBase {
         .getId();
   }
 
+  /** FilePathBuilder 가 TenantContext 를 읽어 경로를 생성하므로 테스트 실행 전 테넌트(1) 세팅. */
   @BeforeEach
   void setUp() {
+    TenantContext.set(1L);
     // 유저, 채널, 메시지를 순서대로 시드 (기존 MessageThreadTest / MessageReadTest 패턴 재사용)
     userId = seedUser();
     channelId = channelRepo.insertPublic("attch-채널", userId);
     channelService.join(userId, channelId);
     messageId =
         messageService.create(userId, channelId, new CreateMessageRequest("첨부 테스트 메시지")).id();
+  }
+
+  /** 테스트 종료 후 TenantContext 해제 — 다른 테스트에 누출 방지. */
+  @AfterEach
+  void clearTenant() {
+    TenantContext.clear();
   }
 
   /** findBindable — 임시 파일 존재 시 업로더·미바인딩 상태를 반환해야 한다. */

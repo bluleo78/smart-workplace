@@ -63,7 +63,7 @@ public class MailAttachmentBlobGcSweeper {
       DSLContext dsl,
       PlatformTransactionManager txManager,
       MailAttachmentBlobStore blobStore,
-      @Value("${app.mail.attachment-cache.ttl-days:7}") long ttlDays) {
+      @Value("${workplace.storage.mail.ttl-days:7}") long ttlDays) {
     this.tenantRepository = tenantRepository;
     this.dsl = dsl;
     // @Primary TenantAwareTransactionManager 사용 — 트랜잭션 진입 시 GUC 주입

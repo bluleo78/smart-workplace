@@ -11,7 +11,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * 메일 첨부 캐시 blob 의 암호화 디스크 저장소. 평문 바이너리를 AES-256-GCM 으로 암호화해 {@code
- * {baseDir}/tenant-{tenantId}/{hash 앞2}/{uuid}.enc} 에 쓰고, file_ref(상대 경로)를 반환한다.
+ * {baseDir}/tenant-{tenantId}/mail/{hash 앞2}/{uuid}.enc} 에 쓰고, file_ref(상대 경로)를 반환한다.
+ *
+ * <p>baseDir 는 통합 스토리지 루트({@code workplace.storage.root-dir}) 를 공유하며, mail 세그먼트로 격리된다.
+ * 암호화·dedup·TTL 로직은 파일 모듈과 별도로 유지한다.
  *
  * <p>file 모듈(FileUploadService)은 평문 저장·user 앵커라 재활용 불가 — 캐시 blob 은 테넌트 dedup·암호화·독립 TTL 수명을 가져야 하므로
  * 전용 저장소를 둔다.
@@ -22,17 +25,22 @@ public class MailAttachmentBlobStore {
   private final EncryptionService encryption;
   private final Path baseDir;
 
+  /**
+   * @param rootDir 통합 스토리지 루트 디렉터리. 메일 캐시는 이 하위 경로에 격리 저장된다.
+   */
   public MailAttachmentBlobStore(
       EncryptionService encryption,
-      @Value("${app.mail.attachment-cache.dir:./data/mail-attachment-cache}") String dir) {
+      @Value("${workplace.storage.root-dir:./file-data}") String rootDir) {
     this.encryption = encryption;
-    this.baseDir = Path.of(dir).toAbsolutePath().normalize();
+    // 통합 루트를 baseDir 로 사용 — 루트만 공유하고 암호화/dedup/TTL 로직은 독립 유지
+    this.baseDir = Path.of(rootDir).toAbsolutePath().normalize();
   }
 
-  /** 평문 바이너리를 암호화해 저장하고 상대 file_ref 를 반환한다. */
+  /** 평문 바이너리를 암호화해 저장하고 상대 file_ref 를 반환한다. mail 세그먼트로 격리. */
   public String store(long tenantId, String contentHash, byte[] plain) {
     String prefix = contentHash.length() >= 2 ? contentHash.substring(0, 2) : "00";
-    String rel = "tenant-" + tenantId + "/" + prefix + "/" + UUID.randomUUID() + ".enc";
+    // mail 세그먼트 삽입 — 통합 루트 하위에서 메일 캐시 영역을 명시적으로 구분
+    String rel = "tenant-" + tenantId + "/mail/" + prefix + "/" + UUID.randomUUID() + ".enc";
     Path target = baseDir.resolve(rel);
     try {
       Files.createDirectories(target.getParent());

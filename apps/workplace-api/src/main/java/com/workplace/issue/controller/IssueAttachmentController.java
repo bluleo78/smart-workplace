@@ -4,7 +4,6 @@ import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.service.IssueAttachmentService;
 import com.workplace.issue.service.IssueAttachmentStorage;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -44,8 +43,7 @@ public class IssueAttachmentController {
       Authentication auth,
       @PathVariable String key,
       @PathVariable int number,
-      @RequestParam("files") List<MultipartFile> files)
-      throws IOException {
+      @RequestParam("files") List<MultipartFile> files) {
     return ResponseEntity.ok(service.upload((Long) auth.getPrincipal(), key, number, files));
   }
 

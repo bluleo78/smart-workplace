@@ -6,10 +6,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.file.dto.FileUploadResponse;
+import com.workplace.file.storage.FileStore;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
@@ -26,6 +26,7 @@ class FileUploadServiceTenantTest extends IntegrationTestBase {
 
   @Autowired private FileUploadService fileUploadService;
   @Autowired private DSLContext dsl;
+  @Autowired private FileStore fileStore;
 
   private Long uploadedId;
 
@@ -43,7 +44,7 @@ class FileUploadServiceTenantTest extends IntegrationTestBase {
 
   @AfterEach
   void cleanup() {
-    // 디스크에 기록된 물리 파일 정리 후 ThreadLocal 해제.
+    // 상대경로로 저장된 파일을 fileStore.deleteIfExists() 로 정리(Path.of() 직접 사용 시 CWD 기준으로 해석되어 오류).
     if (uploadedId != null) {
       String p =
           dsl.select(FILE.STORAGE_PATH)
@@ -52,8 +53,8 @@ class FileUploadServiceTenantTest extends IntegrationTestBase {
               .fetchOne(FILE.STORAGE_PATH);
       if (p != null) {
         try {
-          Files.deleteIfExists(Path.of(p));
-        } catch (IOException ignored) {
+          fileStore.deleteIfExists(p);
+        } catch (Exception ignored) {
         }
       }
     }
@@ -76,7 +77,9 @@ class FileUploadServiceTenantTest extends IntegrationTestBase {
             .from(FILE)
             .where(FILE.ID.eq(uploadedId))
             .fetchOne(FILE.STORAGE_PATH);
-    assertThat(storagePath).contains("tenant-1" + java.io.File.separator);
+    // FilePathBuilder 는 구분자로 '/' 를 사용(OS 무관). storage_path 는 상대경로여야 한다.
+    assertThat(Path.of(storagePath).isAbsolute()).isFalse();
+    assertThat(storagePath).contains("tenant-1/files/");
   }
 
   /** 테넌트 컨텍스트가 없으면 업로드가 명시적으로 차단되어야 한다(테넌트 미선택 업로드 금지). */

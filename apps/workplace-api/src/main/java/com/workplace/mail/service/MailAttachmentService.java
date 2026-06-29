@@ -45,7 +45,7 @@ public class MailAttachmentService {
   private final ContentAttachmentRepository contentAttachmentRepo;
 
   /** 첨부 캐시 최대 크기(바이트). 초과하는 첨부는 매번 provider 에서 재fetch 하고 blob 에 저장하지 않는다. 기본값 25MiB(26214400). */
-  @Value("${app.mail.attachment-cache.max-cache-bytes:26214400}")
+  @Value("${workplace.storage.mail.max-cache-bytes:26214400}")
   private long maxCacheBytes;
 
   /** 다운로드 결과 캐리어. */

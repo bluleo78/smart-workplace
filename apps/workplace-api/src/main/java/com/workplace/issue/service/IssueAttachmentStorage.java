@@ -2,19 +2,15 @@ package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.FILE;
 
+import com.workplace.file.storage.FilePathBuilder;
+import com.workplace.file.storage.FileStore;
+import com.workplace.file.storage.StorageDomain;
 import com.workplace.issue.exception.AttachmentNotFoundException;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -31,25 +27,30 @@ public class IssueAttachmentStorage {
   private static final Logger log = LoggerFactory.getLogger(IssueAttachmentStorage.class);
 
   private final DSLContext dsl;
-  private final String uploadDir;
 
-  public IssueAttachmentStorage(
-      DSLContext dsl,
-      @Value("${workplace.attachment.upload-dir:./uploads/attachments}") String uploadDir) {
+  /** 테넌트 격리 경로 생성기 — tenant-{id}/issue/{date}/{uuid}.ext 형태로 빌드. */
+  private final FilePathBuilder pathBuilder;
+
+  /** 코어 파일 저장소 — store/resolve/deleteIfExists 위임. */
+  private final FileStore fileStore;
+
+  public IssueAttachmentStorage(DSLContext dsl, FilePathBuilder pathBuilder, FileStore fileStore) {
     this.dsl = dsl;
-    this.uploadDir = uploadDir;
+    this.pathBuilder = pathBuilder;
+    this.fileStore = fileStore;
   }
 
-  /** 디스크에 저장 후 file row 를 만들어 fileId 를 반환. 날짜별 서브디렉토리로 분산 저장. */
-  public Long storeAndInsert(MultipartFile mf, Long uploaderId) throws IOException {
+  /**
+   * 디스크에 저장 후 file row 를 만들어 fileId 를 반환.
+   *
+   * <p>FilePathBuilder 가 tenant-{id}/issue/{date}/{uuid}.ext 형태의 상대 경로를 생성하므로 테넌트 격리가 자동 적용된다.
+   * STORAGE_PATH 에는 상대 경로만 저장 — 절대 경로 복원은 load() 에서 FileStore.resolve() 가 담당.
+   */
+  public Long storeAndInsert(MultipartFile mf, Long uploaderId) {
     String originalName = mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file";
-    String ext = extensionOf(originalName);
-    String storedName = UUID.randomUUID() + (ext.isEmpty() ? "" : "." + ext);
-    String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-    Path dir = Paths.get(uploadDir, datePath).toAbsolutePath();
-    Files.createDirectories(dir);
-    Path storagePath = dir.resolve(storedName);
-    mf.transferTo(storagePath.toFile());
+    // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성
+    String relativePath = pathBuilder.build(StorageDomain.ISSUE, originalName);
+    fileStore.store(relativePath, mf);
 
     String mime =
         mf.getContentType() != null && !mf.getContentType().isBlank()
@@ -58,11 +59,11 @@ public class IssueAttachmentStorage {
 
     return dsl.insertInto(FILE)
         .set(FILE.ORIGINAL_NAME, originalName)
-        .set(FILE.STORED_NAME, storedName)
+        .set(FILE.STORED_NAME, relativePath) // stored_name 도 상대 경로(식별용)
         .set(FILE.MIME_TYPE, mime)
         .set(FILE.SIZE_BYTES, mf.getSize())
         .set(FILE.CATEGORY, "ATTACHMENT")
-        .set(FILE.STORAGE_PATH, storagePath.toAbsolutePath().toString())
+        .set(FILE.STORAGE_PATH, relativePath) // 상대 경로만 저장
         .set(FILE.UPLOADED_BY, uploaderId)
         .set(FILE.CREATED_AT, OffsetDateTime.now())
         .returning(FILE.ID)
@@ -78,11 +79,12 @@ public class IssueAttachmentStorage {
             .where(FILE.ID.eq(fileId))
             .fetchOptional(0, String.class);
     dsl.deleteFrom(FILE).where(FILE.ID.eq(fileId)).execute();
+    // FileStore 에 위임 — 상대 경로를 절대 경로로 변환해 삭제
     path.ifPresent(
         p -> {
           try {
-            Files.deleteIfExists(Path.of(p));
-          } catch (IOException ex) {
+            fileStore.deleteIfExists(p);
+          } catch (Exception ex) {
             log.warn("첨부 바이너리 삭제 실패 (DB row 는 제거됨): {}", p, ex);
           }
         });
@@ -91,7 +93,12 @@ public class IssueAttachmentStorage {
   /** 다운로드용 메타 + 디스크 경로 — 컨트롤러가 ResponseEntity 헤더에 세팅한다. */
   public record StoredFile(Path path, String mimeType, String originalName, long sizeBytes) {}
 
-  /** fileId 로 디스크 경로 + 메타 로드. file row 가 없으면 404. */
+  /**
+   * fileId 로 디스크 경로 + 메타 로드. file row 가 없으면 404.
+   *
+   * <p>STORAGE_PATH 는 상대 경로 — FileStore.resolve() 로 절대 경로를 복원한다. 컨트롤러가 path() 를 FileSystemResource
+   * 에 그대로 넘기므로 절대 경로여야 한다.
+   */
   public StoredFile load(Long fileId) {
     var rec =
         dsl.select(FILE.ORIGINAL_NAME, FILE.MIME_TYPE, FILE.SIZE_BYTES, FILE.STORAGE_PATH)
@@ -102,15 +109,9 @@ public class IssueAttachmentStorage {
       throw new AttachmentNotFoundException(fileId);
     }
     return new StoredFile(
-        Path.of(rec.get(FILE.STORAGE_PATH)),
+        fileStore.resolve(rec.get(FILE.STORAGE_PATH)), // 상대→절대 경로 복원
         rec.get(FILE.MIME_TYPE),
         rec.get(FILE.ORIGINAL_NAME),
         rec.get(FILE.SIZE_BYTES));
-  }
-
-  /** 파일명에서 확장자(점 제외) 추출. 없으면 빈 문자열. */
-  private static String extensionOf(String name) {
-    int dot = name.lastIndexOf('.');
-    return dot >= 0 ? name.substring(dot + 1) : "";
   }
 }

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,8 +50,16 @@ class MessageAttachmentSseFanOutTest extends IntegrationTestBase {
   // 비-Tx(커밋) 테스트: 만든 user id 추적 → @AfterEach 에서 회수.
   private final List<Long> createdUserIds = new ArrayList<>();
 
+  /** FilePathBuilder 가 TenantContext 를 읽어 경로를 생성하므로 테스트 실행 전 테넌트(1) 세팅. */
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
+
   @AfterEach
   void cleanup() {
+    /** 테스트 종료 후 TenantContext 해제 — 다른 테스트에 누출 방지. */
+    TenantContext.clear();
     if (createdUserIds.isEmpty()) return;
     // channel 삭제 → message/attachment CASCADE. file(uploaded_by, non-cascade) 은 별도 삭제 후 user.
     dsl.deleteFrom(CHANNEL).where(CHANNEL.CREATED_BY.in(createdUserIds)).execute();

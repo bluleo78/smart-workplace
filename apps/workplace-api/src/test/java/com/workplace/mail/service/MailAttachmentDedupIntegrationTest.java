@@ -51,7 +51,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>max-cache-bytes=1024 로 낮춰 25MB knob 테스트(테스트5)에서 1KB 초과 바이트로 캐시 미저장을 검증한다. 테스트1~4 는 1024 바이트
  * 이하의 고정 페이로드를 사용해 정상 캐싱이 동작하도록 한다.
  */
-@TestPropertySource(properties = "app.mail.attachment-cache.max-cache-bytes=1024")
+@TestPropertySource(properties = "workplace.storage.mail.max-cache-bytes=1024")
 class MailAttachmentDedupIntegrationTest extends IntegrationTestBase {
 
   // ─── mock 대상: IMAP 연결 + 파서 ───────────────────────────────────────────

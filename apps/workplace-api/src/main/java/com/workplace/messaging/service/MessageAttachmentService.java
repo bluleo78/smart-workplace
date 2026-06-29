@@ -1,5 +1,6 @@
 package com.workplace.messaging.service;
 
+import com.workplace.file.storage.FileStore;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidMessageAttachmentException;
 import com.workplace.messaging.exception.MessageAttachmentLimitExceededException;
@@ -26,21 +27,26 @@ public class MessageAttachmentService {
   private final ChannelMemberRepository memberRepo;
   private final MessageRepository messageRepo;
 
-  @Value("${workplace.messaging.attachment.max-file-size-bytes:26214400}")
+  /** 상대경로→절대경로 복원용 코어 파일 저장소. 다운로드 시 FileSystemResource 에 전달하기 전에 resolve() 호출. */
+  private final FileStore fileStore;
+
+  @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
 
-  @Value("${workplace.messaging.attachment.max-per-message:10}")
+  @Value("${workplace.storage.attachment.max-per-message:10}")
   private int maxPerMessage;
 
   public MessageAttachmentService(
       MessageAttachmentStorage storage,
       MessageAttachmentRepository repo,
       ChannelMemberRepository memberRepo,
-      MessageRepository messageRepo) {
+      MessageRepository messageRepo,
+      FileStore fileStore) {
     this.storage = storage;
     this.repo = repo;
     this.memberRepo = memberRepo;
     this.messageRepo = messageRepo;
+    this.fileStore = fileStore;
   }
 
   /** 선업로드: 채널 멤버 검증 + 크기/개수 게이트 후 임시 저장. fileId 메타 반환. */
@@ -102,7 +108,14 @@ public class MessageAttachmentService {
     repo.promoteToPermanent(fileIds);
   }
 
-  /** 채널 멤버만 다운로드 가능. 메시지-파일-채널 정합성 + 멤버십 검증 후 저장 파일 정보 반환. */
+  /**
+   * 채널 멤버만 다운로드 가능. 메시지-파일-채널 정합성 + 멤버십 검증 후 저장 파일 정보 반환.
+   *
+   * <p>STORAGE_PATH 는 상대경로이므로 FileStore.resolve() 로 절대경로를 복원한다. 컨트롤러가 path() 를 FileSystemResource 에
+   * 그대로 넘기므로 절대경로여야 한다.
+   *
+   * @return 다운로드용 파일 메타(절대 경로·이름·MIME·크기)
+   */
   @Transactional(readOnly = true)
   public MessageAttachmentRepository.StoredFileRow download(
       long callerId, long channelId, long messageId, Long fileId) {
@@ -110,8 +123,15 @@ public class MessageAttachmentService {
     if (!messageRepo.belongsToChannel(messageId, channelId)) {
       throw new InvalidMessageAttachmentException(fileId);
     }
-    return repo.findStoredFile(fileId, messageId)
-        .orElseThrow(() -> new InvalidMessageAttachmentException(fileId));
+    var row =
+        repo.findStoredFile(fileId, messageId)
+            .orElseThrow(() -> new InvalidMessageAttachmentException(fileId));
+    // 상대경로를 절대경로로 복원 — FileSystemResource 에 넘기기 전에 반드시 resolve 필요
+    return new MessageAttachmentRepository.StoredFileRow(
+        fileStore.resolve(row.path()).toString(),
+        row.originalName(),
+        row.mimeType(),
+        row.sizeBytes());
   }
 
   /** 채널 멤버 여부 확인. 비멤버면 ChannelNotMemberException 발생. */

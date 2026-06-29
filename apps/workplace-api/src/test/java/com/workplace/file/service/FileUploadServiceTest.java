@@ -10,11 +10,11 @@ import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.file.storage.FileStore;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.jooq.DSLContext;
@@ -31,6 +31,7 @@ class FileUploadServiceTest extends IntegrationTestBase {
   @Autowired private FileUploadService fileUploadService;
 
   @Autowired private DSLContext dsl;
+  @Autowired private FileStore fileStore;
 
   private Long testUserId;
   private Long otherUserId;
@@ -74,6 +75,15 @@ class FileUploadServiceTest extends IntegrationTestBase {
     assertThat(response.mimeType()).isEqualTo("image/png");
     assertThat(response.fileCategory()).isEqualTo("IMAGE");
     assertThat(response.fileSize()).isEqualTo("fake-png-content".length());
+
+    // storage_path 가 상대경로로 저장되는지 검증(절대경로 금지).
+    String storagePath =
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(response.id()))
+            .fetchOne(FILE.STORAGE_PATH);
+    assertThat(Path.of(storagePath).isAbsolute()).isFalse();
+    assertThat(storagePath).contains("tenant-1/files/");
   }
 
   @Test
@@ -266,7 +276,7 @@ class FileUploadServiceTest extends IntegrationTestBase {
 
   @AfterEach
   void cleanupUploadedFilesFromDisk() {
-    // Clean up any physical files written during tests (testUser 및 otherUser 모두 정리)
+    // 상대경로로 저장된 파일을 fileStore.deleteIfExists() 로 정리(Path.of() 직접 사용 시 CWD 기준으로 해석되어 오류).
     List<String> paths =
         dsl.select(FILE.STORAGE_PATH)
             .from(FILE)
@@ -274,8 +284,8 @@ class FileUploadServiceTest extends IntegrationTestBase {
             .fetchInto(String.class);
     for (String p : paths) {
       try {
-        Files.deleteIfExists(Path.of(p));
-      } catch (IOException ignored) {
+        fileStore.deleteIfExists(p);
+      } catch (Exception ignored) {
       }
     }
     TenantContext.clear();
