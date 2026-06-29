@@ -81,6 +81,7 @@ apps/workplace-api/data/
 # File uploads (runtime/storage)
 **/uploads/
 # 통합 파일 저장 루트(workplace.storage.root-dir 기본값) — 로컬/테스트 런타임 산출물, 커밋 금지
+**/storage-data/
 **/file-data/
 
 # Git worktrees (로컬 전용)

@@ -20,7 +20,7 @@ spring:
 # 파일 저장·첨부 통합 설정 (workplace.storage.* 단일 네임스페이스 — 모든 도메인 공유).
 workplace:
   storage:
-    root-dir: ${WORKPLACE_STORAGE_ROOT_DIR:./file-data}
+    root-dir: ${WORKPLACE_STORAGE_ROOT_DIR:./storage-data}
     max-files-per-request: 3
     expiry-hours: 24
     attachment:

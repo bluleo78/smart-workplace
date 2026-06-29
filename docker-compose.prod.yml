@@ -42,10 +42,10 @@ services:
       INTERNAL_SERVICE_TOKEN: ${WORKPLACE_AI_AGENT_TOKEN}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       # 파일 저장 루트 — worker 가 마운트하는 동일 공유 디렉터리로 고정.
-      WORKPLACE_STORAGE_ROOT_DIR: /data/files
+      WORKPLACE_STORAGE_ROOT_DIR: /data/storage-data
     volumes:
       # db-data·ai-agent-data 와 동일하게 호스트 bind mount 로 두어 백업·점검 용이.
-      - ./file-data:/data/files
+      - ./storage-data:/data/storage-data
     depends_on:
       db:
         condition: service_healthy
@@ -92,20 +92,20 @@ services:
       context: ./apps/workplace-worker
     environment:
       # api 파일 저장 루트와 동일 bind mount 경로. api 의 WORKPLACE_STORAGE_ROOT_DIR 과 일치해야 한다.
-      WORKER_BLOB_BASE: /data/files
+      WORKER_BLOB_BASE: /data/storage-data
       # 콜백 대상 /internal/worker/** 는 루트 경로(컨텍스트패스/api/v1 없음). ai-agent 와 달리 /api/v1 붙이면 404.
       WORKPLACE_API_BASE_URL: http://api:9090
       # api 의 WORKPLACE_AI_AGENT_TOKEN 과 동일 시크릿을 재사용(내부 서비스 공통 토큰).
       INTERNAL_SERVICE_TOKEN: ${WORKPLACE_AI_AGENT_TOKEN:?WORKPLACE_AI_AGENT_TOKEN is required}
     volumes:
-      - ./file-data:/data/files:ro
+      - ./storage-data:/data/storage-data:ro
     depends_on:
       api:
         condition: service_healthy
     networks:
       - workplace-net
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:7080/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7080/health > /dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
