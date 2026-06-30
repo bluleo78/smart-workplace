@@ -637,6 +637,92 @@ test(
 // 주/일 뷰 오늘 날짜 헤더 강조 회귀 검증 (이슈 #257)
 // ────────────────────────────────────────────────────────────
 
+// ────────────────────────────────────────────────────────────
+// 종일 일정 더블렌더 회귀 — M365 동기화 종일(UTC 자정)이 KST 에서 양일에 찍힘 (현충일 6/6·6/7)
+// ────────────────────────────────────────────────────────────
+
+// 반드시 KST 로 고정한다 — UTC 호스트에서는 +9h 시프트 버그가 재현되지 않아 회귀를 못 잡는다.
+test.describe('종일 일정 타임존 렌더 (KST 고정)', () => {
+  test.use({ timezoneId: 'Asia/Seoul' })
+
+  test(
+    '동기화 종일(UTC 자정 [6/6,6/7))은 월 뷰에서 6/6 셀에만 렌더된다',
+    async ({ authenticatedPage: page }) => {
+      await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+      // M365 동기화 종일은 UTC 자정 half-open [6/6 00:00Z, 6/7 00:00Z) 로 저장된다.
+      // instant 겹침으로 비교하면 배타적 end(6/7 00:00Z = 6/7 09:00 KST)가 6/7 셀에 걸려 더블렌더.
+      const store: CalendarEvent[] = [
+        calendarEvent({
+          id: 1, title: '현충일', allDay: true,
+          startsAt: '2026-06-06T00:00:00Z', endsAt: '2026-06-07T00:00:00Z',
+        }),
+      ]
+      await stubCalendarEvents(page, store)
+
+      await page.goto('/calendar')
+      await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+
+      // 정확히 한 셀에만 — 더블렌더면 count 2 (회귀)
+      await expect(page.getByTestId('calendar-event-1')).toHaveCount(1)
+      // 6/6 셀 안에 있고 6/7 셀엔 없다
+      await expect(
+        page.getByTestId('calendar-cell-2026-06-06').getByTestId('calendar-event-1'),
+      ).toBeVisible()
+      await expect(
+        page.getByTestId('calendar-cell-2026-06-07').getByTestId('calendar-event-1'),
+      ).toHaveCount(0)
+    },
+  )
+
+  test(
+    '주 뷰 종일 행 — 다중일 종일 [6/8,6/10)이 8·9일 두 컬럼에 걸쳐 표시된다',
+    async ({ authenticatedPage: page }) => {
+      // 2026-06-10(수) 고정 → 주(일~토)는 6/7~6/13. 다중일 종일 half-open [6/8,6/10) = 6/8·6/9 (6/10 제외).
+      // 기존 isSameDay(startsAt) 로직은 시작일(6/8)에만 찍어 1건 → 회귀. eventsOnDay 통일 후 2건.
+      await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+      const store: CalendarEvent[] = [
+        calendarEvent({
+          id: 1, title: '워크숍', allDay: true,
+          startsAt: '2026-06-08T00:00:00Z', endsAt: '2026-06-10T00:00:00Z',
+        }),
+      ]
+      await stubCalendarEvents(page, store)
+
+      await page.goto('/calendar')
+      await page.getByTestId('calendar-view-week-btn').click()
+      await expect(page.getByTestId('calendar-view-week')).toBeVisible()
+
+      // 걸친 날(6/8, 6/9) 두 컬럼에 렌더 — 배타적 end 인 6/10 에는 안 찍힘
+      await expect(page.getByTestId('calendar-event-1')).toHaveCount(2)
+    },
+  )
+
+  test(
+    '어젠다 — 동기화 종일(UTC 자정)이 의도한 날짜(6/6 토)로 한 줄 표시된다',
+    async ({ authenticatedPage: page }) => {
+      await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+      const store: CalendarEvent[] = [
+        calendarEvent({
+          id: 1, title: '현충일', allDay: true,
+          startsAt: '2026-06-06T00:00:00Z', endsAt: '2026-06-07T00:00:00Z',
+        }),
+      ]
+      await stubCalendarEvents(page, store)
+
+      await page.goto('/calendar')
+      await page.getByTestId('calendar-view-agenda-btn').click()
+      await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
+
+      // 한 줄만(중복 없음) + 날짜 라벨이 6.6 (토) — instant 로 밀리지 않음
+      await expect(page.getByTestId('calendar-event-1')).toHaveCount(1)
+      await expect(page.getByText('6.6 (토)')).toBeVisible()
+    },
+  )
+})
+
 test(
   '주/일 뷰 — 오늘 날짜 컬럼 헤더가 primary 배지로 강조된다 (이슈 #257)',
   async ({ authenticatedPage: page }) => {

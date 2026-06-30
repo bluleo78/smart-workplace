@@ -3,7 +3,7 @@ import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { Flag } from 'lucide-react'
 
-import { hhmm } from '@/lib/calendar'
+import { allDayLocalDate, hhmm } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
@@ -14,11 +14,17 @@ type Row =
   | { kind: 'event'; sortKey: number; event: CalendarEvent }
   | { kind: 'due'; sortKey: number; marker: IssueDueMarker }
 
+// 일정의 표시·정렬 기준 Date. 종일은 instant 가 아니라 복원한 캘린더 날짜(로컬 자정)를 쓴다
+// — 동기화 UTC 자정 종일이 타임존에 따라 하루 밀려 표시되던 문제를 막고 MonthView·TimeGrid 와 통일.
+function eventDate(e: CalendarEvent): Date {
+  return e.allDay ? allDayLocalDate(e.startsAt) : new Date(e.startsAt)
+}
+
 // 목록 뷰 컴포넌트
 export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: ViewProps) {
-  // 일정은 startsAt, 마감은 dueDate(자정) 기준으로 한데 모아 오름차순 정렬.
+  // 일정은 startsAt(종일은 복원 날짜), 마감은 dueDate(자정) 기준으로 한데 모아 오름차순 정렬.
   const rows: Row[] = [
-    ...events.map<Row>((e) => ({ kind: 'event', sortKey: new Date(e.startsAt).getTime(), event: e })),
+    ...events.map<Row>((e) => ({ kind: 'event', sortKey: eventDate(e).getTime(), event: e })),
     ...issueDues.map<Row>((m) => ({
       kind: 'due',
       sortKey: new Date(`${m.dueDate.slice(0, 10)}T00:00:00`).getTime(),
@@ -42,7 +48,7 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
             >
               {/* 날짜 */}
               <span className="text-sm text-muted-foreground w-28 shrink-0">
-                {format(new Date(row.event.startsAt), 'M.d (EEE)', { locale: ko })}
+                {format(eventDate(row.event), 'M.d (EEE)', { locale: ko })}
               </span>
               {/* 시간 — 종일 이벤트는 '종일' 표시 */}
               <span className="text-sm text-muted-foreground w-16 shrink-0">

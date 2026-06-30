@@ -1,6 +1,6 @@
 // 주/일 뷰 공용 타임그리드 컴포넌트.
 // WeekView(7일)와 DayView(1일)가 동일한 레이아웃을 공유한다.
-import { format, isSameDay, isToday } from 'date-fns'
+import { format, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
@@ -85,9 +85,9 @@ export function TimeGrid({
       <div className="flex border-b shrink-0">
         <div className="w-12 shrink-0 text-xs text-muted-foreground px-1 py-1 leading-5">종일</div>
         {days.map((day) => {
-          const allDayEvts = events.filter(
-            (e) => e.allDay && isSameDay(new Date(e.startsAt), day),
-          )
+          // 종일은 eventsOnDay 공통 로직으로 매칭 — 캘린더 날짜 half-open 비교(다중일 종일은 걸친 날마다,
+          // 동기화 UTC 자정 종일도 의도한 날에만). MonthView 와 동일 chokepoint.
+          const allDayEvts = eventsOnDay(events, day).filter((e) => e.allDay)
           // 마감일은 날짜 단위라 종일 줄에 함께 표시.
           const dayDues = issueDuesOnDay(issueDues, day)
           return (

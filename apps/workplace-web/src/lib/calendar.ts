@@ -34,11 +34,33 @@ export function visibleRange(view: CalendarViewType, anchor: Date): { from: stri
   return { from: start.toISOString(), to: end.toISOString() }
 }
 
+// 종일 일정의 "의도한 캘린더 날짜"를 타임존 독립적으로 복원해 로컬 자정 Date 로 반환한다.
+// 종일 저장 표현이 두 갈래다: 동기화(M365)는 UTC 자정 [D 00:00Z, D+1 00:00Z), 로컬 생성은
+// 현지 자정 instant(KST 는 전날 15:00Z). 둘 다 어떤 UTC 자정에서 ±12h 안에 있으므로, 백엔드
+// CalendarEventService.toGraphDateTime 과 동일하게 instant 에 +12h 를 더해 가장 가까운 UTC 자정으로
+// 반올림하면 의도 날짜가 복원된다. instant 비교를 쓰면 UTC 자정 종일이 KST 에서 +9h 밀려 배타적
+// end(D+1 00:00Z = D+1 09:00 KST)가 다음 날 셀에 걸려 양일에 찍힌다(현충일 6/6·6/7 버그).
+// 종일 일정의 날짜 표시·정렬·셀 매칭은 모두 이 헬퍼로 통일한다(MonthView·TimeGrid·AgendaView).
+export function allDayLocalDate(iso: string): Date {
+  const shifted = new Date(new Date(iso).getTime() + 12 * 60 * 60 * 1000)
+  return new Date(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate())
+}
+
+// yyyymmdd 정수 키 — 날짜 비교용(시각 시프트 차단).
+function dateKey(day: Date): number {
+  return day.getFullYear() * 10000 + (day.getMonth() + 1) * 100 + day.getDate()
+}
+
 // 특정 날짜와 겹치는 일정.
 export function eventsOnDay(events: CalendarEvent[], day: Date): CalendarEvent[] {
   const dayStart = startOfDay(day)
   const dayEnd = endOfDay(day)
+  const cellKey = dateKey(day)
   return events.filter((e) => {
+    // 종일은 시각이 아니라 캘린더 날짜로 half-open [start,end) 비교(배타적 end 날짜 제외).
+    if (e.allDay) {
+      return dateKey(allDayLocalDate(e.startsAt)) <= cellKey && cellKey < dateKey(allDayLocalDate(e.endsAt))
+    }
     const s = new Date(e.startsAt)
     const en = new Date(e.endsAt)
     return s <= dayEnd && en > dayStart
