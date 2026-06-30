@@ -30,9 +30,11 @@ export function IssueChatButton({
   // recentMessages 범위 내 근사치(라이브 델타는 아래에서 합산). 열려 있으면 읽음 처리되므로 0.
   const baseUnread = useMemo(() => {
     const data = threadQ.data;
-    if (!data) return 0;
+    // 스레드 응답이 없거나 형태가 어긋나면(빈/비정상 페이로드) 미읽음 0 — 헤더 버튼이
+    // 이슈 상세 진입 시 항상 마운트되므로, 깨진 데이터로 페이지 전체가 죽지 않도록 방어.
+    if (!data || !Array.isArray(data.recentMessages)) return 0;
     const myLastRead =
-      data.members.find((m) => m.userId === currentUserId)?.lastReadMessageId ?? 0;
+      data.members?.find((m) => m.userId === currentUserId)?.lastReadMessageId ?? 0;
     return data.recentMessages.filter(
       (m) => m.id > myLastRead && m.authorId !== currentUserId && !m.deleted,
     ).length;

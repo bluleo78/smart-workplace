@@ -152,6 +152,8 @@ test.describe('chat 실시간 SSE', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+      // 채팅은 드로어로 이동(#558) — 메시지 단언 전 드로어를 연다.
+      await page.getByTestId('issue-chat-open').click();
 
       // SSE 프레임으로 도착한 메시지가 렌더돼야 한다 (create POST 없이).
       await expect(page.getByText('SSE 실시간 메시지')).toBeVisible();
@@ -248,6 +250,8 @@ test.describe('chat 실시간 SSE', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // 채팅은 드로어로 이동(#558) — 메시지 단언 전 드로어를 연다.
+    await page.getByTestId('issue-chat-open').click();
 
     // 시드된 SAVED_ID 행이 먼저 렌더돼야 한다.
     await expect(page.getByTestId(`chat-message-body-${SAVED_ID}`)).toHaveCount(1);

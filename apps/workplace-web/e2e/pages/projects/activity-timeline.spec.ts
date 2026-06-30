@@ -79,8 +79,8 @@ test.describe('IssueActivityTimeline — 액터 보더 색상', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -130,8 +130,8 @@ test.describe('IssueActivityTimeline 날짜 포맷 (#320)', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -177,8 +177,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       // 활동 타임라인 섹션 대기
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
@@ -228,8 +228,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -273,8 +273,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -315,8 +315,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -368,8 +368,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -417,8 +417,8 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -457,8 +457,8 @@ test.describe('IssueActivityTimeline — 접기/펼치기 (#341)', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -495,8 +495,8 @@ test.describe('IssueActivityTimeline — 접기/펼치기 (#341)', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const timeline = page.getByRole('list', { name: '활동 타임라인' });
       await expect(timeline).toBeVisible();
@@ -533,8 +533,8 @@ test.describe('IssueActivityTimeline — 접기/펼치기 (#341)', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       const moreBtn = page.getByRole('button', { name: '이전 3건 활동 더 보기' });
       await expect(moreBtn).toBeVisible();
@@ -574,8 +574,8 @@ test.describe('IssueActivityTimeline — 접기/펼치기 (#341)', () => {
       );
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /활동/ }).click();
+      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+      await page.getByRole('tab', { name: /이력/ }).click();
 
       // 더 보기 → 접기 사이클
       await page.getByRole('button', { name: '이전 3건 활동 더 보기' }).click();

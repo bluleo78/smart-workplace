@@ -121,8 +121,7 @@ test(
     );
 
     // ── 페이지 진입 — 채팅 드로워 닫힘, 헤더 채팅 버튼 노출 ──────────────
-    // 넓은 뷰포트: 중앙 상단 AI 런처 칩(fixed)이 좌측 헤더 채팅 버튼과 겹쳐 클릭을 가로채지 않도록.
-    await page.setViewportSize({ width: 1440, height: 900 });
+    // 채팅 버튼은 제목 '앞'(최좌측) 고정이라 중앙 상단 AI 런처 칩과 겹치지 않는다(뷰포트 우회 불필요).
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await expect(page.getByTestId('issue-chat-open')).toBeVisible();
 

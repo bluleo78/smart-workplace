@@ -193,7 +193,7 @@ test.describe('이슈 chat panel', () => {
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
       // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
-      await page.getByTestId('issue-chat-panel-open').click();
+      await page.getByTestId('issue-chat-open').click();
 
       await expect(page.getByTestId('chat-section')).toBeVisible();
       await expect(page.getByTestId('chat-empty')).toBeVisible();
@@ -233,7 +233,7 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     const submit = page.getByTestId('chat-composer-submit');
@@ -280,7 +280,7 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     const submit = page.getByTestId('chat-composer-submit');
@@ -324,7 +324,7 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     await input.click();
@@ -374,6 +374,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
+    await page.getByTestId('issue-chat-open').click();
 
     // 인라인 편집기 열고 '@' 입력으로 그 인스턴스의 멘션 팝업을 띄운다.
     const row700 = page.getByTestId('chat-message-700');
@@ -421,6 +423,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
+    await page.getByTestId('issue-chat-open').click();
 
     const row = page.getByTestId('chat-message-500');
     await expect(row).toBeVisible();
@@ -474,6 +478,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
+    await page.getByTestId('issue-chat-open').click();
 
     // 수정.
     const row600 = page.getByTestId('chat-message-600');
@@ -527,6 +533,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
+    await page.getByTestId('issue-chat-open').click();
 
     // 마지막 행이 viewport 안에 있어야 함 (section 전체가 보임).
     await page.getByTestId('chat-message-700').scrollIntoViewIfNeeded();
@@ -564,6 +572,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
+    await page.getByTestId('issue-chat-open').click();
     await expect(page.getByTestId('chat-message-list')).toBeVisible();
 
     // 뷰포트가 바닥에 도달했는지 직접 검증 (chat section 이 페이지 fold 아래라 toBeInViewport 는 혼동됨).
@@ -593,7 +603,7 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     await input.click();
@@ -636,6 +646,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
+    await page.getByTestId('issue-chat-open').click();
 
     const row = page.getByTestId('chat-message-800');
     await row.hover();
@@ -692,7 +704,7 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     await input.click();
@@ -730,7 +742,7 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
 
     await page.getByTestId('chat-composer-input').click();
     await page.keyboard.type('타이핑');
@@ -770,7 +782,7 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
 
     // 다른 멤버 typing → 인디케이터 노출. 본인 이벤트는 self-filter 로 표시되지 않는다.
     // (TTL 소멸은 재방출 모킹과 경합해 안정적으로 검증하기 어려워 생략 — TTL 로직은 단위 미검증.)
@@ -813,7 +825,7 @@ test.describe('이슈 chat panel', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     await input.click();
@@ -883,6 +895,8 @@ test.describe('이슈 chat panel', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
+    await page.getByTestId('issue-chat-open').click();
 
     const row = page.getByTestId('chat-message-600');
     await row.hover();
@@ -937,6 +951,8 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
+    await page.getByTestId('issue-chat-open').click();
 
     // 날짜 구분선 3개(첫 메시지 앞 + 날짜 전환 2회)
     await expect(page.getByTestId('date-divider')).toHaveCount(3);
@@ -968,7 +984,7 @@ test.describe('이슈 chat panel', () => {
     await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
 
     const input = page.getByTestId('chat-composer-input');
     await input.click();

@@ -80,8 +80,8 @@ test('AGENT 가 일으킨 이력은 시각적으로 구분된다', async ({ auth
   );
 
   await page.goto('/projects/WP/issues/1');
-  // 활동 섹션은 '활동' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-  await page.getByRole('tab', { name: /활동/ }).click();
+  // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
+  await page.getByRole('tab', { name: /이력/ }).click();
 
   const timeline = page.getByRole('list', { name: '활동 타임라인' });
   await expect(timeline).toBeVisible();

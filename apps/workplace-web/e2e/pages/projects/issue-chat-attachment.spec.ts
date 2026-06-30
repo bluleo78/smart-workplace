@@ -188,7 +188,7 @@ test(
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
     // 빈 recentMessages → 패널 접힘(open 토글 노출) → 클릭해서 펼침.
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
     await expect(page.getByTestId('chat-section')).toBeVisible();
 
     // ── 검증 1: 첨부 버튼 노출 ───────────────────────────────────────────
@@ -378,7 +378,7 @@ test(
 
     // ── 페이지 진입 + 채팅 패널 펼침 ──────────────────────────────────────
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await page.getByTestId('issue-chat-panel-open').click();
+    await page.getByTestId('issue-chat-open').click();
     await expect(page.getByTestId('chat-section')).toBeVisible();
 
     // ── 검증 1: 드라이브 링크 버튼 활성화 ─────────────────────────────────

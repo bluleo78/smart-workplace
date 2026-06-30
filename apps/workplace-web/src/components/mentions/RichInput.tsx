@@ -173,9 +173,14 @@ export function RichInput({
                   props,
                   editor: props.editor,
                 });
+                // 모달 드로어(Sheet=role="dialog") 안에서는 body 로 portal 된 팝업이
+                // Radix 의 pointer-events:none 로 클릭 투과돼 옵션 선택이 막힌다(#558 채팅 드로워).
+                // 에디터가 dialog 안이면 그 dialog 에 append 해 인터랙티브 영역 안에 둔다(밖이면 body).
+                const editorDom = props.editor.view.dom as HTMLElement;
+                const dialog = editorDom.closest<HTMLElement>('[role="dialog"]');
                 popup = tippy(document.body, {
                   getReferenceClientRect: props.clientRect as () => DOMRect,
-                  appendTo: () => document.body,
+                  appendTo: () => dialog ?? document.body,
                   content: component.element,
                   showOnCreate: true,
                   interactive: true,

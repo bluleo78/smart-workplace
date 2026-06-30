@@ -339,6 +339,17 @@ export default function IssueDetailPage() {
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
         contained
+        // 채팅 드로워 토글 — 제목 '앞'(최좌측) 컨트롤로 고정. meta(제목 뒤)에 두면 가변 길이
+        // 제목이 버튼을 중앙으로 밀어 글로벌 AI 런처(fixed top-center)와 겹쳐 클릭이 가로채진다.
+        // icon 슬롯은 '제목 앞 컨트롤' 용도라 제목 길이와 무관하게 왼쪽 고정 + 런처 회피.
+        icon={
+          <IssueChatButton
+            projectKey={key}
+            issueNumber={issueNumber}
+            open={chatOpen}
+            onOpen={() => setChatOpen(true)}
+          />
+        }
         title={
           <InlineEditableTitle
             title={summary.title}
@@ -367,13 +378,6 @@ export default function IssueDetailPage() {
                 ⛔ 차단됨
               </span>
             )}
-            {/* 채팅 드로워 토글 — 좌측(채널 '파일' 버튼 패턴). 미읽음 배지 + 토글 상태 표시. */}
-            <IssueChatButton
-              projectKey={key}
-              issueNumber={issueNumber}
-              open={chatOpen}
-              onOpen={() => setChatOpen(true)}
-            />
           </>
         }
         actions={
