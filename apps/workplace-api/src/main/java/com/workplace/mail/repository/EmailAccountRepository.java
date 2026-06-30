@@ -389,6 +389,33 @@ public class EmailAccountRepository {
   public record ActiveAccount(long accountId, long userId) {}
 
   /**
+   * purge 대상(soft-deleted) 계정 목록 — 현재 테넌트의 disabled_at 이 채워진 계정.
+   *
+   * <p>비동기 purge 스케줄러가 물리 삭제 대상을 열거하는 데 쓴다. @Transactional(readOnly=true) 로 GUC 가 주입된다. 반환 타입은
+   * {@link ActiveAccount} 재사용.
+   */
+  @org.springframework.transaction.annotation.Transactional(readOnly = true)
+  public List<ActiveAccount> findDisabledForPurge() {
+    return dsl.select(EMAIL_ACCOUNT.ID, EMAIL_ACCOUNT.USER_ID)
+        .from(EMAIL_ACCOUNT)
+        .where(EMAIL_ACCOUNT.DISABLED_AT.isNotNull())
+        .fetch(r -> new ActiveAccount(r.get(EMAIL_ACCOUNT.ID), r.get(EMAIL_ACCOUNT.USER_ID)));
+  }
+
+  /**
+   * 계정 하드 삭제. FK ON DELETE CASCADE 로 email_folder · email_message(→email_attachment) ·
+   * calendar(→calendar_event→reminder/attendee/notification/exception) 가 함께 삭제된다. 공유되는
+   * email_content/content_attachment/blob 은 cascade 대상이 아니므로 AccountPurgeService 가 별도 GC 한다.
+   *
+   * <p>반드시 TenantContext + @Transactional 컨텍스트 안에서 호출(RLS).
+   *
+   * @return 영향 행 수
+   */
+  public int hardDelete(long accountId) {
+    return dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(accountId)).execute();
+  }
+
+  /**
    * OAuth 토큰 레코드 — 암호화 상태 그대로 반환한다. 복호화는 GraphTokenService 책임.
    *
    * @param refreshToken 암호화된 refresh_token

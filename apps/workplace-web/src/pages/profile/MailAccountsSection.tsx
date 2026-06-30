@@ -110,7 +110,7 @@ export function MailAccountsSection() {
                   entityName="메일 계정"
                   itemName={acc.emailAddress}
                   onConfirm={() => del.mutate(acc.id)}
-                  description="이 계정과 연결된 동기화 메일이 모두 삭제됩니다. 계속하시겠습니까?"
+                  description="이 계정과 동기화된 메일·일정이 모두 영구 삭제됩니다. 되돌릴 수 없습니다. 계속하시겠습니까?"
                   trigger={
                     <Button
                       size="sm"

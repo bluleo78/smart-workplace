@@ -1,8 +1,11 @@
 package com.workplace.mail.repository;
 
+import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
 import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_BLOB;
 
 import com.workplace.mail.dto.AttachmentCacheUsage;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -62,5 +65,26 @@ public class MailAttachmentBlobRepository {
     // logicalBytes 는 의도적으로 0L 로 두고, 호출자(MailAttachmentMeteringService.currentTenantUsage())에서
     // 계산·덮어씀
     return new AttachmentCacheUsage(physical, 0L, count);
+  }
+
+  /**
+   * 후보 해시 중 content_attachment 가 더 이상 참조하지 않는 고아 blob 의 DB 행을 삭제하고, 삭제된 file_ref 목록을 반환한다.
+   *
+   * <p>blob 은 content_hash 로 메시지·계정 간 dedup 공유되므로, 계정 purge 로 일부 content_attachment 가 사라진 뒤 "아무
+   * content_attachment 도 안 쓰는" 해시만 안전하게 정리한다. 디스크 파일 삭제는 호출측이 커밋 이후 수행한다.
+   *
+   * @param candidateHashes purge 대상 계정이 참조하던 content_hash 후보 집합
+   * @return 삭제된 blob 의 file_ref 목록(디스크 삭제 대상)
+   */
+  public List<String> deleteOrphanBlobsByHash(Collection<String> candidateHashes) {
+    if (candidateHashes == null || candidateHashes.isEmpty()) return List.of();
+    return dsl.deleteFrom(MAIL_ATTACHMENT_BLOB)
+        .where(MAIL_ATTACHMENT_BLOB.CONTENT_HASH.in(candidateHashes))
+        .andNotExists(
+            dsl.selectOne()
+                .from(CONTENT_ATTACHMENT)
+                .where(CONTENT_ATTACHMENT.CONTENT_HASH.eq(MAIL_ATTACHMENT_BLOB.CONTENT_HASH)))
+        .returning(MAIL_ATTACHMENT_BLOB.FILE_REF)
+        .fetch(MAIL_ATTACHMENT_BLOB.FILE_REF);
   }
 }

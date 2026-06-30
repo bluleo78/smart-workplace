@@ -2,6 +2,7 @@ package com.workplace.calendar.repository;
 
 import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.EVENT_REMINDER;
 
@@ -37,6 +38,23 @@ public class CalendarEventRepository {
                     .from(EVENT_ATTENDEE)
                     .where(EVENT_ATTENDEE.EVENT_ID.eq(CALENDAR_EVENT.ID))
                     .and(EVENT_ATTENDEE.USER_ID.eq(callerId))));
+  }
+
+  /**
+   * 외부 캘린더 가시성 조건: 소속 캘린더가 로컬(external_account_id IS NULL)이거나, 연결된 메일 계정이 활성(disabled_at IS NULL)일
+   * 때만 보인다. 계정 soft-delete 시 그 계정 캘린더의 일정을 목록(range/반복 마스터)에서 즉시 숨기기 위함. 두 목록 조회에 동일 적용.
+   * leftJoin(CALENDAR) 가 선행되어야 한다.
+   */
+  private static Condition visibleExternalCondition() {
+    return CALENDAR
+        .EXTERNAL_ACCOUNT_ID
+        .isNull()
+        .or(
+            DSL.exists(
+                DSL.selectOne()
+                    .from(EMAIL_ACCOUNT)
+                    .where(EMAIL_ACCOUNT.ID.eq(CALENDAR.EXTERNAL_ACCOUNT_ID))
+                    .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())));
   }
 
   /** 일정 생성 — calendarId resolve 완료 후 호출. 생성된 id 반환. */
@@ -167,6 +185,7 @@ public class CalendarEventRepository {
         .leftJoin(CALENDAR)
         .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
         .where(accessibleBy(callerId))
+        .and(visibleExternalCondition())
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
         .and(CALENDAR_EVENT.ENDS_AT.gt(from))
         .and(CALENDAR_EVENT.RECURRENCE_RULE.isNull())
@@ -190,6 +209,7 @@ public class CalendarEventRepository {
         .leftJoin(CALENDAR)
         .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
         .where(accessibleBy(callerId))
+        .and(visibleExternalCondition())
         .and(CALENDAR_EVENT.RECURRENCE_RULE.isNotNull())
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
         .fetch(CalendarEventRepository::toResponse);

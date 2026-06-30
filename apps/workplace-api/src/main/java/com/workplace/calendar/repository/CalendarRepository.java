@@ -2,14 +2,17 @@ package com.workplace.calendar.repository;
 
 import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 
 import com.workplace.calendar.dto.CalendarResponse;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** calendar 컨테이너 jOOQ 접근. 소유자 스코프 + 테넌트 RLS 는 GUC 로 자동 격리. */
@@ -18,12 +21,29 @@ import org.springframework.stereotype.Repository;
 public class CalendarRepository {
   private final DSLContext dsl;
 
-  /** 소유자의 캘린더 목록(position, id 정렬). */
+  /** 소유자의 캘린더 목록(position, id 정렬). 비활성 외부 계정의 캘린더는 제외(즉시 hide). */
   public List<CalendarResponse> listByOwner(long ownerId) {
     return dsl.selectFrom(CALENDAR)
         .where(CALENDAR.OWNER_ID.eq(ownerId))
+        .and(visibleExternalCondition())
         .orderBy(CALENDAR.POSITION.asc(), CALENDAR.ID.asc())
         .fetch(CalendarRepository::toResponse);
+  }
+
+  /**
+   * 외부 캘린더 가시성 조건: 로컬 캘린더(external_account_id IS NULL)이거나, 연결된 메일 계정이 활성(disabled_at IS NULL)일 때만
+   * 보인다. 계정 soft-delete 시 그 계정의 외부 캘린더를 메일과 동일하게 즉시 숨기기 위함.
+   */
+  private static Condition visibleExternalCondition() {
+    return CALENDAR
+        .EXTERNAL_ACCOUNT_ID
+        .isNull()
+        .or(
+            DSL.exists(
+                DSL.selectOne()
+                    .from(EMAIL_ACCOUNT)
+                    .where(EMAIL_ACCOUNT.ID.eq(CALENDAR.EXTERNAL_ACCOUNT_ID))
+                    .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())));
   }
 
   /** 캘린더 생성 — 생성 id 반환. tenant_id 는 GUC DEFAULT 가 채움. */
@@ -44,6 +64,7 @@ public class CalendarRepository {
     return dsl.selectFrom(CALENDAR)
         .where(CALENDAR.ID.eq(id))
         .and(CALENDAR.OWNER_ID.eq(ownerId))
+        .and(visibleExternalCondition())
         .fetchOptional()
         .map(CalendarRepository::toResponse);
   }

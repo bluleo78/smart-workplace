@@ -200,7 +200,7 @@ test.describe('메일 계정 설정', () => {
     // 삭제 버튼 클릭 → AlertDialog 표시 확인 (#182)
     await page.getByTestId('mail-delete-1').click();
     await expect(page.getByRole('alertdialog')).toBeVisible();
-    await expect(page.getByRole('alertdialog')).toContainText('이 계정과 연결된 동기화 메일이 모두 삭제됩니다.');
+    await expect(page.getByRole('alertdialog')).toContainText('이 계정과 동기화된 메일·일정이 모두 영구 삭제됩니다.');
 
     // 취소 → 행 유지
     await page.getByRole('button', { name: '취소' }).click();
