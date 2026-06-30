@@ -110,6 +110,13 @@ export const driveApi = {
 
   getSpace: (spaceId: number) => client.get<DriveSpace>(`/drive/spaces/${spaceId}`),
 
+  // TEAM 공간 이름 변경 — OWNER 전용.
+  renameSpace: (spaceId: number, name: string) =>
+    client.patch<DriveSpace>(`/drive/spaces/${spaceId}`, { name }),
+
+  // TEAM 공간 즉시 하드삭제 — OWNER 전용. 내용물 통째 삭제.
+  deleteSpace: (spaceId: number) => client.delete<void>(`/drive/spaces/${spaceId}`),
+
   listMembers: (spaceId: number) =>
     client.get<DriveMember[]>(`/drive/spaces/${spaceId}/members`),
 

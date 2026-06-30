@@ -1,8 +1,18 @@
-import { HardDrive, Paperclip, Plus } from 'lucide-react'
+import { HardDrive, MoreHorizontal, Paperclip, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -12,7 +22,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { RenameDialog } from '@/components/ui/rename-dialog'
 import { partitionSpaces } from '@/lib/driveSpaces'
 
 import { driveApi } from '../../api/drive'
@@ -27,6 +44,9 @@ export function DriveSidebar() {
   const [spaceName, setSpaceName] = useState('')
   // 드라이브 쿼터 — 사이드바 하단 사용량 바 (#81).
   const [quota, setQuota] = useState<DriveQuota | null>(null)
+  // TEAM 공간 이름 변경/삭제 대상 — kebab 메뉴에서 설정(제어형 다이얼로그).
+  const [renameTarget, setRenameTarget] = useState<DriveSpace | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<DriveSpace | null>(null)
 
   async function reload() {
     const { data } = await driveApi.listSpaces()
@@ -54,6 +74,24 @@ export function DriveSidebar() {
     const { data } = await driveApi.createSpace(trimmed)
     await reload()
     navigate(`/drive/spaces/${data.id}`)
+  }
+
+  /** 이름 변경 확정 — RenameDialog onConfirm. */
+  async function submitRename(name: string) {
+    if (!renameTarget) return
+    await driveApi.renameSpace(renameTarget.id, name)
+    setRenameTarget(null)
+    await reload()
+  }
+
+  /** 삭제 확정 — 내용물 통째 영구삭제. 보고 있던 공간이면 드라이브 홈으로 이동. */
+  async function submitDelete() {
+    if (!deleteTarget) return
+    const id = deleteTarget.id
+    setDeleteTarget(null)
+    await driveApi.deleteSpace(id)
+    await reload()
+    navigate('/drive')
   }
 
   // 채널 연동 space(type==='CHANNEL')는 드라이브 사이드바에 노출하지 않는다.
@@ -102,13 +140,44 @@ export function DriveSidebar() {
         </div>
         <nav className="mt-2 space-y-1" data-testid="drive-space-list">
           {primary.map((s) => (
-            <NavLink
-              key={s.id}
-              to={`/drive/spaces/${s.id}`}
-              className={({ isActive }) => sidebarLinkClass({ isActive })}
-            >
-              {s.type === 'PERSONAL' ? '내 드라이브' : s.name}
-            </NavLink>
+            <div key={s.id} className="group/space relative flex items-center">
+              <NavLink
+                to={`/drive/spaces/${s.id}`}
+                className={({ isActive }) => sidebarLinkClass({ isActive }) + ' flex-1 pr-7'}
+              >
+                {s.type === 'PERSONAL' ? '내 드라이브' : s.name}
+              </NavLink>
+              {/* TEAM 공간 + OWNER 만 이름 변경/삭제 메뉴 노출(개인·채널 공간 제외) */}
+              {s.type === 'TEAM' && s.role === 'OWNER' && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`${s.name} 메뉴`}
+                      data-testid={`drive-space-menu-${s.id}`}
+                      className="absolute right-1 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 group-hover/space:opacity-100"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      data-testid={`drive-space-rename-${s.id}`}
+                      onSelect={() => setRenameTarget(s)}
+                    >
+                      이름 변경
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      data-testid={`drive-space-delete-${s.id}`}
+                      onSelect={() => setDeleteTarget(s)}
+                    >
+                      삭제
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
           ))}
         </nav>
       </div>
@@ -169,6 +238,43 @@ export function DriveSidebar() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* TEAM 공간 이름 변경 — 제어형 RenameDialog */}
+      <RenameDialog
+        open={renameTarget != null}
+        title="공간 이름 변경"
+        initialValue={renameTarget?.name ?? ''}
+        onConfirm={(name) => void submitRename(name)}
+        onClose={() => setRenameTarget(null)}
+      />
+
+      {/* TEAM 공간 삭제 — 내용물 통째 영구삭제 경고 */}
+      <AlertDialog
+        open={deleteTarget != null}
+        onOpenChange={(o) => {
+          if (!o) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent data-testid="drive-space-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>공간 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              &quot;{deleteTarget?.name}&quot; 공간과 모든 파일·폴더가 영구 삭제됩니다. 이 작업은
+              되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              data-testid="drive-space-delete-confirm"
+              onClick={() => void submitDelete()}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </aside>
   )
 }
