@@ -39,3 +39,12 @@ export function useDeleteCalendar() {
     onSuccess: () => qc.invalidateQueries({ queryKey: calendarKeys.all }),
   })
 }
+
+/** 캘린더 강제 리셋(모든 일정 삭제) — 성공 시 일정/캘린더 캐시 무효화. */
+export function useResetCalendarEvents() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => calendarsApi.resetEvents(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: calendarKeys.all }),
+  })
+}

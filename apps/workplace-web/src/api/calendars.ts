@@ -7,4 +7,6 @@ export const calendarsApi = {
   create: (body: CalendarRequest) => client.post<Calendar>('/calendars', body),
   update: (id: number, body: CalendarRequest) => client.patch<Calendar>(`/calendars/${id}`, body),
   remove: (id: number) => client.delete<void>(`/calendars/${id}`),
+  // 한 캘린더의 모든 일정 강제 리셋(하드 삭제). 로컬 캘린더만 허용(서버 가드).
+  resetEvents: (id: number) => client.post<void>(`/calendars/${id}/reset`),
 }

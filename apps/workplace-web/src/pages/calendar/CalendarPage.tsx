@@ -27,7 +27,7 @@ import {
   useDeleteEvent,
   useUpdateEvent,
 } from '@/hooks/queries/useCalendarMutations'
-import { useCalendars, useCreateCalendar, useDeleteCalendar, useUpdateCalendar } from '@/hooks/queries/useCalendars'
+import { useCalendars, useCreateCalendar, useDeleteCalendar, useResetCalendarEvents, useUpdateCalendar } from '@/hooks/queries/useCalendars'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import {
   type CalendarLayers,
@@ -88,6 +88,9 @@ export function CalendarPage() {
   const createCal = useCreateCalendar()
   const updateCal = useUpdateCalendar()
   const deleteCal = useDeleteCalendar()
+  const resetCal = useResetCalendarEvents()
+  // 리셋 확인 다이얼로그에 표시할 캘린더(null=닫힘).
+  const [resettingCal, setResettingCal] = useState<Calendar | null>(null)
 
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
@@ -234,6 +237,14 @@ export function CalendarPage() {
     deleteCal.mutate(editingCal.id, { onSuccess: () => setCalEditOpen(false) })
   }
 
+  // 케밥 "모든 일정 삭제" → 확인 다이얼로그 오픈.
+  const openResetCalendar = (c: Calendar) => setResettingCal(c)
+  // 확인 → 리셋 실행 후 다이얼로그 닫기.
+  const confirmResetCalendar = () => {
+    if (!resettingCal) return
+    resetCal.mutate(resettingCal.id, { onSuccess: () => setResettingCal(null) })
+  }
+
   const viewProps = {
     events: visibleEvents,
     issueDues: layers.issueDues ? issueDues : [],
@@ -255,6 +266,7 @@ export function CalendarPage() {
         onToggleCalendar={onToggleCalendar}
         onAddCalendar={openAddCalendar}
         onEditCalendar={openEditCalendar}
+        onResetCalendar={openResetCalendar}
         markedDates={markedDates}
       />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -339,6 +351,28 @@ export function CalendarPage() {
           onCancel={cancelScope}
         />
       )}
+
+      {/* 캘린더 강제 리셋(모든 일정 삭제) 확인 다이얼로그 */}
+      <AlertDialog open={resettingCal != null} onOpenChange={(o) => !o && setResettingCal(null)}>
+        <AlertDialogContent data-testid="calendar-reset-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>모든 일정 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              {resettingCal?.name}의 모든 일정을 영구 삭제합니다. 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="calendar-reset-confirm-submit"
+              variant="destructive"
+              onClick={confirmResetCalendar}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 단일 일정 삭제 확인 다이얼로그 */}
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>

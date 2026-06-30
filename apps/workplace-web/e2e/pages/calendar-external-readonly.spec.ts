@@ -88,11 +88,11 @@ test(
     await expect(externalRow.getByTestId('calendar-readonly-badge')).toBeVisible()
     await expect(externalRow.getByTestId('calendar-readonly-badge')).toContainText('읽기 전용')
 
-    // 외부 캘린더(id=10): 편집 버튼이 없어야 한다.
-    await expect(page.getByTestId('calendar-edit-10')).toHaveCount(0)
+    // 외부 캘린더(id=10): 읽기전용 = 케밥 메뉴 트리거가 없어야 한다.
+    await expect(page.getByTestId('calendar-menu-10')).toHaveCount(0)
 
-    // 로컬 캘린더(id=1): 편집 버튼이 있어야 한다 (숨겨진 상태라도 DOM 에 존재).
-    await expect(page.getByTestId('calendar-edit-1')).toHaveCount(1)
+    // 로컬 캘린더(id=1): 케밥 메뉴 트리거가 있어야 한다 (숨겨진 상태라도 DOM 에 존재).
+    await expect(page.getByTestId('calendar-menu-1')).toHaveCount(1)
 
     // 로컬 캘린더(id=1): 읽기전용 배지가 없어야 한다.
     const localRow = page.getByTestId('calendar-list-item-1')

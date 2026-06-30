@@ -1,11 +1,17 @@
 // 캘린더 2차 사이드바 — 미니 캘린더 + 개인 캘린더별 토글 + 기타(이슈 마감/초대 일정) 토글.
-import { CalendarDays, Pencil, Plus } from 'lucide-react'
+import { CalendarDays, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   type CalendarLayers,
   groupCalendarsBySource,
@@ -33,6 +39,8 @@ interface CalendarSidebarProps {
   onAddCalendar: () => void
   /** 캘린더 편집 다이얼로그 열기. */
   onEditCalendar: (c: CalendarType) => void
+  /** 캘린더 모든 일정 삭제(강제 리셋) 확인 흐름 시작. */
+  onResetCalendar: (c: CalendarType) => void
   /** 일정/마감이 있어 점(dot)을 찍을 날짜들. */
   markedDates: Date[]
 }
@@ -48,6 +56,7 @@ export function CalendarSidebar({
   onToggleCalendar,
   onAddCalendar,
   onEditCalendar,
+  onResetCalendar,
   markedDates,
 }: CalendarSidebarProps) {
   return (
@@ -104,7 +113,7 @@ export function CalendarSidebar({
                 aria-hidden="true"
               />
               <span className="min-w-0 flex-1 truncate">{c.name}</span>
-              {/* 외부 동기화 캘린더: 읽기전용 배지 표시, 편집 버튼 숨김 (이슈 #501) */}
+              {/* 외부 동기화 캘린더: 읽기전용 배지 표시, 케밥 메뉴 숨김 (이슈 #501) */}
               {c.isReadOnly ? (
                 <Badge
                   variant="secondary"
@@ -114,20 +123,39 @@ export function CalendarSidebar({
                   읽기 전용
                 </Badge>
               ) : (
-                /* 편집 버튼 — hover 시만 노출 */
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-5 w-5 opacity-0 transition-opacity group-hover:opacity-100"
-                  data-testid={`calendar-edit-${c.id}`}
-                  aria-label={`${c.name} 편집`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onEditCalendar(c)
-                  }}
-                >
-                  <Pencil className="h-3 w-3" />
-                </Button>
+                /* 케밥(⋯) 메뉴 — hover 시만 노출. 편집 + (로컬 한정)모든 일정 삭제 */
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                      data-testid={`calendar-menu-${c.id}`}
+                      aria-label={`${c.name} 메뉴`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      data-testid={`calendar-edit-${c.id}`}
+                      onClick={() => onEditCalendar(c)}
+                    >
+                      <Pencil className="mr-2 h-3.5 w-3.5" /> 편집
+                    </DropdownMenuItem>
+                    {/* 로컬 캘린더(accountEmail 없음)만 일정 일괄 삭제 허용 */}
+                    {!c.accountEmail && (
+                      <DropdownMenuItem
+                        data-testid={`calendar-reset-${c.id}`}
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => onResetCalendar(c)}
+                      >
+                        <Trash2 className="mr-2 h-3.5 w-3.5" /> 모든 일정 삭제
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
           )

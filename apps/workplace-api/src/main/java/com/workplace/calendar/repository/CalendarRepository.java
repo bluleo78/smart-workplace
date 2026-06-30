@@ -22,8 +22,8 @@ public class CalendarRepository {
   private final DSLContext dsl;
 
   /**
-   * 소유자의 캘린더 목록(position, id 정렬). 연동 캘린더는 email_account JOIN 으로 출처(이메일/공급자) 노출, 비활성 외부 계정의
-   * 캘린더는 제외(즉시 hide).
+   * 소유자의 캘린더 목록(position, id 정렬). 연동 캘린더는 email_account JOIN 으로 출처(이메일/공급자) 노출, 비활성 외부 계정의 캘린더는
+   * 제외(즉시 hide).
    */
   public List<CalendarResponse> listByOwner(long ownerId) {
     return dsl.select(CALENDAR.asterisk(), EMAIL_ACCOUNT.EMAIL_ADDRESS, EMAIL_ACCOUNT.PROVIDER)
@@ -152,6 +152,22 @@ public class CalendarRepository {
             .where(CALENDAR.OWNER_ID.eq(ownerId))
             .fetchOne(0, Integer.class);
     return max == null ? -1 : max;
+  }
+
+  /** 외부 연동(M365 등) 캘린더 여부 — external_account_id 보유 시 true. */
+  public boolean isExternal(long calendarId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(CALENDAR)
+            .where(CALENDAR.ID.eq(calendarId))
+            .and(CALENDAR.EXTERNAL_ACCOUNT_ID.isNotNull()));
+  }
+
+  /** 한 캘린더의 모든 일정 하드 삭제(event_attendee 는 FK ON DELETE CASCADE). 삭제 건수 반환. */
+  public int deleteAllEventsByCalendar(long calendarId) {
+    return dsl.deleteFrom(CALENDAR_EVENT)
+        .where(CALENDAR_EVENT.CALENDAR_ID.eq(calendarId))
+        .execute();
   }
 
   /** 한 캘린더의 모든 일정을 다른 캘린더로 이동(비기본 삭제 시 데이터 보존). */

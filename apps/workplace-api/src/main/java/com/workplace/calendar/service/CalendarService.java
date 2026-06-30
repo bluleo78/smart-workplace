@@ -5,6 +5,7 @@ import com.workplace.calendar.dto.CalendarRequest;
 import com.workplace.calendar.dto.CalendarResponse;
 import com.workplace.calendar.exception.CalendarNotFoundException;
 import com.workplace.calendar.exception.DefaultCalendarDeletionException;
+import com.workplace.calendar.exception.ExternalCalendarResetNotAllowedException;
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.repository.CalendarRepository;
 import java.util.List;
@@ -62,6 +63,16 @@ public class CalendarService {
     long defaultId = ensureDefault(callerId);
     repo.moveEventsToCalendar(id, defaultId);
     repo.delete(id);
+  }
+
+  /** 한 캘린더의 모든 일정을 하드 삭제(강제 리셋). 로컬 캘린더만 허용, 연동 캘린더는 409. */
+  @Transactional
+  public void resetEvents(long callerId, long calendarId) {
+    requireOwnedCalendar(callerId, calendarId);
+    if (repo.isExternal(calendarId)) {
+      throw new ExternalCalendarResetNotAllowedException(calendarId);
+    }
+    repo.deleteAllEventsByCalendar(calendarId);
   }
 
   /** 소유 캘린더 검증 — 미존재/비소유 모두 404(존재 은닉). 일정 chokepoint 도 사용. */

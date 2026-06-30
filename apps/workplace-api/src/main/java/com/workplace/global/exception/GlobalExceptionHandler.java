@@ -409,6 +409,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
+  /** 연동 캘린더 강제 리셋 시도 → 409 Conflict. */
+  @ExceptionHandler(com.workplace.calendar.exception.ExternalCalendarResetNotAllowedException.class)
+  public ResponseEntity<ErrorResponse> handleExternalCalendarReset(
+      com.workplace.calendar.exception.ExternalCalendarResetNotAllowedException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   // 읽기전용(외부 동기화) 캘린더·일정 쓰기 거부(409)
   @ExceptionHandler(com.workplace.calendar.exception.ReadOnlyCalendarException.class)
   public ResponseEntity<ErrorResponse> handleReadOnlyCalendar(

@@ -59,4 +59,12 @@ public class CalendarController {
     service.delete(callerId, id);
     return ResponseEntity.noContent().build();
   }
+
+  /** 한 캘린더의 모든 일정 강제 리셋(하드 삭제). 로컬 캘린더만 허용(연동 캘린더는 409). */
+  @PostMapping("/{id}/reset")
+  @RequirePermission("calendar:write")
+  public ResponseEntity<Void> reset(@AuthenticationPrincipal Long callerId, @PathVariable long id) {
+    service.resetEvents(callerId, id);
+    return ResponseEntity.noContent().build();
+  }
 }
