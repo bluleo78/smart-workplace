@@ -299,19 +299,23 @@ export const driveApi = {
     }
   },
 
-  // 미리보기 콘텐츠(이미지/PDF) blob → object URL. 호출처가 revoke.
-  fetchContentUrl: async (driveFileId: number): Promise<string> => {
+  // 미리보기 콘텐츠 원본 Blob. 호출처가 objectURL/text()/arrayBuffer() 로 변환.
+  fetchContentBlob: async (driveFileId: number): Promise<Blob> => {
     const { data } = await client.get<Blob>(`/drive/files/${driveFileId}/content`, {
       responseType: 'blob',
     })
-    return URL.createObjectURL(data)
+    return data
+  },
+
+  // 미리보기 콘텐츠(이미지/PDF) blob → object URL. 호출처가 revoke.
+  fetchContentUrl: async (driveFileId: number): Promise<string> => {
+    const blob = await driveApi.fetchContentBlob(driveFileId)
+    return URL.createObjectURL(blob)
   },
 
   // 텍스트 미리보기 — blob 을 문자열로.
   fetchTextContent: async (driveFileId: number): Promise<string> => {
-    const { data } = await client.get<Blob>(`/drive/files/${driveFileId}/content`, {
-      responseType: 'blob',
-    })
-    return await data.text()
+    const blob = await driveApi.fetchContentBlob(driveFileId)
+    return await blob.text()
   },
 }

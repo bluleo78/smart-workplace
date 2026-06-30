@@ -1,4 +1,10 @@
-import { File as FileIcon, FileText, FileType, Image as ImageIcon } from 'lucide-react'
+import {
+  File as FileIcon,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  Image as ImageIcon,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
@@ -32,13 +38,17 @@ export function DriveThumbnail({ fileId, category }: { fileId: number; category:
     return <img src={url} alt="" className="h-8 w-8 shrink-0 rounded object-cover" />
   }
 
+  // 알려진 포맷은 포맷별 아이콘으로: 문서(PDF/DOCX)→문서, 표(CSV/XLSX)→스프레드시트,
+  // 텍스트→텍스트, 이미지→이미지. 미지(UNKNOWN 등)만 제네릭 파일 아이콘.
   const Icon =
-    category === 'PDF'
+    category === 'PDF' || category === 'DOCUMENT'
       ? FileText
-      : category === 'TEXT'
-        ? FileType
-        : category === 'IMAGE'
-          ? ImageIcon
-          : FileIcon
+      : category === 'DATA'
+        ? FileSpreadsheet
+        : category === 'TEXT'
+          ? FileType
+          : category === 'IMAGE'
+            ? ImageIcon
+            : FileIcon
   return <Icon className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
 }

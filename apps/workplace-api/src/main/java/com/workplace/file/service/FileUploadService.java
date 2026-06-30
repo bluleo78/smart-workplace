@@ -38,6 +38,7 @@ public class FileUploadService {
           "image/jpeg",
           "image/gif",
           "image/webp",
+          "image/svg+xml",
           "application/pdf",
           "text/plain",
           "text/markdown",
@@ -57,6 +58,7 @@ public class FileUploadService {
           Map.entry("image/jpeg", "IMAGE"),
           Map.entry("image/gif", "IMAGE"),
           Map.entry("image/webp", "IMAGE"),
+          Map.entry("image/svg+xml", "IMAGE"),
           Map.entry("application/pdf", "PDF"),
           Map.entry("text/plain", "TEXT"),
           Map.entry("text/markdown", "TEXT"),
@@ -347,6 +349,7 @@ public class FileUploadService {
         case "jpg", "jpeg" -> "image/jpeg";
         case "gif" -> "image/gif";
         case "webp" -> "image/webp";
+        case "svg" -> "image/svg+xml";
         case "pdf" -> "application/pdf";
         case "txt" -> "text/plain";
         case "md" -> "text/markdown";

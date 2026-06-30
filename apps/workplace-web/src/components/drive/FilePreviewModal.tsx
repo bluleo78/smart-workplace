@@ -4,16 +4,19 @@ import { driveApi } from '../../api/drive'
 import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
-import { mimeToCategory } from '../../lib/fileCategory'
+import { resolvePreviewKind } from '../../lib/previewKind'
 import type { DriveFile, VirtualAttachment } from '../../types/drive'
 import { AiContent } from '../ai/AiContent'
+import { MarkdownMessage } from '../ai/MarkdownMessage'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
+import { CsvTablePreview } from './preview/CsvTablePreview'
 
 /** 텍스트 미리보기 최대 길이(과대 파일 보호). */
 const TEXT_PREVIEW_LIMIT = 200_000
 
 /**
- * 파일 미리보기 모달. IMAGE→img, PDF→iframe, TEXT→pre, 그 외→미지원 안내.
+ * 파일 미리보기 모달. IMAGE→img, PDF→iframe, Markdown→렌더, TEXT→pre, CSV→표, 그 외→미지원 안내.
+ * 파일(DriveFile)과 첨부(VirtualAttachment)를 공통 모델로 정규화해 처리한다.
  * 이미지/PDF 는 objectURL 을 만들고 닫힐 때 revoke. 상단 헤더에 다운로드 버튼, AI 요약은 기본 접힘.
  */
 export function FilePreviewModal({
@@ -28,10 +31,15 @@ export function FilePreviewModal({
   const isAttachment = attachment != null
   // 미리보기 대상 정규화 — 파일/첨부 공통 모델.
   const name = attachment?.name ?? file!.name
-  const category = attachment ? mimeToCategory(attachment.mimeType) : file!.category
+  const mimeType = attachment?.mimeType ?? file!.mimeType
   const fileIdForContent = attachment?.fileId ?? file!.id
   // 첨부는 콘텐츠가 downloadUrl 에 있다(드라이브 엔드포인트 아님). null=드라이브 엔드포인트 사용.
   const contentPath = attachment?.downloadUrl ?? null
+  // mimeType 기준으로 렌더 종류를 결정(category 는 입자가 거칠어 CSV/MD 구분 불가).
+  const kind = resolvePreviewKind(mimeType)
+  // 이 슬라이스에서 실제 렌더 가능한 종류(XLSX/DOCX는 슬라이스 2에서 추가).
+  const renderable =
+    kind === 'IMAGE' || kind === 'PDF' || kind === 'MARKDOWN' || kind === 'TEXT' || kind === 'CSV'
 
   // 첨부는 드라이브 전용 패널(요약·백링크)을 쓰지 않으므로 0(비활성)으로 훅 호출.
   const driveFileId = file?.id ?? 0
@@ -47,7 +55,6 @@ export function FilePreviewModal({
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState(false)
-  const previewable = ['IMAGE', 'PDF', 'TEXT'].includes(category)
 
   useEffect(() => {
     let alive = true
@@ -60,18 +67,25 @@ export function FilePreviewModal({
       created = u
       setBlobUrl(u)
     }
-    if (category === 'IMAGE' || category === 'PDF') {
-      const p = contentPath ? driveApi.fetchBlobUrlByPath(contentPath) : driveApi.fetchContentUrl(fileIdForContent)
+    if (kind === 'IMAGE' || kind === 'PDF') {
+      // 첨부는 contentPath(절대경로), 드라이브 파일은 fileId 엔드포인트로 blob 획득.
+      const p = contentPath
+        ? driveApi.fetchBlobUrlByPath(contentPath)
+        : driveApi.fetchContentUrl(fileIdForContent)
       void p.then(onUrl).catch(() => alive && setError(true))
-    } else if (category === 'TEXT') {
-      const p = contentPath ? driveApi.fetchTextByPath(contentPath) : driveApi.fetchTextContent(fileIdForContent)
-      void p.then((t) => alive && setText(t.slice(0, TEXT_PREVIEW_LIMIT))).catch(() => alive && setError(true))
+    } else if (kind === 'MARKDOWN' || kind === 'TEXT' || kind === 'CSV') {
+      const p = contentPath
+        ? driveApi.fetchTextByPath(contentPath)
+        : driveApi.fetchTextContent(fileIdForContent)
+      void p
+        .then((t) => alive && setText(t.slice(0, TEXT_PREVIEW_LIMIT)))
+        .catch(() => alive && setError(true))
     }
     return () => {
       alive = false
       if (created) URL.revokeObjectURL(created)
     }
-  }, [fileIdForContent, category, contentPath])
+  }, [fileIdForContent, kind, contentPath])
 
   return (
     <Dialog
@@ -114,18 +128,20 @@ export function FilePreviewModal({
         {/* 미리보기 본문 */}
         <div className="max-h-[70vh] overflow-auto" data-testid="preview-body">
           {error && <p className="text-sm text-destructive">미리보기를 불러오지 못했습니다.</p>}
-          {!error && !previewable && (
+          {!error && !renderable && (
             <p className="text-sm text-muted-foreground">미리보기를 지원하지 않는 형식입니다.</p>
           )}
-          {!error && category === 'IMAGE' && blobUrl && (
+          {!error && kind === 'IMAGE' && blobUrl && (
             <img src={blobUrl} alt={name} className="mx-auto max-w-full" />
           )}
-          {!error && category === 'PDF' && blobUrl && (
+          {!error && kind === 'PDF' && blobUrl && (
             <iframe src={blobUrl} title={name} className="h-[70vh] w-full" />
           )}
-          {!error && category === 'TEXT' && text != null && (
+          {!error && kind === 'MARKDOWN' && text != null && <MarkdownMessage>{text}</MarkdownMessage>}
+          {!error && kind === 'TEXT' && text != null && (
             <pre className="whitespace-pre-wrap break-words text-xs">{text}</pre>
           )}
+          {!error && kind === 'CSV' && text != null && <CsvTablePreview csv={text} />}
         </div>
         {/* 참조된 곳: 이 파일을 링크한 이슈·메시지 목록. 비어있으면 섹션 자체 숨김. */}
         {!isAttachment && (backlinks.data?.length ?? 0) > 0 && (

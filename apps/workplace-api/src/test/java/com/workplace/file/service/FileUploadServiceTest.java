@@ -87,6 +87,20 @@ class FileUploadServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void uploadFiles_svgFile_success() throws IOException {
+    MockMultipartFile file =
+        new MockMultipartFile("files", "icon.svg", "image/svg+xml", "<svg></svg>".getBytes());
+
+    List<FileUploadResponse> responses = fileUploadService.uploadFiles(List.of(file), testUserId);
+
+    assertThat(responses).hasSize(1);
+    FileUploadResponse response = responses.get(0);
+    assertThat(response.originalName()).isEqualTo("icon.svg");
+    assertThat(response.mimeType()).isEqualTo("image/svg+xml");
+    assertThat(response.fileCategory()).isEqualTo("IMAGE");
+  }
+
+  @Test
   void uploadFiles_pdfFile_success() throws IOException {
     MockMultipartFile file =
         new MockMultipartFile("files", "doc.pdf", "application/pdf", "fake-pdf-content".getBytes());
