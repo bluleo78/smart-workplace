@@ -14,4 +14,11 @@ public final class MailDomainEvents {
    * sync 가 그 행을 볼 수 있으므로 반드시 AFTER_COMMIT 에서 소비한다.
    */
   public record MailAccountConnectedEvent(long userId, long accountId) {}
+
+  /**
+   * 메일 계정 삭제(soft-delete) 직후. 비활성화는 즉시 화면에서 숨겨지고, 실제 물리 purge 는 5분 주기 스케줄러까지 기다리지 않고 즉시 1회 트리거하기 위한
+   * 신호다. soft-delete(disabled_at) 가 커밋된 뒤에 purge 가 동작해야 하므로 반드시 AFTER_COMMIT 에서 소비한다. 즉시 purge 가
+   * 실패하면 스케줄러가 백스톱으로 다음 사이클에 재시도한다.
+   */
+  public record MailAccountDisconnectedEvent(long userId, long accountId) {}
 }

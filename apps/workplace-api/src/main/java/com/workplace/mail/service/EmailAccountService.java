@@ -9,6 +9,7 @@ import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.outbound.MailDomainEvents.MailAccountConnectedEvent;
+import com.workplace.mail.outbound.MailDomainEvents.MailAccountDisconnectedEvent;
 import com.workplace.mail.repository.EmailAccountRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -135,6 +136,9 @@ public class EmailAccountService {
     if (repo.softDelete(userId, id) == 0) {
       throw new EmailAccountNotFoundException(id);
     }
+    // 비활성화는 즉시 화면에서 숨겨지고, 실제 물리 purge 는 5분 주기 스케줄러를 기다리지 않도록 즉시 트리거(AFTER_COMMIT 에서
+    // 소비 — soft-delete 커밋 후 동작). 즉시 purge 실패 시 스케줄러가 백스톱으로 다음 사이클에 재시도한다.
+    events.publishEvent(new MailAccountDisconnectedEvent(userId, id));
   }
 
   /** 공용: 주어진 비밀번호로 IMAP/SMTP 연결 검증. */
