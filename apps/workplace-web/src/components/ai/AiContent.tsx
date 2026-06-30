@@ -1,4 +1,4 @@
-import { Info } from 'lucide-react'
+import { ChevronRight, Info } from 'lucide-react'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -44,8 +44,16 @@ export function AiContent({
 
   if (collapsible) {
     return (
-      <details open={defaultOpen} className={box} data-testid={dataTestId}>
-        <summary className="cursor-pointer list-none">{header}</summary>
+      // group 으로 details[open] 상태를 chevron 회전에 전달.
+      <details open={defaultOpen} className={`group ${box}`} data-testid={dataTestId}>
+        <summary className="flex cursor-pointer list-none items-center gap-1">
+          {/* 접힘 ▸ / 펼침 ▾ — details 열림 시 90도 회전 */}
+          <ChevronRight
+            className="h-3 w-3 shrink-0 text-ai-accent transition-transform group-open:rotate-90"
+            aria-hidden="true"
+          />
+          {header}
+        </summary>
         <div className="mt-1 text-sm whitespace-pre-wrap">{children}</div>
       </details>
     )

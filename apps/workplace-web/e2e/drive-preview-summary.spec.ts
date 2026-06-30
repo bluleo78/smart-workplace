@@ -42,22 +42,34 @@ async function openPreview(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('preview-body')).toBeVisible()
 }
 
-test('요약 DONE → 카드 표시', async ({ authenticatedPage: page }) => {
+test('요약 DONE → 카드 표시(기본 접힘, 클릭 시 펼침)', async ({ authenticatedPage: page }) => {
   await setupDrive(page)
   await page.route('**/api/v1/drive/files/*/summary', (route) =>
     route.fulfill({ json: { summary: '이 문서의 핵심 요약입니다.', status: 'DONE' } }),
   )
   await openPreview(page)
-  await expect(page.getByTestId('drive-summary-card')).toBeVisible()
-  await expect(page.getByTestId('drive-summary-card')).toContainText('핵심 요약')
+  const card = page.getByTestId('drive-summary-card')
+  await expect(card).toBeVisible()
+  // chevron affordance 존재.
+  await expect(page.locator('[data-testid="drive-summary-card"] > summary .lucide-chevron-right')).toBeVisible()
+  // 기본 접힘: <details> open=false.
+  await expect(card).toHaveJSProperty('open', false)
+  // 헤더 클릭 → 펼쳐져 요약 본문 노출.
+  await card.locator('summary').click()
+  await expect(card).toHaveJSProperty('open', true)
+  await expect(card).toContainText('핵심 요약')
 })
 
-test('추출 진행중 → 스켈레톤 표시', async ({ authenticatedPage: page }) => {
+test('추출 진행중 → 펼치면 스켈레톤 표시', async ({ authenticatedPage: page }) => {
   await setupDrive(page)
   await page.route('**/api/v1/drive/files/*/summary', (route) =>
     route.fulfill({ json: { summary: null, status: 'EXTRACTING' } }),
   )
   await openPreview(page)
+  // 접힘 상태에선 스켈레톤 비노출.
+  await expect(page.getByTestId('drive-summary-loading')).toBeHidden()
+  // 펼치면 스켈레톤 노출.
+  await page.getByTestId('drive-summary-card').locator('summary').click()
   await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
 })
 
@@ -68,4 +80,24 @@ test('요약 없음 → 카드 숨김', async ({ authenticatedPage: page }) => {
   )
   await openPreview(page)
   await expect(page.getByTestId('drive-summary-card')).toHaveCount(0)
+})
+
+test('다운로드 버튼이 상단 헤더에 있다', async ({ authenticatedPage: page }) => {
+  await setupDrive(page)
+  await page.route('**/api/v1/drive/files/*/summary', (route) =>
+    route.fulfill({ json: { summary: null, status: 'SKIPPED' } }),
+  )
+  await openPreview(page)
+  // 헤더에 다운로드 버튼이 존재.
+  const download = page.getByRole('button', { name: '다운로드' })
+  await expect(download).toBeVisible()
+  // 단순 존재가 아니라 '미리보기 본문보다 DOM 상위(헤더)' 배치를 검증 — 핵심 요구.
+  const beforePreview = await page.evaluate(() => {
+    const btn = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === '다운로드')
+    const body = document.querySelector('[data-testid="preview-body"]')
+    if (!btn || !body) return false
+    // body 가 btn 을 뒤따르면(FOLLOWING) btn 이 더 앞 = 헤더 위치.
+    return Boolean(btn.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+  expect(beforePreview).toBe(true)
 })
