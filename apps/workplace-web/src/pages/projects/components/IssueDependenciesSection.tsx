@@ -26,11 +26,10 @@ export function IssueDependenciesSection({
       data-testid="issue-dependencies-section"
       className="space-y-3"
     >
-      <h3 className="text-sm font-medium">의존성</h3>
-
+      {/* 그룹 카드 제목(의존성)이 이미 있으므로 내부 헤딩 제거(중복). */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-muted-foreground">차단됨 (선행 필요)</span>
+          <span className="text-xs font-medium text-muted-foreground">차단됨 (선행 필요)</span>
           <IssueLinkPicker
             projectKey={projectKey}
             issueNumber={issueNumber}
@@ -57,7 +56,7 @@ export function IssueDependenciesSection({
 
       <div>
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-muted-foreground">차단 중</span>
+          <span className="text-xs font-medium text-muted-foreground">차단 중</span>
           <IssueLinkPicker
             projectKey={projectKey}
             issueNumber={issueNumber}

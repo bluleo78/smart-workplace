@@ -7,8 +7,6 @@ import { CyclePickerPopover } from '../../../components/cycle/CyclePickerPopover
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../../components/labels/LabelPickerPopover';
-import { AgentBadge } from '../../../components/users/AgentBadge';
-import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { IssueFieldEntry } from '../../../types/customField';
 import type { IssueLinkSummary, IssuePriority, IssueStatus, ParentRef, UpdateIssueRequest } from '../../../types/issue';
 import type { LabelSummary } from '../../../types/label';
@@ -63,12 +61,15 @@ export function IssuePropertyRail({
   isAiClassifying,
   aiClassifyReason,
 }: IssuePropertyRailProps) {
-  // 분류·관계 그룹 배지 — 라벨 + 의존성(양방향) + 커스텀 필드 합산.
-  const classificationCount =
-    labels.length + blockedBy.length + blocks.length + customFields.length;
+  // 분류 그룹 배지 — 라벨 수.
+  const classificationCount = labels.length;
+  // 커스텀 필드 그룹 배지 — 값이 채워진 필드 수는 섹션이 자체 관리하므로 정의 수 기준.
+  const customFieldCount = customFields.length;
+  // 의존성 그룹 배지 — 차단됨 + 차단 중(양방향) 합산.
+  const dependencyCount = blockedBy.length + blocks.length;
 
   return (
-    <div className="space-y-2" data-testid="property-rail">
+    <div className="space-y-3" data-testid="property-rail">
       {/* SUBTASK 상세에서만 부모 슬롯 노출 */}
       {isSubtask && (
         <IssueParentSlot
@@ -101,42 +102,28 @@ export function IssuePropertyRail({
             disabled={updatePending}
           />
         </div>
-        {/* AI 분류 제안 버튼 — 이슈 편집 화면(IssueDetailPage)에서 onAiClassify prop 전달 시 노출. */}
-        {onAiClassify !== undefined && (
-          <AiClassifyButton
-            hasTitle={true}
-            isPending={isAiClassifying ?? false}
-            reason={aiClassifyReason}
-            onClick={onAiClassify}
+        {/* 담당자 — 라벨 + 인라인 필드(값 표시 겸 클릭 트리거). 칩/미지정은 필드 내부에서 렌더. */}
+        <div className="space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">담당자</span>
+          <AssigneePickerPopover
+            projectKey={projectKey}
+            issueNumber={issueNumber}
+            current={assignees}
           />
-        )}
-        <section aria-label="담당자" className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground">담당자</span>
-            <AssigneePickerPopover
-              projectKey={projectKey}
-              issueNumber={issueNumber}
-              current={assignees}
+        </div>
+        {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}
+        {onAiClassify !== undefined && (
+          <>
+            <div className="border-t" />
+            <AiClassifyButton
+              hasTitle={true}
+              isPending={isAiClassifying ?? false}
+              reason={aiClassifyReason}
+              onClick={onAiClassify}
+              fullWidth
             />
-          </div>
-          <div className="flex flex-wrap gap-2" data-testid="issue-assignees">
-            {assignees.length === 0 ? (
-              <span className="text-xs text-muted-foreground">미지정</span>
-            ) : (
-              assignees.map((u) => (
-                <span
-                  key={u.id}
-                  className="inline-flex items-center gap-1 text-sm"
-                  data-testid={`issue-assignee-${u.id}`}
-                >
-                  <UserAvatar user={u} size="sm" />
-                  <span>{u.name}</span>
-                  {u.kind === 'AGENT' && <AgentBadge size="xs" />}
-                </span>
-              ))
-            )}
-          </div>
-        </section>
+          </>
+        )}
       </IssuePropertyGroup>
 
       {/* 그룹 2: 일정 — 기본 펼침 */}
@@ -166,9 +153,9 @@ export function IssuePropertyRail({
         </section>
       </IssuePropertyGroup>
 
-      {/* 그룹 3: 분류·관계 — 기본 접힘, 비어있지 않으면 배지 표시 */}
+      {/* 그룹 3: 분류 — 라벨. 기본 접힘, 비어있지 않으면 배지 표시 */}
       <IssuePropertyGroup
-        title="분류·관계"
+        title="분류"
         storageKey="issue-rail:classification"
         defaultOpen={false}
         count={classificationCount}
@@ -192,14 +179,32 @@ export function IssuePropertyRail({
             )}
           </div>
         </div>
-        {/* Phase 4b — 의존성 두 슬롯(차단됨/차단 중) + Picker */}
+      </IssuePropertyGroup>
+
+      {/* 그룹 4: 의존성 — 차단됨/차단 중 두 슬롯(커스텀 필드보다 앞). 기본 접힘, 비어있지 않으면 배지 표시 */}
+      <IssuePropertyGroup
+        title="의존성"
+        storageKey="issue-rail:dependencies"
+        defaultOpen={false}
+        count={dependencyCount}
+        testId="property-group-dependencies"
+      >
         <IssueDependenciesSection
           projectKey={projectKey}
           issueNumber={issueNumber}
           blockedBy={blockedBy}
           blocks={blocks}
         />
-        {/* Phase 4c — 프로젝트 커스텀 필드 인라인 편집 */}
+      </IssuePropertyGroup>
+
+      {/* 그룹 5: 커스텀 필드 — 프로젝트 커스텀 필드 인라인 편집(Phase 4c). 기본 접힘 */}
+      <IssuePropertyGroup
+        title="커스텀 필드"
+        storageKey="issue-rail:custom-fields"
+        defaultOpen={false}
+        count={customFieldCount}
+        testId="property-group-custom-fields"
+      >
         <CustomFieldsSection
           projectKey={projectKey}
           issueNumber={issueNumber}

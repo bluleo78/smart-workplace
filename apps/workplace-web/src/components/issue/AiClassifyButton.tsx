@@ -12,6 +12,8 @@ interface AiClassifyButtonProps {
   /** 제안 후 표시할 이유 한 문장. null/undefined 면 표시 안 함 */
   reason?: string | null;
   onClick: () => void;
+  /** true 면 버튼을 컨테이너 전체 폭으로(레일 카드 등). 기본 false(self-start). */
+  fullWidth?: boolean;
 }
 
 /**
@@ -23,6 +25,7 @@ export function AiClassifyButton({
   isPending,
   reason,
   onClick,
+  fullWidth = false,
 }: AiClassifyButtonProps) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -32,7 +35,9 @@ export function AiClassifyButton({
         size="sm"
         disabled={!hasTitle || isPending}
         onClick={onClick}
-        className="self-start gap-1.5 text-violet-600 border-violet-200 hover:bg-violet-50 hover:border-violet-300 dark:text-violet-400 dark:border-violet-800 dark:hover:bg-violet-950 transition-colors"
+        className={`gap-1.5 text-violet-600 border-violet-200 hover:bg-violet-50 hover:border-violet-300 dark:text-violet-400 dark:border-violet-800 dark:hover:bg-violet-950 transition-colors ${
+          fullWidth ? 'w-full justify-center' : 'self-start'
+        }`}
         data-testid="ai-classify-btn"
       >
         {isPending ? (

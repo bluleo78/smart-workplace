@@ -22,7 +22,7 @@ export function IssuePrioritySelect({
 }) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as IssuePriority)} disabled={disabled}>
-      <SelectTrigger className="w-36" aria-label="우선순위">
+      <SelectTrigger className="w-full" aria-label="우선순위">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

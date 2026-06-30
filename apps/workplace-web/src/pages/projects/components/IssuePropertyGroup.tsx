@@ -25,11 +25,17 @@ export function IssuePropertyGroup({
 }) {
   const [open, , set] = usePersistentToggle(storageKey, defaultOpen);
   return (
-    <Collapsible open={open} onOpenChange={(o) => set(o)} data-testid={testId}>
+    <Collapsible
+      open={open}
+      onOpenChange={(o) => set(o)}
+      data-testid={testId}
+      // 그룹을 라운드 카드로 구분 — 흰 배경 + 보더 + 라운드(그림자 없음).
+      className="rounded-xl border bg-card px-4 py-3"
+    >
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted"
+          className="flex w-full items-center justify-between text-sm font-semibold text-foreground"
         >
           <span>{title}</span>
           <span className="flex items-center gap-1.5">
@@ -39,12 +45,12 @@ export function IssuePropertyGroup({
               </Badge>
             )}
             <ChevronRight
-              className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`}
+              className={`h-4 w-4 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
             />
           </span>
         </button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-3 pt-2">{children}</CollapsibleContent>
+      <CollapsibleContent className="space-y-3 pt-3">{children}</CollapsibleContent>
     </Collapsible>
   );
 }

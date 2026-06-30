@@ -1,10 +1,9 @@
 // 이슈 담당자 다중 선택 픽커 — LabelPickerPopover 와 동일 패턴.
 // 팝오버가 열릴 때 current 를 selected 로 reset, 닫힐 때 변경된 집합만 PUT 호출.
 
-import { Users } from 'lucide-react';
+import { UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
@@ -63,23 +62,35 @@ export function AssigneePickerPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        {/* current 담당자가 있으면 아바타 목록 표시, 없으면 빈 아이콘 */}
-        <Button
-          variant="outline"
-          size="sm"
+        {/* 담당자 필드 — 값(담당자/미지정)을 보여주는 풀폭 인라인 필드.
+            평소 borderless, 호버 시 보더+배경(편집 가능 신호). 클릭→팝오버, 외부클릭→닫힘(Radix). */}
+        <button
+          type="button"
           aria-label="담당자 편집"
           data-testid="assignee-picker-trigger"
+          className="flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-sm transition-colors hover:border-input hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {current.length > 0 ? (
-            <div className="flex items-center gap-1">
-              {current.map((u) => (
-                <UserAvatar key={u.id} user={u} size="xs" />
-              ))}
-            </div>
-          ) : (
-            <Users className="h-4 w-4" />
-          )}
-        </Button>
+          <span className="flex flex-1 flex-wrap items-center gap-2" data-testid="issue-assignees">
+            {current.length === 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <UserPlus className="h-4 w-4" />
+                미지정
+              </span>
+            ) : (
+              current.map((u) => (
+                <span
+                  key={u.id}
+                  className="inline-flex items-center gap-1"
+                  data-testid={`issue-assignee-${u.id}`}
+                >
+                  {/* AGENT 는 별도 칩 대신 아바타에 에이전트 표식(ring + Bot 마커). */}
+                  <UserAvatar user={u} size="xs" agent={u.kind === 'AGENT'} />
+                  <span>{u.name}</span>
+                </span>
+              ))
+            )}
+          </span>
+        </button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-2" data-testid="assignee-picker">
         <Input

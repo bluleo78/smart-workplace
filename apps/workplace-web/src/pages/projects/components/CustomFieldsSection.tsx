@@ -65,7 +65,7 @@ export function CustomFieldsSection({
       aria-label="커스텀 필드"
       data-testid="custom-fields-section"
     >
-      <h3 className="text-sm font-medium">커스텀 필드</h3>
+      {/* 그룹 카드 제목(커스텀 필드)이 이미 있으므로 내부 헤딩 제거(중복). */}
       <div className="space-y-2">
         {defs.data.map((d) => (
           <div key={d.id} className="space-y-1">
