@@ -103,6 +103,11 @@ export async function downloadSharedFile(token: string, password?: string): Prom
   downloadBlob(filename, blob)
 }
 
+// axios client baseURL 이 '/api/v1' 이므로, '/api/v1/...' 절대 경로는 접두어를 제거해 중복 호출을 막는다.
+function stripApiPrefix(path: string): string {
+  return path.replace(/^\/api\/v1/, '')
+}
+
 export const driveApi = {
   listSpaces: () => client.get<DriveSpace[]>('/drive/spaces'),
 
@@ -217,6 +222,31 @@ export const driveApi = {
     const { data } = await client.get<Blob>(`/drive/files/${driveFileId}/download`, {
       responseType: 'blob',
     })
+    const url = URL.createObjectURL(data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+
+  // 첨부 등 임의 콘텐츠 경로(/api/v1/... 절대경로 가능)에서 blob object URL. 호출처가 revoke.
+  fetchBlobUrlByPath: async (path: string): Promise<string> => {
+    const { data } = await client.get<Blob>(stripApiPrefix(path), { responseType: 'blob' })
+    return URL.createObjectURL(data)
+  },
+
+  // 임의 콘텐츠 경로의 텍스트 본문.
+  fetchTextByPath: async (path: string): Promise<string> => {
+    const { data } = await client.get<Blob>(stripApiPrefix(path), { responseType: 'blob' })
+    return await data.text()
+  },
+
+  // 임의 콘텐츠 경로 다운로드 → a[download] 트리거.
+  downloadByPath: async (path: string, fileName: string) => {
+    const { data } = await client.get<Blob>(stripApiPrefix(path), { responseType: 'blob' })
     const url = URL.createObjectURL(data)
     const a = document.createElement('a')
     a.href = url

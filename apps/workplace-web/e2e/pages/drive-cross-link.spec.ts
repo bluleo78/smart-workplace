@@ -310,7 +310,7 @@ test(
       sizeBytes: 512,
       hasThumbnail: false,
       sourceType: 'MESSAGE',
-      sourceLabel: '#general · 메시지',
+      sourceLabel: '#general',
       deepLink: '/messaging/channels/1',
       downloadUrl: '/api/v1/files/202/download',
       attachedAt: new Date().toISOString(),
@@ -341,13 +341,22 @@ test(
     await page.goto('/drive/attachments')
     await expect(page.getByTestId('drive-attachments-view')).toBeVisible()
 
-    // ISSUE 행 렌더 확인 — "이슈" 배지
+    // ISSUE 그룹 헤더 — "이슈" 배지 + 출처 라벨 딥링크. 행 자체는 그룹 안에 렌더.
+    // (출처별 그룹화 재설계: 출처 배지는 행이 아니라 그룹 헤더에 위치한다)
+    const issueGroup = page
+      .getByTestId('drive-attachment-group')
+      .filter({ has: page.getByTestId('drive-attachment-row-201') })
+    await expect(issueGroup).toContainText('이슈')
+    await expect(issueGroup.getByRole('link', { name: 'WP-42' })).toBeVisible()
     await expect(page.getByTestId('drive-attachment-row-201')).toBeVisible()
-    await expect(page.getByTestId('drive-attachment-row-201')).toContainText('이슈')
 
-    // MESSAGE 행 렌더 확인 — "메시지" 배지
+    // MESSAGE 그룹 헤더 — "메시지" 배지. sourceLabel('#general')은 '메시지'를 포함하지 않으므로
+    // 아래 단언은 배지 렌더를 실제로 검증한다.
+    const messageGroup = page
+      .getByTestId('drive-attachment-group')
+      .filter({ has: page.getByTestId('drive-attachment-row-202') })
+    await expect(messageGroup).toContainText('메시지')
     await expect(page.getByTestId('drive-attachment-row-202')).toBeVisible()
-    await expect(page.getByTestId('drive-attachment-row-202')).toContainText('메시지')
 
     // 출처 필터칩 "이슈" 클릭 → refetch 시 source=ISSUE 파라미터 확인
     capturedSourceParam = null

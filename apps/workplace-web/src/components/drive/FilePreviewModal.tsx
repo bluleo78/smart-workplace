@@ -4,7 +4,8 @@ import { driveApi } from '../../api/drive'
 import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
-import type { DriveFile } from '../../types/drive'
+import { mimeToCategory } from '../../lib/fileCategory'
+import type { DriveFile, VirtualAttachment } from '../../types/drive'
 import { AiContent } from '../ai/AiContent'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 
@@ -15,48 +16,62 @@ const TEXT_PREVIEW_LIMIT = 200_000
  * 파일 미리보기 모달. IMAGE→img, PDF→iframe, TEXT→pre, 그 외→미지원 안내.
  * 이미지/PDF 는 objectURL 을 만들고 닫힐 때 revoke. 상단 헤더에 다운로드 버튼, AI 요약은 기본 접힘.
  */
-export function FilePreviewModal({ file, onClose }: { file: DriveFile; onClose: () => void }) {
-  // 이 파일을 참조하는 이슈·메시지 백링크 조회.
-  const backlinks = useFileBacklinks(file.id)
+export function FilePreviewModal({
+  file,
+  attachment,
+  onClose,
+}: {
+  file?: DriveFile
+  attachment?: VirtualAttachment
+  onClose: () => void
+}) {
+  const isAttachment = attachment != null
+  // 미리보기 대상 정규화 — 파일/첨부 공통 모델.
+  const name = attachment?.name ?? file!.name
+  const category = attachment ? mimeToCategory(attachment.mimeType) : file!.category
+  const fileIdForContent = attachment?.fileId ?? file!.id
+  // 첨부는 콘텐츠가 downloadUrl 에 있다(드라이브 엔드포인트 아님). null=드라이브 엔드포인트 사용.
+  const contentPath = attachment?.downloadUrl ?? null
+
+  // 첨부는 드라이브 전용 패널(요약·백링크)을 쓰지 않으므로 0(비활성)으로 훅 호출.
+  const driveFileId = file?.id ?? 0
+  const backlinks = useFileBacklinks(driveFileId)
   const aiAvailable = useAiAvailable()
-  const summaryQuery = useDriveFileSummary(file.id)
+  const summaryQuery = useDriveFileSummary(driveFileId)
   const summary = summaryQuery.data?.summary ?? null
   const status = summaryQuery.data?.status ?? null
   // 진행 중 = 추출/요약 미완(스켈레톤 대상). 터미널·요약없음이면 카드 숨김.
   const summaryInProgress =
     status === 'PENDING' || status === 'EXTRACTING' || status === 'TEXT_READY' || status === 'SUMMARIZING'
-  const showSummaryCard = aiAvailable && (summary != null || summaryInProgress)
+  const showSummaryCard = !isAttachment && aiAvailable && (summary != null || summaryInProgress)
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState(false)
-  const previewable = ['IMAGE', 'PDF', 'TEXT'].includes(file.category)
+  const previewable = ['IMAGE', 'PDF', 'TEXT'].includes(category)
 
   useEffect(() => {
     let alive = true
     let created: string | null = null
-    if (file.category === 'IMAGE' || file.category === 'PDF') {
-      void driveApi
-        .fetchContentUrl(file.id)
-        .then((u) => {
-          if (!alive) {
-            URL.revokeObjectURL(u)
-            return
-          }
-          created = u
-          setBlobUrl(u)
-        })
-        .catch(() => alive && setError(true))
-    } else if (file.category === 'TEXT') {
-      void driveApi
-        .fetchTextContent(file.id)
-        .then((t) => alive && setText(t.slice(0, TEXT_PREVIEW_LIMIT)))
-        .catch(() => alive && setError(true))
+    const onUrl = (u: string) => {
+      if (!alive) {
+        URL.revokeObjectURL(u)
+        return
+      }
+      created = u
+      setBlobUrl(u)
+    }
+    if (category === 'IMAGE' || category === 'PDF') {
+      const p = contentPath ? driveApi.fetchBlobUrlByPath(contentPath) : driveApi.fetchContentUrl(fileIdForContent)
+      void p.then(onUrl).catch(() => alive && setError(true))
+    } else if (category === 'TEXT') {
+      const p = contentPath ? driveApi.fetchTextByPath(contentPath) : driveApi.fetchTextContent(fileIdForContent)
+      void p.then((t) => alive && setText(t.slice(0, TEXT_PREVIEW_LIMIT))).catch(() => alive && setError(true))
     }
     return () => {
       alive = false
       if (created) URL.revokeObjectURL(created)
     }
-  }, [file.id, file.category])
+  }, [fileIdForContent, category, contentPath])
 
   return (
     <Dialog
@@ -69,16 +84,18 @@ export function FilePreviewModal({ file, onClose }: { file: DriveFile; onClose: 
         {/* 상단 툴바: 파일명 + 다운로드 액션 */}
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
-            <DialogTitle className="truncate">{file.name}</DialogTitle>
+            <DialogTitle className="truncate">{name}</DialogTitle>
             <button
               type="button"
-              onClick={() => driveApi.downloadFile(file.id, file.name)}
+              onClick={() =>
+                contentPath ? driveApi.downloadByPath(contentPath, name) : driveApi.downloadFile(fileIdForContent, name)
+              }
               className="shrink-0 rounded bg-primary px-3 py-1 text-sm text-primary-foreground hover:opacity-90"
             >
               다운로드
             </button>
           </div>
-          <DialogDescription className="sr-only">{file.name} 미리보기</DialogDescription>
+          <DialogDescription className="sr-only">{name} 미리보기</DialogDescription>
         </DialogHeader>
         {/* #526: 콘텐츠 요약 — 상단으로 이동, 기본 접힘. previewable 게이트 밖(Office 파일에서도 노출). */}
         {showSummaryCard && (
@@ -100,18 +117,18 @@ export function FilePreviewModal({ file, onClose }: { file: DriveFile; onClose: 
           {!error && !previewable && (
             <p className="text-sm text-muted-foreground">미리보기를 지원하지 않는 형식입니다.</p>
           )}
-          {!error && file.category === 'IMAGE' && blobUrl && (
-            <img src={blobUrl} alt={file.name} className="mx-auto max-w-full" />
+          {!error && category === 'IMAGE' && blobUrl && (
+            <img src={blobUrl} alt={name} className="mx-auto max-w-full" />
           )}
-          {!error && file.category === 'PDF' && blobUrl && (
-            <iframe src={blobUrl} title={file.name} className="h-[70vh] w-full" />
+          {!error && category === 'PDF' && blobUrl && (
+            <iframe src={blobUrl} title={name} className="h-[70vh] w-full" />
           )}
-          {!error && file.category === 'TEXT' && text != null && (
+          {!error && category === 'TEXT' && text != null && (
             <pre className="whitespace-pre-wrap break-words text-xs">{text}</pre>
           )}
         </div>
         {/* 참조된 곳: 이 파일을 링크한 이슈·메시지 목록. 비어있으면 섹션 자체 숨김. */}
-        {(backlinks.data?.length ?? 0) > 0 && (
+        {!isAttachment && (backlinks.data?.length ?? 0) > 0 && (
           <div className="mt-3 border-t pt-3" data-testid="file-backlinks">
             <p className="mb-1 text-xs font-medium text-muted-foreground">참조된 곳</p>
             <ul className="space-y-1">
