@@ -17,6 +17,26 @@ const MOCK_ADMIN_ROLE: RoleResponse = {
 }
 
 async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleResponse[], token: TokenResponse) {
+  // 애니메이션/트랜지션 전역 비활성화 — Radix 다이얼로그·hover 툴바·Sonner 토스트의 전환이
+  // Playwright actionability 의 "element is not stable" 을 유발해(부하 시 hover 가 풀리기 전에
+  // 클릭을 못 끝냄) 비결정적 플래키의 큰 축이었다. 모든 페이지/네비게이션에 주입한다.
+  await page.addInitScript(() => {
+    const css = `*, *::before, *::after {
+      transition-duration: 0s !important;
+      transition-delay: 0s !important;
+      animation-duration: 0s !important;
+      animation-delay: 0s !important;
+      scroll-behavior: auto !important;
+    }`
+    const inject = () => {
+      const style = document.createElement('style')
+      style.setAttribute('data-test-no-animation', '')
+      style.textContent = css
+      document.head.appendChild(style)
+    }
+    if (document.head) inject()
+    else document.addEventListener('DOMContentLoaded', inject)
+  })
   await mockApi(page, 'POST', '/api/v1/auth/refresh', token)
   await mockApi(page, 'POST', '/api/v1/auth/login', token)
   await mockApi(page, 'GET', '/api/v1/users/me', { ...user, roles })

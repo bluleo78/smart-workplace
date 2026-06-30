@@ -197,9 +197,12 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('원본')
 
-    // toolbar 는 group-hover 로만 노출 → 반드시 hover 후 클릭.
-    await page.getByTestId(`message-${MSG_ID}`).hover()
-    await page.getByTestId(`message-edit-${MSG_ID}`).click()
+    // toolbar 는 group-hover 로만 노출. hover 후 클릭 사이에 재렌더가 끼면 마우스가 고정된 채
+    // group-hover 가 풀려 toolbar 가 사라진다 → hover+click 을 한 단위로 재시도한다.
+    await expect(async () => {
+      await page.getByTestId(`message-${MSG_ID}`).hover()
+      await page.getByTestId(`message-edit-${MSG_ID}`).click({ timeout: 2000 })
+    }).toPass()
 
     // 인라인 에디터에서 본문 변경(append). 변경 없으면 submit 이 no-op 이라 PATCH 미발생.
     await page.getByTestId(`message-editor-input-${MSG_ID}`).click()
@@ -221,8 +224,10 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
           : route.fallback(),
     )
 
-    await page.getByTestId(`message-${MSG_ID}`).hover()
-    await page.getByTestId(`message-delete-${MSG_ID}`).click()
+    await expect(async () => {
+      await page.getByTestId(`message-${MSG_ID}`).hover()
+      await page.getByTestId(`message-delete-${MSG_ID}`).click({ timeout: 2000 })
+    }).toPass()
     // #125: 즉시 삭제되지 않고 Undo 토스트가 뜬다.
     await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible()
     // 실행 취소를 누르지 않으면 지연(5s) 후 실제 삭제가 반영된다.
@@ -257,8 +262,10 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
 
-    await page.getByTestId(`message-${MSG_ID}`).hover()
-    await page.getByTestId(`message-delete-${MSG_ID}`).click()
+    await expect(async () => {
+      await page.getByTestId(`message-${MSG_ID}`).hover()
+      await page.getByTestId(`message-delete-${MSG_ID}`).click({ timeout: 2000 })
+    }).toPass()
 
     // Undo 토스트의 '실행 취소' 액션 클릭 → 지연 타이머 취소.
     await page.getByRole('button', { name: '실행 취소' }).click()

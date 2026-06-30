@@ -25,13 +25,26 @@ export default defineConfig({
 
   fullyParallel: true,
   forbidOnly: CI,
-  retries: CI ? 2 : 0,
-  workers: CI ? 1 : '80%',
+  // 로컬 1회 재시도 = 게이트 안전망. 근본 원인은 위/아래 fix 로 잡되, 남은 롱테일 플래키(예:
+  // report 의 8도메인 산발 1/100)가 커밋을 막지 않게 한다. 재시도 통과도 'flaky' 로 보고되어
+  // 은폐가 아니라 가시화된다(원인 수정을 대체하지 않고 게이트에만 얹는 그물).
+  retries: CI ? 2 : 1,
+  // 단일 Vite 서버가 병목이라 워커를 더 늘려도 throughput 은 안 오르고 큐 지연만 커진다
+  // (8워커 유효 병렬도 5.3x). 동시성을 낮춰 지연 스파이크 → 플래키를 줄인다(10코어 기준 5개).
+  workers: CI ? 1 : '50%',
   reporter: 'html',
+
+  // 단언 기본 타임아웃 5초는 서버 부하 시 lazy 라우트 트랜스폼 지연(간헐 5~8초)에 걸려
+  // 비결정적 실패를 낸다. 10초로 올려 통과 경로 속도엔 영향 없이 지연 스파이크를 흡수한다.
+  expect: { timeout: 10_000 },
 
   use: {
     baseURL: HOST,
-    trace: 'on-first-retry',
+    // 액션(클릭 등)도 부하 시 지연/일시적 오버레이를 넘기도록 재시도 창을 넓힌다.
+    actionTimeout: 15_000,
+    // on-first-retry + 로컬 retries:0 이면 trace 가 전혀 안 남아 플래키 디버그가 불가능했다.
+    // 실패 시 항상 trace 보존으로 변경(다음 플래키부터 원인 추적 가능).
+    trace: 'retain-on-failure',
   },
 
   projects: [

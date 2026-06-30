@@ -113,7 +113,9 @@ test.describe('회신필요 처리완료', () => {
     await page.getByTestId('mail-row-10').hover()
     await page.getByTestId('mail-resolve-10').click()
     await expect.poll(() => posted).toBe(true)
-    await expect(page.getByText('처리완료')).toBeVisible()
+    // 토스트 제목 '처리완료' 는 행의 resolve 버튼 텍스트와 충돌(strict-mode 위반) → 토스트 고유의
+    // '되돌리기' 액션 버튼으로 토스트 노출을 검증한다.
+    await expect(page.getByRole('button', { name: '되돌리기' })).toBeVisible()
     await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
   })
 
