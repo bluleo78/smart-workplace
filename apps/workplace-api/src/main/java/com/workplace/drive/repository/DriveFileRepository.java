@@ -289,6 +289,14 @@ public class DriveFileRepository {
         .execute();
   }
 
+  /** 공간의 모든 파일 file_id(trashed 무관) — 공간 삭제 시 blob 일괄 만료용. */
+  public List<Long> allFileIdsInSpace(long spaceId) {
+    return dsl.select(DRIVE_FILE.FILE_ID)
+        .from(DRIVE_FILE)
+        .where(DRIVE_FILE.SPACE_ID.eq(spaceId))
+        .fetch(DRIVE_FILE.FILE_ID);
+  }
+
   /** 공간의 trashed 파일 전체 file_id(비우기 시 blob 만료용). */
   public List<Long> trashedFileIds(long spaceId) {
     return dsl.select(DRIVE_FILE.FILE_ID)

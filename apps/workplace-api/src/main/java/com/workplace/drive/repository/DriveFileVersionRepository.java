@@ -113,6 +113,16 @@ public class DriveFileVersionRepository {
         .fetch(DRIVE_FILE_VERSION.FILE_ID);
   }
 
+  /** 공간 내 모든 drive_file 의 전 버전 blob file_id — 공간 삭제 시 일괄 만료용. */
+  public List<Long> fileIdsForSpace(long spaceId) {
+    return dsl.select(DRIVE_FILE_VERSION.FILE_ID)
+        .from(DRIVE_FILE_VERSION)
+        .join(com.workplace.jooq.Tables.DRIVE_FILE)
+        .on(DRIVE_FILE_VERSION.DRIVE_FILE_ID.eq(com.workplace.jooq.Tables.DRIVE_FILE.ID))
+        .where(com.workplace.jooq.Tables.DRIVE_FILE.SPACE_ID.eq(spaceId))
+        .fetch(DRIVE_FILE_VERSION.FILE_ID);
+  }
+
   /** 조회 행 — current 는 서비스 레이어에서 채운다. */
   public record VersionRow(
       int versionNo,

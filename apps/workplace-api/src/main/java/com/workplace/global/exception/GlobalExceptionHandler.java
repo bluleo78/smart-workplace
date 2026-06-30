@@ -509,10 +509,11 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
-  // 이름 충돌(폴더 UNIQUE 제약 위반) / 저장 용량 초과 — 409
+  // 이름 충돌(폴더 UNIQUE 제약 위반) / 저장 용량 초과 / TEAM 아닌 공간 변경·삭제 시도 — 409
   @ExceptionHandler({
     com.workplace.drive.exception.DriveDuplicateNameException.class,
-    com.workplace.drive.exception.DriveQuotaExceededException.class
+    com.workplace.drive.exception.DriveQuotaExceededException.class,
+    com.workplace.drive.exception.DriveSpaceTypeNotEditableException.class
   })
   public ResponseEntity<ErrorResponse> handleDriveConflict(
       RuntimeException ex, HttpServletRequest request) {

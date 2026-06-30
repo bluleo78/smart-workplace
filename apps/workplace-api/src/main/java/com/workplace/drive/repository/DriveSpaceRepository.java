@@ -141,4 +141,22 @@ public class DriveSpaceRepository {
         .where(DRIVE_SPACE.ID.eq(spaceId))
         .execute();
   }
+
+  /** 공간 타입(PERSONAL/TEAM/CHANNEL) 조회 — rename/delete 타입 가드용. */
+  public java.util.Optional<String> findType(long spaceId) {
+    return dsl.select(DRIVE_SPACE.TYPE)
+        .from(DRIVE_SPACE)
+        .where(DRIVE_SPACE.ID.eq(spaceId))
+        .fetchOptional(DRIVE_SPACE.TYPE);
+  }
+
+  /** 공간 이름 변경. */
+  public void rename(long spaceId, String name) {
+    dsl.update(DRIVE_SPACE).set(DRIVE_SPACE.NAME, name).where(DRIVE_SPACE.ID.eq(spaceId)).execute();
+  }
+
+  /** 공간 행 하드삭제 — drive_space_member/folder/file/version 이 FK CASCADE 로 자동 제거된다. */
+  public void deleteSpace(long spaceId) {
+    dsl.deleteFrom(DRIVE_SPACE).where(DRIVE_SPACE.ID.eq(spaceId)).execute();
+  }
 }

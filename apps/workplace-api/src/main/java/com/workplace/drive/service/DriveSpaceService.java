@@ -17,6 +17,8 @@ public class DriveSpaceService {
   private final DriveSpaceRepository spaces;
   private final DriveSpaceMemberRepository members;
   private final DrivePermissions perms;
+  private final com.workplace.drive.repository.DriveFileRepository files;
+  private final com.workplace.drive.repository.DriveFileVersionRepository versions;
 
   /** 개인 공간을 보장(없으면 생성). 멱등. */
   @Transactional
@@ -82,5 +84,40 @@ public class DriveSpaceService {
   public void removeMember(long callerId, long spaceId, long userId) {
     perms.requireRole(spaceId, callerId, "OWNER");
     members.remove(spaceId, userId);
+  }
+
+  /** TEAM 공간이 아니면 거부 — PERSONAL("내 드라이브")/CHANNEL(채널 소유) 보호. rename·delete 가 공유하는 단일 타입 가드. */
+  private void requireTeamSpace(long spaceId) {
+    String type =
+        spaces.findType(spaceId).orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
+    if (!"TEAM".equals(type)) {
+      throw new com.workplace.drive.exception.DriveSpaceTypeNotEditableException(spaceId, type);
+    }
+  }
+
+  /** TEAM 공간 이름 변경. OWNER 전용. */
+  @Transactional
+  public DriveSpaceResponse renameTeamSpace(long callerId, long spaceId, String name) {
+    perms.requireRole(spaceId, callerId, "OWNER");
+    requireTeamSpace(spaceId);
+    spaces.rename(spaceId, name);
+    return spaces
+        .findForUser(spaceId, callerId)
+        .orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
+  }
+
+  /**
+   * TEAM 공간 즉시 하드삭제. OWNER 전용. 내용물(폴더/파일)이 있어도 통째 삭제한다.
+   *
+   * <p>행 삭제 전 blob(현재 파일 + 전 버전)을 만료해 FileCleanupService 가 바이트를 회수하고, drive_space 행 삭제로
+   * 멤버/폴더/파일/버전이 FK CASCADE 로 정리된다. 수집 SELECT 가 같은 tx 안에 있어야 RLS GUC 가 주입돼 fail-closed 누수가 없다.
+   */
+  @Transactional
+  public void deleteTeamSpace(long callerId, long spaceId) {
+    perms.requireRole(spaceId, callerId, "OWNER");
+    requireTeamSpace(spaceId);
+    files.expireFiles(files.allFileIdsInSpace(spaceId));
+    files.expireFiles(versions.fileIdsForSpace(spaceId));
+    spaces.deleteSpace(spaceId);
   }
 }

@@ -5,6 +5,7 @@ import com.workplace.drive.dto.ChangeRoleRequest;
 import com.workplace.drive.dto.CreateSpaceRequest;
 import com.workplace.drive.dto.DriveMemberResponse;
 import com.workplace.drive.dto.DriveSpaceResponse;
+import com.workplace.drive.dto.RenameSpaceRequest;
 import com.workplace.drive.service.DriveSpaceService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -44,6 +45,23 @@ public class DriveSpaceController {
   public ResponseEntity<DriveSpaceResponse> get(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long spaceId) {
     return ResponseEntity.ok(spaceService.getSpace(callerId, spaceId));
+  }
+
+  /** TEAM 공간 이름 변경 — OWNER 전용. */
+  @PatchMapping("/spaces/{id}")
+  public ResponseEntity<DriveSpaceResponse> rename(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long spaceId,
+      @Valid @RequestBody RenameSpaceRequest req) {
+    return ResponseEntity.ok(spaceService.renameTeamSpace(callerId, spaceId, req.name()));
+  }
+
+  /** TEAM 공간 즉시 하드삭제 — OWNER 전용. 내용물 통째 삭제. */
+  @DeleteMapping("/spaces/{id}")
+  public ResponseEntity<Void> delete(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long spaceId) {
+    spaceService.deleteTeamSpace(callerId, spaceId);
+    return ResponseEntity.noContent().build();
   }
 
   @GetMapping("/spaces/{id}/members")
