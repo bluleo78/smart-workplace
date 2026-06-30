@@ -229,6 +229,9 @@ AI 생성물과 AI 신호를 UI에 표현할 때는 아래 어휘 표와 원칙�
 - **아이콘 1차**: AI의 1차 식별자는 `Sparkles`(생성물·인라인) 또는 `Bot`(에이전트 주체) 아이콘이다.
 - **색은 보조**: `ai-accent` 시맨틱 토큰(`text-ai-accent`, `bg-ai-accent`, `bg-ai-accent-subtle`)은 아이콘을 보조하는 역할로만 쓴다. 색 단독으로 AI 여부를 표현하지 않는다.
 - **비-AI 신호 미부착**: AI와 무관한 상태·알림·액션에는 AI 아이콘(`Sparkles`/`Bot`)을 붙이지 않는다.
+- **마커 중첩 금지(컨테이너 내부)**: AI 컨테이너(`AiContent`)나 AI 레이블(`AiLabel`)이 이미 AI 아이콘으로 영역을 "AI 생성물"로 마킹했다면, **그 내부 요소에는 AI 아이콘을 다시 붙이지 않는다.** 내부의 버튼·배지 등은 일반(기능) 아이콘을 쓴다. 마킹은 컨테이너 레벨에서 한 번만 — 내부마다 `Sparkles`를 반복하면 신호가 과포화돼 의미가 흐려진다.
+  - 내부 버튼: 동작을 나타내는 기능 아이콘(`RotateCcw`=갱신, `Loader2`=처리 중 등) 또는 아이콘 없음. AI 테마 색(`text-ai-accent`)은 유지 가능.
+  - 내부 상태 배지: 결정적 상태값(차단·마감초과·정체 등)은 AI 판단 신호가 아니므로 `AiSignalBadge`(✨)가 아니라 일반 `Badge`(`warning`/`info` 등)를 쓴다.
 
 #### 마커 어휘 표
 
@@ -271,6 +274,18 @@ import { AiLabel } from '@/components/ai/AiLabel';
 
 // 올바른 표현
 <AiSignalBadge variant="info">AI 분류됨</AiSignalBadge>  // ✓
+
+// 금지: AI 컨테이너 내부에서 AI 마커 중첩
+<AiContent label="AI 현황 요약">                       {/* 이미 ✨ 로 AI 마킹됨 */}
+  <Button><Sparkles /> 재생성</Button>                  {/* X — 내부 버튼에 또 ✨ */}
+  <AiSignalBadge variant="action">3일 정체</AiSignalBadge> {/* X — 결정적 상태에 ✨ */}
+</AiContent>
+
+// 올바른 표현: 컨테이너가 마킹, 내부는 일반 아이콘/배지
+<AiContent label="AI 현황 요약">
+  <Button className="text-ai-accent"><RotateCcw /> 요약 갱신</Button> {/* ✓ 기능 아이콘 */}
+  <Badge variant="warning">3일 정체</Badge>                          {/* ✓ 일반 상태 배지 */}
+</AiContent>
 ```
 
 #### 재사용 의무

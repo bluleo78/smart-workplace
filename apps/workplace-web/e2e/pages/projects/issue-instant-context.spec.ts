@@ -117,6 +117,35 @@ test.describe('이슈 Instant Context 카드 (#517 온디맨드)', () => {
   );
 
   test(
+    '현황 카드는 헤더 클릭으로 접고 펼칠 수 있다 (collapsible)',
+    async ({ authenticatedPage: page }) => {
+      const detail: IssueDetailResponse = createIssueDetail({
+        summary: createIssue({ projectKey: PROJECT_KEY }),
+        aiContext: {
+          summary: '리뷰 대기 중 — 3일째 변화 없음',
+          nextAction: '리뷰어 지정',
+          generatedAt: new Date().toISOString(),
+          blockers: [],
+        } satisfies IssueAiContext,
+      });
+      await mockIssueDetail(page, detail);
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+      const card = page.getByTestId('issue-instant-context');
+      const nextAction = page.getByTestId('issue-next-action');
+
+      // 기본 펼침 — 다음 액션이 보인다.
+      await expect(nextAction).toBeVisible();
+      // 헤더(summary) 클릭 → 접힘 → 본문 숨김.
+      await card.locator('summary').click();
+      await expect(nextAction).not.toBeVisible();
+      // 다시 클릭 → 펼침 → 본문 복원.
+      await card.locator('summary').click();
+      await expect(nextAction).toBeVisible();
+    },
+  );
+
+  test(
     '저장본 없는 이슈는 카드가 항상 렌더되고 생성 버튼이 노출된다',
     async ({ authenticatedPage: page }) => {
       // summary=null — 백엔드가 aiContext 를 항상 반환(온디맨드 재설계).
