@@ -40,9 +40,12 @@ export function IssueChatDrawer({
           {/* Radix Dialog description 부재 경고 해소(#361 패턴) */}
           <SheetDescription className="sr-only">이슈 채팅</SheetDescription>
         </SheetHeader>
-        {/* open 일 때만 마운트 — 닫혀 있을 땐 thread/messages 조회·SSE 구독을 하지 않는다. */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {open && <IssueChatSection projectKey={projectKey} issueNumber={issueNumber} />}
+        {/* open 일 때만 마운트 — 닫혀 있을 땐 thread/messages 조회·SSE 구독을 하지 않는다.
+            embedded: 카드 크롬 없이 드로워 높이를 채움(메시지 flex-1 스크롤 + 컴포저 하단 고정). */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {open && (
+            <IssueChatSection projectKey={projectKey} issueNumber={issueNumber} embedded />
+          )}
         </div>
       </SheetContent>
     </Sheet>

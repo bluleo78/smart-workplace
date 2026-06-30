@@ -27,9 +27,15 @@ import { ChatMessageList } from './ChatMessageList';
 interface IssueChatSectionProps {
   projectKey: string;
   issueNumber: number;
+  /** true 면 카드 크롬·헤더 없이 부모(드로워) 높이를 채운다. 메시지 영역 flex-1, 컴포저 하단 고정. */
+  embedded?: boolean;
 }
 
-export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionProps) {
+export function IssueChatSection({
+  projectKey,
+  issueNumber,
+  embedded = false,
+}: IssueChatSectionProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const auth = useAuth();
   const me = auth.user;
@@ -167,6 +173,17 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
   };
 
   if (threadQ.isLoading) {
+    if (embedded) {
+      return (
+        <div
+          ref={rootRef as React.Ref<HTMLDivElement>}
+          data-testid="chat-section"
+          className="flex min-h-0 flex-1 flex-col p-4"
+        >
+          <Skeleton className="h-32 w-full" />
+        </div>
+      );
+    }
     return (
       <Card ref={rootRef as React.Ref<HTMLDivElement>} data-testid="chat-section">
         <CardHeader>
@@ -180,27 +197,113 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
   }
 
   if (threadQ.isError || !threadQ.data) {
+    const errorBody = (
+      <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
+        <span>채팅을 불러오지 못했습니다.</span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => threadQ.refetch()}
+          data-testid="chat-thread-retry"
+        >
+          다시 시도
+        </Button>
+      </div>
+    );
+    if (embedded) {
+      return (
+        <div
+          ref={rootRef as React.Ref<HTMLDivElement>}
+          data-testid="chat-section"
+          className="flex min-h-0 flex-1 flex-col p-4"
+        >
+          {errorBody}
+        </div>
+      );
+    }
     return (
       <Card ref={rootRef as React.Ref<HTMLDivElement>} data-testid="chat-section">
         <CardHeader>
           <CardTitle className="text-base">이슈 채팅</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-          <span>채팅을 불러오지 못했습니다.</span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => threadQ.refetch()}
-            data-testid="chat-thread-retry"
-          >
-            다시 시도
-          </Button>
-        </CardContent>
+        <CardContent>{errorBody}</CardContent>
       </Card>
     );
   }
 
   const thread = threadQ.data;
+
+  // 메시지 목록 — embedded 면 부모 높이를 채움(fill).
+  const messageList = (
+    <ChatMessageList
+      messages={messages}
+      currentUserId={me?.id ?? 0}
+      hasMore={messagesQ.hasNextPage ?? false}
+      isFetchingMore={messagesQ.isFetchingNextPage}
+      onLoadMore={() => messagesQ.fetchNextPage()}
+      onEdit={(id) => setEditingId(id)}
+      onDelete={(id) => deleteMessageWithUndo(() => deleteMutation.mutate(id))}
+      onMarkRead={(id) => setPendingReadId(id)}
+      editingMessageId={editingId}
+      fill={embedded}
+      renderEditor={(m) => (
+        <ChatMessageEditor
+          initialBody={m.body}
+          initialMentions={m.mentions}
+          members={thread.members}
+          onSave={(body) => {
+            // 성공 시에만 에디터를 닫는다(#123). onSettled 는 실패에도 닫혀 수정 내용이
+            // 소실됐다 — useUpdateChatMessage 가 onError 에서 캐시를 보존하는 의도(재시도 가능)와
+            // 일치시키기 위해 onSuccess 로 전환. 실패 시 에디터는 입력 내용을 유지한 채 열려 있다.
+            updateMutation.mutate(
+              { messageId: m.id, payload: { body } },
+              { onSuccess: () => setEditingId(null) },
+            );
+          }}
+          onCancel={() => setEditingId(null)}
+        />
+      )}
+    />
+  );
+  // 타이핑/AI 작업/컴포저 — 하단 고정 영역.
+  const footer = (
+    <>
+      {typingNames.size > 0 && (
+        <div className="px-4 pb-1 text-xs text-muted-foreground" data-testid="chat-typing">
+          {[...typingNames.values()].map((v) => v.name).join(', ')} 입력 중…
+        </div>
+      )}
+      {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 typing 표시 아래에 렌더 */}
+      {working.size > 0 &&
+        [...working.values()].map((w) => (
+          <ul key={w.streamId} className="px-4">
+            <AiWorkingBubble agentName={w.agentName} steps={w.steps} />
+          </ul>
+        ))}
+      <ChatComposer
+        threadId={threadId}
+        members={thread.members}
+        onSubmit={(body, fileIds, driveFileIds) =>
+          createMutation.mutateAsync({ body, fileIds, driveFileIds })
+        }
+        onTyping={handleTyping}
+      />
+    </>
+  );
+
+  // embedded — 카드/헤더 없이 부모 높이 채움. 메시지 영역 flex-1 스크롤, footer 하단 고정.
+  if (embedded) {
+    return (
+      <div
+        ref={rootRef as React.Ref<HTMLDivElement>}
+        data-testid="chat-section"
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <div className="min-h-0 flex-1">{messageList}</div>
+        {footer}
+      </div>
+    );
+  }
 
   return (
     <Card ref={rootRef as React.Ref<HTMLDivElement>} data-testid="chat-section">
@@ -213,54 +316,8 @@ export function IssueChatSection({ projectKey, issueNumber }: IssueChatSectionPr
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <ChatMessageList
-          messages={messages}
-          currentUserId={me?.id ?? 0}
-          hasMore={messagesQ.hasNextPage ?? false}
-          isFetchingMore={messagesQ.isFetchingNextPage}
-          onLoadMore={() => messagesQ.fetchNextPage()}
-          onEdit={(id) => setEditingId(id)}
-          onDelete={(id) => deleteMessageWithUndo(() => deleteMutation.mutate(id))}
-          onMarkRead={(id) => setPendingReadId(id)}
-          editingMessageId={editingId}
-          renderEditor={(m) => (
-            <ChatMessageEditor
-              initialBody={m.body}
-              initialMentions={m.mentions}
-              members={thread.members}
-              onSave={(body) => {
-                // 성공 시에만 에디터를 닫는다(#123). onSettled 는 실패에도 닫혀 수정 내용이
-                // 소실됐다 — useUpdateChatMessage 가 onError 에서 캐시를 보존하는 의도(재시도 가능)와
-                // 일치시키기 위해 onSuccess 로 전환. 실패 시 에디터는 입력 내용을 유지한 채 열려 있다.
-                updateMutation.mutate(
-                  { messageId: m.id, payload: { body } },
-                  { onSuccess: () => setEditingId(null) },
-                );
-              }}
-              onCancel={() => setEditingId(null)}
-            />
-          )}
-        />
-        {typingNames.size > 0 && (
-          <div className="px-4 pb-1 text-xs text-muted-foreground" data-testid="chat-typing">
-            {[...typingNames.values()].map((v) => v.name).join(', ')} 입력 중…
-          </div>
-        )}
-        {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 typing 표시 아래에 렌더 */}
-        {working.size > 0 &&
-          [...working.values()].map((w) => (
-            <ul key={w.streamId} className="px-4">
-              <AiWorkingBubble agentName={w.agentName} steps={w.steps} />
-            </ul>
-          ))}
-        <ChatComposer
-          threadId={threadId}
-          members={thread.members}
-          onSubmit={(body, fileIds, driveFileIds) =>
-            createMutation.mutateAsync({ body, fileIds, driveFileIds })
-          }
-          onTyping={handleTyping}
-        />
+        {messageList}
+        {footer}
       </CardContent>
     </Card>
   );

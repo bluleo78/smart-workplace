@@ -22,6 +22,8 @@ interface ChatMessageListProps {
   onMarkRead: (lastMessageId: number) => void;
   editingMessageId: number | null;
   renderEditor: (message: ChatMessageResponse) => React.ReactNode;
+  /** true 면 고정 높이 대신 부모 높이를 채운다(드로워 등 flex 컨테이너 내부). */
+  fill?: boolean;
 }
 
 export function ChatMessageList({
@@ -35,6 +37,7 @@ export function ChatMessageList({
   onMarkRead,
   editingMessageId,
   renderEditor,
+  fill = false,
 }: ChatMessageListProps) {
   const lastRef = useRef<HTMLLIElement | null>(null);
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
@@ -77,7 +80,9 @@ export function ChatMessageList({
   if (sorted.length === 0) {
     return (
       <div
-        className="flex h-32 items-center justify-center text-sm text-muted-foreground"
+        className={`flex items-center justify-center text-sm text-muted-foreground ${
+          fill ? 'h-full min-h-32' : 'h-32'
+        }`}
         data-testid="chat-empty"
       >
         아직 대화가 없어요. 첫 메시지를 남겨보세요.
@@ -88,7 +93,7 @@ export function ChatMessageList({
   return (
     <ScrollArea
       ref={scrollRootRef}
-      className="h-[min(60vh,480px)] pr-2"
+      className={`pr-2 ${fill ? 'h-full' : 'h-[min(60vh,480px)]'}`}
       data-testid="chat-message-list"
     >
       <div className="flex flex-col">
