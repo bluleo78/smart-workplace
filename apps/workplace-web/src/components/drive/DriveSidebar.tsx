@@ -113,18 +113,6 @@ export function DriveSidebar() {
 
       <div className="flex-1 overflow-y-auto p-3">
         {/* 공간 섹션 헤더 — 팀 공간 생성 액션을 섹션 헤더에 배치(표준 사이드바 패턴) */}
-        {/* 가상 뷰 — 이슈/메시지 첨부 크로스링크 (#80) */}
-        <nav className="mb-3 space-y-1">
-          <NavLink
-            to="/drive/attachments"
-            data-testid="drive-nav-attachments"
-            className={({ isActive }) => sidebarLinkClass({ isActive })}
-          >
-            <Paperclip className="h-4 w-4 shrink-0" />
-            이슈/메시지 첨부
-          </NavLink>
-        </nav>
-
         <div className="flex items-center justify-between px-3">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             공간
@@ -180,6 +168,18 @@ export function DriveSidebar() {
             </div>
           ))}
         </nav>
+
+        {/* 첨부 모아보기 — 공간 아래 하단 그룹(구분선으로 분리). 평소 잘 안 보는 보조 뷰라 공간보다 아래 배치(#80 IA). */}
+        <div className="mt-3 border-t pt-3">
+          <NavLink
+            to="/drive/attachments"
+            data-testid="drive-nav-attachments"
+            className={({ isActive }) => sidebarLinkClass({ isActive })}
+          >
+            <Paperclip className="h-4 w-4 shrink-0" />
+            첨부 모아보기
+          </NavLink>
+        </div>
       </div>
 
       {/* 사용량 바 — 사이드바 하단 고정(#81) */}
