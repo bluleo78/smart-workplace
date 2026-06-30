@@ -4,6 +4,7 @@
 import { Bell } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
+import { CountBadge } from '@/components/CountBadge'
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -62,14 +63,11 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
             >
               <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
                 <Bell className="h-5 w-5" />
-                {unread > 0 && (
-                  <span
-                    data-testid="inbox-badge"
-                    className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
-                  >
-                    {unread > 99 ? '99+' : unread}
-                  </span>
-                )}
+                <CountBadge
+                  count={unread}
+                  data-testid="inbox-badge"
+                  className="absolute -right-1.5 -top-1.5"
+                />
               </span>
               <span
                 className={cn(
