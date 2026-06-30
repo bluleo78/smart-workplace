@@ -45,6 +45,8 @@ export default defineConfig({
     // --port/--strictPort 로 PORT 강제. 포트가 점유돼 있으면(드문 랜덤 충돌) 조용히 다른 포트로
     // 새지 않고 즉시 실패하도록 strictPort 를 둔다.
     command: `pnpm dev --port ${PORT} --strictPort`,
+    // E2E 는 백엔드 없이 page.route() 모킹으로 동작 → 프록시 콜드스타트 대기를 끄도록 신호를 내린다.
+    env: { E2E: '1' },
     url: HOST,
     // 병렬 세션 격리를 위해 로컬에서도 기존 서버 재사용 금지(매 런 자체 서버 기동).
     reuseExistingServer: false,
