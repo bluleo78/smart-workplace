@@ -211,6 +211,12 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Tailwind v4 Preflight는 버튼에 cursor:pointer를 더 이상 주지 않는다(브라우저 기본=화살표).
+     클릭 가능한 버튼/role=button 에 포인터 커서를 복원한다(비활성 제외). */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 /* ===== OCEAN THEME ===== */
