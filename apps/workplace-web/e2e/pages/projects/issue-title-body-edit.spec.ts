@@ -167,4 +167,52 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     const bodyEditBtn = page.getByRole('button', { name: '본문 편집' });
     await expect(bodyEditBtn).toHaveCSS('opacity', '1');
   });
+
+  // Jira 식 — 본문 영역 전체 클릭 → 편집, 호버 배경 변화, 하단 좌측 저장/취소 버튼.
+  test('본문 영역 클릭 → 편집 모드 + 저장/취소 버튼 노출', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 본문 영역(클릭 가능)에 호버 배경 클래스가 있어 편집 가능 신호를 준다.
+    const bodyArea = page.getByRole('button', { name: '본문 편집' });
+    await expect(bodyArea).toHaveClass(/hover:bg-muted/);
+
+    // 클릭 → 편집 모드 진입 + 저장/취소 버튼 노출.
+    await bodyArea.click();
+    await expect(page.getByTestId('issue-body-textarea')).toBeVisible();
+    await expect(page.getByTestId('issue-body-save')).toBeVisible();
+    await expect(page.getByTestId('issue-body-cancel')).toBeVisible();
+  });
+
+  test('본문 편집 → 저장 버튼 → PATCH {body} 호출 + 새 본문 렌더', async ({
+    authenticatedPage: page,
+  }) => {
+    const stub = await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    await page.getByTestId('issue-body-textarea').fill('버튼으로 저장한 본문');
+    await page.getByTestId('issue-body-save').click();
+
+    await expect.poll(() => stub.patches.length).toBeGreaterThanOrEqual(1);
+    expect(stub.patches[stub.patches.length - 1]).toEqual({ body: '버튼으로 저장한 본문' });
+    await expect(page.getByText('버튼으로 저장한 본문')).toBeVisible();
+  });
+
+  test('본문 편집 → 취소 버튼 → PATCH 없음 + 원본 복귀', async ({
+    authenticatedPage: page,
+  }) => {
+    const stub = await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    await page.getByTestId('issue-body-textarea').fill('버려질 본문');
+    await page.getByTestId('issue-body-cancel').click();
+
+    await page.waitForTimeout(300);
+    expect(stub.patches).toHaveLength(0);
+    await expect(page.getByText('원본 본문')).toBeVisible();
+  });
 });

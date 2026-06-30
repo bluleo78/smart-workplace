@@ -46,9 +46,10 @@ export function IssueAttachmentDropzone({
         onFiles(e.dataTransfer.files);
       }}
       onClick={() => !disabled && inputRef.current?.click()}
-      className={`mt-2 cursor-pointer rounded-md border border-dashed p-3 text-center text-sm ${
-        disabled ? 'opacity-50 cursor-not-allowed' : ''
-      } ${hover ? 'bg-accent/40' : 'bg-card'}`}
+      // 길고(flex-1) 두꺼운(py-4) 드롭 영역 — 점선 테두리로 "드롭/업로드"를 실선 링크 버튼과 구분.
+      className={`flex flex-1 items-center justify-center gap-1.5 rounded-md border border-dashed border-input px-3 py-4 text-xs font-medium ${
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-accent'
+      } ${hover ? 'bg-accent/40' : 'bg-background'}`}
     >
       <input
         ref={inputRef}
@@ -58,7 +59,7 @@ export function IssueAttachmentDropzone({
         onChange={(e) => onFiles(e.target.files)}
         disabled={disabled}
       />
-      <Paperclip className="mx-auto h-4 w-4 mb-1" />
+      <Paperclip className="h-3.5 w-3.5" />
       {disabled ? '한도 도달' : upload.isPending ? '업로드 중…' : '파일을 드롭하거나 클릭해 첨부'}
     </div>
   );

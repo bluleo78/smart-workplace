@@ -5,6 +5,7 @@ import { useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
   AlertDialog,
@@ -18,6 +19,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 
 import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
@@ -36,7 +38,8 @@ import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
-import { IssueChatPanel } from './components/chat/IssueChatPanel';
+import { IssueChatButton } from './components/chat/IssueChatButton';
+import { IssueChatDrawer } from './components/chat/IssueChatDrawer';
 import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
 import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
@@ -134,65 +137,90 @@ function InlineEditableBody({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body ?? '');
-  // Escape 취소 시 후속 blur 저장을 막는 1회 스킵 플래그 (제목과 동일 패턴).
-  const skipCommitRef = useRef(false);
 
+  // 표시 → 편집 진입. 진입 시 최신 본문으로 draft 초기화.
   const enter = () => {
     setDraft(body ?? '');
     setEditing(true);
   };
-
-  // 단일 저장 경로(blur). Cmd/Ctrl+Enter 는 blur() 로 합류.
-  const commit = () => {
-    if (skipCommitRef.current) {
-      skipCommitRef.current = false;
-      setEditing(false);
-      return;
-    }
+  // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단.
+  const save = () => {
     setEditing(false);
-    // 왜: 본문은 빈 값 허용. 단 변화 없으면 무의미 요청 차단.
-    if (draft === (body ?? '')) return;
-    onSave(draft);
+    if (draft !== (body ?? '')) onSave(draft);
   };
+  // 취소 — draft 폐기, 편집 종료.
+  const cancel = () => setEditing(false);
 
   if (!editing) {
     return (
-      <div className="group relative">
-        <button
-          type="button"
-          onClick={enter}
-          disabled={disabled}
-          aria-label="본문 편집"
-          className="absolute right-0 top-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
-        <article className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
-          {body ?? <em className="text-muted-foreground">본문 없음</em>}
-        </article>
+      // Jira 식 — 본문 영역 전체가 클릭 가능. 호버 시 배경 변화로 편집 가능 신호.
+      // role/aria-label/키보드(Enter·Space) 로 접근성 확보(article 은 button 자식 불가라 div+role).
+      <div
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-label="본문 편집"
+        aria-disabled={disabled}
+        onClick={() => {
+          if (!disabled) enter();
+        }}
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            enter();
+          }
+        }}
+        // 호버 시 편집 모드(textarea)와 동일한 border-input 테두리 + 패딩으로 "편집 필드" 미리보기.
+        // 평소 border-transparent 로 두어 호버 시 레이아웃 시프트 방지.
+        className="-mx-3 cursor-pointer rounded-md border border-transparent px-3 py-2 transition-colors hover:border-input hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {/* 뷰 모드 = 마크다운 렌더(## 제목·**볼드**·- [ ] 체크박스). 편집 모드(textarea)는 raw — 대비 확보. */}
+        {body ? (
+          <MarkdownMessage>{body}</MarkdownMessage>
+        ) : (
+          <em className="text-sm text-muted-foreground">본문 없음</em>
+        )}
       </div>
     );
   }
 
   return (
-    <Textarea
-      autoFocus
-      data-testid="issue-body-textarea"
-      className="min-h-[160px]"
-      value={draft}
-      disabled={disabled}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-          e.preventDefault();
-          e.currentTarget.blur();
-        } else if (e.key === 'Escape') {
-          skipCommitRef.current = true;
-          e.currentTarget.blur();
-        }
-      }}
-    />
+    // -mx-3 으로 뷰 모드 박스(-mx-3 px-3)와 좌우 위치를 일치시켜 전환 시 여백 변화 제거.
+    <div className="-mx-3 space-y-2">
+      <Textarea
+        autoFocus
+        data-testid="issue-body-textarea"
+        className="min-h-[160px]"
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          // 단축키: Cmd/Ctrl+Enter 저장 · Esc 취소. (blur 저장 없음 — 명시적 버튼 사용)
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            save();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+          }
+        }}
+      />
+      {/* 편집 액션 — 하단 좌측 저장/취소(Jira 식). */}
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={save} disabled={disabled} data-testid="issue-body-save">
+          저장
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={cancel}
+          disabled={disabled}
+          data-testid="issue-body-cancel"
+        >
+          취소
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -227,6 +255,8 @@ export default function IssueDetailPage() {
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
   // 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
   const [deletePending, setDeletePending] = useState(false);
+  // 채팅 드로워 open 상태 — 헤더 채팅 버튼으로 토글.
+  const [chatOpen, setChatOpen] = useState(false);
   // 첨부 삭제 권한 UI 토글용 — 첨부자 또는 OWNER. 백엔드 가드가 최종 검증.
   const members = useProjectMembers(key);
   const isOwner =
@@ -308,6 +338,7 @@ export default function IssueDetailPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
+        contained
         title={
           <InlineEditableTitle
             title={summary.title}
@@ -336,6 +367,13 @@ export default function IssueDetailPage() {
                 ⛔ 차단됨
               </span>
             )}
+            {/* 채팅 드로워 토글 — 좌측(채널 '파일' 버튼 패턴). 미읽음 배지 + 토글 상태 표시. */}
+            <IssueChatButton
+              projectKey={key}
+              issueNumber={issueNumber}
+              open={chatOpen}
+              onOpen={() => setChatOpen(true)}
+            />
           </>
         }
         actions={
@@ -377,8 +415,9 @@ export default function IssueDetailPage() {
         <div className="container mx-auto flex flex-col gap-6 p-6 @min-[1032px]:flex-row">
           {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
               세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
-          <div className="flex-1 space-y-4 @min-[1032px]:min-w-[360px]">
-            {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). */}
+          {/* 메인 컬럼 — 섹션(설명·하위 태스크·코멘트)을 Separator 바로 명확히 구분. space-y-6 으로 바 주변 여백 확보. */}
+          <div className="flex-1 space-y-6 @min-[1032px]:min-w-[360px]">
+            {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). 자체 아우라 박스라 바 없이 분리. */}
             {aiAvailable && (
               <IssueInstantContextCard
                 aiContext={data.aiContext}
@@ -386,28 +425,41 @@ export default function IssueDetailPage() {
                 isGenerating={genSummary.isPending}
               />
             )}
-            <InlineEditableBody
-              body={body}
-              onSave={(b) => patch({ body: b })}
-              disabled={update.isPending}
-            />
-            {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
-            <IssueAttachmentStrip
-              projectKey={key}
-              number={issueNumber}
-              attachmentCount={summary.attachmentCount}
-              currentUserId={user?.id ?? null}
-              isOwner={isOwner}
-            />
-            {/* 비SUBTASK 상세 본문 아래 — 자식 SUBTASK 진행률/목록/인라인 추가 (Phase 4a). */}
-            {!isSubtask && (
-              <IssueChildrenSection
-                projectKey={key}
-                parentNumber={issueNumber}
-                childCount={summary.childCount}
-                childDoneCount={summary.childDoneCount}
+            {/* 본문 섹션 — 본문 + 첨부. 섹션 레이블 "본문" = 디자인 시스템 heading-group(H4) 토큰. */}
+            <section aria-label="본문" className="space-y-2">
+              <h2 className="text-base leading-6 font-medium">본문</h2>
+              <InlineEditableBody
+                body={body}
+                onSave={(b) => patch({ body: b })}
+                disabled={update.isPending}
               />
+              {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
+              <IssueAttachmentStrip
+                projectKey={key}
+                number={issueNumber}
+                attachmentCount={summary.attachmentCount}
+                currentUserId={user?.id ?? null}
+                isOwner={isOwner}
+              />
+            </section>
+
+            {/* 설명 ↔ 다음 섹션 구분 바 */}
+            <Separator />
+
+            {/* 하위 태스크 — 비SUBTASK 만(#343 Phase 4a). 뒤에 구분 바를 함께 묶어 subtask 일 때 dangling 바 방지. */}
+            {!isSubtask && (
+              <>
+                <IssueChildrenSection
+                  projectKey={key}
+                  parentNumber={issueNumber}
+                  childCount={summary.childCount}
+                  childDoneCount={summary.childDoneCount}
+                />
+                <Separator />
+              </>
             )}
+
+            {/* 코멘트 / 활동 */}
             <IssueBodyTabs
               projectKey={key}
               issueNumber={issueNumber}
@@ -416,8 +468,7 @@ export default function IssueDetailPage() {
               history={history}
             />
           </div>
-          {/* 채팅 패널 — 접힘/펼침 자동 토글. lg 이상에서 본문과 레일 사이. */}
-          <IssueChatPanel projectKey={key} issueNumber={issueNumber} />
+          {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
           {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. #354: 뷰포트 lg → 컨테이너 1032px 기준. */}
           <aside className="w-full shrink-0 @min-[1032px]:w-[280px]">
             <IssuePropertyRail
@@ -459,6 +510,13 @@ export default function IssueDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* 채팅 드로워 — 헤더 채팅 버튼으로 토글. */}
+      <IssueChatDrawer
+        projectKey={key}
+        issueNumber={issueNumber}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+      />
     </div>
   );
 }

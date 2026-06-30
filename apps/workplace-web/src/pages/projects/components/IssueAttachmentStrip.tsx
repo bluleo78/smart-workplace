@@ -85,7 +85,8 @@ export function IssueAttachmentStrip({
               : undefined
           }
           onClick={() => setPickerOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          // 드롭 영역과 동일 두께(py-4) — shrink-0 으로 버튼 너비 유지, 드롭 영역이 나머지 폭 차지.
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-3 py-4 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Cloud className="h-3.5 w-3.5" /> 드라이브에서 링크
         </button>

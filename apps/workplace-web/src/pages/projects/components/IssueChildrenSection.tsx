@@ -101,24 +101,29 @@ export function IssueChildrenSection({
       className="space-y-2"
     >
       <div className="flex items-center gap-2">
-        <h3 className="text-sm font-medium">하위 태스크</h3>
-        <span className="text-xs text-muted-foreground" data-testid="child-progress-text">
-          {childDoneCount}/{childCount}
-        </span>
-        <div className="flex-1 bg-muted h-1 rounded overflow-hidden">
-          <div
-            className="bg-primary h-full"
-            style={{ width: `${pct}%` }}
-            data-testid="child-progress-bar"
-          />
-        </div>
+        {/* 섹션 헤딩 — 디자인 시스템 heading-group(H4) 토큰. */}
+        <h3 className="text-base leading-6 font-medium">하위 태스크</h3>
+        {/* 개수만 노출 — 하위 태스크가 있을 때만(0/0 은 무의미). */}
+        {childCount > 0 && (
+          <span className="text-xs text-muted-foreground" data-testid="child-progress-text">
+            {childCount}
+          </span>
+        )}
+        {/* 진행률 트랙 — 하위 태스크가 있을 때만. 0/0 일 때 빈 회색 트랙이 우측에 divider 처럼 보이는 문제 제거. */}
+        {childCount > 0 && (
+          <div className="flex-1 bg-muted h-1 rounded overflow-hidden">
+            <div
+              className="bg-primary h-full"
+              style={{ width: `${pct}%` }}
+              data-testid="child-progress-bar"
+            />
+          </div>
+        )}
       </div>
 
       {children.isLoading ? (
         <p className="text-xs text-muted-foreground">로딩 중…</p>
-      ) : items.length === 0 ? (
-        <p className="text-xs text-muted-foreground">하위 태스크가 없습니다</p>
-      ) : (
+      ) : items.length === 0 ? null : (
         <ul className="space-y-1">
           {items.map((it) => (
             <li

@@ -49,12 +49,17 @@ export function CyclePickerPopover({
             {c.name}
           </span>
         ))}
-        {attached.length === 0 && <span className="text-xs text-muted-foreground">없음</span>}
       </div>
       <Popover open={open} onOpenChange={onOpenChange}>
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" aria-label="사이클 편집" data-testid="cycle-picker-trigger">
-            <CalendarRange className="mr-1 h-4 w-4" /> 사이클
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="사이클 편집"
+            data-testid="cycle-picker-trigger"
+            className="w-full justify-start gap-2 font-normal"
+          >
+            <CalendarRange className="h-4 w-4 shrink-0 text-muted-foreground" /> 사이클
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-72 p-2" data-testid="cycle-picker">

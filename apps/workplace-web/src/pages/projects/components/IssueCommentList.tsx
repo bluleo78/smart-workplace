@@ -198,7 +198,7 @@ export function IssueCommentList({
 
   return (
     <section aria-label="코멘트" className="space-y-3">
-      <h2 className="text-lg font-semibold">코멘트</h2>
+      {/* "코멘트" 레이블 제거 — 상위 탭(코멘트)이 이미 맥락 제공(중복 제거). */}
       <ul className="space-y-2" role="list">
         {comments.map((c) => (
           <CommentItem

@@ -182,7 +182,7 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
       await expect(classGroup.getByTestId('property-group-badge')).toHaveText('1');
 
       // 헤더 클릭 → 펼침 → 라벨 보임
-      await classGroup.getByRole('button', { name: /분류·관계/ }).click();
+      await classGroup.getByRole('button', { name: /분류/ }).click();
       await expect(page.getByTestId('issue-labels')).toBeVisible();
     },
   );
@@ -246,7 +246,7 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
       await expect(page.getByText('첫 코멘트')).toBeVisible();
 
       // 활동 탭 클릭 → 타임라인 testid 보임
-      await page.getByRole('tab', { name: /활동/ }).click();
+      await page.getByRole('tab', { name: /이력/ }).click();
       await expect(page.getByTestId('issue-activity-timeline')).toBeVisible();
 
       // 사이드바(속성 레일)에 '활동' 헤딩 없음 — 활동 섹션이 본문 탭으로 이동됨
@@ -267,7 +267,7 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
     await composer.fill('초안 테스트 텍스트');
 
     // 활동 탭 → 코멘트 탭 순서로 전환
-    await page.getByRole('tab', { name: /활동/ }).click();
+    await page.getByRole('tab', { name: /이력/ }).click();
     await page.getByRole('tab', { name: /코멘트/ }).click();
 
     // forceMount 덕에 초안이 DOM 에 유지되어야 함
@@ -275,58 +275,12 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
   });
 });
 
-// 이슈 본문 최소 너비 — 채팅 패널 열림 시 224px 압축 회귀 방지 (#355).
-// 무엇을: 1200px 뷰포트에서 채팅 패널 열림 시 이슈 본문이 360px 이상을 유지하는지 검증.
-// 왜: min-w-[360px] 누락 시 채팅(320px)+레일(280px) 고정 너비에 밀려 본문이 224px로 줄어드는 회귀가 발생.
-test.describe('이슈 본문 최소 너비 (#355)', () => {
+// 채팅 드로워 — 헤더 채팅 버튼(좌측)으로 여는 우측 오버레이(구 인라인 패널 대체).
+// 무엇을: 버튼 클릭 → Sheet 드로워 열림, 토글 상태(aria-pressed) 반영, Esc 로 닫힘.
+// 왜: 채팅을 3컬럼 고정 영역에서 빼내 본문 폭을 확보하고 필요할 때만 연다(채널 '파일' 드로워 패턴).
+test.describe('이슈 채팅 드로워', () => {
   test(
-    '1200px 뷰포트에서 채팅 패널 열림 시 이슈 본문이 360px 이상 유지된다',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      await page.setViewportSize({ width: 1200, height: 900 });
-      await mockIssueDetail(page, {});
-      await mockChatThread(page, {
-        threadId: 10,
-        recentMessages: [{ id: 1, threadId: 10, body: '테스트 메시지' }],
-      });
-      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-      // 채팅 패널이 자동으로 펼쳐진 상태 확인.
-      await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
-
-      // 이슈 본문 영역(채팅 패널의 이전 형제 요소)의 너비가 360px 이상이어야 함.
-      const mainContentWidth = await page.evaluate(() => {
-        const chatPanel = document.querySelector('[data-testid="issue-chat-panel-body"]');
-        const mainContent = chatPanel?.parentElement?.children[0] as HTMLElement | undefined;
-        return mainContent ? Math.round(mainContent.getBoundingClientRect().width) : 0;
-      });
-      expect(mainContentWidth).toBeGreaterThanOrEqual(360);
-    },
-  );
-});
-
-// 반응형 레이아웃 — 좁은 화면(<lg) 세로 스택 검증 (Task 5, #343).
-// 무엇을: 800px 뷰포트에서 본문 스트립·속성 레일이 모두 보임을 확인.
-// 왜: 3구역 flex 레이아웃이 lg 미만에서 flex-col 스택으로 무너지지 않는지 회귀 방지.
-test.describe('반응형 레이아웃 (좁은 화면)', () => {
-  test('좁은 화면(<lg)에서 본문·채팅·레일이 세로로 쌓인다', async ({ authenticatedPage: page }) => {
-    await page.setViewportSize({ width: 800, height: 900 });
-    await mockIssueDetail(page, {});
-    await mockChatThread(page, { threadId: 9, recentMessages: [] });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    // 본문·레일 모두 보임 — 가로 3분할이 무너지지 않고 세로 스택으로 유지.
-    await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
-    await expect(page.getByTestId('property-rail')).toBeVisible();
-  });
-});
-
-// 채팅 접기 패널 — 자동 토글 + 수동 토글 영속 (Task 4, #343).
-// 무엇을: recentMessages 유무로 패널 자동 펼침/접힘 + 수동 접기 후 새로고침 유지 검증.
-// 왜: 채팅 사용 여부에 따라 공간 자동 배분, 사용자 설정을 localStorage 로 기억.
-test.describe('이슈 채팅 패널 (채팅 접기 패널, Task 4)', () => {
-  test(
-    '메시지 있으면 자동 펼침, 수동 접기 후 새로고침 시 접힘 유지',
+    '헤더 채팅 버튼 → 드로워 열림, Esc 로 닫힘',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       await mockIssueDetail(page, {});
@@ -336,109 +290,83 @@ test.describe('이슈 채팅 패널 (채팅 접기 패널, Task 4)', () => {
       });
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
-      // 자동 펼침 — recentMessages 있으므로 패널이 열려있어야 함.
-      await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
+      const btn = page.getByTestId('issue-chat-open');
+      await expect(btn).toBeVisible();
+      // 기본 닫힘 — 드로워 미마운트.
+      await expect(page.getByTestId('issue-chat-drawer')).toHaveCount(0);
 
-      // 수동 접기 → 얇은 세로 토글 바로 전환.
-      await page.getByTestId('issue-chat-panel-collapse').click();
-      await expect(page.getByTestId('issue-chat-panel-body')).toBeHidden();
-      await expect(page.getByTestId('issue-chat-panel-open')).toBeVisible();
+      // 클릭 → 드로워 열림.
+      await btn.click();
+      await expect(page.getByTestId('issue-chat-drawer')).toBeVisible();
 
-      // 새로고침 후에도 접힘 유지(localStorage '0' 기억). routes 는 page 객체에 유지됨.
-      await page.reload();
-      await expect(page.getByTestId('issue-chat-panel-body')).toBeHidden();
+      // Esc → 닫힘.
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('issue-chat-drawer')).toHaveCount(0);
     },
   );
+});
 
-  test('메시지 없으면 기본 접힘 → 토글 바 표시', async ({ authenticatedPage: page }) => {
+// 반응형 레이아웃 — 좁은 화면(<lg) 세로 스택 검증 (Task 5, #343).
+// 무엇을: 800px 뷰포트에서 본문 스트립·속성 레일이 모두 보임을 확인(채팅은 드로워라 행에서 제외).
+// 왜: 2구역 flex 레이아웃이 lg 미만에서 flex-col 스택으로 무너지지 않는지 회귀 방지.
+test.describe('반응형 레이아웃 (좁은 화면)', () => {
+  test('좁은 화면(<lg)에서 본문·레일이 세로로 쌓인다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 800, height: 900 });
     await mockIssueDetail(page, {});
-    await mockChatThread(page, { threadId: 8, recentMessages: [] });
+    await mockChatThread(page, { threadId: 9, recentMessages: [] });
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
-    // 메시지 없으면 패널 기본 접힘.
-    await expect(page.getByTestId('issue-chat-panel-body')).toBeHidden();
-    await expect(page.getByTestId('issue-chat-panel-open')).toBeVisible();
+    // 본문·레일 모두 보임 — 가로 분할이 무너지지 않고 세로 스택으로 유지.
+    await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
+    await expect(page.getByTestId('property-rail')).toBeVisible();
   });
 });
 
-// AI 사이드패널 + 이슈 채팅 동시 열기 — 레이아웃 붕괴/오버레이 방지 (#354).
-// 무엇을: 3구역 가로배치를 뷰포트(lg)가 아닌 컨테이너 폭(@container 1032px) 기준으로 전환.
-// 왜: AI 사이드패널이 main 을 좁히면 좁아진 영역에서도 3분할을 유지해 본문이 ~180px 로 붕괴되고
-//     채팅·레일이 AI 패널(z-60) 뒤로 밀려 가려졌다(오버레이 증상). 컨테이너 기준이면 좁을 때 세로 스택.
-test.describe('AI 사이드패널 + 이슈 채팅 동시 (#354)', () => {
-  // 행(3구역 부모)의 가로 오버플로우 + 채팅이 AI 패널 좌측 경계를 넘는지 측정.
-  async function probe(page: import('@playwright/test').Page) {
+// AI 사이드패널 + 2구역(본문+레일) 레이아웃 — 가로 오버플로우/붕괴 방지 (#354, 채팅 컬럼 제거 후).
+// 무엇을: 본문+레일 행(@container 1032px 기준)이 AI 사이드패널로 좁아져도 오버플로우 없이 세로 스택 전환.
+// 왜: 채팅은 이제 오버레이 드로워라 행에서 빠졌지만, AI 패널이 main 을 좁힐 때의 #354 붕괴 회귀는 유지 검증.
+test.describe('AI 사이드패널 + 2구역 레이아웃 (#354)', () => {
+  // 본문+레일 행(속성 레일의 상위 행)의 가로 오버플로우 + flex 방향 측정.
+  async function rowProbe(page: import('@playwright/test').Page) {
     return page.evaluate(() => {
-      const chat = document.querySelector('[data-testid="issue-chat-panel-body"]') as HTMLElement;
-      const row = chat.parentElement as HTMLElement;
-      const ai = document.querySelector('[data-testid="ai-side-panel"]') as HTMLElement | null;
+      const rail = document.querySelector('[data-testid="property-rail"]') as HTMLElement;
+      const aside = rail.closest('aside') as HTMLElement;
+      const row = aside.parentElement as HTMLElement;
       return {
         overflow: row.scrollWidth - row.clientWidth,
         flexDir: getComputedStyle(row).flexDirection,
-        chatRight: Math.round(chat.getBoundingClientRect().right),
-        aiLeft: ai ? Math.round(ai.getBoundingClientRect().left) : Infinity,
       };
     });
   }
 
   test(
-    '1280px + AI 사이드패널 열림: 세로 스택 + 가로 오버플로우 없음 + 채팅이 AI 패널에 안 가려짐',
+    '1280px + AI 사이드패널 열림: 세로 스택 + 가로 오버플로우 없음',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       await page.setViewportSize({ width: 1280, height: 900 });
       await mockIssueDetail(page, {});
-      await mockChatThread(page, {
-        threadId: 11,
-        recentMessages: [{ id: 1, threadId: 11, body: '안녕' }],
-      });
+      await mockChatThread(page, { threadId: 11, recentMessages: [] });
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-      await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
 
       // AI 사이드패널 열기(chat-launcher 1클릭 → side 모드).
       await page.getByTestId('chat-launcher').click();
       await expect(page.getByTestId('ai-side-panel')).toBeVisible();
 
-      const r = await probe(page);
+      const r = await rowProbe(page);
       expect(r.flexDir).toBe('column'); // 좁아진 영역 → 세로 스택
       expect(r.overflow).toBeLessThanOrEqual(1); // 가로 오버플로우 없음
-      expect(r.chatRight).toBeLessThanOrEqual(r.aiLeft + 1); // 채팅이 AI 패널 뒤로 안 밀림(가려짐 방지)
     },
   );
 
-  test('1024px + AI 사이드패널 열림(가장 좁은 케이스): 오버플로우/가려짐 없음', async ({
-    authenticatedPage: page,
-  }) => {
-    await page.setViewportSize({ width: 1024, height: 900 });
-    await mockIssueDetail(page, {});
-    await mockChatThread(page, {
-      threadId: 13,
-      recentMessages: [{ id: 1, threadId: 13, body: '안녕' }],
-    });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
-    await page.getByTestId('chat-launcher').click();
-    await expect(page.getByTestId('ai-side-panel')).toBeVisible();
-
-    const r = await probe(page);
-    expect(r.overflow).toBeLessThanOrEqual(1);
-    expect(r.chatRight).toBeLessThanOrEqual(r.aiLeft + 1);
-  });
-
-  test('넓은 화면(1700px) no-AI: 3구역 가로 배치(row) 유지', async ({ authenticatedPage: page }) => {
-    // 컨테이너가 충분히 넓으면(≥1032px) 기존 3분할 가로 배치 유지 — 항상-스택 회귀 방지.
+  test('넓은 화면(1700px) no-AI: 2구역 가로 배치(row) 유지', async ({ authenticatedPage: page }) => {
+    // 컨테이너가 충분히 넓으면(≥1032px) 본문+레일 가로 배치 유지 — 항상-스택 회귀 방지.
     await page.setViewportSize({ width: 1700, height: 900 });
     await mockIssueDetail(page, {});
-    await mockChatThread(page, {
-      threadId: 12,
-      recentMessages: [{ id: 1, threadId: 12, body: '안녕' }],
-    });
+    await mockChatThread(page, { threadId: 12, recentMessages: [] });
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
+    await expect(page.getByTestId('property-rail')).toBeVisible();
 
-    const flexDir = await page.evaluate(() => {
-      const chat = document.querySelector('[data-testid="issue-chat-panel-body"]') as HTMLElement;
-      return getComputedStyle(chat.parentElement as HTMLElement).flexDirection;
-    });
-    expect(flexDir).toBe('row');
+    const r = await rowProbe(page);
+    expect(r.flexDir).toBe('row');
   });
 });

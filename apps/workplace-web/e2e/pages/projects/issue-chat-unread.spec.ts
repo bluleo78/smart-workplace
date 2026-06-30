@@ -120,9 +120,11 @@ test(
       },
     );
 
-    // ── 페이지 진입 — 빈 스레드라 패널 접힘(열기 토글 바 노출) ──────────────
+    // ── 페이지 진입 — 채팅 드로워 닫힘, 헤더 채팅 버튼 노출 ──────────────
+    // 넓은 뷰포트: 중앙 상단 AI 런처 칩(fixed)이 좌측 헤더 채팅 버튼과 겹쳐 클릭을 가로채지 않도록.
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await expect(page.getByTestId('issue-chat-panel-open')).toBeVisible();
+    await expect(page.getByTestId('issue-chat-open')).toBeVisible();
 
     // ── 단언 1: 미읽음 배지가 '1' 로 표시(개수 정확 = dedup 검증) ───────────
     const badge = page.getByTestId('issue-chat-unread-badge');
@@ -132,9 +134,9 @@ test(
     await page.waitForTimeout(1500);
     await expect(badge).toHaveText('1');
 
-    // ── Phase 2: 펼치기 → 배지 사라지고 메시지 본문 표시 ─────────────────
-    await page.getByTestId('issue-chat-panel-open').click();
-    await expect(page.getByTestId('issue-chat-panel-body')).toBeVisible();
+    // ── Phase 2: 드로워 열기 → 배지 사라지고 메시지 본문 표시 ─────────────────
+    await page.getByTestId('issue-chat-open').click();
+    await expect(page.getByTestId('issue-chat-drawer')).toBeVisible();
     await expect(page.getByTestId('issue-chat-unread-badge')).toHaveCount(0);
     await expect(page.getByText('안 읽은 새 메시지')).toBeVisible();
   },
