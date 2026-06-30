@@ -21,9 +21,15 @@ import org.springframework.stereotype.Repository;
 public class CalendarRepository {
   private final DSLContext dsl;
 
-  /** 소유자의 캘린더 목록(position, id 정렬). 비활성 외부 계정의 캘린더는 제외(즉시 hide). */
+  /**
+   * 소유자의 캘린더 목록(position, id 정렬). 연동 캘린더는 email_account JOIN 으로 출처(이메일/공급자) 노출, 비활성 외부 계정의
+   * 캘린더는 제외(즉시 hide).
+   */
   public List<CalendarResponse> listByOwner(long ownerId) {
-    return dsl.selectFrom(CALENDAR)
+    return dsl.select(CALENDAR.asterisk(), EMAIL_ACCOUNT.EMAIL_ADDRESS, EMAIL_ACCOUNT.PROVIDER)
+        .from(CALENDAR)
+        .leftJoin(EMAIL_ACCOUNT)
+        .on(CALENDAR.EXTERNAL_ACCOUNT_ID.eq(EMAIL_ACCOUNT.ID))
         .where(CALENDAR.OWNER_ID.eq(ownerId))
         .and(visibleExternalCondition())
         .orderBy(CALENDAR.POSITION.asc(), CALENDAR.ID.asc())
@@ -61,7 +67,10 @@ public class CalendarRepository {
 
   /** 소유자 본인 캘린더 단건. */
   public Optional<CalendarResponse> findByIdForOwner(long ownerId, long id) {
-    return dsl.selectFrom(CALENDAR)
+    return dsl.select(CALENDAR.asterisk(), EMAIL_ACCOUNT.EMAIL_ADDRESS, EMAIL_ACCOUNT.PROVIDER)
+        .from(CALENDAR)
+        .leftJoin(EMAIL_ACCOUNT)
+        .on(CALENDAR.EXTERNAL_ACCOUNT_ID.eq(EMAIL_ACCOUNT.ID))
         .where(CALENDAR.ID.eq(id))
         .and(CALENDAR.OWNER_ID.eq(ownerId))
         .and(visibleExternalCondition())
@@ -160,6 +169,8 @@ public class CalendarRepository {
         r.get(CALENDAR.COLOR),
         r.get(CALENDAR.IS_DEFAULT),
         r.get(CALENDAR.POSITION),
-        Boolean.TRUE.equals(r.get(CALENDAR.IS_READ_ONLY)));
+        Boolean.TRUE.equals(r.get(CALENDAR.IS_READ_ONLY)),
+        r.get(EMAIL_ACCOUNT.EMAIL_ADDRESS), // 로컬 캘린더는 JOIN 행 없어 null
+        r.get(EMAIL_ACCOUNT.PROVIDER)); // 로컬 캘린더는 null
   }
 }

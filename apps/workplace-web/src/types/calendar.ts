@@ -93,6 +93,10 @@ export interface Calendar {
   position: number
   // M365 등 외부 동기화 컨테이너인 경우 true — 이름·색 편집·삭제 불가. (이슈 #501)
   isReadOnly: boolean
+  // 외부 계정 연동 캘린더의 출처 계정 이메일. 로컬 캘린더는 null.
+  accountEmail?: string | null
+  // 출처 공급자 raw 문자열('M365_GRAPH' | 'IMAP'). 로컬 캘린더는 null.
+  provider?: string | null
 }
 
 // 캘린더 생성/수정 요청.

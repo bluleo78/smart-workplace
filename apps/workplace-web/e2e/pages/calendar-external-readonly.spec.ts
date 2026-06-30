@@ -66,7 +66,15 @@ test(
     // 외부(M365) 캘린더 id=10, 로컬 캘린더 id=1
     await stubCalendars(page, [
       calendar({ id: 1, name: '기본', color: 'blue', isDefault: true, isReadOnly: false }),
-      calendar({ id: 10, name: 'M365 캘린더', color: 'indigo', isDefault: false, isReadOnly: true }),
+      calendar({
+        id: 10,
+        name: 'M365 캘린더',
+        color: 'indigo',
+        isDefault: false,
+        isReadOnly: true,
+        accountEmail: 'dh.yang@iacloud.kr',
+        provider: 'M365_GRAPH',
+      }),
     ])
 
     await page.goto('/calendar')
@@ -96,7 +104,15 @@ test('외부 캘린더의 가시성 토글(체크박스)은 읽기전용이어�
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
 
   await stubCalendars(page, [
-    calendar({ id: 10, name: 'M365 캘린더', color: 'indigo', isDefault: false, isReadOnly: true }),
+    calendar({
+      id: 10,
+      name: 'M365 캘린더',
+      color: 'indigo',
+      isDefault: false,
+      isReadOnly: true,
+      accountEmail: 'dh.yang@iacloud.kr',
+      provider: 'M365_GRAPH',
+    }),
   ])
 
   await page.goto('/calendar')
@@ -123,7 +139,15 @@ test(
     // 로컬 캘린더 id=1, 외부(읽기전용) 캘린더 id=10
     await stubCalendars(page, [
       calendar({ id: 1, name: '기본', color: 'blue', isDefault: true, isReadOnly: false }),
-      calendar({ id: 10, name: 'M365 캘린더', color: 'indigo', isDefault: false, isReadOnly: true }),
+      calendar({
+        id: 10,
+        name: 'M365 캘린더',
+        color: 'indigo',
+        isDefault: false,
+        isReadOnly: true,
+        accountEmail: 'dh.yang@iacloud.kr',
+        provider: 'M365_GRAPH',
+      }),
     ])
 
     await page.goto('/calendar')
@@ -163,7 +187,15 @@ test(
       page,
       [
         calendar({ id: 1, name: '기본', color: 'blue', isDefault: true, isReadOnly: false }),
-        calendar({ id: 10, name: 'M365 캘린더', color: 'indigo', isDefault: false, isReadOnly: true }),
+        calendar({
+          id: 10,
+          name: 'M365 캘린더',
+          color: 'indigo',
+          isDefault: false,
+          isReadOnly: true,
+          accountEmail: 'dh.yang@iacloud.kr',
+          provider: 'M365_GRAPH',
+        }),
       ],
       [readonlyEvent],
     )

@@ -6,7 +6,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Checkbox } from '@/components/ui/checkbox'
-import { type CalendarLayers,isCalendarVisible } from '@/lib/calendar'
+import {
+  type CalendarLayers,
+  groupCalendarsBySource,
+  isCalendarVisible,
+  providerLabel,
+} from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
 import type { Calendar as CalendarType } from '@/types/calendar'
 
@@ -74,25 +79,11 @@ export function CalendarSidebar({
         />
       </div>
 
-      {/* 내 캘린더 그룹 — 캘린더별 체크박스 토글 */}
-      <div className="mt-2 px-3 pb-2">
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            내 캘린더
-          </span>
-          {/* 새 캘린더 추가 버튼 */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-5 w-5"
-            data-testid="calendar-add"
-            aria-label="캘린더 추가"
-            onClick={onAddCalendar}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-        {calendars.map((c) => {
+      {/* 캘린더 목록 — 로컬("내 캘린더") + 계정별 연동 섹션으로 그룹핑 */}
+      {(() => {
+        const { local, accounts } = groupCalendarsBySource(calendars)
+        // 캘린더 1행 — 체크박스 + 색 점 + 이름 + (읽기전용 배지 | hover 편집). 로컬·연동 공용.
+        const renderItem = (c: CalendarType) => {
           const palette = resolvePalette(c.color)
           const visible = isCalendarVisible(layers, c.id)
           return (
@@ -108,7 +99,10 @@ export function CalendarSidebar({
                 aria-label={`캘린더 표시: ${c.name}`}
               />
               {/* 캘린더 색 점 */}
-              <span className={`size-2.5 shrink-0 rounded-sm ${palette.dotClass}`} aria-hidden="true" />
+              <span
+                className={`size-2.5 shrink-0 rounded-sm ${palette.dotClass}`}
+                aria-hidden="true"
+              />
               <span className="min-w-0 flex-1 truncate">{c.name}</span>
               {/* 외부 동기화 캘린더: 읽기전용 배지 표시, 편집 버튼 숨김 (이슈 #501) */}
               {c.isReadOnly ? (
@@ -137,8 +131,53 @@ export function CalendarSidebar({
               )}
             </div>
           )
-        })}
-      </div>
+        }
+
+        return (
+          <>
+            {/* 내 캘린더(로컬) 섹션 */}
+            <div className="mt-2 px-3 pb-2">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  내 캘린더
+                </span>
+                {/* 새 캘린더 추가 버튼 */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5"
+                  data-testid="calendar-add"
+                  aria-label="캘린더 추가"
+                  onClick={onAddCalendar}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {local.map(renderItem)}
+            </div>
+
+            {/* 계정별 연동 섹션 — 헤더: 이메일(일반 표기) + 공급자 회색 pill */}
+            {accounts.map((acct) => (
+              <div
+                key={acct.email}
+                data-testid={`calendar-account-section-${acct.email}`}
+                className="border-t px-3 pb-2 pt-2"
+              >
+                <div className="mb-1.5 flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">
+                    {acct.email}
+                  </span>
+                  {/* 공급자 pill — "읽기 전용" 배지와 동일 톤 */}
+                  <Badge variant="secondary" className="h-4 shrink-0 px-1 text-[10px]">
+                    {providerLabel(acct.provider)}
+                  </Badge>
+                </div>
+                {acct.calendars.map(renderItem)}
+              </div>
+            ))}
+          </>
+        )
+      })()}
 
       {/* 기타 그룹 — 이슈 마감일 + 초대받은 일정 */}
       <div className="px-3 pb-4">

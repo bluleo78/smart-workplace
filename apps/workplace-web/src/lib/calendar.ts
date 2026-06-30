@@ -3,7 +3,7 @@ import {
   startOfDay, startOfMonth, startOfWeek,
 } from 'date-fns'
 
-import type { CalendarEvent, CalendarViewType, IssueDueMarker } from '../types/calendar'
+import type { Calendar, CalendarEvent, CalendarViewType, IssueDueMarker } from '../types/calendar'
 
 // 월 그리드: 해당 월을 포함하는 일요일 시작 6주(42칸).
 export function monthMatrix(anchor: Date): Date[] {
@@ -124,4 +124,43 @@ export function toggleCalendar(layers: CalendarLayers, calendarId: number): Cale
       ? [...layers.hiddenCalendarIds, calendarId]
       : layers.hiddenCalendarIds.filter((id) => id !== calendarId),
   }
+}
+
+// 공급자 raw 문자열 → 사이드바 pill 라벨. IMAP 은 일정 동기화를 안 하므로 현재는 M365 만 실제 등장.
+export function providerLabel(provider: string | null | undefined): string {
+  switch (provider) {
+    case 'M365_GRAPH':
+      return 'M365'
+    case 'IMAP':
+      return 'IMAP'
+    default:
+      return provider ?? ''
+  }
+}
+
+// 사이드바 섹션 그룹핑 결과. accounts 는 계정 첫 등장 순서를 유지한다.
+export interface CalendarSourceGroups {
+  local: Calendar[]
+  accounts: { email: string; provider: string | null; calendars: Calendar[] }[]
+}
+
+// accountEmail 기준으로 로컬/연동 캘린더를 분리·그룹핑. 입력 정렬(position,id)은 백엔드가 보장.
+export function groupCalendarsBySource(calendars: Calendar[]): CalendarSourceGroups {
+  const local: Calendar[] = []
+  const accounts: CalendarSourceGroups['accounts'] = []
+  const byEmail = new Map<string, CalendarSourceGroups['accounts'][number]>()
+  for (const c of calendars) {
+    if (!c.accountEmail) {
+      local.push(c)
+      continue
+    }
+    let group = byEmail.get(c.accountEmail)
+    if (!group) {
+      group = { email: c.accountEmail, provider: c.provider ?? null, calendars: [] }
+      byEmail.set(c.accountEmail, group)
+      accounts.push(group)
+    }
+    group.calendars.push(c)
+  }
+  return { local, accounts }
 }

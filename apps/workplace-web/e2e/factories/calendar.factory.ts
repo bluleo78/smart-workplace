@@ -33,6 +33,9 @@ export function calendar(over: Partial<Calendar> = {}): Calendar {
     position: 0,
     // 기본값 false — 로컬 캘린더. M365 동기화 캘린더는 true 로 오버라이드. (이슈 #501)
     isReadOnly: false,
+    // 로컬 캘린더 기본값 — 연동 캘린더는 accountEmail/provider 를 오버라이드. (이슈 #534)
+    accountEmail: null,
+    provider: null,
     ...over,
   }
 }

@@ -60,6 +60,56 @@ class CalendarListReadOnlyTest extends IntegrationTestBase {
         .getId();
   }
 
+  /**
+   * 연동 캘린더는 accountEmail/provider 를 노출하고, 로컬 캘린더는 둘 다 null 이어야 한다. email_account JOIN 이 테넌트 RLS GUC
+   * 아래에서 행을 보이게 하는지까지 함께 검증한다 (accountEmail 이 null 로 떨어지면 연동 캘린더가 로컬로 오분류된다).
+   */
+  @Test
+  void list_exposes_accountEmail_and_provider_for_synced_and_null_for_local() {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              long ownerId = TestFixtures.createHuman(dsl);
+              String email = "synced-" + System.nanoTime() + "@iacloud.kr";
+              long accountId =
+                  dsl.insertInto(
+                          EMAIL_ACCOUNT,
+                          EMAIL_ACCOUNT.USER_ID,
+                          EMAIL_ACCOUNT.EMAIL_ADDRESS,
+                          EMAIL_ACCOUNT.PROVIDER,
+                          EMAIL_ACCOUNT.TENANT_ID,
+                          EMAIL_ACCOUNT.AI_ENABLED)
+                      .values(ownerId, email, "M365_GRAPH", TENANT_ID, false)
+                      .returning(EMAIL_ACCOUNT.ID)
+                      .fetchOne()
+                      .getId();
+
+              // 쓰기 가능 연동 캘린더(readOnly=false) — 로컬과 isReadOnly 로는 구분 불가한 케이스
+              externalCalendarRepo.upsertExternalCalendar(
+                  ownerId, accountId, "extCal1", "M365 달력", "blue", false);
+
+              List<CalendarResponse> cals = calendarService.list(ownerId);
+
+              CalendarResponse synced =
+                  cals.stream()
+                      .filter(c -> c.accountEmail() != null)
+                      .findFirst()
+                      .orElseThrow(() -> new AssertionError("연동 캘린더를 찾지 못함 — accountEmail 이 null"));
+              assertThat(synced.accountEmail()).isEqualTo(email);
+              assertThat(synced.provider()).isEqualTo("M365_GRAPH");
+              // readOnly=false 연동 캘린더 — isReadOnly 축과 출처 축이 섞이지 않음을 검증
+              assertThat(synced.isReadOnly()).isFalse();
+
+              CalendarResponse local =
+                  cals.stream().filter(CalendarResponse::isDefault).findFirst().orElseThrow();
+              assertThat(local.accountEmail()).isNull();
+              assertThat(local.provider()).isNull();
+
+              status.setRollbackOnly();
+              return null;
+            });
+  }
+
   /** 외부 컨테이너는 isReadOnly=true, 로컬 기본 캘린더는 isReadOnly=false 를 반환해야 한다. */
   @Test
   void list_returns_isReadOnly_true_for_external_container_and_false_for_local() {

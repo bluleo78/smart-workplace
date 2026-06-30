@@ -11,8 +11,9 @@ import { createIssue, createIssueDetail, createIssueSearchResponse } from '../fa
 // 기본 캘린더 목록 스텁 — 사이드바 렌더에 필요.
 const DEFAULT_CALENDARS = [calendar({ id: 1, name: '기본', color: 'blue', isDefault: true })]
 
-async function stubCalendars(page: Page): Promise<void> {
-  await mockApi(page, 'GET', '/api/v1/calendars', DEFAULT_CALENDARS)
+// calendars 를 생략하면 DEFAULT_CALENDARS 로 모킹. 그룹핑 테스트처럼 커스텀 목록이 필요한 경우 배열 전달.
+async function stubCalendars(page: Page, calendars = DEFAULT_CALENDARS): Promise<void> {
+  await mockApi(page, 'GET', '/api/v1/calendars', calendars)
 }
 
 // 2026-06-11 마감 이슈 1건 + 그 이슈 상세 빈 스텁(이동 시 프록시 누수 방지).
@@ -138,6 +139,51 @@ test('표시 토글을 끄면 미니 캘린더 점도 사라진다', async ({ au
   // 캘린더 1 토글 끄기 → 점 사라짐.
   await page.getByTestId('calendar-toggle-1').click()
   await expect(cell).not.toHaveClass(/day-has-items/)
+})
+
+test('로컬과 연동 캘린더가 별도 섹션으로 그룹핑되고 계정 헤더·공급자 pill 이 표시된다', async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendars(page, [
+    calendar({ id: 1, name: '개인', isDefault: true, isReadOnly: false }),
+    calendar({ id: 2, name: '프로젝트', isDefault: false, isReadOnly: false }),
+    calendar({
+      id: 10,
+      name: '캘린더',
+      isDefault: false,
+      isReadOnly: false,
+      accountEmail: 'dh.yang@iacloud.kr',
+      provider: 'M365_GRAPH',
+    }),
+    calendar({
+      id: 11,
+      name: '대한민국 공휴일',
+      isDefault: false,
+      isReadOnly: true,
+      accountEmail: 'dh.yang@iacloud.kr',
+      provider: 'M365_GRAPH',
+    }),
+  ])
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([]))
+  await page.goto('/calendar')
+
+  // 계정 섹션 헤더: 이메일 + 공급자 pill('M365')
+  const acctSection = page.getByTestId('calendar-account-section-dh.yang@iacloud.kr')
+  await expect(acctSection).toContainText('dh.yang@iacloud.kr')
+  await expect(acctSection).toContainText('M365')
+
+  // 연동 캘린더(10,11)는 계정 섹션 안에 소속
+  await expect(acctSection.getByTestId('calendar-list-item-10')).toBeVisible()
+  await expect(acctSection.getByTestId('calendar-list-item-11')).toBeVisible()
+  // 읽기전용(11)은 배지 표시
+  await expect(acctSection.getByTestId('calendar-readonly-badge')).toBeVisible()
+
+  // 로컬 캘린더(1,2)는 계정 섹션 밖
+  await expect(acctSection.getByTestId('calendar-list-item-1')).toHaveCount(0)
+  await expect(acctSection.getByTestId('calendar-list-item-2')).toHaveCount(0)
+  await expect(page.getByTestId('calendar-list-item-1')).toBeVisible()
 })
 
 test('이슈 마감일 토글을 끄면 마감 점도 사라진다', async ({ authenticatedPage: page }) => {
