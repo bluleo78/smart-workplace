@@ -31,6 +31,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { partitionSpaces } from '@/lib/driveSpaces'
+import { formatFileSize } from '@/lib/formatters'
 
 import { driveApi } from '../../api/drive'
 import type { DriveQuota, DriveSpace } from '../../types/drive'
@@ -60,10 +61,6 @@ export function DriveSidebar() {
     void driveApi.getQuota().then(({ data }) => setQuota(data))
   }, [])
 
-  const GB = 1024 * 1024 * 1024
-  function fmtGb(bytes: number) {
-    return (bytes / GB).toFixed(1)
-  }
 
   /** 팀 공간 생성 — 다이얼로그 확인 시 호출. */
   async function submitCreate() {
@@ -168,18 +165,19 @@ export function DriveSidebar() {
             </div>
           ))}
         </nav>
+      </div>
 
-        {/* 첨부 모아보기 — 공간 아래 하단 그룹(구분선으로 분리). 평소 잘 안 보는 보조 뷰라 공간보다 아래 배치(#80 IA). */}
-        <div className="mt-3 border-t pt-3">
-          <NavLink
-            to="/drive/attachments"
-            data-testid="drive-nav-attachments"
-            className={({ isActive }) => sidebarLinkClass({ isActive })}
-          >
-            <Paperclip className="h-4 w-4 shrink-0" />
-            첨부 모아보기
-          </NavLink>
-        </div>
+      {/* 첨부 모아보기 — 사용량 바 바로 위 하단 그룹(스크롤 영역 밖 고정). 공간 목록과 구분선으로
+          분리(평소 잘 안 보는 보조 뷰라 공간 아래 배치, #80 IA). */}
+      <div className="border-t p-3">
+        <NavLink
+          to="/drive/attachments"
+          data-testid="drive-nav-attachments"
+          className={({ isActive }) => sidebarLinkClass({ isActive })}
+        >
+          <Paperclip className="h-4 w-4 shrink-0" />
+          첨부 모아보기
+        </NavLink>
       </div>
 
       {/* 사용량 바 — 사이드바 하단 고정(#81) */}
@@ -188,7 +186,7 @@ export function DriveSidebar() {
           <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
             <span>사용량</span>
             <span data-testid="drive-usage-text">
-              {fmtGb(quota.usedBytes)} / {fmtGb(quota.quotaBytes)} GB
+              {formatFileSize(quota.usedBytes)} / {formatFileSize(quota.quotaBytes)}
             </span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
