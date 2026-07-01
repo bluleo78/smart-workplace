@@ -35,11 +35,15 @@ public final class IssueDomainEvents {
       List<UserSummary> removed,
       Instant occurredAt) {}
 
-  /** 코멘트 추가. commentBody 는 agent 응답 트리거의 핵심 컨텍스트라 포함. */
+  /**
+   * 코멘트 추가. commentBody 는 agent 응답 트리거의 핵심 컨텍스트라 포함. issueNumber 는 SSE 브로드캐스트(#579)가 프론트
+   * 쿼리키(issueKeys.detail(projectKey, number))를 그대로 구성하는 데 필요 — issueKey 문자열 파싱을 피한다.
+   */
   public record IssueCommentedEvent(
       long issueId,
       String projectKey,
       String issueKey,
+      int issueNumber,
       String title,
       UserSummary actor,
       List<UserSummary> assignees,

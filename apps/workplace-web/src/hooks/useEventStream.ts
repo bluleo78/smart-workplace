@@ -1,6 +1,7 @@
-// 통합 실시간 SSE 구독 훅 — 단일 /api/v1/events 커넥션 1개로 chat·messaging·notify 이벤트를 받아
+// 통합 실시간 SSE 구독 훅 — 단일 /api/v1/events 커넥션 1개로 chat·messaging·notify·issue 이벤트를 받아
 // 이름 prefix 로 도메인 핸들러에 fan-out 한다. 과거 useChatStream/useMessageStream/useNotificationStream
 // 3개 훅(커넥션 3개)을 대체한다. { isConnected } 는 단일 커넥션 상태(끊김 배너용).
+// issue.* prefix(#579) — 이슈 코멘트가 다른 탭/사용자에게 실시간 반영되지 않던 갭을 메운다.
 
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -9,6 +10,7 @@ import { subscribeEventStream } from '../lib/eventStream';
 import { messagingKeys } from './queries/messagingKeys';
 import { notificationKeys } from './queries/notificationKeys';
 import { handleChatEvent } from './useChatStream';
+import { handleIssueEvent } from './useIssueStream';
 import { handleMessagingEvent } from './useMessageStream';
 import { handleNotifyEvent } from './useNotificationStream';
 
@@ -21,6 +23,7 @@ export function routeStreamEvent(
   if (name.startsWith('chat.')) handleChatEvent(ctx.qc, name, data);
   else if (name.startsWith('messaging.')) handleMessagingEvent(ctx.qc, name, data, ctx.currentUserId);
   else if (name.startsWith('notify.')) handleNotifyEvent(ctx.qc, name);
+  else if (name.startsWith('issue.')) handleIssueEvent(ctx.qc, name, data);
 }
 
 export function useEventStream(currentUserId: number): { isConnected: boolean } {

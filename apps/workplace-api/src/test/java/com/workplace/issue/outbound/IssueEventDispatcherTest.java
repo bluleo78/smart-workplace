@@ -98,6 +98,7 @@ class IssueEventDispatcherTest {
             1L,
             "WP",
             "WP-1",
+            1,
             "t",
             AGENT_ACTOR,
             List.of(AGENT_ASSIGNEE),
@@ -141,7 +142,7 @@ class IssueEventDispatcherTest {
     dispatcher.onIssueAssigned(
         new IssueAssignedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, common, List.of(), now));
     dispatcher.onIssueCommented(
-        new IssueCommentedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, 9L, "hi", now));
+        new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, common, 9L, "hi", now));
     dispatcher.onIssueStatusChanged(
         new IssueStatusChangedEvent(
             1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, "TODO", "IN_PROGRESS", now));

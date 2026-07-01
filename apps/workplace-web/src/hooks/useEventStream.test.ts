@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('./useChatStream', () => ({ handleChatEvent: vi.fn() }));
 vi.mock('./useMessageStream', () => ({ handleMessagingEvent: vi.fn() }));
 vi.mock('./useNotificationStream', () => ({ handleNotifyEvent: vi.fn() }));
+vi.mock('./useIssueStream', () => ({ handleIssueEvent: vi.fn() }));
 
 import { handleChatEvent } from './useChatStream';
 import { routeStreamEvent } from './useEventStream';
+import { handleIssueEvent } from './useIssueStream';
 import { handleMessagingEvent } from './useMessageStream';
 import { handleNotifyEvent } from './useNotificationStream';
 
@@ -25,6 +27,11 @@ describe('routeStreamEvent', () => {
   it('notify.* → handleNotifyEvent', () => {
     routeStreamEvent('notify.created', undefined, { qc, currentUserId: 9 });
     expect(handleNotifyEvent).toHaveBeenCalledWith(qc, 'notify.created');
+  });
+
+  it('issue.* → handleIssueEvent', () => {
+    routeStreamEvent('issue.commented', { projectKey: 'EX', issueNumber: 21 }, { qc, currentUserId: 9 });
+    expect(handleIssueEvent).toHaveBeenCalledWith(qc, 'issue.commented', { projectKey: 'EX', issueNumber: 21 });
   });
 
   it('알 수 없는 prefix 는 무시', () => {

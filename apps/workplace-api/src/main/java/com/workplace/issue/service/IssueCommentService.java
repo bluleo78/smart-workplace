@@ -91,6 +91,7 @@ public class IssueCommentService {
             issueId,
             project.key(),
             issueKey,
+            issue.number(),
             issue.title(),
             actor,
             assignees,

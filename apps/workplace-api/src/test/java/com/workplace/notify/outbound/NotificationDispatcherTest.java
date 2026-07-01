@@ -69,7 +69,16 @@ class NotificationDispatcherTest {
   void onIssueCommented_delegatesToCreateWithWatchersAndFanOut() {
     var e =
         new IssueCommentedEvent(
-            11L, "WP", "WP-11", "t", HUMAN_ACTOR, List.of(ASSIGNEE_A), 55L, "hi", Instant.now());
+            11L,
+            "WP",
+            "WP-11",
+            11,
+            "t",
+            HUMAN_ACTOR,
+            List.of(ASSIGNEE_A),
+            55L,
+            "hi",
+            Instant.now());
 
     dispatcher.onIssueCommented(e);
 
