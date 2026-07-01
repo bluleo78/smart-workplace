@@ -42,6 +42,13 @@ class AgentCallbackTenantIsolationTest extends IntegrationTestBase {
   @Autowired private DSLContext dsl;
   @Autowired private MembershipRepository membershipRepository;
 
+  // 이 테스트는 필터의 테넌트 해석("멤버십 없으면 tenant-less" 등)을 밑바닥부터 검증하며
+  // TenantContext.get() == null 을 단언한다. IntegrationTestBase 의 기본 테넌트(1) 주입을 opt-out 한다.
+  @Override
+  protected Long defaultTenantId() {
+    return null;
+  }
+
   /** 풀링 스레드로 active-tenant ThreadLocal 이 새지 않도록 매 테스트 후 정리. */
   @AfterEach
   void clearTenant() {
