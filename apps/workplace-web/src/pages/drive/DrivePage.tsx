@@ -27,11 +27,11 @@ import { Input } from '@/components/ui/input'
 import { handleApiError } from '@/lib/api-error'
 
 import { driveApi } from '../../api/drive'
-import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { DriveSearchBar } from '../../components/drive/DriveSearchBar'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
+import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
@@ -130,6 +130,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   async function reload() {
     const { data } = await driveApi.listItems(sid, folderId)
     setItems(data)
+    // #588: 검색 결과 화면에서 벌크 작업(이동/삭제) 후에도 검색 결과가 갱신되도록
+    // 검색 중이면 동일 질의로 재검색 — 아니면 삭제/이동된 항목이 결과에 잔존 표시됨.
+    const q = query.trim()
+    if (results != null && q.length >= 2) {
+      const { data: searchData } = await driveApi.search(sid, q)
+      setResults(searchData)
+    }
     // 폴더/공간 변경 시 선택 초기화 — stale 선택이 벌크 작업에 섞이지 않도록.
     clearSel()
   }
@@ -454,6 +461,81 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
   const searching = results != null
 
+  // #588: 벌크 툴바 — 검색/비검색 두 목록 분기가 공유하는 렌더 헬퍼(중복 제거).
+  // 1개 이상 선택 시 표시.
+  function renderBulkToolbar() {
+    if (selCount === 0) return null
+    return (
+      <div
+        data-testid="bulk-toolbar"
+        className="mb-2 flex items-center gap-2 rounded bg-muted px-3 py-2 text-sm"
+      >
+        <span>선택 {selCount}개</span>
+        <button
+          type="button"
+          data-testid="bulk-move"
+          onClick={() => setBulkPicker(true)}
+          disabled={!!space?.archived}
+          className="text-muted-foreground hover:underline disabled:opacity-50"
+        >
+          이동
+        </button>
+        <button
+          type="button"
+          data-testid="bulk-zip"
+          onClick={onBulkZip}
+          className="text-primary hover:underline"
+        >
+          ZIP 다운로드
+        </button>
+        <button
+          type="button"
+          data-testid="bulk-delete"
+          onClick={onBulkDelete}
+          disabled={!!space?.archived}
+          className="text-destructive hover:underline disabled:opacity-50"
+        >
+          삭제
+        </button>
+        <button
+          type="button"
+          data-testid="bulk-clear"
+          onClick={clearSel}
+          className="ml-auto text-muted-foreground hover:underline"
+        >
+          선택 해제
+        </button>
+      </div>
+    )
+  }
+
+  // #588: 전체선택 체크박스 — 검색/비검색 두 목록 분기가 공유하는 렌더 헬퍼.
+  // 대상 폴더/파일 id 목록을 인자로 받아 현재 뷰(검색 결과 또는 폴더 목록) 기준으로 동작.
+  function renderSelectAll(folderIds: number[], fileIds: number[]) {
+    const total = folderIds.length + fileIds.length
+    if (total === 0) return null
+    const allSelected = selCount > 0 && selCount === total
+    return (
+      <div className="mb-1 flex items-center gap-2 px-0.5 text-sm text-muted-foreground">
+        <input
+          type="checkbox"
+          checked={allSelected}
+          onChange={() => {
+            if (allSelected) {
+              clearSel()
+            } else {
+              setSelFolders(new Set(folderIds))
+              setSelFiles(new Set(fileIds))
+            }
+          }}
+          data-testid="select-all"
+          className="h-4 w-4 shrink-0"
+        />
+        <span>전체선택</span>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="drive-page">
       <PageHeader
@@ -616,113 +698,74 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             </ul>
           </div>
         ) : searching ? (
-          <ul className="divide-y divide-border" data-testid="search-results">
-            {results.folders.map((f) => (
-              <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
-                {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
-                <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
-                <button
-                  type="button"
-                  onClick={() => openFolder(f.id)}
-                  className="flex-1 text-left text-sm hover:underline"
-                >
-                  {f.name}
-                  {f.folderPath && (
-                    <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
-                  )}
-                </button>
-              </li>
-            ))}
-            {results.files.map((f) => (
-              <li key={`s-file-${f.id}`} className="flex items-center gap-2 py-2">
-                <DriveThumbnail fileId={f.id} category={f.category} />
-                <button
-                  type="button"
-                  onClick={() => setPreview(f)}
-                  className="flex-1 truncate text-left text-sm hover:underline"
-                >
-                  {f.name}
-                  {f.folderPath && (
-                    <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
-                  )}
-                </button>
-              </li>
-            ))}
-            {results.folders.length === 0 && results.files.length === 0 && (
-              <li className="py-8 text-center text-sm text-muted-foreground">검색 결과가 없습니다</li>
+          <>
+            {/* #588: 검색 결과에도 비검색 모드와 동일한 벌크 선택 UI 적용. */}
+            {renderBulkToolbar()}
+            {renderSelectAll(
+              results.folders.map((f) => f.id),
+              results.files.map((f) => f.id),
             )}
-          </ul>
+            <ul className="divide-y divide-border" data-testid="search-results">
+              {results.folders.map((f) => (
+                <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
+                  {/* #588: 폴더 행 체크박스 — 멀티셀렉트용. */}
+                  <input
+                    type="checkbox"
+                    checked={selFolders.has(f.id)}
+                    onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
+                    data-testid={`select-folder-${f.id}`}
+                    className="h-4 w-4 shrink-0"
+                  />
+                  {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
+                  <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
+                  <button
+                    type="button"
+                    onClick={() => openFolder(f.id)}
+                    className="flex-1 text-left text-sm hover:underline"
+                  >
+                    {f.name}
+                    {f.folderPath && (
+                      <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+              {results.files.map((f) => (
+                <li key={`s-file-${f.id}`} className="flex items-center gap-2 py-2">
+                  {/* #588: 파일 행 체크박스 — 멀티셀렉트용. */}
+                  <input
+                    type="checkbox"
+                    checked={selFiles.has(f.id)}
+                    onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
+                    data-testid={`select-file-${f.id}`}
+                    className="h-4 w-4 shrink-0"
+                  />
+                  <DriveThumbnail fileId={f.id} category={f.category} />
+                  <button
+                    type="button"
+                    onClick={() => setPreview(f)}
+                    className="flex-1 truncate text-left text-sm hover:underline"
+                  >
+                    {f.name}
+                    {f.folderPath && (
+                      <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+              {results.folders.length === 0 && results.files.length === 0 && (
+                <li className="py-8 text-center text-sm text-muted-foreground">검색 결과가 없습니다</li>
+              )}
+            </ul>
+          </>
         ) : (
           <>
-            {/* #82: 벌크 툴바 — 1개 이상 선택 시 표시. */}
-            {selCount > 0 && (
-              <div
-                data-testid="bulk-toolbar"
-                className="mb-2 flex items-center gap-2 rounded bg-muted px-3 py-2 text-sm"
-              >
-                <span>선택 {selCount}개</span>
-                <button
-                  type="button"
-                  data-testid="bulk-move"
-                  onClick={() => setBulkPicker(true)}
-                  disabled={!!space?.archived}
-                  className="text-muted-foreground hover:underline disabled:opacity-50"
-                >
-                  이동
-                </button>
-                <button
-                  type="button"
-                  data-testid="bulk-zip"
-                  onClick={onBulkZip}
-                  className="text-primary hover:underline"
-                >
-                  ZIP 다운로드
-                </button>
-                <button
-                  type="button"
-                  data-testid="bulk-delete"
-                  onClick={onBulkDelete}
-                  disabled={!!space?.archived}
-                  className="text-destructive hover:underline disabled:opacity-50"
-                >
-                  삭제
-                </button>
-                <button
-                  type="button"
-                  data-testid="bulk-clear"
-                  onClick={clearSel}
-                  className="ml-auto text-muted-foreground hover:underline"
-                >
-                  선택 해제
-                </button>
-              </div>
+            {/* #82/#588: 벌크 툴바 + 전체선택 — 검색 결과 분기와 공유하는 렌더 헬퍼. */}
+            {renderBulkToolbar()}
+            {renderSelectAll(
+              items.folders.map((f) => f.id),
+              items.files.map((f) => f.id),
             )}
-          {/* #82: 전체선택 체크박스 — 목록이 비어있지 않을 때만 표시. */}
-          {(items.folders.length > 0 || items.files.length > 0) && (
-            <div className="mb-1 flex items-center gap-2 px-0.5 text-sm text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={
-                  selCount > 0 &&
-                  selCount === items.folders.length + items.files.length
-                }
-                onChange={() => {
-                  const allSelected =
-                    selCount > 0 &&
-                    selCount === items.folders.length + items.files.length
-                  if (allSelected) {
-                    clearSel()
-                  } else {
-                    setSelFolders(new Set(items.folders.map((f) => f.id)))
-                    setSelFiles(new Set(items.files.map((f) => f.id)))
-                  }
-                }}
-                data-testid="select-all"
-                className="h-4 w-4 shrink-0"
-              />
-              <span>전체선택</span>
-            </div>
-          )}
           <ul className="divide-y divide-border">
             {items.folders.map((f) => (
               <li key={`folder-${f.id}`} className="group flex items-center gap-2 py-2">

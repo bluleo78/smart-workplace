@@ -40,6 +40,36 @@ async function stubItems(page: Page) {
   )
 }
 
+// 검색 결과 스텁 — 폴더1(id=10) + 파일1(id=20) 고정. q query param 은 검증하지 않음(#588 은 선택 UI 초점).
+async function stubSearch(page: Page) {
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/search`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          folders: [
+            { id: FOLDER_ID, parentId: null, name: '문서', createdAt: '2026-01-01T00:00:00Z', folderPath: null },
+          ],
+          files: [
+            {
+              id: FILE_ID,
+              folderId: null,
+              fileId: 200,
+              name: 'memo.txt',
+              mimeType: 'text/plain',
+              sizeBytes: 3,
+              category: 'TEXT',
+              createdAt: '2026-01-01T00:00:00Z',
+              folderPath: null,
+            },
+          ],
+        }),
+      }),
+  )
+}
+
 test.describe('드라이브 벌크 작업', () => {
   test('폴더·파일 체크 시 벌크 툴바에 선택 개수가 표시된다', async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
@@ -190,6 +220,51 @@ test.describe('드라이브 벌크 작업', () => {
 
     // 다시 클릭(해제) → 툴바 사라짐
     await page.getByTestId('select-all').uncheck()
+    await expect(page.getByTestId('bulk-toolbar')).toHaveCount(0)
+  })
+
+  // #588: 검색 결과 화면에도 비검색 모드와 동일한 체크박스/전체선택/벌크 툴바가 있어야 한다.
+  test('검색 결과에서도 체크박스·전체선택·벌크 삭제가 동작한다', async ({ authenticatedPage: page }) => {
+    await stubSpaces(page)
+    await stubItems(page)
+    await stubSearch(page)
+
+    let deleteBody: unknown = null
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+      async (route) => {
+        if (route.request().method() === 'DELETE') {
+          deleteBody = route.request().postDataJSON()
+          await route.fulfill({ status: 204, body: '' })
+        } else {
+          await route.fallback()
+        }
+      },
+    )
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await expect(page.getByTestId('drive-page')).toBeVisible()
+
+    // 검색 실행 → 결과 목록으로 전환
+    await page.getByLabel('드라이브 검색').fill('memo')
+    await expect(page.getByTestId('search-results')).toBeVisible()
+
+    // 검색 결과 행에 체크박스가 존재 — 이슈 #588 재현 조건(기존에는 완전 누락).
+    await expect(page.getByTestId(`select-folder-${FOLDER_ID}`)).toBeVisible()
+    await expect(page.getByTestId(`select-file-${FILE_ID}`)).toBeVisible()
+
+    // 전체선택 → 검색 결과 2건 모두 선택 + 벌크 툴바 노출
+    await page.getByTestId('select-all').check()
+    await expect(page.getByTestId('bulk-toolbar')).toContainText('선택 2개')
+
+    // 벌크 삭제 → AlertDialog 확인 → DELETE 요청에 검색 결과 id 전달
+    await page.getByTestId('bulk-delete').click()
+    await expect(page.getByTestId('drive-confirm-dialog')).toBeVisible()
+    await page.getByTestId('drive-confirm-confirm').click()
+
+    await expect.poll(() => deleteBody).toMatchObject({ fileIds: [FILE_ID], folderIds: [FOLDER_ID] })
+
+    // 삭제 후 검색 결과가 재조회되며 선택 상태가 초기화된다(벌크 툴바 사라짐).
     await expect(page.getByTestId('bulk-toolbar')).toHaveCount(0)
   })
 })
