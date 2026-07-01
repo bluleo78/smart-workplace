@@ -128,6 +128,53 @@ test(
 )
 
 test(
+  '종일 체크 시 시작/종료가 자정 경계로 정규화되어 월 뷰에 표시된다 (#575)',
+  async ({ authenticatedPage: page }) => {
+    // 2026-06-10 03:00 UTC 고정 → 월 뷰가 2026-06 을 표시
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    const store: CalendarEvent[] = []
+    await stubCalendarEvents(page, store)
+
+    await page.goto('/calendar')
+
+    await page.getByTestId('calendar-new-event').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    // 제목만 입력, 시작/종료 시각은 기본값 그대로(같은 날) 둔 채 "종일"만 체크
+    await page.getByTestId('calendar-form-title').fill('종일테스트일정')
+    await page.getByTestId('calendar-form-allday').click()
+
+    // 정규화 후 시작/종료 입력값이 자정 경계(다음날 00:00)로 바뀌었는지 확인
+    const startValue = await page.getByTestId('calendar-form-start').inputValue()
+    const endValue = await page.getByTestId('calendar-form-end').inputValue()
+    expect(startValue.endsWith('T00:00')).toBe(true)
+    expect(endValue.endsWith('T00:00')).toBe(true)
+    expect(endValue.slice(0, 10) > startValue.slice(0, 10)).toBe(true)
+
+    // POST payload 도 같은 날짜(half-open [start,end)) 대신 익일 자정 end 를 가져야 한다
+    const postPromise = page.waitForRequest(
+      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-form-submit').click()
+    const post = await postPromise
+    const payload = post.postDataJSON() as Partial<CalendarEvent>
+    expect(payload.allDay).toBe(true)
+    expect(new Date(payload.endsAt as string).getTime()).toBeGreaterThan(
+      new Date(payload.startsAt as string).getTime(),
+    )
+    expect(new Date(payload.startsAt as string).toISOString().slice(0, 10)).not.toBe(
+      new Date(payload.endsAt as string).toISOString().slice(0, 10),
+    )
+
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+
+    // 월 뷰에서 사라지지 않고 실제로 표시되는지 확인 (핵심 회귀 방지 포인트)
+    await expect(page.getByTestId('calendar-event-999')).toBeVisible()
+  },
+)
+
+test(
   '새 일정 생성 시 리마인더 설정이 payload 에 포함된다',
   async ({ authenticatedPage: page }) => {
     await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))

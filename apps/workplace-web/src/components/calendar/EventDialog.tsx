@@ -138,6 +138,35 @@ function dateToLocalInput(d: Date): string {
     .slice(0, 16)
 }
 
+/** datetime-local 문자열에서 날짜 부분(YYYY-MM-DD)만 추출 */
+function localDateOnly(local: string): string {
+  return local.slice(0, 10)
+}
+
+/** YYYY-MM-DD 문자열에 일 단위를 더한 YYYY-MM-DD 반환 (타임존 독립·달력 날짜 연산만) */
+function addDaysToDateOnly(dateOnly: string, days: number): string {
+  const [y, m, d] = dateOnly.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  date.setDate(date.getDate() + days)
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+// "종일" 체크 시 시작/종료를 자정 경계(half-open [start, end))로 정규화한다.
+// calendar.ts eventsOnDay() 의 종일 비교가 `cellKey < dateKey(endsAt)` (배타적 end) 라서
+// 시작·종료가 같은 날짜이면 항상 false 가 되어 월/TimeGrid 뷰에서 사라진다 (이슈 #575).
+// - 시작 날짜는 그대로, 시각만 00:00 으로
+// - 종료가 시작과 같은 날(또는 그 이전)이면 다음날 00:00 으로 밀어 최소 하루 범위를 보장
+// - 이미 여러 날에 걸친 값이면 날짜는 유지하고 시각만 00:00 으로 정규화
+function normalizeAllDayRange(start: string, end: string): { start: string; end: string } {
+  const startDate = localDateOnly(start)
+  const endDate = end ? localDateOnly(end) : startDate
+  const normalizedEndDate = endDate <= startDate ? addDaysToDateOnly(startDate, 1) : endDate
+  return { start: `${startDate}T00:00`, end: `${normalizedEndDate}T00:00` }
+}
+
 /** 반복 빈도별 간격 단위 라벨 (예: '주' → "주마다") */
 function recurrenceUnitLabel(freq: FormValues['recurrenceFreq']): string {
   switch (freq) {
@@ -375,7 +404,18 @@ export function EventDialog({
                   id="ev-allday"
                   data-testid="calendar-form-allday"
                   checked={field.value}
-                  onCheckedChange={field.onChange}
+                  onCheckedChange={(checked) => {
+                    field.onChange(checked)
+                    // 체크 시에만 자정 경계로 정규화 — 체크 해제는 사용자가 입력한 시각 보존
+                    if (checked) {
+                      const { start, end } = normalizeAllDayRange(
+                        form.getValues('start'),
+                        form.getValues('end'),
+                      )
+                      form.setValue('start', start, { shouldValidate: true })
+                      form.setValue('end', end, { shouldValidate: true })
+                    }
+                  }}
                   disabled={isReadOnly}
                 />
               )}
