@@ -11,7 +11,7 @@ import { ProgressTracker } from './progress-tracker.js';
 import type { RunAgentDeps } from './run-agent.js';
 import type { MessagingEventEnvelope } from '../types/messaging-events.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_MODEL = 'claude-sonnet-5';
 const DEFAULT_MAX_TURNS = 30;
 const DEFAULT_TIMEOUT_MS = 300_000;
 const PREFETCH = 20;
