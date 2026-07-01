@@ -116,7 +116,8 @@ public class ProjectRepository {
   }
 
   /**
-   * 사용자에게 보이는 프로젝트 목록을 페이지 단위로 조회. ADMIN 은 모든 활성 프로젝트, 일반 사용자는 본인이 멤버인 프로젝트 + OPEN(공개 접수함) 프로젝트. updated_at desc 정렬.
+   * 사용자에게 보이는 프로젝트 목록을 페이지 단위로 조회. ADMIN 은 모든 활성 프로젝트, 일반 사용자는 본인이 멤버인 프로젝트 + OPEN(공개 접수함) 프로젝트.
+   * updated_at desc 정렬.
    */
   public List<ProjectRow> findAllForUser(Long userId, boolean isAdmin, int page, int size) {
     if (isAdmin) {

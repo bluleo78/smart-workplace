@@ -126,7 +126,8 @@ public class ProjectService {
                   // OPEN 비멤버는 목록에는 노출되지 않으므로 여기 도달한 행은 멤버로 간주해도 무방.
                   // 단, ADMIN 은 전체를 보므로 isMemberOrAdmin 으로 정확히 계산.
                   boolean isMember = accessGuard.isMemberOrAdmin(row, callerId);
-                  return ProjectResponse.from(row, issueTotal, done, memberCount, topNames, isMember);
+                  return ProjectResponse.from(
+                      row, issueTotal, done, memberCount, topNames, isMember);
                 })
             .toList();
 
