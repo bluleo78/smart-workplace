@@ -34,13 +34,19 @@ export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending }:
     onCreate(trimmed)
   }
 
+  // 닫힐 때 입력 초기화(다음 열림에 잔상 방지) — Dialog의 onOpenChange와
+  // "취소" 버튼 모두 이 헬퍼를 거치도록 통일해 리셋 누락을 방지한다.
+  const close = () => {
+    setName('')
+    onOpenChange(false)
+  }
+
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        // 닫힐 때 입력 초기화(다음 열림에 잔상 방지).
-        if (!o) setName('')
-        onOpenChange(o)
+        if (!o) close()
+        else onOpenChange(o)
       }}
     >
       <DialogContent data-testid="wiki-space-create-dialog">
@@ -61,7 +67,7 @@ export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending }:
           data-testid="wiki-space-create-input"
         />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={close}>
             취소
           </Button>
           <Button

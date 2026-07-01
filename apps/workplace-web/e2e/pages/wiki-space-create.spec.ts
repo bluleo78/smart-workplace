@@ -94,3 +94,22 @@ test('노트 — 스페이스 이름이 비면 생성 요청이 나가지 않는
   await expect(page.getByTestId('wiki-space-create-confirm')).toBeDisabled()
   expect(posted).toBe(false)
 })
+
+test('노트 — 취소 후 재오픈 시 이전 입력값이 남지 않는다', async ({ authenticatedPage: page }) => {
+  const created: { space: WikiSpace | null } = { space: null }
+  await mockWiki(page, created)
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  await page.getByRole('combobox').click()
+  await page.getByTestId('wiki-space-create-item').click()
+  await expect(page.getByTestId('wiki-space-create-dialog')).toBeVisible()
+
+  await page.getByTestId('wiki-space-create-input').fill('임시 테스트 스페이스')
+  await page.getByRole('button', { name: '취소' }).click()
+  await expect(page.getByTestId('wiki-space-create-dialog')).not.toBeVisible()
+
+  await page.getByRole('combobox').click()
+  await page.getByTestId('wiki-space-create-item').click()
+  await expect(page.getByTestId('wiki-space-create-dialog')).toBeVisible()
+  await expect(page.getByTestId('wiki-space-create-input')).toHaveValue('')
+})
