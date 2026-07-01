@@ -29,14 +29,14 @@ export default function WikiWidget({ params }: { params?: Record<string, unknown
   if (isSpaceMode) {
     if (spaces.isLoading) {
       return (
-        <WidgetFrame title="위키">
+        <WidgetFrame title="노트">
           <Skeleton className="h-24 w-full" />
         </WidgetFrame>
       )
     }
     if (spaces.isError) {
       return (
-        <WidgetFrame title="위키">
+        <WidgetFrame title="노트">
           <WidgetError onRetry={() => spaces.refetch()} testId="wiki-error" />
         </WidgetFrame>
       )
@@ -48,7 +48,7 @@ export default function WikiWidget({ params }: { params?: Record<string, unknown
     )
 
     return (
-      <WidgetFrame title="위키">
+      <WidgetFrame title="노트">
         {items.length > 0 ? (
           <ul className="divide-y" data-testid="wiki-items">
             {items.map((s) => (
@@ -56,7 +56,7 @@ export default function WikiWidget({ params }: { params?: Record<string, unknown
                 {/* 스페이스 클릭 → 해당 스페이스 페이지로 이동 */}
                 <Link
                   to={`/wiki/spaces/${s.id}`}
-                  aria-label={`위키 스페이스: ${s.name}`}
+                  aria-label={`노트 스페이스: ${s.name}`}
                   className="flex items-center gap-2 py-2 text-sm hover:text-ai-accent"
                 >
                   <BookText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -71,9 +71,9 @@ export default function WikiWidget({ params }: { params?: Record<string, unknown
             data-testid="wiki-empty"
           >
             <BookText className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-semibold">위키가 없어요</p>
+            <p className="text-sm font-semibold">노트가 없어요</p>
             <p className="max-w-xs text-xs text-muted-foreground">
-              위키 화면에서 새 스페이스를 만들어 보세요.
+              노트 화면에서 새 스페이스를 만들어 보세요.
             </p>
           </div>
         )}
@@ -84,14 +84,14 @@ export default function WikiWidget({ params }: { params?: Record<string, unknown
   // spaceId 지정 모드 — 페이지 트리 표시.
   if (tree.isLoading) {
     return (
-      <WidgetFrame title="위키 페이지">
+      <WidgetFrame title="노트 페이지">
         <Skeleton className="h-24 w-full" />
       </WidgetFrame>
     )
   }
   if (tree.isError) {
     return (
-      <WidgetFrame title="위키 페이지">
+      <WidgetFrame title="노트 페이지">
         <WidgetError onRetry={() => tree.refetch()} testId="wiki-error" />
       </WidgetFrame>
     )
@@ -102,15 +102,15 @@ export default function WikiWidget({ params }: { params?: Record<string, unknown
   )
 
   return (
-    <WidgetFrame title="위키 페이지">
+    <WidgetFrame title="노트 페이지">
       {pages.length > 0 ? (
         <ul className="divide-y" data-testid="wiki-items">
           {pages.map((p) => (
             <li key={p.id}>
-              {/* 페이지 클릭 → 해당 위키 페이지로 이동 */}
+              {/* 페이지 클릭 → 해당 노트 페이지로 이동 */}
               <Link
                 to={`/wiki/spaces/${spaceId}/pages/${p.id}`}
-                aria-label={`위키 페이지: ${p.title}`}
+                aria-label={`노트 페이지: ${p.title}`}
                 className="flex items-center gap-2 py-2 text-sm hover:text-ai-accent"
               >
                 <BookText className="size-4 shrink-0 text-muted-foreground" aria-hidden />

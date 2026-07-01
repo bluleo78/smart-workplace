@@ -13,8 +13,8 @@ export interface ProgressState {
 
 const TOOL_LABELS: Record<string, string> = {
   get_issue_detail: '이슈 조회',
-  search_wiki: '위키 검색',
-  get_wiki_page: '위키 문서 읽기',
+  search_wiki: '노트 검색',
+  get_wiki_page: '노트 문서 읽기',
   get_chat_thread: '대화 내역 확인',
   get_channel_messages: '대화 내역 확인',
   add_chat_message: '답변 작성',

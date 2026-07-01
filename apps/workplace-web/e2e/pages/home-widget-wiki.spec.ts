@@ -114,7 +114,7 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
 
     await expect(page.getByTestId('chat-widgets')).toBeVisible()
     await expect(page.getByTestId('wiki-empty')).toBeVisible()
-    await expect(page.getByTestId('wiki-empty')).toContainText('위키가 없어요')
+    await expect(page.getByTestId('wiki-empty')).toContainText('노트가 없어요')
   })
 
   test(

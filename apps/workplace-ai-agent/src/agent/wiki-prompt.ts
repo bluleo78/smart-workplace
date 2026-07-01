@@ -27,7 +27,7 @@ export interface WikiComposeInput {
 }
 
 export const WIKI_SYSTEM_PROMPT =
-  '너는 위키 문서 작성 보조자다. 마크다운으로만 답하고, 군더더기 설명·머리말 없이 본문에 바로 삽입될 텍스트만 출력한다. 도구를 사용하지 않는다.';
+  '너는 노트 문서 작성 보조자다. 마크다운으로만 답하고, 군더더기 설명·머리말 없이 본문에 바로 삽입될 텍스트만 출력한다. 도구를 사용하지 않는다.';
 
 /** 액션별 사용자 메시지. 본문/선택/지시문을 컨텍스트로 조립한다. */
 export function buildWikiUserMessage(i: WikiComposeInput): string {
@@ -38,7 +38,7 @@ export function buildWikiUserMessage(i: WikiComposeInput): string {
     case 'continue':
       return `다음 문서의 마지막 부분을 자연스럽게 이어서 작성해줘. 이미 쓰인 내용은 반복하지 마.\n\n제목: ${i.pageTitle}\n\n${i.pageBody}`;
     case 'draft':
-      return `다음 주제로 위키 문서 초안을 작성해줘: ${i.prompt ?? ''}\n\n(참고 제목: ${i.pageTitle})`;
+      return `다음 주제로 노트 문서 초안을 작성해줘: ${i.prompt ?? ''}\n\n(참고 제목: ${i.pageTitle})`;
     case 'rewrite_tone':
       // 톤(prompt)으로 재작성. 의미 유지, 변환문만 출력(시스템 프롬프트가 머리말 억제).
       return `다음 텍스트를 "${i.prompt ?? '격식체'}" 톤으로 자연스럽게 다시 써줘. 의미는 유지하고, 변환된 텍스트만 출력해.\n\n${ctx}`;

@@ -352,7 +352,7 @@ export function buildTools(
   const searchWikiTool: McpTool = {
     name: 'search_wiki',
     description:
-      '위키 페이지를 제목·본문으로 검색합니다. 접근 가능한 스페이스만 대상이며, 결과 JSON 배열(id·spaceName·title·snippet)을 반환합니다. 근거가 필요하면 먼저 검색하세요.',
+      '노트 페이지를 제목·본문으로 검색합니다. 접근 가능한 스페이스만 대상이며, 결과 JSON 배열(id·spaceName·title·snippet)을 반환합니다. 근거가 필요하면 먼저 검색하세요.',
     inputSchema: searchWikiInput,
     async handler(args) {
       const { query } = searchWikiInput.parse(args);
@@ -362,7 +362,7 @@ export function buildTools(
   const getWikiPageTool: McpTool = {
     name: 'get_wiki_page',
     description:
-      '위키 페이지 본문 전체를 JSON(title·body·version 등)으로 반환합니다. search_wiki 결과의 id 로 호출하세요.',
+      '노트 페이지 본문 전체를 JSON(title·body·version 등)으로 반환합니다. search_wiki 결과의 id 로 호출하세요.',
     inputSchema: getWikiPageInput,
     async handler(args) {
       const { pageId } = getWikiPageInput.parse(args);
@@ -817,7 +817,7 @@ export function buildTools(
   // #333 M3: 위키 쓰기 도구 — 스페이스 멤버십 가드는 서버가 강제하므로 propose/confirm 없이 직접 노출.
   const createWikiPageTool: McpTool = {
     name: 'create_wiki_page',
-    description: '위키 스페이스에 새 페이지를 생성합니다. parentId 를 주면 그 하위에 만듭니다. 생성된 페이지(id·version)를 JSON 으로 반환합니다.',
+    description: '노트 스페이스에 새 페이지를 생성합니다. parentId 를 주면 그 하위에 만듭니다. 생성된 페이지(id·version)를 JSON 으로 반환합니다.',
     inputSchema: createWikiPageInput,
     async handler(args) {
       const { spaceId, title, parentId } = createWikiPageInput.parse(args);
@@ -827,7 +827,7 @@ export function buildTools(
   const updateWikiPageTool: McpTool = {
     name: 'update_wiki_page',
     description:
-      '위키 페이지 제목·본문을 저장합니다. version 은 반드시 get_wiki_page 로 읽은 현재 version 을 넣어야 합니다(낙관적 동시성). 충돌(409)이면 다시 읽고 재시도 여부를 사용자에게 확인하세요.',
+      '노트 페이지 제목·본문을 저장합니다. version 은 반드시 get_wiki_page 로 읽은 현재 version 을 넣어야 합니다(낙관적 동시성). 충돌(409)이면 다시 읽고 재시도 여부를 사용자에게 확인하세요.',
     inputSchema: updateWikiPageInput,
     async handler(args) {
       const { pageId, version, title, body } = updateWikiPageInput.parse(args);
@@ -1152,8 +1152,8 @@ export function buildTools(
       { name: 'show_calendar', description: '지정 기간(기본 오늘)의 내 일정 목록을 화면에 표시합니다. 일정 조회/확인 요청에 사용. 생성·수정·삭제는 calendar-agent 에 위임.', inputSchema: showCalendarInput, handler: displayed },
       { name: 'show_event', description: '단일 일정 상세(eventId 지정)를 화면에 표시합니다. eventId 를 모르면 먼저 list_events 로 확보하세요.', inputSchema: showEventInput, handler: displayed },
       { name: 'show_channels', description: '내가 속한 채널·DM 목록을 화면에 표시합니다. 채널 목록/확인 요청에 사용.', inputSchema: showChannelsInput, handler: displayed },
-      { name: 'show_wiki', description: '위키 페이지 목록/검색 결과를 화면에 표시합니다. query 로 검색, spaceId 로 특정 스페이스 트리.', inputSchema: showWikiInput, handler: displayed },
-      { name: 'show_wiki_page', description: '단일 위키 페이지 본문(pageId 지정)을 화면에 표시합니다. pageId 를 모르면 먼저 search_wiki 로 확보하세요.', inputSchema: showWikiPageInput, handler: displayed },
+      { name: 'show_wiki', description: '노트 페이지 목록/검색 결과를 화면에 표시합니다. query 로 검색, spaceId 로 특정 스페이스 트리.', inputSchema: showWikiInput, handler: displayed },
+      { name: 'show_wiki_page', description: '단일 노트 페이지 본문(pageId 지정)을 화면에 표시합니다. pageId 를 모르면 먼저 search_wiki 로 확보하세요.', inputSchema: showWikiPageInput, handler: displayed },
       { name: 'show_contacts', description: '연락처 목록을 화면에 표시합니다. search/org/title/type 로 좁힙니다. 단순 조회 전용 — 생성·수정·삭제는 contacts-agent 위임.', inputSchema: showContactsInput, handler: displayed },
       { name: 'show_contact', description: '단일 연락처 상세(contactId 지정)를 화면에 표시합니다.', inputSchema: showContactInput, handler: displayed },
       { name: 'show_projects', description: '프로젝트 목록을 화면에 표시합니다. 단순 조회 전용 — 생성·삭제·멤버추가는 project-agent 위임.', inputSchema: showProjectsInput, handler: displayed },

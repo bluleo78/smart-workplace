@@ -31,7 +31,7 @@ export default function WikiPageWidget({ params }: { params?: Record<string, unk
   // pageId 누락 — 정적 파라미터 오류: 재시도 버튼 없이 안내 메시지만 표시.
   if (pageId === null) {
     return (
-      <WidgetFrame title="위키 페이지">
+      <WidgetFrame title="노트 페이지">
         <div
           className="flex flex-col items-center gap-2 px-4 py-8 text-center"
           data-testid="wiki_page-error"
@@ -56,14 +56,14 @@ function WikiPageContent({ pageId }: { pageId: number }) {
 
   if (page.isLoading) {
     return (
-      <WidgetFrame title="위키 페이지">
+      <WidgetFrame title="노트 페이지">
         <Skeleton className="h-24 w-full" />
       </WidgetFrame>
     )
   }
   if (page.isError) {
     return (
-      <WidgetFrame title="위키 페이지">
+      <WidgetFrame title="노트 페이지">
         <WidgetError onRetry={() => page.refetch()} testId="wiki_page-error" />
       </WidgetFrame>
     )
@@ -75,13 +75,13 @@ function WikiPageContent({ pageId }: { pageId: number }) {
   const snippet = extractPlainSnippet(detail.body)
 
   return (
-    <WidgetFrame title="위키 페이지">
+    <WidgetFrame title="노트 페이지">
       <div className="flex flex-col gap-2 p-1" data-testid="wiki_page-detail">
         {/* 페이지 제목 — 클릭 시 해당 페이지로 이동 */}
         <Link
           to={`/wiki/spaces/${detail.spaceId}/pages/${detail.id}`}
           className="flex items-center gap-2 font-medium hover:text-ai-accent"
-          aria-label={`위키 페이지: ${detail.title}`}
+          aria-label={`노트 페이지: ${detail.title}`}
         >
           <BookText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="truncate text-sm">{detail.title}</span>

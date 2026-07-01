@@ -2,12 +2,9 @@ package com.workplace.project.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.workplace.global.tenant.TenantContext;
 import com.workplace.project.service.OpenFixtures;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TenantScopedIntegrationTest;
 import org.jooq.DSLContext;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,21 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
  * ProjectRepository#countForUser} 에 포함되는지, TEAM 프로젝트는 비멤버에게 노출되지 않는지를 검증한다.
  */
 @Transactional
-class OpenProjectListingTest extends IntegrationTestBase {
+class OpenProjectListingTest extends TenantScopedIntegrationTest {
 
   @Autowired ProjectRepository repo;
   @Autowired DSLContext dsl;
-
-  @BeforeEach
-  void setTenant() {
-    // 기본 테넌트(1) GUC — RLS 가 올바른 테넌트 행만 접근하도록 고정
-    TenantContext.set(1L);
-  }
-
-  @AfterEach
-  void clearTenant() {
-    TenantContext.clear();
-  }
 
   /** 비멤버도 OPEN 프로젝트를 목록에서 조회할 수 있어야 한다. */
   @Test

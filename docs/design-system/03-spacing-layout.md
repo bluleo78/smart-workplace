@@ -96,7 +96,7 @@ Smart Workplace 디자인 시스템의 간격(spacing)과 레이아웃(layout) �
 - 모바일(<lg): `fixed inset-y-0 left-0 z-50 w-60`(240px) 드로어, `translate-x` 토글, 뒤에 `fixed inset-0 z-40 bg-black/50` 스크림. 좌상단 햄버거 `fixed left-3 top-3 z-30`.
 - 배경: `bg-sidebar`, `border-r`.
 - 구조: 앱 마크 헤더(`h-14 border-b`) → 모듈 런처 nav(`flex-1 p-2 space-y-1`) → 하단(`border-t p-2`)에 인박스(`InboxPanel`) + 유저 메뉴(`AppRailUserMenu`).
-- 모듈: 홈 · 작업 관리 · 대화 · 메일 · 연락처 · 드라이브 · 설정 (+ 예정: Wiki).
+- 모듈: 홈 · 작업 관리 · 대화 · 메일 · 연락처 · 드라이브 · 설정 (+ 예정: 노트).
 
 **Zone 2 — Module Secondary Sidebar (`<Module>ModuleLayout` + `<Module>Sidebar`)**
 - 사이드바를 갖는 모듈(작업 관리·대화·메일·연락처·드라이브·설정)은 동일 패턴: `*ModuleLayout` 이 `flex h-full min-h-0 flex-1` 안에 사이드바 + `min-w-0 flex-1 overflow-y-auto` 콘텐츠를 둔다.
