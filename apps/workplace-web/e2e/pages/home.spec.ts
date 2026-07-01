@@ -858,11 +858,10 @@ test('편집(B1) — 위젯 추가 모달: 기본 위젯 추가 → draft 반영
   await modal.getByTestId('add-widget-category').filter({ hasText: '기본' }).click()
   await expect(modal.locator('[data-testid="add-widget-card"][data-widget-type]')).toHaveCount(4)
 
-  // unread_mail 카드 클릭 → 즉시 추가(draft 반영), 모달은 열린 채 유지.
+  // unread_mail 카드 클릭 → 즉시 추가(draft 반영) + 모달 닫힘.
   await modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]').click()
   await expect(page.getByTestId('dashboard-edit-live')).toHaveText('메일 위젯을 추가했습니다')
-  await expect(modal).toBeVisible()
-  await page.keyboard.press('Escape')
+  await expect(modal).not.toBeVisible()
   await expect(
     page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]'),
   ).toBeVisible()
@@ -887,7 +886,7 @@ test('편집(B1) — undo 가 모달을 통한 추가도 되돌린다(일관성)
   await page.getByTestId('dashboard-add-widget-open').click()
   const modal = page.getByTestId('add-widget-modal')
   await modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]').click()
-  await page.keyboard.press('Escape')
+  await expect(modal).not.toBeVisible()
   await expect(
     page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]'),
   ).toBeVisible()
@@ -2193,9 +2192,8 @@ test('편집 모드에서 카탈로그 위젯을 추가하고 필터를 설정�
   await page.getByTestId('add-widget-category').filter({ hasText: '이슈' }).click()
   await page.getByTestId('add-widget-card').filter({ hasText: '이슈 목록' }).click()
 
-  // 모달이 열린 채 유지되고, 그리드에는 카드가 즉시 추가되어야 한다.
-  await expect(page.getByTestId('add-widget-modal')).toBeVisible()
-  await page.keyboard.press('Escape')
+  // 모달이 닫히고, 그리드에는 카드가 즉시 추가되어야 한다.
+  await expect(page.getByTestId('add-widget-modal')).not.toBeVisible()
   await expect(
     page.getByTestId('dashboard-widget').filter({ hasText: '이슈 목록' }),
   ).toBeVisible()
