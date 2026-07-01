@@ -199,6 +199,16 @@ test.describe('이슈 AI 분류 제안', () => {
     await aiBtn.click();
     await expect(page.getByTestId('ai-classify-reason')).toBeVisible();
     await expect(page.getByTestId('ai-classify-reason')).toContainText('500 오류');
+
+    // #578 회귀 방지 — 우선순위·유형·라벨 3개 mutation 이 개별 토스트 대신
+    // 통합 토스트 1개만 노출해야 한다.
+    await expect(page.getByText('AI 제안을 적용했습니다')).toBeVisible();
+    await expect(page.getByText('유형을 변경했습니다')).not.toBeVisible();
+    await expect(page.getByText('라벨을 저장했습니다')).not.toBeVisible();
+    await expect(page.getByText('이슈 필드가 업데이트되었습니다')).not.toBeVisible();
+    // sonner 토스트 DOM 자체도 1개만 존재하는지 확인 — 텍스트 매칭만으로는
+    // stacking 여부(2개 이상 동시 존재)를 놓칠 수 있으므로 개수도 직접 센다.
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(1);
   });
 
   test('AI 제안 실패 시 토스트 표시 + 폼 동작 유지', async ({ authenticatedPage: page }) => {

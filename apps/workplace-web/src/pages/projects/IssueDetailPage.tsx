@@ -243,11 +243,13 @@ export default function IssueDetailPage() {
   // 라벨 목록 — AI 제안 라벨 이름→ID 매핑에 사용.
   const allLabels = useLabels(key);
   // 라벨 교체 mutation — AI 제안 라벨 적용 시 별도 엔드포인트로 호출.
-  const updateLabels = useUpdateIssueLabels(key, issueNumber);
+  // silent: true — handleClassify 가 개별 토스트 대신 통합 토스트 하나로 대체 (#578).
+  const updateLabels = useUpdateIssueLabels(key, issueNumber, { silent: true });
   // 이슈 유형 목록 — AI 제안 유형 이름→ID 매핑에 사용.
   const allIssueTypes = useIssueTypes(key);
   // 이슈 유형 변경 mutation — AI 제안 유형 적용 시 별도 엔드포인트로 호출.
-  const updateType = useUpdateIssueType(key, issueNumber);
+  // silent: true — handleClassify 가 개별 토스트 대신 통합 토스트 하나로 대체 (#578).
+  const updateType = useUpdateIssueType(key, issueNumber, { silent: true });
   const { user } = useAuth();
   // AI 가용성 — 비서 없으면 AI 카드 미렌더(#517 게이트).
   const aiAvailable = useAiAvailable();
@@ -301,29 +303,34 @@ export default function IssueDetailPage() {
   };
 
   // 인라인 편집 patch — 단일 필드 변경마다 호출되며 onSuccess invalidate 로 detail 재조회.
-  const patch = async (changes: UpdateIssueRequest) => {
+  // silent: true 면 성공 토스트를 억제 — AI 분류 적용(handleClassify)처럼 여러 필드 변경을
+  // 하나의 통합 토스트로 묶는 호출부에서 사용 (#578).
+  const patch = async (changes: UpdateIssueRequest, options?: { silent?: boolean }) => {
     try {
       await update.mutateAsync(changes);
-      toast.success('이슈 필드가 업데이트되었습니다');
+      if (!options?.silent) toast.success('이슈 필드가 업데이트되었습니다');
     } catch (e) {
       handleApiError(e, '변경에 실패했습니다');
     }
   };
 
   // 편집 화면 AI 분류 핸들러 — 현재 제목·본문으로 제안 요청 후 즉시 반영.
+  // 우선순위·유형·라벨 3개 mutation 이 각자 토스트를 띄우면 한 번의 클릭에 토스트가
+  // 중복 스택되므로(#578), 각 mutation 은 silent 로 호출하고 모두 끝난 뒤 통합 토스트 1개만 노출한다.
   const handleClassify = () => {
     classify.mutate(
       { title: summary.title, body: body ?? '' },
       {
-        onSuccess: (result) => {
+        onSuccess: async (result) => {
+          const tasks: Promise<unknown>[] = [];
           // 우선순위 패치 적용.
-          void patch({ priority: result.priority as 'LOW' | 'MID' | 'HIGH' });
+          tasks.push(patch({ priority: result.priority as 'LOW' | 'MID' | 'HIGH' }, { silent: true }));
           // 유형 제안 — 이름→ID 매핑 후 별도 엔드포인트로 적용.
           // 왜: IssueTypeSelectPopover 에서 유형 변경 시 updateType.mutate(typeId) 패턴과 동일.
           if (result.type && allIssueTypes.data) {
             const suggestedType = allIssueTypes.data.find((t) => t.name === result.type);
             if (suggestedType) {
-              updateType.mutate(suggestedType.id);
+              tasks.push(updateType.mutateAsync(suggestedType.id));
             }
           }
           // 라벨 제안 — 이름→ID 매핑 후 현재 라벨에 병합하여 교체.
@@ -333,8 +340,12 @@ export default function IssueDetailPage() {
               .map((name) => allLabels.data!.find((l) => l.name === name)?.id)
               .filter((id): id is number => id !== undefined);
             const merged = Array.from(new Set([...currentIds, ...suggestedIds]));
-            updateLabels.mutate(merged);
+            tasks.push(updateLabels.mutateAsync(merged));
           }
+          // 각 mutation 의 실패는 훅 자체 onError 가 이미 에러 토스트로 알리므로
+          // 여기서는 완료 대기만 하고(allSettled) 성공 토스트 1개만 통합 노출한다.
+          await Promise.allSettled(tasks);
+          toast.success('AI 제안을 적용했습니다');
           setClassifyReason(result.reason);
         },
         onError: () => toast.error('AI 제안을 받지 못했습니다'),
