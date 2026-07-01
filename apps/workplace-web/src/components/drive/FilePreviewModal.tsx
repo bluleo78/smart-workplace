@@ -11,9 +11,14 @@ import { MarkdownMessage } from '../ai/MarkdownMessage'
 import { Button } from '../ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { CsvTablePreview } from './preview/CsvTablePreview'
+import { DocxPreview } from './preview/DocxPreview'
+import { SheetPreview } from './preview/SheetPreview'
 
 /** 텍스트 미리보기 최대 길이(과대 파일 보호). */
 const TEXT_PREVIEW_LIMIT = 200_000
+
+/** XLSX/DOCX 파싱 크기 상한(과대 파일 브라우저 파싱 방지). */
+const PREVIEW_PARSE_MAX_BYTES = 5 * 1024 * 1024
 
 /**
  * 파일 미리보기 모달. IMAGE→img, PDF→iframe, Markdown→렌더, TEXT→pre, CSV→표, 그 외→미지원 안내.
@@ -38,9 +43,15 @@ export function FilePreviewModal({
   const contentPath = attachment?.downloadUrl ?? null
   // mimeType 기준으로 렌더 종류를 결정(category 는 입자가 거칠어 CSV/MD 구분 불가).
   const kind = resolvePreviewKind(mimeType)
-  // 이 슬라이스에서 실제 렌더 가능한 종류(XLSX/DOCX는 슬라이스 2에서 추가).
+  // 실제 렌더 가능한 종류.
   const renderable =
-    kind === 'IMAGE' || kind === 'PDF' || kind === 'MARKDOWN' || kind === 'TEXT' || kind === 'CSV'
+    kind === 'IMAGE' ||
+    kind === 'PDF' ||
+    kind === 'MARKDOWN' ||
+    kind === 'TEXT' ||
+    kind === 'CSV' ||
+    kind === 'XLSX' ||
+    kind === 'DOCX'
 
   // 첨부는 드라이브 전용 패널(요약·백링크)을 쓰지 않으므로 0(비활성)으로 훅 호출.
   const driveFileId = file?.id ?? 0
@@ -56,10 +67,19 @@ export function FilePreviewModal({
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState(false)
+  const [buffer, setBuffer] = useState<ArrayBuffer | null>(null)
+  const [tooLarge, setTooLarge] = useState(false)
 
   useEffect(() => {
     let alive = true
     let created: string | null = null
+    // 모달은 파일 전환 시 언마운트되지 않고 props 만 갱신되므로(같은 인스턴스 재사용),
+    // 새 페치 전에 이전 파일의 콘텐츠 상태를 초기화한다. 안 하면 이전 error/tooLarge 가 남아 오표시.
+    setBlobUrl(null)
+    setText(null)
+    setBuffer(null)
+    setTooLarge(false)
+    setError(false)
     const onUrl = (u: string) => {
       if (!alive) {
         URL.revokeObjectURL(u)
@@ -80,6 +100,22 @@ export function FilePreviewModal({
         : driveApi.fetchTextContent(fileIdForContent)
       void p
         .then((t) => alive && setText(t.slice(0, TEXT_PREVIEW_LIMIT)))
+        .catch(() => alive && setError(true))
+    } else if (kind === 'XLSX' || kind === 'DOCX') {
+      // 바이너리 파서는 arrayBuffer 가 필요. 크기 상한 초과 시 파싱하지 않고 폴백.
+      const p = contentPath
+        ? driveApi.fetchBlobByPath(contentPath)
+        : driveApi.fetchContentBlob(fileIdForContent)
+      void p
+        .then(async (blob) => {
+          if (!alive) return
+          if (blob.size > PREVIEW_PARSE_MAX_BYTES) {
+            setTooLarge(true)
+            return
+          }
+          const buf = await blob.arrayBuffer()
+          if (alive) setBuffer(buf)
+        })
         .catch(() => alive && setError(true))
     }
     return () => {
@@ -144,6 +180,13 @@ export function FilePreviewModal({
             <pre className="whitespace-pre-wrap break-words text-xs">{text}</pre>
           )}
           {!error && kind === 'CSV' && text != null && <CsvTablePreview csv={text} />}
+          {!error && tooLarge && (
+            <p className="text-sm text-muted-foreground">
+              파일이 커서 미리볼 수 없습니다. 다운로드하세요.
+            </p>
+          )}
+          {!error && !tooLarge && kind === 'XLSX' && buffer && <SheetPreview buffer={buffer} />}
+          {!error && !tooLarge && kind === 'DOCX' && buffer && <DocxPreview buffer={buffer} />}
         </div>
         {/* 참조된 곳: 이 파일을 링크한 이슈·메시지 목록. 비어있으면 섹션 자체 숨김. */}
         {!isAttachment && (backlinks.data?.length ?? 0) > 0 && (
