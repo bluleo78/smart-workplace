@@ -85,20 +85,21 @@ export function ChannelHeader({
         <span data-testid="channel-header-membercount">{channel.memberCount}</span>
       </button>
 
-      {/* #76: '파일' 버튼 — 모든 멤버에게 노출. ensure 호출 후 연동 드라이브 공간으로 이동. */}
-      <button
-        type="button"
-        data-testid="channel-files-button"
-        onClick={() => void openFiles()}
-        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-accent"
-      >
-        <Folder className="h-4 w-4" />
-        <span>파일</span>
-      </button>
+      {/* 우측 고정 그룹 — 채널명 길이와 무관하게 항상 같은 위치. 파일 버튼은 모든 멤버 노출,
+          설정 드롭다운은 관리자만(#76 파일 위치는 이슈 헤더 액션과 동일하게 우측 고정으로 통일). */}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          data-testid="channel-files-button"
+          onClick={() => void openFiles()}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-accent"
+        >
+          <Folder className="h-4 w-4" />
+          <span>파일</span>
+        </button>
 
-      {/* 채널 관리자 또는 시스템 ADMIN 에게만 설정 드롭다운 노출. */}
-      {(canManage || isAdmin) && (
-        <div className="ml-auto">
+        {/* 채널 관리자 또는 시스템 ADMIN 에게만 설정 드롭다운 노출. */}
+        {(canManage || isAdmin) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="ghost" data-testid="channel-settings-btn">
@@ -146,8 +147,8 @@ export function ChannelHeader({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* 삭제 확인 다이얼로그 — 제어형 AlertDialog 사용(DeleteConfirmDialog 는 trigger 기반). */}
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
