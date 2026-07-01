@@ -1,5 +1,5 @@
 // 위젯 추가 모달 — 왼쪽 카테고리(전체/기본/카탈로그 카테고리) + 오른쪽 카드 그리드.
-// 카드 클릭 시 기본값으로 즉시 추가(모달은 열린 채 유지, 연속 추가 가능). Grafana/iOS 위젯 패턴 — "먼저 추가, 나중에 설정".
+// 카드 클릭 시 기본값으로 즉시 추가하고 모달을 닫는다(추가 직후 결과 확인 우선, 연속 추가는 지원하지 않음).
 import { useState } from 'react'
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -38,9 +38,11 @@ export function AddWidgetModal({
       ? catalogWidgets
       : catalogWidgets.filter((w) => w.category === category)
 
+  // 카드 클릭 = 추가 1건 + 모달 닫힘(연속 추가 UX 폐기, 추가 직후 확인이 우선).
   function handleAdd(type: string) {
     if (disabled) return
     onAdd(type)
+    onOpenChange(false)
   }
 
   return (

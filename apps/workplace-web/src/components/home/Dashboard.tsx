@@ -40,6 +40,9 @@ import { WidgetSettingsPopover } from './widgets/WidgetSettingsPopover'
 const COUNT_OPTIONS = [3, 5, 10] as const
 // 총 위젯 인스턴스 상한 — 백엔드 DashboardService.MAX_WIDGETS 와 일치(프론트는 UX 가드, 최종 검증은 서버).
 const MAX_WIDGETS = 12
+// 위젯 추가 강조 표시 지속 시간(ms) — 카드의 `duration-700` 강조 트랜지션과 짝을 이루며,
+// e2e/pages/home.spec.ts 의 fastForward 경계값과도 결합되어 있으니 값을 바꿀 때 두 곳을 함께 확인한다.
+const HIGHLIGHT_DURATION_MS = 4000
 
 /** 그리드 한 항목 = 알려진 위젯 정의(시스템|카탈로그) + 그 구성. 알 수 없는 타입은 미리 걸러진다. */
 type ResolvedEntry =
@@ -139,6 +142,7 @@ function EditableWidgetCard({
   cardRef,
   upRef,
   downRef,
+  highlighted,
 }: {
   entry: ResolvedEntry
   index: number
@@ -152,6 +156,8 @@ function EditableWidgetCard({
   cardRef: (el: HTMLDivElement | null) => void
   upRef: (el: HTMLButtonElement | null) => void
   downRef: (el: HTMLButtonElement | null) => void
+  /** 방금 추가된 위젯이면 true — 테두리 강조 표시(4초 후 자동 해제, 타이밍은 Dashboard 가 관리). */
+  highlighted: boolean
 }) {
   const Icon = entry.def.icon
   const title = entryTitle(entry)
@@ -161,11 +167,16 @@ function EditableWidgetCard({
       ref={cardRef}
       // 포커스 복원 대상이 될 수 있어 tabIndex=-1(프로그램적 focus 허용, 탭 순서 비참여).
       tabIndex={-1}
-      className={`border-l-2 border-l-ai-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50${cfg.hidden ? ' opacity-50' : ''}`}
+      // transition-shadow duration-700 은 강조 표시(ring-ai-accent) 페이드 인/아웃용. 다만 이 상태로는
+      // 키보드 포커스 링(focus-visible:ring-2)도 같이 700ms 페이드 되어 포커스 이동이 굼떠 보이는 접근성
+      // 회귀가 생긴다 — focus-visible:transition-none 으로 포커스 시에만 트랜지션을 무효화해 포커스 링은
+      // 즉시 나타나게 하고, 강조 표시의 페이드 인/아웃(비-포커스 상태)은 그대로 유지한다.
+      className={`border-l-2 border-l-ai-accent transition-shadow duration-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:transition-none${cfg.hidden ? ' opacity-50' : ''}${highlighted ? ' ring-2 ring-ai-accent' : ''}`}
       data-testid="dashboard-widget"
       data-widget={cfg.type}
       data-widget-id={cfg.id}
       data-hidden={cfg.hidden}
+      data-just-added={highlighted ? 'true' : undefined}
     >
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
@@ -304,6 +315,9 @@ export function Dashboard() {
   const [draft, setDraft] = useState<DashboardWidgetConfig[]>([])
   const [undoSnapshot, setUndoSnapshot] = useState<DashboardWidgetConfig[] | null>(null)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  // 방금 추가된 위젯 id — 강조 표시 + 스크롤 이동 대상(4초 후 자동 해제).
+  const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null)
+  const recentlyAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 스크린리더 피드백(이동/숨김 등 편집 액션) — aria-live polite 로 알림.
   const [liveMsg, setLiveMsg] = useState('')
 
@@ -328,6 +342,20 @@ export function Dashboard() {
     }
   }, [moveFocus])
 
+  // 위젯 추가 직후 해당 카드로 스크롤 이동 + 4초간 강조 후 자동 해제.
+  useEffect(() => {
+    if (!recentlyAddedId) return
+    cardRefs.current.get(recentlyAddedId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // 이전 타이머는 매 재실행/언마운트 전 아래 cleanup 이 이미 정리하므로 여기서 다시 지울 필요 없다.
+    recentlyAddedTimerRef.current = setTimeout(() => setRecentlyAddedId(null), HIGHLIGHT_DURATION_MS)
+    return () => {
+      if (recentlyAddedTimerRef.current) {
+        clearTimeout(recentlyAddedTimerRef.current)
+        recentlyAddedTimerRef.current = null
+      }
+    }
+  }, [recentlyAddedId])
+
   // 저장된 레이아웃 → 알려진 위젯만 해석(알 수 없는 타입은 조용히 스킵).
   const savedEntries = useMemo<ResolvedEntry[]>(() => {
     return (data?.widgets ?? [])
@@ -340,6 +368,7 @@ export function Dashboard() {
     setUndoSnapshot(null)
     setLiveMsg('')
     setAddModalOpen(false)
+    setRecentlyAddedId(null)
     setEditing(true)
   }
 
@@ -348,6 +377,7 @@ export function Dashboard() {
     setUndoSnapshot(null)
     setLiveMsg('')
     setAddModalOpen(false)
+    setRecentlyAddedId(null)
   }
 
   function snapshot() {
@@ -395,6 +425,7 @@ export function Dashboard() {
       snapshot()
       setDraft((prev) => [...prev, { id: type, type, count: 5, hidden: false }])
       setLiveMsg(`${sys.title} 위젯을 추가했습니다`)
+      setRecentlyAddedId(type)
       return
     }
     const cat = getCatalogWidget(type)
@@ -406,6 +437,7 @@ export function Dashboard() {
       { id, type, count: 0, hidden: false, params: cat.defaultParams, label: null },
     ])
     setLiveMsg(`${cat.title} 위젯을 추가했습니다`)
+    setRecentlyAddedId(id)
   }
 
   // 카탈로그 위젯 삭제(완전 제거). 시스템 위젯은 숨김만 가능(호출부에서 카탈로그에만 노출).
@@ -570,6 +602,7 @@ export function Dashboard() {
                   onCount={(n) => setCount(entry.cfg.id, n)}
                   onApplyCatalogConfig={(patch) => applyCatalogConfig(entry.cfg.id, patch)}
                   onRemove={() => removeWidget(entry.cfg.id)}
+                  highlighted={entry.cfg.id === recentlyAddedId}
                   cardRef={(el) => {
                     if (el) cardRefs.current.set(entry.cfg.id, el)
                     else cardRefs.current.delete(entry.cfg.id)
