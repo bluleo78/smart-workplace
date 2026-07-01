@@ -115,7 +115,7 @@ test.describe('프로필 개인 비서', () => {
             configured: true,
             tokenLabel: null,
             tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
+            model: 'claude-sonnet-5',
             thinkingDepth: 'NORMAL',
           }),
         })
@@ -127,15 +127,15 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
 
     // 트리거(현재 선택값)에 사용자 친화적 레이블이 표시되어야 한다.
-    await expect(page.getByRole('combobox', { name: '모델' })).toContainText('Claude Sonnet 4.6')
+    await expect(page.getByRole('combobox', { name: '모델' })).toContainText('Claude Sonnet 5')
 
     // 드롭다운을 열어 목록에 내부 ID가 없고 레이블이 있는지 확인한다.
     await page.getByRole('combobox', { name: '모델' }).click()
-    await expect(page.getByRole('option', { name: 'Claude Sonnet 4.6' })).toBeVisible()
+    await expect(page.getByRole('option', { name: 'Claude Sonnet 5' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Opus 4.8' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Haiku 4.5' })).toBeVisible()
-    // 내부 ID 형식('claude-sonnet-4-6')은 옵션 레이블로 노출되면 안 된다.
-    await expect(page.getByRole('option', { name: 'claude-sonnet-4-6' })).not.toBeVisible()
+    // 내부 ID 형식('claude-sonnet-5')은 옵션 레이블로 노출되면 안 된다.
+    await expect(page.getByRole('option', { name: 'claude-sonnet-5' })).not.toBeVisible()
     await expect(page.getByRole('option', { name: 'claude-opus-4-8' })).not.toBeVisible()
   })
 
