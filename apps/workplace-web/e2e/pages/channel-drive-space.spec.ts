@@ -261,3 +261,82 @@ test('보관 채널 공간은 읽기전용 배너', async ({ authenticatedPage: 
   await expect(page.getByTestId('drive-new-folder')).toBeDisabled()
   await expect(page.getByTestId('drive-upload')).toBeDisabled()
 })
+
+test('드로워(embedded) 에서도 통합 검색이 동작하지만 AI Overview는 숨긴다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubChannelView(page)
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/drive-space`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ spaceId: SPACE_ID, archived: false }),
+      }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: SPACE_ID,
+          type: 'CHANNEL',
+          name: '파일채널',
+          ownerId: 1,
+          role: 'EDITOR',
+          archived: false,
+          createdAt: '2026-06-01T00:00:00Z',
+        }),
+      }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ folders: [], files: [] }) }),
+  )
+  // 파일명 검색 — 빈 결과.
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/search`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ folders: [], files: [] }) }),
+  )
+  // 콘텐츠 검색 — 결과 1건.
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/search',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          hits: [
+            {
+              driveFileId: 1,
+              fileId: 10,
+              spaceId: SPACE_ID,
+              spaceName: '파일채널',
+              name: '회의록.txt',
+              mimeType: 'text/plain',
+              snippet: '오늘 <b>회의</b> 내용',
+              score: 0.5,
+            },
+          ],
+          semantic: true,
+        }),
+      }),
+  )
+
+  await page.goto(`/chat/channels/${CHANNEL_ID}`)
+  await page.getByTestId('channel-files-button').click()
+  await expect(page.getByTestId('drive-space-drawer')).toBeVisible()
+
+  const drawer = page.getByTestId('drive-space-drawer')
+  await drawer.getByLabel('파일명 및 콘텐츠 검색').fill('회의')
+
+  // 콘텐츠 일치 결과는 embedded 에서도 보인다.
+  await expect(drawer.getByTestId('drive-content-hit')).toBeVisible()
+  await expect(drawer.getByText('회의록.txt')).toBeVisible()
+
+  // AI Overview 버튼은 embedded 에서 숨겨진다(공간 협소).
+  await expect(drawer.getByTestId('drive-overview-btn')).toHaveCount(0)
+})

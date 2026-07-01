@@ -68,10 +68,11 @@ public class DriveOverviewService {
    *
    * @param callerId 호출자 userId (JWT principal)
    * @param q 검색 쿼리
+   * @param spaceId null 이면 테넌트 전역, 값이 있으면 해당 공간 파일로 근거를 제한(콘텐츠 검색과 스코프 일관성 유지)
    */
-  public SseEmitter streamOverview(long callerId, String q) {
+  public SseEmitter streamOverview(long callerId, String q, Long spaceId) {
     // 1) 콘텐츠 검색 — 이미 RLS·멤버십 필터됨, 추가 권한 검증 불필요.
-    var res = search.search(callerId, q, TOP_N);
+    var res = search.search(callerId, q, TOP_N, spaceId);
     // 2) 비서 해석(미설정이면 HomeAssistantNotConfiguredException → 일반 4xx).
     AssistantSpec spec = assistantResolver.resolve(callerId);
 

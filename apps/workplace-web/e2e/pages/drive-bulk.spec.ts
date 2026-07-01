@@ -228,6 +228,11 @@ test.describe('드라이브 벌크 작업', () => {
     await stubSpaces(page)
     await stubItems(page)
     await stubSearch(page)
+    // 통합 검색이므로 콘텐츠 검색도 항상 함께 호출됨 — 이 테스트는 파일명 결과만 검증하므로 빈 결과로 모킹.
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/search',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ hits: [], semantic: false }) }),
+    )
 
     let deleteBody: unknown = null
     await page.route(
@@ -246,7 +251,7 @@ test.describe('드라이브 벌크 작업', () => {
     await expect(page.getByTestId('drive-page')).toBeVisible()
 
     // 검색 실행 → 결과 목록으로 전환
-    await page.getByLabel('드라이브 검색').fill('memo')
+    await page.getByLabel('파일명 및 콘텐츠 검색').fill('memo')
     await expect(page.getByTestId('search-results')).toBeVisible()
 
     // 검색 결과 행에 체크박스가 존재 — 이슈 #588 재현 조건(기존에는 완전 누락).

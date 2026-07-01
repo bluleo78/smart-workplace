@@ -4,8 +4,8 @@ import { appTitleTextClass } from '@/components/layout/sidebar-link'
 import { cn } from '@/lib/utils'
 
 interface PageHeaderProps {
-  /** 좌측 제목 — 사이드바 타이틀과 동일한 무게(appTitleTextClass). */
-  title: ReactNode
+  /** 좌측 제목 — 사이드바 타이틀과 동일한 무게(appTitleTextClass). 생략 시 제목 영역 미렌더(다른 위치 표시자로 대체 가능 — 예: 드라이브의 브레드크럼). */
+  title?: ReactNode
   /** 선택: 제목 앞 아이콘/컨트롤(사이드바 타이틀 아이콘과 대칭). */
   icon?: ReactNode
   /** 선택: 제목 옆 보조 메타(키·멤버수·뱃지 등). */
@@ -51,7 +51,7 @@ export function PageHeader({
       >
         <div className="flex min-w-0 items-center gap-2">
           {icon}
-          <h1 className={cn(appTitleTextClass, 'truncate')}>{title}</h1>
+          {title != null && <h1 className={cn(appTitleTextClass, 'truncate')}>{title}</h1>}
           {meta}
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}

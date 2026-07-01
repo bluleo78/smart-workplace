@@ -278,12 +278,17 @@ test('검색어 입력 시 결과를 경로와 함께 보여주고, 폴더 결�
       })
     },
   )
+  // 콘텐츠 검색 — 통합 검색이므로 항상 함께 호출됨. 이 테스트는 파일명 결과만 검증하므로 빈 결과로 모킹.
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/search',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ hits: [], semantic: false }) }),
+  )
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByTestId('drive-page')).toBeVisible()
 
   // 입력 → API query param 검증
-  await page.getByLabel('드라이브 검색').fill('report')
+  await page.getByLabel('파일명 및 콘텐츠 검색').fill('report')
   await expect(page.getByTestId('search-results')).toBeVisible()
   expect(searchQuery).toBe('report')
 
@@ -424,8 +429,11 @@ test('드라이브 헤더와 폴더명 breadcrumb', { tag: '@smoke' }, async ({ 
   )
   await page.goto(`/drive/spaces/${SPACE_ID}?folderId=10`)
 
-  await expect(page.getByTestId('page-header')).toContainText('드라이브')
+  // 페이지 타이틀 제거 확인 — page-header 에는 검색/버튼만 있고 "드라이브" 텍스트가 없다.
+  await expect(page.getByTestId('page-header')).not.toContainText('드라이브')
+  // 브레드크럼이 유일한 위치 표시자 — 루트 버튼에 "드라이브" 노출.
   await expect(page.getByTestId('drive-root')).toBeVisible()
+  await expect(page.getByTestId('drive-root')).toHaveText('드라이브')
   await expect(page.getByTestId('drive-crumb-5')).toHaveText('문서')
   await expect(page.getByTestId('drive-crumb-10')).toHaveText('2026')
   await expect(page.getByTestId('drive-new-folder')).toBeVisible()

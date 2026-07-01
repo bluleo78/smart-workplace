@@ -26,8 +26,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { handleApiError } from '@/lib/api-error'
 
+import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
-import { DriveSearchBar } from '../../components/drive/DriveSearchBar'
+import { DriveOverviewCard } from '../../components/drive/DriveOverviewCard'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
@@ -73,9 +74,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 버전 이력 모달 대상 파일 — null 이면 닫힘.
   const [versionFile, setVersionFile] = useState<DriveFile | null>(null)
 
-  // 검색 상태 — query 길이 ≥2 면 results 로 목록을 대체.
+  // 검색 상태 — query 길이 ≥2 면 results/contentResults 로 목록을 대체(파일명+콘텐츠 통합 검색).
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<DriveSearchResult | null>(null)
+  const [contentResults, setContentResults] = useState<DriveContentHit[] | null>(null)
+  // 콘텐츠 검색 진행 중 여부 — 파일명 검색이 먼저 빈 결과로 응답해도 콘텐츠 검색 완료 전엔
+  // "검색 결과가 없습니다"를 보여주지 않기 위한 가드(깜빡임 방지).
+  const [contentLoading, setContentLoading] = useState(false)
+  // AI Overview 카드 노출 여부 — 풀페이지에서만 사용(embedded 는 버튼 자체를 렌더하지 않음).
+  const [showOverview, setShowOverview] = useState(false)
+  // AI Overview 버튼 클릭 시점의 검색어(committed) — 카드는 이 값을 쓰므로 열려 있는 동안
+  // 입력창에 타이핑해도 AI Overview 스트림이 매 keystroke 마다 재시작되지 않는다.
+  const [overviewQuery, setOverviewQuery] = useState('')
 
   // 휴지통 뷰 — trash != null 이면 휴지통 모드.
   const [trash, setTrash] = useState<DriveTrashItem[] | null>(null)
@@ -177,14 +187,25 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }, [folderId])
 
   // 검색 디바운스(300ms). 2자 미만이면 결과 해제(브라우즈 복귀).
+  // 파일명 검색(driveApi.search)과 콘텐츠 검색(searchDriveContent)을 동시 호출 — 두 검색창을 하나로 통합.
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
       setResults(null)
+      setContentResults(null)
+      setContentLoading(false)
+      setShowOverview(false)
       return
     }
+    setContentLoading(true)
     const t = setTimeout(() => {
       void driveApi.search(sid, q).then(({ data }) => setResults(data))
+      void searchDriveContent(q, sid)
+        .then((data) => setContentResults(data.hits))
+        // 콘텐츠 검색 실패 시에도 로딩 가드를 반드시 풀어야 "검색 결과가 없습니다"가
+        // 영구히 숨겨지지 않는다(파일명 검색은 정상 응답했다는 전제).
+        .catch(() => setContentResults([]))
+        .finally(() => setContentLoading(false))
     }, 300)
     return () => clearTimeout(t)
   }, [query, sid])
@@ -192,6 +213,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   function openFolder(id: number) {
     setQuery('')
     setResults(null)
+    setContentResults(null)
+    setContentLoading(false)
+    setShowOverview(false)
     folderNav.openFolder(id)
   }
   function goRoot() {
@@ -443,6 +467,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   async function openTrash() {
     setQuery('')
     setResults(null)
+    setContentResults(null)
+    setContentLoading(false)
+    setShowOverview(false)
     const { data } = await driveApi.listTrash(sid)
     setTrash(data.items)
   }
@@ -576,14 +603,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="drive-page">
       <PageHeader
-        title="드라이브"
         actions={
           <>
             <SearchInput
               value={query}
               onChange={setQuery}
               placeholder="이 공간에서 검색..."
-              aria-label="드라이브 검색"
+              aria-label="파일명 및 콘텐츠 검색"
             />
             <button
               type="button"
@@ -669,8 +695,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         onDrop={onDrop}
         style={dragOver ? { outline: '2px solid var(--color-primary)', borderRadius: '0.375rem' } : undefined}
       >
-        {/* 콘텐츠 시맨틱 검색 — 스페이스 범위 파일명 검색과 별도로 전체 콘텐츠 하이브리드 검색 제공. */}
-        {!embedded && <div className="mb-4" data-testid="drive-content-search"><DriveSearchBar /></div>}
         {/* #76: 보관된 채널에 연동된 공간 — 읽기 전용 배너. */}
         {space?.archived && (
           <div
@@ -735,66 +759,127 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             </ul>
           </div>
         ) : searching ? (
-          <>
-            {/* #588: 검색 결과에도 비검색 모드와 동일한 벌크 선택 UI 적용. */}
-            {renderBulkToolbar()}
-            {renderSelectAll(
-              results.folders.map((f) => f.id),
-              results.files.map((f) => f.id),
+          <div data-testid="search-results">
+            {/* 파일명 일치 그룹 — 기존 space-scoped 파일명 검색 결과. #588: 비검색 모드와 동일한 벌크 선택 UI 적용. */}
+            {(results.folders.length > 0 || results.files.length > 0) && (
+              <div className="mb-4">
+                <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                  파일명 일치 ({results.folders.length + results.files.length})
+                </p>
+                {renderBulkToolbar()}
+                {renderSelectAll(
+                  results.folders.map((f) => f.id),
+                  results.files.map((f) => f.id),
+                )}
+                <ul className="divide-y divide-border">
+                  {results.folders.map((f) => (
+                    <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
+                      {/* #588: 폴더 행 체크박스 — 멀티셀렉트용. */}
+                      <input
+                        type="checkbox"
+                        checked={selFolders.has(f.id)}
+                        onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
+                        data-testid={`select-folder-${f.id}`}
+                        className="h-4 w-4 shrink-0"
+                      />
+                      {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
+                      <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
+                      <button
+                        type="button"
+                        onClick={() => openFolder(f.id)}
+                        className="flex-1 text-left text-sm hover:underline"
+                      >
+                        {f.name}
+                        {f.folderPath && (
+                          <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                  {results.files.map((f) => (
+                    <li key={`s-file-${f.id}`} className="flex items-center gap-2 py-2">
+                      {/* #588: 파일 행 체크박스 — 멀티셀렉트용. */}
+                      <input
+                        type="checkbox"
+                        checked={selFiles.has(f.id)}
+                        onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
+                        data-testid={`select-file-${f.id}`}
+                        className="h-4 w-4 shrink-0"
+                      />
+                      <DriveThumbnail fileId={f.id} category={f.category} />
+                      <button
+                        type="button"
+                        onClick={() => setPreview(f)}
+                        className="flex-1 truncate text-left text-sm hover:underline"
+                      >
+                        {f.name}
+                        {f.folderPath && (
+                          <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
-            <ul className="divide-y divide-border" data-testid="search-results">
-              {results.folders.map((f) => (
-                <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
-                  {/* #588: 폴더 행 체크박스 — 멀티셀렉트용. */}
-                  <input
-                    type="checkbox"
-                    checked={selFolders.has(f.id)}
-                    onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
-                    data-testid={`select-folder-${f.id}`}
-                    className="h-4 w-4 shrink-0"
-                  />
-                  {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
-                  <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
-                  <button
-                    type="button"
-                    onClick={() => openFolder(f.id)}
-                    className="flex-1 text-left text-sm hover:underline"
-                  >
-                    {f.name}
-                    {f.folderPath && (
-                      <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+            {/* 내용 일치 그룹 — 콘텐츠 하이브리드 검색(#527 인프라 재사용, 이번엔 현재 공간으로 스코프).
+                벌크 선택 대상은 폴더/파일 아이템뿐이라 콘텐츠 일치 그룹에는 체크박스를 적용하지 않는다. */}
+            {contentResults != null && contentResults.length > 0 && (
+              <div className="mb-4" data-testid="drive-content-results">
+                <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                  내용 일치 ({contentResults.length})
+                </p>
+                <ul className="space-y-2">
+                  {contentResults.map((h) => (
+                    <li key={h.driveFileId} className="rounded border p-2" data-testid="drive-content-hit">
+                      <div className="flex items-center gap-2">
+                        <a
+                          className="font-medium hover:underline"
+                          href={`/drive/spaces/${h.spaceId}?file=${h.driveFileId}`}
+                        >
+                          {h.name}
+                        </a>
+                        {/* 스페이스 뱃지 — 어느 스페이스의 파일인지 표시. */}
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          {h.spaceName}
+                        </span>
+                      </div>
+                      {/* snippet 은 ts_headline 이 <b> 만 넣는 신뢰 출력이지만 안전을 위해 태그 제거 후 텍스트 렌더. */}
+                      <p className="text-sm text-muted-foreground">{h.snippet.replace(/<\/?b>/g, '')}</p>
+                    </li>
+                  ))}
+                </ul>
+                {/* AI Overview — 풀페이지에서만(embedded 는 공간이 좁아 숨김). */}
+                {!embedded && (
+                  <div className="mt-2">
+                    {!showOverview ? (
+                      <button
+                        type="button"
+                        className="rounded bg-ai-accent-subtle px-2 py-1 text-sm text-ai-accent hover:opacity-90"
+                        onClick={() => {
+                          // 클릭 시점 검색어를 고정(committed) — 카드가 열려 있는 동안 계속
+                          // 타이핑해도 스트림이 매 keystroke 마다 재시작되지 않도록.
+                          setOverviewQuery(query.trim())
+                          setShowOverview(true)
+                        }}
+                        data-testid="drive-overview-btn"
+                      >
+                        ✦ AI Overview
+                      </button>
+                    ) : (
+                      <DriveOverviewCard query={overviewQuery} spaceId={sid} />
                     )}
-                  </button>
-                </li>
-              ))}
-              {results.files.map((f) => (
-                <li key={`s-file-${f.id}`} className="flex items-center gap-2 py-2">
-                  {/* #588: 파일 행 체크박스 — 멀티셀렉트용. */}
-                  <input
-                    type="checkbox"
-                    checked={selFiles.has(f.id)}
-                    onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
-                    data-testid={`select-file-${f.id}`}
-                    className="h-4 w-4 shrink-0"
-                  />
-                  <DriveThumbnail fileId={f.id} category={f.category} />
-                  <button
-                    type="button"
-                    onClick={() => setPreview(f)}
-                    className="flex-1 truncate text-left text-sm hover:underline"
-                  >
-                    {f.name}
-                    {f.folderPath && (
-                      <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
-                    )}
-                  </button>
-                </li>
-              ))}
-              {results.folders.length === 0 && results.files.length === 0 && (
-                <li className="py-8 text-center text-sm text-muted-foreground">검색 결과가 없습니다</li>
+                  </div>
+                )}
+              </div>
+            )}
+            {results.folders.length === 0 &&
+              results.files.length === 0 &&
+              !contentLoading &&
+              (contentResults == null || contentResults.length === 0) && (
+                <p className="py-8 text-center text-sm text-muted-foreground">검색 결과가 없습니다</p>
               )}
-            </ul>
-          </>
+          </div>
         ) : (
           <>
             {/* #82/#588: 벌크 툴바 + 전체선택 — 검색 결과 분기와 공유하는 렌더 헬퍼. */}

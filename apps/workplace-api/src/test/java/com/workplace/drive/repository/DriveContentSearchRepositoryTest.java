@@ -128,7 +128,7 @@ class DriveContentSearchRepositoryTest extends IntegrationTestBase {
     long mine = seedDriveFileWithExtraction(spaceA, "분기 매출 보고서", "Q3 매출 성장");
     long notMine = seedDriveFileWithExtraction(spaceOther, "비밀 보고서", "Q3 매출 성장");
 
-    var hits = repo.hybridSearch(userA, "매출", null /* 벡터 없음 = 키워드 전용 */, 10);
+    var hits = repo.hybridSearch(userA, "매출", null /* 벡터 없음 = 키워드 전용 */, 10, null);
     var ids = hits.stream().map(DriveContentSearchRepository.ContentRow::driveFileId).toList();
 
     assertThat(ids).contains(mine).doesNotContain(notMine); // 멤버십 필터
@@ -139,7 +139,7 @@ class DriveContentSearchRepositoryTest extends IntegrationTestBase {
   void hybridSearch_keyword_only_when_vector_null_still_returns_snippet() {
     long f = seedDriveFileWithExtraction(spaceA, "회의록", "프로젝트 일정 논의");
 
-    var hits = repo.hybridSearch(userA, "일정", null, 10);
+    var hits = repo.hybridSearch(userA, "일정", null, 10, null);
 
     assertThat(hits)
         .anySatisfy(
@@ -147,5 +147,18 @@ class DriveContentSearchRepositoryTest extends IntegrationTestBase {
               assertThat(h.driveFileId()).isEqualTo(f);
               assertThat(h.snippet()).contains("일정"); // ts_headline 발췌
             });
+  }
+
+  /** userA 가 두 공간 모두 멤버라도, spaceId 를 지정하면 그 공간의 파일만 반환해야 한다(스코프 제한). */
+  @Test
+  void hybridSearch_withSpaceId_scopesToThatSpaceOnly() {
+    long spaceB = seedSpaceWithMember("공간C", userA); // userA 가 멤버인 두 번째 공간
+    long inA = seedDriveFileWithExtraction(spaceA, "A공간 보고서", "분기 실적 요약");
+    long inB = seedDriveFileWithExtraction(spaceB, "B공간 보고서", "분기 실적 요약");
+
+    var hits = repo.hybridSearch(userA, "실적", null, 10, spaceA);
+    var ids = hits.stream().map(DriveContentSearchRepository.ContentRow::driveFileId).toList();
+
+    assertThat(ids).contains(inA).doesNotContain(inB);
   }
 }

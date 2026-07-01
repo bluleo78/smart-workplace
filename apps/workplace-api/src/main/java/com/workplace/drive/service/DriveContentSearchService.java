@@ -10,7 +10,7 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 테넌트 전역 콘텐츠 검색. 쿼리를 임베딩(실패 시 키워드 전용)하고 하이브리드 RRF 로 접근 가능 파일을 랭킹한다. */
+/** 콘텐츠 검색. 쿼리를 임베딩(실패 시 키워드 전용)하고 하이브리드 RRF 로 접근 가능 파일을 랭킹한다. spaceId 지정 시 해당 공간으로 제한. */
 @Service
 public class DriveContentSearchService {
 
@@ -36,10 +36,11 @@ public class DriveContentSearchService {
    *
    * @param userId 호출자 id (RLS + 멤버십 필터에 사용)
    * @param q 검색어 (null 또는 2자 미만이면 빈 결과 반환)
-   * @param limit 최대 결과 수 (null 이면 기본값 20, 상한 50)
+   * @param limit 최대 결과 수 (null 이면 기본값 10, 상한 50)
+   * @param spaceId null 이면 테넌트 전역, 값이 있으면 해당 공간으로 결과 제한
    */
   @Transactional(readOnly = true)
-  public DriveContentSearchResponse search(long userId, String q, Integer limit) {
+  public DriveContentSearchResponse search(long userId, String q, Integer limit, Long spaceId) {
     // 검색어 NFC 정규화 — 본문 tsvector(추출 텍스트=NFC)와 일관되게 매칭(UnicodeNames 참조).
     String norm = q == null ? "" : UnicodeNames.toNfc(q).trim();
     if (norm.length() < MIN_QUERY) {
@@ -49,7 +50,7 @@ public class DriveContentSearchService {
     // 임베딩 실패 시 empty → 키워드 전용으로 강등(워커 장애가 검색을 죽이지 않는다)
     Optional<float[]> vec = embedClient.embedQuery(norm);
     List<DriveContentHit> hits =
-        repo.hybridSearch(userId, norm, vec.orElse(null), lim).stream()
+        repo.hybridSearch(userId, norm, vec.orElse(null), lim, spaceId).stream()
             .map(
                 r ->
                     new DriveContentHit(

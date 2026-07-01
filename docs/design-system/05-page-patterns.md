@@ -347,7 +347,7 @@ export default function ChannelPage() {
   - 메일·연락처·드라이브의 마스터-디테일은 **`lg` 미만에서 제자리 전환**(목록 표시 중 항목 선택 → 목록 숨김 + 상세 전체폭, 상세에 `‹ 목록` 뒤로가기 버튼 노출)을 추가로 적용한다.
 - 선택 없음/로딩/에러 빈 상태는 디테일 패널 내부에서 안내 문구로 처리(메일 "메일을 선택하세요"). [06-feedback-states.md](./06-feedback-states.md) 참고.
 - 풀폭 페이지이므로 각 컬럼 상단 헤더(예: `ChannelHeader`, 목록 툴바)는 옵션 `PageHeader`(`h-14`·`border-b`)로 두면 사이드바 헤더와 한 선 정렬된다(위 "컨텐츠 헤더" 절). **메일·연락처·드라이브·채팅 헤더 표준화 완료**(#113, 2026-06-06).
-  - 드라이브: 전폭 `PageHeader`(title="드라이브", actions=검색·새 폴더·업로드·휴지통) 아래 **폴더명 breadcrumb 행**을 별도로 둔다(`GET /drive/folders/{id}/path`로 폴더 경로 조회, 깊으면 `…` 접기).
+  - 드라이브: 전폭 `PageHeader`(**title 없음** — 사이드바 앱 이름 + 아래 브레드크럼이 위치 표시자 역할, actions=통합 검색·새 폴더·업로드·휴지통) 아래 **폴더명 breadcrumb 행**을 별도로 둔다(`GET /drive/folders/{id}/path`로 폴더 경로 조회, 깊으면 `…` 접기). 검색 입력 1개가 파일명 검색(space-scoped)과 콘텐츠 검색(하이브리드, 동일하게 현재 공간으로 스코프)을 동시 실행하고, 결과를 "파일명 일치"/"내용 일치" 두 그룹으로 나눠 보여준다(그룹 소제목은 `text-xs font-semibold text-muted-foreground`). AI Overview 진입 버튼(`bg-ai-accent-subtle text-ai-accent`)은 콘텐츠 일치가 있을 때만, 풀페이지에서만 노출(embedded 드로워는 공간 협소로 숨김).
   - 채팅 `ChannelHeader`/`DmHeader`: 내부 높이·타이포를 `h-14`·`appTitleTextClass`로 정렬(기능 무변).
 
 ---

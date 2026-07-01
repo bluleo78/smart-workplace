@@ -21,12 +21,16 @@ public class DriveOverviewController {
   }
 
   /**
-   * GET /api/v1/drive/search-overview?q={query} → SSE 스트림.
+   * GET /api/v1/drive/search-overview?q={query}&spaceId={spaceId} → SSE 스트림.
    *
-   * <p>{@code event: delta {"text":"..."}} 토큰 스트리밍 후 {@code event: done {}} 로 종료한다.
+   * <p>{@code event: delta {"text":"..."}} 토큰 스트리밍 후 {@code event: done {}} 로 종료한다. spaceId 미지정 시
+   * 테넌트 전역, 지정 시 해당 공간 파일로 근거를 제한한다(콘텐츠 검색과 스코프 일관성 유지).
    */
   @GetMapping(value = "/search-overview", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-  public SseEmitter overview(@AuthenticationPrincipal Long callerId, @RequestParam String q) {
-    return svc.streamOverview(callerId, q);
+  public SseEmitter overview(
+      @AuthenticationPrincipal Long callerId,
+      @RequestParam String q,
+      @RequestParam(required = false) Long spaceId) {
+    return svc.streamOverview(callerId, q, spaceId);
   }
 }

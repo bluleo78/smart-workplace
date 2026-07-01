@@ -18,11 +18,15 @@ export interface DriveContentSearchResponse {
   semantic: boolean
 }
 
-/** 콘텐츠 하이브리드 검색 — 키워드(tsvector) + 의미(pgvector) RRF 병합. */
+/**
+ * 콘텐츠 하이브리드 검색 — 키워드(tsvector) + 의미(pgvector) RRF 병합.
+ * spaceId 로 결과를 해당 공간으로 제한한다(드라이브 헤더 통합 검색이 항상 현재 공간을 전달).
+ */
 export async function searchDriveContent(
   q: string,
+  spaceId: number,
   limit?: number,
 ): Promise<DriveContentSearchResponse> {
-  const res = await client.get('/drive/search', { params: { q, limit } })
+  const res = await client.get('/drive/search', { params: { q, spaceId, limit } })
   return res.data as DriveContentSearchResponse
 }

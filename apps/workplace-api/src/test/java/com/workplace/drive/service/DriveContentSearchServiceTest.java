@@ -21,7 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-/** DriveContentSearchService 단위 테스트. repo/embedClient 를 목킹해 매핑·강등·경계 로직을 검증한다. */
+/** DriveContentSearchService 단위 테스트. repo/embedClient 를 목킹해 매핑·강등·경계·스코프 로직을 검증한다. */
 @ExtendWith(MockitoExtension.class)
 class DriveContentSearchServiceTest {
 
@@ -38,17 +38,18 @@ class DriveContentSearchServiceTest {
   /** 2자 미만 쿼리는 레포 호출 없이 빈 결과를 즉시 반환해야 한다. */
   @Test
   void search_shortQuery_returnsEmpty() {
-    var result = svc.search(1L, "a", null);
+    var result = svc.search(1L, "a", null, null);
 
     assertThat(result.hits()).isEmpty();
     assertThat(result.semantic()).isFalse();
-    verify(repo, org.mockito.Mockito.never()).hybridSearch(anyLong(), anyString(), any(), anyInt());
+    verify(repo, org.mockito.Mockito.never())
+        .hybridSearch(anyLong(), anyString(), any(), anyInt(), any());
   }
 
   /** null 쿼리는 2자 미만으로 처리해 빈 결과를 반환해야 한다. */
   @Test
   void search_nullQuery_returnsEmpty() {
-    var result = svc.search(1L, null, null);
+    var result = svc.search(1L, null, null, null);
 
     assertThat(result.hits()).isEmpty();
   }
@@ -63,9 +64,9 @@ class DriveContentSearchServiceTest {
     ContentRow row =
         new ContentRow(10L, 20L, 30L, "기획팀 공간", "예산안.docx", "application/vnd.docx", "예산 발췌", 0.85);
     when(embedClient.embedQuery("예산")).thenReturn(Optional.of(vec));
-    when(repo.hybridSearch(eq(1L), eq("예산"), eq(vec), eq(10))).thenReturn(List.of(row));
+    when(repo.hybridSearch(eq(1L), eq("예산"), eq(vec), eq(10), isNull())).thenReturn(List.of(row));
 
-    var result = svc.search(1L, "예산", null);
+    var result = svc.search(1L, "예산", null, null);
 
     assertThat(result.semantic()).isTrue();
     assertThat(result.hits()).hasSize(1);
@@ -85,9 +86,9 @@ class DriveContentSearchServiceTest {
   void search_embedFails_degradesToKeywordOnly() {
     ContentRow row = new ContentRow(1L, 2L, 3L, "공간", "파일.txt", "text/plain", "발췌", 0.5);
     when(embedClient.embedQuery("검색어")).thenReturn(Optional.empty());
-    when(repo.hybridSearch(eq(1L), eq("검색어"), isNull(), eq(10))).thenReturn(List.of(row));
+    when(repo.hybridSearch(eq(1L), eq("검색어"), isNull(), eq(10), isNull())).thenReturn(List.of(row));
 
-    var result = svc.search(1L, "검색어", null);
+    var result = svc.search(1L, "검색어", null, null);
 
     assertThat(result.semantic()).isFalse();
     assertThat(result.hits()).hasSize(1);
@@ -97,21 +98,33 @@ class DriveContentSearchServiceTest {
   @Test
   void search_limitClamping() {
     when(embedClient.embedQuery(anyString())).thenReturn(Optional.empty());
-    when(repo.hybridSearch(anyLong(), anyString(), isNull(), eq(50))).thenReturn(List.of());
+    when(repo.hybridSearch(anyLong(), anyString(), isNull(), eq(50), any())).thenReturn(List.of());
 
-    svc.search(1L, "쿼리", 999); // 상한 초과
+    svc.search(1L, "쿼리", 999, null); // 상한 초과
 
-    verify(repo).hybridSearch(anyLong(), anyString(), isNull(), eq(50));
+    verify(repo).hybridSearch(anyLong(), anyString(), isNull(), eq(50), any());
   }
 
   /** limit 파라미터가 null 이면 기본값(10)으로 레포를 호출해야 한다. */
   @Test
   void search_uses_default_limit_when_null() {
     when(embedClient.embedQuery(anyString())).thenReturn(Optional.empty());
-    when(repo.hybridSearch(anyLong(), anyString(), isNull(), eq(10))).thenReturn(List.of());
+    when(repo.hybridSearch(anyLong(), anyString(), isNull(), eq(10), any())).thenReturn(List.of());
 
-    svc.search(1L, "쿼리", null);
+    svc.search(1L, "쿼리", null, null);
 
-    verify(repo).hybridSearch(anyLong(), anyString(), isNull(), eq(10));
+    verify(repo).hybridSearch(anyLong(), anyString(), isNull(), eq(10), any());
+  }
+
+  /** spaceId 가 지정되면 그대로 레포로 전달되어야 한다(공간 스코프 검색). */
+  @Test
+  void search_withSpaceId_passesThroughToRepo() {
+    when(embedClient.embedQuery(anyString())).thenReturn(Optional.empty());
+    when(repo.hybridSearch(anyLong(), anyString(), isNull(), eq(10), eq(42L)))
+        .thenReturn(List.of());
+
+    svc.search(1L, "쿼리", null, 42L);
+
+    verify(repo).hybridSearch(anyLong(), anyString(), isNull(), eq(10), eq(42L));
   }
 }

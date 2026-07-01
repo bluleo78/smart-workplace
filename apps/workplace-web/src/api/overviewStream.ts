@@ -5,6 +5,8 @@ import { getAccessToken, refreshAccessToken } from '@/api/client'
 
 export interface DriveOverviewStreamArgs {
   query: string
+  /** 근거를 해당 공간으로 제한(콘텐츠 검색과 스코프 일관성 유지). 생략 시 테넌트 전역. */
+  spaceId?: number
   onDelta: (text: string) => void
   onDone: () => void
   onError: (message: string) => void
@@ -12,9 +14,11 @@ export interface DriveOverviewStreamArgs {
 
 /** Overview SSE 스트림을 시작하고 즉시 { abort } 를 반환. 파싱은 inner async IIFE. */
 export function startDriveOverviewStream(args: DriveOverviewStreamArgs): { abort: () => void } {
-  const { query, onDelta, onDone, onError } = args
+  const { query, spaceId, onDelta, onDone, onError } = args
   const controller = new AbortController()
-  const url = `/api/v1/drive/search-overview?q=${encodeURIComponent(query)}`
+  const params = new URLSearchParams({ q: query })
+  if (spaceId != null) params.set('spaceId', String(spaceId))
+  const url = `/api/v1/drive/search-overview?${params.toString()}`
 
   void (async () => {
     let token = getAccessToken()

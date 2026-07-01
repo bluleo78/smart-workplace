@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -76,7 +77,7 @@ class DriveOverviewServiceTest {
   /** 에이전트 델타가 emitter 까지 도달하고 정상 완료된다(동기 펌프). */
   @Test
   void streamOverview_deltasReachEmitter_andCompletes() throws Exception {
-    when(search.search(eq(CALLER), eq("매출"), eq(5)))
+    when(search.search(eq(CALLER), eq("매출"), eq(5), isNull()))
         .thenReturn(new DriveContentSearchResponse(List.of(hit(20L, "보고서.txt")), true));
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
     when(excerpts.findExtractedText(eq(20L), anyInt())).thenReturn("매출 성장 분석 내용");
@@ -127,7 +128,7 @@ class DriveOverviewServiceTest {
           }
         };
 
-    spied.streamOverview(CALLER, "매출");
+    spied.streamOverview(CALLER, "매출", null);
 
     // delta 2개 + done 1개가 emitter.send 로 흘렀고, 정상 complete 됐는지.
     String joined = sentData.stream().map(String::valueOf).reduce("", (a, b) -> a + b);
@@ -138,7 +139,7 @@ class DriveOverviewServiceTest {
   /** 발췌 텍스트가 없는(blank) 파일은 발췌 목록에서 걸러진다. */
   @Test
   void streamOverview_blankExcerpt_isFiltered() throws Exception {
-    when(search.search(eq(CALLER), eq("쿼리"), eq(5)))
+    when(search.search(eq(CALLER), eq("쿼리"), eq(5), isNull()))
         .thenReturn(
             new DriveContentSearchResponse(List.of(hit(1L, "파일A.txt"), hit(2L, "파일B.txt")), false));
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
@@ -155,7 +156,7 @@ class DriveOverviewServiceTest {
         .when(agent)
         .stream(any(), any(), any());
 
-    service.streamOverview(CALLER, "쿼리");
+    service.streamOverview(CALLER, "쿼리", null);
 
     // 에이전트에 전달된 AgentBody 에서 발췌 목록을 검증.
     var bodyCaptor = org.mockito.ArgumentCaptor.forClass(Object.class);
@@ -169,7 +170,7 @@ class DriveOverviewServiceTest {
   /** 검색 결과가 없으면 발췌 없는 빈 목록으로 에이전트를 호출한다(Overview = "관련 파일 없음" 처리). */
   @Test
   void streamOverview_noHits_callsAgentWithEmptyExcerpts() throws Exception {
-    when(search.search(eq(CALLER), eq("없는쿼리"), eq(5)))
+    when(search.search(eq(CALLER), eq("없는쿼리"), eq(5), isNull()))
         .thenReturn(new DriveContentSearchResponse(List.of(), false));
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
 
@@ -182,7 +183,7 @@ class DriveOverviewServiceTest {
         .when(agent)
         .stream(any(), any(), any());
 
-    SseEmitter emitter = service.streamOverview(CALLER, "없는쿼리");
+    SseEmitter emitter = service.streamOverview(CALLER, "없는쿼리", null);
 
     assertThat(emitter).isNotNull();
     var bodyCaptor = org.mockito.ArgumentCaptor.forClass(Object.class);
@@ -196,7 +197,7 @@ class DriveOverviewServiceTest {
   /** 에이전트 스트림이 예외를 던지면 emitter.completeWithError 가 호출된다. */
   @Test
   void streamOverview_agentError_completesWithError() throws Exception {
-    when(search.search(eq(CALLER), eq("오류"), eq(5)))
+    when(search.search(eq(CALLER), eq("오류"), eq(5), isNull()))
         .thenReturn(new DriveContentSearchResponse(List.of(), false));
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
     doAnswer(
@@ -222,8 +223,29 @@ class DriveOverviewServiceTest {
           }
         };
 
-    spied.streamOverview(CALLER, "오류");
+    spied.streamOverview(CALLER, "오류", null);
 
     verify(spyEmitter).completeWithError(any(RuntimeException.class));
+  }
+
+  /** spaceId 가 지정되면 그대로 콘텐츠 검색으로 전달되어야 한다(Overview 근거도 공간 스코프로 제한). */
+  @Test
+  void streamOverview_withSpaceId_passesThroughToSearch() throws Exception {
+    when(search.search(eq(CALLER), eq("예산"), eq(5), eq(42L)))
+        .thenReturn(new DriveContentSearchResponse(List.of(), false));
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+
+    doAnswer(
+        inv -> {
+          Runnable onDone = inv.getArgument(2);
+          onDone.run();
+          return null;
+        })
+        .when(agent)
+        .stream(any(), any(), any());
+
+    service.streamOverview(CALLER, "예산", 42L);
+
+    verify(search).search(eq(CALLER), eq("예산"), eq(5), eq(42L));
   }
 }
