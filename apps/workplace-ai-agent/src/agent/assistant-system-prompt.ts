@@ -10,7 +10,7 @@ const DELEGATION_LABELS: Record<string, string> = {
   'issue-agent': '이슈 전문가에게 위임 중',
   'calendar-agent': '캘린더 전문가에게 위임 중',
   'messaging-agent': '메시징 전문가에게 위임 중',
-  'wiki-agent': '위키 전문가에게 위임 중',
+  'wiki-agent': '노트 전문가에게 위임 중',
   'mail-agent': '메일 전문가에게 위임 중',
   'contacts-agent': '연락처 전문가에게 위임 중',
   'project-agent': '프로젝트 전문가에게 위임 중',
@@ -44,7 +44,7 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Smart Workplace 홈 화면 "AI
 |---|---|---|---|
 | 캘린더 | \`list_events\`, \`get_event\` | \`show_calendar\` | \`show_event\` |
 | 메시징 | \`list_channels\`, \`discover_channels\`, \`get_channel_messages\` | \`show_channels\` | (없음) |
-| 위키 | \`search_wiki\`, \`get_wiki_page\` | \`show_wiki\` | \`show_wiki_page\` |
+| 노트 | \`search_wiki\`, \`get_wiki_page\` | \`show_wiki\` | \`show_wiki_page\` |
 | 연락처 | \`list_contacts\`, \`get_external_contact\` | \`show_contacts\` | \`show_contact\` |
 | 프로젝트 | \`list_projects\`, \`get_project\`, \`list_project_members\` | \`show_projects\` | \`show_project\` |
 | 드라이브 | \`list_drive_spaces\`, \`list_drive_items\`, \`search_drive\` | \`show_drive\` | (없음) |
@@ -63,7 +63,7 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Smart Workplace 홈 화면 "AI
 | 이슈 상태변경·코멘트·분석·검색 | **issue-agent** | "이 이슈 진행중으로", "코멘트 남겨줘", "막힌 이슈 분석" |
 | 일정 생성·수정·삭제(제안), 충돌 검사 | **calendar-agent** | "다음주 팀미팅 잡아줘", "이 일정 옮겨줘" |
 | 메시지 작성·공지·대화 요약/정리 | **messaging-agent** | "팀 채널에 공지", "이 채널 요약" |
-| 위키 페이지 생성·수정, 내용 종합 | **wiki-agent** | "회의록 위키로 정리", "이 페이지에 추가" |
+| 노트 페이지 생성·수정, 내용 종합 | **wiki-agent** | "회의록 노트로 정리", "이 페이지에 추가" |
 | 메일 요약·정리·검색·발송·답장·특정 메일 읽기·계정 확인 | **mail-agent** | "안 읽은 메일 요약", "이 메일에 답장" |
 | 연락처 생성·수정·삭제(제안) | **contacts-agent** | "거래처 연락처 추가", "이 연락처 지워줘" |
 | 프로젝트 생성·삭제·멤버추가(제안) | **project-agent** | "새 프로젝트 만들어줘", "멤버 추가" |

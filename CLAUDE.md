@@ -2,7 +2,7 @@
 
 AI Native 워크플레이스 — 사람과 AI가 함께 일하는 협업 플랫폼.
 
-v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat). 팀 채팅(messaging)·알림(notify) 확장 중 — 향후 wiki / drive.
+v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat). 팀 채팅(messaging)·알림(notify) 확장 중 — 향후 노트 / drive.
 
 ## Commands
 
@@ -40,7 +40,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat)
 - **모노레포**: pnpm workspaces + Turborepo
 - **백엔드**: 모듈러 모놀리스 (Spring Boot + Spring Modulith)
   - core: identity / thread / search / file / notify / ai
-  - domain: issue(v1, 완료) · chat(이슈 컨텍스트, 완료) · messaging(팀 채팅 — Phase 1·2 완료, 3~7 백로그 #60–64) · notify(인박스/알림, 진행 중 #54) → wiki / drive (이후)
+  - domain: issue(v1, 완료) · chat(이슈 컨텍스트, 완료) · messaging(팀 채팅 — Phase 1·2 완료, 3~7 백로그 #60–64) · notify(인박스/알림, 진행 중 #54) → 노트 / drive (이후)
 - **프론트엔드**: Vite + React 19 + TS + Tailwind 4 + shadcn/ui
 - **별도 서비스**: workplace-ai-agent (Claude Agent SDK, 스캐폴딩 완료 — 5b/5c 에서 로직 채움), workplace-channel (실시간, 향후 추가)
 

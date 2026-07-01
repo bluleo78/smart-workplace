@@ -4,7 +4,7 @@
 
 ## 이 앱의 목적
 
-Smart Workplace 의 **AI Agent 서비스**. `@anthropic-ai/claude-agent-sdk` 를 **인-프로세스로 구동**해 구독 OAuth 토큰으로 LLM 응답을 수행한다(#462 CLI→SDK 전환 완료). 이슈 이벤트 envelope 과 홈/메일/채팅/위키 컴포즈 요청을 받아 `query()` 를 우리 Node 서버 안에서 직접 실행하고, workplace-api 호출 도구는 `createSdkMcpServer` 로 **인-프로세스 MCP 서버**(`agent/sdk-mcp-server.ts`)에 등록한다 — 별도 CLI/MCP 자식 프로세스 spawn 없음.
+Smart Workplace 의 **AI Agent 서비스**. `@anthropic-ai/claude-agent-sdk` 를 **인-프로세스로 구동**해 구독 OAuth 토큰으로 LLM 응답을 수행한다(#462 CLI→SDK 전환 완료). 이슈 이벤트 envelope 과 홈/메일/채팅/노트 컴포즈 요청을 받아 `query()` 를 우리 Node 서버 안에서 직접 실행하고, workplace-api 호출 도구는 `createSdkMcpServer` 로 **인-프로세스 MCP 서버**(`agent/sdk-mcp-server.ts`)에 등록한다 — 별도 CLI/MCP 자식 프로세스 spawn 없음.
 
 ## Commands
 

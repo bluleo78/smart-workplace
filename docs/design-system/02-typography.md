@@ -97,7 +97,7 @@ Vercel Geist 3-tier 시스템(Heading / Body / Label)을 참고하여 의미론�
 본문 텍스트. `body-primary`는 이슈 설명·메일 본문 같은 긴 콘텐츠에, `body-secondary`는 카드 내 설명이나 채팅 메시지 본문에 사용한다.
 
 ```tsx
-// body-primary — 이슈 설명, 메일 본문, 위키 콘텐츠
+// body-primary — 이슈 설명, 메일 본문, 노트 콘텐츠
 <p className="text-base leading-7 text-foreground">
   이 이슈는 메일 동기화 성능을 개선합니다. 목록 우선 적재 후
   본문은 OnDemand 로 가져옵니다.
