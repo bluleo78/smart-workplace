@@ -79,8 +79,12 @@ export function DriveAttachmentsView() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden" data-testid="drive-attachments-view">
-      {/* 상단 바 — 검색 + 출처 필터칩 */}
-      <div className="flex items-center gap-2 border-b px-4 py-2">
+      {/* 상단 바 — 검색 + 출처 필터칩.
+          lg:pt-12: 전역 AIChip(fixed left-1/2 top-2, 높이 32px, bottom≈40px)이 데스크톱(lg+)에서
+          AppLayout main 의 pt-0 로 인해 콘텐츠 최상단과 그대로 겹친다(#576). 모바일은 AppLayout 이
+          이미 pt-12 를 둬 안전하므로(main lg:pt-0 대비 breakpoint 일치), lg 에서만 동일한 48px 여백을
+          더해 칩 아래로 필터 바를 내린다. */}
+      <div className="flex items-center gap-2 border-b px-4 py-2 lg:pt-12">
         <SearchInput
           value={q}
           onChange={setQ}

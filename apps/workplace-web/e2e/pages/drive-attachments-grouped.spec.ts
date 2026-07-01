@@ -91,3 +91,27 @@ test('다운로드 액션은 downloadUrl(첨부 콘텐츠 경로)을 요청', as
   await row.getByTestId('drive-attachment-download-1').click({ force: true })
   await expect.poll(() => downloadReq).toBe(true)
 })
+
+// #576: 전역 AIChip(fixed left-1/2 top-2)이 데스크톱 표준 해상도(1440x900)에서 상단 필터 바를
+// 겹쳐 가려 클릭을 가로채던 회귀. force 없이(실제 pointer-events 경로) 클릭이 통과하고,
+// 실제 쿼리 파라미터까지 반영되는지 입력→처리→출력 전체를 검증한다.
+test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼을 가리지 않고 클릭 가능', async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await stubAttachments(page)
+  let lastSource: string | null = null
+  await page.route('**/api/v1/drive/attachments**', (r) => {
+    lastSource = new URL(r.request().url()).searchParams.get('source')
+    return r.fulfill({ json: page2() })
+  })
+  await page.goto('/drive/attachments')
+
+  // AI 어시스턴트 칩이 실제로 렌더되어 있어야 회귀 조건을 재현한 것.
+  await expect(page.getByTestId('chat-launcher')).toBeVisible()
+
+  // force 없이 클릭 — subtree가 다른 요소에 가로채이면 이 클릭은 timeout 으로 실패한다.
+  await page.getByTestId('drive-attachment-filter-issue').click()
+  await expect.poll(() => lastSource).toBe('ISSUE')
+  await expect(page.getByTestId('drive-attachment-filter-issue')).toHaveClass(/border-primary/)
+})
