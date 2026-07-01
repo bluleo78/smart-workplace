@@ -31,7 +31,7 @@ public class ChannelCatchupService {
   /** 기존 MessagingAttentionService 와 동일한 워크스페이스 비서 에이전트. */
   private static final long ASSISTANT_AGENT_ID = 2L;
 
-  private static final String CATCHUP_MODEL = "claude-sonnet-4-6";
+  private static final String CATCHUP_MODEL = "claude-sonnet-5";
   private static final int SNIPPET_MAX = 140;
 
   private final MessageRepository messageRepo;

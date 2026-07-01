@@ -4,7 +4,7 @@ package com.workplace.auth.service;
 public final class AssistantDefaults {
   private AssistantDefaults() {}
 
-  public static final String MODEL = "claude-sonnet-4-6";
+  public static final String MODEL = "claude-sonnet-5";
   public static final String THINKING_DEPTH = "NORMAL"; // NONE | NORMAL | DEEP
   public static final int MAX_TURNS = 8;
   public static final int TIMEOUT_MS = 60_000;

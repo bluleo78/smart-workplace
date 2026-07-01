@@ -16,7 +16,7 @@ import { pickMentionedAgentId } from './chat-agent-resolver.js';
 import type { RunAgentDeps } from './run-agent.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_MODEL = 'claude-sonnet-5';
 const DEFAULT_MAX_TURNS = 30;
 const DEFAULT_TIMEOUT_MS = 300_000;
 const THREAD_PREFETCH = 20;
