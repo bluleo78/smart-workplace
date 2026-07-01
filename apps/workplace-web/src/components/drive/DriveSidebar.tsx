@@ -1,5 +1,5 @@
 import { HardDrive, MoreHorizontal, Paperclip, Plus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -44,6 +44,11 @@ export function DriveSidebar() {
   // 팀 공간 생성 다이얼로그 — window.prompt 대체 (#148).
   const [spaceDialogOpen, setSpaceDialogOpen] = useState(false)
   const [spaceName, setSpaceName] = useState('')
+  // 생성 중 동기적 in-flight 가드 — ref 는 즉시(리렌더 없이) 반영되므로 같은 이벤트
+  // 루프 틱 내에 "만들기" 버튼이 두 번 클릭돼도 두 번째 호출을 차단한다(#582).
+  // creating state 는 버튼의 시각적 disabled 표시용 보조 값.
+  const isCreatingRef = useRef(false)
+  const [creating, setCreating] = useState(false)
   // 드라이브 쿼터 — 사이드바 하단 사용량 바 (#81).
   const [quota, setQuota] = useState<DriveQuota | null>(null)
   // TEAM 공간 이름 변경/삭제 대상 — kebab 메뉴에서 설정(제어형 다이얼로그).
@@ -65,13 +70,22 @@ export function DriveSidebar() {
 
   /** 팀 공간 생성 — 다이얼로그 확인 시 호출. */
   async function submitCreate() {
+    // 동기적 중복 제출 가드 — ref 는 즉시 반영되므로 같은 틱 내 두 번째 클릭을 차단.
+    if (isCreatingRef.current) return
     const trimmed = spaceName.trim()
     if (!trimmed) return
+    isCreatingRef.current = true
+    setCreating(true)
     setSpaceDialogOpen(false)
     setSpaceName('')
-    const { data } = await driveApi.createSpace(trimmed)
-    await reload()
-    navigate(`/drive/spaces/${data.id}`)
+    try {
+      const { data } = await driveApi.createSpace(trimmed)
+      await reload()
+      navigate(`/drive/spaces/${data.id}`)
+    } finally {
+      isCreatingRef.current = false
+      setCreating(false)
+    }
   }
 
   /** 이름 변경 확정 — RenameDialog onConfirm. */
@@ -238,7 +252,11 @@ export function DriveSidebar() {
             >
               취소
             </Button>
-            <Button onClick={() => void submitCreate()} data-testid="space-name-confirm">
+            <Button
+              onClick={() => void submitCreate()}
+              disabled={!spaceName.trim() || creating}
+              data-testid="space-name-confirm"
+            >
               만들기
             </Button>
           </DialogFooter>
