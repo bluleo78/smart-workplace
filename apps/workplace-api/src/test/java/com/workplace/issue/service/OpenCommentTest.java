@@ -3,14 +3,12 @@ package com.workplace.issue.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateCommentRequest;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TenantScopedIntegrationTest;
 import org.jooq.DSLContext;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,18 +20,13 @@ import org.springframework.transaction.annotation.Transactional;
  * 403. @Transactional 롤백 격리 + TenantContext 테넌트 1 고정으로 RLS GUC 주입 보장.
  */
 @Transactional
-class OpenCommentTest extends IntegrationTestBase {
+class OpenCommentTest extends TenantScopedIntegrationTest {
 
   @Autowired IssueCommentService commentService;
   @Autowired IssueTypeService issueTypeService;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
   @Autowired DSLContext dsl;
-
-  @BeforeEach
-  void setTenant() {
-    TenantContext.set(1L);
-  }
 
   private OpenScenario.Result openScenario() {
     return OpenScenario.create(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);

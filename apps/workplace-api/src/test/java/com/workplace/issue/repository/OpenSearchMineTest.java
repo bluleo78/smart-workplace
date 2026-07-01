@@ -2,14 +2,12 @@ package com.workplace.issue.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.service.IssueTypeService;
 import com.workplace.issue.service.OpenScenario;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TenantScopedIntegrationTest;
 import org.jooq.DSLContext;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,17 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
  * 비멤버·비reporter 는 여전히 제외됨도 함께 확인한다.
  */
 @Transactional
-class OpenSearchMineTest extends IntegrationTestBase {
+class OpenSearchMineTest extends TenantScopedIntegrationTest {
 
   @Autowired IssueRepository repo;
   @Autowired IssueTypeService issueTypeService;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
   @Autowired DSLContext dsl;
-
-  @BeforeEach
-  void setTenant() {
-    TenantContext.set(1L);
-  }
 
   /** 모든 필터 없는 빈 쿼리. */
   private IssueSearchQuery emptyQuery() {

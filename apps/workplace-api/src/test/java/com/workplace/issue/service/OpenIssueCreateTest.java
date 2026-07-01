@@ -3,14 +3,12 @@ package com.workplace.issue.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TenantScopedIntegrationTest;
 import org.jooq.DSLContext;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,18 +20,13 @@ import org.springframework.transaction.annotation.Transactional;
  * 거부(ProjectAccessDeniedException).
  */
 @Transactional
-class OpenIssueCreateTest extends IntegrationTestBase {
+class OpenIssueCreateTest extends TenantScopedIntegrationTest {
 
   @Autowired IssueService issueService;
   @Autowired IssueTypeService issueTypeService;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
   @Autowired DSLContext dsl;
-
-  @BeforeEach
-  void setTenant() {
-    TenantContext.set(1L);
-  }
 
   /** 테스트용 CreateIssueRequest 헬퍼 — 제목만 필수, 나머지 null. */
   private static CreateIssueRequest suggestion(String title) {
