@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { partitionSpaces } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
+import { cn } from '@/lib/utils'
 
 import { driveApi } from '../../api/drive'
 import type { DriveQuota, DriveSpace } from '../../types/drive'
@@ -167,36 +168,43 @@ export function DriveSidebar() {
         </nav>
       </div>
 
-      {/* 첨부 모아보기 — 사용량 바 바로 위 하단 그룹(스크롤 영역 밖 고정). 공간 목록과 구분선으로
-          분리(평소 잘 안 보는 보조 뷰라 공간 아래 배치, #80 IA). */}
+      {/* 하단 그룹 — 첨부 모아보기 + 사용량을 한 영역에(사이 구분선 없음). 상단만 스크롤 영역과 구분선.
+          첨부는 평소 잘 안 보는 보조 뷰라 공간 목록 아래·사용량 바로 위에 배치(#80 IA). */}
       <div className="border-t p-3">
+        {/* 첨부 링크 — 사용량 텍스트와 동일한 text-xs 로 통일 */}
         <NavLink
           to="/drive/attachments"
           data-testid="drive-nav-attachments"
-          className={({ isActive }) => sidebarLinkClass({ isActive })}
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors',
+              isActive
+                ? 'bg-accent font-medium text-accent-foreground'
+                : 'text-muted-foreground hover:bg-accent/50',
+            )
+          }
         >
           <Paperclip className="h-4 w-4 shrink-0" />
           첨부 모아보기
         </NavLink>
+        {/* 사용량 바 (#81) — 첨부와 같은 영역, 구분선 없이 아래에 */}
+        {quota && (
+          <div className="mt-3" data-testid="drive-usage-bar">
+            <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+              <span>사용량</span>
+              <span data-testid="drive-usage-text">
+                {formatFileSize(quota.usedBytes)} / {formatFileSize(quota.quotaBytes)}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary"
+                style={{ width: `${Math.min(100, (quota.usedBytes / Math.max(1, quota.quotaBytes)) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
-
-      {/* 사용량 바 — 사이드바 하단 고정(#81) */}
-      {quota && (
-        <div className="border-t p-3" data-testid="drive-usage-bar">
-          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-            <span>사용량</span>
-            <span data-testid="drive-usage-text">
-              {formatFileSize(quota.usedBytes)} / {formatFileSize(quota.quotaBytes)}
-            </span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full bg-primary"
-              style={{ width: `${Math.min(100, (quota.usedBytes / Math.max(1, quota.quotaBytes)) * 100)}%` }}
-            />
-          </div>
-        </div>
-      )}
 
       {/* 팀 공간 이름 입력 다이얼로그 — window.prompt 대체 (#148) */}
       <Dialog
