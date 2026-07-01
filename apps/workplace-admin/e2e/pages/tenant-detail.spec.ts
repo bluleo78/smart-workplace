@@ -167,6 +167,9 @@ test.describe('테넌트 상세', () => {
       })
     })
     await page.goto('/tenants/1')
+    // 테넌트 상세가 async 로드된 뒤 useEffect 가 입력을 현재 한도(10GB)로 채운다. 그 전에 fill 하면
+    // 로드가 fill 을 덮어써(예: '10'+'5'='105') 비결정 실패한다 → 로드 완료(값 '10')를 기다린 뒤 fill.
+    await expect(page.getByTestId('quota-gb-input')).toHaveValue('10')
     await page.getByTestId('quota-gb-input').fill('5')
     await page.getByTestId('quota-save').click()
     await expect.poll(() => body).toEqual({ quotaBytes: 5368709120 })
