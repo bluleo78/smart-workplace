@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -46,6 +47,8 @@ interface AddMemberDialogProps {
 export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
   const createMember = useCreateMember()
   const [serverError, setServerError] = useState('')
+  // 체크 시 추가 성공해도 다이얼로그를 닫지 않고 폼만 비워 연속 등록을 지원.
+  const [keepOpenAfterSubmit, setKeepOpenAfterSubmit] = useState(false)
 
   const {
     register,
@@ -59,8 +62,11 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
-      reset({ role: 'USER' })
+      // reset(partial) 은 명시한 필드만 초기화하고 나머지는 이전 값을 유지한다.
+      // 인자 없이 호출해 defaultValues 전체로 되돌려야 재오픈 시 잔여 입력이 남지 않는다.
+      reset()
       setServerError('')
+      setKeepOpenAfterSubmit(false)
     }
     onOpenChange(next)
   }
@@ -72,6 +78,11 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
     createMember.mutate(payload, {
       onSuccess: () => {
         toast.success('구성원을 추가했습니다.')
+        if (keepOpenAfterSubmit) {
+          // 다이얼로그는 유지 — 폼만 비워 바로 다음 구성원을 입력할 수 있게 한다.
+          reset()
+          return
+        }
         handleOpenChange(false)
       },
       onError: (e) => {
@@ -139,6 +150,17 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
                 관리자
               </label>
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="add-member-keep-open"
+              data-testid="add-member-keep-open"
+              checked={keepOpenAfterSubmit}
+              onCheckedChange={(v) => setKeepOpenAfterSubmit(v === true)}
+            />
+            <Label htmlFor="add-member-keep-open" className="text-sm font-normal">
+              계속 추가 (저장 후 다이얼로그 유지)
+            </Label>
           </div>
           <DialogFooter>
             <Button
