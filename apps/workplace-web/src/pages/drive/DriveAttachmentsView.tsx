@@ -10,6 +10,7 @@ import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DriveThumbnail } from '@/components/drive/DriveThumbnail'
 import { FilePreviewModal } from '@/components/drive/FilePreviewModal'
 import { FolderPickerModal } from '@/components/drive/FolderPickerModal'
+import { Button } from '@/components/ui/button'
 import { SearchInput } from '@/components/ui/search-input'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
 import { useImportAttachment } from '@/hooks/queries/useImportAttachment'
@@ -180,18 +181,20 @@ export function DriveAttachmentsView() {
                           </span>
 
                           {/* 다운로드(호버) — downloadUrl 사용 */}
-                          <button
-                            type="button"
+                          <Button
+                            variant="ghost"
+                            size="xs"
                             onClick={() => void driveApi.downloadByPath(a.downloadUrl, a.name)}
                             data-testid={`drive-attachment-download-${a.fileId}`}
-                            className="hidden shrink-0 text-xs text-primary group-hover:inline-flex"
+                            className="hidden shrink-0 group-hover:inline-flex"
                           >
                             다운로드
-                          </button>
+                          </Button>
 
-                          {/* 저장(드라이브 import) */}
-                          <button
-                            type="button"
+                          {/* 내 드라이브에 저장(import) — 항상 표시. 다운로드(로컬)와 구분되는 라벨. */}
+                          <Button
+                            variant="outline"
+                            size="xs"
                             data-testid={`drive-attachment-save-${a.fileId}`}
                             disabled={!spacesResolved || personalSpaceId === null}
                             title={
@@ -203,10 +206,10 @@ export function DriveAttachmentsView() {
                               if (personalSpaceId === null) return
                               setImporting(a)
                             }}
-                            className="shrink-0 rounded-md border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+                            className="shrink-0"
                           >
-                            저장
-                          </button>
+                            내 드라이브에 저장
+                          </Button>
                         </li>
                       ))}
                     </ul>

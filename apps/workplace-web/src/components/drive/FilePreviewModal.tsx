@@ -8,6 +8,7 @@ import { resolvePreviewKind } from '../../lib/previewKind'
 import type { DriveFile, VirtualAttachment } from '../../types/drive'
 import { AiContent } from '../ai/AiContent'
 import { MarkdownMessage } from '../ai/MarkdownMessage'
+import { Button } from '../ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { CsvTablePreview } from './preview/CsvTablePreview'
 
@@ -99,15 +100,16 @@ export function FilePreviewModal({
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
             <DialogTitle className="truncate">{name}</DialogTitle>
-            <button
-              type="button"
+            <Button
+              variant="default"
+              size="sm"
               onClick={() =>
                 contentPath ? driveApi.downloadByPath(contentPath, name) : driveApi.downloadFile(fileIdForContent, name)
               }
-              className="shrink-0 rounded bg-primary px-3 py-1 text-sm text-primary-foreground hover:opacity-90"
+              className="shrink-0"
             >
               다운로드
-            </button>
+            </Button>
           </div>
           <DialogDescription className="sr-only">{name} 미리보기</DialogDescription>
         </DialogHeader>

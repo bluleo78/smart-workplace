@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { handleApiError } from '@/lib/api-error'
 
 import { driveApi } from '../../api/drive'
+import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { DriveSearchBar } from '../../components/drive/DriveSearchBar'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
@@ -777,7 +778,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               </li>
             ))}
             {items.files.map((f) => (
-              <li key={`file-${f.id}`} className="group flex items-center gap-2 py-2">
+              <li key={`file-${f.id}`} className="group flex items-center gap-2 rounded px-1 py-2 hover:bg-accent/40">
                 {/* #82: 파일 행 체크박스 — 멀티셀렉트용. */}
                 <input
                   type="checkbox"
@@ -803,57 +804,52 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                     v{f.versionCount}
                   </span>
                 )}
-                <button
-                  type="button"
-                  onClick={() => driveApi.downloadFile(f.id, f.name)}
-                  className="hidden text-xs text-primary group-hover:inline-flex"
-                >
-                  다운로드
-                </button>
-                {/* 공유 링크 — 외부/사내 링크 발급 모달 */}
-                <button
-                  type="button"
-                  onClick={() => setShareFile(f)}
-                  className="hidden text-xs text-primary group-hover:inline-flex"
-                  aria-label={`${f.name} 공유 링크`}
-                  data-testid="share-link-btn"
-                >
-                  공유 링크
-                </button>
-                {/* 버전 이력 — 버전 목록·다운로드·롤백 모달(#79) */}
-                <button
-                  type="button"
-                  onClick={() => setVersionFile(f)}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex"
-                  aria-label={`${f.name} 버전 이력`}
-                  data-testid="version-history-btn"
-                >
-                  버전 이력
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name })}
-                  disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
-                >
-                  이동
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name })}
-                  disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
-                >
-                  복사
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDeleteFile(f.id)}
-                  disabled={!!space?.archived}
-                  className="hidden text-xs text-destructive group-hover:inline-flex disabled:opacity-50"
-                >
-                  삭제
-                </button>
+                {/* 행 액션 — 호버/포커스 시 노출. 주요 3개 인라인 + 더보기(⋯). 핸들러는 기존 그대로. */}
+                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex">
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => driveApi.downloadFile(f.id, f.name)}
+                    aria-label={`${f.name} 다운로드`}
+                  >
+                    다운로드
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => setShareFile(f)}
+                    aria-label={`${f.name} 공유 링크`}
+                    data-testid="share-link-btn"
+                  >
+                    공유
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => onDeleteFile(f.id)}
+                    disabled={!!space?.archived}
+                    className="text-destructive hover:text-destructive"
+                    aria-label={`${f.name} 삭제`}
+                  >
+                    삭제
+                  </Button>
+                  <RowOverflowMenu
+                    triggerAriaLabel={`${f.name} 더보기`}
+                    items={[
+                      { label: '버전 이력', onSelect: () => setVersionFile(f) },
+                      {
+                        label: '이동',
+                        onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }),
+                        disabled: !!space?.archived,
+                      },
+                      {
+                        label: '복사',
+                        onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }),
+                        disabled: !!space?.archived,
+                      },
+                    ]}
+                  />
+                </div>
               </li>
             ))}
             {items.folders.length === 0 && items.files.length === 0 && (

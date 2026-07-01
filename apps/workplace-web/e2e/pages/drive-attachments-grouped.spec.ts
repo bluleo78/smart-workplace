@@ -74,6 +74,8 @@ test('이슈/채널 불가 액션 미노출 — 공유/버전/이동/복사/삭�
   await expect(row.locator('input[type="checkbox"]')).toHaveCount(0)
   // 노출돼야 하는 것: 저장, (호버) 다운로드
   await expect(row.getByTestId('drive-attachment-save-1')).toBeVisible()
+  // 저장 버튼 라벨은 다운로드(로컬)와 구분되도록 "내 드라이브에 저장".
+  await expect(row.getByTestId('drive-attachment-save-1')).toHaveText('내 드라이브에 저장')
 })
 
 test('다운로드 액션은 downloadUrl(첨부 콘텐츠 경로)을 요청', async ({ authenticatedPage: page }) => {

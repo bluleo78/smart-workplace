@@ -164,10 +164,11 @@ test('파일을 폴더로 이동', { tag: '@smoke' }, async ({ authenticatedPage
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByText('memo.txt')).toBeVisible()
 
-  // memo.txt 행의 '이동' 클릭 → 모달. 호버 후 버튼 표시(#292 hover-reveal 패턴)
+  // memo.txt 행의 '이동' 클릭 → 모달. ⋯ 더보기 메뉴를 열어 이동 항목 클릭(파일 행 ⋯ 경로).
   const memoRow = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
   await memoRow.hover()
-  await memoRow.getByRole('button', { name: '이동' }).click()
+  await memoRow.getByRole('button', { name: /더보기/ }).click()
+  await page.getByRole('menuitem', { name: '이동' }).click()
   await expect(page.getByTestId('folder-picker')).toBeVisible()
 
   // 모달에서 '문서' 폴더로 진입 후 '여기로' 확정
@@ -752,8 +753,8 @@ test('파일/폴더 액션 버튼이 기본 상태에서는 숨겨지고 호버 
   const fileItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
   await expect(folderItem.getByRole('button', { name: '이름변경' })).toBeHidden()
   await expect(folderItem.getByRole('button', { name: '삭제' })).toBeHidden()
-  await expect(fileItem.getByRole('button', { name: '다운로드' })).toBeHidden()
-  await expect(fileItem.getByRole('button', { name: '삭제' })).toBeHidden()
+  // 파일 행 액션은 group-hover 로만 표시되는 래퍼(display 토글) — 호버 전에는 숨김.
+  await expect(fileItem.locator('[data-file-actions]')).toBeHidden()
 
   // 호버 시: 액션 버튼이 표시되어야 함
   await folderItem.hover()
@@ -762,10 +763,10 @@ test('파일/폴더 액션 버튼이 기본 상태에서는 숨겨지고 호버 
   await expect(folderItem.getByRole('button', { name: '복사' })).toBeVisible()
   await expect(folderItem.getByRole('button', { name: '삭제' })).toBeVisible()
 
-  // 파일 행도 동일하게 검증
+  // 파일 행도 동일하게 검증. 이동·복사·버전 이력은 ⋯ 더보기 메뉴로 이동(파일 행 UI 재편).
   await fileItem.hover()
   await expect(fileItem.getByRole('button', { name: '다운로드' })).toBeVisible()
-  await expect(fileItem.getByRole('button', { name: '이동' })).toBeVisible()
+  await expect(fileItem.getByRole('button', { name: /더보기/ })).toBeVisible()
   await expect(fileItem.getByRole('button', { name: '삭제' })).toBeVisible()
 })
 

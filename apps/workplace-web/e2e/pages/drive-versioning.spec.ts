@@ -80,9 +80,10 @@ test('버전 이력 모달 표시·롤백', { tag: '@smoke' }, async ({ authenti
   // v2 뱃지 확인 — 호버 전에도 뱃지는 표시됨
   const fileItem = page.getByRole('listitem').filter({ hasText: 'doc.txt' })
   await expect(page.getByTestId('version-badge')).toHaveText('v2')
-  // 버전 이력 버튼은 hover-reveal 패턴 — 호버 후 클릭(#292)
+  // 버전 이력은 ⋯ 더보기 메뉴로 이동(파일 행 액션 재편) — 호버 후 ⋯ 열고 항목 클릭
   await fileItem.hover()
-  await page.getByTestId('version-history-btn').click()
+  await fileItem.getByRole('button', { name: /더보기/ }).click()
+  await page.getByRole('menuitem', { name: '버전 이력' }).click()
   await expect(page.getByTestId('version-history-modal')).toBeVisible()
   // 버전 행 표시 확인
   await expect(page.getByTestId('version-row-2')).toContainText('현재')
