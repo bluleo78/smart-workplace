@@ -8,9 +8,18 @@ import { ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
-import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
+import { ISSUE_TYPE_ICONS } from '../../../lib/issueTypeIcons';
+import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import type { ParentRef } from '../../../types/issue';
 import type { IssueTypeSummary } from '../../../types/issueType';
+
+// 브레드크럼 전용 타입 아이콘 — IssueTypeBadge(전체 배지, data-testid 포함)를 그대로 쓰면
+// 본문의 IssueTypeSelectPopover 트리거 배지와 같은 이슈에 같은 testid 가 중복 렌더돼
+// getByTestId 가 strict-mode 충돌을 낸다(#558 계열). 아이콘만 필요하므로 배지 없이 그린다.
+function BreadcrumbTypeIcon({ type }: { type: IssueTypeSummary }) {
+  const Icon = ISSUE_TYPE_ICONS[type.icon] ?? ISSUE_TYPE_ICONS.Circle;
+  return <Icon className="h-3.5 w-3.5 shrink-0" aria-label={getIssueTypeLabel(type.name)} />;
+}
 
 export function IssueBreadcrumbHeader({
   projectKey,
@@ -48,7 +57,7 @@ export function IssueBreadcrumbHeader({
                 className="inline-flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground"
                 data-testid={`breadcrumb-parent-${parent.number}`}
               >
-                <IssueTypeBadge type={parent.type} size="sm" iconOnly />
+                <BreadcrumbTypeIcon type={parent.type} />
                 <span className="font-mono">
                   {projectKey}-{parent.number}
                 </span>
@@ -60,7 +69,7 @@ export function IssueBreadcrumbHeader({
             className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground"
             data-testid="breadcrumb-current"
           >
-            {type && <IssueTypeBadge type={type} size="sm" iconOnly />}
+            {type && <BreadcrumbTypeIcon type={type} />}
             <span className="font-mono">
               {projectKey}-{number}
             </span>
