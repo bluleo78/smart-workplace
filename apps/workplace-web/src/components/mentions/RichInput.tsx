@@ -121,6 +121,14 @@ export function RichInput({
     maxLengthRef.current = maxLength;
   });
 
+  // 동기적 in-flight 가드(#586) — ref 는 즉시(리렌더 없이) 반영되므로 같은 이벤트 루프 틱
+  // 내에 버튼이 여러 번 클릭되거나 Enter+클릭이 겹쳐도(pending prop 갱신 전) 두 번째 이후
+  // 호출을 차단한다. WikiCreateSpaceDialog(#581)와 동일 패턴 — RichInput 은 여러 소비처
+  // (MessageComposer/ChatComposer/ChatMessageEditor 등)가 공유하므로 이 chokepoint 하나로
+  // 전체가 해결된다. state(submitting)는 버튼의 시각적 disabled 표시용 보조 상태.
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+
   // leftActions: 버튼 행 좌측에 렌더할 커스텀 액션(파일 첨부 버튼 등). 미전달 시 좌측 영역 빈 채로 유지.
   // (RichInput 내부 버튼 행을 justify-between 구조로 확장해 composer 와 editor 간 레이아웃 통합)
 
@@ -240,6 +248,9 @@ export function RichInput({
 
   function submit() {
     if (!editor) return;
+    // 인플라이트 가드(#586) — 이미 전송 중이면 재호출 무시. 버튼 onClick·Enter 키 두 경로가
+    // 모두 이 함수를 거치므로 여기 하나로 양쪽 다 차단된다.
+    if (submittingRef.current) return;
     // 외부에서 전송을 차단한 경우(파일 업로드 중 등) 버튼·Enter 양쪽 모두 차단.
     if (submitDisabledRef.current) return;
     const body = serializeToBody(editor.getJSON()).trim();
@@ -253,7 +264,17 @@ export function RichInput({
       onCancel();
       return;
     }
+    submittingRef.current = true;
+    setSubmitting(true);
     const result = onSubmitRef.current(body);
+    // onSubmit 이 void 를 반환해도 Promise.resolve 가 즉시 resolve 된 Promise 로 감싸므로
+    // 아래 release 는 항상 마이크로태스크에서 실행된다 — 동일 이벤트 루프 틱 내 동기적으로
+    // 발생하는 추가 클릭은 그 전에 이미 위 가드에서 차단됨(WikiCreateSpaceDialog#581과 동일 원리).
+    const release = () => {
+      submittingRef.current = false;
+      setSubmitting(false);
+    };
+    Promise.resolve(result).then(release, release);
     if (clearOnSubmit) {
       // 성공 시에만 입력창을 비운다(#123). onSubmit 이 전송 mutation Promise 를 반환하면
       // resolve(성공) 후 clear, reject(전송 실패) 면 입력을 보존해 즉시 재시도할 수 있게 한다.
@@ -313,6 +334,7 @@ export function RichInput({
           {/* allowEmptySubmit 은 렌더 시점 prop 직접 참조 — ref 는 submit(Enter 경로) 전용. */}
           {/* submitDisabled 는 외부 상태(업로드 중 등)로 강제 비활성화. 버튼·Enter 양쪽 차단. */}
           {/* maxLength 초과 시도 비활성화 — charCount 와 동일 기준(렌더 시점 prop 직접 참조). */}
+          {/* submitting 은 인플라이트 가드(#586)의 시각적 반영 — 실제 중복 제출 차단은 submittingRef 가 담당. */}
           <Button
             type="button"
             size="sm"
@@ -320,6 +342,7 @@ export function RichInput({
             data-testid={submitTestId}
             disabled={
               submitDisabled ||
+              submitting ||
               (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false) ||
               (maxLength != null && charCount > maxLength)
             }
