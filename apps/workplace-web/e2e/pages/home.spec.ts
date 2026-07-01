@@ -875,6 +875,38 @@ test('편집(B1) — 위젯 추가 모달: 기본 위젯 추가 → draft 반영
   expect(added).toEqual({ id: 'unread_mail', type: 'unread_mail', count: 5, hidden: false })
 })
 
+test('편집(B1) — 위젯 추가 시 새 위젯이 강조 표시되고 일정 시간 후 사라진다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await mockApi(page, 'PUT', '/api/v1/me/dashboard', { widgets: [] })
+  await page.goto('/')
+
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-add-widget-open').click()
+  const modal = page.getByTestId('add-widget-modal')
+  await expect(modal).toBeVisible()
+
+  // 위젯 추가(및 그에 따른 4초 타이머 예약) 직전에 시계를 설치·고정 — 이전 실제 경과 시간이
+  // 가짜 시계에 섞이지 않도록 하고, 이후로는 fastForward 로만 시간을 진행한다.
+  await page.clock.install()
+  await page.clock.pauseAt(Date.now())
+
+  await modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]').click()
+
+  const newCard = page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]')
+  await expect(newCard).toHaveAttribute('data-just-added', 'true')
+
+  // 4초 경과 전에는 유지.
+  await page.clock.fastForward(3999)
+  await expect(newCard).toHaveAttribute('data-just-added', 'true')
+
+  // 4초 경과 후 강조 해제(속성 제거).
+  await page.clock.fastForward(2)
+  await expect(newCard).not.toHaveAttribute('data-just-added', 'true')
+})
+
 test('편집(B1) — undo 가 모달을 통한 추가도 되돌린다(일관성)', async ({
   authenticatedPage: page,
 }) => {

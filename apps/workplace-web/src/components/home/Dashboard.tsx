@@ -139,6 +139,7 @@ function EditableWidgetCard({
   cardRef,
   upRef,
   downRef,
+  highlighted,
 }: {
   entry: ResolvedEntry
   index: number
@@ -152,6 +153,8 @@ function EditableWidgetCard({
   cardRef: (el: HTMLDivElement | null) => void
   upRef: (el: HTMLButtonElement | null) => void
   downRef: (el: HTMLButtonElement | null) => void
+  /** 방금 추가된 위젯이면 true — 테두리 강조 표시(4초 후 자동 해제, 타이밍은 Dashboard 가 관리). */
+  highlighted: boolean
 }) {
   const Icon = entry.def.icon
   const title = entryTitle(entry)
@@ -161,11 +164,12 @@ function EditableWidgetCard({
       ref={cardRef}
       // 포커스 복원 대상이 될 수 있어 tabIndex=-1(프로그램적 focus 허용, 탭 순서 비참여).
       tabIndex={-1}
-      className={`border-l-2 border-l-ai-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50${cfg.hidden ? ' opacity-50' : ''}`}
+      className={`border-l-2 border-l-ai-accent transition-shadow duration-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50${cfg.hidden ? ' opacity-50' : ''}${highlighted ? ' ring-2 ring-ai-accent' : ''}`}
       data-testid="dashboard-widget"
       data-widget={cfg.type}
       data-widget-id={cfg.id}
       data-hidden={cfg.hidden}
+      data-just-added={highlighted ? 'true' : undefined}
     >
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
@@ -304,6 +308,9 @@ export function Dashboard() {
   const [draft, setDraft] = useState<DashboardWidgetConfig[]>([])
   const [undoSnapshot, setUndoSnapshot] = useState<DashboardWidgetConfig[] | null>(null)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  // 방금 추가된 위젯 id — 강조 표시 + 스크롤 이동 대상(4초 후 자동 해제).
+  const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null)
+  const recentlyAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 스크린리더 피드백(이동/숨김 등 편집 액션) — aria-live polite 로 알림.
   const [liveMsg, setLiveMsg] = useState('')
 
@@ -328,6 +335,17 @@ export function Dashboard() {
     }
   }, [moveFocus])
 
+  // 위젯 추가 직후 해당 카드로 스크롤 이동 + 4초간 강조 후 자동 해제.
+  useEffect(() => {
+    if (!recentlyAddedId) return
+    cardRefs.current.get(recentlyAddedId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    if (recentlyAddedTimerRef.current) clearTimeout(recentlyAddedTimerRef.current)
+    recentlyAddedTimerRef.current = setTimeout(() => setRecentlyAddedId(null), 4000)
+    return () => {
+      if (recentlyAddedTimerRef.current) clearTimeout(recentlyAddedTimerRef.current)
+    }
+  }, [recentlyAddedId])
+
   // 저장된 레이아웃 → 알려진 위젯만 해석(알 수 없는 타입은 조용히 스킵).
   const savedEntries = useMemo<ResolvedEntry[]>(() => {
     return (data?.widgets ?? [])
@@ -340,6 +358,7 @@ export function Dashboard() {
     setUndoSnapshot(null)
     setLiveMsg('')
     setAddModalOpen(false)
+    setRecentlyAddedId(null)
     setEditing(true)
   }
 
@@ -348,6 +367,7 @@ export function Dashboard() {
     setUndoSnapshot(null)
     setLiveMsg('')
     setAddModalOpen(false)
+    setRecentlyAddedId(null)
   }
 
   function snapshot() {
@@ -395,6 +415,7 @@ export function Dashboard() {
       snapshot()
       setDraft((prev) => [...prev, { id: type, type, count: 5, hidden: false }])
       setLiveMsg(`${sys.title} 위젯을 추가했습니다`)
+      setRecentlyAddedId(type)
       return
     }
     const cat = getCatalogWidget(type)
@@ -406,6 +427,7 @@ export function Dashboard() {
       { id, type, count: 0, hidden: false, params: cat.defaultParams, label: null },
     ])
     setLiveMsg(`${cat.title} 위젯을 추가했습니다`)
+    setRecentlyAddedId(id)
   }
 
   // 카탈로그 위젯 삭제(완전 제거). 시스템 위젯은 숨김만 가능(호출부에서 카탈로그에만 노출).
@@ -570,6 +592,7 @@ export function Dashboard() {
                   onCount={(n) => setCount(entry.cfg.id, n)}
                   onApplyCatalogConfig={(patch) => applyCatalogConfig(entry.cfg.id, patch)}
                   onRemove={() => removeWidget(entry.cfg.id)}
+                  highlighted={entry.cfg.id === recentlyAddedId}
                   cardRef={(el) => {
                     if (el) cardRefs.current.set(entry.cfg.id, el)
                     else cardRefs.current.delete(entry.cfg.id)
