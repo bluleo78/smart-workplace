@@ -23,6 +23,42 @@ test.describe('메일 AI 비서', () => {
     await expect(page.getByTestId('mail-badge-needsreply-7')).toBeVisible()
   })
 
+  test('목록 배지 클릭 — 행 버튼 중첩 없이 카테고리 필터만 동작 (#577)', async ({ authenticatedPage: page }) => {
+    // <button> 안에 <button> 이 중첩되면(#577) React 가 콘솔에 DOM 유효성 경고를 낸다 —
+    // 다이얼로그 열기 전에 리스너를 걸어 회귀 여부를 직접 검증한다.
+    const nestedButtonWarnings: string[] = []
+    page.on('console', (msg) => {
+      if (/cannot (be|contain) a( nested)? <?button/i.test(msg.text())) {
+        nestedButtonWarnings.push(msg.text())
+      }
+    })
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify([summary({ id: 7, aiCategory: '업무', aiNeedsReply: true })]) }),
+    )
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7', detail({ id: 7 }))
+    await page.goto('/mail/1')
+
+    const row = page.getByTestId('mail-row-7')
+    await expect(row).toBeVisible()
+    // 행 wrapper 는 <button> 이 아니라 role="button" div — 내부 카테고리 배지가 독립된 <button>.
+    await expect(row.evaluate((el) => el.tagName)).resolves.toBe('DIV')
+    await expect(page.getByTestId('mail-badge-category-7').evaluate((el) => el.tagName)).resolves.toBe('BUTTON')
+
+    // 배지 클릭 → 카테고리 필터 쿼리스트링만 반영되고 행 선택(상세 패널 오픈)은 발생하지 않아야 한다
+    // (stopPropagation 유지 검증 — 중첩 제거가 클릭 분리 동작을 깨지 않았는지).
+    await page.getByTestId('mail-badge-category-7').click()
+    await expect(page).toHaveURL(/category=/)
+    await expect(page.getByTestId('mail-detail-empty')).toBeVisible()
+
+    // 행 자체는 여전히 클릭으로 선택 가능해야 한다.
+    await row.click()
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+
+    expect(nestedButtonWarnings, nestedButtonWarnings.join('\n')).toHaveLength(0)
+  })
+
   test('요약 스트립 — 열람 시 자동 로드', async ({ authenticatedPage: page }) => {
     await page.route(
       (u) => u.pathname === '/api/v1/mail/accounts/1/messages',

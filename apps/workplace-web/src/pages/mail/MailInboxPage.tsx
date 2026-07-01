@@ -8,9 +8,9 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
+import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { formatRelativeTime } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
-import { useAiAvailable } from '@/hooks/useAiAvailable'
 
 import { downloadMailAttachment } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
@@ -56,12 +56,21 @@ function MessageRow({
   const navigate = useNavigate()
   return (
     // group/relative: 호버 처리완료 pill 의 절대 위치와 group-hover 표시에 필요.
-    <button
-      type="button"
+    // div role="button" — 내부 AiSignalBadge/처리완료가 실제 <button>이므로 바깥을 <button>으로
+    // 감싸면 버튼 중첩(HTML 유효성 위반 + a11y 위험, #577)이 발생해 카드형 클릭 영역 패턴으로 전환.
+    <div
+      role="button"
+      tabIndex={0}
       data-testid={`mail-row-${m.id}`}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect()
+        }
+      }}
       className={cn(
-        'group relative flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
+        'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
         active ? 'bg-accent' : 'hover:bg-accent/50',
       )}
     >
@@ -125,7 +134,7 @@ function MessageRow({
           <Check className="h-3.5 w-3.5" /> 처리완료
         </button>
       )}
-    </button>
+    </div>
   )
 }
 
