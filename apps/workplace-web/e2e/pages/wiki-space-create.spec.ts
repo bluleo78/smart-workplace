@@ -95,6 +95,47 @@ test('노트 — 스페이스 이름이 비면 생성 요청이 나가지 않는
   expect(posted).toBe(false)
 })
 
+test('노트 — 만들기 버튼을 동기적으로 연속 클릭해도 요청이 1번만 나간다', async ({ authenticatedPage: page }) => {
+  const created: { space: WikiSpace | null } = { space: null }
+  await mockWiki(page, created)
+
+  // POST 호출 횟수 카운트 — race condition 재현을 위해 약간의 지연을 준다
+  // (실제 네트워크 latency가 있는 환경에서 더블 서브밋이 재현되기 쉬운 조건을 모사).
+  let postCount = 0
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    async (route) => {
+      if (route.request().method() === 'POST') {
+        postCount += 1
+        await new Promise((r) => setTimeout(r, 200))
+        const body = route.request().postDataJSON() as { name: string }
+        const space = newTeamSpace(body.name)
+        created.space = space
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(space) })
+      }
+      return route.fallback()
+    },
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  await page.getByRole('combobox').click()
+  await page.getByTestId('wiki-space-create-item').click()
+  await expect(page.getByTestId('wiki-space-create-dialog')).toBeVisible()
+  await page.getByTestId('wiki-space-create-input').fill('동시생성테스트공간')
+
+  // 같은 이벤트 루프 틱 내에 두 번 dispatch — React state(isPending) 리렌더 전에
+  // disabled 속성이 반영되기 전 상태를 재현(실제 버그의 근본 원인 조건).
+  const confirmButton = page.getByTestId('wiki-space-create-confirm')
+  await confirmButton.evaluate((el: HTMLButtonElement) => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+
+  // 처리 완료(이동) 대기 후 POST 는 정확히 1번만 발생해야 한다
+  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${NEW_SPACE_ID}`))
+  expect(postCount).toBe(1)
+})
+
 test('노트 — 취소 후 재오픈 시 이전 입력값이 남지 않는다', async ({ authenticatedPage: page }) => {
   const created: { space: WikiSpace | null } = { space: null }
   await mockWiki(page, created)

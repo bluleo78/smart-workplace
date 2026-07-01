@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -26,11 +26,30 @@ interface WikiCreateSpaceDialogProps {
  */
 export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending }: WikiCreateSpaceDialogProps) {
   const [name, setName] = useState('')
+  // 동기적 in-flight 가드 — ref 는 즉시(리렌더 없이) 반영되므로 같은 이벤트 루프 틱
+  // 내에 버튼이 두 번 클릭돼도(pending prop 이 아직 갱신되기 전) 두 번째 클릭을 차단한다.
+  // 실제 중복 제출 방지는 이 ref 만으로 충분 — state(submitting)는 버튼의 시각적
+  // disabled 표시(재시도 가능 시점 안내)를 위한 보조 용도.
+  const submittingRef = useRef(false)
+  const [submitting, setSubmitting] = useState(false)
 
-  // 빈 이름 가드 — 트림 후 비어 있으면 no-op.
+  // 부모의 mutation 이 끝나면(성공 또는 실패) 가드를 해제 — 실패 시 다이얼로그가
+  // 유지되므로 재시도가 가능해야 한다. pending 은 부모 소유 상태이므로 여기선 그
+  // "변화를 동기화"할 뿐 새로운 파생 값을 계산하지 않는다.
+  useEffect(() => {
+    if (!pending) {
+      submittingRef.current = false
+      setSubmitting(false)
+    }
+  }, [pending])
+
+  // 빈 이름 가드 + 동기적 중복 제출 가드 — 트림 후 비어 있거나 이미 제출 중이면 no-op.
   const submit = () => {
+    if (submittingRef.current) return
     const trimmed = name.trim()
     if (!trimmed) return
+    submittingRef.current = true
+    setSubmitting(true)
     onCreate(trimmed)
   }
 
@@ -38,6 +57,8 @@ export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending }:
   // "취소" 버튼 모두 이 헬퍼를 거치도록 통일해 리셋 누락을 방지한다.
   const close = () => {
     setName('')
+    submittingRef.current = false
+    setSubmitting(false)
     onOpenChange(false)
   }
 
@@ -72,7 +93,7 @@ export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending }:
           </Button>
           <Button
             onClick={submit}
-            disabled={!name.trim() || pending}
+            disabled={!name.trim() || pending || submitting}
             data-testid="wiki-space-create-confirm"
           >
             만들기
