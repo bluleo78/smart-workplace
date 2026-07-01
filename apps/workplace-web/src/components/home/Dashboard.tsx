@@ -1,9 +1,22 @@
 // 고정 홈 대시보드 — 게이트 §1 의 3-레이어 구조 + 위젯 그리드 편집 모드.
 //   ① 합성 레이어(카운트 + 주의 필요) → ② 빠른 액션 → ③ 소스별 위젯 그리드(커스터마이즈 대상).
 // ①② 는 그리드 밖(풀폭) 고정, ③ 만 사용자 저장 레이아웃 순서로 렌더한다.
-// 편집 모드는 ③(위젯 그리드)에만 적용: 표시/숨김·순서 이동·항목 수·되돌리기 → 저장/취소.
-import { ArrowDown, ArrowUp, Eye, EyeOff, Home, Pencil, Plus, Undo2 } from 'lucide-react'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+// 편집 모드는 ③(위젯 그리드)에만 적용: 표시/숨김·순서 이동·항목 수·설정(카탈로그)·삭제(카탈로그)·되돌리기 → 저장/취소.
+// 위젯은 두 종류다 — 시스템 위젯(고정 5종, 싱글턴, count 기반)과 카탈로그 위젯(9종, 다중 인스턴스, params 기반,
+// chatWidgetRegistry 컴포넌트를 그대로 재사용).
+import {
+  ArrowDown,
+  ArrowUp,
+  Eye,
+  EyeOff,
+  Home,
+  Pencil,
+  Plus,
+  Settings,
+  Trash2,
+  Undo2,
+} from 'lucide-react'
+import { createElement, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
@@ -17,14 +30,45 @@ import type { DashboardWidgetConfig } from '@/types/dashboard'
 
 import { QuickActions } from './QuickActions'
 import { SynthesisLayer } from './synthesis/SynthesisLayer'
+import { AddWidgetModal } from './widgets/AddWidgetModal'
+import { allCatalogWidgets, type CatalogWidget, getCatalogWidget } from './widgets/catalogRegistry'
+import { getChatWidget } from './widgets/chatWidgetRegistry'
 import { allDashboardWidgets, type DashboardWidget, getDashboardWidget } from './widgets/registry'
+import { WidgetSettingsPopover } from './widgets/WidgetSettingsPopover'
 
 // 항목 수 선택지 — 백엔드 화이트리스트({3,5,10})와 일치.
 const COUNT_OPTIONS = [3, 5, 10] as const
+// 총 위젯 인스턴스 상한 — 백엔드 DashboardService.MAX_WIDGETS 와 일치(프론트는 UX 가드, 최종 검증은 서버).
+const MAX_WIDGETS = 12
 
-/** 위젯 한 칸 — 카드 프레임(헤더 클릭 시 딥링크 또는 인박스 패널) + 격리된 본문. tall 위젯은 2행 span. */
-function WidgetCard({ widget, count }: { widget: DashboardWidget; count: number }) {
-  const { title, icon: Icon, Component, deepLink, tall } = widget
+/** 그리드 한 항목 = 알려진 위젯 정의(시스템|카탈로그) + 그 구성. 알 수 없는 타입은 미리 걸러진다. */
+type ResolvedEntry =
+  | { kind: 'system'; def: DashboardWidget; cfg: DashboardWidgetConfig }
+  | { kind: 'catalog'; def: CatalogWidget; cfg: DashboardWidgetConfig }
+
+/** 위젯 설정(cfg) → 렌더 가능한 엔트리로 해석. 시스템/카탈로그 레지스트리 어느 쪽에도 없으면 null(스킵). */
+function resolveEntry(cfg: DashboardWidgetConfig): ResolvedEntry | null {
+  const sys = getDashboardWidget(cfg.type)
+  if (sys) return { kind: 'system', def: sys, cfg }
+  const cat = getCatalogWidget(cfg.type)
+  if (cat) return { kind: 'catalog', def: cat, cfg }
+  return null
+}
+
+/** 엔트리 표시 제목 — 카탈로그는 사용자 라벨 우선, 없으면 레지스트리 기본 제목. */
+function entryTitle(entry: ResolvedEntry): string {
+  if (entry.kind === 'catalog' && entry.cfg.label) return entry.cfg.label
+  return entry.def.title
+}
+
+/** 위젯 한 칸(일반 뷰) — 카드 프레임(헤더 클릭 시 딥링크 또는 인박스 패널) + 격리된 본문.
+ * 시스템 위젯은 tall 이면 2행 span, 카탈로그 위젯은 size==='1×2' 면 2행 span. */
+function WidgetCard({ entry }: { entry: ResolvedEntry }) {
+  const Icon = entry.def.icon
+  const title = entryTitle(entry)
+  const deepLink = entry.kind === 'system' ? entry.def.deepLink : undefined
+  const tall =
+    entry.kind === 'system' ? Boolean(entry.def.tall) : entry.def.size === '1×2'
   // 알림처럼 deepLink 가 없는 위젯은 헤더 클릭 시 AppRail 의 인박스 패널을 연다(#274).
   const { openInbox } = useInboxPanel()
   const headerClassName =
@@ -37,13 +81,12 @@ function WidgetCard({ widget, count }: { widget: DashboardWidget; count: number 
   )
   return (
     <Card
-      // 피드성(tall) 위젯은 lg 에서 2행을 차지(게이트 §1.2). 인덱스 하드코딩이 아닌 정의 속성 기반.
       className={`border-l-2 border-l-ai-accent${tall ? ' lg:row-span-2' : ''}`}
       data-testid="dashboard-widget"
-      data-widget={widget.type}
+      data-widget={entry.cfg.type}
+      data-widget-id={entry.cfg.id}
     >
       <CardHeader className="pb-2">
-        {/* deepLink 있으면 모듈 이동(Link), 없으면 인박스 패널 오픈(button) — SynthesisLayer 의 CountCell 과 동일 패턴. */}
         {deepLink ? (
           <Link to={deepLink} className={headerClassName}>
             {headerInner}
@@ -55,50 +98,73 @@ function WidgetCard({ widget, count }: { widget: DashboardWidget; count: number 
         )}
       </CardHeader>
       <CardContent>
-        {/* 본문 lazy 로드 — 위젯별 스켈레톤으로 폴백(격리). count = 표시 항목 수. */}
         <Suspense fallback={<Skeleton className="h-20 w-full" />}>
-          <Component count={count} />
+          {entry.kind === 'system' ? (
+            <entry.def.Component count={entry.cfg.count} />
+          ) : (
+            <CatalogWidgetBody type={entry.cfg.type} params={entry.cfg.params} />
+          )}
         </Suspense>
       </CardContent>
     </Card>
   )
 }
 
-/** 편집 모드 위젯 카드 — 본문 + 표시/숨김·이동·항목수 컨트롤. 숨김은 dimmed 로 잔류(재표시 경로). */
+/** 카탈로그 위젯 본문 — chatWidgetRegistry 의 기존 컴포넌트를 재사용. 미등록 타입은 아무것도 렌더하지 않는다(방어적). */
+function CatalogWidgetBody({
+  type,
+  params,
+}: {
+  type: string
+  params?: Record<string, unknown> | null
+}) {
+  const ChatComponent = getChatWidget(type)
+  if (!ChatComponent) return null
+  // JSX(`<ChatComponent .../>`)로 렌더하면 react-hooks/static-components 가 "렌더 중 컴포넌트 생성"으로 오탐(false
+  // positive)한다 — getChatWidget 은 매 호출 동일 lazy 참조를 반환하는 안정 레지스트리 조회일 뿐 신규 생성이 아니다.
+  // createElement 로 우회(AIChatPanel 의 동일 레지스트리 조회 패턴과 동등한 동작).
+  return createElement(ChatComponent, { params: params ?? undefined })
+}
+
+/** 편집 모드 위젯 카드 — 본문 + 표시/숨김·이동·(시스템)항목수/(카탈로그)설정·삭제 컨트롤. 숨김은 dimmed 로 잔류(재표시 경로). */
 function EditableWidgetCard({
-  widget,
-  cfg,
+  entry,
   index,
   total,
   onMove,
   onToggleHidden,
   onCount,
+  onApplyCatalogConfig,
+  onRemove,
   cardRef,
   upRef,
   downRef,
 }: {
-  widget: DashboardWidget
-  cfg: DashboardWidgetConfig
+  entry: ResolvedEntry
   index: number
   total: number
   onMove: (dir: -1 | 1) => void
   onToggleHidden: () => void
   onCount: (count: number) => void
+  onApplyCatalogConfig: (patch: { params: Record<string, unknown>; label: string | null }) => void
+  onRemove: () => void
   // 포커스 복원용 ref(I2: 경계 이동 후 포커스 유지) — 카드/위·아래 버튼.
   cardRef: (el: HTMLDivElement | null) => void
   upRef: (el: HTMLButtonElement | null) => void
   downRef: (el: HTMLButtonElement | null) => void
 }) {
-  const { title, icon: Icon } = widget
+  const Icon = entry.def.icon
+  const title = entryTitle(entry)
+  const { cfg } = entry
   return (
     <Card
       ref={cardRef}
       // 포커스 복원 대상이 될 수 있어 tabIndex=-1(프로그램적 focus 허용, 탭 순서 비참여).
-      // 경계 이동 시 카드로 포커스가 떨어지므로 가시 포커스 링 유지(WCAG 2.4.7). 마우스 클릭엔 안 뜨게 focus-visible.
       tabIndex={-1}
       className={`border-l-2 border-l-ai-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50${cfg.hidden ? ' opacity-50' : ''}`}
       data-testid="dashboard-widget"
-      data-widget={widget.type}
+      data-widget={cfg.type}
+      data-widget-id={cfg.id}
       data-hidden={cfg.hidden}
     >
       <CardHeader className="pb-2">
@@ -107,7 +173,6 @@ function EditableWidgetCard({
             <Icon className="h-4 w-4" />
             <CardTitle className="text-sm font-medium">{title}</CardTitle>
           </div>
-          {/* 위/아래 이동 — 키보드 조작 필수(WCAG 2.5.7). 양 끝은 disabled. 32px(§2.5.8 권장). */}
           <div className="flex items-center gap-1">
             <Button
               ref={upRef}
@@ -147,36 +212,71 @@ function EditableWidgetCard({
             >
               {cfg.hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
+            {entry.kind === 'catalog' && entry.def.fields.length > 0 && (
+              <WidgetSettingsPopover
+                catalogDef={entry.def}
+                cfg={cfg}
+                onApply={onApplyCatalogConfig}
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  data-testid="widget-settings"
+                  aria-label={`설정: ${title}`}
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </WidgetSettingsPopover>
+            )}
+            {entry.kind === 'catalog' && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                data-testid="widget-remove"
+                aria-label={`삭제: ${title}`}
+                onClick={onRemove}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* 항목 수 세그먼트(3·5·10) — 버튼 기반(키보드 명확). */}
-        <div
-          className="flex items-center gap-2"
-          role="group"
-          aria-label={`항목 수: ${title}`}
-          data-testid="widget-count-select"
-        >
-          <span className="text-xs text-muted-foreground">항목 수</span>
-          {COUNT_OPTIONS.map((n) => (
-            <Button
-              key={n}
-              type="button"
-              variant={cfg.count === n ? 'default' : 'outline'}
-              size="sm"
-              className="h-7 min-w-9 px-2"
-              aria-pressed={cfg.count === n}
-              aria-label={`${n}개`}
-              onClick={() => onCount(n)}
-            >
-              {n}
-            </Button>
-          ))}
-        </div>
-        {/* 편집 모드에서도 실데이터 미리보기(현재 count 반영). */}
+        {entry.kind === 'system' && (
+          <div
+            className="flex items-center gap-2"
+            role="group"
+            aria-label={`항목 수: ${title}`}
+            data-testid="widget-count-select"
+          >
+            <span className="text-xs text-muted-foreground">항목 수</span>
+            {COUNT_OPTIONS.map((n) => (
+              <Button
+                key={n}
+                type="button"
+                variant={cfg.count === n ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 min-w-9 px-2"
+                aria-pressed={cfg.count === n}
+                aria-label={`${n}개`}
+                onClick={() => onCount(n)}
+              >
+                {n}
+              </Button>
+            ))}
+          </div>
+        )}
         <Suspense fallback={<Skeleton className="h-20 w-full" />}>
-          <widget.Component count={cfg.count} />
+          {entry.kind === 'system' ? (
+            <entry.def.Component count={cfg.count} />
+          ) : (
+            <CatalogWidgetBody type={cfg.type} params={cfg.params} />
+          )}
         </Suspense>
       </CardContent>
     </Card>
@@ -194,9 +294,6 @@ function DashboardSkeleton() {
   )
 }
 
-/** 그리드 한 항목 = 알려진 위젯 정의 + 그 구성. 알 수 없는 타입은 미리 걸러진다. */
-type ResolvedEntry = { def: DashboardWidget; cfg: DashboardWidgetConfig }
-
 /** 홈 대시보드 — ①합성 ②빠른액션 ③소스 그리드(3-레이어). 그리드만 저장 레이아웃 기반 + 편집. */
 export function Dashboard() {
   const { data, isLoading } = useDashboardLayout()
@@ -206,113 +303,136 @@ export function Dashboard() {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<DashboardWidgetConfig[]>([])
   const [undoSnapshot, setUndoSnapshot] = useState<DashboardWidgetConfig[] | null>(null)
+  const [addModalOpen, setAddModalOpen] = useState(false)
   // 스크린리더 피드백(이동/숨김 등 편집 액션) — aria-live polite 로 알림.
   const [liveMsg, setLiveMsg] = useState('')
 
   // ── I2: 이동 후 포커스 복원 ──────────────────────────────────────────────
-  // 마지막 이동 요청(타입 + 방향) — 리렌더 후 effect 가 이 토큰을 보고 포커스를 되돌린다.
-  // token 으로 동일 type 연속 이동도 매번 effect 가 재실행되게 한다.
-  const [moveFocus, setMoveFocus] = useState<{ type: string; dir: -1 | 1; token: number } | null>(
+  const [moveFocus, setMoveFocus] = useState<{ id: string; dir: -1 | 1; token: number } | null>(
     null,
   )
-  // 카드/이동버튼 DOM 참조 맵(타입 키). 콜백 ref 로 등록.
+  // 카드/이동버튼 DOM 참조 맵(id 키). 콜백 ref 로 등록.
   const cardRefs = useRef(new Map<string, HTMLDivElement>())
   const upRefs = useRef(new Map<string, HTMLButtonElement>())
   const downRefs = useRef(new Map<string, HTMLButtonElement>())
-  // 단조 증가 토큰 — 동일 type 연속 이동도 effect 재실행을 보장(Date.now 같은 비순수 호출 회피).
   const moveTokenRef = useRef(0)
 
-  // 이동 직후: 같은 방향 이동 버튼이 아직 활성이면 거기에, (경계라) disabled 면 카드 자체에 포커스.
   useEffect(() => {
     if (!moveFocus) return
-    const { type, dir } = moveFocus
-    const btn = (dir < 0 ? upRefs : downRefs).current.get(type)
+    const { id, dir } = moveFocus
+    const btn = (dir < 0 ? upRefs : downRefs).current.get(id)
     if (btn && !btn.disabled) {
       btn.focus()
     } else {
-      cardRefs.current.get(type)?.focus()
+      cardRefs.current.get(id)?.focus()
     }
   }, [moveFocus])
 
   // 저장된 레이아웃 → 알려진 위젯만 해석(알 수 없는 타입은 조용히 스킵).
   const savedEntries = useMemo<ResolvedEntry[]>(() => {
     return (data?.widgets ?? [])
-      .map((cfg) => {
-        const def = getDashboardWidget(cfg.type)
-        return def ? { def, cfg } : null
-      })
+      .map(resolveEntry)
       .filter((e): e is ResolvedEntry => e !== null)
   }, [data])
 
-  // 편집 진입 — 저장본을 드래프트로 복제, undo/메시지 초기화.
   function enterEdit() {
     setDraft((data?.widgets ?? []).map((w) => ({ ...w })))
     setUndoSnapshot(null)
     setLiveMsg('')
+    setAddModalOpen(false)
     setEditing(true)
   }
 
-  // 편집 취소 — 드래프트를 마지막 저장본으로 되돌리고 종료(영속화 없음).
   function cancelEdit() {
     setEditing(false)
     setUndoSnapshot(null)
     setLiveMsg('')
+    setAddModalOpen(false)
   }
 
-  // 모든 변형 액션 직전에 현재 드래프트를 스냅샷(단일-레벨 undo).
   function snapshot() {
     setUndoSnapshot(draft.map((w) => ({ ...w })))
   }
 
-  // 위젯 이동(위/아래) — 드래프트 배열 내 순서 교환. 이동 후 포커스 복원 토큰 갱신.
-  function moveWidget(type: string, dir: -1 | 1) {
+  // 위젯 이동(위/아래) — 드래프트 배열 내 순서 교환. id 기반.
+  function moveWidget(id: string, dir: -1 | 1) {
+    // I1: setDraft 업데이터 안에서 title 을 계산하면 setLiveMsg 호출 시점엔 아직 반영 전(stale) 값을 읽게 되므로,
+    // 다른 핸들러(toggleHidden 등)와 동일하게 항상 최신인 draft 로 핸들러에서 먼저 계산한다.
+    const cur = draft.find((w) => w.id === id)
+    const entry = cur ? resolveEntry(cur) : null
+    const title = entry ? entryTitle(entry) : id
     snapshot()
     setDraft((prev) => {
-      const i = prev.findIndex((w) => w.type === type)
+      const i = prev.findIndex((w) => w.id === id)
       const j = i + dir
       if (i < 0 || j < 0 || j >= prev.length) return prev
       const next = [...prev]
       ;[next[i], next[j]] = [next[j], next[i]]
       return next
     })
-    const def = getDashboardWidget(type)
-    setLiveMsg(`${def?.title ?? type} 위젯을 ${dir < 0 ? '위로' : '아래로'} 이동했습니다`)
-    // I2: 리렌더 후 effect 가 포커스를 복원하도록 토큰 갱신(동일 type 연속 이동도 트리거).
+    setLiveMsg(`${title} 위젯을 ${dir < 0 ? '위로' : '아래로'} 이동했습니다`)
     moveTokenRef.current += 1
-    setMoveFocus({ type, dir, token: moveTokenRef.current })
+    setMoveFocus({ id, dir, token: moveTokenRef.current })
   }
 
-  // 표시/숨김 토글.
-  // I1: updater 콜백 안에서 nowHidden 을 잡으면 React19 동시성에서 보장이 안 되므로,
-  // 핸들러에서 항상 최신인 draft 로 먼저 계산한 뒤 setDraft/aria-live 에 사용한다.
-  function toggleHidden(type: string) {
-    const cur = draft.find((w) => w.type === type)
+  // 표시/숨김 토글. id 기반.
+  function toggleHidden(id: string) {
+    const cur = draft.find((w) => w.id === id)
     const nowHidden = cur ? !cur.hidden : true
+    const entry = cur ? resolveEntry(cur) : null
     snapshot()
-    setDraft((prev) => prev.map((w) => (w.type === type ? { ...w, hidden: nowHidden } : w)))
-    const def = getDashboardWidget(type)
-    setLiveMsg(`${def?.title ?? type} 위젯을 ${nowHidden ? '숨김' : '표시'} 처리했습니다`)
+    setDraft((prev) => prev.map((w) => (w.id === id ? { ...w, hidden: nowHidden } : w)))
+    setLiveMsg(`${entry ? entryTitle(entry) : id} 위젯을 ${nowHidden ? '숨김' : '표시'} 처리했습니다`)
   }
 
-  // B1: 부재(미시드) 위젯을 draft 에 재추가 — snapshot 먼저(undo 일관성) → append.
+  // 위젯 추가 — 시스템 위젯은 이미 draft 에 있으면 무시(싱글턴), 카탈로그 위젯은 새 UUID 인스턴스로 추가.
+  // 상한(MAX_WIDGETS) 도달 시 무시(모달 쪽에서도 버튼 비활성화로 방지, 여기는 방어적 가드).
   function addWidget(type: string) {
+    if (draft.length >= MAX_WIDGETS) return
+    const sys = getDashboardWidget(type)
+    if (sys) {
+      if (draft.some((w) => w.type === type)) return
+      snapshot()
+      setDraft((prev) => [...prev, { id: type, type, count: 5, hidden: false }])
+      setLiveMsg(`${sys.title} 위젯을 추가했습니다`)
+      return
+    }
+    const cat = getCatalogWidget(type)
+    if (!cat) return
+    const id = crypto.randomUUID()
     snapshot()
-    setDraft((prev) =>
-      prev.some((w) => w.type === type) ? prev : [...prev, { type, count: 5, hidden: false }],
-    )
-    const def = getDashboardWidget(type)
-    setLiveMsg(`${def?.title ?? type} 위젯을 추가했습니다`)
+    setDraft((prev) => [
+      ...prev,
+      { id, type, count: 0, hidden: false, params: cat.defaultParams, label: null },
+    ])
+    setLiveMsg(`${cat.title} 위젯을 추가했습니다`)
   }
 
-  // 항목 수 변경.
-  function setCount(type: string, count: number) {
+  // 카탈로그 위젯 삭제(완전 제거). 시스템 위젯은 숨김만 가능(호출부에서 카탈로그에만 노출).
+  function removeWidget(id: string) {
+    const cur = draft.find((w) => w.id === id)
+    const entry = cur ? resolveEntry(cur) : null
     snapshot()
-    setDraft((prev) => prev.map((w) => (w.type === type ? { ...w, count } : w)))
-    const def = getDashboardWidget(type)
-    setLiveMsg(`${def?.title ?? type} 위젯 항목 수를 ${count}개로 변경했습니다`)
+    setDraft((prev) => prev.filter((w) => w.id !== id))
+    setLiveMsg(`${entry ? entryTitle(entry) : id} 위젯을 삭제했습니다`)
   }
 
-  // 되돌리기 — 마지막 액션 이전 스냅샷으로 복원(단일 레벨; 복원 후 비활성화).
+  // 카탈로그 위젯 설정(필터/라벨) 적용 — 추가 시점 기본값 편집과 이후 편집이 동일 경로.
+  function applyCatalogConfig(id: string, patch: { params: Record<string, unknown>; label: string | null }) {
+    snapshot()
+    setDraft((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)))
+    setLiveMsg('위젯 설정을 변경했습니다')
+  }
+
+  // 항목 수 변경(시스템 위젯 전용).
+  function setCount(id: string, count: number) {
+    const cur = draft.find((w) => w.id === id)
+    const entry = cur ? resolveEntry(cur) : null
+    snapshot()
+    setDraft((prev) => prev.map((w) => (w.id === id ? { ...w, count } : w)))
+    setLiveMsg(`${entry ? entryTitle(entry) : id} 위젯 항목 수를 ${count}개로 변경했습니다`)
+  }
+
   function undo() {
     if (!undoSnapshot) return
     setDraft(undoSnapshot)
@@ -320,7 +440,6 @@ export function Dashboard() {
     setLiveMsg('마지막 편집을 되돌렸습니다')
   }
 
-  // 저장 — 드래프트를 PUT. 성공 시 편집 종료(캐시는 응답으로 갱신), 실패 시 토스트.
   function saveEdit() {
     save.mutate(draft, {
       onSuccess: () => {
@@ -332,10 +451,8 @@ export function Dashboard() {
     })
   }
 
-  // 홈 상단 헤더 — 타 모듈과 동일한 '아이콘 + 모듈명' PageHeader(#505). 사이드바 없는 홈의 타이틀 담당.
   const homeIcon = <Home className="h-5 w-5 text-muted-foreground" />
 
-  // 레이아웃 로딩 중에는 ①② 도 데이터가 무의미하므로 전체 스켈레톤(③ 자리). 헤더는 동일 유지.
   if (isLoading)
     return (
       <div className="flex h-full flex-col overflow-hidden">
@@ -348,27 +465,21 @@ export function Dashboard() {
 
   // 편집 드래프트 → 알려진 위젯만 해석(순서/숨김 모두 포함).
   const draftEntries: ResolvedEntry[] = draft
-    .map((cfg) => {
-      const def = getDashboardWidget(cfg.type)
-      return def ? { def, cfg } : null
-    })
+    .map(resolveEntry)
     .filter((e): e is ResolvedEntry => e !== null)
 
-  // B1: draft 에 아예 없는 위젯 타입(레거시 변환·문자열-배열 저장 등으로 시드 안 됨) — 갤러리로 재추가 경로.
-  // (숨김=dimmed 잔류는 draft 에 '있는' hidden 위젯 전용. 갤러리는 draft 에 '없는' 타입만 다룬다.)
-  const draftTypes = new Set(draft.map((w) => w.type))
-  const absentWidgets = allDashboardWidgets().filter((w) => !draftTypes.has(w.type))
+  // 시스템 위젯 갤러리 — draft 에 아예 없는 시스템 타입만(싱글턴 재추가 경로). 카탈로그는 갤러리에 항상 전부 노출.
+  const draftSystemTypes = new Set(draft.filter((w) => getDashboardWidget(w.type)).map((w) => w.type))
+  const absentSystemWidgets = allDashboardWidgets().filter((w) => !draftSystemTypes.has(w.type))
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* 상단 헤더 — 모듈명(아이콘+'홈')은 PageHeader 가, 편집 진입 토글은 우측 actions 가 담당(#505).
-          편집 중에는 헤더 토글을 숨기고 본문 편집 배너(저장/취소/되돌리기)가 컨트롤을 맡는다. */}
       <PageHeader
         data-testid="canvas-header"
         title="홈"
         icon={homeIcon}
         actions={
-          !editing && (
+          !editing ? (
             <Button
               type="button"
               variant="outline"
@@ -379,136 +490,115 @@ export function Dashboard() {
               <Pencil className="h-4 w-4" />
               편집
             </Button>
-          )
-        }
-      />
-      <div className="flex-1 space-y-4 overflow-auto p-4">
-        {/* ① 합성 레이어 — 풀폭(그리드 밖). 편집 중에는 비편집 영역으로 데이터 의미가 약하므로 dim. */}
-      <div className={editing ? 'pointer-events-none opacity-60' : undefined}>
-        <SynthesisLayer />
-        {/* ② 빠른 액션 — 풀폭(그리드 밖). */}
-        <div className="mt-4">
-          <QuickActions />
-        </div>
-      </div>
-
-      {/* 편집 배너 — 저장/취소/되돌리기. */}
-      {editing && (
-        <div
-          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ai-accent/40 bg-ai-accent/5 px-4 py-2"
-          data-testid="dashboard-edit-banner"
-        >
-          <span className="text-sm font-medium text-ai-accent">편집 중</span>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              data-testid="dashboard-edit-undo"
-              disabled={!undoSnapshot}
-              onClick={undo}
-            >
-              <Undo2 className="h-4 w-4" />
-              되돌리기
-            </Button>
+          ) : (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              data-testid="dashboard-edit-cancel"
-              onClick={cancelEdit}
+              data-testid="dashboard-add-widget-open"
+              disabled={draft.length >= MAX_WIDGETS}
+              onClick={() => setAddModalOpen(true)}
             >
-              취소
+              <Plus className="h-4 w-4" />
+              위젯 추가
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              data-testid="dashboard-edit-save"
-              disabled={save.isPending}
-              onClick={saveEdit}
-            >
-              {save.isPending ? '저장 중…' : '저장'}
-            </Button>
+          )
+        }
+      />
+      <div className="flex-1 space-y-4 overflow-auto p-4">
+        <div className={editing ? 'pointer-events-none opacity-60' : undefined}>
+          <SynthesisLayer />
+          <div className="mt-4">
+            <QuickActions />
           </div>
         </div>
-      )}
 
-      {/* 편집 액션 스크린리더 피드백. */}
-      <div className="sr-only" aria-live="polite" data-testid="dashboard-edit-live">
-        {liveMsg}
-      </div>
-
-      {/* ③ 소스별 위젯 그리드 — 커스터마이즈 레이어. 피드성은 row-span. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="dashboard">
-        {editing
-          ? // 편집 모드: 숨김 포함 전부 표시(숨김은 dimmed → 재표시 경로).
-            draftEntries.map((e, i) => (
-              <EditableWidgetCard
-                key={e.def.type}
-                widget={e.def}
-                cfg={e.cfg}
-                index={i}
-                total={draftEntries.length}
-                onMove={(dir) => moveWidget(e.def.type, dir)}
-                onToggleHidden={() => toggleHidden(e.def.type)}
-                onCount={(n) => setCount(e.def.type, n)}
-                cardRef={(el) => {
-                  if (el) cardRefs.current.set(e.def.type, el)
-                  else cardRefs.current.delete(e.def.type)
-                }}
-                upRef={(el) => {
-                  if (el) upRefs.current.set(e.def.type, el)
-                  else upRefs.current.delete(e.def.type)
-                }}
-                downRef={(el) => {
-                  if (el) downRefs.current.set(e.def.type, el)
-                  else downRefs.current.delete(e.def.type)
-                }}
-              />
-            ))
-          : // 일반 뷰: 숨김 제외, 저장 순서로 렌더.
-            savedEntries
-              .filter((e) => !e.cfg.hidden)
-              .map((e) => <WidgetCard key={e.def.type} widget={e.def} count={e.cfg.count} />)}
-      </div>
-
-      {/* B1: 추가 가능한 위젯 갤러리 — draft 에 없는 타입만 재추가 경로로 노출(게이트 §2). */}
-      {editing && absentWidgets.length > 0 && (
-        <div data-testid="dashboard-add-gallery">
-          <div className="mb-2 text-sm font-medium text-muted-foreground">추가 가능한 위젯</div>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            {absentWidgets.map((w) => {
-              const Icon = w.icon
-              return (
-                <Card
-                  key={w.type}
-                  className="border-dashed"
-                  data-testid="dashboard-add-card"
-                  data-widget={w.type}
-                >
-                  <CardContent className="flex items-center justify-between gap-2 py-4">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Icon className="h-4 w-4" />
-                      <span className="text-sm font-medium">{w.title}</span>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      data-testid="widget-add"
-                      aria-label={`추가: ${w.title}`}
-                      onClick={() => addWidget(w.type)}
-                    >
-                      <Plus className="h-4 w-4" />
-                      추가
-                    </Button>
-                  </CardContent>
-                </Card>
-              )
-            })}
+        {editing && (
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ai-accent/40 bg-ai-accent/5 px-4 py-2"
+            data-testid="dashboard-edit-banner"
+          >
+            <span className="text-sm font-medium text-ai-accent">편집 중</span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-testid="dashboard-edit-undo"
+                disabled={!undoSnapshot}
+                onClick={undo}
+              >
+                <Undo2 className="h-4 w-4" />
+                되돌리기
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="dashboard-edit-cancel"
+                onClick={cancelEdit}
+              >
+                취소
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                data-testid="dashboard-edit-save"
+                disabled={save.isPending}
+                onClick={saveEdit}
+              >
+                {save.isPending ? '저장 중…' : '저장'}
+              </Button>
+            </div>
           </div>
+        )}
+
+        <div className="sr-only" aria-live="polite" data-testid="dashboard-edit-live">
+          {liveMsg}
         </div>
-      )}
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="dashboard">
+          {editing
+            ? draftEntries.map((entry, i) => (
+                <EditableWidgetCard
+                  key={entry.cfg.id}
+                  entry={entry}
+                  index={i}
+                  total={draftEntries.length}
+                  onMove={(dir) => moveWidget(entry.cfg.id, dir)}
+                  onToggleHidden={() => toggleHidden(entry.cfg.id)}
+                  onCount={(n) => setCount(entry.cfg.id, n)}
+                  onApplyCatalogConfig={(patch) => applyCatalogConfig(entry.cfg.id, patch)}
+                  onRemove={() => removeWidget(entry.cfg.id)}
+                  cardRef={(el) => {
+                    if (el) cardRefs.current.set(entry.cfg.id, el)
+                    else cardRefs.current.delete(entry.cfg.id)
+                  }}
+                  upRef={(el) => {
+                    if (el) upRefs.current.set(entry.cfg.id, el)
+                    else upRefs.current.delete(entry.cfg.id)
+                  }}
+                  downRef={(el) => {
+                    if (el) downRefs.current.set(entry.cfg.id, el)
+                    else downRefs.current.delete(entry.cfg.id)
+                  }}
+                />
+              ))
+            : savedEntries
+                .filter((e) => !e.cfg.hidden)
+                .map((entry) => <WidgetCard key={entry.cfg.id} entry={entry} />)}
+        </div>
+
+        {editing && (
+          <AddWidgetModal
+            open={addModalOpen}
+            onOpenChange={setAddModalOpen}
+            systemWidgets={absentSystemWidgets}
+            catalogWidgets={allCatalogWidgets()}
+            disabled={draft.length >= MAX_WIDGETS}
+            onAdd={addWidget}
+          />
+        )}
       </div>
     </div>
   )

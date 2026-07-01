@@ -20,7 +20,7 @@ function todayKey(): string {
 }
 
 function layout(widgets: string[]): DashboardLayout {
-  return { widgets: widgets.map((w) => ({ type: w, count: 5, hidden: false })) }
+  return { widgets: widgets.map((w) => ({ id: w, type: w, count: 5, hidden: false })) }
 }
 
 // /me/issues(useMyIssueDues 소스)와 이슈 상세 GET/PATCH 를 공유 상태(currentDueDate)로 스텁한다.

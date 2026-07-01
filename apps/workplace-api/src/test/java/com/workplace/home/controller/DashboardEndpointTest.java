@@ -204,4 +204,122 @@ class DashboardEndpointTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.widgets[0].hidden").value(false))
         .andExpect(jsonPath("$.widgets[1].type").value("my_tasks"));
   }
+
+  @Test
+  void put_then_get_roundtrips_catalog_widget_multiple_instances() throws Exception {
+    long userId = createUser("l");
+    // 같은 카탈로그 타입(issue_list)을 필터가 다른 두 인스턴스로 추가.
+    String body =
+        om.writeValueAsString(
+            new DashboardUpdateRequest(
+                List.of(
+                    new DashboardWidgetConfig(
+                        "sec-1",
+                        "issue_list",
+                        0,
+                        false,
+                        om.readTree("{\"assignee\":\"all\"}"),
+                        "보안팀 이슈"),
+                    new DashboardWidgetConfig(
+                        "mkt-1",
+                        "issue_list",
+                        0,
+                        false,
+                        om.readTree("{\"assignee\":\"me\"}"),
+                        "마케팅팀 이슈"),
+                    new DashboardWidgetConfig("my_tasks", 5, false))));
+
+    mvc.perform(
+            put("/api/v1/me/dashboard")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets.length()").value(3))
+        .andExpect(jsonPath("$.widgets[0].id").value("sec-1"))
+        .andExpect(jsonPath("$.widgets[0].label").value("보안팀 이슈"))
+        .andExpect(jsonPath("$.widgets[0].params.assignee").value("all"))
+        .andExpect(jsonPath("$.widgets[1].id").value("mkt-1"))
+        .andExpect(jsonPath("$.widgets[1].params.assignee").value("me"))
+        .andExpect(jsonPath("$.widgets[2].id").value("my_tasks"));
+
+    mvc.perform(get("/api/v1/me/dashboard").header("Authorization", "Bearer " + tokenFor(userId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets.length()").value(3))
+        .andExpect(jsonPath("$.widgets[0].type").value("issue_list"))
+        .andExpect(jsonPath("$.widgets[1].type").value("issue_list"))
+        .andExpect(jsonPath("$.widgets[1].label").value("마케팅팀 이슈"));
+  }
+
+  @Test
+  void put_generates_id_when_catalog_widget_id_missing() throws Exception {
+    long userId = createUser("m");
+    // id 미지정 카탈로그 위젯 — 서버가 UUID 를 생성해야 한다.
+    String body =
+        om.writeValueAsString(
+            new DashboardUpdateRequest(
+                List.of(new DashboardWidgetConfig(null, "mail_list", 0, false, null, null))));
+
+    mvc.perform(
+            put("/api/v1/me/dashboard")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets[0].id").isNotEmpty())
+        .andExpect(jsonPath("$.widgets[0].type").value("mail_list"));
+  }
+
+  @Test
+  void put_rejects_over_max_widgets() throws Exception {
+    long userId = createUser("n");
+    List<DashboardWidgetConfig> widgets = new java.util.ArrayList<>();
+    for (int i = 0; i < 13; i++) {
+      widgets.add(new DashboardWidgetConfig("chan-" + i, "channels", 0, false, null, null));
+    }
+    String body = om.writeValueAsString(new DashboardUpdateRequest(widgets));
+
+    mvc.perform(
+            put("/api/v1/me/dashboard")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void put_rejects_non_object_params() throws Exception {
+    long userId = createUser("o");
+    String body =
+        om.writeValueAsString(
+            new DashboardUpdateRequest(
+                List.of(
+                    new DashboardWidgetConfig(
+                        "act-1", "activity", 0, false, om.readTree("[1,2,3]"), null))));
+
+    mvc.perform(
+            put("/api/v1/me/dashboard")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void put_allows_duplicate_catalog_type_but_rejects_duplicate_id() throws Exception {
+    long userId = createUser("p");
+    String body =
+        om.writeValueAsString(
+            new DashboardUpdateRequest(
+                List.of(
+                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null),
+                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null))));
+
+    mvc.perform(
+            put("/api/v1/me/dashboard")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest());
+  }
 }

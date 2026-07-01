@@ -24,7 +24,7 @@ import type { NotificationResponse } from '../../src/types/notification'
 function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {
   return {
     widgets: widgets.map((w) =>
-      typeof w === 'string' ? { type: w, count: 5, hidden: false } : w,
+      typeof w === 'string' ? { id: w, type: w, count: 5, hidden: false } : w,
     ),
   }
 }
@@ -835,13 +835,12 @@ test('편집(I2) — 경계 이동 후 포커스가 카드/버튼에 유지된�
   await expect(myTasksCard).toBeFocused()
 })
 
-test('편집(B1) — 부재 위젯 갤러리: 추가 → draft 반영 → 저장 PUT payload 포함', async ({
+test('편집(B1) — 위젯 추가 모달: 기본 위젯 추가 → draft 반영 → 저장 PUT payload 포함', async ({
   authenticatedPage: page,
 }) => {
   await mockWidgets(page)
-  // 저장본에 my_tasks 만 존재 → 나머지 4종은 draft 부재 → 갤러리에 노출.
+  // 저장본에 my_tasks 만 존재 → 나머지 4종은 draft 부재 → 모달 "기본" 카테고리에 노출.
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
-  // PUT 캡처(에코 불필요 — 저장 후 편집 종료만 확인).
   const putCapture = await mockApi(
     page,
     'PUT',
@@ -852,33 +851,32 @@ test('편집(B1) — 부재 위젯 갤러리: 추가 → draft 반영 → 저장
   await page.goto('/')
 
   await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-add-widget-open').click()
 
-  // 갤러리가 보이고 부재 4종이 카드로 노출된다.
-  const gallery = page.getByTestId('dashboard-add-gallery')
-  await expect(gallery).toBeVisible()
-  await expect(gallery.getByTestId('dashboard-add-card')).toHaveCount(4)
+  const modal = page.getByTestId('add-widget-modal')
+  await expect(modal).toBeVisible()
+  await modal.getByTestId('add-widget-category').filter({ hasText: '기본' }).click()
+  await expect(modal.locator('[data-testid="add-widget-card"][data-widget-type]')).toHaveCount(4)
 
-  // unread_mail 추가 → 그리드에 편집 카드로 들어오고(draft 반영) 갤러리에서 사라진다.
-  await gallery
-    .locator('[data-testid="dashboard-add-card"][data-widget="unread_mail"]')
-    .getByTestId('widget-add')
-    .click()
+  // unread_mail 카드 클릭 → 즉시 추가(draft 반영), 모달은 열린 채 유지.
+  await modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]').click()
   await expect(page.getByTestId('dashboard-edit-live')).toHaveText('메일 위젯을 추가했습니다')
+  await expect(modal).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(
     page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]'),
   ).toBeVisible()
-  await expect(gallery.getByTestId('dashboard-add-card')).toHaveCount(3)
 
-  // 저장 → PUT payload 에 추가된 unread_mail 이 {count:5,hidden:false} 로 포함.
+  // 저장 → PUT payload 에 추가된 unread_mail 이 {id,type,count:5,hidden:false} 로 포함.
   await page.getByTestId('dashboard-edit-save').click()
   const req = await putCapture.waitForRequest()
   const payload = req.payload as { widgets: DashboardWidgetConfig[] }
   expect(payload.widgets.map((w) => w.type)).toEqual(['my_tasks', 'unread_mail'])
   const added = payload.widgets.find((w) => w.type === 'unread_mail')
-  expect(added).toEqual({ type: 'unread_mail', count: 5, hidden: false })
+  expect(added).toEqual({ id: 'unread_mail', type: 'unread_mail', count: 5, hidden: false })
 })
 
-test('편집(B1) — undo 가 갤러리 추가도 되돌린다(일관성)', async ({
+test('편집(B1) — undo 가 모달을 통한 추가도 되돌린다(일관성)', async ({
   authenticatedPage: page,
 }) => {
   await mockWidgets(page)
@@ -886,23 +884,19 @@ test('편집(B1) — undo 가 갤러리 추가도 되돌린다(일관성)', asyn
   await page.goto('/')
 
   await page.getByTestId('dashboard-edit-toggle').click()
-  const gallery = page.getByTestId('dashboard-add-gallery')
-  await gallery
-    .locator('[data-testid="dashboard-add-card"][data-widget="unread_mail"]')
-    .getByTestId('widget-add')
-    .click()
+  await page.getByTestId('dashboard-add-widget-open').click()
+  const modal = page.getByTestId('add-widget-modal')
+  await modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]').click()
+  await page.keyboard.press('Escape')
   await expect(
     page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]'),
   ).toBeVisible()
 
-  // 되돌리기 → 추가 취소(다시 갤러리로).
+  // 되돌리기 → 추가 취소.
   await page.getByTestId('dashboard-edit-undo').click()
   await expect(
     page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]'),
   ).toHaveCount(0)
-  await expect(
-    gallery.locator('[data-testid="dashboard-add-card"][data-widget="unread_mail"]'),
-  ).toBeVisible()
 })
 
 // ── #339 회귀 가드 — startsAt null 시 Invalid Date 렌더 ──────────────────
@@ -2140,4 +2134,108 @@ test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회�
 
   // invalidate + 재조회로 총 2회 이상 호출됐어야 한다.
   expect(summaryCallCount).toBeGreaterThanOrEqual(2)
+})
+
+test('편집 모드에서 카탈로그 위젯을 추가하고 필터를 설정해 저장한다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  let putBody: unknown = null
+
+  await page.route('**/api/v1/me/dashboard', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        json: {
+          widgets: [{ id: 'my_tasks', type: 'my_tasks', count: 5, hidden: false }],
+        },
+      })
+      return
+    }
+    if (route.request().method() === 'PUT') {
+      putBody = route.request().postDataJSON()
+      await route.fulfill({ json: putBody })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-add-widget-open').click()
+
+  await page.getByTestId('add-widget-category').filter({ hasText: '이슈' }).click()
+  await page.getByTestId('add-widget-card').filter({ hasText: '이슈 목록' }).click()
+
+  // 모달이 열린 채 유지되고, 그리드에는 카드가 즉시 추가되어야 한다.
+  await expect(page.getByTestId('add-widget-modal')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(
+    page.getByTestId('dashboard-widget').filter({ hasText: '이슈 목록' }),
+  ).toBeVisible()
+
+  // 설정 팝오버로 담당자를 "전체"로, 라벨을 커스텀 이름으로 변경.
+  await page
+    .getByTestId('dashboard-widget')
+    .filter({ hasText: '이슈 목록' })
+    .getByTestId('widget-settings')
+    .click()
+  await page.getByTestId('widget-settings-label').fill('보안팀 이슈')
+  await page.getByTestId('widget-settings-field-assignee').click()
+  await page.getByRole('option', { name: '전체' }).click()
+  await page.getByTestId('widget-settings-apply').click()
+
+  await expect(
+    page.getByTestId('dashboard-widget').filter({ hasText: '보안팀 이슈' }),
+  ).toBeVisible()
+
+  await page.getByTestId('dashboard-edit-save').click()
+
+  await expect.poll(() => putBody).not.toBeNull()
+  const body = putBody as { widgets: { type: string; label?: string; params?: Record<string, unknown> }[] }
+  const issueWidget = body.widgets.find((w) => w.type === 'issue_list')
+  expect(issueWidget?.label).toBe('보안팀 이슈')
+  expect(issueWidget?.params?.assignee).toBe('all')
+})
+
+test('카탈로그 위젯 삭제 시 그리드에서 사라지고 저장 payload 에서 빠진다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  let putBody: unknown = null
+
+  await page.route('**/api/v1/me/dashboard', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        json: {
+          widgets: [
+            { id: 'my_tasks', type: 'my_tasks', count: 5, hidden: false },
+            {
+              id: 'sec-1',
+              type: 'issue_list',
+              count: 0,
+              hidden: false,
+              params: { assignee: 'me' },
+              label: '보안팀 이슈',
+            },
+          ],
+        },
+      })
+      return
+    }
+    if (route.request().method() === 'PUT') {
+      putBody = route.request().postDataJSON()
+      await route.fulfill({ json: putBody })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page
+    .getByTestId('dashboard-widget')
+    .filter({ hasText: '보안팀 이슈' })
+    .getByTestId('widget-remove')
+    .click()
+  await expect(page.getByTestId('dashboard-widget').filter({ hasText: '보안팀 이슈' })).toHaveCount(0)
+
+  await page.getByTestId('dashboard-edit-save').click()
+
+  await expect.poll(() => putBody).not.toBeNull()
+  const body = putBody as { widgets: { type: string }[] }
+  expect(body.widgets.some((w) => w.type === 'issue_list')).toBe(false)
 })

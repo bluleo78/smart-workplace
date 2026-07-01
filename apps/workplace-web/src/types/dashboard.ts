@@ -1,12 +1,16 @@
 // 홈 대시보드 데이터 타입 — 백엔드 DTO 와 1:1 매칭.
 import type { EmailMessageSummary } from './mailMessage'
 
-// 위젯 한 개의 구성 — 타입 키 + 항목 수(3·5·10) + 숨김 여부.
-// 백엔드 객체-배열 컨트랙트와 1:1. count 는 {3,5,10} 만 허용(서버가 그 외 400).
+// 위젯 한 개의 구성 — id(인스턴스 식별자) + 타입 키 + 항목 수(시스템 위젯 전용) + 숨김 여부
+// + params(카탈로그 위젯 필터, opaque) + label(사용자 지정 표시 이름).
+// 백엔드 객체-배열 컨트랙트와 1:1. count 는 시스템 위젯만 {3,5,10} 허용(서버가 그 외 400).
 export interface DashboardWidgetConfig {
+  id: string
   type: string
   count: number
   hidden: boolean
+  params?: Record<string, unknown> | null
+  label?: string | null
 }
 
 // 홈 대시보드 레이아웃 — 위젯 구성의 정렬된 배열(순서 = 렌더 순서).
