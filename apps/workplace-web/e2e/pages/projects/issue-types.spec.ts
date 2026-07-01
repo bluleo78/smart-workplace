@@ -94,6 +94,12 @@ test.describe('이슈 유형', () => {
             comments: [],
             history: [],
             attachments: [],
+            // OPEN 유형 도입으로 추가된 서버 capability 플래그(#OPEN). 이 스텁은 일반 프로젝트 멤버를
+            // 가정하므로 셋 다 true — 없으면 IssueDetailPage 가 ?? false 로 유형 트리거를 disabled 처리해
+            // 유형 변경 클릭이 타임아웃된다.
+            viewerCanEditContent: true,
+            viewerCanEditWorkflow: true,
+            viewerCanDelete: true,
           }),
         }),
       );
