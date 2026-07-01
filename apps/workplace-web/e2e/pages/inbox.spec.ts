@@ -98,6 +98,34 @@ test('REMINDER 알림은 일정 정보를 렌더하고 클릭 시 캘린더로 �
   await expect(page).toHaveURL(/\/calendar$/)
 })
 
+test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 클릭 시 캘린더로 이동한다 (#585)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({
+      id: 3,
+      type: 'CALENDAR_INVITED',
+      actorId: 2,
+      actorName: '양동희',
+      actorKind: 'HUMAN',
+      commentId: null,
+      eventId: 6,
+      eventTitle: '분기 킥오프',
+      eventStartsAt: '2026-07-10T01:00:00Z',
+    }),
+  ])
+  await mockApi(page, 'POST', '/api/v1/notifications/3/read', {}, { status: 204 })
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+  const item = page.getByTestId('inbox-item').first()
+  await expect(item).toContainText('양동희')
+  await expect(item).toContainText('일정에 초대했습니다')
+  await expect(item).toContainText('분기 킥오프')
+  await item.click()
+  await expect(page).toHaveURL(/\/calendar$/)
+})
+
 test('"모두 읽음" → read-all POST', async ({ authenticatedPage: page }) => {
   // unread-count 가 1 이상이어야 버튼이 활성화됨
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })

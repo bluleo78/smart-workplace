@@ -1,4 +1,4 @@
-import { Calendar, MessageSquare, RefreshCw, UserPlus } from 'lucide-react'
+import { Bell, Calendar, MessageSquare, RefreshCw, UserPlus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { formatRelativeTime } from '@/lib/formatters'
@@ -11,7 +11,12 @@ const TYPE_ICON: Record<NotificationResponse['type'], typeof UserPlus> = {
   COMMENTED: MessageSquare,
   STATUS_CHANGED: RefreshCw,
   REMINDER: Calendar,
+  CALENDAR_INVITED: Calendar,
+  CALENDAR_RSVP_CHANGED: Calendar,
 }
+
+// 백엔드가 유니온에 없는 새 타입을 보내더라도(#585 재발 방지) 크래시 대신 폴백 아이콘을 렌더한다.
+const FALLBACK_ICON = Bell
 
 /**
  * 알림 그룹 한 행 — 아이콘 + 객체 제목(primary) + 행위자(AI배지)·델타·시간 메타(secondary) + ✓.
@@ -25,7 +30,7 @@ export function NotificationGroupRow({
   group: NotifGroup
   onAck: (ids: number[]) => void
 }) {
-  const Icon = TYPE_ICON[group.repType]
+  const Icon = TYPE_ICON[group.repType] ?? FALLBACK_ICON
   return (
     <li
       className="group flex items-start gap-2 rounded px-1 py-1.5 hover:bg-muted/50"

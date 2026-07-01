@@ -1,6 +1,6 @@
 // 홈 알림 위젯 "캐치업" 로직 — 최근 알림을 객체별로 묶고 '내 차례/업데이트'로 분류한다.
 // 전부 순수 함수(클라이언트 파생) — 백엔드 변경 없음. (내 작업 위젯 myTasks.ts 선례)
-import { notifTarget } from '@/components/home/notifTarget'
+import { isCalendarType, notifTarget } from '@/components/home/notifTarget'
 import type { NotificationResponse } from '@/types/notification'
 
 // 알림 섹션 — 행동 필요(mine) vs 참고(updates).
@@ -36,21 +36,22 @@ export function notifSection(n: NotificationResponse): NotifSection {
 }
 
 // 그룹 키 — 같은 대상 객체를 한 줄로 묶는다.
+// 캘린더 알림(REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED)은 issueId 대신 eventId 로 묶는다(#489).
 function groupKey(n: NotificationResponse): string {
-  if (n.type === 'REMINDER') return n.eventId != null ? `event:${n.eventId}` : `id:${n.id}`
+  if (isCalendarType(n)) return n.eventId != null ? `event:${n.eventId}` : `id:${n.id}`
   if (n.projectKey && n.issueNumber != null) return `issue:${n.projectKey}-${n.issueNumber}`
   return `id:${n.id}`
 }
 
-// 표시 제목 — REMINDER 는 일정 제목, 이슈는 'KEY-번호 · 제목'.
+// 표시 제목 — 캘린더 알림은 일정 제목, 이슈는 'KEY-번호 · 제목'.
 function repTitle(n: NotificationResponse): string {
-  if (n.type === 'REMINDER') return n.eventTitle ?? '일정 알림'
+  if (isCalendarType(n)) return n.eventTitle ?? '일정 알림'
   return `${n.projectKey}-${n.issueNumber} · ${n.issueTitle}`
 }
 
 // 딥링크/aria 라벨 — 제목만(기존 위젯 호환).
 function repLabel(n: NotificationResponse): string {
-  return n.type === 'REMINDER' ? (n.eventTitle ?? '일정 알림') : n.issueTitle
+  return isCalendarType(n) ? (n.eventTitle ?? '일정 알림') : n.issueTitle
 }
 
 // 델타 요약 문자열 — 종류별 건수를 고정 순서로 합친다.
@@ -59,6 +60,8 @@ const TYPE_ORDER: NotificationResponse['type'][] = [
   'COMMENTED',
   'STATUS_CHANGED',
   'REMINDER',
+  'CALENDAR_INVITED',
+  'CALENDAR_RSVP_CHANGED',
 ]
 function deltaSummary(group: NotificationResponse[]): string {
   const counts = new Map<NotificationResponse['type'], number>()
@@ -70,6 +73,8 @@ function deltaSummary(group: NotificationResponse[]): string {
     if (t === 'ASSIGNED') parts.push(c > 1 ? `배정 ${c}건` : '배정')
     else if (t === 'COMMENTED') parts.push(`코멘트 ${c}건`)
     else if (t === 'STATUS_CHANGED') parts.push(c > 1 ? `상태 변경 ${c}건` : '상태 변경')
+    else if (t === 'CALENDAR_INVITED') parts.push('일정 초대')
+    else if (t === 'CALENDAR_RSVP_CHANGED') parts.push('참석 응답 변경')
     else parts.push('일정 알림')
   }
   return parts.join(' · ')

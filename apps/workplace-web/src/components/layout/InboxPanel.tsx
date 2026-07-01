@@ -5,6 +5,7 @@ import { Bell } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { CountBadge } from '@/components/CountBadge'
+import { isCalendarType, notifTarget } from '@/components/home/notifTarget'
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -21,8 +22,10 @@ const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   ASSIGNED: '님이 회원님을 배정했습니다',
   COMMENTED: '님이 코멘트를 남겼습니다',
   STATUS_CHANGED: '님이 상태를 변경했습니다',
-  // REMINDER 는 액터가 없어 별도 분기로 렌더(아래 onRowClick/목록 참조).
+  // REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 는 별도 분기로 렌더(아래 isCalendarType 목록 참조).
   REMINDER: '일정 알림',
+  CALENDAR_INVITED: '님이 일정에 초대했습니다',
+  CALENDAR_RSVP_CHANGED: '님이 참석 응답을 변경했습니다',
 }
 
 export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
@@ -35,15 +38,11 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
   const markAll = useMarkAllNotificationsRead()
 
   // 행 클릭: 안읽음이면 읽음 처리 → 패널 닫고 대상으로 이동.
-  // REMINDER 는 일정 알림이므로 캘린더로, 그 외 이슈 타입은 이슈 상세로.
+  // 딥링크 규칙은 notifTarget() 공용 유틸과 동일(캘린더 알림→캘린더, 식별정보 없으면 인박스 대용 폴백).
   const onRowClick = (n: NotificationResponse) => {
     if (!n.read) markRead.mutate(n.id)
     setOpen(false)
-    if (n.type === 'REMINDER') {
-      navigate('/calendar')
-    } else if (n.projectKey && n.issueNumber != null) {
-      navigate(`/projects/${n.projectKey}/issues/${n.issueNumber}`)
-    }
+    navigate(notifTarget(n))
   }
 
   return (
@@ -129,9 +128,23 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
                   >
                     <span className="min-w-0 flex-1">
                       {n.type === 'REMINDER' ? (
-                        // 일정 알림 — 액터 없이 일정 제목 + 시작 시각 표시.
+                        // 일정 리마인더 — 액터 없이 일정 제목 + 시작 시각 표시.
                         <>
                           <span className="font-medium">일정 알림</span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {n.eventTitle} · {formatDateTimeMinute(n.eventStartsAt)}
+                          </span>
+                        </>
+                      ) : isCalendarType(n) ? (
+                        // 일정 초대/RSVP 변경 — 액터 + 동작 문구 + 일정 제목·시작 시각 표시(#489, #585).
+                        <>
+                          <span className="font-medium">{n.actorName ?? '시스템'}</span>
+                          {n.actorKind === 'AGENT' && (
+                            <span className="ml-1 rounded bg-primary/10 px-1 text-xs text-primary">
+                              AI
+                            </span>
+                          )}
+                          <span className="text-muted-foreground">{ACTION_LABEL[n.type]}</span>
                           <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                             {n.eventTitle} · {formatDateTimeMinute(n.eventStartsAt)}
                           </span>

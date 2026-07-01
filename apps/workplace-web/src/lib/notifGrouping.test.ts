@@ -85,4 +85,35 @@ describe('groupNotifications', () => {
     expect(updates[0].deltaSummary).toBe('일정 알림')
     expect(updates[0].target).toBe('/calendar')
   })
+
+  it('CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 도 event 키로 묶고 캘린더로 딥링크한다 (#585)', () => {
+    const { updates } = groupNotifications([
+      notif({
+        id: 10,
+        type: 'CALENDAR_INVITED',
+        eventId: 6,
+        eventTitle: '분기 킥오프',
+        issueNumber: 0,
+        projectKey: '',
+      }),
+    ])
+    expect(updates[0].key).toBe('event:6')
+    expect(updates[0].title).toBe('분기 킥오프')
+    expect(updates[0].deltaSummary).toBe('일정 초대')
+    expect(updates[0].target).toBe('/calendar')
+
+    const { updates: updates2 } = groupNotifications([
+      notif({
+        id: 11,
+        type: 'CALENDAR_RSVP_CHANGED',
+        eventId: 7,
+        eventTitle: '주간 회의',
+        issueNumber: 0,
+        projectKey: '',
+      }),
+    ])
+    expect(updates2[0].key).toBe('event:7')
+    expect(updates2[0].deltaSummary).toBe('참석 응답 변경')
+    expect(updates2[0].target).toBe('/calendar')
+  })
 })

@@ -1504,6 +1504,36 @@ test('알림 위젯 — ASSIGNED 는 내 차례, 그 외는 업데이트로 분�
   await expect(page.getByTestId('dash-notif-updates')).toContainText('문서 정리')
 })
 
+test('알림 위젯 — CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 알림이 있어도 홈이 크래시하지 않고 캘린더로 딥링크한다 (#585)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    {
+      id: 31, type: 'CALENDAR_INVITED', actorId: 2, actorName: '양동희', actorKind: 'HUMAN',
+      issueId: 0, projectKey: '', issueNumber: 0, issueTitle: '',
+      commentId: null, eventId: 100, eventTitle: '분기 킥오프', eventStartsAt: '2026-07-10T01:00:00Z',
+      read: false, createdAt: '2026-06-16T07:00:00Z',
+    },
+    {
+      id: 32, type: 'CALENDAR_RSVP_CHANGED', actorId: 3, actorName: '김개발', actorKind: 'HUMAN',
+      issueId: 0, projectKey: '', issueNumber: 0, issueTitle: '',
+      commentId: null, eventId: 101, eventTitle: '주간 회의', eventStartsAt: '2026-07-11T01:00:00Z',
+      read: false, createdAt: '2026-06-16T08:00:00Z',
+    },
+  ])
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  // PageErrorBoundary 로 전체 대체되지 않고 위젯이 정상 렌더된다.
+  const updates = page.getByTestId('dash-notif-updates')
+  await expect(updates).toContainText('분기 킥오프')
+  await expect(updates).toContainText('주간 회의')
+
+  await updates.getByRole('link', { name: '알림 열기: 분기 킥오프' }).click()
+  await expect(page).toHaveURL(/\/calendar$/)
+})
+
 test('알림 위젯 — 행 ✓ 클릭 시 그룹의 미읽음을 read 처리한다', async ({
   authenticatedPage: page,
 }) => {
