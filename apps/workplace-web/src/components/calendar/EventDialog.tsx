@@ -1,7 +1,7 @@
 // 일정 생성/편집 다이얼로그.
 // event prop 이 있으면 편집 모드, 없으면 생성 모드.
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -227,6 +227,11 @@ export function EventDialog({
   // 생성 모드에서 선택된 참석자 목록 — id+이름+종류 저장으로 칩에 실명 표시 (이슈 #489)
   const [selectedAttendees, setSelectedAttendees] = useState<SelectedMember[]>([])
 
+  // 동기적 in-flight 가드 — ref 는 즉시(리렌더 없이) 반영되므로 저장 버튼을 같은
+  // 이벤트 루프 틱 내에 두 번 클릭해도(isPending prop 이 아직 갱신되기 전) 두 번째
+  // form submit 을 차단한다. isPending(state)만으로는 dblclick 을 막지 못함 (이슈 #584).
+  const submittingRef = useRef(false)
+
   // 편집 모드에서 상세 데이터(attendees 포함) 로드 — 목록 이벤트에는 attendees 가 없음 (이슈 #489)
   const { data: detailEvent } = useCalendarEvent(isEdit && open ? event?.id : undefined)
   // detailEvent 가 있으면 그것을, 없으면 prop event 를 사용 (생성 모드 / 로딩 중)
@@ -268,6 +273,8 @@ export function EventDialog({
   // 다이얼로그가 열릴 때마다 폼 초기화 + 참석자 선택 초기화
   useEffect(() => {
     if (!open) return
+    // 다이얼로그를 새로 열 때마다 in-flight 가드 초기화 — 재오픈 시 이전 제출 잔재 방지.
+    submittingRef.current = false
     // 생성 모드 진입 시 참석자 선택 초기화
     if (!event) setSelectedAttendees([])
 
@@ -317,6 +324,12 @@ export function EventDialog({
     }
   }, [open, event, defaultStart, form])
 
+  // mutation 이 끝나면(성공 또는 실패) in-flight 가드 해제 — 실패 시 다이얼로그가
+  // 그대로 유지되므로 재시도가 가능해야 한다.
+  useEffect(() => {
+    if (!isPending) submittingRef.current = false
+  }, [isPending])
+
   // 생성 모드: 캘린더 목록이 늦게 로드되면 기본 캘린더만 채운다(전체 reset 금지 — 사용자 입력 보존).
   useEffect(() => {
     if (open && !isEdit && defaultCalendarId != null && form.getValues('calendarId') == null) {
@@ -326,6 +339,10 @@ export function EventDialog({
 
   // 폼 제출 핸들러
   function handleSubmit(values: FormValues) {
+    // 동기적 중복 제출 가드 — 이미 제출 중이면 no-op (dblclick 등으로 인한 중복 생성 방지, 이슈 #584)
+    if (submittingRef.current) return
+    submittingRef.current = true
+
     // 평탄한 폼 필드 → RecurrenceForm 조립 후 RRULE 문자열 생성. freq=NONE 이면 null(단일 일정).
     const recForm: RecurrenceForm = {
       freq: values.recurrenceFreq,

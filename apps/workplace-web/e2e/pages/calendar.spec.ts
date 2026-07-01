@@ -614,6 +614,59 @@ test(
   },
 )
 
+test(
+  '저장 버튼을 동기적으로 연속 클릭해도 일정이 1번만 생성된다 (이슈 #584)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+    // POST 호출 횟수 카운트 — race condition 재현을 위해 약간의 지연을 준다
+    // (isPending state 리렌더가 늦게 반영되는 실제 조건을 모사).
+    let postCount = 0
+    await page.route(
+      (url) => url.pathname.startsWith('/api/v1/calendar/events'),
+      async (route) => {
+        const method = route.request().method()
+        if (method === 'GET') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([]),
+          })
+        }
+        if (method === 'POST') {
+          postCount += 1
+          await new Promise((r) => setTimeout(r, 200))
+          const body = JSON.parse(route.request().postData() ?? '{}') as Partial<CalendarEvent>
+          return route.fulfill({
+            status: 201,
+            contentType: 'application/json',
+            body: JSON.stringify(calendarEvent({ id: 999, title: body.title ?? '더블클릭이벤트', ...body })),
+          })
+        }
+        return route.fallback()
+      },
+    )
+
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-new-event').click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+    await page.getByTestId('calendar-form-title').fill('더블클릭이벤트테스트')
+
+    // 같은 이벤트 루프 틱 내에 두 번 dispatch — React state(isPending) 리렌더 전에
+    // disabled 속성이 반영되기 전 상태를 재현(실제 버그의 근본 원인 조건).
+    const submitButton = page.getByTestId('calendar-form-submit')
+    await submitButton.evaluate((el: HTMLButtonElement) => {
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    })
+
+    // 다이얼로그가 닫힐 때까지(처리 완료) 대기 후 POST 는 정확히 1번만 발생해야 한다
+    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+    expect(postCount).toBe(1)
+  },
+)
+
 // ────────────────────────────────────────────────────────────
 // 반복 일정 중복 key 수정 (이슈 #174)
 // ────────────────────────────────────────────────────────────
