@@ -275,7 +275,7 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
   });
 });
 
-// 채팅 드로워 — 헤더 채팅 버튼(좌측)으로 여는 우측 오버레이(구 인라인 패널 대체).
+// 채팅 드로워 — 헤더 채팅 버튼(우측 actions)으로 여는 우측 오버레이(구 인라인 패널 대체).
 // 무엇을: 버튼 클릭 → Sheet 드로워 열림, 토글 상태(aria-pressed) 반영, Esc 로 닫힘.
 // 왜: 채팅을 3컬럼 고정 영역에서 빼내 본문 폭을 확보하고 필요할 때만 연다(채널 '파일' 드로워 패턴).
 test.describe('이슈 채팅 드로워', () => {
@@ -302,6 +302,26 @@ test.describe('이슈 채팅 드로워', () => {
       // Esc → 닫힘.
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('issue-chat-drawer')).toHaveCount(0);
+    },
+  );
+});
+
+// 프로젝트로 돌아가기 — 헤더 브레드크럼의 프로젝트 크럼.
+// 무엇을: 브레드크럼 프로젝트 링크가 /projects/:key 로 이동하는지 검증(이슈 상세→목록 복귀 경로 부재 회귀 방지).
+test.describe('프로젝트로 돌아가기', () => {
+  test(
+    '브레드크럼 프로젝트 링크 클릭 → 프로젝트 홈으로 이동',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      await mockIssueDetail(page, {});
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+      const nav = page.getByRole('navigation', { name: '이슈 경로' });
+      const projectLink = nav.getByRole('link', { name: 'Workplace' });
+      await expect(projectLink).toBeVisible();
+      await projectLink.click();
+
+      await expect(page).toHaveURL(`/projects/${PROJECT_KEY}`);
     },
   );
 });

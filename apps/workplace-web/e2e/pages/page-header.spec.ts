@@ -22,7 +22,7 @@ test.describe('PageHeader — 프로젝트 목록', () => {
 test.describe('PageHeader — 이슈 상세', () => {
   const PROJECT_KEY = 'WP'
 
-  test('헤더 안에 제목·키 + watch/삭제 액션이 렌더된다', async ({
+  test('헤더엔 브레드크럼(키)+watch/삭제 액션, 본문엔 제목이 렌더된다', async ({
     authenticatedPage: page,
   }) => {
     // 프로젝트 단건(이슈 상세 진입 시 키 검증용 등).
@@ -72,9 +72,12 @@ test.describe('PageHeader — 이슈 상세', () => {
     await expect(header).toBeVisible()
     await expect(header).toHaveClass(/h-14/)
 
-    // 제목·키가 헤더 안에서 렌더(메타에 projectKey-number).
-    await expect(header).toContainText('헤더 검증 이슈')
+    // 헤더엔 브레드크럼(키)만 — 제목은 헤더에서 빠졌다(본문 상단으로 이동, Jira 스타일).
     await expect(header).toContainText(`${PROJECT_KEY}-1`)
+    await expect(header).not.toContainText('헤더 검증 이슈')
+
+    // 제목은 본문 상단 heading 에서 렌더.
+    await expect(page.getByTestId('issue-title-heading')).toContainText('헤더 검증 이슈')
 
     // 액션(watch 토글·삭제)이 헤더 안에 위치 — getByTestId 를 header 로 스코프.
     const watch = header.getByTestId('watch-toggle')

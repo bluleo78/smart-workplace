@@ -94,7 +94,7 @@ test.describe('useUpdateIssue — 검색 캐시 무효화 (#175)', () => {
       // 2. 이슈 상세 진입
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
       // 헤더 타이틀 로딩 대기
-      await expect(page.getByTestId('page-header').getByText('상태 변경 테스트 이슈')).toBeVisible();
+      await expect(page.getByTestId('issue-title-heading').getByText('상태 변경 테스트 이슈')).toBeVisible();
 
       // 3. 상태를 "진행 중"으로 변경 — PATCH API 호출 트리거
       await page.getByRole('combobox', { name: '상태' }).click();

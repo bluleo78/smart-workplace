@@ -80,7 +80,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
   test('제목 편집 → Enter → PATCH {title} 호출 + 새 제목 렌더', async ({ authenticatedPage: page }) => {
     const stub = await setupStubs(page);
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await expect(page.getByTestId('page-header').getByText('원본 제목')).toBeVisible();
+    await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
 
     // 편집 트리거(연필 버튼) → input 노출.
     await page.getByRole('button', { name: '제목 편집' }).click();
@@ -91,13 +91,13 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
 
     await expect.poll(() => stub.patches.length).toBeGreaterThanOrEqual(1);
     expect(stub.patches[stub.patches.length - 1]).toEqual({ title: '수정된 제목' });
-    await expect(page.getByTestId('page-header').getByText('수정된 제목')).toBeVisible();
+    await expect(page.getByTestId('issue-title-heading').getByText('수정된 제목')).toBeVisible();
   });
 
   test('제목을 공백으로 비우면 저장 차단(PATCH 없음) + 원본 복귀', async ({ authenticatedPage: page }) => {
     const stub = await setupStubs(page);
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await expect(page.getByTestId('page-header').getByText('원본 제목')).toBeVisible();
+    await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
 
     await page.getByRole('button', { name: '제목 편집' }).click();
     const input = page.getByTestId('issue-title-input');
@@ -107,13 +107,13 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     // 빈 제목은 PATCH 가 발생하지 않아야 하고, 표시는 원본으로 복귀.
     await page.waitForTimeout(300);
     expect(stub.patches.filter((p) => 'title' in p)).toHaveLength(0);
-    await expect(page.getByTestId('page-header').getByText('원본 제목')).toBeVisible();
+    await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
   });
 
   test('제목 편집 중 Escape → 취소(PATCH 없음)', async ({ authenticatedPage: page }) => {
     const stub = await setupStubs(page);
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await expect(page.getByTestId('page-header').getByText('원본 제목')).toBeVisible();
+    await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
 
     await page.getByRole('button', { name: '제목 편집' }).click();
     const input = page.getByTestId('issue-title-input');
@@ -122,7 +122,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
 
     await page.waitForTimeout(300);
     expect(stub.patches).toHaveLength(0);
-    await expect(page.getByTestId('page-header').getByText('원본 제목')).toBeVisible();
+    await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
   });
 
   test('본문 편집 → Ctrl+Enter → PATCH {body} 호출 + 새 본문 렌더', async ({ authenticatedPage: page }) => {

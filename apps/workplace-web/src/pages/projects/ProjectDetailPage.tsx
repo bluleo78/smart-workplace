@@ -37,6 +37,7 @@ export default function ProjectDetailPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
+        contained
         title={project.data?.name ?? ''}
         meta={<span className="text-muted-foreground">{project.data?.key}</span>}
         actions={

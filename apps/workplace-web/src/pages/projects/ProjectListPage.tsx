@@ -39,6 +39,7 @@ export default function ProjectListPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
+        contained
         title="프로젝트"
         actions={<Button onClick={() => setOpen(true)}>+ 새 프로젝트</Button>}
       />

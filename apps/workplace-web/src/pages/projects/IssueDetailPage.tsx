@@ -6,7 +6,6 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
-import { PageHeader } from '@/components/layout/PageHeader';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +41,7 @@ import { IssueChatButton } from './components/chat/IssueChatButton';
 import { IssueChatDrawer } from './components/chat/IssueChatDrawer';
 import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
 import { IssueBodyTabs } from './components/IssueBodyTabs';
+import { IssueBreadcrumbHeader } from './components/IssueBreadcrumbHeader';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 
@@ -337,51 +337,22 @@ export default function IssueDetailPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader
-        contained
-        // 채팅 드로워 토글 — 제목 '앞'(최좌측) 컨트롤로 고정. meta(제목 뒤)에 두면 가변 길이
-        // 제목이 버튼을 중앙으로 밀어 글로벌 AI 런처(fixed top-center)와 겹쳐 클릭이 가로채진다.
-        // icon 슬롯은 '제목 앞 컨트롤' 용도라 제목 길이와 무관하게 왼쪽 고정 + 런처 회피.
-        icon={
-          <IssueChatButton
-            projectKey={key}
-            issueNumber={issueNumber}
-            open={chatOpen}
-            onOpen={() => setChatOpen(true)}
-          />
-        }
-        title={
-          <InlineEditableTitle
-            title={summary.title}
-            onSave={(t) => patch({ title: t })}
-            disabled={update.isPending}
-          />
-        }
-        meta={
-          <>
-            <span className="text-sm font-mono text-muted-foreground">
-              {summary.projectKey}-{summary.number}
-            </span>
-            {summary.type && (
-              <IssueTypeSelectPopover
-                projectKey={key}
-                issueNumber={issueNumber}
-                current={summary.type}
-              />
-            )}
-            {/* Phase 4b — blockedBy 중 미완료 존재 시 헤더에 차단됨 배지 노출. */}
-            {summary.blocked && (
-              <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-destructive/15 text-destructive text-xs"
-                data-testid="issue-blocked-badge"
-              >
-                ⛔ 차단됨
-              </span>
-            )}
-          </>
-        }
+      <IssueBreadcrumbHeader
+        projectKey={key}
+        projectName={project.data?.name ?? ''}
+        parent={summary.parent}
+        number={summary.number}
+        type={summary.type}
         actions={
           <>
+            {/* 채팅 드로워 토글 — actions(우측 고정) 슬롯. meta/icon 슬롯은 제목 길이에 따라
+                위치가 흔들려 글로벌 AI 런처(fixed top-center)와 겹쳤던 회귀(#558) 이력이 있다. */}
+            <IssueChatButton
+              projectKey={key}
+              issueNumber={issueNumber}
+              open={chatOpen}
+              onOpen={() => setChatOpen(true)}
+            />
             <Button
               variant="outline"
               size="sm"
@@ -421,6 +392,34 @@ export default function IssueDetailPage() {
               세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
           {/* 메인 컬럼 — 섹션(설명·하위 태스크·코멘트)을 Separator 바로 명확히 구분. space-y-6 으로 바 주변 여백 확보. */}
           <div className="flex-1 space-y-6 @min-[1032px]:min-w-[360px]">
+            {/* 제목 + 유형/차단 배지 — 헤더는 브레드크럼만 담당하므로 본문 상단으로 이동(Jira 패턴). */}
+            <div className="space-y-2" data-testid="issue-title-heading">
+              <h1 className="text-2xl leading-8 font-semibold tracking-tight">
+                <InlineEditableTitle
+                  title={summary.title}
+                  onSave={(t) => patch({ title: t })}
+                  disabled={update.isPending}
+                />
+              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                {summary.type && (
+                  <IssueTypeSelectPopover
+                    projectKey={key}
+                    issueNumber={issueNumber}
+                    current={summary.type}
+                  />
+                )}
+                {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
+                {summary.blocked && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-destructive/15 text-destructive text-xs"
+                    data-testid="issue-blocked-badge"
+                  >
+                    ⛔ 차단됨
+                  </span>
+                )}
+              </div>
+            </div>
             {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). 자체 아우라 박스라 바 없이 분리. */}
             {aiAvailable && (
               <IssueInstantContextCard
