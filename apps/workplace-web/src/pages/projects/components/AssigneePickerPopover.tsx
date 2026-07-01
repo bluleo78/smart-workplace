@@ -17,10 +17,13 @@ export function AssigneePickerPopover({
   projectKey,
   issueNumber,
   current,
+  disabled = false,
 }: {
   projectKey: string;
   issueNumber: number;
   current: UserSummary[];
+  /** 워크플로 편집 권한 없을 때 트리거 비활성화 — IssuePropertyRail 과 동일 idiom. */
+  disabled?: boolean;
 }) {
   const members = useProjectMembers(projectKey);
   const update = useUpdateIssueAssignees(projectKey, issueNumber);
@@ -68,7 +71,8 @@ export function AssigneePickerPopover({
           type="button"
           aria-label="담당자 편집"
           data-testid="assignee-picker-trigger"
-          className="flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-sm transition-colors hover:border-input hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          disabled={disabled}
+          className="flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-sm transition-colors hover:border-input hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
         >
           <span className="flex flex-1 flex-wrap items-center gap-2" data-testid="issue-assignees">
             {current.length === 0 ? (

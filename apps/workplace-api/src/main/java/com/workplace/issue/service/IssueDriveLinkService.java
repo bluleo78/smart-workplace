@@ -39,10 +39,11 @@ public class IssueDriveLinkService {
     driveLinks.removeLink(callerId, driveFileId, SOURCE, issueId, canManage);
   }
 
-  /** 이슈에 연결된 드라이브 파일 목록 조회. */
+  /** 이슈에 연결된 드라이브 파일 목록 조회 — 조회 가드(OPEN 은 테넌트 전원 개방, 상세 프로퍼티 레일 로드용). */
   @Transactional(readOnly = true)
   public List<DriveLinkResponse> list(long callerId, String key, int number) {
-    long issueId = resolveIssueId(callerId, key, number);
+    // 읽기 전용 경로만 assertReadable 로 개방 — 링크 추가/삭제(add/remove)는 resolveIssueId 의 assertMember 유지.
+    long issueId = resolveReadableIssueId(callerId, key, number);
     return driveLinks.listLinks(SOURCE, issueId);
   }
 
@@ -55,9 +56,18 @@ public class IssueDriveLinkService {
     return driveLinks.getLinkContent(SOURCE, issueId, driveFileId);
   }
 
-  /** 프로젝트 멤버십 검사 후 이슈 id 반환. */
+  /** 프로젝트 멤버십 검사 후 이슈 id 반환 — 쓰기(add/remove)·다운로드(content) 경로 전용. */
   private long resolveIssueId(long callerId, String key, int number) {
     var project = accessGuard.assertMember(key, callerId);
+    return issueRepository
+        .findByProjectAndNumber(project.id(), number)
+        .orElseThrow(() -> new IssueNotFoundException(key, number))
+        .id();
+  }
+
+  /** 조회 가드(OPEN 개방) 후 이슈 id 반환 — list 읽기 전용. resolveIssueId 와 프로젝트 resolve 방식만 다르다. */
+  private long resolveReadableIssueId(long callerId, String key, int number) {
+    var project = accessGuard.assertReadable(key, callerId);
     return issueRepository
         .findByProjectAndNumber(project.id(), number)
         .orElseThrow(() -> new IssueNotFoundException(key, number))

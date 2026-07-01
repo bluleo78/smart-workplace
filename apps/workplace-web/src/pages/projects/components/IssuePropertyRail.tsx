@@ -36,6 +36,8 @@ interface IssuePropertyRailProps {
   customFields: IssueFieldEntry[];    // summary.customFields
   updatePending: boolean;     // update.isPending
   onPatch: (changes: UpdateIssueRequest) => void;
+  /** 서버 플래그 — 상태·우선순위·담당자·마감일·사이클 편집 가능 여부(멤버만). */
+  canEditWorkflow?: boolean;
   /** AI 분류 제안 버튼 — undefined 이면 렌더 안 함 */
   onAiClassify?: () => void;
   isAiClassifying?: boolean;
@@ -57,6 +59,7 @@ export function IssuePropertyRail({
   customFields,
   updatePending,
   onPatch,
+  canEditWorkflow = false, // 안전 방향 기본값 — 호출자는 항상 명시적으로 전달
   onAiClassify,
   isAiClassifying,
   aiClassifyReason,
@@ -86,12 +89,12 @@ export function IssuePropertyRail({
         defaultOpen={true}
         testId="property-group-status-people"
       >
-        <div className="space-y-1" data-testid="issue-status-select">
+        <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground">상태</label>
           <IssueStatusSelect
             value={status}
             onChange={(v) => onPatch({ status: v })}
-            disabled={updatePending}
+            disabled={updatePending || !canEditWorkflow}
           />
         </div>
         <div className="space-y-1">
@@ -99,7 +102,7 @@ export function IssuePropertyRail({
           <IssuePrioritySelect
             value={priority}
             onChange={(v) => onPatch({ priority: v })}
-            disabled={updatePending}
+            disabled={updatePending || !canEditWorkflow}
           />
         </div>
         {/* 담당자 — 라벨 + 인라인 필드(값 표시 겸 클릭 트리거). 칩/미지정은 필드 내부에서 렌더. */}
@@ -109,6 +112,7 @@ export function IssuePropertyRail({
             projectKey={projectKey}
             issueNumber={issueNumber}
             current={assignees}
+            disabled={updatePending || !canEditWorkflow}
           />
         </div>
         {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}
@@ -137,7 +141,7 @@ export function IssuePropertyRail({
           <span className="text-xs font-medium text-muted-foreground">마감일</span>
           <DueDatePickerPopover
             value={dueDate}
-            disabled={updatePending}
+            disabled={updatePending || !canEditWorkflow}
             onChange={(date) =>
               onPatch({
                 dueDate: date,

@@ -38,33 +38,47 @@ public class IssueCommentService {
   private final UserRepository userRepository;
   private final ApplicationEventPublisher publisher;
 
-  /** 이슈 → 프로젝트 → 멤버십 가드. 프로젝트 row 반환. */
-  private ProjectRow assertIssueAccess(Long issueId, Long callerId) {
+  /**
+   * 이슈 → 프로젝트 → 조회 가드(readable). OPEN 은 테넌트 전원 조회 허용(RLS 가 테넌트 경계 보장). 프로젝트 row 반환.
+   *
+   * <p>읽기 진입점(list) 및 author/OWNER 판정 전 base 접근(update/delete)에 사용한다. 작성(create)은 별도로
+   * assertContentWritable 로 더 강하게 게이트한다.
+   */
+  private ProjectRow assertIssueReadable(Long issueId, Long callerId) {
     var issue =
         issueRepository.findById(issueId).orElseThrow(() -> new IssueNotFoundException(issueId));
     var project =
         projectRepository
             .findById(issue.projectId())
             .orElseThrow(() -> new ProjectNotFoundException("id=" + issue.projectId()));
-    accessGuard.assertMember(project.key(), callerId);
+    accessGuard.assertReadable(project.key(), callerId);
     return project;
   }
 
-  /** 이슈 코멘트 목록 조회. */
+  /** 이슈 코멘트 목록 조회. OPEN 은 테넌트 전원 조회 가능(readable). */
   @Transactional(readOnly = true)
   public List<IssueCommentResponse> list(Long callerId, Long issueId) {
-    assertIssueAccess(issueId, callerId);
+    assertIssueReadable(issueId, callerId);
     return commentRepository.findByIssue(issueId);
   }
 
-  /** 코멘트 생성. 작성자를 자동으로 issue watcher 로 등록. */
+  /**
+   * 코멘트 생성. 작성 = 멤버/ADMIN 또는 (OPEN && 이슈 reporter 본인)만(assertContentWritable). 임의 테넌트 유저는 목록 조회만
+   * 가능하고 작성은 403. 작성자를 자동으로 issue watcher 로 등록한다.
+   */
   public IssueCommentResponse create(Long callerId, Long issueId, CreateCommentRequest req) {
-    var project = assertIssueAccess(issueId, callerId);
+    var issue =
+        issueRepository.findById(issueId).orElseThrow(() -> new IssueNotFoundException(issueId));
+    var project =
+        projectRepository
+            .findById(issue.projectId())
+            .orElseThrow(() -> new ProjectNotFoundException("id=" + issue.projectId()));
+    // 댓글 작성 자격: 멤버/ADMIN 또는 OPEN 이슈 reporter 본인. 그 외(임의 테넌트 reader)는 403.
+    accessGuard.assertContentWritable(project, issue.reporterId(), callerId);
     var resp = commentRepository.insert(issueId, callerId, req.body());
     watcherAutoEnroller.enroll(issueId, callerId);
 
-    // 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보)
-    var issue = issueRepository.findById(issueId).orElseThrow();
+    // 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보) — issue 는 위에서 이미 로드해 재사용.
     var assignees = assigneeRepository.findByIssue(issueId);
     var actor =
         userRepository
@@ -90,7 +104,7 @@ public class IssueCommentService {
   /** 코멘트 수정 (본인 또는 프로젝트 OWNER) — delete 와 동일한 권한 모델. */
   public IssueCommentResponse update(
       Long callerId, Long issueId, Long commentId, UpdateCommentRequest req) {
-    var project = assertIssueAccess(issueId, callerId);
+    var project = assertIssueReadable(issueId, callerId);
     var existing =
         commentRepository
             .findById(commentId)
@@ -112,7 +126,7 @@ public class IssueCommentService {
 
   /** 코멘트 soft-delete (본인 또는 프로젝트 OWNER). */
   public void delete(Long callerId, Long issueId, Long commentId) {
-    var project = assertIssueAccess(issueId, callerId);
+    var project = assertIssueReadable(issueId, callerId);
     var existing =
         commentRepository
             .findById(commentId)

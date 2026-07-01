@@ -93,6 +93,7 @@ function InlineEditableTitle({
           onClick={enter}
           disabled={disabled}
           aria-label="제목 편집"
+          data-testid="issue-title-edit"
           className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
         >
           <Pencil className="h-3.5 w-3.5" />
@@ -284,6 +285,12 @@ export default function IssueDetailPage() {
   // SUBTASK 여부 — 부모 슬롯(SUBTASK 만) / 자식 섹션(비SUBTASK 만) 분기에 사용 (Phase 4a).
   const isSubtask = summary.type?.name === 'SUBTASK';
 
+  // 서버 플래그 기반 UI 권한 분기 — 클라이언트에서 재파생하지 않는다.
+  // 미지정(구 응답 호환)은 false 로 안전하게 처리 — 실제 API 는 항상 명시적으로 내려준다.
+  const canEditContent = data.viewerCanEditContent ?? false;
+  const canEditWorkflow = data.viewerCanEditWorkflow ?? false;
+  const canDelete = data.viewerCanDelete ?? false;
+
   // 삭제 — cascade soft-delete. childCount > 0 이면 AlertDialog 경고 문구에 자식 수 포함.
   // 성공 시 프로젝트 보드로 이동. 권한(첨부자/OWNER) 검증은 백엔드가 수행.
   const onDelete = () => setDeletePending(true);
@@ -368,17 +375,19 @@ export default function IssueDetailPage() {
                 {watchers.data?.length ?? 0}
               </span>
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onDelete}
-              aria-label="태스크 삭제"
-              data-testid="issue-delete"
-              disabled={remove.isPending}
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              삭제
-            </Button>
+            {canDelete && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onDelete}
+                aria-label="태스크 삭제"
+                data-testid="issue-delete"
+                disabled={remove.isPending}
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                삭제
+              </Button>
+            )}
           </>
         }
       />
@@ -398,7 +407,7 @@ export default function IssueDetailPage() {
                 <InlineEditableTitle
                   title={summary.title}
                   onSave={(t) => patch({ title: t })}
-                  disabled={update.isPending}
+                  disabled={!canEditContent || update.isPending}
                 />
               </h1>
               <div className="flex flex-wrap items-center gap-2">
@@ -407,6 +416,7 @@ export default function IssueDetailPage() {
                     projectKey={key}
                     issueNumber={issueNumber}
                     current={summary.type}
+                    disabled={!canEditWorkflow}
                   />
                 )}
                 {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
@@ -434,7 +444,7 @@ export default function IssueDetailPage() {
               <InlineEditableBody
                 body={body}
                 onSave={(b) => patch({ body: b })}
-                disabled={update.isPending}
+                disabled={!canEditContent || update.isPending}
               />
               {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
               <IssueAttachmentStrip
@@ -489,6 +499,7 @@ export default function IssueDetailPage() {
               customFields={summary.customFields}
               updatePending={update.isPending}
               onPatch={patch}
+              canEditWorkflow={canEditWorkflow}
               onAiClassify={handleClassify}
               isAiClassifying={classify.isPending}
               aiClassifyReason={classifyReason}

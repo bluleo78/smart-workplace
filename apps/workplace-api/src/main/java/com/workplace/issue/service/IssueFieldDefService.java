@@ -28,10 +28,10 @@ public class IssueFieldDefService {
   private final IssueFieldDefRepository repo;
   private final ProjectAccessGuard accessGuard;
 
-  /** 프로젝트 내 필드 정의 목록 — 멤버 권한. */
+  /** 프로젝트 내 필드 정의 목록 — 조회 가드(OPEN 은 테넌트 전원 개방). */
   @Transactional(readOnly = true)
   public List<IssueFieldDefResponse> list(Long callerId, String projectKey) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     return repo.findByProject(project.id()).stream().map(this::toResponse).toList();
   }
 

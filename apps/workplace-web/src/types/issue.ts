@@ -126,6 +126,11 @@ export interface IssueDetailResponse {
   attachments: IssueAttachment[];
   // AI 즉각 컨텍스트 (#517) — 백엔드 미완료 시 undefined. 카드는 graceful하게 미렌더.
   aiContext?: IssueAiContext | null;
+  // 서버가 내려주는 뷰어 권한 플래그 — 클라이언트에서 재파생하지 않는다.
+  // OPEN reporter: viewerCanEditContent=true, viewerCanEditWorkflow=false, viewerCanDelete=true(본인 작성)
+  viewerCanEditContent: boolean;   // 제목·본문 편집 가능 (멤버 또는 OPEN reporter)
+  viewerCanEditWorkflow: boolean;  // 상태·우선순위·유형·담당자 변경 가능 (멤버만)
+  viewerCanDelete: boolean;        // 이슈 삭제 가능 (reporter 또는 OWNER)
 }
 
 export interface CreateIssueRequest {

@@ -7,17 +7,17 @@ export const projectKeySchema = z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/, {
   message: '대문자/숫자 2~10자, 첫 글자는 대문자여야 합니다',
 });
 
-// TEAM 은 key 필수(위 정규식), PERSONAL 은 key 생략(서버 자동 생성).
+// TEAM·OPEN 은 key 필수(위 정규식), PERSONAL 은 key 생략(서버 자동 생성).
 export const createProjectSchema = z
   .object({
-    type: z.enum(['TEAM', 'PERSONAL']).default('TEAM'),
+    type: z.enum(['TEAM', 'PERSONAL', 'OPEN']).default('TEAM'),
     key: z.string().optional(),
     name: z.string().min(1, '이름은 필수입니다').max(120, '이름은 120자 이하여야 합니다'),
     description: z.string().max(2000, '설명은 2000자 이하여야 합니다').optional(),
   })
   .superRefine((val, ctx) => {
-    // TEAM 만 key 정규식 검증 (projectKeySchema 재사용으로 규칙 단일화). PERSONAL 의 key 는 submit 시 제거됨.
-    if (val.type === 'TEAM' && !projectKeySchema.safeParse(val.key).success) {
+    // TEAM·OPEN 은 key 정규식 검증 (projectKeySchema 재사용으로 규칙 단일화). PERSONAL 의 key 는 submit 시 제거됨.
+    if ((val.type === 'TEAM' || val.type === 'OPEN') && !projectKeySchema.safeParse(val.key).success) {
       ctx.addIssue({
         code: 'custom',
         path: ['key'],

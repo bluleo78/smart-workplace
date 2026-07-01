@@ -23,6 +23,7 @@ function makeProject(overrides: Partial<ProjectResponse> & { key: string }): Pro
     issueDone: 0,
     memberCount: 0,
     memberNames: [],
+    viewerIsMember: true,
     ...overrides, // key·name 등 호출자 지정이 기본값을 덮음
   }
 }

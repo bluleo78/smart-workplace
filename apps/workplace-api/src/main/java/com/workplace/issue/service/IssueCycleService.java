@@ -26,10 +26,10 @@ public class IssueCycleService {
   private final CycleRepository cycleRepository;
   private final ProjectAccessGuard accessGuard;
 
-  /** 이슈에 연결된 사이클 요약 조회 — 멤버 가드. */
+  /** 이슈에 연결된 사이클 요약 조회 — 조회 가드(OPEN 은 테넌트 전원 개방, 상세 프로퍼티 레일 로드용). */
   @Transactional(readOnly = true)
   public List<CycleSummary> list(Long callerId, String projectKey, int number) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)

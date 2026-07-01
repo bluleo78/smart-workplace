@@ -22,10 +22,13 @@ public class LabelService {
   private final LabelRepository labelRepository;
   private final ProjectAccessGuard accessGuard;
 
-  /** 멤버용 — 프로젝트의 라벨 목록. */
+  /**
+   * 라벨 목록(라벨 picker) — read 진입점. OPEN 은 테넌트 전원 조회 허용(assertReadable). 라벨 관리(create/update/delete)는
+   * OWNER 유지.
+   */
   @Transactional(readOnly = true)
   public List<LabelResponse> list(Long callerId, String projectKey) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     return labelRepository.findByProject(project.id()).stream()
         .map(LabelService::toResponse)
         .toList();

@@ -23,7 +23,7 @@ export function IssueStatusSelect({
 }) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as IssueStatus)} disabled={disabled}>
-      <SelectTrigger className="w-full" aria-label="상태">
+      <SelectTrigger className="w-full" aria-label="상태" data-testid="issue-status-select">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

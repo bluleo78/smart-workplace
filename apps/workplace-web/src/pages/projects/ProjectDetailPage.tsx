@@ -34,6 +34,12 @@ export default function ProjectDetailPage() {
     return <PersonalProjectDetail project={project.data} />;
   }
 
+  // OPEN 프로젝트: 테넌트 전원 이슈 생성 허용. TEAM 은 멤버만.
+  // viewerIsMember 는 서버 플래그 — 클라이언트에서 재파생하지 않는다.
+  const isOpenProject = project.data?.type === 'OPEN';
+  const canCreateIssue = isOpenProject || (project.data?.viewerIsMember ?? false);
+  const canDragStatus = project.data?.viewerIsMember ?? false;
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
@@ -48,13 +54,19 @@ export default function ProjectDetailPage() {
             <Link to={`/projects/${key}/settings`}>
               <Button variant="outline">설정</Button>
             </Link>
-            <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
+            {canCreateIssue && (
+              <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
+            )}
           </>
         }
       />
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto p-6 space-y-4">
-          <IssueArea projectKey={key} onOpenCreate={() => setOpen(true)} />
+          <IssueArea
+            projectKey={key}
+            onOpenCreate={canCreateIssue ? () => setOpen(true) : undefined}
+            canDragStatus={canDragStatus}
+          />
         </div>
       </div>
       <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} />
@@ -64,7 +76,15 @@ export default function ProjectDetailPage() {
 
 // IssueFilterBar 와 활성 뷰(list/board) 를 묶는 영역.
 // FilterBar 가 URL 을 갱신하면 useSearchParams 의 재렌더로 자식 뷰가 같이 갱신된다.
-function IssueArea({ projectKey, onOpenCreate }: { projectKey: string; onOpenCreate?: () => void }) {
+function IssueArea({
+  projectKey,
+  onOpenCreate,
+  canDragStatus = true,
+}: {
+  projectKey: string;
+  onOpenCreate?: () => void;
+  canDragStatus?: boolean;
+}) {
   const [params] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
@@ -75,7 +95,13 @@ function IssueArea({ projectKey, onOpenCreate }: { projectKey: string; onOpenCre
       <ViewChipBar projectKey={projectKey} />
       <IssueFilterBar projectKey={projectKey} />
       {view === 'board' ? (
-        <IssueBoardView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
+        <IssueBoardView
+          projectKey={projectKey}
+          filters={filters}
+          groupBy={groupBy}
+          onOpenCreate={onOpenCreate}
+          canDragStatus={canDragStatus}
+        />
       ) : (
         <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
       )}

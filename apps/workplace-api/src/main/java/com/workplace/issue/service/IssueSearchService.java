@@ -52,7 +52,8 @@ public class IssueSearchService {
 
   /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size. */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
+    var project = accessGuard.assertReadable(projectKey, callerId);
     IssueSearchQuery query = parse(callerId, params);
 
     var rows = issueRepository.search(project.id(), query);

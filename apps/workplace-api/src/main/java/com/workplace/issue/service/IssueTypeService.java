@@ -41,10 +41,10 @@ public class IssueTypeService {
     repo.insert(projectId, "SUBTASK", "TEAL", "CornerDownRight", true, 4);
   }
 
-  /** 프로젝트 내 유형 목록 — 멤버 이상 조회 가능. */
+  /** 프로젝트 내 유형 목록(유형 picker) — read 진입점. OPEN 은 테넌트 전원 조회 허용(assertReadable). */
   @Transactional(readOnly = true)
   public List<IssueTypeResponse> list(Long callerId, String projectKey) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     return repo.findByProject(project.id()).stream().map(this::toResponse).toList();
   }
 

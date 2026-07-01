@@ -23,10 +23,10 @@ public class CycleService {
   private final CycleRepository cycleRepository;
   private final ProjectAccessGuard accessGuard;
 
-  /** 멤버용 — 프로젝트의 사이클 목록. */
+  /** 프로젝트의 사이클 목록 — 조회 가드(OPEN 은 테넌트 전원 개방). */
   @Transactional(readOnly = true)
   public List<CycleResponse> list(Long callerId, String projectKey) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     return cycleRepository.findByProject(project.id()).stream()
         .map(CycleService::toResponse)
         .toList();

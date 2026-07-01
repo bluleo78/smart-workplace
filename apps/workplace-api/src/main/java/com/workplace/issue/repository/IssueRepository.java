@@ -434,26 +434,47 @@ public class IssueRepository {
   /**
    * 프로젝트 횡단 검색 — 호출자가 멤버인 모든 프로젝트의 이슈를 필터/커서로 조회(홈 /me/issues). {@link #search(Long,
    * com.workplace.issue.dto.IssueSearchQuery)} 와 동일하되 베이스 스코프만 단일 프로젝트(PROJECT_ID.eq) 대신 멤버십 EXISTS
-   * 로 교체한다(비멤버 프로젝트 이슈는 누락). 나머지 필터/정렬/페이징은 동일.
+   * 로 교체한다. 추가로 OPEN 프로젝트에 이슈를 올린 비멤버 reporter 도 자신이 접수한 이슈를 "내 이슈"에서 볼 수 있도록 OR 조건을 확장한다.
    */
   public List<IssueRow> searchMemberOf(
       Long memberUserId, com.workplace.issue.dto.IssueSearchQuery query) {
-    // 베이스 조건: 활성 이슈 + 호출자가 멤버인 프로젝트(findByIdsActiveMemberOf 의 멤버십 EXISTS 패턴 미러).
+    // 베이스 조건: 활성 이슈 + (멤버인 프로젝트 이슈 OR OPEN 프로젝트에 reporter 로 올린 이슈).
+    // - 멤버십 EXISTS: 프로젝트 멤버라면 해당 프로젝트의 모든 이슈를 볼 수 있다.
+    // - OPEN reporter OR: 비멤버라도 OPEN 프로젝트에 자신이 등록한 이슈는 홈에서 추적 가능해야 한다.
     org.jooq.Condition where =
         ISSUE
             .DELETED_AT
             .isNull()
             .and(
-                org.jooq.impl.DSL.exists(
-                    dsl.selectOne()
-                        .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
-                        .where(
-                            com.workplace.jooq.Tables.PROJECT_MEMBER
-                                .PROJECT_ID
-                                .eq(ISSUE.PROJECT_ID)
-                                .and(
-                                    com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(
-                                        memberUserId)))));
+                org.jooq
+                    .impl
+                    .DSL
+                    .exists(
+                        dsl.selectOne()
+                            .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
+                            .where(
+                                com.workplace.jooq.Tables.PROJECT_MEMBER
+                                    .PROJECT_ID
+                                    .eq(ISSUE.PROJECT_ID)
+                                    .and(
+                                        com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(
+                                            memberUserId))))
+                    .or(
+                        // OPEN 프로젝트의 reporter: 비멤버가 접수한 이슈를 자신의 홈에서 볼 수 있도록 허용.
+                        ISSUE
+                            .REPORTER_ID
+                            .eq(memberUserId)
+                            .and(
+                                org.jooq.impl.DSL.exists(
+                                    dsl.selectOne()
+                                        .from(com.workplace.jooq.Tables.PROJECT)
+                                        .where(
+                                            com.workplace.jooq.Tables.PROJECT
+                                                .ID
+                                                .eq(ISSUE.PROJECT_ID)
+                                                .and(
+                                                    com.workplace.jooq.Tables.PROJECT.TYPE.eq(
+                                                        "OPEN")))))));
 
     if (query.q() != null && !query.q().isBlank()) {
       String pattern = "%" + query.q().trim() + "%";

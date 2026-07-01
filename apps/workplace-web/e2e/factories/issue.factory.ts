@@ -79,6 +79,7 @@ export function createIssueSearchResponse(
 }
 
 // 테스트용 이슈 상세 응답 팩토리.
+// 기본값: 뷰어가 멤버인 상태(전체 편집 가능) — 비멤버 시나리오는 overrides 로 지정.
 export function createIssueDetail(overrides: Partial<IssueDetailResponse> = {}): IssueDetailResponse {
   return {
     summary: createIssue(),
@@ -86,6 +87,9 @@ export function createIssueDetail(overrides: Partial<IssueDetailResponse> = {}):
     comments: [],
     history: [],
     attachments: [],
+    viewerCanEditContent: true,
+    viewerCanEditWorkflow: true,
+    viewerCanDelete: true,
     ...overrides,
   };
 }

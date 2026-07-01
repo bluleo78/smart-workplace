@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.security.PermissionChecker;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
@@ -67,6 +68,7 @@ public class IssueService {
   private final ApplicationEventPublisher publisher;
   private final UserRepository userRepository;
   private final DriveLinkService driveLinkService;
+  private final PermissionChecker permissionChecker;
 
   /** AI 즉시 컨텍스트: 저장 요약 조회. */
   private final IssueAiSummaryRepository aiSummaryRepository;
@@ -80,7 +82,8 @@ public class IssueService {
    * parentNumber 지정 불가 (Phase 4a).
    */
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    // OPEN 프로젝트는 테넌트 전원이 이슈를 생성할 수 있다(assertIssueCreatable). TEAM/PERSONAL 은 멤버만.
+    var project = accessGuard.assertIssueCreatable(projectKey, callerId);
 
     // 1) 담당자 검증 — 개인·팀 공통으로 프로젝트 멤버만 담당 가능 (정책 통일 #418)
     List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
@@ -204,7 +207,8 @@ public class IssueService {
   /** 프로젝트 내 이슈 목록 페이지 조회. */
   @Transactional(readOnly = true)
   public PageResponse<IssueResponse> list(Long callerId, String projectKey, int page, int size) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    // read 진입점 — OPEN 은 테넌트 전원 목록 조회 허용(assertReadable).
+    var project = accessGuard.assertReadable(projectKey, callerId);
     long total = issueRepository.countByProject(project.id());
     var rows = issueRepository.findByProject(project.id(), page, size);
     int totalPages = (size == 0) ? 0 : (int) Math.ceil((double) total / size);
@@ -219,8 +223,8 @@ public class IssueService {
   /** 이슈 상세 조회 (요약 + 본문 + 코멘트 + 히스토리 + 담당자 + 유형). */
   @Transactional(readOnly = true)
   public IssueDetailResponse get(Long callerId, String projectKey, int number) {
-    // 멤버만 상세 조회(담당=멤버 정책 통일 #418) — assignee-read 우회 제거.
-    var project = accessGuard.assertMember(projectKey, callerId);
+    // read 진입점 — OPEN 은 테넌트 전원 상세 조회 허용(assertReadable). TEAM/PERSONAL 은 멤버/소유자만.
+    var project = accessGuard.assertReadable(projectKey, callerId);
     var row =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
@@ -274,19 +278,39 @@ public class IssueService {
             stored != null ? stored.nextAction() : null,
             stored != null ? stored.generatedAt() : null,
             blockers);
+    // viewer capability — 프론트 단일 소스. write 가드와 정확히 일치시켜 플래그가 실제 허용 여부를 예측하게 한다.
+    //   워크플로(상태/유형 등)=멤버/ADMIN(assertMember 경로), 내용=멤버/ADMIN or (OPEN && reporter 본인),
+    //   삭제=reporter 본인 or OWNER(softDelete 규칙).
+    boolean memberOrAdmin = accessGuard.isMemberOrAdmin(project, callerId);
+    boolean isReporter = row.reporterId() != null && row.reporterId().equals(callerId);
+    boolean isOwner = accessGuard.isOwner(project, callerId);
+    boolean canWorkflow = memberOrAdmin;
+    boolean canContent = memberOrAdmin || ("OPEN".equals(project.type()) && isReporter);
+    boolean canDelete = isReporter || isOwner;
+
     return new IssueDetailResponse(
-        summaryResponse, row.body(), comments, history, attachments, aiContext);
+        summaryResponse,
+        row.body(),
+        comments,
+        history,
+        attachments,
+        aiContext,
+        canContent,
+        canWorkflow,
+        canDelete);
   }
 
   /**
-   * 멤버 권한 확인 후 issueId 해석. 컨트롤러의 AI 요약 엔드포인트가 프록시 경유 @Transactional 호출로 GUC 주입을 보장받기 위해 사용한다.
+   * 조회 권한(assertReadable) 확인 후 issueId 해석. 컨트롤러의 AI 요약 엔드포인트가 프록시 경유 @Transactional 호출로 GUC 주입을
+   * 보장받기 위해 사용한다. OPEN 은 테넌트 전원 조회 가능.
    *
    * <p>⚠️ self-invocation 금지: 이 메서드와 get() 을 같은 빈 내부에서 조합하면 @Transactional 프록시를 우회해 GUC 미주입 → RLS
    * fail-closed. 오케스트레이션은 반드시 컨트롤러에서 각각 독립 호출한다.
    */
   @Transactional(readOnly = true)
   public long resolveAccessibleIssueId(Long callerId, String projectKey, int number) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    // read 진입점(AI 요약 조회 프록시) — OPEN 은 테넌트 전원 허용(assertReadable).
+    var project = accessGuard.assertReadable(projectKey, callerId);
     return issueRepository
         .findByProjectAndNumber(project.id(), number)
         .orElseThrow(() -> new IssueNotFoundException(projectKey, number))
@@ -296,11 +320,28 @@ public class IssueService {
   /** 이슈 부분 수정. null 필드는 변경 없음, clearDueDate 플래그로 명시적 NULL 설정 지원. 담당자는 별도 PUT /assignees 흐름에서 관리. */
   public IssueDetailResponse update(
       Long callerId, String projectKey, int number, UpdateIssueRequest req) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.resolve(projectKey);
     var before =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+
+    // 권한: 멤버/ADMIN 은 전 필드(내용+워크플로), OPEN reporter 는 내용(제목/본문)만.
+    //   - 비멤버는 먼저 assertContentWritable 로 내용 편집 자격(=OPEN reporter 본인)을 강제한다(아니면 403).
+    //   - 워크플로 필드(상태/우선순위/마감일)는 절대 비멤버에게 열리지 않는다 — touchesWorkflow 면 403.
+    //   - updateStatus() 는 update() 를 호출하므로 비멤버 reporter 의 상태 변경도 여기서 자동 차단된다.
+    boolean fullEdit = accessGuard.isMemberOrAdmin(project, callerId);
+    if (!fullEdit) {
+      accessGuard.assertContentWritable(project, before.reporterId(), callerId);
+      boolean touchesWorkflow =
+          req.status() != null
+              || req.priority() != null
+              || req.dueDate() != null
+              || Boolean.TRUE.equals(req.clearDueDate());
+      if (touchesWorkflow) {
+        throw new ProjectAccessDeniedException("상태·우선순위·마감일은 처리팀(멤버)만 변경할 수 있습니다");
+      }
+    }
 
     String newTitle = req.title() != null ? req.title() : before.title();
     String newBody = req.body() != null ? req.body() : before.body();
@@ -413,24 +454,28 @@ public class IssueService {
     return get(callerId, projectKey, number);
   }
 
-  /** 이슈 soft-delete. reporter 본인 또는 프로젝트 OWNER 만 가능. */
+  /**
+   * 이슈 soft-delete. reporter 본인 또는 프로젝트 OWNER 만 가능.
+   *
+   * <p>OPEN 프로젝트는 비멤버 reporter 도 자기 이슈를 삭제할 수 있으므로, 기존 assertMember 선검증 대신 resolve 로 멤버십 없이 프로젝트
+   * row 를 얻고, reporter/OWNER/ADMIN 여부로 직접 판정한다.
+   */
   public void softDelete(Long callerId, String projectKey, int number) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    // 멤버십 선검증 제거 — reporter/OWNER 로 직접 판정 (OPEN 비멤버 reporter 허용)
+    var project = accessGuard.resolve(projectKey);
     var row =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
 
     boolean isReporter = row.reporterId().equals(callerId);
-    boolean isOwner = false;
-    try {
-      accessGuard.assertWithRole(projectKey, callerId, "OWNER");
-      isOwner = true;
-    } catch (ProjectAccessDeniedException ignored) {
-      // OWNER 아님 — isReporter 만으로 판단
-    }
+    boolean isOwner = accessGuard.isOwner(project, callerId);
+    // ADMIN 회귀 방지: 기존 구현은 assertMember(ADMIN 우회) + assertWithRole(OWNER, ADMIN 우회)로
+    // ADMIN 이 비PERSONAL 이슈를 삭제할 수 있었다. resolve 로 전환하면서 이 능력이 사라지므로 명시 복원.
+    boolean isAdmin =
+        !"PERSONAL".equals(project.type()) && permissionChecker.userHasRole(callerId, "ADMIN");
 
-    if (!isReporter && !isOwner) {
+    if (!isReporter && !isOwner && !isAdmin) {
       throw new ProjectAccessDeniedException("이슈 삭제는 reporter 또는 OWNER 만 가능합니다");
     }
     // Phase 4a — 부모 자체와 활성 자식들에 동일 timestamp 로 cascade soft-delete.

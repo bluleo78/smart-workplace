@@ -50,6 +50,7 @@ export function IssueBoardView({
   cardTo,
   showType = true,
   onOpenCreate,
+  canDragStatus = true,
 }: {
   projectKey: string;
   filters: IssueFilters;
@@ -62,6 +63,8 @@ export function IssueBoardView({
   showType?: boolean;
   // 빈 컬럼 CTA — "이슈 추가" 버튼 클릭 시 이슈 생성 다이얼로그를 여는 콜백.
   onOpenCreate?: () => void;
+  // 서버 플래그 — 상태 drag-to-change 허용 여부(멤버만). false 이면 DnD 이벤트를 무시한다.
+  canDragStatus?: boolean;
 }) {
   // 보드는 한 화면에 많은 카드를 보여줘야 하므로 페이지 크기를 100 으로 키운다.
   const { data, fetchNextPage, hasNextPage, isFetching } = useIssueSearch(
@@ -112,6 +115,8 @@ export function IssueBoardView({
 
   function handleDragEnd(e: DragEndEvent) {
     setActiveIssue(null);
+    // 비멤버는 상태 변경 권한 없음 — drag 이벤트 무시.
+    if (!canDragStatus) return;
     const { active, over } = e;
     if (!over) return;
     const sourceStatus = active.data.current?.status as string | undefined;

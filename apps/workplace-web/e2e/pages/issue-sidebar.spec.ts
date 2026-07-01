@@ -41,6 +41,7 @@ test('사이드바가 즐겨찾기한 팀 프로젝트를 링크로 렌더한다
     issueDone: 0,
     memberCount: 0,
     memberNames: [],
+    viewerIsMember: true,
   }
   // 두 번째 팀 프로젝트(OPS)는 즐겨찾기 안 함 — 사이드바에 노출되지 않아야 한다.
   const ops: ProjectResponse = { ...project, id: 2, key: 'OPS', name: 'Operations' }

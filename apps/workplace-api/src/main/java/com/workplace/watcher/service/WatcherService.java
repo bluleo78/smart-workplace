@@ -63,10 +63,13 @@ public class WatcherService {
     watcherRepository.remove(issue.id(), callerId);
   }
 
-  /** 이슈 watcher 목록 — user JOIN 포함 응답. */
+  /**
+   * 이슈 watcher 목록(user JOIN) — read 진입점. OPEN 은 테넌트 전원 조회 허용(assertReadable). 단, watch/unwatch(구독
+   * 토글)는 write 이므로 assertMember 유지 — 비멤버는 목록은 보되 구독은 불가.
+   */
   @Transactional(readOnly = true)
   public List<WatcherResponse> list(Long callerId, String projectKey, int number) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)

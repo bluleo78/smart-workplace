@@ -18,6 +18,8 @@ export function createProject(overrides: Partial<ProjectResponse> = {}): Project
     issueDone: 0,
     memberCount: 0,
     memberNames: [],
+    // 기본값: 멤버 — 기존 스펙 회귀 방지. 비멤버 시나리오는 overrides 로 지정.
+    viewerIsMember: true,
     ...overrides,
   };
 }

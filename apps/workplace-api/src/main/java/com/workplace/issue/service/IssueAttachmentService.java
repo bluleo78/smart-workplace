@@ -75,10 +75,10 @@ public class IssueAttachmentService {
     return added;
   }
 
-  /** 이슈 첨부 목록 조회 — 멤버만. */
+  /** 이슈 첨부 목록 조회 — 조회 가드(OPEN 은 테넌트 전원 개방). 다운로드/업로드/삭제는 여전히 멤버 게이트. */
   @Transactional(readOnly = true)
   public List<IssueAttachmentResponse> list(Long callerId, String projectKey, int number) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)

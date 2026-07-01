@@ -31,7 +31,7 @@ export function ProjectCreateDialog({
     resolver: zodResolver(createProjectSchema),
     defaultValues: { type: 'TEAM' },
   });
-  // 프로젝트 유형 — TEAM(키 입력) | PERSONAL(키 서버 자동 생성).
+  // 프로젝트 유형 — TEAM(팀 공유, 키 입력) | PERSONAL(개인 전용, 키 자동) | OPEN(공개 접수함, 키 입력).
   const type = watch('type');
 
   // dialog가 열릴 때 폼 상태 초기화 — 닫혀있는 동안 react-hook-form 상태가 유지되므로 재열기 시 reset 필요.
@@ -42,7 +42,7 @@ export function ProjectCreateDialog({
 
   const onSubmit = async (data: CreateProjectFormData) => {
     try {
-      // PERSONAL 은 key 를 보내지 않는다(서버가 자동 생성).
+      // PERSONAL 은 key 를 보내지 않는다(서버가 자동 생성). TEAM·OPEN 은 key 포함.
       const payload =
         data.type === 'PERSONAL'
           ? { name: data.name, description: data.description, type: 'PERSONAL' as const }
@@ -63,9 +63,9 @@ export function ProjectCreateDialog({
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-1">
             <span className="text-sm font-medium">유형</span>
-            {/* 유형 토글 — TEAM(팀 공유, 키 입력) | PERSONAL(개인 전용, 키 자동). MemberSearchPopover 탭 스타일과 동일. */}
+            {/* 유형 토글 — TEAM(팀 공유) | PERSONAL(개인 전용) | OPEN(공개 접수함). MemberSearchPopover 탭 스타일과 동일. */}
             <div className="flex gap-1" role="tablist" aria-label="프로젝트 유형" data-testid="project-type-toggle">
-              {(['TEAM', 'PERSONAL'] as const).map((t) => (
+              {(['TEAM', 'PERSONAL', 'OPEN'] as const).map((t) => (
                 <Button
                   key={t}
                   type="button"
@@ -76,12 +76,13 @@ export function ProjectCreateDialog({
                   aria-selected={type === t}
                   data-testid={`project-type-${t}`}
                 >
-                  {t === 'TEAM' ? '팀' : '개인'}
+                  {t === 'TEAM' ? '팀' : t === 'PERSONAL' ? '개인' : '공개'}
                 </Button>
               ))}
             </div>
           </div>
-          {type === 'TEAM' && (
+          {/* key 는 TEAM·OPEN 모두 필요(공유 프로젝트). PERSONAL 만 서버 자동 생성. */}
+          {(type === 'TEAM' || type === 'OPEN') && (
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="project-key">key (예: WP)</label>
               <Input id="project-key" {...register('key')} placeholder="WP" />

@@ -2,8 +2,8 @@
 
 import type { UserKind } from './user';
 
-// 프로젝트 유형 — TEAM(팀 공유) | PERSONAL(개인 전용). 백엔드 ProjectType 과 매칭.
-export type ProjectType = 'TEAM' | 'PERSONAL';
+// 프로젝트 유형 — TEAM(팀 공유) | PERSONAL(개인 전용) | OPEN(공개 접수함). 백엔드 ProjectType 과 매칭.
+export type ProjectType = 'TEAM' | 'PERSONAL' | 'OPEN';
 
 export interface ProjectResponse {
   id: number;
@@ -21,6 +21,9 @@ export interface ProjectResponse {
   issueDone: number;
   memberCount: number;
   memberNames: string[];
+  // 현재 로그인 사용자가 이 프로젝트의 멤버(MEMBER/OWNER) 또는 ADMIN 인지 — 서버 계산 플래그.
+  // 보드 drag-to-change-status, 이슈 생성 버튼 노출 게이트에 사용. 재파생 금지.
+  viewerIsMember: boolean;
 }
 
 export type ProjectMemberRole = 'OWNER' | 'MEMBER';

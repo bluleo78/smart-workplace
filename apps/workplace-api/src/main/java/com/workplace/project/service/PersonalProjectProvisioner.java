@@ -37,7 +37,8 @@ public class PersonalProjectProvisioner {
     memberRepository.insert(row.id(), callerId, "OWNER");
     sequenceRepository.initialize(row.id());
     issueTypeService.seedSystemTypes(row.id());
-    return ProjectResponse.from(row);
+    // 생성자는 항상 OWNER — viewerIsMember=true
+    return ProjectResponse.from(row, true);
   }
 
   /** "P" + base36(userId) 기반, 충돌 시 접미사 부여. VARCHAR(10) 한도 준수. */

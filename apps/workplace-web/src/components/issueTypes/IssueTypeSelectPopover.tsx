@@ -14,10 +14,13 @@ export function IssueTypeSelectPopover({
   projectKey,
   issueNumber,
   current,
+  disabled = false,
 }: {
   projectKey: string;
   issueNumber: number;
   current: IssueTypeSummary;
+  /** 워크플로 편집 권한 없을 때 트리거 비활성화 — 멤버만 유형 변경 가능. */
+  disabled?: boolean;
 }) {
   const types = useIssueTypes(projectKey);
   const update = useUpdateIssueType(projectKey, issueNumber);
@@ -30,7 +33,8 @@ export function IssueTypeSelectPopover({
           type="button"
           data-testid="issue-type-trigger"
           aria-label="유형 변경"
-          className="inline-flex min-h-6"
+          disabled={disabled}
+          className="inline-flex min-h-6 disabled:pointer-events-none disabled:opacity-50"
         >
           <IssueTypeBadge type={current} />
         </button>

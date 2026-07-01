@@ -37,7 +37,10 @@ public class ChatThreadService {
         lookup
             .findIssue(projectKey, issueNumber)
             .orElseThrow(() -> new IllegalArgumentException("issue not found"));
-    if (!lookup.isProjectMember(issue.projectId(), callerId)) {
+    // OPEN 프로젝트는 테넌트 전원 스레드 조회 허용. 메시지 작성은 ChatMessageService.ensureMember 가
+    // 스레드 멤버(reporter/assignee/watcher 시드)로 별도 강제하므로 조회 개방이 작성 개방을 뜻하지 않는다.
+    if (!lookup.isProjectMember(issue.projectId(), callerId)
+        && !lookup.isOpenProject(issue.projectId())) {
       throw new ProjectAccessDeniedException("not a project member");
     }
     long threadId =

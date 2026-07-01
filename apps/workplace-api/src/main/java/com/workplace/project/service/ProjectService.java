@@ -44,25 +44,32 @@ public class ProjectService {
   private final IssueRepository issueRepository;
 
   /**
-   * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, 아니면 TEAM 경로. 호출자를 OWNER 로 등록 → 이슈
-   * 시퀀스 초기화 → 시스템 유형 4종(TASK/BUG/STORY/CHORE) 시드.
+   * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, TEAM/OPEN 이면 공유 프로젝트 경로. 공유
+   * 프로젝트(TEAM·OPEN)는 key 필수·OWNER 등록·이슈 시퀀스 초기화·시스템 유형 4종(TASK/BUG/STORY/CHORE) 시드로 구조가 동일하며, 저장되는
+   * type 값만 다르다. 지원하지 않는 유형(TEAM/PERSONAL/OPEN 외)은 ProjectConflictException 으로 거부.
    */
   public ProjectResponse create(Long callerId, CreateProjectRequest req) {
     if ("PERSONAL".equals(req.typeOrDefault())) {
       return provisioner.createPersonal(callerId, req.name(), req.description(), false);
     }
+    // TEAM/OPEN 공통 경로 — 구조 동일, 저장되는 type 만 다르다.
+    String type = req.typeOrDefault();
+    if (!"TEAM".equals(type) && !"OPEN".equals(type)) {
+      throw new ProjectConflictException("지원하지 않는 프로젝트 유형: " + type);
+    }
     if (req.key() == null || req.key().isBlank()) {
-      throw new ProjectConflictException("팀 프로젝트는 key 가 필요합니다");
+      throw new ProjectConflictException("공유 프로젝트는 key 가 필요합니다");
     }
     if (projectRepository.existsByKey(req.key())) {
       throw new ProjectConflictException("이미 사용 중인 key 입니다: " + req.key());
     }
     ProjectRow row =
-        projectRepository.insert(req.key(), req.name(), req.description(), callerId, "TEAM", false);
+        projectRepository.insert(req.key(), req.name(), req.description(), callerId, type, false);
     memberRepository.insert(row.id(), callerId, "OWNER");
     sequenceRepository.initialize(row.id());
     issueTypeService.seedSystemTypes(row.id());
-    return ProjectResponse.from(row);
+    // 생성자는 항상 OWNER — viewerIsMember=true
+    return ProjectResponse.from(row, true);
   }
 
   /**
@@ -115,7 +122,11 @@ public class ProjectService {
                     memberCount = members.size();
                     topNames = members.stream().limit(3).toList();
                   }
-                  return ProjectResponse.from(row, issueTotal, done, memberCount, topNames);
+                  // 목록은 findAllForUser 가 이미 "멤버이거나 OPEN" 행만 반환.
+                  // OPEN 비멤버는 목록에는 노출되지 않으므로 여기 도달한 행은 멤버로 간주해도 무방.
+                  // 단, ADMIN 은 전체를 보므로 isMemberOrAdmin 으로 정확히 계산.
+                  boolean isMember = accessGuard.isMemberOrAdmin(row, callerId);
+                  return ProjectResponse.from(row, issueTotal, done, memberCount, topNames, isMember);
                 })
             .toList();
 
@@ -123,11 +134,13 @@ public class ProjectService {
     return new PageResponse<>(content, page, size, total, totalPages);
   }
 
-  /** 단일 프로젝트 조회. 호출자가 멤버(또는 ADMIN)여야 함. */
+  /** 단일 프로젝트 조회. read 진입점 — OPEN 은 테넌트 전원, TEAM/PERSONAL 은 멤버/소유자만(assertReadable). */
   @Transactional(readOnly = true)
   public ProjectResponse get(Long callerId, String projectKey) {
-    ProjectRow project = accessGuard.assertMember(projectKey, callerId);
-    return ProjectResponse.from(project);
+    ProjectRow project = accessGuard.assertReadable(projectKey, callerId);
+    // viewerIsMember: 멤버 여부를 서버에서 계산해 프론트 재파생 방지.
+    boolean isMember = accessGuard.isMemberOrAdmin(project, callerId);
+    return ProjectResponse.from(project, isMember);
   }
 
   /** 프로젝트 이름/설명 수정. 메타데이터 변경은 OWNER(또는 ADMIN) 만 허용 — softDelete/멤버 관리와 일관. */
@@ -138,7 +151,8 @@ public class ProjectService {
         projectRepository
             .findById(project.id())
             .orElseThrow(() -> new ProjectNotFoundException(projectKey));
-    return ProjectResponse.from(updated);
+    // update 는 OWNER 만 가능 — 업데이트 성공 시 항상 멤버.
+    return ProjectResponse.from(updated, true);
   }
 
   /** 프로젝트 soft-delete. OWNER 권한 필요. */
@@ -157,7 +171,8 @@ public class ProjectService {
    */
   @Transactional(readOnly = true)
   public List<MemberResponse> listMembers(Long callerId, String projectKey) {
-    ProjectRow project = accessGuard.assertMember(projectKey, callerId);
+    // read 진입점(담당자 picker·멤버 표시) — OPEN 은 테넌트 전원 허용(assertReadable).
+    ProjectRow project = accessGuard.assertReadable(projectKey, callerId);
     return memberRepository.findAllByProject(project.id());
   }
 

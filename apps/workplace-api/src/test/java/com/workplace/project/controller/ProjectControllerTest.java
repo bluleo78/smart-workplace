@@ -82,7 +82,8 @@ class ProjectControllerTest {
         0,
         0,
         0,
-        java.util.List.of());
+        java.util.List.of(),
+        true);
   }
 
   @Test
@@ -120,7 +121,8 @@ class ProjectControllerTest {
             0,
             0,
             0,
-            java.util.List.of());
+            java.util.List.of(),
+            true);
     when(projectService.create(eq(1L), any())).thenReturn(personal);
 
     mockMvc
