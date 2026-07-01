@@ -5,6 +5,7 @@ import com.workplace.drive.repository.DriveQuotaRepository;
 import com.workplace.global.tenant.TenantContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 드라이브 용량 쿼터 — 테넌트 단위 사용량/한도 조회 및 초과 검사. */
 @Service
@@ -34,7 +35,16 @@ public class DriveQuotaService {
     return tenantId == null ? defaultQuotaBytes : repo.findQuotaBytes(tenantId);
   }
 
-  /** 사이드바/조회용 스냅샷. */
+  /**
+   * 사이드바/조회용 스냅샷.
+   *
+   * <p>{@code @Transactional} 필수: usedBytes()→sumDriveUsageBytes() 는 RLS(FORCE) 보호 테이블
+   * (drive_file_version/drive_file/file)을 SUM 한다. 트랜잭션이 없으면 {@code TenantAwareTransactionManager} 가
+   * app.tenant_id GUC 를 주입하지 못해 RLS 가 fail-closed → 0행 → 사용량 0 으로 오표시된다(비-@Transactional read → RLS
+   * fail-closed 패턴). 컨트롤러는 이 프록시된 view() 를 호출하고, view() 내부의 usedBytes() 는 self-invocation 이므로 반드시
+   * 진입점인 view() 에 트랜잭션을 건다.
+   */
+  @Transactional(readOnly = true)
   public QuotaView view() {
     return new QuotaView(usedBytes(), quotaBytes());
   }
