@@ -1,3 +1,10 @@
+import org.gradle.api.services.BuildService
+import org.gradle.api.services.BuildServiceParameters
+import java.io.File
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.file.StandardOpenOption
+
 plugins {
     java
     id("org.springframework.boot") version "3.4.1"
@@ -6,6 +13,49 @@ plugins {
     id("com.diffplug.spotless") version "6.25.0"
     jacoco
 }
+
+/**
+ * 공유 통합 테스트 DB(localhost:5435) 직렬화 락.
+ *
+ * 모든 통합 테스트는 단일 `workplace_test`(컨테이너 1개)를 공유한다. 두 개의 `test` 실행이 동시에 붙으면
+ * 서로의 시드/정리가 교차 커밋되어 RLS 가시성이 assertion 중에 뒤집히거나(비결정 실패), 고정-슬러그 fixture
+ * 유니크/FK 충돌, `too many clients` 가 난다(#512 후속). 이 문제는 자원(DB) 소유의 성질이라 훅이 아니라
+ * **테스트 실행 지점**에서 막아야 훅·수동 `./gradlew test`·IDE 를 모두 덮는다.
+ *
+ * 구현: 빌드 서비스가 인스턴스화될 때 고정 경로(/tmp)의 파일에 **blocking OS FileLock** 을 잡는다. FileLock 은
+ * OS 레벨이라 워크트리·gradle 데몬을 가로질러 배타적이며, 다른 프로세스가 잡고 있으면 대기(큐잉)한다. 프로세스가
+ * 죽으면 OS 가 자동 해제하므로 stale 락이 남지 않는다. 빌드 종료 시 close()로 해제한다.
+ */
+abstract class SharedTestDbLock : BuildService<BuildServiceParameters.None>, AutoCloseable {
+    private val channel: FileChannel =
+        FileChannel.open(
+            File("/tmp/smart-workplace-test-db.lock").toPath(),
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE,
+        )
+    private val lock: FileLock
+
+    init {
+        println("[test-db-lock] 공유 통합 테스트 DB(5435) 락 대기/획득…")
+        // blocking 배타 락 — 다른 gradle 프로세스가 보유 중이면 여기서 대기한다.
+        lock = channel.lock()
+        println("[test-db-lock] 락 획득 — 통합 테스트 시작")
+    }
+
+    override fun close() {
+        try {
+            lock.release()
+        } finally {
+            channel.close()
+        }
+    }
+}
+
+val testDbLock =
+    gradle.sharedServices.registerIfAbsent("smartWorkplaceTestDbLock", SharedTestDbLock::class.java) {
+        // 한 빌드 안에서도 동시 사용 1개로 제한(프로세스 간 배타는 FileLock 이 담당).
+        maxParallelUsages.set(1)
+    }
 
 // JaCoCo — 로컬 리포트 전용. 0.8.13: Java 25(class major version 69) 지원
 jacoco {
@@ -62,6 +112,12 @@ dependencies {
 }
 
 tasks.withType<Test> {
+    // 공유 test DB(5435) 직렬화 — 훅/수동/IDE 어느 경로로 와도 실제 테스트 실행 전 배타 락을 잡는다.
+    // 설정 캐시 호환: 스크립트 top-level 프로퍼티를 doFirst 에서 직접 참조하면 스크립트 객체가 캡처되어
+    // 직렬화가 깨진다. 로컬 val 로 Provider 만 캡처한다.
+    val lockService = testDbLock
+    usesService(lockService)
+    doFirst { lockService.get() }
     useJUnitPlatform()
     // pre-commit 이 변경분 기반으로 --tests 필터를 넘길 때, 매칭 테스트가 없어도 커밋이
     // 깨지지 않도록 한다(누락분은 pre-push 의 필터 없는 전체 test 가 잡는다).
