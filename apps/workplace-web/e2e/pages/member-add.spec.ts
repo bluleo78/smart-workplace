@@ -143,3 +143,64 @@ test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼�
   await expect.poll(() => postCount).toBe(2)
   await expect(page.getByTestId('add-member-submit')).toBeVisible()
 })
+
+// #580 — 아이디에 공백만 입력하면 클라이언트 zod 검증(trim)이 서버 전송 전에 막아야 한다.
+test('아이디에 공백만 입력하면 클라이언트 검증에서 막힌다', async ({ adminPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+
+  let posted = false
+  await page.route(
+    (url) => url.pathname === '/api/v1/users',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      posted = true
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+    },
+  )
+
+  await page.goto('/settings/users')
+  await page.getByRole('button', { name: '구성원 추가' }).click()
+
+  await page.getByTestId('add-member-username').fill('  ')
+  await page.getByTestId('add-member-name').fill('테스트')
+  await page.getByTestId('add-member-password').fill('Password123')
+  await page.getByTestId('add-member-submit').click()
+
+  // 클라이언트 zod 검증(trim)이 막아 API 호출 자체가 발생하지 않아야 한다.
+  await expect(page.getByText('아이디를 입력하세요')).toBeVisible()
+  expect(posted).toBe(false)
+})
+
+// #580 — 서버가 필드별 오류(errors 맵)를 내려주면 최상위 message("Validation failed" 등
+// 하드코딩된 영문)가 아니라 필드별 로컬라이즈 메시지를 우선 표시해야 한다.
+test('서버 검증 오류는 errors 필드 맵의 메시지를 우선 표시한다', async ({ adminPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/users',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      return route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          message: 'Validation failed',
+          errors: { username: '아이디는 공백일 수 없습니다.' },
+        }),
+      })
+    },
+  )
+
+  await page.goto('/settings/users')
+  await page.getByRole('button', { name: '구성원 추가' }).click()
+
+  // 클라이언트 zod 검증을 우회해 서버 응답 처리 경로만 검증 — trim으로 통과하는
+  // 유효 문자열이지만 서버가 여전히 400을 내려주는 케이스를 흉내낸다.
+  await page.getByTestId('add-member-username').fill('validlookingbutrejected')
+  await page.getByTestId('add-member-name').fill('테스트')
+  await page.getByTestId('add-member-password').fill('Password123')
+  await page.getByTestId('add-member-submit').click()
+
+  await expect(page.getByTestId('add-member-error')).toHaveText('아이디는 공백일 수 없습니다.')
+  await expect(page.getByTestId('add-member-error')).not.toHaveText('Validation failed')
+})

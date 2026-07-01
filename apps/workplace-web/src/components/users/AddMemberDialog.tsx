@@ -1,5 +1,4 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import axios from 'axios'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
@@ -18,13 +17,20 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useCreateMember } from '@/hooks/queries/useUsers'
+import { extractApiError } from '@/lib/api-error'
 
 // 구성원 추가 폼 — 아이디(로그인 ID)/이메일(선택)/이름/역할/초기 비밀번호.
 // 비밀번호 규칙은 백엔드와 동일. role 라벨은 한국어, API 로는 ADMIN/USER 원시값 전송.
 const addMemberSchema = z.object({
-  username: z.string().min(1, '아이디를 입력하세요').max(50, '아이디는 50자 이하여야 합니다'),
+  // trim 후 검사 — 공백만 입력한 값(length>0이지만 실질 값 없음)이 통과해 서버로
+  // 전송되는 것을 클라이언트에서 먼저 차단한다.
+  username: z
+    .string()
+    .trim()
+    .min(1, '아이디를 입력하세요')
+    .max(50, '아이디는 50자 이하여야 합니다'),
   email: z.email('올바른 이메일 형식이 아닙니다').optional().or(z.literal('')),
-  name: z.string().min(1, '이름을 입력하세요').max(50, '이름은 50자 이하여야 합니다'),
+  name: z.string().trim().min(1, '이름을 입력하세요').max(50, '이름은 50자 이하여야 합니다'),
   password: z
     .string()
     .min(8, '비밀번호는 8자 이상이어야 합니다')
@@ -87,12 +93,9 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
       },
       onError: (e) => {
         // 서버 에러(409 중복/400 검증)는 폼 상단에 표시하고 다이얼로그를 유지한다(운영자 콘솔 패턴).
-        if (axios.isAxiosError(e)) {
-          const msg = (e.response?.data as { message?: string } | undefined)?.message
-          setServerError(msg ?? '구성원 추가에 실패했습니다.')
-          return
-        }
-        setServerError('구성원 추가에 실패했습니다.')
+        // errors 필드 맵(필드별 로컬라이즈 메시지)을 최상위 message보다 우선 사용 —
+        // 검증 오류는 message가 하드코딩된 영문("Validation failed")일 수 있다.
+        setServerError(extractApiError(e, '구성원 추가에 실패했습니다.'))
       },
     })
   }
