@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import com.workplace.global.tenant.TenantContext;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -60,6 +61,24 @@ public abstract class IntegrationTestBase {
   @AfterTransaction
   void clearTenantAfterTransaction() {
     TenantContext.clear();
+  }
+
+  /**
+   * 비-{@code @Transactional}(autocommit) 통합 테스트의 세션 GUC(app.tenant_id) 오염을 매 테스트 시작 시 자가치유한다(#512).
+   *
+   * <p>배경: 일부 비-tx 테스트는 스케줄러/프로덕션 커넥션을 재현하려고 {@code set_config('app.tenant_id', X, false)}(SESSION)
+   * 로 풀 커넥션의 세션 GUC 를 바꾼다. 특히 {@code ''}(빈 문자열)을 심고 복원하지 않으면(예: DriveQuotaViewRlsRegressionTest 의
+   * fail-closed 재현), 그 커넥션이 풀로 반납되어 <b>다음 비-tx 테스트</b>가 재사용할 때 {@code NULLIF('', '')::bigint =
+   * NULL} 이 되어 시드 INSERT 는 RLS {@code WITH CHECK}(tenant_id=NULL → false) 로 거부되고, autocommit 정리
+   * DELETE 는 RLS {@code USING} 으로 자기 행을 못 봐 삭제 실패(고아 누적)한다 — 실행 순서에 따라 flaky.
+   *
+   * <p>여기서 매 테스트 전에 세션 GUC 를 기본값(1) 로 되돌린다. 비-tx 테스트는 autocommit 이라 이 SET 이 즉시 커밋되어 이어지는 시드/정리가 쓸
+   * <i>같은 스레드의 커넥션</i>에 적용된다(단일 스레드 실행 → HikariCP thread-local 재할당). {@code @Transactional} 테스트는 이
+   * SET 이 테스트 트랜잭션에 묶여 롤백되지만, 그들은 {@code doBegin} 이 트랜잭션-로컬 GUC 를 주입하므로 애초에 세션 GUC 에 의존하지 않는다.
+   */
+  @BeforeEach
+  void resetSessionTenantGuc() {
+    baseDsl.execute("SELECT set_config('app.tenant_id', '1', false)");
   }
 
   /**

@@ -101,6 +101,9 @@ class DriveQuotaViewRlsRegressionTest extends IntegrationTestBase {
       // then: 미수정이면 RLS fail-closed → 0(RED), 수정 후엔 시드 11바이트 이상(GREEN).
       assertThat(used).isGreaterThanOrEqualTo(11L);
     } finally {
+      // 세션 GUC 를 기본값(1) 로 복원 — 위에서 심은 ''(빈 문자열)이 풀 커넥션에 남으면 다음 비-tx 테스트의 시드/정리가
+      // RLS 로 깨진다(#512). IntegrationTestBase 의 자가치유와 겹치는 안전망이지만, 오염을 만든 테스트가 스스로 치운다.
+      dsl.execute("SELECT set_config('app.tenant_id', '1', false)");
       TenantContext.clear();
     }
   }
