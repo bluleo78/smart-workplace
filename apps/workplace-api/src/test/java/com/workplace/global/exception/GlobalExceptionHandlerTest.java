@@ -2,6 +2,8 @@ package com.workplace.global.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.file.exception.FileSizeLimitExceededException;
+import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.global.dto.ErrorResponse;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
@@ -57,5 +59,28 @@ class GlobalExceptionHandlerTest {
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     assertThat(res.getBody()).isNotNull();
     assertThat(res.getBody().message()).contains("잠시 후");
+  }
+
+  @Test
+  void 지원하지_않는_파일형식은_400_을_반환한다() {
+    // #587: FileUploadService.uploadSingleFile()이 던지는 이 예외가 핸들러 부재로
+    // Exception.class 폴백(500)에 떨어지던 회귀 방지.
+    ResponseEntity<ErrorResponse> res =
+        handler.handleUnsupportedUploadFileType(
+            new UnsupportedUploadFileTypeException("application/x-msdownload"), request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(res.getBody()).isNotNull();
+    assertThat(res.getBody().message()).contains("지원하지 않는 파일 형식");
+  }
+
+  @Test
+  void 파일_크기_한도_초과는_400_을_반환한다() {
+    // #587: 같은 이유로 500 폴백에 떨어지던 회귀 방지.
+    ResponseEntity<ErrorResponse> res =
+        handler.handleFileSizeLimitExceeded(
+            new FileSizeLimitExceededException("IMAGE", 10L * 1024 * 1024), request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(res.getBody()).isNotNull();
+    assertThat(res.getBody().message()).contains("IMAGE");
   }
 }

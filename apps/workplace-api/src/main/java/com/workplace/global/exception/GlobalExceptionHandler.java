@@ -15,6 +15,8 @@ import com.workplace.cycle.exception.CycleNameDuplicatedException;
 import com.workplace.cycle.exception.CycleNotFoundException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.exception.InvalidCycleStatusException;
+import com.workplace.file.exception.FileSizeLimitExceededException;
+import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.global.dto.ErrorResponse;
 import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentComposeException;
@@ -873,6 +875,22 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(AttachmentTooLargeException.class)
   public ResponseEntity<ErrorResponse> handleAttachmentTooLarge(
       AttachmentTooLargeException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** Drive/파일 업로드 시 허용되지 않은 MIME 타입 — 400. */
+  @ExceptionHandler(UnsupportedUploadFileTypeException.class)
+  public ResponseEntity<ErrorResponse> handleUnsupportedUploadFileType(
+      UnsupportedUploadFileTypeException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** Drive/파일 업로드 시 카테고리별 크기 한도 초과 — 400. */
+  @ExceptionHandler(FileSizeLimitExceededException.class)
+  public ResponseEntity<ErrorResponse> handleFileSizeLimitExceeded(
+      FileSizeLimitExceededException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
