@@ -3,12 +3,14 @@ package com.workplace.issue.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
-import com.workplace.support.TenantScopedIntegrationTest;
+import com.workplace.support.IntegrationTestBase;
 import java.util.Map;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,13 +22,18 @@ import org.springframework.transaction.annotation.Transactional;
  * 보드를 볼 수 있도록 한다. TEAM 프로젝트는 여전히 비멤버 검색 거부.
  */
 @Transactional
-class OpenIssueSearchTest extends TenantScopedIntegrationTest {
+class OpenIssueSearchTest extends IntegrationTestBase {
 
   @Autowired IssueSearchService issueSearchService;
   @Autowired IssueTypeService issueTypeService;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
   @Autowired DSLContext dsl;
+
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
 
   private OpenScenario.Result openScenario() {
     return OpenScenario.create(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);

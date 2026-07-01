@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueTypeService;
 import com.workplace.issue.service.OpenScenario;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
-import com.workplace.support.TenantScopedIntegrationTest;
+import com.workplace.support.IntegrationTestBase;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,7 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
  * + TenantContext 테넌트 1 고정으로 RLS GUC 주입 보장.
  */
 @Transactional
-class OpenChatThreadTest extends TenantScopedIntegrationTest {
+class OpenChatThreadTest extends IntegrationTestBase {
 
   @Autowired ChatThreadService threadService;
   @Autowired ChatMessageService messageService;
@@ -31,6 +33,11 @@ class OpenChatThreadTest extends TenantScopedIntegrationTest {
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
   @Autowired DSLContext dsl;
+
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
 
   private OpenScenario.Result openScenario() {
     return OpenScenario.create(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);

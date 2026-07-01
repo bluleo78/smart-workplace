@@ -5,11 +5,13 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
-import com.workplace.support.TenantScopedIntegrationTest;
+import com.workplace.support.IntegrationTestBase;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,13 +22,18 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>삭제 허용: OPEN 비멤버 reporter 본인, 프로젝트 OWNER, TEAM/OPEN ADMIN. 삭제 거부: 비멤버·비reporter stranger(403).
  */
 @Transactional
-class OpenIssueDeleteTest extends TenantScopedIntegrationTest {
+class OpenIssueDeleteTest extends IntegrationTestBase {
 
   @Autowired IssueService issueService;
   @Autowired IssueTypeService issueTypeService;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
   @Autowired DSLContext dsl;
+
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
 
   private OpenScenario.Result openScenario() {
     return OpenScenario.create(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);

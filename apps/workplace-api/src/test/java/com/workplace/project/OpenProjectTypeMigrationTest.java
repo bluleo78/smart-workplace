@@ -3,9 +3,12 @@ package com.workplace.project;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
-import com.workplace.support.TenantScopedIntegrationTest;
+import com.workplace.global.tenant.TenantContext;
+import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,9 +20,21 @@ import org.springframework.transaction.annotation.Transactional;
  * GUC(app.tenant_id)가 트랜잭션 안에서 올바르게 주입된다.
  */
 @Transactional
-class OpenProjectTypeMigrationTest extends TenantScopedIntegrationTest {
+class OpenProjectTypeMigrationTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
+
+  /** 테넌트 컨텍스트를 기본 테넌트(1)로 고정 — RLS GUC 주입을 위해 필수. */
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
+
+  /** 테스트 후 ThreadLocal 누수 방지. */
+  @AfterEach
+  void clearTenant() {
+    TenantContext.clear();
+  }
 
   /**
    * V114 이후 type='OPEN' 인 프로젝트 행 삽입이 CHECK 제약을 통과해야 한다. V114 이전에는 project_type_check 가
