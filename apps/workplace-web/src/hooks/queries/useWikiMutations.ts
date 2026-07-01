@@ -53,3 +53,13 @@ export function useMovePage(spaceId: number) {
     onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) }),
   })
 }
+
+// 팀 노트 스페이스 생성 — 성공 시 스페이스 목록을 무효화해 드롭다운에 즉시 반영한다.
+// (이동/다이얼로그 닫기는 호출처의 onSuccess 에서 처리)
+export function useCreateSpace() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => wikiApi.createSpace(name).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.spaces() }),
+  })
+}

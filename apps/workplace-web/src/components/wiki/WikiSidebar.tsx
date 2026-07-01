@@ -26,24 +26,32 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { handleApiError } from '@/lib/api-error'
 
 import {
   useCreatePage,
+  useCreateSpace,
   useDeletePage,
   useMovePage,
 } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import type { WikiPageSummary } from '../../types/wiki'
+import { WikiCreateSpaceDialog } from './WikiCreateSpaceDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
 import { WikiTreeRow } from './WikiTreeRow'
 
 // 들여쓰기 1단계 폭(px). 투영(projection) 시 가로 오프셋을 이 값으로 나눠 depth 변화를 계산한다.
 const INDENT = 16
+
+// Select 하단 "새 스페이스" 항목의 sentinel value — 실제 스페이스 id 와 충돌하지 않는 문자열.
+// 선택되어도 Select 는 controlled(value={spaceId}) 라 표시 값이 바뀌지 않는다.
+const CREATE_SENTINEL = '__create__'
 
 // 평면화된 트리 항목 — DnD 정렬/투영의 단위.
 interface FlatItem {
@@ -145,6 +153,20 @@ export function WikiSidebar() {
   const movePage = useMovePage(spaceId ?? 0)
   // 멤버 관리 다이얼로그 열림 상태 — TEAM 스페이스에서만 노출.
   const [membersOpen, setMembersOpen] = useState(false)
+  // 스페이스 생성 다이얼로그 열림 상태 + 생성 mutation.
+  const [createOpen, setCreateOpen] = useState(false)
+  const createSpace = useCreateSpace()
+
+  // 새 스페이스 생성 → 목록 무효화(훅) 후 새 스페이스로 이동. 실패 시 토스트.
+  const handleCreateSpace = (name: string) => {
+    createSpace.mutate(name, {
+      onSuccess: (space) => {
+        setCreateOpen(false)
+        navigate(`/wiki/spaces/${space.id}`)
+      },
+      onError: (e) => handleApiError(e, '스페이스 생성에 실패했습니다.'),
+    })
+  }
   // 접힌 노드 id 집합 — 영속화하지 않음(새로고침 시 전부 펼침).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   // 삭제 확인 대상 pageId(없으면 닫힘).
@@ -280,7 +302,14 @@ export function WikiSidebar() {
       <div className="border-b p-2">
         <Select
           value={String(spaceId ?? '')}
-          onValueChange={(v) => navigate(`/wiki/spaces/${v}`)}
+          onValueChange={(v) => {
+            // 생성 항목은 이동 대신 다이얼로그를 연다.
+            if (v === CREATE_SENTINEL) {
+              setCreateOpen(true)
+              return
+            }
+            navigate(`/wiki/spaces/${v}`)
+          }}
         >
           <SelectTrigger className="h-8 w-full text-sm">
             <SelectValue />
@@ -291,6 +320,10 @@ export function WikiSidebar() {
                 {s.name}
               </SelectItem>
             ))}
+            <SelectSeparator />
+            <SelectItem value={CREATE_SENTINEL} data-testid="wiki-space-create-item">
+              ＋ 새 스페이스
+            </SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -359,6 +392,12 @@ export function WikiSidebar() {
           onOpenChange={setMembersOpen}
         />
       )}
+      <WikiCreateSpaceDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreate={handleCreateSpace}
+        pending={createSpace.isPending}
+      />
       {/* 페이지 삭제 확인(사이드바 행 ⋯). hasChildren 은 flatItems 에서 파생. */}
       <WikiDeletePageDialog
         open={deleteTarget != null}
