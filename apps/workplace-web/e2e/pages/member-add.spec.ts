@@ -144,6 +144,54 @@ test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼�
   await expect(page.getByTestId('add-member-submit')).toBeVisible()
 })
 
+// #583 — 추가 버튼을 동일 이벤트 루프 틱 내 연속 클릭해도 요청이 1번만 나가야 한다
+// (createMember.isPending 리렌더 반영 전 두 번째 클릭이 통과하는 race condition 재현).
+test('구성원 추가 — 버튼을 동기적으로 연속 클릭해도 요청이 1번만 나간다', async ({ adminPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+
+  let postCount = 0
+  await page.route(
+    (url) => url.pathname === '/api/v1/users',
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      postCount += 1
+      // race condition 재현을 위한 지연 — 실제 네트워크 latency 환경을 모사.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          userId: 1,
+          username: 'dupe',
+          name: '중복테스트',
+          email: null,
+          role: 'USER',
+          status: 'ACTIVE',
+        }),
+      })
+    },
+  )
+
+  await page.goto('/settings/users')
+  await page.getByRole('button', { name: '구성원 추가' }).click()
+
+  await page.getByTestId('add-member-username').fill('dupe')
+  await page.getByTestId('add-member-name').fill('중복테스트')
+  await page.getByTestId('add-member-password').fill('Password123')
+
+  // 같은 이벤트 루프 틱 내에 두 번 dispatch — React state(isPending) 리렌더 전에
+  // disabled 속성이 반영되기 전 상태를 재현(실제 버그의 근본 원인 조건).
+  const submitButton = page.getByTestId('add-member-submit')
+  await submitButton.evaluate((el: HTMLButtonElement) => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
+
+  // 처리 완료(다이얼로그 닫힘) 대기 후 POST 는 정확히 1번만 발생해야 한다.
+  await expect(page.getByTestId('add-member-submit')).toHaveCount(0)
+  expect(postCount).toBe(1)
+})
+
 // #580 — 아이디에 공백만 입력하면 클라이언트 zod 검증(trim)이 서버 전송 전에 막아야 한다.
 test('아이디에 공백만 입력하면 클라이언트 검증에서 막힌다', async ({ adminPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))

@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -55,6 +55,10 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
   const [serverError, setServerError] = useState('')
   // 체크 시 추가 성공해도 다이얼로그를 닫지 않고 폼만 비워 연속 등록을 지원.
   const [keepOpenAfterSubmit, setKeepOpenAfterSubmit] = useState(false)
+  // 동기적 in-flight 가드(#583) — ref 는 즉시(리렌더 없이) 반영되므로 같은 이벤트 루프
+  // 틱 내에 "추가" 버튼이 두 번 클릭돼도(createMember.isPending 리렌더 반영 전) 두 번째
+  // 제출을 차단한다. #581/#582 와 동일 패턴.
+  const submittingRef = useRef(false)
 
   const {
     register,
@@ -73,11 +77,15 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
       reset()
       setServerError('')
       setKeepOpenAfterSubmit(false)
+      submittingRef.current = false
     }
     onOpenChange(next)
   }
 
   const onSubmit = (data: AddMemberFormData) => {
+    // 동기적 중복 제출 가드 — 이미 제출 중이면 no-op.
+    if (submittingRef.current) return
+    submittingRef.current = true
     setServerError('')
     // 이메일 빈 문자열은 전송에서 제외(백엔드 선택값).
     const payload = { ...data, email: data.email ? data.email : undefined }
@@ -87,8 +95,12 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
         if (keepOpenAfterSubmit) {
           // 다이얼로그는 유지 — 폼만 비워 바로 다음 구성원을 입력할 수 있게 한다.
           reset()
+          submittingRef.current = false
           return
         }
+        // 닫기 경로(handleOpenChange)가 이미 ref 를 리셋하지만, 다음 오픈 전까지 안전하게
+        // 유지되도록 여기서도 명시적으로 해제한다.
+        submittingRef.current = false
         handleOpenChange(false)
       },
       onError: (e) => {
@@ -96,6 +108,8 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
         // errors 필드 맵(필드별 로컬라이즈 메시지)을 최상위 message보다 우선 사용 —
         // 검증 오류는 message가 하드코딩된 영문("Validation failed")일 수 있다.
         setServerError(extractApiError(e, '구성원 추가에 실패했습니다.'))
+        // 실패 시 다이얼로그가 유지되므로 재시도가 가능해야 한다.
+        submittingRef.current = false
       },
     })
   }
@@ -109,6 +123,10 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
             계정을 새로 만들어 이 워크스페이스의 구성원으로 추가합니다.
           </DialogDescription>
         </DialogHeader>
+        {/* onSubmit 이 submittingRef.current 를 읽지만 handleSubmit 이 반환하는 핸들러는 폼
+            제출 이벤트 시에만 비동기로 실행되고 렌더 중에는 호출되지 않아 안전하다
+            (WikiEditor/RichInput 과 동일한 react-hooks/refs 보수적 false positive). */}
+        {/* eslint-disable-next-line react-hooks/refs */}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {serverError && (
             <p className="text-sm text-destructive" data-testid="add-member-error">
