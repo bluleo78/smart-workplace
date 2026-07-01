@@ -282,25 +282,62 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     setNameError('')
     setNameDialog({ mode: 'create' })
   }
+  // #589: 업로드 버튼 경로도 드래그앤드롭(uploadDroppedTree)과 동일하게 다중 파일을 지원.
+  // input[multiple] 로 선택된 파일 전체를 순차 업로드하고 부분 실패는 성공분 유지 + 실패 요약 토스트.
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    // 한도 초과는 업로드 전 클라이언트에서 안내 — 불필요한 400 왕복·데이터 유실 오인 방지.
-    if (file.size > MAX_UPLOAD_BYTES) {
-      toast.error('파일 크기가 25MB를 초과합니다.')
-      e.target.value = ''
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    if (files.length === 0) return
+
+    // 단일 파일: 기존 동작 그대로(개별 에러 토스트, 진행률 표시 없음).
+    if (files.length === 1) {
+      const file = files[0]
+      // 한도 초과는 업로드 전 클라이언트에서 안내 — 불필요한 400 왕복·데이터 유실 오인 방지.
+      if (file.size > MAX_UPLOAD_BYTES) {
+        toast.error('파일 크기가 25MB를 초과합니다.')
+        return
+      }
+      // 업로드 시작 — 버튼 비활성화로 중복 업로드 방지 (#170).
+      setUploading(true)
+      try {
+        await driveApi.uploadFile(sid, folderId, file)
+        await reload()
+      } catch (err) {
+        handleApiError(err, '파일을 업로드하지 못했습니다.')
+      } finally {
+        setUploading(false)
+      }
       return
     }
-    // 업로드 시작 — 버튼 비활성화로 중복 업로드 방지 (#170).
+
+    // 다중 파일: 드롭 경로와 동일한 순차 업로드 + 실패 집계 패턴.
     setUploading(true)
+    setDropProgress({ done: 0, total: files.length })
+    const failures: string[] = []
+    let done = 0
     try {
-      await driveApi.uploadFile(sid, folderId, file)
-      e.target.value = ''
+      for (const file of files) {
+        try {
+          if (file.size > MAX_UPLOAD_BYTES) {
+            failures.push(`${file.name} (25MB 초과)`)
+          } else {
+            await driveApi.uploadFile(sid, folderId, file)
+          }
+        } catch {
+          failures.push(file.name)
+        } finally {
+          done += 1
+          setDropProgress({ done, total: files.length })
+        }
+      }
       await reload()
-    } catch (err) {
-      e.target.value = ''
-      handleApiError(err, '파일을 업로드하지 못했습니다.')
+      if (failures.length > 0) {
+        toast.error(`${failures.length}개 항목 업로드 실패: ${failures.slice(0, 3).join(', ')}${failures.length > 3 ? ' 외' : ''}`)
+      } else {
+        toast.success(`${files.length}개 파일 업로드 완료`)
+      }
     } finally {
+      setDropProgress(null)
       setUploading(false)
     }
   }
@@ -566,7 +603,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             >
               {uploading ? '업로드 중…' : '업로드'}
             </button>
-            <input ref={fileInput} type="file" hidden onChange={onUpload} data-testid="file-input" />
+            <input ref={fileInput} type="file" multiple hidden onChange={onUpload} data-testid="file-input" />
             <button
               type="button"
               onClick={trash != null ? closeTrash : openTrash}

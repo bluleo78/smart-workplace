@@ -120,6 +120,46 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   await expect(page.getByText('memo.txt')).toHaveCount(0)
 })
 
+// #589 — 업로드 버튼 input[multiple] 회귀: 파일 여러 개 선택 시 순차 업로드 + 완료 토스트.
+test('업로드 버튼에서 파일 여러 개를 선택하면 모두 업로드되고 완료 토스트가 뜬다', async ({ authenticatedPage: page }) => {
+  const state = { folders: [] as unknown[], files: [] as unknown[] }
+  await stubSpaces(page)
+  await stubItems(page, () => state)
+
+  const uploadedNames: string[] = []
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      // multipart 요청에서 업로드된 파일명을 추출 — 각 요청이 파일 1개씩만 실어 보내는지(#589 순차 업로드) 검증.
+      const body = route.request().postData() ?? ''
+      const match = body.match(/filename="([^"]+)"/)
+      const name = match?.[1] ?? 'unknown'
+      uploadedNames.push(name)
+      const file = createFile({ id: state.files.length + 20, name })
+      state.files = [...state.files, file]
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(file) })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // input[multiple] 속성이 있어야 다중 선택이 UI 레벨에서 차단되지 않는다.
+  await expect(page.getByTestId('file-input')).toHaveAttribute('multiple', '')
+
+  // 파일 2개를 한 번에 선택 → 각각 별도 POST 요청으로 순차 업로드.
+  await page.getByTestId('file-input').setInputFiles([
+    { name: 'one.txt', mimeType: 'text/plain', buffer: Buffer.from('one') },
+    { name: 'two.txt', mimeType: 'text/plain', buffer: Buffer.from('two') },
+  ])
+
+  await expect(page.getByText('one.txt')).toBeVisible()
+  await expect(page.getByText('two.txt')).toBeVisible()
+  await expect(page.getByText('2개 파일 업로드 완료')).toBeVisible()
+  expect(uploadedNames.sort()).toEqual(['one.txt', 'two.txt'])
+})
+
 test('파일을 폴더로 이동', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   // 루트: 폴더 '문서'(10) + 파일 memo.txt(20). 이동 후 루트에서 파일 사라짐.
   const FOLDER_ID = 10
