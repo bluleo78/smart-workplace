@@ -187,9 +187,9 @@ export function DriveSidebar() {
           <Paperclip className="h-4 w-4 shrink-0" />
           첨부 모아보기
         </NavLink>
-        {/* 사용량 바 (#81) — 첨부와 같은 영역, 구분선 없이 아래에 */}
+        {/* 사용량 바 (#81) — 첨부와 같은 영역, 사이 구분선으로 분리 */}
         {quota && (
-          <div className="mt-3" data-testid="drive-usage-bar">
+          <div className="mt-3 border-t pt-3" data-testid="drive-usage-bar">
             <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
               <span>사용량</span>
               <span data-testid="drive-usage-text">
