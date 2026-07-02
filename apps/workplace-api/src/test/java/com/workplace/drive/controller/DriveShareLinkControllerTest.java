@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.drive.dto.CreatedShareLinkResponse;
 import com.workplace.drive.dto.ShareLinkResponse;
 import com.workplace.drive.service.DriveShareLinkService;
@@ -17,6 +18,7 @@ import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
@@ -36,7 +38,12 @@ import org.springframework.test.web.servlet.MockMvc;
 /** DriveShareLinkController WebMvcTest — 공유 링크 관리 HTTP 계약(생성/목록/폐기). */
 @SuppressWarnings("null")
 @WebMvcTest(DriveShareLinkController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class DriveShareLinkControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -48,6 +55,7 @@ class DriveShareLinkControllerTest {
 
   @MockitoBean private MembershipRepository membershipRepository;
   @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
   @MockitoBean private UserRepository userRepository;
 
   @BeforeEach

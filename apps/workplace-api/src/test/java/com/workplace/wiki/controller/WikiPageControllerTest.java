@@ -9,11 +9,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
@@ -40,7 +42,12 @@ import org.springframework.test.web.servlet.MockMvc;
 /** WikiPageController WebMvcTest — 낙관적 충돌 HTTP 계약(stale 저장 → 409). */
 @SuppressWarnings("null")
 @WebMvcTest(WikiPageController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class WikiPageControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -53,6 +60,7 @@ class WikiPageControllerTest {
 
   @MockitoBean private MembershipRepository membershipRepository;
   @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
   @MockitoBean private UserRepository userRepository;
 
   @BeforeEach

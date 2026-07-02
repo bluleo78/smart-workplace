@@ -9,12 +9,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.permission.service.PermissionService;
@@ -34,7 +36,12 @@ import org.springframework.test.web.servlet.MockMvc;
 /** NotificationController 라우팅·페이로드·인증 테스트. 서비스는 Mockito. */
 @SuppressWarnings("null")
 @WebMvcTest(controllers = NotificationController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class NotificationControllerTest {
 
   @Autowired MockMvc mockMvc;
@@ -47,6 +54,7 @@ class NotificationControllerTest {
 
   @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;
 
   @BeforeEach

@@ -16,6 +16,11 @@ test.describe('@smoke 설정 레이아웃 일관성', () => {
     await page.goto('/settings/mail')
     await expect(page.getByTestId('page-header')).toContainText('메일 설정')
   })
+  test('API 토큰 페이지가 공용 PageHeader 를 렌더한다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/users/me/api-tokens', [])
+    await page.goto('/settings/tokens')
+    await expect(page.getByTestId('page-header')).toContainText('API 토큰')
+  })
 
   // 구성원 관리 — SettingsPage 전환 후 PageHeader + 액션 버튼 검증
   test('구성원 페이지가 공용 PageHeader + 액션을 렌더한다', async ({ adminPage: page }) => {

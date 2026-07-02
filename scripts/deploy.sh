@@ -3,8 +3,9 @@ set -euo pipefail
 
 # Smart Workplace 운영 배포 스크립트
 # 이미지를 multiplatform 으로 빌드해 ghcr.io 에 푸시하고, 운영 디렉터리에서 pull+재기동한다.
-# Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|worker|all]
-# all = api + ai-agent + web + admin + worker (5개 앱 전부, DB 는 표준 postgres:16 이라 빌드 대상 아님)
+# Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|worker|mcp|all]
+# all = api + ai-agent + web + admin + worker + mcp (6개 앱 전부, DB 는 표준 postgres:16 이라 빌드 대상 아님)
+# mcp 는 docker-compose.prod.yml 서비스명(mcp)과 맞춘 것 — 이미지/Dockerfile 경로는 workplace-mcp.
 #
 # 환경변수:
 #   BUILD_ONLY=1 — 빌드+푸시만 수행하고 배포(pull+재기동)·검증 단계는 건너뛴다.
@@ -49,7 +50,9 @@ build_and_push() {
       ;;
     web)
       log "Building + pushing $app (context: project root)"
-      docker buildx build --platform "$PLATFORM" -t "$REGISTRY/web:latest" -f apps/workplace-web/Dockerfile --push .
+      # VITE_MCP_URL 미설정 시 mcp 서비스 호스트 공개 포트(10002) 기본값으로 폴백(무해).
+      docker buildx build --platform "$PLATFORM" -t "$REGISTRY/web:latest" -f apps/workplace-web/Dockerfile \
+        --build-arg VITE_MCP_URL="${VITE_MCP_URL:-http://localhost:10002}" --push .
       ;;
     admin)
       log "Building + pushing $app (context: project root)"
@@ -60,8 +63,12 @@ build_and_push() {
       log "Building + pushing $app (context: apps/workplace-worker/)"
       docker buildx build --platform "$PLATFORM" -t "$REGISTRY/worker:latest" --push apps/workplace-worker/
       ;;
+    mcp)
+      log "Building + pushing $app (context: project root)"
+      docker buildx build --platform "$PLATFORM" -t "$REGISTRY/workplace-mcp:latest" -f apps/workplace-mcp/Dockerfile --push .
+      ;;
     *)
-      error "Unknown app: $app (valid: api, ai-agent, web, admin, worker)"
+      error "Unknown app: $app (valid: api, ai-agent, web, admin, worker, mcp)"
       ;;
   esac
 }
@@ -98,7 +105,7 @@ if ! grep -q "ghcr.io" "$HOME/.docker/config.json" 2>/dev/null; then
 fi
 
 if [ "$TARGET" = "all" ]; then
-  APPS=("api" "ai-agent" "web" "admin" "worker")
+  APPS=("api" "ai-agent" "web" "admin" "worker" "mcp")
 else
   APPS=("$TARGET")
 fi

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.chat.dto.AddChatMemberRequest;
 import com.workplace.chat.service.ChatMembershipService;
 import com.workplace.global.config.SecurityConfig;
@@ -15,6 +16,7 @@ import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
@@ -31,7 +33,12 @@ import org.springframework.test.web.servlet.MockMvc;
 /** ChatThreadMemberController @WebMvcTest. */
 @SuppressWarnings("null")
 @WebMvcTest(ChatThreadMemberController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class ChatThreadMemberControllerTest {
 
   @Autowired MockMvc mockMvc;
@@ -43,6 +50,7 @@ class ChatThreadMemberControllerTest {
 
   @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;
 
   @BeforeEach

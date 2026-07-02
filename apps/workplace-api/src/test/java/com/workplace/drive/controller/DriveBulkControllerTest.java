@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.drive.service.DriveBulkService;
 import com.workplace.drive.service.DriveFolderService;
 import com.workplace.drive.service.DriveZipService;
@@ -18,6 +19,7 @@ import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
@@ -33,7 +35,12 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SuppressWarnings("null")
 @WebMvcTest(DriveBulkController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class DriveBulkControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -46,6 +53,7 @@ class DriveBulkControllerTest {
   @MockitoBean private PermissionService permissionService;
   @MockitoBean private MembershipRepository membershipRepository;
   @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
   @MockitoBean private UserRepository userRepository;
 
   @BeforeEach

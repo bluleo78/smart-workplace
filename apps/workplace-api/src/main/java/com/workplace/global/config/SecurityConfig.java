@@ -3,6 +3,7 @@ package com.workplace.global.config;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
@@ -31,6 +32,8 @@ public class SecurityConfig {
   private final JwtAuthenticationFilter jwtAuthenticationFilter;
   // Phase 5a — AGENT 인증 (Bearer ak_...) 는 JWT 보다 먼저 시도
   private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
+  // 사용자 PAT 인증 (Bearer swp_...) 도 JWT 보다 먼저 시도 (ak_/swp_/JWT 는 prefix 로 상호 배타)
+  private final UserTokenAuthenticationFilter userTokenAuthenticationFilter;
   private final CorsProperties corsProperties;
 
   @Bean
@@ -100,7 +103,9 @@ public class SecurityConfig {
                     }))
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
         // ak_ 토큰을 JWT 보다 먼저 시도 (둘 다 Bearer 헤더 — prefix 로 분기)
-        .addFilterBefore(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class);
+        .addFilterBefore(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class)
+        // swp_ 토큰도 JWT 보다 먼저 시도 (ak_/swp_/JWT 상호 배타)
+        .addFilterBefore(userTokenAuthenticationFilter, JwtAuthenticationFilter.class);
 
     return http.build();
   }

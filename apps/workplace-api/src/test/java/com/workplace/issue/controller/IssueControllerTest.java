@@ -14,11 +14,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
@@ -48,7 +50,12 @@ import org.springframework.test.web.servlet.MockMvc;
 /** IssueController @WebMvcTest. JWT/Permission/Service 모두 mock. */
 @SuppressWarnings("null")
 @WebMvcTest(IssueController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class IssueControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -65,6 +72,7 @@ class IssueControllerTest {
   @MockitoBean private MembershipRepository membershipRepository;
 
   @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
 
   @MockitoBean private UserRepository userRepository;
 

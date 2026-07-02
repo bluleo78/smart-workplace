@@ -13,6 +13,11 @@ RUN pnpm install --frozen-lockfile --filter @smart-workplace/workplace-web...
 
 COPY apps/workplace-web/ ./apps/workplace-web/
 
+# 운영 도메인에서 MCP 연결 명령이 localhost 로 안내되지 않도록 빌드 시점에 주입.
+# Vite 는 import.meta.env.VITE_* 를 빌드 시점 정적 인라인하므로 런타임 env 로는 불가.
+ARG VITE_MCP_URL
+ENV VITE_MCP_URL=$VITE_MCP_URL
+
 RUN pnpm --filter @smart-workplace/workplace-web build
 
 # === Stage 2: Nginx ===

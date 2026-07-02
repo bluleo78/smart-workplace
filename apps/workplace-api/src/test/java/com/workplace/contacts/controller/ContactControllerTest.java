@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.contacts.dto.ContactPage;
 import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.MemberDetail;
@@ -26,6 +27,7 @@ import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
@@ -43,7 +45,12 @@ import org.springframework.test.web.servlet.MockMvc;
 /** 연락처 조회 컨트롤러 라우팅·상태코드. 서비스는 Mockito. */
 @SuppressWarnings("null")
 @WebMvcTest(controllers = ContactController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class ContactControllerTest {
 
   @Autowired MockMvc mockMvc;
@@ -55,6 +62,7 @@ class ContactControllerTest {
 
   @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;
 
   @BeforeEach

@@ -84,6 +84,7 @@ const M365CallbackPage = lazy(() => import('./pages/oauth/M365CallbackPage'))
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettingsPage'))
 const MailSettingsPage = lazy(() => import('./pages/settings/MailSettingsPage'))
 const AssistantSettingsPage = lazy(() => import('./pages/settings/AssistantSettingsPage'))
+const TokenSettingsPage = lazy(() => import('./pages/settings/TokenSettingsPage'))
 const SettingsModuleLayout = lazy(() =>
   import('./components/layout/SettingsModuleLayout').then((m) => ({ default: m.SettingsModuleLayout })),
 )
@@ -190,6 +191,7 @@ export default function App() {
                 <Route path="settings/profile" element={<ProfileSettingsPage />} />
                 <Route path="settings/mail" element={<MailSettingsPage />} />
                 <Route path="settings/assistant" element={<AssistantSettingsPage />} />
+                <Route path="settings/tokens" element={<TokenSettingsPage />} />
 
                 {/* 워크스페이스 관리 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
                 <Route element={<AdminRoute />}>

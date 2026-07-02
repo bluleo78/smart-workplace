@@ -10,11 +10,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.messaging.dto.CreateDmRequest;
 import com.workplace.messaging.dto.DmParticipant;
 import com.workplace.messaging.dto.DmResponse;
@@ -38,7 +40,12 @@ import org.springframework.test.web.servlet.MockMvc;
 /** DM 컨트롤러 라우팅·상태코드 매핑 테스트. 서비스는 Mockito. */
 @SuppressWarnings("null")
 @WebMvcTest(controllers = DmController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class DmControllerTest {
 
   @Autowired MockMvc mockMvc;
@@ -51,6 +58,7 @@ class DmControllerTest {
 
   @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;
 
   @BeforeEach

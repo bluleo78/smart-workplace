@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.drive.dto.DriveFolderPathSegment;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.service.DriveFolderService;
@@ -14,6 +15,7 @@ import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
@@ -30,7 +32,12 @@ import org.springframework.test.web.servlet.MockMvc;
 /** DriveFolderController — GET /folders/{id}/path 엔드포인트 WebMvcTest. */
 @SuppressWarnings("null")
 @WebMvcTest(DriveFolderController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class DriveFolderPathControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -42,6 +49,7 @@ class DriveFolderPathControllerTest {
 
   @MockitoBean private MembershipRepository membershipRepository;
   @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
   @MockitoBean private UserRepository userRepository;
 
   /** 인증 토큰 검증 — userId=1 반환. */

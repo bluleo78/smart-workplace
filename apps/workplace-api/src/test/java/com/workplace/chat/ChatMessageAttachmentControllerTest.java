@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.chat.controller.ChatMessageAttachmentController;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
@@ -19,6 +20,7 @@ import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
@@ -41,7 +43,12 @@ import org.springframework.test.web.servlet.MockMvc;
  * 차단이 올바른 HTTP 상태로 응답하는지 확인한다.
  */
 @WebMvcTest(ChatMessageAttachmentController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class})
+@Import({
+  SecurityConfig.class,
+  JwtAuthenticationFilter.class,
+  ApiKeyAuthenticationFilter.class,
+  UserTokenAuthenticationFilter.class
+})
 class ChatMessageAttachmentControllerTest {
 
   @Autowired MockMvc mockMvc;
@@ -51,6 +58,7 @@ class ChatMessageAttachmentControllerTest {
   @MockitoBean PermissionService permissionService;
   @MockitoBean MembershipRepository membershipRepository;
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
+  @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;
 
   @BeforeEach

@@ -18,6 +18,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat)
 - 로컬 API: 포트 9090 (firehub-api 8090 과 분리)
 - 로컬 Web: 포트 6173 (firehub-web 5173 과 분리)
 - 로컬 AI Agent: 포트 7070
+- 로컬 MCP: 포트 7090
 
 ## 이슈 관리
 

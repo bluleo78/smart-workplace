@@ -1113,6 +1113,22 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
   }
 
+  /** 사용자 PAT — 존재하지 않거나 caller 와 불일치하는 토큰 id → 404. */
+  @ExceptionHandler(com.workplace.auth.exception.UserTokenNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleUserTokenNotFound(
+      com.workplace.auth.exception.UserTokenNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 사용자 PAT — 활성 테넌트 미선택 세션에서 발급 시도 → 400. */
+  @ExceptionHandler(com.workplace.auth.exception.ActiveTenantRequiredException.class)
+  public ResponseEntity<ErrorResponse> handleActiveTenantRequired(
+      com.workplace.auth.exception.ActiveTenantRequiredException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   /** Phase 5c-2 후속 (#33) — AGENT 의 active OAuth 토큰 없음 → 404. */
   @ExceptionHandler(com.workplace.auth.exception.OAuthTokenNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleOAuthTokenNotFound(

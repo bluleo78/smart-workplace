@@ -111,11 +111,37 @@ services:
       retries: 5
     restart: unless-stopped
 
+  mcp:
+    image: ghcr.io/bluleo78/smart-workplace/workplace-mcp:latest
+    build:
+      context: .
+      dockerfile: apps/workplace-mcp/Dockerfile
+    environment:
+      PORT: "7090"
+      WORKPLACE_API_BASE_URL: http://api:9090/api/v1
+    ports:
+      - "10002:7090"   # 외부 MCP 클라이언트 공개 (web 10000 / admin 10001 다음)
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - workplace-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   web:
     image: ghcr.io/bluleo78/smart-workplace/web:latest
     build:
       context: .
       dockerfile: apps/workplace-web/Dockerfile
+      args:
+        # mcp 서비스의 호스트 공개 포트(10002)를 기본값으로 사용 — 미설정 시 현행(localhost:7090)과
+        # 다른 무해한 폴백(운영 도메인 기준 실제 접근 가능한 포트).
+        VITE_MCP_URL: ${VITE_MCP_URL:-http://localhost:10002}
     ports:
       - "${WEB_PORT:-10000}:80"
     depends_on:

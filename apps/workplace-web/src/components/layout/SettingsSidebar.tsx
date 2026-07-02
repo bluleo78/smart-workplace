@@ -1,6 +1,6 @@
 // apps/workplace-web/src/components/layout/SettingsSidebar.tsx
 // 설정 앱 2차 사이드바 — 개인 설정(전체) + 워크스페이스 관리(어드민 전용) 2그룹.
-import { Bot, FileText, Mail, Settings, Shield, User, Users } from 'lucide-react'
+import { Bot, FileText, KeyRound, Mail, Settings, Shield, User, Users } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -11,6 +11,7 @@ const PERSONAL_ITEMS = [
   { label: '프로필', href: '/settings/profile', icon: User },
   { label: '메일 계정', href: '/settings/mail', icon: Mail },
   { label: 'AI 비서', href: '/settings/assistant', icon: Bot },
+  { label: 'API 토큰', href: '/settings/tokens', icon: KeyRound },
 ]
 
 // 워크스페이스 관리 — 어드민에게만 노출.
