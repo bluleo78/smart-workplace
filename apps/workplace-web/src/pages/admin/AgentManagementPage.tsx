@@ -77,8 +77,8 @@ function fmtDate(iso: string | null): string {
 }
 
 export default function AgentManagementPage() {
-  // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 숨김 — 워크스페이스 에이전트만 노출.
-  const [includePersonal, setIncludePersonal] = useState(false);
+  // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 표시 — 토글로 숨김 가능.
+  const [includePersonal, setIncludePersonal] = useState(true);
   const agents = useAgents(includePersonal);
   const deleteAgent = useDeleteAgent();
   // 공통 비서 상태 — 테이블 배지 + 빈 상태 배너에 사용.

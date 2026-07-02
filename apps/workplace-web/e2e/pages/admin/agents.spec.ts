@@ -50,7 +50,9 @@ async function setupStatic(page: import('@playwright/test').Page) {
   let deleteCount = 0;
   let revokeCount = 0;
 
-  await page.route(/\/api\/v1\/admin\/agents$/, (route) => {
+  // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
+  // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
+  await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({
         status: 200,
@@ -148,7 +150,8 @@ test.describe('/admin/agents', () => {
       let nextKeyId = 1;
 
       // /admin/agents 컬렉션 — GET 목록 + POST 생성.
-      await page.route(/\/api\/v1\/admin\/agents$/, (route) => {
+      // includePersonal 기본값이 true 로 바뀌어 GET 이 쿼리스트링을 동반하므로 경로만 매칭.
+      await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
         const method = route.request().method();
         if (method === 'GET') {
           return route.fulfill({

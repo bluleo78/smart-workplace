@@ -99,6 +99,23 @@ class UserServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void getUsers_excludesAgentUsers() {
+    // 구성원 관리 목록(getUsers)은 HUMAN 전용 — 같은 테넌트에 속한 AGENT 사용자는 제외되어야 한다.
+    String tag = "kindtag-" + System.nanoTime();
+    Long humanUser = seedUser(tag + "-human@example.com", tag);
+    membershipRepository.create(humanUser, TENANT_ID, "ACTIVE");
+
+    Long agentUser = seedAgent(tag + "-agent");
+    membershipRepository.create(agentUser, TENANT_ID, "ACTIVE");
+
+    PageResponse<UserResponse> result = userService.getUsers(tag, 0, 20);
+    List<Long> ids = result.content().stream().map(UserResponse::id).toList();
+
+    assertThat(ids).contains(humanUser);
+    assertThat(ids).doesNotContain(agentUser);
+  }
+
+  @Test
   void listByKind_excludesOtherTenantAgents() {
     // AGENT 목록(AGENT 관리 화면)도 active 테넌트로 스코프된다 — 다른 테넌트 AGENT 누출 방지.
     Long agentT1 = seedAgent("agent-t1-" + System.nanoTime());
