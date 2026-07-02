@@ -106,4 +106,92 @@ test.describe('Saved View 사이드바 고정', () => {
     await pinnedLink.click()
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?priority=HIGH`))
   })
+
+  test('고정된 뷰 삭제 → 사이드바 고정 뷰 섹션도 즉시 갱신됨 (#614)', { tag: '@smoke' }, async ({
+    authenticatedPage: page,
+  }) => {
+    // 뷰가 이미 고정된 상태로 시작 — 삭제 시 pinnedViews invalidate 여부만 검증.
+    let deleted = false
+
+    await page.route('**/api/v1/projects?*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          content: [createProject({ id: 1, key: KEY, name: '워크플레이스' })],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+        }),
+      }),
+    )
+    await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+    )
+    await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+    await page.route(`**/api/v1/projects/${KEY}/types`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse([], null)),
+        }),
+    )
+
+    // 저장된 뷰 목록 — 삭제 후에는 빈 배열 반환.
+    await page.route(`**/api/v1/projects/${KEY}/saved-views`, (route) => {
+      const views: SavedViewResponse[] = deleted
+        ? []
+        : [
+            {
+              id: 10, name: '높은 우선순위', query: 'priority=HIGH', visibility: 'PRIVATE',
+              ownerId: 1, mine: true, pinned: true, createdAt: '', updatedAt: '',
+            },
+          ]
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(views) })
+    })
+
+    // 삭제 DELETE.
+    await page.route(`**/api/v1/projects/${KEY}/saved-views/10`, (route) => {
+      deleted = true
+      return route.fulfill({ status: 204, body: '' })
+    })
+
+    // 사이드바 고정뷰 — 삭제 전엔 1건, 삭제 후엔 0건.
+    await page.route('**/api/v1/me/pinned-views', (route) => {
+      const items: PinnedSavedViewResponse[] = deleted
+        ? []
+        : [
+            {
+              id: 10, projectId: 1, projectKey: KEY, projectName: '워크플레이스',
+              name: '높은 우선순위', query: 'priority=HIGH', createdAt: '',
+            },
+          ]
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items) })
+    })
+
+    await page.goto(`/projects/${KEY}`)
+
+    // 삭제 전 — 사이드바 고정 뷰 섹션에 노출됨.
+    await expect(page.getByTestId('sidebar-pinned-views')).toBeVisible()
+    await expect(page.getByTestId('pinned-view-10')).toBeVisible()
+
+    // 삭제 — AlertDialog 확인 후 DELETE.
+    await page.getByTestId('view-chip-10').hover()
+    await page.getByTestId('view-chip-menu-10').click()
+    await page.getByTestId('view-delete-10').click()
+    await expect(page.getByRole('alertdialog')).toBeVisible()
+    await page.getByRole('button', { name: '삭제' }).last().click()
+
+    // 삭제 후 — 상단 칩뿐 아니라 사이드바 고정 뷰 섹션도 즉시 사라져야 한다(pinnedViews invalidate).
+    await expect(page.getByTestId('view-chip-10')).toHaveCount(0)
+    await expect(page.getByTestId('sidebar-pinned-views')).toHaveCount(0)
+  })
 })

@@ -57,6 +57,9 @@ export function useDeleteSavedView(projectKey: string) {
     mutationFn: (id: number) => deleteSavedView(projectKey, id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['savedViews', projectKey] });
+      // 고정된 뷰가 삭제된 경우 사이드바(useMyPinnedViews)도 갱신되어야 함(#614).
+      // 고정 여부와 무관하게 항상 무효화(비용 낮음, usePinSavedView 와 동일 패턴).
+      qc.invalidateQueries({ queryKey: ['pinnedViews'] });
       toast.success('뷰를 삭제했습니다');
     },
     onError: (e) => handleApiError(e, '뷰 삭제에 실패했습니다'),
