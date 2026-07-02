@@ -63,13 +63,18 @@ class DashboardEndpointTest extends IntegrationTestBase {
 
   @Test
   void get_returns_default_when_unset() throws Exception {
+    // #브레인스토밍 2026-07-02: synthesis/quick_actions/priority_quadrant 를 기본 레이아웃 맨 앞에
+    // 추가(DashboardService.DEFAULT_WIDGETS 8개) — 그리드 통합 아키텍처 전환.
     long userId = createUser("d");
     mvc.perform(get("/api/v1/me/dashboard").header("Authorization", "Bearer " + tokenFor(userId)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.widgets.length()").value(5))
-        .andExpect(jsonPath("$.widgets[0].type").value("my_tasks"))
-        .andExpect(jsonPath("$.widgets[0].count").value(5))
-        .andExpect(jsonPath("$.widgets[0].hidden").value(false));
+        .andExpect(jsonPath("$.widgets.length()").value(8))
+        .andExpect(jsonPath("$.widgets[0].type").value("synthesis"))
+        .andExpect(jsonPath("$.widgets[1].type").value("quick_actions"))
+        .andExpect(jsonPath("$.widgets[2].type").value("priority_quadrant"))
+        .andExpect(jsonPath("$.widgets[3].type").value("my_tasks"))
+        .andExpect(jsonPath("$.widgets[3].count").value(5))
+        .andExpect(jsonPath("$.widgets[3].hidden").value(false));
   }
 
   @Test

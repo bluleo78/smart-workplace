@@ -1,10 +1,13 @@
 import {
+  AlertTriangle,
   Bell,
   CalendarDays,
   ClipboardList,
   type LucideIcon,
   Mail,
   MessageSquare,
+  Plus,
+  Sparkles,
 } from 'lucide-react'
 import { type ComponentType, lazy, type LazyExoticComponent } from 'react'
 
@@ -26,6 +29,9 @@ export interface DashboardWidget {
   deepLink?: string
   // 피드성 위젯은 그리드에서 2행을 차지(row-span). 게이트 §1.2: 활동/알림만 tall.
   tall?: boolean
+  // #브레인스토밍 2026-07-02: 카운트 스트립·2x2 분면·가로 버튼처럼 1/3 폭에 찌그러지는 위젯용 —
+  // true 면 lg:col-span-3(그리드 전체 폭). tall 과 독립적으로 조합 가능.
+  wide?: boolean
 }
 
 // 키 → 위젯 정의. 새 위젯 추가 = 항목 한 줄.
@@ -67,6 +73,27 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     icon: Mail,
     Component: lazy(() => import('./dashboard/UnreadMailBody')),
     deepLink: '/mail',
+  },
+  synthesis: {
+    type: 'synthesis',
+    title: '요약',
+    icon: AlertTriangle,
+    Component: lazy(() => import('./dashboard/SynthesisBody')),
+    wide: true,
+  },
+  quick_actions: {
+    type: 'quick_actions',
+    title: '빠른 액션',
+    icon: Plus,
+    Component: lazy(() => import('./dashboard/QuickActionsBody')),
+    wide: true,
+  },
+  priority_quadrant: {
+    type: 'priority_quadrant',
+    title: 'AI 우선순위',
+    icon: Sparkles,
+    Component: lazy(() => import('./dashboard/PriorityQuadrantBody')),
+    wide: true,
   },
 }
 

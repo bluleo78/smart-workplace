@@ -14,6 +14,7 @@ import type {
 } from '../../src/types/dashboard'
 import type { ChannelResponse, DmResponse } from '../../src/types/messaging'
 import type { NotificationResponse } from '../../src/types/notification'
+import type { PriorityItemsResponse } from '../../src/api/priorityItems'
 
 // 홈 고정 대시보드 E2E — 저장 레이아웃 순서로 5종 위젯 렌더 + 위젯별 격리(로딩/에러).
 // 백엔드 없이 /me/dashboard·위젯별 엔드포인트를 모킹해 검증한다.
@@ -340,7 +341,7 @@ test('합성 — 카운트 스트립이 모킹된 카운트로 렌더된다', as
       createdAt: '2026-06-16T00:00:00Z',
     },
   ])
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis', 'my_tasks']))
   await page.goto('/')
 
   const counts = page.getByTestId('dashboard-counts')
@@ -388,7 +389,7 @@ test('합성 — 멘션 셀 클릭 시 라우팅 대신 알림 인박스 패널�
       createdAt: '2026-06-16T00:00:00Z',
     },
   ])
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis', 'my_tasks']))
   await page.goto('/')
 
   // 패널은 처음엔 닫혀 있다(Radix Popover — 닫힘 시 미렌더).
@@ -425,7 +426,7 @@ test('합성 — 주의 필요 리스트가 행을 렌더하고 행 클릭 시 �
     history: [],
     attachments: [],
   })
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis', 'my_tasks']))
   await page.goto('/')
 
   const attention = page.getByTestId('dashboard-attention')
@@ -443,7 +444,7 @@ test('합성 — 급한 항목이 없으면 차분한 빈 상태를 보인다', 
   authenticatedPage: page,
 }) => {
   // mockWidgets 미호출 → 픽스처 기본(전부 빈) 사용. 마감/멘션/중요메일 없음.
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
   await page.goto('/')
 
   await expect(page.getByTestId('dashboard-attention-empty')).toBeVisible()
@@ -456,7 +457,7 @@ test('합성 — 빈 상태에서 주의 필요 헤더 아이콘이 중립 색(t
   authenticatedPage: page,
 }) => {
   // 항목 없음 → 빈 상태. mockWidgets 미호출 → 픽스처 기본(전부 빈) 사용.
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
   await page.goto('/')
 
   const attention = page.getByTestId('dashboard-attention')
@@ -479,7 +480,7 @@ test('합성 — 주의 항목이 있을 때 헤더 아이콘은 경고 빨간�
       createIssue({ id: 1, projectKey: 'WP', number: 7, title: '지연된 이슈', dueDate: '2020-01-01' }),
     ]),
   )
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis', 'my_tasks']))
   await page.goto('/')
 
   const attention = page.getByTestId('dashboard-attention')
@@ -489,7 +490,7 @@ test('합성 — 주의 항목이 있을 때 헤더 아이콘은 경고 빨간�
 })
 
 test('빠른 액션 — 각 버튼이 실제 라우트로 연결된다', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['quick_actions']))
   await page.goto('/')
 
   const qa = page.getByTestId('dashboard-quickactions')
@@ -839,7 +840,8 @@ test('편집(B1) — 위젯 추가 모달: 기본 위젯 추가 → draft 반영
   authenticatedPage: page,
 }) => {
   await mockWidgets(page)
-  // 저장본에 my_tasks 만 존재 → 나머지 4종은 draft 부재 → 모달 "기본" 카테고리에 노출.
+  // 저장본에 my_tasks 만 존재 → 나머지 7종(synthesis/quick_actions/priority_quadrant 포함)은
+  // draft 부재 → 모달 "기본" 카테고리에 노출.
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
   const putCapture = await mockApi(
     page,
@@ -856,7 +858,7 @@ test('편집(B1) — 위젯 추가 모달: 기본 위젯 추가 → draft 반영
   const modal = page.getByTestId('add-widget-modal')
   await expect(modal).toBeVisible()
   await modal.getByTestId('add-widget-category').filter({ hasText: '기본' }).click()
-  await expect(modal.locator('[data-testid="add-widget-card"][data-widget-type]')).toHaveCount(4)
+  await expect(modal.locator('[data-testid="add-widget-card"][data-widget-type]')).toHaveCount(7)
 
   // unread_mail 카드 클릭 → 즉시 추가(draft 반영) + 모달 닫힘.
   await modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]').click()
@@ -1076,7 +1078,7 @@ test('합성 — 메일은 "지금 신경 쓸 일"에 끼지 않고, 최상위�
       createIssue({ id: 1, projectKey: 'WP', number: 7, title: '지연된 이슈', dueDate: '2020-01-01' }),
     ]),
   )
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis', 'my_tasks']))
   await page.goto('/')
 
   const attention = page.getByTestId('dashboard-attention')
@@ -1315,6 +1317,7 @@ test('합성 — 분류 활성 시 "안 읽음" KPI 가 "회신 필요 N"으로 
   authenticatedPage: page,
 }) => {
   await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
   await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
     unreadCount: 9,
     needsReplyCount: 4,
@@ -1333,6 +1336,7 @@ test('합성 — 회신 필요 메일은 "지금 신경 쓸 일" 행으로(이�
   authenticatedPage: page,
 }) => {
   await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
   await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
     unreadCount: 3,
     needsReplyCount: 1,
@@ -1377,11 +1381,71 @@ test('합성 — 회신 필요 메일은 "지금 신경 쓸 일" 행으로(이�
   await expect(attention).not.toContainText('뉴스레터')
 })
 
+// ── Task 11 — 정렬 키를 AI 우선순위 점수(usePriorityItems)로 교체 ─────────────────
+
+test('합성 — AI 점수가 있는 항목은 소스 고정 순위 대신 점수합산 내림차순으로 정렬된다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // 이슈 마감(과거 → urgency 0) + 멘션(urgency 1) — 소스 고정 순위라면 이슈가 항상 위.
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([
+      createIssue({ id: 1, projectKey: 'WP', number: 7, title: '이슈 A', dueDate: '2020-01-01' }),
+    ]),
+  )
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    {
+      id: 2,
+      type: 'COMMENTED',
+      actorId: 3,
+      actorName: '홍길동',
+      actorKind: 'HUMAN',
+      issueId: 2,
+      projectKey: 'WP',
+      issueNumber: 8,
+      issueTitle: '멘션 B',
+      commentId: 1,
+      eventId: null,
+      eventTitle: null,
+      eventStartsAt: null,
+      read: false,
+      createdAt: '2026-06-16T00:00:00Z',
+    },
+  ] satisfies NotificationResponse[])
+  // priority-items 목으로 멘션 쪽에 더 높은 점수를 줘서 순서가 뒤집히는지 확인.
+  await mockApi(page, 'GET', '/api/v1/me/priority-items', {
+    items: [
+      { sourceType: 'ISSUE_DUE', sourceId: '1', title: '이슈 A', deepLink: '/x', importanceScore: 10, urgencyScore: 10, reason: '낮음' },
+      { sourceType: 'MENTION', sourceId: '2', title: '멘션 B', deepLink: '/y', importanceScore: 90, urgencyScore: 90, reason: '높음' },
+    ],
+  } satisfies PriorityItemsResponse)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
+  await page.goto('/')
+
+  const rows = page.getByTestId('dashboard-attention').locator('a, li a')
+  await expect(rows.first()).toContainText('멘션 B')
+})
+
+test('합성 — AI 점수가 아직 없는 신규 후보는 기존 소스 고정 순위로 폴백한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/me/priority-items', { items: [] } satisfies PriorityItemsResponse)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
+  await page.goto('/')
+  // priority-items 가 빈 배열이어도(아직 배치가 못 돈 상태) 기존 "지금 신경 쓸 일" 목록이
+  // 정상 렌더되는지(폴백 정상 동작 — 정렬 실패로 전체가 깨지지 않음).
+  await expect(page.getByTestId('dashboard-attention')).toBeVisible()
+})
+
 test('합성 — 분류 OFF 면 회신 필요 CTA 가 뜨고, dismiss 하면 사라지고 재방문해도 유지', async ({
   authenticatedPage: page,
 }) => {
   // mockWidgets 의 mail() 기본값이 classificationActive=false 이므로 CTA 표시 조건 충족.
   await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
   await page.goto('/')
   const cta = page.getByTestId('dashboard-mail-cta')
   await expect(cta).toBeVisible()
@@ -1402,8 +1466,8 @@ test('메일 읽음 후 홈 회신 필요 KPI 가 즉시 갱신된다 (#474)', a
   authenticatedPage: page,
 }) => {
   await mockWidgets(page)
-  // SynthesisLayer 는 항상 렌더(layout 불문). dashboard-counts 사용을 위해 synthesis 전용 deps 스텁 추가.
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  // dashboard-counts 사용을 위해 synthesis 위젯을 레이아웃에 포함해야 렌더된다(고정 레이어 제거 이후).
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
 
   // mail-summary 동적 응답: 읽기 전 needsReplyCount=2 → 메시지 상세 GET 후 1.
   // mockWidgets 의 정적 mail-summary 라우트보다 나중에 등록 → 우선 적용(Playwright LIFO).
@@ -1860,8 +1924,8 @@ async function mockSynthesis(
     recent: [],
     ...overrides,
   } satisfies MessagingSummary)
-  // SynthesisLayer 는 dashboard 외부에 항상 렌더됨 — layout mock 은 빈 위젯 그리드(로딩 차단 방지).
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  // synthesis 위젯도 이제 그리드 항목이라 레이아웃에 명시해야 렌더된다(고정 레이어 제거 이후).
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
 }
 
 test('메시징 — 확인 필요 KPI 셀이 attentionCount 단일값(dedup)을 표시한다', async ({
@@ -2048,7 +2112,7 @@ test('합성 — 크로스앱 정렬: 이슈(urgency 0)→메시지(urgency 1)�
     ],
   } satisfies MessagingSummary)
 
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
   await page.goto('/')
 
   // "지금 신경 쓸 일" 영역에 세 행이 모두 있어야 한다.
@@ -2157,7 +2221,7 @@ test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회�
         ? route.fulfill({ status: 204, body: '' })
         : route.fallback(),
   )
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([]))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
   // SynthesisLayer 가 필요한 공통 스텁 (auth.fixture 기본 스텁 미포함 항목).
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
@@ -2298,4 +2362,56 @@ test('카탈로그 위젯 삭제 시 그리드에서 사라지고 저장 payload
   await expect.poll(() => putBody).not.toBeNull()
   const body = putBody as { widgets: { type: string }[] }
   expect(body.widgets.some((w) => w.type === 'issue_list')).toBe(false)
+})
+
+// ── AI 우선순위 위젯 + 그리드 통합 회귀 ──────────────────────────────────────
+
+test('AI 우선순위 위젯이 4분면으로 렌더되고 항목 클릭 시 원본으로 이동한다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['priority_quadrant']))
+  await mockApi(page, 'GET', '/api/v1/me/priority-items', {
+    items: [
+      {
+        sourceType: 'ISSUE_DUE',
+        sourceId: '1',
+        title: '이슈 A',
+        deepLink: '/projects/X/issues/1',
+        importanceScore: 90,
+        urgencyScore: 90,
+        reason: '고객 마감',
+      },
+    ],
+  } satisfies PriorityItemsResponse)
+  await page.goto('/')
+
+  await expect(page.getByTestId('priority-quadrant')).toBeVisible()
+  await page.getByRole('link', { name: '이슈 A' }).click()
+  await expect(page).toHaveURL(/\/projects\/X\/issues\/1/)
+})
+
+test('wide 위젯(synthesis)은 3열 그리드 전체 폭을 차지한다', async ({ authenticatedPage: page }) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
+  await page.goto('/')
+
+  const card = page
+    .getByTestId('dashboard-widget')
+    .filter({ has: page.getByTestId('dashboard-synthesis') })
+  await expect(card).toHaveClass(/lg:col-span-3/)
+})
+
+test('기존 저장 레이아웃에 신규 위젯 3종이 없으면 위젯 추가 모달에 노출된다', async ({
+  authenticatedPage: page,
+}) => {
+  // 기존(V116 이전) 사용자 레이아웃 — synthesis/quick_actions/priority_quadrant 미포함.
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-add-widget-open').click()
+  const modal = page.getByTestId('add-widget-modal')
+  await expect(modal.getByText('AI 우선순위')).toBeVisible()
+  await expect(modal.getByText('요약')).toBeVisible()
+  await expect(modal.getByText('빠른 액션')).toBeVisible()
 })

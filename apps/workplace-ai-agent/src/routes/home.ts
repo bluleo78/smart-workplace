@@ -9,7 +9,24 @@ import { z } from 'zod';
 
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
+import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 import { log } from '../logger.js';
+
+// 홈 우선순위 분류 요청 바디 검증 — workplace-api AiAgentPriorityClient 가 보내는 계약과 필드명이 정확히 일치해야 한다.
+const priorityClassifySchema = z.object({
+  items: z.array(
+    z.object({
+      sourceType: z.string(),
+      sourceId: z.string(),
+      title: z.string(),
+      context: z.string(),
+    }),
+  ),
+  assistantAgentId: z.number(),
+  model: z.string(),
+  maxTurns: z.number(),
+  timeoutMs: z.number(),
+});
 
 export const chatSchema = z.object({
   // 공백 전용 쿼리("   ")는 trim 후 min(1) 검사로 거부 (#430).
@@ -127,6 +144,22 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         res.write(`event: error\ndata: ${JSON.stringify({ message: 'chat_failed' })}\n\n`);
         res.end();
       }
+    }
+  });
+
+  // 홈 우선순위 분류 — workplace-api 가 동기 호출. 후보 항목별 중요도·긴급도 점수(0~100)+근거 반환.
+  // issue.ts 핸들러 팩토리 패턴 미러 — zod 검증 → 러너 호출 → 400/200/502 응답.
+  router.post('/home/priority-classify', async (req, res) => {
+    const parsed = priorityClassifySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues });
+      return;
+    }
+    try {
+      res.status(200).json(await runHomePriorityClassify(parsed.data, deps));
+    } catch (e) {
+      console.error('[home-priority-classify] 실패:', e instanceof Error ? e.message : String(e));
+      res.status(502).json({ error: 'home_priority_classify_failed' });
     }
   });
 

@@ -6,11 +6,16 @@ vi.mock('../agent/run-ai-chat.js', () => ({
   runAiChatStream: vi.fn(),
 }));
 
+vi.mock('../agent/run-home-priority-classify.js', () => ({
+  runHomePriorityClassify: vi.fn(),
+}));
+
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('../logger.js', () => ({ log: logMock }));
 
 import { createHomeRouter, chatSchema } from './home.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
+import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 
 // 비서 필드를 포함한 유효 페이로드(요청 본문 계약).
 function validBody(over: Record<string, unknown> = {}) {
@@ -182,6 +187,41 @@ describe('POST /ai/chat', () => {
     expect(deltaEvents).toHaveLength(1);
     expect(res.text).toContain('data: {"text":"연락처 3건을 정리했어요."}');
     expect(res.text).toContain('event: done');
+  });
+});
+
+describe('POST /home/priority-classify', () => {
+  const validBody = {
+    items: [{ sourceType: 'ISSUE_DUE', sourceId: '1', title: '이슈 A', context: '마감 오늘' }],
+    assistantAgentId: 99,
+    model: 'claude-sonnet-5',
+    maxTurns: 6,
+    timeoutMs: 90000,
+  };
+
+  it('유효하지 않은 바디는 400을 반환한다', async () => {
+    const res = await request(buildApp()).post('/home/priority-classify').send({});
+    expect(res.status).toBe(400);
+    expect(runHomePriorityClassify).not.toHaveBeenCalled();
+  });
+
+  it('러너를 호출해 200과 결과를 반환한다', async () => {
+    vi.mocked(runHomePriorityClassify).mockResolvedValue({
+      results: [{ sourceType: 'ISSUE_DUE', sourceId: '1', importanceScore: 80, urgencyScore: 90, reason: '고객 마감' }],
+    });
+    const res = await request(buildApp()).post('/home/priority-classify').send(validBody);
+    expect(res.status).toBe(200);
+    expect(res.body.results[0].importanceScore).toBe(80);
+    expect(runHomePriorityClassify).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantAgentId: 99 }),
+      expect.anything(),
+    );
+  });
+
+  it('러너 실패 시 502를 반환한다', async () => {
+    vi.mocked(runHomePriorityClassify).mockRejectedValue(new Error('boom'));
+    const res = await request(buildApp()).post('/home/priority-classify').send(validBody);
+    expect(res.status).toBe(502);
   });
 });
 

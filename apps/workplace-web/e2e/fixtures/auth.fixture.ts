@@ -76,6 +76,10 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   // 대시보드를 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
   await mockApi(page, 'GET', '/api/v1/me/dashboard', { widgets: [] })
   await mockApi(page, 'GET', '/api/v1/me/mail-summary', { unreadCount: 0, recent: [] })
+  // Task 11 — SynthesisLayer 가 usePriorityItems() 로 AI 우선순위 점수를 조회하므로
+  // 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
+  // 정렬을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
+  await mockApi(page, 'GET', '/api/v1/me/priority-items', { items: [] })
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
   await mockApi(page, 'GET', '/api/v1/messaging/channels', [])
   await mockApi(page, 'GET', '/api/v1/messaging/dms', [])

@@ -17,6 +17,7 @@ import { useMailSummary } from '@/hooks/queries/useMailSummary'
 import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useNotifications } from '@/hooks/queries/useNotifications'
+import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { parseUtcDate } from '@/lib/formatters'
 import type { IssueDueMarker } from '@/types/calendar'
 import type { NotificationResponse } from '@/types/notification'
@@ -53,6 +54,7 @@ interface AttentionRow {
   urgency: number // 작을수록 위(0=마감지남/오늘, 1=멘션·메시지, 2=회신필요메일)
   recency: number // 동일 urgency 내 최신순(epoch ms, 클수록 위)
   isAi?: boolean // AI 발굴 신호(메시지 aiReason, 메일 aiNeedsReply)
+  aiScore: number | null // AI 배치 점수합산(없으면 null, 정렬 시 urgency 폴백)
 }
 
 // 카운트 셀 — 로딩 시 셀만 스켈레톤(격리), 에러 시 '–'.
@@ -150,6 +152,14 @@ export function SynthesisLayer() {
   // 메시징 요약 — 회신대기 + AI 발굴 대화 카운트·recent 목록(홈 위젯과 동일 키 → TanStack Query dedupe).
   const messaging = useMessagingSummary()
 
+  // AI 우선순위 점수(15분 배치) — sourceType+sourceId 로 매칭해 정렬 키로 사용. 아직 배치가 못 돈
+  // 신규 후보는 매칭이 안 되므로 기존 소스 고정 순위로 폴백(정렬 실패로 전체가 깨지지 않도록 방어).
+  const priority = usePriorityItems()
+  const priorityScoreOf = (sourceType: string, sourceId: string): number | null => {
+    const match = priority.data?.items.find((i) => i.sourceType === sourceType && i.sourceId === sourceId)
+    return match ? match.importanceScore + match.urgencyScore : null
+  }
+
   // ── 카운트 산출(소스별 에러/로딩 격리) ──────────────────────────────────
   const dueItems: IssueDueMarker[] = dues.data ?? []
   const dueTodayCount = dueItems.filter((d) => d.dueDate === todayKey).length
@@ -187,6 +197,7 @@ export function SynthesisLayer() {
           urgency: 0,
           // 마감일만 있어 recency 는 마감일 epoch(지난 게 더 위로 오게 음수 정렬은 urgency 가 처리).
           recency: parseUtcDate(`${d.dueDate}T00:00:00Z`).getTime(),
+          aiScore: priorityScoreOf('ISSUE_DUE', String(d.issueId)),
         })
       }
     }
@@ -205,6 +216,7 @@ export function SynthesisLayer() {
           ariaLabel: `알림 열기: ${notifLabel(n)}`,
           urgency: 1,
           recency: parseUtcDate(n.createdAt).getTime(),
+          aiScore: priorityScoreOf('MENTION', String(n.id)),
         })
       }
     }
@@ -225,6 +237,7 @@ export function SynthesisLayer() {
           ariaLabel: `메일 열기: ${m.subject ?? '(제목 없음)'}`,
           urgency: 2,
           recency: parseUtcDate(m.receivedAt ?? '1970-01-01T00:00:00Z').getTime(),
+          aiScore: priorityScoreOf('MAIL_NEEDS_REPLY', String(m.id)),
         })
       }
     }
@@ -259,12 +272,19 @@ export function SynthesisLayer() {
         urgency: 1,
         recency: c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : 0,
         isAi: c.aiReason != null,
+        aiScore: priorityScoreOf('MESSAGE_ATTENTION', String(c.conversationId)),
       })
     }
   }
 
-  // 긴급도 우선, 동일 긴급도 내 최신순. 상위 5건.
-  rows.sort((a, b) => a.urgency - b.urgency || b.recency - a.recency)
+  // 긴급도 우선, 동일 긴급도 내 최신순 — 이었던 기존 규칙을 AI 점수합산 내림차순(동점/미매칭 시 기존
+  // urgency 폴백 → recency)으로 교체. aiScore 가 둘 다 있으면 그것으로, 하나라도 null 이면 기존 규칙.
+  rows.sort((a, b) => {
+    if (a.aiScore != null && b.aiScore != null) {
+      return b.aiScore - a.aiScore || b.recency - a.recency
+    }
+    return a.urgency - b.urgency || b.recency - a.recency
+  })
   const top = rows.slice(0, 5)
 
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리).

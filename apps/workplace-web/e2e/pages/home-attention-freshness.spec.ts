@@ -88,7 +88,8 @@ async function setup(page: Page) {
     },
   )
 
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  // synthesis 위젯도 그리드 항목이라 레이아웃에 명시해야 dashboard-counts/attention 이 렌더된다.
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis', 'my_tasks']))
 }
 
 test('합성 신선도 — 마감일을 지우면 "오늘 마감" KPI 가 즉시 0건이 된다 (my-issue-dues 무효화)', async ({

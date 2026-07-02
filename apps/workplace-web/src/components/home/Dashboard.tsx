@@ -1,8 +1,8 @@
-// 고정 홈 대시보드 — 게이트 §1 의 3-레이어 구조 + 위젯 그리드 편집 모드.
-//   ① 합성 레이어(카운트 + 주의 필요) → ② 빠른 액션 → ③ 소스별 위젯 그리드(커스터마이즈 대상).
-// ①② 는 그리드 밖(풀폭) 고정, ③ 만 사용자 저장 레이아웃 순서로 렌더한다.
-// 편집 모드는 ③(위젯 그리드)에만 적용: 표시/숨김·순서 이동·항목 수·설정(카탈로그)·삭제(카탈로그)·되돌리기 → 저장/취소.
-// 위젯은 두 종류다 — 시스템 위젯(고정 5종, 싱글턴, count 기반)과 카탈로그 위젯(9종, 다중 인스턴스, params 기반,
+// 홈 대시보드 — 위젯 그리드 + 편집 모드.
+// synthesis/quick_actions 같은 합성·액션 위젯도 다른 시스템 위젯과 동일하게 그리드 항목으로 렌더된다(고정
+// 풀폭 레이어 아님). wide 로 표시된 위젯만 lg:col-span-3(전체 폭)으로 넓게 렌더한다.
+// 편집 모드는 그리드 전체에 적용: 표시/숨김·순서 이동·항목 수·설정(카탈로그)·삭제(카탈로그)·되돌리기 → 저장/취소.
+// 위젯은 두 종류다 — 시스템 위젯(싱글턴, count 기반)과 카탈로그 위젯(다중 인스턴스, params 기반,
 // chatWidgetRegistry 컴포넌트를 그대로 재사용).
 import {
   ArrowDown,
@@ -28,8 +28,6 @@ import { useDashboardLayout, useSaveDashboardLayout } from '@/hooks/queries/useD
 import { handleApiError } from '@/lib/api-error'
 import type { DashboardWidgetConfig } from '@/types/dashboard'
 
-import { QuickActions } from './QuickActions'
-import { SynthesisLayer } from './synthesis/SynthesisLayer'
 import { AddWidgetModal } from './widgets/AddWidgetModal'
 import { allCatalogWidgets, type CatalogWidget, getCatalogWidget } from './widgets/catalogRegistry'
 import { getChatWidget } from './widgets/chatWidgetRegistry'
@@ -72,6 +70,8 @@ function WidgetCard({ entry }: { entry: ResolvedEntry }) {
   const deepLink = entry.kind === 'system' ? entry.def.deepLink : undefined
   const tall =
     entry.kind === 'system' ? Boolean(entry.def.tall) : entry.def.size === '1×2'
+  // wide: 카운트 스트립·2x2 분면처럼 1/3 폭에 찌그러지는 시스템 위젯 — lg:col-span-3(전체 폭).
+  const wide = entry.kind === 'system' && Boolean(entry.def.wide)
   // 알림처럼 deepLink 가 없는 위젯은 헤더 클릭 시 AppRail 의 인박스 패널을 연다(#274).
   const { openInbox } = useInboxPanel()
   const headerClassName =
@@ -84,7 +84,7 @@ function WidgetCard({ entry }: { entry: ResolvedEntry }) {
   )
   return (
     <Card
-      className={`border-l-2 border-l-ai-accent${tall ? ' lg:row-span-2' : ''}`}
+      className={`border-l-2 border-l-ai-accent${tall ? ' lg:row-span-2' : ''}${wide ? ' lg:col-span-3' : ''}`}
       data-testid="dashboard-widget"
       data-widget={entry.cfg.type}
       data-widget-id={entry.cfg.id}
@@ -94,10 +94,12 @@ function WidgetCard({ entry }: { entry: ResolvedEntry }) {
           <Link to={deepLink} className={headerClassName}>
             {headerInner}
           </Link>
-        ) : (
+        ) : entry.cfg.type === 'notifications' ? (
           <button type="button" onClick={() => openInbox()} className={headerClassName}>
             {headerInner}
           </button>
+        ) : (
+          <div className="flex items-center gap-2 text-muted-foreground">{headerInner}</div>
         )}
       </CardHeader>
       <CardContent>
@@ -162,6 +164,8 @@ function EditableWidgetCard({
   const Icon = entry.def.icon
   const title = entryTitle(entry)
   const { cfg } = entry
+  // wide: 카운트 스트립·2x2 분면처럼 1/3 폭에 찌그러지는 시스템 위젯 — lg:col-span-3(전체 폭).
+  const wide = entry.kind === 'system' && Boolean(entry.def.wide)
   return (
     <Card
       ref={cardRef}
@@ -171,7 +175,7 @@ function EditableWidgetCard({
       // 키보드 포커스 링(focus-visible:ring-2)도 같이 700ms 페이드 되어 포커스 이동이 굼떠 보이는 접근성
       // 회귀가 생긴다 — focus-visible:transition-none 으로 포커스 시에만 트랜지션을 무효화해 포커스 링은
       // 즉시 나타나게 하고, 강조 표시의 페이드 인/아웃(비-포커스 상태)은 그대로 유지한다.
-      className={`border-l-2 border-l-ai-accent transition-shadow duration-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:transition-none${cfg.hidden ? ' opacity-50' : ''}${highlighted ? ' ring-2 ring-ai-accent' : ''}`}
+      className={`border-l-2 border-l-ai-accent transition-shadow duration-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:transition-none${cfg.hidden ? ' opacity-50' : ''}${highlighted ? ' ring-2 ring-ai-accent' : ''}${wide ? ' lg:col-span-3' : ''}`}
       data-testid="dashboard-widget"
       data-widget={cfg.type}
       data-widget-id={cfg.id}
@@ -305,7 +309,7 @@ function DashboardSkeleton() {
   )
 }
 
-/** 홈 대시보드 — ①합성 ②빠른액션 ③소스 그리드(3-레이어). 그리드만 저장 레이아웃 기반 + 편집. */
+/** 홈 대시보드 — 위젯 그리드(저장 레이아웃 기반) + 편집. */
 export function Dashboard() {
   const { data, isLoading } = useDashboardLayout()
   const save = useSaveDashboardLayout()
@@ -538,13 +542,6 @@ export function Dashboard() {
         }
       />
       <div className="flex-1 space-y-4 overflow-auto p-4">
-        <div className={editing ? 'pointer-events-none opacity-60' : undefined}>
-          <SynthesisLayer />
-          <div className="mt-4">
-            <QuickActions />
-          </div>
-        </div>
-
         {editing && (
           <div
             className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ai-accent/40 bg-ai-accent/5 px-4 py-2"

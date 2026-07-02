@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 홈 대시보드 레이아웃 조회/저장. 위젯은 두 종류다 — 시스템 위젯(고정 5종, 타입당 1개, count 기반)과 카탈로그 위젯(9종, 인스턴스 다중 허용, id +
+ * 홈 대시보드 레이아웃 조회/저장. 위젯은 두 종류다 — 시스템 위젯(고정 8종, 타입당 1개, count 기반)과 카탈로그 위젯(9종, 인스턴스 다중 허용, id +
  * params 기반). 알 수 없는 위젯 키는 GET 에서 폐기, PUT 에서 거부하여 프론트가 안전하게 렌더하도록 보장한다.
  */
 @Service
@@ -27,11 +27,25 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class DashboardService {
 
-  /** 기본 레이아웃 위젯 키 — 미설정 사용자에게 반환. 순서가 곧 표시 순서. */
+  /**
+   * 기본 레이아웃 위젯 키 — 미설정 사용자에게 반환. 순서가 곧 표시 순서. synthesis/quick_actions/ priority_quadrant 는 wide(3열
+   * 그리드 col-span-3) 시스템 위젯 — Dashboard.tsx 가 렌더 시 폭을 분기한다.
+   */
   static final List<String> DEFAULT_WIDGETS =
-      List.of("my_tasks", "calendar_today", "notifications", "recent_chats", "unread_mail");
+      List.of(
+          "synthesis",
+          "quick_actions",
+          "priority_quadrant",
+          "my_tasks",
+          "calendar_today",
+          "notifications",
+          "recent_chats",
+          "unread_mail");
 
-  /** 시스템 위젯 — 타입당 1개(싱글턴), count 기반. */
+  /**
+   * 시스템 위젯 — 타입당 1개(싱글턴), count 기반. synthesis/quick_actions/priority_quadrant 는 count 를 받지만 컴포넌트가
+   * 무시한다(항목 수 고정).
+   */
   static final Set<String> SYSTEM_WIDGETS = Set.copyOf(DEFAULT_WIDGETS);
 
   /** 카탈로그 위젯 — AI 챗 위젯 컴포넌트를 재사용하는 다중 인스턴스 위젯. 키는 프론트 chatWidgetRegistry 의 WidgetType 과 일치해야 한다. */
