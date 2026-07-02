@@ -5,28 +5,25 @@
 //   auth.fixture 의 authenticatedPage + home-compose-widgets.spec.ts 의 SSE 스텁 패턴 재사용.
 
 import { expect, test } from '../fixtures/auth.fixture';
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 
 test('다건 제안 — 일부 승인 / 일부 거부', async ({ authenticatedPage: page }) => {
-  // /api/v1/ai/chat: delta 1개 + pending_action 배열(2건) + done
-  await page.route(
-    (url) => url.pathname === '/api/v1/ai/chat',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        body: [
-          'event: delta',
-          'data: {"text":"두 가지를 처리해 드릴게요."}',
-          '',
-          'event: pending_action',
-          'data: [{"actionType":"CREATE_ISSUE","summary":"이슈 생성: 버그 수정","params":{"title":"버그 수정"}},{"actionType":"SEND_MESSAGE","summary":"메시지 발송: 팀 공지","params":{"content":"팀 공지"}}]',
-          '',
-          'event: done',
-          'data: {"sessionId":"s-multi-1"}',
-          '',
-        ].join('\n'),
-      }),
-  );
+  // /api/v1/ai/chat: delta 1개 + pending_action(2건, {correlationId, actions} 봉투) + done
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'delta', data: { text: '두 가지를 처리해 드릴게요.' } },
+      {
+        event: 'pending_action',
+        data: {
+          actions: [
+            { actionType: 'CREATE_ISSUE', summary: '이슈 생성: 버그 수정', params: { title: '버그 수정' } },
+            { actionType: 'SEND_MESSAGE', summary: '메시지 발송: 팀 공지', params: { content: '팀 공지' } },
+          ],
+        },
+      },
+      { event: 'done', data: { sessionId: 's-multi-1' } },
+    ],
+  });
 
   // /api/v1/actions/confirm: 201 성공 스텁 + 호출 카운트
   let confirmCount = 0;

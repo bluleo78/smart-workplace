@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
+import java.io.InterruptedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -80,7 +81,8 @@ public class AiAgentChatClient {
       Consumer<String> onError,
       Consumer<String> onProgress,
       Consumer<JsonNode> onPendingAction,
-      Consumer<JsonNode> onTool) {
+      Consumer<JsonNode> onTool)
+      throws Exception {
     try {
       HttpRequest req =
           HttpRequest.newBuilder()
@@ -185,9 +187,30 @@ public class AiAgentChatClient {
       onError.accept("AI 응답이 완료되지 않았어요. 잠시 후 다시 시도해주세요.");
 
     } catch (Exception e) {
+      // 취소(Future.cancel(true))로 인한 인터럽트는 onError 콜백으로 뭉뚱그리지 않고 그대로
+      // 전파한다 — 호출자(HomeChatService)가 원인 체인을 검사해 cancelled:true 신호를 낼 수
+      // 있어야 한다(WikiAiService/DriveOverviewService 와 동일 요구). 그 외 실제 오류(네트워크·
+      // JSON 등)는 기존과 동일하게 onError 콜백으로 흡수한다.
+      if (isInterruption(e)) {
+        throw e;
+      }
       log.error("ai-agent home chat 실패: {}", e.getMessage());
       onError.accept("AI 구성 요청에 실패했어요. 잠시 후 다시 시도해주세요.");
     }
+  }
+
+  /**
+   * 예외 체인(cause chain)을 순회해 InterruptedException/InterruptedIOException 이 있는지 검사한다
+   * (WikiAiService.isInterruption 과 동일 — 취소로 인한 인터럽트가 블로킹 read 를 통과할 때 여러 겹으로 감싸질 수 있어 최상위 타입만 보면
+   * 놓친다).
+   */
+  private static boolean isInterruption(Throwable e) {
+    for (Throwable cur = e; cur != null; cur = cur.getCause()) {
+      if (cur instanceof InterruptedException || cur instanceof InterruptedIOException) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** {@code {"text":"..."}} 에서 text 추출. 형식이 다르면 null. */

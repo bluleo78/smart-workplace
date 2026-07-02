@@ -5,18 +5,15 @@
 
 import { createIssueDetail } from '../factories/issue.factory';
 import { expect, test } from '../fixtures/auth.fixture';
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 
 test.describe('#465 홈 챗 도크 이슈 상세 위젯', () => {
   test('이슈 상세 위젯이 제목·상태를 렌더한다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-iss-1","widgets":[{"type":"issue_detail","params":{"number":1,"projectKey":"WP"}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-iss-1', widgets: [{ type: 'issue_detail', params: { number: 1, projectKey: 'WP' } }] } },
+      ],
+    });
     await page.route(
       (url) => url.pathname === '/api/v1/projects/WP/issues/1',
       (route) =>
@@ -37,15 +34,11 @@ test.describe('#465 홈 챗 도크 이슈 상세 위젯', () => {
 
   // #465 버그 수정: fetch 실패 시 무한 스켈레톤이 아니라 재시도 가능한 에러를 표시한다.
   test('이슈 상세 조회 실패 시 에러+재시도를 표시한다(무한 스켈레톤 금지)', async ({ authenticatedPage: page }) => {
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-iss-2","widgets":[{"type":"issue_detail","params":{"number":9,"projectKey":"WP"}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-iss-2', widgets: [{ type: 'issue_detail', params: { number: 9, projectKey: 'WP' } }] } },
+      ],
+    });
     await page.route(
       (url) => url.pathname === '/api/v1/projects/WP/issues/9',
       (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"boom"}' }),

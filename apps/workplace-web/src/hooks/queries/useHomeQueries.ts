@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { getAccessToken } from '@/api/client';
 import { homeApi } from '@/api/home';
+import { onAiStreamEvent } from '@/lib/aiEventBus';
 import { handleApiError } from '@/lib/api-error';
 import type { ChatRequest, PendingAction, ToolEventDto, WidgetSpec } from '@/types/home';
 
@@ -62,10 +62,43 @@ export function useDeleteSession() {
   });
 }
 
+interface ChatDeltaPayload {
+  correlationId?: string;
+  text?: string;
+}
+interface ChatProgressPayload {
+  correlationId?: string;
+  label?: string;
+}
+interface ChatPendingActionPayload {
+  correlationId?: string;
+  actions?: PendingAction[];
+}
+interface ChatToolPayload extends Record<string, unknown> {
+  correlationId?: string;
+}
+interface ChatDonePayload {
+  correlationId?: string;
+  sessionId?: string;
+  widgets?: WidgetSpec[] | null;
+}
+interface ChatErrorPayload {
+  correlationId?: string;
+  message?: string;
+  cancelled?: boolean;
+}
+
+function abortError(): Error {
+  const e = new Error('aborted');
+  e.name = 'AbortError';
+  return e;
+}
+
 /**
- * SSE 스트리밍 compose 헬퍼 — 블로킹 mutation 대신 ReadableStream SSE 루프를 사용.
- * delta 이벤트마다 onDelta 콜백을 호출해 어시스턴트 말풍선을 점진 갱신하고,
- * done 이벤트에서 { sessionId } 를 반환한다. AbortSignal 로 취소 가능.
+ * AI 채팅 생성(#593 편입) — POST 로 시작해 correlationId 를 받고, 실제 델타/progress/pending_action/
+ * tool/done/error 는 통합 /events 채널(aiEventBus 로 중계됨)에서 correlationId 로 필터링해 수신한다.
+ * useChatSession.ts 의 Promise 체이닝(.then/.catch/.finally) + AbortController 소비 패턴을 그대로
+ * 유지하기 위해 외부 시그니처는 바꾸지 않는다 — 내부만 fetch+ReadableStream 파서에서 시작+구독으로 교체.
  *
  * #333 M2: progress·pending_action 이벤트 소비 추가.
  * - onProgress: 위임 진행 라벨 — assistant 말풍선 위 ghost 진행 줄로 표시.
@@ -79,75 +112,89 @@ export async function chatStream(
   onPendingAction?: (actions: PendingAction[]) => void,
   onTool?: (evt: ToolEventDto) => void,
 ): Promise<{ sessionId?: string; widgets?: WidgetSpec[] }> {
-  const token = getAccessToken();
-  const res = await fetch('/api/v1/ai/chat', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify(body),
-    signal,
-    credentials: 'include',
-  });
-  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  if (signal.aborted) throw abortError();
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  // SSE 파서 상태 — buffer: 미처리 청크, event: 현재 이벤트 타입, data: 현재 data 누적.
-  let buffer = '';
-  let event = 'message';
-  let data = '';
-  let result: { sessionId?: string; widgets?: WidgetSpec[] } = {};
+  const startRes = await homeApi.startChat({ sessionId: body.sessionId, query: body.query });
+  const correlationId = startRes.data.correlationId;
 
-  // 완성된 이벤트 디스패치 — event/data 조합을 처리 후 상태 리셋.
-  const dispatch = () => {
-    if (data) {
-      const parsed = JSON.parse(data) as Record<string, unknown>;
-      if (event === 'delta') onDelta(parsed.text as string);
-      // #333 M2: 위임 진행 라벨 — assistant 말풍선 위 ghost 진행 줄로 표시.
-      else if (event === 'progress') onProgress?.(parsed.label as string);
-      // #351: data 는 PendingAction 배열(단건도 길이1 배열). 빈 배열/비배열은 무시.
-      else if (event === 'pending_action') {
-        const arr = Array.isArray(parsed) ? (parsed as unknown as PendingAction[]) : [];
-        if (arr.length > 0) onPendingAction?.(arr);
-      }
-      else if (event === 'tool') onTool?.(parsed as unknown as ToolEventDto);
-      // #431: done 이벤트의 widgets[] 를 함께 회수 — 챗 도크가 어시스턴트 턴에 인라인 렌더.
-      else if (event === 'done')
-        result = {
-          sessionId: parsed.sessionId as string | undefined,
-          widgets: (parsed.widgets as WidgetSpec[] | null) ?? undefined,
-        };
-      else if (event === 'error') throw new Error((parsed.message as string | undefined) ?? 'chat_failed');
-    }
-    event = 'message';
-    data = '';
-  };
-
-  // 청크 단위 읽기 → 줄 단위로 SSE 파싱.
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buffer.indexOf('\n')) !== -1) {
-      const line = buffer.slice(0, nl).replace(/\r$/, '');
-      buffer = buffer.slice(nl + 1);
-      if (line === '') {
-        dispatch();
-        continue;
-      }
-      if (line.startsWith(':')) continue; // SSE 주석 무시
-      const ci = line.indexOf(':');
-      const field = ci === -1 ? line : line.slice(0, ci);
-      const raw = ci === -1 ? '' : line.slice(ci + 1);
-      const val = raw.startsWith(' ') ? raw.slice(1) : raw;
-      if (field === 'event') event = val;
-      else if (field === 'data') data = data ? `${data}\n${val}` : val;
-    }
+  if (signal.aborted) {
+    // 시작 응답이 도착하기 전에 이미 abort 됐다 — 서버에 즉시 취소 요청.
+    void homeApi.cancelChat(correlationId).catch(() => {});
+    throw abortError();
   }
-  return result;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const unsubs: Array<() => void> = [];
+    const teardown = () => {
+      unsubs.forEach((u) => u());
+      unsubs.length = 0;
+    };
+
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      teardown();
+      void homeApi.cancelChat(correlationId).catch(() => {});
+      reject(abortError());
+    };
+    signal.addEventListener('abort', onAbort);
+    unsubs.push(() => signal.removeEventListener('abort', onAbort));
+
+    unsubs.push(
+      onAiStreamEvent('home.chat.delta', (data) => {
+        const p = data as ChatDeltaPayload;
+        if (p.correlationId !== correlationId || typeof p.text !== 'string') return;
+        onDelta(p.text);
+      }),
+    );
+    unsubs.push(
+      onAiStreamEvent('home.chat.progress', (data) => {
+        const p = data as ChatProgressPayload;
+        if (p.correlationId !== correlationId || typeof p.label !== 'string') return;
+        onProgress?.(p.label);
+      }),
+    );
+    unsubs.push(
+      onAiStreamEvent('home.chat.pending_action', (data) => {
+        const p = data as ChatPendingActionPayload;
+        if (p.correlationId !== correlationId) return;
+        if (p.actions && p.actions.length > 0) onPendingAction?.(p.actions);
+      }),
+    );
+    unsubs.push(
+      onAiStreamEvent('home.chat.tool', (data) => {
+        const p = data as ChatToolPayload;
+        if (p.correlationId !== correlationId) return;
+        onTool?.(p as unknown as ToolEventDto);
+      }),
+    );
+    unsubs.push(
+      onAiStreamEvent('home.chat.done', (data) => {
+        const p = data as ChatDonePayload;
+        if (p.correlationId !== correlationId) return;
+        settled = true;
+        teardown();
+        resolve({ sessionId: p.sessionId, widgets: p.widgets ?? undefined });
+      }),
+    );
+    unsubs.push(
+      onAiStreamEvent('home.chat.error', (data) => {
+        const p = data as ChatErrorPayload;
+        if (p.correlationId !== correlationId) return;
+        settled = true;
+        teardown();
+        // 이 구독은 onAbort() 가 먼저 teardown() 했다면 이미 해제돼 있으므로, 여기 도달했다는
+        // 것 자체가 이 클라이언트의 취소가 아니다 — cancelled:true 는 서버측 300초 타임아웃을
+        // 뜻한다(useWikiAiStream.ts 와 동일 추론). AbortError 로 삼키면 로딩 상태가 조용히
+        // 사라지므로, 반드시 실제 에러로 표면화한다.
+        if (p.cancelled) {
+          reject(new Error('생성 시간이 초과되었습니다.'));
+        } else {
+          reject(new Error(p.message ?? 'chat_failed'));
+        }
+      }),
+    );
+  });
 }
 

@@ -23,10 +23,10 @@ class HomeChatServiceAssistantTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
 
   @Test
-  void 비서_미설정_caller_는_composeStream_시_미설정예외() {
+  void 비서_미설정_caller_는_startChat_시_미설정예외() {
     long human = TestFixtures.createHuman(dsl);
-    // composeStream 은 비서 해석을 요청 스레드에서 동기 수행하므로 스트림 전에 예외가 던져진다.
-    assertThatThrownBy(() -> service.chatStream(human, null, "안녕"))
+    // startChat 은 비서 해석을 요청 스레드에서 동기 수행하므로 생성 시작 전에 예외가 던져진다.
+    assertThatThrownBy(() -> service.startChat(human, null, "안녕"))
         .isInstanceOf(HomeAssistantNotConfiguredException.class);
   }
 }

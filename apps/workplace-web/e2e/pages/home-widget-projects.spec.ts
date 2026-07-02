@@ -4,6 +4,7 @@
 //   위젯이 자체 훅으로 호출하는 /projects, /projects/:key, /projects/:key/members 를 모킹한다.
 
 import { expect, test } from '../fixtures/auth.fixture'
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 
 import type { PageResponse } from '../../src/types/common'
 import type { MemberResponse, ProjectResponse } from '../../src/types/project'
@@ -49,15 +50,11 @@ test.describe('#460 홈 챗 도크 프로젝트 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: pg }) => {
       // 1) compose → projects 위젯 지시.
-      await pg.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-projects-1","widgets":[{"type":"projects","params":{}}]}\n\n',
-          }),
-      )
+      await mockHomeChatGeneration(pg, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-projects-1', widgets: [{ type: 'projects', params: {} }] } },
+        ],
+      })
       // 2) 프로젝트 목록 API 모킹.
       await pg.route(
         (url) => url.pathname === '/api/v1/projects',
@@ -91,15 +88,11 @@ test.describe('#460 홈 챗 도크 프로젝트 위젯 렌더', () => {
   )
 
   test('projects 위젯이 결과 없으면 빈 상태를 표시한다', async ({ authenticatedPage: pg }) => {
-    await pg.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-projects-2","widgets":[{"type":"projects","params":{}}]}\n\n',
-        }),
-    )
+    await mockHomeChatGeneration(pg, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-projects-2', widgets: [{ type: 'projects', params: {} }] } },
+      ],
+    })
     await pg.route(
       (url) => url.pathname === '/api/v1/projects',
       (route) =>
@@ -125,15 +118,11 @@ test.describe('#460 홈 챗 도크 프로젝트 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: pg }) => {
       // compose → project 위젯(projectKey='ALPHA') 지시.
-      await pg.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-projects-3","widgets":[{"type":"project","params":{"projectKey":"ALPHA"}}]}\n\n',
-          }),
-      )
+      await mockHomeChatGeneration(pg, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-projects-3', widgets: [{ type: 'project', params: { projectKey: 'ALPHA' } }] } },
+        ],
+      })
       // 프로젝트 상세 API 모킹.
       await pg.route(
         (url) => url.pathname === '/api/v1/projects/ALPHA',
@@ -177,15 +166,11 @@ test.describe('#460 홈 챗 도크 프로젝트 위젯 렌더', () => {
 
   test('project 위젯 projectKey 누락 시 안내 메시지를 표시한다', async ({ authenticatedPage: pg }) => {
     // compose → project 위젯(projectKey 없음) 지시.
-    await pg.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-projects-4","widgets":[{"type":"project","params":{}}]}\n\n',
-        }),
-    )
+    await mockHomeChatGeneration(pg, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-projects-4', widgets: [{ type: 'project', params: {} }] } },
+      ],
+    })
 
     await pg.goto('/')
     await pg.getByTestId('chat-launcher').click()

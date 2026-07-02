@@ -36,7 +36,7 @@ class HomeChatStreamClientTest {
   }
 
   @AfterEach
-  void stop() {
+  void stop() throws Exception {
     if (server != null) {
       server.stop(0);
     }
@@ -68,7 +68,7 @@ class HomeChatStreamClientTest {
 
   /** delta×3 + done — 순서대로 소비하고 fullText/widgets 파싱이 올바른지 검증. */
   @Test
-  void stream_deliversDeltasInOrder_thenDone() {
+  void stream_deliversDeltasInOrder_thenDone() throws Exception {
     String body =
         "event: delta\ndata: {\"text\":\"a\"}\n\n"
             + "event: delta\ndata: {\"text\":\"b\"}\n\n"
@@ -159,7 +159,7 @@ class HomeChatStreamClientTest {
 
   /** event: error → onError 콜백 호출. */
   @Test
-  void stream_errorEvent_callsOnError() {
+  void stream_errorEvent_callsOnError() throws Exception {
     String body = "event: error\ndata: {\"message\":\"boom\"}\n\n";
     boot(body, 200);
 
@@ -172,7 +172,7 @@ class HomeChatStreamClientTest {
 
   /** 503 home_composer_not_configured → onError 에 명확한 메시지. */
   @Test
-  void stream_503_homeComposerNotConfigured_callsOnErrorWithClearMessage() {
+  void stream_503_homeComposerNotConfigured_callsOnErrorWithClearMessage() throws Exception {
     boot("{\"error\":\"home_composer_not_configured\"}", 503);
 
     AtomicReference<String> errorMsg = new AtomicReference<>();

@@ -4,6 +4,7 @@
 //   위젯이 자체 훅으로 호출하는 /drive/spaces, /drive/spaces/:id/items 를 모킹한다.
 
 import { expect, test } from '../fixtures/auth.fixture'
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 
 import type { DriveItemList, DriveSpace } from '../../src/types/drive'
 
@@ -34,15 +35,11 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: pg }) => {
       // 1) compose → drive 위젯(spaceId 없음) 지시.
-      await pg.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-drive-1","widgets":[{"type":"drive","params":{}}]}\n\n',
-          }),
-      )
+      await mockHomeChatGeneration(pg, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-drive-1', widgets: [{ type: 'drive', params: {} }] } },
+        ],
+      })
       // 2) 드라이브 스페이스 목록 API 모킹.
       await pg.route(
         (url) => url.pathname === '/api/v1/drive/spaces',
@@ -76,15 +73,11 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: pg }) => {
       // 1) compose → drive 위젯(spaceId=3) 지시.
-      await pg.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-drive-2","widgets":[{"type":"drive","params":{"spaceId":3}}]}\n\n',
-          }),
-      )
+      await mockHomeChatGeneration(pg, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-drive-2', widgets: [{ type: 'drive', params: { spaceId: 3 } }] } },
+        ],
+      })
       // 2) 드라이브 스페이스 목록(spaceId 있어도 호출될 수 있으므로 스텁).
       await pg.route(
         (url) => url.pathname === '/api/v1/drive/spaces',
@@ -142,15 +135,11 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
   )
 
   test('drive 위젯이 스페이스 0건이면 빈 상태를 표시한다', async ({ authenticatedPage: pg }) => {
-    await pg.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-drive-3","widgets":[{"type":"drive","params":{}}]}\n\n',
-        }),
-    )
+    await mockHomeChatGeneration(pg, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-drive-3', widgets: [{ type: 'drive', params: {} }] } },
+      ],
+    })
     await pg.route(
       (url) => url.pathname === '/api/v1/drive/spaces',
       (route) =>

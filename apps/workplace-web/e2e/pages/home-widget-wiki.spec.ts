@@ -6,6 +6,7 @@
 
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../factories/wiki.factory'
 import { expect, test } from '../fixtures/auth.fixture'
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 
 test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
   test(
@@ -13,15 +14,11 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       // 1) compose → wiki 위젯(spaceId 없음) 지시.
-      await page.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-wiki-1","widgets":[{"type":"wiki","params":{}}]}\n\n',
-          }),
-      )
+      await mockHomeChatGeneration(page, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-wiki-1', widgets: [{ type: 'wiki', params: {} }] } },
+        ],
+      })
       // 2) 스페이스 목록 API 모킹.
       await page.route(
         (url) => url.pathname === '/api/v1/wiki/spaces',
@@ -52,15 +49,11 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
 
   test('wiki 위젯이 spaceId 있을 때 페이지 목록을 렌더한다', async ({ authenticatedPage: page }) => {
     // compose → wiki 위젯(spaceId=1) 지시.
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-wiki-2","widgets":[{"type":"wiki","params":{"spaceId":1}}]}\n\n',
-        }),
-    )
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-wiki-2', widgets: [{ type: 'wiki', params: { spaceId: 1 } }] } },
+      ],
+    })
     // 페이지 트리 API 모킹.
     await page.route(
       (url) => url.pathname === '/api/v1/wiki/spaces/1/pages',
@@ -88,15 +81,11 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
   })
 
   test('wiki 위젯이 스페이스 없으면 빈 상태를 표시한다', async ({ authenticatedPage: page }) => {
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-wiki-3","widgets":[{"type":"wiki","params":{}}]}\n\n',
-        }),
-    )
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-wiki-3', widgets: [{ type: 'wiki', params: {} }] } },
+      ],
+    })
     await page.route(
       (url) => url.pathname === '/api/v1/wiki/spaces',
       (route) =>
@@ -122,15 +111,11 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       // compose → wiki_page 위젯(pageId=101) 지시.
-      await page.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-wiki-4","widgets":[{"type":"wiki_page","params":{"pageId":101}}]}\n\n',
-          }),
-      )
+      await mockHomeChatGeneration(page, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-wiki-4', widgets: [{ type: 'wiki_page', params: { pageId: 101 } }] } },
+        ],
+      })
       // 페이지 상세 API 모킹.
       await page.route(
         (url) => url.pathname === '/api/v1/wiki/pages/101',
@@ -163,15 +148,11 @@ test.describe('#460 홈 챗 도크 위키 위젯 렌더', () => {
 
   test('wiki_page 위젯 pageId 누락 시 안내 메시지를 표시한다', async ({ authenticatedPage: page }) => {
     // compose → wiki_page 위젯(pageId 없음) 지시.
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-wiki-5","widgets":[{"type":"wiki_page","params":{}}]}\n\n',
-        }),
-    )
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-wiki-5', widgets: [{ type: 'wiki_page', params: {} }] } },
+      ],
+    })
 
     await page.goto('/')
     await page.getByTestId('chat-launcher').click()

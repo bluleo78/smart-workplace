@@ -5,6 +5,7 @@
 
 import { calendarEvent } from '../factories/calendar.factory';
 import { expect, test } from '../fixtures/auth.fixture';
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 
 test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
   test(
@@ -12,15 +13,11 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       // 1) compose 는 텍스트 없이 calendar 위젯만 지시.
-      await page.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-cal-1","widgets":[{"type":"calendar","params":{}}]}\n\n',
-          }),
-      );
+      await mockHomeChatGeneration(page, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-cal-1', widgets: [{ type: 'calendar', params: {} }] } },
+        ],
+      });
       // 2) 위젯이 오늘 범위로 호출하는 일정 목록.
       let calendarRequestFrom: string | null = null;
       await page.route(
@@ -61,15 +58,11 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
     // AI 가 show_calendar 에 date-only("2026-06-22") 를 주는 실제 케이스. 백엔드는
     // @DateTimeFormat(ISO.DATE_TIME) OffsetDateTime 을 요구하므로 위젯이 ISO datetime 으로
     // 정규화해야 한다. date-only 를 그대로 보내면 400 → 위젯 에러(#460 회귀).
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-cal-3","widgets":[{"type":"calendar","params":{"from":"2026-06-22","to":"2026-06-22"}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-cal-3', widgets: [{ type: 'calendar', params: { from: '2026-06-22', to: '2026-06-22' } }] } },
+      ],
+    });
     let reqFrom: string | null = null;
     let reqTo: string | null = null;
     await page.route(
@@ -99,15 +92,11 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
   });
 
   test('일정이 없으면 빈 상태를 표시한다', async ({ authenticatedPage: page }) => {
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-cal-2","widgets":[{"type":"calendar","params":{}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-cal-2', widgets: [{ type: 'calendar', params: {} }] } },
+      ],
+    });
     // 빈 목록 반환.
     await page.route(
       (url) => url.pathname === '/api/v1/calendar/events',
@@ -131,15 +120,11 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
 
   test('event 위젯이 단일 일정 상세를 렌더한다', async ({ authenticatedPage: page }) => {
     // compose 는 텍스트 없이 event 위젯(eventId=5) 지시.
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-ev-1","widgets":[{"type":"event","params":{"eventId":5}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-ev-1', widgets: [{ type: 'event', params: { eventId: 5 } }] } },
+      ],
+    });
     // 단일 일정 상세 API.
     await page.route(
       (url) => url.pathname === '/api/v1/calendar/events/5',
