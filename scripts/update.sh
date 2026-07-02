@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Smart Workplace 운영 업데이트 스크립트
 # ghcr.io 에서 최신 이미지를 pull 하고 컨테이너를 재생성한다(빌드는 deploy.sh 가 담당).
-# Usage: ./scripts/update.sh [api|ai-agent|web|admin|worker|all]
+# Usage: ./scripts/update.sh [api|ai-agent|web|admin|worker|mcp|all]
 
 PROD_DIR="$HOME/prod/smart-workplace"
 
@@ -35,7 +35,7 @@ verify_app() {
 TARGET=${1:-all}
 
 if [ "$TARGET" = "all" ]; then
-  APPS=("api" "ai-agent" "web" "admin" "worker")
+  APPS=("api" "ai-agent" "web" "admin" "worker" "mcp")
 else
   APPS=("$TARGET")
 fi
