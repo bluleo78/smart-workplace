@@ -685,13 +685,24 @@ test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload �
   await expect(cardsAfterDrag.nth(0)).toHaveAttribute('data-widget', 'unread_mail')
   await expect(cardsAfterDrag.nth(1)).toHaveAttribute('data-widget', 'my_tasks')
 
-  // dnd-kit 드래그 종료 후 팬텀 클릭 억제가 남아있어, 실제 사용자의 포인터 해제와 달리 Playwright 합성 이벤트는 이를 소비하지 못함 — 더미 클릭으로 미리 소비
-  await page.mouse.click(5, 5)
-
-  await page.getByTestId('dashboard-edit-save').click()
+  // dnd-kit PointerSensor 는 드래그 종료(detach) 후 document 캡처 단계 click 리스너로 다음 클릭들을
+  // setTimeout(removeAll, 50) 만큼(내부 고정 50ms, 앱 코드로 관측 불가) 전부 삼킨다. 그 창 안에서
+  // 저장 버튼을 클릭하면 이벤트가 도달하지 못해 클릭이 무효화된다. 더미 클릭으로 미리 소비하는 방식은
+  // 그 더미 클릭 자체가 창 안에 들지 않으면(부하로 인한 타이밍 변동) 무의미하고 뒤이은 실제 클릭도
+  // 여전히 창에 걸릴 수 있어 근본적으로 레이스 — 목표 상태(배너 소멸 = onSuccess 완료)가 나타날
+  // 때까지 클릭을 재시도해 결정론적으로 만든다. (저장 버튼 disabled 전환을 신호로 쓰지 않는 이유:
+  // 목 응답이 동기적으로 즉시 resolve 돼 편집모드가 disabled 관측 전에 이미 종료·버튼이 사라질 수 있음)
+  const saveButton = page.getByTestId('dashboard-edit-save')
+  const banner = page.getByTestId('dashboard-edit-banner')
+  await expect(async () => {
+    if ((await saveButton.count()) > 0) {
+      await saveButton.click({ timeout: 200 }).catch(() => {})
+    }
+    await expect(banner).toHaveCount(0, { timeout: 200 })
+  }).toPass({ timeout: 3000 })
 
   // 배너가 사라지면 PUT 이 resolve 되어 onSuccess 가 끝난 것 → putWidgets 안전 판독.
-  await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
+  await expect(banner).toHaveCount(0)
   expect(putWidgets!.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
 })
 
