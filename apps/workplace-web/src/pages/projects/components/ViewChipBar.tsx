@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils'
 
 import { useDeleteSavedView, usePinSavedView, useSavedViews } from '../../../hooks/queries/useSavedViews'
 import { filtersToParams, parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters'
-import { queriesEqual } from '../../../lib/savedViewQuery'
+import { normalizeIssueQueryIgnoringView, queriesEqualIgnoringView } from '../../../lib/savedViewQuery'
 import type { SavedViewResponse } from '../../../types/savedView'
 import { SaveViewDialog } from './SaveViewDialog'
 
@@ -38,10 +38,13 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
   // 삭제 확인 대화상자 대상 뷰 id — null 이면 닫힘.
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null)
 
-  // 현재 URL 필터를 canonical 쿼리스트링으로 — 저장/활성칩 판정에 동일 기준 사용.
-  // group 도 포함해야 그룹이 저장 뷰에 영속되고 활성 칩 판정에 반영된다 (#58).
+  // 현재 URL 필터를 canonical 쿼리스트링으로 — 저장 뷰 페이로드(뷰 저장/수정 다이얼로그)에 사용.
+  // group 도 포함해야 그룹이 저장 뷰에 영속된다 (#58). view(list/board) 도 그대로 저장.
   const currentQuery = filtersToParams(parseFilters(params), parseView(params), parseGroupBy(params)).toString()
-  const isAllActive = currentQuery === ''
+  // "전체"/저장뷰 활성 판정은 view 를 제외하고 비교한다 (#599) — 리스트/보드 전환이
+  // 우연히 저장뷰의 쿼리와 일치해 전체 대신 그 저장뷰가 활성으로 보이는 것을 방지.
+  const currentQueryIgnoringView = normalizeIssueQueryIgnoringView(currentQuery)
+  const isAllActive = currentQueryIgnoringView === ''
 
   // 쿼리스트링을 URL 로 적용 — 저장된 뷰/전체 칩 클릭 시 필터 복원.
   const apply = (query: string) => setParams(new URLSearchParams(query), { replace: true })
@@ -61,7 +64,9 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
       </button>
 
       {(views.data ?? []).map((v) => {
-        const active = queriesEqual(currentQuery, v.query)
+        // 필터 없이 view 만 저장된 뷰(예: "view=board" 전용)는 view 무시 비교 시 빈 쿼리와
+        // 같아져 "전체"와 동시에 활성화될 수 있다 — 그 영역은 전체의 몫이므로 제외한다 (#599).
+        const active = !isAllActive && queriesEqualIgnoringView(currentQuery, v.query)
         return (
           <div key={v.id} className="group flex items-center">
             <button
