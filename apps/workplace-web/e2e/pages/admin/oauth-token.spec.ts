@@ -23,7 +23,9 @@ const AGENTS_FIXTURE = [
 // 공통 — agents 목록 + agents/{id}/keys 빈 목록 + workspace-assistant 미지정 모킹.
 // 토큰 라우트는 각 테스트가 setupOAuth() 로 추가 주입한다.
 async function setupBase(page: import('@playwright/test').Page) {
-  await page.route(/\/api\/v1\/admin\/agents$/, (route) => {
+  // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
+  // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
+  await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({
         status: 200,

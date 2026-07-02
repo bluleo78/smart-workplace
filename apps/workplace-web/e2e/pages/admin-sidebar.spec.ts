@@ -31,6 +31,18 @@ test('관리 모듈 2차 사이드바에 AGENT가 포함된다', { tag: '@smoke'
   await expect(page).toHaveURL(/\/settings\/agents$/)
 })
 
+test('워크스페이스 관리 그룹에서 에이전트가 구성원 바로 다음에 온다', async ({ adminPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+
+  await page.goto('/settings/users')
+
+  const adminGroup = page.getByTestId('settings-admin-group')
+  await expect(adminGroup).toBeVisible()
+  // 항목 순서: 구성원 → 에이전트 → 역할 → 감사 로그.
+  const labels = await adminGroup.getByRole('link').allTextContents()
+  expect(labels.map((label) => label.trim())).toEqual(['구성원', '에이전트', '역할', '감사 로그'])
+})
+
 test('일반 사용자는 관리 사이드바에 접근할 수 없다', async ({ authenticatedPage: page }) => {
   // AdminRoute 가 비관리자를 "/" 로 리다이렉트하므로 설정 사이드바는 마운트되지 않는다.
   await page.goto('/settings/users')

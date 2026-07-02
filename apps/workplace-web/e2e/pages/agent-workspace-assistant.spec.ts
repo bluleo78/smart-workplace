@@ -33,7 +33,9 @@ const OAUTH_META_FIXTURE: OAuthTokenMeta = {
  * 개별 테스트는 workspace-assistant + oauth-token 경로를 별도 등록한다.
  */
 async function setupBase(page: import('@playwright/test').Page) {
-  await page.route(/\/api\/v1\/admin\/agents$/, (route) => {
+  // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
+  // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
+  await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({
         status: 200,
@@ -321,8 +323,8 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       return route.fallback();
     });
 
-    // 에이전트 목록 빈 배열.
-    await page.route(/\/api\/v1\/admin\/agents$/, (route) => {
+    // 에이전트 목록 빈 배열 (includePersonal 쿼리 유무 무관하게 매칭).
+    await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
       if (route.request().method() === 'GET') {
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
       }
@@ -336,8 +338,8 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
     await expect(page.getByTestId('workspace-assistant-empty')).toHaveCount(0);
   });
 
-  // 시나리오 7: 개인 비서 표시 토글 — 기본 숨김, 켜면 includePersonal=true 로 재조회해 포함.
-  test('개인 비서 표시 토글 — 기본 숨김, 켜면 포함 + 아이디에 @ 프리픽스 없음', async ({
+  // 시나리오 7: 개인 비서 표시 토글 — 기본 표시, 끄면 includePersonal=false 로 재조회해 숨김.
+  test('개인 비서 표시 토글 — 기본 표시, 끄면 숨김 + 아이디에 @ 프리픽스 없음', async ({
     adminPage: page,
   }) => {
     const wsAgent = {
@@ -397,19 +399,20 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
 
     await page.goto('/settings/agents');
 
-    // 기본: 워크스페이스 에이전트만, 개인 비서 숨김.
+    // 기본: 워크스페이스 에이전트 + 개인 비서 모두 표시.
     await expect(page.getByTestId('agent-row-5')).toBeVisible();
-    await expect(page.getByTestId('agent-row-9')).toHaveCount(0);
+    await expect(page.getByTestId('agent-row-9')).toBeVisible();
     // 아이디 컬럼에 @ 프리픽스가 없어야 한다.
     await expect(page.getByTestId('agent-row-5')).toContainText('ws_bot');
     await expect(page.getByTestId('agent-row-5')).not.toContainText('@ws_bot');
-    // 유형 컬럼: 워크스페이스 에이전트는 '일반'.
+    // 유형 컬럼: 워크스페이스 에이전트는 '일반', 개인 비서는 '개인' + 소유자 이름.
     await expect(page.getByTestId('agent-type-5')).toContainText('일반');
-
-    // 토글 ON → 개인 비서 포함 + 유형 '개인' + 소유자 이름 표시.
-    await page.getByTestId('include-personal-toggle').click();
-    await expect(page.getByTestId('agent-row-9')).toBeVisible();
     await expect(page.getByTestId('agent-type-9')).toContainText('개인');
     await expect(page.getByTestId('agent-type-9')).toContainText('양동희');
+
+    // 토글 OFF → 개인 비서 제외.
+    await page.getByTestId('include-personal-toggle').click();
+    await expect(page.getByTestId('agent-row-9')).toHaveCount(0);
+    await expect(page.getByTestId('agent-row-5')).toBeVisible();
   });
 });

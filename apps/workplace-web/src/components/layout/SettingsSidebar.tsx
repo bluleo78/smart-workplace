@@ -16,9 +16,9 @@ const PERSONAL_ITEMS = [
 // 워크스페이스 관리 — 어드민에게만 노출.
 const ADMIN_ITEMS = [
   { label: '구성원', href: '/settings/users', icon: Users },
+  { label: '에이전트', href: '/settings/agents', icon: Bot },
   { label: '역할', href: '/settings/roles', icon: Shield },
   { label: '감사 로그', href: '/settings/audit-logs', icon: FileText },
-  { label: '에이전트', href: '/settings/agents', icon: Bot },
 ]
 
 // 사이드바 그룹 헤더 — 섹션 구분용 소형 라벨.

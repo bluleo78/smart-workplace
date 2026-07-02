@@ -49,7 +49,7 @@ test.describe('admin 공통 비서', () => {
       return route.fallback();
     });
 
-    await page.route(/\/api\/v1\/admin\/agents$/, (route) => {
+    await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
       if (route.request().method() === 'GET') {
         return route.fulfill({
           status: 200,

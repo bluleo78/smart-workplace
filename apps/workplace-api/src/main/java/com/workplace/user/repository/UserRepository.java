@@ -337,9 +337,10 @@ public class UserRepository {
         .fetchOne(0, Long.class);
   }
 
-  /** 테넌트 멤버십 + (선택) 검색어 조건 — 목록/카운트 쿼리 공용. */
+  /** 테넌트 멤버십 + (선택) 검색어 조건 — 목록/카운트 쿼리 공용. 구성원 관리는 사람만 노출(AGENT 는 별도 화면). */
   private Condition tenantSearchCondition(Long tenantId, String search) {
-    Condition condition = MEMBERSHIP.TENANT_ID.eq(tenantId);
+    Condition condition =
+        MEMBERSHIP.TENANT_ID.eq(tenantId).and(USER.KIND.eq(com.workplace.user.dto.UserKind.HUMAN));
     if (search != null && !search.isBlank()) {
       String pattern = LikePatternUtils.containsPattern(search);
       condition =
