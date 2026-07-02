@@ -112,7 +112,7 @@ services:
     restart: unless-stopped
 
   mcp:
-    image: ghcr.io/bluleo78/smart-workplace/workplace-mcp:latest
+    image: ghcr.io/bluleo78/smart-workplace/mcp:latest
     build:
       context: .
       dockerfile: apps/workplace-mcp/Dockerfile

@@ -5,7 +5,7 @@ set -euo pipefail
 # 이미지를 multiplatform 으로 빌드해 ghcr.io 에 푸시하고, 운영 디렉터리에서 pull+재기동한다.
 # Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|worker|mcp|all]
 # all = api + ai-agent + web + admin + worker + mcp (6개 앱 전부, DB 는 표준 postgres:16 이라 빌드 대상 아님)
-# mcp 는 docker-compose.prod.yml 서비스명(mcp)과 맞춘 것 — 이미지/Dockerfile 경로는 workplace-mcp.
+# mcp 이미지 태그도 다른 앱과 동일하게 짧은 이름(mcp)으로 통일 — Dockerfile 경로만 apps/workplace-mcp.
 #
 # 환경변수:
 #   BUILD_ONLY=1 — 빌드+푸시만 수행하고 배포(pull+재기동)·검증 단계는 건너뛴다.
@@ -65,7 +65,7 @@ build_and_push() {
       ;;
     mcp)
       log "Building + pushing $app (context: project root)"
-      docker buildx build --platform "$PLATFORM" -t "$REGISTRY/workplace-mcp:latest" -f apps/workplace-mcp/Dockerfile --push .
+      docker buildx build --platform "$PLATFORM" -t "$REGISTRY/mcp:latest" -f apps/workplace-mcp/Dockerfile --push .
       ;;
     *)
       error "Unknown app: $app (valid: api, ai-agent, web, admin, worker, mcp)"
