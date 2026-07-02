@@ -144,7 +144,9 @@ export function PersonalAssistantSection() {
                 <Button
                   onClick={handleNameSave}
                   disabled={
-                    updateName.isPending || nameValue.trim() === (status.name ?? '')
+                    updateName.isPending ||
+                    nameValue.trim().length === 0 ||
+                    nameValue.trim() === (status.name ?? '')
                   }
                   data-testid="assistant-name-save"
                 >

@@ -342,6 +342,58 @@ test.describe('프로필 개인 비서', () => {
     expect(putBody).toEqual({ name: '나만의 비서' })
   })
 
+  // #607 — 이름 입력값이 비어있거나 공백뿐이면 저장 버튼이 비활성화되어야 한다(불필요한 API 호출 방지).
+  test('이름을 비우거나 공백만 입력하면 저장 버튼이 비활성화된다', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route('**/api/v1/users/me/assistant', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            configured: true,
+            tokenLabel: null,
+            tokenLastUsedAt: null,
+            model: 'claude-sonnet-4-6',
+            thinkingDepth: 'NORMAL',
+            name: '개인 비서',
+          }),
+        })
+      }
+      return route.fallback()
+    })
+    // PUT /name 이 호출되면 실패 처리 — 버튼이 비활성화되어 있다면 호출 자체가 없어야 한다.
+    let putCalled = false
+    await page.route('**/api/v1/users/me/assistant/name', (route) => {
+      putCalled = true
+      return route.fulfill({ status: 204, body: '' })
+    })
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+
+    const nameInput = page.getByTestId('assistant-name-input')
+    const saveButton = page.getByTestId('assistant-name-save')
+
+    // 값이 변경되지 않은 초기 상태 — 비활성화.
+    await expect(saveButton).toBeDisabled()
+
+    // 완전히 비움 — 비활성화 유지.
+    await nameInput.fill('')
+    await expect(saveButton).toBeDisabled()
+
+    // 공백만 입력 — trim 후 빈 문자열이므로 비활성화 유지.
+    await nameInput.fill('   ')
+    await expect(saveButton).toBeDisabled()
+
+    // 유효한 값 입력 시 다시 활성화되어야 한다.
+    await nameInput.fill('나만의 비서')
+    await expect(saveButton).toBeEnabled()
+
+    expect(putCalled).toBe(false)
+  })
+
   // #264 — tokenLabel 이 null 일 때 '(라벨 없음)' 개발자 용어가 노출되면 안 된다.
   test('tokenLabel null 시 라벨 없음 문구가 표시되지 않는다', async ({
     authenticatedPage: page,
