@@ -47,7 +47,13 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   const [createOpen, setCreateOpen] = useState(false);
 
   // 개인 보드 카드 클릭 → 같은 라우트의 ?task=N drawer 오픈(view=board 보존). 풀페이지 이동 없음.
-  const cardTo = (issue: IssueResponse) => `/projects/${key}?view=board&task=${issue.number}`;
+  // 기존 URLSearchParams 를 복제해 병합(#616) — priority 등 활성 필터 파라미터가 유실되지 않도록 한다.
+  const cardTo = (issue: IssueResponse) => {
+    const next = new URLSearchParams(params);
+    next.set('view', 'board');
+    next.set('task', String(issue.number));
+    return `/projects/${key}?${next.toString()}`;
+  };
 
   return (
     <div className="flex h-full overflow-hidden" data-testid="personal-project-detail">

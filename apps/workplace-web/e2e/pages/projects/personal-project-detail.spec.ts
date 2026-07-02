@@ -155,6 +155,29 @@ test('보드 카드(링크) 클릭 → ?task=N drawer 오픈(풀페이지 이동
   await expect(page).not.toHaveURL(/\/issues\/1/);
 });
 
+// #616 회귀 — 보드 카드 클릭 시 기존 필터(priority 등) 쿼리 파라미터가 유실되지 않아야 한다.
+test('보드 카드 클릭 → 기존 priority 필터 파라미터가 유지된다 (#616)', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [
+    createIssue({ projectKey: KEY, number: 1, title: '높음작업', status: 'TODO', priority: 'HIGH' }),
+  ]);
+  await mockTaskDetail(page, 1);
+  // 우선순위 필터가 이미 적용된 상태로 보드 진입.
+  await page.goto(`/projects/${KEY}?view=board&priority=HIGH`);
+  await expect(page).toHaveURL(/priority=HIGH/);
+
+  await page.getByTestId('issue-card-1').getByRole('link').click();
+
+  // 모달 오픈 + task 파라미터 반영은 물론, priority 필터가 그대로 남아 있어야 한다.
+  await expect(page.getByTestId('personal-task-modal')).toBeVisible();
+  await expect(page).toHaveURL(/[?&]task=1/);
+  await expect(page).toHaveURL(/priority=HIGH/);
+
+  // 모달을 닫아도 필터는 유지되어야 한다(닫기 핸들러는 기존에도 정상 동작).
+  await page.keyboard.press('Escape');
+  await expect(page).not.toHaveURL(/task=/);
+  await expect(page).toHaveURL(/priority=HIGH/);
+});
+
 test('리스트/체크리스트는 인플로우 사이드 패널, 보드는 모달로 상세 표시 (#231)', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })]);
   await mockTaskDetail(page);
