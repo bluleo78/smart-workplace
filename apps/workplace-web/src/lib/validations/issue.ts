@@ -6,7 +6,8 @@ const statusEnum = z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']);
 const priorityEnum = z.enum(['LOW', 'MID', 'HIGH']);
 
 export const createIssueSchema = z.object({
-  title: z.string().min(1, '제목은 필수입니다').max(200, '제목은 200자 이하여야 합니다'),
+  // 공백만 있는 제목을 서버 왕복 없이 클라이언트에서 즉시 막기 위해 trim 후 검증 (#612).
+  title: z.string().trim().min(1, '제목은 필수입니다').max(200, '제목은 200자 이하여야 합니다'),
   body: z.string().max(10000, '본문은 10000자 이하여야 합니다').optional(),
   priority: priorityEnum.optional(),
   // YYYY-MM-DD 형식 (HTML date input) 또는 빈 문자열 허용
