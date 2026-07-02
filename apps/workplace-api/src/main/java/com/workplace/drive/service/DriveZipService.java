@@ -43,7 +43,7 @@ public class DriveZipService {
         DriveFileRepository.DriveFileRow row =
             files.findRow(fileId).orElseThrow(() -> new DriveFileNotFoundException(fileId));
         if (row.spaceId() != spaceId) {
-          throw new DriveInvalidTargetException("file not in space: " + fileId);
+          throw new DriveInvalidTargetException("다른 공간의 파일은 포함할 수 없습니다.");
         }
         entries.add(new ZipEntrySource(row.name(), row.fileId(), false));
       }
@@ -55,7 +55,7 @@ public class DriveZipService {
                 .findSpaceId(folderId)
                 .orElseThrow(() -> new DriveFolderNotFoundException(folderId));
         if (fSpace != spaceId) {
-          throw new DriveInvalidTargetException("folder not in space: " + folderId);
+          throw new DriveInvalidTargetException("다른 공간의 폴더는 포함할 수 없습니다.");
         }
         DriveFolderResponse f =
             folders

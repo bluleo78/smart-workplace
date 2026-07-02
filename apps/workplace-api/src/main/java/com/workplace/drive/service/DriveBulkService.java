@@ -46,7 +46,7 @@ public class DriveBulkService {
                 .findSpaceId(folderId)
                 .orElseThrow(() -> new DriveFolderNotFoundException(folderId));
         if (fSpace != spaceId) {
-          throw new DriveInvalidTargetException("folder not in space: " + folderId);
+          throw new DriveInvalidTargetException("다른 공간의 폴더는 포함할 수 없습니다.");
         }
         folders.markSubtreeTrashed(folderId, opId);
       }
@@ -56,7 +56,7 @@ public class DriveBulkService {
         DriveFileRepository.DriveFileRow row =
             files.findRow(fileId).orElseThrow(() -> new DriveFileNotFoundException(fileId));
         if (row.spaceId() != spaceId) {
-          throw new DriveInvalidTargetException("file not in space: " + fileId);
+          throw new DriveInvalidTargetException("다른 공간의 파일은 포함할 수 없습니다.");
         }
         files.markTrashed(fileId, opId);
         // 단건 삭제와 동일하게 FILE_DELETE 감사 로그를 남긴다(#81).

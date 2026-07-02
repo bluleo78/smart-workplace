@@ -372,7 +372,7 @@ public class DriveFileService {
             .findSpaceId(targetFolderId)
             .orElseThrow(() -> new DriveFolderNotFoundException(targetFolderId));
     if (targetSpace != spaceId) {
-      throw new DriveInvalidTargetException("target folder in different space");
+      throw new DriveInvalidTargetException("다른 공간으로는 이동/복사할 수 없습니다.");
     }
   }
 }

@@ -56,7 +56,7 @@ public class DriveShareLinkService {
 
     String audience = req.audience();
     if (audience == null || !AUDIENCES.contains(audience)) {
-      throw new DriveInvalidTargetException("invalid audience");
+      throw new DriveInvalidTargetException("공유 대상이 올바르지 않습니다.");
     }
     String token = generateToken();
     String tokenHash = sha256Hex(token);

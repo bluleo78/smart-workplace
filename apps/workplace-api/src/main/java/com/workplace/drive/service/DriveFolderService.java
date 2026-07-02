@@ -184,10 +184,10 @@ public class DriveFolderService {
             .findSpaceId(targetParentId)
             .orElseThrow(() -> new DriveFolderNotFoundException(targetParentId));
     if (targetSpace != spaceId) {
-      throw new DriveInvalidTargetException("target folder in different space");
+      throw new DriveInvalidTargetException("다른 공간으로는 이동/복사할 수 없습니다.");
     }
     if (folders.findSubtreeFolderIds(folderId).contains(targetParentId)) {
-      throw new DriveInvalidTargetException("cannot move/copy into its own subtree");
+      throw new DriveInvalidTargetException("폴더 자신 또는 하위 폴더로는 이동/복사할 수 없습니다.");
     }
   }
 

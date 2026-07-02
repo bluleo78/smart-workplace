@@ -2,6 +2,7 @@ package com.workplace.global.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.global.dto.ErrorResponse;
@@ -82,5 +83,18 @@ class GlobalExceptionHandlerTest {
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(res.getBody()).isNotNull();
     assertThat(res.getBody().message()).contains("IMAGE");
+  }
+
+  @Test
+  void 이동_복사_대상이_자신의_하위폴더면_한국어_메시지로_400_을_반환한다() {
+    // #594: DriveInvalidTargetException 이 개발자용 영문 메시지를 그대로 담아 던져
+    // 프론트 토스트에 "invalid move/copy target: ..." 원문이 노출되던 회귀 방지.
+    ResponseEntity<ErrorResponse> res =
+        handler.handleDriveBadRequest(
+            new DriveInvalidTargetException("폴더 자신 또는 하위 폴더로는 이동/복사할 수 없습니다."), request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(res.getBody()).isNotNull();
+    assertThat(res.getBody().message()).doesNotContainIgnoringCase("invalid move/copy target");
+    assertThat(res.getBody().message()).contains("하위 폴더로는 이동/복사할 수 없습니다");
   }
 }
