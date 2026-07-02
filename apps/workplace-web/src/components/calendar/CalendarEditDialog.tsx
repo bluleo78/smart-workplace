@@ -52,6 +52,9 @@ export function CalendarEditDialog({
   }
 
   const isEditing = calendar != null
+  // 외부 동기화 컨테이너(accountEmail 보유) — Graph canEdit=true 라 isReadOnly=false 여도
+  // 로컬 이름변경/삭제는 별도로 제한한다 (이슈 #608).
+  const isExternal = isEditing && !!calendar.accountEmail
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -70,8 +73,13 @@ export function CalendarEditDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="캘린더 이름"
-              autoFocus
+              autoFocus={!isExternal}
             />
+            {isExternal && (
+              <p className="text-xs text-muted-foreground" data-testid="calendar-edit-external-warning">
+                로컬 표시명만 변경되며 실제 계정 캘린더명과 동기화되지 않습니다.
+              </p>
+            )}
           </div>
 
           {/* 팔레트 색 선택 */}
@@ -97,8 +105,8 @@ export function CalendarEditDialog({
         </div>
 
         <DialogFooter className="gap-2">
-          {/* 편집 모드에서 기본 캘린더가 아닌 경우만 삭제 허용 */}
-          {isEditing && !calendar.isDefault && onDelete && (
+          {/* 편집 모드에서 기본 캘린더가 아니고 외부 동기화 컨테이너도 아닌 경우만 삭제 허용 (이슈 #608) */}
+          {isEditing && !calendar.isDefault && !isExternal && onDelete && (
             <Button
               variant="destructive"
               onClick={onDelete}

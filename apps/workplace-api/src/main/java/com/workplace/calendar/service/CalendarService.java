@@ -5,6 +5,7 @@ import com.workplace.calendar.dto.CalendarRequest;
 import com.workplace.calendar.dto.CalendarResponse;
 import com.workplace.calendar.exception.CalendarNotFoundException;
 import com.workplace.calendar.exception.DefaultCalendarDeletionException;
+import com.workplace.calendar.exception.ExternalCalendarDeletionNotAllowedException;
 import com.workplace.calendar.exception.ExternalCalendarResetNotAllowedException;
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.repository.CalendarRepository;
@@ -52,11 +53,19 @@ public class CalendarService {
     return repo.findByIdForOwner(callerId, id).orElseThrow(() -> new CalendarNotFoundException(id));
   }
 
-  /** 캘린더 삭제 — 소유 검증 + 읽기전용 거부, 기본은 거부, 비기본은 소속 일정을 기본으로 이동 후 삭제(데이터 보존). */
+  /**
+   * 캘린더 삭제 — 소유 검증 + 읽기전용 거부 + 외부 동기화 컨테이너 거부, 기본은 거부, 비기본은 소속 일정을 기본으로 이동 후 삭제(데이터 보존).
+   *
+   * <p>외부 동기화 컨테이너(accountEmail 존재)는 Graph 상 canEdit=true(is_read_only=false)여도 로컬 삭제를 허용하지 않는다 —
+   * 삭제해도 다음 동기화 사이클에서 신규 calendar_id 로 재생성되어 중복/고아 데이터가 발생한다(#608).
+   */
   @Transactional
   public void delete(long callerId, long id) {
     requireOwnedCalendar(callerId, id);
     if (repo.isReadOnly(id)) throw new ReadOnlyCalendarException(id);
+    if (repo.isExternal(id)) {
+      throw new ExternalCalendarDeletionNotAllowedException(id);
+    }
     if (repo.isDefault(id)) {
       throw new DefaultCalendarDeletionException();
     }

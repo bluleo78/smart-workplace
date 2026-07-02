@@ -438,6 +438,16 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  /** 외부 동기화 캘린더 로컬 삭제 시도 → 409 Conflict(#608). */
+  @ExceptionHandler(
+      com.workplace.calendar.exception.ExternalCalendarDeletionNotAllowedException.class)
+  public ResponseEntity<ErrorResponse> handleExternalCalendarDeletion(
+      com.workplace.calendar.exception.ExternalCalendarDeletionNotAllowedException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   // 읽기전용(외부 동기화) 캘린더·일정 쓰기 거부(409)
   @ExceptionHandler(com.workplace.calendar.exception.ReadOnlyCalendarException.class)
   public ResponseEntity<ErrorResponse> handleReadOnlyCalendar(
