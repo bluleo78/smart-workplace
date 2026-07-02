@@ -70,7 +70,7 @@ export default function PriorityQuadrantBody() {
           .sort((a, b) => b.importanceScore + b.urgencyScore - (a.importanceScore + a.urgencyScore))
         return (
           <div key={q.key} className="rounded-md border border-border p-2" data-testid={`priority-quadrant-${q.key}`}>
-            <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
               <span className={`size-2 shrink-0 rounded-full ${q.dotClassName}`} aria-hidden="true" />
               {q.label}
             </div>
