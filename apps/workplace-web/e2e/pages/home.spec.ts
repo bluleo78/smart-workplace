@@ -685,6 +685,9 @@ test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload �
   await expect(cardsAfterDrag.nth(0)).toHaveAttribute('data-widget', 'unread_mail')
   await expect(cardsAfterDrag.nth(1)).toHaveAttribute('data-widget', 'my_tasks')
 
+  // dnd-kit 드래그 종료 후 팬텀 클릭 억제가 남아있어, 실제 사용자의 포인터 해제와 달리 Playwright 합성 이벤트는 이를 소비하지 못함 — 더미 클릭으로 미리 소비
+  await page.mouse.click(5, 5)
+
   await page.getByTestId('dashboard-edit-save').click()
 
   // 배너가 사라지면 PUT 이 resolve 되어 onSuccess 가 끝난 것 → putWidgets 안전 판독.
