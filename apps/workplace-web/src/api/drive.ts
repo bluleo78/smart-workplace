@@ -292,14 +292,15 @@ export const driveApi = {
   search: (spaceId: number, q: string) =>
     client.get<DriveSearchResult>(`/drive/spaces/${spaceId}/search`, { params: { q } }),
 
-  // 썸네일 blob → object URL. 메모리 Bearer 라 <img> 가 헤더를 못 실으므로 axios 로 받아 objectURL 생성.
-  // 404(썸네일 없음)면 null 반환. 호출처가 revokeObjectURL 책임.
-  fetchThumbnailUrl: async (driveFileId: number): Promise<string | null> => {
+  // 썸네일 blob. 메모리 Bearer 라 <img> 가 헤더를 못 실으므로 axios 로 받아 blob 반환.
+  // 404(썸네일 없음/생성 실패)면 null 반환 — React Query 캐시(#615)가 재요청을 억제하므로
+  // objectURL 생성은 호출처(useDriveThumbnail)가 캐시 라이프사이클에 맞춰 책임진다.
+  fetchThumbnailBlob: async (driveFileId: number): Promise<Blob | null> => {
     try {
       const { data } = await client.get<Blob>(`/drive/files/${driveFileId}/thumbnail`, {
         responseType: 'blob',
       })
-      return URL.createObjectURL(data)
+      return data
     } catch {
       return null
     }

@@ -347,6 +347,69 @@ test('이미지 파일 클릭 시 미리보기 모달에 이미지를 표시한�
   await expect(body.locator('img')).toBeVisible()
 })
 
+test('썸네일 생성 실패(404) 파일은 폴더 재방문 시 요청을 반복하지 않는다 (#615)', async ({
+  authenticatedPage: page,
+}) => {
+  const FOLDER_ID = 20
+  await stubSpaces(page)
+  // 루트: IMAGE 카테고리 파일 1개(썸네일 미생성) + 폴더 1개
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              folders: [{ id: FOLDER_ID, name: 'sub', parentId: null }],
+              files: [
+                {
+                  id: 14,
+                  folderId: null,
+                  fileId: 300,
+                  name: 'broken.png',
+                  mimeType: 'image/png',
+                  sizeBytes: 100,
+                  category: 'IMAGE',
+                  createdAt: '2026-01-01T00:00:00Z',
+                },
+              ],
+            }),
+          })
+        : route.fallback(),
+  )
+  // 하위 폴더: 빈 목록(왕복 이동용)
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/folders/${FOLDER_ID}/path`,
+    (route) => route.fulfill({ json: [{ id: FOLDER_ID, name: 'sub' }] }),
+  )
+
+  let thumbnailRequestCount = 0
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/files/14/thumbnail',
+    (route) => {
+      thumbnailRequestCount += 1
+      return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
+    },
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByText('broken.png')).toBeVisible()
+  await expect.poll(() => thumbnailRequestCount).toBeGreaterThanOrEqual(1)
+  const countAfterFirstVisit = thumbnailRequestCount
+
+  // 하위 폴더로 이동(클라이언트 라우팅, 풀리로드 없음) → 루트로 복귀를 반복해도
+  // 캐시된 404(negative cache)를 재요청하지 않는다.
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole('button', { name: 'sub' }).click()
+    await expect(page).toHaveURL(new RegExp(`folderId=${FOLDER_ID}`))
+    await page.getByTestId('drive-root').click()
+    await expect(page.getByText('broken.png')).toBeVisible()
+  }
+
+  expect(thumbnailRequestCount).toBe(countAfterFirstVisit)
+})
+
 test('휴지통 — 조회 후 복원하면 목록이 갱신된다', async ({ authenticatedPage: page }) => {
   let restored = false
   await stubSpaces(page)
