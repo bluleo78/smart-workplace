@@ -30,15 +30,19 @@ public class IssueTypeService {
   private final ProjectAccessGuard accessGuard;
 
   /**
-   * 신규 프로젝트 생성 직후 시스템 5종(TASK/BUG/STORY/CHORE/SUBTASK)을 시드한다. ProjectService.create 에서 호출. SUBTASK
-   * 는 Phase 4a 부터 추가된 Jira 스타일 자식 유형.
+   * 신규 프로젝트 생성 직후 시스템 유형을 시드한다. ProjectService.create / PersonalProjectProvisioner.createPersonal
+   * 에서 호출. includeEpic=true 면 EPIC 을 6번째로 추가 시드(TEAM/OPEN 공유 프로젝트 전용) — PERSONAL 프로젝트는 false 로 호출해
+   * EPIC 을 시드하지 않는다. SUBTASK 는 Phase 4a 부터 추가된 Jira 스타일 자식 유형.
    */
-  public void seedSystemTypes(Long projectId) {
+  public void seedSystemTypes(Long projectId, boolean includeEpic) {
     repo.insert(projectId, "TASK", "BLUE", "Circle", true, 0);
     repo.insert(projectId, "BUG", "RED", "Bug", true, 1);
     repo.insert(projectId, "STORY", "PURPLE", "BookOpen", true, 2);
     repo.insert(projectId, "CHORE", "GRAY", "Wrench", true, 3);
     repo.insert(projectId, "SUBTASK", "TEAL", "CornerDownRight", true, 4);
+    if (includeEpic) {
+      repo.insert(projectId, "EPIC", "INDIGO", "Flag", true, 5);
+    }
   }
 
   /** 프로젝트 내 유형 목록(유형 picker) — read 진입점. OPEN 은 테넌트 전원 조회 허용(assertReadable). */

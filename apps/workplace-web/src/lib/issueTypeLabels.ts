@@ -8,6 +8,7 @@ export const ISSUE_TYPE_LABELS: Record<string, string> = {
   STORY: '스토리',
   CHORE: '기타',
   SUBTASK: '하위 태스크',
+  EPIC: '에픽',
 };
 
 /** 이슈 유형 name 을 한국어 라벨로 변환한다. 미등록 값은 원문 그대로 반환. */

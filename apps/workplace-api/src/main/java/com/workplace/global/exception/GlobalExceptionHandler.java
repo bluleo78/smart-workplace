@@ -23,6 +23,7 @@ import com.workplace.home.outbound.AiAgentComposeException;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.AttachmentTooLargeException;
+import com.workplace.issue.exception.EpicCannotHaveParentException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.InvalidIssueOperationException;
@@ -31,6 +32,7 @@ import com.workplace.issue.exception.InvalidTypeIconException;
 import com.workplace.issue.exception.IssueAssigneeAgentRestrictionException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.exception.SystemTypeImmutableException;
 import com.workplace.issue.exception.TypeInUseException;
 import com.workplace.issue.exception.TypeNameDuplicatedException;
@@ -1008,10 +1010,18 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
-  /** setParent 호출 대상이 SUBTASK 가 아님 — 400. */
-  @ExceptionHandler(com.workplace.issue.exception.SetParentOnNonSubtaskException.class)
-  public ResponseEntity<ErrorResponse> handleSetParentOnNonSubtask(
-      com.workplace.issue.exception.SetParentOnNonSubtaskException ex, HttpServletRequest request) {
+  /** EPIC 은 부모를 가질 수 없음 — 400. */
+  @ExceptionHandler(EpicCannotHaveParentException.class)
+  public ResponseEntity<ErrorResponse> handleEpicCannotHaveParent(
+      EpicCannotHaveParentException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** SUBTASK 의 부모로 EPIC 지정 — 2단계 초과 계층 금지. 400. */
+  @ExceptionHandler(SubtaskParentCannotBeEpicException.class)
+  public ResponseEntity<ErrorResponse> handleSubtaskParentCannotBeEpic(
+      SubtaskParentCannotBeEpicException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }

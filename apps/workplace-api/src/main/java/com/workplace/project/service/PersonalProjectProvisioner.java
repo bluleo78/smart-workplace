@@ -36,7 +36,8 @@ public class PersonalProjectProvisioner {
         projectRepository.insert(key, name, description, callerId, "PERSONAL", isDefault);
     memberRepository.insert(row.id(), callerId, "OWNER");
     sequenceRepository.initialize(row.id());
-    issueTypeService.seedSystemTypes(row.id());
+    // PERSONAL 프로젝트 — EPIC 제외 5종 시드.
+    issueTypeService.seedSystemTypes(row.id(), false);
     // 생성자는 항상 OWNER — viewerIsMember=true
     return ProjectResponse.from(row, true);
   }

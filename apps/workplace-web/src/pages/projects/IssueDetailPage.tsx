@@ -286,6 +286,8 @@ export default function IssueDetailPage() {
   const { summary, body, comments, history } = data;
   // SUBTASK 여부 — 부모 슬롯(SUBTASK 만) / 자식 섹션(비SUBTASK 만) 분기에 사용 (Phase 4a).
   const isSubtask = summary.type?.name === 'SUBTASK';
+  // EPIC 여부 — 부모 슬롯 숨김(EPIC 은 부모를 가질 수 없음) 분기에 사용 (EPIC 계층 확장).
+  const isEpic = summary.type?.name === 'EPIC';
 
   // 서버 플래그 기반 UI 권한 분기 — 클라이언트에서 재파생하지 않는다.
   // 미지정(구 응답 호환)은 false 로 안전하게 처리 — 실제 API 는 항상 명시적으로 내려준다.
@@ -476,6 +478,7 @@ export default function IssueDetailPage() {
                 <IssueChildrenSection
                   projectKey={key}
                   parentNumber={issueNumber}
+                  parentTypeName={summary.type?.name ?? ''}
                   childCount={summary.childCount}
                   childDoneCount={summary.childDoneCount}
                 />
@@ -499,6 +502,7 @@ export default function IssueDetailPage() {
               projectKey={key}
               issueNumber={issueNumber}
               isSubtask={isSubtask}
+              isEpic={isEpic}
               parent={summary.parent}
               status={summary.status}
               priority={summary.priority}

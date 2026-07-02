@@ -25,6 +25,7 @@ interface IssuePropertyRailProps {
   projectKey: string;
   issueNumber: number;
   isSubtask: boolean;
+  isEpic: boolean;
   parent: ParentRef | null;   // summary.parent
   status: IssueStatus;        // summary.status
   priority: IssuePriority;    // summary.priority
@@ -48,6 +49,7 @@ export function IssuePropertyRail({
   projectKey,
   issueNumber,
   isSubtask,
+  isEpic,
   parent,
   status,
   priority,
@@ -73,12 +75,14 @@ export function IssuePropertyRail({
 
   return (
     <div className="space-y-3" data-testid="property-rail">
-      {/* SUBTASK 상세에서만 부모 슬롯 노출 */}
-      {isSubtask && (
+      {/* EPIC 은 부모를 가질 수 없으므로 슬롯 자체를 노출하지 않음.
+          SUBTASK/일반 이슈는 각각 "부모"/"상위 에픽" 문구로 슬롯 노출(Task 6). */}
+      {!isEpic && (
         <IssueParentSlot
           projectKey={projectKey}
           issueNumber={issueNumber}
           parent={parent}
+          isSubtask={isSubtask}
         />
       )}
 

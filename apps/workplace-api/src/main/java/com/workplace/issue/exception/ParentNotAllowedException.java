@@ -1,8 +1,8 @@
 package com.workplace.issue.exception;
 
-/** 비SUBTASK 생성에 parentNumber 가 지정된 경우 — 400. */
+/** 일반 이슈(비SUBTASK, 비EPIC)가 부모로 EPIC 이 아닌 이슈를 지정한 경우 — 400. */
 public class ParentNotAllowedException extends RuntimeException {
   public ParentNotAllowedException() {
-    super("SUBTASK 가 아닌 이슈는 부모를 가질 수 없습니다");
+    super("일반 이슈는 EPIC 만 부모로 지정할 수 있습니다");
   }
 }

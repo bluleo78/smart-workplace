@@ -162,9 +162,10 @@ test.describe('SUBTASK', () => {
 
       await page.goto(`/projects/${KEY}/issues/1`);
 
-      // 비SUBTASK 진입 — 자식 섹션 노출, 부모 슬롯 없음.
+      // 비SUBTASK(TASK) 진입 — 자식 섹션 노출 + 부모 슬롯도 "상위 에픽" 문구로 노출(EPIC 계층 확장, Task 6).
       await expect(page.getByTestId('issue-children-section')).toBeVisible();
-      await expect(page.getByTestId('issue-parent-slot')).toHaveCount(0);
+      await expect(page.getByTestId('issue-parent-slot')).toHaveCount(1);
+      await expect(page.getByTestId('issue-parent-slot')).toContainText('상위 에픽');
       // 섹션 제목이 한국어로 표시되는지 확인 (#133 회귀 방지).
       await expect(page.getByRole('heading', { name: '하위 태스크', level: 3 })).toBeVisible();
       // 초기 빈 상태 — 불필요한 "없습니다" 안내 문구 없이 추가 입력만 노출.

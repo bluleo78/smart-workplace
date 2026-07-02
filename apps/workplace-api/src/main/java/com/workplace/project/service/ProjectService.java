@@ -67,7 +67,8 @@ public class ProjectService {
         projectRepository.insert(req.key(), req.name(), req.description(), callerId, type, false);
     memberRepository.insert(row.id(), callerId, "OWNER");
     sequenceRepository.initialize(row.id());
-    issueTypeService.seedSystemTypes(row.id());
+    // TEAM/OPEN 공유 프로젝트 — EPIC 포함 6종 시드.
+    issueTypeService.seedSystemTypes(row.id(), true);
     // 생성자는 항상 OWNER — viewerIsMember=true
     return ProjectResponse.from(row, true);
   }

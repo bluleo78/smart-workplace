@@ -75,7 +75,7 @@ public final class OpenScenario {
     insertMember(dsl, project.id(), memberId, "MEMBER");
 
     // 시스템 유형 시드(TASK 포함) → 7-인자 insert 가 TASK 로 자동 fallback.
-    types.seedSystemTypes(project.id());
+    types.seedSystemTypes(project.id(), true);
 
     // 이슈 시퀀스 초기화(raw-DSL 프로젝트 삽입이라 create() 경로의 initialize 를 대신 호출).
     sequences.initialize(project.id());

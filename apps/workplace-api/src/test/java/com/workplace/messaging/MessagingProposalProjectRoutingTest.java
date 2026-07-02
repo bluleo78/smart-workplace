@@ -196,7 +196,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
     projectMemberRepo.insert(row.id(), ownerId, "OWNER");
     // IssueService.create 는 TASK 시스템 유형 + 이슈 시퀀스 행이 필요 — PersonalProjectProvisioner 와 동일하게 초기화.
     issueSequenceRepo.initialize(row.id());
-    issueTypeService.seedSystemTypes(row.id());
+    issueTypeService.seedSystemTypes(row.id(), true);
     createdProjectIds.add(row.id());
     return row.id();
   }

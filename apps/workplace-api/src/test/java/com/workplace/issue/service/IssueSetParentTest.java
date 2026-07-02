@@ -7,8 +7,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.exception.EpicCannotHaveParentException;
 import com.workplace.issue.exception.InvalidParentException;
-import com.workplace.issue.exception.SetParentOnNonSubtaskException;
+import com.workplace.issue.exception.ParentNotAllowedException;
+import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -63,6 +65,10 @@ class IssueSetParentTest extends IntegrationTestBase {
     return typeRepository.findByProjectAndName(projectId, "SUBTASK").orElseThrow().id();
   }
 
+  private Long epicTypeId(Long projectId) {
+    return typeRepository.findByProjectAndName(projectId, "EPIC").orElseThrow().id();
+  }
+
   @Test
   void subtask_set_parent_ok_records_history() {
     Long owner = createUser("a");
@@ -87,15 +93,75 @@ class IssueSetParentTest extends IntegrationTestBase {
   }
 
   @Test
-  void non_subtask_set_parent_throws_400() {
+  void epic_set_parent_throws_400() {
     Long owner = createUser("b");
     var p = newProject(owner, "SP2");
+    Long epicId = epicTypeId(p.id());
+    var epic =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("e", null, null, null, null, epicId, null));
+    var other =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("o", null, null, null, null, null, null));
+
+    assertThatThrownBy(() -> issueService.setParent(owner, p.key(), epic.number(), other.number()))
+        .isInstanceOf(EpicCannotHaveParentException.class);
+  }
+
+  @Test
+  void general_issue_set_parent_to_epic_ok() {
+    Long owner = createUser("b2");
+    var p = newProject(owner, "SP2B");
+    Long epicId = epicTypeId(p.id());
+    var epic =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("e", null, null, null, null, epicId, null));
     var task =
         issueService.create(
             owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
 
-    assertThatThrownBy(() -> issueService.setParent(owner, p.key(), task.number(), 1))
-        .isInstanceOf(SetParentOnNonSubtaskException.class);
+    issueService.setParent(owner, p.key(), task.number(), epic.number());
+
+    var detail = issueService.get(owner, p.key(), task.number());
+    assertThat(detail.summary().parent()).isNotNull();
+    assertThat(detail.summary().parent().number()).isEqualTo(epic.number());
+  }
+
+  @Test
+  void general_issue_set_parent_to_non_epic_throws_400() {
+    Long owner = createUser("b3");
+    var p = newProject(owner, "SP2C");
+    var task1 =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("t1", null, null, null, null, null, null));
+    var task2 =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("t2", null, null, null, null, null, null));
+
+    assertThatThrownBy(() -> issueService.setParent(owner, p.key(), task1.number(), task2.number()))
+        .isInstanceOf(ParentNotAllowedException.class);
+  }
+
+  @Test
+  void subtask_set_parent_to_epic_throws_400() {
+    Long owner = createUser("b4");
+    var p = newProject(owner, "SP2D");
+    Long epicId = epicTypeId(p.id());
+    Long subId = subtaskTypeId(p.id());
+    var task =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+    var epic =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("e", null, null, null, null, epicId, null));
+    var sub =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("s", null, null, null, null, subId, task.number()));
+
+    assertThatThrownBy(() -> issueService.setParent(owner, p.key(), sub.number(), epic.number()))
+        .isInstanceOf(SubtaskParentCannotBeEpicException.class);
   }
 
   @Test
