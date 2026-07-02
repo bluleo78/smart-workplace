@@ -129,8 +129,10 @@ test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼�
   await page.getByTestId('add-member-submit').click()
 
   // 다이얼로그가 닫히지 않고, 다음 등록을 위해 폼은 비워진다.
+  // timeout 상향(기본 10s→15s) — 전체 스위트 병렬 실행(5 워커) 시 리소스 경합으로
+  // onSuccess 리렌더가 지연되며 간헐적으로 타임아웃하던 flake 대응(#593 푸시 게이트에서 발견).
   await expect.poll(() => postCount).toBe(1)
-  await expect(page.getByTestId('add-member-submit')).toBeVisible()
+  await expect(page.getByTestId('add-member-submit')).toBeVisible({ timeout: 15000 })
   await expect(page.getByTestId('add-member-username')).toHaveValue('')
   await expect(page.getByTestId('add-member-name')).toHaveValue('')
   await expect(page.getByTestId('add-member-password')).toHaveValue('')
@@ -141,7 +143,7 @@ test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼�
   await page.getByTestId('add-member-password').fill('Password123')
   await page.getByTestId('add-member-submit').click()
   await expect.poll(() => postCount).toBe(2)
-  await expect(page.getByTestId('add-member-submit')).toBeVisible()
+  await expect(page.getByTestId('add-member-submit')).toBeVisible({ timeout: 15000 })
 })
 
 // #583 — 추가 버튼을 동일 이벤트 루프 틱 내 연속 클릭해도 요청이 1번만 나가야 한다
