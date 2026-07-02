@@ -134,6 +134,7 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByRole('option', { name: 'Claude Sonnet 5' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Opus 4.8' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Haiku 4.5' })).toBeVisible()
+    await expect(page.getByRole('option', { name: 'Claude Fable 5' })).toBeVisible()
     // 내부 ID 형식('claude-sonnet-5')은 옵션 레이블로 노출되면 안 된다.
     await expect(page.getByRole('option', { name: 'claude-sonnet-5' })).not.toBeVisible()
     await expect(page.getByRole('option', { name: 'claude-opus-4-8' })).not.toBeVisible()
