@@ -6,6 +6,7 @@
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 
+import { emitAiStreamEvent } from '../lib/aiEventBus';
 import { subscribeEventStream } from '../lib/eventStream';
 import { messagingKeys } from './queries/messagingKeys';
 import { notificationKeys } from './queries/notificationKeys';
@@ -24,6 +25,13 @@ export function routeStreamEvent(
   else if (name.startsWith('messaging.')) handleMessagingEvent(ctx.qc, name, data, ctx.currentUserId);
   else if (name.startsWith('notify.')) handleNotifyEvent(ctx.qc, name);
   else if (name.startsWith('issue.')) handleIssueEvent(ctx.qc, name, data);
+  else if (
+    name.startsWith('wiki.ai.') ||
+    name.startsWith('drive.overview.') ||
+    name.startsWith('home.chat.')
+  ) {
+    emitAiStreamEvent(name, data);
+  }
 }
 
 export function useEventStream(currentUserId: number): { isConnected: boolean } {

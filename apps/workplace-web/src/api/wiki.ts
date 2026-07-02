@@ -51,4 +51,11 @@ export const wikiApi = {
     client.get<WikiSearchResult[]>('/wiki/search', {
       params: { q, ...(spaceId != null ? { spaceId } : {}) },
     }),
+
+  // AI 생성 시작 — correlationId 반환, 실제 토큰은 /events(wiki.ai.*)로 전달(#593 편입).
+  startAi: (pageId: number, req: { action: string; prompt?: string; selection?: string }) =>
+    client.post<{ correlationId: string }>(`/wiki/pages/${pageId}/ai`, req),
+  // 진행 중인 AI 생성 취소.
+  cancelAi: (pageId: number, correlationId: string) =>
+    client.delete<void>(`/wiki/pages/${pageId}/ai/${correlationId}`),
 }

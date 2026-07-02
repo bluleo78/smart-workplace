@@ -83,4 +83,20 @@ class GlobalExceptionHandlerTest {
     assertThat(res.getBody()).isNotNull();
     assertThat(res.getBody().message()).contains("IMAGE");
   }
+
+  @Test
+  void streamingGenerationNotFound_는_404_를_반환한다() {
+    var ex = new com.workplace.global.exception.StreamingGenerationNotFoundException("corr-1");
+    ResponseEntity<ErrorResponse> res = handler.handleStreamingGenerationNotFound(ex, request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    assertThat(res.getBody().message()).contains("corr-1");
+  }
+
+  @Test
+  void streamingGenerationForbidden_는_403_을_반환한다() {
+    var ex = new com.workplace.global.exception.StreamingGenerationForbiddenException("corr-2");
+    ResponseEntity<ErrorResponse> res = handler.handleStreamingGenerationForbidden(ex, request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    assertThat(res.getBody().message()).contains("corr-2");
+  }
 }
