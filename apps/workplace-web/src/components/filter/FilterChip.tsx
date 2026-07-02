@@ -19,7 +19,10 @@ export function FilterChip({
   onClear: () => void;
 }) {
   // 값 요약: 첫 선택값의 render/label + 나머지 개수.
+  // 옵션 목록에서 찾지 못하면(삭제된 라벨/제외된 담당자 등) 원시 ID를 노출하는 대신
+  // "(알 수 없음)" 플레이스홀더를 흐림 처리로 표시해 유효하지 않은 필터임을 알린다 (#609).
   const firstOpt = facet.options.find((o) => o.value === selected[0]);
+  const isUnresolved = selected.length > 0 && !firstOpt;
   const extra = selected.length - 1;
 
   return (
@@ -31,7 +34,11 @@ export function FilterChip({
         <PopoverTrigger asChild>
           <button type="button" className="inline-flex items-center gap-1">
             <span className="text-muted-foreground">{facet.label}:</span>
-            {firstOpt?.render ?? <span>{firstOpt?.label ?? selected[0]}</span>}
+            {firstOpt?.render ?? (
+              <span className={isUnresolved ? 'italic text-muted-foreground/70' : undefined}>
+                {firstOpt?.label ?? (isUnresolved ? '(알 수 없음)' : selected[0])}
+              </span>
+            )}
             {extra > 0 && <span className="text-muted-foreground">+{extra}</span>}
           </button>
         </PopoverTrigger>

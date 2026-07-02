@@ -127,6 +127,57 @@ test.describe('라벨', () => {
   );
 
   test(
+    '삭제된 라벨을 참조하는 필터 진입 시 원시 ID 대신 플레이스홀더 노출 (#609)',
+    async ({ authenticatedPage: page }) => {
+      // 라벨이 삭제되어 현재 옵션 목록에는 없지만, URL(또는 저장된 뷰)은 여전히
+      // 존재하지 않는 라벨 ID(99999)를 참조하는 상황을 재현.
+      const issue = createIssue({ id: 1, number: 1, title: 'A', status: 'TODO' });
+
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createProject()),
+        }),
+      );
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' }),
+          ]),
+        });
+      });
+      // 라벨 목록은 비어있음 — 99999 는 더 이상 존재하지 않음(삭제됨).
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels`, (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+      });
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(createIssueSearchResponse([issue], null)),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}?label=99999`);
+
+      const chip = page.getByTestId('filter-chip-label');
+      await expect(chip).toBeVisible();
+      // 원시 숫자 ID(99999) 는 노출되면 안 되고, 대신 사람이 읽을 수 있는 플레이스홀더가 보여야 한다.
+      await expect(chip).not.toContainText('99999');
+      await expect(chip).toContainText('알 수 없음');
+    },
+  );
+
+  test(
     '라벨 이름 변경 — shadcn Dialog 로 PATCH 발생, window.prompt 없음 (#160)',
     async ({ authenticatedPage: page }) => {
       const label = createLabel({ name: '원래이름', colorToken: 'GRAY' });
