@@ -17,7 +17,8 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
   if (pageId == null) {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 + CTA 버튼 4요소 */
     const handleCreatePage = async () => {
-      const created = await createPage.mutateAsync({ parentId: null, title: '제목 없음' })
+      // 실제 저장값은 빈 문자열 — "제목 없음"은 표시용 폴백일 뿐 초기 상태 값이 아니다.
+      const created = await createPage.mutateAsync({ parentId: null, title: '' })
       navigate(`/wiki/spaces/${spaceId}/pages/${created.id}`)
     }
     return (

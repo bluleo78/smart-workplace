@@ -205,7 +205,8 @@ export function WikiSidebar() {
 
   const addRootPage = async () => {
     if (spaceId == null) return
-    const created = await createPage.mutateAsync({ parentId: null, title: '제목 없음' })
+    // 실제 저장값은 빈 문자열 — "제목 없음"은 표시용 폴백일 뿐 초기 상태 값이 아니다.
+    const created = await createPage.mutateAsync({ parentId: null, title: '' })
     openPage(created.id)
   }
 
@@ -225,7 +226,8 @@ export function WikiSidebar() {
       next.delete(parentId)
       return next
     })
-    const created = await createPage.mutateAsync({ parentId, title: '제목 없음' })
+    // 실제 저장값은 빈 문자열 — "제목 없음"은 표시용 폴백일 뿐 초기 상태 값이 아니다.
+    const created = await createPage.mutateAsync({ parentId, title: '' })
     openPage(created.id)
   }
 

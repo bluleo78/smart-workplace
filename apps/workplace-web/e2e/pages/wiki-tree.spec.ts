@@ -59,8 +59,47 @@ test('하위 페이지 생성 — ＋ 클릭 시 parentId payload + 트리/내�
 
   await expect.poll(() => postBody).not.toBeNull()
   expect(postBody!.parentId).toBe(1)
+  // 실제 저장 title 은 빈 문자열이어야 한다 — "제목 없음"은 표시용 폴백일 뿐 초기 상태 값이 아니다(#596).
+  expect(postBody!.title).toBe('')
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/2$`))
   await expect(page.getByTestId('wiki-tree-row-2')).toBeVisible()
+})
+
+test('새 페이지 생성 직후 제목 입력 — placeholder 위에 이어붙지 않고 입력값만 저장(#596)', async ({
+  authenticatedPage: page,
+}) => {
+  await routeCommon(page)
+  let postBody: { parentId: number | null; title: string } | null = null
+
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
+    if (r.request().method() === 'POST') {
+      postBody = r.request().postDataJSON()
+      return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(detail(2, '', null)) })
+    }
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 1, parentId: null, title: '제품 문서', position: 0 }]),
+    })
+  })
+  await page.route('**/api/v1/wiki/pages/*', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(2, '', null)) }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  await page.getByRole('button', { name: '새 페이지', exact: true }).click()
+
+  await expect.poll(() => postBody).not.toBeNull()
+  // 생성 요청 자체가 빈 문자열 title 이어야 한다(리터럴 "제목 없음" 전송 금지).
+  expect(postBody!.title).toBe('')
+
+  // 새 페이지 진입 시 제목 input 은 실제 값이 비어 있어 placeholder 만 노출되고,
+  // 클릭 후 바로 입력하면 접합 없이 입력값만 남아야 한다.
+  const titleInput = page.locator('input[placeholder="제목 없음"]')
+  await expect(titleInput).toHaveValue('')
+  await titleInput.click()
+  await titleInput.pressSequentially('탐색 테스트 문서')
+  await expect(titleInput).toHaveValue('탐색 테스트 문서')
 })
 
 test('접기/펼치기 — 부모 토글 시 자손 숨김/노출', async ({ authenticatedPage: page }) => {
