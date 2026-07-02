@@ -5,10 +5,21 @@
 // 위젯은 두 종류다 — 시스템 위젯(싱글턴, count 기반)과 카탈로그 위젯(다중 인스턴스, params 기반,
 // chatWidgetRegistry 컴포넌트를 그대로 재사용).
 import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import {
   ArrowDown,
   ArrowUp,
   Eye,
   EyeOff,
+  GripVertical,
   Home,
   PanelTop,
   PanelTopClose,
@@ -186,18 +197,26 @@ function EditableWidgetCard({
   const Icon = entry.def.icon
   const title = entryTitle(entry)
   const { cfg } = entry
+  // 드래그앤드랍 재배치 — 핸들(GripVertical)에서만 드래그 시작(카드 내 다른 버튼과 제스처 분리).
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: cfg.id,
+  })
+  const dragStyle = { transform: CSS.Translate.toString(transform), transition }
   // wide: 카운트 스트립·2x2 분면처럼 1/3 폭에 찌그러지는 시스템 위젯 — lg:col-span-3(전체 폭).
   const wide = entry.kind === 'system' && Boolean(entry.def.wide)
   return (
     <Card
-      ref={cardRef}
-      // 포커스 복원 대상이 될 수 있어 tabIndex=-1(프로그램적 focus 허용, 탭 순서 비참여).
+      ref={(el) => {
+        setNodeRef(el)
+        cardRef(el)
+      }}
+      style={dragStyle}
       tabIndex={-1}
       // transition-shadow duration-700 은 강조 표시(ring-ai-accent) 페이드 인/아웃용. 다만 이 상태로는
       // 키보드 포커스 링(focus-visible:ring-2)도 같이 700ms 페이드 되어 포커스 이동이 굼떠 보이는 접근성
       // 회귀가 생긴다 — focus-visible:transition-none 으로 포커스 시에만 트랜지션을 무효화해 포커스 링은
       // 즉시 나타나게 하고, 강조 표시의 페이드 인/아웃(비-포커스 상태)은 그대로 유지한다.
-      className={`border-l-2 border-l-ai-accent transition-shadow duration-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:transition-none${cfg.hidden ? ' opacity-50' : ''}${highlighted ? ' ring-2 ring-ai-accent' : ''}${wide ? ' lg:col-span-3' : ''}`}
+      className={`border-l-2 border-l-ai-accent transition-shadow duration-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:transition-none${cfg.hidden ? ' opacity-50' : ''}${highlighted ? ' ring-2 ring-ai-accent' : ''}${wide ? ' lg:col-span-3' : ''}${isDragging ? ' opacity-50' : ''}`}
       data-testid="dashboard-widget"
       data-widget={cfg.type}
       data-widget-id={cfg.id}
@@ -207,6 +226,16 @@ function EditableWidgetCard({
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-muted-foreground">
+            <button
+              type="button"
+              className="cursor-grab touch-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              data-testid="widget-drag-handle"
+              aria-label={`드래그 핸들: ${title}`}
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
             <Icon className="h-4 w-4" />
             <CardTitle className="text-sm font-medium">{title}</CardTitle>
           </div>
@@ -448,6 +477,32 @@ export function Dashboard() {
     setMoveFocus({ id, dir, token: moveTokenRef.current })
   }
 
+  // 드래그앤드랍 센서 — PointerSensor distance:8 로 일반 클릭(버튼)과 드래그 제스처를 분리.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
+  // 드래그 종료 — active 위젯을 over 위젯 자리로 재배치. moveWidget 과 동일하게 undo 스냅샷 + 공지.
+  // 포인터 드래그는 키보드 포커스 이동이 없으므로 moveWidget 의 포커스 복원(moveTokenRef/setMoveFocus)이 불필요하다.
+  function handleDragEnd({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) return
+    const activeId = String(active.id)
+    const overId = String(over.id)
+    const cur = draft.find((w) => w.id === activeId)
+    const entry = cur ? resolveEntry(cur) : null
+    const title = entry ? entryTitle(entry) : activeId
+    snapshot()
+    let newIndex = -1
+    setDraft((prev) => {
+      const oldIdx = prev.findIndex((w) => w.id === activeId)
+      const overIdx = prev.findIndex((w) => w.id === overId)
+      if (oldIdx < 0 || overIdx < 0) return prev
+      newIndex = overIdx
+      return arrayMove(prev, oldIdx, overIdx)
+    })
+    if (newIndex >= 0) {
+      setLiveMsg(`${title} 위젯을 ${newIndex + 1}번째 위치로 이동했습니다`)
+    }
+  }
+
   // 표시/숨김 토글. id 기반.
   function toggleHidden(id: string) {
     const cur = draft.find((w) => w.id === id)
@@ -638,37 +693,43 @@ export function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="dashboard">
-          {editing
-            ? draftEntries.map((entry, i) => (
-                <EditableWidgetCard
-                  key={entry.cfg.id}
-                  entry={entry}
-                  index={i}
-                  total={draftEntries.length}
-                  onMove={(dir) => moveWidget(entry.cfg.id, dir)}
-                  onToggleHidden={() => toggleHidden(entry.cfg.id)}
-                  onToggleChromeless={() => toggleChromeless(entry.cfg.id)}
-                  onCount={(n) => setCount(entry.cfg.id, n)}
-                  onApplyCatalogConfig={(patch) => applyCatalogConfig(entry.cfg.id, patch)}
-                  onRemove={() => removeWidget(entry.cfg.id)}
-                  highlighted={entry.cfg.id === recentlyAddedId}
-                  cardRef={(el) => {
-                    if (el) cardRefs.current.set(entry.cfg.id, el)
-                    else cardRefs.current.delete(entry.cfg.id)
-                  }}
-                  upRef={(el) => {
-                    if (el) upRefs.current.set(entry.cfg.id, el)
-                    else upRefs.current.delete(entry.cfg.id)
-                  }}
-                  downRef={(el) => {
-                    if (el) downRefs.current.set(entry.cfg.id, el)
-                    else downRefs.current.delete(entry.cfg.id)
-                  }}
-                />
-              ))
-            : savedEntries
-                .filter((e) => !e.cfg.hidden)
-                .map((entry) => <WidgetCard key={entry.cfg.id} entry={entry} />)}
+          {editing ? (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={draftEntries.map((e) => e.cfg.id)} strategy={rectSortingStrategy}>
+                {draftEntries.map((entry, i) => (
+                  <EditableWidgetCard
+                    key={entry.cfg.id}
+                    entry={entry}
+                    index={i}
+                    total={draftEntries.length}
+                    onMove={(dir) => moveWidget(entry.cfg.id, dir)}
+                    onToggleHidden={() => toggleHidden(entry.cfg.id)}
+                    onToggleChromeless={() => toggleChromeless(entry.cfg.id)}
+                    onCount={(n) => setCount(entry.cfg.id, n)}
+                    onApplyCatalogConfig={(patch) => applyCatalogConfig(entry.cfg.id, patch)}
+                    onRemove={() => removeWidget(entry.cfg.id)}
+                    highlighted={entry.cfg.id === recentlyAddedId}
+                    cardRef={(el) => {
+                      if (el) cardRefs.current.set(entry.cfg.id, el)
+                      else cardRefs.current.delete(entry.cfg.id)
+                    }}
+                    upRef={(el) => {
+                      if (el) upRefs.current.set(entry.cfg.id, el)
+                      else upRefs.current.delete(entry.cfg.id)
+                    }}
+                    downRef={(el) => {
+                      if (el) downRefs.current.set(entry.cfg.id, el)
+                      else downRefs.current.delete(entry.cfg.id)
+                    }}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          ) : (
+            savedEntries
+              .filter((e) => !e.cfg.hidden)
+              .map((entry) => <WidgetCard key={entry.cfg.id} entry={entry} />)
+          )}
         </div>
 
         {editing && (

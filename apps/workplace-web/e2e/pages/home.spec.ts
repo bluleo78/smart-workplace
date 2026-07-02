@@ -633,6 +633,68 @@ test('편집 — 위젯 아래로 이동 → 저장 시 PUT payload 순서 반�
   await expect(cards.nth(1)).toHaveAttribute('data-widget', 'my_tasks')
 })
 
+test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload 순서 반영', async ({
+  authenticatedPage: page,
+}) => {
+  // PUT 핸들러 1개로 캡처 + 에코(LIFO 라우트 섀도잉 회피) — 기존 이동 테스트와 동일 패턴.
+  let putWidgets: DashboardWidgetConfig[] | null = null
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/dashboard',
+    (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(layout(['my_tasks', 'unread_mail'])),
+        })
+      }
+      if (route.request().method() !== 'PUT') return route.continue()
+      const body = route.request().postDataJSON() as { widgets: DashboardWidgetConfig[] }
+      putWidgets = body.widgets
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      })
+    },
+  )
+  await mockWidgets(page)
+  await page.goto('/')
+
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await expect(page.getByTestId('dashboard-edit-banner')).toBeVisible()
+
+  const myTasksCard = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
+  const unreadMailCard = page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]')
+
+  // my_tasks 드래그 핸들을 unread_mail 카드 중앙으로 드래그 → 순서 반전.
+  // dnd-kit PointerSensor(distance:8) 활성화를 위해 hover → down → move(0,0) → move(target, steps) → up.
+  const handle = myTasksCard.getByTestId('widget-drag-handle')
+  const targetBox = await unreadMailCard.boundingBox()
+  if (!targetBox) throw new Error('unread_mail 카드 bounding box 없음')
+  await handle.hover()
+  await page.mouse.down()
+  await page.mouse.move(0, 0)
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+    steps: 12,
+  })
+  await page.mouse.up()
+
+  // 드래그 직후 DOM 순서에 실시간 재배치가 반영될 때까지 대기.
+  const cardsAfterDrag = page.getByTestId('dashboard-widget')
+  await expect(cardsAfterDrag.nth(0)).toHaveAttribute('data-widget', 'unread_mail')
+  await expect(cardsAfterDrag.nth(1)).toHaveAttribute('data-widget', 'my_tasks')
+
+  // dnd-kit 드래그 종료 후 팬텀 클릭 억제가 남아있어, 실제 사용자의 포인터 해제와 달리 Playwright 합성 이벤트는 이를 소비하지 못함 — 더미 클릭으로 미리 소비
+  await page.mouse.click(5, 5)
+
+  await page.getByTestId('dashboard-edit-save').click()
+
+  // 배너가 사라지면 PUT 이 resolve 되어 onSuccess 가 끝난 것 → putWidgets 안전 판독.
+  await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
+  expect(putWidgets!.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
+})
+
 test('편집 — 위젯 숨김 → 저장 시 hidden:true + 일반 뷰 제외', async ({
   authenticatedPage: page,
 }) => {
