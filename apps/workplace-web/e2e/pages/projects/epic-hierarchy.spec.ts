@@ -35,18 +35,16 @@ async function setupCommonStubs(page: Parameters<Parameters<typeof test>[2]>[0][
       body: JSON.stringify([{ userId: 1, username: 'me', name: 'Me', role: 'OWNER' }]),
     }),
   );
-  // 실제 네트워크 latency 를 흉내내는 미세 지연 — 0ms 즉시 응답이면 React StrictMode(dev)의
-  // 이중 effect 마운트 사이클과 경합해 Radix Select 의 숨은 native <select> 가 unmount 시
-  // change("") 를 잘못 방출하는 dev-only 레이스가 있다(EPIC 하위 유형 select 기본값 리셋).
-  // 실제 백엔드 호출은 항상 >0ms 이므로 프로덕션에서는 재현되지 않는다 — 테스트만 보정.
-  await page.route(`**/api/v1/projects/${KEY}/types`, async (route) => {
-    await new Promise((r) => setTimeout(r, 50));
-    return route.fulfill({
+  // 지연 없이 즉시 응답 — Radix Select 의 숨은 native <select> 폴백이 마운트 시
+  // value="" 로 onValueChange 를 잘못 발화시켜 epicChildTypeId 가 0 으로 깨지는 회귀를
+  // 인위적 지연으로 가리지 않고 그대로 잡아낸다 (#605).
+  await page.route(`**/api/v1/projects/${KEY}/types`, (route) =>
+    route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(systemTypes()),
-    });
-  });
+    }),
+  );
   await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
@@ -152,11 +150,19 @@ test.describe('EPIC 계층', () => {
       await expect(page.getByTestId('issue-children-section')).toBeVisible();
       await expect(page.getByTestId('issue-parent-slot')).toHaveCount(0);
       await expect(page.getByRole('heading', { name: '하위 이슈', level: 3 })).toBeVisible();
-      // EPIC 부모에서는 유형 선택 셀렉트가 노출된다(SUBTASK 고정이 아님).
-      await expect(page.getByTestId('epic-child-type-select')).toBeVisible();
+      // EPIC 부모에서는 유형 선택 셀렉트가 노출되고, 기본값(첫 항목)이 라벨 텍스트로
+      // 채워져야 한다(#605 회귀 — 빈 텍스트로 렌더링되던 버그).
+      const typeSelect = page.getByTestId('epic-child-type-select');
+      await expect(typeSelect).toBeVisible();
+      await expect(typeSelect).not.toHaveText('');
+      await expect(typeSelect).toContainText('태스크');
 
       await page.getByTestId('child-add-input').fill('첫 스토리');
-      await page.getByTestId('child-add-form').getByRole('button', { name: '추가' }).click();
+      // 제목 입력만으로 "추가" 버튼이 활성화되어야 한다(#605 — 유형 기본값 미설정으로
+      // 항상 disabled 로 남던 버그).
+      const addButton = page.getByTestId('child-add-form').getByRole('button', { name: '추가' });
+      await expect(addButton).toBeEnabled();
+      await addButton.click();
 
       await expect.poll(() => postPayload).toEqual({
         title: '첫 스토리',

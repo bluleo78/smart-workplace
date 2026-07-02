@@ -183,7 +183,11 @@ export function IssueChildrenSection({
         {isEpicParent && (
           <Select
             value={epicChildTypeId != null ? String(epicChildTypeId) : ''}
-            onValueChange={(v) => setEpicChildTypeId(Number(v))}
+            onValueChange={(v) => {
+              // Radix Select 의 hidden native <select> 폴백이 마운트 시 value="" 로
+              // onValueChange 를 한 번 발화시켜 Number('')=0 이 state 에 들어가는 문제 방지.
+              if (v) setEpicChildTypeId(Number(v));
+            }}
           >
             <SelectTrigger
               data-testid="epic-child-type-select"
