@@ -31,15 +31,15 @@ class DashboardServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void 기본_레이아웃은_synthesis_quick_actions_priority_quadrant를_맨앞에_포함한다() {
+  void 기본_레이아웃은_synthesis_quick_actions를_맨앞에_포함하고_priority_quadrant는_제외한다() {
     long userId = insertUser("dashboard_test_" + System.nanoTime());
     DashboardResponse res = service.get(userId); // 저장된 레이아웃 없는 신규 사용자
     List<String> types = res.widgets().stream().map(DashboardWidgetConfig::type).toList();
+    // priority_quadrant 는 기본 레이아웃에 없음(사용자가 "위젯 추가"로 직접 넣어야 함).
     assertThat(types)
         .containsExactly(
             "synthesis",
             "quick_actions",
-            "priority_quadrant",
             "my_tasks",
             "calendar_today",
             "notifications",

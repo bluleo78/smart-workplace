@@ -10,6 +10,13 @@ import type { DashboardWidget } from './registry'
 const ALL_CATEGORY = '전체'
 const SYSTEM_CATEGORY = '기본'
 
+// 시스템 위젯 크기 라벨 — tall(행 2칸)·wide(그리드 전체 폭 3칸) 조합에 따라 실제 그리드 점유 크기를 표시.
+function systemSizeLabel(w: DashboardWidget): string {
+  const cols = w.wide ? 3 : 1
+  const rows = w.tall ? 2 : 1
+  return `${cols}×${rows}`
+}
+
 export function AddWidgetModal({
   open,
   onOpenChange,
@@ -47,7 +54,7 @@ export function AddWidgetModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl" data-testid="add-widget-modal">
+      <DialogContent className="max-w-5xl" data-testid="add-widget-modal">
         <DialogHeader>
           <DialogTitle>위젯 추가</DialogTitle>
         </DialogHeader>
@@ -72,7 +79,7 @@ export function AddWidgetModal({
             ))}
           </div>
           <div
-            className="grid max-h-[60vh] flex-1 grid-cols-2 gap-3 overflow-auto sm:grid-cols-3"
+            className="grid max-h-[70vh] flex-1 grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4"
             data-testid="add-widget-grid"
           >
             {visibleSystem.map((w) => {
@@ -89,7 +96,7 @@ export function AddWidgetModal({
                 >
                   <Icon className="h-5 w-5 text-muted-foreground" />
                   <span className="text-sm font-medium">{w.title}</span>
-                  <span className="text-xs text-muted-foreground">기본 위젯 · 1×1</span>
+                  <span className="text-xs text-muted-foreground">기본 위젯 · {systemSizeLabel(w)}</span>
                 </button>
               )
             })}

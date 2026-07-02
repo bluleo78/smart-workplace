@@ -16,11 +16,13 @@ const SOURCE_ICON: Record<string, typeof CalendarClock> = {
 
 // 분면별 색 점(dot) — 디자인 시스템은 이모지를 금지하고 Lucide 아이콘/CSS 색 토큰만 허용한다(#280).
 // AgendaView.tsx 의 "size-2 rounded-full" 점 패턴을 미러 — 시맨틱 색 토큰 클래스만 사용.
+// 배치(2열 그리드 순서 = 좌상단→우상단→좌하단→우하단): 긴급도를 X축(오른쪽 증가), 중요도를 Y축(위
+// 증가)으로 보면 우상단이 "긴급+중요" — 통상적인 아이젠하워 매트릭스 배치와 일치.
 const QUADRANTS = [
-  { key: 'urgent-important', label: '긴급 + 중요', dotClassName: 'bg-destructive', test: (i: PriorityItem) => i.importanceScore >= 50 && i.urgencyScore >= 50 },
   { key: 'important', label: '중요', dotClassName: 'bg-warning', test: (i: PriorityItem) => i.importanceScore >= 50 && i.urgencyScore < 50 },
-  { key: 'urgent', label: '긴급', dotClassName: 'bg-orange-500', test: (i: PriorityItem) => i.importanceScore < 50 && i.urgencyScore >= 50 },
+  { key: 'urgent-important', label: '긴급 + 중요', dotClassName: 'bg-destructive', test: (i: PriorityItem) => i.importanceScore >= 50 && i.urgencyScore >= 50 },
   { key: 'low', label: '낮음', dotClassName: 'bg-muted-foreground/40', test: (i: PriorityItem) => i.importanceScore < 50 && i.urgencyScore < 50 },
+  { key: 'urgent', label: '긴급', dotClassName: 'bg-orange-500', test: (i: PriorityItem) => i.importanceScore < 50 && i.urgencyScore >= 50 },
 ] as const
 
 const MAX_PER_QUADRANT = 3

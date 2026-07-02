@@ -2364,6 +2364,97 @@ test('카탈로그 위젯 삭제 시 그리드에서 사라지고 저장 payload
   expect(body.widgets.some((w) => w.type === 'issue_list')).toBe(false)
 })
 
+test('시스템 위젯도 삭제 버튼으로 완전 삭제된다(숨김 아님)', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  let putBody: unknown = null
+
+  await page.route('**/api/v1/me/dashboard', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        json: {
+          widgets: [
+            { id: 'my_tasks', type: 'my_tasks', count: 5, hidden: false },
+            { id: 'calendar_today', type: 'calendar_today', count: 5, hidden: false },
+          ],
+        },
+      })
+      return
+    }
+    if (route.request().method() === 'PUT') {
+      putBody = route.request().postDataJSON()
+      await route.fulfill({ json: putBody })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page
+    .getByTestId('dashboard-widget')
+    .filter({ hasText: '내 작업' })
+    .getByTestId('widget-remove')
+    .click()
+  // 숨김(dimmed) 처리가 아니라 목록에서 즉시 사라져야 한다.
+  await expect(page.getByTestId('dashboard-widget').filter({ hasText: '내 작업' })).toHaveCount(0)
+
+  await page.getByTestId('dashboard-edit-save').click()
+
+  await expect.poll(() => putBody).not.toBeNull()
+  const body = putBody as { widgets: { type: string }[] }
+  expect(body.widgets.some((w) => w.type === 'my_tasks')).toBe(false)
+})
+
+test('테두리·제목 숨김(chromeless) 토글이 저장 payload 에 반영되고 뷰 모드에서 카드 프레임이 사라진다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  let putBody: unknown = null
+
+  await page.route('**/api/v1/me/dashboard', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        json: { widgets: [{ id: 'quick_actions', type: 'quick_actions', count: 5, hidden: false }] },
+      })
+      return
+    }
+    if (route.request().method() === 'PUT') {
+      putBody = route.request().postDataJSON()
+      await route.fulfill({ json: putBody })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  const toggle = page
+    .getByTestId('dashboard-widget')
+    .filter({ hasText: '빠른 액션' })
+    .getByTestId('widget-chromeless-toggle')
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+  await page.getByTestId('dashboard-edit-save').click()
+
+  await expect.poll(() => putBody).not.toBeNull()
+  const body = putBody as { widgets: { type: string; chromeless: boolean }[] }
+  expect(body.widgets.find((w) => w.type === 'quick_actions')?.chromeless).toBe(true)
+
+  // 뷰 모드 재진입 시(저장된 응답 재조회) 카드 프레임(Card 컴포넌트 클래스) 없이 렌더되어야 한다.
+  await page.route('**/api/v1/me/dashboard', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        json: {
+          widgets: [{ id: 'quick_actions', type: 'quick_actions', count: 5, hidden: false, chromeless: true }],
+        },
+      })
+      return
+    }
+    await route.continue()
+  })
+  await page.reload()
+  const card = page.getByTestId('dashboard-widget').filter({ hasText: '새 이슈' })
+  await expect(card).toHaveAttribute('data-chromeless', 'true')
+})
+
 // ── AI 우선순위 위젯 + 그리드 통합 회귀 ──────────────────────────────────────
 
 test('AI 우선순위 위젯이 4분면으로 렌더되고 항목 클릭 시 원본으로 이동한다', async ({

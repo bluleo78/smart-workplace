@@ -10,6 +10,8 @@ import {
   Eye,
   EyeOff,
   Home,
+  PanelTop,
+  PanelTopClose,
   Pencil,
   Plus,
   Settings,
@@ -82,6 +84,32 @@ function WidgetCard({ entry }: { entry: ResolvedEntry }) {
       <CardTitle className="text-sm font-medium">{title}</CardTitle>
     </>
   )
+  const body = (
+    <Suspense fallback={<Skeleton className="h-20 w-full" />}>
+      {entry.kind === 'system' ? (
+        <entry.def.Component count={entry.cfg.count} />
+      ) : (
+        <CatalogWidgetBody type={entry.cfg.type} params={entry.cfg.params} />
+      )}
+    </Suspense>
+  )
+
+  // chromeless: 테두리·제목 헤더 없이 본문만 렌더(빠른 액션처럼 자체 설명적인 위젯용). 그리드 폭/행
+  // span(wide/tall)은 레이아웃 유지를 위해 그대로 적용한다.
+  if (entry.cfg.chromeless) {
+    return (
+      <div
+        className={`${tall ? 'lg:row-span-2' : ''}${wide ? ' lg:col-span-3' : ''}`}
+        data-testid="dashboard-widget"
+        data-widget={entry.cfg.type}
+        data-widget-id={entry.cfg.id}
+        data-chromeless="true"
+      >
+        {body}
+      </div>
+    )
+  }
+
   return (
     <Card
       className={`border-l-2 border-l-ai-accent${tall ? ' lg:row-span-2' : ''}${wide ? ' lg:col-span-3' : ''}`}
@@ -102,15 +130,7 @@ function WidgetCard({ entry }: { entry: ResolvedEntry }) {
           <div className="flex items-center gap-2 text-muted-foreground">{headerInner}</div>
         )}
       </CardHeader>
-      <CardContent>
-        <Suspense fallback={<Skeleton className="h-20 w-full" />}>
-          {entry.kind === 'system' ? (
-            <entry.def.Component count={entry.cfg.count} />
-          ) : (
-            <CatalogWidgetBody type={entry.cfg.type} params={entry.cfg.params} />
-          )}
-        </Suspense>
-      </CardContent>
+      <CardContent>{body}</CardContent>
     </Card>
   )
 }
@@ -138,6 +158,7 @@ function EditableWidgetCard({
   total,
   onMove,
   onToggleHidden,
+  onToggleChromeless,
   onCount,
   onApplyCatalogConfig,
   onRemove,
@@ -151,6 +172,7 @@ function EditableWidgetCard({
   total: number
   onMove: (dir: -1 | 1) => void
   onToggleHidden: () => void
+  onToggleChromeless: () => void
   onCount: (count: number) => void
   onApplyCatalogConfig: (patch: { params: Record<string, unknown>; label: string | null }) => void
   onRemove: () => void
@@ -227,6 +249,23 @@ function EditableWidgetCard({
             >
               {cfg.hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
+            <Button
+              type="button"
+              variant={cfg.chromeless ? 'default' : 'ghost'}
+              size="icon"
+              className="size-8"
+              data-testid="widget-chromeless-toggle"
+              aria-label={cfg.chromeless ? `테두리·제목 표시: ${title}` : `테두리·제목 숨김: ${title}`}
+              aria-pressed={Boolean(cfg.chromeless)}
+              onClick={onToggleChromeless}
+            >
+              {/* Eye/EyeOff 와 동일 관례 — 아이콘이 "현재 상태"를 나타낸다(테두리 있음/없음). */}
+              {cfg.chromeless ? (
+                <PanelTopClose className="h-4 w-4" />
+              ) : (
+                <PanelTop className="h-4 w-4" />
+              )}
+            </Button>
             {entry.kind === 'catalog' && entry.def.fields.length > 0 && (
               <WidgetSettingsPopover
                 catalogDef={entry.def}
@@ -245,24 +284,24 @@ function EditableWidgetCard({
                 </Button>
               </WidgetSettingsPopover>
             )}
-            {entry.kind === 'catalog' && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8"
-                data-testid="widget-remove"
-                aria-label={`삭제: ${title}`}
-                onClick={onRemove}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              data-testid="widget-remove"
+              aria-label={`삭제: ${title}`}
+              onClick={onRemove}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {entry.kind === 'system' && (
+        {/* wide 시스템 위젯(요약·빠른 액션·AI 우선순위)은 count 를 무시하므로 선택 UI 자체를 숨긴다 —
+            보여줘도 동작하지 않는 컨트롤은 혼란만 준다. */}
+        {entry.kind === 'system' && !entry.def.wide && (
           <div
             className="flex items-center gap-2"
             role="group"
@@ -417,6 +456,18 @@ export function Dashboard() {
     snapshot()
     setDraft((prev) => prev.map((w) => (w.id === id ? { ...w, hidden: nowHidden } : w)))
     setLiveMsg(`${entry ? entryTitle(entry) : id} 위젯을 ${nowHidden ? '숨김' : '표시'} 처리했습니다`)
+  }
+
+  // 테두리·제목 헤더 표시/숨김 토글(chromeless). id 기반 — hidden 과 동일 패턴.
+  function toggleChromeless(id: string) {
+    const cur = draft.find((w) => w.id === id)
+    const nowChromeless = cur ? !cur.chromeless : true
+    const entry = cur ? resolveEntry(cur) : null
+    snapshot()
+    setDraft((prev) => prev.map((w) => (w.id === id ? { ...w, chromeless: nowChromeless } : w)))
+    setLiveMsg(
+      `${entry ? entryTitle(entry) : id} 위젯 테두리·제목을 ${nowChromeless ? '숨김' : '표시'} 처리했습니다`,
+    )
   }
 
   // 위젯 추가 — 시스템 위젯은 이미 draft 에 있으면 무시(싱글턴), 카탈로그 위젯은 새 UUID 인스턴스로 추가.
@@ -596,6 +647,7 @@ export function Dashboard() {
                   total={draftEntries.length}
                   onMove={(dir) => moveWidget(entry.cfg.id, dir)}
                   onToggleHidden={() => toggleHidden(entry.cfg.id)}
+                  onToggleChromeless={() => toggleChromeless(entry.cfg.id)}
                   onCount={(n) => setCount(entry.cfg.id, n)}
                   onApplyCatalogConfig={(patch) => applyCatalogConfig(entry.cfg.id, patch)}
                   onRemove={() => removeWidget(entry.cfg.id)}

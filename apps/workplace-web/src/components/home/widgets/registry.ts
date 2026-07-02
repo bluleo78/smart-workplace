@@ -6,8 +6,8 @@ import {
   type LucideIcon,
   Mail,
   MessageSquare,
-  Plus,
   Sparkles,
+  Zap,
 } from 'lucide-react'
 import { type ComponentType, lazy, type LazyExoticComponent } from 'react'
 
@@ -84,7 +84,8 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
   quick_actions: {
     type: 'quick_actions',
     title: '빠른 액션',
-    icon: Plus,
+    // Plus 아이콘은 "액션 추가" 버튼처럼 보여 혼동을 준다는 피드백 → Zap(번개, 빠른 액션 의미)으로 교체.
+    icon: Zap,
     Component: lazy(() => import('./dashboard/QuickActionsBody')),
     wide: true,
   },

@@ -28,14 +28,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class DashboardService {
 
   /**
-   * 기본 레이아웃 위젯 키 — 미설정 사용자에게 반환. 순서가 곧 표시 순서. synthesis/quick_actions/ priority_quadrant 는 wide(3열
-   * 그리드 col-span-3) 시스템 위젯 — Dashboard.tsx 가 렌더 시 폭을 분기한다.
+   * 기본 레이아웃 위젯 키 — 미설정 사용자에게 반환. 순서가 곧 표시 순서. synthesis/quick_actions 는 wide(3열 그리드 col-span-3) 시스템
+   * 위젯 — Dashboard.tsx 가 렌더 시 폭을 분기한다. priority_quadrant 는 기본 포함하지 않는다(사용자가 "위젯 추가"로 직접 넣어야 함) —
+   * SYSTEM_WIDGETS 화이트리스트에는 남아있어 추가·저장은 계속 가능하다.
    */
   static final List<String> DEFAULT_WIDGETS =
       List.of(
           "synthesis",
           "quick_actions",
-          "priority_quadrant",
           "my_tasks",
           "calendar_today",
           "notifications",
@@ -44,9 +44,12 @@ public class DashboardService {
 
   /**
    * 시스템 위젯 — 타입당 1개(싱글턴), count 기반. synthesis/quick_actions/priority_quadrant 는 count 를 받지만 컴포넌트가
-   * 무시한다(항목 수 고정).
+   * 무시한다(항목 수 고정). priority_quadrant 는 DEFAULT_WIDGETS 에는 없지만(기본 미노출) 여기엔 포함되어 화이트리스트 통과· "위젯 추가"
+   * 노출은 그대로 유지된다.
    */
-  static final Set<String> SYSTEM_WIDGETS = Set.copyOf(DEFAULT_WIDGETS);
+  static final Set<String> SYSTEM_WIDGETS =
+      Stream.concat(DEFAULT_WIDGETS.stream(), Stream.of("priority_quadrant"))
+          .collect(Collectors.toUnmodifiableSet());
 
   /** 카탈로그 위젯 — AI 챗 위젯 컴포넌트를 재사용하는 다중 인스턴스 위젯. 키는 프론트 chatWidgetRegistry 의 WidgetType 과 일치해야 한다. */
   static final Set<String> CATALOG_WIDGETS =
@@ -172,7 +175,13 @@ public class DashboardService {
             ? (isCatalog ? UUID.randomUUID().toString() : w.type())
             : w.id();
     return new DashboardWidgetConfig(
-        id, w.type(), isCatalog ? 0 : count, w.hidden(), isCatalog ? params : null, w.label());
+        id,
+        w.type(),
+        isCatalog ? 0 : count,
+        w.hidden(),
+        isCatalog ? params : null,
+        w.label(),
+        w.chromeless());
   }
 
   /** GET 정규화 — id 미지정 보정, count 는 시스템 위젯만 허용 외/0 이면 기본값으로 보정(읽기는 거부하지 않음). */
@@ -182,7 +191,13 @@ public class DashboardService {
     int count = ALLOWED_COUNTS.contains(w.count()) ? w.count() : DEFAULT_COUNT;
     JsonNode params = (w.params() == null || w.params().isNull()) ? null : w.params();
     return new DashboardWidgetConfig(
-        id, w.type(), isCatalog ? 0 : count, w.hidden(), isCatalog ? params : null, w.label());
+        id,
+        w.type(),
+        isCatalog ? 0 : count,
+        w.hidden(),
+        isCatalog ? params : null,
+        w.label(),
+        w.chromeless());
   }
 
   /** 기본 레이아웃을 기본 설정(count 5, hidden false, id=type) 객체 목록으로. */

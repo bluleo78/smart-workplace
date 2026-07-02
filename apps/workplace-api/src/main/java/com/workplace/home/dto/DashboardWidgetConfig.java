@@ -13,12 +13,20 @@ import jakarta.validation.constraints.NotBlank;
  * @param params 카탈로그 위젯의 필터 설정(opaque JSON 객체). 백엔드는 object 여부만 검증, 내용은 프론트/조회 API 가 책임진다. 시스템 위젯은
  *     항상 null 로 저장.
  * @param label 사용자 지정 표시 이름(선택). 미지정 시 프론트가 기본 제목 + 필터 요약을 사용.
+ * @param chromeless 테두리·제목 헤더 없이 본문만 표시할지 여부(선택, 기본 false). 위젯 종류 무관 공통 표시 옵션 — 백엔드는 통과값
+ *     검증(boolean) 외 별도 로직 없음.
  */
 public record DashboardWidgetConfig(
-    String id, @NotBlank String type, int count, boolean hidden, JsonNode params, String label) {
+    String id,
+    @NotBlank String type,
+    int count,
+    boolean hidden,
+    JsonNode params,
+    String label,
+    boolean chromeless) {
 
-  /** 시스템 위젯(싱글턴) 편의 생성자 — id=type, params/label 없음. 기존 5종 호출부 하위호환. */
+  /** 시스템 위젯(싱글턴) 편의 생성자 — id=type, params/label 없음, chromeless=false. 기존 5종 호출부 하위호환. */
   public DashboardWidgetConfig(String type, int count, boolean hidden) {
-    this(type, type, count, hidden, null, null);
+    this(type, type, count, hidden, null, null, false);
   }
 }

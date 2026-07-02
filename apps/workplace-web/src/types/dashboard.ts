@@ -2,7 +2,7 @@
 import type { EmailMessageSummary } from './mailMessage'
 
 // 위젯 한 개의 구성 — id(인스턴스 식별자) + 타입 키 + 항목 수(시스템 위젯 전용) + 숨김 여부
-// + params(카탈로그 위젯 필터, opaque) + label(사용자 지정 표시 이름).
+// + params(카탈로그 위젯 필터, opaque) + label(사용자 지정 표시 이름) + chromeless(테두리·제목 숨김).
 // 백엔드 객체-배열 컨트랙트와 1:1. count 는 시스템 위젯만 {3,5,10} 허용(서버가 그 외 400).
 export interface DashboardWidgetConfig {
   id: string
@@ -11,6 +11,8 @@ export interface DashboardWidgetConfig {
   hidden: boolean
   params?: Record<string, unknown> | null
   label?: string | null
+  // 위젯 종류 무관 공통 표시 옵션 — true 면 카드 테두리·제목 헤더 없이 본문만 렌더.
+  chromeless?: boolean
 }
 
 // 홈 대시보드 레이아웃 — 위젯 구성의 정렬된 배열(순서 = 렌더 순서).

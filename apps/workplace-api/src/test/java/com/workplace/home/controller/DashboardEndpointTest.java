@@ -63,18 +63,18 @@ class DashboardEndpointTest extends IntegrationTestBase {
 
   @Test
   void get_returns_default_when_unset() throws Exception {
-    // #브레인스토밍 2026-07-02: synthesis/quick_actions/priority_quadrant 를 기본 레이아웃 맨 앞에
-    // 추가(DashboardService.DEFAULT_WIDGETS 8개) — 그리드 통합 아키텍처 전환.
+    // #브레인스토밍 2026-07-02: synthesis/quick_actions 를 기본 레이아웃 맨 앞에 추가
+    // (DashboardService.DEFAULT_WIDGETS 7개) — 그리드 통합 아키텍처 전환. priority_quadrant 는
+    // 화이트리스트엔 있지만 기본 레이아웃엔 없음(사용자가 "위젯 추가"로 직접 추가).
     long userId = createUser("d");
     mvc.perform(get("/api/v1/me/dashboard").header("Authorization", "Bearer " + tokenFor(userId)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.widgets.length()").value(8))
+        .andExpect(jsonPath("$.widgets.length()").value(7))
         .andExpect(jsonPath("$.widgets[0].type").value("synthesis"))
         .andExpect(jsonPath("$.widgets[1].type").value("quick_actions"))
-        .andExpect(jsonPath("$.widgets[2].type").value("priority_quadrant"))
-        .andExpect(jsonPath("$.widgets[3].type").value("my_tasks"))
-        .andExpect(jsonPath("$.widgets[3].count").value(5))
-        .andExpect(jsonPath("$.widgets[3].hidden").value(false));
+        .andExpect(jsonPath("$.widgets[2].type").value("my_tasks"))
+        .andExpect(jsonPath("$.widgets[2].count").value(5))
+        .andExpect(jsonPath("$.widgets[2].hidden").value(false));
   }
 
   @Test
@@ -224,14 +224,16 @@ class DashboardEndpointTest extends IntegrationTestBase {
                         0,
                         false,
                         om.readTree("{\"assignee\":\"all\"}"),
-                        "보안팀 이슈"),
+                        "보안팀 이슈",
+                        false),
                     new DashboardWidgetConfig(
                         "mkt-1",
                         "issue_list",
                         0,
                         false,
                         om.readTree("{\"assignee\":\"me\"}"),
-                        "마케팅팀 이슈"),
+                        "마케팅팀 이슈",
+                        false),
                     new DashboardWidgetConfig("my_tasks", 5, false))));
 
     mvc.perform(
@@ -263,7 +265,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
     String body =
         om.writeValueAsString(
             new DashboardUpdateRequest(
-                List.of(new DashboardWidgetConfig(null, "mail_list", 0, false, null, null))));
+                List.of(
+                    new DashboardWidgetConfig(null, "mail_list", 0, false, null, null, false))));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -280,7 +283,7 @@ class DashboardEndpointTest extends IntegrationTestBase {
     long userId = createUser("n");
     List<DashboardWidgetConfig> widgets = new java.util.ArrayList<>();
     for (int i = 0; i < 13; i++) {
-      widgets.add(new DashboardWidgetConfig("chan-" + i, "channels", 0, false, null, null));
+      widgets.add(new DashboardWidgetConfig("chan-" + i, "channels", 0, false, null, null, false));
     }
     String body = om.writeValueAsString(new DashboardUpdateRequest(widgets));
 
@@ -300,7 +303,7 @@ class DashboardEndpointTest extends IntegrationTestBase {
             new DashboardUpdateRequest(
                 List.of(
                     new DashboardWidgetConfig(
-                        "act-1", "activity", 0, false, om.readTree("[1,2,3]"), null))));
+                        "act-1", "activity", 0, false, om.readTree("[1,2,3]"), null, false))));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -317,8 +320,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
         om.writeValueAsString(
             new DashboardUpdateRequest(
                 List.of(
-                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null),
-                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null))));
+                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null, false),
+                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null, false))));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -326,5 +329,48 @@ class DashboardEndpointTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void put_then_get_roundtrips_chromeless() throws Exception {
+    long userId = createUser("q");
+    // chromeless(테두리·제목 헤더 숨김)는 위젯 종류 무관 공통 boolean — PUT→GET 라운드트립만 검증.
+    String body =
+        om.writeValueAsString(
+            new DashboardUpdateRequest(
+                List.of(
+                    new DashboardWidgetConfig(
+                        "quick_actions", "quick_actions", 5, false, null, null, true))));
+
+    mvc.perform(
+            put("/api/v1/me/dashboard")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets[0].chromeless").value(true));
+
+    mvc.perform(get("/api/v1/me/dashboard").header("Authorization", "Bearer " + tokenFor(userId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets[0].chromeless").value(true));
+  }
+
+  @Test
+  void get_defaults_chromeless_false_for_legacy_stored_row_missing_field() throws Exception {
+    long userId = createUser("r");
+    // chromeless 필드가 아예 없는 구버전 저장본(이번 기능 이전 데이터)을 직접 시드 — Jackson 레코드
+    // 역직렬화 시 boolean 프리미티브는 누락 시 자동으로 false 가 되어 파싱이 깨지지 않아야 한다.
+    dsl.insertInto(USER_DASHBOARD)
+        .set(USER_DASHBOARD.USER_ID, userId)
+        .set(
+            USER_DASHBOARD.WIDGETS,
+            JSONB.valueOf(
+                "[{\"id\":\"my_tasks\",\"type\":\"my_tasks\",\"count\":5,\"hidden\":false}]"))
+        .execute();
+
+    mvc.perform(get("/api/v1/me/dashboard").header("Authorization", "Bearer " + tokenFor(userId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets[0].type").value("my_tasks"))
+        .andExpect(jsonPath("$.widgets[0].chromeless").value(false));
   }
 }
