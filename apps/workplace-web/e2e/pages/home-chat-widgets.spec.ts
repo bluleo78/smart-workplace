@@ -9,22 +9,21 @@
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory';
 import { mailAccount, summary } from '../factories/mail.factory';
 import { expect, test } from '../fixtures/auth.fixture';
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 
 test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
   test('mail_list 위젯 — show_mail_list done 이벤트를 받아 메일 목록을 렌더', async ({
     authenticatedPage: page,
   }) => {
     // 1) compose 는 텍스트 없이 mail_list 위젯만 지시(show_mail_list 단독 응답 모사).
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body:
-            'event: done\ndata: {"sessionId":"s-mail-1","widgets":[{"type":"mail_list","params":{"folder":"INBOX"}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        {
+          event: 'done',
+          data: { sessionId: 's-mail-1', widgets: [{ type: 'mail_list', params: { folder: 'INBOX' } }] },
+        },
+      ],
+    });
     // 2) 위젯이 기본 계정을 해석하기 위해 호출하는 계정 목록.
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts',
@@ -76,16 +75,17 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     authenticatedPage: page,
   }) => {
     // 1) compose 가 unreadOnly:true 인 mail_list 위젯을 지시("안 읽은 메일" 표시 모사).
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body:
-            'event: done\ndata: {"sessionId":"s-mail-unread","widgets":[{"type":"mail_list","params":{"folder":"INBOX","unreadOnly":true}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        {
+          event: 'done',
+          data: {
+            sessionId: 's-mail-unread',
+            widgets: [{ type: 'mail_list', params: { folder: 'INBOX', unreadOnly: true } }],
+          },
+        },
+      ],
+    });
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts',
       (route) =>
@@ -129,16 +129,11 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     authenticatedPage: page,
   }) => {
     // compose 는 issue_list 위젯만 지시(reporter 필터 동반).
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body:
-            'event: done\ndata: {"sessionId":"s-i1","widgets":[{"type":"issue_list","params":{"assignee":"me"}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-i1', widgets: [{ type: 'issue_list', params: { assignee: 'me' } }] } },
+      ],
+    });
     // 3건 중 1건만 마감 초과(과거 dueDate + 미완료), 1건은 완료(과거지만 제외), 1건은 마감 없음.
     let capturedAssignee: string | null = null;
     await page.route(
@@ -176,16 +171,11 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
   test('#519 issue_list 위젯 — 0건이면 요약 없이 정직한 빈 상태', async ({
     authenticatedPage: page,
   }) => {
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body:
-            'event: done\ndata: {"sessionId":"s-i2","widgets":[{"type":"issue_list","params":{"assignee":"me"}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-i2', widgets: [{ type: 'issue_list', params: { assignee: 'me' } }] } },
+      ],
+    });
     await page.route(
       (url) => url.pathname === '/api/v1/me/issues',
       (route) =>
@@ -208,16 +198,14 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     authenticatedPage: page,
   }) => {
     // compose 는 텍스트 없이 issue_list 위젯만 지시 — 과거엔 widgets 가 버려져 빈 버블이 됐다.
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body:
-            'event: done\ndata: {"sessionId":"s-issue-1","widgets":[{"type":"issue_list","params":{"assignee":"me"}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        {
+          event: 'done',
+          data: { sessionId: 's-issue-1', widgets: [{ type: 'issue_list', params: { assignee: 'me' } }] },
+        },
+      ],
+    });
     // 위젯이 호출하는 내 이슈 목록.
     let issueAssignee: string | null = null;
     await page.route(

@@ -5,6 +5,7 @@
 
 import type { ChannelResponse } from '../../src/types/messaging';
 import { expect, test } from '../fixtures/auth.fixture';
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 
 /** 채널 응답 팩토리 — 기본값만 채워 최소한의 ChannelResponse 생성. */
 function channel(overrides: Partial<ChannelResponse> & { id: number; name: string }): ChannelResponse {
@@ -29,15 +30,11 @@ test.describe('#460 홈 챗 도크 채널 목록 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       // 1) compose 는 텍스트 없이 channels 위젯만 지시.
-      await page.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-ch-1","widgets":[{"type":"channels","params":{}}]}\n\n',
-          }),
-      );
+      await mockHomeChatGeneration(page, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-ch-1', widgets: [{ type: 'channels', params: {} }] } },
+        ],
+      });
       // 2) 위젯이 호출하는 채널 목록 API.
       await page.route(
         (url) => url.pathname === '/api/v1/messaging/channels',
@@ -73,15 +70,11 @@ test.describe('#460 홈 챗 도크 채널 목록 위젯 렌더', () => {
   );
 
   test('채널이 없으면 빈 상태를 표시한다', async ({ authenticatedPage: page }) => {
-    await page.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-ch-2","widgets":[{"type":"channels","params":{}}]}\n\n',
-        }),
-    );
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-ch-2', widgets: [{ type: 'channels', params: {} }] } },
+      ],
+    });
     // 빈 목록 반환.
     await page.route(
       (url) => url.pathname === '/api/v1/messaging/channels',

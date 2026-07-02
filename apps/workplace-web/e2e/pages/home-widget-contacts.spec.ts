@@ -5,6 +5,7 @@
 
 import { external, externalDetail, member, page } from '../factories/contacts.factory'
 import { expect, test } from '../fixtures/auth.fixture'
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 
 test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
   test(
@@ -12,15 +13,11 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: pg }) => {
       // 1) compose → contacts 위젯(필터 없음) 지시.
-      await pg.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-contacts-1","widgets":[{"type":"contacts","params":{}}]}\n\n',
-          }),
-      )
+      await mockHomeChatGeneration(pg, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-contacts-1', widgets: [{ type: 'contacts', params: {} }] } },
+        ],
+      })
       // 2) 연락처 목록 API 모킹 — ContactPage(첫 페이지, nextCursor null).
       await pg.route(
         (url) => url.pathname === '/api/v1/contacts',
@@ -55,15 +52,11 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
 
   test('contacts 위젯이 필터 파라미터를 API 쿼리로 전달한다', async ({ authenticatedPage: pg }) => {
     // compose → contacts 위젯(search+org 필터) 지시.
-    await pg.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-contacts-2","widgets":[{"type":"contacts","params":{"search":"박","org":"Corp"}}]}\n\n',
-        }),
-    )
+    await mockHomeChatGeneration(pg, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-contacts-2', widgets: [{ type: 'contacts', params: { search: '박', org: 'Corp' } }] } },
+      ],
+    })
 
     // 쿼리 파라미터 캡처용.
     let capturedUrl = ''
@@ -94,15 +87,11 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
   })
 
   test('contacts 위젯이 결과 없으면 빈 상태를 표시한다', async ({ authenticatedPage: pg }) => {
-    await pg.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-contacts-3","widgets":[{"type":"contacts","params":{}}]}\n\n',
-        }),
-    )
+    await mockHomeChatGeneration(pg, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-contacts-3', widgets: [{ type: 'contacts', params: {} }] } },
+      ],
+    })
     await pg.route(
       (url) => url.pathname === '/api/v1/contacts',
       (route) =>
@@ -128,15 +117,11 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: pg }) => {
       // compose → contact 위젯(contactId=100) 지시.
-      await pg.route(
-        (url) => url.pathname === '/api/v1/ai/chat',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            body: 'event: done\ndata: {"sessionId":"s-contacts-4","widgets":[{"type":"contact","params":{"contactId":100}}]}\n\n',
-          }),
-      )
+      await mockHomeChatGeneration(pg, {
+        frames: [
+          { event: 'done', data: { sessionId: 's-contacts-4', widgets: [{ type: 'contact', params: { contactId: 100 } }] } },
+        ],
+      })
       // 외부 연락처 상세 API 모킹.
       await pg.route(
         (url) => url.pathname === '/api/v1/contacts/external/100',
@@ -176,15 +161,11 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
 
   test('contact 위젯 contactId 누락 시 안내 메시지를 표시한다', async ({ authenticatedPage: pg }) => {
     // compose → contact 위젯(contactId 없음) 지시.
-    await pg.route(
-      (url) => url.pathname === '/api/v1/ai/chat',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: 'event: done\ndata: {"sessionId":"s-contacts-5","widgets":[{"type":"contact","params":{}}]}\n\n',
-        }),
-    )
+    await mockHomeChatGeneration(pg, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-contacts-5', widgets: [{ type: 'contact', params: {} }] } },
+      ],
+    })
 
     await pg.goto('/')
     await pg.getByTestId('chat-launcher').click()

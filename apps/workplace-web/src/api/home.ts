@@ -47,4 +47,12 @@ export const homeApi = {
   // #540: 공용 중립 엔드포인트로 통일.
   confirmAction: (action: PendingAction) =>
     client.post('/actions/confirm', { actionType: action.actionType, params: action.params }),
+
+  /** AI 채팅 생성 시작(#593 편입) — correlationId 즉시 반환, 실제 델타는 /events 로 도착. */
+  startChat: (body: { sessionId: string | null; query: string }) =>
+    client.post<{ correlationId: string }>('/ai/chat', body),
+
+  /** 진행 중인 채팅 생성 취소. */
+  cancelChat: (correlationId: string) =>
+    client.delete<void>(`/ai/chat/${correlationId}`),
 };

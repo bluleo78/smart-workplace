@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -11,12 +12,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
+import com.workplace.global.realtime.DefaultStreamingGenerationRegistry;
+import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.realtime.StreamingGenerationRegistry;
+import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -26,18 +32,25 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * HomeChatService 의 progress·pending_action 콜백 → SSE 이벤트 포워드 검증.
+ * HomeChatService 의 progress·pending_action·tool 콜백 → 통합 /events 채널(SseRegistry.fanOut) 이벤트 포워드
+ * 검증(#593 편입).
  *
- * <p>trySend() 를 오버라이드한 서브클래스 인스턴스로 (eventName, data) 쌍을 캡처한다. newEmitter() 오버라이드로 emitter 교체.
+ * <p>SseRegistry 를 목으로 대체해 fanOut(userIds, eventName, payload) 호출을 캡처한다.
+ * StreamingGenerationRegistry 는 실제 구현(DefaultStreamingGenerationRegistry)을 써서 correlationId 발급까지 실제
+ * 경로로 검증한다.
+ *
+ * <p>MailSummaryScheduler 가 컨텍스트 기동 직후 TenantScopedRunner.forEachActiveTenant 콜백 안에서
+ * assistantResolver.resolveWorkspaceOrEmpty() 를 호출해, 테스트 스레드의 스터빙과 동시 실행되면 Mockito 상태가 오염돼 간헐적으로
+ * flake 한다(HomeChatServiceTest 와 동일 패턴). TenantScopedRunner 를 mock 으로 대체해 원천 차단한다.
  */
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class HomeChatServiceForwardTest extends IntegrationTestBase {
 
   @MockitoBean AiAgentChatClient chatClient;
   @MockitoBean AssistantResolver assistantResolver;
+  @MockitoBean TenantScopedRunner tenantScopedRunner;
   @Autowired HomeSessionService sessionService;
   @Autowired AiAgentProperties aiAgentProperties;
   @Autowired ObjectMapper objectMapper;
@@ -70,7 +83,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
     return id;
   }
 
-  /** 전송된 (eventName, data) 쌍을 모으는 기록 컨테이너. */
+  /** fanOut 으로 전송된 (eventName, payload) 쌍을 모으는 기록 컨테이너. */
   static final class SentEvent {
     final String name;
     final Object data;
@@ -81,27 +94,29 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
     }
   }
 
-  /** trySend() 를 가로채 전송 이벤트를 캡처하는 서비스 서브클래스. newEmitter() 도 기본 SseEmitter 로 고정(타임아웃 없음). */
+  /** SseRegistry.fanOut() 을 가로채 전송 이벤트를 캡처하는 목 + 실제 레지스트리로 조립한 서비스 인스턴스. */
   private HomeChatService serviceCapturing(List<SentEvent> captured) {
+    SseRegistry capturingSseRegistry = mock(SseRegistry.class);
+    doAnswer(
+            inv -> {
+              String eventName = inv.getArgument(1);
+              Object payload = inv.getArgument(2);
+              captured.add(new SentEvent(eventName, payload));
+              return null;
+            })
+        .when(capturingSseRegistry)
+        .fanOut(any(), any(), any());
+
+    StreamingGenerationRegistry registry = new DefaultStreamingGenerationRegistry();
     return new HomeChatService(
         sessionService,
         chatClient,
         aiAgentProperties,
         objectMapper,
         assistantResolver,
-        aiChatStreamExecutor) {
-      @Override
-      protected SseEmitter newEmitter() {
-        // 타임아웃 없는 emitter — 테스트 중 만료 방지.
-        return new SseEmitter(0L);
-      }
-
-      @Override
-      protected void trySend(SseEmitter emitter, String eventName, Object data) {
-        // 실제 전송 대신 캡처만 수행한다.
-        captured.add(new SentEvent(eventName, data));
-      }
-    };
+        aiChatStreamExecutor,
+        registry,
+        capturingSseRegistry);
   }
 
   private void stubAssistant() {
@@ -110,13 +125,13 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   }
 
   /**
-   * onProgress 콜백이 호출되면 event: progress 가 SSE 로 발행되는지 검증.
+   * onProgress 콜백이 호출되면 home.chat.progress 가 fanOut 되는지 검증.
    *
    * <p>composeClient.composeStream 을 가로채 onProgress("캘린더 전문가에게 위임 중") → onDone 순으로 즉시 호출한다.
    * CountDownLatch 로 펌프 완료를 기다린 뒤, 캡처된 이벤트 목록에서 progress + 라벨을 단언한다.
    */
   @Test
-  void progress_콜백을_받으면_SSE_progress_이벤트를_발행한다() throws Exception {
+  void progress_콜백을_받으면_home_chat_progress_이벤트를_fanOut_한다() throws Exception {
     long uid = seedAgent("fwd-prog");
     stubAssistant();
 
@@ -134,33 +149,34 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).chatStream(uid, null, "다음주 회의 잡아줘");
+    String correlationId = serviceCapturing(captured).startChat(uid, null, "다음주 회의 잡아줘");
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
-    // progress 이벤트가 발행되고 라벨이 포함됐는지 검증.
+    // progress 이벤트가 fanOut 되고 라벨 + correlationId 가 포함됐는지 검증.
     List<SentEvent> progressEvents =
-        captured.stream().filter(e -> "progress".equals(e.name)).toList();
+        captured.stream().filter(e -> "home.chat.progress".equals(e.name)).toList();
     assertThat(progressEvents).isNotEmpty();
-    // data 는 Map.of("label", label) — label 값 추출 검증.
-    assertThat(progressEvents.get(0).data.toString()).contains("캘린더 전문가에게 위임 중");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> payload = (Map<String, Object>) progressEvents.get(0).data;
+    assertThat(payload).containsEntry("label", "캘린더 전문가에게 위임 중");
+    assertThat(payload).containsEntry("correlationId", correlationId);
   }
 
   /**
-   * onPendingAction 콜백이 호출되면 event: pending_action 이 SSE 로 발행되는지 검증.
-   *
-   * <p>composeClient.composeStream 을 가로채 onPendingAction(proposal) → onDone 순으로 즉시 호출한다. 캡처된 이벤트에서
-   * pending_action + actionType 값을 단언한다.
+   * onPendingAction 콜백이 호출되면 home.chat.pending_action 이 { correlationId, actions } 봉투로 fanOut 되는지
+   * 검증(공통 payload 봉투 규약, #593).
    */
   @Test
-  void pending_action_콜백을_받으면_SSE_pending_action_이벤트를_발행한다() throws Exception {
+  void pending_action_콜백을_받으면_correlationId_actions_봉투로_fanOut_한다() throws Exception {
     long uid = seedAgent("fwd-pa");
     stubAssistant();
 
+    // AiAgentChatClient 계약상 onPendingAction 은 항상 ArrayNode 로 전달된다(단일 객체도 길이1 배열로 래핑).
     JsonNode proposal =
         objectMapper.readTree(
-            "{\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시\",\"params\":{}}");
+            "[{\"actionType\":\"calendar.create_event\",\"summary\":\"내일 10시\",\"params\":{}}]");
     CountDownLatch latch = new CountDownLatch(1);
     doAnswer(
             inv -> {
@@ -175,27 +191,29 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).chatStream(uid, null, "내일 10시 회의 잡아줘");
+    String correlationId = serviceCapturing(captured).startChat(uid, null, "내일 10시 회의 잡아줘");
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
-    // pending_action 이벤트가 발행되고 actionType 이 포함됐는지 검증.
+    // pending_action 이벤트가 { correlationId, actions } 봉투로 fanOut 됐는지 검증.
     List<SentEvent> pendingEvents =
-        captured.stream().filter(e -> "pending_action".equals(e.name)).toList();
+        captured.stream().filter(e -> "home.chat.pending_action".equals(e.name)).toList();
     assertThat(pendingEvents).isNotEmpty();
-    // data 는 raw JsonNode — actionType 값 검증.
-    assertThat(pendingEvents.get(0).data.toString()).contains("calendar.create_event");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> payload = (Map<String, Object>) pendingEvents.get(0).data;
+    assertThat(payload).containsEntry("correlationId", correlationId);
+    assertThat(payload).containsKey("actions");
+    assertThat(payload.get("actions").toString()).contains("calendar.create_event");
   }
 
   /**
-   * #431: onDone 이 위젯 스펙과 함께 호출되면 done 이벤트 data 에 widgets 가 포함되는지 검증.
+   * #431: onDone 이 위젯 스펙과 함께 호출되면 home.chat.done payload 에 widgets 가 포함되는지 검증.
    *
    * <p>위젯 렌더 표면 복원의 핵심 — API 가 done 이벤트로 widgets[] 를 클라이언트에 패스스루해야 챗 도크가 메일/이슈 목록을 인라인 렌더할 수 있다.
-   * 과거(#234 재설계)엔 sessionId 만 발행해 위젯이 유실됐다.
    */
   @Test
-  void done_콜백의_위젯을_done_이벤트_data_에_포함한다() throws Exception {
+  void done_콜백의_위젯을_home_chat_done_payload_에_포함한다() throws Exception {
     long uid = seedAgent("fwd-widgets");
     stubAssistant();
 
@@ -214,23 +232,25 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).chatStream(uid, null, "메일 보여줘");
+    String correlationId = serviceCapturing(captured).startChat(uid, null, "메일 보여줘");
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
-    // done 이벤트가 발행되고 sessionId + widgets(mail_list) 가 함께 실렸는지 검증.
-    List<SentEvent> doneEvents = captured.stream().filter(e -> "done".equals(e.name)).toList();
+    // home.chat.done 이 fanOut 되고 correlationId + sessionId + widgets(mail_list) 가 함께 실렸는지 검증.
+    List<SentEvent> doneEvents =
+        captured.stream().filter(e -> "home.chat.done".equals(e.name)).toList();
     assertThat(doneEvents).isNotEmpty();
-    String doneData = doneEvents.get(0).data.toString();
-    assertThat(doneData).contains("sessionId");
-    assertThat(doneData).contains("mail_list");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> payload = (Map<String, Object>) doneEvents.get(0).data;
+    assertThat(payload).containsEntry("correlationId", correlationId);
+    assertThat(payload).containsKey("sessionId");
+    assertThat(payload.get("widgets").toString()).contains("mail_list");
   }
 
   /**
-   * #351: onPendingAction 콜백이 배열 ArrayNode 를 받으면 SSE pending_action 이벤트에 배열이 그대로 중계되는지 검증.
-   *
-   * <p>ai-agent 가 멀티-액션 턴에서 2건 이상의 제안을 배열로 보낼 수 있다. API 는 ArrayNode 를 그대로 패스스루해야 한다.
+   * #351: onPendingAction 콜백이 배열 ArrayNode 를 받으면 home.chat.pending_action payload 의 actions 필드에 배열
+   * 전부가 그대로 중계되는지 검증.
    */
   @Test
   void pendingAction_다건_배열_중계() throws Exception {
@@ -257,30 +277,33 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).chatStream(uid, null, "내일 10시 회의 잡고 메일도 보내줘");
+    serviceCapturing(captured).startChat(uid, null, "내일 10시 회의 잡고 메일도 보내줘");
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
-    // pending_action 이벤트가 발행되고 배열이 그대로 중계됐는지 검증.
+    // pending_action 이벤트가 fanOut 되고 actions 배열에 두 actionType 이 모두 포함됐는지 검증.
     List<SentEvent> pendingEvents =
-        captured.stream().filter(e -> "pending_action".equals(e.name)).toList();
+        captured.stream().filter(e -> "home.chat.pending_action".equals(e.name)).toList();
     assertThat(pendingEvents).isNotEmpty();
-    // data 가 ArrayNode 이어야 하고 두 actionType 이 모두 포함돼야 한다.
-    JsonNode pendingData = (JsonNode) pendingEvents.get(0).data;
-    assertThat(pendingData.isArray()).isTrue();
-    assertThat(pendingData.toString()).contains("calendar.create_event");
-    assertThat(pendingData.toString()).contains("mail.send");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> payload = (Map<String, Object>) pendingEvents.get(0).data;
+    assertThat(payload.get("actions")).isInstanceOf(List.class);
+    @SuppressWarnings("unchecked")
+    List<Object> actions = (List<Object>) payload.get("actions");
+    assertThat(actions).hasSize(2);
+    assertThat(payload.toString()).contains("calendar.create_event");
+    assertThat(payload.toString()).contains("mail.send");
   }
 
   /**
-   * Task 8: progress + tool 이벤트를 누적해 ASSISTANT 메시지 tool_calls 에 저장하고 SSE 로 패스스루하는지 검증.
+   * Task 8: progress + tool 이벤트를 누적해 ASSISTANT 메시지 tool_calls 에 저장하고 home.chat.* 로 fanOut 하는지 검증.
    *
    * <p>onProgress("위임중") → onTool(start) → onTool(result) → onDone 순으로 즉시 호출하고, 저장된 ASSISTANT 메시지의
-   * toolCalls 와 캡처된 SSE 이벤트를 단언한다.
+   * toolCalls 와 캡처된 fanOut 이벤트를 단언한다.
    */
   @Test
-  void progress와_tool_이벤트를_누적해_ASSISTANT_메시지에_저장하고_SSE로_패스스루한다() throws Exception {
+  void progress와_tool_이벤트를_누적해_ASSISTANT_메시지에_저장하고_home_chat으로_fanOut한다() throws Exception {
     long uid = seedAgent("fwd-tool-persist");
     stubAssistant();
 
@@ -308,14 +331,18 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
 
     List<SentEvent> captured = new ArrayList<>();
     HomeChatService svc = serviceCapturing(captured);
-    svc.chatStream(uid, null, "이슈 10번 완료 처리해줘");
+    svc.startChat(uid, null, "이슈 10번 완료 처리해줘");
 
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
-    // SSE: tool 이벤트가 최소 2회 패스스루됐는지 검증.
-    List<SentEvent> toolEvents = captured.stream().filter(e -> "tool".equals(e.name)).toList();
+    // fanOut: tool 이벤트가 최소 2회 전달됐는지 검증 + correlationId 병합 확인.
+    List<SentEvent> toolEvents =
+        captured.stream().filter(e -> "home.chat.tool".equals(e.name)).toList();
     assertThat(toolEvents).hasSize(2);
-    assertThat(toolEvents.get(0).data.toString()).contains("update_issue_status");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> firstToolPayload = (Map<String, Object>) toolEvents.get(0).data;
+    assertThat(firstToolPayload).containsEntry("toolName", "update_issue_status");
+    assertThat(firstToolPayload).containsKey("correlationId");
 
     // DB: ASSISTANT 메시지의 tool_calls 가 누적 내용으로 저장됐는지 검증.
     List<HomeMessageResponse> all =
@@ -360,7 +387,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    serviceCapturing(captured).chatStream(uid, null, "오늘 일정 확인 + 메일도");
+    serviceCapturing(captured).startChat(uid, null, "오늘 일정 확인 + 메일도");
 
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 

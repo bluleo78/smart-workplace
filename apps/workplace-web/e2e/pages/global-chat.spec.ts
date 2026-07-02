@@ -1,6 +1,7 @@
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { createUser } from '../factories/auth.factory'
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
 
 // global-chat.spec.ts — AI 어시스턴트 신규 모드(side/fullscreen/chip) E2E.
@@ -60,24 +61,21 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 제자리에서 어시스�
     totalElements: 0,
     totalPages: 0,
   })
-  // compose → SSE 스트리밍 응답으로 모킹(JSON → SSE 전환 후).
-  // capture 를 위해 page.route 직접 사용 후 SSE 형식으로 응답.
+  // compose → 통합 /events 채널로 델타/완료 전달(#593 편입).
   let composePayload: unknown = null;
   let resolveCompose: (() => void) | null = null;
   const composeRequested = new Promise<void>((resolve) => { resolveCompose = resolve; });
-  await page.route(
-    (url) => url.pathname === '/api/v1/ai/chat',
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      try { composePayload = route.request().postDataJSON(); } catch { composePayload = null; }
+  await mockHomeChatGeneration(page, {
+    onStart: (body) => {
+      composePayload = body;
       resolveCompose?.();
-      const sseBody =
-        'event: delta\ndata: {"text":"내 HIGH 이슈를 "}\n\n' +
-        'event: delta\ndata: {"text":"정리했어요"}\n\n' +
-        'event: done\ndata: {"sessionId":"s-nonhome"}\n\n';
-      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
     },
-  );
+    frames: [
+      { event: 'delta', data: { text: '내 HIGH 이슈를 ' } },
+      { event: 'delta', data: { text: '정리했어요' } },
+      { event: 'done', data: { sessionId: 's-nonhome' } },
+    ],
+  });
 
   // 1) 이슈 페이지에서 시작(홈이 아님)
   await page.goto('/projects')
@@ -427,17 +425,13 @@ test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·�
   // 검증: 첫 chat-turn 의 top 이 칩의 bottom 이상이고, 닫기 X rect 와 겹치지 않는다.
   await page.setViewportSize({ width: 1440, height: 900 })
 
-  // 홈에서 compose → SSE 스트리밍 응답으로 모킹 — 제출 시 turn 이 렌더되도록.
-  await page.route(
-    (url) => url.pathname === '/api/v1/ai/chat',
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      const sseBody =
-        'event: delta\ndata: {"text":"정리했어요"}\n\n' +
-        'event: done\ndata: {"sessionId":"s-206"}\n\n';
-      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
-    },
-  );
+  // 홈에서 compose → 통합 /events 채널로 델타/완료 전달 — 제출 시 turn 이 렌더되도록.
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'delta', data: { text: '정리했어요' } },
+      { event: 'done', data: { sessionId: 's-206' } },
+    ],
+  });
 
   await page.goto('/')
   // side → fullscreen
@@ -560,40 +554,17 @@ test('모바일(375px) 풀스크린에서 좌측 세션목록이 숨겨지고 �
 test('위임 진행 이벤트가 도크에 위임 버블을 렌더한다 (#333)', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
-  // compose SSE 에 progress 이벤트를 포함 — 도크가 "캘린더 전문가에게 위임 중" 버블을 띄워야.
-  // 전략: fetch API 를 page.addInitScript 로 몽키패치해 /api/v1/ai/chat 응답을
-  // ReadableStream 으로 직접 제어한다. progress 청크를 먼저 흘리고 렌더를 기다린 뒤
-  // delta·done 을 flush — done 이전에 버블이 존재함을 assert.
-  //
-  // Playwright page.route 는 전체 body 를 한 번에 flush 해 progress→done 이 동일 task 에
-  // 처리될 수 있으므로, ReadableStream 으로 청크를 타임 분리하는 방식 선택.
-  await page.addInitScript(() => {
-    // 원본 fetch 를 래핑해 compose 요청만 가로챈다.
-    const originalFetch = window.fetch.bind(window);
-    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (!url.includes('/api/v1/ai/chat') || (init?.method ?? 'GET') !== 'POST') {
-        return originalFetch(input, init);
-      }
-      // ReadableStream 으로 SSE 청크를 시간 분리해 전달한다.
-      const enc = new TextEncoder();
-      const stream = new ReadableStream({
-        async start(controller) {
-          // 1) progress 이벤트 — 위임 버블 트리거
-          controller.enqueue(enc.encode('event: progress\ndata: {"label":"캘린더 전문가에게 위임 중"}\n\n'));
-          // 렌더 사이클이 돌 시간을 줌 — macrotask 경계 삽입
-          await new Promise((r) => setTimeout(r, 100));
-          // 2) delta + done
-          controller.enqueue(enc.encode('event: delta\ndata: {"text":"일정을 확인했어요"}\n\n'));
-          controller.enqueue(enc.encode('event: done\ndata: {"sessionId":"s-prog-1"}\n\n'));
-          controller.close();
-        },
-      });
-      return new Response(stream, {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      });
-    };
+  // compose 이벤트에 progress 이벤트를 포함 — 도크가 "캘린더 전문가에게 위임 중" 버블을 띄워야.
+  // mockHomeChatGeneration(#593 편입) 은 한 SSE body 안에 여러 프레임을 담아 흘린다. route.fulfill
+  // 은 본문을 한 방에 전달하므로 progress→delta→done 간 별도 렌더(점진 표시)는 검증하지 않는다
+  // (wiki-ai.spec.ts 와 동일한 SSE 모킹 한계) — steps 는 append-only 라 done 이후에도 위임 버블이
+  // 남아있으므로, 아래 두 assert 는 최종 정착 DOM 상태만으로 성립한다.
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'progress', data: { label: '캘린더 전문가에게 위임 중' } },
+      { event: 'delta', data: { text: '일정을 확인했어요' } },
+      { event: 'done', data: { sessionId: 's-prog-1' } },
+    ],
   });
 
   await page.goto('/');
@@ -610,18 +581,30 @@ test('위임 진행 이벤트가 도크에 위임 버블을 렌더한다 (#333)'
 test('확인 카드 — pending_action 이 카드로 렌더되고 승인 시 confirm payload 를 전송한다 (#333)', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
-  // compose SSE 에 pending_action(done 앞) 포함.
-  await page.route(
-    (url) => url.pathname === '/api/v1/ai/chat',
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      const sseBody =
-        'event: delta\ndata: {"text":"6/26 10시 팀 미팅을 제안할게요"}\n\n' +
-        'event: pending_action\ndata: [{"actionType":"calendar.create_event","summary":"6/26 10시 팀 미팅(1시간)","params":{"title":"팀 미팅","startsAt":"2026-06-26T01:00:00Z","endsAt":"2026-06-26T02:00:00Z","allDay":false}}]\n\n' +
-        'event: done\ndata: {"sessionId":"s-conf-1"}\n\n';
-      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
-    },
-  );
+  // compose 이벤트에 pending_action(done 앞) 포함. #593: actions 봉투 {correlationId, actions:[...]}.
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'delta', data: { text: '6/26 10시 팀 미팅을 제안할게요' } },
+      {
+        event: 'pending_action',
+        data: {
+          actions: [
+            {
+              actionType: 'calendar.create_event',
+              summary: '6/26 10시 팀 미팅(1시간)',
+              params: {
+                title: '팀 미팅',
+                startsAt: '2026-06-26T01:00:00Z',
+                endsAt: '2026-06-26T02:00:00Z',
+                allDay: false,
+              },
+            },
+          ],
+        },
+      },
+      { event: 'done', data: { sessionId: 's-conf-1' } },
+    ],
+  });
   // confirm 실행기 모킹 — payload 캡처.
   let confirmPayload: unknown = null;
   await page.route(
@@ -655,16 +638,17 @@ test('확인 카드 — pending_action 이 카드로 렌더되고 승인 시 con
 });
 
 test('확인 카드 — 취소 시 confirm API 미호출, 카드 폐기 (#333)', async ({ authenticatedPage: page }) => {
-  await page.route(
-    (url) => url.pathname === '/api/v1/ai/chat',
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      const sseBody =
-        'event: pending_action\ndata: [{"actionType":"calendar.create_event","summary":"취소 대상","params":{"title":"x"}}]\n\n' +
-        'event: done\ndata: {"sessionId":"s-conf-2"}\n\n';
-      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
-    },
-  );
+  await mockHomeChatGeneration(page, {
+    frames: [
+      {
+        event: 'pending_action',
+        data: {
+          actions: [{ actionType: 'calendar.create_event', summary: '취소 대상', params: { title: 'x' } }],
+        },
+      },
+      { event: 'done', data: { sessionId: 's-conf-2' } },
+    ],
+  });
   let confirmCalled = false;
   await page.route(
     (url) => url.pathname === '/api/v1/actions/confirm',
@@ -685,23 +669,17 @@ test('확인 카드 — 취소 시 confirm API 미호출, 카드 폐기 (#333)',
 });
 
 test('챗 도크 응답이 토큰 단위로 점진 렌더된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  // /api/v1/ai/chat 를 SSE event-stream 으로 모킹.
+  // compose 이벤트를 통합 /events 채널로 모킹(#593 편입).
   // 단일 delta 에 전체 텍스트가 없어야 '연결이 없으면 표시 불가'를 증명할 수 있다.
-  // route.fulfill 은 body 를 한 번에 전달하므로 중간 상태 캡처 대신,
-  // 분할 delta 조합이 최종 텍스트를 만드는지를 검증한다.
-  await page.route(
-    (url) => url.pathname === '/api/v1/ai/chat',
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      // '안' / '녕' / '하세요' 세 토큰으로 분할 — 어떤 단일 delta 에도 전체 문자열이 없다.
-      const sseBody =
-        'event: delta\ndata: {"text":"안"}\n\n' +
-        'event: delta\ndata: {"text":"녕"}\n\n' +
-        'event: delta\ndata: {"text":"하세요"}\n\n' +
-        'event: done\ndata: {"sessionId":"s-stream-1"}\n\n';
-      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody });
-    },
-  );
+  // '안' / '녕' / '하세요' 세 토큰으로 분할 — 분할 delta 조합이 최종 텍스트를 만드는지를 검증한다.
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'delta', data: { text: '안' } },
+      { event: 'delta', data: { text: '녕' } },
+      { event: 'delta', data: { text: '하세요' } },
+      { event: 'done', data: { sessionId: 's-stream-1' } },
+    ],
+  });
 
   await page.goto('/')
   await page.getByTestId('chat-launcher').click()
@@ -768,17 +746,13 @@ test('사이드패널: 세션 로드/전송 시 채팅이 맨 아래로 자동 �
     createdAt: '2026-06-08T00:00:00Z',
   }))
   await mockApi(page, 'GET', '/api/v1/home/sessions/s-scroll/messages', messages)
-  // 전송 검증용 compose SSE
-  await page.route(
-    (url) => url.pathname === '/api/v1/ai/chat',
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback()
-      const sseBody =
-        'event: delta\ndata: {"text":"새 응답입니다"}\n\n' +
-        'event: done\ndata: {"sessionId":"s-scroll"}\n\n'
-      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: sseBody })
-    },
-  )
+  // 전송 검증용 compose 이벤트(#593 편입)
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'delta', data: { text: '새 응답입니다' } },
+      { event: 'done', data: { sessionId: 's-scroll' } },
+    ],
+  })
 
   await page.goto('/')
   await page.getByTestId('chat-launcher').click()

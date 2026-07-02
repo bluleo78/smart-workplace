@@ -1,7 +1,8 @@
-// AI Overview SSE 소비 — GET /api/v1/drive/search-overview 의 text/event-stream 응답을 fetch 로 받는다.
-// useWikiAiStream.startWikiAiStream 의 fetch + ReadableStream + 수동 파싱 루프를 미러(GET 이라 body 없음).
-// EventSource 미사용 이유: Authorization 헤더 필요(앱이 Bearer 토큰 기반, EventSource 는 커스텀 헤더 미지원).
-import { getAccessToken, refreshAccessToken } from '@/api/client'
+// AI Overview 생성 시작(correlationId 즉시 반환) → 통합 /events 채널(aiEventBus 로 중계)에서
+// correlationId 로 필터링해 델타/완료/에러를 수신한다(#593 편입, useWikiAiStream.ts 미러).
+// 구독은 생성이 진행 중인 동안만 열려 있다가 done/error/abort 시 즉시 해제한다.
+import { driveApi } from '@/api/drive'
+import { onAiStreamEvent } from '@/lib/aiEventBus'
 
 export interface DriveOverviewStreamArgs {
   query: string
@@ -12,115 +13,85 @@ export interface DriveOverviewStreamArgs {
   onError: (message: string) => void
 }
 
-/** Overview SSE 스트림을 시작하고 즉시 { abort } 를 반환. 파싱은 inner async IIFE. */
+interface DeltaPayload {
+  correlationId?: string
+  text?: string
+}
+interface DonePayload {
+  correlationId?: string
+}
+interface ErrorPayload {
+  correlationId?: string
+  message?: string
+  cancelled?: boolean
+}
+
+/** Overview 생성을 시작하고 즉시 { abort } 를 반환한다. 시작 요청·구독은 inner async IIFE 에서 진행. */
 export function startDriveOverviewStream(args: DriveOverviewStreamArgs): { abort: () => void } {
   const { query, spaceId, onDelta, onDone, onError } = args
-  const controller = new AbortController()
-  const params = new URLSearchParams({ q: query })
-  if (spaceId != null) params.set('spaceId', String(spaceId))
-  const url = `/api/v1/drive/search-overview?${params.toString()}`
+  let aborted = false
+  let startedCorrelationId: string | null = null
+  let unsubscribeDelta: (() => void) | null = null
+  let unsubscribeDone: (() => void) | null = null
+  let unsubscribeError: (() => void) | null = null
+
+  const teardown = () => {
+    unsubscribeDelta?.()
+    unsubscribeDone?.()
+    unsubscribeError?.()
+    unsubscribeDelta = unsubscribeDone = unsubscribeError = null
+  }
 
   void (async () => {
-    let token = getAccessToken()
-    if (!token) {
-      if (!(await refreshAccessToken())) {
-        onError('인증이 만료되었습니다. 다시 로그인해주세요.')
-        return
-      }
-      token = getAccessToken()
-    }
-    const doFetch = (t: string | null) =>
-      fetch(url, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${t}`, Accept: 'text/event-stream' },
-        signal: controller.signal,
-        credentials: 'include',
-      })
+    let correlationId: string
     try {
-      let response = await doFetch(token)
-      if (response.status === 401) {
-        if (!(await refreshAccessToken())) {
-          onError('인증이 만료되었습니다. 다시 로그인해주세요.')
-          return
-        }
-        token = getAccessToken()
-        response = await doFetch(token)
-      }
-      if (!response.ok || !response.body) {
-        onError(`AI Overview 생성에 실패했습니다 (HTTP ${response.status}).`)
-        return
-      }
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let currentEvent = 'message'
-      let currentData = ''
-      let finished = false
-
-      // SSE 이벤트 블록(빈 줄 구분) 하나를 처리하고 스트림 종료 여부를 반환한다.
-      const dispatch = (): boolean => {
-        const event = currentEvent
-        const data = currentData
-        currentEvent = 'message'
-        currentData = ''
-        if (!data) return false
-        if (event === 'delta') {
-          try {
-            const p = JSON.parse(data) as { text?: string }
-            if (typeof p.text === 'string') onDelta(p.text)
-          } catch {
-            /* 무시 */
-          }
-          return false
-        }
-        if (event === 'done') {
-          onDone()
-          return true
-        }
-        if (event === 'error') {
-          let message = 'AI Overview 생성 중 오류가 발생했습니다.'
-          try {
-            const p = JSON.parse(data) as { message?: string }
-            if (p.message) message = p.message
-          } catch {
-            /* 무시 */
-          }
-          onError(message)
-          return true
-        }
-        return false
-      }
-
-      while (!finished) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        let nl: number
-        while ((nl = buffer.indexOf('\n')) !== -1) {
-          const line = buffer.slice(0, nl).replace(/\r$/, '')
-          buffer = buffer.slice(nl + 1)
-          if (line === '') {
-            if (dispatch()) {
-              finished = true
-              break
-            }
-            continue
-          }
-          if (line.startsWith(':')) continue // heartbeat
-          const ci = line.indexOf(':')
-          const field = ci === -1 ? line : line.slice(0, ci)
-          const raw = ci === -1 ? '' : line.slice(ci + 1)
-          const val = raw.startsWith(' ') ? raw.slice(1) : raw
-          if (field === 'event') currentEvent = val
-          else if (field === 'data') currentData = currentData ? `${currentData}\n${val}` : val
-        }
-      }
-    } catch (error) {
-      if ((error as Error).name === 'AbortError') return
-      onError('AI Overview 생성 중 네트워크 오류가 발생했습니다.')
+      const res = await driveApi.startOverview(query, spaceId)
+      correlationId = res.data.correlationId
+    } catch {
+      if (!aborted) onError('AI Overview 생성 시작에 실패했습니다.')
+      return
     }
+
+    if (aborted) {
+      // abort() 가 시작 응답보다 먼저 호출됐다 — 서버에 즉시 취소 요청.
+      void driveApi.cancelOverview(correlationId).catch(() => {})
+      return
+    }
+    startedCorrelationId = correlationId
+
+    unsubscribeDelta = onAiStreamEvent('drive.overview.delta', (data) => {
+      const p = data as DeltaPayload
+      if (p.correlationId !== correlationId || typeof p.text !== 'string') return
+      onDelta(p.text)
+    })
+    unsubscribeDone = onAiStreamEvent('drive.overview.done', (data) => {
+      const p = data as DonePayload
+      if (p.correlationId !== correlationId) return
+      teardown()
+      onDone()
+    })
+    unsubscribeError = onAiStreamEvent('drive.overview.error', (data) => {
+      const p = data as ErrorPayload
+      if (p.correlationId !== correlationId) return
+      teardown()
+      // abort() 는 항상 네트워크 취소 요청 전에 teardown() 으로 구독을 동기 해제하므로, 살아있는
+      // 구독이 cancelled:true 를 받았다는 것 자체가 이 클라이언트의 취소가 아니라 서버측
+      // StreamingGenerationRegistry 타임아웃(120초)이라는 뜻이다(useWikiAiStream.ts 와 동일 추론).
+      if (p.cancelled) {
+        onError('생성 시간이 초과되었습니다.')
+      } else {
+        onError(p.message ?? 'AI Overview 생성 중 오류가 발생했습니다.')
+      }
+    })
   })()
 
-  return { abort: () => controller.abort() }
+  return {
+    abort: () => {
+      aborted = true
+      teardown()
+      if (startedCorrelationId) {
+        void driveApi.cancelOverview(startedCorrelationId).catch(() => {})
+      }
+    },
+  }
 }

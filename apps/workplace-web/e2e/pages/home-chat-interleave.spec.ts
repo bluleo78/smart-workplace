@@ -1,15 +1,20 @@
 // #463: 인터리브 렌더 — delta·tool 도착순으로 text↔widget 섞여 렌더.
 import { calendarEvent } from '../factories/calendar.factory';
 import { expect, test } from '../fixtures/auth.fixture';
+import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 
 test('delta→show_calendar→delta 가 text·widget·text 순서로 렌더', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  await page.route((u) => u.pathname === '/api/v1/ai/chat', (route) =>
-    route.fulfill({ status: 200, contentType: 'text/event-stream',
-      body:
-        'event: delta\ndata: {"text":"오늘 일정입니다: "}\n\n' +
-        'event: tool\ndata: {"seq":1,"phase":"start","toolName":"mcp__workplace__show_calendar","args":{"params":{}}}\n\n' +
-        'event: delta\ndata: {"text":"확인하세요."}\n\n' +
-        'event: done\ndata: {"sessionId":"s1","widgets":[]}\n\n' }));
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'delta', data: { text: '오늘 일정입니다: ' } },
+      {
+        event: 'tool',
+        data: { seq: 1, phase: 'start', toolName: 'mcp__workplace__show_calendar', args: { params: {} } },
+      },
+      { event: 'delta', data: { text: '확인하세요.' } },
+      { event: 'done', data: { sessionId: 's1', widgets: [] } },
+    ],
+  });
   await page.route((u) => u.pathname === '/api/v1/calendar/events', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify([calendarEvent({ id: 1, title: '인터리브 미팅', startsAt: '2026-06-23T02:00:00Z', endsAt: '2026-06-23T03:00:00Z' })]) }));
