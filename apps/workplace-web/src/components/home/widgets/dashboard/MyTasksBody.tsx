@@ -134,12 +134,12 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
                   {to ? (
                     <Link
                       to={to}
-                      className="text-xs font-medium text-muted-foreground hover:text-ai-accent hover:underline"
+                      className="text-sm font-medium text-muted-foreground hover:text-ai-accent hover:underline"
                     >
                       {label} →
                     </Link>
                   ) : (
-                    <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                    <span className="text-sm font-medium text-muted-foreground">{label}</span>
                   )}
                 </div>
                 <ul className="space-y-0.5">
