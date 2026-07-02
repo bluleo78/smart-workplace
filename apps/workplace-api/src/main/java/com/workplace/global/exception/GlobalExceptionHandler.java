@@ -287,6 +287,22 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
+  @ExceptionHandler(com.workplace.global.exception.StreamingGenerationNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleStreamingGenerationNotFound(
+      com.workplace.global.exception.StreamingGenerationNotFoundException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  @ExceptionHandler(com.workplace.global.exception.StreamingGenerationForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handleStreamingGenerationForbidden(
+      com.workplace.global.exception.StreamingGenerationForbiddenException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   // 드라이브 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400)
   @ExceptionHandler({
     com.workplace.drive.exception.DriveSpaceNotFoundException.class,
