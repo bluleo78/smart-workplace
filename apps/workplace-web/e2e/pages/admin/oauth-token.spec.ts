@@ -226,24 +226,21 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
       await expect(page.getByRole('heading', { name: '자격증명 등록' })).toBeVisible();
       await expect(page.getByTestId('credential-provider-anthropic')).toBeChecked();
       await page.getByRole('textbox', { name: '토큰' }).fill(VALID_TOKEN_64);
-      await page.getByLabel('레이블 (선택)').fill('main');
       await page.getByRole('button', { name: '등록' }).click();
 
       // success toast.
       await expect(page.getByText('자격증명을 등록했습니다.')).toBeVisible();
 
-      // POST payload 검증.
+      // POST payload 검증 — 레이블 입력란 제거로 label 은 전송되지 않는다.
       expect(state.postRequests).toHaveLength(1);
       expect(state.postRequests[0]).toEqual({
         provider: 'anthropic',
         token: VALID_TOKEN_64,
-        label: 'main',
       });
 
-      // 등록된 영역 노출 — 재발급/회수 버튼 + label + provider 뱃지.
+      // 등록된 영역 노출 — 재발급/회수 버튼 + provider 뱃지.
       await expect(page.getByTestId('oauth-token-reissue')).toBeVisible();
       await expect(page.getByTestId('oauth-token-revoke')).toBeVisible();
-      await expect(page.getByText('main')).toBeVisible();
       await expect(page.getByTestId('credential-provider-badge')).toHaveText('Claude 구독');
       await expect(page.getByTestId('oauth-token-register')).toHaveCount(0);
     },
@@ -293,12 +290,11 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
       await modelSelect.click();
       await page.getByRole('option', { name: 'Claude 3.5 Sonnet' }).click();
 
-      await page.getByLabel('레이블 (선택)').fill('bedrock-main');
       await page.getByRole('button', { name: '등록' }).click();
 
       await expect(page.getByText('자격증명을 등록했습니다.')).toBeVisible();
 
-      // 최종 등록 payload 검증.
+      // 최종 등록 payload 검증 — 레이블 입력란 제거로 label 은 전송되지 않는다.
       expect(state.postRequests).toHaveLength(1);
       expect(state.postRequests[0]).toEqual({
         provider: 'opencode',
@@ -310,7 +306,6 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
           },
         },
         model: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet',
-        label: 'bedrock-main',
       });
 
       // 등록 후 provider 뱃지 = 프리셋 역매핑(AWS Bedrock) + baseUrl 노출.
@@ -443,7 +438,7 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
     },
   );
 
-  test('재발급 → 새 label 노출', async ({ adminPage: page }) => {
+  test('재발급 → 토큰 교체 성공', async ({ adminPage: page }) => {
     await setupBase(page);
     const state = await setupCredential(page, {
       initial: 'present',
@@ -462,16 +457,12 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
     await expect(page.getByRole('heading', { name: '자격증명 재발급' })).toBeVisible();
 
     await page.getByRole('textbox', { name: '토큰' }).fill(VALID_TOKEN_64);
-    await page.getByLabel('레이블 (선택)').fill('rotated');
     await page.getByRole('button', { name: '재발급' }).click();
 
     await expect(page.getByText('자격증명을 재발급했습니다.')).toBeVisible();
 
     expect(state.postRequests).toHaveLength(1);
-    expect((state.postRequests[0] as { label?: string }).label).toBe('rotated');
-
-    // invalidate 이후 새 label 이 노출.
-    await expect(page.getByText('rotated')).toBeVisible();
+    expect(state.postRequests[0]).toEqual({ provider: 'anthropic', token: VALID_TOKEN_64 });
   });
 
   test('회수 → 미등록 상태로 전환', async ({ adminPage: page }) => {

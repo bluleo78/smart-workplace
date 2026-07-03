@@ -74,8 +74,9 @@ export function PersonalAssistantSection() {
   const [selectedModel, setSelectedModel] = useState('');
   const [manualModel, setManualModel] = useState('');
 
-  // 공통.
-  const [label, setLabel] = useState('');
+  // 설정 완료된 비서의 모델 변경 폴백 입력 — 프로브(useMyAssistantModels)가 실패하면(예: 프로바이더가
+  // /models 목록 조회를 지원하지 않는 경우) Select 가 비어 선택 불가능해지므로 직접 입력을 허용한다.
+  const [modelChangeInput, setModelChangeInput] = useState('');
 
   // 이름 편집 draft — null 이면 서버값을 그대로 표시(미편집), 입력 시작 시 draft 로 전환.
   const [nameDraft, setNameDraft] = useState<string | null>(null);
@@ -98,7 +99,6 @@ export function PersonalAssistantSection() {
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
-    setLabel('');
   };
 
   // 프리셋 변경 시 baseURL 템플릿 자동 채움 + 이전 프로브 결과 초기화.
@@ -146,7 +146,7 @@ export function PersonalAssistantSection() {
         return;
       }
       try {
-        await register.mutateAsync({ provider: 'anthropic', token: trimmed, label: label.trim() || undefined });
+        await register.mutateAsync({ provider: 'anthropic', token: trimmed });
         resetForm();
         toast.success('개인 비서 토큰을 저장했습니다.');
         void refreshUser();
@@ -166,7 +166,6 @@ export function PersonalAssistantSection() {
         provider: 'opencode',
         providerConfig: { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } },
         model: resolvedModel,
-        label: label.trim() || undefined,
       });
       resetForm();
       toast.success('개인 비서를 등록했습니다.');
@@ -202,6 +201,17 @@ export function PersonalAssistantSection() {
     } catch (e) {
       handleApiError(e, '비서 설정 변경에 실패했습니다.');
     }
+  };
+
+  // 수동 모델 변경 — 등록 폼과 동일하게 providerId/ 접두 없으면 자동 부여(현재 저장된 model 의
+  // providerId 를 재사용). 접두 누락으로 인한 splitOpencodeModel 실행 시점 실패를 여기서도 방지.
+  const currentProviderId = status?.model?.includes('/') ? status.model.split('/')[0] : undefined;
+  const handleModelChangeManual = async () => {
+    const raw = modelChangeInput.trim();
+    if (!raw) return;
+    const resolved = !raw.includes('/') && currentProviderId ? `${currentProviderId}/${raw}` : raw;
+    await handleModelChange(resolved);
+    setModelChangeInput('');
   };
 
   // 생각의 깊이 변경 — 실패 시 오류 토스트, 성공 시 확인 토스트.
@@ -273,32 +283,52 @@ export function PersonalAssistantSection() {
               <label className="text-sm font-medium" htmlFor="assistant-model">
                 모델
               </label>
-              {/* 앱 디자인 시스템 일관성 — shadcn Select 사용 (native <select> 금지). 모델 목록은 서버 조회. */}
-              <Select
-                value={status.model ?? ''}
-                onValueChange={handleModelChange}
-                disabled={modelsLoading || modelOptions.length === 0}
-              >
-                <SelectTrigger id="assistant-model" data-testid="assistant-model">
-                  <SelectValue placeholder="선택…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {modelOptions.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!modelsLoading && modelOptions.length === 0 ? (
-                <p
-                  data-testid="assistant-model-empty"
-                  className="text-xs text-muted-foreground"
-                >
-                  사용 가능한 모델이 없어요 — 자격증명이 등록됐는지, 프로바이더 연결이 정상인지
-                  확인하세요.
-                </p>
-              ) : null}
+              {/* 프로바이더가 모델 목록 조회(GET /models)를 지원하지 않으면(예: 일부 opencode
+                  베이스URL) modelOptions 가 항상 비어 있다 — 이는 오류가 아니라 그 프로바이더의
+                  정상적인 특성이므로, Select 대신 현재 값 표시 + 직접 입력으로 대체한다. */}
+              {modelsLoading ? null : modelOptions.length > 0 ? (
+                <Select value={status.model ?? ''} onValueChange={handleModelChange}>
+                  <SelectTrigger id="assistant-model" data-testid="assistant-model">
+                    <SelectValue placeholder="선택…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelOptions.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <>
+                  <p className="text-sm" data-testid="assistant-model-current">
+                    현재: {status.model ?? '(설정 안 됨)'}
+                  </p>
+                  <p
+                    data-testid="assistant-model-empty"
+                    className="text-xs text-muted-foreground"
+                  >
+                    이 프로바이더는 모델 목록 조회를 지원하지 않아요 — 정상입니다. 아래에서 모델
+                    id를 직접 입력해 변경하세요.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      id="assistant-model"
+                      data-testid="assistant-model-manual-input"
+                      placeholder={currentProviderId ? `${currentProviderId}/model-id` : 'providerId/model-id'}
+                      value={modelChangeInput}
+                      onChange={(e) => setModelChangeInput(e.target.value)}
+                    />
+                    <Button
+                      data-testid="assistant-model-manual-apply"
+                      onClick={handleModelChangeManual}
+                      disabled={!modelChangeInput.trim() || updateSettings.isPending}
+                    >
+                      변경
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -346,7 +376,7 @@ export function PersonalAssistantSection() {
                     value="anthropic"
                     data-testid="credential-provider-anthropic"
                   />
-                  Claude 구독 (OAuth 토큰)
+                  Claude 구독
                 </Label>
                 <Label
                   htmlFor="credential-provider-opencode"
@@ -357,7 +387,7 @@ export function PersonalAssistantSection() {
                     value="opencode"
                     data-testid="credential-provider-opencode"
                   />
-                  외부 프로바이더 (OpenAI 호환)
+                  OpenAI 호환
                 </Label>
               </RadioGroup>
             </div>
@@ -469,17 +499,6 @@ export function PersonalAssistantSection() {
                 ) : null}
               </div>
             )}
-
-            <div className="space-y-1.5">
-              <Label htmlFor="credential-label">레이블 (선택)</Label>
-              <Input
-                id="credential-label"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="main"
-                maxLength={80}
-              />
-            </div>
 
             <Button onClick={() => void submitCredential()} disabled={submitDisabled}>
               {register.isPending ? '저장 중…' : '등록'}

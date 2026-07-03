@@ -65,9 +65,6 @@ export function ProviderCredentialDialog({
   const [selectedModel, setSelectedModel] = useState('');
   const [manualModel, setManualModel] = useState('');
 
-  // 공통.
-  const [label, setLabel] = useState('');
-
   const mutation = useRegisterAgentProviderCredential(agentUserId);
   const probe = useMutation({
     mutationFn: () =>
@@ -86,7 +83,6 @@ export function ProviderCredentialDialog({
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
-    setLabel('');
   };
 
   // 프리셋 변경 시 baseURL 템플릿 자동 채움 + 이전 프로브 결과 초기화.
@@ -136,7 +132,6 @@ export function ProviderCredentialDialog({
         await mutation.mutateAsync({
           provider: 'anthropic',
           token: trimmed,
-          label: label.trim() || undefined,
         });
         toast.success(isReissue ? '자격증명을 재발급했습니다.' : '자격증명을 등록했습니다.');
         reset();
@@ -157,7 +152,6 @@ export function ProviderCredentialDialog({
         provider: 'opencode',
         providerConfig: { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } },
         model: resolvedModel,
-        label: label.trim() || undefined,
       });
       toast.success(isReissue ? '자격증명을 재발급했습니다.' : '자격증명을 등록했습니다.');
       reset();
@@ -187,7 +181,10 @@ export function ProviderCredentialDialog({
             {isReissue ? ' 기존 자격증명은 자동으로 회수됩니다.' : null}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        {/* min-h — 연결 방식(anthropic↔opencode)·프로브 결과 유무에 따라 내용 길이가 크게 달라져
+            다이얼로그가 열릴 때마다 세로 크기가 요동치는 것을 막기 위해 가장 긴 상태(opencode +
+            모델 목록 노출) 기준으로 최소 높이를 예약한다. */}
+        <div className="space-y-4 min-h-[420px]">
           <div className="space-y-1.5">
             <Label>연결 방식</Label>
             <RadioGroup
@@ -204,7 +201,7 @@ export function ProviderCredentialDialog({
                   value="anthropic"
                   data-testid="credential-provider-anthropic"
                 />
-                Claude 구독 (OAuth 토큰)
+                Claude 구독
               </Label>
               <Label
                 htmlFor="credential-provider-opencode"
@@ -215,7 +212,7 @@ export function ProviderCredentialDialog({
                   value="opencode"
                   data-testid="credential-provider-opencode"
                 />
-                외부 프로바이더 (OpenAI 호환)
+                OpenAI 호환
               </Label>
             </RadioGroup>
           </div>
@@ -321,16 +318,6 @@ export function ProviderCredentialDialog({
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="credential-label">레이블 (선택)</Label>
-            <Input
-              id="credential-label"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="main"
-              maxLength={80}
-            />
-          </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

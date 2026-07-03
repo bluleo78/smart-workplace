@@ -77,11 +77,19 @@ public class AiAgentCredentialService {
     String encrypted = encryptionService.encrypt(plaintextSecret);
     Long id = repo.insert(agentUserId, provider, encrypted, label, callerId);
 
-    if (model != null && !model.isBlank()) {
-      // opencode 는 provider 변경 시 기존 model 이 무의미해질 수 있어 자격증명과 함께 upsert.
-      // (anthropic 경로는 model 인자가 null 이라 이 블록에 들어오지 않는다 — 기존 설정 화면(updateSettings)이 별도 관리.)
+    // opencode→anthropic 전환처럼 provider 가 바뀌면 이전 provider 형식의 model 문자열
+    // (예: "amazon-bedrock-openai/google.gemma-...")이 새 provider 에는 무의미해진다. anthropic 은
+    // 등록 폼에 model 입력이 없어 model 인자가 항상 null 이므로, 그 경우 정적 기본값(claude-sonnet-5)
+    // 으로 덮어써 stale 값이 새 provider 에 그대로 흘러가는 걸 막는다(실측 버그: anthropic 재등록 후
+    // assistant_config.model 이 이전 opencode 모델 문자열로 남아 실행 시점 오류로 이어짐).
+    String effectiveModel =
+        (model != null && !model.isBlank())
+            ? model
+            : ("anthropic".equals(provider) ? AssistantDefaults.MODEL : null);
+    if (effectiveModel != null) {
       ConfigRow cur = configRepo.find(agentUserId).orElse(new ConfigRow(null, null, null, null));
-      configRepo.upsert(agentUserId, model, cur.thinkingDepth(), cur.maxTurns(), cur.timeoutMs());
+      configRepo.upsert(
+          agentUserId, effectiveModel, cur.thinkingDepth(), cur.maxTurns(), cur.timeoutMs());
     }
 
     auditLogService.log(

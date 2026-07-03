@@ -144,6 +144,30 @@ class AiAgentCredentialServiceTest extends IntegrationTestBase {
     assertThat(redeemed.model()).isEqualTo("bedrock/gpt-oss-120b");
   }
 
+  @Test // anthropic 등록(최초, model 미설정 상태)은 정적 기본 모델(claude-sonnet-5)을 채운다
+  void registerAnthropicCredential_defaultsModelWhenUnset() {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createUser("ai", "AGENT");
+
+    service.register(admin, agent, "anthropic", "X".repeat(64), "main", null);
+
+    assertThat(service.redeemSelf(agent).model()).isEqualTo(AssistantDefaults.MODEL);
+  }
+
+  @Test // opencode → anthropic 전환 시 이전 provider 형식의 stale model 문자열을 기본값으로 덮어쓴다
+  void registerAnthropicCredential_overridesStaleOpencodeModel() {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createUser("ai", "AGENT");
+    String cfg =
+        """
+        {"providerId":"bedrock","options":{"baseURL":"https://ep.example/openai/v1","apiKey":"sk-test-123456789012345678901234"}}""";
+    service.register(admin, agent, "opencode", cfg, "bedrock", "bedrock/gpt-oss-120b");
+
+    service.register(admin, agent, "anthropic", "X".repeat(64), "main", null);
+
+    assertThat(service.redeemSelf(agent).model()).isEqualTo(AssistantDefaults.MODEL);
+  }
+
   @Test // 기존 anthropic 경로 무변경: token 등록 → redeem 시 provider=anthropic + token 반환
   void registerAnthropicToken_redeemsAsAnthropicProvider() {
     Long admin = createUser("admin", "HUMAN");

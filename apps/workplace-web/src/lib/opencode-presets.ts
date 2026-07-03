@@ -19,6 +19,11 @@ export const OPENCODE_PRESETS = [
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
   },
   {
+    key: 'genia',
+    label: 'Genia',
+    baseUrl: '',
+  },
+  {
     key: 'custom',
     label: '직접 입력',
     baseUrl: '',

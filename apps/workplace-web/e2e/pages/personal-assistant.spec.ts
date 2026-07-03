@@ -187,7 +187,6 @@ test.describe('프로필 개인 비서', () => {
       await modelSelect.click()
       await page.getByRole('option', { name: 'Claude 3.5 Sonnet' }).click()
 
-      await page.getByLabel('레이블 (선택)').fill('bedrock-main')
       await page.getByRole('button', { name: '등록' }).click()
 
       await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
@@ -203,7 +202,6 @@ test.describe('프로필 개인 비서', () => {
           },
         },
         model: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet',
-        label: 'bedrock-main',
       })
     },
   )
@@ -347,15 +345,39 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByRole('option', { name: 'claude-sonnet-5' })).not.toBeVisible()
   })
 
-  // 모델 목록이 비어 있으면 Select 비활성 + 안내 문구 노출.
-  test('모델 목록 없음 → Select 비활성 + 안내 문구', async ({ authenticatedPage: page }) => {
+  // 모델 목록이 비어 있으면(프로바이더가 목록 조회 미지원) Select 대신 현재값 표시 + 직접 입력 폴백 노출.
+  test('모델 목록 없음 → 현재값 표시 + 직접 입력 폴백', async ({ authenticatedPage: page }) => {
     await mockStatus(page, () => configuredStatus())
     await mockModels(page, [])
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
-    await expect(page.getByTestId('assistant-model')).toBeDisabled()
     await expect(page.getByTestId('assistant-model-empty')).toBeVisible()
+    await expect(page.getByTestId('assistant-model-current')).toBeVisible()
+    await expect(page.getByTestId('assistant-model-manual-input')).toBeVisible()
+    await expect(page.getByTestId('assistant-model-manual-apply')).toBeVisible()
+  })
+
+  // 직접 입력 폴백으로 모델을 변경하면 접두 없는 입력에 현재 providerId 가 자동 부여된다.
+  test('모델 직접 입력 변경 → providerId 자동 접두', async ({ authenticatedPage: page }) => {
+    await mockStatus(page, () => configuredStatus({ model: 'amazon-bedrock-openai/google.gemma-4-31b' }))
+    await mockModels(page, [])
+
+    let settingsBody: unknown = null
+    await page.route('**/api/v1/users/me/assistant/settings', (route) => {
+      if (route.request().method() === 'PUT') {
+        settingsBody = route.request().postDataJSON()
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-model-manual-input')).toBeVisible()
+    await page.getByTestId('assistant-model-manual-input').fill('claude-4-6')
+    await page.getByTestId('assistant-model-manual-apply').click()
+
+    await expect.poll(() => settingsBody).toEqual({ model: 'amazon-bedrock-openai/claude-4-6' })
   })
 
   // #192 — 자격증명 등록 API 실패 시 오류 토스트가 표시되어야 한다.
