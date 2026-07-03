@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { badgeVariant } from './IssueInstantContextCard'
+import { describe, expect,it } from 'vitest'
+
+import { badgeVariant } from './instantContext'
 
 // AiSignalVariant 실제 어휘: 'action' | 'info' (aiMarker.ts)
 // BLOCKED/OVERDUE → 'action'(사용자 행동 필요), STALE → 'info'(정보성)
