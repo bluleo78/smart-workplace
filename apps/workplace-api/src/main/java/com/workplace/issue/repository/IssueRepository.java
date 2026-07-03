@@ -734,9 +734,9 @@ public class IssueRepository {
   }
 
   /**
-   * watched-issues 전용 헬퍼. 호출자가 현재 멤버인 프로젝트의 활성 이슈만, ids 제한 + (updated_at, id) DESC cursor 페이징.
-   * 프로젝트 soft-delete 는 소속 이슈/watcher 를 정리하지 않으므로, 삭제된 프로젝트는 여기서 직접 제외한다(#623 후속, 그렇지 않으면
-   * 이후 project 조회에서 orElseThrow 가 터진다).
+   * watched-issues 전용 헬퍼. 호출자가 현재 멤버인 프로젝트의 활성 이슈만, ids 제한 + (updated_at, id) DESC cursor 페이징. 프로젝트
+   * soft-delete 는 소속 이슈/watcher 를 정리하지 않으므로, 삭제된 프로젝트는 여기서 직접 제외한다(#623 후속, 그렇지 않으면 이후 project 조회에서
+   * orElseThrow 가 터진다).
    */
   public List<IssueRow> findByIdsActiveMemberOf(
       List<Long> issueIds,
