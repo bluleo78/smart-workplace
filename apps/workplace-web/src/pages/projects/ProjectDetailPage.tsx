@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 
 import { useProject } from '../../hooks/queries/useProjects';
 import { parseFilters, parseGroupBy, parseView } from '../../lib/issueFilters';
+import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
 import { IssueFilterBar } from './components/IssueFilterBar';
@@ -21,10 +22,10 @@ export default function ProjectDetailPage() {
   const project = useProject(key);
 
   if (project.isLoading)
-    return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
+    return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
   if (project.error)
     return (
-      <p className="container mx-auto p-6 text-destructive">
+      <p className="w-full p-6 text-destructive">
         프로젝트를 불러올 수 없습니다
       </p>
     );
@@ -61,7 +62,7 @@ export default function ProjectDetailPage() {
         }
       />
       <div className="flex-1 overflow-y-auto">
-        <div className="container mx-auto p-6 space-y-4">
+        <div className="w-full p-6 space-y-4">
           <IssueArea
             projectKey={key}
             onOpenCreate={canCreateIssue ? () => setOpen(true) : undefined}
@@ -91,20 +92,23 @@ function IssueArea({
   const groupBy = parseGroupBy(params);
 
   return (
-    <section aria-label="태스크">
-      <ViewChipBar projectKey={projectKey} />
-      <IssueFilterBar projectKey={projectKey} />
-      {view === 'board' ? (
-        <IssueBoardView
-          projectKey={projectKey}
-          filters={filters}
-          groupBy={groupBy}
-          onOpenCreate={onOpenCreate}
-          canDragStatus={canDragStatus}
-        />
-      ) : (
-        <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
-      )}
+    <section aria-label="태스크" className="flex items-start gap-4">
+      <EpicSidePanel projectKey={projectKey} />
+      <div className="min-w-0 flex-1">
+        <ViewChipBar projectKey={projectKey} />
+        <IssueFilterBar projectKey={projectKey} />
+        {view === 'board' ? (
+          <IssueBoardView
+            projectKey={projectKey}
+            filters={filters}
+            groupBy={groupBy}
+            onOpenCreate={onOpenCreate}
+            canDragStatus={canDragStatus}
+          />
+        ) : (
+          <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
+        )}
+      </div>
     </section>
   );
 }

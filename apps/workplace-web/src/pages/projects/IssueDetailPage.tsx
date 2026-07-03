@@ -266,18 +266,18 @@ export default function IssueDetailPage() {
     members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
 
   // 프로젝트 타입이 확정되기 전에는 렌더 보류 — 팀 화면 반짝임 방지.
-  if (project.isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
+  if (project.isLoading) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
   if (project.error)
-    return <p className="container mx-auto p-6 text-destructive">프로젝트를 불러올 수 없습니다</p>;
+    return <p className="w-full p-6 text-destructive">프로젝트를 불러올 수 없습니다</p>;
   // 개인 프로젝트의 이슈 풀페이지 진입(알림/북마크)은 프로젝트 화면의 우측 패널로 리다이렉트한다.
   // 팀 프로젝트는 기존 풀페이지 유지.
   if (project.data?.type === 'PERSONAL') {
     return <Navigate to={`/projects/${key}?task=${issueNumber}`} replace />;
   }
 
-  if (isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
+  if (isLoading) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
   if (!data) return (
-    <div className="container mx-auto p-6 text-center">
+    <div className="w-full p-6 text-center">
       <p className="text-sm text-destructive mb-2">태스크를 찾을 수 없습니다</p>
       <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
     </div>
@@ -409,7 +409,7 @@ export default function IssueDetailPage() {
           채팅·레일이 AI 패널 뒤로 밀려 가려졌다(오버레이 증상). */}
       <div className="@container flex-1 overflow-y-auto">
         {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — 컨테이너 폭 1032px(본문360+채팅320+레일280+gap/padding) 이상에서 가로 배치 (#343 Task 4, #354). */}
-        <div className="container mx-auto flex flex-col gap-6 p-6 @min-[1032px]:flex-row">
+        <div className="w-full flex flex-col gap-6 p-6 @min-[1032px]:flex-row">
           {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
               세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
           {/* 메인 컬럼 — 섹션(설명·하위 태스크·코멘트)을 Separator 바로 명확히 구분. space-y-6 으로 바 주변 여백 확보. */}

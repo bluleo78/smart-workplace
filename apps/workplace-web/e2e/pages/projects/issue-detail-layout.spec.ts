@@ -389,4 +389,23 @@ test.describe('AI 사이드패널 + 2구역 레이아웃 (#354)', () => {
     const r = await rowProbe(page);
     expect(r.flexDir).toBe('row');
   });
+
+  test('본문 컨테이너는 중앙정렬 max-width 없이 전체폭을 사용한다', async ({ authenticatedPage: page }) => {
+    await mockIssueDetail(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const heading = page.getByTestId('issue-title-heading');
+    await expect(heading).toBeVisible();
+    // Tailwind `container` 유틸은 브레이크포인트별 max-width 를 강제한다 — 전체화면 전환 후
+    // 본문을 감싸는 조상 요소 중 어떤 것도 이 클래스를 갖지 않아야 한다.
+    const hasContainerClass = await heading.evaluate((el) => {
+      let node: HTMLElement | null = el.parentElement;
+      while (node) {
+        if (node.classList.contains('container')) return true;
+        node = node.parentElement;
+      }
+      return false;
+    });
+    expect(hasContainerClass).toBe(false);
+  });
 });
