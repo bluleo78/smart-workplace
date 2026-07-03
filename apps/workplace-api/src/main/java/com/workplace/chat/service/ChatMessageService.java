@@ -6,6 +6,7 @@ import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.dto.UpdateChatMessageRequest;
 import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
 import com.workplace.chat.exception.ChatMessageNotFoundException;
+import com.workplace.chat.exception.ChatThreadIssueDeletedException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.EmptyChatMessageException;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
@@ -17,6 +18,7 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
+import com.workplace.chat.repository.IssueStakeholderLookup;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
@@ -44,6 +46,8 @@ public class ChatMessageService {
   private final ChatMessageAttachmentRepository attachmentRepo;
   // #358: 드라이브 교차링크 생성/조회. DriveLinkService 는 drive 도메인이나 messaging 과 동일하게 직접 주입.
   private final DriveLinkService driveLinkService;
+  // #621: 스레드에 연결된 이슈가 삭제됐는지 확인하는 가드용 조회.
+  private final IssueStakeholderLookup issueLookup;
 
   /**
    * Thread member 가 메시지 작성. 빈 메시지(본문도 첨부도 드라이브링크도 없음) 거부. 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱
@@ -52,6 +56,10 @@ public class ChatMessageService {
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
     ensureMember(threadId, callerId);
+    // #621: 원본 이슈가 소프트삭제됐으면 스레드가 남아있어도 메시지 전송을 막는다.
+    if (issueLookup.isIssueDeletedByThreadId(threadId)) {
+      throw new ChatThreadIssueDeletedException(threadId);
+    }
     // 빈 메시지 거부: 본문·첨부·드라이브 링크가 모두 없으면 작성 불가 (400).
     boolean bodyEmpty = req.body() == null || req.body().isBlank();
     if (bodyEmpty && req.fileIds().isEmpty() && req.driveFileIds().isEmpty()) {

@@ -7,12 +7,15 @@ import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.dto.UpdateChatMessageRequest;
 import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
+import com.workplace.chat.exception.ChatThreadIssueDeletedException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
+import com.workplace.issue.repository.IssueRepository;
 import com.workplace.support.IntegrationTestBase;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -29,6 +32,7 @@ class ChatMessageServiceTest extends IntegrationTestBase {
   @Autowired ChatFixtures fx;
   @Autowired ChatThreadMemberRepository memberRepo;
   @Autowired ApplicationEvents events;
+  @Autowired IssueRepository issueRepository;
 
   @Test
   void create_withAgentMention_addsAgentAsThreadMember() {
@@ -120,6 +124,22 @@ class ChatMessageServiceTest extends IntegrationTestBase {
     assertThat(updated.get(0).messageId()).isEqualTo(msg.id());
     assertThat(updated.get(0).threadId()).isEqualTo(thread.threadId());
     assertThat(updated.get(0).body()).isEqualTo("new body");
+  }
+
+  @Test
+  void create_afterIssueSoftDeleted_throws() {
+    // #621: 이슈 소프트삭제 후에는 기존에 조회해둔 threadId 로도 메시지 전송이 막혀야 한다
+    // (스레드 자체는 이슈와 별개 row 로 남아 threadId 조회는 여전히 유효하기 때문).
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+
+    issueRepository.softDelete(s.issueId(), Instant.now());
+
+    assertThatThrownBy(
+            () ->
+                messageService.create(
+                    s.reporterId(), thread.threadId(), new CreateChatMessageRequest("hi")))
+        .isInstanceOf(ChatThreadIssueDeletedException.class);
   }
 
   @Test

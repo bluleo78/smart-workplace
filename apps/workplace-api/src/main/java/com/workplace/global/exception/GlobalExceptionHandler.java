@@ -8,6 +8,7 @@ import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
 import com.workplace.chat.exception.ChatMessageNotFoundException;
+import com.workplace.chat.exception.ChatThreadIssueDeletedException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.EmptyChatMessageException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
@@ -1163,6 +1164,14 @@ public class GlobalExceptionHandler {
       ChatThreadNotMemberException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.FORBIDDEN)
         .body(buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request));
+  }
+
+  /** #621 — 삭제된 이슈에 연결된 스레드로 메시지 전송 시도 → 404. */
+  @ExceptionHandler(ChatThreadIssueDeletedException.class)
+  public ResponseEntity<ErrorResponse> handleChatThreadIssueDeleted(
+      ChatThreadIssueDeletedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
   }
 
   /** Phase 6a — 본인이 아닌 chat 메시지를 수정/삭제 시도 → 403. */

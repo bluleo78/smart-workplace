@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.chat.dto.ChatThreadResponse;
 import com.workplace.chat.repository.ChatThreadRepository;
+import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.support.IntegrationTestBase;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +20,7 @@ class ChatThreadServiceTest extends IntegrationTestBase {
   @Autowired ChatThreadService threadService;
   @Autowired ChatThreadRepository threadRepo;
   @Autowired ChatFixtures fx;
+  @Autowired IssueRepository issueRepository;
 
   @Test
   void getOrCreate_firstCall_createsThreadWithInitialMembers() {
@@ -48,5 +51,20 @@ class ChatThreadServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () -> threadService.getOrCreate(s.outsiderId(), s.projectKey(), s.issueNumber()))
         .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
+  @Test
+  void getOrCreate_afterIssueSoftDeleted_throws() {
+    // #621: 이슈 소프트삭제 후에는 스레드 조회/생성이 더 이상 성공하면 안 된다.
+    ChatFixtures.Setup s = fx.setup();
+    // 삭제 전에는 정상 조회되는지 먼저 확인(회귀 방지용 sanity check).
+    var before = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    assertThat(before.threadId()).isPositive();
+
+    issueRepository.softDelete(s.issueId(), Instant.now());
+
+    assertThatThrownBy(
+            () -> threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber()))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }
