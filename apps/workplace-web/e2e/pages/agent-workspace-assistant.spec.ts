@@ -1,5 +1,5 @@
-// ADMIN — /settings/agents 내 공통 비서 섹션 E2E.
-// 에이전트 상세 패널 내 WorkspaceAssistantSection 지정·해제·토큰 게이트·빈 상태 배너 검증.
+// ADMIN — /settings/agents 내 "AI 연결 및 모델" 카드의 공통 비서 지정 토글 E2E.
+// 에이전트 상세 패널 내 AgentConnectionSection 지정·해제·토큰 게이트·빈 상태 배너 검증.
 // 백엔드 없이 page.route 로 API 모킹. 모킹 데이터는 src/types/ 타입 적용.
 
 import type { WorkspaceAssistant } from '../../src/types/assistant';
@@ -121,13 +121,14 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       // 에이전트 행 선택 → 상세 패널 열기.
       await page.getByTestId(`agent-row-${AGENT_ID}`).click();
 
-      // 공통 비서로 지정 버튼이 활성화되어야 한다.
-      const assignBtn = page.getByTestId('workspace-assistant-assign');
-      await expect(assignBtn).toBeVisible();
-      await expect(assignBtn).toBeEnabled();
+      // 공통 비서 지정 토글이 활성화되어 있어야 한다(OFF 상태).
+      const toggle = page.getByTestId('agent-connection-assistant-toggle');
+      await expect(toggle).toBeVisible();
+      await expect(toggle).toBeEnabled();
+      await expect(toggle).not.toBeChecked();
 
-      // 지정 버튼 클릭 → PUT 호출.
-      await assignBtn.click();
+      // 토글 클릭 → PUT 호출.
+      await toggle.click();
 
       // PUT payload = { agentUserId: AGENT_ID } 확인.
       await expect.poll(() => putPayload).toEqual({ agentUserId: AGENT_ID });
@@ -185,10 +186,10 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
     // 현재 공통 비서 배지가 표시되어야 한다.
     await expect(page.getByTestId('workspace-assistant-current')).toBeVisible();
 
-    // 지정 해제 버튼 → DELETE 호출.
-    const clearBtn = page.getByTestId('workspace-assistant-clear');
-    await expect(clearBtn).toBeVisible();
-    await clearBtn.click();
+    // 토글이 ON 상태 — 클릭하면 해제(DELETE) 호출.
+    const toggle = page.getByTestId('agent-connection-assistant-toggle');
+    await expect(toggle).toBeChecked();
+    await toggle.click();
 
     // DELETE 가 1회 호출되어야 한다.
     await expect.poll(() => deleteCallCount).toBe(1);
@@ -233,10 +234,10 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
     // 에이전트 행 선택 → 상세 패널.
     await page.getByTestId(`agent-row-${AGENT_ID}`).click();
 
-    // 지정 버튼은 disabled 이어야 한다.
-    const assignBtn = page.getByTestId('workspace-assistant-assign');
-    await expect(assignBtn).toBeVisible();
-    await expect(assignBtn).toBeDisabled();
+    // 공통 비서 지정 토글은 disabled 이어야 한다(연결 안 됨).
+    const toggle = page.getByTestId('agent-connection-assistant-toggle');
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toBeDisabled();
 
     // token-gate 안내 문구가 표시되어야 한다.
     await expect(page.getByTestId('workspace-assistant-token-gate')).toBeVisible();

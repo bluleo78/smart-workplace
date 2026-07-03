@@ -1,9 +1,9 @@
-// AGENT 프로바이더 자격증명 등록/재발급 다이얼로그.
+// AGENT 프로바이더 API 키(토큰) 등록/재발급 다이얼로그.
 // 두 가지 연결 방식을 지원한다.
 // - anthropic: 호스트의 `claude setup-token` 으로 발급한 OAuth 토큰을 붙여넣는다.
 // - opencode: OpenAI 호환 엔드포인트(AWS Bedrock/OpenAI/Gemini/직접 입력) — baseURL+apiKey 로
 //   모델 목록을 프로브한 뒤 모델을 선택(또는 프로브 실패 시 수동 입력)해 등록한다.
-// 저장 후 평문(토큰/apiKey)은 다시 표시되지 않으며, 재발급 시 기존 active 자격증명은 자동 회수된다.
+// 저장 후 평문(토큰/apiKey)은 다시 표시되지 않으며, 재발급 시 기존 active API 키는 자동 회수된다.
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -133,11 +133,11 @@ export function ProviderCredentialDialog({
           provider: 'anthropic',
           token: trimmed,
         });
-        toast.success(isReissue ? '자격증명을 재발급했습니다.' : '자격증명을 등록했습니다.');
+        toast.success(isReissue ? '연결 정보를 변경했습니다.' : 'AI에 연결했습니다.');
         reset();
         onOpenChange(false);
       } catch (e) {
-        handleApiError(e, '등록에 실패했습니다');
+        handleApiError(e, '연결에 실패했습니다');
       }
       return;
     }
@@ -153,11 +153,11 @@ export function ProviderCredentialDialog({
         providerConfig: { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } },
         model: resolvedModel,
       });
-      toast.success(isReissue ? '자격증명을 재발급했습니다.' : '자격증명을 등록했습니다.');
+      toast.success(isReissue ? '연결 정보를 변경했습니다.' : 'AI에 연결했습니다.');
       reset();
       onOpenChange(false);
     } catch (e) {
-      handleApiError(e, '등록에 실패했습니다');
+      handleApiError(e, '연결에 실패했습니다');
     }
   };
 
@@ -174,11 +174,11 @@ export function ProviderCredentialDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{isReissue ? '자격증명 재발급' : '자격증명 등록'}</DialogTitle>
+          <DialogTitle>{isReissue ? '연결 정보 변경' : 'AI 연결하기'}</DialogTitle>
           <DialogDescription>
-            에이전트가 LLM을 호출할 자격증명을 등록합니다. 저장 후 평문(토큰/API 키)은 다시
+            에이전트가 LLM을 호출할 연결 정보를 입력하세요. 저장 후 입력한 값은 다시
             표시되지 않습니다.
-            {isReissue ? ' 기존 자격증명은 자동으로 회수됩니다.' : null}
+            {isReissue ? ' 기존 연결은 자동으로 해제됩니다.' : null}
           </DialogDescription>
         </DialogHeader>
         {/* min-h — 연결 방식(anthropic↔opencode)·프로브 결과 유무에 따라 내용 길이가 크게 달라져
@@ -324,7 +324,7 @@ export function ProviderCredentialDialog({
             취소
           </Button>
           <Button onClick={() => void submit()} disabled={submitDisabled}>
-            {mutation.isPending ? '저장 중…' : isReissue ? '재발급' : '등록'}
+            {mutation.isPending ? '저장 중…' : isReissue ? '변경' : '연결하기'}
           </Button>
         </DialogFooter>
       </DialogContent>

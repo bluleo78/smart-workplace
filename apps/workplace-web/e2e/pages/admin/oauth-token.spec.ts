@@ -118,7 +118,7 @@ async function setupCredential(
           return route.fulfill({
             status: 404,
             contentType: 'application/json',
-            body: JSON.stringify({ message: '등록된 자격증명이 없습니다' }),
+            body: JSON.stringify({ message: '등록된 API 키가 없습니다' }),
           });
         }
         return route.fulfill({
@@ -197,14 +197,14 @@ async function enterAndSelect(page: import('@playwright/test').Page) {
   await page.goto('/settings/agents');
   await expect(page.getByRole('heading', { name: '에이전트' })).toBeVisible();
   await page.getByTestId(`agent-row-${AGENT_ID}`).click();
-  await expect(page.getByRole('heading', { name: '프로바이더 자격증명' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AI 연결 및 모델' })).toBeVisible();
 }
 
 // 32자 이상 토큰 더미.
 const VALID_TOKEN_64 = 'sk-ant-oat-' + 'a'.repeat(53); // 64자
 const SHORT_TOKEN_16 = 'sk-ant-oat-short'; // 16자
 
-test.describe('/admin/agents — 프로바이더 자격증명', () => {
+test.describe('/admin/agents — AI 연결 및 모델', () => {
   test(
     '미등록 AGENT → anthropic 토큰 등록 → 메타 노출 (happy path 회귀)',
     { tag: '@smoke' },
@@ -216,20 +216,20 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
 
       // 미등록 안내 + 등록 버튼 노출.
       await expect(
-        page.getByText('등록된 토큰 없음. 에이전트는 LLM 호출 불가.'),
+        page.getByText('아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.'),
       ).toBeVisible();
       const registerBtn = page.getByTestId('oauth-token-register');
       await expect(registerBtn).toBeVisible();
 
       // Dialog 열기 → anthropic 라디오(기본 선택) 확인 → 64자 토큰 + label "main" → 등록.
       await registerBtn.click();
-      await expect(page.getByRole('heading', { name: '자격증명 등록' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'AI 연결하기' })).toBeVisible();
       await expect(page.getByTestId('credential-provider-anthropic')).toBeChecked();
       await page.getByRole('textbox', { name: '토큰' }).fill(VALID_TOKEN_64);
-      await page.getByRole('button', { name: '등록' }).click();
+      await page.getByRole('button', { name: '연결하기' }).click();
 
       // success toast.
-      await expect(page.getByText('자격증명을 등록했습니다.')).toBeVisible();
+      await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
 
       // POST payload 검증 — 레이블 입력란 제거로 label 은 전송되지 않는다.
       expect(state.postRequests).toHaveLength(1);
@@ -290,9 +290,9 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
       await modelSelect.click();
       await page.getByRole('option', { name: 'Claude 3.5 Sonnet' }).click();
 
-      await page.getByRole('button', { name: '등록' }).click();
+      await page.getByRole('button', { name: '연결하기' }).click();
 
-      await expect(page.getByText('자격증명을 등록했습니다.')).toBeVisible();
+      await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
 
       // 최종 등록 payload 검증 — 레이블 입력란 제거로 label 은 전송되지 않는다.
       expect(state.postRequests).toHaveLength(1);
@@ -339,9 +339,9 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
     // providerId/ 접두 없이 실제 모델 id 만 입력해도 제출 시 자동으로 접두된다(실측 회귀 방지 —
     // 접두 누락 시 실행 시점 splitOpencodeModel 실패).
     await manualModel.fill('gpt-4o-mini');
-    await page.getByRole('button', { name: '등록' }).click();
+    await page.getByRole('button', { name: '연결하기' }).click();
 
-    await expect(page.getByText('자격증명을 등록했습니다.')).toBeVisible();
+    await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
     expect(state.postRequests).toHaveLength(1);
     expect((state.postRequests[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini');
   });
@@ -364,9 +364,9 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
     const manualModel = page.getByTestId('credential-model-manual');
     await expect(manualModel).toBeVisible();
     await manualModel.fill('amazon-bedrock-openai/gpt-4o-mini');
-    await page.getByRole('button', { name: '등록' }).click();
+    await page.getByRole('button', { name: '연결하기' }).click();
 
-    await expect(page.getByText('자격증명을 등록했습니다.')).toBeVisible();
+    await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
     expect(state.postRequests).toHaveLength(1);
     expect((state.postRequests[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini');
   });
@@ -383,12 +383,12 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
     await page.getByTestId('credential-api-key').fill('sk-openai-test');
 
     // 프로브를 호출하지 않아 모델 미선택 상태 — 제출 버튼이 비활성화되어 클릭 자체가 불가하다.
-    const submitBtn = page.getByRole('button', { name: '등록' });
+    const submitBtn = page.getByRole('button', { name: '연결하기' });
     await expect(submitBtn).toBeDisabled();
 
     expect(state.postRequests).toHaveLength(0);
     // Dialog 유지.
-    await expect(page.getByRole('heading', { name: '자격증명 등록' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AI 연결하기' })).toBeVisible();
   });
 
   test('opencode 등록 후 provider 뱃지 — 미매칭 baseUrl 은 "OpenAI 호환" 표시', async ({
@@ -434,7 +434,6 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
       await expect(page.getByTestId('oauth-token-reissue')).toBeVisible();
       await expect(page.getByTestId('oauth-token-revoke')).toBeVisible();
       await expect(page.getByTestId('oauth-token-register')).toHaveCount(0);
-      await expect(page.getByText('prod')).toBeVisible();
     },
   );
 
@@ -454,12 +453,12 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
 
     await enterAndSelect(page);
     await page.getByTestId('oauth-token-reissue').click();
-    await expect(page.getByRole('heading', { name: '자격증명 재발급' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '연결 정보 변경' })).toBeVisible();
 
     await page.getByRole('textbox', { name: '토큰' }).fill(VALID_TOKEN_64);
-    await page.getByRole('button', { name: '재발급' }).click();
+    await page.getByRole('button', { name: '변경' }).click();
 
-    await expect(page.getByText('자격증명을 재발급했습니다.')).toBeVisible();
+    await expect(page.getByText('연결 정보를 변경했습니다.')).toBeVisible();
 
     expect(state.postRequests).toHaveLength(1);
     expect(state.postRequests[0]).toEqual({ provider: 'anthropic', token: VALID_TOKEN_64 });
@@ -487,10 +486,10 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
     await expect(page.getByTestId('oauth-revoke-dialog')).toBeVisible();
     await page.getByTestId('oauth-revoke-confirm').click();
 
-    await expect(page.getByText('토큰을 회수했습니다.')).toBeVisible();
+    await expect(page.getByText('API 키를 회수했습니다.')).toBeVisible();
     expect(state.deleteCount).toBe(1);
     await expect(
-      page.getByText('등록된 토큰 없음. 에이전트는 LLM 호출 불가.'),
+      page.getByText('아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.'),
     ).toBeVisible();
     await expect(page.getByTestId('oauth-token-register')).toBeVisible();
   });
@@ -529,13 +528,13 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
     await enterAndSelect(page);
     await page.getByTestId('oauth-token-register').click();
     await page.getByRole('textbox', { name: '토큰' }).fill(SHORT_TOKEN_16);
-    await page.getByRole('button', { name: '등록' }).click();
+    await page.getByRole('button', { name: '연결하기' }).click();
 
     await expect(page.getByText('토큰이 너무 짧습니다 (최소 32자)')).toBeVisible();
 
     expect(state.postRequests).toHaveLength(0);
     // Dialog 유지.
-    await expect(page.getByRole('heading', { name: '자격증명 등록' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AI 연결하기' })).toBeVisible();
   });
 
   test('서버 400 응답 → 에러 토스트 + Dialog 유지', async ({ adminPage: page }) => {
@@ -548,13 +547,13 @@ test.describe('/admin/agents — 프로바이더 자격증명', () => {
     await enterAndSelect(page);
     await page.getByTestId('oauth-token-register').click();
     await page.getByRole('textbox', { name: '토큰' }).fill(VALID_TOKEN_64);
-    await page.getByRole('button', { name: '등록' }).click();
+    await page.getByRole('button', { name: '연결하기' }).click();
 
     // 400 응답 메시지 → handleApiError 가 토스트 노출.
     await expect(page.getByText('invalid token')).toBeVisible();
     expect(state.postRequests).toHaveLength(1);
 
     // Dialog 유지.
-    await expect(page.getByRole('heading', { name: '자격증명 등록' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AI 연결하기' })).toBeVisible();
   });
 });

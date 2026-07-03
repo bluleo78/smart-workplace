@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { probeMyAssistantModels } from '../../api/models';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -33,7 +34,7 @@ import {
 } from '../../hooks/queries/useAssistant';
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
-import { OPENCODE_PRESETS, type OpencodePresetKey } from '../../lib/opencode-presets';
+import { OPENCODE_PRESETS, type OpencodePresetKey, presetLabelFor } from '../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../types/assistant';
 import type { CredentialProvider, ModelOption } from '../../types/providerCredential';
 
@@ -58,6 +59,14 @@ export function PersonalAssistantSection() {
     status?.configured === true,
   );
   const modelOptions = modelsData?.models ?? [];
+
+  // 연결 방식 뱃지 — anthropic 은 "Claude 구독", opencode 는 프리셋 역매핑(미매칭 시 "OpenAI 호환").
+  const connectionBadge =
+    status?.provider == null
+      ? null
+      : status.provider === 'anthropic'
+        ? 'Claude 구독'
+        : (presetLabelFor(status.baseUrl) ?? 'OpenAI 호환');
 
   // 등록 폼 — 연결 방식.
   const [connectionType, setConnectionType] = useState<CredentialProvider>('anthropic');
@@ -247,11 +256,7 @@ export function PersonalAssistantSection() {
 
         {status?.configured ? (
           <div className="space-y-4">
-            {/* 설정됨 — 토큰 라벨(없으면 생략)/모델/생각의 깊이/해제 */}
-            <p className="text-sm" data-testid="assistant-configured">
-              설정됨{status.tokenLabel ? ` · ${status.tokenLabel}` : ''}
-            </p>
-
+            {/* 이름 — 비서를 식별하는 정보라 맨 앞에 둔다. */}
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="assistant-name">
                 이름
@@ -278,6 +283,19 @@ export function PersonalAssistantSection() {
                 </Button>
               </div>
             </div>
+
+            <hr className="border-border" />
+
+            {/* 연결·모델·생각의 깊이·연결 해제 — 한 덩어리(관리자 에이전트 상세 "AI 연결 및 모델"
+                카드와 동일한 그룹핑). */}
+            <p className="text-sm" data-testid="assistant-configured">
+              설정됨{status.tokenLabel ? ` · ${status.tokenLabel}` : ''}
+            </p>
+            {connectionBadge ? (
+              <Badge variant="secondary" data-testid="assistant-connection-badge">
+                {connectionBadge}
+              </Badge>
+            ) : null}
 
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="assistant-model">
@@ -308,7 +326,7 @@ export function PersonalAssistantSection() {
                     data-testid="assistant-model-empty"
                     className="text-xs text-muted-foreground"
                   >
-                    이 프로바이더는 모델 목록 조회를 지원하지 않아요 — 정상입니다. 아래에서 모델
+                    이 연결은 모델 목록 조회를 지원하지 않아요 — 정상입니다. 아래에서 모델
                     id를 직접 입력해 변경하세요.
                   </p>
                   <div className="flex gap-2">
@@ -354,7 +372,7 @@ export function PersonalAssistantSection() {
             </div>
 
             <Button variant="destructive" onClick={handleDisable}>
-              해제
+              연결 해제
             </Button>
           </div>
         ) : (
@@ -395,7 +413,7 @@ export function PersonalAssistantSection() {
             {connectionType === 'anthropic' ? (
               <div className="space-y-2">
                 <label className="text-sm font-medium" htmlFor="assistant-token-input">
-                  Claude OAuth 토큰
+                  토큰
                 </label>
                 <Input
                   id="assistant-token-input"
