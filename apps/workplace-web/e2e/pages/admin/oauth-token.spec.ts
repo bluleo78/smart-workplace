@@ -197,14 +197,14 @@ async function enterAndSelect(page: import('@playwright/test').Page) {
   await page.goto('/settings/agents');
   await expect(page.getByRole('heading', { name: '에이전트' })).toBeVisible();
   await page.getByTestId(`agent-row-${AGENT_ID}`).click();
-  await expect(page.getByRole('heading', { name: 'AI 연결 설정' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AI 연결 및 모델' })).toBeVisible();
 }
 
 // 32자 이상 토큰 더미.
 const VALID_TOKEN_64 = 'sk-ant-oat-' + 'a'.repeat(53); // 64자
 const SHORT_TOKEN_16 = 'sk-ant-oat-short'; // 16자
 
-test.describe('/admin/agents — AI 연결 설정', () => {
+test.describe('/admin/agents — AI 연결 및 모델', () => {
   test(
     '미등록 AGENT → anthropic 토큰 등록 → 메타 노출 (happy path 회귀)',
     { tag: '@smoke' },

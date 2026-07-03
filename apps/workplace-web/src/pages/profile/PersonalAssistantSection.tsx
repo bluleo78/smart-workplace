@@ -256,18 +256,7 @@ export function PersonalAssistantSection() {
 
         {status?.configured ? (
           <div className="space-y-4">
-            {/* 설정됨 — 연결 방식 뱃지/토큰 라벨(없으면 생략)/모델/생각의 깊이/해제 */}
-            <div className="flex items-center gap-2">
-              <p className="text-sm" data-testid="assistant-configured">
-                설정됨{status.tokenLabel ? ` · ${status.tokenLabel}` : ''}
-              </p>
-              {connectionBadge ? (
-                <Badge variant="secondary" data-testid="assistant-connection-badge">
-                  {connectionBadge}
-                </Badge>
-              ) : null}
-            </div>
-
+            {/* 이름 — 비서를 식별하는 정보라 맨 앞에 둔다. */}
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="assistant-name">
                 이름
@@ -294,6 +283,19 @@ export function PersonalAssistantSection() {
                 </Button>
               </div>
             </div>
+
+            <hr className="border-border" />
+
+            {/* 연결·모델·생각의 깊이·연결 해제 — 한 덩어리(관리자 에이전트 상세 "AI 연결 및 모델"
+                카드와 동일한 그룹핑). */}
+            <p className="text-sm" data-testid="assistant-configured">
+              설정됨{status.tokenLabel ? ` · ${status.tokenLabel}` : ''}
+            </p>
+            {connectionBadge ? (
+              <Badge variant="secondary" data-testid="assistant-connection-badge">
+                {connectionBadge}
+              </Badge>
+            ) : null}
 
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="assistant-model">
@@ -370,7 +372,7 @@ export function PersonalAssistantSection() {
             </div>
 
             <Button variant="destructive" onClick={handleDisable}>
-              해제
+              연결 해제
             </Button>
           </div>
         ) : (

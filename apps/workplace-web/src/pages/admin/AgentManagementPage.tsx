@@ -3,7 +3,6 @@
 // 키 발급 응답에 포함된 plaintextKey 는 즉시 dialog 로 표시 (1회).
 
 import { useState } from 'react';
-import { toast } from 'sonner';
 
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import {
@@ -43,19 +42,12 @@ import {
   useIssueAgentKey,
   useRevokeAgentKey,
 } from '../../hooks/queries/useAgentKeys';
-import {
-  useAgentProviderCredentialMeta,
-  useRevokeAgentProviderCredential,
-} from '../../hooks/queries/useAgentProviderCredential';
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
-import { handleApiError } from '../../lib/api-error';
-import { presetLabelFor } from '../../lib/opencode-presets';
+import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
 import { NewAgentDialog } from './components/NewAgentDialog';
-import { ProviderCredentialDialog } from './components/ProviderCredentialDialog';
-import { WorkspaceAssistantSection } from './components/WorkspaceAssistantSection';
 
 // 시간 표시 공통 — null/빈값 폴백.
 function fmtDateTime(iso: string | null): string {
@@ -301,8 +293,8 @@ export default function AgentManagementPage() {
                 {/* 에이전트 정보(이름/아이디) 편집 — 개인 비서는 컴포넌트 내부에서 숨김. key 로 행 전환 시 입력 리셋. */}
                 <AgentIdentitySection key={selected.id} agent={selected} />
 
-                {/* 공통 비서 섹션. */}
-                <WorkspaceAssistantSection agentUserId={selected.id} />
+                {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
+                <AgentConnectionSection agentUserId={selected.id} />
 
                 {/* 인증 — API 키. */}
                 <div className="space-y-2">
@@ -385,9 +377,6 @@ export default function AgentManagementPage() {
                     </table>
                   </div>
                 </div>
-
-                {/* 인증 — OAuth 토큰. */}
-                <OAuthTokenSection agentUserId={selected.id} />
               </div>
 
               {/* 위험 영역 — 에이전트 삭제. */}
@@ -448,132 +437,5 @@ export default function AgentManagementPage() {
         </AlertDialogContent>
       </AlertDialog>
     </SettingsPage>
-  );
-}
-
-// AGENT 의 프로바이더 API 키 섹션 — 메타 조회 + 등록/재발급/회수.
-// 평문(토큰/apiKey)은 절대 응답에 포함되지 않으며, 회수 후에는 LLM 호출이 불가해진다.
-function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
-  const { data: meta, isLoading } = useAgentProviderCredentialMeta(agentUserId);
-  const revoke = useRevokeAgentProviderCredential(agentUserId);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  // API 키 회수 확인 AlertDialog. window.confirm 대체 (#136).
-  const [revokeOpen, setRevokeOpen] = useState(false);
-
-  // 회수 확인 AlertDialog 표시 — 취소 시 아무것도 안 함.
-  const onRevokeClick = () => {
-    setRevokeOpen(true);
-  };
-
-  // AlertDialog 확인 시 실제 회수 실행.
-  const doRevoke = async () => {
-    try {
-      await revoke.mutateAsync();
-      toast.success('API 키를 회수했습니다.');
-    } catch (e) {
-      handleApiError(e, 'API 키 회수에 실패했습니다');
-    }
-  };
-
-  // provider 뱃지 라벨 — anthropic 은 "Claude 구독", opencode 는 프리셋 역매핑(미매칭 시 "OpenAI 호환").
-  const providerBadge =
-    meta == null
-      ? null
-      : meta.provider === 'anthropic'
-        ? 'Claude 구독'
-        : (presetLabelFor(meta.baseUrl) ?? 'OpenAI 호환');
-
-  return (
-    <section className="border-t pt-4 mt-4 space-y-2">
-      <h3 className="text-sm font-medium">AI 연결 설정</h3>
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">로드 중…</p>
-      ) : meta ? (
-        <div className="space-y-1 text-sm">
-          <div>
-            <span className="text-muted-foreground">연결: </span>
-            <Badge variant="secondary" data-testid="credential-provider-badge">
-              {providerBadge}
-            </Badge>
-          </div>
-          {meta.baseUrl ? (
-            <div>
-              <span className="text-muted-foreground">Base URL: </span>
-              <span className="font-mono text-xs">{meta.baseUrl}</span>
-            </div>
-          ) : null}
-          <div>
-            <span className="text-muted-foreground">등록일: </span>
-            <span>{fmtDateTime(meta.createdAt)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">최근 사용: </span>
-            <span>{meta.lastUsedAt ? fmtDateTime(meta.lastUsedAt) : '미사용'}</span>
-          </div>
-          <div className="pt-2 flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setDialogOpen(true)}
-              data-testid="oauth-token-reissue"
-            >
-              재발급
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={onRevokeClick}
-              disabled={revoke.isPending}
-              data-testid="oauth-token-revoke"
-            >
-              회수
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.
-          </p>
-          <Button
-            size="sm"
-            onClick={() => setDialogOpen(true)}
-            data-testid="oauth-token-register"
-          >
-            연결하기
-          </Button>
-        </div>
-      )}
-      <ProviderCredentialDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        agentUserId={agentUserId}
-        isReissue={meta != null}
-      />
-
-      {/* API 키 회수 확인 AlertDialog. window.confirm 대체 (#136). */}
-      <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
-        <AlertDialogContent data-testid="oauth-revoke-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>API 키 회수</AlertDialogTitle>
-            <AlertDialogDescription>
-              API 키를 회수하시겠습니까? 에이전트는 LLM 호출 불가 상태가 됩니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="oauth-revoke-cancel">
-              취소
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => void doRevoke()}
-              data-testid="oauth-revoke-confirm"
-            >
-              회수
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </section>
   );
 }

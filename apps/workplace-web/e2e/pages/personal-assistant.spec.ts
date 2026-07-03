@@ -434,7 +434,7 @@ test.describe('프로필 개인 비서', () => {
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
-    await page.getByRole('button', { name: '해제' }).click()
+    await page.getByRole('button', { name: '연결 해제' }).click()
 
     await expect(page.getByText('권한이 없습니다.')).toBeVisible()
     await expect(page.getByText('개인 비서를 해제했습니다.')).not.toBeVisible()
