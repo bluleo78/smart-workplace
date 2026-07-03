@@ -74,7 +74,7 @@ class ProjectMemberControllerTest {
 
   private MemberResponse sampleMember(Long userId, String role) {
     return new MemberResponse(
-        userId, "user" + userId, "User " + userId, "HUMAN", role, Instant.now());
+        userId, "user" + userId, "User " + userId, "HUMAN", role, Instant.now(), true);
   }
 
   @Test

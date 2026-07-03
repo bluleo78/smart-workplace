@@ -90,6 +90,15 @@ public class IssueAssigneeService {
     Set<Long> toRemove = new HashSet<>(current);
     toRemove.removeAll(target);
 
+    // 2-b) 신규 추가 대상 중 비활성화(is_active=false)된 사용자는 담당자로 지정 불가 (#624)
+    if (!toAdd.isEmpty()) {
+      boolean hasInactive =
+          userRepository.findByIds(new ArrayList<>(toAdd)).stream().anyMatch(u -> !u.isActive());
+      if (hasInactive) {
+        throw new InvalidAssigneeForProjectException();
+      }
+    }
+
     // 3) 제거 대상의 사용자 요약을 먼저 조회 (삭제 후에는 USER JOIN 으로 못 가져옴)
     List<UserSummary> removedSummaries = List.of();
     if (!toRemove.isEmpty()) {

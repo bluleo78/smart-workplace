@@ -241,4 +241,38 @@ class ProjectServiceTest extends IntegrationTestBase {
                     ownerId, personal.key(), new AddMemberRequest(otherUserId, "MEMBER")))
         .isInstanceOf(ProjectConflictException.class);
   }
+
+  /** 비활성화(is_active=false)된 사용자는 신규 멤버로 추가할 수 없다 (#624). */
+  @Test
+  void addMember_inactiveUser_throwsConflict() {
+    String key = uniqueKey("IA");
+    projectService.create(ownerId, new CreateProjectRequest(key, "Pjt", null));
+    dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(otherUserId)).execute();
+
+    assertThatThrownBy(
+            () ->
+                projectService.addMember(ownerId, key, new AddMemberRequest(otherUserId, "MEMBER")))
+        .isInstanceOf(ProjectConflictException.class);
+  }
+
+  /** listMembers 응답 MemberResponse 에 active 필드가 사용자의 실제 is_active 값을 반영한다 (#624). */
+  @Test
+  void listMembers_exposesActiveField() {
+    String key = uniqueKey("AC");
+    projectService.create(ownerId, new CreateProjectRequest(key, "Pjt", null));
+    projectService.addMember(ownerId, key, new AddMemberRequest(otherUserId, "MEMBER"));
+    // 멤버 추가 이후 비활성화 — addMember 는 시점 검증만 하고, 상태 필드는 read 경로에서 실시간 반영되어야 한다.
+    dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(otherUserId)).execute();
+
+    List<MemberResponse> members = projectService.listMembers(ownerId, key);
+
+    assertThat(members)
+        .anySatisfy(
+            m -> {
+              if (m.userId().equals(otherUserId)) {
+                assertThat(m.active()).isFalse();
+              }
+            });
+    assertThat(members).anyMatch(m -> m.userId().equals(ownerId) && m.active());
+  }
 }

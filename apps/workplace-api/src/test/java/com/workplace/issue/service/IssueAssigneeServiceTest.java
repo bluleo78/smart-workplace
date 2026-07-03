@@ -247,6 +247,39 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
         .doesNotThrowAnyException();
   }
 
+  /** 비활성화(is_active=false)된 사용자는 신규 담당자로 지정할 수 없다 (#624). */
+  @Test
+  void inactive_user_cannot_be_newly_assigned() {
+    Long owner = createUser("inact-owner");
+    Long member = createUser("inact-member");
+    ProjectResponse p = newProject(owner, "INACT1");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(member)).execute();
+
+    assertThatThrownBy(() -> service.replace(owner, p.key(), 1, List.of(member)))
+        .isInstanceOf(InvalidAssigneeForProjectException.class);
+  }
+
+  /**
+   * 이미 담당 중이던 사용자가 비활성화되어도, 그 상태를 그대로 유지하는(재지정 아닌) replace 는 막지 않는다 — 범위 밖(#624 명시)인 자동 해제와는 별개로,
+   * 활성 검증은 신규 추가(toAdd)에만 적용된다.
+   */
+  @Test
+  void inactive_user_already_assigned_kept_when_reasserting_same_set() {
+    Long owner = createUser("inact2-owner");
+    Long member = createUser("inact2-member");
+    ProjectResponse p = newProject(owner, "INACT2");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    service.replace(owner, p.key(), 1, List.of(member));
+    dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(member)).execute();
+
+    // 동일 집합 재지정(diff 없음, toAdd 비어있음) — 활성 검증 대상 아님
+    assertThatCode(() -> service.replace(owner, p.key(), 1, List.of(member)))
+        .doesNotThrowAnyException();
+  }
+
   @Test
   void human_assignee_changes_unaffected_by_agent_branch() {
     Long owner = createUser("ag5-owner");

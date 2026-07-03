@@ -180,18 +180,23 @@ public class ProjectService {
 
   /**
    * 멤버 추가. OWNER 권한 필요. 중복 시 409. 개인 프로젝트는 비공개 유지(HUMAN 멤버 불가), AGENT 는 담당자로 쓸 수 있도록 멤버 추가 허용
-   * (#418).
+   * (#418). 비활성화(is_active=false)된 사용자는 신규 멤버로 추가할 수 없다 (#624).
    */
   public MemberResponse addMember(Long callerId, String projectKey, AddMemberRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
+    var added =
+        userRepository
+            .findById(req.userId())
+            .orElseThrow(() -> new IllegalArgumentException("사용자 없음: " + req.userId()));
+    // 비활성 사용자는 신규 멤버 추가 chokepoint에서 차단 (#624) — 담당자 지정 경로는
+    // IssueAssigneeService 에서 별도 검증.
+    if (!added.isActive()) {
+      throw new ProjectConflictException("비활성화된 사용자는 멤버로 추가할 수 없습니다");
+    }
     // 개인 프로젝트: AGENT 만 멤버로 추가 허용 (담당자 지정용). HUMAN 은 비공개 유지 정책으로 차단.
     // AGENT 는 요청 role 과 무관하게 항상 MEMBER 로 강제 — 개인 프로젝트 OWNER 는 사람만.
     String roleToInsert = req.role();
     if ("PERSONAL".equals(project.type())) {
-      var added =
-          userRepository
-              .findById(req.userId())
-              .orElseThrow(() -> new IllegalArgumentException("사용자 없음: " + req.userId()));
       if (!UserKind.isAgent(added.kind())) {
         throw new ProjectConflictException("개인 프로젝트에는 사람 멤버를 추가할 수 없습니다");
       }

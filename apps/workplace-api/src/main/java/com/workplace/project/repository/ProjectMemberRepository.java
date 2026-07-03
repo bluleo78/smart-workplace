@@ -52,10 +52,11 @@ public class ProjectMemberRepository {
         r.get(USER.NAME),
         r.get(USER.KIND),
         r.get(PROJECT_MEMBER.ROLE),
-        created != null ? created.toInstant() : null);
+        created != null ? created.toInstant() : null,
+        r.get(USER.IS_ACTIVE));
   }
 
-  /** 프로젝트의 전체 멤버를 USER JOIN 하여 username/name/kind 포함된 응답으로 조회. created_at 오름차순. */
+  /** 프로젝트의 전체 멤버를 USER JOIN 하여 username/name/kind/active 포함된 응답으로 조회. created_at 오름차순. */
   public List<MemberResponse> findAllByProject(Long projectId) {
     return dsl.select(
             PROJECT_MEMBER.USER_ID,
@@ -63,7 +64,8 @@ public class ProjectMemberRepository {
             USER.NAME,
             USER.KIND,
             PROJECT_MEMBER.ROLE,
-            PROJECT_MEMBER.CREATED_AT)
+            PROJECT_MEMBER.CREATED_AT,
+            USER.IS_ACTIVE)
         .from(PROJECT_MEMBER)
         .join(USER)
         .on(USER.ID.eq(PROJECT_MEMBER.USER_ID))
@@ -72,7 +74,7 @@ public class ProjectMemberRepository {
         .fetch(this::mapToMemberResponse);
   }
 
-  /** username/name/kind 까지 채워진 멤버 단건 조회. addMember/updateMemberRole 응답에 사용. */
+  /** username/name/kind/active 까지 채워진 멤버 단건 조회. addMember/updateMemberRole 응답에 사용. */
   public Optional<MemberResponse> findMemberWithUser(Long projectId, Long userId) {
     return dsl.select(
             PROJECT_MEMBER.USER_ID,
@@ -80,7 +82,8 @@ public class ProjectMemberRepository {
             USER.NAME,
             USER.KIND,
             PROJECT_MEMBER.ROLE,
-            PROJECT_MEMBER.CREATED_AT)
+            PROJECT_MEMBER.CREATED_AT,
+            USER.IS_ACTIVE)
         .from(PROJECT_MEMBER)
         .join(USER)
         .on(USER.ID.eq(PROJECT_MEMBER.USER_ID))
