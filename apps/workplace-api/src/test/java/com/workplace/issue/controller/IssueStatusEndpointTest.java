@@ -126,6 +126,22 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
   }
 
   @Test
+  void invalid_status_value_returns_400_not_409() throws Exception {
+    long userId = createUser("q");
+    String key = uniqueKey("PQ");
+    ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
+    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+
+    String body = "{\"status\":\"NOT_A_REAL_STATUS\"}";
+    mvc.perform(
+            patch("/api/v1/projects/" + key + "/issues/1/status")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void missing_issue_404() throws Exception {
     long userId = createUser("p");
     String key = uniqueKey("PP");
