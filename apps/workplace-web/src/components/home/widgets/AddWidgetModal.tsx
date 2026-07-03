@@ -76,7 +76,10 @@ export function AddWidgetModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl" data-testid="add-widget-modal">
+      {/* DialogContent 기본 클래스가 sm:max-w-lg 라 breakpoint 없는 max-w-6xl 은 tailwind-merge 가
+          다른 variant 그룹으로 취급해 덮어쓰지 못한다(512px 로 눌린 채 lg:flex-row 만 켜져 3단이
+          찌그러지는 원인) — 반드시 동일 variant(sm:)로 지정해야 실제로 덮어써진다. */}
+      <DialogContent className="sm:max-w-6xl" data-testid="add-widget-modal">
         <DialogHeader>
           <DialogTitle>위젯 추가</DialogTitle>
         </DialogHeader>
