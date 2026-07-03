@@ -39,6 +39,16 @@ vi.mock('./bridge-registry.js', () => ({
   takeBridge: vi.fn(),
 }));
 
+// 실제 풀을 쓰면 테스트 간 캐시된 서버 handle 이 새어나갈 수 있으므로 모킹한다. 기본 구현은
+// spawn() 을 그대로 호출하는 패스스루(캐시 미스처럼 동작) — 풀 자체의 캐싱/TTL/축출 로직은
+// opencode-server-pool.test.ts 에서 별도로 검증한다.
+const { acquireServer, releaseServer, evictServer } = vi.hoisted(() => ({
+  acquireServer: vi.fn((_key: string, spawn: () => Promise<unknown>) => spawn()),
+  releaseServer: vi.fn(),
+  evictServer: vi.fn(),
+}));
+vi.mock('./opencode-server-pool.js', () => ({ acquireServer, releaseServer, evictServer }));
+
 import { OpencodeRunner } from './opencode-runner.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { RunnerEvent } from './runner-events.js';
@@ -97,6 +107,7 @@ beforeEach(() => {
   sessionCreate.mockResolvedValue({ data: { id: 'sess-1' }, error: undefined });
   sessionPromptAsync.mockResolvedValue({ data: undefined, error: undefined });
   sessionAbort.mockResolvedValue({ data: true, error: undefined });
+  acquireServer.mockImplementation((_key: string, spawn: () => Promise<unknown>) => spawn());
 });
 
 describe('OpencodeRunner.stream', () => {
@@ -470,5 +481,126 @@ describe('opencode 서버 정리', () => {
     await handle.done;
 
     expect(serverClose).toHaveBeenCalledOnce();
+  });
+});
+
+describe('OpencodeRunner 웜 캐시 통합', () => {
+  it("profile='issue' 는 acquireServer 를 agentId:profile:onBehalfOfId:model 키로 호출하고, 종료 시 releaseServer 를 같은 키로 호출한다", async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(
+      baseInput({ agentId: 7, model: 'openai/gpt-5', mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 42 } }),
+      () => {},
+    );
+    await handle.done;
+
+    const expectedKey = '7:issue:42:openai/gpt-5';
+    expect(acquireServer).toHaveBeenCalledWith(expectedKey, expect.any(Function));
+    expect(releaseServer).toHaveBeenCalledWith(expectedKey);
+    expect(serverClose).not.toHaveBeenCalled(); // 풀 대상이므로 서버 자체는 닫지 않음
+  });
+
+  it("profile='messaging' 은 acquireServer 를 호출하지 않고 기존처럼 요청 종료 시 server.close() 한다", async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'messaging', onBehalfOfId: 1 } }),
+      () => {},
+    );
+    await handle.done;
+
+    expect(acquireServer).not.toHaveBeenCalled();
+    expect(releaseServer).not.toHaveBeenCalled();
+    expect(serverClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('mcp 가 없으면(mcp undefined) 풀을 거치지 않고 기존처럼 완전 스폰/종료한다', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(baseInput(), () => {});
+    await handle.done;
+
+    expect(acquireServer).not.toHaveBeenCalled();
+    expect(serverClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('풀에서 꺼낸 서버로 session.create 가 실패하면 evictServer 후 1회 재시도해서 성공한다', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    sessionCreate
+      .mockResolvedValueOnce({ data: undefined, error: { message: 'stale connection' } })
+      .mockResolvedValueOnce({ data: { id: 'sess-1' }, error: undefined });
+
+    const runner = new OpencodeRunner();
+    const events: RunnerEvent[] = [];
+    const handle = runner.stream(
+      baseInput({ agentId: 1, mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'assistant', onBehalfOfId: 9 } }),
+      (e) => events.push(e),
+    );
+    await handle.done;
+
+    const expectedKey = '1:assistant:9:openai/gpt-5';
+    expect(evictServer).toHaveBeenCalledWith(expectedKey);
+    expect(acquireServer).toHaveBeenCalledTimes(2);
+    expect(acquireServer).toHaveBeenNthCalledWith(1, expectedKey, expect.any(Function));
+    expect(acquireServer).toHaveBeenNthCalledWith(2, expectedKey, expect.any(Function));
+    expect(events.at(-1)).toEqual({ type: 'result', ok: true, text: '', usage: null });
+  });
+
+  it('풀에서 꺼낸 서버로 재시도까지 실패하면 에러로 전파된다(추가 재시도 없음)', async () => {
+    sessionCreate.mockResolvedValue({ data: undefined, error: { message: 'still stale' } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'chat', onBehalfOfId: 1 } }),
+      () => {},
+    );
+
+    await expect(handle.done).rejects.toThrow('opencode session 생성 실패');
+    expect(acquireServer).toHaveBeenCalledTimes(2); // 최초 1회 + 재시도 1회, 그 이상 없음
+  });
+
+  it('재시도로 새로 스폰한 서버까지 session.create 가 실패하면 evictServer 가 2회 호출된다(깨진 서버를 캐시에 남기지 않음)', async () => {
+    const expectedKey = '1:assistant:9:openai/gpt-5';
+    sessionCreate
+      .mockResolvedValueOnce({ data: undefined, error: { message: 'stale connection' } })
+      .mockResolvedValueOnce({ data: undefined, error: { message: 'still stale after retry' } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(
+      baseInput({ agentId: 1, mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'assistant', onBehalfOfId: 9 } }),
+      () => {},
+    );
+
+    await expect(handle.done).rejects.toThrow('opencode session 생성 실패');
+    expect(acquireServer).toHaveBeenCalledTimes(2); // 최초 1회 + 재시도 1회, 그 이상 없음
+    expect(evictServer).toHaveBeenCalledTimes(2); // 최초 stale 서버 폐기 + 재시도로 스폰한 서버도 폐기
+    expect(evictServer).toHaveBeenNthCalledWith(1, expectedKey);
+    expect(evictServer).toHaveBeenNthCalledWith(2, expectedKey);
+  });
+
+  it("profile='messaging' 은 session.create 실패 시 재시도 없이 즉시 에러(기존 동작 유지)", async () => {
+    sessionCreate.mockResolvedValue({ data: undefined, error: { message: 'boom' } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'messaging', onBehalfOfId: 1 } }),
+      () => {},
+    );
+
+    await expect(handle.done).rejects.toThrow('opencode session 생성 실패');
+    expect(acquireServer).not.toHaveBeenCalled();
+    expect(evictServer).not.toHaveBeenCalled();
   });
 });

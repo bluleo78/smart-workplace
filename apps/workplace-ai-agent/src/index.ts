@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import dotenv from 'dotenv';
 
 import { createWorkplaceApiClient } from './clients/workplace-api.js';
+import { closeAllServers } from './agent/opencode-server-pool.js';
 import { DEFAULT_PORT } from './constants.js';
 import { internalAuth } from './middleware/internal-auth.js';
 import { healthRouter } from './routes/health.js';
@@ -82,6 +83,8 @@ const server = app.listen(PORT, () => {
 
 function shutdown(signal: string) {
   console.log(`[ai-agent] ${signal} received, shutting down...`);
+  // 웜 캐시로 살아있는 opencode 서버(및 그 stdio MCP 자식 프로세스)를 정리 — 안 하면 좀비 프로세스로 남는다.
+  closeAllServers();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 5000);
 }

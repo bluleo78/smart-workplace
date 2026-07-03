@@ -10,6 +10,8 @@ import { log } from '../logger.js';
 import type { AgentRunner, RunnerInput, RunnerStreamHandle } from './agent-runner.js';
 import { registerBridge, releaseBridge } from './bridge-registry.js';
 import { buildOpencodeConfig, resolveStdioEntryCmd, splitOpencodeModel } from './opencode-config.js';
+import { acquireServer, evictServer, releaseServer, type OpencodeHandle, type SpawnOpencode } from './opencode-server-pool.js';
+import type { McpProfile } from '../mcp/tools.js';
 import type { RunnerEvent, RunnerUsage } from './runner-events.js';
 
 // credential 이 opencode 가 아니면 이 러너를 쓸 수 없음(팩토리가 보장하지만 방어적으로 재확인).
@@ -19,8 +21,34 @@ function requireOpencodeCredential(i: RunnerInput): void {
   }
 }
 
+// 웜 캐시 대상 프로필 — hostBridge(propose/submit_response/unassign)를 쓰지 않는 프로필만.
+// messaging/home 은 MCP_BRIDGE_RUN_ID(요청마다 고유)가 stdio 자식 프로세스 부팅 시 env 로
+// 고정되므로 서버 재사용이 브리지 콜백 라우팅을 깨뜨릴 수 있어 제외한다.
+// (docs/superpowers/specs/2026-07-03-opencode-warm-cache-design.md 참고)
+const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'chat', 'issue']);
+
+// RunnerInput → 풀 키. 대상 프로필이 아니면 undefined(호출부가 풀을 건너뛰는 신호로 사용).
+function poolKeyFor(i: RunnerInput): string | undefined {
+  if (!i.mcp || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
+  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.model}`;
+}
+
+// 세션 생성 + 이벤트 구독 — 풀에서 재사용한 서버든 새로 스폰한 서버든 동일하게 거친다. 실패 시
+// (session.create 실패 또는 event.subscribe 실패) 그대로 throw 하고, 풀 사용 여부에 따른
+// 재시도 판단은 호출부(stream())가 한다.
+async function openSession(opencode: OpencodeHandle) {
+  const created = await opencode.client.session.create({});
+  if (!created.data) {
+    throw new Error(`opencode session 생성 실패: ${JSON.stringify(created.error)}`);
+  }
+  const session = created.data;
+  const es = await opencode.client.event.subscribe();
+  return { session, es };
+}
+
 export class OpencodeRunner implements AgentRunner {
-  // 실행별로 opencode 서버 프로세스를 새로 스폰한다(세션/프로세스 재사용 없음 — 매 호출 완전 격리).
+  // 풀 대상 프로필(assistant/chat/issue)은 웜 서버 풀(opencode-server-pool.ts)에서 서버를
+  // 재사용하고, hostBridge 를 쓰는 messaging/home 은 실행별로 새 프로세스를 스폰해 완전 격리한다.
   stream(i: RunnerInput, onEvent: (e: RunnerEvent) => void): RunnerStreamHandle {
     requireOpencodeCredential(i);
 
@@ -41,13 +69,16 @@ export class OpencodeRunner implements AgentRunner {
       const hasBridge = Boolean(i.mcp?.hostBridge);
       if (i.mcp?.hostBridge) registerBridge(runId, i.mcp.hostBridge);
 
+      const poolKey = poolKeyFor(i);
       let server: Awaited<ReturnType<typeof createOpencode>>['server'] | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let errored = false;
       try {
         const stdioEntryCmd = resolveStdioEntryCmd();
         const config = buildOpencodeConfig(i, runId, stdioEntryCmd);
-        const opencode = await createOpencode({ config });
+        const spawn: SpawnOpencode = () => createOpencode({ config });
+
+        let opencode: OpencodeHandle = poolKey ? await acquireServer(poolKey, spawn) : await spawn();
         server = opencode.server;
         liveClient = opencode.client;
 
@@ -56,15 +87,37 @@ export class OpencodeRunner implements AgentRunner {
           requestAbort();
         }, i.timeoutMs);
 
-        const created = await opencode.client.session.create({});
-        if (!created.data) {
-          throw new Error(`opencode session 생성 실패: ${JSON.stringify(created.error)}`);
+        let sessionResult: Awaited<ReturnType<typeof openSession>>;
+        try {
+          sessionResult = await openSession(opencode);
+        } catch (firstErr) {
+          // 풀에서 꺼낸 서버가 죽어있는 경우(session.create/event.subscribe 실패) — 즉시 폐기하고
+          // 1회만 재시도한다. 풀 대상이 아니면(poolKey undefined) 재시도 없이 그대로 전파한다
+          // (기존 동작 유지).
+          if (!poolKey) throw firstErr;
+          log.error('opencode-runner', 'opencode_pool_stale_retry', {
+            requestId: i.requestId,
+            poolKey,
+            error: firstErr instanceof Error ? firstErr.message : String(firstErr),
+          });
+          evictServer(poolKey);
+          opencode = await acquireServer(poolKey, spawn);
+          server = opencode.server;
+          liveClient = opencode.client;
+          try {
+            sessionResult = await openSession(opencode);
+          } catch (retryErr) {
+            // 재시도로 새로 스폰한 서버까지 죽어있으면 그 서버를 풀에 남겨두지 않는다 — 남겨두면
+            // outer finally 의 releaseServer(evict 아님)가 죽은 서버를 캐시에 유지해 TTL(5분) 동안
+            // 같은 키의 모든 후속 요청이 매번 이 서버를 만나 evict+재시도 비용을 반복 지불한다.
+            evictServer(poolKey);
+            throw retryErr;
+          }
         }
-        const session = created.data;
+        const { session, es } = sessionResult;
         liveSessionId = session.id;
 
         const { providerID, modelID } = splitOpencodeModel(i.model);
-        const es = await opencode.client.event.subscribe();
 
         // prompt_async — 202/204 즉시 반환, 실제 응답은 event.subscribe 스트림으로 온다(fire-and-forget).
         void opencode.client.session
@@ -203,7 +256,13 @@ export class OpencodeRunner implements AgentRunner {
         }
       } finally {
         if (timer) clearTimeout(timer);
-        server?.close();
+        // 풀 대상 프로필은 서버를 죽이지 않고 세션만 정리한 뒤 풀에 반환(유휴 타이머 시작).
+        // 풀 대상이 아니면(messaging/home) 기존처럼 요청마다 서버를 완전히 종료한다.
+        if (poolKey) {
+          releaseServer(poolKey);
+        } else {
+          server?.close();
+        }
         if (hasBridge) releaseBridge(runId);
       }
 

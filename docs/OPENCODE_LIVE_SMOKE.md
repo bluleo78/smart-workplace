@@ -84,10 +84,29 @@ cd apps/workplace-web && pnpm dev
 
 - [ ] 기존 Claude 구독으로 등록된 AGENT/개인 비서로 홈챗 1회 실행 — 정상 동작 확인(러너 분기가 opencode 추가로 인해 anthropic 경로를 깨지 않았는지)
 
+### 11. 웜 캐시 — 재사용 히트 시 지연 감소 (assistant/chat/issue)
+
+- [ ] 개인 비서(assistant 프로필)로 홈챗에서 메시지 1회 전송 → ai-agent 로그에서 `pool_miss` 확인(첫 요청은 캐시 미스로 스폰)
+- [ ] 같은 개인 비서로 바로 이어서 메시지 2회 전송 → 로그에서 `pool_hit` 확인 + 응답 시작까지 걸린 시간이 1회차보다 눈에 띄게(체감상) 짧은지 확인
+- [ ] 5분 이상 대기 후 다시 메시지 전송 → 로그에서 `pool_idle_evict`(유휴 축출) 후 `pool_miss`(재스폰) 확인
+
+### 12. 웜 캐시 — messaging/home 은 재사용되지 않음(회귀 확인)
+
+- [ ] 채팅(messaging 프로필)에서 pending_action(8번 항목) 재현 → ai-agent 로그에 `pool_hit`/`pool_miss`가 전혀 찍히지 않는지 확인(이 프로필은 풀 대상이 아니므로 로그 자체가 없어야 정상)
+- [ ] 같은 흐름을 2회 반복해도 매번 새 opencode 프로세스가 뜨고 정상 종료되는지 확인(좀비 프로세스 없음)
+
+### 13. 웜 캐시 — 동시 요청(같은 키) 처리
+
+- [ ] 같은 개인 비서(assistant, 같은 사용자)로 짧은 간격을 두고 2개의 메시지를 겹쳐 전송(예: 2개 브라우저 탭 또는 연속 클릭)
+- [ ] 둘 다 정상적으로 각자의 응답을 받는지 확인 — 만약 한쪽이 실패하거나 응답이 섞이면 opencode 서버 1개가 동시 세션을 지원하지 않는다는 뜻이므로 즉시 보고(설계 문서의 "동시 요청" 절 폴백 필요)
+- [ ] (알려진 위험) 동시 요청 중 한쪽이 `session.create`/`event.subscribe` 일시 실패로 evict-재시도를 타면, 그 evict 가 같은 키를 쓰는 **다른 진행 중인 요청의 서버까지 닫아버릴 수 있음**(현재 구현은 사용 중 여부와 무관하게 evict) — 만약 이 인터리빙이 재현되면(한쪽 실패가 다른 쪽 응답까지 깨짐) 설계 문서의 큐잉(직렬화) 폴백이 필요하다는 신호
+
 ---
 
 ## 알려진 제약 / 후속 과제
 
-- opencode 프로세스는 **실행별 스폰**(웜 캐시 없음, Task 14 보류) — 매 실행 기동 지연 존재. 지연이 문제되면 Task 14(웜 캐시)를 후속으로 진행.
+- opencode 프로세스는 `assistant`/`chat`/`issue` 프로필에 한해 웜 서버 풀로 재사용된다(#627,
+  `agent/opencode-server-pool.ts`, 설계: `docs/superpowers/specs/2026-07-03-opencode-warm-cache-design.md`).
+  `messaging`/`home`(hostBridge 사용 프로필)은 여전히 요청별 완전 스폰/종료 — 아래 11~13번 항목으로 검증.
 - opencode의 tool-key 와일드카드 매칭(`'workplace*': true`)이 실제 CLI 런타임에서 문서대로 동작하는지는 SDK 타입만으로 확정 불가 — 위 6번 항목이 사실상의 검증.
 - `PersonalAssistantSection.tsx`와 `ProviderCredentialDialog.tsx` 사이에 opencode 등록 폼 로직이 일부 중복(Task 13 리뷰에서 확인된 의도적 YAGNI 트레이드오프) — 3번째 소비처가 생기면 공용화 검토.
