@@ -108,6 +108,12 @@ describe('OpencodeRunner.stream', () => {
   it('텍스트 part 2회 업데이트 → suffix-diff 로 text_delta 2회 합성 후 idle→result', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
+    // assistant 메시지 선언이 그 메시지의 text part 갱신보다 먼저 와야 델타로 인식된다(user 메시지
+    // echo 방지 가드 — opencode-runner.ts 참고).
+    es.push({
+      type: 'message.updated',
+      properties: { info: { id: 'm1', sessionID: 'sess-1', role: 'assistant', tokens: { input: 0, output: 0 } } },
+    });
     es.push({ type: 'message.part.updated', properties: { part: { id: 'p1', sessionID: 'sess-1', messageID: 'm1', type: 'text', text: 'Hel' } } });
     es.push({ type: 'message.part.updated', properties: { part: { id: 'p1', sessionID: 'sess-1', messageID: 'm1', type: 'text', text: 'Hello' } } });
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -120,13 +126,17 @@ describe('OpencodeRunner.stream', () => {
     expect(events).toEqual([
       { type: 'text_delta', text: 'Hel', parentToolUseId: null },
       { type: 'text_delta', text: 'lo', parentToolUseId: null },
-      { type: 'result', ok: true, text: 'Hello', usage: null },
+      { type: 'result', ok: true, text: 'Hello', usage: { inputTokens: 0, outputTokens: 0 } },
     ]);
   });
 
   it('properties.delta 가 있으면 그 값을 그대로 text_delta 로 사용', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({
+      type: 'message.updated',
+      properties: { info: { id: 'm1', sessionID: 'sess-1', role: 'assistant', tokens: { input: 0, output: 0 } } },
+    });
     es.push({
       type: 'message.part.updated',
       properties: { part: { id: 'p1', sessionID: 'sess-1', messageID: 'm1', type: 'text', text: 'Hi!' }, delta: '!!!' },

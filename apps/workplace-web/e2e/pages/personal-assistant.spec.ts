@@ -229,12 +229,41 @@ test.describe('프로필 개인 비서', () => {
     const manualModel = page.getByTestId('credential-model-manual')
     await expect(manualModel).toBeVisible()
 
+    // providerId/ 접두 없이 실제 모델 id 만 입력해도 제출 시 자동으로 접두된다(실측 회귀 방지 —
+    // 접두 누락 시 실행 시점 splitOpencodeModel 실패).
     await manualModel.fill('gpt-4o-mini')
     await page.getByRole('button', { name: '등록' }).click()
 
     await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
     expect(requests).toHaveLength(1)
-    expect((requests[0] as { model: string }).model).toBe('gpt-4o-mini')
+    expect((requests[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+  })
+
+  test('opencode 수동 입력에 이미 providerId/ 접두가 있으면 중복 접두하지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    let configured = false
+    await mockStatus(page, () => (configured ? configuredStatus({ provider: 'opencode' }) : unconfiguredStatus()))
+    const requests = mockCredentialRegister(page, () => {
+      configured = true
+    })
+    mockProbe(page, { status: 502 })
+
+    await page.goto('/settings/assistant')
+    await page.getByTestId('credential-provider-opencode').click()
+
+    await page.getByTestId('credential-base-url').fill('https://api.openai.com/v1')
+    await page.getByTestId('credential-api-key').fill('sk-openai-test')
+    await page.getByTestId('credential-probe-models').click()
+
+    const manualModel = page.getByTestId('credential-model-manual')
+    await expect(manualModel).toBeVisible()
+    await manualModel.fill('amazon-bedrock-openai/gpt-4o-mini')
+    await page.getByRole('button', { name: '등록' }).click()
+
+    await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
+    expect(requests).toHaveLength(1)
+    expect((requests[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini')
   })
 
   test('opencode 모델 미선택 → 제출 버튼 비활성(POST 호출 없음)', async ({

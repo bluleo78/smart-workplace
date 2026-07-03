@@ -128,7 +128,13 @@ export function PersonalAssistantSection() {
     }
   };
 
-  const resolvedModel = selectedModel || manualModel.trim();
+  // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 사용자가 실측으로
+  // 두 번 겪은 함정(접두 없이 저장 → splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 이
+  // 제출과 함께 전송되는 providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
+  const rawManualModel = manualModel.trim();
+  const normalizedManualModel =
+    rawManualModel && !rawManualModel.includes('/') ? `${presetKey}/${rawManualModel}` : rawManualModel;
+  const resolvedModel = selectedModel || normalizedManualModel;
 
   // 자격증명 등록 — anthropic(토큰 최소 32자)/opencode(모델 필수) 공통 진입점.
   const submitCredential = async () => {
@@ -452,9 +458,13 @@ export function PersonalAssistantSection() {
                       data-testid="credential-model-manual"
                       value={manualModel}
                       onChange={(e) => setManualModel(e.target.value)}
-                      placeholder="providerId/model-id"
+                      placeholder={`${presetKey}/model-id`}
                       autoComplete="off"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      실제 모델 id 만 입력해도 됩니다 — 접두어(<code>{presetKey}/</code>)는 자동으로
+                      붙습니다.
+                    </p>
                   </div>
                 ) : null}
               </div>

@@ -98,6 +98,11 @@ export class OpencodeRunner implements AgentRunner {
         // 호출·텍스트)가 조용히 드롭된다. session.created/session.updated 이벤트로 parentID 를 추적해
         // "알려진 세션" 집합에 편입시키고, 그 집합 기준으로 필터링한다.
         const knownSessionIds = new Set<string>([session.id]);
+        // opencode 는 사용자가 보낸 메시지 자신도 message.part.updated(type:'text') 로 흘려보낸다
+        // (message.updated 로 role:'user' 메시지가 먼저 생성된 뒤 그 메시지의 text part 갱신 이벤트가
+        // 뒤따름). role 구분 없이 모든 text part 를 델타로 처리하면 사용자 입력 자체가 응답으로
+        // 에코된다(실측 버그) — assistant 메시지 id 만 추적해 그 messageID 의 text part 만 델타로 다룬다.
+        const assistantMessageIds = new Set<string>();
 
         for await (const ev of es.stream) {
           if (killed) break;
@@ -120,6 +125,7 @@ export class OpencodeRunner implements AgentRunner {
             const parentToolUseId = isChildSession ? part.sessionID : null;
 
             if (part.type === 'text') {
+              if (!assistantMessageIds.has(part.messageID)) continue; // user 메시지 echo 방지
               const delta = typeof ev.properties.delta === 'string' ? ev.properties.delta : part.text.slice(lastPartLen.get(part.id) ?? 0);
               lastPartLen.set(part.id, part.text.length);
               if (delta) {
@@ -157,8 +163,11 @@ export class OpencodeRunner implements AgentRunner {
 
           if (ev.type === 'message.updated') {
             const info = ev.properties.info;
-            if (info.role === 'assistant' && info.sessionID === session.id) {
-              lastUsage = { inputTokens: info.tokens.input, outputTokens: info.tokens.output };
+            if (info.role === 'assistant' && knownSessionIds.has(info.sessionID)) {
+              assistantMessageIds.add(info.id);
+              if (info.sessionID === session.id) {
+                lastUsage = { inputTokens: info.tokens.input, outputTokens: info.tokens.output };
+              }
             }
             continue;
           }
@@ -175,6 +184,12 @@ export class OpencodeRunner implements AgentRunner {
             const sid = ev.properties.sessionID;
             if (!sid || sid === session.id) {
               errored = true;
+              // session.error 의 실제 원인(ProviderAuthError/ApiError 등)을 남긴다 — 기존엔 이벤트
+              // 발생 사실만 기록해 원인 파악이 불가능했다(실측: 원인 불명 session.error 디버깅 난항).
+              log.error('opencode-runner', 'opencode_session_error_detail', {
+                requestId: i.requestId,
+                error: ev.properties.error,
+              });
               onEvent({ type: 'result', ok: false, text: fullText || null, usage: lastUsage });
               break;
             }

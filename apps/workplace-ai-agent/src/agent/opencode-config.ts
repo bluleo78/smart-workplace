@@ -119,6 +119,12 @@ export function buildOpencodeConfig(i: RunnerInput, runId: string, stdioEntryCmd
         }
       : {},
   };
+  // 진단용 옵트인 — WORKPLACE_OPENCODE_DEBUG=1 이면 opencode CLI 를 --log-level=debug 로 띄워
+  // ~/.local/share/opencode/log/opencode.log 에 상세 로그를 남긴다(콘솔에는 요약 메시지만 나가므로
+  // "Unexpected error" 류의 opencode 자체 크래시를 조사할 때 유용). 기본은 off(로그 폭증 방지).
+  if (process.env.WORKPLACE_OPENCODE_DEBUG === '1') {
+    config.logLevel = 'DEBUG';
+  }
   // providerID 는 splitOpencodeModel 검증용으로만 쓰이고(모델 registration 은 payload.providerId
   // 기준 — 둘이 다르면 opencode 가 provider 미스매치로 실패하므로 방어적으로 확인).
   if (providerID !== payload.providerId) {
