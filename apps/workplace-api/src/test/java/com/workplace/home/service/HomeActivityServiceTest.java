@@ -1,5 +1,6 @@
 package com.workplace.home.service;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -7,6 +8,7 @@ import com.workplace.chat.service.ChatFixtures;
 import com.workplace.home.dto.ActivityEntryResponse;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.support.IntegrationTestBase;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -67,5 +69,21 @@ class HomeActivityServiceTest extends IntegrationTestBase {
     List<ActivityEntryResponse> watched =
         activityService.recent(s.watcherId(), null, null, 20).items();
     assertThat(watched).hasSize(2);
+  }
+
+  /** #622 — 이슈가 소프트삭제되면 해당 이슈의 history 는 활동 피드에서 제외된다(#618 알림·#621 채팅과 동일 패턴). */
+  @Test
+  void activity_excludesHistoryForSoftDeletedIssue() {
+    ChatFixtures.Setup s = fx.setup();
+    historyRepo.insert(s.issueId(), s.reporterId(), "STATUS", "TODO", "IN_PROGRESS");
+
+    assertThat(activityService.recent(s.assigneeId(), null, null, 20).items()).hasSize(1);
+
+    dsl.update(ISSUE)
+        .set(ISSUE.DELETED_AT, OffsetDateTime.now())
+        .where(ISSUE.ID.eq(s.issueId()))
+        .execute();
+
+    assertThat(activityService.recent(s.assigneeId(), null, null, 20).items()).isEmpty();
   }
 }

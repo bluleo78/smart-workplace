@@ -54,7 +54,8 @@ public class HomeActivityRepository {
                     .from(ISSUE_WATCHER)
                     .where(ISSUE_WATCHER.USER_ID.eq(userId)));
 
-    Condition where = ISSUE_HISTORY.ISSUE_ID.in(myIssues);
+    // 이슈가 소프트삭제되면(#622, #618 알림·#621 채팅과 동일 패턴) history 행은 남지만 죽은 참조이므로 제외한다.
+    Condition where = ISSUE_HISTORY.ISSUE_ID.in(myIssues).and(ISSUE.DELETED_AT.isNull());
     if (actorKind != null && !actorKind.isBlank()) {
       where = where.and(USER.KIND.eq(actorKind));
     }
