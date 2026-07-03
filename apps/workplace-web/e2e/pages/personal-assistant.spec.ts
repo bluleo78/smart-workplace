@@ -557,10 +557,10 @@ test.describe('프로필 개인 비서', () => {
     await expect(configured).toBeVisible()
 
     await expect(configured).not.toContainText('라벨 없음')
-    await expect(configured).toContainText('설정됨')
+    await expect(page.getByTestId('assistant-connection-badge')).toBeVisible()
   })
 
-  // #264 — tokenLabel 이 있으면 ' · <label>' 형태로 표시되어야 한다.
+  // #264 — tokenLabel 이 있으면 그대로 표시되어야 한다.
   test('tokenLabel 있을 때 라벨이 포함된 문구가 표시된다', async ({
     authenticatedPage: page,
   }) => {
@@ -571,7 +571,7 @@ test.describe('프로필 개인 비서', () => {
     const configured = page.getByTestId('assistant-configured')
     await expect(configured).toBeVisible()
 
-    await expect(configured).toContainText('설정됨 · 내 토큰')
+    await expect(configured).toContainText('내 토큰')
   })
 
   // #198 — 생각의 깊이 변경 성공(204) 시 성공 토스트가 표시되어야 한다(피드백 일관성).

@@ -287,15 +287,28 @@ export function PersonalAssistantSection() {
             <hr className="border-border" />
 
             {/* 연결·모델·생각의 깊이·연결 해제 — 한 덩어리(관리자 에이전트 상세 "AI 연결 및 모델"
-                카드와 동일한 그룹핑). */}
-            <p className="text-sm" data-testid="assistant-configured">
-              설정됨{status.tokenLabel ? ` · ${status.tokenLabel}` : ''}
-            </p>
-            {connectionBadge ? (
-              <Badge variant="secondary" data-testid="assistant-connection-badge">
-                {connectionBadge}
-              </Badge>
-            ) : null}
+                카드와 동일한 그룹핑·용어). 라벨은 "상태"가 아니라 관리자 카드와 동일하게 "연결" —
+                실제로 보여주는 건 연결 방식 배지 + 토큰 라벨이지 범용 상태값이 아니다. */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">연결</label>
+              {/* 다른 필드(이름/모델/생각의 깊이)와 동일한 h-9/border/rounded 박스로 감싸 —
+                  일반 텍스트만 있으면 인풋/셀렉트 사이에서 시각적으로 붕 뜨는 문제 방지.
+                  testid 는 컨테이너에 둔다 — tokenLabel 이 없으면 내부 span 이 비어 크기 0이 되어
+                  Playwright 의 visibility 판정이 hidden 으로 나오는 것을 방지. */}
+              <div
+                data-testid="assistant-configured"
+                className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs"
+              >
+                {connectionBadge ? (
+                  <Badge variant="secondary" data-testid="assistant-connection-badge">
+                    {connectionBadge}
+                  </Badge>
+                ) : null}
+                {status.tokenLabel ? (
+                  <span className="text-muted-foreground">{status.tokenLabel}</span>
+                ) : null}
+              </div>
+            </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="assistant-model">
