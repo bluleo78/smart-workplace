@@ -65,7 +65,9 @@ public class NotificationRepository {
 
   /**
    * 최신순 알림 — issue·project(LEFT, 이슈 알림용), calendar_event(LEFT, REMINDER 용), user(actor, LEFT) 조인으로
-   * 표시 필드 합성. 이슈/리마인더가 섞여 있으므로 issue 는 INNER 가 아닌 LEFT JOIN.
+   * 표시 필드 합성. 이슈/리마인더가 섞여 있으므로 issue 는 INNER 가 아닌 LEFT JOIN. 이슈가 소프트삭제되면(#618) notification 행은
+   * CASCADE 없이 남지만 issue_id 가 가리키는 이슈는 죽은 링크이므로 목록에서 제외한다 (issue_id 가 null 인 리마인더/캘린더 알림은 LEFT JOIN
+   * 매치가 없어 이 조건에 영향받지 않는다).
    */
   public List<NotificationResponse> listRecent(long recipientId, int limit) {
     return dsl.select(
@@ -93,7 +95,7 @@ public class NotificationRepository {
         .on(CALENDAR_EVENT.ID.eq(NOTIFICATION.EVENT_ID))
         .leftJoin(USER)
         .on(USER.ID.eq(NOTIFICATION.ACTOR_ID))
-        .where(NOTIFICATION.RECIPIENT_ID.eq(recipientId))
+        .where(NOTIFICATION.RECIPIENT_ID.eq(recipientId).and(ISSUE.DELETED_AT.isNull()))
         .orderBy(NOTIFICATION.CREATED_AT.desc(), NOTIFICATION.ID.desc())
         .limit(limit)
         .fetch(
@@ -119,12 +121,19 @@ public class NotificationRepository {
             });
   }
 
-  /** 안읽음 수. */
+  /** 안읽음 수. listRecent() 와 동일하게 소프트삭제된 이슈를 참조하는 알림은 제외한다(#618, 뱃지-목록 카운트 불일치 방지). */
   public long countUnread(long recipientId) {
     return dsl.fetchCount(
         dsl.selectOne()
             .from(NOTIFICATION)
-            .where(NOTIFICATION.RECIPIENT_ID.eq(recipientId).and(NOTIFICATION.READ_AT.isNull())));
+            .leftJoin(ISSUE)
+            .on(ISSUE.ID.eq(NOTIFICATION.ISSUE_ID))
+            .where(
+                NOTIFICATION
+                    .RECIPIENT_ID
+                    .eq(recipientId)
+                    .and(NOTIFICATION.READ_AT.isNull())
+                    .and(ISSUE.DELETED_AT.isNull())));
   }
 
   /** 단건 읽음 — recipient 스코프 + 이미 읽은 건 제외. 영향 행 수 반환(타인 id 면 0). */

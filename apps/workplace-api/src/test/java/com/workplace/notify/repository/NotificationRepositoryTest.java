@@ -146,6 +146,32 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     assertThat(n.createdAt()).isNotNull();
   }
 
+  /** #618 — 이슈가 소프트삭제되면 해당 이슈를 참조하는 알림은 listRecent/countUnread 에서 제외된다. */
+  @Test
+  void listRecent_excludesNotificationsForSoftDeletedIssue() {
+    long recipient = seedUser("HUMAN");
+    long actor = seedUser("HUMAN");
+    long issueId = seedIssue(actor, "삭제될 이슈");
+    long eventId = seedEvent(recipient, "살아있는 일정");
+    repo.insertBatch(List.of(recipient), NotificationType.COMMENTED, actor, issueId, 1L);
+    repo.insertReminder(recipient, eventId);
+
+    // 사전 확인: 삭제 전에는 이슈 알림 포함 2건, 안읽음 2건.
+    assertThat(repo.listRecent(recipient, 20)).hasSize(2);
+    assertThat(repo.countUnread(recipient)).isEqualTo(2);
+
+    // 이슈 소프트삭제(IssueService.softDelete 와 동일하게 deleted_at 세팅, row 는 유지).
+    dsl.update(ISSUE)
+        .set(ISSUE.DELETED_AT, java.time.OffsetDateTime.now())
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
+
+    List<NotificationResponse> list = repo.listRecent(recipient, 20);
+    assertThat(list).hasSize(1);
+    assertThat(list.get(0).type()).isEqualTo("REMINDER");
+    assertThat(repo.countUnread(recipient)).isEqualTo(1);
+  }
+
   @Test
   void countUnread_and_markRead_areRecipientScoped() {
     long a = seedUser("HUMAN");
