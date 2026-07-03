@@ -27,13 +27,14 @@ export function useMailMessages(
   unread = false,
   category = '',
   needsReply = false,
+  options?: { enabled?: boolean },
 ) {
   return useQuery({
     queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread, category, needsReply),
     queryFn: () =>
       listMessages(accountId as number, folder, query || undefined, unread,
                    category || undefined, needsReply),
-    enabled: !!accountId,
+    enabled: (options?.enabled ?? true) && !!accountId,
     refetchInterval: 60_000,       // 백그라운드 자동 동기화로 들어온 새 메일을 주기 반영
     refetchOnWindowFocus: true,
   });

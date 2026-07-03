@@ -26,24 +26,30 @@ function initial(item: MailSummaryItem): string {
  * 행 클릭 = 해당 메일 딥링크(/mail/{accountId}?messageId={id}) — MailInboxPage 가
  * ?messageId 를 읽어 상세 패널을 자동으로 연다(#447). 헤더/프레임은 Dashboard 담당.
  */
-export default function UnreadMailBody({ count = 5 }: { count?: number }) {
-  const { data, isLoading, isError, refetch } = useMailSummary()
+export default function UnreadMailBody({
+  count = 5,
+  previewData,
+}: {
+  count?: number
+  previewData?: MailSummaryItem[]
+}) {
+  const { data: queryData, isLoading, isError, refetch } = useMailSummary({ enabled: !previewData })
   // "회신 필요" 토글 — 켜면 aiNeedsReply 메일만 필터(헤더 칩 클릭). 위젯 로컬 상태.
   const [needsReplyOnly, setNeedsReplyOnly] = useState(false)
 
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
-  if (isLoading)
+  if (!previewData && isLoading)
     return (
       <div aria-busy="true" aria-label="불러오는 중">
         <Skeleton className="h-20 w-full" />
       </div>
     )
-  if (isError) return <WidgetError onRetry={() => refetch()} testId="dash-mail-error" />
+  if (!previewData && isError) return <WidgetError onRetry={() => refetch()} testId="dash-mail-error" />
 
-  const recent = data?.recent ?? []
-  const unreadCount = data?.unreadCount ?? 0
-  const needsReplyCount = data?.needsReplyCount ?? 0
-  const classificationActive = data?.classificationActive ?? false
+  const recent = previewData ?? queryData?.recent ?? []
+  const unreadCount = previewData ? previewData.filter((m) => !m.seen).length : (queryData?.unreadCount ?? 0)
+  const needsReplyCount = previewData ? previewData.filter((m) => m.aiNeedsReply && !m.needsReplyDoneAt).length : (queryData?.needsReplyCount ?? 0)
+  const classificationActive = previewData ? true : (queryData?.classificationActive ?? false)
 
   if (recent.length === 0)
     return (

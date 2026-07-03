@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMyChannels } from '@/hooks/queries/useMyChannels';
+import type { ChannelResponse } from '@/types/messaging';
 
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
@@ -18,12 +19,16 @@ function kindLabel(kind: string): string {
  * LLM 이 텍스트로 목록을 생성하는 비용을 클라이언트 렌더로 대체.
  * params: {} (필터 없음). 처음 20개만 표시.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export default function ChannelsWidget({ params: _params }: { params?: Record<string, unknown> }) {
-  const channels = useMyChannels();
+export default function ChannelsWidget({
+  previewData,
+}: {
+  params?: Record<string, unknown>;
+  previewData?: ChannelResponse[];
+}) {
+  const channels = useMyChannels({ enabled: !previewData });
 
   // 로딩 중 — 스켈레톤.
-  if (channels.isLoading) {
+  if (!previewData && channels.isLoading) {
     return (
       <WidgetFrame title="채널 목록">
         <Skeleton className="h-24 w-full" />
@@ -32,7 +37,7 @@ export default function ChannelsWidget({ params: _params }: { params?: Record<st
   }
 
   // fetch 실패 — 에러 + 재시도.
-  if (channels.isError) {
+  if (!previewData && channels.isError) {
     return (
       <WidgetFrame title="채널 목록">
         <WidgetError onRetry={() => channels.refetch()} testId="channels-error" />
@@ -41,7 +46,7 @@ export default function ChannelsWidget({ params: _params }: { params?: Record<st
   }
 
   // 최대 20개만 표시(토큰 절감 및 뷰 간결화).
-  const items = (channels.data ?? []).slice(0, 20);
+  const items = (previewData ?? channels.data ?? []).slice(0, 20);
 
   return (
     <WidgetFrame title="채널 목록">

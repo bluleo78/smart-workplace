@@ -4,6 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useMyIssues, useWatchedIssues } from '@/hooks/queries/useHomeQueries'
 import { formatRelativeTime } from '@/lib/formatters'
 import { buildMyTaskRows, dueLabel, type MyTaskBucket, type MyTaskRow } from '@/lib/myTasks'
+import type { IssueSearchResponse } from '@/types/issue'
 
 import { WidgetError } from '../WidgetError'
 
@@ -19,12 +20,18 @@ const BUCKET_LABEL: Record<MyTaskBucket, string> = {
 }
 
 /** 내 작업 위젯 본문 — 나를 기다리는 열린 루프를 위급도 그룹 리스트로, 비면 긍정적 빈 상태로 렌더. */
-export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
-  const assigned = useMyIssues({ assignee: 'me', size: 50 })
-  const watched = useWatchedIssues()
-  const loading = assigned.isLoading || watched.isLoading
+export default function MyTasksBody({
+  count: limit = 5,
+  previewData,
+}: {
+  count?: number
+  previewData?: { assigned: IssueSearchResponse; watched: IssueSearchResponse }
+}) {
+  const assigned = useMyIssues({ assignee: 'me', size: 50 }, { enabled: !previewData })
+  const watched = useWatchedIssues({ enabled: !previewData })
+  const loading = !previewData && (assigned.isLoading || watched.isLoading)
   // 둘 중 하나라도 실패하면 분류가 거짓이 되므로 전체를 에러 처리(#205).
-  const isError = assigned.isError || watched.isError
+  const isError = !previewData && (assigned.isError || watched.isError)
 
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
   if (loading)
@@ -46,8 +53,8 @@ export default function MyTasksBody({ count: limit = 5 }: { count?: number }) {
 
   const now = new Date()
   const result = buildMyTaskRows(
-    assigned.data?.items ?? [],
-    watched.data?.items ?? [],
+    previewData ? previewData.assigned.items : (assigned.data?.items ?? []),
+    previewData ? previewData.watched.items : (watched.data?.items ?? []),
     limit,
     now,
   )

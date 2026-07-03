@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents';
+import type { CalendarEvent } from '@/types/calendar';
 
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
@@ -49,12 +50,19 @@ function shortTime(iso: string): string {
  * params: { from?, to? }. 미지정 시 오늘 00:00~24:00 를 기본 범위로 사용.
  * 항목 클릭 시 /calendar 딥링크.
  */
-export default function CalendarWidget({ params }: { params?: Record<string, unknown> }) {
+export default function CalendarWidget({
+  params,
+  previewData,
+}: {
+  params?: Record<string, unknown>
+  previewData?: CalendarEvent[]
+}) {
   const { from, to } = resolveRange(params);
 
-  const { data, isLoading, isError, refetch } = useCalendarEvents(from, to);
+  const { data: queryData, isLoading, isError, refetch } = useCalendarEvents(from, to, { enabled: !previewData });
+  const data = previewData ?? queryData;
 
-  if (isLoading) {
+  if (!previewData && isLoading) {
     return (
       <WidgetFrame title="일정">
         <Skeleton className="h-24 w-full" />
@@ -62,7 +70,7 @@ export default function CalendarWidget({ params }: { params?: Record<string, unk
     );
   }
 
-  if (isError) {
+  if (!previewData && isError) {
     return (
       <WidgetFrame title="일정">
         <WidgetError onRetry={() => refetch()} testId="calendar-error" />

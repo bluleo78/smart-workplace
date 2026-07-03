@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActivity } from '@/hooks/queries/useHomeQueries';
+import type { ActivityPage } from '@/types/home';
 
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
@@ -34,14 +35,21 @@ const EVENT_LABEL: Record<string, string> = {
 };
 
 /** 최근 활동. params.actorKind='AGENT' 면 AI 가 한 일만. */
-export default function ActivityWidget({ params }: { params?: Record<string, unknown> }) {
+export default function ActivityWidget({
+  params,
+  previewData,
+}: {
+  params?: Record<string, unknown>;
+  previewData?: ActivityPage;
+}) {
   const actorKind = params?.actorKind as string | undefined;
-  const { data, isLoading, isError, refetch } = useActivity(actorKind);
+  const { data: queryData, isLoading, isError, refetch } = useActivity(actorKind, { enabled: !previewData });
+  const data = previewData ?? queryData;
   return (
     <WidgetFrame title={actorKind === 'AGENT' ? 'AI 활동' : '최근 활동'}>
-      {isLoading ? (
+      {!previewData && isLoading ? (
         <Skeleton className="h-24 w-full" />
-      ) : isError ? (
+      ) : !previewData && isError ? (
         // fetch 실패 — 거짓 '빈 상태' 대신 에러+재시도 표시(#205).
         <WidgetError onRetry={() => refetch()} testId="activity-error" />
       ) : data && data.items.length > 0 ? (

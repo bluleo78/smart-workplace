@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { useContacts } from '@/hooks/queries/useContacts'
-import type { ContactTypeFilter } from '@/types/contact'
+import type { ContactSummary, ContactTypeFilter } from '@/types/contact'
 
 import { WidgetError } from './WidgetError'
 import { WidgetFrame } from './WidgetFrame'
@@ -14,7 +14,13 @@ import { WidgetFrame } from './WidgetFrame'
  * org 파라미터는 useContacts 의 organization 인자로 매핑한다.
  * 무한스크롤 없이 첫 페이지(최대 20개)만 표시.
  */
-export default function ContactsWidget({ params }: { params?: Record<string, unknown> }) {
+export default function ContactsWidget({
+  params,
+  previewData,
+}: {
+  params?: Record<string, unknown>
+  previewData?: ContactSummary[]
+}) {
   const search = (params?.search as string) ?? ''
   // type 없으면 전체 조회 'ALL' 기본값 적용.
   const typeFilter = ((params?.type as ContactTypeFilter) || 'ALL') as ContactTypeFilter
@@ -22,16 +28,18 @@ export default function ContactsWidget({ params }: { params?: Record<string, unk
   const org = (params?.org as string) || undefined
   const title = (params?.title as string) || undefined
 
-  const { data, isLoading, isError, refetch } = useContacts(search, typeFilter, org, title)
+  const { data, isLoading, isError, refetch } = useContacts(search, typeFilter, org, title, {
+    enabled: !previewData,
+  })
 
-  if (isLoading) {
+  if (!previewData && isLoading) {
     return (
       <WidgetFrame title="연락처">
         <Skeleton className="h-24 w-full" />
       </WidgetFrame>
     )
   }
-  if (isError) {
+  if (!previewData && isError) {
     return (
       <WidgetFrame title="연락처">
         <WidgetError onRetry={() => refetch()} testId="contacts-error" />
@@ -40,7 +48,7 @@ export default function ContactsWidget({ params }: { params?: Record<string, unk
   }
 
   // 첫 페이지의 items 배열만 사용(최대 20개, 무한스크롤 없음).
-  const items = (data?.pages?.[0]?.items ?? []).slice(0, 20)
+  const items = (previewData ?? data?.pages?.[0]?.items ?? []).slice(0, 20)
 
   return (
     <WidgetFrame title="연락처">

@@ -26,6 +26,8 @@ export type CatalogFieldDef =
 export interface CatalogWidget {
   type: string
   title: string
+  /** 위젯 추가 모달 프리뷰 패널에 노출되는 1줄 용도 설명. */
+  description: string
   icon: LucideIcon
   category: string
   /** 그리드 크기 표기(카드 갤러리 UI 전용, row-span 미연동). */
@@ -51,6 +53,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   issue_list: {
     type: 'issue_list',
     title: '이슈 목록',
+    description: '내가 담당한 이슈를 우선순위 순으로 보여줍니다.',
     icon: ListTodo,
     category: '이슈',
     size: '1×1',
@@ -72,6 +75,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   mail_list: {
     type: 'mail_list',
     title: '메일 목록',
+    description: '선택한 폴더의 최근 메일을 보여줍니다.',
     icon: Mail,
     category: '메일',
     size: '1×1',
@@ -93,6 +97,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   calendar: {
     type: 'calendar',
     title: '캘린더',
+    description: '오늘 또는 이번 주 일정을 보여줍니다.',
     icon: CalendarDays,
     category: '캘린더',
     size: '1×1',
@@ -112,6 +117,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   activity: {
     type: 'activity',
     title: '활동 피드',
+    description: '이슈 생성·변경 등 최근 활동을 보여줍니다.',
     icon: Bell,
     category: '채널·활동',
     size: '1×2',
@@ -131,6 +137,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   wiki: {
     type: 'wiki',
     title: '위키',
+    description: '접근 가능한 노트 스페이스 목록을 보여줍니다.',
     icon: ClipboardList,
     category: '위키',
     size: '1×1',
@@ -141,6 +148,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   contacts: {
     type: 'contacts',
     title: '연락처',
+    description: '구성원·외부 연락처를 검색하고 보여줍니다.',
     icon: Contact,
     category: '연락처',
     size: '1×1',
@@ -164,6 +172,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   projects: {
     type: 'projects',
     title: '프로젝트',
+    description: '참여 중인 프로젝트 목록을 보여줍니다.',
     icon: Folder,
     category: '프로젝트',
     size: '1×1',
@@ -173,6 +182,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   drive: {
     type: 'drive',
     title: '드라이브',
+    description: '접근 가능한 드라이브 스페이스 목록을 보여줍니다.',
     icon: Folder,
     category: '드라이브',
     size: '1×1',
@@ -182,6 +192,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   channels: {
     type: 'channels',
     title: '채널',
+    description: '내가 속한 채널 목록을 보여줍니다.',
     icon: Hash,
     category: '채널·활동',
     size: '1×1',

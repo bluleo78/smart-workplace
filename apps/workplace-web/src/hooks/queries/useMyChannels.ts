@@ -5,10 +5,11 @@ import { messagingApi } from '../../api/messaging';
 import type { ChannelResponse } from '../../types/messaging';
 import { messagingKeys } from './messagingKeys';
 
-export function useMyChannels() {
+export function useMyChannels(options?: { enabled?: boolean }) {
   return useQuery<ChannelResponse[]>({
     queryKey: messagingKeys.channels(),
     queryFn: () => messagingApi.listChannels().then((r) => r.data),
     staleTime: 10_000,
+    enabled: options?.enabled ?? true,
   });
 }

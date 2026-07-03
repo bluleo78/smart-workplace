@@ -5,11 +5,12 @@ import type { CalendarEvent } from '../../types/calendar'
 import { calendarKeys } from './calendarKeys'
 
 // 가시 범위의 일정 조회.
-export function useCalendarEvents(from: string, to: string) {
+export function useCalendarEvents(from: string, to: string, options?: { enabled?: boolean }) {
   return useQuery<CalendarEvent[]>({
     queryKey: calendarKeys.range(from, to),
     queryFn: () => calendarApi.list(from, to).then((r) => r.data),
     staleTime: 10_000,
     refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
   })
 }
