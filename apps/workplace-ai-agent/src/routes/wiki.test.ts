@@ -39,7 +39,9 @@ describe('wikiComposeSchema', () => {
   });
 
   it('action 이 enum 밖이면 파싱 실패', () => {
-    expect(wikiComposeSchema.safeParse(validBody({ action: 'translate' })).success).toBe(false);
+    expect(wikiComposeSchema.safeParse(validBody({ action: 'unknown_action' })).success).toBe(
+      false
+    );
   });
 
   it('비서 필드 누락 → 파싱 실패', () => {

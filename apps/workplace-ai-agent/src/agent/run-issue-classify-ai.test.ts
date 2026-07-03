@@ -1,5 +1,5 @@
 // run-issue-classify-ai 유닛 테스트 — LLM 호출은 runText 목으로 대체.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import * as messagingAi from './run-messaging-ai.js'
 import { runIssueClassify } from './run-issue-classify-ai.js'
 import type { RunAgentDeps } from './run-agent.js'

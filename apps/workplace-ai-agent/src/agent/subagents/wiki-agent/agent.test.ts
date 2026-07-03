@@ -19,8 +19,8 @@ describe('wiki-agent 정의', () => {
       'mcp__workplace__submit_response',
     ]);
   });
-  it('maxTurns 설정 + 본문에 위키·버전 안내', () => {
+  it('maxTurns 설정 + 본문에 노트·버전 안내', () => {
     expect(loaded['wiki-agent'].maxTurns).toBeGreaterThan(0);
-    expect(loaded['wiki-agent'].prompt).toContain('위키');
+    expect(loaded['wiki-agent'].prompt).toContain('노트');
   });
 });

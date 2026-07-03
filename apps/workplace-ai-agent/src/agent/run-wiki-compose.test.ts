@@ -70,7 +70,7 @@ describe('runWikiCompose', () => {
       includePartialMessages?: boolean; systemPrompt: string; credential: { token: string }; agentId: number;
     };
     expect(passed.includePartialMessages).toBe(true);
-    expect(passed.systemPrompt).toContain('위키 문서 작성 보조자');
+    expect(passed.systemPrompt).toContain('노트 문서 작성 보조자');
     expect(passed.credential.token).toBe('tok'); // 비서 토큰이 credential 로 전달
     expect(passed.agentId).toBe(7);
   });

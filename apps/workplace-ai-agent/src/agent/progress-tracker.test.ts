@@ -5,7 +5,7 @@ describe('ProgressTracker', () => {
   it('tool_use 는 한국어 라벨 running 단계를 추가하고 true 반환', () => {
     const t = new ProgressTracker();
     expect(t.apply({ kind: 'tool_use', toolName: 'search_wiki' })).toBe(true);
-    expect(t.snapshot('tool').steps).toEqual([{ label: '위키 검색', status: 'running' }]);
+    expect(t.snapshot('tool').steps).toEqual([{ label: '노트 검색', status: 'running' }]);
   });
 
   it('tool_result 는 직전 running 단계를 done 으로 바꾸고 true 반환', () => {
