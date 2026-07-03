@@ -88,6 +88,11 @@ export class OpencodeRunner implements AgentRunner {
         const lastPartLen = new Map<string, number>();
         const startedTools = new Set<string>();
         const finishedTools = new Set<string>();
+        // part.id → seq. sdk-mcp-server.ts(Claude 경로)와 동일하게 tool_use_start/tool_result 가
+        // 같은 seq 를 공유해야 프론트(useChatSession.ts)가 seq 로 매칭해 'running'→'done' 전환한다.
+        // 이걸 매 이벤트마다 증가하는 단일 카운터로 쓰면 result 의 seq 가 자신의 start 와 달라져
+        // 매칭이 영영 실패 — 실측 버그(도구 카드가 계속 "실행중"에 머묾).
+        const toolSeq = new Map<string, number>();
         let fullText = '';
         let lastUsage: RunnerUsage | null = null;
         let seq = 0;
@@ -142,14 +147,15 @@ export class OpencodeRunner implements AgentRunner {
               if ((status === 'pending' || status === 'running') && !startedTools.has(part.id)) {
                 startedTools.add(part.id);
                 seq += 1;
+                toolSeq.set(part.id, seq);
                 onEvent({ type: 'tool_use', name: part.tool, input: part.state.input, parentToolUseId });
                 i.mcp?.onTool?.({ seq, event: 'tool_use_start', toolName: part.tool, args: part.state.input });
               } else if ((status === 'completed' || status === 'error') && !finishedTools.has(part.id)) {
                 finishedTools.add(part.id);
-                seq += 1;
+                const startSeq = toolSeq.get(part.id) ?? (seq += 1);
                 onEvent({ type: 'tool_done' });
                 i.mcp?.onTool?.({
-                  seq,
+                  seq: startSeq,
                   event: 'tool_result',
                   toolName: part.tool,
                   isError: status === 'error',

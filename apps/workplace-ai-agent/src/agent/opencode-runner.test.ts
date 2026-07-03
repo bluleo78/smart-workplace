@@ -192,12 +192,56 @@ describe('OpencodeRunner.stream', () => {
     ]);
     expect(onTool).toHaveBeenNthCalledWith(1, { seq: 1, event: 'tool_use_start', toolName: 'mcp__workplace__get_issue', args: { key: 'ABC-1' } });
     expect(onTool).toHaveBeenNthCalledWith(2, {
-      seq: 2,
+      seq: 1,
       event: 'tool_result',
       toolName: 'mcp__workplace__get_issue',
       isError: false,
       result: '{"ok":true}',
     });
+  });
+
+  it('도구 2개가 인터리브(A시작→B시작→A완료→B완료)돼도 각 result 의 seq 가 자신의 start 와 일치 — 프론트 useChatSession.ts 의 seq 매칭(running→done)이 순서와 무관하게 성립함을 보증', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    const toolPart = (id: string, status: 'pending' | 'completed', extra: Record<string, unknown> = {}) => ({
+      type: 'message.part.updated',
+      properties: {
+        part: {
+          id,
+          sessionID: 'sess-1',
+          messageID: 'm1',
+          type: 'tool',
+          callID: id,
+          tool: 'mcp__workplace__get_issue',
+          state:
+            status === 'pending'
+              ? { status: 'pending', input: { key: id }, raw: '' }
+              : { status: 'completed', input: { key: id }, output: `{"id":"${id}"}`, title: 't', metadata: {}, time: { start: 0, end: 1 }, ...extra },
+        },
+      },
+    });
+    es.push(toolPart('a', 'pending'));
+    es.push(toolPart('b', 'pending'));
+    es.push(toolPart('a', 'completed'));
+    es.push(toolPart('b', 'completed'));
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const onTool = vi.fn();
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 1, onTool } }),
+      () => {},
+    );
+    await handle.done;
+
+    const calls = onTool.mock.calls.map((c) => c[0]);
+    const startA = calls.find((c) => c.event === 'tool_use_start' && c.args?.key === 'a');
+    const resultA = calls.find((c) => c.event === 'tool_result' && c.result === '{"id":"a"}');
+    const startB = calls.find((c) => c.event === 'tool_use_start' && c.args?.key === 'b');
+    const resultB = calls.find((c) => c.event === 'tool_result' && c.result === '{"id":"b"}');
+    expect(resultA.seq).toBe(startA.seq);
+    expect(resultB.seq).toBe(startB.seq);
+    expect(startA.seq).not.toBe(startB.seq);
   });
 
   it('session.updated 로 parentID 일치하는 자식 세션이 알려지면 그 세션의 tool part 가 드롭되지 않고 parentToolUseId 에 자식 세션 id 가 실림', async () => {
