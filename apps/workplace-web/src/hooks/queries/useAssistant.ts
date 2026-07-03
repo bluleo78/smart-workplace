@@ -8,17 +8,25 @@ import {
   disableMyAssistant,
   getMyAssistant,
   getWorkspaceAssistant,
-  registerMyAssistantToken,
+  registerMyAssistantCredential,
   setWorkspaceAssistant,
   updateMyAssistantName,
   updateMyAssistantSettings,
   updateWorkspaceAssistantSettings,
 } from '../../api/assistant';
+import { getAgentModels, getMyAssistantModels } from '../../api/models';
 import type { UpdateAssistantSettings } from '../../types/assistant';
+import type { ProviderCredentialRegisterRequest } from '../../types/providerCredential';
 
 export const assistantKeys = {
   me: ['assistant', 'me'] as const,
   workspace: ['assistant', 'workspace'] as const,
+};
+
+// 프로바이더 모델 목록 쿼리키 — 관리자(AGENT별)/본인(개인 비서) 분리.
+export const providerModelsKeys = {
+  forAgent: (userId: number | null) => ['providerModels', 'agent', userId] as const,
+  me: ['providerModels', 'me'] as const,
 };
 
 // 개인 비서 상태 조회.
@@ -26,12 +34,12 @@ export function useMyAssistant() {
   return useQuery({ queryKey: assistantKeys.me, queryFn: getMyAssistant });
 }
 
-// 개인 비서 토큰 등록(또는 교체).
-export function useRegisterMyAssistantToken() {
+// 개인 비서 자격증명 등록(또는 교체) — anthropic(token)/opencode(providerConfig+model) 공통.
+export function useRegisterMyAssistantCredential() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ token, label }: { token: string; label?: string }) =>
-      registerMyAssistantToken(token, label),
+    mutationFn: (body: ProviderCredentialRegisterRequest) =>
+      registerMyAssistantCredential(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: assistantKeys.me }),
   });
 }
@@ -104,5 +112,23 @@ export function useClearWorkspaceAssistant() {
       // 에이전트 목록의 '유형' 컬럼(공통/일반)도 갱신.
       qc.invalidateQueries({ queryKey: ['agents'] });
     },
+  });
+}
+
+// 관리자 — AGENT 의 저장된 자격증명 기준 모델 목록. userId 미지정(null) 이면 비활성화.
+export function useAgentModels(userId: number | null) {
+  return useQuery({
+    queryKey: providerModelsKeys.forAgent(userId),
+    enabled: userId != null,
+    queryFn: () => getAgentModels(userId as number),
+  });
+}
+
+// 본인 — 개인 비서의 저장된 자격증명 기준 모델 목록. 미설정 상태(409)면 호출측이 enabled=false 로 비활성화.
+export function useMyAssistantModels(enabled = true) {
+  return useQuery({
+    queryKey: providerModelsKeys.me,
+    enabled,
+    queryFn: () => getMyAssistantModels(),
   });
 }

@@ -4,14 +4,14 @@ import { randomUUID } from 'node:crypto';
 
 import { MESSAGING_SYSTEM_PROMPT } from './messaging-system-prompt.js';
 import { buildMessagingUserMessage } from './messaging-user-message.js';
-import { runSdkStream } from './sdk-runner.js';
-import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
-import { parseProgressLine } from './chat-progress-parser.js';
+import { runnerFor } from './agent-runner.js';
+import { fromRunnerEvent } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
+import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
 import type { MessagingEventEnvelope } from '../types/messaging-events.js';
+import type { ProviderCredential } from './agent-runner.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-5';
 const DEFAULT_MAX_TURNS = 30;
 const DEFAULT_TIMEOUT_MS = 300_000;
 const PREFETCH = 20;
@@ -23,11 +23,11 @@ export async function runMessagingAgent(
   const p = envelope.payload;
   const agentId = p.respondAsAgentId;
 
-  let token: string;
+  let credential: ProviderCredential;
   try {
-    token = (await deps.client.getOAuthToken(agentId)).token;
+    credential = await deps.client.getProviderCredential(agentId);
   } catch (e) {
-    console.error('[run-messaging-agent] OAuth 토큰 fetch 실패 — spawn 생략', {
+    console.error('[run-messaging-agent] provider credential fetch 실패 — spawn 생략', {
       channelId: p.channelId,
       agentId,
       error: e instanceof Error ? e.message : String(e),
@@ -35,23 +35,23 @@ export async function runMessagingAgent(
     return;
   }
 
-  // 인-프로세스 MCP 서버(messaging 프로필). 첨부 없음 → workDir/cwd 불필요(SDK 기본 tmpdir).
+  // 인-프로세스 MCP 서버(messaging 프로필)는 러너 내부에서 구성. 첨부 없음 → workDir/cwd 불필요(SDK 기본 tmpdir).
   // 위임(L3): 트리거 actor=위임자, channelId 항상; 스레드 안(parent 비-null)이면 thread 바인딩.
   const threadBinding =
     p.triggerParentMessageId != null
       ? { channelId: p.channelId, parentMessageId: p.triggerParentMessageId }
       : undefined;
-  const workplace = buildInProcessWorkplaceMcpServer({
+  const mcp = {
     client: deps.client,
     onBehalfOfId: agentId,
-    profile: 'messaging',
+    profile: 'messaging' as const,
     threadBinding,
     delegationContext: {
       actorId: p.actor.id,
       channelId: p.channelId,
       parentMessageId: p.triggerParentMessageId ?? undefined,
     },
-  });
+  };
 
   // 최근 채널 메시지 PREFETCH 개 조회 → 대화 컨텍스트 구성
   const recent = await deps.client.getChannelMessages(agentId, p.channelId, PREFETCH);
@@ -67,7 +67,8 @@ export async function runMessagingAgent(
   }
   const userMessage = buildMessagingUserMessage(p, recent, candidates);
 
-  const model = process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
+  // 모델 결정 이원화 해소: 이벤트 경로는 요청 body 가 없어 redeem 응답을 env/기본값보다 우선한다.
+  const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
   const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
   const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
@@ -85,22 +86,22 @@ export async function runMessagingAgent(
   };
   emit('started');
   const logTag = `messaging-agent:channel${p.channelId}:${agentId}`;
-  const handle = runSdkStream(
+  const handle = runnerFor(credential).stream(
     {
       userMessage,
       systemPrompt: MESSAGING_SYSTEM_PROMPT,
       model,
       maxTurns,
-      token,
+      credential,
       agentId,
       timeoutMs,
       logTag,
       allowFileRead: false, // messaging 은 첨부 없음
       includePartialMessages: false, // CLI 가 partial 미전달이었음 — 파서 입력 계약 동일 유지
-      mcpServers: { workplace },
+      mcp,
     },
-    (line) => {
-      const sig = parseProgressLine(line);
+    (e) => {
+      const sig = fromRunnerEvent(e);
       if (tracker.apply(sig)) emit('tool');
     },
   );

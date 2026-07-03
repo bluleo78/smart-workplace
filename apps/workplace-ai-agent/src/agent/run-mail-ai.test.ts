@@ -7,13 +7,13 @@ vi.mock('./sdk-runner.js', () => ({
 import { runMailClassify, runMailSummarize, runMailReplyDraft, runMailDraftCoaching } from './run-mail-ai.js';
 import { runSdkCollect } from './sdk-runner.js';
 
-const fakeClient = { getOAuthToken: vi.fn() } as never;
+const fakeClient = { getProviderCredential: vi.fn() } as never;
 const cfg = { assistantAgentId: 7, model: 'claude-sonnet-4-6', maxTurns: 1, timeoutMs: 60_000 };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  (fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken =
-    vi.fn().mockResolvedValue({ token: 'tok', label: null });
+  (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+    vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null });
 });
 
 describe('runMailClassify', () => {
@@ -23,7 +23,18 @@ describe('runMailClassify', () => {
     ]);
     const out = await runMailClassify({ ...cfg, subject: '회의', from: 'a@b', snippet: '내일 2시' }, { client: fakeClient });
     expect(out).toEqual({ category: '업무', needsReply: true });
-    expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalledWith(7);
+    expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).toHaveBeenCalledWith(7);
+  });
+
+  it('모델 결정: cfg.model(요청 body)이 credential.model 보다 우선한다', async () => {
+    (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+      vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: 'claude-opus-4-1' });
+    vi.mocked(runSdkCollect).mockResolvedValue([
+      JSON.stringify({ type: 'result', subtype: 'success', result: '{"category":"업무","needsReply":true}' }),
+    ]);
+    await runMailClassify({ ...cfg, subject: '회의', from: 'a@b', snippet: '내일 2시' }, { client: fakeClient });
+    const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(arg.model).toBe('claude-sonnet-4-6'); // cfg.model 그대로(body 우선)
   });
 });
 

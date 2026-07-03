@@ -15,6 +15,8 @@ import { createMessagingRouter } from './routes/messaging.js';
 import { createWikiRouter } from './routes/wiki.js';
 import { createIssueRouter } from './routes/issue.js';
 import { createDriveRouter } from './routes/drive.js';
+import { createInternalBridgeRouter } from './routes/internal-bridge.js';
+import { createModelsRouter } from './routes/models.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -49,6 +51,8 @@ app.use(createMessagingRouter({ client: workplaceApi }));
 app.use(createWikiRouter({ client: workplaceApi }));
 app.use(createIssueRouter({ client: workplaceApi }));
 app.use(createDriveRouter({ client: workplaceApi }));
+app.use(createInternalBridgeRouter());
+app.use(createModelsRouter());
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[ai-agent] unhandled error:', err);
@@ -72,6 +76,8 @@ const server = app.listen(PORT, () => {
   console.log('  POST /mail/classify | /mail/summarize | /mail/reply-draft | /mail/issue-draft');
   console.log('  POST /messaging/classify');
   console.log('  POST /wiki/compose (SSE)');
+  console.log('  POST /internal/bridge/:runId');
+  console.log('  POST /models/list');
 });
 
 function shutdown(signal: string) {

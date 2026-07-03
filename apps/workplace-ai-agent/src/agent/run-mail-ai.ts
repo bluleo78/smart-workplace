@@ -1,7 +1,8 @@
 // 7d: 메일 AI 러너 — 비서 OAuth 토큰 fetch → SDK 단발 실행 → 파서.
 // 분류/요약/답장 모두 도구 미사용 텍스트 in/out. MCP 서버·임시 config 불필요.
-import { runSdkCollect } from './sdk-runner.js';
-import { extractResultText, parseClassifyJson, parseDraftCoachingJson, parseIssueDraftJson } from './mail-parser.js';
+import { runnerFor } from './agent-runner.js';
+import { finalText } from './runner-events.js';
+import { parseClassifyJson, parseDraftCoachingJson, parseIssueDraftJson } from './mail-parser.js';
 import {
   MAIL_CLASSIFY_PROMPT,
   MAIL_DRAFT_COACHING_PROMPT,
@@ -9,6 +10,7 @@ import {
   MAIL_REPLY_DRAFT_PROMPT,
   MAIL_SUMMARIZE_PROMPT,
 } from './mail-system-prompt.js';
+import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
 
 interface BaseConfig {
@@ -36,19 +38,20 @@ export async function runText(
   deps: RunAgentDeps,
   tag: string,
 ): Promise<string> {
-  const token = (await deps.client.getOAuthToken(cfg.assistantAgentId)).token;
-  const lines = await runSdkCollect({
+  const credential = await deps.client.getProviderCredential(cfg.assistantAgentId);
+  const events = await runnerFor(credential).collect({
     userMessage,
     systemPrompt,
-    model: cfg.model,
+    // 우선순위: 요청 body(cfg.model) > redeem 응답(credential.model) > env/기본값.
+    model: cfg.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL,
     maxTurns: cfg.maxTurns,
-    token,
+    credential,
     agentId: cfg.assistantAgentId,
     timeoutMs: cfg.timeoutMs,
     logTag: `${tag}:${cfg.assistantAgentId}`,
     includePartialMessages: false,
   });
-  return extractResultText(lines);
+  return finalText(events);
 }
 
 // 메일 분류: 제목·보낸사람·미리보기 → {category, needsReply}

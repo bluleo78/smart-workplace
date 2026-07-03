@@ -89,8 +89,8 @@ async function setupStatic(page: import('@playwright/test').Page) {
     }
     return route.fallback();
   });
-  // oauth-token 없음 (404)
-  await page.route(/\/api\/v1\/admin\/agents\/\d+\/oauth-token$/, (route) => {
+  // provider-credential 없음 (404)
+  await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({
         status: 404,
@@ -259,8 +259,8 @@ test.describe('/admin/agents', () => {
         }
         return route.fallback();
       });
-      // OAuth 토큰 없음(404) — WorkspaceAssistantSection 토큰게이트용.
-      await page.route(/\/api\/v1\/admin\/agents\/\d+\/oauth-token$/, (route) => {
+      // 자격증명 없음(404) — WorkspaceAssistantSection 토큰게이트용.
+      await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) => {
         if (route.request().method() === 'GET') {
           return route.fulfill({
             status: 404,

@@ -1,19 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractResultText, parseClassifyJson, parseDraftCoachingJson, parseIssueDraftJson } from './mail-parser.js';
-
-describe('extractResultText', () => {
-  it('result 이벤트의 최종 텍스트를 반환', () => {
-    const lines = [
-      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '중간' }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '• 요약1\n• 요약2' }),
-    ];
-    expect(extractResultText(lines)).toBe('• 요약1\n• 요약2');
-  });
-  it('result 없으면 assistant text 합침', () => {
-    const lines = [JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '본문' }] } })];
-    expect(extractResultText(lines)).toBe('본문');
-  });
-});
+import { parseClassifyJson, parseDraftCoachingJson, parseIssueDraftJson } from './mail-parser.js';
 
 describe('parseClassifyJson', () => {
   it('코드펜스 섞여도 첫 JSON 객체 파싱 + 카테고리 검증', () => {

@@ -19,16 +19,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-import { useAuth } from '../../../hooks/useAuth';
-import { useAgentOAuthTokenMeta } from '../../../hooks/queries/useAgentOAuthToken';
+import { useAgentProviderCredentialMeta } from '../../../hooks/queries/useAgentProviderCredential';
 import {
+  useAgentModels,
   useClearWorkspaceAssistant,
   useSetWorkspaceAssistant,
   useUpdateWorkspaceAssistantSettings,
   useWorkspaceAssistant,
 } from '../../../hooks/queries/useAssistant';
+import { useAuth } from '../../../hooks/useAuth';
 import { handleApiError } from '../../../lib/api-error';
-import { MODEL_OPTIONS } from '../../../lib/assistant-models';
 import type { ThinkingDepth } from '../../../types/assistant';
 
 // 생각 깊이 선택 옵션 목록.
@@ -52,15 +52,20 @@ export function WorkspaceAssistantSection({ agentUserId }: Props) {
   // 공통 비서 변경 시 관리자 본인의 aiAvailable 도 즉시 갱신(페이지 새로고침 불필요).
   const { refreshUser } = useAuth();
   const { data } = useWorkspaceAssistant();
-  const { data: oauthMeta } = useAgentOAuthTokenMeta(agentUserId);
+  const { data: credentialMeta } = useAgentProviderCredentialMeta(agentUserId);
   const setAssistant = useSetWorkspaceAssistant();
   const clearAssistant = useClearWorkspaceAssistant();
   const updateSettings = useUpdateWorkspaceAssistantSettings();
 
   // 현재 공통 비서 여부.
   const isCurrent = data?.agentUserId === agentUserId;
-  // OAuth 토큰 등록 여부 — null이면 미등록.
-  const hasToken = oauthMeta != null;
+  // 자격증명 등록 여부 — null이면 미등록.
+  const hasToken = credentialMeta != null;
+  // 모델 목록 — 공통 비서일 때만 조회(모델 Select 노출 조건과 동일). 저장된 자격증명 기준.
+  const { data: modelsData, isLoading: modelsLoading } = useAgentModels(
+    isCurrent ? agentUserId : null,
+  );
+  const modelOptions = modelsData?.models ?? [];
 
   // 공통 비서 지정 — 성공 시 aiAvailable 즉시 갱신.
   const onAssign = async () => {
@@ -169,7 +174,11 @@ export function WorkspaceAssistantSection({ agentUserId }: Props) {
               <label className="text-sm font-medium" htmlFor="workspace-assistant-model">
                 모델
               </label>
-              <Select value={data?.model ?? ''} onValueChange={onModel}>
+              <Select
+                value={data?.model ?? ''}
+                onValueChange={onModel}
+                disabled={modelsLoading || modelOptions.length === 0}
+              >
                 <SelectTrigger
                   id="workspace-assistant-model"
                   data-testid="workspace-assistant-model"
@@ -177,13 +186,22 @@ export function WorkspaceAssistantSection({ agentUserId }: Props) {
                   <SelectValue placeholder="선택…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {MODEL_OPTIONS.map((m) => (
+                  {modelOptions.map((m) => (
                     <SelectItem key={m.id} value={m.id}>
                       {m.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {!modelsLoading && modelOptions.length === 0 ? (
+                <p
+                  data-testid="workspace-assistant-model-empty"
+                  className="text-xs text-muted-foreground"
+                >
+                  사용 가능한 모델이 없어요 — 자격증명이 등록됐는지, 프로바이더 연결이
+                  정상인지 확인하세요.
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="workspace-assistant-depth">

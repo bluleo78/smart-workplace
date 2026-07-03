@@ -29,6 +29,7 @@ public class AiAgentCredentialRepository {
     return new AiAgentCredentialRow(
         r.get(AI_AGENT_CREDENTIAL.ID),
         r.get(AI_AGENT_CREDENTIAL.USER_ID),
+        r.get(AI_AGENT_CREDENTIAL.PROVIDER),
         r.get(AI_AGENT_CREDENTIAL.ENCRYPTED_TOKEN),
         r.get(AI_AGENT_CREDENTIAL.LABEL),
         r.get(AI_AGENT_CREDENTIAL.CREATED_BY),
@@ -38,9 +39,11 @@ public class AiAgentCredentialRepository {
   }
 
   /** 신규 행 삽입. revoked_at NULL, created_at DB default. 반환은 신규 id. */
-  public Long insert(Long userId, String encryptedToken, String label, Long createdBy) {
+  public Long insert(
+      Long userId, String provider, String encryptedToken, String label, Long createdBy) {
     return dsl.insertInto(AI_AGENT_CREDENTIAL)
         .set(AI_AGENT_CREDENTIAL.USER_ID, userId)
+        .set(AI_AGENT_CREDENTIAL.PROVIDER, provider)
         .set(AI_AGENT_CREDENTIAL.ENCRYPTED_TOKEN, encryptedToken)
         .set(AI_AGENT_CREDENTIAL.LABEL, label)
         .set(AI_AGENT_CREDENTIAL.CREATED_BY, createdBy)

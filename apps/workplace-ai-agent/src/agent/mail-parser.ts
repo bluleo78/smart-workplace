@@ -1,21 +1,7 @@
-// 7d: CLI stream-json 라인 → 최종 텍스트, 그리고 분류 JSON 파싱.
-export function extractResultText(lines: string[]): string {
-  let result: string | null = null;
-  const textParts: string[] = [];
-  for (const line of lines) {
-    let ev: unknown;
-    try { ev = JSON.parse(line); } catch { continue; }
-    if (!ev || typeof ev !== 'object') continue;
-    const obj = ev as { type?: string; result?: unknown; message?: { content?: unknown } };
-    if (obj.type === 'result' && typeof obj.result === 'string') result = obj.result;
-    else if (obj.type === 'assistant' && obj.message && Array.isArray(obj.message.content)) {
-      for (const raw of obj.message.content as Array<{ type?: string; text?: string }>) {
-        if (raw?.type === 'text' && typeof raw.text === 'string' && raw.text.trim()) textParts.push(raw.text.trim());
-      }
-    }
-  }
-  return (result ?? textParts.join('\n')).trim();
-}
+// 7d: 분류/코칭 등 JSON 파싱 유틸.
+// ⚠️ 과거 CLI stream-json 라인 → 최종 텍스트 추출은 `extractResultText` 가 맡았으나,
+// collect 경로가 AgentRunner(Task 5)로 이관되며 provider-neutral `finalText`(runner-events.ts)
+// 로 대체됐다(의미 동일: result.text 우선, 없으면 assistant_text join). 이 함수는 제거.
 
 const CATEGORIES = ['업무', '개인', '알림', '프로모션', '뉴스레터'];
 

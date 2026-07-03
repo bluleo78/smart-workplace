@@ -8,15 +8,15 @@ import { randomUUID } from 'node:crypto';
 import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
 import { buildChatUserMessage } from './chat-user-message.js';
 import { prepareAttachments } from './attachment-prep.js';
-import { runSdkStream } from './sdk-runner.js';
-import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
-import { parseProgressLine } from './chat-progress-parser.js';
+import { runnerFor } from './agent-runner.js';
+import { fromRunnerEvent } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
 import { pickMentionedAgentId } from './chat-agent-resolver.js';
+import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
+import type { ProviderCredential } from './agent-runner.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-5';
 const DEFAULT_MAX_TURNS = 30;
 const DEFAULT_TIMEOUT_MS = 300_000;
 const THREAD_PREFETCH = 20;
@@ -32,11 +32,11 @@ export async function runChatAgent(
     return;
   }
 
-  let token: string;
+  let credential: ProviderCredential;
   try {
-    token = (await deps.client.getOAuthToken(agentId)).token;
+    credential = await deps.client.getProviderCredential(agentId);
   } catch (e) {
-    console.error('[run-chat-agent] OAuth 토큰 fetch 실패 — spawn 생략', {
+    console.error('[run-chat-agent] provider credential fetch 실패 — spawn 생략', {
       threadId: p.threadId,
       agentId,
       error: e instanceof Error ? e.message : String(e),
@@ -46,19 +46,14 @@ export async function runChatAgent(
 
   // per-run 임시폴더 — 첨부 다운로드 + Read cwd. Read 는 이 폴더 한정.
   const workDir = mkdtempSync(path.join(tmpdir(), `chat-agent-${p.threadId}-`));
-  // 인-프로세스 MCP 서버(chat 프로필) — onBehalfOf = 멘션된 agentId(ACTING_USER_ID 없음).
-  const workplace = buildInProcessWorkplaceMcpServer({
-    client: deps.client,
-    onBehalfOfId: agentId,
-    profile: 'chat',
-  });
 
   try {
     const recent = await deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH);
     const attachments = await prepareAttachments(deps.client, agentId, p.issueKey, workDir);
     const userMessage = buildChatUserMessage(p, recent, attachments);
 
-    const model = process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
+    // 모델 결정 이원화 해소: 이벤트 경로는 요청 body 가 없어 redeem 응답을 env/기본값보다 우선한다.
+    const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
     const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
     const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
@@ -77,23 +72,24 @@ export async function runChatAgent(
 
     emit('started');
     const logTag = `chat-agent:${p.issueKey}:thread${p.threadId}:${agentId}`;
-    const handle = runSdkStream(
+    // 인-프로세스 MCP 서버(chat 프로필)는 러너 내부에서 구성 — onBehalfOf = 멘션된 agentId(ACTING_USER_ID 없음).
+    const handle = runnerFor(credential).stream(
       {
         userMessage,
         systemPrompt: CHAT_SYSTEM_PROMPT,
         model,
         maxTurns,
-        token,
+        credential,
         agentId,
         timeoutMs,
         logTag,
         cwd: workDir, // 첨부 Read 스코프 — 누락 시 tmpdir 로 새 스코프(첨부 읽기 조용히 실패)
         allowFileRead: true,
         includePartialMessages: false, // CLI 가 partial 미전달이었음 — 파서 입력 계약 동일 유지
-        mcpServers: { workplace },
+        mcp: { client: deps.client, onBehalfOfId: agentId, profile: 'chat' },
       },
-      (line) => {
-        const sig = parseProgressLine(line);
+      (e) => {
+        const sig = fromRunnerEvent(e);
         if (tracker.apply(sig)) emit('tool');
       },
     );

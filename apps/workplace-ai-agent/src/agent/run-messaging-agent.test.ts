@@ -1,23 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { RunnerEvent } from './runner-events.js';
 
-// sdk-runner mock — runSdkStream: onLine 으로 가짜 SDKMessage 3라인 즉시 주입 후 done resolve.
-vi.mock('./sdk-runner.js', () => ({
-  runSdkStream: vi.fn((_i: unknown, onLine: (l: string) => void) => {
-    onLine(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__workplace__get_channel_messages' }] } }));
-    onLine(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result' }] } }));
-    onLine(JSON.stringify({ type: 'result', subtype: 'success' }));
-    return { done: Promise.resolve(), kill: vi.fn() };
-  }),
-}));
-vi.mock('./sdk-mcp-server.js', () => ({
-  buildInProcessWorkplaceMcpServer: vi.fn(() => ({ type: 'sdk', name: 'workplace', instance: {} })),
+// agent-runner mock — runnerFor().stream: onEvent 으로 가짜 RunnerEvent 3개 즉시 주입 후 done resolve.
+// (진행 신호: tool_use → 'tool', tool_done → tool_result, result → 종료)
+const { streamSpy } = vi.hoisted(() => ({ streamSpy: vi.fn() }));
+vi.mock('./agent-runner.js', () => ({
+  runnerFor: vi.fn(() => ({ stream: streamSpy, collect: vi.fn() })),
 }));
 
 import { runMessagingAgent } from './run-messaging-agent.js';
-import { runSdkStream } from './sdk-runner.js';
-import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import type { MessagingEventEnvelope } from '../types/messaging-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+
+// 기본 stream 구현 — get_channel_messages tool_use → tool_done → result 순으로 발행.
+function defaultStreamImpl(_i: unknown, onEvent: (e: RunnerEvent) => void) {
+  onEvent({ type: 'tool_use', name: 'mcp__workplace__get_channel_messages', input: {}, parentToolUseId: null });
+  onEvent({ type: 'tool_done' });
+  onEvent({ type: 'result', ok: true, text: null, usage: null });
+  return { done: Promise.resolve(), kill: vi.fn() };
+}
 
 const env: MessagingEventEnvelope = {
   type: 'messaging.message.posted',
@@ -36,7 +37,7 @@ const env: MessagingEventEnvelope = {
 function deps() {
   return {
     client: {
-      getOAuthToken: vi.fn(async () => ({ token: 'TK', label: null })),
+      getProviderCredential: vi.fn(async () => ({ provider: 'anthropic', token: 'TK', model: null })),
       getChannelMessages: vi.fn(async () => []),
       postMessagingProgress: vi.fn().mockResolvedValue(undefined),
     } as unknown as WorkplaceApiClient,
@@ -46,41 +47,64 @@ function deps() {
 describe('runMessagingAgent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
-  it('respondAsAgentId 로 토큰 fetch + SDK spawn(messaging, allowFileRead=false, partial=false, mcpServers)', async () => {
+  it('respondAsAgentId 로 토큰 fetch + SDK spawn(messaging, allowFileRead=false, partial=false, mcp)', async () => {
     await runMessagingAgent(env, deps());
-    expect(runSdkStream).toHaveBeenCalledOnce();
-    const runCall = vi.mocked(runSdkStream).mock.calls[0][0] as {
+    expect(streamSpy).toHaveBeenCalledOnce();
+    const runCall = vi.mocked(streamSpy).mock.calls[0][0] as {
       allowFileRead?: boolean; includePartialMessages?: boolean; cwd?: string;
-      mcpServers?: Record<string, unknown>;
+      mcp?: { profile?: string; onBehalfOfId?: number; delegationContext?: { actorId?: number; channelId?: number } };
     };
     expect(runCall.allowFileRead).toBe(false);
     expect(runCall.includePartialMessages).toBe(false);
     expect(runCall.cwd).toBeUndefined(); // messaging 은 첨부 없음 → workDir 없음(SDK 기본 tmpdir)
-    expect(runCall.mcpServers?.workplace).toBeDefined();
-    // 인-프로세스 서버는 messaging 프로필 + respondAsAgentId(99)로 빌드, delegationContext 포함
-    expect(buildInProcessWorkplaceMcpServer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        profile: 'messaging',
-        onBehalfOfId: 99,
-        delegationContext: expect.objectContaining({ actorId: 7, channelId: 42 }),
-      }),
-    );
+    // 러너가 인-프로세스 서버를 messaging 프로필 + respondAsAgentId(99)로 구성하도록 mcp 설정 전달, delegationContext 포함
+    expect(runCall.mcp).toMatchObject({
+      profile: 'messaging',
+      onBehalfOfId: 99,
+      delegationContext: expect.objectContaining({ actorId: 7, channelId: 42 }),
+    });
   });
 
   it('토큰 fetch 실패 시 spawn 생략', async () => {
     const d = deps();
-    vi.mocked(d.client.getOAuthToken).mockRejectedValueOnce(new Error('no token'));
+    vi.mocked(d.client.getProviderCredential).mockRejectedValueOnce(new Error('no token'));
     await runMessagingAgent(env, d);
-    expect(runSdkStream).not.toHaveBeenCalled();
+    expect(streamSpy).not.toHaveBeenCalled();
+  });
+
+  it('모델 결정 이원화 해소: credential.model(redeem 응답)이 env/기본값보다 우선한다', async () => {
+    const d = deps();
+    vi.mocked(d.client.getProviderCredential).mockResolvedValue({
+      provider: 'anthropic',
+      token: 'TK',
+      model: 'claude-opus-4-1',
+    });
+    await runMessagingAgent(env, d);
+    const runCall = vi.mocked(streamSpy).mock.calls[0][0] as { model?: string };
+    expect(runCall.model).toBe('claude-opus-4-1');
+  });
+
+  it('credential.model 이 null 이면 env/기본값으로 폴백한다', async () => {
+    const d = deps();
+    vi.mocked(d.client.getProviderCredential).mockResolvedValue({
+      provider: 'anthropic',
+      token: 'TK',
+      model: null,
+    });
+    await runMessagingAgent(env, d);
+    const runCall = vi.mocked(streamSpy).mock.calls[0][0] as { model?: string };
+    expect(runCall.model).toBe('claude-sonnet-5');
   });
 });
 
 describe('runMessagingAgent 진행 발행', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -88,7 +112,7 @@ describe('runMessagingAgent 진행 발행', () => {
     const postMessagingProgress = vi.fn().mockResolvedValue(undefined);
     const testDeps = {
       client: {
-        getOAuthToken: vi.fn().mockResolvedValue({ token: 't', label: 'a' }),
+        getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 't', model: null }),
         getChannelMessages: vi.fn().mockResolvedValue([]),
         postMessagingProgress,
       },

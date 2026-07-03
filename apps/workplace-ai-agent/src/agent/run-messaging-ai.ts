@@ -1,7 +1,8 @@
 // 메시징 AI 러너 — 안읽은 일반 채널 메시지 배치에서 "암묵적으로 관련된 멤버"를 발굴한다.
 // run-mail-ai.ts 의 runText 패턴 미러. 도구 없이 텍스트 in/out.
-import { runSdkCollect } from './sdk-runner.js';
-import { extractResultText } from './mail-parser.js';
+import { runnerFor } from './agent-runner.js';
+import { finalText } from './runner-events.js';
+import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
 import { z } from 'zod';
 
@@ -33,19 +34,20 @@ export async function runText(
   deps: RunAgentDeps,
   tag: string,
 ): Promise<string> {
-  const token = (await deps.client.getOAuthToken(cfg.assistantAgentId)).token;
-  const lines = await runSdkCollect({
+  const credential = await deps.client.getProviderCredential(cfg.assistantAgentId);
+  const events = await runnerFor(credential).collect({
     userMessage,
     systemPrompt,
-    model: cfg.model,
+    // 우선순위: 요청 body(cfg.model) > redeem 응답(credential.model) > env/기본값.
+    model: cfg.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL,
     maxTurns: cfg.maxTurns,
-    token,
+    credential,
     agentId: cfg.assistantAgentId,
     timeoutMs: cfg.timeoutMs,
     logTag: `${tag}:${cfg.assistantAgentId}`,
     includePartialMessages: false,
   });
-  return extractResultText(lines);
+  return finalText(events);
 }
 
 // relevant 배열 파싱 — 모델이 코드펜스/잡설을 섞어도 JSON 객체를 파싱. 실패 시 빈 배열 폴백.

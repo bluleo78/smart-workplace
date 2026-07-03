@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { RunnerEvent } from './runner-events.js';
 
-vi.mock('./sdk-runner.js', () => ({
-  runSdkStream: vi.fn(),
+// agent-runner mock — runnerFor().stream 을 통해 RunnerEvent 를 onEvent 로 흘린다.
+const { streamSpy } = vi.hoisted(() => ({ streamSpy: vi.fn() }));
+vi.mock('./agent-runner.js', () => ({
+  runnerFor: vi.fn(() => ({ stream: streamSpy, collect: vi.fn() })),
 }));
 
 import { runWikiCompose } from './run-wiki-compose.js';
 import { type WikiComposeInput } from './wiki-prompt.js';
-import { runSdkStream } from './sdk-runner.js';
 
-const fakeClient = { getOAuthToken: vi.fn() } as never;
+const fakeClient = { getProviderCredential: vi.fn() } as never;
 
 // 비서 설정은 요청 본문으로 온다(env 미사용). 테스트용 기본 입력.
 function baseInput(action: WikiComposeInput['action'], over: Partial<WikiComposeInput> = {}): WikiComposeInput {
@@ -25,54 +27,56 @@ function baseInput(action: WikiComposeInput['action'], over: Partial<WikiCompose
   };
 }
 
-// 실측 stream-json 모양 라인 직렬화 헬퍼.
-function textDelta(text: string): string {
-  return JSON.stringify({
-    type: 'stream_event',
-    event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text } },
-  });
-}
-function thinkingDelta(thinking: string): string {
-  return JSON.stringify({
-    type: 'stream_event',
-    event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking } },
-  });
+// RunnerEvent 픽스처 헬퍼.
+function textDelta(text: string): RunnerEvent {
+  return { type: 'text_delta', text, parentToolUseId: null };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  (fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken =
-    vi.fn().mockResolvedValue({ token: 'tok', label: null });
+  (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+    vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null });
 });
 
 describe('runWikiCompose', () => {
-  it('text_delta 만 onDelta 로 흘리고 thinking·result 는 제외', async () => {
-    vi.mocked(runSdkStream).mockImplementation((_i, onLine) => {
-      onLine(thinkingDelta('X')); // 추론 — 제외
-      onLine(textDelta('요약: '));
-      onLine(textDelta('핵심'));
-      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '요약: 핵심' })); // 제외
+  it('text_delta 만 onDelta 로 흘리고 result 는 제외', async () => {
+    // thinking 델타는 애초에 RunnerEvent 로 매핑되지 않으므로(runner-events 계층에서 폐기) 픽스처에 없다.
+    streamSpy.mockImplementation((_i, onEvent: (e: RunnerEvent) => void) => {
+      onEvent(textDelta('요약: '));
+      onEvent(textDelta('핵심'));
+      onEvent({ type: 'result', ok: true, text: '요약: 핵심', usage: null }); // 제외(text_delta 아님)
       return { done: Promise.resolve(), kill: () => {} };
     });
     const got: string[] = [];
     await runWikiCompose(baseInput('summarize'), { client: fakeClient }, (t) => got.push(t));
     expect(got.join('')).toBe('요약: 핵심');
-    // 회귀 가드: 비서 토큰을 요청의 assistantAgentId(7)로 실제 fetch 했는지 검증.
-    expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalledWith(7);
+    // 회귀 가드: 비서 자격증명을 요청의 assistantAgentId(7)로 실제 fetch 했는지 검증.
+    expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).toHaveBeenCalledWith(7);
   });
 
-  it('includePartialMessages:true 로 runSdkStream 호출', async () => {
-    vi.mocked(runSdkStream).mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+  it('모델 결정: input.model(요청 body)이 credential.model 보다 우선한다', async () => {
+    (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+      vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: 'claude-opus-4-1' });
+    streamSpy.mockReturnValue({ done: Promise.resolve(), kill: () => {} });
     await runWikiCompose(baseInput('continue'), { client: fakeClient }, () => {});
-    const passed = vi.mocked(runSdkStream).mock.calls[0][0];
+    const passed = vi.mocked(streamSpy).mock.calls[0][0] as { model: string };
+    expect(passed.model).toBe('claude-sonnet-4-6'); // input.model 그대로(body 우선)
+  });
+
+  it('includePartialMessages:true 로 러너 stream 호출', async () => {
+    streamSpy.mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    await runWikiCompose(baseInput('continue'), { client: fakeClient }, () => {});
+    const passed = vi.mocked(streamSpy).mock.calls[0][0] as {
+      includePartialMessages?: boolean; systemPrompt: string; credential: { token: string }; agentId: number;
+    };
     expect(passed.includePartialMessages).toBe(true);
     expect(passed.systemPrompt).toContain('위키 문서 작성 보조자');
-    expect(passed.token).toBe('tok'); // 비서 토큰이 sdk-runner 로 전달
+    expect(passed.credential.token).toBe('tok'); // 비서 토큰이 credential 로 전달
     expect(passed.agentId).toBe(7);
   });
 
   it('러너 실패(reject) 가 전파된다', async () => {
-    vi.mocked(runSdkStream).mockReturnValue({
+    streamSpy.mockReturnValue({
       done: Promise.reject(new Error('sdk boom')),
       kill: () => {},
     });
@@ -85,7 +89,7 @@ describe('runWikiCompose', () => {
     // 프로덕션 경로: 신호가 살아있을 때 리스너가 붙고, 이후 연결 종료로 abort 가 발생.
     const kill = vi.fn();
     let resolveDone!: () => void;
-    vi.mocked(runSdkStream).mockReturnValue({
+    streamSpy.mockReturnValue({
       done: new Promise<void>((r) => { resolveDone = r; }),
       kill,
     });
@@ -102,7 +106,7 @@ describe('runWikiCompose', () => {
   it('이미 abort 된 신호 → 즉시 handle.kill 호출', async () => {
     const kill = vi.fn();
     let resolveDone!: () => void;
-    vi.mocked(runSdkStream).mockReturnValue({
+    streamSpy.mockReturnValue({
       done: new Promise<void>((r) => { resolveDone = r; }),
       kill,
     });

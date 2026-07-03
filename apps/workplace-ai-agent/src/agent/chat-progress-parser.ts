@@ -1,6 +1,7 @@
-// CLI stream-json NDJSON 라인을 진행(progress) 신호로 분류한다.
-// 텍스트 델타는 채팅방 UX에서 불필요하므로 무시하고, 도구 호출/결과/종료만 본다.
-// (firehub agent-cli.ts 의 stream-json 분류를 진행표시용으로 축약)
+// 러너 중립 RunnerEvent 를 진행(progress) 신호로 분류한다.
+// 텍스트 델타는 채팅방 UX에서 불필요하므로 무시하고, 도구 호출/완료/종료만 본다.
+import type { RunnerEvent } from './runner-events.js';
+
 export type ProgressSignal =
   | { kind: 'tool_use'; toolName: string }
   | { kind: 'tool_result' }
@@ -13,25 +14,10 @@ function stripMcpPrefix(name: string): string {
   return m ? m[1] : name;
 }
 
-export function parseProgressLine(line: string): ProgressSignal {
-  let o: { type?: string; message?: { content?: Array<{ type?: string; name?: string }> } };
-  try {
-    o = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (o.type === 'assistant') {
-    const tool = o.message?.content?.find((b) => b.type === 'tool_use');
-    if (tool && typeof tool.name === 'string') {
-      return { kind: 'tool_use', toolName: stripMcpPrefix(tool.name) };
-    }
-    return null; // 텍스트 전용 assistant 무시
-  }
-  if (o.type === 'user') {
-    const hasResult = o.message?.content?.some((b) => b.type === 'tool_result');
-    if (hasResult) return { kind: 'tool_result' };
-    return null;
-  }
-  if (o.type === 'result') return { kind: 'result' };
+// RunnerEvent → 진행 신호. tool_use→도구명(프리픽스 제거), tool_done→결과, result→종료, 그 외 null.
+export function fromRunnerEvent(e: RunnerEvent): ProgressSignal {
+  if (e.type === 'tool_use') return { kind: 'tool_use', toolName: stripMcpPrefix(e.name) };
+  if (e.type === 'tool_done') return { kind: 'tool_result' };
+  if (e.type === 'result') return { kind: 'result' };
   return null;
 }

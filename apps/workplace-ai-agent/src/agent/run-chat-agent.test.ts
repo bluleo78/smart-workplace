@@ -1,25 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { RunnerEvent } from './runner-events.js';
 
-// sdk-runner mock — runSdkStream: onLine 으로 가짜 SDKMessage 3라인 즉시 주입 후 done resolve.
-vi.mock('./sdk-runner.js', () => ({
-  runSdkStream: vi.fn((_i: unknown, onLine: (l: string) => void) => {
-    onLine(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__workplace__search_wiki' }] } }));
-    onLine(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result' }] } }));
-    onLine(JSON.stringify({ type: 'result', subtype: 'success' }));
-    return { done: Promise.resolve(), kill: vi.fn() };
-  }),
-}));
-vi.mock('./sdk-mcp-server.js', () => ({
-  buildInProcessWorkplaceMcpServer: vi.fn(() => ({ type: 'sdk', name: 'workplace', instance: {} })),
+// agent-runner mock — runnerFor().stream: onEvent 으로 가짜 RunnerEvent 3개 즉시 주입 후 done resolve.
+// (진행 신호: tool_use → 'tool', tool_done → tool_result, result → 종료)
+const { streamSpy } = vi.hoisted(() => ({ streamSpy: vi.fn() }));
+vi.mock('./agent-runner.js', () => ({
+  runnerFor: vi.fn(() => ({ stream: streamSpy, collect: vi.fn() })),
 }));
 vi.mock('./attachment-prep.js', () => ({ prepareAttachments: vi.fn(async () => []) }));
 
 import { runChatAgent } from './run-chat-agent.js';
-import { runSdkStream } from './sdk-runner.js';
-import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import { prepareAttachments } from './attachment-prep.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+
+// 기본 stream 구현 — search_wiki tool_use → tool_done → result 순으로 발행.
+function defaultStreamImpl(_i: unknown, onEvent: (e: RunnerEvent) => void) {
+  onEvent({ type: 'tool_use', name: 'mcp__workplace__search_wiki', input: {}, parentToolUseId: null });
+  onEvent({ type: 'tool_done' });
+  onEvent({ type: 'result', ok: true, text: null, usage: null });
+  return { done: Promise.resolve(), kill: vi.fn() };
+}
 
 const env: ChatEventEnvelope = {
   type: 'chat.message.posted',
@@ -39,7 +40,7 @@ const env: ChatEventEnvelope = {
 function deps() {
   return {
     client: {
-      getOAuthToken: vi.fn(async () => ({ token: 'TK', label: null })),
+      getProviderCredential: vi.fn(async () => ({ provider: 'anthropic', token: 'TK', model: null })),
       getChatMessages: vi.fn(async () => []),
       listIssueAttachments: vi.fn(async () => []),
       downloadIssueAttachment: vi.fn(),
@@ -51,27 +52,25 @@ function deps() {
 describe('runChatAgent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(prepareAttachments).mockResolvedValue([]);
   });
 
-  it('mentions AGENT → 토큰 fetch + 첨부 준비 + SDK spawn(allowFileRead, cwd, mcpServers, partial=false)', async () => {
+  it('mentions AGENT → 토큰 fetch + 첨부 준비 + SDK spawn(allowFileRead, cwd, mcp, partial=false)', async () => {
     await runChatAgent(env, deps());
     expect(prepareAttachments).toHaveBeenCalled();
-    expect(runSdkStream).toHaveBeenCalledOnce();
-    const runCall = vi.mocked(runSdkStream).mock.calls[0][0] as {
+    expect(streamSpy).toHaveBeenCalledOnce();
+    const runCall = vi.mocked(streamSpy).mock.calls[0][0] as {
       allowFileRead?: boolean; cwd?: string; includePartialMessages?: boolean;
-      mcpServers?: Record<string, unknown>;
+      mcp?: { workplaceClient?: unknown; profile?: string; onBehalfOfId?: number };
     };
     expect(runCall.allowFileRead).toBe(true);
     expect(typeof runCall.cwd).toBe('string');
     expect(runCall.includePartialMessages).toBe(false);
-    expect(runCall.mcpServers?.workplace).toBeDefined();
-    // 인-프로세스 서버는 chat 프로필 + 멘션된 agentId(99)로 빌드
-    expect(buildInProcessWorkplaceMcpServer).toHaveBeenCalledWith(
-      expect.objectContaining({ profile: 'chat', onBehalfOfId: 99 }),
-    );
+    // 러너가 인-프로세스 서버를 chat 프로필 + 멘션된 agentId(99)로 구성하도록 mcp 설정 전달
+    expect(runCall.mcp).toMatchObject({ profile: 'chat', onBehalfOfId: 99 });
   });
 
   it('mentions 에 AGENT 없으면 spawn 생략', async () => {
@@ -83,13 +82,38 @@ describe('runChatAgent', () => {
       },
     };
     await runChatAgent(noAgent, deps());
-    expect(runSdkStream).not.toHaveBeenCalled();
+    expect(streamSpy).not.toHaveBeenCalled();
+  });
+
+  it('모델 결정 이원화 해소: credential.model(redeem 응답)이 env/기본값보다 우선한다', async () => {
+    const d = deps();
+    vi.mocked(d.client.getProviderCredential).mockResolvedValue({
+      provider: 'anthropic',
+      token: 'TK',
+      model: 'claude-opus-4-1',
+    });
+    await runChatAgent(env, d);
+    const runCall = vi.mocked(streamSpy).mock.calls[0][0] as { model?: string };
+    expect(runCall.model).toBe('claude-opus-4-1');
+  });
+
+  it('credential.model 이 null 이면 env/기본값으로 폴백한다', async () => {
+    const d = deps();
+    vi.mocked(d.client.getProviderCredential).mockResolvedValue({
+      provider: 'anthropic',
+      token: 'TK',
+      model: null,
+    });
+    await runChatAgent(env, d);
+    const runCall = vi.mocked(streamSpy).mock.calls[0][0] as { model?: string };
+    expect(runCall.model).toBe('claude-sonnet-5');
   });
 });
 
 describe('runChatAgent 진행 발행', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(prepareAttachments).mockResolvedValue([]);
@@ -99,7 +123,7 @@ describe('runChatAgent 진행 발행', () => {
     const postChatProgress = vi.fn().mockResolvedValue(undefined);
     const testDeps = {
       client: {
-        getOAuthToken: vi.fn().mockResolvedValue({ token: 't', label: 'a' }),
+        getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 't', model: null }),
         getChatMessages: vi.fn().mockResolvedValue([]),
         listIssueAttachments: vi.fn().mockResolvedValue([]),
         downloadIssueAttachment: vi.fn(),

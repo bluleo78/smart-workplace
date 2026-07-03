@@ -1,162 +1,76 @@
 import { describe, it, expect } from 'vitest';
-import { parseChat, parseChatLines, extractRouterTextDelta } from './chat-parser.js';
+import { parseChatEvents } from './chat-parser.js';
+import type { RunnerEvent } from './runner-events.js';
 
-// 실제 stream-json 형상을 본뜬 fixture: system → assistant(tool_use 2개) → user(tool_result) → result.
-const fixture = [
-  { type: 'system', subtype: 'init', session_id: 'x' },
-  {
-    type: 'assistant',
-    message: {
-      role: 'assistant',
-      content: [
-        {
-          type: 'tool_use',
-          id: 'tu_1',
-          name: 'mcp__workplace__show_issue_list',
-          input: { params: { assignee: 'me', priority: ['HIGH'] }, layout: { page: 'current' } },
-        },
-        {
-          type: 'tool_use',
-          id: 'tu_2',
-          name: 'mcp__workplace__show_activity',
-          input: { params: { actorKind: 'AGENT' } },
-        },
-      ],
-    },
-  },
-  {
-    type: 'user',
-    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: [{ type: 'text', text: '{"displayed":true}' }] }] },
-  },
-  { type: 'result', subtype: 'success', is_error: false, result: '내 담당 HIGH 이슈와 AI 활동을 보여드려요.' },
+// RunnerEvent 픽스처 헬퍼 — show_* tool_use / 종료 result.
+function toolUse(name: string, input: unknown): RunnerEvent {
+  return { type: 'tool_use', name, input, parentToolUseId: null };
+}
+function result(usage: { inputTokens: number; outputTokens: number } | null = null, text: string | null = null): RunnerEvent {
+  return { type: 'result', ok: true, text, usage };
+}
+
+// 실제 stream 형상을 본뜬 fixture: assistant(tool_use 2개) → result.
+const fixture: RunnerEvent[] = [
+  toolUse('mcp__workplace__show_issue_list', { params: { assignee: 'me', priority: ['HIGH'] }, layout: { page: 'current' } }),
+  toolUse('mcp__workplace__show_activity', { params: { actorKind: 'AGENT' } }),
+  result(null, '내 담당 HIGH 이슈와 AI 활동을 보여드려요.'),
 ];
 
-describe('parseChat', () => {
-  it('tool_use 를 순서대로 위젯으로 수집', () => {
-    const out = parseChat(fixture);
+describe('parseChatEvents', () => {
+  it('tool_use 를 순서대로 위젯으로 수집(params/layout 보존)', () => {
+    const out = parseChatEvents(fixture);
     expect(out.widgets).toEqual([
       { type: 'issue_list', params: { assignee: 'me', priority: ['HIGH'] }, layout: { page: 'current' } },
       { type: 'activity', params: { actorKind: 'AGENT' } },
     ]);
   });
 
-  it('result.result 를 message 로 사용', () => {
-    expect(parseChat(fixture).message).toBe('내 담당 HIGH 이슈와 AI 활동을 보여드려요.');
-  });
-
-  it('result 없으면 assistant text 블록을 join 해 message 생성', () => {
-    const noResult = [
-      {
-        type: 'assistant',
-        message: { role: 'assistant', content: [{ type: 'text', text: '진행중 이슈예요.' }, { type: 'tool_use', id: 't', name: 'show_issue_list', input: { params: { status: 'IN_PROGRESS' } } }] },
-      },
+  it('assistant_text 이벤트가 섞여 있어도 위젯만 수집(텍스트는 산출하지 않음)', () => {
+    const events: RunnerEvent[] = [
+      { type: 'assistant_text', text: '진행중 이슈예요.' },
+      toolUse('show_issue_list', { params: { status: 'IN_PROGRESS' } }),
     ];
-    const out = parseChat(noResult);
-    expect(out.message).toBe('진행중 이슈예요.');
-    expect(out.widgets).toEqual([{ type: 'issue_list', params: { status: 'IN_PROGRESS' } }]);
+    expect(parseChatEvents(events).widgets).toEqual([{ type: 'issue_list', params: { status: 'IN_PROGRESS' } }]);
   });
 
   it('#431 show_mail_list 를 mail_list 위젯으로 수집(params 보존)', () => {
-    const out = parseChat([
-      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'm', name: 'mcp__workplace__show_mail_list', input: { params: { folder: 'INBOX', limit: 20 } } }] } },
-    ]);
+    const out = parseChatEvents([toolUse('mcp__workplace__show_mail_list', { params: { folder: 'INBOX', limit: 20 } })]);
     expect(out.widgets).toEqual([{ type: 'mail_list', params: { folder: 'INBOX', limit: 20 } }]);
   });
 
   it('params 없는 show_my_tasks 는 빈 params', () => {
-    const out = parseChat([
-      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'show_my_tasks', input: {} }] } },
-    ]);
+    const out = parseChatEvents([toolUse('show_my_tasks', {})]);
     expect(out.widgets).toEqual([{ type: 'my_tasks', params: {} }]);
   });
 
-  it('show_ 가 아닌 tool_use 는 무시', () => {
-    const out = parseChat([
-      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'mcp__workplace__get_issue_detail', input: {} }] } },
+  it('show_ 가 아닌 tool_use(mcp 읽기 도구·Agent 위임)는 무시', () => {
+    const out = parseChatEvents([
+      toolUse('mcp__workplace__get_issue_detail', {}),
+      toolUse('Agent', { subagent_type: 'issue-agent' }),
     ]);
     expect(out.widgets).toEqual([]);
   });
 
-  it('빈 입력 → 빈 위젯 + 빈 message', () => {
-    expect(parseChat([])).toEqual({ message: '', widgets: [], usage: null });
+  it('빈 입력 → 빈 위젯 + usage null', () => {
+    expect(parseChatEvents([])).toEqual({ widgets: [], usage: null });
   });
 
-  it('parseChatLines: 비 JSON·공백 줄은 건너뛰고 유효 줄만 파싱', () => {
-    const lines = [
-      'this is not json',
-      '   ',
-      JSON.stringify({
-        type: 'assistant',
-        message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'mcp__workplace__show_issue_list', input: { params: { assignee: 'me' } } }] },
-      }),
-      '{ broken json',
-      '',
-      JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '한 개 위젯을 보여드려요.' }),
+  it('#432: result 이벤트의 usage(inputTokens/outputTokens) 를 추출', () => {
+    const events: RunnerEvent[] = [result({ inputTokens: 1234, outputTokens: 56 }, '완료')];
+    expect(parseChatEvents(events).usage).toEqual({ inputTokens: 1234, outputTokens: 56 });
+  });
+
+  it('#432: usage 누락(null)이면 null', () => {
+    expect(parseChatEvents([result(null, '완료')]).usage).toBeNull();
+  });
+
+  it('result 이벤트가 있어도 위젯 수집은 tool_use 순서대로 유지', () => {
+    const events: RunnerEvent[] = [
+      { type: 'assistant_text', text: '준비중...' },
+      toolUse('show_issue_list', { params: { status: 'IN_PROGRESS' } }),
+      result(null, '최종 결과예요'),
     ];
-    const out = parseChatLines(lines);
-    expect(out).toEqual({
-      message: '한 개 위젯을 보여드려요.',
-      widgets: [{ type: 'issue_list', params: { assignee: 'me' } }],
-      usage: null,
-    });
-  });
-
-  it('#432: result 이벤트의 usage(input_tokens/output_tokens) 를 추출', () => {
-    const events = [
-      { type: 'result', subtype: 'success', is_error: false, result: '완료', usage: { input_tokens: 1234, output_tokens: 56 } },
-    ];
-    expect(parseChat(events).usage).toEqual({ inputTokens: 1234, outputTokens: 56 });
-  });
-
-  it('#432: usage 누락/형식 불명이면 null', () => {
-    expect(parseChat([{ type: 'result', result: '완료' }]).usage).toBeNull();
-    expect(parseChat([{ type: 'result', result: '완료', usage: { foo: 'bar' } }]).usage).toBeNull();
-  });
-
-  it('result 가 있으면 assistant text 보다 우선', () => {
-    const events = [
-      {
-        type: 'assistant',
-        message: { role: 'assistant', content: [{ type: 'text', text: '준비중...' }, { type: 'tool_use', id: 'a', name: 'show_issue_list', input: { params: { status: 'IN_PROGRESS' } } }] },
-      },
-      { type: 'result', subtype: 'success', is_error: false, result: '최종 결과예요' },
-    ];
-    const out = parseChat(events);
-    expect(out.message).toBe('최종 결과예요');
-    expect(out.widgets).toEqual([{ type: 'issue_list', params: { status: 'IN_PROGRESS' } }]);
-  });
-});
-
-// #463: 라우터 자기 텍스트 추출 — parent_tool_use_id null 필터로 서브에이전트 prose 누수 방지.
-describe('extractRouterTextDelta (#463)', () => {
-  it('라우터 자기 text_delta (parent_tool_use_id 없음) → 텍스트 반환', () => {
-    const line = {
-      type: 'stream_event',
-      parent_tool_use_id: null,
-      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '안녕하세요' } },
-    };
-    expect(extractRouterTextDelta(line)).toBe('안녕하세요');
-  });
-
-  it('parent_tool_use_id 가 설정된(서브에이전트) text_delta → null', () => {
-    const line = {
-      type: 'stream_event',
-      parent_tool_use_id: 'tu_sub_123',
-      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '서브에이전트 prose' } },
-    };
-    expect(extractRouterTextDelta(line)).toBeNull();
-  });
-
-  it('type 이 stream_event 가 아닌 줄 → null', () => {
-    const line = {
-      type: 'assistant',
-      parent_tool_use_id: null,
-      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '무관' } },
-    };
-    expect(extractRouterTextDelta(line)).toBeNull();
-  });
-
-  it('stream_event 이지만 content_block_delta 가 아닌 이벤트(message_start) → null', () => {
-    expect(extractRouterTextDelta({ type: 'stream_event', event: { type: 'message_start' }, parent_tool_use_id: null })).toBeNull();
+    expect(parseChatEvents(events).widgets).toEqual([{ type: 'issue_list', params: { status: 'IN_PROGRESS' } }]);
   });
 });

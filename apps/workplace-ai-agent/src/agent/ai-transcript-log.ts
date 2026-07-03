@@ -44,8 +44,11 @@ export function transcriptRequest(requestId: string | undefined, meta: Record<st
   append(requestId, { kind: 'request', ...meta });
 }
 
-// 스트림 라인 — claude CLI stream-json 한 줄을 "수신 즉시" 기록(파싱 성공 시 객체, 실패 시 raw 문자열).
-// 라인마다 ts 가 찍히므로 라인 간 간격이 곧 단계별 지연이 된다.
+// 스트림 라인 — (#462 이후) 러너 중립 RunnerEvent 를 JSON.stringify 해 "수신 즉시" 기록
+// (호출부가 이미 문자열을 넘기므로 여기서 재-parse 해 객체로 보관; 실패 시 raw 문자열).
+// 이벤트마다 ts 가 찍히므로 이벤트 간 간격이 곧 단계별 지연이 된다.
+// 주의: mapSdkMessage 가 RunnerEvent 로 매핑하지 않는 원본 SDK 메시지(system/init, thinking_delta 등)는
+// 이제 여기 남지 않는다 — 전체 raw CLI 스트림 원문 캡처가 필요하면 이 로거로는 불충분하다.
 export function transcriptStreamLine(requestId: string | undefined, raw: string): void {
   if (!requestId || !transcriptEnabled()) return;
   let parsed: unknown;

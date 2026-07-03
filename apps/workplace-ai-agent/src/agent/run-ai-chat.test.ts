@@ -1,42 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { RunnerEvent } from './runner-events.js';
+import type { RunnerInput } from './agent-runner.js';
 
-// #462 슬라이스4: CLI/파일 IPC mock → SDK/인-프로세스 mock 전환.
-// capturedBridge/capturedOnTool 은 buildInProcessWorkplaceMcpServer 호출 시 캡처.
-// runSdkStream mock 이 onLine 발행 직전에 capturedBridge 콜백으로 사이드카를 대체한다.
-
-// 모듈 레벨 캡처 변수 — runAiChatStream 호출마다 buildInProcessWorkplaceMcpServer 가
-// 새로 호출되어 채워지므로, beforeEach clearAllMocks 후 수동 리셋.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let capturedBridgeVar: any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let capturedOnToolVar: any;
-
-vi.mock('./sdk-runner.js', () => ({
-  runSdkStream: vi.fn(),
-}));
-vi.mock('./sdk-mcp-server.js', () => ({
-  buildInProcessWorkplaceMcpServer: vi.fn((args: { hostBridge?: unknown; onTool?: unknown }) => {
-    capturedBridgeVar = args.hostBridge;
-    capturedOnToolVar = args.onTool;
-    // McpSdkServerConfigWithInstance 호환 더미 객체
-    return { name: 'workplace', tools: [], server: {} };
-  }),
-}));
-vi.mock('./subagent-loader.js', () => ({
-  loadSubagents: vi.fn(() => ({ 'issue-agent': { description: 'd', tools: [], prompt: '' } })),
-  toAgentDefinitions: vi.fn((defs: Record<string, unknown>) =>
-    Object.fromEntries(Object.keys(defs).map((k) => [k, { description: 'd', prompt: '', tools: [], mcpServers: ['workplace'] }])),
-  ),
+// Task 6: stream 경로 RunnerEvent 이관. runSdkStream/buildInProcessWorkplaceMcpServer mock 대신
+// agent-runner(runnerFor().stream) 를 mock 하고 RunnerEvent 픽스처를 onEvent 로 흘린다.
+// hostBridge/onTool 는 stream 입력의 i.mcp 로 전달되므로, mock impl 이 거기서 콜백을 구동한다.
+const { streamSpy } = vi.hoisted(() => ({ streamSpy: vi.fn() }));
+vi.mock('./agent-runner.js', () => ({
+  runnerFor: vi.fn(() => ({ stream: streamSpy, collect: vi.fn() })),
 }));
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('../logger.js', () => ({ log: logMock }));
 
 import { runAiChatStream, type ChatInput } from './run-ai-chat.js';
-import { runSdkStream } from './sdk-runner.js';
-import { loadSubagents, toAgentDefinitions } from './subagent-loader.js';
 
 const fakeClient = {
-  getOAuthToken: vi.fn(),
+  getProviderCredential: vi.fn(),
   // #404: show_issue_detail 위젯 존재 여부 검증 — 기본값은 존재(resolve).
   getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: 't' }),
 } as never;
@@ -55,85 +34,91 @@ function baseInput(over: Partial<ChatInput> = {}): ChatInput {
   };
 }
 
-// 실측 stream-json 모양 라인 직렬화 헬퍼.
-function textDelta(text: string): string {
-  return JSON.stringify({
-    type: 'stream_event',
-    event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text } },
-  });
+// RunnerEvent 픽스처 헬퍼.
+function textDelta(text: string, parentToolUseId: string | null = null): RunnerEvent {
+  return { type: 'text_delta', text, parentToolUseId };
 }
-function thinkingDelta(thinking: string): string {
-  return JSON.stringify({
-    type: 'stream_event',
-    event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking } },
-  });
+function agentDelegation(subagentType: string): RunnerEvent {
+  return { type: 'tool_use', name: 'Agent', input: { subagent_type: subagentType, prompt: 'x' }, parentToolUseId: null };
+}
+function toolUse(name: string, input: unknown): RunnerEvent {
+  return { type: 'tool_use', name, input, parentToolUseId: null };
+}
+function result(text = ''): RunnerEvent {
+  return { type: 'result', ok: true, text, usage: null };
 }
 
-// #462 슬라이스4: 사이드카 파일 대신 HostBridge 인메모리 콜백으로 전환.
-// runSdkStream mock 내에서 onLine 호출 직전 capturedBridgeVar 콜백을 사용해
-// 지정된 사이드카를 시뮬레이션한다.
+// 사이드카(HostBridge) 시뮬레이션 스펙.
 interface SidecarSpec {
-  subagent?: string;         // submit_response → onSubmitResponse(text)
-  pendingAction?: unknown;   // propose → onProposal(action)
-  unassignSuccess?: unknown; // unassign_self 성공 → onUnassignResult({ok:true})
-  unassignError?: { canonical: string }; // unassign_self 실패 → onUnassignResult({ok:false,canonical})
+  subagent?: string;
+  pendingAction?: { actionType: string; summary: string; params: Record<string, unknown> };
+  unassignSuccess?: unknown;
+  unassignError?: { canonical: string };
 }
 
-// spec 에 따라 onLine 발행 직전에 bridge 콜백을 호출하는 runSdkStream 구현을 반환한다.
-function makeSdkImpl(lines: string[], spec: SidecarSpec = {}) {
-  return (_i: unknown, onLine: (line: string) => void) => {
-    // bridge 콜백을 먼저 호출해 누산자를 채운다(onLine 이전에 done 응답 분기가 실행되는 것 방지).
-    if (spec.subagent !== undefined) capturedBridgeVar?.onSubmitResponse(spec.subagent);
-    if (spec.pendingAction !== undefined) capturedBridgeVar?.onProposal(spec.pendingAction);
-    if (spec.unassignSuccess !== undefined) capturedBridgeVar?.onUnassignResult({ ok: true });
-    if (spec.unassignError !== undefined) capturedBridgeVar?.onUnassignResult({ ok: false, canonical: spec.unassignError.canonical });
-    for (const line of lines) onLine(line);
+// spec 에 따라 onEvent 발행 직전에 bridge 콜백(i.mcp.hostBridge)을 호출하는 stream 구현을 반환한다.
+function makeRunnerImpl(events: RunnerEvent[], spec: SidecarSpec = {}) {
+  return (i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
+    const bridge = i.mcp?.hostBridge;
+    if (spec.subagent !== undefined) bridge?.onSubmitResponse(spec.subagent);
+    if (spec.pendingAction !== undefined) bridge?.onProposal(spec.pendingAction);
+    if (spec.unassignSuccess !== undefined) bridge?.onUnassignResult({ ok: true });
+    if (spec.unassignError !== undefined) bridge?.onUnassignResult({ ok: false, canonical: spec.unassignError.canonical });
+    for (const ev of events) onEvent(ev);
     return { done: Promise.resolve(), kill: () => {} };
   };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  capturedBridgeVar = undefined;
-  capturedOnToolVar = undefined;
-  (fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken =
-    vi.fn().mockResolvedValue({ token: 'tok', label: null });
+  streamSpy.mockReset();
+  (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+    vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null });
 });
 
 describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
   // #463: 라우터 자유 prose(text_delta)는 onDelta 로 라이브 emit 된다. onText 는 위임 답에만 사용.
   it('라우터 prose(text_delta)는 onDelta 로 라이브 emit, fullText = 누적 streamedText', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      thinkingDelta('추론 과정'), // thinking_delta — extractRouterTextDelta 가 null 반환
+    // thinking 델타는 RunnerEvent 로 매핑되지 않으므로 픽스처에서 제외(text_delta 만 사용자에게 흐른다).
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('안녕 '),
       textDelta('하세요'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const got: string[] = [];
     const deltas: string[] = [];
-    const result = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
+    const outcome = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
     // 라우터 prose 는 onDelta 로만 나가고 onText 는 호출 안 됨.
     expect(got).toHaveLength(0);
     expect(deltas).toEqual(['안녕 ', '하세요']);
-    expect(result.fullText).toBe('안녕 하세요');
+    expect(outcome.fullText).toBe('안녕 하세요');
     // 비서 토큰을 assistantAgentId(7)로 fetch 했는지 검증.
-    expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalledWith(7);
+    expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).toHaveBeenCalledWith(7);
   });
 
-  it('done 에서 parseChatLines 로 widgets 산출 + 위젯만 있으면 fullText 빈 문자열', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'show_my_tasks', input: {} }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+  it('모델 결정: input.model(요청 body)이 credential.model 보다 우선한다', async () => {
+    (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+      vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: 'claude-opus-4-1' });
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    const passed = vi.mocked(streamSpy).mock.calls[0][0] as { model: string };
+    expect(passed.model).toBe('claude-sonnet-4-6'); // input.model 그대로(body 우선)
+  });
+
+  it('done 에서 parseChatEvents 로 widgets 산출 + 위젯만 있으면 fullText 빈 문자열', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([
+      toolUse('show_my_tasks', {}),
+      result(''),
     ]));
-    const result = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(result.fullText).toBe('');
-    expect(result.widgets).toEqual([{ type: 'my_tasks', params: {} }]);
+    const outcome = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(outcome.fullText).toBe('');
+    expect(outcome.widgets).toEqual([{ type: 'my_tasks', params: {} }]);
   });
 
   it('라우터 prose(textDelta) 사이드카 없음 → onDelta emit + fullText = 스트리밍 텍스트', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('저는 이슈·메일·일정 등을 도와드릴 수 있어요.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const got: string[] = [];
     const deltas: string[] = [];
@@ -145,9 +130,9 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
 
   // #381 불변식: submit_response(위임) → HostBridge.onSubmitResponse → 답 = 그 text.
   it('submit_response(위임) HostBridge 콜백 → 답 = 그 text', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ], { subagent: 'EX-2 이슈를 진행 중으로 변경했어요.' }));
     const got: string[] = [];
     const out = await runAiChatStream(baseInput({ query: 'EX-2 진행중으로 바꿔줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -157,9 +142,9 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
 
   // #463: subagent 답이 streamedText 보다 우선.
   it('subagent 답은 streamedText 보다 우선 — 위임 답이 onText 로 1회 emit', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ], { subagent: 'SUB 답변' }));
     const got: string[] = [];
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -169,9 +154,7 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
 
   // #463: 사이드카 없음 + 위젯 없음 + streamedText 없음 → 결정적 fallback.
   it('사이드카 없음 + 위젯 없음 + streamedText 없음 → fallback 텍스트', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     const got: string[] = [];
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
@@ -180,9 +163,7 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
 
   // #381 후속: propose 로 pending_action 은 발행됐으나 submit_response 누락 → 제안 안내.
   it('pending_action 있음 + 응답 사이드카 없음 → 제안 안내 문구(확인 카드 모순 방지)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ], { pendingAction: { actionType: 'mail.send_mail', summary: 'hong 에게 메일', params: {} } }));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')], { pendingAction: { actionType: 'mail.send_mail', summary: 'hong 에게 메일', params: {} } }));
     const got: string[] = [];
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(out.fullText).toBe('요청하신 작업을 준비했어요. 확인 카드에서 확인해주세요.');
@@ -192,9 +173,9 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
 
   // #381 불변식: 위젯(show_*)만 + 사이드카 없음 → 빈 텍스트(onText 미호출) + widgets 반환.
   it('위젯(show_*)만 + 사이드카 없음 → onText 미호출 + widgets 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'show_my_tasks', input: {} }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      toolUse('show_my_tasks', {}),
+      result(''),
     ]));
     const got: string[] = [];
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -203,12 +184,12 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
     expect(out.widgets).toEqual([{ type: 'my_tasks', params: {} }]);
   });
 
-  // #463: 서브에이전트 누수 가드 — parent_tool_use_id 있는 text_delta 는 onDelta 로 나가지 않는다.
-  it('서브에이전트 누수 가드: parent_tool_use_id 있는 text_delta 는 onDelta 미발행', async () => {
+  // #463: 서브에이전트 누수 가드 — parentToolUseId 있는 text_delta 는 onDelta 로 나가지 않는다.
+  it('서브에이전트 누수 가드: parentToolUseId 있는 text_delta 는 onDelta 미발행', async () => {
     const subLeak = '서브에이전트 내부 처리 중...';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'stream_event', parent_tool_use_id: 'tu_sub', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: subLeak } } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      textDelta(subLeak, 'tu_sub'),
+      result(''),
     ], { subagent: '처리했어요.' }));
     const got: string[] = [];
     const deltas: string[] = [];
@@ -222,12 +203,11 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
   // #463: 위임 프리앰블은 라이브 노출되고 최종 답은 위임 답.
   it('위임 시 라우터 프리앰블 prose 는 onDelta 로 라이브 노출되고 최종 fullText 는 subagent 답', async () => {
     const subagentText = '메일함에 3개의 미읽은 메일이 있어요.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('메일을 확인해볼게요'),
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'mail-agent', prompt: '미읽은 메일 조회' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      agentDelegation('mail-agent'),
+      result(''),
     ], { subagent: subagentText }));
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'mail-agent': { description: 'm', tools: [], prompt: '' } });
     const got: string[] = [];
     const deltas: string[] = [];
     const out = await runAiChatStream(baseInput({ query: '메일 확인해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, undefined, (t) => deltas.push(t));
@@ -236,59 +216,49 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
     expect(got).toEqual([subagentText]);
   });
 
-  it('includePartialMessages:true 로 runSdkStream 호출', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+  it('includePartialMessages:true 로 stream 호출', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    const passed = vi.mocked(runSdkStream).mock.calls[0][0];
+    const passed = streamSpy.mock.calls[0][0];
     expect(passed.includePartialMessages).toBe(true);
   });
 
   // Fix 1: allowFileRead:false — 홈 컴포즈는 파일 읽기 불필요(보안 최소권한).
-  it('allowFileRead:false 로 runSdkStream 호출', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+  it('allowFileRead:false 로 stream 호출', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(vi.mocked(runSdkStream).mock.calls[0][0].allowFileRead).toBe(false);
+    expect(streamSpy.mock.calls[0][0].allowFileRead).toBe(false);
   });
 
-  // Fix 4: userId passthrough — 요청 userId 가 runSdkStream 에 그대로 전달되는지 검증.
-  it('userId passthrough — baseInput({ userId: 42 }) → runSdkStream.userId === 42', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+  // Fix 4: userId passthrough — 요청 userId 가 stream 에 그대로 전달되는지 검증.
+  it('userId passthrough — baseInput({ userId: 42 }) → stream.userId === 42', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(baseInput({ userId: 42 }), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(vi.mocked(runSdkStream).mock.calls[0][0].userId).toBe(42);
+    expect(streamSpy.mock.calls[0][0].userId).toBe(42);
   });
 
   // #376: 인-프로세스 MCP 도구 principal = 요청자(userId), agentId 아님.
   // stdio 서버(workplace-mcp-server.ts)와 동일: onBehalfOfId = userId ?? agentId.
-  // userId(42) 와 assistantAgentId(7) 를 달리 설정해 실제로 구분하는지 검증.
-  it('#376 onBehalfOfId principal = 요청자 userId(42), assistantAgentId(7) 아님', async () => {
-    const { buildInProcessWorkplaceMcpServer } = await import('./sdk-mcp-server.js');
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+  // userId(42) 와 assistantAgentId(7) 를 달리 설정해 실제로 구분하는지 검증(mcp 설정으로 러너에 전달).
+  it('#376 mcp.onBehalfOfId principal = 요청자 userId(42), assistantAgentId(7) 아님', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(
       baseInput({ assistantAgentId: 7, userId: 42 }),
       { client: fakeClient },
       () => {},
       new AbortController().signal,
     );
-    const callArg = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0];
-    // 요청자 userId(42) 가 X-On-Behalf-Of 주체로 전달돼야 한다(agentId=7 아님).
-    expect(callArg.onBehalfOfId).toBe(42);
-    expect(callArg.onBehalfOfId).not.toBe(7);
+    const mcp = streamSpy.mock.calls[0][0].mcp;
+    expect(mcp.onBehalfOfId).toBe(42);
+    expect(mcp.onBehalfOfId).not.toBe(7);
   });
 
   // Fix 2: first-write-guard — onSubmitResponse 가 두 번 호출돼도 첫 답만 기록한다.
   it('first-write-guard: onSubmitResponse 두 번 호출 → 첫 답만 fullText', async () => {
-    vi.mocked(runSdkStream).mockImplementation((_i, _onLine) => {
+    streamSpy.mockImplementation((i: RunnerInput) => {
       // 두 번 onSubmitResponse 호출: 첫 번째 답이 보존돼야 한다.
-      capturedBridgeVar?.onSubmitResponse('첫 답');
-      capturedBridgeVar?.onSubmitResponse('둘째 답');
+      i.mcp?.hostBridge?.onSubmitResponse('첫 답');
+      i.mcp?.hostBridge?.onSubmitResponse('둘째 답');
       return { done: Promise.resolve(), kill: () => {} };
     });
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
@@ -296,10 +266,7 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
   });
 
   it('SDK 실패(reject) 가 전파된다', async () => {
-    vi.mocked(runSdkStream).mockReturnValue({
-      done: Promise.reject(new Error('sdk boom')),
-      kill: () => {},
-    });
+    streamSpy.mockReturnValue({ done: Promise.reject(new Error('sdk boom')), kill: () => {} });
     await expect(
       runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
     ).rejects.toThrow('sdk boom');
@@ -308,7 +275,7 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
   it('스트리밍 중 abort(addEventListener 경로) → handle.kill 호출', async () => {
     const kill = vi.fn();
     let resolveDone!: () => void;
-    vi.mocked(runSdkStream).mockReturnValue({
+    streamSpy.mockReturnValue({
       done: new Promise<void>((r) => { resolveDone = r; }),
       kill,
     });
@@ -324,7 +291,7 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
   it('이미 abort 된 신호 → 즉시 handle.kill 호출', async () => {
     const kill = vi.fn();
     let resolveDone!: () => void;
-    vi.mocked(runSdkStream).mockReturnValue({
+    streamSpy.mockReturnValue({
       done: new Promise<void>((r) => { resolveDone = r; }),
       kill,
     });
@@ -339,11 +306,11 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
 
   // #421→#381: 청크 분할된 라우터 식별자 prose 도 delta 로 안 나가고 사이드카 답만 emit.
   it('청크 분할된 라우터 식별자 prose 도 delta 로 안 나가고 사이드카 답만 emit (#381)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('wiki'),
       textDelta('-agent에 위임하겠습니다. '),
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      agentDelegation('issue-agent'),
+      result(''),
     ], { subagent: '위키 페이지를 찾았어요.' }));
     const got: string[] = [];
     await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -354,26 +321,20 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
 });
 
 describe('runAiChatStream (서브에이전트 통합 #333)', () => {
-  it('assistant 프로파일 + allowSubagents + agents 로 runSdkStream 호출', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+  it('assistant 프로파일(mcp) + allowSubagents 로 stream 호출', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    // buildInProcessWorkplaceMcpServer 에 assistant 프로파일 전달 확인.
-    const { buildInProcessWorkplaceMcpServer } = await import('./sdk-mcp-server.js');
-    const cfgArg = vi.mocked(buildInProcessWorkplaceMcpServer).mock.calls[0][0];
-    expect(cfgArg.profile).toBe('assistant');
-    // runSdkStream 에 allowSubagents:true 전달 확인.
-    const sdkArg = vi.mocked(runSdkStream).mock.calls[0][0];
-    expect(sdkArg.allowSubagents).toBe(true);
-    // toAgentDefinitions 가 호출됐는지 확인(서브에이전트 코드 전달).
-    expect(toAgentDefinitions).toHaveBeenCalled();
+    // mcp 설정에 assistant 프로파일 전달 확인(러너가 인-프로세스 서버를 이 프로필로 구성).
+    const arg = streamSpy.mock.calls[0][0];
+    expect(arg.mcp.profile).toBe('assistant');
+    // allowSubagents:true 전달 확인(러너가 subagent 정의를 구성).
+    expect(arg.allowSubagents).toBe(true);
   });
 
   it('Agent(issue-agent) tool_use → onProgress 로 위임 라벨 발행', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ]));
     const labels: string[] = [];
     await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, (l) => labels.push(l));
@@ -381,17 +342,13 @@ describe('runAiChatStream (서브에이전트 통합 #333)', () => {
   });
 
   it('pendingActions — HostBridge.onProposal 콜백으로 누산된 배열 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ], { pendingAction: { actionType: 'calendar.create_event', summary: 's', params: { title: 't' } } }));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')], { pendingAction: { actionType: 'calendar.create_event', summary: 's', params: { title: 't' } } }));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.pendingActions[0]).toMatchObject({ actionType: 'calendar.create_event', summary: 's' });
   });
 
   it('pendingActions — onProposal 콜백 없으면 빈 배열', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.pendingActions).toEqual([]);
   });
@@ -401,9 +358,7 @@ describe('runAiChatStream (서브에이전트 통합 #333)', () => {
 describe('runAiChatStream — unassignError HostBridge override (#378)', () => {
   it('onUnassignResult({ok:false,canonical}) 콜백 → LLM 응답을 버리고 canonical 로 override', async () => {
     const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '일시적 장애가 발생했습니다.' }),
-    ], { unassignError: { canonical } }));
+    streamSpy.mockImplementation(makeRunnerImpl([result('일시적 장애가 발생했습니다.')], { unassignError: { canonical } }));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(canonical);
     expect(out.widgets).toBeNull();
@@ -411,9 +366,9 @@ describe('runAiChatStream — unassignError HostBridge override (#378)', () => {
   });
 
   it('onUnassignResult 콜백 없으면 subagent 답을 그대로 사용', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ], { unassignSuccess: {}, subagent: '담당자 해제 완료.' }));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('담당자 해제 완료.');
@@ -423,9 +378,7 @@ describe('runAiChatStream — unassignError HostBridge override (#378)', () => {
 // #383→#381: mail 직접-응답 fallback override 는 삭제됨.
 describe('runAiChatStream — mail 위임 답 / 미위임 fallback (#381, ex-#383)', () => {
   it('메일 쿼리 + 위임 없음 + streamedText 없음 + 사이드카 없음 → 결정적 fallback', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     const labels: string[] = [];
     const streamed: string[] = [];
     const out = await runAiChatStream(
@@ -442,10 +395,9 @@ describe('runAiChatStream — mail 위임 답 / 미위임 fallback (#381, ex-#38
   });
 
   it('메일 쿼리 + 위임 있음 → submit_response 답 반환', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'mail-agent': { description: 'm', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'mail-agent', prompt: '계정 확인' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('mail-agent'),
+      result(''),
     ], { subagent: '메일 계정: test@example.com' }));
     const labels: string[] = [];
     const out = await runAiChatStream(
@@ -460,9 +412,9 @@ describe('runAiChatStream — mail 위임 답 / 미위임 fallback (#381, ex-#38
   });
 
   it('비메일 쿼리 + 위임 없음 + streamedText → prose 답 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('안녕하세요.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const labels: string[] = [];
     const out = await runAiChatStream(
@@ -477,10 +429,9 @@ describe('runAiChatStream — mail 위임 답 / 미위임 fallback (#381, ex-#38
   });
 
   it('연락처 쿼리에 이메일 포함 + contacts-agent 위임 → 위임 라벨 + 사이드카 답', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'contacts-agent': { description: 'c', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'contacts-agent', prompt: '김민수 이메일 kim@test.com 연락처 추가' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('contacts-agent'),
+      result(''),
     ], { subagent: '김민수(kim@test.com) 연락처가 추가되었습니다.' }));
     const labels: string[] = [];
     const out = await runAiChatStream(
@@ -496,9 +447,7 @@ describe('runAiChatStream — mail 위임 답 / 미위임 fallback (#381, ex-#38
   });
 
   it('순수 "이메일" 키워드 + 위임 없음 + streamedText 없음 + 사이드카 없음 → fallback', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     const labels: string[] = [];
     const out = await runAiChatStream(
       baseInput({ query: '이메일 안 읽은 거 확인해줘' }),
@@ -512,9 +461,9 @@ describe('runAiChatStream — mail 위임 답 / 미위임 fallback (#381, ex-#38
   });
 
   it('#439→#463: 라우터 미읽은 메일 prose → streamedText 가 fullText, onText 미호출', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('현재 받은편지함에 미읽은 메일이 없습니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const streamed: string[] = [];
     const deltas: string[] = [];
@@ -532,11 +481,10 @@ describe('runAiChatStream — mail 위임 답 / 미위임 fallback (#381, ex-#38
   });
 
   it('#439: 위임 확정 후 mail-agent 답은 HostBridge 콜백에서 done 후 1회 emit', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'mail-agent': { description: 'm', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'mail-agent', prompt: '미읽은 메일 조회' } }] } }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('mail-agent'),
       textDelta('받은편지함에 5개의 미읽은 메일이 있습니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '받은편지함에 5개의 미읽은 메일이 있습니다.' }));
     const streamed: string[] = [];
     const out = await runAiChatStream(
@@ -552,9 +500,7 @@ describe('runAiChatStream — mail 위임 답 / 미위임 fallback (#381, ex-#38
 
 describe('runAiChatStream — contacts 위임 답 / 미위임 fallback (#381, ex-#408)', () => {
   it('연락처 쿼리 + 위임 없음 + streamedText 없음 + 사이드카 없음 → fallback', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     const labels: string[] = [];
     const streamed: string[] = [];
     const out = await runAiChatStream(
@@ -571,10 +517,9 @@ describe('runAiChatStream — contacts 위임 답 / 미위임 fallback (#381, ex
   });
 
   it('연락처 쿼리 + 위임 있음 → submit_response 답 반환', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'contacts-agent': { description: 'c', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'contacts-agent', prompt: '연락처 찾아줘' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('contacts-agent'),
+      result(''),
     ], { subagent: '현재 등록된 연락처가 없습니다.' }));
     const labels: string[] = [];
     const out = await runAiChatStream(
@@ -589,9 +534,9 @@ describe('runAiChatStream — contacts 위임 답 / 미위임 fallback (#381, ex
   });
 
   it('비연락처 쿼리 + 위임 없음 + streamedText → prose 답 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('안녕하세요.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const labels: string[] = [];
     const out = await runAiChatStream(
@@ -609,11 +554,10 @@ describe('runAiChatStream — contacts 위임 답 / 미위임 fallback (#381, ex
 
 describe('runAiChatStream — drive 위임 답 / 미위임 fallback (#381, ex-#390)', () => {
   it('파일 업로드 쿼리 + 위임 + 사이드카 "미지원" → 사이드카 답 반환', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'drive-agent': { description: 'dr', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'drive-agent', prompt: '업로드' } }] } }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('drive-agent'),
       textDelta('이 정보를 알려주시면 drive-agent에 위임하여 업로드를 진행하겠습니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '파일 업로드 기능은 현재 지원하지 않습니다.' }));
     const out = await runAiChatStream(
       baseInput({ query: '드라이브에 새 파일 보고서.pdf를 업로드해줘' }),
@@ -627,9 +571,7 @@ describe('runAiChatStream — drive 위임 답 / 미위임 fallback (#381, ex-#3
   });
 
   it('드라이브 멤버 권한 변경 쿼리 + 위임 없음 + streamedText 없음 → fallback', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     const out = await runAiChatStream(
       baseInput({ query: '드라이브 팀 스페이스에 홍길동 멤버 추가해줘' }),
       { client: fakeClient },
@@ -640,10 +582,9 @@ describe('runAiChatStream — drive 위임 답 / 미위임 fallback (#381, ex-#3
   });
 
   it('드라이브 파일 조회 쿼리(지원 기능) + 위임 → 사이드카 답 그대로 반환', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'drive-agent': { description: 'dr', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'drive-agent', prompt: '파일 목록' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('drive-agent'),
+      result(''),
     ], { subagent: '드라이브 파일 목록입니다.' }));
     const out = await runAiChatStream(
       baseInput({ query: '팀 드라이브 파일 목록 보여줘' }),
@@ -656,9 +597,9 @@ describe('runAiChatStream — drive 위임 답 / 미위임 fallback (#381, ex-#3
   });
 
   it('파일명에 upload 포함 삭제 쿼리 → guard 미적용, pendingActions 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('파일을 찾았습니다. 삭제를 제안합니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { pendingAction: { actionType: 'drive.delete_file', summary: '드라이브 내 "test-upload.txt" 삭제', params: { fileId: 1 } } }));
     const out = await runAiChatStream(
       baseInput({ query: '드라이브에서 test-upload.txt 파일을 삭제해줘' }),
@@ -673,11 +614,10 @@ describe('runAiChatStream — drive 위임 답 / 미위임 fallback (#381, ex-#3
 
 describe('runAiChatStream — wiki 위임 답 / 미위임 fallback (#381, ex-#436)', () => {
   it('위키 페이지 삭제 쿼리 + 위임 + 사이드카 "미지원" → 사이드카 답 반환', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'wiki-agent': { description: 'w', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'wiki-agent', prompt: '삭제' } }] } }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('wiki-agent'),
       textDelta('위키 페이지 삭제 요청을 전달하겠습니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '위키 페이지 삭제 기능은 현재 지원하지 않습니다.' }));
     const out = await runAiChatStream(
       baseInput({ query: '위키 페이지 삭제해줘' }),
@@ -691,9 +631,7 @@ describe('runAiChatStream — wiki 위임 답 / 미위임 fallback (#381, ex-#43
   });
 
   it('위키 페이지 지워줘 쿼리 + 위임 없음 + streamedText 없음 → fallback', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     const out = await runAiChatStream(
       baseInput({ query: '위키 "프로젝트 소개" 페이지 지워줘' }),
       { client: fakeClient },
@@ -704,10 +642,9 @@ describe('runAiChatStream — wiki 위임 답 / 미위임 fallback (#381, ex-#43
   });
 
   it('위키 페이지 검색 쿼리(지원 기능) + 위임 → 사이드카 답 그대로 반환', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'wiki-agent': { description: 'w', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'wiki-agent', prompt: '검색' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('wiki-agent'),
+      result(''),
     ], { subagent: '프로젝트 소개 페이지를 찾았습니다.' }));
     const out = await runAiChatStream(
       baseInput({ query: '위키에서 프로젝트 소개 찾아줘' }),
@@ -722,9 +659,9 @@ describe('runAiChatStream — wiki 위임 답 / 미위임 fallback (#381, ex-#43
 // #400 #409: 비가역 작업 제안 후 승인 발화 시 haiku 환각 응답 차단.
 describe('runAiChatStream — proposal approval hallucination guard (#400, #409)', () => {
   it('승인 발화 + 직전 AI 제안 문구 + pendingActions 없음 → 고정 안내 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('팀 회의 일정이 생성됐습니다. 오늘 오후 4시~5시에 예약되어 있습니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ])); // onProposal 콜백 없음
     const recentContext = [
       { role: 'USER', content: '오늘 오후 4시에 팀 회의 일정 만들어줘' },
@@ -742,9 +679,7 @@ describe('runAiChatStream — proposal approval hallucination guard (#400, #409)
   });
 
   it('승인 발화이지만 pending_action 이 있으면 정상 흐름 통과', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ], { pendingAction: { actionType: 'calendar.create_event', summary: '4시 팀 회의', params: {} } }));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')], { pendingAction: { actionType: 'calendar.create_event', summary: '4시 팀 회의', params: {} } }));
     const recentContext = [
       { role: 'ASSISTANT', content: '팀 회의 제안했습니다. 확인 카드에서 승인해주세요.' },
     ];
@@ -758,9 +693,9 @@ describe('runAiChatStream — proposal approval hallucination guard (#400, #409)
   });
 
   it('일반 쿼리("네 알겠어")는 제안 컨텍스트 없으면 guard 미적용(streamedText 답 통과)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('안녕하세요.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const out = await runAiChatStream(
       baseInput({ query: '네 알겠어', recentContext: [] }),
@@ -773,9 +708,9 @@ describe('runAiChatStream — proposal approval hallucination guard (#400, #409)
   });
 
   it('#409 연락처 삭제 제안("삭제하겠습니다. 확인해주세요") 후 승인 → 고정 안내 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('김철수 연락처 삭제를 완료했습니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const recentContext = [
       { role: 'USER', content: '김철수 연락처 삭제해줘' },
@@ -797,9 +732,7 @@ describe('runAiChatStream — proposal approval hallucination guard (#400, #409)
 describe('runAiChatStream — SDK 내부 메시지 누수 가드 (#381, ex-#379/#407)', () => {
   it('라우터 result 에 SDK-leak prose 가 있어도 fullText 는 fallback (prose 미사용)', async () => {
     const sdkLeak = '현재 환경에서 Agent 도구가 활성화되어 있지 않네요. 이슈 삭제는 불가합니다.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: sdkLeak }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result(sdkLeak)]));
     const out = await runAiChatStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.fullText).not.toContain('Agent 도구가 활성화');
@@ -807,9 +740,9 @@ describe('runAiChatStream — SDK 내부 메시지 누수 가드 (#381, ex-#379/
 
   it('이슈 삭제 거부 안내는 subagent 답으로 그대로 반환', async () => {
     const normalResp = '이슈 삭제는 지원하지 않습니다. 상태를 CANCELED로 변경하거나, 웹 화면에서 직접 삭제해 주세요.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: '삭제' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ], { subagent: normalResp }));
     const out = await runAiChatStream(baseInput({ query: 'EX-5 이슈를 삭제해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(normalResp);
@@ -817,9 +750,7 @@ describe('runAiChatStream — SDK 내부 메시지 누수 가드 (#381, ex-#379/
 
   it('#407 advisor 폴백 prose(result)도 fullText 는 fallback (prose 미사용)', async () => {
     const sdkLeak = '문제가 발생했습니다. 현재 일정 관련 도구가 활성화되지 않았습니다. advisor에게 상담하겠습니다.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: sdkLeak }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result(sdkLeak)]));
     const out = await runAiChatStream(baseInput({ query: '일정 삭제 취소해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
     expect(out.fullText).not.toContain('advisor');
@@ -827,9 +758,9 @@ describe('runAiChatStream — SDK 내부 메시지 누수 가드 (#381, ex-#379/
 
   it('정상 안내는 streamedText(textDelta) 로 그대로 반환', async () => {
     const normalResp = '일정 삭제 취소는 확인 카드를 무시하시면 됩니다.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta(normalResp),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const out = await runAiChatStream(baseInput({ query: '일정 삭제 취소해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe(normalResp);
@@ -838,26 +769,22 @@ describe('runAiChatStream — SDK 내부 메시지 누수 가드 (#381, ex-#379/
 
 describe('runAiChatStream — 내부 식별자 누수 가드 (#381, ex-#410)', () => {
   it('라우터 result 의 calendar-agent 식별자 prose 는 fullText 로 안 나간다 → fallback', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: 'calendar-agent에 확인하겠습니다.' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('calendar-agent에 확인하겠습니다.')]));
     const out = await runAiChatStream(baseInput({ query: '이번 주 화요일 빈 시간 있어?' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('calendar-agent');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
   });
 
   it('라우터 result 의 contacts-agent 식별자 prose 는 fullText 로 안 나간다', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: 'contacts-agent가 처리합니다.' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('contacts-agent가 처리합니다.')]));
     const out = await runAiChatStream(baseInput({ query: '연락처 찾아줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('contacts-agent');
   });
 
   it('정상 답은 streamedText(textDelta) 로 그대로 반환(식별자 없음)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('일정을 확인하겠습니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const out = await runAiChatStream(baseInput({ query: '오늘 일정 알려줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('일정을 확인하겠습니다.');
@@ -866,13 +793,10 @@ describe('runAiChatStream — 내부 식별자 누수 가드 (#381, ex-#410)', (
 
 describe('runAiChatStream — 한국어 에이전트 식별자 누수 가드 (#381, ex-#426)', () => {
   it('mail-agent 위임 후 실패: 라우터 result prose 미사용, subagent 답 반환', async () => {
-    vi.mocked(loadSubagents).mockReturnValueOnce(
-      { 'mail-agent': { description: 'd', tools: [], prompt: '' } } as never,
-    );
     const leaked = '죄송합니다. 현재 메일 조회 에이전트에 연결할 수 없습니다.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Agent', input: { subagent_type: 'mail-agent', prompt: '메일 조회' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: leaked }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('mail-agent'),
+      result(leaked),
     ], { subagent: '죄송합니다, 잠시 후 다시 시도해 주세요.' }));
     const out = await runAiChatStream(baseInput({ query: '메일 확인해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('메일 조회 에이전트');
@@ -881,9 +805,9 @@ describe('runAiChatStream — 한국어 에이전트 식별자 누수 가드 (#3
 
   it('#426→#463: 라우터 textDelta 는 onDelta 로 emit — streamed(onText) 에는 안 나간다', async () => {
     const prose = '오늘 할 일 목록을 보여드릴게요.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta(prose),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const streamed: string[] = [];
     const deltas: string[] = [];
@@ -894,9 +818,9 @@ describe('runAiChatStream — 한국어 에이전트 식별자 누수 가드 (#3
   });
 
   it('정상 답(식별자 없음)은 streamedText 로 그대로 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('에이전트가 처리합니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const out = await runAiChatStream(baseInput({ query: '할 일 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('에이전트가 처리합니다.');
@@ -907,9 +831,9 @@ describe('runAiChatStream — 서브에이전트 직접 호출 내부 메시지 
   it('D-002: 라우터 result 의 "직접 호출하지 못하는 환경" prose 는 fullText 로 안 나감 → 사이드카 답', async () => {
     const leakedMsg =
       '이슈에 코멘트를 남기겠습니다.죄송합니다. 서브에이전트를 직접 호출하지 못하는 환경입니다. 직접 처리하겠습니다.EX-7777 이슈를 찾을 수 없습니다.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: leakedMsg }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(leakedMsg),
     ], { subagent: 'EX-7777 이슈를 찾을 수 없습니다.' }));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('서브에이전트를 직접 호출하지 못하는 환경');
@@ -919,9 +843,9 @@ describe('runAiChatStream — 서브에이전트 직접 호출 내부 메시지 
   it('D-001b: 라우터 result 의 "제가 직접 처리하겠습니다." prose 는 fullText 로 안 나감 → 사이드카 답', async () => {
     const leakedMsg =
       'EX-9876 이슈를 진행중 상태로 변경하겠습니다.제가 직접 처리하겠습니다.EX-9876 이슈를 찾을 수 없습니다.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: leakedMsg }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(leakedMsg),
     ], { subagent: 'EX-9876 이슈를 찾을 수 없습니다.' }));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('제가 직접 처리하겠습니다.');
@@ -929,13 +853,13 @@ describe('runAiChatStream — 서브에이전트 직접 호출 내부 메시지 
   });
 
   it('D-002: delta(청크 분할) 내부 메시지도 사용자에게 안 나간다(전부 버려짐)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('이슈에 코멘트를 남기'),
       textDelta('겠습니다.죄송합니다. 서브에이전트를 '),
       textDelta('직'),
       textDelta('접 호출하지 못하는 환경입니다. 직접 처리하겠습니다.'),
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      agentDelegation('issue-agent'),
+      result(''),
     ], { subagent: 'EX-7777 이슈를 찾을 수 없습니다.' }));
     const got: string[] = [];
     await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -946,9 +870,7 @@ describe('runAiChatStream — 서브에이전트 직접 호출 내부 메시지 
   });
 
   it('정상 답("직접 처리하겠습니다." 정상 문장)은 사이드카로 그대로 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ], { subagent: '이슈 상태를 직접 처리하겠습니다.' }));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')], { subagent: '이슈 상태를 직접 처리하겠습니다.' }));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('이슈 상태를 직접 처리하겠습니다.');
   });
@@ -956,12 +878,11 @@ describe('runAiChatStream — 서브에이전트 직접 호출 내부 메시지 
 
 describe('runAiChatStream — Agent 도구 없음 내부 메시지 누수 가드 (#381, ex-#441)', () => {
   it('delta(단일 청크)의 "Agent 도구가 없으므로" prose 는 안 나가고 사이드카 답만 emit', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'project-agent': { description: 'p', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('저는 `Agent` 도구가 없으므로 직접 처리하겠습니다.'),
       textDelta('프로젝트 설명 수정 기능은 현재 지원하지 않습니다.'),
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'project-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      agentDelegation('project-agent'),
+      result(''),
     ], { subagent: '프로젝트 설명 수정 기능은 현재 지원하지 않습니다.' }));
     const got: string[] = [];
     await runAiChatStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -971,13 +892,12 @@ describe('runAiChatStream — Agent 도구 없음 내부 메시지 누수 가드
   });
 
   it('pj-r13-003: 청크 분할(delta 1~3)된 내부 메시지도 안 나가고 사이드카 답만 emit', async () => {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'project-agent': { description: 'p', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('저는 `Agent`'),
       textDelta(' 도구가 없으므로'),
       textDelta(' 직접 처리하겠습니다.'),
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'project-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      agentDelegation('project-agent'),
+      result(''),
     ], { subagent: '프로젝트 설명 수정 기능은 현재 지원하지 않습니다.' }));
     const got: string[] = [];
     await runAiChatStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -988,9 +908,7 @@ describe('runAiChatStream — Agent 도구 없음 내부 메시지 누수 가드
 
   it('라우터 result 의 "Agent 도구가 없으므로" prose 도 fullText 로 안 나감 → fallback', async () => {
     const leakedText = '저는 `Agent` 도구가 없으므로 직접 처리하겠습니다.프로젝트 설명 수정 기능은 현재 지원하지 않습니다.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: leakedText }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result(leakedText)]));
     const out = await runAiChatStream(baseInput({ query: 'EX 프로젝트 설명 변경해줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('`Agent` 도구가 없으므로');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
@@ -999,9 +917,9 @@ describe('runAiChatStream — Agent 도구 없음 내부 메시지 누수 가드
 
 describe('runAiChatStream — 이슈 enum 답은 사이드카 그대로 (#381, ex-#423)', () => {
   it('subagent 사이드카에 한국어 상태 답 → 그대로 반환(영어 병기 없음)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'x' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: 'EX-5 이슈 상태를 완료(DONE)로 변경했습니다.' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result('EX-5 이슈 상태를 완료(DONE)로 변경했습니다.'),
     ], { subagent: 'EX-5 이슈 상태를 완료로 변경했습니다.' }));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('(DONE)');
@@ -1009,18 +927,16 @@ describe('runAiChatStream — 이슈 enum 답은 사이드카 그대로 (#381, e
   });
 
   it('라우터 result 에 영어 병기 prose 가 있어도 사이드카 없으면 fallback(병기 미노출)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '상태: 진행 중 (IN_PROGRESS)\n우선순위: 높음 (HIGH)' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('상태: 진행 중 (IN_PROGRESS)\n우선순위: 높음 (HIGH)')]));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).not.toContain('(IN_PROGRESS)');
     expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
   });
 
   it('delta 의 영어 병기 prose 도 사용자에게 안 나간다(전부 버려짐)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('상태: 진행 중 (IN_PROGRESS), 우선순위: 높음 (HIGH)'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '상태: 진행 중, 우선순위: 높음' }));
     const got: string[] = [];
     await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -1030,9 +946,9 @@ describe('runAiChatStream — 이슈 enum 답은 사이드카 그대로 (#381, e
   });
 
   it('streamedText 에 도구명 류 텍스트가 있으면 그대로 보존(sanitize 없음)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('update_status(DONE) 호출합니다.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.fullText).toBe('update_status(DONE) 호출합니다.');
@@ -1041,22 +957,16 @@ describe('runAiChatStream — 이슈 enum 답은 사이드카 그대로 (#381, e
 
 // #404: show_issue_detail 위젯 — 존재하지 않는 이슈 번호 차단.
 describe('runAiChatStream — show_issue_detail not-found guard (#404)', () => {
-  function issueDetailLine(projectKey: string, number: number): string {
-    return JSON.stringify({
-      type: 'assistant',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'tool_use', id: 't', name: 'show_issue_detail', input: { params: { number, projectKey }, layout: {} } }],
-      },
-    });
+  function issueDetail(projectKey: string, number: number): RunnerEvent {
+    return toolUse('show_issue_detail', { params: { number, projectKey }, layout: {} });
   }
 
   it('존재하지 않는 이슈 번호(EX-99999) → issue_detail 위젯 드롭', async () => {
     (fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail =
       vi.fn().mockRejectedValue(new Error('404 Not Found'));
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      issueDetailLine('EX', 99999),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      issueDetail('EX', 99999),
+      result(''),
     ]));
     const out = await runAiChatStream(baseInput({ query: 'EX-99999 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.widgets).toBeNull();
@@ -1065,9 +975,9 @@ describe('runAiChatStream — show_issue_detail not-found guard (#404)', () => {
   it('존재하는 이슈(EX-1) → issue_detail 위젯 유지', async () => {
     (fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail =
       vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: '기존 이슈' });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      issueDetailLine('EX', 1),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      issueDetail('EX', 1),
+      result(''),
     ]));
     const out = await runAiChatStream(baseInput({ query: 'EX-1 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.widgets).toEqual([{ type: 'issue_detail', params: { number: 1, projectKey: 'EX' }, layout: {} }]);
@@ -1075,9 +985,9 @@ describe('runAiChatStream — show_issue_detail not-found guard (#404)', () => {
 
   it('projectKey 없는 issue_detail 위젯은 통과(미검증)', async () => {
     (fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail = vi.fn();
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'show_issue_detail', input: { params: { number: 5 }, layout: {} } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      toolUse('show_issue_detail', { params: { number: 5 }, layout: {} }),
+      result(''),
     ]));
     const out = await runAiChatStream(baseInput({ query: '5번 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.widgets).toEqual([{ type: 'issue_detail', params: { number: 5 }, layout: {} }]);
@@ -1088,9 +998,7 @@ describe('runAiChatStream — show_issue_detail not-found guard (#404)', () => {
 // #405: 생성일 필터 쿼리 사전 차단.
 describe('runAiChatStream — 생성일 필터 쿼리 사전 차단 (#405)', () => {
   it('이번 주 생성된 이슈 쿼리 → LLM 미호출, 고정 안내 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     const out = await runAiChatStream(
       baseInput({ query: '이번 주 생성된 이슈 보여줘' }),
       { client: fakeClient },
@@ -1100,7 +1008,7 @@ describe('runAiChatStream — 생성일 필터 쿼리 사전 차단 (#405)', () 
     expect(out.fullText).toContain('생성 날짜 필터는 지원하지 않습니다');
     expect(out.widgets).toBeNull();
     expect(out.pendingActions).toEqual([]);
-    expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).not.toHaveBeenCalled();
+    expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).not.toHaveBeenCalled();
   });
 
   it('최근 생성된 이슈 쿼리 → 고정 안내 반환', async () => {
@@ -1124,29 +1032,25 @@ describe('runAiChatStream — 생성일 필터 쿼리 사전 차단 (#405)', () 
   });
 
   it('이슈 생성 요청("이슈 만들어줘") → guard 미적용, LLM 호출됨', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(
       baseInput({ query: '이번 주 이슈 만들어줘' }),
       { client: fakeClient },
       () => {},
       new AbortController().signal,
     );
-    expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalled();
+    expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).toHaveBeenCalled();
   });
 
   it('마감일 필터 요청("이번 주 마감 이슈") → guard 미적용, LLM 호출됨', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(
       baseInput({ query: '이번 주 마감 이슈 보여줘' }),
       { client: fakeClient },
       () => {},
       new AbortController().signal,
     );
-    expect((fakeClient as { getOAuthToken: ReturnType<typeof vi.fn> }).getOAuthToken).toHaveBeenCalled();
+    expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).toHaveBeenCalled();
   });
 });
 
@@ -1154,11 +1058,10 @@ describe('runAiChatStream — 생성일 필터 쿼리 사전 차단 (#405)', () 
 describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
   it('복합 해제 쿼리 + issue-agent 위임 + onUnassignResult 없음 → unassignSelf 호출', async () => {
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' } });
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 진행중으로 바꾸고...' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ])); // onUnassignResult 콜백 없음
     await runAiChatStream(
       baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
@@ -1171,10 +1074,10 @@ describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
 
   it('복합 해제 쿼리 + onUnassignResult({ok:true}) 있음 → unassignSelf 미호출(이미 처리됨)', async () => {
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ], { unassignSuccess: {} })); // onUnassignResult({ok:true})
     await runAiChatStream(
       baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
@@ -1187,11 +1090,11 @@ describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
 
   it('복합 해제 쿼리 + onUnassignResult({ok:false}) → userId 재처리 시도(unassignSelf 호출)', async () => {
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
     const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ], { unassignError: { canonical } }));
     const out = await runAiChatStream(
       baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
@@ -1207,10 +1110,10 @@ describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
 
   it('단순 해제 쿼리(복합 아님) → unassignSelf 미호출(issue-agent 가 직접 처리)', async () => {
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getOAuthToken: vi.fn().mockResolvedValue({ token: 'tok', label: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 담당 해제' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ]));
     await runAiChatStream(
       baseInput({ query: 'EX-2 담당자에서 나 해제해줘', userId: 1 }),
@@ -1224,21 +1127,14 @@ describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
 
 // #440→#381: 홈 라우터 위임 preamble 누수 가드.
 describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381, ex-#440)', () => {
-  function allowDrive(): void {
-    vi.mocked(loadSubagents).mockReturnValue({ 'issue-agent': { description: 'd', tools: [], prompt: '' }, 'drive-agent': { description: 'dr', tools: [], prompt: '' } });
-  }
-  const driveDelegation = JSON.stringify({
-    type: 'assistant',
-    message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'drive-agent', prompt: '파일 삭제' } }] },
-  });
+  const driveDelegation = agentDelegation('drive-agent');
 
   it('"위임하겠습니다." preamble delta 는 사용자에게 안 나가고 사이드카 답만 emit', async () => {
-    allowDrive();
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('위임하겠습니다.'),
       driveDelegation,
       textDelta('"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
     const got: string[] = [];
     const labels: string[] = [];
@@ -1250,11 +1146,10 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 
   it('"드라이브에서 ... 직접 찾아 처리하겠습니다." 변형 preamble 도 안 나간다', async () => {
-    allowDrive();
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('위임하겠습니다.드라이브에서 파일을 직접 찾아 처리하겠습니다.'),
       driveDelegation,
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
     const got: string[] = [];
     await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -1265,11 +1160,10 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 
   it('"드라이브에서 직접 폴더를 찾아보겠습니다." 추론 preamble 도 안 나간다', async () => {
-    allowDrive();
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('드라이브에서 "업무문서" 폴더를 찾아 삭제를 진행하겠습니다.드라이브에서 직접 폴더를 찾아보겠습니다.'),
       driveDelegation,
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '"업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.' }));
     const got: string[] = [];
     await runAiChatStream(baseInput({ query: '"업무문서" 폴더 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -1280,10 +1174,9 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 
   it('최종 응답 문장은 사이드카 답으로 그대로 보존(오탐 방지)', async () => {
-    allowDrive();
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       driveDelegation,
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
     const got: string[] = [];
     const out = await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -1292,11 +1185,10 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 
   it('회귀: "위임하여 ... 진행합니다." 변형 preamble 도 안 나간다', async () => {
-    allowDrive();
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('위임하여 파일을 찾고 삭제를 진행합니다.'),
       driveDelegation,
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
     const got: string[] = [];
     await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -1306,11 +1198,10 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 
   it('회귀: "찾아 삭제를 제안합니다." 변형 preamble 도 안 나간다', async () => {
-    allowDrive();
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('드라이브에서 파일을 직접 찾아 삭제를 제안합니다.'),
       driveDelegation,
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
     const got: string[] = [];
     await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -1320,12 +1211,11 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 
   it('회귀: 청크 분할된 preamble 도 안 나간다(carry 경계 불필요)', async () => {
-    allowDrive();
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('"업무문서" 폴더를 찾았습니다. 삭제를 제안합니'),
       textDelta('다.'),
       driveDelegation,
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '"업무문서" 폴더 삭제 제안을 등록했습니다. 확인 후 승인하시면 삭제됩니다.' }));
     const got: string[] = [];
     await runAiChatStream(baseInput({ query: '"업무문서" 폴더 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
@@ -1335,9 +1225,7 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 
   it('drive 쿼리 + 위임 미발생 + streamedText 없음 → fallback 1회(onText)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     const got: string[] = [];
     await runAiChatStream(baseInput({ query: 'small.txt 파일 삭제해줘' }), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
     expect(got).toHaveLength(1);
@@ -1345,11 +1233,10 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 
   it('drive 쿼리 + drive-agent 위임 확정 → preamble 미노출 + 사이드카 답 + progress 라벨', async () => {
-    allowDrive();
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('위임하겠습니다.'),
       driveDelegation,
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ], { subagent: '"업무문서" 폴더의 small.txt 파일 삭제를 제안했습니다. 확인해 주세요.' }));
     const got: string[] = [];
     const labels: string[] = [];
@@ -1361,9 +1248,9 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 
   it('비드라이브 인사 쿼리 → streamedText(textDelta) 답 반환', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
+    streamSpy.mockImplementation(makeRunnerImpl([
       textDelta('안녕하세요. 무엇을 도와드릴까요?'),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+      result(''),
     ]));
     const got: string[] = [];
     const deltas: string[] = [];
@@ -1376,9 +1263,9 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
 // #415: 단순 해제 쿼리 + 위임 시도 + unassign_self 미처리 → 허위 성공 응답 차단.
 describe('runAiChatStream — 단순 해제 허위 성공 환각 차단 (#415)', () => {
   it('단순 해제 쿼리 + 위임 + onUnassignResult 없음 → 실패 안내 반환(허위 성공 차단)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 담당 해제' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: 'EX-2 이슈에서 담당이 해제되었습니다.' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result('EX-2 이슈에서 담당이 해제되었습니다.'),
     ])); // onUnassignResult 없음 → unassign === null
     const out = await runAiChatStream(
       baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
@@ -1390,9 +1277,9 @@ describe('runAiChatStream — 단순 해제 허위 성공 환각 차단 (#415)',
   });
 
   it('단순 해제 쿼리 + 위임 + onUnassignResult({ok:true}) → subagent 답 통과(실제 해제됨)', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 담당 해제' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
     ], { unassignSuccess: {}, subagent: 'EX-2 이슈 담당 해제 완료.' }));
     const out = await runAiChatStream(
       baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
@@ -1405,9 +1292,9 @@ describe('runAiChatStream — 단순 해제 허위 성공 환각 차단 (#415)',
 
   it('단순 해제 쿼리 + 위임 + onUnassignResult({ok:false}) → unassignError canonical override 통과', async () => {
     const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'a', name: 'Agent', input: { subagent_type: 'issue-agent', prompt: 'EX-2 담당 해제' } }] } }),
-      JSON.stringify({ type: 'result', subtype: 'success', result: '처리 중 오류가 발생했습니다.' }),
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result('처리 중 오류가 발생했습니다.'),
     ], { unassignError: { canonical } }));
     const out = await runAiChatStream(
       baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
@@ -1420,34 +1307,30 @@ describe('runAiChatStream — 단순 해제 허위 성공 환각 차단 (#415)',
   });
 });
 
-// #462 슬라이스4: onTool passthrough — buildInProcessWorkplaceMcpServer 에 onTool 이 전달되고
-// MCP 서버가 이벤트를 발행하면 caller 의 onTool 콜백이 수신하는지 end-to-end 검증.
+// onTool passthrough — mcp.onTool 이 러너 stream 입력에 전달되고, 러너가 이벤트를 발행하면 caller 의 onTool 콜백이 수신하는지 검증.
 describe('runAiChatStream — onTool passthrough (#462)', () => {
-  it('onTool 콜백을 buildInProcessWorkplaceMcpServer 에 전달하고 이벤트가 caller 까지 도달한다', async () => {
-    vi.mocked(runSdkStream).mockImplementation((_i, onLine) => {
-      // capturedOnToolVar 는 buildInProcessWorkplaceMcpServer 에 전달된 onTool 참조.
-      // MCP 서버 어댑터가 이 콜백을 호출하면 caller 의 onTool spy 도 같은 함수이므로 함께 기록된다.
-      capturedOnToolVar?.({ seq: 1, event: 'tool_use_start', toolName: 'list_issues', args: {} });
-      capturedOnToolVar?.({ seq: 1, event: 'tool_result', toolName: 'list_issues', isError: false, result: '[]' });
-      onLine(JSON.stringify({ type: 'result', subtype: 'success', result: '' }));
+  it('onTool 콜백을 mcp 설정으로 전달하고 이벤트가 caller 까지 도달한다', async () => {
+    streamSpy.mockImplementation((i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
+      // i.mcp.onTool 은 caller 가 넘긴 onTool 참조. 러너가 이 콜백을 호출하면 caller spy 도 함께 기록된다.
+      i.mcp?.onTool?.({ seq: 1, event: 'tool_use_start', toolName: 'list_issues', args: {} });
+      i.mcp?.onTool?.({ seq: 1, event: 'tool_result', toolName: 'list_issues', isError: false, result: '[]' });
+      onEvent(result(''));
       return { done: Promise.resolve(), kill: () => {} };
     });
     const onTool = vi.fn();
     await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, undefined, onTool);
-    // 동일 참조 확인: capturedOnToolVar === onTool
-    expect(capturedOnToolVar).toBe(onTool);
+    // 동일 참조 확인: mcp.onTool === onTool
+    expect(streamSpy.mock.calls[0][0].mcp.onTool).toBe(onTool);
     // 이벤트 흐름 확인: tool_use_start → tool_result 순서로 2건 수신.
     expect(onTool).toHaveBeenCalledTimes(2);
     expect(onTool.mock.calls[0][0]).toMatchObject({ seq: 1, event: 'tool_use_start', toolName: 'list_issues' });
     expect(onTool.mock.calls[1][0]).toMatchObject({ seq: 1, event: 'tool_result', toolName: 'list_issues', isError: false });
   });
 
-  it('onTool 미전달 시 buildInProcessWorkplaceMcpServer 에 undefined 전달', async () => {
-    vi.mocked(runSdkStream).mockImplementation(makeSdkImpl([
-      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
-    ]));
+  it('onTool 미전달 시 mcp.onTool 은 undefined', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(capturedOnToolVar).toBeUndefined();
+    expect(streamSpy.mock.calls[0][0].mcp.onTool).toBeUndefined();
   });
 });
 
@@ -1459,7 +1342,7 @@ describe('runAiChatStream 로그', () => {
   });
 
   it('생성일 필터 쿼리는 fallback(reason=created_date_filter_blocked) 을 발행한다', async () => {
-    const deps = { client: { getOAuthToken: vi.fn() } } as never;
+    const deps = { client: { getProviderCredential: vi.fn() } } as never;
     await runAiChatStream(
       {
         query: '이번 주 생성된 이슈 보여줘',

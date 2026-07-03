@@ -1,32 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { parseProgressLine } from './chat-progress-parser.js';
+import { fromRunnerEvent } from './chat-progress-parser.js';
+import type { RunnerEvent } from './runner-events.js';
 
-describe('parseProgressLine', () => {
-  it('assistant 메시지의 tool_use 블록에서 도구명을 추출한다', () => {
-    const line = JSON.stringify({
-      type: 'assistant',
-      message: { content: [{ type: 'tool_use', name: 'mcp__workplace__search_wiki', input: {} }] },
-    });
-    expect(parseProgressLine(line)).toEqual({ kind: 'tool_use', toolName: 'search_wiki' });
+describe('fromRunnerEvent', () => {
+  it('tool_use 이벤트에서 도구명을 추출한다(mcp 프리픽스 제거)', () => {
+    const e: RunnerEvent = { type: 'tool_use', name: 'mcp__workplace__search_wiki', input: {}, parentToolUseId: null };
+    expect(fromRunnerEvent(e)).toEqual({ kind: 'tool_use', toolName: 'search_wiki' });
   });
 
-  it('user 메시지의 tool_result 블록을 tool_result 로 분류한다', () => {
-    const line = JSON.stringify({
-      type: 'user',
-      message: { content: [{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }] },
-    });
-    expect(parseProgressLine(line)).toEqual({ kind: 'tool_result' });
+  it('프리픽스 없는 도구명은 그대로 유지', () => {
+    const e: RunnerEvent = { type: 'tool_use', name: 'Agent', input: {}, parentToolUseId: null };
+    expect(fromRunnerEvent(e)).toEqual({ kind: 'tool_use', toolName: 'Agent' });
   });
 
-  it('result 라인을 종료 신호로 분류한다', () => {
-    expect(parseProgressLine(JSON.stringify({ type: 'result', subtype: 'success' }))).toEqual({
-      kind: 'result',
-    });
+  it('tool_done 이벤트를 tool_result 로 분류한다', () => {
+    expect(fromRunnerEvent({ type: 'tool_done' })).toEqual({ kind: 'tool_result' });
   });
 
-  it('assistant 텍스트 전용/시스템/비JSON 라인은 null', () => {
-    expect(parseProgressLine(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } }))).toBeNull();
-    expect(parseProgressLine(JSON.stringify({ type: 'system' }))).toBeNull();
-    expect(parseProgressLine('not-json')).toBeNull();
+  it('result 이벤트를 종료 신호로 분류한다', () => {
+    expect(fromRunnerEvent({ type: 'result', ok: true, text: null, usage: null })).toEqual({ kind: 'result' });
+  });
+
+  it('text_delta·assistant_text 는 null', () => {
+    expect(fromRunnerEvent({ type: 'text_delta', text: 'hi', parentToolUseId: null })).toBeNull();
+    expect(fromRunnerEvent({ type: 'assistant_text', text: 'hi' })).toBeNull();
   });
 });

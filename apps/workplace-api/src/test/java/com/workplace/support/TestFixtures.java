@@ -108,7 +108,8 @@ public final class TestFixtures {
       DSLContext dsl, AiAgentCredentialService credentialService, long creatorId) {
     long agentId = createAgentNoToken(dsl);
     // 토큰 형식은 Claude CLI OAuth(sk-ant-oat-...) 를 모사 — 길이만 충족하면 된다.
-    credentialService.register(creatorId, agentId, "sk-ant-oat-" + "x".repeat(40), "test");
+    credentialService.register(
+        creatorId, agentId, "anthropic", "sk-ant-oat-" + "x".repeat(40), "test", null);
     return agentId;
   }
 }
