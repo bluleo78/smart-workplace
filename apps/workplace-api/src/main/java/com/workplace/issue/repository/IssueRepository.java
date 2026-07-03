@@ -475,6 +475,17 @@ public class IssueRepository {
                                                 .and(
                                                     com.workplace.jooq.Tables.PROJECT.TYPE.eq(
                                                         "OPEN")))))));
+    // 프로젝트 soft-delete 는 소속 이슈를 정리하지 않으므로, 삭제된 프로젝트의 이슈는 여기서 직접 제외한다.
+    where =
+        where.and(
+            org.jooq.impl.DSL.exists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.PROJECT)
+                    .where(
+                        com.workplace.jooq.Tables.PROJECT
+                            .ID
+                            .eq(ISSUE.PROJECT_ID)
+                            .and(com.workplace.jooq.Tables.PROJECT.DELETED_AT.isNull()))));
 
     if (query.q() != null && !query.q().isBlank()) {
       String pattern = "%" + query.q().trim() + "%";
@@ -722,7 +733,11 @@ public class IssueRepository {
     return result;
   }
 
-  /** watched-issues 전용 헬퍼. 호출자가 현재 멤버인 프로젝트의 활성 이슈만, ids 제한 + (updated_at, id) DESC cursor 페이징. */
+  /**
+   * watched-issues 전용 헬퍼. 호출자가 현재 멤버인 프로젝트의 활성 이슈만, ids 제한 + (updated_at, id) DESC cursor 페이징.
+   * 프로젝트 soft-delete 는 소속 이슈/watcher 를 정리하지 않으므로, 삭제된 프로젝트는 여기서 직접 제외한다(#623 후속, 그렇지 않으면
+   * 이후 project 조회에서 orElseThrow 가 터진다).
+   */
   public List<IssueRow> findByIdsActiveMemberOf(
       List<Long> issueIds,
       Long memberUserId,
@@ -742,6 +757,16 @@ public class IssueRepository {
                             .and(
                                 com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(
                                     memberUserId)))));
+    where =
+        where.and(
+            org.jooq.impl.DSL.exists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.PROJECT)
+                    .where(
+                        com.workplace.jooq.Tables.PROJECT
+                            .ID
+                            .eq(ISSUE.PROJECT_ID)
+                            .and(com.workplace.jooq.Tables.PROJECT.DELETED_AT.isNull()))));
     if (cursor != null) {
       var ts = cursor.updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = cursor.id();
