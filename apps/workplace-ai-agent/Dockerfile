@@ -29,6 +29,15 @@ FROM node:22-alpine
 # Claude Code CLI — @anthropic-ai/claude-agent-sdk 요구
 RUN npm install -g @anthropic-ai/claude-code
 
+# opencode CLI — @opencode-ai/sdk 의 createOpencode() 가 순수 JS 서버가 아니라 이 실행파일을
+# cross-spawn 으로 자식 프로세스 spawn 하는 방식이라, npm 패키지 설치만으로는 부족하고 PATH 상에
+# 별도 설치가 필요하다(docs/OPENCODE_LIVE_SMOKE.md 참고). 설치 스크립트가 bash 전용 문법([[ ]])을
+# 쓰는데 alpine 기본 쉘은 busybox ash 라 bash+curl 을 우선 설치.
+RUN apk add --no-cache --virtual .opencode-install curl bash \
+    && curl -fsSL https://opencode.ai/install | bash \
+    && mv /root/.opencode/bin/opencode /usr/local/bin/opencode \
+    && apk del .opencode-install
+
 # Claude Code CLI 가 root 실행을 차단하므로 비루트 사용자 생성
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
