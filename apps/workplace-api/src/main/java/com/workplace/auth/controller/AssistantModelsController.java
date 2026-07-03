@@ -69,11 +69,19 @@ public class AssistantModelsController {
     return resolveAgentModels(agentId);
   }
 
+  // 등록 전 프로브도 저장 형식(providerId/modelId)과 동일하게 접두해 반환한다 — 그래야 프론트가
+  // 응답을 가공 없이 그대로 assistant_config.model 에 저장해도 실행 시점 splitOpencodeModel 이 통과한다.
+  // (실측 버그: 접두 누락 시 저장된 model 이 'google.gemma-...' 형태로 남아 opencode 실행이 즉시 실패)
   private ProbeModelsResponse probe(ProviderConfig config) {
     String baseUrl = requireOption(config, "baseURL");
     requireOption(config, "apiKey");
     ProbeUrlValidator.validate(baseUrl);
-    return new ProbeModelsResponse(modelsClient.probeModels(config));
+    String prefix = config.providerId() + "/";
+    List<ModelOption> prefixed =
+        modelsClient.probeModels(config).stream()
+            .map(m -> new ModelOption(prefix + m.id(), prefix + m.label()))
+            .toList();
+    return new ProbeModelsResponse(prefixed);
   }
 
   /** provider(anthropic/opencode) 별 모델 목록 해석. opencode 는 복호화 payload 로 실시간 프로브 후 providerId/ 접두. */

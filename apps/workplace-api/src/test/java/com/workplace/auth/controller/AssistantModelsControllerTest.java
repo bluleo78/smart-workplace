@@ -67,7 +67,9 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
   }
 
   @Test
-  void 등록전_프로브_정상_200() throws Exception {
+  void 등록전_프로브_정상_200_providerId_접두() throws Exception {
+    // 등록 후 목록 조회(resolveAgentModels)와 동일하게 providerId/ 접두 — 실측 버그 회귀 방지:
+    // 접두 누락 시 프론트가 raw id 를 그대로 assistant_config.model 에 저장해 실행 시점 splitOpencodeModel 실패.
     Long human = createHumanUserForTest("USER");
     when(modelsClient.probeModels(any()))
         .thenReturn(List.of(new ModelOption("model-a", "model-a")));
@@ -83,7 +85,8 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(req)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.models[0].id").value("model-a"));
+        .andExpect(jsonPath("$.models[0].id").value("openai/model-a"))
+        .andExpect(jsonPath("$.models[0].label").value("openai/model-a"));
   }
 
   @Test
