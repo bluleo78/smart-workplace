@@ -83,8 +83,10 @@ export function AddWidgetModal({
         <DialogHeader>
           <DialogTitle>위젯 추가</DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-4 lg:flex-row">
-          <div className="flex shrink-0 gap-1 overflow-x-auto lg:w-32 lg:flex-col lg:overflow-visible lg:space-y-1" data-testid="add-widget-categories">
+        {/* lg 이상에서 행 높이를 고정(h-[70vh])해 카테고리 전환 시 카드 개수에 따라 모달 크기가
+            요동치지 않게 한다 — 각 컬럼은 내부 overflow-y-auto 로만 스크롤. */}
+        <div className="flex flex-col gap-4 lg:h-[70vh] lg:flex-row">
+          <div className="flex shrink-0 gap-1 overflow-x-auto lg:h-full lg:w-32 lg:flex-col lg:overflow-y-auto lg:space-y-1" data-testid="add-widget-categories">
             {categories.map((c) => (
               <button
                 key={c}
@@ -104,7 +106,7 @@ export function AddWidgetModal({
             ))}
           </div>
           <div
-            className="flex w-full max-h-56 shrink-0 flex-col gap-2 overflow-y-auto lg:w-56 lg:max-h-[70vh]"
+            className="flex w-full max-h-56 shrink-0 flex-col gap-2 overflow-y-auto lg:h-full lg:max-h-none lg:w-56"
             data-testid="add-widget-grid"
           >
             {visible.map(({ kind, widget }) => {
@@ -135,7 +137,7 @@ export function AddWidgetModal({
               <p className="text-sm text-muted-foreground">이 카테고리에 추가할 수 있는 위젯이 없습니다.</p>
             )}
           </div>
-          <div className="flex min-h-[24rem] flex-1 flex-col" data-testid="add-widget-preview">
+          <div className="flex min-h-[24rem] flex-1 flex-col lg:h-full lg:min-h-0" data-testid="add-widget-preview">
             {selectedEntry ? (
               <>
                 <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">미리보기</div>

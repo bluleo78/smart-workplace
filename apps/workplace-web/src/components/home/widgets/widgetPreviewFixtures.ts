@@ -1,12 +1,12 @@
 // apps/workplace-web/src/components/home/widgets/widgetPreviewFixtures.ts
 // 위젯 추가 모달의 라이브 프리뷰용 고정 목데이터 — 17개 위젯(카탈로그 9 + 시스템 8) 대상.
 // 실제 API 호출 없이 각 위젯 컴포넌트를 그대로 렌더하기 위한 previewData 소스(#브레인스토밍 2026-07-03).
-// 예외 2종: synthesis 는 여러 하위 훅 합성 컨테이너라 데이터셋 대신 존재 신호(sentinel=true)만 두고
-// SynthesisBody 가 정적 안내로 분기, quick_actions 는 데이터 없는 순수 버튼 행이라 undefined 유지.
+// 예외 1종: quick_actions 는 데이터 없는 순수 버튼 행이라 undefined 유지(QuickActionsBody 가 무시).
 import type { PriorityItem } from '@/api/priorityItems'
-import type { CalendarEvent } from '@/types/calendar'
+import type { SynthesisPreviewData } from '@/components/home/synthesis/SynthesisLayer'
+import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 import type { ContactSummary } from '@/types/contact'
-import type { ConversationSummaryItem, MailSummaryItem } from '@/types/dashboard'
+import type { ConversationSummaryItem, MailSummary, MailSummaryItem, MessagingSummary } from '@/types/dashboard'
 import type { DriveSpace } from '@/types/drive'
 import type { ActivityPage } from '@/types/home'
 import type { IssueSearchResponse } from '@/types/issue'
@@ -112,10 +112,42 @@ const sampleNotifications: NotificationResponse[] = [
   },
 ]
 
+// synthesis 전용 — dueDate 는 "오늘" 여부와 무관하게 항상 지난 날짜로 고정해 실제 조회 시점과
+// 무관하게 "마감 지남"으로 '지금 신경 쓸 일' 목록에 안정적으로 나타나게 한다.
+const sampleDues: IssueDueMarker[] = [
+  { issueId: 1, projectKey: 'SW', number: 101, title: '로그인 세션 만료 버그 수정', dueDate: '2026-07-01' },
+]
+
+const sampleMailSummaryData: MailSummary = {
+  unreadCount: 1,
+  needsReplyCount: 1,
+  classificationActive: true,
+  recent: sampleMailSummary,
+}
+
+const sampleMessagingSummaryData: MessagingSummary = {
+  unreadConversationCount: 1,
+  needsReplyCount: 1,
+  aiAttentionCount: 0,
+  attentionCount: 2,
+  recent: sampleConversations,
+}
+
 const samplePriorityItems: PriorityItem[] = [
   { sourceType: 'issue', sourceId: '1', title: '로그인 세션 만료 버그 수정', deepLink: '/projects/SW/issues/101', importanceScore: 80, urgencyScore: 90, reason: '마감 임박' },
   { sourceType: 'mail', sourceId: '1', title: '이번 주 스프린트 리뷰 일정 안내', deepLink: '/mail', importanceScore: 60, urgencyScore: 40, reason: '회신 대기' },
 ]
+
+// synthesis: SynthesisLayer 가 합성하는 6개 하위 신호(마감·멘션·메일·일정·메시징·AI우선순위)를
+// 그대로 미러링 — 위 개별 위젯 픽스처를 재사용해 다른 프리뷰와 일관된 이야기(SW-101 등)를 유지한다.
+const sampleSynthesis: SynthesisPreviewData = {
+  dues: sampleDues,
+  notifications: sampleNotifications,
+  mail: sampleMailSummaryData,
+  events: sampleEvents,
+  messaging: sampleMessagingSummaryData,
+  priorityItems: samplePriorityItems,
+}
 
 /** 위젯 type/key → 프리뷰용 목데이터. AddWidgetModal 프리뷰 패널이 previewData prop 으로 그대로 주입한다. */
 export const widgetPreviewFixtures: Record<string, unknown> = {
@@ -137,10 +169,7 @@ export const widgetPreviewFixtures: Record<string, unknown> = {
   notifications: sampleNotifications,
   recent_chats: sampleConversations,
   unread_mail: sampleMailSummary,
-  // synthesis: SynthesisLayer 는 여러 하위 신호(이슈·멘션·메일·일정·메시징)를 각자의 TanStack Query
-  // 훅으로 합성하는 컨테이너라 단일 목데이터 주입 지점이 없다. true 는 SynthesisBody 가 실제
-  // API 호출 없는 정적 안내로 분기하기 위한 존재 신호(sentinel)일 뿐 실제 렌더에는 쓰이지 않는다.
-  synthesis: true,
+  synthesis: sampleSynthesis,
   // quick_actions: QuickActions 는 데이터 없는 순수 버튼 행 — 프리뷰/실사용 렌더가 동일해 전용
   // 목데이터가 불필요하다(QuickActionsBody 가 previewData 를 무시).
   quick_actions: undefined,

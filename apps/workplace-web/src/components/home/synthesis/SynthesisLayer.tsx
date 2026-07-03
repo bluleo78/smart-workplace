@@ -8,6 +8,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, Mail, MessageCircle, Messag
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import type { PriorityItem } from '@/api/priorityItems'
 import { AiContent } from '@/components/ai/AiContent'
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { Card, CardContent } from '@/components/ui/card'
@@ -19,10 +20,22 @@ import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { parseUtcDate } from '@/lib/formatters'
-import type { IssueDueMarker } from '@/types/calendar'
+import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
+import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
 import { isMentionLike, notifLabel, notifTarget } from '../notifTarget'
+
+// 위젯 추가 모달 프리뷰 전용(#브레인스토밍 2026-07-03) — 6개 하위 훅 각각의 응답을 그대로 미러링한
+// 목데이터 뭉치. previewData 가 있으면 6개 훅 전부 enabled:false 로 끄고 이 값으로만 렌더한다.
+export interface SynthesisPreviewData {
+  dues: IssueDueMarker[]
+  notifications: NotificationResponse[]
+  mail: MailSummary
+  events: CalendarEvent[]
+  messaging: MessagingSummary
+  priorityItems: PriorityItem[]
+}
 
 // 오늘 00:00~24:00(로컬) ISO 범위 — CalendarTodayBody 와 동일 규칙으로 캘린더 쿼리 dedupe.
 function todayRange(): { from: string; to: string } {
@@ -122,7 +135,7 @@ const SOURCE_ICON = {
 } as const
 
 /** ① 합성 레이어 — 카운트 스트립 + 지금 신경 쓸 일 리스트. 소스별 에러/로딩 격리. */
-export function SynthesisLayer() {
+export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreviewData } = {}) {
   // '멘션' 셀 클릭 시 AppRail 의 알림 인박스 패널을 연다(전용 멘션 페이지 없음).
   const { openInbox } = useInboxPanel()
 
@@ -141,49 +154,52 @@ export function SynthesisLayer() {
   // 마감 이슈 — 1년 전~오늘로 한 번에 조회해 '오늘 마감' 카운트와 '지남+오늘' 주의 행을 분리 산출.
   const dueFrom = new Date(today)
   dueFrom.setFullYear(dueFrom.getFullYear() - 1)
-  const dues = useMyIssueDues(dueFrom.toISOString(), to)
+  const dues = useMyIssueDues(dueFrom.toISOString(), to, { enabled: !previewData })
 
   // 멘션(코멘트 프록시) — 알림 목록 재사용(위젯과 동일 키 → dedupe).
-  const notifs = useNotifications(true)
+  const notifs = useNotifications(!previewData)
   // 안 읽은 메일 — 카운트 + 최근(중요 메일 추출).
-  const mail = useMailSummary()
+  const mail = useMailSummary({ enabled: !previewData })
   // 오늘 일정.
-  const events = useCalendarEvents(from, to)
+  const events = useCalendarEvents(from, to, { enabled: !previewData })
   // 메시징 요약 — 회신대기 + AI 발굴 대화 카운트·recent 목록(홈 위젯과 동일 키 → TanStack Query dedupe).
-  const messaging = useMessagingSummary()
+  const messaging = useMessagingSummary({ enabled: !previewData })
 
   // AI 우선순위 점수(15분 배치) — sourceType+sourceId 로 매칭해 정렬 키로 사용. 아직 배치가 못 돈
   // 신규 후보는 매칭이 안 되므로 기존 소스 고정 순위로 폴백(정렬 실패로 전체가 깨지지 않도록 방어).
-  const priority = usePriorityItems()
+  const priority = usePriorityItems({ enabled: !previewData })
+  const priorityItems: PriorityItem[] = previewData?.priorityItems ?? priority.data?.items ?? []
   const priorityScoreOf = (sourceType: string, sourceId: string): number | null => {
-    const match = priority.data?.items.find((i) => i.sourceType === sourceType && i.sourceId === sourceId)
+    const match = priorityItems.find((i) => i.sourceType === sourceType && i.sourceId === sourceId)
     return match ? match.importanceScore + match.urgencyScore : null
   }
 
-  // ── 카운트 산출(소스별 에러/로딩 격리) ──────────────────────────────────
-  const dueItems: IssueDueMarker[] = dues.data ?? []
+  // ── 카운트 산출(소스별 에러/로딩 격리, previewData 있으면 항상 로딩/에러 없음) ──────────
+  const dueItems: IssueDueMarker[] = previewData?.dues ?? dues.data ?? []
   const dueTodayCount = dueItems.filter((d) => d.dueDate === todayKey).length
 
-  const notifItems: NotificationResponse[] = notifs.data ?? []
+  const notifItems: NotificationResponse[] = previewData?.notifications ?? notifs.data ?? []
   const mentionCount = notifItems.filter((n) => isMentionLike(n) && !n.read).length
 
+  const mailData = previewData?.mail ?? mail.data
   // 메일 카운트 — AI 분류 활성이면 "회신 필요 N", 비활성이면 "안 읽음 N".
-  const unreadMail = mail.data?.unreadCount ?? 0
-  const needsReply = mail.data?.needsReplyCount ?? 0
+  const unreadMail = mailData?.unreadCount ?? 0
+  const needsReply = mailData?.needsReplyCount ?? 0
   // classificationActive: 하나라도 aiEnabled 계정이 있으면 true(백엔드 집계).
-  const classifyOn = mail.data?.classificationActive ?? false
+  const classifyOn = mailData?.classificationActive ?? false
 
-  const todayEventCount = (events.data ?? []).length
+  const todayEventCount = (previewData?.events ?? events.data ?? []).length
 
+  const messagingData = previewData?.messaging ?? messaging.data
   // 메시징 KPI: 회신대기 ∪ AI 발굴(여전히 안읽음)의 합집합 dedup 카운트 → "확인 필요 N".
   // (needsReplyCount + aiAttentionCount 단순 합산은 한 채널이 두 신호를 모두 가질 때 이중 집계됨 → 백엔드 attentionCount 단일값 사용.)
-  const chatNeedsAttention = messaging.data?.attentionCount ?? 0
+  const chatNeedsAttention = messagingData?.attentionCount ?? 0
 
   // ── 지금 신경 쓸 일 병합(클라이언트 규칙) ────────────────────────────────────
   const rows: AttentionRow[] = []
 
   // 1) 마감 지남/오늘 이슈 — urgency 0.
-  if (!dues.isError) {
+  if (previewData || !dues.isError) {
     for (const d of dueItems) {
       if (d.dueDate <= todayKey) {
         const overdue = d.dueDate < todayKey
@@ -204,7 +220,7 @@ export function SynthesisLayer() {
   }
 
   // 2) @멘션(안 읽은 COMMENTED) — urgency 1.
-  if (!notifs.isError) {
+  if (previewData || !notifs.isError) {
     for (const n of notifItems) {
       if (isMentionLike(n) && !n.read) {
         rows.push({
@@ -224,8 +240,8 @@ export function SynthesisLayer() {
 
   // 3) 회신 필요 메일(분류 활성 + aiNeedsReply===true && 안읽음) — urgency 2.
   // pending(aiNeedsReply null)은 제외 — AI 판정 전 상태라 노이즈.
-  if (!mail.isError) {
-    for (const m of mail.data?.recent ?? []) {
+  if (previewData || !mail.isError) {
+    for (const m of mailData?.recent ?? []) {
       if (m.aiNeedsReply === true && !m.seen) {
         rows.push({
           key: `mail-${m.id}`,
@@ -245,8 +261,8 @@ export function SynthesisLayer() {
 
   // 4) 메시징 어텐션 대화 — urgency 1(멘션과 동렬, recency 로 교차 정렬).
   // 필터: 멘션·회신대기·AI발굴·새 스레드 답글 중 하나라도 있는 것만.
-  if (!messaging.isError) {
-    for (const c of messaging.data?.recent ?? []) {
+  if (previewData || !messaging.isError) {
+    for (const c of messagingData?.recent ?? []) {
       const isAttention =
         c.mentioned || c.needsReply || c.aiReason != null || c.newThreadReplyCount > 0
       if (!isAttention) continue
@@ -287,9 +303,10 @@ export function SynthesisLayer() {
   })
   const top = rows.slice(0, 5)
 
-  // 카운트 셀 로딩/에러 플래그(셀 단위 격리).
+  // 카운트 셀 로딩/에러 플래그(셀 단위 격리). previewData 있으면 항상 로딩/에러 없음으로 고정.
   // ai=true 이면 CountCell 이 Sparkles 배지를 표시(AI 분류 활성 신호).
   // testId: E2E 셀 단위 testid(선택적).
+  const noQuery = { isLoading: false, isError: false }
   const cells: {
     label: string
     count: number
@@ -299,16 +316,16 @@ export function SynthesisLayer() {
     ai?: boolean
     testId?: string
   }[] = [
-    { label: '오늘 마감', count: dueTodayCount, to: '/me/tasks/assigned?dueDate=today', q: dues },
+    { label: '오늘 마감', count: dueTodayCount, to: '/me/tasks/assigned?dueDate=today', q: previewData ? noQuery : dues },
     // 멘션: 전용 페이지가 없어 라우팅 대신 알림 인박스 패널을 연다(#273).
-    { label: '멘션', count: mentionCount, onClick: () => openInbox(), q: notifs },
+    { label: '멘션', count: mentionCount, onClick: () => openInbox(), q: previewData ? noQuery : notifs },
     // 메일 KPI 스왑: 분류 활성 시 "회신 필요 N"(Sparkles), 비활성 시 "안 읽음 N".
     classifyOn
-      ? { label: '회신 필요', count: needsReply, to: '/mail', q: mail, ai: true }
-      : { label: '안 읽음', count: unreadMail, to: '/mail', q: mail },
-    { label: '오늘 일정', count: todayEventCount, to: '/calendar', q: events },
+      ? { label: '회신 필요', count: needsReply, to: '/mail', q: previewData ? noQuery : mail, ai: true }
+      : { label: '안 읽음', count: unreadMail, to: '/mail', q: previewData ? noQuery : mail },
+    { label: '오늘 일정', count: todayEventCount, to: '/calendar', q: previewData ? noQuery : events },
     // 메시징 KPI — 회신대기 + AI 발굴 합산. AI 신호 배지 표시. 딥링크: /chat.
-    { label: '확인 필요', count: chatNeedsAttention, to: '/chat', q: messaging, ai: true, testId: 'kpi-messaging' },
+    { label: '확인 필요', count: chatNeedsAttention, to: '/chat', q: previewData ? noQuery : messaging, ai: true, testId: 'kpi-messaging' },
   ]
 
   return (

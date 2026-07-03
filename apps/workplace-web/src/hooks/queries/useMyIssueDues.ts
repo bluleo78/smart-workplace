@@ -10,7 +10,7 @@ import type { IssueDueMarker } from '../../types/calendar'
 const MAX_DUES = 100
 
 // from/to(ISO, 가시 범위)와 겹치는 내 이슈 마감일 마커를 조회한다.
-export function useMyIssueDues(from: string, to: string) {
+export function useMyIssueDues(from: string, to: string, options?: { enabled?: boolean }) {
   // 백엔드 dueFrom/dueTo 는 LocalDate(yyyy-MM-dd) — ISO 범위를 날짜로 변환.
   const dueFrom = format(new Date(from), 'yyyy-MM-dd')
   const dueTo = format(new Date(to), 'yyyy-MM-dd')
@@ -31,5 +31,6 @@ export function useMyIssueDues(from: string, to: string) {
     },
     staleTime: 10_000,
     refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
   })
 }
