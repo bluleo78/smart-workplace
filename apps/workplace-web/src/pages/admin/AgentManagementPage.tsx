@@ -44,16 +44,17 @@ import {
   useRevokeAgentKey,
 } from '../../hooks/queries/useAgentKeys';
 import {
-  useAgentOAuthTokenMeta,
-  useRevokeAgentOAuthToken,
-} from '../../hooks/queries/useAgentOAuthToken';
+  useAgentProviderCredentialMeta,
+  useRevokeAgentProviderCredential,
+} from '../../hooks/queries/useAgentProviderCredential';
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
 import { handleApiError } from '../../lib/api-error';
+import { presetLabelFor } from '../../lib/opencode-presets';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
 import { NewAgentDialog } from './components/NewAgentDialog';
-import { OAuthTokenDialog } from './components/OAuthTokenDialog';
+import { ProviderCredentialDialog } from './components/ProviderCredentialDialog';
 import { WorkspaceAssistantSection } from './components/WorkspaceAssistantSection';
 
 // 시간 표시 공통 — null/빈값 폴백.
@@ -450,11 +451,11 @@ export default function AgentManagementPage() {
   );
 }
 
-// AGENT 의 Claude CLI OAuth 토큰 섹션 — 메타 조회 + 등록/재발급/회수.
-// 평문 토큰은 절대 응답에 포함되지 않으며, 회수 후에는 LLM 호출이 불가해진다.
+// AGENT 의 프로바이더 자격증명 섹션 — 메타 조회 + 등록/재발급/회수.
+// 평문(토큰/apiKey)은 절대 응답에 포함되지 않으며, 회수 후에는 LLM 호출이 불가해진다.
 function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
-  const { data: meta, isLoading } = useAgentOAuthTokenMeta(agentUserId);
-  const revoke = useRevokeAgentOAuthToken(agentUserId);
+  const { data: meta, isLoading } = useAgentProviderCredentialMeta(agentUserId);
+  const revoke = useRevokeAgentProviderCredential(agentUserId);
   const [dialogOpen, setDialogOpen] = useState(false);
   // OAuth 토큰 회수 확인 AlertDialog. window.confirm 대체 (#136).
   const [revokeOpen, setRevokeOpen] = useState(false);
@@ -474,13 +475,33 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
     }
   };
 
+  // provider 뱃지 라벨 — anthropic 은 "Claude 구독", opencode 는 프리셋 역매핑(미매칭 시 "OpenAI 호환").
+  const providerBadge =
+    meta == null
+      ? null
+      : meta.provider === 'anthropic'
+        ? 'Claude 구독'
+        : (presetLabelFor(meta.baseUrl) ?? 'OpenAI 호환');
+
   return (
     <section className="border-t pt-4 mt-4 space-y-2">
-      <h3 className="text-sm font-medium">Claude CLI OAuth 토큰</h3>
+      <h3 className="text-sm font-medium">프로바이더 자격증명</h3>
       {isLoading ? (
         <p className="text-sm text-muted-foreground">로드 중…</p>
       ) : meta ? (
         <div className="space-y-1 text-sm">
+          <div>
+            <span className="text-muted-foreground">연결: </span>
+            <Badge variant="secondary" data-testid="credential-provider-badge">
+              {providerBadge}
+            </Badge>
+          </div>
+          {meta.baseUrl ? (
+            <div>
+              <span className="text-muted-foreground">Base URL: </span>
+              <span className="font-mono text-xs">{meta.baseUrl}</span>
+            </div>
+          ) : null}
           <div>
             <span className="text-muted-foreground">레이블: </span>
             <span>{meta.label ?? '(없음)'}</span>
@@ -527,7 +548,7 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
           </Button>
         </div>
       )}
-      <OAuthTokenDialog
+      <ProviderCredentialDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         agentUserId={agentUserId}

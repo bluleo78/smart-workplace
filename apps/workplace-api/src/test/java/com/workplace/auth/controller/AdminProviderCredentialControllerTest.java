@@ -11,8 +11,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workplace.auth.dto.OAuthTokenRegisterRequest;
+import com.workplace.auth.dto.ProviderConfig;
+import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
 import com.workplace.support.IntegrationTestBase;
+import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -25,10 +27,13 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Phase 5c-2 후속 (#33): AdminOAuthTokenController 통합 테스트 — 권한/HTTP/응답 형태 검증. */
+/**
+ * 멀티 프로바이더(#opencode) 확장: AdminProviderCredentialController 통합 테스트 — 권한/HTTP/응답 형태 검증. 구
+ * `/oauth-token` 경로는 제거되었다(하위호환 라우트 없음).
+ */
 @AutoConfigureMockMvc
 @Transactional
-class AdminOAuthTokenControllerTest extends IntegrationTestBase {
+class AdminProviderCredentialControllerTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired ObjectMapper objectMapper;
@@ -44,9 +49,9 @@ class AdminOAuthTokenControllerTest extends IntegrationTestBase {
   @Test
   void no_permission_returns_403() throws Exception {
     Long admin = createHumanUserForTest();
-    var req = new OAuthTokenRegisterRequest("X".repeat(64), null);
+    var req = new ProviderCredentialRegisterRequest(null, "X".repeat(64), null, null, null);
     mvc.perform(
-            post("/api/v1/admin/agents/9999/oauth-token")
+            post("/api/v1/admin/agents/9999/provider-credential")
                 .with(authentication(authWith(admin, "agent_unauthorized")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(req)))
@@ -54,19 +59,57 @@ class AdminOAuthTokenControllerTest extends IntegrationTestBase {
   }
 
   @Test
-  void register_response_does_not_contain_plaintext() throws Exception {
+  void register_생략시_anthropic_하위호환_그리고_평문미포함() throws Exception {
     Long admin = createHumanUserForTest();
     Long agentId = createAgentUserForTest();
-    var req = new OAuthTokenRegisterRequest("X".repeat(64), "main");
+    var req = new ProviderCredentialRegisterRequest(null, "X".repeat(64), null, null, "main");
     mvc.perform(
-            post("/api/v1/admin/agents/" + agentId + "/oauth-token")
+            post("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(req)))
-        .andExpect(status().isOk())
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.provider").value("anthropic"))
+        .andExpect(jsonPath("$.baseUrl").doesNotExist())
         .andExpect(jsonPath("$.label").value("main"))
         .andExpect(jsonPath("$.token").doesNotExist())
         .andExpect(jsonPath("$.encryptedToken").doesNotExist());
+  }
+
+  @Test
+  void register_opencode_등록시_provider와_baseUrl_메타반환() throws Exception {
+    Long admin = createHumanUserForTest();
+    Long agentId = createAgentUserForTest();
+    var config =
+        new ProviderConfig(
+            "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
+    var req =
+        new ProviderCredentialRegisterRequest("opencode", null, config, "gpt-4.1", "opencode-main");
+    mvc.perform(
+            post("/api/v1/admin/agents/" + agentId + "/provider-credential")
+                .with(authentication(authWith(admin, "user:write")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.provider").value("opencode"))
+        .andExpect(jsonPath("$.baseUrl").value("https://api.example.com/v1"))
+        .andExpect(jsonPath("$.label").value("opencode-main"));
+  }
+
+  @Test
+  void register_opencode_model_누락시_400() throws Exception {
+    Long admin = createHumanUserForTest();
+    Long agentId = createAgentUserForTest();
+    var config =
+        new ProviderConfig(
+            "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
+    var req = new ProviderCredentialRegisterRequest("opencode", null, config, null, null);
+    mvc.perform(
+            post("/api/v1/admin/agents/" + agentId + "/provider-credential")
+                .with(authentication(authWith(admin, "user:write")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isBadRequest());
   }
 
   @Test
@@ -74,7 +117,7 @@ class AdminOAuthTokenControllerTest extends IntegrationTestBase {
     Long admin = createHumanUserForTest();
     Long agentId = createAgentUserForTest();
     mvc.perform(
-            delete("/api/v1/admin/agents/" + agentId + "/oauth-token")
+            delete("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write"))))
         .andExpect(status().isNoContent());
   }
@@ -84,7 +127,7 @@ class AdminOAuthTokenControllerTest extends IntegrationTestBase {
     Long admin = createHumanUserForTest();
     Long agentId = createAgentUserForTest();
     mvc.perform(
-            get("/api/v1/admin/agents/" + agentId + "/oauth-token")
+            get("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write"))))
         .andExpect(status().isNotFound());
   }

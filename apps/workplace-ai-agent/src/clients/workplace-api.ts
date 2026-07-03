@@ -5,6 +5,7 @@ import axios, { AxiosInstance } from 'axios';
 
 import { DEFAULT_API_BASE_URL } from '../constants.js';
 import { IssueDetail, issueDetail } from '../types/workplace-api.js';
+import type { ProviderCredential } from '../agent/agent-runner.js';
 
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
@@ -208,7 +209,9 @@ export interface WorkplaceApiClient {
   // #371: 이슈 목록 조회 — GET /me/issues. assignee 기본 'me'(서버가 principal 로 해석).
   listIssues(agentId: number, params: IssueListParams): Promise<IssueListItem[]>;
   unassignSelf(agentId: number, issueKey: string): Promise<void>;
-  getOAuthToken(agentId: number): Promise<{ token: string; label: string | null }>;
+  // Task 7: getOAuthToken → getProviderCredential 일반화. GET /users/me/provider-credential.
+  // anthropic(OAuth 토큰)·opencode(공급자 설정 payload) 양쪽을 ProviderCredential 유니온으로 반환.
+  getProviderCredential(agentId: number): Promise<ProviderCredential>;
   // 6c: chat
   getChatMessages(agentId: number, threadId: number, limit: number): Promise<ChatMessageItem[]>;
   addChatMessage(agentId: number, threadId: number, body: string): Promise<void>;
@@ -448,12 +451,14 @@ export function createWorkplaceApiClient(opts: {
       );
     },
 
-    async getOAuthToken(agentId) {
-      const r = await http.get('/users/me/oauth-token', onBehalfOf(agentId));
-      return {
-        token: String(r.data?.token ?? ''),
-        label: r.data?.label ?? null,
-      };
+    // Task 7: redeem 일반화 — provider 별로 payload 형태가 다르므로 응답의 provider 필드로 분기.
+    // model 은 assistant_config.model(DB 설정) — 이벤트 경로 모델 결정 폴백에 사용(모델 결정 이원화 해소).
+    async getProviderCredential(agentId) {
+      const r = await http.get('/users/me/provider-credential', onBehalfOf(agentId));
+      const model = r.data?.model ?? null;
+      return r.data?.provider === 'opencode'
+        ? { provider: 'opencode', payload: JSON.parse(String(r.data.payload)), model }
+        : { provider: 'anthropic', token: String(r.data?.token ?? ''), model };
     },
 
     async getChatMessages(agentId, threadId, limit) {

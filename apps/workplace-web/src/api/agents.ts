@@ -3,11 +3,11 @@
 
 import type { AgentResponse } from '../types/agent';
 import type { AgentApiKey, AgentApiKeyIssueResponse } from '../types/agentKey';
-import type {
-  OAuthTokenMeta,
-  OAuthTokenRegisterRequest,
-} from '../types/agentOAuthToken';
 import type { UserResponse } from '../types/auth';
+import type {
+  ProviderCredentialMeta,
+  ProviderCredentialRegisterRequest,
+} from '../types/providerCredential';
 import { client } from './client';
 
 // AGENT 유저 목록 조회 — kind=AGENT 만 반환됨. 응답엔 유형(type)·소유자(ownerName) 포함.
@@ -65,29 +65,29 @@ export async function revokeAgentKey(userId: number, keyId: number): Promise<voi
   await client.delete<void>(`/admin/agents/${userId}/keys/${keyId}`);
 }
 
-// AGENT 의 active OAuth 토큰 메타 조회 — 평문 미포함. 미등록 시 404.
-export async function getAgentOAuthTokenMeta(
+// AGENT 의 active 프로바이더 자격증명 메타 조회 — 평문 미포함. 미등록 시 404.
+export async function getAgentProviderCredentialMeta(
   userId: number,
-): Promise<OAuthTokenMeta> {
-  const { data } = await client.get<OAuthTokenMeta>(
-    `/admin/agents/${userId}/oauth-token`,
+): Promise<ProviderCredentialMeta> {
+  const { data } = await client.get<ProviderCredentialMeta>(
+    `/admin/agents/${userId}/provider-credential`,
   );
   return data;
 }
 
-// OAuth 토큰 등록 (또는 재발급 — 기존 active 자동 revoke). 응답에 평문 미포함.
-export async function registerAgentOAuthToken(
+// 자격증명 등록(또는 재발급 — 기존 active 자동 revoke). 응답에 평문 미포함.
+export async function registerAgentProviderCredential(
   userId: number,
-  body: OAuthTokenRegisterRequest,
-): Promise<OAuthTokenMeta> {
-  const { data } = await client.post<OAuthTokenMeta>(
-    `/admin/agents/${userId}/oauth-token`,
+  body: ProviderCredentialRegisterRequest,
+): Promise<ProviderCredentialMeta> {
+  const { data } = await client.post<ProviderCredentialMeta>(
+    `/admin/agents/${userId}/provider-credential`,
     body,
   );
   return data;
 }
 
-// OAuth 토큰 회수 — idempotent. 회수 후 AGENT 는 LLM 호출 불가 상태.
-export async function revokeAgentOAuthToken(userId: number): Promise<void> {
-  await client.delete<void>(`/admin/agents/${userId}/oauth-token`);
+// 자격증명 회수 — idempotent. 회수 후 AGENT 는 LLM 호출 불가 상태.
+export async function revokeAgentProviderCredential(userId: number): Promise<void> {
+  await client.delete<void>(`/admin/agents/${userId}/provider-credential`);
 }

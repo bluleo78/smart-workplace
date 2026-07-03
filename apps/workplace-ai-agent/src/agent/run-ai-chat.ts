@@ -8,13 +8,14 @@
 import { log } from '../logger.js';
 import { ASSISTANT_SYSTEM_PROMPT, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
 import type { ToolUseLine } from './sdk-mcp-server.js';
-import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import { transcriptRequest, transcriptStreamLine, transcriptResult } from './ai-transcript-log.js';
-import { loadSubagents, toAgentDefinitions } from './subagent-loader.js';
-import { runSdkStream } from './sdk-runner.js';
-import { parseChatLines, extractRouterTextDelta } from './chat-parser.js';
+import { runnerFor } from './agent-runner.js';
+import type { RunnerEvent } from './runner-events.js';
+import { parseChatEvents } from './chat-parser.js';
 import { thinkingDirective } from './thinking.js';
+import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
+import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
 
 export interface ContextMessage {
@@ -143,7 +144,7 @@ const ROUTER_FALLBACK_TEXT = '요청을 처리하지 못했어요. 다시 시도
 
 // SSE 라우트용 스트리밍 러너 — 라우터 자유 prose 를 onDelta 로 라이브 emit 하고,
 // 서브에이전트 위임 답은 HostBridge.onSubmitResponse 콜백으로 수신한다.
-// parseChatLines 로 위젯을 산출해 반환한다.
+// parseChatEvents 로 위젯을 산출해 반환한다.
 // #333: assistant 프로파일 + allowSubagents + Agent 위임 라벨 발행.
 // #462 슬라이스4: runSdkStream + buildInProcessWorkplaceMcpServer + HostBridge 인메모리 콜백.
 //   workDir / 사이드카 파일 / ToolUseTailer 완전 제거.
@@ -171,10 +172,10 @@ export async function runAiChatStream(
     };
   }
   const agentId = input.assistantAgentId;
-  let token: string;
+  let credential: ProviderCredential;
   const tokenStart = Date.now();
   try {
-    token = (await deps.client.getOAuthToken(agentId)).token;
+    credential = await deps.client.getProviderCredential(agentId);
     log.info('ai-chat', 'token_fetch_ok', {
       requestId: input.requestId,
       agentId,
@@ -213,36 +214,23 @@ export async function runAiChatStream(
     },
   };
 
-  // 인-프로세스 MCP 서버 생성(assistant 프로파일 + hostBridge + onTool 라이브 발행).
-  // #376: MCP 도구(드라이브·캘린더·메일 등) 실행 주체(X-On-Behalf-Of)는 요청자(userId).
-  //   stdio 서버(workplace-mcp-server.ts:36)와 동일 우선순위: userId ?? agentId.
-  //   OAuth 토큰(LLM 인증)은 여전히 getOAuthToken(agentId) — 비서 에이전트 자격 유지.
-  const mcpServer = buildInProcessWorkplaceMcpServer({
-    client: deps.client,
-    onBehalfOfId: input.userId ?? agentId,
-    profile: 'assistant',
-    hostBridge,
-    onTool,
-  });
-
-  // 서브에이전트 정의 — 파일(.claude/agents/*.md) 대신 Options.agents 로 코드 전달.
-  const subagentDefs = loadSubagents();
-  const agents = toAgentDefinitions(subagentDefs);
-
   // 요청 시점 Seoul 기준 오늘 날짜를 계산해 상대 날짜 필터 앵커로 주입한다.
   const seoulToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
   const systemPrompt = ASSISTANT_SYSTEM_PROMPT + dateContextDirective(seoulToday) + thinkingDirective(input.thinkingDepth);
   const userMessage = buildChatUserMessage(input);
 
-  const lines: string[] = [];
-  // #463: 라우터 자유 prose 를 onDelta 로 라이브 emit 하면서 동시에 누적. CLI 완료 후 답 결정에 사용.
+  const events: RunnerEvent[] = [];
+  // #463: 라우터 자유 prose 를 onDelta 로 라이브 emit 하면서 동시에 누적. 완료 후 답 결정에 사용.
   let streamedText = '';
   // #381: Agent 위임 발생 여부 추적 — #406/#415 의 unassign 재처리 가드에서 사용한다.
   let delegated = false;
 
+  // 우선순위: 요청 body(input.model) > redeem 응답(credential.model) > env/기본값.
+  const model = input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
+
   log.info('ai-chat', 'cli_spawn', {
     requestId: input.requestId,
-    model: input.model,
+    model,
     maxTurns: input.maxTurns,
     allowSubagents: true,
   });
@@ -251,66 +239,62 @@ export async function runAiChatStream(
     query: input.query,
     recentContext: input.recentContext ?? [],
     userMessage,
-    model: input.model,
+    model,
     thinkingDepth: input.thinkingDepth,
     maxTurns: input.maxTurns,
     timeoutMs: input.timeoutMs,
     systemPromptChars: systemPrompt.length,
   });
 
-  const handle = runSdkStream(
+  // 인-프로세스 MCP 서버(assistant 프로파일 + hostBridge + onTool)·서브에이전트 정의는 러너 내부에서 구성.
+  // #376: MCP 도구(드라이브·캘린더·메일 등) 실행 주체(X-On-Behalf-Of)는 요청자(userId).
+  //   stdio 서버(workplace-mcp-server.ts:36)와 동일 우선순위: userId ?? agentId.
+  //   LLM 인증 자격(credential)은 여전히 getProviderCredential(agentId) — 비서 에이전트 자격 유지.
+  const handle = runnerFor(credential).stream(
     {
       userMessage,
       systemPrompt,
-      model: input.model,
+      model,
       maxTurns: input.maxTurns,
-      token,
+      credential,
       agentId,
       userId: input.userId,
       timeoutMs: input.timeoutMs,
       logTag: `ai-chat:${agentId}`,
       requestId: input.requestId,
       includePartialMessages: true, // partial text_delta 수신(스트리밍)
-      allowSubagents: true, // #333: Agent 도구 허용(라우터 위임에 필요)
+      allowSubagents: true, // #333: Agent 도구 허용(라우터 위임에 필요) — 러너가 subagent 정의를 구성
       allowFileRead: false, // 홈 컴포즈는 파일 읽기 불필요 — 보안 최소권한
-      mcpServers: { workplace: mcpServer },
-      agents,
+      mcp: {
+        client: deps.client,
+        onBehalfOfId: input.userId ?? agentId,
+        profile: 'assistant',
+        hostBridge,
+        onTool,
+      },
     },
-    (line) => {
-      // 모든 라인을 누적(parseChatLines 가 위젯 파싱에 사용).
-      lines.push(line);
-      // #458: 수신 즉시 트랜스크립트에 기록 — 라인 간 ts 간격이 곧 단계별 지연(LLM/도구) 분해 근거.
-      transcriptStreamLine(input.requestId, line);
-      let obj: unknown;
-      try {
-        obj = JSON.parse(line);
-      } catch {
-        return; // 비JSON 라인 무시
-      }
-      // #463: 라우터 자기 text_delta 를 라이브 emit(parent_tool_use_id null 필터 — 서브에이전트 누수 방지).
-      //   누적한 streamedText 를 SDK 완료 후 답 결정 우선순위 2위로 사용한다.
-      const delta = extractRouterTextDelta(obj);
-      if (delta) {
-        streamedText += delta;
-        onDelta?.(delta);
+    (ev) => {
+      // 모든 이벤트를 누적(parseChatEvents 가 위젯 파싱에 사용).
+      events.push(ev);
+      // #458: 수신 즉시 트랜스크립트에 기록 — 이벤트 간 ts 간격이 곧 단계별 지연(LLM/도구) 분해 근거.
+      transcriptStreamLine(input.requestId, JSON.stringify(ev));
+      // #463: 라우터 자기 text_delta 를 라이브 emit(parentToolUseId null 필터 — 서브에이전트 누수 방지).
+      //   누적한 streamedText 를 완료 후 답 결정 우선순위 2위로 사용한다.
+      if (ev.type === 'text_delta' && ev.parentToolUseId == null && ev.text) {
+        streamedText += ev.text;
+        onDelta?.(ev.text);
       }
       // #333: assistant tool_use 중 Agent 위임을 검사·라벨링한다.
       // #462 슬라이스4: 화이트리스트(checkSubagentWhitelist) 제거 — Options.agents 로 정의된 에이전트만
       // SDK 가 호출하므로 미정의 에이전트 이름을 kill+throw 로 차단할 필요 없음.
-      const o = obj as {
-        type?: string;
-        message?: { content?: Array<{ type?: string; name?: string; input?: Record<string, unknown> }> };
-      };
-      if (o.type === 'assistant' && Array.isArray(o.message?.content)) {
-        for (const b of o.message!.content!) {
-          if (b.type !== 'tool_use' || b.name !== 'Agent') continue;
-          const subType = typeof b.input?.subagent_type === 'string' ? b.input.subagent_type : '';
-          const label = delegationLabel(subType);
-          if (label) {
-            // 위임 발생 → 플래그 설정. onProgress 있으면 라벨 발행.
-            delegated = true;
-            if (onProgress) onProgress(label);
-          }
+      if (ev.type === 'tool_use' && ev.name === 'Agent') {
+        const rawSub = (ev.input as { subagent_type?: unknown })?.subagent_type;
+        const subType = typeof rawSub === 'string' ? rawSub : '';
+        const label = delegationLabel(subType);
+        if (label) {
+          // 위임 발생 → 플래그 설정. onProgress 있으면 라벨 발행.
+          delegated = true;
+          if (onProgress) onProgress(label);
         }
       }
     },
@@ -374,8 +358,8 @@ export async function runAiChatStream(
     });
     return { fullText: unassign.canonical, widgets: null, pendingActions: [], usage: null };
   }
-  // #463: parseChatLines 로 위젯(tool_use 이벤트)만 산출. 텍스트는 아래 우선순위로 결정한다.
-  const parsed = parseChatLines(lines);
+  // #463: parseChatEvents 로 위젯(tool_use 이벤트)만 산출. 텍스트는 아래 우선순위로 결정한다.
+  const parsed = parseChatEvents(events);
   // #404: show_issue_detail 위젯 중 존재하지 않는 이슈 번호를 서버 검증으로 드롭한다.
   const filteredWidgets = await filterIssueDetailWidgets(parsed.widgets, deps.client, agentId);
   const widgets = filteredWidgets.length > 0 ? filteredWidgets : null;

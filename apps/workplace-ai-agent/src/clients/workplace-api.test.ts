@@ -201,21 +201,42 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     await expect(newClient().unassignSelf(AGENT_ID, 'EX-2')).rejects.toThrow('담당자로 등록되어 있지 않아 해제할 수 없습니다.');
   });
 
-  it('getOAuthToken → GET /users/me/oauth-token + 헤더', async () => {
+  it('getProviderCredential → GET /users/me/provider-credential + 헤더 (anthropic)', async () => {
     nock(BASE)
       .matchHeader('authorization', 'Internal tk-internal')
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/users/me/oauth-token`)
-      .reply(200, { token: 'tk-plain', label: 'main' });
-    const r = await newClient().getOAuthToken(AGENT_ID);
-    expect(r).toEqual({ token: 'tk-plain', label: 'main' });
+      .get(`${PREFIX}/users/me/provider-credential`)
+      .reply(200, { provider: 'anthropic', token: 'tk-plain', model: 'claude-sonnet-5' });
+    const r = await newClient().getProviderCredential(AGENT_ID);
+    expect(r).toEqual({ provider: 'anthropic', token: 'tk-plain', model: 'claude-sonnet-5' });
   });
 
-  it('getOAuthToken → 404 면 throw', async () => {
+  it('getProviderCredential → opencode 응답은 payload 를 JSON 파싱해 반환', async () => {
+    const payload = JSON.stringify({ providerId: 'amazon-bedrock-openai', options: { apiKey: 'k' } });
     nock(BASE)
-      .get(`${PREFIX}/users/me/oauth-token`)
+      .get(`${PREFIX}/users/me/provider-credential`)
+      .reply(200, { provider: 'opencode', payload, model: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0' });
+    const r = await newClient().getProviderCredential(AGENT_ID);
+    expect(r).toEqual({
+      provider: 'opencode',
+      payload: { providerId: 'amazon-bedrock-openai', options: { apiKey: 'k' } },
+      model: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0',
+    });
+  });
+
+  it('getProviderCredential → model 미포함 응답은 null 로 폴백', async () => {
+    nock(BASE)
+      .get(`${PREFIX}/users/me/provider-credential`)
+      .reply(200, { provider: 'anthropic', token: 'tk-plain' });
+    const r = await newClient().getProviderCredential(AGENT_ID);
+    expect(r).toEqual({ provider: 'anthropic', token: 'tk-plain', model: null });
+  });
+
+  it('getProviderCredential → 404 면 throw', async () => {
+    nock(BASE)
+      .get(`${PREFIX}/users/me/provider-credential`)
       .reply(404, { error: 'not_found' });
-    await expect(newClient().getOAuthToken(AGENT_ID)).rejects.toThrow();
+    await expect(newClient().getProviderCredential(AGENT_ID)).rejects.toThrow();
   });
 
   // --- 6c: chat ---

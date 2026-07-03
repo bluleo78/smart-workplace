@@ -1,73 +1,263 @@
+import type { Route } from '@playwright/test'
+
 import { expect, test } from '../fixtures/auth.fixture'
 
-// 프로필 개인 비서 섹션 E2E — 미설정 상태에서 토큰을 등록하면 "설정됨" 으로 전환된다.
-// 백엔드 없이 GET 상태/PUT 토큰을 page.route 로 모킹. PUT 후 GET 응답을 configured=true 로 바꿔
-// 캐시 무효화 → 재조회 → UI 반영을 검증한다.
-// 에러 케이스: PUT/DELETE API 실패 시 오류 토스트가 표시되어야 한다 (#192).
+// 프로필 개인 비서 섹션 E2E — Task 13: 등록 폼이 admin ProviderCredentialDialog(Task 12)와 동일한
+// 2모드(anthropic 토큰 / opencode 프리셋+프로브+모델선택) UX 를 따르도록 개편.
+// 백엔드 없이 GET 상태/POST 자격증명/모델 API 를 page.route 로 모킹. 등록 후 GET 응답을 configured=true 로
+// 바꿔 캐시 무효화 → 재조회 → UI 반영을 검증한다.
+// 신규 route: PUT /users/me/assistant/token → POST /users/me/assistant/credential 로 교체(Task 11/12 대응).
+
+interface AssistantStatusFixture {
+  configured: boolean
+  tokenLabel: string | null
+  tokenLastUsedAt: string | null
+  model: string | null
+  thinkingDepth: string | null
+  name?: string | null
+  provider?: string | null
+  baseUrl?: string | null
+}
+
+function unconfiguredStatus(): AssistantStatusFixture {
+  return {
+    configured: false,
+    tokenLabel: null,
+    tokenLastUsedAt: null,
+    model: null,
+    thinkingDepth: null,
+    name: null,
+    provider: null,
+    baseUrl: null,
+  }
+}
+
+function configuredStatus(overrides: Partial<AssistantStatusFixture> = {}): AssistantStatusFixture {
+  return {
+    configured: true,
+    tokenLabel: null,
+    tokenLastUsedAt: null,
+    model: 'claude-sonnet-4-6',
+    thinkingDepth: 'NORMAL',
+    name: null,
+    provider: 'anthropic',
+    baseUrl: null,
+    ...overrides,
+  }
+}
+
+function mockStatus(page: import('@playwright/test').Page, get: () => AssistantStatusFixture) {
+  return page.route('**/api/v1/users/me/assistant', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(get()),
+      })
+    }
+    return route.fallback()
+  })
+}
+
+// POST /users/me/assistant/credential — payload 캡처 후 성공 응답.
+function mockCredentialRegister(
+  page: import('@playwright/test').Page,
+  onSuccess?: () => void,
+) {
+  const requests: Array<Record<string, unknown>> = []
+  page.route('**/api/v1/users/me/assistant/credential', (route: Route) => {
+    if (route.request().method() === 'PUT') {
+      requests.push(route.request().postDataJSON() as Record<string, unknown>)
+      onSuccess?.()
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fallback()
+  })
+  return requests
+}
+
+// GET /users/me/assistant/models — 설정된 비서의 서버 모델 목록.
+function mockModels(
+  page: import('@playwright/test').Page,
+  models: Array<{ id: string; label: string }>,
+  provider = 'anthropic',
+) {
+  return page.route('**/api/v1/users/me/assistant/models', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ provider, models }),
+      })
+    }
+    return route.fallback()
+  })
+}
+
+// POST /users/me/assistant/models/probe — 요청 payload 기록 + 성공/실패 응답.
+function mockProbe(
+  page: import('@playwright/test').Page,
+  opts: { status: 200 | 502; models?: Array<{ id: string; label: string }> },
+) {
+  const requests: Array<Record<string, unknown>> = []
+  page.route('**/api/v1/users/me/assistant/models/probe', (route) => {
+    requests.push(route.request().postDataJSON() as Record<string, unknown>)
+    if (opts.status === 502) {
+      return route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: '프로바이더 연결에 실패했습니다' }),
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ models: opts.models ?? [] }),
+    })
+  })
+  return requests
+}
 
 test.describe('프로필 개인 비서', () => {
-  test('미설정 → 토큰 등록 → 설정됨', async ({ authenticatedPage: page }) => {
+  test('미설정 → anthropic 토큰 등록 → 설정됨', { tag: '@smoke' }, async ({
+    authenticatedPage: page,
+  }) => {
     let configured = false
-
-    // GET /users/me/assistant — configured 플래그에 따라 미설정/설정됨 응답.
-    await page.route('**/api/v1/users/me/assistant', async (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(
-            configured
-              ? {
-                  configured: true,
-                  tokenLabel: null,
-                  tokenLastUsedAt: null,
-                  model: 'claude-sonnet-4-6',
-                  thinkingDepth: 'NORMAL',
-                }
-              : {
-                  configured: false,
-                  tokenLabel: null,
-                  tokenLastUsedAt: null,
-                  model: null,
-                  thinkingDepth: null,
-                },
-          ),
-        })
-      }
-      return route.fallback()
-    })
-
-    // PUT /users/me/assistant/token — 등록 성공 시 이후 GET 이 설정됨을 반환하도록 플래그 전환.
-    await page.route('**/api/v1/users/me/assistant/token', async (route) => {
+    await mockStatus(page, () => (configured ? configuredStatus() : unconfiguredStatus()))
+    const requests = mockCredentialRegister(page, () => {
       configured = true
-      return route.fulfill({ status: 204, body: '' })
     })
+    await mockModels(page, [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }])
 
     await page.goto('/settings/assistant')
 
-    // 미설정: 토큰 입력 → 등록.
-    await page.getByTestId('assistant-token-input').fill('x'.repeat(40))
-    await page.getByRole('button', { name: '토큰 등록' }).click()
+    // 기본 선택 — anthropic.
+    await expect(page.getByTestId('credential-provider-anthropic')).toBeChecked()
 
-    // 설정됨 표시가 노출되어야 한다.
+    await page.getByTestId('assistant-token-input').fill('x'.repeat(40))
+    await page.getByRole('button', { name: '등록' }).click()
+
+    await expect(page.getByText('개인 비서 토큰을 저장했습니다.')).toBeVisible()
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toEqual({ provider: 'anthropic', token: 'x'.repeat(40) })
+  })
+
+  test(
+    '미설정 → opencode 등록 — 프리셋 선택 → 프로브 payload 검증 → 모델 선택 → 제출 payload 검증',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      let configured = false
+      await mockStatus(page, () => (configured ? configuredStatus({ provider: 'opencode' }) : unconfiguredStatus()))
+      const requests = mockCredentialRegister(page, () => {
+        configured = true
+      })
+      const probeRequests = mockProbe(page, {
+        status: 200,
+        models: [
+          { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
+          { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+        ],
+      })
+
+      await page.goto('/settings/assistant')
+
+      await page.getByTestId('credential-provider-opencode').click()
+      await expect(page.getByTestId('credential-base-url')).toHaveValue(
+        'https://bedrock-mantle.us-east-1.api.aws/openai/v1',
+      )
+
+      await page.getByTestId('credential-api-key').fill('sk-bedrock-test-key')
+      await page.getByTestId('credential-probe-models').click()
+
+      await expect.poll(() => probeRequests.length).toBe(1)
+      expect(probeRequests[0]).toEqual({
+        providerConfig: {
+          providerId: 'amazon-bedrock-openai',
+          options: {
+            baseURL: 'https://bedrock-mantle.us-east-1.api.aws/openai/v1',
+            apiKey: 'sk-bedrock-test-key',
+          },
+        },
+      })
+
+      const modelSelect = page.getByTestId('credential-model-select')
+      await expect(modelSelect).toBeVisible()
+      await modelSelect.click()
+      await page.getByRole('option', { name: 'Claude 3.5 Sonnet' }).click()
+
+      await page.getByLabel('레이블 (선택)').fill('bedrock-main')
+      await page.getByRole('button', { name: '등록' }).click()
+
+      await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0]).toEqual({
+        provider: 'opencode',
+        providerConfig: {
+          providerId: 'amazon-bedrock-openai',
+          options: {
+            baseURL: 'https://bedrock-mantle.us-east-1.api.aws/openai/v1',
+            apiKey: 'sk-bedrock-test-key',
+          },
+        },
+        model: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet',
+        label: 'bedrock-main',
+      })
+    },
+  )
+
+  test('opencode 프로브 실패 → 수동 모델 입력 폴백 노출 + 제출 가능', async ({
+    authenticatedPage: page,
+  }) => {
+    let configured = false
+    await mockStatus(page, () => (configured ? configuredStatus({ provider: 'opencode' }) : unconfiguredStatus()))
+    const requests = mockCredentialRegister(page, () => {
+      configured = true
+    })
+    mockProbe(page, { status: 502 })
+
+    await page.goto('/settings/assistant')
+    await page.getByTestId('credential-provider-opencode').click()
+
+    await page.getByTestId('credential-base-url').fill('https://api.openai.com/v1')
+    await page.getByTestId('credential-api-key').fill('sk-openai-test')
+    await page.getByTestId('credential-probe-models').click()
+
+    await expect(page.getByTestId('credential-model-select')).toHaveCount(0)
+    const manualModel = page.getByTestId('credential-model-manual')
+    await expect(manualModel).toBeVisible()
+
+    await manualModel.fill('gpt-4o-mini')
+    await page.getByRole('button', { name: '등록' }).click()
+
+    await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
+    expect(requests).toHaveLength(1)
+    expect((requests[0] as { model: string }).model).toBe('gpt-4o-mini')
+  })
+
+  test('opencode 모델 미선택 → 제출 버튼 비활성(POST 호출 없음)', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockStatus(page, unconfiguredStatus)
+    const requests = mockCredentialRegister(page)
+
+    await page.goto('/settings/assistant')
+    await page.getByTestId('credential-provider-opencode').click()
+
+    await page.getByTestId('credential-base-url').fill('https://api.openai.com/v1')
+    await page.getByTestId('credential-api-key').fill('sk-openai-test')
+
+    // 프로브를 호출하지 않아 모델 미선택 상태 — 제출 버튼이 비활성화되어 클릭 자체가 불가하다.
+    const submitBtn = page.getByRole('button', { name: '등록' })
+    await expect(submitBtn).toBeDisabled()
+
+    expect(requests).toHaveLength(0)
   })
 
   test('비서 설정 페이지 제목', async ({ authenticatedPage: page }) => {
-    // GET /users/me/assistant — 미설정 상태 모킹(컴포넌트 크래시 방지)
-    await page.route('**/api/v1/users/me/assistant', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          configured: false,
-          tokenLabel: null,
-          tokenLastUsedAt: null,
-          model: null,
-          thinkingDepth: null,
-        }),
-      }),
-    )
+    await mockStatus(page, unconfiguredStatus)
     await page.goto('/settings/assistant')
     await expect(page.getByRole('heading', { name: '비서 설정' })).toBeVisible()
   })
@@ -76,22 +266,8 @@ test.describe('프로필 개인 비서', () => {
   test('모델·생각의 깊이 선택기가 shadcn Select로 렌더링된다', async ({
     authenticatedPage: page,
   }) => {
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            configured: true,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-          }),
-        })
-      }
-      return route.fallback()
-    })
+    await mockStatus(page, () => configuredStatus())
+    await mockModels(page, [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }])
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
@@ -99,24 +275,29 @@ test.describe('프로필 개인 비서', () => {
     // native <select> 요소가 없어야 한다 — shadcn SelectTrigger(role="combobox")로 대체됨.
     await expect(page.locator('select')).toHaveCount(0)
 
-    // shadcn SelectTrigger(role="combobox")가 모델, 생각의 깊이 각각 보여야 한다.
     await expect(page.getByRole('combobox', { name: '모델' })).toBeVisible()
     await expect(page.getByRole('combobox', { name: '생각의 깊이' })).toBeVisible()
   })
 
-  // #262 — 모델 선택기에 내부 ID 대신 사용자 친화적 레이블이 표시되어야 한다.
-  test('모델 선택기에 사용자 친화적 레이블 표시', async ({ authenticatedPage: page }) => {
-    await page.route('**/api/v1/users/me/assistant', (route) => {
+  // 모델 Select 옵션이 GET /users/me/assistant/models 서버 응답을 그대로 반영하는지 검증.
+  test('모델 선택기 옵션이 서버 모델 목록 응답을 그대로 반영', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockStatus(page, () => configuredStatus({ model: 'claude-sonnet-5' }))
+    let modelsRequested = false
+    await page.route('**/api/v1/users/me/assistant/models', (route) => {
       if (route.request().method() === 'GET') {
+        modelsRequested = true
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            configured: true,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-5',
-            thinkingDepth: 'NORMAL',
+            provider: 'anthropic',
+            models: [
+              { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+              { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+              { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+            ],
           }),
         })
       }
@@ -125,79 +306,68 @@ test.describe('프로필 개인 비서', () => {
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
+    await expect.poll(() => modelsRequested).toBe(true)
 
-    // 트리거(현재 선택값)에 사용자 친화적 레이블이 표시되어야 한다.
     await expect(page.getByRole('combobox', { name: '모델' })).toContainText('Claude Sonnet 5')
 
-    // 드롭다운을 열어 목록에 내부 ID가 없고 레이블이 있는지 확인한다.
     await page.getByRole('combobox', { name: '모델' }).click()
     await expect(page.getByRole('option', { name: 'Claude Sonnet 5' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Opus 4.8' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Haiku 4.5' })).toBeVisible()
-    await expect(page.getByRole('option', { name: 'Claude Fable 5' })).toBeVisible()
     // 내부 ID 형식('claude-sonnet-5')은 옵션 레이블로 노출되면 안 된다.
     await expect(page.getByRole('option', { name: 'claude-sonnet-5' })).not.toBeVisible()
-    await expect(page.getByRole('option', { name: 'claude-opus-4-8' })).not.toBeVisible()
   })
 
-  // #192 — 토큰 등록 API 실패 시 오류 토스트가 표시되어야 한다.
+  // 모델 목록이 비어 있으면 Select 비활성 + 안내 문구 노출.
+  test('모델 목록 없음 → Select 비활성 + 안내 문구', async ({ authenticatedPage: page }) => {
+    await mockStatus(page, () => configuredStatus())
+    await mockModels(page, [])
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+    await expect(page.getByTestId('assistant-model')).toBeDisabled()
+    await expect(page.getByTestId('assistant-model-empty')).toBeVisible()
+  })
+
+  // #192 — 자격증명 등록 API 실패 시 오류 토스트가 표시되어야 한다.
   test('토큰 등록 API 실패 시 오류 토스트 표시', async ({ authenticatedPage: page }) => {
-    // GET — 미설정 상태 유지
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
+    await mockStatus(page, unconfiguredStatus)
+    await page.route('**/api/v1/users/me/assistant/credential', (route) => {
+      if (route.request().method() === 'PUT') {
         return route.fulfill({
-          status: 200,
+          status: 500,
           contentType: 'application/json',
-          body: JSON.stringify({
-            configured: false,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: null,
-            thinkingDepth: null,
-          }),
+          body: JSON.stringify({ message: '서버 오류가 발생했습니다.' }),
         })
       }
       return route.fallback()
     })
-    // PUT /token — 500 에러 반환
-    await page.route('**/api/v1/users/me/assistant/token', (route) =>
-      route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({ message: '서버 오류가 발생했습니다.' }),
-      }),
-    )
 
     await page.goto('/settings/assistant')
     await page.getByTestId('assistant-token-input').fill('x'.repeat(40))
-    await page.getByRole('button', { name: '토큰 등록' }).click()
+    await page.getByRole('button', { name: '등록' }).click()
 
-    // 오류 토스트가 표시되어야 한다.
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible()
-    // 성공 토스트는 표시되면 안 된다.
     await expect(page.getByText('개인 비서 토큰을 저장했습니다.')).not.toBeVisible()
+  })
+
+  // 짧은 토큰 → 형식 에러 토스트 + POST 호출 없음 (회귀 — 최소 32자 검증 byte-identical 유지).
+  test('짧은 토큰 → 에러 토스트 + POST 호출 없음', async ({ authenticatedPage: page }) => {
+    await mockStatus(page, unconfiguredStatus)
+    const requests = mockCredentialRegister(page)
+
+    await page.goto('/settings/assistant')
+    await page.getByTestId('assistant-token-input').fill('x'.repeat(16))
+    await page.getByRole('button', { name: '등록' }).click()
+
+    await expect(page.getByText('토큰 형식이 올바르지 않습니다.')).toBeVisible()
+    expect(requests).toHaveLength(0)
   })
 
   // #192 — 해제 API 실패 시 오류 토스트가 표시되어야 한다.
   test('개인 비서 해제 API 실패 시 오류 토스트 표시', async ({ authenticatedPage: page }) => {
-    // GET — 설정됨 상태 모킹
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            configured: true,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-          }),
-        })
-      }
-      return route.fallback()
-    })
-    // DELETE — 403 에러 반환
+    await mockStatus(page, () => configuredStatus())
+    await mockModels(page, [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }])
     await page.route('**/api/v1/users/me/assistant', (route) => {
       if (route.request().method() === 'DELETE') {
         return route.fulfill({
@@ -210,36 +380,20 @@ test.describe('프로필 개인 비서', () => {
     })
 
     await page.goto('/settings/assistant')
-    // 설정됨 상태 확인 후 해제 클릭
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
     await page.getByRole('button', { name: '해제' }).click()
 
-    // 오류 토스트가 표시되어야 한다.
     await expect(page.getByText('권한이 없습니다.')).toBeVisible()
-    // 성공 토스트는 표시되면 안 된다.
     await expect(page.getByText('개인 비서를 해제했습니다.')).not.toBeVisible()
   })
 
   // #198 — 모델 변경 PUT /settings 실패 시 오류 토스트가 표시되어야 한다(silent failure 방지).
   test('모델 변경 API 실패 시 오류 토스트 표시', async ({ authenticatedPage: page }) => {
-    // GET — 설정됨 상태(모델/깊이 드롭다운 노출).
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            configured: true,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-          }),
-        })
-      }
-      return route.fallback()
-    })
-    // PUT /settings — 500 에러 반환.
+    await mockStatus(page, () => configuredStatus())
+    await mockModels(page, [
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+    ])
     await page.route('**/api/v1/users/me/assistant/settings', (route) =>
       route.fulfill({
         status: 500,
@@ -250,38 +404,20 @@ test.describe('프로필 개인 비서', () => {
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
-    // 모델 드롭다운 변경 → onValueChange 가 PUT /settings 호출(500).
-    // shadcn Select: trigger(aria-label "모델") 클릭 → option 클릭
     await page.getByRole('combobox', { name: '모델' }).click()
     await page.getByRole('option', { name: 'Claude Opus 4.8' }).click()
 
-    // 오류 토스트가 표시되어야 한다.
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible()
-    // 성공 토스트는 표시되면 안 된다.
     await expect(page.getByText('비서 설정을 변경했습니다.')).not.toBeVisible()
   })
 
-  // 모델로 Claude Haiku 4.5 를 선택하면 내부 ID('claude-haiku-4-5')가 PUT payload 로 전송된다.
-  test('Haiku 4.5 선택 시 올바른 모델 ID 가 PUT 으로 전송된다', async ({
-    authenticatedPage: page,
-  }) => {
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            configured: true,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-          }),
-        })
-      }
-      return route.fallback()
-    })
-    // PUT /settings — payload 캡처 후 성공 응답.
+  // 모델로 Claude Opus 4.8 을 선택하면 내부 ID('claude-opus-4-8')가 PUT payload 로 전송된다.
+  test('모델 선택 시 올바른 모델 ID 가 PUT 으로 전송된다', async ({ authenticatedPage: page }) => {
+    await mockStatus(page, () => configuredStatus())
+    await mockModels(page, [
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+    ])
     let putBody: { model?: string } | null = null
     await page.route('**/api/v1/users/me/assistant/settings', (route) => {
       putBody = route.request().postDataJSON()
@@ -295,35 +431,18 @@ test.describe('프로필 개인 비서', () => {
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
     await page.getByRole('combobox', { name: '모델' }).click()
-    await page.getByRole('option', { name: 'Claude Haiku 4.5' }).click()
+    await page.getByRole('option', { name: 'Claude Opus 4.8' }).click()
 
-    // 성공 토스트 + 전송된 모델 ID 검증(레이블 아닌 내부 ID).
     await expect(page.getByText('비서 설정을 변경했습니다.')).toBeVisible()
-    expect(putBody).toEqual({ model: 'claude-haiku-4-5' })
+    expect(putBody).toEqual({ model: 'claude-opus-4-8' })
   })
 
   // 개인 비서 이름 변경 — 명시적 저장 후 PUT /name payload 검증 + 성공 토스트.
   test('개인 비서 이름 변경 → PUT /name payload + 성공 토스트', async ({
     authenticatedPage: page,
   }) => {
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            configured: true,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-            name: '개인 비서',
-          }),
-        })
-      }
-      return route.fallback()
-    })
-    // PUT /name — payload 캡처 후 성공 응답.
+    await mockStatus(page, () => configuredStatus({ name: '개인 비서' }))
+    await mockModels(page, [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }])
     let putBody: { name?: string } | null = null
     await page.route('**/api/v1/users/me/assistant/name', (route) => {
       putBody = route.request().postDataJSON()
@@ -333,7 +452,6 @@ test.describe('프로필 개인 비서', () => {
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
 
-    // 기본 이름이 프리필되어 있어야 한다.
     await expect(page.getByTestId('assistant-name-input')).toHaveValue('개인 비서')
     await page.getByTestId('assistant-name-input').fill('나만의 비서')
     await page.getByTestId('assistant-name-save').click()
@@ -346,24 +464,8 @@ test.describe('프로필 개인 비서', () => {
   test('이름을 비우거나 공백만 입력하면 저장 버튼이 비활성화된다', async ({
     authenticatedPage: page,
   }) => {
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            configured: true,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-            name: '개인 비서',
-          }),
-        })
-      }
-      return route.fallback()
-    })
-    // PUT /name 이 호출되면 실패 처리 — 버튼이 비활성화되어 있다면 호출 자체가 없어야 한다.
+    await mockStatus(page, () => configuredStatus({ name: '개인 비서' }))
+    await mockModels(page, [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }])
     let putCalled = false
     await page.route('**/api/v1/users/me/assistant/name', (route) => {
       putCalled = true
@@ -376,18 +478,14 @@ test.describe('프로필 개인 비서', () => {
     const nameInput = page.getByTestId('assistant-name-input')
     const saveButton = page.getByTestId('assistant-name-save')
 
-    // 값이 변경되지 않은 초기 상태 — 비활성화.
     await expect(saveButton).toBeDisabled()
 
-    // 완전히 비움 — 비활성화 유지.
     await nameInput.fill('')
     await expect(saveButton).toBeDisabled()
 
-    // 공백만 입력 — trim 후 빈 문자열이므로 비활성화 유지.
     await nameInput.fill('   ')
     await expect(saveButton).toBeDisabled()
 
-    // 유효한 값 입력 시 다시 활성화되어야 한다.
     await nameInput.fill('나만의 비서')
     await expect(saveButton).toBeEnabled()
 
@@ -398,30 +496,14 @@ test.describe('프로필 개인 비서', () => {
   test('tokenLabel null 시 라벨 없음 문구가 표시되지 않는다', async ({
     authenticatedPage: page,
   }) => {
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            configured: true,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-          }),
-        })
-      }
-      return route.fallback()
-    })
+    await mockStatus(page, () => configuredStatus())
+    await mockModels(page, [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }])
 
     await page.goto('/settings/assistant')
     const configured = page.getByTestId('assistant-configured')
     await expect(configured).toBeVisible()
 
-    // '(라벨 없음)' 개발자 용어가 표시되면 안 된다.
     await expect(configured).not.toContainText('라벨 없음')
-    // tokenLabel 이 없어도 '설정됨' 문구는 그대로 표시되어야 한다.
     await expect(configured).toContainText('설정됨')
   })
 
@@ -429,51 +511,20 @@ test.describe('프로필 개인 비서', () => {
   test('tokenLabel 있을 때 라벨이 포함된 문구가 표시된다', async ({
     authenticatedPage: page,
   }) => {
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            configured: true,
-            tokenLabel: '내 토큰',
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-          }),
-        })
-      }
-      return route.fallback()
-    })
+    await mockStatus(page, () => configuredStatus({ tokenLabel: '내 토큰' }))
+    await mockModels(page, [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }])
 
     await page.goto('/settings/assistant')
     const configured = page.getByTestId('assistant-configured')
     await expect(configured).toBeVisible()
 
-    // tokenLabel 이 있으면 '설정됨 · <label>' 형태로 노출.
     await expect(configured).toContainText('설정됨 · 내 토큰')
   })
 
   // #198 — 생각의 깊이 변경 성공(204) 시 성공 토스트가 표시되어야 한다(피드백 일관성).
   test('생각의 깊이 변경 성공 시 성공 토스트 표시', async ({ authenticatedPage: page }) => {
-    // GET — 설정됨 상태.
-    await page.route('**/api/v1/users/me/assistant', (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            configured: true,
-            tokenLabel: null,
-            tokenLastUsedAt: null,
-            model: 'claude-sonnet-4-6',
-            thinkingDepth: 'NORMAL',
-          }),
-        })
-      }
-      return route.fallback()
-    })
-    // PUT /settings — 204 성공. payload 검증.
+    await mockStatus(page, () => configuredStatus())
+    await mockModels(page, [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }])
     let putBody: unknown = null
     await page.route('**/api/v1/users/me/assistant/settings', (route) => {
       putBody = route.request().postDataJSON()
@@ -482,14 +533,10 @@ test.describe('프로필 개인 비서', () => {
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
-    // 생각의 깊이 변경 → onValueChange 가 PUT /settings 호출(204).
-    // shadcn Select: trigger(aria-label "생각의 깊이") 클릭 → option 클릭
     await page.getByRole('combobox', { name: '생각의 깊이' }).click()
     await page.getByRole('option', { name: '깊게' }).click()
 
-    // 성공 토스트가 표시되어야 한다.
     await expect(page.getByText('비서 설정을 변경했습니다.')).toBeVisible()
-    // 보낸 payload 가 선택값과 일치해야 한다.
     expect(putBody).toEqual({ thinkingDepth: 'DEEP' })
   })
 })

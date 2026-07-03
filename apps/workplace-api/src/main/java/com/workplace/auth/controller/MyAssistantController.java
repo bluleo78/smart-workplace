@@ -1,7 +1,8 @@
 package com.workplace.auth.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.AssistantStatusResponse;
-import com.workplace.auth.dto.RegisterAssistantTokenRequest;
+import com.workplace.auth.dto.RegisterAssistantCredentialRequest;
 import com.workplace.auth.dto.UpdateAssistantNameRequest;
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.service.PersonalAssistantService;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class MyAssistantController {
 
   private final PersonalAssistantService service;
+  private final ObjectMapper objectMapper;
 
   /** 개인 비서 상태 조회(미설정이면 configured=false). */
   @GetMapping
@@ -33,12 +35,19 @@ public class MyAssistantController {
     return service.getStatus(callerId);
   }
 
-  /** 토큰 등록/교체 — 최초 등록 시 개인 AGENT 자동 생성. */
-  @PutMapping("/token")
-  public ResponseEntity<Void> registerToken(
+  /**
+   * 자격증명 등록/교체 — 최초 등록 시 개인 AGENT 자동 생성. provider 생략 시 anthropic(하위호환). anthropic 은 token, opencode
+   * 는 providerConfig(+model 필수)를 사용하며 형태 검증은 서비스 계층에서 수행한다.
+   */
+  @PutMapping("/credential")
+  public ResponseEntity<Void> registerCredential(
       @AuthenticationPrincipal Long callerId,
-      @Valid @RequestBody RegisterAssistantTokenRequest req) {
-    service.registerToken(callerId, req.token(), req.label());
+      @Valid @RequestBody RegisterAssistantCredentialRequest req) {
+    String provider = ProviderCredentialSecrets.resolveProvider(req.provider());
+    String secret =
+        ProviderCredentialSecrets.resolveSecret(
+            objectMapper, provider, req.token(), req.providerConfig());
+    service.registerCredential(callerId, provider, secret, req.label(), req.model());
     return ResponseEntity.noContent().build();
   }
 

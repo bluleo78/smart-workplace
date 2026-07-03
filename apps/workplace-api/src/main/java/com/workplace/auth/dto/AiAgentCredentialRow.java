@@ -9,6 +9,7 @@ import java.time.Instant;
 public record AiAgentCredentialRow(
     Long id,
     Long userId,
+    String provider,
     String encryptedToken,
     String label,
     Long createdBy,

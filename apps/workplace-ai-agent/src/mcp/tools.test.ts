@@ -20,7 +20,7 @@ function client(): WorkplaceApiClient {
     }),
     listIssues: vi.fn().mockResolvedValue([]),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
-    getOAuthToken: vi.fn(),
+    getProviderCredential: vi.fn(),
     getChatMessages: vi.fn().mockResolvedValue([]),
     addChatMessage: vi.fn().mockResolvedValue(undefined),
     postChatProgress: vi.fn().mockResolvedValue(undefined),

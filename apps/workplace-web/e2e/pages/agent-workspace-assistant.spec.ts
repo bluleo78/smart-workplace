@@ -3,7 +3,7 @@
 // 백엔드 없이 page.route 로 API 모킹. 모킹 데이터는 src/types/ 타입 적용.
 
 import type { WorkspaceAssistant } from '../../src/types/assistant';
-import type { OAuthTokenMeta } from '../../src/types/agentOAuthToken';
+import type { ProviderCredentialMeta } from '../../src/types/providerCredential';
 import { expect, test } from '../fixtures/auth.fixture';
 
 // 테스트용 AGENT 픽스처.
@@ -20,17 +20,19 @@ const AGENT_FIXTURE = {
   ownerName: null,
 };
 
-// OAuth 토큰 메타 픽스처 — 등록 상태.
-const OAUTH_META_FIXTURE: OAuthTokenMeta = {
+// 자격증명 메타 픽스처 — anthropic 등록 상태.
+const OAUTH_META_FIXTURE: ProviderCredentialMeta = {
   id: 1,
+  provider: 'anthropic',
+  baseUrl: null,
   label: 'ai-token',
   createdAt: '2026-05-31T00:00:00Z',
   lastUsedAt: null,
 };
 
 /**
- * 공통 모킹 — 에이전트 목록 + API 키(빈 배열).
- * 개별 테스트는 workspace-assistant + oauth-token 경로를 별도 등록한다.
+ * 공통 모킹 — 에이전트 목록 + API 키(빈 배열) + 모델 목록(빈 배열, isCurrent 케이스 대비).
+ * 개별 테스트는 workspace-assistant + provider-credential 경로를 별도 등록한다.
  */
 async function setupBase(page: import('@playwright/test').Page) {
   // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
@@ -49,6 +51,17 @@ async function setupBase(page: import('@playwright/test').Page) {
   await page.route(/\/api\/v1\/admin\/agents\/\d+\/keys$/, (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }
+    return route.fallback();
+  });
+  // 모델 목록 — 공통 비서(isCurrent)일 때만 조회되지만, 안전하게 기본 빈 목록을 모킹.
+  await page.route(/\/api\/v1\/admin\/agents\/\d+\/models$/, (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ provider: 'anthropic', models: [] }),
+      });
     }
     return route.fallback();
   });
@@ -90,8 +103,8 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
         return route.fallback();
       });
 
-      // OAuth 토큰 등록 상태(200) — 지정 버튼 활성.
-      await page.route(/\/api\/v1\/admin\/agents\/\d+\/oauth-token$/, (route) => {
+      // 자격증명 등록 상태(200) — 지정 버튼 활성.
+      await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) => {
         if (route.request().method() === 'GET') {
           return route.fulfill({
             status: 200,
@@ -151,8 +164,8 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       return route.fallback();
     });
 
-    // OAuth 토큰 있음.
-    await page.route(/\/api\/v1\/admin\/agents\/\d+\/oauth-token$/, (route) => {
+    // 자격증명 있음.
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) => {
       if (route.request().method() === 'GET') {
         return route.fulfill({
           status: 200,
@@ -202,8 +215,8 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       return route.fallback();
     });
 
-    // OAuth 토큰 없음(404) — 미등록 상태로 간주, null 반환.
-    await page.route(/\/api\/v1\/admin\/agents\/\d+\/oauth-token$/, (route) => {
+    // 자격증명 없음(404) — 미등록 상태로 간주, null 반환.
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) => {
       if (route.request().method() === 'GET') {
         return route.fulfill({
           status: 404,
@@ -251,8 +264,8 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       return route.fallback();
     });
 
-    // OAuth 토큰 없음(404) — 이미 회수된 상태.
-    await page.route(/\/api\/v1\/admin\/agents\/\d+\/oauth-token$/, (route) => {
+    // 자격증명 없음(404) — 이미 회수된 상태.
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) => {
       if (route.request().method() === 'GET') {
         return route.fulfill({
           status: 404,

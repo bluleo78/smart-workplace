@@ -1,7 +1,7 @@
 package com.workplace.auth.service;
 
 import com.workplace.auth.dto.AssistantStatusResponse;
-import com.workplace.auth.repository.AiAgentCredentialRepository;
+import com.workplace.auth.dto.OAuthTokenMetaResponse;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.PersonalAssistantRepository;
@@ -26,15 +26,19 @@ public class PersonalAssistantService {
   private final PersonalAssistantRepository personalRepo;
   private final AssistantConfigRepository configRepo;
   private final AiAgentCredentialService credentialService;
-  private final AiAgentCredentialRepository credentialRepo;
   private final UserRepository userRepository;
   private final MembershipRepository membershipRepository;
   private final RoleRepository roleRepository;
 
-  /** 토큰 등록/교체 — 개인 AGENT 가 없으면 자동 생성한 뒤 active 토큰을 등록(기존 active 는 자동 revoke). */
-  public void registerToken(long callerId, String plaintextToken, String label) {
+  /**
+   * 자격증명 등록/교체 — 개인 AGENT 가 없으면 자동 생성한 뒤 active 자격증명을 등록(기존 active 는 자동 revoke).
+   * provider='opencode' 이면 model 이 필수(credentialService.register 가 검증 + assistant_config.model 함께
+   * upsert).
+   */
+  public void registerCredential(
+      long callerId, String provider, String plaintextSecret, String label, String model) {
     long agentId = ensurePersonalAgent(callerId);
-    credentialService.register(callerId, agentId, plaintextToken, label);
+    credentialService.register(callerId, agentId, provider, plaintextSecret, label, model);
   }
 
   /** 모델/생각 깊이 변경 — maxTurns/timeoutMs 는 기존 값을 보존한다. 비서 미설정이면 예외. */
@@ -72,7 +76,7 @@ public class PersonalAssistantService {
   public AssistantStatusResponse getStatus(long callerId) {
     var agentOpt = personalRepo.findAgentId(callerId);
     if (agentOpt.isEmpty()) {
-      return new AssistantStatusResponse(false, null, null, null, null, null);
+      return new AssistantStatusResponse(false, null, null, null, null, null, null, null);
     }
     long agentId = agentOpt.get();
 
@@ -80,15 +84,18 @@ public class PersonalAssistantService {
     String model = c.model() != null ? c.model() : AssistantDefaults.MODEL;
     String depth = c.thinkingDepth() != null ? c.thinkingDepth() : AssistantDefaults.THINKING_DEPTH;
 
-    // 방어적 토큰 메타: throwing 한 getActiveMeta 대신 Optional 을 직접 조회 — FK 만 있고 토큰이 revoke 된 경우 null.
-    var tokenOpt = credentialRepo.findActive(agentId);
-    String label = tokenOpt.map(r -> r.label()).orElse(null);
-    var lastUsedAt = tokenOpt.map(r -> r.lastUsedAt()).orElse(null);
+    // 방어적 토큰 메타: throwing 한 getActiveMeta 대신 non-throwing 조회 — FK 만 있고 토큰이 revoke 된 경우 null.
+    Optional<OAuthTokenMetaResponse> metaOpt = credentialService.findActiveMetaIfPresent(agentId);
+    String label = metaOpt.map(OAuthTokenMetaResponse::label).orElse(null);
+    var lastUsedAt = metaOpt.map(OAuthTokenMetaResponse::lastUsedAt).orElse(null);
+    String provider = metaOpt.map(OAuthTokenMetaResponse::provider).orElse(null);
+    String baseUrl = metaOpt.map(OAuthTokenMetaResponse::baseUrl).orElse(null);
 
     // 비서 표시 이름 — 프로필 화면 프리필/표시용.
     String name = userRepository.findById(agentId).map(u -> u.name()).orElse(null);
 
-    return new AssistantStatusResponse(true, label, lastUsedAt, model, depth, name);
+    return new AssistantStatusResponse(
+        true, label, lastUsedAt, model, depth, name, provider, baseUrl);
   }
 
   /**

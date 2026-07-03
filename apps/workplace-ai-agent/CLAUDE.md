@@ -20,7 +20,7 @@ pnpm typecheck
 
 ## Stack
 
-Node.js 22 + TypeScript (ES2022, NodeNext), Express 4, Zod 4, axios, dotenv, `@anthropic-ai/claude-agent-sdk` (LLM 구동 + 인-프로세스 MCP), Vitest 4 + supertest + nock. (`@modelcontextprotocol/sdk` 는 stdio MCP 서버 제거로 vestigial — 후속 제거 후보.) 런타임 의존: `@anthropic-ai/claude-agent-sdk` 가 내부적으로 Claude Code 실행파일을 사용하므로 이미지에 `@anthropic-ai/claude-code` 설치 필요 + `CLAUDE_CODE_OAUTH_TOKEN` 구독 토큰(우리가 직접 CLI 를 spawn 하지는 않음).
+Node.js 22 + TypeScript (ES2022, NodeNext), Express 4, Zod 4, axios, dotenv, `@anthropic-ai/claude-agent-sdk` (LLM 구동 + 인-프로세스 MCP), Vitest 4 + supertest + nock. `@modelcontextprotocol/sdk` 는 opencode 러너(별도 프로세스, Task9)용 stdio MCP 엔트리포인트(`mcp/stdio-entry.ts`)에서 사용 — Claude SDK 경로는 여전히 인-프로세스(`agent/sdk-mcp-server.ts`). 런타임 의존: `@anthropic-ai/claude-agent-sdk` 가 내부적으로 Claude Code 실행파일을 사용하므로 이미지에 `@anthropic-ai/claude-code` 설치 필요 + `CLAUDE_CODE_OAUTH_TOKEN` 구독 토큰(우리가 직접 CLI 를 spawn 하지는 않음).
 
 ## Layered Structure
 
@@ -30,16 +30,18 @@ src/
     event-handler         # envelope → runAgent fire-and-forget
     run-agent             # 이슈 이벤트 → 인-프로세스 SDK 실행 (runSdkCollect)
     sdk-runner            # Agent SDK query() 러너 (buildSdkOptions / runSdkStream / runSdkCollect)
-    sdk-mcp-server        # 인-프로세스 MCP 서버 (createSdkMcpServer + buildTools 어댑트)
+    sdk-mcp-server        # 인-프로세스 MCP 서버 (createSdkMcpServer + buildTools 어댑트, Claude SDK 경로)
+    bridge-registry       # runId → HostBridge 인메모리 Map (opencode HTTP 콜백 라우팅용)
     subagent-loader       # 코드정의 서브에이전트 로드 → options.agents
     tool-allowlist        # built-in 도구 차단 정책 (computeToolPolicy)
     system-prompt         # LLM 시스템 프롬프트 상수
     user-message          # 4 type 별 user message 빌더
   mcp/
     tools                 # 도구 정의 단일 진실원천 (프로필별 buildTools — 이슈/채팅/홈/메시징/어시스턴트)
+    stdio-entry            # stdio MCP 엔트리포인트 — opencode 러너(별도 프로세스, Task9)가 spawn
   clients/              # workplace-api 호출용 axios client (코멘트/상태/담당자/조회 4 메서드)
   middleware/           # internal-auth (Authorization: Internal {token})
-  routes/               # health, events
+  routes/               # health, events, internal-bridge(opencode HostBridge HTTP 콜백)
   constants.ts          # DEFAULT_PORT, INTERNAL_AUTH_SCHEME, DEFAULT_API_BASE_URL
   index.ts              # Express 부트 + graceful shutdown
 ```

@@ -1117,6 +1117,15 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** 멀티 프로바이더(anthropic/opencode): 허용되지 않은 provider·잘못된 payload·model 누락 → 400. */
+  @ExceptionHandler(com.workplace.auth.exception.InvalidProviderCredentialException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidProviderCredential(
+      com.workplace.auth.exception.InvalidProviderCredentialException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   /** Phase 5a — AGENT 로그인 시도 → 401. login_attempts 카운터는 증가시키지 않는다. */
   @ExceptionHandler(com.workplace.auth.exception.AgentCannotLoginException.class)
   public ResponseEntity<ErrorResponse> handleAgentCannotLogin(
@@ -1247,6 +1256,22 @@ public class GlobalExceptionHandler {
       com.workplace.issue.exception.IssueAiException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
         .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
+  }
+
+  /** Task10 — 모델 프로브(ai-agent POST /models/list) 호출 실패 → 502(형제 AI 예외와 동일, 캐치올 500 회피하고 사유 노출). */
+  @ExceptionHandler(com.workplace.auth.exception.AssistantModelsProbeException.class)
+  public ResponseEntity<ErrorResponse> handleAssistantModelsProbe(
+      com.workplace.auth.exception.AssistantModelsProbeException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
+  }
+
+  /** Task10 — 모델 프로브 baseURL 이 https/사설망 http 제약을 위반(SSRF 최소화) → 400. */
+  @ExceptionHandler(com.workplace.auth.exception.UnsafeProbeUrlException.class)
+  public ResponseEntity<ErrorResponse> handleUnsafeProbeUrl(
+      com.workplace.auth.exception.UnsafeProbeUrlException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
   /**

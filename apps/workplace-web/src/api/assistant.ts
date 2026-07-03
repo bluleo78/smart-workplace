@@ -6,20 +6,21 @@ import type {
   UpdateAssistantSettings,
   WorkspaceAssistant,
 } from '../types/assistant';
+import type { ProviderCredentialRegisterRequest } from '../types/providerCredential';
 import { client } from './client';
 
-// 개인 비서(본인) 상태 조회 — 토큰 미등록이면 configured=false.
+// 개인 비서(본인) 상태 조회 — 자격증명 미등록이면 configured=false.
 export async function getMyAssistant(): Promise<AssistantStatus> {
   const { data } = await client.get<AssistantStatus>('/users/me/assistant');
   return data;
 }
 
-// 개인 비서 토큰 등록(또는 교체). 평문 토큰은 입력 시점에만 전송.
-export async function registerMyAssistantToken(
-  token: string,
-  label?: string,
+// 개인 비서 자격증명 등록(또는 교체) — 최초 등록 시 개인 AGENT 자동 생성.
+// anthropic 은 token, opencode 는 providerConfig+model 필수(서버 검증).
+export async function registerMyAssistantCredential(
+  body: ProviderCredentialRegisterRequest,
 ): Promise<void> {
-  await client.put<void>('/users/me/assistant/token', { token, label });
+  await client.put<void>('/users/me/assistant/credential', body);
 }
 
 // 개인 비서 설정(모델/추론 깊이) 변경. 미지정 필드는 변경 없음.

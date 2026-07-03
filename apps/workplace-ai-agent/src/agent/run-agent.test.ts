@@ -23,10 +23,10 @@ function client(token: string | Error): WorkplaceApiClient {
     getIssueDetail: vi.fn().mockResolvedValue({} as never),
     listIssues: vi.fn().mockResolvedValue([]),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
-    getOAuthToken:
+    getProviderCredential:
       token instanceof Error
         ? vi.fn().mockRejectedValue(token)
-        : vi.fn().mockResolvedValue({ token, label: 'main' }),
+        : vi.fn().mockResolvedValue({ provider: 'anthropic', token, model: null }),
     getChatMessages: vi.fn().mockResolvedValue([]),
     addChatMessage: vi.fn().mockResolvedValue(undefined),
     postChatProgress: vi.fn().mockResolvedValue(undefined),
@@ -114,10 +114,10 @@ describe('runAgent (인-프로세스 SDK)', () => {
     vi.restoreAllMocks();
   });
 
-  it('AGENT assignee 1명 → getOAuthToken(201) + runSdkCollect 1회', async () => {
+  it('AGENT assignee 1명 → getProviderCredential(201) + runSdkCollect 1회', async () => {
     const c = client('tk-X');
     await runAgent(envWithAgent(), { client: c });
-    expect(c.getOAuthToken).toHaveBeenCalledWith(201);
+    expect(c.getProviderCredential).toHaveBeenCalledWith(201);
     expect(runSdkCollect).toHaveBeenCalledOnce();
   });
 
@@ -151,7 +151,7 @@ describe('runAgent (인-프로세스 SDK)', () => {
   it('AGENT 없는 envelope → 실행 생략', async () => {
     const c = client('tk-X');
     await runAgent(envHumanOnly(), { client: c });
-    expect(c.getOAuthToken).not.toHaveBeenCalled();
+    expect(c.getProviderCredential).not.toHaveBeenCalled();
     expect(runSdkCollect).not.toHaveBeenCalled();
     expect(buildInProcessWorkplaceMcpServer).not.toHaveBeenCalled();
   });
@@ -159,7 +159,31 @@ describe('runAgent (인-프로세스 SDK)', () => {
   it('token fetch 실패 → 실행 생략', async () => {
     const c = client(new Error('boom'));
     await runAgent(envWithAgent(), { client: c });
-    expect(c.getOAuthToken).toHaveBeenCalledOnce();
+    expect(c.getProviderCredential).toHaveBeenCalledOnce();
     expect(runSdkCollect).not.toHaveBeenCalled();
+  });
+
+  it('모델 결정 이원화 해소: credential.model(redeem 응답)이 env/기본값보다 우선한다', async () => {
+    const c = client('tk-X');
+    vi.mocked(c.getProviderCredential).mockResolvedValue({
+      provider: 'anthropic',
+      token: 'tk-X',
+      model: 'claude-opus-4-1',
+    });
+    await runAgent(envWithAgent(), { client: c });
+    const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(arg.model).toBe('claude-opus-4-1');
+  });
+
+  it('credential.model 이 null 이면 env/기본값으로 폴백한다', async () => {
+    const c = client('tk-X');
+    vi.mocked(c.getProviderCredential).mockResolvedValue({
+      provider: 'anthropic',
+      token: 'tk-X',
+      model: null,
+    });
+    await runAgent(envWithAgent(), { client: c });
+    const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(arg.model).toBe('claude-sonnet-5');
   });
 });
