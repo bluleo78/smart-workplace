@@ -48,18 +48,25 @@ const DOT_CLASS: Record<TimeKind, string> = {
 }
 
 /** 오늘 일정 요약 본문 — 건수 + 상위 3건. 프레임/딥링크는 Dashboard 담당. */
-export default function CalendarTodayBody({ count = 5 }: { count?: number }) {
+export default function CalendarTodayBody({
+  count = 5,
+  previewData,
+}: {
+  count?: number
+  previewData?: CalendarEvent[]
+}) {
   const { from, to } = todayRange()
-  const { data, isLoading, isError, refetch } = useCalendarEvents(from, to)
+  const { data: queryData, isLoading, isError, refetch } = useCalendarEvents(from, to, { enabled: !previewData })
+  const data = previewData ?? queryData
 
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
-  if (isLoading)
+  if (!previewData && isLoading)
     return (
       <div aria-busy="true" aria-label="불러오는 중">
         <Skeleton className="h-20 w-full" />
       </div>
     )
-  if (isError) return <WidgetError onRetry={() => refetch()} testId="dash-calendar-error" />
+  if (!previewData && isError) return <WidgetError onRetry={() => refetch()} testId="dash-calendar-error" />
 
   const events = data ?? []
   if (events.length === 0)

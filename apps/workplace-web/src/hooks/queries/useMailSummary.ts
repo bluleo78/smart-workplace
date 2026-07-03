@@ -10,11 +10,12 @@ import { mailSummaryApi } from '../../api/mailSummary'
 // 신선도 상한이 어차피 3분 자동 동기화 주기이므로 SSE 푸시 대비 체감 차이가 없어
 // 폴링으로 충분(비용·복잡도 최소). refetchIntervalInBackground 기본값(false)이라
 // 탭이 숨겨진 동안에는 폴링하지 않는다.
-export function useMailSummary() {
+export function useMailSummary(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['mail-summary'],
     queryFn: mailSummaryApi.get,
     staleTime: 30_000,
     refetchInterval: 60_000,
+    enabled: options?.enabled ?? true,
   })
 }

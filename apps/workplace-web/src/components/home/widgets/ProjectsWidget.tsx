@@ -13,17 +13,23 @@ import { WidgetFrame } from './WidgetFrame'
  * params: {} (필터 없음, 첫 페이지 최대 20개).
  * 각 항목 클릭 시 /projects/:key 로 이동.
  */
-export default function ProjectsWidget() {
-  const { data, isLoading, isError, refetch } = useProjects(0, 20)
+export default function ProjectsWidget({
+  previewData,
+}: {
+  params?: Record<string, unknown>
+  previewData?: ProjectResponse[]
+}) {
+  const { data: queryData, isLoading, isError, refetch } = useProjects(0, 20, { enabled: !previewData })
+  const data = previewData ? { content: previewData } : queryData
 
-  if (isLoading) {
+  if (!previewData && isLoading) {
     return (
       <WidgetFrame title="프로젝트">
         <Skeleton className="h-24 w-full" />
       </WidgetFrame>
     )
   }
-  if (isError) {
+  if (!previewData && isError) {
     return (
       <WidgetFrame title="프로젝트">
         <WidgetError onRetry={() => refetch()} testId="projects-error" />

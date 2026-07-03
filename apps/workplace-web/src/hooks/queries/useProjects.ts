@@ -11,10 +11,11 @@ export const projectKeys = {
   detail: (key: string) => [...projectKeys.all, 'detail', key] as const,
 };
 
-export function useProjects(page = 0, size = 20) {
+export function useProjects(page = 0, size = 20, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: projectKeys.list(page, size),
     queryFn: () => projectsApi.list({ page, size }).then(r => r.data),
+    enabled: options?.enabled ?? true,
   });
 }
 

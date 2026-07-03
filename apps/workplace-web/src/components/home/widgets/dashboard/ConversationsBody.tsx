@@ -59,21 +59,29 @@ function Badge({ c }: { c: ConversationSummaryItem }) {
  * 멘션·회신대기·새답글을 강조하며, 최근 대화 목록 상위 count 건을 보여준다.
  * 행 클릭 → 해당 DM/채널 딥링크.
  */
-export default function ConversationsBody({ count = 5 }: { count?: number }) {
-  const { data, isLoading, isError, refetch } = useMessagingSummary()
+export default function ConversationsBody({
+  count = 5,
+  previewData,
+}: {
+  count?: number
+  previewData?: ConversationSummaryItem[]
+}) {
+  const { data, isLoading, isError, refetch } = useMessagingSummary({ enabled: !previewData })
 
   // 로딩 중: 스켈레톤으로 레이아웃 유지.
-  if (isLoading)
+  if (!previewData && isLoading)
     return (
       <div aria-busy="true" aria-label="불러오는 중">
         <Skeleton className="h-20 w-full" />
       </div>
     )
-  if (isError) return <WidgetError onRetry={() => refetch()} testId="dash-chat-error" />
+  if (!previewData && isError) return <WidgetError onRetry={() => refetch()} testId="dash-chat-error" />
 
-  const recent = data?.recent ?? []
-  const needsReplyCount = data?.needsReplyCount ?? 0
-  const unreadCount = data?.unreadConversationCount ?? 0
+  const recent = previewData ?? data?.recent ?? []
+  const needsReplyCount = previewData ? previewData.filter((c) => c.needsReply).length : (data?.needsReplyCount ?? 0)
+  const unreadCount = previewData
+    ? previewData.filter((c) => c.unreadCount > 0).length
+    : (data?.unreadConversationCount ?? 0)
 
   // 빈 상태: 최근 대화 없음 → 조용한 메시지.
   if (recent.length === 0)

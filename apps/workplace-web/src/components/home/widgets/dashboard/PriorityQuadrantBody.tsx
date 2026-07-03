@@ -28,11 +28,16 @@ const QUADRANTS = [
 const MAX_PER_QUADRANT = 3
 
 /** count prop 은 registry Component 시그니처 통일을 위해 받지만 이 위젯은 무시한다(항목 수 고정). */
-export default function PriorityQuadrantBody() {
-  const { data, isLoading, isError } = usePriorityItems()
-  const items = data?.items ?? []
+export default function PriorityQuadrantBody({
+  previewData,
+}: {
+  count?: number
+  previewData?: PriorityItem[]
+}) {
+  const { data: queryData, isLoading, isError } = usePriorityItems({ enabled: !previewData })
+  const items = previewData ?? queryData?.items ?? []
 
-  if (isLoading) {
+  if (!previewData && isLoading) {
     return (
       <div className="grid grid-cols-2 gap-2" data-testid="priority-quadrant-loading">
         {Array.from({ length: 4 }).map((_, i) => (
@@ -42,7 +47,7 @@ export default function PriorityQuadrantBody() {
     )
   }
 
-  if (isError) {
+  if (!previewData && isError) {
     return (
       <div className="text-sm text-muted-foreground" data-testid="priority-quadrant-error">
         우선순위 정보를 불러오지 못했습니다

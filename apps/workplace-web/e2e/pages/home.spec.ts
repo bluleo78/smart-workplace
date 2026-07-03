@@ -933,8 +933,13 @@ test('편집(B1) — 위젯 추가 모달: 기본 위젯 추가 → draft 반영
   await modal.getByTestId('add-widget-category').filter({ hasText: '기본' }).click()
   await expect(modal.locator('[data-testid="add-widget-card"][data-widget-type]')).toHaveCount(7)
 
-  // unread_mail 카드 클릭 → 즉시 추가(draft 반영) + 모달 닫힘.
-  await modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]').click()
+  // unread_mail 카드 클릭 → 선택만(즉시 추가 아님) → "+ 위젯 추가" 클릭 시 draft 반영 + 모달 닫힘.
+  const mailCard = modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]')
+  await mailCard.click()
+  await expect(mailCard).toHaveAttribute('aria-pressed', 'true')
+  await expect(modal).toBeVisible()
+
+  await modal.getByTestId('add-widget-confirm').click()
   await expect(page.getByTestId('dashboard-edit-live')).toHaveText('메일 위젯을 추가했습니다')
   await expect(modal).not.toBeVisible()
   await expect(
@@ -969,6 +974,7 @@ test('편집(B1) — 위젯 추가 시 새 위젯이 강조 표시되고 일정 
   await page.clock.pauseAt(Date.now())
 
   await modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]').click()
+  await modal.getByTestId('add-widget-confirm').click()
 
   const newCard = page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]')
   await expect(newCard).toHaveAttribute('data-just-added', 'true')
@@ -993,6 +999,7 @@ test('편집(B1) — undo 가 모달을 통한 추가도 되돌린다(일관성)
   await page.getByTestId('dashboard-add-widget-open').click()
   const modal = page.getByTestId('add-widget-modal')
   await modal.locator('[data-testid="add-widget-card"][data-widget-type="unread_mail"]').click()
+  await modal.getByTestId('add-widget-confirm').click()
   await expect(modal).not.toBeVisible()
   await expect(
     page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]'),
@@ -1003,6 +1010,117 @@ test('편집(B1) — undo 가 모달을 통한 추가도 되돌린다(일관성)
   await expect(
     page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]'),
   ).toHaveCount(0)
+})
+
+// ── 위젯 추가 모달 — 선택→프리뷰→확인 플로우 ──────────────────────────────
+
+// 모달을 열기까지의 공통 준비(편집 모드 진입 + 모달 오픈).
+async function openAddWidgetModal(page: Page) {
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-add-widget-open').click()
+}
+
+test('위젯 추가 모달에서 카드 클릭은 선택만 하고 즉시 추가하지 않는다', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+  await openAddWidgetModal(page)
+
+  const modal = page.getByTestId('add-widget-modal')
+  await expect(modal).toBeVisible()
+
+  const issueCard = modal.locator('[data-testid="add-widget-card"][data-widget-type="issue_list"]')
+  await issueCard.click()
+
+  // 선택 하이라이트만 되고 모달은 그대로 열려 있어야 한다(즉시 추가 X).
+  await expect(modal).toBeVisible()
+  await expect(issueCard).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('위젯 추가 모달 프리뷰 패널에 선택한 위젯이 목데이터로 렌더된다', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+  await openAddWidgetModal(page)
+
+  const modal = page.getByTestId('add-widget-modal')
+  const preview = modal.getByTestId('add-widget-preview')
+  // 모달을 열면 첫 카드가 자동 선택되어 프리뷰에 바로 콘텐츠가 보인다(빈 상태 없음).
+  await expect(preview).toContainText('미리보기')
+
+  const mailCard = modal.locator('[data-testid="add-widget-card"][data-widget-type="mail_list"]')
+  await mailCard.click()
+  // widgetPreviewFixtures.mail_list 샘플 제목이 프리뷰에 나타나야 한다(실 API 호출 없이).
+  await expect(preview).toContainText('이번 주 스프린트 리뷰 일정 안내')
+})
+
+test('위젯 추가 모달에서 "+ 위젯 추가" 버튼을 눌러야 실제로 추가된다', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  let addRequested = false
+  await page.route('**/api/v1/me/dashboard', async (route) => {
+    if (route.request().method() === 'PUT') {
+      addRequested = true
+      const body = route.request().postDataJSON() as { widgets: DashboardWidgetConfig[] }
+      expect(body.widgets.map((w) => w.type)).toContain('issue_list')
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+      return
+    }
+    await route.fallback()
+  })
+  await page.goto('/')
+  await openAddWidgetModal(page)
+
+  const modal = page.getByTestId('add-widget-modal')
+  const issueCard = modal.locator('[data-testid="add-widget-card"][data-widget-type="issue_list"]')
+  await issueCard.click()
+  await expect(modal).toBeVisible() // 아직 안 닫힘
+
+  await modal.getByTestId('add-widget-confirm').click()
+  await expect(modal).not.toBeVisible() // 카드 확인 → 즉시 draft 반영 + 모달 닫힘
+
+  // 실제 서버 저장은 "저장" 버튼으로 트리거.
+  await page.getByTestId('dashboard-edit-save').click()
+  await expect.poll(() => addRequested).toBe(true)
+})
+
+test('위젯 추가 모달에서 카테고리를 바꾸면 목록 첫 카드가 자동 선택된다', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+  await openAddWidgetModal(page)
+
+  const modal = page.getByTestId('add-widget-modal')
+  await modal.locator('[data-testid="add-widget-category"][data-category="캘린더"]').click()
+  const firstCard = modal.locator('[data-testid="add-widget-card"][data-widget-type="calendar"]')
+  await expect(firstCard).toHaveAttribute('aria-pressed', 'true')
+  await expect(modal.getByTestId('add-widget-preview')).toContainText('캘린더')
+})
+
+test('위젯 추가 모달은 좁은 뷰포트에서 프리뷰 패널이 카드 목록 아래로 스택된다', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 640, height: 900 })
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+  await openAddWidgetModal(page)
+
+  const modal = page.getByTestId('add-widget-modal')
+  const grid = modal.getByTestId('add-widget-grid')
+  const preview = modal.getByTestId('add-widget-preview')
+  const gridBox = await grid.boundingBox()
+  const previewBox = await preview.boundingBox()
+  // lg 미만에서는 flex-col 이라 프리뷰의 y좌표가 카드 목록의 y좌표+높이보다 아래(세로 스택)여야 한다.
+  expect(previewBox!.y).toBeGreaterThanOrEqual(gridBox!.y + gridBox!.height - 1)
 })
 
 // ── #339 회귀 가드 — startsAt null 시 Invalid Date 렌더 ──────────────────
@@ -2360,8 +2478,9 @@ test('편집 모드에서 카탈로그 위젯을 추가하고 필터를 설정�
 
   await page.getByTestId('add-widget-category').filter({ hasText: '이슈' }).click()
   await page.getByTestId('add-widget-card').filter({ hasText: '이슈 목록' }).click()
+  await page.getByTestId('add-widget-confirm').click()
 
-  // 모달이 닫히고, 그리드에는 카드가 즉시 추가되어야 한다.
+  // 모달이 닫히고, 그리드에는 카드가 추가되어야 한다.
   await expect(page.getByTestId('add-widget-modal')).not.toBeVisible()
   await expect(
     page.getByTestId('dashboard-widget').filter({ hasText: '이슈 목록' }),

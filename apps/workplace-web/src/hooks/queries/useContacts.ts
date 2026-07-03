@@ -10,6 +10,7 @@ export function useContacts(
   type: ContactTypeFilter,
   organization?: string,
   title?: string,
+  options?: { enabled?: boolean },
 ) {
   return useInfiniteQuery<ContactPage>({
     queryKey: contactKeys.list(search, type, organization, title),
@@ -29,5 +30,6 @@ export function useContacts(
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 10_000,
     refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
   })
 }

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDriveItems } from '@/hooks/queries/useDriveItems'
 import { useDriveSpaces } from '@/hooks/queries/useDriveSpaces'
+import type { DriveSpace } from '@/types/drive'
 
 import { WidgetError } from './WidgetError'
 import { WidgetFrame } from './WidgetFrame'
@@ -13,12 +14,18 @@ import { WidgetFrame } from './WidgetFrame'
  * params.spaceId 미지정 → 스페이스 목록, 지정 → 해당 스페이스(선택적 folderId) 내 아이템 목록.
  * 클릭 시 /drive 로 딥링크.
  */
-export default function DriveWidget({ params }: { params?: Record<string, unknown> }) {
+export default function DriveWidget({
+  params,
+  previewData,
+}: {
+  params?: Record<string, unknown>
+  previewData?: DriveSpace[]
+}) {
   const spaceId = typeof params?.spaceId === 'number' ? (params.spaceId as number) : undefined
   const folderId = typeof params?.folderId === 'number' ? (params.folderId as number) : undefined
 
   // 두 훅 항상 호출 — enabled 로 제어(React hooks 규칙 준수).
-  const spaces = useDriveSpaces()
+  const spaces = useDriveSpaces({ enabled: !previewData })
   const items = useDriveItems(spaceId, folderId)
 
   // spaceId 존재 여부에 따라 사용할 쿼리 결과 선택.
@@ -26,14 +33,14 @@ export default function DriveWidget({ params }: { params?: Record<string, unknow
 
   if (isSpaceMode) {
     // 스페이스 목록 모드.
-    if (spaces.isLoading) {
+    if (!previewData && spaces.isLoading) {
       return (
         <WidgetFrame title="드라이브">
           <Skeleton className="h-24 w-full" />
         </WidgetFrame>
       )
     }
-    if (spaces.isError) {
+    if (!previewData && spaces.isError) {
       return (
         <WidgetFrame title="드라이브">
           <WidgetError onRetry={() => spaces.refetch()} testId="drive-error" />
@@ -41,7 +48,7 @@ export default function DriveWidget({ params }: { params?: Record<string, unknow
       )
     }
 
-    const spaceList = spaces.data ?? []
+    const spaceList = previewData ?? spaces.data ?? []
     return (
       <WidgetFrame title="드라이브">
         {spaceList.length > 0 ? (

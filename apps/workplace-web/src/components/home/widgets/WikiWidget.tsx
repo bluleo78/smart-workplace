@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWikiSpaces } from '@/hooks/queries/useWikiSpaces'
 import { useWikiTree } from '@/hooks/queries/useWikiTree'
+import type { WikiSpace } from '@/types/wiki'
 
 import { WidgetError } from './WidgetError'
 import { WidgetFrame } from './WidgetFrame'
@@ -15,26 +16,32 @@ import { WidgetFrame } from './WidgetFrame'
  * - query 파라미터: YAGNI — 전용 검색 API 없으므로 클라이언트 제목 필터(있으면)만 적용.
  * 두 훅을 모두 무조건 호출(hooks-rules 준수). enabled 로 활성화 여부 제어.
  */
-export default function WikiWidget({ params }: { params?: Record<string, unknown> }) {
+export default function WikiWidget({
+  params,
+  previewData,
+}: {
+  params?: Record<string, unknown>
+  previewData?: WikiSpace[]
+}) {
   const spaceId = typeof params?.spaceId === 'number' ? params.spaceId : null
   const query = typeof params?.query === 'string' ? params.query.trim().toLowerCase() : ''
 
   // spaceId 미지정이면 스페이스 목록, spaceId 지정이면 페이지 트리를 로드.
   // 두 훅을 항상 호출하되, enabled 플래그로 불필요한 fetch 를 막는다(훅 규칙 준수).
-  const spaces = useWikiSpaces()
+  const spaces = useWikiSpaces({ enabled: !previewData })
   const tree = useWikiTree(spaceId)
 
   const isSpaceMode = spaceId === null
 
   if (isSpaceMode) {
-    if (spaces.isLoading) {
+    if (!previewData && spaces.isLoading) {
       return (
         <WidgetFrame title="노트">
           <Skeleton className="h-24 w-full" />
         </WidgetFrame>
       )
     }
-    if (spaces.isError) {
+    if (!previewData && spaces.isError) {
       return (
         <WidgetFrame title="노트">
           <WidgetError onRetry={() => spaces.refetch()} testId="wiki-error" />
@@ -43,7 +50,7 @@ export default function WikiWidget({ params }: { params?: Record<string, unknown
     }
 
     // query 있으면 이름 필터 적용.
-    const items = (spaces.data ?? []).filter(
+    const items = (previewData ?? spaces.data ?? []).filter(
       (s) => !query || s.name.toLowerCase().includes(query),
     )
 

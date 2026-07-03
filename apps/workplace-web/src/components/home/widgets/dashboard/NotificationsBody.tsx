@@ -5,6 +5,7 @@ import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificat
 import { useMarkNotificationRead } from '@/hooks/queries/useMarkNotificationRead'
 import { useNotifications } from '@/hooks/queries/useNotifications'
 import { groupNotifications } from '@/lib/notifGrouping'
+import type { NotificationResponse } from '@/types/notification'
 
 import { WidgetError } from '../WidgetError'
 import { NotificationGroupRow } from './NotificationGroupRow'
@@ -14,22 +15,31 @@ import { NotificationGroupRow } from './NotificationGroupRow'
  * 알림 = 변화 스트림(델타). 객체별로 묶고 '내 차례(행동 필요)/업데이트(참고)'로 분류,
  * 미읽음 그룹만 보여주고 홈에서 바로 확인(acknowledge)한다. (할 일 큐는 '내 작업' 위젯 담당)
  */
-export default function NotificationsBody({ count = 5 }: { count?: number }) {
+export default function NotificationsBody({
+  count = 5,
+  previewData,
+}: {
+  count?: number
+  previewData?: NotificationResponse[]
+}) {
   // 대시보드 위젯은 항상 표시되므로 enabled=true 로 최근 알림을 가져온다.
-  const list = useNotifications(true)
+  // 프리뷰 모드(previewData 지정)에서는 훅을 비활성화(enabled=false)해 실제 API 호출을 막는다.
+  const list = useNotifications(!previewData)
   const markRead = useMarkNotificationRead()
   const markAll = useMarkAllNotificationsRead()
+  const rawItems = previewData ?? list.data
 
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
-  if (list.isLoading)
+  if (!previewData && list.isLoading)
     return (
       <div aria-busy="true" aria-label="불러오는 중">
         <Skeleton className="h-20 w-full" />
       </div>
     )
-  if (list.isError) return <WidgetError onRetry={() => list.refetch()} testId="dash-notif-error" />
+  if (!previewData && list.isError)
+    return <WidgetError onRetry={() => list.refetch()} testId="dash-notif-error" />
 
-  const grouped = groupNotifications(list.data ?? [])
+  const grouped = groupNotifications(rawItems ?? [])
   // 캐치업: 미읽음 그룹만 노출(읽은 이력은 인박스 패널 담당).
   const mine = grouped.mine.filter((g) => g.unreadIds.length > 0)
   // 업데이트(FYI)는 표시 개수로 제한하되, 카운트/초과 안내는 '전체' 기준으로 정직하게.

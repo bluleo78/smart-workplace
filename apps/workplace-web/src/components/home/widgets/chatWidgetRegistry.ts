@@ -9,8 +9,12 @@ import type { WidgetType } from '@/types/home';
 // 키는 ai-agent chat-parser 의 widgetType(= show_<type>) 과 일치해야 한다.
 // ---------------------------------------------------------------------------
 
+// previewData 는 위젯 추가 모달 프리뷰 패널 전용(#브레인스토밍 2026-07-03) — 각 위젯이 실제로
+// 받는 타입은 제각각(IssueSearchResponse[] 등)이라 여기서는 any 로만 통과시킨다(unknown 은
+// 각 위젯의 구체 타입과 반공변성 충돌로 대입 불가 — 이 레지스트리 슬롯 전용 예외).
 type WidgetComponent = LazyExoticComponent<
-  ComponentType<{ params?: Record<string, unknown> }>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ComponentType<{ params?: Record<string, unknown>; previewData?: any }>
 >;
 
 const chatWidgetRegistry: Record<WidgetType, WidgetComponent> = {
