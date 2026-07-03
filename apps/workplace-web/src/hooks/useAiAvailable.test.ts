@@ -5,8 +5,8 @@ vi.mock('./useAuth', () => ({
   useAuth: vi.fn(),
 }));
 
-import { useAuth } from './useAuth';
 import { useAiAvailable } from './useAiAvailable';
+import { useAuth } from './useAuth';
 
 const mockUseAuth = vi.mocked(useAuth);
 
