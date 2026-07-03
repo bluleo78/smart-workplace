@@ -451,13 +451,13 @@ export default function AgentManagementPage() {
   );
 }
 
-// AGENT 의 프로바이더 자격증명 섹션 — 메타 조회 + 등록/재발급/회수.
+// AGENT 의 프로바이더 API 키 섹션 — 메타 조회 + 등록/재발급/회수.
 // 평문(토큰/apiKey)은 절대 응답에 포함되지 않으며, 회수 후에는 LLM 호출이 불가해진다.
 function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
   const { data: meta, isLoading } = useAgentProviderCredentialMeta(agentUserId);
   const revoke = useRevokeAgentProviderCredential(agentUserId);
   const [dialogOpen, setDialogOpen] = useState(false);
-  // OAuth 토큰 회수 확인 AlertDialog. window.confirm 대체 (#136).
+  // API 키 회수 확인 AlertDialog. window.confirm 대체 (#136).
   const [revokeOpen, setRevokeOpen] = useState(false);
 
   // 회수 확인 AlertDialog 표시 — 취소 시 아무것도 안 함.
@@ -469,9 +469,9 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
   const doRevoke = async () => {
     try {
       await revoke.mutateAsync();
-      toast.success('토큰을 회수했습니다.');
+      toast.success('API 키를 회수했습니다.');
     } catch (e) {
-      handleApiError(e, '토큰 회수에 실패했습니다');
+      handleApiError(e, 'API 키 회수에 실패했습니다');
     }
   };
 
@@ -485,7 +485,7 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
 
   return (
     <section className="border-t pt-4 mt-4 space-y-2">
-      <h3 className="text-sm font-medium">프로바이더 자격증명</h3>
+      <h3 className="text-sm font-medium">AI 연결 설정</h3>
       {isLoading ? (
         <p className="text-sm text-muted-foreground">로드 중…</p>
       ) : meta ? (
@@ -502,10 +502,6 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
               <span className="font-mono text-xs">{meta.baseUrl}</span>
             </div>
           ) : null}
-          <div>
-            <span className="text-muted-foreground">레이블: </span>
-            <span>{meta.label ?? '(없음)'}</span>
-          </div>
           <div>
             <span className="text-muted-foreground">등록일: </span>
             <span>{fmtDateTime(meta.createdAt)}</span>
@@ -537,14 +533,14 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
       ) : (
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            등록된 토큰 없음. 에이전트는 LLM 호출 불가.
+            아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.
           </p>
           <Button
             size="sm"
             onClick={() => setDialogOpen(true)}
             data-testid="oauth-token-register"
           >
-            등록
+            연결하기
           </Button>
         </div>
       )}
@@ -555,13 +551,13 @@ function OAuthTokenSection({ agentUserId }: { agentUserId: number }) {
         isReissue={meta != null}
       />
 
-      {/* OAuth 토큰 회수 확인 AlertDialog. window.confirm 대체 (#136). */}
+      {/* API 키 회수 확인 AlertDialog. window.confirm 대체 (#136). */}
       <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
         <AlertDialogContent data-testid="oauth-revoke-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>OAuth 토큰 회수</AlertDialogTitle>
+            <AlertDialogTitle>API 키 회수</AlertDialogTitle>
             <AlertDialogDescription>
-              OAuth 토큰을 회수하시겠습니까? 에이전트는 LLM 호출 불가 상태가 됩니다.
+              API 키를 회수하시겠습니까? 에이전트는 LLM 호출 불가 상태가 됩니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

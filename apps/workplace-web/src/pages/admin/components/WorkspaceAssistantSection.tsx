@@ -198,8 +198,8 @@ export function WorkspaceAssistantSection({ agentUserId }: Props) {
                   data-testid="workspace-assistant-model-empty"
                   className="text-xs text-muted-foreground"
                 >
-                  사용 가능한 모델이 없어요 — 자격증명이 등록됐는지, 프로바이더 연결이
-                  정상인지 확인하세요.
+                  사용 가능한 모델이 없어요 — API 키가 등록됐는지, 연결이 정상인지
+                  확인하세요.
                 </p>
               ) : null}
             </div>

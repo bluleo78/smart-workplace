@@ -139,6 +139,7 @@ test.describe('프로필 개인 비서', () => {
 
     await expect(page.getByText('개인 비서 토큰을 저장했습니다.')).toBeVisible()
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
+    await expect(page.getByTestId('assistant-connection-badge')).toHaveText('Claude 구독')
 
     expect(requests).toHaveLength(1)
     expect(requests[0]).toEqual({ provider: 'anthropic', token: 'x'.repeat(40) })
@@ -190,6 +191,7 @@ test.describe('프로필 개인 비서', () => {
       await page.getByRole('button', { name: '등록' }).click()
 
       await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
+      await expect(page.getByTestId('assistant-connection-badge')).toHaveText('OpenAI 호환')
 
       expect(requests).toHaveLength(1)
       expect(requests[0]).toEqual({
