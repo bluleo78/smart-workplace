@@ -10,10 +10,7 @@ import { Button } from '@/components/ui/button';
 
 import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
-import {
-  useMilestones,
-  useUpdateMilestone,
-} from '../../../hooks/queries/useMilestones';
+import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProjectDependencies } from '../../../hooks/queries/useProjectDependencies';
 import { useProject } from '../../../hooks/queries/useProjects';
 import { useTimelineIssueUpdate } from '../../../hooks/queries/useTimelineIssueUpdate';
@@ -74,7 +71,6 @@ export default function TimelinePage() {
 
   const readOnly = !(project.data?.viewerIsMember ?? false);
   const updateIssue = useTimelineIssueUpdate(key);
-  const updateMilestone = useUpdateMilestone(key);
 
   // 마일스톤별 연결된 이슈 수 — 이슈 목록에서 파생(팝오버 "연결된 이슈 N개" 표시용).
   const linkedIssueCounts = useMemo(() => {
@@ -163,20 +159,6 @@ export default function TimelinePage() {
             })
           }
           onBarClick={(issueNumber) => navigate(`/projects/${key}/issues/${issueNumber}`)}
-          onMilestoneMove={(id, dueDate) => {
-            if (readOnly) return;
-            const target = milestones.data?.find((m) => m.id === id);
-            if (!target) return;
-            // 이름/설명은 기존 값을 유지하고 dueDate 만 교체 — PATCH 는 MilestoneRequest 전체를 요구한다.
-            updateMilestone.mutate({
-              id,
-              body: {
-                name: target.name,
-                dueDate,
-                description: target.description ?? undefined,
-              },
-            });
-          }}
           onMilestoneClick={(id, anchorRect) => {
             const target = milestones.data?.find((m) => m.id === id);
             if (target) setMilestoneEditState({ milestone: target, anchorRect });
