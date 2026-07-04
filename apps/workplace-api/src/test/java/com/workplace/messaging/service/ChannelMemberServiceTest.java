@@ -11,10 +11,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.dto.ChannelResponse;
+import com.workplace.messaging.exception.AgentCannotOwnChannelException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.user.dto.UserKind;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -74,6 +76,27 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
     dsl.insertInto(USER_ROLE)
         .set(USER_ROLE.USER_ID, id)
         .set(USER_ROLE.ROLE_ID, adminRoleId)
+        .execute();
+    return id;
+  }
+
+  /** AGENT(AI 봇) 종류의 사용자 — 채널 OWNER 승격 거부(#598)를 검증하기 위함. */
+  private long seedAgentUser() {
+    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "cms_agent_" + s)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "CmsAgent" + s)
+            .set(USER.EMAIL, "cms_agent_" + s + "@example.com")
+            .set(USER.KIND, UserKind.AGENT)
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
         .execute();
     return id;
   }
@@ -183,6 +206,22 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
     memberService.updateRole(owner, ch.id(), target, "OWNER");
     assertThat(memberRepo.findRole(ch.id(), owner)).contains("ADMIN");
     assertThat(memberRepo.findRole(ch.id(), target)).contains("OWNER");
+  }
+
+  /** AGENT(AI 봇) 사용자를 OWNER 로 승격 시도 → 409, 기존 OWNER/대상 역할 모두 변경되지 않아야 한다(#598). */
+  @Test
+  void updateRole_toAgentOwner_throws409_andRosterUnchanged() {
+    long owner = seedUser();
+    long agent = seedAgentUser();
+    ChannelResponse ch = channelService.create(owner, "일반", "PUBLIC");
+    memberService.add(owner, ch.id(), agent);
+
+    assertThatThrownBy(() -> memberService.updateRole(owner, ch.id(), agent, "OWNER"))
+        .isInstanceOf(AgentCannotOwnChannelException.class);
+
+    // 거부 후에도 소유권 이전이 실행되지 않았어야 함(기존 OWNER 유지, 대상은 MEMBER 유지).
+    assertThat(memberRepo.findRole(ch.id(), owner)).contains("OWNER");
+    assertThat(memberRepo.findRole(ch.id(), agent)).contains("MEMBER");
   }
 
   @Test

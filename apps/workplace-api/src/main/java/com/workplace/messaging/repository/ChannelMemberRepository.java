@@ -82,6 +82,11 @@ public class ChannelMemberRepository {
         .fetchOptional(CHANNEL_MEMBER.ROLE);
   }
 
+  /** 대상 사용자의 USER.KIND(HUMAN/AGENT) 조회 — OWNER 승격 등 사람 전용 권한 가드에 사용. 사용자 미존재면 empty. */
+  public Optional<String> findUserKind(long userId) {
+    return dsl.select(USER.KIND).from(USER).where(USER.ID.eq(userId)).fetchOptional(USER.KIND);
+  }
+
   /** 역할 변경(승격/강등/소유권 이전). */
   public void updateRole(long channelId, long userId, String role) {
     dsl.update(CHANNEL_MEMBER)

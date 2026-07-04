@@ -118,7 +118,8 @@ export function ChannelMembersPanel({
                       }
                       className="rounded border bg-background px-1 py-0.5 text-xs"
                     >
-                      {ROLES.map((r) => (
+                      {/* AGENT(AI 봇)는 채널 OWNER 가 될 수 없음(사람 전용 권한, #598) — 옵션 자체를 제거해 시도를 UX 상에서 차단. */}
+                      {ROLES.filter((r) => r !== 'OWNER' || m.kind !== 'AGENT').map((r) => (
                         <option key={r} value={r}>
                           {r}
                         </option>

@@ -42,6 +42,7 @@ import com.workplace.label.exception.InvalidColorTokenException;
 import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.exception.LabelNameDuplicatedException;
 import com.workplace.label.exception.LabelNotFoundException;
+import com.workplace.messaging.exception.AgentCannotOwnChannelException;
 import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
@@ -582,7 +583,11 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
-  @ExceptionHandler({ChannelArchivedException.class, OwnershipTransferRequiredException.class})
+  @ExceptionHandler({
+    ChannelArchivedException.class,
+    OwnershipTransferRequiredException.class,
+    AgentCannotOwnChannelException.class
+  })
   public ResponseEntity<ErrorResponse> handleChannelConflict(
       RuntimeException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);

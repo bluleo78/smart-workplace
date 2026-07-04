@@ -226,4 +226,77 @@ test.describe('messaging 멤버 패널', () => {
     await page.getByTestId('channel-leave-confirm').click()
     await expect(page).toHaveURL(/\/chat$/)
   })
+
+  test('OWNER → AGENT(AI 봇) 멤버 역할 select 에 OWNER 옵션 없음 (#598)', async ({ authenticatedPage: page }) => {
+    const ch = createChannel({ id: CID, role: 'OWNER', member: true, memberCount: 2 })
+    await stubBase(page, ch)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CID}/members`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify([
+                createChannelMember({ userId: 1, name: '나', role: 'OWNER' }),
+                createChannelMember({ userId: 2, name: 'My AI', role: 'MEMBER', kind: 'AGENT' }),
+              ]),
+            })
+          : route.fallback(),
+    )
+    await page.goto(`/chat/channels/${CID}`)
+    await page.getByTestId('channel-members-btn').click()
+    const roleSelect = page.getByTestId('member-role-select-2')
+    await expect(roleSelect).toBeVisible()
+    // AGENT 행의 select 옵션에는 OWNER 가 없어야 한다 — UX 상 승격 시도 자체를 차단.
+    const optionValues = await roleSelect.locator('option').allTextContents()
+    expect(optionValues).not.toContain('OWNER')
+    expect(optionValues).toEqual(expect.arrayContaining(['ADMIN', 'MEMBER']))
+  })
+
+  test('AGENT 를 OWNER 로 승격 시도 시 서버가 409 로 거부 (#598, 직접 API 조작 방어)', async ({
+    authenticatedPage: page,
+  }) => {
+    const ch = createChannel({ id: CID, role: 'OWNER', member: true, memberCount: 2 })
+    await stubBase(page, ch)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CID}/members`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify([
+                createChannelMember({ userId: 1, name: '나', role: 'OWNER' }),
+                createChannelMember({ userId: 2, name: 'My AI', role: 'MEMBER', kind: 'AGENT' }),
+              ]),
+            })
+          : route.fallback(),
+    )
+    // select 에 OWNER 옵션이 없어도 클라이언트가 직접 PATCH 를 보낼 가능성에 대비해 서버 가드도 검증.
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CID}/members/2`,
+      (route) =>
+        route.request().method() === 'PATCH'
+          ? route.fulfill({
+              status: 409,
+              contentType: 'application/json',
+              body: JSON.stringify({ message: 'agent user 2 cannot own channel 50' }),
+            })
+          : route.fallback(),
+    )
+    await page.goto(`/chat/channels/${CID}`)
+    await page.getByTestId('channel-members-btn').click()
+    const resp = await page.evaluate(async (cid) => {
+      const r = await fetch(`/api/v1/messaging/channels/${cid}/members/2`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'OWNER' }),
+      })
+      return r.status
+    }, CID)
+    expect(resp).toBe(409)
+    // 거부 후에도 대상은 여전히 MEMBER 로 표시(승격되지 않음).
+    await expect(page.getByTestId('member-role-select-2')).toHaveValue('MEMBER')
+  })
 })

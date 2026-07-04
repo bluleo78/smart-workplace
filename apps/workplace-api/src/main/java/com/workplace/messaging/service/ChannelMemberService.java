@@ -2,6 +2,7 @@ package com.workplace.messaging.service;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.ChannelMemberResponse;
+import com.workplace.messaging.exception.AgentCannotOwnChannelException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
@@ -9,6 +10,7 @@ import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelMembershipC
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.user.dto.UserKind;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -86,6 +88,10 @@ public class ChannelMemberService {
       throw new ChannelForbiddenException(channelId, callerId, "update-role-of-nonmember");
     }
     if ("OWNER".equals(normalized)) {
+      // AGENT(AI 봇)는 채널 OWNER 가 될 수 없음(사람 전용 권한, #598) — 이슈 담당자 도메인과 동일 정책.
+      if (UserKind.isAgent(memberRepo.findUserKind(targetUserId).orElse(null))) {
+        throw new AgentCannotOwnChannelException(channelId, targetUserId);
+      }
       // 소유권 이전 — 호출자가 아니라 "현재 OWNER" 를 강등한다.
       // (시스템 ADMIN 이 비멤버로서 이전을 수행하면 호출자 강등은 0행이 되어 OWNER 가 2명이 되는 버그 방지.)
       memberRepo.demoteOwners(channelId);
