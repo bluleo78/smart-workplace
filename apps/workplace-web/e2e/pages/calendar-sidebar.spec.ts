@@ -1,6 +1,7 @@
 // 캘린더 사이드바 미니 캘린더 + 표시 토글 E2E.
 // 백엔드 없이 /calendar/events, /calendars, /me/issues 를 page.route 로 모킹한다.
-// (Playwright 기본 로케일 en-US → 미니 캘린더 캡션/nav 라벨이 영어로 결정적.)
+// (미니 캘린더는 calendar.tsx 래퍼의 기본 locale={ko} 로 캡션이 한글 렌더 — nav 버튼 aria-label 은
+//  react-day-picker 의 `labels` API 로 locale 과 무관하게 영어로 유지되어 결정적.)
 import type { Page } from '@playwright/test'
 
 import { mockApi } from '../fixtures/api-mock'
@@ -29,6 +30,23 @@ async function stubDueIssue(page: Page): Promise<void> {
   await mockApi(page, 'GET', '/api/v1/projects/WP/issues/42', createIssueDetail())
 }
 
+test('미니 캘린더 요일 헤더가 한글로 렌더링된다 (#652 회귀 가드)', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendars(page)
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  await stubDueIssue(page)
+
+  await page.goto('/calendar')
+  const mini = page.getByTestId('calendar-mini')
+
+  // calendar.tsx 래퍼 기본 locale={ko} 미적용 시 "Su Mo Tu We Th Fr Sa" 로 렌더됨.
+  await expect(mini).toContainText('일')
+  await expect(mini).toContainText('월')
+  await expect(mini).toContainText('화')
+  await expect(mini).not.toContainText('Su')
+  await expect(mini).not.toContainText('Mo')
+})
+
 test('미니 캘린더가 anchor 와 양방향 동기화된다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
   await stubCalendars(page)
@@ -39,19 +57,19 @@ test('미니 캘린더가 anchor 와 양방향 동기화된다', async ({ authen
 
   const mini = page.getByTestId('calendar-mini')
   await expect(mini).toBeVisible()
-  // 초기: 본문 헤더 6월 + 미니 캡션 June 2026
+  // 초기: 본문 헤더 6월 + 미니 캡션도 한글 2026년 6월(#652: locale={ko} 기본값)
   await expect(page.getByTestId('calendar-title')).toHaveText('2026년 6월')
-  await expect(mini).toContainText('June 2026')
+  await expect(mini).toContainText('2026년 6월')
 
   // 미니 → 본문: 미니 다음달 화살표 클릭 → 본문 헤더가 7월로 이동
   await mini.getByRole('button', { name: /next month/i }).click()
   await expect(page.getByTestId('calendar-title')).toHaveText('2026년 7월')
-  await expect(mini).toContainText('July 2026')
+  await expect(mini).toContainText('2026년 7월')
 
-  // 본문 → 미니: 본문 "오늘" 클릭 → 미니 캡션도 June 2026 으로 복귀
+  // 본문 → 미니: 본문 "오늘" 클릭 → 미니 캡션도 2026년 6월 으로 복귀
   await page.getByTestId('calendar-today').click()
   await expect(page.getByTestId('calendar-title')).toHaveText('2026년 6월')
-  await expect(mini).toContainText('June 2026')
+  await expect(mini).toContainText('2026년 6월')
 })
 
 test('미니 캘린더 날짜 클릭 시 선택일(anchor)이 갱신된다', async ({ authenticatedPage: page }) => {
