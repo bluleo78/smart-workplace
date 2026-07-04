@@ -775,6 +775,8 @@ test('폴더 생성 — Dialog 표시, 이름 입력 후 확인 시 POST 호출'
   // window.prompt 가 아닌 Dialog 가 나타나야 한다 (#135)
   await expect(page.getByTestId('folder-name-input')).toBeVisible()
   await page.getByTestId('folder-name-input').fill('보고서')
+  // 확인 버튼은 모드별 동사+명사 라벨을 써야 한다 — 모호한 "확인" 금지 (#635)
+  await expect(page.getByTestId('folder-name-confirm')).toHaveText('만들기')
   await page.getByTestId('folder-name-confirm').click()
 
   // POST body 검증 — 이름이 정확히 전달됐는지
@@ -810,8 +812,9 @@ test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 
   await folderRow.getByRole('button', { name: '이름변경' }).click()
   await expect(page.getByTestId('folder-name-input')).toHaveValue('문서')
 
-  // 이름 교체 후 확인
+  // 이름 교체 후 확인 — 이름변경 모드는 "이름 변경" 라벨을 써야 한다 (#635)
   await page.getByTestId('folder-name-input').fill('보관함')
+  await expect(page.getByTestId('folder-name-confirm')).toHaveText('이름 변경')
   await page.getByTestId('folder-name-confirm').click()
 
   // PATCH body 검증

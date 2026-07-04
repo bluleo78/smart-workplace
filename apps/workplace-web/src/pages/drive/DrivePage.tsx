@@ -1123,7 +1123,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               취소
             </Button>
             <Button onClick={() => void submitNameDialog()} data-testid="folder-name-confirm">
-              확인
+              {/* 동사+명사 버튼 라벨 컨벤션 — 모드별로 실제 동작을 명시 (#635) */}
+              {nameDialog?.mode === 'create' ? '만들기' : '이름 변경'}
             </Button>
           </DialogFooter>
         </DialogContent>
