@@ -246,6 +246,57 @@ test(
   },
 )
 
+// ── 만료일 표시 — 콜론 포함 오프셋(+09:00) 회귀 검증 (#617 재발) ──
+// 백엔드 OffsetDateTime 직렬화는 "+09:00" 같은 콜론 포함 오프셋을 내려준다.
+// parseUtcDate 의 오프셋 판별 정규식이 이를 인식 못하면 Invalid Date → "-" 로 표시된다.
+test(
+  '기존 링크 목록 — 콜론 포함 오프셋(+09:00) 만료일도 "-" 없이 표시된다',
+  async ({ authenticatedPage: page }) => {
+    const activeLink: ShareLink = {
+      id: 5,
+      audience: 'EXTERNAL',
+      hasPassword: false,
+      expiresAt: '2099-01-05T23:59:59+09:00',
+      revoked: false,
+      createdAt: '2026-06-21T00:00:00Z',
+      createdBy: 1,
+    }
+
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${FILE_ID}/share-links`,
+      async (route) => {
+        if (route.request().method() === 'GET') {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([activeLink]),
+          })
+        } else {
+          await route.fallback()
+        }
+      },
+    )
+
+    await stubSpaces(page)
+    await stubSpaceSingle(page)
+    await stubItems(page)
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await expect(page.getByTestId('drive-page')).toBeVisible()
+
+    const fileRow = page.getByRole('listitem').filter({ hasText: 'report.txt' })
+    await fileRow.hover()
+    await fileRow.getByTestId('share-link-btn').click()
+
+    await expect(page.getByTestId('share-link-modal')).toBeVisible()
+
+    const item = page.getByTestId('share-link-item')
+    await expect(item).toBeVisible()
+    // 회귀 시(콜론 오프셋 미인식) Invalid Date 가드로 "-" 만 표시되어 이 assertion 이 실패한다
+    await expect(item).toContainText('2099-01-05')
+  },
+)
+
 // ── 공개 랜딩 페이지 — 인증 없이 접근 ─────────────────────────────────
 // ShareLinkPage (/s/:token) 는 AppLayout·인증 없이 렌더되어야 한다.
 // 인증 fixture 를 쓰지 않고 기본 page 를 직접 사용.

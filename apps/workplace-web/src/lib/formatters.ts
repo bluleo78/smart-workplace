@@ -10,7 +10,8 @@ export function parseUtcDate(dateStr: string | null | undefined): Date {
   // null/undefined/빈 문자열은 Invalid Date 반환 — 호출부에서 Number.isNaN(d.getTime())으로 처리
   if (!dateStr) return new Date(NaN);
   // 이미 타임존 정보가 있으면 그대로, 없으면 UTC로 간주
-  if (/[Z+-]\d{0,4}$/.test(dateStr)) return new Date(dateStr);
+  // 'Z' 또는 콜론 포함/미포함 오프셋(+09:00, +0900, -05:00 등) 모두 인식 (#617 회귀 수정)
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(dateStr)) return new Date(dateStr);
   return new Date(dateStr + 'Z');
 }
 
