@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueSearchQuery;
+import com.workplace.milestone.repository.MilestoneRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -27,6 +28,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
   @Autowired IssueRepository issueRepository;
   @Autowired IssueAssigneeRepository issueAssigneeRepository;
   @Autowired ProjectService projectService;
+  @Autowired MilestoneRepository milestoneRepository;
 
   /** 시드 컨텍스트: 사용자 1명 + 활성 프로젝트 1개. */
   private record Seed(Long userId, Long projectId, String projectKey) {}
@@ -72,7 +74,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 null, List.of(), List.of(), false, List.of(), null, null, null, 30, List.of(),
-                List.of(), null, null, null, null, null, null, List.of()));
+                List.of(), null, null, null, null, null, null, List.of(), List.of()));
 
     assertThat(result).hasSize(2);
     assertThat(result.get(0).number()).isEqualTo(2); // 가장 최근
@@ -90,7 +92,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 "login", List.of(), List.of(), false, List.of(), null, null, null, 30, List.of(),
-                List.of(), null, null, null, null, null, null, List.of()));
+                List.of(), null, null, null, null, null, null, List.of(), List.of()));
 
     assertThat(result).hasSize(2);
     assertThat(result).extracting("title").contains("Login bug", "Other");
@@ -101,7 +103,8 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
     var s = seed("c");
     issueRepository.insert(s.projectId, 1, "todo", null, "MID", null, s.userId);
     var inProgRow = issueRepository.insert(s.projectId, 2, "inprog", null, "MID", null, s.userId);
-    issueRepository.updateAll(inProgRow.id(), "inprog", null, "IN_PROGRESS", "MID", null, null);
+    issueRepository.updateAll(
+        inProgRow.id(), "inprog", null, "IN_PROGRESS", "MID", null, null, null, null);
     issueRepository.insert(s.projectId, 3, "todo2", null, "MID", null, s.userId);
 
     var result =
@@ -125,6 +128,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                List.of(),
                 List.of()));
 
     assertThat(result).hasSize(1);
@@ -144,7 +148,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 null, List.of(), List.of(), true, List.of(), null, null, null, 30, List.of(),
-                List.of(), null, null, null, null, null, null, List.of()));
+                List.of(), null, null, null, null, null, null, List.of(), List.of()));
 
     assertThat(result).hasSize(1);
     assertThat(result.get(0).title()).isEqualTo("unassigned");
@@ -181,6 +185,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                List.of(),
                 List.of()));
 
     assertThat(result).hasSize(2);
@@ -218,6 +223,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                List.of(),
                 List.of()));
 
     assertThat(result).hasSize(1);
@@ -236,7 +242,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 null, List.of(), List.of(), false, List.of(), null, null, null, 2, List.of(),
-                List.of(), null, null, null, null, null, null, List.of()));
+                List.of(), null, null, null, null, null, null, List.of(), List.of()));
     assertThat(page1).hasSize(2);
 
     var lastRow = page1.get(page1.size() - 1);
@@ -246,9 +252,67 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             s.projectId,
             new IssueSearchQuery(
                 null, List.of(), List.of(), false, List.of(), null, null, cursor, 2, List.of(),
-                List.of(), null, null, null, null, null, null, List.of()));
+                List.of(), null, null, null, null, null, null, List.of(), List.of()));
 
     assertThat(page2).hasSize(2);
     assertThat(page2).extracting("id").doesNotContain(lastRow.id());
+  }
+
+  @Test
+  void search_filters_by_milestone_ids() {
+    var s = seed("h");
+    var m1 = milestoneRepository.insert(s.projectId, "M1", LocalDate.parse("2026-08-01"), null);
+    var m2 = milestoneRepository.insert(s.projectId, "M2", LocalDate.parse("2026-09-01"), null);
+    var i1 = issueRepository.insert(s.projectId, 1, "in-m1", null, "MID", null, s.userId);
+    var i2 = issueRepository.insert(s.projectId, 2, "in-m2", null, "MID", null, s.userId);
+    issueRepository.insert(s.projectId, 3, "no-milestone", null, "MID", null, s.userId);
+    issueRepository.updateAll(
+        i1.id(),
+        i1.title(),
+        i1.body(),
+        i1.status(),
+        i1.priority(),
+        i1.dueDate(),
+        null,
+        m1.id(),
+        null);
+    issueRepository.updateAll(
+        i2.id(),
+        i2.title(),
+        i2.body(),
+        i2.status(),
+        i2.priority(),
+        i2.dueDate(),
+        null,
+        m2.id(),
+        null);
+
+    var result =
+        issueRepository.search(
+            s.projectId,
+            new IssueSearchQuery(
+                null,
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                null,
+                null,
+                null,
+                30,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(m1.id())));
+
+    // 필터된 결과 건수(카운트) 도 milestone 매칭 이슈 1건과 정확히 일치해야 한다.
+    assertThat(result).hasSize(1);
+    assertThat(result.get(0).title()).isEqualTo("in-m1");
   }
 }

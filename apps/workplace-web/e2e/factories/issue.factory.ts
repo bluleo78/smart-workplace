@@ -18,6 +18,9 @@ export function createIssue(overrides: Partial<IssueResponse> = {}): IssueRespon
     status: 'TODO',
     priority: 'MID',
     dueDate: null,
+    // 타임라인 간트 뷰 필드 (#620) — 기본은 미배치 이슈.
+    startDate: null,
+    milestoneId: null,
     reporterId: 1,
     createdAt: now,
     updatedAt: now,

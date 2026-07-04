@@ -61,7 +61,9 @@ class IssueSearchServiceTypesTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "STY1");
     var bug = typeRepository.findByProjectAndName(p.id(), "BUG").orElseThrow();
     issueService.create(
-        owner, p.key(), new CreateIssueRequest("with-bug", null, null, null, null, bug.id(), null));
+        owner,
+        p.key(),
+        new CreateIssueRequest("with-bug", null, null, null, null, bug.id(), null, null));
 
     var resp = searchService.search(owner, p.key(), Map.of());
 
@@ -79,13 +81,17 @@ class IssueSearchServiceTypesTest extends IntegrationTestBase {
     var story = typeRepository.findByProjectAndName(p.id(), "STORY").orElseThrow();
     var task = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow();
     issueService.create(
-        owner, p.key(), new CreateIssueRequest("a-bug", null, null, null, null, bug.id(), null));
+        owner,
+        p.key(),
+        new CreateIssueRequest("a-bug", null, null, null, null, bug.id(), null, null));
     issueService.create(
         owner,
         p.key(),
-        new CreateIssueRequest("a-story", null, null, null, null, story.id(), null));
+        new CreateIssueRequest("a-story", null, null, null, null, story.id(), null, null));
     issueService.create(
-        owner, p.key(), new CreateIssueRequest("a-task", null, null, null, null, task.id(), null));
+        owner,
+        p.key(),
+        new CreateIssueRequest("a-task", null, null, null, null, task.id(), null, null));
 
     var resp = searchService.search(owner, p.key(), Map.of("type", bug.id() + "," + story.id()));
 

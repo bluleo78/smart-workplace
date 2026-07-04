@@ -64,23 +64,26 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
     Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
     var parent =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
     var c1 =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("c1", null, null, null, null, subId, parent.number()));
+            new CreateIssueRequest("c1", null, null, null, null, subId, parent.number(), null));
     issueService.create(
         owner,
         p.key(),
-        new CreateIssueRequest("c2", null, null, null, null, subId, parent.number()));
+        new CreateIssueRequest("c2", null, null, null, null, subId, parent.number(), null));
     issueService.create(
         owner,
         p.key(),
-        new CreateIssueRequest("c3", null, null, null, null, subId, parent.number()));
+        new CreateIssueRequest("c3", null, null, null, null, subId, parent.number(), null));
     // c1 만 DONE 으로 전환
     issueService.update(
-        owner, p.key(), c1.number(), new UpdateIssueRequest(null, null, "DONE", null, null, false));
+        owner,
+        p.key(),
+        c1.number(),
+        new UpdateIssueRequest(null, null, "DONE", null, null, false, null, false, null, false));
 
     Map<String, String> params = new HashMap<>();
     var resp = searchService.search(owner, p.key(), params);
@@ -102,18 +105,18 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
     Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
     var parent =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
     issueService.create(
         owner,
         p.key(),
-        new CreateIssueRequest("c1", null, null, null, null, subId, parent.number()));
+        new CreateIssueRequest("c1", null, null, null, null, subId, parent.number(), null));
     issueService.create(
         owner,
         p.key(),
-        new CreateIssueRequest("c2", null, null, null, null, subId, parent.number()));
+        new CreateIssueRequest("c2", null, null, null, null, subId, parent.number(), null));
     // 다른 TASK 하나 — 필터 결과에 포함 안 되어야 함
     issueService.create(
-        owner, p.key(), new CreateIssueRequest("other", null, null, null, null, null, null));
+        owner, p.key(), new CreateIssueRequest("other", null, null, null, null, null, null, null));
 
     var params = new HashMap<String, String>();
     params.put("parent", String.valueOf(parent.number()));
@@ -131,13 +134,13 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
     Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
     var parent =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
     issueService.create(
-        owner, p.key(), new CreateIssueRequest("other", null, null, null, null, null, null));
+        owner, p.key(), new CreateIssueRequest("other", null, null, null, null, null, null, null));
     issueService.create(
         owner,
         p.key(),
-        new CreateIssueRequest("c1", null, null, null, null, subId, parent.number()));
+        new CreateIssueRequest("c1", null, null, null, null, subId, parent.number(), null));
 
     var params = new HashMap<String, String>();
     params.put("topLevel", "true");

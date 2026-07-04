@@ -53,6 +53,9 @@ export default function ProjectDetailPage() {
             <Link to={`/projects/${key}/cycles`}>
               <Button variant="outline">사이클</Button>
             </Link>
+            <Link to={`/projects/${key}/timeline`}>
+              <Button variant="outline">타임라인</Button>
+            </Link>
             <Link to={`/projects/${key}/settings`}>
               <Button variant="outline">설정</Button>
             </Link>

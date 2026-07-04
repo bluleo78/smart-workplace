@@ -507,6 +507,8 @@ export default function IssueDetailPage() {
               status={summary.status}
               priority={summary.priority}
               dueDate={summary.dueDate}
+              startDate={summary.startDate}
+              milestoneId={summary.milestoneId}
               assignees={summary.assignees}
               labels={summary.labels}
               blockedBy={summary.blockedBy}

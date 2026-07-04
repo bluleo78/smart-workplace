@@ -85,12 +85,12 @@ class IssueServiceTest extends IntegrationTestBase {
         issueService.create(
             ownerId,
             projectKey,
-            new CreateIssueRequest("first", "b1", null, null, null, null, null));
+            new CreateIssueRequest("first", "b1", null, null, null, null, null, null));
     IssueResponse second =
         issueService.create(
             ownerId,
             projectKey,
-            new CreateIssueRequest("second", "b2", null, null, null, null, null));
+            new CreateIssueRequest("second", "b2", null, null, null, null, null, null));
 
     assertThat(first.number()).isEqualTo(1);
     assertThat(second.number()).isEqualTo(2);
@@ -109,7 +109,8 @@ class IssueServiceTest extends IntegrationTestBase {
                 issueService.create(
                     owner,
                     personal.key(),
-                    new CreateIssueRequest("T", null, "MID", null, List.of(agent), null, null)))
+                    new CreateIssueRequest(
+                        "T", null, "MID", null, List.of(agent), null, null, null)))
         .isInstanceOf(InvalidAssigneeForProjectException.class);
     // AGENT 를 멤버로 추가하면 담당 가능
     projectService.addMember(owner, personal.key(), new AddMemberRequest(agent, "MEMBER"));
@@ -117,7 +118,7 @@ class IssueServiceTest extends IntegrationTestBase {
         issueService.create(
             owner,
             personal.key(),
-            new CreateIssueRequest("T2", null, "MID", null, List.of(agent), null, null));
+            new CreateIssueRequest("T2", null, "MID", null, List.of(agent), null, null, null));
     IssueDetailResponse detail = issueService.get(owner, personal.key(), resp.number());
     assertThat(detail.summary().assignees()).anyMatch(a -> a.id().equals(agent));
   }
@@ -136,7 +137,7 @@ class IssueServiceTest extends IntegrationTestBase {
         issueService.create(
             owner,
             personal.key(),
-            new CreateIssueRequest("이슈제목", "이슈본문", null, null, List.of(agent), null, null));
+            new CreateIssueRequest("이슈제목", "이슈본문", null, null, List.of(agent), null, null, null));
     // owner(멤버)는 정상 조회
     assertThat(issueService.get(owner, personal.key(), resp.number())).isNotNull();
     // agent(멤버 + 담당자) 조회 가능
@@ -160,7 +161,8 @@ class IssueServiceTest extends IntegrationTestBase {
                 issueService.create(
                     owner,
                     personal.key(),
-                    new CreateIssueRequest("t", null, null, null, List.of(stranger), null, null)))
+                    new CreateIssueRequest(
+                        "t", null, null, null, List.of(stranger), null, null, null)))
         .isInstanceOf(InvalidAssigneeForProjectException.class);
   }
 
@@ -176,7 +178,7 @@ class IssueServiceTest extends IntegrationTestBase {
         issueService.create(
             owner,
             personal.key(),
-            new CreateIssueRequest("t", null, null, null, null, bug.id(), null));
+            new CreateIssueRequest("t", null, null, null, null, bug.id(), null, null));
     IssueDetailResponse detail = issueService.get(owner, personal.key(), resp.number());
     assertThat(detail.summary().type().name()).isEqualTo("TASK");
   }
@@ -185,7 +187,9 @@ class IssueServiceTest extends IntegrationTestBase {
   void create_priorityDefaultsToMid() {
     IssueResponse resp =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("t", "b", null, null, null, null, null, null));
 
     String stored =
         dsl.select(ISSUE.PRIORITY)
@@ -199,19 +203,22 @@ class IssueServiceTest extends IntegrationTestBase {
   void update_statusToDone_setsClosedAt() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("t", "b", null, null, null, null, null, null));
     // TODO → IN_PROGRESS
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "IN_PROGRESS", null, null, null));
+        new UpdateIssueRequest(
+            null, null, "IN_PROGRESS", null, null, null, null, false, null, false));
     // IN_PROGRESS → DONE
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "DONE", null, null, null));
+        new UpdateIssueRequest(null, null, "DONE", null, null, null, null, false, null, false));
 
     var closedAt =
         dsl.select(ISSUE.CLOSED_AT)
@@ -225,18 +232,20 @@ class IssueServiceTest extends IntegrationTestBase {
   void update_statusFromDoneToTodo_clearsClosedAt() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("t", "b", null, null, null, null, null, null));
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "DONE", null, null, null));
+        new UpdateIssueRequest(null, null, "DONE", null, null, null, null, false, null, false));
     // DONE → TODO 재오픈
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "TODO", null, null, null));
+        new UpdateIssueRequest(null, null, "TODO", null, null, null, null, false, null, false));
 
     var closedAt =
         dsl.select(ISSUE.CLOSED_AT)
@@ -250,13 +259,15 @@ class IssueServiceTest extends IntegrationTestBase {
   void update_titleChange_createsHistoryRow() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("orig", "b", null, null, null, null, null));
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("orig", "b", null, null, null, null, null, null));
 
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest("renamed", null, null, null, null, null));
+        new UpdateIssueRequest("renamed", null, null, null, null, null, null, false, null, false));
 
     int historyCount =
         dsl.fetchCount(
@@ -272,7 +283,9 @@ class IssueServiceTest extends IntegrationTestBase {
   void softDelete_byReporter_marksDeleted() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("t", "b", null, null, null, null, null, null));
 
     issueService.softDelete(ownerId, projectKey, created.number());
 
@@ -285,7 +298,9 @@ class IssueServiceTest extends IntegrationTestBase {
     // owner 가 이슈 생성, other 를 MEMBER 로 추가 → other 는 reporter 도 OWNER 도 아님
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("t", "b", null, null, null, null, null, null));
     projectService.addMember(ownerId, projectKey, new AddMemberRequest(otherUserId, "MEMBER"));
 
     assertThatThrownBy(() -> issueService.softDelete(otherUserId, projectKey, created.number()))
@@ -302,13 +317,15 @@ class IssueServiceTest extends IntegrationTestBase {
   void get_returnsCommentsAndHistory() {
     IssueResponse created =
         issueService.create(
-            ownerId, projectKey, new CreateIssueRequest("t", "b", null, null, null, null, null));
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("t", "b", null, null, null, null, null, null));
     // 히스토리 row 1개 추가될 변경 (title)
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest("renamed", null, null, null, null, null));
+        new UpdateIssueRequest("renamed", null, null, null, null, null, null, false, null, false));
     // 코멘트 1개 추가
     dsl.insertInto(ISSUE_COMMENT)
         .set(ISSUE_COMMENT.ISSUE_ID, created.id())

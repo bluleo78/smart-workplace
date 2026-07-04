@@ -6,6 +6,7 @@ import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.label.dto.LabelSummary;
+import com.workplace.milestone.repository.MilestoneRepository;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,6 +20,7 @@ public class IssueHistoryRecorder {
 
   private final IssueHistoryRepository historyRepository;
   private final ObjectMapper objectMapper;
+  private final MilestoneRepository milestoneRepository;
 
   /**
    * before/after 의 주요 필드 비교 후 변경 항목별로 history row 삽입. 담당자는 별도 PUT 흐름에서 ASSIGNEES_CHANGED 로 기록된다.
@@ -43,6 +45,26 @@ public class IssueHistoryRecorder {
           "DUE_DATE_CHANGED",
           stringify(before.dueDate()),
           stringify(after.dueDate()));
+    }
+    if (!Objects.equals(before.startDate(), after.startDate())) {
+      historyRepository.insert(
+          before.id(),
+          actorId,
+          "START_DATE_CHANGED",
+          stringify(before.startDate()),
+          stringify(after.startDate()));
+    }
+    if (!Objects.equals(before.milestoneId(), after.milestoneId())) {
+      // 사람이 읽을 수 있도록 id 대신 마일스톤 이름을 기록한다. null id 는 이름도 null.
+      String fromName =
+          before.milestoneId() == null
+              ? null
+              : milestoneRepository.findById(before.milestoneId()).map(m -> m.name()).orElse(null);
+      String toName =
+          after.milestoneId() == null
+              ? null
+              : milestoneRepository.findById(after.milestoneId()).map(m -> m.name()).orElse(null);
+      historyRepository.insert(before.id(), actorId, "MILESTONE_CHANGED", fromName, toName);
     }
   }
 

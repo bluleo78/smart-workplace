@@ -13,12 +13,14 @@ import type { LabelSummary } from '../../../types/label';
 import type { UserSummary } from '../../../types/user';
 import { AssigneePickerPopover } from './AssigneePickerPopover';
 import { CustomFieldsSection } from './CustomFieldsSection';
+import { DatePickerPopover } from './DatePickerPopover';
 import { DueDatePickerPopover } from './DueDatePickerPopover';
 import { IssueDependenciesSection } from './IssueDependenciesSection';
 import { IssueParentSlot } from './IssueParentSlot';
 import { IssuePrioritySelect } from './IssuePrioritySelect';
 import { IssuePropertyGroup } from './IssuePropertyGroup';
 import { IssueStatusSelect } from './IssueStatusSelect';
+import { MilestonePickerPopover } from './MilestonePickerPopover';
 
 // 속성 레일이 받는 props — 기존 aside 가 사용하던 summary.* 값 그대로 전달.
 interface IssuePropertyRailProps {
@@ -30,6 +32,8 @@ interface IssuePropertyRailProps {
   status: IssueStatus;        // summary.status
   priority: IssuePriority;    // summary.priority
   dueDate: string | null;     // summary.dueDate
+  startDate: string | null;   // summary.startDate — 타임라인 간트 뷰 시작일 (#620)
+  milestoneId: number | null; // summary.milestoneId
   assignees: UserSummary[];   // summary.assignees
   labels: LabelSummary[];     // summary.labels
   blockedBy: IssueLinkSummary[];  // summary.blockedBy
@@ -54,6 +58,8 @@ export function IssuePropertyRail({
   status,
   priority,
   dueDate,
+  startDate,
+  milestoneId,
   assignees,
   labels,
   blockedBy,
@@ -142,6 +148,22 @@ export function IssuePropertyRail({
         testId="property-group-planning"
       >
         <div className="space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">시작일</span>
+          <DatePickerPopover
+            value={startDate}
+            testIdPrefix="start-date"
+            ariaLabel="시작일 선택"
+            clearAriaLabel="시작일 지우기"
+            disabled={updatePending || !canEditWorkflow}
+            onChange={(date) =>
+              onPatch({
+                startDate: date,
+                clearStartDate: !date,
+              })
+            }
+          />
+        </div>
+        <div className="space-y-1">
           <span className="text-xs font-medium text-muted-foreground">마감일</span>
           <DueDatePickerPopover
             value={dueDate}
@@ -158,6 +180,18 @@ export function IssuePropertyRail({
         <section data-testid="issue-cycles-section">
           <h3 className="mb-1 text-xs font-medium text-muted-foreground">사이클</h3>
           <CyclePickerPopover projectKey={projectKey} issueNumber={issueNumber} />
+        </section>
+        {/* 마일스톤 피커 — 이슈당 단일 마일스톤 연결(#620) */}
+        <section data-testid="issue-milestone-section">
+          <h3 className="mb-1 text-xs font-medium text-muted-foreground">마일스톤</h3>
+          <MilestonePickerPopover
+            projectKey={projectKey}
+            value={milestoneId}
+            disabled={updatePending || !canEditWorkflow}
+            onChange={(id) =>
+              onPatch(id === null ? { clearMilestone: true } : { milestoneId: id })
+            }
+          />
         </section>
       </IssuePropertyGroup>
 

@@ -56,6 +56,8 @@ import com.workplace.messaging.exception.MessageAttachmentTooLargeException;
 import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
+import com.workplace.milestone.exception.MilestoneNameDuplicatedException;
+import com.workplace.milestone.exception.MilestoneNotFoundException;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
@@ -848,6 +850,22 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** 마일스톤 없음 — 404. */
+  @ExceptionHandler(MilestoneNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleMilestoneNotFound(
+      MilestoneNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 마일스톤 이름 중복 — 409. */
+  @ExceptionHandler(MilestoneNameDuplicatedException.class)
+  public ResponseEntity<ErrorResponse> handleMilestoneNameDuplicated(
+      MilestoneNameDuplicatedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
   /** 이슈 프로젝트와 다른 사이클 연결 시도 — 400. */
   @ExceptionHandler(InvalidCycleForProjectException.class)
   public ResponseEntity<ErrorResponse> handleInvalidCycleForProject(
@@ -1006,6 +1024,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(com.workplace.issue.exception.ParentNotAllowedException.class)
   public ResponseEntity<ErrorResponse> handleParentNotAllowed(
       com.workplace.issue.exception.ParentNotAllowedException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 이슈 시작일이 마감일보다 늦음 — 400. 타임라인 간트뷰. */
+  @ExceptionHandler(com.workplace.issue.exception.InvalidIssueDateRangeException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidIssueDateRange(
+      com.workplace.issue.exception.InvalidIssueDateRangeException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }

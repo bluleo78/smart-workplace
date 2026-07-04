@@ -51,6 +51,7 @@ export async function searchIssues(
   if (filters.dueTo) params.set('dueTo', filters.dueTo);
   if (filters.labelIds.length) params.set('label', filters.labelIds.join(','));
   if (filters.cycleIds.length) params.set('cycle', filters.cycleIds.join(','));
+  if (filters.milestoneIds.length) params.set('milestone', filters.milestoneIds.join(','));
   if (filters.typeIds.length) params.set('type', filters.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel 은 무시(서버 우선순위와 정합).
   // topLevel 기본 true → 보드/목록은 상위 이슈만 요청. false(전체)면 미송신(백엔드 기본=전체). (#168)
@@ -78,6 +79,19 @@ export async function updateIssueStatus(
   const { data } = await client.patch<IssueDetailResponse>(
     `/projects/${projectKey}/issues/${number}/status`,
     { status },
+  );
+  return data;
+}
+
+// 타임라인 간트의 의존 화살표용 프로젝트 전체 이슈 의존 엣지 (#620).
+export interface DependencyEdge {
+  fromIssueNumber: number;
+  toIssueNumber: number;
+}
+
+export async function getProjectDependencyEdges(projectKey: string): Promise<DependencyEdge[]> {
+  const { data } = await client.get<DependencyEdge[]>(
+    `/projects/${projectKey}/issue-dependencies`,
   );
   return data;
 }

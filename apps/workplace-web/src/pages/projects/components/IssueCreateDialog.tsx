@@ -113,6 +113,7 @@ export function IssueCreateDialog({
     const payload = {
       ...data,
       dueDate: data.dueDate || undefined,
+      startDate: data.startDate || undefined,
       body: data.body || undefined,
       typeId: data.typeId ?? undefined,
       // SUBTASK 가 아닐 때는 parentNumber 를 절대 보내지 않는다 — 백엔드가 400.
@@ -148,7 +149,8 @@ export function IssueCreateDialog({
             reason={classifyReason}
             onClick={handleClassify}
           />
-          <div className={personal ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-3 gap-3'}>
+          {/* 유형(팀만)/우선순위/시작일/마감일 — 필드 수에 맞춰 컬럼 수를 맞춰 마지막 줄이 혼자 남지 않게 한다. */}
+          <div className={personal ? 'grid grid-cols-3 gap-3' : 'grid grid-cols-4 gap-3'}>
             {/* 개인 프로젝트는 TASK 단일 유형(#226) — 유형 select 를 숨긴다(typeId 는 effect 가 TASK 로 채움). */}
             {!personal && (
               <div className="space-y-1">
@@ -193,6 +195,13 @@ export function IssueCreateDialog({
                   <SelectItem value="HIGH">높음</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="issue-start">시작일</label>
+              <Input id="issue-start" type="date" {...register('startDate')} />
+              {errors.startDate && (
+                <p className="text-sm text-destructive">{errors.startDate.message}</p>
+              )}
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="issue-due">마감일</label>

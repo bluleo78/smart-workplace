@@ -129,7 +129,8 @@ class IssueDependencyRepositoryTest extends IntegrationTestBase {
     assertThat(flags.get(a.id())).isFalse();
 
     // a status=DONE 으로 갱신 → b 는 unblocked
-    issueRepo.updateAll(a.id(), a.title(), a.body(), "DONE", a.priority(), a.dueDate(), null);
+    issueRepo.updateAll(
+        a.id(), a.title(), a.body(), "DONE", a.priority(), a.dueDate(), null, null, null);
     var flags2 = depRepo.findBlockedFlags(List.of(b.id()));
     assertThat(flags2.get(b.id())).isFalse();
   }
@@ -159,5 +160,38 @@ class IssueDependencyRepositoryTest extends IntegrationTestBase {
     depRepo.add(a.id(), b.id(), owner); // 중복
 
     assertThat(depRepo.findBlocksOf(a.id())).hasSize(1);
+  }
+
+  @Test
+  void list_edges_by_project_returns_all_edges_as_issue_numbers() {
+    Long owner = createUser("ra7");
+    var p = newProject(owner, "RA7");
+    var a = newTask(p.id(), 1, "a", owner);
+    var b = newTask(p.id(), 2, "b", owner);
+    var c = newTask(p.id(), 3, "c", owner);
+    depRepo.add(a.id(), b.id(), owner); // 1 → 2
+    depRepo.add(b.id(), c.id(), owner); // 2 → 3
+
+    var edges = depRepo.listEdgesByProject(p.id());
+    assertThat(edges)
+        .containsExactlyInAnyOrder(
+            new IssueDependencyRepository.DependencyEdge(1, 2),
+            new IssueDependencyRepository.DependencyEdge(2, 3));
+  }
+
+  @Test
+  void list_edges_by_project_excludes_edges_with_deleted_issue() {
+    Long owner = createUser("ra8");
+    var p = newProject(owner, "RA8");
+    var a = newTask(p.id(), 1, "a", owner);
+    var b = newTask(p.id(), 2, "b", owner);
+    var c = newTask(p.id(), 3, "c", owner);
+    depRepo.add(a.id(), b.id(), owner); // 1 → 2 (살아있음)
+    depRepo.add(b.id(), c.id(), owner); // 2 → 3 (c 삭제 예정 → 제외)
+
+    issueRepo.softDelete(c.id(), java.time.Instant.now());
+
+    var edges = depRepo.listEdgesByProject(p.id());
+    assertThat(edges).containsExactly(new IssueDependencyRepository.DependencyEdge(1, 2));
   }
 }

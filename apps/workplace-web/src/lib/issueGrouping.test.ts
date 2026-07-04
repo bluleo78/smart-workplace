@@ -13,6 +13,8 @@ function mk(over: Partial<IssueResponse>): IssueResponse {
     status: 'TODO',
     priority: 'MID',
     dueDate: null,
+    startDate: null,
+    milestoneId: null,
     reporterId: 1,
     createdAt: '',
     updatedAt: '',

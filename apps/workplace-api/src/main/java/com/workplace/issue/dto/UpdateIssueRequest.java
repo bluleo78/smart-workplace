@@ -14,4 +14,8 @@ public record UpdateIssueRequest(
     @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String status,
     @Pattern(regexp = "LOW|MID|HIGH") String priority,
     LocalDate dueDate,
-    Boolean clearDueDate) {}
+    Boolean clearDueDate,
+    LocalDate startDate,
+    Boolean clearStartDate,
+    Long milestoneId,
+    Boolean clearMilestone) {}

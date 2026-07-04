@@ -17,4 +17,5 @@ public record CreateIssueRequest(
     LocalDate dueDate,
     List<Long> assigneeIds,
     Long typeId,
-    Integer parentNumber) {}
+    Integer parentNumber,
+    LocalDate startDate) {}

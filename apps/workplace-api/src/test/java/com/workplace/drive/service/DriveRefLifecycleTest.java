@@ -140,7 +140,7 @@ class DriveRefLifecycleTest extends IntegrationTestBase {
 
     var issue =
         issueService.create(
-            owner, key, new CreateIssueRequest("이슈1", null, null, null, null, null, null));
+            owner, key, new CreateIssueRequest("이슈1", null, null, null, null, null, null, null));
     int issueNumber = issue.number();
 
     long driveFileId = seedDriveFile(owner);
@@ -225,7 +225,7 @@ class DriveRefLifecycleTest extends IntegrationTestBase {
     // 부모 이슈 (TASK — typeId null = 기본 TASK)
     var parent =
         issueService.create(
-            owner, key, new CreateIssueRequest("부모이슈", null, null, null, null, null, null));
+            owner, key, new CreateIssueRequest("부모이슈", null, null, null, null, null, null, null));
 
     // SUBTASK typeId 조회
     Long subtaskTypeId =
@@ -237,7 +237,7 @@ class DriveRefLifecycleTest extends IntegrationTestBase {
             owner,
             key,
             new CreateIssueRequest(
-                "자식서브태스크", null, null, null, null, subtaskTypeId, parent.number()));
+                "자식서브태스크", null, null, null, null, subtaskTypeId, parent.number(), null));
 
     // 자식에 드라이브 링크 추가
     long driveFileId = seedDriveFile(owner);

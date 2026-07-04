@@ -78,7 +78,7 @@ class IssueParentServiceTest extends IntegrationTestBase {
                 issueService.create(
                     owner,
                     p.key(),
-                    new CreateIssueRequest("c", null, null, null, null, subId, null)))
+                    new CreateIssueRequest("c", null, null, null, null, subId, null, null)))
         .isInstanceOf(SubtaskParentRequiredException.class);
   }
 
@@ -89,14 +89,17 @@ class IssueParentServiceTest extends IntegrationTestBase {
     // 부모 후보 — TASK
     var parent =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("parent", null, null, null, null, null, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("parent", null, null, null, null, null, null, null));
 
     assertThatThrownBy(
             () ->
                 issueService.create(
                     owner,
                     p.key(),
-                    new CreateIssueRequest("child", null, null, null, null, null, parent.number())))
+                    new CreateIssueRequest(
+                        "child", null, null, null, null, null, parent.number(), null)))
         .isInstanceOf(ParentNotAllowedException.class);
   }
 
@@ -108,19 +111,20 @@ class IssueParentServiceTest extends IntegrationTestBase {
     // 부모 TASK 생성 후 그 자식으로 SUBTASK 1 생성 → SUBTASK 1 을 부모로 새 SUBTASK 시도
     var task =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
     var sub1 =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("s1", null, null, null, null, subId, task.number()));
+            new CreateIssueRequest("s1", null, null, null, null, subId, task.number(), null));
 
     assertThatThrownBy(
             () ->
                 issueService.create(
                     owner,
                     p.key(),
-                    new CreateIssueRequest("s2", null, null, null, null, subId, sub1.number())))
+                    new CreateIssueRequest(
+                        "s2", null, null, null, null, subId, sub1.number(), null)))
         .isInstanceOf(ParentCannotBeSubtaskException.class);
   }
 
@@ -131,7 +135,7 @@ class IssueParentServiceTest extends IntegrationTestBase {
     var pb = newProject(owner, "PA4B");
     // pa 의 TASK 이슈는 number=1 가능. pb 의 SUBTASK 가 pa.number=1 을 부모로 (다른 프로젝트) → 없음으로 InvalidParent
     issueService.create(
-        owner, pa.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+        owner, pa.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
     Long subIdB = subtaskTypeId(pb.id());
 
     assertThatThrownBy(
@@ -139,7 +143,7 @@ class IssueParentServiceTest extends IntegrationTestBase {
                 issueService.create(
                     owner,
                     pb.key(),
-                    new CreateIssueRequest("s", null, null, null, null, subIdB, 1)))
+                    new CreateIssueRequest("s", null, null, null, null, subIdB, 1, null)))
         .isInstanceOf(InvalidParentException.class);
   }
 
@@ -154,14 +158,15 @@ class IssueParentServiceTest extends IntegrationTestBase {
     Long epicId = epicTypeId(p.id());
     var parent =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
 
     assertThatThrownBy(
             () ->
                 issueService.create(
                     owner,
                     p.key(),
-                    new CreateIssueRequest("e", null, null, null, null, epicId, parent.number())))
+                    new CreateIssueRequest(
+                        "e", null, null, null, null, epicId, parent.number(), null)))
         .isInstanceOf(EpicCannotHaveParentException.class);
   }
 
@@ -173,14 +178,17 @@ class IssueParentServiceTest extends IntegrationTestBase {
     Long subId = subtaskTypeId(p.id());
     var epic =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("e", null, null, null, null, epicId, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("e", null, null, null, null, epicId, null, null));
 
     assertThatThrownBy(
             () ->
                 issueService.create(
                     owner,
                     p.key(),
-                    new CreateIssueRequest("s", null, null, null, null, subId, epic.number())))
+                    new CreateIssueRequest(
+                        "s", null, null, null, null, subId, epic.number(), null)))
         .isInstanceOf(SubtaskParentCannotBeEpicException.class);
   }
 
@@ -191,12 +199,14 @@ class IssueParentServiceTest extends IntegrationTestBase {
     Long epicId = epicTypeId(p.id());
     var epic =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("e", null, null, null, null, epicId, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("e", null, null, null, null, epicId, null, null));
     var story =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("s", null, null, null, null, null, epic.number()));
+            new CreateIssueRequest("s", null, null, null, null, null, epic.number(), null));
 
     var detail = issueService.get(owner, p.key(), story.number());
     assertThat(detail.summary().parent()).isNotNull();
@@ -211,12 +221,14 @@ class IssueParentServiceTest extends IntegrationTestBase {
     Long subId = subtaskTypeId(p.id());
     var parent =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("parent", null, null, null, null, null, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("parent", null, null, null, null, null, null, null));
     var child =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("c", null, null, null, null, subId, parent.number()));
+            new CreateIssueRequest("c", null, null, null, null, subId, parent.number(), null));
 
     var detail = issueService.get(owner, p.key(), child.number());
     assertThat(detail.summary().parent()).isNotNull();
@@ -231,22 +243,22 @@ class IssueParentServiceTest extends IntegrationTestBase {
     Long subId = subtaskTypeId(p.id());
     var parent =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
     var c1 =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("c1", null, null, null, null, subId, parent.number()));
+            new CreateIssueRequest("c1", null, null, null, null, subId, parent.number(), null));
     var c2 =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("c2", null, null, null, null, subId, parent.number()));
+            new CreateIssueRequest("c2", null, null, null, null, subId, parent.number(), null));
     var c3 =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("c3", null, null, null, null, subId, parent.number()));
+            new CreateIssueRequest("c3", null, null, null, null, subId, parent.number(), null));
     // c3 만 미리 삭제
     issueService.softDelete(owner, p.key(), c3.number());
 

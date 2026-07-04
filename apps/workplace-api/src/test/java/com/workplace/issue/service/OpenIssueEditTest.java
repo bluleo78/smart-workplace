@@ -43,7 +43,8 @@ class OpenIssueEditTest extends IntegrationTestBase {
   @Test
   void open_reporter_edits_content_only() {
     var s = openScenario();
-    var titleReq = new UpdateIssueRequest("제목수정", null, null, null, null, false);
+    var titleReq =
+        new UpdateIssueRequest("제목수정", null, null, null, null, false, null, false, null, false);
     var updated = issueService.update(s.reporterId(), s.projectKey(), s.issueNumber(), titleReq);
     assertThat(updated.summary().title()).isEqualTo("제목수정");
   }
@@ -52,7 +53,8 @@ class OpenIssueEditTest extends IntegrationTestBase {
   @Test
   void open_reporter_cannot_change_status() {
     var s = openScenario();
-    var statusReq = new UpdateIssueRequest(null, null, "DONE", null, null, false);
+    var statusReq =
+        new UpdateIssueRequest(null, null, "DONE", null, null, false, null, false, null, false);
     assertThatThrownBy(
             () -> issueService.update(s.reporterId(), s.projectKey(), s.issueNumber(), statusReq))
         .isInstanceOf(ProjectAccessDeniedException.class);
@@ -62,7 +64,8 @@ class OpenIssueEditTest extends IntegrationTestBase {
   @Test
   void open_stranger_cannot_edit_content() {
     var s = openScenario();
-    var titleReq = new UpdateIssueRequest("해킹", null, null, null, null, false);
+    var titleReq =
+        new UpdateIssueRequest("해킹", null, null, null, null, false, null, false, null, false);
     assertThatThrownBy(
             () -> issueService.update(s.strangerId(), s.projectKey(), s.issueNumber(), titleReq))
         .isInstanceOf(ProjectAccessDeniedException.class);
@@ -72,7 +75,9 @@ class OpenIssueEditTest extends IntegrationTestBase {
   @Test
   void member_edits_workflow() {
     var s = openScenario();
-    var statusReq = new UpdateIssueRequest(null, null, "IN_PROGRESS", null, null, false);
+    var statusReq =
+        new UpdateIssueRequest(
+            null, null, "IN_PROGRESS", null, null, false, null, false, null, false);
     var updated = issueService.update(s.memberId(), s.projectKey(), s.issueNumber(), statusReq);
     assertThat(updated.summary().status()).isEqualTo("IN_PROGRESS");
   }

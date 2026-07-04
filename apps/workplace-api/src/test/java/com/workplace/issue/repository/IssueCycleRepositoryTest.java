@@ -78,7 +78,7 @@ class IssueCycleRepositoryTest extends IntegrationTestBase {
     // CreateIssueRequest 시그니처: (title, body, priority, dueDate, assigneeIds, typeId, parentNumber)
     var i1 =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("T1", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("T1", null, null, null, null, null, null, null));
     setStatus(p.key(), i1.number(), "DONE", p.id());
     // i1 을 c1, c2 양쪽에 연결 → 더블카운트
     issueCycleService.replace(owner, p.key(), i1.number(), List.of(c1.id(), c2.id()));

@@ -87,7 +87,7 @@ public class MailIssueService {
             callerId,
             req.projectKey(),
             new CreateIssueRequest(
-                req.title(), req.body(), req.priority(), null, assigneeIds, null, null));
+                req.title(), req.body(), req.priority(), null, assigneeIds, null, null, null));
     issueRepository.updateSource(created.id(), "MAIL", messageId);
     String issueKey = created.projectKey() + "-" + created.number();
     return new PromotedIssue(issueKey);

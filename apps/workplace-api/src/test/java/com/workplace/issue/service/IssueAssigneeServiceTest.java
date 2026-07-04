@@ -233,7 +233,9 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
         projectService.create(owner, new CreateProjectRequest(null, "p", null, "PERSONAL"));
     IssueResponse issue =
         issueService.create(
-            owner, personal.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+            owner,
+            personal.key(),
+            new CreateIssueRequest("t", null, null, null, null, null, null, null));
     // 비멤버 AGENT → 거부
     assertThatThrownBy(() -> service.replace(owner, personal.key(), issue.number(), List.of(agent)))
         .isInstanceOf(InvalidAssigneeForProjectException.class);

@@ -212,6 +212,16 @@ public class IssueSearchService {
       }
     }
 
+    // 마일스톤 ID CSV — OR 결합 필터. 잘못된 토큰은 무시.
+    List<Long> milestoneIds = new ArrayList<>();
+    for (String tok : csv(p.get("milestone"))) {
+      try {
+        milestoneIds.add(Long.parseLong(tok));
+      } catch (NumberFormatException ignored) {
+        // 잘못된 마일스톤 토큰은 필터 미적용
+      }
+    }
+
     // 유형 ID CSV — OR 결합 필터. 잘못된 토큰은 무시.
     List<Long> typeIds = new ArrayList<>();
     for (String tok : csv(p.get("type"))) {
@@ -266,7 +276,8 @@ public class IssueSearchService {
         fieldId,
         fieldValue,
         reporterIds,
-        cycleIds);
+        cycleIds,
+        milestoneIds);
   }
 
   private static String trimToNull(String s) {

@@ -13,6 +13,7 @@ import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.EpicCannotHaveParentException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
+import com.workplace.issue.exception.InvalidIssueDateRangeException;
 import com.workplace.issue.exception.InvalidParentException;
 import com.workplace.issue.exception.InvalidTypeForProjectException;
 import com.workplace.issue.exception.IssueNotFoundException;
@@ -34,6 +35,7 @@ import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
+import com.workplace.milestone.service.MilestoneService;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
@@ -71,6 +73,7 @@ public class IssueService {
   private final UserRepository userRepository;
   private final DriveLinkService driveLinkService;
   private final PermissionChecker permissionChecker;
+  private final MilestoneService milestoneService;
 
   /** AI 즉시 컨텍스트: 저장 요약 조회. */
   private final IssueAiSummaryRepository aiSummaryRepository;
@@ -147,6 +150,13 @@ public class IssueService {
       throw new SubtaskParentRequiredException();
     }
 
+    // 4) 시작일 검증 — 시작일이 마감일보다 늦을 수 없다(타임라인 간트뷰 정합성).
+    if (req.startDate() != null
+        && req.dueDate() != null
+        && req.startDate().isAfter(req.dueDate())) {
+      throw new InvalidIssueDateRangeException(req.startDate(), req.dueDate());
+    }
+
     int number = sequenceRepository.allocateNext(project.id());
     var row =
         issueRepository.insert(
@@ -158,7 +168,8 @@ public class IssueService {
             req.dueDate(),
             callerId,
             typeId,
-            parentIssueId);
+            parentIssueId,
+            req.startDate());
 
     // 3) issue_assignee 매핑 INSERT
     for (Long uid : assigneeIds) {
@@ -348,7 +359,11 @@ public class IssueService {
           req.status() != null
               || req.priority() != null
               || req.dueDate() != null
-              || Boolean.TRUE.equals(req.clearDueDate());
+              || Boolean.TRUE.equals(req.clearDueDate())
+              || req.startDate() != null
+              || Boolean.TRUE.equals(req.clearStartDate())
+              || req.milestoneId() != null
+              || Boolean.TRUE.equals(req.clearMilestone());
       if (touchesWorkflow) {
         throw new ProjectAccessDeniedException("상태·우선순위·마감일은 처리팀(멤버)만 변경할 수 있습니다");
       }
@@ -362,6 +377,21 @@ public class IssueService {
         Boolean.TRUE.equals(req.clearDueDate())
             ? null
             : (req.dueDate() != null ? req.dueDate() : before.dueDate());
+    // 시작일 — dueDate 와 동일한 부분수정 규약(null=미변경, clear 플래그=삭제).
+    LocalDate newStart =
+        Boolean.TRUE.equals(req.clearStartDate())
+            ? null
+            : (req.startDate() != null ? req.startDate() : before.startDate());
+    if (newStart != null && newDue != null && newStart.isAfter(newDue)) {
+      throw new InvalidIssueDateRangeException(newStart, newDue);
+    }
+    // 마일스톤 — 같은 프로젝트 소속 검증 후 연결(loadInProject 가 격리 보장).
+    Long newMilestoneId =
+        Boolean.TRUE.equals(req.clearMilestone())
+            ? null
+            : (req.milestoneId() != null
+                ? milestoneService.loadInProject(req.milestoneId(), project.id()).id()
+                : before.milestoneId());
 
     // closed_at 전이: 종료 상태로 진입 시 now(), 재오픈 시 NULL, 그 외 유지
     boolean wasClosed = before.status().equals("DONE") || before.status().equals("CANCELED");
@@ -376,7 +406,15 @@ public class IssueService {
     }
 
     issueRepository.updateAll(
-        before.id(), newTitle, newBody, newStatus, newPriority, newDue, newClosedAt);
+        before.id(),
+        newTitle,
+        newBody,
+        newStatus,
+        newPriority,
+        newDue,
+        newStart,
+        newMilestoneId,
+        newClosedAt);
     var after = issueRepository.findById(before.id()).orElseThrow();
 
     // 상태·우선순위 전이가 있을 때 각각 이벤트 발행 (AFTER_COMMIT 에서 ai-agent/알림 발사 후보).
@@ -427,7 +465,8 @@ public class IssueService {
   /** DnD 등에서 status 만 변경. update(...) 의 단축 경로 — 히스토리 기록도 동일하게 수행. */
   public IssueDetailResponse updateStatus(
       Long callerId, String projectKey, int number, String newStatus) {
-    var req = new UpdateIssueRequest(null, null, newStatus, null, null, false);
+    var req =
+        new UpdateIssueRequest(null, null, newStatus, null, null, false, null, false, null, false);
     return update(callerId, projectKey, number, req);
   }
 

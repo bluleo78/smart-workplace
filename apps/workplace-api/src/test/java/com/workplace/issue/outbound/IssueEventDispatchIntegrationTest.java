@@ -143,7 +143,8 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
     issueService.create(
         fx.humanId(),
         fx.projectKey(),
-        new CreateIssueRequest("AI 가 할 일", "본문", "MID", null, List.of(fx.agentId()), null, null));
+        new CreateIssueRequest(
+            "AI 가 할 일", "본문", "MID", null, List.of(fx.agentId()), null, null, null));
 
     var captor = ArgumentCaptor.forClass(EventEnvelope.class);
     verify(client, timeout(2000).times(2)).publish(captor.capture());
@@ -159,7 +160,8 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
     issueService.create(
         fx.humanId(),
         fx.projectKey(),
-        new CreateIssueRequest("사람 작업", "본문", "MID", null, List.of(fx.humanId()), null, null));
+        new CreateIssueRequest(
+            "사람 작업", "본문", "MID", null, List.of(fx.humanId()), null, null, null));
 
     // AFTER_COMMIT 비동기 발화 여유 시간 확보 후 0회 검증
     try {
@@ -178,7 +180,7 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
         issueService.create(
             fx.humanId(),
             fx.projectKey(),
-            new CreateIssueRequest("기존", "본문", "MID", null, List.of(), null, null));
+            new CreateIssueRequest("기존", "본문", "MID", null, List.of(), null, null, null));
     org.mockito.Mockito.reset(client);
     doNothing().when(client).publish(any(EventEnvelope.class));
 
@@ -201,7 +203,8 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
         issueService.create(
             fx.humanId(),
             fx.projectKey(),
-            new CreateIssueRequest("AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null));
+            new CreateIssueRequest(
+                "AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null, null));
     // setup 단계 비동기 발사 2회(created+assigned) 완료를 기다린 뒤 reset — async 라 reset 너머로 흘러오지 않게.
     verify(client, timeout(2000).times(2)).publish(any(EventEnvelope.class));
     org.mockito.Mockito.reset(client);
@@ -224,7 +227,8 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
         issueService.create(
             fx.humanId(),
             fx.projectKey(),
-            new CreateIssueRequest("AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null));
+            new CreateIssueRequest(
+                "AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null, null));
     // setup 단계 비동기 발사 2회 완료 대기 후 reset.
     verify(client, timeout(2000).times(2)).publish(any(EventEnvelope.class));
     org.mockito.Mockito.reset(client);
@@ -248,7 +252,8 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
         issueService.create(
             fx.humanId(),
             fx.projectKey(),
-            new CreateIssueRequest("AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null));
+            new CreateIssueRequest(
+                "AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null, null));
     // setup 단계 비동기 발사 2회 완료 대기 후 reset.
     verify(client, timeout(2000).times(2)).publish(any(EventEnvelope.class));
     org.mockito.Mockito.reset(client);

@@ -67,7 +67,7 @@ class IssueSetTypeTest extends IntegrationTestBase {
     var bug = typeRepository.findByProjectAndName(p.id(), "BUG").orElseThrow();
     var issue =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
 
     issueService.setType(owner, p.key(), issue.number(), bug.id());
 
@@ -82,7 +82,7 @@ class IssueSetTypeTest extends IntegrationTestBase {
     var task = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow();
     var issue =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
     long before =
         historyRepository.findByIssue(issue.id()).stream()
             .filter(h -> "TYPE_CHANGED".equals(h.eventType()))
@@ -106,7 +106,7 @@ class IssueSetTypeTest extends IntegrationTestBase {
         typeService.create(owner, pb.key(), new CreateIssueTypeRequest("디자인", "PURPLE", "Star"));
     var issue =
         issueService.create(
-            owner, pa.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+            owner, pa.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
 
     assertThatThrownBy(
             () -> issueService.setType(owner, pa.key(), issue.number(), foreignType.id()))
@@ -121,7 +121,7 @@ class IssueSetTypeTest extends IntegrationTestBase {
     var bug = typeRepository.findByProjectAndName(p.id(), "BUG").orElseThrow();
     var issue =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
 
     assertThatThrownBy(() -> issueService.setType(stranger, p.key(), issue.number(), bug.id()))
         .isInstanceOf(ProjectAccessDeniedException.class);
@@ -135,7 +135,9 @@ class IssueSetTypeTest extends IntegrationTestBase {
 
     var issue =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, bug.id(), null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("t", null, null, null, null, bug.id(), null, null));
     var detail = issueService.get(owner, p.key(), issue.number());
 
     assertThat(detail.summary().type()).isNotNull();
@@ -155,7 +157,8 @@ class IssueSetTypeTest extends IntegrationTestBase {
                 issueService.create(
                     owner,
                     pa.key(),
-                    new CreateIssueRequest("t", null, null, null, null, foreignType.id(), null)))
+                    new CreateIssueRequest(
+                        "t", null, null, null, null, foreignType.id(), null, null)))
         .isInstanceOf(InvalidTypeForProjectException.class);
   }
 
@@ -168,7 +171,9 @@ class IssueSetTypeTest extends IntegrationTestBase {
     var bug = typeRepository.findByProjectAndName(personal.id(), "BUG").orElseThrow();
     var issue =
         issueService.create(
-            owner, personal.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+            owner,
+            personal.key(),
+            new CreateIssueRequest("t", null, null, null, null, null, null, null));
 
     assertThatThrownBy(() -> issueService.setType(owner, personal.key(), issue.number(), bug.id()))
         .isInstanceOf(com.workplace.issue.exception.PersonalProjectTypeFixedException.class);
@@ -183,7 +188,9 @@ class IssueSetTypeTest extends IntegrationTestBase {
     var task = typeRepository.findByProjectAndName(personal.id(), "TASK").orElseThrow();
     var issue =
         issueService.create(
-            owner, personal.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+            owner,
+            personal.key(),
+            new CreateIssueRequest("t", null, null, null, null, null, null, null));
 
     var detail = issueService.setType(owner, personal.key(), issue.number(), task.id());
     assertThat(detail.summary().type().name()).isEqualTo("TASK");

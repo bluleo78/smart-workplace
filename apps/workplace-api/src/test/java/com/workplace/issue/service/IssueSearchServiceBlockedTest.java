@@ -82,7 +82,8 @@ class IssueSearchServiceBlockedTest extends IntegrationTestBase {
     newTask(p.id(), 2, "y", owner);
     depService.add(owner, p.key(), 1, 2, "blocks");
     // X status -> DONE 로 변경 → 차단 해소
-    issueRepository.updateAll(x.id(), x.title(), x.body(), "DONE", x.priority(), x.dueDate(), null);
+    issueRepository.updateAll(
+        x.id(), x.title(), x.body(), "DONE", x.priority(), x.dueDate(), null, null, null);
 
     var res = searchService.search(owner, p.key(), Map.of());
     var y = res.items().stream().filter(i -> i.number() == 2).findFirst().orElseThrow();
