@@ -217,11 +217,12 @@ test.describe('메일 계정 설정', () => {
     await expect(page.getByTestId('mail-account-row-1')).toBeHidden();
   });
 
-  test('메일 설정 페이지 제목', async ({ authenticatedPage: page }) => {
+  test('메일 계정 페이지 제목', async ({ authenticatedPage: page }) => {
     // 빈 목록 모킹(컴포넌트 크래시 방지)
     await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
     await page.goto('/settings/mail');
-    await expect(page.getByRole('heading', { name: '메일 설정' })).toBeVisible();
+    // 페이지 제목 = 사이드바 메뉴 라벨(#651)
+    await expect(page.getByRole('heading', { name: '메일 계정' })).toBeVisible();
   });
 
   // #499 — provider 선택 분기 검증

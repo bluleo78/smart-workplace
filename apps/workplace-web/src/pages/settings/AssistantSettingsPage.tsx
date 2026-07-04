@@ -5,7 +5,7 @@ import { PersonalAssistantSection } from '@/pages/profile/PersonalAssistantSecti
 
 export default function AssistantSettingsPage() {
   return (
-    <SettingsPage title="비서 설정" width="form">
+    <SettingsPage title="AI 비서" width="form">
       <PersonalAssistantSection />
     </SettingsPage>
   )

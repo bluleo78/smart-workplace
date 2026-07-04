@@ -103,7 +103,7 @@ export default function RoleListPage() {
 
   return (
     <SettingsPage
-      title="역할 관리"
+      title="역할"
       actions={
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>

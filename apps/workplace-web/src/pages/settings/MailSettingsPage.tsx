@@ -5,7 +5,7 @@ import { MailAccountsSection } from '@/pages/profile/MailAccountsSection'
 
 export default function MailSettingsPage() {
   return (
-    <SettingsPage title="메일 설정" width="form">
+    <SettingsPage title="메일 계정" width="form">
       <MailAccountsSection />
     </SettingsPage>
   )
