@@ -145,6 +145,12 @@ export function TimelineGantt({
       const groupId = groupTaskId(group.key)
       const fallbackDate = group.range?.start ?? group.range?.due ?? group.bars[0]?.due ?? format(new Date(), 'yyyy-MM-dd')
       const fallbackDue = group.range?.due ?? group.bars[0]?.due ?? fallbackDate
+      // SVAR 내부 트리 빌더(Nt2, dist/index.es.js toArray)는 `open === true` 인 노드를 만나면
+      // 무조건 `n.data.forEach` 로 자식을 순회한다 — 자식이 한 번도 추가되지 않아 `data` 가
+      // undefined 이거나 명시적으로 null 로 비워진(_clearBranch) 노드에 `open: true` 를 주면
+      // `null/undefined.forEach()` 로 크래시한다(#656). `type` 은 이 크래시와 무관하며(둘 다
+      // 영향받음), 실제 불변식은 "자식이 없으면 open 필드 자체를 넣지 않는다"이다.
+      const hasChildren = group.bars.length > 0
       result.push({
         id: groupId,
         // 진행률은 텍스트로 병기 — SVAR 그리드 셀 커스텀 렌더 미지원 전제의 안전한 표현.
@@ -152,8 +158,8 @@ export function TimelineGantt({
         // range 없는 그룹(no-epic)은 임의 1일 구간 + CSS 로 막대 숨김 (SVAR 는 start 필수).
         start: parseISO(fallbackDate),
         end: addDays(parseISO(fallbackDue), 1),
-        type: 'summary',
-        open: !collapsed.has(group.key),
+        type: hasChildren ? 'summary' : 'task',
+        ...(hasChildren ? { open: !collapsed.has(group.key) } : {}),
       })
       for (const bar of group.bars) {
         const startDate = bar.start ? parseISO(bar.start) : parseISO(bar.due)

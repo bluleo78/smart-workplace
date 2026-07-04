@@ -130,3 +130,85 @@ test('에픽 그룹 행 클릭 → 에픽 이슈 상세로 이동', async ({ aut
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/40`));
 });
 
+// 하위 이슈가 전부 일정 미정인 에픽 자신에게 startDate/dueDate 가 있는 경우(#656) — SVAR summary
+// 타입은 자식이 최소 1개 있어야 하는데, 이 케이스는 range 는 채워지지만 group.bars 는 비어
+// 있어(undated 하위는 별도 미정 목록으로 빠짐) 자식 없는 summary 가 만들어져 크래시했었다.
+function setupBareEpicStubs(page: Page) {
+  return Promise.all([
+    page.route(`**/api/v1/projects/${KEY}/members`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }),
+    page.route(`**/api/v1/projects/${KEY}/labels`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }),
+    page.route(`**/api/v1/projects/${KEY}`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createProject({ key: KEY })),
+      });
+    }),
+    page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      // 에픽(60) 자신에게만 startDate/dueDate 부여 — 하위 2건(61, 62)은 전부 미정.
+      const issues = [
+        createIssue({
+          number: 60,
+          title: '탐색 EPIC 테스트',
+          type: EPIC_TYPE,
+          startDate: '2026-07-05',
+          dueDate: '2026-07-12',
+          childCount: 2,
+          childDoneCount: 0,
+        }),
+        createIssue({
+          number: 61,
+          title: '미정 하위 1',
+          parent: { number: 60, title: '탐색 EPIC 테스트', type: EPIC_TYPE },
+        }),
+        createIssue({
+          number: 62,
+          title: '미정 하위 2',
+          parent: { number: 60, title: '탐색 EPIC 테스트', type: EPIC_TYPE },
+        }),
+      ];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(issues)),
+      });
+    }),
+    page.route(`**/api/v1/projects/${KEY}/cycles`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }),
+    page.route(`**/api/v1/projects/${KEY}/milestones`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }),
+    page.route(`**/api/v1/projects/${KEY}/issue-dependencies`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }),
+  ]);
+}
+
+test('하위 이슈가 모두 일정 미정인 에픽만 배치돼도 간트가 크래시하지 않는다 (#656)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupBareEpicStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+  const grid = page.locator('.timeline-gantt-root .wx-grid');
+  // 크래시 시 PageErrorBoundary 가 이 텍스트로 전체 페이지를 대체한다 — 그리드 자체가
+  // 정상 렌더된다는 것이 곧 크래시하지 않았다는 증거.
+  await expect(grid).toContainText('탐색 EPIC 테스트');
+  await expect(page.getByText('페이지를 불러오는 중 문제가 발생했습니다')).not.toBeVisible();
+  // 미정 하위 2건은 그룹 트리가 아니라 일정 미정 섹션에 배지와 함께 나타난다.
+  await page.getByTestId('unscheduled-section').locator('summary').click();
+  await expect(page.getByTestId('unscheduled-row-61')).toContainText('탐색 EPIC 테스트');
+  await expect(page.getByTestId('unscheduled-row-62')).toContainText('탐색 EPIC 테스트');
+});
+
