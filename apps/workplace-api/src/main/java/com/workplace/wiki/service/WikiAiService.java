@@ -18,6 +18,7 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 인에디터 /ai 스트리밍(#593 편입). EDITOR 권한 확인 → 페이지 본문 컨텍스트 로드 → AssistantResolver 로 비서 해석 →
@@ -57,7 +58,14 @@ public class WikiAiService {
     this.sseRegistry = sseRegistry;
   }
 
-  /** EDITOR 권한·컨텍스트·비서를 동기 해석한 뒤, 펌프를 레지스트리에 등록하고 correlationId 를 즉시 반환한다. */
+  /**
+   * EDITOR 권한·컨텍스트·비서를 동기 해석한 뒤, 펌프를 레지스트리에 등록하고 correlationId 를 즉시 반환한다.
+   *
+   * <p>{@code @Transactional} 필수(#654) — RLS 정책의 {@code app.tenant_id} GUC 는 트랜잭션 시작 시점(AOP doBegin
+   * 훅)에 주입되므로, 어노테이션이 없으면 {@link #pages}.findDetail() 이 GUC 미설정 커넥션으로 실행돼 RLS 가 모든 행을 비가시 처리 → 항상
+   * 404 가 된다. 쓰기는 없으므로 readOnly.
+   */
+  @Transactional(readOnly = true)
   public String startCompose(long callerId, long pageId, WikiAiRequest req) {
     // 1) 페이지 로드(존재 은닉 위해 NotFound).
     WikiPageDetail page =
