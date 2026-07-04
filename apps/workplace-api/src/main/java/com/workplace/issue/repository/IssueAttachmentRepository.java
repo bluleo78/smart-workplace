@@ -96,6 +96,27 @@ public class IssueAttachmentRepository {
                     r.get(ISSUE_ATTACHMENT.ATTACHED_AT).toInstant()));
   }
 
+  /**
+   * 이슈 첨부 잠금 전용 classId — 2-인자 pg_advisory_xact_lock(classId, issueId) 형태에서 사용.
+   *
+   * <p>Postgres 에서 2-인자(int, int) advisory lock 은 1-인자(bigint) lock 과 별개 네임스페이스를 사용하므로,
+   * UserRepository.acquireFirstUserLock() 등 다른 도메인의 1-인자 잠금과 충돌하지 않는다. DriveQuotaRepository 와 같은
+   * 패턴(이슈 번호 #625 를 classId 로 사용)으로 이슈 첨부 잠금임을 명시한다.
+   */
+  private static final int ISSUE_ATTACHMENT_LOCK_CLASS = 625;
+
+  /**
+   * 이슈 단위 직렬화 잠금 — 동시 업로드 시 "개수 조회 → 비교 → INSERT" TOCTOU 레이스 방지(트랜잭션 종료 시 자동 해제, #625).
+   *
+   * <p>업로드 트랜잭션 초입에서 이슈 id 로 잠금을 획득하면, 같은 이슈에 대한 동시 업로드 요청은 하나씩 직렬화되어 이후의 countByIssue 조회가 최신 값을 보게
+   * 된다.
+   */
+  public void advisoryLockIssue(long issueId) {
+    // 2-인자 형태로 issue-attachment 전용 네임스페이스(ISSUE_ATTACHMENT_LOCK_CLASS=625)를 분리해
+    // 타 도메인 1-인자 잠금과의 전역 충돌을 방지한다.
+    dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", ISSUE_ATTACHMENT_LOCK_CLASS, (int) issueId);
+  }
+
   /** 이슈별 첨부 개수 (단건). */
   public int countByIssue(Long issueId) {
     return dsl.select(count())

@@ -56,6 +56,9 @@ public class IssueAttachmentService {
     }
 
     // 2) 누적 한도 — 현재 + 신규 > 10 이면 409.
+    // 동시 업로드 TOCTOU 레이스(#625) 방지 — 카운트 조회 전에 이슈 단위 advisory lock 으로 직렬화.
+    // 트랜잭션 종료 시 자동 해제되므로 별도 unlock 불필요.
+    repo.advisoryLockIssue(issue.id());
     int current = repo.countByIssue(issue.id());
     if (current + files.size() > maxPerIssue) {
       throw new AttachmentLimitExceededException(current, files.size(), maxPerIssue);
