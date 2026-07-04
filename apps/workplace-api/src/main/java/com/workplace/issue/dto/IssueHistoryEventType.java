@@ -9,6 +9,10 @@ public enum IssueHistoryEventType {
   ASSIGNEE_CHANGED,
   ASSIGNEES_CHANGED,
   DUE_DATE_CHANGED,
+  // 시작일 변경 — 타임라인 간트뷰. Phase 5.
+  START_DATE_CHANGED,
+  // 마일스톤 연결/해제 — 타임라인 간트뷰. Phase 5.
+  MILESTONE_CHANGED,
   LABELS_CHANGED,
   ATTACHMENTS_CHANGED,
   TYPE_CHANGED,

@@ -37,7 +37,7 @@ class OpenSearchMineTest extends IntegrationTestBase {
   private IssueSearchQuery emptyQuery() {
     return new IssueSearchQuery(
         null, null, null, false, null, null, null, null, 50, null, null, null, null, null, null,
-        null, null, null);
+        null, null, null, null);
   }
 
   private OpenScenario.Result openScenario() {

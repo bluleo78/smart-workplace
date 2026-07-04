@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   Calendar,
+  Flag,
   GitBranch,
   GitFork,
   Layers,
@@ -38,6 +39,8 @@ const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
   DEPENDENCY_ADDED: Link,
   DEPENDENCY_REMOVED: Link2Off,
   CUSTOM_FIELD_CHANGED: SlidersHorizontal,
+  START_DATE_CHANGED: Calendar,
+  MILESTONE_CHANGED: Flag,
 };
 
 // 이벤트 타입을 한국어 라벨로 매핑 — 백엔드 enum 과 1:1 매칭.
@@ -55,6 +58,8 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   DEPENDENCY_ADDED: '의존성 추가',
   DEPENDENCY_REMOVED: '의존성 제거',
   CUSTOM_FIELD_CHANGED: '필드',
+  START_DATE_CHANGED: '시작일 변경',
+  MILESTONE_CHANGED: '마일스톤 변경',
 };
 
 // LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.

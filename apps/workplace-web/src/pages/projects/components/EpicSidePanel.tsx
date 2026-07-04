@@ -28,6 +28,7 @@ function epicListFilters(epicTypeId: number): IssueFilters {
     dueTo: null,
     labelIds: [],
     cycleIds: [],
+    milestoneIds: [],
     typeIds: [epicTypeId],
     parentNumber: null,
     topLevel: true,

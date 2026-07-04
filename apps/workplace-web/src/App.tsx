@@ -23,6 +23,7 @@ const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
 const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'))
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
 const CyclesPage = lazy(() => import('./pages/projects/CyclesPage'))
+const TimelinePage = lazy(() => import('./pages/projects/timeline/TimelinePage'))
 const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
 const MyTasksPage = lazy(() => import('./pages/me/MyTasksPage'))
 const AiDelegatedTasksPage = lazy(() => import('./pages/me/AiDelegatedTasksPage'))
@@ -117,7 +118,6 @@ export default function App() {
           <Route path="/s/:token" element={<ShareLinkPage />} />
           {/* M365 OAuth 팝업 콜백 — 토큰 없는 팝업이 착지하므로 ProtectedRoute 밖 공개 라우트 */}
           <Route path="/oauth/m365/callback" element={<M365CallbackPage />} />
-
           {/* 인증 필요 — ProtectedRoute 가 미인증 시 /login 리다이렉트, 통과 시 AppLayout 렌더 */}
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
@@ -130,6 +130,7 @@ export default function App() {
                 <Route path="projects/:key" element={<ProjectDetailPage />} />
                 <Route path="projects/:key/settings" element={<ProjectSettingsPage />} />
                 <Route path="projects/:key/cycles" element={<CyclesPage />} />
+                <Route path="projects/:key/timeline" element={<TimelinePage />} />
                 <Route path="projects/:key/issues/:number" element={<IssueDetailPage />} />
 
                 {/* 하위호환 — 구버전 경로를 새 탭으로 리다이렉트 */}

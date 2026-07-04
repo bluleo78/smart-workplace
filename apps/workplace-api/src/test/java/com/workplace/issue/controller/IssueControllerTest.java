@@ -92,6 +92,8 @@ class IssueControllerTest {
         "TODO",
         "MID",
         null,
+        null,
+        null,
         1L,
         Instant.now(),
         Instant.now(),
@@ -139,7 +141,8 @@ class IssueControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CreateIssueRequest("title", "body", "MID", null, null, null, null))))
+                        new CreateIssueRequest(
+                            "title", "body", "MID", null, null, null, null, null))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.title").value("title"));
   }
@@ -155,7 +158,7 @@ class IssueControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CreateIssueRequest("", "body", null, null, null, null, null))))
+                        new CreateIssueRequest("", "body", null, null, null, null, null, null))))
         .andExpect(status().isBadRequest());
   }
 
@@ -170,7 +173,8 @@ class IssueControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CreateIssueRequest("title", "body", "FOO", null, null, null, null))))
+                        new CreateIssueRequest(
+                            "title", "body", "FOO", null, null, null, null, null))))
         .andExpect(status().isBadRequest());
   }
 
@@ -210,7 +214,8 @@ class IssueControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new UpdateIssueRequest(null, null, "UNKNOWN", null, null, null))))
+                        new UpdateIssueRequest(
+                            null, null, "UNKNOWN", null, null, null, null, false, null, false))))
         .andExpect(status().isBadRequest());
   }
 

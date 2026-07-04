@@ -63,7 +63,9 @@ class IssueCycleServiceTest extends IntegrationTestBase {
   private int newIssue(Long owner, ProjectResponse p, String title) {
     var issue =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest(title, null, null, null, null, null, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest(title, null, null, null, null, null, null, null));
     return issue.number();
   }
 

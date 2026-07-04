@@ -21,4 +21,6 @@ public record IssueRow(
     Instant updatedAt,
     Instant closedAt,
     Long typeId,
-    Long parentIssueId) {}
+    Long parentIssueId,
+    LocalDate startDate,
+    Long milestoneId) {}

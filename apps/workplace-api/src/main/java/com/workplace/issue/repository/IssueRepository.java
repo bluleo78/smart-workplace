@@ -51,7 +51,9 @@ public class IssueRepository {
         updated != null ? updated.toInstant() : null,
         closed != null ? closed.toInstant() : null,
         r.get(ISSUE.TYPE_ID),
-        r.get(ISSUE.PARENT_ISSUE_ID));
+        r.get(ISSUE.PARENT_ISSUE_ID),
+        r.get(ISSUE.START_DATE),
+        r.get(ISSUE.MILESTONE_ID));
   }
 
   /** id 로 활성 이슈 조회. */
@@ -70,7 +72,9 @@ public class IssueRepository {
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
             ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID)
+            ISSUE.PARENT_ISSUE_ID,
+            ISSUE.START_DATE,
+            ISSUE.MILESTONE_ID)
         .from(ISSUE)
         .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
@@ -92,7 +96,9 @@ public class IssueRepository {
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
             ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID)
+            ISSUE.PARENT_ISSUE_ID,
+            ISSUE.START_DATE,
+            ISSUE.MILESTONE_ID)
         .from(ISSUE)
         .where(
             ISSUE
@@ -119,7 +125,9 @@ public class IssueRepository {
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
             ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID)
+            ISSUE.PARENT_ISSUE_ID,
+            ISSUE.START_DATE,
+            ISSUE.MILESTONE_ID)
         .from(ISSUE)
         .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull()))
         .orderBy(ISSUE.UPDATED_AT.desc())
@@ -150,7 +158,8 @@ public class IssueRepository {
       LocalDate dueDate,
       Long reporterId,
       Long typeId,
-      Long parentIssueId) {
+      Long parentIssueId,
+      LocalDate startDate) {
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, projectId)
         .set(ISSUE.NUMBER, number)
@@ -158,6 +167,7 @@ public class IssueRepository {
         .set(ISSUE.BODY, body)
         .set(ISSUE.PRIORITY, priority)
         .set(ISSUE.DUE_DATE, dueDate)
+        .set(ISSUE.START_DATE, startDate)
         .set(ISSUE.REPORTER_ID, reporterId)
         .set(ISSUE.TYPE_ID, typeId)
         .set(ISSUE.PARENT_ISSUE_ID, parentIssueId)
@@ -175,13 +185,17 @@ public class IssueRepository {
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
             ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID)
+            ISSUE.PARENT_ISSUE_ID,
+            ISSUE.START_DATE,
+            ISSUE.MILESTONE_ID)
         .fetchOptional()
         .map(this::mapToRow)
         .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
   }
 
-  /** 8-인자 호환 오버로드 — Phase 27 도입. parentIssueId 는 null 로 위임. 비SUBTASK 이슈 시드용 서비스 경로에서 사용. */
+  /**
+   * 8-인자 호환 오버로드 — Phase 27 도입. parentIssueId/startDate 는 null 로 위임. 비SUBTASK 이슈 시드용 서비스 경로에서 사용.
+   */
   public IssueRow insert(
       Long projectId,
       int number,
@@ -191,7 +205,23 @@ public class IssueRepository {
       LocalDate dueDate,
       Long reporterId,
       Long typeId) {
-    return insert(projectId, number, title, body, priority, dueDate, reporterId, typeId, null);
+    return insert(
+        projectId, number, title, body, priority, dueDate, reporterId, typeId, null, null);
+  }
+
+  /** 9-인자 호환 오버로드 — Phase 5(타임라인) 도입. startDate 는 null 로 위임. */
+  public IssueRow insert(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId,
+      Long typeId,
+      Long parentIssueId) {
+    return insert(
+        projectId, number, title, body, priority, dueDate, reporterId, typeId, parentIssueId, null);
   }
 
   /**
@@ -213,7 +243,8 @@ public class IssueRepository {
             .fetchOptional(ISSUE_TYPE_DEF.ID)
             .orElseThrow(
                 () -> new IllegalStateException("프로젝트에 TASK 유형이 없음: projectId=" + projectId));
-    return insert(projectId, number, title, body, priority, dueDate, reporterId, taskTypeId, null);
+    return insert(
+        projectId, number, title, body, priority, dueDate, reporterId, taskTypeId, null, null);
   }
 
   /**
@@ -227,6 +258,8 @@ public class IssueRepository {
       String status,
       String priority,
       LocalDate dueDate,
+      LocalDate startDate,
+      Long milestoneId,
       java.time.Instant closedAt) {
     dsl.update(ISSUE)
         .set(ISSUE.TITLE, title)
@@ -234,6 +267,8 @@ public class IssueRepository {
         .set(ISSUE.STATUS, status)
         .set(ISSUE.PRIORITY, priority)
         .set(ISSUE.DUE_DATE, dueDate)
+        .set(ISSUE.START_DATE, startDate)
+        .set(ISSUE.MILESTONE_ID, milestoneId)
         .set(ISSUE.CLOSED_AT, closedAt != null ? closedAt.atOffset(java.time.ZoneOffset.UTC) : null)
         .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
         .where(ISSUE.ID.eq(id))
@@ -344,6 +379,10 @@ public class IssueRepository {
                                   com.workplace.jooq.Tables.ISSUE_CYCLE.CYCLE_ID.in(
                                       query.cycleIds())))));
     }
+    if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
+      // 마일스톤은 issue.milestone_id 직접 컬럼 — OR 결합(IN), M:N 아니라 EXISTS 불필요
+      where = where.and(ISSUE.MILESTONE_ID.in(query.milestoneIds()));
+    }
     if (query.typeIds() != null && !query.typeIds().isEmpty()) {
       where = where.and(ISSUE.TYPE_ID.in(query.typeIds()));
     }
@@ -423,7 +462,9 @@ public class IssueRepository {
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
             ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID)
+            ISSUE.PARENT_ISSUE_ID,
+            ISSUE.START_DATE,
+            ISSUE.MILESTONE_ID)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
@@ -565,6 +606,10 @@ public class IssueRepository {
                                   com.workplace.jooq.Tables.ISSUE_CYCLE.CYCLE_ID.in(
                                       query.cycleIds())))));
     }
+    if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
+      // 마일스톤은 issue.milestone_id 직접 컬럼 — OR 결합(IN), M:N 아니라 EXISTS 불필요
+      where = where.and(ISSUE.MILESTONE_ID.in(query.milestoneIds()));
+    }
     if (query.typeIds() != null && !query.typeIds().isEmpty()) {
       where = where.and(ISSUE.TYPE_ID.in(query.typeIds()));
     }
@@ -631,7 +676,9 @@ public class IssueRepository {
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
             ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID)
+            ISSUE.PARENT_ISSUE_ID,
+            ISSUE.START_DATE,
+            ISSUE.MILESTONE_ID)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
@@ -787,7 +834,9 @@ public class IssueRepository {
             ISSUE.UPDATED_AT,
             ISSUE.CLOSED_AT,
             ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID)
+            ISSUE.PARENT_ISSUE_ID,
+            ISSUE.START_DATE,
+            ISSUE.MILESTONE_ID)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())

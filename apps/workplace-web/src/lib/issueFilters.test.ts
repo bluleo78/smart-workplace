@@ -58,3 +58,12 @@ describe('topLevel 기본값 (#168)', () => {
     expect(filtersToParams(f, 'list', null).toString()).toBe('topLevel=false');
   });
 });
+
+describe('milestoneIds 필터 (#620)', () => {
+  it('milestoneIds 라운드트립', () => {
+    const filters = { ...EMPTY, milestoneIds: [1, 2] };
+    const params = filtersToParams(filters, 'list', null);
+    expect(params.get('milestone')).toBe('1,2');
+    expect(parseFilters(params).milestoneIds).toEqual([1, 2]);
+  });
+});

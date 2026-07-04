@@ -27,6 +27,28 @@ public class IssueDependencyRepository {
 
   private final DSLContext dsl;
 
+  /** 타임라인 화살표용 — 프로젝트 전체의 이슈 의존 엣지(이슈번호 쌍)를 전부 반환. 삭제된 이슈가 낀 엣지는 제외. */
+  public record DependencyEdge(int fromIssueNumber, int toIssueNumber) {}
+
+  /** 프로젝트 소속 이슈 간 (차단, 피차단) 엣지를 이슈번호 쌍으로 전부 조회. from 이 to 를 차단(issue_id → blocks_issue_id). */
+  public List<DependencyEdge> listEdgesByProject(Long projectId) {
+    var from = ISSUE.as("dep_from");
+    var to = ISSUE.as("dep_to");
+    return dsl.select(from.NUMBER, to.NUMBER)
+        .from(ISSUE_DEPENDENCY)
+        .join(from)
+        .on(from.ID.eq(ISSUE_DEPENDENCY.ISSUE_ID))
+        .join(to)
+        .on(to.ID.eq(ISSUE_DEPENDENCY.BLOCKS_ISSUE_ID))
+        .where(
+            from.PROJECT_ID
+                .eq(projectId)
+                .and(to.PROJECT_ID.eq(projectId))
+                .and(from.DELETED_AT.isNull())
+                .and(to.DELETED_AT.isNull()))
+        .fetch(r -> new DependencyEdge(r.value1(), r.value2()));
+  }
+
   /** (issueId, blocksIssueId) row 추가 — PK 중복은 ON CONFLICT DO NOTHING 으로 멱등 처리. */
   public void add(Long issueId, Long blocksIssueId, Long createdBy) {
     dsl.insertInto(ISSUE_DEPENDENCY)

@@ -37,7 +37,7 @@ class OpenIssueCreateTest extends IntegrationTestBase {
 
   /** 테스트용 CreateIssueRequest 헬퍼 — 제목만 필수, 나머지 null. */
   private static CreateIssueRequest suggestion(String title) {
-    return new CreateIssueRequest(title, null, null, null, null, null, null);
+    return new CreateIssueRequest(title, null, null, null, null, null, null, null);
   }
 
   private OpenScenario.Result openScenario() {

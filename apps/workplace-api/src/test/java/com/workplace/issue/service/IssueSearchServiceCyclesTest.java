@@ -60,7 +60,8 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
 
   private int newIssue(Long owner, ProjectResponse p, String title) {
     return issueService
-        .create(owner, p.key(), new CreateIssueRequest(title, null, null, null, null, null, null))
+        .create(
+            owner, p.key(), new CreateIssueRequest(title, null, null, null, null, null, null, null))
         .number();
   }
 

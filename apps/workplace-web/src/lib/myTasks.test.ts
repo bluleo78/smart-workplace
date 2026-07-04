@@ -14,6 +14,8 @@ function issue(over: Partial<IssueResponse>): IssueResponse {
     status: 'TODO',
     priority: 'MID',
     dueDate: null,
+    startDate: null,
+    milestoneId: null,
     reporterId: 1,
     createdAt: '2026-06-20T00:00:00Z',
     updatedAt: '2026-06-20T00:00:00Z',

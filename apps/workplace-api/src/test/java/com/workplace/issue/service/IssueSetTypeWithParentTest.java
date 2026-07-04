@@ -68,12 +68,12 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
     Long taskId = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow().id();
     var parent =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
     var sub =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("s", null, null, null, null, subId, parent.number()));
+            new CreateIssueRequest("s", null, null, null, null, subId, parent.number(), null));
 
     issueService.setType(owner, p.key(), sub.number(), taskId);
 
@@ -91,7 +91,7 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
     Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
     var task =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
 
     issueService.setType(owner, p.key(), task.number(), subId);
 
@@ -107,12 +107,14 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
     Long epicId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
     var epic =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("e", null, null, null, null, epicId, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("e", null, null, null, null, epicId, null, null));
     var task =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("t", null, null, null, null, null, epic.number()));
+            new CreateIssueRequest("t", null, null, null, null, null, epic.number(), null));
 
     // task 를 EPIC 으로 전환 — 기존 부모(epic)는 해제되어야 함(EPIC 은 부모를 가질 수 없음).
     issueService.setType(owner, p.key(), task.number(), epicId);
@@ -135,11 +137,11 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
     Long epicId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
     var story =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("s", null, null, null, null, null, null));
+            owner, p.key(), new CreateIssueRequest("s", null, null, null, null, null, null, null));
     issueService.create(
         owner,
         p.key(),
-        new CreateIssueRequest("sub", null, null, null, null, subId, story.number()));
+        new CreateIssueRequest("sub", null, null, null, null, subId, story.number(), null));
 
     assertThatThrownBy(() -> issueService.setType(owner, p.key(), story.number(), epicId))
         .isInstanceOf(SubtaskParentCannotBeEpicException.class);
@@ -162,12 +164,14 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
     Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
     var epic =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("e", null, null, null, null, epicId, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("e", null, null, null, null, epicId, null, null));
     var story =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("s", null, null, null, null, null, epic.number()));
+            new CreateIssueRequest("s", null, null, null, null, null, epic.number(), null));
 
     assertThatThrownBy(() -> issueService.setType(owner, p.key(), story.number(), subId))
         .isInstanceOf(SubtaskParentCannotBeEpicException.class);
@@ -191,11 +195,13 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
     Long taskId = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow().id();
     var epic =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("e", null, null, null, null, epicId, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("e", null, null, null, null, epicId, null, null));
     issueService.create(
         owner,
         p.key(),
-        new CreateIssueRequest("story", null, null, null, null, null, epic.number()));
+        new CreateIssueRequest("story", null, null, null, null, null, epic.number(), null));
 
     assertThatThrownBy(() -> issueService.setType(owner, p.key(), epic.number(), taskId))
         .isInstanceOf(ParentNotAllowedException.class);

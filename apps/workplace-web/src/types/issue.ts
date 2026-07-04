@@ -33,6 +33,10 @@ export interface IssueResponse {
   status: IssueStatus;
   priority: IssuePriority;
   dueDate: string | null;
+  // 타임라인 간트 뷰 시작일 (#620).
+  startDate: string | null;
+  // 연결된 마일스톤 id — 없으면 null (#620).
+  milestoneId: number | null;
   reporterId: number;
   createdAt: string;
   updatedAt: string;
@@ -89,7 +93,10 @@ export type IssueHistoryEventType =
   | 'DEPENDENCY_ADDED'
   | 'DEPENDENCY_REMOVED'
   // 커스텀 필드 값 변경 (Phase 4c).
-  | 'CUSTOM_FIELD_CHANGED';
+  | 'CUSTOM_FIELD_CHANGED'
+  // 타임라인 간트 뷰 시작일/마일스톤 변경 (#620).
+  | 'START_DATE_CHANGED'
+  | 'MILESTONE_CHANGED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -144,6 +151,8 @@ export interface CreateIssueRequest {
   typeId?: number | null;
   // SUBTASK 일 때만 부모 number 동봉 (Phase 4a). 비SUBTASK 에 동봉하면 400.
   parentNumber?: number | null;
+  // 타임라인 간트 뷰 시작일 (#620).
+  startDate?: string;
 }
 
 export interface UpdateIssueRequest {
@@ -154,6 +163,14 @@ export interface UpdateIssueRequest {
   dueDate?: string;
   // dueDate 단독 비우기 플래그 — true 면 dueDate 무시.
   clearDueDate?: boolean;
+  // 타임라인 간트 뷰 시작일 (#620).
+  startDate?: string;
+  // startDate 단독 비우기 플래그 — true 면 startDate 무시.
+  clearStartDate?: boolean;
+  // 연결할 마일스톤 id.
+  milestoneId?: number;
+  // milestoneId 단독 비우기(연결 해제) 플래그.
+  clearMilestone?: boolean;
 }
 
 export interface CreateCommentRequest { body: string }
@@ -179,6 +196,8 @@ export interface IssueFilters {
   labelIds: number[];
   // 다중 사이클 OR 필터 — 선택된 사이클 중 하나에 속한 이슈 매칭.
   cycleIds: number[];
+  // 다중 마일스톤 OR 필터 — 선택된 마일스톤 중 하나에 연결된 이슈 매칭 (#620).
+  milestoneIds: number[];
   // 다중 유형 OR 필터 — 선택된 유형 중 하나에 속한 이슈 매칭.
   typeIds: number[];
   // 특정 부모(번호) 의 자식만 보기 (Phase 4a) — UI 노출은 deferred, URL 직렬화만.

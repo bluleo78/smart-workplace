@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueHistoryRepository;
+import com.workplace.milestone.repository.MilestoneRepository;
 import java.time.Instant;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
@@ -19,9 +20,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class IssueHistoryRecorderTest {
 
   @Mock private IssueHistoryRepository repo;
+  @Mock private MilestoneRepository milestoneRepository;
 
   private IssueHistoryRecorder recorder() {
-    return new IssueHistoryRecorder(repo, new ObjectMapper());
+    return new IssueHistoryRecorder(repo, new ObjectMapper(), milestoneRepository);
   }
 
   /** 비교용 IssueRow 헬퍼. id/projectId/number/reporter 등은 고정. */
@@ -40,6 +42,8 @@ class IssueHistoryRecorderTest {
         Instant.now(),
         null,
         1L,
+        null,
+        null,
         null);
   }
 
@@ -71,6 +75,8 @@ class IssueHistoryRecorderTest {
             Instant.now(),
             null,
             1L,
+            null,
+            null,
             null);
     var after =
         new IssueRow(
@@ -87,6 +93,8 @@ class IssueHistoryRecorderTest {
             Instant.now(),
             null,
             1L,
+            null,
+            null,
             null);
 
     recorder().recordChanges(1L, before, after);
