@@ -39,7 +39,7 @@ test(
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
 
     // 다이얼로그가 열려야 한다
-    const dialog = page.getByRole('dialog', { name: '새 태스크' })
+    const dialog = page.getByRole('dialog', { name: '새 이슈' })
     await expect(dialog).toBeVisible()
 
     // '제목' 레이블 옆에 붉은 별표(*)가 있는지 확인:

@@ -44,17 +44,17 @@ test.describe('IssueCreateDialog — 닫기 후 재열기 시 폼 상태 초기�
 
     // 첫 번째 열기 — 제목 입력
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
     await page.getByLabel('제목').fill('테스트 제목')
     await expect(page.getByLabel('제목')).toHaveValue('테스트 제목')
 
     // Escape로 닫기
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).not.toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).not.toBeVisible()
 
     // 재열기 — 제목 필드가 비어있어야 한다
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
     await expect(page.getByLabel('제목')).toHaveValue('')
   })
 
@@ -64,17 +64,17 @@ test.describe('IssueCreateDialog — 닫기 후 재열기 시 폼 상태 초기�
 
     // 빈 제목으로 생성 시도 — 오류 메시지 발생
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
     await page.getByRole('button', { name: '생성' }).click()
     await expect(page.getByText('제목은 필수입니다')).toBeVisible()
 
     // Escape로 닫기
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).not.toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).not.toBeVisible()
 
     // 재열기 — 오류 메시지가 없어야 한다
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
     await expect(page.getByText('제목은 필수입니다')).not.toBeVisible()
   })
 
@@ -85,7 +85,7 @@ test.describe('IssueCreateDialog — 닫기 후 재열기 시 폼 상태 초기�
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
     await page.getByLabel('제목').fill('임시 제목')
     await page.getByRole('button', { name: '취소' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).not.toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).not.toBeVisible()
 
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
     await expect(page.getByLabel('제목')).toHaveValue('')

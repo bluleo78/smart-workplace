@@ -270,8 +270,8 @@ test.describe('팀 리스트 뷰', () => {
     const createBtn = page.getByTestId('empty-create-issue');
     await expect(createBtn).toBeVisible();
     await createBtn.click();
-    // IssueCreateDialog 는 "새 태스크" 다이얼로그 타이틀을 포함
+    // IssueCreateDialog 는 유형 중립 문구 "새 이슈" 다이얼로그 타이틀을 포함 (#641)
     await expect(page.getByRole('dialog')).toBeVisible();
-    await expect(page.getByRole('dialog').getByRole('heading', { name: '새 태스크' })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('heading', { name: '새 이슈' })).toBeVisible();
   });
 });

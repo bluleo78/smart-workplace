@@ -132,7 +132,8 @@ export function IssueCreateDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader><DialogTitle>새 태스크</DialogTitle><DialogDescription className="sr-only">새 태스크</DialogDescription></DialogHeader>
+        {/* 유형 드롭다운(에픽/버그/스토리 등)과 무관한 중립 문구로 통일 — 유형별 동적 제목보다 단순하고 확장에 안전 (#641) */}
+        <DialogHeader><DialogTitle>새 이슈</DialogTitle><DialogDescription className="sr-only">새 이슈</DialogDescription></DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {/* 제목 — 필수 필드: FormField required 로 붉은 별표 표시 (캘린더 EventDialog 동일 패턴) */}
           <FormField label="제목" htmlFor="issue-title" required error={errors.title?.message}>

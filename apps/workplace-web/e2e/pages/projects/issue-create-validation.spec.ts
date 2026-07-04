@@ -43,7 +43,7 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
 
     // 이슈 생성 다이얼로그 오픈
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
 
     // 201자 입력 — 200자 한도 초과
     const longTitle = 'A'.repeat(201)
@@ -72,7 +72,7 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}`)
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
 
     // 공백 3칸만 입력
     await page.getByLabel('제목').fill('   ')
@@ -83,7 +83,7 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
     expect(createRequested).toBe(false)
 
     // 다이얼로그는 여전히 열려 있어야 한다 (제출되지 않았음).
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
   })
 
   test('제목 앞뒤 공백은 trim 되어 제출된다 (#612)', async ({ authenticatedPage: page }) => {
@@ -104,7 +104,7 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}`)
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
 
     await page.getByLabel('제목').fill('  trimmed title  ')
     await page.getByRole('button', { name: '생성' }).click()
@@ -125,7 +125,7 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}`)
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
 
     // 정확히 200자 입력 — 경계값
     await page.getByLabel('제목').fill('B'.repeat(200))
@@ -152,7 +152,7 @@ test.describe('IssueCreateDialog 새로고침 유실 경고 (#620)', () => {
     await stubProject(page)
     await page.goto(`/projects/${PROJECT_KEY}`)
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
 
     expect(await dispatchBeforeUnload(page)).toBe(false)
   })
@@ -161,7 +161,7 @@ test.describe('IssueCreateDialog 새로고침 유실 경고 (#620)', () => {
     await stubProject(page)
     await page.goto(`/projects/${PROJECT_KEY}`)
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
 
     await page.getByLabel('제목').fill('작성 중인 제목')
 
@@ -172,7 +172,7 @@ test.describe('IssueCreateDialog 새로고침 유실 경고 (#620)', () => {
     await stubProject(page)
     await page.goto(`/projects/${PROJECT_KEY}`)
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
 
     await page.locator('#issue-body').fill('작성 중인 본문')
 
@@ -183,13 +183,13 @@ test.describe('IssueCreateDialog 새로고침 유실 경고 (#620)', () => {
     await stubProject(page)
     await page.goto(`/projects/${PROJECT_KEY}`)
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
 
     await page.getByLabel('제목').fill('작성 중인 제목')
     expect(await dispatchBeforeUnload(page)).toBe(true)
 
     await page.getByRole('button', { name: '취소' }).click()
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).not.toBeVisible()
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).not.toBeVisible()
 
     expect(await dispatchBeforeUnload(page)).toBe(false)
   })

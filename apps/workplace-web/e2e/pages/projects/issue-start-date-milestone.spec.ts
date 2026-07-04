@@ -202,7 +202,7 @@ test.describe('IssueCreateDialog 시작일 입력 (#620)', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}`);
     await page.getByRole('button', { name: '+ 새 태스크' }).click();
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible();
 
     await page.getByLabel('제목').fill('타임라인 이슈');
     await page.locator('#issue-start').fill('2026-07-01');
@@ -225,7 +225,7 @@ test.describe('IssueCreateDialog 시작일 입력 (#620)', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}`);
     await page.getByRole('button', { name: '+ 새 태스크' }).click();
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible();
 
     await page.getByLabel('제목').fill('일정 역순 이슈');
     await page.locator('#issue-start').fill('2026-07-10');
@@ -234,6 +234,6 @@ test.describe('IssueCreateDialog 시작일 입력 (#620)', () => {
 
     await expect(page.getByText('시작일은 마감일보다 늦을 수 없습니다')).toBeVisible();
     expect(createRequested).toBe(false);
-    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible();
   });
 });

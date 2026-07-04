@@ -255,6 +255,41 @@ test.describe('이슈 유형', () => {
   );
 
   test(
+    '유형 드롭다운에서 에픽/버그를 선택해도 다이얼로그 제목은 유형 중립 문구 "새 이슈" 로 고정된다 (#641)',
+    async ({ authenticatedPage: page }) => {
+      const types = systemTypes();
+
+      await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP' }));
+      await mockApi(page, 'GET', '/api/v1/projects/WP/issues', createIssueSearchResponse([]));
+      await page.route('**/api/v1/projects/WP/types', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(types),
+        }),
+      );
+
+      await page.goto('/projects/WP');
+
+      // 다이얼로그를 열면 기본 유형(태스크)이어도 제목은 "새 이슈".
+      await page.getByRole('button', { name: '+ 새 태스크' }).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog.getByRole('heading', { name: '새 이슈' })).toBeVisible();
+
+      // 유형을 "에픽"으로 바꿔도 제목이 "새 태스크"/"새 에픽"으로 바뀌지 않고 그대로 "새 이슈" 유지.
+      await page.getByTestId('create-type-select').click();
+      await page.getByRole('option', { name: '에픽' }).click();
+      await expect(dialog.getByRole('heading', { name: '새 이슈' })).toBeVisible();
+      await expect(dialog.getByRole('heading', { name: '새 태스크' })).toHaveCount(0);
+
+      // 유형을 "버그"로 바꿔도 동일하게 유지.
+      await page.getByTestId('create-type-select').click();
+      await page.getByRole('option', { name: '버그' }).click();
+      await expect(dialog.getByRole('heading', { name: '새 이슈' })).toBeVisible();
+    },
+  );
+
+  test(
     '새 태스크 다이얼로그를 types 로딩 중에 열어도 Select controlled/uncontrolled 경고가 없다 (#364)',
     async ({ authenticatedPage: page }) => {
       const types = systemTypes();
