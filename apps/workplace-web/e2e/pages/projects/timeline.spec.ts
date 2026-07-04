@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
-import { createProject } from '../../factories/project.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 
@@ -11,6 +11,18 @@ const KEY = 'WP';
 
 function setupTimelineStubs(page: Page) {
   return Promise.all([
+    page.route(`**/api/v1/projects/${KEY}/members`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const members = [
+        createMember({ userId: 2, name: '김개발', username: 'kim@example.com' }),
+        createMember({ userId: 3, name: '이테스트', username: 'lee@example.com', role: 'MEMBER' }),
+      ];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(members) });
+    }),
+    page.route(`**/api/v1/projects/${KEY}/labels`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }),
     page.route(`**/api/v1/projects/${KEY}`, (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       return route.fulfill({
@@ -273,4 +285,29 @@ test('주/월 줌 토글', async ({ authenticatedPage: page }) => {
   await monthButton.click();
   await expect(monthButton).toHaveAttribute('aria-pressed', 'true');
   await expect(weekButton).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('필터바에 담당자/라벨/마일스톤 facet 이 노출된다 (#638)', async ({ authenticatedPage: page }) => {
+  await setupTimelineStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+
+  await page.getByTestId('add-filter-trigger').click();
+  await expect(page.getByTestId('add-filter-facet-assignee')).toBeVisible();
+  await expect(page.getByTestId('add-filter-facet-label')).toBeVisible();
+  await expect(page.getByTestId('add-filter-facet-milestone')).toBeVisible();
+
+  await page.getByTestId('add-filter-facet-assignee').click();
+  await expect(page.getByTestId('facet-value-assignee-2')).toContainText('김개발');
+});
+
+test('마일스톤 facet 선택 시 URL 파라미터에 반영된다 (#638)', async ({ authenticatedPage: page }) => {
+  await setupTimelineStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+
+  await page.getByTestId('add-filter-trigger').click();
+  await page.getByTestId('add-filter-facet-milestone').click();
+  const milestoneOption = page.getByTestId('facet-value-milestone-1');
+  await expect(milestoneOption).toContainText('v1 출시');
+  await milestoneOption.click();
+  await expect(page).toHaveURL(/milestone=1/);
 });
