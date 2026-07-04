@@ -102,9 +102,7 @@ class NotificationControllerTest {
 
     mockMvc
         .perform(
-            get("/api/v1/notifications")
-                .param("offset", "20")
-                .header("Authorization", "Bearer v"))
+            get("/api/v1/notifications").param("offset", "20").header("Authorization", "Bearer v"))
         .andExpect(status().isOk());
     verify(service).listRecent(eq(1L), eq(20), eq(20L));
   }

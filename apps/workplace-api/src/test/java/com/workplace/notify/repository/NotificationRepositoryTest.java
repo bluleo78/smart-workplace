@@ -202,8 +202,8 @@ class NotificationRepositoryTest extends IntegrationTestBase {
   }
 
   /**
-   * #610 — offset 기반 페이지네이션. 정렬 기준(created_at desc, id desc)이 고정이라 id 오름차순 삽입 시 최신(=마지막 삽입) 건이
-   * 먼저 나온다. 5건 중 첫 페이지(limit=2, offset=0)와 다음 페이지(limit=2, offset=2)가 겹치지 않고 이어진다.
+   * #610 — offset 기반 페이지네이션. 정렬 기준(created_at desc, id desc)이 고정이라 id 오름차순 삽입 시 최신(=마지막 삽입) 건이 먼저
+   * 나온다. 5건 중 첫 페이지(limit=2, offset=0)와 다음 페이지(limit=2, offset=2)가 겹치지 않고 이어진다.
    */
   @Test
   void listRecent_offsetPaginatesWithoutOverlap() {
