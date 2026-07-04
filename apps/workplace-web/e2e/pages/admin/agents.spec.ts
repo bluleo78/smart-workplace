@@ -319,6 +319,18 @@ test.describe('/admin/agents', () => {
     },
   );
 
+  // #617: 목록 생성일 컬럼이 공용 formatDateOnly(zero-pad, 하이픈) 포맷으로 표시된다.
+  // 로케일 기본 toLocaleDateString('ko-KR') 이면 "2026. 5. 20." (non-zero-pad) 로 표시되던 회귀.
+  test('생성일 컬럼 — zero-pad 하이픈 포맷으로 표시된다', async ({ adminPage: page }) => {
+    await setupStatic(page);
+    await page.goto('/settings/agents');
+    const row = page.getByTestId(`agent-row-${AGENT_ID}`);
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('2026-05-20');
+    const text = await row.innerText();
+    expect(text).not.toMatch(/\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?/);
+  });
+
   // #136: API 키 회수 AlertDialog 취소 → DELETE 없음.
   test('API 키 회수 AlertDialog 취소 → DELETE 호출 없음', async ({ adminPage: page }) => {
     const counts = await setupStatic(page);

@@ -35,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { formatDateOnly } from '@/lib/formatters';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
 import {
@@ -54,16 +55,6 @@ function fmtDateTime(iso: string | null): string {
   if (!iso) return '-';
   try {
     return new Date(iso).toLocaleString('ko-KR');
-  } catch {
-    return iso;
-  }
-}
-
-// 날짜만 간단 표기(테이블 셀용).
-function fmtDate(iso: string | null): string {
-  if (!iso) return '-';
-  try {
-    return new Date(iso).toLocaleDateString('ko-KR');
   } catch {
     return iso;
   }
@@ -252,7 +243,7 @@ export default function AgentManagementPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {fmtDate(a.createdAt)}
+                    {formatDateOnly(a.createdAt)}
                   </TableCell>
                 </TableRow>
               ))

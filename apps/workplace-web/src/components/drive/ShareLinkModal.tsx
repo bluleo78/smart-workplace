@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { handleApiError } from '@/lib/api-error';
+import { formatDateOnly } from '@/lib/formatters';
 import type { DriveFile } from '@/types/drive';
 
 interface ShareLinkModalProps {
@@ -34,12 +35,12 @@ interface ShareLinkModalProps {
   onClose: () => void;
 }
 
-/** 날짜를 한국어 "YYYY.MM.DD" 또는 "만료됨" 포맷으로 표시. */
+/** 날짜를 공용 zero-pad 포맷("YYYY-MM-DD") 또는 "만료됨" 으로 표시 (#617). */
 function formatExpiry(iso: string | null): string {
   if (!iso) return '만료 없음';
   const d = new Date(iso);
   if (d < new Date()) return '만료됨';
-  return d.toLocaleDateString('ko-KR');
+  return formatDateOnly(iso);
 }
 
 export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {

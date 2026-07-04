@@ -193,6 +193,59 @@ test(
   },
 )
 
+// ── 만료일 표시 포맷 — 공용 formatDateOnly(zero-pad, 하이픈) 사용 확인 (#617) ──
+test(
+  '기존 링크 목록 — 만료일이 zero-pad 하이픈 포맷으로 표시된다',
+  async ({ authenticatedPage: page }) => {
+    const activeLink: ShareLink = {
+      id: 5,
+      audience: 'EXTERNAL',
+      hasPassword: false,
+      // 로케일 기본 포맷이면 "2099. 1. 5." 로 표시되던 값 — non-zero-pad 회귀 검증
+      expiresAt: '2099-01-05T00:00:00Z',
+      revoked: false,
+      createdAt: '2026-06-21T00:00:00Z',
+      createdBy: 1,
+    }
+
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${FILE_ID}/share-links`,
+      async (route) => {
+        if (route.request().method() === 'GET') {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([activeLink]),
+          })
+        } else {
+          await route.fallback()
+        }
+      },
+    )
+
+    await stubSpaces(page)
+    await stubSpaceSingle(page)
+    await stubItems(page)
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await expect(page.getByTestId('drive-page')).toBeVisible()
+
+    const fileRow = page.getByRole('listitem').filter({ hasText: 'report.txt' })
+    await fileRow.hover()
+    await fileRow.getByTestId('share-link-btn').click()
+
+    await expect(page.getByTestId('share-link-modal')).toBeVisible()
+
+    const item = page.getByTestId('share-link-item')
+    await expect(item).toBeVisible()
+    // zero-pad 하이픈 포맷(YYYY-MM-DD) 표시 — formatDateOnly 결과
+    await expect(item).toContainText('2099-01-05')
+    // 로케일 기본 포맷(공백+점, non-zero-pad)이 남아있지 않아야 한다
+    const text = await item.innerText()
+    expect(text).not.toMatch(/\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?/)
+  },
+)
+
 // ── 공개 랜딩 페이지 — 인증 없이 접근 ─────────────────────────────────
 // ShareLinkPage (/s/:token) 는 AppLayout·인증 없이 렌더되어야 한다.
 // 인증 fixture 를 쓰지 않고 기본 page 를 직접 사용.
