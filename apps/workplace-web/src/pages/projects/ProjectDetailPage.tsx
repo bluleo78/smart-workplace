@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
 
 import { useProject } from '../../hooks/queries/useProjects';
+import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
 import { parseFilters, parseGroupBy, parseView } from '../../lib/issueFilters';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
@@ -90,12 +91,18 @@ function IssueArea({
   const filters = parseFilters(params);
   const view = parseView(params);
   const groupBy = parseGroupBy(params);
+  // 에픽 패널 열림 상태 — ViewChipBar(토글 버튼)와 EpicSidePanel(조건 마운트)이 공유.
+  const { open: epicPanelOpen, toggle: toggleEpicPanel } = useEpicPanelOpen(projectKey);
 
   return (
-    <section aria-label="태스크" className="flex items-start gap-4">
-      <EpicSidePanel projectKey={projectKey} />
+    <section aria-label="태스크" className="flex items-stretch gap-4">
+      {epicPanelOpen && <EpicSidePanel projectKey={projectKey} canCreateIssue={onOpenCreate != null} />}
       <div className="min-w-0 flex-1">
-        <ViewChipBar projectKey={projectKey} />
+        <ViewChipBar
+          projectKey={projectKey}
+          epicPanelOpen={epicPanelOpen}
+          onToggleEpicPanel={toggleEpicPanel}
+        />
         <IssueFilterBar projectKey={projectKey} />
         {view === 'board' ? (
           <IssueBoardView

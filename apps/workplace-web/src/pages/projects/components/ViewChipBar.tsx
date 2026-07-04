@@ -1,5 +1,5 @@
 // 뷰 칩 바 — [전체] + 저장된 뷰 칩 + ＋뷰 저장. 칩 클릭 시 필터 복원.
-import { Pencil, Plus, Star, Trash2, Users } from 'lucide-react'
+import { PanelLeft, Pencil, Plus, Star, Trash2, Users } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,7 +28,15 @@ import { normalizeIssueQueryIgnoringView, queriesEqualIgnoringView } from '../..
 import type { SavedViewResponse } from '../../../types/savedView'
 import { SaveViewDialog } from './SaveViewDialog'
 
-export function ViewChipBar({ projectKey }: { projectKey: string }) {
+export function ViewChipBar({
+  projectKey,
+  epicPanelOpen,
+  onToggleEpicPanel,
+}: {
+  projectKey: string
+  epicPanelOpen: boolean
+  onToggleEpicPanel: () => void
+}) {
   const [params, setParams] = useSearchParams()
   const views = useSavedViews(projectKey)
   const del = useDeleteSavedView(projectKey)
@@ -129,6 +138,20 @@ export function ViewChipBar({ projectKey }: { projectKey: string }) {
       >
         <Plus className="h-3.5 w-3.5" /> 뷰 저장
       </button>
+
+      {/* 에픽 패널 토글 — 우측 끝 고정(ml-auto). shadcn Toggle 프리미티브가 없어
+          앱 관례(aria-pressed 토글 버튼)대로 Button + aria-pressed 로 구현. */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        data-testid="epic-panel-toggle"
+        aria-pressed={epicPanelOpen}
+        onClick={onToggleEpicPanel}
+        className={cn('ml-auto rounded-full transition-colors', epicPanelOpen && 'bg-accent')}
+      >
+        <PanelLeft aria-hidden="true" /> 에픽
+      </Button>
 
       <SaveViewDialog
         projectKey={projectKey}
