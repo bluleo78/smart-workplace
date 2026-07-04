@@ -70,6 +70,22 @@ test('마일스톤이 상단 레인 칩으로 렌더되고 이슈 행을 차지�
   await expect(page.getByTestId('milestone-vline-1')).toBeAttached();
 });
 
+test('마일스톤 레인의 그리드/차트 경계 구분선이 아래 차트 경계와 이어진다', async ({ authenticatedPage: page }) => {
+  await setupStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expect(page.getByTestId('milestone-lane')).toBeVisible();
+  const divider = page.getByTestId('milestone-lane-divider');
+  await expect(divider).toBeAttached();
+  // 레인 구분선의 left 오프셋이 0(끊어져 미배치)이 아니라 실제 그리드 패널 폭만큼 이동해
+  // 아래 차트의 그리드/차트 경계선과 같은 x 좌표에 그려져야 한다.
+  const dividerLeft = await divider.evaluate((el) => el.getBoundingClientRect().left);
+  const chartLeft = await page
+    .locator('.timeline-gantt-root .wx-chart')
+    .first()
+    .evaluate((el) => el.getBoundingClientRect().left);
+  expect(Math.abs(dividerLeft - chartLeft)).toBeLessThan(2);
+});
+
 test('툴바 버튼으로 마일스톤 생성', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   let posted: Record<string, unknown> | null = null;

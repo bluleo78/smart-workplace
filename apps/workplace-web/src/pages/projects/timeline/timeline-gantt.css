@@ -1,3 +1,12 @@
+/* Willow/WillowDark 테마 래퍼(.wx-theme.wx-willow-theme)가 height:auto 인 채로 중첩 렌더되어
+   부모(.timeline-gantt-root, flex-1 로 실제 높이를 갖는다)의 높이가 .wx-gantt 까지 전달되지 않는
+   문제 보정 — SVAR 자체 CSS 는 .wx-gantt{height:100%} 만 정의하고 그 사이 래퍼들은 height 를
+   지정하지 않아, 콘텐츠(행 개수)만큼만 그려지고 나머지 컨테이너 공간이 빈 여백으로 남는다.
+   래퍼에 height:100% 를 연쇄로 걸어 실제 컨테이너 높이까지 간트가 꽉 차게 만든다. */
+.timeline-gantt-root .wx-theme.wx-willow-theme {
+  height: 100%;
+}
+
 /* 타임라인 간트 타이포/밀도 오버라이드 (#646) — 디자인 시스템 02-typography 스케일 매핑.
    SVAR Willow 테마 위에 .timeline-gantt-root 스코프로만 적용한다(전역 오염 금지).
    - 상단 스케일(월/년): 14px/600 (heading-column 급)

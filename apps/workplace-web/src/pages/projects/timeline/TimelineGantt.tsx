@@ -120,6 +120,9 @@ export function TimelineGantt({
   // 마일스톤 레인 칩/세로 점선 DOM 참조(#648) — SVAR task 가 아니라 별도 오버레이라 자체 ref 맵으로 관리한다.
   const milestoneChipRefs = useRef(new Map<number, HTMLButtonElement>())
   const milestoneVlineRefs = useRef(new Map<number, HTMLDivElement>())
+  // 마일스톤 레인과 그 아래 차트의 그리드/차트 경계선을 잇는 구분선 — 레인이 별도 sibling div라
+  // SVAR 내부 구분선이 이 행 높이에서는 그려지지 않아 시각적으로 끊겨 보이는 문제를 보정한다.
+  const milestoneDividerRef = useRef<HTMLDivElement | null>(null)
   // onToggleGroup 최신 참조 — api.on 구독 콜백이 stale closure 를 잡지 않도록.
   // 렌더 중 ref 갱신은 React Compiler 가 금지하므로(react-hooks/refs) 이펙트에서 갱신한다.
   const onToggleGroupRef = useRef(onToggleGroup)
@@ -228,6 +231,12 @@ export function TimelineGantt({
       const toOffset = (date: Date) => (date.getTime() - chartScales.start.getTime()) / msPerPixel
       // 오버레이는 containerRef 기준 absolute — `.wx-chart` 가 그리드 패널 뒤에서 시작하므로 그 시작 오프셋을 더한다.
       const baseLeft = scroller.getBoundingClientRect().left - container.getBoundingClientRect().left
+      // 마일스톤 레인은 containerRef 와 같은 좌측 원점을 공유하는 sibling 이므로, 그리드/차트
+      // 경계(baseLeft)에 맞춰 구분선을 그으면 아래 차트의 내부 경계선과 이어져 보인다. 이 경계는
+      // 가로 스크롤과 무관하게 고정된 위치라 scrollLeft 보정이 필요 없다(칩/점선과의 차이점).
+      if (milestoneDividerRef.current) {
+        milestoneDividerRef.current.style.left = `${baseLeft}px`
+      }
       // 사이클 밴드 라벨은 스케일 헤더(월/주 눈금, `.wx-scale`) 아래 차트 바디 상단에 붙여야
       // 헤더 눈금 텍스트와 겹치지 않는다 — `.wx-chart` 자체는 헤더까지 포함해 top 이 0이라 헤더 높이를 더한다.
       const scaleHeader = scroller.querySelector<HTMLElement>('.wx-scale')
@@ -374,6 +383,12 @@ export function TimelineGantt({
         <span className="text-warning-foreground/70 absolute top-1/2 left-3 -translate-y-1/2 text-xs font-semibold tracking-wider uppercase">
           마일스톤
         </span>
+        {/* 그리드/차트 경계 구분선 — 아래 차트의 내부 경계선과 이어지도록 baseLeft 위치에 고정(스크롤 무관). */}
+        <div
+          ref={milestoneDividerRef}
+          data-testid="milestone-lane-divider"
+          className="border-border pointer-events-none absolute inset-y-0 w-0 border-l"
+        />
         {milestones.map((m) => (
           <button
             key={m.id}

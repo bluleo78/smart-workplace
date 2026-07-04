@@ -85,6 +85,23 @@ test('프로젝트 홈 헤더에서 타임라인 진입', async ({ authenticated
   await expect(page.getByTestId('timeline-page')).toBeVisible();
 });
 
+test('간트 영역이 컨텐츠 컨테이너 높이를 꽉 채운다 (Willow 테마 래퍼 height:auto 회귀 방지)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupTimelineStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  // timeline-gantt-root 는 간트 위젯이 채워야 할 실제 컨테이너 — .wx-chart 가 그 높이만큼
+  // 채워지는지 확인한다(둘 다 같은 부모 아래라 동일해야 정상).
+  const rootBox = await page.locator('.timeline-gantt-root').boundingBox();
+  const chartBox = await page.locator('.timeline-gantt-root .wx-chart').boundingBox();
+  expect(rootBox).not.toBeNull();
+  expect(chartBox).not.toBeNull();
+  // .wx-theme.wx-willow-theme 래퍼가 height:auto 로 되돌아가면 .wx-chart 가 행 개수만큼의
+  // 콘텐츠 높이로 줄어들어 컨테이너 하단에 빈 여백이 남는다 — 두 높이가 거의 같아야 정상.
+  expect(Math.abs((rootBox?.height ?? 0) - (chartBox?.height ?? 0))).toBeLessThan(4);
+});
+
 test('이슈 막대·사이클 밴드·오늘선 렌더', async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
