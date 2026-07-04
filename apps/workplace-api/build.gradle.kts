@@ -108,6 +108,8 @@ dependencies {
     testImplementation("org.springframework.security:spring-security-test")
     // 메일 연결 테스트용 임베디드 IMAP/SMTP 서버
     testImplementation("com.icegreen:greenmail-junit5:2.1.0")
+    // 아키텍처 정적 검사 — 컨트롤러 Repository 직접 주입 시 @Transactional 강제(#640, RLS fail-closed 재발 방지)
+    testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
