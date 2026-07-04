@@ -7,6 +7,12 @@
   height: 100%;
 }
 
+/* 차트 배경의 세로 그리드선(주/일 컬럼 구분) 제거 — SVAR 가 클래스 없는 인라인 style 의
+   반복 PNG 배경(data URI)으로 그린다. 스타일 요구사항: 컬럼 구분선 없이 깔끔하게. */
+.timeline-gantt-root .wx-area > div[style*='background: url'] {
+  background: none !important;
+}
+
 /* 타임라인 간트 타이포/밀도 오버라이드 (#646) — 디자인 시스템 02-typography 스케일 매핑.
    SVAR Willow 테마 위에 .timeline-gantt-root 스코프로만 적용한다(전역 오염 금지).
    - 상단 스케일(월/년): 14px/600 (heading-column 급)
