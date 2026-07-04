@@ -21,6 +21,13 @@ import type { NotificationResponse } from '@/types/notification'
 // 스크롤이 바닥에서 이 거리(px) 이내로 들어오면 다음 페이지를 로드한다.
 const LOAD_MORE_THRESHOLD_PX = 48
 
+// 액터 이름에 이미 "AI" 토큰이 포함돼 있으면(단어 경계 기준, 대소문자 무시) AGENT 뱃지를 생략한다.
+// 예: "My AI" 는 뱃지 없이 "My AI님이…"로 표시 — "My AI AI님이…" 중복 방지 (#636)
+function hasAiToken(name: string | null | undefined): boolean {
+  if (!name) return false
+  return /\bAI\b/i.test(name)
+}
+
 // 알림 종류별 동작 문구(액터명 뒤에 붙는다).
 const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   ASSIGNED: '님이 회원님을 배정했습니다',
@@ -166,7 +173,7 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
                         // 일정 초대/RSVP 변경 — 액터 + 동작 문구 + 일정 제목·시작 시각 표시(#489, #585).
                         <>
                           <span className="font-medium">{n.actorName ?? '시스템'}</span>
-                          {n.actorKind === 'AGENT' && (
+                          {n.actorKind === 'AGENT' && !hasAiToken(n.actorName) && (
                             <span className="ml-1 rounded bg-primary/10 px-1 text-xs text-primary">
                               AI
                             </span>
@@ -179,7 +186,7 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
                       ) : (
                         <>
                           <span className="font-medium">{n.actorName ?? '시스템'}</span>
-                          {n.actorKind === 'AGENT' && (
+                          {n.actorKind === 'AGENT' && !hasAiToken(n.actorName) && (
                             <span className="ml-1 rounded bg-primary/10 px-1 text-xs text-primary">
                               AI
                             </span>

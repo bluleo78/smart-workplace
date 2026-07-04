@@ -42,6 +42,43 @@ test('패널을 열면 목록을 보여주고, AI 액터에 배지를 단다', a
   await expect(item).toContainText('AI')
 })
 
+test('액터 이름에 이미 "AI" 가 포함되면 AGENT 뱃지를 생략한다 (#636)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({ actorName: 'My AI', actorKind: 'AGENT' }),
+  ])
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+  const item = page.getByTestId('inbox-item').first()
+  await expect(item).toContainText('My AI님이 코멘트를 남겼습니다')
+  // "My AI" 자체 텍스트 외에 별도 뱃지가 덧붙어 "AI AI" 로 중복되지 않아야 한다.
+  await expect(item.getByText('AI', { exact: true })).toHaveCount(0)
+})
+
+test('CALENDAR_INVITED 알림에서도 액터 이름에 "AI" 가 포함되면 뱃지를 생략한다 (#636)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({
+      type: 'CALENDAR_INVITED',
+      actorName: 'My AI',
+      actorKind: 'AGENT',
+      commentId: null,
+      eventId: 6,
+      eventTitle: '분기 킥오프',
+      eventStartsAt: '2026-07-10T01:00:00Z',
+    }),
+  ])
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+  const item = page.getByTestId('inbox-item').first()
+  await expect(item).toContainText('My AI님이 일정에 초대했습니다')
+  await expect(item.getByText('AI', { exact: true })).toHaveCount(0)
+})
+
 test('빈 목록은 아이콘·제목·설명이 있는 빈 상태를 보여준다', async ({ authenticatedPage: page }) => {
   // 디자인 시스템 §2.5 — 아이콘 + 제목 + 설명 4요소 검증
   await mockApi(page, 'GET', '/api/v1/notifications', [])
