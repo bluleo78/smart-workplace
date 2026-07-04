@@ -31,7 +31,8 @@
 .timeline-gantt-root .wx-bar.wx-summary[data-task-id$='group-no-epic'] {
   display: none;
 }
-/* 그리드 에픽 행 제목 강조 */
-.timeline-gantt-root .wx-grid .wx-row[data-id^='group-'] .wx-cell {
+/* 그리드 에픽 행 제목 강조 — SVAR 는 문자열 id 에 ':' 접두어를 붙여 렌더한다(setID, lib-dom).
+   막대 규칙(위 no-epic 숨김)과 동일하게 포함 매칭(*=)으로 통일해 접두어 유무에 견고하게 한다. */
+.timeline-gantt-root .wx-grid .wx-row[data-id*='group-'] .wx-cell {
   font-weight: 600;
 }

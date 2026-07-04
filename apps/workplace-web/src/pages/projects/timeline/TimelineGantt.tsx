@@ -57,6 +57,11 @@ export interface TimelineGanttProps {
 }
 
 // 그룹(에픽) 행의 SVAR task id 는 문자열 네임스페이스로 이슈번호(number)와 분리한다.
+// 마일스톤 레인 좌측 "마일스톤" 라벨 폭 + 여백 확보용 고정값(px) — 우측 스크롤 시 칩의
+// translateX 가 음수에 가까워지며 라벨 위로 겹치는 것을 막는다. 라벨 실측 대신 고정 여백을
+// 쓴 것은 이 스코프에서 동적 폭 측정이 과설계이기 때문(YAGNI).
+const MILESTONE_LABEL_RESERVED_PX = 64
+
 const GROUP_ID_PREFIX = 'group-'
 const groupTaskId = (key: string) => `${GROUP_ID_PREFIX}${key}`
 const isGroupTaskId = (id: unknown): id is string =>
@@ -267,7 +272,9 @@ export function TimelineGantt({
       }
       for (const [id, left] of chipLefts) {
         const chip = milestoneChipRefs.current.get(id)
-        if (chip) chip.style.transform = `translateX(${left - scrollLeft}px)`
+        // 우측 스크롤 시 (left - scrollLeft) 가 음수에 가까워지며 좌측 "마일스톤" 라벨과
+        // 겹칠 수 있어, 라벨 예약 폭 미만으로는 밀리지 않도록 클램프한다.
+        if (chip) chip.style.transform = `translateX(${Math.max(left - scrollLeft, MILESTONE_LABEL_RESERVED_PX)}px)`
       }
       for (const [id, left] of milestoneLefts) {
         const vline = milestoneVlineRefs.current.get(id)
@@ -321,7 +328,10 @@ export function TimelineGantt({
     const scales = api.getState()._scales
     if (!scales) return null
     const rect = scroller.getBoundingClientRect()
-    const offsetX = clientX - rect.left + scroller.scrollLeft
+    const rawOffsetX = clientX - rect.left + scroller.scrollLeft
+    // 마일스톤 레인 좌측(그리드 패널 폭 구간, "마일스톤" 라벨 근처)을 클릭하면 rawOffsetX 가
+    // 음수가 될 수 있어(음수 * msPerPixel → 1970년 이전 날짜) scales 범위로 클램프한다.
+    const offsetX = Math.max(0, Math.min(rawOffsetX, scales.width))
     const msPerPixel = (scales.end.getTime() - scales.start.getTime()) / scales.width
     return format(new Date(scales.start.getTime() + offsetX * msPerPixel), 'yyyy-MM-dd')
   }

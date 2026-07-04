@@ -124,6 +124,24 @@ test('레인 빈 곳 클릭 → 클릭 좌표 날짜가 채워진 생성 다이�
   await expect.poll(() => posted).toMatchObject({ name: '레인 생성 마일스톤' });
 });
 
+test('레인 좌측 끝(라벨 근처) 클릭 → 날짜가 클램프되어 비정상(1970년 등) 값이 채워지지 않는다', async ({
+  authenticatedPage: page,
+}) => {
+  // 최종 리뷰 Minor #1 회귀 테스트 — dateFromClientX 가 클램프 없이 음수 offsetX 를 그대로
+  // 날짜로 환산하면 "마일스톤" 라벨 근처(레인 좌측 끝) 클릭 시 1970년대 등 비정상 날짜가 채워졌다.
+  await setupStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+  // x=2 는 "마일스톤" 라벨 바로 옆(레인 좌측 끝) — 스크롤 컨테이너 기준 offsetX 가 음수가 되는 지점.
+  await page.getByTestId('milestone-lane').click({ position: { x: 2, y: 16 } });
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const dueDateInput = dialog.locator('input[type="date"], input[name="dueDate"]').first();
+  const value = await dueDateInput.inputValue();
+  expect(value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  // 클램프된 값은 최소 scales.start 이상이어야 한다 — 1970년 등 음수 offsetX 환산값이면 실패.
+  expect(new Date(value).getFullYear()).toBeGreaterThanOrEqual(2020);
+});
+
 test('칩 클릭 → 편집 팝오버에서 이름 수정', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   let patch: Record<string, unknown> | null = null;
