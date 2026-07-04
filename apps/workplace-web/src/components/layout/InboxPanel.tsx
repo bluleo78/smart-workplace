@@ -14,19 +14,13 @@ import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificat
 import { useMarkNotificationRead } from '@/hooks/queries/useMarkNotificationRead'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
+import { hasAiToken } from '@/lib/aiToken'
 import { formatDateTimeMinute, formatRelativeTime } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 import type { NotificationResponse } from '@/types/notification'
 
 // 스크롤이 바닥에서 이 거리(px) 이내로 들어오면 다음 페이지를 로드한다.
 const LOAD_MORE_THRESHOLD_PX = 48
-
-// 액터 이름에 이미 "AI" 토큰이 포함돼 있으면(단어 경계 기준, 대소문자 무시) AGENT 뱃지를 생략한다.
-// 예: "My AI" 는 뱃지 없이 "My AI님이…"로 표시 — "My AI AI님이…" 중복 방지 (#636)
-function hasAiToken(name: string | null | undefined): boolean {
-  if (!name) return false
-  return /\bAI\b/i.test(name)
-}
 
 // 알림 종류별 동작 문구(액터명 뒤에 붙는다).
 const ACTION_LABEL: Record<NotificationResponse['type'], string> = {

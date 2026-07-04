@@ -1872,7 +1872,7 @@ test('알림 위젯 — AI(AGENT) 행위자 그룹에 AI 배지를 표시한다'
   await mockWidgets(page)
   await mockApi(page, 'GET', '/api/v1/notifications', [
     {
-      id: 41, type: 'ASSIGNED', actorId: 9, actorName: 'AI 비서', actorKind: 'AGENT',
+      id: 41, type: 'ASSIGNED', actorId: 9, actorName: '업무 비서', actorKind: 'AGENT',
       issueId: 1, projectKey: 'WP', issueNumber: 7, issueTitle: '리뷰 요청 이슈',
       commentId: null, eventId: null, eventTitle: null, eventStartsAt: null,
       read: false, createdAt: '2026-06-16T07:00:00Z',
@@ -1882,6 +1882,27 @@ test('알림 위젯 — AI(AGENT) 행위자 그룹에 AI 배지를 표시한다'
   await page.goto('/')
 
   await expect(page.getByTestId('dash-notif-mine').getByText('AI', { exact: true })).toBeVisible()
+})
+
+test('알림 위젯 — 액터 이름에 이미 "AI" 가 포함되면 AGENT 뱃지를 생략한다 (#637)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    {
+      id: 42, type: 'ASSIGNED', actorId: 9, actorName: 'My AI', actorKind: 'AGENT',
+      issueId: 1, projectKey: 'WP', issueNumber: 7, issueTitle: '리뷰 요청 이슈',
+      commentId: null, eventId: null, eventTitle: null, eventStartsAt: null,
+      read: false, createdAt: '2026-06-16T07:00:00Z',
+    },
+  ])
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+  await page.goto('/')
+
+  const row = page.getByTestId('dash-notif-mine').getByTestId('dash-notif-row')
+  await expect(row).toContainText('My AI')
+  // 별도 "AI" 뱃지가 덧붙어 "My AI AI" 로 중복되지 않아야 한다.
+  await expect(row.getByText('AI', { exact: true })).not.toBeVisible()
 })
 
 test('알림 위젯 — 업데이트가 표시 개수를 넘으면 헤더는 전체 수, 초과분은 "+N건 더"로 정직 표시', async ({
