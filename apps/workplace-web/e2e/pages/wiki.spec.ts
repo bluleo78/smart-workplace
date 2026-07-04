@@ -227,7 +227,9 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
   await page.keyboard.type('자동저장 본문 내용')
 
   // 5) 자동저장 완료 → '저장됨' 노출(debounce 800ms + PUT 라운드트립).
-  await expect(page.getByText('저장됨')).toBeVisible({ timeout: 5000 })
+  // 전역 expect.timeout(10s, playwright.config.ts) 사용 — 로컬 5s 오버라이드는
+  // lazy 라우트 지연(5~8s)을 흡수 못해 간헐 실패를 냈다.
+  await expect(page.getByText('저장됨')).toBeVisible()
 
   // 5b) '저장됨' 은 헤더 저장상태 칩(StatusBadge) 안에 표시된다(#247 — 시각적 명확성).
   await expect(page.getByTestId('wiki-save-state')).toHaveText('저장됨')
@@ -237,9 +239,7 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
 
   // 6) 사이드바 트리에 새 제목이 반영된 버튼이 나타난다(저장 후 트리 invalidate→refetch).
   // exact:true — 삭제 버튼(aria-label "삭제: <제목>")이 부분일치로 함께 잡히는 것을 방지.
-  await expect(page.getByRole('button', { name: NEW_TITLE, exact: true })).toBeVisible({
-    timeout: 5000,
-  })
+  await expect(page.getByRole('button', { name: NEW_TITLE, exact: true })).toBeVisible()
 })
 
 // 에러 경로 테스트(409) — 4xx 이므로 @smoke 아님(workplace-web/CLAUDE.md smoke 분류).

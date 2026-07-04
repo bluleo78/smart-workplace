@@ -131,11 +131,14 @@ test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼�
   // 다이얼로그가 닫히지 않고, 다음 등록을 위해 폼은 비워진다.
   // timeout 상향(기본 10s→15s) — 전체 스위트 병렬 실행(5 워커) 시 리소스 경합으로
   // onSuccess 리렌더가 지연되며 간헐적으로 타임아웃하던 flake 대응(#593 푸시 게이트에서 발견).
+  // add-member-submit 은 항상 마운트된 채 disabled 만 토글되므로 toBeVisible 은 리렌더 지연을
+  // 실질적으로 검증하지 못함 — 실제로 리렌더에 의존하는 건 reset() 결과인 아래 toHaveValue 들이므로
+  // 동일하게 15s 로 맞춘다.
   await expect.poll(() => postCount).toBe(1)
   await expect(page.getByTestId('add-member-submit')).toBeVisible({ timeout: 15000 })
-  await expect(page.getByTestId('add-member-username')).toHaveValue('')
-  await expect(page.getByTestId('add-member-name')).toHaveValue('')
-  await expect(page.getByTestId('add-member-password')).toHaveValue('')
+  await expect(page.getByTestId('add-member-username')).toHaveValue('', { timeout: 15000 })
+  await expect(page.getByTestId('add-member-name')).toHaveValue('', { timeout: 15000 })
+  await expect(page.getByTestId('add-member-password')).toHaveValue('', { timeout: 15000 })
 
   // 체크 상태를 유지한 채로 두 번째 구성원도 같은 다이얼로그에서 추가할 수 있다.
   await page.getByTestId('add-member-username').fill('user2')
