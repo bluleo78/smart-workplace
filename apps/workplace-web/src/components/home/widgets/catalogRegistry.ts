@@ -42,7 +42,7 @@ export const CATALOG_CATEGORIES = [
   '이슈',
   '메일',
   '캘린더',
-  '위키',
+  '노트',
   '연락처',
   '프로젝트',
   '드라이브',
@@ -136,10 +136,10 @@ const catalogRegistry: Record<string, CatalogWidget> = {
   },
   wiki: {
     type: 'wiki',
-    title: '위키',
+    title: '노트',
     description: '접근 가능한 노트 스페이스 목록을 보여줍니다.',
     icon: ClipboardList,
-    category: '위키',
+    category: '노트',
     size: '1×1',
     // 스페이스(spaceId) 선택은 엔티티 피커가 필요해 범위 밖 — 미지정 시 전체 스페이스 대상 검색(알려진 한계).
     defaultParams: {},
