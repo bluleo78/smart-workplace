@@ -21,3 +21,17 @@
   font-size: 12px;
   font-weight: 500;
 }
+/* 에픽 롤업 막대 (#649) — 신규 --epic 토큰. 드래그 방지는 pointer-events 차단으로
+   (SVAR readonly 는 전역이라 per-task 제어 불가 — 그리드 행 클릭 이동은 onSelectTask 가 처리). */
+.timeline-gantt-root .wx-bar.wx-summary {
+  --wx-gantt-summary-color: var(--epic);
+  pointer-events: none;
+}
+/* range 없는 그룹(no-epic)의 막대는 숨긴다 — 라벨 행만 남긴다. */
+.timeline-gantt-root .wx-bar.wx-summary[data-task-id$='group-no-epic'] {
+  display: none;
+}
+/* 그리드 에픽 행 제목 강조 */
+.timeline-gantt-root .wx-grid .wx-row[data-id^='group-'] .wx-cell {
+  font-weight: 600;
+}

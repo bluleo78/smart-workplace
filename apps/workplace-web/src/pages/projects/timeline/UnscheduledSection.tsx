@@ -37,6 +37,12 @@ export function UnscheduledSection({ issues, readOnly, onSchedule }: Unscheduled
               {issue.projectKey}-{issue.number}
             </span>
             <span className="flex-1 truncate">{issue.title}</span>
+            {/* 소속 에픽 배지 (#649) — 미정 이슈가 어느 에픽 계획에 속하는지 표시. */}
+            {issue.parent?.type.name === 'EPIC' && (
+              <span className="max-w-32 truncate rounded-sm bg-epic-subtle px-1.5 text-xs text-epic">
+                {issue.parent.title}
+              </span>
+            )}
             <IssueStatusBadge status={issue.status} />
             {!readOnly && (
               <Button

@@ -16,43 +16,32 @@ import { Diamond } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useRef } from 'react'
 
-import type { IssueStatus } from '@/types/issue'
+import type {
+  TimelineCycleBand,
+  TimelineDependencyEdge,
+  TimelineEpicGroup,
+  TimelineMilestoneMarker,
+} from './timelineTypes'
 
-/** 간트에 표시할 이슈 1건 — start 가 null 이면 마감일만 있는 이슈(1일 폭 막대로 렌더). */
-export interface TimelineBar {
-  issueNumber: number
-  issueKey: string
-  title: string
-  start: string | null
-  due: string
-  status: IssueStatus
-}
-
-/** 프로젝트 마일스톤 — 상단 고정 레인의 칩/점선으로 렌더된다(#648, 더 이상 SVAR task 가 아니다). */
-export interface TimelineMilestoneMarker {
-  id: number
-  name: string
-  dueDate: string
-}
-
-/** 사이클(스프린트) 구간 — 눈금 셀 배경(highlightTime)으로 표시. */
-export interface TimelineCycleBand {
-  id: number
-  name: string
-  startDate: string
-  endDate: string
-}
-
-/** 이슈 간 의존 관계 — 표시 전용(SVAR link 생성 편집 UI는 비활성). */
-export interface TimelineDependencyEdge {
-  fromIssueNumber: number
-  toIssueNumber: number
-}
+// 데이터 모델(TimelineBar 등)은 timelineTypes.ts 로 이동했다 — timelineData.ts 와 이 파일이
+// 서로의 타입을 import 하는 순환을 막기 위함(#649). 하위 호환을 위해 재노출한다.
+export type {
+  TimelineBar,
+  TimelineCycleBand,
+  TimelineDependencyEdge,
+  TimelineEpicGroup,
+  TimelineMilestoneMarker,
+} from './timelineTypes'
 
 export type TimelineZoom = 'week' | 'month'
 
 export interface TimelineGanttProps {
-  bars: TimelineBar[]
+  /** 에픽 그룹 트리(#649) — bars 대신 groups 를 받아 부모(에픽)/자식(하위 이슈) 트리로 렌더한다. */
+  groups: TimelineEpicGroup[]
+  /** 접힌 그룹 key 목록 — localStorage 지속은 페이지(TimelinePage)가 소유. */
+  collapsedKeys: string[]
+  /** SVAR 트리 토글 → 페이지 상태로 접힘 여부 보고. */
+  onToggleGroup: (key: string, open: boolean) => void
   milestones: TimelineMilestoneMarker[]
   cycles: TimelineCycleBand[]
   dependencies: TimelineDependencyEdge[]
@@ -67,8 +56,14 @@ export interface TimelineGanttProps {
   onLaneClick: (date: string, anchorRect: DOMRect) => void
 }
 
+// 그룹(에픽) 행의 SVAR task id 는 문자열 네임스페이스로 이슈번호(number)와 분리한다.
+const GROUP_ID_PREFIX = 'group-'
+const groupTaskId = (key: string) => `${GROUP_ID_PREFIX}${key}`
+const isGroupTaskId = (id: unknown): id is string =>
+  typeof id === 'string' && id.startsWith(GROUP_ID_PREFIX)
+
 // 이슈 상태별 막대 색상 — IssueStatusIcon/IssueStatusBadge 와 동일한 시맨틱 토큰(hex 금지). CANCELED 이슈는
-// splitSchedulable 에서 막대 목록 자체에 포함되지 않아 매핑 대상이 아니다.
+// groupTimelineIssues 에서 막대 목록 자체에 포함되지 않아 매핑 대상이 아니다.
 const STATUS_BAR_COLOR: Record<'TODO' | 'IN_PROGRESS' | 'DONE', string> = {
   TODO: 'var(--muted-foreground)',
   IN_PROGRESS: 'var(--primary)',
@@ -99,7 +94,9 @@ const GRID_COLUMNS: IColumnConfig[] = [
  * 전혀 알 필요 없이 이 컴포넌트의 props 만 소비한다.
  */
 export function TimelineGantt({
-  bars,
+  groups,
+  collapsedKeys,
+  onToggleGroup,
   milestones,
   cycles,
   dependencies,
@@ -118,27 +115,56 @@ export function TimelineGantt({
   // 마일스톤 레인 칩/세로 점선 DOM 참조(#648) — SVAR task 가 아니라 별도 오버레이라 자체 ref 맵으로 관리한다.
   const milestoneChipRefs = useRef(new Map<number, HTMLButtonElement>())
   const milestoneVlineRefs = useRef(new Map<number, HTMLDivElement>())
+  // onToggleGroup 최신 참조 — api.on 구독 콜백이 stale closure 를 잡지 않도록.
+  // 렌더 중 ref 갱신은 React Compiler 가 금지하므로(react-hooks/refs) 이펙트에서 갱신한다.
+  const onToggleGroupRef = useRef(onToggleGroup)
+  useEffect(() => {
+    onToggleGroupRef.current = onToggleGroup
+  }, [onToggleGroup])
+
+  // 그룹(에픽)의 하위 이슈 막대를 평탄화 — 색상 주입 이펙트/의존성 필터링용(#649, groups.flatMap 반복 방지).
+  const bars = useMemo(() => groups.flatMap((g) => g.bars), [groups])
 
   const tasks = useMemo<ITask[]>(() => {
     // SVAR 는 bar 엘리먼트에 task 필드 기반 커스텀 className 주입 API 가 없음(고정 `wx-bar wx-${type}`,
     // 스파이크 노트 참조) — 상태별 색상은 아래 이펙트에서 DOM에 직접 CSS 변수를 주입해 구현한다(#639).
     // 마일스톤은 더 이상 SVAR task 로 렌더되지 않는다(#648) — 이슈 행을 차지하지 않도록 상단 고정
     // 레인(칩)+세로 점선 오버레이로 완전히 분리했다.
-    return bars.map((bar) => {
-      const startDate = bar.start ? parseISO(bar.start) : parseISO(bar.due)
-      const endDate = addDays(parseISO(bar.due), 1)
-      return {
-        id: bar.issueNumber,
-        text: `${bar.issueKey} ${bar.title}`,
-        start: startDate,
-        end: endDate,
-        type: 'task',
-        progress: bar.status === 'DONE' ? 100 : 0,
-        dueOnly: bar.start === null,
-        status: bar.status,
+    // 에픽 그룹 트리(#649) — 그룹 행(summary) + 자식 행(task, parent 연결)을 순서대로 쌓는다.
+    const collapsed = new Set(collapsedKeys)
+    const result: ITask[] = []
+    for (const group of groups) {
+      const groupId = groupTaskId(group.key)
+      const fallbackDate = group.range?.start ?? group.range?.due ?? group.bars[0]?.due ?? format(new Date(), 'yyyy-MM-dd')
+      const fallbackDue = group.range?.due ?? group.bars[0]?.due ?? fallbackDate
+      result.push({
+        id: groupId,
+        // 진행률은 텍스트로 병기 — SVAR 그리드 셀 커스텀 렌더 미지원 전제의 안전한 표현.
+        text: group.total > 0 ? `${group.title} (${group.done}/${group.total})` : group.title,
+        // range 없는 그룹(no-epic)은 임의 1일 구간 + CSS 로 막대 숨김 (SVAR 는 start 필수).
+        start: parseISO(fallbackDate),
+        end: addDays(parseISO(fallbackDue), 1),
+        type: 'summary',
+        open: !collapsed.has(group.key),
+      })
+      for (const bar of group.bars) {
+        const startDate = bar.start ? parseISO(bar.start) : parseISO(bar.due)
+        const endDate = addDays(parseISO(bar.due), 1)
+        result.push({
+          id: bar.issueNumber,
+          parent: groupId,
+          text: `${bar.issueKey} ${bar.title}`,
+          start: startDate,
+          end: endDate,
+          type: 'task',
+          progress: bar.status === 'DONE' ? 100 : 0,
+          dueOnly: bar.start === null,
+          status: bar.status,
+        })
       }
-    })
-  }, [bars])
+    }
+    return result
+  }, [groups, collapsedKeys])
 
   const links = useMemo(
     () =>
@@ -404,7 +430,16 @@ export function TimelineGantt({
         <ThemeWrapper fonts={false}>
           <Gantt
             ref={(api) => {
-              apiRef.current = api
+              // ref 콜백은 리렌더마다 불릴 수 있어 같은 api 인스턴스에 중복 구독하지 않도록 가드.
+              if (api && apiRef.current !== api) {
+                apiRef.current = api
+                // SVAR 트리 토글(그리드 화살표 클릭) → 접힘 상태를 페이지로 보고(#649).
+                // api.on 은 액션 스트림 구독 — 그룹 행(문자열 id)만 걸러 onToggleGroup 호출.
+                api.on('open-task', (ev: { id: unknown; mode: boolean }) => {
+                  if (isGroupTaskId(ev.id)) onToggleGroupRef.current(ev.id.slice(GROUP_ID_PREFIX.length), ev.mode)
+                })
+              }
+              if (!api) apiRef.current = null
             }}
             tasks={tasks}
             links={links}
@@ -426,6 +461,14 @@ export function TimelineGantt({
               }
             }}
             onSelectTask={(ev) => {
+              // 그룹(에픽) 행 클릭 = 에픽 이슈 상세로 이동. no-epic 가상 그룹은 이동 대상이 없어 무시.
+              if (!ev.id) return
+              if (isGroupTaskId(ev.id)) {
+                const key = ev.id.slice(GROUP_ID_PREFIX.length)
+                const group = groups.find((g) => g.key === key)
+                if (group?.epicNumber != null) onBarClick(group.epicNumber)
+                return
+              }
               if (typeof ev.id === 'number') onBarClick(ev.id)
             }}
           />

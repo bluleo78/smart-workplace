@@ -51,7 +51,8 @@ test('간트 행 높이가 40px 로 렌더된다', async ({ authenticatedPage: p
   await page.goto(`/projects/${KEY}/timeline`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   // SVAR 차트 영역의 이슈 막대 행 — cellHeight prop 이 적용되면 40px.
-  const bar = page.locator('.timeline-gantt-root .wx-bar').first();
+  // no-epic 가상 그룹의 summary 막대는 CSS 로 숨겨지므로(#649) 실제 이슈 막대(task)만 선택한다.
+  const bar = page.locator('.timeline-gantt-root .wx-bar:not(.wx-summary)').first();
   await expect(bar).toBeVisible();
   const rowHeight = await page
     .locator('.timeline-gantt-root .wx-area .wx-row, .timeline-gantt-root .wx-grid .wx-row')

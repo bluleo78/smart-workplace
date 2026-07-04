@@ -22,8 +22,8 @@ import {
   cyclesToBands,
   defaultScheduleRange,
   filterRenderableDependencies,
+  groupTimelineIssues,
   milestonesToMarkers,
-  splitSchedulable,
 } from './timelineData';
 import { TimelineFilterBar } from './TimelineFilterBar';
 import { TimelineGantt, type TimelineZoom } from './TimelineGantt';
@@ -57,7 +57,8 @@ export default function TimelinePage() {
   }, [search.hasNextPage, search.isFetchingNextPage, search]);
 
   const issues = useMemo(() => (search.data?.pages ?? []).flatMap((p) => p.items), [search.data]);
-  const { bars, unscheduled } = useMemo(() => splitSchedulable(issues), [issues]);
+  // 에픽 계층 트리(#649) — bars 평면 목록 대신 에픽 그룹 트리로 변환.
+  const { groups, unscheduled } = useMemo(() => groupTimelineIssues(issues), [issues]);
   const cycleBands = useMemo(() => cyclesToBands(cycles.data ?? []), [cycles.data]);
   const milestoneMarkers = useMemo(
     () => milestonesToMarkers(milestones.data ?? []),
@@ -65,9 +66,27 @@ export default function TimelinePage() {
   );
   // 일정 미정/CANCELED 이슈로의 화살표는 SVAR 가 렌더할 노드가 없어 제외한다.
   const renderableDependencies = useMemo(
-    () => filterRenderableDependencies(dependencies.data ?? [], bars),
-    [dependencies.data, bars],
+    () => filterRenderableDependencies(dependencies.data ?? [], groups.flatMap((g) => g.bars)),
+    [dependencies.data, groups],
   );
+
+  // 에픽 그룹 접힘 상태 — localStorage 로 프로젝트별 지속(#649). 페이지가 소유하고
+  // TimelineGantt 는 collapsedKeys/onToggleGroup props 로만 상태를 주고받는다.
+  const collapseStorageKey = `timeline-collapsed:${key}`;
+  const [collapsedKeys, setCollapsedKeys] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(collapseStorageKey) ?? '[]') as string[];
+    } catch {
+      return [];
+    }
+  });
+  const handleToggleGroup = (groupKey: string, open: boolean) => {
+    setCollapsedKeys((prev) => {
+      const next = open ? prev.filter((k) => k !== groupKey) : [...new Set([...prev, groupKey])];
+      localStorage.setItem(collapseStorageKey, JSON.stringify(next));
+      return next;
+    });
+  };
 
   const readOnly = !(project.data?.viewerIsMember ?? false);
   const updateIssue = useTimelineIssueUpdate(key);
@@ -145,7 +164,9 @@ export default function TimelinePage() {
       </div>
       <div className="min-h-0 flex-1 p-6" data-testid="timeline-gantt">
         <TimelineGantt
-          bars={bars}
+          groups={groups}
+          collapsedKeys={collapsedKeys}
+          onToggleGroup={handleToggleGroup}
           milestones={milestoneMarkers}
           cycles={cycleBands}
           dependencies={renderableDependencies}
