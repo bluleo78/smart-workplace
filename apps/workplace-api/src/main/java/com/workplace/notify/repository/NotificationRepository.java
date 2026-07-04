@@ -67,9 +67,10 @@ public class NotificationRepository {
    * 최신순 알림 — issue·project(LEFT, 이슈 알림용), calendar_event(LEFT, REMINDER 용), user(actor, LEFT) 조인으로
    * 표시 필드 합성. 이슈/리마인더가 섞여 있으므로 issue 는 INNER 가 아닌 LEFT JOIN. 이슈가 소프트삭제되면(#618) notification 행은
    * CASCADE 없이 남지만 issue_id 가 가리키는 이슈는 죽은 링크이므로 목록에서 제외한다 (issue_id 가 null 인 리마인더/캘린더 알림은 LEFT JOIN
-   * 매치가 없어 이 조건에 영향받지 않는다).
+   * 매치가 없어 이 조건에 영향받지 않는다). offset 은 무한스크롤 페이지네이션(#610)용 — 정렬 기준(created_at desc, id desc)이
+   * 고정이라 페이지 경계에서 안정적이다.
    */
-  public List<NotificationResponse> listRecent(long recipientId, int limit) {
+  public List<NotificationResponse> listRecent(long recipientId, int limit, long offset) {
     return dsl.select(
             NOTIFICATION.ID,
             NOTIFICATION.TYPE,
@@ -98,6 +99,7 @@ public class NotificationRepository {
         .where(NOTIFICATION.RECIPIENT_ID.eq(recipientId).and(ISSUE.DELETED_AT.isNull()))
         .orderBy(NOTIFICATION.CREATED_AT.desc(), NOTIFICATION.ID.desc())
         .limit(limit)
+        .offset(offset)
         .fetch(
             r -> {
               OffsetDateTime created = r.get(NOTIFICATION.CREATED_AT);

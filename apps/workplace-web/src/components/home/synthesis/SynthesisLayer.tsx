@@ -17,7 +17,7 @@ import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
 import { useMailSummary } from '@/hooks/queries/useMailSummary'
 import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
-import { useNotifications } from '@/hooks/queries/useNotifications'
+import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { parseUtcDate } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -178,7 +178,9 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   const dueItems: IssueDueMarker[] = previewData?.dues ?? dues.data ?? []
   const dueTodayCount = dueItems.filter((d) => d.dueDate === todayKey).length
 
-  const notifItems: NotificationResponse[] = previewData?.notifications ?? notifs.data ?? []
+  // 합성 레이어도 첫 페이지(최근 20건)만 필요 — 무한스크롤은 InboxPanel 담당(#610).
+  const notifItems: NotificationResponse[] =
+    previewData?.notifications ?? flattenNotificationPages(notifs.data?.pages)
   const mentionCount = notifItems.filter((n) => isMentionLike(n) && !n.read).length
 
   const mailData = previewData?.mail ?? mail.data

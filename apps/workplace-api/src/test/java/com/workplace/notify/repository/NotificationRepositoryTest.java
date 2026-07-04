@@ -98,7 +98,7 @@ class NotificationRepositoryTest extends IntegrationTestBase {
 
     repo.insertReminder(recipient, eventId);
 
-    NotificationResponse n = repo.listRecent(recipient, 20).get(0);
+    NotificationResponse n = repo.listRecent(recipient, 20, 0).get(0);
     assertThat(n.type()).isEqualTo("REMINDER");
     assertThat(n.eventId()).isEqualTo(eventId);
     assertThat(n.eventTitle()).isEqualTo("주간 회의");
@@ -118,7 +118,7 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     repo.insertBatch(List.of(recipient), NotificationType.ASSIGNED, actor, issueId, null);
     repo.insertReminder(recipient, eventId);
 
-    List<NotificationResponse> list = repo.listRecent(recipient, 20);
+    List<NotificationResponse> list = repo.listRecent(recipient, 20, 0);
     assertThat(list).hasSize(2);
     assertThat(list).extracting(NotificationResponse::type).contains("ASSIGNED", "REMINDER");
   }
@@ -131,7 +131,7 @@ class NotificationRepositoryTest extends IntegrationTestBase {
 
     repo.insertBatch(List.of(recipient), NotificationType.COMMENTED, actor, issueId, 77L);
 
-    List<NotificationResponse> list = repo.listRecent(recipient, 20);
+    List<NotificationResponse> list = repo.listRecent(recipient, 20, 0);
     assertThat(list).hasSize(1);
     NotificationResponse n = list.get(0);
     assertThat(n.type()).isEqualTo("COMMENTED");
@@ -157,7 +157,7 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     repo.insertReminder(recipient, eventId);
 
     // 사전 확인: 삭제 전에는 이슈 알림 포함 2건, 안읽음 2건.
-    assertThat(repo.listRecent(recipient, 20)).hasSize(2);
+    assertThat(repo.listRecent(recipient, 20, 0)).hasSize(2);
     assertThat(repo.countUnread(recipient)).isEqualTo(2);
 
     // 이슈 소프트삭제(IssueService.softDelete 와 동일하게 deleted_at 세팅, row 는 유지).
@@ -166,7 +166,7 @@ class NotificationRepositoryTest extends IntegrationTestBase {
         .where(ISSUE.ID.eq(issueId))
         .execute();
 
-    List<NotificationResponse> list = repo.listRecent(recipient, 20);
+    List<NotificationResponse> list = repo.listRecent(recipient, 20, 0);
     assertThat(list).hasSize(1);
     assertThat(list.get(0).type()).isEqualTo("REMINDER");
     assertThat(repo.countUnread(recipient)).isEqualTo(1);
@@ -180,14 +180,14 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     repo.insertBatch(List.of(a, b), NotificationType.STATUS_CHANGED, null, issueId, null);
 
     assertThat(repo.countUnread(a)).isEqualTo(1);
-    long aNotifId = repo.listRecent(a, 20).get(0).id();
+    long aNotifId = repo.listRecent(a, 20, 0).get(0).id();
 
     assertThat(repo.markRead(b, aNotifId)).isZero();
     assertThat(repo.countUnread(a)).isEqualTo(1);
 
     assertThat(repo.markRead(a, aNotifId)).isEqualTo(1);
     assertThat(repo.countUnread(a)).isZero();
-    assertThat(repo.listRecent(a, 20).get(0).read()).isTrue();
+    assertThat(repo.listRecent(a, 20, 0).get(0).read()).isTrue();
   }
 
   @Test
@@ -199,5 +199,38 @@ class NotificationRepositoryTest extends IntegrationTestBase {
 
     assertThat(repo.markAllRead(a)).isEqualTo(2);
     assertThat(repo.countUnread(a)).isZero();
+  }
+
+  /**
+   * #610 — offset 기반 페이지네이션. 정렬 기준(created_at desc, id desc)이 고정이라 id 오름차순 삽입 시 최신(=마지막 삽입) 건이
+   * 먼저 나온다. 5건 중 첫 페이지(limit=2, offset=0)와 다음 페이지(limit=2, offset=2)가 겹치지 않고 이어진다.
+   */
+  @Test
+  void listRecent_offsetPaginatesWithoutOverlap() {
+    long recipient = seedUser("HUMAN");
+    long actor = seedUser("HUMAN");
+    long issueId = seedIssue(actor, "페이지네이션 이슈");
+    for (int i = 0; i < 5; i++) {
+      repo.insertBatch(List.of(recipient), NotificationType.COMMENTED, actor, issueId, (long) i);
+    }
+
+    List<NotificationResponse> page1 = repo.listRecent(recipient, 2, 0);
+    List<NotificationResponse> page2 = repo.listRecent(recipient, 2, 2);
+    List<NotificationResponse> page3 = repo.listRecent(recipient, 2, 4);
+
+    assertThat(page1).hasSize(2);
+    assertThat(page2).hasSize(2);
+    assertThat(page3).hasSize(1);
+    // 최신순(마지막 삽입 comment_id=4 가 최상단) — 페이지 경계 검증.
+    assertThat(page1).extracting(NotificationResponse::commentId).containsExactly(4L, 3L);
+    assertThat(page2).extracting(NotificationResponse::commentId).containsExactly(2L, 1L);
+    assertThat(page3).extracting(NotificationResponse::commentId).containsExactly(0L);
+    // 페이지 간 id 중복 없음.
+    List<Long> allIds =
+        java.util.stream.Stream.of(page1, page2, page3)
+            .flatMap(List::stream)
+            .map(NotificationResponse::id)
+            .toList();
+    assertThat(allIds).doesNotHaveDuplicates().hasSize(5);
   }
 }

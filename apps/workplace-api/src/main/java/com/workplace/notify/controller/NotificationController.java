@@ -25,12 +25,14 @@ public class NotificationController {
 
   private final NotificationService service;
 
-  /** 최신 알림 목록(평면). limit 1~100 클램프. */
+  /** 최신 알림 목록(평면). limit 1~100 클램프. offset(#610) — 무한스크롤 다음 페이지 조회용, 음수는 0으로 클램프. */
   @GetMapping
   public ResponseEntity<List<NotificationResponse>> list(
       @AuthenticationPrincipal Long callerId,
-      @RequestParam(name = "limit", defaultValue = "20") int limit) {
-    return ResponseEntity.ok(service.listRecent(callerId, Math.min(Math.max(limit, 1), 100)));
+      @RequestParam(name = "limit", defaultValue = "20") int limit,
+      @RequestParam(name = "offset", defaultValue = "0") long offset) {
+    return ResponseEntity.ok(
+        service.listRecent(callerId, Math.min(Math.max(limit, 1), 100), Math.max(offset, 0)));
   }
 
   /** 안읽음 수. */

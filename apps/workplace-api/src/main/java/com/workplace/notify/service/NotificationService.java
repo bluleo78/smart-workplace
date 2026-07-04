@@ -91,8 +91,8 @@ public class NotificationService {
   }
 
   @Transactional(readOnly = true)
-  public List<NotificationResponse> listRecent(long recipientId, int limit) {
-    return repo.listRecent(recipientId, limit);
+  public List<NotificationResponse> listRecent(long recipientId, int limit, long offset) {
+    return repo.listRecent(recipientId, limit, offset);
   }
 
   @Transactional(readOnly = true)

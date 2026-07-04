@@ -3,7 +3,7 @@ import { Bell } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificationsRead'
 import { useMarkNotificationRead } from '@/hooks/queries/useMarkNotificationRead'
-import { useNotifications } from '@/hooks/queries/useNotifications'
+import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { groupNotifications } from '@/lib/notifGrouping'
 import type { NotificationResponse } from '@/types/notification'
 
@@ -27,7 +27,8 @@ export default function NotificationsBody({
   const list = useNotifications(!previewData)
   const markRead = useMarkNotificationRead()
   const markAll = useMarkAllNotificationsRead()
-  const rawItems = previewData ?? list.data
+  // 위젯은 요약이므로 첫 페이지(최근 20건)만 사용 — 무한스크롤은 InboxPanel 담당(#610).
+  const rawItems = previewData ?? flattenNotificationPages(list.data?.pages)
 
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
   if (!previewData && list.isLoading)

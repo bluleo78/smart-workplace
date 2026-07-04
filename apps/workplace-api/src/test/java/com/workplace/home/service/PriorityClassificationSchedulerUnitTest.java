@@ -2,6 +2,7 @@ package com.workplace.home.service;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doAnswer;
@@ -106,7 +107,7 @@ class PriorityClassificationSchedulerUnitTest {
     // 4개 후보 소스 모두 빈 결과 — candidates.isEmpty() 분기(빈 리스트 replaceForUser)를 태운다.
     given(issueSearchService.searchMine(eq(USER_ID), any()))
         .willReturn(new IssueSearchResponse(List.of(), null, false));
-    given(notificationService.listRecent(eq(USER_ID), anyInt())).willReturn(List.of());
+    given(notificationService.listRecent(eq(USER_ID), anyInt(), anyLong())).willReturn(List.of());
     given(mailMessageService.summary(eq(USER_ID), anyInt()))
         .willReturn(new MailSummaryResponse(0, 0, false, List.of()));
     given(messagingSummaryService.summary(eq(USER_ID), anyInt()))

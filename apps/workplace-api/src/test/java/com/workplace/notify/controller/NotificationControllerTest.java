@@ -83,7 +83,7 @@ class NotificationControllerTest {
             null,
             false,
             Instant.now());
-    when(service.listRecent(eq(1L), eq(20))).thenReturn(List.of(n));
+    when(service.listRecent(eq(1L), eq(20), eq(0L))).thenReturn(List.of(n));
 
     mockMvc
         .perform(get("/api/v1/notifications").header("Authorization", "Bearer v"))
@@ -92,7 +92,21 @@ class NotificationControllerTest {
         .andExpect(jsonPath("$[0].actorKind").value("AGENT"))
         .andExpect(jsonPath("$[0].projectKey").value("WP"))
         .andExpect(jsonPath("$[0].issueNumber").value(3));
-    verify(service).listRecent(eq(1L), eq(20));
+    verify(service).listRecent(eq(1L), eq(20), eq(0L));
+  }
+
+  /** #610 — 무한스크롤 다음 페이지 요청 시 offset 이 서비스로 그대로 전달된다. */
+  @Test
+  void list_passesOffsetParam() throws Exception {
+    when(service.listRecent(eq(1L), eq(20), eq(20L))).thenReturn(List.of());
+
+    mockMvc
+        .perform(
+            get("/api/v1/notifications")
+                .param("offset", "20")
+                .header("Authorization", "Bearer v"))
+        .andExpect(status().isOk());
+    verify(service).listRecent(eq(1L), eq(20), eq(20L));
   }
 
   @Test

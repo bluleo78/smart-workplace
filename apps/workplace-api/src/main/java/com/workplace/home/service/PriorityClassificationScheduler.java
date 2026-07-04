@@ -214,7 +214,7 @@ public class PriorityClassificationScheduler {
 
     // 멘션(안읽은 COMMENTED 알림) — 프론트 notifTarget.ts 의 isMentionLike() 와 동일 규칙(전용 MENTION 타입이 없어
     // COMMENTED 를 멘션 프록시로 사용). notifTarget() 라우팅 규칙도 그대로 포팅(projectKey+issueNumber 딥링크).
-    for (var n : notificationService.listRecent(userId, SOURCE_LIMIT)) {
+    for (var n : notificationService.listRecent(userId, SOURCE_LIMIT, 0)) {
       if (!n.read() && "COMMENTED".equals(n.type())) {
         out.add(
             new PriorityCandidate(

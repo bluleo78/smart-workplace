@@ -22,6 +22,8 @@ const HOST = `http://localhost:${PORT}`
 export default defineConfig({
   testDir: './e2e',
   outputDir: '../../test-results/e2e',
+  // 병렬 세션 간 실행 직렬화(워커 오버서브스크립션 방지) — e2e/global-lock.ts 참조.
+  globalSetup: './e2e/global-lock.ts',
 
   fullyParallel: true,
   forbidOnly: CI,

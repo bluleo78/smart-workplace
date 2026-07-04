@@ -86,7 +86,7 @@ class NotificationServiceTest extends IntegrationTestBase {
     long issueId = seedIssue(actor);
     service.createAndFanOut(NotificationType.ASSIGNED, List.of(actor), actor, issueId, null);
     assertThat(service.countUnread(actor)).isZero();
-    assertThat(service.listRecent(actor, 20)).isEmpty();
+    assertThat(service.listRecent(actor, 20, 0)).isEmpty();
   }
 
   @Test

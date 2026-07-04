@@ -1,7 +1,8 @@
 // src/components/layout/InboxPanel.tsx
 // 인박스 — AppRail 하단 종 아이콘 + 안읽음 배지 + Popover 평면 목록.
-// 행 클릭 → 이슈 상세 이동 + 읽음 처리. 헤더 "모두 읽음".
+// 행 클릭 → 이슈 상세 이동 + 읽음 처리. 헤더 "모두 읽음". 무한스크롤(#610)로 20건 상한 해소.
 import { Bell } from 'lucide-react'
+import { useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { CountBadge } from '@/components/CountBadge'
@@ -11,11 +12,14 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificationsRead'
 import { useMarkNotificationRead } from '@/hooks/queries/useMarkNotificationRead'
-import { useNotifications } from '@/hooks/queries/useNotifications'
+import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
 import { formatDateTimeMinute, formatRelativeTime } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 import type { NotificationResponse } from '@/types/notification'
+
+// 스크롤이 바닥에서 이 거리(px) 이내로 들어오면 다음 페이지를 로드한다.
+const LOAD_MORE_THRESHOLD_PX = 48
 
 // 알림 종류별 동작 문구(액터명 뒤에 붙는다).
 const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
@@ -33,9 +37,26 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
   const { open, setOpen } = useInboxPanel()
   const navigate = useNavigate()
   const { data: unread = 0 } = useUnreadCount()
-  const { data: items = [], isLoading } = useNotifications(open)
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useNotifications(open)
+  const items = flattenNotificationPages(data?.pages)
   const markRead = useMarkNotificationRead()
   const markAll = useMarkAllNotificationsRead()
+
+  // 스크롤 영역이 바닥 근처에 도달하면 다음 페이지 로드(#610 무한스크롤).
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceToBottom < LOAD_MORE_THRESHOLD_PX && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }
 
   // 행 클릭: 안읽음이면 읽음 처리 → 패널 닫고 대상으로 이동.
   // 딥링크 규칙은 notifTarget() 공용 유틸과 동일(캘린더 알림→캘린더, 식별정보 없으면 인박스 대용 폴백).
@@ -100,7 +121,12 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
             모두 읽음
           </button>
         </div>
-        <div className="max-h-96 overflow-y-auto">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          data-testid="inbox-scroll-area"
+          className="max-h-96 overflow-y-auto"
+        >
           {isLoading ? (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">불러오는 중…</p>
           ) : items.length === 0 ? (
@@ -173,6 +199,14 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
                   </button>
                 </li>
               ))}
+              {isFetchingNextPage && (
+                <li
+                  data-testid="inbox-loading-more"
+                  className="px-3 py-2 text-center text-xs text-muted-foreground"
+                >
+                  더 불러오는 중…
+                </li>
+              )}
             </ul>
           )}
         </div>

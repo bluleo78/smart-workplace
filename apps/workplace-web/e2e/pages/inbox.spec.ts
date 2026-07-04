@@ -158,3 +158,38 @@ test('모두 읽음 상태일 때(unread=0, 목록 있음) "모두 읽음" 버�
   await page.getByTestId('inbox-trigger').click()
   await expect(page.getByTestId('inbox-mark-all')).toBeDisabled()
 })
+
+// #610 — 20건 상한 해소: 스크롤이 바닥에 닿으면 offset 다음 페이지를 요청하고, 응답이 기존 목록에 이어붙는다.
+test('패널 바닥까지 스크롤하면 offset 다음 페이지를 요청해 추가 알림을 이어붙인다 (#610)', async ({
+  authenticatedPage: page,
+}) => {
+  const page1 = Array.from({ length: 20 }, (_, i) => notif({ id: 20 - i, issueNumber: 20 - i }))
+  const page2 = Array.from({ length: 5 }, (_, i) => notif({ id: 100 - i, issueNumber: 100 - i }))
+
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 25 })
+  // pathname 만 매칭하는 mockApi 대신 offset 쿼리로 분기해야 하므로 route 를 직접 건다.
+  await page.route(
+    (url) => url.pathname === '/api/v1/notifications',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      const url = new URL(route.request().url())
+      const offset = url.searchParams.get('offset')
+      const body = offset === '20' ? page2 : page1
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+  await expect(page.getByTestId('inbox-item')).toHaveCount(20)
+
+  // 바닥까지 스크롤 → 다음 페이지 로드 트리거
+  await page.getByTestId('inbox-scroll-area').evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+  })
+
+  await expect(page.getByTestId('inbox-item')).toHaveCount(25)
+  // 두 번째 페이지의 첫 항목(issueNumber 100, 21번째 행)이 실제로 이어붙었는지 확인 — 요소 존재만이 아닌 데이터 파이프라인 검증.
+  await expect(page.getByTestId('inbox-item').nth(20)).toContainText('WP-100')
+  await expect(page.getByTestId('inbox-item').last()).toContainText('WP-96')
+})
