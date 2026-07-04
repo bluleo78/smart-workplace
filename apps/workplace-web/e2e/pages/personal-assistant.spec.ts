@@ -347,6 +347,43 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByRole('option', { name: 'claude-sonnet-5' })).not.toBeVisible()
   })
 
+  // #642 — 모델 목록 조회(GET /users/me/assistant/models) 응답 지연 중에는 "모델" 필드가
+  // 완전히 빈 상태가 아니라 스켈레톤을 보여줘야 한다. 응답 도착 후 스켈레톤은 사라지고 Select 로 교체된다.
+  test('모델 목록 로딩 중 스켈레톤 표시 → 응답 도착 후 Select로 교체', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockStatus(page, () => configuredStatus({ model: 'claude-sonnet-5' }))
+
+    let resolveModels: (() => void) | undefined
+    const modelsResponseGate = new Promise<void>((resolve) => {
+      resolveModels = resolve
+    })
+    await page.route('**/api/v1/users/me/assistant/models', async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      await modelsResponseGate
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          provider: 'anthropic',
+          models: [{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5' }],
+        }),
+      })
+    })
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+
+    // 응답이 오기 전: 로딩 스켈레톤이 보이고, Select/폴백 텍스트는 아직 없어야 한다.
+    await expect(page.getByTestId('assistant-model-loading')).toBeVisible()
+    await expect(page.getByRole('combobox', { name: '모델' })).not.toBeVisible()
+
+    // 응답 도착 후: 스켈레톤은 사라지고 Select 가 나타난다.
+    resolveModels?.()
+    await expect(page.getByTestId('assistant-model-loading')).not.toBeVisible()
+    await expect(page.getByRole('combobox', { name: '모델' })).toBeVisible()
+  })
+
   // 모델 목록이 비어 있으면(프로바이더가 목록 조회 미지원) Select 대신 현재값 표시 + 직접 입력 폴백 노출.
   test('모델 목록 없음 → 현재값 표시 + 직접 입력 폴백', async ({ authenticatedPage: page }) => {
     await mockStatus(page, () => configuredStatus())

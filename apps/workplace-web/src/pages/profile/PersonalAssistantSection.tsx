@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../components/ui/select';
+import { Skeleton } from '../../components/ui/skeleton';
 import {
   useDisableMyAssistant,
   useMyAssistant,
@@ -317,7 +318,9 @@ export function PersonalAssistantSection() {
               {/* 프로바이더가 모델 목록 조회(GET /models)를 지원하지 않으면(예: 일부 opencode
                   베이스URL) modelOptions 가 항상 비어 있다 — 이는 오류가 아니라 그 프로바이더의
                   정상적인 특성이므로, Select 대신 현재 값 표시 + 직접 입력으로 대체한다. */}
-              {modelsLoading ? null : modelOptions.length > 0 ? (
+              {modelsLoading ? (
+                <Skeleton className="h-9 w-full" data-testid="assistant-model-loading" />
+              ) : modelOptions.length > 0 ? (
                 <Select value={status.model ?? ''} onValueChange={handleModelChange}>
                   <SelectTrigger id="assistant-model" data-testid="assistant-model">
                     <SelectValue placeholder="선택…" />
