@@ -2694,6 +2694,33 @@ test('AI 우선순위 위젯이 4분면으로 렌더되고 항목 클릭 시 원
   await expect(page).toHaveURL(/\/projects\/X\/issues\/1/)
 })
 
+test('AI 우선순위 위젯 — 일부 분면만 0건이어도 위젯 전체 빈 상태와 동일하게 아이콘이 붙는다 (#650)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['priority_quadrant']))
+  // '이슈 A' 는 importance/urgency 모두 90 → "긴급 + 중요" 분면만 채워지고 나머지 3분면(중요/낮음/긴급)은 0건.
+  await mockApi(page, 'GET', '/api/v1/me/priority-items', {
+    items: [
+      {
+        sourceType: 'ISSUE_DUE',
+        sourceId: '1',
+        title: '이슈 A',
+        deepLink: '/projects/X/issues/1',
+        importanceScore: 90,
+        urgencyScore: 90,
+        reason: '고객 마감',
+      },
+    ],
+  } satisfies PriorityItemsResponse)
+  await page.goto('/')
+
+  // "긴급" 분면(0건)이 위젯 전체 빈 상태와 같은 CheckCircle2 아이콘 + "항목 없음" 조합을 쓰는지 검증.
+  const urgentEmpty = page.getByTestId('priority-quadrant-urgent-empty')
+  await expect(urgentEmpty).toBeVisible()
+  await expect(urgentEmpty).toContainText('항목 없음')
+  await expect(urgentEmpty.locator('svg')).toBeVisible()
+})
+
 test('wide 위젯(synthesis)은 3열 그리드 전체 폭을 차지한다', async ({ authenticatedPage: page }) => {
   await mockWidgets(page)
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))

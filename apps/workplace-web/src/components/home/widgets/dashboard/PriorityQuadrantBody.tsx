@@ -80,7 +80,12 @@ export default function PriorityQuadrantBody({
               {q.label}
             </div>
             {bucket.length === 0 ? (
-              <div className="text-xs text-muted-foreground">항목 없음</div>
+              // 분면별 빈 상태 — 위젯 전체 빈 상태(58-67행)와 동일하게 CheckCircle2 아이콘을 붙여
+              // "로딩 미완료/오류"가 아닌 "의도된 빈 상태"임을 시각적으로 통일한다(#650).
+              <div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid={`priority-quadrant-${q.key}-empty`}>
+                <CheckCircle2 className="h-3 w-3 shrink-0" />
+                항목 없음
+              </div>
             ) : (
               <ul className="space-y-1">
                 {bucket.slice(0, MAX_PER_QUADRANT).map((item) => {
