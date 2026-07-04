@@ -43,7 +43,7 @@ export default function UserListPage() {
 
   return (
     <SettingsPage
-      title="구성원 관리"
+      title="구성원"
       actions={
         <Button data-testid="add-member-button" onClick={() => setAddOpen(true)}>
           구성원 추가

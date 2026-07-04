@@ -125,7 +125,7 @@ test.describe('역할 추가 Dialog — 닫기 후 재열기 시 폼 상태 초�
   test('Escape로 닫고 재열기 시 입력값이 초기화된다', async ({ adminPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/roles', mockRoles)
     await page.goto('/settings/roles')
-    await expect(page.getByText('역할 관리')).toBeVisible()
+    await expect(page.getByTestId('page-header')).toContainText('역할')
 
     // 역할 추가 다이얼로그 열기 — 이름 입력
     await page.getByRole('button', { name: '역할 추가' }).click()

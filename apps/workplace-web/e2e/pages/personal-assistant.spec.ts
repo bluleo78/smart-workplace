@@ -285,10 +285,11 @@ test.describe('프로필 개인 비서', () => {
     expect(requests).toHaveLength(0)
   })
 
-  test('비서 설정 페이지 제목', async ({ authenticatedPage: page }) => {
+  test('AI 비서 페이지 제목', async ({ authenticatedPage: page }) => {
     await mockStatus(page, unconfiguredStatus)
     await page.goto('/settings/assistant')
-    await expect(page.getByRole('heading', { name: '비서 설정' })).toBeVisible()
+    // 페이지 제목 = 사이드바 메뉴 라벨(#651)
+    await expect(page.getByRole('heading', { name: 'AI 비서' })).toBeVisible()
   })
 
   // #261 — 모델/생각의 깊이 선택기가 shadcn Select 로 렌더링되어야 한다 (native <select> 금지).
