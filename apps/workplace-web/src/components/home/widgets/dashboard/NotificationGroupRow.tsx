@@ -10,6 +10,7 @@ const TYPE_ICON: Record<NotificationResponse['type'], typeof UserPlus> = {
   ASSIGNED: UserPlus,
   COMMENTED: MessageSquare,
   STATUS_CHANGED: RefreshCw,
+  PRIORITY_CHANGED: RefreshCw,
   REMINDER: Calendar,
   CALENDAR_INVITED: Calendar,
   CALENDAR_RSVP_CHANGED: Calendar,

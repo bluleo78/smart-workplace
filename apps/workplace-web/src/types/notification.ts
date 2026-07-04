@@ -1,7 +1,14 @@
 // 백엔드 NotificationResponse 와 1:1 매칭.
 export interface NotificationResponse {
   id: number
-  type: 'ASSIGNED' | 'COMMENTED' | 'STATUS_CHANGED' | 'REMINDER' | 'CALENDAR_INVITED' | 'CALENDAR_RSVP_CHANGED'
+  type:
+    | 'ASSIGNED'
+    | 'COMMENTED'
+    | 'STATUS_CHANGED'
+    | 'PRIORITY_CHANGED'
+    | 'REMINDER'
+    | 'CALENDAR_INVITED'
+    | 'CALENDAR_RSVP_CHANGED'
   actorId: number | null
   actorName: string | null
   actorKind: string | null // 'HUMAN' | 'AGENT' | null

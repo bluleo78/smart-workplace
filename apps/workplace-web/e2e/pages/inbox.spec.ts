@@ -126,6 +126,31 @@ test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 
   await expect(page).toHaveURL(/\/calendar$/)
 })
 
+test('PRIORITY_CHANGED 알림은 상태 변경과 대칭적으로 렌더되고 이슈 상세로 이동한다 (#613)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({
+      id: 4,
+      type: 'PRIORITY_CHANGED',
+      actorId: 2,
+      actorName: '양동희',
+      actorKind: 'HUMAN',
+      commentId: null,
+    }),
+  ])
+  await mockApi(page, 'GET', '/api/v1/projects/WP/issues/3', {}, { status: 200 })
+  await mockApi(page, 'POST', '/api/v1/notifications/4/read', {}, { status: 204 })
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+  const item = page.getByTestId('inbox-item').first()
+  await expect(item).toContainText('양동희')
+  await expect(item).toContainText('우선순위를 변경했습니다')
+  await item.click()
+  await expect(page).toHaveURL(/\/projects\/WP\/issues\/3$/)
+})
+
 test('"모두 읽음" → read-all POST', async ({ authenticatedPage: page }) => {
   // unread-count 가 1 이상이어야 버튼이 활성화됨
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })

@@ -26,6 +26,7 @@ const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   ASSIGNED: '님이 회원님을 배정했습니다',
   COMMENTED: '님이 코멘트를 남겼습니다',
   STATUS_CHANGED: '님이 상태를 변경했습니다',
+  PRIORITY_CHANGED: '님이 우선순위를 변경했습니다',
   // REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 는 별도 분기로 렌더(아래 isCalendarType 목록 참조).
   REMINDER: '일정 알림',
   CALENDAR_INVITED: '님이 일정에 초대했습니다',

@@ -10,6 +10,7 @@ import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDu
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
@@ -110,6 +111,35 @@ class NotificationDispatcherTest {
         .createWithWatchersAndFanOut(
             eq(NotificationType.STATUS_CHANGED),
             eq(12L),
+            eq(List.of(ASSIGNEE_A, ASSIGNEE_B)),
+            eq(9L),
+            eq(null));
+  }
+
+  /**
+   * priority_changed: 상태 변경과 대칭적으로 모든 우선순위 변경에 알림 발행(임계치 조건 없음, #613). dispatcher 는
+   * service.createWithWatchersAndFanOut 에 assignees 와 issueId 를 넘긴다.
+   */
+  @Test
+  void onIssuePriorityChanged_delegatesToCreateWithWatchersAndFanOut_agentActorPreserved() {
+    var e =
+        new IssuePriorityChangedEvent(
+            15L,
+            "WP",
+            "WP-15",
+            "t",
+            AGENT_ACTOR,
+            List.of(ASSIGNEE_A, ASSIGNEE_B),
+            "MEDIUM",
+            "HIGH",
+            Instant.now());
+
+    dispatcher.onIssuePriorityChanged(e);
+
+    verify(service)
+        .createWithWatchersAndFanOut(
+            eq(NotificationType.PRIORITY_CHANGED),
+            eq(15L),
             eq(List.of(ASSIGNEE_A, ASSIGNEE_B)),
             eq(9L),
             eq(null));

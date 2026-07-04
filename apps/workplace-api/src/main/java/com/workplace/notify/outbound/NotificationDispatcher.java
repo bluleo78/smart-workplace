@@ -6,6 +6,7 @@ import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDu
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
@@ -125,6 +126,23 @@ public class NotificationDispatcher {
           NotificationType.STATUS_CHANGED, e.issueId(), e.assignees(), actorId(e.actor()), null);
     } catch (Exception ex) {
       log.warn("[notify] status_changed 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * 우선순위 변경: 담당자 ∪ 워처. 상태 변경과 대칭적으로 모든 변경에 알림(임계치 조건 없음, #613). 워처 조회는 service 트랜잭션 내에서 실행 — GUC 주입
+   * 후 RLS 통과.
+   *
+   * @see #onIssueCommented
+   */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onIssuePriorityChanged(IssuePriorityChangedEvent e) {
+    try {
+      service.createWithWatchersAndFanOut(
+          NotificationType.PRIORITY_CHANGED, e.issueId(), e.assignees(), actorId(e.actor()), null);
+    } catch (Exception ex) {
+      log.warn("[notify] priority_changed 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
     }
   }
 

@@ -5,7 +5,7 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * 이슈 도메인 이벤트 4종. ApplicationEventPublisher 로 발행되어 AFTER_COMMIT 단계에서 dispatcher 가 받는다. assignees 는
+ * 이슈 도메인 이벤트 5종. ApplicationEventPublisher 로 발행되어 AFTER_COMMIT 단계에서 dispatcher 가 받는다. assignees 는
  * 변경 후 현재 상태.
  */
 public final class IssueDomainEvents {
@@ -61,5 +61,17 @@ public final class IssueDomainEvents {
       List<UserSummary> assignees,
       String previousStatus,
       String newStatus,
+      Instant occurredAt) {}
+
+  /** 우선순위 변경 (예: MEDIUM → HIGH). 상태 변경과 대칭적으로 모든 변경에 발행(임계치 조건 없음, #613). */
+  public record IssuePriorityChangedEvent(
+      long issueId,
+      String projectKey,
+      String issueKey,
+      String title,
+      UserSummary actor,
+      List<UserSummary> assignees,
+      String previousPriority,
+      String newPriority,
       Instant occurredAt) {}
 }

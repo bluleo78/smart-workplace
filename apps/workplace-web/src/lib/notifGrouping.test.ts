@@ -31,6 +31,7 @@ describe('notifSection', () => {
     expect(notifSection(notif({ type: 'ASSIGNED' }))).toBe('mine')
     expect(notifSection(notif({ type: 'COMMENTED' }))).toBe('updates')
     expect(notifSection(notif({ type: 'STATUS_CHANGED' }))).toBe('updates')
+    expect(notifSection(notif({ type: 'PRIORITY_CHANGED' }))).toBe('updates')
     expect(notifSection(notif({ type: 'REMINDER' }))).toBe('updates')
   })
 })
@@ -48,6 +49,19 @@ describe('groupNotifications', () => {
     expect(updates[0].count).toBe(3)
     expect(updates[0].unreadIds).toEqual([1, 2, 3])
     expect(updates[0].latestAt).toBe('2026-06-16T03:00:00Z')
+  })
+
+  it('PRIORITY_CHANGED 는 상태 변경과 대칭적으로 델타에 집계된다 (#613)', () => {
+    const { updates } = groupNotifications([
+      notif({ id: 1, type: 'PRIORITY_CHANGED', createdAt: '2026-06-16T01:00:00Z' }),
+    ])
+    expect(updates[0].deltaSummary).toBe('우선순위 변경')
+
+    const { updates: updates2 } = groupNotifications([
+      notif({ id: 2, type: 'PRIORITY_CHANGED', createdAt: '2026-06-16T01:00:00Z' }),
+      notif({ id: 3, type: 'PRIORITY_CHANGED', createdAt: '2026-06-16T02:00:00Z' }),
+    ])
+    expect(updates2[0].deltaSummary).toBe('우선순위 변경 2건')
   })
 
   it('그룹에 ASSIGNED 가 있으면 내 차례로 분류한다', () => {

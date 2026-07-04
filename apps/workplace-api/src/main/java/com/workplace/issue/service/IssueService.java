@@ -22,6 +22,7 @@ import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.exception.SubtaskParentRequiredException;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
@@ -378,8 +379,9 @@ public class IssueService {
         before.id(), newTitle, newBody, newStatus, newPriority, newDue, newClosedAt);
     var after = issueRepository.findById(before.id()).orElseThrow();
 
-    // 상태 전이가 있을 때만 IssueStatusChangedEvent 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보)
-    if (!before.status().equals(after.status())) {
+    // 상태·우선순위 전이가 있을 때 각각 이벤트 발행 (AFTER_COMMIT 에서 ai-agent/알림 발사 후보).
+    // 우선순위는 상태와 대칭적으로 모든 변경에 발행(임계치 조건 없음, #613).
+    if (!before.status().equals(after.status()) || !before.priority().equals(after.priority())) {
       var actor =
           userRepository
               .findById(callerId)
@@ -387,17 +389,34 @@ public class IssueService {
               .orElse(null);
       var currentAssignees = assigneeRepository.findByIssue(after.id());
       String issueKey = project.key() + "-" + after.number();
-      publisher.publishEvent(
-          new IssueStatusChangedEvent(
-              after.id(),
-              project.key(),
-              issueKey,
-              after.title(),
-              actor,
-              currentAssignees,
-              before.status(),
-              after.status(),
-              Instant.now()));
+
+      if (!before.status().equals(after.status())) {
+        publisher.publishEvent(
+            new IssueStatusChangedEvent(
+                after.id(),
+                project.key(),
+                issueKey,
+                after.title(),
+                actor,
+                currentAssignees,
+                before.status(),
+                after.status(),
+                Instant.now()));
+      }
+
+      if (!before.priority().equals(after.priority())) {
+        publisher.publishEvent(
+            new IssuePriorityChangedEvent(
+                after.id(),
+                project.key(),
+                issueKey,
+                after.title(),
+                actor,
+                currentAssignees,
+                before.priority(),
+                after.priority(),
+                Instant.now()));
+      }
     }
 
     historyRecorder.recordChanges(callerId, before, after);

@@ -59,6 +59,7 @@ const TYPE_ORDER: NotificationResponse['type'][] = [
   'ASSIGNED',
   'COMMENTED',
   'STATUS_CHANGED',
+  'PRIORITY_CHANGED',
   'REMINDER',
   'CALENDAR_INVITED',
   'CALENDAR_RSVP_CHANGED',
@@ -73,6 +74,7 @@ function deltaSummary(group: NotificationResponse[]): string {
     if (t === 'ASSIGNED') parts.push(c > 1 ? `배정 ${c}건` : '배정')
     else if (t === 'COMMENTED') parts.push(`코멘트 ${c}건`)
     else if (t === 'STATUS_CHANGED') parts.push(c > 1 ? `상태 변경 ${c}건` : '상태 변경')
+    else if (t === 'PRIORITY_CHANGED') parts.push(c > 1 ? `우선순위 변경 ${c}건` : '우선순위 변경')
     else if (t === 'CALENDAR_INVITED') parts.push('일정 초대')
     else if (t === 'CALENDAR_RSVP_CHANGED') parts.push('참석 응답 변경')
     else parts.push('일정 알림')

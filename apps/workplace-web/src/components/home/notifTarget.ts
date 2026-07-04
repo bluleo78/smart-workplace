@@ -29,7 +29,7 @@ export function notifLabel(n: NotificationResponse): string {
 
 /**
  * "나를 호출한" 알림 판별 — 전용 MENTION 타입이 없어 COMMENTED(코멘트)를 멘션 프록시로 사용.
- * (백엔드 NotificationType: ASSIGNED|COMMENTED|STATUS_CHANGED|REMINDER — 멘션 타입 부재.)
+ * (백엔드 NotificationType: ASSIGNED|COMMENTED|STATUS_CHANGED|PRIORITY_CHANGED|REMINDER — 멘션 타입 부재.)
  * 합성 레이어의 멘션 카운트/주의 필요 필터가 동일 규칙을 공유한다.
  */
 export function isMentionLike(n: NotificationResponse): boolean {
