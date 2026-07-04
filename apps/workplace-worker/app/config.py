@@ -9,5 +9,7 @@ MAX_CHARS = int(os.environ.get("WORKER_EXTRACT_MAX_CHARS", str(1_000_000)))  # ~
 # 임베딩 모델(설정 가능). 기본 BGE-M3. 차원은 api 마이그레이션 vector(1024) 와 일치해야 한다.
 EMBED_MODEL = os.getenv("WORKER_EMBED_MODEL", "bge-m3")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-# 임베딩 입력 최대 문자 수(BGE-M3 8192 토큰 ≈ 안전 컷). 초과분은 절단.
-EMBED_MAX_CHARS = int(os.getenv("WORKER_EMBED_MAX_CHARS", "8000"))
+# 임베딩 입력 최대 문자 수. BGE-M3 컨텍스트 한계는 8192 "토큰"이지 char 가 아니다 —
+# 한글은 글자당 토큰 수가 많아(#553) 8000자 클립도 토큰 한도를 초과해 Ollama 500 을 유발할 수 있다.
+# 2000자를 기본 안전선으로 하향(추가 안전망은 embed.py 의 500 시 축소 재시도 백오프).
+EMBED_MAX_CHARS = int(os.getenv("WORKER_EMBED_MAX_CHARS", "2000"))
