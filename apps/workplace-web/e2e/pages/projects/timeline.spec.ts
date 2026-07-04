@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
-import { createProject } from '../../factories/project.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 
@@ -11,6 +11,18 @@ const KEY = 'WP';
 
 function setupTimelineStubs(page: Page) {
   return Promise.all([
+    page.route(`**/api/v1/projects/${KEY}/members`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const members = [
+        createMember({ userId: 2, name: '김개발', username: 'kim@example.com' }),
+        createMember({ userId: 3, name: '이테스트', username: 'lee@example.com', role: 'MEMBER' }),
+      ];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(members) });
+    }),
+    page.route(`**/api/v1/projects/${KEY}/labels`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }),
     page.route(`**/api/v1/projects/${KEY}`, (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       return route.fulfill({
@@ -83,6 +95,59 @@ test('이슈 막대·사이클 밴드·오늘선 렌더', async ({ authenticated
   await expect(page.getByText('취소된 이슈')).toHaveCount(0);
   await expect(page.getByTestId('timeline-cycle-band')).toContainText('사이클 7');
   await expect(page.getByTestId('timeline-today-line')).toBeVisible();
+});
+
+test('이슈 막대가 상태별로 다른 색으로 렌더된다 (#639)', async ({ authenticatedPage: page }) => {
+  await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject({ key: KEY })) }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/members`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/cycles`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/milestones`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/issue-dependencies`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    const issues = [
+      createIssue({ number: 1, title: '할일 이슈', status: 'TODO', startDate: '2026-07-01', dueDate: '2026-07-05' }),
+      createIssue({
+        number: 2,
+        title: '진행중 이슈',
+        status: 'IN_PROGRESS',
+        startDate: '2026-07-06',
+        dueDate: '2026-07-10',
+      }),
+      createIssue({ number: 3, title: '완료 이슈', status: 'DONE', startDate: '2026-07-11', dueDate: '2026-07-15' }),
+    ];
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(createIssueSearchResponse(issues)),
+    });
+  });
+
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+
+  const bg = async (issueNumber: number) =>
+    page
+      .locator(`.wx-bar[data-task-id$="${issueNumber}"]`)
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+
+  await expect.poll(() => bg(1)).not.toBe('');
+  const [todoBg, progressBg, doneBg] = await Promise.all([bg(1), bg(2), bg(3)]);
+  expect(todoBg).not.toBe(progressBg);
+  expect(progressBg).not.toBe(doneBg);
+  expect(todoBg).not.toBe(doneBg);
 });
 
 test('막대 드래그 이동 시 startDate+dueDate PATCH', async ({ authenticatedPage: page }) => {
@@ -273,4 +338,29 @@ test('주/월 줌 토글', async ({ authenticatedPage: page }) => {
   await monthButton.click();
   await expect(monthButton).toHaveAttribute('aria-pressed', 'true');
   await expect(weekButton).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('필터바에 담당자/라벨/마일스톤 facet 이 노출된다 (#638)', async ({ authenticatedPage: page }) => {
+  await setupTimelineStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+
+  await page.getByTestId('add-filter-trigger').click();
+  await expect(page.getByTestId('add-filter-facet-assignee')).toBeVisible();
+  await expect(page.getByTestId('add-filter-facet-label')).toBeVisible();
+  await expect(page.getByTestId('add-filter-facet-milestone')).toBeVisible();
+
+  await page.getByTestId('add-filter-facet-assignee').click();
+  await expect(page.getByTestId('facet-value-assignee-2')).toContainText('김개발');
+});
+
+test('마일스톤 facet 선택 시 URL 파라미터에 반영된다 (#638)', async ({ authenticatedPage: page }) => {
+  await setupTimelineStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+
+  await page.getByTestId('add-filter-trigger').click();
+  await page.getByTestId('add-filter-facet-milestone').click();
+  const milestoneOption = page.getByTestId('facet-value-milestone-1');
+  await expect(milestoneOption).toContainText('v1 출시');
+  await milestoneOption.click();
+  await expect(page).toHaveURL(/milestone=1/);
 });

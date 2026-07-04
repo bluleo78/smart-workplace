@@ -65,6 +65,14 @@ export interface TimelineGanttProps {
   onLaneClick: (date: string, anchorRect: DOMRect) => void
 }
 
+// 이슈 상태별 막대 색상 — IssueStatusIcon/IssueStatusBadge 와 동일한 시맨틱 토큰(hex 금지). CANCELED 이슈는
+// splitSchedulable 에서 막대 목록 자체에 포함되지 않아 매핑 대상이 아니다.
+const STATUS_BAR_COLOR: Record<'TODO' | 'IN_PROGRESS' | 'DONE', string> = {
+  TODO: 'var(--muted-foreground)',
+  IN_PROGRESS: 'var(--primary)',
+  DONE: 'var(--success)',
+}
+
 // 마일스톤은 이슈번호(number)와 SVAR task id 네임스페이스가 충돌하지 않도록 문자열 접두어를 쓴다.
 const MILESTONE_ID_PREFIX = 'milestone-'
 const milestoneTaskId = (id: number) => `${MILESTONE_ID_PREFIX}${id}`
@@ -116,7 +124,7 @@ export function TimelineGantt({
 
   const tasks = useMemo<ITask[]>(() => {
     // SVAR 는 bar 엘리먼트에 task 필드 기반 커스텀 className 주입 API 가 없음(고정 `wx-bar wx-${type}`,
-    // 스파이크 노트 참조) — 상태별 색상/due-only 구분 스타일은 taskTemplate 로 구현 가능하나 아직 미구현(백로그).
+    // 스파이크 노트 참조) — 상태별 색상은 아래 이펙트에서 DOM에 직접 CSS 변수를 주입해 구현한다(#639).
     const barTasks: ITask[] = bars.map((bar) => {
       const startDate = bar.start ? parseISO(bar.start) : parseISO(bar.due)
       const endDate = addDays(parseISO(bar.due), 1)
@@ -230,6 +238,36 @@ export function TimelineGantt({
     scroller.addEventListener('scroll', applyTransform)
     return () => scroller.removeEventListener('scroll', applyTransform)
   }, [cycles, zoom, tasks])
+
+  // 이슈 막대 상태별 색상(#639) — SVAR 는 task 필드 기반 className/style 주입 API 가 없어(스파이크 노트),
+  // 렌더된 `.wx-bar` DOM 노드에 직접 CSS 변수를 주입한다. `--wx-gantt-task-color`(기본 배경)와
+  // `--wx-gantt-task-fill-color`(progress 오버레이 배경, DONE=100% 라 전면 노출)를 모두 덮어써야
+  // 완료 이슈 막대가 실제로 success 색으로 보인다. SVAR(내부 Svelte 렌더러)가 자체 리렌더 시 bar
+  // 엘리먼트의 style 속성을 통째로 다시 쓰기 때문에(마운트 직후 1회 주입만으로는 씻겨나감),
+  // MutationObserver 로 재적용한다 — 이미 값이 같으면 재기록을 skip 해 무한 루프를 막는다.
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const applyColors = () => {
+      for (const bar of bars) {
+        if (bar.status === 'CANCELED') continue
+        const color = STATUS_BAR_COLOR[bar.status]
+        const el = container.querySelector<HTMLElement>(`.wx-bar[data-task-id$="${bar.issueNumber}"]`)
+        if (!el || el.style.getPropertyValue('--wx-gantt-task-color') === color) continue
+        el.style.setProperty('--wx-gantt-task-color', color)
+        el.style.setProperty('--wx-gantt-task-fill-color', color)
+      }
+    }
+    applyColors()
+    const observer = new MutationObserver(applyColors)
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class'],
+    })
+    return () => observer.disconnect()
+  }, [bars, tasks])
 
   // 눈금 빈 레인 클릭(인라인 생성) 은 SVAR 액션에 대응 항목이 없어(스파이크 노트 확인)
   // 스크롤 컨테이너(`.wx-chart`, 스파이크 노트의 셀렉터)에 네이티브 클릭 리스너를 붙여

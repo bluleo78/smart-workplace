@@ -20,6 +20,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,15 +40,20 @@ public class AssistantModelsController {
   private final PersonalAssistantRepository personalRepo;
   private final ObjectMapper objectMapper;
 
-  /** 관리자 — 임의 baseURL+apiKey 로 등록 전 모델 프로브. */
+  /**
+   * 관리자 — 임의 baseURL+apiKey 로 등록 전 모델 프로브. 이 핸들러 자체는 리포지토리를 호출하지 않지만, 같은 컨트롤러가 {@link
+   * PersonalAssistantRepository} 를 주입받아 #640 아키텍처 가드 대상이라 클래스 단위로 {@code @Transactional} 을 통일한다.
+   */
   @PostMapping("/api/v1/admin/agents/models/probe")
   @RequirePermission("user:write")
+  @Transactional(readOnly = true)
   public ProbeModelsResponse adminProbe(@Valid @RequestBody ProbeModelsRequest req) {
     return probe(req.providerConfig());
   }
 
   /** 본인 — 임의 baseURL+apiKey 로 등록 전 모델 프로브(개인 비서). */
   @PostMapping("/api/v1/users/me/assistant/models/probe")
+  @Transactional(readOnly = true)
   public ProbeModelsResponse myProbe(@Valid @RequestBody ProbeModelsRequest req) {
     return probe(req.providerConfig());
   }
@@ -55,12 +61,19 @@ public class AssistantModelsController {
   /** 관리자 — AGENT 의 저장된 자격증명 기준 모델 목록. */
   @GetMapping("/api/v1/admin/agents/{userId}/models")
   @RequirePermission("user:write")
+  @Transactional(readOnly = true)
   public AgentModelsResponse adminModels(@PathVariable Long userId) {
     return resolveAgentModels(userId);
   }
 
-  /** 본인 — 개인 비서의 저장된 자격증명 기준 모델 목록. 개인 비서 미설정이면 409(IllegalStateException 공통 매핑). */
+  /**
+   * 본인 — 개인 비서의 저장된 자격증명 기준 모델 목록. 개인 비서 미설정이면 409(IllegalStateException 공통 매핑).
+   *
+   * <p>{@code user} 테이블 자체는 RLS 대상이 아니라 지금 당장 fail-closed 로 이어지진 않지만, 컨트롤러가 리포지토리를 직접 호출하는 경로는 #640
+   * 아키텍처 가드(RlsTransactionalArchTest)가 일괄로 {@code @Transactional} 을 요구한다.
+   */
   @GetMapping("/api/v1/users/me/assistant/models")
+  @Transactional(readOnly = true)
   public AgentModelsResponse myModels(@AuthenticationPrincipal Long callerId) {
     long agentId =
         personalRepo

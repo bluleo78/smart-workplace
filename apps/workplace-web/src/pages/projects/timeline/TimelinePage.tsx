@@ -145,7 +145,7 @@ export default function TimelinePage() {
         }
       />
       <div className="border-b px-6 py-1">
-        <TimelineFilterBar />
+        <TimelineFilterBar projectKey={key} />
       </div>
       <div className="min-h-0 flex-1 p-6" data-testid="timeline-gantt">
         <TimelineGantt
