@@ -172,6 +172,30 @@ test.describe('태스크 보드/검색', () => {
     await expect(page).not.toHaveURL(/status=IN_PROGRESS/);
   });
 
+  test('상태 필터 칩 accessible name 중복 없음 (#657 회귀)', async ({ authenticatedPage: page }) => {
+    // 무엇을: 상태 필터 칩 버튼의 접근성 이름이 "상태:"(칩 prefix) + "상태: 할 일"(아이콘
+    // aria-label) + "할 일"(옵션 라벨) 로 중복 announce 되던 버그(#657) 재발 방지.
+    // decorative 아이콘은 aria-hidden 처리돼 칩 텍스트만 접근성 이름에 남아야 한다.
+    await stubProjectMeta(page);
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([])),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}`);
+    await page.getByTestId('add-filter-trigger').click();
+    await page.getByTestId('add-filter-facet-status').click();
+    await page.getByTestId('facet-value-status-TODO').click();
+    await page.getByTestId('facet-value-status-IN_PROGRESS').click();
+    await page.keyboard.press('Escape');
+
+    const chip = page.getByTestId('filter-chip-status').getByRole('button').first();
+    await expect(chip).toHaveAccessibleName('상태: 할 일 +1');
+  });
+
   test('FilterChip × 버튼 터치 타겟 24px 이상 (WCAG 2.5.8 회귀)', async ({
     authenticatedPage: page,
   }) => {

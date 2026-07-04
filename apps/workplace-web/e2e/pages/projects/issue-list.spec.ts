@@ -100,16 +100,13 @@ test.describe('팀 리스트 뷰', () => {
     await page.getByTestId('add-filter-trigger').click();
     await page.getByTestId('add-filter-facet-status').click();
 
-    // 각 상태 옵션 내부에 IssueStatusIcon (role=img + aria-label) 이 렌더되어야 한다.
-    for (const [value, ariaLabel] of [
-      ['TODO', '상태: 할 일'],
-      ['IN_PROGRESS', '상태: 진행 중'],
-      ['DONE', '상태: 완료'],
-      ['CANCELED', '상태: 취소'],
-    ]) {
+    // 각 상태 옵션 내부에 IssueStatusIcon 이 렌더되어야 한다.
+    // 옵션 자체에 텍스트 라벨이 인접해 있으므로 아이콘은 decorative(aria-hidden) 처리되어
+    // 접근성 이름 중복 announce 를 피한다 (#657) — 시각 렌더 여부는 svg 존재로 확인.
+    for (const value of ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']) {
       const option = page.getByTestId(`facet-value-status-${value}`);
       await expect(option).toBeVisible();
-      await expect(option.locator('[role="img"]').first()).toHaveAttribute('aria-label', ariaLabel);
+      await expect(option.locator('svg').first()).toHaveAttribute('aria-hidden', 'true');
     }
 
     // ── 우선순위 필터 아이콘 검증 ──────────────────────────────────────────

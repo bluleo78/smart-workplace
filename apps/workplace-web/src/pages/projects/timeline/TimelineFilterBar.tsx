@@ -38,7 +38,7 @@ export function TimelineFilterBar({ projectKey }: { projectKey: string }) {
         label: o.label,
         render: (
           <span className="flex items-center gap-1.5">
-            <IssueStatusIcon status={o.value as IssueStatus} />
+            <IssueStatusIcon status={o.value as IssueStatus} decorative />
             {o.label}
           </span>
         ),
