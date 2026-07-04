@@ -28,8 +28,12 @@ import { type CreateIssueFormData,createIssueSchema } from '../../../lib/validat
 // personal=true 면 개인 프로젝트(#226) — 유형 select 를 숨긴다. 기본값 effect 가 typeId 를 TASK 로
 // 채우므로 셀렉트가 없어도 payload 의 typeId 는 TASK 로 유지된다.
 export function IssueCreateDialog({
-  projectKey, open, onOpenChange, personal = false,
-}: { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean }) {
+  projectKey, open, onOpenChange, personal = false, initialTypeId,
+}: {
+  projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean;
+  // 유형 기본값 오버라이드 — 에픽 패널 「＋ 에픽 만들기」가 EPIC id 를 넘긴다. 미지정 시 기존 TASK 기본.
+  initialTypeId?: number;
+}) {
   const create = useCreateIssue(projectKey);
   const classify = useIssueAiClassify(projectKey);
   // AI 제안 이유 — 제안 후 버튼 아래 표시.
@@ -61,7 +65,9 @@ export function IssueCreateDialog({
     const currentTypeId = watch('typeId');
     if (currentTypeId) return;
     const task = list.find((t) => t.name === 'TASK');
-    setValue('typeId', task?.id ?? list[0].id);
+    // initialTypeId 우선(존재하는 유형일 때만) → TASK → 첫 항목.
+    const preferred = initialTypeId != null ? list.find((t) => t.id === initialTypeId) : undefined;
+    setValue('typeId', preferred?.id ?? task?.id ?? list[0].id);
     // open 의존: 다이얼로그 재오픈 시 reset 이 typeId 를 지운 뒤 이 effect 가 다시 TASK 기본값을 채우도록 한다.
     // (개인 프로젝트는 select 가 숨겨져 사용자 보정이 불가하므로 payload typeId 누락을 막는 것이 특히 중요.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
