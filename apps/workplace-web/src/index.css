@@ -50,6 +50,8 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-subtle: var(--warning-subtle);
+  --color-epic: var(--epic);
+  --color-epic-subtle: var(--epic-subtle);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
   --color-info-subtle: var(--info-subtle);
@@ -127,6 +129,9 @@
   --ai-accent: oklch(0.52 0.18 293);
   --ai-accent-foreground: oklch(0.985 0 0);
   --ai-accent-subtle: oklch(0.96 0.03 293);
+  /* 타임라인 에픽 계층 시각화 전용(#649, 보라 — 미사용 chart-3 값 채택) */
+  --epic: oklch(0.5 0.18 300);
+  --epic-subtle: oklch(0.96 0.03 300);
   --caution: oklch(0.7 0.15 55);
   --caution-foreground: oklch(0.2 0 0);
   --caution-subtle: oklch(0.96 0.04 55);
@@ -191,6 +196,8 @@
   --ai-accent: oklch(0.72 0.15 293);
   --ai-accent-foreground: oklch(0.985 0 0);
   --ai-accent-subtle: oklch(0.2 0.04 293);
+  --epic: oklch(0.65 0.2 300);
+  --epic-subtle: oklch(0.25 0.05 300);
   --caution: oklch(0.78 0.13 55);
   --caution-foreground: oklch(0.985 0 0);
   --caution-subtle: oklch(0.2 0.04 55);

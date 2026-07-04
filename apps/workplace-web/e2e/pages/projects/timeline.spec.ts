@@ -340,17 +340,16 @@ test('주/월 줌 토글', async ({ authenticatedPage: page }) => {
   await expect(weekButton).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('필터바에 담당자/라벨/마일스톤 facet 이 노출된다 (#638)', async ({ authenticatedPage: page }) => {
+test('담당자는 아바타 스택, 라벨/마일스톤은 facet 으로 노출된다 (#638, #647)', async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
 
+  // 담당자는 아바타 스택 필터로 대체 — facet 목록에서는 제외된다 (#647).
+  await expect(page.getByTestId('assignee-avatar-2')).toBeVisible();
   await page.getByTestId('add-filter-trigger').click();
-  await expect(page.getByTestId('add-filter-facet-assignee')).toBeVisible();
+  await expect(page.getByTestId('add-filter-facet-assignee')).toHaveCount(0);
   await expect(page.getByTestId('add-filter-facet-label')).toBeVisible();
   await expect(page.getByTestId('add-filter-facet-milestone')).toBeVisible();
-
-  await page.getByTestId('add-filter-facet-assignee').click();
-  await expect(page.getByTestId('facet-value-assignee-2')).toContainText('김개발');
 });
 
 test('마일스톤 facet 선택 시 URL 파라미터에 반영된다 (#638)', async ({ authenticatedPage: page }) => {

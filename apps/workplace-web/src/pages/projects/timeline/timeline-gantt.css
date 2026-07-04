@@ -1,0 +1,38 @@
+/* 타임라인 간트 타이포/밀도 오버라이드 (#646) — 디자인 시스템 02-typography 스케일 매핑.
+   SVAR Willow 테마 위에 .timeline-gantt-root 스코프로만 적용한다(전역 오염 금지).
+   - 상단 스케일(월/년): 14px/600 (heading-column 급)
+   - 하단 스케일(주/월): 12px, muted (caption 급)
+   - 그리드 셀·막대 라벨: 최소 12px (12px 미만 금지 — 접근성 §7) */
+.timeline-gantt-root .wx-scale .wx-row:first-child .wx-cell {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.timeline-gantt-root .wx-scale .wx-row:last-child .wx-cell {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+/* 그리드(좌측 표) 셀 — 이슈 제목 14px, 잘릴 때 말줄임. */
+.timeline-gantt-root .wx-grid .wx-cell {
+  font-size: 14px;
+}
+/* 막대 안 라벨 12px/500 (label-secondary 급) — 40px 행에서 세로 중앙. */
+.timeline-gantt-root .wx-bar {
+  font-size: 12px;
+  font-weight: 500;
+}
+/* 에픽 롤업 막대 (#649) — 신규 --epic 토큰. 드래그 방지는 pointer-events 차단으로
+   (SVAR readonly 는 전역이라 per-task 제어 불가 — 그리드 행 클릭 이동은 onSelectTask 가 처리). */
+.timeline-gantt-root .wx-bar.wx-summary {
+  --wx-gantt-summary-color: var(--epic);
+  pointer-events: none;
+}
+/* range 없는 그룹(no-epic)의 막대는 숨긴다 — 라벨 행만 남긴다. */
+.timeline-gantt-root .wx-bar.wx-summary[data-task-id$='group-no-epic'] {
+  display: none;
+}
+/* 그리드 에픽 행 제목 강조 — SVAR 는 문자열 id 에 ':' 접두어를 붙여 렌더한다(setID, lib-dom).
+   막대 규칙(위 no-epic 숨김)과 동일하게 포함 매칭(*=)으로 통일해 접두어 유무에 견고하게 한다. */
+.timeline-gantt-root .wx-grid .wx-row[data-id*='group-'] .wx-cell {
+  font-weight: 600;
+}
