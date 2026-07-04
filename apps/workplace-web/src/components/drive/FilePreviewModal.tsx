@@ -153,7 +153,9 @@ export function FilePreviewModal({
         {showSummaryCard && (
           <AiContent label="AI 요약" collapsible defaultOpen={false} data-testid="drive-summary-card">
             {summary != null ? (
-              summary
+              // #633: raw summary 문자열 그대로 렌더 시 LLM이 생성한 마크다운(#, ** 등)이
+              // 파싱 없이 그대로 노출됨 — DM 채팅과 동일하게 MarkdownMessage 로 감싸 파싱.
+              <MarkdownMessage>{summary}</MarkdownMessage>
             ) : (
               <div className="space-y-1" data-testid="drive-summary-loading">
                 <div className="h-3 w-full animate-pulse rounded bg-ai-accent/20" />

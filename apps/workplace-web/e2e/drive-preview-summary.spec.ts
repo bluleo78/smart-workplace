@@ -60,6 +60,22 @@ test('요약 DONE → 카드 표시(기본 접힘, 클릭 시 펼침)', async ({
   await expect(card).toContainText('핵심 요약')
 })
 
+test('요약에 마크다운 헤딩 포함 → 원시 기호(#) 대신 파싱된 heading 렌더 (#633)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupDrive(page)
+  await page.route('**/api/v1/drive/files/*/summary', (route) =>
+    route.fulfill({ json: { summary: '# 파일 요약: 문서.docx\n\n본문 내용입니다.', status: 'DONE' } }),
+  )
+  await openPreview(page)
+  const card = page.getByTestId('drive-summary-card')
+  await card.locator('summary').click()
+  // 파싱된 heading 요소로 렌더 — 원시 '#' 기호가 텍스트로 남지 않아야 한다.
+  const heading = card.getByRole('heading', { name: '파일 요약: 문서.docx' })
+  await expect(heading).toBeVisible()
+  await expect(card).not.toContainText('# 파일 요약')
+})
+
 test('추출 진행중 → 펼치면 스켈레톤 표시', async ({ authenticatedPage: page }) => {
   await setupDrive(page)
   await page.route('**/api/v1/drive/files/*/summary', (route) =>
