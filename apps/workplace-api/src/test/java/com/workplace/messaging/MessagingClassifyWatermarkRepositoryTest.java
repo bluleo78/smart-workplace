@@ -20,6 +20,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class MessagingClassifyWatermarkRepositoryTest {
 
+  /**
+   * channel_id 는 FK 없는 순수 BIGINT라 SERIAL 시퀀스와 절대 충돌하지 않는 음수를 sentinel 로 쓴다 — 공유 test DB(5435)의
+   * channel 시퀀스는 세션을 넘어 계속 증가해 999 같은 작은 양수 리터럴은 언젠가 실제 channel id 와 충돌한다(#95 재발, watermark 잔존 데이터로
+   * 인한 flaky).
+   */
+  private static final long CHANNEL_ID = -200L;
+
   @Autowired MessagingClassifyWatermarkRepository repo;
   @Autowired DSLContext dsl;
 
@@ -32,29 +39,29 @@ class MessagingClassifyWatermarkRepositoryTest {
   /** 초기 get 은 0을 반환해야 함 */
   @Test
   void get_없으면_0_반환() {
-    assertThat(repo.get(999L)).isEqualTo(0L);
+    assertThat(repo.get(CHANNEL_ID)).isEqualTo(0L);
   }
 
   /** advance 후 get 이 전진된 값을 반환 */
   @Test
   void advance_후_get_전진() {
-    repo.advance(200L, 100L);
-    assertThat(repo.get(200L)).isEqualTo(100L);
+    repo.advance(CHANNEL_ID, 100L);
+    assertThat(repo.get(CHANNEL_ID)).isEqualTo(100L);
   }
 
   /** advance 로 더 작은 값을 전달해도 watermark 후퇴하지 않음(GREATEST) */
   @Test
   void advance_후퇴금지_GREATEST() {
-    repo.advance(200L, 100L);
-    repo.advance(200L, 50L); // 후퇴 시도
-    assertThat(repo.get(200L)).isEqualTo(100L);
+    repo.advance(CHANNEL_ID, 100L);
+    repo.advance(CHANNEL_ID, 50L); // 후퇴 시도
+    assertThat(repo.get(CHANNEL_ID)).isEqualTo(100L);
   }
 
   /** advance 재호출로 더 큰 값을 전달하면 전진 */
   @Test
   void advance_큰값으로_전진() {
-    repo.advance(200L, 100L);
-    repo.advance(200L, 200L);
-    assertThat(repo.get(200L)).isEqualTo(200L);
+    repo.advance(CHANNEL_ID, 100L);
+    repo.advance(CHANNEL_ID, 200L);
+    assertThat(repo.get(CHANNEL_ID)).isEqualTo(200L);
   }
 }
