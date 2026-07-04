@@ -1087,7 +1087,9 @@ export function buildTools(
   // #381: 서브에이전트 최종 답변 제출 도구 — 위임된 서브에이전트가 작업을 마치고 사용자에게 보여줄 최종 답변을 제출한다.
   // Agent tool_result 는 stream-json 에서 collapsed(축약) 되어 추출 불가하므로(run-ai-compose 주석),
   // 서브에이전트가 직접 WORKPLACE_SUBAGENT_RESPONSE_PATH 사이드카에 답을 기록하고 run-ai-compose 가 권위 답으로 읽는다.
-  // first-write-guard: 첫 호출 답을 보존(중복 호출 시 덮지 않음).
+  // #467: 과거 first-write-guard(existsSync 면 덮지 않음)는 한 턴에 ≥2개 서브에이전트로 위임되면
+  // 두 번째 이후 답을 조용히 버렸다. writeProposal 의 NDJSON append 패턴을 미러해 모든 서브에이전트
+  // 답을 줄 단위로 보존한다(호출 측이 전부 읽어 결합).
   const submitResponseTool: McpTool = {
     name: 'submit_response',
     description:
@@ -1095,21 +1097,18 @@ export function buildTools(
     inputSchema: z.object({ text: z.string().min(1) }),
     async handler(args) {
       const { text } = z.object({ text: z.string().min(1) }).parse(args);
-      // #462 슬라이스4: 브리지가 있으면 호스트 콜백으로 답 제출(first-write-guard 는 호스트가 수행).
+      // #462 슬라이스4: 브리지가 있으면 호스트 콜백으로 답 제출(다중 위임 결합은 호스트가 수행, #467).
       if (hostBridge) {
         hostBridge.onSubmitResponse(text);
         return '답변을 제출했습니다.';
       }
-      // 폴백(stdio MCP 경로): 사이드카 first-write-guard.
+      // 폴백(stdio MCP 경로): 사이드카 NDJSON append — 한 줄당 서브에이전트 답 1건(#467).
       const sidecarPath = process.env.WORKPLACE_SUBAGENT_RESPONSE_PATH;
       if (!sidecarPath) {
         return '답변을 제출했습니다.';
       }
-      const { existsSync, writeFileSync } = await import('node:fs');
-      if (existsSync(sidecarPath)) {
-        return '답변을 제출했습니다.';
-      }
-      writeFileSync(sidecarPath, JSON.stringify({ text }), 'utf8');
+      const { appendFileSync } = await import('node:fs');
+      appendFileSync(sidecarPath, JSON.stringify({ text }) + '\n', 'utf8');
       return '답변을 제출했습니다.';
     },
   };

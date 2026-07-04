@@ -194,7 +194,9 @@ export async function runAiChatStream(
   // HostBridge 콜백이 SDK query 실행 중 이 변수에 비동기로 쓴다.
   // 타입 어노테이션 명시 필수: 클로저 전용 할당이면 TS 가 never 로 좁힘(#462 유의사항).
   const proposals: unknown[] = [];
-  let subagentText: string | null = null;
+  // #467: 한 턴에 ≥2 서브에이전트로 위임될 수 있다(예: 채널 공지 + 이슈 코멘트). 과거엔 첫 답만
+  // 보존하는 first-write-guard 로 두 번째 이후 답이 조용히 누락됐다 — 배열로 전부 누적해 결합한다.
+  const subagentTexts: string[] = [];
   // unassign 타입 명시: 클로저 내 할당(onUnassignResult)만으로는 TS 가 never 로 좁히므로 명시 필수.
   // unassign 은 onUnassignResult 콜백 + 복합재처리 두 곳에서 재할당되므로 let 이 정확하다.
   // as 캐스트는 TS 제어 흐름 좁힘(never 추론) 우회에 필수 — 삭제 시 line 323 타입 에러.
@@ -205,9 +207,9 @@ export async function runAiChatStream(
     onProposal: (action) => {
       proposals.push(action);
     },
-    // first-write-guard: 위임 답은 최초 1회만 기록. 재진입(다중 submit_response) 시 첫 답을 보존.
+    // #467: 위임 답은 호출 순서대로 전부 누적(더 이상 첫 답만 보존하지 않는다).
     onSubmitResponse: (text: string) => {
-      if (subagentText === null) subagentText = text;
+      subagentTexts.push(text);
     },
     onUnassignResult: (result: { ok: boolean; canonical?: string }) => {
       unassign = result;
@@ -363,16 +365,17 @@ export async function runAiChatStream(
   // #404: show_issue_detail 위젯 중 존재하지 않는 이슈 번호를 서버 검증으로 드롭한다.
   const filteredWidgets = await filterIssueDetailWidgets(parsed.widgets, deps.client, agentId);
   const widgets = filteredWidgets.length > 0 ? filteredWidgets : null;
-  // #463: 답 텍스트 결정(우선순위)
-  //   1) subagentText — HostBridge.onSubmitResponse 로 수신한 서브에이전트 텍스트
+  // #463/#467: 답 텍스트 결정(우선순위)
+  //   1) subagentTexts — HostBridge.onSubmitResponse 로 수신한 서브에이전트 텍스트(들). 한 턴에
+  //      ≥2 위임이 있으면 순서대로 결합한다(첫 답만 남기던 first-write-guard 버그 수정, #467).
   //   2) streamedText — onDelta 로 이미 라이브 emit 된 라우터 prose(별도 onText 불필요)
   //   3) pendingActions 있으면 제안 안내(서브에이전트가 propose 만 하고 submit_response 누락 시)
   //   4) 위젯만 있으면 빈 텍스트(show_* 단독 호출 — fallback 문구 오노출 방지)
   //   5) 결정적 fallback
   let answerText: string;
-  if (subagentText) {
-    // 위임 답은 onText 로 1회 emit(onDelta 미경유 — 최종 완성 텍스트).
-    answerText = subagentText;
+  if (subagentTexts.length > 0) {
+    // 위임 답(들)은 onText 로 1회 emit(onDelta 미경유 — 최종 완성 텍스트). 여러 건이면 순서대로 결합.
+    answerText = subagentTexts.join('\n\n');
     onText(answerText);
   } else if (streamedText.trim()) {
     // 라우터 prose 는 이미 onDelta 로 라이브 emit 됨 — onText 재호출 불필요.
@@ -391,7 +394,7 @@ export async function runAiChatStream(
   // #432: 라우터 result 이벤트의 토큰 사용량을 done 이벤트로 전달(LLM 인증 비용 가시화).
   log.info('ai-chat', 'cli_done', {
     requestId: input.requestId,
-    subagentSidecar: !!subagentText,
+    subagentSidecar: subagentTexts.length > 0,
     streamedChars: streamedText.length,
     widgetCount: widgets ? widgets.length : 0,
   });
@@ -401,7 +404,7 @@ export async function runAiChatStream(
     widgetCount: widgets ? widgets.length : 0,
     pendingActionCount: pendingActions.length,
     usage: parsed.usage,
-    source: subagentText ? 'subagent' : streamedText.trim() ? 'router_prose' : widgets ? 'widget' : 'fallback',
+    source: subagentTexts.length > 0 ? 'subagent' : streamedText.trim() ? 'router_prose' : widgets ? 'widget' : 'fallback',
   });
   return { fullText: answerText, widgets, pendingActions, usage: parsed.usage };
 }

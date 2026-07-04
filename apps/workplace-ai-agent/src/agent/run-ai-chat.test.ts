@@ -253,16 +253,43 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
     expect(mcp.onBehalfOfId).not.toBe(7);
   });
 
-  // Fix 2: first-write-guard — onSubmitResponse 가 두 번 호출돼도 첫 답만 기록한다.
-  it('first-write-guard: onSubmitResponse 두 번 호출 → 첫 답만 fullText', async () => {
+  // #467: 과거 first-write-guard 는 onSubmitResponse 가 두 번 호출되면 첫 답만 남기고 두 번째를
+  // 조용히 버렸다(한 턴 멀티 위임 시 두 번째 이후 서브에이전트 답 누락). 이제는 순서대로 결합한다.
+  it('#467 onSubmitResponse 두 번 호출(멀티 위임) → 두 답 모두 순서대로 결합된 fullText', async () => {
     streamSpy.mockImplementation((i: RunnerInput) => {
-      // 두 번 onSubmitResponse 호출: 첫 번째 답이 보존돼야 한다.
       i.mcp?.hostBridge?.onSubmitResponse('첫 답');
       i.mcp?.hostBridge?.onSubmitResponse('둘째 답');
       return { done: Promise.resolve(), kill: () => {} };
     });
-    const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(out.fullText).toBe('첫 답');
+    const got: string[] = [];
+    const out = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal);
+    expect(out.fullText).toBe('첫 답\n\n둘째 답');
+    // 결합된 답은 onText 로 1회만 emit — 중간 답이 별도로 새 나가지 않는다.
+    expect(got).toEqual(['첫 답\n\n둘째 답']);
+  });
+
+  // #467: 실제 시나리오(한 턴에 채널 공지 + 이슈 코멘트처럼 서로 다른 도메인 2 위임) 재현 —
+  // 두 Agent 위임이 각각 submit_response 로 답을 제출하면 두 답 모두 최종 답에 살아남아야 한다.
+  it('#467 한 턴에 2개 서브에이전트로 위임 → 각 subagent 답이 모두 fullText 에 포함', async () => {
+    // makeRunnerImpl 은 subagent 스펙 1건만 지원하므로, 실제 멀티 서브에이전트는 직접 구성한다.
+    streamSpy.mockImplementation((i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
+      const bridge = i.mcp?.hostBridge;
+      onEvent(agentDelegation('messaging-agent'));
+      bridge?.onSubmitResponse('채널에 공지를 올렸어요.');
+      onEvent(agentDelegation('issue-agent'));
+      bridge?.onSubmitResponse('이슈에 코멘트를 남겼어요.');
+      onEvent(result(''));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    const got: string[] = [];
+    const out = await runAiChatStream(
+      baseInput({ query: '채널에 공지 올리고 EX-1 에 코멘트도 남겨줘' }),
+      { client: fakeClient },
+      (t) => got.push(t),
+      new AbortController().signal,
+    );
+    expect(out.fullText).toBe('채널에 공지를 올렸어요.\n\n이슈에 코멘트를 남겼어요.');
+    expect(got).toEqual(['채널에 공지를 올렸어요.\n\n이슈에 코멘트를 남겼어요.']);
   });
 
   it('SDK 실패(reject) 가 전파된다', async () => {

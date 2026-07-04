@@ -356,6 +356,26 @@ describe('buildTools(assistant)', () => {
     }
   });
 
+  // #467: 과거 first-write-guard(existsSync 면 덮지 않음)는 한 턴 ≥2 위임 시 두 번째 이후
+  // 서브에이전트 답을 조용히 버렸다. NDJSON append 로 전환해 모든 답을 줄 단위로 보존한다.
+  it('#467 submit_response 를 두 번 호출하면 두 답 모두 NDJSON 줄로 보존된다(첫 답만 남기지 않음)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'sr-multi-'));
+    const sidecar = path.join(dir, 'subagent-response.ndjson');
+    process.env.WORKPLACE_SUBAGENT_RESPONSE_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'submit_response')!;
+      await tool.handler({ text: '첫 번째 서브에이전트 답' });
+      await tool.handler({ text: '두 번째 서브에이전트 답' });
+      const lines = readFileSync(sidecar, 'utf8').trim().split('\n');
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0]).text).toBe('첫 번째 서브에이전트 답');
+      expect(JSON.parse(lines[1]).text).toBe('두 번째 서브에이전트 답');
+    } finally {
+      delete process.env.WORKPLACE_SUBAGENT_RESPONSE_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // #463: respond_chat 제거 — submit_response 만 잔존.
   it('assistant union 에 submit_response 가 포함되고 respond_chat 은 없다', () => {
     const names = buildTools({} as never, 1, 'assistant').map((t) => t.name);
