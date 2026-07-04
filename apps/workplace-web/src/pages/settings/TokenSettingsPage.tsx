@@ -98,7 +98,7 @@ export default function TokenSettingsPage() {
               <TableHead>만료</TableHead>
               <TableHead>마지막 사용</TableHead>
               <TableHead>상태</TableHead>
-              <TableHead></TableHead>
+              <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -138,7 +138,8 @@ export default function TokenSettingsPage() {
                       {t.revokedAt == null ? '활성' : '폐기됨'}
                     </Badge>
                   </TableCell>
-                  <TableCell>
+                  {/* 액션 컬럼 — 고정폭 + 우측 정렬(디자인 가이드 04-components.md 패턴3, RoleListPage 관례) */}
+                  <TableCell className="w-20 text-right">
                     {t.revokedAt == null && (
                       <Button
                         variant="ghost"
