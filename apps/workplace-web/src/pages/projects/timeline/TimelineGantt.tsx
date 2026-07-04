@@ -1,4 +1,6 @@
 import '@svar-ui/react-gantt/style.css'
+// 행 40px·시간축 텍스트 위계 오버라이드(#646) — .timeline-gantt-root 스코프로만 적용.
+import './timeline-gantt.css'
 
 import {
   Gantt,
@@ -294,7 +296,8 @@ export function TimelineGantt({
   }, [onLaneClick, readOnly])
 
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden">
+    // timeline-gantt-root 는 timeline-gantt.css 오버라이드의 스코프 앵커(#646)
+    <div ref={containerRef} className="timeline-gantt-root relative h-full w-full overflow-hidden">
       {/* 오늘 세로선 — `.wx-chart` 스크롤에 맞춰 위 effect 가 transform 을 직접 갱신한다. */}
       <div
         ref={todayLineRef}
@@ -333,6 +336,9 @@ export function TimelineGantt({
           scales={scales}
           columns={GRID_COLUMNS}
           readonly={readOnly}
+          // 행 40px·스케일 36px — Jira 급 밀도(#646). 제목 잘림 해소, 4px 그리드 준수
+          cellHeight={40}
+          scaleHeight={36}
           highlightTime={highlightTime}
           onUpdateTask={(ev) => {
             if (ev.inProgress) return // 드래그 진행중 중간 이벤트는 무시하고 확정 시점만 저장

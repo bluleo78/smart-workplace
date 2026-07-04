@@ -1,0 +1,23 @@
+/* 타임라인 간트 타이포/밀도 오버라이드 (#646) — 디자인 시스템 02-typography 스케일 매핑.
+   SVAR Willow 테마 위에 .timeline-gantt-root 스코프로만 적용한다(전역 오염 금지).
+   - 상단 스케일(월/년): 14px/600 (heading-column 급)
+   - 하단 스케일(주/월): 12px, muted (caption 급)
+   - 그리드 셀·막대 라벨: 최소 12px (12px 미만 금지 — 접근성 §7) */
+.timeline-gantt-root .wx-scale .wx-row:first-child .wx-cell {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.timeline-gantt-root .wx-scale .wx-row:last-child .wx-cell {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+/* 그리드(좌측 표) 셀 — 이슈 제목 14px, 잘릴 때 말줄임. */
+.timeline-gantt-root .wx-grid .wx-cell {
+  font-size: 14px;
+}
+/* 막대 안 라벨 12px/500 (label-secondary 급) — 40px 행에서 세로 중앙. */
+.timeline-gantt-root .wx-bar {
+  font-size: 12px;
+  font-weight: 500;
+}
