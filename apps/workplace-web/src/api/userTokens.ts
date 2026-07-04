@@ -10,8 +10,11 @@ export async function listMyTokens(): Promise<UserApiToken[]> {
   return data;
 }
 
-// 토큰 발급 — 응답에 plaintextToken 이 1회만 포함된다.
-export async function issueMyToken(body: { name: string }): Promise<UserApiTokenIssueResponse> {
+// 토큰 발급 — 응답에 plaintextToken 이 1회만 포함된다. expiresAt null 이면 무기한.
+export async function issueMyToken(body: {
+  name: string;
+  expiresAt: string | null;
+}): Promise<UserApiTokenIssueResponse> {
   const { data } = await client.post<UserApiTokenIssueResponse>('/users/me/api-tokens', body);
   return data;
 }

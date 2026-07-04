@@ -17,18 +17,65 @@ test.describe('@smoke 설정 레이아웃 일관성', () => {
     await page.goto('/settings/mail')
     await expect(page.getByTestId('page-header')).toContainText('메일 계정')
   })
-  test('API 토큰 페이지가 공용 PageHeader 를 렌더한다', async ({ authenticatedPage: page }) => {
+  // API 토큰 — 구성원/역할/감사 로그와 동일한 풀폭 목록 레이아웃(#655) + 헤더 액션으로 발급 모달 오픈
+  test('API 토큰 페이지가 공용 PageHeader + 풀폭 목록 + 발급 액션을 렌더한다', async ({
+    authenticatedPage: page,
+  }) => {
     await mockApi(page, 'GET', '/api/v1/users/me/api-tokens', [])
     await page.goto('/settings/tokens')
     await expect(page.getByTestId('page-header')).toContainText('API 토큰')
+    await expect(page.getByTestId('token-issue-open')).toBeVisible()
+
+    await page.getByTestId('token-issue-open').click()
+    await expect(page.getByTestId('token-issue-form-dialog')).toBeVisible()
   })
-  // API 토큰 — 다른 폼형 설정 페이지와 동일한 Card 섹션 구조(#651)
-  test('API 토큰 페이지가 Card 섹션(발급/목록)으로 구성된다', async ({ authenticatedPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/users/me/api-tokens', [])
+
+  // 긴 폐기 일시 문자열이 상태 컬럼을 밀어내 테이블이 컨테이너 밖으로 넘치고
+  // 폐기 버튼이 잘려 보이지 않던 회귀(#655) — Badge + 짧은 날짜 표기로 방지.
+  test('API 토큰 목록이 길어도 페이지가 가로로 넘치지 않고 폐기 버튼이 보인다', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockApi(page, 'GET', '/api/v1/users/me/api-tokens', [
+      {
+        id: 1,
+        name: 'explorer-check-1783157174',
+        tokenPrefix: 'swp_MdYlgHTZaaaaaaaaaaaa',
+        tenantId: 1,
+        expiresAt: null,
+        createdAt: '2026-07-01T00:00:00Z',
+        lastUsedAt: null,
+        revokedAt: '2026-07-04T09:26:59Z',
+      },
+      {
+        id: 2,
+        name: 'explorer-test-1783153352',
+        tokenPrefix: 'swp_YaPUv4MVbbbbbbbbbbbb',
+        tenantId: 1,
+        expiresAt: '2026-10-02T09:26:59Z',
+        createdAt: '2026-07-01T00:00:00Z',
+        lastUsedAt: null,
+        revokedAt: null,
+      },
+    ])
     await page.goto('/settings/tokens')
-    await expect(page.getByText('토큰 발급', { exact: true })).toBeVisible()
-    await expect(page.getByText('발급된 토큰', { exact: true })).toBeVisible()
-    await expect(page.getByTestId('token-issue-form')).toBeVisible()
+
+    const table = page.getByRole('table', { name: 'API 토큰 목록' })
+    await expect(table).toBeVisible()
+
+    // 폐기된 토큰: 상태 Badge 만 노출(전체 일시는 title 툴팁으로 이동), 폐기 버튼 없음
+    const revokedRow = page.getByTestId('token-row-1')
+    await expect(revokedRow.getByText('폐기됨', { exact: true })).toBeVisible()
+    await expect(revokedRow.getByTestId('token-revoke-1')).toHaveCount(0)
+
+    // 활성 토큰: 폐기 버튼이 실제로 보여야 한다(#655 재발 방지)
+    const revokeBtn = page.getByTestId('token-revoke-2')
+    await expect(revokeBtn).toBeVisible()
+
+    // 페이지 전체가 가로 스크롤을 유발하지 않는지 확인
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow).toBeLessThanOrEqual(1)
   })
 
   // 구성원 관리 — SettingsPage 전환 후 PageHeader + 액션 버튼 검증

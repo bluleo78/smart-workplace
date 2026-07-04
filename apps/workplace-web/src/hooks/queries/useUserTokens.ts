@@ -20,7 +20,7 @@ export function useMyTokens() {
 export function useIssueMyToken() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string }) => issueMyToken(body),
+    mutationFn: (body: { name: string; expiresAt: string | null }) => issueMyToken(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: userTokenKeys.mine });
       toast.success('토큰을 발급했습니다');

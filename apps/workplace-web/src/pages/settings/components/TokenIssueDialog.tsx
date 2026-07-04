@@ -16,6 +16,7 @@ import {
 
 interface TokenIssueDialogProps {
   plaintextToken: string | null;
+  expiresAt: string | null;
   open: boolean;
   onOpenChange: (next: boolean) => void;
 }
@@ -23,7 +24,12 @@ interface TokenIssueDialogProps {
 // dev 기본값은 로컬 workplace-mcp 포트(7090). 배포 환경에서는 VITE_MCP_URL 로 재정의.
 const MCP_BASE_URL = (import.meta.env['VITE_MCP_URL'] as string | undefined) ?? 'http://localhost:7090';
 
-export function TokenIssueDialog({ plaintextToken, open, onOpenChange }: TokenIssueDialogProps) {
+export function TokenIssueDialog({
+  plaintextToken,
+  expiresAt,
+  open,
+  onOpenChange,
+}: TokenIssueDialogProps) {
   // Claude Code 에서 바로 실행 가능한 MCP 연결 명령 — 평문 토큰을 Bearer 헤더로 전달한다.
   const command = `claude mcp add --transport http workplace ${MCP_BASE_URL}/mcp --header "Authorization: Bearer ${plaintextToken ?? '<토큰>'}"`;
 
@@ -62,6 +68,10 @@ export function TokenIssueDialog({ plaintextToken, open, onOpenChange }: TokenIs
           >
             복사
           </Button>
+
+          <p className="text-sm text-muted-foreground" data-testid="token-issue-expiry">
+            유효기간: {expiresAt ? new Date(expiresAt).toLocaleDateString('ko-KR') + '까지' : '무기한'}
+          </p>
 
           <div className="space-y-1.5 pt-2">
             <p className="text-sm text-muted-foreground">
