@@ -294,3 +294,60 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     await expect(commentItem.locator('button[aria-label="코멘트 삭제"]')).not.toBeVisible();
   });
 });
+
+test.describe('IssueCommentList 새로고침 유실 경고 (#620)', () => {
+  // 실제 beforeunload 확인창은 headless 브라우저가 표시하지 않으므로, window 에 이벤트를
+  // 직접 dispatch 해 리스너가 등록돼 preventDefault() 를 호출하는지로 검증한다.
+  async function dispatchBeforeUnload(page: import('@playwright/test').Page) {
+    return page.evaluate(() => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+  }
+
+  test('코멘트 입력창이 비어있으면 beforeunload 경고가 없다', async ({ authenticatedPage: page }) => {
+    const detailRef = { current: createIssueDetail({ comments: [] }) };
+    await setupIssueStubs(page, detailRef);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expect(page.getByText('코멘트가 없습니다')).toBeVisible();
+
+    expect(await dispatchBeforeUnload(page)).toBe(false);
+  });
+
+  test('코멘트 작성 중 새로고침 시도 → beforeunload 경고가 뜬다', async ({ authenticatedPage: page }) => {
+    const detailRef = { current: createIssueDetail({ comments: [] }) };
+    await setupIssueStubs(page, detailRef);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const textarea = page.locator('section[aria-label="코멘트"] textarea[placeholder="코멘트를 작성하세요"]');
+    await textarea.fill('작성 중인 코멘트');
+
+    expect(await dispatchBeforeUnload(page)).toBe(true);
+  });
+
+  test('작성 후 제출하면 beforeunload 경고가 해제된다', async ({ authenticatedPage: page }) => {
+    const detailRef = { current: createIssueDetail({ comments: [] }) };
+    await setupIssueStubs(page, detailRef);
+    const newComment = createComment({ id: 21, issueId: ISSUE_ID, authorId: ME_ID, body: '제출된 코멘트' });
+    await page.route(
+      (url) => /\/api\/v1\/issues\/\d+\/comments$/.test(url.pathname),
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        detailRef.current = createIssueDetail({ comments: [newComment] });
+        return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(newComment) });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const textarea = page.locator('section[aria-label="코멘트"] textarea[placeholder="코멘트를 작성하세요"]');
+    await textarea.fill('제출된 코멘트');
+    expect(await dispatchBeforeUnload(page)).toBe(true);
+
+    await page.locator('section[aria-label="코멘트"] button[type="submit"]').click();
+    await expect(page.getByText('제출된 코멘트')).toBeVisible();
+
+    expect(await dispatchBeforeUnload(page)).toBe(false);
+  });
+});

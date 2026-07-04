@@ -136,3 +136,61 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
     await expect(page.getByText('Too big')).not.toBeVisible()
   })
 })
+
+test.describe('IssueCreateDialog 새로고침 유실 경고 (#620)', () => {
+  // 실제 beforeunload 확인창은 headless 브라우저가 표시하지 않으므로, window 에 이벤트를
+  // 직접 dispatch 해 리스너가 등록돼 preventDefault() 를 호출하는지로 검증한다.
+  async function dispatchBeforeUnload(page: import('@playwright/test').Page) {
+    return page.evaluate(() => {
+      const event = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    })
+  }
+
+  test('제목/본문 미입력 상태에서는 beforeunload 경고가 없다', async ({ authenticatedPage: page }) => {
+    await stubProject(page)
+    await page.goto(`/projects/${PROJECT_KEY}`)
+    await page.getByRole('button', { name: '+ 새 태스크' }).click()
+    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+
+    expect(await dispatchBeforeUnload(page)).toBe(false)
+  })
+
+  test('제목 입력 중 새로고침 시도 → beforeunload 경고가 뜬다', async ({ authenticatedPage: page }) => {
+    await stubProject(page)
+    await page.goto(`/projects/${PROJECT_KEY}`)
+    await page.getByRole('button', { name: '+ 새 태스크' }).click()
+    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+
+    await page.getByLabel('제목').fill('작성 중인 제목')
+
+    expect(await dispatchBeforeUnload(page)).toBe(true)
+  })
+
+  test('본문만 입력해도 beforeunload 경고가 뜬다', async ({ authenticatedPage: page }) => {
+    await stubProject(page)
+    await page.goto(`/projects/${PROJECT_KEY}`)
+    await page.getByRole('button', { name: '+ 새 태스크' }).click()
+    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+
+    await page.locator('#issue-body').fill('작성 중인 본문')
+
+    expect(await dispatchBeforeUnload(page)).toBe(true)
+  })
+
+  test('모달을 닫으면 beforeunload 경고가 해제된다', async ({ authenticatedPage: page }) => {
+    await stubProject(page)
+    await page.goto(`/projects/${PROJECT_KEY}`)
+    await page.getByRole('button', { name: '+ 새 태스크' }).click()
+    await expect(page.getByRole('dialog', { name: '새 태스크' })).toBeVisible()
+
+    await page.getByLabel('제목').fill('작성 중인 제목')
+    expect(await dispatchBeforeUnload(page)).toBe(true)
+
+    await page.getByRole('button', { name: '취소' }).click()
+    await expect(page.getByRole('dialog', { name: '새 태스크' })).not.toBeVisible()
+
+    expect(await dispatchBeforeUnload(page)).toBe(false)
+  })
+})

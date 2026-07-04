@@ -19,6 +19,7 @@ import {
   useUpdateComment,
 } from '../../../hooks/queries/useIssueComments';
 import { useAuth } from '../../../hooks/useAuth';
+import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import { type CreateCommentFormData, createCommentSchema } from '../../../lib/validations/issue';
@@ -180,10 +181,15 @@ export function IssueCommentList({
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<CreateCommentFormData>({
     resolver: zodResolver(createCommentSchema),
   });
+
+  // 새로고침 시 작성 중이던 코멘트 유실 방지 (#620) — 입력값이 있으면 beforeunload 확인.
+  const draftBody = watch('body');
+  useUnsavedChangesWarning(!!(draftBody ?? '').trim());
 
   // 폼 제출 → API 호출 → 성공 시 폼 리셋 및 토스트, 실패 시 공통 에러 핸들러로 위임.
   const onSubmit = async (data: CreateCommentFormData) => {

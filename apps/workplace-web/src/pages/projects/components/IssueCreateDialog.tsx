@@ -18,6 +18,7 @@ import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import { type CreateIssueFormData,createIssueSchema } from '../../../lib/validations/issue';
@@ -70,6 +71,12 @@ export function IssueCreateDialog({
   // 선택된 유형이 SUBTASK 인지 — parentNumber 입력 동적 노출 + 송신 분기에 사용 (Phase 4a).
   const selectedType = (types.data ?? []).find((t) => t.id === currentTypeId);
   const isSubtaskSelected = selectedType?.name === 'SUBTASK';
+
+  // 새로고침 시 입력값 유실 방지 (#620) — 모달이 열려 있고 제목/본문 중 하나라도
+  // 입력되어 있으면 beforeunload 확인 다이얼로그를 띄운다.
+  const titleValue = watch('title');
+  const bodyValue = watch('body');
+  useUnsavedChangesWarning(open && !!((titleValue ?? '').trim() || (bodyValue ?? '').trim()));
 
   // AI 제안 핸들러 — 현재 폼 제목·본문으로 분류 요청.
   // 성공 시 type/priority 덮어쓰기, reason 표시. AI 제안 실패해도 폼 동작 보존.
