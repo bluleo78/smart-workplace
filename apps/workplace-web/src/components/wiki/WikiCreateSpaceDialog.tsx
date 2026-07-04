@@ -83,7 +83,7 @@ export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending }:
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit()
           }}
-          placeholder="예: 제품팀 위키"
+          placeholder="예: 제품팀 노트"
           autoFocus
           data-testid="wiki-space-create-input"
         />

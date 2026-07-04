@@ -59,18 +59,21 @@ test('노트 — 드롭다운에서 새 팀 스페이스 생성 후 이동', { t
   await page.getByRole('combobox').click()
   await page.getByTestId('wiki-space-create-item').click()
 
-  // 모달 → 이름 입력 → 만들기
+  // 모달 → placeholder 예시 문구는 "노트" 용어로 통일되어 있어야 한다(#634)
   await expect(page.getByTestId('wiki-space-create-dialog')).toBeVisible()
-  await page.getByTestId('wiki-space-create-input').fill('제품팀 위키')
+  await expect(page.getByTestId('wiki-space-create-input')).toHaveAttribute('placeholder', '예: 제품팀 노트')
+
+  // 이름 입력 → 만들기
+  await page.getByTestId('wiki-space-create-input').fill('제품팀 노트')
   await page.getByTestId('wiki-space-create-confirm').click()
 
   // 처리: POST payload 는 {name} 만
-  await expect.poll(() => postBody).toEqual({ name: '제품팀 위키' })
+  await expect.poll(() => postBody).toEqual({ name: '제품팀 노트' })
 
   // 출력: 새 스페이스로 이동 + 드롭다운(목록)에 새 스페이스 반영
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${NEW_SPACE_ID}`))
   await page.getByRole('combobox').click()
-  await expect(page.getByRole('option', { name: '제품팀 위키' })).toBeVisible()
+  await expect(page.getByRole('option', { name: '제품팀 노트' })).toBeVisible()
 })
 
 test('노트 — 스페이스 이름이 비면 생성 요청이 나가지 않는다', async ({ authenticatedPage: page }) => {
