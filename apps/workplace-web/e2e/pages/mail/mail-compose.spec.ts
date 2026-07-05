@@ -58,6 +58,38 @@ test.describe('메일 작성·발송', () => {
     await expect(page.getByTestId('mail-compose-dock')).toBeHidden()
   })
 
+  // #692 — 수신자 없이 발송 시 검증 에러 토스트가 컴포즈 도크의 "보내기" 버튼을 가리지 않아야 한다.
+  test('수신자 없이 발송 → 검증 에러 토스트가 상단에 표시되고 보내기 버튼을 가리지 않음', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/send',
+      (route) => route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: '수신자를 한 명 이상 입력하세요' }),
+      }),
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-compose-new').click()
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+
+    await page.getByTestId('mail-compose-subject').fill('제목만')
+    await page.getByTestId('mail-composer-body').click()
+    await page.keyboard.type('본문')
+    await page.getByTestId('mail-compose-send').click()
+
+    // 토스트 표시 확인 + 하단(bottom)이 아닌 상단(top)에 렌더돼 도크와 겹치지 않아야 함 (#692)
+    await expect(page.getByText('수신자를 한 명 이상 입력하세요')).toBeVisible()
+    const toaster = page.locator('[data-sonner-toaster]')
+    await expect(toaster).toHaveAttribute('data-y-position', 'top')
+
+    // 컴포즈 도크는 그대로 열려 있고 보내기 버튼도 계속 클릭 가능해야 함(가려지지 않음).
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+    await expect(page.getByTestId('mail-compose-send')).toBeInViewport()
+  })
+
   test('답장 → inReplyToMessageId 포함', async ({ authenticatedPage: page }) => {
     // 목록에 메시지 1건 추가 — beforeEach 의 빈 목록을 덮어씀(나중 등록 우선).
     await page.route(

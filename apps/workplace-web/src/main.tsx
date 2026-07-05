@@ -39,7 +39,8 @@ createRoot(document.getElementById('root')!).render(
           <AuthProvider>
             <App />
           </AuthProvider>
-          <Toaster />
+          {/* top-right — 메일 컴포즈 도크 등 화면 하단에 고정되는 UI와 겹쳐 액션 버튼을 가리는 것을 방지 (#692) */}
+          <Toaster position="top-right" />
         </BrowserRouter>
       </QueryClientProvider>
     </ThemeProvider>
