@@ -293,11 +293,14 @@ test('뷰 칩 ⋯ 메뉴 버튼은 hover 전 숨겨지고 hover 후 표시된다
 
   const chip = page.getByTestId('view-chip-1')
   await expect(chip).toBeVisible()
+  const menuBtn = page.getByTestId('view-chip-menu-1')
 
-  // hover 전: ⋯ 메뉴 버튼은 숨겨져야 한다 (#315).
-  await expect(page.getByTestId('view-chip-menu-1')).toBeHidden()
+  // hover 전: ⋯ 메뉴 버튼은 시각적으로 숨겨져야 한다 (opacity-0).
+  // display:none 대신 opacity 토글을 쓰는 이유(#693) — 레이아웃에 항상 존재해야
+  // 메뉴가 열리는 동안 Radix Popper 가 트리거 rect 를 앵커로 계속 참조할 수 있다.
+  await expect(menuBtn).toHaveCSS('opacity', '0')
 
   // hover 후: ⋯ 메뉴 버튼이 나타나야 한다.
   await chip.hover()
-  await expect(page.getByTestId('view-chip-menu-1')).toBeVisible()
+  await expect(menuBtn).toHaveCSS('opacity', '1')
 })

@@ -95,7 +95,9 @@ export function ViewChipBar({
                 <DropdownMenuTrigger
                   data-testid={`view-chip-menu-${v.id}`}
                   aria-label="뷰 메뉴"
-                  className="ml-0.5 hidden group-hover:inline-flex min-w-6 rounded p-1 text-muted-foreground hover:bg-accent"
+                  // hidden/inline-flex 토글 대신 opacity 로 시각적으로만 숨김 — 항상 레이아웃에 존재해야
+                  // 메뉴 오픈 중 :hover 판정이 사라져도 트리거 rect 가 유효해 Radix Popper 앵커가 깨지지 않는다(#693).
+                  className="ml-0.5 inline-flex min-w-6 rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 data-[state=open]:opacity-100"
                 >
                   ⋯
                 </DropdownMenuTrigger>

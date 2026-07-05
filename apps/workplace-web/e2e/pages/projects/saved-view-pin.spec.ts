@@ -107,6 +107,78 @@ test.describe('Saved View 사이드바 고정', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?priority=HIGH`))
   })
 
+  test('뷰 메뉴 트리거 rect — 열림 중에도 유효해 Radix 앵커가 좌상단으로 폴백하지 않음 (#693)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 트리거가 hidden→inline-flex 토글이면 메뉴가 열리는 순간 :hover 판정이 사라져
+    // display:none(rect 전부 0)이 되고, Radix Popper 가 앵커를 잃어 뷰포트(0,0) 폴백으로 렌더링된다.
+    // opacity 토글(레이아웃엔 항상 존재)로 고치면 트리거 rect 가 항상 유효해야 한다.
+    await page.route('**/api/v1/projects?*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          content: [createProject({ id: 1, key: KEY, name: '워크플레이스' })],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+        }),
+      }),
+    )
+    await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+    )
+    await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+    await page.route(`**/api/v1/projects/${KEY}/types`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse([], null)),
+        }),
+    )
+    await page.route(`**/api/v1/projects/${KEY}/saved-views`, (route) => {
+      const views: SavedViewResponse[] = [
+        {
+          id: 10, name: '높은 우선순위', query: 'priority=HIGH', visibility: 'PRIVATE',
+          ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '',
+        },
+      ]
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(views) })
+    })
+    await page.route('**/api/v1/me/pinned-views', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+
+    await page.goto(`/projects/${KEY}`)
+
+    await page.getByTestId('view-chip-10').hover()
+    const trigger = page.getByTestId('view-chip-menu-10')
+    await trigger.click()
+
+    const menu = page.getByRole('menu')
+    await expect(menu).toBeVisible()
+
+    // 트리거 rect 가 붕괴(width/height 0)돼 있으면 앵커 상실 신호.
+    const triggerBox = await trigger.boundingBox()
+    expect(triggerBox).not.toBeNull()
+    expect(triggerBox!.width).toBeGreaterThan(0)
+    expect(triggerBox!.height).toBeGreaterThan(0)
+
+    // 메뉴는 트리거 근처(뷰 칩 바, 화면 상단)에 떠야 한다 — 좌상단(사이드바 위) 폴백 좌표(x<10,y<10)가 아니어야 함.
+    const menuBox = await menu.boundingBox()
+    expect(menuBox).not.toBeNull()
+    expect(menuBox!.x).toBeGreaterThan(50)
+    expect(Math.abs(menuBox!.y - triggerBox!.y)).toBeLessThan(200)
+  })
+
   test('고정된 뷰 삭제 → 사이드바 고정 뷰 섹션도 즉시 갱신됨 (#614)', { tag: '@smoke' }, async ({
     authenticatedPage: page,
   }) => {
