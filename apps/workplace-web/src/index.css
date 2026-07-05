@@ -485,6 +485,14 @@
   font-size: 1rem; /* 16px */
 }
 
+/* 인용(blockquote) — 메일 답장 인용문 등에서 새 텍스트와 구분되도록.
+ * MarkdownMessage.tsx의 border-l-2 border-border pl-3 text-muted-foreground 패턴과 동일 (#685). */
+.ProseMirror blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.75rem;
+  color: var(--muted-foreground);
+}
+
 /* Canvas animations */
 @keyframes canvas-widget-in {
   from { transform: translateY(20px); opacity: 0; }

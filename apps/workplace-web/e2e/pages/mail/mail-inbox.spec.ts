@@ -340,6 +340,13 @@ test.describe('받은편지함', () => {
     // 답장 클릭 → MailComposeContext.openCompose() → 컴포즈 도크가 열려야 한다.
     await replyBtn.click()
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+
+    // 인용 원문(blockquote)이 새 작성 텍스트와 시각적으로 구분돼야 한다 (#685) —
+    // border-left 및 muted 색상이 적용돼 있어야 함(둘 다 0/foreground면 회귀).
+    const quote = page.getByTestId('mail-compose-dock').locator('blockquote')
+    await expect(quote).toBeVisible()
+    const borderLeft = await quote.evaluate((el) => getComputedStyle(el).borderLeftWidth)
+    expect(borderLeft).not.toBe('0px')
   })
 })
 
