@@ -64,6 +64,9 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
   const [creating, setCreating] = useState(false);
   const [revokingId, setRevokingId] = useState<number | null>(null);
 
+  // 만료일 폼 에러(#673) — 과거 날짜 입력 시 생성 자체를 막기 위한 인라인 메시지
+  const [expiresAtError, setExpiresAtError] = useState<string | null>(null);
+
   // 모달 열릴 때 기존 링크 목록 로드
   useEffect(() => {
     void listShareLinks(file.id)
@@ -73,13 +76,22 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
 
   /** 공유 링크 생성 */
   async function onCreate() {
+    // 만료일 — 로컬 23:59:59 로 설정해 UTC+ 사용자의 당일 만료 오인 방지.
+    // "2026-06-30" 입력 → "2026-06-30T23:59:59" 로컬 → ISO 변환.
+    const expiresAtIso = expiresAt
+      ? new Date(`${expiresAt}T23:59:59`).toISOString()
+      : undefined;
+
+    // 과거 날짜 가드(#673) — <input type=date min> 은 키보드 직접 입력으로 우회 가능해
+    // API 호출 전에 명시적으로 재검증한다. 통과하면 이전 에러 메시지를 지운다.
+    if (expiresAtIso && new Date(expiresAtIso) < new Date()) {
+      setExpiresAtError('만료일은 오늘 이후 날짜여야 합니다.');
+      return;
+    }
+    setExpiresAtError(null);
+
     setCreating(true);
     try {
-      // 만료일 — 로컬 23:59:59 로 설정해 UTC+ 사용자의 당일 만료 오인 방지.
-      // "2026-06-30" 입력 → "2026-06-30T23:59:59" 로컬 → ISO 변환.
-      const expiresAtIso = expiresAt
-        ? new Date(`${expiresAt}T23:59:59`).toISOString()
-        : undefined
       const res = await createShareLink(file.id, {
         audience,
         password: password || undefined,
@@ -182,9 +194,18 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
               id="share-expires"
               type="date"
               value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
+              onChange={(e) => {
+                setExpiresAt(e.target.value);
+                setExpiresAtError(null);
+              }}
               min={new Date().toISOString().slice(0, 10)}
+              aria-invalid={expiresAtError != null}
             />
+            {expiresAtError && (
+              <p className="text-xs text-destructive" data-testid="share-expires-error">
+                {expiresAtError}
+              </p>
+            )}
           </div>
 
           <Button

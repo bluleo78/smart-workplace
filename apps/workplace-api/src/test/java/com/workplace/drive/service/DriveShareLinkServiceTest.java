@@ -10,8 +10,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.drive.exception.DriveForbiddenException;
+import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -69,6 +72,21 @@ class DriveShareLinkServiceTest extends IntegrationTestBase {
             () ->
                 service.create(viewer, fileId, new CreateShareLinkRequest("EXTERNAL", null, null)))
         .isInstanceOf(DriveForbiddenException.class);
+  }
+
+  // 과거 만료일 차단(#673) — 프런트 가드 우회(직접 API 호출) 시나리오까지 서버가 방어해야 한다.
+  @Test
+  void create_withPastExpiresAt_throwsInvalidTarget() {
+    long owner = seedUser();
+    long fileId = seedFile(owner, seedSpace(owner));
+    Instant past = Instant.now().minus(1, ChronoUnit.DAYS);
+
+    assertThatThrownBy(
+            () -> service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, past)))
+        .isInstanceOf(DriveInvalidTargetException.class);
+
+    // 생성 자체가 거부돼 목록에 남지 않아야 한다
+    assertThat(service.list(owner, fileId)).isEmpty();
   }
 
   @Test

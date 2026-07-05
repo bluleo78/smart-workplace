@@ -197,6 +197,55 @@ test(
   },
 )
 
+// ── 과거 만료일 입력 시 생성 차단(#673) ──
+// <input type=date min> 은 네이티브 캘린더 위젯 클릭만 막을 뿐 키보드 직접 입력은 통과시킨다.
+// onCreate() 진입 시 명시적으로 재검증해 API 호출 자체를 막아야 한다.
+test(
+  '만료일에 과거 날짜 입력 시 생성이 차단되고 인라인 에러가 표시된다',
+  async ({ authenticatedPage: page }) => {
+    let postCalled = false
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${FILE_ID}/share-links`,
+      async (route) => {
+        if (route.request().method() === 'POST') {
+          postCalled = true
+          await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+        } else {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([]),
+          })
+        }
+      },
+    )
+
+    await stubSpaces(page)
+    await stubSpaceSingle(page)
+    await stubItems(page)
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await expect(page.getByTestId('drive-page')).toBeVisible()
+
+    const fileRow = page.getByRole('listitem').filter({ hasText: 'report.txt' })
+    await fileRow.hover()
+    await fileRow.getByTestId('share-link-btn').click()
+    await expect(page.getByTestId('share-link-modal')).toBeVisible()
+
+    // 네이티브 min 제약을 우회 — fill() 로 과거 날짜를 직접 주입(키보드 타이핑과 동일 효과)
+    await page.locator('#share-expires').fill('2020-01-01')
+    await page.getByTestId('share-link-create-btn').click()
+
+    // 인라인 에러 표시 + POST 호출 자체가 발생하지 않아야 한다
+    await expect(page.getByTestId('share-expires-error')).toBeVisible()
+    await expect(page.getByTestId('share-expires-error')).toContainText('오늘 이후')
+    expect(postCalled).toBe(false)
+
+    // 생성 직후 URL 노출 영역도 나타나지 않아야 한다
+    await expect(page.getByTestId('share-link-created-url')).toHaveCount(0)
+  },
+)
+
 // ── 만료일 표시 포맷 — 공용 formatDateOnly(zero-pad, 하이픈) 사용 확인 (#617) ──
 test(
   '기존 링크 목록 — 만료일이 zero-pad 하이픈 포맷으로 표시된다',

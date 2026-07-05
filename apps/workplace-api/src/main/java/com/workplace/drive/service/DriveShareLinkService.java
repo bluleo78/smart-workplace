@@ -66,6 +66,11 @@ public class DriveShareLinkService {
             : passwordEncoder.encode(req.password());
     OffsetDateTime expiresAt =
         req.expiresAt() == null ? null : req.expiresAt().atOffset(ZoneOffset.UTC);
+    // 과거 만료일 차단(#673) — 프런트 가드가 우회되더라도(직접 API 호출 등) 생성 시점부터
+    // 이미 무효인 링크가 만들어지지 않도록 서버에서도 강제.
+    if (expiresAt != null && expiresAt.isBefore(OffsetDateTime.now())) {
+      throw new DriveInvalidTargetException("만료일은 현재 시각 이후여야 합니다.");
+    }
 
     long id =
         links.insert(driveFileId, row.spaceId(), tokenHash, audience, pwHash, expiresAt, callerId);
