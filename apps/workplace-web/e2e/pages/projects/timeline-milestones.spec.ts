@@ -189,6 +189,50 @@ test('칩 클릭 → 편집 팝오버에서 이름 수정', async ({ authenticat
   await expect.poll(() => patch).toMatchObject({ name: 'v1 최종 출시' });
 });
 
+test('팝오버 — 이름을 지우고 blur하면 저장 요청 없이 에러 토스트 + 원래 값으로 복원 (#672)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupStubs(page);
+  let patchCalled = false;
+  await page.route(`**/api/v1/projects/${KEY}/milestones/1`, (route) => {
+    if (route.request().method() === 'PATCH') {
+      patchCalled = true;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(baseMilestones()[0]) });
+    }
+    return route.fallback();
+  });
+  await page.goto(`/projects/${KEY}/timeline`);
+  await page.getByTestId('milestone-chip-1').click();
+  const nameInput = page.getByTestId('milestone-popover-name-input');
+  await nameInput.fill('');
+  await nameInput.blur();
+  await expect(page.getByText('마일스톤 이름은 비울 수 없습니다.')).toBeVisible();
+  await expect(nameInput).toHaveValue('v1 출시');
+  expect(patchCalled).toBe(false);
+});
+
+test('팝오버 — 마감일을 지우고 blur하면 저장 요청 없이 에러 토스트 + 원래 값으로 복원 (#672)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupStubs(page);
+  let patchCalled = false;
+  await page.route(`**/api/v1/projects/${KEY}/milestones/1`, (route) => {
+    if (route.request().method() === 'PATCH') {
+      patchCalled = true;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(baseMilestones()[0]) });
+    }
+    return route.fallback();
+  });
+  await page.goto(`/projects/${KEY}/timeline`);
+  await page.getByTestId('milestone-chip-1').click();
+  const dueDateInput = page.getByTestId('milestone-popover-due-date-input');
+  await dueDateInput.fill('');
+  await dueDateInput.blur();
+  await expect(page.getByText('마감일은 비울 수 없습니다.')).toBeVisible();
+  await expect(dueDateInput).toHaveValue('2026-08-01');
+  expect(patchCalled).toBe(false);
+});
+
 test('팝오버에서 삭제 — AlertDialog 경고 경유', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   let deleted = false;

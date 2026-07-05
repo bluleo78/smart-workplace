@@ -1,6 +1,7 @@
 // 마일스톤 다이아몬드 클릭 시 앵커 위치에 뜨는 편집 팝오버 — 이름/날짜 인라인 수정 + 연결 이슈 보기 + 삭제.
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
@@ -72,7 +73,14 @@ export function MilestoneEditPopover({
           data-testid="milestone-popover-name-input"
           onBlur={(e) => {
             const next = e.target.value.trim();
-            if (next && next !== milestone.name) saveField({ name: next });
+            if (!next) {
+              // 빈 값으로는 저장하지 않음 — 조용히 무시하면 사용자가 저장 여부를 알 수 없으므로
+              // 안내 후 화면 값을 서버 값으로 즉시 원복한다.
+              toast.error('마일스톤 이름은 비울 수 없습니다.');
+              e.target.value = milestone.name;
+              return;
+            }
+            if (next !== milestone.name) saveField({ name: next });
           }}
         />
         <Input
@@ -81,7 +89,14 @@ export function MilestoneEditPopover({
           aria-label="마감일"
           data-testid="milestone-popover-due-date-input"
           onBlur={(e) => {
-            if (e.target.value && e.target.value !== milestone.dueDate) {
+            if (!e.target.value) {
+              // 빈 값으로는 저장하지 않음 — 조용히 무시하면 사용자가 저장 여부를 알 수 없으므로
+              // 안내 후 화면 값을 서버 값으로 즉시 원복한다.
+              toast.error('마감일은 비울 수 없습니다.');
+              e.target.value = milestone.dueDate;
+              return;
+            }
+            if (e.target.value !== milestone.dueDate) {
               saveField({ dueDate: e.target.value });
             }
           }}
