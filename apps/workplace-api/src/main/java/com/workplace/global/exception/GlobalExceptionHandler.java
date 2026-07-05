@@ -16,6 +16,7 @@ import com.workplace.cycle.exception.CycleNameDuplicatedException;
 import com.workplace.cycle.exception.CycleNotFoundException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.exception.InvalidCycleStatusException;
+import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.global.dto.ErrorResponse;
@@ -945,6 +946,17 @@ public class GlobalExceptionHandler {
       FileSizeLimitExceededException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /**
+   * 파일 코어 not-found — 404. DB 메타데이터는 있으나 디스크 blob이 유실된 경우도 포함 (drive 첨부, 채팅/메일 첨부 등 file 코어를 경유하는
+   * 모든 소비처에 공통 적용).
+   */
+  @ExceptionHandler(FileNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleFileNotFound(
+      FileNotFoundException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
   /** 이슈당 첨부 개수 한도 초과 — 409. */

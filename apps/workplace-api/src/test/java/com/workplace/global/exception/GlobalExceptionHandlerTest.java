@@ -3,6 +3,7 @@ package com.workplace.global.exception;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.drive.exception.DriveInvalidTargetException;
+import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.global.dto.ErrorResponse;
@@ -96,6 +97,18 @@ class GlobalExceptionHandlerTest {
     assertThat(res.getBody()).isNotNull();
     assertThat(res.getBody().message()).doesNotContainIgnoringCase("invalid move/copy target");
     assertThat(res.getBody().message()).contains("하위 폴더로는 이동/복사할 수 없습니다");
+  }
+
+  @Test
+  void 파일_코어_not_found_는_404_를_반환한다() {
+    // #666: FileUploadService.getFileContentTrusted() 등이 blob 유실(디스크에 파일 없음) 시
+    // 던지는 file 코어 FileNotFoundException 이 핸들러 부재로 Exception.class 폴백(500)에
+    // 떨어지던 회귀 방지 — drive 미리보기/다운로드뿐 아니라 채팅·메일 첨부 등 공통 소비처에 영향.
+    ResponseEntity<ErrorResponse> res =
+        handler.handleFileNotFound(new FileNotFoundException(83L), request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    assertThat(res.getBody()).isNotNull();
+    assertThat(res.getBody().message()).contains("83");
   }
 
   @Test
