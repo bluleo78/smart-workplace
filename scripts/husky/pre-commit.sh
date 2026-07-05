@@ -35,9 +35,8 @@ if [ -z "$NEEDS_REGRESSION" ]; then
 fi
 
 # 4) workplace-web 변경 영역 분석
-# 현재 도메인 구조: src/pages/ 평탄 파일 + admin/ 서브디렉토리.
-# 도메인 후보: admin (확장 시 여기 추가)
-WEB_DOMAINS_RE='admin|projects|me'
+# src/pages/ 서브디렉토리 = 도메인. 하드코딩하면 도메인 추가 시 드리프트되므로 동적으로 도출한다.
+WEB_DOMAINS_RE=$(ls -d apps/workplace-web/src/pages/*/ 2>/dev/null | xargs -n1 basename | sort | tr '\n' '|' | sed 's/|$//')
 
 # 공유 영역: components/api/lib/hooks/types/route/엔트리/설정/e2e infra
 FORCE_FULL=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/(src/(components|api|lib|hooks|types|main\.tsx|App\.tsx|index\.css|router\.tsx|vite-env\.d\.ts|setupTests\.ts)|(vite|playwright|eslint|postcss|tailwind)\.config\.(ts|js|cjs|mjs)|tsconfig.*\.json|package\.json|e2e/(factories|fixtures)/|scripts/)' 2>/dev/null | head -1 || true)

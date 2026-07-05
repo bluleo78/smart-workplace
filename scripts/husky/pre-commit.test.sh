@@ -56,7 +56,7 @@ run_case "마이그레이션 변경 → compile 만" \
 
 # 5) web 만 변경(api 무변경) → gradle skip
 run_case "web 만 변경 → gradle skip" \
-  "apps/workplace-web/src/pages/MailPage.tsx" \
+  "apps/workplace-web/src/pages/mail/MailInboxPage.tsx" \
   'workplace-api 변경 없음 — gradle skip'
 
 # 5b) 추상 베이스 테스트(@Test 없음) 변경 → vacuous green 회피: --tests 없이 compile-only
@@ -70,6 +70,17 @@ run_case "테스트 파일 2개 → 둘 다 --tests" \
   "apps/workplace-api/src/test/java/com/workplace/auth/service/AuthServiceTest.java
 apps/workplace-api/src/test/java/com/workplace/user/service/UserServiceTest.java" \
   '--tests "*UserServiceTest"'
+
+# 7) mail 도메인 페이지 변경 → (변경 전에는 WEB_DOMAINS_RE 밖이라 전체 E2E였으나) 이제 도메인 한정 실행
+run_case "mail 페이지 변경 → 도메인 한정(전체 E2E 아님)" \
+  "apps/workplace-web/src/pages/mail/MailInboxPage.tsx" \
+  "도메인 한정 변경 감지" \
+  "공유 영역/매핑 외 변경 감지"
+
+# 8) 여전히 톱레벨 flat 페이지(HomePage 등)는 매핑 모호 → 전체 E2E
+run_case "톱레벨 flat 페이지 변경 → 전체 E2E 유지" \
+  "apps/workplace-web/src/pages/HomePage.tsx" \
+  "공유 영역/매핑 외 변경 감지"
 
 echo
 echo "=== 결과: PASS=$PASS FAIL=$FAIL ==="
