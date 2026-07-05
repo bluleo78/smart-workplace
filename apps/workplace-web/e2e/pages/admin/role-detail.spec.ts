@@ -27,6 +27,10 @@ test.describe('/settings/roles/:id — 시스템 역할 필드 비활성화', ()
       // 저장 버튼 — disabled 확인 (exact: true 로 '권한 저장' 버튼과 구분)
       const saveButton = page.getByRole('button', { name: '저장', exact: true });
       await expect(saveButton).toBeDisabled();
+
+      // 잠금 안내 배너 + disabled 필드 시각 구분(bg-muted) — 수정 불가 이유를 명시 (#676)
+      await expect(page.getByText('시스템 역할은 이름·설명·권한을 수정할 수 없습니다.')).toBeVisible();
+      await expect(nameInput).toHaveClass(/disabled:bg-muted/);
     },
   );
 

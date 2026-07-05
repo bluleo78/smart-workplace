@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import axios from 'axios';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Lock } from 'lucide-react';
 import { useEffect, useMemo,useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate,useParams } from 'react-router-dom';
@@ -177,6 +177,13 @@ export default function RoleDetailPage() {
           <CardTitle>역할 정보</CardTitle>
         </CardHeader>
         <CardContent>
+          {/* 시스템 역할 잠금 안내 — 폼 필드가 disabled인 이유를 명시 (#676) */}
+          {role.isSystem && (
+            <div className="mb-4 flex items-center gap-2 rounded-md border bg-muted p-3 text-sm text-muted-foreground">
+              <Lock className="h-4 w-4 shrink-0" />
+              시스템 역할은 이름·설명·권한을 수정할 수 없습니다.
+            </div>
+          )}
           <form onSubmit={form.handleSubmit(onRoleSubmit)} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="role-name">역할 이름</Label>
@@ -184,6 +191,7 @@ export default function RoleDetailPage() {
                 id="role-name"
                 {...form.register('name')}
                 disabled={role.isSystem}
+                className="disabled:bg-muted disabled:text-muted-foreground"
               />
               {form.formState.errors.name && (
                 <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
@@ -195,6 +203,7 @@ export default function RoleDetailPage() {
                 id="role-description"
                 {...form.register('description')}
                 disabled={role.isSystem}
+                className="disabled:bg-muted disabled:text-muted-foreground"
               />
             </div>
             {roleError && (
@@ -226,8 +235,12 @@ export default function RoleDetailPage() {
                       checked={selectedPermissionIds.includes(perm.id)}
                       onCheckedChange={(checked) => handlePermissionToggle(perm.id, checked === true)}
                       disabled={role.isSystem}
+                      className="disabled:bg-muted"
                     />
-                    <Label htmlFor={`perm-${perm.id}`} className="text-sm">
+                    <Label
+                      htmlFor={`perm-${perm.id}`}
+                      className={`text-sm ${role.isSystem ? 'text-muted-foreground' : ''}`}
+                    >
                       {perm.code}
                     </Label>
                     {perm.description && (
