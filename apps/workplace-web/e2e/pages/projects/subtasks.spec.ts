@@ -187,6 +187,11 @@ test.describe('SUBTASK', () => {
       // 추가 후 자식 리스트 갱신 (invalidate → refetch).
       await expect(page.getByTestId('child-row-100')).toBeVisible();
       await expect(page.getByTestId('child-row-100')).toContainText('첫 자식');
+      // 상태 배지는 raw Badge variant 대신 시맨틱 StatusBadge(type=pending)를 사용해야 함 (#668).
+      await expect(page.getByTestId('child-row-100').locator('[data-status]')).toHaveAttribute(
+        'data-status',
+        'pending',
+      );
     },
   );
 
