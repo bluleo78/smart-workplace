@@ -155,8 +155,11 @@ test('외부 연락처 삭제', { tag: '@smoke' }, async ({ authenticatedPage: p
   await page.getByRole('button', { name: '삭제' }).last().click()
 
   await expect.poll(() => deleted).toBe(true)
-  // 선택 해제 → empty 상태
-  await expect(page.getByTestId('contact-detail-empty')).toBeVisible()
+  // 선택 해제 → empty 상태 — DS §2.5 4요소 패턴(아이콘+제목+설명) 확인
+  const emptyState = page.getByTestId('contact-detail-empty')
+  await expect(emptyState).toBeVisible()
+  await expect(emptyState).toContainText('연락처를 선택하세요')
+  await expect(emptyState.locator('svg')).toBeVisible()
   // 목록에서 제거됨 — 재요청 후 행이 사라진다
   await expect(page.getByTestId('contact-row-EXTERNAL-100')).toHaveCount(0)
 })

@@ -1,4 +1,4 @@
-import { Star } from 'lucide-react'
+import { Star, Users } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -37,12 +37,19 @@ export function ContactDetailPanel({
   const toggle = useToggleFavorite()
 
   if (!selected) {
+    /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 (CTA는 단순 안내이므로 생략) */
     return (
       <div
         data-testid="contact-detail-empty"
-        className="flex h-full items-center justify-center p-8 text-sm text-muted-foreground"
+        className="flex h-full flex-col items-center justify-center gap-3 text-center"
       >
-        목록에서 연락처를 선택하세요
+        <Users className="h-10 w-10 text-muted-foreground/50" />
+        <div>
+          <p className="text-sm font-medium">연락처를 선택하세요</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            왼쪽 목록에서 연락처를 클릭하면 상세 정보가 표시됩니다
+          </p>
+        </div>
       </div>
     )
   }
