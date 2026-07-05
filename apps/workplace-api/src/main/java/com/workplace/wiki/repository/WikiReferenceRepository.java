@@ -38,12 +38,21 @@ public class WikiReferenceRepository {
     insert.onConflictDoNothing().execute();
   }
 
-  /** 주어진 대상을 가리키는 source 페이지 id 목록(백링크). RLS 가 가시 테넌트로 제한. */
+  /**
+   * 주어진 대상을 가리키는 source 페이지 id 목록(백링크). RLS 가 가시 테넌트로 제한.
+   *
+   * <p>targetType 이 "PAGE" 인 경우 source_page_id 와 target_id 가 같은 id 공간(위키 페이지)이므로, 자기 자신을 멘션한 자기 참조는
+   * 백링크 목록에서 제외한다(#689). ISSUE 등 다른 타입은 id 공간이 달라 우연한 값 일치로 오배제될 수 있어 제외하지 않는다.
+   */
   public List<Long> findBacklinkSourcePageIds(String targetType, long targetId) {
-    return dsl.select(WIKI_REFERENCE.SOURCE_PAGE_ID)
-        .from(WIKI_REFERENCE)
-        .where(WIKI_REFERENCE.TARGET_TYPE.eq(targetType))
-        .and(WIKI_REFERENCE.TARGET_ID.eq(targetId))
-        .fetch(WIKI_REFERENCE.SOURCE_PAGE_ID);
+    var query =
+        dsl.select(WIKI_REFERENCE.SOURCE_PAGE_ID)
+            .from(WIKI_REFERENCE)
+            .where(WIKI_REFERENCE.TARGET_TYPE.eq(targetType))
+            .and(WIKI_REFERENCE.TARGET_ID.eq(targetId));
+    if ("PAGE".equals(targetType)) {
+      query = query.and(WIKI_REFERENCE.SOURCE_PAGE_ID.ne(targetId));
+    }
+    return query.fetch(WIKI_REFERENCE.SOURCE_PAGE_ID);
   }
 }

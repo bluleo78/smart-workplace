@@ -185,6 +185,56 @@ class WikiReferenceRepositoryTest extends IntegrationTestBase {
             });
   }
 
+  /** 자기 참조 멘션(PAGE 타입, source==target)은 백링크 목록에서 제외된다(#689). */
+  @Test
+  void findBacklinkSourcePageIds_excludesSelfReferenceForPageType() {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              setGuc(1L);
+              long owner = createOwner();
+              long space = createSpace(1L, owner);
+              long self = createPage(1L, space, "Self");
+              long other = createPage(1L, space, "Other");
+
+              // 자기 자신 + 다른 페이지를 모두 참조
+              repository.replaceForSource(
+                  self,
+                  List.of(
+                      new WikiReferenceRow(self, "PAGE", self),
+                      new WikiReferenceRow(self, "PAGE", other)));
+
+              // self 를 target 으로 조회 시 자기 참조는 제외되어 빈 목록
+              assertThat(repository.findBacklinkSourcePageIds("PAGE", self)).isEmpty();
+              // other 를 target 으로 조회 시엔 정상적으로 self 가 나옴
+              assertThat(repository.findBacklinkSourcePageIds("PAGE", other)).containsExactly(self);
+
+              status.setRollbackOnly();
+              return null;
+            });
+  }
+
+  /** ISSUE 타입은 id 공간이 달라 source_page_id 와 target_id 우연 일치가 있어도 제외하지 않는다(자기 참조 필터는 PAGE 타입 전용). */
+  @Test
+  void findBacklinkSourcePageIds_doesNotExcludeIssueTypeEvenIfIdsCoincide() {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              setGuc(1L);
+              long owner = createOwner();
+              long space = createSpace(1L, owner);
+              long src = createPage(1L, space, "Source");
+
+              // ISSUE target_id 가 우연히 source_page_id 와 같은 값
+              repository.replaceForSource(src, List.of(new WikiReferenceRow(src, "ISSUE", src)));
+
+              assertThat(repository.findBacklinkSourcePageIds("ISSUE", src)).containsExactly(src);
+
+              status.setRollbackOnly();
+              return null;
+            });
+  }
+
   /** 테넌트 격리: tenant#1 의 참조는 다른 테넌트 컨텍스트에서 백링크 조회에 안 섞인다(RLS USING). */
   @Test
   void findBacklinkSourcePageIds_isTenantIsolated() {
