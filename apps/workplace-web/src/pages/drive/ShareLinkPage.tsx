@@ -9,19 +9,25 @@
 //   - 오류는 상태 코드별 한국어 인라인 메시지로 표시.
 
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 import { downloadSharedFile,ShareDownloadError } from '@/api/drive';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-/** 상태 코드 → 한국어 안내 메시지 */
+/** 상태 코드 → 한국어 안내 메시지 (원인) */
 function errorMessage(status: number): string {
   if (status === 401) return '비밀번호가 필요하거나 올바르지 않습니다. (사내 링크는 로그인이 필요합니다)'
   if (status === 410) return '만료되었거나 폐기된 링크입니다.'
   if (status === 404) return '존재하지 않는 링크입니다.'
   return '다운로드에 실패했습니다. 잠시 후 다시 시도하세요.'
+}
+
+/** 상태 코드 → 다음 행동 안내 (막다른 페이지 방지, #677) */
+function errorAction(status: number): string {
+  if (status === 410 || status === 404) return '링크를 공유한 사람에게 새 링크를 요청하세요.';
+  return '';
 }
 
 export default function ShareLinkPage() {
@@ -30,6 +36,7 @@ export default function ShareLinkPage() {
   // 'idle' | 'loading' | 'success' | 'error'
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [errMsg, setErrMsg] = useState<string | null>(null)
+  const [errStatus, setErrStatus] = useState<number>(0)
 
   async function handleDownload() {
     if (!token) return
@@ -39,11 +46,9 @@ export default function ShareLinkPage() {
       await downloadSharedFile(token, password || undefined)
       setStatus('success')
     } catch (e) {
-      if (e instanceof ShareDownloadError) {
-        setErrMsg(errorMessage(e.status))
-      } else {
-        setErrMsg(errorMessage(0))
-      }
+      const code = e instanceof ShareDownloadError ? e.status : 0
+      setErrStatus(code)
+      setErrMsg(errorMessage(code))
       setStatus('error')
     }
   }
@@ -51,6 +56,10 @@ export default function ShareLinkPage() {
   return (
     // 전체 화면 중앙 정렬 — AppLayout 없이 최소 UI
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+      {/* 브랜드/홈 링크 — AppLayout 밖 독립 페이지라 대체 내비게이션 수단이 전혀 없어 추가 (#677) */}
+      <Link to="/" className="mb-6 text-sm font-medium text-muted-foreground hover:text-foreground">
+        Smart Workplace
+      </Link>
       <div className="w-full max-w-sm space-y-6 rounded-xl border border-border bg-card p-8 shadow-sm">
         {/* 헤더 */}
         <div className="space-y-1 text-center">
@@ -76,11 +85,27 @@ export default function ShareLinkPage() {
           />
         </div>
 
-        {/* 에러 메시지 */}
+        {/* 에러 메시지 — 원인(errMsg) + 다음 행동(errAction/로그인 링크)을 함께 제공해 막다른 페이지 방지 (#677) */}
         {status === 'error' && errMsg && (
-          <p className="text-sm text-destructive" role="alert" data-testid="share-error-msg">
-            {errMsg}
-          </p>
+          <div className="space-y-1">
+            <p className="text-sm text-destructive" role="alert" data-testid="share-error-msg">
+              {errMsg}
+            </p>
+            {errStatus === 401 && (
+              <Link
+                to="/login"
+                className="text-sm font-medium text-primary underline underline-offset-4"
+                data-testid="share-error-login-link"
+              >
+                로그인 페이지로 이동
+              </Link>
+            )}
+            {errorAction(errStatus) && (
+              <p className="text-sm text-muted-foreground" data-testid="share-error-action">
+                {errorAction(errStatus)}
+              </p>
+            )}
+          </div>
         )}
 
         {/* 성공 메시지 */}

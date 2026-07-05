@@ -427,4 +427,35 @@ test('공개 랜딩 — 401 응답 시 친화적 에러 메시지 표시', async
   const errEl = page.getByTestId('share-error-msg')
   await expect(errEl).toBeVisible()
   await expect(errEl).toContainText('비밀번호가 필요하거나 올바르지 않습니다')
+
+  // 401 은 로그인 페이지로 이동할 수단이 있어야 한다 (#677 — 막다른 페이지 방지)
+  const loginLink = page.getByTestId('share-error-login-link')
+  await expect(loginLink).toBeVisible()
+  await expect(loginLink).toHaveAttribute('href', '/login')
+})
+
+// ── 랜딩 페이지 — 404/410 오류 시 다음 행동 안내 표시 (#677) ──
+test('공개 랜딩 — 404/410 응답 시 다음 행동 안내 표시', async ({ page }) => {
+  await page.route('**/api/v1/public/drive/share/*/download*', async (route) => {
+    await route.fulfill({ status: 410, body: '' })
+  })
+
+  await page.goto('/s/sl_410')
+  await page.getByTestId('share-download-btn').click()
+
+  await expect(page.getByTestId('share-error-msg')).toContainText('만료되었거나 폐기된 링크입니다')
+  const actionEl = page.getByTestId('share-error-action')
+  await expect(actionEl).toBeVisible()
+  await expect(actionEl).toContainText('새 링크를 요청하세요')
+
+  // 401 전용 로그인 링크는 노출되지 않아야 한다
+  await expect(page.getByTestId('share-error-login-link')).toHaveCount(0)
+})
+
+// ── 랜딩 페이지 — 대체 내비게이션 수단(브랜드/홈 링크) 노출 (#677) ──
+test('공개 랜딩 — 브랜드/홈 링크로 앱 복귀 가능', async ({ page }) => {
+  await page.goto('/s/sl_abc')
+  const homeLink = page.getByRole('link', { name: 'Smart Workplace' })
+  await expect(homeLink).toBeVisible()
+  await expect(homeLink).toHaveAttribute('href', '/')
 })
