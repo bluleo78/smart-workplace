@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { FileText, Folder, FolderOpen, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -42,6 +43,11 @@ import { useFolderNavigation } from './useFolderNavigation'
 
 // 서버 multipart 업로드 한도(application.yml: max-file-size 25MB)와 동일. 초과 시 업로드 전 안내.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+// #658: AbortController.abort() 로 취소된 axios 요청인지 판별 — 실패 토스트 대신 취소 안내로 분기.
+function isUploadAborted(err: unknown): boolean {
+  return axios.isCancel(err)
+}
 
 // breadcrumb 접기 — 4개 초과면 [첫, null(…), 마지막2개]. null 은 생략 표식.
 function collapseCrumbs(
@@ -101,6 +107,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
   // 파일 업로드 진행 상태 — 업로드 중 버튼 비활성화·텍스트 변경으로 중복 업로드 방지 (#170).
   const [uploading, setUploading] = useState(false)
+  // #658: 현재 업로드 배치(단일/다중/드롭)를 취소할 수 있는 AbortController.
+  // 배치 전체에 하나만 두고(개별 파일별 취소는 범위 밖) 취소 버튼에서 abort() 호출.
+  const uploadAbortRef = useRef<AbortController | null>(null)
 
   // #82: 폴더 드래그앤드롭 업로드 상태.
   const [dropProgress, setDropProgress] = useState<{ done: number; total: number } | null>(null)
@@ -250,8 +259,12 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
   // #82: 드롭된 폴더 트리를 구조 재생(resolveFolder=merge) 후 파일을 순차 업로드.
   // 부분 실패는 성공분 유지 + 실패 요약 토스트(롤백 없음).
+  // #658: controller.signal 로 현재 파일 요청을 취소할 수 있고, controller.signal.aborted 를
+  // 루프 조건으로 확인해 남은 파일 업로드도 시작하지 않는다(전체 취소).
   async function uploadDroppedTree(dropped: DroppedFile[]) {
     if (dropped.length === 0) return
+    const controller = new AbortController()
+    uploadAbortRef.current = controller
     setDropProgress({ done: 0, total: dropped.length })
     // 경로(상위 폴더 체인) → folderId 캐시. 루트는 현재 folderId.
     const folderCache = new Map<string, number | null>()
@@ -268,15 +281,24 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     }
 
     let done = 0
+    let cancelled = false
     for (const d of dropped) {
+      if (controller.signal.aborted) {
+        cancelled = true
+        break
+      }
       try {
         if (d.file.size > MAX_UPLOAD_BYTES) {
           failures.push(`${d.file.name} (25MB 초과)`)
         } else {
           const target = await ensureFolder(d.relativePath)
-          await driveApi.uploadFile(sid, target, d.file)
+          await driveApi.uploadFile(sid, target, d.file, controller.signal)
         }
-      } catch {
+      } catch (err) {
+        if (isUploadAborted(err)) {
+          cancelled = true
+          break
+        }
         failures.push(d.file.name)
       } finally {
         done += 1
@@ -285,8 +307,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     }
 
     setDropProgress(null)
+    uploadAbortRef.current = null
     await reload()
-    if (failures.length > 0) {
+    if (cancelled) {
+      toast.message('업로드를 취소했습니다.')
+    } else if (failures.length > 0) {
       toast.error(`${failures.length}개 항목 업로드 실패: ${failures.slice(0, 3).join(', ')}${failures.length > 3 ? ' 외' : ''}`)
     } else {
       toast.success(`${dropped.length}개 파일 업로드 완료`)
@@ -314,6 +339,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     if (files.length === 0) return
 
     // 단일 파일: 기존 동작 그대로(개별 에러 토스트, 진행률 표시 없음).
+    // #658: AbortController 를 배선해 "업로드 취소" 버튼에서 요청을 중단할 수 있게 한다.
     if (files.length === 1) {
       const file = files[0]
       // 한도 초과는 업로드 전 클라이언트에서 안내 — 불필요한 400 왕복·데이터 유실 오인 방지.
@@ -321,33 +347,52 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         toast.error('파일 크기가 25MB를 초과합니다.')
         return
       }
+      const controller = new AbortController()
+      uploadAbortRef.current = controller
       // 업로드 시작 — 버튼 비활성화로 중복 업로드 방지 (#170).
       setUploading(true)
       try {
-        await driveApi.uploadFile(sid, folderId, file)
+        await driveApi.uploadFile(sid, folderId, file, controller.signal)
         await reload()
       } catch (err) {
-        handleApiError(err, '파일을 업로드하지 못했습니다.')
+        if (isUploadAborted(err)) {
+          toast.message('업로드를 취소했습니다.')
+        } else {
+          handleApiError(err, '파일을 업로드하지 못했습니다.')
+        }
       } finally {
+        uploadAbortRef.current = null
         setUploading(false)
       }
       return
     }
 
     // 다중 파일: 드롭 경로와 동일한 순차 업로드 + 실패 집계 패턴.
+    // #658: 취소 버튼 클릭 시 controller.abort() → 진행 중 요청 중단 + 남은 파일 스킵.
+    const controller = new AbortController()
+    uploadAbortRef.current = controller
     setUploading(true)
     setDropProgress({ done: 0, total: files.length })
     const failures: string[] = []
+    let cancelled = false
     let done = 0
     try {
       for (const file of files) {
+        if (controller.signal.aborted) {
+          cancelled = true
+          break
+        }
         try {
           if (file.size > MAX_UPLOAD_BYTES) {
             failures.push(`${file.name} (25MB 초과)`)
           } else {
-            await driveApi.uploadFile(sid, folderId, file)
+            await driveApi.uploadFile(sid, folderId, file, controller.signal)
           }
-        } catch {
+        } catch (err) {
+          if (isUploadAborted(err)) {
+            cancelled = true
+            break
+          }
           failures.push(file.name)
         } finally {
           done += 1
@@ -355,15 +400,24 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         }
       }
       await reload()
-      if (failures.length > 0) {
+      if (cancelled) {
+        toast.message('업로드를 취소했습니다.')
+      } else if (failures.length > 0) {
         toast.error(`${failures.length}개 항목 업로드 실패: ${failures.slice(0, 3).join(', ')}${failures.length > 3 ? ' 외' : ''}`)
       } else {
         toast.success(`${files.length}개 파일 업로드 완료`)
       }
     } finally {
+      uploadAbortRef.current = null
       setDropProgress(null)
       setUploading(false)
     }
+  }
+
+  // #658: 현재 업로드 배치를 취소 — abort() 는 진행 중인 axios 요청을 중단시키고,
+  // 각 업로드 루프의 aborted 체크가 남은 파일을 더 이상 시작하지 않도록 막는다.
+  function onCancelUpload() {
+    uploadAbortRef.current?.abort()
   }
   function onRenameFolder(id: number, current: string) {
     setNameInput(current)
@@ -629,6 +683,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             >
               {uploading ? '업로드 중…' : '업로드'}
             </button>
+            {/* #658: 업로드 중인 파일(들) 전체 취소 — 개별 파일별 취소는 범위 밖.
+                다중/드롭 업로드는 drop-progress 쪽에 취소 버튼이 별도로 노출되므로 중복 방지. */}
+            {uploading && !dropProgress && (
+              <button
+                type="button"
+                onClick={onCancelUpload}
+                data-testid="drive-upload-cancel"
+                className="rounded border px-2 py-1 text-sm text-destructive hover:bg-destructive/10"
+              >
+                취소
+              </button>
+            )}
             <input ref={fileInput} type="file" multiple hidden onChange={onUpload} data-testid="file-input" />
             <button
               type="button"
@@ -704,10 +770,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             보관된 채널의 공간입니다 — 읽기 전용입니다.
           </div>
         )}
-        {/* #82: 폴더 드롭 업로드 진행 표시 */}
+        {/* #82: 폴더 드롭 업로드 진행 표시. #658: 전체 취소 버튼 동반(드래그앤드롭은 툴바 버튼이 비활성화되지 않으므로 별도 노출). */}
         {dropProgress && (
-          <div data-testid="drop-progress" className="mb-2 text-sm text-muted-foreground">
-            업로드 중… {dropProgress.done}/{dropProgress.total}
+          <div data-testid="drop-progress" className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+            <span>업로드 중… {dropProgress.done}/{dropProgress.total}</span>
+            <button
+              type="button"
+              onClick={onCancelUpload}
+              data-testid="drop-progress-cancel"
+              className="rounded border px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10"
+            >
+              취소
+            </button>
           </div>
         )}
         {trash != null ? (

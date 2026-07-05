@@ -685,6 +685,50 @@ test('업로드 중 버튼이 비활성화되고 완료 후 다시 활성화된�
   await expect(btn).toHaveText('업로드')
 })
 
+// #658 — 업로드 진행 중 취소 버튼: 클릭 시 요청이 중단되고(AbortController), 목록에 파일이 추가되지 않으며
+// 취소 안내 토스트가 뜨고 업로드 버튼이 정상 상태로 복원된다.
+test('업로드 중 취소 버튼을 클릭하면 요청이 중단되고 파일이 목록에 추가되지 않는다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+
+  // 업로드 API — 응답을 절대 보내지 않아 "업로드 중" 상태를 계속 유지(취소로만 종료).
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    () =>
+      new Promise<void>(() => {
+        /* 응답을 영원히 보류 — 클라이언트 abort() 로만 종료됨 */
+      }),
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // 파일 선택 → 업로드 시작(API 홀드 중)
+  void page.getByTestId('file-input').setInputFiles({
+    name: 'memo.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('hello'),
+  })
+
+  const btn = page.getByTestId('drive-upload')
+  await expect(btn).toBeDisabled()
+  await expect(btn).toHaveText('업로드 중…')
+
+  // 취소 버튼 노출 확인 후 클릭.
+  const cancelBtn = page.getByTestId('drive-upload-cancel')
+  await expect(cancelBtn).toBeVisible()
+  await cancelBtn.click()
+
+  // 취소 안내 토스트 + 버튼 정상 상태 복원.
+  await expect(page.getByText('업로드를 취소했습니다.')).toBeVisible()
+  await expect(btn).toBeEnabled()
+  await expect(btn).toHaveText('업로드')
+  await expect(cancelBtn).toHaveCount(0)
+
+  // 취소되었으므로 파일이 목록에 추가되지 않아야 한다.
+  await expect(page.getByText('memo.txt')).toHaveCount(0)
+})
+
 test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내한다', async ({ authenticatedPage: page }) => {
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [], files: [] }))

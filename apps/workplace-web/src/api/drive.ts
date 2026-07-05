@@ -142,12 +142,14 @@ export const driveApi = {
 
   deleteFolder: (folderId: number) => client.delete<void>(`/drive/folders/${folderId}`),
 
-  uploadFile: (spaceId: number, folderId: number | null, file: File) => {
+  // #658: signal(AbortSignal) 옵션 — 업로드 중 취소 버튼에서 controller.abort() 로 요청 중단.
+  uploadFile: (spaceId: number, folderId: number | null, file: File, signal?: AbortSignal) => {
     const fd = new FormData()
     fd.append('file', file)
     if (folderId != null) fd.append('folderId', String(folderId))
     return client.post<DriveFile>(`/drive/spaces/${spaceId}/files`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      signal,
     })
   },
 
