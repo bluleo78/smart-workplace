@@ -17,7 +17,7 @@ export function FieldTextInput({
     <Input
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
-      placeholder={def.name}
+      placeholder="값을 입력하세요"
       maxLength={2000}
       data-testid={`field-input-${def.id}`}
     />

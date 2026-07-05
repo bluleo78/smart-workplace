@@ -26,7 +26,7 @@ export function FieldNumberInput({
         const n = Number(v);
         if (Number.isFinite(n)) onChange(n);
       }}
-      placeholder={def.name}
+      placeholder="숫자를 입력하세요"
       data-testid={`field-input-${def.id}`}
     />
   );

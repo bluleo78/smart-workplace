@@ -174,12 +174,32 @@ test.describe('커스텀 필드', () => {
         .click();
       await expect(page.getByText('스토리포인트')).toBeVisible();
 
+      // 1b) TEXT 필드도 추가 — placeholder 검증용 (#683)
+      await page.getByTestId('custom-field-create-form').getByLabel('이름').fill('비고');
+      await page.getByTestId('cf-type-select').click();
+      await page.getByTestId('cf-type-option-TEXT').click();
+      await page
+        .getByTestId('custom-field-create-form')
+        .getByRole('button', { name: '추가' })
+        .click();
+      await expect(page.getByText('비고')).toBeVisible();
+
       // 2) 이슈 상세에서 값 5 입력 → debounce(300ms) 후 PUT 발생.
       await page.goto(`/projects/${KEY}/issues/1`);
       // 커스텀 필드 그룹은 기본 접힘 — 펼쳐야 커스텀 필드 섹션이 DOM 에 마운트됨 (#343).
       await page.getByRole('button', { name: /커스텀 필드/ }).click();
       await expect(page.getByTestId('custom-fields-section')).toBeVisible();
       const fieldId = fields.find((f) => f.name === '스토리포인트')!.id;
+      const textFieldId = fields.find((f) => f.name === '비고')!.id;
+      // placeholder는 라벨(필드명)을 그대로 복제하지 않고 타입별 안내 문구여야 한다 (#683)
+      await expect(page.getByTestId(`field-input-${fieldId}`)).toHaveAttribute(
+        'placeholder',
+        '숫자를 입력하세요',
+      );
+      await expect(page.getByTestId(`field-input-${textFieldId}`)).toHaveAttribute(
+        'placeholder',
+        '값을 입력하세요',
+      );
       await page.getByTestId(`field-input-${fieldId}`).fill('5');
 
       await expect.poll(() => putPayload, { timeout: 2000 }).toMatchObject({
