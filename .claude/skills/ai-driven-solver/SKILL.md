@@ -139,8 +139,10 @@ SESSION="${SESSION_NAME:-solver#$(openssl rand -hex 3)}"
 playwright-cli -s=$SESSION --headed open http://localhost:6173
 playwright-cli -s=$SESSION resize 1440 900   # 데스크탑 뷰포트 확보
 playwright-cli -s=$SESSION state-load .playwright-cli/state.json
+playwright-cli -s=$SESSION reload   # 필수 — 생략하면 이미 렌더링된 로그인 화면이 그대로 남아 매번 재로그인하게 됨
+sleep 1
 
-# state-load 후 로그인 여부 확인
+# state-load + reload 후 로그인 여부 확인
 playwright-cli -s=$SESSION --raw snapshot > /tmp/snap_check.yml 2>/dev/null
 if grep -q "email@example.com\|로그인 페이지" /tmp/snap_check.yml; then
   # state 만료 → 수동 로그인 (pitfall #17: fill만으로는 React 상태 미반영 빈번)
@@ -162,6 +164,11 @@ if grep -q "email@example.com\|로그인 페이지" /tmp/snap_check.yml; then
   sleep 0.3
   playwright-cli -s=$SESSION click "button:has-text('로그인')"
   sleep 2
+  playwright-cli -s=$SESSION state-save .playwright-cli/state.json
+else
+  # state-load만으로 로그인 유지 성공 — refresh 토큰이 1회용 로테이션 방식이라
+  # 방금 소모되어 새로 발급된 토큰을 즉시 재저장해야 다음 세션이 이어받을 수 있다.
+  # 생략하면 파일엔 이미 무효화된 옛 토큰만 남아 다음 세션마다 매번 수동 로그인을 반복하게 된다.
   playwright-cli -s=$SESSION state-save .playwright-cli/state.json
 fi
 ```

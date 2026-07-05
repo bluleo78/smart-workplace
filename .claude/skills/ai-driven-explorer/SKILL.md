@@ -77,13 +77,21 @@ playwright-cli -s=$SESSION close
 
 ### 인증 상태 관리
 
-저장된 상태가 있으면 먼저 로드하되, **로드 후 반드시 로그인 여부를 확인**한다:
+저장된 상태가 있으면 먼저 로드하되, **로드 후 반드시 reload로 페이지를 다시 그린 다음 로그인 여부를 확인**한다:
 ```bash
 playwright-cli -s=$SESSION state-load .playwright-cli/state.json
+playwright-cli -s=$SESSION reload   # 필수 — 생략하면 이미 렌더링된 로그인 화면이 그대로 남아 매번 재로그인하게 됨
+sleep 1
 playwright-cli -s=$SESSION --raw snapshot > /tmp/snap.yml
 grep -i "email\|로그인\|login" /tmp/snap.yml | head -3
-# → 이메일 인풋이 보이면 state 만료 → 수동 로그인 필요
+# → 이메일 인풋이 보이면 state 실제 만료 → 수동 로그인 필요
+# → 안 보이면 로그인 유지 성공 → 반드시 즉시 state-save로 재저장 (아래 함정 참조)
+playwright-cli -s=$SESSION state-save .playwright-cli/state.json
 ```
+
+> **함정**: `state-load`는 쿠키/localStorage를 브라우저 컨텍스트에 주입만 할 뿐, 이미 열려있는 페이지의 React 인증 상태(AuthContext)를 재실행하지 않는다. `open <URL>`으로 페이지가 이미 로그인 화면으로 렌더링된 뒤 `state-load`만 하고 `reload` 없이 로그인 여부를 확인하면, 저장된 상태가 유효해도 매번 "만료"로 오판해 불필요한 수동 로그인을 반복하게 된다.
+>
+> **함정 (더 중요)**: refresh 토큰은 **1회용 로테이션 방식**이다 — 어느 세션이든 `state.json`의 토큰으로 실제 refresh 요청이 한 번이라도 성공하면 그 토큰은 서버에서 즉시 무효화되고 새 토큰으로 교체된다. state-load 성공(로그인 유지 확인) 직후 **바로 state-save로 재저장하지 않으면**, 브라우저 안에서는 새 토큰으로 잘 동작하지만 파일에는 여전히 방금 소모되어 무효화된 옛 토큰이 남아있다. 다음 세션이 그 파일을 로드하면 이미 사용된 토큰이라 401 → 매번 수동 로그인을 반복하게 된다. **state-load가 성공할 때마다 반드시 state-save로 즉시 갱신**해야 이 로테이션을 다음 세션에 이어갈 수 있다.
 
 수동 로그인 (pitfall #17 참조 — fill만으로는 React 상태 미반영 빈번):
 ```bash
