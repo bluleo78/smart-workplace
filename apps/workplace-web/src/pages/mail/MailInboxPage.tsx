@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Download, Forward, Loader2, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles } from 'lucide-react'
+import { Check, Download, Forward, Loader2, Mail, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -232,12 +232,19 @@ function MessageDetailPanel({
   const linked = useLinkedIssue(messageId, aiEnabled)
 
   if (!messageId) {
+    /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 (CTA는 단순 안내이므로 생략) */
     return (
       <div
         data-testid="mail-detail-empty"
-        className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground"
+        className="flex h-full flex-col items-center justify-center gap-3 text-center"
       >
-        메일을 선택하세요
+        <Mail className="h-10 w-10 text-muted-foreground/50" />
+        <div>
+          <p className="text-sm font-medium">메일을 선택하세요</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            왼쪽 목록에서 메일을 클릭하면 내용이 표시됩니다
+          </p>
+        </div>
       </div>
     )
   }

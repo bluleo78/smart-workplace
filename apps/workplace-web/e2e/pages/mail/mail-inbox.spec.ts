@@ -255,9 +255,12 @@ test.describe('받은편지함', () => {
     await page.getByTestId('mail-account-switcher').click()
     await page.getByTestId('mail-account-2').click()
 
-    // 계정 2로 이동 후 선택 해제 — 빈 디테일 패널
+    // 계정 2로 이동 후 선택 해제 — 빈 디테일 패널, DS §2.5 4요소 패턴(아이콘+제목+설명) 확인
     await expect(page).toHaveURL(/\/mail\/2/)
-    await expect(page.getByTestId('mail-detail-empty')).toBeVisible()
+    const emptyState = page.getByTestId('mail-detail-empty')
+    await expect(emptyState).toBeVisible()
+    await expect(emptyState).toContainText('메일을 선택하세요')
+    await expect(emptyState.locator('svg')).toBeVisible()
   })
 
   // LNB 표준화(#98) — 메일 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
