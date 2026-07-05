@@ -32,3 +32,21 @@ export function findNode(nodes: UserGroupNode[], id: number): UserGroupNode | nu
   }
   return null
 }
+
+/**
+ * 주어진 노드의 모든 자손 id 집합(자기 자신 제외).
+ * 상위 그룹 셀렉트에서 편집 대상의 자손을 후보로 노출하면 저장 시 백엔드가
+ * 사이클(descendants().contains(parentId))로 항상 400을 거부하므로, 프런트에서
+ * 백엔드 `UserGroupService.descendants()` 와 동일한 순회로 미러링해 선행 필터링한다.
+ */
+export function collectDescendantIds(node: UserGroupNode): Set<number> {
+  const ids = new Set<number>()
+  const walk = (ns: UserGroupNode[]) => {
+    for (const n of ns) {
+      ids.add(n.id)
+      walk(n.children)
+    }
+  }
+  walk(node.children)
+  return ids
+}

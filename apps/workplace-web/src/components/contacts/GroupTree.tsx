@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import type { UserGroupDetail, UserGroupNode, UserGroupVisibility } from '@/types/userGroup'
 
 import { GroupForm } from './GroupForm'
-import { findNode, flattenGroups } from './groupTree.helpers'
+import { collectDescendantIds, findNode, flattenGroups } from './groupTree.helpers'
 
 interface NodeProps {
   node: UserGroupNode
@@ -127,6 +127,10 @@ export function GroupTree({ selectedId, onSelect }: Props) {
   const personalOptions = flattenGroups(data?.personal ?? [])
   const sharedOptions = flattenGroups(data?.shared ?? [])
 
+  // 편집 대상(항상 개인 그룹)의 자손은 상위 그룹 후보에서 제외 — 선택 시 백엔드가 항상 400(사이클) 거부.
+  const editTargetNode = editTarget ? findNode(data?.personal ?? [], editTarget.id) : null
+  const descendantIds = editTargetNode ? collectDescendantIds(editTargetNode) : new Set<number>()
+
   // 같은 노드를 다시 클릭하면 선택 해제(통합 목록 복원).
   const handleSelect = (id: number) => onSelect(selectedId === id ? null : id)
 
@@ -227,7 +231,11 @@ export function GroupTree({ selectedId, onSelect }: Props) {
         onOpenChange={setFormOpen}
         group={editTarget}
         visibility={createVisibility}
-        parentOptions={createVisibility === 'SHARED' ? sharedOptions : personalOptions}
+        parentOptions={
+          createVisibility === 'SHARED'
+            ? sharedOptions
+            : personalOptions.filter((o) => !descendantIds.has(o.id))
+        }
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>

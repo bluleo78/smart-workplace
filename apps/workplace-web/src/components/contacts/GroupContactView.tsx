@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import type { UserGroupDetail, UserGroupNode } from '@/types/userGroup'
 
 import { GroupForm } from './GroupForm'
-import { findNode, flattenGroups } from './groupTree.helpers'
+import { collectDescendantIds, findNode, flattenGroups } from './groupTree.helpers'
 import { OrgChartView } from './OrgChartView'
 
 interface Props {
@@ -82,6 +82,10 @@ export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted }
 
   const sharedSubtree =
     detail.visibility === 'SHARED' && tree ? findNode(tree.shared, groupId) : null
+
+  // 편집 대상의 자손 그룹은 상위 그룹 후보에서 제외 — 선택 시 백엔드가 항상 400(사이클) 거부.
+  const editTargetNode = editTarget && tree ? findNode(tree.shared, editTarget.id) : null
+  const descendantIds = editTargetNode ? collectDescendantIds(editTargetNode) : new Set<number>()
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="group-contact-view">
@@ -153,7 +157,7 @@ export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted }
           onOpenChange={setFormOpen}
           group={editTarget}
           visibility="SHARED"
-          parentOptions={flattenGroups(tree?.shared ?? [])}
+          parentOptions={flattenGroups(tree?.shared ?? []).filter((o) => !descendantIds.has(o.id))}
           defaultParentId={createParentId}
         />
       )}

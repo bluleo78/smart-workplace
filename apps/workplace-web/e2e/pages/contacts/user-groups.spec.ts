@@ -1,7 +1,7 @@
 // 사용자 그룹·조직도 E2E @smoke — 조직도 뷰 + 개인 그룹 생성 (백엔드 없이 page.route 모킹).
 import type { Page } from '@playwright/test'
 
-import { personalDetail, sharedDetail, tree } from '../../factories/userGroups.factory'
+import { personalDetail, sharedDetail, sharedNode, tree } from '../../factories/userGroups.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 
 // GET /api/v1/user-groups → 기본 트리(공유 1개 + 개인 1개)
@@ -282,6 +282,45 @@ test('admin: 조직도 노드 삭제 실패 시 에러 토스트', async ({ admi
   await expect(page.getByTestId('org-delete-confirm')).toBeVisible()
   await page.getByTestId('org-delete-confirm-btn').click()
   await expect(page.getByText('삭제할 수 없습니다')).toBeVisible()
+})
+
+test('admin: 상위 그룹 셀렉트가 편집 대상의 자손 그룹을 후보에서 제외(#694)', async ({ adminPage: page }) => {
+  // 10(개발본부) > 11(하위팀) > 12(하위하위팀), 그리고 형제 15(디자인본부) — 자손만 제외되고 형제는 후보에 남아야 함
+  await stubContacts(page)
+  const grandchild = { id: 12, code: null, name: '하위하위팀', parentId: 11, ownerId: null, visibility: 'SHARED' as const, sortOrder: 0, children: [] }
+  const child = { id: 11, code: null, name: '하위팀', parentId: 10, ownerId: null, visibility: 'SHARED' as const, sortOrder: 0, children: [grandchild] }
+  await page.route(
+    (url) => url.pathname === '/api/v1/user-groups',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          tree({
+            shared: [
+              sharedNode({ children: [child] }),
+              { id: 15, code: null, name: '디자인본부', parentId: null, ownerId: null, visibility: 'SHARED', sortOrder: 1, children: [] },
+            ],
+          }),
+        ),
+      }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/user-groups/10',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sharedDetail()) }),
+  )
+
+  await page.goto('/contacts')
+  await page.getByTestId('group-node-10').click()
+  await page.getByTestId('org-edit-10').click()
+  await expect(page.getByTestId('group-form-dialog')).toBeVisible()
+  await page.getByTestId('g-parent').click()
+
+  // 자손(하위팀·하위하위팀)은 옵션에서 제외
+  await expect(page.getByRole('option', { name: '하위팀' })).toHaveCount(0)
+  await expect(page.getByRole('option', { name: '하위하위팀' })).toHaveCount(0)
+  // 자손이 아닌 그룹(디자인본부)은 여전히 후보로 노출
+  await expect(page.getByRole('option', { name: '디자인본부' })).toBeVisible()
 })
 
 test('비-admin: 조직도 노드 호버 액션 미노출(읽기 전용)', async ({ authenticatedPage: page }) => {
