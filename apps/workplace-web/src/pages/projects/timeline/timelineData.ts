@@ -66,6 +66,17 @@ function toBar(issue: IssueResponse): TimelineBar {
 }
 
 /**
+ * 막대 목록의 min-start(없으면 due) ~ max-due 롤업 range 계산 (#662).
+ * 에픽 그룹과 no-epic 그룹이 동일한 규칙을 쓴다 — bars 가 비어 있으면 null.
+ */
+function rollupRange(bars: TimelineBar[]): { start: string; due: string } | null {
+  if (bars.length === 0) return null;
+  const starts = bars.map((b) => b.start ?? b.due);
+  const dues = bars.map((b) => b.due);
+  return { start: starts.reduce((a, b) => (a < b ? a : b)), due: dues.reduce((a, b) => (a > b ? a : b)) };
+}
+
+/**
  * 이슈를 에픽 트리 구조로 그룹핑 (#649).
  * - EPIC 유형 → 그룹 행, 하위 이슈는 parent(EPIC) 기준으로 소속. 에픽 없는 이슈는 no-epic 가상 그룹(맨 뒤).
  * - SUBTASK 는 계획 단위가 아니므로 전면 제외. CANCELED 는 자신 제외 + (에픽이면) 하위 전체 제외.
@@ -115,12 +126,8 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
     const bars = kids.filter((k) => k.dueDate).map(toBar);
     const undatedKids = kids.filter((k) => !k.dueDate);
 
-    let range: TimelineEpicGroup['range'] = null;
-    if (bars.length > 0) {
-      const starts = bars.map((b) => b.start ?? b.due);
-      const dues = bars.map((b) => b.due);
-      range = { start: starts.reduce((a, b) => (a < b ? a : b)), due: dues.reduce((a, b) => (a > b ? a : b)) };
-    } else if (epic?.dueDate) {
+    let range: TimelineEpicGroup['range'] = rollupRange(bars);
+    if (range === null && epic?.dueDate) {
       range = { start: epic.startDate ?? epic.dueDate, due: epic.dueDate };
     }
 
@@ -152,7 +159,10 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
       title: '에픽 없음',
       done: 0,
       total: 0,
-      range: null, // no-epic 은 롤업 막대를 그리지 않는다 — 라벨 행만.
+      // 그리드의 시작일/기간 컬럼에 의미 있는 값을 보이기 위해 에픽 그룹과 동일하게 롤업(#662).
+      // 간트 영역의 막대는 range 여부와 무관하게 group id 기준 CSS 로 항상 숨긴다(timeline-gantt.css) —
+      // "no-epic 은 롤업 막대를 그리지 않는다" 는 시각적 불변식은 그대로 유지된다.
+      range: rollupRange(looseBars),
       bars: looseBars,
     });
   }

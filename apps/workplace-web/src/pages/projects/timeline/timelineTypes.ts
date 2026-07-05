@@ -41,6 +41,7 @@ export interface TimelineEpicGroup {
   title: string;
   done: number;
   total: number;
+  /** 하위 막대 min-start~max-due 롤업(#662, no-epic 포함). 막대가 없으면 null — 그리드 컬럼용. 간트 영역의 막대 표시 여부는 이 값과 무관(no-epic 은 group id 기준 CSS 로 항상 숨김). */
   range: { start: string; due: string } | null;
   bars: TimelineBar[];
 }

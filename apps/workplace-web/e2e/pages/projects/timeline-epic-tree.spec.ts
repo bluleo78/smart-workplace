@@ -94,8 +94,14 @@ test('에픽 그룹 행 + 하위 트리 + 에픽 없음 그룹이 렌더된다',
   await expect(grid).toContainText('가입 플로우'); // 하위 이슈 행
   await expect(grid).toContainText('에픽 없음'); // 가상 그룹 행
   // summary 롤업 막대 렌더 — 에픽(epic-40) 1개만 보인다. no-epic 가상 그룹의 summary 는
-  // DOM 에는 존재하지만 CSS 로 숨겨진다(range 없음 — 라벨 행만, timeline-gantt.css 참조).
+  // DOM 에는 존재하지만 group id 기준 CSS 로 항상 숨겨진다(timeline-gantt.css 참조) — 그리드
+  // 컬럼에는 하위 막대 롤업 값이 뜨더라도(#662) 간트 영역엔 no-epic 막대를 그리지 않는다.
   await expect(page.locator('.timeline-gantt-root .wx-bar.wx-summary:visible')).toHaveCount(1);
+  // "에픽 없음" 그룹 행의 시작일 컬럼은 하위 막대(18)의 실제 마감일(07-08) 기반 롤업이어야
+  // 한다 — 다른 그룹/오늘 날짜 등 하위 막대와 무관한 값이 뜨면 회귀(#662).
+  await expect(
+    page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '에픽 없음' }),
+  ).toContainText('08-07-2026');
   // SUBTASK 는 어디에도 없다
   await expect(grid).not.toContainText('하위 태스크 이슈');
 });

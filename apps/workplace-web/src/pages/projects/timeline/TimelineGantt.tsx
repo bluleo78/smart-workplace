@@ -155,7 +155,8 @@ export function TimelineGantt({
         id: groupId,
         // 진행률은 텍스트로 병기 — SVAR 그리드 셀 커스텀 렌더 미지원 전제의 안전한 표현.
         text: group.total > 0 ? `${group.title} (${group.done}/${group.total})` : group.title,
-        // range 없는 그룹(no-epic)은 임의 1일 구간 + CSS 로 막대 숨김 (SVAR 는 start 필수).
+        // no-epic 도 range 를 롤업해 받으므로(#662) 그리드 시작일/기간 컬럼엔 항상 실제 값이 뜬다.
+        // 그래도 range 자체가 비는 케이스(막대 없는 에픽)를 위해 group.bars[0]?.due 폴백은 유지 (SVAR 는 start 필수).
         start: parseISO(fallbackDate),
         end: addDays(parseISO(fallbackDue), 1),
         type: hasChildren ? 'summary' : 'task',

@@ -42,7 +42,8 @@
   --wx-gantt-summary-color: var(--epic);
   pointer-events: none;
 }
-/* range 없는 그룹(no-epic)의 막대는 숨긴다 — 라벨 행만 남긴다. */
+/* no-epic 그룹의 막대는 항상 숨긴다 — 그리드 컬럼엔 롤업 값이 뜨지만(#662)
+   간트 영역엔 롤업 막대를 그리지 않는다는 불변식은 group id 기준으로 유지. */
 .timeline-gantt-root .wx-bar.wx-summary[data-task-id$='group-no-epic'] {
   display: none;
 }

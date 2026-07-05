@@ -160,6 +160,17 @@ describe('groupTimelineIssues', () => {
     expect(groups[1].bars.map((b) => b.issueNumber)).toEqual([18]);
   });
 
+  it('no-epic 그룹도 에픽 그룹과 동일하게 하위 막대 min-start~max-due 로 range 를 롤업한다 (#662)', () => {
+    const loose1 = issue({ number: 33, startDate: '2026-06-20', dueDate: '2026-06-28' });
+    const loose2 = issue({ number: 21, startDate: '2026-06-18', dueDate: '2026-06-30' });
+    const loose3 = issue({ number: 5, startDate: '2026-06-10', dueDate: '2026-06-19' });
+    const { groups } = groupTimelineIssues([loose1, loose2, loose3]);
+    const noEpic = groups.find((g) => g.key === 'no-epic');
+    // 그룹 행 자체는 하위 어느 이슈와도 무관한 값(예: 27-06-2026/1일)이 아니라
+    // 하위 막대의 min-start(06-10) ~ max-due(06-30) 롤업이어야 한다.
+    expect(noEpic?.range).toEqual({ start: '2026-06-10', due: '2026-06-30' });
+  });
+
   it('에픽이 필터로 결과에서 빠져도 하위의 parent 요약으로 그룹을 합성한다', () => {
     const child = issue({
       number: 41,
