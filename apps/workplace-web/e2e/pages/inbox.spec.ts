@@ -35,7 +35,10 @@ test('패널을 열면 목록을 보여주고, AI 액터에 배지를 단다', a
   await mockApi(page, 'GET', '/api/v1/notifications', [notif()])
   await page.goto('/')
   await page.getByTestId('inbox-trigger').click()
-  await expect(page.getByTestId('inbox-panel')).toBeVisible()
+  const panel = page.getByTestId('inbox-panel')
+  await expect(panel).toBeVisible()
+  // 스크린리더가 dialog를 "알림"으로 안내하도록 accessible name 지정 필요 (#698).
+  await expect(panel).toHaveAttribute('aria-label', '알림')
   const item = page.getByTestId('inbox-item').first()
   await expect(item).toContainText('AI 동료')
   await expect(item).toContainText('WP-3 리팩터링')

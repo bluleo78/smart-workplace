@@ -129,7 +129,9 @@ function MessageRow({
           type="button"
           data-testid={`mail-resolve-${m.id}`}
           onClick={(e) => { e.stopPropagation(); onResolve(m.id) }}
-          className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-sm hover:bg-accent group-hover:inline-flex"
+          // display:none(hidden) 기반 hover-reveal은 키보드 포커스 자체가 불가능(#697) —
+          // opacity 토글로 항상 레이아웃/탭 순서에 존재시키고 focus-visible에서 노출.
+          className="absolute right-3 top-1/2 inline-flex -translate-y-1/2 items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent focus-visible:opacity-100 group-hover:opacity-100"
         >
           <Check className="h-3.5 w-3.5" /> 처리완료
         </button>

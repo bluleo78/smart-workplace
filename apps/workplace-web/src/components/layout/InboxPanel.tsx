@@ -109,7 +109,8 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
           </TooltipContent>
         )}
       </Tooltip>
-      <PopoverContent side="right" align="end" className="w-80 p-0" data-testid="inbox-panel">
+      {/* Radix PopoverContent는 role=dialog를 부여하지만 accessible name은 직접 지정해야 함(#698). */}
+      <PopoverContent side="right" align="end" className="w-80 p-0" data-testid="inbox-panel" aria-label="알림">
         <div className="flex items-center justify-between border-b px-3 py-2">
           <span className="text-sm font-semibold">알림</span>
           <button

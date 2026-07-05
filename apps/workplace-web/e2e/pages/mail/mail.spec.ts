@@ -119,6 +119,23 @@ test.describe('회신필요 처리완료', () => {
     await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
   })
 
+  test('처리완료 버튼 — 마우스 없이 키보드 포커스만으로 노출됨 (#697)', async ({ authenticatedPage: page }) => {
+    // display:none(hidden) 기반이면 tab 순서에서 제외돼 키보드 사용자는 절대 도달 못 함 — opacity 토글로 수정.
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 1 })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [
+      mailSummary({ id: 10, subject: '검토 요청', aiCategory: '업무', aiNeedsReply: true }),
+    ])
+    await page.goto('/mail/1?needsReply=true')
+
+    const resolveBtn = page.getByTestId('mail-resolve-10')
+    // 호버 전: 시각적으로 숨김(opacity-0)이지만 DOM/tab 순서에는 존재해야 한다.
+    await expect(resolveBtn).toHaveCSS('opacity', '0')
+    await resolveBtn.focus()
+    await expect(resolveBtn).toHaveCSS('opacity', '1')
+  })
+
   test('회신필요 0건 → 긍정 빈 상태', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
