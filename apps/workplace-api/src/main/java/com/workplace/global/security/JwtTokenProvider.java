@@ -6,6 +6,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.util.Base64;
 import java.util.Date;
+import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
 
@@ -31,6 +32,7 @@ public class JwtTokenProvider {
     Date now = new Date();
     var builder =
         Jwts.builder()
+            .id(UUID.randomUUID().toString()) // jti — 같은 초 내 재발급이어도 토큰 바이트가 항상 달라지도록 함(#686)
             .subject(userId.toString())
             .claim("username", username)
             .claim("type", "access")
@@ -51,6 +53,9 @@ public class JwtTokenProvider {
     Date now = new Date();
     var builder =
         Jwts.builder()
+            .id(
+                UUID.randomUUID()
+                    .toString()) // jti — 같은 초 내 재로그인 시 refresh_token.token_hash 유니크 충돌 방지(#686)
             .subject(userId.toString())
             .claim("type", "refresh")
             .issuedAt(now)
@@ -70,6 +75,7 @@ public class JwtTokenProvider {
   public String generatePlatformAccessToken(Long userId, String username) {
     Date now = new Date();
     return Jwts.builder()
+        .id(UUID.randomUUID().toString()) // jti — 동일 초 재발급 시 토큰 충돌 방지(#686)
         .subject(userId.toString())
         .claim("username", username)
         .claim("type", "access")
@@ -84,6 +90,7 @@ public class JwtTokenProvider {
   public String generatePlatformRefreshToken(Long userId) {
     Date now = new Date();
     return Jwts.builder()
+        .id(UUID.randomUUID().toString()) // jti — 동일 초 재발급 시 refresh_token 충돌 방지(#686)
         .subject(userId.toString())
         .claim("type", "refresh")
         .claim("platform", true)

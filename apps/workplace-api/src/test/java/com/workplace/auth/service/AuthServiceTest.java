@@ -172,6 +172,23 @@ class AuthServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void login_sameSecondTwice_bothSucceedWithDistinctRefreshTokens() {
+    // #686 회귀 테스트: HMAC 서명은 결정적이므로 jti(랜덤 UUID) claim이 없으면 같은 초 내
+    // 재로그인 시 refresh JWT 문자열이 완전히 동일해져 refresh_token.token_hash UNIQUE 제약을
+    // 위반(DataIntegrityViolationException)한다. jti 추가로 두 번째 로그인도 정상 성공해야 한다.
+    authService.signup(
+        new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
+
+    var first = authService.login(new LoginRequest("test@example.com", "Password123"));
+    var second = authService.login(new LoginRequest("test@example.com", "Password123"));
+
+    assertThat(first.refreshToken()).isNotBlank();
+    assertThat(second.refreshToken()).isNotBlank();
+    assertThat(second.refreshToken()).isNotEqualTo(first.refreshToken());
+    assertThat(second.accessToken()).isNotEqualTo(first.accessToken());
+  }
+
+  @Test
   void login_wrongPassword_throws() {
     authService.signup(
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
