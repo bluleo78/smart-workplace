@@ -1834,7 +1834,7 @@ test('알림 위젯 — 행 ✓ 클릭 시 그룹의 미읽음을 read 처리한
   await expect(readCapture.waitForRequest()).resolves.toBeTruthy()
 })
 
-test('알림 위젯 — "전부 확인" 클릭 시 read-all 을 호출한다', async ({
+test('알림 위젯 — "모두 읽음" 클릭 시 read-all 을 호출한다', async ({
   authenticatedPage: page,
 }) => {
   await mockWidgets(page)
@@ -1843,6 +1843,8 @@ test('알림 위젯 — "전부 확인" 클릭 시 read-all 을 호출한다', a
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
   await page.goto('/')
 
+  // InboxPanel 헤더와 동일 카피("모두 읽음")로 통일 — #665
+  await expect(page.getByTestId('dash-notif-ack-all')).toHaveText('모두 읽음')
   await page.getByTestId('dash-notif-ack-all').click()
   await expect(allCapture.waitForRequest()).resolves.toBeTruthy()
 })

@@ -68,7 +68,7 @@ export default function NotificationsBody({
 
   return (
     <div data-testid="dash-notif">
-      {/* 상단 우측: 전부 확인(read-all) — 대량 액션은 InboxPanel '모두 읽음'처럼 상단에 둔다. */}
+      {/* 상단 우측: 전체 읽음 처리 — InboxPanel과 동일 카피("모두 읽음")로 통일 (#665) */}
       <div className="mb-2 flex justify-end">
         <button
           type="button"
@@ -77,7 +77,7 @@ export default function NotificationsBody({
           disabled={!hasUnread || markAll.isPending}
           className="text-sm text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          ✓ 전부 확인
+          모두 읽음
         </button>
       </div>
 
