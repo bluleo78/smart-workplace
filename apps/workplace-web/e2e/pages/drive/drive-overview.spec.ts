@@ -233,6 +233,11 @@ test('드라이브 AI Overview — 카드 unmount 시 진행 중인 생성을 �
   await expect(page.getByTestId('drive-overview-card')).toBeVisible()
   await started
 
+  // 생성 중 상태 — 스피너가 함께 노출돼야 한다 (#679, 정적 텍스트 단독 금지)
+  const card = page.getByTestId('drive-overview-card')
+  await expect(card).toContainText('생성 중…')
+  await expect(card.locator('svg.animate-spin')).toBeVisible()
+
   // StrictMode(dev) 이중 마운트가 첫 인스턴스를 즉시 abort 하며 이미 DELETE 를 1회 쐈을 수 있다 —
   // 이 시점의 값을 리셋해, 아래 "검색어를 비워 unmount" 가 실제로 새 DELETE 를 유발하는지만 검증한다.
   cancelledCorrelationId = null
@@ -242,4 +247,100 @@ test('드라이브 AI Overview — 카드 unmount 시 진행 중인 생성을 �
   await expect(page.getByTestId('drive-overview-card')).toHaveCount(0)
 
   await expect.poll(() => cancelledCorrelationId).toBe('corr-pending')
+})
+
+test('드라이브 AI Overview — GET 시작 요청은 StrictMode 이중 mount 에도 정확히 1회만 나간다(#681)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupDriveMocks(page)
+
+  let startCount = 0
+  let cancelCount = 0
+  await mockOverviewGeneration(page, {
+    deltas: ['핵심 요약'],
+    onStart: () => {
+      startCount += 1
+    },
+    onCancel: () => {
+      cancelCount += 1
+    },
+  })
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  await page.getByLabel('파일명 및 콘텐츠 검색').fill('기획서')
+  await expect(page.getByTestId('drive-content-results')).toBeVisible()
+
+  await page.getByTestId('drive-overview-btn').click()
+  await expect(page.getByTestId('drive-overview-card')).toContainText('핵심 요약')
+
+  // StrictMode(dev) 이중 mount 의 phantom 인스턴스가 실제 시작 요청 전에 걸러져야 한다 — 두 번째(실제)
+  // mount 만 GET 을 보내고, phantom 인스턴스는 취소(DELETE) 도 유발하지 않아야 한다(원인 (i) 재발 방지).
+  expect(startCount).toBe(1)
+  expect(cancelCount).toBe(0)
+})
+
+test('드라이브 AI Overview — SSE 유실로 done/error 가 도착하지 않으면 클라이언트 타임아웃으로 에러 상태로 전환된다(#681)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.install()
+  await setupDriveMocks(page)
+
+  let resolveStarted: () => void
+  const started = new Promise<void>((resolve) => {
+    resolveStarted = resolve
+  })
+
+  await page.route(
+    (url) => url.pathname.startsWith('/api/v1/drive/search-overview'),
+    (route) => {
+      const req = route.request()
+      if (req.method() === 'GET') {
+        resolveStarted()
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ correlationId: 'corr-lost-sse' }),
+        })
+      }
+      if (req.method() === 'DELETE') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+      }
+      return route.fallback()
+    },
+  )
+
+  // /events 연결 자체는 살아있지만(재연결 없이) drive.overview.done/error 를 영원히 보내지 않는다 —
+  // 재연결 후 catch-up 미대상(useEventStream.ts)인 SSE 유실 상황을 그대로 흉내낸다.
+  await page.route('**/api/v1/events', async (route) => {
+    await started
+    return new Promise(() => {})
+  })
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  await page.getByLabel('파일명 및 콘텐츠 검색').fill('기획서')
+  await expect(page.getByTestId('drive-content-results')).toBeVisible()
+
+  await page.getByTestId('drive-overview-btn').click()
+  await started
+
+  const card = page.getByTestId('drive-overview-card')
+  await expect(card).toContainText('생성 중…')
+
+  // StrictMode 이중 mount 가드(microtask defer)+네트워크 왕복 처리 시간 때문에, 클라이언트 타임아웃
+  // setTimeout 이 실제로 등록되는 시점이 위 클릭 직후보다 미세하게 늦을 수 있다 — 한 번에 큰 값을
+  // fastForward 하면 그 등록 이전 시점을 스킵해버리는 경쟁 상태가 될 수 있으므로, 작은 단위로 여러 번
+  // fastForward 하며 폴링해 안전하게 타임아웃(125s) 을 넘긴다.
+  await expect
+    .poll(
+      async () => {
+        await page.clock.fastForward(10_000)
+        return card.textContent()
+      },
+      { timeout: 30_000 },
+    )
+    .toContain('생성 시간이 초과되었습니다.')
 })
