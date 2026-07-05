@@ -1938,6 +1938,10 @@ test('알림 위젯 — 업데이트가 표시 개수를 넘으면 헤더는 전
   // 5개만 렌더 + 초과 1건 안내.
   await expect(page.getByTestId('dash-notif-updates').getByTestId('dash-notif-row')).toHaveCount(5)
   await expect(page.getByTestId('dash-notif-overflow')).toContainText('+1건 더')
+
+  // 클릭 시 실제로 인박스 패널을 열어야 한다 — 죽은 CTA 금지 (#680)
+  await page.getByTestId('dash-notif-overflow').click()
+  await expect(page.getByTestId('inbox-panel')).toBeVisible()
 })
 
 // ── 메일 위젯 리치 렌더 ──────────────────────────────────────────────────────

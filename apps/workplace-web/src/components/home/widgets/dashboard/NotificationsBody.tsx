@@ -1,5 +1,6 @@
 import { Bell } from 'lucide-react'
 
+import { useInboxPanel } from '@/components/layout/InboxContext'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificationsRead'
 import { useMarkNotificationRead } from '@/hooks/queries/useMarkNotificationRead'
@@ -27,6 +28,7 @@ export default function NotificationsBody({
   const list = useNotifications(!previewData)
   const markRead = useMarkNotificationRead()
   const markAll = useMarkAllNotificationsRead()
+  const { openInbox } = useInboxPanel()
   // 위젯은 요약이므로 첫 페이지(최근 20건)만 사용 — 무한스크롤은 InboxPanel 담당(#610).
   const rawItems = previewData ?? flattenNotificationPages(list.data?.pages)
 
@@ -108,10 +110,17 @@ export default function NotificationsBody({
             {updates.map((g) => (
               <NotificationGroupRow key={g.key} group={g} onAck={ack} />
             ))}
-            {/* 표시 개수 초과분 — 숨은 더미를 정직하게 알리고 전체 인박스로 안내. */}
+            {/* 표시 개수 초과분 — 숨은 더미를 정직하게 알리고, 클릭 시 인박스 패널을 열어 전체를 보여준다 (#680) */}
             {updatesHidden > 0 && (
-              <li className="px-1 pt-1 text-xs text-muted-foreground" data-testid="dash-notif-overflow">
-                +{updatesHidden}건 더 — 알림에서 모두 보기
+              <li>
+                <button
+                  type="button"
+                  onClick={() => openInbox()}
+                  className="px-1 pt-1 text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  data-testid="dash-notif-overflow"
+                >
+                  +{updatesHidden}건 더 — 알림에서 모두 보기
+                </button>
               </li>
             )}
           </ul>
