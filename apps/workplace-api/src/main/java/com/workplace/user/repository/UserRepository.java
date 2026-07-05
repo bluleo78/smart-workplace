@@ -304,11 +304,17 @@ public class UserRepository {
   }
 
   /**
-   * 사용자 목록을 active 테넌트로 스코프한다(설정 > 사용자 관리). user 는 전역 테이블이라 RLS 가 걸리지 않으므로 membership 조인으로 명시적으로
-   * 테넌트 멤버만 거른다(다른 테넌트 사용자 누출 방지). membership.(user_id, tenant_id) 는 유일하므로 행 중복 없음. {@link
-   * #countByTenant} 와 동일 조인을 사용해 count 와 page 가 일치한다.
+   * 사용자 목록을 active 테넌트로 스코프한다(설정 > 사용자 관리 / DM 수신자 검색 등 공용). user 는 전역 테이블이라 RLS 가 걸리지 않으므로
+   * membership 조인으로 명시적으로 테넌트 멤버만 거른다(다른 테넌트 사용자 누출 방지). membership.(user_id, tenant_id) 는 유일하므로 행
+   * 중복 없음. {@link #countByTenant} 와 동일 조인을 사용해 count 와 page 가 일치한다.
+   *
+   * @param kind {@link com.workplace.user.dto.UserKind#HUMAN}/{@link
+   *     com.workplace.user.dto.UserKind#AGENT} 단일 필터 또는 {@link
+   *     com.workplace.user.dto.UserKind#ALL_FILTER}(필터 없음). 호출부는 기본값을 HUMAN 으로 둬서(설정 > 사용자 관리) 기존
+   *     동작을 유지하고, 에이전트를 포함해야 하는 화면(예: 새 메시지 받는사람 검색)만 명시적으로 AGENT/ALL 을 넘긴다.
    */
-  public List<UserResponse> findAllPaginated(Long tenantId, String search, int page, int size) {
+  public List<UserResponse> findAllPaginated(
+      Long tenantId, String search, int page, int size, String kind) {
     return dsl.select(
             USER.ID,
             USER.USERNAME,
@@ -320,27 +326,34 @@ public class UserRepository {
         .from(USER)
         .join(MEMBERSHIP)
         .on(USER.ID.eq(MEMBERSHIP.USER_ID))
-        .where(tenantSearchCondition(tenantId, search))
+        .where(tenantSearchCondition(tenantId, search, kind))
         .orderBy(USER.ID.asc())
         .limit(size)
         .offset(page * size)
         .fetch(this::mapToUserResponse);
   }
 
-  /** active 테넌트 멤버 수(설정 > 사용자 관리 페이지네이션용). */
-  public long countByTenant(Long tenantId, String search) {
+  /** active 테넌트 멤버 수(사용자 목록 페이지네이션용). kind 의미는 {@link #findAllPaginated} 와 동일. */
+  public long countByTenant(Long tenantId, String search, String kind) {
     return dsl.select(count())
         .from(USER)
         .join(MEMBERSHIP)
         .on(USER.ID.eq(MEMBERSHIP.USER_ID))
-        .where(tenantSearchCondition(tenantId, search))
+        .where(tenantSearchCondition(tenantId, search, kind))
         .fetchOne(0, Long.class);
   }
 
-  /** 테넌트 멤버십 + (선택) 검색어 조건 — 목록/카운트 쿼리 공용. 구성원 관리는 사람만 노출(AGENT 는 별도 화면). */
-  private Condition tenantSearchCondition(Long tenantId, String search) {
-    Condition condition =
-        MEMBERSHIP.TENANT_ID.eq(tenantId).and(USER.KIND.eq(com.workplace.user.dto.UserKind.HUMAN));
+  /**
+   * 테넌트 멤버십 + kind 필터 + (선택) 검색어 조건 — 목록/카운트 쿼리 공용. kind 가 {@link
+   * com.workplace.user.dto.UserKind#ALL_FILTER}면 kind 조건 자체를 걸지 않아 HUMAN/AGENT 모두 노출한다(DM 수신자 검색
+   * 등). 그 외 값은 해당 kind 로 좁힌다.
+   */
+  private Condition tenantSearchCondition(Long tenantId, String search, String kind) {
+    Condition condition = MEMBERSHIP.TENANT_ID.eq(tenantId);
+    if (!com.workplace.user.dto.UserKind.ALL_FILTER.equals(kind)) {
+      String effectiveKind = kind != null ? kind : com.workplace.user.dto.UserKind.HUMAN;
+      condition = condition.and(USER.KIND.eq(effectiveKind));
+    }
     if (search != null && !search.isBlank()) {
       String pattern = LikePatternUtils.containsPattern(search);
       condition =

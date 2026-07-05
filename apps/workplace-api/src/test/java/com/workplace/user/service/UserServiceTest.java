@@ -116,6 +116,39 @@ class UserServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void getUsers_withKindAll_includesAgentUsers() {
+    // #691 — DM 수신자 검색 등 에이전트를 포함해야 하는 화면은 kind=ALL 로 명시 호출해 HUMAN+AGENT 모두 노출되어야 한다.
+    String tag = "kindall-" + System.nanoTime();
+    Long humanUser = seedUser(tag + "-human@example.com", tag);
+    membershipRepository.create(humanUser, TENANT_ID, "ACTIVE");
+
+    Long agentUser = seedAgent(tag + "-agent");
+    membershipRepository.create(agentUser, TENANT_ID, "ACTIVE");
+
+    PageResponse<UserResponse> result = userService.getUsers(tag, 0, 20, "ALL");
+    List<Long> ids = result.content().stream().map(UserResponse::id).toList();
+
+    assertThat(ids).contains(humanUser, agentUser);
+  }
+
+  @Test
+  void getUsers_withKindAgent_returnsOnlyAgentUsers() {
+    // kind=AGENT 단일 필터 — HUMAN 은 결과에서 제외되어야 한다(개인 프로젝트 AI 어시스턴트 picker 등).
+    String tag = "kindagent-" + System.nanoTime();
+    Long humanUser = seedUser(tag + "-human@example.com", tag);
+    membershipRepository.create(humanUser, TENANT_ID, "ACTIVE");
+
+    Long agentUser = seedAgent(tag + "-agent");
+    membershipRepository.create(agentUser, TENANT_ID, "ACTIVE");
+
+    PageResponse<UserResponse> result = userService.getUsers(tag, 0, 20, "AGENT");
+    List<Long> ids = result.content().stream().map(UserResponse::id).toList();
+
+    assertThat(ids).contains(agentUser);
+    assertThat(ids).doesNotContain(humanUser);
+  }
+
+  @Test
   void listByKind_excludesOtherTenantAgents() {
     // AGENT 목록(AGENT 관리 화면)도 active 테넌트로 스코프된다 — 다른 테넌트 AGENT 누출 방지.
     Long agentT1 = seedAgent("agent-t1-" + System.nanoTime());

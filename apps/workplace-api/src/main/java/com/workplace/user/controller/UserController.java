@@ -62,13 +62,22 @@ public class UserController {
     return ResponseEntity.noContent().build();
   }
 
+  /**
+   * 사용자 목록/검색. {@code kind} 미지정 시 HUMAN 만 노출(설정 > 사용자 관리 기존 동작 유지). DM 수신자 검색·멘션 등 에이전트를 포함해야 하는
+   * 화면은 {@code kind=AGENT} 또는 {@code kind=ALL} 을 명시적으로 넘긴다(#691).
+   */
   @GetMapping
   @RequirePermission("user:read")
   public ResponseEntity<PageResponse<UserResponse>> getUsers(
       @RequestParam(required = false) String search,
       @Min(value = 0, message = "page는 0 이상이어야 합니다") @RequestParam(defaultValue = "0") int page,
-      @Min(value = 1, message = "size는 1 이상이어야 합니다") @RequestParam(defaultValue = "20") int size) {
-    PageResponse<UserResponse> users = userService.getUsers(search, page, size);
+      @Min(value = 1, message = "size는 1 이상이어야 합니다") @RequestParam(defaultValue = "20") int size,
+      @jakarta.validation.constraints.Pattern(
+              regexp = "HUMAN|AGENT|ALL",
+              message = "kind는 HUMAN, AGENT, ALL 중 하나여야 합니다")
+          @RequestParam(defaultValue = "HUMAN")
+          String kind) {
+    PageResponse<UserResponse> users = userService.getUsers(search, page, size, kind);
     return ResponseEntity.ok(users);
   }
 

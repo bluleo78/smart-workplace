@@ -141,13 +141,51 @@ class UserControllerTest {
             20,
             1,
             1);
-    when(userService.getUsers(null, 0, 20)).thenReturn(page);
+    when(userService.getUsers(null, 0, 20, "HUMAN")).thenReturn(page);
 
     mockMvc
         .perform(get("/api/v1/users").header("Authorization", "Bearer valid-token"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.content[0].username").value("testuser"))
         .andExpect(jsonPath("$.totalElements").value(1));
+  }
+
+  @Test
+  void getUsers_withKindAll_forwardsToServiceAndIncludesAgent() throws Exception {
+    // 새 메시지 받는사람 검색(#691) — kind=ALL 을 명시하면 HUMAN/AGENT 모두 포함된 결과가 그대로 응답에 실린다.
+    mockAuthentication("user:read");
+    PageResponse<UserResponse> page =
+        new PageResponse<>(
+            List.of(
+                new UserResponse(
+                    9L, "myai", "myai@example.com", "My AI", true, LocalDateTime.now(), "AGENT")),
+            0,
+            20,
+            1,
+            1);
+    when(userService.getUsers("My AI", 0, 20, "ALL")).thenReturn(page);
+
+    mockMvc
+        .perform(
+            get("/api/v1/users")
+                .param("search", "My AI")
+                .param("kind", "ALL")
+                .header("Authorization", "Bearer valid-token"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content[0].kind").value("AGENT"));
+  }
+
+  @Test
+  void getUsers_withInvalidKind_returnsBadRequest() throws Exception {
+    // kind 화이트리스트(HUMAN|AGENT|ALL) 밖의 값은 400 — 임의 문자열로 조건을 우회하지 못하게 방어.
+    mockAuthentication("user:read");
+
+    mockMvc
+        .perform(
+            get("/api/v1/users")
+                .param("kind", "BOGUS")
+                .header("Authorization", "Bearer valid-token"))
+        .andExpect(status().isBadRequest());
   }
 
   @Test

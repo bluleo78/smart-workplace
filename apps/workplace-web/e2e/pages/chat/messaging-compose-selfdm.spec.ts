@@ -88,6 +88,50 @@ test.describe('messaging 인라인 compose + self-DM', () => {
     },
   )
 
+  // (F) 회귀: /chat/new 받는사람 검색은 AGENT 사용자도 포함해야 한다 (#691)
+  test(
+    '받는사람 검색이 kind=ALL 로 요청되어 AGENT 사용자도 검색 결과에 노출된다',
+    async ({ authenticatedPage: page }) => {
+      await stubSidebarLists(page)
+
+      // 실제 백엔드 동작을 모킹: kind=ALL 이면 사람+에이전트, 그 외엔 사람만 반환.
+      let capturedKind: string | null = null
+      await page.route(
+        (url) => url.pathname === '/api/v1/users',
+        (route) => {
+          capturedKind = new URL(route.request().url()).searchParams.get('kind')
+          const users =
+            capturedKind === 'ALL'
+              ? [{ id: 9, name: 'My AI', username: 'myai', kind: 'AGENT' }]
+              : []
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ content: users, totalElements: users.length }),
+          })
+        },
+      )
+
+      await page.goto('/chat/new')
+      await expect(page.getByTestId('new-message-page')).toBeVisible()
+      await page.getByTestId('new-message-add-recipient').click()
+      await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('My AI')
+
+      // 요청 쿼리에 kind=ALL 이 실제로 전달됐는지 확인 — 누락되면 AGENT 가 제외된다(회귀 재현 조건).
+      await expect.poll(() => capturedKind).toBe('ALL')
+      // AGENT 사용자 row 가 렌더되고 AgentBadge 도 함께 표시된다.
+      const row = page.getByTestId('member-search-row-9')
+      await expect(row).toBeVisible()
+      await expect(row).toContainText('My AI')
+
+      // 선택 → 수신자 칩에도 AGENT 배지가 붙는다.
+      await row.click()
+      const chip = page.getByTestId('recipient-chip-9')
+      await expect(chip).toBeVisible()
+      await expect(chip).toContainText('My AI')
+    },
+  )
+
   // (B) 인라인 compose happy path
   test(
     '수신자 선택 → 메시지 전송 → DM 페이지 이동',

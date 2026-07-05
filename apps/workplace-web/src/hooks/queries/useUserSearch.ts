@@ -8,15 +8,18 @@ import type { UserResponse } from '../../types/auth';
 import type { PageResponse } from '../../types/common';
 
 export const userSearchKeys = {
-  search: (query: string) => ['users', 'search', query] as const,
+  search: (query: string, kind: string) => ['users', 'search', query, kind] as const,
 };
 
-export function useUserSearch(query: string) {
+// kind 기본값 'HUMAN' — 기존 호출부(프로젝트 멤버 추가 등) 동작 유지. DM 수신자 검색처럼 에이전트가 필요한
+// 호출부만 'ALL'/'AGENT' 를 명시적으로 넘긴다(#691 — 백엔드가 kind 를 실제로 필터링하므로 여기서 넘긴 값이
+// 곧 검색 결과 범위를 결정한다).
+export function useUserSearch(query: string, kind: 'HUMAN' | 'AGENT' | 'ALL' = 'HUMAN') {
   const trimmed = query.trim();
   return useQuery<PageResponse<UserResponse>>({
-    queryKey: userSearchKeys.search(trimmed),
+    queryKey: userSearchKeys.search(trimmed, kind),
     queryFn: async () => {
-      const res = await usersApi.getUsers({ search: trimmed, size: 20 });
+      const res = await usersApi.getUsers({ search: trimmed, size: 20, kind });
       return res.data;
     },
     enabled: trimmed.length >= 1,

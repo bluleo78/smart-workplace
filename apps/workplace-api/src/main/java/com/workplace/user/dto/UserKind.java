@@ -11,6 +11,11 @@ public final class UserKind {
   public static final String AGENT = "AGENT";
   public static final Set<String> ALL = Set.of(HUMAN, AGENT);
 
+  /** {@code GET /api/v1/users} 의 kind 필터 파라미터에 허용되는 값(HUMAN|AGENT 단일 필터 + ALL=필터 없음). */
+  public static final String ALL_FILTER = "ALL";
+
+  public static final Set<String> SEARCH_FILTER_VALUES = Set.of(HUMAN, AGENT, ALL_FILTER);
+
   /** 주어진 kind 가 AGENT 인지 확인. null-safe. */
   public static boolean isAgent(String kind) {
     return AGENT.equals(kind);

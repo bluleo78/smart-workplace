@@ -100,6 +100,8 @@ export default function NewMessagePage() {
             onOpenChange={setPickerOpen}
             existingMemberIds={selectedIds}
             excludeUserIds={new Set([myId])}
+            // DM 수신자는 사람뿐 아니라 AI 에이전트도 될 수 있다 — 검색 결과에 AGENT 포함(#691).
+            includeAgents
             onSelect={addRecipient}
             trigger={
               <Button

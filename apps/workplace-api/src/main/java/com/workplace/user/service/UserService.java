@@ -38,11 +38,22 @@ public class UserService {
   // AI 가용성 해석 — 개인/공통 비서 중 active token 보유 여부를 판단. /users/me 응답에 aiAvailable 노출.
   private final AssistantResolver assistantResolver;
 
+  /** kind 미지정 호출부(설정 > 사용자 관리 등 기존 호출) — HUMAN 만 노출하는 기존 동작 유지. */
   @Transactional(readOnly = true)
   public PageResponse<UserResponse> getUsers(String search, int page, int size) {
+    return getUsers(search, page, size, UserKind.HUMAN);
+  }
+
+  /**
+   * kind 필터를 명시하는 사용자 목록 조회. DM/멘션 등 에이전트를 포함해야 하는 검색은 {@link UserKind#AGENT} 또는 {@link
+   * UserKind#ALL_FILTER} 를 넘긴다.
+   */
+  @Transactional(readOnly = true)
+  public PageResponse<UserResponse> getUsers(String search, int page, int size, String kind) {
     Long tenantId = requireTenant();
-    List<UserResponse> content = userRepository.findAllPaginated(tenantId, search, page, size);
-    long totalElements = userRepository.countByTenant(tenantId, search);
+    List<UserResponse> content =
+        userRepository.findAllPaginated(tenantId, search, page, size, kind);
+    long totalElements = userRepository.countByTenant(tenantId, search, kind);
     int totalPages = (int) Math.ceil((double) totalElements / size);
     return new PageResponse<>(content, page, size, totalElements, totalPages);
   }
