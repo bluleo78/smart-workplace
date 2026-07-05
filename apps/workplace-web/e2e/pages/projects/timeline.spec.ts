@@ -283,6 +283,30 @@ test('의존 화살표 렌더 (표시 전용)', async ({ authenticatedPage: page
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   const link = page.locator('[data-link-id]');
   await expect(link).toHaveCount(1);
+  // 화살표가 finish-to-start(e2s) 로 그려지는지 실제 렌더 좌표로 검증(#671 회귀 방지) —
+  // "표시된다"만 확인하면 s2s/e2s 오분류를 못 잡는다. 선행 이슈(1)의 우측(종료) 끝에서
+  // 나와 후행 이슈(2)의 좌측(시작) 끝으로 들어가야 한다.
+  const sourceBar = page.locator('[data-task-id="1"]');
+  const targetBar = page.locator('[data-task-id="2"]');
+  const sourceBox = (await sourceBar.boundingBox())!;
+  const targetBox = (await targetBar.boundingBox())!;
+  const polyline = link.locator('polyline.wx-line-draw').first();
+  const points = await polyline.evaluate((el) => {
+    const line = el as unknown as SVGPolylineElement;
+    const svg = line.ownerSVGElement!;
+    const ctm = svg.getScreenCTM()!;
+    const toScreen = (p: DOMPoint) => ({
+      x: p.x * ctm.a + p.y * ctm.c + ctm.e,
+      y: p.x * ctm.b + p.y * ctm.d + ctm.f,
+    });
+    const len = line.getTotalLength();
+    return { start: toScreen(line.getPointAtLength(0)), end: toScreen(line.getPointAtLength(len)) };
+  });
+  const TOLERANCE_PX = 12;
+  // 화살표 시작점 == 선행 이슈 막대의 우측(종료) 끝
+  expect(Math.abs(points.start.x - (sourceBox.x + sourceBox.width))).toBeLessThan(TOLERANCE_PX);
+  // 화살표 끝점 == 후행 이슈 막대의 좌측(시작) 끝
+  expect(Math.abs(points.end.x - targetBox.x)).toBeLessThan(TOLERANCE_PX);
   // 비멤버 조회 전용(readOnly)에서는 링크 편집 UI(연결점 드래그 핸들)가 노출되지 않는다 —
   // TimelineGantt 는 SVAR `readonly` prop 하나로 막대/링크 편집을 동시에 잠근다.
   await page.route(`**/api/v1/projects/${KEY}`, (route) => {

@@ -187,7 +187,9 @@ export function TimelineGantt({
         id: `dep-${edge.fromIssueNumber}-${edge.toIssueNumber}-${index}`,
         source: edge.fromIssueNumber,
         target: edge.toIssueNumber,
-        type: 's2s' as const,
+        // 이 앱의 유일한 의존성 유형은 "선행 필요"(finish-to-start) — 선행 이슈가 끝나야
+        // 후행 이슈가 시작 가능하다는 의미이므로 화살표는 e2s(end-to-start)여야 한다(#671).
+        type: 'e2s' as const,
       })),
     [dependencies],
   )
