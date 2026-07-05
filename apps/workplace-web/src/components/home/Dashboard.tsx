@@ -6,9 +6,12 @@
 // chatWidgetRegistry 컴포넌트를 그대로 재사용).
 import {
   closestCenter,
+  type CollisionDetection,
   DndContext,
   type DragEndEvent,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
@@ -29,7 +32,7 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react'
-import { createElement, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
@@ -480,6 +483,21 @@ export function Dashboard() {
   // 드래그앤드랍 센서 — PointerSensor distance:8 로 일반 클릭(버튼)과 드래그 제스처를 분리.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
+  // 충돌 판정 — closestCenter 는 "드래그 중인 카드 자체의 rect 중심"과 다른 카드 rect 중심 간의
+  // 거리로 over 를 정한다. wide(col-span-3) 위젯을 드래그하면 그 오버레이도 전체 폭(3컬럼) 크기를
+  // 그대로 유지하므로 중심 x 좌표가 그리드 가운데(2번째 컬럼) 근처에 고정돼, 실제 마우스 포인터가
+  // 1번째 컬럼 카드 위에 있어도 2번째 컬럼 카드가 더 가깝게 계산되어 엉뚱한 위치로 건너뛴다(#645).
+  // 포인터의 실제 좌표가 어느 카드 rect 안에 들어있는지로 판정하는 pointerWithin 을 우선 사용하면
+  // 드래그 중인 카드의 크기/모양과 무관하게 정확한 over 를 얻을 수 있다. 포인터가 카드 사이 여백 등
+  // 어떤 rect 에도 속하지 않는 경우를 위해 rectIntersection → closestCenter 순으로 폴백한다.
+  const collisionDetection: CollisionDetection = useCallback((args) => {
+    const pointerCollisions = pointerWithin(args)
+    if (pointerCollisions.length > 0) return pointerCollisions
+    const rectCollisions = rectIntersection(args)
+    if (rectCollisions.length > 0) return rectCollisions
+    return closestCenter(args)
+  }, [])
+
   // 드래그 종료 — active 위젯을 over 위젯 자리로 재배치. moveWidget 과 동일하게 undo 스냅샷 + 공지.
   // 포인터 드래그는 키보드 포커스 이동이 없으므로 moveWidget 의 포커스 복원(moveTokenRef/setMoveFocus)이 불필요하다.
   function handleDragEnd({ active, over }: DragEndEvent) {
@@ -694,7 +712,7 @@ export function Dashboard() {
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="dashboard">
           {editing ? (
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={handleDragEnd}>
               <SortableContext items={draftEntries.map((e) => e.cfg.id)} strategy={rectSortingStrategy}>
                 {draftEntries.map((entry, i) => (
                   <EditableWidgetCard

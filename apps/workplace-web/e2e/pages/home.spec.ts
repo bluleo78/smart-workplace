@@ -706,6 +706,87 @@ test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload �
   expect(putWidgets!.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
 })
 
+test('편집 — wide(col-span-3) 위젯을 좁은 위젯 바로 다음으로 드래그하면 건너뛰지 않고 정확히 그 자리로 이동한다 (#645)', async ({
+  authenticatedPage: page,
+}) => {
+  // 재현 조건: wide 위젯(quick_actions)과 일반 위젯(my_tasks/notifications/recent_chats)이
+  // 3열 그리드에 혼재된 상태에서, quick_actions 를 my_tasks 카드 하단(바로 다음 자리)까지 드래그.
+  // closestCenter 는 드래그 중인 quick_actions 오버레이가 원래 폭(3컬럼 전체)을 그대로 유지해 중심
+  // x 좌표가 그리드 가운데에 고정되므로, 실제 포인터가 my_tasks(1번째 컬럼) 위에 있어도 다른 카드가
+  // 더 가깝게 계산되어 엉뚱한 위치로 건너뛴다. pointerWithin 기반 판정으로 교체하면 포인터가 실제로
+  // 위치한 카드가 그대로 over 로 잡혀 my_tasks 바로 다음 자리에 정확히 삽입된다.
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/priority-items', { items: [] } satisfies PriorityItemsResponse)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/dashboard',
+    layout(['priority_quadrant', 'quick_actions', 'my_tasks', 'notifications', 'recent_chats', 'unread_mail']),
+  )
+  let putWidgets: DashboardWidgetConfig[] | null = null
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/dashboard',
+    (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback()
+      const body = route.request().postDataJSON() as { widgets: DashboardWidgetConfig[] }
+      putWidgets = body.widgets
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      })
+    },
+  )
+  await page.goto('/')
+
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await expect(page.getByTestId('dashboard-edit-banner')).toBeVisible()
+
+  const quickActionsCard = page.locator('[data-testid="dashboard-widget"][data-widget="quick_actions"]')
+  const myTasksCard = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
+
+  const handle = quickActionsCard.getByTestId('widget-drag-handle')
+  const targetBox = await myTasksCard.boundingBox()
+  if (!targetBox) throw new Error('my_tasks 카드 bounding box 없음')
+  // my_tasks 카드 중앙으로 드래그 — 포인터가 my_tasks 컬럼(1번째 컬럼) 위에 있음.
+  const targetX = targetBox.x + targetBox.width / 2
+  const targetY = targetBox.y + targetBox.height / 2
+  await handle.hover()
+  await page.mouse.down()
+  await page.mouse.move(0, 0)
+  await page.mouse.move(targetX, targetY, { steps: 12 })
+  await page.mouse.up()
+
+  // 드래그 직후 DOM 순서 — quick_actions 가 my_tasks 바로 다음 자리로 이동(다른 카드를 건너뛰지 않음).
+  const cardsAfterDrag = page.getByTestId('dashboard-widget')
+  await expect(cardsAfterDrag.nth(0)).toHaveAttribute('data-widget', 'priority_quadrant')
+  await expect(cardsAfterDrag.nth(1)).toHaveAttribute('data-widget', 'my_tasks')
+  await expect(cardsAfterDrag.nth(2)).toHaveAttribute('data-widget', 'quick_actions')
+  await expect(cardsAfterDrag.nth(3)).toHaveAttribute('data-widget', 'notifications')
+  await expect(cardsAfterDrag.nth(4)).toHaveAttribute('data-widget', 'recent_chats')
+  await expect(cardsAfterDrag.nth(5)).toHaveAttribute('data-widget', 'unread_mail')
+
+  // dnd-kit PointerSensor 드래그 종료 후 문서 캡처 단계 click 삼킴 창 회피 — 기존 드래그 테스트와 동일 패턴.
+  const saveButton = page.getByTestId('dashboard-edit-save')
+  const banner = page.getByTestId('dashboard-edit-banner')
+  await expect(async () => {
+    if ((await saveButton.count()) > 0) {
+      await saveButton.click({ timeout: 200 }).catch(() => {})
+    }
+    await expect(banner).toHaveCount(0, { timeout: 200 })
+  }).toPass({ timeout: 3000 })
+
+  await expect(banner).toHaveCount(0)
+  expect(putWidgets!.map((w) => w.type)).toEqual([
+    'priority_quadrant',
+    'my_tasks',
+    'quick_actions',
+    'notifications',
+    'recent_chats',
+    'unread_mail',
+  ])
+})
+
 test('편집 — 위젯 숨김 → 저장 시 hidden:true + 일반 뷰 제외', async ({
   authenticatedPage: page,
 }) => {
