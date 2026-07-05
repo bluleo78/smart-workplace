@@ -4,6 +4,7 @@ import com.workplace.permission.dto.PermissionResponse;
 import com.workplace.permission.repository.PermissionRepository;
 import com.workplace.role.dto.RoleDetailResponse;
 import com.workplace.role.dto.RoleResponse;
+import com.workplace.role.exception.RoleAssignedException;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.exception.SystemRoleModificationException;
 import com.workplace.role.repository.RoleRepository;
@@ -67,6 +68,15 @@ public class RoleService {
 
     if (role.isSystem()) {
       throw new SystemRoleModificationException("Cannot delete system role: " + role.name());
+    }
+
+    // user_role FK 가 ON DELETE CASCADE 이므로, 삭제 전 할당된 사용자가 있으면 명시적으로 차단해
+    // 권한이 통지 없이 조용히 사라지는 것을 방지한다 (#678). 강제 삭제가 필요하면 먼저
+    // 사용자쪽에서 역할 할당을 해제해야 한다.
+    int assignedUserCount = roleRepository.countAssignedUsers(id);
+    if (assignedUserCount > 0) {
+      throw new RoleAssignedException(
+          "%d명의 사용자에게 할당된 역할은 삭제할 수 없습니다: %s".formatted(assignedUserCount, role.name()));
     }
 
     roleRepository.deleteById(id);

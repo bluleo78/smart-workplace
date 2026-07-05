@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.role.dto.RoleDetailResponse;
 import com.workplace.role.dto.RoleResponse;
+import com.workplace.role.exception.RoleAssignedException;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.exception.SystemRoleModificationException;
 import com.workplace.support.IntegrationTestBase;
@@ -92,6 +93,33 @@ class RoleServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> roleService.getRoleById(created.id()))
         .isInstanceOf(RoleNotFoundException.class);
+  }
+
+  @Test
+  void deleteRole_assignedToUser_throwsRoleAssignedException() {
+    // #678: 역할이 사용자에게 할당된 상태에서 삭제 시도 → user_role CASCADE 로 조용히
+    // 권한이 사라지는 것을 방지하기 위해 하드 차단해야 한다.
+    RoleResponse created = roleService.createRole("ASSIGNED_ROLE", "Assigned role");
+    Long assigneeId =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "role678-assignee@example.com")
+            .set(USER.NAME, "Role Assignee")
+            .set(USER.EMAIL, "role678-assignee@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, assigneeId)
+        .set(USER_ROLE.ROLE_ID, created.id())
+        .execute();
+
+    assertThatThrownBy(() -> roleService.deleteRole(created.id()))
+        .isInstanceOf(RoleAssignedException.class)
+        .hasMessageContaining("1")
+        .hasMessageContaining("ASSIGNED_ROLE");
+
+    // 차단되었으므로 역할과 할당 둘 다 그대로 남아있어야 한다.
+    assertThat(roleService.getRoleById(created.id())).isNotNull();
   }
 
   @Test

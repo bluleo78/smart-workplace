@@ -95,6 +95,11 @@ public class RoleRepository {
     }
   }
 
+  /** 해당 역할이 현재 할당되어 있는 사용자 수 — 삭제 전 영향 범위 확인용 (#678). */
+  public int countAssignedUsers(Long roleId) {
+    return dsl.fetchCount(dsl.selectOne().from(USER_ROLE).where(USER_ROLE.ROLE_ID.eq(roleId)));
+  }
+
   public List<RoleResponse> findByUserId(Long userId) {
     return dsl.select(ROLE.ID, ROLE.NAME, ROLE.DESCRIPTION, ROLE.IS_SYSTEM)
         .from(ROLE)

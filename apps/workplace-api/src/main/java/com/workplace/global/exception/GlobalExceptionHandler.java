@@ -62,6 +62,7 @@ import com.workplace.milestone.exception.MilestoneNotFoundException;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
+import com.workplace.role.exception.RoleAssignedException;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.exception.SystemRoleModificationException;
 import com.workplace.user.exception.UserDeactivatedException;
@@ -647,6 +648,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(SystemRoleModificationException.class)
   public ResponseEntity<ErrorResponse> handleSystemRoleModification(
       SystemRoleModificationException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.badRequest().body(response);
+  }
+
+  // role: 사용자에게 할당된 커스텀 역할 삭제 시도 → 400 (#678)
+  @ExceptionHandler(RoleAssignedException.class)
+  public ResponseEntity<ErrorResponse> handleRoleAssigned(
+      RoleAssignedException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
     return ResponseEntity.badRequest().body(response);
   }
