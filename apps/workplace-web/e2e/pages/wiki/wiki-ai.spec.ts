@@ -177,6 +177,23 @@ test('위키 /ai — 슬래시 메뉴 → AI 요약 → /events 스트림이 에
   await expect(page.locator('.ProseMirror')).toContainText('요약: 핵심 내용')
 })
 
+test('위키 /ai 슬래시 메뉴 — 매칭 없는 검색어 입력 시 팝오버 유지 + 빈 상태 안내 (#670)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/제목없음')
+
+  // 매칭 항목이 없어도 팝오버는 사라지지 않고 안내 문구가 남아야 한다.
+  const popover = page.getByTestId('wiki-slash-popover')
+  await expect(popover).toBeVisible()
+  await expect(page.getByTestId('wiki-slash-empty')).toContainText('일치하는 명령이 없습니다')
+  await expect(page.getByTestId('wiki-slash-option-summarize')).toHaveCount(0)
+})
+
 test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(prompt 포함) 전송', async ({
   authenticatedPage: page,
 }) => {

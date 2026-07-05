@@ -40,6 +40,7 @@ export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }) => {
+        if (items.length === 0) return false
         if (event.key === 'ArrowUp') {
           setSelected((i) => (i + items.length - 1) % items.length)
           return true
@@ -56,8 +57,6 @@ export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>
       },
     }))
 
-    if (items.length === 0) return null
-
     return (
       <div
         role="listbox"
@@ -65,6 +64,11 @@ export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>
         className="max-h-60 w-56 overflow-auto rounded-md border bg-popover shadow-md"
         data-testid="wiki-slash-popover"
       >
+        {items.length === 0 && (
+          <p className="px-3 py-2 text-sm text-muted-foreground" data-testid="wiki-slash-empty">
+            일치하는 명령이 없습니다
+          </p>
+        )}
         {items.map((item, idx) => (
           <button
             type="button"
