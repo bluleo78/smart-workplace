@@ -82,6 +82,16 @@ run_case "톱레벨 flat 페이지 변경 → 전체 E2E 유지" \
   "apps/workplace-web/src/pages/HomePage.tsx" \
   "공유 영역/매핑 외 변경 감지"
 
+# 9) 공유영역(components/lib/hooks/types) 변경 → dry-run 에서는 그래프 계산 스킵 안내만
+run_case "공유영역 변경 → dry-run 에서 그래프 계산 예정 안내" \
+  "apps/workplace-web/src/components/ui/button.tsx" \
+  "affected-domains.mjs 로 영향 도메인 계산 예정"
+
+# 10) config 파일(main.tsx) 변경 → 여전히 무조건 전체 E2E
+run_case "main.tsx 변경 → 전체 E2E(config 취급 유지)" \
+  "apps/workplace-web/src/main.tsx" \
+  "전체 E2E 실행"
+
 echo
 echo "=== 결과: PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" -eq 0 ]

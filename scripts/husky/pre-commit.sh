@@ -38,19 +38,31 @@ fi
 # src/pages/ 서브디렉토리 = 도메인. 하드코딩하면 도메인 추가 시 드리프트되므로 동적으로 도출한다.
 WEB_DOMAINS_RE=$(ls -d apps/workplace-web/src/pages/*/ 2>/dev/null | xargs -n1 basename | sort | tr '\n' '|' | sed 's/|$//')
 
-# 공유 영역: components/api/lib/hooks/types/route/엔트리/설정/e2e infra
-FORCE_FULL=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/(src/(components|api|lib|hooks|types|main\.tsx|App\.tsx|index\.css|router\.tsx|vite-env\.d\.ts|setupTests\.ts)|(vite|playwright|eslint|postcss|tailwind)\.config\.(ts|js|cjs|mjs)|tsconfig.*\.json|package\.json|e2e/(factories|fixtures)/|scripts/)' 2>/dev/null | head -1 || true)
+# config/엔트리 변경은 그래프 분석 없이 무조건 전체 E2E (기존 동작 유지)
+CONFIG_FORCE_FULL=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/(src/(main\.tsx|App\.tsx|index\.css|router\.tsx|vite-env\.d\.ts|setupTests\.ts)|(vite|playwright|eslint|postcss|tailwind)\.config\.(ts|js|cjs|mjs)|tsconfig.*\.json|package\.json|e2e/(factories|fixtures)/|scripts/)' 2>/dev/null | head -1 || true)
+
+# components/api/lib/hooks/types 는 의존성 그래프로 영향 도메인만 역추적
+SHARED_GRAPH_FILES=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/src/(components|api|lib|hooks|types)/.*\.(ts|tsx)$' || true)
+
+GRAPH_DOMAINS=""
+if [ -n "$SHARED_GRAPH_FILES" ] && [ -z "$PRECOMMIT_DRY_RUN" ]; then
+  GRAPH_DOMAINS=$(cd apps/workplace-web && node scripts/affected-domains.mjs $SHARED_GRAPH_FILES)
+elif [ -n "$SHARED_GRAPH_FILES" ]; then
+  # dry-run 모드에서는 실제 그래프 계산 없이 표시만
+  echo "[pre-commit][dry-run] 공유영역 변경 감지 — affected-domains.mjs 로 영향 도메인 계산 예정: $SHARED_GRAPH_FILES"
+fi
 
 WEB_PAGE_CHANGES=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/src/pages/' || true)
 # 도메인 디렉토리 외 페이지(평탄 파일: LoginPage/SignupPage/HomePage 등) → 매핑 모호로 풀 E2E
 NON_DOMAIN_PAGE=$(printf '%s\n' "$WEB_PAGE_CHANGES" | grep -vE "^apps/workplace-web/src/pages/($WEB_DOMAINS_RE)/" || true)
 
-if [ -n "$FORCE_FULL" ] || [ -n "$NON_DOMAIN_PAGE" ]; then
+if [ -n "$CONFIG_FORCE_FULL" ] || [ -n "$NON_DOMAIN_PAGE" ] || [ "$GRAPH_DOMAINS" = "ALL" ]; then
   echo "[pre-commit] 공유 영역/매핑 외 변경 감지 — 전체 E2E 실행"
   [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && pnpm test:e2e)
-elif [ -n "$WEB_PAGE_CHANGES" ]; then
+elif [ -n "$WEB_PAGE_CHANGES" ] || [ -n "$GRAPH_DOMAINS" ]; then
   # 5) 도메인 단독 변경 → 전역 smoke + 해당 도메인의 non-smoke (중복 0)
-  DOMAINS_STR=$(printf '%s\n' "$WEB_PAGE_CHANGES" | sed -E 's|^apps/workplace-web/src/pages/([^/]+)/.*$|\1|' | sort -u | tr '\n' ' ')
+  PAGE_DOMAINS=$(printf '%s\n' "$WEB_PAGE_CHANGES" | sed -E 's|^apps/workplace-web/src/pages/([^/]+)/.*$|\1|' | sort -u)
+  DOMAINS_STR=$(printf '%s\n%s\n' "$PAGE_DOMAINS" "$GRAPH_DOMAINS" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ')
   echo "[pre-commit] 도메인 한정 변경 감지: ${DOMAINS_STR}— 전역 smoke + 해당 도메인 non-smoke 실행"
 
   if [ -z "$PRECOMMIT_DRY_RUN" ]; then
