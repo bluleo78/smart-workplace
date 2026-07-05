@@ -188,6 +188,10 @@ test(
 
     // 폐기 후 목록 갱신 → '폐기됨' 배지 표시 (revoked: true)
     await expect(page.getByTestId('share-link-item')).toContainText('폐기됨')
+    // 상태가 API 토큰 페이지와 동일한 Badge(pill) 컴포넌트로 렌더돼야 함 — 순수 텍스트 회귀 방지 (#675)
+    await expect(
+      page.getByTestId('share-link-item').getByText('폐기됨'),
+    ).toHaveClass(/inline-flex/)
     // 폐기된 링크에는 폐기 버튼이 사라짐
     await expect(page.getByTestId('share-link-revoke-btn')).toHaveCount(0)
   },

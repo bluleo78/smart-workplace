@@ -14,6 +14,7 @@ import {
   shareLandingUrl,
   type ShareLink,
 } from '@/api/drive';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -41,6 +42,10 @@ function formatExpiry(iso: string | null): string {
   const d = new Date(iso);
   if (d < new Date()) return '만료됨';
   return formatDateOnly(iso);
+}
+
+function isExpired(iso: string | null): boolean {
+  return iso != null && new Date(iso) < new Date();
 }
 
 export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
@@ -229,19 +234,17 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
                   className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs"
                   data-testid="share-link-item"
                 >
-                  <span className="flex gap-3 text-muted-foreground">
+                  <span className="flex items-center gap-2 text-muted-foreground">
                     {/* 가시성 배지 */}
-                    <span className="font-medium text-foreground">
+                    <Badge variant="outline">
                       {lk.audience === 'EXTERNAL' ? '외부' : '사내'}
-                    </span>
-                    {/* 만료일 */}
-                    <span>{formatExpiry(lk.expiresAt)}</span>
+                    </Badge>
+                    {/* 상태 배지 — API 토큰 페이지와 동일 매핑(활성=default, 폐기·만료=secondary) */}
+                    <Badge variant={lk.revoked || isExpired(lk.expiresAt) ? 'secondary' : 'default'}>
+                      {lk.revoked ? '폐기됨' : formatExpiry(lk.expiresAt)}
+                    </Badge>
                     {/* 비밀번호 여부 */}
                     {lk.hasPassword && <span>🔒 비번</span>}
-                    {/* 폐기 배지 */}
-                    {lk.revoked && (
-                      <span className="text-destructive font-medium">폐기됨</span>
-                    )}
                   </span>
                   {/* 유효한 링크만 폐기 버튼 표시 */}
                   {!lk.revoked && (
