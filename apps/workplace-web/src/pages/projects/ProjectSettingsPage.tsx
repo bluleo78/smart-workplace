@@ -1,10 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { ArrowLeft } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import { pageTitleClass } from '@/components/layout/sidebar-link';
+import { PageHeader } from '@/components/layout/PageHeader';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,9 +89,24 @@ export default function ProjectSettingsPage() {
   if (project.isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
 
   return (
-    <>
+    <div className="flex h-full flex-col overflow-hidden" data-testid="project-settings-page">
+      <PageHeader
+        contained
+        icon={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="프로젝트로 돌아가기"
+            onClick={() => navigate(`/projects/${key}`)}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        }
+        title="프로젝트 설정"
+        meta={<span className="text-muted-foreground">{project.data?.key}</span>}
+      />
+    <div className="flex-1 overflow-y-auto">
     <div className="container mx-auto p-6 space-y-8 max-w-3xl">
-      <h1 className={pageTitleClass}>프로젝트 설정</h1>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div className="space-y-1">
@@ -126,6 +142,7 @@ export default function ProjectSettingsPage() {
         </Button>
       </section>
     </div>
+    </div>
     {/* 프로젝트 삭제 확인 AlertDialog — window.confirm() 대체. */}
     <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
       <AlertDialogContent>
@@ -141,6 +158,6 @@ export default function ProjectSettingsPage() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-    </>
+    </div>
   );
 }

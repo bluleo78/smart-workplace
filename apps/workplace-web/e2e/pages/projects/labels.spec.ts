@@ -315,3 +315,32 @@ test.describe('라벨 행 hover 상태 (#308 회귀)', () => {
     await expect(row).toHaveClass(/transition-colors/);
   });
 });
+
+test.describe('프로젝트 설정 페이지 내비게이션 (#667)', () => {
+  // 설정 페이지에 PageHeader 브레드크럼 + 프로젝트 복귀 버튼이 있어야 함 — 사이클/타임라인과 동일 패턴.
+  test('PageHeader 프로젝트 복귀 내비게이션 노출', async ({ authenticatedPage: page }) => {
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([createMember({ userId: 1, username: 'me', name: 'Me', role: 'OWNER' })]),
+      });
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
+
+    await page.goto(`/projects/${PROJECT_KEY}/settings`);
+
+    const header = page.getByTestId('page-header');
+    await expect(header).toBeVisible();
+    await expect(header).toContainText(PROJECT_KEY);
+    await header.getByRole('button', { name: '프로젝트로 돌아가기' }).click();
+    await expect(page).toHaveURL(`/projects/${PROJECT_KEY}`);
+  });
+});

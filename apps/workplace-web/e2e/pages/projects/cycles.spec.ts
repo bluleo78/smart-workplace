@@ -167,6 +167,17 @@ test.describe('사이클 관리', () => {
     },
   );
 
+  test('PageHeader 프로젝트 복귀 내비게이션 노출 (#667)', async ({ authenticatedPage: page }) => {
+    await setupCyclesPageStubs(page, [], []);
+    await page.goto(`/projects/${KEY}/cycles`);
+
+    const header = page.getByTestId('page-header');
+    await expect(header).toBeVisible();
+    await expect(header).toContainText(KEY);
+    await header.getByRole('button', { name: '프로젝트로 돌아가기' }).click();
+    await expect(page).toHaveURL(`/projects/${KEY}`);
+  });
+
   test(
     '상태 레이블 한국어 표시 — PLANNED/ACTIVE/COMPLETED 영문 enum 대신 한국어 표시',
     async ({ authenticatedPage: page }) => {

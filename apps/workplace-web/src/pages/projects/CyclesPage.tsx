@@ -1,20 +1,23 @@
 // 프로젝트 사이클 관리 — 목록 + 진행 막대 + 생성/수정/삭제.
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
-import { pageTitleClass } from '@/components/layout/sidebar-link';
+import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
 import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
 import { useCycleProgress, useCycles, useDeleteCycle } from '../../hooks/queries/useCycles';
+import { useProject } from '../../hooks/queries/useProjects';
 import type { CycleProgress, CycleResponse } from '../../types/cycle';
 import { CYCLE_STATUS_LABEL } from '../../types/cycle';
 
 export default function CyclesPage() {
   const { key = '' } = useParams();
+  const navigate = useNavigate();
+  const project = useProject(key);
   const cycles = useCycles(key);
   const progress = useCycleProgress(key);
   const del = useDeleteCycle(key);
@@ -28,20 +31,36 @@ export default function CyclesPage() {
   }, [progress.data]);
 
   return (
-    <div className="mx-auto max-w-3xl p-6" data-testid="cycles-page">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className={pageTitleClass}>사이클</h1>
-        <Button
-          size="sm"
-          onClick={() => {
-            setEditing(undefined);
-            setOpen(true);
-          }}
-          data-testid="cycle-new"
-        >
-          <Plus className="mr-1 h-4 w-4" /> 새 사이클
-        </Button>
-      </div>
+    <div className="flex h-full flex-col overflow-hidden" data-testid="cycles-page">
+      <PageHeader
+        contained
+        icon={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="프로젝트로 돌아가기"
+            onClick={() => navigate(`/projects/${key}`)}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        }
+        title="사이클"
+        meta={<span className="text-muted-foreground">{project.data?.key}</span>}
+        actions={
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditing(undefined);
+              setOpen(true);
+            }}
+            data-testid="cycle-new"
+          >
+            <Plus className="mr-1 h-4 w-4" /> 새 사이클
+          </Button>
+        }
+      />
+      <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-3xl p-6">
 
       <ul className="space-y-3">
         {(cycles.data ?? []).map((c) => (
@@ -104,6 +123,8 @@ export default function CyclesPage() {
           </li>
         )}
       </ul>
+      </div>
+      </div>
 
       <CycleFormDialog projectKey={key} cycle={editing} open={open} onOpenChange={setOpen} />
     </div>
