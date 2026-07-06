@@ -986,7 +986,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => onRenameFolder(f.id, f.name)}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
                 >
                   이름변경
                 </button>
@@ -994,7 +994,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
                 >
                   이동
                 </button>
@@ -1002,7 +1002,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
                 >
                   복사
                 </button>
@@ -1010,7 +1010,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => onDeleteFolder(f.id)}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-destructive group-hover:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-destructive group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
                 >
                   삭제
                 </button>
@@ -1044,7 +1044,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   </span>
                 )}
                 {/* 행 액션 — 호버/포커스 시 노출. 주요 3개 인라인 + 더보기(⋯). 핸들러는 기존 그대로. */}
-                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex">
+                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
                   <Button
                     variant="ghost"
                     size="xs"

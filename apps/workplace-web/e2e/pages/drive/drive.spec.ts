@@ -120,6 +120,27 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   await expect(page.getByText('memo.txt')).toHaveCount(0)
 })
 
+// #712 — 파일/폴더 행 액션이 group-hover 전용이라 키보드 사용자는 도달 불가하던 문제.
+test('파일 행 액션 — 마우스 없이 키보드 포커스만으로 노출됨 (#712)', async ({ authenticatedPage: page }) => {
+  const state = { folders: [] as unknown[], files: [createFile()] }
+  await stubSpaces(page)
+  await stubItems(page, () => state)
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+  await expect(page.getByText('memo.txt')).toBeVisible()
+
+  const memoItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
+  const actions = memoItem.locator('[data-file-actions]')
+  // hover 전: 액션 wrapper 는 display:none 이어야 한다.
+  await expect(actions).toHaveCSS('display', 'none')
+
+  // 파일명 버튼에 포커스만 이동(마우스 hover 없음) — group-focus-within 으로 노출돼야 한다.
+  await memoItem.getByRole('button', { name: 'memo.txt' }).focus()
+  await expect(actions).toHaveCSS('display', 'flex')
+  await expect(memoItem.getByRole('button', { name: '다운로드' })).toBeVisible()
+})
+
 // #589 — 업로드 버튼 input[multiple] 회귀: 파일 여러 개 선택 시 순차 업로드 + 완료 토스트.
 test('업로드 버튼에서 파일 여러 개를 선택하면 모두 업로드되고 완료 토스트가 뜬다', async ({ authenticatedPage: page }) => {
   const state = { folders: [] as unknown[], files: [] as unknown[] }
