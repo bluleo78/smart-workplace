@@ -260,6 +260,66 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toHaveCount(0)
   })
 
+  // 3.5) 회귀(#702): 같은 이모지를 짧은 시간 안에 연속 클릭해도(더블/트리플 클릭 등)
+  //      클라이언트 캐시 카운트가 클릭 횟수만큼 누적되지 않는다. stale-closure 버그라면
+  //      매 클릭이 클릭 시점 렌더 클로저의 stale reactions 를 참조해 전부 "add" 로 오판,
+  //      카운트가 0→1→2→3 으로 누적된 채 새로고침 전까지 영구 desync 된다.
+  test('리액션을 짧은 시간 안에 연속 클릭해도 카운트가 누적되지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    const CHANNEL_ID = 505
+    const MSG_ID = 9500
+    const channel = createChannel({ id: CHANNEL_ID, name: '연속클릭채널' })
+    const msg = createMessage({ id: MSG_ID, channelId: CHANNEL_ID, body: '연속클릭 테스트' })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [msg])
+
+    let postCount = 0
+    let deleteCount = 0
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
+      (route) => {
+        if (route.request().method() === 'POST') {
+          postCount += 1
+          return route.fulfill({ status: 204, body: '' })
+        }
+        if (route.request().method() === 'DELETE') {
+          deleteCount += 1
+          return route.fulfill({ status: 204, body: '' })
+        }
+        return route.fallback()
+      },
+    )
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+
+    // hover 로 툴바 노출 → 이모지 추가 팝오버 오픈.
+    await page.getByTestId(`message-${MSG_ID}`).hover()
+    await page.getByTestId(`message-${MSG_ID}-react`).click()
+    const quickBtn = page.getByTestId(`message-${MSG_ID}-quick-🎉`)
+    await expect(quickBtn).toBeVisible()
+
+    // 같은 틱 안에서 3연속 클릭(실제 더블/트리플 클릭 재현) — .evaluate() 로 playwright
+    // actionability 대기 없이 동기적으로 3번 click() 을 흘려 렌더 사이 유예 없이 호출한다.
+    await quickBtn.evaluate((el: HTMLElement) => {
+      el.click()
+      el.click()
+      el.click()
+    })
+
+    // add→remove→add 로 alternate 되어 최종 pill 은 count=1 로 남아야 한다.
+    // 누적 버그(stale closure)라면 매 클릭이 add 로 오판되어 count=3 으로 표시된다.
+    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toBeVisible()
+    await expect(page.getByTestId(`reaction-count-${MSG_ID}-🎉`)).toHaveText('1')
+    expect(postCount).toBe(2)
+    expect(deleteCount).toBe(1)
+  })
+
   // 4) SSE 리액션: 타인이 누른 reaction.added 이벤트를 스트림으로 흘리면 pill 이 생긴다.
   //    userId=2 (≠ ME_ID=1) 이므로 self-echo 가드를 통과해 패치가 적용된다.
   test('SSE reaction.added 수신 시 pill 이 증가한다', async ({ authenticatedPage: page }) => {
