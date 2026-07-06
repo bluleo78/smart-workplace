@@ -176,11 +176,11 @@ test.describe('테넌트 상세', () => {
     await expect(page.getByText('한도를 저장했습니다', { exact: false })).toBeVisible()
   })
 
-  // (f) 멤버 추가(#497): 폼 입력 → POST payload 검증 → 201 → 목록/카운트 반영, 성공 토스트.
-  test('멤버를 추가하면 목록과 카운트에 반영된다', async ({ authenticatedPage: page }) => {
+  // (f) 멤버 추가 — 이메일 확인(못 찾음) → 폼 입력 → POST payload 검증 → 201 → 목록/카운트 반영, 성공 토스트.
+  test('이메일 확인 후 신규 사용자를 추가하면 목록과 카운트에 반영된다', async ({
+    authenticatedPage: page,
+  }) => {
     const detailState = await stubTenantDetail(page, tenantDetail({ memberCount: 1 }))
-    // 멤버 목록을 mutable 로 스텁 — 추가 성공 시 새 멤버를 push 하고 memberCount 도 올려
-    // invalidate→재조회로 변화가 보이게 한다.
     const membersState = { list: [member({ userId: 1, name: '소유자', role: 'OWNER' })] }
     await page.route('**/api/platform/tenants/1/members', (route) => {
       if (route.request().method() === 'GET') {
@@ -192,6 +192,13 @@ test.describe('테넌트 상세', () => {
       }
       return route.fallback()
     })
+    await page.route('**/api/platform/users/lookup*', (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 404, error: 'Not Found', message: 'not found' }),
+      }),
+    )
 
     let body: Record<string, unknown> | undefined
     await page.route('**/api/platform/tenants/1/members', async (route) => {
@@ -222,6 +229,7 @@ test.describe('테넌트 상세', () => {
 
     await page.getByTestId('add-member-button').click()
     await page.getByTestId('add-member-email').fill('newbie@example.com')
+    await page.getByTestId('add-member-check').click()
     await page.getByTestId('add-member-name').fill('신규멤버')
     await page.getByTestId('add-member-password').fill('Passw0rd')
     // 역할은 기본값 MEMBER 로 둔다.
@@ -236,16 +244,22 @@ test.describe('테넌트 상세', () => {
       role: 'MEMBER',
     })
     // invalidate→재조회로 멤버 행 2개 + 멤버수 2 반영.
-    // 행 카운트는 ['tenant', id, 'members'], 멤버수 카드는 ['tenant', id] 무효화를 각각 검증한다.
     await expect(page.getByTestId('member-row')).toHaveCount(2)
     await expect(page.getByRole('cell', { name: '신규멤버' })).toBeVisible()
     await expect(page.getByTestId('tenant-member-count')).toHaveText('2')
   })
 
-  // (g) 멤버 추가 — 역할 '소유자' 선택 → payload.role 이 OWNER 로 전송된다(#497).
+  // (g) 멤버 추가 — 역할 '소유자' 선택 → payload.role 이 OWNER 로 전송된다.
   test('역할로 소유자를 선택하면 OWNER 로 전송된다', async ({ authenticatedPage: page }) => {
     await stubTenantDetail(page, tenantDetail())
     await stubMembers(page, [member()])
+    await page.route('**/api/platform/users/lookup*', (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 404, error: 'Not Found', message: 'not found' }),
+      }),
+    )
     let body: Record<string, unknown> | undefined
     await page.route('**/api/platform/tenants/1/members', async (route) => {
       if (route.request().method() === 'POST') {
@@ -264,6 +278,7 @@ test.describe('테넌트 상세', () => {
     await page.goto('/tenants/1')
     await page.getByTestId('add-member-button').click()
     await page.getByTestId('add-member-email').fill('boss@example.com')
+    await page.getByTestId('add-member-check').click()
     await page.getByTestId('add-member-name').fill('대표')
     await page.getByTestId('add-member-password').fill('Passw0rd')
     // 소유자(대표관리자) 라디오 선택.
@@ -274,12 +289,19 @@ test.describe('테넌트 상세', () => {
     expect(body?.role).toBe('OWNER')
   })
 
-  // (h) 멤버 추가 — 이메일 중복(409) → 에러 표시, 다이얼로그 유지(#497).
-  test('이메일이 중복이면 에러를 표시하고 다이얼로그를 유지한다', async ({
+  // (h) 멤버 추가 — 이메일 확인 시점엔 없었지만(레이스) 제출 시 409 → 에러 표시, 다이얼로그 유지.
+  test('제출 시 이메일 중복(409)이면 에러를 표시하고 다이얼로그를 유지한다', async ({
     authenticatedPage: page,
   }) => {
     await stubTenantDetail(page, tenantDetail())
     await stubMembers(page, [member()])
+    await page.route('**/api/platform/users/lookup*', (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 404, error: 'Not Found', message: 'not found' }),
+      }),
+    )
     await page.route('**/api/platform/tenants/1/members', (route) => {
       if (route.request().method() === 'POST') {
         return route.fulfill({
@@ -298,6 +320,7 @@ test.describe('테넌트 상세', () => {
     await page.goto('/tenants/1')
     await page.getByTestId('add-member-button').click()
     await page.getByTestId('add-member-email').fill('dup@example.com')
+    await page.getByTestId('add-member-check').click()
     await page.getByTestId('add-member-name').fill('중복')
     await page.getByTestId('add-member-password').fill('Passw0rd')
     await page.getByTestId('add-member-submit').click()
@@ -307,14 +330,22 @@ test.describe('테넌트 상세', () => {
     await expect(page.getByTestId('add-member-submit')).toBeVisible()
   })
 
-  // (i) 멤버 추가 — 비밀번호 규칙 위반 시 인라인 검증 에러(#497).
+  // (i) 멤버 추가 — 비밀번호 규칙 위반 시 인라인 검증 에러.
   test('비밀번호 규칙 위반 시 인라인 에러를 표시한다', async ({ authenticatedPage: page }) => {
     await stubTenantDetail(page, tenantDetail())
     await stubMembers(page, [member()])
+    await page.route('**/api/platform/users/lookup*', (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 404, error: 'Not Found', message: 'not found' }),
+      }),
+    )
 
     await page.goto('/tenants/1')
     await page.getByTestId('add-member-button').click()
     await page.getByTestId('add-member-email').fill('weak@example.com')
+    await page.getByTestId('add-member-check').click()
     await page.getByTestId('add-member-name').fill('약한비번')
     // 대문자/숫자 없는 8자 미만 비밀번호.
     await page.getByTestId('add-member-password').fill('abc')
@@ -358,5 +389,131 @@ test.describe('테넌트 상세', () => {
     // 일반(마스킹) 멤버 행에는 핀이 없다.
     const maskedRow = page.getByTestId('member-row').filter({ hasText: '홍**' })
     await expect(maskedRow.getByTestId('operator-pin')).toHaveCount(0)
+  })
+
+  // (k) 기존 사용자 추가 — 이메일 확인 시 찾으면 계정 생성 없이 멤버십만 추가한다.
+  test('이메일 확인 시 기존 사용자를 찾으면 계정 생성 없이 추가한다', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailState = await stubTenantDetail(page, tenantDetail({ memberCount: 1 }))
+    const membersState = { list: [member({ userId: 1, name: '소유자', role: 'OWNER' })] }
+    await page.route('**/api/platform/tenants/1/members', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(membersState.list),
+        })
+      }
+      return route.fallback()
+    })
+    await page.route('**/api/platform/users/lookup*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          userId: 5,
+          name: '기존사용자',
+          email: 'existing@example.com',
+          isPlatformAdmin: false,
+        }),
+      }),
+    )
+    let body: Record<string, unknown> | undefined
+    await page.route('**/api/platform/tenants/1/members/existing', (route) => {
+      body = route.request().postDataJSON()
+      const created = member({
+        userId: 5,
+        username: 'existing@example.com',
+        name: '기존사용자',
+        email: 'existing@example.com',
+        role: 'MEMBER',
+      })
+      membersState.list = [...membersState.list, created]
+      detailState.tenant = { ...detailState.tenant, memberCount: 2 }
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(created),
+      })
+    })
+
+    await page.goto('/tenants/1')
+    await page.getByTestId('add-member-button').click()
+    await page.getByTestId('add-member-email').fill('existing@example.com')
+    await page.getByTestId('add-member-check').click()
+
+    await expect(page.getByTestId('add-member-found-card')).toContainText('기존사용자')
+    // 이름/비밀번호 입력란은 노출되지 않는다 — 계정 생성 없이 추가.
+    await expect(page.getByTestId('add-member-name')).toHaveCount(0)
+    await page.getByTestId('add-member-submit').click()
+
+    await expect(page.getByText('멤버를 추가했습니다.')).toBeVisible()
+    expect(body).toEqual({ userId: 5, role: 'MEMBER' })
+    await expect(page.getByTestId('member-row')).toHaveCount(2)
+    await expect(page.getByTestId('tenant-member-count')).toHaveText('2')
+  })
+
+  // (l) 기존 사용자 추가 — 이미 이 테넌트의 멤버면 409 → 에러 표시, 다이얼로그 유지.
+  test('기존 사용자가 이미 멤버면 에러를 표시하고 다이얼로그를 유지한다', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/users/lookup*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          userId: 1,
+          name: '소유자',
+          email: 'owner@example.com',
+          isPlatformAdmin: false,
+        }),
+      }),
+    )
+    await page.route('**/api/platform/tenants/1/members/existing', (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 409,
+          error: 'Conflict',
+          message: '이미 이 테넌트의 멤버입니다.',
+        }),
+      }),
+    )
+
+    await page.goto('/tenants/1')
+    await page.getByTestId('add-member-button').click()
+    await page.getByTestId('add-member-email').fill('owner@example.com')
+    await page.getByTestId('add-member-check').click()
+    await expect(page.getByTestId('add-member-found-card')).toBeVisible()
+    await page.getByTestId('add-member-submit').click()
+
+    await expect(page.getByTestId('add-member-error')).toHaveText('이미 이 테넌트의 멤버입니다.')
+    await expect(page.getByTestId('add-member-submit')).toBeVisible()
+  })
+
+  // (m) 확인 후 이메일을 수정하면 재확인이 필요하다(오래된 조회 결과 방지).
+  test('확인 후 이메일을 수정하면 재확인이 필요하다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/users/lookup*', (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 404, error: 'Not Found', message: 'not found' }),
+      }),
+    )
+
+    await page.goto('/tenants/1')
+    await page.getByTestId('add-member-button').click()
+    await page.getByTestId('add-member-email').fill('a@example.com')
+    await page.getByTestId('add-member-check').click()
+    await expect(page.getByTestId('add-member-name')).toBeVisible()
+
+    await page.getByTestId('add-member-email').fill('b@example.com')
+    await expect(page.getByTestId('add-member-name')).toHaveCount(0)
   })
 })

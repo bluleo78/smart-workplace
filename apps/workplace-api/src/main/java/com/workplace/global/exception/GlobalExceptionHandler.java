@@ -191,6 +191,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
+  /** 이미 해당 테넌트의 멤버인 사용자를 "기존 사용자 추가" 흐름으로 다시 추가하려는 시도 → 409. */
+  @ExceptionHandler(com.workplace.platform.exception.TenantMemberAlreadyExistsException.class)
+  public ResponseEntity<ErrorResponse> handleTenantMemberAlreadyExists(
+      com.workplace.platform.exception.TenantMemberAlreadyExistsException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   /** 비멤버/정지 테넌트 선택 시도 → 403. */
   @ExceptionHandler(TenantAccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleTenantAccessDenied(

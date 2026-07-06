@@ -1,5 +1,6 @@
 package com.workplace.platform.controller;
 
+import com.workplace.platform.dto.AddExistingTenantMemberRequest;
 import com.workplace.platform.dto.AddTenantMemberRequest;
 import com.workplace.platform.dto.CreateTenantRequest;
 import com.workplace.platform.dto.TenantDetailResponse;
@@ -77,6 +78,14 @@ public class PlatformTenantController {
   public ResponseEntity<TenantMemberResponse> addMember(
       @PathVariable Long id, @Valid @RequestBody AddTenantMemberRequest req) {
     TenantMemberResponse added = platformTenantService.addMember(id, req);
+    return ResponseEntity.status(HttpStatus.CREATED).body(added);
+  }
+
+  /** 테넌트에 기존(전역) 사용자를 멤버로 추가 — 계정 생성 없이 membership 만 부여. 201 + 추가된 멤버. */
+  @PostMapping("/{id}/members/existing")
+  public ResponseEntity<TenantMemberResponse> addExistingMember(
+      @PathVariable Long id, @Valid @RequestBody AddExistingTenantMemberRequest req) {
+    TenantMemberResponse added = platformTenantService.addExistingMember(id, req);
     return ResponseEntity.status(HttpStatus.CREATED).body(added);
   }
 

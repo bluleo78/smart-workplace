@@ -141,6 +141,12 @@ public class PlatformTenantRepository {
     membershipRepository.createWithRole(userId, tenantId, "ACTIVE", role);
   }
 
+  /** 해당 (user, tenant) 멤버십이 ACTIVE 인지 — 기존 사용자 추가 전 중복 체크에 사용. */
+  @Transactional(readOnly = true)
+  public boolean hasActiveMembership(Long userId, Long tenantId) {
+    return membershipRepository.hasActiveMembership(userId, tenantId);
+  }
+
   /**
    * 지정 테넌트의 RBAC 역할(이름 기준, 예: ADMIN/USER)을 사용자에게 부여한다 — 멤버 추가(#497)에 사용. role/user_role 은 RLS 대상이므로
    * 신규 테넌트 GUC 를 트랜잭션-로컬로 설정한 뒤 역할 조회·할당을 수행하고 finally 에서 빈 문자열로 리셋한다(seedDefaultRoles 와 동일 패턴).
@@ -236,6 +242,13 @@ public class PlatformTenantRepository {
   @Transactional
   public int updateStatus(Long id, String status) {
     return dsl.update(TENANT).set(TENANT.STATUS, status).where(TENANT.ID.eq(id)).execute();
+  }
+
+  /** 해당 사용자가 플랫폼 운영자(platform_user_role 보유)인지 — 이메일 조회·기존 사용자 추가 응답 조립에 사용. */
+  @Transactional(readOnly = true)
+  public boolean isPlatformOperator(Long userId) {
+    return dsl.fetchExists(
+        dsl.selectOne().from(PLATFORM_USER_ROLE).where(PLATFORM_USER_ROLE.USER_ID.eq(userId)));
   }
 
   /** 테넌트 멤버 목록 — MEMBERSHIP join USER. isPlatformOperator 는 platform_user_role 보유 여부(마스킹 예외용). */

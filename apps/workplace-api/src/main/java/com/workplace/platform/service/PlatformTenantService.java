@@ -2,12 +2,14 @@ package com.workplace.platform.service;
 
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
+import com.workplace.platform.dto.AddExistingTenantMemberRequest;
 import com.workplace.platform.dto.AddTenantMemberRequest;
 import com.workplace.platform.dto.CreateTenantRequest;
 import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.dto.TenantMemberResponse;
 import com.workplace.platform.dto.TenantSummaryResponse;
 import com.workplace.platform.exception.PlatformTenantNotFoundException;
+import com.workplace.platform.exception.TenantMemberAlreadyExistsException;
 import com.workplace.platform.repository.PlatformTenantRepository;
 import com.workplace.platform.util.IdentityMasking;
 import com.workplace.user.dto.UserResponse;
@@ -170,5 +172,46 @@ public class PlatformTenantService {
 
     return new TenantMemberResponse(
         user.id(), user.username(), user.name(), user.email(), membershipRole, "ACTIVE", false);
+  }
+
+  /**
+   * 기존(전역) 사용자를 테넌트 멤버로 추가한다 — 계정 생성 없이 membership + RBAC 역할만 부여한다.
+   *
+   * <p>이미 해당 테넌트 멤버면 409. 다른 테넌트 소속이거나 플랫폼 운영자(is_platform_admin)여도 허용한다 — 계정은 전역이므로 다중 테넌트 소속이 정상
+   * 케이스다.
+   *
+   * <p>{@code @Transactional}: membership(전역) INSERT 와 RBAC user_role(RLS 대상, 신규 테넌트 GUC 하) 할당을 한
+   * 트랜잭션·한 커넥션에서 원자 실행한다.
+   *
+   * @return 추가된 멤버 항목
+   */
+  @Transactional
+  public TenantMemberResponse addExistingMember(Long tenantId, AddExistingTenantMemberRequest req) {
+    if (platformTenantRepository.findTenant(tenantId).isEmpty()) {
+      throw new PlatformTenantNotFoundException("테넌트를 찾을 수 없습니다: " + tenantId);
+    }
+    var user =
+        userRepository
+            .findById(req.userId())
+            .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + req.userId()));
+    if (platformTenantRepository.hasActiveMembership(user.id(), tenantId)) {
+      throw new TenantMemberAlreadyExistsException("이미 이 테넌트의 멤버입니다: " + user.id());
+    }
+
+    boolean isOwner = "OWNER".equals(req.role());
+    String membershipRole = isOwner ? "OWNER" : "MEMBER";
+    String rbacRole = isOwner ? "ADMIN" : "USER";
+
+    platformTenantRepository.addMembership(user.id(), tenantId, membershipRole);
+    platformTenantRepository.assignTenantRoleByName(tenantId, user.id(), rbacRole);
+
+    return new TenantMemberResponse(
+        user.id(),
+        user.username(),
+        user.name(),
+        user.email(),
+        membershipRole,
+        "ACTIVE",
+        platformTenantRepository.isPlatformOperator(user.id()));
   }
 }

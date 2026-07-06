@@ -77,3 +77,17 @@ export interface TenantMember {
   status: string
   isPlatformOperator: boolean
 }
+
+/** 전역 사용자 이메일 조회 결과(기존 사용자 추가 흐름의 사전 확인). */
+export interface PlatformUserLookup {
+  userId: number
+  name: string
+  email: string
+  isPlatformAdmin: boolean
+}
+
+/** 기존(전역) 사용자를 테넌트 멤버로 추가하는 요청. 계정 생성 없이 membership 만 부여한다. */
+export interface AddExistingTenantMemberRequest {
+  userId: number
+  role: 'OWNER' | 'MEMBER'
+}

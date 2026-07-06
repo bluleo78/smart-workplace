@@ -124,4 +124,66 @@ class PlatformTenantControllerTest extends IntegrationTestBase {
                 .header("Authorization", "Bearer " + platformToken()))
         .andExpect(status().isNotFound());
   }
+
+  @Test
+  void addExistingMember_success_returns201() throws Exception {
+    String auth = "Bearer " + platformToken();
+    long existingUser = createHumanUser("기존사용자");
+    String slug = "existing-" + UUID.randomUUID().toString().substring(0, 8);
+    MvcResult createResult =
+        mvc.perform(
+                post("/api/platform/tenants")
+                    .header("Authorization", auth)
+                    .contentType("application/json")
+                    .content(
+                        objectMapper.writeValueAsString(
+                            new com.workplace.platform.dto.CreateTenantRequest(
+                                "ExistingCo", slug, null))))
+            .andExpect(status().isCreated())
+            .andReturn();
+    long tenantId =
+        objectMapper.readTree(createResult.getResponse().getContentAsString()).get("id").asLong();
+
+    mvc.perform(
+            post("/api/platform/tenants/" + tenantId + "/members/existing")
+                .header("Authorization", auth)
+                .contentType("application/json")
+                .content(
+                    objectMapper.writeValueAsString(
+                        new com.workplace.platform.dto.AddExistingTenantMemberRequest(
+                            existingUser, "MEMBER"))))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.userId").value(existingUser))
+        .andExpect(jsonPath("$.role").value("MEMBER"));
+  }
+
+  @Test
+  void addExistingMember_alreadyMember_returns409() throws Exception {
+    String auth = "Bearer " + platformToken();
+    long owner = createHumanUser("중복테스트");
+    String slug = "dup-" + UUID.randomUUID().toString().substring(0, 8);
+    MvcResult createResult =
+        mvc.perform(
+                post("/api/platform/tenants")
+                    .header("Authorization", auth)
+                    .contentType("application/json")
+                    .content(
+                        objectMapper.writeValueAsString(
+                            new com.workplace.platform.dto.CreateTenantRequest(
+                                "DupCo", slug, owner))))
+            .andExpect(status().isCreated())
+            .andReturn();
+    long tenantId =
+        objectMapper.readTree(createResult.getResponse().getContentAsString()).get("id").asLong();
+
+    mvc.perform(
+            post("/api/platform/tenants/" + tenantId + "/members/existing")
+                .header("Authorization", auth)
+                .contentType("application/json")
+                .content(
+                    objectMapper.writeValueAsString(
+                        new com.workplace.platform.dto.AddExistingTenantMemberRequest(
+                            owner, "MEMBER"))))
+        .andExpect(status().isConflict());
+  }
 }

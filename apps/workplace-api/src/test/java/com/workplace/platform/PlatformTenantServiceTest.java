@@ -12,12 +12,14 @@ import com.workplace.auth.dto.LoginRequest;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.auth.service.AuthService;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.platform.dto.AddExistingTenantMemberRequest;
 import com.workplace.platform.dto.AddTenantMemberRequest;
 import com.workplace.platform.dto.CreateTenantRequest;
 import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.dto.TenantMemberResponse;
 import com.workplace.platform.dto.TenantSummaryResponse;
 import com.workplace.platform.exception.PlatformTenantNotFoundException;
+import com.workplace.platform.exception.TenantMemberAlreadyExistsException;
 import com.workplace.platform.service.PlatformTenantService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
@@ -310,5 +312,96 @@ class PlatformTenantServiceTest extends IntegrationTestBase {
     assertThat(operatorMember.name()).isEqualTo("운영자김");
     assertThat(operatorMember.username()).isEqualTo(opEmail);
     assertThat(operatorMember.isPlatformOperator()).isTrue();
+  }
+
+  /** 기존 사용자 추가 — 계정 생성 없이 membership + RBAC 역할만 부여. */
+  @Test
+  void addExistingMember_success_addsMembershipAndRole() {
+    // createHumanUser 는 앰비언트 GUC(기본 테넌트=1)에 의존하므로, GUC 를 트랜잭션-로컬로 리셋하는
+    // createTenant 보다 먼저 호출해야 한다(assignTenantRoleByName 의 fail-closed clearTenantGuc 설계).
+    long existingUser = createHumanUser("기존");
+    TenantDetailResponse tenant =
+        service.createTenant(new CreateTenantRequest("ExistingTarget", uniqueSlug(), null));
+
+    TenantMemberResponse m =
+        service.addExistingMember(
+            tenant.id(), new AddExistingTenantMemberRequest(existingUser, "MEMBER"));
+
+    assertThat(m.userId()).isEqualTo(existingUser);
+    assertThat(m.role()).isEqualTo("MEMBER");
+    assertThat(countRbacRole(tenant.id(), existingUser, "USER")).isEqualTo(1);
+  }
+
+  /** 기존 사용자 추가 — OWNER 역할이면 RBAC ADMIN 부여. */
+  @Test
+  void addExistingMember_owner_assignsAdminRole() {
+    // 순서 근거는 addExistingMember_success_addsMembershipAndRole 주석 참조.
+    long existingUser = createHumanUser("기존대표");
+    TenantDetailResponse tenant =
+        service.createTenant(new CreateTenantRequest("ExistingOwner", uniqueSlug(), null));
+
+    TenantMemberResponse m =
+        service.addExistingMember(
+            tenant.id(), new AddExistingTenantMemberRequest(existingUser, "OWNER"));
+
+    assertThat(m.role()).isEqualTo("OWNER");
+    assertThat(countRbacRole(tenant.id(), existingUser, "ADMIN")).isEqualTo(1);
+  }
+
+  /** 이미 해당 테넌트의 멤버인 사용자를 다시 추가하면 409(예외). */
+  @Test
+  void addExistingMember_alreadyMember_throwsConflict() {
+    long owner = createHumanUser("소유자");
+    TenantDetailResponse tenant =
+        service.createTenant(new CreateTenantRequest("DupMember", uniqueSlug(), owner));
+
+    assertThatThrownBy(
+            () ->
+                service.addExistingMember(
+                    tenant.id(), new AddExistingTenantMemberRequest(owner, "MEMBER")))
+        .isInstanceOf(TenantMemberAlreadyExistsException.class);
+  }
+
+  /** 다른 테넌트에 이미 소속된 사용자도 새 테넌트에 추가 가능(전역 계정, 다중 소속 정상). */
+  @Test
+  void addExistingMember_userInOtherTenant_allowed() {
+    long owner = createHumanUser("타테넌트소속");
+    service.createTenant(new CreateTenantRequest("FirstTenant", uniqueSlug(), owner));
+    TenantDetailResponse secondTenant =
+        service.createTenant(new CreateTenantRequest("SecondTenant", uniqueSlug(), null));
+
+    TenantMemberResponse m =
+        service.addExistingMember(
+            secondTenant.id(), new AddExistingTenantMemberRequest(owner, "MEMBER"));
+
+    assertThat(m.userId()).isEqualTo(owner);
+    assertThat(service.getMembers(secondTenant.id()))
+        .extracting(TenantMemberResponse::userId)
+        .contains(owner);
+  }
+
+  /** 존재하지 않는 테넌트에 기존 사용자 추가 시 404. */
+  @Test
+  void addExistingMember_unknownTenant_throwsNotFound() {
+    long existingUser = createHumanUser("유령테넌트");
+
+    assertThatThrownBy(
+            () ->
+                service.addExistingMember(
+                    9_999_999L, new AddExistingTenantMemberRequest(existingUser, "MEMBER")))
+        .isInstanceOf(PlatformTenantNotFoundException.class);
+  }
+
+  /** 존재하지 않는 사용자 id 로 추가 시도 시 400(IllegalArgumentException). */
+  @Test
+  void addExistingMember_unknownUser_throwsIllegalArgument() {
+    TenantDetailResponse tenant =
+        service.createTenant(new CreateTenantRequest("NoSuchUser", uniqueSlug(), null));
+
+    assertThatThrownBy(
+            () ->
+                service.addExistingMember(
+                    tenant.id(), new AddExistingTenantMemberRequest(9_999_999L, "MEMBER")))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }
