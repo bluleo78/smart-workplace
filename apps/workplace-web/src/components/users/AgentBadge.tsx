@@ -14,7 +14,8 @@ export function AgentBadge({ size = 'sm' }: AgentBadgeProps) {
     size === 'xs' ? 'px-1 py-0 text-xs' : 'px-1.5 py-0.5 text-xs';
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded ${padding} bg-ai-accent-subtle text-ai-accent`}
+      // shrink-0/whitespace-nowrap — flex 컨테이너 폭이 부족할 때 배지 자체가 축소·줄바꿈되는 것을 방지(#711).
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded ${padding} bg-ai-accent-subtle text-ai-accent`}
       data-testid="agent-badge"
       aria-label="에이전트 사용자"
     >

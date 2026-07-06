@@ -198,7 +198,8 @@ export function ChannelSidebar() {
                 ) : (
                   <MessageSquare className="h-4 w-4 shrink-0" />
                 )}
-                <span className="truncate">{dmDisplayName(dm, myId)}</span>
+                {/* min-w-0 — flex item 기본값(min-width:auto)만으로는 truncate가 실제로 축소되지 않음(#711) */}
+                <span className="min-w-0 truncate">{dmDisplayName(dm, myId)}</span>
                 {/* 상대 중 AGENT 가 있으면 보라색 봇 배지 표시 */}
                 {dm.participants.some((p) => p.kind === 'AGENT' && p.userId !== myId) && (
                   <AgentBadge size="xs" />

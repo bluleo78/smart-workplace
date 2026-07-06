@@ -481,4 +481,29 @@ test.describe('messaging DM', () => {
     // 더 이상 동일 아이콘이 아님: 사이드바 DM 영역에 MessageSquare(lucide) 아이콘 없음
     await expect(page.getByTestId('dm-list').locator('svg.lucide-message-square')).toHaveCount(0)
   })
+
+  test('DM 사이드바 — 참가자 이름이 길어도 에이전트 배지가 줄바꿈되지 않는다 (#711)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 긴 그룹 DM 표시명("양동희2, My AI" 등)이 flex 컨테이너 폭을 압박해도 배지 자체는 항상 한 줄 유지.
+    const dms = [
+      createDm({
+        id: 5,
+        participants: [
+          createDmParticipant({ userId: 1, name: '테스트 사용자' }),
+          createDmParticipant({ userId: 2, name: '아주아주긴이름의사용자2' }),
+          createDmParticipant({ userId: 10, name: 'My AI', kind: 'AGENT' }),
+        ],
+      }),
+    ]
+    await stubLists(page, dms)
+    await page.goto('/chat')
+
+    const badge = page.getByTestId('dm-link-5').getByTestId('agent-badge')
+    await expect(badge).toBeVisible()
+    const box = await badge.boundingBox()
+    expect(box).not.toBeNull()
+    // 배지 텍스트가 두 줄로 줄바꿈되면 높이가 급격히 커짐 — 한 줄 높이(20px 이내) 유지 확인.
+    expect(box!.height).toBeLessThan(20)
+  })
 })
