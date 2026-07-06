@@ -1,6 +1,8 @@
 package com.workplace.drive.service;
 
+import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.DRIVE_FILE;
+import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK_ATTEMPTS;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE_MEMBER;
 import static com.workplace.jooq.Tables.FILE;
@@ -11,6 +13,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -26,6 +30,10 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
   @Autowired DriveShareLinkService service;
   @Autowired DriveFileService fileService;
 
+  // 잠금 카운터는 REQUIRES_NEW 로 독립 커밋되어 테스트 트랜잭션 롤백에 영향받지 않으므로, 사용한 token_hash 를
+  // 추적해 @AfterEach 에서 회수한다(#700).
+  private final List<String> createdTokenHashes = new ArrayList<>();
+
   @BeforeEach
   void setCtx() {
     TenantContext.set(1L);
@@ -34,6 +42,12 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
   @AfterEach
   void clearCtx() {
     TenantContext.clear();
+    if (!createdTokenHashes.isEmpty()) {
+      dsl.deleteFrom(DRIVE_SHARE_LINK_ATTEMPTS)
+          .where(DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.in(createdTokenHashes))
+          .execute();
+      createdTokenHashes.clear();
+    }
   }
 
   @Test
@@ -68,6 +82,58 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
         .isInstanceOf(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class);
     // 정답이면 통과
+    assertThat(service.resolveForDownload(created.token(), "secret", null, false).driveFileId())
+        .isEqualTo(fileId);
+  }
+
+  /** 5회 연속 실패 시 잠금 + 감사 로그 기록, 잠금 중에는 정답 비밀번호도 거부(#700). */
+  @Test
+  void resolve_wrongPassword_5thFailure_locksAndAudits() {
+    long owner = seedUser();
+    long fileId = seedFile(seedSpace(owner));
+    var created =
+        service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", "secret", null));
+    String tokenHash = DriveShareLinkService.sha256Hex(created.token());
+    createdTokenHashes.add(tokenHash);
+    TenantContext.clear();
+
+    // 4회는 일반 실패(401 상당) — 아직 잠기지 않음
+    for (int i = 0; i < 4; i++) {
+      assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
+          .isInstanceOf(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class);
+    }
+    // 5번째 실패 — 이번 실패로 잠금 발동 + 감사 로그 기록
+    assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
+        .isInstanceOf(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class);
+
+    // 잠긴 상태에서는 정답 비밀번호도 429 상당 예외로 거부
+    assertThatThrownBy(() -> service.resolveForDownload(created.token(), "secret", null, false))
+        .isInstanceOf(com.workplace.drive.exception.DriveShareLinkLockedException.class);
+
+    int auditCount =
+        dsl.fetchCount(
+            dsl.selectOne()
+                .from(AUDIT_LOG)
+                .where(AUDIT_LOG.ACTION_TYPE.eq("SHARE_LINK_LOCKED"))
+                .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(fileId))));
+    assertThat(auditCount).isGreaterThanOrEqualTo(1);
+  }
+
+  /** 실패 4회 이하로는 잠기지 않고, 정답 비밀번호로 카운터가 리셋된다(#700). */
+  @Test
+  void resolve_wrongPassword_underThreshold_thenCorrect_resetsCounter() {
+    long owner = seedUser();
+    long fileId = seedFile(seedSpace(owner));
+    var created =
+        service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", "secret", null));
+    createdTokenHashes.add(DriveShareLinkService.sha256Hex(created.token()));
+    TenantContext.clear();
+
+    for (int i = 0; i < 3; i++) {
+      assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
+          .isInstanceOf(com.workplace.drive.exception.DriveShareLinkUnauthorizedException.class);
+    }
+    // 잠금 임계치(5) 미달 — 정답이면 통과하고 카운터 리셋
     assertThat(service.resolveForDownload(created.token(), "secret", null, false).driveFileId())
         .isEqualTo(fileId);
   }

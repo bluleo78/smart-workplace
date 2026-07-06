@@ -40,6 +40,9 @@ public class DriveShareLinkService {
   private final PasswordEncoder passwordEncoder;
   private final SecureRandom secureRandom = new SecureRandom();
 
+  /** 공유 링크 비밀번호 브루트포스 방어(#700). */
+  private final DriveShareLinkAttemptService attemptService;
+
   /** 감사 로그 기록(#81). */
   private final AuditLogService auditLogService;
 
@@ -108,12 +111,19 @@ public class DriveShareLinkService {
     links.revoke(linkId);
   }
 
-  /** 공개 다운로드용 resolve + 가드. 컨텍스트 설정은 호출부(컨트롤러)가 담당(2-트랜잭션). */
+  /**
+   * 공개 다운로드용 resolve + 가드. 컨텍스트 설정은 호출부(컨트롤러)가 담당(2-트랜잭션).
+   *
+   * <p>비밀번호 검증에는 브루트포스 방어(#700)가 적용된다 — {@code login_attempts}(#144)와 동일 정책(5회 연속 실패 시 15분 잠금)을 공유
+   * 토큰의 SHA-256 hex(token_hash) 기준으로 적용한다. 비교 전에 잠금 여부를 먼저 확인해 잠긴 상태에서는 bcrypt 비교조차 수행하지
+   * 않는다(fail-closed, 연산 낭비 방지).
+   */
   public ResolvedTarget resolveForDownload(
       String token, String password, Long requesterTenantId, boolean authenticated) {
+    String tokenHash = sha256Hex(token);
     var link =
         links
-            .resolve(sha256Hex(token))
+            .resolve(tokenHash)
             .orElseThrow(com.workplace.drive.exception.DriveShareLinkNotFoundException::new);
 
     if (link.revokedAt() != null
@@ -133,10 +143,31 @@ public class DriveShareLinkService {
     }
 
     if (link.passwordHash() != null) {
+      if (attemptService.isBlocked(tokenHash)) {
+        throw new com.workplace.drive.exception.DriveShareLinkLockedException(
+            "too many password attempts");
+      }
       if (password == null || !passwordEncoder.matches(password, link.passwordHash())) {
+        attemptService.attemptFailed(tokenHash);
+        if (attemptService.isBlocked(tokenHash)) {
+          // 잠금이 이번 실패로 발동됨 — 이상 시도 추적을 위해 감사 로그 기록(#700)
+          auditLogService.log(
+              null,
+              "anonymous",
+              "SHARE_LINK_LOCKED",
+              "drive",
+              String.valueOf(link.driveFileId()),
+              "공유 링크 비밀번호 잠금(브루트포스 방어)",
+              null,
+              null,
+              "BLOCKED",
+              null,
+              Map.of("tenantId", link.tenantId()));
+        }
         throw new com.workplace.drive.exception.DriveShareLinkUnauthorizedException(
             "password required");
       }
+      attemptService.attemptSucceeded(tokenHash);
     }
     return new ResolvedTarget(link.tenantId(), link.driveFileId());
   }

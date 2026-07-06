@@ -362,6 +362,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
   }
 
+  /** 공유 링크 비밀번호 브루트포스 잠금(#700) — 로그인 잠금(AccountLockedException)과 동일하게 429 반환. */
+  @ExceptionHandler(com.workplace.drive.exception.DriveShareLinkLockedException.class)
+  public ResponseEntity<ErrorResponse> handleShareLinkLocked(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response =
+        buildError(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
+  }
+
   // 위키 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400) / 낙관적 충돌(409)
   @ExceptionHandler({
     com.workplace.wiki.exception.WikiSpaceNotFoundException.class,
