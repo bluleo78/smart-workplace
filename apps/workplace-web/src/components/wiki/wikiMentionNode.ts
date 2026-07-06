@@ -66,8 +66,11 @@ export const WikiMention = Node.create({
 
   // 칩 렌더 — data-* + 칩 클래스, 자식은 라벨 텍스트. USER 는 무동작이라 cursor-pointer 제외.
   renderHTML({ node, HTMLAttributes }) {
-    const cls = (node.attrs.mtype as string) === 'USER' ? BASE_CHIP_CLASS : NAV_CHIP_CLASS
-    return ['span', mergeAttributes(HTMLAttributes, { class: cls }), node.attrs.label as string]
+    const isUser = (node.attrs.mtype as string) === 'USER'
+    const cls = isUser ? BASE_CHIP_CLASS : NAV_CHIP_CLASS
+    // USER 멘션은 채팅 칩과 동일하게 "@" 프리픽스 — PAGE/ISSUE는 멘션이 아닌 참조 링크라 제외(#703).
+    const label = isUser ? `@${node.attrs.label as string}` : (node.attrs.label as string)
+    return ['span', mergeAttributes(HTMLAttributes, { class: cls }), label]
   },
 
   // tiptap-markdown 직렬화 — 저장 본문을 클린 토큰으로 유지하는 핵심.

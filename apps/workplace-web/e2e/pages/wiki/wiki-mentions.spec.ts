@@ -264,13 +264,19 @@ test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 �
   await expect(page.getByTestId(`wiki-mention-option-USER-${USER.id}`)).toBeVisible()
   await expect(page.getByTestId(`wiki-mention-option-ISSUE-${ISSUE.id}`)).toBeVisible()
 
-  // 페이지 후보 선택 → 칩(라벨) 삽입.
+  // 페이지 후보 선택 → 칩(라벨) 삽입. PAGE 는 멘션이 아닌 참조 링크라 "@" 프리픽스 없음.
   await page.getByTestId(`wiki-mention-option-PAGE-${WIKI_PAGE.id}`).click()
   await expect(page.locator('.ProseMirror span[data-mtype="PAGE"]')).toHaveText(WIKI_PAGE.title)
 
   // (b) 자동저장 PUT payload 의 body 에 페이지 토큰(<#page:55>)이 포함된다(입력→payload).
   await expect.poll(() => savedBody).not.toBeNull()
   await expect.poll(() => savedBody).toContain(`<#page:${WIKI_PAGE.id}>`)
+
+  // (c) USER 멘션은 채팅 칩과 동일하게 "@" 프리픽스가 붙어야 한다(#703).
+  await page.keyboard.type(' @온보')
+  await expect.poll(() => captured.userQ).toBe('온보')
+  await page.getByTestId(`wiki-mention-option-USER-${USER.id}`).click()
+  await expect(page.locator(`.ProseMirror span[data-mtype="USER"]`)).toHaveText(`@${USER.name}`)
 })
 
 test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집 저장 라운드트립(토큰 동일성)', async ({
@@ -298,7 +304,8 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
   // (c) 두 토큰이 칩(노드)으로 치환되고 라벨이 mentions 해소 결과로 채워진다.
-  await expect(page.locator('.ProseMirror span[data-mtype="USER"]')).toHaveText('앨리스')
+  // USER 는 채팅 칩과 동일하게 "@" 프리픽스, PAGE는 참조 링크라 프리픽스 없음(#703).
+  await expect(page.locator('.ProseMirror span[data-mtype="USER"]')).toHaveText('@앨리스')
   await expect(page.locator('.ProseMirror span[data-mtype="PAGE"]')).toHaveText('온보딩 가이드')
   // 토큰 텍스트는 더 이상 raw 로 보이지 않는다.
   await expect(page.locator('.ProseMirror')).not.toContainText('<@7>')
