@@ -129,7 +129,9 @@ export function CalendarSidebar({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-5 w-5 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                      // focus-visible 노출 추가(키보드 포커스 시 opacity-0로 완전 비가시 상태였음) +
+                      // 24x24 최소 터치 타겟(WCAG 2.5.8) 충족을 위해 h-6 w-6로 상향(#709).
+                      className="h-6 w-6 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
                       data-testid={`calendar-menu-${c.id}`}
                       aria-label={`${c.name} 메뉴`}
                       onClick={(e) => e.stopPropagation()}

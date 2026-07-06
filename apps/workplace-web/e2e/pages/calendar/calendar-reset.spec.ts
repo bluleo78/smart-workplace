@@ -119,3 +119,15 @@ test('로컬 캘린더 편집 다이얼로그: 삭제 버튼 노출 + 외부 경
   await expect(page.getByTestId('calendar-edit-external-warning')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '삭제' })).toBeVisible()
 })
+
+test('케밥 메뉴 버튼 — 마우스 없이 키보드 포커스만으로 노출됨 (#709)', async ({ authenticatedPage: page }) => {
+  await stub(page)
+  await page.goto('/calendar')
+
+  await expect(page.getByTestId('calendar-list-item-1')).toBeVisible()
+  const menuBtn = page.getByTestId('calendar-menu-1')
+  // hover 전: opacity-0 이지만 focus 시엔 보여야 한다.
+  await expect(menuBtn).toHaveCSS('opacity', '0')
+  await menuBtn.focus()
+  await expect(menuBtn).toHaveCSS('opacity', '1')
+})

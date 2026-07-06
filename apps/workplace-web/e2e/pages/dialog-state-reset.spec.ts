@@ -143,3 +143,19 @@ test.describe('역할 추가 Dialog — 닫기 후 재열기 시 폼 상태 초�
     await expect(page.getByLabel('역할 이름')).toHaveValue('')
   })
 })
+
+// 공용 DialogContent 닫기(X) 버튼 클릭 영역 — WCAG 2.5.8 최소 24x24px (#706).
+test('Dialog 닫기 버튼 클릭 영역이 24x24px 이상이다 (#706)', async ({ authenticatedPage: page }) => {
+  await stubProjectPage(page)
+  await page.goto(`/projects/${PROJECT_KEY}`)
+
+  await page.getByRole('button', { name: '+ 새 태스크' }).click()
+  const dialog = page.getByRole('dialog', { name: '새 이슈' })
+  await expect(dialog).toBeVisible()
+
+  const closeBtn = dialog.locator('[data-slot="dialog-close"]')
+  const box = await closeBtn.boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.width).toBeGreaterThanOrEqual(24)
+  expect(box!.height).toBeGreaterThanOrEqual(24)
+})
