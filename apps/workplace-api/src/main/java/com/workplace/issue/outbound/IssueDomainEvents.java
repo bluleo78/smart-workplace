@@ -51,6 +51,31 @@ public final class IssueDomainEvents {
       String commentBody,
       Instant occurredAt) {}
 
+  /** 코멘트 수정 (#717). commentBody 는 수정된(새) 본문. */
+  public record IssueCommentUpdatedEvent(
+      long issueId,
+      String projectKey,
+      String issueKey,
+      int issueNumber,
+      String title,
+      UserSummary actor,
+      List<UserSummary> assignees,
+      long commentId,
+      String commentBody,
+      Instant occurredAt) {}
+
+  /** 코멘트 soft-delete (#717). */
+  public record IssueCommentDeletedEvent(
+      long issueId,
+      String projectKey,
+      String issueKey,
+      int issueNumber,
+      String title,
+      UserSummary actor,
+      List<UserSummary> assignees,
+      long commentId,
+      Instant occurredAt) {}
+
   /** 상태 전이 (예: TODO → IN_PROGRESS). */
   public record IssueStatusChangedEvent(
       long issueId,

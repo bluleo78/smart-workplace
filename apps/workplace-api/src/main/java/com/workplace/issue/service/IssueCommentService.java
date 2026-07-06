@@ -6,6 +6,8 @@ import com.workplace.issue.dto.IssueCommentResponse;
 import com.workplace.issue.dto.UpdateCommentRequest;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentDeletedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentUpdatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
@@ -45,6 +47,11 @@ public class IssueCommentService {
    * assertContentWritable 로 더 강하게 게이트한다.
    */
   private ProjectRow assertIssueReadable(Long issueId, Long callerId) {
+    return assertIssueReadableWithIssue(issueId, callerId).project();
+  }
+
+  /** issue/project 를 함께 반환하는 버전 — update/delete 에서 이벤트 payload(issueNumber/title) 구성에 재사용. */
+  private IssueAndProject assertIssueReadableWithIssue(Long issueId, Long callerId) {
     var issue =
         issueRepository.findById(issueId).orElseThrow(() -> new IssueNotFoundException(issueId));
     var project =
@@ -52,8 +59,10 @@ public class IssueCommentService {
             .findById(issue.projectId())
             .orElseThrow(() -> new ProjectNotFoundException("id=" + issue.projectId()));
     accessGuard.assertReadable(project.key(), callerId);
-    return project;
+    return new IssueAndProject(issue, project);
   }
+
+  private record IssueAndProject(com.workplace.issue.dto.IssueRow issue, ProjectRow project) {}
 
   /** 이슈 코멘트 목록 조회. OPEN 은 테넌트 전원 조회 가능(readable). */
   @Transactional(readOnly = true)
@@ -105,7 +114,9 @@ public class IssueCommentService {
   /** 코멘트 수정 (본인 또는 프로젝트 OWNER) — delete 와 동일한 권한 모델. */
   public IssueCommentResponse update(
       Long callerId, Long issueId, Long commentId, UpdateCommentRequest req) {
-    var project = assertIssueReadable(issueId, callerId);
+    var issueAndProject = assertIssueReadableWithIssue(issueId, callerId);
+    var issue = issueAndProject.issue();
+    var project = issueAndProject.project();
     var existing =
         commentRepository
             .findById(commentId)
@@ -122,12 +133,37 @@ public class IssueCommentService {
       throw new ProjectAccessDeniedException("본인 코멘트 또는 OWNER 만 수정할 수 있습니다");
     }
     commentRepository.update(commentId, req.body());
-    return commentRepository.findById(commentId).orElseThrow();
+    var updated = commentRepository.findById(commentId).orElseThrow();
+
+    // 도메인 이벤트 발행 — create() 와 동일 패턴(#717, SSE 실시간 반영 갭 해소).
+    var assignees = assigneeRepository.findByIssue(issueId);
+    var actor =
+        userRepository
+            .findById(callerId)
+            .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+            .orElse(null);
+    String issueKey = project.key() + "-" + issue.number();
+    publisher.publishEvent(
+        new IssueCommentUpdatedEvent(
+            issueId,
+            project.key(),
+            issueKey,
+            issue.number(),
+            issue.title(),
+            actor,
+            assignees,
+            commentId,
+            req.body(),
+            Instant.now()));
+
+    return updated;
   }
 
   /** 코멘트 soft-delete (본인 또는 프로젝트 OWNER). */
   public void delete(Long callerId, Long issueId, Long commentId) {
-    var project = assertIssueReadable(issueId, callerId);
+    var issueAndProject = assertIssueReadableWithIssue(issueId, callerId);
+    var issue = issueAndProject.issue();
+    var project = issueAndProject.project();
     var existing =
         commentRepository
             .findById(commentId)
@@ -144,5 +180,25 @@ public class IssueCommentService {
       throw new ProjectAccessDeniedException("코멘트 삭제 권한이 없습니다");
     }
     commentRepository.softDelete(commentId);
+
+    // 도메인 이벤트 발행 — create() 와 동일 패턴(#717, SSE 실시간 반영 갭 해소).
+    var assignees = assigneeRepository.findByIssue(issueId);
+    var actor =
+        userRepository
+            .findById(callerId)
+            .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+            .orElse(null);
+    String issueKey = project.key() + "-" + issue.number();
+    publisher.publishEvent(
+        new IssueCommentDeletedEvent(
+            issueId,
+            project.key(),
+            issueKey,
+            issue.number(),
+            issue.title(),
+            actor,
+            assignees,
+            commentId,
+            Instant.now()));
   }
 }

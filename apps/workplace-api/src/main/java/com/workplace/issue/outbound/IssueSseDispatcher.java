@@ -1,6 +1,8 @@
 package com.workplace.issue.outbound;
 
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentDeletedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentUpdatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.util.LinkedHashMap;
@@ -44,5 +46,35 @@ public class IssueSseDispatcher {
     p.put("commentId", e.commentId());
     p.put("actorId", e.actor() == null ? null : e.actor().id());
     registry.fanOut(watcherRepository.findUserIdsByIssue(e.issueId()), "issue.commented", p);
+  }
+
+  /** 코멘트 수정 (#717) — watcher 전원에게 issue.comment_updated 로 fan-out. */
+  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onCommentUpdated(IssueCommentUpdatedEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("projectKey", e.projectKey());
+    p.put("issueNumber", e.issueNumber());
+    p.put("issueId", e.issueId());
+    p.put("issueKey", e.issueKey());
+    p.put("commentId", e.commentId());
+    p.put("actorId", e.actor() == null ? null : e.actor().id());
+    registry.fanOut(watcherRepository.findUserIdsByIssue(e.issueId()), "issue.comment_updated", p);
+  }
+
+  /** 코멘트 삭제 (#717) — watcher 전원에게 issue.comment_deleted 로 fan-out. */
+  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onCommentDeleted(IssueCommentDeletedEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("projectKey", e.projectKey());
+    p.put("issueNumber", e.issueNumber());
+    p.put("issueId", e.issueId());
+    p.put("issueKey", e.issueKey());
+    p.put("commentId", e.commentId());
+    p.put("actorId", e.actor() == null ? null : e.actor().id());
+    registry.fanOut(watcherRepository.findUserIdsByIssue(e.issueId()), "issue.comment_deleted", p);
   }
 }

@@ -15,6 +15,18 @@ describe('handleIssueEvent', () => {
     expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: issueKeys.detail('EX', 21) });
   });
 
+  it('issue.comment_updated → 이슈 detail 캐시를 payload 의 projectKey/issueNumber 로 무효화 (#717)', () => {
+    const qc = mockQueryClient();
+    handleIssueEvent(qc, 'issue.comment_updated', { projectKey: 'EX', issueNumber: 21 });
+    expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: issueKeys.detail('EX', 21) });
+  });
+
+  it('issue.comment_deleted → 이슈 detail 캐시를 payload 의 projectKey/issueNumber 로 무효화 (#717)', () => {
+    const qc = mockQueryClient();
+    handleIssueEvent(qc, 'issue.comment_deleted', { projectKey: 'EX', issueNumber: 21 });
+    expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: issueKeys.detail('EX', 21) });
+  });
+
   it('알 수 없는 이벤트는 무시', () => {
     const qc = mockQueryClient();
     handleIssueEvent(qc, 'issue.status_changed', { projectKey: 'EX', issueNumber: 21 });

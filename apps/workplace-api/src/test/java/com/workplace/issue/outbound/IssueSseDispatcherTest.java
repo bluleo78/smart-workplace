@@ -7,6 +7,8 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentDeletedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentUpdatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.time.Instant;
@@ -77,5 +79,32 @@ class IssueSseDispatcherTest {
                       && Integer.valueOf(21).equals(p.get("issueNumber"))
                       && Long.valueOf(100L).equals(p.get("commentId"));
                 }));
+  }
+
+  @Test
+  void onCommentUpdated_fansOutToAllWatchers() {
+    dispatcher.onCommentUpdated(
+        new IssueCommentUpdatedEvent(
+            39L,
+            "EX",
+            "EX-21",
+            21,
+            "결제 모듈 환불 처리 간헐적 실패",
+            AUTHOR,
+            List.of(),
+            100L,
+            "수정된 내용입니다",
+            Instant.now()));
+
+    verify(registry).fanOut(eq(List.of(1L, 2L, 3L)), eq("issue.comment_updated"), any());
+  }
+
+  @Test
+  void onCommentDeleted_fansOutToAllWatchers() {
+    dispatcher.onCommentDeleted(
+        new IssueCommentDeletedEvent(
+            39L, "EX", "EX-21", 21, "결제 모듈 환불 처리 간헐적 실패", AUTHOR, List.of(), 100L, Instant.now()));
+
+    verify(registry).fanOut(eq(List.of(1L, 2L, 3L)), eq("issue.comment_deleted"), any());
   }
 }
