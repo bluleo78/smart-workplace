@@ -220,4 +220,34 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
 
     await expect.poll(() => deletedNumbers.sort()).toEqual([7, 8]);
   });
+
+  // #716 — 체크박스 토글 1회에 클릭 대상 외 행까지 전부 리렌더(React.memo 부재)되던 회귀 방지.
+  test('체크박스 토글 시 클릭 대상 외 행은 DOM 변경 없이 그대로 유지된다 (#716)', async ({
+    authenticatedPage: page,
+  }) => {
+    await mock(page, [
+      createIssue({ id: 1, number: 7, title: '이슈A' }),
+      createIssue({ id: 2, number: 8, title: '이슈B' }),
+      createIssue({ id: 3, number: 9, title: '이슈C' }),
+    ]);
+
+    await page.goto(`/projects/${KEY}`);
+    await expect(page.getByTestId('issue-row-7')).toBeVisible();
+
+    // 체크박스 8(대상 외 행)에 MutationObserver 설치 후, 체크박스 7만 토글.
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="select-issue-8"]')
+      ;(window as unknown as { __mutations: number }).__mutations = 0
+      const observer = new MutationObserver((mutations) => {
+        (window as unknown as { __mutations: number }).__mutations += mutations.length
+      })
+      observer.observe(el!, { attributes: true })
+    })
+
+    await page.getByTestId('select-issue-7').check();
+    await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('선택 1개');
+
+    const mutations = await page.evaluate(() => (window as unknown as { __mutations: number }).__mutations)
+    expect(mutations).toBe(0)
+  });
 });

@@ -5,7 +5,7 @@
 // (상태 변경/담당자 지정/삭제) — 보드 뷰(칸반)는 업계 관행(Linear/Jira/GitHub 등)대로 제외.
 
 import { LayoutList, SearchX, UserPlus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
@@ -81,14 +81,15 @@ export function IssueListView({
   const bulkAssign = useBulkAssign(projectKey);
   const bulkDelete = useBulkDeleteIssues(projectKey);
 
-  function toggleSelected(number: number) {
+  // useCallback으로 안정화 — IssueRow가 React.memo라 콜백이 매 렌더 새로 생성되면 memo가 무력화됨(#716).
+  const toggleSelected = useCallback((number: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(number)) next.delete(number);
       else next.add(number);
       return next;
     });
-  }
+  }, []);
   function clearSelected() {
     setSelected(new Set());
   }
@@ -337,7 +338,7 @@ export function IssueListView({
                   issue={it}
                   projectKey={projectKey}
                   selected={selected.has(it.number)}
-                  onToggleSelect={() => toggleSelected(it.number)}
+                  onToggleSelect={toggleSelected}
                 />
               ))}
             </tbody>
@@ -350,7 +351,7 @@ export function IssueListView({
                 issue={it}
                 projectKey={projectKey}
                 selected={selected.has(it.number)}
-                onToggleSelect={() => toggleSelected(it.number)}
+                onToggleSelect={toggleSelected}
               />
             ))}
           </tbody>
@@ -386,7 +387,8 @@ export function IssueListView({
 
 // 리스트 행 — 평탄/그룹 렌더가 공유 (DRY). 행 전체 클릭 → 상세(#234).
 // #606: 체크박스 컬럼 추가 — 클릭 시 stopPropagation 으로 행 네비게이션과 분리.
-function IssueRow({
+// React.memo — 콜백을 useCallback으로 안정화한 것과 짝을 이뤄, 선택 상태가 바뀐 행만 리렌더(#716).
+const IssueRow = memo(function IssueRow({
   issue: it,
   projectKey,
   selected,
@@ -395,7 +397,7 @@ function IssueRow({
   issue: IssueResponse;
   projectKey: string;
   selected: boolean;
-  onToggleSelect: () => void;
+  onToggleSelect: (number: number) => void;
 }) {
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
@@ -411,7 +413,7 @@ function IssueRow({
         <input
           type="checkbox"
           checked={selected}
-          onChange={onToggleSelect}
+          onChange={() => onToggleSelect(it.number)}
           aria-label={`${it.title} 선택`}
           data-testid={`select-issue-${it.number}`}
           className="h-4 w-4"
@@ -475,4 +477,4 @@ function IssueRow({
       </td>
     </tr>
   );
-}
+});
