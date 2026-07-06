@@ -711,6 +711,23 @@ public class IssueRepository {
   }
 
   /**
+   * 부모의 활성 자식 중 미완료(DONE/CANCELED 가 아닌) 이슈 번호 목록 조회. EPIC → DONE 전이 차단 검증용(#710). 자식 유형과
+   * 무관하게(SUBTASK 뿐 아니라 TASK 등 전체) 모두 집계한다 — 보드 카드의 SUBTASK 전용 진행률 표시와는 별개 기준.
+   */
+  public List<Integer> findIncompleteChildNumbers(Long parentId) {
+    return dsl.select(ISSUE.NUMBER)
+        .from(ISSUE)
+        .where(
+            ISSUE
+                .PARENT_ISSUE_ID
+                .eq(parentId)
+                .and(ISSUE.DELETED_AT.isNull())
+                .and(ISSUE.STATUS.notIn("DONE", "CANCELED")))
+        .orderBy(ISSUE.NUMBER)
+        .fetch(ISSUE.NUMBER);
+  }
+
+  /**
    * N+1 회피 — 자식 id 집합 → 부모 요약. self-alias 로 부모 row 와 부모 type 을 함께 fetch. 부모가 없는 id 는 결과 맵에서 제외된다.
    */
   public Map<Long, ParentRef> findParentRefsByIssueIds(List<Long> issueIds) {

@@ -113,6 +113,54 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
     await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
   });
 
+  // #710 — EPIC 을 완료로 바꾸려는데 백엔드가 미완료 자식 이슈 존재로 400 차단하면,
+  // 벌크 토스트에 "N건 실패" 뿐 아니라 백엔드가 준 구체적인 차단 사유(ErrorResponse.message)가 함께 보여야 한다.
+  test('벌크 상태 변경 — EPIC 완료 차단(400) 시 백엔드 에러 메시지를 토스트로 보여준다', async ({
+    authenticatedPage: page,
+  }) => {
+    await mock(page, [
+      createIssue({ id: 1, number: 7, title: 'EPIC 이슈', status: 'IN_PROGRESS' }),
+      createIssue({ id: 2, number: 8, title: '일반 이슈', status: 'TODO' }),
+    ]);
+
+    await page.route(
+      (url) => /\/api\/v1\/projects\/WP\/issues\/(7|8)\/status$/.test(url.pathname),
+      async (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        const number = Number(route.request().url().match(/issues\/(\d+)\/status/)?.[1]);
+        if (number === 7) {
+          // 백엔드 하드 차단(EpicHasIncompleteChildrenException → 400).
+          return route.fulfill({
+            status: 400,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              status: 400,
+              message: '미완료 하위 이슈가 1건 있어 완료로 변경할 수 없습니다: WP-9',
+            }),
+          });
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssue({ number, status: 'DONE' })),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}`);
+    await expect(page.getByTestId('issue-row-7')).toBeVisible();
+
+    await page.getByTestId('select-issue-7').check();
+    await page.getByTestId('select-issue-8').check();
+    await page.getByTestId('bulk-status-trigger').click();
+    await page.getByTestId('bulk-status-option-DONE').click();
+
+    // 부분 실패(1건 성공, 1건 400) — 구체적 차단 사유가 토스트에 노출되어야 한다.
+    await expect(
+      page.getByText(/미완료 하위 이슈가 1건 있어 완료로 변경할 수 없습니다: WP-9/),
+    ).toBeVisible();
+  });
+
   test('벌크 담당자 지정 — 선택 항목 각각에 PUT .../assignees 요청을 보낸다', async ({ authenticatedPage: page }) => {
     await mock(page, [
       createIssue({ id: 1, number: 7, title: '이슈A' }),

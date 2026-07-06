@@ -8,6 +8,7 @@ import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
+import com.workplace.issue.exception.EpicHasIncompleteChildrenException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.project.dto.AddMemberRequest;
@@ -338,5 +339,55 @@ class IssueServiceTest extends IntegrationTestBase {
     assertThat(detail.comments()).hasSize(1);
     assertThat(detail.history()).hasSize(1);
     assertThat(detail.summary().title()).isEqualTo("renamed");
+  }
+
+  /**
+   * EPIC 을 완료로 바꾸는데 미완료 자식(TASK 유형)이 남아있으면 400 상당 예외로 하드 차단(#710). 보드 카드는 SUBTASK 만 집계하지만 검증은 자식 유형
+   * 전체(TASK 포함) 기준이어야 한다.
+   */
+  @Test
+  void updateStatus_epicToDoneWithIncompleteTaskChild_throws() {
+    var epicType = typeRepository.findByProjectAndName(projectId, "EPIC").orElseThrow();
+    IssueResponse epic =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("epic", "b", null, null, null, epicType.id(), null, null));
+    // 비-SUBTASK(TASK) 유형 자식 — parentNumber 로 EPIC 을 부모 지정 가능.
+    issueService.create(
+        ownerId,
+        projectKey,
+        new CreateIssueRequest("child task", "b", null, null, null, null, epic.number(), null));
+
+    assertThatThrownBy(() -> issueService.updateStatus(ownerId, projectKey, epic.number(), "DONE"))
+        .isInstanceOf(EpicHasIncompleteChildrenException.class)
+        .hasMessageContaining(projectKey + "-" + (epic.number() + 1));
+
+    String statusAfter =
+        dsl.select(ISSUE.STATUS).from(ISSUE).where(ISSUE.ID.eq(epic.id())).fetchOne(ISSUE.STATUS);
+    assertThat(statusAfter).isNotEqualTo("DONE");
+  }
+
+  /** 모든 자식 이슈가 완료되면 EPIC 완료 전이가 정상적으로 허용된다 (#710). */
+  @Test
+  void updateStatus_epicToDoneWithAllChildrenDone_succeeds() {
+    var epicType = typeRepository.findByProjectAndName(projectId, "EPIC").orElseThrow();
+    IssueResponse epic =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("epic", "b", null, null, null, epicType.id(), null, null));
+    IssueResponse child =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("child task", "b", null, null, null, null, epic.number(), null));
+    issueService.updateStatus(ownerId, projectKey, child.number(), "DONE");
+
+    issueService.updateStatus(ownerId, projectKey, epic.number(), "DONE");
+
+    String statusAfter =
+        dsl.select(ISSUE.STATUS).from(ISSUE).where(ISSUE.ID.eq(epic.id())).fetchOne(ISSUE.STATUS);
+    assertThat(statusAfter).isEqualTo("DONE");
   }
 }

@@ -26,6 +26,7 @@ import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.AttachmentTooLargeException;
 import com.workplace.issue.exception.EpicCannotHaveParentException;
+import com.workplace.issue.exception.EpicHasIncompleteChildrenException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.InvalidIssueOperationException;
@@ -674,6 +675,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(RoleAssignedException.class)
   public ResponseEntity<ErrorResponse> handleRoleAssigned(
       RoleAssignedException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.badRequest().body(response);
+  }
+
+  // issue: EPIC 을 완료로 바꾸는데 미완료 자식 이슈가 남아있음 → 400 (#710, #678 과 동일한 hard-block 정책)
+  @ExceptionHandler(EpicHasIncompleteChildrenException.class)
+  public ResponseEntity<ErrorResponse> handleEpicHasIncompleteChildren(
+      EpicHasIncompleteChildrenException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
     return ResponseEntity.badRequest().body(response);
   }

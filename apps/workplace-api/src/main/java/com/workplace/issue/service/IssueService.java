@@ -12,6 +12,7 @@ import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.EpicCannotHaveParentException;
+import com.workplace.issue.exception.EpicHasIncompleteChildrenException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidIssueDateRangeException;
 import com.workplace.issue.exception.InvalidParentException;
@@ -44,6 +45,7 @@ import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -403,6 +405,25 @@ public class IssueService {
       newClosedAt = null;
     } else {
       newClosedAt = before.closedAt();
+    }
+
+    // EPIC → DONE 전이 시 미완료 자식 이슈가 있으면 하드 차단(#710). silent-cascade 로 EPIC 만 완료 처리되고
+    // 자식이 미완료로 남는 불일치 상태를 막는다(#678 커스텀 역할 삭제와 동일한 hard-block 정책, 경고 후 강제진행 옵션은 두지 않음).
+    // 자식 유형과 무관하게(SUBTASK 뿐 아니라 TASK 등 전체) 하나라도 미완료면 차단 — 보드 카드의 SUBTASK 전용 집계와는 별개 기준.
+    if (newStatus.equals("DONE") && !before.status().equals("DONE")) {
+      var beforeType = typeRepository.findById(before.typeId()).orElseThrow();
+      if ("EPIC".equals(beforeType.name())) {
+        var incompleteChildNumbers = issueRepository.findIncompleteChildNumbers(before.id());
+        if (!incompleteChildNumbers.isEmpty()) {
+          throw new EpicHasIncompleteChildrenException(
+              "미완료 하위 이슈가 %d건 있어 완료로 변경할 수 없습니다: %s"
+                  .formatted(
+                      incompleteChildNumbers.size(),
+                      incompleteChildNumbers.stream()
+                          .map(n -> project.key() + "-" + n)
+                          .collect(Collectors.joining(", "))));
+        }
+      }
     }
 
     issueRepository.updateAll(
