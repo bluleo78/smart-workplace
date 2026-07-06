@@ -215,6 +215,48 @@ class ProjectServiceTest extends IntegrationTestBase {
         .isInstanceOf(ProjectConflictException.class);
   }
 
+  /**
+   * #714 — 담당자로 걸린 멤버를 제거하면 issue_assignee 매핑도 함께 정리되어야 한다 (AssigneePolicy 불변식을 멤버십 철회 시점에도 유지).
+   */
+  @Test
+  void removeMember_cleansUpIssueAssigneeMappings() {
+    String key = uniqueKey("GA");
+    ProjectResponse project =
+        projectService.create(ownerId, new CreateProjectRequest(key, "Pjt", null));
+    projectService.addMember(ownerId, key, new AddMemberRequest(otherUserId, "MEMBER"));
+
+    long typeId =
+        dsl.select(ISSUE_TYPE_DEF.ID)
+            .from(ISSUE_TYPE_DEF)
+            .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(project.id()))
+            .limit(1)
+            .fetchOne(ISSUE_TYPE_DEF.ID);
+    Long issueId =
+        dsl.insertInto(ISSUE)
+            .set(ISSUE.PROJECT_ID, project.id())
+            .set(ISSUE.NUMBER, 1)
+            .set(ISSUE.TITLE, "유령 담당자 테스트")
+            .set(ISSUE.REPORTER_ID, ownerId)
+            .set(ISSUE.TYPE_ID, typeId)
+            .returning(ISSUE.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(ISSUE_ASSIGNEE)
+        .set(ISSUE_ASSIGNEE.ISSUE_ID, issueId)
+        .set(ISSUE_ASSIGNEE.USER_ID, otherUserId)
+        .set(ISSUE_ASSIGNEE.ASSIGNED_BY, ownerId)
+        .execute();
+
+    projectService.removeMember(ownerId, key, otherUserId);
+
+    boolean stillAssigned =
+        dsl.fetchExists(
+            dsl.selectFrom(ISSUE_ASSIGNEE)
+                .where(
+                    ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId), ISSUE_ASSIGNEE.USER_ID.eq(otherUserId)));
+    assertThat(stillAssigned).isFalse();
+  }
+
   @Test
   void addMember_duplicate_throwsConflict() {
     String key = uniqueKey("AD");

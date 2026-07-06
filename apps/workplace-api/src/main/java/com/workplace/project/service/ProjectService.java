@@ -2,6 +2,7 @@ package com.workplace.project.service;
 
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueTypeService;
 import com.workplace.project.dto.AddMemberRequest;
@@ -42,6 +43,7 @@ public class ProjectService {
   private final PersonalProjectProvisioner provisioner;
   private final UserRepository userRepository;
   private final IssueRepository issueRepository;
+  private final IssueAssigneeRepository issueAssigneeRepository;
 
   /**
    * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, TEAM/OPEN 이면 공유 프로젝트 경로. 공유
@@ -230,7 +232,11 @@ public class ProjectService {
     memberRepository.updateRole(project.id(), memberUserId, req.role());
   }
 
-  /** 멤버 제거. OWNER 권한 필요. 마지막 OWNER 제거 시 409. */
+  /**
+   * 멤버 제거. OWNER 권한 필요. 마지막 OWNER 제거 시 409. AssigneePolicy 불변식("담당자는 항상 프로젝트 멤버")을 멤버십 철회 시점에도 지키기
+   * 위해, 같은 트랜잭션 내에서 해당 프로젝트 이슈들 중 이 사용자가 담당자로 걸린 issue_assignee 매핑을 함께 제거한다 (#714 — 정리하지 않으면 제거된
+   * 사용자가 담당자로 남아 본인은 접근 불가한 유령 담당자 상태가 됨).
+   */
   public void removeMember(Long callerId, String projectKey, Long memberUserId) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     MemberRow current =
@@ -241,5 +247,6 @@ public class ProjectService {
       throw new ProjectConflictException("OWNER 가 최소 1명 이상 있어야 합니다");
     }
     memberRepository.delete(project.id(), memberUserId);
+    issueAssigneeRepository.removeByProjectAndUser(project.id(), memberUserId);
   }
 }

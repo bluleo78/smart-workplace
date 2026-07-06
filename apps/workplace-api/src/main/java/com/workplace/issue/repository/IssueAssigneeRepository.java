@@ -1,5 +1,6 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.USER;
 
@@ -80,6 +81,19 @@ public class IssueAssigneeRepository {
   public void remove(Long issueId, Long userId) {
     dsl.deleteFrom(ISSUE_ASSIGNEE)
         .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId).and(ISSUE_ASSIGNEE.USER_ID.eq(userId)))
+        .execute();
+  }
+
+  /**
+   * 프로젝트 멤버 제거(#714) 시 호출 — 해당 프로젝트의 이슈들 중 대상 사용자가 담당자로 걸린 매핑을 모두 제거한다. AssigneePolicy 불변식("담당자는 항상
+   * 프로젝트 멤버")을 멤버십 철회 시점에도 유지하기 위함 — 정리하지 않으면 제거된 사용자가 담당자로 남아 자신은 접근 불가한 유령 담당자 상태가 된다.
+   */
+  public void removeByProjectAndUser(Long projectId, Long userId) {
+    dsl.deleteFrom(ISSUE_ASSIGNEE)
+        .where(
+            ISSUE_ASSIGNEE.USER_ID.eq(userId),
+            ISSUE_ASSIGNEE.ISSUE_ID.in(
+                dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId))))
         .execute();
   }
 }
