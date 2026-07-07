@@ -8,11 +8,17 @@ import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.exception.WikiConflictException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageCreatedEvent;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageDeletedEvent;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageMovedEvent;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageUpdatedEvent;
 import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiReferenceRepository;
 import com.workplace.wiki.repository.WikiRevisionRepository;
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +31,7 @@ public class WikiPageService {
   private final WikiPermissions perms;
   private final WikiReferenceRepository references;
   private final WikiReferenceParser refParser;
+  private final ApplicationEventPublisher publisher;
 
   /** 페이지 생성(말단 position). EDITOR 이상. */
   @Transactional
@@ -32,7 +39,13 @@ public class WikiPageService {
     perms.requireRole(spaceId, callerId, "EDITOR");
     int pos = pages.nextPosition(spaceId, req.parentId());
     long id = pages.insert(spaceId, req.parentId(), req.title(), pos);
-    return pages.findDetail(id).orElseThrow(() -> new WikiPageNotFoundException(id));
+    WikiPageDetail detail =
+        pages.findDetail(id).orElseThrow(() -> new WikiPageNotFoundException(id));
+    // #724: 생성 사실을 스페이스 멤버에게 SSE 로 알려 열린 노트 화면이 즉시 갱신되도록 한다(AFTER_COMMIT fan-out).
+    publisher.publishEvent(
+        new WikiPageCreatedEvent(
+            spaceId, id, req.parentId(), detail.title(), callerId, Instant.now()));
+    return detail;
   }
 
   /** 공간 페이지 트리(경량). VIEWER 이상. */
@@ -77,7 +90,13 @@ public class WikiPageService {
     // save() 가 @Transactional 이므로 replaceForSource 의 delete+insert 가 원자적으로 묶인다.
     // 추출은 실제 저장한 body 로 수행해야 본문과 백링크가 일관(null→유지 시 기존 백링크 보존).
     references.replaceForSource(pageId, refParser.parse(pageId, body));
-    return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    WikiPageDetail saved =
+        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    // #724: 저장 사실을 스페이스 멤버에게 SSE 로 알린다 — 다른 탭/AI 편집이 즉시 반영되도록.
+    publisher.publishEvent(
+        new WikiPageUpdatedEvent(
+            current.spaceId(), pageId, saved.title(), callerId, Instant.now()));
+    return saved;
   }
 
   /** 트리 이동(parent/position 변경) + 형제 재배열로 타이 제거. EDITOR 이상. */
@@ -96,6 +115,8 @@ public class WikiPageService {
     for (int i = 0; i < ids.size(); i++) {
       pages.setPosition(ids.get(i), i);
     }
+    // #724: 트리 이동을 스페이스 멤버에게 알려 사이드바 트리가 재조회되도록 한다.
+    publisher.publishEvent(new WikiPageMovedEvent(spaceId, pageId, callerId, Instant.now()));
   }
 
   /** 페이지 삭제(자식 CASCADE). EDITOR 이상. */
@@ -105,6 +126,8 @@ public class WikiPageService {
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(spaceId, callerId, "EDITOR");
     pages.delete(pageId);
+    // #724: 삭제를 스페이스 멤버에게 알려 트리·열린 페이지 캐시가 무효화되도록 한다.
+    publisher.publishEvent(new WikiPageDeletedEvent(spaceId, pageId, callerId, Instant.now()));
   }
 
   /**

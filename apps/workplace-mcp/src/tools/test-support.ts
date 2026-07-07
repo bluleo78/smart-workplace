@@ -14,6 +14,7 @@ export function mockPatApiClient(): PatApiClient {
     createIssue: vi.fn(),
     addIssueComment: vi.fn(),
     updateIssueStatus: vi.fn(),
+    listWikiSpaces: vi.fn(),
     searchWikiPages: vi.fn(),
     getWikiPage: vi.fn(),
     createWikiPage: vi.fn(),

@@ -348,6 +348,17 @@ export function buildTools(
     },
   };
 
+  // #724: 노트 스페이스 목록 — 이름/타입 → spaceId 해석. 생성·검색 전 대상 스페이스 id 확인에 사용.
+  const listWikiSpacesTool: McpTool = {
+    name: 'list_wiki_spaces',
+    description:
+      '내가 접근 가능한 노트 스페이스 목록을 JSON 배열(id·name·type·role)로 반환합니다. 노트를 생성하려면 먼저 이 도구로 대상 스페이스의 id 를 확인하세요. 개인 노트는 type="PERSONAL"(이름 "내 노트")입니다. search_wiki 는 페이지 내용만 검색하므로, 스페이스 자체를 찾을 때는 이 도구를 쓰세요.',
+    inputSchema: z.object({}),
+    async handler() {
+      return JSON.stringify(await client.listWikiSpaces(agentId));
+    },
+  };
+
   // 위키 읽기 그라운딩 도구(S2) — issue·chat 프로필 공용
   const searchWikiTool: McpTool = {
     name: 'search_wiki',
@@ -377,6 +388,7 @@ export function buildTools(
     let addChatMessageCalled = false;
     return [
       getIssueDetailTool,
+      listWikiSpacesTool,
       searchWikiTool,
       getWikiPageTool,
       {
@@ -1119,6 +1131,7 @@ export function buildTools(
     return [
       getIssueDetailTool,
       listIssuesTool,            // #371: 이슈 목록 조회(내 담당/필터) — issue-agent 위임용
+      listWikiSpacesTool,
       searchWikiTool,
       getWikiPageTool,
       createWikiPageTool,        // #333 M3: 위키 쓰기(내부)
@@ -1166,6 +1179,7 @@ export function buildTools(
   // issue 프로파일(기본) — 이슈 읽기/쓰기 + 위키 읽기 그라운딩.
   return [
     getIssueDetailTool,
+    listWikiSpacesTool,
     searchWikiTool,
     getWikiPageTool,
     addCommentTool,

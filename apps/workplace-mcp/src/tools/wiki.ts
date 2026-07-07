@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { PatApiClient } from '../clients/workplace-api.js';
 import type { McpTool } from './types.js';
 
-/** 위키 도메인 도구 4종(search_wiki/get_wiki_page/create_wiki_page/update_wiki_page) 을 구성한다. */
+/** 위키 도메인 도구 5종(list_wiki_spaces/search_wiki/get_wiki_page/create_wiki_page/update_wiki_page) 을 구성한다. */
 export function buildWikiTools(client: PatApiClient): McpTool[] {
   const searchWikiInput = z.object({ q: z.string().min(1) });
   const getWikiPageInput = z.object({ pageId: z.number().int() });
@@ -22,6 +22,15 @@ export function buildWikiTools(client: PatApiClient): McpTool[] {
   });
 
   return [
+    {
+      name: 'list_wiki_spaces',
+      description:
+        '내가 접근 가능한 노트 스페이스 목록을 JSON(id·name·type·role)으로 반환합니다. 노트를 생성하려면 먼저 이 도구로 대상 스페이스의 id 를 확인하세요. 개인 노트는 type="PERSONAL"("내 노트")입니다.',
+      inputSchema: z.object({}),
+      async handler() {
+        return JSON.stringify(await client.listWikiSpaces());
+      },
+    },
     {
       name: 'search_wiki',
       description: '검색어로 위키 페이지를 검색해 JSON 목록으로 반환합니다.',

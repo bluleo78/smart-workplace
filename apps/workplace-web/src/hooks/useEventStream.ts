@@ -14,6 +14,7 @@ import { handleChatEvent } from './useChatStream';
 import { handleIssueEvent } from './useIssueStream';
 import { handleMessagingEvent } from './useMessageStream';
 import { handleNotifyEvent } from './useNotificationStream';
+import { handleWikiEvent } from './useWikiStream';
 
 // 이벤트 이름 prefix 로 도메인 핸들러에 분배(순수 라우터). 알 수 없는 prefix 는 무시.
 export function routeStreamEvent(
@@ -32,6 +33,8 @@ export function routeStreamEvent(
   ) {
     emitAiStreamEvent(name, data);
   }
+  // wiki.page.*(노트 생성·수정·삭제·이동, #724) — wiki.ai.* 분기 뒤에 둬야 인에디터 토큰 스트림과 섞이지 않는다.
+  else if (name.startsWith('wiki.')) handleWikiEvent(ctx.qc, name, data);
 }
 
 export function useEventStream(currentUserId: number): { isConnected: boolean } {

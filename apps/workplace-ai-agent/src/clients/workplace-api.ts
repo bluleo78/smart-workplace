@@ -152,6 +152,14 @@ export interface WikiPageContent {
   updatedAt: string;
 }
 
+// #724: 내가 접근 가능한 노트 스페이스 한 건 — 스페이스 이름/타입 → spaceId 해석에 사용.
+export interface WikiSpaceItem {
+  id: number;
+  type: string; // PERSONAL | TEAM | OPEN 등. 개인 노트("내 노트")는 PERSONAL.
+  name: string;
+  role: string; // 내 역할(OWNER/EDITOR/VIEWER)
+}
+
 // 6c: 이슈 첨부 메타.
 export interface AttachmentMeta {
   fileId: number;
@@ -235,6 +243,7 @@ export interface WorkplaceApiClient {
   listChannels(agentId: number): Promise<ChannelItem[]>;
   discoverChannels(agentId: number, q: string): Promise<ChannelItem[]>;
   // S2: 위키 읽기 그라운딩
+  listWikiSpaces(agentId: number): Promise<WikiSpaceItem[]>;
   searchWikiPages(agentId: number, query: string): Promise<WikiSearchItem[]>;
   getWikiPage(agentId: number, pageId: number): Promise<WikiPageContent>;
   // #333 M3: 위키 페이지 쓰기 — 스페이스 멤버십 가드는 서버가 강제하므로 propose/confirm 없이 직접 노출.
@@ -572,6 +581,11 @@ export function createWorkplaceApiClient(opts: {
       return r.data as WikiPageContent;
     },
 
+    // #724: 내 노트 스페이스 목록 — 스페이스 이름/타입 → spaceId 해석에 사용(GET /wiki/spaces).
+    async listWikiSpaces(agentId) {
+      const r = await http.get(`/wiki/spaces`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? (r.data as WikiSpaceItem[]) : [];
+    },
     // S2: 위키 검색 — 백엔드는 bare JSON 배열(List<WikiSearchResult>)을 반환.
     async searchWikiPages(agentId, query) {
       const r = await http.get(

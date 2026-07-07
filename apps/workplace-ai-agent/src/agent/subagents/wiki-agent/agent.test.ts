@@ -12,6 +12,7 @@ describe('wiki-agent 정의', () => {
   });
   it('tools 는 읽기(search/get)+쓰기(create/update)', () => {
     expect(loaded['wiki-agent'].tools).toEqual([
+      'mcp__workplace__list_wiki_spaces',
       'mcp__workplace__search_wiki',
       'mcp__workplace__get_wiki_page',
       'mcp__workplace__create_wiki_page',

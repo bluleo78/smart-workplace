@@ -31,6 +31,9 @@ function client(): WorkplaceApiClient {
     postMessagingProgress: vi.fn().mockResolvedValue(undefined),
     listIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadIssueAttachment: vi.fn(),
+    listWikiSpaces: vi.fn().mockResolvedValue([
+      { id: 1, type: 'PERSONAL', name: '내 노트', role: 'OWNER' },
+    ]),
     searchWikiPages: vi.fn().mockResolvedValue([
       { id: 7, spaceId: 2, spaceName: '팀', title: '릴리스', snippet: '배포', updatedAt: '2026-06-14T00:00:00Z' },
     ]),
@@ -118,6 +121,7 @@ describe('buildTools (agentId bound)', () => {
       'get_chat_thread',
       'get_issue_detail',
       'get_wiki_page',
+      'list_wiki_spaces',
       'search_wiki',
     ]);
   });
@@ -128,6 +132,7 @@ describe('buildTools (agentId bound)', () => {
       'add_comment',
       'get_issue_detail',
       'get_wiki_page',
+      'list_wiki_spaces',
       'search_wiki',
       'unassign_self',
       'update_status',

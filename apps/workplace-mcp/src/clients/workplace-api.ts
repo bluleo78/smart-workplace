@@ -49,7 +49,8 @@ export interface PatApiClient {
   ): Promise<unknown>;
   replaceIssueLabels(projectKey: string, number: number, labelIds: number[]): Promise<unknown>;
   editIssueComment(issueId: number, commentId: number, body: string): Promise<void>;
-  // Task 7: 위키 — 검색/조회/생성/수정(낙관적 동시성, 409 는 호출자에 그대로 전파).
+  // Task 7: 위키 — 스페이스 목록/검색/조회/생성/수정(낙관적 동시성, 409 는 호출자에 그대로 전파).
+  listWikiSpaces(): Promise<unknown[]>;
   searchWikiPages(q: string): Promise<unknown[]>;
   getWikiPage(pageId: number): Promise<unknown>;
   createWikiPage(spaceId: number, body: { parentId: number | null; title: string }): Promise<unknown>;
@@ -157,6 +158,9 @@ export function createPatApiClient(opts: { baseURL: string; token: string }): Pa
     },
     async searchWikiPages(q) {
       return (await http.get('/wiki/search', { params: { q } })).data ?? [];
+    },
+    async listWikiSpaces() {
+      return (await http.get('/wiki/spaces')).data ?? [];
     },
     async getWikiPage(pageId) {
       return (await http.get(`/wiki/pages/${pageId}`)).data;

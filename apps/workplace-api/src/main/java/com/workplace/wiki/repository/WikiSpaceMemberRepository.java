@@ -50,6 +50,14 @@ public class WikiSpaceMemberRepository {
         .execute();
   }
 
+  /** 스페이스 멤버 user id 목록 — SSE fan-out 대상(#724). */
+  public List<Long> memberUserIds(long spaceId) {
+    return dsl.select(WIKI_SPACE_MEMBER.USER_ID)
+        .from(WIKI_SPACE_MEMBER)
+        .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+        .fetch(WIKI_SPACE_MEMBER.USER_ID);
+  }
+
   public List<WikiMemberResponse> listMembers(long spaceId) {
     return dsl.select(WIKI_SPACE_MEMBER.USER_ID, USER.NAME, WIKI_SPACE_MEMBER.ROLE)
         .from(WIKI_SPACE_MEMBER)

@@ -38,6 +38,7 @@ function client(token: string | Error): WorkplaceApiClient {
     postMessagingProgress: vi.fn().mockResolvedValue(undefined),
     listIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadIssueAttachment: vi.fn(),
+    listWikiSpaces: vi.fn().mockResolvedValue([]),
     searchWikiPages: vi.fn().mockResolvedValue([]),
     getWikiPage: vi.fn().mockResolvedValue({} as never),
     listEvents: vi.fn().mockResolvedValue([]),
