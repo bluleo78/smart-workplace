@@ -555,24 +555,85 @@ test('보드+우선순위 그룹 — CANCELED 이슈는 어떤 우선순위 컬�
   await expect(page.getByTestId('issue-card-2')).toHaveCount(0);
 });
 
-// ─── #267 패널/모달 제목 → 풀 페이지 링크 ──────────────────────────────────────
+// ─── #718 개인 작업 드로어 제목 인라인 편집 ─────────────────────────────────────
+// 개인 이슈는 풀 상세 페이지가 리다이렉트로 막혀 있어(#207 참조) 드로어가 유일한 편집 경로다.
+// 과거의 "제목 링크 → 풀페이지"(#267)·"전체 보기 버튼" UI 는 리다이렉트 루프만 유발해 제거하고,
+// 드로어(패널/모달)에서 직접 제목을 인라인 편집하도록 대체했다.
 
-test('패널 제목 링크 클릭 → 풀 이슈 상세 페이지(/projects/KEY/issues/N)로 이동', async ({ authenticatedPage: page }) => {
+// 제목 편집 검증용 — 하나의 가변 issue 를 목록 GET·단건 GET·PATCH 가 공유한다.
+// 왜: PATCH 성공 시 useUpdateIssue 가 issueKeys.search(목록)+detail(단건) 을 모두 무효화하므로,
+//     "UI 반영"은 드로어 제목뿐 아니라 뒤의 체크리스트 행까지 새 제목으로 갱신되는지 검증해야 한다.
+//     mockPersonal 이후 호출해 목록 라우트를 가변 버전으로 덮어쓴다(Playwright 라우트는 LIFO).
+async function mockTaskDetailEditable(page: import('@playwright/test').Page, number = 1) {
+  let issue = createIssue({ projectKey: KEY, number, title: '블로그 초안' });
+  const patchBodies: unknown[] = [];
+  // 목록 GET — 현재 issue 로 재구성(무효화 후 재조회 시 새 제목 반영).
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    (route) => {
+      if (route.request().method() === 'GET')
+        return route.fulfill({ json: createIssueSearchResponse([issue]) });
+      return route.fallback();
+    },
+  );
+  // 단건 GET(현재 detail) + PATCH(issue 변이 후 반환).
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues/${number}`,
+    (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON() as { title?: string };
+        patchBodies.push(body);
+        if (body.title) issue = { ...issue, title: body.title };
+      }
+      return route.fulfill({ json: createIssueDetail({ summary: issue, body: '서론은 짧게' }) });
+    },
+  );
+  const thread = createChatThread();
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/${number}/chat/thread`, thread);
+  await mockApi(page, 'GET', `/api/v1/chat/threads/${thread.threadId}/messages`, createChatMessagePage([]));
+  return { patchBodies };
+}
+
+test('패널 제목 연필 → 인라인 편집 → PATCH { title } 전달 + 제목 UI 반영', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
-  await mockTaskDetail(page);
+  const { patchBodies } = await mockTaskDetailEditable(page);
   await page.goto(`/projects/${KEY}?task=1`);
 
   const panel = page.getByTestId('personal-task-panel');
   await expect(panel).toBeVisible();
 
-  // 제목 링크 존재 확인 — href 가 풀 이슈 경로여야 한다(#267).
-  const titleLink = panel.getByTestId('personal-task-panel-title-link');
-  await expect(titleLink).toBeVisible();
-  await expect(titleLink).toHaveAttribute('href', `/projects/${KEY}/issues/1`);
+  // 제목 링크는 더 이상 없고(#718 제거), 연필 편집 UI 로 대체되었다.
+  await expect(panel.getByTestId('personal-task-panel-title-link')).toHaveCount(0);
 
-  // 클릭 시 풀 이슈 경로로 이동한다(네비게이션 검증).
-  await titleLink.click();
-  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/1`));
+  // 연필 클릭 → input 전환 → 새 제목 입력 → Enter 저장.
+  await panel.getByTestId('issue-title-edit').click();
+  const input = panel.getByTestId('issue-title-input');
+  await expect(input).toBeVisible();
+  await input.fill('블로그 최종본');
+  await input.press('Enter');
+
+  // 처리 → PATCH payload 가 { title } 만 담아야 한다.
+  await expect.poll(() => patchBodies).toContainEqual({ title: '블로그 최종본' });
+  // 출력 → 패널 제목이 새 값으로 갱신된다.
+  await expect(panel.getByTestId('personal-task-panel-title')).toContainText('블로그 최종본');
+  // 출력 → 뒤의 체크리스트 행(목록)도 무효화 재조회로 새 제목을 반영한다(사용자 실제 불만 지점).
+  await expect(page.getByTestId('personal-task-row-1')).toContainText('블로그 최종본');
+});
+
+test('패널 제목 편집 — 빈/공백 제목은 PATCH 없이 원복된다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  const { patchBodies } = await mockTaskDetailEditable(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const panel = page.getByTestId('personal-task-panel');
+  await panel.getByTestId('issue-title-edit').click();
+  const input = panel.getByTestId('issue-title-input');
+  await input.fill('   '); // 공백만
+  await input.press('Enter');
+
+  // 빈/공백은 zod min(1) 위반이므로 UI 에서 차단 — PATCH 미발생, 기존 제목 유지.
+  await expect(panel.getByTestId('personal-task-panel-title')).toContainText('블로그 초안');
+  await expect.poll(() => patchBodies.length).toBe(0);
 });
 
 // ─── #362 AssigneePickerPopover 트리거 담당자 표시 회귀 ──────────────────────────
@@ -608,16 +669,24 @@ test('패널 담당자 픽커 — current 담당자가 있으면 아이콘 대�
   expect(hasAvatar).toBeGreaterThan(0);
 });
 
-test('보드 모달 헤더에 전체 보기 아이콘 버튼(ExternalLink)이 존재하고 풀 이슈 경로 href를 가진다', async ({ authenticatedPage: page }) => {
+test('보드 모달 헤더에서도 제목을 인라인 편집 → PATCH { title } 전달 + 제목 UI 반영 (#718)', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })]);
-  await mockTaskDetail(page);
+  const { patchBodies } = await mockTaskDetailEditable(page);
   await page.goto(`/projects/${KEY}?view=board&task=1`);
 
   const modal = page.getByTestId('personal-task-modal');
   await expect(modal).toBeVisible();
 
-  // "전체 보기" 버튼이 존재하고 href 가 풀 이슈 경로여야 한다(#267).
-  const extBtn = modal.getByRole('link', { name: '전체 보기' });
-  await expect(extBtn).toBeVisible();
-  await expect(extBtn).toHaveAttribute('href', `/projects/${KEY}/issues/1`);
+  // 루프만 유발하던 "전체 보기" 버튼은 제거되었다(#718).
+  await expect(modal.getByRole('link', { name: '전체 보기' })).toHaveCount(0);
+
+  // 모달 헤더 제목 연필 → 편집 → 저장.
+  await modal.getByTestId('issue-title-edit').click();
+  const input = modal.getByTestId('issue-title-input');
+  await expect(input).toBeVisible();
+  await input.fill('보드 최종본');
+  await input.press('Enter');
+
+  await expect.poll(() => patchBodies).toContainEqual({ title: '보드 최종본' });
+  await expect(modal.getByTestId('personal-task-panel-title')).toContainText('보드 최종본');
 });
