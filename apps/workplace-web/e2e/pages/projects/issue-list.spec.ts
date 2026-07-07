@@ -98,13 +98,14 @@ test.describe('팀 리스트 뷰', () => {
     expect(searchUrl!.searchParams.get('topLevel')).toBe('true');
   });
 
-  test('에픽 하위 이슈 행에는 소속 에픽 배지가 표시되고 클릭 시 에픽 상세로 이동한다', async ({ authenticatedPage: page }) => {
+  test('에픽 하위 이슈 행에는 소속 에픽 칩이 제목 오른쪽에 표시되고 클릭 시 에픽 상세로 이동한다', async ({ authenticatedPage: page }) => {
     const epicType = makeEpicType();
+    // 실데이터 폭 검증: 제목·에픽 제목 모두 긴 케이스로 오버플로/겹침을 잡는다.
     const child = createIssue({
       id: 2,
       number: 8,
-      title: '로그인 폼 컴포넌트 구현',
-      parent: { number: 3, title: '로그인 개선', type: epicType },
+      title: '로그인 폼 컴포넌트 리팩터링 및 접근성 개선 — 키보드 포커스 트랩 대응',
+      parent: { number: 3, title: '인증/온보딩 사용자 경험 전면 개선 에픽', type: epicType },
     });
     await mock(page, [child]);
 
@@ -113,7 +114,21 @@ test.describe('팀 리스트 뷰', () => {
     await expect(row).toBeVisible();
     const parentBadge = row.getByTestId('issue-row-8-parent');
     await expect(parentBadge).toBeVisible();
-    await expect(parentBadge).toContainText('로그인 개선');
+    await expect(parentBadge).toContainText('인증/온보딩');
+
+    // Jira 스타일: 에픽 칩은 제목 텍스트보다 오른쪽(트레일링)에 위치해야 한다.
+    const titleLink = row.getByRole('link', { name: /로그인 폼 컴포넌트 리팩터링/ });
+    const titleBox = await titleLink.boundingBox();
+    const chipBox = await parentBadge.boundingBox();
+    expect(titleBox).not.toBeNull();
+    expect(chipBox).not.toBeNull();
+    expect(chipBox!.x).toBeGreaterThan(titleBox!.x);
+
+    // 시각 검증용 스크린샷 아티팩트.
+    await page.screenshot({
+      path: 'test-results/tc/issue-list/epic-chip-trailing.png',
+      fullPage: false,
+    });
 
     await parentBadge.click();
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/3$`));

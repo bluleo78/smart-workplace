@@ -10,6 +10,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
+import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import {
@@ -431,29 +432,20 @@ const IssueRow = memo(function IssueRow({
         </span>
       </td>
       <td>
-        <div className="flex items-center gap-1.5 font-medium">
-          {/* 부모(에픽/상위 이슈) 가 있으면 소속 배지를 제목 앞에 표시 — 클릭 시 부모 상세로 이동. */}
-          {it.parent && (
-            <Link
-              to={`/projects/${projectKey}/issues/${it.parent.number}`}
-              onClick={(e) => e.stopPropagation()}
-              data-testid={`issue-row-${it.number}-parent`}
-              title={`${projectKey}-${it.parent.number} · ${it.parent.title}`}
-              className="inline-flex max-w-[9rem] shrink-0 items-center gap-1 rounded font-normal text-muted-foreground hover:underline"
-            >
-              <IssueTypeBadge type={it.parent.type} size="sm" iconOnly />
-              <span className="truncate text-xs">{it.parent.title}</span>
-            </Link>
-          )}
+        <div className="flex min-w-0 items-center gap-1.5 font-medium">
           {/* 제목 = 실제 링크(키보드 포커스·스크린리더 접근점). 행 onClick 은 마우스 편의용.
               stopPropagation 으로 링크 클릭이 행 onClick 까지 버블해 history 가 이중 push 되는 것을 막는다. */}
           <Link
             to={to}
             onClick={(e) => e.stopPropagation()}
-            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-w-0 truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {it.title}
           </Link>
+          {/* 소속(에픽/상위 이슈) 은 Jira 처럼 제목과 분리해 행 오른쪽 끝에 색상 칩으로 표시. */}
+          {it.parent && (
+            <ParentChip projectKey={projectKey} parent={it.parent} issueNumber={it.number} />
+          )}
         </div>
         {it.labels.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
