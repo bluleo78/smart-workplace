@@ -196,12 +196,14 @@ test.describe('MessageComposer 4000자 한도 검증', () => {
     await page.getByTestId('message-composer-input').waitFor({ state: 'visible' });
   }
 
-  // TipTap contenteditable 에 텍스트 삽입. pressSequentially 로 키보드 이벤트를 발생시켜
-  // React/TipTap 상태를 올바르게 갱신한다 (deprecated execCommand 대체).
+  // TipTap contenteditable 에 텍스트 삽입. keyboard.insertText 는 문자당 keydown 없이
+  // 단일 삽입 이벤트로 처리돼 React/TipTap 상태를 올바르게 갱신하면서도(execCommand 미사용)
+  // 4000자+ 길이에서 pressSequentially(문자당 이벤트) 대비 CPU 부하가 훨씬 낮다.
+  // 5-worker 병렬 풀스위트 실행 시 pressSequentially 가 15s 타임아웃을 넘기던 flake 대응.
   async function insertText(page: import('@playwright/test').Page, text: string) {
     const input = page.getByTestId('message-composer-input');
     await input.click();
-    await input.pressSequentially(text, { delay: 0 });
+    await page.keyboard.insertText(text);
   }
 
   test('4001자 입력 → 전송 버튼 비활성화 + Enter POST 차단', async ({
