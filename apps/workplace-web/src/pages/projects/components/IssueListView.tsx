@@ -68,10 +68,14 @@ export function IssueListView({
   /** 초기 빈 상태 CTA — "새 태스크 만들기" 버튼에 연결 */
   onOpenCreate?: () => void;
 }) {
-  const { data, fetchNextPage, hasNextPage, isFetching, isLoading } =
-    useIssueSearch(projectKey, filters);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [params, setParams] = useSearchParams();
+  // 목록 화면은 전체 표시가 기본(Jira 관례) — URL 에 topLevel 이 명시되지 않은 경우에만
+  // 공유 기본값(true)을 무시하고 에픽/서브태스크 자식까지 보여준다.
+  const effectiveFilters: IssueFilters =
+    params.get('topLevel') == null ? { ...filters, topLevel: false } : filters;
+  const { data, fetchNextPage, hasNextPage, isFetching, isLoading } =
+    useIssueSearch(projectKey, effectiveFilters);
 
   // #606: 다중 선택 상태 — 이슈 number 집합. 필터/그룹 변경 시 초기화(아래 useEffect).
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -401,7 +405,6 @@ const IssueRow = memo(function IssueRow({
 }) {
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
-  const isSubtask = it.type?.name === 'SUBTASK';
 
   return (
     <tr
@@ -429,11 +432,18 @@ const IssueRow = memo(function IssueRow({
       </td>
       <td>
         <div className="flex items-center gap-1.5 font-medium">
-          {/* SUBTASK 면 부모 식별자(↳ KEY-N) 를 제목 앞에 작게 표시. */}
-          {isSubtask && it.parent && (
-            <span className="text-xs text-muted-foreground font-mono">
-              ↳ {projectKey}-{it.parent.number}
-            </span>
+          {/* 부모(에픽/상위 이슈) 가 있으면 소속 배지를 제목 앞에 표시 — 클릭 시 부모 상세로 이동. */}
+          {it.parent && (
+            <Link
+              to={`/projects/${projectKey}/issues/${it.parent.number}`}
+              onClick={(e) => e.stopPropagation()}
+              data-testid={`issue-row-${it.number}-parent`}
+              title={`${projectKey}-${it.parent.number} · ${it.parent.title}`}
+              className="inline-flex max-w-[9rem] shrink-0 items-center gap-1 rounded font-normal text-muted-foreground hover:underline"
+            >
+              <IssueTypeBadge type={it.parent.type} size="sm" iconOnly />
+              <span className="truncate text-xs">{it.parent.title}</span>
+            </Link>
           )}
           {/* 제목 = 실제 링크(키보드 포커스·스크린리더 접근점). 행 onClick 은 마우스 편의용.
               stopPropagation 으로 링크 클릭이 행 onClick 까지 버블해 history 가 이중 push 되는 것을 막는다. */}

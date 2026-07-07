@@ -1,6 +1,7 @@
 // 팀 리스트 뷰 E2E — 아이콘 렌더(상태/우선순위/유형/담당자) + 행 전체 클릭으로 상세 이동.
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
+import { makeEpicType } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 
 const KEY = 'WP';
@@ -46,8 +47,8 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/7$`));
   });
 
-  test('필터 없이 진입하면 검색 요청에 topLevel=true 가 실린다 (서브태스크 혼재 제거 #168)', async ({ authenticatedPage: page }) => {
-    // 보드/목록 기본은 상위 이슈만 — SUBTASK 는 부모 상세에서만 관리.
+  test('필터 없이 진입하면 검색 요청에 topLevel 파라미터가 실리지 않는다 (에픽 하위 이슈 기본 표시)', async ({ authenticatedPage: page }) => {
+    // 목록 기본은 전체 표시(Jira 관례) — 에픽/서브태스크 자식도 목록에 노출.
     // 백엔드 필터링 대신 요청 쿼리 파라미터를 직접 검증(견고).
     await page.route(`**/api/v1/projects/${KEY}`, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
@@ -69,7 +70,53 @@ test.describe('팀 리스트 뷰', () => {
     await page.goto(`/projects/${KEY}`);
     await expect(page.getByTestId('issue-row-7')).toBeVisible();
     expect(searchUrl).not.toBeNull();
+    expect(searchUrl!.searchParams.get('topLevel')).toBeNull();
+  });
+
+  test('topLevel=true 를 명시하면(저장뷰 등) 요청에도 그대로 실린다', async ({ authenticatedPage: page }) => {
+    // 사용자가 명시적으로 상위 이슈만 보기를 선택한 경우는 여전히 존중해야 한다.
+    await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+    );
+    let searchUrl: URL | null = null;
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        searchUrl = new URL(route.request().url());
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse([createIssue({ number: 7 })], null)),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}?topLevel=true`);
+    await expect(page.getByTestId('issue-row-7')).toBeVisible();
+    expect(searchUrl).not.toBeNull();
     expect(searchUrl!.searchParams.get('topLevel')).toBe('true');
+  });
+
+  test('에픽 하위 이슈 행에는 소속 에픽 배지가 표시되고 클릭 시 에픽 상세로 이동한다', async ({ authenticatedPage: page }) => {
+    const epicType = makeEpicType();
+    const child = createIssue({
+      id: 2,
+      number: 8,
+      title: '로그인 폼 컴포넌트 구현',
+      parent: { number: 3, title: '로그인 개선', type: epicType },
+    });
+    await mock(page, [child]);
+
+    await page.goto(`/projects/${KEY}`);
+    const row = page.getByTestId('issue-row-8');
+    await expect(row).toBeVisible();
+    const parentBadge = row.getByTestId('issue-row-8-parent');
+    await expect(parentBadge).toBeVisible();
+    await expect(parentBadge).toContainText('로그인 개선');
+
+    await parentBadge.click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/3$`));
   });
 
   test('필터 상태·우선순위 드롭다운 옵션에 아이콘이 렌더된다 (#295)', async ({ authenticatedPage: page }) => {
