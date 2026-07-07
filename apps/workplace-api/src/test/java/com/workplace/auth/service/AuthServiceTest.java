@@ -236,6 +236,8 @@ class AuthServiceTest extends IntegrationTestBase {
     authService.logout(user.id());
 
     // Try to use the revoked refresh token — reuse detection kicks in
+    // grace period 불변조건 회귀 가드도 겸함: logout으로 family 전체가 죽은 상태(familyAlive=false)이므로
+    // grace 기간 내라도 절대 관용이 적용되면 안 된다.
     assertThatThrownBy(() -> authService.refresh(loginResult.refreshToken()))
         .isInstanceOf(InvalidTokenException.class)
         .hasMessage("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
@@ -255,6 +257,10 @@ class AuthServiceTest extends IntegrationTestBase {
     TokenResponse secondResult = authService.refresh(firstRefreshToken);
     String secondRefreshToken = secondResult.refreshToken();
 
+    // grace period(테스트 설정 2초)를 지나야 진짜 탈취 시나리오가 된다 — grace 이내 재사용은
+    // 크로스탭 경쟁으로 간주되어 관용되므로(별도 테스트로 커버) 여기서는 grace 만료 후 재사용을 재현한다.
+    Thread.sleep(2100);
+
     // Simulate attacker reusing the first (already rotated) token
     // This should revoke the entire token family, including the second token
     assertThatThrownBy(() -> authService.refresh(firstRefreshToken))
@@ -264,6 +270,50 @@ class AuthServiceTest extends IntegrationTestBase {
     // The legitimate second token should also be revoked (family revocation)
     assertThatThrownBy(() -> authService.refresh(secondRefreshToken))
         .isInstanceOf(InvalidTokenException.class);
+  }
+
+  @Test
+  void refresh_reuseWithinGracePeriod_issuesNewTokenInsteadOfRevokingFamily()
+      throws InterruptedException {
+    // 크로스탭 경쟁 재현: 한 탭이 A로 refresh해 B를 받은 "직후"(그레이스 윈도우 내) 다른 탭이 여전히 A로 refresh를 시도.
+    authService.signup(
+        new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
+    var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
+    String tokenA = loginResult.refreshToken();
+
+    Thread.sleep(1100);
+
+    TokenResponse afterFirstRefresh = authService.refresh(tokenA); // A → B (정상 회전)
+    String tokenB = afterFirstRefresh.refreshToken();
+
+    // A는 이미 revoked지만 방금 폐기됐고 B가 살아있으므로 grace 적용 — 예외 없이 새 토큰(C) 발급.
+    TokenResponse afterSecondRefresh = authService.refresh(tokenA);
+
+    assertThat(afterSecondRefresh.accessToken()).isNotBlank();
+    assertThat(afterSecondRefresh.refreshToken()).isNotBlank();
+    assertThat(afterSecondRefresh.refreshToken()).isNotEqualTo(tokenB);
+
+    // grace로 살아난 family이므로 B도 여전히 유효해야 한다(정상 탭까지 로그아웃되지 않음 확인).
+    Thread.sleep(1100);
+    TokenResponse afterUsingB = authService.refresh(tokenB);
+    assertThat(afterUsingB.accessToken()).isNotBlank();
+  }
+
+  @Test
+  void refresh_reuseAfterGracePeriodExpired_revokesEntireFamily() throws InterruptedException {
+    authService.signup(
+        new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
+    var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
+    String tokenA = loginResult.refreshToken();
+
+    Thread.sleep(1100);
+    authService.refresh(tokenA); // A → B
+
+    Thread.sleep(2100); // application-test.yml: refresh-grace-period-seconds=2 초과 대기
+
+    assertThatThrownBy(() -> authService.refresh(tokenA))
+        .isInstanceOf(InvalidTokenException.class)
+        .hasMessage("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
   }
 
   @Test

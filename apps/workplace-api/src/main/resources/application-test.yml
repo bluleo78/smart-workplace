@@ -33,6 +33,7 @@ spring:
 app:
   jwt:
     secret: dGVzdC1qd3Qtc2VjcmV0LWtleS1mb3ItaW50ZWdyYXRpb24tdGVzdHMtb25seS11c2U=
+    refresh-grace-period-seconds: 2   # 테스트 속도를 위해 5초보다 짧게
   encryption:
     # 테스트용 32바이트 키 (AES-256)
     master-key: dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3Q=
