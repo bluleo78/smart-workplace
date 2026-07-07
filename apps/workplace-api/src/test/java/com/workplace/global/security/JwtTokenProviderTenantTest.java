@@ -12,7 +12,8 @@ class JwtTokenProviderTenantTest {
     // 256bit(32byte) 이상 시크릿을 Base64 로 인코딩해 직접 구성한다.
     String secret =
         Base64.getEncoder().encodeToString("0123456789abcdef0123456789abcdef".getBytes());
-    return new JwtTokenProvider(new JwtProperties(secret, 3_600_000L, 86_400_000L));
+    // 5L(grace period seconds)는 이 테스트가 grace 로직을 검증하지 않아 임의값이다.
+    return new JwtTokenProvider(new JwtProperties(secret, 3_600_000L, 86_400_000L, 5L));
   }
 
   @Test

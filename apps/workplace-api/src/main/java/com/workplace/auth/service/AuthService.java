@@ -232,28 +232,34 @@ public class AuthService {
 
     String tokenHash = hashToken(rawRefreshToken);
 
-    // Token reuse detection: if the token was already revoked, an attacker may have
-    // stolen a previously used token. Revoke the entire token family for safety.
-    if (refreshTokenRepository.isTokenRevoked(tokenHash)) {
-      refreshTokenRepository
-          .findFamilyIdByTokenHash(tokenHash)
-          .ifPresent(refreshTokenRepository::revokeByFamilyId);
-      // 이미 사용된 토큰 재사용 시도 — 보안 이슈, 한국어 메시지 반환
-      throw new InvalidTokenException("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
-    }
-
-    if (!refreshTokenRepository.existsValidToken(tokenHash)) {
-      // 폐기된 토큰으로 갱신 시도 — 한국어 메시지 반환
-      throw new InvalidTokenException("만료되었거나 폐기된 토큰입니다. 다시 로그인해 주세요.");
-    }
-
-    // Look up the family before revoking the current token
-    UUID familyId =
+    var revocationInfo =
         refreshTokenRepository
-            .findFamilyIdByTokenHash(tokenHash)
-            .orElseThrow(() -> new InvalidTokenException("토큰 정보를 찾을 수 없습니다. 다시 로그인해 주세요."));
+            .findRevocationInfo(tokenHash)
+            .orElseThrow(() -> new InvalidTokenException("만료되었거나 폐기된 토큰입니다. 다시 로그인해 주세요."));
+    UUID familyId = revocationInfo.familyId();
 
-    refreshTokenRepository.revokeByTokenHash(tokenHash);
+    if (revocationInfo.revoked()) {
+      // 이미 폐기된 토큰 재사용: 크로스탭 경쟁으로 인한 정상 재시도인지, 진짜 탈취인지 grace 조건으로 구분한다.
+      // (1) 방금(grace period 이내) 폐기됐고 (2) family에 살아있는 형제 토큰이 있어야만 관용 — 둘 다 아니면 탈취로 간주.
+      long graceSeconds = jwtProperties.refreshGracePeriodSeconds();
+      boolean withinGrace =
+          revocationInfo.revokedAt() != null
+              && revocationInfo.revokedAt().isAfter(LocalDateTime.now().minusSeconds(graceSeconds));
+      boolean familyAlive = refreshTokenRepository.existsLiveTokenInFamily(familyId);
+
+      if (!withinGrace || !familyAlive) {
+        refreshTokenRepository.revokeByFamilyId(familyId);
+        // 이미 사용된 토큰 재사용 시도 — 보안 이슈, 한국어 메시지 반환
+        throw new InvalidTokenException("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
+      }
+      // grace 적용: 이 토큰(tokenHash)은 이미 폐기 상태이므로 다시 revoke하지 않고, 같은 family로 새 토큰만 추가 발급한다.
+    } else {
+      if (!refreshTokenRepository.existsValidToken(tokenHash)) {
+        // 만료된 토큰으로 갱신 시도 — 한국어 메시지 반환
+        throw new InvalidTokenException("만료되었거나 폐기된 토큰입니다. 다시 로그인해 주세요.");
+      }
+      refreshTokenRepository.revokeByTokenHash(tokenHash);
+    }
 
     Long userId = jwtTokenProvider.getUserIdFromToken(rawRefreshToken);
     UserResponse user =

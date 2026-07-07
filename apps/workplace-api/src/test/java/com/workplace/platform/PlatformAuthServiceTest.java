@@ -139,4 +139,66 @@ class PlatformAuthServiceTest extends IntegrationTestBase {
         .isInstanceOf(InvalidTokenException.class)
         .hasMessageContaining("운영자 토큰");
   }
+
+  @Test
+  void refresh_reuseWithinGracePeriod_issuesNewTokenInsteadOfRevokingFamily()
+      throws InterruptedException {
+    // 크로스탭 경쟁 재현: 운영자 콘솔의 한 탭이 A로 refresh해 B를 받은 직후(그레이스 윈도우 내),
+    // 다른 탭이 여전히 A로 refresh를 시도.
+    String username = createHumanUser("admin", true, true);
+    PlatformAuthService.PlatformLoginResult login =
+        platformAuthService.login(new PlatformLoginRequest(username, RAW_PASSWORD));
+    String tokenA = login.refreshToken();
+
+    Thread.sleep(1100);
+
+    PlatformAuthService.PlatformLoginResult afterFirstRefresh =
+        platformAuthService.refresh(tokenA); // A → B (정상 회전)
+    String tokenB = afterFirstRefresh.refreshToken();
+
+    // A는 이미 revoked지만 방금 폐기됐고 B가 살아있으므로 grace 적용 — 예외 없이 새 토큰(C) 발급.
+    PlatformAuthService.PlatformLoginResult afterSecondRefresh =
+        platformAuthService.refresh(tokenA);
+
+    assertThat(afterSecondRefresh.accessToken()).isNotBlank();
+    assertThat(afterSecondRefresh.refreshToken()).isNotEqualTo(tokenB);
+
+    // grace로 살아난 family이므로 B도 여전히 유효해야 한다(정상 탭까지 로그아웃되지 않음 확인).
+    Thread.sleep(1100);
+    PlatformAuthService.PlatformLoginResult afterUsingB = platformAuthService.refresh(tokenB);
+    assertThat(afterUsingB.accessToken()).isNotBlank();
+  }
+
+  @Test
+  void refresh_reuseAfterGracePeriodExpired_revokesEntireFamily() throws InterruptedException {
+    String username = createHumanUser("admin", true, true);
+    PlatformAuthService.PlatformLoginResult login =
+        platformAuthService.login(new PlatformLoginRequest(username, RAW_PASSWORD));
+    String tokenA = login.refreshToken();
+
+    Thread.sleep(1100);
+    platformAuthService.refresh(tokenA); // A → B
+
+    Thread.sleep(2100); // application-test.yml: refresh-grace-period-seconds=2 초과 대기
+
+    assertThatThrownBy(() -> platformAuthService.refresh(tokenA))
+        .isInstanceOf(InvalidTokenException.class)
+        .hasMessage("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
+  }
+
+  @Test
+  void refresh_afterLogout_throwsEvenWithinGracePeriod() {
+    // grace period의 "family 생존" 불변조건 회귀 가드: logout으로 family 전체가 죽은 뒤
+    // grace 기간 이내에 재사용해도 절대 관용이 적용되면 안 된다(familyAlive=false → 무조건 거부).
+    String username = createHumanUser("admin", true, true);
+    PlatformAuthService.PlatformLoginResult login =
+        platformAuthService.login(new PlatformLoginRequest(username, RAW_PASSWORD));
+    Long id = dsl.select(USER.ID).from(USER).where(USER.USERNAME.eq(username)).fetchOne(USER.ID);
+
+    platformAuthService.logout(id); // family 전체 revoke
+
+    assertThatThrownBy(() -> platformAuthService.refresh(login.refreshToken()))
+        .isInstanceOf(InvalidTokenException.class)
+        .hasMessage("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
+  }
 }

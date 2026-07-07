@@ -148,25 +148,31 @@ public class PlatformAuthService {
 
     String tokenHash = hashToken(rawRefreshToken);
 
-    // 토큰 재사용 탐지: 이미 폐기된 토큰이면 탈취 가능성 → 토큰 family 전체 폐기.
-    if (refreshTokenRepository.isTokenRevoked(tokenHash)) {
-      refreshTokenRepository
-          .findFamilyIdByTokenHash(tokenHash)
-          .ifPresent(refreshTokenRepository::revokeByFamilyId);
-      throw new InvalidTokenException("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
-    }
-
-    if (!refreshTokenRepository.existsValidToken(tokenHash)) {
-      throw new InvalidTokenException("만료되었거나 폐기된 토큰입니다. 다시 로그인해 주세요.");
-    }
-
-    // 현재 토큰 폐기 전 family 조회
-    UUID familyId =
+    var revocationInfo =
         refreshTokenRepository
-            .findFamilyIdByTokenHash(tokenHash)
-            .orElseThrow(() -> new InvalidTokenException("토큰 정보를 찾을 수 없습니다. 다시 로그인해 주세요."));
+            .findRevocationInfo(tokenHash)
+            .orElseThrow(() -> new InvalidTokenException("만료되었거나 폐기된 토큰입니다. 다시 로그인해 주세요."));
+    UUID familyId = revocationInfo.familyId();
 
-    refreshTokenRepository.revokeByTokenHash(tokenHash);
+    if (revocationInfo.revoked()) {
+      // 크로스탭 경쟁 완화: AuthService.refresh() 와 동일한 grace 조건(#grace-period).
+      long graceSeconds = jwtProperties.refreshGracePeriodSeconds();
+      boolean withinGrace =
+          revocationInfo.revokedAt() != null
+              && revocationInfo.revokedAt().isAfter(LocalDateTime.now().minusSeconds(graceSeconds));
+      boolean familyAlive = refreshTokenRepository.existsLiveTokenInFamily(familyId);
+
+      if (!withinGrace || !familyAlive) {
+        refreshTokenRepository.revokeByFamilyId(familyId);
+        throw new InvalidTokenException("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
+      }
+      // grace 적용 — 재revoke 없이 아래에서 같은 family로 새 토큰만 발급.
+    } else {
+      if (!refreshTokenRepository.existsValidToken(tokenHash)) {
+        throw new InvalidTokenException("만료되었거나 폐기된 토큰입니다. 다시 로그인해 주세요.");
+      }
+      refreshTokenRepository.revokeByTokenHash(tokenHash);
+    }
 
     Long userId = jwtTokenProvider.getUserIdFromToken(rawRefreshToken);
     UserResponse user =
