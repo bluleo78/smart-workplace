@@ -67,6 +67,19 @@ describe('chatSchema', () => {
     void _omit;
     expect(chatSchema.safeParse(rest).success).toBe(false);
   });
+
+  // #719: tenantId 는 선택 필드 — 미포함/null 모두 파싱 성공해야 한다(테넌트 미해결 경로 호환).
+  it('tenantId 없어도 파싱 성공(선택 필드)', () => {
+    expect(chatSchema.safeParse(validBody()).success).toBe(true);
+  });
+
+  it('tenantId 양수 포함 시 파싱 성공', () => {
+    expect(chatSchema.safeParse(validBody({ tenantId: 1 })).success).toBe(true);
+  });
+
+  it('tenantId 가 0 이하면 파싱 실패', () => {
+    expect(chatSchema.safeParse(validBody({ tenantId: 0 })).success).toBe(false);
+  });
 });
 
 describe('POST /ai/chat', () => {

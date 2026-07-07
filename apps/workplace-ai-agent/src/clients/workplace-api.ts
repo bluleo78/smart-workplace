@@ -300,6 +300,11 @@ export interface WorkplaceApiClient {
     issueKey: string,
     fileId: number,
   ): Promise<{ data: Buffer; mimeType: string }>;
+  // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
+  // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면
+  // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
+  // fail-closed 방지).
+  withOnBehalfOfTenant(tenantId: number): WorkplaceApiClient;
 }
 
 export function parseIssueKey(issueKey: string): {
@@ -316,6 +321,8 @@ export function parseIssueKey(issueKey: string): {
 export function createWorkplaceApiClient(opts: {
   baseURL?: string;
   internalToken: string;
+  // #719: 설정 시 모든 대리 호출에 X-On-Behalf-Of-Tenant 를 동봉 — withOnBehalfOfTenant 가 채운다.
+  onBehalfOfTenantId?: number;
 }): WorkplaceApiClient {
   const http: AxiosInstance = axios.create({
     baseURL: opts.baseURL ?? DEFAULT_API_BASE_URL,
@@ -323,10 +330,18 @@ export function createWorkplaceApiClient(opts: {
   });
 
   const onBehalfOf = (agentId: number) => ({
-    headers: { 'X-On-Behalf-Of': String(agentId) },
+    headers: {
+      'X-On-Behalf-Of': String(agentId),
+      ...(opts.onBehalfOfTenantId
+        ? { 'X-On-Behalf-Of-Tenant': String(opts.onBehalfOfTenantId) }
+        : {}),
+    },
   });
 
   return {
+    withOnBehalfOfTenant(tenantId: number) {
+      return createWorkplaceApiClient({ ...opts, onBehalfOfTenantId: tenantId });
+    },
     async addIssueComment(agentId, issueKey, body) {
       const { projectKey, number } = parseIssueKey(issueKey);
       // 코멘트 endpoint 는 issueId 기반 (workplace-api 컨벤션) — issue 상세에서 id 추출.

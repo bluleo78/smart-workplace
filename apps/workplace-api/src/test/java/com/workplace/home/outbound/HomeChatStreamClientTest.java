@@ -62,8 +62,8 @@ class HomeChatStreamClientTest {
   }
 
   private ChatRequest dummyReq() {
-    // #376: userId 추가 — 요청자 ID(MCP 도구 컨텍스트 기준).
-    return new ChatRequest("테스트", List.of(), 5L, 1L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
+    // #376: userId 추가 — 요청자 ID(MCP 도구 컨텍스트 기준). #719: tenantId(nullable) 추가.
+    return new ChatRequest("테스트", List.of(), 5L, 1L, null, "claude-sonnet-4-6", "NORMAL", 8, 60000);
   }
 
   /** delta×3 + done — 순서대로 소비하고 fullText/widgets 파싱이 올바른지 검증. */

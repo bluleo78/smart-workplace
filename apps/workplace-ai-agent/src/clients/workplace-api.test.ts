@@ -30,6 +30,34 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   }
 
+  // #719: withOnBehalfOfTenant 로 스코프한 클라이언트는 모든 대리 호출에
+  // X-On-Behalf-Of-Tenant 를 동봉해야 한다 — 다중/무 멤버십 요청자의 AgentTenantResolver
+  // fail-closed(권한 전부 거부)를 막는 핵심 배선.
+  it('withOnBehalfOfTenant 로 스코프하면 X-On-Behalf-Of-Tenant 헤더를 동봉한다', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .matchHeader('x-on-behalf-of-tenant', '7')
+      .get(`${PREFIX}/projects/WP/issues/1`)
+      .reply(200, { summary: { id: 1, title: 't' }, body: 'b' });
+    const scoped = newClient().withOnBehalfOfTenant(7);
+    await scoped.getIssueDetail(AGENT_ID, 'WP-1');
+    expect(scope.isDone()).toBe(true);
+  });
+
+  it('withOnBehalfOfTenant 미호출 시 X-On-Behalf-Of-Tenant 헤더를 보내지 않는다', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/projects/WP/issues/1`)
+      .reply(function (_uri, _body) {
+        expect(this.req.headers['x-on-behalf-of-tenant']).toBeUndefined();
+        return [200, { summary: { id: 1, title: 't' }, body: 'b' }];
+      });
+    await newClient().getIssueDetail(AGENT_ID, 'WP-1');
+    expect(scope.isDone()).toBe(true);
+  });
+
   it('addIssueComment → GET 상세로 issueId 추출 후 POST /issues/{id}/comments', async () => {
     nock(BASE)
       .matchHeader('x-on-behalf-of', String(AGENT_ID))

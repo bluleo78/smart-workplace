@@ -8,6 +8,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentChatClient;
@@ -114,12 +115,16 @@ public class HomeChatService {
 
     // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
     // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
+    // tenantId: 요청 스레드의 active-tenant(JwtAuthenticationFilter 가 설정) — ai-agent 가 workplace-api
+    // 대리 호출 시 X-On-Behalf-Of-Tenant 로 되돌려 보내야, 요청자가 다중/무 멤버십일 때 AgentTenantResolver
+    // 가 fail-closed(테넌트 미해결→RLS GUC 미주입→권한 전부 거부) 되지 않는다(#719).
     ChatRequest req =
         new ChatRequest(
             query,
             recentContext,
             spec.agentUserId(),
             callerId,
+            TenantContext.get(),
             spec.model(),
             spec.thinkingDepth(),
             spec.maxTurns(),

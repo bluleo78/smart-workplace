@@ -253,6 +253,35 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
     expect(mcp.onBehalfOfId).not.toBe(7);
   });
 
+  // #719: tenantId 가 있으면 withOnBehalfOfTenant 로 스코프한 클라이언트를 mcp.client 로 넘겨야 한다.
+  // 서브에이전트도 이 인스턴스를 공유하므로(claude-sdk-runner.ts 의 단일 MCP 서버) 위임 도구 호출까지
+  // 한 번에 커버된다 — 요청자가 다중/무 멤버십일 때 AgentTenantResolver 가 fail-closed 되는 것을 막는다.
+  it('#719 tenantId 있으면 withOnBehalfOfTenant 로 스코프한 클라이언트를 mcp.client 로 전달', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    const scopedClient = { scoped: true } as never;
+    const withOnBehalfOfTenant = vi.fn().mockReturnValue(scopedClient);
+    const clientWithTenant = {
+      getProviderCredential: vi.fn(),
+      getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: 't' }),
+      withOnBehalfOfTenant,
+    } as never;
+    await runAiChatStream(
+      baseInput({ tenantId: 7 }),
+      { client: clientWithTenant },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(withOnBehalfOfTenant).toHaveBeenCalledWith(7);
+    expect(streamSpy.mock.calls[0][0].mcp.client).toBe(scopedClient);
+  });
+
+  // #719: tenantId 가 없으면(null/undefined) 원본 클라이언트를 그대로 써야 한다 — 불필요한 스코프 생성 방지.
+  it('#719 tenantId 없으면 원본 클라이언트를 그대로 mcp.client 로 전달', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(streamSpy.mock.calls[0][0].mcp.client).toBe(fakeClient);
+  });
+
   // #467: 과거 first-write-guard 는 onSubmitResponse 가 두 번 호출되면 첫 답만 남기고 두 번째를
   // 조용히 버렸다(한 턴 멀티 위임 시 두 번째 이후 서브에이전트 답 누락). 이제는 순서대로 결합한다.
   it('#467 onSubmitResponse 두 번 호출(멀티 위임) → 두 답 모두 순서대로 결합된 fullText', async () => {

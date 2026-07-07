@@ -8,7 +8,9 @@ import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools, type HostBridge } from './tools.js';
 
 function client(): WorkplaceApiClient {
-  return {
+  const c: WorkplaceApiClient = {
+    // #719: 이 테스트 스위트는 도구 핸들러 자체를 검증하므로 테넌트 스코프는 자기 자신을 반환.
+    withOnBehalfOfTenant: () => c,
     addIssueComment: vi.fn().mockResolvedValue(undefined),
     updateIssueStatus: vi.fn().mockResolvedValue(undefined),
     getIssueDetail: vi.fn().mockResolvedValue({
@@ -64,6 +66,7 @@ function client(): WorkplaceApiClient {
     // L3 위임: 후보 프로젝트 목록 조회(Task 4 신규).
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
   };
+  return c;
 }
 
 const AGENT_ID = 201;

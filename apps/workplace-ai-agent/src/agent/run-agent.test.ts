@@ -17,7 +17,10 @@ import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { IssueEventEnvelope } from '../types/issue-events.js';
 
 function client(token: string | Error): WorkplaceApiClient {
-  return {
+  const c: WorkplaceApiClient = {
+    // #719: 스코프 클라이언트를 만들지 않고 자기 자신을 반환 — 이 테스트 스위트는 agentId 경로만 다뤄
+    // 테넌트 스코프를 검증할 필요가 없다(run-ai-chat.test.ts 가 스코프 배선을 별도 검증).
+    withOnBehalfOfTenant: () => c,
     addIssueComment: vi.fn().mockResolvedValue(undefined),
     updateIssueStatus: vi.fn().mockResolvedValue(undefined),
     getIssueDetail: vi.fn().mockResolvedValue({} as never),
@@ -65,6 +68,7 @@ function client(token: string | Error): WorkplaceApiClient {
     proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
   };
+  return c;
 }
 
 const baseCommon = {

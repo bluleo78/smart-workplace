@@ -37,6 +37,9 @@ export const chatSchema = z.object({
   assistantAgentId: z.number().int().positive(),
   // #376: 요청 사용자 ID — MCP 도구 컨텍스트를 assistantAgentId 아닌 실제 요청자로 설정하기 위해 전달.
   userId: z.number().int().positive(),
+  // #719: 요청자의 active-tenant(nullable). workplace-api 대리 호출 시 X-On-Behalf-Of-Tenant 로
+  // 되돌려 보내, 다중/무 멤버십일 때 AgentTenantResolver 가 fail-closed 되는 것을 막는다.
+  tenantId: z.number().int().positive().nullish(),
   model: z.string().min(1),
   thinkingDepth: z.enum(['NONE', 'NORMAL', 'DEEP']),
   maxTurns: z.number().int().positive(),

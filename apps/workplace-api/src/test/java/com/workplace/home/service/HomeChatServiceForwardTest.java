@@ -15,6 +15,7 @@ import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.realtime.DefaultStreamingGenerationRegistry;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
@@ -74,6 +75,8 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
           .execute();
       createdUserIds.clear();
     }
+    // #719 테스트가 설정한 TenantContext 가 다른 테스트로 새지 않도록 매번 정리.
+    TenantContext.clear();
   }
 
   /** createAgentUser(base) + 생성 id 추적 — @AfterEach 에서 회수. */
@@ -395,6 +398,72 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
     org.mockito.Mockito.verify(chatClient)
         .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
     assertThat(reqCaptor.getValue().timeoutMs()).isEqualTo(180_000);
+  }
+
+  /**
+   * #719: 요청 스레드의 TenantContext(active-tenant) 를 ChatRequest.tenantId 로 전달하는지 검증.
+   *
+   * <p>이 값이 ai-agent → workplace-api 대리 호출의 X-On-Behalf-Of-Tenant 헤더로 이어져, 다중/무 멤버십 요청자에서
+   * AgentTenantResolver 가 fail-closed(권한 전부 거부) 되는 것을 막는다.
+   */
+  @Test
+  void 요청_스레드의_TenantContext_를_ChatRequest_tenantId_로_전달한다() throws Exception {
+    long uid = seedAgent("fwd-tenant");
+    stubAssistant();
+    TenantContext.set(1L);
+
+    CountDownLatch latch = new CountDownLatch(1);
+    var reqCaptor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+    doAnswer(
+            inv -> {
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("처리했어요", null);
+              latch.countDown();
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    List<SentEvent> captured = new ArrayList<>();
+    serviceCapturing(captured).startChat(uid, null, "양정모님에 대해서 알려줘");
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    org.mockito.Mockito.verify(chatClient)
+        .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
+    assertThat(reqCaptor.getValue().tenantId()).isEqualTo(1L);
+  }
+
+  /**
+   * #719: TenantContext 가 설정되지 않은 요청(예: 테넌트 미해결 경로)은 tenantId 를 null 로 전달해야 한다 — 값을 조작해 임의 테넌트로
+   * 위장하지 않는다.
+   */
+  @Test
+  void TenantContext_가_없으면_tenantId_는_null_이다() throws Exception {
+    long uid = seedAgent("fwd-tenant-null");
+    stubAssistant();
+    TenantContext.clear();
+
+    CountDownLatch latch = new CountDownLatch(1);
+    var reqCaptor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+    doAnswer(
+            inv -> {
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("처리했어요", null);
+              latch.countDown();
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    List<SentEvent> captured = new ArrayList<>();
+    serviceCapturing(captured).startChat(uid, null, "안녕");
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    org.mockito.Mockito.verify(chatClient)
+        .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
+    assertThat(reqCaptor.getValue().tenantId()).isNull();
   }
 
   /**

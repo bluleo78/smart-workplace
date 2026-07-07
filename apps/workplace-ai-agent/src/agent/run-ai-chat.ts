@@ -29,6 +29,9 @@ export interface ChatInput {
   assistantAgentId: number;
   // #376: 요청 사용자 ID — MCP 도구(드라이브·캘린더 등)를 assistantAgentId 아닌 실제 요청자 컨텍스트로 실행.
   userId: number;
+  // #719: 요청자의 active-tenant(nullable). workplace-api 대리 호출에 X-On-Behalf-Of-Tenant 로
+  // 되돌려 보내, 다중/무 멤버십 요청자에서 AgentTenantResolver 가 fail-closed 되는 것을 막는다.
+  tenantId?: number | null;
   model: string;
   thinkingDepth: 'NONE' | 'NORMAL' | 'DEEP';
   maxTurns: number;
@@ -252,6 +255,11 @@ export async function runAiChatStream(
   // #376: MCP 도구(드라이브·캘린더·메일 등) 실행 주체(X-On-Behalf-Of)는 요청자(userId).
   //   stdio 서버(workplace-mcp-server.ts:36)와 동일 우선순위: userId ?? agentId.
   //   LLM 인증 자격(credential)은 여전히 getProviderCredential(agentId) — 비서 에이전트 자격 유지.
+  // #719: tenantId 가 있으면 X-On-Behalf-Of-Tenant 를 실어 보내는 스코프 클라이언트로 교체.
+  //   서브에이전트도 이 인-프로세스 MCP 서버(같은 클라이언트 인스턴스)를 공유하므로 위임 도구
+  //   호출까지 한 번에 커버된다 — 요청자가 다중/무 멤버십일 때 AgentTenantResolver 가
+  //   fail-closed 되어 이슈/캘린더/연락처 등 권한 도구가 전부 403 나는 문제를 막는다.
+  const mcpClient = input.tenantId != null ? deps.client.withOnBehalfOfTenant(input.tenantId) : deps.client;
   const handle = runnerFor(credential).stream(
     {
       userMessage,
@@ -268,7 +276,7 @@ export async function runAiChatStream(
       allowSubagents: true, // #333: Agent 도구 허용(라우터 위임에 필요) — 러너가 subagent 정의를 구성
       allowFileRead: false, // 홈 컴포즈는 파일 읽기 불필요 — 보안 최소권한
       mcp: {
-        client: deps.client,
+        client: mcpClient,
         onBehalfOfId: input.userId ?? agentId,
         profile: 'assistant',
         hostBridge,
@@ -315,7 +323,8 @@ export async function runAiChatStream(
     const issueKey = extractIssueKeyFromQuery(input.query);
     if (issueKey) {
       try {
-        await deps.client.unassignSelf(input.userId, issueKey);
+        // #719: 위와 동일한 대리 경로 — tenant 스코프 클라이언트를 써야 fail-closed 를 피한다.
+        await mcpClient.unassignSelf(input.userId, issueKey);
         // userId 직접 재처리 성공 — unassign 상태를 성공으로 갱신해 아래 에러 override 차단.
         unassign = { ok: true };
       } catch {
