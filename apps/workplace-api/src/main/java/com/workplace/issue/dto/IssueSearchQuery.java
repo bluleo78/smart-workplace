@@ -34,4 +34,7 @@ public record IssueSearchQuery(
     // 사이클 필터 — OR 결합. 지정된 사이클 중 하나에라도 포함된 이슈만 매칭. 비어 있으면 미적용.
     List<Long> cycleIds,
     // 마일스톤 필터 — OR 결합. issue.milestone_id 직접 컬럼 매칭. 비어 있으면 미적용.
-    List<Long> milestoneIds) {}
+    List<Long> milestoneIds,
+    // 목록 화면 전용 — true 면 SUBTASK 유형 이슈를 제외한다(에픽 자식 등 비SUBTASK 는 그대로 노출).
+    // topLevel(루트만) 과 직교하며, parentNumber 지정 시(특정 부모 자식 보기)에는 무시된다.
+    Boolean excludeSubtasks) {}

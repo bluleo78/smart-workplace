@@ -80,6 +80,8 @@ export function IssueChildrenSection({
           parentNumber,
           topLevel: false,
           blocked: false,
+          // 부모 상세의 자식 섹션 — SUBTASK 를 포함해 전부 보여줘야 하므로 제외하지 않는다.
+          excludeSubtasks: false,
         },
         null,
         100,

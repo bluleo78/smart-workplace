@@ -44,6 +44,8 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const topLevel = params.get('topLevel') !== 'false';
   // Phase 4b — blocked 도 'true' 만 통과. UI 노출은 deferred.
   const blocked = params.get('blocked') === 'true';
+  // 목록 뷰 전용 — SUBTASK 제외. 'true' 만 통과(기본 false). 목록 진입 시 뷰가 기본값을 주입.
+  const excludeSubtasks = params.get('excludeSubtasks') === 'true';
   return {
     q: params.get('q') ?? '',
     statuses: csv(params.get('status')).filter((s) =>
@@ -63,6 +65,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     parentNumber,
     topLevel,
     blocked,
+    excludeSubtasks,
   };
 }
 
@@ -107,6 +110,8 @@ export function filtersToParams(
   if (!f.topLevel) p.set('topLevel', 'false');
   // Phase 4b — blocked 직렬화. UI 노출은 deferred.
   if (f.blocked) p.set('blocked', 'true');
+  // 목록 뷰 SUBTASK 제외 직렬화 — true 일 때만 명시(기본 false 는 빈 정규형).
+  if (f.excludeSubtasks) p.set('excludeSubtasks', 'true');
   return p;
 }
 

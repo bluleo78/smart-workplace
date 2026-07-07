@@ -206,6 +206,8 @@ export interface IssueFilters {
   topLevel: boolean;
   // 차단된(blocked) 이슈만 보기 (Phase 4b) — UI 노출 deferred, URL 직렬화만.
   blocked: boolean;
+  // SUBTASK 유형 이슈를 목록에서 제외 — 목록 뷰 기본값(에픽 자식 등 비SUBTASK 는 유지).
+  excludeSubtasks: boolean;
 }
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.

@@ -245,6 +245,9 @@ public class IssueSearchService {
     Boolean topLevel = "true".equalsIgnoreCase(p.get("topLevel"));
     // Phase 4b — blocked 파싱. "true" 만 활성화, 그 외는 null (필터 미적용).
     Boolean blocked = "true".equalsIgnoreCase(p.get("blocked")) ? Boolean.TRUE : null;
+    // 목록 화면 전용 — SUBTASK 유형 제외. "true" 만 활성화, 그 외는 null (필터 미적용).
+    Boolean excludeSubtasks =
+        "true".equalsIgnoreCase(p.get("excludeSubtasks")) ? Boolean.TRUE : null;
 
     // Phase 4c — fieldId / fieldValue. fieldId 가 숫자가 아니면 null 로 무시 (필터 미적용).
     Long fieldId = null;
@@ -277,7 +280,8 @@ public class IssueSearchService {
         fieldValue,
         reporterIds,
         cycleIds,
-        milestoneIds);
+        milestoneIds,
+        excludeSubtasks);
   }
 
   private static String trimToNull(String s) {

@@ -34,6 +34,7 @@ function epicListFilters(epicTypeId: number): IssueFilters {
     parentNumber: null,
     topLevel: true,
     blocked: false,
+    excludeSubtasks: false,
   };
 }
 

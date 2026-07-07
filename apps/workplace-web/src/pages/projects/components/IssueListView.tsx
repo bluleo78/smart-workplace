@@ -71,10 +71,13 @@ export function IssueListView({
 }) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [params, setParams] = useSearchParams();
-  // 목록 화면은 전체 표시가 기본(Jira 관례) — URL 에 topLevel 이 명시되지 않은 경우에만
-  // 공유 기본값(true)을 무시하고 에픽/서브태스크 자식까지 보여준다.
+  // 목록 화면 기본(Jira 관례): 루트 + 에픽 직속 자식은 보이되 SUBTASK 는 숨긴다.
+  // URL 에 topLevel 이 명시되지 않은 경우에만 topLevel 을 끄고(자식 노출) excludeSubtasks 를 켠다.
+  // → 에픽 자식(비SUBTASK)은 남고, 일반 이슈의 서브태스크는 부모 상세에서만 보인다.
   const effectiveFilters: IssueFilters =
-    params.get('topLevel') == null ? { ...filters, topLevel: false } : filters;
+    params.get('topLevel') == null
+      ? { ...filters, topLevel: false, excludeSubtasks: true }
+      : filters;
   const { data, fetchNextPage, hasNextPage, isFetching, isLoading } =
     useIssueSearch(projectKey, effectiveFilters);
 
@@ -445,6 +448,18 @@ const IssueRow = memo(function IssueRow({
           {/* 소속(에픽/상위 이슈) 은 Jira 처럼 제목과 분리해 행 오른쪽 끝에 색상 칩으로 표시. */}
           {it.parent && (
             <ParentChip projectKey={projectKey} parent={it.parent} issueNumber={it.number} />
+          )}
+          {/* 하위를 가진 이슈엔 진행률(└ done/total)을 표시한다. 목록에서 SUBTASK 를 숨긴 부모는
+              이 배지로 하위 존재를 알리고, 에픽은 자식이 행으로 노출되므로 롤업 진행률로 읽힌다.
+              childCount 는 유형과 무관하게 활성 자식 전체를 세므로(보드 카드와 동일 기준) 둘 다 표시된다. */}
+          {it.childCount > 0 && (
+            <span
+              className="shrink-0 text-xs text-muted-foreground"
+              data-testid={`issue-row-${it.number}-child-progress`}
+              aria-label={`하위 작업 ${it.childDoneCount}/${it.childCount}`}
+            >
+              └ {it.childDoneCount}/{it.childCount}
+            </span>
           )}
         </div>
         {it.labels.length > 0 && (

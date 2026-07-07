@@ -47,8 +47,9 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/7$`));
   });
 
-  test('필터 없이 진입하면 검색 요청에 topLevel 파라미터가 실리지 않는다 (에픽 하위 이슈 기본 표시)', async ({ authenticatedPage: page }) => {
-    // 목록 기본은 전체 표시(Jira 관례) — 에픽/서브태스크 자식도 목록에 노출.
+  test('필터 없이 진입하면 검색 요청에 topLevel 없이 excludeSubtasks=true 가 실린다 (에픽 자식 유지·SUBTASK 숨김)', async ({ authenticatedPage: page }) => {
+    // 목록 기본(Jira 관례): 루트 + 에픽 직속 자식은 노출하되 SUBTASK 는 숨긴다.
+    // → topLevel(루트만) 은 끄고(미송신), excludeSubtasks(SUBTASK 제외) 는 켜서 요청한다.
     // 백엔드 필터링 대신 요청 쿼리 파라미터를 직접 검증(견고).
     await page.route(`**/api/v1/projects/${KEY}`, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
@@ -71,6 +72,22 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page.getByTestId('issue-row-7')).toBeVisible();
     expect(searchUrl).not.toBeNull();
     expect(searchUrl!.searchParams.get('topLevel')).toBeNull();
+    expect(searchUrl!.searchParams.get('excludeSubtasks')).toBe('true');
+  });
+
+  test('하위(SUBTASK)를 가진 부모 이슈 행에는 진행률(└ done/total) 배지가 표시된다', async ({ authenticatedPage: page }) => {
+    // 목록에서 SUBTASK 는 숨기는 대신, 부모 행에 하위 작업 존재를 진행률로 알린다.
+    const parent = createIssue({ number: 9, title: '결제 모듈 개편', childCount: 5, childDoneCount: 2 });
+    // 하위가 없는 일반 이슈에는 배지가 없어야 한다(대조군).
+    const plain = createIssue({ id: 2, number: 10, title: '문구 수정' });
+    await mock(page, [parent, plain]);
+
+    await page.goto(`/projects/${KEY}`);
+    const badge = page.getByTestId('issue-row-9-child-progress');
+    await expect(badge).toBeVisible();
+    await expect(badge).toContainText('2/5');
+    // 하위 없는 행에는 배지 미표시.
+    await expect(page.getByTestId('issue-row-10-child-progress')).toHaveCount(0);
   });
 
   test('topLevel=true 를 명시하면(저장뷰 등) 요청에도 그대로 실린다', async ({ authenticatedPage: page }) => {

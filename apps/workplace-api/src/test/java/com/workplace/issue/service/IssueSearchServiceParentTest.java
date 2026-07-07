@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -148,5 +149,55 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
 
     assertThat(resp.items()).hasSize(2);
     assertThat(resp.items()).allMatch(i -> i.parent() == null);
+  }
+
+  /**
+   * excludeSubtasks=true 는 SUBTASK 유형만 숨긴다: 루트/에픽/에픽 직속 자식(비SUBTASK)은 목록에 남고, 부모가 있는 SUBTASK 는 물론
+   * 부모가 해제된 고아 SUBTASK(type=SUBTASK, parent=NULL)까지 함께 제외된다. 이 "고아까지 제외" 케이스가 '부모=EPIC'(A안) 대신
+   * 'SUBTASK 유형 제외'(B안) 를 채택한 근거다 — A안이면 고아 SUBTASK 가 루트 가지로 새어 들어온다.
+   */
+  @Test
+  void exclude_subtasks_hides_subtask_type_but_keeps_epic_children() {
+    Long owner = createUser("d");
+    var p = newProject(owner, "PS4");
+    Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    Long epicId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
+
+    // 루트 TASK — 포함되어야 함
+    var root =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("root", null, null, null, null, null, null, null));
+    // EPIC + 그 직속 자식(비SUBTASK) — 에픽 자식은 노출 유지되어야 함
+    var epic =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("epic", null, null, null, null, epicId, null, null));
+    issueService.create(
+        owner,
+        p.key(),
+        new CreateIssueRequest("epicChild", null, null, null, null, null, epic.number(), null));
+    // root 밑의 SUBTASK — 제외되어야 함
+    issueService.create(
+        owner,
+        p.key(),
+        new CreateIssueRequest("sub", null, null, null, null, subId, root.number(), null));
+    // 고아 SUBTASK — 유형은 SUBTASK 이나 parent 를 직접 해제. B안 정당화 케이스: 제외되어야 함
+    var orphan =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("orphan", null, null, null, null, subId, root.number(), null));
+    dsl.update(ISSUE).setNull(ISSUE.PARENT_ISSUE_ID).where(ISSUE.ID.eq(orphan.id())).execute();
+
+    var params = new HashMap<String, String>();
+    params.put("excludeSubtasks", "true");
+    var resp = searchService.search(owner, p.key(), params);
+
+    var titles = resp.items().stream().map(i -> i.title()).toList();
+    assertThat(titles).contains("root", "epic", "epicChild"); // 비SUBTASK 는 유지
+    assertThat(titles).doesNotContain("sub", "orphan"); // SUBTASK 는 고아 포함 전부 제외
   }
 }

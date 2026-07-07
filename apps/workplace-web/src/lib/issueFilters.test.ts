@@ -59,6 +59,18 @@ describe('topLevel 기본값 (#168)', () => {
   });
 });
 
+describe('excludeSubtasks 필터 (목록 SUBTASK 숨김)', () => {
+  it('빈 URL 의 excludeSubtasks 기본값은 false (뷰가 진입 시 주입)', () => {
+    expect(parseFilters(new URLSearchParams()).excludeSubtasks).toBe(false);
+  });
+
+  it('excludeSubtasks=true 는 파싱·직렬화 라운드트립된다 (true 일 때만 URL 명시)', () => {
+    const f = parseFilters(new URLSearchParams('excludeSubtasks=true'));
+    expect(f.excludeSubtasks).toBe(true);
+    expect(filtersToParams(f, 'list', null).toString()).toBe('excludeSubtasks=true');
+  });
+});
+
 describe('milestoneIds 필터 (#620)', () => {
   it('milestoneIds 라운드트립', () => {
     const filters = { ...EMPTY, milestoneIds: [1, 2] };

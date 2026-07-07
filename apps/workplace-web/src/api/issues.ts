@@ -60,6 +60,10 @@ export async function searchIssues(
   } else if (filters.topLevel) {
     params.set('topLevel', 'true');
   }
+  // 목록 뷰 SUBTASK 제외 송신 — parent 지정 시엔 서버가 무시하므로 parent 없을 때만 의미. (에픽 자식은 유지)
+  if (filters.excludeSubtasks && !(filters.parentNumber != null && filters.parentNumber > 0)) {
+    params.set('excludeSubtasks', 'true');
+  }
   // Phase 4b — blocked 검색 송신. UI 노출은 deferred.
   if (filters.blocked) params.set('blocked', 'true');
   if (cursor) params.set('cursor', cursor);

@@ -386,7 +386,9 @@ public class IssueRepository {
     if (query.typeIds() != null && !query.typeIds().isEmpty()) {
       where = where.and(ISSUE.TYPE_ID.in(query.typeIds()));
     }
-    // Phase 4a — parentNumber 가 지정되면 해당 부모의 자식만, 아니면 topLevel=true 면 루트만.
+    // Phase 4a — parentNumber 가 지정되면 해당 부모의 자식만. 아니면 topLevel(루트만) /
+    // excludeSubtasks(SUBTASK 유형 제외) 를 적용한다. 둘은 직교하며 AND 결합 가능하지만,
+    // parentNumber 로 특정 부모의 자식을 볼 때는 둘 다 무시한다(자식을 숨기면 결과가 비므로).
     if (query.parentNumber() != null) {
       Long parentId =
           dsl.select(ISSUE.ID)
@@ -400,8 +402,25 @@ public class IssueRepository {
               .fetchOptional(0, Long.class)
               .orElse(-1L);
       where = where.and(ISSUE.PARENT_ISSUE_ID.eq(parentId));
-    } else if (Boolean.TRUE.equals(query.topLevel())) {
-      where = where.and(ISSUE.PARENT_ISSUE_ID.isNull());
+    } else {
+      if (Boolean.TRUE.equals(query.topLevel())) {
+        where = where.and(ISSUE.PARENT_ISSUE_ID.isNull());
+      }
+      if (Boolean.TRUE.equals(query.excludeSubtasks())) {
+        // SUBTASK 유형 이슈만 제외 — 에픽 직속 자식 등 비SUBTASK 는 목록에 남긴다. 부모 해제된
+        // 고아 SUBTASK(parent_issue_id IS NULL) 도 유형 기준이므로 함께 차단된다. 프로젝트에
+        // SUBTASK 유형이 없으면(PERSONAL) 서브쿼리가 비어 NOT IN 이 전체 참 → 아무것도 제외 안 함.
+        where =
+            where.and(
+                ISSUE.TYPE_ID.notIn(
+                    dsl.select(ISSUE_TYPE_DEF.ID)
+                        .from(ISSUE_TYPE_DEF)
+                        .where(
+                            ISSUE_TYPE_DEF
+                                .PROJECT_ID
+                                .eq(projectId)
+                                .and(ISSUE_TYPE_DEF.NAME.eq("SUBTASK")))));
+      }
     }
     // Phase 4b — blocked=true: 활성 차단자(미완료, 미삭제)가 존재하는 이슈만. 자기참조 회피를 위해 blocker self-alias 사용.
     if (Boolean.TRUE.equals(query.blocked())) {
