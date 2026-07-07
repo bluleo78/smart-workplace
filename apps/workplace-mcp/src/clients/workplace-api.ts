@@ -16,10 +16,39 @@ export interface PatApiClient {
   ): Promise<{ summary: { id: number }; [k: string]: unknown }>;
   createIssue(
     projectKey: string,
-    body: { title: string; body?: string; priority?: string; dueDate?: string },
+    body: {
+      title: string;
+      body?: string;
+      priority?: string;
+      dueDate?: string;
+      startDate?: string;
+      assigneeIds?: number[];
+      typeId?: number;
+      parentNumber?: number;
+    },
   ): Promise<{ number: number; [k: string]: unknown }>;
   addIssueComment(issueId: number, body: string): Promise<void>;
   updateIssueStatus(projectKey: string, number: number, status: string): Promise<void>;
+  // 이슈 수정 확장 — 리졸브(이름→ID)는 도구 레이어에서 수행, 여기선 백엔드로 패스스루만.
+  getProjectTypes(
+    projectKey: string,
+  ): Promise<Array<{ id: number; name: string; icon: string; colorToken: string }>>;
+  getProjectLabels(
+    projectKey: string,
+  ): Promise<Array<{ id: number; name: string; colorToken: string }>>;
+  getProjectMembers(
+    projectKey: string,
+  ): Promise<Array<{ userId: number; username: string; name: string; role: string }>>;
+  updateIssue(projectKey: string, number: number, body: Record<string, unknown>): Promise<unknown>;
+  setIssueType(projectKey: string, number: number, typeId: number): Promise<void>;
+  setIssueParent(projectKey: string, number: number, parentNumber: number | null): Promise<void>;
+  replaceIssueAssignees(
+    projectKey: string,
+    number: number,
+    userIds: number[],
+  ): Promise<unknown>;
+  replaceIssueLabels(projectKey: string, number: number, labelIds: number[]): Promise<unknown>;
+  editIssueComment(issueId: number, commentId: number, body: string): Promise<void>;
   // Task 7: 위키 — 검색/조회/생성/수정(낙관적 동시성, 409 는 호출자에 그대로 전파).
   searchWikiPages(q: string): Promise<unknown[]>;
   getWikiPage(pageId: number): Promise<unknown>;
@@ -83,6 +112,48 @@ export function createPatApiClient(opts: { baseURL: string; token: string }): Pa
         `/projects/${encodeURIComponent(projectKey)}/issues/${number}/status`,
         { status },
       );
+    },
+    async getProjectTypes(projectKey) {
+      return (await http.get(`/projects/${encodeURIComponent(projectKey)}/types`)).data ?? [];
+    },
+    async getProjectLabels(projectKey) {
+      return (await http.get(`/projects/${encodeURIComponent(projectKey)}/labels`)).data ?? [];
+    },
+    async getProjectMembers(projectKey) {
+      return (await http.get(`/projects/${encodeURIComponent(projectKey)}/members`)).data ?? [];
+    },
+    async updateIssue(projectKey, number, body) {
+      return (
+        await http.patch(`/projects/${encodeURIComponent(projectKey)}/issues/${number}`, body)
+      ).data;
+    },
+    async setIssueType(projectKey, number, typeId) {
+      await http.patch(`/projects/${encodeURIComponent(projectKey)}/issues/${number}/type`, {
+        typeId,
+      });
+    },
+    async setIssueParent(projectKey, number, parentNumber) {
+      await http.patch(`/projects/${encodeURIComponent(projectKey)}/issues/${number}/parent`, {
+        parentNumber,
+      });
+    },
+    async replaceIssueAssignees(projectKey, number, userIds) {
+      return (
+        await http.put(
+          `/projects/${encodeURIComponent(projectKey)}/issues/${number}/assignees`,
+          { userIds },
+        )
+      ).data;
+    },
+    async replaceIssueLabels(projectKey, number, labelIds) {
+      return (
+        await http.put(`/projects/${encodeURIComponent(projectKey)}/issues/${number}/labels`, {
+          labelIds,
+        })
+      ).data;
+    },
+    async editIssueComment(issueId, commentId, body) {
+      await http.patch(`/issues/${issueId}/comments/${commentId}`, { body });
     },
     async searchWikiPages(q) {
       return (await http.get('/wiki/search', { params: { q } })).data ?? [];

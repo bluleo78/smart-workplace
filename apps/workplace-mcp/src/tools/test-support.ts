@@ -29,5 +29,14 @@ export function mockPatApiClient(): PatApiClient {
     listMailAccounts: vi.fn(),
     listMail: vi.fn(),
     getMail: vi.fn(),
+    getProjectTypes: vi.fn(),
+    getProjectLabels: vi.fn(),
+    getProjectMembers: vi.fn(),
+    updateIssue: vi.fn(),
+    setIssueType: vi.fn(),
+    setIssueParent: vi.fn(),
+    replaceIssueAssignees: vi.fn(),
+    replaceIssueLabels: vi.fn(),
+    editIssueComment: vi.fn(),
   };
 }
