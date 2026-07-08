@@ -313,4 +313,32 @@ test.describe('에픽 왼쪽 패널', () => {
     // 유형 select 가 EPIC 라벨로 프리셋 — getIssueTypeLabel('EPIC') 표기와 일치해야 함.
     await expect(page.getByTestId('create-type-select')).toContainText('에픽');
   });
+
+  test('보드가 짧아도(빈 프로젝트) 에픽 패널이 영역 높이를 채운다', async ({ authenticatedPage: page }) => {
+    // 회귀: 이전에는 aside 의 self-stretch 가 짧은 빈 보드의 콘텐츠 높이에만 맞춰져
+    // '에픽 만들기'가 중간쯤 떠 있었다. wrapper 에 min-h-full + section flex-1 을 부여해
+    // 뷰포트 높이를 채우도록 고쳤는지, 패널 높이와 하단 버튼 위치로 검증한다.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await stubProjectMeta(page);
+    await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+    await routeIssueSearch(page, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([])),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_KEY}`);
+    await openEpicPanel(page);
+    await expect(page.getByTestId('epic-panel-empty')).toBeVisible();
+
+    // 빈 콘텐츠의 자연 높이는 300px 미만 — 채움 레이아웃이면 패널이 이보다 훨씬 커진다.
+    const panelBox = await page.getByTestId('epic-side-panel').boundingBox();
+    expect(panelBox!.height).toBeGreaterThan(500);
+
+    // '에픽 만들기' 버튼은 패널 하단부에 고정(패널 바닥에서 120px 이내)돼 있어야 한다.
+    const btnBox = await page.getByTestId('epic-create-button').boundingBox();
+    expect(btnBox!.y).toBeGreaterThan(panelBox!.y + panelBox!.height - 120);
+  });
 });
