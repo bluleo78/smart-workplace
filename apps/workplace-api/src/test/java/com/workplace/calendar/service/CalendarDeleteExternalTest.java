@@ -82,7 +82,7 @@ class CalendarDeleteExternalTest extends IntegrationTestBase {
                   ownerId,
                   ext,
                   "e-rw",
-                  new ExternalEventRow("외부", null, S, S.plusHours(1), false, null));
+                  new ExternalEventRow("외부", null, S, S.plusHours(1), false, null, null));
 
               assertThatThrownBy(() -> calendarService.delete(ownerId, ext))
                   .isInstanceOf(ExternalCalendarDeletionNotAllowedException.class);

@@ -3,6 +3,7 @@ package com.workplace.calendar.service;
 import com.workplace.calendar.dto.AttendeeResponse;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.CalendarResponse;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException;
@@ -37,6 +38,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -315,8 +317,40 @@ public class CalendarEventService {
     }
 
     result.sort(Comparator.comparing(CalendarEventResponse::startsAt));
+    dedupeCrossSource(callerId, result);
     // 배치로 참석자 count/myRsvpStatus 채움 — attendees 는 null(경량)
     return enrichForList(callerId, result);
+  }
+
+  /**
+   * 크로스소스 중복 제거 — 같은 실제 미팅(동일 iCalUId·시작시각)이 "내 소유 캘린더의 동기화 사본"과 "주최자 캘린더 크로스가시성 초대 사본"으로 두 번 나타나는
+   * 것을 조회 시점에 제거한다. 승자=내 소유 사본, 제거=비소유(초대) 사본. iCalUId 가 없는(순수 로컬) 이벤트는 무영향. 뷰어별 계산이므로 각 사용자에게 올바른
+   * 사본이 남는다. events 리스트를 제자리(in-place)에서 수정한다.
+   */
+  private void dedupeCrossSource(long callerId, List<CalendarEventResponse> events) {
+    // 내 소유 캘린더 id 집합(로컬 + 내 외부 컨테이너)
+    Set<Long> ownedCalendarIds = new HashSet<>();
+    for (CalendarResponse c : calendarRepo.listByOwner(callerId)) {
+      ownedCalendarIds.add(c.id());
+    }
+    // 1차: 내 소유 사본이 존재하는 (iCalUId, 시작시각) 그룹 키 수집
+    Set<String> ownedKeys = new HashSet<>();
+    for (CalendarEventResponse e : events) {
+      if (e.iCalUid() != null && ownedCalendarIds.contains(e.calendarId())) {
+        ownedKeys.add(dedupKey(e));
+      }
+    }
+    // 2차: 비소유(초대) 사본이면서 그룹에 소유 사본이 있으면 제거
+    events.removeIf(
+        e ->
+            e.iCalUid() != null
+                && !ownedCalendarIds.contains(e.calendarId())
+                && ownedKeys.contains(dedupKey(e)));
+  }
+
+  /** dedup 그룹 키 = iCalUId + 시작 시각(epoch-milli). 반복 회차 과잉 병합 방지를 위해 시작시각 포함. */
+  private static String dedupKey(CalendarEventResponse e) {
+    return e.iCalUid() + "|" + e.startsAt().toInstant().toEpochMilli();
   }
 
   /**
@@ -347,7 +381,8 @@ public class CalendarEventService {
         null, // myRsvpStatus — enrichForList 에서 채워짐
         null, // attendees — list 경량 응답이므로 null
         false, // external — list 에서는 미사용(기본 false)
-        null); // myRole — list 에서는 미사용
+        null, // myRole — list 에서는 미사용
+        m.iCalUid()); // iCalUid — 마스터에서 복사(반복 회차)
   }
 
   /**
@@ -905,7 +940,8 @@ public class CalendarEventService {
         myRsvpStatus,
         attendees,
         external,
-        myRole);
+        myRole,
+        e.iCalUid());
   }
 
   /**

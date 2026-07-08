@@ -224,7 +224,8 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     // calendar_event_time_check(ends_at > starts_at) 위반 — DB 는 반개구간(exclusive end) 을 그대로 저장한다.
     // 앱 내 all_day=true 이벤트는 일관되게 half-open [start, end) 으로 표현한다(CalendarEventService 기준).
 
-    return new ExternalEventRow(title, description, startsAt, endsAt, evt.isAllDay(), location);
+    return new ExternalEventRow(
+        title, description, startsAt, endsAt, evt.isAllDay(), location, evt.iCalUId());
   }
 
   /**

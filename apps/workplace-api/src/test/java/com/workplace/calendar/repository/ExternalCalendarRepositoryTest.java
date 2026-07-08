@@ -74,6 +74,7 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
         OffsetDateTime.parse("2026-07-01T01:00:00Z"),
         OffsetDateTime.parse("2026-07-01T02:00:00Z"),
         false,
+        null,
         null);
   }
 
@@ -117,12 +118,13 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
                       OffsetDateTime.parse("2026-07-01T01:00:00Z"),
                       OffsetDateTime.parse("2026-07-01T02:00:00Z"),
                       false,
-                      "회의실");
+                      "회의실",
+                      null);
               long first = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row);
 
               var row2 =
                   new ExternalCalendarRepository.ExternalEventRow(
-                      "회의(수정)", null, row.startsAt(), row.endsAt(), false, "회의실B");
+                      "회의(수정)", null, row.startsAt(), row.endsAt(), false, "회의실B", null);
               long second = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row2);
 
               // 같은 행 갱신 — id 는 동일
@@ -156,6 +158,40 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
               assertThat(deleted).isEqualTo(1);
               assertThat(existsById(keep)).isTrue();
               assertThat(existsById(gone)).isFalse();
+
+              status.setRollbackOnly();
+              return null;
+            });
+  }
+
+  /** upsertExternalEvent 는 ExternalEventRow.iCalUid 를 calendar_event.ical_uid 에 저장한다. */
+  @Test
+  void upsertExternalEvent_persists_icalUid() {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              long ownerId = TestFixtures.createHuman(dsl);
+              long accountId = emailAccount(ownerId);
+              long calId =
+                  repo.upsertExternalCalendar(ownerId, accountId, "graphCal1", "업무", "blue", true);
+
+              var row =
+                  new ExternalCalendarRepository.ExternalEventRow(
+                      "회의",
+                      null,
+                      OffsetDateTime.parse("2026-07-01T01:00:00Z"),
+                      OffsetDateTime.parse("2026-07-01T02:00:00Z"),
+                      false,
+                      "회의실",
+                      "ICAL-UID-1");
+              long id = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row);
+
+              String stored =
+                  dsl.select(CALENDAR_EVENT.ICAL_UID)
+                      .from(CALENDAR_EVENT)
+                      .where(CALENDAR_EVENT.ID.eq(id))
+                      .fetchOne(CALENDAR_EVENT.ICAL_UID);
+              assertThat(stored).isEqualTo("ICAL-UID-1");
 
               status.setRollbackOnly();
               return null;

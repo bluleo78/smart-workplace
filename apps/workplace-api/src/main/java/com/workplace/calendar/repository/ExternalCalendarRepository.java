@@ -91,6 +91,7 @@ public class ExternalCalendarRepository {
         .set(CALENDAR_EVENT.ENDS_AT, row.endsAt())
         .set(CALENDAR_EVENT.ALL_DAY, row.allDay())
         .set(CALENDAR_EVENT.LOCATION, row.location())
+        .set(CALENDAR_EVENT.ICAL_UID, row.iCalUid())
         // 부분 유니크 인덱스(WHERE external_id IS NOT NULL) 기준 충돌
         .onConflict(CALENDAR_EVENT.CALENDAR_ID, CALENDAR_EVENT.EXTERNAL_ID)
         .where(CALENDAR_EVENT.EXTERNAL_ID.isNotNull())
@@ -101,6 +102,7 @@ public class ExternalCalendarRepository {
         .set(CALENDAR_EVENT.ENDS_AT, row.endsAt())
         .set(CALENDAR_EVENT.ALL_DAY, row.allDay())
         .set(CALENDAR_EVENT.LOCATION, row.location())
+        .set(CALENDAR_EVENT.ICAL_UID, row.iCalUid())
         .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
         .returning(CALENDAR_EVENT.ID)
         .fetchOne()
@@ -164,6 +166,8 @@ public class ExternalCalendarRepository {
    * 외부 일정 데이터 record.
    *
    * <p>recurrence_rule · color 는 외부 일정에서 사용하지 않으므로 포함하지 않는다.
+   *
+   * <p>iCalUid: 공급자 표준 미팅 식별자(모든 참석자 사서함 동일값). 순수 로컬 이벤트엔 없어 nullable. 조회 시점 크로스소스 중복 제거 키로 쓰인다.
    */
   public record ExternalEventRow(
       String title,
@@ -171,5 +175,6 @@ public class ExternalCalendarRepository {
       OffsetDateTime startsAt,
       OffsetDateTime endsAt,
       boolean allDay,
-      String location) {}
+      String location,
+      String iCalUid) {}
 }

@@ -79,6 +79,7 @@ public class GraphCalendarClient {
    * @param organizer 주최자
    * @param attendees 참석자 목록 (Graph 응답에 없으면 null)
    * @param isCancelled 취소 여부
+   * @param iCalUId 공급자 표준 미팅 식별자 — 크로스소스 dedup 키
    */
   public record GraphEvent(
       String id,
@@ -90,7 +91,8 @@ public class GraphCalendarClient {
       GraphLocation location,
       GraphRecipient organizer,
       List<GraphEventAttendee> attendees,
-      boolean isCancelled) {}
+      boolean isCancelled,
+      String iCalUId) {}
 
   /** Graph dateTimeTimeZone 구조 — dateTime + timeZone 문자열 쌍. */
   public record GraphDateTime(String dateTime, String timeZone) {}
@@ -192,7 +194,7 @@ public class GraphCalendarClient {
             + start
             + "&endDateTime="
             + end
-            + "&$select=id,subject,bodyPreview,start,end,isAllDay,location,organizer,attendees,isCancelled"
+            + "&$select=id,subject,bodyPreview,start,end,isAllDay,location,organizer,attendees,isCancelled,iCalUId"
             + "&$top=200";
     while (url != null) {
       GraphEventPage page = api.get(accessToken, url, GraphEventPage.class);

@@ -131,7 +131,7 @@ class CalendarResetEventsTest extends IntegrationTestBase {
                   ownerId,
                   ext,
                   "e-ro",
-                  new ExternalEventRow("외부", null, S, S.plusHours(1), false, null));
+                  new ExternalEventRow("외부", null, S, S.plusHours(1), false, null, null));
 
               assertThatThrownBy(() -> calendarService.resetEvents(ownerId, ext))
                   .isInstanceOf(ExternalCalendarResetNotAllowedException.class);
@@ -154,7 +154,7 @@ class CalendarResetEventsTest extends IntegrationTestBase {
                   ownerId,
                   ext,
                   "e-rw",
-                  new ExternalEventRow("외부", null, S, S.plusHours(1), false, null));
+                  new ExternalEventRow("외부", null, S, S.plusHours(1), false, null, null));
 
               assertThatThrownBy(() -> calendarService.resetEvents(ownerId, ext))
                   .isInstanceOf(ExternalCalendarResetNotAllowedException.class);

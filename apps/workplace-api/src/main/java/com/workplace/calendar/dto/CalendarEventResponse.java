@@ -17,6 +17,7 @@ import java.util.List;
  * @param attendees 전체 참석자 목록. get() 에서만 채움, list() 는 null.
  * @param external 외부 동기화 일정 여부(external_id 존재). get() 에서만 채움, list() 는 false.
  * @param myRole 호출자의 역할(ORGANIZER/ATTENDEE). 참석자 아니면 null. get() 에서만 채움.
+ * @param iCalUid 외부 동기화 미팅의 공급자 표준 식별자(iCalUId). 순수 로컬 이벤트는 null. 크로스소스 dedup 키.
  */
 public record CalendarEventResponse(
     long id,
@@ -40,4 +41,5 @@ public record CalendarEventResponse(
     String myRsvpStatus,
     List<AttendeeResponse> attendees,
     boolean external,
-    String myRole) {}
+    String myRole,
+    String iCalUid) {}

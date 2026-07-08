@@ -281,7 +281,8 @@ public class CalendarEventRepository {
         null, // myRsvpStatus — 서비스 계층 enrich 전 기본값
         null, // attendees — 서비스 계층 enrich 전 기본값
         false, // external — 서비스 계층 enrichForGet 에서 채워짐
-        null); // myRole — 서비스 계층 enrichForGet 에서 채워짐
+        null, // myRole — 서비스 계층 enrichForGet 에서 채워짐
+        r.get(CALENDAR_EVENT.ICAL_UID)); // iCalUid — 동기화 이벤트만 non-null
   }
 
   private static String nullIfBlank(String s) {

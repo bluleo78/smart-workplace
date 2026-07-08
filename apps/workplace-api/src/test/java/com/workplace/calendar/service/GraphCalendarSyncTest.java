@@ -140,7 +140,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             null,
             null,
-            false);
+            false,
+            null);
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal"), any(), any()))
         .thenReturn(List.of(allDay));
 
@@ -191,7 +192,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             null,
             null,
-            false);
+            false,
+            null);
     // subject = null
     GraphEvent nullSubject =
         new GraphEvent(
@@ -204,7 +206,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             null,
             null,
-            false);
+            false,
+            null);
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal2"), any(), any()))
         .thenReturn(List.of(blankSubject, nullSubject));
 
@@ -279,7 +282,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         new com.workplace.mail.outbound.GraphCalendarClient.GraphRecipient(
             new com.workplace.mail.outbound.GraphCalendarClient.GraphEmail("주최", organizerEmail));
     return new com.workplace.mail.outbound.GraphCalendarClient.GraphEvent(
-        id, "동기화 회의", "본문", start, end, false, null, organizer, attendees, false);
+        id, "동기화 회의", "본문", start, end, false, null, organizer, attendees, false, null);
   }
 
   private com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee attendee(
