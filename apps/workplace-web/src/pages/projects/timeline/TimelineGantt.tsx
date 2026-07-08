@@ -386,10 +386,10 @@ export function TimelineGantt({
           위 effect 가 `.wx-chart` 스크롤에 맞춰 칩/점선 transform 을 동기화한다(오늘선과 동일 패턴). */}
       <div
         data-testid="milestone-lane"
-        className="bg-warning-subtle relative h-8 shrink-0 overflow-hidden border-b"
+        className="bg-primary/10 relative h-8 shrink-0 overflow-hidden border-b"
         onClick={handleLaneClick}
       >
-        <span className="text-warning-foreground/70 absolute top-1/2 left-3 -translate-y-1/2 text-xs font-semibold tracking-wider uppercase">
+        <span className="text-primary/70 absolute top-1/2 left-3 -translate-y-1/2 text-xs font-semibold tracking-wider uppercase">
           마일스톤
         </span>
         {/* 그리드/차트 경계 구분선 — 아래 차트의 내부 경계선과 이어지도록 baseLeft 위치에 고정(스크롤 무관). */}
@@ -407,7 +407,7 @@ export function TimelineGantt({
               else milestoneChipRefs.current.delete(m.id)
             }}
             data-testid={`milestone-chip-${m.id}`}
-            className="bg-warning text-warning-foreground absolute top-1 flex items-center gap-1 rounded-sm px-2 py-0.5 text-xs font-medium"
+            className="bg-primary text-primary-foreground absolute top-1 flex items-center gap-1 rounded-sm px-2 py-0.5 text-xs font-medium"
             onClick={(e) => {
               e.stopPropagation() // 레인 빈곳 클릭(생성)과 분리 — 칩 클릭은 편집 팝오버만 연다.
               if (readOnly) return // readOnly 에서는 칩 클릭도 편집 팝오버를 열지 않는다.
@@ -450,7 +450,7 @@ export function TimelineGantt({
               else milestoneVlineRefs.current.delete(m.id)
             }}
             data-testid={`milestone-vline-${m.id}`}
-            className="border-warning pointer-events-none absolute inset-y-0 left-0 z-10 w-0 border-l-2 border-dashed"
+            className="border-primary pointer-events-none absolute inset-y-0 left-0 z-10 w-0 border-l-2 border-dashed"
           />
         ))}
         {/*
