@@ -14,11 +14,14 @@ WORKDIR /app
 # (@types/express-serve-static-core 명명 불가) 빌드 실패.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY apps/workplace-ai-agent/package.json ./apps/workplace-ai-agent/
+COPY packages/issue-tools-shared/package.json ./packages/issue-tools-shared/
 
 RUN pnpm install --frozen-lockfile --filter @smart-workplace/workplace-ai-agent...
 
+COPY packages/issue-tools-shared/ ./packages/issue-tools-shared/
 COPY apps/workplace-ai-agent/ ./apps/workplace-ai-agent/
 
+RUN pnpm --filter @smart-workplace/issue-tools-shared build
 RUN pnpm --filter @smart-workplace/workplace-ai-agent build
 
 RUN pnpm --filter @smart-workplace/workplace-ai-agent deploy --legacy --prod /prod

@@ -1,0 +1,26 @@
+{
+  "name": "@smart-workplace/issue-tools-shared",
+  "version": "0.0.1",
+  "description": "이슈 도구 이름→ID 리졸브 공유 로직 (workplace-mcp / workplace-ai-agent 공용)",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^22.19.19",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.4",
+    "vitest": "^4.1.7"
+  }
+}

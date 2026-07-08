@@ -55,6 +55,15 @@ function client(): WorkplaceApiClient {
     listProjects: vi.fn().mockResolvedValue([]),
     getProject: vi.fn().mockResolvedValue({}),
     listProjectMembers: vi.fn().mockResolvedValue([]),
+    getProjectTypes: vi.fn().mockResolvedValue([]),
+    getProjectLabels: vi.fn().mockResolvedValue([]),
+    createIssue: vi.fn().mockResolvedValue({}),
+    editIssueComment: vi.fn().mockResolvedValue(undefined),
+    updateIssueContent: vi.fn().mockResolvedValue({}),
+    setIssueType: vi.fn().mockResolvedValue(undefined),
+    setIssueParent: vi.fn().mockResolvedValue(undefined),
+    replaceIssueAssignees: vi.fn().mockResolvedValue({}),
+    replaceIssueLabels: vi.fn().mockResolvedValue({}),
     listMySpaces: vi.fn().mockResolvedValue([]),
     listSpaceItems: vi.fn().mockResolvedValue([]),
     searchDrive: vi.fn().mockResolvedValue([]),
@@ -91,6 +100,14 @@ describe('buildTools (agentId bound)', () => {
     expect(c.addIssueComment).toHaveBeenCalledWith(AGENT_ID, 'WP-1', '안녕');
   });
 
+  it('edit_comment → client.editIssueComment(agentId, issueKey, commentId, body)', async () => {
+    const c = client();
+    const t = buildTools(c, AGENT_ID).find((x) => x.name === 'edit_comment')!;
+    const out = await t.handler({ issueKey: 'WP-1', commentId: 42, body: '수정됨' });
+    expect(c.editIssueComment).toHaveBeenCalledWith(AGENT_ID, 'WP-1', 42, '수정됨');
+    expect(out).toBe('ok');
+  });
+
   it('update_status → client.updateIssueStatus(agentId, key, status)', async () => {
     const c = client();
     const t = buildTools(c, AGENT_ID).find((x) => x.name === 'update_status')!;
@@ -112,6 +129,120 @@ describe('buildTools (agentId bound)', () => {
     expect(c.updateIssueStatus).not.toHaveBeenCalled();
   });
 
+  describe('create_issue', () => {
+    it('리졸브 후 client.createIssue 를 호출한다', async () => {
+      const c = client();
+      (c.getProjectTypes as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 2, name: 'BUG' }]);
+      (c.listProjectMembers as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { userId: 10, username: 'alice', name: 'Alice', role: 'MEMBER' },
+      ]);
+      (c.createIssue as ReturnType<typeof vi.fn>).mockResolvedValue({ issueKey: 'WP-9' });
+      const t = buildTools(c, AGENT_ID).find((x) => x.name === 'create_issue')!;
+      const out = await t.handler({
+        projectKey: 'WP',
+        title: '새 이슈',
+        type: 'BUG',
+        assignees: ['alice'],
+      });
+      expect(c.createIssue).toHaveBeenCalledWith(AGENT_ID, 'WP', {
+        title: '새 이슈',
+        typeId: 2,
+        assigneeIds: [10],
+      });
+      expect(JSON.parse(out)).toEqual({ issueKey: 'WP-9' });
+    });
+
+    it('없는 유형이면 리졸브 에러를 그대로 throw', async () => {
+      const c = client();
+      (c.getProjectTypes as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 1, name: 'TASK' }]);
+      const t = buildTools(c, AGENT_ID).find((x) => x.name === 'create_issue')!;
+      await expect(
+        t.handler({ projectKey: 'WP', title: '새 이슈', type: 'BUG' }),
+      ).rejects.toThrow("유형 'BUG' 을(를) 찾을 수 없습니다. 사용 가능: TASK");
+      expect(c.createIssue).not.toHaveBeenCalled();
+    });
+
+    it('type/assignees 없이도 생성 가능(선택 필드)', async () => {
+      const c = client();
+      (c.createIssue as ReturnType<typeof vi.fn>).mockResolvedValue({ issueKey: 'WP-10' });
+      const t = buildTools(c, AGENT_ID).find((x) => x.name === 'create_issue')!;
+      await t.handler({ projectKey: 'WP', title: '단순 이슈' });
+      expect(c.createIssue).toHaveBeenCalledWith(AGENT_ID, 'WP', { title: '단순 이슈' });
+    });
+  });
+
+  describe('update_issue', () => {
+    it('값이 있는 필드만 팬아웃 호출하고 {ok:true,results} 를 반환한다', async () => {
+      const c = client();
+      const t = buildTools(c, AGENT_ID).find((x) => x.name === 'update_issue')!;
+      const out = await t.handler({ issueKey: 'WP-1', title: '새 제목', priority: 'HIGH' });
+      expect(c.updateIssueContent).toHaveBeenCalledWith(AGENT_ID, 'WP-1', {
+        title: '새 제목',
+        priority: 'HIGH',
+      });
+      expect(c.setIssueType).not.toHaveBeenCalled();
+      expect(JSON.parse(out)).toEqual({ ok: true, results: { content: 'ok' } });
+    });
+
+    it('type/assignees/labels/parent 를 리졸브 후 개별 엔드포인트로 팬아웃한다', async () => {
+      const c = client();
+      (c.getProjectTypes as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 2, name: 'BUG' }]);
+      (c.listProjectMembers as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { userId: 10, username: 'alice', name: 'Alice', role: 'MEMBER' },
+      ]);
+      (c.getProjectLabels as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { id: 100, name: 'urgent' },
+      ]);
+      const t = buildTools(c, AGENT_ID).find((x) => x.name === 'update_issue')!;
+      const out = await t.handler({
+        issueKey: 'WP-1',
+        type: 'BUG',
+        assignees: ['alice'],
+        labels: ['urgent'],
+        parent: 3,
+      });
+      expect(c.setIssueType).toHaveBeenCalledWith(AGENT_ID, 'WP-1', 2);
+      expect(c.setIssueParent).toHaveBeenCalledWith(AGENT_ID, 'WP-1', 3);
+      expect(c.replaceIssueAssignees).toHaveBeenCalledWith(AGENT_ID, 'WP-1', [10]);
+      expect(c.replaceIssueLabels).toHaveBeenCalledWith(AGENT_ID, 'WP-1', [100]);
+      expect(JSON.parse(out)).toEqual({
+        ok: true,
+        results: { type: 'ok', parent: 'ok', assignees: 'ok', labels: 'ok' },
+      });
+    });
+
+    it('parent:null 이면 부모를 해제한다', async () => {
+      const c = client();
+      const t = buildTools(c, AGENT_ID).find((x) => x.name === 'update_issue')!;
+      await t.handler({ issueKey: 'WP-1', parent: null });
+      expect(c.setIssueParent).toHaveBeenCalledWith(AGENT_ID, 'WP-1', null);
+    });
+
+    it('없는 유형이면 아무 것도 쓰지 않고 throw', async () => {
+      const c = client();
+      (c.getProjectTypes as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 1, name: 'TASK' }]);
+      const t = buildTools(c, AGENT_ID).find((x) => x.name === 'update_issue')!;
+      await expect(t.handler({ issueKey: 'WP-1', type: 'BUG' })).rejects.toThrow(
+        "유형 'BUG' 을(를) 찾을 수 없습니다. 사용 가능: TASK",
+      );
+      expect(c.setIssueType).not.toHaveBeenCalled();
+    });
+
+    it('한 필드 실패해도 나머지는 저장하고 부분실패를 보고한다', async () => {
+      const c = client();
+      (c.updateIssueContent as ReturnType<typeof vi.fn>).mockRejectedValue(
+        Object.assign(new Error('boom'), { response: { data: '충돌' } }),
+      );
+      const t = buildTools(c, AGENT_ID).find((x) => x.name === 'update_issue')!;
+      const out = await t.handler({ issueKey: 'WP-1', title: 'x', parent: 3 });
+      expect(c.setIssueParent).toHaveBeenCalled();
+      const parsed = JSON.parse(out);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.results.content).toBe('failed: 충돌');
+      expect(parsed.results.parent).toBe('ok');
+    });
+  });
+
   // --- 6c: 프로필 ---
 
   it('chat 프로필: 이슈 조회·chat 읽기/쓰기 + 위키 읽기 도구', () => {
@@ -130,11 +261,14 @@ describe('buildTools (agentId bound)', () => {
     const names = buildTools(client(), AGENT_ID, 'issue').map((t) => t.name).sort();
     expect(names).toEqual([
       'add_comment',
+      'create_issue',
+      'edit_comment',
       'get_issue_detail',
       'get_wiki_page',
       'list_wiki_spaces',
       'search_wiki',
       'unassign_self',
+      'update_issue',
       'update_status',
     ]);
   });

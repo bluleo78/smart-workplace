@@ -1,23 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
-import { resolveAssigneeIds, resolveLabelIds, resolveTypeId } from './resolve.js';
-import { mockPatApiClient } from './test-support.js';
+import { resolveAssigneeIds, resolveLabelIds, resolveTypeId, type ProjectMetaClient } from './resolve.js';
 
 /** 리졸브 소스만 채운 mock 클라이언트. */
-function client() {
-  const c = mockPatApiClient();
-  (c.getProjectTypes as ReturnType<typeof vi.fn>).mockResolvedValue([
-    { id: 1, name: 'TASK', icon: 'Circle', colorToken: 'BLUE' },
-    { id: 2, name: 'BUG', icon: 'Bug', colorToken: 'RED' },
-  ]);
-  (c.getProjectMembers as ReturnType<typeof vi.fn>).mockResolvedValue([
-    { userId: 10, username: 'alice', name: 'Alice', role: 'OWNER' },
-    { userId: 11, username: 'bob', name: 'Bob', role: 'MEMBER' },
-  ]);
-  (c.getProjectLabels as ReturnType<typeof vi.fn>).mockResolvedValue([
-    { id: 100, name: 'urgent', colorToken: 'RED' },
-    { id: 101, name: 'backend', colorToken: 'BLUE' },
-  ]);
-  return c;
+function client(): ProjectMetaClient {
+  return {
+    getProjectTypes: vi.fn().mockResolvedValue([
+      { id: 1, name: 'TASK' },
+      { id: 2, name: 'BUG' },
+    ]),
+    getProjectMembers: vi.fn().mockResolvedValue([
+      { userId: 10, username: 'alice' },
+      { userId: 11, username: 'bob' },
+    ]),
+    getProjectLabels: vi.fn().mockResolvedValue([
+      { id: 100, name: 'urgent' },
+      { id: 101, name: 'backend' },
+    ]),
+  };
 }
 
 describe('resolveTypeId', () => {

@@ -509,6 +509,116 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       const out = await newClient().listProjectMembers(7, 'ABC');
       expect(out[0].role).toBe('OWNER');
     });
+
+    it('username 을 포함해 매핑한다', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects/ABC/members`)
+        .reply(200, [{ userId: 10, username: 'alice', name: 'Alice', role: 'OWNER' }]);
+      const out = await newClient().listProjectMembers(7, 'ABC');
+      expect(out).toEqual([{ userId: 10, username: 'alice', name: 'Alice', role: 'OWNER' }]);
+    });
+  });
+
+  describe('getProjectTypes', () => {
+    it('GET /projects/{key}/types 로 프로젝트 유형 목록을 반환한다', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects/ABC/types`)
+        .reply(200, [{ id: 1, name: 'TASK' }, { id: 2, name: 'BUG' }]);
+      const out = await newClient().getProjectTypes(7, 'ABC');
+      expect(out).toEqual([{ id: 1, name: 'TASK' }, { id: 2, name: 'BUG' }]);
+    });
+  });
+
+  describe('getProjectLabels', () => {
+    it('GET /projects/{key}/labels 로 프로젝트 라벨 목록을 반환한다', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects/ABC/labels`)
+        .reply(200, [{ id: 100, name: 'urgent' }]);
+      const out = await newClient().getProjectLabels(7, 'ABC');
+      expect(out).toEqual([{ id: 100, name: 'urgent' }]);
+    });
+  });
+
+  describe('createIssue', () => {
+    it('프로젝트에 새 이슈를 생성한다', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .post(`${PREFIX}/projects/ABC/issues`, { title: '제목', priority: 'HIGH' })
+        .reply(201, { issueKey: 'ABC-5', title: '제목' });
+      const out = await newClient().createIssue(7, 'ABC', { title: '제목', priority: 'HIGH' });
+      expect(out).toEqual({ issueKey: 'ABC-5', title: '제목' });
+    });
+  });
+
+  describe('editIssueComment', () => {
+    it('이슈 상세에서 issueId 를 조회한 뒤 코멘트를 수정한다', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects/ABC/issues/5`)
+        .reply(200, { summary: { id: 999 } });
+      const patch = nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .patch(`${PREFIX}/issues/999/comments/42`, { body: '수정된 내용' })
+        .reply(200);
+      await newClient().editIssueComment(7, 'ABC-5', 42, '수정된 내용');
+      expect(patch.isDone()).toBe(true);
+    });
+
+    it('issueId 조회 실패 시 에러를 던진다', async () => {
+      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .get(`${PREFIX}/projects/ABC/issues/5`)
+        .reply(200, {});
+      await expect(newClient().editIssueComment(7, 'ABC-5', 42, 'x')).rejects.toThrow(
+        'issueId 조회 실패: ABC-5',
+      );
+    });
+  });
+
+  describe('updateIssueContent', () => {
+    it('이슈 내용을 부분 수정한다', async () => {
+      nock(BASE)
+        .patch(`${PREFIX}/projects/ABC/issues/5`, { title: '새 제목' })
+        .reply(200, { issueKey: 'ABC-5', title: '새 제목' });
+      const out = await newClient().updateIssueContent(7, 'ABC-5', { title: '새 제목' });
+      expect(out).toEqual({ issueKey: 'ABC-5', title: '새 제목' });
+    });
+  });
+
+  describe('setIssueType', () => {
+    it('이슈 유형을 변경한다', async () => {
+      nock(BASE).patch(`${PREFIX}/projects/ABC/issues/5/type`, { typeId: 2 }).reply(200);
+      await newClient().setIssueType(7, 'ABC-5', 2);
+    });
+  });
+
+  describe('setIssueParent', () => {
+    it('부모 이슈를 설정한다', async () => {
+      nock(BASE).patch(`${PREFIX}/projects/ABC/issues/5/parent`, { parentNumber: 1 }).reply(200);
+      await newClient().setIssueParent(7, 'ABC-5', 1);
+    });
+    it('null 을 보내면 부모를 해제한다', async () => {
+      nock(BASE)
+        .patch(`${PREFIX}/projects/ABC/issues/5/parent`, { parentNumber: null })
+        .reply(200);
+      await newClient().setIssueParent(7, 'ABC-5', null);
+    });
+  });
+
+  describe('replaceIssueAssignees', () => {
+    it('담당자 집합을 교체한다', async () => {
+      nock(BASE)
+        .put(`${PREFIX}/projects/ABC/issues/5/assignees`, { userIds: [10, 11] })
+        .reply(200, { assignees: [10, 11] });
+      const out = await newClient().replaceIssueAssignees(7, 'ABC-5', [10, 11]);
+      expect(out).toEqual({ assignees: [10, 11] });
+    });
+  });
+
+  describe('replaceIssueLabels', () => {
+    it('라벨 집합을 교체한다', async () => {
+      nock(BASE)
+        .put(`${PREFIX}/projects/ABC/issues/5/labels`, { labelIds: [100] })
+        .reply(200, { labels: [100] });
+      const out = await newClient().replaceIssueLabels(7, 'ABC-5', [100]);
+      expect(out).toEqual({ labels: [100] });
+    });
   });
 
   // --- #333 M3: 위키 페이지 생성/수정 ---

@@ -1,7 +1,14 @@
 // 4 MCP 도구 정의 — 모든 호출에 agentId 가 closure 로 바인딩 (#34).
 import { z } from 'zod';
 
+import {
+  resolveAssigneeIds,
+  resolveLabelIds,
+  resolveTypeId,
+  type ProjectMetaClient,
+} from '@smart-workplace/issue-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import { parseIssueKey } from '../clients/workplace-api.js';
 
 export interface McpTool {
   name: string;
@@ -15,9 +22,43 @@ const addCommentInput = z.object({
   issueKey: z.string().min(1),
   body: z.string().min(1),
 });
+const editCommentInput = z.object({
+  issueKey: z.string().min(1),
+  commentId: z.number().int().positive(),
+  body: z.string().min(1),
+});
 const updateStatusInput = z.object({
   issueKey: z.string().min(1),
   status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']),
+});
+// 이슈 생성 — mcp 의 create_issue 와 동일 필드(labels 는 create 엔드포인트 미지원이라 제외).
+// projectKey 는 필수 — mcp 와 달리 위임 컨텍스트가 없어 대상 프로젝트를 AI 가 명시해야 한다.
+const createIssueInput = z.object({
+  projectKey: z.string().min(1),
+  title: z.string().min(1).max(200),
+  body: z.string().max(10000).optional(),
+  priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  type: z.string().optional(),
+  assignees: z.array(z.string()).optional(),
+  parent: z.number().int().positive().optional(),
+});
+// 이슈 부분 수정 — mcp 의 update_issue 와 동일 필드셋.
+const updateIssueInput = z.object({
+  issueKey: z.string().min(1),
+  title: z.string().max(200).optional(),
+  body: z.string().max(10000).optional(),
+  priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
+  status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']).optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  clearDueDate: z.boolean().optional(),
+  clearStartDate: z.boolean().optional(),
+  type: z.string().optional(),
+  parent: z.number().int().positive().nullable().optional(),
+  assignees: z.array(z.string()).optional(),
+  labels: z.array(z.string()).optional(),
 });
 // 6c: chat 프로필 도구 입력.
 const addChatMessageInput = z.object({
@@ -309,6 +350,17 @@ const proposeCreateIssueInput = z.object({
   priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
   projectKey: z.string().optional(),
 });
+
+/** agentId 를 클로저로 감싸 ProjectMetaClient 인터페이스를 만족시키는 어댑터.
+ * mcp 의 PatApiClient 는 이미 이 시그니처를 만족하지만, ai-agent 의 WorkplaceApiClient 는
+ * 모든 메서드가 agentId 를 첫 인자로 받으므로 이 어댑터로 시그니처를 맞춘다. */
+function buildProjectMetaAdapter(client: WorkplaceApiClient, agentId: number): ProjectMetaClient {
+  return {
+    getProjectTypes: (key) => client.getProjectTypes(agentId, key),
+    getProjectMembers: (key) => client.listProjectMembers(agentId, key),
+    getProjectLabels: (key) => client.getProjectLabels(agentId, key),
+  };
+}
 
 // profile 기본값 'issue' — 이슈 핸들러는 기존 4 도구, chat 핸들러는 읽기+chat 쓰기 도구만.
 export function buildTools(
@@ -612,6 +664,16 @@ export function buildTools(
       return 'ok';
     },
   };
+  const editCommentTool: McpTool = {
+    name: 'edit_comment',
+    description: '이슈의 기존 코멘트를 수정합니다. commentId 는 get_issue_detail 의 comments 에서 확인하세요.',
+    inputSchema: editCommentInput,
+    async handler(args) {
+      const { issueKey, commentId, body } = editCommentInput.parse(args);
+      await client.editIssueComment(agentId, issueKey, commentId, body);
+      return 'ok';
+    },
+  };
   const updateStatusTool: McpTool = {
     name: 'update_status',
     description: '이슈의 상태를 변경합니다. 허용값: TODO / IN_PROGRESS / DONE / CANCELED.',
@@ -620,6 +682,83 @@ export function buildTools(
       const { issueKey: k, status } = updateStatusInput.parse(args);
       await client.updateIssueStatus(agentId, k, status);
       return 'ok';
+    },
+  };
+  const createIssueTool: McpTool = {
+    name: 'create_issue',
+    description:
+      '지정한 프로젝트에 새 이슈를 등록합니다. type 은 유형 이름(예: BUG), assignees 는 username 배열입니다. ' +
+      'type/assignees 이름이 유효하지 않으면 오류 응답에 사용 가능한 값 목록이 포함되니 그 값으로 재시도하세요. ' +
+      '이미 배정된 프로젝트 안에서 하위 작업을 나눌 때 사용하세요 — 다른 사람에게 위임하는 이슈 생성은 propose_create_issue 를 대신 쓰세요.',
+    inputSchema: createIssueInput,
+    async handler(args) {
+      const { projectKey, type, assignees, parent, ...rest } = createIssueInput.parse(args);
+      const metaClient = buildProjectMetaAdapter(client, agentId);
+      const body: {
+        title: string;
+        body?: string;
+        priority?: string;
+        dueDate?: string;
+        startDate?: string;
+        assigneeIds?: number[];
+        typeId?: number;
+        parentNumber?: number;
+      } = { ...rest };
+      if (type) body.typeId = await resolveTypeId(metaClient, projectKey, type);
+      if (assignees) body.assigneeIds = await resolveAssigneeIds(metaClient, projectKey, assignees);
+      if (parent != null) body.parentNumber = parent;
+      return JSON.stringify(await client.createIssue(agentId, projectKey, body));
+    },
+  };
+  const updateIssueTool: McpTool = {
+    name: 'update_issue',
+    description:
+      '이슈를 부분 수정합니다. 전달한 필드만 변경됩니다. type 은 유형 이름, assignees/labels 는 이름 배열(집합 교체), ' +
+      'parent 는 부모 이슈 번호(null 전달 시 해제)입니다. 단순 상태만 바꾸려면 update_status 를 쓰세요 — 여러 필드를 ' +
+      '함께 바꿀 때만 이 도구를 쓰세요. 각 항목은 독립 저장되며 결과를 { ok, results } 로 보고합니다(부분 실패 가능).',
+    inputSchema: updateIssueInput,
+    async handler(args) {
+      const { issueKey, type, parent, assignees, labels, ...rest } = updateIssueInput.parse(args);
+      const { projectKey } = parseIssueKey(issueKey);
+      const metaClient = buildProjectMetaAdapter(client, agentId);
+
+      // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
+      const typeId = type ? await resolveTypeId(metaClient, projectKey, type) : undefined;
+      const assigneeIds = assignees
+        ? await resolveAssigneeIds(metaClient, projectKey, assignees)
+        : undefined;
+      const labelIds = labels ? await resolveLabelIds(metaClient, projectKey, labels) : undefined;
+
+      // 2) 필드별로 해당 엔드포인트에 팬아웃. 각 단계 독립 저장 — 성공/실패를 구조화해 모은다.
+      const results: Record<string, string> = {};
+      const run = async (key: string, fn: () => Promise<unknown>) => {
+        try {
+          await fn();
+          results[key] = 'ok';
+        } catch (e) {
+          results[key] = `failed: ${errText(e)}`;
+        }
+      };
+
+      const content: Record<string, unknown> = { ...rest };
+      if (Object.keys(content).length > 0) {
+        await run('content', () => client.updateIssueContent(agentId, issueKey, content));
+      }
+      if (typeId !== undefined) {
+        await run('type', () => client.setIssueType(agentId, issueKey, typeId));
+      }
+      if (parent !== undefined) {
+        await run('parent', () => client.setIssueParent(agentId, issueKey, parent));
+      }
+      if (assigneeIds !== undefined) {
+        await run('assignees', () => client.replaceIssueAssignees(agentId, issueKey, assigneeIds));
+      }
+      if (labelIds !== undefined) {
+        await run('labels', () => client.replaceIssueLabels(agentId, issueKey, labelIds));
+      }
+
+      const ok = Object.values(results).every((v) => v === 'ok');
+      return JSON.stringify({ ok, results });
     },
   };
   // #378: unassign_self 실패 시 고정 안내 문구를 반환해 LLM 재해석을 차단한다.
@@ -1137,7 +1276,10 @@ export function buildTools(
       createWikiPageTool,        // #333 M3: 위키 쓰기(내부)
       updateWikiPageTool,        // #333 M3: 위키 쓰기(내부)
       addCommentTool,
+      editCommentTool,
       updateStatusTool,
+      createIssueTool,
+      updateIssueTool,
       unassignSelfTool,
       listEventsTool,
       getEventTool,              // #333 M2: 캘린더 읽기
@@ -1183,7 +1325,19 @@ export function buildTools(
     searchWikiTool,
     getWikiPageTool,
     addCommentTool,
+    editCommentTool,
     updateStatusTool,
+    createIssueTool,
+    updateIssueTool,
     unassignSelfTool,
   ];
+}
+
+/** 팬아웃 단계 실패 메시지를 짧게 뽑는다 — axios 응답 본문 우선, 없으면 message (mcp issue.ts 미러). */
+function errText(e: unknown): string {
+  const anyE = e as { response?: { data?: unknown }; message?: string };
+  if (anyE?.response?.data !== undefined) {
+    return typeof anyE.response.data === 'string' ? anyE.response.data : JSON.stringify(anyE.response.data);
+  }
+  return anyE?.message ?? String(e);
 }

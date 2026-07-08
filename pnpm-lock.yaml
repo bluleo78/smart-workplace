@@ -198,6 +198,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.17.13
         version: 1.17.13
+      '@smart-workplace/issue-tools-shared':
+        specifier: workspace:*
+        version: link:../../packages/issue-tools-shared
       axios:
         specifier: ^1.7.9
         version: 1.16.1
@@ -264,6 +267,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
+      '@smart-workplace/issue-tools-shared':
+        specifier: workspace:*
+        version: link:../../packages/issue-tools-shared
       axios:
         specifier: ^1.7.9
         version: 1.16.1
@@ -514,6 +520,30 @@ importers:
         version: 4.1.7(@types/node@24.12.4)(@vitest/coverage-v8@4.1.7)(msw@2.14.6(@types/node@24.12.4)(typescript@5.9.3))(vite@7.3.3(@types/node@24.12.4)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.3)(yaml@2.9.0))
 
   apps/workplace-worker: {}
+
+  packages/issue-tools-shared:
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.39.4
+        version: 9.39.4
+      '@types/node':
+        specifier: ^22.19.19
+        version: 22.19.19
+      eslint:
+        specifier: ^9.39.4
+        version: 9.39.4(jiti@2.7.0)
+      eslint-config-prettier:
+        specifier: ^10.1.8
+        version: 10.1.8(eslint@9.39.4(jiti@2.7.0))
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.59.4
+        version: 8.59.4(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.7(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(msw@2.14.6(@types/node@22.19.19)(typescript@5.9.3))(vite@7.3.3(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.3)(yaml@2.9.0))
 
 packages:
 
@@ -7792,7 +7822,7 @@ snapshots:
   '@types/body-parser@1.19.6':
     dependencies:
       '@types/connect': 3.4.38
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
 
   '@types/chai@5.2.3':
     dependencies:
@@ -7801,7 +7831,7 @@ snapshots:
 
   '@types/connect@3.4.38':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
 
   '@types/cookiejar@2.1.5': {}
 
@@ -7821,7 +7851,7 @@ snapshots:
 
   '@types/express-serve-static-core@5.1.1':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
       '@types/qs': 6.15.1
       '@types/range-parser': 1.2.7
       '@types/send': 1.2.1
@@ -7892,16 +7922,16 @@ snapshots:
 
   '@types/send@1.2.1':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
 
   '@types/serve-static@2.2.0':
     dependencies:
       '@types/http-errors': 2.0.5
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
 
   '@types/set-cookie-parser@2.4.10':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
 
   '@types/statuses@2.0.6': {}
 
@@ -7909,7 +7939,7 @@ snapshots:
     dependencies:
       '@types/cookiejar': 2.1.5
       '@types/methods': 1.1.4
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
       form-data: 4.0.5
 
   '@types/supertest@6.0.3':

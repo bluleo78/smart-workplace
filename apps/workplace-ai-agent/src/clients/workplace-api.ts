@@ -60,6 +60,7 @@ export interface ProjectItem {
 // #333 M3: 프로젝트 멤버 단건(읽기 그라운딩).
 export interface ProjectMemberItem {
   userId: number;
+  username: string;
   name: string;
   role: string;
 }
@@ -212,6 +213,29 @@ export interface IssueListItem {
 
 export interface WorkplaceApiClient {
   addIssueComment(agentId: number, issueKey: string, body: string): Promise<void>;
+  // 이슈 생성 — mcp 의 create_issue 와 동일 필드(단 labels 없음, create 엔드포인트가 지원 안 함).
+  createIssue(
+    agentId: number,
+    projectKey: string,
+    body: {
+      title: string;
+      body?: string;
+      priority?: string;
+      dueDate?: string;
+      startDate?: string;
+      assigneeIds?: number[];
+      typeId?: number;
+      parentNumber?: number;
+    },
+  ): Promise<unknown>;
+  // 코멘트 수정 — issueKey 로 받아 내부에서 숫자 issueId 조회(addIssueComment 와 동일 패턴).
+  editIssueComment(agentId: number, issueKey: string, commentId: number, body: string): Promise<void>;
+  // update_issue 도구 팬아웃용 — 필드별 독립 엔드포인트(mcp 와 동일 패턴).
+  updateIssueContent(agentId: number, issueKey: string, body: Record<string, unknown>): Promise<unknown>;
+  setIssueType(agentId: number, issueKey: string, typeId: number): Promise<void>;
+  setIssueParent(agentId: number, issueKey: string, parentNumber: number | null): Promise<void>;
+  replaceIssueAssignees(agentId: number, issueKey: string, userIds: number[]): Promise<unknown>;
+  replaceIssueLabels(agentId: number, issueKey: string, labelIds: number[]): Promise<unknown>;
   updateIssueStatus(agentId: number, issueKey: string, statusKey: string): Promise<void>;
   getIssueDetail(agentId: number, issueKey: string): Promise<IssueDetail>;
   // #371: 이슈 목록 조회 — GET /me/issues. assignee 기본 'me'(서버가 principal 로 해석).
@@ -262,6 +286,9 @@ export interface WorkplaceApiClient {
   listProjects(agentId: number, page: number, size: number): Promise<ProjectItem[]>;
   getProject(agentId: number, key: string): Promise<ProjectItem>;
   listProjectMembers(agentId: number, key: string): Promise<ProjectMemberItem[]>;
+  // 이슈 생성/수정 리졸브용 — mcp 의 동명 메서드와 동일 엔드포인트.
+  getProjectTypes(agentId: number, key: string): Promise<{ id: number; name: string }[]>;
+  getProjectLabels(agentId: number, key: string): Promise<{ id: number; name: string }[]>;
   // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
   listContacts(agentId: number, search: string | undefined, type: string | undefined, limit: number): Promise<ContactItem[]>;
   getExternalContact(agentId: number, id: number): Promise<ContactItem>;
@@ -367,6 +394,68 @@ export function createWorkplaceApiClient(opts: {
       );
     },
 
+    async createIssue(agentId, projectKey, body) {
+      return (await http.post(`/projects/${projectKey}/issues`, body, onBehalfOf(agentId))).data;
+    },
+
+    async editIssueComment(agentId, issueKey, commentId, body) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      // 코멘트 endpoint 는 issueId 기반 — addIssueComment 와 동일하게 이슈 상세에서 id 추출.
+      const r = await http.get(
+        `/projects/${projectKey}/issues/${number}`,
+        onBehalfOf(agentId),
+      );
+      const issueId = r.data?.summary?.id ?? r.data?.id;
+      if (!issueId) throw new Error(`issueId 조회 실패: ${issueKey}`);
+      await http.patch(
+        `/issues/${issueId}/comments/${commentId}`,
+        { body },
+        onBehalfOf(agentId),
+      );
+    },
+
+    async updateIssueContent(agentId, issueKey, body) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      return (
+        await http.patch(`/projects/${projectKey}/issues/${number}`, body, onBehalfOf(agentId))
+      ).data;
+    },
+    async setIssueType(agentId, issueKey, typeId) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      await http.patch(
+        `/projects/${projectKey}/issues/${number}/type`,
+        { typeId },
+        onBehalfOf(agentId),
+      );
+    },
+    async setIssueParent(agentId, issueKey, parentNumber) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      await http.patch(
+        `/projects/${projectKey}/issues/${number}/parent`,
+        { parentNumber },
+        onBehalfOf(agentId),
+      );
+    },
+    async replaceIssueAssignees(agentId, issueKey, userIds) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      return (
+        await http.put(
+          `/projects/${projectKey}/issues/${number}/assignees`,
+          { userIds },
+          onBehalfOf(agentId),
+        )
+      ).data;
+    },
+    async replaceIssueLabels(agentId, issueKey, labelIds) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      return (
+        await http.put(
+          `/projects/${projectKey}/issues/${number}/labels`,
+          { labelIds },
+          onBehalfOf(agentId),
+        )
+      ).data;
+    },
     async updateIssueStatus(agentId, issueKey, statusKey) {
       const { projectKey, number } = parseIssueKey(issueKey);
       await http.patch(
@@ -660,6 +749,14 @@ export function createWorkplaceApiClient(opts: {
     async listProjectMembers(agentId, key) {
       const r = await http.get(`/projects/${key}/members`, onBehalfOf(agentId));
       return Array.isArray(r.data) ? (r.data as ProjectMemberItem[]) : [];
+    },
+    async getProjectTypes(agentId, key) {
+      const r = await http.get(`/projects/${key}/types`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? r.data : [];
+    },
+    async getProjectLabels(agentId, key) {
+      const r = await http.get(`/projects/${key}/labels`, onBehalfOf(agentId));
+      return Array.isArray(r.data) ? r.data : [];
     },
 
     // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).

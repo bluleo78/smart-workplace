@@ -2,7 +2,7 @@
 // (에이전트의 propose_* 승인 카드 패턴과 달리 확인 단계 없음 — 클라이언트측 승인은 MCP 호스트 몫).
 import { z } from 'zod';
 import type { PatApiClient } from '../clients/workplace-api.js';
-import { resolveAssigneeIds, resolveLabelIds, resolveTypeId } from './resolve.js';
+import { resolveAssigneeIds, resolveLabelIds, resolveTypeId } from '@smart-workplace/issue-tools-shared';
 import type { McpTool } from './types.js';
 
 /** 'WP-12' → { projectKey: 'WP', number: 12 } (마지막 '-' 기준 분리 — ai-agent parseIssueKey 미러).
