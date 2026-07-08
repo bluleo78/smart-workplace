@@ -25,7 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { handleApiError } from '@/lib/api-error'
+import { extractApiError, handleApiError } from '@/lib/api-error'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
@@ -299,7 +299,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           cancelled = true
           break
         }
-        failures.push(d.file.name)
+        // 백엔드 실패 사유(크기/유형 등)를 그대로 노출 — 파일명만으론 원인 불명.
+        failures.push(`${d.file.name} (${extractApiError(err, '업로드 실패')})`)
       } finally {
         done += 1
         setDropProgress({ done, total: dropped.length })
@@ -393,7 +394,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             cancelled = true
             break
           }
-          failures.push(file.name)
+          // 백엔드 실패 사유(크기/유형 등)를 그대로 노출 — 파일명만으론 원인 불명.
+          failures.push(`${file.name} (${extractApiError(err, '업로드 실패')})`)
         } finally {
           done += 1
           setDropProgress({ done, total: files.length })
