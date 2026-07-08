@@ -34,6 +34,12 @@ export default function TimelinePage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const filters = parseFilters(params);
+  // 에픽 트리(collapse/expand)를 위해 목록 뷰(IssueListView)와 동일한 기본값을 주입한다 — topLevel 을
+  // 끄지 않으면 에픽의 하위 이슈(비-top-level)가 응답에서 빠져 에픽이 자식 없는 잎 행으로만 그려지고
+  // 펼침 토글이 사라진다. 하위는 노출하되 SUBTASK 는 계획 단위가 아니므로 제외한다. URL 에 topLevel 이
+  // 명시된 경우엔 사용자의 선택을 존중해 주입하지 않는다(명시값 우선).
+  const effectiveFilters =
+    params.get('topLevel') == null ? { ...filters, topLevel: false, excludeSubtasks: true } : filters;
   const [zoom, setZoom] = useState<TimelineZoom>('week');
   const [scrollToDate, setScrollToDate] = useState<string | undefined>(undefined);
   // 마일스톤 생성 다이얼로그(툴바 버튼/레인 클릭 2경로 공용) + 편집 팝오버(다이아몬드 클릭) 상태.
@@ -46,7 +52,7 @@ export default function TimelinePage() {
   } | null>(null);
 
   const project = useProject(key);
-  const search = useIssueSearch(key, filters, 100);
+  const search = useIssueSearch(key, effectiveFilters, 100);
   const cycles = useCycles(key);
   const milestones = useMilestones(key);
   const dependencies = useProjectDependencies(key);

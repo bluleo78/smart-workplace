@@ -75,3 +75,27 @@ test('시간축 텍스트 위계 — 상단 스케일 14px semibold, 하단 12px
   expect(Number(top.weight)).toBeGreaterThanOrEqual(600);
   expect(bottom).toBe('12px');
 });
+
+// 다크 모드 높이 회귀 — WillowDark 는 .wx-willow-dark-theme 를 붙여, 라이트 전용 선택자
+// (.wx-willow-theme)로는 height:100% 가 걸리지 않아 간트가 콘텐츠(행 개수)만큼만 그려지고
+// 컨테이너 아래가 빈 여백으로 남던 버그. 공통 베이스 .wx-theme 로 타깃해 양 테마 모두 채운다.
+test('다크 모드에서 간트가 컨테이너 높이를 꽉 채운다', async ({ authenticatedPage: page }) => {
+  // next-themes 저장키('theme')를 로드 전에 dark 로 심어 WillowDark 래퍼로 렌더시킨다.
+  await page.addInitScript(() => window.localStorage.setItem('theme', 'dark'));
+  await setupStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  // 실제로 WillowDark 가 렌더됐는지(다크 클래스) 확인 — 테스트 전제 보증.
+  // (WillowDark 는 .wx-theme 를 중첩 렌더하므로 .first() 로 strict 매칭 회피)
+  await expect(page.locator('.timeline-gantt-root .wx-theme.wx-willow-dark-theme').first()).toBeVisible();
+  const { themeH, rootH } = await page
+    .locator('.timeline-gantt-root')
+    .evaluate((root) => ({
+      rootH: root.getBoundingClientRect().height,
+      themeH: root.querySelector('.wx-theme')!.getBoundingClientRect().height,
+    }));
+  // 콘텐츠는 스케일+행 1개(~113px)뿐 → 버그 시 themeH 가 컨테이너보다 훨씬 작다.
+  // 수정 후엔 테마 래퍼가 컨테이너 높이를 그대로 채운다(오차 2px 이내).
+  expect(rootH).toBeGreaterThan(300);
+  expect(Math.abs(themeH - rootH)).toBeLessThanOrEqual(2);
+});

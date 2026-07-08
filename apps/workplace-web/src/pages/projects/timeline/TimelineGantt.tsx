@@ -318,7 +318,11 @@ export function TimelineGantt({
       for (const bar of bars) {
         if (bar.status === 'CANCELED') continue
         const color = STATUS_BAR_COLOR[bar.status]
-        const el = container.querySelector<HTMLElement>(`.wx-bar[data-task-id$="${bar.issueNumber}"]`)
+        // data-task-id 는 이슈 번호와 정확히 일치해야 한다 — 이전의 접미사 매칭($=)은 번호 5 가
+        // 번호 25(에픽 자식)의 접미사라 둘 다 매칭돼 querySelector 가 같은 막대를 반환, 서로 다른
+        // 상태색을 번갈아 덮어쓰며 MutationObserver 무한 루프 → 렌더러 프리즈를 일으켰다(#649 회귀).
+        // SVAR 는 숫자 task id 를 접두어 없이 그대로(문자열 id 만 ':' 접두) 렌더하므로 정확 매칭이 맞다.
+        const el = container.querySelector<HTMLElement>(`.wx-bar[data-task-id="${bar.issueNumber}"]`)
         if (!el || el.style.getPropertyValue('--wx-gantt-task-color') === color) continue
         el.style.setProperty('--wx-gantt-task-color', color)
         el.style.setProperty('--wx-gantt-task-fill-color', color)

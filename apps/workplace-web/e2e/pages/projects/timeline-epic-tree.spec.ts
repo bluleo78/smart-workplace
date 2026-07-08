@@ -218,3 +218,49 @@ test('하위 이슈가 모두 일정 미정인 에픽만 배치돼도 간트가 
   await expect(page.getByTestId('unscheduled-row-62')).toContainText('탐색 EPIC 테스트');
 });
 
+// 상태색 주입 셀렉터가 이슈 번호를 접미사($=)로 매칭하던 회귀 — 번호 5 가 번호 25(에픽 자식)의
+// 접미사라 두 막대가 같은 요소로 매칭돼 서로 다른 상태색을 번갈아 덮어쓰며 MutationObserver
+// 무한 루프 → 렌더러 프리즈를 일으켰다. 정확 매칭으로 고친 뒤 두 막대가 각자 올바른 색을 갖고
+// 프리즈 없이 렌더되는지 검증한다. (에픽 자식이 로드되는 목록 기본값과 결합돼야만 드러났던 잠복 버그)
+function setupSuffixCollisionStubs(page: Page) {
+  return Promise.all([
+    page.route(`**/api/v1/projects/${KEY}/members`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}/labels`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject({ key: KEY })) }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}/issues?*`, (r) => {
+      if (r.request().method() !== 'GET') return r.fallback();
+      // 에픽(10) + 날짜 있는 자식 25(DONE) + 에픽 없는 이슈 5(IN_PROGRESS). 5 는 25 의 접미사.
+      const issues = [
+        createIssue({ number: 10, title: '인증 에픽', type: EPIC_TYPE, childCount: 1, childDoneCount: 1 }),
+        createIssue({ number: 25, title: '완료 하위', status: 'DONE', startDate: '2026-07-06', dueDate: '2026-07-10', parent: { number: 10, title: '인증 에픽', type: EPIC_TYPE } }),
+        createIssue({ number: 5, title: '진행중 루트', status: 'IN_PROGRESS', startDate: '2026-06-10', dueDate: '2026-06-18' }),
+      ];
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+    }),
+    page.route(`**/api/v1/projects/${KEY}/cycles`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}/milestones`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}/issue-dependencies`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+  ]);
+}
+
+test('이슈 번호 접미사 충돌(5 vs 25)에도 프리즈 없이 각 막대가 올바른 상태색을 갖는다', async ({
+  authenticatedPage: page,
+}) => {
+  await setupSuffixCollisionStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+  // 프리즈였다면 렌더가 멈춰 이 대기가 타임아웃된다 — 두 막대가 모두 뜨는 것이 곧 비프리즈 증거.
+  const bar25 = page.locator('.timeline-gantt-root .wx-bar[data-task-id="25"]');
+  const bar5 = page.locator('.timeline-gantt-root .wx-bar[data-task-id="5"]');
+  await expect(bar25).toBeVisible();
+  await expect(bar5).toBeVisible();
+  // 상태색 주입이 각 막대에 올바르게(서로 다르게) 적용됐는지 — 충돌 시엔 한 요소를 놓고 번갈아
+  // 덮어써 둘 다 불안정하거나 같은 값이 된다. 이펙트가 심는 인라인 커스텀 프로퍼티 원본값을 읽어
+  // DONE=success, IN_PROGRESS=primary 로 분리됐는지 확인한다.
+  await expect
+    .poll(() => bar25.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--wx-gantt-task-color')))
+    .toBe('var(--success)');
+  await expect
+    .poll(() => bar5.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--wx-gantt-task-color')))
+    .toBe('var(--primary)');
+});
+
