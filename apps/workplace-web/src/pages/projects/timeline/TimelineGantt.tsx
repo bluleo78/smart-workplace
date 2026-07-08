@@ -66,6 +66,15 @@ const GROUP_ID_PREFIX = 'group-'
 const groupTaskId = (key: string) => `${GROUP_ID_PREFIX}${key}`
 const isGroupTaskId = (id: unknown): id is string =>
   typeof id === 'string' && id.startsWith(GROUP_ID_PREFIX)
+// 그룹 task id → group key. 막대 없는 에픽 요약(range=null)은 id 에 '-nobar' 접미사가 붙으므로 제거한다.
+const groupKeyFromTaskId = (id: string) => id.slice(GROUP_ID_PREFIX.length).replace(/-nobar$/, '')
+// 미정 하위 task 의 id 네임스페이스 — 숫자 이슈번호와 분리해 정적 CSS(막대 숨김)·클릭 분기에 사용.
+const UNDATED_ID_PREFIX = 'undated-'
+// 그리드 시작일/기간 컬럼에서 "미정" 으로 표기할 행 — 미정 하위(undated) 또는 막대 없는 에픽 요약(nobar).
+const isUndatedRow = (row: unknown): boolean => {
+  const r = row as { undated?: boolean; nobar?: boolean }
+  return !!r.undated || !!r.nobar
+}
 
 // 이슈 상태별 막대 색상 — IssueStatusIcon/IssueStatusBadge 와 동일한 시맨틱 토큰(hex 금지). CANCELED 이슈는
 // groupTimelineIssues 에서 막대 목록 자체에 포함되지 않아 매핑 대상이 아니다.
@@ -89,8 +98,24 @@ const MONTH_SCALES: IScaleConfig[] = [
 // 어긋남 — id/width 는 SVAR 기본값(getDefaultColumns)을 유지하고 header 텍스트만 교체한다.
 const GRID_COLUMNS: IColumnConfig[] = [
   { id: 'text', header: '이슈', width: 183, flexgrow: 1, sort: true },
-  { id: 'start', header: '시작일', width: 120, align: 'center', sort: true },
-  { id: 'duration', header: '기간', width: 100, align: 'center', sort: true },
+  // 미정 행(날짜 없는 하위/막대 없는 에픽)은 시작일/기간 대신 "미정" 표기. template 을 주면 SVAR
+  // 기본 포매터(start=%d-%m-%Y) 대신 이 함수가 쓰이므로, 일반 행은 동일 포맷(dd-MM-yyyy)을 유지한다.
+  {
+    id: 'start',
+    header: '시작일',
+    width: 120,
+    align: 'center',
+    sort: true,
+    template: (value: Date, row: ITask) => (isUndatedRow(row) ? '미정' : value ? format(value, 'dd-MM-yyyy') : ''),
+  },
+  {
+    id: 'duration',
+    header: '기간',
+    width: 100,
+    align: 'center',
+    sort: true,
+    template: (value: number, row: ITask) => (isUndatedRow(row) ? '' : String(value ?? '')),
+  },
 ]
 
 /**
@@ -150,9 +175,13 @@ export function TimelineGantt({
       // undefined 이거나 명시적으로 null 로 비워진(_clearBranch) 노드에 `open: true` 를 주면
       // `null/undefined.forEach()` 로 크래시한다(#656). `type` 은 이 크래시와 무관하며(둘 다
       // 영향받음), 실제 불변식은 "자식이 없으면 open 필드 자체를 넣지 않는다"이다.
-      const hasChildren = group.bars.length > 0
+      // 날짜 자식 + 미정 자식 중 하나라도 있으면 펼침 가능한 summary. (자식 0이면 잎 — #656 가드 유지)
+      const hasChildren = group.bars.length > 0 || group.undatedChildren.length > 0
+      // range 가 null 이면 그릴 에픽 막대가 없다 — id 에 '-nobar' 를 붙여 정적 CSS 로 막대만 숨긴다.
+      const noBar = group.range === null
+      const summaryId = noBar ? `${groupId}-nobar` : groupId
       result.push({
-        id: groupId,
+        id: summaryId,
         // 진행률은 텍스트로 병기 — SVAR 그리드 셀 커스텀 렌더 미지원 전제의 안전한 표현.
         text: group.total > 0 ? `${group.title} (${group.done}/${group.total})` : group.title,
         // no-epic 도 range 를 롤업해 받으므로(#662) 그리드 시작일/기간 컬럼엔 항상 실제 값이 뜬다.
@@ -161,7 +190,23 @@ export function TimelineGantt({
         end: addDays(parseISO(fallbackDue), 1),
         type: hasChildren ? 'summary' : 'task',
         ...(hasChildren ? { open: !collapsed.has(group.key) } : {}),
+        ...(noBar ? { nobar: true } : {}), // 시작일/기간 컬럼 "미정" 표기용 마커
       })
+      // 미정 하위(#에픽펼침) — 에픽 아래 그리드 행으로만 보이고 간트 막대는 CSS 로 숨긴다.
+      // unscheduled:true 로 두어 에픽 요약 막대 span 계산에서 제외한다(placeholder 날짜가 span 을 늘리지 않게).
+      for (const kid of group.undatedChildren) {
+        result.push({
+          id: `${UNDATED_ID_PREFIX}${kid.number}`,
+          parent: summaryId,
+          text: `${kid.projectKey}-${kid.number} ${kid.title}`,
+          start: parseISO(fallbackDate),
+          end: addDays(parseISO(fallbackDate), 1),
+          type: 'task',
+          unscheduled: true,
+          undated: true,
+          issueNumber: kid.number,
+        })
+      }
       for (const bar of group.bars) {
         const startDate = bar.start ? parseISO(bar.start) : parseISO(bar.due)
         const endDate = addDays(parseISO(bar.due), 1)
@@ -474,7 +519,7 @@ export function TimelineGantt({
                 // SVAR 트리 토글(그리드 화살표 클릭) → 접힘 상태를 페이지로 보고(#649).
                 // api.on 은 액션 스트림 구독 — 그룹 행(문자열 id)만 걸러 onToggleGroup 호출.
                 api.on('open-task', (ev: { id: unknown; mode: boolean }) => {
-                  if (isGroupTaskId(ev.id)) onToggleGroupRef.current(ev.id.slice(GROUP_ID_PREFIX.length), ev.mode)
+                  if (isGroupTaskId(ev.id)) onToggleGroupRef.current(groupKeyFromTaskId(ev.id), ev.mode)
                 })
               }
               if (!api) apiRef.current = null
@@ -502,9 +547,14 @@ export function TimelineGantt({
               // 그룹(에픽) 행 클릭 = 에픽 이슈 상세로 이동. no-epic 가상 그룹은 이동 대상이 없어 무시.
               if (!ev.id) return
               if (isGroupTaskId(ev.id)) {
-                const key = ev.id.slice(GROUP_ID_PREFIX.length)
+                const key = groupKeyFromTaskId(ev.id)
                 const group = groups.find((g) => g.key === key)
                 if (group?.epicNumber != null) onBarClick(group.epicNumber)
+                return
+              }
+              // 미정 하위 행(undated-{번호}) 클릭 → 해당 이슈 상세로 이동.
+              if (typeof ev.id === 'string' && ev.id.startsWith(UNDATED_ID_PREFIX)) {
+                onBarClick(Number(ev.id.slice(UNDATED_ID_PREFIX.length)))
                 return
               }
               if (typeof ev.id === 'number') onBarClick(ev.id)

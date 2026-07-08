@@ -49,6 +49,15 @@
 .timeline-gantt-root .wx-bar.wx-summary[data-task-id$='group-no-epic'] {
   display: none;
 }
+
+/* 막대 없이 그리드 행만 보이는 두 부류 — 정적 CSS 로만 숨긴다(MutationObserver 계열 DOM 조작은
+   상태색 접미사충돌 프리즈 전례가 있어 금지). id 네임스페이스로 구분:
+   - 미정 하위(undated-{번호}): 에픽 아래 행으로만, 간트 막대 없음.
+   - 막대 없는 에픽 요약(group-…-nobar): range 롤업 불가(자체·자식 전부 미정)한 에픽. */
+.timeline-gantt-root .wx-bar[data-task-id*='undated-'],
+.timeline-gantt-root .wx-bar[data-task-id$='-nobar'] {
+  display: none;
+}
 /* 그리드 에픽 행 제목 강조 — SVAR 는 문자열 id 에 ':' 접두어를 붙여 렌더한다(setID, lib-dom).
    막대 규칙(위 no-epic 숨김)과 동일하게 포함 매칭(*=)으로 통일해 접두어 유무에 견고하게 한다. */
 .timeline-gantt-root .wx-grid .wx-row[data-id*='group-'] .wx-cell {

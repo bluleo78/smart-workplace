@@ -124,20 +124,18 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
     const epic = epicByNumber.get(num) ?? null;
     const kids = children.get(num) ?? [];
     const bars = kids.filter((k) => k.dueDate).map(toBar);
-    const undatedKids = kids.filter((k) => !k.dueDate);
+    // 미정 하위는 "일정 미정" 섹션이 아니라 소속 에픽 아래 행으로 노출한다(중복 없음).
+    const undatedChildren = kids.filter((k) => !k.dueDate);
 
+    // range: 날짜 있는 자식 롤업 → 없으면 에픽 자체 날짜 → 그것도 없으면 null.
+    // null 이어도 그룹은 만든다 — 에픽 막대는 안 그리지만 그룹 행/펼침·미정 자식 노출은 유지한다.
     let range: TimelineEpicGroup['range'] = rollupRange(bars);
     if (range === null && epic?.dueDate) {
       range = { start: epic.startDate ?? epic.dueDate, due: epic.dueDate };
     }
+    // 합성 그룹(응답에 에픽 객체 없음)인데 자식도 전혀 없으면 무의미 — 스킵(실제로는 발생 안 함).
+    if (!epic && kids.length === 0) continue;
 
-    if (range === null) {
-      // 그릴 막대가 전혀 없는 에픽 — 에픽 자신(먼저) + 미정 하위 순으로 미정 목록에 보낸다.
-      if (epic) unscheduled.push(epic);
-      unscheduled.push(...undatedKids);
-      continue;
-    }
-    unscheduled.push(...undatedKids);
     groups.push({
       key: `epic-${num}`,
       epicNumber: num,
@@ -146,6 +144,7 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
       total: epic ? epic.childCount : kids.length,
       range,
       bars,
+      undatedChildren,
     });
   }
 
@@ -164,6 +163,7 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
       // "no-epic 은 롤업 막대를 그리지 않는다" 는 시각적 불변식은 그대로 유지된다.
       range: rollupRange(looseBars),
       bars: looseBars,
+      undatedChildren: [], // no-epic 그룹은 미정 자식 개념이 없다(미정 loose 는 unscheduled 로).
     });
   }
 

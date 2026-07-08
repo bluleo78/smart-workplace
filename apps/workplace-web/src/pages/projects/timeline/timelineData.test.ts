@@ -194,7 +194,7 @@ describe('groupTimelineIssues', () => {
     expect(unscheduled).toEqual([]);
   });
 
-  it('하위가 전부 일정 미정이면 에픽 자체 날짜로 폴백, 그것도 없으면 range null + 에픽은 미정 목록', () => {
+  it('미정 에픽 자식은 unscheduled 가 아니라 그룹 undatedChildren 으로 간다 (에픽 자체 날짜 폴백)', () => {
     const epicWithDates = issue({
       number: 40,
       title: 'A',
@@ -206,13 +206,31 @@ describe('groupTimelineIssues', () => {
     const undatedChild = issue({ number: 41, parent: parentRef(40, 'A') });
     const r1 = groupTimelineIssues([epicWithDates, undatedChild]);
     expect(r1.groups[0].range).toEqual({ start: '2026-07-01', due: '2026-07-20' });
-    expect(r1.unscheduled.map((i) => i.number)).toEqual([41]); // 미정 하위는 미정 목록으로
+    expect(r1.groups[0].undatedChildren.map((k) => k.number)).toEqual([41]);
+    expect(r1.unscheduled.map((i) => i.number)).not.toContain(41); // 더 이상 미정 목록으로 보내지 않는다
+  });
 
+  it('자식이 전부 미정이고 에픽 자체 날짜도 없으면 그룹은 형성되되 range=null, 자식은 undatedChildren', () => {
     const epicNoDates = issue({ number: 60, title: 'B', type: EPIC_TYPE, childCount: 1 });
-    const undatedChild2 = issue({ number: 61, parent: parentRef(60, 'B') });
-    const r2 = groupTimelineIssues([epicNoDates, undatedChild2]);
-    expect(r2.groups).toEqual([]); // 그릴 것이 없는 그룹은 간트에서 제외
-    expect(r2.unscheduled.map((i) => i.number)).toEqual([60, 61]); // 에픽 자신도 미정 목록
+    const undatedChild = issue({ number: 61, parent: parentRef(60, 'B') });
+    const { groups, unscheduled } = groupTimelineIssues([epicNoDates, undatedChild]);
+    const g = groups.find((x) => x.key === 'epic-60');
+    expect(g).toBeTruthy(); // 막대는 없어도 그룹 행/펼침은 유지
+    expect(g?.range).toBeNull();
+    expect(g?.undatedChildren.map((k) => k.number)).toEqual([61]);
+    expect(unscheduled.map((i) => i.number)).not.toContain(60);
+    expect(unscheduled.map((i) => i.number)).not.toContain(61);
+  });
+
+  it('날짜 자식과 미정 자식이 섞이면 bars=날짜자식, undatedChildren=미정자식으로 분리한다', () => {
+    const epic = issue({ number: 40, title: 'A', type: EPIC_TYPE, childCount: 2, childDoneCount: 1 });
+    const dated = issue({ number: 41, parent: parentRef(40, 'A'), startDate: '2026-07-01', dueDate: '2026-07-05' });
+    const undated = issue({ number: 42, parent: parentRef(40, 'A') });
+    const { groups, unscheduled } = groupTimelineIssues([epic, dated, undated]);
+    const g = groups.find((x) => x.key === 'epic-40')!;
+    expect(g.bars.map((b) => b.issueNumber)).toEqual([41]);
+    expect(g.undatedChildren.map((k) => k.number)).toEqual([42]);
+    expect(unscheduled.map((i) => i.number)).not.toContain(42);
   });
 
   it('CANCELED 에픽은 하위 포함 전부 제외한다', () => {

@@ -122,11 +122,16 @@ test('에픽 접기 → 하위 행 숨김 + localStorage 저장, 재방문 시 �
   await expect(page.locator('.timeline-gantt-root .wx-grid')).not.toContainText('가입 플로우');
 });
 
-test('일정 미정 섹션에 소속 에픽 배지가 붙는다', async ({ authenticatedPage: page }) => {
+test('미정 에픽 자식은 "일정 미정"이 아니라 에픽 아래 행으로 노출된다(중복 제거)', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
-  await page.getByTestId('unscheduled-section').locator('summary').click();
-  await expect(page.getByTestId('unscheduled-row-42')).toContainText('온보딩 개편');
+  const grid = page.locator('.timeline-gantt-root .wx-grid');
+  // 미정 자식(42, 온보딩 미정 하위)이 에픽(40) 아래 그리드 행으로 보인다.
+  await expect(grid).toContainText('온보딩 미정 하위');
+  // 그 막대는 없다(미정).
+  await expect(page.locator(".timeline-gantt-root .wx-bar[data-task-id*='undated-42']")).toBeHidden();
+  // "일정 미정" 섹션엔 이제 에픽 자식(42)이 없다(에픽 없는 loose 미정만 남음).
+  await expect(page.getByTestId('unscheduled-row-42')).toHaveCount(0);
 });
 
 test('에픽 그룹 행 클릭 → 에픽 이슈 상세로 이동', async ({ authenticatedPage: page }) => {
@@ -212,10 +217,12 @@ test('하위 이슈가 모두 일정 미정인 에픽만 배치돼도 간트가 
   // 정상 렌더된다는 것이 곧 크래시하지 않았다는 증거.
   await expect(grid).toContainText('탐색 EPIC 테스트');
   await expect(page.getByText('페이지를 불러오는 중 문제가 발생했습니다')).not.toBeVisible();
-  // 미정 하위 2건은 그룹 트리가 아니라 일정 미정 섹션에 배지와 함께 나타난다.
-  await page.getByTestId('unscheduled-section').locator('summary').click();
-  await expect(page.getByTestId('unscheduled-row-61')).toContainText('탐색 EPIC 테스트');
-  await expect(page.getByTestId('unscheduled-row-62')).toContainText('탐색 EPIC 테스트');
+  // 미정 하위 2건(61,62)은 이제 에픽 아래 그리드 행으로 노출되고(막대 없음), 일정 미정엔 없다.
+  await expect(grid).toContainText('미정 하위 1');
+  await expect(grid).toContainText('미정 하위 2');
+  await expect(page.locator(".timeline-gantt-root .wx-bar[data-task-id*='undated-61']")).toBeHidden();
+  await expect(page.getByTestId('unscheduled-row-61')).toHaveCount(0);
+  await expect(page.getByTestId('unscheduled-row-62')).toHaveCount(0);
 });
 
 // 상태색 주입 셀렉터가 이슈 번호를 접미사($=)로 매칭하던 회귀 — 번호 5 가 번호 25(에픽 자식)의
@@ -264,3 +271,55 @@ test('이슈 번호 접미사 충돌(5 vs 25)에도 프리즈 없이 각 막대�
     .toBe('var(--primary)');
 });
 
+
+// 미정 하위 노출(#에픽펼침) — 에픽에 날짜 없는 하위가 있으면 그 하위를 "일정 미정"이 아니라
+// 에픽 아래 그리드 행으로 보여준다(간트 막대 없음, 시작일/기간 "미정"). 에픽은 자체 날짜로 막대를
+// 그리고 항상 펼침 가능해야 한다.
+function setupEpicWithUndatedStubs(page: Page) {
+  return Promise.all([
+    page.route(`**/api/v1/projects/${KEY}/members`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}/labels`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject({ key: KEY })) }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}/issues?*`, (r) => {
+      if (r.request().method() !== 'GET') return r.fallback();
+      const issues = [
+        // 에픽(10) — 자체 날짜 있음(막대 O), 자식 2건 중 하나만 날짜 있음.
+        createIssue({ number: 10, title: '온보딩 개편', type: EPIC_TYPE, startDate: '2026-07-01', dueDate: '2026-07-20', childCount: 2, childDoneCount: 1 }),
+        createIssue({ number: 11, title: '가입 플로우', parent: { number: 10, title: '온보딩 개편', type: EPIC_TYPE }, startDate: '2026-07-02', dueDate: '2026-07-06', status: 'DONE' }),
+        createIssue({ number: 12, title: '백엔드 설계', parent: { number: 10, title: '온보딩 개편', type: EPIC_TYPE } }),
+      ];
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+    }),
+    page.route(`**/api/v1/projects/${KEY}/cycles`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}/milestones`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+    page.route(`**/api/v1/projects/${KEY}/issue-dependencies`, (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())),
+  ]);
+}
+
+test('에픽에 미정 하위가 있으면 펼침 가능하고 미정 행은 막대 없이 "미정" 으로 표시된다', async ({
+  authenticatedPage: page,
+}) => {
+  await setupEpicWithUndatedStubs(page);
+  await page.goto(`/projects/${KEY}/timeline`);
+  const grid = page.locator('.timeline-gantt-root .wx-grid');
+  await expect(grid).toContainText('가입 플로우'); // 날짜 자식(막대 O)
+  await expect(grid).toContainText('백엔드 설계'); // 미정 자식이 에픽 아래 그리드 행으로 노출
+  // 미정 자식의 간트 막대는 CSS 로 숨겨진다(그리드 행은 있지만 차트 막대는 없음). 문자열 id 는 ':' 접두.
+  await expect(page.locator(".timeline-gantt-root .wx-bar[data-task-id*='undated-12']")).toBeHidden();
+  // 날짜 자식(11)의 막대는 보인다.
+  await expect(page.locator('.timeline-gantt-root .wx-bar[data-task-id="11"]')).toBeVisible();
+  // 미정 자식 행의 시작일 컬럼은 "미정".
+  await expect(
+    page.locator(".timeline-gantt-root .wx-grid .wx-row[data-id*='undated-12']"),
+  ).toContainText('미정');
+  // "일정 미정" 섹션엔 미정 에픽 자식(12)이 없다(중복 제거).
+  await expect(page.getByTestId('unscheduled-row-12')).toHaveCount(0);
+  // 에픽 펼침(▾) 토글 클릭 → 두 자식 행 모두 숨김.
+  await page
+    .locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '온보딩 개편' })
+    .locator('.wx-toggle-icon, [class*="toggle"]')
+    .first()
+    .click();
+  await expect(grid).not.toContainText('백엔드 설계');
+  await expect(grid).not.toContainText('가입 플로우');
+});
