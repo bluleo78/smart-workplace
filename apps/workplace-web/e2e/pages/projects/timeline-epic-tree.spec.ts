@@ -101,7 +101,7 @@ test('에픽 그룹 행 + 하위 트리 + 에픽 없음 그룹이 렌더된다',
   const grid = page.locator('.timeline-gantt-root .wx-grid');
   await expect(grid).toContainText('온보딩 개편'); // 에픽 그룹 행
   await expect(grid).toContainText('(1/2)'); // 진행률
-  await expect(grid).toContainText('에픽 없음'); // 가상 그룹 행
+  await expect(grid).toContainText('에픽 없음 (1)'); // 가상 그룹 행 + 최상위 이슈 개수(막대 있는 loose 1건)
   // 기본은 접힘 — 에픽/에픽없음 모두 자식 행이 처음엔 숨겨져 있다(사용자 요청).
   await expect(grid).not.toContainText('가입 플로우');
   await expect(grid).not.toContainText('에픽 없는 이슈');
