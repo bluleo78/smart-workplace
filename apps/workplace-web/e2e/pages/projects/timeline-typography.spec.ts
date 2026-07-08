@@ -7,6 +7,16 @@ import { createProject } from '../../factories/project.factory';
 
 const KEY = 'WP';
 
+// 그룹 기본은 접힘(사용자 요청) — 이슈는 에픽이 없어 "에픽 없음" 그룹에 묶이므로
+// 실제 이슈 막대(task 행)를 검증하려면 먼저 그룹을 펼친다.
+async function expandNoEpicGroup(page: Page) {
+  await page
+    .locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '에픽 없음' })
+    .locator('.wx-toggle-icon, [class*="toggle"]')
+    .first()
+    .click();
+}
+
 function setupStubs(page: Page) {
   return Promise.all([
     page.route(`**/api/v1/projects/${KEY}`, (route) =>
@@ -50,6 +60,7 @@ test('간트 행 높이가 40px 로 렌더된다', async ({ authenticatedPage: p
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expandNoEpicGroup(page);
   // SVAR 차트 영역의 이슈 막대 행 — cellHeight prop 이 적용되면 40px.
   // no-epic 가상 그룹의 summary 막대는 CSS 로 숨겨지므로(#649) 실제 이슈 막대(task)만 선택한다.
   const bar = page.locator('.timeline-gantt-root .wx-bar:not(.wx-summary)').first();

@@ -11,6 +11,16 @@ const KEY = 'WP';
 const EPIC_TYPE = makeEpicType();
 const SUBTASK_TYPE = makeSubtaskType();
 
+// 그룹 기본 상태는 "접힘"이다(사용자 요청 — 펼친 것만 localStorage 저장). 자식 행/막대를
+// 검증하려면 먼저 해당 그룹 행의 토글 아이콘을 눌러 펼친다(행 클릭은 상세 이동이라 토글만 클릭).
+async function expandGroup(page: Page, title: string) {
+  await page
+    .locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: title })
+    .locator('.wx-toggle-icon, [class*="toggle"]')
+    .first()
+    .click();
+}
+
 function setupStubs(page: Page) {
   return Promise.all([
     page.route(`**/api/v1/projects/${KEY}/members`, (route) => {
@@ -91,12 +101,16 @@ test('에픽 그룹 행 + 하위 트리 + 에픽 없음 그룹이 렌더된다',
   const grid = page.locator('.timeline-gantt-root .wx-grid');
   await expect(grid).toContainText('온보딩 개편'); // 에픽 그룹 행
   await expect(grid).toContainText('(1/2)'); // 진행률
-  await expect(grid).toContainText('가입 플로우'); // 하위 이슈 행
   await expect(grid).toContainText('에픽 없음'); // 가상 그룹 행
-  // summary 롤업 막대 렌더 — 에픽(epic-40) 1개만 보인다. no-epic 가상 그룹의 summary 는
-  // DOM 에는 존재하지만 group id 기준 CSS 로 항상 숨겨진다(timeline-gantt.css 참조) — 그리드
-  // 컬럼에는 하위 막대 롤업 값이 뜨더라도(#662) 간트 영역엔 no-epic 막대를 그리지 않는다.
+  // 기본은 접힘 — 에픽/에픽없음 모두 자식 행이 처음엔 숨겨져 있다(사용자 요청).
+  await expect(grid).not.toContainText('가입 플로우');
+  await expect(grid).not.toContainText('에픽 없는 이슈');
+  // 접혀 있어도 에픽 롤업 막대는 그대로 렌더된다 — 접힘 기본에서도 차트가 비어 보이지 않는다.
+  // (epic-40 1개만. no-epic summary 는 group id 기준 CSS 로 항상 숨김 — timeline-gantt.css 참조)
   await expect(page.locator('.timeline-gantt-root .wx-bar.wx-summary:visible')).toHaveCount(1);
+  // 에픽을 펼치면 하위 이슈 행이 노출된다.
+  await expandGroup(page, '온보딩 개편');
+  await expect(grid).toContainText('가입 플로우'); // 하위 이슈 행
   // "에픽 없음" 그룹 행의 시작일 컬럼은 하위 막대(18)의 실제 마감일(07-08) 기반 롤업이어야
   // 한다 — 다른 그룹/오늘 날짜 등 하위 막대와 무관한 값이 뜨면 회귀(#662).
   await expect(
@@ -106,27 +120,29 @@ test('에픽 그룹 행 + 하위 트리 + 에픽 없음 그룹이 렌더된다',
   await expect(grid).not.toContainText('하위 태스크 이슈');
 });
 
-test('에픽 접기 → 하위 행 숨김 + localStorage 저장, 재방문 시 복원', async ({ authenticatedPage: page }) => {
+test('에픽 펼치기 → 하위 행 노출 + localStorage 저장, 재방문 시 복원', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
-  await page
-    .locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '온보딩 개편' })
-    .locator('.wx-toggle-icon, [class*="toggle"]')
-    .first()
-    .click();
-  await expect(page.locator('.timeline-gantt-root .wx-grid')).not.toContainText('가입 플로우');
-  const stored = await page.evaluate((k) => localStorage.getItem(k), `timeline-collapsed:${KEY}`);
+  const grid = page.locator('.timeline-gantt-root .wx-grid');
+  // 기본 접힘 → 하위 숨김.
+  await expect(grid).not.toContainText('가입 플로우');
+  await expandGroup(page, '온보딩 개편');
+  await expect(grid).toContainText('가입 플로우');
+  // "펼친 것만 저장" 모델 — 펼친 그룹 key 가 localStorage 에 담긴다.
+  const stored = await page.evaluate((k) => localStorage.getItem(k), `timeline-expanded:${KEY}`);
   expect(JSON.parse(stored ?? '[]')).toContain('epic-40');
+  // 재방문 시 펼침 상태 복원.
   await page.reload();
-  await expect(page.locator('.timeline-gantt-root .wx-grid')).toBeVisible();
-  await expect(page.locator('.timeline-gantt-root .wx-grid')).not.toContainText('가입 플로우');
+  await expect(grid).toBeVisible();
+  await expect(grid).toContainText('가입 플로우');
 });
 
 test('미정 에픽 자식은 "일정 미정"이 아니라 에픽 아래 행으로 노출된다(중복 제거)', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
   const grid = page.locator('.timeline-gantt-root .wx-grid');
-  // 미정 자식(42, 온보딩 미정 하위)이 에픽(40) 아래 그리드 행으로 보인다.
+  // 에픽을 펼치면 미정 자식(42, 온보딩 미정 하위)이 에픽(40) 아래 그리드 행으로 보인다.
+  await expandGroup(page, '온보딩 개편');
   await expect(grid).toContainText('온보딩 미정 하위');
   // 그 막대는 없다(미정).
   await expect(page.locator(".timeline-gantt-root .wx-bar[data-task-id*='undated-42']")).toBeHidden();
@@ -217,7 +233,10 @@ test('하위 이슈가 모두 일정 미정인 에픽만 배치돼도 간트가 
   // 정상 렌더된다는 것이 곧 크래시하지 않았다는 증거.
   await expect(grid).toContainText('탐색 EPIC 테스트');
   await expect(page.getByText('페이지를 불러오는 중 문제가 발생했습니다')).not.toBeVisible();
-  // 미정 하위 2건(61,62)은 이제 에픽 아래 그리드 행으로 노출되고(막대 없음), 일정 미정엔 없다.
+  // 펼치면 open:true 로 SVAR 트리 빌더가 자식을 순회한다 — #656 크래시가 났던 바로 그 경로.
+  await expandGroup(page, '탐색 EPIC 테스트');
+  await expect(page.getByText('페이지를 불러오는 중 문제가 발생했습니다')).not.toBeVisible();
+  // 미정 하위 2건(61,62)은 에픽 아래 그리드 행으로 노출되고(막대 없음), 일정 미정엔 없다.
   await expect(grid).toContainText('미정 하위 1');
   await expect(grid).toContainText('미정 하위 2');
   await expect(page.locator(".timeline-gantt-root .wx-bar[data-task-id*='undated-61']")).toBeHidden();
@@ -255,6 +274,11 @@ test('이슈 번호 접미사 충돌(5 vs 25)에도 프리즈 없이 각 막대�
 }) => {
   await setupSuffixCollisionStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
+  // 막대 25 는 에픽(10) 아래, 막대 5 는 "에픽 없음" 그룹 아래 — 기본 접힘에선 둘 다 숨겨진다.
+  // 두 그룹을 모두 펼쳐야 5·25 가 동시에 렌더돼 접미사 충돌(색 주입 MutationObserver 무한 루프)
+  // 조건이 성립한다.
+  await expandGroup(page, '인증 에픽');
+  await expandGroup(page, '에픽 없음');
   // 프리즈였다면 렌더가 멈춰 이 대기가 타임아웃된다 — 두 막대가 모두 뜨는 것이 곧 비프리즈 증거.
   const bar25 = page.locator('.timeline-gantt-root .wx-bar[data-task-id="25"]');
   const bar5 = page.locator('.timeline-gantt-root .wx-bar[data-task-id="5"]');
@@ -302,6 +326,9 @@ test('에픽에 미정 하위가 있으면 펼침 가능하고 미정 행은 막
   await setupEpicWithUndatedStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
   const grid = page.locator('.timeline-gantt-root .wx-grid');
+  // 기본 접힘 → 자식 숨김. 에픽은 펼침 가능해야 한다.
+  await expect(grid).not.toContainText('백엔드 설계');
+  await expandGroup(page, '온보딩 개편');
   await expect(grid).toContainText('가입 플로우'); // 날짜 자식(막대 O)
   await expect(grid).toContainText('백엔드 설계'); // 미정 자식이 에픽 아래 그리드 행으로 노출
   // 미정 자식의 간트 막대는 CSS 로 숨겨진다(그리드 행은 있지만 차트 막대는 없음). 문자열 id 는 ':' 접두.
@@ -314,12 +341,8 @@ test('에픽에 미정 하위가 있으면 펼침 가능하고 미정 행은 막
   ).toContainText('미정');
   // "일정 미정" 섹션엔 미정 에픽 자식(12)이 없다(중복 제거).
   await expect(page.getByTestId('unscheduled-row-12')).toHaveCount(0);
-  // 에픽 펼침(▾) 토글 클릭 → 두 자식 행 모두 숨김.
-  await page
-    .locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '온보딩 개편' })
-    .locator('.wx-toggle-icon, [class*="toggle"]')
-    .first()
-    .click();
+  // 다시 접힘(▾) 토글 클릭 → 두 자식 행 모두 숨김.
+  await expandGroup(page, '온보딩 개편');
   await expect(grid).not.toContainText('백엔드 설계');
   await expect(grid).not.toContainText('가입 플로우');
 });

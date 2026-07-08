@@ -9,6 +9,17 @@ import type { MilestoneResponse } from '../../../src/types/milestone';
 
 const KEY = 'WP';
 
+// 그룹 기본 상태는 "접힘"이다(사용자 요청 — 펼친 것만 localStorage 저장). 이 스펙의 이슈는
+// 전부 에픽이 없어 "에픽 없음" 그룹에 묶이므로, 막대/드래그/의존을 검증하려면 먼저 펼친다.
+// (행 클릭은 상세 이동이라 토글 아이콘만 클릭)
+async function expandNoEpicGroup(page: Page) {
+  await page
+    .locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '에픽 없음' })
+    .locator('.wx-toggle-icon, [class*="toggle"]')
+    .first()
+    .click();
+}
+
 function setupTimelineStubs(page: Page) {
   return Promise.all([
     page.route(`**/api/v1/projects/${KEY}/members`, (route) => {
@@ -106,6 +117,7 @@ test('이슈 막대·사이클 밴드·오늘선 렌더', async ({ authenticated
   await setupTimelineStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expandNoEpicGroup(page);
   // 기간 이슈 + 마감일만 이슈 막대가 렌더되고, 취소된 이슈/미정 이슈는 막대로 렌더되지 않는다.
   await expect(page.getByText('기간 이슈').first()).toBeVisible();
   await expect(page.getByText('마감일만 이슈').first()).toBeVisible();
@@ -154,6 +166,7 @@ test('이슈 막대가 상태별로 다른 색으로 렌더된다 (#639)', async
 
   await page.goto(`/projects/${KEY}/timeline`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expandNoEpicGroup(page);
 
   const bg = async (issueNumber: number) =>
     page
@@ -182,6 +195,7 @@ test('막대 드래그 이동 시 startDate+dueDate PATCH', async ({ authenticat
     return route.fallback();
   });
   await page.goto(`/projects/${KEY}/timeline`);
+  await expandNoEpicGroup(page);
   const bar = page.locator('[data-task-id="1"]');
   await expect(bar).toBeVisible();
   const box = (await bar.boundingBox())!;
@@ -224,6 +238,7 @@ test('PATCH 실패 시 토스트 노출 + 서버 상태 복원', async ({ authen
     return route.fallback();
   });
   await page.goto(`/projects/${KEY}/timeline`);
+  await expandNoEpicGroup(page);
   const bar = page.locator('[data-task-id="1"]');
   await expect(bar).toBeVisible();
   const initialRefetchCount = issuesRefetchCount;
@@ -257,6 +272,7 @@ test('비멤버는 드래그 비활성', async ({ authenticatedPage: page }) => 
     return route.fallback();
   });
   await page.goto(`/projects/${KEY}/timeline`);
+  await expandNoEpicGroup(page);
   const bar = page.locator('[data-task-id="1"]');
   await expect(bar).toBeVisible();
   const box = (await bar.boundingBox())!;
@@ -281,6 +297,7 @@ test('의존 화살표 렌더 (표시 전용)', async ({ authenticatedPage: page
   });
   await page.goto(`/projects/${KEY}/timeline`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expandNoEpicGroup(page);
   const link = page.locator('[data-link-id]');
   await expect(link).toHaveCount(1);
   // 화살표가 finish-to-start(e2s) 로 그려지는지 실제 렌더 좌표로 검증(#671 회귀 방지) —
@@ -317,6 +334,8 @@ test('의존 화살표 렌더 (표시 전용)', async ({ authenticatedPage: page
       body: JSON.stringify(createProject({ key: KEY, viewerIsMember: false })),
     });
   });
+  // 재방문(reload) — 앞서 펼친 "에픽 없음" 그룹 상태가 localStorage 로 복원되므로
+  // 여기서 다시 펼치면 오히려 접힌다. 복원된 펼침 상태 그대로 막대가 보여야 한다.
   await page.goto(`/projects/${KEY}/timeline`);
   const bar = page.locator('[data-task-id="1"]');
   await expect(bar).toBeVisible();

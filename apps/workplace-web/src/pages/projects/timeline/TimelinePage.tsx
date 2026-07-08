@@ -76,20 +76,21 @@ export default function TimelinePage() {
     [dependencies.data, groups],
   );
 
-  // 에픽 그룹 접힘 상태 — localStorage 로 프로젝트별 지속(#649). 페이지가 소유하고
-  // TimelineGantt 는 collapsedKeys/onToggleGroup props 로만 상태를 주고받는다.
-  const collapseStorageKey = `timeline-collapsed:${key}`;
-  const [collapsedKeys, setCollapsedKeys] = useState<string[]>(() => {
+  // 에픽 그룹 펼침 상태 — localStorage 로 프로젝트별 지속(#649). 페이지가 소유하고
+  // TimelineGantt 는 expandedKeys/onToggleGroup props 로만 상태를 주고받는다.
+  // "펼친 것만 저장" 모델 — 초기값 빈 배열이면 모든 그룹이 접힘이 기본이다(사용자 요청).
+  const expandStorageKey = `timeline-expanded:${key}`;
+  const [expandedKeys, setExpandedKeys] = useState<string[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem(collapseStorageKey) ?? '[]') as string[];
+      return JSON.parse(localStorage.getItem(expandStorageKey) ?? '[]') as string[];
     } catch {
       return [];
     }
   });
   const handleToggleGroup = (groupKey: string, open: boolean) => {
-    setCollapsedKeys((prev) => {
-      const next = open ? prev.filter((k) => k !== groupKey) : [...new Set([...prev, groupKey])];
-      localStorage.setItem(collapseStorageKey, JSON.stringify(next));
+    setExpandedKeys((prev) => {
+      const next = open ? [...new Set([...prev, groupKey])] : prev.filter((k) => k !== groupKey);
+      localStorage.setItem(expandStorageKey, JSON.stringify(next));
       return next;
     });
   };
@@ -171,7 +172,7 @@ export default function TimelinePage() {
       <div className="min-h-0 flex-1 p-6" data-testid="timeline-gantt">
         <TimelineGantt
           groups={groups}
-          collapsedKeys={collapsedKeys}
+          expandedKeys={expandedKeys}
           onToggleGroup={handleToggleGroup}
           milestones={milestoneMarkers}
           cycles={cycleBands}

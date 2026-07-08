@@ -38,9 +38,9 @@ export type TimelineZoom = 'week' | 'month'
 export interface TimelineGanttProps {
   /** 에픽 그룹 트리(#649) — bars 대신 groups 를 받아 부모(에픽)/자식(하위 이슈) 트리로 렌더한다. */
   groups: TimelineEpicGroup[]
-  /** 접힌 그룹 key 목록 — localStorage 지속은 페이지(TimelinePage)가 소유. */
-  collapsedKeys: string[]
-  /** SVAR 트리 토글 → 페이지 상태로 접힘 여부 보고. */
+  /** 펼친 그룹 key 목록 — localStorage 지속은 페이지(TimelinePage)가 소유. 빈 목록이면 전부 접힘이 기본. */
+  expandedKeys: string[]
+  /** SVAR 트리 토글 → 페이지 상태로 펼침 여부 보고. */
   onToggleGroup: (key: string, open: boolean) => void
   milestones: TimelineMilestoneMarker[]
   cycles: TimelineCycleBand[]
@@ -125,7 +125,7 @@ const GRID_COLUMNS: IColumnConfig[] = [
  */
 export function TimelineGantt({
   groups,
-  collapsedKeys,
+  expandedKeys,
   onToggleGroup,
   milestones,
   cycles,
@@ -164,7 +164,7 @@ export function TimelineGantt({
     // 마일스톤은 더 이상 SVAR task 로 렌더되지 않는다(#648) — 이슈 행을 차지하지 않도록 상단 고정
     // 레인(칩)+세로 점선 오버레이로 완전히 분리했다.
     // 에픽 그룹 트리(#649) — 그룹 행(summary) + 자식 행(task, parent 연결)을 순서대로 쌓는다.
-    const collapsed = new Set(collapsedKeys)
+    const expanded = new Set(expandedKeys)
     const result: ITask[] = []
     for (const group of groups) {
       const groupId = groupTaskId(group.key)
@@ -189,7 +189,7 @@ export function TimelineGantt({
         start: parseISO(fallbackDate),
         end: addDays(parseISO(fallbackDue), 1),
         type: hasChildren ? 'summary' : 'task',
-        ...(hasChildren ? { open: !collapsed.has(group.key) } : {}),
+        ...(hasChildren ? { open: expanded.has(group.key) } : {}),
         ...(noBar ? { nobar: true } : {}), // 시작일/기간 컬럼 "미정" 표기용 마커
       })
       // 미정 하위(#에픽펼침) — 에픽 아래 그리드 행으로만 보이고 간트 막대는 CSS 로 숨긴다.
@@ -224,7 +224,7 @@ export function TimelineGantt({
       }
     }
     return result
-  }, [groups, collapsedKeys])
+  }, [groups, expandedKeys])
 
   const links = useMemo(
     () =>
