@@ -8,7 +8,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.file.dto.FileUploadResponse;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
-import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.file.storage.FileStore;
 import com.workplace.global.tenant.TenantContext;
@@ -134,13 +133,29 @@ class FileUploadServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void uploadFiles_unsupportedType_throwsException() {
+  void uploadFiles_previouslyBlockedType_storedAsOther() throws IOException {
+    // 과거 화이트리스트에서 차단되던 유형(.exe)도 이제 저장 허용 — 미분류는 OTHER 카테고리로 저장된다.
     MockMultipartFile file =
         new MockMultipartFile(
-            "files", "virus.exe", "application/x-msdownload", "fake-exe".getBytes());
+            "files", "app.exe", "application/x-msdownload", "fake-exe".getBytes());
+
+    List<FileUploadResponse> responses = fileUploadService.uploadFiles(List.of(file), testUserId);
+
+    assertThat(responses).hasSize(1);
+    assertThat(responses.get(0).originalName()).isEqualTo("app.exe");
+    assertThat(responses.get(0).fileCategory()).isEqualTo("OTHER");
+  }
+
+  @Test
+  void uploadFiles_otherTypeTooLarge_throwsException() {
+    // OTHER 한도 25MB 초과 → 크기 예외.
+    byte[] bigContent = new byte[26 * 1024 * 1024];
+    MockMultipartFile file =
+        new MockMultipartFile("files", "big.bin", "application/octet-stream", bigContent);
 
     assertThatThrownBy(() -> fileUploadService.uploadFiles(List.of(file), testUserId))
-        .isInstanceOf(UnsupportedUploadFileTypeException.class);
+        .isInstanceOf(FileSizeLimitExceededException.class)
+        .hasMessageContaining("OTHER");
   }
 
   @Test

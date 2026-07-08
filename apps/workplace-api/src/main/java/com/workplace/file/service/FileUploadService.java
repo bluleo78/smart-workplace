@@ -5,7 +5,6 @@ import static com.workplace.jooq.Tables.FILE;
 import com.workplace.file.dto.FileUploadResponse;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
-import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
@@ -18,7 +17,6 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,26 +29,6 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 @Slf4j
 public class FileUploadService {
-
-  private static final Set<String> ALLOWED_MIME_TYPES =
-      Set.of(
-          "image/png",
-          "image/jpeg",
-          "image/gif",
-          "image/webp",
-          "image/svg+xml",
-          "application/pdf",
-          "text/plain",
-          "text/markdown",
-          "application/json",
-          "text/xml",
-          "application/xml",
-          "text/yaml",
-          "application/x-yaml",
-          "text/csv",
-          "application/csv",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
   private static final Map<String, String> MIME_TO_CATEGORY =
       Map.ofEntries(
@@ -75,14 +53,16 @@ public class FileUploadService {
           Map.entry("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "DATA"));
 
   // 카테고리별 첨부 사이즈 제한 (바이트). DATA는 대용량 CSV/XLSX 적재를 위해 256MB까지 허용,
-  // 나머지(IMAGE/PDF/TEXT/DOCUMENT)는 10MB로 통일한다.
+  // 나머지(IMAGE/PDF/TEXT/DOCUMENT)는 10MB로 통일한다. OTHER(미분류 allow-all)는 파일당 multipart
+  // 상한(application.yml max-file-size 25MB)과 동일한 25MB.
   private static final Map<String, Long> CATEGORY_SIZE_LIMITS =
       Map.of(
           "IMAGE", 10L * 1024 * 1024,
           "PDF", 10L * 1024 * 1024,
           "TEXT", 10L * 1024 * 1024,
           "DATA", 256L * 1024 * 1024,
-          "DOCUMENT", 10L * 1024 * 1024);
+          "DOCUMENT", 10L * 1024 * 1024,
+          "OTHER", 25L * 1024 * 1024);
 
   private final DSLContext dsl;
   private final ThumbnailGenerator thumbnailGenerator;
@@ -127,11 +107,9 @@ public class FileUploadService {
   private FileUploadResponse uploadSingleFile(MultipartFile file, Long userId) throws IOException {
     String mimeType = resolveMimeType(file);
 
-    if (!ALLOWED_MIME_TYPES.contains(mimeType)) {
-      throw new UnsupportedUploadFileTypeException(mimeType);
-    }
-
-    String category = MIME_TO_CATEGORY.get(mimeType);
+    // 저장 게이트 없음(allow-all): 유형은 저장을 막지 않는다. 미분류 유형은 OTHER 카테고리로 폴백해
+    // 크기 한도 조회/저장이 NPE·null 없이 동작하게 한다. 유형별 정책 제어는 별도 이슈(#725)에서 도입.
+    String category = MIME_TO_CATEGORY.getOrDefault(mimeType, "OTHER");
     long sizeLimit = CATEGORY_SIZE_LIMITS.get(category);
     if (file.getSize() > sizeLimit) {
       throw new FileSizeLimitExceededException(category, sizeLimit);
