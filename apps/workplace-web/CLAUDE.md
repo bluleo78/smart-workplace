@@ -9,7 +9,7 @@ Smart Workplace 의 **단일 SPA**. 인증·프로필·관리자(사용자/역�
 ## Commands
 
 ```bash
-pnpm dev              # Vite dev (port 6173), /api → 9090 프록시
+pnpm dev              # Vite dev (port 6173), /api → 6060 프록시
 pnpm build            # tsc 검증 + Vite production 빌드
 pnpm preview          # production 빌드 미리보기
 pnpm lint             # ESLint
@@ -54,7 +54,7 @@ src/
 - **테마**: `next-themes` (dark/light/system)
 - **토스트**: Sonner (`toast.success()`, `toast.error()`)
 - **한국어 주석 필수**: 컴포넌트·훅·주요 로직 (JSDoc/인라인). 상세는 루트 [코딩 컨벤션](../../docs/CODING_CONVENTION.md)
-- **Vite 프록시**: `/api` → `localhost:9090` (SSE 응답은 버퍼링 해제 헤더 자동 추가)
+- **Vite 프록시**: `/api` → `localhost:6060` (SSE 응답은 버퍼링 해제 헤더 자동 추가)
 
 ## E2E Testing (Playwright)
 

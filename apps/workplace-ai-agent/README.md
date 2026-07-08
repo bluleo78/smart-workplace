@@ -5,7 +5,7 @@ Smart Workplace 의 AI Agent 서비스. 현재는 **스캐폴딩 단계** — �
 ## Commands
 
 ```bash
-pnpm dev          # tsx watch — 포트 7070
+pnpm dev          # tsx watch — 포트 6070
 pnpm build        # tsc
 pnpm start        # node dist/index.js
 pnpm test         # Vitest

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "scripts": {
     "build": "turbo run build",
-    "dev": "node scripts/free-ports.mjs 9090 7070 7080 7090 6173 6174 && turbo run dev",
+    "dev": "node scripts/free-ports.mjs 6060 6070 6080 6090 6173 6174 && turbo run dev",
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

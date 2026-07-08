@@ -5,7 +5,7 @@ const CI = !!process.env.CI
 // E2E 전용 포트.
 // - CI: 단일 러너이므로 고정 6173.
 // - 로컬: 병렬 Claude 세션이 각자 E2E/pre-commit 을 돌려도 같은 dev 서버를 물지 않도록
-//   런마다 고유 포트로 격리한다(20000~29999, 앱 포트 6173/6174/7070/9090 회피).
+//   런마다 고유 포트로 격리한다(20000~29999, 앱 포트 6060/6070/6080/6090/6173/6174 회피).
 //   ⚠️ config 는 main + 각 worker 프로세스에서 따로 평가되므로 process.pid 기반은 worker 마다
 //   값이 달라져 baseURL≠서버포트(CONNECTION_REFUSED)가 된다. 그래서 main 에서 한 번만 정해
 //   process.env.E2E_PORT 에 심고, 스폰되는 worker 가 이를 상속하게 한다. E2E_PORT 외부 오버라이드 허용.

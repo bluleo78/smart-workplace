@@ -29,11 +29,11 @@ few-shot 예시와 문장이 겹치지 않아 순환 평가를 방지한다.
 ```bash
 cd /path/to/smart-workplace
 
-# ai-agent 서버 (포트 7070)
+# ai-agent 서버 (포트 6070)
 cd apps/workplace-ai-agent
 pnpm dev
 
-# 또는 api 서버(포트 9090) 거쳐 호출 시
+# 또는 api 서버(포트 6060) 거쳐 호출 시
 cd apps/workplace-api
 pnpm dev
 ```
@@ -65,7 +65,7 @@ EVAL_TOKEN=changeme-local EVAL_AGENT_ID=2 EVAL_USER_ID=1 EVAL_MODEL=claude-sonne
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `EVAL_BASE_URL` | `http://localhost:7070/ai/chat` | ai-agent chat 엔드포인트 |
+| `EVAL_BASE_URL` | `http://localhost:6070/ai/chat` | ai-agent chat 엔드포인트 |
 | `EVAL_TOKEN` | _(필수)_ | `Authorization: Internal <token>` 값(INTERNAL_SERVICE_TOKEN) |
 | `EVAL_AGENT_ID` | `1` | 대행 에이전트 ID (OAuth 자격 필요) |
 | `EVAL_USER_ID` | `1` | 요청 사용자 ID |

@@ -15,10 +15,8 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat)
 - 커밋 컨벤션: [docs/COMMIT_CONVENTION.md](docs/COMMIT_CONVENTION.md)
 - 코딩 컨벤션: [docs/CODING_CONVENTION.md](docs/CODING_CONVENTION.md)
 - 로컬 DB: 포트 5434(dev), 5435(test). 컨테이너 `smart-workplace-db-1`, `smart-workplace-db-test-1`
-- 로컬 API: 포트 9090 (firehub-api 8090 과 분리)
-- 로컬 Web: 포트 6173 (firehub-web 5173 과 분리)
-- 로컬 AI Agent: 포트 7070
-- 로컬 MCP: 포트 7090
+- 로컬 서버 포트는 6000번대로 통일: API 6060 · AI Agent 6070 · Worker 6080 · MCP 6090 · Web 6173 · Admin 6174
+- (운영 compose 는 내부 포트를 별도 명시 주입 — 로컬 포트 변경과 무관)
 
 ## 이슈 관리
 

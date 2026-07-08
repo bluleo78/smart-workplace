@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
  * #519 NL→이슈 필터 라이브 eval runner.
- * ai-agent 서버(기본 http://localhost:7070)에 질의 → SSE 응답의 done 이벤트에서 show_issue_list params 캡처 → eval.json 기대값과 대조.
+ * ai-agent 서버(기본 http://localhost:6070)에 질의 → SSE 응답의 done 이벤트에서 show_issue_list params 캡처 → eval.json 기대값과 대조.
  *
  * 사용법:
- *   EVAL_BASE_URL=http://localhost:7070/ai/chat EVAL_TOKEN=<bearer-token> node eval/run-text-to-filter-eval.mjs
- *   또는 기본값 사용(ai-agent:7070, 테스트 토큰):
+ *   EVAL_BASE_URL=http://localhost:6070/ai/chat EVAL_TOKEN=<bearer-token> node eval/run-text-to-filter-eval.mjs
+ *   또는 기본값 사용(ai-agent:6070, 테스트 토큰):
  *   EVAL_TOKEN=test node eval/run-text-to-filter-eval.mjs
  *
  * 환경변수:
- *   EVAL_BASE_URL       — ai-agent chat 엔드포인트 (기본: http://localhost:7070/ai/chat)
+ *   EVAL_BASE_URL       — ai-agent chat 엔드포인트 (기본: http://localhost:6070/ai/chat)
  *   EVAL_TOKEN          — Bearer 토큰 (필수)
  *   EVAL_AGENT_ID     — 대행 에이전트 ID (기본: 1)
  *   EVAL_USER_ID      — 요청 사용자 ID (기본: 1)
@@ -23,7 +23,7 @@ import { dirname, join } from 'path';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const spec = JSON.parse(readFileSync(join(__dir, 'text-to-filter-eval.json'), 'utf8'));
 
-const CHAT_URL = process.env.EVAL_BASE_URL ?? 'http://localhost:7070/ai/chat';
+const CHAT_URL = process.env.EVAL_BASE_URL ?? 'http://localhost:6070/ai/chat';
 const TOKEN = process.env.EVAL_TOKEN;
 const AGENT_ID = Number(process.env.EVAL_AGENT_ID ?? '1');
 const USER_ID = Number(process.env.EVAL_USER_ID ?? '1');

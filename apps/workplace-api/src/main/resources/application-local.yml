@@ -20,6 +20,11 @@ management:
     health:
       show-details: always
 
+# 로컬 서버 포트는 6000번대로 통일(API 6060 / ai-agent 6070 / worker 6080 / mcp 6090 / web 6173 / admin 6174).
+# base application.yml 은 9090 이지만 local 프로파일이 6060 으로 오버라이드(운영은 prod 프로파일이라 무영향).
+server:
+  port: 6060
+
 app:
   cors:
     # 로컬 개발 서버 오리진 (workplace-web: 6173, workplace-admin 운영자 콘솔: 6174)
@@ -39,6 +44,8 @@ app:
 
 workplace:
   ai-agent:
+    # 로컬 ai-agent 포트(6070). base application.yml 기본값(7070) 을 로컬에서 오버라이드.
+    base-url: http://localhost:6070
     # 로컬 개발 전용 기본값. workplace-ai-agent/.env.local의 INTERNAL_SERVICE_TOKEN과 동일 값.
     # 프로덕션에서는 환경변수 WORKPLACE_AI_AGENT_TOKEN 으로 반드시 교체.
     internal-token: ${WORKPLACE_AI_AGENT_TOKEN:changeme-local}
@@ -47,7 +54,7 @@ workplace:
     # (없으면 빈 토큰 → fail-closed 로 모든 콜백 401 → 추출이 EXTRACTING 에서 정체). 프로덕션은 env 주입.
     internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:changeme-local}}
     enabled: true
-    base-url: http://localhost:7080
+    base-url: http://localhost:6080
     embed:
       model: bge-m3
       dimensions: 1024

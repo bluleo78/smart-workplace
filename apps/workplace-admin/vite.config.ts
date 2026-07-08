@@ -8,7 +8,7 @@ import { defineConfig } from 'vite'
 
 // 개발 프록시 대상(workplace-api).
 const API_HOST = 'localhost'
-const API_PORT = 9090
+const API_PORT = 6060
 const API_TARGET = `http://${API_HOST}:${API_PORT}`
 
 // 콜드스타트 재시도 설정.
@@ -45,7 +45,7 @@ function waitForApi(timeoutMs: number): Promise<boolean> {
 // Vite 설정.
 // - tailwindcss 플러그인으로 CSS 변환
 // - "@/..." → "src/..." 별칭
-// - 개발 서버 /api → workplace-api(9090) 프록시
+// - 개발 서버 /api → workplace-api(6060) 프록시
 // - admin 전용 포트 6174 (web 6173 과 분리)
 export default defineConfig({
   plugins: [react(), tailwindcss()],

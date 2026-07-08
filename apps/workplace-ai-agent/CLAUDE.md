@@ -9,7 +9,7 @@ Smart Workplace 의 **AI Agent 서비스**. `@anthropic-ai/claude-agent-sdk` 를
 ## Commands
 
 ```bash
-pnpm dev          # tsx watch (포트 7070)
+pnpm dev          # tsx watch (포트 6070)
 pnpm build        # tsc → dist/
 pnpm start        # node dist/index.js
 pnpm test         # Vitest (in-process supertest)

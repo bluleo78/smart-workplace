@@ -12,7 +12,7 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 
 ```bash
 # 실행
-./gradlew bootRun --args='--spring.profiles.active=local'   # 로컬 서버 (port 9090)
+./gradlew bootRun --args='--spring.profiles.active=local'   # 로컬 서버 (port 6060)
 ./gradlew build                                              # 빌드 (테스트 포함)
 ./gradlew build -x test                                      # 테스트 제외 빌드
 

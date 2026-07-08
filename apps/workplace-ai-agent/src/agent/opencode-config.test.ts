@@ -180,7 +180,7 @@ describe('buildOpencodeConfig', () => {
     );
     expect(cfg.mcp?.workplace?.type).toBe('local');
     const env = (cfg.mcp?.workplace as { environment?: Record<string, string> }).environment;
-    expect(env?.MCP_BRIDGE_URL).toBe('http://localhost:7070/internal/bridge');
+    expect(env?.MCP_BRIDGE_URL).toBe('http://localhost:6070/internal/bridge');
     expect(env?.MCP_BRIDGE_RUN_ID).toBe('run-99');
   });
 

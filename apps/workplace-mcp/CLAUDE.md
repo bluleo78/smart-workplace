@@ -69,7 +69,7 @@ workplace-mcp 자신은 PAT 를 저장·검증하지 않고 그대로 전달(패
 ## Commands
 
 ```bash
-pnpm dev          # tsx watch (포트 7090)
+pnpm dev          # tsx watch (포트 6090)
 pnpm build        # tsc → dist/
 pnpm start        # node dist/index.js
 pnpm test         # Vitest
@@ -84,7 +84,7 @@ Node.js 22 + TypeScript(ES2022/NodeNext), Express 4, `@modelcontextprotocol/sdk`
 
 ## Ports
 
-- 로컬: 7090 (`PORT` env, 기본값도 7090)
+- 로컬: 6090 (`PORT` env, 기본값도 6090)
 - 운영: 호스트 공개 포트 10002 → 컨테이너 7090 (`docker-compose.prod.yml` 의 `mcp` 서비스,
   web 10000 / admin 10001 다음 번호)
 

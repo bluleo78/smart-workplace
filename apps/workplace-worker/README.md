@@ -1,6 +1,6 @@
 # workplace-worker
 
-파일 텍스트 추출 Python 워커 서비스 (FastAPI, 포트 7080).
+파일 텍스트 추출 Python 워커 서비스 (FastAPI, 포트 6080).
 
 api 가 Drive 파일을 업로드하면 `file_extraction` 큐에 PENDING 작업을 삽입하고,
 worker 에 `POST /internal/extract` 디스패치를 보낸다.
@@ -10,7 +10,7 @@ worker 는 업로드 볼륨에서 파일을 직접 읽어 텍스트를 추출한
 ## 로컬 개발 실행
 
 workplace-worker 는 Python 서비스이므로 pnpm/turbo 워크스페이스 밖에서 별도로 실행한다.
-(root `pnpm dev` 는 Node 앱만 기동하며 7080 포트는 free 처리만 한다.)
+(root `pnpm dev` 는 Node 앱만 기동하며 6080 포트는 free 처리만 한다.)
 
 ### 의존 설치
 
@@ -26,14 +26,14 @@ pip install fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx
 | 변수 | 설명 | 예시 |
 |------|------|------|
 | `WORKER_BLOB_BASE` | api 가 파일을 저장하는 uploadDir 절대 경로 | `/Users/yourname/project/upload-data` |
-| `WORKPLACE_API_BASE_URL` | api 내부 베이스 URL | `http://localhost:9090/api/v1` |
+| `WORKPLACE_API_BASE_URL` | api 내부 베이스 URL | `http://localhost:6060/api/v1` |
 | `INTERNAL_SERVICE_TOKEN` | api / ai-agent 와 동일한 내부 서비스 토큰 | *(비밀값 — .env 에만 기록)* |
 
 로컬 `.env` 예시:
 
 ```dotenv
 WORKER_BLOB_BASE=/Users/yourname/git/smart-workplace/upload-data
-WORKPLACE_API_BASE_URL=http://localhost:9090/api/v1
+WORKPLACE_API_BASE_URL=http://localhost:6060/api/v1
 INTERNAL_SERVICE_TOKEN=dev-secret-token
 ```
 
@@ -43,10 +43,10 @@ INTERNAL_SERVICE_TOKEN=dev-secret-token
 cd apps/workplace-worker
 # .env 로드 후 기동 (--reload: 코드 변경 시 자동 재시작)
 set -a && source .env && set +a
-uvicorn app.main:app --reload --port 7080
+uvicorn app.main:app --reload --port 6080
 ```
 
-헬스체크: `curl http://localhost:7080/health`
+헬스체크: `curl http://localhost:6080/health`
 
 ## 운영 배포 토폴로지
 

@@ -21,8 +21,8 @@ interface TokenIssueDialogProps {
   onOpenChange: (next: boolean) => void;
 }
 
-// dev 기본값은 로컬 workplace-mcp 포트(7090). 배포 환경에서는 VITE_MCP_URL 로 재정의.
-const MCP_BASE_URL = (import.meta.env['VITE_MCP_URL'] as string | undefined) ?? 'http://localhost:7090';
+// dev 기본값은 로컬 workplace-mcp 포트(6090). 배포 환경에서는 VITE_MCP_URL 로 재정의.
+const MCP_BASE_URL = (import.meta.env['VITE_MCP_URL'] as string | undefined) ?? 'http://localhost:6090';
 
 export function TokenIssueDialog({
   plaintextToken,
