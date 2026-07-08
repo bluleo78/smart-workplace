@@ -126,8 +126,12 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
         {/* onSubmit 이 submittingRef.current 를 읽지만 handleSubmit 이 반환하는 핸들러는 폼
             제출 이벤트 시에만 비동기로 실행되고 렌더 중에는 호출되지 않아 안전하다
             (WikiEditor/RichInput 과 동일한 react-hooks/refs 보수적 false positive). */}
+        {/* '계속 추가' 체크박스는 의도적으로 이 <form> 밖에 둔다(id 로 submit 버튼과 연결).
+            Radix Checkbox 는 소속 form 의 reset 이벤트에 반응해 스스로 onCheckedChange(false) 를
+            발화하는데, onSuccess 의 react-hook-form reset() 이 그 reset 을 유발한다 → 폼 안에 두면
+            첫 저장 직후 체크가 풀려 '계속 추가'가 깨진다(#655 연속등록 flake 의 진짜 원인). */}
         {/* eslint-disable-next-line react-hooks/refs */}
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form id="add-member-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {serverError && (
             <p className="text-sm text-destructive" data-testid="add-member-error">
               {serverError}
@@ -172,31 +176,37 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
               </label>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="add-member-keep-open"
-              data-testid="add-member-keep-open"
-              checked={keepOpenAfterSubmit}
-              onCheckedChange={(v) => setKeepOpenAfterSubmit(v === true)}
-            />
-            <Label htmlFor="add-member-keep-open" className="text-sm font-normal">
-              계속 추가 (저장 후 다이얼로그 유지)
-            </Label>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleOpenChange(false)}
-              disabled={createMember.isPending}
-            >
-              취소
-            </Button>
-            <Button type="submit" disabled={createMember.isPending} data-testid="add-member-submit">
-              {createMember.isPending ? '추가 중...' : '추가'}
-            </Button>
-          </DialogFooter>
         </form>
+        {/* form 밖 — reset 이벤트 비수신. submit 버튼은 form="add-member-form" 로 연결. */}
+        <div className="mt-4 flex items-center gap-2">
+          <Checkbox
+            id="add-member-keep-open"
+            data-testid="add-member-keep-open"
+            checked={keepOpenAfterSubmit}
+            onCheckedChange={(v) => setKeepOpenAfterSubmit(v === true)}
+          />
+          <Label htmlFor="add-member-keep-open" className="text-sm font-normal">
+            계속 추가 (저장 후 다이얼로그 유지)
+          </Label>
+        </div>
+        <DialogFooter className="mt-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleOpenChange(false)}
+            disabled={createMember.isPending}
+          >
+            취소
+          </Button>
+          <Button
+            type="submit"
+            form="add-member-form"
+            disabled={createMember.isPending}
+            data-testid="add-member-submit"
+          >
+            {createMember.isPending ? '추가 중...' : '추가'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

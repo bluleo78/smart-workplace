@@ -129,11 +129,10 @@ test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼�
   await page.getByTestId('add-member-submit').click()
 
   // 다이얼로그가 닫히지 않고, 다음 등록을 위해 폼은 비워진다.
-  // timeout 상향(기본 10s→15s) — 전체 스위트 병렬 실행(5 워커) 시 리소스 경합으로
-  // onSuccess 리렌더가 지연되며 간헐적으로 타임아웃하던 flake 대응(#593 푸시 게이트에서 발견).
-  // add-member-submit 은 항상 마운트된 채 disabled 만 토글되므로 toBeVisible 은 리렌더 지연을
-  // 실질적으로 검증하지 못함 — 실제로 리렌더에 의존하는 건 reset() 결과인 아래 toHaveValue 들이므로
-  // 동일하게 15s 로 맞춘다.
+  // (과거 flake #593: '계속 추가' 체크박스가 <form> 안에 있어 onSuccess 의 reset() → Radix
+  //  Checkbox 가 form reset 에 반응해 스스로 onCheckedChange(false) → 첫 저장 후 체크가 풀려
+  //  2번째 저장 시 다이얼로그가 닫히던 것. 체크박스를 form 밖으로 분리해 근본 해결.
+  //  당시엔 타임아웃 상향으로 오진했으나 실제로는 '요소 소멸(닫힘)'이라 타임아웃과 무관했다.)
   await expect.poll(() => postCount).toBe(1)
   await expect(page.getByTestId('add-member-submit')).toBeVisible({ timeout: 15000 })
   await expect(page.getByTestId('add-member-username')).toHaveValue('', { timeout: 15000 })
