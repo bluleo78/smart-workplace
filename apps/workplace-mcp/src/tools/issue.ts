@@ -17,7 +17,7 @@ export function parseIssueKey(issueKey: string): { projectKey: string; number: n
 
 const issueKeyInput = z.object({ issueKey: z.string().min(1) });
 
-/** 이슈 도메인 도구 8종(list_projects/get_project/list_issues/get_issue_detail/create_issue/update_issue/add_comment/edit_comment) 을 구성한다. */
+/** 이슈 도메인 도구 10종(list_projects/get_project/list_issues/get_issue_detail/create_issue/update_issue/add_comment/edit_comment/add_issue_dependency/remove_issue_dependency) 을 구성한다. */
 export function buildIssueTools(client: PatApiClient): McpTool[] {
   const listProjectsInput = z.object({});
   const getProjectInput = z.object({ projectKey: z.string().min(1) });
@@ -70,6 +70,11 @@ export function buildIssueTools(client: PatApiClient): McpTool[] {
     parent: z.number().int().positive().nullable().optional(), // 번호=설정, null=해제, 생략=변경없음
     assignees: z.array(z.string()).optional(), // username[] → 집합 교체
     labels: z.array(z.string()).optional(), // 라벨명[] → 집합 교체
+  });
+  const dependencyInput = z.object({
+    issueKey: z.string().min(1),
+    otherIssueKey: z.string().min(1),
+    direction: z.enum(['blocks', 'blockedBy']),
   });
 
   return [
@@ -237,6 +242,40 @@ export function buildIssueTools(client: PatApiClient): McpTool[] {
         const { projectKey, number } = parseIssueKey(issueKey);
         const detail = await client.getIssueDetail(projectKey, number);
         await client.editIssueComment(detail.summary.id, commentId, body);
+        return 'ok';
+      },
+    },
+    {
+      name: 'add_issue_dependency',
+      description:
+        '이슈 간 의존성(차단 관계)을 추가합니다. direction="blocks" 면 issueKey 이슈가 ' +
+        'otherIssueKey 이슈를 차단하고, "blockedBy" 면 반대로 otherIssueKey 에 의해 차단됩니다. ' +
+        '두 이슈는 같은 프로젝트여야 합니다. 순환 관계가 되면 에러가 발생합니다.',
+      inputSchema: dependencyInput,
+      async handler(args) {
+        const { issueKey, otherIssueKey, direction } = dependencyInput.parse(args);
+        const { projectKey, number } = parseIssueKey(issueKey);
+        const { projectKey: otherProjectKey, number: otherNumber } = parseIssueKey(otherIssueKey);
+        if (otherProjectKey !== projectKey) {
+          throw new Error('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
+        }
+        return JSON.stringify(
+          await client.addIssueDependency(projectKey, number, otherNumber, direction),
+        );
+      },
+    },
+    {
+      name: 'remove_issue_dependency',
+      description: '이슈 간 의존성을 제거합니다. 존재하지 않아도 에러 없이 성공합니다(멱등).',
+      inputSchema: dependencyInput,
+      async handler(args) {
+        const { issueKey, otherIssueKey, direction } = dependencyInput.parse(args);
+        const { projectKey, number } = parseIssueKey(issueKey);
+        const { projectKey: otherProjectKey, number: otherNumber } = parseIssueKey(otherIssueKey);
+        if (otherProjectKey !== projectKey) {
+          throw new Error('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
+        }
+        await client.removeIssueDependency(projectKey, number, otherNumber, direction);
         return 'ok';
       },
     },

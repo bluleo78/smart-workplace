@@ -80,3 +80,13 @@ ai-agent 쪽은 기존 관례대로 모든 메서드 첫 인자에 `agentId`(On-
 1. AGENT가 배정된 프로젝트 내 두 이슈 간 `add`가 403 없이 통과하는지.
 2. `DependencyCycleException`(409)이 실제로 사이클 케이스에서 발생하는지(예: A→B blocks 후 B→A blocks 시도).
 3. `remove`가 멱등하게 204를 반환하는지.
+
+**라이브 검증 결과 (2026-07-09, 로컬 dev DB/api 6060 직접 기동, AGENT `ai@ai`(id=3), 프로젝트 `EX`)**:
+
+방법: `Authorization: Internal changeme-local` + `X-On-Behalf-Of: 3` 헤더로 `IssueDependencyController` 엔드포인트를 직접 curl 호출(ai-agent 오케스트레이션 전체 흐름 대신 권한 계층만 직접 타격 — 클라이언트 코드는 이미 리뷰 통과한 얇은 패스스루라 이 검증으로 충분).
+
+- **add (EX-2 blocks EX-3)**: ✅ PASS — `POST /projects/EX/issues/2/dependencies {"otherNumber":2,"direction":"blocks"}` → `200`, 갱신된 상세에 `blocks:[{number:3,...}]`, `blocked:true` 반영. AGENT 신원에 403 없음.
+- **사이클 감지 (EX-3 blocks EX-2, 반대 방향)**: ✅ PASS — `409 "의존성 사이클이 발생합니다"`.
+- **remove 멱등성 (동일 요청 2회 연속)**: ✅ PASS — 두 번 모두 `204`.
+
+**결론**: §7의 에러 매핑 전제(400/409는 그대로 propagate, AGENT 권한 갭 없음)가 모두 확인됨. 별도 코드 수정 불필요.

@@ -60,6 +60,12 @@ const updateIssueInput = z.object({
   assignees: z.array(z.string()).optional(),
   labels: z.array(z.string()).optional(),
 });
+// 이슈 간 의존성(차단 관계) add/remove 공용 입력.
+const dependencyInput = z.object({
+  issueKey: z.string().min(1),
+  otherIssueKey: z.string().min(1),
+  direction: z.enum(['blocks', 'blockedBy']),
+});
 // 6c: chat 프로필 도구 입력.
 const addChatMessageInput = z.object({
   threadId: z.number().int().positive(),
@@ -761,6 +767,38 @@ export function buildTools(
       return JSON.stringify({ ok, results });
     },
   };
+  const addDependencyTool: McpTool = {
+    name: 'add_issue_dependency',
+    description:
+      '이슈 간 의존성(차단 관계)을 추가합니다. direction="blocks" 면 issueKey 이슈가 ' +
+      'otherIssueKey 이슈를 차단하고, "blockedBy" 면 반대로 otherIssueKey 에 의해 차단됩니다. ' +
+      '두 이슈는 같은 프로젝트여야 하며, 순환 관계가 되면 에러가 발생합니다.',
+    inputSchema: dependencyInput,
+    async handler(args) {
+      const { issueKey: k, otherIssueKey, direction } = dependencyInput.parse(args);
+      const { projectKey } = parseIssueKey(k);
+      const { projectKey: otherProjectKey, number: otherNumber } = parseIssueKey(otherIssueKey);
+      if (otherProjectKey !== projectKey) {
+        throw new Error('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
+      }
+      return JSON.stringify(await client.addIssueDependency(agentId, k, otherNumber, direction));
+    },
+  };
+  const removeDependencyTool: McpTool = {
+    name: 'remove_issue_dependency',
+    description: '이슈 간 의존성을 제거합니다. 존재하지 않아도 에러 없이 성공합니다(멱등).',
+    inputSchema: dependencyInput,
+    async handler(args) {
+      const { issueKey: k, otherIssueKey, direction } = dependencyInput.parse(args);
+      const { projectKey } = parseIssueKey(k);
+      const { projectKey: otherProjectKey, number: otherNumber } = parseIssueKey(otherIssueKey);
+      if (otherProjectKey !== projectKey) {
+        throw new Error('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
+      }
+      await client.removeIssueDependency(agentId, k, otherNumber, direction);
+      return 'ok';
+    },
+  };
   // #378: unassign_self 실패 시 고정 안내 문구를 반환해 LLM 재해석을 차단한다.
   // 동시에 WORKPLACE_UNASSIGN_ERROR_PATH 사이드카에 오류를 기록해,
   // run-ai-compose 가 최종 메시지를 결정론적으로 override 한다(이중 방어).
@@ -1281,6 +1319,8 @@ export function buildTools(
       createIssueTool,
       updateIssueTool,
       unassignSelfTool,
+      addDependencyTool,
+      removeDependencyTool,
       listEventsTool,
       getEventTool,              // #333 M2: 캘린더 읽기
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
@@ -1330,6 +1370,8 @@ export function buildTools(
     createIssueTool,
     updateIssueTool,
     unassignSelfTool,
+    addDependencyTool,
+    removeDependencyTool,
   ];
 }
 

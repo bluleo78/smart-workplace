@@ -64,6 +64,8 @@ function client(): WorkplaceApiClient {
     setIssueParent: vi.fn().mockResolvedValue(undefined),
     replaceIssueAssignees: vi.fn().mockResolvedValue({}),
     replaceIssueLabels: vi.fn().mockResolvedValue({}),
+    addIssueDependency: vi.fn().mockResolvedValue({}),
+    removeIssueDependency: vi.fn().mockResolvedValue(undefined),
     listMySpaces: vi.fn().mockResolvedValue([]),
     listSpaceItems: vi.fn().mockResolvedValue([]),
     searchDrive: vi.fn().mockResolvedValue([]),
@@ -261,16 +263,51 @@ describe('buildTools (agentId bound)', () => {
     const names = buildTools(client(), AGENT_ID, 'issue').map((t) => t.name).sort();
     expect(names).toEqual([
       'add_comment',
+      'add_issue_dependency',
       'create_issue',
       'edit_comment',
       'get_issue_detail',
       'get_wiki_page',
       'list_wiki_spaces',
+      'remove_issue_dependency',
       'search_wiki',
       'unassign_self',
       'update_issue',
       'update_status',
     ]);
+  });
+
+  describe('add_issue_dependency / remove_issue_dependency', () => {
+    it('add_issue_dependency → client.addIssueDependency(agentId, issueKey, otherNumber, direction)', async () => {
+      const c = client();
+      const t = buildTools(c, AGENT_ID, 'issue').find((x) => x.name === 'add_issue_dependency')!;
+      const out = await t.handler({ issueKey: 'WP-12', otherIssueKey: 'WP-7', direction: 'blocks' });
+      expect(c.addIssueDependency).toHaveBeenCalledWith(AGENT_ID, 'WP-12', 7, 'blocks');
+      expect(out).toBe(JSON.stringify({}));
+    });
+
+    it('프로젝트가 다르면 API 호출 없이 에러를 던진다', async () => {
+      const c = client();
+      const t = buildTools(c, AGENT_ID, 'issue').find((x) => x.name === 'add_issue_dependency')!;
+      await expect(
+        t.handler({ issueKey: 'WP-12', otherIssueKey: 'OTHER-7', direction: 'blocks' }),
+      ).rejects.toThrow('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
+      expect(c.addIssueDependency).not.toHaveBeenCalled();
+    });
+
+    it('remove_issue_dependency → client.removeIssueDependency(agentId, issueKey, otherNumber, direction)', async () => {
+      const c = client();
+      const t = buildTools(c, AGENT_ID, 'issue').find((x) => x.name === 'remove_issue_dependency')!;
+      const out = await t.handler({ issueKey: 'WP-12', otherIssueKey: 'WP-7', direction: 'blockedBy' });
+      expect(c.removeIssueDependency).toHaveBeenCalledWith(AGENT_ID, 'WP-12', 7, 'blockedBy');
+      expect(out).toBe('ok');
+    });
+
+    it('assistant 프로필에도 노출된다', () => {
+      const names = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
+      expect(names).toContain('add_issue_dependency');
+      expect(names).toContain('remove_issue_dependency');
+    });
   });
 
   it('add_chat_message → client.addChatMessage(agentId, threadId, body)', async () => {

@@ -621,6 +621,26 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   });
 
+  describe('addIssueDependency', () => {
+    it('의존성을 추가하고 응답 body 를 반환한다', async () => {
+      nock(BASE)
+        .post(`${PREFIX}/projects/ABC/issues/5/dependencies`, { otherNumber: 7, direction: 'blocks' })
+        .reply(200, { summary: { id: 1, blocks: [{ number: 7 }] } });
+      const out = await newClient().addIssueDependency(7, 'ABC-5', 7, 'blocks');
+      expect(out).toEqual({ summary: { id: 1, blocks: [{ number: 7 }] } });
+    });
+  });
+
+  describe('removeIssueDependency', () => {
+    it('의존성을 제거한다', async () => {
+      nock(BASE)
+        .delete(`${PREFIX}/projects/ABC/issues/5/dependencies`)
+        .query({ otherNumber: '7', direction: 'blocks' })
+        .reply(204);
+      await newClient().removeIssueDependency(7, 'ABC-5', 7, 'blocks');
+    });
+  });
+
   // --- #333 M3: 위키 페이지 생성/수정 ---
 
   it('createWikiPage → POST /wiki/spaces/{id}/pages 로 생성하고 본문 반환', async () => {

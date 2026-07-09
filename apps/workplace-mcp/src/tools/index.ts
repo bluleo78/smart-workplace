@@ -9,7 +9,7 @@ import { buildMessagingTools } from './messaging.js';
 import type { McpTool } from './types.js';
 import { buildWikiTools } from './wiki.js';
 
-/** 사용자 PAT 컨텍스트에서 노출할 전체 도구 목록을 구성한다(이슈 8 + 위키/메시징/캘린더/드라이브/메일 15 = 총 23종). */
+/** 사용자 PAT 컨텍스트에서 노출할 전체 도구 목록을 구성한다(이슈 10 + 위키/메시징/캘린더/드라이브/메일 16 = 총 26종). */
 export function buildUserTools(client: PatApiClient): McpTool[] {
   return [
     ...buildIssueTools(client),

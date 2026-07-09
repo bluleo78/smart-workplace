@@ -236,6 +236,18 @@ export interface WorkplaceApiClient {
   setIssueParent(agentId: number, issueKey: string, parentNumber: number | null): Promise<void>;
   replaceIssueAssignees(agentId: number, issueKey: string, userIds: number[]): Promise<unknown>;
   replaceIssueLabels(agentId: number, issueKey: string, labelIds: number[]): Promise<unknown>;
+  addIssueDependency(
+    agentId: number,
+    issueKey: string,
+    otherNumber: number,
+    direction: 'blocks' | 'blockedBy',
+  ): Promise<unknown>;
+  removeIssueDependency(
+    agentId: number,
+    issueKey: string,
+    otherNumber: number,
+    direction: 'blocks' | 'blockedBy',
+  ): Promise<void>;
   updateIssueStatus(agentId: number, issueKey: string, statusKey: string): Promise<void>;
   getIssueDetail(agentId: number, issueKey: string): Promise<IssueDetail>;
   // #371: 이슈 목록 조회 — GET /me/issues. assignee 기본 'me'(서버가 principal 로 해석).
@@ -455,6 +467,23 @@ export function createWorkplaceApiClient(opts: {
           onBehalfOf(agentId),
         )
       ).data;
+    },
+    async addIssueDependency(agentId, issueKey, otherNumber, direction) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      return (
+        await http.post(
+          `/projects/${projectKey}/issues/${number}/dependencies`,
+          { otherNumber, direction },
+          onBehalfOf(agentId),
+        )
+      ).data;
+    },
+    async removeIssueDependency(agentId, issueKey, otherNumber, direction) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      await http.delete(`/projects/${projectKey}/issues/${number}/dependencies`, {
+        params: { otherNumber, direction },
+        ...onBehalfOf(agentId),
+      });
     },
     async updateIssueStatus(agentId, issueKey, statusKey) {
       const { projectKey, number } = parseIssueKey(issueKey);

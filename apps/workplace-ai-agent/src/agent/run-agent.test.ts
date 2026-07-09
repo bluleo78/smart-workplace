@@ -65,6 +65,8 @@ function client(token: string | Error): WorkplaceApiClient {
     setIssueParent: vi.fn().mockResolvedValue(undefined),
     replaceIssueAssignees: vi.fn().mockResolvedValue({}),
     replaceIssueLabels: vi.fn().mockResolvedValue({}),
+    addIssueDependency: vi.fn().mockResolvedValue({}),
+    removeIssueDependency: vi.fn().mockResolvedValue(undefined),
     listMySpaces: vi.fn().mockResolvedValue([]),
     listSpaceItems: vi.fn().mockResolvedValue([]),
     searchDrive: vi.fn().mockResolvedValue([]),

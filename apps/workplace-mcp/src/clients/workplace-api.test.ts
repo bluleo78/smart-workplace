@@ -247,4 +247,28 @@ describe('createPatApiClient', () => {
     expect(res).toEqual({ id: 9, body: '본문' });
     expect(scope.isDone()).toBe(true);
   });
+
+  describe('addIssueDependency', () => {
+    it('POST /projects/{key}/issues/{number}/dependencies 를 호출하고 응답 body 를 반환한다', async () => {
+      const scope = nock(BASE)
+        .post('/projects/WP/issues/12/dependencies', { otherNumber: 7, direction: 'blocks' })
+        .reply(200, { summary: { id: 1, blocks: [{ number: 7 }] } });
+      const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
+      const out = await client.addIssueDependency('WP', 12, 7, 'blocks');
+      expect(scope.isDone()).toBe(true);
+      expect(out).toEqual({ summary: { id: 1, blocks: [{ number: 7 }] } });
+    });
+  });
+
+  describe('removeIssueDependency', () => {
+    it('DELETE /projects/{key}/issues/{number}/dependencies 를 쿼리파라미터와 함께 호출한다', async () => {
+      const scope = nock(BASE)
+        .delete('/projects/WP/issues/12/dependencies')
+        .query({ otherNumber: '7', direction: 'blocks' })
+        .reply(204);
+      const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
+      await client.removeIssueDependency('WP', 12, 7, 'blocks');
+      expect(scope.isDone()).toBe(true);
+    });
+  });
 });

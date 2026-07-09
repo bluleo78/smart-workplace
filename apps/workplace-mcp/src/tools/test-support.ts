@@ -36,6 +36,8 @@ export function mockPatApiClient(): PatApiClient {
     updateIssue: vi.fn(),
     setIssueType: vi.fn(),
     setIssueParent: vi.fn(),
+    addIssueDependency: vi.fn(),
+    removeIssueDependency: vi.fn(),
     replaceIssueAssignees: vi.fn(),
     replaceIssueLabels: vi.fn(),
     editIssueComment: vi.fn(),

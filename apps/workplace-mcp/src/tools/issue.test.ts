@@ -22,6 +22,10 @@ function mockClient() {
   });
   (client.addIssueComment as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
   (client.updateIssueStatus as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+  (client.addIssueDependency as ReturnType<typeof vi.fn>).mockResolvedValue({
+    summary: { id: 42, blocks: [{ number: 7 }] },
+  });
+  (client.removeIssueDependency as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
   return client;
 }
 
@@ -233,5 +237,34 @@ describe('buildIssueTools', () => {
       "유형 'BUG'",
     );
     expect(c.updateIssue).not.toHaveBeenCalled();
+  });
+
+  describe('add_issue_dependency', () => {
+    it('같은 프로젝트 이슈 간 의존성을 추가하고 갱신된 상세를 반환한다', async () => {
+      const c = mockClient();
+      const t = buildIssueTools(c).find((x) => x.name === 'add_issue_dependency')!;
+      const out = await t.handler({ issueKey: 'WP-12', otherIssueKey: 'WP-7', direction: 'blocks' });
+      expect(c.addIssueDependency).toHaveBeenCalledWith('WP', 12, 7, 'blocks');
+      expect(JSON.parse(out)).toEqual({ summary: { id: 42, blocks: [{ number: 7 }] } });
+    });
+
+    it('프로젝트가 다르면 API 호출 없이 에러를 던진다', async () => {
+      const c = mockClient();
+      const t = buildIssueTools(c).find((x) => x.name === 'add_issue_dependency')!;
+      await expect(
+        t.handler({ issueKey: 'WP-12', otherIssueKey: 'OTHER-7', direction: 'blocks' }),
+      ).rejects.toThrow('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
+      expect(c.addIssueDependency).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('remove_issue_dependency', () => {
+    it('의존성을 제거하고 ok 를 반환한다', async () => {
+      const c = mockClient();
+      const t = buildIssueTools(c).find((x) => x.name === 'remove_issue_dependency')!;
+      const out = await t.handler({ issueKey: 'WP-12', otherIssueKey: 'WP-7', direction: 'blockedBy' });
+      expect(c.removeIssueDependency).toHaveBeenCalledWith('WP', 12, 7, 'blockedBy');
+      expect(out).toBe('ok');
+    });
   });
 });

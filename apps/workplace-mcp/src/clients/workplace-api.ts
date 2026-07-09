@@ -42,6 +42,18 @@ export interface PatApiClient {
   updateIssue(projectKey: string, number: number, body: Record<string, unknown>): Promise<unknown>;
   setIssueType(projectKey: string, number: number, typeId: number): Promise<void>;
   setIssueParent(projectKey: string, number: number, parentNumber: number | null): Promise<void>;
+  addIssueDependency(
+    projectKey: string,
+    number: number,
+    otherNumber: number,
+    direction: 'blocks' | 'blockedBy',
+  ): Promise<unknown>;
+  removeIssueDependency(
+    projectKey: string,
+    number: number,
+    otherNumber: number,
+    direction: 'blocks' | 'blockedBy',
+  ): Promise<void>;
   replaceIssueAssignees(
     projectKey: string,
     number: number,
@@ -137,6 +149,20 @@ export function createPatApiClient(opts: { baseURL: string; token: string }): Pa
       await http.patch(`/projects/${encodeURIComponent(projectKey)}/issues/${number}/parent`, {
         parentNumber,
       });
+    },
+    async addIssueDependency(projectKey, number, otherNumber, direction) {
+      return (
+        await http.post(
+          `/projects/${encodeURIComponent(projectKey)}/issues/${number}/dependencies`,
+          { otherNumber, direction },
+        )
+      ).data;
+    },
+    async removeIssueDependency(projectKey, number, otherNumber, direction) {
+      await http.delete(
+        `/projects/${encodeURIComponent(projectKey)}/issues/${number}/dependencies`,
+        { params: { otherNumber, direction } },
+      );
     },
     async replaceIssueAssignees(projectKey, number, userIds) {
       return (
