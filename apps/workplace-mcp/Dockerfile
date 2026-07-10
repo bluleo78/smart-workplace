@@ -1,10 +1,8 @@
 # === Stage 1: Build ===
-# 빌드 스테이지에 --platform=$BUILDPLATFORM 를 쓰지 않는다(빌더 네이티브 아키 고정 금지).
-# @anthropic-ai/claude-agent-sdk 는 아키별 네이티브 CLI 바이너리(linux-x64-musl 등)를
-# optional dep 으로 받는데, 빌드 스테이지를 빌더(arm64) 아키에 고정하면 그 node_modules 가
-# 타깃(amd64) 런타임으로 그대로 COPY 되어 "Native CLI binary for linux-x64 not found" 로 죽는다.
-# 핀을 빼면 멀티아치 빌드 시 각 타깃이 자기 아키(QEMU 에뮬)로 install 해 올바른 네이티브 패키지를 받는다.
-FROM node:22-alpine AS build
+# --platform=$BUILDPLATFORM 를 쓰지 않는다(= TARGETPLATFORM 네이티브 빌드). 아키/libc 종속
+# 산출물이 타깃 런타임에서 그대로 동작해야 하기 때문.
+# glibc 베이스(node:24, alpine=musl 금지) — glibc DHI 런타임(dhi.io/node:24)과 libc 를 맞춘다.
+FROM node:24 AS build
 
 RUN corepack enable && corepack prepare pnpm@10.11.0 --activate
 
@@ -27,19 +25,16 @@ RUN pnpm --filter @smart-workplace/workplace-mcp build
 RUN pnpm --filter @smart-workplace/workplace-mcp deploy --legacy --prod /prod
 
 # === Stage 2: Runtime ===
-FROM node:22-alpine
-
-# 비루트 사용자로 실행 (ai-agent 와 동일 관례 — 최소권한 유지)
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# DHI 하드닝 런타임(distroless) — shell/패키지매니저 없음, nonroot(node, UID 1000) 기본.
+# distroless 라 addgroup/adduser/RUN chown 불가 → COPY 시 nonroot(1000) 소유로 복사.
+FROM dhi.io/node:24-debian13
 
 WORKDIR /app
 
-COPY --from=build /prod ./
-COPY --from=build /app/apps/workplace-mcp/dist ./dist
+COPY --from=build --chown=1000:1000 /prod ./
+COPY --from=build --chown=1000:1000 /app/apps/workplace-mcp/dist ./dist
 
-RUN chown -R appuser:appgroup /app
-
-USER appuser
+USER 1000
 
 EXPOSE 7090
 

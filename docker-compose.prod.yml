@@ -6,13 +6,20 @@ name: smart-workplace-prod
 
 services:
   db:
-    image: pgvector/pgvector:pg16   # pgvector 확장 포함 — Drive 콘텐츠 벡터 검색(#527)
+    # DHI 하드닝 postgres 18 + pgvector(#527) — db/Dockerfile 에서 소스 빌드.
+    # nonroot(uid 70), PGDATA=/var/lib/postgresql/18/data. nonroot 볼륨 소유권 함정을
+    # 피하려 named 볼륨을 쓴다(Docker 가 uid 70 시딩).
+    # ⚠️ pg16→pg18 은 메이저 업그레이드 — 첫 배포 전 기존 데이터 dump/restore 선행 필수(별도 ops).
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+    image: smart-workplace-db:pg18-pgvector
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-workplace}
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
-      - ./db-data:/var/lib/postgresql/data
+      - prod-db-data:/var/lib/postgresql/18/data
     networks:
       - workplace-net
     healthcheck:
@@ -44,21 +51,15 @@ services:
       # 파일 저장 루트 — worker 가 마운트하는 동일 공유 디렉터리로 고정.
       WORKPLACE_STORAGE_ROOT_DIR: /data/storage-data
     volumes:
-      # db-data·ai-agent-data 와 동일하게 호스트 bind mount 로 두어 백업·점검 용이.
+      # 업로드 파일 저장 루트(host bind — 백업·점검 용이). ⚠️ distroless api 는 nonroot(uid 65532)로
+      # 실행되므로 배포 시 호스트 ./storage-data 를 uid 65532 소유로 준비해야 쓰기 가능.
       - ./storage-data:/data/storage-data
     depends_on:
       db:
         condition: service_healthy
     networks:
       - workplace-net
-    healthcheck:
-      # /actuator/health 는 anyRequest().permitAll() 로 공개. 첫 부팅 시 Flyway 89개 마이그레이션을
-      # 흡수하도록 start_period 를 넉넉히 둔다.
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9090/actuator/health > /dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 120s
+    # healthcheck 제거: DHI distroless 런타임엔 curl/shell 이 없다. 의존 서비스는 plain depends_on 사용.
     restart: unless-stopped
 
   ai-agent:
@@ -67,23 +68,20 @@ services:
       context: .
       dockerfile: apps/workplace-ai-agent/Dockerfile
     volumes:
-      # claude CLI OAuth 토큰 캐시·세션. 토큰 자체는 매 호출 시 workplace-api DB 에서 fetch.
-      - ./ai-agent-data:/home/appuser/.claude
+      # claude OAuth 토큰 캐시·세션. 토큰 자체는 매 호출 시 workplace-api DB 에서 fetch(캐시는 비필수).
+      # ⚠️ DHI node 런타임은 nonroot(node, uid 1000)·HOME=/home/node → 마운트 경로도 /home/node/.claude.
+      #    배포 시 호스트 ./ai-agent-data 를 uid 1000 소유로 준비해야 쓰기 가능(미준비 시 이미지 스켈레톤 사용).
+      - ./ai-agent-data:/home/node/.claude
     environment:
       PORT: "7070"
       # api 의 WORKPLACE_AI_AGENT_TOKEN 과 동일 값이어야 내부 인증 통과.
       INTERNAL_SERVICE_TOKEN: ${WORKPLACE_AI_AGENT_TOKEN}
       WORKPLACE_API_BASE_URL: http://api:9090/api/v1
     depends_on:
-      api:
-        condition: service_healthy
+      - api   # api 는 healthcheck 없음(distroless) → plain depends_on
     networks:
       - workplace-net
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:7070/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # healthcheck 제거: DHI distroless 런타임엔 wget/shell 이 없다.
     restart: unless-stopped
 
   worker:
@@ -100,15 +98,10 @@ services:
     volumes:
       - ./storage-data:/data/storage-data:ro
     depends_on:
-      api:
-        condition: service_healthy
+      - api   # api 는 healthcheck 없음(distroless) → plain depends_on
     networks:
       - workplace-net
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:7080/health > /dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # healthcheck 제거: DHI distroless 런타임엔 curl/shell 이 없다.
     restart: unless-stopped
 
   mcp:
@@ -122,15 +115,10 @@ services:
     ports:
       - "10002:7090"   # 외부 MCP 클라이언트 공개 (web 10000 / admin 10001 다음)
     depends_on:
-      api:
-        condition: service_healthy
+      - api   # api 는 healthcheck 없음(distroless) → plain depends_on
     networks:
       - workplace-net
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7090/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+    # healthcheck 제거: DHI distroless 런타임엔 wget/shell 이 없다.
     restart: unless-stopped
 
   web:
@@ -143,10 +131,9 @@ services:
         # 다른 무해한 폴백(운영 도메인 기준 실제 접근 가능한 포트).
         VITE_MCP_URL: ${VITE_MCP_URL:-http://localhost:10002}
     ports:
-      - "${WEB_PORT:-10000}:80"
+      - "${WEB_PORT:-10000}:8080"   # DHI nginx 는 nonroot → 컨테이너 8080 리슨
     depends_on:
-      api:
-        condition: service_healthy
+      - api   # api 는 healthcheck 없음(distroless) → plain depends_on
     networks:
       - workplace-net
     restart: unless-stopped
@@ -157,10 +144,9 @@ services:
       context: .
       dockerfile: apps/workplace-admin/Dockerfile
     ports:
-      - "${ADMIN_PORT:-10001}:80"
+      - "${ADMIN_PORT:-10001}:8080"   # DHI nginx 는 nonroot → 컨테이너 8080 리슨
     depends_on:
-      api:
-        condition: service_healthy
+      - api   # api 는 healthcheck 없음(distroless) → plain depends_on
     networks:
       - workplace-net
     restart: unless-stopped
@@ -168,3 +154,7 @@ services:
 networks:
   workplace-net:
     driver: bridge
+
+# DHI postgres(nonroot uid 70) 데이터 — named 볼륨(소유권 시딩).
+volumes:
+  prod-db-data:

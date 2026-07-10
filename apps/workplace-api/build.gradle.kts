@@ -7,7 +7,7 @@ import java.nio.file.StandardOpenOption
 
 plugins {
     java
-    id("org.springframework.boot") version "3.4.1"
+    id("org.springframework.boot") version "3.5.16"
     id("io.spring.dependency-management") version "1.1.7"
     id("nu.studer.jooq") version "9.0"
     id("com.diffplug.spotless") version "6.25.0"
@@ -64,6 +64,12 @@ jacoco {
 
 group = "com.workplace"
 version = "0.0.1-SNAPSHOT"
+
+// Flyway 를 Spring Boot BOM(3.5.x = 11.7)이 아니라 11.20.3 으로 고정한다 (postgres 18):
+// PG18 정식 지원은 Flyway 11.20+ 부터이고(11.7/BOM 은 "support has not been tested" 경고),
+// Flyway 12 는 Spring Boot 3.x 의 FlywayAutoConfiguration 과 비호환이다(cleanOnValidationError
+// 제거 → NoSuchMethodError). 11.20.3 은 PG18 지원 + Flyway 11 API 유지로 둘 다 만족한다.
+extra["flyway.version"] = "11.20.3"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
