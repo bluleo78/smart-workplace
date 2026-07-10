@@ -95,6 +95,40 @@ describe('buildTools (agentId bound)', () => {
     expect(JSON.parse(out)).toMatchObject({ issueKey: 'WP-1' });
   });
 
+  // Task 6 (#373 회귀 가드 재배치): 공유 도구가 흡수한 normalizeIssueDetail(summary 언랩 +
+  // flat comment author → nested + 의존성 top-level lift)를 ai-agent 통합 지점에서 검증한다.
+  it('get_issue_detail → raw {summary,...} 를 normalizeIssueDetail 로 정규화한 JSON 을 반환한다', async () => {
+    const c = client();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({
+      key: 'WP-9',
+      summary: {
+        title: '분석', status: 'TODO', priority: 'MID',
+        assignees: [{ id: 201, username: 'ai-bot', name: 'AI', kind: 'AGENT' }],
+        blockedBy: [{ number: 3, title: '선행', status: 'DONE' }],
+        blocks: [], blocked: true,
+      },
+      body: '본문',
+      comments: [
+        { id: 1, authorId: 3, authorName: '홍길동', authorKind: 'HUMAN', body: '코멘트', createdAt: '2026-06-07T00:00:00Z' },
+      ],
+    } as never);
+    const t = buildTools(c, AGENT_ID).find((x) => x.name === 'get_issue_detail')!;
+    const out = JSON.parse(await t.handler({ issueKey: 'WP-9' }));
+    expect(c.getIssueDetail).toHaveBeenCalledWith(AGENT_ID, 'WP-9');
+    // summary 언랩 + flat author → nested author 변환 + 의존성 top-level lift 확인.
+    expect(out).toMatchObject({
+      issueKey: 'WP-9',
+      title: '분석',
+      status: 'TODO',
+      priority: 'MID',
+      blocked: true,
+      blockedBy: [{ number: 3, title: '선행', status: 'DONE' }],
+      blocks: [],
+    });
+    expect(out.comments[0].author).toEqual({ id: 3, username: '홍길동', name: '홍길동', kind: 'HUMAN' });
+    expect(out.comments[0].body).toBe('코멘트');
+  });
+
   it('add_comment → client.addIssueComment(agentId, key, body)', async () => {
     const c = client();
     const t = buildTools(c, AGENT_ID).find((x) => x.name === 'add_comment')!;

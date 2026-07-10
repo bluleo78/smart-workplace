@@ -2,69 +2,19 @@
 import { z } from 'zod';
 
 import {
-  resolveAssigneeIds,
-  resolveLabelIds,
-  resolveTypeId,
-  type ProjectMetaClient,
+  buildSharedIssueTools,
+  type IssueToolClient,
+  type McpTool,
 } from '@smart-workplace/issue-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { parseIssueKey } from '../clients/workplace-api.js';
 
-export interface McpTool {
-  name: string;
-  description: string;
-  inputSchema: z.ZodTypeAny;
-  handler: (args: unknown) => Promise<string>;
-}
+// sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
+export type { McpTool };
 
 const issueKey = z.object({ issueKey: z.string().min(1) });
-const addCommentInput = z.object({
-  issueKey: z.string().min(1),
-  body: z.string().min(1),
-});
-const editCommentInput = z.object({
-  issueKey: z.string().min(1),
-  commentId: z.number().int().positive(),
-  body: z.string().min(1),
-});
 const updateStatusInput = z.object({
   issueKey: z.string().min(1),
   status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']),
-});
-// 이슈 생성 — mcp 의 create_issue 와 동일 필드(labels 는 create 엔드포인트 미지원이라 제외).
-// projectKey 는 필수 — mcp 와 달리 위임 컨텍스트가 없어 대상 프로젝트를 AI 가 명시해야 한다.
-const createIssueInput = z.object({
-  projectKey: z.string().min(1),
-  title: z.string().min(1).max(200),
-  body: z.string().max(10000).optional(),
-  priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  type: z.string().optional(),
-  assignees: z.array(z.string()).optional(),
-  parent: z.number().int().positive().optional(),
-});
-// 이슈 부분 수정 — mcp 의 update_issue 와 동일 필드셋.
-const updateIssueInput = z.object({
-  issueKey: z.string().min(1),
-  title: z.string().max(200).optional(),
-  body: z.string().max(10000).optional(),
-  priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
-  status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']).optional(),
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  clearDueDate: z.boolean().optional(),
-  clearStartDate: z.boolean().optional(),
-  type: z.string().optional(),
-  parent: z.number().int().positive().nullable().optional(),
-  assignees: z.array(z.string()).optional(),
-  labels: z.array(z.string()).optional(),
-});
-// 이슈 간 의존성(차단 관계) add/remove 공용 입력.
-const dependencyInput = z.object({
-  issueKey: z.string().min(1),
-  otherIssueKey: z.string().min(1),
-  direction: z.enum(['blocks', 'blockedBy']),
 });
 // 6c: chat 프로필 도구 입력.
 const addChatMessageInput = z.object({
@@ -357,14 +307,29 @@ const proposeCreateIssueInput = z.object({
   projectKey: z.string().optional(),
 });
 
-/** agentId 를 클로저로 감싸 ProjectMetaClient 인터페이스를 만족시키는 어댑터.
- * mcp 의 PatApiClient 는 이미 이 시그니처를 만족하지만, ai-agent 의 WorkplaceApiClient 는
- * 모든 메서드가 agentId 를 첫 인자로 받으므로 이 어댑터로 시그니처를 맞춘다. */
-function buildProjectMetaAdapter(client: WorkplaceApiClient, agentId: number): ProjectMetaClient {
+/** agentId 를 클로저로 감싸 WorkplaceApiClient 를 공유 IssueToolClient(issueKey 기준)로 어댑팅.
+ * 기존 buildProjectMetaAdapter 역할 포함(create/update 리졸브가 ProjectMetaClient 를 필요로 함). */
+function buildIssueToolClient(client: WorkplaceApiClient, agentId: number): IssueToolClient {
   return {
     getProjectTypes: (key) => client.getProjectTypes(agentId, key),
     getProjectMembers: (key) => client.listProjectMembers(agentId, key),
     getProjectLabels: (key) => client.getProjectLabels(agentId, key),
+    getIssueDetail: (issueKey) => client.getIssueDetail(agentId, issueKey),
+    // 공유 IssueToolClient 는 body 를 Record<string, unknown> 으로 받지만, 실제 값은 항상
+    // create_issue 핸들러(공유본)가 조립한 CreateIssueBody 형태 — client 의 구체 타입으로 캐스팅.
+    createIssue: (projectKey, body) =>
+      client.createIssue(agentId, projectKey, body as Parameters<WorkplaceApiClient['createIssue']>[2]),
+    updateIssueContent: (issueKey, body) => client.updateIssueContent(agentId, issueKey, body),
+    setIssueType: (issueKey, typeId) => client.setIssueType(agentId, issueKey, typeId),
+    setIssueParent: (issueKey, parent) => client.setIssueParent(agentId, issueKey, parent),
+    replaceIssueAssignees: (issueKey, ids) => client.replaceIssueAssignees(agentId, issueKey, ids),
+    replaceIssueLabels: (issueKey, ids) => client.replaceIssueLabels(agentId, issueKey, ids),
+    addComment: (issueKey, body) => client.addIssueComment(agentId, issueKey, body),
+    editComment: (issueKey, commentId, body) => client.editIssueComment(agentId, issueKey, commentId, body),
+    addIssueDependency: (issueKey, otherNumber, direction) =>
+      client.addIssueDependency(agentId, issueKey, otherNumber, direction),
+    removeIssueDependency: (issueKey, otherNumber, direction) =>
+      client.removeIssueDependency(agentId, issueKey, otherNumber, direction),
   };
 }
 
@@ -381,16 +346,9 @@ export function buildTools(
   // #462 슬라이스4: 인-프로세스 호스트 브리지. 지정 시 propose/submit/unassign 이 파일 대신 콜백 사용.
   hostBridge?: HostBridge,
 ): McpTool[] {
-  const getIssueDetailTool: McpTool = {
-    name: 'get_issue_detail',
-    description: '이슈의 본문·상태·담당자·코멘트 등 전체 컨텍스트를 JSON 으로 반환합니다.',
-    inputSchema: issueKey,
-    async handler(args) {
-      const { issueKey: k } = issueKey.parse(args);
-      const detail = await client.getIssueDetail(agentId, k);
-      return JSON.stringify(detail);
-    },
-  };
+  // 공유 이슈 도구 7종 — issue/assistant/chat 프로필이 이름으로 조회해 소비.
+  const shared = buildSharedIssueTools(buildIssueToolClient(client, agentId));
+  const sharedTool = (name: string): McpTool => shared.find((t) => t.name === name)!;
 
   // #371: 이슈 목록 조회 도구 — assistant union(서브에이전트 issue-agent 가 frontmatter 로 선택).
   // show_issue_list(표시 지시, 데이터 미반환)와 달리 실제 이슈 목록 데이터를 JSON 으로 반환한다.
@@ -445,7 +403,7 @@ export function buildTools(
     // 시스템 프롬프트 지시를 AI가 무시하는 비결정적 동작을 코드 레벨에서 결정론적으로 차단한다.
     let addChatMessageCalled = false;
     return [
-      getIssueDetailTool,
+      sharedTool('get_issue_detail'),
       listWikiSpacesTool,
       searchWikiTool,
       getWikiPageTool,
@@ -659,27 +617,7 @@ export function buildTools(
     ];
   };
 
-  // 기존 이슈 쓰기 도구 — issue/assistant 프로파일이 공유한다.
-  const addCommentTool: McpTool = {
-    name: 'add_comment',
-    description: '이슈에 코멘트를 작성합니다. 본문은 마크다운을 지원합니다.',
-    inputSchema: addCommentInput,
-    async handler(args) {
-      const { issueKey: k, body } = addCommentInput.parse(args);
-      await client.addIssueComment(agentId, k, body);
-      return 'ok';
-    },
-  };
-  const editCommentTool: McpTool = {
-    name: 'edit_comment',
-    description: '이슈의 기존 코멘트를 수정합니다. commentId 는 get_issue_detail 의 comments 에서 확인하세요.',
-    inputSchema: editCommentInput,
-    async handler(args) {
-      const { issueKey, commentId, body } = editCommentInput.parse(args);
-      await client.editIssueComment(agentId, issueKey, commentId, body);
-      return 'ok';
-    },
-  };
+  // 기존 이슈 쓰기 도구 중 add_comment/edit_comment 는 공유본(sharedTool)으로 대체됨.
   const updateStatusTool: McpTool = {
     name: 'update_status',
     description: '이슈의 상태를 변경합니다. 허용값: TODO / IN_PROGRESS / DONE / CANCELED.',
@@ -690,115 +628,7 @@ export function buildTools(
       return 'ok';
     },
   };
-  const createIssueTool: McpTool = {
-    name: 'create_issue',
-    description:
-      '지정한 프로젝트에 새 이슈를 등록합니다. type 은 유형 이름(예: BUG), assignees 는 username 배열입니다. ' +
-      'type/assignees 이름이 유효하지 않으면 오류 응답에 사용 가능한 값 목록이 포함되니 그 값으로 재시도하세요. ' +
-      '이미 배정된 프로젝트 안에서 하위 작업을 나눌 때 사용하세요 — 다른 사람에게 위임하는 이슈 생성은 propose_create_issue 를 대신 쓰세요.',
-    inputSchema: createIssueInput,
-    async handler(args) {
-      const { projectKey, type, assignees, parent, ...rest } = createIssueInput.parse(args);
-      const metaClient = buildProjectMetaAdapter(client, agentId);
-      const body: {
-        title: string;
-        body?: string;
-        priority?: string;
-        dueDate?: string;
-        startDate?: string;
-        assigneeIds?: number[];
-        typeId?: number;
-        parentNumber?: number;
-      } = { ...rest };
-      if (type) body.typeId = await resolveTypeId(metaClient, projectKey, type);
-      if (assignees) body.assigneeIds = await resolveAssigneeIds(metaClient, projectKey, assignees);
-      if (parent != null) body.parentNumber = parent;
-      return JSON.stringify(await client.createIssue(agentId, projectKey, body));
-    },
-  };
-  const updateIssueTool: McpTool = {
-    name: 'update_issue',
-    description:
-      '이슈를 부분 수정합니다. 전달한 필드만 변경됩니다. type 은 유형 이름, assignees/labels 는 이름 배열(집합 교체), ' +
-      'parent 는 부모 이슈 번호(null 전달 시 해제)입니다. 단순 상태만 바꾸려면 update_status 를 쓰세요 — 여러 필드를 ' +
-      '함께 바꿀 때만 이 도구를 쓰세요. 각 항목은 독립 저장되며 결과를 { ok, results } 로 보고합니다(부분 실패 가능).',
-    inputSchema: updateIssueInput,
-    async handler(args) {
-      const { issueKey, type, parent, assignees, labels, ...rest } = updateIssueInput.parse(args);
-      const { projectKey } = parseIssueKey(issueKey);
-      const metaClient = buildProjectMetaAdapter(client, agentId);
-
-      // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
-      const typeId = type ? await resolveTypeId(metaClient, projectKey, type) : undefined;
-      const assigneeIds = assignees
-        ? await resolveAssigneeIds(metaClient, projectKey, assignees)
-        : undefined;
-      const labelIds = labels ? await resolveLabelIds(metaClient, projectKey, labels) : undefined;
-
-      // 2) 필드별로 해당 엔드포인트에 팬아웃. 각 단계 독립 저장 — 성공/실패를 구조화해 모은다.
-      const results: Record<string, string> = {};
-      const run = async (key: string, fn: () => Promise<unknown>) => {
-        try {
-          await fn();
-          results[key] = 'ok';
-        } catch (e) {
-          results[key] = `failed: ${errText(e)}`;
-        }
-      };
-
-      const content: Record<string, unknown> = { ...rest };
-      if (Object.keys(content).length > 0) {
-        await run('content', () => client.updateIssueContent(agentId, issueKey, content));
-      }
-      if (typeId !== undefined) {
-        await run('type', () => client.setIssueType(agentId, issueKey, typeId));
-      }
-      if (parent !== undefined) {
-        await run('parent', () => client.setIssueParent(agentId, issueKey, parent));
-      }
-      if (assigneeIds !== undefined) {
-        await run('assignees', () => client.replaceIssueAssignees(agentId, issueKey, assigneeIds));
-      }
-      if (labelIds !== undefined) {
-        await run('labels', () => client.replaceIssueLabels(agentId, issueKey, labelIds));
-      }
-
-      const ok = Object.values(results).every((v) => v === 'ok');
-      return JSON.stringify({ ok, results });
-    },
-  };
-  const addDependencyTool: McpTool = {
-    name: 'add_issue_dependency',
-    description:
-      '이슈 간 의존성(차단 관계)을 추가합니다. direction="blocks" 면 issueKey 이슈가 ' +
-      'otherIssueKey 이슈를 차단하고, "blockedBy" 면 반대로 otherIssueKey 에 의해 차단됩니다. ' +
-      '두 이슈는 같은 프로젝트여야 하며, 순환 관계가 되면 에러가 발생합니다.',
-    inputSchema: dependencyInput,
-    async handler(args) {
-      const { issueKey: k, otherIssueKey, direction } = dependencyInput.parse(args);
-      const { projectKey } = parseIssueKey(k);
-      const { projectKey: otherProjectKey, number: otherNumber } = parseIssueKey(otherIssueKey);
-      if (otherProjectKey !== projectKey) {
-        throw new Error('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
-      }
-      return JSON.stringify(await client.addIssueDependency(agentId, k, otherNumber, direction));
-    },
-  };
-  const removeDependencyTool: McpTool = {
-    name: 'remove_issue_dependency',
-    description: '이슈 간 의존성을 제거합니다. 존재하지 않아도 에러 없이 성공합니다(멱등).',
-    inputSchema: dependencyInput,
-    async handler(args) {
-      const { issueKey: k, otherIssueKey, direction } = dependencyInput.parse(args);
-      const { projectKey } = parseIssueKey(k);
-      const { projectKey: otherProjectKey, number: otherNumber } = parseIssueKey(otherIssueKey);
-      if (otherProjectKey !== projectKey) {
-        throw new Error('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
-      }
-      await client.removeIssueDependency(agentId, k, otherNumber, direction);
-      return 'ok';
-    },
-  };
+  // create_issue/update_issue/add_issue_dependency/remove_issue_dependency 는 공유본(sharedTool)으로 대체됨.
   // #378: unassign_self 실패 시 고정 안내 문구를 반환해 LLM 재해석을 차단한다.
   // 동시에 WORKPLACE_UNASSIGN_ERROR_PATH 사이드카에 오류를 기록해,
   // run-ai-compose 가 최종 메시지를 결정론적으로 override 한다(이중 방어).
@@ -1306,21 +1136,21 @@ export function buildTools(
   // 도구 경계는 각 서브에이전트 .claude/agents/<name>.md frontmatter 가 강제하므로 union 노출은 안전.
   if (profile === 'assistant') {
     return [
-      getIssueDetailTool,
+      sharedTool('get_issue_detail'),
       listIssuesTool,            // #371: 이슈 목록 조회(내 담당/필터) — issue-agent 위임용
       listWikiSpacesTool,
       searchWikiTool,
       getWikiPageTool,
       createWikiPageTool,        // #333 M3: 위키 쓰기(내부)
       updateWikiPageTool,        // #333 M3: 위키 쓰기(내부)
-      addCommentTool,
-      editCommentTool,
+      sharedTool('add_comment'),
+      sharedTool('edit_comment'),
       updateStatusTool,
-      createIssueTool,
-      updateIssueTool,
+      sharedTool('create_issue'),
+      sharedTool('update_issue'),
       unassignSelfTool,
-      addDependencyTool,
-      removeDependencyTool,
+      sharedTool('add_issue_dependency'),
+      sharedTool('remove_issue_dependency'),
       listEventsTool,
       getEventTool,              // #333 M2: 캘린더 읽기
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
@@ -1360,26 +1190,17 @@ export function buildTools(
 
   // issue 프로파일(기본) — 이슈 읽기/쓰기 + 위키 읽기 그라운딩.
   return [
-    getIssueDetailTool,
+    sharedTool('get_issue_detail'),
     listWikiSpacesTool,
     searchWikiTool,
     getWikiPageTool,
-    addCommentTool,
-    editCommentTool,
+    sharedTool('add_comment'),
+    sharedTool('edit_comment'),
     updateStatusTool,
-    createIssueTool,
-    updateIssueTool,
+    sharedTool('create_issue'),
+    sharedTool('update_issue'),
     unassignSelfTool,
-    addDependencyTool,
-    removeDependencyTool,
+    sharedTool('add_issue_dependency'),
+    sharedTool('remove_issue_dependency'),
   ];
-}
-
-/** 팬아웃 단계 실패 메시지를 짧게 뽑는다 — axios 응답 본문 우선, 없으면 message (mcp issue.ts 미러). */
-function errText(e: unknown): string {
-  const anyE = e as { response?: { data?: unknown }; message?: string };
-  if (anyE?.response?.data !== undefined) {
-    return typeof anyE.response.data === 'string' ? anyE.response.data : JSON.stringify(anyE.response.data);
-  }
-  return anyE?.message ?? String(e);
 }

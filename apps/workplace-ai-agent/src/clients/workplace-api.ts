@@ -4,8 +4,8 @@
 import axios, { AxiosInstance } from 'axios';
 
 import { DEFAULT_API_BASE_URL } from '../constants.js';
-import { IssueDetail, issueDetail } from '../types/workplace-api.js';
 import type { ProviderCredential } from '../agent/agent-runner.js';
+import { parseIssueKey } from '@smart-workplace/issue-tools-shared';
 
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
@@ -249,7 +249,8 @@ export interface WorkplaceApiClient {
     direction: 'blocks' | 'blockedBy',
   ): Promise<void>;
   updateIssueStatus(agentId: number, issueKey: string, statusKey: string): Promise<void>;
-  getIssueDetail(agentId: number, issueKey: string): Promise<IssueDetail>;
+  // Task 6: 정규화는 공유 도구 핸들러(normalizeIssueDetail)가 수행 — 여기선 raw 를 그대로 반환.
+  getIssueDetail(agentId: number, issueKey: string): Promise<unknown>;
   // #371: 이슈 목록 조회 — GET /me/issues. assignee 기본 'me'(서버가 principal 로 해석).
   listIssues(agentId: number, params: IssueListParams): Promise<IssueListItem[]>;
   unassignSelf(agentId: number, issueKey: string): Promise<void>;
@@ -353,17 +354,6 @@ export interface WorkplaceApiClient {
   // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
   // fail-closed 방지).
   withOnBehalfOfTenant(tenantId: number): WorkplaceApiClient;
-}
-
-export function parseIssueKey(issueKey: string): {
-  projectKey: string;
-  number: number;
-} {
-  const idx = issueKey.lastIndexOf('-');
-  return {
-    projectKey: issueKey.slice(0, idx),
-    number: Number(issueKey.slice(idx + 1)),
-  };
 }
 
 export function createWorkplaceApiClient(opts: {
@@ -497,32 +487,9 @@ export function createWorkplaceApiClient(opts: {
     async getIssueDetail(agentId, issueKey) {
       const { projectKey, number } = parseIssueKey(issueKey);
       const r = await http.get(`/projects/${projectKey}/issues/${number}`, onBehalfOf(agentId));
-      const raw = r.data ?? {};
-      // workplace-api 응답: {summary:{title,status,priority,assignees}, body, comments}.
-      // LLM 노출용으로 flatten + issueKey 명시.
-      const summary = raw.summary ?? {};
-      const normalized = {
-        issueKey: raw.issueKey ?? raw.key ?? issueKey,
-        title: summary.title ?? raw.title ?? '',
-        body: raw.body ?? summary.body ?? null,
-        status: summary.status ?? raw.status ?? '',
-        priority: summary.priority ?? raw.priority ?? '',
-        assignees: summary.assignees ?? raw.assignees ?? [],
-        // API 응답의 comment는 flat 필드(authorId/authorName/authorKind)로 오므로
-        // Zod schema가 기대하는 nested author 객체로 변환한다 (#373).
-        comments: (raw.comments ?? []).map((c: Record<string, unknown>) => ({
-          id: c.id,
-          body: c.body,
-          createdAt: c.createdAt,
-          author: {
-            id: c.authorId,
-            username: c.authorName,
-            name: c.authorName,
-            kind: c.authorKind,
-          },
-        })),
-      };
-      return issueDetail.parse(normalized);
+      // 정규화는 공유 도구 핸들러(normalizeIssueDetail)가 수행 — 여기선 raw 를 그대로 반환.
+      // run-ai-chat 의 filterIssueDetailWidgets 는 존재확인(throw/no-throw)만 쓰므로 형태 변화 무영향.
+      return r.data ?? {};
     },
 
     // #371: 이슈 목록 조회 — GET /me/issues(프로젝트 횡단 "내 이슈"). assignee 미지정 시 'me'.

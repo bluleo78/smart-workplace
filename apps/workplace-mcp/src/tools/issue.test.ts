@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildIssueTools, parseIssueKey } from './issue.js';
+import { parseIssueKey } from '@smart-workplace/issue-tools-shared';
+import { buildIssueTools } from './issue.js';
 import { mockPatApiClient } from './test-support.js';
 
 /** 테스트용 mock PatApiClient — 각 메서드 호출 인자를 검증하기 위한 vi.fn 래핑(이슈 메서드만 응답 값 설정). */
@@ -99,12 +100,33 @@ describe('buildIssueTools', () => {
     expect(JSON.parse(out)).toEqual([{ issueKey: 'WP-1' }, { issueKey: 'WP-3' }]);
   });
 
-  it('get_issue_detail → issueKey 를 분해해 client.getIssueDetail 호출', async () => {
+  it('get_issue_detail → issueKey 를 분해해 client.getIssueDetail 호출 후 정규화된 superset 을 반환', async () => {
     const c = mockClient();
+    (c.getIssueDetail as ReturnType<typeof vi.fn>).mockResolvedValue({
+      issueKey: 'WP-12',
+      summary: {
+        id: 42,
+        title: '제목',
+        status: 'TODO',
+        priority: 'MID',
+        assignees: [],
+        blockedBy: [],
+        blocks: [],
+        blocked: false,
+      },
+      body: 'b',
+      comments: [],
+    });
     const t = buildIssueTools(c).find((x) => x.name === 'get_issue_detail')!;
     const out = await t.handler({ issueKey: 'WP-12' });
     expect(c.getIssueDetail).toHaveBeenCalledWith('WP', 12);
-    expect(JSON.parse(out)).toMatchObject({ summary: { id: 42 } });
+    expect(JSON.parse(out)).toMatchObject({
+      issueKey: 'WP-12',
+      title: '제목',
+      status: 'TODO',
+      priority: 'MID',
+      blocked: false,
+    });
   });
 
   it('create_issue → client.createIssue(projectKey, {title,...})', async () => {

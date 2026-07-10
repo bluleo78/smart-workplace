@@ -119,3 +119,22 @@ export interface IssueToolClient extends ProjectMetaClient {
 - 간접화 1겹 추가(공유 인터페이스 + 어댑터 2개). 대신 create/update/dependency 핸들러의 fan-out·errText·resolve·cross-project 가드가 완전 1벌화.
 - mcp `get_issue_detail` 외부 출력 형태 변경(신설 게이트웨이라 저위험, 오히려 narrowed 개선).
 - 두 앱의 향후 권한/프로필이 더 벌어지면 어댑터가 흡수 지점이 됨(현재 구조로 충분).
+
+## 10. 라이브 검증 결과 (2026-07-10, 구현 완료 후)
+
+방법: 로컬 dev DB/api 6060 직접 기동(`SPRING_PROFILES_ACTIVE=local`). §8의 지시대로 **새 어댑터 코드를 실제로 태우기 위해** 각 앱의 실제 소스(`buildIssueTools`/`buildTools`)를 tsx 로 직접 import 해 백엔드에 호출(HTTP mock 없음). mcp 는 실제 PAT(`swp_...`, 로그인 후 `/users/me/api-tokens` 로 발급) 로, ai-agent 는 `Authorization: Internal changeme-local` + `X-On-Behalf-Of: 3`(AGENT `ai@ai`, EX 프로젝트 멤버)로 각각 인증. 프로젝트 `EX`, 이슈 EX-2/EX-3(둘 다 무관 데이터, soft-delete 없음).
+
+**[mcp 경로]**
+- `add_issue_dependency`(EX-2 blocks EX-3): ✅ PASS — 어댑터가 `issueKey→(projectKey,number)` 매핑 후 raw JSON 반환(§7.1 불변 확인).
+- 사이클(EX-3 blocks EX-2, 반대방향): ✅ PASS — `409 "의존성 사이클이 발생합니다"`.
+- `get_issue_detail`(EX-2): ✅ PASS — 정규화 superset 반환, `blocks:[{number:3,title:"...",status:"IN_PROGRESS"}]`, `blocked:true` 확인(§7.2).
+- `remove_issue_dependency` 동일 요청 2회: ✅ PASS — 둘 다 `'ok'`(멱등).
+
+**[ai-agent 경로]**
+- `issue` 프로필 도구 목록: 리팩터 전과 동일한 12종(get_issue_detail, list_wiki_spaces, search_wiki, get_wiki_page, add_comment, edit_comment, update_status, create_issue, update_issue, unassign_self, add_issue_dependency, remove_issue_dependency) — 순서·개수 불변 확인.
+- `add_issue_dependency`(EX-2 blocks EX-3, On-Behalf-Of AGENT): ✅ PASS — AGENT 403 갭 없음(#418 계열 우려 해소).
+- 사이클(EX-3 blocks EX-2): ✅ PASS — `409 "의존성 사이클이 발생합니다"`.
+- `get_issue_detail`(EX-2): ✅ PASS — **mcp 와 완전히 동일한 정규화 superset JSON**(`blocks`/`blockedBy`/`blocked` 포함) — 통합의 핵심 목표(양쪽 앱 동일 출력) 실증.
+- `remove_issue_dependency` 동일 요청 2회: ✅ PASS — 둘 다 `'ok'`.
+
+**결론**: §7의 동작 변경/불변 분할이 새 어댑터 경로에서도 모두 성립. mcp/ai-agent 가 이제 `get_issue_detail`에 대해 동일한 정규화 출력을 낸다는 것을 실측으로 확인. 사후 정리: 스모크용 PAT(`sdd-smoke-test`, id=7) 발급 즉시 폐기, DB 의존성 잔존 없음 확인, 로컬 api 프로세스 종료 확인.

@@ -2,7 +2,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import nock from 'nock';
 
-import { createWorkplaceApiClient, parseIssueKey } from './workplace-api.js';
+import { parseIssueKey } from '@smart-workplace/issue-tools-shared';
+
+import { createWorkplaceApiClient } from './workplace-api.js';
 
 afterEach(() => {
   nock.cleanAll();
@@ -82,23 +84,24 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(scope.isDone()).toBe(true);
   });
 
-  it('getIssueDetail → GET + 헤더 + 응답 파싱', async () => {
+  // Task 6: 정규화(normalizeIssueDetail)는 공유 도구 핸들러가 수행 — 클라이언트는 raw 그대로 반환.
+  it('getIssueDetail → GET + 헤더, raw 응답을 그대로 반환(정규화 없음)', async () => {
+    const raw = {
+      key: 'WP-42',
+      title: '분석',
+      body: '본문',
+      status: 'TODO',
+      priority: 'MID',
+      assignees: [{ id: 201, username: 'ai-bot', name: 'AI', kind: 'AGENT' }],
+      comments: [],
+    };
     nock(BASE)
       .matchHeader('authorization', 'Internal tk-internal')
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
       .get(`${PREFIX}/projects/WP/issues/42`)
-      .reply(200, {
-        key: 'WP-42',
-        title: '분석',
-        body: '본문',
-        status: 'TODO',
-        priority: 'MID',
-        assignees: [{ id: 201, username: 'ai-bot', name: 'AI', kind: 'AGENT' }],
-        comments: [],
-      });
+      .reply(200, raw);
     const d = await newClient().getIssueDetail(AGENT_ID, 'WP-42');
-    expect(d.issueKey).toBe('WP-42');
-    expect(d.title).toBe('분석');
+    expect(d).toEqual(raw);
   });
 
   // #371: 이슈 목록 조회 — GET /me/issues. assignee 기본 'me' + 필터 직렬화 + 응답 매핑 검증.
@@ -141,46 +144,44 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(list).toEqual([]);
   });
 
-  // #373: API 응답 comment의 flat author 필드 → nested author 객체 정규화 검증
-  it('getIssueDetail → flat author 필드(authorId/authorName/authorKind)를 nested author 객체로 변환', async () => {
+  // #373: flat author 필드(authorId/authorName/authorKind) → nested author 객체 변환은
+  // Task 6 이후 공유 도구 핸들러(normalizeIssueDetail)의 책임 — 클라이언트는 raw comments 를 그대로 반환.
+  it('getIssueDetail → comments 를 포함한 raw 응답을 변형 없이 그대로 반환', async () => {
+    const raw = {
+      key: 'WP-5',
+      title: '코멘트 이슈',
+      body: '본문',
+      status: 'TODO',
+      priority: 'HIGH',
+      assignees: [],
+      comments: [
+        {
+          id: 1,
+          issueId: 5,
+          authorId: 3,
+          authorName: '홍길동',
+          authorKind: 'HUMAN',
+          body: '테스트 코멘트',
+          createdAt: '2026-06-07T15:06:36.671628Z',
+        },
+        {
+          id: 2,
+          issueId: 5,
+          authorId: 10,
+          authorName: '개인 비서',
+          authorKind: 'AGENT',
+          body: 'AI 코멘트',
+          createdAt: '2026-06-08T10:00:00.000000Z',
+        },
+      ],
+    };
     nock(BASE)
       .matchHeader('authorization', 'Internal tk-internal')
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
       .get(`${PREFIX}/projects/WP/issues/5`)
-      .reply(200, {
-        key: 'WP-5',
-        title: '코멘트 이슈',
-        body: '본문',
-        status: 'TODO',
-        priority: 'HIGH',
-        assignees: [],
-        comments: [
-          {
-            id: 1,
-            issueId: 5,
-            authorId: 3,
-            authorName: '홍길동',
-            authorKind: 'HUMAN',
-            body: '테스트 코멘트',
-            createdAt: '2026-06-07T15:06:36.671628Z',
-          },
-          {
-            id: 2,
-            issueId: 5,
-            authorId: 10,
-            authorName: '개인 비서',
-            authorKind: 'AGENT',
-            body: 'AI 코멘트',
-            createdAt: '2026-06-08T10:00:00.000000Z',
-          },
-        ],
-      });
+      .reply(200, raw);
     const d = await newClient().getIssueDetail(AGENT_ID, 'WP-5');
-    expect(d.comments).toHaveLength(2);
-    // flat 필드가 nested author 객체로 변환되어야 함 — ZodError 없이 파싱 성공
-    expect(d.comments![0].author).toEqual({ id: 3, username: '홍길동', name: '홍길동', kind: 'HUMAN' });
-    expect(d.comments![1].author).toEqual({ id: 10, username: '개인 비서', name: '개인 비서', kind: 'AGENT' });
-    expect(d.comments![0].body).toBe('테스트 코멘트');
+    expect(d).toEqual(raw);
   });
 
   // #406: /assignees GET 엔드포인트가 없어(405) 구현이 이슈 상세의 .summary.assignees 를 읽도록 변경됨.

@@ -3,6 +3,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Request, Response } from 'express';
+import type { z } from 'zod';
 
 import { createPatApiClient } from '../clients/workplace-api.js';
 import { buildUserTools } from '../tools/index.js';
@@ -14,7 +15,7 @@ export function buildMcpServer(apiBaseUrl: string, token: string): McpServer {
   for (const t of buildUserTools(client)) {
     server.registerTool(
       t.name,
-      { description: t.description, inputSchema: t.inputSchema.shape },
+      { description: t.description, inputSchema: (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape },
       async (args: unknown) => {
         try {
           return { content: [{ type: 'text' as const, text: await t.handler(args) }] };
