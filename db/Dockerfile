@@ -12,8 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN git clone --branch v${PGVECTOR_VERSION} --depth 1 https://github.com/pgvector/pgvector.git /tmp/pgvector
 WORKDIR /tmp/pgvector
 # with_llvm=no: JIT용 LLVM bitcode(clang) 빌드 스킵 — 이미지에 clang 미포함, 확장 동작엔 불필요
-RUN make PG_CONFIG=/opt/postgresql/18/bin/pg_config with_llvm=no \
-    && make install PG_CONFIG=/opt/postgresql/18/bin/pg_config with_llvm=no DESTDIR=/tmp/pgvector-out
+# OPTFLAGS="": pgvector 기본 -march=native 제거. deploy.sh 는 buildx/QEMU 로 amd64 를 빌드하는데,
+# 빌드 CPU 에 맞춘 명령어가 운영 호스트에 없으면 런타임 SIGILL 이 난다(이식성 위해 CPU 튜닝 해제).
+RUN make PG_CONFIG=/opt/postgresql/18/bin/pg_config with_llvm=no OPTFLAGS="" \
+    && make install PG_CONFIG=/opt/postgresql/18/bin/pg_config with_llvm=no OPTFLAGS="" DESTDIR=/tmp/pgvector-out
 
 FROM dhi.io/postgres:18-debian13
 

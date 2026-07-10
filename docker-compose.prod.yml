@@ -70,7 +70,8 @@ services:
     volumes:
       # claude OAuth 토큰 캐시·세션. 토큰 자체는 매 호출 시 workplace-api DB 에서 fetch(캐시는 비필수).
       # ⚠️ DHI node 런타임은 nonroot(node, uid 1000)·HOME=/home/node → 마운트 경로도 /home/node/.claude.
-      #    배포 시 호스트 ./ai-agent-data 를 uid 1000 소유로 준비해야 쓰기 가능(미준비 시 이미지 스켈레톤 사용).
+      # ⚠️ bind mount 는 이미지에 구운 ~/.claude 스켈레톤을 '가린다'(named volume 과 달리 시딩 안 됨).
+      #    배포 시 호스트 ./ai-agent-data 를 uid 1000 소유로 준비해야 쓰기 가능. 캐시가 불필요하면 이 마운트 제거.
       - ./ai-agent-data:/home/node/.claude
     environment:
       PORT: "7070"
