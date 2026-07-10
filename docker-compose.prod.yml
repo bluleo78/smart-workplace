@@ -10,10 +10,11 @@ services:
     # nonroot(uid 70), PGDATA=/var/lib/postgresql/18/data. nonroot 볼륨 소유권 함정을
     # 피하려 named 볼륨을 쓴다(Docker 가 uid 70 시딩).
     # ⚠️ pg16→pg18 은 메이저 업그레이드 — 첫 배포 전 기존 데이터 dump/restore 선행 필수(별도 ops).
+    # multi-arch(amd64/arm64) 로 빌드·푸시: BUILD_ONLY=1 ./scripts/deploy.sh db
+    image: ghcr.io/bluleo78/smart-workplace/postgres:latest
     build:
       context: ./db
       dockerfile: Dockerfile
-    image: smart-workplace-db:pg18-pgvector
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-workplace}
       POSTGRES_USER: ${POSTGRES_USER:-app}

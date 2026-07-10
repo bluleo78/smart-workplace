@@ -3,8 +3,11 @@ set -euo pipefail
 
 # Smart Workplace 운영 배포 스크립트
 # 이미지를 multiplatform 으로 빌드해 ghcr.io 에 푸시하고, 운영 디렉터리에서 pull+재기동한다.
-# Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|worker|mcp|all]
-# all = api + ai-agent + web + admin + worker + mcp (6개 앱 전부, DB 는 표준 postgres:16 이라 빌드 대상 아님)
+# Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|worker|mcp|db|all]
+# all = api + ai-agent + web + admin + worker + mcp (6개 앱 전부).
+# db = DHI postgres18 + pgvector 커스텀 이미지(db/Dockerfile). all 에는 포함하지 않는다 —
+#      db 재기동은 named volume·데이터 마이그레이션(pg16→18)을 수반하므로 반드시 명시적으로만 처리한다.
+#      권장 사용: BUILD_ONLY=1 ./scripts/deploy.sh db (이미지만 multi-arch 빌드·푸시).
 # mcp 이미지 태그도 다른 앱과 동일하게 짧은 이름(mcp)으로 통일 — Dockerfile 경로만 apps/workplace-mcp.
 #
 # 환경변수:
@@ -67,8 +70,14 @@ build_and_push() {
       log "Building + pushing $app (context: project root)"
       docker buildx build --platform "$PLATFORM" -t "$REGISTRY/mcp:latest" -f apps/workplace-mcp/Dockerfile --push .
       ;;
+    db)
+      # DHI postgres18 + pgvector 소스 빌드(db/Dockerfile). context = db/.
+      # 각 아키는 QEMU 로 pgvector 를 네이티브 컴파일(OPTFLAGS='' 로 CPU 튜닝 해제 → 이식성).
+      log "Building + pushing $app (context: db/)"
+      docker buildx build --platform "$PLATFORM" -t "$REGISTRY/postgres:latest" --push db/
+      ;;
     *)
-      error "Unknown app: $app (valid: api, ai-agent, web, admin, worker, mcp)"
+      error "Unknown app: $app (valid: api, ai-agent, web, admin, worker, mcp, db)"
       ;;
   esac
 }
