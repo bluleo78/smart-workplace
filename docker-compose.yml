@@ -1,6 +1,9 @@
 services:
   db:
-    image: pgvector/pgvector:pg16   # pgvector 확장 포함 — Drive 콘텐츠 벡터 검색(#527)
+    build:
+      context: ./db
+      dockerfile: Dockerfile   # dhi.io/postgres:18-debian13 + pgvector 수동 빌드(런타임 이미지엔 vector 확장 미포함)
+    image: smart-workplace-db:pg18-pgvector
     environment:
       POSTGRES_DB: workplace
       POSTGRES_USER: app
@@ -8,7 +11,11 @@ services:
     ports:
       - "5434:5432"
     volumes:
-      - ./db-data:/var/lib/postgresql/data
+      # DHI postgres 는 PGDATA=/var/lib/postgresql/18/data 이고 nonroot(uid 70)로 실행된다.
+      # 호스트 bind mount 는 호스트 소유라 uid 70 이 쓰지 못하므로, uid 70 소유가 상속되는
+      # named volume 을 사용한다. (기존 ./db-data 경로/bind 는 데이터가 컨테이너 레이어에만
+      # 남아 영속되지 않던 버그를 수정.)
+      - db-data:/var/lib/postgresql/18/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d workplace"]
       interval: 5s
@@ -31,3 +38,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+volumes:
+  db-data:   # dev DB(PG18) 영속 볼륨 — named volume(uid 70 쓰기 권한)
