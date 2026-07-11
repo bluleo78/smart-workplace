@@ -24,7 +24,8 @@ services:
 
   # 테스트 전용 DB — 로컬 개발 DB(5432)와 분리하여 테스트 격리 보장
   db-test:
-    image: pgvector/pgvector:pg16   # pgvector 확장 포함 — Drive 콘텐츠 벡터 검색(#527)
+    # db 서비스가 빌드한 pg18+pgvector 이미지를 재사용(별도 build 불필요).
+    image: smart-workplace-db:pg18-pgvector
     environment:
       POSTGRES_DB: workplace_test
       POSTGRES_USER: app
@@ -32,7 +33,8 @@ services:
     ports:
       - "5435:5432"
     volumes:
-      - ./db-test-data:/var/lib/postgresql/data
+      # dev db 와 동일 — DHI postgres PGDATA(/var/lib/postgresql/18/data) + nonroot uid 70 → named volume.
+      - db-test-data:/var/lib/postgresql/18/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d workplace_test"]
       interval: 5s
@@ -40,4 +42,5 @@ services:
       retries: 5
 
 volumes:
-  db-data:   # dev DB(PG18) 영속 볼륨 — named volume(uid 70 쓰기 권한)
+  db-data:        # dev DB(PG18) 영속 볼륨 — named volume(uid 70 쓰기 권한)
+  db-test-data:   # test DB(PG18) 볼륨 — 데이터는 Flyway 가 매번 재적용(보존 불요)
