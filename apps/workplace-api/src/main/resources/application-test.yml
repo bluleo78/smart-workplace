@@ -1,9 +1,11 @@
-# 테스트 프로파일 — 격리된 테스트 DB(5435) 사용, 랜덤 서버 포트
+# 테스트 프로파일 — Testcontainers 로 격리된 테스트 DB 자동 기동(URL 은 런타임 오버라이드), 랜덤 서버 포트
 server:
   port: 0
 
 spring:
   datasource:
+    # 실제로는 Testcontainers 가 런타임에 @DynamicPropertySource(IntegrationTestBase) 로 URL 을 오버라이드한다.
+    # 아래 5435 URL 은 컨테이너 기동 없이 로드될 때를 대비한 fallback 일 뿐, 통합 테스트 시엔 사용되지 않는다.
     # 런타임 트래픽은 비특권 app_tenant 롤(RLS 적용). 마이그레이션은 아래 flyway(app)로.
     url: jdbc:postgresql://localhost:5435/workplace_test
     username: app_tenant
@@ -23,6 +25,7 @@ spring:
       # 다른 테넌트 행을 autocommit 으로 넣으려 하면 RLS WITH CHECK 가 거부(에러)하므로 조용한 교차오염은 없다.
       connection-init-sql: "SELECT set_config('app.tenant_id', '1', false)"
   flyway:
+    # 이 URL 도 마찬가지로 Testcontainers 의 @DynamicPropertySource 오버라이드 대상 — 5435 는 fallback.
     # 마이그레이션은 소유자 권한 롤(app)로 실행 (테이블/롤 생성·GRANT 필요).
     url: jdbc:postgresql://localhost:5435/workplace_test
     user: app

@@ -41,7 +41,7 @@
   ```bash
   docker exec smart-workplace-db-1 psql -U app -d workplace -c "SELECT ..."
   ```
-- test DB: `smart-workplace-db-test-1` (포트 5435, db `workplace_test`). 탐색은 dev DB 사용.
+- test DB: 상시 컨테이너 없음 — Testcontainers 가 테스트 실행 시마다 격리 DB 를 자동 기동(랜덤 포트, db `workplace_test`). 탐색은 dev DB 사용.
 
 ## security_policy
 - **read_only: 없음** — 격리된 로컬 DB 기준 destructive 보안 테스트 가능. 단 실제 API 경로를 소스에서 먼저 확인(존재하지 않는 경로는 404 → 무의미). explorer §3 참조.

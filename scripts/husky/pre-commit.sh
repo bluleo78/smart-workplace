@@ -103,6 +103,22 @@ if [ -z "$API_CHANGED" ]; then
   exit 0
 fi
 
+# 마이그레이션 변경 시 jOOQ 생성 코드 동반 갱신 강제.
+# 스키마가 바뀌었는데 src/main/generated 를 재생성/커밋하지 않으면 타입 불일치가 런타임까지 샌다.
+MIGRATION_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-api/src/main/resources/db/migration/' || true)
+if [ -n "$MIGRATION_CHANGED" ] && [ -z "$PRECOMMIT_DRY_RUN" ]; then
+  echo "[pre-commit] 마이그레이션 변경 감지 — jOOQ 재생성(Docker 필요)"
+  (cd apps/workplace-api && ./gradlew generateJooq --no-daemon)
+  if ! git diff --quiet -- apps/workplace-api/src/main/generated; then
+    echo "[pre-commit] ✗ 마이그레이션 변경으로 jOOQ 생성 코드가 갱신됨 — 함께 스테이지/커밋하세요:"
+    echo "    git add apps/workplace-api/src/main/generated"
+    exit 1
+  fi
+  echo "[pre-commit] jOOQ 생성 코드 최신 — 통과"
+elif [ -n "$MIGRATION_CHANGED" ]; then
+  echo "[pre-commit][dry-run] 마이그레이션 변경 — generateJooq + generated diff 검사 예정"
+fi
+
 JAVA_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-api/src/(main|test)/java/.*\.java$' || true)
 
 # 변경된 Java → 실행할 테스트 --tests 패턴 누적(중복 제거)

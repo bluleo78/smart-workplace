@@ -11,6 +11,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.transaction.AfterTransaction;
 import org.springframework.test.context.transaction.BeforeTransaction;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -19,6 +21,18 @@ import org.springframework.transaction.support.TransactionTemplate;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 public abstract class IntegrationTestBase {
+
+  /**
+   * 싱글턴 컨테이너의 host:port 를 datasource·flyway URL 양쪽에 주입한다. 자격증명(app_tenant/app)·풀·
+   * connection-init-sql·validate-on-migrate 는 application-test.yml 그대로 — URL 만 컨테이너로
+   * 갈아끼운다. @ServiceConnection 을 쓰지 않는 이유는 {@link PostgresTestContainer} 참조(RLS 이중 롤).
+   */
+  @DynamicPropertySource
+  static void datasourceProps(DynamicPropertyRegistry registry) {
+    var container = PostgresTestContainer.INSTANCE;
+    registry.add("spring.datasource.url", container::getJdbcUrl);
+    registry.add("spring.flyway.url", container::getJdbcUrl);
+  }
 
   @Autowired protected DSLContext baseDsl;
   @Autowired protected PlatformTransactionManager txManager;

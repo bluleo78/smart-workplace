@@ -53,9 +53,6 @@ Thumbs.db
 # Gradle bin output
 **/bin/
 
-# jOOQ generated code
-**/src/main/generated/
-
 # Logs
 logs/
 *.log

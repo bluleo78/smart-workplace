@@ -23,11 +23,11 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 ./gradlew test --tests "com.workplace.auth.*"                             # 패키지 와일드카드
 ./gradlew test jacocoTestReport                                           # + 커버리지
 
-# jOOQ codegen (DB 가 떠 있어야 함)
+# jOOQ codegen (Docker 데몬 필요, 로컬 DB 불필요 — Testcontainers)
 ./gradlew generateJooq                                       # → src/main/generated/
 ```
 
-루트에서 `pnpm db:up` 으로 Postgres 두 컨테이너 기동 후 테스트 가능.
+테스트는 Testcontainers 로 격리 DB 자동 기동(Docker 데몬만 필요). `bootRun` 은 dev DB(5434) 필요 → `pnpm db:up`.
 
 ## Architecture
 
@@ -59,7 +59,8 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 - Repository 는 `DSLContext` 로 type-safe SQL 작성
 - 코드젠 결과: `src/main/generated/` (public 스키마)
 - 빌드와 codegen 은 분리(`generateSchemaSourceOnCompilation = false`) — 스키마 변경 후 명시적으로 `./gradlew generateJooq`
-- Flyway 마이그레이션: `src/main/resources/db/migration/V{n}__*.sql` (현재 V21 까지)
+- Flyway 마이그레이션: `src/main/resources/db/migration/V{n}__*.sql` (현재 V123 까지)
+- pgvector(V110, `vector` 타입) 사용 — 코드젠/테스트 이미지는 반드시 `pgvector/pgvector:pg18` 이어야 함
 
 ### Auth & Permission
 
@@ -77,7 +78,7 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 | Profile | DB | Notes |
 |---------|----|-------|
 | `local` | `workplace` (localhost:5434) | 개발 |
-| `test`  | `workplace_test` (localhost:5435) | 통합 테스트 격리 |
+| `test`  | `workplace_test` (Testcontainers, 랜덤 포트) | 통합 테스트 격리 |
 
 환경변수 (프로덕션 필수): `JWT_SECRET` (Base64 256비트 이상), `ENCRYPTION_MASTER_KEY` (Base64 32바이트), `WORKPLACE_AI_AGENT_TOKEN` (AI Agent 내부 통신 토큰 — 기본값 없음, 미설정 시 기동 실패).
 
@@ -92,7 +93,7 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 ## Local DB Access
 
 ```bash
-# 컨테이너 이름: smart-workplace-db-1 (dev), smart-workplace-db-test-1 (test)
+# 컨테이너 이름: smart-workplace-db-1 (dev). 테스트는 Testcontainers 가 격리 DB 자동 기동(상시 컨테이너 없음)
 # 유저: app / 비번: app
 
 # psql 접속
