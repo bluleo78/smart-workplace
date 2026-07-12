@@ -21,7 +21,7 @@ const TEXT_PREVIEW_LIMIT = 200_000
 const PREVIEW_PARSE_MAX_BYTES = 5 * 1024 * 1024
 
 /**
- * 파일 미리보기 모달. IMAGE→img, PDF→iframe, Markdown→렌더, TEXT→pre, CSV→표, 그 외→미지원 안내.
+ * 파일 미리보기 모달. IMAGE→img, PDF→iframe, Markdown→렌더, HTML→sandbox iframe, TEXT→pre, CSV→표, 그 외→미지원 안내.
  * 파일(DriveFile)과 첨부(VirtualAttachment)를 공통 모델로 정규화해 처리한다.
  * 이미지/PDF 는 objectURL 을 만들고 닫힐 때 revoke. 상단 헤더에 다운로드 버튼, AI 요약은 기본 접힘.
  */
@@ -48,6 +48,7 @@ export function FilePreviewModal({
     kind === 'IMAGE' ||
     kind === 'PDF' ||
     kind === 'MARKDOWN' ||
+    kind === 'HTML' ||
     kind === 'TEXT' ||
     kind === 'CSV' ||
     kind === 'XLSX' ||
@@ -94,7 +95,7 @@ export function FilePreviewModal({
         ? driveApi.fetchBlobUrlByPath(contentPath)
         : driveApi.fetchContentUrl(fileIdForContent)
       void p.then(onUrl).catch(() => alive && setError(true))
-    } else if (kind === 'MARKDOWN' || kind === 'TEXT' || kind === 'CSV') {
+    } else if (kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV') {
       const p = contentPath
         ? driveApi.fetchTextByPath(contentPath)
         : driveApi.fetchTextContent(fileIdForContent)
@@ -180,6 +181,16 @@ export function FilePreviewModal({
             <iframe src={blobUrl} title={name} className="h-full min-h-[60vh] w-full" />
           )}
           {!error && kind === 'MARKDOWN' && text != null && <MarkdownMessage>{text}</MarkdownMessage>}
+          {/* HTML 은 sandbox="" + srcDoc 격리 iframe 으로 렌더 — 스크립트/폼/네비게이션 전면 차단(#486 XSS 패턴, #732). */}
+          {!error && kind === 'HTML' && text != null && (
+            <iframe
+              data-testid="html-document"
+              title={name}
+              sandbox=""
+              srcDoc={text}
+              className="h-full min-h-[60vh] w-full border-0"
+            />
+          )}
           {!error && kind === 'TEXT' && text != null && (
             <pre className="whitespace-pre-wrap break-words text-xs">{text}</pre>
           )}

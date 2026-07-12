@@ -438,4 +438,65 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect(iframe).toHaveAttribute('srcdoc', /안녕하세요 워드 문서/)
     await expect(iframe).toHaveAttribute('sandbox', '')
   })
+
+  // HTML 파일: mimeType='text/html' → resolvePreviewKind='HTML' → sandbox iframe srcDoc 렌더(#732).
+  // 과거엔 범용 text/ 분기로 흡수돼 <pre> 소스 덤프됐다 — 이제 격리 iframe 으로 렌더됨을 검증.
+  test('HTML 파일은 sandbox iframe 으로 렌더된다', async ({ authenticatedPage: page }) => {
+    await stubSpaces(page)
+    const HTML_FILE = {
+      id: 110,
+      folderId: null,
+      fileId: 600,
+      name: 'page.html',
+      mimeType: 'text/html',
+      sizeBytes: 120,
+      category: 'OTHER',
+      createdAt: '2026-07-01T00:00:00Z',
+    }
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ folders: [], files: [HTML_FILE] }),
+            })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/thumbnail`,
+      (route) => route.fulfill({ status: 404, body: '' }),
+    )
+    const HTML_BODY = '<!doctype html><html><body><h1>안녕 HTML</h1></body></html>'
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/content`,
+      (route) => route.fulfill({ status: 200, contentType: 'text/html', body: HTML_BODY }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/summary`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ summary: null, status: 'PENDING' }),
+        }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${HTML_FILE.id}/backlinks`,
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'page.html' }).click()
+
+    const body = page.getByTestId('preview-body')
+    await expect(body).toBeVisible()
+    const iframe = body.getByTestId('html-document')
+    // 원문이 srcdoc 에 담겨 격리 iframe 으로 렌더된다.
+    await expect(iframe).toHaveAttribute('srcdoc', /안녕 HTML/)
+    await expect(iframe).toHaveAttribute('sandbox', '')
+    // 회귀 가드: TEXT 소스 덤프(<pre>)가 아니어야 한다.
+    await expect(body.locator('pre')).toHaveCount(0)
+  })
 })

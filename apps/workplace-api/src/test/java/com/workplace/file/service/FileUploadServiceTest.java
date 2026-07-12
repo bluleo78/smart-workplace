@@ -132,6 +132,23 @@ class FileUploadServiceTest extends IntegrationTestBase {
     assertThat(responses.get(0).fileCategory()).isEqualTo("TEXT");
   }
 
+  // #732: Content-Type 유실(octet-stream) 업로드도 .html 확장자 폴백으로 text/html 로 저장돼
+  // 프론트 미리보기가 HTML 렌더 분기를 타게 한다(과거엔 octet-stream 으로 남아 미리보기 실패).
+  @Test
+  void uploadFiles_htmlFile_octetStreamFallsBackToTextHtml() throws IOException {
+    MockMultipartFile file =
+        new MockMultipartFile(
+            "files",
+            "page.html",
+            "application/octet-stream",
+            "<!doctype html><h1>hi</h1>".getBytes());
+
+    List<FileUploadResponse> responses = fileUploadService.uploadFiles(List.of(file), testUserId);
+
+    assertThat(responses).hasSize(1);
+    assertThat(responses.get(0).mimeType()).isEqualTo("text/html");
+  }
+
   @Test
   void uploadFiles_previouslyBlockedType_storedAsOther() throws IOException {
     // 과거 화이트리스트에서 차단되던 유형(.exe)도 이제 저장 허용 — 미분류는 OTHER 카테고리로 저장된다.

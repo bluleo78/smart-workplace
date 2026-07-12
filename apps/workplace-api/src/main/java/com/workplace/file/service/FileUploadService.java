@@ -331,6 +331,7 @@ public class FileUploadService {
         case "pdf" -> "application/pdf";
         case "txt" -> "text/plain";
         case "md" -> "text/markdown";
+        case "html", "htm" -> "text/html";
         case "json" -> "application/json";
         case "xml" -> "text/xml";
         case "yaml", "yml" -> "text/yaml";

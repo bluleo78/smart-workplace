@@ -8,6 +8,7 @@ export type PreviewKind =
   | 'IMAGE'
   | 'PDF'
   | 'MARKDOWN'
+  | 'HTML'
   | 'TEXT'
   | 'CSV'
   | 'XLSX'
@@ -22,6 +23,8 @@ export function resolvePreviewKind(mimeType: string): PreviewKind {
   if (mimeType.startsWith('image/')) return 'IMAGE'
   if (mimeType === 'application/pdf') return 'PDF'
   if (mimeType === 'text/markdown') return 'MARKDOWN'
+  // HTML 은 범용 text/ 분기보다 먼저 잡아 소스 덤프가 아닌 렌더로 보낸다(#732).
+  if (mimeType === 'text/html') return 'HTML'
   if (mimeType === 'text/csv' || mimeType === 'application/csv') return 'CSV'
   if (mimeType === XLSX_MIME) return 'XLSX'
   if (mimeType === DOCX_MIME) return 'DOCX'
