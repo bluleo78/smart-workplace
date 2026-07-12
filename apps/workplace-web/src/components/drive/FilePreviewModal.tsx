@@ -131,7 +131,9 @@ export function FilePreviewModal({
         if (!o) onClose()
       }}
     >
-      <DialogContent className="max-w-3xl">
+      {/* #731: 사용자가 우하단 코너를 드래그해 크기 조절(CSS 네이티브 resize). 세션 동안만 유지(닫으면 리셋).
+          base 의 grid→flex-col 로 전환해 본문이 늘어난 높이를 채우게 하고, sm:max-w-lg 도 함께 덮어 초기 폭 확보. */}
+      <DialogContent className="flex resize flex-col overflow-hidden h-[80vh] max-h-[95vh] min-h-[20rem] w-[64rem] max-w-[95vw] min-w-[24rem] sm:max-w-[95vw]">
         {/* 상단 툴바: 파일명 + 다운로드 액션 */}
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
@@ -165,8 +167,8 @@ export function FilePreviewModal({
             )}
           </AiContent>
         )}
-        {/* 미리보기 본문 */}
-        <div className="max-h-[70vh] overflow-auto" data-testid="preview-body">
+        {/* 미리보기 본문 — #731: flex-1 로 남은 높이를 채워 리사이즈에 반응(min-h-0 없으면 flex 자식이 안 줄어들어 스크롤 불가). */}
+        <div className="min-h-0 flex-1 overflow-auto" data-testid="preview-body">
           {error && <p className="text-sm text-destructive">미리보기를 불러오지 못했습니다.</p>}
           {!error && !renderable && (
             <p className="text-sm text-muted-foreground">미리보기를 지원하지 않는 형식입니다.</p>
@@ -175,7 +177,7 @@ export function FilePreviewModal({
             <img src={blobUrl} alt={name} className="mx-auto max-w-full" />
           )}
           {!error && kind === 'PDF' && blobUrl && (
-            <iframe src={blobUrl} title={name} className="h-[70vh] w-full" />
+            <iframe src={blobUrl} title={name} className="h-full min-h-[60vh] w-full" />
           )}
           {!error && kind === 'MARKDOWN' && text != null && <MarkdownMessage>{text}</MarkdownMessage>}
           {!error && kind === 'TEXT' && text != null && (

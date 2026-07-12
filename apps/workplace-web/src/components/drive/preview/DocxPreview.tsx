@@ -41,7 +41,7 @@ export function DocxPreview({ buffer }: { buffer: ArrayBuffer }) {
       title="문서 미리보기"
       sandbox=""
       srcDoc={html}
-      className="h-[70vh] w-full border-0"
+      className="h-full min-h-[60vh] w-full border-0"
     />
   )
 }
