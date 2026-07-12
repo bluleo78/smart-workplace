@@ -2,7 +2,7 @@
 # -dev 이미지에서 소스 빌드 후 런타임 이미지로 산출물만 복사(멀티스테이지).
 FROM dhi.io/postgres:18-debian13-dev AS build
 
-ARG PGVECTOR_VERSION=0.8.1
+ARG PGVECTOR_VERSION=0.8.5
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
