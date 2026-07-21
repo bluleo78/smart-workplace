@@ -76,7 +76,13 @@ export class OpencodeRunner implements AgentRunner {
       try {
         const stdioEntryCmd = resolveStdioEntryCmd();
         const config = buildOpencodeConfig(i, runId, stdioEntryCmd);
-        const spawn: SpawnOpencode = () => createOpencode({ config });
+        // port:0 필수 — createOpencodeServer 는 포트 미지정 시 4096 을 고정으로 쓴다(SDK 기본값).
+        // opencode 서버 프로세스가 동시에 2개 이상 뜨면(웜 풀의 서로 다른 키 서버들 + 풀 비대상
+        // mail/messaging/home 의 매-요청 신규 스폰) 두 번째부터 4096 바인드에 실패해 exit 1 로
+        // 크래시했다(실측: mail 경로 502 상시 재현). port:0 이면 OS 가 빈 포트를 할당하고 SDK 가
+        // "listening on <url>" 출력에서 실제 포트를 파싱해 client 를 만든다 — 이 spawn 은 풀/비풀
+        // 양쪽에서 공유되므로 한 곳만 고쳐도 두 경로가 함께 해소된다.
+        const spawn: SpawnOpencode = () => createOpencode({ config, port: 0 });
 
         let opencode: OpencodeHandle = poolKey ? await acquireServer(poolKey, spawn) : await spawn();
         server = opencode.server;

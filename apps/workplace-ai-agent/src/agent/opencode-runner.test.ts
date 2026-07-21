@@ -116,6 +116,18 @@ describe('OpencodeRunner.stream', () => {
     expect(() => runner.stream(baseInput({ credential: { provider: 'anthropic', token: 't', model: null } }), () => {})).toThrow();
   });
 
+  it('createOpencode 를 port:0 으로 스폰한다 — 포트 미지정 시 SDK 가 4096 을 고정해 동시 스폰이 바인드 충돌(exit 1)로 크래시하던 회귀 가드', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(baseInput(), () => {});
+    await handle.done;
+
+    expect(createOpencode).toHaveBeenCalledWith(expect.objectContaining({ port: 0 }));
+  });
+
   it('텍스트 part 2회 업데이트 → suffix-diff 로 text_delta 2회 합성 후 idle→result', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
