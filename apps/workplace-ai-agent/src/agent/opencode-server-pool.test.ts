@@ -51,6 +51,56 @@ describe('acquireServer', () => {
     expect(spawnA).toHaveBeenCalledTimes(1);
     expect(spawnB).toHaveBeenCalledTimes(1);
   });
+
+  it('동일 key 동시 miss 2건은 spawn 을 1번만 호출하고 같은 handle 을 useCount=2 로 공유한다(레이스+누수 방지)', async () => {
+    const handle = fakeHandle();
+    let resolveSpawn!: (h: OpencodeHandle) => void;
+    // 첫 acquire 가 시작한 스폰이 아직 진행 중일 때 두 번째 acquire 가 들어오는 상황을 만든다.
+    const spawn = vi.fn(
+      () =>
+        new Promise<OpencodeHandle>((r) => {
+          resolveSpawn = r;
+        }),
+    );
+
+    const p1 = acquireServer('k1', spawn);
+    const p2 = acquireServer('k1', spawn);
+
+    // 두 번째는 진행 중 스폰에 합류해야 하므로, 이 시점에 spawn 은 아직 1번만 호출됐다.
+    expect(spawn).toHaveBeenCalledTimes(1);
+
+    resolveSpawn(handle);
+    const [h1, h2] = await Promise.all([p1, p2]);
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(h1).toBe(handle);
+    expect(h2).toBe(handle);
+
+    // useCount 가 2 여야 한다 — release 를 두 번 해야 유휴 타이머가 시작되고 close 된다.
+    releaseServer('k1');
+    vi.advanceTimersByTime(IDLE_TTL_MS);
+    expect(handle.server.close).not.toHaveBeenCalled(); // 아직 useCount 1
+
+    releaseServer('k1');
+    vi.advanceTimersByTime(IDLE_TTL_MS);
+    expect(handle.server.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('진행 중 spawn 이 실패하면 첫 caller 는 에러를 받고 합류자는 새로 spawn 을 시도한다', async () => {
+    const good = fakeHandle();
+    const spawn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('boot fail'))
+      .mockResolvedValueOnce(good);
+
+    const p1 = acquireServer('k1', spawn);
+    const p2 = acquireServer('k1', spawn);
+
+    await expect(p1).rejects.toThrow('boot fail'); // 첫 스폰 실패 전파
+    const h2 = await p2; // 합류자는 재시도로 성공
+    expect(h2).toBe(good);
+    expect(spawn).toHaveBeenCalledTimes(2); // 실패 1 + 재시도 1
+  });
 });
 
 describe('releaseServer + 유휴 TTL', () => {

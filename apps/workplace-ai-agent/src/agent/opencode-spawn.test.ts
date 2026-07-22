@@ -94,4 +94,42 @@ describe('createIsolatedOpencode', () => {
     expect(existsSync(dir!)).toBe(false); // 실패해도 누수 없음
     expect(process.env.XDG_DATA_HOME).toBe(before); // 복원
   });
+
+  // 동시 생존 서버 수 제한(OOM 방지) — 모듈 기본값 MAX_LIVE_SERVERS=3(env 미설정) 기준.
+  it('동시 생존 서버를 MAX_LIVE_SERVERS(기본 3)로 제한하고, close 로 슬롯이 나면 대기분이 진행한다', async () => {
+    const resolvers: Array<() => void> = [];
+    // createOpencode 를 수동 제어 — resolvers[i]() 를 호출해야 i 번째 부팅이 완료된다.
+    createOpencode.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(() => resolve({ client: {}, server: { url: 'http://x', close: vi.fn() } }));
+        }),
+    );
+
+    // 모든 대기 중 마이크로태스크를 비운다(매크로태스크 경계) — async 계층 수에 둔감하게.
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    const p1 = createIsolatedOpencode({} as never);
+    const p2 = createIsolatedOpencode({} as never);
+    const p3 = createIsolatedOpencode({} as never);
+    const p4 = createIsolatedOpencode({} as never); // 슬롯 초과 → 대기
+
+    await flush();
+    // 3 슬롯만 부팅에 진입하고 4번째는 슬롯을 못 얻어 createOpencode 를 아직 호출하지 못한다.
+    expect(createOpencode).toHaveBeenCalledTimes(3);
+
+    // 첫 서버 완료 후 close → 생존 슬롯 반납 → 대기하던 4번째가 부팅 진입.
+    resolvers[0]();
+    const h1 = await p1;
+    h1.server.close();
+    await flush();
+    expect(createOpencode).toHaveBeenCalledTimes(4);
+
+    // 정리 — 나머지 서버 완료 후 close 로 슬롯/디렉터리 반납.
+    resolvers[1]();
+    resolvers[2]();
+    resolvers[3]();
+    const rest = await Promise.all([p2, p3, p4]);
+    rest.forEach((h) => h.server.close());
+  });
 });
