@@ -1,23 +1,24 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// @opencode-ai/sdk 를 모킹해 실제 프로세스 스폰 없이 이벤트 매핑만 검증한다.
-// vi.mock 은 파일 최상단으로 호이스팅되므로, 그 안에서 참조할 변수는 vi.hoisted 로 선언해야 한다.
-const { sessionCreate, sessionAbort, sessionPromptAsync, eventSubscribe, serverClose, createOpencode } = vi.hoisted(() => {
+// opencode 스폰(opencode-spawn.js)을 모킹해 실제 프로세스 스폰/데이터 디렉터리 격리 없이 이벤트
+// 매핑만 검증한다(격리 로직 자체는 opencode-spawn.test.ts 에서 검증). vi.mock 은 파일 최상단으로
+// 호이스팅되므로, 그 안에서 참조할 변수는 vi.hoisted 로 선언해야 한다.
+const { sessionCreate, sessionAbort, sessionPromptAsync, eventSubscribe, serverClose, createIsolatedOpencode } = vi.hoisted(() => {
   const sessionCreate = vi.fn();
   const sessionAbort = vi.fn();
   const sessionPromptAsync = vi.fn();
   const eventSubscribe = vi.fn();
   const serverClose = vi.fn();
-  const createOpencode = vi.fn(async () => ({
+  const createIsolatedOpencode = vi.fn(async () => ({
     client: {
       session: { create: sessionCreate, abort: sessionAbort, promptAsync: sessionPromptAsync },
       event: { subscribe: eventSubscribe },
     },
-    server: { url: 'http://127.0.0.1:4096', close: serverClose },
+    server: { url: 'http://127.0.0.1:12345', close: serverClose },
   }));
-  return { sessionCreate, sessionAbort, sessionPromptAsync, eventSubscribe, serverClose, createOpencode };
+  return { sessionCreate, sessionAbort, sessionPromptAsync, eventSubscribe, serverClose, createIsolatedOpencode };
 });
-vi.mock('@opencode-ai/sdk', () => ({ createOpencode }));
+vi.mock('./opencode-spawn.js', () => ({ createIsolatedOpencode }));
 
 vi.mock('./opencode-config.js', () => ({
   buildOpencodeConfig: vi.fn(() => ({})),
@@ -116,7 +117,7 @@ describe('OpencodeRunner.stream', () => {
     expect(() => runner.stream(baseInput({ credential: { provider: 'anthropic', token: 't', model: null } }), () => {})).toThrow();
   });
 
-  it('createOpencode 를 port:0 으로 스폰한다 — 포트 미지정 시 SDK 가 4096 을 고정해 동시 스폰이 바인드 충돌(exit 1)로 크래시하던 회귀 가드', async () => {
+  it('격리 스폰(createIsolatedOpencode)을 거친다 — 포트 충돌(port:0)과 데이터 디렉터리 격리를 함께 처리하는 경로(세부는 opencode-spawn.test.ts)', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -125,7 +126,7 @@ describe('OpencodeRunner.stream', () => {
     const handle = runner.stream(baseInput(), () => {});
     await handle.done;
 
-    expect(createOpencode).toHaveBeenCalledWith(expect.objectContaining({ port: 0 }));
+    expect(createIsolatedOpencode).toHaveBeenCalledOnce();
   });
 
   it('텍스트 part 2회 업데이트 → suffix-diff 로 text_delta 2회 합성 후 idle→result', async () => {
