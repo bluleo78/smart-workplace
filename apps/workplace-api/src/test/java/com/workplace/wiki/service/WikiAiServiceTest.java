@@ -52,6 +52,7 @@ class WikiAiServiceTest {
   private WikiAiAgentStreamClient agent;
   private SseRegistry sseRegistry;
   private StreamingGenerationRegistry registry;
+  private WikiPageService pageService;
   private WikiAiService service;
 
   private static final long CALLER = 7L;
@@ -66,6 +67,7 @@ class WikiAiServiceTest {
     agent = mock(WikiAiAgentStreamClient.class);
     sseRegistry = mock(SseRegistry.class);
     registry = new DefaultStreamingGenerationRegistry();
+    pageService = mock(WikiPageService.class);
     service =
         new WikiAiService(
             pages,
@@ -74,12 +76,13 @@ class WikiAiServiceTest {
             agent,
             new TaskExecutorAdapter(Runnable::run),
             registry,
-            sseRegistry);
+            sseRegistry,
+            pageService);
   }
 
   private WikiPageDetail page() {
     return new WikiPageDetail(
-        PAGE_ID, SPACE_ID, null, "설계 문서", "## 본문\n내용", 3, CALLER, OffsetDateTime.now());
+        PAGE_ID, SPACE_ID, null, "설계 문서", "## 본문\n내용", 3, CALLER, OffsetDateTime.now(), null, null);
   }
 
   private AssistantSpec spec() {
@@ -159,6 +162,34 @@ class WikiAiServiceTest {
     assertThat(payloadCaptor.getAllValues().get(2)).containsEntry("correlationId", correlationId);
   }
 
+  /**
+   * #736: 델타가 1개 이상 전달된 뒤 정상 완료되면 attribution 이 기록된다. fanOut 순서상 recordAiUsage 가 wiki.ai.done 이벤트보다
+   * 먼저 커밋돼야(§4.1) 뒤이은 자동저장이 최신 값을 읽으므로, 실행 자체가 성공하면 순서는 자연히 보장된다(같은 스레드 동기 호출) — 여기서는 호출 여부/인자만
+   * 검증한다.
+   */
+  @Test
+  void startCompose_deltaDeliveredThenDone_recordsAiUsage() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+
+    doAnswer(
+        inv -> {
+          @SuppressWarnings("unchecked")
+          Consumer<String> onDelta = inv.getArgument(1);
+          Runnable onDone = inv.getArgument(2);
+          onDelta.accept("핵심 요약");
+          onDone.run();
+          return null;
+        })
+        .when(agent)
+        .stream(any(), any(), any());
+
+    service.startCompose(CALLER, PAGE_ID, summarize());
+
+    verify(pageService).recordAiUsage(PAGE_ID, WikiAiAction.SUMMARIZE);
+  }
+
   /** agent.stream 이 예외를 던지면 wiki.ai.error(message 포함)로 fanOut 된다. */
   @Test
   void startCompose_agentThrows_fanOutWikiAiError() throws Exception {
@@ -174,6 +205,70 @@ class WikiAiServiceTest {
             eq(Set.of(CALLER)),
             eq("wiki.ai.error"),
             eq(Map.of("correlationId", correlationId, "message", "ai-agent 응답 실패")));
+  }
+
+  /** #736: 델타 없이 즉시 실패하면 attribution 을 기록하지 않는다(전달된 텍스트가 없으므로 신호 없음). */
+  @Test
+  void startCompose_agentThrowsWithoutDelta_doesNotRecordAiUsage() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    doThrow(new RuntimeException("ai-agent 응답 실패")).when(agent).stream(any(), any(), any());
+
+    service.startCompose(CALLER, PAGE_ID, summarize());
+
+    verify(pageService, never()).recordAiUsage(anyLong(), any());
+  }
+
+  /**
+   * #736: 델타가 전달된 뒤 도중에 실패해도(에러/취소 불문) attribution 을 기록한다 — 부분 텍스트가 이미 에디터에 삽입·자동저장 예정이므로 "정상 완료"가
+   * 아니어도 신호는 남아야 한다(§3.1).
+   */
+  @Test
+  void startCompose_deltaDeliveredThenAgentThrows_recordsAiUsage() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+
+    doAnswer(
+        inv -> {
+          @SuppressWarnings("unchecked")
+          Consumer<String> onDelta = inv.getArgument(1);
+          onDelta.accept("일부 생성분");
+          throw new RuntimeException("네트워크 끊김");
+        })
+        .when(agent)
+        .stream(any(), any(), any());
+
+    service.startCompose(CALLER, PAGE_ID, summarize());
+
+    verify(pageService).recordAiUsage(PAGE_ID, WikiAiAction.SUMMARIZE);
+  }
+
+  /** #736: attribution 기록이 실패해도(예외 격리) wiki.ai.done fanOut 은 그대로 발생한다. */
+  @Test
+  void startCompose_recordAiUsageThrows_stillFansOutDone() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    doThrow(new RuntimeException("DB 오류")).when(pageService).recordAiUsage(anyLong(), any());
+
+    doAnswer(
+        inv -> {
+          @SuppressWarnings("unchecked")
+          Consumer<String> onDelta = inv.getArgument(1);
+          Runnable onDone = inv.getArgument(2);
+          onDelta.accept("핵심 요약");
+          onDone.run();
+          return null;
+        })
+        .when(agent)
+        .stream(any(), any(), any());
+
+    String correlationId = service.startCompose(CALLER, PAGE_ID, summarize());
+
+    verify(sseRegistry)
+        .fanOut(eq(Set.of(CALLER)), eq("wiki.ai.done"), eq(Map.of("correlationId", correlationId)));
   }
 
   /**
@@ -196,7 +291,14 @@ class WikiAiServiceTest {
     StreamingGenerationRegistry realRegistry = new DefaultStreamingGenerationRegistry();
     WikiAiService svc =
         new WikiAiService(
-            pages, perms, assistantResolver, agent, realExecutor, realRegistry, sseRegistry);
+            pages,
+            perms,
+            assistantResolver,
+            agent,
+            realExecutor,
+            realRegistry,
+            sseRegistry,
+            pageService);
 
     CountDownLatch started = new CountDownLatch(1);
     doAnswer(
@@ -243,7 +345,8 @@ class WikiAiServiceTest {
             agent,
             new TaskExecutorAdapter(Runnable::run),
             mockRegistry,
-            sseRegistry);
+            sseRegistry,
+            pageService);
 
     svc.cancelCompose("corr-1", CALLER);
 

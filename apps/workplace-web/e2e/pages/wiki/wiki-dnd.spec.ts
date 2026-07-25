@@ -22,9 +22,9 @@ function personalSpace(): WikiSpace {
 // 루트 페이지 3개 A(10,0) · B(11,1) · C(12,2).
 function rootPages(): WikiPageSummary[] {
   return [
-    { id: 10, parentId: null, title: 'A', position: 0 },
-    { id: 11, parentId: null, title: 'B', position: 1 },
-    { id: 12, parentId: null, title: 'C', position: 2 },
+    { id: 10, parentId: null, title: 'A', position: 0, aiLastUsedAt: null },
+    { id: 11, parentId: null, title: 'B', position: 1, aiLastUsedAt: null },
+    { id: 12, parentId: null, title: 'C', position: 2, aiLastUsedAt: null },
   ]
 }
 

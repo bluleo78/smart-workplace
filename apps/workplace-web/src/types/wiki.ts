@@ -23,6 +23,8 @@ export interface WikiPageSummary {
   parentId: number | null
   title: string
   position: number
+  // #736: AI 생성 attribution — 값 존재 여부만으로 사이드바 트리 배지를 판단(null 이면 AI 이력 없음).
+  aiLastUsedAt: string | null
 }
 
 export interface WikiPageDetail {
@@ -34,6 +36,9 @@ export interface WikiPageDetail {
   version: number
   updatedBy: number | null
   updatedAt: string
+  // #736: 페이지 단위 AI 생성 attribution(마지막 사용 시각/액션). 둘 다 null 이면 AI 이력 없음.
+  aiLastUsedAt: string | null
+  aiLastAction: string | null
 }
 
 export interface SavePageRequest {

@@ -232,6 +232,8 @@ AI 생성물과 AI 신호를 UI에 표현할 때는 아래 어휘 표와 원칙�
 - **마커 중첩 금지(컨테이너 내부)**: AI 컨테이너(`AiContent`)나 AI 레이블(`AiLabel`)이 이미 AI 아이콘으로 영역을 "AI 생성물"로 마킹했다면, **그 내부 요소에는 AI 아이콘을 다시 붙이지 않는다.** 내부의 버튼·배지 등은 일반(기능) 아이콘을 쓴다. 마킹은 컨테이너 레벨에서 한 번만 — 내부마다 `Sparkles`를 반복하면 신호가 과포화돼 의미가 흐려진다.
   - 내부 버튼: 동작을 나타내는 기능 아이콘(`RotateCcw`=갱신, `Loader2`=처리 중 등) 또는 아이콘 없음. AI 테마 색(`text-ai-accent`)은 유지 가능.
   - 내부 상태 배지: 결정적 상태값(차단·마감초과·정체 등)은 AI 판단 신호가 아니므로 `AiSignalBadge`(✨)가 아니라 일반 `Badge`(`warning`/`info` 등)를 쓴다.
+- **AI 액션 트리거 버튼**: AI 실행 버튼은 `AiLabel`을 `Button` 안에 배치해 구성한다. 직접 `Sparkles` + 색 클래스를 조합하지 않는다(재사용 의무 §7.2 하단 연장, 실측 위반 사례는 [13. Migration Backlog](./13-migration-backlog.md) 참조).
+- **아이콘 사이징(Button/Badge 내부의 `AiLabel`)**: `AiLabel`을 Button/Badge 안에 넣을 때는 `size-*` 접두 클래스(`size-3` 등)만 쓴다. `h-* w-*`는 Button cva 의 `[&_svg:not([class*='size-'])]:size-4`([§6](#6-shadcnui-button-svg-자동-조정-패턴))와 클래스가 동시 매칭돼 충돌하고, 결과가 스타일시트 순서에 좌우된다(근거: #733/c69c1331, `AiLabel.tsx:14-18`의 `size-3` 채택).
 
 #### 마커 어휘 표
 
@@ -241,6 +243,7 @@ AI 생성물과 AI 신호를 UI에 표현할 때는 아래 어휘 표와 원칙�
 | ③ AI 신호 — 강조 | `AiSignalBadge variant="action"` | 솔리드 `ai-accent` 배경 뱃지. 사용자 행동을 유도하는 신호. | "회신 필요" 뱃지, "내 차례" 뱃지 |
 | ③ AI 신호 — 정보 | `AiSignalBadge variant="info"` | 연한 `ai-accent-subtle` 배경 뱃지. 정보 전달 신호. | "AI 분류됨" 뱃지, 사이드바 AI 표식 |
 | 인라인 텍스트 레이블 | `AiLabel` | `Sparkles` 아이콘 + 텍스트 인라인 조합. | "AI 요약", "AI 초안" 레이블 |
+| AI 액션 트리거 버튼 | `Button variant="outline" size="sm"` + `AiLabel` | 페이지 헤더 등 비-주(non-primary) 액션 위치의 AI 실행 버튼. 로딩 시 `AiLabel` → `Loader2`(크기 클래스 없음, cva 자동 16px)로 교체. size 근거는 [04. Components §E](./04-components.md#e-button-사용-규칙). | Wiki 페이지 헤더 "AI ▾" 버튼 |
 
 ```tsx
 // 파일별 경로로 임포트(배럴 index 없음)
@@ -259,6 +262,18 @@ import { AiLabel } from '@/components/ai/AiLabel';
 
 // 인라인 레이블
 <AiLabel>AI 초안</AiLabel>
+
+// AI 액션 트리거 버튼 — 페이지 헤더 비-주 액션 (WikiPageHeader.tsx 선례)
+<Button type="button" variant="outline" size="sm" aria-disabled={aiBusy}>
+  {aiBusy ? (
+    <>
+      <Loader2 className="animate-spin" aria-hidden="true" /> 생성 중…
+    </>
+  ) : (
+    <AiLabel>AI</AiLabel>
+  )}
+  <ChevronDown aria-hidden="true" />
+</Button>
 ```
 
 #### 금지
@@ -286,6 +301,19 @@ import { AiLabel } from '@/components/ai/AiLabel';
   <Button className="text-ai-accent"><RotateCcw /> 요약 갱신</Button> {/* ✓ 기능 아이콘 */}
   <Badge variant="warning">3일 정체</Badge>                          {/* ✓ 일반 상태 배지 */}
 </AiContent>
+
+// 금지: AI 버튼에 AiLabel 대신 Sparkles + 색 직접 조합 (AiClassifyButton.tsx 실측 위반 — 13-migration-backlog.md 참조)
+<Button variant="outline" size="sm">
+  <Sparkles className="h-3.5 w-3.5 text-violet-600" /> AI 제안  {/* X — AiLabel 미사용 + 색 하드코딩 */}
+</Button>
+
+// 금지: AiLabel 을 Button 안에서 h-3 w-3 로 재정의
+<AiLabel className="[&_svg]:h-3 [&_svg]:w-3">AI</AiLabel>  {/* X — size- 접두 아니면 Button cva 와 충돌 */}
+
+// 올바른 표현
+<Button variant="outline" size="sm">
+  <AiLabel>AI</AiLabel>
+</Button>
 ```
 
 #### 재사용 의무

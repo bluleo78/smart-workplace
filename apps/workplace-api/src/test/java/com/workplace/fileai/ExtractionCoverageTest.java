@@ -141,7 +141,7 @@ class ExtractionCoverageTest extends IntegrationTestBase {
 
   @Test
   void normalizeOctetStreamMimes_hwpxTakesPrecedenceOverHwp_andOtherExtensionsMap() {
-    // V124 UPDATE ① 미러 검증 — 특히 .hwpx 가 LIKE '%.hwp' 분기에 먹히지 않는지가 핵심(코드 리뷰로만 확인돼 있던 갭).
+    // V125 UPDATE ① 미러 검증 — 특히 .hwpx 가 LIKE '%.hwp' 분기에 먹히지 않는지가 핵심(코드 리뷰로만 확인돼 있던 갭).
     long hwpxFileId = createFileInTenantWithName(1L, "application/octet-stream", "보고서.hwpx");
     long hwpFileId = createFileInTenantWithName(1L, "application/octet-stream", "보고서.hwp");
     long htmlFileId = createFileInTenantWithName(1L, "application/octet-stream", "index.html");
@@ -169,7 +169,7 @@ class ExtractionCoverageTest extends IntegrationTestBase {
     return createFileInTenantWithName(tenantId, mimeType, "test-" + suffix + ".dat");
   }
 
-  /** 파일명을 직접 지정해 FILE 행을 생성한다(V124 UPDATE ① 확장자 CASE 검증용). */
+  /** 파일명을 직접 지정해 FILE 행을 생성한다(V125 UPDATE ① 확장자 CASE 검증용). */
   private long createFileInTenantWithName(long tenantId, String mimeType, String originalName) {
     String suffix = String.valueOf(System.nanoTime() % 1_000_000_000L);
     Long userId =
@@ -296,7 +296,7 @@ class ExtractionCoverageTest extends IntegrationTestBase {
     }
   }
 
-  /** V124 UPDATE ① 검증용 — FILE.MIME_TYPE 조회. */
+  /** V125 UPDATE ① 검증용 — FILE.MIME_TYPE 조회. */
   private String readMimeInTenant(long tenantId, long fileId) {
     Long prev = TenantContext.get();
     TenantContext.set(tenantId);

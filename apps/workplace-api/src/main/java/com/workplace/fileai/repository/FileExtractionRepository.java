@@ -41,12 +41,12 @@ public class FileExtractionRepository {
   }
 
   /**
-   * V124 마이그레이션 ① octet-stream 보정 UPDATE 와 동일 로직(#735) — {@code file.mime_type} 이 {@code
+   * V125 마이그레이션 ① octet-stream 보정 UPDATE 와 동일 로직(#735) — {@code file.mime_type} 이 {@code
    * application/octet-stream} 인 행을 파일명 확장자 기준으로 표준 mime 으로 보정한다. {@link
    * com.workplace.file.service.MimeNormalizer} 와 동일 매핑 표를 미러 — 한쪽만 고치면 드리프트.
    *
    * <p>마이그레이션은 컨테이너 기동 시 1회만 실행되므로, 이 메서드는 테스트에서 CASE 분기(특히 {@code .hwpx} 가 {@code .hwp} 보다 먼저
-   * 매치되는지)를 별도로 검증하기 위한 용도로 존재한다(운영 경로에서는 호출되지 않음 — 백필은 V124 가 이미 수행).
+   * 매치되는지)를 별도로 검증하기 위한 용도로 존재한다(운영 경로에서는 호출되지 않음 — 백필은 V125 가 이미 수행).
    *
    * @return 보정된 행 수
    */
@@ -77,10 +77,10 @@ public class FileExtractionRepository {
   }
 
   /**
-   * V124 마이그레이션 ② 재개방 UPDATE 와 동일 로직(#735) — 카테고리 게이트 시절 {@code non-extractable:} 사유로 SKIPPED 굳은 행
+   * V125 마이그레이션 ② 재개방 UPDATE 와 동일 로직(#735) — 카테고리 게이트 시절 {@code non-extractable:} 사유로 SKIPPED 굳은 행
    * 중, 현재 {@link com.workplace.fileai.ExtractableTypes} 기준으로 추출 가능한 mime 을 가진 행을 PENDING 으로 되돌린다.
    * 마이그레이션은 컨테이너 기동 시 1회만 실행되므로, 이 메서드는 테스트에서 동일 UPDATE 로직을 별도로 검증하기 위한 용도로 존재한다(운영 경로에서는 호출되지 않음 —
-   * 백필은 V124 가 이미 수행).
+   * 백필은 V125 가 이미 수행).
    *
    * @return 재개방된 행 수
    */

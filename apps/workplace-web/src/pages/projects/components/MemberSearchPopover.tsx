@@ -1,9 +1,10 @@
 // 프로젝트 멤버 추가/DM 수신자 검색 등에 재사용되는 사용자 검색 popover.
-// - 300ms debounce 후 GET /users?search=&kind= 호출
-// - kind 필터 토글 (전체 | 사람 | AGENT) — 탭 UI 는 항상 노출하되, 실제 검색 범위는 includeAgents/agentOnly 로 결정
-//   (#691 — 백엔드가 kind 파라미터를 실제로 필터링하므로, 팀 프로젝트 멤버 추가처럼 여전히 사람만 필요한 호출부는
-//   includeAgents 를 넘기지 않아 기존 동작(HUMAN 전용)을 그대로 유지한다)
-// - 이미 멤버인 후보는 disabled + "(이미 멤버)" 라벨
+// - 300ms debounce 후 GET /users?search=&kind= 호출. 검색어가 비어 있으면 해당 kind 의 기본 후보 목록을 조회(#734)
+// - kind 필터 토글 (전체 | 사람 | 에이전트) — 선택한 탭이 곧 백엔드 kind 파라미터가 된다(#734).
+//   클라이언트에서 kind 를 다시 거르지 않는 이유: page 1(20건)에 AGENT 가 안 들어오면 탭이 계속 빈 목록이 되기 때문.
+//   AGENT 를 아예 다룰 수 없는 호출부(includeAgents 미전달)는 에이전트 탭 자체를 숨겨 탭이 거짓말하지 않게 한다.
+// - 비활성(is_active=false) 사용자는 후보에서 제외 — 추가 대상이 될 수 없다
+// - 이미 멤버인 후보는 disabled + "(이미 멤버)" 라벨, 목록 뒤로 정렬(기본 목록이 disabled 행으로만 차는 것 방지)
 // - row 클릭 → onSelect(user). 부모가 mutation 호출.
 // - 성공 시 popover 는 닫지 않고 검색어만 비움 (연속 추가). 닫기는 부모 onOpenChange.
 
@@ -42,8 +43,8 @@ export interface MemberSearchPopoverProps {
   excludeUserIds?: Set<number>;
   // true 면 AGENT 만 선택 가능 — kind 토글 숨기고 AGENT 필터 고정 (개인 프로젝트 AI 추가 전용).
   agentOnly?: boolean;
-  // true 면 검색 결과에 AGENT 도 포함(DM 수신자 검색 등). 미전달/false 면 HUMAN 만 조회하는 기존 동작 유지
-  // — 팀 프로젝트 멤버 추가처럼 실제로 사람만 필요한 호출부는 이 prop 을 넘기지 않는다.
+  // true 면 kind 탭(전체/사람/에이전트)을 노출하고 AGENT 도 후보에 포함(DM 수신자, 프로젝트 멤버 추가 등).
+  // 미전달/false 면 에이전트 탭을 숨기고 HUMAN 만 조회한다(사람만 다루는 호출부).
   includeAgents?: boolean;
 }
 
@@ -61,15 +62,19 @@ export function MemberSearchPopover({
   // agentOnly 모드면 AGENT 필터 고정 — 사람 토글 노출 안 함.
   const [kindFilter, setKindFilter] = useState<KindFilter>(agentOnly ? 'AGENT' : 'ALL');
   const debounced = useDebounceValue(query, 300);
-  // 실제 백엔드 조회 범위 — agentOnly 면 AGENT 만, includeAgents 면 ALL(HUMAN+AGENT), 그 외엔 HUMAN 만(기존 동작).
-  const searchKind = agentOnly ? 'AGENT' : includeAgents ? 'ALL' : 'HUMAN';
+  // 실제 백엔드 조회 범위 — agentOnly 면 AGENT 고정, kind 탭을 노출하는 경우엔 선택한 탭이 곧 조회 범위,
+  // 탭이 없는(사람 전용) 호출부는 HUMAN 고정.
+  const searchKind = agentOnly ? 'AGENT' : includeAgents ? kindFilter : 'HUMAN';
   const search = useUserSearch(debounced, searchKind);
 
-  // kind 탭 필터 적용 — 백엔드가 이미 searchKind 로 범위를 좁혔으므로, 여기선 탭 UI(전체/사람/에이전트) 선택을
-  // 클라이언트에서 추가로 좁히는 역할만 한다.
+  // 후보 목록 — 백엔드가 kind/검색어로 이미 좁혔으므로 여기선 제외 대상·비활성 사용자만 걸러내고,
+  // 이미 멤버인 후보를 뒤로 보낸다(검색어 없는 기본 목록의 앞줄이 선택 불가 행으로 채워지지 않게).
   const items = (search.data?.content ?? [])
     .filter((u) => !excludeUserIds?.has(u.id)) // 본인 등 제외 대상
-    .filter((u) => (kindFilter === 'ALL' ? true : u.kind === kindFilter));
+    .filter((u) => u.isActive !== false) // 비활성 사용자는 추가 대상 아님
+    .sort(
+      (a, b) => Number(existingMemberIds.has(a.id)) - Number(existingMemberIds.has(b.id)),
+    );
 
   // 후보 선택 — 이미 멤버면 무시, 아니면 부모 mutation 후 검색어만 비움.
   const handleSelect = async (user: UserResponse) => {
@@ -93,8 +98,9 @@ export function MemberSearchPopover({
             placeholder="이름·아이디·이메일로 검색"
             aria-label="멤버 검색"
           />
-          {/* agentOnly 모드면 kind 토글 숨김 — AGENT 만 선택 가능하므로 토글 불필요. */}
-          {!agentOnly && (
+          {/* agentOnly 면 AGENT 고정이라 토글 불필요, includeAgents 아니면 HUMAN 고정이라 토글이 의미 없음 —
+              둘 중 하나면 탭 자체를 숨긴다(누르면 결과가 없는 '에이전트' 탭 노출 방지, #734). */}
+          {!agentOnly && includeAgents && (
             <div
               className="flex gap-1 p-2 border-b"
               role="tablist"
@@ -117,14 +123,15 @@ export function MemberSearchPopover({
             </div>
           )}
           <CommandList>
-            {debounced.trim().length < 1 ? (
-              <CommandEmpty>이름·아이디·이메일로 검색하세요</CommandEmpty>
-            ) : search.isLoading ? (
+            {/* 검색어가 없어도 기본 후보 목록을 그대로 렌더한다(#734). 안내 문구는 CommandInput placeholder 로 대체. */}
+            {search.isLoading ? (
               <CommandEmpty>검색 중…</CommandEmpty>
             ) : search.isError ? (
               <CommandEmpty>검색에 실패했습니다</CommandEmpty>
             ) : items.length === 0 ? (
-              <CommandEmpty>결과가 없습니다</CommandEmpty>
+              <CommandEmpty>
+                {debounced.trim().length < 1 ? '추가할 수 있는 후보가 없습니다' : '결과가 없습니다'}
+              </CommandEmpty>
             ) : (
               <CommandGroup>
                 {items.map((u) => {

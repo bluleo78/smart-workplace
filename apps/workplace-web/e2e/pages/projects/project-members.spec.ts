@@ -88,17 +88,22 @@ async function setupPersonalProjectStubs(
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
 
-  // 사용자 검색 — AGENT + HUMAN 혼재 결과 반환
-  await page.route(/\/api\/v1\/users\?.*search=/, (route) => {
+  // 사용자 검색 — AGENT + HUMAN 혼재 소스. 실제 백엔드처럼 kind 로 먼저 좁히고(ALL 이면 전체),
+  // search 가 blank 면 검색 조건 없이 전체를 반환한다(#734).
+  await page.route(/\/api\/v1\/users\?/, (route) => {
     const url = new URL(route.request().url());
     const q = url.searchParams.get('search') ?? '';
+    const kind = url.searchParams.get('kind') ?? 'HUMAN';
     const all = [AGENT_USER, HUMAN_USER];
-    const matched = all.filter(
-      (u) =>
-        u.username.includes(q) ||
-        u.name.toLowerCase().includes(q.toLowerCase()) ||
-        (u.email ?? '').includes(q),
-    );
+    const matched = all
+      .filter((u) => kind === 'ALL' || u.kind === kind)
+      .filter(
+        (u) =>
+          q.trim().length < 1 ||
+          u.username.includes(q) ||
+          u.name.toLowerCase().includes(q.toLowerCase()) ||
+          (u.email ?? '').includes(q),
+      );
     return route.fulfill({
       status: 200,
       contentType: 'application/json',

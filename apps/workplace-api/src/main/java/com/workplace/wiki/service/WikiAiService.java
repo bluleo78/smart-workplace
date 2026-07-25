@@ -15,6 +15,9 @@ import java.io.InterruptedIOException;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -30,6 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class WikiAiService {
 
+  private static final Logger log = LoggerFactory.getLogger(WikiAiService.class);
+
   /** 생성 타임아웃 — 펌프 렌더링 + CLI cold-start(최대 ~60s) 여유. */
   private static final Duration TIMEOUT = Duration.ofSeconds(120);
 
@@ -40,6 +45,7 @@ public class WikiAiService {
   private final AsyncTaskExecutor executor;
   private final StreamingGenerationRegistry registry;
   private final SseRegistry sseRegistry;
+  private final WikiPageService pageService;
 
   public WikiAiService(
       WikiPageRepository pages,
@@ -48,7 +54,8 @@ public class WikiAiService {
       WikiAiAgentStreamClient agent,
       @Qualifier("wikiAiStreamExecutor") AsyncTaskExecutor executor,
       StreamingGenerationRegistry registry,
-      SseRegistry sseRegistry) {
+      SseRegistry sseRegistry,
+      WikiPageService pageService) {
     this.pages = pages;
     this.perms = perms;
     this.assistantResolver = assistantResolver;
@@ -56,6 +63,7 @@ public class WikiAiService {
     this.executor = executor;
     this.registry = registry;
     this.sseRegistry = sseRegistry;
+    this.pageService = pageService;
   }
 
   /**
@@ -95,20 +103,31 @@ public class WikiAiService {
         TIMEOUT,
         correlationId ->
             () -> {
+              // #736: 델타가 한 번이라도 전달됐으면(부분 텍스트가 이미 에디터에 삽입·자동저장 예정) 정상
+              // 완료/취소/에러 어느 경로로 끝나든 attribution 을 기록한다 — "정상 종료만 기록"하면 취소·
+              // 타임아웃으로 끝난 스트림도 실제로는 AI 텍스트가 남는데 신호가 빠지는 false negative 가 생긴다.
+              AtomicBoolean delivered = new AtomicBoolean(false);
               try {
                 agent.stream(
                     body,
-                    text ->
-                        sseRegistry.fanOut(
-                            Set.of(callerId),
-                            "wiki.ai.delta",
-                            Map.of("correlationId", correlationId, "text", text)),
-                    () ->
-                        sseRegistry.fanOut(
-                            Set.of(callerId),
-                            "wiki.ai.done",
-                            Map.of("correlationId", correlationId)));
+                    text -> {
+                      delivered.set(true);
+                      sseRegistry.fanOut(
+                          Set.of(callerId),
+                          "wiki.ai.delta",
+                          Map.of("correlationId", correlationId, "text", text));
+                    },
+                    () -> {
+                      if (delivered.get()) {
+                        recordAiUsageSafely(pageId, req.action());
+                      }
+                      sseRegistry.fanOut(
+                          Set.of(callerId), "wiki.ai.done", Map.of("correlationId", correlationId));
+                    });
               } catch (Exception e) {
+                if (delivered.get()) {
+                  recordAiUsageSafely(pageId, req.action());
+                }
                 // 취소(Future.cancel(true))가 펌프 스레드를 인터럽트할 때, 블로킹 중이던 JDK HttpClient 의
                 // ofLines() read 는 isInterrupted() 로 조용히 리턴하지 않고 InterruptedException 이 감싸인
                 // 예외(UncheckedIOException/InterruptedIOException 등)를 던진다 — catch 진입 시점엔 이미
@@ -122,6 +141,20 @@ public class WikiAiService {
                 sseRegistry.fanOut(Set.of(callerId), "wiki.ai.error", payload);
               }
             });
+  }
+
+  /**
+   * attribution 은 부가 신호일 뿐이라 실패해도 스트림 완료/에러 이벤트를 막지 않는다(§3 실패 격리) — 예외를 삼키고 경고 로그만 남긴다. {@code
+   * pageService.recordAiUsage} 는 외부 빈(WikiPageService) 호출이라 {@code @Transactional} 프록시가 정상
+   * 적용되고(자기호출 아님), 실행 스레드는 wikiAiStreamExecutor 의 TenantContextTaskDecorator 가 이미 tenant 를 복원해둔 상태라
+   * RLS GUC 도 정상 주입된다.
+   */
+  private void recordAiUsageSafely(long pageId, WikiAiAction action) {
+    try {
+      pageService.recordAiUsage(pageId, action);
+    } catch (Exception e) {
+      log.warn("wiki AI attribution 기록 실패(pageId={}, action={})", pageId, action, e);
+    }
   }
 
   /** 진행 중인 생성을 취소한다. 소유자 불일치/미존재면 레지스트리가 403/404 예외를 던진다. */

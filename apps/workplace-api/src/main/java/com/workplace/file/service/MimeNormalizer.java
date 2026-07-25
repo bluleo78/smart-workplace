@@ -8,7 +8,7 @@ import java.util.Map;
  * 이 값이 그대로 저장되면 {@link com.workplace.fileai.ExtractableTypes} 가 추출 가능 여부를 판정할 수 없어 SKIPPED 로 굳는다.
  * 브라우저가 이미 구체적인 mime 을 알려준 경우는 그대로 신뢰하고, octet-stream(또는 빈 값)일 때만 파일명 확장자로 보정한다.
  *
- * <p>매핑 표는 계획서 Global Constraints "확장자 → mime 정규화 표"와 verbatim 일치해야 한다. V124 마이그레이션의 백필 CASE 문도 동일
+ * <p>매핑 표는 계획서 Global Constraints "확장자 → mime 정규화 표"와 verbatim 일치해야 한다. V125 마이그레이션의 백필 CASE 문도 동일
  * 표를 미러하므로 한쪽만 고치면 드리프트가 발생한다.
  */
 public final class MimeNormalizer {

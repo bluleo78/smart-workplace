@@ -1,8 +1,10 @@
-// 프로젝트 멤버 추가 검색 picker E2E — #31.
+// 프로젝트 멤버 추가 검색 picker E2E — #31, #734.
 // 시나리오:
 //  1) @smoke 검색 → 후보 클릭 → POST /members + 테이블 갱신
-//  2) AGENT 필터 → AGENT 만 노출 + 배지
+//  2) AGENT 필터 → 백엔드 kind=AGENT 조회 + AGENT 만 노출
 //  3) 이미 멤버인 후보 → disabled + 클릭 무반응 (POST 미발생)
+//  4) (#734) 검색어 없이 popover 를 열면 kind=ALL 기본 후보 목록 노출 + 이미 멤버는 뒤로
+//  5) (#734) 에이전트를 이름으로 검색해도 노출 / 비활성 사용자는 후보에서 제외
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import type { UserResponse } from '../../../src/types/auth';
@@ -41,6 +43,18 @@ const AGENT1: UserResponse = {
   aiAvailable: false,
 };
 
+// 비활성 사용자 — 후보 목록에서 제외되어야 한다(#734).
+const INACTIVE: UserResponse = {
+  id: 103,
+  username: 'ghost',
+  name: 'Ghost',
+  email: 'g@x',
+  isActive: false,
+  createdAt: '2026-01-01T00:00:00Z',
+  kind: 'HUMAN',
+  aiAvailable: false,
+};
+
 type StubMember = {
   userId: number;
   username: string;
@@ -49,9 +63,13 @@ type StubMember = {
 };
 
 // 공통 stub — 설정 페이지가 동시 요청하는 부수 endpoint 까지 모두 막는다.
+// 검색 요청에서 관측한 query string 기록 — kind 파라미터가 탭 선택을 따라가는지 검증에 사용(#734).
+type SearchProbe = { queries: { search: string; kind: string }[] };
+
 async function setupStubs(
   page: import('@playwright/test').Page,
   membersRef: { current: StubMember[] },
+  probe?: SearchProbe,
 ) {
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({
@@ -91,17 +109,23 @@ async function setupStubs(
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
 
-  // 검색 — query string 에 따른 결과 분기.
-  await page.route(/\/api\/v1\/users\?.*search=/, (route) => {
+  // 검색 — query string 에 따른 결과 분기. 백엔드처럼 kind 로 먼저 좁히고(ALL 이면 전체),
+  // search 가 blank 면 검색 조건 없이 전체를 반환한다(#734 — 실제 UserRepository.tenantSearchCondition 동작).
+  await page.route(/\/api\/v1\/users\?/, (route) => {
     const url = new URL(route.request().url());
     const q = url.searchParams.get('search') ?? '';
-    const all = [HUMAN1, HUMAN2, AGENT1];
-    const matched = all.filter(
-      (u) =>
-        u.username.includes(q) ||
-        u.name.toLowerCase().includes(q.toLowerCase()) ||
-        (u.email ?? '').includes(q),
-    );
+    const kind = url.searchParams.get('kind') ?? 'HUMAN';
+    probe?.queries.push({ search: q, kind });
+    const all = [HUMAN1, HUMAN2, INACTIVE, AGENT1];
+    const matched = all
+      .filter((u) => kind === 'ALL' || u.kind === kind)
+      .filter(
+        (u) =>
+          q.trim().length < 1 ||
+          u.username.includes(q) ||
+          u.name.toLowerCase().includes(q.toLowerCase()) ||
+          (u.email ?? '').includes(q),
+      );
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -266,9 +290,12 @@ test.describe('멤버 추가 검색 picker', () => {
     },
   );
 
-  test('AGENT 필터 → AGENT 만 노출', async ({ authenticatedPage: page }) => {
+  test('AGENT 필터 → 백엔드 kind=AGENT 조회 + AGENT 만 노출', async ({
+    authenticatedPage: page,
+  }) => {
     const membersRef = { current: [] as StubMember[] };
-    await setupStubs(page, membersRef);
+    const probe: SearchProbe = { queries: [] };
+    await setupStubs(page, membersRef, probe);
 
     await page.goto(SETTINGS_URL);
     await page.getByTestId('member-add-trigger').click();
@@ -294,6 +321,67 @@ test.describe('멤버 추가 검색 picker', () => {
     await expect(
       page.getByTestId(`member-search-row-${AGENT1.id}`),
     ).toBeVisible();
+
+    // 탭 선택이 클라이언트 필터가 아니라 백엔드 kind 파라미터를 구동해야 한다(#734) —
+    // page 1 에 AGENT 가 안 들어오면 클라이언트 필터만으로는 계속 빈 목록이 되기 때문.
+    await expect
+      .poll(() => probe.queries.some((q) => q.kind === 'AGENT' && q.search === 'a'))
+      .toBe(true);
+  });
+
+  test('검색어 없이 popover 를 열면 kind=ALL 기본 후보 목록이 보인다 (#734)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 이미 멤버인 HUMAN1 은 노출되지만 목록 뒤로 밀려야 한다.
+    const membersRef = {
+      current: [
+        {
+          userId: HUMAN1.id,
+          username: HUMAN1.username,
+          name: HUMAN1.name,
+          role: 'MEMBER',
+        },
+      ] as StubMember[],
+    };
+    const probe: SearchProbe = { queries: [] };
+    await setupStubs(page, membersRef, probe);
+
+    await page.goto(SETTINGS_URL);
+    await page.getByTestId('member-add-trigger').click();
+    await expect(page.getByTestId('member-search-popover')).toBeVisible();
+
+    // 검색어를 입력하지 않아도 사람 + 에이전트 후보가 노출된다.
+    await expect(page.getByTestId(`member-search-row-${HUMAN2.id}`)).toBeVisible();
+    await expect(page.getByTestId(`member-search-row-${AGENT1.id}`)).toBeVisible();
+    // 비활성 사용자는 후보에서 제외.
+    await expect(page.getByTestId(`member-search-row-${INACTIVE.id}`)).toHaveCount(0);
+
+    // 빈 search + kind=ALL 로 조회했는지 검증.
+    await expect
+      .poll(() => probe.queries.some((q) => q.search === '' && q.kind === 'ALL'))
+      .toBe(true);
+
+    // 이미 멤버(HUMAN1)는 disabled 로 남되 선택 가능한 후보들보다 뒤에 위치.
+    const rows = page.getByTestId(/^member-search-row-/);
+    const ids = await rows.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-testid')),
+    );
+    expect(ids[ids.length - 1]).toBe(`member-search-row-${HUMAN1.id}`);
+  });
+
+  test('에이전트를 이름으로 검색하면 후보로 노출된다 (#734)', async ({
+    authenticatedPage: page,
+  }) => {
+    const membersRef = { current: [] as StubMember[] };
+    await setupStubs(page, membersRef);
+
+    await page.goto(SETTINGS_URL);
+    await page.getByTestId('member-add-trigger').click();
+    // 전체(ALL) 탭 기본 상태에서 에이전트 이름으로 검색.
+    await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('AI Bot');
+
+    await expect(page.getByTestId(`member-search-row-${AGENT1.id}`)).toBeVisible();
+    await expect(page.getByTestId(`member-search-row-${HUMAN1.id}`)).toHaveCount(0);
   });
 
   test('이미 멤버인 후보 → disabled + 클릭 무반응', async ({

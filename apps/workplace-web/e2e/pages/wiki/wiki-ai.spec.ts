@@ -37,6 +37,8 @@ function pageDetail(body = ''): WikiPageDetail {
     version: 1,
     updatedBy: 1,
     updatedAt: '2026-06-01T00:00:00Z',
+    aiLastUsedAt: null,
+    aiLastAction: null,
   }
 }
 
@@ -63,7 +65,13 @@ async function setupWikiMocks(page: Page, role: WikiRole, body = '') {
             status: 200,
             contentType: 'application/json',
             body: JSON.stringify([
-              { id: PAGE_ID, parentId: null, title: 'AI 대상 페이지', position: 0 } as WikiPageSummary,
+              {
+                id: PAGE_ID,
+                parentId: null,
+                title: 'AI 대상 페이지',
+                position: 0,
+                aiLastUsedAt: null,
+              } as WikiPageSummary,
             ]),
           })
         : route.fallback(),

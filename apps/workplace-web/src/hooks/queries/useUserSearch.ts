@@ -1,5 +1,7 @@
 // 사용자 검색 (멤버 picker 등) — 기존 GET /api/v1/users?search= 재사용.
-// query.length < 1 이면 호출 안 함. staleTime 30초로 연속 타이핑/필터 토글 중 재요청 억제.
+// 검색어가 비어 있어도 조회한다(#734) — picker 를 열자마자 해당 kind 로 조회 가능한 기본 후보 목록을 보여주기
+// 위함. 백엔드는 search 가 blank 면 검색 조건을 걸지 않고 테넌트 멤버 전체를 id 순으로 페이지 반환한다.
+// staleTime 30초로 연속 타이핑/필터 토글 중 재요청 억제.
 
 import { useQuery } from '@tanstack/react-query';
 
@@ -22,7 +24,6 @@ export function useUserSearch(query: string, kind: 'HUMAN' | 'AGENT' | 'ALL' = '
       const res = await usersApi.getUsers({ search: trimmed, size: 20, kind });
       return res.data;
     },
-    enabled: trimmed.length >= 1,
     staleTime: 30_000,
   });
 }

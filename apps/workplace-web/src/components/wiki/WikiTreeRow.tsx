@@ -2,6 +2,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ChevronDown, ChevronRight, MoreHorizontal, Plus } from 'lucide-react'
 
+import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,6 +21,7 @@ const INDENT = 16
 export function WikiTreeRow({
   id,
   title,
+  aiAttributed,
   depth,
   hasChildren,
   collapsed,
@@ -31,6 +33,8 @@ export function WikiTreeRow({
 }: {
   id: number
   title: string
+  // #736: 이 페이지에 AI 생성 이력이 있는지 — true 면 제목 옆에 AiSignalBadge 노출.
+  aiAttributed: boolean
   depth: number
   hasChildren: boolean
   collapsed: boolean
@@ -71,11 +75,21 @@ export function WikiTreeRow({
         <button
           type="button"
           onClick={() => onOpen(id)}
-          className={`block min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-sm hover:bg-accent ${
+          className={`flex min-w-0 flex-1 items-center gap-1 rounded px-2 py-1 text-left text-sm hover:bg-accent ${
             selected ? 'bg-accent font-medium' : ''
           }`}
         >
-          {label}
+          <span className="truncate">{label}</span>
+          {aiAttributed && (
+            <AiSignalBadge
+              variant="info"
+              reason="AI가 생성한 콘텐츠를 포함합니다"
+              data-testid={`wiki-tree-ai-badge-${id}`}
+              className="shrink-0"
+            >
+              AI
+            </AiSignalBadge>
+          )}
         </button>
         <div className="absolute right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <button

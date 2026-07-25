@@ -46,7 +46,12 @@ public class WikiPageRepository {
 
   /** 공간의 전체 페이지(경량, 본문 제외) — 클라이언트 트리 구성용. */
   public List<WikiPageSummary> listBySpace(long spaceId) {
-    return dsl.select(WIKI_PAGE.ID, WIKI_PAGE.PARENT_ID, WIKI_PAGE.TITLE, WIKI_PAGE.POSITION)
+    return dsl.select(
+            WIKI_PAGE.ID,
+            WIKI_PAGE.PARENT_ID,
+            WIKI_PAGE.TITLE,
+            WIKI_PAGE.POSITION,
+            WIKI_PAGE.AI_LAST_USED_AT)
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.SPACE_ID.eq(spaceId))
         .orderBy(WIKI_PAGE.PARENT_ID.asc().nullsFirst(), WIKI_PAGE.POSITION.asc())
@@ -56,7 +61,8 @@ public class WikiPageRepository {
                     r.get(WIKI_PAGE.ID),
                     r.get(WIKI_PAGE.PARENT_ID),
                     r.get(WIKI_PAGE.TITLE),
-                    r.get(WIKI_PAGE.POSITION)));
+                    r.get(WIKI_PAGE.POSITION),
+                    r.get(WIKI_PAGE.AI_LAST_USED_AT)));
   }
 
   public Optional<WikiPageDetail> findDetail(long pageId) {
@@ -68,7 +74,9 @@ public class WikiPageRepository {
             WIKI_PAGE.BODY,
             WIKI_PAGE.VERSION,
             WIKI_PAGE.UPDATED_BY,
-            WIKI_PAGE.UPDATED_AT)
+            WIKI_PAGE.UPDATED_AT,
+            WIKI_PAGE.AI_LAST_USED_AT,
+            WIKI_PAGE.AI_LAST_ACTION)
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.eq(pageId))
         .fetchOptional(
@@ -81,7 +89,9 @@ public class WikiPageRepository {
                     r.get(WIKI_PAGE.BODY),
                     r.get(WIKI_PAGE.VERSION),
                     r.get(WIKI_PAGE.UPDATED_BY),
-                    r.get(WIKI_PAGE.UPDATED_AT)));
+                    r.get(WIKI_PAGE.UPDATED_AT),
+                    r.get(WIKI_PAGE.AI_LAST_USED_AT),
+                    r.get(WIKI_PAGE.AI_LAST_ACTION)));
   }
 
   /** 공간 id 만 빠르게(인가 해석용). */
@@ -103,6 +113,21 @@ public class WikiPageRepository {
         .set(WIKI_PAGE.UPDATED_AT, org.jooq.impl.DSL.currentOffsetDateTime())
         .where(WIKI_PAGE.ID.eq(pageId))
         .and(WIKI_PAGE.VERSION.eq(expectedVersion))
+        .execute();
+  }
+
+  /**
+   * #736 AI 생성 attribution 기록 — {@code ai_last_used_at}/{@code ai_last_action} 두 컬럼만 갱신한다.
+   *
+   * <p><b>{@code version}/{@code updated_at}/{@code updated_by} 는 절대 건드리지 않는다.</b> {@link
+   * #saveIfVersion} 처럼 version 을 올리면, 스트림 도중/직후 진행 중이던 에디터가 들고 있던 낙관적 동시성 버전이 서버 기준으로 낡아져 뒤이은 자동저장
+   * PUT 이 매번 {@code affected == 0} → 충돌 처리되는 회귀가 생긴다(AI 생성 = 사람 편집 아님).
+   */
+  public void recordAiUsage(long pageId, String action, java.time.OffsetDateTime at) {
+    dsl.update(WIKI_PAGE)
+        .set(WIKI_PAGE.AI_LAST_USED_AT, at)
+        .set(WIKI_PAGE.AI_LAST_ACTION, action)
+        .where(WIKI_PAGE.ID.eq(pageId))
         .execute();
   }
 
