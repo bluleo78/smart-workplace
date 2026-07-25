@@ -16,25 +16,22 @@ import com.workplace.messaging.repository.ConversationAttentionRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.repository.MessagingClassifyWatermarkRepository;
 import com.workplace.messaging.service.MessagingAttentionService;
+import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * MessagingAttentionService 비용 깔때기 통합 테스트. 이름 프리필터·watermark 게이트·버스트 코얼레싱·relevant 없어도 watermark 전진
  * 검증.
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class MessagingAttentionServiceTest {
+class MessagingAttentionServiceTest extends IntegrationTestBase {
 
   @Autowired MessagingAttentionService svc;
   @MockBean AiAgentMessagingClient aiClient;

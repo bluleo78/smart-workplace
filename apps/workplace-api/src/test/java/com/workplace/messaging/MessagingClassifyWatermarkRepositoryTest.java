@@ -3,22 +3,19 @@ package com.workplace.messaging;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.messaging.repository.MessagingClassifyWatermarkRepository;
+import com.workplace.support.IntegrationTestBase;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * MessagingClassifyWatermarkRepository 통합 테스트. per-채널 분류 watermark 의 get/advance 동작과 GREATEST 후퇴금지
  * 로직을 검증한다.
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class MessagingClassifyWatermarkRepositoryTest {
+class MessagingClassifyWatermarkRepositoryTest extends IntegrationTestBase {
 
   /**
    * channel_id 는 FK 없는 순수 BIGINT라 SERIAL 시퀀스와 절대 충돌하지 않는 음수를 sentinel 로 쓴다 — 공유 test DB(5435)의

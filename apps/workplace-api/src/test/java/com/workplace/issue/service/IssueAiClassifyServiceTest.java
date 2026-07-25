@@ -15,18 +15,15 @@ import com.workplace.label.dto.LabelRow;
 import com.workplace.label.repository.LabelRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectRepository;
+import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** IssueAiClassifyService 통합 테스트 — ai-agent 클라이언트 목. */
-@SpringBootTest
-@ActiveProfiles("test")
-class IssueAiClassifyServiceTest {
+class IssueAiClassifyServiceTest extends IntegrationTestBase {
 
   @Autowired private IssueAiClassifyService classifyService;
 

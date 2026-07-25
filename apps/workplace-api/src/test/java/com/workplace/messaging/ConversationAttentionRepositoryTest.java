@@ -3,22 +3,19 @@ package com.workplace.messaging;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.messaging.repository.ConversationAttentionRepository;
+import com.workplace.support.IntegrationTestBase;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * ConversationAttentionRepository 통합 테스트. 클래스 @Transactional 로 GUC 주입(set app.tenant_id)이 같은 트랜잭션
  * 내에서 동작한다.
  */
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
-class ConversationAttentionRepositoryTest {
+class ConversationAttentionRepositoryTest extends IntegrationTestBase {
 
   @Autowired ConversationAttentionRepository repo;
   @Autowired DSLContext dsl;

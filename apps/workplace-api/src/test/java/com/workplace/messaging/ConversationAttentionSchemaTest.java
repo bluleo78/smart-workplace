@@ -2,20 +2,17 @@ package com.workplace.messaging;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.support.IntegrationTestBase;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 
 /**
  * V85 마이그레이션 스키마 검증 — conversation_attention 및 messaging_classify_watermark 테이블의 존재와 FORCE RLS 설정을
  * 확인한다.
  */
-@SpringBootTest
-@ActiveProfiles("test")
-class ConversationAttentionSchemaTest {
+class ConversationAttentionSchemaTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
 

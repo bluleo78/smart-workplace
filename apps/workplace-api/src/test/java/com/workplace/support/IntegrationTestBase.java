@@ -104,10 +104,41 @@ public abstract class IntegrationTestBase {
     Long prev = TenantContext.get();
     TenantContext.set(tenantId);
     try {
-      new TransactionTemplate(txManager).executeWithoutResult(status -> deletes.run());
+      runWithDeadlockRetry(
+          () -> new TransactionTemplate(txManager).executeWithoutResult(status -> deletes.run()));
     } finally {
       if (prev == null) TenantContext.clear();
       else TenantContext.set(prev);
+    }
+  }
+
+  /**
+   * 정리 트랜잭션을 데드락 시 재시도한다(#741).
+   *
+   * <p>배경: Testcontainers 전환 후 테스트가 프로세스 병렬로 돌면서, 서로 다른 테스트의 정리 트랜잭션이 {@code "user"} 행을 엇갈린 순서로 삭제해
+   * 데드락이 났다(CalendarEventExternalWriteTest 간헐 실패). FK(event_attendee 등) 참조 검사가 부모/자식 행 잠금을 함께 잡기
+   * 때문에 삭제 대상 행이 달라도 순환 대기가 생긴다.
+   *
+   * <p>정리는 <b>멱등</b>(이미 지워진 행은 0건 삭제)하므로 재시도가 안전하다. 삭제 순서를 전역으로 통일하는 방식은 테스트마다 대상 테이블이 달라 현실적이지 않아,
+   * 패배자(victim) 측만 다시 시도하는 쪽을 택했다. 데드락이 아닌 예외는 그대로 던져 실제 결함을 가리지 않는다.
+   */
+  private void runWithDeadlockRetry(Runnable tx) {
+    int attempts = 0;
+    while (true) {
+      try {
+        tx.run();
+        return;
+      } catch (org.springframework.dao.DeadlockLoserDataAccessException
+          | org.springframework.dao.CannotAcquireLockException e) {
+        if (++attempts >= 3) throw e;
+        try {
+          // 짧은 백오프 — 상대 트랜잭션이 끝날 시간을 준다.
+          Thread.sleep(50L * attempts);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw e;
+        }
+      }
     }
   }
 

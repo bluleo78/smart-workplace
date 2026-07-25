@@ -13,15 +13,14 @@ import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.service.MessagingAttentionService;
+import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -32,9 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 하니스 세션 GUC=1 마스킹 주의 — 존재하지 않는 대체 tenant ID(999999)로 GUC 를 전환해 격리 검증. (app_tenant 롤은 tenant 행
  * DELETE 불가이므로 INSERT 없이 non-existent ID 사용.)
  */
-@SpringBootTest
-@ActiveProfiles("test")
-class MessagingAttentionRlsTest {
+class MessagingAttentionRlsTest extends IntegrationTestBase {
 
   /** 존재하지 않는 tenant ID — RLS 격리 증명용 (app_tenant 는 tenant DELETE 불가이므로 INSERT 회피). */
   private static final long PHANTOM_TENANT_ID = 999_999L;

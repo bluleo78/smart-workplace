@@ -5,7 +5,9 @@ server:
 spring:
   datasource:
     # 실제로는 Testcontainers 가 런타임에 @DynamicPropertySource(IntegrationTestBase) 로 URL 을 오버라이드한다.
-    # 아래 5435 URL 은 컨테이너 기동 없이 로드될 때를 대비한 fallback 일 뿐, 통합 테스트 시엔 사용되지 않는다.
+    # 아래 5435 URL 은 컨테이너 기동 없이 로드될 때를 대비한 fallback 이다. IntegrationTestBase 를
+    # 상속하지 않은 채 @SpringBootTest 를 달면 이 폴백을 실제로 타서 Connection refused 로 컨텍스트
+    # 로드가 실패한다(#740 에서 7개 클래스 21건이 이 상태였다). IntegrationTestBaseArchTest 가 재발을 막는다.
     # 런타임 트래픽은 비특권 app_tenant 롤(RLS 적용). 마이그레이션은 아래 flyway(app)로.
     url: jdbc:postgresql://localhost:5435/workplace_test
     username: app_tenant
