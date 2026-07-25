@@ -8,6 +8,7 @@ const p = (id: number, parentId: number | null, title: string): WikiPageSummary 
   parentId,
   title,
   position: 0,
+  aiLastUsedAt: null,
 })
 
 describe('buildBreadcrumb', () => {

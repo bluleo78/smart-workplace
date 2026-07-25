@@ -26,9 +26,13 @@ const pageDetail: WikiPageDetail = {
   version: 1,
   updatedBy: 1,
   updatedAt: '2026-06-01T00:00:00Z',
+  aiLastUsedAt: null,
+  aiLastAction: null,
 }
 
-const tree: WikiPageSummary[] = [{ id: PAGE_ID, parentId: null, title: '헤딩 테스트 페이지', position: 0 }]
+const tree: WikiPageSummary[] = [
+  { id: PAGE_ID, parentId: null, title: '헤딩 테스트 페이지', position: 0, aiLastUsedAt: null },
+]
 
 async function setupRoutes(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/wiki/spaces', (r) =>

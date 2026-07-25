@@ -44,6 +44,8 @@ function pageDetail(body: string): WikiPageDetail {
     version: 1,
     updatedBy: 1,
     updatedAt: '2026-06-01T00:00:00Z',
+    aiLastUsedAt: null,
+    aiLastAction: null,
   }
 }
 
