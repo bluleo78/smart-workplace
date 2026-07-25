@@ -22,6 +22,7 @@
 - [ ] **죽은 `--dtype-*` / `--dataset` 토큰** — 정의됐으나 어디서도 참조되지 않음. 제거 검토.
 - [ ] **죽은 keyframes/스타일** — `index.css`의 `ai-chip-*`, `canvas-*` keyframes 및 `.dark .react-flow__*` 오버라이드는 fire-hub의 AI 캔버스/react-flow 기능 잔재. 워크플레이스에 react-flow 의존성 없음. 제거.
 - [ ] **정의됐지만 미연결 유틸** — `.bg-gradient-main`, `.card-hover`, `.status-online`, `.glass`, `logo-pulse*`는 정의만 되고 컴포넌트에서 사용되지 않음. 사용처 연결 또는 제거 결정. (실사용 확인: `.row-hover` 3곳, `.nav-active-indicator` 1곳, `chat-dock-expand`만 실제 사용 — [08-animation-motion.md](./08-animation-motion.md))
+- [ ] **`AiClassifyButton.tsx` AI 마커 어휘 위반** — (#737 조사 중 발견) `Sparkles className="h-3.5 w-3.5"` + 하드코딩 `text-violet-600`/`border-violet-200` 등으로 AI 트리거 버튼을 직접 조합(`AiClassifyButton.tsx:38,44-48`). `AiLabel`/`text-ai-accent` 프리미티브 미사용으로 [07-iconography.md](./07-iconography.md) §7.2 "재사용 의무"·"하드코딩 색 금지"를 모두 위반. `AiLabel` 전환 검토(제안 이유 서브텍스트 등 부가 레이아웃이 있어 단순 치환은 아님 — 별도 이슈로 분리 권장).
 
 ---
 
@@ -33,6 +34,8 @@
   - 진행: 인-플로우 제목 토큰 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`) + 헤더 바 제목 `appTitleTextClass` 분리 도입(2026-06-06). Phase 1–2 적용: 프로젝트 목록/상세·이슈 상세·홈·캘린더. **Phase 3–4 완료(#113, 2026-06-06)**: 설정·어드민 영역 `pageTitleClass` 통일 + 메일 설정·비서 설정 누락 제목 추가. **추가 정리(2026-06-18)**: 프로젝트 설정·사이클·내 작업·AI 위임 작업 4개 페이지 제목을 `pageTitleClass`로 교체. 잔여: 프로젝트 목록 등 일부 페이지.
 - [x] **삭제 확인 UX 불일치** — 완료(확인 2026-06-18). 네이티브 `confirm()`/`alert()`/`prompt()` 0건, 전부 `DeleteConfirmDialog`/`AlertDialog`로 통일 (#135·#145·#148·#160). ([06-feedback-states.md](./06-feedback-states.md))
 - [ ] **상세 페이지 탭 패턴 부재** — 탭형 상세 레이아웃이 아직 없음. 필요 모듈(이슈/프로젝트) 식별 후 표준 정의 여부 결정.
+- [ ] **페이지 헤더 주(primary) 액션 Button size 불일치** — (#737 조사) `size="sm"`(`CyclesPage`/`AgentManagementPage`/`ContactsPage`)과 `size` 미지정 `default`(`TokenSettingsPage`/`UserListPage`/`RoleListPage`)가 혼재. #737 은 비-주 액션 케이스만 확정([04-components.md](./04-components.md) §E). 주 액션 size 통일 여부는 별도 판단 필요.
+- [ ] **`ProjectDetailPage.tsx` nav-link 버튼 size 미지정** — `ProjectDetailPage.tsx:52-57`의 사이클/타임라인/설정 링크가 `variant="outline"`이나 `size` 미지정(`default` h-9)이라, 동일 성격(비-주 헤더 액션)의 다수 관행인 `outline size="sm"`(`IssueDetailPage`/`TimelinePage`)과 다름. 통일 검토.
 
 ---
 

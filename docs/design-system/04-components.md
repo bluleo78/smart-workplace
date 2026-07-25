@@ -478,8 +478,8 @@ Button 의 `variant` 는 사용 맥락에 따라 엄격히 구분한다.
 | Size | 사용 맥락 | SVG 자동 크기 |
 |------|-----------|---------------|
 | `lg` (h-10) | 인증 페이지(로그인/회원가입) 주 CTA | 16px |
-| `default` (h-9) | 페이지 헤더 주 액션 | 16px |
-| `sm` (h-8) | 툴바, 카드 내 액션, 페이지네이션 | 16px |
+| `default` (h-9) | 페이지 헤더 주 액션[^header-size-drift] | 16px |
+| `sm` (h-8) | 툴바, 카드 내 액션, 페이지네이션, **페이지 헤더의 비-주(non-primary) 액션**(구독/삭제/줌 토글 등, `variant="outline"`과 조합. AI 액션 트리거 버튼 조합은 [07. Iconography §7.2](./07-iconography.md#72-ai-마커-어휘) 참조) | 16px |
 | `xs` (h-6) | 인라인 텍스트 레벨 액션 | **12px** |
 | `icon` (size-9) | 독립 아이콘 버튼 | 16px |
 | `icon-sm` (size-8) | 테이블 행 액션, 밀도 높은 UI | 16px |
@@ -487,6 +487,8 @@ Button 의 `variant` 는 사용 맥락에 따라 엄격히 구분한다.
 | `icon-lg` (size-10) | 강조 아이콘 버튼 | 16px |
 
 > Button 내부 `<svg>` 는 크기 클래스가 없으면 자동으로 16px(`xs`/`icon-xs` 는 12px)로 조정된다. 자세한 규칙은 [07. Iconography §6](./07-iconography.md) 참조.
+
+[^header-size-drift]: 실측: `CyclesPage`/`AgentManagementPage`/`ContactsPage` 의 페이지 헤더 주 액션은 `size="sm"`, `TokenSettingsPage`/`UserListPage`/`RoleListPage` 는 `size` 미지정(`default`)으로 혼재한다. 이번 정리(#737)는 비-주 액션 케이스만 확정했고, 주 액션 size 통일 여부는 미결 — [13-migration-backlog.md](./13-migration-backlog.md) 참조.
 
 ---
 
