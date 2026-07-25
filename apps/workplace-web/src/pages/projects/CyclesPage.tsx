@@ -47,15 +47,17 @@ export default function CyclesPage() {
         title="사이클"
         meta={<span className="text-muted-foreground">{project.data?.key}</span>}
         actions={
+          /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
           <Button
-            size="sm"
             onClick={() => {
               setEditing(undefined);
               setOpen(true);
             }}
             data-testid="cycle-new"
           >
-            <Plus className="mr-1 h-4 w-4" /> 새 사이클
+            {/* mr-1·h-4 w-4 제거 — 간격은 Button cva 의 gap 이, 크기는 같은 cva 의
+                [&_svg:not([class*='size-'])]:size-4 가 담당한다. */}
+            <Plus /> 새 사이클
           </Button>
         }
       />

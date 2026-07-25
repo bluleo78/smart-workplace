@@ -105,7 +105,8 @@ export function ContactsPage() {
         <PageHeader
           title="연락처"
           actions={
-            <Button size="sm" data-testid="contact-create" onClick={() => setCreateOpen(true)}>
+            /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
+            <Button data-testid="contact-create" onClick={() => setCreateOpen(true)}>
               새 외부 연락처
             </Button>
           }

@@ -129,11 +129,8 @@ export default function AgentManagementPage() {
     <SettingsPage
       title="에이전트"
       actions={
-        <Button
-          size="sm"
-          onClick={() => setShowNew(true)}
-          data-testid="new-agent-trigger"
-        >
+        /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
+        <Button onClick={() => setShowNew(true)} data-testid="new-agent-trigger">
           + 새 에이전트
         </Button>
       }

@@ -488,7 +488,7 @@ Button 의 `variant` 는 사용 맥락에 따라 엄격히 구분한다.
 
 > Button 내부 `<svg>` 는 크기 클래스가 없으면 자동으로 16px(`xs`/`icon-xs` 는 12px)로 조정된다. 자세한 규칙은 [07. Iconography §6](./07-iconography.md) 참조.
 
-[^header-size-drift]: 실측 재집계(#744, `pages/**` 의 `PageHeader actions=` 슬롯 전수): 주 액션(variant 미지정)은 `size` 미지정 `default` 8건(`ProjectListPage`·`ProjectDetailPage`·`PersonalProjectDetail`·`TokenSettingsPage`·`UserListPage`·`RoleListPage` 등) vs `size="sm"` 4건(`CyclesPage`·`AgentManagementPage`·`ContactsPage`·`CalendarPage`). **다수 관행이 `default` 이므로 규정을 `default` 로 확정**한다. `sm` 을 쓰는 4개 페이지가 정리 대상이며 [13-migration-backlog.md](./13-migration-backlog.md) 에 기록했다. 비-주 액션은 `outline`+`sm` 이 다수(8건)로 아래 `sm` 행에 확정.
+[^header-size-drift]: 실측 재집계(#744, `pages/**` 의 `PageHeader actions=` 슬롯 전수): 주 액션(variant 미지정)은 `size` 미지정 `default` 8건(`ProjectListPage`·`ProjectDetailPage`·`PersonalProjectDetail`·`TokenSettingsPage`·`UserListPage`·`RoleListPage` 등) vs `size="sm"` 3건(`CyclesPage`·`AgentManagementPage`·`ContactsPage`). **다수 관행이 `default` 이므로 규정을 `default` 로 확정**한다. 이 3개 페이지는 #747 에서 `default` 로 정리 완료. (#744 당시 4번째로 적었던 `CalendarPage` 는 오기 — 그 `actions` 는 일/주/월 뷰 전환 세그먼티드 컨트롤이라 주 액션이 아니다. 제외해도 `default` 확정 근거는 8 vs 3 으로 강화될 뿐이다.) 비-주 액션은 `outline`+`sm` 이 다수(8건)로 아래 `sm` 행에 확정.
 
 ---
 
