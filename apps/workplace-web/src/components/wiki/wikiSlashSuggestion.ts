@@ -18,14 +18,11 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js'
 // @tiptap/suggestion 의 기본 플러그인 키(suggestion$)는 @ 멘션 suggestion 과 충돌하므로 전용 키 부여.
 const wikiSlashPluginKey = new PluginKey('wikiSlashAi')
 
+import { GENERATE_ACTIONS } from './wikiAiActions'
 import { type WikiSlashItem, WikiSlashMenu, type WikiSlashMenuHandle } from './WikiSlashMenu'
 
-// 3 액션 — 라벨은 한국어. key 는 백엔드 와이어 값(소문자).
-const SLASH_ITEMS: WikiSlashItem[] = [
-  { key: 'summarize', label: 'AI 요약' },
-  { key: 'draft', label: 'AI 초안' },
-  { key: 'continue', label: 'AI 이어쓰기' },
-]
+// 생성 계열 3 액션 — 헤더 AI 버튼과 라벨을 공유하려 wikiAiActions 의 단일 원천에서 파생한다.
+const SLASH_ITEMS: WikiSlashItem[] = GENERATE_ACTIONS.map(({ key, label }) => ({ key, label }))
 
 // 확장이 외부 React 상태를 스테일 없이 참조하기 위한 컨텍스트(전부 ref).
 export interface WikiSlashContext {

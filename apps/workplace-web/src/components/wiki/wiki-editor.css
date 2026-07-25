@@ -1,0 +1,10 @@
+/* 노트 에디터(tiptap) placeholder — 빈 본문에 "무엇을 할 수 있는지"를 보여주는 유일한 상시 힌트.
+   색은 --muted-foreground 시맨틱 토큰(디자인시스템 01: 플레이스홀더 규정 용도, 하드코딩색 금지).
+   chat-rich-input.css 의 동일 패턴을 노트 에디터 스코프(.wiki-editor)로 한정한다. */
+.wiki-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

@@ -1,11 +1,15 @@
+import './wiki-editor.css'
+
+import Placeholder from '@tiptap/extension-placeholder'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { isAxiosError } from 'axios'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation,useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Markdown } from 'tiptap-markdown'
 
+import { AiLabel } from '@/components/ai/AiLabel'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import { RenameDialog } from '@/components/ui/rename-dialog'
@@ -20,7 +24,7 @@ import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
-import { type TransformActionKey } from './wikiAiActions'
+import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
 import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { buildBreadcrumb } from './wikiBreadcrumb'
@@ -29,13 +33,14 @@ import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { hydrateWikiMentions } from './wikiMentionHydrate'
 import { WikiMention } from './wikiMentionNode'
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
-import { type SaveState,WikiPageHeader } from './WikiPageHeader'
+import { type SaveState,type WikiAiState,WikiPageHeader } from './WikiPageHeader'
 import type { WikiAiAction } from './WikiSlashMenu'
 import { createWikiSlashExtension } from './wikiSlashSuggestion'
 
 /** 위키 에디터 — 마크다운 직렬화 + debounce 자동저장(낙관적 동시성) + 인에디터 /ai 스트리밍. */
 export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: number }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const save = useSavePage(spaceId)
   const del = useDeletePage(spaceId)
   const { data: tree } = useWikiTree(spaceId)
@@ -55,9 +60,13 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 역할 게이트 — OWNER|EDITOR 만 /ai 슬래시 사용. VIEWER 면 메뉴 미노출.
-  const { data: spaces } = useWikiSpaces()
+  const { data: spaces, isPending: spacesPending } = useWikiSpaces()
   const role = spaces?.find((s) => s.id === spaceId)?.role
   const canUseAi = role === 'OWNER' || role === 'EDITOR'
+  // 헤더 AI 버튼용 3분기 — 로딩(권한 확인 중)과 거부(읽기 전용)를 구분해 사유를 노출한다.
+  // 예전엔 canUseAi=false 하나로 뭉쳐 메뉴를 숨겨서, 스페이스 목록이 아직 안 온 순간에도
+  // AI 가 "없는 기능"처럼 보였다(#733).
+  const aiState: WikiAiState = spacesPending ? 'loading' : canUseAi ? 'ready' : 'denied'
   // 멘션 삽입 게이트 — /ai 와 같은 OWNER|EDITOR 집합이지만 의미상 별개라 분리(향후 분기 대비).
   const canEdit = role === 'OWNER' || role === 'EDITOR'
 
@@ -95,8 +104,13 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // AI 생성 진행 상태 + 진행 중 스트림 abort 핸들.
   const [aiBusy, setAiBusy] = useState(false)
   const abortRef = useRef<(() => void) | null>(null)
-  // draft 토픽 입력 다이얼로그 상태.
-  const [draftOpen, setDraftOpen] = useState(false)
+  // draft 토픽 입력 다이얼로그 상태. 빈 상태의 "AI 초안으로 시작" 으로 만들어진 페이지면
+  // 라우터 state 표식(wikiAiDraft)을 보고 처음부터 열린 채로 시작한다(#733). 이 컴포넌트는
+  // key={page.id} 로 리마운트되므로 lazy 초기값으로 충분하다(effect 불필요).
+  // 권한 게이트를 두지 않는 이유: 방금 그 스페이스에 페이지를 만든 사용자이므로 쓰기 권한이 자명하다.
+  const [draftOpen, setDraftOpen] = useState(
+    () => (location.state as { wikiAiDraft?: boolean } | null)?.wikiAiDraft === true,
+  )
   // 노트→이슈 다이얼로그 상태 + 캡처한 선택(제목/본문/삽입 위치).
   const [issueDialog, setIssueDialog] = useState<{
     open: boolean
@@ -232,6 +246,20 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     runActionRef.current(action)
   }, [])
 
+  // 헤더 AI 버튼 → 생성 액션. 슬래시 메뉴와 달리 에디터에 포커스가 없을 수 있어,
+  // 삽입 위치가 불확정이 되지 않도록 본문 끝으로 커서를 먼저 옮긴다.
+  const onHeaderAiAction = useCallback(
+    (action: GenerateActionKey) => {
+      if (action === 'draft') {
+        setDraftOpen(true)
+        return
+      }
+      editorRef.current?.commands.focus('end')
+      runAction(action)
+    },
+    [runAction],
+  )
+
   // runAction·onSlashAction 의 최신값을 확장(1회 생성)이 참조하기 위한 ref.
   // 확장 콜백은 사용자 '/' 입력 시점에만 역참조하므로 렌더 중 읽히지 않는다(스테일 회피 목적).
   const runActionRef = useRef(runAction)
@@ -253,7 +281,20 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const editor = useEditor(
     {
       // '@'(멘션) 과 '/'(AI) 는 char 가 달라 충돌하지 않는다. WikiMention 노드 + 두 suggestion 확장.
-      extensions: [StarterKit, Markdown, WikiMention, mentionExtension, slashExtension],
+      // Placeholder — 빈 본문에서 '/' AI 진입점을 알리는 상시 힌트(미등록이면 빈 페이지에 아무
+      // 안내도 없어 AI 기능이 발견 불가였다, #733). showOnlyCurrent=false 여야 포커스 없는
+      // 상태에서도 보인다(기본 true 는 커서가 있는 노드에만 표시).
+      extensions: [
+        StarterKit,
+        Markdown,
+        WikiMention,
+        mentionExtension,
+        slashExtension,
+        Placeholder.configure({
+          placeholder: "내용을 입력하거나 '/' 를 눌러 AI 사용",
+          showOnlyCurrent: false,
+        }),
+      ],
       content: page.body,
     },
     [page.id],
@@ -265,6 +306,19 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     // eslint-disable-next-line react-hooks/immutability
     editorRef.current = editor
   })
+
+  // 본문 공백 여부 — 빈 페이지 AI CTA 노출 조건. editor.isEmpty 는 리렌더를 유발하지 않으므로
+  // 'update' 이벤트에 맞춰 state 로 미러한다(스트리밍 삽입 즉시 CTA 가 사라짐).
+  const [bodyEmpty, setBodyEmpty] = useState(true)
+  useEffect(() => {
+    if (!editor) return
+    const sync = () => setBodyEmpty(editor.isEmpty)
+    sync()
+    editor.on('update', sync)
+    return () => {
+      editor.off('update', sync)
+    }
+  }, [editor])
 
   // 로드 라운드트립 — 본문에 텍스트로 살아남은 멘션 토큰을 칩(wikiMention 노드)으로 치환.
   // useWikiMentions 결과(라벨 해소)를 기다렸다가 라벨까지 채워 1회 치환한다(placeholder 재치환 회피).
@@ -409,13 +463,27 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       <WikiPageHeader
         crumbs={crumbs}
         saveState={saveState}
-        canUseAi={canUseAi}
+        aiState={aiState}
+        aiBusy={aiBusy}
         onNavigate={(id) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)}
-        onDraft={() => setDraftOpen(true)}
+        onAiAction={onHeaderAiAction}
         onDelete={() => setConfirmDelete(true)}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col px-8 py-6">
+          {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
+              canUseAi(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다.
+
+              형제 목록의 **맨 앞**에 둔다(시각 위치와 무관): BubbleMenu 는 마운트 시 자기 DOM 노드를
+              트리에서 떼어내(element.remove()) tippy 에 넘기므로, 그 앞에 조건부 형제가 있으면 해당
+              형제가 언마운트될 때 React 가 사라진 앵커에 insertBefore 를 시도해 NotFoundError 로
+              페이지 전체가 죽는다. 맨 앞에 두면 뒤따르는 조건부 노드(충돌 배너·빈 CTA 등)가 안전하다. */}
+          <WikiAiBubbleToolbar
+            editor={editor}
+            disabled={!canUseAi || aiBusy}
+            onAction={runTransform}
+            onCreateIssue={canUseAi ? onCreateIssue : undefined}
+          />
           {saveState === 'conflict' && (
             <div className="mb-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.{' '}
@@ -433,19 +501,38 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             placeholder="제목 없음"
             className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
           />
-          {/* 멘션 칩 클릭 내비게이션은 래퍼 onClick 에서 위임 처리(closest[data-mtype]). */}
+          {/* 빈 페이지 AI CTA — 초안 작성이 가장 유효한 순간(#733). 본문이 채워지면 사라진다.
+              에디터 아래가 아니라 제목 바로 밑에 둔다: 본문 클릭영역(min-h 300px) 뒤에 두면
+              placeholder 와 300px 떨어져 시각적 연결이 끊긴다.
+              점선 테두리는 디자인시스템에 규정이 없어 일반 border + bg-muted 표면을 쓴다. */}
+          {bodyEmpty && aiState === 'ready' && !aiBusy && (
+            <div
+              data-testid="wiki-ai-empty-cta"
+              className="mb-4 flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border bg-muted px-3 py-2"
+            >
+              <AiLabel>AI</AiLabel>
+              {/* bg-muted 표면 위라 text-muted-foreground 는 대비 마진이 좁다(다크에서 muted 는
+                  흰색 5% 알파로 표면 명도가 거의 오르지 않음) → 본문색을 쓴다. AI 강조는 AiLabel 담당. */}
+              <span className="text-sm leading-5 text-foreground">
+                빈 페이지예요. 주제만 알려주면 AI 가 초안을 작성합니다.
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDraftOpen(true)}
+                data-testid="wiki-ai-empty-draft"
+              >
+                AI 초안 작성
+              </Button>
+            </div>
+          )}
+          {/* 멘션 칩 클릭 내비게이션은 래퍼 onClick 에서 위임 처리(closest[data-mtype]).
+              wiki-editor 클래스는 placeholder CSS 의 스코프(wiki-editor.css). */}
           <EditorContent
             editor={editor}
             onClick={onChipClick}
-            className="[&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
-          />
-          {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
-              canUseAi(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다. */}
-          <WikiAiBubbleToolbar
-            editor={editor}
-            disabled={!canUseAi || aiBusy}
-            onAction={runTransform}
-            onCreateIssue={canUseAi ? onCreateIssue : undefined}
+            className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
           />
           {/* 노트→이슈 생성 다이얼로그 — canUseAi 게이트는 onCreateIssue 전달 여부로 이미 처리됨. */}
           <WikiCreateIssueDialog
@@ -457,9 +544,14 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           />
           {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
           <WikiBacklinksPanel pageId={page.id} />
-          {/* AI 생성 중 표시 + 취소 — 부분 텍스트는 이미 삽입되어 자동저장된다. */}
+          {/* 스크린리더용 라이브 리전 — 상시 렌더하고 내부 텍스트만 토글한다.
+              조건부로 노드째 삽입하면 라이브 리전이 등록되기 전에 내용이 들어가 공지가 누락된다. */}
+          <div aria-live="polite" aria-atomic="true" className="sr-only">
+            {aiBusy ? 'AI 생성 중' : ''}
+          </div>
+          {/* AI 생성 중 시각 표시 + 취소 — 부분 텍스트는 이미 삽입되어 자동저장된다. */}
           {aiBusy && (
-            <div className="flex items-center gap-3 pt-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 pt-2 text-xs leading-4 text-muted-foreground">
               <span className="flex items-center gap-2" data-testid="wiki-ai-busy">
                 생성 중…
                 <Button

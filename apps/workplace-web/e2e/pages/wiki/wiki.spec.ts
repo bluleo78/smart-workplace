@@ -121,8 +121,10 @@ test('위키 — 빈 상태: 4요소 표시 + CTA로 새 페이지 생성 후 �
   await page.goto(`/wiki/spaces/${SPACE_ID}`)
   const emptyState = page.getByTestId('wiki-empty-state')
   await expect(emptyState).toBeVisible()
-  // 아이콘(svg), 제목, 설명, CTA 버튼 4요소 모두 존재
-  await expect(emptyState.locator('svg')).toBeVisible()
+  // 아이콘(svg), 제목, 설명, CTA 버튼 4요소 모두 존재.
+  // #733 에서 보조 CTA("AI 초안으로 시작", Sparkles 아이콘)가 추가돼 svg 가 2개이므로
+  // 4요소의 아이콘은 BookOpen 으로 특정한다.
+  await expect(emptyState.locator('svg.lucide-book-open')).toBeVisible()
   await expect(emptyState.getByText('표시할 페이지가 없습니다')).toBeVisible()
   await expect(emptyState.getByText('페이지를 선택하거나 새 페이지를 만드세요')).toBeVisible()
   const ctaButton = emptyState.getByRole('button', { name: '새 페이지 만들기' })
