@@ -31,6 +31,10 @@ function pageDetail(body: string): WikiPageDetail {
     version: 1,
     updatedBy: 1,
     updatedAt: '2026-06-01T00:00:00Z',
+    // #736 에서 WikiPageDetail 에 추가된 AI attribution 필드 — 이 스펙은 블록 스타일만 검증하므로
+    // AI 이력 없음(null)으로 둔다. 두 필드는 API 가 항상 반환하므로 타입상 필수다.
+    aiLastUsedAt: null,
+    aiLastAction: null,
   }
 }
 
