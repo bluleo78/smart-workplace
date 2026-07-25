@@ -22,7 +22,7 @@
 - [ ] **죽은 `--dtype-*` / `--dataset` 토큰** — 정의됐으나 어디서도 참조되지 않음. 제거 검토.
 - [ ] **죽은 keyframes/스타일** — `index.css`의 `ai-chip-*`, `canvas-*` keyframes 및 `.dark .react-flow__*` 오버라이드는 fire-hub의 AI 캔버스/react-flow 기능 잔재. 워크플레이스에 react-flow 의존성 없음. 제거.
 - [ ] **정의됐지만 미연결 유틸** — `.bg-gradient-main`, `.card-hover`, `.status-online`, `.glass`, `logo-pulse*`는 정의만 되고 컴포넌트에서 사용되지 않음. 사용처 연결 또는 제거 결정. (실사용 확인: `.row-hover` 3곳, `.nav-active-indicator` 1곳, `chat-dock-expand`만 실제 사용 — [08-animation-motion.md](./08-animation-motion.md))
-- [ ] **`AiClassifyButton.tsx` AI 마커 어휘 위반** — (#737 조사 중 발견) `Sparkles className="h-3.5 w-3.5"` + 하드코딩 `text-violet-600`/`border-violet-200` 등으로 AI 트리거 버튼을 직접 조합(`AiClassifyButton.tsx:38,44-48`). `AiLabel`/`text-ai-accent` 프리미티브 미사용으로 [07-iconography.md](./07-iconography.md) §7.2 "재사용 의무"·"하드코딩 색 금지"를 모두 위반. `AiLabel` 전환 검토(제안 이유 서브텍스트 등 부가 레이아웃이 있어 단순 치환은 아님 — 별도 이슈로 분리 권장).
+- [x] **`AiClassifyButton.tsx` AI 마커 어휘 위반** — 완료(#746). `Sparkles` + 하드코딩 `violet-*` 직접 조합을 `AiLabel` + `ai-accent` 토큰으로 전환하고, 색 클래스는 전부 제거해 `variant="outline" size="sm"` 기본 외곽선만 남겼다([07-iconography.md](./07-iconography.md) §7.2 "AI 액션 트리거 버튼" 정식 예시 = `WikiPageHeader` 선례와 동일 형태). 제안 이유 서브텍스트의 `Info` 도 `text-violet-400` 을 떼어 부모의 `text-muted-foreground` 를 상속하게 했다(마커 중첩 금지). 로딩 `Loader2` 는 크기 클래스를 제거해 Button cva 와의 이중 매칭도 함께 해소.
 
 ---
 
