@@ -33,6 +33,57 @@ def test_unsupported_mime_returns_empty():
     assert r["text"] == ""
 
 
+def test_unsupported_mime_zip_returns_empty():
+    """application/zip 도 미지원 목록 밖 → 빈 텍스트."""
+    r = extract_text(b"\x00\x01", "application/zip", max_chars=10_000)
+    assert r["text"] == ""
+
+
+def test_html_strips_tags_and_script():
+    """HTML 은 마크업을 제거한 텍스트만 남긴다 — 원문 그대로면 요약 토큰을 마크업이 잠식한다."""
+    html = b"<html><head><style>p{color:red}</style><script>alert(1)</script></head><body><h1>\xec\xa0\x9c\xeb\xaa\xa9</h1><p>\xeb\xb3\xb8\xeb\xac\xb8</p></body></html>"
+    out = extract_text(html, "text/html", 10_000)
+    assert "제목" in out["text"]
+    assert "본문" in out["text"]
+    assert "alert(1)" not in out["text"]
+    assert "color:red" not in out["text"]
+    assert "<h1>" not in out["text"]
+
+
+def test_hwpx_extracts_section_text():
+    """hwpx = ZIP + XML — 표준 라이브러리만으로 section*.xml 의 텍스트 노드를 수집한다."""
+    import zipfile, io
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "Contents/section0.xml",
+            '<?xml version="1.0"?><root xmlns:hp="x"><hp:t>한글 문서 본문</hp:t></root>',
+        )
+    out = extract_text(buf.getvalue(), "application/hwp+zip", 10_000)
+    assert "한글 문서 본문" in out["text"]
+
+
+def test_pptx_extracts_slide_text():
+    """PPTX: python-pptx 로 생성한 픽스처를 왕복 검증."""
+    from pptx import Presentation
+    from pptx.util import Inches
+    import io
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+    box.text_frame.text = "발표 자료 핵심"
+    buf = io.BytesIO()
+    prs.save(buf)
+
+    out = extract_text(
+        buf.getvalue(),
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        10_000,
+    )
+    assert "발표 자료 핵심" in out["text"]
+
+
 def test_docx(tmp_path):
     """docx 파일에서 본문 단락 추출."""
     from docx import Document

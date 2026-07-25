@@ -168,8 +168,9 @@ export const driveApi = {
     client.post<DriveFolder>(`/drive/folders/${folderId}/copy`, { targetParentId }),
 
   // #526: 파일 콘텐츠 요약(파이프라인 저장본) 조회.
+  // #735: reason — SKIPPED/FAILED 사유 사용자 문구(서버가 raw error 를 매핑해 내려줌).
   getFileSummary: (driveFileId: number) =>
-    client.get<{ summary: string | null; status: string | null }>(
+    client.get<{ summary: string | null; status: string | null; reason: string | null }>(
       `/drive/files/${driveFileId}/summary`,
     ),
 

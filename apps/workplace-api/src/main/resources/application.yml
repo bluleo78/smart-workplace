@@ -57,6 +57,10 @@ workplace:
       max-chars: ${WORKER_EMBED_MAX_CHARS:8000}
       # 임베딩 게이트(기본 true). false 면 시맨틱 검색 비활성·키워드 전용. 보류된 테넌트별 공급자 설계의 seam.
       enabled: ${WORKER_EMBED_ENABLED:true}
+    extract:
+      # 백필 스케줄러 한 틱당 재개(findResumable) 최대 파일 수(#735). V124 재개방 백필이 다수 행을 한 번에
+      # PENDING 으로 되돌려도, 이 상한이 한 틱 전량 디스패치를 막는다.
+      resume-batch-size: ${WORKER_EXTRACT_RESUME_BATCH_SIZE:50}
 
 app:
   jwt:

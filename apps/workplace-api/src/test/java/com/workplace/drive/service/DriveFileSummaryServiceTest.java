@@ -99,6 +99,28 @@ class DriveFileSummaryServiceTest extends IntegrationTestBase {
     assertThat(res.status()).isNull();
   }
 
+  @Test
+  void SKIPPED_unsupported_mime은_사용자문구로_매핑되고_raw_error를_노출하지_않는다() {
+    // #735: toReason 이 raw error(unsupported-mime:...)를 사용자 문구로 바꿔야 한다.
+    seedFixtureWithError("압축.zip", "SKIPPED", "unsupported-mime:application/zip");
+
+    TenantContext.set(tid2);
+    FileSummaryResponse res = fileService.fileSummary(memberId, driveFileId);
+
+    assertThat(res.reason()).isEqualTo("이 형식은 텍스트 추출을 지원하지 않습니다.");
+    assertThat(res.reason()).doesNotContain("unsupported-mime");
+  }
+
+  @Test
+  void SKIPPED_image는_이미지_전용_문구로_매핑된다() {
+    seedFixtureWithError("사진.png", "SKIPPED", "image:image/png");
+
+    TenantContext.set(tid2);
+    FileSummaryResponse res = fileService.fileSummary(memberId, driveFileId);
+
+    assertThat(res.reason()).isEqualTo("이미지 파일은 요약하지 않습니다.");
+  }
+
   // ---------------------------------------------------------------- @AfterEach
 
   /** 커밋된 도메인/USER 행을 GUC=tid2 컨텍스트에서 캡처 id 로 삭제(공유 DB 무오염). fixture 테넌트만 영구 잔존. */
@@ -246,6 +268,84 @@ class DriveFileSummaryServiceTest extends IntegrationTestBase {
               }
 
               return null; // 커밋(롤백 안 함) — 서비스가 자기 트랜잭션으로 열어 읽으므로 커밋 필요.
+            });
+  }
+
+  /** error 컬럼까지 채우는 SKIPPED/FAILED 전용 시드(#735 reason 매핑 검증용). seedFixture 의 error 파라미터 확장판. */
+  private void seedFixtureWithError(String fileName, String status, String error) {
+    new TransactionTemplate(txManager)
+        .execute(
+            txStatus -> {
+              tid2 = ensureFixtureTenant();
+              setGuc(tid2);
+
+              String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+              memberId =
+                  dsl.insertInto(USER)
+                      .set(USER.USERNAME, "sum_m_" + suffix)
+                      .set(USER.PASSWORD, "pw")
+                      .set(USER.NAME, "멤버_" + suffix)
+                      .set(USER.EMAIL, "sum_m_" + suffix + "@example.com")
+                      .returning(USER.ID)
+                      .fetchOne()
+                      .getId();
+              outsiderId =
+                  dsl.insertInto(USER)
+                      .set(USER.USERNAME, "sum_o_" + suffix)
+                      .set(USER.PASSWORD, "pw")
+                      .set(USER.NAME, "아웃사이더_" + suffix)
+                      .set(USER.EMAIL, "sum_o_" + suffix + "@example.com")
+                      .returning(USER.ID)
+                      .fetchOne()
+                      .getId();
+
+              spaceId =
+                  dsl.insertInto(DRIVE_SPACE)
+                      .set(DRIVE_SPACE.TYPE, "TEAM")
+                      .set(DRIVE_SPACE.NAME, "공간S_" + suffix)
+                      .set(DRIVE_SPACE.OWNER_ID, memberId)
+                      .returning(DRIVE_SPACE.ID)
+                      .fetchOne()
+                      .getId();
+              dsl.insertInto(DRIVE_SPACE_MEMBER)
+                  .set(DRIVE_SPACE_MEMBER.SPACE_ID, spaceId)
+                  .set(DRIVE_SPACE_MEMBER.USER_ID, memberId)
+                  .set(DRIVE_SPACE_MEMBER.ROLE, "OWNER")
+                  .execute();
+
+              String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+              fileIdCore =
+                  dsl.insertInto(FILE)
+                      .set(FILE.ORIGINAL_NAME, fileName)
+                      .set(FILE.STORED_NAME, "stored_" + s)
+                      .set(FILE.MIME_TYPE, "application/octet-stream")
+                      .set(FILE.SIZE_BYTES, 100L)
+                      .set(FILE.STORAGE_PATH, "/data/uploads/" + s)
+                      .set(FILE.UPLOADED_BY, memberId)
+                      .returning(FILE.ID)
+                      .fetchOne()
+                      .getId();
+
+              dsl.insertInto(DRIVE_FILE)
+                  .set(DRIVE_FILE.SPACE_ID, spaceId)
+                  .set(DRIVE_FILE.FILE_ID, fileIdCore)
+                  .set(DRIVE_FILE.NAME, fileName)
+                  .execute();
+              driveFileId =
+                  dsl.select(DRIVE_FILE.ID)
+                      .from(DRIVE_FILE)
+                      .where(DRIVE_FILE.FILE_ID.eq(fileIdCore))
+                      .fetchOne(DRIVE_FILE.ID);
+
+              dsl.insertInto(FILE_EXTRACTION)
+                  .set(FILE_EXTRACTION.FILE_ID, fileIdCore)
+                  .set(FILE_EXTRACTION.STATUS, status)
+                  .set(FILE_EXTRACTION.ERROR, error)
+                  .set(FILE_EXTRACTION.TENANT_ID, tid2)
+                  .execute();
+              extractionFileId = fileIdCore;
+
+              return null;
             });
   }
 

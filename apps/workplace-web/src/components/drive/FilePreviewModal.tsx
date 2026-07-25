@@ -61,10 +61,18 @@ export function FilePreviewModal({
   const summaryQuery = useDriveFileSummary(driveFileId)
   const summary = summaryQuery.data?.summary ?? null
   const status = summaryQuery.data?.status ?? null
+  const reason = summaryQuery.data?.reason ?? null
   // 진행 중 = 추출/요약 미완(스켈레톤 대상). 터미널·요약없음이면 카드 숨김.
   const summaryInProgress =
     status === 'PENDING' || status === 'EXTRACTING' || status === 'TEXT_READY' || status === 'SUMMARIZING'
-  const showSummaryCard = !isAttachment && aiAvailable && (summary != null || summaryInProgress)
+  // #735: 요약 불가(SKIPPED/FAILED)도 카드를 유지해 사유를 알린다 — 카드가 사라지면 사용자는
+  // 형식 미지원인지·AI 가 꺼진 건지·실패한 건지 구분할 수 없다.
+  const summaryUnavailable = status === 'SKIPPED' || status === 'FAILED'
+  // #735: 진행 중인데 폴링 상한을 넘김 = 처리기(워커)가 멈춘 정황. 스켈레톤을 영원히 돌리면
+  // "처리 중"과 "처리기 죽음"을 구분할 수 없으므로 지연 안내로 전환한다.
+  const summaryStalled = summaryInProgress && summaryQuery.pollingExhausted
+  const showSummaryCard =
+    !isAttachment && aiAvailable && (summary != null || summaryInProgress || summaryUnavailable)
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState(false)
@@ -152,13 +160,28 @@ export function FilePreviewModal({
           </div>
           <DialogDescription className="sr-only">{name} 미리보기</DialogDescription>
         </DialogHeader>
-        {/* #526: 콘텐츠 요약 — 상단으로 이동, 기본 접힘. previewable 게이트 밖(Office 파일에서도 노출). */}
+        {/* #526: 콘텐츠 요약 — 상단으로 이동, 기본 접힘. previewable 게이트 밖(Office 파일에서도 노출).
+            #735: 단 요약 불가(SKIPPED/FAILED)일 때는 기본 펼침 — 사유는 한 줄이라 접어둘 이유가 없고,
+            접어두면 헤더만 보여 "왜 요약이 없는지" 를 여전히 알 수 없다(무음 실패의 축소판). */}
         {showSummaryCard && (
-          <AiContent label="AI 요약" collapsible defaultOpen={false} data-testid="drive-summary-card">
+          <AiContent
+            label="AI 요약"
+            collapsible
+            defaultOpen={summaryUnavailable || summaryStalled}
+            data-testid="drive-summary-card"
+          >
             {summary != null ? (
               // #633: raw summary 문자열 그대로 렌더 시 LLM이 생성한 마크다운(#, ** 등)이
               // 파싱 없이 그대로 노출됨 — DM 채팅과 동일하게 MarkdownMessage 로 감싸 파싱.
               <MarkdownMessage>{summary}</MarkdownMessage>
+            ) : summaryUnavailable || summaryStalled ? (
+              // #735: 서버 문구는 평문 — 마크다운 렌더 금지(사용자 입력이 아니라 고정 문구지만
+              // 원문 그대로 노출한다는 계약이므로 파싱하지 않는다).
+              <p className="text-sm text-muted-foreground" data-testid="drive-summary-reason">
+                {summaryStalled
+                  ? '요약 생성이 지연되고 있습니다. 잠시 후 다시 열어 주세요.'
+                  : (reason ?? '요약을 사용할 수 없습니다.')}
+              </p>
             ) : (
               <div className="space-y-1" data-testid="drive-summary-loading">
                 <div className="h-3 w-full animate-pulse rounded bg-ai-accent/20" />
