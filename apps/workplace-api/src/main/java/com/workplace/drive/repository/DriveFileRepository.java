@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.FILE;
 
 import com.workplace.drive.dto.DriveFileResponse;
+import com.workplace.file.storage.FileStore;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
@@ -14,6 +15,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -22,6 +24,28 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class DriveFileRepository {
   private final DSLContext dsl;
+
+  /** available 파생 필드 계산(원본 blob 유실 가시화, #739) — FileCleanupService 와 동일하게 FileStore 로 상대/레거시
+   * 절대경로를 모두 복원해 존재 확인한다. */
+  private final FileStore fileStore;
+
+  /**
+   * listInFolder/searchByName/findResponse 세 projection 이 동일하게 중복하던 DriveFileResponse 생성 로직을
+   * 단일화한 매퍼(#739). 각 projection 은 FILE.STORAGE_PATH 를 반드시 select 해야 한다.
+   */
+  private DriveFileResponse toResponse(Record r) {
+    return new DriveFileResponse(
+        r.get(DRIVE_FILE.ID),
+        r.get(DRIVE_FILE.FOLDER_ID),
+        r.get(DRIVE_FILE.FILE_ID),
+        r.get(DRIVE_FILE.NAME),
+        r.get(FILE.MIME_TYPE),
+        r.get(FILE.SIZE_BYTES),
+        r.get(FILE.CATEGORY),
+        r.get(DRIVE_FILE.CREATED_AT),
+        r.get(DRIVE_FILE.VERSION_COUNT),
+        fileStore.exists(r.get(FILE.STORAGE_PATH)));
+  }
 
   public long insert(long spaceId, Long folderId, long fileId, String name) {
     return dsl.insertInto(DRIVE_FILE)
@@ -153,7 +177,8 @@ public class DriveFileRepository {
             FILE.SIZE_BYTES,
             FILE.CATEGORY,
             DRIVE_FILE.CREATED_AT,
-            DRIVE_FILE.VERSION_COUNT)
+            DRIVE_FILE.VERSION_COUNT,
+            FILE.STORAGE_PATH)
         .from(DRIVE_FILE)
         .join(FILE)
         .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
@@ -161,18 +186,7 @@ public class DriveFileRepository {
         .and(folderCond)
         .and(DRIVE_FILE.TRASHED_AT.isNull())
         .orderBy(DRIVE_FILE.NAME.asc())
-        .fetch(
-            r ->
-                new DriveFileResponse(
-                    r.get(DRIVE_FILE.ID),
-                    r.get(DRIVE_FILE.FOLDER_ID),
-                    r.get(DRIVE_FILE.FILE_ID),
-                    r.get(DRIVE_FILE.NAME),
-                    r.get(FILE.MIME_TYPE),
-                    r.get(FILE.SIZE_BYTES),
-                    r.get(FILE.CATEGORY),
-                    r.get(DRIVE_FILE.CREATED_AT),
-                    r.get(DRIVE_FILE.VERSION_COUNT)));
+        .fetch(this::toResponse);
   }
 
   /** 공간 전체에서 이름에 q 를 포함(대소문자 무시)하는 파일 — LIKE 와일드카드(%, _)는 리터럴로 이스케이프. */
@@ -187,7 +201,8 @@ public class DriveFileRepository {
             FILE.SIZE_BYTES,
             FILE.CATEGORY,
             DRIVE_FILE.CREATED_AT,
-            DRIVE_FILE.VERSION_COUNT)
+            DRIVE_FILE.VERSION_COUNT,
+            FILE.STORAGE_PATH)
         .from(DRIVE_FILE)
         .join(FILE)
         .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
@@ -196,18 +211,7 @@ public class DriveFileRepository {
         .and(DRIVE_FILE.TRASHED_AT.isNull())
         .orderBy(DRIVE_FILE.NAME.asc())
         .limit(200)
-        .fetch(
-            r ->
-                new DriveFileResponse(
-                    r.get(DRIVE_FILE.ID),
-                    r.get(DRIVE_FILE.FOLDER_ID),
-                    r.get(DRIVE_FILE.FILE_ID),
-                    r.get(DRIVE_FILE.NAME),
-                    r.get(FILE.MIME_TYPE),
-                    r.get(FILE.SIZE_BYTES),
-                    r.get(FILE.CATEGORY),
-                    r.get(DRIVE_FILE.CREATED_AT),
-                    r.get(DRIVE_FILE.VERSION_COUNT)));
+        .fetch(this::toResponse);
   }
 
   /** 공간 휴지통의 파일 trash_root 항목. */
@@ -345,23 +349,13 @@ public class DriveFileRepository {
             FILE.SIZE_BYTES,
             FILE.CATEGORY,
             DRIVE_FILE.CREATED_AT,
-            DRIVE_FILE.VERSION_COUNT)
+            DRIVE_FILE.VERSION_COUNT,
+            FILE.STORAGE_PATH)
         .from(DRIVE_FILE)
         .join(FILE)
         .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
         .where(DRIVE_FILE.ID.eq(driveFileId))
-        .fetchOptional(
-            r ->
-                new DriveFileResponse(
-                    r.get(DRIVE_FILE.ID),
-                    r.get(DRIVE_FILE.FOLDER_ID),
-                    r.get(DRIVE_FILE.FILE_ID),
-                    r.get(DRIVE_FILE.NAME),
-                    r.get(FILE.MIME_TYPE),
-                    r.get(FILE.SIZE_BYTES),
-                    r.get(FILE.CATEGORY),
-                    r.get(DRIVE_FILE.CREATED_AT),
-                    r.get(DRIVE_FILE.VERSION_COUNT)));
+        .fetchOptional(this::toResponse);
   }
 
   /** 링크 렌더용 메타. 휴지통(trashed) 파일도 포함하며 trashed 플래그로 가용성 표시. */

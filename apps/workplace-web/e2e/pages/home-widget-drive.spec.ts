@@ -111,6 +111,7 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
                     category: 'DOCUMENT',
                     createdAt: '2024-01-01T00:00:00Z',
                     versionCount: 1,
+                    available: true,
                   },
                 ],
               }),

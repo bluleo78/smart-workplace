@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { StatusBadge } from '@/components/ui/status-badge'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
@@ -218,6 +219,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     }, 300)
     return () => clearTimeout(t)
   }, [query, sid])
+
+  // #739: 원본 blob 유실 여부 — undefined(구버전 스텁/폴백)는 유실 아님으로 취급(하위호환).
+  function isMissingBlob(f: DriveFile): boolean {
+    return f.available === false
+  }
+  // #739: 원본 blob 유실 파일 클릭 시 — 미리보기 대신 안내 토스트로 복구 불가를 명시.
+  function onUnavailableClick() {
+    toast.message('이 파일의 원본이 유실되어 열거나 내려받을 수 없습니다.')
+  }
 
   function openFolder(id: number) {
     setQuery('')
@@ -882,17 +892,27 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                         data-testid={`select-file-${f.id}`}
                         className="h-4 w-4 shrink-0"
                       />
-                      <DriveThumbnail fileId={f.id} category={f.category} />
+                      <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                       <button
                         type="button"
-                        onClick={() => setPreview(f)}
-                        className="flex-1 truncate text-left text-sm hover:underline"
+                        onClick={() => (isMissingBlob(f) ? onUnavailableClick() : setPreview(f))}
+                        className={
+                          isMissingBlob(f)
+                            ? 'flex-1 truncate text-left text-sm text-muted-foreground'
+                            : 'flex-1 truncate text-left text-sm hover:underline'
+                        }
                       >
                         {f.name}
                         {f.folderPath && (
                           <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
                         )}
                       </button>
+                      {/* #739: 원본 유실 배지 — 중립 경고 스타일(StatusBadge warning), AI 마커 계열 아님. */}
+                      {isMissingBlob(f) && (
+                        <StatusBadge type="warning" data-testid="missing-blob-badge" className="shrink-0">
+                          원본 유실
+                        </StatusBadge>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -1028,14 +1048,24 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   data-testid={`select-file-${f.id}`}
                   className="h-4 w-4 shrink-0"
                 />
-                <DriveThumbnail fileId={f.id} category={f.category} />
+                <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                 <button
                   type="button"
-                  onClick={() => setPreview(f)}
-                  className="flex-1 truncate text-left text-sm hover:underline"
+                  onClick={() => (isMissingBlob(f) ? onUnavailableClick() : setPreview(f))}
+                  className={
+                    isMissingBlob(f)
+                      ? 'flex-1 truncate text-left text-sm text-muted-foreground'
+                      : 'flex-1 truncate text-left text-sm hover:underline'
+                  }
                 >
                   {f.name}
                 </button>
+                {/* #739: 원본 유실 배지 — 중립 경고 스타일(StatusBadge warning), AI 마커 계열(AiSignalBadge) 아님. */}
+                {isMissingBlob(f) && (
+                  <StatusBadge type="warning" data-testid="missing-blob-badge" className="shrink-0">
+                    원본 유실
+                  </StatusBadge>
+                )}
                 {/* 버전 뱃지 — 버전이 2개 이상일 때만 표시(#79) */}
                 {f.versionCount > 1 && (
                   <span
@@ -1051,6 +1081,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                     variant="ghost"
                     size="xs"
                     onClick={() => driveApi.downloadFile(f.id, f.name)}
+                    disabled={isMissingBlob(f)}
                     aria-label={`${f.name} 다운로드`}
                   >
                     다운로드
@@ -1059,6 +1090,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                     variant="ghost"
                     size="xs"
                     onClick={() => setShareFile(f)}
+                    disabled={isMissingBlob(f)}
                     aria-label={`${f.name} 공유 링크`}
                     data-testid="share-link-btn"
                   >
@@ -1084,9 +1116,10 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                         disabled: !!space?.archived,
                       },
                       {
+                        // #739: 원본 유실 파일은 복제할 바이트가 없어 서버가 404(유실)를 반환하므로 미리 차단.
                         label: '복사',
                         onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }),
-                        disabled: !!space?.archived,
+                        disabled: !!space?.archived || isMissingBlob(f),
                       },
                     ]}
                   />

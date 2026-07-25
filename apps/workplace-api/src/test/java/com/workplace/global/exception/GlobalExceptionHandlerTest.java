@@ -3,6 +3,7 @@ package com.workplace.global.exception;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.drive.exception.DriveInvalidTargetException;
+import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
@@ -109,6 +110,17 @@ class GlobalExceptionHandlerTest {
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     assertThat(res.getBody()).isNotNull();
     assertThat(res.getBody().message()).contains("83");
+  }
+
+  @Test
+  void 파일_원본_유실은_404와_유실_메시지를_반환한다() {
+    // #739: FileUploadService.getFileContentTrusted() 등이 던지는 FileBlobMissingException(행은
+    // 있으나 디스크 blob 이 없음)이 기존 FileNotFoundException 과 구분된 안내 메시지로 매핑되는지 검증.
+    ResponseEntity<ErrorResponse> res =
+        handler.handleFileBlobMissing(new FileBlobMissingException(83L), request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    assertThat(res.getBody()).isNotNull();
+    assertThat(res.getBody().message()).isEqualTo("파일 원본이 유실되어 복구할 수 없습니다");
   }
 
   @Test

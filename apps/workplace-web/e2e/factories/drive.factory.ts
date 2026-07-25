@@ -40,6 +40,8 @@ export function createFile(overrides: Partial<DriveFile> = {}): DriveFile {
     createdAt: new Date('2026-06-01').toISOString(),
     // #79: 기본 버전 수 1
     versionCount: 1,
+    // #739: 기본은 원본 blob 존재(정상 파일). 유실 시나리오는 overrides로 false 지정.
+    available: true,
     ...overrides,
   }
 }

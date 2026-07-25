@@ -3,6 +3,7 @@ package com.workplace.file.service;
 import static com.workplace.jooq.Tables.FILE;
 
 import com.workplace.file.dto.FileUploadResponse;
+import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.storage.FilePathBuilder;
@@ -208,8 +209,9 @@ public class FileUploadService {
 
     // fileStore.resolve() 가 상대경로 → 절대경로 복원(레거시 절대경로도 호환).
     // 존재 확인은 FileStore API를 경유하여 추상화 경계를 유지한다.
+    // 행은 있으나 blob 이 없으면 유실(#739) — 행 자체가 없는 FileNotFoundException 과 구분한다.
     if (!fileStore.exists(record.getStoragePath())) {
-      throw new FileNotFoundException(fileId);
+      throw new FileBlobMissingException(fileId);
     }
     Path storagePath = fileStore.resolve(record.getStoragePath());
 
@@ -229,8 +231,9 @@ public class FileUploadService {
     }
     // fileStore.resolve() 로 상대/레거시 절대경로 모두 복원.
     // 존재 확인은 FileStore API를 경유하여 추상화 경계를 유지한다.
+    // 행은 있으나 blob 이 없으면 유실(#739) — 행 자체가 없는 FileNotFoundException 과 구분한다.
     if (!fileStore.exists(record.getStoragePath())) {
-      throw new FileNotFoundException(fileId);
+      throw new FileBlobMissingException(fileId);
     }
     Path storagePath = fileStore.resolve(record.getStoragePath());
     long fileSize = fileStore.size(record.getStoragePath());
@@ -281,8 +284,9 @@ public class FileUploadService {
     }
     // fileStore.resolve() 로 원본 절대경로 복원 후 존재 확인.
     // 존재 확인은 FileStore API를 경유하여 추상화 경계를 유지한다.
+    // 행은 있으나 blob 이 없으면 유실(#739) — 복사할 바이트가 없으므로 유실 안내로 매핑한다.
     if (!fileStore.exists(record.getStoragePath())) {
-      throw new FileNotFoundException(srcFileId);
+      throw new FileBlobMissingException(srcFileId);
     }
     Path srcPath = fileStore.resolve(record.getStoragePath());
 

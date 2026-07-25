@@ -16,6 +16,7 @@ import com.workplace.cycle.exception.CycleNameDuplicatedException;
 import com.workplace.cycle.exception.CycleNotFoundException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.exception.InvalidCycleStatusException;
+import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
@@ -984,14 +985,23 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
-  /**
-   * 파일 코어 not-found — 404. DB 메타데이터는 있으나 디스크 blob이 유실된 경우도 포함 (drive 첨부, 채팅/메일 첨부 등 file 코어를 경유하는
-   * 모든 소비처에 공통 적용).
-   */
+  /** 파일 코어 not-found — 404. {@code file} 행 자체가 없는 경우(blob 유실은 {@link FileBlobMissingException} 참조). */
   @ExceptionHandler(FileNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleFileNotFound(
       FileNotFoundException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  /**
+   * 파일 원본(디스크 blob) 유실 — 404(#739). {@code file} 행은 있으나 스토리지에 바이트가 없는 경우로, drive 첨부·채팅/메일 첨부 등
+   * file 코어를 경유하는 모든 소비처에 공통 적용된다. 복구 불가이므로 메시지로 명확히 안내한다.
+   */
+  @ExceptionHandler(FileBlobMissingException.class)
+  public ResponseEntity<ErrorResponse> handleFileBlobMissing(
+      FileBlobMissingException ex, HttpServletRequest request) {
+    ErrorResponse response =
+        buildError(HttpStatus.NOT_FOUND, "파일 원본이 유실되어 복구할 수 없습니다", null, request);
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 

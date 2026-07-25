@@ -68,6 +68,8 @@ export interface DriveFile {
   createdAt: string
   // #79: 버전 수 — 업로드/롤백 시 갱신.
   versionCount: number
+  // #739: 디스크 원본(blob) 존재 여부 — 읽기 시점 판정. false = 유실(복구 불가).
+  available: boolean
 }
 
 // #79: 드라이브 파일 버전 — 백엔드 DriveFileVersionResponse 와 1:1.
