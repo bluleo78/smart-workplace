@@ -493,6 +493,51 @@
   color: var(--muted-foreground);
 }
 
+/* 목록(ul/ol/li) — Tailwind v4 preflight가 list-style/padding/margin을 리셋해
+ * 불릿·번호 마커와 들여쓰기가 완전히 사라지는 문제 (#738). heading과 동일하게
+ * .ProseMirror 스코프에서 복원한다. 중첩 목록은 padding-left가 누적되어
+ * 별도 규칙 없이 단계별로 들여써진다. */
+.ProseMirror ul,
+.ProseMirror ol {
+  margin: 0.5em 0;
+  padding-left: 1.5rem; /* 24px = space-6 (03-spacing-layout.md 승인 스케일) */
+}
+.ProseMirror ul {
+  list-style-type: disc;
+}
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+.ProseMirror li {
+  margin: 0.25em 0;
+}
+
+/* 코드블록/인라인 코드 — pre 자체 폰트(monospace)는 preflight가 건드리지
+ * 않아 살아있지만, 배경/보더/여백이 전혀 정의되어 있지 않아 코드블록이라는
+ * 시각적 구획이 안 보이는 문제 (#738). --muted는 다크모드 엘리베이션-1 서페이스라
+ * 다른 알파 표면과 겹쳐도 중첩 문제가 없다(11-dark-mode.md). */
+.ProseMirror pre {
+  margin: 0.5em 0;
+  padding: 0.75rem; /* 12px = space-3 */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  overflow-x: auto;
+}
+.ProseMirror code {
+  background: var(--muted);
+  padding: 0.125rem 0.25rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.875em; /* body(16px) 대비 14px 상당 — code-inline 토큰과 동일 비율 */
+}
+.ProseMirror pre code {
+  /* pre 내부 code는 인라인 코드 배경을 다시 두르지 않도록 재정의 */
+  padding: 0;
+  background: transparent;
+  font-size: 0.8125rem; /* 13px = code-block 타이포 토큰 (02-typography.md) */
+  line-height: 1.25rem; /* leading-5 */
+}
+
 /* Canvas animations */
 @keyframes canvas-widget-in {
   from { transform: translateY(20px); opacity: 0; }
