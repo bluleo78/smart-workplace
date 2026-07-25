@@ -91,7 +91,7 @@ class WikiPageControllerTest {
   void mentions_returns200WithRefs() throws Exception {
     when(pageService.get(eq(1L), eq(7L)))
         .thenReturn(
-            new WikiPageDetail(7L, 3L, null, "제목", "<#page:9>", 1, 1L, OffsetDateTime.now()));
+            new WikiPageDetail(7L, 3L, null, "제목", "<#page:9>", 1, 1L, OffsetDateTime.now(), null, null));
     when(hydrationService.resolveMentions(eq(1L), eq("<#page:9>")))
         .thenReturn(List.of(new WikiMentionRef("PAGE", 9L, "참조페이지", 3L, null, null)));
 
@@ -108,7 +108,7 @@ class WikiPageControllerTest {
   @Test
   void backlinks_returns200WithItems() throws Exception {
     when(pageService.get(eq(1L), eq(7L)))
-        .thenReturn(new WikiPageDetail(7L, 3L, null, "제목", "본문", 1, 1L, OffsetDateTime.now()));
+        .thenReturn(new WikiPageDetail(7L, 3L, null, "제목", "본문", 1, 1L, OffsetDateTime.now(), null, null));
     when(hydrationService.backlinks(eq(1L), eq(7L)))
         .thenReturn(
             new WikiBacklinksResponse(

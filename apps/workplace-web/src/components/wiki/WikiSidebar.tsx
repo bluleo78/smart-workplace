@@ -60,6 +60,8 @@ interface FlatItem {
   depth: number
   title: string
   hasChildren: boolean
+  // #736: AI 생성 attribution 존재 여부 — 사이드바 배지 판단용.
+  aiLastUsedAt: string | null
 }
 
 // 평면 목록 → depth-first 평면 배열. 형제는 position 순서 유지.
@@ -80,7 +82,14 @@ function flattenTree(pages: WikiPageSummary[], collapsed: Set<number>): FlatItem
   const walk = (parentId: number | null, depth: number) => {
     for (const c of byParent.get(parentId) ?? []) {
       const hasChildren = (byParent.get(c.id) ?? []).length > 0
-      result.push({ id: c.id, parentId, depth, title: c.title, hasChildren })
+      result.push({
+        id: c.id,
+        parentId,
+        depth,
+        title: c.title,
+        hasChildren,
+        aiLastUsedAt: c.aiLastUsedAt,
+      })
       // 접힌 노드의 자손은 평면화에서 제외(렌더·DnD 모두 보이는 항목만 대상).
       if (!collapsed.has(c.id)) walk(c.id, depth + 1)
     }
@@ -372,6 +381,7 @@ export function WikiSidebar() {
                 key={item.id}
                 id={item.id}
                 title={item.title}
+                aiAttributed={item.aiLastUsedAt != null}
                 depth={activeId === item.id && projected ? projected.depth : item.depth}
                 hasChildren={item.hasChildren}
                 collapsed={collapsed.has(item.id)}

@@ -119,6 +119,16 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
      */
     public final TableField<WikiPageRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.wiki_page.ai_last_used_at</code>.
+     */
+    public final TableField<WikiPageRecord, OffsetDateTime> AI_LAST_USED_AT = createField(DSL.name("ai_last_used_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.wiki_page.ai_last_action</code>.
+     */
+    public final TableField<WikiPageRecord, String> AI_LAST_ACTION = createField(DSL.name("ai_last_action"), SQLDataType.VARCHAR(32), this, "");
+
     private WikiPage(Name alias, Table<WikiPageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

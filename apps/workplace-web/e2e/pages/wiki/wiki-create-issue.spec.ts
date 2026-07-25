@@ -9,7 +9,7 @@ function space(role: WikiRole): WikiSpace {
   return { id: SPACE_ID, type: 'TEAM', name: '팀 위키', ownerId: 1, role, createdAt: '2026-06-01T00:00:00Z' }
 }
 function pageDetail(): WikiPageDetail {
-  return { id: PAGE_ID, spaceId: SPACE_ID, parentId: null, title: '노트', body: '', version: 1, updatedBy: 1, updatedAt: '2026-06-01T00:00:00Z' }
+  return { id: PAGE_ID, spaceId: SPACE_ID, parentId: null, title: '노트', body: '', version: 1, updatedBy: 1, updatedAt: '2026-06-01T00:00:00Z', aiLastUsedAt: null, aiLastAction: null }
 }
 
 async function setup(page: import('@playwright/test').Page) {
@@ -19,7 +19,7 @@ async function setup(page: import('@playwright/test').Page) {
       : r.fallback())
   await page.route((u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
     r.request().method() === 'GET'
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: PAGE_ID, parentId: null, title: '노트', position: 0 } as WikiPageSummary]) })
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: PAGE_ID, parentId: null, title: '노트', position: 0, aiLastUsedAt: null } as WikiPageSummary]) })
       : r.fallback())
   await page.route((u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/members`, (r) =>
     r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())
@@ -81,7 +81,7 @@ test('위키 노트→이슈 — VIEWER 는 "이슈로 만들기" 미노출', as
       ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([space('VIEWER')]) }) : r.fallback())
   await page.route((u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
     r.request().method() === 'GET'
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: PAGE_ID, parentId: null, title: '노트', position: 0 } as WikiPageSummary]) }) : r.fallback())
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: PAGE_ID, parentId: null, title: '노트', position: 0, aiLastUsedAt: null } as WikiPageSummary]) }) : r.fallback())
   await page.route((u) => u.pathname === `/api/v1/wiki/pages/${PAGE_ID}`, (r) =>
     r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pageDetail()) }) : r.fallback())
   await page.route((u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/members`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
