@@ -538,6 +538,44 @@
   line-height: 1.25rem; /* leading-5 */
 }
 
+/* 표 — Table 확장 도입(#742). preflight가 border-collapse/spacing을 리셋하므로
+ * 셀 경계선이 보이도록 복원한다. 색은 --border/--muted 시맨틱 토큰만 사용.
+ * 넓은 표가 본문 폭을 밀어내지 않도록 래퍼(.tableWrapper, Table 확장이 생성)에
+ * 가로 스크롤을 주고, table 자체는 width:100% 로 컨테이너에 맞춘다. */
+.ProseMirror .tableWrapper {
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed; /* 셀 내용 길이에 따라 열이 요동치지 않게 */
+}
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid var(--border);
+  padding: 0.375rem 0.5rem; /* 6px/8px = space-1.5/space-2 */
+  vertical-align: top;
+  text-align: left;
+}
+.ProseMirror th {
+  background: var(--muted);
+  font-weight: 600;
+}
+/* 셀 선택 하이라이트 — 마우스로 셀 범위를 드래그할 때의 피드백. */
+.ProseMirror .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  opacity: 0.4;
+  pointer-events: none;
+}
+.ProseMirror td,
+.ProseMirror th {
+  position: relative;
+}
+
 /* Canvas animations */
 @keyframes canvas-widget-in {
   from { transform: translateY(20px); opacity: 0; }
