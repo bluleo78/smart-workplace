@@ -111,12 +111,15 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
             </Select>
           </div>
         )}
+        {/* includeAgents — 팀 프로젝트에도 AGENT 를 멤버(=담당자 후보)로 추가할 수 있어야 하므로 kind 탭 노출 +
+            AGENT 조회 허용(#734). 백엔드 addMember 는 팀 프로젝트에서 kind 제한을 두지 않는다. */}
         <MemberSearchPopover
           open={pickerOpen}
           onOpenChange={setPickerOpen}
           existingMemberIds={existingIds}
           onSelect={onPick}
           agentOnly={agentOnly}
+          includeAgents
           trigger={
             <Button type="button" data-testid="member-add-trigger">
               {/* agentOnly 모드면 AI 어시스턴트 추가 버튼 라벨 */}
