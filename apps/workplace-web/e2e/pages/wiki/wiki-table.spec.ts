@@ -78,3 +78,45 @@ test('표 렌더 + 마크다운 라운드트립', async ({ authenticatedPage: pa
   expect(md).toContain('표 아래 문단. 수정')
 
 })
+
+test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드트립 (#748)', async ({
+  authenticatedPage: page,
+}) => {
+  saved.length = 0
+  // 빈 본문에서 시작 — 삽입 결과만 검증하도록 기존 표와 섞이지 않게 한다.
+  await setup(page, '')
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/')
+  await expect(page.getByTestId('wiki-slash-popover')).toBeVisible()
+
+  // 표 항목이 AI 액션들과 한 메뉴에 공존하되, AI 마킹은 그룹 헤더에서 한 번만 한다
+  // (07-iconography §7.2 — 메뉴가 AI 전용이 아니게 되면서 listbox aria-label 이 하던
+  // 컨테이너 마킹을 group 으로 옮겼다). 표 행에는 AI 마커가 붙지 않아야 한다.
+  const popover = page.getByTestId('wiki-slash-popover')
+  await expect(popover.getByRole('group', { name: 'AI' })).toBeVisible()
+  await expect(popover.getByRole('group', { name: 'AI' })).toContainText('AI 요약')
+  await expect(popover.getByTestId('wiki-slash-option-table')).toHaveCount(1)
+  await expect(popover.getByRole('group', { name: 'AI' }).getByTestId('wiki-slash-option-table')).toHaveCount(0)
+  await expect(page.getByTestId('wiki-slash-option-summarize')).toBeVisible()
+  await page.getByTestId('wiki-slash-option-table').click()
+
+  // 헤더 행 포함 3×3 이 삽입되고, '/' 트리거 텍스트는 남지 않는다.
+  const t = page.locator('.ProseMirror table')
+  await expect(t).toBeVisible()
+  await expect(t.locator('th')).toHaveCount(3)
+  await expect(t.locator('tr')).toHaveCount(3)
+  await expect(t.locator('td')).toHaveCount(6)
+  await expect(page.locator('.ProseMirror')).not.toContainText('/')
+
+  // 삽입 경로도 마크다운으로 직렬화되는가 — 로드/붙여넣기와 코드 경로가 다르므로 별도 단언.
+  await page.keyboard.type('항목')
+  await expect.poll(() => saved.length, { timeout: 5000 }).toBeGreaterThan(0)
+  const md = saved[saved.length - 1]
+  expect(md).toContain('항목')
+  expect(md).toMatch(/\|\s*---/)
+  // 파이프 구분 행이 최소 4줄(헤더·구분·본문 2) 나와야 표로 왕복된 것이다.
+  expect(md.split('\n').filter((l) => l.trim().startsWith('|')).length).toBeGreaterThanOrEqual(4)
+})

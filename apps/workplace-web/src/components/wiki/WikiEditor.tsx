@@ -123,12 +123,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     insertAt: number
   }>({ open: false, title: '', body: '', insertAt: 0 })
 
-  // 슬래시 확장이 스테일 없이 참조할 ref 들(canUseAi·액션 콜백). 확장은 1회 생성되므로
-  // 최신값은 effect 에서 ref 에 동기화한다(RichInput 의 membersRef/onSubmitRef 패턴).
-  const canUseAiRef = useRef(canUseAi)
-  useEffect(() => {
-    canUseAiRef.current = canUseAi
-  })
+  // 슬래시 확장은 게이트로 위의 canEditRef 를 그대로 재사용한다 — 메뉴에 AI 가 아닌 표 삽입이
+  // 들어오며(#748) 게이트 의미가 "편집 가능"이 됐고, canUseAi 와 canEdit 는 원래부터 동일 식이라
+  // 별도 ref 를 두면 이름만 다른 중복이 된다.
 
   // action → startWikiAiStream 트리거. summarize/continue 는 즉시, draft 는 토픽 입력 후.
   const runAction = useCallback(
@@ -280,7 +277,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 사용자가 '/' 를 입력할 때 ProseMirror 가 호출하므로 렌더 시점에 동기 실행되지 않아 안전하다
   // (RichInput 의 membersRef 패턴 동일 — react-hooks/refs 의 보수적 false positive).
   // eslint-disable-next-line react-hooks/refs
-  const slashExtension = useMemo(() => createWikiSlashExtension({ canUseAiRef, onActionRef }), [])
+  const slashExtension = useMemo(() => createWikiSlashExtension({ canEditRef, onActionRef }), [])
 
   const editor = useEditor(
     {
