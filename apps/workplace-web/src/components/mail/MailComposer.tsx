@@ -85,7 +85,12 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
         'aria-label': '메일 본문',
         class:
           // 본문이 길어도 도크가 무한정 늘어나지 않도록 최대 높이 + 세로 스크롤.
-          'prose prose-sm max-w-none min-h-[180px] max-h-[40vh] overflow-y-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          //
+          // prose/prose-sm/max-w-none 제거(#743): @tailwindcss/typography 플러그인이 설치되어 있지
+          // 않아 prose 계열은 아무 스타일도 적용하지 않는 죽은 클래스였다. 목록·코드블록 등 블록
+          // 요소 스타일은 index.css 의 .ProseMirror 규칙이 담당한다(#738). max-w-none 도 prose 의
+          // max-width 를 되돌리기 위한 것이라 함께 제거.
+          'min-h-[180px] max-h-[40vh] overflow-y-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       },
     },
   });
