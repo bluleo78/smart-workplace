@@ -34,7 +34,7 @@
   - 진행: 인-플로우 제목 토큰 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`) + 헤더 바 제목 `appTitleTextClass` 분리 도입(2026-06-06). Phase 1–2 적용: 프로젝트 목록/상세·이슈 상세·홈·캘린더. **Phase 3–4 완료(#113, 2026-06-06)**: 설정·어드민 영역 `pageTitleClass` 통일 + 메일 설정·비서 설정 누락 제목 추가. **추가 정리(2026-06-18)**: 프로젝트 설정·사이클·내 작업·AI 위임 작업 4개 페이지 제목을 `pageTitleClass`로 교체. 잔여: 프로젝트 목록 등 일부 페이지.
 - [x] **삭제 확인 UX 불일치** — 완료(확인 2026-06-18). 네이티브 `confirm()`/`alert()`/`prompt()` 0건, 전부 `DeleteConfirmDialog`/`AlertDialog`로 통일 (#135·#145·#148·#160). ([06-feedback-states.md](./06-feedback-states.md))
 - [ ] **상세 페이지 탭 패턴 부재** — 탭형 상세 레이아웃이 아직 없음. 필요 모듈(이슈/프로젝트) 식별 후 표준 정의 여부 결정.
-- [ ] **페이지 헤더 주(primary) 액션 Button size 불일치** — (#737 조사) `size="sm"`(`CyclesPage`/`AgentManagementPage`/`ContactsPage`)과 `size` 미지정 `default`(`TokenSettingsPage`/`UserListPage`/`RoleListPage`)가 혼재. #737 은 비-주 액션 케이스만 확정([04-components.md](./04-components.md) §E). 주 액션 size 통일 여부는 별도 판단 필요.
+- [ ] **페이지 헤더 주(primary) 액션 Button size 를 `default` 로 통일** — (#744 로 규정 확정) 실측 재집계 결과 주 액션은 `default` 8건 vs `sm` 4건이라 [04-components.md](./04-components.md) §E 규정을 `default` 로 확정했다. 따라서 `size="sm"` 을 쓰는 **`CyclesPage`·`AgentManagementPage`·`ContactsPage`·`CalendarPage` 4개 페이지가 정리 대상**이다. 코드 변경은 시각 회귀(헤더 높이 h-8→h-9)를 유발하므로 라이트·다크 시각검증을 동반해 별도 처리.
 - [ ] **`ProjectDetailPage.tsx` nav-link 버튼 size 미지정** — `ProjectDetailPage.tsx:52-57`의 사이클/타임라인/설정 링크가 `variant="outline"`이나 `size` 미지정(`default` h-9)이라, 동일 성격(비-주 헤더 액션)의 다수 관행인 `outline size="sm"`(`IssueDetailPage`/`TimelinePage`)과 다름. 통일 검토.
 
 ---

@@ -478,7 +478,7 @@ Button 의 `variant` 는 사용 맥락에 따라 엄격히 구분한다.
 | Size | 사용 맥락 | SVG 자동 크기 |
 |------|-----------|---------------|
 | `lg` (h-10) | 인증 페이지(로그인/회원가입) 주 CTA | 16px |
-| `default` (h-9) | 페이지 헤더 주 액션[^header-size-drift] | 16px |
+| `default` (h-9) | 페이지 헤더 **주(primary)** 액션 — 생성/저장 등 그 페이지의 대표 행동[^header-size-drift] | 16px |
 | `sm` (h-8) | 툴바, 카드 내 액션, 페이지네이션, **페이지 헤더의 비-주(non-primary) 액션**(구독/삭제/줌 토글 등, `variant="outline"`과 조합. AI 액션 트리거 버튼 조합은 [07. Iconography §7.2](./07-iconography.md#72-ai-마커-어휘) 참조) | 16px |
 | `xs` (h-6) | 인라인 텍스트 레벨 액션 | **12px** |
 | `icon` (size-9) | 독립 아이콘 버튼 | 16px |
@@ -488,7 +488,7 @@ Button 의 `variant` 는 사용 맥락에 따라 엄격히 구분한다.
 
 > Button 내부 `<svg>` 는 크기 클래스가 없으면 자동으로 16px(`xs`/`icon-xs` 는 12px)로 조정된다. 자세한 규칙은 [07. Iconography §6](./07-iconography.md) 참조.
 
-[^header-size-drift]: 실측: `CyclesPage`/`AgentManagementPage`/`ContactsPage` 의 페이지 헤더 주 액션은 `size="sm"`, `TokenSettingsPage`/`UserListPage`/`RoleListPage` 는 `size` 미지정(`default`)으로 혼재한다. 이번 정리(#737)는 비-주 액션 케이스만 확정했고, 주 액션 size 통일 여부는 미결 — [13-migration-backlog.md](./13-migration-backlog.md) 참조.
+[^header-size-drift]: 실측 재집계(#744, `pages/**` 의 `PageHeader actions=` 슬롯 전수): 주 액션(variant 미지정)은 `size` 미지정 `default` 8건(`ProjectListPage`·`ProjectDetailPage`·`PersonalProjectDetail`·`TokenSettingsPage`·`UserListPage`·`RoleListPage` 등) vs `size="sm"` 4건(`CyclesPage`·`AgentManagementPage`·`ContactsPage`·`CalendarPage`). **다수 관행이 `default` 이므로 규정을 `default` 로 확정**한다. `sm` 을 쓰는 4개 페이지가 정리 대상이며 [13-migration-backlog.md](./13-migration-backlog.md) 에 기록했다. 비-주 액션은 `outline`+`sm` 이 다수(8건)로 아래 `sm` 행에 확정.
 
 ---
 
