@@ -19,6 +19,8 @@ export function wikiPageSummary(over: Partial<WikiPageSummary> = {}): WikiPageSu
     parentId: null,
     title: '온보딩 가이드',
     position: 0,
+    // #736: 기본값은 AI 이력 없음 — 배지 노출 케이스는 over 로 명시 지정.
+    aiLastUsedAt: null,
     ...over,
   }
 }
@@ -33,6 +35,8 @@ export function wikiPageDetail(over: Partial<WikiPageDetail> = {}): WikiPageDeta
     version: 1,
     updatedBy: 1,
     updatedAt: '2026-01-01T00:00:00Z',
+    aiLastUsedAt: null,
+    aiLastAction: null,
     ...over,
   }
 }

@@ -90,13 +90,20 @@ test('추출 진행중 → 펼치면 스켈레톤 표시', async ({ authenticate
   await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
 })
 
-test('요약 없음 → 카드 숨김', async ({ authenticatedPage: page }) => {
+// #735: SKIPPED 는 이제 카드를 숨기지 않고 사유를 보여준다 — reason 미지정 시 폴백 문구.
+// 요약 불가 카드는 기본 펼침이라 클릭 없이도 사유가 바로 보여야 한다.
+test('요약 불가(SKIPPED, reason 없음) → 클릭 없이 카드 기본 펼침, 폴백 문구 표시', async ({
+  authenticatedPage: page,
+}) => {
   await setupDrive(page)
   await page.route('**/api/v1/drive/files/*/summary', (route) =>
-    route.fulfill({ json: { summary: null, status: 'SKIPPED' } }),
+    route.fulfill({ json: { summary: null, status: 'SKIPPED', reason: null } }),
   )
   await openPreview(page)
-  await expect(page.getByTestId('drive-summary-card')).toHaveCount(0)
+  const card = page.getByTestId('drive-summary-card')
+  await expect(card).toBeVisible()
+  await expect(card).toHaveJSProperty('open', true)
+  await expect(page.getByTestId('drive-summary-reason')).toHaveText('요약을 사용할 수 없습니다.')
 })
 
 test('다운로드 버튼이 상단 헤더에 있다', async ({ authenticatedPage: page }) => {

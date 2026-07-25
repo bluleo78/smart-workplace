@@ -153,7 +153,18 @@ public class DriveFileService {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "VIEWER");
-    return summaries.findSummary(row.fileId());
+    var r = summaries.findSummary(row.fileId());
+    return new FileSummaryResponse(r.summary(), r.status(), toReason(r.status(), r.error()));
+  }
+
+  /** file_extraction.error → 사용자 문구 매핑. 내부 예외 메시지·경로 노출 방지(#735). */
+  private static String toReason(String status, String error) {
+    if (!"SKIPPED".equals(status) && !"FAILED".equals(status)) return null;
+    if (error == null) return "요약에 실패했습니다.";
+    if (error.startsWith("image:")) return "이미지 파일은 요약하지 않습니다.";
+    if (error.startsWith("unsupported-mime:")) return "이 형식은 텍스트 추출을 지원하지 않습니다.";
+    if ("FAILED".equals(status)) return "요약에 실패했습니다.";
+    return "파일에서 텍스트를 찾지 못해 요약할 수 없습니다.";
   }
 
   /**

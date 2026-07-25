@@ -35,6 +35,8 @@ function pageDetail(title: string, version: number): WikiPageDetail {
     version,
     updatedBy: 1,
     updatedAt: '2026-06-01T00:00:00Z',
+    aiLastUsedAt: null,
+    aiLastAction: null,
   }
 }
 
@@ -164,7 +166,7 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
       if (method === 'GET') {
         // 생성 전엔 빈 트리, 생성 후엔 현재 제목을 반영한 요약 1건.
         const pages: WikiPageSummary[] = state.created
-          ? [{ id: NEW_PAGE_ID, parentId: null, title: state.title, position: 0 }]
+          ? [{ id: NEW_PAGE_ID, parentId: null, title: state.title, position: 0, aiLastUsedAt: null }]
           : []
         return route.fulfill({
           status: 200,

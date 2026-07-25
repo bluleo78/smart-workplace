@@ -10,6 +10,7 @@ import {
 import { Fragment } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
+import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -49,6 +50,7 @@ export function WikiPageHeader({
   saveState,
   aiState,
   aiBusy,
+  aiAttributed,
   onNavigate,
   onAiAction,
   onDelete,
@@ -57,6 +59,9 @@ export function WikiPageHeader({
   saveState: SaveState
   aiState: WikiAiState
   aiBusy: boolean
+  // #736: 이 페이지에 AI 생성 이력이 있는지 — 우측 AI 액션 버튼(기능 트리거)과는 별개로 좌측
+  // 브레드크럼 옆에 콘텐츠 출처 신호를 노출한다(중첩 판정은 설계 문서 §5 참고).
+  aiAttributed: boolean
   onNavigate: (pageId: number) => void
   onAiAction: (action: GenerateActionKey) => void
   onDelete: () => void
@@ -129,6 +134,17 @@ export function WikiPageHeader({
             </Fragment>
           )
         })}
+        {/* #736: 콘텐츠 출처 신호 — 우측 AI 액션 버튼(기능 트리거)과는 다른 클러스터에 둔다. */}
+        {aiAttributed && (
+          <AiSignalBadge
+            variant="info"
+            reason="AI가 생성한 콘텐츠를 포함합니다"
+            data-testid="wiki-page-ai-attribution-badge"
+            className="ml-1 shrink-0"
+          >
+            AI 생성 포함
+          </AiSignalBadge>
+        )}
       </nav>
       <div className="flex shrink-0 items-center gap-2">
         {saveState === 'saving' && (

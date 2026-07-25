@@ -51,7 +51,20 @@ public class FileUploadService {
           Map.entry(
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
               "DOCUMENT"),
-          Map.entry("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "DATA"));
+          Map.entry("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "DATA"),
+          // #735 추출 범위 확장에 따른 추가 — ExtractableTypes/MimeNormalizer 지원 목록과 동기화.
+          Map.entry("text/html", "TEXT"),
+          Map.entry("application/yaml", "TEXT"),
+          Map.entry("application/javascript", "TEXT"),
+          Map.entry("application/x-sh", "TEXT"),
+          Map.entry(
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              "DOCUMENT"),
+          Map.entry("application/msword", "DOCUMENT"),
+          Map.entry("application/vnd.ms-powerpoint", "DOCUMENT"),
+          Map.entry("application/vnd.ms-excel", "DATA"),
+          Map.entry("application/x-hwp", "DOCUMENT"),
+          Map.entry("application/hwp+zip", "DOCUMENT"));
 
   // 카테고리별 첨부 사이즈 제한 (바이트). DATA는 대용량 CSV/XLSX 적재를 위해 256MB까지 허용,
   // 나머지(IMAGE/PDF/TEXT/DOCUMENT)는 10MB로 통일한다. OTHER(미분류 allow-all)는 파일당 multipart
@@ -106,7 +119,8 @@ public class FileUploadService {
   }
 
   private FileUploadResponse uploadSingleFile(MultipartFile file, Long userId) throws IOException {
-    String mimeType = resolveMimeType(file);
+    // #735: mime 정규화를 MimeNormalizer 단일 지점으로 통일한다(추출 판정·프리뷰가 같은 값을 보게 함).
+    String mimeType = MimeNormalizer.normalize(file.getOriginalFilename(), file.getContentType());
 
     // 저장 게이트 없음(allow-all): 유형은 저장을 막지 않는다. 미분류 유형은 OTHER 카테고리로 폴백해
     // 크기 한도 조회/저장이 NPE·null 없이 동작하게 한다. 유형별 정책 제어는 별도 이슈(#725)에서 도입.
@@ -313,37 +327,5 @@ public class FileUploadService {
             .getId();
     log.info("File copied: src={}, new={}, name={}", srcFileId, newId, record.getOriginalName());
     return newId;
-  }
-
-  private String resolveMimeType(MultipartFile file) {
-    String contentType = file.getContentType();
-    if (contentType != null
-        && !contentType.isBlank()
-        && !contentType.equals("application/octet-stream")) {
-      return contentType.split(";")[0].trim().toLowerCase();
-    }
-    // Fallback: derive from filename extension
-    String name = file.getOriginalFilename();
-    if (name != null) {
-      String ext = FilePathBuilder.extensionOf(name);
-      return switch (ext) {
-        case "png" -> "image/png";
-        case "jpg", "jpeg" -> "image/jpeg";
-        case "gif" -> "image/gif";
-        case "webp" -> "image/webp";
-        case "svg" -> "image/svg+xml";
-        case "pdf" -> "application/pdf";
-        case "txt" -> "text/plain";
-        case "md" -> "text/markdown";
-        case "html", "htm" -> "text/html";
-        case "json" -> "application/json";
-        case "xml" -> "text/xml";
-        case "yaml", "yml" -> "text/yaml";
-        case "csv" -> "text/csv";
-        case "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-        default -> contentType != null ? contentType : "application/octet-stream";
-      };
-    }
-    return contentType != null ? contentType : "application/octet-stream";
   }
 }

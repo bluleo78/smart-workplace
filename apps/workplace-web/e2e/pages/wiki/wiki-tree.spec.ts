@@ -14,7 +14,18 @@ const space: WikiSpace = {
   createdAt: '2026-06-01T00:00:00Z',
 }
 function detail(id: number, title: string, parentId: number | null): WikiPageDetail {
-  return { id, spaceId: SPACE_ID, parentId, title, body: '', version: 1, updatedBy: 1, updatedAt: '2026-06-01T00:00:00Z' }
+  return {
+    id,
+    spaceId: SPACE_ID,
+    parentId,
+    title,
+    body: '',
+    version: 1,
+    updatedBy: 1,
+    updatedAt: '2026-06-01T00:00:00Z',
+    aiLastUsedAt: null,
+    aiLastAction: null,
+  }
 }
 
 async function routeCommon(page: Page) {
@@ -37,8 +48,11 @@ test('하위 페이지 생성 — ＋ 클릭 시 parentId payload + 트리/내�
   await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
     const method = r.request().method()
     if (method === 'GET') {
-      const tree: WikiPageSummary[] = [{ id: 1, parentId: null, title: '제품 문서', position: 0 }]
-      if (state.created) tree.push({ id: 2, parentId: 1, title: '제목 없음', position: 0 })
+      const tree: WikiPageSummary[] = [
+        { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
+      ]
+      if (state.created)
+        tree.push({ id: 2, parentId: 1, title: '제목 없음', position: 0, aiLastUsedAt: null })
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) })
     }
     if (method === 'POST') {
@@ -105,8 +119,8 @@ test('새 페이지 생성 직후 제목 입력 — placeholder 위에 이어붙
 test('접기/펼치기 — 부모 토글 시 자손 숨김/노출', async ({ authenticatedPage: page }) => {
   await routeCommon(page)
   const tree: WikiPageSummary[] = [
-    { id: 1, parentId: null, title: '제품 문서', position: 0 },
-    { id: 2, parentId: 1, title: '기획', position: 0 },
+    { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
+    { id: 2, parentId: 1, title: '기획', position: 0, aiLastUsedAt: null },
   ]
   await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) }),
@@ -126,8 +140,8 @@ test('접기/펼치기 — 부모 토글 시 자손 숨김/노출', async ({ aut
 test('인라인 액션 버튼 — WCAG 2.5.8 최소 24×24px 충족', async ({ authenticatedPage: page }) => {
   await routeCommon(page)
   const tree: WikiPageSummary[] = [
-    { id: 1, parentId: null, title: '제품 문서', position: 0 },
-    { id: 2, parentId: 1, title: '기획', position: 0 },
+    { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
+    { id: 2, parentId: 1, title: '기획', position: 0, aiLastUsedAt: null },
   ]
   await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) }),
@@ -233,4 +247,28 @@ test('삭제 다이얼로그 — 하위 페이지가 있는 부모 페이지에�
   await expect(page.getByTestId('wiki-delete-dialog')).toBeVisible()
   // 하위 페이지가 있으므로 동반 삭제 경고가 표시되어야 한다.
   await expect(page.getByTestId('wiki-delete-dialog')).toContainText('하위 페이지도 함께 삭제되며')
+})
+
+// #736: AI 생성 attribution 배지 — 사이드바 트리 제목 옆 AiSignalBadge 노출.
+test('사이드바 트리 — AI 생성 이력이 있는 페이지만 제목 옆에 attribution 배지가 뜬다 (#736)', async ({
+  authenticatedPage: page,
+}) => {
+  await routeCommon(page)
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 1, parentId: null, title: 'AI 이력 있음', position: 0, aiLastUsedAt: '2026-07-20T00:00:00Z' },
+        { id: 2, parentId: null, title: 'AI 이력 없음', position: 1, aiLastUsedAt: null },
+      ] satisfies WikiPageSummary[]),
+    }),
+  )
+  await page.route('**/api/v1/wiki/pages/*', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, 'AI 이력 있음', null)) }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('wiki-tree-ai-badge-1')).toBeVisible()
+  await expect(page.getByTestId('wiki-tree-row-2').getByTestId('wiki-tree-ai-badge-2')).toHaveCount(0)
 })

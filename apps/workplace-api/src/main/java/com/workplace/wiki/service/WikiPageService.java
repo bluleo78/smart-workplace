@@ -3,6 +3,7 @@ package com.workplace.wiki.service;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.dto.MovePageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
+import com.workplace.wiki.dto.WikiAiAction;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
@@ -97,6 +98,16 @@ public class WikiPageService {
         new WikiPageUpdatedEvent(
             current.spaceId(), pageId, saved.title(), callerId, Instant.now()));
     return saved;
+  }
+
+  /**
+   * #736 AI 생성 attribution 기록. {@link WikiAiService} 의 스트림 완료(delta 1개 이상 전달된 완료/취소/에러) 지점에서 호출되는
+   * 유일한 기록 지점 — PUT 저장 경로에서는 기록하지 않는다(§3, 중복 기록 방지). 권한/버전 체크 없이 컬럼 2개만 갱신하는 {@link
+   * WikiPageRepository#recordAiUsage} 를 그대로 위임.
+   */
+  @Transactional
+  public void recordAiUsage(long pageId, WikiAiAction action) {
+    pages.recordAiUsage(pageId, action.wire(), Instant.now().atOffset(java.time.ZoneOffset.UTC));
   }
 
   /** 트리 이동(parent/position 변경) + 형제 재배열로 타이 제거. EDITOR 이상. */

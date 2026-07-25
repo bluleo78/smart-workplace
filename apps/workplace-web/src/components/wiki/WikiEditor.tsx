@@ -465,6 +465,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         saveState={saveState}
         aiState={aiState}
         aiBusy={aiBusy}
+        aiAttributed={page.aiLastUsedAt != null}
         onNavigate={(id) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)}
         onAiAction={onHeaderAiAction}
         onDelete={() => setConfirmDelete(true)}
@@ -553,7 +554,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           {aiBusy && (
             <div className="flex items-center gap-2 pt-2 text-xs leading-4 text-muted-foreground">
               <span className="flex items-center gap-2" data-testid="wiki-ai-busy">
-                생성 중…
+                <AiLabel>생성 중…</AiLabel>
                 <Button
                   type="button"
                   size="sm"

@@ -13,3 +13,5 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 # 한글은 글자당 토큰 수가 많아(#553) 8000자 클립도 토큰 한도를 초과해 Ollama 500 을 유발할 수 있다.
 # 2000자를 기본 안전선으로 하향(추가 안전망은 embed.py 의 500 시 축소 재시도 백오프).
 EMBED_MAX_CHARS = int(os.getenv("WORKER_EMBED_MAX_CHARS", "2000"))
+# LibreOffice 변환 타임아웃(초). 초과 시 프로세스 kill → 예외 → api 가 SKIPPED 처리.
+SOFFICE_TIMEOUT_SEC = int(os.getenv("WORKER_SOFFICE_TIMEOUT_SEC", "60"))

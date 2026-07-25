@@ -1,8 +1,8 @@
 package com.workplace.fileai.service;
 
 import com.workplace.drive.outbound.DriveFileUploadedEvent;
+import com.workplace.fileai.ExtractableTypes;
 import com.workplace.fileai.repository.FileExtractionRepository;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -27,15 +27,15 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @RequiredArgsConstructor
 public class FileExtractionListener {
 
-  /** 텍스트 추출이 가능한 카테고리 집합. IMAGE/미지원은 SKIPPED 처리. */
-  private static final Set<String> EXTRACTABLE = Set.of("PDF", "TEXT", "DATA", "DOCUMENT");
-
   private final FileExtractionRepository repo;
   private final FileExtractionPipeline pipeline;
 
   /**
-   * 업로드 커밋 후 호출. extractable 카테고리면 PENDING 행 생성 후 dispatchPending nudge, 그 외(IMAGE 등)는 SKIPPED 행
-   * 생성.
+   * 업로드 커밋 후 호출. mime 이 추출 가능하면(#735 {@link ExtractableTypes}) PENDING 행 생성 후 dispatchPending
+   * nudge, 그 외(이미지·미지원 형식)는 SKIPPED 행 생성.
+   *
+   * <p>기존에는 카테고리(PDF/TEXT/DATA/DOCUMENT) 축으로 게이트했으나, MIME_TO_CATEGORY 매핑에 없는 신규 형식(예: text/html)이
+   * OTHER 로 떨어져 SKIPPED 로 굳는 문제가 있었다. mime 자체를 판정 축으로 삼아 워커 extract.py::_dispatch 와 1:1 미러한다.
    *
    * <p>AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입. dispatchPending 의
    * afterCommit(워커 HTTP push)은 이 REQUIRES_NEW 트랜잭션의 커밋 후 발화한다.
@@ -43,9 +43,9 @@ public class FileExtractionListener {
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onUploaded(DriveFileUploadedEvent e) {
-    if (!EXTRACTABLE.contains(e.category())) {
-      // IMAGE 등 추출 불가 카테고리 → SKIPPED
-      repo.markSkipped(e.fileId(), e.tenantId(), "non-extractable:" + e.category());
+    if (!ExtractableTypes.supports(e.mime())) {
+      // 이미지·미지원 mime → SKIPPED. 사유를 구체적으로 남겨 UI 가 사용자 문구로 매핑한다(#735).
+      repo.markSkipped(e.fileId(), e.tenantId(), ExtractableTypes.skipReason(e.mime()));
       return;
     }
     // 추출 가능 카테고리 → PENDING 행 생성 후 즉시 추출 nudge

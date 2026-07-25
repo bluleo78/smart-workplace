@@ -43,6 +43,14 @@ public class WorkerJobRepository {
   private final ObjectMapper objectMapper;
 
   /**
+   * 백필 스케줄러 한 틱당 재개 파일 상한(#735). V125 마이그레이션이 SKIPPED 로 굳어있던 다수 행을 PENDING 으로 재개방하는데, 상한이 없으면
+   * findResumable() 이 그 전량을 한 틱에 디스패치해 워커·ai-agent 를 폭주시킬 수 있다.
+   */
+  @org.springframework.beans.factory.annotation.Value(
+      "${workplace.worker.extract.resume-batch-size:50}")
+  private int resumeBatchSize;
+
+  /**
    * file_extraction PENDING→EXTRACTING CAS. 1행 업데이트 시 이 디스패처가 소유(이중 잡 방지).
    *
    * <p>다음 두 조건 중 하나를 만족하는 경우에만 클레임: (1) status='PENDING', (2) status='EXTRACTING' AND leased_until
@@ -340,6 +348,8 @@ public class WorkerJobRepository {
                         .STATUS
                         .eq("TEXT_READY")
                         .and(FILE_EXTRACTION.ATTEMPTS.lessThan(MAX_SUMMARY_ATTEMPTS))))
+        // 재개방 백필 시 한 틱 전량 디스패치를 막는 상한(#735).
+        .limit(resumeBatchSize)
         .fetch(FILE_EXTRACTION.FILE_ID);
   }
 

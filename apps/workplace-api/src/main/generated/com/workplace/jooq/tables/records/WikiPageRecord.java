@@ -174,6 +174,34 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
         return (OffsetDateTime) get(10);
     }
 
+    /**
+     * Setter for <code>public.wiki_page.ai_last_used_at</code>.
+     */
+    public void setAiLastUsedAt(OffsetDateTime value) {
+        set(11, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page.ai_last_used_at</code>.
+     */
+    public OffsetDateTime getAiLastUsedAt() {
+        return (OffsetDateTime) get(11);
+    }
+
+    /**
+     * Setter for <code>public.wiki_page.ai_last_action</code>.
+     */
+    public void setAiLastAction(String value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page.ai_last_action</code>.
+     */
+    public String getAiLastAction() {
+        return (String) get(12);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -197,7 +225,7 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
     /**
      * Create a detached, initialised WikiPageRecord
      */
-    public WikiPageRecord(Long id, Long tenantId, Long spaceId, Long parentId, String title, String body, Integer position, Integer version, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public WikiPageRecord(Long id, Long tenantId, Long spaceId, Long parentId, String title, String body, Integer position, Integer version, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime aiLastUsedAt, String aiLastAction) {
         super(WikiPage.WIKI_PAGE);
 
         setId(id);
@@ -211,6 +239,8 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
         setUpdatedBy(updatedBy);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
+        setAiLastUsedAt(aiLastUsedAt);
+        setAiLastAction(aiLastAction);
         resetChangedOnNotNull();
     }
 }

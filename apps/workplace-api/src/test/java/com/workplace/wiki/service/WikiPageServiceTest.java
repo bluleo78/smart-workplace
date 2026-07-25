@@ -10,6 +10,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.dto.MovePageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
+import com.workplace.wiki.dto.WikiAiAction;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSpaceResponse;
@@ -170,6 +171,32 @@ class WikiPageServiceTest extends IntegrationTestBase {
     assertThat(after.body()).isEqualTo("# 본문 <#page:9>");
     assertThat(after.title()).isEqualTo("새 제목");
     assertThat(references.findBacklinkSourcePageIds("PAGE", 9L)).contains(p.id());
+  }
+
+  /**
+   * #736: recordAiUsage 는 ai_last_used_at/ai_last_action 만 갱신하고 version/updated_at/updated_by 는 그대로
+   * 둬야 한다 — version 을 올리면 뒤이은 자동저장이 낡은 version 으로 충돌 처리되는 회귀가 생긴다(§3).
+   */
+  @Test
+  void recordAiUsage_updatesOnlyAiColumns_leavesVersionAndUpdatedAtUntouched() {
+    long u = seedUser();
+    WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
+    WikiPageDetail p = pageService.create(u, sp.id(), new CreatePageRequest(null, "제목"));
+    assertThat(p.aiLastUsedAt()).isNull();
+
+    pageService.recordAiUsage(p.id(), WikiAiAction.DRAFT);
+
+    WikiPageDetail after = pageService.get(u, p.id());
+    assertThat(after.version()).isEqualTo(p.version());
+    assertThat(after.updatedAt()).isEqualTo(p.updatedAt());
+    assertThat(after.updatedBy()).isEqualTo(p.updatedBy());
+    assertThat(after.aiLastUsedAt()).isNotNull();
+    assertThat(after.aiLastAction()).isEqualTo("draft");
+
+    // attribution 기록 후에도 원래 version 으로 정상 저장(자동저장 회귀 없음)돼야 한다.
+    WikiPageDetail saved =
+        pageService.save(u, p.id(), new SavePageRequest("제목", "AI 이후 편집", p.version(), false));
+    assertThat(saved.version()).isEqualTo(p.version() + 1);
   }
 
   @Test
