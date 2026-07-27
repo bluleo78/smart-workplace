@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { wikiApi } from '../../api/wiki'
+import { handleApiError } from '../../lib/api-error'
 import type { SavePageRequest, WikiPageDetail } from '../../types/wiki'
 import { wikiKeys } from './wikiKeys'
 
@@ -10,6 +11,8 @@ export function useCreatePage(spaceId: number) {
     mutationFn: ({ parentId, title }: { parentId: number | null; title: string }) =>
       wikiApi.createPage(spaceId, parentId, title).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) }),
+    // #758: 생성도 parentId 를 검증하게 되면서 400 이 처음으로 가능해졌다 — onError 가 없으면 조용히 실패한다.
+    onError: (e) => handleApiError(e, '페이지를 만들 수 없습니다'),
   })
 }
 
@@ -51,6 +54,10 @@ export function useMovePage(spaceId: number) {
       position: number
     }) => wikiApi.movePage(pageId, parentId, position).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) }),
+    // #758: 서버가 자기 자신/후손을 부모로 지정하는 이동을 400 으로 거부한다. 사이드바 DnD 는
+    // 드래그 중인 노드의 후손을 드롭 대상에서 빼지 않으므로 사용자가 실제로 그 드롭을 할 수 있다 —
+    // onError 가 없으면 트리가 조용히 제자리로 돌아가 "드래그가 먹히지 않는다" 로만 보인다.
+    onError: (e) => handleApiError(e, '페이지를 이동할 수 없습니다'),
   })
 }
 

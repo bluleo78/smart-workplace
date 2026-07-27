@@ -407,6 +407,14 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
+  // #758 트리를 깨는 이동 요청(자기/후손 부모, 다른 공간 부모, 미존재 부모) — 요청 자체가 잘못된 것이라 400.
+  @ExceptionHandler(com.workplace.wiki.exception.WikiInvalidMoveException.class)
+  public ResponseEntity<ErrorResponse> handleWikiInvalidMove(
+      com.workplace.wiki.exception.WikiInvalidMoveException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+  }
+
   @ExceptionHandler(com.workplace.wiki.exception.WikiConflictException.class)
   public ResponseEntity<ErrorResponse> handleWikiConflict(
       com.workplace.wiki.exception.WikiConflictException ex, HttpServletRequest request) {

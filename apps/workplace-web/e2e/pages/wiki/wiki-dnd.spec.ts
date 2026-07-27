@@ -100,3 +100,60 @@ test(
     await expect.poll(() => movePayload).toEqual({ parentId: null, position: 0 })
   },
 )
+
+// #758 서버가 트리를 깨는 이동(자기 자신/후손을 부모로)을 400 으로 거부한다. 사이드바 DnD 는 드래그 중인
+// 노드의 후손을 드롭 대상에서 제외하지 않으므로 사용자가 실제로 그 드롭을 할 수 있다 — onError 가 없으면
+// 트리가 조용히 제자리로 돌아가 "드래그가 먹히지 않는다" 로만 보인다. 서버 메시지가 토스트로 뜨는지 고정.
+test('위키 사이드바 — move 400 이면 서버 메시지를 토스트로 보여준다', async ({
+  authenticatedPage: page,
+}) => {
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([personalSpace()]),
+          })
+        : route.fallback(),
+  )
+
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(rootPages()),
+          })
+        : route.fallback(),
+  )
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/pages/12/move',
+    (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback()
+      return route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 400,
+          message: '자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다: page=12',
+        }),
+      })
+    },
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  await expect(page.getByRole('button', { name: 'A', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'C', exact: true })).toBeVisible()
+
+  await dragRowTo(page, 'C', 'A')
+
+  // 폴백 문구가 아니라 서버가 준 사유가 그대로 보여야 한다 — 왜 막혔는지 사용자가 알 수 있어야 한다.
+  await expect(
+    page.getByText('자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다: page=12'),
+  ).toBeVisible()
+})

@@ -272,3 +272,45 @@ test('사이드바 트리 — AI 생성 이력이 있는 페이지만 제목 옆
   await expect(page.getByTestId('wiki-tree-ai-badge-1')).toBeVisible()
   await expect(page.getByTestId('wiki-tree-row-2').getByTestId('wiki-tree-ai-badge-2')).toHaveCount(0)
 })
+
+// #758 생성도 parentId 를 검증하게 되면서 POST 가 400 을 낼 수 있다 — onError 가 없으면 조용히 실패해
+// "＋ 를 눌렀는데 아무 일도 안 일어난다" 로만 보인다. 서버 사유가 토스트로 뜨는지 고정.
+test('하위 페이지 생성 — 400 이면 서버 메시지를 토스트로 보여준다', async ({
+  authenticatedPage: page,
+}) => {
+  await routeCommon(page)
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
+    const method = r.request().method()
+    if (method === 'GET') {
+      const tree: WikiPageSummary[] = [
+        { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
+      ]
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) })
+    }
+    if (method === 'POST') {
+      return r.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 400,
+          message: '다른 공간의 페이지를 부모로 지정할 수 없습니다: page=1',
+        }),
+      })
+    }
+    return r.fallback()
+  })
+  await page.route('**/api/v1/wiki/pages/*', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(detail(1, '제품 문서', null)),
+    }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  const row = page.getByTestId('wiki-tree-row-1')
+  await row.hover()
+  await row.getByRole('button', { name: '하위 페이지' }).click()
+
+  await expect(page.getByText('다른 공간의 페이지를 부모로 지정할 수 없습니다: page=1')).toBeVisible()
+})

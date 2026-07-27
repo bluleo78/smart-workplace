@@ -131,6 +131,40 @@ public class WikiPageRepository {
         .execute();
   }
 
+  /**
+   * #758 pageId 에서 parent_id 를 따라 루트까지 올라가며 만나는 모든 조상 id — <b>자기 자신을 포함</b>한다. 이동 가드에서 "새 부모의 조상
+   * 체인에 이동 대상이 들어 있는가" 를 묻는 데 쓴다(자기 자신을 부모로 지정하는 경우도 체인 첫 행이라 같은 검사로 걸린다).
+   *
+   * <p>재귀항은 UNION ALL 이 아니라 UNION 이어야 한다 — 이 가드가 생기기 전에 만들어진 사이클 데이터가 남아 있으면 UNION ALL 은 같은 id 를 무한
+   * 재생산해 working table 이 비지 않아 쿼리가 끝나지 않는다(statement_timeout 미설정). UNION 은 이미 나온 행을 걸러 정상 종료한다.
+   */
+  public java.util.List<Long> ancestorIdsInclusive(long pageId) {
+    return dsl.fetch(
+            """
+            WITH RECURSIVE chain(id, parent_id) AS (
+              SELECT id, parent_id FROM wiki_page WHERE id = ?
+              UNION
+              SELECT p.id, p.parent_id FROM wiki_page p JOIN chain c ON p.id = c.parent_id
+            )
+            SELECT id FROM chain
+            """,
+            pageId)
+        .map(r -> r.get(0, Long.class));
+  }
+
+  /** 위키 트리 이동 잠금 전용 classId — 2-인자 pg_advisory_xact_lock(classId, spaceId) 형태에서 사용. */
+  private static final int WIKI_TREE_LOCK_CLASS = 758;
+
+  /**
+   * #758 같은 공간의 트리 이동을 직렬화한다. 사이클 검사({@link #ancestorIdsInclusive})와 실제 {@link #move} 사이에는
+   * check-then-act 간극이 있고, READ COMMITTED 에서 "X 를 Y 밑으로" 와 "Y 를 X 밑으로" 는 서로 다른 행을 UPDATE 하므로 행 잠금이
+   * 충돌하지 않아 둘 다 통과해 사이클이 만들어진다. 행 단위 FOR UPDATE 로는 3자 사이클(A→B, B→C, C→A)이 서로 겹치지 않는 행 쌍을 건드려
+   * 빠져나가므로, 공간 단위 어드바이저리 락이 올바른 입도다. 트랜잭션 종료 시 자동 해제.
+   */
+  public void lockSpaceTree(long spaceId) {
+    dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", WIKI_TREE_LOCK_CLASS, (int) spaceId);
+  }
+
   public void move(long pageId, Long parentId, int position) {
     dsl.update(WIKI_PAGE)
         .set(WIKI_PAGE.PARENT_ID, parentId)

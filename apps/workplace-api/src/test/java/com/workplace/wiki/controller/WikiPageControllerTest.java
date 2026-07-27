@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -25,6 +26,7 @@ import com.workplace.wiki.dto.WikiBacklinksResponse;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.exception.WikiConflictException;
+import com.workplace.wiki.exception.WikiInvalidMoveException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
@@ -84,6 +86,27 @@ class WikiPageControllerTest {
                 .contentType("application/json")
                 .content("{\"title\":\"t\",\"body\":\"b\",\"version\":1,\"snapshot\":false}"))
         .andExpect(status().isConflict());
+  }
+
+  /**
+   * #758 트리를 깨는 이동 → WikiInvalidMoveException → 400 + 사유 메시지. 서비스 테스트는 예외 "타입" 만 단언하므로 이 매핑을 고정하지
+   * 못한다 — 핸들러를 지우면 catch-all 이 500 을 돌려 사용자가 사유를 못 보는데도 전건 초록이었다.
+   */
+  @Test
+  void move_invalidParent_returns400WithReason() throws Exception {
+    org.mockito.Mockito.doThrow(
+            new WikiInvalidMoveException("자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다: page=7"))
+        .when(pageService)
+        .move(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+
+    mockMvc
+        .perform(
+            patch("/api/v1/wiki/pages/7/move")
+                .header("Authorization", "Bearer test-token")
+                .contentType("application/json")
+                .content("{\"parentId\":7,\"position\":0}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다: page=7"));
   }
 
   /** mentions: VIEWER 가드 통과 후 하이드레이션 결과를 200 으로 반환. */

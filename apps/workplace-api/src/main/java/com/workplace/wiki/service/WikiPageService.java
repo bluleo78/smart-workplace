@@ -8,6 +8,7 @@ import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.exception.WikiConflictException;
+import com.workplace.wiki.exception.WikiInvalidMoveException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageCreatedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageDeletedEvent;
@@ -39,6 +40,10 @@ public class WikiPageService {
   @Transactional
   public WikiPageDetail create(long callerId, long spaceId, CreatePageRequest req) {
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // #758: 생성 시점의 parentId 도 검증한다 — 이동만 막으면 "다른 공간 페이지를 부모로" 를 생성으로 그대로 만들 수 있다.
+    if (req.parentId() != null) {
+      requireParentInSpace(spaceId, req.parentId());
+    }
     int pos = pages.nextPosition(spaceId, req.parentId());
     long id = pages.insert(spaceId, req.parentId(), req.title(), pos);
     WikiPageDetail detail =
@@ -121,9 +126,15 @@ public class WikiPageService {
     long spaceId =
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // #758: 사이클 검사와 UPDATE 사이의 check-then-act 간극을 공간 단위 어드바이저리 락으로 닫는다 —
+    // 락 없이는 "X 를 Y 밑으로" 와 "Y 를 X 밑으로" 가 동시에 통과해 되돌릴 수 없는 사이클이 남는다.
+    pages.lockSpaceTree(spaceId);
+    requireMovable(pageId, spaceId, req.parentId());
     // 부모 변경을 먼저 반영(같은 부모면 no-op 수준).
     pages.move(pageId, req.parentId(), req.position());
     // 새 부모의 형제들을 현재 순서로 가져와 이동 노드를 목표 인덱스에 삽입 후 0..n 재부여(타이 제거).
+    // requireMovable 이 통과했으므로 (spaceId, req.parentId()) 는 같은 공간에 속한다 — 가드가 없으면 다른 공간의
+    // 부모를 지정했을 때 이 쌍이 어긋나 형제 목록이 비고 재배열이 조용히 아무것도 하지 않는다.
     java.util.List<Long> ids = pages.childIdsOrdered(spaceId, req.parentId());
     ids.remove(Long.valueOf(pageId)); // 박싱 remove(Object) — 인덱스 remove 아님
     int idx = Math.max(0, Math.min(req.position(), ids.size()));
@@ -133,6 +144,44 @@ public class WikiPageService {
     }
     // #724: 트리 이동을 스페이스 멤버에게 알려 사이드바 트리가 재조회되도록 한다.
     publisher.publishEvent(new WikiPageMovedEvent(spaceId, pageId, callerId, Instant.now()));
+  }
+
+  /**
+   * #758 이동 가드 — 트리를 깨는 parentId 를 사전 거부한다. wiki_page.parent_id 는 self-FK 라 DB 는 자기참조·순환·공간 불일치를 모두
+   * 허용하고, 그렇게 만들어진 페이지는 사이드바 트리에서 사라져 사용자가 되돌릴 수 없다.
+   *
+   * @param spaceId 이동 대상 페이지의 공간(호출자가 이미 조회한 값을 재사용)
+   * @param parentId 새 부모. {@code null} 은 "루트로 이동" 이라 정상 경로이므로 검사 대상이 아니다.
+   */
+  private void requireMovable(long pageId, long spaceId, Long parentId) {
+    if (parentId == null) {
+      return;
+    }
+    requireParentInSpace(spaceId, parentId);
+    // 새 부모의 조상 체인(자기 자신 포함)에 이동 대상이 있으면 사이클이 된다 — parentId == pageId 도 체인 첫 행이라 여기서 걸린다.
+    if (pages.ancestorIdsInclusive(parentId).contains(pageId)) {
+      throw new WikiInvalidMoveException("자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다: page=" + pageId);
+    }
+  }
+
+  /**
+   * #758 부모 지정 공통 가드 — 부모가 실제로 존재하고 같은 공간에 속하는지. {@link #create} 와 {@link #move} 가 공유한다(신규 생성은 새 id
+   * 라 사이클이 불가능하므로 조상 체인 검사는 필요 없다).
+   *
+   * <p>생성 경로에도 반드시 걸어야 한다 — 다른 공간의 페이지를 부모로 삼으면 <b>{@code parent_id} 가 ON DELETE CASCADE</b> 라, 나중에
+   * 그 부모를 지우는 사람이 자기 공간 밖의 페이지·리비전·첨부를 권한 검사 없이 함께 파괴한다.
+   *
+   * <p>부모 미존재를 404 가 아니라 400 으로 돌리는 것은 의도적이다 — 404/400 이 갈리면 이 엔드포인트가 "볼 수 없는 공간에 그 id 의 페이지가 있는가"
+   * 를 알려주는 존재 오라클이 된다.
+   */
+  private void requireParentInSpace(long spaceId, long parentId) {
+    long parentSpaceId =
+        pages
+            .findSpaceId(parentId)
+            .orElseThrow(() -> new WikiInvalidMoveException("부모 페이지를 찾을 수 없습니다: page=" + parentId));
+    if (parentSpaceId != spaceId) {
+      throw new WikiInvalidMoveException("다른 공간의 페이지를 부모로 지정할 수 없습니다: page=" + parentId);
+    }
   }
 
   /** 페이지 삭제(자식 CASCADE). EDITOR 이상. */
