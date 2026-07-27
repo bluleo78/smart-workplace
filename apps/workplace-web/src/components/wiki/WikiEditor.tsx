@@ -41,6 +41,9 @@ import { createWikiMentionExtension } from './wikiMentionSuggestion'
 import { type SaveState,type WikiAiState,WikiPageHeader } from './WikiPageHeader'
 import type { WikiAiAction } from './WikiSlashMenu'
 import { createWikiSlashExtension } from './wikiSlashSuggestion'
+import { WikiTableContextMenu } from './WikiTableContextMenu'
+import { createWikiTableShortcuts } from './wikiTableShortcuts'
+import { WikiTableToolbar } from './WikiTableToolbar'
 
 /** 위키 에디터 — 마크다운 직렬화 + debounce 자동저장(낙관적 동시성) + 인에디터 /ai 스트리밍. */
 export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: number }) {
@@ -279,6 +282,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // (RichInput 의 membersRef 패턴 동일 — react-hooks/refs 의 보수적 false positive).
   // eslint-disable-next-line react-hooks/refs
   const slashExtension = useMemo(() => createWikiSlashExtension({ canEditRef, onActionRef }), [])
+  // 표 단축키 확장 — canEditRef 를 슬래시 확장과 같은 패턴으로 주입(마운트 시 1회 생성).
+  // eslint-disable-next-line react-hooks/refs
+  const tableShortcutsExtension = useMemo(() => createWikiTableShortcuts({ canEditRef }), [])
 
   const editor = useEditor(
     {
@@ -308,6 +314,8 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         TableRow,
         TableHeader,
         TableCell,
+        // 행·열 삽입 단축키(Ctrl-Alt-화살표). 표 밖이거나 뷰어 권한이면 false 를 반환해 기본 동작을 유지한다.
+        tableShortcutsExtension,
       ],
       content: page.body,
     },
@@ -331,6 +339,18 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     editor.on('update', sync)
     return () => {
       editor.off('update', sync)
+    }
+  }, [editor])
+
+  // 표 툴바의 버튼 활성 상태는 커서 위치에 따라 바뀌는데, 선택 변경은 React 리렌더를
+  // 유발하지 않는다(bodyEmpty 와 같은 문제). selectionUpdate 를 state 로 미러해 갱신한다.
+  const [, setSelectionTick] = useState(0)
+  useEffect(() => {
+    if (!editor) return
+    const bump = () => setSelectionTick((n) => n + 1)
+    editor.on('selectionUpdate', bump)
+    return () => {
+      editor.off('selectionUpdate', bump)
     }
   }, [editor])
 
@@ -499,6 +519,8 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             onAction={runTransform}
             onCreateIssue={canUseAi ? onCreateIssue : undefined}
           />
+          <WikiTableToolbar editor={editor} disabled={!canEdit} />
+          <WikiTableContextMenu editor={editor} disabled={!canEdit} />
           {saveState === 'conflict' && (
             <div className="mb-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.{' '}

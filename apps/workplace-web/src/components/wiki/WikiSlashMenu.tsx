@@ -26,6 +26,9 @@ export interface WikiSlashItem {
   label: string
   /** ai=LLM 스트림 트리거, insert=에디터 로컬 삽입(네트워크 없음). command 분기 기준. */
   kind: 'ai' | 'insert'
+  /** 표 삽입 확정 시에만 채워진다(그리드에서 고른 크기). 헤더 행 포함 행 수. */
+  rows?: number
+  cols?: number
 }
 
 export interface WikiSlashMenuHandle {
@@ -37,19 +40,71 @@ interface WikiSlashMenuProps {
   command: (item: WikiSlashItem) => void
 }
 
+// 그리드 상한 — 그 이상은 삽입 후 툴바로 늘린다. 팝업 폭(w-56)에 8열이 들어가는 크기다.
+const MAX_ROWS = 5
+const MAX_COLS = 8
+// 초기값은 기존 기본값(3×3)과 같게 둬서, 바로 Enter 를 눌러도 이전과 동일한 표가 나온다.
+const DEFAULT_SIZE = { rows: 3, cols: 3 }
+
 export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>(
   ({ items, command }, ref) => {
     const [selected, setSelected] = useState(0)
+    const [mode, setMode] = useState<'list' | 'tableSize'>('list')
+    const [size, setSize] = useState(DEFAULT_SIZE)
 
-    useEffect(() => setSelected(0), [items])
+    // 쿼리가 바뀌어 항목이 갱신되면 목록 모드로 되돌린다(그리드가 떠 있는 채로 필터가
+    // 바뀌면 사용자가 무엇을 고르는 중인지 알 수 없다).
+    useEffect(() => {
+      setSelected(0)
+      setMode('list')
+      setSize(DEFAULT_SIZE)
+    }, [items])
 
     function select(index: number) {
       const item = items[index]
-      if (item) command(item)
+      if (!item) return
+      // 표는 크기를 먼저 고른다 — 팝업을 닫지 않고 같은 자리에서 그리드로 전환한다.
+      if (item.key === 'table') {
+        setMode('tableSize')
+        return
+      }
+      command(item)
+    }
+
+    function confirmSize() {
+      const table = items.find((i) => i.key === 'table')
+      if (table) command({ ...table, rows: size.rows, cols: size.cols })
     }
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }) => {
+        if (mode === 'tableSize') {
+          // 그리드 모드에서는 화살표가 크기 조절, Enter 가 확정, Escape 가 목록 복귀다.
+          const delta: Record<string, [number, number]> = {
+            ArrowUp: [-1, 0],
+            ArrowDown: [1, 0],
+            ArrowLeft: [0, -1],
+            ArrowRight: [0, 1],
+          }
+          const d = delta[event.key]
+          if (d) {
+            setSize((s) => ({
+              rows: Math.min(MAX_ROWS, Math.max(1, s.rows + d[0])),
+              cols: Math.min(MAX_COLS, Math.max(1, s.cols + d[1])),
+            }))
+            return true
+          }
+          if (event.key === 'Enter') {
+            confirmSize()
+            return true
+          }
+          if (event.key === 'Escape') {
+            setMode('list')
+            setSize(DEFAULT_SIZE)
+            return true
+          }
+          return false
+        }
         if (items.length === 0) return false
         if (event.key === 'ArrowUp') {
           setSelected((i) => (i + items.length - 1) % items.length)
@@ -81,6 +136,7 @@ export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>
           aria-selected={idx === selected}
           data-testid={`wiki-slash-option-${item.key}`}
           onMouseEnter={() => setSelected(idx)}
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => select(idx)}
           className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${
             idx === selected ? 'bg-accent' : ''
@@ -88,6 +144,53 @@ export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>
         >
           <span className="font-medium">{item.label}</span>
         </button>
+      )
+    }
+
+    if (mode === 'tableSize') {
+      return (
+        <div
+          className="w-56 rounded-md border bg-popover p-2 shadow-md"
+          data-testid="wiki-slash-popover"
+        >
+          <p
+            className="pb-2 text-center text-xs text-muted-foreground"
+            data-testid="wiki-table-size-label"
+          >
+            {size.rows} × {size.cols}
+          </p>
+          {/* 행 × 열 그리드. 셀에 마우스를 올리거나 화살표로 크기를 바꾸고 클릭·Enter 로 확정한다. */}
+          <div
+            className="grid grid-cols-8 gap-0.5"
+            role="grid"
+            aria-label="표 크기 선택"
+            data-testid="wiki-table-size-grid"
+          >
+            {Array.from({ length: MAX_ROWS * MAX_COLS }, (_, i) => {
+              const row = Math.floor(i / MAX_COLS) + 1
+              const col = (i % MAX_COLS) + 1
+              const on = row <= size.rows && col <= size.cols
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  role="gridcell"
+                  aria-label={`${row} × ${col}`}
+                  aria-selected={on}
+                  data-testid={`wiki-table-size-cell-${row}-${col}`}
+                  onMouseEnter={() => setSize({ rows: row, cols: col })}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setSize({ rows: row, cols: col })
+                    const table = items.find((it) => it.key === 'table')
+                    if (table) command({ ...table, rows: row, cols: col })
+                  }}
+                  className={`h-4 w-4 rounded-[2px] border ${on ? 'border-primary bg-primary' : 'border-border'}`}
+                />
+              )
+            })}
+          </div>
+        </div>
       )
     }
 

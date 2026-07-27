@@ -21,9 +21,10 @@ const wikiSlashPluginKey = new PluginKey('wikiSlashAi')
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
 import { type WikiSlashItem, WikiSlashMenu, type WikiSlashMenuHandle } from './WikiSlashMenu'
 
-// 삽입 계열 — LLM 을 거치지 않고 에디터 트랜잭션만으로 끝나는 명령. 표는 헤더 행 포함 3×3 으로
-// 시작하고, 행 추가는 tiptap 기본 동작(마지막 셀에서 Tab)에 맡긴다(#748). 명시적인 행/열 추가·삭제
-// 컨트롤은 새 팝오버 표면이 필요해 범위에서 제외했다.
+// 삽입 계열 — LLM 을 거치지 않고 에디터 트랜잭션만으로 끝나는 명령. '표' 선택 시 메뉴가
+// 그리드 피커로 전환돼 행×열 크기를 고른 뒤 삽입한다(#748·#752). 삽입 후 행/열 추가·삭제는
+// 표 툴바(WikiTableToolbar)·우클릭 메뉴(WikiTableContextMenu)·단축키(Ctrl-Alt-화살표,
+// wikiTableShortcuts.ts) 세 경로로 모두 지원하며, 셋 다 wikiTableCommands.ts 를 단일 원천으로 쓴다.
 const INSERT_ITEMS: WikiSlashItem[] = [{ key: 'table', label: '표', kind: 'insert' }]
 
 // 생성 계열 3 액션 — 헤더 AI 버튼과 라벨을 공유하려 wikiAiActions 의 단일 원천에서 파생한다.
@@ -61,26 +62,33 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
           // "/" 트리거 텍스트를 지우고 명령을 실행한다.
           command: ({ editor, range, props }) => {
             if (props.kind === 'insert') {
-              // 삽입 계열은 트리거 삭제와 삽입을 한 체인(= 한 트랜잭션)으로 묶는다. 따로 실행하면
-              // 삭제로 문서 위치가 밀린 뒤 삽입돼 커서가 어긋나고, undo 도 두 번 눌러야 한다.
+              // 크기는 그리드에서 확정돼 props 로 온다. 아직 안 골랐으면(rows 미지정) 아무것도
+              // 하지 않는다 — 메뉴가 그리드 모드로 전환만 한 상태다.
+              if (props.rows == null || props.cols == null) return
+              // 트리거 삭제와 삽입을 한 체인(= 한 트랜잭션)으로 묶는다. 따로 실행하면 삭제로
+              // 문서 위치가 밀린 뒤 삽입돼 커서가 어긋나고, undo 도 두 번 눌러야 한다.
               editor
                 .chain()
                 .focus()
                 .deleteRange(range)
-                .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+                .insertTable({ rows: props.rows, cols: props.cols, withHeaderRow: true })
                 .run()
               return
             }
             editor.chain().focus().deleteRange(range).run()
             ctx.onActionRef.current(props.key as GenerateActionKey)
           },
-          // query 로 라벨/key 필터(예: "/요약").
-          items: ({ query }) => {
+          // query 로 라벨/key 필터(예: "/요약"). 셀 안('/'가 tableCell.content='block+' 안에서
+          // 눌린 경우)에서는 '표' 항목을 뺀다 — 스키마상 중첩 표는 유효하지만 tiptap-markdown 은
+          // 중첩 table 을 GFM 으로 직렬화 못 해 바깥 표 전체가 raw HTML 로 새어버린다(회귀 테스트
+          // 참고: e2e/pages/wiki/wiki-table-editing.spec.ts 의 "중첩 표 회귀").
+          items: ({ query, editor }) => {
+            const base = editor.isActive('table')
+              ? SLASH_ITEMS.filter((i) => i.key !== 'table')
+              : SLASH_ITEMS
             const q = query.trim().toLowerCase()
-            if (!q) return SLASH_ITEMS
-            return SLASH_ITEMS.filter(
-              (i) => i.label.toLowerCase().includes(q) || i.key.includes(q),
-            )
+            if (!q) return base
+            return base.filter((i) => i.label.toLowerCase().includes(q) || i.key.includes(q))
           },
           render: () => {
             let component: ReactRenderer<WikiSlashMenuHandle> | null = null
@@ -103,11 +111,14 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
                 popup?.setProps({ getReferenceClientRect: props.clientRect as () => DOMRect })
               },
               onKeyDown: (props: SuggestionKeyDownProps) => {
+                // 메뉴에 먼저 위임한다. 그리드 모드의 Escape 는 팝업을 닫는 게 아니라
+                // 목록으로 돌아가는 동작이라, 여기서 먼저 hide 하면 그 복귀가 불가능해진다.
+                if (component?.ref?.onKeyDown(props)) return true
                 if (props.event.key === 'Escape') {
                   popup?.hide()
                   return true
                 }
-                return component?.ref?.onKeyDown(props) ?? false
+                return false
               },
               onExit: () => {
                 popup?.destroy()

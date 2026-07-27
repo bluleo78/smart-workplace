@@ -103,20 +103,58 @@ test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드�
   await expect(page.getByTestId('wiki-slash-option-summarize')).toBeVisible()
   await page.getByTestId('wiki-slash-option-table').click()
 
-  // 헤더 행 포함 3×3 이 삽입되고, '/' 트리거 텍스트는 남지 않는다.
+  // 목록이 같은 팝업 안에서 그리드로 바뀐다 — 새 팝오버 레이어가 생기지 않아야 한다.
+  await expect(page.getByTestId('wiki-slash-popover')).toHaveCount(1)
+  const grid = page.getByTestId('wiki-table-size-grid')
+  await expect(grid).toBeVisible()
+  await expect(page.getByTestId('wiki-table-size-label')).toHaveText('3 × 3')
+
+  // 4열 × 2행 선택(라벨은 행 × 열 표기).
+  await page.getByTestId('wiki-table-size-cell-2-4').hover()
+  await expect(page.getByTestId('wiki-table-size-label')).toHaveText('2 × 4')
+  await page.getByTestId('wiki-table-size-cell-2-4').click()
+
+  // 헤더 행 포함 2행 × 4열 이 삽입되고 '/' 트리거는 남지 않는다.
   const t = page.locator('.ProseMirror table')
   await expect(t).toBeVisible()
-  await expect(t.locator('th')).toHaveCount(3)
-  await expect(t.locator('tr')).toHaveCount(3)
-  await expect(t.locator('td')).toHaveCount(6)
+  await expect(t.locator('th')).toHaveCount(4)
+  await expect(t.locator('tr')).toHaveCount(2)
+  await expect(t.locator('td')).toHaveCount(4)
   await expect(page.locator('.ProseMirror')).not.toContainText('/')
 
-  // 삽입 경로도 마크다운으로 직렬화되는가 — 로드/붙여넣기와 코드 경로가 다르므로 별도 단언.
   await page.keyboard.type('항목')
   await expect.poll(() => saved.length, { timeout: 5000 }).toBeGreaterThan(0)
   const md = saved[saved.length - 1]
   expect(md).toContain('항목')
-  expect(md).toMatch(/\|\s*---/)
-  // 파이프 구분 행이 최소 4줄(헤더·구분·본문 2) 나와야 표로 왕복된 것이다.
-  expect(md.split('\n').filter((l) => l.trim().startsWith('|')).length).toBeGreaterThanOrEqual(4)
+  const delimiter = md.split('\n').find((l) => l.includes('---'))!
+  expect(delimiter.split('---')).toHaveLength(5) // 4열
+})
+
+test('그리드 피커 — 방향키로 크기를 바꾸고 Enter 로 삽입, Escape 로 목록 복귀', async ({
+  authenticatedPage: page,
+}) => {
+  saved.length = 0
+  await setup(page, '')
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/')
+  await page.getByTestId('wiki-slash-option-table').click()
+  await expect(page.getByTestId('wiki-table-size-label')).toHaveText('3 × 3')
+
+  // Escape 는 팝업을 닫지 않고 목록으로 되돌린다.
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('wiki-table-size-grid')).toHaveCount(0)
+  await expect(page.getByTestId('wiki-slash-option-table')).toBeVisible()
+
+  await page.getByTestId('wiki-slash-option-table').click()
+  await page.keyboard.press('ArrowDown') // 4행
+  await page.keyboard.press('ArrowRight') // 4열
+  await expect(page.getByTestId('wiki-table-size-label')).toHaveText('4 × 4')
+  await page.keyboard.press('Enter')
+
+  const t = page.locator('.ProseMirror table')
+  await expect(t.locator('th')).toHaveCount(4)
+  await expect(t.locator('tr')).toHaveCount(4)
 })
