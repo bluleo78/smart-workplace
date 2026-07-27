@@ -679,3 +679,108 @@ test('위키 AI 노출 — 빈 상태 "AI 초안으로 시작" 이 페이지를 
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}$`))
   await expect(page.getByRole('dialog').getByRole('textbox')).toBeVisible()
 })
+
+test('위키 변형 툴바 — 톤 드롭다운이 좌측 상단이 아니라 트리거 바로 아래에 열린다 (#733 회귀)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR', LONG_BODY)
+  await mockWikiAiGeneration(page, { deltas: [] })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  const target = page.locator('.ProseMirror p').filter({ hasText: '팬을 중불로 달군' }).first()
+  await expect(target).toBeVisible()
+  await target.dblclick()
+  await target.evaluate((el) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    el.dispatchEvent(new Event('mouseup', { bubbles: true }))
+  })
+  await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
+
+  const trigger = page.getByTestId('wiki-ai-tb-rewrite_tone')
+  const tBox = (await trigger.boundingBox())!
+  await trigger.click()
+  await expect(page.getByTestId('wiki-ai-tone-격식체')).toBeVisible()
+
+  // 1) 드롭다운을 여는 동안 툴바가 hide 되면 안 된다. tippy 는 hide 시 popper 를 DOM 에서 통째로
+  //    제거하므로, 툴바가 사라지면 Radix 는 앵커(트리거)를 잃고 메뉴를 0×0@(0,0) 기준으로 그린다.
+  const anchorAlive = await page.evaluate(() => {
+    const btn = document.querySelector('[data-testid="wiki-ai-tb-rewrite_tone"]')
+    return { connected: btn?.isConnected === true, tippyRoots: document.querySelectorAll('[data-tippy-root]').length }
+  })
+  expect(anchorAlive).toEqual({ connected: true, tippyRoots: 1 })
+
+  // 2) 메뉴는 트리거 바로 아래(align=start, sideOffset=4)에 위치해야 한다. 좌측 상단 버그면 (0, 4).
+  const menu = page.locator('[data-slot="dropdown-menu-content"]').first()
+  const mBox = (await menu.boundingBox())!
+  expect(Math.abs(mBox.x - tBox.x)).toBeLessThan(24)
+  expect(mBox.y).toBeGreaterThan(tBox.y)
+  expect(mBox.y - (tBox.y + tBox.height)).toBeLessThan(24)
+
+  // 3) 항목 선택이 실제로 동작하는가(툴바가 살아있어야 클릭이 닿는다).
+  await page.getByTestId('wiki-ai-tone-격식체').click()
+  await expect(page.getByTestId('wiki-ai-tone-격식체')).toHaveCount(0)
+})
+
+test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운이 화면 안에 들어온다 (#733 회귀)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR', LONG_BODY)
+  await mockWikiAiGeneration(page, { deltas: [] })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  // 선택을 뷰포트 하단에 붙인다 — Portal 을 없애면서 Radix Content 의 컨테이닝 블록이
+  // transform 이 걸린 [data-tippy-root] 로 바뀌었으므로, flip/shift 충돌 처리가 여전히
+  // 뷰포트 기준으로 동작하는지 확인해야 한다(headroom 이 넉넉한 문서 중앙에선 안 걸린다).
+  // 문서 끝 문단은 컨테이너 하단 패딩 때문에 뷰포트 바닥에 완전히 붙지 않는다. 중간 문단을 골라
+  // 스크롤 위치를 직접 계산해 해당 문단 바닥을 뷰포트 바닥에 붙인다.
+  const target = page.locator('.ProseMirror p').nth(3)
+  await target.dblclick()
+  // 문단 전체가 아니라 **마지막 줄의 끝 몇 글자**만 선택한다. 전체를 선택하면 tippy 의 기준 rect 가
+  // 문단 전체가 되어 툴바가 문단 위로 올라가고, 아래 여백이 넉넉해져 충돌 처리가 개입하지 않는다.
+  await target.evaluate((el) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    let last: Text | null = null
+    while (walker.nextNode()) last = walker.currentNode as Text
+    if (!last) throw new Error('텍스트 노드 없음')
+    const range = document.createRange()
+    range.setStart(last, Math.max(0, last.length - 5))
+    range.setEnd(last, last.length)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    el.dispatchEvent(new Event('mouseup', { bubbles: true }))
+  })
+  await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
+
+  // 스크롤로는 문단을 바닥까지 붙일 수 없다(문서 길이 한계). 대신 선택 바로 아래에서 뷰포트가
+  // 끝나도록 높이를 줄여, 메뉴가 열릴 공간이 부족한 상태를 만든다.
+  const selBottom = await page.evaluate(
+    () => window.getSelection()!.getRangeAt(0).getBoundingClientRect().bottom,
+  )
+  await page.setViewportSize({ width: 1280, height: Math.round(selBottom) + 24 })
+  await target.evaluate((el) => el.dispatchEvent(new Event('mouseup', { bubbles: true })))
+  await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
+
+  const vp = page.viewportSize()!
+  const tBox = (await page.getByTestId('wiki-ai-tb-rewrite_tone').boundingBox())!
+  // 이 테스트가 공허해지지 않도록: 트리거 아래 여백이 메뉴 높이(약 138px)보다 작아야
+  // flip/shift 가 실제로 개입한다.
+  expect(vp.height - (tBox.y + tBox.height)).toBeLessThan(138)
+
+  await page.getByTestId('wiki-ai-tb-rewrite_tone').click()
+  await expect(page.getByTestId('wiki-ai-tone-격식체')).toBeVisible()
+
+  const mBox = (await page.locator('[data-slot="dropdown-menu-content"]').first().boundingBox())!
+  expect(mBox.y).toBeGreaterThanOrEqual(0)
+  expect(mBox.x).toBeGreaterThanOrEqual(0)
+  expect(mBox.y + mBox.height).toBeLessThanOrEqual(vp.height)
+  expect(mBox.x + mBox.width).toBeLessThanOrEqual(vp.width)
+})

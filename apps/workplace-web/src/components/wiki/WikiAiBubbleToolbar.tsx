@@ -1,15 +1,11 @@
+import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { type Editor } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
 import { ChevronDown } from 'lucide-react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 import {
   LANGUAGE_PRESETS,
@@ -38,9 +34,9 @@ export function WikiAiBubbleToolbar({
   return (
     <BubbleMenu
       editor={editor}
-      // 선택이 비어있지 않고 비활성이 아닐 때만 노출. 기본 shouldShow 를 쓰면 톤/번역 드롭다운
-      // (Radix — body 로 portal)이 열리는 순간 hasEditorFocus·isChildOfMenu 가 모두 false 가 되어
-      // 툴바가 사라지므로 이 override 는 필수다. isEditable 만 추가로 확인한다.
+      // 선택이 비어있지 않고 비활성이 아닐 때만 노출. 기본 shouldShow 를 쓰면 톤/번역 드롭다운이
+      // 열리는 순간 hasEditorFocus 가 false 가 되어 툴바가 사라지므로 이 override 는 필수다.
+      // isEditable 만 추가로 확인한다.
       shouldShow={({ editor: ed, state }) => !disabled && !state.selection.empty && ed.isEditable}
       // updateDelay 0 — 기본 250ms 는 빠른 드래그 선택에서 툴바가 안 뜬 것처럼 느껴진다.
       updateDelay={0}
@@ -106,7 +102,20 @@ export function WikiAiBubbleToolbar({
                   <ChevronDown className="text-muted-foreground" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
+              {/* shadcn 의 DropdownMenuContent 대신 Radix Content 를 **portal 없이** 인라인으로 쓴다.
+                  tiptap BubbleMenuPlugin 의 blurHandler 는 `element.parentNode.contains(relatedTarget)`
+                  일 때만 hide 를 건너뛴다. shadcn Content 는 Portal 을 하드코딩해 body 로 나가므로,
+                  메뉴가 열리며 포커스를 받는 순간 editor blur 의 relatedTarget 이 툴바 밖이 되어
+                  tippy 가 hide → popper 를 DOM 에서 제거 → Radix 가 앵커(트리거)를 잃고 메뉴를
+                  0×0@(0,0) 기준으로 좌측 상단에 그렸다. 툴바 안에 렌더하면 blur-hide 가 아예 안 걸린다.
+                  Content 는 position:fixed 라 툴바 안에 있어도 클리핑되지 않는다.
+                  className 은 shadcn DropdownMenuContent(components/ui/dropdown-menu.tsx)와 동일하게 유지한다. */}
+              <DropdownMenuPrimitive.Content
+                data-slot="dropdown-menu-content"
+                align="start"
+                sideOffset={4}
+                className="bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md"
+              >
                 {presets.map((p) => (
                   <DropdownMenuItem
                     key={p.value}
@@ -116,7 +125,7 @@ export function WikiAiBubbleToolbar({
                     {p.label}
                   </DropdownMenuItem>
                 ))}
-              </DropdownMenuContent>
+              </DropdownMenuPrimitive.Content>
             </DropdownMenu>
           )
         })}
