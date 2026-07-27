@@ -112,6 +112,43 @@ test('툴바 — 행 삭제가 마크다운에서도 사라진다', async ({ aut
   expect(lines.join('\n')).not.toContain('API 설계')
 })
 
+test('넓은 표는 본문을 밀지 않고 래퍼 안에서 가로 스크롤된다 (#754)', async ({
+  authenticatedPage: page,
+}) => {
+  saved.length = 0
+  const cols = Array.from({ length: 8 }, (_, i) => `항목 ${i + 1} 상세 설명`)
+  const wide = [
+    `| ${cols.join(' | ')} |`,
+    `| ${cols.map(() => '---').join(' | ')} |`,
+    `| ${cols.map((_, i) => `${i + 1}행 내용이 제법 긴 한글 문장입니다`).join(' | ')} |`,
+  ].join('\n')
+  await setup(page, wide)
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror table')).toBeVisible()
+
+  // 래퍼가 실제로 렌더되고 스크롤 컨테이너가 된다.
+  const wrapper = page.locator('.ProseMirror .tableWrapper')
+  await expect(wrapper).toHaveCount(1)
+  const metrics = await wrapper.evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+    docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  }))
+  expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth)
+  // 표가 페이지 자체를 가로로 밀어내면 안 된다.
+  expect(metrics.docOverflow).toBeLessThanOrEqual(1)
+
+  // 오른쪽 끝까지 스크롤해도 툴바는 화면 안에 있다(표가 아니라 래퍼에 앵커되므로).
+  await wrapper.evaluate((el) => el.scrollTo({ left: el.scrollWidth }))
+  await page.locator('.ProseMirror td').last().click()
+  const bar = page.getByTestId('wiki-table-toolbar')
+  await expect(bar).toBeVisible()
+  const box = (await bar.boundingBox())!
+  const vw = page.viewportSize()!.width
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(vw)
+})
+
 test('셀에 파이프를 입력해도 셀이 쪼개지지 않는다 (#755)', async ({ authenticatedPage: page }) => {
   saved.length = 0
   await setup(page, TABLE_MD)

@@ -109,7 +109,9 @@ export function runTableCommand(editor: Editor, key: WikiTableCommandKey): void 
 }
 
 /** 커서가 속한 표 DOM 의 뷰포트 사각형. 툴바를 셀이 아니라 표 상단에 앵커하기 위해 쓴다.
- *  Table 확장의 노드뷰가 div.tableWrapper > table 을 만들므로 두 경우를 모두 처리한다. */
+ *  renderWrapper(#754) 로 div.tableWrapper > table 구조가 되므로 래퍼가 있으면 래퍼를 쓴다 —
+ *  가로 스크롤이 걸린 넓은 표는 table 사각형이 뷰포트를 한참 넘어가서, 그 중앙에 앵커하면
+ *  툴바가 화면 밖으로 밀린다. 래퍼는 항상 본문 폭이라 안전하다. */
 export function readTableRect(editor: Editor | null): DOMRect | null {
   if (!editor) return null
   const { $from } = editor.state.selection
@@ -117,8 +119,8 @@ export function readTableRect(editor: Editor | null): DOMRect | null {
     if ($from.node(depth).type.name !== 'table') continue
     const dom = editor.view.nodeDOM($from.before(depth))
     if (!(dom instanceof HTMLElement)) return null
-    const el = dom.tagName === 'TABLE' ? dom : dom.querySelector('table')
-    return el?.getBoundingClientRect() ?? null
+    // dom 은 renderWrapper 가 켜져 있으면 래퍼 div, 아니면 table 자체다.
+    return dom.getBoundingClientRect()
   }
   return null
 }

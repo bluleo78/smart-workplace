@@ -333,7 +333,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         // 표를 자주 만들기 때문에 체감 결함이 컸다. tiptap-markdown 이 table 직렬화기를 내장하고 있어
         // 저장 → 재로드 라운드트립이 성립한다(GFM 으로 표현 못 하는 병합셀 등은 자체 폴백).
         // resizable 은 끈다 — 열 너비를 픽셀로 문서에 심으면 마크다운 직렬화에서 버려져 무의미하다.
-        Table.configure({ resizable: false }),
+        // renderWrapper 기본값이 false 라 div.tableWrapper 가 아예 렌더되지 않았고, 그 래퍼에
+        // 걸어둔 가로 스크롤 CSS 가 죽은 코드였다(#754). 켜야 넓은 표가 스크롤된다.
+        Table.configure({ resizable: false, renderWrapper: true }),
         TableRow,
         TableHeader,
         TableCell,
