@@ -36,6 +36,7 @@ import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiImage } from './wikiImageNode'
 import { WikiMarkdownSourceDialog } from './WikiMarkdownSourceDialog'
+import { WikiMarkdownText } from './wikiMarkdownText'
 import { hydrateWikiMentions } from './wikiMentionHydrate'
 import { WikiMention } from './wikiMentionNode'
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
@@ -308,7 +309,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       // 안내도 없어 AI 기능이 발견 불가였다, #733). showOnlyCurrent=false 여야 포커스 없는
       // 상태에서도 보인다(기본 true 는 커서가 있는 노드에만 표시).
       extensions: [
-        StarterKit,
+        // text 노드만 교체 — 표 셀 안의 | 를 이스케이프한다(#755). wikiMarkdownText.ts 참조.
+        StarterKit.configure({ text: false }),
+        WikiMarkdownText,
         // 붙여넣기 자동 변환(#753) — 기본값 false 라 터미널·.md 파일에서 복사한 '## 제목' 이
         // 평문으로 들어갔다. transformCopiedText 는 켜지 않는다: 켜면 에디터 내부 복사→붙여넣기가
         // 마크다운 텍스트로 왕복하면서 멘션 칩이 <#page:12> 토큰 평문으로 퇴화한다.

@@ -112,6 +112,22 @@ test('툴바 — 행 삭제가 마크다운에서도 사라진다', async ({ aut
   expect(lines.join('\n')).not.toContain('API 설계')
 })
 
+test('셀에 파이프를 입력해도 셀이 쪼개지지 않는다 (#755)', async ({ authenticatedPage: page }) => {
+  saved.length = 0
+  await setup(page, TABLE_MD)
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror table')).toBeVisible()
+
+  await page.locator('.ProseMirror td').filter({ hasText: '배포' }).click()
+  await page.keyboard.press('End')
+  await page.keyboard.type('|긴급')
+
+  const lines = await savedTableLines(page)
+  // 이스케이프되지 않으면 이 행만 3칸이 되어 열 수가 어긋난다.
+  expect(lines[3]).toBe('| 배포\\|긴급 | 이 |')
+  expect(lines.join('\n')).not.toContain('<table')
+})
+
 test('단축키 — Ctrl+Alt+아래로 행이 추가되고, 표 밖에서는 아무 일도 없다', async ({
   authenticatedPage: page,
 }) => {
