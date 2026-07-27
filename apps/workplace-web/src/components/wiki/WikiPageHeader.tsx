@@ -2,6 +2,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  FileCode,
   Loader2,
   MoreHorizontal,
   Trash2,
@@ -16,6 +17,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -54,6 +56,7 @@ export function WikiPageHeader({
   onNavigate,
   onAiAction,
   onDelete,
+  onViewSource,
 }: {
   crumbs: { id: number; title: string }[]
   saveState: SaveState
@@ -65,6 +68,8 @@ export function WikiPageHeader({
   onNavigate: (pageId: number) => void
   onAiAction: (action: GenerateActionKey) => void
   onDelete: () => void
+  /** 마크다운 소스 모달 열기(#753). 읽기 권한만 있으면 되므로 canEdit 과 무관하게 노출한다. */
+  onViewSource: () => void
 }) {
   // 툴팁 사유는 권한/로딩 사유만 노출(생성 중은 버튼 라벨이 "생성 중…"으로 이미 자명).
   const disabledReason = aiState === 'ready' ? null : AI_DISABLED_REASON[aiState]
@@ -204,6 +209,14 @@ export function WikiPageHeader({
             <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {/* 소스 보기는 읽기 권한만으로 충분하다 — 이 드롭다운 자체가 권한 분기 밖에 있다. */}
+            <DropdownMenuItem
+              data-testid="wiki-menu-source"
+              onSelect={() => setTimeout(onViewSource, 0)}
+            >
+              <FileCode className="mr-2 h-4 w-4" aria-hidden="true" /> 마크다운 소스
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={() => setTimeout(onDelete, 0)}>
               <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" /> 페이지 삭제
             </DropdownMenuItem>
