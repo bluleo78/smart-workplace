@@ -338,9 +338,19 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         tableShortcutsExtension,
       ],
       content: page.body,
+      // 권한 게이트 — VIEWER 는 본문을 입력할 수 없다(#756). 미설정 시 tiptap 기본값이 true 라
+      // 뷰어도 자유롭게 타이핑할 수 있었고, 저장은 백엔드가 막으므로 입력이 조용히 사라졌다.
+      // 스페이스 목록 로딩 중(role undefined)에는 fail-closed 로 false 였다가 아래 effect 가 뒤집는다.
+      editable: canEdit,
     },
     [page.id],
   )
+
+  // 권한이 나중에 확정되거나 바뀌어도 반영 — useEditor 는 [page.id] 로만 재생성되므로
+  // 위 options 의 editable 은 최초 1회 값이다. 이 effect 가 없으면 OWNER 도 읽기 전용에 갇힌다.
+  useEffect(() => {
+    editor?.setEditable(canEdit)
+  }, [editor, canEdit])
 
   // insertContent·취소 시 editor 참조를 ref 로도 보관(콜백 스테일 회피).
   const editorRef = useRef(editor)
