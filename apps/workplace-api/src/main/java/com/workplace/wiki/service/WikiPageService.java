@@ -141,6 +141,9 @@ public class WikiPageService {
     long spaceId =
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // #757: wiki_page_attachment 는 page_id ON DELETE CASCADE 라 pages.delete() 이후에는 매핑을 조회할
+    // 수 없다 — 첨부 회수는 반드시 페이지 삭제 "직전"에 서브트리를 조회해야 한다(순서가 load-bearing).
+    attachments.reclaimPageTree(pageId);
     pages.delete(pageId);
     // #724: 삭제를 스페이스 멤버에게 알려 트리·열린 페이지 캐시가 무효화되도록 한다.
     publisher.publishEvent(new WikiPageDeletedEvent(spaceId, pageId, callerId, Instant.now()));

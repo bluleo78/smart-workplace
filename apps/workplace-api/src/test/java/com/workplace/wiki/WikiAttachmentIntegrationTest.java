@@ -261,8 +261,9 @@ class WikiAttachmentIntegrationTest extends IntegrationTestBase {
   }
 
   @Test
-  void 페이지당_개수_초과는_409() throws Exception {
-    // 테스트 프로퍼티로 max-per-page=2.
+  void 임시_첨부만으로도_상한을_채우면_409() throws Exception {
+    // 테스트 프로퍼티로 max-per-page=2. 저장(promote) 없이 임시 첨부만 올려도 여전히 막혀야 한다
+    // (#757 상한 재계산 후에도 버스트 남용은 그대로 차단됨 — tempFileIdsOfPage 가 이 케이스를 커버).
     upload(editorId, pageId, pngFile("a.png", 50));
     upload(editorId, pageId, pngFile("b.png", 50));
     mvc.perform(
@@ -270,6 +271,92 @@ class WikiAttachmentIntegrationTest extends IntegrationTestBase {
                 .file(pngFile("c.png", 50))
                 .header("Authorization", "Bearer " + tokenFor(editorId)))
         .andExpect(status().isConflict());
+  }
+
+  @Test
+  void 상한까지_채워_저장해도_본문에서_지우고_재저장하면_업로드가_다시_가능해진다() throws Exception {
+    // #757 핵심 회귀: 예전 countByPage 방식은 매핑이 남아 이 케이스가 영원히 409 였다.
+    var a = upload(editorId, pageId, pngFile("a.png", 50));
+    var b = upload(editorId, pageId, pngFile("b.png", 50));
+    String bodyWithBoth =
+        "![a]("
+            + WikiAttachmentResponse.urlOf(pageId, a.fileId())
+            + ")![b]("
+            + WikiAttachmentResponse.urlOf(pageId, b.fileId())
+            + ")";
+    savePage(editorId, pageId, bodyWithBoth, 1);
+
+    // 상한(2)이 저장된 본문 참조로 이미 다 찼으니 추가 업로드는 409.
+    mvc.perform(
+            multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
+                .file(pngFile("c.png", 50))
+                .header("Authorization", "Bearer " + tokenFor(editorId)))
+        .andExpect(status().isConflict());
+
+    // 본문에서 이미지를 전부 지우고 저장 — 참조 집합이 비므로 업로드가 다시 가능해야 한다.
+    savePage(editorId, pageId, "이미지를 전부 지운 본문입니다.", 2);
+
+    mvc.perform(
+            multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
+                .file(pngFile("c.png", 50))
+                .header("Authorization", "Bearer " + tokenFor(editorId)))
+        .andExpect(status().isCreated());
+  }
+
+  @Test
+  void 본문에서_절반만_지우고_재저장하면_남은_참조만_카운트된다() throws Exception {
+    var a = upload(editorId, pageId, pngFile("a.png", 50));
+    var b = upload(editorId, pageId, pngFile("b.png", 50));
+    String bodyWithBoth =
+        "![a]("
+            + WikiAttachmentResponse.urlOf(pageId, a.fileId())
+            + ")![b]("
+            + WikiAttachmentResponse.urlOf(pageId, b.fileId())
+            + ")";
+    savePage(editorId, pageId, bodyWithBoth, 1);
+
+    // b 참조만 남기고 저장 — 남은 참조(1) + 임시(0) = 1 이라 상한(2) 여유가 생겨야 한다.
+    String bodyWithOnlyB = "![b](" + WikiAttachmentResponse.urlOf(pageId, b.fileId()) + ")";
+    savePage(editorId, pageId, bodyWithOnlyB, 2);
+
+    mvc.perform(
+            multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
+                .file(pngFile("c.png", 50))
+                .header("Authorization", "Bearer " + tokenFor(editorId)))
+        .andExpect(status().isCreated());
+
+    // 위 업로드(c)로 카운트가 b+c=2 가 되어 다시 상한이 찼음을 확인 — "남은 1개가 실제로 세어졌다" 를 고정한다.
+    // (제거된 a 가 여전히 카운트에 남아 있었다면 이 시점 이미 3개로 잡혀 앞의 업로드부터 409 였을 것이다.)
+    mvc.perform(
+            multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
+                .file(pngFile("d.png", 50))
+                .header("Authorization", "Bearer " + tokenFor(editorId)))
+        .andExpect(status().isConflict());
+  }
+
+  @Test
+  void 삭제된_첨부의_URL이_저장된_본문에_남아있어도_카운트되지_않는다() throws Exception {
+    // #757 리뷰 지적: DELETE 는 매핑+file 행을 지우지만 저장된 본문의 URL 텍스트는 그대로 남는다.
+    // referencedFileIds 는 그 fileId 를 여전히 파싱해내므로, held 를 "이 페이지에 실제 바인딩된 것" 으로
+    // 좁히는 retainAll(bound) 이 없으면 죽은 참조가 카운트를 영원히 부풀려 #757 이 고치려던 "풀 수 없는 409"
+    // 가 그대로 재현된다.
+    var a = upload(editorId, pageId, pngFile("a.png", 50));
+    String bodyWithA = "![a](" + WikiAttachmentResponse.urlOf(pageId, a.fileId()) + ")";
+    savePage(editorId, pageId, bodyWithA, 1);
+
+    mvc.perform(
+            delete("/api/v1/wiki/pages/" + pageId + "/attachments/" + a.fileId())
+                .header("Authorization", "Bearer " + tokenFor(editorId)))
+        .andExpect(status().isNoContent());
+
+    // 본문 텍스트는 재저장하지 않아 여전히 a 의 URL 을 담고 있다. 그래도 a 는 더 이상 bound 가 아니므로
+    // held 는 비어야 하고, max-per-page(2) 안에서 새 업로드 2개가 모두 성공해야 한다.
+    upload(editorId, pageId, pngFile("b.png", 50));
+    mvc.perform(
+            multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
+                .file(pngFile("c.png", 50))
+                .header("Authorization", "Bearer " + tokenFor(editorId)))
+        .andExpect(status().isCreated());
   }
 
   @Test
