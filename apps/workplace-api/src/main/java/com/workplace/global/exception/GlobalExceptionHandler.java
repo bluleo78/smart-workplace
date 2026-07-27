@@ -414,6 +414,28 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  // 노트 이미지 첨부 — 미존재(404, 바인딩 불일치 포함) / 거부(400, 빈 파일·크기 초과·형식 아님) / 한도 초과(409)
+  @ExceptionHandler(com.workplace.wiki.exception.WikiAttachmentNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleWikiAttachmentNotFound(
+      com.workplace.wiki.exception.WikiAttachmentNotFoundException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  @ExceptionHandler(com.workplace.wiki.exception.WikiAttachmentRejectedException.class)
+  public ResponseEntity<ErrorResponse> handleWikiAttachmentRejected(
+      com.workplace.wiki.exception.WikiAttachmentRejectedException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+  }
+
+  @ExceptionHandler(com.workplace.wiki.exception.WikiAttachmentLimitException.class)
+  public ResponseEntity<ErrorResponse> handleWikiAttachmentLimit(
+      com.workplace.wiki.exception.WikiAttachmentLimitException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   // 연락처 도메인 — 미존재/격리(404)
   @ExceptionHandler(com.workplace.contacts.exception.ContactNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleContactNotFound(
@@ -985,7 +1007,9 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
-  /** 파일 코어 not-found — 404. {@code file} 행 자체가 없는 경우(blob 유실은 {@link FileBlobMissingException} 참조). */
+  /**
+   * 파일 코어 not-found — 404. {@code file} 행 자체가 없는 경우(blob 유실은 {@link FileBlobMissingException} 참조).
+   */
   @ExceptionHandler(FileNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleFileNotFound(
       FileNotFoundException ex, HttpServletRequest request) {
@@ -994,8 +1018,8 @@ public class GlobalExceptionHandler {
   }
 
   /**
-   * 파일 원본(디스크 blob) 유실 — 404(#739). {@code file} 행은 있으나 스토리지에 바이트가 없는 경우로, drive 첨부·채팅/메일 첨부 등
-   * file 코어를 경유하는 모든 소비처에 공통 적용된다. 복구 불가이므로 메시지로 명확히 안내한다.
+   * 파일 원본(디스크 blob) 유실 — 404(#739). {@code file} 행은 있으나 스토리지에 바이트가 없는 경우로, drive 첨부·채팅/메일 첨부 등 file
+   * 코어를 경유하는 모든 소비처에 공통 적용된다. 복구 불가이므로 메시지로 명확히 안내한다.
    */
   @ExceptionHandler(FileBlobMissingException.class)
   public ResponseEntity<ErrorResponse> handleFileBlobMissing(

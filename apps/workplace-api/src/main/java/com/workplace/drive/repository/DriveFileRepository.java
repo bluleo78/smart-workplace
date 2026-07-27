@@ -25,13 +25,15 @@ import org.springframework.stereotype.Repository;
 public class DriveFileRepository {
   private final DSLContext dsl;
 
-  /** available 파생 필드 계산(원본 blob 유실 가시화, #739) — FileCleanupService 와 동일하게 FileStore 로 상대/레거시
-   * 절대경로를 모두 복원해 존재 확인한다. */
+  /**
+   * available 파생 필드 계산(원본 blob 유실 가시화, #739) — FileCleanupService 와 동일하게 FileStore 로 상대/레거시 절대경로를
+   * 모두 복원해 존재 확인한다.
+   */
   private final FileStore fileStore;
 
   /**
-   * listInFolder/searchByName/findResponse 세 projection 이 동일하게 중복하던 DriveFileResponse 생성 로직을
-   * 단일화한 매퍼(#739). 각 projection 은 FILE.STORAGE_PATH 를 반드시 select 해야 한다.
+   * listInFolder/searchByName/findResponse 세 projection 이 동일하게 중복하던 DriveFileResponse 생성 로직을 단일화한
+   * 매퍼(#739). 각 projection 은 FILE.STORAGE_PATH 를 반드시 select 해야 한다.
    */
   private DriveFileResponse toResponse(Record r) {
     return new DriveFileResponse(

@@ -2,6 +2,7 @@
 
 import type {
   SavePageRequest,
+  WikiAttachment,
   WikiBacklinksResponse,
   WikiMember,
   WikiMentionRef,
@@ -58,4 +59,16 @@ export const wikiApi = {
   // 진행 중인 AI 생성 취소.
   cancelAi: (pageId: number, correlationId: string) =>
     client.delete<void>(`/wiki/pages/${pageId}/ai/${correlationId}`),
+
+  // #751: 본문 이미지 업로드. 응답 url 을 그대로 마크다운에 삽입한다(클라이언트가 경로를 조립하지 않는다).
+  uploadAttachment: (pageId: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return client.post<WikiAttachment>(`/wiki/pages/${pageId}/attachments`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  // 본문 이미지 첨부 삭제.
+  deleteAttachment: (pageId: number, fileId: number) =>
+    client.delete<void>(`/wiki/pages/${pageId}/attachments/${fileId}`),
 }

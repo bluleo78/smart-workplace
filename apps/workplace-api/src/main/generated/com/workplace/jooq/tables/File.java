@@ -15,6 +15,7 @@ import com.workplace.jooq.tables.IssueAttachment.IssueAttachmentPath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
+import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.records.FileRecord;
 
 import java.time.OffsetDateTime;
@@ -314,6 +315,19 @@ public class File extends TableImpl<FileRecord> {
             _messageAttachment = new MessageAttachmentPath(this, null, Keys.MESSAGE_ATTACHMENT__MESSAGE_ATTACHMENT_FILE_ID_FKEY.getInverseKey());
 
         return _messageAttachment;
+    }
+
+    private transient WikiPageAttachmentPath _wikiPageAttachment;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_attachment</code> table
+     */
+    public WikiPageAttachmentPath wikiPageAttachment() {
+        if (_wikiPageAttachment == null)
+            _wikiPageAttachment = new WikiPageAttachmentPath(this, null, Keys.WIKI_PAGE_ATTACHMENT__WIKI_PAGE_ATTACHMENT_FILE_ID_FKEY.getInverseKey());
+
+        return _wikiPageAttachment;
     }
 
     @Override

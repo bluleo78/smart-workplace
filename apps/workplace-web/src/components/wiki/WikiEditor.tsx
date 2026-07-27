@@ -28,6 +28,7 @@ import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
+import { useWikiImageUpload } from './useWikiImageUpload'
 import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
 import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
@@ -277,14 +278,28 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     onActionRef.current = onSlashAction
   })
 
+  // 슬래시 메뉴 '이미지' 항목(#751) — 숨은 file input 을 여는 진입점. imageInputRef 는 안정된
+  // ref 객체라 이 함수 자체가 스테일해지지 않으므로(참조하는 게 ref.current 뿐) 다른 액션
+  // ref 들과 달리 렌더마다 갱신하는 useEffect 가 불필요하다.
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const onImageInsertRef = useRef<() => void>(() => imageInputRef.current?.click())
+
   // 슬래시 확장 — 마운트 시 1회 생성. ctx ref 는 suggestion 콜백(allow/command)에서만 역참조되며
   // 사용자가 '/' 를 입력할 때 ProseMirror 가 호출하므로 렌더 시점에 동기 실행되지 않아 안전하다
   // (RichInput 의 membersRef 패턴 동일 — react-hooks/refs 의 보수적 false positive).
-  // eslint-disable-next-line react-hooks/refs
-  const slashExtension = useMemo(() => createWikiSlashExtension({ canEditRef, onActionRef }), [])
+  const slashExtension = useMemo(
+    // eslint-disable-next-line react-hooks/refs
+    () => createWikiSlashExtension({ canEditRef, onActionRef, onImageInsertRef }),
+    [],
+  )
   // 표 단축키 확장 — canEditRef 를 슬래시 확장과 같은 패턴으로 주입(마운트 시 1회 생성).
   // eslint-disable-next-line react-hooks/refs
   const tableShortcutsExtension = useMemo(() => createWikiTableShortcuts({ canEditRef }), [])
+
+  // 본문 이미지 붙여넣기/드래그드롭 업로드(#751). 핸들러는 useCallback 으로 안정화돼 있어
+  // useEditor 의 의존성 배열([page.id])에 넣지 않아도 stale closure 가 생기지 않는다.
+  // canEditRef 를 넘겨 VIEWER 는 서버 403 전에 클라이언트에서 조용히 막는다(UX 전용, 서버가 최종 판정).
+  const { handlePaste, handleDrop, uploadFilesAtCursor } = useWikiImageUpload(page.id, canEditRef)
 
   const editor = useEditor(
     {
@@ -317,6 +332,8 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         // 행·열 삽입 단축키(Ctrl-Alt-화살표). 표 밖이거나 뷰어 권한이면 false 를 반환해 기본 동작을 유지한다.
         tableShortcutsExtension,
       ],
+      // 이미지 붙여넣기·드래그드롭 업로드. 업로드 완료 시 image 노드로 교체된다.
+      editorProps: { handlePaste, handleDrop },
       content: page.body,
     },
     [page.id],
@@ -328,6 +345,19 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     // eslint-disable-next-line react-hooks/immutability
     editorRef.current = editor
   })
+
+  // 슬래시 메뉴 '이미지' 항목이 연 file input 의 onChange 에서 호출된다. useWikiImageUpload 의
+  // uploadFilesAtCursor 는 현재 커서 위치에 바로 올리는 전용 진입점이라(#751 C4), 좌표를 역산해
+  // handleDrop 용 합성 DragEvent 를 만드는 우회가 필요 없다 — handleDrop 의 내부 가드가 바뀌어도
+  // 이 경로가 그 변화를 의도치 않게 상속하지 않는다.
+  const insertImagesAtCursor = useCallback(
+    (files: FileList | null) => {
+      const view = editorRef.current?.view
+      if (!view || !files || files.length === 0) return
+      uploadFilesAtCursor(view, Array.from(files))
+    },
+    [uploadFilesAtCursor],
+  )
 
   // 본문 공백 여부 — 빈 페이지 AI CTA 노출 조건. editor.isEmpty 는 리렌더를 유발하지 않으므로
   // 'update' 이벤트에 맞춰 state 로 미러한다(스트리밍 삽입 즉시 CTA 가 사라짐).
@@ -450,8 +480,12 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     if (!editor) return
     // 멘션 하이드레이션 트랜잭션(읽기 시 토큰→칩 치환)은 사용자 편집이 아니므로 자동저장을 건너뛴다.
     // 가드하지 않으면 토큰 포함 페이지를 열기만 해도 snapshot=true PUT 이 발생해 리비전 캐던스가 깨진다.
+    // wikiImageUploadPlaceholder(#751) 도 같은 이유로 건너뛴다 — 자리표시자 텍스트(⏳ 이미지
+    // 업로드 중…)는 사용자 콘텐츠가 아니라서 저장 대상이 아니다. 실제 이미지로 교체되거나
+    // 실패로 제거되는 트랜잭션은 메타가 없어 정상적으로 자동저장을 트리거한다.
     const handler = ({ transaction }: { transaction: { getMeta: (k: string) => unknown } }) => {
       if (transaction.getMeta('wikiMentionHydrate')) return
+      if (transaction.getMeta('wikiImageUploadPlaceholder')) return
       scheduleSave(title)
     }
     editor.on('update', handler)
@@ -570,6 +604,20 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             editor={editor}
             onClick={onChipClick}
             className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
+          />
+          {/* 슬래시 메뉴 '이미지' 항목(#751) 전용 숨은 file input. accept 는 서버 매직바이트
+              판정과 동일 집합(SVG 제외 — 서버가 거부한다). 같은 파일을 연속 선택해도 onChange
+              가 다시 발화하도록 선택 직후 value 를 비운다. */}
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            className="hidden"
+            data-testid="wiki-image-slash-input"
+            onChange={(e) => {
+              insertImagesAtCursor(e.target.files)
+              e.target.value = ''
+            }}
           />
           {/* 노트→이슈 생성 다이얼로그 — canUseAi 게이트는 onCreateIssue 전달 여부로 이미 처리됨. */}
           <WikiCreateIssueDialog

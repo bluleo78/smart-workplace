@@ -25,7 +25,11 @@ import { type WikiSlashItem, WikiSlashMenu, type WikiSlashMenuHandle } from './W
 // 그리드 피커로 전환돼 행×열 크기를 고른 뒤 삽입한다(#748·#752). 삽입 후 행/열 추가·삭제는
 // 표 툴바(WikiTableToolbar)·우클릭 메뉴(WikiTableContextMenu)·단축키(Ctrl-Alt-화살표,
 // wikiTableShortcuts.ts) 세 경로로 모두 지원하며, 셋 다 wikiTableCommands.ts 를 단일 원천으로 쓴다.
-const INSERT_ITEMS: WikiSlashItem[] = [{ key: 'table', label: '표', kind: 'insert' }]
+// 이미지(#751) — 그리드 없이 바로 파일 선택기를 연다(WikiEditor 의 onImageInsertRef 경유).
+const INSERT_ITEMS: WikiSlashItem[] = [
+  { key: 'table', label: '표', kind: 'insert' },
+  { key: 'image', label: '이미지', kind: 'insert' },
+]
 
 // 생성 계열 3 액션 — 헤더 AI 버튼과 라벨을 공유하려 wikiAiActions 의 단일 원천에서 파생한다.
 const SLASH_ITEMS: WikiSlashItem[] = [
@@ -43,6 +47,8 @@ export interface WikiSlashContext {
   canEditRef: { current: boolean }
   // AI 액션 선택 시 호출(에디터에서 startWikiAiStream 트리거). 최신값 참조용 ref.
   onActionRef: { current: (action: GenerateActionKey) => void }
+  // '이미지' 항목 선택 시 호출(#751) — WikiEditor 의 숨은 file input 을 연다. 최신값 참조용 ref.
+  onImageInsertRef: { current: () => void }
 }
 
 /** 슬래시 AI 메뉴 확장 생성. ctx 의 ref 를 통해 게이트/액션을 동적으로 주입. */
@@ -62,7 +68,14 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
           // "/" 트리거 텍스트를 지우고 명령을 실행한다.
           command: ({ editor, range, props }) => {
             if (props.kind === 'insert') {
-              // 크기는 그리드에서 확정돼 props 로 온다. 아직 안 골랐으면(rows 미지정) 아무것도
+              if (props.key === 'image') {
+                // 파일 선택 자체가 비동기(사용자 대화상자)라 표처럼 한 체인으로 묶을 수 없다.
+                // "/이미지" 텍스트만 먼저 지우고, 실제 업로드는 WikiEditor 의 file input 이 맡는다.
+                editor.chain().focus().deleteRange(range).run()
+                ctx.onImageInsertRef.current()
+                return
+              }
+              // 표 — 크기는 그리드에서 확정돼 props 로 온다. 아직 안 골랐으면(rows 미지정) 아무것도
               // 하지 않는다 — 메뉴가 그리드 모드로 전환만 한 상태다.
               if (props.rows == null || props.cols == null) return
               // 트리거 삭제와 삽입을 한 체인(= 한 트랜잭션)으로 묶는다. 따로 실행하면 삭제로

@@ -18,8 +18,8 @@ export type WikiAiAction =
   | 'condense'
   | 'polish'
 
-/** AI 가 아닌 삽입 명령 키. 현재는 표 하나. */
-export type WikiInsertCommand = 'table'
+/** AI 가 아닌 삽입 명령 키. 표·이미지(#751) 두 가지. */
+export type WikiInsertCommand = 'table' | 'image'
 
 export interface WikiSlashItem {
   key: WikiAiAction | WikiInsertCommand

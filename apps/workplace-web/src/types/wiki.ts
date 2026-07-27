@@ -83,3 +83,12 @@ export interface WikiSearchResult {
   snippet: string
   updatedAt: string
 }
+
+// #751: 노트 본문 이미지 첨부 업로드 응답. url 은 그대로 마크다운에 삽입한다(클라이언트가 경로를 조립하지 않는다).
+export type WikiAttachment = {
+  fileId: number
+  url: string
+  originalName: string
+  mimeType: string
+  sizeBytes: number
+}

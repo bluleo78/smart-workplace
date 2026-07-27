@@ -82,6 +82,7 @@ import com.workplace.jooq.tables.UserGroupMember;
 import com.workplace.jooq.tables.UserPriorityItem;
 import com.workplace.jooq.tables.UserRole;
 import com.workplace.jooq.tables.WikiPage;
+import com.workplace.jooq.tables.WikiPageAttachment;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
 import com.workplace.jooq.tables.WikiSpace;
@@ -263,6 +264,8 @@ public class Indexes {
     public static final Index IDX_USER_ROLE_ROLE_ID = Internal.createIndex(DSL.name("idx_user_role_role_id"), UserRole.USER_ROLE, new OrderField[] { UserRole.USER_ROLE.ROLE_ID }, false);
     public static final Index IDX_USER_ROLE_TENANT = Internal.createIndex(DSL.name("idx_user_role_tenant"), UserRole.USER_ROLE, new OrderField[] { UserRole.USER_ROLE.TENANT_ID }, false);
     public static final Index IDX_USER_USERNAME = Internal.createIndex(DSL.name("idx_user_username"), User.USER, new OrderField[] { User.USER.USERNAME }, false);
+    public static final Index IDX_WIKI_PAGE_ATTACHMENT_PAGE = Internal.createIndex(DSL.name("idx_wiki_page_attachment_page"), WikiPageAttachment.WIKI_PAGE_ATTACHMENT, new OrderField[] { WikiPageAttachment.WIKI_PAGE_ATTACHMENT.PAGE_ID }, false);
+    public static final Index IDX_WIKI_PAGE_ATTACHMENT_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_attachment_tenant"), WikiPageAttachment.WIKI_PAGE_ATTACHMENT, new OrderField[] { WikiPageAttachment.WIKI_PAGE_ATTACHMENT.TENANT_ID }, false);
     public static final Index IDX_WIKI_PAGE_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_tenant"), WikiPage.WIKI_PAGE, new OrderField[] { WikiPage.WIKI_PAGE.TENANT_ID }, false);
     public static final Index IDX_WIKI_PAGE_TREE = Internal.createIndex(DSL.name("idx_wiki_page_tree"), WikiPage.WIKI_PAGE, new OrderField[] { WikiPage.WIKI_PAGE.SPACE_ID, WikiPage.WIKI_PAGE.PARENT_ID, WikiPage.WIKI_PAGE.POSITION }, false);
     public static final Index IDX_WIKI_REFERENCE_SOURCE = Internal.createIndex(DSL.name("idx_wiki_reference_source"), WikiReference.WIKI_REFERENCE, new OrderField[] { WikiReference.WIKI_REFERENCE.SOURCE_PAGE_ID }, false);

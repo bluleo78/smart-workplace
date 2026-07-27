@@ -32,6 +32,7 @@ public class WikiPageService {
   private final WikiPermissions perms;
   private final WikiReferenceRepository references;
   private final WikiReferenceParser refParser;
+  private final WikiAttachmentService attachments;
   private final ApplicationEventPublisher publisher;
 
   /** 페이지 생성(말단 position). EDITOR 이상. */
@@ -91,6 +92,10 @@ public class WikiPageService {
     // save() 가 @Transactional 이므로 replaceForSource 의 delete+insert 가 원자적으로 묶인다.
     // 추출은 실제 저장한 body 로 수행해야 본문과 백링크가 일관(null→유지 시 기존 백링크 보존).
     references.replaceForSource(pageId, refParser.parse(pageId, body));
+    // 본문에 남아 있는 이미지 첨부만 영구화한다(promote-only).
+    // 참조가 사라진 것은 회수하지 않는다 — autosave 800ms 디바운스라 잘라내기-붙여넣기·undo 중간 상태가
+    // 각각 저장되고, 페이지 간 복사도 원본에서 참조가 빠진 것처럼 보여 실데이터가 삭제된다.
+    attachments.promoteReferenced(pageId, body);
     WikiPageDetail saved =
         pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     // #724: 저장 사실을 스페이스 멤버에게 SSE 로 알린다 — 다른 탭/AI 편집이 즉시 반영되도록.

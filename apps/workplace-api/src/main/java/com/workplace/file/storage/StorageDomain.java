@@ -6,7 +6,8 @@ public enum StorageDomain {
   ISSUE("issue"),
   CHAT("chat"),
   MESSAGING("messaging"),
-  MAIL("mail");
+  MAIL("mail"),
+  WIKI("wiki"); // 노트 본문 이미지 첨부
 
   private final String segment;
 

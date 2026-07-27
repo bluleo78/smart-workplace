@@ -24,8 +24,8 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 드라이브 원본 blob 유실 가시화(#739) 통합 테스트 — 읽기 시점 판정({@code DriveFileResponse.available})과
- * 다운로드 404 구분(FileBlobMissingException vs FileNotFoundException)을 검증한다.
+ * 드라이브 원본 blob 유실 가시화(#739) 통합 테스트 — 읽기 시점 판정({@code DriveFileResponse.available})과 다운로드 404
+ * 구분(FileBlobMissingException vs FileNotFoundException)을 검증한다.
  */
 @Transactional
 class DriveFileAvailabilityTest extends IntegrationTestBase {
@@ -65,7 +65,10 @@ class DriveFileAvailabilityTest extends IntegrationTestBase {
   /** 디스크 blob 을 직접 지워 "유실"을 재현한다(DB 행은 그대로 둔다). */
   private void deleteBlobOnDisk(long fileId) {
     String storagePath =
-        dsl.select(FILE.STORAGE_PATH).from(FILE).where(FILE.ID.eq(fileId)).fetchOne(FILE.STORAGE_PATH);
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(fileId))
+            .fetchOne(FILE.STORAGE_PATH);
     boolean deleted = fileStore.deleteIfExists(storagePath);
     assertThat(deleted).as("테스트 셋업: 실제로 디스크에서 지워졌어야 한다").isTrue();
   }
@@ -105,7 +108,10 @@ class DriveFileAvailabilityTest extends IntegrationTestBase {
     assertThat(row).isNotNull();
   }
 
-  /** 3. blob 유실 파일 다운로드 → FileBlobMissingException(핸들러에서 404 + 유실 메시지로 매핑됨, GlobalExceptionHandlerTest 참조). */
+  /**
+   * 3. blob 유실 파일 다운로드 → FileBlobMissingException(핸들러에서 404 + 유실 메시지로 매핑됨,
+   * GlobalExceptionHandlerTest 참조).
+   */
   @Test
   void download_blobMissing_throwsFileBlobMissingException() throws Exception {
     long u = seedUser();

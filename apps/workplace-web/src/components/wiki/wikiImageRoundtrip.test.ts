@@ -59,4 +59,12 @@ describe('노트 이미지 마크다운 라운드트립 (#750)', () => {
     const md = '# 제목\n\n![대체텍스트](/api/v1/wiki/attachments/7/content)\n\n본문'
     expect(roundtrip(roundtrip(md))).toBe(md)
   })
+
+  // 첨부 API 경로는 저장-로드 왕복에서 문자 하나도 변하면 안 된다.
+  // 백엔드 promote 파서(WikiAttachmentService.ATTACHMENT_URL)가 이 형태만 인식하므로,
+  // 퍼센트 인코딩 등으로 형태가 바뀌면 업로드는 성공하는데 몇 시간 뒤 blob 이 만료 수거된다.
+  it('첨부 API 경로가 라운드트립에서 그대로 유지된다', () => {
+    const md = '![스크린샷](/api/v1/wiki/pages/12/attachments/34/content)'
+    expect(roundtrip(md)).toBe(md)
+  })
 })
