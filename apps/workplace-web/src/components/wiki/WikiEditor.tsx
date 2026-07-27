@@ -36,6 +36,8 @@ import { buildBreadcrumb } from './wikiBreadcrumb'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiImage } from './wikiImageNode'
+import { WikiMarkdownSourceDialog } from './WikiMarkdownSourceDialog'
+import { WikiMarkdownText } from './wikiMarkdownText'
 import { hydrateWikiMentions } from './wikiMentionHydrate'
 import { WikiMention } from './wikiMentionNode'
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
@@ -62,6 +64,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   )
   // 현재 페이지 삭제 확인 다이얼로그 상태.
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // 마크다운 소스 모달(#753). 마크다운은 모달을 열 때 1회 스냅샷으로 만든다.
+  const [sourceOpen, setSourceOpen] = useState(false)
+  const [sourceMarkdown, setSourceMarkdown] = useState('')
   const [title, setTitle] = useState(page.title)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const versionRef = useRef(page.version)
@@ -266,6 +271,17 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     [runAction],
   )
 
+  // 소스 모달 열기 — 편집 내용에 실시간 구독하지 않고 여는 순간의 마크다운만 담는다.
+  // 매 타이핑마다 전체 문서를 직렬화하는 비용을 피하고, 읽기 전용이라 자동저장·낙관적 버전
+  // (version 충돌) 경로와 완전히 무관해진다. 저장된 page.body 가 아니라 미저장분까지 포함된
+  // 현재 에디터 상태가 보인다.
+  const onViewSource = useCallback(() => {
+    const ed = editorRef.current
+    if (!ed) return
+    setSourceMarkdown(ed.storage.markdown.getMarkdown())
+    setSourceOpen(true)
+  }, [])
+
   // runAction·onSlashAction 의 최신값을 확장(1회 생성)이 참조하기 위한 ref.
   // 확장 콜백은 사용자 '/' 입력 시점에만 역참조하므로 렌더 중 읽히지 않는다(스테일 회피 목적).
   const runActionRef = useRef(runAction)
@@ -308,8 +324,15 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       // 안내도 없어 AI 기능이 발견 불가였다, #733). showOnlyCurrent=false 여야 포커스 없는
       // 상태에서도 보인다(기본 true 는 커서가 있는 노드에만 표시).
       extensions: [
-        StarterKit,
-        Markdown,
+        // text 노드만 교체 — 표 셀 안의 | 를 이스케이프한다(#755). wikiMarkdownText.ts 참조.
+        StarterKit.configure({ text: false }),
+        WikiMarkdownText,
+        // 붙여넣기 자동 변환(#753) — 기본값 false 라 터미널·.md 파일에서 복사한 '## 제목' 이
+        // 평문으로 들어갔다. transformCopiedText 는 켜지 않는다: 켜면 에디터 내부 복사→붙여넣기가
+        // 마크다운 텍스트로 왕복하면서 멘션 칩이 <#page:12> 토큰 평문으로 퇴화한다.
+        // html 옵션은 기본값 true 를 유지해야 한다 — 기존 페이지에 raw HTML 로 직렬화돼 저장된
+        // 표(#742 폴백 경로)를 파싱하는 것이 이 옵션이라, 끄면 로드가 깨진다.
+        Markdown.configure({ transformPastedText: true }),
         WikiMention,
         mentionExtension,
         slashExtension,
@@ -325,7 +348,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         // 표를 자주 만들기 때문에 체감 결함이 컸다. tiptap-markdown 이 table 직렬화기를 내장하고 있어
         // 저장 → 재로드 라운드트립이 성립한다(GFM 으로 표현 못 하는 병합셀 등은 자체 폴백).
         // resizable 은 끈다 — 열 너비를 픽셀로 문서에 심으면 마크다운 직렬화에서 버려져 무의미하다.
-        Table.configure({ resizable: false }),
+        // renderWrapper 기본값이 false 라 div.tableWrapper 가 아예 렌더되지 않았고, 그 래퍼에
+        // 걸어둔 가로 스크롤 CSS 가 죽은 코드였다(#754). 켜야 넓은 표가 스크롤된다.
+        Table.configure({ resizable: false, renderWrapper: true }),
         TableRow,
         TableHeader,
         TableCell,
@@ -335,9 +360,19 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       // 이미지 붙여넣기·드래그드롭 업로드. 업로드 완료 시 image 노드로 교체된다.
       editorProps: { handlePaste, handleDrop },
       content: page.body,
+      // 권한 게이트 — VIEWER 는 본문을 입력할 수 없다(#756). 미설정 시 tiptap 기본값이 true 라
+      // 뷰어도 자유롭게 타이핑할 수 있었고, 저장은 백엔드가 막으므로 입력이 조용히 사라졌다.
+      // 스페이스 목록 로딩 중(role undefined)에는 fail-closed 로 false 였다가 아래 effect 가 뒤집는다.
+      editable: canEdit,
     },
     [page.id],
   )
+
+  // 권한이 나중에 확정되거나 바뀌어도 반영 — useEditor 는 [page.id] 로만 재생성되므로
+  // 위 options 의 editable 은 최초 1회 값이다. 이 effect 가 없으면 OWNER 도 읽기 전용에 갇힌다.
+  useEffect(() => {
+    editor?.setEditable(canEdit)
+  }, [editor, canEdit])
 
   // insertContent·취소 시 editor 참조를 ref 로도 보관(콜백 스테일 회피).
   const editorRef = useRef(editor)
@@ -537,6 +572,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         onNavigate={(id) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)}
         onAiAction={onHeaderAiAction}
         onDelete={() => setConfirmDelete(true)}
+        onViewSource={onViewSource}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col px-8 py-6">
@@ -667,6 +703,12 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         pageTitle={title}
         hasChildren={pageHasChildren}
         onConfirm={handleDeleteCurrent}
+      />
+      <WikiMarkdownSourceDialog
+        open={sourceOpen}
+        onOpenChange={setSourceOpen}
+        title={title}
+        markdown={sourceMarkdown}
       />
     </div>
   )
