@@ -1,5 +1,7 @@
 // workplace-web vitest 설정 — 순수 TS 함수(detectMention 등) 단위 테스트용.
-// 환경은 node — DOM 없이 동작하는 순수 로직만 다룬다 (UI 회귀는 Playwright E2E 가 담당).
+// 기본 환경은 node — DOM 없이 동작하는 순수 로직을 다룬다 (UI 회귀는 Playwright E2E 가 담당).
+// 예외적으로 DOM API(예: tiptap 라운드트립)가 필요한 파일은 `// @vitest-environment jsdom`
+// docblock 으로 해당 파일만 jsdom 환경을 켤 수 있다 (예: wikiImageRoundtrip.test.ts).
 import path from 'path'
 import { defineConfig } from 'vitest/config';
 

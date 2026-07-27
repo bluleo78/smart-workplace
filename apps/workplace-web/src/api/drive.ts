@@ -17,6 +17,12 @@ import type {
   DriveTrashList,
   ShareLink,
 } from '../types/drive'
+import {
+  fetchBlobByPath,
+  fetchBlobUrlByPath,
+  fetchTextByPath,
+  stripApiPrefix,
+} from './blobContent'
 import { client, getAccessToken } from './client'
 
 // 공유 링크 타입은 types/drive 에 정의(DTO 단일 출처). 기존 import 처를 위해 재노출.
@@ -101,11 +107,6 @@ export async function downloadSharedFile(token: string, password?: string): Prom
   }
 
   downloadBlob(filename, blob)
-}
-
-// axios client baseURL 이 '/api/v1' 이므로, '/api/v1/...' 절대 경로는 접두어를 제거해 중복 호출을 막는다.
-function stripApiPrefix(path: string): string {
-  return path.replace(/^\/api\/v1/, '')
 }
 
 export const driveApi = {
@@ -235,23 +236,14 @@ export const driveApi = {
     URL.revokeObjectURL(url)
   },
 
-  // 임의 콘텐츠 경로(/api/v1/... 절대경로 가능)의 원본 Blob. 호출처가 objectURL/text()/arrayBuffer() 로 변환.
-  fetchBlobByPath: async (path: string): Promise<Blob> => {
-    const { data } = await client.get<Blob>(stripApiPrefix(path), { responseType: 'blob' })
-    return data
-  },
+  // 임의 콘텐츠 경로의 원본 Blob. 구현은 api/blobContent.ts 공용 모듈(wiki 등 타 도메인과 공유).
+  fetchBlobByPath,
 
   // 첨부 등 임의 콘텐츠 경로에서 blob object URL. 호출처가 revoke.
-  fetchBlobUrlByPath: async (path: string): Promise<string> => {
-    const blob = await driveApi.fetchBlobByPath(path)
-    return URL.createObjectURL(blob)
-  },
+  fetchBlobUrlByPath,
 
   // 임의 콘텐츠 경로의 텍스트 본문.
-  fetchTextByPath: async (path: string): Promise<string> => {
-    const { data } = await client.get<Blob>(stripApiPrefix(path), { responseType: 'blob' })
-    return await data.text()
-  },
+  fetchTextByPath,
 
   // 임의 콘텐츠 경로 다운로드 → a[download] 트리거.
   downloadByPath: async (path: string, fileName: string) => {

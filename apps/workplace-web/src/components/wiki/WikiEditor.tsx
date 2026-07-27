@@ -34,6 +34,7 @@ import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { buildBreadcrumb } from './wikiBreadcrumb'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
+import { WikiImage } from './wikiImageNode'
 import { hydrateWikiMentions } from './wikiMentionHydrate'
 import { WikiMention } from './wikiMentionNode'
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
@@ -295,6 +296,10 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           placeholder: "내용을 입력하거나 '/' 를 눌러 AI 사용",
           showOnlyCurrent: false,
         }),
+        // 이미지(#750) — 미등록 시 markdown-it 이 파싱한 이미지를 ProseMirror 가 버려서
+        // 이미지가 든 페이지를 열었다 저장하면 영구 삭제됐다(AI/MCP 위키 도구가 본문을 직접 쓴다).
+        // 노드 이름 'image' 유지 + inline:true 는 라운드트립 무손실의 필수 조건 — wikiImageNode.ts 참조.
+        WikiImage,
         // 표(#742) — StarterKit 에 없어서 마크다운 표가 문단으로 합쳐져 깨졌다. AI 생성물(/ai 요약·초안)이
         // 표를 자주 만들기 때문에 체감 결함이 컸다. tiptap-markdown 이 table 직렬화기를 내장하고 있어
         // 저장 → 재로드 라운드트립이 성립한다(GFM 으로 표현 못 하는 병합셀 등은 자체 폴백).
