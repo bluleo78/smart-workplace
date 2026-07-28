@@ -28,6 +28,12 @@ workplace:
       max-per-issue: 10
       max-per-message: 10
       temp-expiry-hours: 24
+    # 노트(wiki) 본문 이미지 첨부. 프리픽스가 attachment.* 가 아니라 wiki.* 다(@Value 와 맞춰야 함).
+    wiki:
+      max-image-size-bytes: 10485760  # 10MB
+      max-per-page: 50                # 해소 가능한 상한 — 본문에서 지우고 저장하면 풀린다(#757)
+      max-mappings-per-page: 500      # 매핑 총개수 하드 실링 — 강등 유예 창 안의 폭주 차단(#759)
+      demote-grace-hours: 168         # 참조가 빠진 첨부의 유예(7일). 이 안에 참조가 돌아오면 원상 복구(#759)
     mail:
       ttl-days: 7
       max-cache-bytes: 26214400   # 25MB — 이보다 큰 첨부는 캐시 안 함(on-demand)

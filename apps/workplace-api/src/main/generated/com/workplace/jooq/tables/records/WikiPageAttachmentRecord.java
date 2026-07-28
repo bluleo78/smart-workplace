@@ -90,6 +90,20 @@ public class WikiPageAttachmentRecord extends UpdatableRecordImpl<WikiPageAttach
         return (OffsetDateTime) get(4);
     }
 
+    /**
+     * Setter for <code>public.wiki_page_attachment.demoted_at</code>.
+     */
+    public void setDemotedAt(OffsetDateTime value) {
+        set(5, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page_attachment.demoted_at</code>.
+     */
+    public OffsetDateTime getDemotedAt() {
+        return (OffsetDateTime) get(5);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -113,7 +127,7 @@ public class WikiPageAttachmentRecord extends UpdatableRecordImpl<WikiPageAttach
     /**
      * Create a detached, initialised WikiPageAttachmentRecord
      */
-    public WikiPageAttachmentRecord(Long fileId, Long tenantId, Long pageId, Long attachedBy, OffsetDateTime attachedAt) {
+    public WikiPageAttachmentRecord(Long fileId, Long tenantId, Long pageId, Long attachedBy, OffsetDateTime attachedAt, OffsetDateTime demotedAt) {
         super(WikiPageAttachment.WIKI_PAGE_ATTACHMENT);
 
         setFileId(fileId);
@@ -121,6 +135,7 @@ public class WikiPageAttachmentRecord extends UpdatableRecordImpl<WikiPageAttach
         setPageId(pageId);
         setAttachedBy(attachedBy);
         setAttachedAt(attachedAt);
+        setDemotedAt(demotedAt);
         resetChangedOnNotNull();
     }
 }

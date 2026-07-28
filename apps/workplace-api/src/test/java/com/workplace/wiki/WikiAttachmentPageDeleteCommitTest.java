@@ -130,13 +130,13 @@ class WikiAttachmentPageDeleteCommitTest extends IntegrationTestBase {
       // 승격(expires_at IS NULL)된 첨부도 회수 대상임을 확인 — 본문에 URL 을 넣어 저장한 것처럼
       // promoteReferenced 를 직접 호출해 네 파일 모두 영구화한다(형제도 포함 — "승격됐다고 무조건 지워지지
       // 않는다"를 함께 고정).
-      attachmentService.promoteReferenced(
+      attachmentService.syncReferences(
           parentId, WikiAttachmentResponse.urlOf(parentId, parentRes.fileId()));
-      attachmentService.promoteReferenced(
+      attachmentService.syncReferences(
           childId, WikiAttachmentResponse.urlOf(childId, childRes.fileId()));
-      attachmentService.promoteReferenced(
+      attachmentService.syncReferences(
           grandchildId, WikiAttachmentResponse.urlOf(grandchildId, grandchildRes.fileId()));
-      attachmentService.promoteReferenced(
+      attachmentService.syncReferences(
           siblingId, WikiAttachmentResponse.urlOf(siblingId, siblingRes.fileId()));
 
       // promoteReferenced 가 실제로 승격했는지(=no-op 이 아닌지)를 삭제 직전에 직접 단언 — 이게 없으면
@@ -220,8 +220,7 @@ class WikiAttachmentPageDeleteCommitTest extends IntegrationTestBase {
       var mf = new MockMultipartFile("file", "rollback.png", "image/png", png());
       WikiAttachmentResponse res = attachmentService.upload(ownerId, pageId, mf);
       seededFileIds.add(res.fileId());
-      attachmentService.promoteReferenced(
-          pageId, WikiAttachmentResponse.urlOf(pageId, res.fileId()));
+      attachmentService.syncReferences(pageId, WikiAttachmentResponse.urlOf(pageId, res.fileId()));
 
       Path path = attachmentService.download(ownerId, pageId, res.fileId()).path();
       assertThat(Files.exists(path)).as("업로드 직후 디스크 파일 존재").isTrue();

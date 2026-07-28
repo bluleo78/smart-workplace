@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.DRIVE_FILE_VERSION;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.TENANT;
+import static com.workplace.jooq.Tables.WIKI_PAGE_ATTACHMENT;
 
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -35,6 +36,24 @@ public class DriveQuotaRepository {
             .join(FILE)
             .on(FILE.ID.eq(DRIVE_FILE_VERSION.FILE_ID))
             .where(DRIVE_FILE.TRASHED_AT.isNull())
+            .fetchOne(0, Long.class);
+    return result == null ? 0L : result;
+  }
+
+  /**
+   * #759 위키 첨부가 소비하는 바이트 — 임시·강등 여부와 무관하게 전부 센다.
+   *
+   * <p>강등(만료 재무장)된 파일도 스윕이 돌기 전까지는 실제 디스크를 먹는다. 이걸 빼면 유예 창 안에서 "지우고 다시 올리기" 를 반복하는 남용이 쿼터를 우회한다 — 그
+   * 남용의 수법이 정확히 회수보다 빠르게 도는 것이다.
+   *
+   * <p>테이블을 직접 조회한다(wiki 모듈 import 아님) — 의존 방향은 wiki → drive 한쪽으로만 둔다.
+   */
+  public long sumWikiAttachmentBytes() {
+    Long result =
+        dsl.select(DSL.coalesce(DSL.sum(FILE.SIZE_BYTES), DSL.inline(0L)))
+            .from(WIKI_PAGE_ATTACHMENT)
+            .join(FILE)
+            .on(FILE.ID.eq(WIKI_PAGE_ATTACHMENT.FILE_ID))
             .fetchOne(0, Long.class);
     return result == null ? 0L : result;
   }

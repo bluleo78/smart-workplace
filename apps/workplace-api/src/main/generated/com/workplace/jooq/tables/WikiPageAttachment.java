@@ -87,6 +87,11 @@ public class WikiPageAttachment extends TableImpl<WikiPageAttachmentRecord> {
      */
     public final TableField<WikiPageAttachmentRecord, OffsetDateTime> ATTACHED_AT = createField(DSL.name("attached_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.wiki_page_attachment.demoted_at</code>.
+     */
+    public final TableField<WikiPageAttachmentRecord, OffsetDateTime> DEMOTED_AT = createField(DSL.name("demoted_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private WikiPageAttachment(Name alias, Table<WikiPageAttachmentRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -158,7 +163,7 @@ public class WikiPageAttachment extends TableImpl<WikiPageAttachmentRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_WIKI_PAGE_ATTACHMENT_PAGE, Indexes.IDX_WIKI_PAGE_ATTACHMENT_TENANT);
+        return Arrays.asList(Indexes.IDX_WIKI_PAGE_ATTACHMENT_DEMOTED, Indexes.IDX_WIKI_PAGE_ATTACHMENT_PAGE, Indexes.IDX_WIKI_PAGE_ATTACHMENT_TENANT);
     }
 
     @Override

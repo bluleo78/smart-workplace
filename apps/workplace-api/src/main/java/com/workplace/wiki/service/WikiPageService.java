@@ -97,10 +97,11 @@ public class WikiPageService {
     // save() 가 @Transactional 이므로 replaceForSource 의 delete+insert 가 원자적으로 묶인다.
     // 추출은 실제 저장한 body 로 수행해야 본문과 백링크가 일관(null→유지 시 기존 백링크 보존).
     references.replaceForSource(pageId, refParser.parse(pageId, body));
-    // 본문에 남아 있는 이미지 첨부만 영구화한다(promote-only).
-    // 참조가 사라진 것은 회수하지 않는다 — autosave 800ms 디바운스라 잘라내기-붙여넣기·undo 중간 상태가
-    // 각각 저장되고, 페이지 간 복사도 원본에서 참조가 빠진 것처럼 보여 실데이터가 삭제된다.
-    attachments.promoteReferenced(pageId, body);
+    // 본문에 남아 있는 이미지 첨부는 영구화하고, 참조가 빠진 것은 강등한다(#759).
+    // 강등 = 즉시 삭제가 아니라 만료 재무장이다 — autosave 800ms 디바운스라 잘라내기-붙여넣기·undo 중간
+    // 상태가 각각 저장되고, 페이지 간 복사도 원본에서 참조가 빠진 것처럼 보인다. 유예 창 안에 참조가
+    // 돌아오면 원상 복구되고, 실제 삭제는 FileCleanupService 스윕이 보존 정책을 한 번 더 확인한 뒤 한다.
+    attachments.syncReferences(pageId, body);
     WikiPageDetail saved =
         pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     // #724: 저장 사실을 스페이스 멤버에게 SSE 로 알린다 — 다른 탭/AI 편집이 즉시 반영되도록.

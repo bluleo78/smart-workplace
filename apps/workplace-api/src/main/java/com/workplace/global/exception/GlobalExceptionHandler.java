@@ -415,6 +415,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
+  // #759 저장 중 첨부 승격이 정리 스윕과 경합해 실패 — 재시도로 풀리므로 409.
+  @ExceptionHandler(com.workplace.wiki.exception.WikiAttachmentPromoteRaceException.class)
+  public ResponseEntity<ErrorResponse> handleWikiPromoteRace(
+      com.workplace.wiki.exception.WikiAttachmentPromoteRaceException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
   @ExceptionHandler(com.workplace.wiki.exception.WikiConflictException.class)
   public ResponseEntity<ErrorResponse> handleWikiConflict(
       com.workplace.wiki.exception.WikiConflictException ex, HttpServletRequest request) {

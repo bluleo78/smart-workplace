@@ -24,9 +24,16 @@ public class DriveQuotaService {
     this.defaultQuotaBytes = defaultQuotaBytes;
   }
 
-  /** 현재 테넌트의 드라이브 사용량(바이트). */
+  /**
+   * 현재 테넌트의 저장소 사용량(바이트) — 드라이브 + 노트 첨부(#759).
+   *
+   * <p>이름은 드라이브지만 집계 범위는 드라이브만이 아니다. 노트 첨부가 쿼터 밖이던 것이 #759 의 무제한 증가 경로였다.
+   *
+   * <p>아직 집계 밖: 이슈·메시징·채팅 첨부. 그쪽은 상한이 매핑 개수 기준이라 무제한 루프는 없지만 쿼터에도 안 잡힌다 — 포함시키면 기존 테넌트 사용량이 급증해 한도
+   * 초과로 전환되므로 정책 결정이 선행돼야 한다(별도 이슈).
+   */
   public long usedBytes() {
-    return repo.sumDriveUsageBytes();
+    return repo.sumDriveUsageBytes() + repo.sumWikiAttachmentBytes();
   }
 
   /** 현재 테넌트의 한도(바이트). 컨텍스트가 없으면 기본값. */
@@ -50,9 +57,24 @@ public class DriveQuotaService {
   }
 
   /**
+   * 락 획득 + 쿼터 검사를 한 번에 — 호출자가 순서를 조립하거나 drive repository 를 직접 만지지 않도록 묶었다(#759).
+   *
+   * <p>락은 테넌트 컨텍스트가 있을 때만 잡지만, 검사 자체는 항상 수행한다(fail-open 금지).
+   */
+  public void assertWithinQuotaLocked(long incomingBytes) {
+    Long tenantId = TenantContext.get();
+    if (tenantId != null) {
+      // 락은 테넌트 컨텍스트가 있을 때만 — 검사 자체는 항상 수행한다(fail-open 금지).
+      repo.advisoryLockTenant(tenantId);
+    }
+    assertWithinQuota(incomingBytes);
+  }
+
+  /**
    * 업로드 가능 여부 검사. 초과 시 {@link DriveQuotaExceededException}.
    *
-   * <p>동시성: 호출자(업로드 트랜잭션)가 먼저 advisory lock 을 잡은 상태여야 정확하다.
+   * <p>동시성: 호출자(업로드 트랜잭션)가 먼저 advisory lock 을 잡은 상태여야 정확하다 — 락까지 함께 원하는 호출자는 {@link
+   * #assertWithinQuotaLocked} 를 쓴다.
    */
   public void assertWithinQuota(long incomingBytes) {
     long used = usedBytes();
