@@ -98,6 +98,19 @@ function flattenTree(pages: WikiPageSummary[], collapsed: Set<number>): FlatItem
   return result
 }
 
+// #760 드래그 중인 노드의 후손을 평면 배열에서 제거한다(dnd-kit SortableTree 예제의 removeChildrenOf).
+// 후손이 남아 있으면 getProjection 이 후손을 parentId 로 돌려줘 서버가 400 으로 거부할 이동이 나간다.
+// 평면 배열은 depth-first 라 activeId 뒤에서 depth 가 더 깊은 연속 구간이 곧 그 노드의 후손 전체다.
+function removeDescendantsOf(items: FlatItem[], activeId: number): FlatItem[] {
+  const activeIdx = items.findIndex((i) => i.id === activeId)
+  if (activeIdx < 0) return items
+  const activeDepth = items[activeIdx].depth
+  const result = items.slice(0, activeIdx + 1)
+  let i = activeIdx + 1
+  while (i < items.length && items[i].depth > activeDepth) i++
+  return result.concat(items.slice(i))
+}
+
 // 드래그 중 투영 결과 — active 항목이 드롭될 위치의 depth 와 새 부모 id.
 // dnd-kit "SortableTree" 예제의 getProjection 을 미러링한다.
 // 핵심: prev/next 는 "이동 후" 배열(newItems)에서 읽어야 depth 클램핑이 정확하다.
@@ -107,9 +120,13 @@ function getProjection(
   overId: number,
   offsetLeft: number,
   indentWidth: number,
-): { depth: number; parentId: number | null } {
+): { depth: number; parentId: number | null } | null {
   const overIdx = items.findIndex((i) => i.id === overId)
   const activeIdx = items.findIndex((i) => i.id === activeId)
+  // 배열에 없는 id 방어(#760 에서 함께 정리) — flatItems 는 useWikiTree 결과에서 파생되므로
+  // 드래그 도중 백그라운드 refetch 가 도착하면 overId 가 배열에서 사라질 수 있다. 그대로 두면
+  // items[-2] → undefined 로 depth 0 이 되어 "루트로 이동" 이 조용히 나간다(#760 이전부터 있던 갭).
+  if (overIdx < 0 || activeIdx < 0) return null
   const activeItem = items[activeIdx]
   // active 를 over 위치로 옮긴 가상 배열 — 이웃(prev/next)을 여기서 읽는다.
   const newItems = arrayMove(items, activeIdx, overIdx)
@@ -189,13 +206,20 @@ export function WikiSidebar() {
   const [overId, setOverId] = useState<number | null>(null)
   const [offsetLeft, setOffsetLeft] = useState(0)
 
+  // #760 렌더·SortableContext·투영이 모두 쓰는 단일 배열 — 드래그 중에는 active 의 후손을 뺀다.
+  // 셋 중 하나라도 다른 배열을 보면 parentId 와 position 이 서로 다른 기준으로 계산돼 어긋난다.
+  const dndItems = useMemo(
+    () => (activeId != null ? removeDescendantsOf(flatItems, activeId) : flatItems),
+    [flatItems, activeId],
+  )
+
   // 드래그 중 active 행에 적용할 투영(depth/parentId). 정지 시 null.
   const projected = useMemo(() => {
     if (activeId != null && overId != null) {
-      return getProjection(flatItems, activeId, overId, offsetLeft, INDENT)
+      return getProjection(dndItems, activeId, overId, offsetLeft, INDENT)
     }
     return null
-  }, [flatItems, activeId, overId, offsetLeft])
+  }, [dndItems, activeId, overId, offsetLeft])
 
   // PointerSensor distance:5 — 짧은 클릭(제목 이동)과 드래그를 구분.
   const sensors = useSensors(
@@ -280,12 +304,15 @@ export function WikiSidebar() {
     const aId = Number(active.id)
     const oId = Number(over.id)
     // 종료 시점은 event.delta 로 오프셋을 직접 계산(상태 stale 회피).
-    const { parentId } = getProjection(flatItems, aId, oId, delta.x, INDENT)
+    // #760 배열은 투영·index 계산 모두 dndItems(후손 제외) 로 통일한다.
+    const projection = getProjection(dndItems, aId, oId, delta.x, INDENT)
+    if (!projection) return
+    const { parentId } = projection
 
     // 이동 후 배열에서 active 의 새 슬롯 앞에 위치하며 같은 부모인 형제 수 = 목표 index.
-    const activeIdx = flatItems.findIndex((i) => i.id === aId)
-    const overIdx = flatItems.findIndex((i) => i.id === oId)
-    const newItems = arrayMove(flatItems, activeIdx, overIdx)
+    const activeIdx = dndItems.findIndex((i) => i.id === aId)
+    const overIdx = dndItems.findIndex((i) => i.id === oId)
+    const newItems = arrayMove(dndItems, activeIdx, overIdx)
     const newActiveIdx = newItems.findIndex((i) => i.id === aId)
     let position = 0
     for (let i = 0; i < newActiveIdx; i++) {
@@ -293,8 +320,8 @@ export function WikiSidebar() {
     }
 
     // no-op 가드 — 현재 부모/형제 index 와 동일하면 호출 생략.
-    const current = flatItems[activeIdx]
-    const currentSiblingsBefore = flatItems
+    const current = dndItems[activeIdx]
+    const currentSiblingsBefore = dndItems
       .slice(0, activeIdx)
       .filter((i) => i.parentId === current.parentId).length
     if (parentId === current.parentId && position === currentSiblingsBefore) return
@@ -373,10 +400,10 @@ export function WikiSidebar() {
           onDragCancel={resetDnd}
         >
           <SortableContext
-            items={flatItems.map((i) => i.id)}
+            items={dndItems.map((i) => i.id)}
             strategy={verticalListSortingStrategy}
           >
-            {flatItems.map((item) => (
+            {dndItems.map((item) => (
               <WikiTreeRow
                 key={item.id}
                 id={item.id}
