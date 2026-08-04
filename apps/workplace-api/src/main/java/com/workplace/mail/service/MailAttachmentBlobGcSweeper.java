@@ -36,8 +36,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>삭제 순서: DB 행 삭제(트랜잭션) → 디스크 파일 삭제(커밋 후 best-effort). 파일 삭제 실패는 경고 로그만(고아 파일은 orphan-file 백스톱이
  * 재정리).
  *
- * <p>추가로 {@code baseDir/tenant-{id}} 디렉터리를 walk 하여 DB 행 없이 남은 고아 파일을 정리하는 백스톱 스윕을 수행한다(mtime 1시간 이상
- * 경과한 파일만 — in-flight store 와의 레이스 방지).
+ * <p>추가로 {@code baseDir/tenant-{id}/mail} 디렉터리를 walk 하여 DB 행 없이 남은 고아 파일을 정리하는 백스톱 스윕을 수행한다(mtime
+ * 1시간 이상 경과한 파일만 — in-flight store 와의 레이스 방지). baseDir 는 통합 스토리지 루트라 반드시 mail 세그먼트로 한정해야 한다 — 다른 모듈
+ * 파일까지 지운다.
  *
  * <p>{@link MailContentGcSweeper} 와 동일한 {@code @Scheduled fixedDelay/initialDelay}, sweepAllTenants
  * TenantContext 루프, TransactionTemplate-per-tenant 패턴.
@@ -162,15 +163,21 @@ public class MailAttachmentBlobGcSweeper {
   }
 
   /**
-   * 디스크 {@code baseDir/tenant-{tenantId}} 디렉터리를 walk 하여 DB 에 대응 blob 행이 없고 mtime 1시간 이상 경과한 파일을
-   * 삭제한다.
+   * 디스크 {@code baseDir/tenant-{tenantId}/mail} 디렉터리를 walk 하여 DB 에 대응 blob 행이 없고 mtime 1시간 이상 경과한
+   * 파일을 삭제한다.
+   *
+   * <p>walk 루트는 mail 세그먼트로 좁히되, {@code relRef} 계산 기준은 {@code baseDir()} 를 유지해야 한다 — {@code
+   * file_ref} 가 {@code tenant-{id}/mail/...} 형태라 기준을 바꾸면 살아 있는 blob 이 전부 고아로 뒤집힌다.
    *
    * <p>in-flight store(파일 기록 완료·DB 미커밋) 와의 레이스를 방지하기 위해 mtime 이 {@code ORPHAN_FILE_MIN_AGE_SECONDS}
    * 이상 경과한 파일만 대상으로 한다.
    */
   void sweepOrphanFiles(Long tenantId) {
     if (tenantId == null) return;
-    Path tenantDir = blobStore.baseDir().resolve("tenant-" + tenantId);
+    // baseDir 는 통합 스토리지 루트다. "tenant-{id}" 까지만 잡으면 Drive·메시징·위키 첨부까지 walk 대상이 되고,
+    // 그것들은 mail_attachment_blob 에 없으므로 전부 고아로 판정돼 삭제된다(운영 파일 전량 소실 회귀).
+    // store() 의 저장 레이아웃(tenant-{id}/mail/...)과 맞춰 메일 세그먼트 안만 훑는다.
+    Path tenantDir = blobStore.baseDir().resolve("tenant-" + tenantId).resolve("mail");
     if (!Files.exists(tenantDir)) return;
 
     // 현재 테넌트의 DB file_ref 전체 수집 (트랜잭션 — GUC 필요).

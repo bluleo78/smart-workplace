@@ -10,6 +10,9 @@ import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.MailAttachmentBlobRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.jooq.DSLContext;
@@ -211,6 +214,42 @@ class MailAttachmentBlobGcIntegrationTest extends IntegrationTestBase {
     assertThat(Files.exists(blobStore.resolve(ref)))
         .as("참조 있는 최근 blob — 디스크 파일이 보존되어야 함 (teeth)")
         .isTrue();
+  }
+
+  /**
+   * 회귀: orphan-file 백스톱은 <b>메일 세그먼트 안</b>만 훑어야 한다.
+   *
+   * <p>baseDir 가 통합 스토리지 루트(`workplace.storage.root-dir`)라, 스윕 루트를 `tenant-{id}` 로 잡으면 Drive·메시징·위키
+   * 첨부까지 "DB(mail_attachment_blob)에 없는 고아"로 판정돼 삭제된다. 운영에서 업로드 파일 전량이 업로드 약 1시간 뒤 소실됐다.
+   *
+   * <p>Teeth: mtime 을 유예(1시간) 밖으로 backdate 한다. backdate 없이는 유예 때문에 버그가 있어도 파일이 살아남아 가짜 통과가 난다.
+   */
+  @Test
+  @DisplayName("메일 세그먼트 밖 파일(tenant-N/files/...)은 orphan 스윕이 삭제하지 않는다")
+  void 메일_세그먼트_밖_파일은_보존된다() throws Exception {
+    TenantContext.clear();
+
+    // 통합 스토리지 루트 하위 · 메일 세그먼트 밖 — Drive 업로드 모사
+    Path outside =
+        blobStore.baseDir().resolve("tenant-" + T).resolve("files/2026-07-25/drive-blob.bin");
+    Files.createDirectories(outside.getParent());
+    Files.write(outside, "drive-file".getBytes());
+    Files.setLastModifiedTime(outside, FileTime.from(Instant.now().minusSeconds(7200)));
+
+    try {
+      assertThat(Files.exists(outside)).as("sweep 전 파일 존재").isTrue();
+
+      TenantContext.set(T);
+      try {
+        sweeper.sweepTenant();
+      } finally {
+        TenantContext.clear();
+      }
+
+      assertThat(Files.exists(outside)).as("메일 첨부 GC 는 메일 세그먼트 밖 파일을 건드리면 안 됨 (teeth)").isTrue();
+    } finally {
+      Files.deleteIfExists(outside);
+    }
   }
 
   /** TTL 초과(last_accessed_at 8일 전) blob → evict. */
