@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { formatRelativeTime } from '@/lib/formatters'
+import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { cn } from '@/lib/utils'
 
 import { downloadMailAttachment } from '../../api/mailMessages'
@@ -140,15 +141,6 @@ function MessageRow({
   )
 }
 
-// 답장/전달 인용 원문 HTML 생성.
-function quoteHtml(detail: EmailMessageDetail): string {
-  const who = detail.fromName || detail.fromAddress || ''
-  const body = detail.bodyHtml ?? (detail.bodyText ? `<pre>${escapeHtml(detail.bodyText)}</pre>` : '')
-  return `<p></p><blockquote>${who} 님이 작성:<br/>${body}</blockquote>`
-}
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
 function withPrefix(prefix: string, subject: string | null): string {
   const s = subject ?? ''
   return s.toLowerCase().startsWith(prefix.toLowerCase()) ? s : `${prefix} ${s}`
@@ -490,7 +482,9 @@ export function MailInboxPage() {
       cc,
       bcc: [],
       subject: withPrefix('Re:', detail.subject),
-      initialHtml: quoteHtml(detail),
+      initialHtml: '',
+      // 인용문은 에디터 밖 raw HTML/text 로 보관 — AI 개선본 교체(setContent)가 지우지 않는다.
+      quote: buildQuote(detail, 'reply'),
       inReplyToMessageId: detail.id,
     }
   }
@@ -501,16 +495,19 @@ export function MailInboxPage() {
       accountId: accountIdNum as number,
       to: [], cc: [], bcc: [],
       subject: withPrefix('Fwd:', d.subject),
-      initialHtml: quoteHtml(d),
+      initialHtml: '',
+      quote: buildQuote(d, 'forward'),
       inReplyToMessageId: null,
     })
   }
-  // AI 답장 초안 — 생성된 본문을 인용문 위 단락으로 넣어 답장 도크 오픈.
+  // AI 답장 초안 — 인용문은 buildReply 가 이미 담은 것을 승계하고, 초안 본문만 얹는다.
   async function onAiReplyDraft(d: EmailMessageDetail) {
     const base = buildReply(d, false)
     try {
       const { draftBody } = await replyDraft.mutateAsync(d.id)
-      openCompose({ ...base, initialHtml: `<p>${draftBody.replace(/\n/g, '<br/>')}</p>${base.initialHtml}` })
+      // draftBody 는 plain text — escape 후 개행만 <br/> 로 바꿔 넣는다(HTML 주입 방지).
+      const escaped = escapeHtml(draftBody).replace(/\n/g, '<br/>')
+      openCompose({ ...base, initialHtml: `<p>${escaped}</p>` })
     } catch {
       /* 토스트는 훅 onError 가 처리 */
     }

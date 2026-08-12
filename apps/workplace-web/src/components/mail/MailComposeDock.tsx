@@ -12,6 +12,7 @@ import { useCoachDraft, useSendMail } from '../../hooks/queries/useMailMessages'
 import type { CoachingNote } from '../../types/mailMessage';
 import { useMailCompose } from './MailComposeContext';
 import { MailComposer, type MailComposerHandle } from './MailComposer';
+import { MailQuoteBlock } from './MailQuoteBlock';
 
 /** 주소 문자열("a@x, b@y")을 배열로 파싱. */
 function parseAddresses(raw: string): string[] {
@@ -23,7 +24,7 @@ function parseAddresses(raw: string): string[] {
 
 /** 작성 도크 본체. draft 없으면 렌더 안 함. */
 export function MailComposeDock() {
-  const { draft, closeCompose } = useMailCompose();
+  const { draft, closeCompose, clearQuote } = useMailCompose();
   const send = useSendMail(draft?.accountId);
 
   const composerRef = useRef<MailComposerHandle>(null);
@@ -85,8 +86,9 @@ export function MailComposeDock() {
         cc: parseAddresses(cc),
         bcc: parseAddresses(bcc),
         subject,
-        bodyHtml: bodyHtmlRef.current,
-        bodyText: bodyTextRef.current,
+        // 인용문은 에디터 밖에 있으므로 발송 시점에 뒤에 이어붙인다(설계 §7).
+        bodyHtml: bodyHtmlRef.current + (draft.quote?.html ?? ''),
+        bodyText: bodyTextRef.current + (draft.quote?.text ? '\n\n' + draft.quote.text : ''),
         inReplyToMessageId: draft.inReplyToMessageId,
       },
       { onSuccess: () => closeCompose() },
@@ -124,7 +126,7 @@ export function MailComposeDock() {
       </div>
 
       {!minimized && (
-        <div className="flex flex-col gap-2 p-3">
+        <div className="flex max-h-[75vh] flex-col gap-2 overflow-y-auto p-3">
           {/* 수신자 */}
           <div className="flex items-center gap-2 border-b pb-2">
             <input
@@ -182,6 +184,7 @@ export function MailComposeDock() {
             <button
               type="button"
               data-testid="mail-review-tab"
+              // 코칭 payload 에는 인용문이 실리지 않으므로(§6) 본문이 비어 있으면 검토 대상이 없다
               disabled={!hasBody}
               className={`flex-1 py-1.5 font-medium disabled:opacity-50 ${tab === 'review' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground'}`}
               onClick={() => {
@@ -209,6 +212,16 @@ export function MailComposeDock() {
                 setHasBody(text.trim().length > 0);
               }}
             />
+            {/* 인용문 — 에디터 밖(읽기 전용). AI 개선본 교체 대상이 아니므로 원문이 보존된다. */}
+            {draft.quote && (
+              <MailQuoteBlock
+                key={draft.instanceId}
+                quoteHtml={draft.quote.html}
+                meta={draft.quote.meta}
+                variant={draft.quote.variant}
+                onRemove={clearQuote}
+              />
+            )}
           </div>
 
           {/* 코칭 패널(검토 탭) — AI 생성물이므로 AiContent 아우라로 감쌈 */}

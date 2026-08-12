@@ -341,12 +341,16 @@ test.describe('받은편지함', () => {
     await replyBtn.click()
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
 
-    // 인용 원문(blockquote)이 새 작성 텍스트와 시각적으로 구분돼야 한다 (#685) —
-    // border-left 및 muted 색상이 적용돼 있어야 함(둘 다 0/foreground면 회귀).
-    const quote = page.getByTestId('mail-compose-dock').locator('blockquote')
-    await expect(quote).toBeVisible()
-    const borderLeft = await quote.evaluate((el) => getComputedStyle(el).borderLeftWidth)
-    expect(borderLeft).not.toBe('0px')
+    // 인용 원문이 새 작성 텍스트와 시각적으로 구분돼야 한다 (#685) — #765 이후 인용문은
+    // 에디터 밖 MailQuoteBlock(iframe + 테두리 액자)으로 분리됐으므로 그 래퍼를 검증한다.
+    // border 및 muted 배경이 적용돼 있어야 함(둘 다 0/투명이면 회귀).
+    await expect(page.getByTestId('mail-compose-quote')).toBeVisible()
+    await page.getByTestId('mail-compose-quote-toggle').click()
+    const frame = page.getByTestId('mail-compose-quote-frame')
+    await expect(frame).toBeVisible()
+    const wrapper = frame.locator('..')
+    const border = await wrapper.evaluate((el) => getComputedStyle(el).borderWidth)
+    expect(border).not.toBe('0px')
   })
 })
 

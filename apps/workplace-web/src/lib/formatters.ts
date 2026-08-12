@@ -24,6 +24,13 @@ export function formatDateShort(dateStr: string): string {
   return parseUtcDate(dateStr).toLocaleDateString('ko-KR');
 }
 
+/** 월·일만("8월 12일") — 좁은 칩/배지용. 무효 입력이면 빈 문자열(호출부가 세그먼트 생략). */
+export function formatDateMonthDay(dateStr: string | null | undefined): string {
+  const d = parseUtcDate(dateStr);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }).format(d);
+}
+
 /**
  * 날짜만 표시 — `YYYY-MM-DD` zero-pad (이슈 #105).
  * `formatDateShort`는 로케일 의존이라 페이지 간 표시가 들쭉날쭉하여 별도 zero-pad 헬퍼 도입.

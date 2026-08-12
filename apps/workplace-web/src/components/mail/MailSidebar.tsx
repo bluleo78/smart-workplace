@@ -47,6 +47,7 @@ export function MailSidebar() {
     openCompose({
       accountId: current.id,
       to: [], cc: [], bcc: [], subject: '', initialHtml: '', inReplyToMessageId: null,
+      quote: null,
     })
   }
 

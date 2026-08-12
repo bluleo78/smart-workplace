@@ -1,8 +1,19 @@
 // 메일 AI 비서 E2E — 배지/요약/답장 초안. 백엔드 없이 page.route 모킹.
+import type { Page } from '@playwright/test'
+
 import { createUser } from '../../factories/auth.factory'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+
+/** 목록 1건(id 7, alice 발신) + 상세 모킹 — 인용문(#765) 테스트 공용. */
+async function mockInboxMessage(page: Page, overrides: Parameters<typeof detail>[0] = {}) {
+  await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify([summary({ id: 7, fromAddress: 'alice@example.com' })]) }))
+  await mockApi(page, 'GET', '/api/v1/mail/messages/7',
+    detail({ id: 7, fromAddress: 'alice@example.com', bodyText: '원문', ...overrides }))
+}
 
 test.describe('메일 AI 비서', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -101,6 +112,85 @@ test.describe('메일 AI 비서', () => {
     await page.getByTestId('mail-ai-reply-draft').click()
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
     await expect(page.getByTestId('mail-composer-body')).toContainText('AI가 작성한 답장')
+  })
+
+  // 인용문 분리(#765) 회귀 — AI 검토 요청에 남의 원문이 실려 AI 가 착각하지 않는지 검증.
+  test('AI 검토 요청에 인용문이 실리지 않는다', async ({ authenticatedPage: page }) => {
+    await mockInboxMessage(page)
+
+    let coachReq: { bodyHtml: string; bodyText: string } | null = null
+    // 코칭은 계정 경로가 아니라 /api/v1/mail/draft-coaching 이다(mailMessages.ts:120).
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/draft-coaching',
+      async (route) => {
+        coachReq = route.request().postDataJSON()
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ notes: [], improvedBodyHtml: '<p>다듬은 본문</p>' }),
+        })
+      },
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await page.getByTestId('mail-reply').click()
+    await page.getByTestId('mail-composer-body').click()
+    await page.keyboard.type('확인했습니다.')
+    await page.getByText('AI 검토', { exact: true }).click()
+
+    await expect.poll(() => coachReq).not.toBeNull()
+    // AI 가 남의 메일을 내 초안으로 착각하던 문제(#765)
+    expect(coachReq!.bodyHtml).not.toContain('<blockquote>')
+    expect(coachReq!.bodyHtml).not.toContain('님이 작성')
+    expect(coachReq!.bodyHtml).toContain('확인했습니다')
+    // 백엔드는 코칭에서 bodyText 만 읽으므로(mailAgent) 이 필드에 인용문이 없는지가 실제 관문이다.
+    expect(coachReq!.bodyText).not.toContain('님이 작성')
+    expect(coachReq!.bodyText).not.toContain('원문')
+    expect(coachReq!.bodyText).toContain('확인했습니다')
+  })
+
+  test('개선본으로 교체해도 인용문이 남는다', async ({ authenticatedPage: page }) => {
+    await mockInboxMessage(page)
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/draft-coaching',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ notes: [], improvedBodyHtml: '<p>다듬은 본문</p>' }),
+        }),
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await page.getByTestId('mail-reply').click()
+    await page.getByTestId('mail-composer-body').click()
+    await page.keyboard.type('확인했습니다.')
+    await page.getByText('AI 검토', { exact: true }).click()
+    await page.getByText('개선본으로 교체', { exact: true }).click()
+
+    await expect(page.getByTestId('mail-composer-body')).toContainText('다듬은 본문')
+    await expect(page.getByTestId('mail-compose-quote')).toBeVisible()
+  })
+
+  test('AI 답장 초안의 HTML 특수문자가 이스케이프된다', async ({ authenticatedPage: page }) => {
+    await mockInboxMessage(page)
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/messages/7/reply-draft',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ draftBody: '조건은 a < b & c 입니다' }),
+        }),
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await page.getByTestId('mail-ai-reply-draft').click()
+    // escape 없이 삽입되면 '<' 이후가 태그로 먹혀 텍스트가 사라진다.
+    await expect(page.getByTestId('mail-composer-body')).toContainText('a < b & c')
   })
 
   // 초안 생성은 LLM 호출이라 수 초 걸린다 — 그동안 버튼이 로딩(비활성+스피너 라벨)을 보여야 한다(클릭 후 무반응 방지).

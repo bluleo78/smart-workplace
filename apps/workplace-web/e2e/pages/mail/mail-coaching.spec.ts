@@ -44,19 +44,31 @@ test.describe('메일 초안 코칭', () => {
     await expect(page.getByTestId('mail-composer-body')).toContainText('다듬은 개선본입니다')
   })
 
-  // 빈 초안에서는 AI 검토 탭 비활성
+  // 빈 초안에서는 AI 검토 탭 비활성. 판별자는 hasBody 단독(#765) — 새 메일로
+  // "본문이 비어 있는" 상태를 재현한다.
   test('빈 초안 → AI 검토 비활성', async ({ authenticatedPage: page }) => {
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-compose-new').click()
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+    await expect(page.getByTestId('mail-compose-quote')).toHaveCount(0)
+    await expect(page.getByTestId('mail-review-tab')).toBeDisabled()
+  })
+
+  // #765 — 코칭 payload 에는 인용문이 실리지 않으므로(§6) 답장에 인용문이 남아 있어도
+  // 본문을 비우면 검토할 초안이 없다. 게이트가 "인용문만 있어도 활성" 으로 풀리는 회귀를 막는다.
+  test('본문을 비우면 인용문이 남아 있어도 AI 검토는 비활성 (#765)', async ({ authenticatedPage: page }) => {
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-7').click()
     await page.getByTestId('mail-reply').click()
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
-    // 본문 비움 (답장 인용문이 있으므로 전체 선택 후 삭제)
     const body = page.getByTestId('mail-composer-body')
     await body.click()
-    // ProseMirror 에서 전체 선택 후 삭제 — ControlOrMeta+A 로 모든 노드 선택, Backspace 로 삭제.
+    await page.keyboard.type('임시 문장')
+    await expect(page.getByTestId('mail-review-tab')).toBeEnabled()
+    // 본문 비움 — 인용문은 에디터 밖이라 그대로 남는다.
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.press('Backspace')
-    // 내용이 모두 지워질 때까지 대기 — ProseMirror 는 빈 단락 <p></p> 하나를 남기므로 getText() = '' → hasBody=false.
+    await expect(page.getByTestId('mail-compose-quote')).toBeVisible()
     await expect(page.getByTestId('mail-review-tab')).toBeDisabled()
   })
 

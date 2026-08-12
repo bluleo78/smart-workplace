@@ -76,7 +76,8 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
     ],
     content: initialHtml,
     autofocus: 'end',
-    // 미편집(타이핑 없음) 답장/전달도 인용 본문이 발송되도록 마운트 직후 refs 를 초기화.
+    // 마운트 직후 refs 를 초기화해 상위 도크가 빈 본문 상태를 정확히 알게 한다.
+    // (인용문은 에디터 밖에서 관리되므로 여기 포함되지 않는다 — 설계 §3)
     onCreate: ({ editor }) => onChange(editor.getHTML(), editor.getText()),
     onUpdate: ({ editor }) => onChange(editor.getHTML(), editor.getText()),
     editorProps: {
