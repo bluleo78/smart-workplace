@@ -150,9 +150,12 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
               long keep = repo.upsertExternalEvent(ownerId, calId, "keep", sampleRow());
               long gone = repo.upsertExternalEvent(ownerId, calId, "gone", sampleRow());
 
-              // from/to 는 sampleRow 의 starts_at(현재 시각 근방)을 포함하는 넓은 윈도우
-              OffsetDateTime from = OffsetDateTime.now().minusMonths(1);
-              OffsetDateTime to = OffsetDateTime.now().plusMonths(3);
+              // from/to 는 sampleRow 의 고정 starts_at 을 기준으로 잡는다.
+              // ⚠️ now() 기준 상대 윈도우를 쓰면 실제 시각이 픽스처 날짜에서 멀어지는 순간
+              //    픽스처가 윈도우 밖으로 빠져 삭제 0건이 되는 시한폭탄이 된다.
+              OffsetDateTime anchor = sampleRow().startsAt();
+              OffsetDateTime from = anchor.minusMonths(1);
+              OffsetDateTime to = anchor.plusMonths(3);
               int deleted = repo.pruneEventsNotIn(calId, Set.of("keep"), from, to);
 
               assertThat(deleted).isEqualTo(1);
