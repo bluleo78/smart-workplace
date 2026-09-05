@@ -1,11 +1,12 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
-import { Eye, EyeOff, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, FileQuestion, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
+import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -189,7 +190,15 @@ export default function IssueDetailPage() {
   // 프로젝트 타입이 확정되기 전에는 렌더 보류 — 팀 화면 반짝임 방지.
   if (project.isLoading) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
   if (project.error)
-    return <p className="w-full p-6 text-destructive">프로젝트를 불러올 수 없습니다</p>;
+    return (
+      <ResourceErrorState
+        icon={FileQuestion}
+        title="프로젝트를 불러올 수 없습니다"
+        description="요청한 프로젝트가 존재하지 않거나 접근 권한이 없습니다."
+        actionLabel="프로젝트 목록으로"
+        onAction={() => navigate('/projects')}
+      />
+    );
   // 개인 프로젝트의 이슈 풀페이지 진입(알림/북마크)은 프로젝트 화면의 우측 패널로 리다이렉트한다.
   // 팀 프로젝트는 기존 풀페이지 유지.
   if (project.data?.type === 'PERSONAL') {

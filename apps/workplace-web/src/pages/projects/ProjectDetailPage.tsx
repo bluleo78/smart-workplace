@@ -1,7 +1,9 @@
+import { FolderX } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { PageHeader } from '@/components/layout/PageHeader';
+import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { Button } from '@/components/ui/button';
 
 import { useProject } from '../../hooks/queries/useProjects';
@@ -19,6 +21,7 @@ import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
 // view / 필터는 URL SearchParams 가 단일 source of truth.
 export default function ProjectDetailPage() {
   const { key = '' } = useParams();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const project = useProject(key);
 
@@ -26,9 +29,13 @@ export default function ProjectDetailPage() {
     return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
   if (project.error)
     return (
-      <p className="w-full p-6 text-destructive">
-        프로젝트를 불러올 수 없습니다
-      </p>
+      <ResourceErrorState
+        icon={FolderX}
+        title="프로젝트를 불러올 수 없습니다"
+        description="요청한 프로젝트가 존재하지 않거나 접근 권한이 없습니다."
+        actionLabel="프로젝트 목록으로"
+        onAction={() => navigate('/projects')}
+      />
     );
 
   // 개인 프로젝트는 전용 화면으로 분기 — 팀 화면(사이클/설정/필터바)을 렌더하지 않는다.
