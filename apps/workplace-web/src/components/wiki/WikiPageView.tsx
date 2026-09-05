@@ -1,7 +1,8 @@
-import { BookOpen } from 'lucide-react'
+import { BookOpen, FileQuestion } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { AiLabel } from '@/components/ai/AiLabel'
+import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -11,7 +12,7 @@ import { WikiEditor } from './WikiEditor'
 
 /** 선택된 페이지를 로드해 에디터를 마운트. 미선택 시 DS §2.5 빈 상태(4요소) 표시. */
 export function WikiPageView({ pageId, spaceId }: { pageId: number | null; spaceId: number }) {
-  const { data: page, isLoading } = useWikiPage(pageId)
+  const { data: page, isLoading, isError } = useWikiPage(pageId)
   const createPage = useCreatePage(spaceId)
   const navigate = useNavigate()
 
@@ -48,6 +49,18 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
           </Button>
         </div>
       </div>
+    )
+  }
+  if (isError || (!isLoading && !page)) {
+    /** #788: 존재하지 않는 페이지 ID 등 로드 실패 — 무한 skeleton 대신 ResourceErrorState(4요소) 표시. */
+    return (
+      <ResourceErrorState
+        icon={FileQuestion}
+        title="페이지를 불러올 수 없습니다"
+        description="요청한 노트 페이지가 존재하지 않거나 접근 권한이 없습니다."
+        actionLabel="노트 목록으로"
+        onAction={() => navigate('/wiki')}
+      />
     )
   }
   if (isLoading || !page) {

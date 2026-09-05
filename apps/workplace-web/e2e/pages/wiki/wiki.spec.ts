@@ -629,6 +629,63 @@ test('위키 — 페이지 로딩 중 skeleton이 표시되고 로드 후 에디
   await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 5000 })
 })
 
+// 회귀 #788: 존재하지 않는 페이지 ID 진입 시 skeleton 이 영구 고착되지 않고
+// ResourceErrorState(아이콘+제목+설명+버튼)가 표시되며, 버튼 클릭 시 /wiki 로 이동한다.
+// (useWikiPage 가 404 를 isError 로 노출하지 못하면 WikiPageView 의 `isLoading || !page`
+// 분기가 계속 true 로 남아 skeleton 이 영원히 사라지지 않는다.)
+test('위키 — 존재하지 않는 페이지 ID 접근 시 에러 상태 표시 후 노트 목록으로 이동', async ({
+  authenticatedPage: page,
+}) => {
+  const MISSING_PAGE_ID = 999
+
+  // 스페이스 목록
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([personalSpace()]),
+          })
+        : route.fallback(),
+  )
+
+  // 트리 — 빈 목록 (요청한 페이지가 존재하지 않는 상황)
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+        : route.fallback(),
+  )
+
+  // 페이지 상세 — 404
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${MISSING_PAGE_ID}`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 404, error: 'Not Found', message: '페이지를 찾을 수 없습니다' }),
+          })
+        : route.fallback(),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${MISSING_PAGE_ID}`)
+
+  // skeleton 이 아니라 에러 상태가 표시되어야 한다 (react-query retry 유예를 감안해 넉넉한 timeout).
+  await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0, { timeout: 10000 })
+  await expect(page.getByText('페이지를 불러올 수 없습니다')).toBeVisible({ timeout: 10000 })
+  await expect(page.getByText('요청한 노트 페이지가 존재하지 않거나 접근 권한이 없습니다.')).toBeVisible()
+
+  // navigate('/wiki') 후 WikiIndexRedirect 가 첫 스페이스로 다시 리다이렉트하므로
+  // 최종 URL 은 페이지 상세(/pages/:id) 가 아닌 스페이스 루트여야 한다.
+  await page.getByRole('button', { name: '노트 목록으로' }).click()
+  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}$`))
+})
+
 // 회귀: WikiSidebar 스페이스 선택기 — native <select> → shadcn/ui Select (refs #244)
 // native <select>가 쓰이면 role="combobox"가 없고 대신 role 없는 select 요소가 DOM에 존재.
 // shadcn Select가 정상 렌더링되면 SelectTrigger의 role="combobox"가 보여야 한다.

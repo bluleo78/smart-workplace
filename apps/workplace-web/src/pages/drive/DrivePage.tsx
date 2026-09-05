@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { FileText, Folder, FolderOpen, Upload } from 'lucide-react'
+import { FileText, Folder, FolderOpen, SearchX, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -973,7 +973,28 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               results.files.length === 0 &&
               !contentLoading &&
               (contentResults == null || contentResults.length === 0) && (
-                <p className="py-8 text-center text-sm text-muted-foreground">검색 결과가 없습니다</p>
+                /* #789: DS §2.5 빈 상태 4요소 — 아이콘 + 검색어 포함 메시지 + 설명 + 검색 초기화 버튼.
+                   IssueListView 의 필터 없음 empty state 패턴과 동일하게 구성. */
+                <div
+                  className="flex flex-col items-center justify-center gap-3 py-16 text-center"
+                  data-testid="drive-search-empty"
+                >
+                  <SearchX className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">
+                      <span className="font-medium text-foreground">'{query}'</span>에 대한 결과가 없습니다.
+                    </p>
+                    <p className="text-xs text-muted-foreground">다른 키워드로 검색해 보세요.</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setQuery('')}
+                    data-testid="drive-search-empty-reset"
+                  >
+                    검색 초기화
+                  </Button>
+                </div>
               )}
           </div>
         ) : (
