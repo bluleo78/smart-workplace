@@ -1,7 +1,7 @@
 // 이슈 첨부 드롭존 — HTML5 native DnD + 클릭 업로드.
 // disabled 일 때(이슈당 한도 도달) 드롭/클릭 모두 비활성.
 
-import { Paperclip } from 'lucide-react';
+import { Loader2, Paperclip } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { useUploadIssueAttachments } from '../../../hooks/queries/useUploadIssueAttachments';
@@ -59,7 +59,11 @@ export function IssueAttachmentDropzone({
         onChange={(e) => onFiles(e.target.files)}
         disabled={disabled}
       />
-      <Paperclip className="h-3.5 w-3.5" />
+      {upload.isPending ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Paperclip className="h-3.5 w-3.5" />
+      )}
       {disabled ? '한도 도달' : upload.isPending ? '업로드 중…' : '파일을 드롭하거나 클릭해 첨부'}
     </div>
   );

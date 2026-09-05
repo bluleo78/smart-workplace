@@ -170,7 +170,7 @@ test.describe('이슈 첨부', () => {
       // 삭제 → AlertDialog 확인 → 빈 상태 (#148: window.confirm → shadcn AlertDialog).
       // #306: 삭제 버튼은 hover-reveal 패턴으로 숨겨져 있으므로 hover 후 클릭.
       await row.hover();
-      await row.getByRole('button', { name: '첨부 삭제' }).click();
+      await row.getByRole('button', { name: 'spec.pdf 삭제' }).click();
       // AlertDialog 가 뜨고 삭제 버튼 클릭으로 확인.
       await expect(page.getByTestId('attachment-delete-dialog')).toBeVisible();
       await page.getByTestId('attachment-delete-confirm').click();
@@ -285,6 +285,98 @@ test.describe('이슈 첨부', () => {
     expect(postCount).toBe(1);
   });
 
+  // #782 — 업로드 pending 동안 드롭존에 스피너(Loader2 + animate-spin) 표시 회귀 테스트.
+  test('업로드 중에는 드롭존에 스피너가 표시된다', async ({ authenticatedPage: page }) => {
+    await setupCommonStubs(page, 0);
+
+    // POST 응답을 의도적으로 지연 — pending 상태에서 스피너를 관찰할 시간 확보.
+    let resolvePost: (() => void) | undefined;
+    const postGate = new Promise<void>((resolve) => {
+      resolvePost = resolve;
+    });
+
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      async (route) => {
+        const method = route.request().method();
+        if (method === 'GET') {
+          return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+        }
+        if (method === 'POST') {
+          await postGate;
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([createAttachment({ fileId: 9101, originalName: 'slow.pdf' })]),
+          });
+        }
+        return route.fallback();
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    const dropzone = page.getByTestId('attachment-dropzone');
+    await expect(dropzone).toBeVisible();
+
+    await dropzone.locator('input[type=file]').setInputFiles({
+      name: 'slow.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('slow-upload'),
+    });
+
+    // pending 동안: 텍스트가 '업로드 중…' 이고 회전 스피너 아이콘이 렌더된다.
+    await expect(dropzone).toContainText('업로드 중…');
+    await expect(dropzone.locator('svg.animate-spin')).toBeVisible();
+
+    // 응답 해제 → 업로드 완료 후 스피너가 사라진다.
+    resolvePost?.();
+    await expect(page.getByText('1개 첨부를 추가했습니다')).toBeVisible();
+    await expect(dropzone.locator('svg.animate-spin')).toHaveCount(0);
+  });
+
+  // #783 — 여러 첨부의 삭제 버튼 접근성 이름이 파일명별로 달라야 함 회귀 테스트.
+  test('여러 첨부가 있을 때 삭제 버튼 접근성 이름이 파일명별로 다르다', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupCommonStubs(page, 2);
+
+    const attachments = [
+      createAttachment({ fileId: 8101, originalName: 'alpha.pdf', mimeType: 'application/pdf' }),
+      createAttachment({ fileId: 8102, originalName: 'beta.png', mimeType: 'image/png' }),
+    ];
+
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(attachments),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    const rowAlpha = page.getByTestId('attachment-row-8101');
+    const rowBeta = page.getByTestId('attachment-row-8102');
+    await expect(rowAlpha).toBeVisible();
+    await expect(rowBeta).toBeVisible();
+
+    // 삭제 버튼은 hover-reveal 패턴(#306) — hover 후에야 접근성 트리에 노출된다.
+    await rowAlpha.hover();
+    await expect(rowAlpha.getByRole('button', { name: 'alpha.pdf 삭제' })).toHaveCount(1);
+    await rowBeta.hover();
+    await expect(rowBeta.getByRole('button', { name: 'beta.png 삭제' })).toHaveCount(1);
+    // 각 삭제 버튼의 접근성 이름은 자기 파일명을 포함해 서로 달라야 한다.
+    await expect(rowAlpha.getByRole('button', { name: 'beta.png 삭제' })).toHaveCount(0);
+    await expect(rowBeta.getByRole('button', { name: 'alpha.pdf 삭제' })).toHaveCount(0);
+    // 정적 문자열 '첨부 삭제' 로는 더 이상 매치되지 않아야 한다(파일명 누락 회귀 방지).
+    await expect(page.getByRole('button', { name: '첨부 삭제', exact: true })).toHaveCount(0);
+  });
+
   // #306 — 첨부 행 삭제 버튼 hover-reveal 패턴 회귀 테스트.
   test('첨부 행 삭제 버튼은 hover 전 숨겨지고 hover 후 표시된다', async ({
     authenticatedPage: page,
@@ -317,10 +409,10 @@ test.describe('이슈 첨부', () => {
     await expect(row).toBeVisible();
 
     // hover 전: 삭제 버튼은 숨겨져야 한다 (#306).
-    await expect(row.getByRole('button', { name: '첨부 삭제' })).toBeHidden();
+    await expect(row.getByRole('button', { name: 'hover-test.pdf 삭제' })).toBeHidden();
 
     // hover 후: 삭제 버튼이 나타나야 한다.
     await row.hover();
-    await expect(row.getByRole('button', { name: '첨부 삭제' })).toBeVisible();
+    await expect(row.getByRole('button', { name: 'hover-test.pdf 삭제' })).toBeVisible();
   });
 });

@@ -62,7 +62,7 @@ export function IssueAttachmentItem({
           <Button
             variant="ghost"
             size="icon"
-            aria-label="첨부 삭제"
+            aria-label={`${attachment.originalName} 삭제`}
             className="hidden group-hover:inline-flex h-4 w-4"
             onClick={() => onDelete(attachment.fileId)}
           >
@@ -94,7 +94,7 @@ export function IssueAttachmentItem({
         <Button
           variant="ghost"
           size="icon"
-          aria-label="첨부 삭제"
+          aria-label={`${attachment.originalName} 삭제`}
           className="hidden group-hover:inline-flex"
           onClick={() => onDelete(attachment.fileId)}
         >
