@@ -605,6 +605,14 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
               setTitle(e.target.value)
               scheduleSave(e.target.value)
             }}
+            onKeyDown={(e) => {
+              // Enter 로 폼 submit(줄바꿈 없음)되며 이후 타이핑이 제목에 이어붙는 것을 막고
+              // 본문 에디터로 포커스를 넘긴다(#786).
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                editor?.commands.focus('start')
+              }
+            }}
             placeholder="제목 없음"
             className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
           />

@@ -257,6 +257,124 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
   await expect(page.getByRole('button', { name: NEW_TITLE, exact: true })).toBeVisible()
 })
 
+// 회귀(#786): 제목 입력창에서 Enter 시 아무 반응이 없어(핸들러 부재) 이후 타이핑이
+// 구분자 없이 제목에 이어붙는 결함 — onKeyDown 추가로 본문 에디터에 포커스가 이동해야 한다.
+test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이동(제목 오염 방지)', async ({
+  authenticatedPage: page,
+}) => {
+  const TITLE_ENTER_PAGE_ID = 400
+
+  // 스페이스 목록
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([personalSpace()]),
+          })
+        : route.fallback(),
+  )
+
+  // 트리 — 대상 페이지 1건
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([
+              { id: TITLE_ENTER_PAGE_ID, parentId: null, title: '제목 없음', position: 0 } as WikiPageSummary,
+            ]),
+          })
+        : route.fallback(),
+  )
+
+  // 페이지 상세 — GET(초기) + PUT(자동저장, body.title 캡처).
+  // pageDetail() 헬퍼는 id 를 NEW_PAGE_ID(100) 로 고정 반환하므로 이 테스트의 페이지 id(400)와
+  // 불일치가 나 backlinks/mentions/PUT 이 엉뚱한 id 로 나간다 — 여기선 id 를 직접 지정한다.
+  let putTitle: string | null = null
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${TITLE_ENTER_PAGE_ID}`,
+    (route) => {
+      const method = route.request().method()
+      if (method === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: TITLE_ENTER_PAGE_ID,
+            spaceId: SPACE_ID,
+            parentId: null,
+            title: '제목 없음',
+            body: '',
+            version: 1,
+            updatedBy: 1,
+            updatedAt: '2026-06-01T00:00:00Z',
+            aiLastUsedAt: null,
+            aiLastAction: null,
+          }),
+        })
+      }
+      if (method === 'PUT') {
+        const body = route.request().postDataJSON() as { title: string; body: string; version: number }
+        putTitle = body.title
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: TITLE_ENTER_PAGE_ID,
+            spaceId: SPACE_ID,
+            parentId: null,
+            title: body.title,
+            body: body.body,
+            version: 2,
+            updatedBy: 1,
+            updatedAt: '2026-06-01T00:00:00Z',
+            aiLastUsedAt: null,
+            aiLastAction: null,
+          }),
+        })
+      }
+      return route.fallback()
+    },
+  )
+
+  // 위키 에디터 마운트 시 backlinks/mentions 를 자동 페치하므로 빈 응답을 스텁한다.
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${TITLE_ENTER_PAGE_ID}/backlinks`,
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${TITLE_ENTER_PAGE_ID}/mentions`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${TITLE_ENTER_PAGE_ID}`)
+
+  // 1) 제목 입력 후 Enter — 줄바꿈도, submit 도 일어나지 않고 포커스만 본문으로 이동해야 한다.
+  const titleInput = page.getByPlaceholder('제목 없음')
+  await titleInput.click()
+  await titleInput.fill('제목입니다')
+  await titleInput.press('Enter')
+
+  // 2) Enter 직후 타이핑 — 포커스가 본문(.ProseMirror)으로 이동했다면 여기로 들어간다.
+  await page.keyboard.type('본문 내용입니다')
+
+  // 3) 제목 값은 Enter 이전 입력까지만 유지 — 이후 타이핑이 섞여 오염되지 않아야 한다.
+  await expect(titleInput).toHaveValue('제목입니다')
+
+  // 4) 본문 에디터에 타이핑한 내용이 반영돼야 한다(포커스가 실제로 넘어갔다는 증거).
+  await expect(page.locator('.ProseMirror')).toContainText('본문 내용입니다')
+
+  // 5) 자동저장 PUT payload 의 title 도 오염되지 않은 값이어야 한다.
+  await expect(page.getByTestId('wiki-save-state')).toHaveText('저장됨', { timeout: 10000 })
+  expect(putTitle).toBe('제목입니다')
+})
+
 // 에러 경로 테스트(409) — 4xx 이므로 @smoke 아님(workplace-web/CLAUDE.md smoke 분류).
 test('위키 — 낙관적 동시성 충돌(409): 배너 노출 + 자동저장 중단', async ({
   authenticatedPage: page,
