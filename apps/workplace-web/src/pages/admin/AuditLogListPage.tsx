@@ -40,6 +40,9 @@ import type { AuditLogResponse } from '@/types/auditLog';
  * 액션 유형 옵션 목록
  * - 백엔드(AuditLogService.log) 호출부에서 사용 중인 enum 전수: CREATE/UPDATE/DELETE/LOGIN/LOGOUT/IMPORT/EXECUTE/DATA_EXPORT/STATUS_CHANGE
  * - #109 회귀: DATA_EXPORT, STATUS_CHANGE 매핑 누락 보강.
+ * - #778 회귀: PAT(UserApiTokenService)/AGENT 키(AgentApiKeyService)/AGENT OAuth 자격증명(AiAgentCredentialService)/
+ *   운영자 콘솔(PlatformAuthService)/AGENT 유저 CRUD·구성원 생성(UserService)/드라이브 파일(DriveFileService/DriveBulkService/DriveShareLinkService)
+ *   호출부에서 최근 추가된 값 보강.
  */
 const ACTION_TYPES = [
   { value: 'CREATE', label: '생성' },
@@ -51,6 +54,24 @@ const ACTION_TYPES = [
   { value: 'EXECUTE', label: '실행' },
   { value: 'DATA_EXPORT', label: '데이터 내보내기' },
   { value: 'STATUS_CHANGE', label: '상태 변경' },
+  { value: 'USER_TOKEN_ISSUED', label: 'PAT 발급' },
+  { value: 'USER_TOKEN_REVOKED', label: 'PAT 회수' },
+  { value: 'AGENT_KEY_ISSUED', label: 'AGENT 키 발급' },
+  { value: 'AGENT_KEY_REVOKED', label: 'AGENT 키 회수' },
+  { value: 'AGENT_OAUTH_TOKEN_REGISTERED', label: 'AGENT 프로바이더 자격증명 등록' },
+  { value: 'AGENT_OAUTH_TOKEN_REVOKED', label: 'AGENT 프로바이더 자격증명 회수' },
+  { value: 'PLATFORM_LOGIN', label: '운영자 로그인' },
+  { value: 'PLATFORM_LOGOUT', label: '운영자 로그아웃' },
+  { value: 'AGENT_CREATED', label: 'AGENT 유저 생성' },
+  { value: 'AGENT_DELETED', label: 'AGENT 유저 삭제' },
+  { value: 'AGENT_RENAMED', label: 'AGENT 유저 변경' },
+  { value: 'MEMBER_CREATED', label: '구성원 계정 생성' },
+  { value: 'FILE_UPLOAD', label: '파일 업로드' },
+  { value: 'FILE_VERSION_CREATED', label: '파일 새 버전 생성' },
+  { value: 'FILE_DELETE', label: '파일 삭제' },
+  { value: 'FILE_ROLLBACK', label: '파일 롤백' },
+  { value: 'FILE_SHARE', label: '공유 링크 생성' },
+  { value: 'SHARE_LINK_LOCKED', label: '공유 링크 잠금' },
 ];
 
 /**
@@ -58,6 +79,7 @@ const ACTION_TYPES = [
  * - 백엔드 호출부(AuthService/PipelineExecutionService/DatasetService/DataImportService/DataExportService/ApiConnectionNotifier)에서
  *   실제 사용 중인 resource 값 전수: auth/system/api_connection/pipeline/dataset (data_import는 dataimport 도메인에서 dataset으로 기록).
  * - #109 회귀: auth/system/api_connection 매핑 누락으로 영문 raw 값 노출되던 문제 해소.
+ * - #778 회귀: user_api_token/agent_api_key/ai_agent_credential/platform/drive 매핑 누락 보강.
  */
 const RESOURCES = [
   { value: 'auth', label: '인증' },
@@ -68,6 +90,11 @@ const RESOURCES = [
   { value: 'data_import', label: '데이터 임포트' },
   { value: 'api_connection', label: 'API 연결' },
   { value: 'system', label: '시스템' },
+  { value: 'user_api_token', label: 'API 토큰' },
+  { value: 'agent_api_key', label: 'AGENT API 키' },
+  { value: 'ai_agent_credential', label: 'AGENT 자격증명' },
+  { value: 'platform', label: '플랫폼' },
+  { value: 'drive', label: '드라이브' },
 ];
 
 /** 결과 필터 옵션 목록 */
