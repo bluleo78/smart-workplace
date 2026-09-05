@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -159,8 +160,15 @@ export function CustomFieldManagement({
               <span className="font-medium">{f.name}</span>
               {/* 한국어 레이블로 표시 (#317) */}
               <span className="text-xs text-muted-foreground">{FIELD_TYPE_LABEL[f.type]}</span>
-              {f.options && (
-                <span className="text-xs text-muted-foreground">[{f.options.join(', ')}]</span>
+              {/* 옵션 목록 — raw 배열 텍스트 대신 Badge 칩으로 표시 (#784) */}
+              {f.options && f.options.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {f.options.map((opt) => (
+                    <Badge key={opt} variant="outline" className="text-xs">
+                      {opt}
+                    </Badge>
+                  ))}
+                </div>
               )}
               {isOwner && (
                 <div className="ml-auto flex gap-2">

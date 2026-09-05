@@ -506,4 +506,72 @@ test.describe('커스텀 필드', () => {
       await expect(page.getByRole('button', { name: '비고 삭제' })).toHaveCount(1);
     },
   );
+
+  test(
+    'SELECT/MULTI_SELECT 옵션이 raw 배열 텍스트 대신 Badge 칩으로 렌더된다 (#784)',
+    async ({ authenticatedPage: page }) => {
+      const selectField = {
+        id: 601,
+        projectId: 1,
+        name: '우선순위',
+        type: 'SELECT',
+        options: ['낮음', '보통', '높음'],
+        position: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const multiSelectField = {
+        id: 602,
+        projectId: 1,
+        name: '태그',
+        type: 'MULTI_SELECT',
+        options: ['긴급', '검토필요'],
+        position: 2,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await page.route(`**/api/v1/projects/${KEY}`, (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 1, key: KEY, name: 'P', description: '', ownerId: 1, ownerName: 'T', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
+        }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/members`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ userId: 1, username: 'me', name: 'Me', role: 'OWNER' }]) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/types`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/labels`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/fields`, (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([selectField, multiSelectField]),
+        }),
+      );
+
+      await page.goto(`/projects/${KEY}/settings`);
+
+      const rowSelect = page.getByTestId(`custom-field-row-${selectField.id}`);
+      const rowMulti = page.getByTestId(`custom-field-row-${multiSelectField.id}`);
+
+      // 각 옵션이 개별 Badge(요소)로 렌더되어야 한다.
+      for (const opt of selectField.options) {
+        await expect(rowSelect.getByText(opt, { exact: true })).toBeVisible();
+      }
+      for (const opt of multiSelectField.options) {
+        await expect(rowMulti.getByText(opt, { exact: true })).toBeVisible();
+      }
+
+      // raw 배열 텍스트 "[a, b, c]" 형태가 더 이상 존재하지 않아야 한다.
+      await expect(rowSelect).not.toContainText('[낮음, 보통, 높음]');
+      await expect(rowMulti).not.toContainText('[긴급, 검토필요]');
+      await expect(rowSelect.locator('span', { hasText: '[' })).toHaveCount(0);
+    },
+  );
 });
