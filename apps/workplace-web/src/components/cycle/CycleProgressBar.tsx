@@ -1,11 +1,10 @@
 // 사이클 진행 막대 — 상태별 누적(stacked) 바 + 완료율 텍스트.
 import type { CycleProgress } from '../../types/cycle';
 
+// DONE만 강조색을 갖고 나머지(TODO/IN_PROGRESS/CANCELED)는 트랙색으로 통일.
+// (바의 채워진 비율이 항상 done/total 과 일치해야 아래 완료율 텍스트와 모순되지 않음 — #771)
 const STATUS_COLOR: Record<string, string> = {
-  TODO: 'bg-muted-foreground/40',
-  IN_PROGRESS: 'bg-primary',
   DONE: 'bg-success',
-  CANCELED: 'bg-destructive',
 };
 const STATUS_ORDER = ['DONE', 'IN_PROGRESS', 'TODO', 'CANCELED'];
 

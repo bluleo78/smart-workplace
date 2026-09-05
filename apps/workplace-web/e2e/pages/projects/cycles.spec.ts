@@ -167,6 +167,33 @@ test.describe('사이클 관리', () => {
     },
   );
 
+  test(
+    '진행바 색상은 완료율과 일치 — IN_PROGRESS 1건뿐이면 강조색 없이 0% 표시 (#771)',
+    async ({ authenticatedPage: page }) => {
+      const cycle = createCycle({ id: 1, name: '스프린트 1', status: 'ACTIVE' });
+      const progress: CycleProgress = {
+        cycleId: 1,
+        total: 1,
+        done: 0,
+        byStatus: { IN_PROGRESS: 1 },
+      };
+
+      await setupCyclesPageStubs(page, [cycle], [progress]);
+      await page.goto(`/projects/${KEY}/cycles`);
+
+      const bar = page.getByTestId('cycle-progress-1');
+      await expect(bar).toBeVisible();
+
+      // IN_PROGRESS 세그먼트가 바 전체를 채워도 "완료"를 뜻하는 강조색(bg-primary/bg-destructive)이 없어야 한다.
+      await expect(bar.locator('[class*="bg-primary"]')).toHaveCount(0);
+      await expect(bar.locator('[class*="bg-destructive"]')).toHaveCount(0);
+      await expect(bar.locator('[class*="bg-success"]')).toHaveCount(0);
+
+      // 완료율 텍스트는 0/1 완료 (0%) 로, 시각적으로도 색이 채워지지 않아 모순이 없다.
+      await expect(bar).toContainText('0/1 완료 (0%)');
+    },
+  );
+
   test('PageHeader 프로젝트 복귀 내비게이션 노출 (#667)', async ({ authenticatedPage: page }) => {
     await setupCyclesPageStubs(page, [], []);
     await page.goto(`/projects/${KEY}/cycles`);
