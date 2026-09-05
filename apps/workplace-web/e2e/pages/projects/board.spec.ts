@@ -118,6 +118,66 @@ test.describe('태스크 보드/검색', () => {
     },
   );
 
+  test(
+    '보드 진입 → DnD 로 빈 컬럼(DONE)에 카드 드롭 + PATCH status 호출 (#774 회귀)',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      // 무엇을: 카드가 0개인 빈 컬럼으로 드래그 드롭 시에도 상태 변경 PATCH 가 발생하는지 검증.
+      // 왜: #774 — closestCorners 단독 사용 시 populated 컬럼은 카드마다 개별 droppable 이 등록돼
+      //     코너 거리 후보가 많은 반면, 빈 컬럼은 <section> 전체(세로로 긴 rect) 하나뿐이라
+      //     인접 populated 컬럼의 카드 droppable 에 밀려 최근접 droppable 로 선택되지 못해 드롭이 무반응이었다.
+      //     pointerWithin 우선 + closestCorners 폴백으로 교체 후 빈 컬럼 드롭이 정상 동작해야 한다.
+      await stubProjectMeta(page);
+
+      // TODO 에 카드 1개, DONE 은 카드 0개(빈 컬럼) — 드래그 대상 컬럼이 완전히 비어있는 상태로 시작.
+      let issues: IssueResponse[] = [
+        createIssue({ id: 1, number: 1, title: 'A', status: 'TODO' }),
+      ];
+
+      await routeIssueSearch(page, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse(issues)),
+        }),
+      );
+
+      let patchPayload: unknown = null;
+      await page.route(`**${ISSUES_PATH}/1/status`, (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        patchPayload = route.request().postDataJSON();
+        issues = issues.map((i) => (i.number === 1 ? { ...i, status: 'DONE' } : i));
+        const updated = issues.find((i) => i.number === 1)!;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            createIssueDetail({ summary: updated, body: null, comments: [], history: [] }),
+          ),
+        });
+      });
+
+      await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+      // DONE 컬럼이 빈 상태(empty state)로 시작함을 먼저 확인 — 회귀의 전제조건.
+      await expect(page.getByTestId('board-col-empty-DONE')).toBeVisible();
+      await expect(
+        page.getByTestId('board-col-TODO').getByTestId('issue-card-1'),
+      ).toBeVisible();
+
+      await dragCardTo(page, 'issue-card-1', 'board-col-DONE');
+
+      // PATCH 호출 payload 가 status: DONE — 빈 컬럼 드롭이 실제로 인식됐다는 증거.
+      await expect.poll(() => patchPayload).toEqual({ status: 'DONE' });
+
+      // 카드가 DONE 컬럼으로 이동하고 empty state 는 사라진다.
+      await expect(
+        page.getByTestId('board-col-DONE').getByTestId('issue-card-1'),
+      ).toBeVisible();
+      await expect(page.getByTestId('board-col-empty-DONE')).not.toBeAttached();
+    },
+  );
+
   test('검색 입력 → 300ms debounce 후 q 쿼리 파라미터 + URL 동기화', async ({
     authenticatedPage: page,
   }) => {

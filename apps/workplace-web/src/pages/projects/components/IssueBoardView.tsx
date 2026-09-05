@@ -4,12 +4,14 @@
 
 import {
   closestCorners,
+  type CollisionDetection,
   DndContext,
   type DragEndEvent,
   DragOverlay,
   type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
@@ -33,6 +35,18 @@ import type {
   IssueResponse,
 } from '../../../types/issue';
 import { IssueCard } from './IssueCard';
+
+// 빈 컬럼 드롭 무반응 (#774) — closestCorners 단독 사용 시, populated 컬럼은 카드마다 개별
+// droppable(SortableContext) 이 등록돼 코너 거리 후보가 많은 반면 빈 컬럼은 <section> 전체
+// (세로로 긴 rect) 하나뿐이라 인접 populated 컬럼의 카드 droppable 에 밀려 최근접으로 뽑히지 못한다.
+// dnd-kit 공식 패턴대로 pointerWithin(커서가 실제로 들어간 droppable) 을 우선 사용하고,
+// 없을 때만 closestCorners 로 폴백 — 카드 위에서는 pointerWithin 이 그 카드를 바로 잡아주므로
+// populated 컬럼 내 재정렬(SortableContext) UX 는 그대로 유지된다.
+const boardCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) return pointerCollisions;
+  return closestCorners(args);
+};
 
 // 기본 4컬럼(팀). 개인은 3컬럼(CANCELED 제외) 을 주입한다.
 const DEFAULT_COLUMNS: { status: string; label: string }[] = [
@@ -163,7 +177,7 @@ export function IssueBoardView({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={boardCollisionDetection}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveIssue(null)}
