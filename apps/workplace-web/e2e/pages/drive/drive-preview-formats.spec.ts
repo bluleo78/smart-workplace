@@ -499,4 +499,141 @@ test.describe('드라이브 프리뷰 포맷', () => {
     // 회귀 가드: TEXT 소스 덤프(<pre>)가 아니어야 한다.
     await expect(body.locator('pre')).toHaveCount(0)
   })
+
+  // #775: 콘텐츠 페치(useEffect, /content 응답) 가 지연되는 동안 preview-body 가 완전히
+  // 빈 화면이 아니라 스켈레톤(animate-pulse)을 보여줘야 한다.
+  test('콘텐츠 로딩 중에는 스켈레톤이 보인다', async ({ authenticatedPage: page }) => {
+    await stubSpaces(page)
+
+    const MD_FILE = {
+      id: 81,
+      folderId: null,
+      fileId: 301,
+      name: 'slow.md',
+      mimeType: 'text/markdown',
+      sizeBytes: 30,
+      category: 'TEXT',
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ folders: [], files: [MD_FILE] }),
+            })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/thumbnail`,
+      (route) => route.fulfill({ status: 404, body: '' }),
+    )
+    // 콘텐츠 응답을 인위적으로 지연 — 그 사이 로딩 스켈레톤이 보여야 한다.
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/content`,
+      async (route) => {
+        await new Promise((r) => setTimeout(r, 1000))
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/markdown',
+          body: '# 느린 문서',
+        })
+      },
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/summary`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ summary: null, status: 'PENDING' }),
+        }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/backlinks`,
+      (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    )
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'slow.md' }).click()
+
+    const body = page.getByTestId('preview-body')
+    // 지연 응답이 오기 전 — 스켈레톤이 보여야 하고, 아직 마크다운 본문은 없어야 한다.
+    await expect(body.getByTestId('preview-loading')).toBeVisible()
+    await expect(body.getByTestId('markdown-content')).toHaveCount(0)
+
+    // 응답 도착 후 — 스켈레톤은 사라지고 실제 본문이 렌더된다.
+    await expect(body.getByTestId('markdown-content')).toBeVisible()
+    await expect(body.getByTestId('preview-loading')).toHaveCount(0)
+  })
+
+  // #776: 작은 이미지(200x100)는 preview-body 컨테이너가 세로 중앙정렬(flex items-center
+  // justify-center) 되어 상단에 방치되지 않아야 한다. 텍스트/CSV 등 다른 kind 는 영향받지 않는다
+  // (위 'Markdown 파일은 서식 렌더된다' 테스트가 그 회귀 가드 역할을 겸한다).
+  test('작은 이미지는 preview-body 가 세로 중앙정렬된다', async ({ authenticatedPage: page }) => {
+    await stubSpaces(page)
+
+    // 1x1 PNG 를 200x100 처럼 취급 — 실제 렌더 크기보다 컨테이너 정렬 클래스 자체를 검증하는 것이 목적.
+    const PNG_1PX =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    const PNG_BUF = Buffer.from(PNG_1PX, 'base64')
+
+    const IMG_FILE = {
+      id: 120,
+      folderId: null,
+      fileId: 700,
+      name: 'small.png',
+      mimeType: 'image/png',
+      sizeBytes: PNG_BUF.length,
+      category: 'IMAGE',
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ folders: [], files: [IMG_FILE] }),
+            })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${IMG_FILE.id}/thumbnail`,
+      (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG_BUF }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${IMG_FILE.id}/content`,
+      (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG_BUF }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${IMG_FILE.id}/summary`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ summary: null, status: 'PENDING' }),
+        }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${IMG_FILE.id}/backlinks`,
+      (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    )
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'small.png' }).click()
+
+    const body = page.getByTestId('preview-body')
+    await expect(body.locator('img')).toBeVisible()
+    // IMAGE kind 전용 세로 중앙정렬 클래스 — 컨테이너 class 속성으로 검증.
+    await expect(body).toHaveClass(/items-center/)
+    await expect(body).toHaveClass(/justify-center/)
+  })
 })

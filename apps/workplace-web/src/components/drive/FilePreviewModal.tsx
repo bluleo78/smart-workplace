@@ -78,6 +78,9 @@ export function FilePreviewModal({
   const [error, setError] = useState(false)
   const [buffer, setBuffer] = useState<ArrayBuffer | null>(null)
   const [tooLarge, setTooLarge] = useState(false)
+  // #775: 에러도 아니고 콘텐츠(blobUrl/text/buffer)도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중.
+  // 이 조건이 없으면 82-134행 useEffect 완료 전까지 preview-body 가 완전히 빈 화면으로 보인다.
+  const loading = !error && renderable && blobUrl == null && text == null && buffer == null && !tooLarge
 
   useEffect(() => {
     let alive = true
@@ -192,10 +195,21 @@ export function FilePreviewModal({
           </AiContent>
         )}
         {/* 미리보기 본문 — #731: flex-1 로 남은 높이를 채워 리사이즈에 반응(min-h-0 없으면 flex 자식이 안 줄어들어 스크롤 불가). */}
-        <div className="min-h-0 flex-1 overflow-auto" data-testid="preview-body">
+        <div
+          className={`min-h-0 flex-1 overflow-auto${kind === 'IMAGE' ? ' flex items-center justify-center' : ''}`}
+          data-testid="preview-body"
+        >
           {error && <p className="text-sm text-destructive">미리보기를 불러오지 못했습니다.</p>}
           {!error && !renderable && (
             <p className="text-sm text-muted-foreground">미리보기를 지원하지 않는 형식입니다.</p>
+          )}
+          {/* #775: 콘텐츠 페치 중(로딩) — AI 요약 카드(166-192행)와 같은 animate-pulse 스켈레톤 패턴 재사용. */}
+          {loading && (
+            <div className="w-full max-w-md space-y-2" data-testid="preview-loading">
+              <div className="h-3 w-full animate-pulse rounded bg-muted" />
+              <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+            </div>
           )}
           {!error && kind === 'IMAGE' && blobUrl && (
             <img src={blobUrl} alt={name} className="mx-auto max-w-full" />
