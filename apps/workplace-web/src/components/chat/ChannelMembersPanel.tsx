@@ -117,6 +117,7 @@ export function ChannelMembersPanel({
                         })
                       }
                       className="rounded border bg-background px-1 py-0.5 text-xs"
+                      aria-label={`${m.name} 역할 변경`}
                     >
                       {/* AGENT(AI 봇)는 채널 OWNER 가 될 수 없음(사람 전용 권한, #598) — 옵션 자체를 제거해 시도를 UX 상에서 차단. */}
                       {ROLES.filter((r) => r !== 'OWNER' || m.kind !== 'AGENT').map((r) => (
@@ -137,6 +138,7 @@ export function ChannelMembersPanel({
                       variant="ghost"
                       data-testid={`member-remove-${m.userId}`}
                       onClick={() => setConfirmRemove({ userId: m.userId, name: m.name })}
+                      aria-label={`${m.name} 제거`}
                     >
                       제거
                     </Button>
@@ -146,15 +148,18 @@ export function ChannelMembersPanel({
             })}
           </div>
 
-          {/* 모든 멤버가 나가기 가능 */}
-          <Button
-            size="sm"
-            variant="destructive"
-            data-testid="channel-leave-btn"
-            onClick={() => setConfirmLeave(true)}
-          >
-            채널 나가기
-          </Button>
+          {/* 멤버 목록과 위험 액션(나가기) 사이 구분선 — 실수 클릭 방지 (#780) */}
+          <div className="mt-2 border-t pt-4">
+            {/* 모든 멤버가 나가기 가능 */}
+            <Button
+              size="sm"
+              variant="destructive"
+              data-testid="channel-leave-btn"
+              onClick={() => setConfirmLeave(true)}
+            >
+              채널 나가기
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -171,7 +171,7 @@ export function IssueTypeManagement({
                     itemName={t.name}
                     onConfirm={() => del.mutate(t.id)}
                     trigger={
-                      <Button variant="ghost" size="sm">
+                      <Button variant="ghost" size="sm" aria-label={`${t.name} 삭제`}>
                         삭제
                       </Button>
                     }

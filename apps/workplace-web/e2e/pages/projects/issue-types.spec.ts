@@ -398,4 +398,42 @@ test.describe('이슈 유형', () => {
       await expect(dialog).toBeHidden();
     },
   );
+
+  test(
+    '삭제 버튼 접근성 이름이 유형별로 구분된다 (#779)',
+    async ({ authenticatedPage: page }) => {
+      // CUSTOM 유형 2개 — 각 행의 삭제 버튼 aria-label 이 유형명을 포함해 서로 구분되는지 검증.
+      const typeA = makeIssueType({ id: 91, name: '디자인', colorToken: 'PURPLE', icon: 'Star', isSystem: false });
+      const typeB = makeIssueType({ id: 92, name: '리서치', colorToken: 'GREEN', icon: 'Circle', isSystem: false });
+
+      await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject({ key: KEY })) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/members`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([createMember({ userId: 1, username: 'me', name: 'Me', role: 'OWNER' })]),
+        }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/types`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([typeA, typeB]),
+        }),
+      );
+
+      await page.goto(`/projects/${KEY}/settings`);
+
+      // 접근성 이름으로 각 행의 삭제 버튼을 특정해 클릭 가능해야 한다.
+      const rowA = page.getByTestId(`issue-type-row-${typeA.id}`);
+      const rowB = page.getByTestId(`issue-type-row-${typeB.id}`);
+      await expect(rowA.getByRole('button', { name: '디자인 삭제' })).toBeVisible();
+      await expect(rowB.getByRole('button', { name: '리서치 삭제' })).toBeVisible();
+      // 서로 다른 이름이므로 전역 조회 시 정확히 1개씩만 매칭돼야 함.
+      await expect(page.getByRole('button', { name: '디자인 삭제' })).toHaveCount(1);
+      await expect(page.getByRole('button', { name: '리서치 삭제' })).toHaveCount(1);
+    },
+  );
 });

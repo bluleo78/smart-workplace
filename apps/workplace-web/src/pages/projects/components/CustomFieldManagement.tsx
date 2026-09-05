@@ -170,6 +170,7 @@ export function CustomFieldManagement({
                     size="sm"
                     onClick={() => setPendingDeleteId(f.id)}
                     data-testid={`custom-field-delete-${f.id}`}
+                    aria-label={`${f.name} 삭제`}
                   >
                     삭제
                   </Button>

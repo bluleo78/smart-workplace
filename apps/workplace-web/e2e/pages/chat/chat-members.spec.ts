@@ -299,4 +299,63 @@ test.describe('messaging 멤버 패널', () => {
     // 거부 후에도 대상은 여전히 MEMBER 로 표시(승격되지 않음).
     await expect(page.getByTestId('member-role-select-2')).toHaveValue('MEMBER')
   })
+
+  test('OWNER → 역할 select/제거 버튼 접근성 이름이 멤버별로 구분된다 (#780)', async ({ authenticatedPage: page }) => {
+    const ch = createChannel({ id: CID, role: 'OWNER', member: true, memberCount: 3 })
+    await stubBase(page, ch)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CID}/members`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify([
+                createChannelMember({ userId: 1, name: '나', role: 'OWNER' }),
+                createChannelMember({ userId: 2, name: '동료', role: 'MEMBER' }),
+                createChannelMember({ userId: 3, name: '이웃', role: 'MEMBER' }),
+              ]),
+            })
+          : route.fallback(),
+    )
+    await page.goto(`/chat/channels/${CID}`)
+    await page.getByTestId('channel-members-btn').click()
+    const panel = page.getByTestId('channel-members-panel')
+
+    // 역할 변경 select — 멤버별 접근성 이름으로 특정 가능해야 함(두 멤버 이름이 겹치지 않으므로 각 1개).
+    await expect(panel.getByRole('combobox', { name: '동료 역할 변경' })).toHaveCount(1)
+    await expect(panel.getByRole('combobox', { name: '이웃 역할 변경' })).toHaveCount(1)
+
+    // 제거 버튼 — 멤버별 접근성 이름으로 특정 가능해야 함.
+    await expect(panel.getByRole('button', { name: '동료 제거' })).toHaveCount(1)
+    await expect(panel.getByRole('button', { name: '이웃 제거' })).toHaveCount(1)
+
+    // 접근성 이름으로 특정한 제거 버튼을 클릭해 정확히 대상 멤버만 지목되는지 확인.
+    await panel.getByRole('button', { name: '동료 제거' }).click()
+    await expect(page.getByTestId('member-remove-confirm')).toBeVisible()
+    await page.getByRole('button', { name: '취소' }).click()
+  })
+
+  test('채널 나가기 버튼이 멤버 목록과 구분선으로 분리된다 (#780)', async ({ authenticatedPage: page }) => {
+    const ch = createChannel({ id: CID, role: 'MEMBER', member: true })
+    await stubBase(page, ch)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CID}/members`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify([createChannelMember({ userId: 1, name: '나', role: 'MEMBER' })]),
+            })
+          : route.fallback(),
+    )
+    await page.goto(`/chat/channels/${CID}`)
+    await page.getByTestId('channel-members-btn').click()
+    const leaveBtn = page.getByTestId('channel-leave-btn')
+    await expect(leaveBtn).toBeVisible()
+    // 나가기 버튼 바로 위 wrapper 가 구분선(border-t) 을 가져 멤버 목록과 시각적으로 분리돼야 함.
+    const wrapper = leaveBtn.locator('xpath=..')
+    await expect(wrapper).toHaveClass(/border-t/)
+  })
 })

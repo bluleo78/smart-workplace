@@ -450,4 +450,60 @@ test.describe('커스텀 필드', () => {
       await expect(trigger).toContainText('날짜 선택');
     },
   );
+
+  test(
+    '삭제 버튼 접근성 이름이 필드별로 구분된다 (#779)',
+    async ({ authenticatedPage: page }) => {
+      // 필드 2개 — 각 행의 삭제 버튼 aria-label 이 필드명을 포함해 서로 구분되는지 검증.
+      const fieldA = {
+        id: 501,
+        projectId: 1,
+        name: '스토리포인트',
+        type: 'NUMBER',
+        options: null,
+        position: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const fieldB = {
+        id: 502,
+        projectId: 1,
+        name: '비고',
+        type: 'TEXT',
+        options: null,
+        position: 2,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await page.route(`**/api/v1/projects/${KEY}`, (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 1, key: KEY, name: 'P', description: '', ownerId: 1, ownerName: 'T', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
+        }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/members`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ userId: 1, username: 'me', name: 'Me', role: 'OWNER' }]) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/types`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/labels`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/fields`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([fieldA, fieldB]) }),
+      );
+
+      await page.goto(`/projects/${KEY}/settings`);
+
+      const rowA = page.getByTestId(`custom-field-row-${fieldA.id}`);
+      const rowB = page.getByTestId(`custom-field-row-${fieldB.id}`);
+      await expect(rowA.getByRole('button', { name: '스토리포인트 삭제' })).toBeVisible();
+      await expect(rowB.getByRole('button', { name: '비고 삭제' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '스토리포인트 삭제' })).toHaveCount(1);
+      await expect(page.getByRole('button', { name: '비고 삭제' })).toHaveCount(1);
+    },
+  );
 });
