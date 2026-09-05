@@ -1,5 +1,5 @@
 // 내가 멤버인 프로젝트 목록 — 모니터링 리스트(배지·진행률·멤버·즐겨찾기).
-import { FolderOpen } from 'lucide-react'
+import { ArrowUpDown, FolderOpen } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -72,10 +72,11 @@ export default function ProjectListPage() {
                 <button
                   type="button"
                   data-testid="project-sort-toggle"
-                  className="hover:text-foreground"
+                  className="flex items-center gap-1 hover:text-foreground"
                   onClick={() => setSort((s) => (s === 'recent' ? 'name' : 'recent'))}
                 >
-                  정렬: {sort === 'recent' ? '최근 활동순' : '이름순'} ▾
+                  정렬: {sort === 'recent' ? '최근 활동순' : '이름순'}
+                  <ArrowUpDown className="h-3 w-3" />
                 </button>
               </div>
 
