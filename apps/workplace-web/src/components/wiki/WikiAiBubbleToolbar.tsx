@@ -1,5 +1,6 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { type Editor } from '@tiptap/core'
+import { NodeSelection } from '@tiptap/pm/state'
 import { ChevronDown } from 'lucide-react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -39,7 +40,13 @@ export function WikiAiBubbleToolbar({
       // 선택이 비어있지 않을 때만. 표 툴바는 selection.empty 일 때만 뜨므로 두 술어는 상호배타다.
       // 기본 shouldShow 를 쓰면 톤/번역 드롭다운이 열리는 순간 hasEditorFocus 가 false 가 되어
       // 툴바가 사라지므로 이 override 는 필수다.
-      shouldShow={({ editor: ed, state }) => !disabled && !state.selection.empty && ed.isEditable}
+      // 이미지 등 노드를 클릭하면 비어있지 않은 NodeSelection 이 생기는데, 이 툴바의 액션(톤/번역/
+      // 확장/축약/다듬기/이슈화)은 텍스트 전용이므로 NodeSelection 일 때는 제외한다. (전체선택
+      // Ctrl+A 는 AllSelection 이라 TextSelection 이 아니므로, instanceof TextSelection 요구는
+      // 전체선택 변형을 깨뜨린다 — NodeSelection 만 배제하는 쪽이 안전하다.)
+      shouldShow={({ editor: ed, state }) =>
+        !disabled && !state.selection.empty && !(state.selection instanceof NodeSelection) && ed.isEditable
+      }
       ariaLabel="AI 텍스트 변형"
       testId="wiki-ai-toolbar"
     >

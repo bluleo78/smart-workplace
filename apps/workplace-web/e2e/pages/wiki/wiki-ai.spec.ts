@@ -784,3 +784,68 @@ test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운
   expect(mBox.y + mBox.height).toBeLessThanOrEqual(vp.height)
   expect(mBox.x + mBox.width).toBeLessThanOrEqual(vp.width)
 })
+
+// ── 이미지 NodeSelection 오노출 회귀 (#772) ─────────────────────────────────
+//
+// 배경: tiptap 은 이미지 노드를 클릭하면 비어있지 않은 NodeSelection 을 만든다. 이 툴바의
+// shouldShow 는 원래 `!state.selection.empty` 만 봤기 때문에, 텍스트 전용 액션(톤/번역/확장/
+// 축약/다듬기/이슈화)이 담긴 이 툴바가 이미지 선택에도 그대로 떴다. TextSelection 인지까지
+// 확인하도록 고쳐 NodeSelection 에서는 숨긴다.
+const IMAGE_CONTENT_PATH = '/api/v1/wiki/attachments/9/content'
+const IMAGE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바가 뜨지 않는다 (#772)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR', `본문 텍스트\n\n![대체텍스트](${IMAGE_CONTENT_PATH})`)
+  await page.route(IMAGE_CONTENT_PATH, (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: IMAGE_PNG }),
+  )
+  let aiCalled = 0
+  await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
+    aiCalled += 1
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ correlationId: 'unused' }),
+    })
+  })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  const img = page.getByTestId('wiki-image')
+  await expect(img).toBeVisible()
+  await img.click()
+
+  // 클릭이 실제로 이미지 노드를 선택했는지 확인 — tiptap 은 NodeSelection 시 노드뷰 루트 요소에
+  // ProseMirror-selectednode 클래스를 붙인다(내부 img 가 아니라 래퍼에 붙는다). 이게 실패하면
+  // 아래 toolbar 부재 단언이 공허해진다(애초에 선택이 없어서 안 뜬 것일 수 있다).
+  await expect(page.locator('.ProseMirror .ProseMirror-selectednode')).toHaveCount(1)
+
+  await page.waitForTimeout(300)
+  await expect(page.getByTestId('wiki-ai-toolbar')).toHaveCount(0)
+  expect(aiCalled).toBe(0)
+})
+
+test('위키 변형 — 텍스트 선택은 이미지가 함께 있는 페이지에서도 정상적으로 툴바가 뜬다 (#772 회귀 방지)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR', `본문 텍스트\n\n![대체텍스트](${IMAGE_CONTENT_PATH})`)
+  await page.route(IMAGE_CONTENT_PATH, (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: IMAGE_PNG }),
+  )
+  await mockWikiAiGeneration(page, { deltas: [] })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await expect(page.getByTestId('wiki-image')).toBeVisible()
+
+  const target = page.locator('.ProseMirror p').filter({ hasText: '본문 텍스트' }).first()
+  await target.dblclick()
+
+  await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
+})
