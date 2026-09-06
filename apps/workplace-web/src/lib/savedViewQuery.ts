@@ -42,3 +42,13 @@ export function normalizeIssueQueryIgnoringView(query: string): string {
 export function queriesEqualIgnoringView(a: string, b: string): boolean {
   return normalizeIssueQueryIgnoringView(a) === normalizeIssueQueryIgnoringView(b);
 }
+
+// normalizeIssueQueryIgnoringView 와 동일하되 group 도 비교 대상에서 제외한다 (#773).
+// group 은 필터가 아니라 표시(디스플레이) 옵션이므로 "전체"(필터 없음) 칩의 활성 판정은
+// group 변경과 무관해야 한다 — 저장된 뷰 자체의 활성 판정(queriesEqualIgnoringView)은
+// 여전히 group 을 포함해 비교한다(#58) — 그룹이 저장 뷰 정의에 없으면 뷰 자체는 비활성이어야
+// 하는 기존 동작(view chip 은 그룹 커스터마이즈 상태를 표시하지 않음)을 그대로 둔다.
+export function normalizeIssueQueryIgnoringViewAndGroup(query: string): string {
+  const params = new URLSearchParams(query);
+  return filtersToParams(parseFilters(params), 'list', null).toString();
+}

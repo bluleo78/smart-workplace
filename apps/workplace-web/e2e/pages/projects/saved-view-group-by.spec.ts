@@ -159,4 +159,22 @@ test.describe('Saved View group-by', () => {
 
     await expect.poll(() => postedQuery).toContain('group=assignee');
   });
+
+  // #773 — 필터 없이 그룹만 바꾸면 "전체" 칩 활성 표시가 사라지던 회귀 방지.
+  test('필터 없이 그룹만 변경해도 "전체" 칩이 계속 활성 상태를 유지한다 (#773)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    await routeIssueSearch(page, (route) => fulfillIssues(route, []));
+
+    await page.goto(`/projects/${KEY}`);
+    await expect(page.getByTestId('view-chip-all')).toHaveClass(/border-foreground/)
+
+    await page.getByTestId('group-by-trigger').click();
+    await page.getByTestId('group-by-status').click();
+    await expect(page).toHaveURL(/group=status/);
+
+    // 필터는 여전히 없으므로 "전체"는 그룹 변경과 무관하게 활성 상태를 유지해야 한다.
+    await expect(page.getByTestId('view-chip-all')).toHaveClass(/border-foreground/)
+  });
 });

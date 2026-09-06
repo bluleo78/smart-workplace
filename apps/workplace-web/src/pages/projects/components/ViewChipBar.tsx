@@ -24,7 +24,11 @@ import { cn } from '@/lib/utils'
 
 import { useDeleteSavedView, usePinSavedView, useSavedViews } from '../../../hooks/queries/useSavedViews'
 import { filtersToParams, parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters'
-import { normalizeIssueQueryIgnoringView, queriesEqualIgnoringView } from '../../../lib/savedViewQuery'
+import {
+  normalizeIssueQueryIgnoringView,
+  normalizeIssueQueryIgnoringViewAndGroup,
+  queriesEqualIgnoringView,
+} from '../../../lib/savedViewQuery'
 import type { SavedViewResponse } from '../../../types/savedView'
 import { SaveViewDialog } from './SaveViewDialog'
 
@@ -50,10 +54,15 @@ export function ViewChipBar({
   // 현재 URL 필터를 canonical 쿼리스트링으로 — 저장 뷰 페이로드(뷰 저장/수정 다이얼로그)에 사용.
   // group 도 포함해야 그룹이 저장 뷰에 영속된다 (#58). view(list/board) 도 그대로 저장.
   const currentQuery = filtersToParams(parseFilters(params), parseView(params), parseGroupBy(params)).toString()
-  // "전체"/저장뷰 활성 판정은 view 를 제외하고 비교한다 (#599) — 리스트/보드 전환이
-  // 우연히 저장뷰의 쿼리와 일치해 전체 대신 그 저장뷰가 활성으로 보이는 것을 방지.
-  const currentQueryIgnoringView = normalizeIssueQueryIgnoringView(currentQuery)
-  const isAllActive = currentQueryIgnoringView === ''
+  // "전체" 칩 활성 판정은 view·group 을 모두 제외하고 비교한다 (#599, #773) — 리스트/보드
+  // 전환이나 그룹 변경이 우연히 저장뷰의 쿼리와 일치해 전체 대신 그 저장뷰가 활성으로 보이거나,
+  // 반대로 필터가 전혀 없는데도 그룹만 바꿨다는 이유로 전체 칩이 비활성으로 보이는 것을 방지.
+  // group 은 필터가 아니라 표시 옵션이라 "필터 없음" 여부와는 무관해야 한다.
+  const isAllActive = normalizeIssueQueryIgnoringViewAndGroup(currentQuery) === ''
+  // "뷰 저장" 버튼 비활성 판정은 기존대로 group 을 포함해 비교한다 — group 만 설정된 상태도
+  // 저장할 가치가 있는 뷰이기 때문(#58 그룹 영속 테스트). isAllActive(칩 강조용)와는 목적이 달라
+  // 별도 변수로 분리한다.
+  const hasNothingToSave = normalizeIssueQueryIgnoringView(currentQuery) === ''
 
   // 쿼리스트링을 URL 로 적용 — 저장된 뷰/전체 칩 클릭 시 필터 복원.
   const apply = (query: string) => setParams(new URLSearchParams(query), { replace: true })
@@ -134,8 +143,8 @@ export function ViewChipBar({
         type="button"
         data-testid="save-view-button"
         onClick={() => setSaveOpen(true)}
-        disabled={isAllActive}
-        title={isAllActive ? '필터를 먼저 적용하세요' : undefined}
+        disabled={hasNothingToSave}
+        title={hasNothingToSave ? '필터를 먼저 적용하세요' : undefined}
         className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-sm text-muted-foreground hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
       >
         <Plus className="h-3.5 w-3.5" /> 뷰 저장
