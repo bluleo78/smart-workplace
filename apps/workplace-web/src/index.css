@@ -604,3 +604,10 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* Sonner 토스트(기본 z-index:999999999)가 콘텐츠 헤더(PageHeader) 우측 액션 버튼을 가려
+   클릭을 뺏는 문제 방지 (#715). Dialog/Popover/Select 등 오버레이(z-50)보다는 낮게 유지해
+   모달·드롭다운이 항상 토스트 위에 뜨는 기존 동작은 보존한다. */
+[data-sonner-toaster] {
+  z-index: 40 !important;
+}

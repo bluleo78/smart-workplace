@@ -775,6 +775,23 @@ test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내
 
   await expect(page.getByText('파일 크기가 25MB를 초과합니다.')).toBeVisible()
   expect(uploadCalled).toBe(false)
+
+  // #715 — 에러 토스트가 헤더 툴바(검색/새 폴더/업로드)를 가려 클릭을 막지 않아야 한다.
+  const toaster = page.locator('[data-sonner-toaster]')
+  await expect(toaster).toHaveAttribute('data-y-position', 'top')
+  await expect(page.getByTestId('drive-upload')).toBeInViewport()
+  const uploadBox = await page.getByTestId('drive-upload').boundingBox()
+  expect(uploadBox).not.toBeNull()
+  if (uploadBox) {
+    const centerX = uploadBox.x + uploadBox.width / 2
+    const centerY = uploadBox.y + uploadBox.height / 2
+    // 토스트가 버튼 위에 겹쳐 있으면 elementFromPoint 가 토스트(li[data-sonner-toast])를 반환한다.
+    const coveredByToast = await page.evaluate(
+      ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-sonner-toast]') !== null,
+      [centerX, centerY],
+    )
+    expect(coveredByToast).toBe(false)
+  }
 })
 
 // #260 — 빈 폴더 empty state: 아이콘+제목+설명+CTA 4요소 검증 (DS §2.5)

@@ -40,7 +40,10 @@ export function PageHeader({
   return (
     <header
       data-testid={rest['data-testid'] ?? 'page-header'}
-      className={cn('flex h-14 shrink-0 items-center border-b', className)}
+      // relative z-45 — Sonner 토스트(index.css 에서 z-index:40 으로 하향)보다 위에 오도록 해
+      // 헤더 우측 액션 버튼(검색/업로드 등)이 토스트에 클릭을 뺏기지 않게 함 (#715).
+      // Dialog/Popover/Select 등 오버레이(z-50)보다는 낮게 유지해 모달이 헤더에 가리지 않게 함.
+      className={cn('relative z-[45] flex h-14 shrink-0 items-center border-b bg-background', className)}
     >
       {/* 내부 정렬 래퍼 — contained 면 본문과 동일한 컨테이너 축(px-6), 아니면 기존 전체폭 px-4. */}
       <div
