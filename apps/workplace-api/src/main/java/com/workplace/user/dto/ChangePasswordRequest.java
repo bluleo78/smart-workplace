@@ -10,6 +10,5 @@ public record ChangePasswordRequest(
         @Size(min = 8, max = 128)
         @Pattern(
             regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).+$",
-            message =
-                "Password must contain at least one uppercase letter, one lowercase letter, and one digit")
+            message = "비밀번호는 영문 대문자, 소문자, 숫자를 각각 하나 이상 포함해야 합니다")
         String newPassword) {}
