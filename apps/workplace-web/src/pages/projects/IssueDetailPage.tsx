@@ -35,6 +35,7 @@ import { useUpdateIssueType } from '../../hooks/queries/useUpdateIssueType';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
+import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
@@ -60,6 +61,10 @@ function InlineEditableBody({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body ?? '');
+
+  // 저장 없이 새로고침/탭 닫기로 이탈 시 경고(#823) — 코멘트 작성창(#620)·이슈 생성
+  // 다이얼로그와 동일 패턴. beforeunload 만 커버하므로 SPA 내부 네비게이션은 별도 가드 필요.
+  useUnsavedChangesWarning(editing && draft !== (body ?? ''));
 
   // 표시 → 편집 진입. 진입 시 최신 본문으로 draft 초기화.
   const enter = () => {
