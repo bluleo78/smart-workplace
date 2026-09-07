@@ -264,4 +264,33 @@ class MessagingSummaryServiceTest extends IntegrationTestBase {
     assertThat(idxA).isGreaterThanOrEqualTo(0);
     assertThat(idxB).isLessThan(idxA);
   }
+
+  /**
+   * 셀프 DM 라벨 — 참가자가 caller 뿐인 DM 채널의 label 은 "(나)" 가 아닌 "{본인이름} (나)" 여야 한다(#808, 프론트 dm.ts
+   * dmDisplayName 과 동일 규칙). 라벨이 bare "(나)" 면 프론트 아바타 이니셜 추출(charAt(0))이 "(" 를 집어오는 회귀를 막는다.
+   */
+  @Test
+  void 셀프DM_라벨은_본인이름과_나를_함께_반환한다() {
+    long caller = seedUser("selfdm");
+    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 6);
+    long ch =
+        dsl.insertInto(CHANNEL)
+            .set(CHANNEL.NAME, "self-dm-" + s)
+            .set(CHANNEL.KIND, "DM")
+            .set(CHANNEL.VISIBILITY, "PRIVATE")
+            .set(CHANNEL.CREATED_BY, caller)
+            .returning(CHANNEL.ID)
+            .fetchOne()
+            .getId();
+    joinChannel(caller, ch);
+    seedMessage(ch, caller, "셀프DM 테스트 메시지");
+
+    var resp = svc.summary(caller, 10);
+
+    ConversationSummaryItem item =
+        resp.recent().stream().filter(i -> i.conversationId() == ch).findFirst().orElseThrow();
+    String callerName =
+        dsl.select(USER.NAME).from(USER).where(USER.ID.eq(caller)).fetchOne(0, String.class);
+    assertThat(item.label()).isEqualTo(callerName + " (나)");
+  }
 }

@@ -122,7 +122,14 @@ public class MessagingSummaryService {
   /** DM 표시명 — 본인 외 참가자. 백엔드에서 라벨 확정(프론트 dmDisplayName 과 동일 규칙). */
   private static String dmLabel(List<DmParticipant> ps, long callerId) {
     var others = ps.stream().filter(p -> p.userId() == null || p.userId() != callerId).toList();
-    if (others.isEmpty()) return "(나)";
+    if (others.isEmpty()) {
+      // 셀프 DM — 본인 이름 + "(나)" (프론트 dm.ts 의 dmDisplayName 과 동일 규칙, #808).
+      return ps.stream()
+          .filter(p -> p.userId() != null && p.userId() == callerId)
+          .findFirst()
+          .map(p -> p.name() + " (나)")
+          .orElse("(나)");
+    }
     if (others.size() == 1) return others.get(0).name();
     if (others.size() <= 3)
       return String.join(", ", others.stream().map(DmParticipant::name).toList());
