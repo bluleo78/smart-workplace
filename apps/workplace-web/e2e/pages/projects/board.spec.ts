@@ -688,6 +688,8 @@ test.describe('태스크 보드/검색', () => {
     await expect(doneEmptyState).toBeVisible();
     await expect(doneEmptyState.getByText('이슈 없음')).toBeVisible();
     await expect(doneEmptyState.getByText('드래그하거나 새 이슈를 추가하세요')).toBeVisible();
+    // #812 — 로딩 스피너(끊긴 원)로 오인되기 쉬운 lucide-circle-dashed 대신 정적 empty-state 아이콘 사용.
+    await expect(doneEmptyState.locator('.lucide-circle-dashed')).toHaveCount(0);
 
     // CANCELED 컬럼도 동일
     await expect(page.getByTestId('board-col-empty-CANCELED')).toBeVisible();

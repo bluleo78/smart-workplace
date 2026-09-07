@@ -21,7 +21,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CircleDashed, Plus } from 'lucide-react';
+import { Inbox, Plus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -266,7 +266,7 @@ function BoardColumn({
             className="flex flex-col items-center justify-center py-8 gap-3 text-center"
             data-testid={`board-col-empty-${status}`}
           >
-            <CircleDashed className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+            <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
             <div className="space-y-1">
               <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
               <p className="text-xs text-muted-foreground">드래그하거나 새 이슈를 추가하세요</p>
@@ -324,7 +324,7 @@ function ReadOnlyColumn({
           className="flex flex-col items-center justify-center py-8 gap-3 text-center"
           data-testid={`board-col-empty-${group.key}`}
         >
-          <CircleDashed className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+          <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
           <div className="space-y-1">
             <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
             <p className="text-xs text-muted-foreground">드래그하거나 새 이슈를 추가하세요</p>
