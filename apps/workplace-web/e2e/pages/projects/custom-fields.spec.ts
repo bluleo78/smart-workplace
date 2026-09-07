@@ -209,6 +209,107 @@ test.describe('커스텀 필드', () => {
   );
 
   test(
+    'NUMBER 필드 — 안전 정수 범위 초과 입력은 거부되고 경고 토스트가 뜬다 (#813)',
+    async ({ authenticatedPage: page }) => {
+      const numberDef = {
+        id: 700,
+        projectId: 1,
+        name: '숫자필드테스트',
+        type: 'NUMBER',
+        options: null,
+        position: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const taskType = makeTaskType();
+      const baseIssue = {
+        ...createIssue({ id: 1, number: 1, title: 't' }),
+        type: taskType,
+        labels: [],
+        attachmentCount: 0,
+        assignees: [],
+        parent: null,
+        childCount: 0,
+        childDoneCount: 0,
+        blockedBy: [],
+        blocks: [],
+        blocked: false,
+        customFields: [{ defId: numberDef.id, name: numberDef.name, type: 'NUMBER', value: 5 }] as Array<{
+          defId: number;
+          name: string;
+          type: string;
+          value: unknown;
+        }>,
+      };
+      const issue = baseIssue;
+
+      await page.route(`**/api/v1/projects/${KEY}`, (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 1, key: KEY, name: 'P', description: '', ownerId: 1, ownerName: 'T', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
+        }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/members`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ userId: 1, username: 'me', name: 'Me', role: 'OWNER' }]) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/types`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(systemTypes()) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/labels`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/issues/1/watchers`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/issues/1/attachments`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/fields`, (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([numberDef]) }),
+      );
+      await page.route(`**/api/v1/projects/${KEY}/issues/1`, (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ summary: issue, body: '', comments: [], history: [], attachments: [] }),
+        }),
+      );
+
+      // PUT 이 호출되면 즉시 실패시켜, 안전 범위 초과 입력이 애초에 네트워크로 나가지 않음을 강하게 검증.
+      let putCalled = false;
+      await page.route(`**/api/v1/projects/${KEY}/issues/1/fields`, (route) => {
+        putCalled = true;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ summary: issue, body: '', comments: [], history: [], attachments: [] }),
+        });
+      });
+
+      await page.goto(`/projects/${KEY}/issues/1`);
+      await page.getByRole('button', { name: /커스텀 필드/ }).click();
+      await expect(page.getByTestId('custom-fields-section')).toBeVisible();
+
+      const input = page.getByTestId(`field-input-${numberDef.id}`);
+      await expect(input).toHaveValue('5');
+
+      // Number.MAX_SAFE_INTEGER(2^53-1) 를 훨씬 초과하는 23자리 정수 입력.
+      await input.fill('99999999999999999999999');
+
+      // 경고 토스트가 표시되어야 한다.
+      await expect(page.getByText(/안전한 정수 범위/)).toBeVisible();
+
+      // 입력값이 지수표기(1e+23)로 남지 않고 기존 유효값(5)으로 되돌아가야 한다.
+      await expect(input).toHaveValue('5');
+
+      // 정밀도 손실된 값이 서버로 전송되지 않아야 한다.
+      await page.waitForTimeout(500);
+      expect(putCalled).toBe(false);
+    },
+  );
+
+  test(
     '필드 타입 드롭다운 shadcn Select + 목록 한국어 레이블 표시 (#317)',
     async ({ authenticatedPage: page }) => {
       // TEXT 타입 필드가 목록에서 "텍스트"로 표시되는지, 드롭다운이 shadcn Select인지 검증.
