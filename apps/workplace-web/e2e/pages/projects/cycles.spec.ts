@@ -348,6 +348,52 @@ test.describe('사이클 관리', () => {
   );
 
   test(
+    '종료일이 시작일보다 빠르면 저장 차단 + 인라인 오류 (#804)',
+    async ({ authenticatedPage: page }) => {
+      await setupCyclesPageStubs(page, [], []);
+
+      // POST 가 발생하면 실패 처리 — 버튼 비활성으로 애초에 막혀야 하므로 호출되면 안 됨.
+      let postFired = false;
+      await page.route(`**/api/v1/projects/${KEY}/cycles`, (route) => {
+        const method = route.request().method();
+        if (method === 'GET') {
+          return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+        }
+        if (method === 'POST') {
+          postFired = true;
+          return route.fallback();
+        }
+        return route.fallback();
+      });
+
+      await page.goto(`/projects/${KEY}/cycles`);
+
+      await page.getByTestId('cycle-new').click();
+      await expect(page.getByTestId('cycle-form-dialog')).toBeVisible();
+
+      await page.getByTestId('cycle-name-input').fill('종료일역전테스트');
+      await page.getByLabel('시작일').fill('2026-09-10');
+      await page.getByLabel('종료일').fill('2026-09-01');
+
+      // 인라인 오류 메시지 노출.
+      await expect(page.getByTestId('cycle-date-range-error')).toContainText('종료일은 시작일 이후여야 합니다');
+
+      // 저장 버튼 비활성화 확인.
+      await expect(page.getByTestId('cycle-submit')).toBeDisabled();
+
+      // 강제로 클릭해도(disabled 라 실제 클릭 불가하지만) POST 는 발생하지 않아야 함.
+      await page.getByTestId('cycle-submit').click({ force: true });
+      await page.waitForTimeout(300);
+      expect(postFired).toBe(false);
+
+      // 종료일을 시작일 이후로 고치면 오류가 사라지고 저장 버튼이 다시 활성화된다.
+      await page.getByLabel('종료일').fill('2026-09-15');
+      await expect(page.getByTestId('cycle-date-range-error')).toHaveCount(0);
+      await expect(page.getByTestId('cycle-submit')).toBeEnabled();
+    },
+  );
+
+  test(
     '사이클 수정 — 수정 버튼 클릭 → 이름 변경 → PATCH payload 검증 + UI 반영',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {

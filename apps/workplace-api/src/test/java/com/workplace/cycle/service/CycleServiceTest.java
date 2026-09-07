@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
 import com.workplace.cycle.exception.CycleNameDuplicatedException;
+import com.workplace.cycle.exception.InvalidCycleDateRangeException;
 import com.workplace.cycle.exception.InvalidCycleStatusException;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -104,6 +105,38 @@ class CycleServiceTest extends IntegrationTestBase {
                 cycleService.create(
                     owner, p.key(), new CreateCycleRequest("S", null, null, null, "RUNNING")))
         .isInstanceOf(InvalidCycleStatusException.class);
+  }
+
+  @Test
+  void end_date_before_start_date_throws_400_on_create() {
+    Long owner = createUser("o8");
+    ProjectResponse p = newProject(owner, "CI");
+
+    assertThatThrownBy(
+            () ->
+                cycleService.create(
+                    owner,
+                    p.key(),
+                    new CreateCycleRequest(
+                        "역전", null, LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 1), null)))
+        .isInstanceOf(InvalidCycleDateRangeException.class);
+  }
+
+  @Test
+  void end_date_before_start_date_throws_400_on_update() {
+    Long owner = createUser("o9");
+    ProjectResponse p = newProject(owner, "CJ");
+    var c = cycleService.create(owner, p.key(), req("스프린트"));
+
+    assertThatThrownBy(
+            () ->
+                cycleService.update(
+                    owner,
+                    p.key(),
+                    c.id(),
+                    new CreateCycleRequest(
+                        "스프린트", null, LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 1), null)))
+        .isInstanceOf(InvalidCycleDateRangeException.class);
   }
 
   @Test

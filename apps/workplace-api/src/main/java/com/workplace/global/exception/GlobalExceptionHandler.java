@@ -14,6 +14,7 @@ import com.workplace.chat.exception.EmptyChatMessageException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.cycle.exception.CycleNameDuplicatedException;
 import com.workplace.cycle.exception.CycleNotFoundException;
+import com.workplace.cycle.exception.InvalidCycleDateRangeException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.exception.InvalidCycleStatusException;
 import com.workplace.file.exception.FileBlobMissingException;
@@ -923,6 +924,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(InvalidCycleStatusException.class)
   public ResponseEntity<ErrorResponse> handleInvalidCycleStatus(
       InvalidCycleStatusException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 사이클 종료일이 시작일보다 빠름 — 400. */
+  @ExceptionHandler(InvalidCycleDateRangeException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidCycleDateRange(
+      InvalidCycleDateRangeException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }

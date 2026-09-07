@@ -38,6 +38,9 @@ export function CycleFormDialog({
   const [endDate, setEndDate] = useState('');
   const [status, setStatus] = useState<CycleStatus>('PLANNED');
 
+  // 종료일이 시작일보다 빠른 경우만 오류 — 둘 중 하나라도 비어있으면 검증하지 않음(#804).
+  const dateRangeInvalid = Boolean(startDate && endDate && endDate < startDate);
+
   useEffect(() => {
     if (open) {
       setName(cycle?.name ?? '');
@@ -49,6 +52,7 @@ export function CycleFormDialog({
   }, [open, cycle]);
 
   function submit() {
+    if (dateRangeInvalid) return;
     const body = {
       name: name.trim(),
       goal: goal.trim() || null,
@@ -94,8 +98,14 @@ export function CycleFormDialog({
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               aria-label="종료일"
+              aria-invalid={dateRangeInvalid}
             />
           </div>
+          {dateRangeInvalid && (
+            <p className="text-sm text-destructive" data-testid="cycle-date-range-error">
+              종료일은 시작일 이후여야 합니다
+            </p>
+          )}
           {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
           <Select value={status} onValueChange={(v) => setStatus(v as CycleStatus)}>
             <SelectTrigger
@@ -118,7 +128,7 @@ export function CycleFormDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             취소
           </Button>
-          <Button onClick={submit} disabled={!name.trim()} data-testid="cycle-submit">
+          <Button onClick={submit} disabled={!name.trim() || dateRangeInvalid} data-testid="cycle-submit">
             저장
           </Button>
         </DialogFooter>

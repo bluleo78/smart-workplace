@@ -6,8 +6,10 @@ import com.workplace.cycle.dto.CycleRow;
 import com.workplace.cycle.dto.CycleStatus;
 import com.workplace.cycle.exception.CycleNameDuplicatedException;
 import com.workplace.cycle.exception.CycleNotFoundException;
+import com.workplace.cycle.exception.InvalidCycleDateRangeException;
 import com.workplace.cycle.repository.CycleRepository;
 import com.workplace.project.service.ProjectAccessGuard;
+import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -37,6 +39,7 @@ public class CycleService {
     var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     String name = req.name().trim();
     String status = req.status() == null ? CycleStatus.DEFAULT : CycleStatus.validate(req.status());
+    assertDateRangeValid(req.startDate(), req.endDate());
     try {
       var row =
           cycleRepository.insert(
@@ -54,6 +57,7 @@ public class CycleService {
     var row = loadInProject(cycleId, project.id());
     String name = req.name().trim();
     String status = req.status() == null ? row.status() : CycleStatus.validate(req.status());
+    assertDateRangeValid(req.startDate(), req.endDate());
     try {
       cycleRepository.update(cycleId, name, req.goal(), req.startDate(), req.endDate(), status);
     } catch (DuplicateKeyException e) {
@@ -67,6 +71,13 @@ public class CycleService {
     var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     loadInProject(cycleId, project.id());
     cycleRepository.delete(cycleId);
+  }
+
+  /** 시작일/종료일이 둘 다 있을 때 종료일이 시작일보다 빠르면 거부(#804). */
+  private static void assertDateRangeValid(LocalDate startDate, LocalDate endDate) {
+    if (startDate != null && endDate != null && endDate.isBefore(startDate)) {
+      throw new InvalidCycleDateRangeException();
+    }
   }
 
   /** 사이클이 존재하고 해당 프로젝트 소속인지 확인 후 row 반환. */
