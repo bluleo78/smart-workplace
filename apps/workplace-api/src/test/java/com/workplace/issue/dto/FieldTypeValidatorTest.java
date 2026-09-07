@@ -29,18 +29,25 @@ class FieldTypeValidatorTest {
 
   @Test
   void options_required_for_select_and_multi_select() {
+    // 메시지에 영문 enum(SELECT)이 아닌 한국어 레이블(선택)이 노출돼야 한다 (#805).
     assertThatThrownBy(() -> FieldTypeValidator.validateOptions("SELECT", null))
-        .isInstanceOf(InvalidFieldOptionsException.class);
+        .isInstanceOf(InvalidFieldOptionsException.class)
+        .hasMessageContaining("선택 필드는 최소 1개 이상의 옵션이 필요합니다")
+        .hasMessageNotContaining("SELECT");
     assertThatThrownBy(
             () -> FieldTypeValidator.validateOptions("MULTI_SELECT", om.createArrayNode()))
-        .isInstanceOf(InvalidFieldOptionsException.class);
+        .isInstanceOf(InvalidFieldOptionsException.class)
+        .hasMessageContaining("복수 선택 필드는 최소 1개 이상의 옵션이 필요합니다")
+        .hasMessageNotContaining("MULTI_SELECT");
   }
 
   @Test
   void options_forbidden_for_text_number_date() {
     var arr = om.createArrayNode().add("a");
     assertThatThrownBy(() -> FieldTypeValidator.validateOptions("TEXT", arr))
-        .isInstanceOf(InvalidFieldOptionsException.class);
+        .isInstanceOf(InvalidFieldOptionsException.class)
+        .hasMessageContaining("텍스트 필드는 옵션을 지정할 수 없습니다")
+        .hasMessageNotContaining("TEXT");
   }
 
   @Test

@@ -23,7 +23,7 @@ public final class FieldTypeValidator {
   public static void validateOptions(String type, JsonNode options) {
     if (FieldType.hasOptions(type)) {
       if (options == null || !options.isArray() || options.size() == 0) {
-        throw new InvalidFieldOptionsException(type + " 는 options 가 필요합니다");
+        throw new InvalidFieldOptionsException(FieldType.label(type) + " 필드는 최소 1개 이상의 옵션이 필요합니다");
       }
       Set<String> seen = new HashSet<>();
       for (JsonNode opt : options) {
@@ -39,7 +39,7 @@ public final class FieldTypeValidator {
         }
       }
     } else if (options != null && !options.isNull()) {
-      throw new InvalidFieldOptionsException(type + " 는 options 를 지정할 수 없습니다");
+      throw new InvalidFieldOptionsException(FieldType.label(type) + " 필드는 옵션을 지정할 수 없습니다");
     }
   }
 
