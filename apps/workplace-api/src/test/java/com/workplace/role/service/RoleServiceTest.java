@@ -77,6 +77,39 @@ class RoleServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void updateRole_duplicateName_throwsException() {
+    // #795: 커스텀 역할 이름 변경 시 다른 커스텀 역할과 이름이 겹치면 DB unique 제약이 아니라
+    // createRole 과 동일한 사전 검사로 친화적 예외가 발생해야 한다.
+    roleService.createRole("EXISTING_ROLE", "Existing role");
+    RoleResponse target = roleService.createRole("TARGET_ROLE", "Target role");
+
+    assertThatThrownBy(() -> roleService.updateRole(target.id(), "EXISTING_ROLE", "Renamed"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("이미 존재하는 역할 이름입니다");
+  }
+
+  @Test
+  void updateRole_renameToExistingSystemRoleName_throwsException() {
+    // #795: 시스템 역할 이름(ADMIN)으로 변경 시도해도 동일하게 사전 검사에서 걸러져야 한다.
+    RoleResponse target = roleService.createRole("TARGET_ROLE2", "Target role 2");
+
+    assertThatThrownBy(() -> roleService.updateRole(target.id(), "ADMIN", "Renamed"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("이미 존재하는 역할 이름입니다");
+  }
+
+  @Test
+  void updateRole_sameName_doesNotThrow() {
+    // #795: 이름을 변경하지 않고 설명만 바꾸는 경우엔 중복검사에 걸리면 안 된다 (자기 자신 제외).
+    RoleResponse created = roleService.createRole("UNCHANGED_ROLE", "Original description");
+
+    roleService.updateRole(created.id(), "UNCHANGED_ROLE", "Updated description");
+
+    RoleDetailResponse updated = roleService.getRoleById(created.id());
+    assertThat(updated.description()).isEqualTo("Updated description");
+  }
+
+  @Test
   void updateRole_systemRole_throwsException() {
     Long adminRoleId =
         dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);

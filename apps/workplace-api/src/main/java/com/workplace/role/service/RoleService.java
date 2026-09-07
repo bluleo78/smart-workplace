@@ -56,6 +56,13 @@ public class RoleService {
           "Cannot change name of system role: " + role.name());
     }
 
+    // #795: createRole() 과 동일하게, 이름이 실제로 바뀌는 경우에만 중복 여부를 사전 검사한다.
+    // 이 검사가 없으면 DB unique 제약 위반이 DataIntegrityViolationException 으로 전파되어
+    // GlobalExceptionHandler 가 영문 기술 메시지를 그대로 사용자에게 노출하게 된다.
+    if (!role.name().equals(name) && roleRepository.existsByName(name)) {
+      throw new IllegalArgumentException("이미 존재하는 역할 이름입니다: " + name);
+    }
+
     roleRepository.update(id, name, description);
   }
 
