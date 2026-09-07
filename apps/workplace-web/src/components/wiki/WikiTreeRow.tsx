@@ -44,7 +44,14 @@ export function WikiTreeRow({
   onAddChild: (id: number) => void
   onRequestDelete: (id: number) => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  // role: 'group' — dnd-kit 기본값(role="button")을 쓰면 행 안에 실제 button 3개(열기/자식추가/메뉴)가
+  // 중첩되어 무효한 interactive-in-interactive 구조가 되고, accname 계산 시 세 버튼 이름이 하나로
+  // 뒤섞여 낭독된다(#801). group 은 콘텐츠 기반 이름 계산을 하지 않아 자손 버튼과 충돌하지 않으면서도
+  // tabIndex/키보드 리스너는 그대로 유지해 키보드 드래그(Space+화살표)는 그대로 동작한다.
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    attributes: { role: 'group' },
+  })
   const style = { transform: CSS.Translate.toString(transform), transition }
   const label = title || '제목 없음'
   return (
@@ -53,6 +60,7 @@ export function WikiTreeRow({
       style={style}
       {...attributes}
       {...listeners}
+      aria-label={label}
       data-testid={`wiki-tree-row-${id}`}
       className={`group relative flex items-center ${isDragging ? 'opacity-50' : ''}`}
     >

@@ -164,6 +164,29 @@ test('인라인 액션 버튼 — WCAG 2.5.8 최소 24×24px 충족', async ({ a
   }
 })
 
+// #801 — dnd-kit useSortable 기본 role="button" 이 실제 button 3개(열기/자식추가/메뉴)를
+// 감싸 무효한 중첩 interactive 구조 + accessible name 뒤섞임을 유발하던 문제 회귀 방지.
+test('트리 행 컨테이너가 role=button 이 아니고, 내부 버튼들의 accessible name이 뒤섞이지 않는다 (#801)', async ({
+  authenticatedPage: page,
+}) => {
+  await routeCommon(page)
+  const tree: WikiPageSummary[] = [{ id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null }]
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) }),
+  )
+  await page.route('**/api/v1/wiki/pages/*', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  const row = page.getByTestId('wiki-tree-row-1')
+  await expect(row).toHaveAttribute('role', 'group')
+  await expect(row).not.toHaveAttribute('role', 'button')
+
+  // 열기(제목) 버튼의 accessible name이 페이지 제목 그대로여야 한다 — 다른 버튼 라벨과 섞이지 않음.
+  await expect(row.getByRole('button', { name: '제품 문서', exact: true })).toBeVisible()
+})
+
 test('삭제 — ⋯ 메뉴 → 다이얼로그 확인 시 DELETE, 취소 시 미호출', async ({ authenticatedPage: page }) => {
   await routeCommon(page)
   let deleteCalled = false
