@@ -76,6 +76,36 @@ test.describe('받은편지함', () => {
     await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
   })
 
+  // #814 — 검색 입력이 debounce 없이 매 키 입력마다 목록 API 를 재요청하던 문제 회귀 방지.
+  test('검색 입력 — 키 입력마다 목록 API가 재요청되지 않고 debounce 후 1회만 호출된다 (#814)', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    let requestCount = 0
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => {
+        requestCount += 1
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+      },
+    )
+    await page.goto('/mail/1')
+    await expect.poll(() => requestCount).toBeGreaterThanOrEqual(1)
+    const initialCount = requestCount
+
+    // 키 입력 시뮬레이션(한 글자씩) — fill()과 달리 실제 keystroke마다 onChange 를 발생시킨다.
+    await page.getByTestId('mail-search').pressSequentially('lunch', { delay: 30 })
+
+    // debounce(300ms) 전에는 추가 요청이 없어야 한다.
+    await page.waitForTimeout(150)
+    expect(requestCount).toBe(initialCount)
+
+    // debounce 이후에는 정확히 1건만 추가로 요청돼야 한다(글자 수만큼 아님).
+    await expect.poll(() => requestCount, { timeout: 2000 }).toBe(initialCount + 1)
+    await page.waitForTimeout(300)
+    expect(requestCount).toBe(initialCount + 1)
+  })
+
   test('동기화 버튼 → sync 호출 + 토스트', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await stubMessages(page)

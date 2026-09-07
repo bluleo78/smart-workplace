@@ -400,6 +400,30 @@ export function MailInboxPage() {
   const { accountId } = useParams()
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
+  // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(및 그 값을 쓰는 useMailMessages 쿼리)은
+  // 300ms debounce 후에만 갱신해 키 입력마다 목록 API 가 재요청되지 않게 한다(#814).
+  // IssueFilterBar 의 q debounce 패턴과 동일.
+  const [searchDraft, setSearchDraft] = useState(search)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSearchDraft(search)
+  }, [search])
+  useEffect(() => {
+    if (searchDraft === search) return
+    const t = setTimeout(() => {
+      setParams(
+        (prev) => {
+          const sp = new URLSearchParams(prev)
+          if (searchDraft) sp.set('q', searchDraft)
+          else sp.delete('q')
+          return sp
+        },
+        { replace: true },
+      )
+    }, 300)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDraft])
   // URL ?messageId=N 으로 초기 선택(홈 위젯 딥링크). 없으면 null.
   const [selectedId, setSelectedId] = useState<number | null>(
     () => Number(params.get('messageId')) || null,
@@ -553,18 +577,8 @@ export function MailInboxPage() {
               type="search"
               data-testid="mail-search"
               aria-label="메일 검색"
-              value={search}
-              onChange={(e) =>
-                setParams(
-                  (prev) => {
-                    const sp = new URLSearchParams(prev)
-                    if (e.target.value) sp.set('q', e.target.value)
-                    else sp.delete('q')
-                    return sp
-                  },
-                  { replace: true },
-                )
-              }
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
               placeholder="제목·보낸사람 검색"
               className="w-48 rounded-md border bg-background px-3 py-1.5 text-sm"
             />
