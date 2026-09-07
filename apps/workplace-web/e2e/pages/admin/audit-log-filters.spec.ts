@@ -148,4 +148,19 @@ test.describe('/settings/audit-logs — actionType·resource facet 필터', () =
       await expect(page.getByLabel('결과 필터')).toBeVisible();
     },
   );
+
+  // #810 — 행이 클릭 전용이라 키보드로는 상세 다이얼로그를 열 수 없었다.
+  test('감사 로그 행을 키보드(Tab+Enter)로 상세 다이얼로그를 열 수 있다 (#810)', async ({ adminPage: page }) => {
+    await setupAdminAuth(page);
+    await setupCapturedAuditLogMocks(page);
+
+    await page.goto('/settings/audit-logs');
+    const row = page.getByRole('button', { name: 'testuser — 생성 상세 보기' }).first();
+    await expect(row).toBeVisible();
+
+    await expect(page.getByRole('heading', { name: '감사 로그 상세' })).toHaveCount(0);
+    await row.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { name: '감사 로그 상세' })).toBeVisible();
+  });
 });

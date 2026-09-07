@@ -45,6 +45,7 @@ import {
 } from '../../hooks/queries/useAgentKeys';
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
+import { clickableRowProps } from '../../lib/clickableRowProps';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
@@ -203,9 +204,9 @@ export default function AgentManagementPage() {
               (agents.data ?? []).map((a) => (
                 <TableRow
                   key={a.id}
-                  className="cursor-pointer"
-                  onClick={() => setSelectedId(a.id)}
+                  className="cursor-pointer focus-visible:ring-2 focus-visible:ring-ring"
                   data-testid={`agent-row-${a.id}`}
+                  {...clickableRowProps(() => setSelectedId(a.id), `${a.name} 상세 보기`)}
                 >
                   <TableCell>
                     <div className="flex items-center gap-2.5">

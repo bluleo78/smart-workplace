@@ -331,6 +331,19 @@ test.describe('/admin/agents', () => {
     expect(text).not.toMatch(/\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?/);
   });
 
+  // #810 — 행이 클릭 전용(role/tabIndex/onKeyDown 부재)이라 키보드로는 상세 드로어에 진입 불가했다.
+  test('에이전트 행을 키보드(Tab+Enter)로 상세 드로어를 열 수 있다 (#810)', async ({ adminPage: page }) => {
+    await setupStatic(page);
+    await page.goto('/settings/agents');
+    const row = page.getByRole('button', { name: 'Claude 봇 상세 보기' });
+    await expect(row).toBeVisible();
+
+    await expect(page.getByTestId('agent-detail-drawer')).toHaveCount(0);
+    await row.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('agent-detail-drawer')).toBeVisible();
+  });
+
   // #136: API 키 회수 AlertDialog 취소 → DELETE 없음.
   test('API 키 회수 AlertDialog 취소 → DELETE 호출 없음', async ({ adminPage: page }) => {
     const counts = await setupStatic(page);

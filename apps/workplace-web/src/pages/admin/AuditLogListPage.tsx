@@ -33,6 +33,7 @@ import { TableSkeletonRows } from '@/components/ui/table-skeleton';
 import { useAuditLogs } from '@/hooks/queries/useAuditLogs';
 import { useUsers } from '@/hooks/queries/useUsers';
 import { useDebounceValue } from '@/hooks/useDebounceValue';
+import { clickableRowProps } from '@/lib/clickableRowProps';
 import { formatDateTime, formatIpAddress } from '@/lib/formatters';
 import type { AuditLogResponse } from '@/types/auditLog';
 
@@ -475,8 +476,11 @@ export default function AuditLogListPage() {
                 // 행 클릭 시 상세 보기 다이얼로그를 열어 truncate된 description 전문을 표시한다
                 <TableRow
                   key={log.id}
-                  className="row-hover cursor-pointer"
-                  onClick={() => handleRowClick(log)}
+                  className="row-hover cursor-pointer focus-visible:ring-2 focus-visible:ring-ring"
+                  {...clickableRowProps(
+                    () => handleRowClick(log),
+                    `${log.username} — ${formatAuditAction(log.actionType)} 상세 보기`,
+                  )}
                 >
                   <TableCell className="whitespace-nowrap text-sm">
                     {formatDateTime(log.actionTime)}

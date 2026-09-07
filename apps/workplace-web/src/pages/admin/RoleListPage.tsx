@@ -33,6 +33,7 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui/table';
+import { clickableRowProps } from '../../lib/clickableRowProps';
 import type { CreateRoleFormData } from '../../lib/validations/role';
 import { createRoleSchema } from '../../lib/validations/role';
 import type { RoleResponse } from '../../types/role';
@@ -165,8 +166,8 @@ export default function RoleListPage() {
               roles.map((role) => (
                 <TableRow
                   key={role.id}
-                  className="cursor-pointer hover:bg-muted/50 transition-colors row-hover"
-                  onClick={() => navigate(`/settings/roles/${role.id}`)}
+                  className="cursor-pointer hover:bg-muted/50 transition-colors row-hover focus-visible:ring-2 focus-visible:ring-ring"
+                  {...clickableRowProps(() => navigate(`/settings/roles/${role.id}`), `${role.name} 상세 보기`)}
                 >
                   <TableCell className="font-medium">{role.name}</TableCell>
                   <TableCell>

@@ -54,4 +54,19 @@ test.describe('/settings/roles — 할당된 역할 삭제 차단', () => {
     await expect(page.getByText('역할 "EDITOR"가 삭제되었습니다.')).toBeVisible();
     await expect(page.getByRole('cell', { name: 'EDITOR', exact: true })).not.toBeVisible();
   });
+
+  // #810 — 행이 role=button 이 아니거나 Enter/Space 로 활성화되지 않으면 키보드 사용자는
+  // 상세 화면에 진입할 방법이 없었다.
+  test('역할 행을 키보드(Tab+Enter)로 상세 페이지 이동 가능하다 (#810)', async ({ adminPage: page }) => {
+    await setupAdminAuth(page);
+    await setupRoleListMocks(page);
+
+    await page.goto('/settings/roles');
+    const row = page.getByRole('button', { name: 'EDITOR 상세 보기' });
+    await expect(row).toBeVisible();
+
+    await row.focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/settings\/roles\/3/);
+  });
 });
