@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
-import { driveApi } from '@/api/drive'
+import { useDriveSpaces } from '@/hooks/queries/useDriveSpaces'
 import { handleApiError } from '@/lib/api-error'
-import type { DriveSpace } from '@/types/drive'
 
 export type PendingFile = {
   fileId: number
@@ -28,20 +27,20 @@ export function useAttachmentDraft(
   const [drivePickerOpen, setDrivePickerOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  // 마운트 시 PERSONAL 스페이스 조회 — 드라이브 피커 시작 위치.
+  // PERSONAL 스페이스 조회 — 드라이브 피커 시작 위치. queryKey 공유로 IssueAttachmentStrip 등
+  // 동일 이슈 화면에 동시 마운트되는 다른 컴포넌트와 요청이 dedup 된다 (#798).
+  const spacesQuery = useDriveSpaces()
   useEffect(() => {
-    void driveApi
-      .listSpaces()
-      .then(({ data }) => {
-        const personal = (data as DriveSpace[]).find((s) => s.type === 'PERSONAL')
-        if (personal) setPersonalSpaceId(personal.id)
-        setSpacesResolved(true)
-      })
-      .catch(() => {
-        setSpacesResolved(true)
-        toast.error('드라이브 스페이스를 불러오지 못했습니다.')
-      })
-  }, [])
+    if (!spacesQuery.isSuccess && !spacesQuery.isError) return
+    if (spacesQuery.isError) {
+      setSpacesResolved(true)
+      toast.error('드라이브 스페이스를 불러오지 못했습니다.')
+      return
+    }
+    const personal = spacesQuery.data.find((s) => s.type === 'PERSONAL')
+    if (personal) setPersonalSpaceId(personal.id)
+    setSpacesResolved(true)
+  }, [spacesQuery.isSuccess, spacesQuery.isError, spacesQuery.data])
 
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return

@@ -68,12 +68,9 @@ async function setupOpenProjectMocks(
   await page.route('**/api/v1/drive/links*', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
+  // #798 — 실제 엔드포인트는 원시 배열을 반환한다(페이지네이션 envelope 아님).
   await page.route('**/api/v1/drive/spaces*', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ items: [], nextCursor: null }),
-    }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
   // 이슈 유형·AI 컨텍스트 스텁
   await page.route(

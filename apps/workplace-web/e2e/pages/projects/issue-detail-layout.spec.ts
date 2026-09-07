@@ -187,6 +187,28 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
     },
   );
 
+  // #798 — useAttachmentDraft(이슈 채팅 컴포저)와 IssueAttachmentStrip이 동시 마운트되면서
+  // 각각 raw axios로 /api/v1/drive/spaces 를 호출해 중복 요청이 나가던 회귀 방지.
+  // 공용 useDriveSpaces() 훅(TanStack Query)으로 통일되어 queryKey 공유 시 1회로 dedup 되어야 한다.
+  test('드라이브 스페이스 조회가 중복 호출되지 않는다 (#798)', async ({ authenticatedPage: page }) => {
+    await mockIssueDetail(page, { attachmentCount: 0 });
+    await mockAttachmentList(page, []);
+    let spacesCallCount = 0;
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces',
+      (route) => {
+        spacesCallCount += 1;
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
+    // 채팅 컴포저까지 함께 마운트되도록 잠깐 대기 후 호출 횟수 고정 확인.
+    await page.waitForTimeout(300);
+    expect(spacesCallCount).toBe(1);
+  });
+
   test('첨부는 본문 설명 아래 스트립으로 표시되고 사이드바엔 없다', async ({
     authenticatedPage: page,
   }) => {

@@ -7,10 +7,9 @@ import { Cloud } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import { driveApi } from '../../../api/drive';
 import { FolderPickerModal } from '../../../components/drive/FolderPickerModal';
+import { useDriveSpaces } from '../../../hooks/queries/useDriveSpaces';
 import { useAddIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
-import type { DriveSpace } from '../../../types/drive';
 import { IssueAttachmentDropzone } from './IssueAttachmentDropzone';
 import { IssueAttachmentList } from './IssueAttachmentList';
 
@@ -34,21 +33,21 @@ export function IssueAttachmentStrip({
   // 스페이스 목록 조회 완료 여부 — null 과 "아직 로딩 중" 구분용 (Fix 5).
   const [spacesResolved, setSpacesResolved] = useState(false);
 
-  // 컴포넌트 마운트 시 스페이스 목록에서 PERSONAL 타입 스페이스 조회.
+  // 스페이스 목록에서 PERSONAL 타입 스페이스 조회. queryKey 공유로 useAttachmentDraft 등
+  // 동일 이슈 화면에 동시 마운트되는 다른 컴포넌트와 요청이 dedup 된다 (#798).
+  const spacesQuery = useDriveSpaces();
   useEffect(() => {
-    void driveApi
-      .listSpaces()
-      .then(({ data }) => {
-        const personal = (data as DriveSpace[]).find((s) => s.type === 'PERSONAL');
-        if (personal) setPersonalSpaceId(personal.id);
-        setSpacesResolved(true);
-      })
-      .catch(() => {
-        // 스페이스 조회 실패 시 토스트로 안내하고 버튼은 비활성 유지.
-        setSpacesResolved(true);
-        toast.error('드라이브 스페이스를 불러오지 못했습니다.');
-      });
-  }, []);
+    if (!spacesQuery.isSuccess && !spacesQuery.isError) return;
+    if (spacesQuery.isError) {
+      // 스페이스 조회 실패 시 토스트로 안내하고 버튼은 비활성 유지.
+      setSpacesResolved(true);
+      toast.error('드라이브 스페이스를 불러오지 못했습니다.');
+      return;
+    }
+    const personal = spacesQuery.data.find((s) => s.type === 'PERSONAL');
+    if (personal) setPersonalSpaceId(personal.id);
+    setSpacesResolved(true);
+  }, [spacesQuery.isSuccess, spacesQuery.isError, spacesQuery.data]);
 
   return (
     <section aria-label="첨부" data-testid="issue-attachment-strip" className="space-y-2">
