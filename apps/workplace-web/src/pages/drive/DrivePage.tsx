@@ -659,9 +659,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             }
           }}
           data-testid="select-all"
+          // 옆의 "전체선택" 텍스트가 label 로 연결되어 있지 않아 accessible name 이 비어있었다 (#800).
+          aria-label={allSelected ? '전체 선택 해제' : '전체 선택'}
           className="h-4 w-4 shrink-0"
         />
-        <span>전체선택</span>
+        <span aria-hidden="true">전체선택</span>
       </div>
     )
   }
@@ -866,6 +868,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                         checked={selFolders.has(f.id)}
                         onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
                         data-testid={`select-folder-${f.id}`}
+                        aria-label={`${f.name} 선택`}
                         className="h-4 w-4 shrink-0"
                       />
                       {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
@@ -890,6 +893,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                         checked={selFiles.has(f.id)}
                         onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
                         data-testid={`select-file-${f.id}`}
+                        aria-label={`${f.name} 선택`}
                         className="h-4 w-4 shrink-0"
                       />
                       <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
@@ -1014,6 +1018,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   checked={selFolders.has(f.id)}
                   onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
                   data-testid={`select-folder-${f.id}`}
+                  aria-label={`${f.name} 선택`}
                   className="h-4 w-4 shrink-0"
                 />
                 {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
@@ -1067,6 +1072,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   checked={selFiles.has(f.id)}
                   onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
                   data-testid={`select-file-${f.id}`}
+                  aria-label={`${f.name} 선택`}
                   className="h-4 w-4 shrink-0"
                 />
                 <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />

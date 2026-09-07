@@ -223,6 +223,24 @@ test.describe('드라이브 벌크 작업', () => {
     await expect(page.getByTestId('bulk-toolbar')).toHaveCount(0)
   })
 
+  // #800 — 체크박스에 accessible name 이 없어 스크린리더가 "checkbox" 만 반복하던 문제 회귀 방지.
+  test('선택 체크박스에 파일/폴더명을 포함한 accessible name 이 있다 (#800)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubSpaces(page)
+    await stubItems(page)
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await expect(page.getByTestId('drive-page')).toBeVisible()
+
+    await expect(page.getByRole('checkbox', { name: '전체 선택' })).toBeVisible()
+    await expect(page.getByRole('checkbox', { name: '문서 선택' })).toBeVisible()
+    await expect(page.getByRole('checkbox', { name: 'memo.txt 선택' })).toBeVisible()
+
+    await page.getByTestId('select-all').check()
+    await expect(page.getByRole('checkbox', { name: '전체 선택 해제' })).toBeVisible()
+  })
+
   // #588: 검색 결과 화면에도 비검색 모드와 동일한 체크박스/전체선택/벌크 툴바가 있어야 한다.
   test('검색 결과에서도 체크박스·전체선택·벌크 삭제가 동작한다', async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
