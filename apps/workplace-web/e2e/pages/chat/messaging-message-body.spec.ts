@@ -464,6 +464,21 @@ test.describe('메시지 균일 좌측 정렬', () => {
     },
   )
 
+  // #809 — hover 없이 키보드 포커스만으로 반응/답글/수정/삭제 버튼에 도달할 수 있어야 한다.
+  test(
+    '본인 메시지 툴바 — hover 없이 키보드 포커스만으로 접근 가능하다 (#809)',
+    async ({ authenticatedPage: page }) => {
+      const toolbar = page.getByTestId('message-toolbar-30')
+      const editButton = toolbar.getByRole('button', { name: '수정' })
+      // hover 전에는 opacity-0 으로 시각적으로 감춰져 있다(레이아웃/tab 순서에는 항상 존재).
+      await expect(toolbar).toHaveCSS('opacity', '0')
+
+      await editButton.focus()
+      await expect(toolbar).toHaveCSS('opacity', '1')
+      await expect(editButton).toBeFocused()
+    },
+  )
+
 })
 
 // ── 후속 줄 hover 시각(거터) — 컴팩트 24h + opacity 토글(레이아웃 점프 방지) ──────────

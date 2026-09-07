@@ -243,7 +243,11 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               {!isEditing && (
                 <div
                   data-testid={`message-toolbar-${m.id}`}
-                  className="absolute -top-3 right-2 z-10 hidden items-center gap-0.5 rounded-md border bg-popover p-0.5 shadow-sm group-hover:flex"
+                  // #809: display:none(hidden)이면 버튼이 애초에 tab 순서에서 제외돼 group-hover:flex만으로는
+                  // 키보드로 절대 도달할 수 없다(포커스를 받아야 보이는데, 보여야 포커스를 받을 수 있는 순환).
+                  // 본문에 별도 포커스 가능 요소가 없어(#82 Drive 행처럼 부트스트랩용 버튼 부재) opacity 토글로
+                  // 전환 — 항상 레이아웃/tab 순서에 존재하되 시각적으로만 숨김(#693 ViewChipBar 메뉴트리거와 동일 패턴).
+                  className="absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-md border bg-popover p-0.5 opacity-0 shadow-sm pointer-events-none transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
                 >
                   {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
                   {!isPending && (
