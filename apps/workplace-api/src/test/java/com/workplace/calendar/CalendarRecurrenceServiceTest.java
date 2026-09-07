@@ -241,6 +241,46 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(CALENDAR_EVENT, CALENDAR_EVENT.OWNER_ID.eq(u))).isEqualTo(1);
   }
 
+  /**
+   * override 별도 일정을 "그 회차의 scope" 인지 없이(occurrenceDate=null) 독립적으로 삭제해도(#816 — 프런트가 override 이벤트를
+   * 단순 확인 다이얼로그로 삭제 요청하는 상황을 재현) 마스터가 다음 회차 전개 시 원본 데이터로 되살리지 않아야 한다. override_event_id 의 ON DELETE
+   * CASCADE 로 exception 행이 통째로 사라지면 "취소됨" 기록이 없어져 재현되는 회귀를 방지.
+   */
+  @Test
+  void deleteOverrideEventDirectly_withoutOccurrenceDate_cancelsInsteadOfRevivingMaster() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ1 = BASE;
+    // 1번째 회차를 이동+제목변경(THIS) → override 별도 일정 생성.
+    OffsetDateTime movedStart = BASE.plusDays(1);
+    CalendarEventResponse overrideEvent =
+        service.update(u, master.id(), editReq("반복테스트이벤트", null, movedStart), EditScope.THIS, occ1);
+
+    // 프런트가 이동된 override 이벤트 자신의 id 로, scope/occurrenceDate 없이 단순 삭제 요청(버그 재현 조건).
+    service.delete(u, overrideEvent.id(), EditScope.ALL, null);
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(4));
+    // 원본 회차(occ1, BASE)가 되살아나지 않아야 함 — 총 3회(2,3,4주차)만 유지.
+    assertThat(r).hasSize(3);
+    assertThat(r).extracting(CalendarEventResponse::startsAt).doesNotContain(occ1);
+    // 이동된 자리(movedStart)도 사라져야 함(삭제 의도 반영).
+    assertThat(r).extracting(e -> e.startsAt().toInstant()).doesNotContain(movedStart.toInstant());
+    // override 별도 일정 행 자체는 삭제되고, 예외 행은 취소 상태로 남아 마스터 확장에서 계속 스킵된다.
+    assertThat(
+            dsl.fetchExists(
+                dsl.selectFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.ID.eq(overrideEvent.id()))))
+        .isFalse();
+    var exceptionRow =
+        dsl.selectFrom(CALENDAR_EVENT_EXCEPTION)
+            .where(CALENDAR_EVENT_EXCEPTION.EVENT_ID.eq(master.id()))
+            .and(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE.eq(occ1))
+            .fetchOne();
+    assertThat(exceptionRow).isNotNull();
+    assertThat(exceptionRow.get(CALENDAR_EVENT_EXCEPTION.IS_CANCELLED)).isTrue();
+    assertThat(exceptionRow.get(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID)).isNull();
+  }
+
   @Test
   void list_weeklyMaster_expandsAcrossWeeks() {
     long u = user();

@@ -92,6 +92,25 @@ public class CalendarEventExceptionRepository {
         .map(r -> r.get(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID));
   }
 
+  /** override_event_id 역조회 결과 — 마스터 event_id + 해당 회차의 occurrence_date. */
+  public record MasterOccurrence(long eventId, OffsetDateTime occurrenceDate) {}
+
+  /**
+   * override 별도 일정 자신의 id 로 마스터/회차를 역조회한다(#816). override 이벤트는 자기 행에 masterEventId/occurrenceDate 를
+   * 갖지 않으므로(회차 식별은 exception 테이블이 유일한 연결고리), 이 id 를 "독립 삭제" 요청받았을 때 안전하게 마스터 취소로 우회하기 위해 필요하다. 이
+   * 조회가 비어있으면 override 가 아닌 일반(비반복) 이벤트다.
+   */
+  public Optional<MasterOccurrence> findMasterOccurrenceByOverride(long overrideEventId) {
+    return dsl.select(CALENDAR_EVENT_EXCEPTION.EVENT_ID, CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE)
+        .from(CALENDAR_EVENT_EXCEPTION)
+        .where(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.eq(overrideEventId))
+        .fetchOptional(
+            r ->
+                new MasterOccurrence(
+                    r.get(CALENDAR_EVENT_EXCEPTION.EVENT_ID),
+                    r.get(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE)));
+  }
+
   /** 마스터의 오버라이드 일정 id 목록(ALL 삭제 시 고아 정리용). 마스터 삭제는 override 별도 일정을 cascade 하지 않으므로 서비스가 직접 지운다. */
   public List<Long> overrideEventIds(long eventId) {
     return overrideEventIdsFrom(eventId, null);

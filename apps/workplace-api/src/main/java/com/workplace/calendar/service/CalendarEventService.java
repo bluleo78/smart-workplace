@@ -632,6 +632,21 @@ public class CalendarEventService {
     CalendarEventResponse target =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
 
+    // override 별도 일정 자신의 id 를 occurrenceDate 없이(=scope 인지 못하고 "독립 삭제"로) 요청받은 경우(#816).
+    // override 이벤트 행 자체는 recurrenceRule=null 이라 바로 아래 분기로 빠지면 repo.delete(id) 가 실행되는데,
+    // override_event_id 컬럼이 ON DELETE CASCADE 라 그 순간 exception 행 자체가 통째로 사라져 "취소됨" 기록이 남지 않고
+    // 마스터가 다음 회차 전개 시 원래 날짜에 그 회차를 다시 만들어낸다. 역조회로 마스터/occurrence 를 찾아 먼저
+    // "취소"로 전환한 뒤(THIS 삭제와 동일 패턴) override 행을 지워 부활을 막는다.
+    if (occurrenceDate == null) {
+      var masterOccurrence = exceptionRepo.findMasterOccurrenceByOverride(id);
+      if (masterOccurrence.isPresent()) {
+        exceptionRepo.insertCancellation(
+            masterOccurrence.get().eventId(), masterOccurrence.get().occurrenceDate());
+        repo.delete(id);
+        return;
+      }
+    }
+
     if (target.recurrenceRule() == null || scope == EditScope.ALL) {
       // 마스터에 매달린 오버라이드 일정들은 FK 가 master→exception 방향이라 cascade 되지 않음 — 먼저 수집해 직접 삭제.
       List<Long> overrides = exceptionRepo.overrideEventIds(id);
