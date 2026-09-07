@@ -3,6 +3,7 @@ package com.workplace.drive.service;
 import com.workplace.drive.exception.DriveQuotaExceededException;
 import com.workplace.drive.repository.DriveQuotaRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.FileSizeFormatter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,8 +81,11 @@ public class DriveQuotaService {
     long used = usedBytes();
     long quota = quotaBytes();
     if (used + incomingBytes > quota) {
+      // 원시 바이트 정수를 그대로 노출하지 않고 사람이 읽기 쉬운 단위로 변환(#821)
       throw new DriveQuotaExceededException(
-          String.format("저장 용량을 초과했습니다 (사용 %d / 한도 %d 바이트).", used, quota));
+          String.format(
+              "저장 용량을 초과했습니다 (사용 %s / 한도 %s).",
+              FileSizeFormatter.format(used), FileSizeFormatter.format(quota)));
     }
   }
 }

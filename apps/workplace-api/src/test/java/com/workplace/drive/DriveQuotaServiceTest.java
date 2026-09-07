@@ -44,6 +44,17 @@ class DriveQuotaServiceTest extends IntegrationTestBase {
         .isInstanceOf(DriveQuotaExceededException.class);
   }
 
+  /** 초과 메시지는 원시 바이트 정수가 아닌 사람이 읽기 쉬운 단위(GB 등)를 담아야 한다(#821). */
+  @Test
+  void 한도_초과시_메시지는_바이트_대신_사람이_읽기_쉬운_단위() {
+    long over = quotaService.view().quotaBytes() + 1;
+    assertThatThrownBy(() -> quotaService.assertWithinQuota(over))
+        .isInstanceOf(DriveQuotaExceededException.class)
+        .hasMessageContaining("GB")
+        .hasMessageNotContaining("바이트")
+        .hasMessageNotContaining("10737418240");
+  }
+
   @Test
   void view_returns_used_and_quota() {
     DriveQuotaService.QuotaView v = quotaService.view();
