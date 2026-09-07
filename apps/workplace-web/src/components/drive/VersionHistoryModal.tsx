@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { formatFileSize } from '@/lib/formatters';
 import type { DriveFile, DriveFileVersion } from '@/types/drive';
 
 interface Props {
@@ -70,7 +71,7 @@ export function VersionHistoryModal({ file, open, onClose, onChanged }: Props) {
               )}
               <span className="flex-1 truncate text-muted-foreground">
                 {v.uploadedByName} · {new Date(v.createdAt).toLocaleString()} ·{' '}
-                {Math.round(v.sizeBytes / 1024)}KB
+                {formatFileSize(v.sizeBytes)}
                 {v.comment ? ` · ${v.comment}` : ''}
               </span>
               <button

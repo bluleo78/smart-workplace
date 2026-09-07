@@ -44,7 +44,7 @@ test('버전 이력 모달 표시·롤백', { tag: '@smoke' }, async ({ authenti
           {
             versionNo: 2,
             fileId: 11,
-            sizeBytes: 200,
+            sizeBytes: 2048,
             uploadedBy: 1,
             uploadedByName: '홍길동',
             createdAt: '2026-06-21T01:00:00Z',
@@ -54,6 +54,7 @@ test('버전 이력 모달 표시·롤백', { tag: '@smoke' }, async ({ authenti
           {
             versionNo: 1,
             fileId: 10,
+            // 1024바이트 미만 — Math.round(x/1024) 인라인 계산 시 "0KB"로 잘못 표시되던 회귀 케이스(#792)
             sizeBytes: 100,
             uploadedBy: 1,
             uploadedByName: '홍길동',
@@ -88,6 +89,10 @@ test('버전 이력 모달 표시·롤백', { tag: '@smoke' }, async ({ authenti
   // 버전 행 표시 확인
   await expect(page.getByTestId('version-row-2')).toContainText('현재')
   await expect(page.getByTestId('version-row-1')).toBeVisible()
+  // 파일 크기 포맷 확인(#792) — 1024바이트 미만은 "N B", 이상은 "N.N KB"
+  await expect(page.getByTestId('version-row-2')).toContainText('2.0 KB')
+  await expect(page.getByTestId('version-row-1')).toContainText('100 B')
+  await expect(page.getByTestId('version-row-1')).not.toContainText('0KB')
   // v1 롤백 클릭 → 모달이 유지되어야 함
   await page.getByTestId('rollback-1').click()
   // 롤백 후 목록 재조회가 트리거됨(에러 없이 모달 유지)
