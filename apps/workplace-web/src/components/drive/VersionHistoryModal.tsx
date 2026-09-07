@@ -6,6 +6,16 @@
 import { useEffect, useState } from 'react';
 
 import { driveApi } from '@/api/drive';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -28,6 +38,8 @@ interface Props {
 export function VersionHistoryModal({ file, open, onClose, onChanged }: Props) {
   const [versions, setVersions] = useState<DriveFileVersion[]>([]);
   const [busy, setBusy] = useState(false);
+  // 롤백 확인 대기 중인 버전 번호 — null 이면 확인 다이얼로그 닫힘 (#815)
+  const [pendingRollback, setPendingRollback] = useState<number | null>(null);
 
   // 모달 열릴 때(또는 파일 변경 시) 버전 목록 로드.
   async function load() {
@@ -52,55 +64,85 @@ export function VersionHistoryModal({ file, open, onClose, onChanged }: Props) {
     }
   }
 
+  // 확인 다이얼로그에서 "롤백" 클릭 시 실제 롤백 실행 (#815 — 즉시 실행 방지).
+  async function confirmRollback() {
+    if (pendingRollback == null) return;
+    const versionNo = pendingRollback;
+    setPendingRollback(null);
+    await onRollback(versionNo);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent data-testid="version-history-modal">
-        <DialogHeader>
-          <DialogTitle>버전 이력 — {file.name}</DialogTitle>
-        </DialogHeader>
-        <ul className="divide-y">
-          {versions.map((v) => (
-            <li
-              key={v.versionNo}
-              className="flex items-center gap-2 py-2 text-sm"
-              data-testid={`version-row-${v.versionNo}`}
-            >
-              <span className="font-medium">v{v.versionNo}</span>
-              {v.current && (
-                <span className="rounded bg-primary/10 px-1 text-xs text-primary">현재</span>
-              )}
-              <span className="flex-1 truncate text-muted-foreground">
-                {v.uploadedByName} · {new Date(v.createdAt).toLocaleString()} ·{' '}
-                {formatFileSize(v.sizeBytes)}
-                {v.comment ? ` · ${v.comment}` : ''}
-              </span>
-              <button
-                type="button"
-                onClick={() => driveApi.downloadVersion(file.id, v.versionNo, file.name)}
-                className="text-xs text-primary"
+    <>
+      <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+        <DialogContent data-testid="version-history-modal">
+          <DialogHeader>
+            <DialogTitle>버전 이력 — {file.name}</DialogTitle>
+          </DialogHeader>
+          <ul className="divide-y">
+            {versions.map((v) => (
+              <li
+                key={v.versionNo}
+                className="flex items-center gap-2 py-2 text-sm"
+                data-testid={`version-row-${v.versionNo}`}
               >
-                다운로드
-              </button>
-              {!v.current && (
+                <span className="font-medium">v{v.versionNo}</span>
+                {v.current && (
+                  <span className="rounded bg-primary/10 px-1 text-xs text-primary">현재</span>
+                )}
+                <span className="flex-1 truncate text-muted-foreground">
+                  {v.uploadedByName} · {new Date(v.createdAt).toLocaleString()} ·{' '}
+                  {formatFileSize(v.sizeBytes)}
+                  {v.comment ? ` · ${v.comment}` : ''}
+                </span>
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() => onRollback(v.versionNo)}
-                  className="text-xs text-primary disabled:opacity-50"
-                  data-testid={`rollback-${v.versionNo}`}
+                  onClick={() => driveApi.downloadVersion(file.id, v.versionNo, file.name)}
+                  className="text-xs text-primary"
                 >
-                  이 버전으로 롤백
+                  다운로드
                 </button>
-              )}
-            </li>
-          ))}
-        </ul>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            닫기
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+                {!v.current && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setPendingRollback(v.versionNo)}
+                    className="text-xs text-primary disabled:opacity-50"
+                    data-testid={`rollback-${v.versionNo}`}
+                  >
+                    이 버전으로 롤백
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose}>
+              닫기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* 롤백 확인 다이얼로그(#815) — 라벨/역할/그룹 삭제 등과 동일한 AlertDialog 패턴 재사용 */}
+      <AlertDialog
+        open={pendingRollback != null}
+        onOpenChange={(v) => !v && setPendingRollback(null)}
+      >
+        <AlertDialogContent data-testid="rollback-confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>버전으로 롤백</AlertDialogTitle>
+            <AlertDialogDescription>
+              v{pendingRollback}으로 롤백하시겠습니까? 현재 내용은 새 버전으로 보존됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction data-testid="rollback-confirm-action" onClick={confirmRollback}>
+              롤백
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
