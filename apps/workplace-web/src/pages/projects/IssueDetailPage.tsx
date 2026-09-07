@@ -346,7 +346,10 @@ export default function IssueDetailPage() {
           <div className="flex-1 space-y-6 @min-[1032px]:min-w-[360px]">
             {/* 제목 + 유형/차단 배지 — 헤더는 브레드크럼만 담당하므로 본문 상단으로 이동(Jira 패턴). */}
             <div className="space-y-2" data-testid="issue-title-heading">
-              <h1 className="text-2xl leading-8 font-semibold tracking-tight">
+              {/* aria-label 명시 — 없으면 자식 편집 버튼의 aria-label("제목 편집")까지
+                  heading accessible name에 concatenate 되어 스크린리더가 "{제목} 제목 편집"으로
+                  읽는다 (#791, WCAG 1.3.1). */}
+              <h1 className="text-2xl leading-8 font-semibold tracking-tight" aria-label={summary.title}>
                 <InlineEditableTitle
                   title={summary.title}
                   onSave={(t) => patch({ title: t })}

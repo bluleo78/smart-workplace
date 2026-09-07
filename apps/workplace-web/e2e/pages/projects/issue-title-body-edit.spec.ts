@@ -77,6 +77,17 @@ async function setupStubs(page: import('@playwright/test').Page): Promise<Stub> 
 }
 
 test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
+  // #791 — h1 accessible name에 편집 버튼의 aria-label("제목 편집")이 섞여 들어가지 않아야 한다.
+  test('제목 heading의 accessible name이 편집 버튼 라벨과 섞이지 않는다 (#791)', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // aria-label 명시로 accessible name === 제목 텍스트만이어야 한다 (편집 버튼 라벨 미포함).
+    await expect(page.getByRole('heading', { level: 1, name: '원본 제목', exact: true })).toBeVisible();
+  });
+
   test('제목 편집 → Enter → PATCH {title} 호출 + 새 제목 렌더', async ({ authenticatedPage: page }) => {
     const stub = await setupStubs(page);
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
