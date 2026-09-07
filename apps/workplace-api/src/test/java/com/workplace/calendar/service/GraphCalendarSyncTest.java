@@ -482,4 +482,31 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
     syncService.sync(ownerId, accountId);
     assertThat(calendarRepo.isReadOnly(calId)).isTrue();
   }
+
+  /**
+   * #825 — Graph 의 lightOrange/lightBrown/lightYellow 는 팔레트에 없거나(dead key) 서로 겹쳐(둘 다 amber) 예전
+   * 구현에서는 셋 다 blue 로 수렴했다. 같은 계정 안의 캘린더는 서로 다른 색을 배정받아야 한다.
+   */
+  @Test
+  void sync_assignsDistinctColors_forCalendarsWithCollidingGraphColors() {
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(
+            List.of(
+                new GraphCalendar("gcalOrange", "기본", "lightOrange", "", true, true),
+                new GraphCalendar("gcalBrown", "생일", "lightBrown", "", false, true),
+                new GraphCalendar("gcalYellow", "한국의 공휴일", "lightYellow", "", false, true)));
+    when(graphCalendarClient.listCalendarView(any(), any(), any(), any())).thenReturn(List.of());
+
+    syncService.sync(ownerId, accountId);
+
+    List<Long> calIds = extRepo.listExternalCalendarIds(accountId);
+    assertThat(calIds).hasSize(3);
+    List<String> colors =
+        calIds.stream()
+            .map(id -> calendarRepo.findByIdForOwner(ownerId, id).orElseThrow().color())
+            .toList();
+    // 세 캘린더가 전부 다른 색을 배정받아야 한다(전부 blue 로 수렴하던 #825 재현 방지).
+    assertThat(colors).doesNotHaveDuplicates();
+  }
 }

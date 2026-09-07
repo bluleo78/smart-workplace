@@ -46,20 +46,25 @@ public class GraphCalendarFetcher implements CalendarFetcher {
   /**
    * Graph calendarColor 열거 → 팔레트 키 매핑 테이블.
    *
-   * <p>CalendarPalette.isValid() 검증 후 사용 — 미인식/팔레트 외 키는 blue 폴백. orange·yellow·brown 은 팔레트에 없으므로 실제
-   * 폴백 결과는 blue 다.
+   * <p>CalendarPalette.isValid() 검증 후 사용. Graph 의 9개 색 열거값은 팔레트 8종보다 많아 1:1 매핑이 불가능하고(#825),
+   * lightYellow 는 팔레트에 대응 색이 없어 amber 와 공유한다 — 매핑이 없거나(dead key) 같은 계정 내 이미 사용 중인 색과 충돌하면 {@link
+   * #resolveColor} 가 미사용 팔레트 키로 대체 배정한다.
    */
   private static final Map<String, String> COLOR_MAP =
       Map.of(
           "lightBlue", "blue",
           "lightGreen", "green",
-          "lightOrange", "orange",
+          "lightOrange", "amber",
           "lightRed", "red",
-          "lightYellow", "yellow",
+          "lightYellow", "amber",
           "lightTeal", "teal",
           "lightPink", "pink",
-          "lightBrown", "brown",
+          "lightBrown", "violet",
           "lightGray", "gray");
+
+  /** 라운드로빈 폴백 배정 순서 — {@link CalendarPalette#KEYS} 와 동일 집합, 순서만 고정. */
+  private static final List<String> PALETTE_ORDER =
+      List.of("blue", "green", "red", "amber", "violet", "pink", "teal", "gray");
 
   /** 참석자 diff 행 스펙(내부 userId 또는 외부 email). */
   private record Spec(
@@ -125,11 +130,14 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     // ── 2단계: DB persist — 달력별 짧은 트랜잭션 ──────────────────────────────────
     int totalUpserted = 0;
     Set<Long> seenCalendarIds = new HashSet<>();
+    // 계정 안의 캘린더끼리 색이 겹치지 않도록 이번 sync 호출 동안 배정된 색을 추적한다 (#825).
+    Set<String> usedColorsForAccount = new HashSet<>();
 
     for (CalendarBatch batch : batches) {
       GraphCalendar cal = batch.calendar();
       List<GraphEvent> events = batch.events();
-      String color = resolveColor(cal.color());
+      String color = resolveColor(cal.color(), usedColorsForAccount);
+      usedColorsForAccount.add(color);
 
       int[] count = {0};
       long[] calIdHolder = {0L};
@@ -339,9 +347,19 @@ public class GraphCalendarFetcher implements CalendarFetcher {
    *
    * <p>COLOR_MAP 조회 후 CalendarPalette.isValid() 검증 — 미인식 또는 팔레트 외 키는 blue 폴백.
    */
-  private static String resolveColor(String graphColor) {
-    if (graphColor == null) return CalendarPalette.DEFAULT;
-    String mapped = COLOR_MAP.getOrDefault(graphColor, CalendarPalette.DEFAULT);
-    return CalendarPalette.isValid(mapped) ? mapped : CalendarPalette.DEFAULT;
+  /**
+   * Graph 색 → 팔레트 키 해석. 매핑이 유효하고 이 계정에서 아직 안 쓰였으면 그대로 사용, 아니면(dead key 또는 다른 캘린더와 충돌) {@link
+   * #PALETTE_ORDER} 순서로 미사용 키를 찾아 대체한다 — 한 계정 안의 여러 캘린더가 전부 blue 로 수렴하던 문제(#825) 방지.
+   */
+  private static String resolveColor(String graphColor, Set<String> usedByAccount) {
+    String mapped = graphColor == null ? null : COLOR_MAP.get(graphColor);
+    if (CalendarPalette.isValid(mapped) && !usedByAccount.contains(mapped)) {
+      return mapped;
+    }
+    for (String candidate : PALETTE_ORDER) {
+      if (!usedByAccount.contains(candidate)) return candidate;
+    }
+    // 캘린더가 8개를 초과하는 극단적인 경우 — 더 이상 배정할 미사용 색이 없으므로 기본값으로 폴백.
+    return CalendarPalette.DEFAULT;
   }
 }
