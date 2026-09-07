@@ -58,6 +58,22 @@ test.describe('메일 작성·발송', () => {
     await expect(page.getByTestId('mail-compose-dock')).toBeHidden()
   })
 
+  // #802 — 도크가 role/label 없는 평범한 div였고, 열릴 때 포커스가 본문 에디터로 가버리던 문제 회귀 방지.
+  test('작성 도크가 region 랜드마크로 노출되고, 열리면 "받는사람"에 포커스된다 (#802)', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-compose-new').click()
+
+    const dock = page.getByTestId('mail-compose-dock')
+    await expect(dock).toBeVisible()
+    await expect(dock).toHaveAttribute('role', 'region')
+    // region 의 accessible name 이 헤더 텍스트("새 메일")와 연결돼야 한다.
+    await expect(page.getByRole('region', { name: '새 메일' })).toBeVisible()
+
+    await expect(page.getByTestId('mail-compose-to')).toBeFocused()
+  })
+
   // #692 — 수신자 없이 발송 시 검증 에러 토스트가 컴포즈 도크의 "보내기" 버튼을 가리지 않아야 한다.
   test('수신자 없이 발송 → 검증 에러 토스트가 상단에 표시되고 보내기 버튼을 가리지 않음', async ({
     authenticatedPage: page,

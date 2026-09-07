@@ -75,7 +75,9 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
       Link.configure({ openOnClick: false, autolink: true }),
     ],
     content: initialHtml,
-    autofocus: 'end',
+    // 도크가 열리면 "받는사람"으로 포커스를 명시적으로 보낸다(#802) — 에디터가 자동으로
+    // 포커스를 가져가면 수신자→제목→본문 순서를 건너뛰게 되므로 여기서는 비활성화.
+    autofocus: false,
     // 마운트 직후 refs 를 초기화해 상위 도크가 빈 본문 상태를 정확히 알게 한다.
     // (인용문은 에디터 밖에서 관리되므로 여기 포함되지 않는다 — 설계 §3)
     onCreate: ({ editor }) => onChange(editor.getHTML(), editor.getText()),
