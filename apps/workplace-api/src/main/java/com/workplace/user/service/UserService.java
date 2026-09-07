@@ -265,13 +265,30 @@ public class UserService {
     }
     userRepository.renameAgentIdentity(userId, req.username(), req.name());
     // 감사 로그 — AGENT_RENAMED (이전/이후 username·name 메타).
+    // 설명 문구엔 실제로 바뀐 필드만 반영한다 — username 이 그대로인 채 name 만 바뀌면
+    // "username → 동일 username" 만 찍혀 변경이 없었던 것처럼 보이는 오해를 방지(#796).
+    StringBuilder renameDesc = new StringBuilder("AGENT 유저 변경: ");
+    boolean usernameChanged = !user.username().equals(req.username());
+    boolean nameChanged = !user.name().equals(req.name());
+    if (usernameChanged) {
+      renameDesc.append("아이디 ").append(user.username()).append(" → ").append(req.username());
+    }
+    if (nameChanged) {
+      if (usernameChanged) {
+        renameDesc.append(", ");
+      }
+      renameDesc.append("이름 ").append(user.name()).append(" → ").append(req.name());
+    }
+    if (!usernameChanged && !nameChanged) {
+      renameDesc.append("변경 없음");
+    }
     auditLogService.log(
         callerId,
         resolveUsername(callerId),
         "AGENT_RENAMED",
         "user",
         String.valueOf(userId),
-        "AGENT 유저 변경: " + user.username() + " → " + req.username(),
+        renameDesc.toString(),
         null,
         null,
         "SUCCESS",

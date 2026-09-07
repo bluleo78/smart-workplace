@@ -4,6 +4,8 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.audit.dto.AuditLogResponse;
+import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -12,6 +14,7 @@ import com.workplace.user.dto.RenameAgentRequest;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
+import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +30,7 @@ class UserRenameAgentTest extends IntegrationTestBase {
 
   @Autowired private UserService userService;
   @Autowired private DSLContext dsl;
+  @Autowired private AuditLogService auditLogService;
 
   private Long callerId;
 
@@ -131,6 +135,61 @@ class UserRenameAgentTest extends IntegrationTestBase {
                 userService.renameAgent(
                     callerId, agent2.id(), new RenameAgentRequest("taken", "Free2")))
         .isInstanceOf(UsernameAlreadyExistsException.class);
+  }
+
+  /**
+   * username 은 그대로 두고 name 만 바꿔도 감사 로그 설명에 이름 변경분이 반영된다(#796 회귀 가드). 수정 전에는 "AGENT 유저 변경: username
+   * → username" 처럼 좌우가 동일해 변경이 없었던 것처럼 보였다.
+   */
+  @Test
+  void rename_name_only_reflects_in_audit_log_description() {
+    UserResponse agent =
+        userService.createAgent(
+            callerId, new CreateAgentRequest("code-bot", "코드리뷰어", "code-bot@example.com"));
+
+    userService.renameAgent(callerId, agent.id(), new RenameAgentRequest("code-bot", "코드리뷰어2"));
+
+    List<AuditLogResponse> logs =
+        auditLogService.findByResource("AGENT_RENAMED", "user", String.valueOf(agent.id()));
+    assertThat(logs).hasSize(1);
+    String description = logs.get(0).description();
+    assertThat(description).contains("이름 코드리뷰어 → 코드리뷰어2");
+    // username 은 변경되지 않았으므로 "아이디 ..." 문구는 포함되지 않아야 한다.
+    assertThat(description).doesNotContain("아이디");
+  }
+
+  /** username 만 바꾸면 감사 로그 설명에 아이디 변경분만 반영되고 이름 문구는 없다. */
+  @Test
+  void rename_username_only_reflects_in_audit_log_description() {
+    UserResponse agent =
+        userService.createAgent(
+            callerId, new CreateAgentRequest("old-id", "Same Name", "old-id@example.com"));
+
+    userService.renameAgent(callerId, agent.id(), new RenameAgentRequest("new-id", "Same Name"));
+
+    List<AuditLogResponse> logs =
+        auditLogService.findByResource("AGENT_RENAMED", "user", String.valueOf(agent.id()));
+    assertThat(logs).hasSize(1);
+    String description = logs.get(0).description();
+    assertThat(description).contains("아이디 old-id → new-id");
+    assertThat(description).doesNotContain("이름");
+  }
+
+  /** username·name 둘 다 바뀌면 감사 로그 설명에 두 변경분이 모두 포함된다. */
+  @Test
+  void rename_both_fields_reflects_both_in_audit_log_description() {
+    UserResponse agent =
+        userService.createAgent(
+            callerId, new CreateAgentRequest("both-old", "Old Name", "both-old@example.com"));
+
+    userService.renameAgent(callerId, agent.id(), new RenameAgentRequest("both-new", "New Name"));
+
+    List<AuditLogResponse> logs =
+        auditLogService.findByResource("AGENT_RENAMED", "user", String.valueOf(agent.id()));
+    assertThat(logs).hasSize(1);
+    String description = logs.get(0).description();
+    assertThat(description).contains("아이디 both-old → both-new");
+    assertThat(description).contains("이름 Old Name → New Name");
   }
 
   /** 존재하지 않는 유저 → 404. */
