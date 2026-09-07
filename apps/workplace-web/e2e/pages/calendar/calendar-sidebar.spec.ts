@@ -1,7 +1,7 @@
 // 캘린더 사이드바 미니 캘린더 + 표시 토글 E2E.
 // 백엔드 없이 /calendar/events, /calendars, /me/issues 를 page.route 로 모킹한다.
-// (미니 캘린더는 calendar.tsx 래퍼의 기본 locale={ko} 로 캡션이 한글 렌더 — nav 버튼 aria-label 은
-//  react-day-picker 의 `labels` API 로 locale 과 무관하게 영어로 유지되어 결정적.)
+// (미니 캘린더는 calendar.tsx 래퍼의 기본 locale={ko} 로 캡션이 한글 렌더. nav 버튼 aria-label 도
+//  calendar.tsx 의 `labels` prop 으로 한글 지정됨 — #793.)
 import type { Page } from '@playwright/test'
 
 import { mockApi } from '../../fixtures/api-mock'
@@ -47,6 +47,23 @@ test('미니 캘린더 요일 헤더가 한글로 렌더링된다 (#652 회귀 �
   await expect(mini).not.toContainText('Mo')
 })
 
+// #793 — 이전/다음 달 네비게이션 버튼의 accessible name이 영문 기본값이 아니라 한글이어야 한다.
+test('미니 캘린더 이전/다음 달 버튼 aria-label이 한글이다 (#793)', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendars(page)
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  await stubDueIssue(page)
+
+  await page.goto('/calendar')
+  const mini = page.getByTestId('calendar-mini')
+
+  await expect(mini.getByRole('button', { name: '이전 달' })).toBeVisible()
+  await expect(mini.getByRole('button', { name: '다음 달' })).toBeVisible()
+  // 영문 기본값이 남아있지 않아야 한다.
+  await expect(mini.getByRole('button', { name: /previous month/i })).toHaveCount(0)
+  await expect(mini.getByRole('button', { name: /next month/i })).toHaveCount(0)
+})
+
 test('미니 캘린더가 anchor 와 양방향 동기화된다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
   await stubCalendars(page)
@@ -62,7 +79,8 @@ test('미니 캘린더가 anchor 와 양방향 동기화된다', async ({ authen
   await expect(mini).toContainText('2026년 6월')
 
   // 미니 → 본문: 미니 다음달 화살표 클릭 → 본문 헤더가 7월로 이동
-  await mini.getByRole('button', { name: /next month/i }).click()
+  // (#793 — nav 버튼 aria-label 이 "다음 달"로 한글화됨)
+  await mini.getByRole('button', { name: '다음 달' }).click()
   await expect(page.getByTestId('calendar-title')).toHaveText('2026년 7월')
   await expect(mini).toContainText('2026년 7월')
 

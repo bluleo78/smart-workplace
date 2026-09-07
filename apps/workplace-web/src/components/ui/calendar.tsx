@@ -23,6 +23,7 @@ function Calendar({
   formatters,
   components,
   locale = ko,
+  labels,
   ...props
 }: React.ComponentProps<typeof DayPicker> & {
   buttonVariant?: React.ComponentProps<typeof Button>["variant"]
@@ -32,6 +33,20 @@ function Calendar({
   return (
     <DayPicker
       locale={locale}
+      // 이전/다음 달 등 네비게이션 버튼의 aria-label — locale은 날짜 텍스트 포맷만 담당하고
+      // react-day-picker 버튼 라벨은 별도 지정이 필요하다(미지정 시 영문 기본값) (#793).
+      labels={{
+        labelPrevious: () => "이전 달",
+        labelNext: () => "다음 달",
+        labelMonthDropdown: () => "월 선택",
+        labelYearDropdown: () => "연도 선택",
+        labelGrid: (date) =>
+          date.toLocaleDateString("ko-KR", { year: "numeric", month: "long" }),
+        labelWeekday: (date) => date.toLocaleDateString("ko-KR", { weekday: "long" }),
+        labelDayButton: (date) =>
+          date.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "long" }),
+        ...labels,
+      }}
       showOutsideDays={showOutsideDays}
       className={cn(
         "group/calendar bg-background p-3 [--cell-size:--spacing(8)] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
