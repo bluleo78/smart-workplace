@@ -227,7 +227,7 @@ public class ProjectService {
     if ("OWNER".equals(current.role())
         && !"OWNER".equals(req.role())
         && memberRepository.countOwners(project.id()) <= 1) {
-      throw new ProjectConflictException("OWNER 가 최소 1명 이상 있어야 합니다");
+      throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }
     memberRepository.updateRole(project.id(), memberUserId, req.role());
   }
@@ -244,7 +244,7 @@ public class ProjectService {
             .find(project.id(), memberUserId)
             .orElseThrow(() -> new ProjectNotFoundException("멤버 없음"));
     if ("OWNER".equals(current.role()) && memberRepository.countOwners(project.id()) <= 1) {
-      throw new ProjectConflictException("OWNER 가 최소 1명 이상 있어야 합니다");
+      throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }
     memberRepository.delete(project.id(), memberUserId);
     issueAssigneeRepository.removeByProjectAndUser(project.id(), memberUserId);
