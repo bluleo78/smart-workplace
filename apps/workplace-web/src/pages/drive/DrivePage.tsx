@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { FileText, Folder, FolderOpen, SearchX, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -38,6 +39,7 @@ import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
+import { driveQuotaKeys } from '../../hooks/queries/useDriveQuota'
 import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveSpace, DriveTrashItem } from '../../types/drive'
 import { type DroppedFile,readDroppedTree } from './folderUpload'
 import { useFolderNavigation } from './useFolderNavigation'
@@ -63,6 +65,12 @@ function collapseCrumbs(
  *  미지정 시 URL(useParams/useSearchParams) 로 구동하는 풀페이지 모드. */
 export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const params = useParams()
+  // #820: 업로드/삭제/롤백 등 쿼터 변경 액션 성공 시 사이드바 사용량 쿼리를 무효화 —
+  // DriveSidebar 는 이 페이지와 별도 컴포넌트라 리마운트 없이 재조회되게 하려면 공유 쿼리 키가 필요하다.
+  const queryClient = useQueryClient()
+  function invalidateQuota() {
+    void queryClient.invalidateQueries({ queryKey: driveQuotaKeys.all })
+  }
   const sid = spaceIdProp ?? Number(params.spaceId)
   const embedded = spaceIdProp != null
   const folderNav = useFolderNavigation(embedded ? 'state' : 'url')
@@ -319,6 +327,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
     setDropProgress(null)
     uploadAbortRef.current = null
+    invalidateQuota()
     await reload()
     if (cancelled) {
       toast.message('업로드를 취소했습니다.')
@@ -364,6 +373,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       setUploading(true)
       try {
         await driveApi.uploadFile(sid, folderId, file, controller.signal)
+        invalidateQuota()
         await reload()
       } catch (err) {
         if (isUploadAborted(err)) {
@@ -411,6 +421,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           setDropProgress({ done, total: files.length })
         }
       }
+      invalidateQuota()
       await reload()
       if (cancelled) {
         toast.message('업로드를 취소했습니다.')
@@ -444,6 +455,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       action: async () => {
         try {
           await driveApi.deleteFolder(id)
+          invalidateQuota()
           await reload()
         } catch (e) {
           handleApiError(e, '폴더를 삭제하지 못했습니다.')
@@ -459,6 +471,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       action: async () => {
         try {
           await driveApi.deleteFile(id)
+          invalidateQuota()
           await reload()
         } catch (e) {
           handleApiError(e, '파일을 삭제하지 못했습니다.')
@@ -511,6 +524,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       action: async () => {
         try {
           await driveApi.bulkDelete(sid, body)
+          invalidateQuota()
           await reload()
         } catch (e) {
           handleApiError(e, '삭제에 실패했습니다.')
@@ -552,6 +566,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     try {
       if (it.type === 'FOLDER') await driveApi.restoreFolder(it.id)
       else await driveApi.restoreFile(it.id)
+      // 복원(untrash) 은 삭제의 역방향 — 쿼터 집계(TRASHED_AT IS NULL)에 다시 잡히므로
+      // 사용량이 늘어난다. 삭제와 대칭으로 여기서도 무효화한다.
+      invalidateQuota()
       await reloadTrash()
     } catch (e) {
       handleApiError(e, '복원하지 못했습니다.')
@@ -1201,7 +1218,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             file={versionFile}
             open={!!versionFile}
             onClose={() => setVersionFile(null)}
-            onChanged={reload}
+            onChanged={() => {
+              // 롤백은 새 버전을 만들어 파일 크기가 바뀔 수 있으므로 사용량도 함께 무효화 (#820).
+              invalidateQuota()
+              void reload()
+            }}
           />
         )}
       </div>

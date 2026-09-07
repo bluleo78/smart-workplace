@@ -35,7 +35,8 @@ import { formatFileSize } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 
 import { driveApi } from '../../api/drive'
-import type { DriveQuota, DriveSpace } from '../../types/drive'
+import { useDriveQuota } from '../../hooks/queries/useDriveQuota'
+import type { DriveSpace } from '../../types/drive'
 
 /** 좌측 2차 사이드바 — 내 드라이브 + 팀 공간 목록, 팀 공간 생성. */
 export function DriveSidebar() {
@@ -49,8 +50,10 @@ export function DriveSidebar() {
   // creating state 는 버튼의 시각적 disabled 표시용 보조 값.
   const isCreatingRef = useRef(false)
   const [creating, setCreating] = useState(false)
-  // 드라이브 쿼터 — 사이드바 하단 사용량 바 (#81).
-  const [quota, setQuota] = useState<DriveQuota | null>(null)
+  // 드라이브 쿼터 — 사이드바 하단 사용량 바 (#81). TanStack Query 전환(#820) —
+  // 업로드/삭제/롤백 mutation 성공 시 invalidateQueries(driveQuotaKeys.all) 로
+  // 재조회되므로 이 컴포넌트가 리마운트되지 않아도 최신 값이 반영된다.
+  const { data: quota } = useDriveQuota()
   // TEAM 공간 이름 변경/삭제 대상 — kebab 메뉴에서 설정(제어형 다이얼로그).
   const [renameTarget, setRenameTarget] = useState<DriveSpace | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DriveSpace | null>(null)
@@ -62,11 +65,6 @@ export function DriveSidebar() {
   useEffect(() => {
     void reload()
   }, [])
-
-  useEffect(() => {
-    void driveApi.getQuota().then(({ data }) => setQuota(data))
-  }, [])
-
 
   /** 팀 공간 생성 — 다이얼로그 확인 시 호출. */
   async function submitCreate() {

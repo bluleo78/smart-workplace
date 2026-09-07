@@ -1022,6 +1022,50 @@ test('사이드바에 사용량 바가 보인다', { tag: '@smoke' }, async ({ a
   await expect(page.getByTestId('drive-usage-text')).toContainText('10')  // / 10.0 GB
 })
 
+// #820 — 사이드바 사용량 바는 마운트 시 1회만 조회되어 파일 업로드 후에도 갱신되지 않았다.
+// 업로드 mutation 성공 시 공유 쿼리 키(driveQuotaKeys)를 invalidate 하므로, 전체 새로고침
+// 없이도 사이드바 사용량 텍스트가 최신 값으로 바뀌어야 한다.
+test('파일 업로드 후 새로고침 없이 사이드바 사용량이 갱신된다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+
+  // 쿼터 조회는 업로드 전/후로 다른 값을 응답 — 몇 번째 호출인지로 판단.
+  // formatFileSize 는 1024 진법(MiB/GiB 표기 "MB"/"GB") 이므로 바이트 값을 역산해서 맞춘다.
+  let quotaCalls = 0
+  await page.route('**/api/v1/drive/quota', (route) => {
+    quotaCalls += 1
+    const usedBytes = quotaCalls === 1 ? 57_461_965 /* 54.8 MB */ : 57_671_680 /* 55.0 MB */
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ usedBytes, quotaBytes: 10_737_418_240 /* 10.0 GB */ }),
+    })
+  })
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    (route) => route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createFile()) }),
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  // 업로드 전: 최초 조회 값(54.8MB) 표시.
+  await expect(page.getByTestId('drive-usage-text')).toContainText('54.8')
+  expect(quotaCalls).toBe(1)
+
+  // 업로드 완료.
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'memo.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('hello'),
+  })
+  await expect(page.getByTestId('drive-upload')).toHaveText('업로드')
+
+  // 새로고침 없이 사이드바 사용량이 갱신된 값(55.0MB)으로 바뀌어야 한다 — 재조회가 실제로 일어났는지도 검증.
+  await expect(page.getByTestId('drive-usage-text')).toContainText('55.0')
+  expect(quotaCalls).toBeGreaterThan(1)
+})
+
 // #319 — FolderPickerModal shadcn Dialog 전환: Esc·오버레이 클릭 닫기 검증
 test('FolderPickerModal — Esc 키로 닫힌다', async ({ authenticatedPage: page }) => {
   const FOLDER_ID = 10
