@@ -98,6 +98,28 @@ test(
   },
 )
 
+// #818 — 이전/다음 버튼 accessible name 부재 + 뷰 전환 버튼 선택 상태(aria-pressed) 미노출 회귀 방지.
+test('헤더 이전/다음 버튼 accessible name + 뷰 전환 버튼 aria-pressed (#818)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendarEvents(page, [])
+  await page.goto('/calendar')
+
+  // 월 뷰 — "달" 단위 라벨
+  await expect(page.getByTestId('calendar-prev')).toHaveAccessibleName('이전 달')
+  await expect(page.getByTestId('calendar-next')).toHaveAccessibleName('다음 달')
+  await expect(page.getByTestId('calendar-view-month-btn')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('calendar-view-week-btn')).toHaveAttribute('aria-pressed', 'false')
+
+  // 일 뷰 전환 — "날" 단위 라벨 + aria-pressed 갱신
+  await page.getByTestId('calendar-view-day-btn').click()
+  await expect(page.getByTestId('calendar-prev')).toHaveAccessibleName('이전 날')
+  await expect(page.getByTestId('calendar-next')).toHaveAccessibleName('다음 날')
+  await expect(page.getByTestId('calendar-view-day-btn')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('calendar-view-month-btn')).toHaveAttribute('aria-pressed', 'false')
+})
+
 test(
   '새 일정 생성',
   { tag: '@smoke' },

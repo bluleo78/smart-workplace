@@ -286,6 +286,9 @@ export function CalendarPage() {
                 variant="ghost"
                 size="sm"
                 data-testid="calendar-prev"
+                // 글리프(‹)만으로는 accessible name이 무의미해 뷰별 구체적 라벨 지정 (#818).
+                // step() 은 month=한달, day=하루, 그 외(week/agenda)=7일 단위로 이동한다.
+                aria-label={view === 'month' ? '이전 달' : view === 'day' ? '이전 날' : '이전 주'}
                 onClick={() => step(-1)}
               >
                 ‹
@@ -294,6 +297,7 @@ export function CalendarPage() {
                 variant="ghost"
                 size="sm"
                 data-testid="calendar-next"
+                aria-label={view === 'month' ? '다음 달' : view === 'day' ? '다음 날' : '다음 주'}
                 onClick={() => step(1)}
               >
                 ›
@@ -306,6 +310,8 @@ export function CalendarPage() {
               key={v.key}
               size="sm"
               variant={view === v.key ? 'default' : 'ghost'}
+              // 시각적으로만(배경색) 표현되던 선택 상태를 프로그램적으로도 노출 (#818).
+              aria-pressed={view === v.key}
               data-testid={`calendar-view-${v.key}-btn`}
               onClick={() => setView(v.key)}
             >
