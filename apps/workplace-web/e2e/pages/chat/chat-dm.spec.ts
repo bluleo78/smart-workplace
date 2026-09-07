@@ -506,4 +506,38 @@ test.describe('messaging DM', () => {
     // 배지 텍스트가 두 줄로 줄바꿈되면 높이가 급격히 커짐 — 한 줄 높이(20px 이내) 유지 확인.
     expect(box!.height).toBeLessThan(20)
   })
+
+  test('DM 헤더 — 상대 이름이 길어도 truncate 적용 + 헤더 높이 고정 (#797)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 상대 표시명이 매우 길면 <h1> 이 줄바꿈되며 h-14 고정 높이가 깨지던 회귀(#797).
+    const longName = '나'.repeat(80)
+    const dm = createDm({
+      id: 103,
+      participants: [
+        createDmParticipant({ userId: 1, name: '나' }),
+        createDmParticipant({ userId: 2, name: longName }),
+      ],
+    })
+    await stubLists(page, [dm])
+    await stubMessages(page, 103, [])
+    await stubMarkRead(page, 103)
+    await page.goto('/chat/dms/103')
+
+    const header = page.getByTestId('dm-header')
+    const title = page.getByTestId('dm-title')
+    await expect(title).toBeVisible()
+
+    // 헤더 컨테이너가 h-14 로 고정된 채 유지되어야 한다 — 2줄로 줄바꿈되면 clientHeight 가 56px 를 초과한다.
+    await expect
+      .poll(async () => header.evaluate((el) => el.clientHeight))
+      .toBeLessThanOrEqual(56)
+
+    // 제목 요소 자체는 1줄로 잘려야 한다 — scrollWidth 가 clientWidth 를 넘어서면 truncate 미적용.
+    const isTruncated = await title.evaluate((el) => el.scrollWidth > el.clientWidth)
+    expect(isTruncated).toBe(true)
+
+    // hover 시 전체 이름 확인 가능하도록 title 속성 보강.
+    await expect(title).toHaveAttribute('title', longName)
+  })
 })

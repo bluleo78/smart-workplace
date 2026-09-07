@@ -32,6 +32,7 @@ import {
   useUnarchiveChannel,
 } from '@/hooks/queries/useChannelMutations'
 import { useAuth } from '@/hooks/useAuth'
+import { cn } from '@/lib/utils'
 import type { ChannelResponse } from '@/types/messaging'
 
 export function ChannelHeader({
@@ -67,7 +68,11 @@ export function ChannelHeader({
       data-testid="channel-header"
     >
       {channel.visibility === 'PRIVATE' && <Lock className="h-4 w-4 text-muted-foreground" />}
-      <h1 className={appTitleTextClass} data-testid="channel-header-name">
+      <h1
+        className={cn(appTitleTextClass, 'min-w-0 truncate')}
+        title={channel.name}
+        data-testid="channel-header-name"
+      >
         {channel.name}
       </h1>
       {channel.archived && (

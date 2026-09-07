@@ -280,6 +280,34 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     await expect(page.getByTestId('channel-rename-action')).toBeVisible()
   })
 
+  test('긴 채널명 — truncate 적용 + 헤더 높이 고정 (이슈 #797)', async ({ authenticatedPage: page }) => {
+    // 채널명이 매우 길면 <h1> 이 줄바꿈되며 h-14 고정 높이가 깨지던 회귀(#797).
+    const longName = '가'.repeat(80)
+    const ch = createChannel({ id: 46, name: longName, role: 'OWNER', member: true })
+    await stubChannelView(page, ch)
+    await page.goto('/chat/channels/46')
+
+    const header = page.getByTestId('channel-header')
+    const title = page.getByTestId('channel-header-name')
+    await expect(title).toBeVisible()
+
+    // 헤더 컨테이너가 h-14 로 고정된 채 유지되어야 한다 — 2줄로 줄바꿈되면 clientHeight 가 56px 를 초과한다.
+    await expect
+      .poll(async () => header.evaluate((el) => el.clientHeight))
+      .toBeLessThanOrEqual(56)
+
+    // 제목 요소 자체는 1줄로 잘려야 한다 — scrollWidth 가 clientWidth 를 넘어서면 truncate 미적용.
+    const isTruncated = await title.evaluate((el) => el.scrollWidth > el.clientWidth)
+    expect(isTruncated).toBe(true)
+
+    // hover 시 전체 이름 확인 가능하도록 title 속성 보강.
+    await expect(title).toHaveAttribute('title', longName)
+
+    // 우측 고정 그룹(멤버·파일·설정)이 여전히 헤더 안에 보여야 한다 — 두 번째 줄로 밀리지 않음.
+    await expect(page.getByTestId('channel-members-btn')).toBeVisible()
+    await expect(page.getByTestId('channel-files-button')).toBeVisible()
+  })
+
   test('채널 삭제 확인 버튼 — destructive 스타일 적용 (이슈 #142)', async ({ adminPage: page }) => {
     // 파괴적 작업 버튼이 기본 파란색(primary)이 아닌 빨간색(destructive)으로 표시되어야 함
     const ch = createChannel({ id: 44, name: '삭제대상', role: 'MEMBER', member: true })

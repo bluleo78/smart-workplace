@@ -2,6 +2,7 @@
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { dmDisplayName } from '@/lib/dm'
+import { cn } from '@/lib/utils'
 import type { DmResponse } from '@/types/messaging'
 
 interface DmHeaderProps {
@@ -12,10 +13,15 @@ interface DmHeaderProps {
 export function DmHeader({ dm, currentUserId }: DmHeaderProps) {
   // 상대 중 AGENT 가 있으면 배지. 인원수는 그룹(본인 포함 3명+)일 때만 표시(1:1·self 의 "2명/1명" 노이즈 제거).
   const hasAgent = dm.participants.some((p) => p.kind === 'AGENT' && p.userId !== currentUserId)
+  const displayName = dmDisplayName(dm, currentUserId)
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4" data-testid="dm-header">
-      <h1 className={appTitleTextClass} data-testid="dm-title">
-        {dmDisplayName(dm, currentUserId)}
+      <h1
+        className={cn(appTitleTextClass, 'min-w-0 truncate')}
+        title={displayName}
+        data-testid="dm-title"
+      >
+        {displayName}
       </h1>
       {hasAgent && <AgentBadge size="xs" />}
       {dm.participants.length > 2 && (
