@@ -91,6 +91,46 @@ class IssueSearchServiceBlockedTest extends IntegrationTestBase {
   }
 
   @Test
+  void blocked_flag_false_when_target_already_done_even_if_blocker_active() {
+    // #826 — 차단자(x)가 TODO 로 남아있어도, 대상(y) 자신이 DONE 이면 blocked=false 여야 한다.
+    Long owner = createUser("sb5");
+    var p = newProject(owner, "SB5");
+    newTask(p.id(), 1, "x", owner); // 차단자, TODO 유지
+    var y = newTask(p.id(), 2, "y", owner); // 피차단자
+    depService.add(owner, p.key(), 1, 2, "blocks");
+
+    issueRepository.updateAll(
+        y.id(), y.title(), y.body(), "DONE", y.priority(), y.dueDate(), null, null, null);
+
+    var res = searchService.search(owner, p.key(), Map.of());
+    var yItem = res.items().stream().filter(i -> i.number() == 2).findFirst().orElseThrow();
+    assertThat(yItem.blocked()).isFalse();
+  }
+
+  @Test
+  void blocked_filter_excludes_target_already_done() {
+    // #826 — blocked=true 목록 필터도 대상이 DONE 이면 결과에서 제외되어야 한다.
+    Long owner = createUser("sb6");
+    var p = newProject(owner, "SB6");
+    newTask(p.id(), 1, "blocker", owner); // TODO 유지
+    var blockee = newTask(p.id(), 2, "blockee", owner);
+    depService.add(owner, p.key(), 1, 2, "blocks");
+    issueRepository.updateAll(
+        blockee.id(),
+        blockee.title(),
+        blockee.body(),
+        "DONE",
+        blockee.priority(),
+        blockee.dueDate(),
+        null,
+        null,
+        null);
+
+    var res = searchService.search(owner, p.key(), Map.of("blocked", "true"));
+    assertThat(res.items()).isEmpty();
+  }
+
+  @Test
   void blocked_filter_returns_only_blocked() {
     Long owner = createUser("sb3");
     var p = newProject(owner, "SB3");

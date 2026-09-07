@@ -178,17 +178,23 @@ public class IssueDependencyRepository {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
     Map<Long, Boolean> result = new HashMap<>();
     for (Long id : issueIds) result.put(id, false);
+    // 대상 이슈(target) 자신이 이미 DONE/CANCELED 면, 차단자가 미완료여도 blocked=false 로
+    // 취급해야 하므로 target 을 별도 alias 로 조인해 상태를 함께 검사한다 (#826).
+    var target = ISSUE.as("target");
     var ids =
         dsl.selectDistinct(ISSUE_DEPENDENCY.BLOCKS_ISSUE_ID)
             .from(ISSUE_DEPENDENCY)
             .join(ISSUE)
             .on(ISSUE.ID.eq(ISSUE_DEPENDENCY.ISSUE_ID))
+            .join(target)
+            .on(target.ID.eq(ISSUE_DEPENDENCY.BLOCKS_ISSUE_ID))
             .where(
                 ISSUE_DEPENDENCY
                     .BLOCKS_ISSUE_ID
                     .in(issueIds)
                     .and(ISSUE.DELETED_AT.isNull())
-                    .and(ISSUE.STATUS.notIn("DONE", "CANCELED")))
+                    .and(ISSUE.STATUS.notIn("DONE", "CANCELED"))
+                    .and(target.STATUS.notIn("DONE", "CANCELED")))
             .fetch(ISSUE_DEPENDENCY.BLOCKS_ISSUE_ID);
     Set<Long> blocked = new HashSet<>(ids);
     for (Long id : issueIds) {

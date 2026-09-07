@@ -136,6 +136,30 @@ class IssueDependencyRepositoryTest extends IntegrationTestBase {
   }
 
   @Test
+  void find_blocked_flags_false_when_target_already_done_even_if_blocker_active() {
+    // #826 — 차단자(a)가 미완료(TODO)여도, 대상(b) 자신이 DONE/CANCELED 로 이미 종료됐으면
+    // blocked=false 여야 한다 (완료/취소된 이슈에 "차단됨" 배지가 남는 결함 회귀 방지).
+    Long owner = createUser("ra9");
+    var p = newProject(owner, "RA9");
+    var a = newTask(p.id(), 1, "a", owner); // 차단자, TODO 유지
+    var b = newTask(p.id(), 2, "b", owner); // 피차단자
+    depRepo.add(a.id(), b.id(), owner);
+
+    // b 를 DONE 으로 전환 — a 는 여전히 TODO
+    issueRepo.updateAll(
+        b.id(), b.title(), b.body(), "DONE", b.priority(), b.dueDate(), null, null, null);
+
+    var flags = depRepo.findBlockedFlags(List.of(b.id()));
+    assertThat(flags.get(b.id())).isFalse();
+
+    // b 를 CANCELED 로 전환해도 동일하게 unblocked
+    issueRepo.updateAll(
+        b.id(), b.title(), b.body(), "CANCELED", b.priority(), b.dueDate(), null, null, null);
+    var flags2 = depRepo.findBlockedFlags(List.of(b.id()));
+    assertThat(flags2.get(b.id())).isFalse();
+  }
+
+  @Test
   void remove_drops_one_row() {
     Long owner = createUser("ra5");
     var p = newProject(owner, "RA5");

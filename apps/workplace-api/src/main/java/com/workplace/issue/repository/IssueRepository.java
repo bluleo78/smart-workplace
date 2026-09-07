@@ -423,21 +423,26 @@ public class IssueRepository {
       }
     }
     // Phase 4b — blocked=true: 활성 차단자(미완료, 미삭제)가 존재하는 이슈만. 자기참조 회피를 위해 blocker self-alias 사용.
+    // 대상 이슈 자신이 이미 DONE/CANCELED 면 차단자가 남아있어도 blocked=false 로 취급한다 (#826).
     if (Boolean.TRUE.equals(query.blocked())) {
       var blockerAlias = ISSUE.as("blocker");
       where =
-          where.and(
-              org.jooq.impl.DSL.exists(
-                  dsl.selectOne()
-                      .from(com.workplace.jooq.Tables.ISSUE_DEPENDENCY)
-                      .join(blockerAlias)
-                      .on(blockerAlias.ID.eq(com.workplace.jooq.Tables.ISSUE_DEPENDENCY.ISSUE_ID))
-                      .where(
-                          com.workplace.jooq.Tables.ISSUE_DEPENDENCY
-                              .BLOCKS_ISSUE_ID
-                              .eq(ISSUE.ID)
-                              .and(blockerAlias.STATUS.notIn("DONE", "CANCELED"))
-                              .and(blockerAlias.DELETED_AT.isNull()))));
+          where
+              .and(ISSUE.STATUS.notIn("DONE", "CANCELED"))
+              .and(
+                  org.jooq.impl.DSL.exists(
+                      dsl.selectOne()
+                          .from(com.workplace.jooq.Tables.ISSUE_DEPENDENCY)
+                          .join(blockerAlias)
+                          .on(
+                              blockerAlias.ID.eq(
+                                  com.workplace.jooq.Tables.ISSUE_DEPENDENCY.ISSUE_ID))
+                          .where(
+                              com.workplace.jooq.Tables.ISSUE_DEPENDENCY
+                                  .BLOCKS_ISSUE_ID
+                                  .eq(ISSUE.ID)
+                                  .and(blockerAlias.STATUS.notIn("DONE", "CANCELED"))
+                                  .and(blockerAlias.DELETED_AT.isNull()))));
     }
     // Phase 4c — custom field 단일 동등 비교 필터 (fieldId+fieldValue 동시 지정 시). JSONB 를 텍스트로 캐스트하여 비교.
     if (query.fieldId() != null && query.fieldValue() != null) {
@@ -637,21 +642,26 @@ public class IssueRepository {
       where = where.and(ISSUE.PARENT_ISSUE_ID.isNull());
     }
     // blocked=true: 활성 차단자(미완료, 미삭제)가 존재하는 이슈만. 자기참조 회피를 위해 blocker self-alias 사용.
+    // 대상 이슈 자신이 이미 DONE/CANCELED 면 차단자가 남아있어도 blocked=false 로 취급한다 (#826).
     if (Boolean.TRUE.equals(query.blocked())) {
       var blockerAlias = ISSUE.as("blocker");
       where =
-          where.and(
-              org.jooq.impl.DSL.exists(
-                  dsl.selectOne()
-                      .from(com.workplace.jooq.Tables.ISSUE_DEPENDENCY)
-                      .join(blockerAlias)
-                      .on(blockerAlias.ID.eq(com.workplace.jooq.Tables.ISSUE_DEPENDENCY.ISSUE_ID))
-                      .where(
-                          com.workplace.jooq.Tables.ISSUE_DEPENDENCY
-                              .BLOCKS_ISSUE_ID
-                              .eq(ISSUE.ID)
-                              .and(blockerAlias.STATUS.notIn("DONE", "CANCELED"))
-                              .and(blockerAlias.DELETED_AT.isNull()))));
+          where
+              .and(ISSUE.STATUS.notIn("DONE", "CANCELED"))
+              .and(
+                  org.jooq.impl.DSL.exists(
+                      dsl.selectOne()
+                          .from(com.workplace.jooq.Tables.ISSUE_DEPENDENCY)
+                          .join(blockerAlias)
+                          .on(
+                              blockerAlias.ID.eq(
+                                  com.workplace.jooq.Tables.ISSUE_DEPENDENCY.ISSUE_ID))
+                          .where(
+                              com.workplace.jooq.Tables.ISSUE_DEPENDENCY
+                                  .BLOCKS_ISSUE_ID
+                                  .eq(ISSUE.ID)
+                                  .and(blockerAlias.STATUS.notIn("DONE", "CANCELED"))
+                                  .and(blockerAlias.DELETED_AT.isNull()))));
     }
     // custom field 단일 동등 비교 필터 (fieldId+fieldValue 동시 지정 시). JSONB 를 텍스트로 캐스트하여 비교.
     if (query.fieldId() != null && query.fieldValue() != null) {
