@@ -1,7 +1,7 @@
 // 개인 작업 상세 — 뷰별 하이브리드: 리스트/체크리스트=인플로우 사이드 패널, 보드=중앙 모달(#231).
 // ?task=N 이 있을 때만 표시. 기존 필드 위젯 + 이슈 chat 재사용. ESC·✕·같은 행 재클릭으로 닫힘.
 import { X } from 'lucide-react';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { LabelChip } from '@/components/labels/LabelChip';
@@ -48,6 +48,21 @@ export function PersonalTaskPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, mode, close]);
 
+  // 포커스 관리 — panel 모드는 Radix Dialog 를 쓰지 않아 열림/닫힘 시 포커스 이동이
+  // 전혀 없었다(#817). 열릴 때 패널 컨테이너로 포커스를 옮기고, 닫힐 때(트리거 재클릭/ESC/✕
+  // 무엇이든) 열기 직전 포커스였던 요소로 복귀한다.
+  const asideRef = useRef<HTMLElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open || mode === 'modal') return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    asideRef.current?.focus();
+    return () => {
+      const prev = previousFocusRef.current;
+      if (prev && prev.isConnected) prev.focus();
+    };
+  }, [open, mode]);
+
   // 보드 뷰 → 중앙 모달(dim·ESC·외부클릭 닫기는 Radix). 칸반 가로폭 보존.
   if (mode === 'modal') {
     return (
@@ -69,8 +84,10 @@ export function PersonalTaskPanel({
   if (!open) return null;
   return (
     <aside
+      ref={asideRef}
       role="complementary"
       aria-label="작업 상세"
+      tabIndex={-1}
       data-testid="personal-task-panel"
       className={cn(
         'flex min-h-0 flex-col border-l bg-card',

@@ -349,6 +349,24 @@ test('같은 행 재클릭 시 drawer 닫힘(토글)', async ({ authenticatedPag
   await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
 });
 
+// #817 — panel 모드는 Radix Dialog 를 쓰지 않아 열림/닫힘 시 포커스 이동이 전혀 없던 문제 회귀 방지.
+test('패널 열림 시 패널로 포커스 이동, 닫힘(같은 행 재클릭) 시 트리거로 복귀한다 (#817)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}`);
+
+  const row = page.getByTestId('personal-task-row-1');
+  await row.click();
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  await expect(page.getByTestId('personal-task-panel')).toBeFocused();
+
+  await row.click();
+  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
+  await expect(row).toBeFocused();
+});
+
 test('다른 행 클릭 시 drawer가 해당 이슈로 전환된다', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [
     createIssue({ projectKey: KEY, number: 1, title: '작업1', status: 'TODO' }),
