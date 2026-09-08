@@ -42,6 +42,7 @@ public class ChannelMemberService {
   @Transactional
   public void add(long callerId, long channelId, long targetUserId) {
     ensureExists(channelId);
+    requireNotDm(callerId, channelId, "add-member");
     perms.requireManage(channelId, callerId, "add-member");
     // 추가 대상 사용자가 현재 테넌트의 활성 멤버인지 확인 — 테넌트 경계를 넘는 채널 멤버십 차단(설계 §4).
     // project/wiki/drive 공간 addMember 와 공용 헬퍼(MembershipGuard)로 정책 통일 (#713).
@@ -56,6 +57,7 @@ public class ChannelMemberService {
   @Transactional
   public void remove(long callerId, long channelId, long targetUserId) {
     ensureExists(channelId);
+    requireNotDm(callerId, channelId, "remove-member");
     perms.requireManage(channelId, callerId, "remove-member");
     if (memberRepo.findRole(channelId, targetUserId).filter("OWNER"::equals).isPresent()) {
       throw new ChannelForbiddenException(channelId, callerId, "remove-owner");
@@ -81,6 +83,7 @@ public class ChannelMemberService {
   @Transactional
   public void updateRole(long callerId, long channelId, long targetUserId, String role) {
     ensureExists(channelId);
+    requireNotDm(callerId, channelId, "update-role");
     String normalized = normalizeRole(role);
     perms.requireOwner(channelId, callerId, "update-role");
     if (memberRepo.findRole(channelId, targetUserId).isEmpty()) {
@@ -118,6 +121,17 @@ public class ChannelMemberService {
 
   private void ensureExists(long channelId) {
     if (!channelRepo.exists(channelId)) throw new ChannelNotFoundException(channelId);
+  }
+
+  // DM(kind=DM) 채널은 생성 시 고정된 참여자 구성 — 이후 멤버 추가/제거/역할변경을 서비스 레이어에서 하드 차단한다.
+  // 시스템 ADMIN 오버라이드(ChannelPermissions.requireManage)도 예외 없이 막는다 — 무음 멤버 추가로 추가 이전
+  // 전체 대화 이력이 새 참여자에게 노출되는 사고를 방지(#704). 그룹 DM 확장이 필요해지면 별도의 명시적·감사되는
+  // 엔드포인트/플로우로 분리해야 한다(DmService.createOrGet 은 생성 시점에만 memberRepo.add 를 직접 호출하며 이
+  // 가드 대상이 아니다).
+  private void requireNotDm(long callerId, long channelId, String action) {
+    if ("DM".equals(channelRepo.findKind(channelId))) {
+      throw new ChannelForbiddenException(channelId, callerId, action + "-on-dm");
+    }
   }
 
   private String normalizeRole(String role) {

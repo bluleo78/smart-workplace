@@ -34,6 +34,7 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
   @Autowired ChannelService channelService;
   @Autowired ChannelMemberService memberService;
   @Autowired ChannelMemberRepository memberRepo;
+  @Autowired DmService dmService;
 
   /** 각 테스트 전 TenantContext 를 tenant#1 로 설정 — 멤버십 검증 통과를 위한 전제 조건. */
   @BeforeEach
@@ -282,5 +283,47 @@ class ChannelMemberServiceTest extends IntegrationTestBase {
     long anotherTenant1User = seedUser();
     memberService.add(owner, ch.id(), anotherTenant1User);
     assertThat(memberRepo.isMember(ch.id(), anotherTenant1User)).isTrue();
+  }
+
+  /**
+   * DM(kind=DM) 채널은 생성 시 고정된 참여자 구성 — 이후 add/remove/updateRole 이 모두 차단되어야 한다. 시스템 ADMIN 오버라이드조차 예외
+   * 없이 막혀야 함을 검증한다(#704: 무음 멤버 추가로 추가 이전 대화 이력이 노출되는 사고 방지).
+   */
+  @Test
+  void add_onDmChannel_forbidden_evenForSystemAdmin() {
+    long a = seedUser();
+    long b = seedUser();
+    long thirdParty = seedUser();
+    long sysAdmin = seedAdminUser();
+    long dmChannelId = dmService.createOrGet(a, List.of(b)).dm().id();
+
+    assertThatThrownBy(() -> memberService.add(sysAdmin, dmChannelId, thirdParty))
+        .isInstanceOf(ChannelForbiddenException.class);
+    assertThat(memberRepo.isMember(dmChannelId, thirdParty)).isFalse();
+    // 기존 2인 참여자 구성도 그대로 유지되어야 한다.
+    assertThat(memberRepo.listMembers(dmChannelId)).hasSize(2);
+  }
+
+  @Test
+  void remove_onDmChannel_forbidden_evenForSystemAdmin() {
+    long a = seedUser();
+    long b = seedUser();
+    long sysAdmin = seedAdminUser();
+    long dmChannelId = dmService.createOrGet(a, List.of(b)).dm().id();
+
+    assertThatThrownBy(() -> memberService.remove(sysAdmin, dmChannelId, b))
+        .isInstanceOf(ChannelForbiddenException.class);
+    assertThat(memberRepo.isMember(dmChannelId, b)).isTrue();
+  }
+
+  @Test
+  void updateRole_onDmChannel_forbidden_evenForSystemAdmin() {
+    long a = seedUser();
+    long b = seedUser();
+    long sysAdmin = seedAdminUser();
+    long dmChannelId = dmService.createOrGet(a, List.of(b)).dm().id();
+
+    assertThatThrownBy(() -> memberService.updateRole(sysAdmin, dmChannelId, b, "OWNER"))
+        .isInstanceOf(ChannelForbiddenException.class);
   }
 }
