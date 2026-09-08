@@ -40,7 +40,7 @@ public class UserController {
   @GetMapping("/me")
   public ResponseEntity<UserDetailResponse> getMyProfile(Authentication authentication) {
     Long userId = (Long) authentication.getPrincipal();
-    UserDetailResponse user = userService.getUserById(userId);
+    UserDetailResponse user = userService.getMyProfile(userId);
     return ResponseEntity.ok(user);
   }
 

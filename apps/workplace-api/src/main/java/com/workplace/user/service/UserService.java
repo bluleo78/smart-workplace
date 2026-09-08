@@ -70,8 +70,37 @@ public class UserService {
     return tenantId;
   }
 
+  /**
+   * 단건 조회/변경계 API(getUserById/setUserRoles/setUserActive) 공통 가드 (#811). user 는 전역 테이블이라 id 만으로는 다른
+   * 테넌트 사용자에도 접근 가능하므로, 대상이 현재 active 테넌트의 ACTIVE 멤버인지 명시 검증한다. 비멤버는 존재 자체를 노출하지 않도록 404(Not
+   * Found)로 응답한다 — project 도메인의 멤버십 가드와 동일 패턴.
+   */
+  private void requireMember(Long userId) {
+    Long tenantId = requireTenant();
+    if (!membershipRepository.hasActiveMembership(userId, tenantId)) {
+      throw new UserNotFoundException("User not found: " + userId);
+    }
+  }
+
+  /**
+   * ADMIN 등 타인 조회용(`GET /{id}`) — 대상이 현재 active 테넌트 멤버인지 검증한다 (#811). 비멤버 조회는 404 로 응답해 존재 자체를 숨긴다.
+   */
   @Transactional(readOnly = true)
   public UserDetailResponse getUserById(Long id) {
+    requireMember(id);
+    return loadUserDetail(id);
+  }
+
+  /**
+   * 본인 프로필 조회용(`GET /me`) — 인증된 principal 이 곧 대상이므로 멤버십 검증이 필요 없다(자기 자신 조회는 항상 허용). AGENT 가 API 키로
+   * 인증했지만 아직 어떤 테넌트에도 활성 멤버십이 없어 active 테넌트 컨텍스트가 없는 경우에도(#811 이전부터의 기존 동작) 자기 신원 조회는 막지 않는다.
+   */
+  @Transactional(readOnly = true)
+  public UserDetailResponse getMyProfile(Long userId) {
+    return loadUserDetail(userId);
+  }
+
+  private UserDetailResponse loadUserDetail(Long id) {
     UserResponse user =
         userRepository
             .findById(id)
@@ -336,6 +365,8 @@ public class UserService {
     if (!userRepository.existsById(userId)) {
       throw new UserNotFoundException("User not found: " + userId);
     }
+    // 대상이 현재 테넌트 멤버가 아니면 타 테넌트 사용자의 전역 역할을 바꿀 수 없다 (#811).
+    requireMember(userId);
     // 자기 자신의 ADMIN 역할 제거 차단 — 자기 잠금(self-lockout) 방지 (#57)
     if (userId.equals(callerId)) {
       roleRepository
@@ -359,6 +390,8 @@ public class UserService {
     if (!userRepository.existsById(userId)) {
       throw new UserNotFoundException("User not found: " + userId);
     }
+    // 대상이 현재 테넌트 멤버가 아니면 타 테넌트 사용자를 비활성화할 수 없다 (#811).
+    requireMember(userId);
     // 마지막 활성 ADMIN 비활성화 방지 — 모든 ADMIN이 잠기면 시스템 관리 불가 (#146)
     if (!active && userRepository.hasAdminRole(userId) && userRepository.countActiveAdmins() <= 1) {
       throw new IllegalStateException("마지막 활성 ADMIN 계정은 비활성화할 수 없습니다");

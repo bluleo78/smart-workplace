@@ -256,6 +256,58 @@ class UserServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void getUserById_otherTenantUser_throwsNotFound() {
+    // #811 — user 는 전역 테이블이라 id 만으로 다른 테넌트 사용자 상세를 열람할 수 있으면 안 된다.
+    // 비멤버 대상은 존재 자체를 숨기기 위해 404(UserNotFoundException)로 응답해야 한다.
+    Long otherTenant = seedTenant();
+    Long otherTenantUser = seedUser("othertenant-" + System.nanoTime() + "@example.com", "Other");
+    membershipRepository.create(otherTenantUser, otherTenant, "ACTIVE");
+
+    assertThatThrownBy(() -> userService.getUserById(otherTenantUser))
+        .isInstanceOf(UserNotFoundException.class);
+  }
+
+  @Test
+  void setUserRoles_otherTenantUser_throwsNotFound() {
+    // #811 — 자기 테넌트 ADMIN이 다른 테넌트 사용자에게 전역 역할(ADMIN 포함)을 부여할 수 있으면 안 된다.
+    Long otherTenant = seedTenant();
+    Long otherTenantUser =
+        seedUser("othertenant-role-" + System.nanoTime() + "@example.com", "Other");
+    membershipRepository.create(otherTenantUser, otherTenant, "ACTIVE");
+
+    Long adminRoleId =
+        dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
+
+    assertThatThrownBy(
+            () ->
+                userService.setUserRoles(otherTenantUser, List.of(adminRoleId), testUserId + 1000))
+        .isInstanceOf(UserNotFoundException.class);
+  }
+
+  @Test
+  void setUserActive_otherTenantUser_throwsNotFound() {
+    // #811 — 자기 테넌트 ADMIN이 다른 테넌트 사용자를 비활성화(DoS)할 수 있으면 안 된다.
+    Long otherTenant = seedTenant();
+    Long otherTenantUser =
+        seedUser("othertenant-active-" + System.nanoTime() + "@example.com", "Other");
+    membershipRepository.create(otherTenantUser, otherTenant, "ACTIVE");
+
+    assertThatThrownBy(() -> userService.setUserActive(otherTenantUser, false))
+        .isInstanceOf(UserNotFoundException.class);
+  }
+
+  /** 격리된 테스트용 테넌트 시드. */
+  private Long seedTenant() {
+    return dsl.insertInto(TENANT)
+        .set(TENANT.SLUG, "t811-" + System.nanoTime())
+        .set(TENANT.NAME, "Other Tenant")
+        .set(TENANT.STATUS, "ACTIVE")
+        .returning(TENANT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  @Test
   void updateProfile_success() {
     userService.updateProfile(testUserId, "New Name", "new@example.com");
 
@@ -358,6 +410,8 @@ class UserServiceTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    // #811 — setUserActive 는 이제 대상이 active 테넌트 멤버인지 검증하므로 직접 insert 한 사용자에도 멤버십을 부여해야 한다.
+    membershipRepository.create(adminUserId, TENANT_ID, "ACTIVE");
 
     dsl.insertInto(USER_ROLE)
         .set(USER_ROLE.USER_ID, adminUserId)

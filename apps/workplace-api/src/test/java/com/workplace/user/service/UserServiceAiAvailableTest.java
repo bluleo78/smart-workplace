@@ -7,6 +7,7 @@ import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.tenant.repository.MembershipRepository;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,16 +22,22 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class UserServiceAiAvailableTest extends IntegrationTestBase {
 
+  // IntegrationTestBase 의 doBegin 이 트랜잭션 시작 시점 TenantContext(기본 1L)로 GUC 를 주입하는 테넌트 — #811 이후
+  // getUserById 가 멤버십을 요구하므로 픽스처 사용자도 이 테넌트의 ACTIVE 멤버여야 한다.
+  private static final Long TENANT_ID = 1L;
+
   @Autowired private UserService userService;
   @Autowired private PersonalAssistantRepository personalRepo;
   @Autowired private WorkspaceAssistantRepository workspaceRepo;
   @Autowired private AiAgentCredentialService credentialService;
+  @Autowired private MembershipRepository membershipRepository;
   @Autowired private DSLContext dsl;
 
   @Test
   void getUserById_aiAvailableTrue_whenPersonalAssistantWithToken() {
     // 개인 비서(active token)가 있을 때 → true
     long human = TestFixtures.createHuman(dsl);
+    membershipRepository.create(human, TENANT_ID, "ACTIVE");
     long agent = TestFixtures.createAgentWithToken(dsl, credentialService, human);
     personalRepo.setAgentId(human, agent);
 
@@ -41,6 +48,7 @@ class UserServiceAiAvailableTest extends IntegrationTestBase {
   void getUserById_aiAvailableTrue_whenWorkspaceAssistantWithToken() {
     // 공통 비서(active token)가 있을 때 → true
     long human = TestFixtures.createHuman(dsl);
+    membershipRepository.create(human, TENANT_ID, "ACTIVE");
     long agent = TestFixtures.createAgentWithToken(dsl, credentialService, human);
     workspaceRepo.upsert(agent, human);
 
@@ -51,6 +59,7 @@ class UserServiceAiAvailableTest extends IntegrationTestBase {
   void getUserById_aiAvailableFalse_whenNoAssistant() {
     // 비서가 없는 사용자 → false
     long human = TestFixtures.createHuman(dsl);
+    membershipRepository.create(human, TENANT_ID, "ACTIVE");
 
     assertThat(userService.getUserById(human).aiAvailable()).isFalse();
   }

@@ -82,7 +82,7 @@ class UserControllerTest {
             List.of(new RoleResponse(1L, "USER", "Regular user", true)),
             "HUMAN",
             false);
-    when(userService.getUserById(1L)).thenReturn(detail);
+    when(userService.getMyProfile(1L)).thenReturn(detail);
 
     mockMvc
         .perform(get("/api/v1/users/me").header("Authorization", "Bearer valid-token"))
