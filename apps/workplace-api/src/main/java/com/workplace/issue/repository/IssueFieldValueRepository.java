@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
@@ -115,5 +116,42 @@ public class IssueFieldValueRepository {
             .where(ISSUE_FIELD_VALUE.FIELD_DEF_ID.eq(defId))
             .fetchOne(0, Integer.class);
     return c == null ? 0 : c;
+  }
+
+  /**
+   * 옵션 삭제 가드(#707) — 해당 필드 정의의 값 중 removedOptions 에 포함된 옵션을 참조하는 이슈 수를 센다. SELECT 는 값 문자열이
+   * removedOptions 중 하나와 정확히 일치하는지, MULTI_SELECT 는 배열이 removedOptions 중 하나라도 포함하는지 검사한다. 값이 소수(필드당
+   * 이슈 수)이므로 JSONB 연산자 대신 애플리케이션에서 파싱해 판정 — countByDef 와 동일한 스캔 비용.
+   */
+  public int countReferencingOptions(Long defId, String type, Set<String> removedOptions) {
+    if (removedOptions.isEmpty()) {
+      return 0;
+    }
+    boolean multi = "MULTI_SELECT".equals(type);
+    int count = 0;
+    for (var r :
+        dsl.select(ISSUE_FIELD_VALUE.VALUE)
+            .from(ISSUE_FIELD_VALUE)
+            .where(ISSUE_FIELD_VALUE.FIELD_DEF_ID.eq(defId))
+            .fetch()) {
+      try {
+        JsonNode node = objectMapper.readTree(r.value1().data());
+        if (multi) {
+          if (node.isArray()) {
+            for (JsonNode el : node) {
+              if (el.isTextual() && removedOptions.contains(el.asText())) {
+                count++;
+                break;
+              }
+            }
+          }
+        } else if (node.isTextual() && removedOptions.contains(node.asText())) {
+          count++;
+        }
+      } catch (Exception ignored) {
+        // 파싱 실패 row 는 판정에서 제외 — countByDef 등 다른 경로와 동일하게 방어적으로 스킵.
+      }
+    }
+    return count;
   }
 }

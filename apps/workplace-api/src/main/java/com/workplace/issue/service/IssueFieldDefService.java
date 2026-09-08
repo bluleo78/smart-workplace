@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.dto.FieldType;
 import com.workplace.issue.dto.FieldTypeValidator;
@@ -7,10 +8,14 @@ import com.workplace.issue.dto.IssueFieldDefResponse;
 import com.workplace.issue.dto.IssueFieldDefRow;
 import com.workplace.issue.exception.FieldNameDuplicatedException;
 import com.workplace.issue.exception.FieldNotFoundException;
+import com.workplace.issue.exception.FieldOptionInUseException;
 import com.workplace.issue.exception.TypeImmutableException;
 import com.workplace.issue.repository.IssueFieldDefRepository;
+import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.project.service.ProjectAccessGuard;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -18,7 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 프로젝트 custom field 정의 서비스. 조회는 멤버, CUD 는 OWNER 권한. type 은 immutable — PATCH 에서 변경 시도 시 400. 삭제는
- * issue_field_value 를 FK cascade 로 함께 제거.
+ * issue_field_value 를 FK cascade 로 함께 제거. SELECT/MULTI_SELECT 는 옵션이 줄어드는 PATCH 시 참조 중인 이슈가 있으면 하드
+ * 블록한다(#707, #678 과 동일 정책 — 참조 삭제 전에는 옵션 자체를 지울 수 없음).
  */
 @Service
 @Transactional
@@ -26,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class IssueFieldDefService {
 
   private final IssueFieldDefRepository repo;
+  private final IssueFieldValueRepository valueRepo;
   private final ProjectAccessGuard accessGuard;
 
   /** 프로젝트 내 필드 정의 목록 — 조회 가드(OPEN 은 테넌트 전원 개방). */
@@ -62,6 +69,15 @@ public class IssueFieldDefService {
       throw new TypeImmutableException();
     }
     FieldTypeValidator.validateOptions(row.type(), req.options());
+    if (FieldType.hasOptions(row.type())) {
+      Set<String> removed = removedOptions(row.options(), req.options());
+      if (!removed.isEmpty()) {
+        int refCount = valueRepo.countReferencingOptions(fieldId, row.type(), removed);
+        if (refCount > 0) {
+          throw new FieldOptionInUseException(refCount, removed);
+        }
+      }
+    }
     String name = req.name().trim();
     try {
       repo.update(fieldId, name, req.options());
@@ -69,6 +85,25 @@ public class IssueFieldDefService {
       throw new FieldNameDuplicatedException(name);
     }
     return toResponse(repo.findById(fieldId).orElseThrow());
+  }
+
+  /** 이전 options 에는 있었지만 새 options 에는 없는 옵션 집합 (삭제 대상). */
+  private Set<String> removedOptions(JsonNode oldOptions, JsonNode newOptions) {
+    Set<String> before = toStringSet(oldOptions);
+    before.removeAll(toStringSet(newOptions));
+    return before;
+  }
+
+  private Set<String> toStringSet(JsonNode options) {
+    Set<String> set = new LinkedHashSet<>();
+    if (options != null && options.isArray()) {
+      for (JsonNode n : options) {
+        if (n.isTextual()) {
+          set.add(n.asText());
+        }
+      }
+    }
+    return set;
   }
 
   /** 필드 정의 삭제 — OWNER. 값들은 FK cascade 로 자동 삭제. */

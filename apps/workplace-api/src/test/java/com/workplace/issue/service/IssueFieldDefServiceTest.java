@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.exception.FieldNameDuplicatedException;
+import com.workplace.issue.exception.FieldOptionInUseException;
 import com.workplace.issue.exception.InvalidFieldOptionsException;
 import com.workplace.issue.exception.InvalidFieldTypeException;
 import com.workplace.issue.exception.TypeImmutableException;
@@ -180,5 +181,71 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
 
     assertThat(defRepo.findById(def.id())).isEmpty();
     assertThat(valueRepo.findValuesByIssue(issue.id())).isEmpty();
+  }
+
+  // --- #707: 참조 중인 옵션 삭제 하드 블록 ---
+
+  @Test
+  void patch_removing_referenced_select_option_throws_and_keeps_options() {
+    Long owner = createUser("i");
+    var p = newProject(owner, "FSI");
+    var opts = om.createArrayNode().add("옵션A").add("옵션B").add("옵션C");
+    var def = service.create(owner, p.key(), new CreateIssueFieldDefRequest("선", "SELECT", opts));
+    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    valueRepo.upsert(issue.id(), def.id(), om.valueToTree("옵션C"));
+
+    var shrunk = om.createArrayNode().add("옵션A").add("옵션B");
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    owner,
+                    p.key(),
+                    def.id(),
+                    new CreateIssueFieldDefRequest("선", "SELECT", shrunk)))
+        .isInstanceOf(FieldOptionInUseException.class)
+        .hasMessageContaining("옵션C");
+
+    // 삭제가 차단되었으므로 정의는 원래 옵션 3개를 그대로 유지해야 한다.
+    assertThat(defRepo.findById(def.id()).orElseThrow().options().size()).isEqualTo(3);
+    assertThat(valueRepo.findValuesByIssue(issue.id()).get(def.id()).asText()).isEqualTo("옵션C");
+  }
+
+  @Test
+  void patch_removing_referenced_multi_select_option_throws() {
+    Long owner = createUser("j");
+    var p = newProject(owner, "FSJ");
+    var opts = om.createArrayNode().add("라벨1").add("라벨2").add("라벨3");
+    var def =
+        service.create(owner, p.key(), new CreateIssueFieldDefRequest("다", "MULTI_SELECT", opts));
+    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    valueRepo.upsert(issue.id(), def.id(), om.createArrayNode().add("라벨2").add("라벨3"));
+
+    var shrunk = om.createArrayNode().add("라벨1").add("라벨2");
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    owner,
+                    p.key(),
+                    def.id(),
+                    new CreateIssueFieldDefRequest("다", "MULTI_SELECT", shrunk)))
+        .isInstanceOf(FieldOptionInUseException.class)
+        .hasMessageContaining("라벨3");
+  }
+
+  @Test
+  void patch_removing_unreferenced_option_succeeds() {
+    Long owner = createUser("k");
+    var p = newProject(owner, "FSK");
+    var opts = om.createArrayNode().add("옵션A").add("옵션B").add("옵션C");
+    var def = service.create(owner, p.key(), new CreateIssueFieldDefRequest("선", "SELECT", opts));
+    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    valueRepo.upsert(issue.id(), def.id(), om.valueToTree("옵션A"));
+
+    var shrunk = om.createArrayNode().add("옵션A").add("옵션B");
+    var updated =
+        service.update(
+            owner, p.key(), def.id(), new CreateIssueFieldDefRequest("선", "SELECT", shrunk));
+
+    assertThat(updated.options().size()).isEqualTo(2);
   }
 }

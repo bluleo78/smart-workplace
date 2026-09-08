@@ -1249,6 +1249,14 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  // issue: 이슈가 참조 중인 SELECT/MULTI_SELECT 옵션 삭제 시도 → 400 (#707, #678 과 동일한 하드 블록 정책)
+  @ExceptionHandler(com.workplace.issue.exception.FieldOptionInUseException.class)
+  public ResponseEntity<ErrorResponse> handleFieldOptionInUse(
+      com.workplace.issue.exception.FieldOptionInUseException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   /** Phase 5a — HUMAN 유저에 키 발급/조회/회수 시도 → 400. */
   @ExceptionHandler(com.workplace.auth.exception.KeyTargetMustBeAgentException.class)
   public ResponseEntity<ErrorResponse> handleKeyTargetMustBeAgent(
