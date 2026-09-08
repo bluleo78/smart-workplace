@@ -86,6 +86,11 @@ public class EventReminder extends TableImpl<EventReminderRecord> {
      */
     public final TableField<EventReminderRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.event_reminder.next_fire_at</code>.
+     */
+    public final TableField<EventReminderRecord, OffsetDateTime> NEXT_FIRE_AT = createField(DSL.name("next_fire_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private EventReminder(Name alias, Table<EventReminderRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -155,7 +160,7 @@ public class EventReminder extends TableImpl<EventReminderRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_EVENT_REMINDER_TENANT, Indexes.IDX_EVENT_REMINDER_UNFIRED);
+        return Arrays.asList(Indexes.IDX_EVENT_REMINDER_DUE, Indexes.IDX_EVENT_REMINDER_TENANT);
     }
 
     @Override

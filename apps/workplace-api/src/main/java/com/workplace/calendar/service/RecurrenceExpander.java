@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.dmfs.rfc5545.DateTime;
@@ -85,6 +87,27 @@ public class RecurrenceExpander {
       }
     }
     return result;
+  }
+
+  /** 리마인더 재무장(#705) 시 "다음 회차"를 찾는 탐색 상한 — 이 안에 미제외 회차가 없으면 시리즈가 사실상 끝난 것으로 본다. */
+  private static final int NEXT_OCCURRENCE_SEARCH_HORIZON_YEARS = 2;
+
+  /**
+   * after 이후 첫 미제외(취소/오버라이드 아닌) 회차의 시작 시각. 캘린더 리마인더(#705)가 발화/재계산 시 "다음 회차"를 찾는 데 쓴다 — excluded 는
+   * {@code calendar_event_exception} 에 기록된 회차(취소든 오버라이드든, 마스터 리마인더의 재무장 대상이 아님)의 Instant 집합이다. 탐색
+   * 상한({@link #NEXT_OCCURRENCE_SEARCH_HORIZON_YEARS}) 안에 없으면 UNTIL/COUNT 로 시리즈가 끝났거나(정상) 극단적으로 회차가
+   * 희소한 규칙(예외적)이므로 재무장하지 않는다(empty) — 무한정 미래로 탐색을 넓히면 무한/장기 규칙에서 비용이 커진다.
+   */
+  public Optional<OffsetDateTime> nextOccurrenceAfter(
+      String rrule, OffsetDateTime masterStart, OffsetDateTime after, Set<Instant> excluded) {
+    OffsetDateTime from = after.plusSeconds(1);
+    OffsetDateTime to = from.plusYears(NEXT_OCCURRENCE_SEARCH_HORIZON_YEARS);
+    for (OffsetDateTime occ : expand(rrule, masterStart, from, to)) {
+      if (!excluded.contains(occ.toInstant())) {
+        return Optional.of(occ);
+      }
+    }
+    return Optional.empty();
   }
 
   /** RRULE 유효성 검증(쓰기 시점) — 잘못된 규칙이면 IllegalArgumentException(전역 핸들러에서 400). 파싱 성공 여부만 확인한다. */

@@ -90,6 +90,20 @@ public class EventReminderRecord extends UpdatableRecordImpl<EventReminderRecord
         return (Long) get(4);
     }
 
+    /**
+     * Setter for <code>public.event_reminder.next_fire_at</code>.
+     */
+    public void setNextFireAt(OffsetDateTime value) {
+        set(5, value);
+    }
+
+    /**
+     * Getter for <code>public.event_reminder.next_fire_at</code>.
+     */
+    public OffsetDateTime getNextFireAt() {
+        return (OffsetDateTime) get(5);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -113,7 +127,7 @@ public class EventReminderRecord extends UpdatableRecordImpl<EventReminderRecord
     /**
      * Create a detached, initialised EventReminderRecord
      */
-    public EventReminderRecord(Long id, Long eventId, Integer leadMinutes, OffsetDateTime firedAt, Long tenantId) {
+    public EventReminderRecord(Long id, Long eventId, Integer leadMinutes, OffsetDateTime firedAt, Long tenantId, OffsetDateTime nextFireAt) {
         super(EventReminder.EVENT_REMINDER);
 
         setId(id);
@@ -121,6 +135,7 @@ public class EventReminderRecord extends UpdatableRecordImpl<EventReminderRecord
         setLeadMinutes(leadMinutes);
         setFiredAt(firedAt);
         setTenantId(tenantId);
+        setNextFireAt(nextFireAt);
         resetChangedOnNotNull();
     }
 }

@@ -41,6 +41,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -152,7 +153,7 @@ public class CalendarEventService {
         (externalId == null)
             ? repo.insert(callerId, calendarId, req)
             : repo.insertWithExternalId(callerId, calendarId, req, externalId);
-    applyReminder(id, req.reminderMinutes());
+    applyReminder(id, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), true);
 
     // 주최자 본인 행: 항상 ORGANIZER/ACCEPTED, invited_by=null.
     attendeeRepo.insert(id, callerId, null, "ORGANIZER", "ACCEPTED");
@@ -446,8 +447,14 @@ public class CalendarEventService {
       // ③ 로컬 반영 — 필드만 갱신(캘린더 이동 없음). 동기화 컨테이너 유지. 최종 get() 도 tx 안.
       return txTemplate.execute(
           s -> {
+            CalendarEventResponse before =
+                repo.findById(callerId, id)
+                    .orElseThrow(() -> new CalendarEventNotFoundException(id));
             repo.update(id, req);
-            applyReminder(id, req.reminderMinutes());
+            // 외부 동기화 일정은 항상 단일(반복 미지원, 위에서 차단) — 시작시각 변경 여부만 보면 됨.
+            boolean scheduleChanged = !before.startsAt().equals(req.startsAt());
+            applyReminder(
+                id, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), scheduleChanged);
             return get(callerId, id);
           });
     }
@@ -477,7 +484,11 @@ public class CalendarEventService {
         repo.moveSingleEventToCalendar(id, resolved);
       }
       repo.update(id, req);
-      applyReminder(id, req.reminderMinutes());
+      boolean scheduleChanged =
+          !target.startsAt().equals(req.startsAt())
+              || !Objects.equals(target.recurrenceRule(), req.recurrenceRule());
+      applyReminder(
+          id, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), scheduleChanged);
       return get(callerId, id);
     }
     requireOccurrenceDate(scope, occurrenceDate);
@@ -508,11 +519,17 @@ public class CalendarEventService {
             callerId, req.calendarId() != null ? req.calendarId() : master.calendarId());
     // 신규 생성 여부 추적 — 기존 오버라이드 갱신 시에는 참석자를 재복사하지 않는다(이미 보유).
     boolean[] isNew = {false};
+    // 기존 오버라이드 재편집 시 시작시각 변경 여부 판단용(리마인더 재계산 필요성 — #705).
+    OffsetDateTime[] prevStartsAt = {null};
     long overrideId =
         exceptionRepo
             .findOverrideEventId(masterId, occurrenceDate)
             .map(
                 existing -> {
+                  prevStartsAt[0] =
+                      repo.findById(callerId, existing)
+                          .orElseThrow(() -> new CalendarEventNotFoundException(existing))
+                          .startsAt();
                   repo.moveSingleEventToCalendar(existing, calId);
                   repo.update(existing, overrideReq);
                   return existing;
@@ -522,7 +539,14 @@ public class CalendarEventService {
                   isNew[0] = true;
                   return repo.insert(callerId, calId, overrideReq);
                 });
-    applyReminder(overrideId, req.reminderMinutes());
+    // override 는 항상 단일 일정(recurrenceRule=null) — 신규거나 시작시각이 바뀐 경우만 재계산.
+    boolean scheduleChanged = isNew[0] || !Objects.equals(prevStartsAt[0], overrideReq.startsAt());
+    applyReminder(
+        overrideId,
+        req.reminderMinutes(),
+        overrideReq.startsAt(),
+        overrideReq.recurrenceRule(),
+        scheduleChanged);
     exceptionRepo.upsertOverride(masterId, occurrenceDate, overrideId);
     // 신규 오버라이드 행에만 마스터의 참석자(ORGANIZER 포함)를 복제. role/rsvp_status/invited_by 보존.
     if (isNew[0]) {
@@ -549,7 +573,7 @@ public class CalendarEventService {
         resolveCalendarId(
             callerId, req.calendarId() != null ? req.calendarId() : master.calendarId());
     long newMasterId = repo.insert(callerId, calId, req);
-    applyReminder(newMasterId, req.reminderMinutes());
+    applyReminder(newMasterId, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), true);
     truncateExceptionsFrom(master.id(), occurrenceDate);
     // 기존 마스터의 참석자(ORGANIZER 포함)를 새 마스터에 복제. role/rsvp_status/invited_by 보존.
     copyAttendees(master.id(), newMasterId);
@@ -1025,13 +1049,49 @@ public class CalendarEventService {
     }
   }
 
-  /** 리마인더 반영 — null 이면 제거, 값 있으면 upsert(저장 시 재무장). */
-  private void applyReminder(long eventId, Integer reminderMinutes) {
+  /**
+   * 리마인더 반영(#705) — null 이면 제거. 값이 있으면 리드타임이 바뀌었거나 scheduleChanged(시작시각/RRULE 변경)인 경우에만
+   * next_fire_at 을 재계산한다 — 그 외(리마인더와 무관한 필드만 수정)에는 기존 스케줄을 그대로 유지해 이미 발화한 리마인더가 재편집만으로 다시 울리는 것을
+   * 막는다(중복 발화 방지, 기존 upsert 의 "lead 변경 시에만 재무장" 취지 계승).
+   */
+  private void applyReminder(
+      long eventId,
+      Integer reminderMinutes,
+      OffsetDateTime startsAt,
+      String recurrenceRule,
+      boolean scheduleChanged) {
     if (reminderMinutes == null) {
       reminderRepo.deleteByEvent(eventId);
-    } else {
-      reminderRepo.upsert(eventId, reminderMinutes);
+      return;
     }
+    var existing = reminderRepo.findByEvent(eventId);
+    boolean needsRecompute =
+        scheduleChanged || existing.isEmpty() || existing.get().leadMinutes() != reminderMinutes;
+    OffsetDateTime nextFireAt =
+        needsRecompute
+            ? computeInitialNextFireAt(eventId, startsAt, recurrenceRule, reminderMinutes)
+            : existing.get().nextFireAt();
+    reminderRepo.upsert(eventId, reminderMinutes, nextFireAt);
+  }
+
+  /**
+   * 리마인더 (재)설정 시 next_fire_at 계산(#705). 단발 일정은 시작시각 그대로 사용(과거여도 즉시 발화 허용 — 기존 동작 유지). 반복 일정은 "아직
+   * 시작하지 않은" 가장 이른 미제외(취소/오버라이드 아닌) 회차를 now() 기준으로 찾는다 — 이미 지나간 과거 회차들까지 소급 발화하지 않기 위함(마스터 시작이 미래면
+   * 그 첫 회차, 이미 시작된 시리즈면 다음 회차).
+   */
+  private OffsetDateTime computeInitialNextFireAt(
+      long eventId, OffsetDateTime startsAt, String recurrenceRule, int leadMinutes) {
+    if (recurrenceRule == null || recurrenceRule.isBlank()) {
+      return startsAt.minusMinutes(leadMinutes);
+    }
+    OffsetDateTime now = OffsetDateTime.now();
+    OffsetDateTime anchor = startsAt.isAfter(now) ? startsAt.minusSeconds(1) : now;
+    Set<Instant> excluded =
+        exceptionRepo.occurrencesByEvent(List.of(eventId)).getOrDefault(eventId, Set.of());
+    return expander
+        .nextOccurrenceAfter(recurrenceRule, startsAt, anchor, excluded)
+        .map(occ -> occ.minusMinutes(leadMinutes))
+        .orElse(null);
   }
 
   /** 읽기전용(외부 동기화) 컨테이너 소속 이벤트는 로컬 변경 불가 — 동기화만 관리. requireOwner 통과 후 호출. */

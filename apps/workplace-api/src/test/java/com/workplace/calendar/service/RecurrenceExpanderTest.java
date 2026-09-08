@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /** RRULE 회차 전개 순수 단위 테스트(DB 무관). fastForward 회귀 가드 포함. */
@@ -94,5 +95,41 @@ class RecurrenceExpanderTest {
                     OffsetDateTime.parse("2026-06-01T00:00:00Z"),
                     OffsetDateTime.parse("2026-12-31T00:00:00Z")))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  // ── nextOccurrenceAfter(#705 — 캘린더 리마인더 회차별 재무장) ──────────────────────────────
+
+  /** after 직후 다음 주간 회차를 찾는다(제외 없음). */
+  @Test
+  void nextOccurrenceAfter_weekly_returnsNextOccurrence() {
+    var master = OffsetDateTime.parse("2026-06-01T09:00:00Z"); // 월요일
+    var after = OffsetDateTime.parse("2026-06-01T09:00:00Z"); // 1회차 시작 시각 그 자체
+
+    var next = expander.nextOccurrenceAfter("FREQ=WEEKLY", master, after, Set.of());
+
+    assertThat(next).contains(OffsetDateTime.parse("2026-06-08T09:00:00Z"));
+  }
+
+  /** 예외(취소/오버라이드) 회차는 건너뛰고 그 다음 회차를 반환한다. */
+  @Test
+  void nextOccurrenceAfter_skipsExcludedOccurrence() {
+    var master = OffsetDateTime.parse("2026-06-01T09:00:00Z");
+    var after = OffsetDateTime.parse("2026-06-01T09:00:00Z");
+    var cancelled = OffsetDateTime.parse("2026-06-08T09:00:00Z").toInstant();
+
+    var next = expander.nextOccurrenceAfter("FREQ=WEEKLY", master, after, Set.of(cancelled));
+
+    assertThat(next).contains(OffsetDateTime.parse("2026-06-15T09:00:00Z"));
+  }
+
+  /** COUNT 로 시리즈가 이미 끝났으면(더 이상 미제외 회차 없음) empty. */
+  @Test
+  void nextOccurrenceAfter_seriesEnded_returnsEmpty() {
+    var master = OffsetDateTime.parse("2026-06-01T09:00:00Z");
+    var after = OffsetDateTime.parse("2026-06-08T09:00:00Z"); // 이미 2회차(COUNT=2) 이후
+
+    var next = expander.nextOccurrenceAfter("FREQ=WEEKLY;COUNT=2", master, after, Set.of());
+
+    assertThat(next).isEmpty();
   }
 }

@@ -96,18 +96,19 @@ class CalendarReminderSchedulerTenantTest extends IntegrationTestBase {
             .returning(CALENDAR.ID)
             .fetchOne()
             .getId();
+    OffsetDateTime startsAt = OffsetDateTime.now().plus(2, ChronoUnit.MINUTES);
     long eventId =
         dsl.insertInto(CALENDAR_EVENT)
             .set(CALENDAR_EVENT.OWNER_ID, ownerId)
             .set(CALENDAR_EVENT.TITLE, "테넌트 리마인더")
-            .set(CALENDAR_EVENT.STARTS_AT, OffsetDateTime.now().plus(2, ChronoUnit.MINUTES))
+            .set(CALENDAR_EVENT.STARTS_AT, startsAt)
             .set(CALENDAR_EVENT.ENDS_AT, OffsetDateTime.now().plus(62, ChronoUnit.MINUTES))
             .set(CALENDAR_EVENT.ALL_DAY, false)
             .set(CALENDAR_EVENT.CALENDAR_ID, calId)
             .returning(CALENDAR_EVENT.ID)
             .fetchOne()
             .getId();
-    reminderRepo.upsert(eventId, 10);
+    reminderRepo.upsert(eventId, 10, startsAt.minusMinutes(10));
     return eventId;
   }
 

@@ -101,8 +101,9 @@ class CalendarReminderNotifyIntegrationTest extends IntegrationTestBase {
   void due_reminder_poll_creates_inbox_notification() {
     long owner = user();
     // 시작 2분 후, 10분 전 리마인더 → 발화 시점(now-8분) 이미 지남 = due
-    long eventId = event(owner, OffsetDateTime.now().plus(2, ChronoUnit.MINUTES));
-    reminderRepo.upsert(eventId, 10);
+    OffsetDateTime startsAt = OffsetDateTime.now().plus(2, ChronoUnit.MINUTES);
+    long eventId = event(owner, startsAt);
+    reminderRepo.upsert(eventId, 10, startsAt.minusMinutes(10));
 
     // 폴러 직접 실행(프록시 경유 @Transactional) → 커밋 후 AFTER_COMMIT @Async dispatcher 발화
     scheduler.poll();
@@ -112,7 +113,7 @@ class CalendarReminderNotifyIntegrationTest extends IntegrationTestBase {
         .atMost(java.time.Duration.ofSeconds(3))
         .untilAsserted(() -> assertThat(reminderNotifCount(owner, eventId)).isEqualTo(1));
 
-    // 발화 후 fired_at 마킹 → 재폴링해도 중복 생성 없음
+    // 발화 후 next_fire_at 이 null 로 재무장(단발 일정) → 재폴링해도 중복 생성 없음
     scheduler.poll();
     assertThat(reminderNotifCount(owner, eventId)).isEqualTo(1);
   }

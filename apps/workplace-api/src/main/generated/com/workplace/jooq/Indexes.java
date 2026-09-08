@@ -174,8 +174,8 @@ public class Indexes {
     public static final Index IDX_EVENT_ATTENDEE_EVENT = Internal.createIndex(DSL.name("idx_event_attendee_event"), EventAttendee.EVENT_ATTENDEE, new OrderField[] { EventAttendee.EVENT_ATTENDEE.EVENT_ID }, false);
     public static final Index IDX_EVENT_ATTENDEE_TENANT = Internal.createIndex(DSL.name("idx_event_attendee_tenant"), EventAttendee.EVENT_ATTENDEE, new OrderField[] { EventAttendee.EVENT_ATTENDEE.TENANT_ID }, false);
     public static final Index IDX_EVENT_ATTENDEE_USER = Internal.createIndex(DSL.name("idx_event_attendee_user"), EventAttendee.EVENT_ATTENDEE, new OrderField[] { EventAttendee.EVENT_ATTENDEE.USER_ID }, false);
+    public static final Index IDX_EVENT_REMINDER_DUE = Internal.createIndex(DSL.name("idx_event_reminder_due"), EventReminder.EVENT_REMINDER, new OrderField[] { EventReminder.EVENT_REMINDER.NEXT_FIRE_AT }, false);
     public static final Index IDX_EVENT_REMINDER_TENANT = Internal.createIndex(DSL.name("idx_event_reminder_tenant"), EventReminder.EVENT_REMINDER, new OrderField[] { EventReminder.EVENT_REMINDER.TENANT_ID }, false);
-    public static final Index IDX_EVENT_REMINDER_UNFIRED = Internal.createIndex(DSL.name("idx_event_reminder_unfired"), EventReminder.EVENT_REMINDER, new OrderField[] { EventReminder.EVENT_REMINDER.EVENT_ID }, false);
     public static final Index IDX_FIELD_DEF_PROJECT = Internal.createIndex(DSL.name("idx_field_def_project"), IssueFieldDef.ISSUE_FIELD_DEF, new OrderField[] { IssueFieldDef.ISSUE_FIELD_DEF.PROJECT_ID }, false);
     public static final Index IDX_FIELD_VALUE_DEF = Internal.createIndex(DSL.name("idx_field_value_def"), IssueFieldValue.ISSUE_FIELD_VALUE, new OrderField[] { IssueFieldValue.ISSUE_FIELD_VALUE.FIELD_DEF_ID }, false);
     public static final Index IDX_FILE_EXPIRES_AT = Internal.createIndex(DSL.name("idx_file_expires_at"), File.FILE, new OrderField[] { File.FILE.EXPIRES_AT }, false);
