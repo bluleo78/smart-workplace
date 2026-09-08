@@ -1,5 +1,6 @@
 package com.workplace.support;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -163,6 +164,23 @@ public abstract class IntegrationTestBase {
         .insertInto(USER_ROLE)
         .set(USER_ROLE.USER_ID, id)
         .set(USER_ROLE.ROLE_ID, roleId)
+        .execute();
+    return id;
+  }
+
+  /**
+   * {@link #createAgentUser} + 테넌트#1 ACTIVE 멤버십. project/wiki/drive 공간의 addMember 대상으로 쓰이는 AGENT 는
+   * MembershipGuard(#713) 검증을 통과해야 하므로, 실제 프로비저닝 흐름(PersonalAssistantService 등)이 신규 AGENT 에 멤버십을 함께
+   * 부여하는 것과 동일하게 맞춘 opt-in 헬퍼다. 기존 {@link #createAgentUser} 는 멤버십을 요구하지 않는 기존 호출부의 동작을 바꾸지 않기 위해
+   * 그대로 둔다.
+   */
+  protected Long createAgentUserWithMembership(String prefix) {
+    Long id = createAgentUser(prefix);
+    baseDsl
+        .insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
         .execute();
     return id;
   }

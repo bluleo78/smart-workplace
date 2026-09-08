@@ -1,7 +1,9 @@
 package com.workplace.wiki.service;
 
+import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.wiki.dto.WikiMemberResponse;
 import com.workplace.wiki.dto.WikiSpaceResponse;
+import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
 import com.workplace.wiki.repository.WikiSpaceMemberRepository;
 import com.workplace.wiki.repository.WikiSpaceRepository;
@@ -17,6 +19,7 @@ public class WikiSpaceService {
   private final WikiSpaceRepository spaces;
   private final WikiSpaceMemberRepository members;
   private final WikiPermissions perms;
+  private final MembershipGuard membershipGuard;
 
   /** 개인 공간 보장(없으면 생성). 멱등. */
   @Transactional
@@ -64,10 +67,17 @@ public class WikiSpaceService {
     return members.listMembers(spaceId);
   }
 
+  /**
+   * 멤버 추가. OWNER 권한 필요. 대상이 현재 테넌트의 활성 멤버가 아니면 거부한다 — 테넌트 경계를 넘는 위키 공간 멤버십 등록 차단 (messaging
+   * ChannelMemberService.add() 와 동일 정책, #713).
+   */
   @Transactional
   public void addMember(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
     perms.validateRole(role);
+    if (membershipGuard.isForeignUser(userId)) {
+      throw new WikiForbiddenException(spaceId, userId);
+    }
     members.add(spaceId, userId, role);
   }
 

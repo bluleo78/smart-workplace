@@ -2,9 +2,11 @@ package com.workplace.drive.service;
 
 import com.workplace.drive.dto.DriveMemberResponse;
 import com.workplace.drive.dto.DriveSpaceResponse;
+import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.drive.repository.DriveSpaceRepository;
+import com.workplace.global.tenant.MembershipGuard;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,7 @@ public class DriveSpaceService {
   private final DrivePermissions perms;
   private final com.workplace.drive.repository.DriveFileRepository files;
   private final com.workplace.drive.repository.DriveFileVersionRepository versions;
+  private final MembershipGuard membershipGuard;
 
   /** 개인 공간을 보장(없으면 생성). 멱등. */
   @Transactional
@@ -66,10 +69,17 @@ public class DriveSpaceService {
     return members.listMembers(spaceId);
   }
 
+  /**
+   * 멤버 추가. OWNER 권한 필요. 대상이 현재 테넌트의 활성 멤버가 아니면 거부한다 — 테넌트 경계를 넘는 드라이브 공간 멤버십 등록 차단 (messaging
+   * ChannelMemberService.add() 와 동일 정책, #713).
+   */
   @Transactional
   public void addMember(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
     perms.validateRole(role);
+    if (membershipGuard.isForeignUser(userId)) {
+      throw new DriveForbiddenException(spaceId, userId);
+    }
     members.add(spaceId, userId, role);
   }
 

@@ -42,14 +42,22 @@ class ProjectServiceTest extends IntegrationTestBase {
   /** 유니크 username 으로 사용자 시드. */
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, prefix + "-" + suffix)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, prefix)
-        .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    Long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, prefix + "-" + suffix)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, prefix)
+            .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    // 테넌트#1 ACTIVE 멤버십 — MembershipGuard(#713) 가 addMember 대상의 테넌트 소속을 검증하므로 필요.
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
   }
 
   /** 유니크 key 생성 (대문자/숫자 2~10자). */
@@ -58,11 +66,58 @@ class ProjectServiceTest extends IntegrationTestBase {
     return (prefix + suffix).substring(0, Math.min(10, (prefix + suffix).length()));
   }
 
+  /** 격리된 테스트용 테넌트 시드. */
+  private Long seedTenant() {
+    return dsl.insertInto(TENANT)
+        .set(TENANT.SLUG, "t713-project-" + System.nanoTime())
+        .set(TENANT.NAME, "Other Tenant")
+        .set(TENANT.STATUS, "ACTIVE")
+        .returning(TENANT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** tenant#1 이 아닌 다른 테넌트에만 소속된 사용자 시드 — 테넌트 경계 검증용. */
+  private Long createUserInTenant(String prefix, Long tenantId) {
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    Long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, prefix + "-" + suffix)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, prefix)
+            .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, tenantId)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
+  }
+
+  /** #713 — OWNER 가 현재 테넌트에 소속되지 않은(다른 테넌트) 사용자를 프로젝트 멤버로 등록할 수 없어야 한다. */
+  @Test
+  void addMember_otherTenantUser_throwsAccessDenied() {
+    Long owner = createUser("owner-ot713");
+    Long otherTenantId = seedTenant();
+    Long otherTenantUser = createUserInTenant("other-ot713", otherTenantId);
+    String key = uniqueKey("OT7");
+    projectService.create(owner, new CreateProjectRequest(key, "테넌트경계", null));
+
+    assertThatThrownBy(
+            () ->
+                projectService.addMember(
+                    owner, key, new AddMemberRequest(otherTenantUser, "MEMBER")))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
   /** 개인 프로젝트 멤버 목록: 합성 AGENT 주입 없음 — AGENT 추가 전에는 OWNER 만, 추가 후에는 실제 멤버 행만 (#418 정책 통일). */
   @Test
   void listMembers_personal_noSyntheticAgents() {
     Long owner = createUser("owner4");
-    Long agent = createAgentUser("bot");
+    Long agent = createAgentUserWithMembership("bot");
     ProjectResponse personal =
         projectService.create(owner, new CreateProjectRequest(null, "AI랑", null, "PERSONAL"));
     // AGENT 추가 전: OWNER 만 (합성 주입 없음)
@@ -80,7 +135,7 @@ class ProjectServiceTest extends IntegrationTestBase {
   @Test
   void addMember_personalProject_allowsAgent_rejectsHuman() {
     Long owner = createUser("owner-pa");
-    Long agent = createAgentUser("bot-pa");
+    Long agent = createAgentUserWithMembership("bot-pa");
     Long otherHuman = createUser("human-pa");
     ProjectResponse personal =
         projectService.create(owner, new CreateProjectRequest(null, "개인PA", null, "PERSONAL"));

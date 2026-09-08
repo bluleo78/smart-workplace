@@ -143,6 +143,12 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
             .where(com.workplace.jooq.Tables.ROLE.NAME.eq("USER"))
             .fetchOne(com.workplace.jooq.Tables.ROLE.ID);
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
+    // 테넌트#1 ACTIVE 멤버십 — MembershipGuard(#713) 가 addMember 대상의 테넌트 소속을 검증하므로 필요.
+    dsl.insertInto(com.workplace.jooq.Tables.MEMBERSHIP)
+        .set(com.workplace.jooq.Tables.MEMBERSHIP.USER_ID, id)
+        .set(com.workplace.jooq.Tables.MEMBERSHIP.TENANT_ID, 1L)
+        .set(com.workplace.jooq.Tables.MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
     createdUserIds.add(id);
     return id;
   }

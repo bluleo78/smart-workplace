@@ -55,14 +55,22 @@ class IssueServiceTest extends IntegrationTestBase {
   /** 유니크 username 으로 사용자 시드. */
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, prefix + "-" + suffix)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, prefix)
-        .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    Long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, prefix + "-" + suffix)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, prefix)
+            .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    // 테넌트#1 ACTIVE 멤버십 — MembershipGuard(#713) 가 addMember 대상의 테넌트 소속을 검증하므로 필요.
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
   }
 
   /** role_name 의 역할을 user 에게 부여. */
@@ -101,7 +109,7 @@ class IssueServiceTest extends IntegrationTestBase {
   @Test
   void create_personalRequiresAgentMembership() {
     Long owner = createUser("owner6");
-    Long agent = createAgentUser("bot6");
+    Long agent = createAgentUserWithMembership("bot6");
     ProjectResponse personal =
         projectService.create(owner, new CreateProjectRequest(null, "p6", null, "PERSONAL"));
     // 멤버 아닌 AGENT → 담당 불가
@@ -128,7 +136,7 @@ class IssueServiceTest extends IntegrationTestBase {
   @Test
   void get_byMemberAgent_allowed() {
     Long owner = createUser("owner368");
-    Long agent = createAgentUser("bot368");
+    Long agent = createAgentUserWithMembership("bot368");
     Long stranger = createUser("stranger368");
     ProjectResponse personal =
         projectService.create(owner, new CreateProjectRequest(null, "p368", null, "PERSONAL"));

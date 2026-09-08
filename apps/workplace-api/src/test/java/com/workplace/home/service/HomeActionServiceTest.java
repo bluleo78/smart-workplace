@@ -3,6 +3,7 @@ package com.workplace.home.service;
 import static com.workplace.jooq.Tables.CONTACT_ENTRY;
 import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.DRIVE_FOLDER;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PERMISSION;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.ROLE_PERMISSION;
@@ -76,6 +77,12 @@ class HomeActionServiceTest extends IntegrationTestBase {
           .execute();
     }
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, uid).set(USER_ROLE.ROLE_ID, rid).execute();
+    // 테넌트#1 ACTIVE 멤버십 — MembershipGuard(#713) 가 addMember 대상의 테넌트 소속을 검증하므로 필요.
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, uid)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
     return uid;
   }
 

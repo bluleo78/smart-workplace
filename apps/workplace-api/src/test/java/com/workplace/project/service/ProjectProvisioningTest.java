@@ -2,6 +2,7 @@ package com.workplace.project.service;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -60,14 +61,22 @@ class ProjectProvisioningTest extends IntegrationTestBase {
   /** 유니크 username 으로 HUMAN 사용자 시드. 테스트 트랜잭션에 합류하므로 롤백으로 회수된다. */
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, prefix + "-" + suffix)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, prefix)
-        .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    Long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, prefix + "-" + suffix)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, prefix)
+            .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    // 테넌트#1 ACTIVE 멤버십 — MembershipGuard(#713) 가 addMember 대상의 테넌트 소속을 검증하므로 필요.
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
   }
 
   /** role_name 의 역할을 user 에게 부여. */

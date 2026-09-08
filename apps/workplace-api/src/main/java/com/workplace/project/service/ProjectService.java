@@ -2,6 +2,7 @@ package com.workplace.project.service;
 
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueTypeService;
@@ -13,6 +14,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.dto.UpdateMemberRoleRequest;
 import com.workplace.project.dto.UpdateProjectRequest;
+import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
@@ -44,6 +46,7 @@ public class ProjectService {
   private final UserRepository userRepository;
   private final IssueRepository issueRepository;
   private final IssueAssigneeRepository issueAssigneeRepository;
+  private final MembershipGuard membershipGuard;
 
   /**
    * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, TEAM/OPEN 이면 공유 프로젝트 경로. 공유
@@ -182,10 +185,14 @@ public class ProjectService {
 
   /**
    * 멤버 추가. OWNER 권한 필요. 중복 시 409. 개인 프로젝트는 비공개 유지(HUMAN 멤버 불가), AGENT 는 담당자로 쓸 수 있도록 멤버 추가 허용
-   * (#418). 비활성화(is_active=false)된 사용자는 신규 멤버로 추가할 수 없다 (#624).
+   * (#418). 비활성화(is_active=false)된 사용자는 신규 멤버로 추가할 수 없다 (#624). 대상이 현재 테넌트의 활성 멤버가 아니면 거부한다 — 테넌트
+   * 경계를 넘는 프로젝트 멤버십 등록 차단(messaging ChannelMemberService.add() 와 동일 정책, #713).
    */
   public MemberResponse addMember(Long callerId, String projectKey, AddMemberRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
+    if (membershipGuard.isForeignUser(req.userId())) {
+      throw new ProjectAccessDeniedException("대상 사용자가 현재 테넌트 멤버가 아닙니다: " + req.userId());
+    }
     var added =
         userRepository
             .findById(req.userId())

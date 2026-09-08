@@ -3,6 +3,8 @@ package com.workplace.drive.service;
 import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.FILE;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,14 +44,22 @@ class DriveSpaceServiceTest extends IntegrationTestBase {
 
   private long seedUser() {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "ds_" + s)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "Ds" + s)
-        .set(USER.EMAIL, "ds_" + s + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "ds_" + s)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "Ds" + s)
+            .set(USER.EMAIL, "ds_" + s + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    // 테넌트#1 ACTIVE 멤버십 — MembershipGuard(#713) 가 addMember 대상의 테넌트 소속을 검증하므로 필요.
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
   }
 
   @Test
@@ -83,6 +93,49 @@ class DriveSpaceServiceTest extends IntegrationTestBase {
     assertThat(spaceService.getSpace(member, team.id()).id()).isEqualTo(team.id());
     assertThatThrownBy(() -> spaceService.addMember(member, team.id(), owner, "EDITOR"))
         .isInstanceOf(DriveForbiddenException.class);
+  }
+
+  /** #713 — OWNER 가 현재 테넌트에 소속되지 않은(다른 테넌트) 사용자를 드라이브 공간 멤버로 등록할 수 없어야 한다. */
+  @Test
+  void addMember_otherTenantUser_throwsForbidden() {
+    long owner = seedUser();
+    long otherTenantId = seedTenant();
+    long otherTenantUser = seedUserInTenant(otherTenantId);
+    DriveSpaceResponse team = spaceService.createTeamSpace(owner, "팀");
+
+    assertThatThrownBy(() -> spaceService.addMember(owner, team.id(), otherTenantUser, "VIEWER"))
+        .isInstanceOf(DriveForbiddenException.class);
+  }
+
+  /** 격리된 테스트용 테넌트 시드. */
+  private long seedTenant() {
+    return dsl.insertInto(TENANT)
+        .set(TENANT.SLUG, "t713-drive-" + System.nanoTime())
+        .set(TENANT.NAME, "Other Tenant")
+        .set(TENANT.STATUS, "ACTIVE")
+        .returning(TENANT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** tenant#1 이 아닌 다른 테넌트에만 소속된 사용자 시드 — 테넌트 경계 검증용. */
+  private long seedUserInTenant(long tenantId) {
+    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "ds_ot_" + s)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "DsOt" + s)
+            .set(USER.EMAIL, "ds_ot_" + s + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, tenantId)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
   }
 
   @Test
