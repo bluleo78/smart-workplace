@@ -39,6 +39,27 @@ import { driveApi } from '../../api/drive'
 import { useDriveQuota } from '../../hooks/queries/useDriveQuota'
 import type { DriveSpace } from '../../types/drive'
 
+/** 사용량 바 경고 단계 — 임계치 기반 색상 분기(#822). */
+type DriveUsageLevel = 'normal' | 'warning' | 'critical'
+
+/**
+ * 사용률(0~∞)을 경고 단계로 변환한다(#822).
+ * - `< 80%` normal · `80% ~ <100%` warning · `>= 100%` critical(한도 도달/초과).
+ * 색상만으로 정보를 전달하지 않도록 텍스트 표기는 호출측에서 그대로 유지한다(WCAG 1.4.1).
+ */
+function driveUsageLevel(ratio: number): DriveUsageLevel {
+  if (ratio >= 1) return 'critical'
+  if (ratio >= 0.8) return 'warning'
+  return 'normal'
+}
+
+// 단계별 막대 색상 — shadcn 시맨틱 토큰만 사용(hex 금지).
+const USAGE_BAR_CLASS: Record<DriveUsageLevel, string> = {
+  normal: 'bg-primary',
+  warning: 'bg-warning',
+  critical: 'bg-destructive',
+}
+
 /** 좌측 2차 사이드바 — 내 드라이브 + 팀 공간 목록, 팀 공간 생성. */
 export function DriveSidebar() {
   const [spaces, setSpaces] = useState<DriveSpace[]>([])
@@ -57,6 +78,9 @@ export function DriveSidebar() {
   // 업로드/삭제/롤백 mutation 성공 시 invalidateQueries(driveQuotaKeys.all) 로
   // 재조회되므로 이 컴포넌트가 리마운트되지 않아도 최신 값이 반영된다.
   const { data: quota } = useDriveQuota()
+  // 사용률·경고 단계(#822) — quota 미로드 시 0(normal). quotaBytes 0 은 나눗셈 방지로 1 처리.
+  const usageRatio = quota ? quota.usedBytes / Math.max(1, quota.quotaBytes) : 0
+  const usageLevel = driveUsageLevel(usageRatio)
   // TEAM 공간 이름 변경/삭제 대상 — kebab 메뉴에서 설정(제어형 다이얼로그).
   const [renameTarget, setRenameTarget] = useState<DriveSpace | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DriveSpace | null>(null)
@@ -220,10 +244,13 @@ export function DriveSidebar() {
                 {formatFileSize(quota.usedBytes)} / {formatFileSize(quota.quotaBytes)}
               </span>
             </div>
+            {/* 임계치 경고색(#822) — 80%↑ warning, 100%↑ destructive. 텍스트는 항상 유지. */}
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full bg-primary"
-                style={{ width: `${Math.min(100, (quota.usedBytes / Math.max(1, quota.quotaBytes)) * 100)}%` }}
+                data-testid="drive-usage-fill"
+                data-usage-level={usageLevel}
+                className={cn('h-full', USAGE_BAR_CLASS[usageLevel])}
+                style={{ width: `${Math.min(100, usageRatio * 100)}%` }}
               />
             </div>
           </div>

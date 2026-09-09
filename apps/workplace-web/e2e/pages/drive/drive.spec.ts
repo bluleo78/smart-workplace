@@ -1022,6 +1022,42 @@ test('사이드바에 사용량 바가 보인다', { tag: '@smoke' }, async ({ a
   await expect(page.getByTestId('drive-usage-text')).toContainText('10')  // / 10.0 GB
 })
 
+// #822 — 사용량 바 임계치 경고색: <80% 기본(bg-primary) · 80~99% warning · >=100% destructive.
+// 색상만으로 정보를 전달하지 않도록 텍스트(사용량 / 한도)는 모든 구간에서 그대로 유지돼야 한다.
+const QUOTA_10GB = 10_737_418_240
+for (const c of [
+  { name: '80% 미만 → 기본색', usedBytes: 2_147_483_648, level: 'normal', cls: /bg-primary/, text: '2.0 GB' },
+  { name: '80% 이상 → warning', usedBytes: 9_126_805_504, level: 'warning', cls: /bg-warning/, text: '8.5 GB' },
+  { name: '100% 이상 → destructive', usedBytes: 11_811_160_064, level: 'critical', cls: /bg-destructive/, text: '11.0 GB' },
+]) {
+  test(`사용량 바 경고색 — ${c.name}`, async ({ authenticatedPage: page }) => {
+    await stubSpaces(page)
+    await page.route('**/api/v1/drive/quota', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ usedBytes: c.usedBytes, quotaBytes: QUOTA_10GB }),
+      }),
+    )
+    await page.goto('/drive')
+    const fill = page.getByTestId('drive-usage-fill')
+    await expect(fill).toHaveAttribute('data-usage-level', c.level)
+    await expect(fill).toHaveClass(c.cls)
+    // 다른 단계 색상이 섞이지 않아야 한다(단계 배타성).
+    for (const other of [/bg-primary/, /bg-warning/, /bg-destructive/]) {
+      if (other.source !== c.cls.source) await expect(fill).not.toHaveClass(other)
+    }
+    // 초과분(110%)은 막대 폭 100% 로 클램프 — 채움 폭 == 트랙 폭.
+    if (c.level === 'critical') {
+      const [fillBox, trackBox] = await Promise.all([fill.boundingBox(), fill.locator('..').boundingBox()])
+      expect(fillBox?.width).toBeCloseTo(trackBox?.width ?? -1, 0)
+    }
+    // 텍스트 병행 표기 유지 (WCAG 1.4.1).
+    await expect(page.getByTestId('drive-usage-text')).toContainText(c.text)
+    await expect(page.getByTestId('drive-usage-text')).toContainText('10.0 GB')
+  })
+}
+
 // #820 — 사이드바 사용량 바는 마운트 시 1회만 조회되어 파일 업로드 후에도 갱신되지 않았다.
 // 업로드 mutation 성공 시 공유 쿼리 키(driveQuotaKeys)를 invalidate 하므로, 전체 새로고침
 // 없이도 사이드바 사용량 텍스트가 최신 값으로 바뀌어야 한다.
