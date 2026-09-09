@@ -55,6 +55,7 @@ import { NewAgentDialog } from './components/NewAgentDialog';
 function fmtDateTime(iso: string | null): string {
   if (!iso) return '-';
   try {
+    // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
     return new Date(iso).toLocaleString('ko-KR');
   } catch {
     return iso;

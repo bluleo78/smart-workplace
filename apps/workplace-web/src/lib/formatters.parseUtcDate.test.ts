@@ -21,6 +21,35 @@ describe('parseUtcDate — 타임존 오프셋 판별', () => {
   it('콜론 없는 오프셋(+0900)도 인식한다', () => {
     const d = parseUtcDate('2026-07-15T23:59:59+0900')
     expect(Number.isNaN(d.getTime())).toBe(false)
+    expect(d.toISOString()).toBe('2026-07-15T14:59:59.000Z')
+  })
+
+  it('콜론 없는 음수 오프셋(-0500)도 인식한다', () => {
+    const d = parseUtcDate('2026-07-15T23:59:59-0500')
+    expect(d.toISOString()).toBe('2026-07-16T04:59:59.000Z')
+  })
+
+  it('밀리초가 붙은 오프셋 문자열(.123+09:00)도 인식한다', () => {
+    const d = parseUtcDate('2026-07-15T23:59:59.123+09:00')
+    expect(d.toISOString()).toBe('2026-07-15T14:59:59.123Z')
+  })
+
+  it('마이크로초(6자리) LocalDateTime 도 UTC 로 간주해 파싱한다', () => {
+    // Java LocalDateTime 직렬화는 나노 정밀도까지 올 수 있다 — JS 는 ms 로 절삭
+    const d = parseUtcDate('2026-07-15T23:59:59.123456')
+    expect(d.toISOString()).toBe('2026-07-15T23:59:59.123Z')
+  })
+
+  it('날짜 전용 문자열(YYYY-MM-DD)은 오프셋으로 오인하지 않고 UTC 자정으로 파싱한다', () => {
+    // "-07-15" 꼬리가 오프셋 정규식에 걸리면 안 된다
+    const d = parseUtcDate('2026-07-15')
+    expect(d.toISOString()).toBe('2026-07-15T00:00:00.000Z')
+  })
+
+  it('null/undefined/빈 문자열은 Invalid Date 를 반환한다', () => {
+    expect(Number.isNaN(parseUtcDate(null).getTime())).toBe(true)
+    expect(Number.isNaN(parseUtcDate(undefined).getTime())).toBe(true)
+    expect(Number.isNaN(parseUtcDate('').getTime())).toBe(true)
   })
 
   it("'Z' 오프셋을 인식한다", () => {

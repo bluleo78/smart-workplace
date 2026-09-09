@@ -37,7 +37,9 @@ function formatReceivedAt(iso: string | null): string {
   const now = new Date()
   const sameDay = d.toDateString() === now.toDateString()
   return sameDay
+    // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
     ? d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
     : d.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })
 }
 

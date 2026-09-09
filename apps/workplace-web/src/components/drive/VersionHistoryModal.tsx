@@ -91,6 +91,7 @@ export function VersionHistoryModal({ file, open, onClose, onChanged }: Props) {
                   <span className="rounded bg-primary/10 px-1 text-xs text-primary">현재</span>
                 )}
                 <span className="flex-1 truncate text-muted-foreground">
+                  {/* eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632) */}
                   {v.uploadedByName} · {new Date(v.createdAt).toLocaleString()} ·{' '}
                   {formatFileSize(v.sizeBytes)}
                   {v.comment ? ` · ${v.comment}` : ''}

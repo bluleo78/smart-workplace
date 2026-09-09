@@ -1,25 +1,33 @@
 /**
  * 공통 포매터 유틸리티
  * 여러 페이지에서 중복 정의되던 함수들을 통합.
+ *
+ * 날짜/시간 표시는 반드시 이 파일의 포매터를 거친다 — 화면에서 `toLocale*String` 직접 호출은
+ * ESLint(no-restricted-syntax)로 금지(#632). 용도별 선택 기준은 docs/CODING_CONVENTION.md
+ * "날짜/시간 표시 포맷" 표 참조. 이 파일만 규칙 예외.
  */
+
+/** 타임존 정보가 이미 붙어 있는지 판별 — 'Z' 또는 ±HH:MM / ±HHMM 오프셋(#617). */
+const TZ_SUFFIX_RE = /Z$|[+-]\d{2}:?\d{2}$/;
 
 /** 서버(UTC)에서 받은 LocalDateTime 문자열에 'Z'를 붙여 UTC로 파싱.
  *  null/undefined/빈 문자열 입력 시 Invalid Date(new Date(NaN))를 반환해 호출부가 NaN 가드로 처리.
+ *
+ *  #617 회귀 레퍼런스: 오프셋 판별이 콜론 없는 형식(+0900)만 인식해 OffsetDateTime 직렬화(+09:00)에
+ *  'Z'를 중복 append → Invalid Date → 화면에 '-' 표시. 콜론 포함/미포함 모두 인식해야 한다.
  */
 export function parseUtcDate(dateStr: string | null | undefined): Date {
   // null/undefined/빈 문자열은 Invalid Date 반환 — 호출부에서 Number.isNaN(d.getTime())으로 처리
   if (!dateStr) return new Date(NaN);
   // 이미 타임존 정보가 있으면 그대로, 없으면 UTC로 간주
-  // 'Z' 또는 콜론 포함/미포함 오프셋(+09:00, +0900, -05:00 등) 모두 인식 (#617 회귀 수정)
-  if (/Z$|[+-]\d{2}:?\d{2}$/.test(dateStr)) return new Date(dateStr);
+  if (TZ_SUFFIX_RE.test(dateStr)) return new Date(dateStr);
   return new Date(dateStr + 'Z');
 }
 
-export function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '-';
-  return parseUtcDate(dateStr).toLocaleString('ko-KR');
-}
-
+/**
+ * @deprecated 로케일 의존("2026. 7. 15.") — 신규 코드는 `formatDateOnly`(YYYY-MM-DD)를 사용.
+ * 기존 호출부(UserDetailPage)의 표기를 바꾸지 않기 위해 유지. 후속 마이그레이션 #828.
+ */
 export function formatDateShort(dateStr: string): string {
   return parseUtcDate(dateStr).toLocaleDateString('ko-KR');
 }
@@ -101,7 +109,8 @@ export function formatDateTimeMinute(dateStr: string | null | undefined): string
 /**
  * 상대시간 포맷 — `방금 전`, `5분 전`, `3시간 전`, `2일 전`, `3개월 전`.
  * 페이지 간 일관성 확보를 위한 공통 포맷터 (이슈 #105).
- * timeAgo와 달리 UTC 파싱(parseUtcDate)을 사용하여 서버 LocalDateTime 문자열을 정확히 처리.
+ * UTC 파싱(parseUtcDate)을 사용하여 서버 LocalDateTime 문자열을 정확히 처리.
+ * (같은 출력의 `timeAgo`·`formatElapsedTime` 은 미사용 중복이라 #632 에서 제거.)
  */
 export function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '-';
@@ -315,20 +324,6 @@ export function formatDuration(startedAt: string, completedAt: string | null): s
 }
 
 /**
- * 상대 시간 포맷 (date string → "N분 전")
- */
-export function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return '방금 전';
-  if (minutes < 60) return `${minutes}분 전`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}시간 전`;
-  const days = Math.floor(hours / 24);
-  return `${days}일 전`;
-}
-
-/**
  * 메시지 거품용 시각 — `오전/오후 H:mm` (KST). 채팅 타임스탬프에 사용.
  * parseUtcDate 로 서버 LocalDateTime(UTC) 을 정확히 파싱하고, timeZone 을 Asia/Seoul 로 고정해
  * CI 로케일/타임존에 비의존하도록 한다.
@@ -353,17 +348,4 @@ export function formatClockTimeCompact(dateStr: string | null | undefined): stri
   return new Intl.DateTimeFormat('ko-KR', {
     hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul',
   }).format(d);
-}
-
-/**
- * 상대 시간 포맷 (elapsed ms → "N초 전")
- */
-export function formatElapsedTime(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 5) return '방금';
-  if (seconds < 60) return `${seconds}초 전`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}분 전`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}시간 전`;
 }

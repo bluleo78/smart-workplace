@@ -39,6 +39,7 @@ export function FieldNumberInput({
         if (!Number.isFinite(n)) return;
         if (Math.abs(n) > Number.MAX_SAFE_INTEGER) {
           toast.warning(
+            // eslint-disable-next-line no-restricted-syntax -- 숫자 천단위 구분(날짜 아님). 규칙이 구문 기반이라 걸림 — TODO(#828) 숫자 포매터 신설 여부 결정
             `안전한 정수 범위(±${Number.MAX_SAFE_INTEGER.toLocaleString()})를 벗어난 값은 정밀도 손실이 발생해 반영되지 않았습니다.`,
           );
           forceSync((k) => k + 1);

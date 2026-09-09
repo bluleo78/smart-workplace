@@ -29,6 +29,7 @@ function eventTime(ev: CalendarEvent): { label: string; kind: TimeKind } {
   if (Number.isNaN(d.getTime())) return { label: '미정', kind: 'untimed' }
   // 대시보드 컴팩트 표기 — 24시간제(예: 14:30)로 폭을 일정하게 유지.
   return {
+    // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
     label: d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }),
     kind: 'timed',
   }

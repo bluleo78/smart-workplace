@@ -54,6 +54,7 @@ src/
 - **테마**: `next-themes` (dark/light/system)
 - **토스트**: Sonner (`toast.success()`, `toast.error()`)
 - **한국어 주석 필수**: 컴포넌트·훅·주요 로직 (JSDoc/인라인). 상세는 루트 [코딩 컨벤션](../../docs/CODING_CONVENTION.md)
+- **날짜/시간 표시**: `src/lib/formatters.ts` 공용 포매터만 사용. `toLocaleDateString`/`toLocaleString`/`toLocaleTimeString` 직접 호출은 ESLint 가 에러로 막는다. 용도별 선택 표는 [코딩 컨벤션 — 날짜/시간 표시 포맷](../../docs/CODING_CONVENTION.md#날짜시간-표시-포맷-workplace-web)
 - **Vite 프록시**: `/api` → `localhost:6060` (SSE 응답은 버퍼링 해제 헤더 자동 추가)
 
 ## E2E Testing (Playwright)
