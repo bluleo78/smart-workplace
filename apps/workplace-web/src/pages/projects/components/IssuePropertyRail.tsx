@@ -118,6 +118,8 @@ export function IssuePropertyRail({
             value={status}
             onChange={(v) => onPatch({ status: v })}
             disabled={updatePending || !canEditWorkflow}
+            blockedBy={blockedBy}
+            projectKey={projectKey}
           />
         </div>
         <div className="space-y-1">

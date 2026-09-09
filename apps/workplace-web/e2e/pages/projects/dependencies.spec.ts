@@ -391,4 +391,106 @@ test.describe('의존성', () => {
     await expect(page.getByTestId('due-date-trigger')).toContainText('10일');
     await expect(page.getByTestId('due-date-warning')).toBeVisible();
   });
+
+  // #827 — 미완료 선행(blockedBy) 이슈가 있는 상태에서 '완료'로 전환하면 확인 다이얼로그가 뜬다.
+  // 취소하면 PATCH 가 나가지 않고 상태 유지, 확인하면 그대로 PATCH (서버 차단 없음 — soft 경고 정책).
+  test('미완료 선행 이슈가 있을 때 완료 전환 → 확인 다이얼로그 / 취소 시 미변경 / 확인 시 PATCH', async ({
+    authenticatedPage: page,
+  }) => {
+    const taskType = makeTaskType();
+    const activeBlocker: IssueLinkSummary = {
+      number: 21,
+      title: '결제 모듈 환불 처리 간헐적 실패',
+      status: 'IN_PROGRESS', // 미완료 — 다이얼로그 대상.
+      type: taskType,
+      dueDate: null,
+    };
+    const doneBlocker: IssueLinkSummary = {
+      number: 22,
+      title: '이미 끝난 선행',
+      status: 'DONE', // 완료 — 목록에서 제외돼야 함.
+      type: taskType,
+      dueDate: null,
+    };
+
+    await setupCommonStubs(page);
+
+    let currentStatus: 'TODO' | 'DONE' = 'TODO';
+    const patches: Record<string, unknown>[] = [];
+
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1`,
+      (route) => {
+        if (route.request().method() === 'PATCH') {
+          const payload = route.request().postDataJSON() as Record<string, unknown>;
+          patches.push(payload);
+          if (payload.status === 'DONE') currentStatus = 'DONE';
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ...createIssue({ id: 1, number: 1, title: 'task A', status: currentStatus }),
+              type: taskType,
+            }),
+          });
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            summary: {
+              ...createIssue({ id: 1, number: 1, title: 'task A', status: currentStatus }),
+              type: taskType,
+              blockedBy: [activeBlocker, doneBlocker],
+              blocks: [],
+              blocked: currentStatus !== 'DONE',
+            },
+            body: '',
+            comments: [],
+            history: [],
+            attachments: [],
+            viewerCanEditWorkflow: true,
+            viewerCanEditContent: true,
+            viewerCanDelete: true,
+          }),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}/issues/1`);
+    const statusSelect = page.getByTestId('issue-status-select');
+    await expect(statusSelect).toContainText('할 일');
+
+    // 1) 완료 선택 → 다이얼로그 노출, PATCH 는 아직 안 나감. 미완료 선행 1건만 목록에 표시.
+    await statusSelect.click();
+    await page.getByRole('option', { name: '완료' }).click();
+    const dialog = page.getByTestId('status-done-blocked-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('선행 이슈 1건이 아직 완료되지 않았습니다');
+    await expect(page.getByTestId('status-done-blocked-list')).toContainText(`${KEY}-21`);
+    await expect(page.getByTestId('status-done-blocked-list')).not.toContainText(`${KEY}-22`);
+    expect(patches).toHaveLength(0);
+
+    // 2) 취소 → 다이얼로그 닫힘, 상태 유지, PATCH 없음.
+    await page.getByTestId('status-done-blocked-cancel').click();
+    await expect(dialog).toHaveCount(0);
+    await expect(statusSelect).toContainText('할 일');
+    expect(patches).toHaveLength(0);
+
+    // 3) 다시 완료 선택 → 확인 → PATCH status=DONE 전송 + UI 반영.
+    await statusSelect.click();
+    await page.getByRole('option', { name: '완료' }).click();
+    await expect(dialog).toBeVisible();
+    await page.getByTestId('status-done-blocked-confirm').click();
+    await expect.poll(() => patches.length).toBe(1);
+    expect(patches[0].status).toBe('DONE');
+    await expect(statusSelect).toContainText('완료');
+
+    // 4) 진행 중 → 완료가 아닌 전환(예: 취소)은 다이얼로그 없이 즉시 PATCH.
+    await statusSelect.click();
+    await page.getByRole('option', { name: '취소' }).click();
+    await expect.poll(() => patches.length).toBe(2);
+    expect(patches[1].status).toBe('CANCELED');
+    await expect(page.getByTestId('status-done-blocked-dialog')).toHaveCount(0);
+  });
 });

@@ -170,6 +170,8 @@ export function PersonalTaskDetail({
               value={q.data.summary.status}
               disabled={update.isPending}
               onChange={(v) => update.mutate({ status: v })}
+              blockedBy={q.data.summary.blockedBy}
+              projectKey={projectKey}
             />
           </Field>
           <Field label="우선순위">
