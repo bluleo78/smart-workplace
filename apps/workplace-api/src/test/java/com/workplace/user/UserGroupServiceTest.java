@@ -234,6 +234,84 @@ class UserGroupServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void create_duplicateSiblingName_shared_throwsInvalid() {
+    long admin = user();
+    makeAdmin(admin);
+    String name = "중복부서" + UUID.randomUUID();
+    service.create(admin, req(name, null, "SHARED"));
+    assertThatThrownBy(() -> service.create(admin, req(name, null, "SHARED")))
+        .isInstanceOf(InvalidUserGroupException.class);
+  }
+
+  @Test
+  void create_duplicateName_shared_caseInsensitive_throwsInvalid() {
+    long admin = user();
+    makeAdmin(admin);
+    String name = "CaseDup" + UUID.randomUUID();
+    service.create(admin, req(name, null, "SHARED"));
+    assertThatThrownBy(() -> service.create(admin, req(name.toLowerCase(), null, "SHARED")))
+        .isInstanceOf(InvalidUserGroupException.class);
+  }
+
+  @Test
+  void create_sameName_differentParent_succeeds() {
+    long admin = user();
+    makeAdmin(admin);
+    String name = "동일이름" + UUID.randomUUID();
+    UserGroupDetail parentA = service.create(admin, req("부모A" + UUID.randomUUID(), null, "SHARED"));
+    UserGroupDetail parentB = service.create(admin, req("부모B" + UUID.randomUUID(), null, "SHARED"));
+    service.create(admin, req(name, parentA.id(), "SHARED"));
+    // 서로 다른 부모 아래에서는 동일 이름 허용
+    UserGroupDetail g = service.create(admin, req(name, parentB.id(), "SHARED"));
+    assertThat(g.name()).isEqualTo(name);
+  }
+
+  @Test
+  void create_sameName_personalDifferentOwner_succeeds() {
+    long a = user();
+    long b = user();
+    String name = "개인그룹" + UUID.randomUUID();
+    service.create(a, req(name, null, "PERSONAL"));
+    // 서로 다른 소유자의 개인 그룹은 최상위(parentId NULL)가 같아도 형제가 아니므로 허용
+    UserGroupDetail g = service.create(b, req(name, null, "PERSONAL"));
+    assertThat(g.name()).isEqualTo(name);
+  }
+
+  @Test
+  void create_sameName_personalSameOwner_throwsInvalid() {
+    long caller = user();
+    String name = "내분류" + UUID.randomUUID();
+    service.create(caller, req(name, null, "PERSONAL"));
+    assertThatThrownBy(() -> service.create(caller, req(name, null, "PERSONAL")))
+        .isInstanceOf(InvalidUserGroupException.class);
+  }
+
+  @Test
+  void update_renameToExistingSiblingName_throwsInvalid() {
+    long caller = user();
+    String taken = "형제" + UUID.randomUUID();
+    service.create(caller, req(taken, null, "PERSONAL"));
+    UserGroupDetail target =
+        service.create(caller, req("바꿀이름" + UUID.randomUUID(), null, "PERSONAL"));
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    caller, target.id(), new UpdateUserGroupRequest(taken, null, null, 0)))
+        .isInstanceOf(InvalidUserGroupException.class);
+  }
+
+  @Test
+  void update_keepingOwnName_succeeds() {
+    long caller = user();
+    String name = "그대로" + UUID.randomUUID();
+    UserGroupDetail g = service.create(caller, req(name, null, "PERSONAL"));
+    // 자기 자신의 이름으로 재저장 — excludeId 로 자기 자신은 제외되어 통과해야 함
+    UserGroupDetail updated =
+        service.update(caller, g.id(), new UpdateUserGroupRequest(name, null, null, 0));
+    assertThat(updated.name()).isEqualTo(name);
+  }
+
+  @Test
   void getDetail_personalByAdmin_returnsGroup() {
     long owner = user();
     long admin = user();

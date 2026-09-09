@@ -69,6 +69,9 @@ public class UserGroupService {
     if (req.parentId() != null) {
       validateParent(callerId, req.visibility(), req.parentId());
     }
+    if (repo.existsSiblingName(req.parentId(), req.visibility(), ownerId, req.name(), null)) {
+      throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + req.name());
+    }
     long id = repo.insert(req, ownerId);
     return toDetail(repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
   }
@@ -85,6 +88,9 @@ public class UserGroupService {
         throw new InvalidUserGroupException("그룹을 자손 그룹의 하위로 옮길 수 없습니다");
       }
       validateParent(callerId, g.visibility(), req.parentId());
+    }
+    if (repo.existsSiblingName(req.parentId(), g.visibility(), g.ownerId(), req.name(), id)) {
+      throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + req.name());
     }
     repo.update(id, req);
     return toDetail(repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));

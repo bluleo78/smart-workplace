@@ -323,6 +323,34 @@ test('admin: 상위 그룹 셀렉트가 편집 대상의 자손 그룹을 후보
   await expect(page.getByRole('option', { name: '디자인본부' })).toBeVisible()
 })
 
+test('admin: 최상위 공유 그룹 생성 시 이름 중복(400) → 인라인 에러 + 다이얼로그 유지(#803)', async ({ adminPage: page }) => {
+  await stubContacts(page)
+  await stubDetail(page)
+  await page.route(
+    (url) => url.pathname === '/api/v1/user-groups',
+    (route, req) => {
+      if (req.method() === 'POST') {
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: '이미 존재하는 그룹 이름입니다: 테스트그룹A' }),
+        })
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree()) })
+    },
+  )
+  await page.goto('/contacts')
+  await page.getByTestId('org-create').click()
+  await expect(page.getByTestId('group-form-dialog')).toBeVisible()
+  await page.getByTestId('g-name').fill('테스트그룹A')
+  await page.getByTestId('g-save').click()
+
+  // 다이얼로그는 닫히지 않고, 이름 필드 아래 서버 에러 메시지가 인라인으로 노출되어야 한다
+  // (같은 문구가 토스트로도 뜨므로 role=alert 인라인 에러 요소로 특정해 검증)
+  await expect(page.getByTestId('group-form-dialog')).toBeVisible()
+  await expect(page.locator('#g-name-error')).toHaveText('이미 존재하는 그룹 이름입니다: 테스트그룹A')
+})
+
 test('비-admin: 조직도 노드 호버 액션 미노출(읽기 전용)', async ({ authenticatedPage: page }) => {
   await stubContacts(page)
   await stubTree(page)

@@ -179,6 +179,32 @@ public class UserGroupRepository {
         .execute();
   }
 
+  /**
+   * 동일 범위(형제) 내 이름 중복 존재 여부 — 대소문자 무시. 범위는 visibility 별로 다르다: SHARED 는 (parentId), PERSONAL 은
+   * (parentId, ownerId) — 서로 다른 소유자의 개인 그룹은 parentId 가 같아도(최상위=NULL) 형제가 아니다. excludeId 는 본인 수정 시
+   * 자기 자신을 제외하기 위함(null 이면 생성 시 전체 비교).
+   */
+  public boolean existsSiblingName(
+      Long parentId, String visibility, Long ownerId, String name, Long excludeId) {
+    var parentCond =
+        parentId == null ? USER_GROUP.PARENT_ID.isNull() : USER_GROUP.PARENT_ID.eq(parentId);
+    var cond =
+        USER_GROUP
+            .VISIBILITY
+            .eq(visibility)
+            .and(parentCond)
+            .and(DSL.lower(USER_GROUP.NAME).eq(name.toLowerCase()));
+    if ("PERSONAL".equals(visibility)) {
+      cond =
+          cond.and(
+              ownerId == null ? USER_GROUP.OWNER_ID.isNull() : USER_GROUP.OWNER_ID.eq(ownerId));
+    }
+    if (excludeId != null) {
+      cond = cond.and(USER_GROUP.ID.ne(excludeId));
+    }
+    return dsl.fetchExists(dsl.selectOne().from(USER_GROUP).where(cond));
+  }
+
   /** MEMBER 대상 검증 — active HUMAN user 존재 여부. */
   public boolean memberUserExists(long userId) {
     return dsl.fetchExists(

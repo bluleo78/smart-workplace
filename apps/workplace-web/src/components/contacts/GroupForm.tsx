@@ -1,5 +1,6 @@
 // 개인 그룹 생성/편집 다이얼로그 + 멤버 통합 검색 피커.
 import { zodResolver } from '@hookform/resolvers/zod'
+import axios from 'axios'
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 
@@ -17,6 +18,7 @@ import {
   useRemoveGroupMember,
   useUpdateUserGroup,
 } from '@/hooks/queries/useUserGroupMutations'
+import { extractApiError } from '@/lib/api-error'
 import { type UserGroupFormData, userGroupSchema } from '@/lib/validations/userGroup'
 import type { ContactSummary } from '@/types/contact'
 import type { GroupMemberType, UserGroupDetail, UserGroupVisibility } from '@/types/userGroup'
@@ -137,8 +139,15 @@ export function GroupForm({
         }
       }
       onOpenChange(false)
-    } catch {
-      /* 토스트는 mutation onError 가 처리 */
+    } catch (err) {
+      // 이름 중복(400, "이미 존재하는 그룹 이름입니다" 접두)은 토스트뿐 아니라 이름 필드에도
+      // 인라인 에러로 노출한다(컨테이너류 이름 중복 하드 차단 정책 — #688/#696/#803 일괄 결정).
+      // 그 외 400(부모 사이클 등)은 기존대로 토스트만 — 이름 필드와 무관한 에러이기 때문.
+      const message = extractApiError(err, '')
+      if (axios.isAxiosError(err) && err.response?.status === 400 && message.startsWith('이미 존재하는 그룹 이름입니다')) {
+        form.setError('name', { message })
+      }
+      /* 나머지 에러 토스트는 mutation onError 가 처리 */
     }
   })
 
