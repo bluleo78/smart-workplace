@@ -4,7 +4,7 @@
 // GET 스텁이 currentTitle/currentBody 를 추적해야 변경 후 새 값이 렌더된다.
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import { createIssue, createIssueDetail } from '../../factories/issue.factory';
+import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 
 const PROJECT_KEY = 'WP';
@@ -28,6 +28,18 @@ async function setupStubs(page: import('@playwright/test').Page): Promise<Stub> 
   );
   await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  // 보드 페이지(#824 draft 테스트 — 브레드크럼 이탈 왕복) 진입 시 필요한 이슈 검색 GET.
+  await page.route(
+    (url) => url.pathname === ISSUES_PATH,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([])),
+      });
+    },
   );
 
   // 이슈 상세 GET — 가변 title/body 를 읽어 응답(재조회 시 새 값 반영).
@@ -225,5 +237,59 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await page.waitForTimeout(300);
     expect(stub.patches).toHaveLength(0);
     await expect(page.getByText('원본 본문')).toBeVisible();
+  });
+
+  // #824 — beforeunload 로 못 막는 SPA 내부 네비게이션(브레드크럼 링크 이탈 → 뒤로가기 재진입)에서도
+  // localStorage 초안 자동저장으로 작업을 복구할 수 있어야 한다.
+  test('본문 편집 중 브레드크럼 링크로 이탈 → 뒤로가기 재진입 시 초안 복구 배너 노출 + 불러오기 (#824)', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    const textarea = page.getByTestId('issue-body-textarea');
+    await textarea.fill('저장 안 하고 이탈할 초안');
+
+    // 디바운스(600ms) 만큼 대기해 localStorage 에 초안이 기록되도록 한다.
+    await page.waitForTimeout(900);
+
+    // 브레드크럼의 프로젝트명 링크 클릭 → SPA 내부 네비게이션(프로젝트 목록 화면으로 이동, beforeunload 미발생).
+    await page.getByRole('navigation', { name: '이슈 경로' }).getByRole('link').first().click();
+    await expect(page.getByTestId('empty-no-issues')).toBeVisible();
+
+    // 브라우저 뒤로가기(popstate) → 이슈 상세로 재진입.
+    await page.goBack();
+    await expect(page.getByText('원본 본문')).toBeVisible();
+
+    // 다시 편집 진입 → 서버 본문과 다른 로컬 초안이 있으므로 복구 배너 노출.
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    await expect(page.getByTestId('issue-body-draft-banner')).toBeVisible();
+
+    // [불러오기] → textarea 에 초안 내용 복원.
+    await page.getByTestId('issue-body-draft-restore').click();
+    await expect(page.getByTestId('issue-body-textarea')).toHaveValue('저장 안 하고 이탈할 초안');
+    await expect(page.getByTestId('issue-body-draft-banner')).toBeHidden();
+  });
+
+  // 초안 저장 성공 후 재진입 시 배너가 뜨지 않아야 한다(초안 정리 확인, #824).
+  test('본문 편집 → 저장 성공 후 재진입 시 초안 복구 배너 미노출 (#824)', async ({
+    authenticatedPage: page,
+  }) => {
+    const stub = await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    await page.getByTestId('issue-body-textarea').fill('정상 저장된 본문');
+    // 디바운스 초안 저장이 걸릴 시간을 준 뒤 정식 저장.
+    await page.waitForTimeout(900);
+    await page.getByTestId('issue-body-save').click();
+
+    await expect.poll(() => stub.patches.length).toBeGreaterThanOrEqual(1);
+    await expect(page.getByText('정상 저장된 본문')).toBeVisible();
+
+    // 재진입 시 초안이 정리되어 있어야 하므로 배너가 뜨지 않는다.
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    await expect(page.getByTestId('issue-body-draft-banner')).toBeHidden();
   });
 });

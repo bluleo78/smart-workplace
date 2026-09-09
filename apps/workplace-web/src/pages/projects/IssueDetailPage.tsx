@@ -1,7 +1,7 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
 import { Eye, EyeOff, FileQuestion, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -47,6 +47,35 @@ import { IssueBreadcrumbHeader } from './components/IssueBreadcrumbHeader';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 
+// 본문 편집 draft localStorage 키 — 프로젝트+이슈 단위로 특정(#824).
+function bodyDraftKey(projectKey: string, issueNumber: number): string {
+  return `issue-body-draft:${projectKey}:${issueNumber}`;
+}
+
+// localStorage 접근은 프라이빗 모드·사이트 데이터 차단 환경에서 throw 할 수 있으므로
+// 전부 try/catch — 실패해도 편집 자체는 정상 동작해야 한다(#824).
+function readBodyDraft(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writeBodyDraft(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // 무시 — 초안 저장은 보완책일 뿐 필수 기능이 아니다.
+  }
+}
+function clearBodyDraft(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // 무시.
+  }
+}
+
 // 본문 인라인 편집 — 표시(prose)와 편집(textarea) 토글.
 // 무엇을: 본문 영역을 연필로 textarea 로 전환, blur·Cmd/Ctrl+Enter 저장, Escape 취소.
 // 빈 본문은 허용(스키마는 max 길이만 제약). 변화 없으면 PATCH 생략.
@@ -54,30 +83,70 @@ function InlineEditableBody({
   body,
   onSave,
   disabled,
+  projectKey,
+  issueNumber,
 }: {
   body: string | null;
   onSave: (next: string) => void;
   disabled: boolean;
+  projectKey: string;
+  issueNumber: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body ?? '');
+  // 편집 진입 시 발견된 로컬 초안이 서버 본문과 달라 복구 배너를 보여줄지 여부.
+  const [showDraftBanner, setShowDraftBanner] = useState(false);
+  const draftKey = bodyDraftKey(projectKey, issueNumber);
 
   // 저장 없이 새로고침/탭 닫기로 이탈 시 경고(#823) — 코멘트 작성창(#620)·이슈 생성
-  // 다이얼로그와 동일 패턴. beforeunload 만 커버하므로 SPA 내부 네비게이션은 별도 가드 필요.
+  // 다이얼로그와 동일 패턴. beforeunload 만 커버하므로 SPA 내부 네비게이션(사이드바 링크·
+  // 뒤로가기)은 아래 localStorage 초안 자동저장(#824)으로 보완한다. 이 경고는 그대로 유지.
   useUnsavedChangesWarning(editing && draft !== (body ?? ''));
 
-  // 표시 → 편집 진입. 진입 시 최신 본문으로 draft 초기화.
+  // 편집 중 draft 변경을 디바운스(600ms)로 localStorage 에 저장(#824) — 라우터에 의존하지
+  // 않으므로 사이드바 링크·뒤로가기·탭 종료·브라우저 크래시까지 전부 커버한다.
+  // 주의: draft 가 서버 본문과 같아졌다고 여기서 즉시 지우면 안 된다 — 편집 진입 직후에는
+  // draft 가 항상 body 로 초기화되므로, 아직 [불러오기]로 확인하지 않은 기존 초안(있다면)을
+  // 이 렌더에서 곧바로 지워버려 복구 배너의 대상이 사라진다. 정리는 save/cancel/discard 시점에만.
+  useEffect(() => {
+    if (!editing) return;
+    if (draft === (body ?? '')) return;
+    const timer = window.setTimeout(() => writeBodyDraft(draftKey, draft), 600);
+    return () => window.clearTimeout(timer);
+  }, [editing, draft, body, draftKey]);
+
+  // 표시 → 편집 진입. 진입 시 최신 본문으로 draft 초기화하되, 저장된 초안이 서버 본문과
+  // 다르면 조용히 덮어쓰지 않고 배너로 안내(다른 사람이 서버 본문을 바꿨을 수 있음).
   const enter = () => {
     setDraft(body ?? '');
+    const stored = readBodyDraft(draftKey);
+    setShowDraftBanner(stored != null && stored !== (body ?? ''));
     setEditing(true);
   };
-  // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단.
+  // 배너 [불러오기] — 저장된 초안을 draft 로 복원.
+  const restoreDraft = () => {
+    const stored = readBodyDraft(draftKey);
+    if (stored != null) setDraft(stored);
+    setShowDraftBanner(false);
+  };
+  // 배너 [버리기] — 초안 폐기, 현재(서버) draft 유지.
+  const discardDraft = () => {
+    clearBodyDraft(draftKey);
+    setShowDraftBanner(false);
+  };
+  // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단. 저장 후 초안은 정리해 남기지 않는다.
   const save = () => {
     setEditing(false);
+    setShowDraftBanner(false);
+    clearBodyDraft(draftKey);
     if (draft !== (body ?? '')) onSave(draft);
   };
-  // 취소 — draft 폐기, 편집 종료.
-  const cancel = () => setEditing(false);
+  // 취소 — draft 폐기, 편집 종료. 초안도 함께 정리(#824 — 취소 시 남기지 않음).
+  const cancel = () => {
+    setEditing(false);
+    setShowDraftBanner(false);
+    clearBodyDraft(draftKey);
+  };
 
   if (!editing) {
     return (
@@ -115,6 +184,33 @@ function InlineEditableBody({
   return (
     // -mx-3 으로 뷰 모드 박스(-mx-3 px-3)와 좌우 위치를 일치시켜 전환 시 여백 변화 제거.
     <div className="-mx-3 space-y-2">
+      {/* 초안 복구 배너(#824) — 편집 진입 시 로컬에 남은 초안이 서버 본문과 다를 때만 노출. */}
+      {showDraftBanner && (
+        <div
+          data-testid="issue-body-draft-banner"
+          className="flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+        >
+          <span>작성 중이던 내용이 있습니다</span>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={restoreDraft}
+              data-testid="issue-body-draft-restore"
+            >
+              불러오기
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={discardDraft}
+              data-testid="issue-body-draft-discard"
+            >
+              버리기
+            </Button>
+          </div>
+        </div>
+      )}
       <Textarea
         autoFocus
         data-testid="issue-body-textarea"
@@ -396,6 +492,8 @@ export default function IssueDetailPage() {
                 body={body}
                 onSave={(b) => patch({ body: b })}
                 disabled={!canEditContent || update.isPending}
+                projectKey={key}
+                issueNumber={issueNumber}
               />
               {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
               <IssueAttachmentStrip
