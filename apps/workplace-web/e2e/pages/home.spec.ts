@@ -198,6 +198,95 @@ test('대시보드 — 위젯 헤더 클릭 시 딥링크로 이동한다', asyn
   await expect(link).toHaveAttribute('href', '/mail')
 })
 
+// ── 카탈로그 위젯 헤더 딥링크 (#807) ─────────────────────────────────────────
+// 카탈로그 위젯 헤더도 시스템 위젯처럼 링크여야 하며, 위젯 params 가 대상 화면 URL 쿼리로 반영된다.
+// 대상 화면에 대응 쿼리가 없는 params(unreadOnly/range/query 등)는 폐기하고 모듈 루트로 폴백한다.
+
+/** 카탈로그 위젯 카드의 헤더 링크(본문 내부 링크와 구분하기 위해 카드 직속 헤더만 조회). */
+function catalogHeaderLink(page: Page, id: string) {
+  return page.locator(`[data-testid="dashboard-widget"][data-widget-id="${id}"] > [data-slot="card-header"] a`)
+}
+
+test('카탈로그 위젯 — 필터 없는 위젯 헤더는 모듈 루트 링크이고 클릭 시 이동한다 (refs #807)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/projects', [])
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/dashboard',
+    layout([
+      { id: 'w-projects', type: 'projects', count: 0, hidden: false, params: {} },
+      { id: 'w-drive', type: 'drive', count: 0, hidden: false, params: {} },
+      { id: 'w-channels', type: 'channels', count: 0, hidden: false, params: {} },
+      { id: 'w-activity', type: 'activity', count: 0, hidden: false, params: { actorKind: 'AGENT' } },
+    ]),
+  )
+  await page.goto('/')
+
+  await expect(catalogHeaderLink(page, 'w-projects')).toHaveAttribute('href', '/projects')
+  await expect(catalogHeaderLink(page, 'w-drive')).toHaveAttribute('href', '/drive')
+  await expect(catalogHeaderLink(page, 'w-channels')).toHaveAttribute('href', '/chat')
+  // 활동 피드는 전용 화면이 없어 actorKind 를 버리고 프로젝트 루트로 폴백.
+  await expect(catalogHeaderLink(page, 'w-activity')).toHaveAttribute('href', '/projects')
+
+  // 헤더 클릭 → SPA 이동(프로젝트 목록).
+  await catalogHeaderLink(page, 'w-projects').click()
+  await expect(page).toHaveURL(/\/projects$/)
+})
+
+test('카탈로그 위젯 — 필터 params 가 헤더 딥링크 URL 쿼리로 반영된다 (refs #807)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/contacts', { items: [], total: 0 })
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/dashboard',
+    layout([
+      // 이슈 목록: assignee=me → 내 작업(할당) 탭 + status/priority CSV 쿼리.
+      {
+        id: 'w-issues-me',
+        type: 'issue_list',
+        count: 0,
+        hidden: false,
+        params: { assignee: 'me', status: 'TODO,IN_PROGRESS', priority: 'HIGH' },
+      },
+      // 이슈 목록: assignee=all 은 전역 이슈 화면이 없어 /projects 폴백(필터 폐기).
+      { id: 'w-issues-all', type: 'issue_list', count: 0, hidden: false, params: { assignee: 'all', priority: 'HIGH' } },
+      // 연락처: search→q, type 값 그대로.
+      { id: 'w-contacts', type: 'contacts', count: 0, hidden: false, params: { search: '김', type: 'MEMBER' } },
+      // 연락처: type=ALL 은 기본값이라 생략, 빈 검색어도 생략 → 루트.
+      { id: 'w-contacts-all', type: 'contacts', count: 0, hidden: false, params: { search: '  ', type: 'ALL' } },
+      // 메일: SENT → ?folder=sent(소문자), unreadOnly 는 URL 대응 없어 폐기.
+      { id: 'w-mail-sent', type: 'mail_list', count: 0, hidden: false, params: { folder: 'SENT', unreadOnly: true } },
+      { id: 'w-mail-inbox', type: 'mail_list', count: 0, hidden: false, params: { folder: 'INBOX', unreadOnly: true } },
+      // 캘린더/노트: 대상 화면이 URL 쿼리를 받지 않아 모듈 루트 폴백.
+      { id: 'w-calendar', type: 'calendar', count: 0, hidden: false, params: { range: 'week' } },
+      { id: 'w-wiki', type: 'wiki', count: 0, hidden: false, params: { query: '온보딩' } },
+    ]),
+  )
+  await page.goto('/')
+
+  await expect(catalogHeaderLink(page, 'w-issues-me')).toHaveAttribute(
+    'href',
+    '/me/tasks/assigned?status=TODO%2CIN_PROGRESS&priority=HIGH',
+  )
+  await expect(catalogHeaderLink(page, 'w-issues-all')).toHaveAttribute('href', '/projects')
+  await expect(catalogHeaderLink(page, 'w-contacts')).toHaveAttribute('href', '/contacts?q=%EA%B9%80&type=MEMBER')
+  await expect(catalogHeaderLink(page, 'w-contacts-all')).toHaveAttribute('href', '/contacts')
+  await expect(catalogHeaderLink(page, 'w-mail-sent')).toHaveAttribute('href', '/mail?folder=sent')
+  await expect(catalogHeaderLink(page, 'w-mail-inbox')).toHaveAttribute('href', '/mail')
+  await expect(catalogHeaderLink(page, 'w-calendar')).toHaveAttribute('href', '/calendar')
+  await expect(catalogHeaderLink(page, 'w-wiki')).toHaveAttribute('href', '/wiki')
+
+  // 필터 위젯 헤더 클릭 → 필터가 반영된 화면으로 이동(위젯이 보고 있는 것과 같은 목록).
+  await catalogHeaderLink(page, 'w-contacts').click()
+  await expect(page).toHaveURL(/\/contacts\?q=%EA%B9%80&type=MEMBER$/)
+})
+
 test('대시보드 — 알림 위젯 헤더 클릭 시 라우팅 대신 인박스 패널이 열린다 (refs #274)', async ({
   authenticatedPage: page,
 }) => {

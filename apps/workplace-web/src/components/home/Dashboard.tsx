@@ -83,7 +83,9 @@ function entryTitle(entry: ResolvedEntry): string {
 function WidgetCard({ entry }: { entry: ResolvedEntry }) {
   const Icon = entry.def.icon
   const title = entryTitle(entry)
-  const deepLink = entry.kind === 'system' ? entry.def.deepLink : undefined
+  // 카탈로그 위젯은 params 기반 딥링크(#807) — 위젯이 보고 있는 필터가 반영된 화면으로 이동.
+  const deepLink =
+    entry.kind === 'system' ? entry.def.deepLink : entry.def.deepLink(entry.cfg.params)
   const tall =
     entry.kind === 'system' ? Boolean(entry.def.tall) : entry.def.size === '1×2'
   // wide: 카운트 스트립·2x2 분면처럼 1/3 폭에 찌그러지는 시스템 위젯 — lg:col-span-3(전체 폭).

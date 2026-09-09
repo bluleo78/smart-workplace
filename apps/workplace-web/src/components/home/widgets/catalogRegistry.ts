@@ -36,6 +36,30 @@ export interface CatalogWidget {
   defaultParams: Record<string, unknown>
   /** 설정 팝오버에 렌더할 필드 목록. 빈 배열이면 "필터 없음" 위젯(예: 채널/프로젝트/드라이브). */
   fields: CatalogFieldDef[]
+  /**
+   * 헤더 딥링크 생성기(#807) — 고정 문자열이 아니라 위젯 params 를 받아 "위젯이 보고 있는 것과 같은 화면"의
+   * URL 을 만든다. 대상 화면 URL 쿼리에 대응이 없는 params 는 조용히 버리고 모듈 루트로 폴백한다.
+   */
+  deepLink: (params: CatalogParams) => string
+}
+
+/** 위젯 params — 저장 레이아웃의 params 는 null/undefined 일 수 있어 느슨하게 받는다. */
+type CatalogParams = Record<string, unknown> | null | undefined
+
+/** 문자열 param 하나를 trim 해 읽는다. 비문자열·빈 값은 undefined. */
+function str(params: CatalogParams, key: string): string | undefined {
+  const v = params?.[key]
+  if (typeof v !== 'string') return undefined
+  const t = v.trim()
+  return t === '' ? undefined : t
+}
+
+/** 값이 있는 항목만 URL 쿼리(`?a=b&c=d`)로 직렬화. 비면 빈 문자열. */
+function qs(entries: Record<string, string | undefined>): string {
+  const p = new URLSearchParams()
+  for (const [k, v] of Object.entries(entries)) if (v !== undefined) p.set(k, v)
+  const s = p.toString()
+  return s ? `?${s}` : ''
 }
 
 export const CATALOG_CATEGORIES = [
@@ -68,9 +92,19 @@ const catalogRegistry: Record<string, CatalogWidget> = {
           { value: 'all', label: '전체' },
         ],
       },
-      { key: 'status', label: '상태', kind: 'text', placeholder: '예: OPEN,IN_PROGRESS' },
+      // 플레이스홀더는 앱 이슈 상태 enum(TODO/IN_PROGRESS/DONE/CANCELED)과 일치해야 딥링크 대상 화면이 인식한다.
+      { key: 'status', label: '상태', kind: 'text', placeholder: '예: TODO,IN_PROGRESS' },
       { key: 'priority', label: '우선순위', kind: 'text', placeholder: '예: HIGH' },
     ],
+    // assignee=me → 내 작업(할당) 탭. status/priority 는 CSV 그대로 전달(대상 화면 parseFilters 가 미지원 토큰을
+    // 걸러낸다). assignee=all 은 전역 이슈 목록 화면이 없어 /projects 로 폴백(필터 폐기).
+    deepLink: (params) => {
+      if (str(params, 'assignee') === 'all') return '/projects'
+      return `/me/tasks/assigned${qs({
+        status: str(params, 'status'),
+        priority: str(params, 'priority'),
+      })}`
+    },
   },
   mail_list: {
     type: 'mail_list',
@@ -93,6 +127,9 @@ const catalogRegistry: Record<string, CatalogWidget> = {
       },
       { key: 'unreadOnly', label: '읽지 않음만', kind: 'boolean' },
     ],
+    // 메일함은 ?folder=sent(소문자)만 인식. unreadOnly 는 URL 대응이 없어 폐기(폴백).
+    deepLink: (params) =>
+      `/mail${qs({ folder: str(params, 'folder') === 'SENT' ? 'sent' : undefined })}`,
   },
   calendar: {
     type: 'calendar',
@@ -113,6 +150,8 @@ const catalogRegistry: Record<string, CatalogWidget> = {
         ],
       },
     ],
+    // 캘린더 화면은 URL 로 뷰/기간을 받지 않는다 → range 폐기, 모듈 루트 폴백.
+    deepLink: () => '/calendar',
   },
   activity: {
     type: 'activity',
@@ -133,6 +172,8 @@ const catalogRegistry: Record<string, CatalogWidget> = {
         ],
       },
     ],
+    // 전용 활동 피드 화면이 없다 — 활동 행이 이슈로 링크되므로 프로젝트 루트로 폴백(actorKind 폐기).
+    deepLink: () => '/projects',
   },
   wiki: {
     type: 'wiki',
@@ -144,6 +185,8 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     // 스페이스(spaceId) 선택은 엔티티 피커가 필요해 범위 밖 — 미지정 시 전체 스페이스 대상 검색(알려진 한계).
     defaultParams: {},
     fields: [{ key: 'query', label: '검색어', kind: 'text', placeholder: '페이지 제목 검색' }],
+    // 노트 화면은 검색어 URL 쿼리를 받지 않는다 → query 폐기, 모듈 루트 폴백.
+    deepLink: () => '/wiki',
   },
   contacts: {
     type: 'contacts',
@@ -168,6 +211,14 @@ const catalogRegistry: Record<string, CatalogWidget> = {
         ],
       },
     ],
+    // 연락처 화면 URL 쿼리와 1:1 — search→q, type 은 값 동일(ALL 은 기본값이라 생략).
+    deepLink: (params) => {
+      const type = str(params, 'type')
+      return `/contacts${qs({
+        q: str(params, 'search'),
+        type: type && type !== 'ALL' ? type : undefined,
+      })}`
+    },
   },
   projects: {
     type: 'projects',
@@ -178,6 +229,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     size: '1×1',
     defaultParams: {},
     fields: [],
+    deepLink: () => '/projects',
   },
   drive: {
     type: 'drive',
@@ -188,6 +240,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     size: '1×1',
     defaultParams: {},
     fields: [],
+    deepLink: () => '/drive',
   },
   channels: {
     type: 'channels',
@@ -198,6 +251,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     size: '1×1',
     defaultParams: {},
     fields: [],
+    deepLink: () => '/chat',
   },
 }
 
