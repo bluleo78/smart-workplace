@@ -18,13 +18,16 @@ interface WikiCreateSpaceDialogProps {
   onCreate: (name: string) => void
   // 생성 진행 중 — 중복 제출 방지.
   pending?: boolean
+  // 이름 필드 인라인 에러(예: 중복 이름, 409) — 부모가 mutation 실패를 감지해 전달.
+  // 컨테이너류 이름 하드 차단 정책(#688/#696/#803) — 토스트뿐 아니라 입력 필드 옆에도 노출.
+  error?: string | null
 }
 
 /**
  * 새 노트(위키) 팀 스페이스 생성 다이얼로그.
  * 백엔드는 이름만 받으므로 단일 이름 필드. 멤버는 생성 후 "멤버" 버튼으로 초대한다.
  */
-export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending }: WikiCreateSpaceDialogProps) {
+export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending, error }: WikiCreateSpaceDialogProps) {
   const [name, setName] = useState('')
   // 동기적 in-flight 가드 — ref 는 즉시(리렌더 없이) 반영되므로 같은 이벤트 루프 틱
   // 내에 버튼이 두 번 클릭돼도(pending prop 이 아직 갱신되기 전) 두 번째 클릭을 차단한다.
@@ -85,8 +88,14 @@ export function WikiCreateSpaceDialog({ open, onOpenChange, onCreate, pending }:
           }}
           placeholder="예: 제품팀 노트"
           autoFocus
+          aria-invalid={!!error}
           data-testid="wiki-space-create-input"
         />
+        {error && (
+          <p className="text-sm text-destructive" data-testid="wiki-space-create-error">
+            {error}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={close}>
             취소

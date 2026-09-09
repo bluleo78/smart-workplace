@@ -10,6 +10,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.wiki.dto.WikiSpaceResponse;
 import com.workplace.wiki.exception.WikiForbiddenException;
+import com.workplace.wiki.exception.WikiSpaceNameDuplicatedException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
 import java.util.List;
 import java.util.UUID;
@@ -136,4 +137,22 @@ class WikiSpaceServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> spaceService.addMember(owner, team.id(), otherTenantUser, "VIEWER"))
         .isInstanceOf(WikiForbiddenException.class);
   }
+
+  /** #696 — 동일 테넌트 내 동일 이름(대소문자 무시) TEAM 공간 생성은 하드 차단된다(컨테이너류 이름은 식별자 — #688/#803 과 동일 정책). */
+  @Test
+  void createTeamSpace_duplicateName_throws() {
+    long u = seedUser();
+    spaceService.createTeamSpace(u, "중복스페이스");
+
+    assertThatThrownBy(() -> spaceService.createTeamSpace(u, "중복스페이스"))
+        .isInstanceOf(WikiSpaceNameDuplicatedException.class);
+    // 대소문자만 다른 이름도 동일 취급.
+    assertThatThrownBy(() -> spaceService.createTeamSpace(u, "중복스페이스".toUpperCase()))
+        .isInstanceOf(WikiSpaceNameDuplicatedException.class);
+  }
+
+  // 테넌트 간 이름 비간섭은 RLS 격리(GUC 스코프)로 구조적으로 보장되며 TenantContextGucTest 등에서 별도
+  // 검증한다 — @Transactional 단일 트랜잭션 테스트에서는 GUC 가 트랜잭션 시작 시 1회만 주입되므로(TenantContext
+  // 를 테스트 본문 중간에 바꿔도 세션 GUC 는 갱신되지 않음, TenantAwareTransactionManager) 이 테스트 클래스
+  // 안에서 테넌트를 전환하는 케이스는 만들지 않는다.
 }

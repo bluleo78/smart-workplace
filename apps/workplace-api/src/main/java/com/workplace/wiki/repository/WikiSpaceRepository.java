@@ -27,6 +27,18 @@ public class WikiSpaceRepository {
         .getId();
   }
 
+  /**
+   * 동일 테넌트(RLS 자동 적용) 내 TEAM 공간 이름 중복 여부(대소문자 무시). excludeId 는 이름변경 시 자기 자신 제외용(현재 TEAM 공간은 이름변경
+   * API 가 없어 항상 null).
+   */
+  public boolean existsTeamSpaceName(String name, Long excludeId) {
+    var cond = WIKI_SPACE.TYPE.eq("TEAM").and(DSL.lower(WIKI_SPACE.NAME).eq(name.toLowerCase()));
+    if (excludeId != null) {
+      cond = cond.and(WIKI_SPACE.ID.ne(excludeId));
+    }
+    return dsl.fetchExists(dsl.selectOne().from(WIKI_SPACE).where(cond));
+  }
+
   public Optional<Long> findPersonalSpaceId(long ownerId) {
     return dsl.select(WIKI_SPACE.ID)
         .from(WIKI_SPACE)

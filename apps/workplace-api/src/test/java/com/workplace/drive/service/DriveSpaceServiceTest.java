@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.exception.DriveForbiddenException;
+import com.workplace.drive.exception.DriveSpaceNameDuplicatedException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.drive.exception.DriveSpaceTypeNotEditableException;
 import com.workplace.global.tenant.TenantContext;
@@ -232,5 +233,42 @@ class DriveSpaceServiceTest extends IntegrationTestBase {
     // 비멤버는 존재 은닉 — NotFound (테넌트 격리/RLS 와 동일 계약)
     assertThatThrownBy(() -> spaceService.deleteTeamSpace(stranger, team.id()))
         .isInstanceOf(DriveSpaceNotFoundException.class);
+  }
+
+  /** #696 — 동일 테넌트 내 동일 이름(대소문자 무시) TEAM 공간 생성은 하드 차단된다(컨테이너류 이름은 식별자 — #688/#803 과 동일 정책). */
+  @Test
+  void createTeamSpace_duplicateName_throws() {
+    long u = seedUser();
+    spaceService.createTeamSpace(u, "중복공간");
+
+    assertThatThrownBy(() -> spaceService.createTeamSpace(u, "중복공간"))
+        .isInstanceOf(DriveSpaceNameDuplicatedException.class);
+    assertThatThrownBy(() -> spaceService.createTeamSpace(u, "중복공간".toUpperCase()))
+        .isInstanceOf(DriveSpaceNameDuplicatedException.class);
+  }
+
+  // 테넌트 간 이름 비간섭은 RLS 격리(GUC 스코프)로 구조적으로 보장되며 TenantContextGucTest 등에서 별도
+  // 검증한다 — @Transactional 단일 트랜잭션 테스트에서는 GUC 가 트랜잭션 시작 시 1회만 주입되므로(TenantContext
+  // 를 테스트 본문 중간에 바꿔도 세션 GUC 는 갱신되지 않음, TenantAwareTransactionManager) 이 테스트 클래스
+  // 안에서 테넌트를 전환하는 케이스는 만들지 않는다.
+
+  /** 이름 변경도 동일 정책 — 다른 TEAM 공간과 이름이 겹치면 차단, 자기 자신 이름 유지는 허용(no-op rename). */
+  @Test
+  void renameTeamSpace_duplicateName_throws() {
+    long u = seedUser();
+    spaceService.createTeamSpace(u, "먼저생긴공간");
+    DriveSpaceResponse target = spaceService.createTeamSpace(u, "바꿀공간");
+
+    assertThatThrownBy(() -> spaceService.renameTeamSpace(u, target.id(), "먼저생긴공간"))
+        .isInstanceOf(DriveSpaceNameDuplicatedException.class);
+  }
+
+  @Test
+  void renameTeamSpace_sameNameAsSelf_isNoOp() {
+    long u = seedUser();
+    DriveSpaceResponse target = spaceService.createTeamSpace(u, "그대로유지");
+
+    DriveSpaceResponse renamed = spaceService.renameTeamSpace(u, target.id(), "그대로유지");
+    assertThat(renamed.name()).isEqualTo("그대로유지");
   }
 }

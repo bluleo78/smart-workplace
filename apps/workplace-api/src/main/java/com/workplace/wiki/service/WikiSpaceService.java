@@ -4,6 +4,7 @@ import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.wiki.dto.WikiMemberResponse;
 import com.workplace.wiki.dto.WikiSpaceResponse;
 import com.workplace.wiki.exception.WikiForbiddenException;
+import com.workplace.wiki.exception.WikiSpaceNameDuplicatedException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
 import com.workplace.wiki.repository.WikiSpaceMemberRepository;
 import com.workplace.wiki.repository.WikiSpaceRepository;
@@ -38,9 +39,15 @@ public class WikiSpaceService {
         .orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
   }
 
-  /** 독립 팀 공간 생성. 생성자가 OWNER. */
+  /**
+   * 독립 팀 공간 생성. 생성자가 OWNER. 동일 테넌트 내 이름 중복은 하드 차단(#696 — 채팅 채널 #688/드라이브 공간/연락처 조직 그룹과 동일한 "컨테이너류
+   * 이름은 식별자" 정책).
+   */
   @Transactional
   public WikiSpaceResponse createTeamSpace(long callerId, String name) {
+    if (spaces.existsTeamSpaceName(name, null)) {
+      throw new WikiSpaceNameDuplicatedException(name);
+    }
     long id = spaces.insert("TEAM", name, callerId);
     members.add(id, callerId, "OWNER");
     return spaces.findForUser(id, callerId).orElseThrow(() -> new WikiSpaceNotFoundException(id));

@@ -3,6 +3,7 @@ package com.workplace.drive.service;
 import com.workplace.drive.dto.DriveMemberResponse;
 import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.exception.DriveForbiddenException;
+import com.workplace.drive.exception.DriveSpaceNameDuplicatedException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.drive.repository.DriveSpaceRepository;
@@ -40,9 +41,15 @@ public class DriveSpaceService {
         .orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
   }
 
-  /** 독립 팀 공간 생성. 생성자가 OWNER. */
+  /**
+   * 독립 팀 공간 생성. 생성자가 OWNER. 동일 테넌트 내 이름 중복은 하드 차단(#696 — 채팅 채널 #688/위키 스페이스/연락처 조직 그룹과 동일한 "컨테이너류
+   * 이름은 식별자" 정책).
+   */
   @Transactional
   public DriveSpaceResponse createTeamSpace(long callerId, String name) {
+    if (spaces.existsTeamSpaceName(name, null)) {
+      throw new DriveSpaceNameDuplicatedException(name);
+    }
     long id = spaces.insert("TEAM", name, callerId);
     members.add(id, callerId, "OWNER");
     return spaces.findForUser(id, callerId).orElseThrow(() -> new DriveSpaceNotFoundException(id));
@@ -105,11 +112,14 @@ public class DriveSpaceService {
     }
   }
 
-  /** TEAM 공간 이름 변경. OWNER 전용. */
+  /** TEAM 공간 이름 변경. OWNER 전용. 동일 테넌트 내 다른 TEAM 공간과 이름 중복 시 하드 차단(#696). */
   @Transactional
   public DriveSpaceResponse renameTeamSpace(long callerId, long spaceId, String name) {
     perms.requireRole(spaceId, callerId, "OWNER");
     requireTeamSpace(spaceId);
+    if (spaces.existsTeamSpaceName(name, spaceId)) {
+      throw new DriveSpaceNameDuplicatedException(name);
+    }
     spaces.rename(spaceId, name);
     return spaces
         .findForUser(spaceId, callerId)

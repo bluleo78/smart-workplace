@@ -16,6 +16,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
+import axios from 'axios'
 import { BookOpen } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -30,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { handleApiError } from '@/lib/api-error'
+import { extractApiError, handleApiError } from '@/lib/api-error'
 
 import {
   useCreatePage,
@@ -181,16 +182,26 @@ export function WikiSidebar() {
   const [membersOpen, setMembersOpen] = useState(false)
   // 스페이스 생성 다이얼로그 열림 상태 + 생성 mutation.
   const [createOpen, setCreateOpen] = useState(false)
+  // 이름 중복(409) 인라인 에러 — 컨테이너류 이름 하드 차단 정책(#688/#696/#803).
+  const [createError, setCreateError] = useState<string | null>(null)
   const createSpace = useCreateSpace()
 
-  // 새 스페이스 생성 → 목록 무효화(훅) 후 새 스페이스로 이동. 실패 시 토스트.
+  // 새 스페이스 생성 → 목록 무효화(훅) 후 새 스페이스로 이동. 이름 중복(409)은 다이얼로그에
+  // 인라인 에러로도 노출(토스트만으로는 어느 필드가 문제인지 불명확) — 다른 실패는 토스트만.
   const handleCreateSpace = (name: string) => {
+    setCreateError(null)
     createSpace.mutate(name, {
       onSuccess: (space) => {
         setCreateOpen(false)
         navigate(`/wiki/spaces/${space.id}`)
       },
-      onError: (e) => handleApiError(e, '스페이스 생성에 실패했습니다.'),
+      onError: (e) => {
+        const message = extractApiError(e, '')
+        if (axios.isAxiosError(e) && e.response?.status === 409 && message.startsWith('이미 존재하는 스페이스 이름입니다')) {
+          setCreateError(message)
+        }
+        handleApiError(e, '스페이스 생성에 실패했습니다.')
+      },
     })
   }
   // 접힌 노드 id 집합 — 영속화하지 않음(새로고침 시 전부 펼침).
@@ -433,9 +444,13 @@ export function WikiSidebar() {
       )}
       <WikiCreateSpaceDialog
         open={createOpen}
-        onOpenChange={setCreateOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open)
+          if (!open) setCreateError(null)
+        }}
         onCreate={handleCreateSpace}
         pending={createSpace.isPending}
+        error={createError}
       />
       {/* 페이지 삭제 확인(사이드바 행 ⋯). hasChildren 은 flatItems 에서 파생. */}
       <WikiDeletePageDialog

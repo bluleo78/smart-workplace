@@ -157,3 +157,34 @@ test('노트 — 취소 후 재오픈 시 이전 입력값이 남지 않는다',
   await expect(page.getByTestId('wiki-space-create-dialog')).toBeVisible()
   await expect(page.getByTestId('wiki-space-create-input')).toHaveValue('')
 })
+
+// #696 — 이미 존재하는 이름으로 생성 시도 시 409 → 다이얼로그 유지 + 인라인 에러(컨테이너류 이름 하드 차단 정책).
+test('노트 — 이미 존재하는 스페이스 이름으로 생성하면 409 인라인 에러가 뜨고 다이얼로그가 유지된다', async ({ authenticatedPage: page }) => {
+  const created: { space: WikiSpace | null } = { space: null }
+  await mockWiki(page, created)
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) => {
+      if (route.request().method() === 'POST') {
+        return route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: '이미 존재하는 스페이스 이름입니다: 중복 스페이스' }),
+        })
+      }
+      return route.fallback()
+    },
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  await page.getByRole('combobox').click()
+  await page.getByTestId('wiki-space-create-item').click()
+  await expect(page.getByTestId('wiki-space-create-dialog')).toBeVisible()
+  await page.getByTestId('wiki-space-create-input').fill('중복 스페이스')
+  await page.getByTestId('wiki-space-create-confirm').click()
+
+  // 다이얼로그가 닫히지 않고(이동도 없이) 인라인 에러가 입력 옆에 노출된다.
+  await expect(page.getByTestId('wiki-space-create-dialog')).toBeVisible()
+  await expect(page.getByTestId('wiki-space-create-error')).toHaveText('이미 존재하는 스페이스 이름입니다: 중복 스페이스')
+  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}$`))
+})

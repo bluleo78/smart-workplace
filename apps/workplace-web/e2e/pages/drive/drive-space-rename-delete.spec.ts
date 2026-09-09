@@ -74,6 +74,35 @@ test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
     await expect.poll(() => patchBody).toEqual({ name: '제품팀' })
   })
 
+  // #696 — 다른 TEAM 공간과 이름이 겹치면 409 → 다이얼로그 유지 + 인라인 에러(컨테이너류 이름 하드 차단 정책).
+  test('이름 변경 시 중복 이름이면 409 인라인 에러가 뜨고 다이얼로그가 유지된다', async ({ authenticatedPage: page }) => {
+    await mockBaseRoutes(page)
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces/2',
+      async (r) => {
+        if (r.request().method() === 'PATCH') {
+          await r.fulfill({
+            status: 409,
+            json: { message: '이미 존재하는 공간 이름입니다: 다른팀공간' },
+          })
+        } else {
+          await r.fallback()
+        }
+      },
+    )
+    await page.goto('/drive')
+    await page.getByTestId('drive-space-menu-2').click()
+    await page.getByTestId('drive-space-rename-2').click()
+    const input = page.getByTestId('rename-dialog-input')
+    await input.fill('다른팀공간')
+    await page.getByTestId('rename-dialog-confirm').click()
+
+    await expect(page.getByTestId('rename-dialog-error')).toHaveText('이미 존재하는 공간 이름입니다: 다른팀공간')
+    // 다이얼로그가 닫히지 않는다(입력 유지).
+    await expect(input).toBeVisible()
+    await expect(input).toHaveValue('다른팀공간')
+  })
+
   test('삭제 → 경고 다이얼로그 → DELETE 호출', async ({ authenticatedPage: page }) => {
     await mockBaseRoutes(page)
     let deleteCalled = false

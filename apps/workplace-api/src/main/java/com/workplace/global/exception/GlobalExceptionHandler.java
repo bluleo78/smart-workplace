@@ -432,6 +432,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  /** 위키 TEAM 공간 이름 중복 — 409(컨테이너류 이름 하드 차단 정책, #696). */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiSpaceNameDuplicatedException.class)
+  public ResponseEntity<ErrorResponse> handleWikiSpaceNameDuplicated(
+      com.workplace.wiki.exception.WikiSpaceNameDuplicatedException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   // 노트 이미지 첨부 — 미존재(404, 바인딩 불일치 포함) / 거부(400, 빈 파일·크기 초과·형식 아님) / 한도 초과(409)
   @ExceptionHandler(com.workplace.wiki.exception.WikiAttachmentNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleWikiAttachmentNotFound(
@@ -614,9 +623,10 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
-  // 이름 충돌(폴더 UNIQUE 제약 위반) / 저장 용량 초과 / TEAM 아닌 공간 변경·삭제 시도 — 409
+  // 이름 충돌(폴더 UNIQUE 제약 위반) / TEAM 공간 이름 중복(#696) / 저장 용량 초과 / TEAM 아닌 공간 변경·삭제 시도 — 409
   @ExceptionHandler({
     com.workplace.drive.exception.DriveDuplicateNameException.class,
+    com.workplace.drive.exception.DriveSpaceNameDuplicatedException.class,
     com.workplace.drive.exception.DriveQuotaExceededException.class,
     com.workplace.drive.exception.DriveSpaceTypeNotEditableException.class
   })

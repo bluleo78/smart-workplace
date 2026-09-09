@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
+import { extractApiError } from '@/lib/api-error'
 import { partitionSpaces } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
@@ -50,6 +51,8 @@ export function DriveSidebar() {
   // creating state 는 버튼의 시각적 disabled 표시용 보조 값.
   const isCreatingRef = useRef(false)
   const [creating, setCreating] = useState(false)
+  // 이름 중복(409) 인라인 에러 — 컨테이너류 이름 하드 차단 정책(#688/#696/#803).
+  const [spaceNameError, setSpaceNameError] = useState<string | null>(null)
   // 드라이브 쿼터 — 사이드바 하단 사용량 바 (#81). TanStack Query 전환(#820) —
   // 업로드/삭제/롤백 mutation 성공 시 invalidateQueries(driveQuotaKeys.all) 로
   // 재조회되므로 이 컴포넌트가 리마운트되지 않아도 최신 값이 반영된다.
@@ -66,7 +69,10 @@ export function DriveSidebar() {
     void reload()
   }, [])
 
-  /** 팀 공간 생성 — 다이얼로그 확인 시 호출. */
+  /**
+   * 팀 공간 생성 — 다이얼로그 확인 시 호출. 이름 중복(409)이면 다이얼로그를 유지한 채
+   * 인라인 에러로 표시한다(#696) — 성공했을 때만 닫는다.
+   */
   async function submitCreate() {
     // 동기적 중복 제출 가드 — ref 는 즉시 반영되므로 같은 틱 내 두 번째 클릭을 차단.
     if (isCreatingRef.current) return
@@ -74,23 +80,29 @@ export function DriveSidebar() {
     if (!trimmed) return
     isCreatingRef.current = true
     setCreating(true)
-    setSpaceDialogOpen(false)
-    setSpaceName('')
+    setSpaceNameError(null)
     try {
       const { data } = await driveApi.createSpace(trimmed)
+      setSpaceDialogOpen(false)
+      setSpaceName('')
       await reload()
       navigate(`/drive/spaces/${data.id}`)
+    } catch (err) {
+      setSpaceNameError(extractApiError(err, '공간 생성에 실패했습니다.'))
     } finally {
       isCreatingRef.current = false
       setCreating(false)
     }
   }
 
-  /** 이름 변경 확정 — RenameDialog onConfirm. */
+  /**
+   * 이름 변경 확정 — RenameDialog onConfirm. 실패(이름 중복 409 등)는 그대로 throw해
+   * RenameDialog 가 다이얼로그를 유지한 채 인라인 에러로 표시하도록 한다(#696).
+   * 성공 시에만 RenameDialog 가 onClose(→ setRenameTarget(null))를 호출한다.
+   */
   async function submitRename(name: string) {
     if (!renameTarget) return
     await driveApi.renameSpace(renameTarget.id, name)
-    setRenameTarget(null)
     await reload()
   }
 
@@ -225,6 +237,7 @@ export function DriveSidebar() {
           if (!open) {
             setSpaceDialogOpen(false)
             setSpaceName('')
+            setSpaceNameError(null)
           }
         }}
       >
@@ -235,18 +248,24 @@ export function DriveSidebar() {
           </DialogHeader>
           <Input
             value={spaceName}
-            onChange={(e) => setSpaceName(e.target.value)}
+            onChange={(e) => { setSpaceName(e.target.value); setSpaceNameError(null) }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void submitCreate()
             }}
             placeholder="공간 이름"
             autoFocus
+            aria-invalid={!!spaceNameError}
             data-testid="space-name-input"
           />
+          {spaceNameError && (
+            <p className="text-sm text-destructive" data-testid="space-name-error">
+              {spaceNameError}
+            </p>
+          )}
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => { setSpaceDialogOpen(false); setSpaceName('') }}
+              onClick={() => { setSpaceDialogOpen(false); setSpaceName(''); setSpaceNameError(null) }}
             >
               취소
             </Button>
@@ -261,13 +280,14 @@ export function DriveSidebar() {
         </DialogContent>
       </Dialog>
 
-      {/* TEAM 공간 이름 변경 — 제어형 RenameDialog */}
+      {/* TEAM 공간 이름 변경 — 제어형 RenameDialog. 이름 중복(409)은 인라인 에러로 노출(#696). */}
       <RenameDialog
         open={renameTarget != null}
         title="공간 이름 변경"
         initialValue={renameTarget?.name ?? ''}
-        onConfirm={(name) => void submitRename(name)}
+        onConfirm={submitRename}
         onClose={() => setRenameTarget(null)}
+        extractError={(err) => extractApiError(err, '이름 변경에 실패했습니다.')}
       />
 
       {/* TEAM 공간 삭제 — 내용물 통째 영구삭제 경고 */}

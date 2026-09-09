@@ -120,3 +120,32 @@ test('드라이브 — 취소 후 재오픈 시 이전 입력값이 남지 않�
   await expect(page.getByTestId('space-name-dialog')).toBeVisible()
   await expect(page.getByTestId('space-name-input')).toHaveValue('')
 })
+
+// #696 — 이미 존재하는 이름으로 생성 시도 시 409 → 다이얼로그 유지 + 인라인 에러(컨테이너류 이름 하드 차단 정책).
+test('드라이브 — 이미 존재하는 공간 이름으로 생성하면 409 인라인 에러가 뜨고 다이얼로그가 유지된다', async ({ authenticatedPage: page }) => {
+  const created: { space: DriveSpace | null } = { space: null }
+  await mockBaseRoutes(page, created)
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces',
+    (r) => {
+      if (r.request().method() === 'POST') {
+        return r.fulfill({
+          status: 409,
+          json: { message: '이미 존재하는 공간 이름입니다: 중복 공간' },
+        })
+      }
+      return r.fallback()
+    },
+  )
+
+  await page.goto('/drive')
+  await page.getByRole('button', { name: '팀 공간 만들기' }).click()
+  await expect(page.getByTestId('space-name-dialog')).toBeVisible()
+  await page.getByTestId('space-name-input').fill('중복 공간')
+  await page.getByTestId('space-name-confirm').click()
+
+  await expect(page.getByTestId('space-name-dialog')).toBeVisible()
+  await expect(page.getByTestId('space-name-error')).toHaveText('이미 존재하는 공간 이름입니다: 중복 공간')
+  // 새로 생성된 것처럼 새 공간으로 이동하지 않았어야 한다.
+  await expect(page).not.toHaveURL(new RegExp(`/drive/spaces/${NEW_SPACE_ID}`))
+})
