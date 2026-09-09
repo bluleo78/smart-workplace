@@ -133,11 +133,35 @@ class ContactServiceTest extends IntegrationTestBase {
         service.create(
             c,
             new com.workplace.contacts.dto.ExternalContactRequest(
-                "신규", "", "010", "", "", "", "PERSONAL"));
+                "신규", "", "010", "", "", "", "PERSONAL"),
+            false);
     assertThat(detail.name()).isEqualTo("신규");
     assertThat(detail.email()).isNull(); // 빈문자열→null
     assertThat(detail.phone()).isEqualTo("010");
     assertThat(detail.editable()).isTrue();
+  }
+
+  @Test
+  void create_duplicateNameAndEmail_throwsDuplicateWarning() {
+    long c = caller();
+    var req =
+        new com.workplace.contacts.dto.ExternalContactRequest(
+            "중복이름", "dup@x.com", null, null, null, null, "PERSONAL");
+    service.create(c, req, false);
+    assertThatThrownBy(() -> service.create(c, req, false))
+        .isInstanceOf(com.workplace.contacts.exception.ContactDuplicateWarningException.class);
+  }
+
+  @Test
+  void create_duplicateWithForceTrue_succeedsAnyway() {
+    long c = caller();
+    var req =
+        new com.workplace.contacts.dto.ExternalContactRequest(
+            "강행생성", "force@x.com", null, null, null, null, "PERSONAL");
+    service.create(c, req, false);
+    // force=true 면 동일 이름+이메일이어도 저장 허용(소프트 경고, 하드 차단 아님)
+    var second = service.create(c, req, true);
+    assertThat(second.name()).isEqualTo("강행생성");
   }
 
   @Test
@@ -149,7 +173,8 @@ class ContactServiceTest extends IntegrationTestBase {
             c,
             id,
             new com.workplace.contacts.dto.ExternalContactRequest(
-                "new", null, null, null, null, null, "SHARED"));
+                "new", null, null, null, null, null, "SHARED"),
+            false);
     assertThat(d.name()).isEqualTo("new");
     assertThat(d.visibility()).isEqualTo("SHARED");
   }
@@ -165,7 +190,8 @@ class ContactServiceTest extends IntegrationTestBase {
                     other,
                     id,
                     new com.workplace.contacts.dto.ExternalContactRequest(
-                        "x", null, null, null, null, null, "PERSONAL")))
+                        "x", null, null, null, null, null, "PERSONAL"),
+                    false))
         .isInstanceOf(ContactNotFoundException.class);
   }
 
@@ -180,7 +206,8 @@ class ContactServiceTest extends IntegrationTestBase {
                     other,
                     id,
                     new com.workplace.contacts.dto.ExternalContactRequest(
-                        "x", null, null, null, null, null, "SHARED")))
+                        "x", null, null, null, null, null, "SHARED"),
+                    false))
         .isInstanceOf(com.workplace.contacts.exception.ContactForbiddenException.class);
   }
 
@@ -195,7 +222,8 @@ class ContactServiceTest extends IntegrationTestBase {
             admin,
             id,
             new com.workplace.contacts.dto.ExternalContactRequest(
-                "byadmin", null, null, null, null, null, "SHARED"));
+                "byadmin", null, null, null, null, null, "SHARED"),
+            false);
     assertThat(d.name()).isEqualTo("byadmin");
   }
 
@@ -255,7 +283,8 @@ class ContactServiceTest extends IntegrationTestBase {
                     c,
                     99_999_999L,
                     new com.workplace.contacts.dto.ExternalContactRequest(
-                        "x", null, null, null, null, null, "PERSONAL")))
+                        "x", null, null, null, null, null, "PERSONAL"),
+                    false))
         .isInstanceOf(ContactNotFoundException.class);
   }
 
@@ -329,7 +358,8 @@ class ContactServiceTest extends IntegrationTestBase {
             admin,
             id,
             new com.workplace.contacts.dto.ExternalContactRequest(
-                "byadmin", null, null, null, null, null, "PERSONAL"));
+                "byadmin", null, null, null, null, null, "PERSONAL"),
+            false);
     assertThat(d.name()).isEqualTo("byadmin");
   }
 

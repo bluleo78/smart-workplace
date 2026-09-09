@@ -29,13 +29,13 @@ export const contactsApi = {
 
   getExternal: (id: number) => client.get<ExternalContactDetail>(`/contacts/external/${id}`),
 
-  // 외부 연락처 생성 — 201 + 생성된 상세.
-  createExternal: (body: ExternalContactRequest) =>
-    client.post<ExternalContactDetail>('/contacts/external', body),
+  // 외부 연락처 생성 — 201 + 생성된 상세. 동일 이름+이메일 존재 시 409(소프트 경고) — force=true 로 강행 저장(#790).
+  createExternal: (body: ExternalContactRequest, force = false) =>
+    client.post<ExternalContactDetail>('/contacts/external', body, { params: { force } }),
 
-  // 외부 연락처 수정(전체 교체).
-  updateExternal: (id: number, body: ExternalContactRequest) =>
-    client.patch<ExternalContactDetail>(`/contacts/external/${id}`, body),
+  // 외부 연락처 수정(전체 교체). force 의미는 createExternal 과 동일.
+  updateExternal: (id: number, body: ExternalContactRequest, force = false) =>
+    client.patch<ExternalContactDetail>(`/contacts/external/${id}`, body, { params: { force } }),
 
   // 외부 연락처 삭제 — 204.
   deleteExternal: (id: number) => client.delete<void>(`/contacts/external/${id}`),

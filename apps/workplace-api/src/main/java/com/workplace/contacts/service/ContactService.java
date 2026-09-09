@@ -7,6 +7,7 @@ import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.ExternalContactRequest;
 import com.workplace.contacts.dto.FavoriteRequest;
 import com.workplace.contacts.dto.MemberDetail;
+import com.workplace.contacts.exception.ContactDuplicateWarningException;
 import com.workplace.contacts.exception.ContactForbiddenException;
 import com.workplace.contacts.exception.ContactNotFoundException;
 import com.workplace.contacts.repository.ContactCursorCodec;
@@ -85,17 +86,33 @@ public class ContactService {
         .orElseThrow(() -> new ContactNotFoundException("EXTERNAL", id));
   }
 
-  /** 외부 연락처 생성 — owner=caller. (contact:write 권한은 컨트롤러 인터셉터가 강제.) */
+  /**
+   * 외부 연락처 생성 — owner=caller. (contact:write 권한은 컨트롤러 인터셉터가 강제.)
+   *
+   * <p>force=false 이고 동일 이름+이메일이 가시 범위(SHARED 전체+본인 PERSONAL)에 이미 있으면 409 소프트 경고를 던진다(#790). 사용자가
+   * 확인 다이얼로그에서 강행하면 force=true 로 재요청 — 그대로 저장한다(동명이인·조직 공유 이메일 허용, 하드 차단 아님).
+   */
   @Transactional
-  public ExternalContactDetail create(long callerId, ExternalContactRequest req) {
+  public ExternalContactDetail create(long callerId, ExternalContactRequest req, boolean force) {
+    if (!force && repo.existsDuplicate(callerId, req.name(), req.email(), null)) {
+      throw new ContactDuplicateWarningException(req.name());
+    }
     long id = repo.insert(callerId, req);
     return getExternal(callerId, id);
   }
 
-  /** 외부 연락처 전체 교체. owner||ADMIN 만; 아니면 PERSONAL→404 / SHARED→403. */
+  /**
+   * 외부 연락처 전체 교체. owner||ADMIN 만; 아니면 PERSONAL→404 / SHARED→403.
+   *
+   * <p>create 와 동일한 소프트 중복 경고 규칙(자기 자신은 제외).
+   */
   @Transactional
-  public ExternalContactDetail update(long callerId, long id, ExternalContactRequest req) {
+  public ExternalContactDetail update(
+      long callerId, long id, ExternalContactRequest req, boolean force) {
     requireWritable(callerId, id);
+    if (!force && repo.existsDuplicate(callerId, req.name(), req.email(), id)) {
+      throw new ContactDuplicateWarningException(req.name());
+    }
     repo.update(id, req);
     return getExternal(callerId, id);
   }

@@ -244,4 +244,65 @@ class ContactRepositoryTest extends IntegrationTestBase {
     assertThat(page2).extracting(ContactSummary::id).containsExactly(c);
     assertThat(page2).extracting(ContactSummary::id).doesNotContain(a, b);
   }
+
+  // --- existsDuplicate(#790 소프트 중복 경고) ---
+
+  @Test
+  void existsDuplicate_sameNameAndEmail_sameOwner_returnsTrue() {
+    long owner = seedUser("D_" + tag(), "HUMAN");
+    String name = "중복" + tag();
+    repo.insert(
+        owner, new ExternalContactRequest(name, "dup@x.com", null, null, null, null, "PERSONAL"));
+    assertThat(repo.existsDuplicate(owner, name, "dup@x.com", null)).isTrue();
+  }
+
+  @Test
+  void existsDuplicate_differentEmail_returnsFalse() {
+    long owner = seedUser("D_" + tag(), "HUMAN");
+    String name = "구분" + tag();
+    repo.insert(
+        owner, new ExternalContactRequest(name, "a@x.com", null, null, null, null, "PERSONAL"));
+    assertThat(repo.existsDuplicate(owner, name, "b@x.com", null)).isFalse();
+  }
+
+  @Test
+  void existsDuplicate_otherUserPersonal_isInvisible_returnsFalse() {
+    long owner = seedUser("D_" + tag(), "HUMAN");
+    long other = seedUser("D_" + tag(), "HUMAN");
+    String name = "타인전용" + tag();
+    repo.insert(
+        owner, new ExternalContactRequest(name, "priv@x.com", null, null, null, null, "PERSONAL"));
+    // other 에게는 owner 의 PERSONAL 이 비가시 → 중복 아님
+    assertThat(repo.existsDuplicate(other, name, "priv@x.com", null)).isFalse();
+  }
+
+  @Test
+  void existsDuplicate_sharedVisibleToAnyone_returnsTrue() {
+    long owner = seedUser("D_" + tag(), "HUMAN");
+    long other = seedUser("D_" + tag(), "HUMAN");
+    String name = "공유가시" + tag();
+    repo.insert(
+        owner, new ExternalContactRequest(name, "shared@x.com", null, null, null, null, "SHARED"));
+    assertThat(repo.existsDuplicate(other, name, "shared@x.com", null)).isTrue();
+  }
+
+  @Test
+  void existsDuplicate_excludeId_skipsSelf() {
+    long owner = seedUser("D_" + tag(), "HUMAN");
+    String name = "자기자신" + tag();
+    long id =
+        repo.insert(
+            owner,
+            new ExternalContactRequest(name, "self@x.com", null, null, null, null, "PERSONAL"));
+    // 수정 시 자기 자신은 제외해야 함(동일값 그대로 저장해도 중복 아님)
+    assertThat(repo.existsDuplicate(owner, name, "self@x.com", id)).isFalse();
+  }
+
+  @Test
+  void existsDuplicate_nullEmailBothSides_matchesByNameOnly() {
+    long owner = seedUser("D_" + tag(), "HUMAN");
+    String name = "이메일없음" + tag();
+    repo.insert(owner, new ExternalContactRequest(name, "", null, null, null, null, "PERSONAL"));
+    assertThat(repo.existsDuplicate(owner, name, "", null)).isTrue();
+  }
 }

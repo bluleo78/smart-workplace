@@ -164,6 +164,76 @@ test('외부 연락처 삭제', { tag: '@smoke' }, async ({ authenticatedPage: p
   await expect(page.getByTestId('contact-row-EXTERNAL-100')).toHaveCount(0)
 })
 
+test('외부 연락처 생성 — 이름+이메일 중복 시 확인 다이얼로그 후 강행 저장(#790)', async ({
+  authenticatedPage: page,
+}) => {
+  await stubList(page)
+  const requests: { force: boolean; body: Record<string, unknown> }[] = []
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts/external',
+    (route) => {
+      const force = new URL(route.request().url()).searchParams.get('force') === 'true'
+      requests.push({ force, body: route.request().postDataJSON() })
+      if (!force) {
+        // 최초 요청(force 미지정) — 소프트 중복 경고 409
+        return route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            status: 409,
+            error: 'Conflict',
+            message: '이미 존재하는 연락처입니다: 김민수',
+            errors: null,
+            timestamp: new Date().toISOString(),
+            path: '/api/v1/contacts/external',
+          }),
+        })
+      }
+      // force=true 재요청 — 강행 저장 성공
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(externalDetail({ id: 201, name: '김민수' })),
+      })
+    },
+  )
+
+  await page.goto('/contacts')
+  await page.getByTestId('contact-create').click()
+  await expect(page.getByTestId('external-contact-dialog')).toBeVisible()
+  await page.getByTestId('c-name').fill('김민수')
+  await page.getByTestId('c-email').fill('kim@test.com')
+  await page.getByTestId('c-save').click()
+
+  // 1차 요청은 409 — 확인 다이얼로그 노출, 원본 생성 다이얼로그는 아직 열려있음(하드 차단 아님)
+  await expect(page.getByTestId('contact-duplicate-dialog')).toBeVisible()
+  await expect(page.getByTestId('external-contact-dialog')).toBeVisible()
+
+  // 강행 저장 이후 목록 재조회를 신규 행 포함으로 재라우팅
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(makePage([external(), external({ id: 201, name: '김민수' })])),
+      }),
+  )
+
+  await page.getByTestId('contact-duplicate-confirm').click()
+
+  // 2번의 POST — 1차 force=false(409), 2차 force=true(201)
+  await expect.poll(() => requests.length).toBe(2)
+  expect(requests[0].force).toBe(false)
+  expect(requests[1].force).toBe(true)
+  expect(requests[1].body.name).toBe('김민수')
+
+  // 확인 다이얼로그 + 생성 다이얼로그 모두 닫히고 신규 행이 목록에 반영됨
+  await expect(page.getByTestId('contact-duplicate-dialog')).toHaveCount(0)
+  await expect(page.getByTestId('external-contact-dialog')).toHaveCount(0)
+  await expect(page.getByTestId('contact-row-EXTERNAL-201')).toBeVisible()
+})
+
 test('editable=false 면 수정/삭제 미노출', async ({ authenticatedPage: page }) => {
   await stubList(page)
   await stubDetail(page, { editable: false })

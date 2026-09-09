@@ -66,22 +66,25 @@ public class ContactController {
     return ResponseEntity.ok(service.getExternal(callerId, id));
   }
 
-  /** 외부 연락처 생성. contact:write 필요. owner=caller. */
+  /** 외부 연락처 생성. contact:write 필요. owner=caller. force=true 면 이름+이메일 중복 경고를 무시하고 강행 저장(#790). */
   @PostMapping("/external")
   @RequirePermission("contact:write")
   public ResponseEntity<ExternalContactDetail> createExternal(
-      @AuthenticationPrincipal Long callerId, @Valid @RequestBody ExternalContactRequest req) {
-    return ResponseEntity.status(HttpStatus.CREATED).body(service.create(callerId, req));
+      @AuthenticationPrincipal Long callerId,
+      @Valid @RequestBody ExternalContactRequest req,
+      @RequestParam(value = "force", required = false, defaultValue = "false") boolean force) {
+    return ResponseEntity.status(HttpStatus.CREATED).body(service.create(callerId, req, force));
   }
 
-  /** 외부 연락처 수정(전체 교체). owner/ADMIN 만. */
+  /** 외부 연락처 수정(전체 교체). owner/ADMIN 만. force 의미는 createExternal 과 동일(#790). */
   @PatchMapping("/external/{id}")
   @RequirePermission("contact:write")
   public ResponseEntity<ExternalContactDetail> updateExternal(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long id,
-      @Valid @RequestBody ExternalContactRequest req) {
-    return ResponseEntity.ok(service.update(callerId, id, req));
+      @Valid @RequestBody ExternalContactRequest req,
+      @RequestParam(value = "force", required = false, defaultValue = "false") boolean force) {
+    return ResponseEntity.ok(service.update(callerId, id, req, force));
   }
 
   /** 외부 연락처 삭제. owner/ADMIN 만. */

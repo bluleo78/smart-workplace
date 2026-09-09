@@ -269,6 +269,24 @@ public class ContactRepository {
                     r.get(CONTACT_ENTRY.OWNER_ID), r.get(CONTACT_ENTRY.VISIBILITY)));
   }
 
+  /**
+   * 동일 이름+이메일 외부 연락처가 caller 가시 범위(SHARED 전체 + 본인 PERSONAL)에 이미 존재하는지 — 소프트 경고용(#790). excludeId 는
+   * 수정 시 자기 자신 제외(null 이면 미적용).
+   */
+  public boolean existsDuplicate(long callerId, String name, String email, Long excludeId) {
+    String normalizedEmail = nullIfBlank(email);
+    var condition =
+        CONTACT_ENTRY
+            .NAME
+            .eq(name)
+            .and(CONTACT_ENTRY.EMAIL.isNotDistinctFrom(normalizedEmail))
+            .and(CONTACT_ENTRY.VISIBILITY.eq("SHARED").or(CONTACT_ENTRY.OWNER_ID.eq(callerId)));
+    if (excludeId != null) {
+      condition = condition.and(CONTACT_ENTRY.ID.ne(excludeId));
+    }
+    return dsl.fetchExists(dsl.selectOne().from(CONTACT_ENTRY).where(condition));
+  }
+
   /** 외부 연락처 생성 — 빈 문자열 optional 은 null 정규화. 생성된 id 반환. */
   public long insert(long ownerId, ExternalContactRequest req) {
     return dsl.insertInto(CONTACT_ENTRY)

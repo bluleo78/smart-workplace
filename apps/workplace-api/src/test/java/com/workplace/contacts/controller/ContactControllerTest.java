@@ -1,6 +1,7 @@
 package com.workplace.contacts.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -19,6 +20,7 @@ import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.contacts.dto.ContactPage;
 import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.MemberDetail;
+import com.workplace.contacts.exception.ContactDuplicateWarningException;
 import com.workplace.contacts.exception.ContactForbiddenException;
 import com.workplace.contacts.exception.ContactNotFoundException;
 import com.workplace.contacts.service.ContactService;
@@ -117,7 +119,7 @@ class ContactControllerTest {
   void createExternal_withWritePermission_returns201() throws Exception {
     when(permissionService.getUserPermissions(1L))
         .thenReturn(Set.of("contact:read", "contact:write"));
-    when(service.create(eq(1L), any())).thenReturn(sampleDetail());
+    when(service.create(eq(1L), any(), anyBoolean())).thenReturn(sampleDetail());
     mockMvc
         .perform(
             post("/api/v1/contacts/external")
@@ -169,10 +171,39 @@ class ContactControllerTest {
   }
 
   @Test
+  void createExternal_duplicate_returns409() throws Exception {
+    when(permissionService.getUserPermissions(1L))
+        .thenReturn(Set.of("contact:read", "contact:write"));
+    when(service.create(eq(1L), any(), eq(false)))
+        .thenThrow(new ContactDuplicateWarningException("박외부"));
+    mockMvc
+        .perform(
+            post("/api/v1/contacts/external")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(CREATE_JSON))
+        .andExpect(status().isConflict());
+  }
+
+  @Test
+  void createExternal_forceTrue_bypassesDuplicateWarning_returns201() throws Exception {
+    when(permissionService.getUserPermissions(1L))
+        .thenReturn(Set.of("contact:read", "contact:write"));
+    when(service.create(eq(1L), any(), eq(true))).thenReturn(sampleDetail());
+    mockMvc
+        .perform(
+            post("/api/v1/contacts/external?force=true")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(CREATE_JSON))
+        .andExpect(status().isCreated());
+  }
+
+  @Test
   void updateExternal_sharedNonOwner_returns403() throws Exception {
     when(permissionService.getUserPermissions(1L))
         .thenReturn(Set.of("contact:read", "contact:write"));
-    when(service.update(eq(1L), eq(100L), any()))
+    when(service.update(eq(1L), eq(100L), any(), anyBoolean()))
         .thenThrow(new ContactForbiddenException(100L, 1L));
     mockMvc
         .perform(
@@ -187,7 +218,7 @@ class ContactControllerTest {
   void updateExternal_personalNonOwner_returns404() throws Exception {
     when(permissionService.getUserPermissions(1L))
         .thenReturn(Set.of("contact:read", "contact:write"));
-    when(service.update(eq(1L), eq(100L), any()))
+    when(service.update(eq(1L), eq(100L), any(), anyBoolean()))
         .thenThrow(new ContactNotFoundException("EXTERNAL", 100L));
     mockMvc
         .perform(

@@ -469,6 +469,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  /** 외부 연락처 이름+이메일 중복 소프트 경고(#790) — 409. force=true 재요청으로 강행 가능(하드 차단 아님). */
+  @ExceptionHandler(com.workplace.contacts.exception.ContactDuplicateWarningException.class)
+  public ResponseEntity<ErrorResponse> handleContactDuplicateWarning(
+      com.workplace.contacts.exception.ContactDuplicateWarningException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   // 일정 도메인 — 미존재/비-owner(404)
   @ExceptionHandler(com.workplace.calendar.exception.CalendarEventNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleCalendarEventNotFound(
