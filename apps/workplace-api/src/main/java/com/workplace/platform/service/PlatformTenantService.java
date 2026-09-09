@@ -14,7 +14,9 @@ import com.workplace.platform.repository.PlatformTenantRepository;
 import com.workplace.platform.util.IdentityMasking;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
+import java.text.Normalizer;
 import java.util.List;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -41,15 +43,23 @@ public class PlatformTenantService {
   /**
    * 테넌트 생성 — slug 중복·owner 존재 검증 후 tenant + OWNER 멤버십 + 기본 RBAC 시드를 단일 트랜잭션으로 처리. 생성된 상세를 반환.
    *
+   * <p>slug 를 비우면(null/공백) 이름에서 자동 생성한다(#695) — 콘솔의 "비우면 자동 생성" 안내와 동작을 일치시키며 NULL slug 는 더 이상 저장되지
+   * 않는다.
+   *
    * <p>{@code @Transactional}: tenant/membership(전역 테이블) → 신규 테넌트 GUC 설정 →
    * role/role_permission/user_role 시드까지 같은 커넥션에서 원자 실행. createTenantWithOwner 의
    * {@code @Transactional} 은 REQUIRED 로 이 트랜잭션에 합류한다.
    */
   @Transactional
   public TenantDetailResponse createTenant(CreateTenantRequest req) {
-    // slug 가 지정된 경우 전역 유일성 검증(중복이면 400).
-    if (req.slug() != null && platformTenantRepository.slugExists(req.slug())) {
-      throw new IllegalArgumentException("이미 사용 중인 slug 입니다: " + req.slug());
+    // slug 결정(#695): 지정(공백 제외)했으면 전역 유일성 검증(중복이면 400), 비웠으면 이름에서 자동 생성.
+    String slug = req.slug() == null ? null : req.slug().trim();
+    if (slug != null && !slug.isEmpty()) {
+      if (platformTenantRepository.slugExists(slug)) {
+        throw new IllegalArgumentException("이미 사용 중인 slug 입니다: " + slug);
+      }
+    } else {
+      slug = generateUniqueSlug(req.name());
     }
     // 초기 소유자를 지정한 경우에만 기존 사용자인지 검증한다(지정 시 없으면 400). 비우면 소유자 없는 빈 테넌트.
     if (req.ownerUserId() != null && !userRepository.existsById(req.ownerUserId())) {
@@ -57,13 +67,53 @@ public class PlatformTenantService {
     }
     // tenant + OWNER 멤버십(전역 테이블, GUC 무관). createTenantWithOwner 는 REQUIRED 로 이 tx 에 합류한다.
     Long tenantId =
-        platformTenantRepository.createTenantWithOwner(req.name(), req.slug(), req.ownerUserId());
+        platformTenantRepository.createTenantWithOwner(req.name(), slug, req.ownerUserId());
     // 같은 트랜잭션/커넥션에서 신규 테넌트 GUC 로 RBAC 시드(FK 가 미커밋 tenant 를 봄, RLS WITH CHECK 통과).
     tenantProvisioningService.seedDefaultRoles(tenantId, req.ownerUserId());
     // 같은 트랜잭션에서 다시 조회해 일관된 상세(멤버 수 포함)를 반환.
     return platformTenantRepository
         .findTenant(tenantId)
         .orElseThrow(() -> new IllegalStateException("테넌트 생성 직후 조회에 실패했습니다: " + tenantId));
+  }
+
+  /** slug 자동 생성 시 이름에서 ASCII 문자가 하나도 안 나올 때(한글 전용 이름 등) 쓰는 기본 base. */
+  public static final String DEFAULT_SLUG_BASE = "tenant";
+
+  /**
+   * 테넌트 이름에서 slug base 를 만든다(#695) — 소문자 ASCII 영숫자 외 문자는 하이픈으로 접고 양끝 하이픈 제거.
+   *
+   * <p>악센트 문자는 NFD 분해 후 결합 기호를 버려 기본 알파벳으로 남긴다(예: "Café" → "cafe"). 한글처럼 ASCII 로 환원되지 않는 문자만 있으면 빈
+   * 문자열이 되므로 {@link #DEFAULT_SLUG_BASE} 를 쓴다. slug 는 향후 서브도메인 라우팅 등에 쓰일 수 있어 ASCII 소문자·숫자·하이픈만
+   * 허용한다.
+   */
+  public static String slugify(String name) {
+    String decomposed = Normalizer.normalize(name == null ? "" : name, Normalizer.Form.NFD);
+    String base =
+        decomposed
+            .replaceAll("\\p{M}+", "")
+            .toLowerCase(Locale.ROOT)
+            .replaceAll("[^a-z0-9]+", "-")
+            .replaceAll("^-+|-+$", "");
+    return base.isEmpty() ? DEFAULT_SLUG_BASE : base;
+  }
+
+  /**
+   * 이름 기반 slug 를 전역 유일하게 만든다 — base 가 이미 쓰이면 "-2", "-3" … 순으로 suffix 를 올려 첫 빈 값을 채택.
+   *
+   * <p>createTenant 의 트랜잭션 안에서 호출되며 tenant.slug UNIQUE 제약이 최종 방어선이다(동시 생성 경합 시 한쪽은 제약 위반으로 롤백). 운영자
+   * 콘솔 단일 사용 시나리오라 재시도 루프는 두지 않는다.
+   */
+  private String generateUniqueSlug(String name) {
+    String base = slugify(name);
+    if (!platformTenantRepository.slugExists(base)) {
+      return base;
+    }
+    for (int i = 2; ; i++) {
+      String candidate = base + "-" + i;
+      if (!platformTenantRepository.slugExists(candidate)) {
+        return candidate;
+      }
+    }
   }
 
   /** 전체 테넌트 목록(멤버 수 포함). */

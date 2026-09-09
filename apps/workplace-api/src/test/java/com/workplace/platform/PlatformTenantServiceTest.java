@@ -133,6 +133,60 @@ class PlatformTenantServiceTest extends IntegrationTestBase {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
+  /** #695 — slug 를 비우면(null) 이름을 slugify 해 자동 생성한다(NULL 로 저장되지 않는다). */
+  @Test
+  void createTenant_nullSlug_generatesSlugFromName() {
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    TenantDetailResponse detail =
+        service.createTenant(new CreateTenantRequest("Auto Slug " + suffix, null, null));
+
+    assertThat(detail.slug()).isEqualTo("auto-slug-" + suffix);
+  }
+
+  /** #695 — 공백만 있는 slug 도 미지정으로 간주해 자동 생성한다. */
+  @Test
+  void createTenant_blankSlug_generatesSlugFromName() {
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    TenantDetailResponse detail =
+        service.createTenant(new CreateTenantRequest("Blank " + suffix, "   ", null));
+
+    assertThat(detail.slug()).isEqualTo("blank-" + suffix);
+  }
+
+  /** #695 — 자동 생성 slug 가 이미 쓰이면 "-2", "-3" 순으로 suffix 를 붙여 유일하게 만든다. */
+  @Test
+  void createTenant_autoSlugCollision_appendsIncrementingSuffix() {
+    String name = "Dup Auto " + UUID.randomUUID().toString().substring(0, 8);
+    String base = PlatformTenantService.slugify(name);
+
+    TenantDetailResponse first = service.createTenant(new CreateTenantRequest(name, null, null));
+    TenantDetailResponse second = service.createTenant(new CreateTenantRequest(name, null, null));
+    TenantDetailResponse third = service.createTenant(new CreateTenantRequest(name, null, null));
+
+    assertThat(first.slug()).isEqualTo(base);
+    assertThat(second.slug()).isEqualTo(base + "-2");
+    assertThat(third.slug()).isEqualTo(base + "-3");
+  }
+
+  /** #695 — 한글 전용 이름처럼 ASCII 로 환원되지 않으면 기본 base("tenant")를 쓴다. */
+  @Test
+  void createTenant_nonAsciiName_fallsBackToDefaultSlugBase() {
+    TenantDetailResponse detail =
+        service.createTenant(new CreateTenantRequest("탐색 테스트 테넌트", null, null));
+
+    assertThat(detail.slug()).startsWith(PlatformTenantService.DEFAULT_SLUG_BASE);
+    assertThat(detail.slug()).matches("tenant(-\\d+)?");
+  }
+
+  /** #695 — slugify 규칙: 소문자화·악센트 제거·비영숫자 접기·양끝 하이픈 제거. */
+  @Test
+  void slugify_normalizesName() {
+    assertThat(PlatformTenantService.slugify("  Acme  Inc. ")).isEqualTo("acme-inc");
+    assertThat(PlatformTenantService.slugify("Café Ünïcode")).isEqualTo("cafe-unicode");
+    assertThat(PlatformTenantService.slugify("--A_B--")).isEqualTo("a-b");
+    assertThat(PlatformTenantService.slugify("테넌트")).isEqualTo("tenant");
+  }
+
   @Test
   void listTenants_includesCreatedTenantWithMemberCount() {
     long owner = createHumanUser("owner");

@@ -22,7 +22,7 @@ import { Input } from './ui/input'
 
 // 테넌트 생성 폼 스키마.
 // - name: 필수
-// - slug: 선택(빈 문자열은 미전송)
+// - slug: 선택(빈 문자열은 미전송 → 서버가 이름에서 자동 생성, #695)
 // - ownerUserId: 선택(#496). 비우면 소유자 없는 빈 테넌트 생성.
 //   input 은 문자열이라 빈 값('')을 먼저 undefined 로 정규화한 뒤(coerce 가 ''→0 으로 만들어
 //   .positive() 에 걸리는 함정을 피한다), 값이 있을 때만 양의 정수로 검증한다.
@@ -123,7 +123,7 @@ export function CreateTenantDialog({ open, onOpenChange }: CreateTenantDialogPro
           <FormField label="slug" htmlFor="tenant-slug" error={errors.slug?.message}>
             <Input
               id="tenant-slug"
-              placeholder="(선택) 비우면 자동 생성"
+              placeholder="(선택) 비우면 이름에서 자동 생성"
               data-testid="create-tenant-slug"
               {...register('slug')}
             />
