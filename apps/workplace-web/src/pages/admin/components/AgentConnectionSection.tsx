@@ -3,6 +3,7 @@
 // 모델/생각의 깊이)을 카드 하나로 합쳤다. 모델/생각의 깊이는 이 에이전트가 "공통 비서로 지정"된
 // 경우에만 편집 가능(백엔드에 에이전트별 모델 저장 컬럼이 없고, workspace 전체 공통 비서 슬롯 1개에만
 // model/thinkingDepth 가 저장되기 때문 — 스코프 아웃, 별도 이슈 필요).
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -28,11 +29,13 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 
+import { getAgentModels } from '../../../api/models';
 import {
   useAgentProviderCredentialMeta,
   useRevokeAgentProviderCredential,
 } from '../../../hooks/queries/useAgentProviderCredential';
 import {
+  providerModelsKeys,
   useAgentModels,
   useClearWorkspaceAssistant,
   useSetWorkspaceAssistant,
@@ -69,6 +72,7 @@ interface Props {
 export function AgentConnectionSection({ agentUserId }: Props) {
   // 공통 비서 지정/해제 시 관리자 본인의 aiAvailable 도 즉시 갱신(페이지 새로고침 불필요).
   const { refreshUser } = useAuth();
+  const queryClient = useQueryClient();
   const { data: meta, isLoading } = useAgentProviderCredentialMeta(agentUserId);
   const revoke = useRevokeAgentProviderCredential(agentUserId);
   const { data: ws } = useWorkspaceAssistant();
@@ -79,6 +83,13 @@ export function AgentConnectionSection({ agentUserId }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
   // API 키 회수 확인 AlertDialog. window.confirm 대체 (#136).
   const [revokeOpen, setRevokeOpen] = useState(false);
+  // 공통 비서 지정 전 모델 프로브 진행 중 — 토글 중복 클릭 방지 (#643).
+  const [probing, setProbing] = useState(false);
+  // 프로브 실패(또는 사용 가능 모델 0개)에도 강제 지정할지 확인하는 AlertDialog (#643).
+  const [forceSetOpen, setForceSetOpen] = useState(false);
+  // 공통 비서 해제 시 영향 경고 확인 AlertDialog (#643) — 해제하면 개인 비서
+  // 미지정 구성원 전원이 AI 를 못 쓰게 되므로 실수 방지.
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   const hasToken = meta != null;
   // 현재 공통 비서 여부 — 모델/생각의 깊이 편집 가능 조건과 동일(기존 WorkspaceAssistantSection 규칙 유지).
@@ -111,22 +122,57 @@ export function AgentConnectionSection({ agentUserId }: Props) {
     }
   };
 
-  // 공통 비서 지정/해제 — 토글 하나로 표현(기존 지정/지정 해제 버튼 통합).
-  const onToggleAssistant = async (checked: boolean) => {
+  // 실제 공통 비서 지정 API 호출 — 프로브 통과(또는 강제 확인) 후에만 호출된다.
+  const doSetAssistant = async () => {
     try {
-      if (checked) {
-        await setAssistant.mutateAsync(agentUserId);
-        toast.success('공통 비서로 지정했습니다.');
-      } else {
-        await clearAssistant.mutateAsync();
-        toast.success('공통 비서 지정을 해제했습니다.');
-      }
+      await setAssistant.mutateAsync(agentUserId);
+      toast.success('공통 비서로 지정했습니다.');
       void refreshUser();
     } catch (e) {
-      handleApiError(
-        e,
-        checked ? '공통 비서 지정에 실패했습니다.' : '공통 비서 해제에 실패했습니다.',
-      );
+      handleApiError(e, '공통 비서 지정에 실패했습니다.');
+    }
+  };
+
+  // 실제 공통 비서 해제 API 호출 — 영향 경고 확인 후에만 호출된다.
+  const doClearAssistant = async () => {
+    try {
+      await clearAssistant.mutateAsync();
+      toast.success('공통 비서 지정을 해제했습니다.');
+      void refreshUser();
+    } catch (e) {
+      handleApiError(e, '공통 비서 해제에 실패했습니다.');
+    }
+  };
+
+  // 공통 비서 지정/해제 — 토글 하나로 표현(기존 지정/지정 해제 버튼 통합).
+  // 지정(ON) 은 저장된 자격증명으로 모델 프로브가 실제로 성공하는지 먼저 확인하고,
+  // 실패(또는 사용 가능 모델 0개)면 확인 다이얼로그로 명시적 동의를 받는다 — 무효 연결이
+  // 그대로 워크스페이스 공통 비서가 되는 것을 막는다 (#643).
+  // 해제(OFF) 는 개인 비서 미지정 구성원 전원이 AI 를 못 쓰게 될 수 있음을 경고 후 진행한다.
+  const onToggleAssistant = async (checked: boolean) => {
+    if (!checked) {
+      setClearConfirmOpen(true);
+      return;
+    }
+
+    setProbing(true);
+    try {
+      // useAgentModels 훅과 동일한 쿼리키로 캐시 — 지정 성공 후 isCurrent 가 true 로
+      // 바뀌어도 방금 검증한 결과를 재사용해 같은 엔드포인트를 중복 호출하지 않는다.
+      const result = await queryClient.fetchQuery({
+        queryKey: providerModelsKeys.forAgent(agentUserId),
+        queryFn: () => getAgentModels(agentUserId),
+      });
+      if (result.models.length > 0) {
+        await doSetAssistant();
+      } else {
+        setForceSetOpen(true);
+      }
+    } catch {
+      // 프로브 자체가 실패(502 등) — 강제 지정 확인 다이얼로그로 전환.
+      setForceSetOpen(true);
+    } finally {
+      setProbing(false);
     }
   };
 
@@ -302,7 +348,9 @@ export function AgentConnectionSection({ agentUserId }: Props) {
               data-testid="agent-connection-assistant-toggle"
               checked={isCurrent}
               onCheckedChange={(checked) => void onToggleAssistant(checked)}
-              disabled={!hasToken || setAssistant.isPending || clearAssistant.isPending}
+              disabled={
+                !hasToken || setAssistant.isPending || clearAssistant.isPending || probing
+              }
             />
           </div>
         </>
@@ -332,6 +380,63 @@ export function AgentConnectionSection({ agentUserId }: Props) {
               data-testid="oauth-revoke-confirm"
             >
               회수
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 모델 프로브 실패(또는 사용 가능 모델 0개) 상태에서 강제 지정 확인 (#643). */}
+      <AlertDialog open={forceSetOpen} onOpenChange={setForceSetOpen}>
+        <AlertDialogContent data-testid="workspace-assistant-force-set-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>연결 검증에 실패했습니다</AlertDialogTitle>
+            <AlertDialogDescription>
+              이 에이전트의 저장된 자격증명으로 모델을 확인할 수 없습니다. 그래도 공통
+              비서로 지정하면 워크스페이스 전체가 LLM 호출 불가 상태가 될 수 있습니다.
+              계속하시겠습니까?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="workspace-assistant-force-set-cancel">
+              취소
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setForceSetOpen(false);
+                void doSetAssistant();
+              }}
+              data-testid="workspace-assistant-force-set-confirm"
+            >
+              그래도 지정
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 공통 비서 해제 영향 경고 확인 (#643). */}
+      <AlertDialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+        <AlertDialogContent data-testid="workspace-assistant-clear-confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>공통 비서 지정 해제</AlertDialogTitle>
+            <AlertDialogDescription>
+              공통 비서 지정을 해제하면 개인 비서를 지정하지 않은 구성원은 AI 를 사용할 수
+              없게 됩니다. 계속하시겠습니까?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="workspace-assistant-clear-confirm-cancel">
+              취소
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setClearConfirmOpen(false);
+                void doClearAssistant();
+              }}
+              data-testid="workspace-assistant-clear-confirm-confirm"
+            >
+              해제
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

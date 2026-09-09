@@ -68,9 +68,10 @@ async function setupBase(page: import('@playwright/test').Page) {
 }
 
 test.describe('에이전트 관리 공통 비서 섹션', () => {
-  // 시나리오 1: 토큰 있는 에이전트 선택 → "공통 비서로 지정" → PUT payload 검증.
+  // 시나리오 1: 토큰 있는 에이전트 선택 → "공통 비서로 지정" → 모델 프로브(0개) →
+  // 강제 지정 확인 다이얼로그 → 확인 → PUT payload 검증 (#643 — 프로브 없이 즉시 저장되던 결함 수정).
   test(
-    '토큰 있는 에이전트 선택 → 공통 비서로 지정 → PUT agentUserId 검증',
+    '토큰 있는 에이전트 선택 → 공통 비서로 지정 → 프로브 0개 → 강제 확인 → PUT agentUserId 검증',
     { tag: '@smoke' },
     async ({ adminPage: page }) => {
       // 공통 비서 미지정 상태.
@@ -127,16 +128,93 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       await expect(toggle).toBeEnabled();
       await expect(toggle).not.toBeChecked();
 
-      // 토글 클릭 → PUT 호출.
+      // 토글 클릭 → 모델 프로브(setupBase 모킹: 200 + models 0개) → 강제 지정 확인 다이얼로그.
       await toggle.click();
+      const forceDialog = page.getByTestId('workspace-assistant-force-set-dialog');
+      await expect(forceDialog).toBeVisible();
+
+      // 프로브 미확정 상태이므로 PUT 은 아직 호출되지 않아야 한다.
+      expect(putPayload).toBeNull();
+
+      // "그래도 지정" 확인 → 그제서야 PUT 호출.
+      await page.getByTestId('workspace-assistant-force-set-confirm').click();
 
       // PUT payload = { agentUserId: AGENT_ID } 확인.
       await expect.poll(() => putPayload).toEqual({ agentUserId: AGENT_ID });
     },
   );
 
-  // 시나리오 2: 현재 공통 비서 → "지정 해제" → DELETE 호출 확인.
-  test('현재 공통 비서 → 지정 해제 → DELETE 호출', async ({ adminPage: page }) => {
+  // 시나리오 1b: 모델 프로브 자체가 실패(502)해도 동일하게 강제 확인 다이얼로그로 유도된다 (#643).
+  test('공통 비서 지정 → 모델 프로브 502 실패 → 강제 확인 다이얼로그 → PUT 호출', async ({
+    adminPage: page,
+  }) => {
+    const wsState = {
+      agentUserId: null as number | null,
+      agentName: null as string | null,
+      hasActiveToken: false,
+      model: null as string | null,
+      thinkingDepth: null as string | null,
+    };
+    let putPayload: unknown = null;
+
+    await page.route('**/api/v1/admin/workspace-assistant', (route) => {
+      const method = route.request().method();
+      if (method === 'GET') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(wsState) });
+      }
+      if (method === 'PUT') {
+        putPayload = route.request().postDataJSON();
+        wsState.agentUserId = AGENT_ID;
+        wsState.agentName = AGENT_FIXTURE.name;
+        wsState.hasActiveToken = true;
+        return route.fulfill({ status: 204, body: '' });
+      }
+      return route.fallback();
+    });
+
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(OAUTH_META_FIXTURE),
+        });
+      }
+      return route.fallback();
+    });
+
+    // 에이전트/키 목록은 setupBase 로, 모델 목록만 502 로 덮어써 프로브 실패를 재현.
+    await setupBase(page);
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/models$/, (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 502,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: '모델 목록 조회에 실패했습니다.' }),
+        });
+      }
+      return route.fallback();
+    });
+
+    await page.goto('/settings/agents');
+    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
+
+    const toggle = page.getByTestId('agent-connection-assistant-toggle');
+    await toggle.click();
+
+    const forceDialog = page.getByTestId('workspace-assistant-force-set-dialog');
+    await expect(forceDialog).toBeVisible();
+    expect(putPayload).toBeNull();
+
+    // 취소하면 지정되지 않아야 한다.
+    await page.getByTestId('workspace-assistant-force-set-cancel').click();
+    await expect(forceDialog).toBeHidden();
+    expect(putPayload).toBeNull();
+    await expect(toggle).not.toBeChecked();
+  });
+
+  // 시나리오 2: 현재 공통 비서 → "지정 해제" → 영향 경고 확인 다이얼로그 → 확인 → DELETE 호출 (#643).
+  test('현재 공통 비서 → 지정 해제 → 경고 확인 → DELETE 호출', async ({ adminPage: page }) => {
     let deleteCallCount = 0;
 
     // 공통 비서 = AGENT_ID 지정 상태.
@@ -186,13 +264,73 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
     // 현재 공통 비서 배지가 표시되어야 한다.
     await expect(page.getByTestId('workspace-assistant-current')).toBeVisible();
 
-    // 토글이 ON 상태 — 클릭하면 해제(DELETE) 호출.
+    // 토글이 ON 상태 — 클릭하면 경고 확인 다이얼로그가 먼저 뜬다(즉시 DELETE 아님).
     const toggle = page.getByTestId('agent-connection-assistant-toggle');
     await expect(toggle).toBeChecked();
     await toggle.click();
 
+    const clearDialog = page.getByTestId('workspace-assistant-clear-confirm-dialog');
+    await expect(clearDialog).toBeVisible();
+    expect(deleteCallCount).toBe(0);
+
+    // "해제" 확인 → 그제서야 DELETE 호출.
+    await page.getByTestId('workspace-assistant-clear-confirm-confirm').click();
+
     // DELETE 가 1회 호출되어야 한다.
     await expect.poll(() => deleteCallCount).toBe(1);
+  });
+
+  // 시나리오 2b: 해제 경고 다이얼로그에서 취소하면 DELETE 가 호출되지 않아야 한다 (#643).
+  test('공통 비서 해제 경고 다이얼로그 취소 → DELETE 미호출', async ({ adminPage: page }) => {
+    let deleteCallCount = 0;
+    const wsData = {
+      agentUserId: AGENT_ID as number | null,
+      agentName: AGENT_FIXTURE.name as string | null,
+      hasActiveToken: true,
+      model: 'claude-sonnet-4-6',
+      thinkingDepth: 'NORMAL',
+    };
+
+    await page.route('**/api/v1/admin/workspace-assistant', (route) => {
+      const method = route.request().method();
+      if (method === 'GET') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(wsData) });
+      }
+      if (method === 'DELETE') {
+        deleteCallCount += 1;
+        wsData.agentUserId = null;
+        return route.fulfill({ status: 204, body: '' });
+      }
+      return route.fallback();
+    });
+
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(OAUTH_META_FIXTURE),
+        });
+      }
+      return route.fallback();
+    });
+
+    await setupBase(page);
+    await page.goto('/settings/agents');
+    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
+
+    const toggle = page.getByTestId('agent-connection-assistant-toggle');
+    await expect(toggle).toBeChecked();
+    await toggle.click();
+
+    const clearDialog = page.getByTestId('workspace-assistant-clear-confirm-dialog');
+    await expect(clearDialog).toBeVisible();
+    await page.getByTestId('workspace-assistant-clear-confirm-cancel').click();
+    await expect(clearDialog).toBeHidden();
+
+    // 취소했으므로 DELETE 미호출 + 토글은 여전히 ON 이어야 한다.
+    expect(deleteCallCount).toBe(0);
+    await expect(toggle).toBeChecked();
   });
 
   // 시나리오 3: 토큰 없는 에이전트 → 지정 버튼 disabled + token-gate 안내.
