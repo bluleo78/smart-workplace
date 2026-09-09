@@ -232,17 +232,33 @@ export function TimelineGantt({
     return result
   }, [groups, expandedKeys])
 
+  // 이슈번호 → 마감일 맵 — 의존성 모순(#669) 판정에 사용. bars 는 이미 화면에 렌더되는 이슈만 담고
+  // 있으므로 별도 조회 없이 여기서 파생한다.
+  const dueDateByIssueNumber = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const bar of bars) map.set(bar.issueNumber, bar.due)
+    return map
+  }, [bars])
+
   const links = useMemo(
     () =>
-      dependencies.map((edge, index) => ({
-        id: `dep-${edge.fromIssueNumber}-${edge.toIssueNumber}-${index}`,
-        source: edge.fromIssueNumber,
-        target: edge.toIssueNumber,
-        // 이 앱의 유일한 의존성 유형은 "선행 필요"(finish-to-start) — 선행 이슈가 끝나야
-        // 후행 이슈가 시작 가능하다는 의미이므로 화살표는 e2s(end-to-start)여야 한다(#671).
-        type: 'e2s' as const,
-      })),
-    [dependencies],
+      dependencies.map((edge, index) => {
+        const predecessorDue = dueDateByIssueNumber.get(edge.fromIssueNumber)
+        const successorDue = dueDateByIssueNumber.get(edge.toIssueNumber)
+        // 후행 마감일 < 선행 마감일 — 의존성 순서와 실제 일정이 모순되는 링크(#669, soft 시각 경고).
+        // 완료 여부는 보지 않는다(결정 코멘트: 타임라인 축은 날짜 비교만).
+        const contradictory = !!(predecessorDue && successorDue && successorDue < predecessorDue)
+        return {
+          id: `dep-${edge.fromIssueNumber}-${edge.toIssueNumber}-${index}`,
+          source: edge.fromIssueNumber,
+          target: edge.toIssueNumber,
+          // 이 앱의 유일한 의존성 유형은 "선행 필요"(finish-to-start) — 선행 이슈가 끝나야
+          // 후행 이슈가 시작 가능하다는 의미이므로 화살표는 e2s(end-to-start)여야 한다(#671).
+          type: 'e2s' as const,
+          contradictory,
+        }
+      }),
+    [dependencies, dueDateByIssueNumber],
   )
 
   // 사이클 구간에 속한 날짜는 highlightTime 이 반환하는 CSS 클래스로 셀 배경을 물들인다.
@@ -389,6 +405,38 @@ export function TimelineGantt({
     })
     return () => observer.disconnect()
   }, [bars, tasks])
+
+  // 의존성 모순 링크 강조(#669) — SVAR 는 링크별 커스텀 className/color 주입 API 가 없어(바 색상과
+  // 동일한 제약, 위 STATUS_BAR_COLOR 이펙트 참조) `data-link-id` 를 가진 <g> 안의 `.wx-line-draw`
+  // 스트로크를 destructive 시맨틱 토큰으로 직접 덮어쓴다. SVAR 재렌더가 style 을 씻어내므로
+  // MutationObserver 로 재적용.
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const applyLinkColors = () => {
+      for (const link of links) {
+        // SVAR 는 문자열 id 에 내부적으로 ':' 접두를 붙여 렌더한다(setID, 스파이크 노트 미기재 —
+        // #669 구현 중 실측). link.id 는 `dep-{from}-{to}-{index}` 형태로 항목마다 유일해
+        // 접미(ends-with) 매칭으로 접두사 유무와 무관하게 안전하게 식별 가능하다.
+        const el = container.querySelector<SVGPolylineElement>(
+          `g[data-link-id$="${link.id}"] polyline.wx-line-draw`,
+        )
+        if (!el) continue
+        const color = link.contradictory ? 'var(--destructive)' : ''
+        if (el.style.stroke === color) continue
+        el.style.stroke = color
+      }
+    }
+    applyLinkColors()
+    const observer = new MutationObserver(applyLinkColors)
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class'],
+    })
+    return () => observer.disconnect()
+  }, [links])
 
   // 클릭 X 좌표(스크롤 보정 포함) → 'yyyy-MM-dd' 날짜 문자열. 이슈 빈 레인 클릭(생성)과
   // 마일스톤 레인 빈곳 클릭(생성) 이 동일 좌표계를 공유하므로 함수로 추출해 재사용한다(#648).

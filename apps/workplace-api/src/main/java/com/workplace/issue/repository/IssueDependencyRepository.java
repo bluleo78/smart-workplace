@@ -102,6 +102,7 @@ public class IssueDependencyRepository {
             ISSUE.NUMBER,
             ISSUE.TITLE,
             ISSUE.STATUS,
+            ISSUE.DUE_DATE,
             ISSUE_TYPE_DEF.ID,
             ISSUE_TYPE_DEF.NAME,
             ISSUE_TYPE_DEF.COLOR_TOKEN,
@@ -127,7 +128,8 @@ public class IssueDependencyRepository {
                                 r.get(ISSUE_TYPE_DEF.ID),
                                 r.get(ISSUE_TYPE_DEF.NAME),
                                 r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
-                                r.get(ISSUE_TYPE_DEF.ICON)))));
+                                r.get(ISSUE_TYPE_DEF.ICON)),
+                            r.get(ISSUE.DUE_DATE))));
     return result;
   }
 
@@ -141,6 +143,7 @@ public class IssueDependencyRepository {
             ISSUE.NUMBER,
             ISSUE.TITLE,
             ISSUE.STATUS,
+            ISSUE.DUE_DATE,
             ISSUE_TYPE_DEF.ID,
             ISSUE_TYPE_DEF.NAME,
             ISSUE_TYPE_DEF.COLOR_TOKEN,
@@ -166,7 +169,8 @@ public class IssueDependencyRepository {
                                 r.get(ISSUE_TYPE_DEF.ID),
                                 r.get(ISSUE_TYPE_DEF.NAME),
                                 r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
-                                r.get(ISSUE_TYPE_DEF.ICON)))));
+                                r.get(ISSUE_TYPE_DEF.ICON)),
+                            r.get(ISSUE.DUE_DATE))));
     return result;
   }
 

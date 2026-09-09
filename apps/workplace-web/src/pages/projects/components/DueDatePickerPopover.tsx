@@ -10,12 +10,19 @@ interface DueDatePickerPopoverProps {
   /** 날짜 선택 시 YYYY-MM-DD 문자열을 반환. 지우기 시 undefined를 반환. */
   onChange: (date: string | undefined) => void;
   disabled?: boolean;
+  /** 인라인 경고 문구 — 선행 이슈 마감일보다 이른 날짜 선택 등(#669, soft 경고). */
+  warningText?: string | null;
 }
 
 /**
  * 이슈 상세 패널의 마감일 DatePicker 컴포넌트.
  */
-export function DueDatePickerPopover({ value, onChange, disabled }: DueDatePickerPopoverProps) {
+export function DueDatePickerPopover({
+  value,
+  onChange,
+  disabled,
+  warningText,
+}: DueDatePickerPopoverProps) {
   return (
     <DatePickerPopover
       value={value}
@@ -24,6 +31,7 @@ export function DueDatePickerPopover({ value, onChange, disabled }: DueDatePicke
       ariaLabel="마감일 선택"
       clearAriaLabel="마감일 지우기"
       testIdPrefix="due-date"
+      warningText={warningText}
     />
   );
 }

@@ -114,6 +114,7 @@ test.describe('의존성', () => {
                 title: `이슈 ${body.otherNumber}`,
                 status: 'TODO',
                 type: taskType,
+                dueDate: null,
               },
             ];
             return route.fulfill({
@@ -260,6 +261,7 @@ test.describe('의존성', () => {
       title: '선행 이슈',
       status: 'TODO',
       type: taskType,
+      dueDate: null,
     };
 
     await setupCommonStubs(page);
@@ -301,5 +303,92 @@ test.describe('의존성', () => {
     // hover 후: 삭제 버튼이 표시됨.
     await row.hover();
     await expect(removeBtn).toBeVisible();
+  });
+
+  // #669 — 미완료 선행(blockedBy) 이슈의 마감일보다 이른 날짜를 시작일/마감일에 선택하면
+  // 인라인 경고가 뜨지만, 저장(PATCH)은 그대로 진행되어야 한다(soft 경고 정책, 결정 코멘트 참조).
+  test('선행 이슈 마감일보다 이른 마감일 선택 시 인라인 경고 노출 + 저장은 성공', async ({
+    authenticatedPage: page,
+  }) => {
+    const taskType = makeTaskType();
+    // 다음 달 1일 — ISO 문자열 비교로 이번 달의 어떤 날짜보다도 항상 늦다(월경계 안전).
+    const nextMonth = new Date();
+    nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
+    const blockerDueDate = nextMonth.toISOString().slice(0, 10);
+    const blockingLink: IssueLinkSummary = {
+      number: 21,
+      title: '결제 모듈 환불 처리 간헐적 실패',
+      status: 'IN_PROGRESS', // 미완료 — 경고 대상.
+      type: taskType,
+      dueDate: blockerDueDate,
+    };
+
+    await setupCommonStubs(page);
+
+    let currentDueDate: string | null = null;
+    const patches: Record<string, unknown>[] = [];
+
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1`,
+      (route) => {
+        if (route.request().method() === 'PATCH') {
+          const payload = route.request().postDataJSON() as Record<string, unknown>;
+          patches.push(payload);
+          if (typeof payload.dueDate === 'string') currentDueDate = payload.dueDate;
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ...createIssue({ id: 1, number: 1, title: 'task A', dueDate: currentDueDate }),
+              type: taskType,
+            }),
+          });
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            summary: {
+              ...createIssue({ id: 1, number: 1, title: 'task A', dueDate: currentDueDate }),
+              type: taskType,
+              blockedBy: [blockingLink],
+              blocks: [],
+              blocked: true,
+            },
+            body: '',
+            comments: [],
+            history: [],
+            attachments: [],
+            viewerCanEditWorkflow: true,
+            viewerCanEditContent: true,
+            viewerCanDelete: true,
+          }),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}/issues/1`);
+
+    // 마감일 없음 → 경고 없음.
+    await expect(page.getByTestId('due-date-warning')).toHaveCount(0);
+
+    // 마감일 피커 — 이번 달 10일 선택(선행 이슈 마감일은 다음 달이라 항상 더 이름).
+    await page.getByTestId('due-date-trigger').click();
+    await expect(page.getByTestId('due-date-popover')).toBeVisible();
+    const day10 = page
+      .locator('[data-testid="due-date-popover"] [data-slot="calendar"] button[data-day]', { hasText: '10' })
+      .first();
+    await day10.click();
+
+    // PATCH 는 그대로 나가고(차단 없음), 인라인 경고가 노출된다.
+    await expect.poll(() => patches.length).toBeGreaterThanOrEqual(1);
+    expect(typeof patches[0].dueDate).toBe('string');
+    await expect(page.getByTestId('due-date-warning')).toBeVisible();
+    await expect(page.getByTestId('due-date-warning')).toContainText(blockerDueDate);
+
+    // 새로고침(서버 재조회) 후에도 저장된 값이 유지 — "저장은 성공" 이 실제로 영속됐음을 단언.
+    await page.reload();
+    await expect(page.getByTestId('due-date-trigger')).toContainText('10일');
+    await expect(page.getByTestId('due-date-warning')).toBeVisible();
   });
 });

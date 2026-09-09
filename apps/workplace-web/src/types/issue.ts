@@ -23,6 +23,8 @@ export interface IssueLinkSummary {
   title: string;
   status: string;
   type: IssueTypeSummary;
+  // 선행 이슈의 마감일 — 후행 이슈 날짜 선택 시 모순(선행보다 이른 날짜) 판정용 (#669, soft 경고 정책).
+  dueDate: string | null;
 }
 
 export interface IssueResponse {

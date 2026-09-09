@@ -343,6 +343,65 @@ test('의존 화살표 렌더 (표시 전용)', async ({ authenticatedPage: page
   await expect(bar.locator('.wx-link')).toHaveCount(0);
 });
 
+// #669 — 의존성 순서와 실제 일정이 모순되는 링크(후행 마감일 < 선행 마감일)는 destructive 톤으로
+// 강조된다. 정상 링크(선행이 먼저 끝남)는 강조되지 않아야 대조가 성립한다.
+test('일정 모순 의존성 링크가 destructive 색으로 강조된다', async ({ authenticatedPage: page }) => {
+  await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject({ key: KEY })) }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/members`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/cycles`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/milestones`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    const issues = [
+      // 선행(1) 마감 07-10 > 후행(2) 마감 07-05 — 모순.
+      createIssue({ number: 1, title: '선행 A', startDate: '2026-07-01', dueDate: '2026-07-10' }),
+      createIssue({ number: 2, title: '후행 A', startDate: '2026-07-02', dueDate: '2026-07-05' }),
+      // 선행(3) 마감 07-01 < 후행(4) 마감 07-15 — 정상(대조군).
+      createIssue({ number: 3, title: '선행 B', startDate: '2026-06-28', dueDate: '2026-07-01' }),
+      createIssue({ number: 4, title: '후행 B', startDate: '2026-07-03', dueDate: '2026-07-15' }),
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  await page.route(`**/api/v1/projects/${KEY}/issue-dependencies`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { fromIssueNumber: 1, toIssueNumber: 2 },
+        { fromIssueNumber: 3, toIssueNumber: 4 },
+      ]),
+    }),
+  );
+
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expandNoEpicGroup(page);
+  await expect(page.locator('[data-link-id]')).toHaveCount(2);
+
+  // 링크 순서(id 부여 방식)는 SVAR 내부 구현에 의존하므로 특정 id 로 매칭하지 않고, 2개 중
+  // 정확히 1개만 destructive 로 강조되는지(모순 1건 vs 정상 1건) 로 검증한다.
+  const strokes = () =>
+    page
+      .locator('[data-link-id] polyline.wx-line-draw')
+      .evaluateAll((els) => els.map((el) => (el as SVGPolylineElement).style.stroke));
+
+  await expect
+    .poll(async () => (await strokes()).filter((s) => s === 'var(--destructive)').length)
+    .toBe(1);
+  const finalStrokes = await strokes();
+  expect(finalStrokes.filter((s) => s !== 'var(--destructive)').length).toBe(1);
+});
+
 test('일정 미정 섹션 — 접이식 + 배치', async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
   await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {

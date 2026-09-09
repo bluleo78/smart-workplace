@@ -79,6 +79,19 @@ export function IssuePropertyRail({
   // 의존성 그룹 배지 — 차단됨 + 차단 중(양방향) 합산.
   const dependencyCount = blockedBy.length + blocks.length;
 
+  // 의존성 일정 모순 soft 경고(#669) — 미완료(DONE/CANCELED 아님) 선행 이슈 중 가장 늦은 마감일을
+  // 구해, 시작일/마감일이 그보다 이르면 인라인 경고를 띄운다. 저장 자체는 차단하지 않는다(정책 결정).
+  const latestActiveBlockerDueDate = blockedBy
+    .filter((l) => l.status !== 'DONE' && l.status !== 'CANCELED' && l.dueDate)
+    .reduce<string | null>(
+      (latest, l) => (latest === null || (l.dueDate as string) > latest ? (l.dueDate as string) : latest),
+      null,
+    );
+  const dateWarning = (date: string | null): string | null =>
+    latestActiveBlockerDueDate && date && date < latestActiveBlockerDueDate
+      ? `선행 이슈가 아직 진행 중이며 마감일(${latestActiveBlockerDueDate})이 더 늦습니다.`
+      : null;
+
   return (
     <div className="space-y-3" data-testid="property-rail">
       {/* EPIC 은 부모를 가질 수 없으므로 슬롯 자체를 노출하지 않음.
@@ -155,6 +168,7 @@ export function IssuePropertyRail({
             ariaLabel="시작일 선택"
             clearAriaLabel="시작일 지우기"
             disabled={updatePending || !canEditWorkflow}
+            warningText={dateWarning(startDate)}
             onChange={(date) =>
               onPatch({
                 startDate: date,
@@ -168,6 +182,7 @@ export function IssuePropertyRail({
           <DueDatePickerPopover
             value={dueDate}
             disabled={updatePending || !canEditWorkflow}
+            warningText={dateWarning(dueDate)}
             onChange={(date) =>
               onPatch({
                 dueDate: date,

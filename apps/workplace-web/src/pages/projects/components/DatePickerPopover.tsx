@@ -27,6 +27,11 @@ interface DatePickerPopoverProps {
   emptyLabel?: string;
   /** data-testid 접두어 — `${prefix}-picker` / `${prefix}-trigger` / `${prefix}-popover` / `${prefix}-clear`. */
   testIdPrefix?: string;
+  /**
+   * 인라인 경고 문구 — 선행 이슈 마감일보다 이른 날짜 선택 등 저장은 막지 않는 soft 경고(#669).
+   * 값이 있으면 트리거 아래 destructive 톤 텍스트로 노출한다.
+   */
+  warningText?: string | null;
 }
 
 /**
@@ -41,6 +46,7 @@ export function DatePickerPopover({
   clearAriaLabel,
   emptyLabel = '없음',
   testIdPrefix = 'date',
+  warningText,
 }: DatePickerPopoverProps) {
   const [open, setOpen] = useState(false);
 
@@ -62,46 +68,54 @@ export function DatePickerPopover({
   }
 
   return (
-    <div className="flex items-center gap-1" data-testid={`${testIdPrefix}-picker`}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
+    <div className="space-y-1">
+      <div className="flex items-center gap-1" data-testid={`${testIdPrefix}-picker`}>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 justify-start gap-2 font-normal"
+              disabled={disabled}
+              aria-label={ariaLabel}
+              data-testid={`${testIdPrefix}-trigger`}
+            >
+              <CalendarIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {selected ? (
+                <span>{format(selected, 'yyyy년 M월 d일', { locale: ko })}</span>
+              ) : (
+                <span className="text-muted-foreground">{emptyLabel}</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start" data-testid={`${testIdPrefix}-popover`}>
+            <Calendar
+              mode="single"
+              selected={selected}
+              onSelect={handleSelect}
+            />
+          </PopoverContent>
+        </Popover>
+        {/* 지우기 버튼 — 날짜가 설정된 경우에만 표시 */}
+        {selected && (
           <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 justify-start gap-2 font-normal"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={handleClear}
             disabled={disabled}
-            aria-label={ariaLabel}
-            data-testid={`${testIdPrefix}-trigger`}
+            aria-label={clearAriaLabel}
+            data-testid={`${testIdPrefix}-clear`}
           >
-            <CalendarIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-            {selected ? (
-              <span>{format(selected, 'yyyy년 M월 d일', { locale: ko })}</span>
-            ) : (
-              <span className="text-muted-foreground">{emptyLabel}</span>
-            )}
+            <X className="h-4 w-4" />
           </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start" data-testid={`${testIdPrefix}-popover`}>
-          <Calendar
-            mode="single"
-            selected={selected}
-            onSelect={handleSelect}
-          />
-        </PopoverContent>
-      </Popover>
-      {/* 지우기 버튼 — 날짜가 설정된 경우에만 표시 */}
-      {selected && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          onClick={handleClear}
-          disabled={disabled}
-          aria-label={clearAriaLabel}
-          data-testid={`${testIdPrefix}-clear`}
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        )}
+      </div>
+      {/* 의존성 일정 모순 soft 경고(#669) — 저장은 막지 않고 알리기만 함 */}
+      {warningText && (
+        <p className="text-xs text-destructive" data-testid={`${testIdPrefix}-warning`}>
+          {warningText}
+        </p>
       )}
     </div>
   );
