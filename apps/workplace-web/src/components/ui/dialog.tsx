@@ -51,15 +51,66 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
+  // 다이얼로그가 열릴 때 포커스를 갖고 있던 요소(대개 트리거 버튼)를 기억해뒀다가
+  // 닫힐 때 그 요소로 포커스를 되돌린다 — Radix 기본 동작(triggerRef.focus())은
+  // `<DialogTrigger>` 를 쓰지 않고 커스텀 버튼 + `open` 상태로 여는 사용처(예:
+  // EventDialog)에서 triggerRef 가 null 이라 무력화된다(#708).
+  //
+  // 캡처 시점은 useLayoutEffect(마운트 시 1회)가 아니라 onOpenAutoFocus 를 쓴다:
+  // 이 컴포넌트(DialogContent 래퍼)는 부모가 `open` 여부와 무관하게 항상 JSX 트리에
+  // 존재하므로(Presence 로 내부 DOM 만 열고 닫음) 래퍼의 useLayoutEffect 는 최초
+  // 마운트 시 단 한 번만 실행돼 재오픈 시 캡처가 안 된다. onOpenAutoFocus 는 Radix
+  // FocusScope 가 "다이얼로그 안으로 포커스를 옮기기 직전"에 매 open 마다 동기 호출하는
+  // 콜백이라 정확한 시점에 매번 재캡처된다.
+  const previouslyFocusedElementRef = React.useRef<HTMLElement | null>(null)
+
+  // 사용처가 onOpenAutoFocus 를 직접 넘긴 경우 그 핸들러를 먼저 실행(순수 관찰이라
+  // defaultPrevented 여부와 무관하게 항상 캡처).
+  const handleOpenAutoFocus = React.useCallback(
+    (event: Event) => {
+      onOpenAutoFocus?.(event)
+      const active = document.activeElement
+      // document.body 는 유효한 복원 대상이 아니다(포커스가 이미 없던 상태).
+      previouslyFocusedElementRef.current =
+        active instanceof HTMLElement && active !== document.body ? active : null
+    },
+    [onOpenAutoFocus]
+  )
+
+  // 사용처가 onCloseAutoFocus 를 직접 넘긴 경우 그 핸들러가 우선하도록 병합하고,
+  // 사용처가 이미 preventDefault() 로 포커스를 직접 처리했다면 기본 복원 로직을 건너뛴다.
+  const handleCloseAutoFocus = React.useCallback(
+    (event: Event) => {
+      onCloseAutoFocus?.(event)
+      const target = previouslyFocusedElementRef.current
+      // 래퍼가 open 사이클을 넘어 유지되므로, 다음 open 에서 stale 복원을 막기 위해
+      // 이번 close 에서 소비한 뒤 즉시 비운다.
+      previouslyFocusedElementRef.current = null
+
+      if (event.defaultPrevented) return
+
+      // 복원 대상이 이미 DOM 에서 제거됐을 수 있으므로 isConnected 확인 후 focus.
+      if (target && target.isConnected) {
+        event.preventDefault()
+        target.focus()
+      }
+    },
+    [onCloseAutoFocus]
+  )
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        onOpenAutoFocus={handleOpenAutoFocus}
+        onCloseAutoFocus={handleCloseAutoFocus}
         className={cn(
           "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg",
           className
