@@ -214,7 +214,7 @@ export function MailComposeDock() {
           {/* 본문(작성 탭) — review 일 때 숨김(언마운트 금지) */}
           <div className={tab === 'review' ? 'hidden' : ''}>
             <MailComposer
-              key={draft.instanceId}
+              key={`composer-${draft.instanceId}`}
               ref={composerRef}
               initialHtml={draft.initialHtml}
               onChange={(html, text) => {
@@ -226,7 +226,7 @@ export function MailComposeDock() {
             {/* 인용문 — 에디터 밖(읽기 전용). AI 개선본 교체 대상이 아니므로 원문이 보존된다. */}
             {draft.quote && (
               <MailQuoteBlock
-                key={draft.instanceId}
+                key={`quote-${draft.instanceId}`}
                 quoteHtml={draft.quote.html}
                 meta={draft.quote.meta}
                 variant={draft.quote.variant}

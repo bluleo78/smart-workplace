@@ -215,6 +215,25 @@ test.describe('메일 인용문 보존', () => {
     expect(sent!.bodyHtml).toContain('기밀 문단 없이 회신합니다.')
   })
 
+  test('인용문 있는 전달 시 형제 컴포넌트 key 중복 경고가 발생하지 않는다 (#831)', async ({
+    authenticatedPage: page,
+  }) => {
+    // MailComposer/MailQuoteBlock 이 같은 부모 아래 형제인데 draft.instanceId 를
+    // 그대로 공유하면 React 가 "two children with the same key" 콘솔 에러를 낸다.
+    const duplicateKeyWarnings: string[] = []
+    page.on('console', (msg) => {
+      if (/two children with the same key/i.test(msg.text())) {
+        duplicateKeyWarnings.push(msg.text())
+      }
+    })
+
+    await mockInbox(page)
+    await page.getByTestId('mail-forward').click()
+    await expect(page.getByTestId('mail-compose-quote')).toBeVisible()
+
+    expect(duplicateKeyWarnings, duplicateKeyWarnings.join('\n')).toHaveLength(0)
+  })
+
   test('새 메일에는 인용문 블록이 없다', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await page.route(
