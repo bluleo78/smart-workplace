@@ -1425,6 +1425,54 @@ test('오늘 일정 — 종일·시각·미정 혼재 시 미정은 맨 뒤로 �
   await expect(timed).toHaveText(/^\d{2}:\d{2}$/)
 })
 
+// ── #653: 오늘 일정 빈 상태 — 내 작업 위젯과 동일한 4단 구성 + "새 일정" CTA ──────────
+
+test('오늘 일정 — 빈 상태가 아이콘+제목+설명+"새 일정" CTA 4단 구성으로 렌더된다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  await mockApi(page, 'GET', '/api/v1/me/issues', issues())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issues())
+  await mockApi(page, 'GET', '/api/v1/notifications', notifications())
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/messaging/channels', channels())
+  await mockApi(page, 'GET', '/api/v1/messaging/dms', emptyDms)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', mail())
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['calendar_today']))
+  await page.goto('/')
+
+  const empty = page.getByTestId('dash-calendar-empty')
+  await expect(empty).toBeVisible()
+  await expect(empty).toContainText('오늘 일정이 없어요')
+  // 보조 설명 — 내 작업 위젯과 동일한 밀도(제목+설명).
+  await expect(empty).toContainText('예정된 회의·마감이 없는 여유로운 하루예요')
+  // CTA — 캘린더 페이지의 기존 생성 다이얼로그를 ?new=true 딥링크로 재사용.
+  const cta = empty.getByRole('link', { name: /새 일정/ })
+  await expect(cta).toHaveAttribute('href', '/calendar?new=true')
+})
+
+test('오늘 일정 — 빈 상태 "새 일정" CTA 클릭 시 캘린더로 이동해 새 일정 다이얼로그가 자동으로 열린다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  await mockApi(page, 'GET', '/api/v1/me/issues', issues())
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issues())
+  await mockApi(page, 'GET', '/api/v1/notifications', notifications())
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/messaging/channels', channels())
+  await mockApi(page, 'GET', '/api/v1/messaging/dms', emptyDms)
+  await mockApi(page, 'GET', '/api/v1/me/mail-summary', mail())
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['calendar_today']))
+  // /calendar 진입 시 필요한 최소 API 모킹(캘린더 목록 — 이슈 마감일은 /me/issues 재사용).
+  await mockApi(page, 'GET', '/api/v1/calendars', [])
+  await page.goto('/')
+
+  await page.getByTestId('dash-calendar-empty').getByRole('link', { name: /새 일정/ }).click()
+  await expect(page).toHaveURL('/calendar')
+  // 새 일정 다이얼로그(EventDialog)가 자동으로 열려야 한다.
+  await expect(page.getByRole('dialog').getByRole('heading', { name: '새 일정' })).toBeVisible()
+})
+
 test('합성 — 메일은 "지금 신경 쓸 일"에 끼지 않고, 최상위는 포커스 카드로 강조된다', async ({
   authenticatedPage: page,
 }) => {

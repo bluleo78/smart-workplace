@@ -70,6 +70,8 @@ export function CalendarPage() {
     const n = Number(raw)
     return Number.isFinite(n) ? n : null
   }, [searchParams])
+  // 새 일정 딥링크(?new=true) — 홈 대시보드 "오늘 일정" 위젯 빈 상태 CTA(#653) 등에서 진입.
+  const deepLinkNew = searchParams.get('new') === 'true'
   const [view, setView] = useState<CalendarViewType>('month')
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -170,6 +172,21 @@ export function CalendarPage() {
     setEditing(e)
     setDialogOpen(true)
   }
+
+  // 새 일정 딥링크(?new=true) 처리 — 진입 시 1회 다이얼로그 오픈 후 쿼리파라미터 정리(replace).
+  useEffect(() => {
+    if (!deepLinkNew) return
+    openNew()
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('new')
+        return next
+      },
+      { replace: true },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkNew])
 
   // 알림 딥링크로 지목된 일정 조회 — 성공 시 해당 날짜로 이동 + 상세 모달 자동 오픈,
   // 삭제됐거나 접근 권한 없으면(404/403) 조용히 /calendar 기본 화면으로 폴백 + 토스트 안내.

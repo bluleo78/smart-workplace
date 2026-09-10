@@ -1,3 +1,4 @@
+import { CheckCircle2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
@@ -7,6 +8,7 @@ import { buildMyTaskRows, dueLabel, type MyTaskBucket, type MyTaskRow } from '@/
 import type { IssueSearchResponse } from '@/types/issue'
 
 import { WidgetError } from '../WidgetError'
+import { WidgetEmptyState } from './WidgetEmptyState'
 
 // 버킷별 그룹 헤더 라벨 — 위급도 범주를 한 줄로 표시(행은 그룹 아래 정렬).
 const BUCKET_LABEL: Record<MyTaskBucket, string> = {
@@ -115,20 +117,14 @@ export default function MyTasksBody({
       </div>
 
       {result.isEmpty ? (
-        // 긍정적 빈 상태 — "0"을 결핍이 아닌 안심 신호로.
-        <div data-testid="dash-mytasks-empty" className="py-3 text-center">
-          <div className="text-2xl text-ai-accent">✓</div>
-          <div className="mt-1 text-sm font-medium">지금 손댈 일이 없어요</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">담당한 작업을 모두 위임했거나 끝냈어요</div>
-          {result.watchedToday > 0 && (
-            <Link
-              to="/me/tasks/watched"
-              className="mt-3 inline-block rounded px-2 py-1 text-xs text-ai-accent hover:underline"
-            >
-              구독 중 오늘 {result.watchedToday}건 변동 →
-            </Link>
-          )}
-        </div>
+        // 긍정적 빈 상태 — "0"을 결핍이 아닌 안심 신호로(#653: 공용 WidgetEmptyState 사용).
+        <WidgetEmptyState
+          icon={CheckCircle2}
+          title="지금 손댈 일이 없어요"
+          description="담당한 작업을 모두 위임했거나 끝냈어요"
+          cta={result.watchedToday > 0 ? { label: `구독 중 오늘 ${result.watchedToday}건 변동`, to: '/me/tasks/watched' } : undefined}
+          testId="dash-mytasks-empty"
+        />
       ) : (
         <>
           {groups.map((group) => {

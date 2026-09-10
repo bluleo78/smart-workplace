@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import type { CalendarEvent } from '@/types/calendar'
 
 import { WidgetError } from '../WidgetError'
+import { WidgetEmptyState } from './WidgetEmptyState'
 
 // 오늘 00:00~24:00(로컬) 범위의 ISO 문자열을 만들어 캘린더 쿼리에 전달.
 function todayRange(): { from: string; to: string } {
@@ -72,15 +73,15 @@ export default function CalendarTodayBody({
   const events = data ?? []
   if (events.length === 0)
     return (
-      <div
-        // I3(a11y): 빈 상태는 보조 안내이므로 role="status"(polite live region).
-        role="status"
-        className="flex flex-col items-center gap-2 py-6 text-center"
-        data-testid="dash-calendar-empty"
-      >
-        <CalendarDays className="h-8 w-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">오늘 일정이 없어요</p>
-      </div>
+      // #653: MyTasksBody 와 동일한 4단 구성(아이콘+제목+설명+CTA)으로 통일.
+      // CTA(새 일정)는 캘린더 페이지의 기존 생성 다이얼로그를 ?new=true 딥링크로 재사용(신규 플로우 설계 없음).
+      <WidgetEmptyState
+        icon={CalendarDays}
+        title="오늘 일정이 없어요"
+        description="예정된 회의·마감이 없는 여유로운 하루예요"
+        cta={{ label: '새 일정', to: '/calendar?new=true' }}
+        testId="dash-calendar-empty"
+      />
     )
 
   // 시작 시각순 정렬(미정은 맨 뒤) 후 상위 count 건(위젯 설정 기반).
