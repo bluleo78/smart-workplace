@@ -23,9 +23,10 @@ export function SaveViewDialog({
   onOpenChange,
 }: {
   projectKey: string
-  /** 생성 시 저장할 현재 필터 쿼리스트링(? 제외). 수정 시에는 editing.query 가 사용된다. */
+  /** 현재 필터 쿼리스트링(? 제외). 생성 모드에서는 그대로 저장되고, 수정 모드에서는
+   *  "현재 필터로 갱신" 체크 시에만 editing.query 대신 이 값이 저장된다(#777). */
   query: string
-  /** 지정되면 수정 모드 — 이름/가시성만 변경하고 쿼리는 기존값 유지. */
+  /** 지정되면 수정 모드 — 기본은 이름/가시성만 변경하고 쿼리는 기존값 유지(체크박스로 갱신 가능). */
   editing?: SavedViewResponse
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -37,6 +38,9 @@ export function SaveViewDialog({
   const [name, setName] = useState(editing?.name ?? '')
   const [nameError, setNameError] = useState('')
   const [visibility, setVisibility] = useState<Visibility>(editing?.visibility ?? 'PRIVATE')
+  // "현재 필터로 갱신" 체크박스(#777) — 수정 모드에서만 의미 있음. 기본 체크 해제:
+  // 이름/가시성만 바꾸려는 흔한 경우가 실수로 필터까지 바뀌지 않도록.
+  const [updateQuery, setUpdateQuery] = useState(false)
   const pending = isEdit ? update.isPending : create.isPending
   // 생성 모드에서 필터 미적용(빈 query) 이면 백엔드 NotBlank 위반 → 클라이언트 가드.
   const noFilter = !isEdit && !query.trim()
@@ -60,10 +64,12 @@ export function SaveViewDialog({
             if (noFilter) return
             try {
               if (isEdit) {
-                // 수정: 쿼리는 기존값 유지, 이름/가시성만 변경.
+                // 수정: 기본은 쿼리를 기존값 유지, "현재 필터로 갱신" 체크 시에만 현재 URL
+                // 쿼리로 교체한다(#777). 이전에는 무조건 editing.query 를 되돌려보내 체크박스
+                // 없이는 필터 갱신이 불가능했다.
                 await update.mutateAsync({
                   id: editing.id,
-                  body: { name: trimmed, query: editing.query, visibility },
+                  body: { name: trimmed, query: updateQuery ? query : editing.query, visibility },
                 })
               } else {
                 await create.mutateAsync({ name: trimmed, query, visibility })
@@ -71,6 +77,7 @@ export function SaveViewDialog({
               setName('')
               setNameError('')
               setVisibility('PRIVATE')
+              setUpdateQuery(false)
               onOpenChange(false)
             } catch {
               // 토스트는 훅 onError 에서 처리
@@ -127,6 +134,19 @@ export function SaveViewDialog({
               공유
             </label>
           </fieldset>
+          {/* #777: 수정 모드에서만 노출 — 체크 시 현재 URL 필터로 뷰의 쿼리를 교체한다.
+              기본 체크 해제(이름/가시성만 바꾸는 흔한 경우가 실수로 필터까지 바뀌지 않도록). */}
+          {isEdit && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                data-testid="save-view-update-query"
+                checked={updateQuery}
+                onChange={(e) => setUpdateQuery(e.target.checked)}
+              />
+              현재 필터로 갱신
+            </label>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               취소
