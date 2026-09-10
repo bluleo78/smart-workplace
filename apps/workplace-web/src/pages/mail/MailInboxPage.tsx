@@ -65,6 +65,10 @@ function MessageRow({
       role="button"
       tabIndex={0}
       data-testid={`mail-row-${m.id}`}
+      // a11y(#699): 발신자+제목만으로 accessible name 구성 — 스니펫/AI배지/날짜까지
+      // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
+      // 식별에 필수가 아니므로 간결함 우선으로 제외.
+      aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${m.subject || '(제목 없음)'}`}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -97,6 +101,9 @@ function MessageRow({
       {m.snippet && (
         <span
           data-testid={`mail-snippet-${m.id}`}
+          // a11y(#699): 시각적으로는 유지하되 행 accessible name(aria-label)에 중복 포함되지
+          // 않도록 SR 에서 제외.
+          aria-hidden="true"
           className="truncate text-xs text-muted-foreground"
         >
           {m.snippet}

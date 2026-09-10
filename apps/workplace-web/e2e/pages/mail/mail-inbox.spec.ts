@@ -62,6 +62,24 @@ test.describe('받은편지함', () => {
     await expect(page.getByTestId('mail-attachments')).toContainText('안건.pdf')
   })
 
+  // #699 — 행(div[role=button]) accessible name 이 발신자+제목+스니펫+AI배지까지 뒤섞여
+  // 장문화되던 문제. aria-label 로 발신자+제목만 남기고 스니펫은 aria-hidden 처리했는지 검증.
+  test('메일 행 accessible name — 발신자+제목만 포함(스니펫 제외) (#699)', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await page.goto('/mail/1')
+
+    const row = page.getByTestId('mail-row-10')
+    await expect(row).toBeVisible()
+    await expect(row).toHaveAccessibleName('앨리스 프로젝트 회의 안내')
+
+    // 스니펫 텍스트는 화면에는 보이지만 accessible name 에는 포함되지 않는다.
+    const name = await row.evaluate((el) => el.getAttribute('aria-label'))
+    expect(name).not.toContain('내일 오후 2시에 회의를 진행합니다')
+  })
+
   test('검색 → query 파라미터 전달 + 목록 필터', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await stubMessages(page)
