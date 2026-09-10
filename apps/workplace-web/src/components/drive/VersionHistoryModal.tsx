@@ -117,9 +117,10 @@ export function VersionHistoryModal({ file, open, onClose, onChanged }: Props) {
               </li>
             ))}
           </ul>
+          {/* 코너 X 버튼(sr-only "닫기")과 라벨 중복을 피하기 위해 하단 버튼은 앱 전역 컨벤션(#829)에 맞춰 "취소" 사용 */}
           <DialogFooter>
             <Button variant="outline" onClick={onClose}>
-              닫기
+              취소
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -85,7 +85,11 @@ test('버전 이력 모달 표시·롤백', { tag: '@smoke' }, async ({ authenti
   await fileItem.hover()
   await fileItem.getByRole('button', { name: /더보기/ }).click()
   await page.getByRole('menuitem', { name: '버전 이력' }).click()
-  await expect(page.getByTestId('version-history-modal')).toBeVisible()
+  const versionModal = page.getByTestId('version-history-modal')
+  await expect(versionModal).toBeVisible()
+  // #829 — 코너 X(sr-only "닫기")와 하단 footer 버튼 라벨 중복 방지: 하단은 "취소" 로 통일
+  await expect(versionModal.getByRole('button', { name: '닫기' })).toHaveCount(1)
+  await expect(versionModal.getByRole('button', { name: '취소' })).toHaveCount(1)
   // 버전 행 표시 확인
   await expect(page.getByTestId('version-row-2')).toContainText('현재')
   await expect(page.getByTestId('version-row-1')).toBeVisible()

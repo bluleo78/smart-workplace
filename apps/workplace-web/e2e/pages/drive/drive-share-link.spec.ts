@@ -197,6 +197,49 @@ test(
   },
 )
 
+// #829 — 공유 링크 모달 하단 버튼과 코너 X 버튼의 접근성 라벨 중복 방지.
+// 코너 X(sr-only "닫기") 와 하단 footer 버튼이 동일 라벨("닫기")이면 접근성 트리에서
+// 두 개의 "닫기" 요소가 존재하게 된다 — 하단 버튼은 다른 모달과 동일하게 "취소"를 사용해야 한다.
+test('공유 링크 모달 — 하단 버튼은 "취소", 코너 X 는 "닫기" 로 라벨 분리', async ({
+  authenticatedPage: page,
+}) => {
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/files/${FILE_ID}/share-links`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([]),
+          })
+        : route.fallback(),
+  )
+
+  await stubSpaces(page)
+  await stubSpaceSingle(page)
+  await stubItems(page)
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  const fileRow = page.getByRole('listitem').filter({ hasText: 'report.txt' })
+  await fileRow.hover()
+  await fileRow.getByTestId('share-link-btn').click()
+
+  const modal = page.getByTestId('share-link-modal')
+  await expect(modal).toBeVisible()
+
+  // 코너 X 버튼(sr-only "닫기")은 그대로 유지 — 정확히 1개
+  await expect(modal.getByRole('button', { name: '닫기' })).toHaveCount(1)
+  // 하단 footer 버튼은 "취소" 로 통일 — 정확히 1개
+  const cancelBtn = modal.getByRole('button', { name: '취소' })
+  await expect(cancelBtn).toHaveCount(1)
+
+  // 클릭 시 여전히 onClose 동작(모달 닫힘) — 라벨만 바뀌었을 뿐 동작은 동일
+  await cancelBtn.click()
+  await expect(modal).not.toBeVisible()
+})
+
 // ── 과거 만료일 입력 시 생성 차단(#673) ──
 // <input type=date min> 은 네이티브 캘린더 위젯 클릭만 막을 뿐 키보드 직접 입력은 통과시킨다.
 // onCreate() 진입 시 명시적으로 재검증해 API 호출 자체를 막아야 한다.
