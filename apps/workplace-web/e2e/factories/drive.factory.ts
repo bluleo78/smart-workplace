@@ -24,6 +24,8 @@ export function createFolder(overrides: Partial<DriveFolder> = {}): DriveFolder 
     parentId: null,
     name: '문서',
     createdAt: new Date('2026-06-01').toISOString(),
+    // #799: 목록 3열(수정일) 노출용 — 기본은 생성일과 동일.
+    updatedAt: new Date('2026-06-01').toISOString(),
     ...overrides,
   }
 }
@@ -38,6 +40,8 @@ export function createFile(overrides: Partial<DriveFile> = {}): DriveFile {
     sizeBytes: 5,
     category: 'TEXT',
     createdAt: new Date('2026-06-01').toISOString(),
+    // #799: 목록 3열(수정일) 노출용 — 기본은 생성일과 동일.
+    updatedAt: new Date('2026-06-01').toISOString(),
     // #79: 기본 버전 수 1
     versionCount: 1,
     // #739: 기본은 원본 blob 존재(정상 파일). 유실 시나리오는 overrides로 false 지정.

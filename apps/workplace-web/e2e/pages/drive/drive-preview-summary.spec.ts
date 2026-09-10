@@ -21,6 +21,7 @@ async function setupDrive(page: import('@playwright/test').Page) {
     sizeBytes: 1024,
     category: 'WORD', // IMAGE/PDF/TEXT 아님 → 미리보기 불가 → blob/text 페치 없음
     createdAt: '2026-06-01T00:00:00Z',
+    updatedAt: '2026-06-01T00:00:00Z',
     versionCount: 1,
     available: true,
   }

@@ -186,6 +186,35 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(moved).isEqualTo(folder.id());
   }
 
+  /**
+   * #799: 목록 3열(이름/크기/수정일) 노출용 updatedAt 회귀 — 업로드 직후 DriveFileResponse.updatedAt 이 createdAt 과
+   * 같고(DEFAULT NOW()), 이동(move) 후에도 listInFolder 프로젝션이 drive_file.updated_at 을 정확히 반영하는지 확인 (#799
+   * 이슈 코멘트 전제조건 — "거짓 수정일" 방지).
+   */
+  @Test
+  void upload_thenMove_updatedAtReflectsDbColumn() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var folder = folderService.create(u, sp.id(), null, "대상");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+    assertThat(f.updatedAt()).isEqualTo(f.createdAt());
+
+    fileService.move(u, f.id(), folder.id());
+
+    var dbUpdatedAt =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FILE.UPDATED_AT)
+            .from(com.workplace.jooq.Tables.DRIVE_FILE)
+            .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(f.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FILE.UPDATED_AT);
+    DriveFileResponse moved =
+        folderService.listItems(u, sp.id(), folder.id()).files().stream()
+            .filter(r -> r.id() == f.id())
+            .findFirst()
+            .orElseThrow();
+    assertThat(moved.updatedAt()).isEqualTo(dbUpdatedAt);
+    assertThat(moved.updatedAt()).isAfterOrEqualTo(moved.createdAt());
+  }
+
   /** 복사 — 대상 폴더(서브폴더)에 blob 물리 복제 + 독립 스토리지 경로 검증. 동명이 없는 폴더로 복사하므로 충돌 없음(#79). */
   @Test
   void copy_physicallyDuplicatesBlob_independentStoragePath() throws Exception {

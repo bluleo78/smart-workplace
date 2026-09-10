@@ -94,6 +94,27 @@ class DriveFolderServiceTest extends IntegrationTestBase {
     assertThat(renamed.name()).isEqualTo("new");
   }
 
+  /**
+   * #799: 목록 3열(이름/크기/수정일) 노출용 updatedAt 회귀 — DTO 프로젝션이 drive_folder.updated_at 을 정확히 반영하는지(생성 직후
+   * createdAt 과 동일), 이름변경 후에도 DB 컬럼값과 DTO 값이 계속 일치하는지 확인(#799 이슈 코멘트 전제조건 — "거짓 수정일" 방지).
+   */
+  @Test
+  void rename_updatedAt_matchesDbColumn() {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFolderResponse created = folderService.create(u, sp.id(), null, "old");
+    assertThat(created.updatedAt()).isEqualTo(created.createdAt());
+
+    DriveFolderResponse renamed = folderService.rename(u, created.id(), "new");
+    var dbUpdatedAt =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FOLDER.UPDATED_AT)
+            .from(com.workplace.jooq.Tables.DRIVE_FOLDER)
+            .where(com.workplace.jooq.Tables.DRIVE_FOLDER.ID.eq(created.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FOLDER.UPDATED_AT);
+    assertThat(renamed.updatedAt()).isEqualTo(dbUpdatedAt);
+    assertThat(renamed.updatedAt()).isAfterOrEqualTo(renamed.createdAt());
+  }
+
   /** 폴더 삭제(소프트) = 휴지통으로. 중첩 파일 blob 은 보존(expires_at NULL 유지). */
   @Test
   void delete_trashesSubtree_andPreservesNestedFileBlobs() throws Exception {

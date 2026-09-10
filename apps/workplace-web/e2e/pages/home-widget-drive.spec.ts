@@ -98,7 +98,13 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
             body: JSON.stringify(
               makeItemList({
                 folders: [
-                  { id: 10, parentId: null, name: '기획 문서', createdAt: '2024-01-01T00:00:00Z' },
+                  {
+                    id: 10,
+                    parentId: null,
+                    name: '기획 문서',
+                    createdAt: '2024-01-01T00:00:00Z',
+                    updatedAt: '2024-01-01T00:00:00Z',
+                  },
                 ],
                 files: [
                   {
@@ -110,6 +116,7 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
                     sizeBytes: 1024,
                     category: 'DOCUMENT',
                     createdAt: '2024-01-01T00:00:00Z',
+                    updatedAt: '2024-01-01T00:00:00Z',
                     versionCount: 1,
                     available: true,
                   },

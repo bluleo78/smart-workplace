@@ -47,7 +47,12 @@ public class DriveSearchService {
             .map(
                 f ->
                     new DriveFolderHit(
-                        f.id(), f.parentId(), f.name(), f.createdAt(), pathOf(f.parentId(), byId)))
+                        f.id(),
+                        f.parentId(),
+                        f.name(),
+                        f.createdAt(),
+                        f.updatedAt(),
+                        pathOf(f.parentId(), byId)))
             .toList();
 
     List<DriveFileHit> fileHits =
@@ -63,6 +68,7 @@ public class DriveSearchService {
                         f.sizeBytes(),
                         f.category(),
                         f.createdAt(),
+                        f.updatedAt(),
                         pathOf(f.folderId(), byId)))
             .toList();
 

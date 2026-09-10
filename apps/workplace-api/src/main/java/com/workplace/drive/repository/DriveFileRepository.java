@@ -45,6 +45,7 @@ public class DriveFileRepository {
         r.get(FILE.SIZE_BYTES),
         r.get(FILE.CATEGORY),
         r.get(DRIVE_FILE.CREATED_AT),
+        r.get(DRIVE_FILE.UPDATED_AT),
         r.get(DRIVE_FILE.VERSION_COUNT),
         fileStore.exists(r.get(FILE.STORAGE_PATH)));
   }
@@ -179,6 +180,7 @@ public class DriveFileRepository {
             FILE.SIZE_BYTES,
             FILE.CATEGORY,
             DRIVE_FILE.CREATED_AT,
+            DRIVE_FILE.UPDATED_AT,
             DRIVE_FILE.VERSION_COUNT,
             FILE.STORAGE_PATH)
         .from(DRIVE_FILE)
@@ -203,6 +205,7 @@ public class DriveFileRepository {
             FILE.SIZE_BYTES,
             FILE.CATEGORY,
             DRIVE_FILE.CREATED_AT,
+            DRIVE_FILE.UPDATED_AT,
             DRIVE_FILE.VERSION_COUNT,
             FILE.STORAGE_PATH)
         .from(DRIVE_FILE)
@@ -351,6 +354,7 @@ public class DriveFileRepository {
             FILE.SIZE_BYTES,
             FILE.CATEGORY,
             DRIVE_FILE.CREATED_AT,
+            DRIVE_FILE.UPDATED_AT,
             DRIVE_FILE.VERSION_COUNT,
             FILE.STORAGE_PATH)
         .from(DRIVE_FILE)

@@ -67,7 +67,11 @@ public class DriveFolderRepository {
 
   public Optional<DriveFolderResponse> findById(long folderId) {
     return dsl.select(
-            DRIVE_FOLDER.ID, DRIVE_FOLDER.PARENT_ID, DRIVE_FOLDER.NAME, DRIVE_FOLDER.CREATED_AT)
+            DRIVE_FOLDER.ID,
+            DRIVE_FOLDER.PARENT_ID,
+            DRIVE_FOLDER.NAME,
+            DRIVE_FOLDER.CREATED_AT,
+            DRIVE_FOLDER.UPDATED_AT)
         .from(DRIVE_FOLDER)
         .where(DRIVE_FOLDER.ID.eq(folderId))
         .and(DRIVE_FOLDER.TRASHED_AT.isNull())
@@ -77,7 +81,8 @@ public class DriveFolderRepository {
                     r.get(DRIVE_FOLDER.ID),
                     r.get(DRIVE_FOLDER.PARENT_ID),
                     r.get(DRIVE_FOLDER.NAME),
-                    r.get(DRIVE_FOLDER.CREATED_AT)));
+                    r.get(DRIVE_FOLDER.CREATED_AT),
+                    r.get(DRIVE_FOLDER.UPDATED_AT)));
   }
 
   public void rename(long folderId, String name) {
@@ -150,7 +155,11 @@ public class DriveFolderRepository {
     Condition parentCond =
         parentId == null ? DRIVE_FOLDER.PARENT_ID.isNull() : DRIVE_FOLDER.PARENT_ID.eq(parentId);
     return dsl.select(
-            DRIVE_FOLDER.ID, DRIVE_FOLDER.PARENT_ID, DRIVE_FOLDER.NAME, DRIVE_FOLDER.CREATED_AT)
+            DRIVE_FOLDER.ID,
+            DRIVE_FOLDER.PARENT_ID,
+            DRIVE_FOLDER.NAME,
+            DRIVE_FOLDER.CREATED_AT,
+            DRIVE_FOLDER.UPDATED_AT)
         .from(DRIVE_FOLDER)
         .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
         .and(parentCond)
@@ -162,14 +171,19 @@ public class DriveFolderRepository {
                     r.get(DRIVE_FOLDER.ID),
                     r.get(DRIVE_FOLDER.PARENT_ID),
                     r.get(DRIVE_FOLDER.NAME),
-                    r.get(DRIVE_FOLDER.CREATED_AT)));
+                    r.get(DRIVE_FOLDER.CREATED_AT),
+                    r.get(DRIVE_FOLDER.UPDATED_AT)));
   }
 
   /** 공간 전체에서 이름에 q 를 포함(대소문자 무시)하는 폴더 — LIKE 와일드카드(%, _)는 리터럴로 이스케이프. */
   public List<DriveFolderResponse> searchByName(long spaceId, String q) {
     String pattern = "%" + DriveSearchPattern.escape(q) + "%";
     return dsl.select(
-            DRIVE_FOLDER.ID, DRIVE_FOLDER.PARENT_ID, DRIVE_FOLDER.NAME, DRIVE_FOLDER.CREATED_AT)
+            DRIVE_FOLDER.ID,
+            DRIVE_FOLDER.PARENT_ID,
+            DRIVE_FOLDER.NAME,
+            DRIVE_FOLDER.CREATED_AT,
+            DRIVE_FOLDER.UPDATED_AT)
         .from(DRIVE_FOLDER)
         .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
         .and(DRIVE_FOLDER.NAME.likeIgnoreCase(pattern, '\\'))
@@ -182,13 +196,18 @@ public class DriveFolderRepository {
                     r.get(DRIVE_FOLDER.ID),
                     r.get(DRIVE_FOLDER.PARENT_ID),
                     r.get(DRIVE_FOLDER.NAME),
-                    r.get(DRIVE_FOLDER.CREATED_AT)));
+                    r.get(DRIVE_FOLDER.CREATED_AT),
+                    r.get(DRIVE_FOLDER.UPDATED_AT)));
   }
 
   /** 공간의 모든 폴더(경로 계산용 id→parent/name 맵 구성). */
   public List<DriveFolderResponse> listAllFolders(long spaceId) {
     return dsl.select(
-            DRIVE_FOLDER.ID, DRIVE_FOLDER.PARENT_ID, DRIVE_FOLDER.NAME, DRIVE_FOLDER.CREATED_AT)
+            DRIVE_FOLDER.ID,
+            DRIVE_FOLDER.PARENT_ID,
+            DRIVE_FOLDER.NAME,
+            DRIVE_FOLDER.CREATED_AT,
+            DRIVE_FOLDER.UPDATED_AT)
         .from(DRIVE_FOLDER)
         .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
         .fetch(
@@ -197,7 +216,8 @@ public class DriveFolderRepository {
                     r.get(DRIVE_FOLDER.ID),
                     r.get(DRIVE_FOLDER.PARENT_ID),
                     r.get(DRIVE_FOLDER.NAME),
-                    r.get(DRIVE_FOLDER.CREATED_AT)));
+                    r.get(DRIVE_FOLDER.CREATED_AT),
+                    r.get(DRIVE_FOLDER.UPDATED_AT)));
   }
 
   /** 공간 휴지통의 폴더 trash_root 항목. */

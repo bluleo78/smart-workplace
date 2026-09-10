@@ -49,6 +49,8 @@ export interface DriveFolder {
   parentId: number | null
   name: string
   createdAt: string
+  // #799: 목록 3열(이름/크기/수정일) — 이름변경/이동 시 갱신.
+  updatedAt: string
 }
 
 /** breadcrumb 세그먼트 — 백엔드 DriveFolderPathSegment 와 1:1. 루트→대상 순. */
@@ -66,6 +68,8 @@ export interface DriveFile {
   sizeBytes: number
   category: string
   createdAt: string
+  // #799: 목록 3열(이름/크기/수정일) — 버전 업로드/이름변경/이동 시 갱신.
+  updatedAt: string
   // #79: 버전 수 — 업로드/롤백 시 갱신.
   versionCount: number
   // #739: 디스크 원본(blob) 존재 여부 — 읽기 시점 판정. false = 유실(복구 불가).

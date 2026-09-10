@@ -28,6 +28,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { extractApiError, handleApiError } from '@/lib/api-error'
+import { formatDateOnly, formatFileSize } from '@/lib/formatters'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
@@ -685,6 +686,23 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     )
   }
 
+  // #799: 이름/크기/수정일 컬럼 헤더 — 탐색 목적 목록(공간 파일 목록·검색 결과)에만 적용.
+  // 정렬 기능이 없으므로(스코프 밖) 순수 레이블 <span>만 사용 — 버튼/클릭 어포던스 금지.
+  function renderColumnHeader() {
+    return (
+      <div
+        className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground"
+        data-testid="drive-column-header"
+      >
+        <span className="w-4 shrink-0" aria-hidden="true" />
+        <span className="w-8 shrink-0" aria-hidden="true" />
+        <span className="flex-1">이름</span>
+        <span className="w-20 shrink-0 text-right">크기</span>
+        <span className="w-24 shrink-0 text-right">수정일</span>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="drive-page">
       <PageHeader
@@ -877,6 +895,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   results.folders.map((f) => f.id),
                   results.files.map((f) => f.id),
                 )}
+                {/* #799: 3열(이름/크기/수정일) 헤더 — 탐색 문맥(검색 결과)에도 적용. */}
+                {renderColumnHeader()}
                 <ul className="divide-y divide-border">
                   {results.folders.map((f) => (
                     <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
@@ -894,13 +914,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                       <button
                         type="button"
                         onClick={() => openFolder(f.id)}
-                        className="flex-1 text-left text-sm hover:underline"
+                        className="flex-1 truncate text-left text-sm hover:underline"
                       >
                         {f.name}
                         {f.folderPath && (
                           <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
                         )}
                       </button>
+                      {/* #799: 폴더 행 — 크기 없음, 수정일만 표시. */}
+                      <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">—</span>
+                      <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
+                        {formatDateOnly(f.updatedAt)}
+                      </span>
                     </li>
                   ))}
                   {results.files.map((f) => (
@@ -935,6 +960,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                           원본 유실
                         </StatusBadge>
                       )}
+                      {/* #799: 3열 — 크기/수정일. */}
+                      <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">
+                        {formatFileSize(f.sizeBytes)}
+                      </span>
+                      <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
+                        {formatDateOnly(f.updatedAt)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -1027,6 +1059,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               items.folders.map((f) => f.id),
               items.files.map((f) => f.id),
             )}
+            {/* #799: 3열(이름/크기/수정일) 헤더 — 비인터랙티브 레이블(정렬 없음). */}
+            {renderColumnHeader()}
           <ul className="divide-y divide-border">
             {items.folders.map((f) => (
               <li key={`folder-${f.id}`} className="group flex items-center gap-2 py-2">
@@ -1044,10 +1078,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <button
                   type="button"
                   onClick={() => openFolder(f.id)}
-                  className="flex-1 text-left text-sm hover:underline"
+                  className="flex-1 truncate text-left text-sm hover:underline"
                 >
                   {f.name}
                 </button>
+                {/* #799: 폴더 행 — 크기 없음, 수정일만 표시. */}
+                <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">—</span>
+                <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
+                  {formatDateOnly(f.updatedAt)}
+                </span>
                 <button
                   type="button"
                   onClick={() => onRenameFolder(f.id, f.name)}
@@ -1120,6 +1159,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                     v{f.versionCount}
                   </span>
                 )}
+                {/* #799: 3열 — 크기/수정일. */}
+                <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">
+                  {formatFileSize(f.sizeBytes)}
+                </span>
+                <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
+                  {formatDateOnly(f.updatedAt)}
+                </span>
                 {/* 행 액션 — 호버/포커스 시 노출. 주요 3개 인라인 + 더보기(⋯). 핸들러는 기존 그대로. */}
                 <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
                   <Button

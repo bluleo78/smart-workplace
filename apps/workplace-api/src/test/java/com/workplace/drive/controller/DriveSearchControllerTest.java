@@ -67,7 +67,16 @@ class DriveSearchControllerTest {
   void search_returnsHits() throws Exception {
     DriveFileHit hit =
         new DriveFileHit(
-            10L, null, 5L, "report.txt", "text/plain", 3L, "TEXT", OffsetDateTime.now(), "프로젝트");
+            10L,
+            null,
+            5L,
+            "report.txt",
+            "text/plain",
+            3L,
+            "TEXT",
+            OffsetDateTime.now(),
+            OffsetDateTime.now(),
+            "프로젝트");
     when(searchService.search(anyLong(), eq(7L), eq("report")))
         .thenReturn(new DriveSearchResponse(List.of(), List.of(hit)));
 
