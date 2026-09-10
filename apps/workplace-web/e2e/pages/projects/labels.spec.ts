@@ -127,6 +127,69 @@ test.describe('라벨', () => {
   );
 
   test(
+    '라벨 2개 이상 선택 시 AND 결합(모두 포함) 표기 노출 — 다른 facet(OR)과 구분 (#626)',
+    async ({ authenticatedPage: page }) => {
+      const labelA = createLabel({ name: '라벨A', colorToken: 'RED' });
+      const labelB = createLabel({ name: '라벨B', colorToken: 'BLUE' });
+      const issue = createIssue({ id: 1, number: 1, title: 'A', status: 'TODO' });
+
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createProject()),
+        }),
+      );
+
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels`, (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([labelA, labelB]),
+        });
+      });
+
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues`,
+        (route) => {
+          if (route.request().method() !== 'GET') return route.fallback();
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(createIssueSearchResponse([issue], null)),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}`);
+      await expect(page.getByTestId('issue-row-1')).toBeVisible();
+
+      // 라벨 필터 팝오버를 열면 AND 힌트가 선택 전부터 노출되어야 한다.
+      await page.getByTestId('add-filter-trigger').click();
+      await page.getByTestId('add-filter-facet-label').click();
+      await expect(page.getByTestId('facet-value-label-and-hint')).toBeVisible();
+      await expect(page.getByTestId('facet-value-label-and-hint')).toContainText('모두 가진');
+
+      // 라벨 1개만 선택했을 땐 다른 facet과 구분할 게 없으므로 "+N"/"(모두 포함)" 표기가 없다.
+      await page.getByTestId(`facet-value-label-${labelA.id}`).click();
+      await expect(page.getByTestId('filter-chip-label')).toBeVisible();
+      await expect(page.getByTestId('filter-chip-label')).not.toContainText('모두 포함');
+
+      // 2개 선택 시 칩에 "외 N (모두 포함)" 표기 — 다른 facet(status/assignee 등)의 "+N"과 구분.
+      await page.getByTestId(`facet-value-label-${labelB.id}`).click();
+      const chip = page.getByTestId('filter-chip-label');
+      await expect(chip).toContainText('외 1');
+      await expect(chip).toContainText('모두 포함');
+      await expect(page.getByTestId('filter-chip-label-and')).toBeVisible();
+      await expect(chip).toHaveAttribute('title', /모두 가진/);
+
+      const labelParam = new URL(page.url()).searchParams.get('label');
+      expect(labelParam?.split(',').map(Number).sort()).toEqual([labelA.id, labelB.id].sort());
+    },
+  );
+
+  test(
     '삭제된 라벨을 참조하는 필터 진입 시 원시 ID 대신 플레이스홀더 노출 (#609)',
     async ({ authenticatedPage: page }) => {
       // 라벨이 삭제되어 현재 옵션 목록에는 없지만, URL(또는 저장된 뷰)은 여전히

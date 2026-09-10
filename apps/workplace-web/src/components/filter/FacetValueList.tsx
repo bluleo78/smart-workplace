@@ -15,6 +15,15 @@ export function FacetValueList({
 }) {
   return (
     <div className="max-h-64 overflow-y-auto space-y-1">
+      {/* AND 결합 facet(라벨) 전용 안내 — 다른 facet(OR)과 시맨틱이 다름을 선택 전에 미리 알림 (#626) */}
+      {facet.combineMode === 'and' && (
+        <p
+          className="px-1 pb-1 text-xs text-muted-foreground"
+          data-testid={`facet-value-${facet.key}-and-hint`}
+        >
+          선택한 {facet.label}을(를) 모두 가진 이슈만 표시됩니다
+        </p>
+      )}
       {facet.options.map((opt) => (
         <label
           key={String(opt.value)}

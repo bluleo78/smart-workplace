@@ -47,6 +47,8 @@ export function TimelineFilterBar({ projectKey }: { projectKey: string }) {
     {
       key: 'label',
       label: '라벨',
+      // 백엔드가 선택된 라벨을 AND 결합(모두 가진 이슈만)하므로 다른 facet(OR)과 구분 표시 (#626)
+      combineMode: 'and',
       options: (labels.data ?? []).map((l) => ({
         value: l.id,
         label: l.name,
