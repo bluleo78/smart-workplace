@@ -1464,6 +1464,23 @@ public class GlobalExceptionHandler {
                 HttpStatus.SERVICE_UNAVAILABLE, "AI 생성 요청이 많아요. 잠시 후 다시 시도해주세요.", null, request));
   }
 
+  /**
+   * #690 — HikariCP 커넥션 풀이 동시 요청을 감당 못해 커넥션 획득이 타임아웃되거나(SQLTransientConnectionException),
+   * TenantAwareTransactionManager 가 tenant GUC 설정 중 SQLException 을 만나면 둘 다
+   * CannotCreateTransactionException 으로 감싸져 올라온다. 캐치올 500("An unexpected error occurred")로 뭉개지면
+   * 클라이언트가 재시도 가능한 일시적 상황인지 알 수 없으므로, 503 + 재시도 안내로 분리한다.
+   */
+  @ExceptionHandler(org.springframework.transaction.CannotCreateTransactionException.class)
+  public ResponseEntity<ErrorResponse> handleCannotCreateTransaction(
+      org.springframework.transaction.CannotCreateTransactionException ex,
+      HttpServletRequest request) {
+    log.warn("DB 커넥션 획득 실패 — 요청 거부: {}", ex.getMessage());
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .body(
+            buildError(
+                HttpStatus.SERVICE_UNAVAILABLE, "서버가 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요.", null, request));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ErrorResponse> handleException(Exception ex, HttpServletRequest request) {
     // SSE/async 스트림에 쓰던 중 클라이언트가 끊긴 경우(Broken pipe 등)는 정상 흐름이다.

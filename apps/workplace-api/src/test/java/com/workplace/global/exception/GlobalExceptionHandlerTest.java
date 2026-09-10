@@ -65,6 +65,21 @@ class GlobalExceptionHandlerTest {
   }
 
   @Test
+  void 동시_로그인_등으로_커넥션풀_고갈시_CannotCreateTransaction_은_503_을_반환한다() {
+    // #690: HikariCP 풀 고갈(SQLTransientConnectionException)이 CannotCreateTransactionException 으로
+    // 감싸져 올라올 때, 캐치올 500("An unexpected error occurred")에 뭉개지지 않고 재시도 가능한 503 이어야 한다.
+    ResponseEntity<ErrorResponse> res =
+        handler.handleCannotCreateTransaction(
+            new org.springframework.transaction.CannotCreateTransactionException(
+                "Could not open JDBC Connection for transaction"),
+            request);
+    assertThat(res).isNotNull();
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    assertThat(res.getBody()).isNotNull();
+    assertThat(res.getBody().message()).contains("잠시 후");
+  }
+
+  @Test
   void 지원하지_않는_파일형식은_400_을_반환한다() {
     // #587: FileUploadService.uploadSingleFile()이 던지는 이 예외가 핸들러 부재로
     // Exception.class 폴백(500)에 떨어지던 회귀 방지.
