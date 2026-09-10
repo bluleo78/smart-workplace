@@ -14,9 +14,13 @@ export function isCalendarType(n: NotificationResponse): boolean {
  * 알림 대상 라우트 해소 — InboxPanel/알림 위젯과 동일 규칙.
  * 캘린더 알림(REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED)은 캘린더로, 그 외 이슈 타입은 이슈 상세로.
  * 식별 정보가 없으면 인박스 대용(내 작업)으로 폴백(데드 클릭 방지).
+ *
+ * 캘린더 알림은 메일 알림(`/mail/:accountId?messageId=N`)과 동일 수준으로 해당 일정까지
+ * 정밀 딥링크한다 — eventId 를 쿼리파라미터로 실어 CalendarPage 가 소비(#659, 사람 결정).
+ * eventId 가 없으면(백엔드가 못 채운 경우) 기존대로 `/calendar` 로 폴백.
  */
 export function notifTarget(n: NotificationResponse): string {
-  if (isCalendarType(n)) return '/calendar'
+  if (isCalendarType(n)) return n.eventId != null ? `/calendar?eventId=${n.eventId}` : '/calendar'
   if (n.projectKey && n.issueNumber != null)
     return `/projects/${n.projectKey}/issues/${n.issueNumber}`
   return '/me/tasks/assigned'

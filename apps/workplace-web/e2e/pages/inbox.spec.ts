@@ -111,7 +111,8 @@ test('행 클릭 → 읽음 POST + 이슈 상세로 이동', async ({ authentica
   await expect(page).toHaveURL(/\/projects\/WP\/issues\/3$/)
 })
 
-test('REMINDER 알림은 일정 정보를 렌더하고 클릭 시 캘린더로 이동한다', async ({
+// #659 — 캘린더 알림 클릭 시 고정 '/calendar' 대신 eventId 딥링크로 이동 + 해당 일정 상세 모달 자동 오픈.
+test('REMINDER 알림은 일정 정보를 렌더하고 클릭 시 해당 일정 상세로 딥링크된다 (#659)', async ({
   authenticatedPage: page,
 }) => {
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
@@ -129,16 +130,39 @@ test('REMINDER 알림은 일정 정보를 렌더하고 클릭 시 캘린더로 �
     }),
   ])
   await mockApi(page, 'POST', '/api/v1/notifications/2/read', {}, { status: 204 })
+  // 딥링크가 여는 단건 일정 조회 — CalendarPage 가 이 응답으로 anchor 이동 + 모달 오픈.
+  await mockApi(page, 'GET', '/api/v1/calendar/events/5', {
+    id: 5,
+    title: '팀 회의',
+    description: null,
+    startsAt: '2026-06-10T01:00:00Z',
+    endsAt: '2026-06-10T02:00:00Z',
+    allDay: false,
+    location: null,
+    color: null,
+    calendarId: 1,
+    calendarName: '기본',
+    effectiveColor: 'blue',
+    reminderMinutes: null,
+    recurrenceRule: null,
+    createdAt: '2026-06-10T01:00:00Z',
+    updatedAt: '2026-06-10T01:00:00Z',
+  })
   await page.goto('/')
   await page.getByTestId('inbox-trigger').click()
   const item = page.getByTestId('inbox-item').first()
   await expect(item).toContainText('일정 알림')
   await expect(item).toContainText('팀 회의')
   await item.click()
+
+  // 상세 모달이 자동으로 열리고 해당 일정 제목이 채워진다.
+  await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+  await expect(page.getByTestId('calendar-form-title')).toHaveValue('팀 회의')
+  // 처리 후 eventId 쿼리파라미터는 정리된다(재열림 방지).
   await expect(page).toHaveURL(/\/calendar$/)
 })
 
-test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 클릭 시 캘린더로 이동한다 (#585)', async ({
+test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 클릭 시 해당 일정 상세로 딥링크된다 (#585, #659)', async ({
   authenticatedPage: page,
 }) => {
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
@@ -156,6 +180,23 @@ test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 
     }),
   ])
   await mockApi(page, 'POST', '/api/v1/notifications/3/read', {}, { status: 204 })
+  await mockApi(page, 'GET', '/api/v1/calendar/events/6', {
+    id: 6,
+    title: '분기 킥오프',
+    description: null,
+    startsAt: '2026-07-10T01:00:00Z',
+    endsAt: '2026-07-10T02:00:00Z',
+    allDay: false,
+    location: null,
+    color: null,
+    calendarId: 1,
+    calendarName: '기본',
+    effectiveColor: 'blue',
+    reminderMinutes: null,
+    recurrenceRule: null,
+    createdAt: '2026-07-10T01:00:00Z',
+    updatedAt: '2026-07-10T01:00:00Z',
+  })
   await page.goto('/')
   await page.getByTestId('inbox-trigger').click()
   const item = page.getByTestId('inbox-item').first()
@@ -163,7 +204,24 @@ test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 
   await expect(item).toContainText('일정에 초대했습니다')
   await expect(item).toContainText('분기 킥오프')
   await item.click()
+
+  await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+  await expect(page.getByTestId('calendar-form-title')).toHaveValue('분기 킥오프')
   await expect(page).toHaveURL(/\/calendar$/)
+})
+
+// 삭제됐거나 접근 권한 없는 eventId 로 직접 진입 시 조용히 기본 화면으로 폴백한다.
+test('존재하지 않는 eventId 딥링크는 캘린더 기본 화면으로 폴백한다 (#659)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/calendar/events/999', { message: '일정을 찾을 수 없습니다' }, { status: 404 })
+  await page.goto('/calendar?eventId=999')
+
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+  await expect(page.getByTestId('calendar-event-dialog')).not.toBeVisible()
+  // 폴백 후 eventId 쿼리파라미터가 정리된다.
+  await expect(page).toHaveURL(/\/calendar$/)
+  await expect(page.getByText('일정을 찾을 수 없거나 접근 권한이 없습니다')).toBeVisible()
 })
 
 test('PRIORITY_CHANGED 알림은 상태 변경과 대칭적으로 렌더되고 이슈 상세로 이동한다 (#613)', async ({

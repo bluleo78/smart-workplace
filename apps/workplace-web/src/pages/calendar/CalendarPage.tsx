@@ -1,6 +1,7 @@
 import { addDays, addMonths, format, startOfDay } from 'date-fns'
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { CalendarEditDialog } from '@/components/calendar/CalendarEditDialog'
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
@@ -21,7 +22,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
+import { useCalendarEvent, useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
 import {
   useCreateEvent,
   useDeleteEvent,
@@ -61,6 +62,14 @@ const VIEWS: { key: CalendarViewType; label: string }[] = [
 /** 캘린더 페이지 — 뷰 전환·날짜 네비·일정 CRUD + 캘린더 컨테이너 CRUD + 필터를 통합 관리. */
 export function CalendarPage() {
   const navigate = useNavigate()
+  // 알림 딥링크(?eventId=) — 특정 일정으로 이동 + 상세 모달 자동 오픈 (#659).
+  const [searchParams, setSearchParams] = useSearchParams()
+  const deepLinkEventId = useMemo(() => {
+    const raw = searchParams.get('eventId')
+    if (!raw) return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  }, [searchParams])
   const [view, setView] = useState<CalendarViewType>('month')
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -161,6 +170,34 @@ export function CalendarPage() {
     setEditing(e)
     setDialogOpen(true)
   }
+
+  // 알림 딥링크로 지목된 일정 조회 — 성공 시 해당 날짜로 이동 + 상세 모달 자동 오픈,
+  // 삭제됐거나 접근 권한 없으면(404/403) 조용히 /calendar 기본 화면으로 폴백 + 토스트 안내.
+  // (반복 일정 회차를 가리키더라도 GET /events/{id} 는 마스터 일정을 반환하므로 회차 특정 없이
+  //  마스터로 이동한다 — 사람 결정 지침 4항.)
+  const { data: deepLinkEvent, isSuccess: deepLinkSuccess, isError: deepLinkFailed } =
+    useCalendarEvent(deepLinkEventId)
+  useEffect(() => {
+    if (deepLinkEventId == null) return
+    if (deepLinkSuccess && deepLinkEvent) {
+      setAnchor(startOfDay(new Date(deepLinkEvent.startsAt)))
+      openEdit(deepLinkEvent)
+    } else if (deepLinkFailed) {
+      toast.error('일정을 찾을 수 없거나 접근 권한이 없습니다')
+    } else {
+      return
+    }
+    // 처리 후 쿼리파라미터 정리 — 새로고침/뒤로가기 시 모달이 다시 열리지 않게 replace.
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('eventId')
+        return next
+      },
+      { replace: true },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkEventId, deepLinkSuccess, deepLinkFailed, deepLinkEvent])
 
   // 생성·수정 공용 submit 핸들러
   const submit = (body: CalendarEventRequest) => {
