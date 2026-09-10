@@ -285,6 +285,21 @@ export function IssueModuleLayout() {
 </div>
 ```
 
+### 설정(`/settings/*`) 하위 페이지 폭 규칙 (#674)
+
+"Forms / Settings" 한 줄로 뭉뚱그리면 설정 하위 페이지끼리도 폭이 갈린다는 점을 놓친다.
+설정 하위 페이지의 콘텐츠 폭은 **화면 성격**(리스트/스캔 목적 vs 폼/입력 목적)으로 결정한다 —
+"설정이니까 좁게"가 아니라 "리스트니까 풀폭, 폼이니까 좁게"가 기준이다.
+공용 셸 `SettingsPage`(`src/components/layout/SettingsPage.tsx`)의 `width` prop(`'form' | 'full'`, 기본 `'full'`)이
+이 규칙을 컴포넌트 레벨로 강제한다 — 개별 페이지가 `max-w-2xl` 을 직접 하드코딩하지 않는다.
+
+| 성격 | `width` | 해당 화면 |
+|---|---|---|
+| 리스트/테이블 (항목 N개, 스캔이 목적) | `full`(기본) | `/settings/users`, `/settings/tokens`, `/settings/roles`, `/settings/mail` |
+| 폼 (필드 몇 개, 입력이 목적) | `form` | `/settings/assistant`, `/settings/roles/:id`, `/settings/profile` |
+
+새 설정 하위 페이지를 추가할 때는 이 표로 먼저 성격을 판정한 뒤 `width` 를 정한다.
+
 ---
 
 ## 현재(As-Is) vs 권장(To-Be)

@@ -17,6 +17,89 @@ test.describe('@smoke 설정 레이아웃 일관성', () => {
     await page.goto('/settings/mail')
     await expect(page.getByTestId('page-header')).toContainText('메일 계정')
   })
+
+  // 메일 계정 — 리스트/스캔 목적 화면이라 구성원/역할/토큰과 동일한 풀폭 목록 레이아웃(#674).
+  // 헤더 액션(계정 추가)으로 다이얼로그 오픈 + 계정이 여러 개여도 가로 오버플로가 없어야 한다.
+  test('메일 계정 페이지가 풀폭 목록 + 헤더 액션을 렌더한다(#674)', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [
+      {
+        id: 1,
+        provider: 'IMAP',
+        emailAddress: 'work@example.com',
+        displayName: '업무용',
+        imapHost: 'imap.gmail.com',
+        imapPort: 993,
+        imapSecurity: 'SSL_TLS',
+        imapUsername: 'work@example.com',
+        smtpHost: 'smtp.gmail.com',
+        smtpPort: 587,
+        smtpSecurity: 'STARTTLS',
+        smtpUsername: 'work@example.com',
+        aiEnabled: true,
+        lastSyncedAt: '2026-09-10T00:00:00Z',
+        lastTestedAt: '2026-09-10T00:00:00Z',
+        createdAt: '2026-06-01T00:00:00Z',
+        updatedAt: '2026-06-01T00:00:00Z',
+      },
+      {
+        id: 2,
+        provider: 'M365_GRAPH',
+        emailAddress: 'outlook-account-with-a-fairly-long-address@example.com',
+        displayName: null,
+        imapHost: '',
+        imapPort: 993,
+        imapSecurity: 'SSL_TLS',
+        imapUsername: '',
+        smtpHost: '',
+        smtpPort: 587,
+        smtpSecurity: 'STARTTLS',
+        smtpUsername: '',
+        aiEnabled: false,
+        lastSyncedAt: null,
+        lastTestedAt: null,
+        createdAt: '2026-06-02T00:00:00Z',
+        updatedAt: '2026-06-02T00:00:00Z',
+      },
+      {
+        id: 3,
+        provider: 'IMAP',
+        emailAddress: 'personal@example.com',
+        displayName: '개인',
+        imapHost: 'imap.naver.com',
+        imapPort: 993,
+        imapSecurity: 'SSL_TLS',
+        imapUsername: 'personal@example.com',
+        smtpHost: 'smtp.naver.com',
+        smtpPort: 587,
+        smtpSecurity: 'STARTTLS',
+        smtpUsername: 'personal@example.com',
+        aiEnabled: false,
+        lastSyncedAt: '2026-09-09T00:00:00Z',
+        lastTestedAt: '2026-09-09T00:00:00Z',
+        createdAt: '2026-06-03T00:00:00Z',
+        updatedAt: '2026-06-03T00:00:00Z',
+      },
+    ])
+    await page.goto('/settings/mail')
+
+    await expect(page.getByTestId('page-header')).toContainText('메일 계정')
+    // "계정 추가" 액션은 헤더로 이동(테이블 안 X) — 동일 testid 유지
+    await expect(page.getByTestId('mail-add-trigger')).toBeVisible()
+
+    const table = page.getByRole('table', { name: '메일 계정 목록' })
+    await expect(table).toBeVisible()
+    await expect(page.getByTestId('mail-account-row-1')).toContainText('work@example.com')
+    await expect(page.getByTestId('mail-account-row-2')).toContainText('Outlook')
+    await expect(page.getByTestId('mail-account-row-3')).toContainText('personal@example.com')
+
+    // 페이지 전체가 가로 스크롤을 유발하지 않는지 확인(긴 이메일 주소 포함)
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow).toBeLessThanOrEqual(1)
+  })
   // API 토큰 — 구성원/역할/감사 로그와 동일한 풀폭 목록 레이아웃(#655) + 헤더 액션으로 발급 모달 오픈
   test('API 토큰 페이지가 공용 PageHeader + 풀폭 목록 + 발급 액션을 렌더한다', async ({
     authenticatedPage: page,

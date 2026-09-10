@@ -433,8 +433,13 @@ export default function IssueDetailPage() {
 shadcn `Card` 로 섹션을 나누며, 항목은 공통 `FormField` 로 감싼다.
 
 **실제 적용 페이지**: `ProfileSettingsPage`(인라인 폼), `ProjectSettingsPage`(인라인 폼).
-`MailSettingsPage`·`AssistantSettingsPage` 는 같은 컨테이너 셸(`mx-auto max-w-2xl space-y-6 p-6`)을 쓰되,
-폼 본체를 섹션 컴포넌트(`MailAccountsSection` / `PersonalAssistantSection`)로 분리한다.
+`AssistantSettingsPage` 는 같은 컨테이너 셸(`mx-auto max-w-2xl space-y-6 p-6`)을 쓰되,
+폼 본체를 섹션 컴포넌트(`PersonalAssistantSection`)로 분리한다.
+
+> **As-Is 주의 — `MailSettingsPage` 는 이 절 대상이 아님**
+> `MailSettingsPage`(`/settings/mail`)는 계정이 N개일 수 있는 **리스트/스캔 목적** 화면이라
+> 폼이 아니라 [Content Area 최대 너비 — 설정 하위 페이지 폭 규칙](./03-spacing-layout.md#설정settings-하위-페이지-폭-규칙-674)에 따라
+> 풀폭(`SettingsPage width="full"`) + bordered table 로 구현한다(#674). 참조 구현은 아래 D 절의 `TokenSettingsPage`.
 
 ```tsx
 export default function ProfileSettingsPage() {
