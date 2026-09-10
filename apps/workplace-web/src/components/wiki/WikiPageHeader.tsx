@@ -114,7 +114,18 @@ export function WikiPageHeader({
       data-testid="wiki-page-header"
       className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4"
     >
-      <nav className="flex min-w-0 items-center gap-1 text-sm" aria-label="페이지 경로">
+      {/*
+        #830: 전역 AI 어시스턴트 런처(AIChip.tsx)는 뷰포트 중앙(lg 이상에서 +28px AppRail 보정,
+        50vw+28px)에 fixed 로 고정되고 최소 폭 140px(중심 기준 ±70px)를 갖는다. 제목이 길어
+        truncate 폭을 다 채우면 이 nav 가 헤더 우측 액션 그룹 직전까지 늘어나며 런처와 겹친다.
+        헤더 레이아웃 통합 재설계는 스코프 밖 — 최소 조치로 nav 자체에 버튼 폭+여백을 고려한
+        max-width 클램프를 걸어 런처 좌측 경계를 침범하지 않도록 한다(120px 는 클램프가 0 에
+        가까워지는 좁은 뷰포트에서도 경로가 완전히 사라지지 않게 하는 하한선).
+      */}
+      <nav
+        className="flex min-w-0 max-w-[max(120px,calc(50vw-360px))] items-center gap-1 text-sm"
+        aria-label="페이지 경로"
+      >
         {crumbs.map((c, i) => {
           const last = i === crumbs.length - 1
           return (

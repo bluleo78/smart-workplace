@@ -143,3 +143,43 @@ test('노트 헤더 — AI 이력이 없는 페이지는 attribution 배지가 �
   await expect(page.getByTestId('wiki-page-header')).toBeVisible()
   await expect(page.getByTestId('wiki-page-ai-attribution-badge')).toHaveCount(0)
 })
+
+// #830: 제목이 길어 브레드크럼이 truncate 폭 전체를 채워도, 뷰포트 중앙에 fixed 로 떠 있는
+// 전역 AI 어시스턴트 런처(AIChip)와 겹치지 않아야 한다 — nav 의 max-width 클램프 회귀 검증.
+test('노트 헤더 — 긴 제목의 브레드크럼이 전역 AI 어시스턴트 런처와 겹치지 않는다 (#830)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const longTitle = '가나다라마바사아자차카타파하'.repeat(15) // 210자
+  await page.route('**/api/v1/wiki/spaces', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([space]) }),
+  )
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TREE) }),
+  )
+  await page.route('**/api/v1/wiki/pages/*/backlinks', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  await page.route('**/api/v1/wiki/pages/*/mentions', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  await page.route('**/api/v1/wiki/pages/*', (r) => {
+    if (r.request().method() === 'DELETE') return r.fulfill({ status: 204, body: '' })
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(detail(1, longTitle)),
+    })
+  })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/1`)
+  const nav = page.getByTestId('wiki-page-header').getByRole('navigation', { name: '페이지 경로' })
+  const launcher = page.getByTestId('chat-launcher')
+  await expect(nav).toBeVisible()
+  await expect(launcher).toBeVisible()
+
+  const [navBox, launcherBox] = await Promise.all([nav.boundingBox(), launcher.boundingBox()])
+  if (!navBox || !launcherBox) throw new Error('bounding box 계산 실패')
+  // 브레드크럼 nav 의 우측 끝이 AI 런처의 좌측 끝을 넘지 않아야 한다(= 겹치지 않음).
+  expect(navBox.x + navBox.width).toBeLessThanOrEqual(launcherBox.x)
+})
