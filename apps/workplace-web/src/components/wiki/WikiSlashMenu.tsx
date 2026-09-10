@@ -21,11 +21,21 @@ export type WikiAiAction =
 /** AI 가 아닌 삽입 명령 키. 표·이미지(#751) 두 가지. */
 export type WikiInsertCommand = 'table' | 'image'
 
+/** 기본 서식 블록 타입 키(#687) — 제목1/제목2/불릿목록/번호목록/인용/구분선. */
+export type WikiBlockCommand =
+  | 'heading1'
+  | 'heading2'
+  | 'bulletList'
+  | 'orderedList'
+  | 'blockquote'
+  | 'horizontalRule'
+
 export interface WikiSlashItem {
-  key: WikiAiAction | WikiInsertCommand
+  key: WikiAiAction | WikiInsertCommand | WikiBlockCommand
   label: string
-  /** ai=LLM 스트림 트리거, insert=에디터 로컬 삽입(네트워크 없음). command 분기 기준. */
-  kind: 'ai' | 'insert'
+  /** ai=LLM 스트림 트리거, insert=에디터 로컬 삽입(네트워크 없음), block=기본 서식 블록 전환/삽입.
+   *  command 분기 기준. */
+  kind: 'ai' | 'insert' | 'block'
   /** 표 삽입 확정 시에만 채워진다(그리드에서 고른 크기). 헤더 행 포함 행 수. */
   rows?: number
   cols?: number
@@ -122,9 +132,10 @@ export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>
       },
     }))
 
-    // 필터 결과에서도 순서(삽입 → AI)가 유지되므로, 두 그룹으로 나눠도 전역 인덱스는
-    // insert 개수만 더하면 복원된다. 키보드 네비는 전역 인덱스 기준이라 이 대응이 필요하다.
+    // 필터 결과에서도 순서(삽입 → 서식 → AI)가 유지되므로, 세 그룹으로 나눠도 전역 인덱스는
+    // 앞 그룹들의 개수만 더하면 복원된다. 키보드 네비는 전역 인덱스 기준이라 이 대응이 필요하다.
     const insertItems = items.filter((i) => i.kind === 'insert')
+    const blockItems = items.filter((i) => i.kind === 'block')
     const aiItems = items.filter((i) => i.kind === 'ai')
 
     function option(item: WikiSlashItem, idx: number) {
@@ -207,6 +218,20 @@ export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>
           </p>
         )}
         {insertItems.map((item, i) => option(item, i))}
+        {/* 서식 그룹(#687) — 제목1/제목2/불릿·번호 목록/인용/구분선. 블록 삽입은 AI 액션이 아니므로
+            섹션 헤더로 명확히 구분해 둘이 섞이지 않게 한다(listbox 자식은 option/group 이어야
+            하므로 aria-labelledby 로 제목을 연결). */}
+        {blockItems.length > 0 && (
+          <div role="group" aria-labelledby="wiki-slash-block-group">
+            <div
+              id="wiki-slash-block-group"
+              className="px-3 pb-1 pt-2 text-xs font-medium text-muted-foreground"
+            >
+              서식
+            </div>
+            {blockItems.map((item, i) => option(item, insertItems.length + i))}
+          </div>
+        )}
         {/* AI 행들은 group 으로 묶고 마킹을 그룹 헤더에서 한 번만 한다(07-iconography §7.2
             "마킹은 컨테이너 레벨에서 한 번만"). 행마다 AiLabel 을 붙이면 마커가 과포화되고,
             AiLabel 의 text-xs 가 본문 행의 text-sm 과 섞여 타이포도 어긋난다. 메뉴가 AI 전용이던
@@ -218,7 +243,7 @@ export const WikiSlashMenu = forwardRef<WikiSlashMenuHandle, WikiSlashMenuProps>
             <div id="wiki-slash-ai-group" className="px-3 pb-1 pt-2">
               <AiLabel>AI</AiLabel>
             </div>
-            {aiItems.map((item, i) => option(item, insertItems.length + i))}
+            {aiItems.map((item, i) => option(item, insertItems.length + blockItems.length + i))}
           </div>
         )}
       </div>

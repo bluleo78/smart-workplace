@@ -19,7 +19,12 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js'
 const wikiSlashPluginKey = new PluginKey('wikiSlashAi')
 
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
-import { type WikiSlashItem, WikiSlashMenu, type WikiSlashMenuHandle } from './WikiSlashMenu'
+import {
+  type WikiBlockCommand,
+  type WikiSlashItem,
+  WikiSlashMenu,
+  type WikiSlashMenuHandle,
+} from './WikiSlashMenu'
 
 // 삽입 계열 — LLM 을 거치지 않고 에디터 트랜잭션만으로 끝나는 명령. '표' 선택 시 메뉴가
 // 그리드 피커로 전환돼 행×열 크기를 고른 뒤 삽입한다(#748·#752). 삽입 후 행/열 추가·삭제는
@@ -31,9 +36,21 @@ const INSERT_ITEMS: WikiSlashItem[] = [
   { key: 'image', label: '이미지', kind: 'insert' },
 ]
 
+// 기본 서식 블록 6종(#687) — 버블 툴바(WikiAiBubbleToolbar)의 서식 그룹과 대응하는 삽입/전환
+// 명령. 전부 에디터 트랜잭션만으로 끝나 LLM 을 거치지 않는다(kind: 'block').
+const BLOCK_ITEMS: WikiSlashItem[] = [
+  { key: 'heading1', label: '제목1', kind: 'block' },
+  { key: 'heading2', label: '제목2', kind: 'block' },
+  { key: 'bulletList', label: '불릿 목록', kind: 'block' },
+  { key: 'orderedList', label: '번호 목록', kind: 'block' },
+  { key: 'blockquote', label: '인용', kind: 'block' },
+  { key: 'horizontalRule', label: '구분선', kind: 'block' },
+]
+
 // 생성 계열 3 액션 — 헤더 AI 버튼과 라벨을 공유하려 wikiAiActions 의 단일 원천에서 파생한다.
 const SLASH_ITEMS: WikiSlashItem[] = [
   ...INSERT_ITEMS,
+  ...BLOCK_ITEMS,
   ...GENERATE_ACTIONS.map(({ key, label }) => ({ key, label, kind: 'ai' as const })),
 ]
 
@@ -86,6 +103,32 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
                 .deleteRange(range)
                 .insertTable({ rows: props.rows, cols: props.cols, withHeaderRow: true })
                 .run()
+              return
+            }
+            if (props.kind === 'block') {
+              // 트리거 삭제와 블록 전환/삽입을 한 체인(= 한 트랜잭션)으로 묶는다(표 삽입과 동일 이유
+              // — 따로 실행하면 삭제로 문서 위치가 밀린 뒤 적용돼 undo 도 두 번 눌러야 한다).
+              const chain = editor.chain().focus().deleteRange(range)
+              switch (props.key as WikiBlockCommand) {
+                case 'heading1':
+                  chain.toggleHeading({ level: 1 }).run()
+                  return
+                case 'heading2':
+                  chain.toggleHeading({ level: 2 }).run()
+                  return
+                case 'bulletList':
+                  chain.toggleBulletList().run()
+                  return
+                case 'orderedList':
+                  chain.toggleOrderedList().run()
+                  return
+                case 'blockquote':
+                  chain.toggleBlockquote().run()
+                  return
+                case 'horizontalRule':
+                  chain.setHorizontalRule().run()
+                  return
+              }
               return
             }
             editor.chain().focus().deleteRange(range).run()

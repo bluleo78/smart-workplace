@@ -61,7 +61,10 @@ export function EditorFloatingToolbar({
         data-testid={testId}
         role="group"
         aria-label={ariaLabel}
-        className="flex items-center gap-1 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+        // flex-wrap — 좁은 뷰포트에서 버튼 수가 많은 툴바(서식 6 + AI 6, #687)가 maxWidth 를
+        // 넘으면 한 줄에 다 들어가지 못한다. wrap 없이는 넘치는 버튼이 클리핑되어 클릭 불가
+        // 상태로 숨어버리므로, 넘치면 2줄 이상으로 접히게 한다(좁은 화면 실측 필수 — CLAUDE 메모리).
+        className="flex flex-wrap items-center gap-1 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
       >
         {children}
       </div>

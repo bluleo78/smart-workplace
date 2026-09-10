@@ -1,12 +1,13 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { type Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
-import { ChevronDown } from 'lucide-react'
+import { Bold, ChevronDown, Heading1, Heading2, Italic, List, Quote } from 'lucide-react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { EditorFloatingToolbar } from '@/components/editor/EditorFloatingToolbar'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { cn } from '@/lib/utils'
 
 import {
   LANGUAGE_PRESETS,
@@ -14,6 +15,18 @@ import {
   TRANSFORM_ACTIONS,
   type TransformActionKey,
 } from './wikiAiActions'
+
+// 서식 그룹 — #687: 메일 컴포저(MailComposer.tsx)의 굵게/기울임/목록 버튼 세트를 그대로 이식하고,
+// 노트 특성상 필요한 제목1/제목2/인용을 더했다. AI 그룹 앞에 배치해 "일반 서식"과 "AI 변형"을
+// 시각적으로 분리한다(구분선은 렌더 쪽에서 별도로 둔다).
+const FORMAT_ACTIONS = [
+  { key: 'bold', label: '굵게', icon: Bold, isActive: (e: Editor) => e.isActive('bold'), run: (e: Editor) => e.chain().focus().toggleBold().run() },
+  { key: 'italic', label: '기울임', icon: Italic, isActive: (e: Editor) => e.isActive('italic'), run: (e: Editor) => e.chain().focus().toggleItalic().run() },
+  { key: 'heading1', label: '제목1', icon: Heading1, isActive: (e: Editor) => e.isActive('heading', { level: 1 }), run: (e: Editor) => e.chain().focus().toggleHeading({ level: 1 }).run() },
+  { key: 'heading2', label: '제목2', icon: Heading2, isActive: (e: Editor) => e.isActive('heading', { level: 2 }), run: (e: Editor) => e.chain().focus().toggleHeading({ level: 2 }).run() },
+  { key: 'bulletList', label: '글머리 목록', icon: List, isActive: (e: Editor) => e.isActive('bulletList'), run: (e: Editor) => e.chain().focus().toggleBulletList().run() },
+  { key: 'blockquote', label: '인용', icon: Quote, isActive: (e: Editor) => e.isActive('blockquote'), run: (e: Editor) => e.chain().focus().toggleBlockquote().run() },
+] as const
 
 /** 선택 텍스트 변형 툴바 — 비어있지 않은 선택에서 선택영역 위에 표시(tiptap BubbleMenu).
  *  param 액션(톤/번역)은 드롭다운으로 프리셋을 고른 뒤, 그 외는 즉시 onAction 을 호출한다.
@@ -50,6 +63,25 @@ export function WikiAiBubbleToolbar({
       ariaLabel="AI 텍스트 변형"
       testId="wiki-ai-toolbar"
     >
+      {/* 서식 그룹 — 굵게/기울임/제목1/제목2/불릿목록/인용. AI 그룹과 독립적으로 항상 노출. */}
+      {FORMAT_ACTIONS.map(({ key, label, icon: Icon, isActive, run }) => (
+        <Button
+          key={key}
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={label}
+          aria-pressed={isActive(editor)}
+          data-testid={`wiki-format-tb-${key}`}
+          className={cn(isActive(editor) && 'bg-accent text-foreground')}
+          // mousedown 기본동작 차단 — 클릭이 에디터 선택을 잃지 않게 한다.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => run(editor)}
+        >
+          <Icon aria-hidden="true" />
+        </Button>
+      ))}
+      <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
       {/* AI 마커는 컨테이너 레벨에서 1회만 — 내부 버튼에 Sparkles 를 반복하지 않는다(마커 중첩 금지). */}
       <AiLabel className="px-1">AI</AiLabel>
       {TRANSFORM_ACTIONS.map((a) => {

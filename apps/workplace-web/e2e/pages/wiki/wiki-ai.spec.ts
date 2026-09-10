@@ -849,3 +849,235 @@ test('위키 변형 — 텍스트 선택은 이미지가 함께 있는 페이지
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
 })
+
+// ── 서식 그룹 + 슬래시 블록 확장 (#687) ──────────────────────────────────────
+//
+// 정책(2026-09-08 사람 결정): 메일 컴포저(MailComposer.tsx)에 이미 있는 버튼 세트를 노트
+// 버블 툴바로 이식(굵게/기울임/제목1/제목2/불릿목록/인용) + 슬래시 메뉴에 블록 타입 6종 추가.
+
+test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/재조회에도 유지된다 (#687)', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+
+  // 자동저장 PUT 의 body 를 가로채 저장해 두고, 이후 GET 은 그 body 를 돌려준다(재조회 시뮬).
+  // setupWikiMocks 가 먼저 등록한 라우트를 이 라우트가 가로채고, savedBody 가 없을 때만
+  // fallback 으로 원래 핸들러에 위임한다(Playwright 는 나중 등록 라우트가 먼저 실행됨).
+  let savedBody: string | null = null
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${PAGE_ID}`,
+    (route) => {
+      const method = route.request().method()
+      if (method === 'PUT') {
+        const req = route.request().postDataJSON() as { title: string; body: string }
+        savedBody = req.body
+        return route.fallback()
+      }
+      if (method === 'GET' && savedBody !== null) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(pageDetail(savedBody)),
+        })
+      }
+      return route.fallback()
+    },
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await typeAndSelectAll(page, '굵게 만들 문장')
+
+  const toolbar = page.getByTestId('wiki-ai-toolbar')
+  await expect(toolbar).toBeVisible()
+
+  const boldBtn = page.getByTestId('wiki-format-tb-bold')
+  await expect(boldBtn).toBeVisible()
+  await expect(boldBtn).toHaveAttribute('aria-pressed', 'false')
+
+  await boldBtn.click()
+  await expect(page.locator('.ProseMirror strong')).toContainText('굵게 만들 문장')
+
+  // 굵게 적용 후에도 선택영역은 유지되므로(toggleBold 는 선택을 collapse 하지 않는다) 같은
+  // 툴바에서 버튼이 즉시 활성(pressed) 상태로 토글 표시돼야 한다.
+  await expect(boldBtn).toHaveAttribute('aria-pressed', 'true')
+
+  // 자동저장(800ms debounce) 완료 대기 — markdown 직렬화 결과에 굵게(**)가 담긴다.
+  await expect.poll(() => savedBody).toContain('**굵게 만들 문장**')
+
+  // 저장 후 재조회해도 굵게 서식이 유지된다.
+  await page.reload()
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await expect(page.locator('.ProseMirror strong')).toContainText('굵게 만들 문장')
+})
+
+test('위키 서식 — 제목1 버튼으로 블록 타입이 heading 으로 바뀐다 (#687)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await typeAndSelectAll(page, '제목이 될 문장')
+
+  await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
+  await page.getByTestId('wiki-format-tb-heading1').click()
+
+  await expect(page.locator('.ProseMirror h1')).toContainText('제목이 될 문장')
+})
+
+test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687)', async ({ authenticatedPage: page }) => {
+  await setupWikiMocks(page, 'VIEWER')
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await typeAndSelectAll(page, '원본 문장')
+
+  await page.waitForTimeout(500)
+  await expect(page.getByTestId('wiki-ai-toolbar')).toHaveCount(0)
+  await expect(page.getByTestId('wiki-format-tb-bold')).toHaveCount(0)
+})
+
+test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼이 잘려서 숨지 않는다 (#687)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+  // 좁은 뷰포트(모바일 급)에서도 검증 — 서식 6개 + AI 6개 + 이슈로 만들기 1개 = 13개 컨트롤.
+  await page.setViewportSize({ width: 375, height: 700 })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await typeAndSelectAll(page, '좁은 화면 테스트 문장')
+
+  const toolbar = page.getByTestId('wiki-ai-toolbar')
+  await expect(toolbar).toBeVisible()
+
+  // EditorFloatingToolbar 가 maxWidth: calc(100vw - 2rem) 로 뷰포트를 벗어나지 않게 가드한다.
+  const box = (await toolbar.boundingBox())!
+  const vp = page.viewportSize()!
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(vp.width)
+
+  // 진짜 검증 포인트: 바깥 박스가 뷰포트 안에 들어와도(위 단언) 내용이 클리핑돼 숨을 수 있다
+  // (scrollWidth > clientWidth). flex-wrap 없이 단일 행이면 여기서 걸린다 — 이 컨테이너에서
+  // flex-wrap 을 제거하면 반드시 실패해야 공허하지 않은 테스트다.
+  const overflow = await toolbar.evaluate((el) => ({ s: el.scrollWidth, c: el.clientWidth }))
+  expect(overflow.s).toBeLessThanOrEqual(overflow.c)
+
+  // 줄바꿈으로 2줄 이상이 됐는지도 함께 확인(한 줄 34px 보다 커야 실제로 wrap 됐다는 증거).
+  expect(box.height).toBeGreaterThan(40)
+
+  // 서식 그룹뿐 아니라 뒤쪽(AI 변형·이슈로 만들기)까지 — 좁은 화면에서 넘치던 건 뒤쪽 버튼들이다.
+  // 전부 실제로 클릭 가능한 크기(0×0 으로 찌그러지지 않음)로 보여야 한다.
+  for (const testId of [
+    'wiki-format-tb-bold',
+    'wiki-format-tb-italic',
+    'wiki-format-tb-heading1',
+    'wiki-format-tb-heading2',
+    'wiki-format-tb-bulletList',
+    'wiki-format-tb-blockquote',
+    'wiki-ai-tb-rewrite_tone',
+    'wiki-ai-tb-translate',
+    'wiki-ai-tb-expand',
+    'wiki-ai-tb-condense',
+    'wiki-ai-tb-polish',
+    'wiki-ai-tb-create-issue',
+  ]) {
+    const btn = page.getByTestId(testId)
+    await expect(btn).toBeVisible()
+    const bbox = (await btn.boundingBox())!
+    expect(bbox.width).toBeGreaterThan(0)
+    expect(bbox.height).toBeGreaterThan(0)
+  }
+})
+
+test('위키 /ai 슬래시 메뉴 — 블록 타입 6종이 서식 섹션에 노출되고 AI 3종과 구분된다 (#687)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/')
+  await expect(page.getByTestId('wiki-slash-popover')).toBeVisible()
+
+  for (const key of [
+    'heading1',
+    'heading2',
+    'bulletList',
+    'orderedList',
+    'blockquote',
+    'horizontalRule',
+  ]) {
+    await expect(page.getByTestId(`wiki-slash-option-${key}`)).toBeVisible()
+  }
+
+  // 블록 섹션 헤더("서식")와 AI 섹션 헤더("AI")로 두 그룹이 시각적으로 구분된다.
+  await expect(page.getByText('서식', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('wiki-slash-option-summarize')).toBeVisible()
+})
+
+test('위키 /ai 슬래시 메뉴 — 제목1 삽입 시 블록 타입이 heading 으로 바뀐다 (#687)', { tag: '@smoke' }, async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/제목1')
+  await expect(page.getByTestId('wiki-slash-option-heading1')).toBeVisible()
+  await page.getByTestId('wiki-slash-option-heading1').click()
+
+  await page.keyboard.type('슬래시로 만든 제목')
+  await expect(page.locator('.ProseMirror h1')).toContainText('슬래시로 만든 제목')
+})
+
+test('위키 /ai 슬래시 메뉴 — 화살표 키로 블록 그룹까지 내려가 인용을 삽입한다 (#687, 전역 인덱스 회귀 방지)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/')
+  await expect(page.getByTestId('wiki-slash-popover')).toBeVisible()
+
+  // 클릭이 아니라 순수 키보드 내비로 검증 — WikiSlashMenu 의 select()/onKeyDown() 은 항목을
+  // items 배열의 전역 인덱스로 찾으므로, insert(표·이미지 2개) → block(제목1/제목2/불릿/번호
+  // 목록/인용/구분선 6개) → ai(3개) 순서와 렌더 시 더해지는 오프셋(insertItems.length +
+  // blockItems.length + i)이 어긋나면 여기서만 드러난다(클릭 테스트는 이 어긋남을 못 잡는다).
+  // 순서: 표(0) 이미지(1) 제목1(2) 제목2(3) 불릿목록(4) 번호목록(5) 인용(6) — ArrowDown 6회.
+  for (let i = 0; i < 6; i += 1) await page.keyboard.press('ArrowDown')
+
+  // 실행(Enter) 전에 하이라이트(aria-selected)가 실제로 "인용" 행에 있는지도 확인한다 —
+  // command 실행은 items 원본 배열 인덱스를 그대로 쓰므로 offset 산식이 틀려도 성공할 수 있지만,
+  // 렌더 쪽 aria-selected 는 insertItems.length + i 오프셋에 그대로 의존하므로 여기서만 걸린다.
+  await expect(page.getByTestId('wiki-slash-option-blockquote')).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await page.keyboard.press('Enter')
+
+  await page.keyboard.type('키보드로 만든 인용문')
+  await expect(page.locator('.ProseMirror blockquote')).toContainText('키보드로 만든 인용문')
+})
+
+test('위키 /ai 슬래시 메뉴 — 구분선 삽입 시 hr 이 생성된다 (#687)', async ({ authenticatedPage: page }) => {
+  await setupWikiMocks(page, 'EDITOR')
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/구분선')
+  await expect(page.getByTestId('wiki-slash-option-horizontalRule')).toBeVisible()
+  await page.getByTestId('wiki-slash-option-horizontalRule').click()
+
+  await expect(page.locator('.ProseMirror hr')).toHaveCount(1)
+})
