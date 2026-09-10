@@ -125,6 +125,38 @@ test.describe('messaging 채널 생성', () => {
     await page.goto('/chat');
     await expect(page.getByTestId('channel-lock-9')).toBeVisible();
   });
+
+  // #688 — 이름 중복(409)은 다이얼로그를 유지한 채 인라인 에러로 표시해야 한다(컨테이너류 이름 하드 차단 정책).
+  test('중복 이름 생성 → 409 인라인 에러, 다이얼로그 유지', async ({ authenticatedPage: page }) => {
+    await stubSidebar(page, []);
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels',
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        return route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: '이미 존재하는 채널 이름입니다: 중복채널' }),
+        });
+      },
+    );
+
+    await page.goto('/chat');
+    await page.getByTestId('channel-create-btn').click();
+    await page.getByTestId('create-channel-name').fill('중복채널');
+    await page.getByTestId('create-channel-submit').click();
+
+    // 인라인 에러 노출 + 다이얼로그가 닫히지 않고 유지됨(라우팅 안 됨).
+    await expect(page.getByTestId('create-channel-name-error')).toHaveText(
+      '이미 존재하는 채널 이름입니다: 중복채널',
+    );
+    await expect(page.getByTestId('create-channel-modal')).toBeVisible();
+    await expect(page).toHaveURL(/\/chat$/);
+
+    // 이름 수정 시 에러가 사라져 재시도 가능함을 확인.
+    await page.getByTestId('create-channel-name').fill('중복채널2');
+    await expect(page.getByTestId('create-channel-name-error')).toHaveCount(0);
+  });
 });
 
 test.describe('messaging 채널 탐색·참여', () => {
@@ -245,6 +277,35 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     await page.getByTestId('rename-channel-name').fill('새이름')
     await page.getByTestId('rename-channel-submit').click()
     await expect(page.getByTestId('channel-header-name')).toHaveText('새이름')
+  })
+
+  // #688 — 이름변경도 409 시 다이얼로그 유지 + 인라인 에러(컨테이너류 이름 하드 차단 정책).
+  test('이름변경 중복(409) → 인라인 에러, 다이얼로그 유지 + 헤더 미변경', async ({ authenticatedPage: page }) => {
+    const ch = createChannel({ id: 47, name: '구이름', role: 'OWNER', member: true })
+    await stubChannelView(page, ch)
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels/47',
+      (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback()
+        return route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: '이미 존재하는 채널 이름입니다: 다른채널' }),
+        })
+      },
+    )
+    await page.goto('/chat/channels/47')
+    await page.getByTestId('channel-settings-btn').click()
+    await page.getByTestId('channel-rename-action').click()
+    await page.getByTestId('rename-channel-name').fill('다른채널')
+    await page.getByTestId('rename-channel-submit').click()
+
+    await expect(page.getByTestId('rename-channel-name-error')).toHaveText(
+      '이미 존재하는 채널 이름입니다: 다른채널',
+    )
+    await expect(page.getByTestId('rename-channel-modal')).toBeVisible()
+    // 헤더는 실패했으므로 그대로 구이름.
+    await expect(page.getByTestId('channel-header-name')).toHaveText('구이름')
   })
 
   test('MEMBER 에게는 설정 버튼 미노출', async ({ authenticatedPage: page }) => {

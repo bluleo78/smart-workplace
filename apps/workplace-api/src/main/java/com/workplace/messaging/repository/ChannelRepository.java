@@ -49,6 +49,23 @@ public class ChannelRepository {
   }
 
   /**
+   * 동일 테넌트(RLS 자동 적용) 내 활성(비아카이브) CHANNEL 이름 중복 여부(대소문자 무시, #688). excludeId 는 이름변경 시 자기 자신 제외용(생성
+   * 시 null).
+   */
+  public boolean existsChannelName(String name, Long excludeId) {
+    Condition cond =
+        CHANNEL
+            .KIND
+            .eq("CHANNEL")
+            .and(CHANNEL.ARCHIVED_AT.isNull())
+            .and(DSL.lower(CHANNEL.NAME).eq(name.toLowerCase()));
+    if (excludeId != null) {
+      cond = cond.and(CHANNEL.ID.ne(excludeId));
+    }
+    return dsl.fetchExists(dsl.selectOne().from(CHANNEL).where(cond));
+  }
+
+  /**
    * 전체 공개 채널 + caller 멤버 여부. created_at 오름차순. (Phase 1 호환 — 사이드바는 Task B7 에서 findMyChannels 로 대체)
    */
   public List<ChannelResponse> findAllWithMembership(long callerId) {

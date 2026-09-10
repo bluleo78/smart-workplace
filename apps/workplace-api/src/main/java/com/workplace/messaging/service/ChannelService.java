@@ -2,6 +2,7 @@ package com.workplace.messaging.service;
 
 import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.exception.ChannelForbiddenException;
+import com.workplace.messaging.exception.ChannelNameDuplicatedException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
@@ -35,9 +36,15 @@ public class ChannelService {
     return channelRepo.searchDiscoverable(callerId, q);
   }
 
-  /** 채널 생성 — 생성자를 OWNER 로 add. visibility null → PUBLIC. */
+  /**
+   * 채널 생성 — 생성자를 OWNER 로 add. visibility null → PUBLIC. 동일 테넌트 내 활성 채널 이름 중복은 하드 차단(#688 —
+   * Wiki/Drive 팀 스페이스 #696, 연락처 조직 그룹 #803 과 동일한 "컨테이너류 이름은 식별자" 정책).
+   */
   @Transactional
   public ChannelResponse create(long callerId, String name, String visibility) {
+    if (channelRepo.existsChannelName(name, null)) {
+      throw new ChannelNameDuplicatedException(name);
+    }
     String vis = normalizeVisibility(visibility);
     long channelId = channelRepo.insert(name, vis, callerId);
     memberRepo.add(channelId, callerId, "OWNER");
@@ -72,11 +79,14 @@ public class ChannelService {
     memberRepo.add(channelId, callerId, "MEMBER");
   }
 
-  /** 이름 변경 — OWNER/ADMIN 또는 시스템 ADMIN. */
+  /** 이름 변경 — OWNER/ADMIN 또는 시스템 ADMIN. 동일 테넌트 내 활성 채널 이름 중복은 하드 차단(#688). */
   @Transactional
   public ChannelResponse rename(long callerId, long channelId, String name) {
     ensureExists(channelId);
     perms.requireManage(channelId, callerId, "rename");
+    if (channelRepo.existsChannelName(name, channelId)) {
+      throw new ChannelNameDuplicatedException(name);
+    }
     channelRepo.rename(channelId, name);
     return channelRepo
         .findDetail(channelId, callerId)

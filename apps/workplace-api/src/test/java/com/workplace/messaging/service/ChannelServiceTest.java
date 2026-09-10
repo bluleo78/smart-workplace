@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.exception.ChannelForbiddenException;
+import com.workplace.messaging.exception.ChannelNameDuplicatedException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -124,5 +125,43 @@ class ChannelServiceTest extends IntegrationTestBase {
     ChannelResponse ch = channelService.create(owner, "삭제대상", "PUBLIC");
     assertThatThrownBy(() -> channelService.hardDelete(owner, ch.id()))
         .isInstanceOf(ChannelForbiddenException.class);
+  }
+
+  /** #688 — 동일 테넌트 내 동일 이름(대소문자 무시) 활성 채널 생성은 하드 차단된다(컨테이너류 이름은 식별자 — #696/#803 과 동일 정책). */
+  @Test
+  void create_duplicateName_throws() {
+    long u = seedUser();
+    channelService.create(u, "중복채널", "PUBLIC");
+
+    assertThatThrownBy(() -> channelService.create(u, "중복채널", "PUBLIC"))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+    // 대소문자만 다른 이름도 동일 취급.
+    assertThatThrownBy(() -> channelService.create(u, "중복채널".toUpperCase(), "PRIVATE"))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+  }
+
+  /** #688 — 이름변경도 동일 정책. 자기 자신 이름으로의 "변경"(no-op)은 차단하지 않는다. */
+  @Test
+  void rename_duplicateName_throws_selfRenameOk() {
+    long u = seedUser();
+    ChannelResponse a = channelService.create(u, "채널A", "PUBLIC");
+    ChannelResponse b = channelService.create(u, "채널B", "PUBLIC");
+
+    assertThatThrownBy(() -> channelService.rename(u, b.id(), "채널A"))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+    // 자기 자신 이름 그대로 재저장은 허용(대소문자 변경 포함).
+    ChannelResponse renamed = channelService.rename(u, a.id(), "채널A");
+    assertThat(renamed.name()).isEqualTo("채널A");
+  }
+
+  /** #688 — 아카이브된 채널의 이름은 재사용 가능(활성 채널만 중복 검사 대상). */
+  @Test
+  void create_archivedChannelName_reusable() {
+    long u = seedUser();
+    ChannelResponse ch = channelService.create(u, "보관후재사용", "PUBLIC");
+    channelService.archive(u, ch.id());
+
+    ChannelResponse reused = channelService.create(u, "보관후재사용", "PUBLIC");
+    assertThat(reused.name()).isEqualTo("보관후재사용");
   }
 }
