@@ -1,29 +1,36 @@
 // 이슈 코멘트 리스트 + 신규 작성 폼.
 // useCreateComment 훅으로 작성 후 detail 쿼리 무효화로 갱신.
 // 본인(HUMAN) 코멘트에만 수정·삭제 버튼 노출 (#154).
+// #785: 작성/수정 입력을 shadcn Textarea 대신 이슈 채팅과 동일한 RichInput + 공용 멘션
+// 파이프라인(lib/chat-mentions.ts, components/mentions/*)으로 교체 — @ 자동완성 지원.
+// 코멘트는 별도 mentions 필드가 없으므로(백엔드 미지원) 프로젝트 멤버 목록으로 <@id> 토큰을
+// 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
 
-import { zodResolver } from '@hookform/resolvers/zod';
 import { Pencil, Trash2 } from 'lucide-react';
-import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
+import { RichInput } from '@/components/mentions/RichInput';
+import type { MentionCandidate, MentionUser } from '@/components/mentions/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
-import { Textarea } from '@/components/ui/textarea';
 
 import {
   useCreateComment,
   useDeleteComment,
   useUpdateComment,
 } from '../../../hooks/queries/useIssueComments';
+import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useAuth } from '../../../hooks/useAuth';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeMinute } from '../../../lib/formatters';
-import { type CreateCommentFormData, createCommentSchema } from '../../../lib/validations/issue';
 import type { IssueCommentResponse } from '../../../types/issue';
+
+// 코멘트 본문 최대 길이 — createCommentSchema/updateCommentSchema(서버 @Size)와 동일 기준.
+const COMMENT_MAX_LENGTH = 10000;
 
 // 개별 코멘트 항목 — 본인 HUMAN 코멘트에만 수정·삭제 액션 제공.
 function CommentItem({
@@ -32,30 +39,35 @@ function CommentItem({
   projectKey,
   issueNumber,
   issueId,
+  mentionUsers,
+  mentionCandidates,
 }: {
   comment: IssueCommentResponse;
   isOwn: boolean;
   projectKey: string;
   issueNumber: number;
   issueId: number;
+  // 본문 <@id> 토큰 → 이름/종류 역매핑(읽기 렌더 + 수정 폼 초기 멘션 칩 복원 공용).
+  mentionUsers: MentionUser[];
+  // RichInput @ 자동완성 후보(프로젝트 멤버).
+  mentionCandidates: MentionCandidate[];
 }) {
   const [editing, setEditing] = useState(false);
-  const [editBody, setEditBody] = useState(comment.body);
 
   const update = useUpdateComment(projectKey, issueNumber, issueId);
   const remove = useDeleteComment(projectKey, issueNumber, issueId);
 
   const isAgent = comment.authorKind === 'AGENT';
 
-  // 수정 저장 — PATCH 호출 후 편집 모드 종료.
-  const handleSave = async () => {
-    if (!editBody.trim()) return;
+  // 수정 저장 — PATCH 호출 후 편집 모드 종료. 실패 시 편집 모드 유지 + 입력 보존(RichInput reject 처리).
+  const handleSave = async (body: string) => {
     try {
-      await update.mutateAsync({ commentId: comment.id, data: { body: editBody } });
+      await update.mutateAsync({ commentId: comment.id, data: { body } });
       setEditing(false);
       toast.success('코멘트를 수정했습니다');
     } catch (e) {
       handleApiError(e, '코멘트 수정에 실패했습니다');
+      throw e;
     }
   };
 
@@ -101,10 +113,7 @@ function CommentItem({
               size="icon"
               className="h-6 w-6"
               aria-label="코멘트 수정"
-              onClick={() => {
-                setEditBody(comment.body);
-                setEditing(true);
-              }}
+              onClick={() => setEditing(true)}
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -127,37 +136,45 @@ function CommentItem({
         )}
       </div>
 
-      {/* 본문: 편집 모드면 인라인 Textarea, 아니면 텍스트 */}
+      {/* 본문: 편집 모드면 인라인 RichInput(@멘션), 아니면 멘션 칩 포함 텍스트 */}
       {editing ? (
-        <div className="mt-2 space-y-2">
-          <Textarea
-            value={editBody}
-            onChange={(e) => setEditBody(e.target.value)}
-            rows={3}
+        <div className="mt-2">
+          <RichInput
+            members={mentionCandidates}
+            initialBody={comment.body}
+            initialMentions={mentionUsers}
+            onSubmit={handleSave}
+            onCancel={() => setEditing(false)}
+            submitLabel="저장"
+            maxLength={COMMENT_MAX_LENGTH}
             autoFocus
-            aria-label="코멘트 내용 수정"
+            inputTestId="issue-comment-edit-input"
+            submitTestId="issue-comment-edit-save"
+            cancelTestId="issue-comment-edit-cancel"
           />
-          <div className="flex gap-2 justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEditing(false)}
-              disabled={update.isPending}
-            >
-              취소
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={update.isPending || !editBody.trim()}
-            >
-              {update.isPending ? '저장 중…' : '저장'}
-            </Button>
-          </div>
         </div>
       ) : (
         /* 디자인 시스템 body-secondary 적용 — text-sm(14px) · leading-6 · text-foreground (#344) */
-        <div className="whitespace-pre-wrap mt-1 text-sm leading-6 text-foreground">{comment.body}</div>
+        /* 같은 페이지의 이슈 채팅(ChatMessageRow)과 동일한 멘션 칩 스타일로 <@id> 토큰을 렌더 (#785, #208) */
+        <div className="whitespace-pre-wrap mt-1 text-sm leading-6 text-foreground">
+          {parseMessageSegments(comment.body, mentionUsers).map((seg, i) =>
+            seg.type === 'text' ? (
+              <span key={i}>{seg.value}</span>
+            ) : (
+              <span
+                key={i}
+                data-testid={`comment-mention-chip-${seg.id}`}
+                className={`rounded px-1 font-medium ${
+                  seg.kind === 'AGENT'
+                    ? 'bg-ai-accent-subtle text-ai-accent'
+                    : 'bg-muted text-foreground'
+                }`}
+              >
+                @{seg.name}
+              </span>
+            ),
+          )}
+        </div>
       )}
     </li>
   );
@@ -177,28 +194,41 @@ export function IssueCommentList({
 }) {
   const { user } = useAuth();
   const create = useCreateComment(projectKey, issueNumber, issueId);
-  const {
-    register,
-    handleSubmit,
-    reset,
-    watch,
-    formState: { errors },
-  } = useForm<CreateCommentFormData>({
-    resolver: zodResolver(createCommentSchema),
-  });
 
-  // 새로고침 시 작성 중이던 코멘트 유실 방지 (#620) — 입력값이 있으면 beforeunload 확인.
-  const draftBody = watch('body');
-  useUnsavedChangesWarning(!!(draftBody ?? '').trim());
+  // 프로젝트 멤버 = RichInput @ 자동완성 후보이자, 본문 <@id> 토큰의 이름/종류 역매핑 소스.
+  const membersQuery = useProjectMembers(projectKey);
+  const mentionCandidates: MentionCandidate[] = membersQuery.data ?? [];
+  const mentionUsers: MentionUser[] = mentionCandidates.map((m) => ({
+    id: m.userId,
+    name: m.name,
+    kind: m.kind,
+  }));
 
-  // 폼 제출 → API 호출 → 성공 시 폼 리셋 및 토스트, 실패 시 공통 에러 핸들러로 위임.
-  const onSubmit = async (data: CreateCommentFormData) => {
+  // 새로고침 시 작성 중이던 코멘트 유실 방지 (#620) — RichInput 은 실시간 본문을 노출하지 않으므로
+  // "입력 발생 여부"로 근사한다. 제출 성공 직후의 clearOnSubmit 이 유발하는 onChange 는
+  // suppressNextChangeRef 로 걸러 거짓 경고를 막는다.
+  const [hasDraft, setHasDraft] = useState(false);
+  const suppressNextChangeRef = useRef(false);
+  useUnsavedChangesWarning(hasDraft);
+
+  const handleDraftChange = () => {
+    if (suppressNextChangeRef.current) {
+      suppressNextChangeRef.current = false;
+      setHasDraft(false);
+      return;
+    }
+    setHasDraft(true);
+  };
+
+  // 제출 → API 호출 → 성공 시 clearOnSubmit 이 입력창을 비움 + 토스트, 실패 시 입력 보존(reject) + 공통 에러 핸들러.
+  const handleSubmit = async (body: string): Promise<void> => {
     try {
-      await create.mutateAsync(data);
-      reset();
+      await create.mutateAsync({ body });
+      suppressNextChangeRef.current = true;
       toast.success('코멘트를 작성했습니다');
     } catch (e) {
       handleApiError(e, '코멘트 작성에 실패했습니다');
+      throw e;
     }
   };
 
@@ -215,27 +245,30 @@ export function IssueCommentList({
             projectKey={projectKey}
             issueNumber={issueNumber}
             issueId={issueId}
+            mentionUsers={mentionUsers}
+            mentionCandidates={mentionCandidates}
           />
         ))}
         {comments.length === 0 && (
           <li className="text-muted-foreground text-sm">코멘트가 없습니다</li>
         )}
       </ul>
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-2">
-        {/* resize-none 으로 RichInput(이슈 채팅)과 시각 일관성 유지 (#310) */}
-        <Textarea
-          {...register('body')}
+      <div className="space-y-2">
+        {/* RichInput — 이슈 채팅(ChatComposer)과 동일한 컴포넌트로 시각 일관성(#310) + 멘션 자동완성(#785) 확보 */}
+        <RichInput
+          members={mentionCandidates}
+          onSubmit={handleSubmit}
+          onChange={handleDraftChange}
+          clearOnSubmit
+          disableWhenEmpty
+          maxLength={COMMENT_MAX_LENGTH}
           placeholder="코멘트를 작성하세요"
-          rows={3}
-          className="resize-none"
+          submitLabel={create.isPending ? '작성 중…' : '작성'}
+          submitDisabled={create.isPending}
+          inputTestId="issue-comment-input"
+          submitTestId="issue-comment-submit"
         />
-        {errors.body && <p className="text-sm text-destructive">{errors.body.message}</p>}
-        <div className="flex justify-end">
-          <Button type="submit" disabled={create.isPending}>
-            {create.isPending ? '작성 중…' : '작성'}
-          </Button>
-        </div>
-      </form>
+      </div>
     </section>
   );
 }

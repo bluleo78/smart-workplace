@@ -1,10 +1,12 @@
 // IssueCommentList — 코멘트 수정·삭제 E2E 회귀 테스트 (#154).
 // page.route 로 5 endpoint 모킹. 4 케이스: 수정 / 삭제 / 타인 코멘트 읽기전용 / AGENT 코멘트 읽기전용.
+// #785: 작성/수정 입력이 RichInput(@ 멘션)으로 교체됨에 따라 textarea 셀렉터를 data-testid 기반으로 갱신.
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createAgentComment, createComment, createIssueDetail } from '../../factories/issue.factory';
-import { createProject } from '../../factories/project.factory';
+import { createAgentMember, createMember, createProject } from '../../factories/project.factory';
 import type { IssueCommentResponse, IssueDetailResponse } from '../../../src/types/issue';
+import type { MemberResponse } from '../../../src/types/project';
 
 const PROJECT_KEY = 'WP';
 const ISSUE_NUMBER = 1;
@@ -16,6 +18,7 @@ const ME_ID = 1;
 async function setupIssueStubs(
   page: import('@playwright/test').Page,
   detailRef: { current: IssueDetailResponse },
+  members: MemberResponse[] = [],
 ) {
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({
@@ -25,7 +28,7 @@ async function setupIssueStubs(
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(members) }),
   );
   await page.route(
     (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
@@ -50,22 +53,21 @@ async function setupIssueStubs(
   );
 }
 
-test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310)', () => {
-  test('코멘트 textarea — resize-none 적용으로 RichInput과 시각 일관성', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310, #785)', () => {
+  test('코멘트 작성 입력 — RichInput(이슈 채팅과 동일 컴포넌트)으로 렌더', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     const detailRef = { current: createIssueDetail({ comments: [] }) };
     await setupIssueStubs(page, detailRef);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
-    // 코멘트 작성 폼의 textarea 확인
-    const textarea = page.locator('section[aria-label="코멘트"] textarea[placeholder="코멘트를 작성하세요"]');
-    await expect(textarea).toBeVisible();
-
-    // resize-none 클래스가 적용되어 있어야 함 — RichInput(이슈 채팅)과 시각 일관성
-    await expect(textarea).toHaveClass(/resize-none/);
+    // #785: shadcn Textarea 대신 RichInput(TipTap contenteditable) — 이슈 채팅과 동일 컴포넌트로
+    // 시각 일관성(#310)과 @ 멘션 자동완성을 함께 확보.
+    const input = page.getByTestId('issue-comment-input');
+    await expect(input).toBeVisible();
+    await expect(page.locator('textarea[placeholder="코멘트를 작성하세요"]')).toHaveCount(0);
   });
 
-  test('코멘트 작성 — 폼 입력 → POST API 호출 → 목록 갱신', async ({ authenticatedPage: page }) => {
+  test('코멘트 작성 — 입력 → POST API 호출 → 목록 갱신', async ({ authenticatedPage: page }) => {
     const detailRef = { current: createIssueDetail({ comments: [] }) };
     await setupIssueStubs(page, detailRef);
 
@@ -90,9 +92,10 @@ test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310)', () => {
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await expect(page.getByText('코멘트가 없습니다')).toBeVisible();
 
-    const textarea = page.locator('section[aria-label="코멘트"] textarea[placeholder="코멘트를 작성하세요"]');
-    await textarea.fill('새 코멘트');
-    await page.locator('section[aria-label="코멘트"] button[type="submit"]').click();
+    const input = page.getByTestId('issue-comment-input');
+    await input.click();
+    await page.keyboard.type('새 코멘트');
+    await page.getByTestId('issue-comment-submit').click();
 
     // POST payload 검증
     await expect.poll(() => postPayloads.length).toBe(1);
@@ -100,6 +103,112 @@ test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310)', () => {
 
     // UI에 새 코멘트 반영 확인
     await expect(page.getByText('새 코멘트')).toBeVisible();
+  });
+});
+
+test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
+  test('작성 입력창 — @ 입력 시 자동완성 팝업 노출 + 선택 → <@id> 전송 + 칩 렌더', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = { current: createIssueDetail({ comments: [] }) };
+    const members = [createMember({ userId: 1, name: 'Tester' }), createAgentMember()];
+    await setupIssueStubs(page, detailRef, members);
+
+    const postPayloads: { body: string }[] = [];
+    const newComment = createComment({
+      id: 21,
+      issueId: ISSUE_ID,
+      authorId: ME_ID,
+      body: 'hi <@99>',
+    });
+    await page.route(
+      (url) => /\/api\/v1\/issues\/\d+\/comments$/.test(url.pathname),
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        const payload = route.request().postDataJSON() as { body: string };
+        postPayloads.push(payload);
+        detailRef.current = createIssueDetail({ comments: [newComment] });
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(newComment),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const input = page.getByTestId('issue-comment-input');
+    await input.click();
+    await page.keyboard.type('hi @ai');
+
+    // @ 입력 시 자동완성 드롭다운 노출 — 수정 전에는 뜨지 않던 부분(#785 재현 지점).
+    await expect(page.getByTestId('chat-mention-popover')).toBeVisible();
+    await page.getByTestId('chat-mention-option-99').click();
+
+    // 선택 후 입력창에 이름 칩이 삽입된다.
+    await expect(input).toContainText('@AI Agent');
+
+    await page.getByTestId('issue-comment-submit').click();
+
+    // 전송 payload 는 <@id> 토큰으로 직렬화된다.
+    await expect.poll(() => postPayloads.map((p) => p.body.trim())).toEqual(['hi <@99>']);
+
+    // 읽기 모드 렌더 — 멘션 칩(이름 + AGENT 스타일)으로 표시된다.
+    const chip = page.getByTestId('comment-mention-chip-99');
+    await expect(chip).toHaveText('@AI Agent');
+    await expect(chip).toHaveClass(/bg-ai-accent-subtle/);
+    await expect(chip).toHaveClass(/text-ai-accent/);
+  });
+
+  test('수정 입력창 — 기존 멘션 칩 복원 + @ 자동완성 동작', async ({ authenticatedPage: page }) => {
+    const members = [createMember({ userId: 1, name: 'Tester' }), createAgentMember()];
+    const myComment: IssueCommentResponse = createComment({
+      id: 22,
+      issueId: ISSUE_ID,
+      authorId: ME_ID,
+      body: '검토 요청 <@99>',
+    });
+    const detailRef = { current: createIssueDetail({ comments: [myComment] }) };
+    await setupIssueStubs(page, detailRef, members);
+
+    const patchPayloads: { body: string }[] = [];
+    await page.route(
+      (url) => /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(url.pathname),
+      (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        const payload = route.request().postDataJSON() as { body: string };
+        patchPayloads.push(payload);
+        const updated: IssueCommentResponse = { ...myComment, body: payload.body };
+        detailRef.current = createIssueDetail({ comments: [updated] });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(updated) });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 읽기 모드에서 기존 멘션이 칩으로 렌더되는지 먼저 확인.
+    await expect(page.getByTestId('comment-mention-chip-99')).toHaveText('@AI Agent');
+
+    const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
+    await commentItem.hover();
+    await commentItem.locator('button[aria-label="코멘트 수정"]').click();
+
+    const editInput = page.getByTestId('issue-comment-edit-input');
+    // 수정 진입 시 기존 멘션이 칩으로 복원된다.
+    await expect(editInput).toContainText('@AI Agent');
+
+    // 추가로 @ 입력 시 자동완성이 뜬다.
+    await editInput.click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' @tester');
+    await expect(page.getByTestId('chat-mention-popover')).toBeVisible();
+    await page.getByTestId('chat-mention-option-1').click();
+
+    await page.getByTestId('issue-comment-edit-save').click();
+
+    await expect.poll(() => patchPayloads.length).toBe(1);
+    expect(patchPayloads[0].body).toBe('검토 요청 <@99> <@1>');
   });
 });
 
@@ -187,21 +296,23 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await page.waitForSelector('text=원본 코멘트');
 
-    // 코멘트 섹션의 첫 번째 li — 편집 모드에서 텍스트가 textarea로 이동하므로 안정적 인덱스 사용.
+    // 코멘트 섹션의 첫 번째 li — 편집 모드에서 텍스트가 RichInput 으로 이동하므로 안정적 인덱스 사용.
     const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
     await commentItem.hover();
     const editBtn = commentItem.locator('button[aria-label="코멘트 수정"]');
     await expect(editBtn).toBeVisible();
 
-    // 수정 버튼 클릭 → 인라인 textarea
+    // 수정 버튼 클릭 → 인라인 RichInput (#785)
     await editBtn.click();
-    const textarea = commentItem.locator('textarea[aria-label="코멘트 내용 수정"]');
-    await expect(textarea).toBeVisible();
-    await expect(textarea).toHaveValue('원본 코멘트');
+    const editInput = page.getByTestId('issue-comment-edit-input');
+    await expect(editInput).toBeVisible();
+    await expect(editInput).toContainText('원본 코멘트');
 
-    // 내용 수정 후 저장
-    await textarea.fill('수정된 코멘트');
-    await commentItem.locator('button:has-text("저장")').click();
+    // 내용 수정 후 저장 — 기존 텍스트 전체 선택 후 교체.
+    await editInput.click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type('수정된 코멘트');
+    await page.getByTestId('issue-comment-edit-save').click();
 
     // PATCH payload 검증
     await expect.poll(() => patchPayloads.length).toBe(1);
@@ -321,8 +432,9 @@ test.describe('IssueCommentList 새로고침 유실 경고 (#620)', () => {
     await setupIssueStubs(page, detailRef);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    const textarea = page.locator('section[aria-label="코멘트"] textarea[placeholder="코멘트를 작성하세요"]');
-    await textarea.fill('작성 중인 코멘트');
+    const input = page.getByTestId('issue-comment-input');
+    await input.click();
+    await page.keyboard.type('작성 중인 코멘트');
 
     expect(await dispatchBeforeUnload(page)).toBe(true);
   });
@@ -341,11 +453,12 @@ test.describe('IssueCommentList 새로고침 유실 경고 (#620)', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    const textarea = page.locator('section[aria-label="코멘트"] textarea[placeholder="코멘트를 작성하세요"]');
-    await textarea.fill('제출된 코멘트');
+    const input = page.getByTestId('issue-comment-input');
+    await input.click();
+    await page.keyboard.type('제출된 코멘트');
     expect(await dispatchBeforeUnload(page)).toBe(true);
 
-    await page.locator('section[aria-label="코멘트"] button[type="submit"]').click();
+    await page.getByTestId('issue-comment-submit').click();
     await expect(page.getByText('제출된 코멘트')).toBeVisible();
 
     expect(await dispatchBeforeUnload(page)).toBe(false);

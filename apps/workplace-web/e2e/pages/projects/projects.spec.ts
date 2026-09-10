@@ -74,7 +74,10 @@ test(
       createIssueDetail({ comments: [createComment()] }),
     );
 
-    await page.getByPlaceholder('코멘트를 작성하세요').fill('확인했습니다');
+    // #785: 코멘트 입력이 RichInput(contenteditable) 으로 교체 — placeholder 는 접근성 트리에 노출되지 않으므로
+    // testid 기반으로 클릭 후 타이핑한다.
+    await page.getByTestId('issue-comment-input').click();
+    await page.keyboard.type('확인했습니다');
     await page.getByRole('button', { name: '작성' }).click();
 
     const comment = await commentCapture.waitForRequest();
