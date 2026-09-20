@@ -1,6 +1,7 @@
 package com.workplace.user.repository;
 
 import static com.workplace.jooq.Tables.CONTACT_ENTRY;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
@@ -84,15 +85,26 @@ public class UserGroupRepository {
                     r.get(USER_GROUP.SORT_ORDER)));
   }
 
-  /** 그룹 직속 멤버 enrich(MEMBER→user, EXTERNAL→contact_entry). 이름 오름차순. */
-  public List<UserGroupMemberSummary> findMembers(long groupId) {
+  /**
+   * 그룹 직속 멤버 enrich(MEMBER→user, EXTERNAL→contact_entry). 이름 오름차순.
+   *
+   * <p>MEMBER 는 편입 시점 이후 비활성화·멤버십 해지될 수 있으므로 읽기 시점에도 연락처 목록과 동일한 술어(현재 테넌트 ACTIVE 멤버십 + 활성 HUMAN)로
+   * 거른다(#832). 걸러진 행은 삭제하지 않고 숨기기만 한다 — 멤버십이 복구되면 그대로 되살아난다.
+   */
+  public List<UserGroupMemberSummary> findMembers(long tenantId, long groupId) {
     List<UserGroupMemberSummary> all = new ArrayList<>();
     dsl.select(USER.ID, USER.NAME, USER.EMAIL, USER.TITLE)
         .from(USER_GROUP_MEMBER)
         .join(USER)
         .on(USER.ID.eq(USER_GROUP_MEMBER.TARGET_ID))
+        .join(MEMBERSHIP)
+        .on(USER.ID.eq(MEMBERSHIP.USER_ID))
         .where(USER_GROUP_MEMBER.GROUP_ID.eq(groupId))
         .and(USER_GROUP_MEMBER.TARGET_TYPE.eq("MEMBER"))
+        .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .and(USER.KIND.eq("HUMAN"))
+        .and(USER.IS_ACTIVE.isTrue())
         .fetch()
         .forEach(
             r ->
@@ -205,12 +217,19 @@ public class UserGroupRepository {
     return dsl.fetchExists(dsl.selectOne().from(USER_GROUP).where(cond));
   }
 
-  /** MEMBER 대상 검증 — active HUMAN user 존재 여부. */
-  public boolean memberUserExists(long userId) {
+  /**
+   * MEMBER 대상 검증 — 현재 테넌트의 ACTIVE 멤버십을 가진 활성 HUMAN 인지(#832). user 는 tenant_id/RLS 가 없는 전역 테이블이라
+   * membership 조인 없이는 타 테넌트 사용자를 그룹에 편입시킬 수 있다.
+   */
+  public boolean memberUserExists(long tenantId, long userId) {
     return dsl.fetchExists(
         dsl.selectOne()
             .from(USER)
+            .join(MEMBERSHIP)
+            .on(USER.ID.eq(MEMBERSHIP.USER_ID))
             .where(USER.ID.eq(userId))
+            .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
+            .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
             .and(USER.KIND.eq("HUMAN"))
             .and(USER.IS_ACTIVE.isTrue()));
   }

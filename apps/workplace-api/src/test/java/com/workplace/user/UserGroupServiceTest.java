@@ -1,6 +1,8 @@
 package com.workplace.user;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
@@ -33,16 +35,24 @@ class UserGroupServiceTest extends IntegrationTestBase {
   /** 고유 username 의 HUMAN user 시드, id 반환. */
   private long user() {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "u_" + t)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "User " + t)
-        .set(USER.EMAIL, t + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .set(USER.IS_ACTIVE, true)
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "u_" + t)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "User " + t)
+            .set(USER.EMAIL, t + "@example.com")
+            .set(USER.KIND, "HUMAN")
+            .set(USER.IS_ACTIVE, true)
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    // MEMBER 편입 검증이 현재 테넌트 ACTIVE 멤버십을 요구하므로(#832) 실제 프로비저닝과 동일하게 함께 시드한다.
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
   }
 
   /** user 에 ADMIN 역할 부여(ADMIN 은 user-group:manage 권한 보유). */
@@ -133,6 +143,56 @@ class UserGroupServiceTest extends IntegrationTestBase {
         .anyMatch(m -> m.targetType().equals("MEMBER") && m.targetId() == memberUser);
     assertThat(after.members())
         .anyMatch(m -> m.targetType().equals("EXTERNAL") && m.targetId() == contactId);
+  }
+
+  /** 편입 이후 비활성화된 멤버는 그룹 상세(조직도)에서도 사라진다(#832) — 목록/상세와 동일 술어. 행 자체는 남으므로 재활성화 시 되살아난다. */
+  @Test
+  void groupMembers_hideDeactivatedUser() {
+    long caller = user();
+    long memberUser = user();
+    UserGroupDetail g = service.create(caller, req("내 그룹", null, "PERSONAL"));
+    service.addMember(caller, g.id(), new AddMemberRequest("MEMBER", memberUser));
+    assertThat(service.getDetail(caller, g.id()).members()).hasSize(1);
+
+    dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(memberUser)).execute();
+
+    assertThat(service.getDetail(caller, g.id()).members()).isEmpty();
+  }
+
+  /** 타 테넌트 사용자는 그룹 MEMBER 로 편입할 수 없다(#832) — user 는 전역 테이블이라 id 만으로 접근 가능하기 때문. */
+  @Test
+  void addMember_rejectsUserOfOtherTenant() {
+    long caller = user();
+    String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    long otherTenant =
+        dsl.insertInto(TENANT)
+            .set(TENANT.SLUG, "t_" + t)
+            .set(TENANT.NAME, "tenant " + t)
+            .set(TENANT.STATUS, "ACTIVE")
+            .returning(TENANT.ID)
+            .fetchOne()
+            .getId();
+    long foreign =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "uf_" + t)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "Foreign " + t)
+            .set(USER.EMAIL, "f_" + t + "@example.com")
+            .set(USER.KIND, "HUMAN")
+            .set(USER.IS_ACTIVE, true)
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, foreign)
+        .set(MEMBERSHIP.TENANT_ID, otherTenant)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    UserGroupDetail g = service.create(caller, req("내 그룹", null, "PERSONAL"));
+
+    assertThatThrownBy(
+            () -> service.addMember(caller, g.id(), new AddMemberRequest("MEMBER", foreign)))
+        .isInstanceOf(InvalidUserGroupException.class);
   }
 
   @Test

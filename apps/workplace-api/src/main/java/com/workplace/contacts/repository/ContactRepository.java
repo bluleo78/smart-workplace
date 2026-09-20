@@ -2,6 +2,7 @@ package com.workplace.contacts.repository;
 
 import static com.workplace.jooq.Tables.CONTACT_ENTRY;
 import static com.workplace.jooq.Tables.CONTACT_FAVORITE;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
@@ -36,6 +37,7 @@ public class ContactRepository {
    * 통합 목록 1페이지. favorite=true 면 호출자가 즐겨찾기한 항목만. isFavorite 플래그는 callerId 기준 EXISTS 로 계산. limit 개 초과
    * 여부 판단은 service 가 limit+1 로 호출.
    *
+   * @param tenantId active 테넌트 — 멤버 브랜치 스코프 기준(#832). user 는 전역 테이블이라 RLS 가 없다
    * @param callerId 호출자(외부 PERSONAL 격리 기준, isFavorite 계산 기준)
    * @param search null/blank 면 전체. name/email ILIKE
    * @param type ALL | MEMBER | EXTERNAL
@@ -46,6 +48,7 @@ public class ContactRepository {
    * @param limit 가져올 행 수
    */
   public List<ContactSummary> findPage(
+      long tenantId,
       long callerId,
       String search,
       String type,
@@ -54,7 +57,9 @@ public class ContactRepository {
       String title,
       ContactCursorCodec.Decoded cursor,
       int limit) {
-    // 멤버 브랜치 — kind=HUMAN. is_favorite = (MEMBER, user.id) 즐겨찾기 존재 여부
+    // 멤버 브랜치 — 현재 테넌트의 ACTIVE 멤버십을 가진 활성 HUMAN 만(#832).
+    // user 는 tenant_id/RLS 가 없는 전역 테이블이라 membership 조인 없이는 타 테넌트 사용자가 그대로 노출된다.
+    // is_favorite = (MEMBER, user.id) 즐겨찾기 존재 여부
     var members =
         dsl.select(
                 DSL.inline("MEMBER").as("type"),
@@ -72,7 +77,12 @@ public class ContactRepository {
                                 .and(CONTACT_FAVORITE.TARGET_ID.eq(USER.ID))))
                     .as("is_favorite"))
             .from(USER)
-            .where(USER.KIND.eq("HUMAN"));
+            .join(MEMBERSHIP)
+            .on(USER.ID.eq(MEMBERSHIP.USER_ID))
+            .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
+            .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+            .and(USER.KIND.eq("HUMAN"))
+            .and(USER.IS_ACTIVE.isTrue());
 
     // 외부 브랜치 — SHARED 전체 + 본인 PERSONAL. is_favorite = (EXTERNAL, contact_entry.id)
     var external =
@@ -184,13 +194,21 @@ public class ContactRepository {
             .and(CONTACT_FAVORITE.TARGET_ID.eq(targetId)));
   }
 
-  /** 멤버 상세 — kind=HUMAN 만. 소속 그룹명·callerId 기준 즐겨찾기 여부 포함. 없으면 empty. */
-  public Optional<MemberDetail> findMember(long callerId, long userId) {
+  /**
+   * 멤버 상세 — 현재 테넌트의 ACTIVE 멤버십을 가진 활성 HUMAN 만. 소속 그룹명·callerId 기준 즐겨찾기 여부 포함. 없으면 empty(service 가
+   * 404). 목록만 막으면 id 를 아는 호출자가 이 경로로 타 테넌트 프로필을 그대로 읽을 수 있으므로 동일 술어를 반복한다(#832).
+   */
+  public Optional<MemberDetail> findMember(long tenantId, long callerId, long userId) {
     var profile =
         dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.EMAIL, USER.TITLE, USER.KIND)
             .from(USER)
+            .join(MEMBERSHIP)
+            .on(USER.ID.eq(MEMBERSHIP.USER_ID))
             .where(USER.ID.eq(userId))
+            .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
+            .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
             .and(USER.KIND.eq("HUMAN"))
+            .and(USER.IS_ACTIVE.isTrue())
             .fetchOne();
     if (profile == null) return Optional.empty();
 

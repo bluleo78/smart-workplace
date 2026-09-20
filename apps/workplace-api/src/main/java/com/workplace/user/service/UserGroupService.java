@@ -1,6 +1,7 @@
 package com.workplace.user.service;
 
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AddMemberRequest;
 import com.workplace.user.dto.CreateUserGroupRequest;
 import com.workplace.user.dto.UpdateUserGroupRequest;
@@ -108,7 +109,7 @@ public class UserGroupService {
   public UserGroupDetail addMember(long callerId, long id, AddMemberRequest req) {
     FlatGroup g = requireWritable(callerId, id);
     if ("MEMBER".equals(req.targetType())) {
-      if (!repo.memberUserExists(req.targetId())) {
+      if (!repo.memberUserExists(TenantContext.require(), req.targetId())) {
         throw new InvalidUserGroupException("존재하지 않는 멤버입니다: " + req.targetId());
       }
     } else { // EXTERNAL
@@ -226,6 +227,6 @@ public class UserGroupService {
         g.ownerId(),
         g.visibility(),
         g.sortOrder(),
-        repo.findMembers(g.id()));
+        repo.findMembers(TenantContext.require(), g.id()));
   }
 }

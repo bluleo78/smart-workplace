@@ -14,6 +14,7 @@ import com.workplace.contacts.repository.ContactCursorCodec;
 import com.workplace.contacts.repository.ContactRepository;
 import com.workplace.contacts.repository.FavoriteRepository;
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.global.tenant.TenantContext;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -53,7 +54,15 @@ public class ContactService {
 
     List<ContactSummary> rows =
         repo.findPage(
-            callerId, search, safeType, favorite, organization, title, decoded, safeLimit + 1);
+            TenantContext.require(),
+            callerId,
+            search,
+            safeType,
+            favorite,
+            organization,
+            title,
+            decoded,
+            safeLimit + 1);
 
     boolean hasMore = rows.size() > safeLimit;
     List<ContactSummary> page = hasMore ? rows.subList(0, safeLimit) : rows;
@@ -74,7 +83,7 @@ public class ContactService {
   /** 멤버 상세. 미존재(또는 AGENT)면 404. */
   @Transactional(readOnly = true)
   public MemberDetail getMember(long callerId, long userId) {
-    return repo.findMember(callerId, userId)
+    return repo.findMember(TenantContext.require(), callerId, userId)
         .orElseThrow(() -> new ContactNotFoundException("MEMBER", userId));
   }
 
@@ -137,11 +146,11 @@ public class ContactService {
     favoriteRepo.remove(callerId, req.targetType(), req.targetId());
   }
 
-  /** 즐겨찾기 타깃이 호출자에게 보이는지 검증. MEMBER=HUMAN 존재, EXTERNAL=가시(SHARED|owner|ADMIN). 아니면 404. */
+  /** 즐겨찾기 타깃이 호출자에게 보이는지 검증. MEMBER=현재 테넌트 활성 멤버, EXTERNAL=가시(SHARED|owner|ADMIN). 아니면 404. */
   private void requireVisibleTarget(long callerId, String targetType, long targetId) {
     boolean visible;
     if ("MEMBER".equals(targetType)) {
-      visible = repo.findMember(callerId, targetId).isPresent();
+      visible = repo.findMember(TenantContext.require(), callerId, targetId).isPresent();
     } else {
       boolean admin = permissionChecker.userHasRole(callerId, "ADMIN");
       visible = repo.findExternal(callerId, admin, targetId).isPresent();

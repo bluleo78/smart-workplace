@@ -63,11 +63,7 @@ public class UserService {
    * 멤버만 노출한다(다른 테넌트 사용자 누출 방지). 인증된 ADMIN 경로라 컨텍스트가 반드시 있어야 한다.
    */
   private Long requireTenant() {
-    Long tenantId = TenantContext.get();
-    if (tenantId == null) {
-      throw new IllegalStateException("사용자 목록 조회에는 active 테넌트 컨텍스트가 필요합니다.");
-    }
-    return tenantId;
+    return TenantContext.require();
   }
 
   /**
