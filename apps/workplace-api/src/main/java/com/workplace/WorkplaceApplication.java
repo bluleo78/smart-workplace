@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-/** Smart Workplace API 진입점. */
+/** Gen:iA Workplace API 진입점. */
 @SpringBootApplication
 @ConfigurationPropertiesScan
 @EnableScheduling

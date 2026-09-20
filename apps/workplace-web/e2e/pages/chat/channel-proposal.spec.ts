@@ -17,7 +17,7 @@ function makeProposal(proposedByUserId: number): MessageProposal {
     status: 'PENDING',
     title: '로그인 버그',
     priority: 'HIGH',
-    projectName: 'Smart Workplace',
+    projectName: '제품팀 프로젝트',
     projectKey: null,
     candidates: [],
     resultIssueKey: null,
@@ -219,7 +219,7 @@ test.describe('L3 위임 확인 카드', () => {
       // 카드가 렌더되고 제목·프로젝트·우선순위가 표시된다.
       await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toBeVisible()
       await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toContainText('로그인 버그')
-      await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toContainText('Smart Workplace')
+      await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toContainText('제품팀 프로젝트')
       // IssueDraftFields editable=false 가 우선순위를 한국어 레이블로 렌더한다.
       await expect(page.getByTestId(`proposal-card-${PROPOSAL_ID}`)).toContainText('높음')
       // AI 배지 — 🤖 이모지에서 Bot lucide 아이콘으로 변경(SVG는 텍스트 미포함).

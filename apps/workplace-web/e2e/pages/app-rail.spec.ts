@@ -18,6 +18,17 @@ test('데스크톱에서 앱 레일은 축소 시 아이콘 전용이다(워드�
   await expect(page.getByTestId('app-rail').getByText('Workplace')).toBeHidden()
 })
 
+// 브랜드 케이싱 회귀 가드 — 워드마크 첫 줄은 "Gen:iA" 그대로여야 한다.
+// uppercase 계열 클래스가 다시 붙으면 DOM 텍스트는 그대로라 렌더만 "GEN:IA"로 깨지므로,
+// 실제 계산된 text-transform 까지 함께 단언한다.
+test('앱 레일 — 브랜드 워드마크가 Gen:iA 케이싱을 유지한다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const kicker = page.getByTestId('app-rail').getByText('Gen:iA', { exact: true })
+  await expect(kicker).toHaveCount(1)
+  await expect(kicker).toHaveCSS('text-transform', 'none')
+})
+
 // LNB 표준화(#98) — 레일 라벨 한글화(대화·드라이브) + 소통 묶음 순서.
 // #99 — '설정' 모듈을 어드민 전용에서 전체 사용자 노출로 전환, 드라이브 다음(끝)에 배치.
 // #477 — 소통 우선 순서: 소통 묶음(대화·메일) 앞에 인접 배치, 작업관리는 그 다음.

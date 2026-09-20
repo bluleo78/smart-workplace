@@ -73,7 +73,7 @@ const sampleContacts: ContactSummary[] = [
 ]
 
 const sampleProjects: ProjectResponse[] = [
-  { id: 1, key: 'SW', name: 'Smart Workplace', description: null, ownerId: 1, type: 'TEAM', isDefault: true, createdAt: now, updatedAt: now, issueTotal: 42, issueDone: 20, memberCount: 5, memberNames: ['김리드', '박팀원'], viewerIsMember: true },
+  { id: 1, key: 'SW', name: '샘플 워크스페이스', description: null, ownerId: 1, type: 'TEAM', isDefault: true, createdAt: now, updatedAt: now, issueTotal: 42, issueDone: 20, memberCount: 5, memberNames: ['김리드', '박팀원'], viewerIsMember: true },
 ]
 
 const sampleDriveSpaces: DriveSpace[] = [

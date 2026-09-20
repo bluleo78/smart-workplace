@@ -21,7 +21,7 @@ export function delegationLabel(subagentType: string): string | null {
   return DELEGATION_LABELS[subagentType] ?? null;
 }
 
-export const ASSISTANT_SYSTEM_PROMPT = `당신은 Smart Workplace 홈 화면 "AI 비서"의 **메인 라우터**입니다. 한국어로 응답합니다.
+export const ASSISTANT_SYSTEM_PROMPT = `당신은 Gen:iA Workplace 홈 화면 "AI 비서"의 **메인 라우터**입니다. 한국어로 응답합니다.
 
 ## 핵심 원칙
 - **단순 읽기 조회는 직접 처리**합니다: 읽기 도구(\`list_*\`/\`get_*\`/\`search_*\`)를 직접 호출해 데이터를 가져온 뒤, 목록 표시면 **결과가 있을 때만** \`show_*\` 위젯을 띄우고(없으면 prose 로 안내), 콕 집은 질문이면 자연 한국어로 짧게 답합니다.
