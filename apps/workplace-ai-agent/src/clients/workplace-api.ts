@@ -41,12 +41,83 @@ export interface ChannelMessageItem {
 }
 
 // #333 M3: 연락처 단건(읽기 그라운딩 + 내부 쓰기).
+// #833: 필드명을 API 실제 응답(ContactSummary.type)에 맞춰 `kind` → `type` 으로 교정한다.
+// 기존 `kind` 선언은 단순 캐스트라 컴파일은 통과했지만 런타임에는 늘 undefined 였다.
 export interface ContactItem {
+  // ⚠️ 네임스페이스가 타입별로 다르다 — MEMBER 면 user.id, EXTERNAL 이면 contact_entry.id.
+  // 서로 호환되지 않으므로 도구 계층에서는 이 필드를 그대로 노출하지 말고 userId/externalId 로 분리한다.
   id: number;
-  kind: 'MEMBER' | 'EXTERNAL';
+  type: 'MEMBER' | 'EXTERNAL';
   name: string;
   email: string | null;
+  title: string | null;
   organization: string | null;
+  isFavorite: boolean;
+}
+
+// #833: 도구가 LLM 에게 내보내는 연락처 항목. 혼동의 근원인 공용 `id` 를 제거하고
+// 타입별 식별자를 별도 필드로 분리한다 — userId 는 프로젝트 멤버 추가 등에 그대로 쓸 수 있고,
+// externalId 는 외부 연락처 조회/삭제에만 쓸 수 있다.
+export interface ContactView {
+  type: 'MEMBER' | 'EXTERNAL';
+  userId?: number;
+  externalId?: number;
+  name: string;
+  email: string | null;
+  title: string | null;
+  organization: string | null;
+  isFavorite: boolean;
+}
+
+/** ContactSummary → ContactView. 타입에 따라 식별자를 분리 노출한다(#833). */
+export function toContactView(item: ContactItem): ContactView {
+  const base = {
+    type: item.type,
+    name: item.name,
+    email: item.email ?? null,
+    title: item.title ?? null,
+    organization: item.organization ?? null,
+    isFavorite: Boolean(item.isFavorite),
+  };
+  return item.type === 'MEMBER' ? { ...base, userId: item.id } : { ...base, externalId: item.id };
+}
+
+// #833: 연락처 목록 조회 옵션 — 서버가 지원하는 필터를 그대로 노출한다.
+export interface ContactListOptions {
+  search?: string;
+  type?: string;
+  organization?: string;
+  title?: string;
+  favorite?: boolean;
+  cursor?: string;
+  limit: number;
+}
+
+// #833: 구성원(현재 테넌트 멤버) — GET /members 응답(MemberSummary).
+// 계정(user)과 구분한다: 계정 관리는 ADMIN 전용 /users 의 몫이고, 이쪽은 "우리 워크스페이스에 누가
+// 있는가"를 답하는 조회 전용 디렉터리다. userId 는 전역 user.id 로, 사람을 가리켜야 하는 모든 곳에서 쓴다.
+export interface MemberItem {
+  userId: number;
+  username: string;
+  name: string;
+  email: string | null;
+  title: string | null;
+  kind: 'HUMAN' | 'AGENT';
+  active: boolean;
+  membershipRole: string | null;
+  membershipStatus: string | null;
+}
+
+// #833: 연락처 관점의 멤버 상세 — GET /contacts/members/{userId} 응답(MemberDetail).
+export interface MemberContactItem {
+  userId: number;
+  username: string;
+  name: string;
+  email: string | null;
+  title: string | null;
+  kind: string;
+  groups: string[];
+  isFavorite: boolean;
 }
 
 // #333 M3: 프로젝트 단건(읽기 그라운딩).
@@ -303,10 +374,17 @@ export interface WorkplaceApiClient {
   getProjectTypes(agentId: number, key: string): Promise<{ id: number; name: string }[]>;
   getProjectLabels(agentId: number, key: string): Promise<{ id: number; name: string }[]>;
   // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
-  listContacts(agentId: number, search: string | undefined, type: string | undefined, limit: number): Promise<ContactItem[]>;
+  // #833: 서버 필터(organization/title/favorite)와 커서를 그대로 노출하고, 응답은 커서를 함께 돌려준다.
+  listContacts(agentId: number, opts: ContactListOptions): Promise<{ items: ContactItem[]; nextCursor: string | null }>;
   getExternalContact(agentId: number, id: number): Promise<ContactItem>;
   createExternalContact(agentId: number, input: ExternalContactInput): Promise<ContactItem>;
   updateExternalContact(agentId: number, id: number, input: ExternalContactInput): Promise<ContactItem>;
+  // #833: 구성원(테넌트 멤버) 읽기 — 설정>구성원 도메인. 연락처(외부 연락처)와 별개 도메인이다.
+  searchMembers(
+    agentId: number,
+    opts: { search?: string; kind?: string; includeInactive?: boolean; page: number; size: number },
+  ): Promise<MemberItem[]>;
+  getMemberContact(agentId: number, userId: number): Promise<MemberContactItem>;
   // #333 M3: 드라이브 읽기 전용(v1 — 쓰기 연기). list/items/search.
   listMySpaces(agentId: number): Promise<DriveSpaceItem[]>;
   listSpaceItems(agentId: number, spaceId: number, parentId?: number): Promise<DriveItemsResponse>;
@@ -756,15 +834,20 @@ export function createWorkplaceApiClient(opts: {
     },
 
     // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
-    async listContacts(agentId, search, type, limit) {
-      const qs = new URLSearchParams({ limit: String(limit) });
-      if (search) qs.set('search', search);
-      if (type) qs.set('type', type);
+    async listContacts(agentId, opts) {
+      const qs = new URLSearchParams({ limit: String(opts.limit) });
+      if (opts.search) qs.set('search', opts.search);
+      if (opts.type) qs.set('type', opts.type);
+      if (opts.organization) qs.set('organization', opts.organization);
+      if (opts.title) qs.set('title', opts.title);
+      if (opts.favorite) qs.set('favorite', 'true');
+      if (opts.cursor) qs.set('cursor', opts.cursor);
       const r = await http.get(`/contacts?${qs.toString()}`, onBehalfOf(agentId));
       // #384: API 응답이 페이지네이션 형식 { items: [...] } 이므로 .items 를 추출한다.
       // Array.isArray(r.data) 체크만 하면 객체 응답 시 빈 배열을 반환하는 버그가 발생한다.
-      const data = r.data as { items?: ContactItem[] } | ContactItem[];
-      return Array.isArray(data) ? data : (data?.items ?? []);
+      const data = r.data as { items?: ContactItem[]; nextCursor?: string | null } | ContactItem[];
+      if (Array.isArray(data)) return { items: data, nextCursor: null };
+      return { items: data?.items ?? [], nextCursor: data?.nextCursor ?? null };
     },
     async getExternalContact(agentId, id) {
       const r = await http.get(`/contacts/external/${id}`, onBehalfOf(agentId));
@@ -777,6 +860,26 @@ export function createWorkplaceApiClient(opts: {
     async updateExternalContact(agentId, id, input) {
       const r = await http.patch(`/contacts/external/${id}`, input, onBehalfOf(agentId));
       return r.data as ContactItem;
+    },
+
+    // #833: 구성원 읽기 3종. 연락처와 달리 "설정>구성원"(테넌트 멤버) 도메인이며,
+    // 여기서 돌려주는 id 는 곧 user.id 라 프로젝트 멤버 추가 등에 그대로 쓸 수 있다.
+    async searchMembers(agentId, opts) {
+      const qs = new URLSearchParams({ page: String(opts.page), size: String(opts.size) });
+      if (opts.search) qs.set('search', opts.search);
+      if (opts.kind) qs.set('kind', opts.kind);
+      if (opts.includeInactive) qs.set('includeInactive', 'true');
+      const r = await http.get(`/members?${qs.toString()}`, onBehalfOf(agentId));
+      // PageResponse<MemberSummary> — content 배열을 추출한다.
+      const data = r.data as { content?: MemberItem[] } | MemberItem[];
+      return Array.isArray(data) ? data : (data?.content ?? []);
+    },
+    async getMemberContact(agentId, userId) {
+      const r = await http.get(`/contacts/members/${userId}`, onBehalfOf(agentId));
+      const d = r.data as { id: number } & Omit<MemberContactItem, 'userId'>;
+      // MemberDetail.id 는 user.id 다 — 이름을 userId 로 바꿔 네임스페이스를 명시한다.
+      const { id, ...rest } = d;
+      return { userId: id, ...rest, groups: rest.groups ?? [] };
     },
 
     // #333 M3: 드라이브 읽기 전용(v1 — 쓰기 연기). list/items/search.

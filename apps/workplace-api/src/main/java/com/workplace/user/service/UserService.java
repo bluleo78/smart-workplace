@@ -21,6 +21,7 @@ import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -379,6 +380,44 @@ public class UserService {
               });
     }
     userRepository.setRoles(userId, roleIds);
+  }
+
+  /**
+   * 역할명(ADMIN/USER)으로 역할을 교체한다 (#833). AI 확인 카드 경로용 — 에이전트는 roleId 를 알 수 없고, 역할 목록 조회에는 role:read 가
+   * 필요해 에이전트에 권한을 더 주게 된다. 이름→id 해석을 서버(=사람 권한으로 실행되는 실행기)에서 수행해 에이전트 권한을 조회 전용으로 유지한다.
+   */
+  @Transactional
+  public void setUserRolesByNames(Long userId, List<String> roleNames, Long callerId) {
+    if (roleNames == null || roleNames.isEmpty()) {
+      throw new IllegalArgumentException("역할이 비어 있습니다");
+    }
+    // requireMember/존재 검증은 아래 setUserRoles 가 수행한다 — 여기서 또 부르면 같은 쿼리를 두 번 돈다.
+    // setUserRoles 는 역할 집합을 통째로 교체한다. AI 경로는 ADMIN/USER 두 이름만 다룰 수 있으므로,
+    // 대상이 그 밖의 역할(업무별 에이전트의 AGENT 역할, 관리자가 부여한 커스텀 역할)을 갖고 있으면
+    // 조용히 사라진다 — 개인 비서가 AGENT 역할을 잃고 기능이 멈추는 식이다. 손실이 생길 상황이면
+    // 아예 거부하고 설정 화면으로 안내한다(확인 카드 summary 는 LLM 이 쓰는 자유 텍스트라 손실을 못 드러낸다).
+    Set<String> keepable = Set.of("ADMIN", "USER");
+    List<String> dropped =
+        roleRepository.findByUserId(userId).stream()
+            .map(RoleResponse::name)
+            .filter(name -> !keepable.contains(name) && !roleNames.contains(name))
+            .toList();
+    if (!dropped.isEmpty()) {
+      throw new IllegalArgumentException(
+          "이 사용자는 여기서 다룰 수 없는 역할("
+              + String.join(", ", dropped)
+              + ")을 갖고 있어 역할을 바꿀 수 없습니다. 설정 > 구성원 화면에서 변경하세요.");
+    }
+    List<Long> roleIds =
+        roleNames.stream()
+            .map(
+                name ->
+                    roleRepository
+                        .findByName(name)
+                        .orElseThrow(() -> new IllegalArgumentException("역할이 없습니다: " + name))
+                        .id())
+            .toList();
+    setUserRoles(userId, roleIds, callerId);
   }
 
   @Transactional

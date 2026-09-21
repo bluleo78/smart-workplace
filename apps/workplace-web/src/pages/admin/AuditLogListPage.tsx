@@ -31,7 +31,7 @@ import {
 import { TableEmptyRow } from '@/components/ui/table-empty';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
 import { useAuditLogs } from '@/hooks/queries/useAuditLogs';
-import { useUsers } from '@/hooks/queries/useUsers';
+import { useMembers } from '@/hooks/queries/useMembers';
 import { useDebounceValue } from '@/hooks/useDebounceValue';
 import { clickableRowProps } from '@/lib/clickableRowProps';
 import { formatDateTime, formatIpAddress } from '@/lib/formatters';
@@ -311,11 +311,13 @@ export default function AuditLogListPage() {
   });
 
   /**
-   * 사용자 dropdown 옵션 로드 (#89)
-   * - 관리자 페이지이므로 GET /users 권한 보유 가정 (user:read)
-   * - 한 페이지당 100명까지 노출. 더 많은 사용자가 있으면 향후 검색 가능한 Combobox로 확장 고려.
+   * 행위자 dropdown 옵션 로드 (#89)
+   * - 행위자 id → 이름 표시는 디렉터리 조회이므로 구성원 디렉터리(GET /members, member:read)를 쓴다 (#833).
+   *   계정 관리 API(/users)는 생성·역할변경 같은 관리 동작에만 쓴다.
+   * - 비활성 구성원의 과거 행위도 이름으로 보여야 하므로 includeInactive.
+   * - 한 페이지당 100명까지 노출. 더 많으면 향후 검색 가능한 Combobox로 확장 고려.
    */
-  const { data: usersPage } = useUsers({ size: 100 });
+  const { data: usersPage } = useMembers({ kind: 'ALL', includeInactive: true, size: 100 });
 
   const handleFilterChange = (setter: (v: string) => void) => (value: string) => {
     setter(value === 'all' ? '' : value);
@@ -397,7 +399,7 @@ export default function AuditLogListPage() {
           <SelectContent>
             <SelectItem value="all">전체 사용자</SelectItem>
             {usersPage?.content.map((u) => (
-              <SelectItem key={u.id} value={String(u.id)}>
+              <SelectItem key={u.userId} value={String(u.userId)}>
                 {u.name} ({u.username})
               </SelectItem>
             ))}

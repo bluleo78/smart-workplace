@@ -7,6 +7,7 @@
 //   - @멘션 칩 시맨틱 토큰 적용 확인 (#258 회귀 방지)
 import type { Page } from '@playwright/test'
 
+import { createPageResponse } from '../../fixtures/api-mock'
 import {
   createChannel,
   createChannelMember,
@@ -142,22 +143,16 @@ async function stubMarkRead(page: Page, channelId: number) {
   )
 }
 
-/** useMentionAgents 가 호출하는 GET /api/v1/users stub. */
+/** useMentionAgents 가 호출하는 GET /api/v1/members?kind=AGENT stub (#833). */
 async function stubUsers(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) =>
       route.request().method() === 'GET'
         ? route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({
-              content: [],
-              page: 0,
-              size: 100,
-              totalElements: 0,
-              totalPages: 0,
-            }),
+            body: JSON.stringify(createPageResponse([], { size: 100 })),
           })
         : route.fallback(),
   )
@@ -313,13 +308,13 @@ test.describe('@멘션 칩 시맨틱 토큰', () => {
           : route.fallback(),
     )
     await page.route(
-      (url) => url.pathname === '/api/v1/users',
+      (url) => url.pathname === '/api/v1/members',
       (route) =>
         route.request().method() === 'GET'
           ? route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify({ content: [], page: 0, size: 100, totalElements: 0, totalPages: 0 }),
+              body: JSON.stringify(createPageResponse([], { size: 100 })),
             })
           : route.fallback(),
     )

@@ -140,10 +140,10 @@ async function stubCalendar(page: Page, store: CalendarEvent[], detailEvent: Cal
   )
 }
 
-/** 유저 검색 모킹 — /api/v1/users?search= (GET /users, /users/me 제외) */
+/** 구성원 검색 모킹 — 구성원 디렉터리 GET /api/v1/members?search= (#833) */
 async function stubUserSearch(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/users' && url.searchParams.has('search'),
+    (url) => url.pathname === '/api/v1/members' && url.searchParams.has('search'),
     (route) => {
       return route.fulfill({
         status: 200,
@@ -151,20 +151,20 @@ async function stubUserSearch(page: Page) {
         body: JSON.stringify({
           content: [
             {
-              id: 2,
+              userId: 2,
               username: 'user2',
               name: '홍길동',
               email: 'hong@test.com',
               kind: 'HUMAN',
-              roles: [],
+              active: true,
             },
             {
-              id: 99,
+              userId: 99,
               username: 'ai-bot',
               name: 'AI Bot',
               email: 'ai@test.com',
               kind: 'AGENT',
-              roles: [],
+              active: true,
             },
           ],
           page: 0,

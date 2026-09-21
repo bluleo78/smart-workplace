@@ -73,7 +73,7 @@ test('위키 멤버 — OWNER 가 멤버 검색·추가(POST payload 검증 + �
 
   // 멤버 검색 — GET /users?search= (MemberSearchPopover 의 useUserSearch).
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) =>
       route.request().method() === 'GET'
         ? route.fulfill({
@@ -81,7 +81,7 @@ test('위키 멤버 — OWNER 가 멤버 검색·추가(POST payload 검증 + �
             contentType: 'application/json',
             body: JSON.stringify({
               content: [
-                { id: 2, username: 'editor', email: 'e@x.com', name: '김편집', isActive: true, createdAt: '2026-06-01T00:00:00Z', kind: 'HUMAN' },
+                { userId: 2, username: 'editor', email: 'e@x.com', name: '김편집', title: null, kind: 'HUMAN', active: true, membershipRole: 'MEMBER', membershipStatus: 'ACTIVE' },
               ],
               page: 0,
               size: 20,

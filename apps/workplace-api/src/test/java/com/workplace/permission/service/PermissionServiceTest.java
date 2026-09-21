@@ -102,7 +102,9 @@ class PermissionServiceTest extends IntegrationTestBase {
     List<PermissionResponse> result = permissionService.getAllPermissions();
 
     assertThat(result)
-        .hasSize(28); // V42 audit:read, V70 platform:* 4종, V120 milestone:manage 추가 → 28
+        .hasSize(
+            29); // V42 audit:read, V70 platform:* 4종, V120 milestone:manage, V132 member:read 추가 →
+    // 29
     // V20 저장된 뷰 권한 + V26 사이클 권한 + V31 연락처 권한 + V39 캘린더 권한이 시드에 포함되는지 함께 확인.
     assertThat(result)
         .extracting(PermissionResponse::code)
@@ -148,14 +150,15 @@ class PermissionServiceTest extends IntegrationTestBase {
   // =========================================================================
 
   /**
-   * "user" 카테고리 권한 5개(user:read, user:read:self, user:write:self, user:write, user:delete)가 반환되어야
-   * 한다.
+   * "user" 카테고리 권한 6개(user:read, user:read:self, user:write:self, user:write, user:delete,
+   * member:read)가 반환되어야 한다. member:read 는 V132(#833) 에서 추가된 구성원 디렉터리 조회 권한이다 — 계정 관리와 분리된 조회 전용
+   * 권한이라 같은 user 카테고리에 둔다.
    */
   @Test
-  void getPermissionsByCategory_userCategory_returns5Permissions() {
+  void getPermissionsByCategory_userCategory_returns6Permissions() {
     List<PermissionResponse> result = permissionService.getPermissionsByCategory("user");
 
-    assertThat(result).hasSize(5);
+    assertThat(result).hasSize(6);
     assertThat(result).extracting(PermissionResponse::category).containsOnly("user");
   }
 

@@ -98,7 +98,7 @@ class NewTenantProvisioningTest extends IntegrationTestBase {
 
   @Test
   void createTenant_seedsAgentRole_withCuratedPermissions() {
-    // #278: 신규 테넌트는 AGENT 시스템 역할을 받고, USER 에서 project:manage 를 뺀 12개 권한만 갖는다.
+    // #278: 신규 테넌트는 AGENT 시스템 역할을 받고, USER 에서 project:manage 를 뺀 12개 권한 + member:read(#833) 를 갖는다.
     long owner = createHumanUser("owner");
     TenantDetailResponse detail =
         service.createTenant(new CreateTenantRequest("AgentRoleCheck", uniqueSlug(), owner));
@@ -128,6 +128,8 @@ class NewTenantProvisioningTest extends IntegrationTestBase {
             "contact:write",
             "calendar:read",
             "calendar:write",
+            // #833: 구성원 디렉터리 조회 — AI 가 이름으로 userId 를 확정하는 경로.
+            "member:read",
             "user:read:self",
             "user:write:self");
   }
@@ -150,6 +152,8 @@ class NewTenantProvisioningTest extends IntegrationTestBase {
         permissionRepository.findByRoleId(userRoleId).stream()
             .map(PermissionResponse::code)
             .collect(Collectors.toSet());
-    assertThat(userCodes).containsExactlyInAnyOrder("user:read:self", "user:write:self");
+    // #833: 일반 구성원도 구성원 디렉터리는 볼 수 있어야 한다(계정 관리 권한은 여전히 ADMIN 전용).
+    assertThat(userCodes)
+        .containsExactlyInAnyOrder("member:read", "user:read:self", "user:write:self");
   }
 }

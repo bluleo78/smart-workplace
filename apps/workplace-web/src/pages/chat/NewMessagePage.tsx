@@ -11,10 +11,10 @@ import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { useCreateDm } from '@/hooks/queries/useCreateDm'
+import type { MemberPickerCandidate } from '@/hooks/queries/useUserSearch'
 import { useAuth } from '@/hooks/useAuth'
 import { handleApiError } from '@/lib/api-error'
 import { MemberSearchPopover } from '@/pages/projects/components/MemberSearchPopover'
-import type { UserResponse } from '@/types/auth'
 
 // 본인 포함 최대 8명 → 타겟 최대 7명.
 const MAX_TARGETS = 7
@@ -24,7 +24,7 @@ export default function NewMessagePage() {
   const { user } = useAuth()
   const myId = user?.id ?? 0
   const createDm = useCreateDm()
-  const [selected, setSelected] = useState<UserResponse[]>([])
+  const [selected, setSelected] = useState<MemberPickerCandidate[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [sending, setSending] = useState(false)
 
@@ -37,7 +37,7 @@ export default function NewMessagePage() {
     kind: u.kind,
   }))
 
-  const addRecipient = (u: UserResponse) => {
+  const addRecipient = (u: MemberPickerCandidate) => {
     if (selectedIds.has(u.id) || selected.length >= MAX_TARGETS) return
     setSelected((prev) => [...prev, u])
   }

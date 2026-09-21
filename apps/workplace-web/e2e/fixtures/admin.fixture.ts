@@ -7,7 +7,7 @@ import {
   createRoleDetail,
   createSetting,
 } from '../factories/admin.factory';
-import { createAdminUserDetail, createRole, createUser, createUserDetail } from '../factories/auth.factory';
+import { createAdminUserDetail, createMember, createRole, createUserDetail } from '../factories/auth.factory';
 import { createPageResponse, mockApi } from './api-mock';
 
 /**
@@ -24,10 +24,10 @@ import { createPageResponse, mockApi } from './api-mock';
 export async function setupAdminAuth(page: Page) {
   // ADMIN 역할을 가진 사용자로 /api/v1/users/me를 오버라이드
   await mockApi(page, 'GET', '/api/v1/users/me', createAdminUserDetail());
-  // 감사 로그 페이지의 사용자 dropdown(#89) 등 다양한 admin 페이지가 GET /users 를 호출하므로
-  // 기본 빈 목록을 모킹해 unhandled request로 실네트워크에 빠지지 않도록 한다. 개별 테스트는
-  // 필요시 setupUserListMocks 등으로 오버라이드한다.
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]));
+  // 구성원 목록/감사 로그 사용자 dropdown(#89) 등 admin 페이지는 이제 구성원 디렉터리
+  // GET /api/v1/members 를 호출한다(#833 — 계정 관리 /users 와 분리). 기본 빈 목록을 모킹해
+  // unhandled request로 실네트워크에 빠지지 않도록 한다. 개별 테스트는 setupUserListMocks 등으로 오버라이드.
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]));
 }
 
 /**
@@ -37,9 +37,9 @@ export async function setupAdminAuth(page: Page) {
  */
 export async function setupUserListMocks(page: Page, count = 3) {
   const users = Array.from({ length: count }, (_, i) =>
-    createUser({ id: i + 1, name: `사용자 ${i + 1}`, username: `user${i + 1}`, email: `user${i + 1}@example.com` }),
+    createMember({ userId: i + 1, name: `사용자 ${i + 1}`, username: `user${i + 1}`, email: `user${i + 1}@example.com` }),
   );
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse(users));
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse(users));
 }
 
 /**
@@ -103,13 +103,13 @@ export async function setupAuditLogMocks(page: Page, count = 5) {
     '/api/v1/admin/audit-logs',
     createPageResponse(createAuditLogs(count)),
   );
-  // 사용자 dropdown 필터 (#89)에서 사용하는 사용자 목록 모킹.
-  // 감사 로그 페이지가 마운트되자마자 GET /users?size=100 을 호출하므로 빈 목록이라도 모킹해야 함.
+  // 사용자 dropdown 필터 (#89)에서 사용하는 구성원 목록 모킹.
+  // 감사 로그 페이지가 마운트되자마자 GET /members?size=100 을 호출하므로 빈 목록이라도 모킹해야 함(#833).
   const users = [
-    createUser({ id: 1, name: '관리자', username: 'admin', email: 'admin@example.com' }),
-    createUser({ id: 2, name: '테스트 사용자', username: 'testuser', email: 'test@example.com' }),
+    createMember({ userId: 1, name: '관리자', username: 'admin', email: 'admin@example.com' }),
+    createMember({ userId: 2, name: '테스트 사용자', username: 'testuser', email: 'test@example.com' }),
   ];
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse(users));
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse(users));
 }
 
 /**

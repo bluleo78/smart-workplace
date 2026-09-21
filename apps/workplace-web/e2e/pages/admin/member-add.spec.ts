@@ -1,9 +1,10 @@
 // 구성원 추가 — 관리자가 다이얼로그로 새 계정을 만든다(입력→payload→성공 UI).
+// 목록은 구성원 디렉터리 GET /api/v1/members, 생성은 계정 관리 POST /api/v1/users 로 분리돼 있다(#833).
 import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 
 test('관리자가 구성원을 추가한다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
 
   // POST 캡처 — payload 검증 + 201 응답.
   let captured: any = null
@@ -48,7 +49,7 @@ test('관리자가 구성원을 추가한다', async ({ adminPage: page }) => {
 })
 
 test('이메일 없이도 구성원을 추가한다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
   let captured: any = null
   await page.route(
     (url) => url.pathname === '/api/v1/users',
@@ -76,7 +77,7 @@ test('이메일 없이도 구성원을 추가한다', async ({ adminPage: page }
 })
 
 test('취소 후 재오픈 시 이전 입력값이 남지 않는다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
 
   await page.goto('/settings/users')
   await page.getByRole('button', { name: '구성원 추가' }).click()
@@ -97,7 +98,7 @@ test('취소 후 재오픈 시 이전 입력값이 남지 않는다', async ({ a
 })
 
 test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼이 비워진다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
   let postCount = 0
   await page.route(
     (url) => url.pathname === '/api/v1/users',
@@ -151,7 +152,7 @@ test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼�
 // #583 — 추가 버튼을 동일 이벤트 루프 틱 내 연속 클릭해도 요청이 1번만 나가야 한다
 // (createMember.isPending 리렌더 반영 전 두 번째 클릭이 통과하는 race condition 재현).
 test('구성원 추가 — 버튼을 동기적으로 연속 클릭해도 요청이 1번만 나간다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
 
   let postCount = 0
   await page.route(
@@ -198,7 +199,7 @@ test('구성원 추가 — 버튼을 동기적으로 연속 클릭해도 요청�
 
 // #580 — 아이디에 공백만 입력하면 클라이언트 zod 검증(trim)이 서버 전송 전에 막아야 한다.
 test('아이디에 공백만 입력하면 클라이언트 검증에서 막힌다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
 
   let posted = false
   await page.route(
@@ -226,7 +227,7 @@ test('아이디에 공백만 입력하면 클라이언트 검증에서 막힌다
 // #580 — 서버가 필드별 오류(errors 맵)를 내려주면 최상위 message("Validation failed" 등
 // 하드코딩된 영문)가 아니라 필드별 로컬라이즈 메시지를 우선 표시해야 한다.
 test('서버 검증 오류는 errors 필드 맵의 메시지를 우선 표시한다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
 
   await page.route(
     (url) => url.pathname === '/api/v1/users',

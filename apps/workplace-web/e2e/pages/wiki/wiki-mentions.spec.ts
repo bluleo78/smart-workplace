@@ -6,8 +6,8 @@ import type {
   IssueResponse,
   IssueSearchResponse,
 } from '../../../src/types/issue'
-import type { UserResponse } from '../../../src/types/auth'
 import type { PageResponse } from '../../../src/types/common'
+import type { MemberSummary } from '../../../src/types/member'
 import type {
   SavePageRequest,
   WikiBacklink,
@@ -18,6 +18,7 @@ import type {
   WikiSearchResult,
   WikiSpace,
 } from '../../../src/types/wiki'
+import { createMember } from '../../factories/auth.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 
 const SPACE_ID = 1
@@ -50,16 +51,13 @@ function pageDetail(body: string): WikiPageDetail {
 }
 
 // 검색 모킹 데이터 — 타입 적용(스펙 변경 시 컴파일 에러).
-const USER: UserResponse = {
-  id: 7,
+// 유저 후보는 구성원 디렉터리(/members) 응답 — MemberSummary 형태다(#833).
+const USER: MemberSummary = createMember({
+  userId: 7,
   username: 'alice',
   email: 'alice@example.com',
   name: '앨리스',
-  isActive: true,
-  createdAt: '2026-06-01T00:00:00Z',
-  kind: 'HUMAN',
-  aiAvailable: false,
-}
+})
 const WIKI_PAGE: WikiSearchResult = {
   id: 55,
   spaceId: SPACE_ID,
@@ -196,12 +194,12 @@ async function setupSearchMocks(
   page: import('@playwright/test').Page,
   captured: { userQ?: string; wikiQ?: string; issueQ?: string },
 ) {
-  // 유저 검색 — GET /api/v1/users?search=
+  // 유저 검색 — 구성원 디렉터리 GET /api/v1/members?search= (#833)
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) => {
       captured.userQ = new URL(route.request().url()).searchParams.get('search') ?? undefined
-      const body: PageResponse<UserResponse> = {
+      const body: PageResponse<MemberSummary> = {
         content: [USER],
         page: 0,
         size: 5,
@@ -263,7 +261,7 @@ test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 �
   // 후보 팝업 + 세 타입 행 렌더.
   await expect(page.getByTestId('wiki-mention-popover')).toBeVisible()
   await expect(page.getByTestId(`wiki-mention-option-PAGE-${WIKI_PAGE.id}`)).toBeVisible()
-  await expect(page.getByTestId(`wiki-mention-option-USER-${USER.id}`)).toBeVisible()
+  await expect(page.getByTestId(`wiki-mention-option-USER-${USER.userId}`)).toBeVisible()
   await expect(page.getByTestId(`wiki-mention-option-ISSUE-${ISSUE.id}`)).toBeVisible()
 
   // 페이지 후보 선택 → 칩(라벨) 삽입. PAGE 는 멘션이 아닌 참조 링크라 "@" 프리픽스 없음.
@@ -277,7 +275,7 @@ test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 �
   // (c) USER 멘션은 채팅 칩과 동일하게 "@" 프리픽스가 붙어야 한다(#703).
   await page.keyboard.type(' @온보')
   await expect.poll(() => captured.userQ).toBe('온보')
-  await page.getByTestId(`wiki-mention-option-USER-${USER.id}`).click()
+  await page.getByTestId(`wiki-mention-option-USER-${USER.userId}`).click()
   await expect(page.locator(`.ProseMirror span[data-mtype="USER"]`)).toHaveText(`@${USER.name}`)
 })
 
@@ -331,9 +329,9 @@ test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표�
 
   // 검색 API — 빈 결과 반환
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) => {
-      const body: import('../../../src/types/common').PageResponse<import('../../../src/types/auth').UserResponse> =
+      const body: PageResponse<MemberSummary> =
         { content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
     },
@@ -469,16 +467,14 @@ test('위키 @ 멘션 팝업 — 결과 多 경우 max-height(240px) 적용으�
   authenticatedPage: page,
 }) => {
   // PER_TYPE=5 제한으로 유저·페이지·이슈 각 5개 = 총 15개 항목 렌더 → 팝업 높이가 240px 초과.
-  const MANY_USERS: UserResponse[] = Array.from({ length: 5 }, (_, i) => ({
-    id: 200 + i,
-    username: `user${i}`,
-    email: `user${i}@example.com`,
-    name: `유저 ${i + 1}`,
-    isActive: true,
-    createdAt: '2026-06-01T00:00:00Z',
-    kind: 'HUMAN' as const,
-    aiAvailable: false,
-  }))
+  const MANY_USERS: MemberSummary[] = Array.from({ length: 5 }, (_, i) =>
+    createMember({
+      userId: 200 + i,
+      username: `user${i}`,
+      email: `user${i}@example.com`,
+      name: `유저 ${i + 1}`,
+    }),
+  )
   const MANY_PAGES: WikiSearchResult[] = Array.from({ length: 5 }, (_, i) => ({
     id: 100 + i,
     spaceId: SPACE_ID,
@@ -516,9 +512,9 @@ test('위키 @ 멘션 팝업 — 결과 多 경우 max-height(240px) 적용으�
   await setupWikiMocks(page, { role: 'EDITOR', body: '' })
 
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) => {
-      const body: import('../../../src/types/common').PageResponse<UserResponse> = {
+      const body: PageResponse<MemberSummary> = {
         content: MANY_USERS,
         page: 0,
         size: 5,

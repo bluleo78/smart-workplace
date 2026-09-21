@@ -26,9 +26,9 @@ import {
 } from '@/components/ui/popover';
 
 import { AgentBadge } from '../../../components/users/AgentBadge';
+import type { MemberPickerCandidate } from '../../../hooks/queries/useUserSearch';
 import { useUserSearch } from '../../../hooks/queries/useUserSearch';
 import { useDebounceValue } from '../../../hooks/useDebounceValue';
-import type { UserResponse } from '../../../types/auth';
 import type { UserKind } from '../../../types/user';
 
 type KindFilter = 'ALL' | UserKind;
@@ -37,7 +37,7 @@ export interface MemberSearchPopoverProps {
   open: boolean;
   onOpenChange: (next: boolean) => void;
   existingMemberIds: Set<number>;
-  onSelect: (user: UserResponse) => void | Promise<void>;
+  onSelect: (user: MemberPickerCandidate) => void | Promise<void>;
   trigger: React.ReactNode;
   // 검색 결과에서 완전히 제외할 사용자 id(예: DM compose 의 본인). 미전달 시 제외 없음.
   excludeUserIds?: Set<number>;
@@ -77,7 +77,7 @@ export function MemberSearchPopover({
     );
 
   // 후보 선택 — 이미 멤버면 무시, 아니면 부모 mutation 후 검색어만 비움.
-  const handleSelect = async (user: UserResponse) => {
+  const handleSelect = async (user: MemberPickerCandidate) => {
     if (existingMemberIds.has(user.id)) return;
     await onSelect(user);
     setQuery('');

@@ -9,13 +9,13 @@ import { setupAdminAuth } from '../../fixtures/admin.fixture';
 import { mockApi } from '../../fixtures/api-mock';
 import { createPageResponse } from '../../fixtures/api-mock';
 import { createAuditLogs } from '../../factories/admin.factory';
-import { createUser } from '../../factories/auth.factory';
+import { createMember } from '../../factories/auth.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 
 /**
  * 감사 로그 목록 + 사용자 dropdown 모킹 (capture 활성).
  * - audit-logs 요청을 캡처해 query param 검증에 사용한다.
- * - 사용자 dropdown(#89) 용 GET /users 도 함께 모킹.
+ * - 사용자 dropdown(#89) 용 구성원 디렉터리 GET /members 도 함께 모킹(#833).
  */
 async function setupCapturedAuditLogMocks(page: import('@playwright/test').Page) {
   const capture = await mockApi(
@@ -26,10 +26,10 @@ async function setupCapturedAuditLogMocks(page: import('@playwright/test').Page)
     { capture: true },
   );
   const users = [
-    createUser({ id: 1, name: '관리자', username: 'admin', email: 'admin@example.com' }),
-    createUser({ id: 2, name: '테스트 사용자', username: 'testuser', email: 'test@example.com' }),
+    createMember({ userId: 1, name: '관리자', username: 'admin', email: 'admin@example.com' }),
+    createMember({ userId: 2, name: '테스트 사용자', username: 'testuser', email: 'test@example.com' }),
   ];
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse(users));
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse(users));
   return capture;
 }
 

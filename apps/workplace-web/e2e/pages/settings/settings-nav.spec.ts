@@ -10,8 +10,8 @@ test.describe('설정 앱 내비게이션', () => {
   })
 
   test('구 /admin/users 는 /settings/users 로 리다이렉트(어드민)', async ({ adminPage: page }) => {
-    // 착지 페이지(UserListPage)가 /api/v1/users 를 소비하므로 빈 페이지 응답을 모킹(프록시 누수 방지).
-    await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+    // 착지 페이지(UserListPage)가 구성원 디렉터리 /api/v1/members 를 소비하므로 빈 페이지 응답을 모킹(프록시 누수 방지, #833).
+    await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
     await page.goto('/admin/users')
     await expect(page).toHaveURL(/\/settings\/users$/)
   })

@@ -2,6 +2,7 @@
 // 백엔드 없이 page.route() 로 API 모킹.
 import type { Page } from '@playwright/test'
 
+import { createPageResponse } from '../../fixtures/api-mock'
 import {
   createChannel,
   createChannelMember,
@@ -116,19 +117,13 @@ async function stubMarkRead(page: Page, channelId: number) {
 
 async function stubUsers(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) =>
       route.request().method() === 'GET'
         ? route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({
-              content: [],
-              page: 0,
-              size: 100,
-              totalElements: 0,
-              totalPages: 0,
-            }),
+            body: JSON.stringify(createPageResponse([], { size: 100 })),
           })
         : route.fallback(),
   )

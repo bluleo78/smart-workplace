@@ -451,8 +451,8 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
         .get(`${PREFIX}/contacts`).query({ search: '김', limit: '20' })
         .reply(200, [{ id: 1, kind: 'EXTERNAL', name: '김거래', email: 'k@x.com', organization: 'X사' }]);
-      const out = await newClient().listContacts(7, '김', undefined, 20);
-      expect(out[0].name).toBe('김거래');
+      const out = await newClient().listContacts(7, { search: '김', limit: 20 });
+      expect(out.items[0].name).toBe('김거래');
       scope.done();
     });
     it('#384: GET /contacts 응답이 페이지네이션 형식 {items:[]} 이면 items 배열을 반환한다', async () => {
@@ -460,9 +460,9 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
         .get(`${PREFIX}/contacts`).query({ limit: '50' })
         .reply(200, { items: [{ id: 6, type: 'EXTERNAL', name: '홍길동', email: 'hong@example.com', organization: null }] });
-      const out = await newClient().listContacts(7, undefined, undefined, 50);
-      expect(out).toHaveLength(1);
-      expect(out[0].name).toBe('홍길동');
+      const out = await newClient().listContacts(7, { limit: 50 });
+      expect(out.items).toHaveLength(1);
+      expect(out.items[0].name).toBe('홍길동');
       scope.done();
     });
   });

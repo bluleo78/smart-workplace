@@ -3,9 +3,8 @@ import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 
 test('관리 모듈 2차 사이드바에 AGENT가 포함된다', { tag: '@smoke' }, async ({ adminPage: page }) => {
-  // /settings/users 가 PageResponse<UserResponse> 를 소비하므로 빈 페이지 응답을 모킹한다.
-  // mockApi 는 pathname 정확 매칭이라 /api/v1/users/me(인증 fixture) 를 침범하지 않는다.
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+  // /settings/users 가 PageResponse<MemberSummary>(구성원 디렉터리, #833) 를 소비하므로 빈 페이지 응답을 모킹한다.
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
   // AGENT 링크 클릭 후 착지하는 /settings/agents 가 throw 없이 렌더되도록 최소 모킹.
   // AgentManagementPage: useAgents() → 빈 배열, WorkspaceAssistantCard → 미지정 상태.
   await mockApi(page, 'GET', '/api/v1/admin/agents', [])
@@ -32,7 +31,7 @@ test('관리 모듈 2차 사이드바에 AGENT가 포함된다', { tag: '@smoke'
 })
 
 test('워크스페이스 관리 그룹에서 에이전트가 구성원 바로 다음에 온다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
 
   await page.goto('/settings/users')
 

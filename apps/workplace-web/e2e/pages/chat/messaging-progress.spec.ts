@@ -13,6 +13,8 @@
 //   첫 연결(StrictMode 이 abort 할 연결)도 progress 를 받도록 모든 초기 연결에 progress 전달.
 //   live 인스턴스는 두 번째 연결이므로 두 연결 모두 progress 를 받아 live 인스턴스에 도달 보장.
 
+import { createMember } from '../../factories/auth.factory';
+import { createPageResponse } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
 import {
   createChannel,
@@ -116,24 +118,21 @@ test(
           : route.fallback(),
     );
 
-    // ── useMentionAgents GET /api/v1/users ────────────────────────────────
+    // ── useMentionAgents GET /api/v1/members?kind=AGENT (#833) ────────────
+    // 서버가 kind 를 거르므로 AGENT 만 담는다(클라이언트 필터 없음).
     await page.route(
-      (url) => url.pathname === '/api/v1/users',
+      (url) => url.pathname === '/api/v1/members',
       (route) =>
         route.request().method() === 'GET'
           ? route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify({
-                content: [
-                  { id: ME_ID, username: 'me', name: '나', kind: 'HUMAN' },
-                  { id: AGENT_ID, username: 'aibot', name: 'AI', kind: 'AGENT' },
-                ],
-                page: 0,
-                size: 100,
-                totalElements: 2,
-                totalPages: 1,
-              }),
+              body: JSON.stringify(
+                createPageResponse(
+                  [createMember({ userId: AGENT_ID, username: 'aibot', name: 'AI', kind: 'AGENT' })],
+                  { size: 100 },
+                ),
+              ),
             })
           : route.fallback(),
     );

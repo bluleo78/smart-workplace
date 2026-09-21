@@ -3,6 +3,7 @@
 // 백엔드 없이 page.route() 로 API 모킹. 검증 핵심: 전송 POST payload.body 에 <@99> 가 포함된다.
 import type { Page } from '@playwright/test'
 
+import { createPageResponse } from '../../fixtures/api-mock'
 import { createChannel, createChannelMember, createMessage } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 
@@ -96,13 +97,13 @@ async function stubMarkRead(page: Page, channelId: number) {
 
 async function stubUsers(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) =>
       route.request().method() === 'GET'
         ? route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({ content: [], page: 0, size: 100, totalElements: 0, totalPages: 0 }),
+            body: JSON.stringify(createPageResponse([], { size: 100 })),
           })
         : route.fallback(),
   )

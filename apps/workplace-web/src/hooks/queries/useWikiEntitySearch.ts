@@ -5,7 +5,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { fetchMeIssues } from '../../api/meIssues'
-import { usersApi } from '../../api/users'
+import { membersApi } from '../../api/members'
 import { wikiApi } from '../../api/wiki'
 import type { WikiMentionType } from '../../types/wiki'
 
@@ -34,9 +34,11 @@ export function useWikiEntitySearch(query: string, spaceId: number) {
   return useQuery<WikiEntityCandidate[]>({
     queryKey: wikiEntitySearchKeys.search(trimmed, spaceId),
     queryFn: async () => {
-      // 유저: PageResponse.content. 검색 실패는 빈 배열로 흡수(다른 타입은 계속 노출).
-      const usersP = usersApi
-        .getUsers({ search: trimmed, size: PER_TYPE })
+      // 유저: 구성원 디렉터리(/members) 검색. 검색 실패는 빈 배열로 흡수(다른 타입은 계속 노출).
+      // #833: 이전에는 계정 관리 API(/users, ADMIN 전용)를 써서 일반 구성원은 @유저 멘션이 통째로
+      // 비어 보였다 — 사람을 고르는 일은 디렉터리 조회다.
+      const usersP = membersApi
+        .getMembers({ search: trimmed, size: PER_TYPE })
         .then((r) => r.data.content)
         .catch(() => [])
       // 위키 페이지: WikiSearchResult[]. 스페이스 제한 없이(멤버 스페이스 전체) 검색하고,
@@ -57,7 +59,7 @@ export function useWikiEntitySearch(query: string, spaceId: number) {
       for (const u of users.slice(0, PER_TYPE)) {
         candidates.push({
           mtype: 'USER',
-          id: u.id,
+          id: u.userId,
           label: u.name || u.username,
           sublabel: `@${u.username}`,
         })

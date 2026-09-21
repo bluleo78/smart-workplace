@@ -6,6 +6,7 @@ import {
   type IssueToolClient,
   type McpTool,
 } from '@smart-workplace/issue-tools-shared';
+import { toContactView } from '../clients/workplace-api.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
@@ -61,9 +62,38 @@ const getEventInput = z.object({ id: z.number().int().positive() });
 const listContactsInput = z.object({
   search: z.string().optional(),
   type: z.enum(['MEMBER', 'EXTERNAL']).optional(),
+  organization: z.string().optional(),
+  title: z.string().optional(),
+  favorite: z.boolean().optional(),
+  // #833: 커서 페이지네이션 — 이전 호출이 돌려준 nextCursor 를 그대로 넘긴다.
+  cursor: z.string().optional(),
   limit: z.number().int().min(1).max(100).default(20),
 });
-const getExternalContactInput = z.object({ id: z.number().int().positive() });
+// #833: 외부 연락처 전용 식별자. 구성원(user.id)과 네임스페이스가 다르다.
+const getExternalContactInput = z.object({ externalId: z.number().int().positive() });
+
+// #833: 구성원(설정>구성원 = 테넌트 멤버) 조회 입력. 연락처와 별개 도메인이다.
+const searchMembersInput = z.object({
+  search: z.string().optional(),
+  kind: z.enum(['HUMAN', 'AGENT', 'ALL']).default('HUMAN'),
+  // 기본은 활성 구성원만 — 퇴사 처리된 계정이 섞이면 담당자 지정 등에서 오작동한다.
+  includeInactive: z.boolean().optional(),
+  page: z.number().int().min(0).default(0),
+  size: z.number().int().min(1).max(100).default(20),
+});
+const getMemberInput = z.object({ username: z.string().min(1) });
+// #833: 구성원 쓰기 제안 입력. roleId 대신 역할명을 받는다 — 실행기가 서버에서 이름→id 를 해석하므로
+// 에이전트에 role:read 권한을 추가로 줄 필요가 없다.
+const proposeSetMemberRoleInput = z.object({
+  username: z.string().min(1),
+  roles: z.array(z.enum(['ADMIN', 'USER'])).min(1),
+  summary: z.string().min(1),
+});
+const proposeSetMemberActiveInput = z.object({
+  username: z.string().min(1),
+  active: z.boolean(),
+  summary: z.string().min(1),
+});
 const externalContactFields = {
   name: z.string().min(1).max(120),
   email: z.string().max(255).optional(),
@@ -74,8 +104,8 @@ const externalContactFields = {
   visibility: z.enum(['SHARED', 'PERSONAL']),
 };
 const createExternalContactInput = z.object(externalContactFields);
-const updateExternalContactInput = z.object({ id: z.number().int().positive(), ...externalContactFields });
-const proposeDeleteContactInput = z.object({ id: z.number().int().positive(), summary: z.string().min(1) });
+const updateExternalContactInput = z.object({ externalId: z.number().int().positive(), ...externalContactFields });
+const proposeDeleteContactInput = z.object({ externalId: z.number().int().positive(), summary: z.string().min(1) });
 
 // #333 M3: 프로젝트 읽기/제안 입력.
 const listProjectsInput = z.object({ page: z.number().int().min(0).default(0), size: z.number().int().min(1).max(100).default(20) });
@@ -91,7 +121,9 @@ const proposeCreateProjectInput = z.object({
 const proposeDeleteProjectInput = z.object({ key: z.string().min(1), summary: z.string().min(1) });
 const proposeAddProjectMemberInput = z.object({
   key: z.string().min(1),
-  userId: z.number().int().positive(),
+  // #833: 숫자 id 대신 username 을 받는다. 이슈 도구(create_issue 의 assignees)와 같은 방식이며,
+  // LLM 표면에 숫자 식별자를 노출하지 않으면 "연락처 id 를 userId 로 넣는" 사고 자체가 불가능해진다.
+  username: z.string().min(1),
   role: z.enum(['OWNER', 'MEMBER']),
   summary: z.string().min(1),
 });
@@ -915,20 +947,94 @@ export function buildTools(
   // #333 M3: 연락처 읽기/쓰기/삭제제안 도구 — assistant 프로파일 전용.
   const listContactsTool: McpTool = {
     name: 'list_contacts',
-    description: '연락처(멤버+외부) 목록을 JSON 으로 반환합니다. search 로 이름·이메일 검색, type 으로 MEMBER/EXTERNAL 한정.',
+    description:
+      '연락처 목록을 JSON 으로 반환합니다. type=EXTERNAL 은 외부 연락처(거래처·고객 등), type=MEMBER 는 사내 구성원입니다. ' +
+      '**식별자 주의**: MEMBER 항목은 userId(= 사내 구성원 id), EXTERNAL 항목은 externalId(= 외부 연락처 id)를 가지며 둘은 서로 호환되지 않습니다. ' +
+      'externalId 는 get_external_contact/update_external_contact/propose_delete_contact 에만, userId 는 구성원·프로젝트 멤버 관련 도구에만 사용하세요. ' +
+      '사내 구성원을 찾는 것이 목적이면 이 도구 대신 search_members 를 사용하세요(username·활성여부 등 더 정확한 정보를 줍니다). ' +
+      'search 로 이름·이메일 검색, organization/title 로 좁히기, favorite=true 로 즐겨찾기만, nextCursor 를 cursor 로 넘겨 다음 페이지.',
     inputSchema: listContactsInput,
     async handler(args) {
-      const { search, type, limit } = listContactsInput.parse(args);
-      return JSON.stringify(await client.listContacts(agentId, search, type, limit));
+      const opts = listContactsInput.parse(args);
+      const { items, nextCursor } = await client.listContacts(agentId, opts);
+      return JSON.stringify({ items: items.map(toContactView), nextCursor });
     },
   };
   const getExternalContactTool: McpTool = {
     name: 'get_external_contact',
-    description: '외부 연락처 단건 상세를 JSON 으로 반환합니다.',
+    description:
+      '외부 연락처 단건 상세를 JSON 으로 반환합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다. ' +
+      '구성원(MEMBER)의 userId 를 넣으면 안 됩니다 — 전혀 다른 사람의 연락처가 나옵니다. 구성원 상세는 get_member_contact 를 쓰세요.',
     inputSchema: getExternalContactInput,
     async handler(args) {
-      const { id } = getExternalContactInput.parse(args);
-      return JSON.stringify(await client.getExternalContact(agentId, id));
+      const { externalId } = getExternalContactInput.parse(args);
+      return JSON.stringify(await client.getExternalContact(agentId, externalId));
+    },
+  };
+
+  // #833: username → 구성원. 도구 표면은 username 만 다루고(숫자 id 미노출) 여기서 user.id 로 해석한다.
+  // 이슈 도구의 resolveAssigneeIds 와 같은 방식이다 — LLM 이 숫자 식별자를 만지지 않으면 "연락처 id 를
+  // userId 로 넣는" 사고가 구조적으로 불가능해진다. username 은 전역 UNIQUE 라 첫 매치가 곧 유일 매치다.
+  //
+  // 검색은 부분일치이므로 정확히 일치하는 항목만 채택한다. 조회 자체가 테넌트 스코프(GET /members)이므로
+  // 여기서 찾히면 곧 현재 테넌트의 구성원이다.
+  const resolveMember = async (username: string) => {
+    const rows = await client.searchMembers(agentId, {
+      search: username,
+      kind: 'ALL',
+      includeInactive: true,
+      page: 0,
+      size: 50,
+    });
+    return rows.find((m) => m.username === username);
+  };
+
+  /** 제안 도구 공용 — 대상 구성원을 확정하거나 에이전트가 바로 교정할 수 있는 오류 문구를 돌려준다. */
+  const requireMemberFor = async (username: string) => {
+    const found = await resolveMember(username);
+    if (!found) {
+      return {
+        error: `오류: username='${username}' 인 구성원을 찾을 수 없습니다. search_members 로 대상을 다시 찾아 정확한 username 을 확인하세요.`,
+      };
+    }
+    return { member: found };
+  };
+
+  // #833: 구성원(설정>구성원) 읽기 도구 3종 — 연락처와 분리된 도메인.
+  const searchMembersTool: McpTool = {
+    name: 'search_members',
+    description:
+      '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
+      '각 항목의 username 을 프로젝트 멤버 추가·구성원 변경 도구에 그대로 넘기세요. ' +
+      'search 로 이름·아이디·이메일 검색, kind 로 HUMAN(사람, 기본)/AGENT(AI)/ALL 한정. 기본은 활성 구성원만이며 includeInactive=true 로 비활성까지 봅니다.',
+    inputSchema: searchMembersInput,
+    async handler(args) {
+      const opts = searchMembersInput.parse(args);
+      return JSON.stringify(await client.searchMembers(agentId, opts));
+    },
+  };
+  const getMemberTool: McpTool = {
+    name: 'get_member',
+    description:
+      '구성원 단건(아이디·이메일·직책·활성여부·멤버십 역할)을 JSON 으로 반환합니다. username 은 search_members 로 확보하세요.',
+    inputSchema: getMemberInput,
+    async handler(args) {
+      const { username } = getMemberInput.parse(args);
+      const found = await resolveMember(username);
+      return found ? JSON.stringify(found) : `구성원을 찾을 수 없습니다: ${username}`;
+    },
+  };
+  const getMemberContactTool: McpTool = {
+    name: 'get_member_contact',
+    description:
+      '사내 구성원의 연락처 상세(직책·소속 그룹·즐겨찾기 여부)를 JSON 으로 반환합니다. 조직/소속을 묻는 질문에 적합합니다. ' +
+      '외부 연락처가 아니라 구성원용입니다 — 외부 연락처는 get_external_contact 를 쓰세요.',
+    inputSchema: getMemberInput,
+    async handler(args) {
+      const { username } = getMemberInput.parse(args);
+      const found = await resolveMember(username);
+      if (!found) return `구성원을 찾을 수 없습니다: ${username}`;
+      return JSON.stringify(await client.getMemberContact(agentId, found.userId));
     },
   };
   const createExternalContactTool: McpTool = {
@@ -942,20 +1048,59 @@ export function buildTools(
   };
   const updateExternalContactTool: McpTool = {
     name: 'update_external_contact',
-    description: '외부 연락처를 수정합니다(전체 교체). 모든 필드를 현재 값 기준으로 채워 보내세요.',
+    description:
+      '외부 연락처를 수정합니다(전체 교체). 모든 필드를 현재 값 기준으로 채워 보내세요. ' +
+      'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원의 userId 를 넣으면 엉뚱한 사람의 연락처가 바뀝니다.',
     inputSchema: updateExternalContactInput,
     async handler(args) {
-      const { id, ...input } = updateExternalContactInput.parse(args);
-      return JSON.stringify(await client.updateExternalContact(agentId, id, input));
+      const { externalId, ...input } = updateExternalContactInput.parse(args);
+      return JSON.stringify(await client.updateExternalContact(agentId, externalId, input));
     },
   };
   const proposeDeleteContactTool: McpTool = {
     name: 'propose_delete_contact',
-    description: '외부 연락처 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. summary 에 어떤 연락처를 지우는지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다.',
+    description:
+      '외부 연락처 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. summary 에 어떤 연락처를 지우는지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다. ' +
+      'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원의 userId 를 넣으면 엉뚱한 사람의 연락처가 지워집니다.',
     inputSchema: proposeDeleteContactInput,
     async handler(args) {
-      const { summary, ...params } = proposeDeleteContactInput.parse(args);
-      return await writeProposal('contacts.delete_contact', summary, params);
+      const { summary, externalId } = proposeDeleteContactInput.parse(args);
+      // 실행기(contacts.delete_contact)는 params.id 를 읽는다 — 도구 표면만 externalId 로 명시하고 여기서 매핑.
+      return await writeProposal('contacts.delete_contact', summary, { id: externalId });
+    },
+  };
+
+  // #833: 구성원 쓰기 제안 2종 — 실행은 확인 카드 승인 후 서버(사람 권한)가 수행한다.
+  // 계정 생성(POST /users)은 초기 비밀번호를 에이전트가 정하게 되는 문제가 있어 제외했다.
+  const proposeSetMemberRoleTool: McpTool = {
+    name: 'propose_set_member_role',
+    description:
+      '사내 구성원의 역할 변경을 제안합니다. 직접 변경하지 않고 확인 카드용 제안만 만듭니다. roles 는 ADMIN(관리자) 또는 USER(일반). ' +
+      'summary 에 누구를 어떤 역할로 바꾸는지 한 줄로 넣으세요. username 은 search_members 로 확보하세요. 승인 시 서버가 변경합니다.',
+    inputSchema: proposeSetMemberRoleInput,
+    async handler(args) {
+      const { summary, username, roles } = proposeSetMemberRoleInput.parse(args);
+      const { member, error } = await requireMemberFor(username);
+      if (error) return error;
+      // AI 에이전트 계정의 역할은 전용 역할(AGENT)로 운영된다. ADMIN/USER 로 교체하면 그 역할을 잃고
+      // 비서 기능이 멈추므로 이 경로에서는 다루지 않는다.
+      if (member!.kind === 'AGENT') {
+        return `오류: ${member!.name} 은 AI 에이전트 계정이라 여기서 역할을 바꿀 수 없습니다. 설정 > 구성원 화면에서 변경하세요.`;
+      }
+      return await writeProposal('user.set_roles', summary, { userId: member!.userId, roles });
+    },
+  };
+  const proposeSetMemberActiveTool: McpTool = {
+    name: 'propose_set_member_active',
+    description:
+      '사내 구성원 계정의 활성/비활성 전환을 제안합니다(비활성화는 사실상 퇴사 처리). 직접 변경하지 않고 확인 카드용 제안만 만듭니다. ' +
+      'active=false 면 비활성화, true 면 재활성화. summary 에 대상과 이유를 한 줄로 넣으세요. username 은 search_members 로 확보하세요.',
+    inputSchema: proposeSetMemberActiveInput,
+    async handler(args) {
+      const { summary, username, active } = proposeSetMemberActiveInput.parse(args);
+      const { member, error } = await requireMemberFor(username);
+      if (error) return error;
+      return await writeProposal('user.set_active', summary, { userId: member!.userId, active });
     },
   };
 
@@ -1009,11 +1154,24 @@ export function buildTools(
   };
   const proposeAddProjectMemberTool: McpTool = {
     name: 'propose_add_project_member',
-    description: '프로젝트 멤버 추가를 제안합니다. 직접 추가하지 않고 확인 카드용 제안만 만듭니다. summary 에 누구를 어떤 role 로 추가하는지 한 줄로 넣으세요. 승인 시 서버가 추가합니다.',
+    description:
+      '프로젝트 멤버 추가를 제안합니다. 직접 추가하지 않고 확인 카드용 제안만 만듭니다. summary 에 누구를 어떤 role 로 추가하는지 한 줄로 넣으세요. 승인 시 서버가 추가합니다. ' +
+      'username 은 search_members 결과의 값을 그대로 쓰세요(추측 금지).',
     inputSchema: proposeAddProjectMemberInput,
     async handler(args) {
-      const { summary, ...params } = proposeAddProjectMemberInput.parse(args);
-      return await writeProposal('project.add_member', summary, params);
+      const { summary, username, key, role } = proposeAddProjectMemberInput.parse(args);
+      // #833: 제안 생성 전에 대상을 확정한다. 사이드카 쓰기만 하면 검증이 "사용자가 카드를 승인한 뒤"로
+      // 밀려, 잘못된 대상은 승인 후 실패하거나(최악) 엉뚱한 사람이 조용히 추가된다.
+      const { member, error } = await requireMemberFor(username);
+      if (error) return error;
+      if (!member!.active) {
+        return `오류: ${member!.name}(${username}) 은 비활성 계정이라 프로젝트 멤버로 추가할 수 없습니다.`;
+      }
+      return await writeProposal('project.add_member', summary, {
+        key,
+        userId: member!.userId,
+        role,
+      });
     },
   };
 
@@ -1161,6 +1319,8 @@ export function buildTools(
       listMailTool, getMailTool, proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
       listMailAccountsTool, syncMailTool, // #333 M4: 메일 계정 목록 + 수동 동기화
       listContactsTool, getExternalContactTool, createExternalContactTool, updateExternalContactTool, proposeDeleteContactTool, // #333 M3: 연락처
+      searchMembersTool, getMemberTool, getMemberContactTool, // #833: 구성원(설정>구성원) 조회 — 연락처와 분리된 도메인
+      proposeSetMemberRoleTool, proposeSetMemberActiveTool, // #833: 구성원 쓰기 제안(확인 카드 경유)
       listProjectsTool, getProjectTool, listProjectMembersTool,
       proposeCreateProjectTool, proposeDeleteProjectTool, proposeAddProjectMemberTool, // #333 M3: 프로젝트
       listDriveSpacesTool, listDriveItemsTool, searchDriveTool, // #333 M3: 드라이브 읽기

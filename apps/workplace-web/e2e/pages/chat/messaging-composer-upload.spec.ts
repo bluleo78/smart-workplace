@@ -3,6 +3,7 @@
 // 백엔드 없이 page.route() 로 API 모킹 (업로드 API 지연 처리로 업로드 중 상태 재현).
 import { Buffer } from 'buffer'
 
+import { createPageResponse } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import {
   createChannel,
@@ -92,13 +93,13 @@ async function stubCommon(page: import('@playwright/test').Page) {
 
   // 멘션 후보(@에이전트 목록)
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) =>
       route.request().method() === 'GET'
         ? route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({ content: [], page: 0, size: 100, totalElements: 0, totalPages: 0 }),
+            body: JSON.stringify(createPageResponse([], { size: 100 })),
           })
         : route.fallback(),
   )

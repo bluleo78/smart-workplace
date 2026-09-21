@@ -20,7 +20,7 @@ import {
   TableRow,
 } from '../../components/ui/table';
 import { AgentBadge } from '../../components/users/AgentBadge';
-import { useUsers } from '../../hooks/queries/useUsers';
+import { useMembers } from '../../hooks/queries/useMembers';
 
 export default function UserListPage() {
   const navigate = useNavigate();
@@ -35,8 +35,13 @@ export default function UserListPage() {
     setPage(0);
   };
 
-  const { data: users, isLoading, isError } = useUsers({
+  // #833: 계정 관리 API(/users, ADMIN 전용) 대신 구성원 디렉터리(/members)를 읽는다.
+  // 이 화면이 답하는 질문은 "우리 워크스페이스에 누가 있는가"이고, 계정 생성·역할변경 같은 관리
+  // 동작만 /users 를 쓴다. includeInactive 로 비활성 계정도 함께 보여준다(관리 화면이므로).
+  const { data: users, isLoading, isError } = useMembers({
     search: debouncedSearch || undefined,
+    kind: 'ALL',
+    includeInactive: true,
     page,
     size: pageSize,
   });
@@ -79,15 +84,15 @@ export default function UserListPage() {
             ) : users && users.content.length > 0 ? (
               users.content.map((u) => (
                 <TableRow
-                  key={u.id}
+                  key={u.userId}
                   // 키보드 접근성: Tab 포커스 가능하도록 tabIndex={0}, role="button" 추가
                   tabIndex={0}
                   role="button"
                   aria-label={`사용자 ${u.name} 상세 보기`}
                   className="cursor-pointer hover:bg-muted/50 transition-colors row-hover"
-                  onClick={() => navigate(`/settings/users/${u.id}`)}
+                  onClick={() => navigate(`/settings/users/${u.userId}`)}
                   // Enter/Space 키로 행 클릭과 동일한 네비게이션 동작 수행
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/settings/users/${u.id}`); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/settings/users/${u.userId}`); }}
                 >
                   <TableCell>{u.name}</TableCell>
                   <TableCell className="font-medium">{u.username}</TableCell>
@@ -101,8 +106,8 @@ export default function UserListPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={u.isActive ? 'default' : 'secondary'}>
-                      {u.isActive ? '활성' : '비활성'}
+                    <Badge variant={u.active ? 'default' : 'secondary'}>
+                      {u.active ? '활성' : '비활성'}
                     </Badge>
                   </TableCell>
                 </TableRow>

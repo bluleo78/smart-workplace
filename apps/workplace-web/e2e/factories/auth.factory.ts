@@ -5,6 +5,7 @@
  */
 
 import type { LoginResponse, Membership, TokenResponse, UserResponse } from '@/types/auth';
+import type { MemberSummary } from '@/types/member';
 import type { RoleResponse } from '@/types/role';
 import type { UserDetailResponse } from '@/types/user';
 
@@ -93,4 +94,27 @@ export function createAdminUserDetail(overrides?: Partial<UserDetailResponse>): 
     ],
     ...overrides,
   });
+}
+
+/**
+ * 구성원 디렉터리 항목(MemberSummary) 생성 — 계정(UserResponse)과 다른 타입이다 (#833).
+ *
+ * 계정(/api/v1/users, ADMIN 전용)은 "누가 로그인할 수 있는가"를, 구성원(/api/v1/members)은
+ * "우리 워크스페이스에 누가 있는가"를 답한다. 그래서 필드가 다르다 — id→userId, isActive→active,
+ * title/membershipRole/membershipStatus 가 추가되고 createdAt/aiAvailable 은 없다.
+ * 목록·검색 스텁은 이 팩토리를 쓰고, /users/me 같은 계정 API 스텁만 createUser 를 쓴다.
+ */
+export function createMember(overrides?: Partial<MemberSummary>): MemberSummary {
+  return {
+    userId: 1,
+    username: 'testuser',
+    name: '테스트 사용자',
+    email: 'test@example.com',
+    title: null,
+    kind: 'HUMAN',
+    active: true,
+    membershipRole: 'MEMBER',
+    membershipStatus: 'ACTIVE',
+    ...overrides,
+  };
 }

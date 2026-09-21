@@ -41,5 +41,11 @@ export function mockPatApiClient(): PatApiClient {
     replaceIssueAssignees: vi.fn(),
     replaceIssueLabels: vi.fn(),
     editIssueComment: vi.fn(),
+    // #833: 구성원·연락처 읽기
+    searchMembers: vi.fn(),
+    getMember: vi.fn(),
+    getMemberContact: vi.fn(),
+    listContacts: vi.fn(),
+    getExternalContact: vi.fn(),
   };
 }

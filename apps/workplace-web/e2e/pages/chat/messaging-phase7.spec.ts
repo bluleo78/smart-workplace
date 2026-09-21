@@ -4,6 +4,8 @@
 // @멘션 팝업에 노출되고, 선택 후 전송 시 POST body 에 <@agentId> 가 포함되는지.
 import type { Page } from '@playwright/test'
 
+import { createMember } from '../../factories/auth.factory'
+import { createPageResponse } from '../../fixtures/api-mock'
 import {
   createChannel,
   createChannelMember,
@@ -102,7 +104,7 @@ async function stubMessages(
 
 test.describe('@smoke messaging phase7 AI 멤버', () => {
   // 채널 @멘션 자동완성에 비멤버 AGENT 노출 + 멘션 전송 검증.
-  // useMentionAgents 가 GET /api/v1/users 로 AGENT 를 조회하고,
+  // useMentionAgents 가 GET /api/v1/members?kind=AGENT 로 AGENT 를 조회하고,
   // ChannelPage 에서 채널 멤버 ∪ AGENT 를 합쳐 MentionList 에 전달하는 흐름을 e2e 검증.
   test(
     '채널 멘션 자동완성에 비멤버 AGENT 노출 + 멘션 전송',
@@ -125,25 +127,21 @@ test.describe('@smoke messaging phase7 AI 멤버', () => {
       // 메시지 히스토리: 비어있음.
       await stubMessages(page, CHANNEL_ID, [])
 
-      // useMentionAgents 가 호출하는 GET /api/v1/users — PageResponse<UserResponse> 형태.
-      // AGENT(id=77) 가 포함돼야 멘션 팝업에 노출된다.
+      // useMentionAgents 가 호출하는 GET /api/v1/members?kind=AGENT — PageResponse<MemberSummary> 형태.
+      // 서버가 kind 를 거르므로(클라이언트 필터 없음) AGENT 만 담는다. AGENT(id=77) 가 멘션 팝업에 노출돼야 한다.
       await page.route(
-        (url) => url.pathname === '/api/v1/users',
+        (url) => url.pathname === '/api/v1/members',
         (route) =>
           route.request().method() === 'GET'
             ? route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({
-                  content: [
-                    { id: ME_ID, username: 'me', name: '나', kind: 'HUMAN' },
-                    { id: AGENT_ID, username: 'aibot', name: 'AI Bot', kind: 'AGENT' },
-                  ],
-                  page: 0,
-                  size: 100,
-                  totalElements: 2,
-                  totalPages: 1,
-                }),
+                body: JSON.stringify(
+                  createPageResponse(
+                    [createMember({ userId: AGENT_ID, username: 'aibot', name: 'AI Bot', kind: 'AGENT' })],
+                    { size: 100 },
+                  ),
+                ),
               })
             : route.fallback(),
       )

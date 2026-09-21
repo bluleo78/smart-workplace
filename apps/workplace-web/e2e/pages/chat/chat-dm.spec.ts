@@ -131,15 +131,15 @@ test.describe('messaging DM', () => {
         })
       },
     )
-    // 사용자 검색(MemberSearchPopover) stub — id=2 '밥'. PageResponse<UserResponse> 형태.
+    // 구성원 검색(MemberSearchPopover) stub — userId=2 '밥'. PageResponse<MemberSummary> 형태(#833).
     await page.route(
-      (url) => url.pathname === '/api/v1/users',
+      (url) => url.pathname === '/api/v1/members',
       (route) =>
         route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            content: [{ id: 2, name: '밥', username: 'bob', kind: 'HUMAN' }],
+            content: [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }],
             totalElements: 1,
           }),
         }),
@@ -230,15 +230,15 @@ test.describe('messaging DM', () => {
     )
     // 사용자 검색 stub — 밥(2)·캐럴(3) 둘 다 반환.
     await page.route(
-      (url) => url.pathname === '/api/v1/users',
+      (url) => url.pathname === '/api/v1/members',
       (route) =>
         route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
             content: [
-              { id: 2, name: '밥', username: 'bob', kind: 'HUMAN' },
-              { id: 3, name: '캐럴', username: 'carol', kind: 'HUMAN' },
+              { userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' },
+              { userId: 3, name: '캐럴', username: 'carol', kind: 'HUMAN' },
             ],
             totalElements: 2,
           }),
@@ -349,13 +349,14 @@ test.describe('messaging DM', () => {
     const extra = { id: 9, name: '아이반', username: 'ivan', kind: 'HUMAN' }
     await stubLists(page, [])
     await page.route(
-      (url) => url.pathname === '/api/v1/users',
+      (url) => url.pathname === '/api/v1/members',
       (route) =>
         route.fulfill({
           status: 200,
           contentType: 'application/json',
+          // MemberSummary 는 id 가 아니라 userId 다 — 로컬 픽스처의 id 를 경계에서 변환한다(#833).
           body: JSON.stringify({
-            content: [...candidates.map((c) => ({ ...c, kind: 'HUMAN' })), extra],
+            content: [...candidates, extra].map(({ id, ...rest }) => ({ userId: id, ...rest, kind: 'HUMAN' })),
             totalElements: candidates.length + 1,
           }),
         }),
@@ -401,13 +402,13 @@ test.describe('messaging DM', () => {
       },
     )
     await page.route(
-      (url) => url.pathname === '/api/v1/users',
+      (url) => url.pathname === '/api/v1/members',
       (route) =>
         route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            content: [{ id: 2, name: '밥', username: 'bob', kind: 'HUMAN' }],
+            content: [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }],
             totalElements: 1,
           }),
         }),

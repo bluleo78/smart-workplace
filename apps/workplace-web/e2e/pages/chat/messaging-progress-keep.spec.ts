@@ -12,6 +12,8 @@
 // progress 와 created 를 같은 스트림에 섞으면 StrictMode 두 연결이 progress 를 재전달해
 // 구코드의 제거를 가려 판별력이 사라진다 → 반드시 단계를 분리한다.
 
+import { createMember } from '../../factories/auth.factory';
+import { createPageResponse } from '../../fixtures/api-mock';
 import { createChannel, createChannelMember, createMessage } from '../../factories/messaging.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 
@@ -102,24 +104,21 @@ test(
           : route.fallback(),
     );
 
+    // useMentionAgents — 구성원 디렉터리 GET /api/v1/members?kind=AGENT (#833). 서버가 kind 를
+    // 거르므로 AGENT 만 담는다(HUMAN 을 섞으면 멘션 후보에 그대로 노출된다).
     await page.route(
-      (url) => url.pathname === '/api/v1/users',
+      (url) => url.pathname === '/api/v1/members',
       (route) =>
         route.request().method() === 'GET'
           ? route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify({
-                content: [
-                  { id: ME_ID, username: 'me', name: '나', kind: 'HUMAN' },
-                  { id: OTHER_ID, username: 'bob', name: '밥', kind: 'HUMAN' },
-                  { id: AGENT_ID, username: 'aibot', name: 'AI', kind: 'AGENT' },
-                ],
-                page: 0,
-                size: 100,
-                totalElements: 3,
-                totalPages: 1,
-              }),
+              body: JSON.stringify(
+                createPageResponse(
+                  [createMember({ userId: AGENT_ID, username: 'aibot', name: 'AI', kind: 'AGENT' })],
+                  { size: 100 },
+                ),
+              ),
             })
           : route.fallback(),
     );

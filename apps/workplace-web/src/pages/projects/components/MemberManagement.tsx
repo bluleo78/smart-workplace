@@ -22,8 +22,8 @@ import {
   useRemoveMember,
   useUpdateMemberRole,
 } from '../../../hooks/queries/useProjectMembers';
+import type { MemberPickerCandidate } from '../../../hooks/queries/useUserSearch';
 import { handleApiError } from '../../../lib/api-error';
-import type { UserResponse } from '../../../types/auth';
 import type { ProjectMemberRole } from '../../../types/project';
 import { MemberSearchPopover } from './MemberSearchPopover';
 
@@ -52,7 +52,7 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
   );
 
   // picker 에서 사용자 선택 시 호출 — agentOnly 면 항상 MEMBER, 아니면 선택된 role 로 추가.
-  const onPick = async (user: UserResponse) => {
+  const onPick = async (user: MemberPickerCandidate) => {
     try {
       await addMember.mutateAsync({ userId: user.id, role: agentOnly ? 'MEMBER' : newRole });
       toast.success(`${user.name} 을(를) 추가했습니다`);

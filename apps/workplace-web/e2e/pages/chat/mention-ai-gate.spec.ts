@@ -2,6 +2,7 @@
 // aiAvailable:true 이면 AGENT 옵션이 보이고, false 이면 보이지 않는다(채널 멤버로 있어도 제외).
 import type { Page } from '@playwright/test'
 
+import { createPageResponse } from '../../fixtures/api-mock'
 import { createUser } from '../../factories/auth.factory'
 import { createChannel, createChannelMember } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -98,13 +99,13 @@ async function stubMarkRead(page: Page, channelId: number) {
 
 async function stubUsers(page: Page) {
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) =>
       route.request().method() === 'GET'
         ? route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({ content: [], page: 0, size: 100, totalElements: 0, totalPages: 0 }),
+            body: JSON.stringify(createPageResponse([], { size: 100 })),
           })
         : route.fallback(),
   )

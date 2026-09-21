@@ -51,7 +51,7 @@ test.describe('/settings/audit-logs — 신규 액션/리소스 한글 라벨', 
     ];
 
     await mockApi(page, 'GET', '/api/v1/admin/audit-logs', createPageResponse(logs));
-    await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]));
+    await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]));
 
     await page.goto('/settings/audit-logs');
     await expect(page.getByRole('heading', { name: '감사 로그' })).toBeVisible();

@@ -17,6 +17,8 @@ import com.workplace.mail.service.MailComposeService;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
+import com.workplace.user.dto.SetRolesByNamesRequest;
+import com.workplace.user.service.UserService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.time.OffsetDateTime;
@@ -44,6 +46,7 @@ public class ConfirmActionDispatcher {
   private final DriveFileService driveFileService; // #333 M4 추가
   private final DriveFolderService driveFolderService; // #333 M4 추가
   private final IssueService issueService; // #540 노트→이슈
+  private final UserService userService; // #833 구성원 역할/활성 변경
   private final PermissionChecker permissionChecker;
   private final Validator validator;
   private final ObjectMapper objectMapper;
@@ -79,7 +82,9 @@ public class ConfirmActionDispatcher {
               "drive.delete_folder", ""), // 드라이브는 글로벌 RBAC 권한 없음 — space role(EDITOR) 경계를 서비스가 강제
           Map.entry(
               "issue.create",
-              "")); // #540 — 멤버십+RLS 로 가드(IssueService.create 내 assertMember), 전역 RBAC 없음
+              ""), // #540 — 멤버십+RLS 로 가드(IssueService.create 내 assertMember), 전역 RBAC 없음
+          Map.entry("user.set_roles", "role:assign"), // #833 — 구성원 역할 변경(UserController 와 동일 권한)
+          Map.entry("user.set_active", "user:write")); // #833 — 구성원 활성/비활성
 
   /**
    * 확인 카드 승인 실행 — 지원 여부 확인 → 권한 검사(필요 시) → 매핑·검증 → 도메인 실행. 결과 객체 반환(컨트롤러가 201).
@@ -112,6 +117,23 @@ public class ConfirmActionDispatcher {
       long id = params.get("id").asLong();
       contactService.delete(callerId, id);
       return Map.of("deleted", id);
+    }
+    if ("user.set_roles".equals(actionType)) {
+      // #833: 구성원 역할 변경. 에이전트는 roleId 를 모르고 role:read 권한도 없으므로 역할명을 받아
+      // 서버(=사람 권한으로 실행되는 이 실행기)에서 해석한다. 테넌트 멤버 검증·자기잠금 방지는 UserService 가 강제.
+      SetRolesByNamesRequest req = mapAndValidate(params, SetRolesByNamesRequest.class);
+      userService.setUserRolesByNames(req.userId(), req.roles(), callerId);
+      return Map.of("userId", req.userId(), "roles", req.roles());
+    }
+    if ("user.set_active".equals(actionType)) {
+      // #833: 구성원 활성/비활성. 마지막 ADMIN 비활성화 차단·테넌트 멤버 검증은 UserService 가 강제.
+      long userId = requireLong(params, "userId");
+      if (params == null || !params.hasNonNull("active")) {
+        throw new IllegalArgumentException("user.set_active 에 active 가 필요합니다");
+      }
+      boolean active = params.get("active").asBoolean();
+      userService.setUserActive(userId, active);
+      return Map.of("userId", userId, "active", active);
     }
     if ("project.create_project".equals(actionType)) {
       // params → CreateProjectRequest 매핑·검증 후 ProjectService.create 로 위임.

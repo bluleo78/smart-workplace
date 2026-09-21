@@ -7,52 +7,56 @@
 //  5) (#734) 에이전트를 이름으로 검색해도 노출 / 비활성 사용자는 후보에서 제외
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import type { UserResponse } from '../../../src/types/auth';
+import type { MemberSummary } from '../../../src/types/member';
 
 const PROJECT_KEY = 'WP';
 const SETTINGS_URL = `/projects/${PROJECT_KEY}/settings`;
 
-const HUMAN1: UserResponse = {
-  id: 101,
+const HUMAN1: MemberSummary = {
+  userId: 101,
   username: 'alice',
   name: 'Alice',
   email: 'a@x',
-  isActive: true,
-  createdAt: '2026-01-01T00:00:00Z',
+  title: null,
   kind: 'HUMAN',
-  aiAvailable: false,
+  active: true,
+  membershipRole: 'MEMBER',
+  membershipStatus: 'ACTIVE',
 };
-const HUMAN2: UserResponse = {
-  id: 102,
+const HUMAN2: MemberSummary = {
+  userId: 102,
   username: 'bob',
   name: 'Bob',
   email: 'b@x',
-  isActive: true,
-  createdAt: '2026-01-01T00:00:00Z',
+  title: null,
   kind: 'HUMAN',
-  aiAvailable: false,
+  active: true,
+  membershipRole: 'MEMBER',
+  membershipStatus: 'ACTIVE',
 };
-const AGENT1: UserResponse = {
-  id: 201,
+const AGENT1: MemberSummary = {
+  userId: 201,
   username: 'ai-bot',
   name: 'AI Bot',
   email: 'ai@x',
-  isActive: true,
-  createdAt: '2026-01-01T00:00:00Z',
+  title: null,
   kind: 'AGENT',
-  aiAvailable: false,
+  active: true,
+  membershipRole: 'MEMBER',
+  membershipStatus: 'ACTIVE',
 };
 
 // 비활성 사용자 — 후보 목록에서 제외되어야 한다(#734).
-const INACTIVE: UserResponse = {
-  id: 103,
+const INACTIVE: MemberSummary = {
+  userId: 103,
   username: 'ghost',
   name: 'Ghost',
   email: 'g@x',
-  isActive: false,
-  createdAt: '2026-01-01T00:00:00Z',
+  title: null,
   kind: 'HUMAN',
-  aiAvailable: false,
+  active: false,
+  membershipRole: 'MEMBER',
+  membershipStatus: 'ACTIVE',
 };
 
 type StubMember = {
@@ -111,7 +115,7 @@ async function setupStubs(
 
   // 검색 — query string 에 따른 결과 분기. 백엔드처럼 kind 로 먼저 좁히고(ALL 이면 전체),
   // search 가 blank 면 검색 조건 없이 전체를 반환한다(#734 — 실제 UserRepository.tenantSearchCondition 동작).
-  await page.route(/\/api\/v1\/users\?/, (route) => {
+  await page.route(/\/api\/v1\/members\?/, (route) => {
     const url = new URL(route.request().url());
     const q = url.searchParams.get('search') ?? '';
     const kind = url.searchParams.get('kind') ?? 'HUMAN';
@@ -280,11 +284,11 @@ test.describe('멤버 추가 검색 picker', () => {
         .getByPlaceholder('이름·아이디·이메일로 검색')
         .fill('ali');
 
-      await page.getByTestId(`member-search-row-${HUMAN1.id}`).click();
+      await page.getByTestId(`member-search-row-${HUMAN1.userId}`).click();
 
       await expect
         .poll(() => postPayload)
-        .toEqual({ userId: HUMAN1.id, role: 'MEMBER' });
+        .toEqual({ userId: HUMAN1.userId, role: 'MEMBER' });
       await expect(page.getByText('Alice 을(를) 추가했습니다')).toBeVisible();
       await expect(page.getByRole('row', { name: /Alice/ })).toBeVisible();
     },
@@ -305,10 +309,10 @@ test.describe('멤버 추가 검색 picker', () => {
 
     // ALL 상태 — 두 명 노출
     await expect(
-      page.getByTestId(`member-search-row-${HUMAN1.id}`),
+      page.getByTestId(`member-search-row-${HUMAN1.userId}`),
     ).toBeVisible();
     await expect(
-      page.getByTestId(`member-search-row-${AGENT1.id}`),
+      page.getByTestId(`member-search-row-${AGENT1.userId}`),
     ).toBeVisible();
 
     // AGENT 필터 — 라벨은 사용자 노출 표준 용어 "에이전트" (refs #210)
@@ -316,10 +320,10 @@ test.describe('멤버 추가 검색 picker', () => {
     await expect(agentFilter).toHaveText('에이전트');
     await agentFilter.click();
     await expect(
-      page.getByTestId(`member-search-row-${HUMAN1.id}`),
+      page.getByTestId(`member-search-row-${HUMAN1.userId}`),
     ).toHaveCount(0);
     await expect(
-      page.getByTestId(`member-search-row-${AGENT1.id}`),
+      page.getByTestId(`member-search-row-${AGENT1.userId}`),
     ).toBeVisible();
 
     // 탭 선택이 클라이언트 필터가 아니라 백엔드 kind 파라미터를 구동해야 한다(#734) —
@@ -336,7 +340,7 @@ test.describe('멤버 추가 검색 picker', () => {
     const membersRef = {
       current: [
         {
-          userId: HUMAN1.id,
+          userId: HUMAN1.userId,
           username: HUMAN1.username,
           name: HUMAN1.name,
           role: 'MEMBER',
@@ -351,10 +355,10 @@ test.describe('멤버 추가 검색 picker', () => {
     await expect(page.getByTestId('member-search-popover')).toBeVisible();
 
     // 검색어를 입력하지 않아도 사람 + 에이전트 후보가 노출된다.
-    await expect(page.getByTestId(`member-search-row-${HUMAN2.id}`)).toBeVisible();
-    await expect(page.getByTestId(`member-search-row-${AGENT1.id}`)).toBeVisible();
+    await expect(page.getByTestId(`member-search-row-${HUMAN2.userId}`)).toBeVisible();
+    await expect(page.getByTestId(`member-search-row-${AGENT1.userId}`)).toBeVisible();
     // 비활성 사용자는 후보에서 제외.
-    await expect(page.getByTestId(`member-search-row-${INACTIVE.id}`)).toHaveCount(0);
+    await expect(page.getByTestId(`member-search-row-${INACTIVE.userId}`)).toHaveCount(0);
 
     // 빈 search + kind=ALL 로 조회했는지 검증.
     await expect
@@ -366,7 +370,7 @@ test.describe('멤버 추가 검색 picker', () => {
     const ids = await rows.evaluateAll((els) =>
       els.map((el) => el.getAttribute('data-testid')),
     );
-    expect(ids[ids.length - 1]).toBe(`member-search-row-${HUMAN1.id}`);
+    expect(ids[ids.length - 1]).toBe(`member-search-row-${HUMAN1.userId}`);
   });
 
   test('에이전트를 이름으로 검색하면 후보로 노출된다 (#734)', async ({
@@ -380,8 +384,8 @@ test.describe('멤버 추가 검색 picker', () => {
     // 전체(ALL) 탭 기본 상태에서 에이전트 이름으로 검색.
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('AI Bot');
 
-    await expect(page.getByTestId(`member-search-row-${AGENT1.id}`)).toBeVisible();
-    await expect(page.getByTestId(`member-search-row-${HUMAN1.id}`)).toHaveCount(0);
+    await expect(page.getByTestId(`member-search-row-${AGENT1.userId}`)).toBeVisible();
+    await expect(page.getByTestId(`member-search-row-${HUMAN1.userId}`)).toHaveCount(0);
   });
 
   test('이미 멤버인 후보 → disabled + 클릭 무반응', async ({
@@ -390,7 +394,7 @@ test.describe('멤버 추가 검색 picker', () => {
     const membersRef = {
       current: [
         {
-          userId: HUMAN1.id,
+          userId: HUMAN1.userId,
           username: HUMAN1.username,
           name: HUMAN1.name,
           role: 'MEMBER',
@@ -421,7 +425,7 @@ test.describe('멤버 추가 검색 picker', () => {
       .getByPlaceholder('이름·아이디·이메일로 검색')
       .fill('alice');
 
-    const row = page.getByTestId(`member-search-row-${HUMAN1.id}`);
+    const row = page.getByTestId(`member-search-row-${HUMAN1.userId}`);
     await expect(row).toContainText('(이미 멤버)');
     // cmdk CommandItem 은 disabled 상태에서 data-disabled="true" 를 렌더한다.
     await expect(row).toHaveAttribute('data-disabled', 'true');

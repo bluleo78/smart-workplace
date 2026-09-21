@@ -4,20 +4,20 @@
 
 import type { Page } from '@playwright/test';
 
-import { createUser } from '../../factories/auth.factory';
+import { createMember } from '../../factories/auth.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createPageResponse, mockApi } from '../../fixtures/api-mock';
 
 // AGENT 1명 + HUMAN 1명을 한 목록에 섞어 두 행의 '구분' 렌더링을 비교한다.
-const AGENT_USER = createUser({
-  id: 10,
+const AGENT_USER = createMember({
+  userId: 10,
   name: '에이전트 봇',
   username: 'agent_bot',
   email: 'agent@example.com',
   kind: 'AGENT',
 });
-const HUMAN_USER = createUser({
-  id: 11,
+const HUMAN_USER = createMember({
+  userId: 11,
   name: '사람 사용자',
   username: 'human_user',
   email: 'human@example.com',
@@ -25,7 +25,7 @@ const HUMAN_USER = createUser({
 });
 
 async function setupPage(page: Page) {
-  await mockApi(page, 'GET', '/api/v1/users', createPageResponse([AGENT_USER, HUMAN_USER]));
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([AGENT_USER, HUMAN_USER]));
   await page.goto('/settings/users');
   // 행(tr)은 role="button" + aria-label="사용자 {이름} 상세 보기" 로 렌더된다.
   await expect(page.getByRole('button', { name: '사용자 사람 사용자 상세 보기' })).toBeVisible();

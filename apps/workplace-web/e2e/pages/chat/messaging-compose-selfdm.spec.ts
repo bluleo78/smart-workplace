@@ -46,13 +46,13 @@ async function stubSidebarLists(page: Page, dms: ReturnType<typeof createDm>[] =
   )
 }
 
-/** 사용자 검색 stub — 전달한 users 리스트 그대로 반환. */
+/** 구성원 검색 stub(#833 — 디렉터리 /members) — 전달한 users 리스트를 MemberSummary 로 변환해 반환. */
 async function stubUserSearch(
   page: Page,
-  users: { id: number; name: string; username: string; kind: string }[],
+  users: { userId: number; name: string; username: string; kind: string }[],
 ) {
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) =>
       route.fulfill({
         status: 200,
@@ -72,8 +72,8 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await stubSidebarLists(page)
       // API 응답에 본인(id=1)과 타인(id=2)을 함께 반환 → 컴포넌트의 excludeUserIds 필터 확인.
       await stubUserSearch(page, [
-        { id: MY_ID, name: MY_NAME, username: 'testuser', kind: 'HUMAN' },
-        { id: 2, name: '밥', username: 'bob', kind: 'HUMAN' },
+        { userId: MY_ID, name: MY_NAME, username: 'testuser', kind: 'HUMAN' },
+        { userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' },
       ])
 
       await page.goto('/chat/new')
@@ -97,12 +97,12 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       // 실제 백엔드 동작을 모킹: kind=ALL 이면 사람+에이전트, 그 외엔 사람만 반환.
       let capturedKind: string | null = null
       await page.route(
-        (url) => url.pathname === '/api/v1/users',
+        (url) => url.pathname === '/api/v1/members',
         (route) => {
           capturedKind = new URL(route.request().url()).searchParams.get('kind')
           const users =
             capturedKind === 'ALL'
-              ? [{ id: 9, name: 'My AI', username: 'myai', kind: 'AGENT' }]
+              ? [{ userId: 9, name: 'My AI', username: 'myai', kind: 'AGENT' }]
               : []
           return route.fulfill({
             status: 200,
@@ -147,7 +147,7 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       })
 
       await stubSidebarLists(page)
-      await stubUserSearch(page, [{ id: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
+      await stubUserSearch(page, [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
 
       // DM find-or-create POST 캡처 후 DM 반환. 이후 GET /dms 도 dm 포함으로 교체.
       let capturedDmsPayload: { userIds: number[] } | null = null
@@ -236,7 +236,7 @@ test.describe('messaging 인라인 compose + self-DM', () => {
     '수신자 미선택 시 "이 채널은 보관되었습니다" 가 표시되지 않는다',
     async ({ authenticatedPage: page }) => {
       await stubSidebarLists(page)
-      await stubUserSearch(page, [{ id: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
+      await stubUserSearch(page, [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
 
       await page.goto('/chat/new')
       await expect(page.getByTestId('new-message-page')).toBeVisible()
@@ -261,7 +261,7 @@ test.describe('messaging 인라인 compose + self-DM', () => {
     '수신자 칩 X 버튼을 클릭하면 해당 칩이 제거된다',
     async ({ authenticatedPage: page }) => {
       await stubSidebarLists(page)
-      await stubUserSearch(page, [{ id: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
+      await stubUserSearch(page, [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
 
       await page.goto('/chat/new')
       await expect(page.getByTestId('new-message-page')).toBeVisible()

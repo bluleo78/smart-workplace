@@ -48,7 +48,9 @@ function client(): WorkplaceApiClient {
     getMail: vi.fn().mockResolvedValue({}),
     listMailAccounts: vi.fn().mockResolvedValue([]),
     syncMail: vi.fn().mockResolvedValue({} as never),
-    listContacts: vi.fn().mockResolvedValue([]),
+    listContacts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    searchMembers: vi.fn().mockResolvedValue([]),
+    getMemberContact: vi.fn().mockResolvedValue({}),
     getExternalContact: vi.fn().mockResolvedValue({}),
     createExternalContact: vi.fn().mockResolvedValue({}),
     updateExternalContact: vi.fn().mockResolvedValue({}),
@@ -786,7 +788,8 @@ describe('buildTools(assistant) 연락처 도구 (M3)', () => {
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
       const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_contact')!;
-      await tool.handler({ id: 9, summary: '"김거래" 연락처 삭제' });
+      // #833: 도구 표면은 externalId(외부 연락처 전용 식별자), 실행기 params 는 여전히 id.
+      await tool.handler({ externalId: 9, summary: '"김거래" 연락처 삭제' });
       const written = JSON.parse(readFileSync(sidecar, 'utf8'));
       expect(written.actionType).toBe('contacts.delete_contact');
       expect(written.params.id).toBe(9);
@@ -1288,5 +1291,170 @@ describe('HostBridge 콜백 (#462 슬라이스4)', () => {
     expect(results[0].ok).toBe(false);
     expect(results[0].canonical).toContain('담당자 해제 요청을 처리하지 못했습니다');
     expect(out).toContain('담당자 해제 요청을 처리하지 못했습니다');
+  });
+});
+
+// #833: 구성원 도메인 도구 + 연락처 id 네임스페이스 분리.
+// 회귀 방지 대상 — 에이전트가 연락처 id 를 프로젝트 멤버 userId 로 오용하던 사고.
+describe('#833 구성원/연락처 도메인 경계', () => {
+  const find = (tools: ReturnType<typeof buildTools>, name: string) => {
+    const t = tools.find((x) => x.name === name);
+    if (!t) throw new Error(`tool ${name} not found`);
+    return t;
+  };
+
+  it('assistant 프로파일에 구성원 도구 5종이 노출된다', () => {
+    const names = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'search_members',
+        'get_member',
+        'get_member_contact',
+        'propose_set_member_role',
+        'propose_set_member_active',
+      ]),
+    );
+  });
+
+  it('list_contacts 는 MEMBER→userId, EXTERNAL→externalId 로 식별자를 분리하고 공용 id 를 내보내지 않는다', async () => {
+    const c = client();
+    c.listContacts = vi.fn().mockResolvedValue({
+      items: [
+        { id: 7, type: 'MEMBER', name: '김구성원', email: 'm@x.com', title: null, organization: null, isFavorite: false },
+        { id: 7, type: 'EXTERNAL', name: '김외부', email: 'e@x.com', title: null, organization: 'X사', isFavorite: true },
+      ],
+      nextCursor: 'c1',
+    });
+    const t = find(buildTools(c, AGENT_ID, 'assistant'), 'list_contacts');
+    const out = JSON.parse(await t.handler({ limit: 20 })) as {
+      items: Record<string, unknown>[];
+      nextCursor: string | null;
+    };
+    expect(out.items[0]).toMatchObject({ type: 'MEMBER', userId: 7 });
+    expect(out.items[0]).not.toHaveProperty('externalId');
+    expect(out.items[1]).toMatchObject({ type: 'EXTERNAL', externalId: 7 });
+    expect(out.items[1]).not.toHaveProperty('userId');
+    // 공용 id 를 남겨두면 두 네임스페이스가 다시 섞인다 — 반드시 제거되어야 한다.
+    expect(out.items[0]).not.toHaveProperty('id');
+    expect(out.items[1]).not.toHaveProperty('id');
+    expect(out.nextCursor).toBe('c1');
+  });
+
+  it('get_external_contact 는 externalId 를 받는다 (id 키는 스키마 거부)', async () => {
+    const c = client();
+    c.getExternalContact = vi.fn().mockResolvedValue({ id: 3, name: '외부' });
+    const t = find(buildTools(c, AGENT_ID, 'assistant'), 'get_external_contact');
+    await t.handler({ externalId: 3 });
+    expect(c.getExternalContact).toHaveBeenCalledWith(AGENT_ID, 3);
+    await expect(t.handler({ id: 3 })).rejects.toThrow();
+  });
+
+  it('propose_delete_contact 는 externalId 를 실행기 params.id 로 매핑한다', async () => {
+    const c = client();
+    const proposals: { actionType: string; params: unknown }[] = [];
+    const bridge: HostBridge = {
+      onProposal: (p) => proposals.push(p as never),
+      onSubmitResponse: () => {},
+      onUnassignResult: () => {},
+    };
+    const t = find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, bridge), 'propose_delete_contact');
+    await t.handler({ externalId: 42, summary: '외부 연락처 삭제' });
+    expect(proposals[0].actionType).toBe('contacts.delete_contact');
+    expect(proposals[0].params).toMatchObject({ id: 42 });
+  });
+
+  describe('propose_add_project_member 사전검증', () => {
+    const bridgeWith = (sink: unknown[]): HostBridge => ({
+      onProposal: (p) => sink.push(p),
+      onSubmitResponse: () => {},
+      onUnassignResult: () => {},
+    });
+
+    it('구성원이 아닌 userId 는 제안을 만들지 않고 오류를 반환한다', async () => {
+      const c = client();
+      // 검색 결과에 해당 username 이 없으면 구성원이 아니다.
+      c.searchMembers = vi.fn().mockResolvedValue([]);
+      const sink: unknown[] = [];
+      const t = find(
+        buildTools(c, AGENT_ID, 'assistant', undefined, undefined, bridgeWith(sink)),
+        'propose_add_project_member',
+      );
+      const out = await t.handler({ key: 'WP', username: 'ghost', role: 'MEMBER', summary: 's' });
+      expect(out).toContain('찾을 수 없습니다');
+      expect(sink).toHaveLength(0); // 확인 카드가 만들어지면 안 된다
+    });
+
+    it('비활성 구성원은 제안을 만들지 않는다', async () => {
+      const c = client();
+      c.searchMembers = vi.fn().mockResolvedValue([{ userId: 5, username: 'retired', name: '퇴사자', kind: 'HUMAN', active: false }]);
+      const sink: unknown[] = [];
+      const t = find(
+        buildTools(c, AGENT_ID, 'assistant', undefined, undefined, bridgeWith(sink)),
+        'propose_add_project_member',
+      );
+      const out = await t.handler({ key: 'WP', username: 'retired', role: 'MEMBER', summary: 's' });
+      expect(out).toContain('비활성');
+      expect(sink).toHaveLength(0);
+    });
+
+    it('활성 구성원이면 제안을 만든다', async () => {
+      const c = client();
+      c.searchMembers = vi.fn().mockResolvedValue([{ userId: 5, username: 'minsu', name: '김민수', kind: 'HUMAN', active: true }]);
+      const sink: { actionType: string; params: unknown }[] = [];
+      const t = find(
+        buildTools(c, AGENT_ID, 'assistant', undefined, undefined, bridgeWith(sink as never)),
+        'propose_add_project_member',
+      );
+      await t.handler({ key: 'WP', username: 'minsu', role: 'MEMBER', summary: 's' });
+      expect(sink[0].actionType).toBe('project.add_member');
+      // 도구 표면은 username, 실행기에는 해석된 userId 가 간다.
+      expect(sink[0].params).toMatchObject({ key: 'WP', userId: 5, role: 'MEMBER' });
+    });
+  });
+
+  it('propose_set_member_role 은 역할명을 그대로 실행기에 넘긴다(roleId 해석은 서버 몫)', async () => {
+    const c = client();
+    c.searchMembers = vi.fn().mockResolvedValue([{ userId: 5, username: 'minsu', name: '김민수', kind: 'HUMAN', active: true }]);
+    const sink: { actionType: string; params: unknown }[] = [];
+    const bridge: HostBridge = {
+      onProposal: (p) => sink.push(p as never),
+      onSubmitResponse: () => {},
+      onUnassignResult: () => {},
+    };
+    const t = find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, bridge), 'propose_set_member_role');
+    await t.handler({ username: 'minsu', roles: ['ADMIN'], summary: '관리자로 승격' });
+    expect(sink[0].actionType).toBe('user.set_roles');
+    expect(sink[0].params).toMatchObject({ userId: 5, roles: ['ADMIN'] });
+  });
+});
+
+// #833: 비구성원(404)과 그 밖의 실패를 구분한다. 모든 실패를 "구성원 아님"으로 뭉개면 권한 부족이나
+// 일시 장애에도 "그런 사람 없습니다"가 되어 멤버 추가가 통째로 막히고 재검색 루프가 돈다.
+describe('#833 구성원 해석', () => {
+  it('조회 오류는 비구성원으로 뭉개지 않고 그대로 전파한다', async () => {
+    const c = client();
+    c.searchMembers = vi.fn().mockRejectedValue({ response: { status: 403 } });
+    const t = buildTools(c, AGENT_ID, 'assistant').find((x) => x.name === 'propose_add_project_member')!;
+    await expect(t.handler({ key: 'WP', username: 'minsu', role: 'MEMBER', summary: 's' })).rejects.toBeDefined();
+  });
+
+  it('부분일치는 채택하지 않는다 — username 정확일치만', async () => {
+    const c = client();
+    c.searchMembers = vi.fn().mockResolvedValue([
+      { userId: 7, username: 'minsu2', name: '김민수2', kind: 'HUMAN', active: true },
+    ]);
+    const t = buildTools(c, AGENT_ID, 'assistant').find((x) => x.name === 'propose_add_project_member')!;
+    const out = await t.handler({ key: 'WP', username: 'minsu', role: 'MEMBER', summary: 's' });
+    expect(out).toContain('찾을 수 없습니다');
+  });
+
+  it('AI 에이전트 계정은 역할 변경 대상에서 제외된다 — AGENT 역할 소실 방지', async () => {
+    const c = client();
+    c.searchMembers = vi.fn().mockResolvedValue([
+      { userId: 9, username: 'assistant', name: '개인 비서', kind: 'AGENT', active: true },
+    ]);
+    const t = buildTools(c, AGENT_ID, 'assistant').find((x) => x.name === 'propose_set_member_role')!;
+    const out = await t.handler({ username: 'assistant', roles: ['USER'], summary: 's' });
+    expect(out).toContain('AI 에이전트');
   });
 });

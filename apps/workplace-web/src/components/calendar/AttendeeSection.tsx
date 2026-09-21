@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { AgentBadge } from '@/components/users/AgentBadge'
-import type { UserResponse } from '@/types/auth'
+import type { MemberPickerCandidate } from '@/hooks/queries/useUserSearch'
 import type { Attendee, RsvpStatus } from '@/types/calendar'
 import type { UserKind } from '@/types/user'
 
@@ -65,7 +65,7 @@ export function AttendeeSection({
 
   // 참석자 선택 핸들러 — 중복 방지.
   // 편집 모드(onInvite 있음): 즉시 invite API 호출. 생성 모드: 로컬 state 업데이트(이름+종류 포함).
-  const handleSelect = (user: UserResponse) => {
+  const handleSelect = (user: MemberPickerCandidate) => {
     // 외부 참석자(userId=null)는 피커에서 선택 불가 — 내부 userId 만 비교
     const existingIds = attendees?.map((a) => a.userId).filter((id): id is number => id != null) ?? selectedMembers.map((m) => m.id)
     if (existingIds.includes(user.id)) return

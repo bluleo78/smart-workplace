@@ -2,6 +2,7 @@
 // 전송 버튼을 동일 이벤트 루프 틱 내에 3회 연속(프로그래밍적) 클릭해도
 // 메시지 전송 POST 는 정확히 1번만 발생해야 한다.
 // 백엔드 없이 page.route() 로 API 모킹 (messaging-composer-upload.spec.ts 패턴 동일).
+import { createPageResponse } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { createChannel, createChannelMember, createMessage } from '../../factories/messaging.factory'
 
@@ -78,13 +79,13 @@ async function stubCommon(page: import('@playwright/test').Page) {
   )
 
   await page.route(
-    (url) => url.pathname === '/api/v1/users',
+    (url) => url.pathname === '/api/v1/members',
     (route) =>
       route.request().method() === 'GET'
         ? route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({ content: [], page: 0, size: 100, totalElements: 0, totalPages: 0 }),
+            body: JSON.stringify(createPageResponse([], { size: 100 })),
           })
         : route.fallback(),
   )

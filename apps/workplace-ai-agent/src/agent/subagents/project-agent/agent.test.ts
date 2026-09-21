@@ -10,11 +10,13 @@ describe('project-agent 정의', () => {
   it('loadSubagents 로 project-agent 가 로드된다', () => {
     expect(loaded['project-agent']).toBeDefined();
   });
-  it('tools 는 read 3 + propose 3 + submit_response', () => {
+  it('tools 는 read 3 + search_members + propose 3 + submit_response', () => {
     expect(loaded['project-agent'].tools).toEqual([
       'mcp__workplace__list_projects',
       'mcp__workplace__get_project',
       'mcp__workplace__list_project_members',
+      // #833: 이름 → userId 확정 경로. 없으면 에이전트가 연락처 id 를 오용한다.
+      'mcp__workplace__search_members',
       'mcp__workplace__propose_create_project',
       'mcp__workplace__propose_delete_project',
       'mcp__workplace__propose_add_project_member',
@@ -29,6 +31,12 @@ describe('project-agent 정의', () => {
     // 멤버 추가 propose 전 get_project 존재 확인 규칙 (#386)
     expect(loaded['project-agent'].prompt).toMatch(/get_project/);
     expect(loaded['project-agent'].prompt).toMatch(/존재/);
+  });
+  it('#833: 멤버 추가 전 search_members 로 username 을 확정하라는 규칙이 명시되어 있다', () => {
+    const prompt = loaded['project-agent'].prompt;
+    expect(prompt).toMatch(/search_members/);
+    expect(prompt).toMatch(/추측 금지|추측하지/);
+    expect(prompt).toMatch(/username/);
   });
   it('규칙 위반 key 를 수락하지 말고 변환·안내하라는 규칙이 명시되어 있다', () => {
     // #387: 소문자 등 ^[A-Z][A-Z0-9]{1,9}$ 위반 key 를 그대로 수락 금지 + 대문자 변환/되묻기.

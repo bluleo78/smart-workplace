@@ -163,7 +163,7 @@ test.describe('@smoke 설정 레이아웃 일관성', () => {
 
   // 구성원 관리 — SettingsPage 전환 후 PageHeader + 액션 버튼 검증
   test('구성원 페이지가 공용 PageHeader + 액션을 렌더한다', async ({ adminPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/users', createPageResponse([]))
+    await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
     await page.goto('/settings/users')
     await expect(page.getByTestId('page-header')).toContainText('구성원')
     // 액션 버튼이 PageHeader 로 이동해도 동일 testid 로 노출

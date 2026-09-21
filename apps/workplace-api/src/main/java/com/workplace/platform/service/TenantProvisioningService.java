@@ -21,18 +21,27 @@ public class TenantProvisioningService {
   /**
    * USER 역할에 부여할 permission code 목록 — V2{@code __init_identity.sql} 의 USER 시드와 동일(self 프로필 권한만).
    *
+   * <p>{@code member:read}(구성원 디렉터리 조회)는 V132(#833)에서 추가했다 — 사람을 찾는 일이 ADMIN 전용 계정 API 나 연락처 우회 둘 중
+   * 하나였고, 후자가 연락처 id 를 userId 로 오용하던 원인이었다. 계정 관리 권한({@code user:read}/{@code user:write}/ {@code
+   * role:assign})은 그대로 ADMIN 전용이다 — "디렉터리를 본다"와 "계정을 관리한다"는 다른 일이다.
+   *
    * <p>주의: tenant#1(과도기 테넌트)의 USER 역할은 이후 마이그레이션(V6 {@code project:manage}, V33 {@code
    * contact:write})으로 권한이 추가됐다. 여기서는 의도적으로 V2 기준만 시드하므로, 신규 테넌트의 USER 는 tenant#1 보다 약하다(설계 결정 — 운영자
    * 콘솔 보고서의 우려사항 참조).
    */
   private static final List<String> USER_ROLE_PERMISSION_CODES =
-      List.of("user:read:self", "user:write:self");
+      List.of("member:read", "user:read:self", "user:write:self");
 
   /**
    * AGENT 역할(개인 비서 기본 역할)에 부여할 permission code — USER 의 비-관리 업무 권한에서 {@code project:manage}(프로젝트
-   * 삭제·멤버관리·스키마변경)만 제외한 12개. (#278) 업무별 에이전트는 관리자가 별도 역할을 부여한다.
+   * 삭제·멤버관리·스키마변경)만 제외한 12개 (#278) + 구성원 디렉터리 조회 {@code member:read} (#833) = 13개. 업무별 에이전트는 관리자가
+   * 별도 역할을 부여한다.
    *
-   * <p>마이그레이션 V75 의 시드 코드 집합과 동일하게 유지해야 한다.
+   * <p>{@code member:read} 는 AI 가 사람 이름으로 구성원을 찾아 userId 를 확정하는 경로(search_members)에 필요하다. 이것이 없으면
+   * 연락처 목록이 유일한 사람 검색 경로가 되어 연락처 id 를 userId 로 오용하게 된다. 조회 전용이며, 역할변경·활성토글은 확인 카드가 사람의 권한으로 실행하므로
+   * AGENT 에 쓰기 권한을 주지 않는다.
+   *
+   * <p>마이그레이션 V75 + V132 의 시드 코드 집합과 동일하게 유지해야 한다.
    */
   private static final List<String> AGENT_ROLE_PERMISSION_CODES =
       List.of(
@@ -46,6 +55,7 @@ public class TenantProvisioningService {
           "contact:write",
           "calendar:read",
           "calendar:write",
+          "member:read",
           "user:read:self",
           "user:write:self");
 

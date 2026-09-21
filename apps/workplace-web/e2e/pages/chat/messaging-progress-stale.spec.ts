@@ -10,6 +10,8 @@
 //   2. (재연결) progress done → 버블 제거.
 //   3. (재연결) 뒤늦은 progress tool(같은 streamId, 답변 작성 done) → 버블이 되살아나면 안 된다(회귀 감지).
 
+import { createMember } from '../../factories/auth.factory';
+import { createPageResponse } from '../../fixtures/api-mock';
 import { createChannel, createChannelMember } from '../../factories/messaging.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 
@@ -98,23 +100,21 @@ test(
           : route.fallback(),
     );
 
+    // useMentionAgents — 구성원 디렉터리 GET /api/v1/members?kind=AGENT (#833). 서버가 kind 를
+    // 거르므로 AGENT 만 담는다(HUMAN 을 섞으면 멘션 후보에 그대로 노출된다).
     await page.route(
-      (url) => url.pathname === '/api/v1/users',
+      (url) => url.pathname === '/api/v1/members',
       (route) =>
         route.request().method() === 'GET'
           ? route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify({
-                content: [
-                  { id: ME_ID, username: 'me', name: '나', kind: 'HUMAN' },
-                  { id: AGENT_ID, username: 'aibot', name: 'AI', kind: 'AGENT' },
-                ],
-                page: 0,
-                size: 100,
-                totalElements: 2,
-                totalPages: 1,
-              }),
+              body: JSON.stringify(
+                createPageResponse(
+                  [createMember({ userId: AGENT_ID, username: 'aibot', name: 'AI', kind: 'AGENT' })],
+                  { size: 100 },
+                ),
+              ),
             })
           : route.fallback(),
     );

@@ -5,34 +5,36 @@
 //  3) 팀 프로젝트는 기존 "멤버 추가" 버튼 + kind 토글 보임 (회귀 방지)
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import type { UserResponse } from '../../../src/types/auth';
+import type { MemberSummary } from '../../../src/types/member';
 import type { MemberResponse } from '../../../src/types/project';
 
 const PROJECT_KEY = 'MY';
 const SETTINGS_URL = `/projects/${PROJECT_KEY}/settings`;
 
 // AI 어시스턴트 후보
-const AGENT_USER: UserResponse = {
-  id: 301,
+const AGENT_USER: MemberSummary = {
+  userId: 301,
   username: 'workplace-ai',
   name: 'Workplace AI',
   email: 'ai@workplace',
-  isActive: true,
-  createdAt: '2026-01-01T00:00:00Z',
+  title: null,
   kind: 'AGENT',
-  aiAvailable: false,
+  active: true,
+  membershipRole: 'MEMBER',
+  membershipStatus: 'ACTIVE',
 };
 
 // 사람 후보 (agentOnly 모드에선 노출 안 돼야 함)
-const HUMAN_USER: UserResponse = {
-  id: 302,
+const HUMAN_USER: MemberSummary = {
+  userId: 302,
   username: 'coworker',
   name: 'Coworker',
   email: 'co@workplace',
-  isActive: true,
-  createdAt: '2026-01-01T00:00:00Z',
+  title: null,
   kind: 'HUMAN',
-  aiAvailable: false,
+  active: true,
+  membershipRole: 'MEMBER',
+  membershipStatus: 'ACTIVE',
 };
 
 type StubMember = Pick<MemberResponse, 'userId' | 'username' | 'name' | 'kind' | 'role' | 'createdAt'>;
@@ -90,7 +92,7 @@ async function setupPersonalProjectStubs(
 
   // 사용자 검색 — AGENT + HUMAN 혼재 소스. 실제 백엔드처럼 kind 로 먼저 좁히고(ALL 이면 전체),
   // search 가 blank 면 검색 조건 없이 전체를 반환한다(#734).
-  await page.route(/\/api\/v1\/users\?/, (route) => {
+  await page.route(/\/api\/v1\/members\?/, (route) => {
     const url = new URL(route.request().url());
     const q = url.searchParams.get('search') ?? '';
     const kind = url.searchParams.get('kind') ?? 'HUMAN';
@@ -134,7 +136,7 @@ test.describe('개인 프로젝트 AI 어시스턴트 추가', () => {
         membersRef.current = [
           ...membersRef.current,
           {
-            userId: AGENT_USER.id,
+            userId: AGENT_USER.userId,
             username: AGENT_USER.username,
             name: AGENT_USER.name,
             kind: 'AGENT',
@@ -159,10 +161,10 @@ test.describe('개인 프로젝트 AI 어시스턴트 추가', () => {
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('workplace');
 
       // AGENT 후보 선택
-      await page.getByTestId(`member-search-row-${AGENT_USER.id}`).click();
+      await page.getByTestId(`member-search-row-${AGENT_USER.userId}`).click();
 
       // POST payload 검증 — userId + role:'MEMBER'
-      await expect.poll(() => postPayload).toEqual({ userId: AGENT_USER.id, role: 'MEMBER' });
+      await expect.poll(() => postPayload).toEqual({ userId: AGENT_USER.userId, role: 'MEMBER' });
 
       // 성공 토스트
       await expect(page.getByText(`${AGENT_USER.name} 을(를) 추가했습니다`)).toBeVisible();
@@ -197,9 +199,9 @@ test.describe('개인 프로젝트 AI 어시스턴트 추가', () => {
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('work');
 
     // AGENT 후보는 노출
-    await expect(page.getByTestId(`member-search-row-${AGENT_USER.id}`)).toBeVisible();
+    await expect(page.getByTestId(`member-search-row-${AGENT_USER.userId}`)).toBeVisible();
     // HUMAN 후보는 필터되어 미노출
-    await expect(page.getByTestId(`member-search-row-${HUMAN_USER.id}`)).toHaveCount(0);
+    await expect(page.getByTestId(`member-search-row-${HUMAN_USER.userId}`)).toHaveCount(0);
   });
 
   test('개인 프로젝트 설정 — 헤딩 "AI 어시스턴트" 표시', async ({ authenticatedPage: page }) => {

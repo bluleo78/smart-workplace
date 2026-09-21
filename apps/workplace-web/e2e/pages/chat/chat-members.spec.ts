@@ -2,6 +2,7 @@
 // 2-유저 시나리오는 별도 page.route 응답 교체로 모사(실제 2세션 아님).
 import type { Page } from '@playwright/test'
 
+import { createPageResponse } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { createChannel, createChannelMember } from '../../factories/messaging.factory'
 
@@ -142,15 +143,29 @@ test.describe('messaging 멤버 패널', () => {
         return route.fallback()
       },
     )
-    // 멤버 검색 GET /users?search=
+    // 구성원 검색 GET /members?search= (#833 — 디렉터리 API, MemberSummary 형태)
     await page.route(
-      (url) => url.pathname === '/api/v1/users',
+      (url) => url.pathname === '/api/v1/members',
       (route) =>
         route.request().method() === 'GET'
           ? route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify({ content: [{ id: 2, name: '동료', username: 'colleague', email: 'c@x.com', kind: 'HUMAN', roles: [] }], totalElements: 1, totalPages: 1, number: 0, size: 20 }),
+              body: JSON.stringify({ content: [{ userId: 2, name: '동료', username: 'colleague', email: 'c@x.com', kind: 'HUMAN', active: true }], totalElements: 1, totalPages: 1, number: 0, size: 20 }),
+            })
+          : route.fallback(),
+    )
+    // useMentionAgents 는 같은 디렉터리 API 를 kind=AGENT 로 호출한다(채널 페이지 마운트 시).
+    // 위 검색 스텁이 모든 /members 를 삼키지 않도록 kind=AGENT 만 잡아 빈 목록을 돌려준다
+    // (Playwright 라우트는 LIFO — 검색 스텁보다 뒤에 등록해야 우선한다).
+    await page.route(
+      (url) => url.pathname === '/api/v1/members' && url.searchParams.get('kind') === 'AGENT',
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(createPageResponse([], { size: 100 })),
             })
           : route.fallback(),
     )

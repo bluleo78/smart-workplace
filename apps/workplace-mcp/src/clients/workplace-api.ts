@@ -61,6 +61,26 @@ export interface PatApiClient {
   ): Promise<unknown>;
   replaceIssueLabels(projectKey: string, number: number, labelIds: number[]): Promise<unknown>;
   editIssueComment(issueId: number, commentId: number, body: string): Promise<void>;
+  // #833: 구성원 디렉터리·연락처 읽기. PAT 컨텍스트에는 확인 카드가 없어 쓰기는 노출하지 않는다.
+  searchMembers(params: {
+    search?: string;
+    kind?: string;
+    includeInactive?: boolean;
+    page: number;
+    size: number;
+  }): Promise<unknown[]>;
+  getMember(userId: number): Promise<unknown>;
+  getMemberContact(userId: number): Promise<unknown>;
+  listContacts(params: {
+    search?: string;
+    type?: string;
+    organization?: string;
+    title?: string;
+    favorite?: boolean;
+    cursor?: string;
+    limit: number;
+  }): Promise<unknown>;
+  getExternalContact(externalId: number): Promise<unknown>;
   // Task 7: 위키 — 스페이스 목록/검색/조회/생성/수정(낙관적 동시성, 409 는 호출자에 그대로 전파).
   listWikiSpaces(): Promise<unknown[]>;
   searchWikiPages(q: string): Promise<unknown[]>;
@@ -184,6 +204,24 @@ export function createPatApiClient(opts: { baseURL: string; token: string }): Pa
     },
     async searchWikiPages(q) {
       return (await http.get('/wiki/search', { params: { q } })).data ?? [];
+    },
+    // #833: 구성원·연락처 읽기.
+    async searchMembers(params) {
+      // 계정 관리 API(/users, ADMIN 전용)가 아니라 구성원 디렉터리(/members, member:read)를 쓴다 —
+      // 일반 구성원의 PAT 로도 사람을 찾을 수 있어야 하기 때문.
+      return (await http.get('/members', { params })).data?.content ?? [];
+    },
+    async getMember(userId) {
+      return (await http.get(`/members/${userId}`)).data;
+    },
+    async getMemberContact(userId) {
+      return (await http.get(`/contacts/members/${userId}`)).data;
+    },
+    async listContacts(params) {
+      return (await http.get('/contacts', { params })).data;
+    },
+    async getExternalContact(externalId) {
+      return (await http.get(`/contacts/external/${externalId}`)).data;
     },
     async listWikiSpaces() {
       return (await http.get('/wiki/spaces')).data ?? [];
