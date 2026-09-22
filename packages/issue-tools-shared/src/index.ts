@@ -1,7 +1,8 @@
 // src/index.ts — 패키지 공개 API.
 export { resolveTypeId, resolveAssigneeIds, resolveLabelIds } from './resolve.js';
 export type { ProjectMetaClient } from './resolve.js';
-export { parseIssueKey, errText } from './parse.js';
+export { parseIssueKey, errText, describeApiError } from './parse.js';
+export { toDriveItemsView, type DriveFileView } from './drive-view.js';
 export type { McpTool } from './mcp-tool.js';
 export {
   issueKeyInput,

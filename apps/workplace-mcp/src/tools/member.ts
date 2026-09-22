@@ -78,8 +78,8 @@ export function buildMemberTools(client: PatApiClient): McpTool[] {
     {
       name: 'search_members',
       description:
-        '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 이름으로 찾아 userId 를 확보할 때 쓰는 표준 도구입니다. ' +
-        'userId 는 프로젝트 멤버·담당자 지정 등 사람을 가리켜야 하는 곳에 그대로 사용합니다. ' +
+        '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
+        '각 항목의 username 을 담당자(assignees)·get_member·get_member_contact 등 사람을 가리키는 도구에 그대로 넘기세요(숫자 userId 가 아님). ' +
         'search 로 이름·아이디·이메일 검색, kind 로 HUMAN(사람, 기본)/AGENT(AI)/ALL 한정. 기본은 활성 구성원만이며 includeInactive=true 로 비활성까지 봅니다.',
       inputSchema: searchMembersInput,
       async handler(args) {

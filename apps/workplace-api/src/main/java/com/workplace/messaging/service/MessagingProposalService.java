@@ -46,7 +46,8 @@ public class MessagingProposalService {
 
   /**
    * AI 제안 — 채널에 AGENT 작성 카드 메시지 + 제안 행(PENDING) 생성. 프로젝트는 후보(위임자·AI 둘 다 멤버) 중 AI 가 고른 projectKey,
-   * 없으면 첫 후보(updated_at 최신순). 후보 0건이면 NoDelegationCandidateException.
+   * 없으면 첫 후보(updated_at 최신순). 후보 0건이면 NoDelegationCandidateException. AI 가 후보 밖 키를 주면
+   * InvalidDelegationProjectException(#840) — 조용히 다른 프로젝트로 바꾸지 않는다.
    *
    * <p>제안 행을 메시지 publish 전에 INSERT 해 AFTER_COMMIT SSE 가 proposal 을 enrich 한 응답을 전파하도록 한다.
    */
@@ -65,15 +66,24 @@ public class MessagingProposalService {
     }
 
     // 후보 계산(위임자·AI 둘 다 멤버인 프로젝트 목록).
-    // AI 가 준 projectKey 가 후보에 있으면 그것을, 아니면 첫 후보(updated_at 최신순)를 선택한다.
     var candidates = candidateProjects(req.proposedByUserId(), agentId);
     // 위임자·AI 공유 프로젝트가 없으면 친화적 400 예외 — 사용자에게 "함께하는 프로젝트 없음" 안내.
     if (candidates.isEmpty()) throw new NoDelegationCandidateException();
+    // AI 가 키를 고르지 않았으면(null/blank) 첫 후보(updated_at 최신순)로 폴백한다 — "선택 안 함"의 기본값.
+    // #840: 키를 골랐는데 후보 밖이면 400. 과거엔 이것도 첫 후보로 폴백해 AI 가 의도한 것과 다른 프로젝트에
+    // 제안이 "성공"했다. 오류 메시지에 후보 키를 실어 AI 가 한 번에 재시도하도록 한다.
+    String requestedKey = req.projectKey();
     var chosen =
-        candidates.stream()
-            .filter(c -> c.key().equals(req.projectKey()))
-            .findFirst()
-            .orElse(candidates.get(0)); // 폴백=첫 후보(updated_at 최신순)
+        (requestedKey == null || requestedKey.isBlank())
+            ? candidates.get(0)
+            : candidates.stream()
+                .filter(c -> c.key().equals(requestedKey))
+                .findFirst()
+                .orElseThrow(
+                    () ->
+                        new InvalidDelegationProjectException(
+                            requestedKey,
+                            candidates.stream().map(ProjectCandidateDto::key).toList()));
     var project =
         projectRepo
             .findByKey(chosen.key())

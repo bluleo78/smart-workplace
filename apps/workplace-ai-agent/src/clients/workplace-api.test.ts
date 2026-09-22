@@ -691,6 +691,24 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   });
 
+  // #840: API 오류 메시지 보강 — 서버 ErrorResponse.message 가 도구 오류 문자열로 LLM 에 전달돼야 자가교정 가능.
+  describe('API 오류 메시지', () => {
+    it('4xx 응답의 서버 message 와 필드 오류를 Error.message 로 끌어올리고 status 는 유지한다', async () => {
+      nock(BASE)
+        .get(`${PREFIX}/drive/spaces/1/items`)
+        .reply(400, { status: 400, message: '위임 후보 프로젝트가 아닙니다: FOO', errors: { projectKey: '후보 밖' } });
+      const err = await newClient().listSpaceItems(7, 1).catch((e: unknown) => e);
+      expect((err as Error).message).toBe('API 오류 400: 위임 후보 프로젝트가 아닙니다: FOO — projectKey: 후보 밖');
+      expect((err as { response?: { status?: number } }).response?.status).toBe(400);
+    });
+
+    it('본문이 없으면 상태코드만 남긴다', async () => {
+      nock(BASE).get(`${PREFIX}/drive/spaces/1/items`).reply(404);
+      const err = await newClient().listSpaceItems(7, 1).catch((e: unknown) => e);
+      expect((err as Error).message).toBe('API 오류 404');
+    });
+  });
+
   describe('listSpaceItems', () => {
     it('GET /drive/spaces/{id}/items 로 folders+files 반환', async () => {
       // #376: API 응답은 { folders: [], files: [] } 객체 — 배열이 아님에 주의.

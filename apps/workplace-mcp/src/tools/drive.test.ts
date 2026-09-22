@@ -23,6 +23,7 @@ describe('buildDriveTools', () => {
 
   it('list_drive_items → parentId 지정 시 그대로 전달', async () => {
     const c = mockClient();
+    (c.listDriveItems as ReturnType<typeof vi.fn>).mockResolvedValue({ folders: [], files: [] });
     const t = buildDriveTools(c).find((x) => x.name === 'list_drive_items')!;
     await t.handler({ spaceId: 3, parentId: 8 });
     expect(c.listDriveItems).toHaveBeenCalledWith(3, 8);
@@ -30,11 +31,12 @@ describe('buildDriveTools', () => {
 
   it('search_drive → client.searchDrive(spaceId, q)', async () => {
     const c = mockClient();
-    (c.searchDrive as ReturnType<typeof vi.fn>).mockResolvedValue({ folders: [], files: [{ id: 1 }] });
+    (c.searchDrive as ReturnType<typeof vi.fn>).mockResolvedValue({ folders: [], files: [{ id: 1, fileId: 99, name: 'a.pdf' }] });
     const t = buildDriveTools(c).find((x) => x.name === 'search_drive')!;
     const out = await t.handler({ spaceId: 3, q: '보고서' });
     expect(c.searchDrive).toHaveBeenCalledWith(3, '보고서');
-    expect(JSON.parse(out)).toEqual({ folders: [], files: [{ id: 1 }] });
+    // #840: core fileId 는 제거되고 drive_file.id 는 driveFileId 로만 노출된다.
+    expect(JSON.parse(out)).toEqual({ folders: [], files: [{ driveFileId: 1, name: 'a.pdf' }] });
   });
 
   it('search_drive 는 q 누락 시 zod 파싱을 거부한다', async () => {

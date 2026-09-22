@@ -835,7 +835,7 @@ describe('buildTools(assistant) 드라이브 읽기 도구 (M3)', () => {
 
   it('search_drive 핸들러가 client.searchDrive 를 호출한다', async () => {
     const calls: unknown[] = [];
-    const fake = { searchDrive: async (...a: unknown[]) => { calls.push(a); return []; } } as never;
+    const fake = { searchDrive: async (...a: unknown[]) => { calls.push(a); return { folders: [], files: [] }; } } as never;
     const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'search_drive')!;
     await tool.handler({ spaceId: 1, q: '보고서' });
     expect(calls[0]).toEqual([7, 1, '보고서']);
@@ -870,12 +870,55 @@ describe('buildTools(assistant) 드라이브 쓰기/삭제 도구 (M4)', () => {
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
       const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_file')!;
-      const ack = await tool.handler({ id: 99, summary: '보고서.pdf 삭제' });
+      const ack = await tool.handler({ driveFileId: 99, summary: '보고서.pdf 삭제' });
       expect(typeof ack).toBe('string');
       const written = JSON.parse(readFileSync(sidecar, 'utf8'));
       expect(written.actionType).toBe('drive.delete_file');
       expect(written.summary).toBe('보고서.pdf 삭제');
       expect(written.params.id).toBe(99);
+    } finally {
+      delete process.env.WORKPLACE_PENDING_ACTION_PATH;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// #840: 드라이브 식별자 봉합 — 목록 응답에서 core fileId 를 지우고, 이동·삭제는 driveFileId/folderId 로만 받는다.
+describe('드라이브 식별자 봉합 (#840)', () => {
+  it('list_drive_items 는 파일 행에서 core fileId 를 제거하고 drive_file.id 를 driveFileId 로 노출한다', async () => {
+    const fake = {
+      listSpaceItems: async () => ({
+        folders: [{ id: 3, parentId: null, name: '폴더', createdAt: 't' }],
+        files: [{ id: 5, folderId: 3, fileId: 812, name: '보고서.pdf', mimeType: 'application/pdf', sizeBytes: 10, category: 'DOCUMENT', createdAt: 't', updatedAt: 'u', versionCount: 2, available: false }],
+      }),
+    } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'list_drive_items')!;
+    const out = JSON.parse(await tool.handler({ spaceId: 1 }));
+    expect(out.folders).toEqual([{ id: 3, parentId: null, name: '폴더', createdAt: 't' }]);
+    // fileId 외 필드(원본 유실 available 등)는 그대로 전달돼야 한다.
+    expect(out.files[0]).toEqual({ driveFileId: 5, folderId: 3, name: '보고서.pdf', mimeType: 'application/pdf', sizeBytes: 10, category: 'DOCUMENT', createdAt: 't', updatedAt: 'u', versionCount: 2, available: false });
+    expect(JSON.stringify(out)).not.toContain('812');
+  });
+
+  it('move_file 은 driveFileId 를 client.moveFile 에 넘기고, 옛 fileId 파라미터는 거부한다', async () => {
+    const calls: unknown[] = [];
+    const fake = { moveFile: async (...a: unknown[]) => { calls.push(a); } } as never;
+    const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'move_file')!;
+    await tool.handler({ driveFileId: 5, targetFolderId: 3 });
+    expect(calls[0]).toEqual([7, 5, 3]);
+    await expect(tool.handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow();
+  });
+
+  it('propose_delete_folder 는 folderId 를 실행기 파라미터 id 로 매핑한다', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pa-folder-'));
+    const sidecar = path.join(dir, 'pending-action.json');
+    process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
+    try {
+      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_folder')!;
+      await tool.handler({ folderId: 3, summary: '폴더 삭제' });
+      const written = JSON.parse(readFileSync(sidecar, 'utf8'));
+      expect(written.actionType).toBe('drive.delete_folder');
+      expect(written.params).toEqual({ id: 3 });
     } finally {
       delete process.env.WORKPLACE_PENDING_ACTION_PATH;
       rmSync(dir, { recursive: true, force: true });
@@ -892,9 +935,9 @@ describe('propose 사이드카 다건 누적 (#351)', () => {
     try {
       const tools = buildTools({} as never, 1, 'assistant');
       const del = tools.find((t) => t.name === 'propose_delete_file')!;
-      // propose_delete_file inputSchema: { summary, id: number }
-      await del.handler({ id: 1, summary: '파일 A 삭제' });
-      await del.handler({ id: 2, summary: '파일 B 삭제' });
+      // propose_delete_file inputSchema: { summary, driveFileId: number } (#840)
+      await del.handler({ driveFileId: 1, summary: '파일 A 삭제' });
+      await del.handler({ driveFileId: 2, summary: '파일 B 삭제' });
       const lines = readFileSync(sidecar, 'utf8').trim().split('\n');
       expect(lines).toHaveLength(2);
       expect(JSON.parse(lines[0]).params.id).toBe(1);

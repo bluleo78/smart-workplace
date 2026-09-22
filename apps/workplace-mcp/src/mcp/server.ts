@@ -3,6 +3,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Request, Response } from 'express';
+import { describeApiError } from '@smart-workplace/issue-tools-shared';
 import type { z } from 'zod';
 
 import { createPatApiClient } from '../clients/workplace-api.js';
@@ -33,11 +34,11 @@ export function buildMcpServer(apiBaseUrl: string, token: string): McpServer {
 function summarizeError(e: unknown): string {
   if (axiosLike(e)) {
     const s = e.response?.status;
-    const m = JSON.stringify(e.response?.data ?? '');
     if (s === 401) {
       return 'API 인증 실패(401) — 토큰이 만료·폐기되었을 수 있습니다. 설정에서 새 토큰을 발급하세요.';
     }
-    return `API 오류 ${s ?? ''}: ${m}`;
+    // #840: 서버 ErrorResponse 를 ai-agent 와 같은 한 줄 요약으로(원문 JSON 덤프 대신 message·필드 오류).
+    return describeApiError(s, e.response?.data);
   }
   return e instanceof Error ? e.message : String(e);
 }

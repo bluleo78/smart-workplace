@@ -116,10 +116,10 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
     'contact 위젯이 외부 연락처 상세를 렌더한다',
     { tag: '@smoke' },
     async ({ authenticatedPage: pg }) => {
-      // compose → contact 위젯(contactId=100) 지시.
+      // compose → contact 위젯(externalId=100) 지시.
       await mockHomeChatGeneration(pg, {
         frames: [
-          { event: 'done', data: { sessionId: 's-contacts-4', widgets: [{ type: 'contact', params: { contactId: 100 } }] } },
+          { event: 'done', data: { sessionId: 's-contacts-4', widgets: [{ type: 'contact', params: { externalId: 100 } }] } },
         ],
       })
       // 외부 연락처 상세 API 모킹.
@@ -159,8 +159,33 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
     },
   )
 
-  test('contact 위젯 contactId 누락 시 안내 메시지를 표시한다', async ({ authenticatedPage: pg }) => {
-    // compose → contact 위젯(contactId 없음) 지시.
+  // #840: externalId 로 개명 전 저장된 대화 기록(contactId 지시)도 복원 시 그대로 렌더되어야 한다.
+  test('contact 위젯이 개명 전 contactId 지시도 렌더한다', async ({ authenticatedPage: pg }) => {
+    await mockHomeChatGeneration(pg, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-contacts-legacy', widgets: [{ type: 'contact', params: { contactId: 101 } }] } },
+      ],
+    })
+    await pg.route(
+      (url) => url.pathname === '/api/v1/contacts/external/101',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(externalDetail({ id: 101, name: '구외부' })),
+        }),
+    )
+
+    await pg.goto('/')
+    await pg.getByTestId('chat-launcher').click()
+    await pg.getByTestId('chat-input').fill('구외부 연락처 보여줘')
+    await pg.getByRole('button', { name: '보내기' }).click()
+
+    await expect(pg.getByTestId('contact-detail')).toContainText('구외부')
+  })
+
+  test('contact 위젯 externalId 누락 시 안내 메시지를 표시한다', async ({ authenticatedPage: pg }) => {
+    // compose → contact 위젯(externalId 없음) 지시.
     await mockHomeChatGeneration(pg, {
       frames: [
         { event: 'done', data: { sessionId: 's-contacts-5', widgets: [{ type: 'contact', params: {} }] } },

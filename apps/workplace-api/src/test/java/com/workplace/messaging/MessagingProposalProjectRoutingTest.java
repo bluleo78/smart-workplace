@@ -259,15 +259,15 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
   }
 
   /**
-   * Task 2: AI 가 후보에 있는 projectKey 를 지정하면 그 프로젝트가 사용되어야 한다. 후보 밖 키 또는 null 이면 개인 기본(첫 후보)으로 폴백.
+   * Task 2: AI 가 후보에 있는 projectKey 를 지정하면 그 프로젝트가 사용되어야 한다. null 이면 첫 후보로 폴백(별도 테스트).
    *
    * <ul>
    *   <li>유효 키(팀 프로젝트) → 해당 projectKey 가 응답에 포함
-   *   <li>후보 밖 키 → 개인 기본 projectKey 로 폴백
+   *   <li>후보 밖 키 → #840: 폴백하지 않고 InvalidDelegationProjectException(메시지에 후보 키 포함)
    * </ul>
    */
   @Test
-  void propose_aiProjectKeyInCandidates_usesIt_elseFallsBackToPersonal() {
+  void propose_aiProjectKeyInCandidates_usesIt_outsideCandidatesRejected() {
     // 위임자 개인 프로젝트 보장 + AI 멤버 추가(개인도 명시 추가 필수).
     provisioner.ensureDefaultPersonal(delegator);
     projectService.addMember(
@@ -303,29 +303,30 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
     // candidates 배열에 팀 프로젝트 키가 포함되어야 한다.
     assertThat(r1.proposal().candidates()).extracting(ProjectCandidateDto::key).contains(teamKey);
 
-    // 후보 밖 키 → 첫 후보(updated_at 최신)로 폴백 — 어떤 후보든 candidates 안에 있어야 한다.
-    var r2 =
-        proposalService.propose(
-            agentId,
-            channelId,
-            new CreateProposalRequest(
-                "CREATE_ISSUE",
-                "T2",
-                null,
-                "MID",
-                "NOPE-999",
-                delegator,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null));
-    assertThat(r2.proposal().candidates())
-        .extracting(ProjectCandidateDto::key)
-        .contains(r2.proposal().projectKey());
+    // #840: 후보 밖 키 → 조용히 다른 프로젝트로 폴백하지 않고 거부. 메시지에 유효 후보 키가 실려야 AI 가 재시도할 수 있다.
+    assertThatThrownBy(
+            () ->
+                proposalService.propose(
+                    agentId,
+                    channelId,
+                    new CreateProposalRequest(
+                        "CREATE_ISSUE",
+                        "T2",
+                        null,
+                        "MID",
+                        "NOPE-999",
+                        delegator,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null)))
+        .isInstanceOf(InvalidDelegationProjectException.class)
+        .hasMessageContaining("NOPE-999")
+        .hasMessageContaining(teamKey);
   }
 
   /**

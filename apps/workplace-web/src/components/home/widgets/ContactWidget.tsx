@@ -9,15 +9,18 @@ import { WidgetFrame } from './WidgetFrame'
 
 /**
  * #460: 연락처 상세 위젯 — show_contact 지시를 받아 단일 외부 연락처 상세를 표시한다.
- * params.contactId 누락 시 재시도 없는 안내 메시지 렌더(정적 파라미터 오류라 재시도 무의미).
+ * params.externalId 누락 시 재시도 없는 안내 메시지 렌더(정적 파라미터 오류라 재시도 무의미).
+ * #840: 식별자는 externalId(외부 연락처 id) — 구성원 userId 와 혼동을 막기 위해 contactId 에서 개명했다.
+ * 개명 이전에 저장된 대화 기록의 위젯 지시를 복원할 수 있도록 contactId 도 폴백으로 읽는다.
  * fetch 실패 시에는 WidgetError(onRetry) 로 재시도 허용.
  * AI 연락처 도메인은 외부 연락처이므로 type 은 'EXTERNAL' 로 고정한다.
  */
 export default function ContactWidget({ params }: { params?: Record<string, unknown> }) {
-  const contactId = typeof params?.contactId === 'number' ? params.contactId : null
+  const raw = params?.externalId ?? params?.contactId
+  const externalId = typeof raw === 'number' ? raw : null
 
-  // contactId 누락 — 정적 파라미터 오류: 재시도 버튼 없이 안내 메시지만 표시.
-  if (contactId === null) {
+  // externalId 누락 — 정적 파라미터 오류: 재시도 버튼 없이 안내 메시지만 표시.
+  if (externalId === null) {
     return (
       <WidgetFrame title="연락처 상세">
         <div
@@ -34,14 +37,14 @@ export default function ContactWidget({ params }: { params?: Record<string, unkn
     )
   }
 
-  // contactId 존재 — ContactDetailContent 에서 훅을 호출(early return 이후 조건부 훅 금지 우회).
-  return <ContactDetailContent contactId={contactId} />
+  // externalId 존재 — ContactDetailContent 에서 훅을 호출(early return 이후 조건부 훅 금지 우회).
+  return <ContactDetailContent externalId={externalId} />
 }
 
-/** contactId 가 확정된 경우의 데이터 로드·렌더 분리 컴포넌트(훅 규칙 준수). */
-function ContactDetailContent({ contactId }: { contactId: number }) {
+/** externalId 가 확정된 경우의 데이터 로드·렌더 분리 컴포넌트(훅 규칙 준수). */
+function ContactDetailContent({ externalId }: { externalId: number }) {
   // AI 연락처 도메인은 외부 연락처 — type 'EXTERNAL' 고정.
-  const contact = useContactDetail({ type: 'EXTERNAL', id: contactId })
+  const contact = useContactDetail({ type: 'EXTERNAL', id: externalId })
 
   if (contact.isLoading) {
     return (

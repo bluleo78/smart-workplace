@@ -5,7 +5,7 @@ import axios, { AxiosInstance } from 'axios';
 
 import { DEFAULT_API_BASE_URL } from '../constants.js';
 import type { ProviderCredential } from '../agent/agent-runner.js';
-import { parseIssueKey } from '@smart-workplace/issue-tools-shared';
+import { describeApiError, parseIssueKey } from '@smart-workplace/issue-tools-shared';
 
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
@@ -443,6 +443,15 @@ export function createWorkplaceApiClient(opts: {
   const http: AxiosInstance = axios.create({
     baseURL: opts.baseURL ?? DEFAULT_API_BASE_URL,
     headers: { Authorization: `Internal ${opts.internalToken}` },
+  });
+  // #840: API 오류의 서버 메시지를 Error.message 로 끌어올린다(요약 규칙은 공유 describeApiError). axios 기본 메시지는
+  // "Request failed with status code 400" 뿐이라, 도구 결과로 LLM 에 전달돼도 무엇이 틀렸는지 알 수 없어
+  // 자가교정이 불가능했다. AxiosError 객체는 그대로 두고(status 판정 호출부 유지) message 만 보강한다.
+  http.interceptors.response.use(undefined, (err: unknown) => {
+    if (axios.isAxiosError(err) && err.response) {
+      err.message = describeApiError(err.response.status, err.response.data);
+    }
+    return Promise.reject(err);
   });
 
   const onBehalfOf = (agentId: number) => ({

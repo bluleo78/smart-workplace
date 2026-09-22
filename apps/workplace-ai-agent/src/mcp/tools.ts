@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import {
   buildSharedIssueTools,
+  toDriveItemsView,
   type IssueToolClient,
   type McpTool,
 } from '@smart-workplace/issue-tools-shared';
@@ -136,9 +137,11 @@ const searchDriveInput = z.object({ spaceId: z.number().int().positive(), q: z.s
 const createFolderInput = z.object({ spaceId: z.number().int().positive(), parentId: z.number().int().positive().nullable().optional(), name: z.string().min(1).max(255) });
 const renameFolderInput = z.object({ folderId: z.number().int().positive(), name: z.string().min(1).max(255) });
 const moveFolderInput = z.object({ folderId: z.number().int().positive(), targetParentId: z.number().int().positive().nullable().optional() });
-const moveFileInput = z.object({ fileId: z.number().int().positive(), targetFolderId: z.number().int().positive().nullable().optional() });
-const proposeDeleteFileInput = z.object({ summary: z.string().min(1), id: z.number().int().positive() });
-const proposeDeleteFolderInput = z.object({ summary: z.string().min(1), id: z.number().int().positive() });
+// #840: 파일 식별자는 driveFileId(= drive_file.id)로 명명한다. 목록 응답의 core fileId 와 혼동되지 않도록
+// 도구 표면 전체에서 하나의 이름만 쓰고, 폴더는 rename/move 와 같은 folderId 로 통일한다.
+const moveFileInput = z.object({ driveFileId: z.number().int().positive(), targetFolderId: z.number().int().positive().nullable().optional() });
+const proposeDeleteFileInput = z.object({ summary: z.string().min(1), driveFileId: z.number().int().positive() });
+const proposeDeleteFolderInput = z.object({ summary: z.string().min(1), folderId: z.number().int().positive() });
 
 // #333 M4: 메일 계정 목록 + 수동 동기화 입력.
 const syncMailInput = z.object({ accountId: z.number().int().positive() });
@@ -301,7 +304,8 @@ const showContactsInput = z.object({
   layout: layoutSchema,
 });
 const showContactInput = z.object({
-  params: z.object({ contactId: z.number().int().positive() }),
+  // #840: 위젯은 외부 연락처 전용 — list_contacts 의 EXTERNAL 항목 externalId 와 같은 이름으로 받는다.
+  params: z.object({ externalId: z.number().int().positive() }),
   layout: layoutSchema,
 });
 const showProjectsInput = z.object({ params: z.object({}).optional(), layout: layoutSchema });
@@ -1184,20 +1188,20 @@ export function buildTools(
   };
   const listDriveItemsTool: McpTool = {
     name: 'list_drive_items',
-    description: '드라이브 스페이스(또는 parentId 하위)의 폴더/파일 목록을 JSON 으로 반환합니다.',
+    description: '드라이브 스페이스(또는 parentId 하위)의 폴더/파일 목록을 JSON 으로 반환합니다. 폴더는 id(= folderId), 파일은 driveFileId 로 가리킵니다.',
     inputSchema: listDriveItemsInput,
     async handler(args) {
       const { spaceId, parentId } = listDriveItemsInput.parse(args);
-      return JSON.stringify(await client.listSpaceItems(agentId, spaceId, parentId));
+      return JSON.stringify(toDriveItemsView(await client.listSpaceItems(agentId, spaceId, parentId)));
     },
   };
   const searchDriveTool: McpTool = {
     name: 'search_drive',
-    description: '드라이브 스페이스에서 파일/폴더를 이름으로 검색해 JSON 으로 반환합니다.',
+    description: '드라이브 스페이스에서 파일/폴더를 이름으로 검색해 JSON 으로 반환합니다. 폴더는 id(= folderId), 파일은 driveFileId 로 가리킵니다.',
     inputSchema: searchDriveInput,
     async handler(args) {
       const { spaceId, q } = searchDriveInput.parse(args);
-      return JSON.stringify(await client.searchDrive(agentId, spaceId, q));
+      return JSON.stringify(toDriveItemsView(await client.searchDrive(agentId, spaceId, q)));
     },
   };
 
@@ -1232,11 +1236,11 @@ export function buildTools(
   };
   const moveFileTool: McpTool = {
     name: 'move_file',
-    description: '파일을 다른 폴더로 이동합니다. targetFolderId 를 생략하면 스페이스 루트로 이동합니다.',
+    description: '파일을 다른 폴더로 이동합니다. driveFileId 는 list_drive_items/search_drive 파일 항목의 driveFileId 입니다. targetFolderId 를 생략하면 스페이스 루트로 이동합니다.',
     inputSchema: moveFileInput,
     async handler(args) {
-      const { fileId, targetFolderId } = moveFileInput.parse(args);
-      await client.moveFile(agentId, fileId, targetFolderId ?? null);
+      const { driveFileId, targetFolderId } = moveFileInput.parse(args);
+      await client.moveFile(agentId, driveFileId, targetFolderId ?? null);
       return 'ok';
     },
   };
@@ -1244,20 +1248,22 @@ export function buildTools(
   // #333 M4: 드라이브 삭제 제안 도구 — 파일/폴더 삭제는 soft-delete 이나 비가역 작업으로 분류되어 confirm 필요.
   const proposeDeleteFileTool: McpTool = {
     name: 'propose_delete_file',
-    description: '파일 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 확인이 필요합니다. summary 에 어떤 파일을 지우는지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다.',
+    description: '파일 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 확인이 필요합니다. summary 에 어떤 파일을 지우는지 한 줄로 넣으세요. driveFileId 는 list_drive_items/search_drive 파일 항목의 driveFileId 입니다. 승인 시 서버가 삭제합니다.',
     inputSchema: proposeDeleteFileInput,
     async handler(args) {
-      const { summary, ...params } = proposeDeleteFileInput.parse(args);
-      return await writeProposal('drive.delete_file', summary, params);
+      const { summary, driveFileId } = proposeDeleteFileInput.parse(args);
+      // 실행기(drive.delete_file)는 params.id 를 읽는다 — 도구 표면만 driveFileId 로 명시하고 여기서 매핑.
+      return await writeProposal('drive.delete_file', summary, { id: driveFileId });
     },
   };
   const proposeDeleteFolderTool: McpTool = {
     name: 'propose_delete_folder',
-    description: '폴더 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 하위 파일·폴더가 포함될 수 있어 확인이 필요합니다. summary 에 어떤 폴더를 지우는지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다.',
+    description: '폴더 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 하위 파일·폴더가 포함될 수 있어 확인이 필요합니다. summary 에 어떤 폴더를 지우는지 한 줄로 넣으세요. folderId 는 list_drive_items/search_drive 폴더 항목의 id 입니다. 승인 시 서버가 삭제합니다.',
     inputSchema: proposeDeleteFolderInput,
     async handler(args) {
-      const { summary, ...params } = proposeDeleteFolderInput.parse(args);
-      return await writeProposal('drive.delete_folder', summary, params);
+      const { summary, folderId } = proposeDeleteFolderInput.parse(args);
+      // 실행기(drive.delete_folder)는 params.id 를 읽는다 — 도구 표면만 folderId 로 명시하고 여기서 매핑.
+      return await writeProposal('drive.delete_folder', summary, { id: folderId });
     },
   };
 
@@ -1339,7 +1345,7 @@ export function buildTools(
       { name: 'show_wiki', description: '노트 페이지 목록/검색 결과를 화면에 표시합니다. query 로 검색, spaceId 로 특정 스페이스 트리.', inputSchema: showWikiInput, handler: displayed },
       { name: 'show_wiki_page', description: '단일 노트 페이지 본문(pageId 지정)을 화면에 표시합니다. pageId 를 모르면 먼저 search_wiki 로 확보하세요.', inputSchema: showWikiPageInput, handler: displayed },
       { name: 'show_contacts', description: '연락처 목록을 화면에 표시합니다. search/org/title/type 로 좁힙니다. 단순 조회 전용 — 생성·수정·삭제는 contacts-agent 위임.', inputSchema: showContactsInput, handler: displayed },
-      { name: 'show_contact', description: '단일 연락처 상세(contactId 지정)를 화면에 표시합니다.', inputSchema: showContactInput, handler: displayed },
+      { name: 'show_contact', description: '외부 연락처 1건의 상세를 화면에 표시합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원(userId)은 표시할 수 없습니다.', inputSchema: showContactInput, handler: displayed },
       { name: 'show_projects', description: '프로젝트 목록을 화면에 표시합니다. 단순 조회 전용 — 생성·삭제·멤버추가는 project-agent 위임.', inputSchema: showProjectsInput, handler: displayed },
       { name: 'show_project', description: '단일 프로젝트 상세·멤버(projectKey 지정)를 화면에 표시합니다.', inputSchema: showProjectInput, handler: displayed },
       { name: 'show_drive', description: '드라이브 스페이스/폴더의 파일·폴더 목록을 화면에 표시합니다. spaceId/folderId 로 좁힙니다. 단순 조회 전용 — 이동·삭제는 drive-agent 위임.', inputSchema: showDriveInput, handler: displayed },
