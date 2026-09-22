@@ -87,17 +87,26 @@ describe('buildIssueTools', () => {
     expect(c.listMyIssues).toHaveBeenCalledWith({ status: 'TODO', assignee: 'me', size: 30 });
   });
 
-  it('list_issues 는 projectKey 를 서버에 전달하지 않고 응답을 issueKey 접두어로 클라이언트측 필터링한다', async () => {
+  // #841: projectKey·이름 필터는 서버가 해석하므로 클라이언트 후처리 없이 그대로 전달한다.
+  it('list_issues 는 projectKey·label·type·priority 를 서버에 그대로 전달한다', async () => {
     const c = mockClient();
-    (c.listMyIssues as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { issueKey: 'WP-1' },
-      { issueKey: 'OTHER-2' },
-      { issueKey: 'WP-3' },
-    ]);
     const t = buildIssueTools(c).find((x) => x.name === 'list_issues')!;
-    const out = await t.handler({ projectKey: 'WP' });
-    expect(c.listMyIssues).toHaveBeenCalledWith({ assignee: 'me', size: 30 });
-    expect(JSON.parse(out)).toEqual([{ issueKey: 'WP-1' }, { issueKey: 'WP-3' }]);
+    await t.handler({ projectKey: 'WP', label: '버그', type: 'BUG', priority: ['HIGH', 'MID'] });
+    expect(c.listMyIssues).toHaveBeenCalledWith({
+      projectKey: 'WP',
+      label: '버그',
+      type: 'BUG',
+      priority: 'HIGH,MID',
+      assignee: 'me',
+      size: 30,
+    });
+  });
+
+  it('list_issues 는 reporter 만 있으면 assignee 기본값을 붙이지 않는다', async () => {
+    const c = mockClient();
+    const t = buildIssueTools(c).find((x) => x.name === 'list_issues')!;
+    await t.handler({ reporter: 'me' });
+    expect(c.listMyIssues).toHaveBeenCalledWith({ reporter: 'me', size: 30 });
   });
 
   it('get_issue_detail → issueKey 를 분해해 client.getIssueDetail 호출 후 정규화된 superset 을 반환', async () => {

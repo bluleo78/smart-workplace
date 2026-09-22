@@ -5,12 +5,12 @@ import java.util.List;
 
 /**
  * 검색/필터 파라미터. 모든 컬렉션 필드는 null 또는 빈 리스트일 때 조건 미적용. assigneeIds 와 includeUnassigned 는 OR 결합되어 "지정 사용자
- * 또는 미지정" 매칭을 표현한다. labelIds 는 AND 결합 — 모든 라벨이 부착된 이슈만 매칭. typeIds 는 OR 결합 — 지정된 유형 중 하나라도 일치하면 매칭.
- * parentNumber 가 지정되면 해당 부모의 자식만, topLevel=true 면 parent_issue_id IS NULL 인 이슈만 (Phase 4a).
- * parentNumber 가 있으면 topLevel 은 무시된다. blocked=true 면 활성 차단자(미완료)가 존재하는 이슈만 (Phase 4b).
- * fieldId+fieldValue 동시 지정 시 해당 필드의 JSONB 값을 텍스트 캐스트 동등 비교로 필터 (Phase 4c, 1차 단순화). reporterIds 는 OR
- * 결합 — 이슈를 만든 사람(reporter_id 직접 컬럼) 필터. 비어 있으면 미적용. cycleIds 는 OR 결합 — 지정된 사이클 중 하나라도 연결된 이슈만 매칭.
- * milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
+ * 또는 미지정" 매칭을 표현한다. labelIdGroups 는 그룹 간 AND·그룹 내 OR — 그룹(필터 토큰 하나)마다 그 중 하나라도 부착된 이슈만 매칭. typeIds
+ * 는 OR 결합 — 지정된 유형 중 하나라도 일치하면 매칭. parentNumber 가 지정되면 해당 부모의 자식만, topLevel=true 면 parent_issue_id
+ * IS NULL 인 이슈만 (Phase 4a). parentNumber 가 있으면 topLevel 은 무시된다. blocked=true 면 활성 차단자(미완료)가 존재하는
+ * 이슈만 (Phase 4b). fieldId+fieldValue 동시 지정 시 해당 필드의 JSONB 값을 텍스트 캐스트 동등 비교로 필터 (Phase 4c, 1차 단순화).
+ * reporterIds 는 OR 결합 — 이슈를 만든 사람(reporter_id 직접 컬럼) 필터. 비어 있으면 미적용. cycleIds 는 OR 결합 — 지정된 사이클 중
+ * 하나라도 연결된 이슈만 매칭. milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
  */
 public record IssueSearchQuery(
     String q,
@@ -22,7 +22,8 @@ public record IssueSearchQuery(
     LocalDate dueTo,
     IssueCursor cursor,
     int size,
-    List<Long> labelIds,
+    // 라벨 필터 — 토큰 하나가 그룹 하나. 이름 토큰은 횡단 조회에서 여러 프로젝트의 동명 라벨로 풀리므로 그룹 내 OR(#841).
+    List<List<Long>> labelIdGroups,
     List<Long> typeIds,
     Integer parentNumber,
     Boolean topLevel,

@@ -6,7 +6,10 @@ import static com.workplace.jooq.Tables.USER;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.member.dto.MemberSummary;
 import com.workplace.user.dto.UserKind;
+import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
@@ -14,6 +17,7 @@ import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.SelectField;
 import org.jooq.SelectOnConditionStep;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -108,6 +112,24 @@ public class MemberDirectoryRepository {
     return base()
         .where(scope(tenantId, null, UserKind.ALL_FILTER, true).and(USER.ID.eq(userId)))
         .fetchOptional(this::map);
+  }
+
+  /**
+   * username 집합(대소문자 무시)과 일치하는 현재 테넌트 구성원의 (username, userId) 목록. 비활성·정지 멤버도 포함한다(과거 이슈의 담당/작성자 필터가
+   * 가능해야 하므로). 다른 테넌트 사용자는 빠져 존재 여부가 노출되지 않는다. username UNIQUE 는 대소문자를 구분하므로 같은 소문자형에 여러 행이 올 수 있다
+   * — 모호성 판단은 호출측 몫이라 Map 이 아닌 목록으로 돌려준다. 이슈 검색 필터 해석용(#841).
+   */
+  @Transactional(readOnly = true)
+  public List<Map.Entry<String, Long>> findByUsernamesIgnoreCase(
+      long tenantId, Collection<String> usernames) {
+    if (usernames.isEmpty()) return List.of();
+    List<String> lowered = usernames.stream().map(u -> u.toLowerCase(Locale.ROOT)).toList();
+    return dsl.select(USER.USERNAME, USER.ID)
+        .from(USER)
+        .join(MEMBERSHIP)
+        .on(MEMBERSHIP.USER_ID.eq(USER.ID))
+        .where(MEMBERSHIP.TENANT_ID.eq(tenantId).and(DSL.lower(USER.USERNAME).in(lowered)))
+        .fetch(r -> Map.entry(r.get(USER.USERNAME), r.get(USER.ID)));
   }
 
   private MemberSummary map(Record r) {

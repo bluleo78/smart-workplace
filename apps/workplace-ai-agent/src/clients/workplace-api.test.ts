@@ -144,6 +144,31 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(list).toEqual([]);
   });
 
+  // #841: reporter 는 예전엔 쿼리에서 빠져 "내가 만든" 조회가 조용히 "내 담당"으로 바뀌었다.
+  // reporter 만 주면 assignee 기본값(me)을 붙이지 않아야 교집합이 되지 않는다.
+  it('listIssues → reporter 전달, reporter 만 있으면 assignee 기본값 생략', async () => {
+    const scope = nock(BASE)
+      .get(`${PREFIX}/me/issues`)
+      .query({ reporter: 'me', projectKey: 'WP', label: '버그', type: 'BUG', size: '30' })
+      .reply(200, { items: [] });
+    await newClient().listIssues(AGENT_ID, {
+      reporter: 'me',
+      projectKey: 'WP',
+      label: '버그',
+      type: 'BUG',
+    });
+    expect(scope.isDone()).toBe(true);
+  });
+
+  it('listIssues → assignee 와 reporter 를 함께 주면 둘 다 전달', async () => {
+    const scope = nock(BASE)
+      .get(`${PREFIX}/me/issues`)
+      .query({ assignee: 'kim', reporter: 'me', size: '30' })
+      .reply(200, { items: [] });
+    await newClient().listIssues(AGENT_ID, { assignee: 'kim', reporter: 'me' });
+    expect(scope.isDone()).toBe(true);
+  });
+
   // #373: flat author 필드(authorId/authorName/authorKind) → nested author 객체 변환은
   // Task 6 이후 공유 도구 핸들러(normalizeIssueDetail)의 책임 — 클라이언트는 raw comments 를 그대로 반환.
   it('getIssueDetail → comments 를 포함한 raw 응답을 변형 없이 그대로 반환', async () => {

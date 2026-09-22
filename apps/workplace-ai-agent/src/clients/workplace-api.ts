@@ -5,7 +5,7 @@ import axios, { AxiosInstance } from 'axios';
 
 import { DEFAULT_API_BASE_URL } from '../constants.js';
 import type { ProviderCredential } from '../agent/agent-runner.js';
-import { describeApiError, parseIssueKey } from '@smart-workplace/issue-tools-shared';
+import { defaultListAssignee, describeApiError, parseIssueKey } from '@smart-workplace/issue-tools-shared';
 
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
@@ -265,8 +265,8 @@ export interface IssueListParams {
   q?: string;
   blocked?: boolean;
   topLevel?: boolean;
-  assignee?: string; // 'me'(기본) | '<userId>'
-  reporter?: string; // 'me' | '<userId>'
+  assignee?: string; // CSV: 'me' | 'null' | username (#841, 숫자 userId 도 서버 호환)
+  reporter?: string; // CSV: 'me' | username
   size?: number;
 }
 
@@ -579,11 +579,14 @@ export function createWorkplaceApiClient(opts: {
       return r.data ?? {};
     },
 
-    // #371: 이슈 목록 조회 — GET /me/issues(프로젝트 횡단 "내 이슈"). assignee 미지정 시 'me'.
-    // 서버가 'me' 를 X-On-Behalf-Of principal 로 해석하므로 numeric id 를 몰라도 "내 담당" 조회 가능.
+    // #371: 이슈 목록 조회 — GET /me/issues(프로젝트 횡단 "내 이슈", projectKey 지정 시 그 프로젝트로 한정).
+    // assignee 기본값 규칙은 공유 defaultListAssignee(reporter 만 있으면 생략).
+    // 서버가 'me' 를 X-On-Behalf-Of principal 로, username·라벨/유형 이름을 id 로 해석한다(#841).
     async listIssues(agentId, params) {
       const qs = new URLSearchParams();
-      qs.set('assignee', params.assignee ?? 'me');
+      const assignee = defaultListAssignee(params);
+      if (assignee) qs.set('assignee', assignee);
+      if (params.reporter) qs.set('reporter', params.reporter);
       if (params.projectKey) qs.set('projectKey', params.projectKey);
       if (params.status) qs.set('status', params.status);
       if (params.priority?.length) qs.set('priority', params.priority.join(','));

@@ -884,6 +884,19 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** 해석 불가 이슈 필터 값 — 400 + errors{필드: 사유}. 필드 사유가 있어야 AI 도구가 어떤 값을 고칠지 안다(#841). */
+  @ExceptionHandler(com.workplace.issue.exception.InvalidIssueFilterException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidIssueFilter(
+      com.workplace.issue.exception.InvalidIssueFilterException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(
+            buildError(
+                HttpStatus.BAD_REQUEST,
+                "이슈 필터 값을 해석할 수 없습니다.",
+                Map.of(ex.getField(), ex.getMessage()),
+                request));
+  }
+
   /** 이슈 비즈니스 규칙 위반(잘못된 상태 전이 등)은 422 UNPROCESSABLE_ENTITY. */
   @ExceptionHandler(InvalidIssueOperationException.class)
   public ResponseEntity<ErrorResponse> handleInvalidIssueOp(

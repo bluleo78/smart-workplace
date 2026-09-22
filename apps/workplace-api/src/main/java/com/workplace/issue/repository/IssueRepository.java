@@ -349,21 +349,7 @@ public class IssueRepository {
     if (query.dueTo() != null) {
       where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
     }
-    if (query.labelIds() != null && !query.labelIds().isEmpty()) {
-      // 라벨은 AND 결합 — 모든 ID 가 부착된 이슈만 매칭 (EXISTS 서브쿼리를 ID 별로 누적)
-      for (Long lid : query.labelIds()) {
-        where =
-            where.and(
-                org.jooq.impl.DSL.exists(
-                    dsl.selectOne()
-                        .from(com.workplace.jooq.Tables.ISSUE_LABEL)
-                        .where(
-                            com.workplace.jooq.Tables.ISSUE_LABEL
-                                .ISSUE_ID
-                                .eq(ISSUE.ID)
-                                .and(com.workplace.jooq.Tables.ISSUE_LABEL.LABEL_ID.eq(lid)))));
-      }
-    }
+    where = where.and(labelGroupsCondition(query.labelIdGroups()));
     if (query.cycleIds() != null && !query.cycleIds().isEmpty()) {
       // 사이클은 OR 결합 — 지정된 사이클 중 하나라도 연결된 이슈만 매칭 (IN 을 포함한 단일 EXISTS)
       where =
@@ -497,6 +483,28 @@ public class IssueRepository {
   }
 
   /**
+   * 라벨 필터 조건 — 그룹 간 AND, 그룹 내 OR. 그룹마다 EXISTS 를 누적한다. 그룹 하나는 필터 토큰 하나에 대응하며, 이름 토큰은 횡단 조회에서 여러
+   * 프로젝트의 동명 라벨 id 로 풀리므로 그 안은 OR 이어야 한다(#841). 단일/횡단 검색이 같은 의미를 갖도록 한 곳에 둔다.
+   */
+  private org.jooq.Condition labelGroupsCondition(List<List<Long>> groups) {
+    org.jooq.Condition cond = org.jooq.impl.DSL.noCondition();
+    if (groups == null) return cond;
+    for (List<Long> group : groups) {
+      cond =
+          cond.and(
+              org.jooq.impl.DSL.exists(
+                  dsl.selectOne()
+                      .from(com.workplace.jooq.Tables.ISSUE_LABEL)
+                      .where(
+                          com.workplace.jooq.Tables.ISSUE_LABEL
+                              .ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(com.workplace.jooq.Tables.ISSUE_LABEL.LABEL_ID.in(group)))));
+    }
+    return cond;
+  }
+
+  /**
    * 프로젝트 횡단 검색 — 호출자가 멤버인 모든 프로젝트의 이슈를 필터/커서로 조회(홈 /me/issues). {@link #search(Long,
    * com.workplace.issue.dto.IssueSearchQuery)} 와 동일하되 베이스 스코프만 단일 프로젝트(PROJECT_ID.eq) 대신 멤버십 EXISTS
    * 로 교체한다. 추가로 OPEN 프로젝트에 이슈를 올린 비멤버 reporter 도 자신이 접수한 이슈를 "내 이슈"에서 볼 수 있도록 OR 조건을 확장한다.
@@ -600,21 +608,7 @@ public class IssueRepository {
     if (query.dueTo() != null) {
       where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
     }
-    if (query.labelIds() != null && !query.labelIds().isEmpty()) {
-      // 라벨은 AND 결합 — 모든 ID 가 부착된 이슈만 매칭 (EXISTS 서브쿼리를 ID 별로 누적)
-      for (Long lid : query.labelIds()) {
-        where =
-            where.and(
-                org.jooq.impl.DSL.exists(
-                    dsl.selectOne()
-                        .from(com.workplace.jooq.Tables.ISSUE_LABEL)
-                        .where(
-                            com.workplace.jooq.Tables.ISSUE_LABEL
-                                .ISSUE_ID
-                                .eq(ISSUE.ID)
-                                .and(com.workplace.jooq.Tables.ISSUE_LABEL.LABEL_ID.eq(lid)))));
-      }
-    }
+    where = where.and(labelGroupsCondition(query.labelIdGroups()));
     if (query.cycleIds() != null && !query.cycleIds().isEmpty()) {
       // 사이클은 OR 결합 — 지정된 사이클 중 하나라도 연결된 이슈만 매칭 (IN 을 포함한 단일 EXISTS)
       where =

@@ -2,6 +2,7 @@ package com.workplace.issue.repository;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static org.jooq.impl.DSL.count;
 
 import com.workplace.issue.dto.IssueTypeRow;
@@ -58,6 +59,21 @@ public class IssueTypeRepository {
   public List<IssueTypeRow> findByProject(Long projectId) {
     return dsl.selectFrom(ISSUE_TYPE_DEF)
         .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(projectId))
+        .orderBy(ISSUE_TYPE_DEF.POSITION.asc(), ISSUE_TYPE_DEF.ID.asc())
+        .fetch(this::mapToRow);
+  }
+
+  /**
+   * 사용자가 멤버인 모든 프로젝트의 유형. 프로젝트 횡단 이슈 검색에서 유형 이름 필터를 id 로 해석할 때 쓴다(#841). 스코프를 멤버 프로젝트로 제한해 해석 실패
+   * 메시지에 비멤버 프로젝트 유형명이 새지 않게 한다.
+   */
+  public List<IssueTypeRow> findByMemberProjects(Long userId) {
+    return dsl.selectFrom(ISSUE_TYPE_DEF)
+        .where(
+            ISSUE_TYPE_DEF.PROJECT_ID.in(
+                dsl.select(PROJECT_MEMBER.PROJECT_ID)
+                    .from(PROJECT_MEMBER)
+                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
         .orderBy(ISSUE_TYPE_DEF.POSITION.asc(), ISSUE_TYPE_DEF.ID.asc())
         .fetch(this::mapToRow);
   }

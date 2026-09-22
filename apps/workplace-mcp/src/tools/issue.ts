@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { PatApiClient } from '../clients/workplace-api.js';
 import {
   buildSharedIssueTools,
+  defaultListAssignee,
   parseIssueKey,
   type IssueToolClient,
   type McpTool,
@@ -69,9 +70,21 @@ function buildIssueToolClient(client: PatApiClient): IssueToolClient {
 export function buildIssueTools(client: PatApiClient): McpTool[] {
   const listProjectsInput = z.object({});
   const getProjectInput = z.object({ projectKey: z.string().min(1) });
+  // #841: 서버(/me/issues)가 projectKey 한정과 라벨·유형 이름·username 해석을 직접 지원하므로 그대로 전달한다.
+  // 모르는 값은 서버가 400 + 사용 가능 목록으로 거부해 LLM 이 자가교정할 수 있다.
   const listMyIssuesInput = z.object({
-    projectKey: z.string().optional(),
-    status: z.string().optional(),
+    projectKey: z.string().optional().describe('특정 프로젝트로 한정(예: "WP"). 생략 시 내가 속한 모든 프로젝트'),
+    status: z.string().optional().describe('상태 CSV: TODO,IN_PROGRESS,DONE,CANCELED'),
+    priority: z.array(z.enum(['LOW', 'MID', 'HIGH'])).optional(),
+    label: z.string().optional().describe('라벨 이름 CSV. 여러 개면 모두 붙은 이슈만(AND)'),
+    type: z.string().optional().describe('유형 이름 CSV(예: "BUG,STORY"). 하나라도 일치(OR)'),
+    assignee: z
+      .string()
+      .optional()
+      .describe('담당자 CSV: "me" | "null"(담당 없음) | username. assignee·reporter 모두 생략 시 "me"'),
+    reporter: z.string().optional().describe('작성자 CSV: "me" | username'),
+    dueFrom: z.string().optional().describe('마감일 하한 yyyy-MM-dd'),
+    dueTo: z.string().optional().describe('마감일 상한 yyyy-MM-dd'),
     q: z.string().optional(),
     size: z.number().int().min(1).max(100).optional(),
   });
@@ -106,25 +119,20 @@ export function buildIssueTools(client: PatApiClient): McpTool[] {
     {
       name: 'list_issues',
       description:
-        '내(토큰 소유자)게 할당된 이슈 목록을 조회합니다. status/q(검색어)로 필터링할 수 있습니다. ' +
-        'projectKey 는 서버가 지원하지 않아 클라이언트에서 issueKey 접두어로 후처리 필터링합니다. ' +
-        '후처리 특성상 조회된 size 범위 안에서만 걸러지므로, 결과가 비면 size 를 늘려 재시도하세요.',
+        '이슈 목록을 조회합니다. 기본은 내(토큰 소유자) 담당 이슈이며 projectKey·status·priority·label·type·' +
+        'assignee·reporter·dueFrom/dueTo·q 로 좁힙니다. 사람은 username, 라벨·유형은 이름으로 지정하세요 ' +
+        '(get_project 가 목록 제공). 없는 값이면 사용 가능 목록을 담은 오류가 반환됩니다.',
       inputSchema: listMyIssuesInput,
       async handler(args) {
-        const { projectKey, ...p } = listMyIssuesInput.parse(args);
-        const items = (await client.listMyIssues({
+        const { priority, ...p } = listMyIssuesInput.parse(args);
+        const assignee = defaultListAssignee(p);
+        const items = await client.listMyIssues({
           ...p,
-          assignee: 'me',
+          ...(assignee ? { assignee } : {}),
+          ...(priority?.length ? { priority: priority.join(',') } : {}),
           size: p.size ?? 30,
-        })) as Array<{ issueKey?: string }>;
-        const filtered = projectKey
-          ? items.filter((item) => {
-              if (!item.issueKey) return false;
-              const idx = item.issueKey.lastIndexOf('-');
-              return idx > 0 && item.issueKey.slice(0, idx) === projectKey;
-            })
-          : items;
-        return JSON.stringify(filtered);
+        });
+        return JSON.stringify(items);
       },
     },
     ...buildSharedIssueTools(buildIssueToolClient(client)),

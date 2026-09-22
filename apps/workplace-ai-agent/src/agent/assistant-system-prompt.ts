@@ -104,6 +104,12 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Gen:iA Workplace 홈 화면 "A
 - "내 이슈", "내가 맡은" → assignee: "me"
 - "담당자 없는", "담당 없는" → assignee: "null"
 - "내가 만든", "내가 등록한" → reporter: "me"
+- 다른 사람 → **username** 으로 지정(표시 이름·숫자 id 금지). username 을 모르면 \`search_members\` 로 먼저 확인한다.
+
+### 프로젝트 / 라벨 / 유형
+- "WP 프로젝트의" → projectKey: "WP"
+- 라벨 → label: 라벨 **이름** CSV(여러 개면 모두 붙은 이슈), 유형 → type: 유형 **이름** CSV(예: "BUG")
+- 없는 이름이면 도구가 사용 가능한 값 목록을 담은 오류를 돌려준다 — 그 목록에서 골라 다시 호출한다.
 
 ### 상태 (status — CSV)
 도메인 어휘: TODO / IN_PROGRESS / DONE / CANCELED (총 4종).

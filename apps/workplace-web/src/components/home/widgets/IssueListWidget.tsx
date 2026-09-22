@@ -1,9 +1,11 @@
+import axios from 'axios';
 import { ClipboardList } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMyIssues } from '@/hooks/queries/useHomeQueries';
+import { extractApiError } from '@/lib/api-error';
 // 이슈 상태 전용 배지 — 범용 StatusBadge(type 기반)가 아니라 IssueStatus 를 직접 받는다.
 import { IssueStatusBadge } from '@/pages/projects/components/IssueStatusBadge';
 import type { IssueSearchResponse } from '@/types/issue';
@@ -30,9 +32,16 @@ export default function IssueListWidget({
   params?: Record<string, unknown>
   previewData?: IssueSearchResponse
 }) {
-  const { data: queryData, isLoading, isError, refetch } = useMyIssues(params ?? { assignee: 'me' }, {
-    enabled: !previewData,
-  });
+  const { data: queryData, isLoading, isError, error, refetch } = useMyIssues(
+    params ?? { assignee: 'me' },
+    { enabled: !previewData },
+  );
+  // #841: 400 은 AI 가 준 필터 값(없는 라벨명·username 등)을 서버가 해석하지 못한 것 — 재시도로 풀리지 않으므로
+  // 서버 사유(사용 가능 목록 포함)를 그대로 보여준다. 그 외 실패는 기본 문구 유지.
+  const errorMessage =
+    axios.isAxiosError(error) && error.response?.status === 400
+      ? extractApiError(error, '불러오지 못했습니다')
+      : undefined;
   const data = previewData ?? queryData;
   return (
     <WidgetFrame title="이슈">
@@ -40,7 +49,7 @@ export default function IssueListWidget({
         <Skeleton className="h-24 w-full" />
       ) : !previewData && isError ? (
         // fetch 실패 — '배정된 이슈가 없어요' 거짓 빈 상태 대신 에러+재시도 표시(#205).
-        <WidgetError onRetry={() => refetch()} testId="issuelist-error" />
+        <WidgetError message={errorMessage} onRetry={() => refetch()} testId="issuelist-error" />
       ) : data && data.items.length > 0 ? (
         <>
           {(() => {

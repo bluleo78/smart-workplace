@@ -1,6 +1,7 @@
 package com.workplace.label.repository;
 
 import static com.workplace.jooq.Tables.LABEL;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 
 import com.workplace.label.dto.LabelRow;
 import java.time.OffsetDateTime;
@@ -41,6 +42,21 @@ public class LabelRepository {
   public List<LabelRow> findByProject(Long projectId) {
     return dsl.selectFrom(LABEL)
         .where(LABEL.PROJECT_ID.eq(projectId))
+        .orderBy(LABEL.NAME.asc())
+        .fetch(this::mapToRow);
+  }
+
+  /**
+   * 사용자가 멤버인 모든 프로젝트의 라벨 (name asc). 프로젝트 횡단 이슈 검색에서 라벨 이름 필터를 id 로 해석할 때 쓴다(#841). 스코프를 멤버 프로젝트로
+   * 제한해야 해석 실패 메시지의 "사용 가능 목록"에 비멤버 프로젝트 라벨명이 새지 않는다.
+   */
+  public List<LabelRow> findByMemberProjects(Long userId) {
+    return dsl.selectFrom(LABEL)
+        .where(
+            LABEL.PROJECT_ID.in(
+                dsl.select(PROJECT_MEMBER.PROJECT_ID)
+                    .from(PROJECT_MEMBER)
+                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
         .orderBy(LABEL.NAME.asc())
         .fetch(this::mapToRow);
   }

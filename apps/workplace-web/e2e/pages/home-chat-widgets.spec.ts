@@ -194,6 +194,44 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     await expect(page.getByTestId('issuelist-summary')).toHaveCount(0);
   });
 
+  // #841: AI 가 없는 라벨명 등으로 필터를 걸면 서버가 400 + 필드 사유로 거부한다. 재시도로 풀리지 않으므로
+  // 일반 문구 대신 서버 사유(사용 가능 목록 포함)가 보여야 사용자가 무엇이 틀렸는지 안다.
+  test('#841 issue_list 위젯 — 필터 해석 실패(400)면 서버 사유를 표시', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockHomeChatGeneration(page, {
+      frames: [
+        { event: 'done', data: { sessionId: 's-i841', widgets: [{ type: 'issue_list', params: { label: '없는라벨' } }] } },
+      ],
+    });
+    let sentLabel: string | null = null;
+    await page.route(
+      (url) => url.pathname === '/api/v1/me/issues',
+      (route) => {
+        sentLabel = new URL(route.request().url()).searchParams.get('label');
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            status: 400,
+            error: 'Bad Request',
+            message: '이슈 필터 값을 해석할 수 없습니다.',
+            errors: { label: "라벨 '없는라벨' 을(를) 찾을 수 없습니다. 사용 가능: 버그, 문서" },
+          }),
+        });
+      },
+    );
+    await page.goto('/');
+    await page.getByTestId('chat-launcher').click();
+    await page.getByTestId('chat-input').fill('없는라벨 이슈 보여줘');
+    await page.getByRole('button', { name: '보내기' }).click();
+
+    const err = page.getByTestId('issuelist-error');
+    await expect(err).toContainText("라벨 '없는라벨' 을(를) 찾을 수 없습니다. 사용 가능: 버그, 문서");
+    await expect(err).not.toContainText('불러오지 못했습니다');
+    expect(sentLabel).toBe('없는라벨');
+  });
+
   test('issue_list 위젯 — 빈 버블 회귀 방지(show_issue_list done 을 렌더)', async ({
     authenticatedPage: page,
   }) => {

@@ -63,3 +63,12 @@ export async function resolveLabelIds(
     return l.id;
   });
 }
+
+/**
+ * 이슈 목록 조회의 assignee 기본값(#841). assignee·reporter 가 둘 다 없을 때만 "me"(내 담당) —
+ * reporter 만 준 "내가 만든" 조회에 담당 조건이 끼면 교집합이 되어 결과가 줄어든다.
+ * ai-agent·workplace-mcp 의 list_issues 가 같은 규칙을 쓰도록 공유한다.
+ */
+export function defaultListAssignee(p: { assignee?: string; reporter?: string }): string | undefined {
+  return p.assignee ?? (p.reporter ? undefined : 'me');
+}

@@ -234,19 +234,27 @@ const layoutSchema = z
 // issue_list 필터(스펙 §4.1 검증 완료 범위). 전부 선택 — AI 가 의도에 맞는 것만 채운다.
 // #403: priority 는 반드시 영어 대문자 열거값만 허용 — 한국어("높음" 등) 비결정적 입력 차단.
 // #371: show_issue_list(표시 지시)와 list_issues(데이터 조회)가 동일 필터 집합을 공유하도록 shape 추출.
+// #841: label·type 은 이름, assignee·reporter 는 username 으로 받는다(서버가 해석). 모르는 값은 서버가 400 + 사용 가능 목록을
+// 돌려주므로 LLM 이 그 목록으로 자가교정할 수 있다(예전엔 숫자 id 외 토큰을 조용히 버려 필터가 빠진 결과를 정답처럼 반환).
 const issueListFilterShape = {
-  projectKey: z.string().optional(),
+  projectKey: z.string().optional().describe('특정 프로젝트로 한정(예: "WP"). 생략 시 내가 속한 모든 프로젝트'),
   status: z.string().optional(),
   priority: z.array(z.enum(['LOW', 'MID', 'HIGH'])).optional(),
-  label: z.string().optional(),
-  type: z.string().optional(),
+  label: z
+    .string()
+    .optional()
+    .describe('라벨 이름 CSV(예: "버그,문서"). 여러 개면 모두 붙은 이슈만(AND). 대소문자 무시'),
+  type: z.string().optional().describe('유형 이름 CSV(예: "BUG,STORY"). 하나라도 일치하면 매칭(OR)'),
   dueFrom: z.string().optional(),
   dueTo: z.string().optional(),
   q: z.string().optional(),
   blocked: z.boolean().optional(),
   topLevel: z.boolean().optional(),
-  assignee: z.string().optional(), // 'me' | '<id>'
-  reporter: z.string().optional(),
+  assignee: z
+    .string()
+    .optional()
+    .describe('담당자 CSV: "me"(나) | "null"(담당 없음) | username. 표시 이름이 아닌 username'),
+  reporter: z.string().optional().describe('작성자 CSV: "me" | username'),
   size: z.number().int().positive().optional(),
 };
 const issueListParams = z.object(issueListFilterShape).optional();
@@ -392,7 +400,7 @@ export function buildTools(
   const listIssuesTool: McpTool = {
     name: 'list_issues',
     description:
-      '이슈 목록을 JSON 배열로 반환합니다. **네가 이슈 내용을 직접 읽고 분석/요약/판단해서 답해야 할 때만** 사용하세요(예: "이번 주 뭐부터 할까?", "내 업무량 어때?"). 단순히 사용자가 목록을 "보고 싶어"하면(보여줘/찾아줘/뭐 있어/목록) 이 도구 대신 show_issue_list 로 화면에 표시하세요. assignee 생략 시 내 담당("me"), status/priority/projectKey/q/dueTo 등으로 좁힙니다. 각 항목은 issueKey·title·status·priority·assignees·dueDate 를 포함하며, 상세는 issueKey 로 get_issue_detail 을 호출하세요.',
+      '이슈 목록을 JSON 배열로 반환합니다. **네가 이슈 내용을 직접 읽고 분석/요약/판단해서 답해야 할 때만** 사용하세요(예: "이번 주 뭐부터 할까?", "내 업무량 어때?"). 단순히 사용자가 목록을 "보고 싶어"하면(보여줘/찾아줘/뭐 있어/목록) 이 도구 대신 show_issue_list 로 화면에 표시하세요. assignee·reporter 둘 다 생략 시 내 담당("me"), status/priority/projectKey/label/type/q/dueTo 등으로 좁힙니다. 사람은 username, 라벨·유형은 이름으로 지정하고, 없는 값이면 사용 가능 목록을 담은 오류가 옵니다. 각 항목은 issueKey·title·status·priority·assignees·dueDate 를 포함하며, 상세는 issueKey 로 get_issue_detail 을 호출하세요.',
     inputSchema: listIssuesInput,
     async handler(args) {
       const params = listIssuesInput.parse(args);
@@ -626,7 +634,7 @@ export function buildTools(
       {
         name: 'show_issue_list',
         description:
-          '필터(params)에 맞는 이슈 목록을 화면에 카드로 표시합니다. **사용자가 이슈 목록을 보고 싶어할 때의 기본 도구**입니다("내 이슈 보여줘", "급한 거 뭐 있어", "이번 주 마감 이슈", "담당자 없는 이슈"). 건수·마감 초과 집계는 화면이 자동 계산하므로 너는 건수를 직접 세지 말고 표시만 하면 됩니다. assignee="me" 내 담당, assignee="null" 담당 없음, reporter="me" 내가 만든, priority/status/dueFrom/dueTo/blocked 등으로 좁힙니다.',
+          '필터(params)에 맞는 이슈 목록을 화면에 카드로 표시합니다. **사용자가 이슈 목록을 보고 싶어할 때의 기본 도구**입니다("내 이슈 보여줘", "급한 거 뭐 있어", "이번 주 마감 이슈", "담당자 없는 이슈"). 건수·마감 초과 집계는 화면이 자동 계산하므로 너는 건수를 직접 세지 말고 표시만 하면 됩니다. assignee="me" 내 담당, assignee="null" 담당 없음, reporter="me" 내가 만든, 다른 사람은 username, projectKey 로 프로젝트 한정, label·type 은 이름, priority/status/dueFrom/dueTo/blocked 등으로 좁힙니다.',
         inputSchema: showIssueListInput,
         handler: displayed,
       },

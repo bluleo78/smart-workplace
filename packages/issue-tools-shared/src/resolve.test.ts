@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { resolveAssigneeIds, resolveLabelIds, resolveTypeId, type ProjectMetaClient } from './resolve.js';
+import { defaultListAssignee, resolveAssigneeIds, resolveLabelIds, resolveTypeId, type ProjectMetaClient } from './resolve.js';
 
 /** 리졸브 소스만 채운 mock 클라이언트. */
 function client(): ProjectMetaClient {
@@ -49,5 +49,18 @@ describe('resolveLabelIds', () => {
     await expect(resolveLabelIds(client(), 'WP', ['nope'])).rejects.toThrow(
       "라벨 'nope' 을(를) 찾을 수 없습니다. 사용 가능: urgent, backend",
     );
+  });
+});
+
+// #841: reporter 만 준 "내가 만든" 조회에 assignee=me 가 끼면 교집합이 되므로 둘 다 없을 때만 기본값.
+describe('defaultListAssignee', () => {
+  it('assignee·reporter 모두 없으면 me', () => {
+    expect(defaultListAssignee({})).toBe('me');
+  });
+  it('reporter 만 있으면 생략', () => {
+    expect(defaultListAssignee({ reporter: 'me' })).toBeUndefined();
+  });
+  it('assignee 가 있으면 그대로', () => {
+    expect(defaultListAssignee({ assignee: 'kim', reporter: 'me' })).toBe('kim');
   });
 });

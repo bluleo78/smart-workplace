@@ -47,14 +47,19 @@ public class IssueSearchService {
   private final IssueDependencyRepository dependencyRepository;
   private final IssueFieldValueRepository fieldValueRepository;
   private final ProjectAccessGuard accessGuard;
+  // #841: 라벨·유형 이름, username 필터 토큰 → id 해석(해석 불가 시 400).
+  private final IssueFilterResolver filterResolver;
   // 7c: 횡단 검색 시 row 별 projectId → projectKey 일괄 해석용.
   private final com.workplace.project.repository.ProjectRepository projectRepository;
 
-  /** 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size. */
+  /**
+   * 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size.
+   * assignee·reporter 는 me/숫자 id/username, label·type 은 숫자 id/이름을 받는다(#841).
+   */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
     var project = accessGuard.assertReadable(projectKey, callerId);
-    IssueSearchQuery query = parse(callerId, params);
+    IssueSearchQuery query = parse(callerId, project.id(), params);
 
     var rows = issueRepository.search(project.id(), query);
     // 단일 프로젝트 검색이므로 projectId 무시하고 상수 key 사용.
@@ -66,7 +71,13 @@ public class IssueSearchService {
    * 스코프는 호출자가 멤버인 모든 프로젝트(searchMemberOf 의 멤버십 EXISTS)로 제한된다.
    */
   public IssueSearchResponse searchMine(Long callerId, Map<String, String> params) {
-    IssueSearchQuery query = parse(callerId, params);
+    // #841: projectKey 가 오면 그 프로젝트 검색으로 위임한다. 예전엔 조용히 무시돼 "특정 프로젝트 내 이슈" 요청이 횡단 결과를 돌려줬다.
+    // 단일 프로젝트 경로는 접근 가드(없는 키 404·권한 403)와 프로젝트 스코프 이름 해석을 함께 제공한다.
+    String projectKey = trimToNull(params.get("projectKey"));
+    if (projectKey != null) {
+      return search(callerId, projectKey, params);
+    }
+    IssueSearchQuery query = parse(callerId, null, params);
     var rows = issueRepository.searchMemberOf(callerId, query);
     // projectId → key 일괄 해석(횡단이므로 여러 프로젝트). distinct 후 한 번에.
     var keyById =
@@ -134,44 +145,26 @@ public class IssueSearchService {
    * Map → IssueSearchQuery 정규화. 잘못된 cursor/date 는 InvalidCursorException(400) 으로 변환.
    *
    * @param callerId 호출자 ID — assignee=me / reporter=me 리터럴을 실제 ID 로 치환 (7a, 7-nav).
+   * @param projectId 단일 프로젝트 검색이면 그 id, 횡단 검색이면 null — 라벨·유형 이름 해석 스코프(#841).
    */
-  private IssueSearchQuery parse(Long callerId, Map<String, String> p) {
+  private IssueSearchQuery parse(Long callerId, Long projectId, Map<String, String> p) {
     String q = trimToNull(p.get("q"));
     List<String> statuses = csv(p.get("status"));
     List<String> priorities = csv(p.get("priority"));
 
+    // 7a: assignee — 'me' 는 호출자 본인(홈 컴포저가 사용자 ID 를 몰라도 "내 담당" 조회), 'null' 은 미지정 포함.
+    // #841: 숫자 외 토큰은 username 으로 해석하고 없으면 400(예전엔 조용히 버려 필터가 빠진 결과를 반환했다).
     var assigneeTokens = csv(p.get("assignee"));
-    List<Long> assigneeIds = new ArrayList<>();
-    boolean includeUnassigned = false;
-    for (String tok : assigneeTokens) {
-      if ("me".equalsIgnoreCase(tok)) {
-        // 7a: 'me' 리터럴 → 호출자 본인. 홈 컴포저가 사용자 ID 를 몰라도 "내 담당" 조회 가능.
-        assigneeIds.add(callerId);
-      } else if ("null".equalsIgnoreCase(tok)) {
-        includeUnassigned = true;
-      } else {
-        try {
-          assigneeIds.add(Long.parseLong(tok));
-        } catch (NumberFormatException e) {
-          // 알 수 없는 토큰은 무시 — 비어 있으면 필터 미적용
-        }
-      }
-    }
+    boolean includeUnassigned = assigneeTokens.stream().anyMatch("null"::equalsIgnoreCase);
+    List<Long> assigneeIds =
+        filterResolver.resolveUsers(
+            "assignee",
+            assigneeTokens.stream().filter(t -> !"null".equalsIgnoreCase(t)).toList(),
+            callerId);
 
-    // 7-nav: reporter 필터. "me" → 호출자 본인("내가 만든" 조회). 숫자 외 토큰은 무시.
-    var reporterTokens = csv(p.get("reporter"));
-    List<Long> reporterIds = new ArrayList<>();
-    for (String tok : reporterTokens) {
-      if ("me".equalsIgnoreCase(tok)) {
-        reporterIds.add(callerId);
-      } else {
-        try {
-          reporterIds.add(Long.parseLong(tok));
-        } catch (NumberFormatException e) {
-          // 알 수 없는 토큰 무시
-        }
-      }
-    }
+    // 7-nav: reporter 필터. "me" → 호출자 본인("내가 만든" 조회). #841: 숫자 외 토큰은 username 해석.
+    List<Long> reporterIds =
+        filterResolver.resolveUsers("reporter", csv(p.get("reporter")), callerId);
 
     LocalDate dueFrom = parseDate(p.get("dueFrom"));
     LocalDate dueTo = parseDate(p.get("dueTo"));
@@ -192,15 +185,9 @@ public class IssueSearchService {
       }
     }
 
-    // 라벨 ID CSV → List<Long> (잘못된 토큰은 무시)
-    List<Long> labelIds = new ArrayList<>();
-    for (String tok : csv(p.get("label"))) {
-      try {
-        labelIds.add(Long.parseLong(tok));
-      } catch (NumberFormatException ignored) {
-        // 잘못된 라벨 토큰은 필터 미적용
-      }
-    }
+    // 라벨 CSV — 숫자 id 또는 라벨 이름(#841). 토큰마다 그룹 하나(그룹 간 AND).
+    List<List<Long>> labelIdGroups =
+        filterResolver.resolveLabelGroups(csv(p.get("label")), projectId, callerId);
 
     // 사이클 ID CSV — OR 결합 필터. 잘못된 토큰은 무시.
     List<Long> cycleIds = new ArrayList<>();
@@ -222,15 +209,8 @@ public class IssueSearchService {
       }
     }
 
-    // 유형 ID CSV — OR 결합 필터. 잘못된 토큰은 무시.
-    List<Long> typeIds = new ArrayList<>();
-    for (String tok : csv(p.get("type"))) {
-      try {
-        typeIds.add(Long.parseLong(tok));
-      } catch (NumberFormatException ignored) {
-        // 잘못된 유형 토큰은 필터 미적용
-      }
-    }
+    // 유형 CSV — 숫자 id 또는 유형 이름(#841). OR 결합 필터.
+    List<Long> typeIds = filterResolver.resolveTypeIds(csv(p.get("type")), projectId, callerId);
 
     // Phase 4a — parent / topLevel 파싱. parent 가 지정되면 topLevel 은 리포지토리에서 무시.
     Integer parentNumber = null;
@@ -271,7 +251,7 @@ public class IssueSearchService {
         dueTo,
         cursor,
         size,
-        labelIds,
+        labelIdGroups,
         typeIds,
         parentNumber,
         topLevel,
