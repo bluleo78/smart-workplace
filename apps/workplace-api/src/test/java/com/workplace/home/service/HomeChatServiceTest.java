@@ -315,6 +315,45 @@ class HomeChatServiceTest extends IntegrationTestBase {
   }
 
   /**
+   * #843: 확인카드 결과(ACTION_*) 행은 대화 한도(6)에 세지 않고 함께 따라온다 — "모두 승인" 여러 건이 직전 대화를 밀어내지 않고, 결과 행도 AI 맥락에
+   * 남는다.
+   */
+  @Test
+  void 확인카드_결과행은_대화한도에_세지_않고_recentContext_에_함께_실린다() throws Exception {
+    long uid = user("ctxa" + System.nanoTime());
+    var s = sessionService.create(uid);
+    for (int i = 1; i <= 4; i++) {
+      sessionService.appendMessage(uid, s.id(), "USER", "질문" + i, null, null);
+      sessionService.appendMessage(uid, s.id(), "ASSISTANT", "답" + i, null, null);
+    }
+    for (int i = 1; i <= 3; i++) {
+      sessionService.appendActionResult(uid, s.id(), "ACTION_DONE", "승인 완료: 카드" + i);
+    }
+    stubAssistant();
+    CountDownLatch doneLatch = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("네", null);
+              doneLatch.countDown();
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    composeService.startChat(uid, s.id(), "다음");
+    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+    verify(chatClient).composeStream(captor.capture(), any(), any(), any(), any(), any(), any());
+    // 대화 6개(질문2~답4) + 결과 3줄 — 결과 행 때문에 질문2/답2 가 밀려나지 않는다.
+    assertThat(captor.getValue().recentContext())
+        .extracting("content")
+        .containsExactly(
+            "질문2", "답2", "질문3", "답3", "질문4", "답4", "승인 완료: 카드1", "승인 완료: 카드2", "승인 완료: 카드3");
+  }
+
+  /**
    * #456: compose 가 ai-agent 로 보내는 ChatRequest 의 timeoutMs 가 compose 하한(180s)으로 상향되는지 검증.
    *
    * <p>비서 기본 timeoutMs 는 60s(AssistantDefaults.TIMEOUT_MS)인데, Global Chat 은 다중 도메인 위임으로 60s 를 종종

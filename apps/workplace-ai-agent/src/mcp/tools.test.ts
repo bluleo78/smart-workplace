@@ -1149,6 +1149,24 @@ describe('buildTools messaging 위임 — propose_create_event', () => {
     expect(req.proposedByUserId).toBe(7);
   });
 
+  // #848: 서버가 위임자 권한으로 사전검증해 카드를 거절하면, 그 사유가 툴 결과로 AI 에게 전달되고 재시도가 막히지 않아야 한다.
+  it('서버 사전검증 거절(403) 사유를 툴 결과로 돌려주고 재시도를 허용한다 (#848)', async () => {
+    const proposeCreateEvent = vi
+      .fn()
+      .mockRejectedValueOnce(apiError(403, '필요 권한 없음: calendar:write'))
+      .mockResolvedValueOnce(undefined);
+    const c = { listEvents: async () => [], proposeCreateEvent } as unknown as WorkplaceApiClient;
+    const tool = buildTools(c, 42, 'messaging', undefined, { actorId: 7, channelId: 9 }).find(
+      (t) => t.name === 'propose_create_event',
+    )!;
+    const args = { title: '리뷰', summary: '7/5 리뷰', startsAt: '2026-07-05T14:00:00+09:00', endsAt: '2026-07-05T15:00:00+09:00' };
+
+    await expect(tool.handler(args)).resolves.toContain('필요 권한 없음: calendar:write');
+    // 거절은 guard 를 세우지 않는다 — 고친 뒤 다시 제안할 수 있어야 한다.
+    await expect(tool.handler(args)).resolves.toContain('일정 제안 카드를 올렸습니다');
+    expect(proposeCreateEvent).toHaveBeenCalledTimes(2);
+  });
+
   it('messaging profile WITHOUT delegationContext does not expose propose_create_event', () => {
     const tools = buildTools({} as unknown as WorkplaceApiClient, 42, 'messaging');
     expect(tools.find((t) => t.name === 'propose_create_event')).toBeUndefined();

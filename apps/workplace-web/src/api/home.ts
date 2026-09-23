@@ -3,6 +3,7 @@ import type {
   HomeMessage,
   HomeSessionPage,
   PendingAction,
+  ProposalOutcome,
 } from '@/types/home';
 import type { IssueSearchResponse } from '@/types/issue';
 
@@ -43,10 +44,15 @@ export const homeApi = {
   deleteSession: (sessionId: string) =>
     client.delete<void>(`/home/sessions/${sessionId}`),
 
-  /** #333 M2: 확인 카드 승인 → 서버 실행기. actionType+params 그대로 전송. */
-  // #540: 공용 중립 엔드포인트로 통일.
-  confirmAction: (action: PendingAction) =>
-    client.post('/actions/confirm', { actionType: action.actionType, params: action.params }),
+  /** #843: 세션의 미처리 확인카드(새로고침·세션 복원 시 재표시). */
+  sessionProposals: (sessionId: string) =>
+    client.get<PendingAction[]>(`/home/sessions/${sessionId}/proposals`),
+
+  /** #843: 확인카드 승인 — 실행 실패도 200(proposal.status=FAILED + 사유). 이미 처리됨 409 · 없음 404. */
+  confirmProposal: (id: number) => client.post<ProposalOutcome>(`/home/proposals/${id}/confirm`),
+
+  /** #843: 확인카드 거부 — 서버에 REJECTED 로 기록(AI 가 같은 제안을 반복하지 않도록). */
+  rejectProposal: (id: number) => client.post<ProposalOutcome>(`/home/proposals/${id}/reject`),
 
   /** AI 채팅 생성 시작(#593 편입) — correlationId 즉시 반환, 실제 델타는 /events 로 도착. */
   startChat: (body: { sessionId: string | null; query: string }) =>

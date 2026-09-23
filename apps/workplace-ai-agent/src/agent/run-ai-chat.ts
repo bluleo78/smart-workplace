@@ -19,8 +19,14 @@ import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
 
 export interface ContextMessage {
-  role: string; // 'USER' | 'ASSISTANT'
+  // 'USER' | 'ASSISTANT' | 'ACTION_DONE' | 'ACTION_FAILED' | 'ACTION_REJECTED'(#843 확인카드 처리 결과)
+  role: string;
   content: string;
+}
+
+// #843: 확인카드 처리 결과 행(ACTION_*) 판별 — 사용자 발화도 AI 발화도 아닌 시스템 기록이라 따로 라벨링한다.
+function isActionResult(m: ContextMessage): boolean {
+  return m.role.startsWith('ACTION_');
 }
 export interface ChatInput {
   query: string;
@@ -130,15 +136,29 @@ function isProposalApprovalHallucination(query: string, recentContext: ContextMe
   // 승인 발화 키워드가 포함되는지 확인
   if (!/네|예|응|좋아|승인|확인|진행|부탁|ㅇㅇ|ㅇㅋ|ok|okay|yes|그래|알겠|좋습니다/i.test(q)) return false;
   // 이전 AI 발화 중 제안 패턴 확인 — 캘린더(제안했습니다/확인 카드) + 일반 비가역 작업(하겠습니다+확인해주세요)
-  const prevAi = recentContext.filter((m) => m.role === 'ASSISTANT').map((m) => m.content).join('\n');
+  // #843: 마지막 승인 결과 이후의 AI 발화만 본다. 카드가 이미 승인/실패/거절됐으면 그 제안은 끝난 것이라,
+  // 이어지는 짧은 "응 고마워" 같은 발화를 승인 환각으로 오판하지 않게 한다.
+  const lastResult = recentContext.map(isActionResult).lastIndexOf(true);
+  const prevAi = recentContext
+    .slice(lastResult + 1)
+    .filter((m) => m.role === 'ASSISTANT')
+    .map((m) => m.content)
+    .join('\n');
   return /제안했습니다|확인 카드|일정.*생성.*제안|propose|(삭제|추가|생성|수정|변경)하겠습니다.*확인해주세요|확인.*부탁드립니다/i.test(prevAi);
+}
+
+// 이전 대화 줄 라벨 — ACTION_* 는 사용자 발화로 오인되지 않게 [승인 결과] 로 표시(시스템 프롬프트 규칙 7 과 짝).
+function contextLabel(m: ContextMessage): string {
+  if (m.role === 'ASSISTANT') return 'AI';
+  if (isActionResult(m)) return '[승인 결과]';
+  return '사용자';
 }
 
 // recentContext 를 단발 --print 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
 function buildChatUserMessage(input: ChatInput): string {
   const ctx = input.recentContext ?? [];
   if (ctx.length === 0) return input.query;
-  const lines = ctx.map((m) => `${m.role === 'ASSISTANT' ? 'AI' : '사용자'}: ${m.content}`);
+  const lines = ctx.map((m) => `${contextLabel(m)}: ${m.content}`);
   return `이전 대화:\n${lines.join('\n')}\n\n현재 요청: ${input.query}`;
 }
 

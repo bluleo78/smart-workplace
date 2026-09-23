@@ -1,12 +1,53 @@
 import { useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import { useCallback, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { homeApi } from '@/api/home';
 import { chatStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
 import { widgetTypeFromToolName } from '@/lib/aiToolLabels';
-import { handleApiError } from '@/lib/api-error';
+import { extractApiError, handleApiError } from '@/lib/api-error';
 import { pushTextBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
-import type { ChatTurn, PendingAction, ToolEventDto, WidgetSpec, WidgetType } from '@/types/home';
+import type {
+  ActionOutcome,
+  ChatTurn,
+  HomeMessage,
+  PendingAction,
+  ProposalCard,
+  ToolEventDto,
+  WidgetSpec,
+  WidgetType,
+} from '@/types/home';
+
+/** #843: 서버 제안 → 화면 카드(대기 상태). */
+const toCards = (actions: PendingAction[]): ProposalCard[] =>
+  actions.map((a) => ({ ...a, phase: 'pending' as const }));
+
+/** #843: ACTION_* 역할 → 결과 종류. */
+const OUTCOME_BY_ROLE: Partial<Record<HomeMessage['role'], ActionOutcome>> = {
+  ACTION_DONE: 'done',
+  ACTION_FAILED: 'failed',
+  ACTION_REJECTED: 'rejected',
+};
+
+/**
+ * 영속 메시지 → 화면 턴. 스트리밍 결과·세션 복원이 같은 규칙을 쓴다.
+ * #843: ACTION_* 는 사용자 말풍선이 아니라 확인카드 처리 결과 줄(role='action')로 복원한다.
+ */
+function messageToTurn(m: HomeMessage): ChatTurn {
+  const outcome = OUTCOME_BY_ROLE[m.role];
+  if (outcome) return { role: 'action', outcome, content: m.content };
+  return {
+    role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
+    content: m.content,
+    widgets: m.widgets ?? undefined,
+    steps: m.toolCalls ?? undefined,
+  };
+}
+
+/** 카드 자체가 무효(이미 처리됨 409 · 없음 404)인지 — 다시 눌러도 소용없으므로 실패로 확정한다. */
+const isStaleProposal = (e: unknown) =>
+  isAxiosError(e) && (e.response?.status === 409 || e.response?.status === 404);
 
 /**
  * 챗 전용 세션 상태 코디네이터 — sessionId / 대화 transcript 를 한 곳에서 전이.
@@ -21,8 +62,8 @@ export function useChatSession() {
   // 스트리밍 pending 상태 — 구 AI chat isPending 대체.
   const [pending, setPending] = useState(false);
   // #351: 보류 확인 액션 배열 — 일괄 카드 렌더. 단건도 길이1 배열로 관리.
-  const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
-  const clearPendingActions = useCallback(() => setPendingActions([]), []);
+  // #843: 카드마다 진행 상태(pending/submitting/failed)를 함께 들고 있어, 실패해도 제자리에서 사유를 보여준다.
+  const [pendingActions, setPendingActions] = useState<ProposalCard[]>([]);
   // '새 대화' 전이 신호(nonce) — newSession() 호출마다 증가. 패널 로컬 입력(미전송 초안)을
   // effect 로 비우기 위한 트리거. 신선한(아직 chat 안 한) 세션에서 sessionId/turns 는
   // 이미 빈 값이라 prop 변화가 패널에 보이지 않으므로, 명시적 카운터로 전이를 전달한다(#204).
@@ -85,10 +126,13 @@ export function useChatSession() {
             return next;
           });
         },
-        (actions) => {
+        (actions, sid) => {
           // #351: 보류 확인 액션들 수신 — 일괄 카드로 렌더.
           if (opSeq.current !== gen) return;
-          setPendingActions(actions);
+          // #843: 새 세션이면 sessionId 가 done 에서야 오는데 카드는 그보다 먼저 온다 — 여기서 세션을 확정해
+          // done 전에 승인해도 결과가 올바른 세션에 기록·복원되게 한다.
+          if (sid && !sessionIdRef.current) updateSessionId(sid);
+          setPendingActions(toCards(actions));
         },
         (evt: ToolEventDto) => {
           // tool SSE 이벤트 — start: running step 추가, result: 상태 갱신(done/error).
@@ -229,19 +273,22 @@ export function useChatSession() {
       setPending(false);
       setPendingActions([]); // #351: 세션 복원 시 확인 카드 배열 초기화
       try {
-        const { data } = await homeApi.sessionMessages(id);
+        // #843: 미처리 확인카드도 서버에 영속되므로 메시지와 함께 복원한다. 카드 조회가 실패해도 대화 이력 복원은
+        // 막지 않는다(카드는 부가 정보 — 없으면 카드 없이 보여주는 편이 세션을 못 여는 것보다 낫다).
+        const [{ data }, proposals] = await Promise.all([
+          homeApi.sessionMessages(id),
+          homeApi
+            .sessionProposals(id)
+            .then((r) => r.data)
+            .catch(() => [] as PendingAction[]),
+        ]);
         // fetch 중 더 최신 전이가 있었으면 폐기.
         if (opSeq.current !== gen) return;
         // #431: 복원 시에도 ASSISTANT 위젯을 함께 재현(서버가 widgets 영속) — 빈 버블 방지.
         // toolCalls → steps 매핑: 서버가 영속한 도구 호출 단계를 인라인 표시로 복원.
-        const restored: ChatTurn[] = data.map((m) => ({
-          role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
-          content: m.content,
-          widgets: m.widgets ?? undefined,
-          steps: m.toolCalls ?? undefined,
-        }));
         updateSessionId(id);
-        setTurns(restored);
+        setTurns(data.map(messageToTurn));
+        setPendingActions(toCards(proposals));
       } catch (err) {
         handleApiError(err, '세션을 불러오지 못했습니다');
       }
@@ -249,27 +296,112 @@ export function useChatSession() {
     [updateSessionId],
   );
 
-  // #351: 단일 항목 승인 — 기존 엔드포인트 1건 POST. 성공 시 카드에서 제거, 실패 시 유지.
-  const confirmActionItem = useCallback((action: PendingAction) => {
-    const gen = opSeq.current;
-    setPendingActions((prev) => prev.filter((a) => a !== action)); // 낙관적 제거(중복 승인 방지)
-    homeApi
-      .confirmAction(action)
-      .then(() => {
-        if (opSeq.current !== gen) return;
-        setTurns((t) => [...t, { role: 'assistant', content: '요청을 처리했어요.' }]);
-      })
-      .catch((e) => {
-        if (opSeq.current !== gen) return;
-        setPendingActions((prev) => [...prev, action]); // 실패 항목 복원
-        handleApiError(e, '확인 작업에 실패했습니다');
-      });
+  // #843: 카드 상태 갱신 헬퍼 — 카드는 제자리에 머물고 phase/error 만 바뀐다(예전의 제거→끝에 재삽입 제거).
+  const patchCard = useCallback((id: number, patch: Partial<ProposalCard>) => {
+    setPendingActions((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  }, []);
+  const removeCard = useCallback((id: number) => {
+    setPendingActions((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
-  // #351: 단일 항목 거부 — 서버 호출 없이 카드에서 제거.
-  const dismissActionItem = useCallback((action: PendingAction) => {
-    setPendingActions((prev) => prev.filter((a) => a !== action));
-  }, []);
+  /**
+   * #843: 단일 카드 승인. 서버가 성공·실패를 모두 대화 이력에 기록하고 그 메시지를 돌려주므로, 결과 줄을 transcript 에
+   * 붙인다(다음 턴 AI 도 같은 기록을 본다). 성공이면 카드 제거, 실패면 카드에 사유 표시.
+   * 네트워크 오류처럼 서버가 판정하지 못한 경우만 대기 상태로 되돌려 다시 누를 수 있게 한다.
+   *
+   * @returns 결과 종류 — "모두 승인" 집계용. 세대가 바뀌어 반영하지 않았으면 null.
+   */
+  const confirmActionItem = useCallback(
+    async (card: ProposalCard): Promise<ActionOutcome | null> => {
+      if (card.phase !== 'pending') return null; // 중복 클릭 방지 — submitting·failed 카드는 무시.
+      const gen = opSeq.current;
+      patchCard(card.id, { phase: 'submitting', error: undefined });
+      try {
+        const { data } = await homeApi.confirmProposal(card.id);
+        // 새 질문·세션 전환이 끼어들었으면 transcript 가 바뀌었으므로 반영하지 않는다(서버엔 이미 기록됨).
+        if (opSeq.current !== gen) return null;
+        setTurns((t) => [...t, messageToTurn(data.message)]);
+        if (data.proposal.status === 'DONE') {
+          removeCard(card.id);
+          return 'done';
+        }
+        patchCard(card.id, {
+          phase: 'failed',
+          error: data.proposal.errorMessage ?? '처리하지 못했습니다',
+        });
+        return 'failed';
+      } catch (e) {
+        if (opSeq.current !== gen) return null;
+        if (isStaleProposal(e)) {
+          patchCard(card.id, { phase: 'failed', error: extractApiError(e, '이미 처리된 확인 카드입니다') });
+        } else {
+          patchCard(card.id, { phase: 'pending' });
+          handleApiError(e, '승인 요청을 보내지 못했습니다');
+        }
+        return 'failed';
+      }
+    },
+    [patchCard, removeCard],
+  );
+
+  /**
+   * #843: "모두 승인" — 대기 카드를 카드 순서대로 하나씩 승인하고(결과 줄 순서 = 카드 순서, 앞 작업에 의존하는 제안의 경합 방지),
+   * 실패가 섞였으면 토스트 1건으로 집계한다(예전엔 병렬 호출로 토스트가 건마다 쌓였다).
+   */
+  const confirmAllActionItems = useCallback(async () => {
+    const targets = pendingActions.filter((c) => c.phase === 'pending');
+    let failed = 0;
+    for (const card of targets) {
+      const outcome = await confirmActionItem(card);
+      if (outcome === null) return; // 세대 전이 — 나머지도 반영 불가
+      if (outcome === 'failed') failed++;
+    }
+    // 개수만 알린다 — 사유는 카드 인라인·결과 줄에 이미 있다(중복 표시 금지).
+    if (failed > 0) toast.error(`${targets.length}건 중 ${failed}건을 처리하지 못했어요`);
+    else toast.success(`${targets.length}건을 모두 처리했어요`);
+  }, [pendingActions, confirmActionItem]);
+
+  /**
+   * #843: 거부 — 대기 카드는 서버에 REJECTED 로 기록(AI 가 같은 제안을 반복하지 않도록)하고 결과 줄을 붙인다.
+   * 실패(failed) 카드는 이미 종결 상태라 서버 호출 없이 닫기만 한다.
+   */
+  const dismissActionItem = useCallback(
+    async (card: ProposalCard) => {
+      if (card.phase === 'failed') {
+        removeCard(card.id);
+        return;
+      }
+      if (card.phase !== 'pending') return;
+      const gen = opSeq.current;
+      patchCard(card.id, { phase: 'submitting' });
+      try {
+        const { data } = await homeApi.rejectProposal(card.id);
+        if (opSeq.current !== gen) return;
+        setTurns((t) => [...t, messageToTurn(data.message)]);
+        removeCard(card.id);
+      } catch (e) {
+        if (opSeq.current !== gen) return;
+        if (isStaleProposal(e)) {
+          removeCard(card.id);
+        } else {
+          patchCard(card.id, { phase: 'pending' });
+        }
+        handleApiError(e, '거부 요청을 보내지 못했습니다');
+      }
+    },
+    [patchCard, removeCard],
+  );
+
+  /**
+   * #843: 실패 카드 → "AI에게 수정 요청". 같은 파라미터 재시도는 반드시 다시 실패하므로 재시도 버튼 대신 AI 에게 고쳐 달라고 한다.
+   * 실패 사유는 이미 대화 이력([승인 결과])에 있어 AI 가 그대로 참고한다.
+   */
+  const requestProposalFix = useCallback(
+    (card: ProposalCard) => {
+      submitQuery(`「${card.summary}」 승인이 실패했어요. 실패 사유를 반영해서 다시 제안해 줘.`);
+    },
+    [submitQuery],
+  );
 
   // 삭제 — 활성 세션이면 새 세션으로 리셋.
   const deleteSession = useCallback(
@@ -289,9 +421,10 @@ export function useChatSession() {
     newSessionNonce,
     pending,
     pendingActions,
-    clearPendingActions,
     confirmActionItem,
+    confirmAllActionItems,
     dismissActionItem,
+    requestProposalFix,
     submitQuery,
     stopStreaming,
     newSession,

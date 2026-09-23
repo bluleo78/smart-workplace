@@ -21,6 +21,7 @@ import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.user.dto.UserKind;
+import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Map;
@@ -241,8 +242,8 @@ public class ProjectService {
    * {@link #checkAddMember} 를 호출하므로 예외 종류·메시지·검사 순서가 두 벌로 갈리지 않는다.
    *
    * @throws ProjectNotFoundException 프로젝트 없음
-   * @throws ProjectAccessDeniedException OWNER 아님 · 대상이 타 테넌트 사용자
-   * @throws IllegalArgumentException 대상 사용자 없음
+   * @throws ProjectAccessDeniedException OWNER 아님
+   * @throws UserNotFoundException 대상 사용자 없음 · 타 테넌트 사용자(404 로 통일)
    * @throws ProjectConflictException 비활성 사용자 · 개인 프로젝트에 사람 추가 · 이미 멤버
    */
   @Transactional(readOnly = true)
@@ -253,13 +254,14 @@ public class ProjectService {
   /** 멤버 추가 술어 본체 — 검사 순서를 고정하고, 실행 경로가 재조회하지 않도록 해석된 프로젝트를 돌려준다. */
   private ProjectRow checkAddMember(Long callerId, String projectKey, AddMemberRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
-    if (membershipGuard.isForeignUser(req.userId())) {
-      throw new ProjectAccessDeniedException("대상 사용자가 현재 테넌트 멤버가 아닙니다: " + req.userId());
-    }
+    // #843: 없는 사용자와 타 테넌트 사용자를 같은 404 로 응답한다. 예전엔 멤버십 검사가 먼저라 없는 id 도 403
+    // "테넌트 멤버가 아닙니다" 가 되어 AI 가 권한 문제로 오해했다. 테넌트 입장에선 둘 다 "여기 없는 사용자" 이고,
+    // 타 테넌트 사용자 존재를 403/404 차이로 드러내지 않는 편이 격리에도 맞다.
     var added =
         userRepository
             .findById(req.userId())
-            .orElseThrow(() -> new IllegalArgumentException("사용자 없음: " + req.userId()));
+            .filter(u -> !membershipGuard.isForeignUser(req.userId()))
+            .orElseThrow(() -> new UserNotFoundException("현재 테넌트에 해당 사용자가 없습니다: " + req.userId()));
     // 비활성 사용자는 신규 멤버 추가 chokepoint에서 차단 (#624) — 담당자 지정 경로는
     // IssueAssigneeService 에서 별도 검증.
     if (!added.isActive()) {

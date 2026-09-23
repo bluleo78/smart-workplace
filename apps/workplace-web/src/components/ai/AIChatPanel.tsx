@@ -1,9 +1,10 @@
 // src/components/ai/AIChatPanel.tsx
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
-import { ChevronDown, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
+import { ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
+import { ActionResultLine } from '@/components/ai/ActionResultLine';
 import { AiLabel } from '@/components/ai/AiLabel';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
@@ -44,7 +45,9 @@ export function AIChatPanel({
   onDeleteSession,
   pendingActions,
   onConfirmActionItem,
+  onConfirmAllActionItems,
   onDismissActionItem,
+  onRequestProposalFix,
   showSessionSwitcher = true,
   autoFocus = false,
 }: Props) {
@@ -61,7 +64,12 @@ export function AIChatPanel({
   // resetKey=currentSessionId — 세션 전환은 의도적 전환이므로 위로 올려둔 상태여도
   // 무조건 최신 메시지(하단)로 내려가게 한다(#455).
   const last = turns[turns.length - 1];
-  const scrollDep = `${turns.length}:${last?.content.length ?? 0}:${last?.steps?.length ?? 0}:${pendingActions.length}`;
+  // #843: 카드가 실패로 바뀌면 사유 줄만큼 높이가 늘어나므로 phase 도 depKey 에 포함한다.
+  const cardDep = pendingActions.map((c) => c.phase).join(',');
+  const scrollDep = `${turns.length}:${last?.content.length ?? 0}:${last?.role === 'action' ? 0 : (last?.steps?.length ?? 0)}:${cardDep}`;
+  // #843: 한 카드라도 전송 중이면 카드 전체 버튼을 잠근다(중복 클릭·"모두 승인" 동시 실행 방지).
+  const cardsBusy = pendingActions.some((c) => c.phase === 'submitting');
+  const pendingCount = pendingActions.filter((c) => c.phase === 'pending').length;
   const scrollRef = useStickToBottom(scrollDep, currentSessionId);
 
   useEffect(() => {
@@ -170,6 +178,12 @@ export function AIChatPanel({
         ) : (
           <ul className="space-y-2">
             {turns.map((t, i) =>
+              // #843: 확인카드 처리 결과 — 말풍선이 아닌 한 줄 시스템 기록.
+              t.role === 'action' ? (
+                <li key={i} data-testid="chat-turn" className="flex">
+                  <ActionResultLine outcome={t.outcome} content={t.content} />
+                </li>
+              ) :
               // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
               // 단, 위젯이 있으면(show_* 단독 응답) content 가 비어도 위젯을 렌더해야 하므로 skip 안 함(#431).
               t.role === 'assistant' && t.content === '' && !t.widgets?.length && !t.contentBlocks?.length && !visibleSteps(t.steps ?? []).length ? null : (
@@ -257,31 +271,67 @@ export function AIChatPanel({
                 )}
               </li>
             ))}
-            {/* #351: 일괄 확인 카드 — 항목별 승인/거부. 승인=confirm POST, 거부=카드 제거만. */}
+            {/* #351: 일괄 확인 카드 — 항목별 승인/거부.
+                #843: 항목은 제자리에서 상태만 바뀐다 — 전송 중(스피너·잠금) / 실패(사유 인라인 + AI에게 수정 요청·닫기).
+                성공한 항목은 사라지고 결과는 위 대화 이력에 결과 줄로 남는다. 좁은 패널(≈380px)에서 긴 요약·사유와 버튼이
+                부딪치지 않도록 항목 내부를 세로로 쌓는다. */}
             {pendingActions.length > 0 && (
               <li className="flex justify-start" data-testid="pending-action-card">
                 <div className="max-w-[85%] rounded-2xl border bg-card p-3 text-sm">
                   <p className="font-medium text-foreground">확인이 필요해요</p>
-                  <ul className="mt-2 space-y-2">
-                    {pendingActions.map((action, i) => (
-                      <li key={i} className="flex items-center justify-between gap-2" data-testid="pending-action-item">
-                        <span className="text-muted-foreground">{action.summary}</span>
-                        <span className="flex shrink-0 gap-1">
-                          <Button size="sm" className="bg-ai-accent text-ai-accent-foreground" onClick={() => onConfirmActionItem(action)}>
-                            승인
+                  <ul className="mt-2 space-y-3">
+                    {pendingActions.map((card) => (
+                      <li
+                        key={card.id}
+                        className="flex flex-col gap-1.5"
+                        data-testid="pending-action-item"
+                        data-phase={card.phase}
+                        aria-busy={card.phase === 'submitting'}
+                      >
+                        <span className="min-w-0 text-muted-foreground [overflow-wrap:anywhere]">{card.summary}</span>
+                        {card.phase === 'failed' && (
+                          // 인라인 에러(디자인시스템 06 §C-1 은 text-sm — 카드 밀도상 text-xs 로 한 단계 낮춤).
+                          <p
+                            role="alert"
+                            className="flex items-start gap-1 text-xs text-destructive [overflow-wrap:anywhere]"
+                            data-testid="pending-action-error"
+                          >
+                            <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+                            <span className="min-w-0">{card.error}</span>
+                          </p>
+                        )}
+                        {/* 버튼 한 쌍 — 실패 카드는 같은 파라미터 재시도(반드시 재실패) 대신 AI 수정 요청·닫기로 바뀐다.
+                            패널 전체가 AI 대화 영역이라 AI 마커(Sparkles)는 중첩하지 않는다. */}
+                        <span className="flex flex-wrap justify-end gap-1">
+                          <Button
+                            size="sm"
+                            className="bg-ai-accent text-ai-accent-foreground"
+                            disabled={cardsBusy || (card.phase === 'failed' && pending)}
+                            onClick={() =>
+                              card.phase === 'failed' ? onRequestProposalFix(card) : onConfirmActionItem(card)
+                            }
+                          >
+                            {card.phase === 'submitting' && <Loader2 className="animate-spin" />}
+                            {card.phase === 'failed' ? 'AI에게 수정 요청' : '승인'}
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => onDismissActionItem(action)}>
-                            거부
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={cardsBusy}
+                            onClick={() => onDismissActionItem(card)}
+                          >
+                            {card.phase === 'failed' ? '닫기' : '거부'}
                           </Button>
                         </span>
                       </li>
                     ))}
                   </ul>
-                  {pendingActions.length > 1 && (
+                  {pendingCount > 1 && (
                     <Button
                       size="sm"
                       className="mt-3 bg-ai-accent text-ai-accent-foreground"
-                      onClick={() => pendingActions.forEach((a) => onConfirmActionItem(a))}
+                      disabled={cardsBusy}
+                      onClick={onConfirmAllActionItems}
                       data-testid="pending-action-approve-all"
                     >
                       모두 승인

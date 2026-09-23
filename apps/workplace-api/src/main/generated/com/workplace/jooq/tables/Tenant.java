@@ -36,6 +36,7 @@ import com.workplace.jooq.tables.EventAttendee.EventAttendeePath;
 import com.workplace.jooq.tables.EventReminder.EventReminderPath;
 import com.workplace.jooq.tables.File.FilePath;
 import com.workplace.jooq.tables.FileExtraction.FileExtractionPath;
+import com.workplace.jooq.tables.HomeActionProposal.HomeActionProposalPath;
 import com.workplace.jooq.tables.HomeMessage.HomeMessagePath;
 import com.workplace.jooq.tables.HomeSession.HomeSessionPath;
 import com.workplace.jooq.tables.Issue.IssuePath;
@@ -1045,6 +1046,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _workspaceAssistant = new WorkspaceAssistantPath(this, null, Keys.WORKSPACE_ASSISTANT__FK_WORKSPACE_ASSISTANT_TENANT.getInverseKey());
 
         return _workspaceAssistant;
+    }
+
+    private transient HomeActionProposalPath _homeActionProposal;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.home_action_proposal</code> table
+     */
+    public HomeActionProposalPath homeActionProposal() {
+        if (_homeActionProposal == null)
+            _homeActionProposal = new HomeActionProposalPath(this, null, Keys.HOME_ACTION_PROPOSAL__HOME_ACTION_PROPOSAL_TENANT_ID_FKEY.getInverseKey());
+
+        return _homeActionProposal;
     }
 
     private transient MembershipPath _membership;

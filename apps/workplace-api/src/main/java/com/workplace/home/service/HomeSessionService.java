@@ -9,6 +9,7 @@ import com.workplace.home.exception.HomeSessionNotFoundException;
 import com.workplace.home.repository.CursorCodec;
 import com.workplace.home.repository.HomeMessageRepository;
 import com.workplace.home.repository.HomeSessionRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -52,17 +53,20 @@ public class HomeSessionService {
   @Transactional(readOnly = true)
   public List<HomeMessageResponse> getMessages(long callerId, UUID sessionId) {
     ensureOwner(callerId, sessionId);
-    return messageRepo.findBySession(sessionId).stream()
-        .map(
-            m ->
-                new HomeMessageResponse(
-                    m.id(),
-                    m.role(),
-                    m.content(),
-                    parse(m.widgetsJson()),
-                    parse(m.toolCallsJson()),
-                    m.createdAt()))
-        .toList();
+    return messageRepo.findBySession(sessionId).stream().map(this::toResponse).toList();
+  }
+
+  /**
+   * 확인카드 처리 결과(#843)를 대화 이력에 남기고 저장된 메시지를 돌려준다. 다음 턴 recentContext 에 포함돼 AI 가 승인·실패·거절을 안다.
+   *
+   * @param role ACTION_DONE · ACTION_FAILED · ACTION_REJECTED
+   */
+  @Transactional
+  public HomeMessageResponse appendActionResult(
+      long callerId, UUID sessionId, String role, String content) {
+    long id = appendMessage(callerId, sessionId, role, content, null, null);
+    // 결과 줄은 위젯·도구단계가 없고 화면은 createdAt 을 쓰지 않으므로 재조회 없이 응답을 만든다.
+    return new HomeMessageResponse(id, role, content, null, null, Instant.now());
   }
 
   /**
@@ -92,7 +96,8 @@ public class HomeSessionService {
     sessionRepo.delete(sessionId);
   }
 
-  private void ensureOwner(long callerId, UUID sessionId) {
+  /** 세션 소유 검증(없음/타인 소유 모두 404). 제안 서비스가 세션 단위 조작 전에 재사용한다. */
+  public void ensureOwner(long callerId, UUID sessionId) {
     var row =
         sessionRepo
             .findById(sessionId)
@@ -103,6 +108,16 @@ public class HomeSessionService {
   private static String trimTitle(String content) {
     String t = content.strip();
     return t.length() <= TITLE_MAX ? t : t.substring(0, TITLE_MAX);
+  }
+
+  private HomeMessageResponse toResponse(HomeMessageRepository.Row m) {
+    return new HomeMessageResponse(
+        m.id(),
+        m.role(),
+        m.content(),
+        parse(m.widgetsJson()),
+        parse(m.toolCallsJson()),
+        m.createdAt());
   }
 
   @SneakyThrows

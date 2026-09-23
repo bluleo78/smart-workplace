@@ -1,7 +1,7 @@
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { createUser } from '../factories/auth.factory'
-import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
+import { mockHomeChatGeneration, mockHomeProposals, proposal } from '../fixtures/home-chat-mock'
 import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
 
 // global-chat.spec.ts — AI 어시스턴트 신규 모드(side/fullscreen/chip) E2E.
@@ -578,43 +578,34 @@ test('위임 진행 이벤트가 도크에 위임 버블을 렌더한다 (#333)'
   await expect(page.getByTestId('chat-panel')).toContainText('일정을 확인했어요');
 });
 
-test('확인 카드 — pending_action 이 카드로 렌더되고 승인 시 confirm payload 를 전송한다 (#333)', { tag: '@smoke' }, async ({
+test('확인 카드 — pending_action 이 카드로 렌더되고 승인 시 제안 id 로 confirm 한 뒤 결과 줄을 남긴다 (#333, #843)', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
-  // compose 이벤트에 pending_action(done 앞) 포함. #593: actions 봉투 {correlationId, actions:[...]}.
+  // compose 이벤트에 pending_action(done 앞) 포함. #843: actions 는 서버가 영속한 제안(id 포함) + 봉투에 sessionId.
   await mockHomeChatGeneration(page, {
     frames: [
       { event: 'delta', data: { text: '6/26 10시 팀 미팅을 제안할게요' } },
       {
         event: 'pending_action',
         data: {
+          sessionId: 's-conf-1',
           actions: [
-            {
-              actionType: 'calendar.create_event',
-              summary: '6/26 10시 팀 미팅(1시간)',
-              params: {
-                title: '팀 미팅',
-                startsAt: '2026-06-26T01:00:00Z',
-                endsAt: '2026-06-26T02:00:00Z',
-                allDay: false,
-              },
-            },
+            proposal(11, '6/26 10시 팀 미팅(1시간)', {
+              title: '팀 미팅',
+              startsAt: '2026-06-26T01:00:00Z',
+              endsAt: '2026-06-26T02:00:00Z',
+              allDay: false,
+            }),
           ],
         },
       },
       { event: 'done', data: { sessionId: 's-conf-1' } },
     ],
   });
-  // confirm 실행기 모킹 — payload 캡처.
-  let confirmPayload: unknown = null;
-  await page.route(
-    (url) => url.pathname === '/api/v1/actions/confirm',
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      try { confirmPayload = route.request().postDataJSON(); } catch { confirmPayload = null; }
-      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 99, title: '팀 미팅' }) });
-    },
-  );
+  const proposals = await mockHomeProposals(page, {
+    reply: () => ({ status: 'DONE' }),
+    summaries: { 11: '6/26 10시 팀 미팅(1시간)' },
+  });
 
   await page.goto('/');
   await page.getByTestId('chat-launcher').click();
@@ -626,34 +617,27 @@ test('확인 카드 — pending_action 이 카드로 렌더되고 승인 시 con
   await expect(card).toBeVisible();
   await expect(card).toContainText('6/26 10시 팀 미팅(1시간)');
 
-  // 2) 승인 클릭 → confirm POST payload 가 actionType+params 그대로.
+  // 2) 승인 클릭 → params 를 다시 보내지 않고 제안 id 로 confirm.
   await card.getByRole('button', { name: '승인' }).click();
-  await expect.poll(() => confirmPayload).not.toBeNull();
-  expect(confirmPayload).toMatchObject({
-    actionType: 'calendar.create_event',
-    params: { title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z' },
-  });
-  // 3) 승인 후 카드가 사라진다.
+  await expect.poll(() => proposals.calls).toEqual([{ id: 11, op: 'confirm' }]);
+  // 3) 승인 후 카드가 사라지고, 서버가 기록한 결과가 대화에 결과 줄로 남는다(로컬 '요청을 처리했어요' 아님).
   await expect(page.getByTestId('pending-action-card')).toHaveCount(0);
+  const result = page.getByTestId('action-result');
+  await expect(result).toHaveAttribute('data-status', 'done');
+  await expect(result).toContainText('승인 완료: 6/26 10시 팀 미팅(1시간)');
 });
 
-test('확인 카드 — 취소 시 confirm API 미호출, 카드 폐기 (#333)', async ({ authenticatedPage: page }) => {
+test('확인 카드 — 거부 시 서버에 거절을 기록하고 결과 줄을 남긴다 (#333, #843)', async ({ authenticatedPage: page }) => {
   await mockHomeChatGeneration(page, {
     frames: [
-      {
-        event: 'pending_action',
-        data: {
-          actions: [{ actionType: 'calendar.create_event', summary: '취소 대상', params: { title: 'x' } }],
-        },
-      },
+      { event: 'pending_action', data: { sessionId: 's-conf-2', actions: [proposal(12, '취소 대상')] } },
       { event: 'done', data: { sessionId: 's-conf-2' } },
     ],
   });
-  let confirmCalled = false;
-  await page.route(
-    (url) => url.pathname === '/api/v1/actions/confirm',
-    (route) => { confirmCalled = true; return route.fulfill({ status: 201, body: '{}' }); },
-  );
+  const proposals = await mockHomeProposals(page, {
+    reply: () => ({ status: 'REJECTED' }),
+    summaries: { 12: '취소 대상' },
+  });
 
   await page.goto('/');
   await page.getByTestId('chat-launcher').click();
@@ -663,9 +647,11 @@ test('확인 카드 — 취소 시 confirm API 미호출, 카드 폐기 (#333)',
   const card = page.getByTestId('pending-action-card');
   await expect(card).toBeVisible();
   await card.getByRole('button', { name: '거부' }).click();
-  // 카드 폐기 + confirm 미호출.
+  // 카드 폐기 + confirm 이 아니라 reject 1회.
   await expect(page.getByTestId('pending-action-card')).toHaveCount(0);
-  expect(confirmCalled).toBe(false);
+  expect(proposals.calls).toEqual([{ id: 12, op: 'reject' }]);
+  await expect(page.getByTestId('action-result')).toHaveAttribute('data-status', 'rejected');
+  await expect(page.getByTestId('action-result')).toContainText('사용자가 거절: 취소 대상');
 });
 
 test('챗 도크 응답이 토큰 단위로 점진 렌더된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {

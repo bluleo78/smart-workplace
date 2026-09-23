@@ -1,7 +1,9 @@
 package com.workplace.action;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.EditScope;
@@ -22,16 +24,19 @@ import com.workplace.user.service.UserService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 /**
- * 확인 카드 actionType 디스패처(중립 패키지). 도크/채팅 확인 카드 승인 시 actionType 으로 도메인 액션을 결정적으로 실행한다.
- * HomeActionService 에서 추출 — home(도크)·messaging(채팅 L3) 두 경로가 같은 생성 로직을 공유한다(포크 방지).
+ * 확인 카드 actionType 디스패처(중립 패키지). 도크/채팅 확인 카드 승인 시 actionType 으로 도메인 액션을 결정적으로 실행한다. 공용 실행기 —
+ * home(HomeProposalService)·messaging(채팅 L3) 두 경로가 같은 생성 로직을 공유한다(포크 방지).
  *
  * <p>안전 원칙은 기존과 동일: 호출자(callerId) 권한·owner 경계 안에서만 실행. (1) actionType→필요권한 맵으로 프로그램적 권한 검사, (2)
  * params→DTO 매핑·검증, (3) 도메인 선검증, (4) 도메인 서비스 호출.
@@ -137,10 +142,7 @@ public class ConfirmActionDispatcher {
     }
     if ("contacts.delete_contact".equals(actionType)) {
       // params 에서 id(연락처 PK) 추출 → ContactService.delete 로 소유자/ADMIN 경계 위임.
-      if (params == null || !params.hasNonNull("id")) {
-        throw new IllegalArgumentException("contacts.delete_contact 에 id 가 필요합니다");
-      }
-      long id = params.get("id").asLong();
+      long id = requireLong(params, "id");
       return new PreparedAction(
           () -> contactService.validateDeletable(callerId, id),
           deleted(id, () -> contactService.delete(callerId, id)));
@@ -159,10 +161,7 @@ public class ConfirmActionDispatcher {
     if ("user.set_active".equals(actionType)) {
       // #833: 구성원 활성/비활성. 마지막 ADMIN 비활성화 차단·테넌트 멤버 검증은 UserService 가 강제.
       long userId = requireLong(params, "userId");
-      if (params == null || !params.hasNonNull("active")) {
-        throw new IllegalArgumentException("user.set_active 에 active 가 필요합니다");
-      }
-      boolean active = params.get("active").asBoolean();
+      boolean active = requireBoolean(params, "active");
       return new PreparedAction(
           () -> userService.validateSetActive(userId, active),
           () -> {
@@ -255,10 +254,7 @@ public class ConfirmActionDispatcher {
    * 내부(findByIdAndUser)에서 수행 — 호출자 소유 계정만 허용.
    */
   private PreparedAction prepareMailSend(long callerId, JsonNode params) {
-    if (params == null || !params.hasNonNull("accountId")) {
-      throw new IllegalArgumentException("mail.send 에 accountId 가 필요합니다");
-    }
-    long accountId = params.get("accountId").asLong();
+    long accountId = requireLong(params, "accountId");
     // accountId 를 제거한 복사본으로 MailSendRequest 매핑(레코드에 없는 필드 → unknown-property 오류 방지).
     ObjectNode paramsWithoutAccountId = (ObjectNode) params.deepCopy();
     paramsWithoutAccountId.remove("accountId");
@@ -289,7 +285,36 @@ public class ConfirmActionDispatcher {
     if (params == null || !params.hasNonNull(field)) {
       throw new IllegalArgumentException("필수 파라미터 누락: " + field);
     }
-    return params.get(field).asLong();
+    // #843: asLong() 은 "abc"·1.5 같은 값을 조용히 0 으로 바꿔 엉뚱한 404 를 냈다 — 정수로 해석 가능한 값만 받는다.
+    JsonNode node = params.get(field);
+    if (node.isIntegralNumber() && node.canConvertToLong()) {
+      return node.asLong();
+    }
+    if (node.isTextual()) {
+      try {
+        return Long.parseLong(node.asText().strip());
+      } catch (NumberFormatException ignored) {
+        // 아래 공통 오류로
+      }
+    }
+    throw new IllegalArgumentException(field + " 는 정수여야 합니다: " + node);
+  }
+
+  /**
+   * params 에서 필수 boolean 필드를 추출한다. asBoolean() 은 "yes"·1 같은 값을 조용히 false 로 바꾸므로 명시 값만 받는다(#843).
+   */
+  private boolean requireBoolean(JsonNode params, String field) {
+    if (params == null || !params.hasNonNull(field)) {
+      throw new IllegalArgumentException("필수 파라미터 누락: " + field);
+    }
+    JsonNode node = params.get(field);
+    if (node.isBoolean()) {
+      return node.booleanValue();
+    }
+    if (node.isTextual() && ("true".equals(node.asText()) || "false".equals(node.asText()))) {
+      return Boolean.parseBoolean(node.asText());
+    }
+    throw new IllegalArgumentException(field + " 는 true 또는 false 여야 합니다: " + node);
   }
 
   /**
@@ -299,7 +324,14 @@ public class ConfirmActionDispatcher {
    */
   private EditScope parseScope(JsonNode params) {
     if (params == null || !params.hasNonNull("scope")) return EditScope.ALL;
-    return EditScope.valueOf(params.get("scope").asText());
+    String raw = params.get("scope").asText();
+    try {
+      return EditScope.valueOf(raw);
+    } catch (IllegalArgumentException e) {
+      // #843: Enum.valueOf 의 영문 원문("No enum constant ...")은 사용자·AI 모두 교정에 쓸 수 없다.
+      throw new IllegalArgumentException(
+          "scope 는 " + Arrays.toString(EditScope.values()) + " 중 하나여야 합니다: " + raw);
+    }
   }
 
   /**
@@ -309,7 +341,14 @@ public class ConfirmActionDispatcher {
    */
   private OffsetDateTime parseOffsetDateTime(JsonNode params, String field) {
     if (params == null || !params.hasNonNull(field)) return null;
-    return OffsetDateTime.parse(params.get(field).asText());
+    String raw = params.get(field).asText();
+    try {
+      return OffsetDateTime.parse(raw);
+    } catch (DateTimeParseException e) {
+      // #843: DateTimeParseException 은 IllegalArgumentException 이 아니라 전역 캐치올 500 으로 떨어졌다 → 400.
+      throw new IllegalArgumentException(
+          field + " 는 오프셋을 포함한 ISO-8601 형식이어야 합니다(예: 2026-09-23T10:00:00+09:00): " + raw);
+    }
   }
 
   /**
@@ -330,12 +369,40 @@ public class ConfirmActionDispatcher {
 
   /** JsonNode→DTO 변환 후 bean-validation 명시 수행(@Valid 바인딩 밖이라 자동 발동 안 함). */
   private <T> T mapAndValidate(JsonNode params, Class<T> type) {
-    T dto = objectMapper.convertValue(params, type);
+    // #843: null params 는 convertValue 가 null 을 돌려줘 validator 가 영문 HV000116 오류를 냈다.
+    if (params == null || !params.isObject()) {
+      throw new IllegalArgumentException("params 는 JSON 객체여야 합니다");
+    }
+    T dto;
+    try {
+      dto = objectMapper.convertValue(params, type);
+    } catch (IllegalArgumentException e) {
+      // #843: Jackson 원문("Cannot deserialize value of type ...")은 영문+내부 클래스명 노출 → 필드 단위 한국어 사유로.
+      throw new IllegalArgumentException(describeMappingError(e));
+    }
     Set<ConstraintViolation<T>> violations = validator.validate(dto);
     if (!violations.isEmpty()) {
+      ConstraintViolation<T> v = violations.iterator().next();
       throw new IllegalArgumentException(
-          "잘못된 params: " + violations.iterator().next().getMessage());
+          "잘못된 params: " + v.getPropertyPath() + " — " + v.getMessage());
     }
     return dto;
+  }
+
+  /** convertValue 실패 원인에서 문제 필드 경로를 뽑아 사용자·AI 가 고칠 수 있는 문장으로 만든다. */
+  private static String describeMappingError(IllegalArgumentException e) {
+    if (e.getCause() instanceof JsonMappingException jme) {
+      String field =
+          jme.getPath().stream()
+              .map(r -> r.getFieldName() != null ? r.getFieldName() : "[" + r.getIndex() + "]")
+              .collect(Collectors.joining("."));
+      if (jme instanceof UnrecognizedPropertyException) {
+        return "잘못된 params: 알 수 없는 필드 '" + field + "'";
+      }
+      if (!field.isEmpty()) {
+        return "잘못된 params: '" + field + "' 값의 형식이 올바르지 않습니다";
+      }
+    }
+    return "잘못된 params: 값의 형식이 올바르지 않습니다";
   }
 }

@@ -53,8 +53,24 @@ export type ContentBlock =
   | { kind: 'text'; textStart: number }
   | { kind: 'widget'; widget: WidgetSpec };
 
+/** #843: 확인카드 처리 결과 종류 — 대화 이력의 ACTION_* 메시지와 1:1. */
+export type ActionOutcome = 'done' | 'failed' | 'rejected';
+
+/**
+ * 챗 transcript 한 턴. 대화 말풍선(user/assistant) 또는 확인카드 처리 결과 줄(action, #843).
+ * 판별 유니온이라 role='action' 이면 outcome 이 항상 있다.
+ */
+export type ChatTurn = MessageTurn | ActionTurn;
+
+/** #843: 확인카드 처리 결과 — 말풍선이 아니라 한 줄 시스템 기록으로 렌더. */
+export interface ActionTurn {
+  role: 'action';
+  outcome: ActionOutcome;
+  content: string;
+}
+
 /** 챗 말풍선 한 턴. (챗 세션 훅이 transcript 로 사용) */
-export interface ChatTurn {
+export interface MessageTurn {
   role: 'user' | 'assistant';
   content: string;
   /** #431: AI 응답이 지시한 표시 위젯(이슈/메일 목록 등). 챗 도크가 인라인 렌더. */
@@ -82,7 +98,8 @@ export interface HomeSessionPage {
 /** 복원용 메시지 (GET /home/sessions/{id}/messages). ASSISTANT 의 widgets 가 캔버스 복원 원천. */
 export interface HomeMessage {
   id: number;
-  role: 'USER' | 'ASSISTANT';
+  /** ACTION_* = 확인카드 처리 결과(#843). 다음 턴 AI 맥락에도 포함된다. */
+  role: 'USER' | 'ASSISTANT' | 'ACTION_DONE' | 'ACTION_FAILED' | 'ACTION_REJECTED';
   content: string;
   widgets: WidgetSpec[] | null;
   toolCalls: ToolStep[] | null;
@@ -115,10 +132,33 @@ export interface ActivityPage {
  * 도크의 승인/취소 카드가 이 타입을 기반으로 렌더된다.
  */
 export interface PendingAction {
+  /** #843: 서버 영속 제안 id — 승인/거부는 이 id 로 한다(params 를 다시 보내지 않음). */
+  id: number;
   /** 액션 식별자. 예: 'calendar.create_event', 'issue.assign' */
   actionType: string;
   /** 사람이 읽을 수 있는 액션 요약 (카드 본문). */
   summary: string;
-  /** confirm 요청 시 그대로 재전송할 파라미터 페이로드. */
+  /** 실행 파라미터(서버 보관 원본 — 승인은 id 로 하므로 재전송하지 않는다). */
   params: Record<string, unknown>;
+}
+
+/** #843: 확인카드 화면 상태 — submitting 중엔 버튼 잠금, failed 는 사유를 카드 안에 표시. 완료(done)된 카드는 목록에서 빠진다. */
+export type ProposalPhase = 'pending' | 'submitting' | 'failed';
+
+/** 화면용 확인카드 = 서버 제안 + 로컬 진행 상태. */
+export interface ProposalCard extends PendingAction {
+  phase: ProposalPhase;
+  /** phase='failed' 일 때 사용자·AI 에게 보이는 실패 사유. */
+  error?: string;
+}
+
+/** 확인카드 승인/거부 응답(POST /home/proposals/{id}/confirm|reject). 실행 실패도 200 + proposal.status=FAILED. */
+export interface ProposalOutcome {
+  proposal: PendingAction & {
+    sessionId: string;
+    status: 'PENDING' | 'DONE' | 'FAILED' | 'REJECTED' | 'EXPIRED';
+    errorMessage: string | null;
+  };
+  /** 대화 이력에 추가된 결과 메시지(role=ACTION_*). */
+  message: HomeMessage;
 }

@@ -85,3 +85,69 @@ export async function mockHomeChatCancel(page: Page): Promise<{ calls: string[] 
   )
   return { calls }
 }
+
+/** #843: 확인카드 1건(pending_action 봉투의 actions 원소 = 서버 영속 제안). */
+export function proposal(id: number, summary: string, params: Record<string, unknown> = {}, actionType = 'calendar.create_event') {
+  return { id, sessionId: 's-prop', actionType, summary, params, status: 'PENDING', errorMessage: null }
+}
+
+/** #843: 승인/거부 응답 결과 지정 — status 가 FAILED 면 reason 이 errorMessage·결과 줄 사유가 된다. */
+export type ProposalReply =
+  | { status: 'DONE' | 'REJECTED' }
+  | { status: 'FAILED'; reason: string }
+  | { httpStatus: number; message: string }
+
+/**
+ * #843: POST /api/v1/home/proposals/{id}/(confirm|reject) 모킹. reply(id, op) 로 건별 결과를 정하고,
+ * delayMs 로 응답을 늦춰 전송 중(submitting) 상태를 관측할 수 있다. 호출 순서를 calls 로 돌려준다.
+ */
+export async function mockHomeProposals(
+  page: Page,
+  opts: {
+    reply: (id: number, op: 'confirm' | 'reject') => ProposalReply
+    summaries?: Record<number, string>
+    delayMs?: number
+  },
+): Promise<{ calls: { id: number; op: 'confirm' | 'reject' }[] }> {
+  const calls: { id: number; op: 'confirm' | 'reject' }[] = []
+  let msgId = 1000
+  await page.route(
+    (url) => /^\/api\/v1\/home\/proposals\/\d+\/(confirm|reject)$/.test(url.pathname),
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      const [, idStr, op] = new URL(route.request().url()).pathname.match(/proposals\/(\d+)\/(confirm|reject)$/)!
+      const id = Number(idStr)
+      calls.push({ id, op: op as 'confirm' | 'reject' })
+      if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs))
+      const r = opts.reply(id, op as 'confirm' | 'reject')
+      if ('httpStatus' in r) {
+        return route.fulfill({
+          status: r.httpStatus,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: r.httpStatus, message: r.message }),
+        })
+      }
+      const summary = opts.summaries?.[id] ?? `제안 ${id}`
+      const role = r.status === 'DONE' ? 'ACTION_DONE' : r.status === 'FAILED' ? 'ACTION_FAILED' : 'ACTION_REJECTED'
+      const content =
+        r.status === 'DONE'
+          ? `승인 완료: ${summary}`
+          : r.status === 'FAILED'
+            ? `승인 실패: ${summary} — 사유: ${r.reason}`
+            : `사용자가 거절: ${summary}`
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          proposal: {
+            ...proposal(id, summary),
+            status: r.status,
+            errorMessage: r.status === 'FAILED' ? r.reason : null,
+          },
+          message: { id: ++msgId, role, content, widgets: null, toolCalls: null, createdAt: '2026-09-23T00:00:00Z' },
+        }),
+      })
+    },
+  )
+  return { calls }
+}

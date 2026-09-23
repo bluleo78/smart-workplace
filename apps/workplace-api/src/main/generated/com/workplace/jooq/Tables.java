@@ -40,6 +40,7 @@ import com.workplace.jooq.tables.EventAttendee;
 import com.workplace.jooq.tables.EventReminder;
 import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
+import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
 import com.workplace.jooq.tables.HomeSession;
 import com.workplace.jooq.tables.Issue;
@@ -330,6 +331,11 @@ public class Tables {
     public static final FileExtraction FILE_EXTRACTION = FileExtraction.FILE_EXTRACTION;
 
     /**
+     * The table <code>public.home_action_proposal</code>.
+     */
+    public static final HomeActionProposal HOME_ACTION_PROPOSAL = HomeActionProposal.HOME_ACTION_PROPOSAL;
+
+    /**
      * The table <code>public.home_message</code>.
      */
     public static final HomeMessage HOME_MESSAGE = HomeMessage.HOME_MESSAGE;
@@ -545,7 +551,7 @@ public class Tables {
     public static final RefreshToken REFRESH_TOKEN = RefreshToken.REFRESH_TOKEN;
 
     /**
-     * string citext, pattern citext
+     * string citext, pattern citext, flags text
      */
     public static final RegexpMatches REGEXP_MATCHES = RegexpMatches.REGEXP_MATCHES;
 
@@ -562,10 +568,12 @@ public class Tables {
           Configuration configuration
         , Object string
         , Object pattern
+        , String flags
     ) {
         return configuration.dsl().selectFrom(com.workplace.jooq.tables.RegexpMatches.REGEXP_MATCHES.call(
               string
             , pattern
+            , flags
         )).fetch();
     }
 
@@ -581,10 +589,12 @@ public class Tables {
     public static RegexpMatches REGEXP_MATCHES(
           Object string
         , Object pattern
+        , String flags
     ) {
         return com.workplace.jooq.tables.RegexpMatches.REGEXP_MATCHES.call(
             string,
-            pattern
+            pattern,
+            flags
         );
     }
 
@@ -600,10 +610,12 @@ public class Tables {
     public static RegexpMatches REGEXP_MATCHES(
           Field<Object> string
         , Field<Object> pattern
+        , Field<String> flags
     ) {
         return com.workplace.jooq.tables.RegexpMatches.REGEXP_MATCHES.call(
             string,
-            pattern
+            pattern,
+            flags
         );
     }
 

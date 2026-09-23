@@ -1,4 +1,4 @@
-package com.workplace.home.service;
+package com.workplace.action;
 
 import static com.workplace.jooq.Tables.CONTACT_ENTRY;
 import static com.workplace.jooq.Tables.DRIVE_FILE;
@@ -36,8 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** confirm 실행기 — 권한 검사·params 검증·도메인 실행을 service 레이어에서 검증. 메서드 롤백 격리. */
 @Transactional
-class HomeActionServiceTest extends IntegrationTestBase {
-  @Autowired HomeActionService service;
+class ActionServiceConfirmTest extends IntegrationTestBase {
+  @Autowired ActionService service;
   @Autowired ObjectMapper om;
   @Autowired DSLContext dsl;
   @Autowired DriveSpaceService driveSpaceService;

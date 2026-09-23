@@ -782,6 +782,45 @@ describe('runAiChatStream — proposal approval hallucination guard (#400, #409)
     expect(out.fullText).not.toContain('완료했습니다');
     expect(out.pendingActions).toEqual([]);
   });
+
+  // #843: 카드가 이미 처리됐으면(승인 결과 행 존재) 그 제안은 끝난 것 — 이어지는 짧은 발화를 환각으로 오판하지 않는다.
+  it('제안 뒤에 승인 결과가 기록돼 있으면 guard 미적용', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([textDelta('천만에요.'), result('')]));
+    const recentContext = [
+      { role: 'ASSISTANT', content: '팀 회의 일정 생성을 제안했습니다. 확인 카드에서 승인해주세요.' },
+      { role: 'ACTION_DONE', content: '승인 완료: 팀 회의 (id: 42)' },
+    ];
+    const out = await runAiChatStream(
+      baseInput({ query: '응 고마워', recentContext }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(out.fullText).toBe('천만에요.');
+  });
+});
+
+// #843: 확인카드 처리 결과(ACTION_*)는 "사용자" 발화가 아니라 [승인 결과] 로 라벨링돼 AI 에게 전달된다.
+describe('runAiChatStream — 승인 결과 맥락 라벨 (#843)', () => {
+  it('ACTION_* 행을 [승인 결과] 로, USER/ASSISTANT 는 기존 라벨로 프롬프트에 싣는다', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    const recentContext = [
+      { role: 'USER', content: '내일 회의 삭제해줘' },
+      { role: 'ASSISTANT', content: '삭제를 제안했습니다.' },
+      { role: 'ACTION_FAILED', content: '승인 실패: 회의 삭제 — 사유: 일정을 찾을 수 없습니다' },
+    ];
+    await runAiChatStream(
+      baseInput({ query: '다시 해줘', recentContext }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    const prompt = streamSpy.mock.calls[0][0].userMessage as string;
+    expect(prompt).toContain('사용자: 내일 회의 삭제해줘');
+    expect(prompt).toContain('AI: 삭제를 제안했습니다.');
+    expect(prompt).toContain('[승인 결과]: 승인 실패: 회의 삭제 — 사유: 일정을 찾을 수 없습니다');
+    expect(prompt).not.toContain('사용자: 승인 실패');
+  });
 });
 
 // #379/#407→#381: SDK 내부-메시지 정규식 override 는 삭제됨.

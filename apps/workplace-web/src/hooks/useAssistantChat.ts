@@ -3,7 +3,7 @@
 // 어시스턴트는 어느 경로에서든 제자리(in-place)에서 답한다 — 홈으로 강제 이동/캔버스 구성 없음.
 import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useSessions } from '@/hooks/queries/useHomeQueries';
-import type { ChatTurn, HomeSessionSummary, PendingAction } from '@/types/home';
+import type { ChatTurn, HomeSessionSummary, ProposalCard } from '@/types/home';
 
 export interface AssistantChat {
   turns: ChatTurn[];
@@ -18,12 +18,16 @@ export interface AssistantChat {
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
-  /** #351: 보류 확인 액션 배열(없으면 빈 배열). 일괄 카드로 렌더. */
-  pendingActions: PendingAction[];
-  /** #351: 단일 항목 승인 → confirm POST → 카드에서 제거. */
-  onConfirmActionItem: (action: PendingAction) => void;
-  /** #351: 단일 항목 거부 → 서버 호출 없이 카드에서 제거. */
-  onDismissActionItem: (action: PendingAction) => void;
+  /** #351: 보류 확인 카드 배열(없으면 빈 배열). #843: 카드별 진행 상태(pending/submitting/failed) 포함. */
+  pendingActions: ProposalCard[];
+  /** 단일 카드 승인 — 성공이면 카드 제거, 실패면 카드에 사유 표시. 결과는 대화 이력에 기록된다. */
+  onConfirmActionItem: (card: ProposalCard) => void;
+  /** #843: 대기 카드를 순서대로 모두 승인하고 실패를 토스트 1건으로 집계. */
+  onConfirmAllActionItems: () => void;
+  /** 거부(대기 카드 → 서버 REJECTED 기록) 또는 닫기(실패 카드). */
+  onDismissActionItem: (card: ProposalCard) => void;
+  /** #843: 실패 카드 → AI 에게 사유를 반영해 다시 제안해 달라고 요청. */
+  onRequestProposalFix: (card: ProposalCard) => void;
 }
 
 export function useAssistantChat(): AssistantChat {
@@ -42,7 +46,9 @@ export function useAssistantChat(): AssistantChat {
     onSelectSession: session.restoreSession,
     onDeleteSession: session.deleteSession,
     pendingActions: session.pendingActions,
-    onConfirmActionItem: session.confirmActionItem,
-    onDismissActionItem: session.dismissActionItem,
+    onConfirmActionItem: (card) => void session.confirmActionItem(card),
+    onConfirmAllActionItems: () => void session.confirmAllActionItems(),
+    onDismissActionItem: (card) => void session.dismissActionItem(card),
+    onRequestProposalFix: session.requestProposalFix,
   };
 }

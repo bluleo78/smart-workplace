@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/** ConfirmActionDispatcher 통합 테스트 — HomeActionService에서 추출된 디스패치가 일정을 생성하는지. */
+/** ConfirmActionDispatcher 통합 테스트 — HomeActionService(#843 에서 제거)에서 추출된 디스패치가 일정을 생성하는지. */
 @Transactional
 class ConfirmActionDispatcherTest extends IntegrationTestBase {
 

@@ -11658,10 +11658,12 @@ public class Routines {
           Configuration configuration
         , Object string
         , Object pattern
+        , String flags
     ) {
         return configuration.dsl().selectFrom(com.workplace.jooq.tables.RegexpMatches.REGEXP_MATCHES.call(
               string
             , pattern
+            , flags
         )).fetch();
     }
 
@@ -11677,10 +11679,12 @@ public class Routines {
     public static RegexpMatches regexpMatches(
           Object string
         , Object pattern
+        , String flags
     ) {
         return com.workplace.jooq.tables.RegexpMatches.REGEXP_MATCHES.call(
             string,
-            pattern
+            pattern,
+            flags
         );
     }
 
@@ -11696,10 +11700,12 @@ public class Routines {
     public static RegexpMatches regexpMatches(
           Field<Object> string
         , Field<Object> pattern
+        , Field<String> flags
     ) {
         return com.workplace.jooq.tables.RegexpMatches.REGEXP_MATCHES.call(
             string,
-            pattern
+            pattern,
+            flags
         );
     }
 

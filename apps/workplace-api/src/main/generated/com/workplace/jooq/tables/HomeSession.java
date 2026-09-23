@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.HomeActionProposal.HomeActionProposalPath;
 import com.workplace.jooq.tables.HomeMessage.HomeMessagePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
@@ -201,6 +202,19 @@ public class HomeSession extends TableImpl<HomeSessionRecord> {
             _user = new UserPath(this, Keys.HOME_SESSION__HOME_SESSION_USER_ID_FKEY, null);
 
         return _user;
+    }
+
+    private transient HomeActionProposalPath _homeActionProposal;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.home_action_proposal</code> table
+     */
+    public HomeActionProposalPath homeActionProposal() {
+        if (_homeActionProposal == null)
+            _homeActionProposal = new HomeActionProposalPath(this, null, Keys.HOME_ACTION_PROPOSAL__HOME_ACTION_PROPOSAL_SESSION_ID_FKEY.getInverseKey());
+
+        return _homeActionProposal;
     }
 
     private transient HomeMessagePath _homeMessage;

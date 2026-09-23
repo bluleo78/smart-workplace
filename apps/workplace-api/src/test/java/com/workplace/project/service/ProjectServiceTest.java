@@ -14,6 +14,7 @@ import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.user.exception.UserNotFoundException;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -97,9 +98,12 @@ class ProjectServiceTest extends IntegrationTestBase {
     return id;
   }
 
-  /** #713 — OWNER 가 현재 테넌트에 소속되지 않은(다른 테넌트) 사용자를 프로젝트 멤버로 등록할 수 없어야 한다. */
+  /**
+   * #713 — OWNER 가 현재 테넌트에 소속되지 않은(다른 테넌트) 사용자를 프로젝트 멤버로 등록할 수 없어야 한다. #843 부터는 없는 사용자와 같은 404 로
+   * 응답한다(403 은 권한 문제로 오해되고, 타 테넌트 사용자 존재를 드러냄).
+   */
   @Test
-  void addMember_otherTenantUser_throwsAccessDenied() {
+  void addMember_otherTenantUser_throwsUserNotFound() {
     Long owner = createUser("owner-ot713");
     Long otherTenantId = seedTenant();
     Long otherTenantUser = createUserInTenant("other-ot713", otherTenantId);
@@ -110,7 +114,7 @@ class ProjectServiceTest extends IntegrationTestBase {
             () ->
                 projectService.addMember(
                     owner, key, new AddMemberRequest(otherTenantUser, "MEMBER")))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(UserNotFoundException.class);
   }
 
   /** 개인 프로젝트 멤버 목록: 합성 AGENT 주입 없음 — AGENT 추가 전에는 OWNER 만, 추가 후에는 실제 멤버 행만 (#418 정책 통일). */

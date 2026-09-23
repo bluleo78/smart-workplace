@@ -52,10 +52,17 @@ public class HomeChatService {
    */
   private static final int COMPOSE_MIN_TIMEOUT_MS = 180_000;
 
-  /** follow-up 맥락으로 전달할 직전 메시지 최대 개수(토큰 폭주 방지). */
+  /** follow-up 맥락으로 전달할 직전 대화(USER/ASSISTANT) 메시지 최대 개수(토큰 폭주 방지). */
   private static final int CONTEXT_LIMIT = 6;
 
+  /**
+   * 맥락 전체 행 상한(#843). 확인카드 결과(ACTION_*) 행은 대화 한도에 세지 않고 그 사이에 따라오게 하되("모두 승인" N건이 직전 대화를 밀어내지 않도록),
+   * 결과 행이 폭증해도 맥락이 무한히 커지지 않게 전체 행 수를 제한한다.
+   */
+  private static final int CONTEXT_ROW_CAP = 20;
+
   private final HomeSessionService sessionService;
+  private final HomeProposalService proposalService;
   private final AiAgentChatClient chatClient;
   private final AiAgentProperties aiAgentProperties;
   private final ObjectMapper objectMapper;
@@ -66,6 +73,7 @@ public class HomeChatService {
 
   public HomeChatService(
       HomeSessionService sessionService,
+      HomeProposalService proposalService,
       AiAgentChatClient chatClient,
       AiAgentProperties aiAgentProperties,
       ObjectMapper objectMapper,
@@ -74,6 +82,7 @@ public class HomeChatService {
       StreamingGenerationRegistry registry,
       SseRegistry sseRegistry) {
     this.sessionService = sessionService;
+    this.proposalService = proposalService;
     this.chatClient = chatClient;
     this.aiAgentProperties = aiAgentProperties;
     this.objectMapper = objectMapper;
@@ -112,6 +121,12 @@ public class HomeChatService {
 
     // 5) USER 메시지 영속 — 요청 스레드(요청 tx) 에서 즉시 저장(tool_calls 는 USER 메시지에 없음).
     sessionService.appendMessage(callerId, sid, "USER", query, null, null);
+
+    // 6) 이전 턴의 미처리 확인카드 만료(#843) — 웹은 새 질문 시 카드를 비우므로, 복원 시 되살아나지 않게 서버도 맞춘다.
+    // 새 세션이면 만료할 카드가 없다.
+    if (sessionId != null) {
+      proposalService.expirePending(callerId, sid);
+    }
 
     // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
     // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
@@ -180,15 +195,21 @@ public class HomeChatService {
                           "home.chat.progress",
                           Map.of("correlationId", correlationId, "label", label));
                     },
-                    // pending_action: 배열 자체가 아니라 { correlationId, actions } 봉투로 감싼다
-                    // (공통 payload 봉투 규약 — correlationId 는 항상 최상위 필드).
-                    node -> {
-                      List<Object> actions = objectMapper.convertValue(node, List.class);
-                      sseRegistry.fanOut(
-                          Set.of(callerId),
-                          "home.chat.pending_action",
-                          Map.of("correlationId", correlationId, "actions", actions));
-                    },
+                    // pending_action: 제안을 먼저 영속(#843)해 id 를 붙인 뒤 { correlationId, sessionId,
+                    // actions }
+                    // 봉투로 fanOut(공통 봉투 규약 — correlationId 는 항상 최상위 필드). sessionId 를 함께 싣는 이유:
+                    // 새 세션이면 웹은 done 에서야 sessionId 를 알게 되는데 pending_action 은 done 보다 먼저 온다.
+                    node ->
+                        sseRegistry.fanOut(
+                            Set.of(callerId),
+                            "home.chat.pending_action",
+                            Map.of(
+                                "correlationId",
+                                correlationId,
+                                "sessionId",
+                                sid.toString(),
+                                "actions",
+                                proposalService.record(callerId, sid, node))),
                     // tool: 표시 가능 도구는 영속 리스트에 추가(숨김 도구는 fanOut 만) + correlationId 병합 fanOut.
                     toolNode -> {
                       String phase = toolNode.path("phase").asText();
@@ -269,10 +290,18 @@ public class HomeChatService {
     return true;
   }
 
-  /** 세션의 최근 메시지를 텍스트 전용(role+content)으로, 마지막 CONTEXT_LIMIT 개만. */
+  /**
+   * 세션의 최근 메시지를 텍스트 전용(role+content)으로 — 대화 메시지는 마지막 CONTEXT_LIMIT 개, 그 사이의 확인카드 결과 행은 함께 포함한다(전체
+   * CONTEXT_ROW_CAP 상한).
+   */
   private List<ContextMessage> buildRecentContext(long callerId, UUID sessionId) {
     List<HomeMessageResponse> all = sessionService.getMessages(callerId, sessionId);
-    int from = Math.max(0, all.size() - CONTEXT_LIMIT);
+    int from = all.size();
+    int conversational = 0;
+    while (from > 0 && conversational < CONTEXT_LIMIT && all.size() - from < CONTEXT_ROW_CAP) {
+      from--;
+      if (!all.get(from).role().startsWith("ACTION_")) conversational++;
+    }
     return all.subList(from, all.size()).stream()
         .map(m -> new ContextMessage(m.role(), m.content()))
         .toList();

@@ -39,6 +39,7 @@ import com.workplace.jooq.tables.EventAttendee;
 import com.workplace.jooq.tables.EventReminder;
 import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
+import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
 import com.workplace.jooq.tables.HomeSession;
 import com.workplace.jooq.tables.Issue;
@@ -181,6 +182,8 @@ public class Indexes {
     public static final Index IDX_FILE_EXPIRES_AT = Internal.createIndex(DSL.name("idx_file_expires_at"), File.FILE, new OrderField[] { File.FILE.EXPIRES_AT }, false);
     public static final Index IDX_FILE_TENANT = Internal.createIndex(DSL.name("idx_file_tenant"), File.FILE, new OrderField[] { File.FILE.TENANT_ID }, false);
     public static final Index IDX_FILE_UPLOADED_BY = Internal.createIndex(DSL.name("idx_file_uploaded_by"), File.FILE, new OrderField[] { File.FILE.UPLOADED_BY }, false);
+    public static final Index IDX_HOME_ACTION_PROPOSAL_SESSION = Internal.createIndex(DSL.name("idx_home_action_proposal_session"), HomeActionProposal.HOME_ACTION_PROPOSAL, new OrderField[] { HomeActionProposal.HOME_ACTION_PROPOSAL.SESSION_ID, HomeActionProposal.HOME_ACTION_PROPOSAL.STATUS }, false);
+    public static final Index IDX_HOME_ACTION_PROPOSAL_TENANT = Internal.createIndex(DSL.name("idx_home_action_proposal_tenant"), HomeActionProposal.HOME_ACTION_PROPOSAL, new OrderField[] { HomeActionProposal.HOME_ACTION_PROPOSAL.TENANT_ID }, false);
     public static final Index IDX_HOME_MESSAGE_SESSION = Internal.createIndex(DSL.name("idx_home_message_session"), HomeMessage.HOME_MESSAGE, new OrderField[] { HomeMessage.HOME_MESSAGE.SESSION_ID, HomeMessage.HOME_MESSAGE.CREATED_AT }, false);
     public static final Index IDX_HOME_MESSAGE_TENANT = Internal.createIndex(DSL.name("idx_home_message_tenant"), HomeMessage.HOME_MESSAGE, new OrderField[] { HomeMessage.HOME_MESSAGE.TENANT_ID }, false);
     public static final Index IDX_HOME_SESSION_TENANT = Internal.createIndex(DSL.name("idx_home_session_tenant"), HomeSession.HOME_SESSION, new OrderField[] { HomeSession.HOME_SESSION.TENANT_ID }, false);

@@ -89,6 +89,14 @@ public class MessagingProposalService {
             .findByKey(chosen.key())
             .orElseThrow(() -> new IllegalStateException("프로젝트 조회 실패: " + chosen.key()));
 
+    // #848: 카드를 만들기 전에 승인 때와 같은 파라미터로 위임자 권한 사전검증 — 승인할 수 없는 카드(권한 없음·잘못된 값)를
+    // 만들지 않고, 실패 사유는 예외 그대로 ai-agent 툴 결과로 돌아가 AI 가 고쳐서 다시 제안한다(#842 와 같은 계약).
+    String priority = req.priority() != null ? req.priority() : "MID";
+    confirmDispatcher.validate(
+        req.proposedByUserId(),
+        "issue.create",
+        issueParams(project.key(), req.title(), req.body(), priority, agentId));
+
     // 카드 fallback 본문 — 마크다운 미지원 클라이언트·접근성용.
     String fallback = "💡 이슈 생성을 제안했어요: **" + req.title() + "** (프로젝트: " + project.name() + ")";
     // AGENT 작성 메시지 INSERT. parentMessageId 는 스레드 미러(인라인이면 null).
@@ -99,7 +107,7 @@ public class MessagingProposalService {
     ObjectNode payload = objectMapper.createObjectNode();
     payload.put("title", req.title());
     if (req.body() != null) payload.put("body", req.body());
-    payload.put("priority", req.priority() != null ? req.priority() : "MID");
+    payload.put("priority", priority);
     payload.put("projectId", project.id());
     payload.put("projectKey", project.key());
     payload.put("projectName", project.name());
@@ -205,13 +213,12 @@ public class MessagingProposalService {
     // #540: 이슈 생성을 공용 ConfirmActionDispatcher(issue.create)로 통일.
     // candidateProjects 검증(위)은 채팅 위임 고유 가드이므로 유지하고, 실행만 디스패처로 위임한다.
     // confirmWithBody 가 @Transactional 이므로 디스패처는 동일 tx 안에서 실행돼 RLS GUC 주입 보장.
-    ObjectNode issueParams = objectMapper.createObjectNode();
-    issueParams.put("projectKey", projectKey);
-    issueParams.put("title", title);
-    if (issueBody != null) issueParams.put("body", issueBody);
-    issueParams.put("priority", priority);
-    issueParams.set("assigneeIds", objectMapper.valueToTree(List.of(agentId)));
-    var issue = (IssueResponse) confirmDispatcher.confirm(callerId, "issue.create", issueParams);
+    var issue =
+        (IssueResponse)
+            confirmDispatcher.confirm(
+                callerId,
+                "issue.create",
+                issueParams(projectKey, title, issueBody, priority, agentId));
     String issueKey = issue.projectKey() + "-" + issue.number();
 
     // Fix 2: 동시 이중-confirm 방어 — updateStatus 는 WHERE status='PENDING' 조건을 갖는다.
@@ -250,9 +257,7 @@ public class MessagingProposalService {
       JsonNode payload,
       ConfirmProposalRequest body) {
     // payload → params(ObjectNode). 편집 override(있으면)로 덮어쓴다.
-    ObjectNode params = (ObjectNode) payload.deepCopy();
-    // 충돌 목록은 카드 노출용 — CalendarEventRequest 에 없는 필드라 unknown-property 오류 방지를 위해 제거.
-    params.remove("conflicts");
+    ObjectNode params = calendarParams(payload);
     if (body != null) {
       if (body.title() != null && !body.title().isBlank()) params.put("title", body.title());
       if (body.startsAt() != null) params.put("startsAt", body.startsAt().toString());
@@ -302,11 +307,6 @@ public class MessagingProposalService {
    */
   private MessageResponse proposeCalendarEvent(
       long agentId, long channelId, CreateProposalRequest req) {
-    // 카드 fallback 본문 — 마크다운 미지원 클라이언트·접근성용.
-    String fallback = "💡 일정 생성을 제안했어요: **" + req.title() + "**";
-    long messageId =
-        messageRepo.insert(channelId, agentId, fallback, List.of(), req.parentMessageId());
-
     // payload JSON — 승인 시 일정 생성에 필요한 필드. 이슈 전용 필드(projectKey 등)는 넣지 않는다.
     // ISO_OFFSET_DATE_TIME 로 직렬화해 초 단위를 포함한 전체 형식("T10:00:00+09:00")을 보존한다.
     DateTimeFormatter isoFmt = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
@@ -330,12 +330,43 @@ public class MessagingProposalService {
       }
     }
 
+    // #848: 승인 때와 같은 파라미터(payload − conflicts, 편집 override 없음)로 위임자 권한 사전검증 — 실패하면 카드를 만들지 않는다.
+    confirmDispatcher.validate(
+        req.proposedByUserId(), "calendar.create_event", calendarParams(payload));
+
+    // 카드 fallback 본문 — 마크다운 미지원 클라이언트·접근성용.
+    String fallback = "💡 일정 생성을 제안했어요: **" + req.title() + "**";
+    long messageId =
+        messageRepo.insert(channelId, agentId, fallback, List.of(), req.parentMessageId());
+
     proposalRepo.insert(
         messageId, channelId, req.proposedByUserId(), req.actionType(), payload.toString());
 
     MessageResponse saved = messageService.findOneForProposal(messageId, agentId);
     publisher.publishEvent(new MessageCreatedEvent(channelId, saved));
     return saved;
+  }
+
+  /** 이슈 생성 디스패치 파라미터 — 제안 시 사전검증과 승인 시 실행이 같은 값을 쓰도록 한 곳에서 만든다(#848). 담당자는 제안한 AI. */
+  private ObjectNode issueParams(
+      String projectKey, String title, String body, String priority, long agentId) {
+    ObjectNode params = objectMapper.createObjectNode();
+    params.put("projectKey", projectKey);
+    params.put("title", title);
+    if (body != null) params.put("body", body);
+    params.put("priority", priority);
+    params.set("assigneeIds", objectMapper.valueToTree(List.of(agentId)));
+    return params;
+  }
+
+  /**
+   * 일정 생성 디스패치 파라미터 — 제안 payload 에서 카드 노출용 conflicts 를 뺀 것(CalendarEventRequest 에 없는 필드라
+   * unknown-property 오류 방지). 제안 시 사전검증과 승인 시 실행이 공유한다(#848).
+   */
+  private ObjectNode calendarParams(JsonNode payload) {
+    ObjectNode params = (ObjectNode) payload.deepCopy();
+    params.remove("conflicts");
+    return params;
   }
 
   /**

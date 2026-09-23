@@ -27,7 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>무엇을·왜: {@code ActionService.validate} 의 {@code @Transactional} 이 빠지면 RLS GUC 가 주입되지 않아 권한
  * 행(role_permission/user_role)이 전부 걸러지고 <b>거짓 AccessDenied</b> 가 난다 — 승인 전에 사용자가 실제로 가진 권한을 "없다"고
- * 잘못 알려주는 최악의 오검증이다. {@link com.workplace.tenant.HomeActionConfirmRlsGuardTest} 와 같은 수법으로, 세션 디폴트
+ * 잘못 알려주는 최악의 오검증이다. {@link com.workplace.tenant.ActionConfirmRlsGuardTest} 와 같은 수법으로, 세션 디폴트
  * GUC(=1)와 다른 테넌트에 사용자/권한을 커밋해 두고 주변 트랜잭션 없이 호출해 마스킹을 깬다.
  *
  * <p>덤으로, 사전검증이 자체 트랜잭션에서 돌고 난 뒤에도(=테스트 트랜잭션 밖에서 재조회) 일정 행이 없음을 확인한다 — prepare 가 아무것도 쓰지 않는다는 사실을

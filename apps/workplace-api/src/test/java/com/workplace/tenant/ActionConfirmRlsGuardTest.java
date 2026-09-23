@@ -11,9 +11,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.action.ActionService;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.home.service.HomeActionService;
 import com.workplace.support.IntegrationTestBase;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -30,20 +30,20 @@ import org.springframework.transaction.support.TransactionTemplate;
  * permissionChecker.hasPermission(callerId, "calendar:write")} 를 호출한다. 이 권한 조회는 RLS 가 걸린
  * role_permission / user_role 을 읽으므로 테넌트 GUC 가 필요하다. 채팅 경로({@code
  * MessagingProposalService.confirmWithBody})는 {@code @Transactional} 이라 {@code
- * TenantAwareTransactionManager.doBegin} 이 GUC 를 주입하지만, 홈 경로({@code HomeActionService.confirm})는
+ * TenantAwareTransactionManager.doBegin} 이 GUC 를 주입하지만, 확인카드 실행 경로({@code ActionService.confirm})는
  * {@code @Transactional} 이 없어 GUC 가 비어 권한 행이 RLS 로 전부 걸러진다 → 빈 권한 → 거짓 AccessDenied.
  *
  * <p><b>왜 tenant#2 + 비-트랜잭션 테스트가 마스킹을 깨는가</b>: application-test.yml 이 풀 커넥션 세션 GUC 를 {@code
- * app.tenant_id=1} 로 박아 두므로, tenant#1 사용자는 GUC 가 없어도 권한이 보여 버그가 마스킹된다(기존 HomeActionServiceTest 가
- * 클래스 {@code @Transactional} + tenant#1 이라 거짓-통과하던 이유). 이 가드는 세션 디폴트(1)와 다른 tenant#2 에 사용자/역할/권한을
- * <b>커밋</b>해 두고, 주변 트랜잭션이 없는 상태로 {@code HomeActionService.confirm} 을 호출한다. 메서드에
- * {@code @Transactional} 이 있어야만 doBegin 이 GUC=2 를 LOCAL 주입해 권한이 보이고 일정이 생성된다. 어노테이션이 빠지면 세션 GUC=1 로
- * 읽어 tenant#2 권한을 못 봐 AccessDenied → CI 에서 red.
+ * app.tenant_id=1} 로 박아 두므로, tenant#1 사용자는 GUC 가 없어도 권한이 보여 버그가 마스킹된다(기존 ActionServiceTest 가 클래스
+ * {@code @Transactional} + tenant#1 이라 거짓-통과하던 이유). 이 가드는 세션 디폴트(1)와 다른 tenant#2 에 사용자/역할/권한을
+ * <b>커밋</b>해 두고, 주변 트랜잭션이 없는 상태로 {@code ActionService.confirm} 을 호출한다. 메서드에 {@code @Transactional}
+ * 이 있어야만 doBegin 이 GUC=2 를 LOCAL 주입해 권한이 보이고 일정이 생성된다. 어노테이션이 빠지면 세션 GUC=1 로 읽어 tenant#2 권한을 못 봐
+ * AccessDenied → CI 에서 red.
  *
  * <p><b>공유 DB 무오염</b>: 고정 슬러그 fixture 테넌트(app_tenant 는 tenant DELETE 불가, V46) 아래 커밋하고,
  * {@code @AfterEach} 가 GUC=2 컨텍스트에서 생성 일정/권한/역할/USER 를 모두 삭제한다.
  */
-class HomeActionConfirmRlsGuardTest extends IntegrationTestBase {
+class ActionConfirmRlsGuardTest extends IntegrationTestBase {
 
   /** 세션 디폴트(1)와 다른, 가드용 고정-슬러그 fixture 테넌트. */
   private static final String FIXTURE_TENANT_SLUG = "rls-guard-home-confirm-tenant";
@@ -51,7 +51,7 @@ class HomeActionConfirmRlsGuardTest extends IntegrationTestBase {
   @Autowired private DSLContext dsl;
   @Autowired private PlatformTransactionManager txManager;
   @Autowired private ObjectMapper om;
-  @Autowired private HomeActionService service;
+  @Autowired private ActionService service;
 
   // @AfterEach 정리용 — 시드에서 채운다.
   private Long tid2;
@@ -60,8 +60,8 @@ class HomeActionConfirmRlsGuardTest extends IntegrationTestBase {
 
   /**
    * calendar:write 를 가진 tenant#2 사용자가 사이드패널 확인 카드(calendar.create_event)를 승인하면, 주변 트랜잭션이 없어도 일정이
-   * 생성돼야 한다(=HomeActionService.confirm 의 @Transactional 이 GUC=2 를 주입). 어노테이션이 빠지면 권한 조회가 세션 GUC=1 로
-   * 비어 AccessDenied 가 난다.
+   * 생성돼야 한다(=ActionService.confirm 의 @Transactional 이 GUC=2 를 주입). 어노테이션이 빠지면 권한 조회가 세션 GUC=1 로 비어
+   * AccessDenied 가 난다.
    */
   @Test
   void confirm_calendarCreateEvent_seesTenant2Permission_whenServiceOpensOwnTx() throws Exception {

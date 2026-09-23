@@ -18,12 +18,14 @@ import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.HomeMessageResponse;
+import com.workplace.home.dto.HomeProposalResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -53,6 +55,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   @MockitoBean AssistantResolver assistantResolver;
   @MockitoBean TenantScopedRunner tenantScopedRunner;
   @Autowired HomeSessionService sessionService;
+  @Autowired HomeProposalService proposalService;
   @Autowired AiAgentProperties aiAgentProperties;
   @Autowired ObjectMapper objectMapper;
 
@@ -113,6 +116,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
     StreamingGenerationRegistry registry = new DefaultStreamingGenerationRegistry();
     return new HomeChatService(
         sessionService,
+        proposalService,
         chatClient,
         aiAgentProperties,
         objectMapper,
@@ -206,8 +210,16 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
     @SuppressWarnings("unchecked")
     Map<String, Object> payload = (Map<String, Object>) pendingEvents.get(0).data;
     assertThat(payload).containsEntry("correlationId", correlationId);
-    assertThat(payload).containsKey("actions");
     assertThat(payload.get("actions").toString()).contains("calendar.create_event");
+
+    // #843: 제안은 fanOut 전에 영속돼 id 가 붙고, 새 세션이어도 봉투에 sessionId 가 실린다(done 보다 먼저 도착하므로).
+    UUID sid = UUID.fromString((String) payload.get("sessionId"));
+    @SuppressWarnings("unchecked")
+    List<HomeProposalResponse> actions = (List<HomeProposalResponse>) payload.get("actions");
+    assertThat(actions).singleElement().satisfies(a -> assertThat(a.status()).isEqualTo("PENDING"));
+    assertThat(proposalService.listPending(uid, sid))
+        .extracting(HomeProposalResponse::id)
+        .containsExactly(actions.get(0).id());
   }
 
   /**

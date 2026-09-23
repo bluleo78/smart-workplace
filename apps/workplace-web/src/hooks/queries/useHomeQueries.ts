@@ -75,6 +75,8 @@ interface ChatProgressPayload {
 }
 interface ChatPendingActionPayload {
   correlationId?: string;
+  /** #843: 제안이 속한 세션 — 새 세션이면 done 보다 먼저 도착하므로 여기서 세션을 확정한다. */
+  sessionId?: string;
   actions?: PendingAction[];
 }
 interface ChatToolPayload extends Record<string, unknown> {
@@ -112,7 +114,7 @@ export async function chatStream(
   onDelta: (text: string) => void,
   signal: AbortSignal,
   onProgress?: (label: string) => void,
-  onPendingAction?: (actions: PendingAction[]) => void,
+  onPendingAction?: (actions: PendingAction[], sessionId?: string) => void,
   onTool?: (evt: ToolEventDto) => void,
 ): Promise<{ sessionId?: string; widgets?: WidgetSpec[] }> {
   if (signal.aborted) throw abortError();
@@ -162,7 +164,7 @@ export async function chatStream(
       onAiStreamEvent('home.chat.pending_action', (data) => {
         const p = data as ChatPendingActionPayload;
         if (p.correlationId !== correlationId) return;
-        if (p.actions && p.actions.length > 0) onPendingAction?.(p.actions);
+        if (p.actions && p.actions.length > 0) onPendingAction?.(p.actions, p.sessionId);
       }),
     );
     unsubs.push(
