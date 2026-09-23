@@ -54,11 +54,36 @@ public class ProjectService {
    * type 값만 다르다. 지원하지 않는 유형(TEAM/PERSONAL/OPEN 외)은 ProjectConflictException 으로 거부.
    */
   public ProjectResponse create(Long callerId, CreateProjectRequest req) {
+    validateCreatable(req);
     if ("PERSONAL".equals(req.typeOrDefault())) {
       return provisioner.createPersonal(callerId, req.name(), req.description(), false);
     }
     // TEAM/OPEN 공통 경로 — 구조 동일, 저장되는 type 만 다르다.
     String type = req.typeOrDefault();
+    ProjectRow row =
+        projectRepository.insert(req.key(), req.name(), req.description(), callerId, type, false);
+    memberRepository.insert(row.id(), callerId, "OWNER");
+    sequenceRepository.initialize(row.id());
+    // TEAM/OPEN 공유 프로젝트 — EPIC 포함 6종 시드.
+    issueTypeService.seedSystemTypes(row.id(), true);
+    // 생성자는 항상 OWNER — viewerIsMember=true
+    return ProjectResponse.from(row, true);
+  }
+
+  /**
+   * 프로젝트 생성 가능 여부만 판정한다(쓰기 없음). #842 — 확인 카드 사전검증(dry-run)과 실행 경로가 같은 술어를 공유해, 승인 후에야 드러나던 실패를 카드
+   * 표시 시점에 미리 잡기 위한 공개 진입점. {@link #create} 가 그대로 호출하므로 술어가 두 벌이 되지 않는다.
+   *
+   * <p>PERSONAL 은 provisioner 가 key 를 자동 생성하므로 key/중복 검증 대상이 아니다 — 여기서 바로 통과시킨다.
+   *
+   * @throws ProjectConflictException 지원하지 않는 유형 · key 누락 · key 중복
+   */
+  @Transactional(readOnly = true)
+  public void validateCreatable(CreateProjectRequest req) {
+    String type = req.typeOrDefault();
+    if ("PERSONAL".equals(type)) {
+      return;
+    }
     if (!"TEAM".equals(type) && !"OPEN".equals(type)) {
       throw new ProjectConflictException("지원하지 않는 프로젝트 유형: " + type);
     }
@@ -68,14 +93,6 @@ public class ProjectService {
     if (projectRepository.existsByKey(req.key())) {
       throw new ProjectConflictException("이미 사용 중인 key 입니다: " + req.key());
     }
-    ProjectRow row =
-        projectRepository.insert(req.key(), req.name(), req.description(), callerId, type, false);
-    memberRepository.insert(row.id(), callerId, "OWNER");
-    sequenceRepository.initialize(row.id());
-    // TEAM/OPEN 공유 프로젝트 — EPIC 포함 6종 시드.
-    issueTypeService.seedSystemTypes(row.id(), true);
-    // 생성자는 항상 OWNER — viewerIsMember=true
-    return ProjectResponse.from(row, true);
   }
 
   /**
@@ -164,12 +181,31 @@ public class ProjectService {
 
   /** 프로젝트 soft-delete. OWNER 권한 필요. */
   public void softDelete(Long callerId, String projectKey) {
+    ProjectRow project = checkDeletable(callerId, projectKey);
+    projectRepository.softDelete(project.id());
+  }
+
+  /**
+   * 삭제 가능 여부만 판정한다(쓰기 없음). #842 — 확인 카드 사전검증(dry-run)과 실행 경로가 공유하는 술어. {@link #softDelete} 가 같은
+   * {@link #checkDeletable} 을 호출하므로 술어 포크가 없다.
+   *
+   * @throws ProjectNotFoundException 프로젝트 없음
+   * @throws ProjectAccessDeniedException OWNER 아님
+   * @throws ProjectConflictException 기본 개인 프로젝트
+   */
+  @Transactional(readOnly = true)
+  public void validateDeletable(Long callerId, String projectKey) {
+    checkDeletable(callerId, projectKey);
+  }
+
+  /** 삭제 술어 본체 — 권한·기본 프로젝트 보호를 검사하고 대상 행을 돌려준다(실행 경로가 재조회하지 않도록). */
+  private ProjectRow checkDeletable(Long callerId, String projectKey) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     // 기본 개인 프로젝트는 사용자에게 항상 1개 보장되어야 하므로 삭제 차단
     if (project.isDefault()) {
       throw new ProjectConflictException("기본 개인 프로젝트는 삭제할 수 없습니다");
     }
-    projectRepository.softDelete(project.id());
+    return project;
   }
 
   /**
@@ -189,6 +225,33 @@ public class ProjectService {
    * 경계를 넘는 프로젝트 멤버십 등록 차단(messaging ChannelMemberService.add() 와 동일 정책, #713).
    */
   public MemberResponse addMember(Long callerId, String projectKey, AddMemberRequest req) {
+    ProjectRow project = checkAddMember(callerId, projectKey, req);
+    // 개인 프로젝트의 AGENT 는 MEMBER 고정 — OWNER 역할 요청이 들어와도 무시한다.
+    // (판정은 checkAddMember 가 끝냈고, 여기서는 실행에 쓸 role 만 보정한다.)
+    String roleToInsert = "PERSONAL".equals(project.type()) ? "MEMBER" : req.role();
+    memberRepository.insert(project.id(), req.userId(), roleToInsert);
+    // username/name 채워서 응답 (단건 조회로 N+1 회피)
+    return memberRepository
+        .findMemberWithUser(project.id(), req.userId())
+        .orElseThrow(() -> new IllegalStateException("멤버 추가 직후 조회 실패"));
+  }
+
+  /**
+   * 멤버 추가 가능 여부만 판정한다(쓰기 없음). #842 — 확인 카드 사전검증(dry-run)과 실행 경로가 공유하는 술어. {@link #addMember} 가 같은
+   * {@link #checkAddMember} 를 호출하므로 예외 종류·메시지·검사 순서가 두 벌로 갈리지 않는다.
+   *
+   * @throws ProjectNotFoundException 프로젝트 없음
+   * @throws ProjectAccessDeniedException OWNER 아님 · 대상이 타 테넌트 사용자
+   * @throws IllegalArgumentException 대상 사용자 없음
+   * @throws ProjectConflictException 비활성 사용자 · 개인 프로젝트에 사람 추가 · 이미 멤버
+   */
+  @Transactional(readOnly = true)
+  public void validateAddMember(Long callerId, String projectKey, AddMemberRequest req) {
+    checkAddMember(callerId, projectKey, req);
+  }
+
+  /** 멤버 추가 술어 본체 — 검사 순서를 고정하고, 실행 경로가 재조회하지 않도록 해석된 프로젝트를 돌려준다. */
+  private ProjectRow checkAddMember(Long callerId, String projectKey, AddMemberRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     if (membershipGuard.isForeignUser(req.userId())) {
       throw new ProjectAccessDeniedException("대상 사용자가 현재 테넌트 멤버가 아닙니다: " + req.userId());
@@ -203,23 +266,13 @@ public class ProjectService {
       throw new ProjectConflictException("비활성화된 사용자는 멤버로 추가할 수 없습니다");
     }
     // 개인 프로젝트: AGENT 만 멤버로 추가 허용 (담당자 지정용). HUMAN 은 비공개 유지 정책으로 차단.
-    // AGENT 는 요청 role 과 무관하게 항상 MEMBER 로 강제 — 개인 프로젝트 OWNER 는 사람만.
-    String roleToInsert = req.role();
-    if ("PERSONAL".equals(project.type())) {
-      if (!UserKind.isAgent(added.kind())) {
-        throw new ProjectConflictException("개인 프로젝트에는 사람 멤버를 추가할 수 없습니다");
-      }
-      // 개인 프로젝트의 AGENT 는 MEMBER 고정 — OWNER 역할 요청이 들어와도 무시한다.
-      roleToInsert = "MEMBER";
+    if ("PERSONAL".equals(project.type()) && !UserKind.isAgent(added.kind())) {
+      throw new ProjectConflictException("개인 프로젝트에는 사람 멤버를 추가할 수 없습니다");
     }
     if (memberRepository.isMember(project.id(), req.userId())) {
       throw new ProjectConflictException("이미 멤버입니다");
     }
-    memberRepository.insert(project.id(), req.userId(), roleToInsert);
-    // username/name 채워서 응답 (단건 조회로 N+1 회피)
-    return memberRepository
-        .findMemberWithUser(project.id(), req.userId())
-        .orElseThrow(() -> new IllegalStateException("멤버 추가 직후 조회 실패"));
+    return project;
   }
 
   /** 멤버 역할 변경. OWNER 권한 필요. 마지막 OWNER 강등 시 409. */

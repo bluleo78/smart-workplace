@@ -228,6 +228,41 @@ class CalendarReadOnlyGuardTest extends IntegrationTestBase {
   }
 
   /**
+   * #842: 로컬 일정을 읽기전용 캘린더로 옮기는 수정은 사전검증(validateUpdatable)에서 409 로 드러나야 한다. 이전에는 이 판정이 실행 도중에만 있어
+   * 확인 카드가 만들어진 뒤 승인 시점에야 실패했다. 실행 경로(update)도 같은 술어를 공유하므로 동일 예외를 낸다.
+   */
+  @Test
+  void validateUpdatable_moveToReadOnlyCalendar_isRejectedBeforeApproval() {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              status.setRollbackOnly();
+              CalendarEventRequest req =
+                  new CalendarEventRequest(
+                      "읽기전용으로 이동",
+                      null,
+                      OffsetDateTime.parse("2026-07-11T09:00:00Z"),
+                      OffsetDateTime.parse("2026-07-11T10:00:00Z"),
+                      false,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      externalCalendarId);
+              assertThatThrownBy(
+                      () ->
+                          eventService.validateUpdatable(
+                              ownerId, localEventId, req, EditScope.ALL, null))
+                  .isInstanceOf(ReadOnlyCalendarException.class);
+              assertThatThrownBy(
+                      () -> eventService.update(ownerId, localEventId, req, EditScope.ALL, null))
+                  .isInstanceOf(ReadOnlyCalendarException.class);
+              return null;
+            });
+  }
+
+  /**
    * M365_GRAPH OAuth email_account 픽스처 생성.
    *
    * <p>calendar.external_account_id FK 충족을 위해 실제 행을 삽입한다.

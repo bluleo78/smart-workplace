@@ -764,6 +764,17 @@ export function buildTools(
     summary: string,
     params: Record<string, unknown>,
   ): Promise<string> {
+    // #842: 카드 등록 전 서버 사전검증(dry-run) — 승인 시점과 같은 권한·매핑·도메인 검증을 미리 돌린다.
+    try {
+      await client.validateAction(agentId, actionType, params);
+    } catch (err) {
+      // 4xx = 파라미터·권한 문제 → 그대로 전파한다. 도구 에러로 변환되며 message 에 서버 사유가 담겨 있어
+      // LLM 이 스스로 교정할 수 있다(자체 문구로 바꾸면 사유가 사라진다 — #840 교훈).
+      // 응답 없음(네트워크·타임아웃)·5xx 는 LLM 이 고칠 수 없는 일시 장애라 카드 생성을 막지 않는다(fail-open,
+      // 승인 시점에 서버가 다시 검증한다). 충돌 조회(listEvents)의 fail-open 과 같은 원칙.
+      const status = (err as { response?: { status?: number } }).response?.status;
+      if (status !== undefined && status >= 400 && status < 500) throw err;
+    }
     // #462 슬라이스4: 브리지가 있으면 호스트 콜백으로 제안 전달(인-프로세스 — 파일 IPC 불필요).
     if (hostBridge) {
       hostBridge.onProposal({ actionType, summary, params });
@@ -780,7 +791,7 @@ export function buildTools(
     return '제안을 등록했습니다. 사용자 확인을 기다립니다.';
   }
 
-  // #333 M2: 일정 생성 제안 도구 — API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환.
+  // #333 M2: 일정 생성 제안 도구 — 실행하지 않고(사전검증만, #842) 사이드카에 제안 객체를 쓰고 ack 반환.
   // #393: attendees 파라미터를 명시하지 않으면 스키마에 없는 것으로 간주해 haiku가 생략함.
   // #394: startsAt/endsAt 타임존 보정 — 핸들러에서 normalizeTimezone 으로 처리.
   // #395: 새 일정 시간대 충돌을 서버에서 결정론적으로 확인한다. agent.md 는 propose 전 list_events 를
@@ -832,20 +843,10 @@ export function buildTools(
     },
   };
 
-  // #397: 일정 존재 여부를 서버에서 직접 확인한다. haiku가 get_event 도구 호출 없이 환각으로
-  // "존재하지 않는다"고 응답하는 비결정적 동작을 제안 핸들러 안에서 결정론적으로 차단한다.
-  async function verifyEventExists(id: number): Promise<string | null> {
-    try {
-      await client.getEvent(agentId, id);
-      return null; // 존재함 — 제안 진행 가능
-    } catch {
-      return `해당 일정(id: ${id})을 찾을 수 없습니다. 일정 id 를 다시 확인해주세요.`;
-    }
-  }
-
-  // #333 M4: 일정 수정 제안 도구 — API 미호출, 사이드카에 수정 제안을 쓰고 ack 반환.
+  // #333 M4: 일정 수정 제안 도구 — 실행하지 않고(사전검증만, #842) 사이드카에 수정 제안을 쓰고 ack 반환.
   // scope: THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체. occurrenceDate=대상 회차 시작시각.
-  // #397: 수정 전 get_event 로 존재 여부 서버 확인 — haiku 환각(no tool call, "not found") 결정론적 차단.
+  // #397/#842: 존재 여부는 writeProposal 의 서버 사전검증이 확인한다 — haiku 환각(no tool call, "not found") 차단은
+  //   유지하면서, 읽기전용 캘린더(409) 같은 다른 실패 사유도 뭉개지 않고 그대로 LLM 에 전달된다.
   const proposeUpdateEventTool: McpTool = {
     name: 'propose_update_event',
     description:
@@ -853,16 +854,13 @@ export function buildTools(
     inputSchema: proposeUpdateEventInput,
     async handler(args) {
       const { summary, ...params } = proposeUpdateEventInput.parse(args);
-      // #397: 제안 전 존재 여부 확인 — 존재하지 않으면 에러 메시지 반환, 환각 차단.
-      const notFound = await verifyEventExists(params.id);
-      if (notFound) return notFound;
       return await writeProposal('calendar.update_event', summary, params);
     },
   };
 
-  // #333 M4: 일정 삭제 제안 도구 — API 미호출, 사이드카에 삭제 제안을 쓰고 ack 반환.
+  // #333 M4: 일정 삭제 제안 도구 — 실행하지 않고(사전검증만, #842) 사이드카에 삭제 제안을 쓰고 ack 반환.
   // scope/occurrenceDate 는 수정 제안과 동일 의미. 승인 시 서버가 실제로 삭제합니다.
-  // #397: 삭제 전 get_event 로 존재 여부 서버 확인 — haiku 환각(no tool call, "not found") 결정론적 차단.
+  // #397/#842: 존재 여부 확인은 writeProposal 의 서버 사전검증이 담당(위 수정 제안과 동일).
   const proposeDeleteEventTool: McpTool = {
     name: 'propose_delete_event',
     description:
@@ -870,9 +868,6 @@ export function buildTools(
     inputSchema: proposeDeleteEventInput,
     async handler(args) {
       const { summary, ...params } = proposeDeleteEventInput.parse(args);
-      // #397: 제안 전 존재 여부 확인 — 존재하지 않으면 에러 메시지 반환, 환각 차단.
-      const notFound = await verifyEventExists(params.id);
-      if (notFound) return notFound;
       return await writeProposal('calendar.delete_event', summary, params);
     },
   };
@@ -920,7 +915,7 @@ export function buildTools(
       return JSON.stringify(await client.getMail(agentId, messageId));
     },
   };
-  // #333 M3: 메일 발송 제안 도구 — propose_create_event 미러. API 미호출, 사이드카에 제안 기록 후 ack 반환.
+  // #333 M3: 메일 발송 제안 도구 — propose_create_event 미러. 실행하지 않고(사전검증만, #842) 사이드카에 제안 기록 후 ack 반환.
   const proposeSendMailTool: McpTool = {
     name: 'propose_send_mail',
     description:
@@ -1145,7 +1140,7 @@ export function buildTools(
     },
   };
 
-  // #333 M3: 프로젝트 제안 도구 — API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환.
+  // #333 M3: 프로젝트 제안 도구 — 실행하지 않고(사전검증만, #842) 사이드카에 제안 객체를 쓰고 ack 반환.
   const proposeCreateProjectTool: McpTool = {
     name: 'propose_create_project',
     description: '프로젝트 생성을 제안합니다. 직접 생성하지 않고 확인 카드용 제안만 만듭니다. summary 에 한 줄 요약(이름·key)을 넣으세요. 승인 시 서버가 생성합니다.',

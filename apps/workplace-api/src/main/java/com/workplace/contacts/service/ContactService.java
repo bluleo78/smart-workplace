@@ -129,8 +129,19 @@ public class ContactService {
   /** 외부 연락처 삭제. update 와 동일한 권한 규칙. */
   @Transactional
   public void delete(long callerId, long id) {
-    requireWritable(callerId, id);
+    validateDeletable(callerId, id);
     repo.delete(id);
+  }
+
+  /**
+   * 외부 연락처 삭제 사전검증(#842) — delete 와 같은 술어(쓰기 권한)를 쓰기 없이 수행한다. 확인카드 승인 전에 존재·권한 실패를 드러낸다.
+   *
+   * @throws ContactNotFoundException 미존재 또는 PERSONAL 비-owner(존재 은닉)
+   * @throws ContactForbiddenException SHARED 비-owner·비-admin
+   */
+  @Transactional(readOnly = true)
+  public void validateDeletable(long callerId, long id) {
+    requireWritable(callerId, id);
   }
 
   /** 즐겨찾기 추가 — 타깃 존재·가시성 검증 후 멱등 add. 비가시/미존재 타깃은 404(임의 ID 즐겨찾기 차단). */

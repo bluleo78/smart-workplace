@@ -21,6 +21,8 @@ function client(token: string | Error): WorkplaceApiClient {
     // #719: 스코프 클라이언트를 만들지 않고 자기 자신을 반환 — 이 테스트 스위트는 agentId 경로만 다뤄
     // 테넌트 스코프를 검증할 필요가 없다(run-ai-chat.test.ts 가 스코프 배선을 별도 검증).
     withOnBehalfOfTenant: () => c,
+    // #842: propose 사전검증 — 이 스위트는 이슈 이벤트 경로만 다루므로 통과 스텁으로 충분.
+    validateAction: vi.fn().mockResolvedValue(undefined),
     addIssueComment: vi.fn().mockResolvedValue(undefined),
     updateIssueStatus: vi.fn().mockResolvedValue(undefined),
     getIssueDetail: vi.fn().mockResolvedValue({} as never),

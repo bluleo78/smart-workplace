@@ -51,9 +51,25 @@ public class MailComposeService {
   private final List<MailTransport> transports;
   private final MailSentAppender appender;
 
-  /** 본인 계정으로 메일 발송. 발송 성공 시 로컬 SENT 행 id + Message-ID 반환. */
-  @Transactional
-  public SendResult send(long userId, long accountId, MailSendRequest req) {
+  /**
+   * 발송 사전검증(#842) — 확인카드 승인 전에 "승인 후에야 드러날 실패"를 미리 드러내기 위한 dry-run. 실행 경로(send)와 완전히 동일한 술어를
+   * 공유하며(prepare) 전송·폴더 생성 등 어떤 쓰기도 하지 않는다.
+   *
+   * @throws EmailAccountNotFoundException 내 계정이 아님
+   * @throws MailValidationException 수신자 0명 또는 잘못된 주소 형식
+   * @throws EmailMessageNotFoundException 답장 대상 원본 메일 없음
+   * @throws MailSendException 지원하지 않는 메일 공급자
+   */
+  @Transactional(readOnly = true)
+  public void validateSendable(long userId, long accountId, MailSendRequest req) {
+    prepare(userId, accountId, req);
+  }
+
+  /**
+   * 발송 전 검증 + 조회 결과 취합. send 와 validateSendable 이 공유하는 유일한 술어 정의 지점 — 검증 순서(계정 소유 → 수신자 → 주소 형식 →
+   * 답장 컨텍스트 → 공급자 전송기)가 곧 예외 우선순위다. 읽기만 수행한다.
+   */
+  private SendPlan prepare(long userId, long accountId, MailSendRequest req) {
     EmailAccountResponse account =
         accountRepo
             .findByIdAndUser(userId, accountId)
@@ -69,6 +85,38 @@ public class MailComposeService {
     validateAddresses(cc);
     validateAddresses(bcc);
 
+    // 답장이면 부모 메일(내 소유) 존재 확인 — 없으면 404.
+    ReplyContext replyCtx = null;
+    if (req.inReplyToMessageId() != null) {
+      replyCtx =
+          messageRepo
+              .findReplyContextByIdAndUser(userId, req.inReplyToMessageId())
+              .orElseThrow(() -> new EmailMessageNotFoundException(req.inReplyToMessageId()));
+    }
+
+    // 공급자별 전송기 존재 확인 — 미지원 공급자를 MIME 조립 전에 조기 차단.
+    return new SendPlan(account, to, cc, bcc, replyCtx, transportFor(account.provider()));
+  }
+
+  /** prepare 산출물 — 검증 통과 사실 + 재조회 없이 재사용할 값들. replyCtx 는 신규/전달이면 null. */
+  private record SendPlan(
+      EmailAccountResponse account,
+      List<String> to,
+      List<String> cc,
+      List<String> bcc,
+      ReplyContext replyCtx,
+      MailTransport transport) {}
+
+  /** 본인 계정으로 메일 발송. 발송 성공 시 로컬 SENT 행 id + Message-ID 반환. */
+  @Transactional
+  public SendResult send(long userId, long accountId, MailSendRequest req) {
+    // 검증은 사전검증(validateSendable)과 동일 경로 — 술어 포크 금지.
+    SendPlan plan = prepare(userId, accountId, req);
+    EmailAccountResponse account = plan.account();
+    List<String> to = plan.to();
+    List<String> cc = plan.cc();
+    List<String> bcc = plan.bcc();
+
     // Message-ID 직접 생성(전송본·APPEND·로컬 행 공유).
     String messageId = UUID.randomUUID() + "@" + domainOf(account.emailAddress());
 
@@ -76,11 +124,8 @@ public class MailComposeService {
     String threadId = messageId;
     String inReplyTo = null;
     String references = null;
-    if (req.inReplyToMessageId() != null) {
-      ReplyContext ctx =
-          messageRepo
-              .findReplyContextByIdAndUser(userId, req.inReplyToMessageId())
-              .orElseThrow(() -> new EmailMessageNotFoundException(req.inReplyToMessageId()));
+    if (plan.replyCtx() != null) {
+      ReplyContext ctx = plan.replyCtx();
       threadId = ctx.threadId();
       inReplyTo = ctx.parentMessageId();
       references = buildReferences(ctx.parentReferences(), ctx.parentMessageId());
@@ -111,7 +156,7 @@ public class MailComposeService {
     } catch (MessagingException e) {
       throw new MailSendException("메일 구성에 실패했습니다", e);
     }
-    transportFor(account.provider()).transmit(userId, account, message, mail);
+    plan.transport().transmit(userId, account, message, mail);
 
     // 2) 로컬 SENT 행(표시 원본).
     long folderId = folderRepo.ensureFolder(accountId, SENT).id();

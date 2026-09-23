@@ -26,4 +26,17 @@ public class ActionController {
     Object result = actionService.confirm(callerId, request.actionType(), request.params());
     return ResponseEntity.status(HttpStatus.CREATED).body(result);
   }
+
+  /**
+   * 확인 카드 사전검증(dry-run, #842) — AI 가 카드를 만들기 전에 승인 시점과 같은 검증을 미리 돌린다.
+   *
+   * <p>통과하면 204, 실패하면 승인 때와 동일한 예외 → ErrorResponse 로 사유가 전달돼 AI 가 자가교정한다. 실행은 하지 않으므로 성공 응답에 본문이
+   * 없다.
+   */
+  @PostMapping("/validate")
+  public ResponseEntity<Void> validate(
+      @AuthenticationPrincipal Long callerId, @Valid @RequestBody ActionConfirmRequest request) {
+    actionService.validate(callerId, request.actionType(), request.params());
+    return ResponseEntity.noContent().build();
+  }
 }

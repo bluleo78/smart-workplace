@@ -394,6 +394,9 @@ export interface WorkplaceApiClient {
   renameFolder(agentId: number, folderId: number, name: string): Promise<DriveFolderItem>;
   moveFolder(agentId: number, folderId: number, targetParentId: number | null): Promise<void>;
   moveFile(agentId: number, fileId: number, targetFolderId: number | null): Promise<void>;
+  // #842: 확인카드 사전검증(dry-run). 승인 시점과 같은 권한·매핑·도메인 검증만 서버에서 수행한다.
+  //   실패는 AxiosError 로 던져지고 message 는 인터셉터가 서버 사유(describeApiError)로 채운다.
+  validateAction(agentId: number, actionType: string, params: Record<string, unknown>): Promise<void>;
   // L3 위임: AI 제안 카드 생성(on-behalf AGENT). proposedByUserId=위임자, parentMessageId=스레드 미러.
   // projectKey: AI 가 후보 목록에서 추론해 고른 프로젝트 키. 없으면 백엔드 개인 작업 폴백.
   proposeCreateIssue(
@@ -692,6 +695,11 @@ export function createWorkplaceApiClient(opts: {
         parentMessageId != null ? { body, parentMessageId } : { body },
         onBehalfOf(agentId),
       );
+    },
+
+    // #842: 확인카드 사전검증 — 성공은 204(본문 없음), 실패는 승인 때와 동일한 4xx 로 사유가 내려온다.
+    async validateAction(agentId, actionType, params) {
+      await http.post('/actions/validate', { actionType, params }, onBehalfOf(agentId));
     },
 
     // L3 위임: 이슈 생성 제안 카드. actionType='CREATE_ISSUE' + 위임 컨텍스트를 담아 proposals API 호출.

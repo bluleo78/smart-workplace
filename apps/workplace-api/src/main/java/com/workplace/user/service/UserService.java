@@ -359,6 +359,12 @@ public class UserService {
 
   @Transactional
   public void setUserRoles(Long userId, List<Long> roleIds, Long callerId) {
+    checkSetRoles(userId, roleIds, callerId);
+    userRepository.setRoles(userId, roleIds);
+  }
+
+  /** 역할 교체 술어 본체(쓰기 없음) — 존재·테넌트 멤버십·자기 잠금 방지. 실행/사전검증 양쪽이 공유한다 (#842). */
+  private void checkSetRoles(Long userId, List<Long> roleIds, Long callerId) {
     if (!userRepository.existsById(userId)) {
       throw new UserNotFoundException("User not found: " + userId);
     }
@@ -379,7 +385,6 @@ public class UserService {
                 }
               });
     }
-    userRepository.setRoles(userId, roleIds);
   }
 
   /**
@@ -388,10 +393,29 @@ public class UserService {
    */
   @Transactional
   public void setUserRolesByNames(Long userId, List<String> roleNames, Long callerId) {
+    List<Long> roleIds = resolveRolesByNames(userId, roleNames, callerId);
+    userRepository.setRoles(userId, roleIds);
+  }
+
+  /**
+   * 역할명 기반 역할 교체의 사전검증(dry-run) 진입점 (#842). 확인 카드가 승인 전에 실패를 드러내도록, 쓰기({@code setRoles}) 직전까지의 모든
+   * 검증을 수행하되 아무것도 쓰지 않는다. {@link #setUserRolesByNames} 와 같은 {@link #resolveRolesByNames} 를 호출하므로
+   * 술어가 두 벌이 되지 않는다.
+   *
+   * @throws IllegalArgumentException 역할 목록 비어 있음 · 다룰 수 없는 역할 손실 · 역할명 해석 실패 · 자기 ADMIN 제거
+   * @throws UserNotFoundException 사용자 없음 · 현재 테넌트 비멤버
+   */
+  @Transactional(readOnly = true)
+  public void validateSetRolesByNames(Long userId, List<String> roleNames, Long callerId) {
+    resolveRolesByNames(userId, roleNames, callerId);
+  }
+
+  /** 역할명 → roleId 해석 + 전체 검증(쓰기 없음). 실행 경로는 반환된 roleIds 로 setRoles 만 수행한다 (#842). */
+  private List<Long> resolveRolesByNames(Long userId, List<String> roleNames, Long callerId) {
     if (roleNames == null || roleNames.isEmpty()) {
       throw new IllegalArgumentException("역할이 비어 있습니다");
     }
-    // requireMember/존재 검증은 아래 setUserRoles 가 수행한다 — 여기서 또 부르면 같은 쿼리를 두 번 돈다.
+    // requireMember/존재 검증은 아래 checkSetRoles 가 수행한다 — 여기서 또 부르면 같은 쿼리를 두 번 돈다.
     // setUserRoles 는 역할 집합을 통째로 교체한다. AI 경로는 ADMIN/USER 두 이름만 다룰 수 있으므로,
     // 대상이 그 밖의 역할(업무별 에이전트의 AGENT 역할, 관리자가 부여한 커스텀 역할)을 갖고 있으면
     // 조용히 사라진다 — 개인 비서가 AGENT 역할을 잃고 기능이 멈추는 식이다. 손실이 생길 상황이면
@@ -417,11 +441,26 @@ public class UserService {
                         .orElseThrow(() -> new IllegalArgumentException("역할이 없습니다: " + name))
                         .id())
             .toList();
-    setUserRoles(userId, roleIds, callerId);
+    // 존재·멤버십·자기 잠금 검증은 실행 경로(setUserRoles)와 동일한 술어를 공유한다.
+    checkSetRoles(userId, roleIds, callerId);
+    return roleIds;
   }
 
   @Transactional
   public void setUserActive(Long userId, boolean active) {
+    validateSetActive(userId, active);
+    userRepository.setActive(userId, active);
+  }
+
+  /**
+   * 활성/비활성 전환 가능 여부만 판정한다(쓰기 없음). #842 — 확인 카드 사전검증(dry-run)과 실행 경로가 공유하는 술어. {@link
+   * #setUserActive} 가 그대로 호출하므로 술어 포크가 없다.
+   *
+   * @throws UserNotFoundException 사용자 없음 · 현재 테넌트 비멤버
+   * @throws IllegalStateException 마지막 활성 ADMIN 을 비활성화하려 함
+   */
+  @Transactional(readOnly = true)
+  public void validateSetActive(Long userId, boolean active) {
     if (!userRepository.existsById(userId)) {
       throw new UserNotFoundException("User not found: " + userId);
     }
@@ -431,6 +470,5 @@ public class UserService {
     if (!active && userRepository.hasAdminRole(userId) && userRepository.countActiveAdmins() <= 1) {
       throw new IllegalStateException("마지막 활성 ADMIN 계정은 비활성화할 수 없습니다");
     }
-    userRepository.setActive(userId, active);
   }
 }

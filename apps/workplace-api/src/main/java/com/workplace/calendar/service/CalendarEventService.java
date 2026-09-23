@@ -112,11 +112,14 @@ public class CalendarEventService {
    * 행이 남지 않는다.
    */
   public CalendarEventResponse create(long callerId, CalendarEventRequest req) {
-    validateRecurrence(req.recurrenceRule());
-    validateColorOverride(req.color());
-
-    // ① resolve — 대상 캘린더 분류(tx 안: requireWritableCalendar 의 RLS·소유/RO 검증 + 외부 참조 로드)
-    WriteTarget target = txTemplate.execute(s -> resolveWriteTarget(callerId, req));
+    // ① resolve — 사전검증(validateCreatable) + 대상 캘린더 분류. 검증도 tx 안에서 수행한다 —
+    // requireWritableCalendar 는 RLS 읽기라 txTemplate 밖에서 부르면 GUC 부재로 거짓 404 가 난다(#492).
+    WriteTarget target =
+        txTemplate.execute(
+            s -> {
+              validateCreatable(callerId, req);
+              return resolveWriteTarget(callerId, req);
+            });
 
     // ② 외부 쓰기 → Graph HTTP (tx 밖)
     String externalId = null;
@@ -178,7 +181,9 @@ public class CalendarEventService {
    * attendees=null(Graph 불필요).
    */
   private WriteTarget resolveWriteTarget(long callerId, CalendarEventRequest req) {
-    long calendarId = resolveCalendarId(callerId, req.calendarId()); // 소유/RO(409) 검증
+    // 소유/RO(409) 검증은 직전 validateCreatable 에서 이미 수행 — 여기서는 기본 캘린더 보정만 한다(중복 검증 제거).
+    long calendarId =
+        req.calendarId() != null ? req.calendarId() : calendarService.ensureDefault(callerId);
     var ext = calendarRepo.findExternalRef(calendarId).orElse(null);
     if (ext == null || ext.externalAccountId() == null) {
       return new WriteTarget(calendarId, false, null, null, null);
@@ -400,31 +405,10 @@ public class CalendarEventService {
       CalendarEventRequest req,
       EditScope scope,
       OffsetDateTime occurrenceDate) {
-    validateRecurrence(req.recurrenceRule());
-    validateColorOverride(req.color());
-
-    // ① resolve — owner(404)·RO(409) 검증 + 외부 참조 + 현재 소속 캘린더(이동 차단용). requireWritableEvent 는 RO
-    // 캘린더(공휴일)만 차단.
+    // ① resolve — 사전검증과 같은 술어(checkUpdatable: RRULE·색·owner(404)·RO(409)·회차 식별자·이동 대상 캘린더·외부
+    // 일정 제약)를 돌리고 외부 쓰기 컨텍스트를 얻는다. 검증은 RLS 읽기를 포함하므로 반드시 tx 안에서 수행한다(#492).
     ExternalWriteCtx ctx =
-        txTemplate.execute(
-            s -> {
-              requireOwner(callerId, id);
-              requireWritableEvent(id);
-              CalendarEventResponse cur =
-                  repo.findById(callerId, id)
-                      .orElseThrow(() -> new CalendarEventNotFoundException(id));
-              var ref =
-                  repo.findExternalRef(id)
-                      .orElseThrow(() -> new CalendarEventNotFoundException(id));
-              if (ref.externalAccountId() == null || ref.eventExternalId() == null) {
-                return new ExternalWriteCtx(false, null, null, cur.calendarId());
-              }
-              EmailAccountResponse acc =
-                  emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
-              return acc == null
-                  ? new ExternalWriteCtx(false, null, null, cur.calendarId())
-                  : new ExternalWriteCtx(true, acc, ref.eventExternalId(), cur.calendarId());
-            });
+        txTemplate.execute(s -> checkUpdatable(callerId, id, req, scope, occurrenceDate));
 
     if (ctx.external()) {
       // ② 외부 쓰기 → Graph HTTP (tx 밖). 가드: 호출자 ambient tx(AI·채팅 confirm) 안이면 REQUIRED txTemplate 이 그
@@ -433,14 +417,7 @@ public class CalendarEventService {
       if (TransactionSynchronizationManager.isActualTransactionActive()) {
         throw new ExternalCalendarWriteInTransactionException();
       }
-      // 외부 일정은 단일 — 반복 전환 차단(#546).
-      if (req.recurrenceRule() != null && !req.recurrenceRule().isBlank()) {
-        throw new RecurringNotSupportedOnExternalCalendarException();
-      }
-      // 동기화 일정의 다른 캘린더 이동 차단(#502 범위 밖 — Graph move 별도 API). 조용히 무시하지 않고 422 로 명시.
-      if (req.calendarId() != null && !req.calendarId().equals(ctx.currentCalendarId())) {
-        throw new ExternalEventMoveNotSupportedException();
-      }
+      // 반복 전환·캘린더 이동 차단은 checkUpdatable 이 이미 수행했다(#842 — 사전검증과 공유).
       // update 는 참석자 변경 미지원 — attendees=null 로 Graph PATCH 에서 생략.
       transportFor(ctx.account().provider())
           .updateEvent(callerId, ctx.account(), ctx.externalId(), toGraphWrite(req, null));
@@ -465,8 +442,8 @@ public class CalendarEventService {
   /**
    * update 의 로컬 경로 — 기존 update 본문(반복 scope 분기 포함). txTemplate 안에서만 호출.
    *
-   * <p>requireOwner/requireWritableEvent 는 resolve 단계에서 이미 통과했으므로 재검증하지 않는다(이중 검증 불필요). target 재조회만
-   * 유지.
+   * <p>requireOwner/requireWritableEvent/requireOccurrenceDate 는 resolve 단계의 checkUpdatable 에서 이미
+   * 통과했으므로 재검증하지 않는다(이중 검증 불필요). target 재조회만 유지.
    */
   private CalendarEventResponse doUpdateLocal(
       long callerId,
@@ -491,7 +468,6 @@ public class CalendarEventService {
           id, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), scheduleChanged);
       return get(callerId, id);
     }
-    requireOccurrenceDate(scope, occurrenceDate);
 
     if (scope == EditScope.THIS) {
       return updateThisOccurrence(callerId, id, req, occurrenceDate);
@@ -599,13 +575,12 @@ public class CalendarEventService {
    * 가 정상 반환하므로(이미 없음=삭제 목표 상태) 502 로 둔갑하지 않고 로컬 삭제를 진행한다.
    */
   public void delete(long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
-    // ① resolve — owner(404)·RO(409) 검증 + 외부 참조(externalId/account) 로드. delete 는 이동이 없어
-    // currentCalendarId 불필요(null).
+    // ① resolve — 사전검증(validateDeletable: owner(404)·RO(409)·회차 식별자) + 외부 참조(externalId/account)
+    // 로드. delete 는 이동이 없어 currentCalendarId 불필요(null). 검증은 RLS 읽기라 tx 안에서 수행(#492).
     ExternalWriteCtx ctx =
         txTemplate.execute(
             s -> {
-              requireOwner(callerId, id);
-              requireWritableEvent(id);
+              validateDeletable(callerId, id, scope, occurrenceDate);
               var ref =
                   repo.findExternalRef(id)
                       .orElseThrow(() -> new CalendarEventNotFoundException(id));
@@ -647,9 +622,9 @@ public class CalendarEventService {
   /**
    * delete 의 로컬 경로 — 기존 delete 본문(반복 scope 분기 포함). txTemplate 안에서만 호출.
    *
-   * <p>requireOwner/requireWritableEvent 는 resolve 단계에서 이미 통과했으므로 재검증하지 않는다(이중 검증 불필요). 단일 일정이거나
-   * scope=ALL 이면 마스터 삭제(예외·리마인더 cascade). 오버라이드 별도 일정은 cascade 되지 않으므로 직접 제거. THIS=회차 취소,
-   * THIS_AND_FOLLOWING=시리즈 잘라내기.
+   * <p>requireOwner/requireWritableEvent/requireOccurrenceDate 는 resolve 단계의 validateDeletable 에서
+   * 이미 통과했으므로 재검증하지 않는다(이중 검증 불필요). 단일 일정이거나 scope=ALL 이면 마스터 삭제(예외·리마인더 cascade). 오버라이드 별도 일정은
+   * cascade 되지 않으므로 직접 제거. THIS=회차 취소, THIS_AND_FOLLOWING=시리즈 잘라내기.
    */
   private void doDeleteLocal(
       long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
@@ -678,7 +653,6 @@ public class CalendarEventService {
       repo.deleteAllById(overrides);
       return;
     }
-    requireOccurrenceDate(scope, occurrenceDate);
 
     if (scope == EditScope.THIS) {
       // 이미 오버라이드가 있던 회차를 취소하면 예외 행은 cancel 로 repoint 되지만 오버라이드 별도 일정은 남는다 → 고아 ghost 방지로 먼저 삭제.
@@ -996,6 +970,133 @@ public class CalendarEventService {
             toEventId, a.externalEmail(), a.name(), a.role(), a.rsvpStatus());
       }
     }
+  }
+
+  /**
+   * 일정 생성 사전검증(#842) — 확인카드 승인 전에 "승인 후에야 드러날 실패"를 미리 드러내기 위한 dry-run. 실행 경로(create)와 동일한 술어를 공유하며
+   * 어떤 쓰기도 하지 않는다.
+   *
+   * <p>주의: calendarId 가 null 이면 실행 경로는 resolveCalendarId → calendarService.ensureDefault 로 기본 캘린더를
+   * <b>INSERT</b> 한다. 사전검증은 쓰기가 금지되므로 이 경우 캘린더 검증을 건너뛴다(기본 캘린더는 항상 본인 소유·쓰기가능이라 검증 가치도 없다).
+   *
+   * @throws IllegalArgumentException 잘못된 RRULE 또는 허용되지 않은 색
+   * @throws com.workplace.calendar.exception.CalendarNotFoundException 미존재/비소유 캘린더
+   * @throws ReadOnlyCalendarException 읽기전용(외부 동기화) 캘린더
+   */
+  @Transactional(readOnly = true)
+  public void validateCreatable(long callerId, CalendarEventRequest req) {
+    validateRecurrence(req.recurrenceRule());
+    validateColorOverride(req.color());
+    if (req.calendarId() != null) {
+      calendarService.requireWritableCalendar(callerId, req.calendarId());
+    }
+  }
+
+  /**
+   * 일정 수정 사전검증(#842) — update 실행 경로와 동일한 술어(checkUpdatable)를 쓰기 없이 수행한다.
+   *
+   * <p>회차 식별자 검사는 doUpdateLocal 과 동일한 조건 — 대상이 반복 일정이고 scope 가 ALL 이 아닐 때만 필수다.
+   *
+   * @throws IllegalArgumentException 잘못된 RRULE/색, 또는 THIS·THIS_AND_FOLLOWING 인데 occurrenceDate 누락
+   * @throws CalendarEventNotFoundException 미존재 또는 비-owner(존재 은닉)
+   * @throws ReadOnlyCalendarException 읽기전용 캘린더 소속 일정, 또는 읽기전용 캘린더로 이동
+   * @throws CalendarNotFoundException 이동 대상 캘린더 미존재·비소유
+   * @throws RecurringNotSupportedOnExternalCalendarException 외부 동기화 일정의 반복 전환
+   * @throws ExternalEventMoveNotSupportedException 외부 동기화 일정의 다른 캘린더 이동
+   */
+  @Transactional(readOnly = true)
+  public void validateUpdatable(
+      long callerId,
+      long id,
+      CalendarEventRequest req,
+      EditScope scope,
+      OffsetDateTime occurrenceDate) {
+    checkUpdatable(callerId, id, req, scope, occurrenceDate);
+  }
+
+  /**
+   * 일정 수정 술어 단일 정의(#842) — validateUpdatable(사전검증)과 update(실행)가 공유한다. 쓰기 없이 판정하고, 실행에 필요한 외부 쓰기
+   * 컨텍스트를 반환한다.
+   *
+   * <p>이동 대상 캘린더도 여기서 검사한다: 로컬 일정은 실행 경로(resolveCalendarId)와 같은 requireWritableCalendar, 외부 동기화 일정은
+   * 반복 전환·다른 캘린더 이동 불가(422). 이전에는 이 판정이 실행 도중에만 있어 읽기전용 캘린더로 옮기는 제안이 승인 후에야 409 로 실패했다.
+   */
+  private ExternalWriteCtx checkUpdatable(
+      long callerId,
+      long id,
+      CalendarEventRequest req,
+      EditScope scope,
+      OffsetDateTime occurrenceDate) {
+    validateRecurrence(req.recurrenceRule());
+    validateColorOverride(req.color());
+    requireOwner(callerId, id);
+    requireWritableEvent(id);
+    // 대상 행은 한 번만 읽어 회차 식별자 판정·외부 컨텍스트 해석에 함께 쓴다.
+    CalendarEventResponse cur =
+        repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+    requireOccurrenceDateIfRecurring(cur, scope, occurrenceDate);
+    ExternalWriteCtx ctx = resolveExternalCtx(callerId, cur);
+    if (ctx.external()) {
+      // 외부 일정은 단일 — 반복 전환 차단(#546).
+      if (req.recurrenceRule() != null && !req.recurrenceRule().isBlank()) {
+        throw new RecurringNotSupportedOnExternalCalendarException();
+      }
+      // 동기화 일정의 다른 캘린더 이동 차단(#502 범위 밖 — Graph move 별도 API). 조용히 무시하지 않고 422 로 명시.
+      if (req.calendarId() != null && !req.calendarId().equals(ctx.currentCalendarId())) {
+        throw new ExternalEventMoveNotSupportedException();
+      }
+    } else if (req.calendarId() != null) {
+      // 로컬 일정의 이동 대상 — 모든 로컬 수정 경로(단일·ALL·THIS·THIS_AND_FOLLOWING)가 resolveCalendarId 로 같은 검사를 한다.
+      calendarService.requireWritableCalendar(callerId, req.calendarId());
+    }
+    return ctx;
+  }
+
+  /** 외부 쓰기 컨텍스트 조회 — 연동 계정·외부 id 가 모두 살아 있을 때만 외부 일정으로 본다. 읽기 전용. */
+  private ExternalWriteCtx resolveExternalCtx(long callerId, CalendarEventResponse cur) {
+    long id = cur.id();
+    var ref = repo.findExternalRef(id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+    if (ref.externalAccountId() == null || ref.eventExternalId() == null) {
+      return new ExternalWriteCtx(false, null, null, cur.calendarId());
+    }
+    EmailAccountResponse acc =
+        emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
+    return acc == null
+        ? new ExternalWriteCtx(false, null, null, cur.calendarId())
+        : new ExternalWriteCtx(true, acc, ref.eventExternalId(), cur.calendarId());
+  }
+
+  /**
+   * 일정 삭제 사전검증(#842) — delete 실행 경로와 동일한 술어(owner·읽기전용·회차 식별자)를 쓰기 없이 수행한다.
+   *
+   * @throws CalendarEventNotFoundException 미존재 또는 비-owner(존재 은닉)
+   * @throws ReadOnlyCalendarException 읽기전용 캘린더 소속 일정
+   * @throws IllegalArgumentException THIS·THIS_AND_FOLLOWING 인데 occurrenceDate 누락
+   */
+  @Transactional(readOnly = true)
+  public void validateDeletable(
+      long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
+    requireOwner(callerId, id);
+    requireWritableEvent(id);
+    requireOccurrenceDateIfRecurring(
+        repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id)),
+        scope,
+        occurrenceDate);
+  }
+
+  /**
+   * 회차 식별자 필요 여부 판정 — doUpdateLocal/doDeleteLocal 의 분기 조건을 그대로 미러링한다. 단일 일정이거나 scope=ALL 이면 마스터 행
+   * 전체를 다루므로 occurrenceDate 가 필요 없다.
+   *
+   * <p>#816 의 "오버라이드 일정 직접 삭제" 경로도 이 조건에 포섭된다 — 오버라이드 일정은 withoutRecurrence 로 만들어져
+   * recurrenceRule=null 이기 때문.
+   */
+  private void requireOccurrenceDateIfRecurring(
+      CalendarEventResponse target, EditScope scope, OffsetDateTime occurrenceDate) {
+    if (target.recurrenceRule() == null || scope == EditScope.ALL) {
+      return;
+    }
+    requireOccurrenceDate(scope, occurrenceDate);
   }
 
   /** override 색 검증 — null 은 상속(허용), 값이 있으면 팔레트 키만 허용. */

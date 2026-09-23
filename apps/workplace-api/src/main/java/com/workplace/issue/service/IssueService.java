@@ -89,6 +89,60 @@ public class IssueService {
    * parentNumber 지정 불가 (Phase 4a).
    */
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
+    CreateIssuePlan plan = planCreate(callerId, projectKey, req);
+    var project = plan.project();
+    List<Long> assigneeIds = plan.assigneeIds();
+    Long typeId = plan.typeId();
+    Long parentIssueId = plan.parentIssueId();
+
+    int number = sequenceRepository.allocateNext(project.id());
+    var row =
+        issueRepository.insert(
+            project.id(),
+            number,
+            req.title(),
+            req.body(),
+            req.priority() != null ? req.priority() : "MID",
+            req.dueDate(),
+            callerId,
+            typeId,
+            parentIssueId,
+            req.startDate());
+    return finishCreate(callerId, project, row, number, assigneeIds);
+  }
+
+  /**
+   * 이슈 생성 사전검증(dry-run) 진입점 (#842). 쓰기(시퀀스 발급·INSERT) 직전까지의 모든 검증을 수행하되 아무것도 쓰지 않는다 — 확인 카드가 승인 전에
+   * 실패를 드러내기 위함. {@link #create} 와 동일한 {@link #planCreate} 를 호출하므로 술어가 두 벌이 되지 않는다.
+   *
+   * @throws ProjectAccessDeniedException 프로젝트 접근 불가(또는 ProjectNotFoundException)
+   * @throws InvalidAssigneeForProjectException 담당자가 프로젝트 멤버가 아님
+   * @throws InvalidTypeForProjectException typeId 가 없거나 다른 프로젝트 소속
+   * @throws EpicCannotHaveParentException EPIC 에 parentNumber 지정
+   * @throws InvalidParentException 부모 이슈/유형 없음
+   * @throws ParentCannotBeSubtaskException SUBTASK 의 부모가 SUBTASK
+   * @throws SubtaskParentCannotBeEpicException SUBTASK 의 부모가 EPIC
+   * @throws ParentNotAllowedException 일반 이슈의 부모가 EPIC 이 아님
+   * @throws SubtaskParentRequiredException SUBTASK 인데 parentNumber 누락
+   * @throws InvalidIssueDateRangeException 시작일 > 마감일
+   */
+  @Transactional(readOnly = true)
+  public void validateCreatable(Long callerId, String projectKey, CreateIssueRequest req) {
+    planCreate(callerId, projectKey, req);
+  }
+
+  /**
+   * 이슈 생성 검증 + 해석 결과 묶음. 검증 도중 계산되는 값(프로젝트 행·담당자·typeId·부모 id)을 담아 실행 경로가 같은 계산을 다시 하지 않도록 한다 —
+   * 사전검증과 실행이 술어를 공유하게 만드는 핵심 (#842).
+   */
+  record CreateIssuePlan(
+      com.workplace.project.dto.ProjectRow project,
+      List<Long> assigneeIds,
+      Long typeId,
+      Long parentIssueId) {}
+
+  /** 생성 술어 본체 — 쓰기 없이 검증만 수행하고 실행에 필요한 해석값을 반환한다. 예외 종류·순서는 기존 create 와 동일. */
+  CreateIssuePlan planCreate(Long callerId, String projectKey, CreateIssueRequest req) {
     // OPEN 프로젝트는 테넌트 전원이 이슈를 생성할 수 있다(assertIssueCreatable). TEAM/PERSONAL 은 멤버만.
     var project = accessGuard.assertIssueCreatable(projectKey, callerId);
 
@@ -159,20 +213,16 @@ public class IssueService {
       throw new InvalidIssueDateRangeException(req.startDate(), req.dueDate());
     }
 
-    int number = sequenceRepository.allocateNext(project.id());
-    var row =
-        issueRepository.insert(
-            project.id(),
-            number,
-            req.title(),
-            req.body(),
-            req.priority() != null ? req.priority() : "MID",
-            req.dueDate(),
-            callerId,
-            typeId,
-            parentIssueId,
-            req.startDate());
+    return new CreateIssuePlan(project, assigneeIds, typeId, parentIssueId);
+  }
 
+  /** 생성 실행 후속부 — 담당자 매핑·워처 등록·도메인 이벤트 발행. 검증은 planCreate 가 이미 끝냈다. */
+  private IssueResponse finishCreate(
+      Long callerId,
+      com.workplace.project.dto.ProjectRow project,
+      com.workplace.issue.dto.IssueRow row,
+      int number,
+      List<Long> assigneeIds) {
     // 3) issue_assignee 매핑 INSERT
     for (Long uid : assigneeIds) {
       assigneeRepository.add(row.id(), uid, callerId);

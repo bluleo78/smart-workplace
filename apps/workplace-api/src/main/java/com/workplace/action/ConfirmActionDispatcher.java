@@ -24,6 +24,7 @@ import jakarta.validation.Validator;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -33,7 +34,11 @@ import org.springframework.stereotype.Service;
  * HomeActionService 에서 추출 — home(도크)·messaging(채팅 L3) 두 경로가 같은 생성 로직을 공유한다(포크 방지).
  *
  * <p>안전 원칙은 기존과 동일: 호출자(callerId) 권한·owner 경계 안에서만 실행. (1) actionType→필요권한 맵으로 프로그램적 권한 검사, (2)
- * params→DTO 매핑·검증, (3) 도메인 서비스 호출.
+ * params→DTO 매핑·검증, (3) 도메인 선검증, (4) 도메인 서비스 호출.
+ *
+ * <p>#842: {@code prepare} 가 (1)(2) 를 수행하고 (3) 도메인 검증·(4) 실행을 한 쌍으로 돌려준다. 사전검증(validate)은 (3) 까지만,
+ * 승인(confirm)은 (4) 만 돌린다 — (4) 의 도메인 메서드가 (3) 과 같은 술어를 내장하므로 카드 생성 전에 승인 시점과 같은 실패를 재현하면서도 승인 시 검증이
+ * 중복되지 않는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -87,11 +92,30 @@ public class ConfirmActionDispatcher {
           Map.entry("user.set_active", "user:write")); // #833 — 구성원 활성/비활성
 
   /**
-   * 확인 카드 승인 실행 — 지원 여부 확인 → 권한 검사(필요 시) → 매핑·검증 → 도메인 실행. 결과 객체 반환(컨트롤러가 201).
+   * 확인 카드 승인 실행 — 준비(prepare) 후 실행(execute).
+   *
+   * <p>#842: 도메인 검증(check)은 실행하지 않는다 — 도메인 실행 메서드가 같은 술어를 내장하고 있어 두 번 돌리면 조회만 중복된다. 사전검증과 실행이 같은
+   * 술어를 쓴다는 보장은 도메인 서비스가 validate* 와 실행 메서드에서 한 벌의 check 를 공유하는 데서 나온다.
+   */
+  public Object confirm(long callerId, String actionType, JsonNode params) {
+    return prepare(callerId, actionType, params).execute().get();
+  }
+
+  /**
+   * 확인 카드 사전검증(dry-run) — 카드 생성 전에 승인 시점과 같은 권한·매핑·도메인 검증만 수행하고 실행하지 않는다(#842).
+   *
+   * <p>실패는 confirm 과 동일한 예외로 던져 GlobalExceptionHandler 가 사유를 ErrorResponse 에 담고, AI 는 그 문구로 자가교정한다.
+   */
+  public void validate(long callerId, String actionType, JsonNode params) {
+    prepare(callerId, actionType, params).check().run();
+  }
+
+  /**
+   * 준비 단계 — 지원 여부 확인 → 권한 검사(필요 시) → 매핑·검증 → 도메인 선검증. 실행은 하지 않고 실행 함수만 담아 반환한다.
    *
    * <p>지원 여부(맵 부재→400)와 권한 필요 여부(빈 문자열 sentinel→스킵)를 분리 검사한다.
    */
-  public Object confirm(long callerId, String actionType, JsonNode params) {
+  private PreparedAction prepare(long callerId, String actionType, JsonNode params) {
     String required = REQUIRED_PERMISSION.get(actionType);
     if (required == null) {
       // 맵에 없는 actionType = 미지원 → 400.
@@ -104,10 +128,12 @@ public class ConfirmActionDispatcher {
     }
     if ("calendar.create_event".equals(actionType)) {
       CalendarEventRequest req = mapAndValidate(params, CalendarEventRequest.class);
-      return calendarEventService.create(callerId, req);
+      return new PreparedAction(
+          () -> calendarEventService.validateCreatable(callerId, req),
+          () -> calendarEventService.create(callerId, req));
     }
     if ("mail.send".equals(actionType)) {
-      return dispatchMailSend(callerId, params);
+      return prepareMailSend(callerId, params);
     }
     if ("contacts.delete_contact".equals(actionType)) {
       // params 에서 id(연락처 PK) 추출 → ContactService.delete 로 소유자/ADMIN 경계 위임.
@@ -115,15 +141,20 @@ public class ConfirmActionDispatcher {
         throw new IllegalArgumentException("contacts.delete_contact 에 id 가 필요합니다");
       }
       long id = params.get("id").asLong();
-      contactService.delete(callerId, id);
-      return Map.of("deleted", id);
+      return new PreparedAction(
+          () -> contactService.validateDeletable(callerId, id),
+          deleted(id, () -> contactService.delete(callerId, id)));
     }
     if ("user.set_roles".equals(actionType)) {
       // #833: 구성원 역할 변경. 에이전트는 roleId 를 모르고 role:read 권한도 없으므로 역할명을 받아
       // 서버(=사람 권한으로 실행되는 이 실행기)에서 해석한다. 테넌트 멤버 검증·자기잠금 방지는 UserService 가 강제.
       SetRolesByNamesRequest req = mapAndValidate(params, SetRolesByNamesRequest.class);
-      userService.setUserRolesByNames(req.userId(), req.roles(), callerId);
-      return Map.of("userId", req.userId(), "roles", req.roles());
+      return new PreparedAction(
+          () -> userService.validateSetRolesByNames(req.userId(), req.roles(), callerId),
+          () -> {
+            userService.setUserRolesByNames(req.userId(), req.roles(), callerId);
+            return Map.of("userId", req.userId(), "roles", req.roles());
+          });
     }
     if ("user.set_active".equals(actionType)) {
       // #833: 구성원 활성/비활성. 마지막 ADMIN 비활성화 차단·테넌트 멤버 검증은 UserService 가 강제.
@@ -132,20 +163,26 @@ public class ConfirmActionDispatcher {
         throw new IllegalArgumentException("user.set_active 에 active 가 필요합니다");
       }
       boolean active = params.get("active").asBoolean();
-      userService.setUserActive(userId, active);
-      return Map.of("userId", userId, "active", active);
+      return new PreparedAction(
+          () -> userService.validateSetActive(userId, active),
+          () -> {
+            userService.setUserActive(userId, active);
+            return Map.of("userId", userId, "active", active);
+          });
     }
     if ("project.create_project".equals(actionType)) {
       // params → CreateProjectRequest 매핑·검증 후 ProjectService.create 로 위임.
       // 호출자가 OWNER 로 자동 등록되므로 callerId=principal 전달.
       CreateProjectRequest req = mapAndValidate(params, CreateProjectRequest.class);
-      return projectService.create(callerId, req);
+      return new PreparedAction(
+          () -> projectService.validateCreatable(req), () -> projectService.create(callerId, req));
     }
     if ("project.delete_project".equals(actionType)) {
       // params 에서 key 추출 → ProjectService.softDelete(OWNER 경계는 서비스 내부 강제).
       String key = requireText(params, "key");
-      projectService.softDelete(callerId, key);
-      return Map.of("deleted", key);
+      return new PreparedAction(
+          () -> projectService.validateDeletable(callerId, key),
+          deleted(key, () -> projectService.softDelete(callerId, key)));
     }
     if ("project.add_member".equals(actionType)) {
       // params 에서 key 를 별도 추출 후 AddMemberRequest(userId, role)로 매핑.
@@ -154,7 +191,9 @@ public class ConfirmActionDispatcher {
       ObjectNode paramsWithoutKey = ((ObjectNode) params.deepCopy());
       paramsWithoutKey.remove("key");
       AddMemberRequest req = mapAndValidate(paramsWithoutKey, AddMemberRequest.class);
-      return projectService.addMember(callerId, key, req);
+      return new PreparedAction(
+          () -> projectService.validateAddMember(callerId, key, req),
+          () -> projectService.addMember(callerId, key, req));
     }
     if ("calendar.update_event".equals(actionType)) {
       // id/scope/occurrenceDate 는 CalendarEventRequest 밖 파라미터 → 분리 추출 후 본문만 매핑(unknown-property
@@ -167,27 +206,32 @@ public class ConfirmActionDispatcher {
       body.remove("scope");
       body.remove("occurrenceDate");
       CalendarEventRequest req = mapAndValidate(body, CalendarEventRequest.class);
-      return calendarEventService.update(callerId, id, req, scope, occ);
+      return new PreparedAction(
+          () -> calendarEventService.validateUpdatable(callerId, id, req, scope, occ),
+          () -> calendarEventService.update(callerId, id, req, scope, occ));
     }
     if ("calendar.delete_event".equals(actionType)) {
       // id/scope/occurrenceDate 추출 후 CalendarEventService.delete 위임. 서비스가 requireOwner 강제.
       long id = requireLong(params, "id");
       EditScope scope = parseScope(params);
       OffsetDateTime occ = parseOffsetDateTime(params, "occurrenceDate");
-      calendarEventService.delete(callerId, id, scope, occ);
-      return Map.of("deleted", id);
+      return new PreparedAction(
+          () -> calendarEventService.validateDeletable(callerId, id, scope, occ),
+          deleted(id, () -> calendarEventService.delete(callerId, id, scope, occ)));
     }
     if ("drive.delete_file".equals(actionType)) {
       // id(드라이브 파일 PK) 추출 → DriveFileService.delete 로 space EDITOR 경계 위임(soft-delete=휴지통).
       long id = requireLong(params, "id");
-      driveFileService.delete(callerId, id);
-      return Map.of("deleted", id);
+      return new PreparedAction(
+          () -> driveFileService.validateDeletable(callerId, id),
+          deleted(id, () -> driveFileService.delete(callerId, id)));
     }
     if ("drive.delete_folder".equals(actionType)) {
       // id(드라이브 폴더 PK) 추출 → DriveFolderService.delete 로 space EDITOR 경계 위임(soft-delete=휴지통).
       long id = requireLong(params, "id");
-      driveFolderService.delete(callerId, id);
-      return Map.of("deleted", id);
+      return new PreparedAction(
+          () -> driveFolderService.validateDeletable(callerId, id),
+          deleted(id, () -> driveFolderService.delete(callerId, id)));
     }
     if ("issue.create".equals(actionType)) {
       // projectKey 는 IssueService.create 의 경로변수성 인자 — 별도 추출 후 나머지를 CreateIssueRequest 로 매핑.
@@ -196,7 +240,9 @@ public class ConfirmActionDispatcher {
       ObjectNode paramsWithoutKey = ((ObjectNode) params.deepCopy());
       paramsWithoutKey.remove("projectKey");
       CreateIssueRequest req = mapAndValidate(paramsWithoutKey, CreateIssueRequest.class);
-      return issueService.create(callerId, projectKey, req);
+      return new PreparedAction(
+          () -> issueService.validateCreatable(callerId, projectKey, req),
+          () -> issueService.create(callerId, projectKey, req));
     }
     throw new IllegalArgumentException("지원하지 않는 actionType: " + actionType);
   }
@@ -208,7 +254,7 @@ public class ConfirmActionDispatcher {
    * accountId 필드를 제거해 unknownProperty 오류를 방지한다. 계정-소유권 검증은 MailComposeService.send
    * 내부(findByIdAndUser)에서 수행 — 호출자 소유 계정만 허용.
    */
-  private Object dispatchMailSend(long callerId, JsonNode params) {
+  private PreparedAction prepareMailSend(long callerId, JsonNode params) {
     if (params == null || !params.hasNonNull("accountId")) {
       throw new IllegalArgumentException("mail.send 에 accountId 가 필요합니다");
     }
@@ -217,7 +263,9 @@ public class ConfirmActionDispatcher {
     ObjectNode paramsWithoutAccountId = (ObjectNode) params.deepCopy();
     paramsWithoutAccountId.remove("accountId");
     MailSendRequest req = mapAndValidate(paramsWithoutAccountId, MailSendRequest.class);
-    return mailComposeService.send(callerId, accountId, req);
+    return new PreparedAction(
+        () -> mailComposeService.validateSendable(callerId, accountId, req),
+        () -> mailComposeService.send(callerId, accountId, req));
   }
 
   /**
@@ -262,6 +310,22 @@ public class ConfirmActionDispatcher {
   private OffsetDateTime parseOffsetDateTime(JsonNode params, String field) {
     if (params == null || !params.hasNonNull(field)) return null;
     return OffsetDateTime.parse(params.get(field).asText());
+  }
+
+  /**
+   * 준비된 액션 — 파라미터 해석이 끝난 도메인 검증(check)과 실행(execute) 한 쌍(#842).
+   *
+   * <p>두 칸을 모두 요구하므로 새 분기를 추가할 때 사전검증을 빼먹으면 컴파일이 되지 않는다. validate 는 check 만, confirm 은 execute 만
+   * 부른다 — 실제 커밋은 execute 에서만 일어나므로 메일 발송·M365 반영처럼 롤백으로 되돌릴 수 없는 부수효과가 dry-run 에서 발생하지 않는다.
+   */
+  private record PreparedAction(Runnable check, Supplier<Object> execute) {}
+
+  /** 삭제형 액션의 실행 함수 — 삭제 후 {@code {"deleted": id}} 를 돌려주는 공통 형태. */
+  private static Supplier<Object> deleted(Object id, Runnable delete) {
+    return () -> {
+      delete.run();
+      return Map.of("deleted", id);
+    };
   }
 
   /** JsonNode→DTO 변환 후 bean-validation 명시 수행(@Valid 바인딩 밖이라 자동 발동 안 함). */

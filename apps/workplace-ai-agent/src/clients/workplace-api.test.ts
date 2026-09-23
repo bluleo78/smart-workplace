@@ -32,6 +32,27 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   }
 
+  // #842: 확인카드 사전검증 — POST /actions/validate 로 actionType+params 를 그대로 보낸다.
+  it('validateAction 은 /actions/validate 에 actionType·params 를 보낸다', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .post(`${PREFIX}/actions/validate`, { actionType: 'drive.delete_file', params: { id: 9 } })
+      .reply(204);
+    await newClient().validateAction(AGENT_ID, 'drive.delete_file', { id: 9 });
+    expect(scope.isDone()).toBe(true);
+  });
+
+  // #842: 검증 실패는 서버 사유를 담은 오류로 던져져야 한다 — 호출부(writeProposal)가 그대로
+  // 전파해 LLM 이 자가교정할 수 있어야 하므로, 여기서 문구가 뭉개지면 안 된다(#840 인터셉터).
+  it('validateAction 실패 시 서버 사유가 담긴 오류를 던진다', async () => {
+    nock(BASE)
+      .post(`${PREFIX}/actions/validate`)
+      .reply(400, { message: '이미 멤버입니다', errors: {} });
+    await expect(
+      newClient().validateAction(AGENT_ID, 'project.add_member', { key: 'WP', userId: 3 }),
+    ).rejects.toThrow('이미 멤버입니다');
+  });
+
   // #719: withOnBehalfOfTenant 로 스코프한 클라이언트는 모든 대리 호출에
   // X-On-Behalf-Of-Tenant 를 동봉해야 한다 — 다중/무 멤버십 요청자의 AgentTenantResolver
   // fail-closed(권한 전부 거부)를 막는 핵심 배선.

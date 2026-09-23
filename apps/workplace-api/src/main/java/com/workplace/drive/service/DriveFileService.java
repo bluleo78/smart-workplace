@@ -188,12 +188,31 @@ public class DriveFileService {
     return fileUpload.getThumbnailContentTrusted(row.fileId());
   }
 
-  /** 삭제 = 휴지통으로(soft). drive_file 행 보존·trashed 표시. blob 은 영구삭제 시점까지 보존. */
-  @Transactional
-  public void delete(long callerId, long driveFileId) {
+  /**
+   * 파일 삭제 가능 여부만 판정한다(쓰기 없음 — 시퀀스 증가·감사 로그 미수행). #842 — 확인 카드 사전검증(dry-run)과 실행 경로가 공유하는 술어. {@link
+   * #delete} 가 같은 {@link #checkDeletable} 을 호출하므로 술어 포크가 없다.
+   *
+   * @throws DriveFileNotFoundException 파일 없음(또는 이미 휴지통)
+   * @throws com.workplace.drive.exception.DriveSpaceNotFoundException 공간 비멤버(존재 은닉)
+   * @throws com.workplace.drive.exception.DriveForbiddenException EDITOR 미만 · 보관된 공간
+   */
+  @Transactional(readOnly = true)
+  public void validateDeletable(long callerId, long driveFileId) {
+    checkDeletable(callerId, driveFileId);
+  }
+
+  /** 삭제 술어 본체 — 존재·권한을 확인하고 대상 행을 돌려준다(실행 경로가 감사 로그용으로 재사용). */
+  private DriveFileRepository.DriveFileRow checkDeletable(long callerId, long driveFileId) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    return row;
+  }
+
+  /** 삭제 = 휴지통으로(soft). drive_file 행 보존·trashed 표시. blob 은 영구삭제 시점까지 보존. */
+  @Transactional
+  public void delete(long callerId, long driveFileId) {
+    DriveFileRepository.DriveFileRow row = checkDeletable(callerId, driveFileId);
     long opId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
     files.markTrashed(driveFileId, opId);
     // 감사 로그 — FILE_DELETE(#81), 같은 @Transactional 안에서 기록.

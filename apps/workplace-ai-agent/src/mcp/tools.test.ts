@@ -7,10 +7,17 @@ import { describe, expect, it, vi } from 'vitest';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools, type HostBridge } from './tools.js';
 
+// #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
+function apiError(status: number, message: string): Error {
+  return Object.assign(new Error(message), { response: { status } });
+}
+
 function client(): WorkplaceApiClient {
   const c: WorkplaceApiClient = {
     // #719: 이 테스트 스위트는 도구 핸들러 자체를 검증하므로 테넌트 스코프는 자기 자신을 반환.
     withOnBehalfOfTenant: () => c,
+    // #842: 확인카드 사전검증 — propose_* 는 카드 등록 전에 반드시 이 호출을 통과해야 한다.
+    validateAction: vi.fn().mockResolvedValue(undefined),
     addIssueComment: vi.fn().mockResolvedValue(undefined),
     updateIssueStatus: vi.fn().mockResolvedValue(undefined),
     getIssueDetail: vi.fn().mockResolvedValue({
@@ -527,12 +534,12 @@ describe('buildTools(assistant)', () => {
     expect(calls[0]).toEqual([7, '2026-06-19T00:00:00Z', '2026-06-26T00:00:00Z']);
   });
 
-  it('propose_create_event 는 API 미호출, 사이드카에 제안 객체를 쓰고 ack 반환', async () => {
+  it('propose_create_event 는 실행하지 않고 사이드카에 제안 객체를 쓰고 ack 반환', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pa-'));
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const fake = {} as never; // API 미호출이므로 빈 client
+      const fake = client(); // #842: 사전검증 호출이 있으므로 목 client 필요
       const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
       const ack = await tool.handler({
         title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z',
@@ -607,6 +614,7 @@ describe('buildTools(assistant)', () => {
     try {
       // listEvents 가 [startsAt,endsAt) 와 겹치는 기존 일정 1건을 반환하도록 mock.
       const fake = {
+        ...client(),
         listEvents: async (...a: unknown[]) => {
           calls.push(a);
           return [{
@@ -645,7 +653,7 @@ describe('buildTools(assistant)', () => {
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const fake = { listEvents: async () => [] } as never; // 충돌 없음
+      const fake = { ...client(), listEvents: async () => [] } as never; // 충돌 없음
       const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
       await tool.handler({
         title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z',
@@ -667,7 +675,7 @@ describe('buildTools(assistant)', () => {
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
       // listEvents 가 reject(네트워크/권한 등) — 제안 자체는 막히면 안 된다.
-      const fake = { listEvents: async () => { throw new Error('network'); } } as never;
+      const fake = { ...client(), listEvents: async () => { throw new Error('network'); } } as never;
       const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
       const ack = await tool.handler({
         title: '팀 미팅', startsAt: '2026-06-26T01:00:00Z', endsAt: '2026-06-26T02:00:00Z',
@@ -717,12 +725,12 @@ describe('buildTools(assistant) 메일 도구 (M3)', () => {
     for (const n of ['list_mail', 'get_mail', 'propose_send_mail']) expect(names).toContain(n);
   });
 
-  it('propose_send_mail 은 API 미호출, 사이드카에 mail.send 제안(accountId 포함)을 쓰고 ack 반환', async () => {
+  it('propose_send_mail 은 실행하지 않고 사이드카에 mail.send 제안(accountId 포함)을 쓰고 ack 반환', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pa-mail-'));
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_send_mail')!;
+      const tool = buildTools(client(), 7, 'assistant').find((t) => t.name === 'propose_send_mail')!;
       const ack = await tool.handler({
         accountId: 5, to: ['a@x.com'], subject: '안녕하세요', bodyText: '본문입니다',
         summary: 'a@x.com 에게 "안녕하세요" 발송',
@@ -782,12 +790,12 @@ describe('buildTools(assistant) 연락처 도구 (M3)', () => {
     }
   });
 
-  it('propose_delete_contact 는 API 미호출, 사이드카에 contacts.delete_contact 제안을 쓰고 ack 반환', async () => {
+  it('propose_delete_contact 는 실행하지 않고 사이드카에 contacts.delete_contact 제안을 쓰고 ack 반환', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pa-contact-'));
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_contact')!;
+      const tool = buildTools(client(), 7, 'assistant').find((t) => t.name === 'propose_delete_contact')!;
       // #833: 도구 표면은 externalId(외부 연락처 전용 식별자), 실행기 params 는 여전히 id.
       await tool.handler({ externalId: 9, summary: '"김거래" 연락처 삭제' });
       const written = JSON.parse(readFileSync(sidecar, 'utf8'));
@@ -814,7 +822,7 @@ describe('buildTools(assistant) 프로젝트 도구 (M3)', () => {
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_create_project')!;
+      const tool = buildTools(client(), 7, 'assistant').find((t) => t.name === 'propose_create_project')!;
       await tool.handler({ key: 'NEW', name: '새 프로젝트', summary: '"새 프로젝트"(NEW) 생성' });
       const written = JSON.parse(readFileSync(sidecar, 'utf8'));
       expect(written.actionType).toBe('project.create_project');
@@ -864,12 +872,12 @@ describe('buildTools(assistant) 드라이브 쓰기/삭제 도구 (M4)', () => {
     expect(JSON.parse(out)).toMatchObject({ id: 10, name: '신규폴더' });
   });
 
-  it('propose_delete_file 은 API 미호출, 사이드카에 drive.delete_file 제안을 쓰고 ack 반환', async () => {
+  it('propose_delete_file 은 실행하지 않고 사이드카에 drive.delete_file 제안을 쓰고 ack 반환', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pa-drive-'));
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_file')!;
+      const tool = buildTools(client(), 7, 'assistant').find((t) => t.name === 'propose_delete_file')!;
       const ack = await tool.handler({ driveFileId: 99, summary: '보고서.pdf 삭제' });
       expect(typeof ack).toBe('string');
       const written = JSON.parse(readFileSync(sidecar, 'utf8'));
@@ -914,7 +922,7 @@ describe('드라이브 식별자 봉합 (#840)', () => {
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_delete_folder')!;
+      const tool = buildTools(client(), 7, 'assistant').find((t) => t.name === 'propose_delete_folder')!;
       await tool.handler({ folderId: 3, summary: '폴더 삭제' });
       const written = JSON.parse(readFileSync(sidecar, 'utf8'));
       expect(written.actionType).toBe('drive.delete_folder');
@@ -933,7 +941,7 @@ describe('propose 사이드카 다건 누적 (#351)', () => {
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tools = buildTools({} as never, 1, 'assistant');
+      const tools = buildTools(client(), 1, 'assistant');
       const del = tools.find((t) => t.name === 'propose_delete_file')!;
       // propose_delete_file inputSchema: { summary, driveFileId: number } (#840)
       await del.handler({ driveFileId: 1, summary: '파일 A 삭제' });
@@ -962,8 +970,7 @@ describe('buildTools(assistant) 캘린더 수정/삭제 제안 도구 (M4)', () 
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      // #397: verifyEventExists 가 getEvent 를 호출하므로 fake client 에 getEvent 필요.
-      const fake = { getEvent: async () => ({ id: 42 }) } as never;
+      const fake = client();
       const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
       const ack = await tool.handler({
         id: 42, title: '팀 미팅 (변경)', startsAt: '2026-07-01T01:00:00Z', endsAt: '2026-07-01T02:00:00Z',
@@ -982,19 +989,21 @@ describe('buildTools(assistant) 캘린더 수정/삭제 제안 도구 (M4)', () 
     }
   });
 
-  it('propose_update_event — 존재하지 않는 id 는 "찾을 수 없습니다" 반환 (#397)', async () => {
+  it('propose_update_event — 존재하지 않는 id 는 서버 사전검증 사유로 실패한다 (#397/#842)', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pa-upd-nf-'));
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      // #397: getEvent 가 throw 하면 "찾을 수 없습니다" 반환하고 사이드카 미기록.
-      const fake = { getEvent: async () => { throw new Error('404'); } } as never;
+      // #842: 존재 확인은 서버 validate 가 담당한다. 오류 문구를 자체 문구로 바꾸지 않고 그대로 전파해
+      // LLM 이 id 를 교정할 수 있게 하고, 카드(사이드카 기록)는 만들지 않는다.
+      const fake = {
+        validateAction: async () => { throw apiError(404, 'API 오류 404: 일정을 찾을 수 없습니다'); },
+      } as never;
       const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
-      const ack = await tool.handler({
+      await expect(tool.handler({
         id: 9999, title: '변경', startsAt: '2026-07-01T01:00:00Z', endsAt: '2026-07-01T02:00:00Z',
         scope: 'ALL', summary: 'id 9999 수정',
-      });
-      expect(ack).toContain('찾을 수 없습니다');
+      })).rejects.toThrow('일정을 찾을 수 없습니다');
       // 사이드카 파일이 생성되지 않아야 한다.
       expect(() => readFileSync(sidecar, 'utf8')).toThrow();
     } finally {
@@ -1008,8 +1017,7 @@ describe('buildTools(assistant) 캘린더 수정/삭제 제안 도구 (M4)', () 
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      // #397: verifyEventExists 가 getEvent 를 호출하므로 fake client 에 getEvent 필요.
-      const fake = { getEvent: async () => ({ id: 55 }) } as never;
+      const fake = client();
       const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_delete_event')!;
       const ack = await tool.handler({ id: 55, scope: 'ALL', summary: '#55 팀 미팅 전체 삭제' });
       expect(typeof ack).toBe('string');
@@ -1187,7 +1195,7 @@ describe('propose_create_event 스키마 결정론적 보정 (#393/#394)', () =>
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      const tool = buildTools(client(), 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
       await tool.handler({
         title: '스프린트 리뷰', startsAt: '2026-06-20T14:00:00+09:00', endsAt: '2026-06-20T15:00:00+09:00',
         attendees: ['user@example.com', 'admin@company.com'], summary: '스프린트 리뷰',
@@ -1205,7 +1213,7 @@ describe('propose_create_event 스키마 결정론적 보정 (#393/#394)', () =>
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      const tool = buildTools(client(), 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
       await tool.handler({
         title: '업무 점검', startsAt: '2026-06-19T15:00:00', endsAt: '2026-06-19T15:30:00',
         summary: '6/19 15시 업무 점검',
@@ -1225,7 +1233,7 @@ describe('propose_create_event 스키마 결정론적 보정 (#393/#394)', () =>
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const tool = buildTools({} as never, 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
+      const tool = buildTools(client(), 7, 'assistant').find((t) => t.name === 'propose_create_event')!;
       await tool.handler({
         title: '회의', startsAt: '2026-06-20T05:00:00Z', endsAt: '2026-06-20T05:30:00Z',
         summary: '6/20 14시 회의',
@@ -1248,7 +1256,7 @@ describe('propose_update_event attendees 스키마 (#402)', () => {
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const fake = { getEvent: async () => ({ id: 77 }) } as never;
+      const fake = client();
       const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
       await tool.handler({
         id: 77, title: '팀 회의', startsAt: '2026-07-01T10:00:00+09:00', endsAt: '2026-07-01T11:00:00+09:00',
@@ -1269,7 +1277,7 @@ describe('propose_update_event attendees 스키마 (#402)', () => {
     const sidecar = path.join(dir, 'pending-action.json');
     process.env.WORKPLACE_PENDING_ACTION_PATH = sidecar;
     try {
-      const fake = { getEvent: async () => ({ id: 42 }) } as never;
+      const fake = client();
       const tool = buildTools(fake, 7, 'assistant').find((t) => t.name === 'propose_update_event')!;
       await tool.handler({
         id: 42, title: '수정된 제목', startsAt: '2026-07-01T01:00:00Z', endsAt: '2026-07-01T02:00:00Z',
@@ -1292,6 +1300,7 @@ describe('HostBridge 콜백 (#462 슬라이스4)', () => {
     return t;
   }
   const fakeClient = {
+    ...client(),
     unassignSelf: async () => { /* 성공 */ },
   } as never;
 
@@ -1499,5 +1508,60 @@ describe('#833 구성원 해석', () => {
     const t = buildTools(c, AGENT_ID, 'assistant').find((x) => x.name === 'propose_set_member_role')!;
     const out = await t.handler({ username: 'assistant', roles: ['USER'], summary: 's' });
     expect(out).toContain('AI 에이전트');
+  });
+});
+
+// #842: 확인카드 사전검증(dry-run) — 카드 등록 전에 서버 validate 를 거치고,
+// 실패하면 카드를 만들지 않고 서버가 준 사유를 그대로 LLM 에 돌려준다.
+// #842: 등록된 제안을 배열에 모으는 브리지 — 카드 생성 여부를 단언하는 데 쓴다.
+function collectingBridge(proposals: unknown[]): HostBridge {
+  return { onProposal: (p) => proposals.push(p), onSubmitResponse: () => {}, onUnassignResult: () => {} };
+}
+
+describe('propose 사전검증 (#842)', () => {
+  it('propose 전에 같은 actionType·params 로 validateAction 을 호출한다', async () => {
+    const c = client();
+    const proposals: unknown[] = [];
+    const bridge = collectingBridge(proposals);
+    const tool = buildTools(c, 7, 'assistant', undefined, undefined, bridge).find(
+      (t) => t.name === 'propose_delete_file',
+    )!;
+    await tool.handler({ driveFileId: 5, summary: '파일 삭제' });
+    expect(c.validateAction).toHaveBeenCalledWith(7, 'drive.delete_file', { id: 5 });
+    expect(proposals).toHaveLength(1);
+  });
+
+  it('사전검증이 실패하면 카드를 등록하지 않고 서버 사유를 그대로 전파한다', async () => {
+    const c = client();
+    // 인터셉터가 describeApiError 로 채운 서버 사유가 담긴 오류.
+    c.validateAction = vi
+      .fn()
+      .mockRejectedValue(apiError(403, 'API 오류 403: 필요 권한 없음: project:manage'));
+    const proposals: unknown[] = [];
+    const bridge = collectingBridge(proposals);
+    const tool = buildTools(c, 7, 'assistant', undefined, undefined, bridge).find(
+      (t) => t.name === 'propose_delete_project',
+    )!;
+    await expect(tool.handler({ key: 'WP', summary: '프로젝트 삭제' })).rejects.toThrow(
+      'project:manage',
+    );
+    expect(proposals).toHaveLength(0);
+  });
+
+  it('응답 없는 전송 실패·5xx 는 일시 장애로 보고 카드 생성을 막지 않는다(fail-open)', async () => {
+    const c = client();
+    // 네트워크 오류(응답 없음) → 1회차, 서버 500 → 2회차.
+    c.validateAction = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Network Error'))
+      .mockRejectedValueOnce(apiError(500, 'API 오류 500'));
+    const proposals: unknown[] = [];
+    const bridge = collectingBridge(proposals);
+    const tool = buildTools(c, 7, 'assistant', undefined, undefined, bridge).find(
+      (t) => t.name === 'propose_delete_file',
+    )!;
+    await tool.handler({ driveFileId: 1, summary: 'a' });
+    await tool.handler({ driveFileId: 2, summary: 'b' });
+    expect(proposals).toHaveLength(2);
   });
 });

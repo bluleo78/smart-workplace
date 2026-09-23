@@ -70,10 +70,23 @@ public class DriveFolderService {
     return folders.findById(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
   }
 
+  /**
+   * 폴더 삭제 가능 여부만 판정한다(쓰기 없음 — 휴지통 op 시퀀스 미증가). #842 — 확인 카드 사전검증(dry-run)과 실행 경로가 공유하는 술어. {@link
+   * #delete} 가 같은 {@link #requireFolderSpace} 경로를 쓰므로 술어 포크가 없다.
+   *
+   * @throws DriveFolderNotFoundException 폴더 없음
+   * @throws com.workplace.drive.exception.DriveSpaceNotFoundException 공간 비멤버(존재 은닉)
+   * @throws com.workplace.drive.exception.DriveForbiddenException EDITOR 미만 · 보관된 공간
+   */
+  @Transactional(readOnly = true)
+  public void validateDeletable(long callerId, long folderId) {
+    requireFolderSpace(callerId, folderId, "EDITOR");
+  }
+
   /** 삭제 = 휴지통으로(soft, 통째). 살아있는 서브트리 전체를 같은 op 로 마킹. blob 보존. */
   @Transactional
   public void delete(long callerId, long folderId) {
-    requireFolderSpace(callerId, folderId, "EDITOR");
+    validateDeletable(callerId, folderId);
     long opId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
     folders.markSubtreeTrashed(folderId, opId);
   }
