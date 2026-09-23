@@ -46,9 +46,7 @@ public class AgentApiKeyService {
   @Transactional(readOnly = true)
   public List<AgentApiKeyResponse> list(Long userId) {
     UserResponse user =
-        userRepository
-            .findById(userId)
-            .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+        userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) throw new KeyTargetMustBeAgentException();
     return repo.findByUser(userId);
   }
@@ -59,9 +57,7 @@ public class AgentApiKeyService {
    */
   public AgentApiKeyIssueResponse issue(Long callerId, Long userId, IssueAgentKeyRequest req) {
     UserResponse user =
-        userRepository
-            .findById(userId)
-            .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+        userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) throw new KeyTargetMustBeAgentException();
 
     String plaintext = generatePlaintext();

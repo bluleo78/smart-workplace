@@ -123,7 +123,7 @@ public class RecurrenceExpander {
     try {
       return new RecurrenceRule(rrule, RecurrenceRule.RfcMode.RFC2445_LAX);
     } catch (InvalidRecurrenceRuleException e) {
-      throw new IllegalArgumentException("invalid recurrence rule: " + rrule, e);
+      throw new IllegalArgumentException("반복 규칙 형식이 올바르지 않습니다 (rrule: " + rrule + ")", e);
     }
   }
 }

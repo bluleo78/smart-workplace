@@ -30,7 +30,7 @@ public class RoleService {
     RoleResponse role =
         roleRepository
             .findById(id)
-            .orElseThrow(() -> new RoleNotFoundException("Role not found: " + id));
+            .orElseThrow(() -> new RoleNotFoundException("역할을 찾을 수 없습니다 (id: " + id + ")"));
     List<PermissionResponse> permissions = permissionRepository.findByRoleId(id);
     return new RoleDetailResponse(
         role.id(), role.name(), role.description(), role.isSystem(), permissions);
@@ -49,11 +49,11 @@ public class RoleService {
     RoleResponse role =
         roleRepository
             .findById(id)
-            .orElseThrow(() -> new RoleNotFoundException("Role not found: " + id));
+            .orElseThrow(() -> new RoleNotFoundException("역할을 찾을 수 없습니다 (id: " + id + ")"));
 
     if (role.isSystem() && !role.name().equals(name)) {
       throw new SystemRoleModificationException(
-          "Cannot change name of system role: " + role.name());
+          "시스템 역할의 이름은 바꿀 수 없습니다 (name: " + role.name() + ")");
     }
 
     // #795: createRole() 과 동일하게, 이름이 실제로 바뀌는 경우에만 중복 여부를 사전 검사한다.
@@ -71,10 +71,10 @@ public class RoleService {
     RoleResponse role =
         roleRepository
             .findById(id)
-            .orElseThrow(() -> new RoleNotFoundException("Role not found: " + id));
+            .orElseThrow(() -> new RoleNotFoundException("역할을 찾을 수 없습니다 (id: " + id + ")"));
 
     if (role.isSystem()) {
-      throw new SystemRoleModificationException("Cannot delete system role: " + role.name());
+      throw new SystemRoleModificationException("시스템 역할은 삭제할 수 없습니다 (name: " + role.name() + ")");
     }
 
     // user_role FK 가 ON DELETE CASCADE 이므로, 삭제 전 할당된 사용자가 있으면 명시적으로 차단해
@@ -94,11 +94,11 @@ public class RoleService {
     RoleResponse role =
         roleRepository
             .findById(roleId)
-            .orElseThrow(() -> new RoleNotFoundException("Role not found: " + roleId));
+            .orElseThrow(() -> new RoleNotFoundException("역할을 찾을 수 없습니다 (id: " + roleId + ")"));
 
     if (role.isSystem()) {
       throw new SystemRoleModificationException(
-          "Cannot modify permissions of system role: " + role.name());
+          "시스템 역할의 권한은 변경할 수 없습니다 (name: " + role.name() + ")");
     }
 
     roleRepository.setPermissions(roleId, permissionIds);

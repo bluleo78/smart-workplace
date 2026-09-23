@@ -193,6 +193,6 @@ class RoleServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> roleService.setRolePermissions(adminRoleId, permissionIds))
         .isInstanceOf(SystemRoleModificationException.class)
-        .hasMessageContaining("Cannot modify permissions of system role");
+        .hasMessageContaining("시스템 역할의 권한은 변경할 수 없습니다");
   }
 }

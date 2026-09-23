@@ -821,6 +821,43 @@ describe('runAiChatStream — 승인 결과 맥락 라벨 (#843)', () => {
     expect(prompt).toContain('[승인 결과]: 승인 실패: 회의 삭제 — 사유: 일정을 찾을 수 없습니다');
     expect(prompt).not.toContain('사용자: 승인 실패');
   });
+
+  // #849: AI 가 아직 언급하지 않은 결과는 현재 요청 바로 앞에 다시 둔다 — 이력 속 한 줄만으로는 무시됐다.
+  it('마지막 AI 답 이후의 승인 결과를 현재 요청 바로 앞 블록으로 반복한다', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    const recentContext = [
+      { role: 'USER', content: '회의 삭제해줘' },
+      { role: 'ASSISTANT', content: '삭제를 제안했습니다.' },
+      { role: 'ACTION_FAILED', content: '승인 실패: 회의 삭제 — 사유: 일정을 찾을 수 없습니다 (id: 7)' },
+    ];
+    await runAiChatStream(
+      baseInput({ query: '잘 됐어?', recentContext }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    const prompt = streamSpy.mock.calls[0][0].userMessage as string;
+    expect(prompt).toContain(
+      '방금 사용자가 처리한 확인 카드 결과(규칙 7):\n- 승인 실패: 회의 삭제 — 사유: 일정을 찾을 수 없습니다 (id: 7)\n\n현재 요청: 잘 됐어?',
+    );
+  });
+
+  it('AI 가 이미 답한 이전 승인 결과는 반복하지 않는다', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    const recentContext = [
+      { role: 'ACTION_DONE', content: '승인 완료: 회의 삭제' },
+      { role: 'ASSISTANT', content: '삭제되었습니다.' },
+      { role: 'USER', content: '고마워' },
+    ];
+    await runAiChatStream(
+      baseInput({ query: '다음 일정은?', recentContext }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    const prompt = streamSpy.mock.calls[0][0].userMessage as string;
+    expect(prompt).not.toContain('방금 사용자가 처리한 확인 카드 결과');
+  });
 });
 
 // #379/#407→#381: SDK 내부-메시지 정규식 override 는 삭제됨.

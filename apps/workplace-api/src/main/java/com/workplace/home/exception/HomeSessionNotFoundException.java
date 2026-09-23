@@ -7,6 +7,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 @ResponseStatus(HttpStatus.NOT_FOUND)
 public class HomeSessionNotFoundException extends RuntimeException {
   public HomeSessionNotFoundException(java.util.UUID id) {
-    super("home session not found: " + id);
+    super("대화 세션을 찾을 수 없습니다 (id: " + id + ")");
   }
 }

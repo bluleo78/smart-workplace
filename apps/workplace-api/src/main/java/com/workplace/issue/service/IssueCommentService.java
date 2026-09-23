@@ -57,7 +57,10 @@ public class IssueCommentService {
     var project =
         projectRepository
             .findById(issue.projectId())
-            .orElseThrow(() -> new ProjectNotFoundException("id=" + issue.projectId()));
+            .orElseThrow(
+                () ->
+                    new ProjectNotFoundException(
+                        "프로젝트를 찾을 수 없습니다 (id: " + issue.projectId() + ")"));
     accessGuard.assertReadable(project.key(), callerId);
     return new IssueAndProject(issue, project);
   }
@@ -81,7 +84,10 @@ public class IssueCommentService {
     var project =
         projectRepository
             .findById(issue.projectId())
-            .orElseThrow(() -> new ProjectNotFoundException("id=" + issue.projectId()));
+            .orElseThrow(
+                () ->
+                    new ProjectNotFoundException(
+                        "프로젝트를 찾을 수 없습니다 (id: " + issue.projectId() + ")"));
     // 댓글 작성 자격: 멤버/ADMIN 또는 OPEN 이슈 reporter 본인. 그 외(임의 테넌트 reader)는 403.
     accessGuard.assertContentWritable(project, issue.reporterId(), callerId);
     var resp = commentRepository.insert(issueId, callerId, req.body());

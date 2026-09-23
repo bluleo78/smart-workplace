@@ -41,7 +41,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
     if (authentication == null || !authentication.isAuthenticated()) {
-      throw new AccessDeniedException("Authentication required");
+      throw new AccessDeniedException("로그인이 필요합니다");
     }
 
     Set<String> userPermissions =
@@ -51,7 +51,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
     for (String requiredPermission : annotation.value()) {
       if (!userPermissions.contains(requiredPermission)) {
-        throw new AccessDeniedException("Missing required permission: " + requiredPermission);
+        throw new AccessDeniedException("이 작업을 할 권한이 없습니다 (필요 권한: " + requiredPermission + ")");
       }
     }
 

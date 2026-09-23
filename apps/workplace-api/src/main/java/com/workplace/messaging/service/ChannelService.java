@@ -127,7 +127,7 @@ public class ChannelService {
     if (visibility == null || visibility.isBlank()) return "PUBLIC";
     String v = visibility.trim().toUpperCase();
     if (!v.equals("PUBLIC") && !v.equals("PRIVATE")) {
-      throw new IllegalArgumentException("invalid visibility: " + visibility);
+      throw new IllegalArgumentException("올바르지 않은 채널 공개 범위입니다 (visibility: " + visibility + ")");
     }
     return v;
   }

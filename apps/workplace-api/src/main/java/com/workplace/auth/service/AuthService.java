@@ -99,7 +99,7 @@ public class AuthService {
     Long userRoleId =
         roleRepository
             .findByName("USER")
-            .orElseThrow(() -> new RoleNotFoundException("System role not found: USER"))
+            .orElseThrow(() -> new RoleNotFoundException("시스템 역할을 찾을 수 없습니다 (name: USER)"))
             .id();
     userRepository.addRole(user.id(), userRoleId);
 
@@ -107,7 +107,7 @@ public class AuthService {
       Long adminRoleId =
           roleRepository
               .findByName("ADMIN")
-              .orElseThrow(() -> new RoleNotFoundException("System role not found: ADMIN"))
+              .orElseThrow(() -> new RoleNotFoundException("시스템 역할을 찾을 수 없습니다 (name: ADMIN)"))
               .id();
       userRepository.addRole(user.id(), adminRoleId);
 
@@ -318,7 +318,7 @@ public class AuthService {
   public UserResponse getCurrentUser(Long userId) {
     return userRepository
         .findById(userId)
-        .orElseThrow(() -> new InvalidTokenException("User not found"));
+        .orElseThrow(() -> new InvalidTokenException("토큰의 사용자를 찾을 수 없습니다. 다시 로그인해 주세요"));
   }
 
   private void storeRefreshToken(Long userId, String refreshToken, UUID familyId) {

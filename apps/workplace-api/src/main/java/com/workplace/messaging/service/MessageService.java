@@ -397,7 +397,7 @@ public class MessageService {
     MessageResponse m =
         messageRepo
             .findById(messageId, mentionHydrator::asMentionResponses)
-            .orElseThrow(() -> new IllegalStateException("message " + messageId + " not found"));
+            .orElseThrow(() -> new IllegalStateException("메시지를 찾을 수 없습니다 (id: " + messageId + ")"));
     MessageResponse response =
         m.withReactions(
             reactionRepo

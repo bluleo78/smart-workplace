@@ -33,7 +33,7 @@ public class WorkspaceAssistantService {
     UserResponse user =
         userRepository
             .findById(agentUserId)
-            .orElseThrow(() -> new UserNotFoundException("사용자를 찾을 수 없습니다: " + agentUserId));
+            .orElseThrow(() -> UserNotFoundException.ofId(agentUserId));
     // HUMAN 은 공용 비서가 될 수 없다 — AGENT 검증 재사용(400).
     if (!UserKind.isAgent(user.kind())) {
       throw new KeyTargetMustBeAgentException();

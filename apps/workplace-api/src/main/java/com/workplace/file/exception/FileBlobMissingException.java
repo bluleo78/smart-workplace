@@ -6,6 +6,6 @@ package com.workplace.file.exception;
  */
 public class FileBlobMissingException extends RuntimeException {
   public FileBlobMissingException(Long fileId) {
-    super("File blob missing on disk: " + fileId);
+    super("파일 원본이 유실되어 내려받을 수 없습니다 (fileId: " + fileId + ")");
   }
 }

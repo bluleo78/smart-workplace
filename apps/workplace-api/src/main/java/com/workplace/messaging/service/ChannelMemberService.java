@@ -137,7 +137,7 @@ public class ChannelMemberService {
   private String normalizeRole(String role) {
     String r = role == null ? "" : role.trim().toUpperCase();
     if (!VALID_ROLES.contains(r)) {
-      throw new IllegalArgumentException("invalid role: " + role);
+      throw new IllegalArgumentException("올바르지 않은 채널 역할입니다 (role: " + role + ")");
     }
     return r;
   }

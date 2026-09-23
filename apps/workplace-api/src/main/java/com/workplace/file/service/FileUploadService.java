@@ -108,7 +108,7 @@ public class FileUploadService {
       throws IOException {
     if (files.size() > maxFilesPerRequest) {
       throw new IllegalArgumentException(
-          "Too many files. Maximum " + maxFilesPerRequest + " files per request.");
+          "한 번에 올릴 수 있는 파일 수를 초과했습니다 (최대 " + maxFilesPerRequest + "개)");
     }
 
     List<FileUploadResponse> results = new java.util.ArrayList<>();

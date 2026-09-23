@@ -159,7 +159,18 @@ function buildChatUserMessage(input: ChatInput): string {
   const ctx = input.recentContext ?? [];
   if (ctx.length === 0) return input.query;
   const lines = ctx.map((m) => `${contextLabel(m)}: ${m.content}`);
-  return `이전 대화:\n${lines.join('\n')}\n\n현재 요청: ${input.query}`;
+  return `이전 대화:\n${lines.join('\n')}\n\n${unseenResultsBlock(ctx)}현재 요청: ${input.query}`;
+}
+
+// #849: AI 가 아직 언급하지 않은 승인 결과(마지막 AI 답 이후의 ACTION_* 행)를 현재 요청 바로 앞에 다시 둔다.
+// 이력 중간의 [승인 결과] 줄만으로는 소형 모델이 이를 무시하고 도구로 재조회해, "잘 됐어?" 에
+// 실패 사실 없이 조회 결과만 답했다(라이브 검증). 결과가 없으면 빈 문자열.
+function unseenResultsBlock(ctx: ContextMessage[]): string {
+  const lastAi = ctx.map((m) => m.role).lastIndexOf('ASSISTANT');
+  const unseen = ctx.slice(lastAi + 1).filter(isActionResult);
+  if (unseen.length === 0) return '';
+  const items = unseen.map((m) => `- ${m.content}`).join('\n');
+  return `방금 사용자가 처리한 확인 카드 결과(규칙 7):\n${items}\n\n`;
 }
 
 // #381: 라우터/서브에이전트가 자유 prose 대신 도구로 답을 제출하지 못한 극단 케이스의 결정적 fallback.

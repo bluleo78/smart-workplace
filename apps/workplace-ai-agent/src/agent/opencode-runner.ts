@@ -21,15 +21,18 @@ function requireOpencodeCredential(i: RunnerInput): void {
   }
 }
 
-// 웜 캐시 대상 프로필 — hostBridge(propose/submit_response/unassign)를 쓰지 않는 프로필만.
+// 웜 캐시 대상 프로필 — hostBridge 를 쓰는 실행은 프로필과 무관하게 poolKeyFor 가 추가로 제외한다.
 // messaging/home 은 MCP_BRIDGE_RUN_ID(요청마다 고유)가 stdio 자식 프로세스 부팅 시 env 로
 // 고정되므로 서버 재사용이 브리지 콜백 라우팅을 깨뜨릴 수 있어 제외한다.
 // (docs/superpowers/specs/2026-07-03-opencode-warm-cache-design.md 참고)
 const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'chat', 'issue']);
 
 // RunnerInput → 풀 키. 대상 프로필이 아니면 undefined(호출부가 풀을 건너뛰는 신호로 사용).
+// #849: 프로필과 무관하게 hostBridge 를 넘긴 실행도 제외한다 — 홈 채팅 라우터(assistant)가 propose 를
+// 직접 호출하는데, 재사용 서버의 MCP 는 첫 실행의 MCP_BRIDGE_RUN_ID 로 고정돼 있어 두 번째 실행부터
+// 확인 카드가 이미 해제된 브리지로 가서 조용히 사라졌다(AI 는 "제안했습니다" 라고 답하지만 카드 없음).
 function poolKeyFor(i: RunnerInput): string | undefined {
-  if (!i.mcp || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
+  if (!i.mcp || i.mcp.hostBridge || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
   return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.model}`;
 }
 

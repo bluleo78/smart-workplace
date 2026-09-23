@@ -135,7 +135,7 @@ public class DriveShareLinkService {
     if ("INTERNAL".equals(link.audience())) {
       if (!authenticated || requesterTenantId == null) {
         throw new com.workplace.drive.exception.DriveShareLinkUnauthorizedException(
-            "login required");
+            "사내 공유 링크는 로그인이 필요합니다");
       }
       if (requesterTenantId.longValue() != link.tenantId()) {
         throw new com.workplace.drive.exception.DriveForbiddenException(0L, 0L);
@@ -145,7 +145,7 @@ public class DriveShareLinkService {
     if (link.passwordHash() != null) {
       if (attemptService.isBlocked(tokenHash)) {
         throw new com.workplace.drive.exception.DriveShareLinkLockedException(
-            "too many password attempts");
+            "비밀번호 시도 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요");
       }
       if (password == null || !passwordEncoder.matches(password, link.passwordHash())) {
         attemptService.attemptFailed(tokenHash);
@@ -165,7 +165,7 @@ public class DriveShareLinkService {
               Map.of("tenantId", link.tenantId()));
         }
         throw new com.workplace.drive.exception.DriveShareLinkUnauthorizedException(
-            "password required");
+            "비밀번호가 필요하거나 올바르지 않습니다");
       }
       attemptService.attemptSucceeded(tokenHash);
     }

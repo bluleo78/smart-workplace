@@ -533,6 +533,25 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     expect(serverClose).toHaveBeenCalledTimes(1);
   });
 
+  // #849: 풀 대상 프로필이라도 hostBridge 를 쓰면 재사용 서버의 MCP 가 이전 실행의 브리지 runId 로
+  // 고정돼 있어 제안이 유실된다 — 매번 새로 스폰해야 한다.
+  it("profile='assistant' 라도 hostBridge 가 있으면 풀을 거치지 않고 요청 종료 시 server.close() 한다", async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+    const bridge = { onProposal: vi.fn(), onSubmitResponse: vi.fn(), onUnassignResult: vi.fn() };
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'assistant', onBehalfOfId: 1, hostBridge: bridge } }),
+      () => {},
+    );
+    await handle.done;
+
+    expect(acquireServer).not.toHaveBeenCalled();
+    expect(serverClose).toHaveBeenCalledTimes(1);
+  });
+
   it('mcp 가 없으면(mcp undefined) 풀을 거치지 않고 기존처럼 완전 스폰/종료한다', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });

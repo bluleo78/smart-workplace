@@ -54,7 +54,7 @@ public final class FieldTypeValidator {
           throw new InvalidFieldValueException("TEXT 는 문자열");
         }
         if (value.asText().length() > TEXT_MAX) {
-          throw new InvalidFieldValueException("TEXT ≤2000");
+          throw new InvalidFieldValueException("텍스트 필드는 2000자 이하여야 합니다");
         }
       }
       case "NUMBER" -> {

@@ -24,7 +24,7 @@ public class ChatUserHydrator {
             r ->
                 new UserSummary(
                     r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND)))
-        .orElseThrow(() -> new IllegalStateException("user not found: " + userId));
+        .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다 (id: " + userId + ")"));
   }
 
   /** 다건 UserSummary 조회. 입력 순서는 보존하지 않음. */

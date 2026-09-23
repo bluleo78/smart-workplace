@@ -75,7 +75,7 @@ public class UserService {
   private void requireMember(Long userId) {
     Long tenantId = requireTenant();
     if (!membershipRepository.hasActiveMembership(userId, tenantId)) {
-      throw new UserNotFoundException("User not found: " + userId);
+      throw UserNotFoundException.ofId(userId);
     }
   }
 
@@ -99,9 +99,7 @@ public class UserService {
 
   private UserDetailResponse loadUserDetail(Long id) {
     UserResponse user =
-        userRepository
-            .findById(id)
-            .orElseThrow(() -> new UserNotFoundException("User not found: " + id));
+        userRepository.findById(id).orElseThrow(() -> UserNotFoundException.ofId(id));
     List<RoleResponse> roles = roleRepository.findByUserId(id);
     // AI 가용성 — 개인 또는 공통 비서(active token) 보유 여부. 프론트가 AI affordance 게이트에 사용.
     boolean aiAvailable = assistantResolver.resolveOrEmpty(id).isPresent();
@@ -238,9 +236,7 @@ public class UserService {
   @Transactional
   public void deleteAgent(Long callerId, Long userId) {
     UserResponse user =
-        userRepository
-            .findById(userId)
-            .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+        userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) {
       throw new IllegalArgumentException("AGENT 유저만 삭제할 수 있습니다");
     }
@@ -269,9 +265,7 @@ public class UserService {
   @Transactional
   public void renameAgent(Long callerId, Long userId, RenameAgentRequest req) {
     UserResponse user =
-        userRepository
-            .findById(userId)
-            .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+        userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) {
       throw new IllegalArgumentException("AGENT 유저만 이름을 변경할 수 있습니다");
     }
@@ -329,13 +323,11 @@ public class UserService {
   @Transactional
   public void updateProfile(Long userId, String name, String email) {
     UserResponse user =
-        userRepository
-            .findById(userId)
-            .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+        userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
 
     if (email != null && !email.equals(user.email())) {
       if (userRepository.existsByEmailExcludingUser(email, userId)) {
-        throw new EmailAlreadyExistsException("Email already exists: " + email);
+        throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다 (email: " + email + ")");
       }
     }
 
@@ -347,7 +339,7 @@ public class UserService {
     String storedPassword =
         userRepository
             .findPasswordById(userId)
-            .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+            .orElseThrow(() -> UserNotFoundException.ofId(userId));
 
     // 현재 비밀번호 불일치 시 400 Bad Request로 명확한 한국어 메시지 반환 (#27)
     if (!passwordEncoder.matches(currentPassword, storedPassword)) {
@@ -366,7 +358,7 @@ public class UserService {
   /** 역할 교체 술어 본체(쓰기 없음) — 존재·테넌트 멤버십·자기 잠금 방지. 실행/사전검증 양쪽이 공유한다 (#842). */
   private void checkSetRoles(Long userId, List<Long> roleIds, Long callerId) {
     if (!userRepository.existsById(userId)) {
-      throw new UserNotFoundException("User not found: " + userId);
+      throw UserNotFoundException.ofId(userId);
     }
     // 대상이 현재 테넌트 멤버가 아니면 타 테넌트 사용자의 전역 역할을 바꿀 수 없다 (#811).
     requireMember(userId);
@@ -462,7 +454,7 @@ public class UserService {
   @Transactional(readOnly = true)
   public void validateSetActive(Long userId, boolean active) {
     if (!userRepository.existsById(userId)) {
-      throw new UserNotFoundException("User not found: " + userId);
+      throw UserNotFoundException.ofId(userId);
     }
     // 대상이 현재 테넌트 멤버가 아니면 타 테넌트 사용자를 비활성화할 수 없다 (#811).
     requireMember(userId);

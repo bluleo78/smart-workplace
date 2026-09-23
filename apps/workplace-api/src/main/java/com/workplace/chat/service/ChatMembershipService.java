@@ -25,7 +25,7 @@ public class ChatMembershipService {
       throw new ChatThreadNotMemberException(threadId, callerId);
     long projectId = contextResolver.resolve(threadId).projectId();
     if (!lookup.isProjectMember(projectId, targetUserId))
-      throw new ProjectAccessDeniedException("target is not a project member");
+      throw new ProjectAccessDeniedException("프로젝트 멤버가 아닌 사용자는 대화에 추가할 수 없습니다");
     memberRepo.insertIgnoreConflict(threadId, List.of(targetUserId));
   }
 

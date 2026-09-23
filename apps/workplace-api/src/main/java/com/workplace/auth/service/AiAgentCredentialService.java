@@ -228,9 +228,7 @@ public class AiAgentCredentialService {
 
   private UserResponse assertAgent(Long userId) {
     UserResponse user =
-        userRepository
-            .findById(userId)
-            .orElseThrow(() -> new UserNotFoundException("User not found: " + userId));
+        userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) throw new KeyTargetMustBeAgentException();
     return user;
   }

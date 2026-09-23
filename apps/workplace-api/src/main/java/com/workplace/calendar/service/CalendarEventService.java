@@ -1123,7 +1123,7 @@ public class CalendarEventService {
   /** 반복 일정의 THIS/THIS_AND_FOLLOWING 는 회차 식별자(occurrenceDate)가 필수 — 누락 시 400. */
   private static void requireOccurrenceDate(EditScope scope, OffsetDateTime occurrenceDate) {
     if (occurrenceDate == null) {
-      throw new IllegalArgumentException("occurrenceDate required for THIS/THIS_AND_FOLLOWING");
+      throw new IllegalArgumentException("반복 일정의 이 일정만/이후 일정 변경에는 회차 날짜(occurrenceDate)가 필요합니다");
     }
   }
 

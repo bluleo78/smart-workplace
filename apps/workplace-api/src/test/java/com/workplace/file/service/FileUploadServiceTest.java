@@ -206,7 +206,7 @@ class FileUploadServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> fileUploadService.uploadFiles(List.of(f1, f2, f3, f4), testUserId))
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("Too many files");
+        .hasMessageContaining("파일 수를 초과했습니다");
   }
 
   @Test

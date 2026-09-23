@@ -30,7 +30,7 @@ public class UserMentionHydrator {
             r ->
                 new UserSummary(
                     r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND)))
-        .orElseThrow(() -> new IllegalStateException("user not found: " + userId));
+        .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다 (id: " + userId + ")"));
   }
 
   /** mention id 후보 중 실제 존재하는 user.id 만 통과 (입력 순서 보존). */

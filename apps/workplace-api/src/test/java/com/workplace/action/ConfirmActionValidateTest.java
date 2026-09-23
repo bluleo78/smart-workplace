@@ -268,7 +268,7 @@ class ConfirmActionValidateTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> dispatcher.validate(admin, "user.set_roles", p))
         .isInstanceOf(UserNotFoundException.class)
-        .hasMessageContaining("User not found");
+        .hasMessageContaining("사용자를 찾을 수 없습니다");
   }
 
   @Test
@@ -281,7 +281,7 @@ class ConfirmActionValidateTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> dispatcher.validate(admin, "user.set_active", p))
         .isInstanceOf(UserNotFoundException.class)
-        .hasMessageContaining("User not found");
+        .hasMessageContaining("사용자를 찾을 수 없습니다");
   }
 
   // ------------------------------------------------- 성공 + 부수효과 없음(dry-run 보증)
