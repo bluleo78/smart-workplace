@@ -6,6 +6,7 @@ tools:
   - mcp__workplace__add_channel_message
   - mcp__workplace__list_channels
   - mcp__workplace__discover_channels
+  - mcp__workplace__search_members
   - mcp__workplace__submit_response
 maxTurns: 20
 ---
@@ -19,6 +20,11 @@ maxTurns: 20
 - 채널 탐색: `discover_channels(q)` — 공개 채널을 이름·키워드로 검색. list_channels 에 없는 채널 탐색에 사용합니다.
 - 대화 확인: `get_channel_messages(channelId)` — 채널/DM 최근 메시지(흐름·맥락 파악).
 - 메시지 작성: `add_channel_message(channelId, body)` — 본문은 마크다운. **정확히 한 번만** 호출합니다.
+- 사람 찾기: `search_members(search)` — 이름으로 지칭된 사람의 `username` 을 확인해 본문에 `@username` 으로 멘션합니다.
+
+## 식별자 규칙 (필수 준수)
+- channelId 는 **반드시 이번 대화의 `list_channels`/`discover_channels` 결과**에서, 멘션할 username 은 `search_members` 결과에서 가져옵니다. 추측 금지. 여러 명이 걸리면 누구인지 되묻습니다.
+- 특정 사람과의 DM 을 찾을 때는 `list_channels` 의 DM 항목에서 그 사람 이름을 확인합니다. 없으면 없다고 안내합니다.
 
 ## 워크플로우
 1. **channelId 확보**: 채널 이름만 알고 channelId 를 모르면 먼저 `list_channels` 로 목록을 조회합니다. 목록에 없는 공개 채널은 `discover_channels(q)` 로 탐색합니다. 이름 → channelId 해석 후 메시지 조회/작성 (#350 이전의 "channelId 를 미리 알아야만 동작" 한계 해소).

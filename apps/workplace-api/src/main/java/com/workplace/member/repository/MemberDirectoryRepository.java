@@ -17,6 +17,7 @@ import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.SelectField;
 import org.jooq.SelectOnConditionStep;
+import org.jooq.SortField;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -81,16 +82,37 @@ public class MemberDirectoryRepository {
     return condition;
   }
 
-  /** 현재 테넌트의 구성원 목록. 이름 오름차순(동명이인은 id 순)으로 안정 정렬한다. */
+  /**
+   * 현재 테넌트의 구성원 목록. 이름 오름차순(동명이인은 id 순)으로 안정 정렬한다.
+   *
+   * <p>검색어가 있으면 아이디·이름·이메일이 검색어와 정확히 같은 행을 맨 앞에 둔다(#844). 부분일치만으로 이름순 정렬하면 흔한 이름 조각("kim")을 쓰는 사람이
+   * 많을 때 정확히 그 아이디인 사람이 첫 페이지 밖으로 밀려, 첫 페이지에서 username 을 찾는 AI 해석이 "없음"으로 오판한다.
+   */
   @Transactional(readOnly = true)
   public List<MemberSummary> findPage(
       long tenantId, String search, String kind, boolean includeInactive, int offset, int limit) {
     return base()
         .where(scope(tenantId, search, kind, includeInactive))
-        .orderBy(USER.NAME.asc(), USER.ID.asc())
+        .orderBy(sortFields(search))
         .offset(offset)
         .limit(limit)
         .fetch(this::map);
+  }
+
+  /** 목록 정렬 키. 검색어가 있으면 정확일치(대소문자 무시) 행을 앞에 두는 키를 선두에 붙인다. */
+  private static List<SortField<?>> sortFields(String search) {
+    if (search == null || search.isBlank()) return List.of(USER.NAME.asc(), USER.ID.asc());
+    String term = search.trim();
+    SortField<Integer> exactFirst =
+        DSL.when(
+                USER.USERNAME
+                    .equalIgnoreCase(term)
+                    .or(USER.NAME.equalIgnoreCase(term))
+                    .or(USER.EMAIL.equalIgnoreCase(term)),
+                DSL.inline(0))
+            .otherwise(DSL.inline(1))
+            .asc();
+    return List.of(exactFirst, USER.NAME.asc(), USER.ID.asc());
   }
 
   /** 같은 조건의 총원. 검색·필터를 동일하게 적용해야 totalPages 가 실제 페이지 수와 맞는다. */

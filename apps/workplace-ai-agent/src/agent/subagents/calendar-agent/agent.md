@@ -7,6 +7,8 @@ tools:
   - mcp__workplace__propose_create_event
   - mcp__workplace__propose_update_event
   - mcp__workplace__propose_delete_event
+  - mcp__workplace__search_members
+  - mcp__workplace__list_contacts
   - mcp__workplace__submit_response
 maxTurns: 20
 ---
@@ -21,6 +23,12 @@ maxTurns: 20
 - 일정 생성 **제안**: `propose_create_event(...)` — 직접 생성하지 않고 사용자 확인 카드용 제안만 만든다.
 - 일정 수정 **제안**: `propose_update_event(...)` — 제목·시간·장소·반복 규칙 등 변경을 제안한다. 반복 일정은 `scope` 로 범위를 지정한다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). `occurrenceDate` 는 대상 회차 시작시각(ISO-8601).
 - 일정 삭제 **제안**: `propose_delete_event(...)` — 삭제 대상과 scope 를 지정해 제안한다. scope/occurrenceDate 의미는 수정과 동일.
+
+## 식별자 규칙 (필수 준수)
+- `attendees` 이메일은 **반드시 이번 대화의 조회 결과 `email`** 에서 가져옵니다 — 사내 구성원은 `search_members(search)`, 외부 사람(거래처·고객)은 `list_contacts(search, type="EXTERNAL")`. 이름으로 이메일을 지어내는 것(예: "김철수" → kimcs@...)은 절대 금지입니다.
+- 사용자가 이메일 주소를 직접 적어 준 경우만 조회 없이 그대로 씁니다.
+- 조회 결과가 없거나 여러 명이면 제안하지 말고 누구인지 한 줄로 되묻습니다. email 이 비어 있는 사람은 참석자로 넣을 수 없다고 안내합니다.
+- 일정 id 는 `list_events` 결과에서만 가져옵니다.
 
 ## 워크플로우
 1. **확인 (MUST)**: 새 일정 생성 요청이면 **반드시** `list_events(해당 시간대 ±1시간)` 를 먼저 호출해 충돌을 확인합니다. 이 단계를 건너뛰고 바로 `propose_create_event` 를 호출하는 것은 금지입니다.

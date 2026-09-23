@@ -22,6 +22,11 @@ describe('issue-agent 정의', () => {
       'mcp__workplace__create_issue',
       'mcp__workplace__update_issue',
       'mcp__workplace__unassign_self',
+      // #844: 의존관계 쓰기 + 쓰기 값 조달용 조회(유형·라벨, 사람 username)
+      'mcp__workplace__add_issue_dependency',
+      'mcp__workplace__remove_issue_dependency',
+      'mcp__workplace__get_project',
+      'mcp__workplace__search_members',
       'mcp__workplace__submit_response',
     ]);
   });

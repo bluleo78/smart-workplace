@@ -817,6 +817,21 @@ describe('buildTools(assistant) 프로젝트 도구 (M3)', () => {
     }
   });
 
+  it('#844: get_project 는 이슈 유형·라벨 이름 목록을 함께 돌려준다(쓰기 값 조달 경로)', async () => {
+    const c = client();
+    (c.getProject as ReturnType<typeof vi.fn>).mockResolvedValue({ key: 'WP', name: '워크플레이스', description: null, type: 'TEAM' });
+    (c.getProjectTypes as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 1, name: 'TASK' }, { id: 2, name: 'BUG' }]);
+    (c.getProjectLabels as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 3, name: 'frontend' }]);
+    const tool = buildTools(c, 7, 'assistant').find((t) => t.name === 'get_project')!;
+    const out = JSON.parse(await tool.handler({ key: 'WP' }));
+    expect(out).toEqual({
+      key: 'WP', name: '워크플레이스', description: null, type: 'TEAM',
+      issueTypes: ['TASK', 'BUG'], labels: ['frontend'],
+    });
+    expect(c.getProjectTypes).toHaveBeenCalledWith(7, 'WP');
+    expect(c.getProjectLabels).toHaveBeenCalledWith(7, 'WP');
+  });
+
   it('propose_create_project 는 사이드카에 project.create_project 제안을 쓴다', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pa-proj-'));
     const sidecar = path.join(dir, 'pending-action.json');
@@ -1059,6 +1074,55 @@ describe('buildTools threadBinding — add_channel_message 스레드 mirror', ()
     const tool = tools.find((t) => t.name === 'add_channel_message')!;
     await tool.handler({ channelId: 5, body: '딴채널' });
     expect(calls[0]).toEqual([2, 5, '딴채널', undefined]);
+  });
+});
+
+// #844: 멘션 토큰은 숫자 id(<@id>)뿐이라 LLM 이 쓴 @username 을 도구가 변환한다.
+describe('add_channel_message @username → <@userId> 멘션 변환', () => {
+  const member = (username: string, userId: number) => ({ userId, username, name: username, email: null, title: null, kind: 'HUMAN', active: true, membershipRole: null });
+  const post = async (body: string, members: ReturnType<typeof member>[], failSearch = false) => {
+    let posted = '';
+    const fake = {
+      // 부분일치 검색을 흉내 — 서버처럼 검색어를 포함하는 행을 돌려준다.
+      searchMembers: async (_a: number, o: { search?: string }) => {
+        if (failSearch) throw new Error('boom');
+        return members.filter((m) => m.username.includes(o.search ?? '') || m.name.includes(o.search ?? ''));
+      },
+      addChannelMessage: async (_a: number, _c: number, b: string) => { posted = b; },
+    } as never;
+    const tool = buildTools(fake, 2, 'messaging').find((t) => t.name === 'add_channel_message')!;
+    await tool.handler({ channelId: 1, body });
+    return posted;
+  };
+
+  it('구성원으로 확인된 @username 만 <@id> 로 바꾸고, 문장 끝 마침표는 보존한다', async () => {
+    const out = await post('@kim.cs 확인 부탁드립니다. 참고: @lee.', [member('kim.cs', 42), member('lee', 7)]);
+    expect(out).toBe('<@42> 확인 부탁드립니다. 참고: <@7>.');
+  });
+
+  it('없는 식별자·메일 주소의 @ 는 그대로 둔다', async () => {
+    const out = await post('@박영희 님, a@kim.cs 로 메일 주세요 @ghost', [member('kim.cs', 42)]);
+    expect(out).toBe('@박영희 님, a@kim.cs 로 메일 주세요 @ghost');
+  });
+
+  it('username 이 아니어도 표시 이름이 정확히 한 명이면 멘션하고, 동명이인이면 그대로 둔다', async () => {
+    const kim = { ...member('kim.cs', 42), name: '김철수' };
+    expect(await post('@김철수 확인요', [kim])).toBe('<@42> 확인요');
+    const twin = { ...member('kim.cs2', 43), name: '김철수' };
+    expect(await post('@김철수 확인요', [kim, twin])).toBe('@김철수 확인요');
+  });
+
+  it('이름에 붙은 호칭·조사는 떼고 찾되 원문에는 남긴다', async () => {
+    const kim = { ...member('kim.cs', 42), name: '김철수' };
+    expect(await post('@김철수님 확인요, @kim.cs에게도 전달', [kim])).toBe('<@42>님 확인요, <@42>에게도 전달');
+  });
+
+  it('부분일치만 되는 username 은 멘션하지 않는다(정확일치만)', async () => {
+    expect(await post('@kim 안녕', [member('kim.cs', 42)])).toBe('@kim 안녕');
+  });
+
+  it('구성원 조회가 실패해도 원문 그대로 게시한다', async () => {
+    expect(await post('@kim.cs 안녕', [], true)).toBe('@kim.cs 안녕');
   });
 });
 

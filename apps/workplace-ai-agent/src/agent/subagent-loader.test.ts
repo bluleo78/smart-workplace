@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, rmSyn
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { serializeSubagent, writeSubagentDefinitions, loadSubagents, toAgentDefinitions, type SubagentDefinition } from './subagent-loader.js';
+import { buildTools } from '../mcp/tools.js';
 
 const issueDef: SubagentDefinition = {
   description: '이슈 조회·상태변경·코멘트',
@@ -142,5 +143,18 @@ describe('toAgentDefinitions (#462 슬라이스4)', () => {
     expect(out['a']).toEqual({ description: 'd', prompt: 'p', tools: [], mcpServers: ['workplace'] });
     expect('model' in out['a']).toBe(false);
     expect('maxTurns' in out['a']).toBe(false);
+  });
+});
+
+// #844: 서브에이전트 allowlist 가 assistant 프로파일에 없는 도구를 가리키면 그 도구는 조용히 도달 불가가 된다.
+// (에이전트별 도구 목록 자체는 각 subagents/<name>/agent.test.ts 가 고정한다.)
+describe('실제 서브에이전트 allowlist (#844)', () => {
+  const defs = loadSubagents();
+  const assistantTools = new Set(buildTools({} as never, 1, 'assistant').map((t) => `mcp__workplace__${t.name}`));
+
+  it('frontmatter 의 모든 도구는 assistant 프로파일에 실제로 존재한다', () => {
+    for (const [name, d] of Object.entries(defs)) {
+      for (const tool of d.tools) expect(assistantTools.has(tool), `${name}: ${tool}`).toBe(true);
+    }
   });
 });

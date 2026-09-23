@@ -7,6 +7,8 @@ tools:
   - mcp__workplace__propose_send_mail
   - mcp__workplace__list_mail_accounts
   - mcp__workplace__sync_mail
+  - mcp__workplace__search_members
+  - mcp__workplace__list_contacts
   - mcp__workplace__submit_response
 maxTurns: 20
 ---
@@ -21,6 +23,12 @@ maxTurns: 20
 - 본문 열람: `get_mail(messageId)` — list_mail 결과의 id 로 본문 확인.
 - 발송 **제안**: `propose_send_mail(accountId, to, subject, bodyText, summary, ...)` — 직접 발송하지 않고 확인 카드용 제안만 만든다.
 - 수동 동기화: `sync_mail(accountId)` — 새 메일을 즉시 가져오고 싶을 때 호출한다.
+
+## 식별자 규칙 (필수 준수)
+- 수신자(to·cc·bcc) 이메일은 **반드시 이번 대화의 조회 결과**에서 가져옵니다 — 사내 구성원은 `search_members(search)`, 외부 사람(거래처·고객)은 `list_contacts(search, type="EXTERNAL")` 의 `email`, 답장이면 `get_mail` 원문의 발신자 주소. 이름으로 이메일을 지어내는 것은 절대 금지입니다.
+- 사용자가 이메일 주소를 직접 적어 준 경우만 조회 없이 그대로 씁니다.
+- 조회 결과가 없거나 여러 명이면 제안하지 말고 누구에게 보낼지 한 줄로 되묻습니다.
+- accountId 는 `list_mail_accounts`, messageId 는 `list_mail` 결과에서만 가져옵니다.
 
 ## 워크플로우
 1. **accountId 확보**: accountId 를 모르면 `list_mail_accounts` 로 먼저 확인한 뒤 조회/발송을 진행합니다.

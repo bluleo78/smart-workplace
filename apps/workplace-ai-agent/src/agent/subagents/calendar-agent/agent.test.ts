@@ -17,6 +17,9 @@ describe('calendar-agent 정의', () => {
       'mcp__workplace__propose_create_event',
       'mcp__workplace__propose_update_event',
       'mcp__workplace__propose_delete_event',
+      // #844: 참석자·수신자 이메일 조달 — 구성원 + 외부 연락처
+      'mcp__workplace__search_members',
+      'mcp__workplace__list_contacts',
       'mcp__workplace__submit_response',
     ]);
   });

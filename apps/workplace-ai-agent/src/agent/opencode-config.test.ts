@@ -56,15 +56,20 @@ describe('resolveStdioEntryCmd / isDev', () => {
 });
 
 describe('toOpencodeSubagents', () => {
-  it('mode:subagent + workplace MCP-only tools 로 변환, model 미지정(상속)', () => {
+  it('mode:subagent + frontmatter allowlist 만 opencode 도구명으로 허용, model 미지정(상속)', () => {
     const out = toOpencodeSubagents({
-      'issue-agent': { description: 'd', tools: ['x'], prompt: 'p', maxTurns: 12 },
+      'issue-agent': {
+        description: 'd',
+        tools: ['mcp__workplace__list_issues', 'mcp__workplace__submit_response'],
+        prompt: 'p',
+        maxTurns: 12,
+      },
     });
     expect(out['issue-agent']).toEqual({
       mode: 'subagent',
       description: 'd',
       prompt: 'p',
-      tools: { '*': false, 'workplace*': true },
+      tools: { '*': false, workplace_list_issues: true, workplace_submit_response: true },
       maxSteps: 12,
     });
   });

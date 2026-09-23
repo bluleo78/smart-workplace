@@ -64,7 +64,8 @@ function buildMcpEnvironment(i: RunnerInput, runId: string): Record<string, stri
 }
 
 // SubagentDefinition → opencode AgentConfig(mode:'subagent'). model 미지정 = primary 상속.
-// tools 는 workplace MCP 도구만 허용(빌트인 bash/edit/write/read 차단) — primary 와 동일 정책.
+// tools 는 frontmatter allowlist 만 허용한다(#844). 예전엔 'workplace*' 전체를 열어 opencode 경로에서
+// allowlist 가 무력했다 — Claude SDK 경로와 도구 경계를 일치시킨다. 빌트인(bash/edit 등)은 '*': false 로 차단.
 export function toOpencodeSubagents(defs: Record<string, SubagentDefinition>): Record<string, OpencodeAgentConfig> {
   const out: Record<string, OpencodeAgentConfig> = {};
   for (const [name, d] of Object.entries(defs)) {
@@ -72,7 +73,8 @@ export function toOpencodeSubagents(defs: Record<string, SubagentDefinition>): R
       mode: 'subagent',
       description: d.description,
       prompt: d.prompt,
-      tools: { '*': false, 'workplace*': true },
+      // frontmatter 도구명(mcp__workplace__X) → opencode 도구명(workplace_X, '<서버명>_<도구명>' 규칙).
+      tools: { '*': false, ...Object.fromEntries(d.tools.map((t) => [t.replace(/^mcp__workplace__/, 'workplace_'), true])) },
     };
     if (typeof d.maxTurns === 'number') cfg.maxSteps = d.maxTurns;
     out[name] = cfg;
