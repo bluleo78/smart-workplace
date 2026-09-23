@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { buildTools } from './tools.js';
 
 // client 는 show_ 핸들러가 호출하지 않으므로(displayed) 빈 스텁으로 충분.
-const stubClient = {} as unknown as Parameters<typeof buildTools>[0];
+// #846: buildTools 가 구성 시점에 toolClient() 를 부르므로 그것만 둔다(공유 도구 핸들러는 실행하지 않음).
+const stubClient = { toolClient: () => ({}) } as unknown as Parameters<typeof buildTools>[0];
 
 describe('assistant 프로필 show_* 도구(#460 Layer2)', () => {
   const names = buildTools(stubClient, 1, 'assistant').map((t) => t.name);

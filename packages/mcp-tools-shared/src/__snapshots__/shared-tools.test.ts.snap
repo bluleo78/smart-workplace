@@ -1,0 +1,837 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
+[
+  {
+    "name": "add_channel_message",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "channelId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "channelId",
+        "body",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "add_comment",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+        "body",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "add_issue_dependency",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "blocks",
+            "blockedBy",
+          ],
+          "type": "string",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "otherIssueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+        "otherIssueKey",
+        "direction",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_issue",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "assignees": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "body": {
+          "maxLength": 10000,
+          "type": "string",
+        },
+        "dueDate": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string",
+        },
+        "parent": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "priority": {
+          "enum": [
+            "LOW",
+            "MID",
+            "HIGH",
+          ],
+          "type": "string",
+        },
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "startDate": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string",
+        },
+        "type": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
+        "title",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_wiki_page",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "parentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "title": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "spaceId",
+        "title",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "edit_comment",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+        "commentId",
+        "body",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_channel_messages",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "channelId",
+        "limit",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_event",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "eventId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "eventId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_external_contact",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "externalId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "externalId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_issue_detail",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_mail",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_member",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "username",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_member_contact",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "username",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_project",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_wiki_page",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "pageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "pageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_channels",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_contacts",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": "string",
+        },
+        "favorite": {
+          "type": "boolean",
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "organization": {
+          "type": "string",
+        },
+        "search": {
+          "type": "string",
+        },
+        "title": {
+          "type": "string",
+        },
+        "type": {
+          "enum": [
+            "MEMBER",
+            "EXTERNAL",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "limit",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_drive_items",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "parentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "spaceId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_drive_spaces",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_events",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "to": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "from",
+        "to",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_issues",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "assignee": {
+          "description": "담당자 CSV: "me"(나) | "null"(담당 없음) | username. 표시 이름이 아닌 username. assignee·reporter 모두 생략 시 "me"",
+          "type": "string",
+        },
+        "blocked": {
+          "type": "boolean",
+        },
+        "dueFrom": {
+          "description": "마감일 하한 yyyy-MM-dd",
+          "type": "string",
+        },
+        "dueTo": {
+          "description": "마감일 상한 yyyy-MM-dd",
+          "type": "string",
+        },
+        "label": {
+          "description": "라벨 이름 CSV(예: "버그,문서"). 여러 개면 모두 붙은 이슈만(AND). 대소문자 무시",
+          "type": "string",
+        },
+        "priority": {
+          "items": {
+            "enum": [
+              "LOW",
+              "MID",
+              "HIGH",
+            ],
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "projectKey": {
+          "description": "특정 프로젝트로 한정(예: "WP"). 생략 시 내가 속한 모든 프로젝트",
+          "type": "string",
+        },
+        "q": {
+          "type": "string",
+        },
+        "reporter": {
+          "description": "작성자 CSV: "me" | username",
+          "type": "string",
+        },
+        "size": {
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "status": {
+          "description": "상태 CSV: TODO,IN_PROGRESS,DONE,CANCELED",
+          "type": "string",
+        },
+        "topLevel": {
+          "type": "boolean",
+        },
+        "type": {
+          "description": "유형 이름 CSV(예: "BUG,STORY"). 하나라도 일치하면 매칭(OR)",
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_mail",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "accountId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "folder": {
+          "default": "INBOX",
+          "type": "string",
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "query": {
+          "type": "string",
+        },
+        "unreadOnly": {
+          "type": "boolean",
+        },
+      },
+      "required": [
+        "accountId",
+        "folder",
+        "limit",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_mail_accounts",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_projects",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "size": {
+          "default": 50,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "page",
+        "size",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_wiki_spaces",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+  },
+  {
+    "name": "remove_issue_dependency",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "blocks",
+            "blockedBy",
+          ],
+          "type": "string",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "otherIssueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+        "otherIssueKey",
+        "direction",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "search_drive",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "q": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "spaceId",
+        "q",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "search_members",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "includeInactive": {
+          "type": "boolean",
+        },
+        "kind": {
+          "default": "HUMAN",
+          "enum": [
+            "HUMAN",
+            "AGENT",
+            "ALL",
+          ],
+          "type": "string",
+        },
+        "page": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "search": {
+          "type": "string",
+        },
+        "size": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "kind",
+        "page",
+        "size",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "search_wiki",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "query",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_issue",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "assignees": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "body": {
+          "maxLength": 10000,
+          "type": "string",
+        },
+        "clearDueDate": {
+          "type": "boolean",
+        },
+        "clearStartDate": {
+          "type": "boolean",
+        },
+        "dueDate": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "labels": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "priority": {
+          "enum": [
+            "LOW",
+            "MID",
+            "HIGH",
+          ],
+          "type": "string",
+        },
+        "startDate": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string",
+        },
+        "status": {
+          "enum": [
+            "TODO",
+            "IN_PROGRESS",
+            "DONE",
+            "CANCELED",
+          ],
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 200,
+          "type": "string",
+        },
+        "type": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_wiki_page",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string",
+        },
+        "pageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "title": {
+          "maxLength": 255,
+          "type": "string",
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "pageId",
+        "version",
+      ],
+      "type": "object",
+    },
+  },
+]
+`;

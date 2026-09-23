@@ -150,7 +150,8 @@ describe('toAgentDefinitions (#462 슬라이스4)', () => {
 // (에이전트별 도구 목록 자체는 각 subagents/<name>/agent.test.ts 가 고정한다.)
 describe('실제 서브에이전트 allowlist (#844)', () => {
   const defs = loadSubagents();
-  const assistantTools = new Set(buildTools({} as never, 1, 'assistant').map((t) => `mcp__workplace__${t.name}`));
+  // #846: buildTools 가 구성 시점에 toolClient() 를 부르므로 그것만 둔 스텁(핸들러는 실행하지 않음).
+  const assistantTools = new Set(buildTools({ toolClient: () => ({}) } as never, 1, 'assistant').map((t) => `mcp__workplace__${t.name}`));
 
   it('frontmatter 의 모든 도구는 assistant 프로파일에 실제로 존재한다', () => {
     for (const [name, d] of Object.entries(defs)) {

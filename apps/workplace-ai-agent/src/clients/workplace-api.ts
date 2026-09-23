@@ -5,7 +5,13 @@ import axios, { AxiosInstance } from 'axios';
 
 import { DEFAULT_API_BASE_URL } from '../constants.js';
 import type { ProviderCredential } from '../agent/agent-runner.js';
-import { defaultListAssignee, describeApiError, parseIssueKey } from '@smart-workplace/issue-tools-shared';
+import {
+  createSharedToolClient,
+  describeApiError,
+  parseIssueKey,
+  type HttpRequestConfig,
+  type SharedToolClient,
+} from '@smart-workplace/mcp-tools-shared';
 
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
@@ -55,103 +61,6 @@ export interface ContactItem {
   isFavorite: boolean;
 }
 
-// #833: 도구가 LLM 에게 내보내는 연락처 항목. 혼동의 근원인 공용 `id` 를 제거하고
-// 타입별 식별자를 별도 필드로 분리한다 — userId 는 프로젝트 멤버 추가 등에 그대로 쓸 수 있고,
-// externalId 는 외부 연락처 조회/삭제에만 쓸 수 있다.
-export interface ContactView {
-  type: 'MEMBER' | 'EXTERNAL';
-  userId?: number;
-  externalId?: number;
-  name: string;
-  email: string | null;
-  title: string | null;
-  organization: string | null;
-  isFavorite: boolean;
-}
-
-/** ContactSummary → ContactView. 타입에 따라 식별자를 분리 노출한다(#833). */
-export function toContactView(item: ContactItem): ContactView {
-  const base = {
-    type: item.type,
-    name: item.name,
-    email: item.email ?? null,
-    title: item.title ?? null,
-    organization: item.organization ?? null,
-    isFavorite: Boolean(item.isFavorite),
-  };
-  return item.type === 'MEMBER' ? { ...base, userId: item.id } : { ...base, externalId: item.id };
-}
-
-// #833: 연락처 목록 조회 옵션 — 서버가 지원하는 필터를 그대로 노출한다.
-export interface ContactListOptions {
-  search?: string;
-  type?: string;
-  organization?: string;
-  title?: string;
-  favorite?: boolean;
-  cursor?: string;
-  limit: number;
-}
-
-// #833: 구성원(현재 테넌트 멤버) — GET /members 응답(MemberSummary).
-// 계정(user)과 구분한다: 계정 관리는 ADMIN 전용 /users 의 몫이고, 이쪽은 "우리 워크스페이스에 누가
-// 있는가"를 답하는 조회 전용 디렉터리다. userId 는 전역 user.id 로, 사람을 가리켜야 하는 모든 곳에서 쓴다.
-export interface MemberItem {
-  userId: number;
-  username: string;
-  name: string;
-  email: string | null;
-  title: string | null;
-  kind: 'HUMAN' | 'AGENT';
-  active: boolean;
-  membershipRole: string | null;
-  membershipStatus: string | null;
-}
-
-// #833: 연락처 관점의 멤버 상세 — GET /contacts/members/{userId} 응답(MemberDetail).
-export interface MemberContactItem {
-  userId: number;
-  username: string;
-  name: string;
-  email: string | null;
-  title: string | null;
-  kind: string;
-  groups: string[];
-  isFavorite: boolean;
-}
-
-// #333 M3: 프로젝트 단건(읽기 그라운딩).
-export interface ProjectItem {
-  key: string;
-  name: string;
-  description: string | null;
-  type: string | null;
-}
-
-// #333 M3: 프로젝트 멤버 단건(읽기 그라운딩).
-export interface ProjectMemberItem {
-  userId: number;
-  username: string;
-  name: string;
-  role: string;
-}
-
-// #333 M3: 드라이브 스페이스 단건(읽기 그라운딩).
-export interface DriveSpaceItem { id: number; name: string; role: string; }
-
-// #333 M3: 드라이브 폴더 단건(listSpaceItems / searchDrive 응답).
-export interface DriveFolderNode { id: number; parentId: number | null; name: string; createdAt: string; }
-
-// #333 M3: 드라이브 파일 단건(listSpaceItems / searchDrive 응답).
-export interface DriveFileNode { id: number; folderId: number | null; fileId: number; name: string; mimeType: string; sizeBytes: number; category: string; createdAt: string; }
-
-// #333 M3: 드라이브 items/search API 응답 래퍼 — folders + files 묶음.
-// #376: 기존 DriveNode(단건 배열)는 API 실제 응답({folders,files})과 불일치 — 수정.
-export interface DriveItemsResponse { folders: DriveFolderNode[]; files: DriveFileNode[]; }
-
-// #376 하위호환: DriveNode alias(외부 참조가 있으면 타입 에러 방지).
-export type DriveNode = DriveItemsResponse;
-
 // #333 M4: 드라이브 폴더 생성/이름변경 응답 단건.
 export interface DriveFolderItem { id: number; parentId: number | null; name: string; createdAt: string; }
 
@@ -164,72 +73,6 @@ export interface ExternalContactInput {
   title?: string;
   notes?: string;
   visibility: 'SHARED' | 'PERSONAL';
-}
-
-// #333 M4: 메일 계정 단건 — accountId 확보용(list_mail/propose_send_mail 의 accountId 인자 해석).
-export interface MailAccountItem {
-  id: number;
-  emailAddress: string;
-  displayName: string;
-  aiEnabled: boolean;
-}
-
-// #333 M3: 메일 메시지 목록 단건(읽기 그라운딩).
-export interface MailMessageItem {
-  id: number;
-  subject: string | null;
-  fromAddress: string | null;
-  snippet: string | null;
-  receivedAt: string;
-  seen: boolean;
-}
-
-// #333 M3: 메일 메시지 상세 — 본문(text/html) + 수신자 목록 포함.
-export interface MailMessageDetail extends MailMessageItem {
-  bodyText: string | null;
-  bodyHtml: string | null;
-  toAddresses: string[];
-}
-
-// #333 M2: 캘린더 이벤트 단건(읽기 그라운딩).
-export interface CalendarEventItem {
-  id: number;
-  title: string;
-  description: string | null;
-  startsAt: string;
-  endsAt: string;
-  allDay: boolean;
-  location: string | null;
-  recurrenceRule: string | null;
-}
-
-// S2: 위키 검색 결과 한 건(읽기 그라운딩).
-export interface WikiSearchItem {
-  id: number;
-  spaceId: number;
-  spaceName: string;
-  title: string;
-  snippet: string;
-  updatedAt: string;
-}
-
-// S2: 위키 페이지 본문 전체.
-export interface WikiPageContent {
-  id: number;
-  spaceId: number;
-  parentId: number | null;
-  title: string;
-  body: string;
-  version: number;
-  updatedAt: string;
-}
-
-// #724: 내가 접근 가능한 노트 스페이스 한 건 — 스페이스 이름/타입 → spaceId 해석에 사용.
-export interface WikiSpaceItem {
-  id: number;
-  type: string; // PERSONAL | TEAM | OPEN 등. 개인 노트("내 노트")는 PERSONAL.
-  name: string;
-  role: string; // 내 역할(OWNER/EDITOR/VIEWER)
 }
 
 // 6c: 이슈 첨부 메타.
@@ -252,78 +95,12 @@ export interface ProgressPayload {
   steps: ProgressStepDto[];
 }
 
-// #371: 이슈 목록 조회 필터 — GET /me/issues 의 쿼리 파라미터 부분 집합.
-// 전부 선택. assignee 미지정 시 호출자(principal) 기준 'me' 로 조회한다.
-export interface IssueListParams {
-  projectKey?: string;
-  status?: string;
-  priority?: string[]; // LOW/MID/HIGH — CSV 로 직렬화
-  label?: string;
-  type?: string;
-  dueFrom?: string;
-  dueTo?: string;
-  q?: string;
-  blocked?: boolean;
-  topLevel?: boolean;
-  assignee?: string; // CSV: 'me' | 'null' | username (#841, 숫자 userId 도 서버 호환)
-  reporter?: string; // CSV: 'me' | username
-  size?: number;
-}
-
-// #371: 이슈 목록 한 건(LLM 노출용 경량 형태). issueKey 로 get_issue_detail 호출 가능.
-export interface IssueListItem {
-  issueKey: string;
-  title: string;
-  status: string;
-  priority: string;
-  assignees: { id: number; name: string; kind: 'HUMAN' | 'AGENT' }[];
-  dueDate: string | null;
-  type: string | null;
-  blocked: boolean;
-}
-
 export interface WorkplaceApiClient {
-  addIssueComment(agentId: number, issueKey: string, body: string): Promise<void>;
-  // 이슈 생성 — mcp 의 create_issue 와 동일 필드(단 labels 없음, create 엔드포인트가 지원 안 함).
-  createIssue(
-    agentId: number,
-    projectKey: string,
-    body: {
-      title: string;
-      body?: string;
-      priority?: string;
-      dueDate?: string;
-      startDate?: string;
-      assigneeIds?: number[];
-      typeId?: number;
-      parentNumber?: number;
-    },
-  ): Promise<unknown>;
-  // 코멘트 수정 — issueKey 로 받아 내부에서 숫자 issueId 조회(addIssueComment 와 동일 패턴).
-  editIssueComment(agentId: number, issueKey: string, commentId: number, body: string): Promise<void>;
-  // update_issue 도구 팬아웃용 — 필드별 독립 엔드포인트(mcp 와 동일 패턴).
-  updateIssueContent(agentId: number, issueKey: string, body: Record<string, unknown>): Promise<unknown>;
-  setIssueType(agentId: number, issueKey: string, typeId: number): Promise<void>;
-  setIssueParent(agentId: number, issueKey: string, parentNumber: number | null): Promise<void>;
-  replaceIssueAssignees(agentId: number, issueKey: string, userIds: number[]): Promise<unknown>;
-  replaceIssueLabels(agentId: number, issueKey: string, labelIds: number[]): Promise<unknown>;
-  addIssueDependency(
-    agentId: number,
-    issueKey: string,
-    otherNumber: number,
-    direction: 'blocks' | 'blockedBy',
-  ): Promise<unknown>;
-  removeIssueDependency(
-    agentId: number,
-    issueKey: string,
-    otherNumber: number,
-    direction: 'blocks' | 'blockedBy',
-  ): Promise<void>;
+  // #846: 공유 도구(이슈·프로젝트·노트·캘린더·메일·구성원·메시징·드라이브 읽기 등)용 클라이언트.
+  //   경로 매핑은 공유 패키지(createSharedToolClient)에 있고, 여기서는 이 에이전트 신원 헤더가 붙은 HTTP 만 넘긴다.
+  toolClient(agentId: number): SharedToolClient;
+  // 아래는 ai-agent 전용 도구·흐름(상태 변경·담당 해제·chat·위임 제안·외부연락처/드라이브 쓰기 등)이 쓰는 메서드.
   updateIssueStatus(agentId: number, issueKey: string, statusKey: string): Promise<void>;
-  // Task 6: 정규화는 공유 도구 핸들러(normalizeIssueDetail)가 수행 — 여기선 raw 를 그대로 반환.
-  getIssueDetail(agentId: number, issueKey: string): Promise<unknown>;
-  // #371: 이슈 목록 조회 — GET /me/issues. assignee 기본 'me'(서버가 principal 로 해석).
-  listIssues(agentId: number, params: IssueListParams): Promise<IssueListItem[]>;
   unassignSelf(agentId: number, issueKey: string): Promise<void>;
   // Task 7: getOAuthToken → getProviderCredential 일반화. GET /users/me/provider-credential.
   // anthropic(OAuth 토큰)·opencode(공급자 설정 payload) 양쪽을 ProviderCredential 유니온으로 반환.
@@ -333,62 +110,15 @@ export interface WorkplaceApiClient {
   addChatMessage(agentId: number, threadId: number, body: string): Promise<void>;
   // A2: chat 진행 상태 전송
   postChatProgress(agentId: number, threadId: number, payload: ProgressPayload): Promise<void>;
-  // 7: 채널 메시지 조회/작성
-  getChannelMessages(
-    agentId: number,
-    channelId: number,
-    limit: number,
-  ): Promise<ChannelMessageItem[]>;
-  addChannelMessage(
-    agentId: number,
-    channelId: number,
-    body: string,
-    parentMessageId?: number,
-  ): Promise<void>;
   // A2: 메시징 진행 상태 전송
   postMessagingProgress(agentId: number, channelId: number, payload: ProgressPayload): Promise<void>;
-  // #350: 채널 목록/탐색 — 채널 이름 → channelId 해석 전용 읽기 도구.
-  listChannels(agentId: number): Promise<ChannelItem[]>;
+  // #350: 공개 채널 탐색 — 채널 이름 → channelId 해석.
   discoverChannels(agentId: number, q: string): Promise<ChannelItem[]>;
-  // S2: 위키 읽기 그라운딩
-  listWikiSpaces(agentId: number): Promise<WikiSpaceItem[]>;
-  searchWikiPages(agentId: number, query: string): Promise<WikiSearchItem[]>;
-  getWikiPage(agentId: number, pageId: number): Promise<WikiPageContent>;
-  // #333 M3: 위키 페이지 쓰기 — 스페이스 멤버십 가드는 서버가 강제하므로 propose/confirm 없이 직접 노출.
-  createWikiPage(agentId: number, spaceId: number, title: string, parentId?: number): Promise<WikiPageContent>;
-  updateWikiPage(agentId: number, pageId: number, version: number, title?: string, body?: string): Promise<WikiPageContent>;
-  // #333 M2: 캘린더 읽기 — list/get. 쓰기(생성)는 서버측 confirm 실행기가 수행(에이전트는 propose 만).
-  listEvents(agentId: number, from: string, to: string): Promise<CalendarEventItem[]>;
-  getEvent(agentId: number, id: number): Promise<CalendarEventItem>;
-  // #333 M3: 메일 읽기 — list/get. 발송은 confirm 실행기가 수행(에이전트는 propose 만).
-  listMail(agentId: number, accountId: number, folder: string, query: string | undefined, unreadOnly: boolean | undefined, limit: number): Promise<MailMessageItem[]>;
-  getMail(agentId: number, messageId: number): Promise<MailMessageDetail>;
-  // #333 M4: 메일 계정 목록 + 수동 동기화 — accountId 확보 경로.
-  listMailAccounts(agentId: number): Promise<MailAccountItem[]>;
+  // #333 M4: 메일 수동 동기화.
   syncMail(agentId: number, accountId: number): Promise<unknown>;
-  // #333 M3: 프로젝트 읽기. 쓰기(생성/소프트삭제/멤버추가)는 confirm 실행기가 수행(에이전트는 propose 만).
-  listProjects(agentId: number, page: number, size: number): Promise<ProjectItem[]>;
-  getProject(agentId: number, key: string): Promise<ProjectItem>;
-  listProjectMembers(agentId: number, key: string): Promise<ProjectMemberItem[]>;
-  // 이슈 생성/수정 리졸브용 — mcp 의 동명 메서드와 동일 엔드포인트.
-  getProjectTypes(agentId: number, key: string): Promise<{ id: number; name: string }[]>;
-  getProjectLabels(agentId: number, key: string): Promise<{ id: number; name: string }[]>;
-  // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
-  // #833: 서버 필터(organization/title/favorite)와 커서를 그대로 노출하고, 응답은 커서를 함께 돌려준다.
-  listContacts(agentId: number, opts: ContactListOptions): Promise<{ items: ContactItem[]; nextCursor: string | null }>;
-  getExternalContact(agentId: number, id: number): Promise<ContactItem>;
+  // #333 M3: 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
   createExternalContact(agentId: number, input: ExternalContactInput): Promise<ContactItem>;
   updateExternalContact(agentId: number, id: number, input: ExternalContactInput): Promise<ContactItem>;
-  // #833: 구성원(테넌트 멤버) 읽기 — 설정>구성원 도메인. 연락처(외부 연락처)와 별개 도메인이다.
-  searchMembers(
-    agentId: number,
-    opts: { search?: string; kind?: string; includeInactive?: boolean; page: number; size: number },
-  ): Promise<MemberItem[]>;
-  getMemberContact(agentId: number, userId: number): Promise<MemberContactItem>;
-  // #333 M3: 드라이브 읽기 전용(v1 — 쓰기 연기). list/items/search.
-  listMySpaces(agentId: number): Promise<DriveSpaceItem[]>;
-  listSpaceItems(agentId: number, spaceId: number, parentId?: number): Promise<DriveItemsResponse>;
-  searchDrive(agentId: number, spaceId: number, q: string): Promise<DriveItemsResponse>;
   // #333 M4: 드라이브 폴더/파일 쓰기 — 이동은 204(void).
   createFolder(agentId: number, spaceId: number, parentId: number | null, name: string): Promise<DriveFolderItem>;
   renameFolder(agentId: number, folderId: number, name: string): Promise<DriveFolderItem>;
@@ -467,104 +197,23 @@ export function createWorkplaceApiClient(opts: {
   });
 
   return {
+    toolClient(agentId) {
+      // 매 요청에 이 에이전트 신원 헤더를 얹는다. 인증·오류 메시지 보강 인터셉터는 같은 http 인스턴스에서 그대로 적용된다.
+      const as = (config?: HttpRequestConfig) => ({ ...config, ...onBehalfOf(agentId) });
+      return createSharedToolClient({
+        get: (url, config) => http.get(url, as(config)),
+        post: (url, data, config) => http.post(url, data, as(config)),
+        put: (url, data, config) => http.put(url, data, as(config)),
+        patch: (url, data, config) => http.patch(url, data, as(config)),
+        delete: (url, config) => http.delete(url, as(config)),
+      });
+    },
     withOnBehalfOfTenant(tenantId: number) {
       return createWorkplaceApiClient({ ...opts, onBehalfOfTenantId: tenantId });
     },
-    async addIssueComment(agentId, issueKey, body) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      // 코멘트 endpoint 는 issueId 기반 (workplace-api 컨벤션) — issue 상세에서 id 추출.
-      const r = await http.get(
-        `/projects/${projectKey}/issues/${number}`,
-        onBehalfOf(agentId),
-      );
-      const issueId = r.data?.summary?.id ?? r.data?.id;
-      if (!issueId) throw new Error(`issueId 조회 실패: ${issueKey}`);
-      await http.post(
-        `/issues/${issueId}/comments`,
-        { body },
-        onBehalfOf(agentId),
-      );
-    },
 
-    async createIssue(agentId, projectKey, body) {
-      return (await http.post(`/projects/${projectKey}/issues`, body, onBehalfOf(agentId))).data;
-    },
 
-    async editIssueComment(agentId, issueKey, commentId, body) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      // 코멘트 endpoint 는 issueId 기반 — addIssueComment 와 동일하게 이슈 상세에서 id 추출.
-      const r = await http.get(
-        `/projects/${projectKey}/issues/${number}`,
-        onBehalfOf(agentId),
-      );
-      const issueId = r.data?.summary?.id ?? r.data?.id;
-      if (!issueId) throw new Error(`issueId 조회 실패: ${issueKey}`);
-      await http.patch(
-        `/issues/${issueId}/comments/${commentId}`,
-        { body },
-        onBehalfOf(agentId),
-      );
-    },
 
-    async updateIssueContent(agentId, issueKey, body) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      return (
-        await http.patch(`/projects/${projectKey}/issues/${number}`, body, onBehalfOf(agentId))
-      ).data;
-    },
-    async setIssueType(agentId, issueKey, typeId) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      await http.patch(
-        `/projects/${projectKey}/issues/${number}/type`,
-        { typeId },
-        onBehalfOf(agentId),
-      );
-    },
-    async setIssueParent(agentId, issueKey, parentNumber) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      await http.patch(
-        `/projects/${projectKey}/issues/${number}/parent`,
-        { parentNumber },
-        onBehalfOf(agentId),
-      );
-    },
-    async replaceIssueAssignees(agentId, issueKey, userIds) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      return (
-        await http.put(
-          `/projects/${projectKey}/issues/${number}/assignees`,
-          { userIds },
-          onBehalfOf(agentId),
-        )
-      ).data;
-    },
-    async replaceIssueLabels(agentId, issueKey, labelIds) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      return (
-        await http.put(
-          `/projects/${projectKey}/issues/${number}/labels`,
-          { labelIds },
-          onBehalfOf(agentId),
-        )
-      ).data;
-    },
-    async addIssueDependency(agentId, issueKey, otherNumber, direction) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      return (
-        await http.post(
-          `/projects/${projectKey}/issues/${number}/dependencies`,
-          { otherNumber, direction },
-          onBehalfOf(agentId),
-        )
-      ).data;
-    },
-    async removeIssueDependency(agentId, issueKey, otherNumber, direction) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      await http.delete(`/projects/${projectKey}/issues/${number}/dependencies`, {
-        params: { otherNumber, direction },
-        ...onBehalfOf(agentId),
-      });
-    },
     async updateIssueStatus(agentId, issueKey, statusKey) {
       const { projectKey, number } = parseIssueKey(issueKey);
       await http.patch(
@@ -574,62 +223,6 @@ export function createWorkplaceApiClient(opts: {
       );
     },
 
-    async getIssueDetail(agentId, issueKey) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      const r = await http.get(`/projects/${projectKey}/issues/${number}`, onBehalfOf(agentId));
-      // 정규화는 공유 도구 핸들러(normalizeIssueDetail)가 수행 — 여기선 raw 를 그대로 반환.
-      // run-ai-chat 의 filterIssueDetailWidgets 는 존재확인(throw/no-throw)만 쓰므로 형태 변화 무영향.
-      return r.data ?? {};
-    },
-
-    // #371: 이슈 목록 조회 — GET /me/issues(프로젝트 횡단 "내 이슈", projectKey 지정 시 그 프로젝트로 한정).
-    // assignee 기본값 규칙은 공유 defaultListAssignee(reporter 만 있으면 생략).
-    // 서버가 'me' 를 X-On-Behalf-Of principal 로, username·라벨/유형 이름을 id 로 해석한다(#841).
-    async listIssues(agentId, params) {
-      const qs = new URLSearchParams();
-      const assignee = defaultListAssignee(params);
-      if (assignee) qs.set('assignee', assignee);
-      if (params.reporter) qs.set('reporter', params.reporter);
-      if (params.projectKey) qs.set('projectKey', params.projectKey);
-      if (params.status) qs.set('status', params.status);
-      if (params.priority?.length) qs.set('priority', params.priority.join(','));
-      if (params.label) qs.set('label', params.label);
-      if (params.type) qs.set('type', params.type);
-      if (params.dueFrom) qs.set('dueFrom', params.dueFrom);
-      if (params.dueTo) qs.set('dueTo', params.dueTo);
-      if (params.q) qs.set('q', params.q);
-      if (params.blocked !== undefined) qs.set('blocked', String(params.blocked));
-      if (params.topLevel !== undefined) qs.set('topLevel', String(params.topLevel));
-      qs.set('size', String(params.size ?? 30));
-      const r = await http.get(`/me/issues?${qs.toString()}`, onBehalfOf(agentId));
-      // 응답 래퍼: { items: IssueResponse[], nextCursor, hasMore }. 방어적으로 bare 배열도 허용.
-      const items: Record<string, unknown>[] = Array.isArray(r.data?.items)
-        ? r.data.items
-        : Array.isArray(r.data)
-          ? r.data
-          : [];
-      return items.map((it) => {
-        const projectKey = it.projectKey as string | undefined;
-        const number = it.number as number | undefined;
-        const rawAssignees = Array.isArray(it.assignees) ? (it.assignees as Record<string, unknown>[]) : [];
-        return {
-          issueKey:
-            (it.issueKey as string | undefined) ??
-            (projectKey && number != null ? `${projectKey}-${number}` : String(it.id ?? '')),
-          title: (it.title as string | undefined) ?? '',
-          status: (it.status as string | undefined) ?? '',
-          priority: (it.priority as string | undefined) ?? '',
-          assignees: rawAssignees.map((a) => ({
-            id: a.id as number,
-            name: (a.name as string | undefined) ?? (a.username as string | undefined) ?? '',
-            kind: (a.kind as 'HUMAN' | 'AGENT' | undefined) ?? 'HUMAN',
-          })),
-          dueDate: (it.dueDate as string | undefined) ?? null,
-          type: (it.type as string | undefined) ?? null,
-          blocked: Boolean(it.blocked),
-        };
-      });
-    },
 
     async unassignSelf(agentId, issueKey) {
       const { projectKey, number } = parseIssueKey(issueKey);
@@ -680,23 +273,6 @@ export function createWorkplaceApiClient(opts: {
       await http.post(`/chat/threads/${threadId}/progress`, payload, onBehalfOf(agentId));
     },
 
-    async getChannelMessages(agentId, channelId, limit) {
-      const r = await http.get(
-        `/messaging/channels/${channelId}/messages?limit=${limit}`,
-        onBehalfOf(agentId),
-      );
-      const items: ChannelMessageItem[] = Array.isArray(r.data?.items) ? r.data.items : [];
-      return items;
-    },
-    async addChannelMessage(agentId, channelId, body, parentMessageId) {
-      await http.post(
-        `/messaging/channels/${channelId}/messages`,
-        // parentMessageId 가 있으면 그 스레드에 답(mirror). 없으면 채널 인라인.
-        parentMessageId != null ? { body, parentMessageId } : { body },
-        onBehalfOf(agentId),
-      );
-    },
-
     // #842: 확인카드 사전검증 — 성공은 204(본문 없음), 실패는 승인 때와 동일한 4xx 로 사유가 내려온다.
     async validateAction(agentId, actionType, params) {
       await http.post('/actions/validate', { actionType, params }, onBehalfOf(agentId));
@@ -734,54 +310,13 @@ export function createWorkplaceApiClient(opts: {
       await http.post(`/messaging/channels/${channelId}/progress`, payload, onBehalfOf(agentId));
     },
 
-    // #350: 채널 목록 — agentId 가 속한 채널/DM 목록. 채널 이름 → channelId 해석에 사용.
-    async listChannels(agentId) {
-      const r = await http.get(`/messaging/channels`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as ChannelItem[]) : [];
-    },
     // #350: 채널 탐색 — 공개 채널을 이름/키워드로 검색. 채널 이름 → channelId 해석에 사용.
     async discoverChannels(agentId, q) {
       const r = await http.get(`/messaging/channels/discover?q=${encodeURIComponent(q)}`, onBehalfOf(agentId));
       return Array.isArray(r.data) ? (r.data as ChannelItem[]) : [];
     },
 
-    // #333 M3: 위키 페이지 생성/수정 — 내부 쓰기(스페이스 멤버십 가드는 서버가 강제).
-    async createWikiPage(agentId, spaceId, title, parentId) {
-      const r = await http.post(
-        `/wiki/spaces/${spaceId}/pages`,
-        { parentId: parentId ?? null, title },
-        onBehalfOf(agentId),
-      );
-      return r.data as WikiPageContent;
-    },
-    async updateWikiPage(agentId, pageId, version, title, body) {
-      // SavePageRequest{title, body, version, snapshot} — 낙관적 동시성. 409 는 호출자(도구)가 처리.
-      const r = await http.put(
-        `/wiki/pages/${pageId}`,
-        { title, body, version, snapshot: false },
-        onBehalfOf(agentId),
-      );
-      return r.data as WikiPageContent;
-    },
 
-    // #724: 내 노트 스페이스 목록 — 스페이스 이름/타입 → spaceId 해석에 사용(GET /wiki/spaces).
-    async listWikiSpaces(agentId) {
-      const r = await http.get(`/wiki/spaces`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as WikiSpaceItem[]) : [];
-    },
-    // S2: 위키 검색 — 백엔드는 bare JSON 배열(List<WikiSearchResult>)을 반환.
-    async searchWikiPages(agentId, query) {
-      const r = await http.get(
-        `/wiki/search?q=${encodeURIComponent(query)}`,
-        onBehalfOf(agentId),
-      );
-      return Array.isArray(r.data) ? (r.data as WikiSearchItem[]) : [];
-    },
-    // S2: 위키 페이지 본문 — 페이지 객체를 그대로 반환.
-    async getWikiPage(agentId, pageId) {
-      const r = await http.get(`/wiki/pages/${pageId}`, onBehalfOf(agentId));
-      return r.data as WikiPageContent;
-    },
 
     async listIssueAttachments(agentId, issueKey) {
       const { projectKey, number } = parseIssueKey(issueKey);
@@ -793,86 +328,15 @@ export function createWorkplaceApiClient(opts: {
       return list;
     },
 
-    // #333 M2: 캘린더 읽기 — list/get. 쓰기(생성)는 서버측 confirm 실행기가 수행(에이전트는 propose 만).
-    async listEvents(agentId, from, to) {
-      const r = await http.get(
-        `/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-        onBehalfOf(agentId),
-      );
-      return Array.isArray(r.data) ? (r.data as CalendarEventItem[]) : [];
-    },
-    async getEvent(agentId, id) {
-      const r = await http.get(`/calendar/events/${id}`, onBehalfOf(agentId));
-      return r.data as CalendarEventItem;
-    },
 
-    // #333 M3: 메일 읽기 — list/get. 발송은 서버측 confirm 실행기가 수행(에이전트는 propose 만).
-    async listMail(agentId, accountId, folder, query, unreadOnly, limit) {
-      const qs = new URLSearchParams({ folder, limit: String(limit) });
-      if (query) qs.set('query', query);
-      // #466: 안 읽은 메일만 — API 의 unread 필터 파라미터로 전달.
-      if (unreadOnly) qs.set('unread', 'true');
-      const r = await http.get(`/mail/accounts/${accountId}/messages?${qs.toString()}`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as MailMessageItem[]) : [];
-    },
-    async getMail(agentId, messageId) {
-      const r = await http.get(`/mail/messages/${messageId}`, onBehalfOf(agentId));
-      return r.data as MailMessageDetail;
-    },
 
-    // #333 M4: 메일 계정 목록 — GET /mail/accounts. 발신 accountId 확보 및 계정 존재 확인용.
-    async listMailAccounts(agentId) {
-      const r = await http.get('/mail/accounts', onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as MailAccountItem[]) : [];
-    },
     // #333 M4: 수동 동기화 — POST /mail/accounts/{accountId}/sync. 소유권은 서버가 검증.
     async syncMail(agentId, accountId) {
       const r = await http.post(`/mail/accounts/${accountId}/sync`, {}, onBehalfOf(agentId));
       return r.data;
     },
 
-    // #333 M3: 프로젝트 읽기. 쓰기(생성/삭제/멤버)는 confirm 실행기(propose).
-    async listProjects(agentId, page, size) {
-      const r = await http.get(`/projects?page=${page}&size=${size}`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as ProjectItem[]) : (r.data?.content ?? []);
-    },
-    async getProject(agentId, key) {
-      const r = await http.get(`/projects/${key}`, onBehalfOf(agentId));
-      return r.data as ProjectItem;
-    },
-    async listProjectMembers(agentId, key) {
-      const r = await http.get(`/projects/${key}/members`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as ProjectMemberItem[]) : [];
-    },
-    async getProjectTypes(agentId, key) {
-      const r = await http.get(`/projects/${key}/types`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? r.data : [];
-    },
-    async getProjectLabels(agentId, key) {
-      const r = await http.get(`/projects/${key}/labels`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? r.data : [];
-    },
 
-    // #333 M3: 연락처 읽기 + 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
-    async listContacts(agentId, opts) {
-      const qs = new URLSearchParams({ limit: String(opts.limit) });
-      if (opts.search) qs.set('search', opts.search);
-      if (opts.type) qs.set('type', opts.type);
-      if (opts.organization) qs.set('organization', opts.organization);
-      if (opts.title) qs.set('title', opts.title);
-      if (opts.favorite) qs.set('favorite', 'true');
-      if (opts.cursor) qs.set('cursor', opts.cursor);
-      const r = await http.get(`/contacts?${qs.toString()}`, onBehalfOf(agentId));
-      // #384: API 응답이 페이지네이션 형식 { items: [...] } 이므로 .items 를 추출한다.
-      // Array.isArray(r.data) 체크만 하면 객체 응답 시 빈 배열을 반환하는 버그가 발생한다.
-      const data = r.data as { items?: ContactItem[]; nextCursor?: string | null } | ContactItem[];
-      if (Array.isArray(data)) return { items: data, nextCursor: null };
-      return { items: data?.items ?? [], nextCursor: data?.nextCursor ?? null };
-    },
-    async getExternalContact(agentId, id) {
-      const r = await http.get(`/contacts/external/${id}`, onBehalfOf(agentId));
-      return r.data as ContactItem;
-    },
     async createExternalContact(agentId, input) {
       const r = await http.post(`/contacts/external`, input, onBehalfOf(agentId));
       return r.data as ContactItem;
@@ -882,50 +346,7 @@ export function createWorkplaceApiClient(opts: {
       return r.data as ContactItem;
     },
 
-    // #833: 구성원 읽기 3종. 연락처와 달리 "설정>구성원"(테넌트 멤버) 도메인이며,
-    // 여기서 돌려주는 id 는 곧 user.id 라 프로젝트 멤버 추가 등에 그대로 쓸 수 있다.
-    async searchMembers(agentId, opts) {
-      const qs = new URLSearchParams({ page: String(opts.page), size: String(opts.size) });
-      if (opts.search) qs.set('search', opts.search);
-      if (opts.kind) qs.set('kind', opts.kind);
-      if (opts.includeInactive) qs.set('includeInactive', 'true');
-      const r = await http.get(`/members?${qs.toString()}`, onBehalfOf(agentId));
-      // PageResponse<MemberSummary> — content 배열을 추출한다.
-      const data = r.data as { content?: MemberItem[] } | MemberItem[];
-      return Array.isArray(data) ? data : (data?.content ?? []);
-    },
-    async getMemberContact(agentId, userId) {
-      const r = await http.get(`/contacts/members/${userId}`, onBehalfOf(agentId));
-      const d = r.data as { id: number } & Omit<MemberContactItem, 'userId'>;
-      // MemberDetail.id 는 user.id 다 — 이름을 userId 로 바꿔 네임스페이스를 명시한다.
-      const { id, ...rest } = d;
-      return { userId: id, ...rest, groups: rest.groups ?? [] };
-    },
 
-    // #333 M3: 드라이브 읽기 전용(v1 — 쓰기 연기). list/items/search.
-    async listMySpaces(agentId) {
-      const r = await http.get(`/drive/spaces`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as DriveSpaceItem[]) : [];
-    },
-    async listSpaceItems(agentId, spaceId, parentId) {
-      const qs = parentId ? `?parentId=${parentId}` : '';
-      const r = await http.get(`/drive/spaces/${spaceId}/items${qs}`, onBehalfOf(agentId));
-      // #376: API 응답은 { folders: [], files: [] } 객체. 기존 Array.isArray 가드는 항상 false.
-      const d = r.data as Record<string, unknown>;
-      return {
-        folders: Array.isArray(d.folders) ? (d.folders as DriveFolderNode[]) : [],
-        files: Array.isArray(d.files) ? (d.files as DriveFileNode[]) : [],
-      };
-    },
-    async searchDrive(agentId, spaceId, q) {
-      const r = await http.get(`/drive/spaces/${spaceId}/search?q=${encodeURIComponent(q)}`, onBehalfOf(agentId));
-      // #376: API 응답은 { folders: [], files: [] } 객체.
-      const d = r.data as Record<string, unknown>;
-      return {
-        folders: Array.isArray(d.folders) ? (d.folders as DriveFolderNode[]) : [],
-        files: Array.isArray(d.files) ? (d.files as DriveFileNode[]) : [],
-      };
-    },
 
     // #333 M4: 드라이브 폴더/파일 쓰기 — 이동은 204(void).
     async createFolder(agentId, spaceId, parentId, name) {

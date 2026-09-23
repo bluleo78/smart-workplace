@@ -116,7 +116,7 @@ async function filterIssueDetailWidgets(
     }
     const issueKey = `${projectKey}-${num}`;
     try {
-      await client.getIssueDetail(agentId, issueKey);
+      await client.toolClient(agentId).getIssueDetail(issueKey);
       result.push(w); // 존재하면 위젯 포함
     } catch {
       // 존재하지 않으면 위젯 드롭(not-found 시 에러 throw 하는 verifyEventExists 패턴 동일)

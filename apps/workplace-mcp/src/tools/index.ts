@@ -1,24 +1,10 @@
-// src/tools/index.ts — 사용자 컨텍스트 도구 집계. 에이전트 전용(propose_*, submit_response,
-// unassign_self, show_*)은 정의하지 않는다 — 직접 실행 의미론만.
+// src/tools/index.ts — 사용자 PAT 컨텍스트 도구 집계.
+// #846: 도구 정의(스키마·설명·핸들러)는 전부 공유 패키지에 있다 — ai-agent 와 같은 정의를 쓰므로 파라미터 이름이 어긋날 수 없다.
+// 에이전트 전용(propose_*, submit_response, unassign_self, show_*)과 확인 카드가 필요한 쓰기는 노출하지 않는다 — 직접 실행 의미론만.
+import { buildSharedTools, type McpTool } from '@smart-workplace/mcp-tools-shared';
 import type { PatApiClient } from '../clients/workplace-api.js';
-import { buildCalendarTools } from './calendar.js';
-import { buildDriveTools } from './drive.js';
-import { buildIssueTools } from './issue.js';
-import { buildMailTools } from './mail.js';
-import { buildMemberTools } from './member.js';
-import { buildMessagingTools } from './messaging.js';
-import type { McpTool } from './types.js';
-import { buildWikiTools } from './wiki.js';
 
-/** 사용자 PAT 컨텍스트에서 노출할 전체 도구 목록을 구성한다(이슈 10 + 위키/메시징/캘린더/드라이브/메일 16 + 구성원·연락처 5 = 총 31종). */
+/** 사용자 PAT 컨텍스트에서 노출할 전체 도구 목록(공유 도구 31종). */
 export function buildUserTools(client: PatApiClient): McpTool[] {
-  return [
-    ...buildIssueTools(client),
-    ...buildWikiTools(client),
-    ...buildMessagingTools(client),
-    ...buildCalendarTools(client),
-    ...buildDriveTools(client),
-    ...buildMailTools(client),
-    ...buildMemberTools(client), // #833: 구성원·연락처 읽기(쓰기는 확인 카드가 없는 PAT 컨텍스트라 미노출)
-  ];
+  return buildSharedTools(client);
 }

@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import nock from 'nock';
 
-import { parseIssueKey } from '@smart-workplace/issue-tools-shared';
+import { parseIssueKey } from '@smart-workplace/mcp-tools-shared';
 
 import { createWorkplaceApiClient } from './workplace-api.js';
 
@@ -53,48 +53,6 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     ).rejects.toThrow('이미 멤버입니다');
   });
 
-  // #719: withOnBehalfOfTenant 로 스코프한 클라이언트는 모든 대리 호출에
-  // X-On-Behalf-Of-Tenant 를 동봉해야 한다 — 다중/무 멤버십 요청자의 AgentTenantResolver
-  // fail-closed(권한 전부 거부)를 막는 핵심 배선.
-  it('withOnBehalfOfTenant 로 스코프하면 X-On-Behalf-Of-Tenant 헤더를 동봉한다', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .matchHeader('x-on-behalf-of-tenant', '7')
-      .get(`${PREFIX}/projects/WP/issues/1`)
-      .reply(200, { summary: { id: 1, title: 't' }, body: 'b' });
-    const scoped = newClient().withOnBehalfOfTenant(7);
-    await scoped.getIssueDetail(AGENT_ID, 'WP-1');
-    expect(scope.isDone()).toBe(true);
-  });
-
-  it('withOnBehalfOfTenant 미호출 시 X-On-Behalf-Of-Tenant 헤더를 보내지 않는다', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/projects/WP/issues/1`)
-      .reply(function (_uri, _body) {
-        expect(this.req.headers['x-on-behalf-of-tenant']).toBeUndefined();
-        return [200, { summary: { id: 1, title: 't' }, body: 'b' }];
-      });
-    await newClient().getIssueDetail(AGENT_ID, 'WP-1');
-    expect(scope.isDone()).toBe(true);
-  });
-
-  it('addIssueComment → GET 상세로 issueId 추출 후 POST /issues/{id}/comments', async () => {
-    nock(BASE)
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/projects/WP/issues/42`)
-      .reply(200, { summary: { id: 999, title: 't' }, body: 'b' });
-    const post = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .post(`${PREFIX}/issues/999/comments`, { body: '안녕' })
-      .reply(201, {});
-    await newClient().addIssueComment(AGENT_ID, 'WP-42', '안녕');
-    expect(post.isDone()).toBe(true);
-  });
-
   it('updateIssueStatus → PATCH + 헤더', async () => {
     const scope = nock(BASE)
       .matchHeader('authorization', 'Internal tk-internal')
@@ -105,94 +63,9 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(scope.isDone()).toBe(true);
   });
 
-  // Task 6: 정규화(normalizeIssueDetail)는 공유 도구 핸들러가 수행 — 클라이언트는 raw 그대로 반환.
-  it('getIssueDetail → GET + 헤더, raw 응답을 그대로 반환(정규화 없음)', async () => {
-    const raw = {
-      key: 'WP-42',
-      title: '분석',
-      body: '본문',
-      status: 'TODO',
-      priority: 'MID',
-      assignees: [{ id: 201, username: 'ai-bot', name: 'AI', kind: 'AGENT' }],
-      comments: [],
-    };
-    nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/projects/WP/issues/42`)
-      .reply(200, raw);
-    const d = await newClient().getIssueDetail(AGENT_ID, 'WP-42');
-    expect(d).toEqual(raw);
-  });
-
-  // #371: 이슈 목록 조회 — GET /me/issues. assignee 기본 'me' + 필터 직렬화 + 응답 매핑 검증.
-  it('listIssues → GET /me/issues (assignee=me 기본) + items 매핑', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/me/issues`)
-      .query({ assignee: 'me', status: 'IN_PROGRESS', priority: 'HIGH,MID', size: '30' })
-      .reply(200, {
-        items: [
-          { projectKey: 'WP', number: 7, title: '버그 수정', status: 'IN_PROGRESS', priority: 'HIGH', dueDate: '2026-07-01', type: 'BUG', blocked: false, assignees: [{ id: 201, username: 'ai', name: 'AI', kind: 'AGENT' }] },
-        ],
-        hasMore: false,
-        nextCursor: null,
-      });
-    const list = await newClient().listIssues(AGENT_ID, { status: 'IN_PROGRESS', priority: ['HIGH', 'MID'] });
-    expect(scope.isDone()).toBe(true);
-    expect(list).toHaveLength(1);
-    // projectKey-number → issueKey 합성 + assignees 경량 매핑.
-    expect(list[0]).toMatchObject({
-      issueKey: 'WP-7',
-      title: '버그 수정',
-      status: 'IN_PROGRESS',
-      priority: 'HIGH',
-      dueDate: '2026-07-01',
-      blocked: false,
-    });
-    expect(list[0].assignees).toEqual([{ id: 201, name: 'AI', kind: 'AGENT' }]);
-  });
-
-  it('listIssues → assignee 명시 시 그대로 전달', async () => {
-    const scope = nock(BASE)
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/me/issues`)
-      .query({ assignee: '42', size: '30' })
-      .reply(200, { items: [] });
-    const list = await newClient().listIssues(AGENT_ID, { assignee: '42' });
-    expect(scope.isDone()).toBe(true);
-    expect(list).toEqual([]);
-  });
-
-  // #841: reporter 는 예전엔 쿼리에서 빠져 "내가 만든" 조회가 조용히 "내 담당"으로 바뀌었다.
-  // reporter 만 주면 assignee 기본값(me)을 붙이지 않아야 교집합이 되지 않는다.
-  it('listIssues → reporter 전달, reporter 만 있으면 assignee 기본값 생략', async () => {
-    const scope = nock(BASE)
-      .get(`${PREFIX}/me/issues`)
-      .query({ reporter: 'me', projectKey: 'WP', label: '버그', type: 'BUG', size: '30' })
-      .reply(200, { items: [] });
-    await newClient().listIssues(AGENT_ID, {
-      reporter: 'me',
-      projectKey: 'WP',
-      label: '버그',
-      type: 'BUG',
-    });
-    expect(scope.isDone()).toBe(true);
-  });
-
-  it('listIssues → assignee 와 reporter 를 함께 주면 둘 다 전달', async () => {
-    const scope = nock(BASE)
-      .get(`${PREFIX}/me/issues`)
-      .query({ assignee: 'kim', reporter: 'me', size: '30' })
-      .reply(200, { items: [] });
-    await newClient().listIssues(AGENT_ID, { assignee: 'kim', reporter: 'me' });
-    expect(scope.isDone()).toBe(true);
-  });
-
   // #373: flat author 필드(authorId/authorName/authorKind) → nested author 객체 변환은
-  // Task 6 이후 공유 도구 핸들러(normalizeIssueDetail)의 책임 — 클라이언트는 raw comments 를 그대로 반환.
-  it('getIssueDetail → comments 를 포함한 raw 응답을 변형 없이 그대로 반환', async () => {
+  // 공유 도구 핸들러(normalizeIssueDetail)의 책임 — toolClient 는 raw comments 를 그대로 반환.
+  it('toolClient.getIssueDetail → comments 를 포함한 raw 응답을 변형 없이 그대로 반환', async () => {
     const raw = {
       key: 'WP-5',
       title: '코멘트 이슈',
@@ -226,7 +99,7 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
       .get(`${PREFIX}/projects/WP/issues/5`)
       .reply(200, raw);
-    const d = await newClient().getIssueDetail(AGENT_ID, 'WP-5');
+    const d = await newClient().toolClient(AGENT_ID).getIssueDetail('WP-5');
     expect(d).toEqual(raw);
   });
 
@@ -368,116 +241,7 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(res.mimeType).toBe('image/png');
   });
 
-  // --- S2: 위키 읽기 그라운딩 ---
-
-  it('searchWikiPages → GET /wiki/search?q= with on-behalf-of', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/wiki/search`)
-      .query({ q: '배포' })
-      .reply(200, [
-        { id: 7, spaceId: 2, spaceName: '팀', title: '릴리스', snippet: '배포 절차', updatedAt: '2026-06-14T00:00:00Z' },
-      ]);
-    const out = await newClient().searchWikiPages(AGENT_ID, '배포');
-    expect(scope.isDone()).toBe(true);
-    expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ id: 7, title: '릴리스' });
-  });
-
-  it('getWikiPage → GET /wiki/pages/{id} with on-behalf-of', async () => {
-    const scope = nock(BASE)
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/wiki/pages/7`)
-      .reply(200, { id: 7, spaceId: 2, parentId: null, title: '릴리스', body: '본문', version: 3, updatedAt: '2026-06-14T00:00:00Z' });
-    const out = await newClient().getWikiPage(AGENT_ID, 7);
-    expect(scope.isDone()).toBe(true);
-    expect(out).toMatchObject({ id: 7, body: '본문', version: 3 });
-  });
-
-  // --- #333 M2: 캘린더 읽기 ---
-
-  it('listEvents → GET /calendar/events?from&to with Internal+X-On-Behalf-Of, 배열 반환', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/calendar/events`)
-      .query({ from: '2026-06-19T00:00:00Z', to: '2026-06-26T00:00:00Z' })
-      .reply(200, [
-        {
-          id: 1, title: '회의', description: null,
-          startsAt: '2026-06-20T01:00:00Z', endsAt: '2026-06-20T02:00:00Z',
-          allDay: false, location: null, recurrenceRule: null,
-        },
-      ]);
-    const out = await newClient().listEvents(AGENT_ID, '2026-06-19T00:00:00Z', '2026-06-26T00:00:00Z');
-    expect(scope.isDone()).toBe(true);
-    expect(out).toHaveLength(1);
-    expect(out[0].title).toBe('회의');
-  });
-
-  it('getEvent → GET /calendar/events/{id} with X-On-Behalf-Of, 단건 반환', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/calendar/events/42`)
-      .reply(200, {
-        id: 42, title: '단건', description: '본문',
-        startsAt: '2026-06-20T01:00:00Z', endsAt: '2026-06-20T02:00:00Z',
-        allDay: false, location: '회의실', recurrenceRule: null,
-      });
-    const out = await newClient().getEvent(AGENT_ID, 42);
-    expect(scope.isDone()).toBe(true);
-    expect(out.id).toBe(42);
-    expect(out.location).toBe('회의실');
-  });
-
-  // --- #333 M3: 메일 읽기 ---
-
-  describe('listMail', () => {
-    it('GET /mail/accounts/{id}/messages?folder&query&limit 로 목록 반환', async () => {
-      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/mail/accounts/5/messages`)
-        .query({ folder: 'INBOX', query: '청구서', limit: '20' })
-        .reply(200, [{ id: 1, subject: '청구서', fromAddress: 'a@x.com', snippet: '...', receivedAt: '2026-06-19T00:00:00Z', seen: false }]);
-      const out = await newClient().listMail(7, 5, 'INBOX', '청구서', undefined, 20);
-      expect(out[0].subject).toBe('청구서');
-      scope.done();
-    });
-
-    it('listMail: unreadOnly=true 면 unread=true 쿼리스트링을 보낸다 (#466)', async () => {
-      const scope = nock(BASE)
-        .get(`${PREFIX}/mail/accounts/1/messages`)
-        .query((q) => q.unread === 'true' && q.folder === 'INBOX')
-        .reply(200, []);
-      await newClient().listMail(7, 1, 'INBOX', undefined, true, 20);
-      expect(scope.isDone()).toBe(true);
-    });
-  });
-
-  describe('getMail', () => {
-    it('GET /mail/messages/{id} 로 본문 포함 단건 반환', async () => {
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/mail/messages/42`)
-        .reply(200, { id: 42, subject: '제목', fromAddress: 'a@x.com', snippet: 's', receivedAt: '2026-06-19T00:00:00Z', seen: true, bodyText: '본문', bodyHtml: null, toAddresses: ['me@x.com'] });
-      const out = await newClient().getMail(7, 42);
-      expect(out.bodyText).toBe('본문');
-    });
-  });
-
-  // --- #333 M4: 메일 계정 목록 + 수동 동기화 ---
-
-  describe('listMailAccounts', () => {
-    it('GET /mail/accounts 로 계정 목록 반환', async () => {
-      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/mail/accounts`)
-        .reply(200, [{ id: 3, emailAddress: 'me@x.com', displayName: '내 계정', aiEnabled: true }]);
-      const out = await newClient().listMailAccounts(7);
-      expect(out[0].id).toBe(3);
-      expect(out[0].emailAddress).toBe('me@x.com');
-      scope.done();
-    });
-  });
+  // --- #333 M4: 메일 수동 동기화 ---
 
   describe('syncMail', () => {
     it('POST /mail/accounts/{id}/sync 로 동기화 요청', async () => {
@@ -492,27 +256,6 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
 
   // --- #333 M3: 연락처 조회/생성/수정 ---
 
-  describe('listContacts', () => {
-    it('GET /contacts?search&limit 로 통합 목록 반환 (배열 응답)', async () => {
-      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/contacts`).query({ search: '김', limit: '20' })
-        .reply(200, [{ id: 1, kind: 'EXTERNAL', name: '김거래', email: 'k@x.com', organization: 'X사' }]);
-      const out = await newClient().listContacts(7, { search: '김', limit: 20 });
-      expect(out.items[0].name).toBe('김거래');
-      scope.done();
-    });
-    it('#384: GET /contacts 응답이 페이지네이션 형식 {items:[]} 이면 items 배열을 반환한다', async () => {
-      // API 가 { items: [...] } 구조를 반환할 때 Array.isArray 검사 실패로 빈 배열을 반환하던 버그 회귀 방지.
-      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/contacts`).query({ limit: '50' })
-        .reply(200, { items: [{ id: 6, type: 'EXTERNAL', name: '홍길동', email: 'hong@example.com', organization: null }] });
-      const out = await newClient().listContacts(7, { limit: 50 });
-      expect(out.items).toHaveLength(1);
-      expect(out.items[0].name).toBe('홍길동');
-      scope.done();
-    });
-  });
-
   describe('createExternalContact', () => {
     it('POST /contacts/external 로 생성하고 반환', async () => {
       nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
@@ -523,261 +266,91 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   });
 
-  // --- #333 M3: 프로젝트 읽기 ---
-
-  describe('listProjects', () => {
-    it('GET /projects?page&size 로 목록 반환', async () => {
-      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/projects`).query({ page: '0', size: '20' })
-        .reply(200, [{ key: 'ABC', name: '프로젝트', description: null, type: 'TEAM' }]);
-      const out = await newClient().listProjects(7, 0, 20);
-      expect(out[0].key).toBe('ABC');
-      scope.done();
-    });
-  });
-
-  describe('getProject', () => {
-    it('GET /projects/{key} 로 단건 반환', async () => {
-      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/projects/ABC`)
-        .reply(200, { key: 'ABC', name: '프로젝트', description: '설명', type: 'TEAM' });
-      const out = await newClient().getProject(7, 'ABC');
-      expect(out.key).toBe('ABC');
-      expect(out.name).toBe('프로젝트');
-      scope.done();
-    });
-  });
-
-  describe('listProjectMembers', () => {
-    it('GET /projects/{key}/members 로 멤버 반환', async () => {
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/projects/ABC/members`)
-        .reply(200, [{ userId: 1, name: '홍길동', role: 'OWNER' }]);
-      const out = await newClient().listProjectMembers(7, 'ABC');
-      expect(out[0].role).toBe('OWNER');
+  // #846: 공유 도구용 클라이언트 — 경로 매핑은 공유 패키지(createSharedToolClient)가 하고, 여기서는
+  // 이 에이전트 신원 헤더(Internal 토큰 + X-On-Behalf-Of)가 모든 요청에 실리는지를 검증한다.
+  describe('toolClient', () => {
+    it('getIssueDetail 은 Internal 인증 + X-On-Behalf-Of 헤더로 이슈 경로를 호출한다', async () => {
+      const raw = { summary: { id: 12, title: '분석' }, body: '본문' };
+      const scope = nock(BASE)
+        .matchHeader('authorization', 'Internal tk-internal')
+        .matchHeader('x-on-behalf-of', String(AGENT_ID))
+        .get(`${PREFIX}/projects/WP/issues/12`)
+        .reply(function () {
+          // 테넌트 스코프를 하지 않았으면 테넌트 헤더가 없어야 한다.
+          expect(this.req.headers['x-on-behalf-of-tenant']).toBeUndefined();
+          return [200, raw];
+        });
+      const out = await newClient().toolClient(AGENT_ID).getIssueDetail('WP-12');
+      expect(scope.isDone()).toBe(true);
+      expect(out).toEqual(raw);
     });
 
-    it('username 을 포함해 매핑한다', async () => {
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/projects/ABC/members`)
-        .reply(200, [{ userId: 10, username: 'alice', name: 'Alice', role: 'OWNER' }]);
-      const out = await newClient().listProjectMembers(7, 'ABC');
-      expect(out).toEqual([{ userId: 10, username: 'alice', name: 'Alice', role: 'OWNER' }]);
-    });
-  });
-
-  describe('getProjectTypes', () => {
-    it('GET /projects/{key}/types 로 프로젝트 유형 목록을 반환한다', async () => {
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/projects/ABC/types`)
-        .reply(200, [{ id: 1, name: 'TASK' }, { id: 2, name: 'BUG' }]);
-      const out = await newClient().getProjectTypes(7, 'ABC');
-      expect(out).toEqual([{ id: 1, name: 'TASK' }, { id: 2, name: 'BUG' }]);
-    });
-  });
-
-  describe('getProjectLabels', () => {
-    it('GET /projects/{key}/labels 로 프로젝트 라벨 목록을 반환한다', async () => {
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/projects/ABC/labels`)
-        .reply(200, [{ id: 100, name: 'urgent' }]);
-      const out = await newClient().getProjectLabels(7, 'ABC');
-      expect(out).toEqual([{ id: 100, name: 'urgent' }]);
-    });
-  });
-
-  describe('createIssue', () => {
-    it('프로젝트에 새 이슈를 생성한다', async () => {
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .post(`${PREFIX}/projects/ABC/issues`, { title: '제목', priority: 'HIGH' })
-        .reply(201, { issueKey: 'ABC-5', title: '제목' });
-      const out = await newClient().createIssue(7, 'ABC', { title: '제목', priority: 'HIGH' });
-      expect(out).toEqual({ issueKey: 'ABC-5', title: '제목' });
-    });
-  });
-
-  describe('editIssueComment', () => {
-    it('이슈 상세에서 issueId 를 조회한 뒤 코멘트를 수정한다', async () => {
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/projects/ABC/issues/5`)
-        .reply(200, { summary: { id: 999 } });
-      const patch = nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .patch(`${PREFIX}/issues/999/comments/42`, { body: '수정된 내용' })
-        .reply(200);
-      await newClient().editIssueComment(7, 'ABC-5', 42, '수정된 내용');
-      expect(patch.isDone()).toBe(true);
+    it('listIssues 는 쿼리 파라미터를 붙여 GET /me/issues 를 호출하고 items 를 반환한다', async () => {
+      const scope = nock(BASE)
+        .matchHeader('authorization', 'Internal tk-internal')
+        .matchHeader('x-on-behalf-of', String(AGENT_ID))
+        .get(`${PREFIX}/me/issues`)
+        .query({ assignee: 'me', size: '30' })
+        .reply(200, { items: [{ projectKey: 'WP', number: 7, title: '버그' }], hasMore: false });
+      const items = await newClient().toolClient(AGENT_ID).listIssues({ assignee: 'me', size: 30 });
+      expect(scope.isDone()).toBe(true);
+      expect(items).toEqual([{ projectKey: 'WP', number: 7, title: '버그' }]);
     });
 
-    it('issueId 조회 실패 시 에러를 던진다', async () => {
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/projects/ABC/issues/5`)
-        .reply(200, {});
-      await expect(newClient().editIssueComment(7, 'ABC-5', 42, 'x')).rejects.toThrow(
-        'issueId 조회 실패: ABC-5',
-      );
+    it('searchMembers 는 구성원 디렉터리(/members)를 헤더와 함께 조회한다', async () => {
+      const scope = nock(BASE)
+        .matchHeader('authorization', 'Internal tk-internal')
+        .matchHeader('x-on-behalf-of', String(AGENT_ID))
+        .get(`${PREFIX}/members`)
+        .query({ search: 'kim', kind: 'ALL', page: '0', size: '50' })
+        .reply(200, { content: [{ id: 3, username: 'kim', name: '김철수' }] });
+      const out = await newClient()
+        .toolClient(AGENT_ID)
+        .searchMembers({ search: 'kim', kind: 'ALL', page: 0, size: 50 });
+      expect(scope.isDone()).toBe(true);
+      expect(out).toEqual([{ id: 3, username: 'kim', name: '김철수' }]);
     });
-  });
 
-  describe('updateIssueContent', () => {
-    it('이슈 내용을 부분 수정한다', async () => {
-      nock(BASE)
-        .patch(`${PREFIX}/projects/ABC/issues/5`, { title: '새 제목' })
-        .reply(200, { issueKey: 'ABC-5', title: '새 제목' });
-      const out = await newClient().updateIssueContent(7, 'ABC-5', { title: '새 제목' });
-      expect(out).toEqual({ issueKey: 'ABC-5', title: '새 제목' });
+    it('addChannelMessage 는 본문(body, parentMessageId)과 헤더를 함께 POST 한다', async () => {
+      const scope = nock(BASE)
+        .matchHeader('authorization', 'Internal tk-internal')
+        .matchHeader('x-on-behalf-of', String(AGENT_ID))
+        .post(`${PREFIX}/messaging/channels/7/messages`, { body: '안녕', parentMessageId: 3 })
+        .reply(201, {});
+      await newClient().toolClient(AGENT_ID).addChannelMessage(7, '안녕', 3);
+      expect(scope.isDone()).toBe(true);
     });
-  });
 
-  describe('setIssueType', () => {
-    it('이슈 유형을 변경한다', async () => {
-      nock(BASE).patch(`${PREFIX}/projects/ABC/issues/5/type`, { typeId: 2 }).reply(200);
-      await newClient().setIssueType(7, 'ABC-5', 2);
-    });
-  });
-
-  describe('setIssueParent', () => {
-    it('부모 이슈를 설정한다', async () => {
-      nock(BASE).patch(`${PREFIX}/projects/ABC/issues/5/parent`, { parentNumber: 1 }).reply(200);
-      await newClient().setIssueParent(7, 'ABC-5', 1);
-    });
-    it('null 을 보내면 부모를 해제한다', async () => {
-      nock(BASE)
-        .patch(`${PREFIX}/projects/ABC/issues/5/parent`, { parentNumber: null })
-        .reply(200);
-      await newClient().setIssueParent(7, 'ABC-5', null);
-    });
-  });
-
-  describe('replaceIssueAssignees', () => {
-    it('담당자 집합을 교체한다', async () => {
-      nock(BASE)
-        .put(`${PREFIX}/projects/ABC/issues/5/assignees`, { userIds: [10, 11] })
-        .reply(200, { assignees: [10, 11] });
-      const out = await newClient().replaceIssueAssignees(7, 'ABC-5', [10, 11]);
-      expect(out).toEqual({ assignees: [10, 11] });
-    });
-  });
-
-  describe('replaceIssueLabels', () => {
-    it('라벨 집합을 교체한다', async () => {
-      nock(BASE)
-        .put(`${PREFIX}/projects/ABC/issues/5/labels`, { labelIds: [100] })
-        .reply(200, { labels: [100] });
-      const out = await newClient().replaceIssueLabels(7, 'ABC-5', [100]);
-      expect(out).toEqual({ labels: [100] });
-    });
-  });
-
-  describe('addIssueDependency', () => {
-    it('의존성을 추가하고 응답 body 를 반환한다', async () => {
-      nock(BASE)
-        .post(`${PREFIX}/projects/ABC/issues/5/dependencies`, { otherNumber: 7, direction: 'blocks' })
-        .reply(200, { summary: { id: 1, blocks: [{ number: 7 }] } });
-      const out = await newClient().addIssueDependency(7, 'ABC-5', 7, 'blocks');
-      expect(out).toEqual({ summary: { id: 1, blocks: [{ number: 7 }] } });
-    });
-  });
-
-  describe('removeIssueDependency', () => {
-    it('의존성을 제거한다', async () => {
-      nock(BASE)
-        .delete(`${PREFIX}/projects/ABC/issues/5/dependencies`)
-        .query({ otherNumber: '7', direction: 'blocks' })
-        .reply(204);
-      await newClient().removeIssueDependency(7, 'ABC-5', 7, 'blocks');
-    });
-  });
-
-  // --- #333 M3: 위키 페이지 생성/수정 ---
-
-  it('createWikiPage → POST /wiki/spaces/{id}/pages 로 생성하고 본문 반환', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', '7')
-      .post(`${PREFIX}/wiki/spaces/3/pages`, { parentId: null, title: '새 페이지' })
-      .reply(201, { id: 9, spaceId: 3, parentId: null, title: '새 페이지', body: '', version: 1, updatedAt: '2026-06-19T00:00:00Z' });
-    const out = await newClient().createWikiPage(7, 3, '새 페이지');
-    expect(scope.isDone()).toBe(true);
-    expect(out.id).toBe(9);
-    expect(out.title).toBe('새 페이지');
-  });
-
-  it('createWikiPage → parentId 지정 시 body 에 포함', async () => {
-    const scope = nock(BASE)
-      .matchHeader('x-on-behalf-of', '7')
-      .post(`${PREFIX}/wiki/spaces/3/pages`, { parentId: 5, title: '하위 페이지' })
-      .reply(201, { id: 10, spaceId: 3, parentId: 5, title: '하위 페이지', body: '', version: 1, updatedAt: '2026-06-19T00:00:00Z' });
-    const out = await newClient().createWikiPage(7, 3, '하위 페이지', 5);
-    expect(scope.isDone()).toBe(true);
-    expect(out.parentId).toBe(5);
-  });
-
-  it('updateWikiPage → PUT /wiki/pages/{id} 로 version 동반 저장하고 본문 반환', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', '7')
-      .put(`${PREFIX}/wiki/pages/9`, { title: '수정 제목', body: '본문', version: 1, snapshot: false })
-      .reply(200, { id: 9, spaceId: 3, parentId: null, title: '수정 제목', body: '본문', version: 2, updatedAt: '2026-06-19T01:00:00Z' });
-    const out = await newClient().updateWikiPage(7, 9, 1, '수정 제목', '본문');
-    expect(scope.isDone()).toBe(true);
-    expect(out.version).toBe(2);
-    expect(out.title).toBe('수정 제목');
-  });
-
-  // --- #333 M3: 드라이브 읽기 전용 ---
-
-  describe('listMySpaces', () => {
-    it('GET /drive/spaces 로 내 스페이스 목록 반환', async () => {
-      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/drive/spaces`)
-        .reply(200, [{ id: 1, name: '팀 드라이브', role: 'EDITOR' }]);
-      const out = await newClient().listMySpaces(7);
-      expect(out[0].name).toBe('팀 드라이브');
-      scope.done();
+    // #719: 테넌트 스코프 클라이언트에서 꺼낸 toolClient 도 X-On-Behalf-Of-Tenant 를 동봉해야 한다.
+    it('withOnBehalfOfTenant 로 스코프한 toolClient 는 X-On-Behalf-Of-Tenant 헤더를 동봉한다', async () => {
+      const scope = nock(BASE)
+        .matchHeader('authorization', 'Internal tk-internal')
+        .matchHeader('x-on-behalf-of', String(AGENT_ID))
+        .matchHeader('x-on-behalf-of-tenant', '7')
+        .get(`${PREFIX}/projects/WP/issues/12`)
+        .reply(200, { summary: { id: 12 } });
+      await newClient().withOnBehalfOfTenant(7).toolClient(AGENT_ID).getIssueDetail('WP-12');
+      expect(scope.isDone()).toBe(true);
     });
   });
 
   // #840: API 오류 메시지 보강 — 서버 ErrorResponse.message 가 도구 오류 문자열로 LLM 에 전달돼야 자가교정 가능.
+  // 공유 도구는 toolClient 경유로 호출되므로, 같은 http 인스턴스의 인터셉터가 그 경로에도 적용되는지 확인한다.
   describe('API 오류 메시지', () => {
-    it('4xx 응답의 서버 message 와 필드 오류를 Error.message 로 끌어올리고 status 는 유지한다', async () => {
+    it('toolClient 경유 4xx 응답의 서버 message 와 필드 오류를 Error.message 로 끌어올리고 status 는 유지한다', async () => {
       nock(BASE)
+        .matchHeader('x-on-behalf-of', String(AGENT_ID))
         .get(`${PREFIX}/drive/spaces/1/items`)
         .reply(400, { status: 400, message: '위임 후보 프로젝트가 아닙니다: FOO', errors: { projectKey: '후보 밖' } });
-      const err = await newClient().listSpaceItems(7, 1).catch((e: unknown) => e);
+      const err = await newClient().toolClient(AGENT_ID).listDriveItems(1).catch((e: unknown) => e);
       expect((err as Error).message).toBe('API 오류 400: 위임 후보 프로젝트가 아닙니다: FOO — projectKey: 후보 밖');
       expect((err as { response?: { status?: number } }).response?.status).toBe(400);
     });
 
     it('본문이 없으면 상태코드만 남긴다', async () => {
       nock(BASE).get(`${PREFIX}/drive/spaces/1/items`).reply(404);
-      const err = await newClient().listSpaceItems(7, 1).catch((e: unknown) => e);
+      const err = await newClient().toolClient(AGENT_ID).listDriveItems(1).catch((e: unknown) => e);
       expect((err as Error).message).toBe('API 오류 404');
-    });
-  });
-
-  describe('listSpaceItems', () => {
-    it('GET /drive/spaces/{id}/items 로 folders+files 반환', async () => {
-      // #376: API 응답은 { folders: [], files: [] } 객체 — 배열이 아님에 주의.
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/drive/spaces/1/items`)
-        .reply(200, {
-          folders: [{ id: 1, parentId: null, name: '탐색폴더', createdAt: '2026-06-07T00:00:00Z' }],
-          files: [{ id: 1, folderId: null, fileId: 1, name: 'small.txt', mimeType: 'text/plain', sizeBytes: 15, category: 'TEXT', createdAt: '2026-06-07T00:00:00Z' }],
-        });
-      const out = await newClient().listSpaceItems(7, 1);
-      expect(out.folders[0].name).toBe('탐색폴더');
-      expect(out.files[0].name).toBe('small.txt');
-    });
-  });
-
-  describe('searchDrive', () => {
-    it('GET /drive/spaces/{id}/search?q 로 검색 결과 반환', async () => {
-      // #376: API 응답은 { folders: [], files: [] } 객체.
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
-        .get(`${PREFIX}/drive/spaces/1/search`).query({ q: '보고서' })
-        .reply(200, { folders: [], files: [{ id: 5, folderId: null, fileId: 5, name: '보고서.pdf', mimeType: 'application/pdf', sizeBytes: 1024, category: 'DOCUMENT', createdAt: '2026-06-19T00:00:00Z' }] });
-      const out = await newClient().searchDrive(7, 1, '보고서');
-      expect(out.files[0].name).toBe('보고서.pdf');
     });
   });
 
@@ -853,29 +426,6 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
   });
 
   // --- #350: 채널 목록/탐색 ---
-
-  describe('listChannels', () => {
-    it('GET /messaging/channels 로 ChannelItem[] 반환', async () => {
-      const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
-        .get(`${PREFIX}/messaging/channels`)
-        .reply(200, [
-          { id: 1, kind: 'PUBLIC', name: '일반', visibility: 'PUBLIC', member: true, role: 'MEMBER', archived: false, memberCount: 10, unreadCount: 3 },
-        ]);
-      const out = await newClient().listChannels(AGENT_ID);
-      expect(scope.isDone()).toBe(true);
-      expect(out).toHaveLength(1);
-      expect(out[0].name).toBe('일반');
-      expect(out[0].id).toBe(1);
-    });
-
-    it('응답이 배열이 아니면 빈 배열 반환', async () => {
-      nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
-        .get(`${PREFIX}/messaging/channels`)
-        .reply(200, {});
-      const out = await newClient().listChannels(AGENT_ID);
-      expect(out).toEqual([]);
-    });
-  });
 
   describe('discoverChannels', () => {
     it('GET /messaging/channels/discover?q= 로 ChannelItem[] 반환', async () => {

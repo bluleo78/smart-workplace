@@ -23,7 +23,6 @@ import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 const client = {
   addIssueComment: vi.fn(),
   updateIssueStatus: vi.fn(),
-  getIssueDetail: vi.fn(),
   unassignSelf: vi.fn(),
   getOAuthToken: vi.fn(),
 } as unknown as WorkplaceApiClient;

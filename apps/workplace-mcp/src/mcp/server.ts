@@ -3,7 +3,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Request, Response } from 'express';
-import { describeApiError } from '@smart-workplace/issue-tools-shared';
+import { describeApiError } from '@smart-workplace/mcp-tools-shared';
 import type { z } from 'zod';
 
 import { createPatApiClient } from '../clients/workplace-api.js';

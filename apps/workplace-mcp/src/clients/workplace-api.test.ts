@@ -20,7 +20,7 @@ describe('createPatApiClient', () => {
       .query({ page: '0', size: '50' })
       .reply(200, { content: [{ key: 'WP' }] });
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
-    const res = await client.listProjects();
+    const res = await client.listProjects(0, 50);
     expect(res).toEqual([{ key: 'WP' }]);
     expect(scope.isDone()).toBe(true);
   });
@@ -33,13 +33,13 @@ describe('createPatApiClient', () => {
     expect(scope.isDone()).toBe(true);
   });
 
-  it('listMyIssues 는 GET /me/issues 에 파라미터를 그대로 전달하고 items 를 추출한다', async () => {
+  it('listIssues 는 GET /me/issues 에 쿼리를 그대로 전달하고 items 를 추출한다', async () => {
     const scope = nock(BASE)
       .get('/me/issues')
       .query({ status: 'TODO', size: '30' })
       .reply(200, { items: [{ number: 1 }] });
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
-    const res = await client.listMyIssues({ status: 'TODO', size: 30 });
+    const res = await client.listIssues({ status: 'TODO', size: 30 });
     expect(res).toEqual([{ number: 1 }]);
     expect(scope.isDone()).toBe(true);
   });
@@ -49,7 +49,7 @@ describe('createPatApiClient', () => {
       .get('/projects/WP/issues/12')
       .reply(200, { summary: { id: 99 }, body: 'b', comments: [] });
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
-    const res = await client.getIssueDetail('WP', 12);
+    const res = (await client.getIssueDetail('WP-12')) as { summary: { id: number } };
     expect(res.summary.id).toBe(99);
     expect(scope.isDone()).toBe(true);
   });
@@ -59,24 +59,19 @@ describe('createPatApiClient', () => {
       .post('/projects/WP/issues', { title: '제목' })
       .reply(200, { issueKey: 'WP-1', number: 1, title: '제목', status: 'TODO' });
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
-    const res = await client.createIssue('WP', { title: '제목' });
+    const res = (await client.createIssue('WP', { title: '제목' })) as { number: number };
     expect(res.number).toBe(1);
     expect(scope.isDone()).toBe(true);
   });
 
-  it('addIssueComment 는 POST /issues/{issueId}/comments 를 호출한다', async () => {
-    const scope = nock(BASE).post('/issues/99/comments', { body: '코멘트' }).reply(200, {});
-    const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
-    await client.addIssueComment(99, '코멘트');
-    expect(scope.isDone()).toBe(true);
-  });
-
-  it('updateIssueStatus 는 PATCH /projects/{key}/issues/{number}/status 를 호출한다', async () => {
+  it('addComment 는 issueKey 로 상세를 읽어 얻은 issue id 로 POST /issues/{issueId}/comments 를 호출한다', async () => {
     const scope = nock(BASE)
-      .patch('/projects/WP/issues/12/status', { status: 'DONE' })
+      .get('/projects/WP/issues/12')
+      .reply(200, { summary: { id: 99 } })
+      .post('/issues/99/comments', { body: '코멘트' })
       .reply(200, {});
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
-    await client.updateIssueStatus('WP', 12, 'DONE');
+    await client.addComment('WP-12', '코멘트');
     expect(scope.isDone()).toBe(true);
   });
 
@@ -254,7 +249,7 @@ describe('createPatApiClient', () => {
         .post('/projects/WP/issues/12/dependencies', { otherNumber: 7, direction: 'blocks' })
         .reply(200, { summary: { id: 1, blocks: [{ number: 7 }] } });
       const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
-      const out = await client.addIssueDependency('WP', 12, 7, 'blocks');
+      const out = await client.addIssueDependency('WP-12', 7, 'blocks');
       expect(scope.isDone()).toBe(true);
       expect(out).toEqual({ summary: { id: 1, blocks: [{ number: 7 }] } });
     });
@@ -267,7 +262,7 @@ describe('createPatApiClient', () => {
         .query({ otherNumber: '7', direction: 'blocks' })
         .reply(204);
       const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
-      await client.removeIssueDependency('WP', 12, 7, 'blocks');
+      await client.removeIssueDependency('WP-12', 7, 'blocks');
       expect(scope.isDone()).toBe(true);
     });
   });

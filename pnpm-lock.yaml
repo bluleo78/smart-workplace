@@ -198,9 +198,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.17.13
         version: 1.17.13
-      '@smart-workplace/issue-tools-shared':
+      '@smart-workplace/mcp-tools-shared':
         specifier: workspace:*
-        version: link:../../packages/issue-tools-shared
+        version: link:../../packages/mcp-tools-shared
       axios:
         specifier: ^1.7.9
         version: 1.16.1
@@ -267,9 +267,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
-      '@smart-workplace/issue-tools-shared':
+      '@smart-workplace/mcp-tools-shared':
         specifier: workspace:*
-        version: link:../../packages/issue-tools-shared
+        version: link:../../packages/mcp-tools-shared
       axios:
         specifier: ^1.7.9
         version: 1.16.1
@@ -539,7 +539,7 @@ importers:
 
   apps/workplace-worker: {}
 
-  packages/issue-tools-shared:
+  packages/mcp-tools-shared:
     dependencies:
       zod:
         specifier: ^4.4.3

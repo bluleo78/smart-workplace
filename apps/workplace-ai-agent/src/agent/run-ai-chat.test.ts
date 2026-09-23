@@ -14,10 +14,14 @@ vi.mock('../logger.js', () => ({ log: logMock }));
 
 import { runAiChatStream, type ChatInput } from './run-ai-chat.js';
 
-const fakeClient = {
-  getProviderCredential: vi.fn(),
+// #846: 이슈 상세 조회는 공유 도구용 클라이언트(toolClient(agentId)) 경유 — 테스트가 getIssueDetail 을 교체·단언한다.
+const fakeTools: { getIssueDetail: ReturnType<typeof vi.fn> } = {
   // #404: show_issue_detail 위젯 존재 여부 검증 — 기본값은 존재(resolve).
   getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: 't' }),
+};
+const fakeClient = {
+  getProviderCredential: vi.fn(),
+  toolClient: () => fakeTools,
 } as never;
 
 // 비서 설정은 요청 본문으로 온다. 테스트용 기본 입력.
@@ -262,7 +266,7 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
     const withOnBehalfOfTenant = vi.fn().mockReturnValue(scopedClient);
     const clientWithTenant = {
       getProviderCredential: vi.fn(),
-      getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: 't' }),
+      toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: 't' }) }),
       withOnBehalfOfTenant,
     } as never;
     await runAiChatStream(
@@ -1094,7 +1098,7 @@ describe('runAiChatStream — show_issue_detail not-found guard (#404)', () => {
   }
 
   it('존재하지 않는 이슈 번호(EX-99999) → issue_detail 위젯 드롭', async () => {
-    (fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail =
+    fakeTools.getIssueDetail =
       vi.fn().mockRejectedValue(new Error('404 Not Found'));
     streamSpy.mockImplementation(makeRunnerImpl([
       issueDetail('EX', 99999),
@@ -1102,28 +1106,30 @@ describe('runAiChatStream — show_issue_detail not-found guard (#404)', () => {
     ]));
     const out = await runAiChatStream(baseInput({ query: 'EX-99999 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.widgets).toBeNull();
+    expect(fakeTools.getIssueDetail).toHaveBeenCalledWith('EX-99999');
   });
 
   it('존재하는 이슈(EX-1) → issue_detail 위젯 유지', async () => {
-    (fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail =
+    fakeTools.getIssueDetail =
       vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: '기존 이슈' });
     streamSpy.mockImplementation(makeRunnerImpl([
       issueDetail('EX', 1),
       result(''),
     ]));
     const out = await runAiChatStream(baseInput({ query: 'EX-1 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(fakeTools.getIssueDetail).toHaveBeenCalledWith('EX-1');
     expect(out.widgets).toEqual([{ type: 'issue_detail', params: { number: 1, projectKey: 'EX' }, layout: {} }]);
   });
 
   it('projectKey 없는 issue_detail 위젯은 통과(미검증)', async () => {
-    (fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail = vi.fn();
+    fakeTools.getIssueDetail = vi.fn();
     streamSpy.mockImplementation(makeRunnerImpl([
       toolUse('show_issue_detail', { params: { number: 5 }, layout: {} }),
       result(''),
     ]));
     const out = await runAiChatStream(baseInput({ query: '5번 이슈 보여줘' }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(out.widgets).toEqual([{ type: 'issue_detail', params: { number: 5 }, layout: {} }]);
-    expect((fakeClient as { getIssueDetail: ReturnType<typeof vi.fn> }).getIssueDetail).not.toHaveBeenCalled();
+    expect(fakeTools.getIssueDetail).not.toHaveBeenCalled();
   });
 });
 
@@ -1190,7 +1196,7 @@ describe('runAiChatStream — 생성일 필터 쿼리 사전 차단 (#405)', () 
 describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
   it('복합 해제 쿼리 + issue-agent 위임 + onUnassignResult 없음 → unassignSelf 호출', async () => {
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
     streamSpy.mockImplementation(makeRunnerImpl([
       agentDelegation('issue-agent'),
       result(''),
@@ -1206,7 +1212,7 @@ describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
 
   it('복합 해제 쿼리 + onUnassignResult({ok:true}) 있음 → unassignSelf 미호출(이미 처리됨)', async () => {
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
     streamSpy.mockImplementation(makeRunnerImpl([
       agentDelegation('issue-agent'),
       result(''),
@@ -1222,7 +1228,7 @@ describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
 
   it('복합 해제 쿼리 + onUnassignResult({ok:false}) → userId 재처리 시도(unassignSelf 호출)', async () => {
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
     const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
     streamSpy.mockImplementation(makeRunnerImpl([
       agentDelegation('issue-agent'),
@@ -1242,7 +1248,7 @@ describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
 
   it('단순 해제 쿼리(복합 아님) → unassignSelf 미호출(issue-agent 가 직접 처리)', async () => {
     const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }), unassignSelf } as never;
+    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
     streamSpy.mockImplementation(makeRunnerImpl([
       agentDelegation('issue-agent'),
       result(''),

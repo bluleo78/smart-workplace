@@ -34,23 +34,19 @@ workplace-mcp 자신은 PAT 를 저장·검증하지 않고 그대로 전달(패
 - `src/mcp/server.ts`: `handleMcpPost` 가 `Authorization: Bearer swp_...` 를 파싱 → `initialize`
   요청이면 `GET /auth/me` 로 조기 검증(연결 시점 401 UX) → `buildMcpServer(apiBaseUrl, token)` 로
   요청별 `McpServer` 구성.
-- `src/clients/workplace-api.ts`: `createPatApiClient({ baseURL, token })` — 토큰을 클로저로 잡은
-  axios 클라이언트. 도구 핸들러는 이 클라이언트만 통해 workplace-api 를 호출한다.
+- `src/clients/workplace-api.ts`: `createPatApiClient({ baseURL, token })` — 토큰을 헤더로 단 axios 인스턴스를
+  공유 `createSharedToolClient` 에 넘긴 클라이언트. 도구 핸들러는 이 클라이언트만 통해 workplace-api 를 호출한다.
 - 401 은 그대로 클라이언트에 요약 전달(`summarizeError`) — "토큰 만료·폐기" 를 사용자가 바로 알 수
   있게 한다.
 
 ## 도구 추가 방법
 
-1. `src/tools/<domain>.ts` 에 `build<Domain>Tools(client: PatApiClient): McpTool[]` 함수 추가.
-   기존 파일(`calendar.ts`, `drive.ts`, `issue.ts`, `mail.ts`, `messaging.ts`, `wiki.ts`) 패턴을
-   따른다: zod 로 입력 스키마 정의 → `handler(args)` 에서 `schema.parse(args)` 후 `client.xxx()`
-   호출 → 결과를 `JSON.stringify` 해 문자열로 반환.
-2. `src/tools/index.ts` 의 `buildUserTools()` 에 `...build<Domain>Tools(client)` 를 추가해 집계.
-   여기 등록된 도구만 `POST /mcp` 를 통해 실제로 노출된다(단일 진실원천).
-3. `<domain>.test.ts` 에 각 도구별 성공/검증실패 케이스를 추가한다(`test-support.ts` 의
-   `mockPatApiClient` 사용).
-4. workplace-api 쪽에 대응하는 클라이언트 메서드가 없다면 `src/clients/workplace-api.ts` 에 먼저
-   추가한다.
+도구 정의(스키마·설명·핸들러)와 REST 경로 매핑은 **공유 패키지 `packages/mcp-tools-shared`** 에 있다(#846). ai-agent 와 같은 정의를 쓰므로 파라미터 이름이 어긋날 수 없다. 이 앱은 인증 헤더(Bearer PAT)가 붙은 axios 인스턴스를 `createSharedToolClient` 에 넘기고, `buildSharedTools` 결과를 그대로 노출한다.
+
+1. 공유 패키지의 해당 도메인 `src/<domain>-tools.ts` 에 도구를 추가한다. 필요한 경로는 `src/tool-client.ts`(인터페이스)와 `src/rest-client.ts`(구현)에 추가한다. 파라미터 이름은 패키지 README 의 명명 규칙을 따른다.
+2. PAT 컨텍스트에는 확인 카드가 없다. 그래서 공유 도구에는 **조회와 비파괴 쓰기만** 둔다. 파괴적이거나 대외 발송인 쓰기는 ai-agent 의 `propose_*` 로 만든다.
+3. 테스트는 공유 패키지(`<domain>-tools.test.ts`, 스키마 스냅샷 `shared-tools.test.ts`)에 추가한다. 이 앱의 `src/tools/index.test.ts` 는 노출 목록이 공유 정의와 일치하는지만 본다.
+4. 공유 패키지를 바꾼 뒤에는 `pnpm --filter @smart-workplace/mcp-tools-shared build` 를 돌린다. 앱은 공유 패키지의 `dist` 를 import 한다.
 
 ## 에이전트 전용 도구 노출 금지
 

@@ -6,7 +6,7 @@
 /** 리졸브에 필요한 최소 구조적 인터페이스. 양쪽 앱의 API 클라이언트가 이 시그니처를 만족하면 된다. */
 export interface ProjectMetaClient {
   getProjectTypes(projectKey: string): Promise<{ id: number; name: string }[]>;
-  getProjectMembers(projectKey: string): Promise<{ userId: number; username: string }[]>;
+  getProjectMembers(projectKey: string): Promise<{ userId: number; username: string; name?: string; role?: string }[]>;
   getProjectLabels(projectKey: string): Promise<{ id: number; name: string }[]>;
 }
 

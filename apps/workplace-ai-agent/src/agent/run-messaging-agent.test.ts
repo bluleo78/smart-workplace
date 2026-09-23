@@ -38,7 +38,8 @@ function deps() {
   return {
     client: {
       getProviderCredential: vi.fn(async () => ({ provider: 'anthropic', token: 'TK', model: null })),
-      getChannelMessages: vi.fn(async () => []),
+      // #846: 최근 메시지 프리페치는 공유 도구용 클라이언트(toolClient) 경유.
+      toolClient: () => ({ getChannelMessages: vi.fn(async () => []) }),
       postMessagingProgress: vi.fn().mockResolvedValue(undefined),
     } as unknown as WorkplaceApiClient,
   };
@@ -113,7 +114,7 @@ describe('runMessagingAgent 진행 발행', () => {
     const testDeps = {
       client: {
         getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 't', model: null }),
-        getChannelMessages: vi.fn().mockResolvedValue([]),
+        toolClient: () => ({ getChannelMessages: vi.fn().mockResolvedValue([]) }),
         postMessagingProgress,
       },
     } as never;

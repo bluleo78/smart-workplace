@@ -1,7 +1,7 @@
 {
-  "name": "@smart-workplace/issue-tools-shared",
+  "name": "@smart-workplace/mcp-tools-shared",
   "version": "0.0.1",
-  "description": "이슈 도구 이름→ID 리졸브 공유 로직 (workplace-mcp / workplace-ai-agent 공용)",
+  "description": "MCP 도구 정의 공유 패키지 (workplace-mcp / workplace-ai-agent 공용 — 스키마·설명·핸들러 단일 정의)",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

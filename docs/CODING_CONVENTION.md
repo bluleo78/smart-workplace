@@ -116,6 +116,10 @@ private static final long ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000L;
 - 판별은 `Z` / `±HH:MM` / `±HHMM` 을 모두 인식해야 한다 — `apps/workplace-web/src/lib/formatters.parseUtcDate.test.ts` 가 고정한다.
 - 교훈: 화면마다 로컬 파싱/포매팅을 두면 한 곳의 수정이 다른 곳에 전파되지 않는다. 그래서 위 원칙 1·3 을 린트로 강제한다.
 
+## MCP 도구 (AI · 원격 MCP)
+
+workplace-mcp 와 workplace-ai-agent 가 함께 쓰는 MCP 도구는 [`packages/mcp-tools-shared`](../packages/mcp-tools-shared/README.md) 에 한 번만 정의한다. 앱에서 같은 이름의 도구를 다시 정의하지 않으며, 두 앱의 패리티 테스트가 이를 강제한다. 새 도구의 파라미터 이름은 README 의 **파라미터 명명 규칙**을 따른다(도메인 접두 id, 사람=username, 조회·쓰기 동일 표현).
+
 ## 자동화
 
 - Java: Spotless(Google Java Format)가 포맷만 강제 (주석 내용은 사람이 책임)

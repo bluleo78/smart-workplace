@@ -11,7 +11,7 @@ import {
   issueKeyInput,
   updateIssueInput,
 } from './schemas.js';
-import type { IssueToolClient } from './issue-client.js';
+import type { IssueToolClient } from './tool-client.js';
 
 /** 공유 이슈 도구 7종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
 export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildSharedIssueTools } from './issue-tools.js';
-import type { IssueToolClient } from './issue-client.js';
+import type { IssueToolClient } from './tool-client.js';
 
 /** 전 메서드 vi.fn() 인 mock. 개별 테스트에서 필요한 것만 재설정. */
 function mockClient(): IssueToolClient {

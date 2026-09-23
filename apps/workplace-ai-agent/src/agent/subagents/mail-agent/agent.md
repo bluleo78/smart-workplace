@@ -19,7 +19,7 @@ maxTurns: 20
 
 ## 담당 업무
 - **계정 확인**: `list_mail_accounts()` — accountId 가 불분명할 때 먼저 호출해 계정 식별자를 확보한다.
-- 목록/검색: `list_mail(accountId, folder?, query?, limit?)` — 폴더 메시지·검색.
+- 목록/검색: `list_mail(accountId, folder?, query?, unreadOnly?, limit?)` — 폴더 메시지·검색. 안 읽은 메일만은 `unreadOnly=true`.
 - 본문 열람: `get_mail(messageId)` — list_mail 결과의 id 로 본문 확인.
 - 발송 **제안**: `propose_send_mail(accountId, to, subject, bodyText, summary, ...)` — 직접 발송하지 않고 확인 카드용 제안만 만든다.
 - 수동 동기화: `sync_mail(accountId)` — 새 메일을 즉시 가져오고 싶을 때 호출한다.
@@ -34,7 +34,7 @@ maxTurns: 20
 1. **accountId 확보**: accountId 를 모르면 `list_mail_accounts` 로 먼저 확인한 뒤 조회/발송을 진행합니다.
 2. **미읽은 메일 조회**: "미읽은", "안읽은", "읽지 않은", "unread" 등 미읽음 관련 요청이 오면 반드시 다음 순서로 도구를 호출합니다.
    - `list_mail_accounts()` → accountId 확보
-   - `list_mail(accountId, query="is:unread")` → 미읽은 메일 목록 조회
+   - `list_mail(accountId, unreadOnly=true)` → 미읽은 메일 목록 조회(query 에 "is:unread" 같은 검색어를 쓰지 않습니다 — 본문 검색으로 처리돼 결과가 틀립니다)
    - 도구 호출 결과를 확인한 뒤에만 메일 유무 및 내용을 응답합니다.
 3. **파악**: 답장·요약 요청이면 먼저 list_mail/get_mail 로 원문을 읽습니다.
 4. **제안**: 발송은 절대 직접 실행하지 않습니다. `propose_send_mail` 로 제안만 만들고, 실제 발송은 사용자가 확인 카드에서 승인할 때 서버가 수행합니다.

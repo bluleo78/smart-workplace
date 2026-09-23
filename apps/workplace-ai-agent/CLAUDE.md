@@ -37,7 +37,7 @@ src/
     system-prompt         # LLM 시스템 프롬프트 상수
     user-message          # 4 type 별 user message 빌더
   mcp/
-    tools                 # 도구 정의 단일 진실원천 (프로필별 buildTools — 이슈/채팅/홈/메시징/어시스턴트)
+    tools                 # 프로필별 buildTools — 공유 도구(packages/mcp-tools-shared, workplace-mcp 와 같은 정의)를 이름으로 골라 쓰고, 에이전트 전용 도구(propose_*/show_*/submit_response/chat 등)만 직접 정의
     stdio-entry            # stdio MCP 엔트리포인트 — opencode 러너(별도 프로세스, Task9)가 spawn
   clients/              # workplace-api 호출용 axios client (코멘트/상태/담당자/조회 4 메서드)
   middleware/           # internal-auth (Authorization: Internal {token})
