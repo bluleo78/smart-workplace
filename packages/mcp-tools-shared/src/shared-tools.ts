@@ -9,6 +9,7 @@ import { buildMailTools } from './mail-tools.js';
 import type { McpTool } from './mcp-tool.js';
 import { buildMemberTools } from './member-tools.js';
 import { buildMessagingTools, type MessagingToolOptions } from './messaging-tools.js';
+import { buildNotifyTools } from './notify-tools.js';
 import { buildProjectTools } from './project-tools.js';
 import type {
   CalendarToolClient,
@@ -16,6 +17,7 @@ import type {
   MailToolClient,
   MemberToolClient,
   MessagingToolClient,
+  NotificationToolClient,
   ProjectToolClient,
   WikiToolClient,
 } from './tool-client.js';
@@ -29,11 +31,12 @@ export type SharedToolClient = IssueToolClient &
   MailToolClient &
   MemberToolClient &
   MessagingToolClient &
-  DriveToolClient;
+  DriveToolClient &
+  NotificationToolClient;
 
 export type SharedToolOptions = MessagingToolOptions;
 
-/** 공유 도구 전체(이슈 7 + 프로젝트·이슈목록 3 + 노트 5 + 캘린더 2 + 메일 3 + 구성원·연락처 5 + 메시징 3 + 드라이브 3 = 31종). */
+/** 공유 도구 전체(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·메시징·드라이브·알림). 이름 목록은 스냅샷 테스트가 고정한다. */
 export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptions = {}): McpTool[] {
   return [
     ...buildSharedIssueTools(client),
@@ -44,5 +47,6 @@ export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptio
     ...buildMemberTools(client),
     ...buildMessagingTools(client, opts),
     ...buildDriveTools(client),
+    ...buildNotifyTools(client),
   ];
 }

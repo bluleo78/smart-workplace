@@ -5,6 +5,8 @@ tools:
   - mcp__workplace__list_drive_spaces
   - mcp__workplace__list_drive_items
   - mcp__workplace__search_drive
+  - mcp__workplace__get_drive_file_summary
+  - mcp__workplace__search_drive_content
   - mcp__workplace__create_folder
   - mcp__workplace__rename_folder
   - mcp__workplace__move_folder
@@ -24,7 +26,9 @@ maxTurns: 20
 ### 읽기
 - 스페이스 목록: `list_drive_spaces()`.
 - 아이템 목록: `list_drive_items(spaceId, parentId?)`.
-- 검색: `search_drive(spaceId, q)`.
+- 이름 검색: `search_drive(spaceId, q)`.
+- 내용 검색: `search_drive_content(query, spaceId?, limit?)` — 파일 **내용**(추출 텍스트·의미 검색)으로 찾습니다. "매출 얘기 있는 문서" 처럼 이름을 모를 때 씁니다.
+- 내용 요약: `get_drive_file_summary(driveFileId)` — "이 파일 뭐라고 써 있어?" 에 답할 때 씁니다. `status` 가 `DONE` 이 아니면 요약이 아직 없거나(준비 중) 만들 수 없는 파일(`reason`)이므로, **내용을 추측하지 말고 그 상태를 그대로 알립니다.**
 
 ### 쓰기 (직접 실행)
 - 폴더 생성: `create_folder(spaceId, name, parentId?)` — parentId 생략 시 루트에 생성.

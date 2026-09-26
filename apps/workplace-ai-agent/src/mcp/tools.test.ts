@@ -49,6 +49,8 @@ function sharedMock(): MockedShared {
     getWikiPage: vi.fn().mockResolvedValue({}),
     createWikiPage: vi.fn().mockResolvedValue({}),
     updateWikiPage: vi.fn().mockResolvedValue({}),
+    listWikiPages: vi.fn().mockResolvedValue([]),
+    getWikiBacklinks: vi.fn().mockResolvedValue([]),
     // 캘린더
     listEvents: vi.fn().mockResolvedValue([]),
     getEvent: vi.fn().mockResolvedValue({}),
@@ -64,11 +66,19 @@ function sharedMock(): MockedShared {
     // 메시징
     listChannels: vi.fn().mockResolvedValue([]),
     getChannelMessages: vi.fn().mockResolvedValue([]),
+    getThreadReplies: vi.fn().mockResolvedValue([]),
     addChannelMessage: vi.fn().mockResolvedValue(undefined),
     // 드라이브
     listDriveSpaces: vi.fn().mockResolvedValue([]),
     listDriveItems: vi.fn().mockResolvedValue({ folders: [], files: [] }),
     searchDrive: vi.fn().mockResolvedValue({ folders: [], files: [] }),
+    getDriveFileSummary: vi.fn().mockResolvedValue({}),
+    searchDriveContent: vi.fn().mockResolvedValue({ hits: [] }),
+    // 알림
+    listNotifications: vi.fn().mockResolvedValue([]),
+    countUnreadNotifications: vi.fn().mockResolvedValue(0),
+    markNotificationRead: vi.fn().mockResolvedValue(undefined),
+    markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -173,15 +183,15 @@ describe('프로필 구성', () => {
     expect(names).toEqual(['show_activity', 'show_issue_detail', 'show_issue_list', 'show_mail_list', 'show_my_tasks']);
   });
 
-  it('messaging 프로필: 위임 컨텍스트가 없으면 채널 도구 4종만', () => {
+  it('messaging 프로필: 위임 컨텍스트가 없으면 채널 도구 5종만', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging').map((t) => t.name).sort();
-    expect(names).toEqual(['add_channel_message', 'discover_channels', 'get_channel_messages', 'list_channels']);
+    expect(names).toEqual(['add_channel_message', 'discover_channels', 'get_channel_messages', 'get_thread_replies', 'list_channels']);
   });
 
   it('messaging 프로필 + delegationContext: propose_create_issue/propose_create_event 추가', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging', undefined, { actorId: 7, channelId: 9 }).map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(['propose_create_issue', 'propose_create_event']));
-    expect(names).toHaveLength(6);
+    expect(names).toHaveLength(7);
   });
 
   it('assistant 프로필: 전 앱 도구 union 을 노출한다', () => {
@@ -192,10 +202,11 @@ describe('프로필 구성', () => {
       'unassign_self', 'add_issue_dependency', 'remove_issue_dependency',
       // 노트
       'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'create_wiki_page', 'update_wiki_page',
+      'list_wiki_pages', 'get_wiki_backlinks',
       // 캘린더
       'list_events', 'get_event', 'propose_create_event', 'propose_update_event', 'propose_delete_event',
       // 메시징
-      'get_channel_messages', 'add_channel_message', 'list_channels', 'discover_channels',
+      'get_channel_messages', 'get_thread_replies', 'add_channel_message', 'list_channels', 'discover_channels',
       // 메일
       'list_mail', 'get_mail', 'propose_send_mail', 'list_mail_accounts', 'sync_mail',
       // 연락처·구성원(#833)
@@ -205,7 +216,9 @@ describe('프로필 구성', () => {
       'list_projects', 'get_project', 'list_project_members',
       'propose_create_project', 'propose_delete_project', 'propose_add_project_member',
       // 드라이브
-      'list_drive_spaces', 'list_drive_items', 'search_drive',
+      'list_drive_spaces', 'list_drive_items', 'search_drive', 'get_drive_file_summary', 'search_drive_content',
+      // 알림(#850)
+      'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
       'create_folder', 'rename_folder', 'move_folder', 'move_file', 'propose_delete_file', 'propose_delete_folder',
       // 위임 답 제출 + 표시 위젯
       'submit_response',
@@ -279,6 +292,22 @@ describe('공유 도구 패리티 (#846)', () => {
       }
     });
   }
+
+  // 공유 패키지에 도구를 추가하고 ai-agent 에 연결하지 않으면 AI Chat 에서 조용히 못 쓰는 도구가 된다(#850).
+  it('assistant 프로필은 공유 도구를 전부 노출한다', () => {
+    const c = client();
+    const names = new Set(buildTools(c, AGENT_ID, 'assistant').map((t) => t.name));
+    const missing = buildSharedTools(c.sc).map((t) => t.name).filter((n) => !names.has(n));
+    expect(missing).toEqual([]);
+  });
+
+  // 알림 API 는 호출자 본인 알림만 돌려준다. 에이전트 신원으로 도는 프로필에 두면 사람이 아닌 에이전트의 알림을 답하게 된다(#850).
+  it('에이전트 신원 프로필(issue·chat·messaging)에는 알림 도구가 없다', () => {
+    for (const p of ['issue', 'chat', 'messaging'] as McpProfile[]) {
+      const names = buildTools(client(), AGENT_ID, p, undefined, { actorId: 7, channelId: 9 }).map((t) => t.name);
+      expect(names.filter((n) => n.includes('notification')), p).toEqual([]);
+    }
+  });
 
   it('list_issues 설명은 show_issue_list 안내를 앞에 붙이고 공유본 설명으로 끝난다', () => {
     const c = client();

@@ -1,12 +1,13 @@
-// src/wiki-tools.ts — 노트(위키) 도구 5종. 두 앱 공유(#846).
+// src/wiki-tools.ts — 노트(위키) 도구. 두 앱 공유(#846, #850).
 // 쓰기는 스페이스 멤버십 가드를 서버가 강제하므로 확인 카드 없이 직접 실행한다.
 // update_wiki_page 의 버전 충돌(409)은 그대로 throw — 자동 재시도·머지는 하지 않는다.
 import { z } from 'zod';
 import type { McpTool } from './mcp-tool.js';
-import type { WikiToolClient } from './tool-client.js';
+import type { WikiPageRow, WikiToolClient } from './tool-client.js';
 
 export const searchWikiInput = z.object({ query: z.string().min(1) });
 export const getWikiPageInput = z.object({ pageId: z.number().int().positive() });
+export const listWikiPagesInput = z.object({ spaceId: z.number().int().positive() });
 export const createWikiPageInput = z.object({
   spaceId: z.number().int().positive(),
   title: z.string().min(1).max(255),
@@ -20,7 +21,37 @@ export const updateWikiPageInput = z.object({
   body: z.string().optional(),
 });
 
-/** 노트 도구 5종(list_wiki_spaces/search_wiki/get_wiki_page/create_wiki_page/update_wiki_page). */
+/** 페이지 트리 노드 — 자식이 없으면 children 을 생략해 응답을 줄인다. */
+export interface WikiPageNode {
+  id: number;
+  title: string;
+  children?: WikiPageNode[];
+}
+
+/**
+ * 평면 페이지 목록(parentId·position) → 중첩 트리. 서버는 평면 목록만 주고, LLM 이 parentId 를 따라가며 계층을
+ * 재구성하면 자주 틀리므로 핸들러가 조립한다. 부모가 목록에 없는 페이지(권한·정합성 문제)는 잃지 않게 최상위로 올린다.
+ */
+export function toWikiPageTree(rows: WikiPageRow[]): WikiPageNode[] {
+  const ids = new Set(rows.map((r) => r.id));
+  const byParent = new Map<number | null, WikiPageRow[]>();
+  for (const r of rows) {
+    const parent = r.parentId != null && ids.has(r.parentId) ? r.parentId : null;
+    const siblings = byParent.get(parent);
+    if (siblings) siblings.push(r);
+    else byParent.set(parent, [r]);
+  }
+  const build = (parent: number | null): WikiPageNode[] =>
+    (byParent.get(parent) ?? [])
+      .sort((a, b) => a.position - b.position)
+      .map(({ id, title }) => {
+        const children = build(id);
+        return children.length > 0 ? { id, title, children } : { id, title };
+      });
+  return build(null);
+}
+
+/** 노트 도구(list_wiki_spaces/list_wiki_pages/search_wiki/get_wiki_page/get_wiki_backlinks/create_wiki_page/update_wiki_page). */
 export function buildWikiTools(client: WikiToolClient): McpTool[] {
   return [
     {
@@ -31,6 +62,17 @@ export function buildWikiTools(client: WikiToolClient): McpTool[] {
       inputSchema: z.object({}),
       async handler() {
         return JSON.stringify(await client.listWikiSpaces());
+      },
+    },
+    {
+      name: 'list_wiki_pages',
+      description:
+        '노트 스페이스의 페이지 트리를 JSON 배열로 반환합니다. 각 노드는 id·title 과 하위 페이지 children 을 가지며 사이드바 순서대로 정렬됩니다. ' +
+        '스페이스 구성을 파악하거나 제목으로 페이지 위치를 찾을 때 쓰세요. spaceId 는 list_wiki_spaces 결과의 id 입니다.',
+      inputSchema: listWikiPagesInput,
+      async handler(args) {
+        const { spaceId } = listWikiPagesInput.parse(args);
+        return JSON.stringify(toWikiPageTree(await client.listWikiPages(spaceId)));
       },
     },
     {
@@ -50,6 +92,16 @@ export function buildWikiTools(client: WikiToolClient): McpTool[] {
       async handler(args) {
         const { pageId } = getWikiPageInput.parse(args);
         return JSON.stringify(await client.getWikiPage(pageId));
+      },
+    },
+    {
+      name: 'get_wiki_backlinks',
+      description:
+        '이 노트 페이지를 링크한 다른 페이지 목록(백링크)을 JSON 배열(pageId·spaceName·title·updatedAt)로 반환합니다. 내가 볼 수 있는 페이지만 포함됩니다.',
+      inputSchema: getWikiPageInput,
+      async handler(args) {
+        const { pageId } = getWikiPageInput.parse(args);
+        return JSON.stringify(await client.getWikiBacklinks(pageId));
       },
     },
     {

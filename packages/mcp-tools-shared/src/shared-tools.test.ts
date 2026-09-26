@@ -6,10 +6,10 @@ import { buildSharedTools, type SharedToolClient } from './shared-tools.js';
 const tools = buildSharedTools({} as unknown as SharedToolClient);
 
 describe('buildSharedTools', () => {
-  it('31종을 반환하고 이름이 중복되지 않는다', () => {
+  // 개수는 적지 않는다 — 이름 전체는 아래 스냅샷이 고정한다.
+  it('이름이 중복되지 않는다', () => {
     const names = tools.map((t) => t.name);
-    expect(names).toHaveLength(31);
-    expect(new Set(names).size).toBe(31);
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it('모든 inputSchema 는 z.ZodObject 인스턴스다(MCP 입력 스키마는 객체여야 한다)', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildMessagingTools, linkMentions, type MessagingToolOptions } from './messaging-tools.js';
+import { buildMessagingTools, linkMentions, toThreadReplyView, type MessagingToolOptions } from './messaging-tools.js';
 import type { MemberRow, MemberSearchParams, MemberToolClient, MessagingToolClient } from './tool-client.js';
 
 type Client = MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>;
@@ -9,6 +9,7 @@ function mockClient(): Client {
   return {
     listChannels: vi.fn().mockResolvedValue([]),
     getChannelMessages: vi.fn().mockResolvedValue([]),
+    getThreadReplies: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     addChannelMessage: vi.fn().mockResolvedValue(undefined),
     searchMembers: vi.fn().mockResolvedValue([]),
   };
@@ -18,6 +19,59 @@ const tool = (c: Client, name: string, opts?: MessagingToolOptions) =>
   buildMessagingTools(c, opts).find((x) => x.name === name)!;
 
 describe('buildMessagingTools', () => {
+  /** 서버 MessageResponse 형태의 답글 행. */
+  const reply = (id: number) => ({
+    id,
+    channelId: 9,
+    authorId: 1,
+    authorName: '양동희',
+    authorKind: 'HUMAN',
+    body: `답글 ${id}`,
+    mentions: [],
+    parentMessageId: 30,
+    replyCount: 0,
+    reactions: [],
+    attachments: [],
+    driveLinks: [],
+    createdAt: 't',
+    editedAt: null,
+    deleted: false,
+    unreadReplyCount: 0,
+    followed: false,
+    proposal: null,
+  });
+
+  it('get_thread_replies → nextCursor 를 따라 끝까지 모으고 행의 반복·빈 필드를 지운다 (#850)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getThreadReplies)
+      .mockResolvedValueOnce({ items: [reply(31)], nextCursor: 'c1', hasMore: true })
+      .mockResolvedValueOnce({ items: [reply(32)], nextCursor: null, hasMore: false });
+    const out = JSON.parse(await tool(c, 'get_thread_replies').handler({ messageId: 30 }));
+    expect(c.getThreadReplies).toHaveBeenNthCalledWith(1, 30, { limit: 100, cursor: undefined });
+    expect(c.getThreadReplies).toHaveBeenNthCalledWith(2, 30, { limit: 100, cursor: 'c1' });
+    expect(out).toEqual({
+      items: [
+        { id: 31, authorName: '양동희', authorKind: 'HUMAN', body: '답글 31', createdAt: 't' },
+        { id: 32, authorName: '양동희', authorKind: 'HUMAN', body: '답글 32', createdAt: 't' },
+      ],
+      truncated: false,
+    });
+  });
+
+  it('get_thread_replies 는 500개를 넘으면 멈추고 truncated 를 알린다', async () => {
+    const c = mockClient();
+    const page = { items: Array.from({ length: 100 }, (_, i) => reply(i)), nextCursor: 'c', hasMore: true };
+    vi.mocked(c.getThreadReplies).mockResolvedValue(page);
+    const out = JSON.parse(await tool(c, 'get_thread_replies').handler({ messageId: 30 }));
+    expect(c.getThreadReplies).toHaveBeenCalledTimes(5);
+    expect(out.items).toHaveLength(500);
+    expect(out.truncated).toBe(true);
+  });
+
+  it('toThreadReplyView 는 삭제된 답글의 deleted:true 는 남긴다', () => {
+    expect(toThreadReplyView({ ...reply(33), deleted: true })).toMatchObject({ id: 33, deleted: true });
+  });
+
   it('list_channels → client.listChannels()', async () => {
     const c = mockClient();
     vi.mocked(c.listChannels).mockResolvedValue([{ id: 1, name: '일반' }]);

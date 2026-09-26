@@ -217,6 +217,24 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "get_drive_file_summary",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "driveFileId",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "get_event",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -334,6 +352,42 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "projectKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_thread_replies",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_wiki_backlinks",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "pageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "pageId",
       ],
       "type": "object",
     },
@@ -573,6 +627,30 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "list_notifications",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "unreadOnly": {
+          "default": false,
+          "type": "boolean",
+        },
+      },
+      "required": [
+        "unreadOnly",
+        "limit",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "list_projects",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -599,11 +677,56 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "list_wiki_pages",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "spaceId",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "list_wiki_spaces",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {},
+      "type": "object",
+    },
+  },
+  {
+    "name": "mark_all_notifications_read",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+  },
+  {
+    "name": "mark_notification_read",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "notificationId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "notificationId",
+      ],
       "type": "object",
     },
   },
@@ -656,6 +779,35 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "spaceId",
         "q",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "search_drive_content",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 10,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "query": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "query",
+        "limit",
       ],
       "type": "object",
     },

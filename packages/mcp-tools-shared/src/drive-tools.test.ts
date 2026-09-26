@@ -8,6 +8,8 @@ function mockClient(): DriveToolClient {
     listDriveSpaces: vi.fn().mockResolvedValue([]),
     listDriveItems: vi.fn().mockResolvedValue({ folders: [], files: [] }),
     searchDrive: vi.fn().mockResolvedValue({ folders: [], files: [] }),
+    getDriveFileSummary: vi.fn().mockResolvedValue({ summary: null, status: 'PENDING', reason: null }),
+    searchDriveContent: vi.fn().mockResolvedValue({ hits: [], semantic: false }),
   };
 }
 
@@ -85,5 +87,35 @@ describe('buildDriveTools', () => {
     const c = mockClient();
     await expect(tool(c, 'search_drive').handler({ spaceId: 3 })).rejects.toThrow();
     expect(c.searchDrive).not.toHaveBeenCalled();
+  });
+
+  it('get_drive_file_summary → client.getDriveFileSummary(driveFileId), 미완료 status·reason 을 그대로 전달 (#850)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getDriveFileSummary).mockResolvedValue({ summary: null, status: 'FAILED', reason: '암호화된 PDF' });
+    const out = await tool(c, 'get_drive_file_summary').handler({ driveFileId: 5 });
+    expect(c.getDriveFileSummary).toHaveBeenCalledWith(5);
+    expect(JSON.parse(out)).toEqual({ summary: null, status: 'FAILED', reason: '암호화된 PDF' });
+  });
+
+  it('search_drive_content → query 를 q 로 옮기고 limit 기본 10, hit 의 core fileId 는 제거 (#840, #850)', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchDriveContent).mockResolvedValue({
+      hits: [{ driveFileId: 5, fileId: 812, spaceId: 1, spaceName: '팀', name: 'Q3 보고서.pdf', snippet: '매출', score: 0.9 }],
+      semantic: true,
+    });
+    const out = JSON.parse(await tool(c, 'search_drive_content').handler({ query: '매출' }));
+    expect(c.searchDriveContent).toHaveBeenCalledWith({ q: '매출', spaceId: undefined, limit: 10 });
+    expect(out).toEqual({
+      hits: [{ driveFileId: 5, spaceId: 1, spaceName: '팀', name: 'Q3 보고서.pdf', snippet: '매출', score: 0.9 }],
+      semantic: true,
+    });
+    expect(JSON.stringify(out)).not.toContain('812');
+  });
+
+  it('search_drive_content 는 spaceId·limit 를 그대로 전달하고 limit 50 초과는 거부한다', async () => {
+    const c = mockClient();
+    await tool(c, 'search_drive_content').handler({ query: '계약', spaceId: 2, limit: 30 });
+    expect(c.searchDriveContent).toHaveBeenCalledWith({ q: '계약', spaceId: 2, limit: 30 });
+    await expect(tool(c, 'search_drive_content').handler({ query: '계약', limit: 51 })).rejects.toThrow();
   });
 });

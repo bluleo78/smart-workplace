@@ -11,8 +11,8 @@ workplace-mcp(사용자 PAT 원격 MCP)와 workplace-ai-agent(AI 비서 인-프�
 |---|---|
 | `tool-client.ts` | 도메인별 구조적 클라이언트 인터페이스. 클라이언트는 raw 를 그대로 반환한다 |
 | `rest-client.ts` | `createSharedToolClient(http)` — 위 인터페이스를 REST 경로로 구현한다. 각 앱은 인증 헤더가 붙은 axios 인스턴스만 넘긴다 |
-| `*-tools.ts` | 도메인별 도구 정의(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·메시징·드라이브) |
-| `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체(31종) |
+| `*-tools.ts` | 도메인별 도구 정의(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·메시징·드라이브·알림) |
+| `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체 |
 
 LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는다. 식별자 이름 바꾸기나 숫자 id 제거가 여기에 해당한다. 클라이언트에 가공을 두면 앱마다 규칙이 달라진다.
 
@@ -26,7 +26,8 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 ## 파라미터 명명 규칙
 
 1. **도메인 접두 id**: 숫자 식별자는 무엇의 id 인지 이름에 드러낸다.
-   - 예: `eventId`, `pageId`, `spaceId`, `channelId`, `accountId`, `messageId`, `folderId`, `driveFileId`, `externalId`, `commentId`
+   - 예: `eventId`, `pageId`, `spaceId`, `channelId`, `accountId`, `messageId`, `folderId`, `driveFileId`, `externalId`, `commentId`, `notificationId`
+   - `messageId` 는 메일(`get_mail`)과 채팅 메시지(`get_thread_replies`)에서 같이 쓴다. 도구 이름이 도메인을 정하므로 설명에 어느 결과의 id 인지 적는다.
    - 맨 이름 `id` 는 입력 파라미터로 쓰지 않는다. 실행기나 서버가 `id` 를 읽는다면 핸들러가 옮겨 담는다. 예: `propose_update_event` 는 `{ id: eventId }` 로 옮긴다.
 2. **같은 것은 같은 이름**: 조회 도구와 쓰기 도구, 표시 위젯이 같은 대상을 같은 이름으로 가리킨다.
    - 프로젝트는 어디서나 `projectKey`, 이슈는 `issueKey`(`WP-12`) 다.

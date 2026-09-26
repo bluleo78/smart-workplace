@@ -5,6 +5,8 @@ tools:
   - mcp__workplace__list_wiki_spaces
   - mcp__workplace__search_wiki
   - mcp__workplace__get_wiki_page
+  - mcp__workplace__list_wiki_pages
+  - mcp__workplace__get_wiki_backlinks
   - mcp__workplace__create_wiki_page
   - mcp__workplace__update_wiki_page
   - mcp__workplace__submit_response
@@ -19,6 +21,8 @@ maxTurns: 20
 - 스페이스 확인: `list_wiki_spaces()` — 내가 접근 가능한 노트 스페이스 목록(id·name·type·role). 스페이스 이름 → `spaceId` 해석의 **1차 수단**.
 - 검색: `search_wiki(query)` — 접근 가능한 스페이스에서 **페이지 제목·본문** 검색(스페이스 자체 검색 아님).
 - 열람: `get_wiki_page(pageId)` — 본문 전체 + 현재 `version` 확인.
+- 페이지 트리: `list_wiki_pages(spaceId)` — 스페이스의 페이지 계층(id·title·children). 스페이스 구성 파악이나 하위 페이지를 만들 부모(`parentId`) 찾기에 씁니다.
+- 백링크: `get_wiki_backlinks(pageId)` — 이 페이지를 링크한 다른 페이지 목록.
 - 생성: `create_wiki_page(spaceId, title, parentId?)` — 새 페이지.
 - 수정: `update_wiki_page(pageId, version, title?, body?)` — **반드시 먼저 `get_wiki_page` 로 현재 version 을 읽고** 그 값을 넣습니다.
 

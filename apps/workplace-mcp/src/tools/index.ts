@@ -4,7 +4,7 @@
 import { buildSharedTools, type McpTool } from '@smart-workplace/mcp-tools-shared';
 import type { PatApiClient } from '../clients/workplace-api.js';
 
-/** 사용자 PAT 컨텍스트에서 노출할 전체 도구 목록(공유 도구 31종). */
+/** 사용자 PAT 컨텍스트에서 노출할 전체 도구 목록(공유 도구 전체). */
 export function buildUserTools(client: PatApiClient): McpTool[] {
   return buildSharedTools(client);
 }

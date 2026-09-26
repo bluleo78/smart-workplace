@@ -162,6 +162,35 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/drive/spaces/3/search', { params: { q: '보고서' } });
   });
 
+  it('#850 조회 경로: 드라이브 요약·내용검색, 스레드 답글, 노트 페이지·백링크', async () => {
+    const { http, client } = mockHttp();
+    await client.getDriveFileSummary(5);
+    expect(http.get).toHaveBeenCalledWith('/drive/files/5/summary');
+    await client.searchDriveContent({ q: '매출', limit: 10 });
+    expect(http.get).toHaveBeenCalledWith('/drive/search', { params: { q: '매출', limit: 10 } });
+    http.get.mockResolvedValueOnce({ data: { items: [{ id: 31 }], nextCursor: null, hasMore: false } });
+    expect(await client.getThreadReplies(30, { limit: 50 })).toEqual({ items: [{ id: 31 }], nextCursor: null, hasMore: false });
+    expect(http.get).toHaveBeenCalledWith('/messaging/messages/30/replies', { params: { limit: 50 } });
+    await client.listWikiPages(9);
+    expect(http.get).toHaveBeenCalledWith('/wiki/spaces/9/pages');
+    http.get.mockResolvedValueOnce({ data: { items: [{ pageId: 1 }] } });
+    expect(await client.getWikiBacklinks(3)).toEqual([{ pageId: 1 }]);
+    expect(http.get).toHaveBeenCalledWith('/wiki/pages/3/backlinks');
+  });
+
+  it('알림 경로: 목록·안읽음 수·단건/전체 읽음', async () => {
+    const { http, client } = mockHttp();
+    await client.listNotifications({ limit: 20, offset: 100 });
+    expect(http.get).toHaveBeenCalledWith('/notifications', { params: { limit: 20, offset: 100 } });
+    http.get.mockResolvedValueOnce({ data: { count: 4 } });
+    expect(await client.countUnreadNotifications()).toBe(4);
+    expect(http.get).toHaveBeenCalledWith('/notifications/unread-count');
+    await client.markNotificationRead(11);
+    expect(http.post).toHaveBeenCalledWith('/notifications/11/read');
+    await client.markAllNotificationsRead();
+    expect(http.post).toHaveBeenCalledWith('/notifications/read-all');
+  });
+
   it('목록형 조회는 data 가 없으면 빈 배열로 대체한다', async () => {
     const { client } = mockHttp();
     expect(await client.listWikiSpaces()).toEqual([]);
@@ -169,5 +198,8 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(await client.listChannels()).toEqual([]);
     expect(await client.listDriveSpaces()).toEqual([]);
     expect(await client.getProjectTypes('WP')).toEqual([]);
+    expect(await client.listWikiPages(1)).toEqual([]);
+    expect(await client.listNotifications({ limit: 20, offset: 0 })).toEqual([]);
+    expect(await client.searchDriveContent({ q: 'x', limit: 10 })).toEqual({ hits: [] });
   });
 });

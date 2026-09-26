@@ -8,9 +8,9 @@ import { buildUserTools } from './index.js';
 const client = {} as PatApiClient;
 
 describe('buildUserTools', () => {
-  it('공유 도구 31종을 이름 중복 없이 반환한다', () => {
+  // 개수는 적지 않는다 — 도구 이름 전체는 공유 패키지 스냅샷이 고정하고, 아래 패리티가 공유본과 같음을 본다.
+  it('공유 도구를 이름 중복 없이 반환한다', () => {
     const names = buildUserTools(client).map((t) => t.name);
-    expect(names).toHaveLength(31);
     expect(new Set(names).size).toBe(names.length);
   });
 

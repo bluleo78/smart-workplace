@@ -112,6 +112,12 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       // 낙관적 동시성 — 409(버전 충돌)는 호출자(도구)에 그대로 전파한다. 도구 저장은 스냅샷을 남기지 않는다.
       return (await http.put(`/wiki/pages/${pageId}`, { ...body, snapshot: false })).data;
     },
+    async listWikiPages(spaceId) {
+      return (await http.get(`/wiki/spaces/${spaceId}/pages`)).data ?? [];
+    },
+    async getWikiBacklinks(pageId) {
+      return (await http.get(`/wiki/pages/${pageId}/backlinks`)).data?.items ?? [];
+    },
 
     // ── 캘린더 ──
     async listEvents(from, to) {
@@ -159,6 +165,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async addChannelMessage(channelId, body, parentMessageId) {
       await http.post(`/messaging/channels/${channelId}/messages`, { body, parentMessageId });
     },
+    async getThreadReplies(messageId, params) {
+      return (await http.get(`/messaging/messages/${messageId}/replies`, { params })).data;
+    },
 
     // ── 드라이브 ──
     async listDriveSpaces() {
@@ -170,6 +179,26 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async searchDrive(spaceId, q) {
       return (await http.get(`/drive/spaces/${spaceId}/search`, { params: { q } })).data;
+    },
+    async getDriveFileSummary(driveFileId) {
+      return (await http.get(`/drive/files/${driveFileId}/summary`)).data;
+    },
+    async searchDriveContent(params) {
+      return (await http.get('/drive/search', { params })).data ?? { hits: [] };
+    },
+
+    // ── 알림 ── 서버가 호출자 본인 알림으로 격리한다(recipientId=callerId).
+    async listNotifications(params) {
+      return (await http.get('/notifications', { params })).data ?? [];
+    },
+    async countUnreadNotifications() {
+      return (await http.get('/notifications/unread-count')).data?.count ?? 0;
+    },
+    async markNotificationRead(notificationId) {
+      await http.post(`/notifications/${notificationId}/read`);
+    },
+    async markAllNotificationsRead() {
+      await http.post('/notifications/read-all');
     },
   };
 }

@@ -10,6 +10,11 @@ export function parseIssueKey(issueKey: string): { projectKey: string; number: n
   return { projectKey: m[1], number: Number(m[2]) };
 }
 
+/** parseIssueKey 의 역 — 둘 중 하나라도 없으면 undefined(부분 키 'WP-undefined' 를 만들지 않는다). */
+export function formatIssueKey(projectKey: string | null | undefined, number: number | null | undefined): string | undefined {
+  return projectKey && number != null ? `${projectKey}-${number}` : undefined;
+}
+
 /**
  * API 오류 응답 → LLM 이 읽을 수 있는 한 줄(#840). 백엔드 ErrorResponse 는 {message, errors: {필드: 사유}} 형태이며,
  * 필드 검증 오류가 있으면 함께 붙여 어떤 파라미터가 틀렸는지 드러낸다. ai-agent·workplace-mcp 가 같은 문구를 쓰도록 공유한다.

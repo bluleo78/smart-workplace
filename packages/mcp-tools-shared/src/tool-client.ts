@@ -83,6 +83,15 @@ export interface IssueToolClient extends ProjectMetaClient {
   removeIssueDependency(issueKey: string, otherNumber: number, direction: 'blocks' | 'blockedBy'): Promise<void>;
 }
 
+/** 노트 페이지 요약 행(GET /wiki/spaces/{id}/pages) — 트리 조립에 쓰는 필드만 고정한다. */
+export interface WikiPageRow {
+  id: number;
+  parentId: number | null;
+  title: string;
+  position: number;
+  [key: string]: unknown;
+}
+
 export interface WikiToolClient {
   listWikiSpaces(): Promise<unknown>;
   searchWikiPages(query: string): Promise<unknown>;
@@ -90,6 +99,10 @@ export interface WikiToolClient {
   createWikiPage(spaceId: number, body: { parentId: number | null; title: string }): Promise<unknown>;
   /** 부분 수정 — title/body 생략 시 서버가 현재 값을 유지한다(version 만 필수, 불일치면 409). */
   updateWikiPage(pageId: number, body: { version: number; title?: string; body?: string }): Promise<unknown>;
+  /** GET /wiki/spaces/{id}/pages — 평면 목록(parentId·position). 트리 조립은 핸들러(#850). */
+  listWikiPages(spaceId: number): Promise<WikiPageRow[]>;
+  /** GET /wiki/pages/{id}/backlinks — 래퍼 { items } 를 벗긴 배열. */
+  getWikiBacklinks(pageId: number): Promise<unknown>;
 }
 
 export interface CalendarToolClient {
@@ -119,6 +132,11 @@ export interface MessagingToolClient {
   getChannelMessages(channelId: number, limit: number): Promise<unknown>;
   /** parentMessageId 가 있으면 그 스레드에 답한다. */
   addChannelMessage(channelId: number, body: string, parentMessageId?: number): Promise<unknown>;
+  /**
+   * GET /messaging/messages/{id}/replies — 오래된 순 커서 페이지 원형(#850).
+   * 래퍼를 벗기지 않는다: hasMore 를 버리면 긴 스레드의 최신 답글이 잘린 걸 모른 채 요약하게 된다.
+   */
+  getThreadReplies(messageId: number, params: { limit: number; cursor?: string }): Promise<ThreadReplyPage>;
 }
 
 export interface DriveToolClient {
@@ -126,6 +144,45 @@ export interface DriveToolClient {
   /** 응답 { folders, files } 원형 — 파일 행 식별자 가공은 toDriveItemsView(핸들러). */
   listDriveItems(spaceId: number, parentId?: number): Promise<unknown>;
   searchDrive(spaceId: number, q: string): Promise<unknown>;
+  /** GET /drive/files/{id}/summary — { summary, status, reason } 원형(#850). */
+  getDriveFileSummary(driveFileId: number): Promise<unknown>;
+  /** GET /drive/search — 추출 텍스트 내용 검색. 응답 { hits, semantic } 원형(hit 의 core fileId 제거는 핸들러). */
+  searchDriveContent(params: { q: string; spaceId?: number; limit: number }): Promise<DriveContentSearchResult>;
+}
+
+/** 스레드 답글 한 페이지 — 핸들러가 nextCursor 를 따라 모으고 행을 줄이므로 그 필드만 고정한다. */
+export interface ThreadReplyPage {
+  items: Record<string, unknown>[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/** 드라이브 내용 검색 응답 — hit 의 core fileId 를 핸들러가 지우므로 그 필드를 타입으로 고정한다(#840). */
+export interface DriveContentSearchResult {
+  hits: { fileId: number; [key: string]: unknown }[];
+  [key: string]: unknown;
+}
+
+/** 알림 행(GET /notifications) — 뷰 가공(숫자 id 제거·이슈키 조립)이 읽는 필드만 고정한다. */
+export interface NotificationRow {
+  id: number;
+  read: boolean;
+  actorId?: number | null;
+  issueId?: number | null;
+  commentId?: number | null;
+  projectKey?: string | null;
+  issueNumber?: number | null;
+  [key: string]: unknown;
+}
+
+/** 알림 도구 — 호출자 본인의 알림만 다룬다(서버가 recipientId=callerId 로 격리). */
+export interface NotificationToolClient {
+  /** 최신순 페이지. offset 으로 이어 읽는다(서버에 안 읽음 필터가 없어 unreadOnly 는 핸들러가 넘겨 가며 모은다). */
+  listNotifications(params: { limit: number; offset: number }): Promise<NotificationRow[]>;
+  countUnreadNotifications(): Promise<number>;
+  /** 멱등 — 이미 읽었거나 남의 알림이면 서버가 0행 처리한다. */
+  markNotificationRead(notificationId: number): Promise<void>;
+  markAllNotificationsRead(): Promise<void>;
 }
 
 export interface ProjectToolClient extends ProjectMetaClient {

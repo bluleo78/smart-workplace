@@ -340,6 +340,7 @@ export function buildTools(
   if (profile === 'messaging') {
     const tools: McpTool[] = [
       sharedTool('get_channel_messages'),
+      sharedTool('get_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
       sharedTool('add_channel_message'),
       sharedTool('list_channels'),
       discoverChannelsTool,
@@ -913,6 +914,7 @@ export function buildTools(
       sharedTool('list_wiki_spaces'),
       sharedTool('search_wiki'),
       sharedTool('get_wiki_page'),
+      sharedTool('list_wiki_pages'), sharedTool('get_wiki_backlinks'), // #850: 페이지 트리·백링크
       sharedTool('create_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('update_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('add_comment'),
@@ -928,6 +930,7 @@ export function buildTools(
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
       proposeUpdateEventTool, proposeDeleteEventTool, // #333 M4: 일정 수정/삭제 제안
       sharedTool('get_channel_messages'), // #333 M3: 메시징 읽기
+      sharedTool('get_thread_replies'),   // #850: 스레드 답글 조회
       sharedTool('add_channel_message'),  // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       sharedTool('list_channels'), discoverChannelsTool, // #350: 채널 목록/탐색(이름→channelId 해석)
       sharedTool('list_mail'), sharedTool('get_mail'), proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
@@ -938,6 +941,9 @@ export function buildTools(
       sharedTool('list_projects'), sharedTool('get_project'), listProjectMembersTool,
       proposeCreateProjectTool, proposeDeleteProjectTool, proposeAddProjectMemberTool, // #333 M3: 프로젝트
       sharedTool('list_drive_spaces'), sharedTool('list_drive_items'), sharedTool('search_drive'), // #333 M3: 드라이브 읽기
+      sharedTool('get_drive_file_summary'), sharedTool('search_drive_content'), // #850: 파일 요약·내용 검색
+      // #850: 알림 인박스 — AI Chat 은 요청자(userId) 신원으로 호출하므로 사람의 알림을 본다(에이전트 신원 프로필엔 두지 않는다).
+      sharedTool('list_notifications'), sharedTool('mark_notification_read'), sharedTool('mark_all_notifications_read'),
       createFolderTool, renameFolderTool, moveFolderTool, moveFileTool, // #333 M4: 드라이브 쓰기(직접 실행)
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
       submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)

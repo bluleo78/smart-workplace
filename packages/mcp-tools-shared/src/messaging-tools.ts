@@ -1,5 +1,6 @@
-// src/messaging-tools.ts — 메시징 도구 3종 + 멘션 변환. 두 앱 공유(#846).
+// src/messaging-tools.ts — 메시징 도구 + 멘션 변환. 두 앱 공유(#846, #850).
 import { z } from 'zod';
+import { dropEmpty } from './compact.js';
 import type { McpTool } from './mcp-tool.js';
 import { searchMembersByTerm } from './member-tools.js';
 import type { MemberToolClient, MessagingToolClient } from './tool-client.js';
@@ -49,6 +50,45 @@ export const getChannelMessagesInput = z.object({
   channelId: z.number().int().positive(),
   limit: z.number().int().min(1).max(200).default(50),
 });
+export const getThreadRepliesInput = z.object({ messageId: z.number().int().positive() });
+
+/** 서버 스레드 페이지 상한(MessageRepository.MAX_LIMIT). */
+const THREAD_PAGE_SIZE = 100;
+/** 한 번 호출로 모을 답글 상한 — 넘으면 truncated 로 알린다(비정상적으로 긴 스레드의 토큰 폭주 방지). */
+const MAX_THREAD_REPLIES = 500;
+
+/**
+ * 답글 행 → LLM 뷰. 스레드 안에서는 모든 행이 같은 값(channelId·parentMessageId)이거나 답글에는 의미 없는 값
+ * (replyCount·unreadReplyCount·followed)이라 지우고, 작성자는 이름으로만 둔다(#833). 삭제되지 않은 행의 deleted:false,
+ * null·빈 배열도 지운다 — 긴 스레드는 행 수가 많아 반복 필드가 토큰의 대부분을 차지한다.
+ */
+export function toThreadReplyView({
+  channelId: _channelId,
+  parentMessageId: _parentMessageId,
+  replyCount: _replyCount,
+  unreadReplyCount: _unreadReplyCount,
+  followed: _followed,
+  authorId: _authorId,
+  deleted,
+  ...rest
+}: Record<string, unknown>) {
+  return dropEmpty({ ...rest, ...(deleted ? { deleted } : {}) });
+}
+
+/**
+ * 스레드 답글 전체를 오래된 순으로 모은다. 페이지 넘기기를 LLM 에 맡기면 건너뛰고 잘린 스레드를 요약하므로 핸들러가 끝까지 읽는다.
+ */
+async function collectThreadReplies(client: MessagingToolClient, messageId: number) {
+  const items: Record<string, unknown>[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await client.getThreadReplies(messageId, { limit: THREAD_PAGE_SIZE, cursor });
+    items.push(...page.items);
+    if (!page.hasMore || !page.nextCursor) return { items, truncated: false };
+    if (items.length >= MAX_THREAD_REPLIES) return { items, truncated: true };
+    cursor = page.nextCursor;
+  }
+}
 export const addChannelMessageInput = z.object({
   channelId: z.number().int().positive(),
   body: z.string().min(1),
@@ -59,7 +99,7 @@ export interface MessagingToolOptions {
   parentMessageIdFor?(channelId: number): number | undefined;
 }
 
-/** 메시징 도구 3종(list_channels/get_channel_messages/add_channel_message). */
+/** 메시징 도구(list_channels/get_channel_messages/get_thread_replies/add_channel_message). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -81,6 +121,19 @@ export function buildMessagingTools(
       async handler(args) {
         const { channelId, limit } = getChannelMessagesInput.parse(args);
         return JSON.stringify(await client.getChannelMessages(channelId, limit));
+      },
+    },
+    {
+      name: 'get_thread_replies',
+      description:
+        '채널 메시지 하나에 달린 스레드 답글 전체를 오래된 순으로 JSON({items, truncated})으로 반환합니다(스레드 요약·확인용). ' +
+        'messageId 는 get_channel_messages 결과에서 replyCount 가 1 이상인 메시지의 id 입니다. ' +
+        'truncated 가 true 면 답글이 500개를 넘어 앞부분 500개만 담긴 것이니, 요약할 때 뒷부분이 빠졌다고 밝히세요.',
+      inputSchema: getThreadRepliesInput,
+      async handler(args) {
+        const { messageId } = getThreadRepliesInput.parse(args);
+        const { items, truncated } = await collectThreadReplies(client, messageId);
+        return JSON.stringify({ items: items.map(toThreadReplyView), truncated });
       },
     },
     {

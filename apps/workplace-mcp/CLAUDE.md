@@ -5,7 +5,7 @@
 ## 이 앱의 목적
 
 Smart Workplace 의 **원격 MCP 게이트웨이**. Claude Code 등 외부 MCP 클라이언트가 사용자 PAT(`swp_...`)
-로 `POST /mcp` 를 호출하면, 사용자 컨텍스트 도구(이슈/위키/메시징/캘린더/드라이브/메일)를 workplace-api
+로 `POST /mcp` 를 호출하면, 사용자 컨텍스트 도구(이슈/위키/메시징/캘린더/드라이브/메일/알림)를 workplace-api
 로 그대로 패스스루한다. Streamable HTTP, stateless(세션 미유지 — 매 요청 새 `McpServer` + `Transport`).
 
 ## ⚠️ 무비밀(secretless) 게이트웨이 원칙 — 절대 규칙

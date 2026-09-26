@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WikiToolClient } from './tool-client.js';
-import { buildWikiTools } from './wiki-tools.js';
+import { buildWikiTools, toWikiPageTree } from './wiki-tools.js';
 
 /** 노트 클라이언트 전 메서드를 vi.fn() 으로 채운 mock. 개별 테스트에서 필요한 것만 재설정한다. */
 function mockClient(): WikiToolClient {
@@ -10,15 +10,25 @@ function mockClient(): WikiToolClient {
     getWikiPage: vi.fn().mockResolvedValue({}),
     createWikiPage: vi.fn().mockResolvedValue({}),
     updateWikiPage: vi.fn().mockResolvedValue({}),
+    listWikiPages: vi.fn().mockResolvedValue([]),
+    getWikiBacklinks: vi.fn().mockResolvedValue([]),
   };
 }
 
 const tool = (c: WikiToolClient, name: string) => buildWikiTools(c).find((x) => x.name === name)!;
 
 describe('buildWikiTools', () => {
-  it('정확히 5종을 반환한다', () => {
+  it('정확히 7종을 반환한다', () => {
     expect(buildWikiTools(mockClient()).map((t) => t.name).sort()).toEqual(
-      ['create_wiki_page', 'get_wiki_page', 'list_wiki_spaces', 'search_wiki', 'update_wiki_page'].sort(),
+      [
+        'create_wiki_page',
+        'get_wiki_backlinks',
+        'get_wiki_page',
+        'list_wiki_pages',
+        'list_wiki_spaces',
+        'search_wiki',
+        'update_wiki_page',
+      ].sort(),
     );
   });
 
@@ -101,5 +111,33 @@ describe('buildWikiTools', () => {
     const c = mockClient();
     await expect(tool(c, 'update_wiki_page').handler({ pageId: 1, title: '가이드', body: '수정본' })).rejects.toThrow();
     expect(c.updateWikiPage).not.toHaveBeenCalled();
+  });
+
+  it('list_wiki_pages → 평면 목록을 position 순 중첩 트리로 조립한다 (#850)', async () => {
+    const c = mockClient();
+    vi.mocked(c.listWikiPages).mockResolvedValue([
+      { id: 3, parentId: 1, title: '회의록 2', position: 2, aiLastUsedAt: null },
+      { id: 1, parentId: null, title: '회의록', position: 1, aiLastUsedAt: null },
+      { id: 2, parentId: 1, title: '회의록 1', position: 1, aiLastUsedAt: null },
+      { id: 4, parentId: null, title: '온보딩', position: 0, aiLastUsedAt: null },
+    ]);
+    const out = JSON.parse(await tool(c, 'list_wiki_pages').handler({ spaceId: 9 }));
+    expect(c.listWikiPages).toHaveBeenCalledWith(9);
+    expect(out).toEqual([
+      { id: 4, title: '온보딩' },
+      { id: 1, title: '회의록', children: [{ id: 2, title: '회의록 1' }, { id: 3, title: '회의록 2' }] },
+    ]);
+  });
+
+  it('toWikiPageTree 는 부모가 목록에 없는 페이지를 잃지 않고 최상위로 올린다', () => {
+    expect(toWikiPageTree([{ id: 7, parentId: 99, title: '고아', position: 0 }])).toEqual([{ id: 7, title: '고아' }]);
+  });
+
+  it('get_wiki_backlinks → client.getWikiBacklinks(pageId)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getWikiBacklinks).mockResolvedValue([{ pageId: 5, spaceName: '팀', title: '참조', updatedAt: 't' }]);
+    const out = await tool(c, 'get_wiki_backlinks').handler({ pageId: 3 });
+    expect(c.getWikiBacklinks).toHaveBeenCalledWith(3);
+    expect(JSON.parse(out)).toEqual([{ pageId: 5, spaceName: '팀', title: '참조', updatedAt: 't' }]);
   });
 });

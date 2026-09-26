@@ -8,6 +8,11 @@
 /** 드라이브 파일 행 → LLM 뷰. core fileId 를 버리고 id 를 driveFileId 로 옮긴다. */
 export type DriveFileView<T extends { id: number; fileId: number }> = Omit<T, 'id' | 'fileId'> & { driveFileId: number };
 
+/** 내용 검색 응답({hits}) → LLM 뷰. hit 은 이미 driveFileId 로 오므로 core fileId 만 지운다. */
+export function toDriveContentHitsView<R extends { hits: { fileId: number }[] }>(r: R) {
+  return { ...r, hits: r.hits.map(({ fileId: _coreFileId, ...hit }) => hit) };
+}
+
 /** 드라이브 items/search 응답({folders, files}) → LLM 뷰. 폴더 행은 id 하나뿐이라 그대로 둔다. */
 export function toDriveItemsView<F, T extends { id: number; fileId: number }>(r: { folders: F[]; files: T[] }) {
   return {

@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import type { McpTool } from './mcp-tool.js';
 import { defaultListAssignee } from './resolve.js';
+import { formatIssueKey } from './parse.js';
 import { listIssuesInput } from './schemas.js';
 import type { IssueListQuery, IssueRow, ProjectToolClient } from './tool-client.js';
 
@@ -16,7 +17,7 @@ export const projectKeyInput = z.object({ projectKey: z.string().min(1) });
 export function toIssueListItem(it: IssueRow) {
   const { projectKey, number } = it;
   return {
-    issueKey: it.issueKey ?? (projectKey && number != null ? `${projectKey}-${number}` : String(it.id ?? '')),
+    issueKey: it.issueKey ?? (formatIssueKey(projectKey, number) ?? String(it.id ?? '')),
     title: it.title ?? '',
     status: it.status ?? '',
     priority: it.priority ?? '',

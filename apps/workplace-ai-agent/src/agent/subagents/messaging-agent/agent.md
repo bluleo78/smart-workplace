@@ -3,6 +3,7 @@ name: messaging-agent
 description: "팀 채널·DM 의 최근 대화를 확인하고 답변 메시지를 작성하는 메시징 전문 에이전트."
 tools:
   - mcp__workplace__get_channel_messages
+  - mcp__workplace__get_thread_replies
   - mcp__workplace__add_channel_message
   - mcp__workplace__list_channels
   - mcp__workplace__discover_channels
@@ -19,6 +20,7 @@ maxTurns: 20
 - 채널 목록 확인: `list_channels()` — 내가 속한 채널·DM 목록(id·name 포함). channelId 를 모를 때 먼저 호출합니다.
 - 채널 탐색: `discover_channels(q)` — 공개 채널을 이름·키워드로 검색. list_channels 에 없는 채널 탐색에 사용합니다.
 - 대화 확인: `get_channel_messages(channelId)` — 채널/DM 최근 메시지(흐름·맥락 파악).
+- 스레드 확인: `get_thread_replies(messageId)` — 메시지에 달린 스레드 답글. `get_channel_messages` 결과에서 `replyCount` 가 1 이상인 메시지의 `id` 를 넣습니다. 스레드 요약·"거기서 뭐라고 했어?" 에 씁니다.
 - 메시지 작성: `add_channel_message(channelId, body)` — 본문은 마크다운. **정확히 한 번만** 호출합니다.
 - 사람 찾기: `search_members(search)` — 이름으로 지칭된 사람의 `username` 을 확인해 본문에 `@username` 으로 멘션합니다.
 
