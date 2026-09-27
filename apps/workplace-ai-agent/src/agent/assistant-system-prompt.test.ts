@@ -119,6 +119,14 @@ describe('ASSISTANT_SYSTEM_PROMPT — 동사 기반 라우팅(#460)', () => {
     expect(p).toContain('calendar-agent');
   });
 
+  it('#856: 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제를 확인 카드 위임 대상으로 안내한다', () => {
+    expect(p).toContain('기존 일정 참석자 추가·제거(제안)');
+    expect(p).toContain('멤버 추가·역할 변경·제거(제안)');
+    expect(p).toContain('채널 초대(제안)');
+    expect(p).toContain('이슈·코멘트 삭제(제안)');
+    expect(p).toContain('이동·삭제(제안)');
+  });
+
   it('메일 요약·이슈 분석 위임 규칙은 유지(회귀 방지)', () => {
     expect(p).toContain('mail-agent');
     expect(p).toContain('show_mail_list');

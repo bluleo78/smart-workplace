@@ -41,6 +41,25 @@ public class ChannelMemberService {
   /** 멤버 추가 — OWNER/ADMIN 또는 시스템 ADMIN. MEMBER 역할로 add(idempotent). */
   @Transactional
   public void add(long callerId, long channelId, long targetUserId) {
+    checkAdd(callerId, channelId, targetUserId);
+    memberRepo.add(channelId, targetUserId, "MEMBER");
+    publishRoster(channelId);
+  }
+
+  /**
+   * 멤버 추가 사전검증(#856) — 확인 카드 dry-run 이 {@link #add} 와 같은 {@link #checkAdd} 를 쓴다. 실행은 이미 멤버여도
+   * 성공(idempotent)이지만 그런 카드는 아무 효과가 없으므로 사전검증에서만 사유와 함께 거절한다.
+   */
+  @Transactional(readOnly = true)
+  public void validateAdd(long callerId, long channelId, long targetUserId) {
+    checkAdd(callerId, channelId, targetUserId);
+    if (memberRepo.findRole(channelId, targetUserId).isPresent()) {
+      throw new IllegalArgumentException("이미 채널 멤버입니다: userId=" + targetUserId);
+    }
+  }
+
+  /** 멤버 추가 술어 — 채널 존재·DM 아님·관리 권한·대상이 현재 테넌트 구성원. */
+  private void checkAdd(long callerId, long channelId, long targetUserId) {
     ensureExists(channelId);
     requireNotDm(callerId, channelId, "add-member");
     perms.requireManage(channelId, callerId, "add-member");
@@ -49,8 +68,6 @@ public class ChannelMemberService {
     if (membershipGuard.isForeignUser(targetUserId)) {
       throw new ChannelForbiddenException(channelId, targetUserId, "add-cross-tenant");
     }
-    memberRepo.add(channelId, targetUserId, "MEMBER");
-    publishRoster(channelId);
   }
 
   /** 멤버 제거 — OWNER/ADMIN. OWNER 는 제거 불가. */

@@ -280,18 +280,35 @@ public class ProjectService {
   /** 멤버 역할 변경. OWNER 권한 필요. 마지막 OWNER 강등 시 409. */
   public void updateMemberRole(
       Long callerId, String projectKey, Long memberUserId, UpdateMemberRoleRequest req) {
+    ProjectRow project = checkUpdateMemberRole(callerId, projectKey, memberUserId, req);
+    memberRepository.updateRole(project.id(), memberUserId, req.role());
+  }
+
+  /**
+   * 멤버 역할 변경 사전검증(#856) — 확인 카드 dry-run 과 {@link #updateMemberRole} 이 같은 {@link
+   * #checkUpdateMemberRole} 를 쓴다.
+   *
+   * @throws ProjectAccessDeniedException OWNER 아님
+   * @throws ProjectNotFoundException 프로젝트 없음 · 대상이 멤버 아님
+   * @throws ProjectConflictException 마지막 OWNER 강등
+   */
+  @Transactional(readOnly = true)
+  public void validateUpdateMemberRole(
+      Long callerId, String projectKey, Long memberUserId, UpdateMemberRoleRequest req) {
+    checkUpdateMemberRole(callerId, projectKey, memberUserId, req);
+  }
+
+  /** 역할 변경 술어 — 현재 OWNER 가 OWNER 아닌 역할로 바뀌며 다른 OWNER 가 없으면 차단. */
+  private ProjectRow checkUpdateMemberRole(
+      Long callerId, String projectKey, Long memberUserId, UpdateMemberRoleRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
-    MemberRow current =
-        memberRepository
-            .find(project.id(), memberUserId)
-            .orElseThrow(() -> new ProjectNotFoundException("멤버 없음"));
-    // 현재 OWNER 가 OWNER 아닌 역할로 변경되며 다른 OWNER 가 없는 경우 차단
+    MemberRow current = requireMember(project, memberUserId);
     if ("OWNER".equals(current.role())
         && !"OWNER".equals(req.role())
         && memberRepository.countOwners(project.id()) <= 1) {
       throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }
-    memberRepository.updateRole(project.id(), memberUserId, req.role());
+    return project;
   }
 
   /**
@@ -300,15 +317,37 @@ public class ProjectService {
    * 사용자가 담당자로 남아 본인은 접근 불가한 유령 담당자 상태가 됨).
    */
   public void removeMember(Long callerId, String projectKey, Long memberUserId) {
+    ProjectRow project = checkRemoveMember(callerId, projectKey, memberUserId);
+    memberRepository.delete(project.id(), memberUserId);
+    issueAssigneeRepository.removeByProjectAndUser(project.id(), memberUserId);
+  }
+
+  /**
+   * 멤버 제거 사전검증(#856) — 확인 카드 dry-run 과 {@link #removeMember} 가 같은 {@link #checkRemoveMember} 를 쓴다.
+   *
+   * @throws ProjectAccessDeniedException OWNER 아님
+   * @throws ProjectNotFoundException 프로젝트 없음 · 대상이 멤버 아님
+   * @throws ProjectConflictException 마지막 OWNER 제거
+   */
+  @Transactional(readOnly = true)
+  public void validateRemoveMember(Long callerId, String projectKey, Long memberUserId) {
+    checkRemoveMember(callerId, projectKey, memberUserId);
+  }
+
+  /** 멤버 제거 술어 — 마지막 OWNER 는 제거할 수 없다. */
+  private ProjectRow checkRemoveMember(Long callerId, String projectKey, Long memberUserId) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
-    MemberRow current =
-        memberRepository
-            .find(project.id(), memberUserId)
-            .orElseThrow(() -> new ProjectNotFoundException("멤버 없음"));
+    MemberRow current = requireMember(project, memberUserId);
     if ("OWNER".equals(current.role()) && memberRepository.countOwners(project.id()) <= 1) {
       throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }
-    memberRepository.delete(project.id(), memberUserId);
-    issueAssigneeRepository.removeByProjectAndUser(project.id(), memberUserId);
+    return project;
+  }
+
+  /** 대상 멤버십 조회 — 멤버가 아니면 404. */
+  private MemberRow requireMember(ProjectRow project, Long memberUserId) {
+    return memberRepository
+        .find(project.id(), memberUserId)
+        .orElseThrow(() -> new ProjectNotFoundException("멤버 없음"));
   }
 }

@@ -67,6 +67,42 @@ public class IssueCommentService {
 
   private record IssueAndProject(com.workplace.issue.dto.IssueRow issue, ProjectRow project) {}
 
+  private static final String DELETE_DENIED = "코멘트 삭제 권한이 없습니다";
+
+  /**
+   * 코멘트 수정·삭제 술어 — 이슈 조회 가능 + 코멘트가 <b>그 이슈 소속</b> + 작성자 또는 프로젝트 OWNER.
+   *
+   * <p>#856: 소속 대조가 없으면 A 프로젝트 OWNER 가 자기 이슈 id 에 B 프로젝트 코멘트 id 를 붙여 남의 코멘트를 지울 수 있었다(OWNER 판정이 경로의
+   * issueId 기준이므로). 다른 이슈의 코멘트는 없는 코멘트와 같은 404 로 응답한다.
+   */
+  private IssueAndProject checkCommentMutable(
+      Long callerId, Long issueId, Long commentId, String deniedMessage) {
+    var issueAndProject = assertIssueReadableWithIssue(issueId, callerId);
+    var existing =
+        commentRepository
+            .findById(commentId)
+            .filter(c -> c.issueId().equals(issueId))
+            .orElseThrow(() -> new IssueCommentNotFoundException(commentId));
+    boolean isAuthor = existing.authorId().equals(callerId);
+    boolean isOwner = false;
+    try {
+      accessGuard.assertWithRole(issueAndProject.project().key(), callerId, "OWNER");
+      isOwner = true;
+    } catch (ProjectAccessDeniedException ignored) {
+      // OWNER 아님 — isAuthor 만으로 판단
+    }
+    if (!isAuthor && !isOwner) {
+      throw new ProjectAccessDeniedException(deniedMessage);
+    }
+    return issueAndProject;
+  }
+
+  /** 코멘트 삭제 사전검증(#856) — 확인 카드 dry-run 이 {@link #delete} 와 같은 {@link #checkCommentMutable} 를 쓴다. */
+  @Transactional(readOnly = true)
+  public void validateDeletable(Long callerId, Long issueId, Long commentId) {
+    checkCommentMutable(callerId, issueId, commentId, DELETE_DENIED);
+  }
+
   /** 이슈 코멘트 목록 조회. OPEN 은 테넌트 전원 조회 가능(readable). */
   @Transactional(readOnly = true)
   public List<IssueCommentResponse> list(Long callerId, Long issueId) {
@@ -120,24 +156,10 @@ public class IssueCommentService {
   /** 코멘트 수정 (본인 또는 프로젝트 OWNER) — delete 와 동일한 권한 모델. */
   public IssueCommentResponse update(
       Long callerId, Long issueId, Long commentId, UpdateCommentRequest req) {
-    var issueAndProject = assertIssueReadableWithIssue(issueId, callerId);
+    var issueAndProject =
+        checkCommentMutable(callerId, issueId, commentId, "본인 코멘트 또는 OWNER 만 수정할 수 있습니다");
     var issue = issueAndProject.issue();
     var project = issueAndProject.project();
-    var existing =
-        commentRepository
-            .findById(commentId)
-            .orElseThrow(() -> new IssueCommentNotFoundException(commentId));
-    boolean isAuthor = existing.authorId().equals(callerId);
-    boolean isOwner = false;
-    try {
-      accessGuard.assertWithRole(project.key(), callerId, "OWNER");
-      isOwner = true;
-    } catch (ProjectAccessDeniedException ignored) {
-      // OWNER 아님 — isAuthor 만으로 판단
-    }
-    if (!isAuthor && !isOwner) {
-      throw new ProjectAccessDeniedException("본인 코멘트 또는 OWNER 만 수정할 수 있습니다");
-    }
     commentRepository.update(commentId, req.body());
     var updated = commentRepository.findById(commentId).orElseThrow();
 
@@ -167,24 +189,9 @@ public class IssueCommentService {
 
   /** 코멘트 soft-delete (본인 또는 프로젝트 OWNER). */
   public void delete(Long callerId, Long issueId, Long commentId) {
-    var issueAndProject = assertIssueReadableWithIssue(issueId, callerId);
+    var issueAndProject = checkCommentMutable(callerId, issueId, commentId, DELETE_DENIED);
     var issue = issueAndProject.issue();
     var project = issueAndProject.project();
-    var existing =
-        commentRepository
-            .findById(commentId)
-            .orElseThrow(() -> new IssueCommentNotFoundException(commentId));
-    boolean isAuthor = existing.authorId().equals(callerId);
-    boolean isOwner = false;
-    try {
-      accessGuard.assertWithRole(project.key(), callerId, "OWNER");
-      isOwner = true;
-    } catch (ProjectAccessDeniedException ignored) {
-      // OWNER 아님 — isAuthor 만으로 판단
-    }
-    if (!isAuthor && !isOwner) {
-      throw new ProjectAccessDeniedException("코멘트 삭제 권한이 없습니다");
-    }
     commentRepository.softDelete(commentId);
 
     // 도메인 이벤트 발행 — create() 와 동일 패턴(#717, SSE 실시간 반영 갭 해소).

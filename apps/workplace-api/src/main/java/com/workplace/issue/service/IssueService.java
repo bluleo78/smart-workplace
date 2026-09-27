@@ -641,6 +641,27 @@ public class IssueService {
    * row 를 얻고, reporter/OWNER/ADMIN 여부로 직접 판정한다.
    */
   public void softDelete(Long callerId, String projectKey, int number) {
+    var row = checkDeletable(callerId, projectKey, number);
+    // Phase 4a — 부모 자체와 활성 자식들에 동일 timestamp 로 cascade soft-delete.
+    // 자식 id 는 softDeleteChildren 호출 전에 수집해야 한다 (삭제 후엔 DELETED_AT 필터로 목록이 비어버림).
+    var childIds = issueRepository.findActiveChildIds(row.id());
+    var now = Instant.now();
+    issueRepository.softDelete(row.id(), now);
+    issueRepository.softDeleteChildren(row.id(), now);
+    // 이슈(부모+자식) 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
+    driveLinkService.purgeSource("ISSUE", row.id());
+    driveLinkService.purgeSources("ISSUE", childIds);
+  }
+
+  /** 이슈 삭제 사전검증(#856) — 확인 카드 dry-run 이 {@link #softDelete} 와 같은 {@link #checkDeletable} 을 쓴다. */
+  @Transactional(readOnly = true)
+  public void validateDeletable(Long callerId, String projectKey, int number) {
+    checkDeletable(callerId, projectKey, number);
+  }
+
+  /** 이슈 삭제 술어 — reporter·프로젝트 OWNER·ADMIN(개인 프로젝트 제외)만. 삭제 대상 행을 돌려준다. */
+  private com.workplace.issue.dto.IssueRow checkDeletable(
+      Long callerId, String projectKey, int number) {
     // 멤버십 선검증 제거 — reporter/OWNER 로 직접 판정 (OPEN 비멤버 reporter 허용)
     var project = accessGuard.resolve(projectKey);
     var row =
@@ -658,15 +679,7 @@ public class IssueService {
     if (!isReporter && !isOwner && !isAdmin) {
       throw new ProjectAccessDeniedException("이슈 삭제는 reporter 또는 OWNER 만 가능합니다");
     }
-    // Phase 4a — 부모 자체와 활성 자식들에 동일 timestamp 로 cascade soft-delete.
-    // 자식 id 는 softDeleteChildren 호출 전에 수집해야 한다 (삭제 후엔 DELETED_AT 필터로 목록이 비어버림).
-    var childIds = issueRepository.findActiveChildIds(row.id());
-    var now = Instant.now();
-    issueRepository.softDelete(row.id(), now);
-    issueRepository.softDeleteChildren(row.id(), now);
-    // 이슈(부모+자식) 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
-    driveLinkService.purgeSource("ISSUE", row.id());
-    driveLinkService.purgeSources("ISSUE", childIds);
+    return row;
   }
 
   /**

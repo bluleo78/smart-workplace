@@ -188,15 +188,27 @@ public class WikiPageService {
   /** 페이지 삭제(자식 CASCADE). EDITOR 이상. */
   @Transactional
   public void delete(long callerId, long pageId) {
-    long spaceId =
-        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    perms.requireRole(spaceId, callerId, "EDITOR");
+    long spaceId = checkDeletable(callerId, pageId);
     // #757: wiki_page_attachment 는 page_id ON DELETE CASCADE 라 pages.delete() 이후에는 매핑을 조회할
     // 수 없다 — 첨부 회수는 반드시 페이지 삭제 "직전"에 서브트리를 조회해야 한다(순서가 load-bearing).
     attachments.reclaimPageTree(pageId);
     pages.delete(pageId);
     // #724: 삭제를 스페이스 멤버에게 알려 트리·열린 페이지 캐시가 무효화되도록 한다.
     publisher.publishEvent(new WikiPageDeletedEvent(spaceId, pageId, callerId, Instant.now()));
+  }
+
+  /** 페이지 삭제 사전검증(#856) — 확인 카드 dry-run 이 {@link #delete} 와 같은 {@link #checkDeletable} 을 쓴다. */
+  @Transactional(readOnly = true)
+  public void validateDeletable(long callerId, long pageId) {
+    checkDeletable(callerId, pageId);
+  }
+
+  /** 페이지 삭제 술어 — 페이지 존재 + 공간 EDITOR 이상. 공간 id 를 돌려준다. */
+  private long checkDeletable(long callerId, long pageId) {
+    long spaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    perms.requireRole(spaceId, callerId, "EDITOR");
+    return spaceId;
   }
 
   /**

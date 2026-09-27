@@ -678,28 +678,7 @@ public class CalendarEventService {
    */
   public void inviteAttendees(long callerId, long eventId, List<Long> userIds) {
     // ① resolve(tx): owner·RO 검증 + 외부참조 + (외부면) 조직자 판정 + Graph 전송 목록 사전 계산.
-    InviteCtx ctx =
-        txTemplate.execute(
-            s -> {
-              requireOwner(callerId, eventId);
-              requireWritableEvent(eventId);
-              requireTenantAttendees(userIds);
-              var ref = repo.findExternalRef(eventId).orElse(null);
-              boolean external =
-                  ref != null && ref.externalAccountId() != null && ref.eventExternalId() != null;
-              if (!external) {
-                return new InviteCtx(false, null, null, null);
-              }
-              if (!attendeeRepo.isOrganizer(eventId, callerId)) {
-                throw new ExternalEventAttendeeNotOrganizerException();
-              }
-              EmailAccountResponse acc =
-                  emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
-              if (acc == null) return new InviteCtx(false, null, null, null);
-              // 초대 후 전체 Graph attendee 목록(기존 HUMAN/외부 + 신규 HUMAN) 계산.
-              List<GraphAttendeeWrite> full = buildGraphAttendees(eventId, userIds, null);
-              return new InviteCtx(true, acc, ref.eventExternalId(), full);
-            });
+    InviteCtx ctx = txTemplate.execute(s -> resolveInvite(callerId, eventId, userIds));
 
     // ② 외부면 Graph HTTP(tx 밖) — 가드 후 전송.
     if (ctx.external()) {
@@ -728,33 +707,7 @@ public class CalendarEventService {
 
   /** 참석자 제거. 외부(내가 주최한) 일정이면 Graph 참석자 컬렉션 갱신 후 로컬 삭제. 비주최자 외부 변경 거부(409). AGENT 제거는 로컬 전용. */
   public void removeAttendee(long callerId, long eventId, long userId) {
-    RemoveCtx ctx =
-        txTemplate.execute(
-            s -> {
-              requireOwner(callerId, eventId);
-              requireWritableEvent(eventId);
-              if (userId == callerId) {
-                return new RemoveCtx(false, false, null, null, null); // 주최자 본인 보호 — 아무것도 안 함
-              }
-              var ref = repo.findExternalRef(eventId).orElse(null);
-              boolean external =
-                  ref != null && ref.externalAccountId() != null && ref.eventExternalId() != null;
-              if (!external) {
-                return new RemoveCtx(true, false, null, null, null);
-              }
-              if (!attendeeRepo.isOrganizer(eventId, callerId)) {
-                throw new ExternalEventAttendeeNotOrganizerException();
-              }
-              // AGENT 는 Graph 에 없음 → HTTP 불필요(로컬만 삭제).
-              boolean agent = isAgent(userId);
-              EmailAccountResponse acc =
-                  emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
-              if (acc == null || agent) {
-                return new RemoveCtx(true, false, null, null, null);
-              }
-              List<GraphAttendeeWrite> remaining = buildGraphAttendees(eventId, List.of(), userId);
-              return new RemoveCtx(true, true, acc, ref.eventExternalId(), remaining);
-            });
+    RemoveCtx ctx = txTemplate.execute(s -> resolveRemove(callerId, eventId, userId));
 
     if (!ctx.proceed()) return;
 
@@ -771,6 +724,61 @@ public class CalendarEventService {
           attendeeRepo.deleteByEventAndUser(eventId, userId);
           return null;
         });
+  }
+
+  /**
+   * 참석자 추가 resolve — owner·읽기전용·테넌트 구성원 검증 + 외부참조 + (외부면) 조직자 판정 + Graph 전송 목록 계산. 쓰기 없음.
+   * inviteAttendees 와 사전검증(validateAttendeesAddable, #856)이 같은 판정을 쓰도록 한 곳에 둔다.
+   */
+  private InviteCtx resolveInvite(long callerId, long eventId, List<Long> userIds) {
+    requireOwner(callerId, eventId);
+    requireWritableEvent(eventId);
+    requireTenantAttendees(userIds);
+    var ref = repo.findExternalRef(eventId).orElse(null);
+    boolean external =
+        ref != null && ref.externalAccountId() != null && ref.eventExternalId() != null;
+    if (!external) {
+      return new InviteCtx(false, null, null, null);
+    }
+    if (!attendeeRepo.isOrganizer(eventId, callerId)) {
+      throw new ExternalEventAttendeeNotOrganizerException();
+    }
+    EmailAccountResponse acc =
+        emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
+    if (acc == null) return new InviteCtx(false, null, null, null);
+    // 초대 후 전체 Graph attendee 목록(기존 HUMAN/외부 + 신규 HUMAN) 계산.
+    List<GraphAttendeeWrite> full = buildGraphAttendees(eventId, userIds, null);
+    return new InviteCtx(true, acc, ref.eventExternalId(), full);
+  }
+
+  /**
+   * 참석자 제거 resolve — owner·읽기전용 검증 + 외부참조 + (외부면) 조직자 판정 + Graph 전송 목록 계산. 쓰기 없음. 주최자 본인 제거는
+   * proceed=false(아무것도 안 함). removeAttendee 와 사전검증(validateAttendeeRemovable, #856)이 공유한다.
+   */
+  private RemoveCtx resolveRemove(long callerId, long eventId, long userId) {
+    requireOwner(callerId, eventId);
+    requireWritableEvent(eventId);
+    if (userId == callerId) {
+      return new RemoveCtx(false, false, null, null, null); // 주최자 본인 보호 — 아무것도 안 함
+    }
+    var ref = repo.findExternalRef(eventId).orElse(null);
+    boolean external =
+        ref != null && ref.externalAccountId() != null && ref.eventExternalId() != null;
+    if (!external) {
+      return new RemoveCtx(true, false, null, null, null);
+    }
+    if (!attendeeRepo.isOrganizer(eventId, callerId)) {
+      throw new ExternalEventAttendeeNotOrganizerException();
+    }
+    // AGENT 는 Graph 에 없음 → HTTP 불필요(로컬만 삭제).
+    boolean agent = isAgent(userId);
+    EmailAccountResponse acc =
+        emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
+    if (acc == null || agent) {
+      return new RemoveCtx(true, false, null, null, null);
+    }
+    List<GraphAttendeeWrite> remaining = buildGraphAttendees(eventId, List.of(), userId);
+    return new RemoveCtx(true, true, acc, ref.eventExternalId(), remaining);
   }
 
   /** invite 컨텍스트 record — resolve(tx) 결과. */
@@ -996,6 +1004,57 @@ public class CalendarEventService {
       calendarService.requireWritableCalendar(callerId, req.calendarId());
     }
     requireTenantAttendees(req.attendeeUserIdsOrEmpty());
+  }
+
+  /**
+   * 참석자 추가 사전검증(#856) — inviteAttendees 의 resolve 단계와 같은 술어(owner·읽기전용·테넌트 구성원)를 쓰기 없이 수행한다.
+   *
+   * <p>확인 카드 승인은 트랜잭션 안에서 실행돼 외부(M365) 동기화 일정의 참석자 변경은 승인 시점에 409 로 실패한다. 카드를 만들기 전에 같은 사유로 거절해
+   * 사용자가 실패할 카드를 승인하지 않게 한다.
+   *
+   * @throws CalendarEventNotFoundException 미존재 또는 비-owner(존재 은닉)
+   * @throws ReadOnlyCalendarException 읽기전용 캘린더 소속 일정
+   * @throws IllegalArgumentException 구성원이 아닌 사용자, 또는 초대할 사람이 없음
+   * @throws ExternalCalendarWriteInTransactionException 외부 동기화 일정(확인 카드 경로 미지원, #548)
+   */
+  @Transactional(readOnly = true)
+  public void validateAttendeesAddable(long callerId, long eventId, List<Long> userIds) {
+    InviteCtx ctx = resolveInvite(callerId, eventId, userIds);
+    if (userIds.stream().filter(Objects::nonNull).allMatch(uid -> uid == callerId)) {
+      throw new IllegalArgumentException("초대할 참석자가 없습니다(주최자 본인은 이미 참석자입니다).");
+    }
+    // 이미 참석 중인 사람은 실행해도 행이 늘지 않고 초대 알림만 다시 간다 — 효과 없는 카드를 막는다.
+    Set<Long> current =
+        attendeeRepo.findByEvent(eventId).stream()
+            .map(AttendeeRow::userId)
+            .collect(Collectors.toSet());
+    List<Long> already =
+        userIds.stream().filter(Objects::nonNull).filter(current::contains).distinct().toList();
+    if (!already.isEmpty()) {
+      throw new IllegalArgumentException("이미 이 일정의 참석자입니다: userId=" + already);
+    }
+    if (ctx.external()) throw new ExternalCalendarWriteInTransactionException();
+  }
+
+  /**
+   * 참석자 제거 사전검증(#856) — removeAttendee 의 resolve 단계 술어(owner·읽기전용)에 더해, 실행이 조용히 아무것도 하지 않는 입력(주최자
+   * 본인·참석자가 아닌 사람)을 사유와 함께 거절한다. 아무 효과 없는 카드를 승인하게 두지 않기 위해서다.
+   *
+   * @throws CalendarEventNotFoundException 미존재 또는 비-owner(존재 은닉)
+   * @throws ReadOnlyCalendarException 읽기전용 캘린더 소속 일정
+   * @throws IllegalArgumentException 주최자 본인 또는 이 일정의 참석자가 아님
+   * @throws ExternalCalendarWriteInTransactionException 외부 동기화 일정(확인 카드 경로 미지원, #548)
+   */
+  @Transactional(readOnly = true)
+  public void validateAttendeeRemovable(long callerId, long eventId, long userId) {
+    RemoveCtx ctx = resolveRemove(callerId, eventId, userId);
+    if (!ctx.proceed()) {
+      throw new IllegalArgumentException("주최자 본인은 참석자에서 제거할 수 없습니다.");
+    }
+    if (!attendeeRepo.existsForUser(eventId, userId)) {
+      throw new IllegalArgumentException("이 일정의 참석자가 아닙니다: userId=" + userId);
+    }
+    if (ctx.external()) throw new ExternalCalendarWriteInTransactionException();
   }
 
   /**

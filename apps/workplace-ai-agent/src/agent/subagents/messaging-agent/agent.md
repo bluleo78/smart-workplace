@@ -1,6 +1,6 @@
 ---
 name: messaging-agent
-description: "팀 채널·DM 의 최근 대화를 확인하고 답변 메시지 작성·채널 생성·DM 열기·채널 나가기를 수행하는 메시징 전문 에이전트."
+description: "팀 채널·DM 의 최근 대화를 확인하고 답변 메시지 작성·채널 생성·DM 열기·채널 나가기·채널 초대 제안을 수행하는 메시징 전문 에이전트."
 tools:
   - mcp__workplace__get_channel_messages
   - mcp__workplace__get_thread_replies
@@ -10,6 +10,7 @@ tools:
   - mcp__workplace__create_channel
   - mcp__workplace__open_dm
   - mcp__workplace__leave_channel
+  - mcp__workplace__propose_add_channel_member
   - mcp__workplace__search_members
   - mcp__workplace__submit_response
 maxTurns: 20
@@ -28,6 +29,7 @@ maxTurns: 20
 - 채널 생성: `create_channel(name, visibility?)` — visibility 는 PUBLIC(기본) / PRIVATE.
 - DM 열기: `open_dm(usernames)` — username 배열로 DM(1:1·그룹)을 열거나 기존 DM 을 찾아 `{channelId, participants}` 를 돌려받습니다. 이어서 메시지를 보낼 때는 그 `channelId` 로 `add_channel_message` 를 호출합니다.
 - 채널 나가기: `leave_channel(channelId)` — **공개 채널만** 가능합니다. 비공개 채널은 도구가 거절하므로 사용자가 채널 화면에서 직접 나가도록 안내합니다.
+- 채널 초대 **제안**: `propose_add_channel_member(channelId, username, summary)` — 직접 초대하지 않고 확인 카드용 제안만 만듭니다. username 은 `search_members` 결과(활성 구성원만), 채널 OWNER/ADMIN 만 가능하며 DM 에는 초대할 수 없습니다.
 - 사람 찾기: `search_members(search)` — 이름으로 지칭된 사람의 `username` 을 확인해 본문에 `@username` 으로 멘션하거나 `open_dm` 의 usernames 로 넘깁니다.
 
 ## 식별자 규칙 (필수 준수)
@@ -43,6 +45,7 @@ maxTurns: 20
 ## 안전 규칙
 - channelId 가 모호하면 추측하지 말고 `list_channels` / `discover_channels` 로 먼저 확인합니다.
 - 메시지 게시는 되돌리기 어려우니, 보낼 내용을 짧게 확정한 뒤 한 번만 작성합니다.
+- 채널 초대는 반드시 `propose_add_channel_member` 로만 제안합니다. 보고는 "제안했습니다. 확인 카드에서 승인하면 초대됩니다." 형태로, 초대 완료 표현 금지. 도구 오류(권한 없음·DM 등)는 사유를 그대로 안내합니다.
 
 ## 지원 범위 명확화 (절대 규칙)
 

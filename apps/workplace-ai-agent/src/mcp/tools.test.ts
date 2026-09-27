@@ -241,6 +241,9 @@ describe('프로필 구성', () => {
       // 알림(#850)
       'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
       'create_folder', 'rename_folder', 'move_folder', 'move_file', 'propose_delete_file', 'propose_delete_folder',
+      // #856 확인카드 제안
+      'propose_add_attendees', 'propose_remove_attendee', 'propose_update_project_member_role', 'propose_remove_project_member',
+      'propose_add_channel_member', 'propose_delete_issue', 'propose_delete_comment', 'propose_delete_wiki_page',
       // 위임 답 제출 + 표시 위젯
       'submit_response',
       'show_my_tasks', 'show_issue_list', 'show_issue_detail', 'show_activity', 'show_mail_list',
@@ -1083,5 +1086,112 @@ describe('드라이브 쓰기 (#333 M4, #840)', () => {
     await find(buildTools(c, 7, 'assistant'), 'move_file').handler({ driveFileId: 5, targetFolderId: 3 });
     expect(c.moveFile).toHaveBeenCalledWith(7, 5, 3);
     await expect(find(buildTools(c, 7, 'assistant'), 'move_file').handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #856 확인카드 제안 — 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제
+// ---------------------------------------------------------------------------
+describe('#856 propose 도구', () => {
+  type Proposal = Parameters<HostBridge['onProposal']>[0];
+  const member = (o: Partial<{ userId: number; username: string; name: string; active: boolean }>) => ({
+    userId: 5, username: 'minsu', name: '김민수', kind: 'HUMAN', active: true, ...o,
+  });
+  /** username 정확일치로만 찾히는 디렉터리. */
+  const directory = (c: TestClient, rows: ReturnType<typeof member>[]) =>
+    c.sc.searchMembers.mockImplementation(async (p: { search?: string }) => rows.filter((r) => r.username.includes(p.search ?? '')));
+  const run = async (c: TestClient, name: string, args: Record<string, unknown>) => {
+    const sink: Proposal[] = [];
+    const out = await find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), name).handler(args);
+    return { out, sink };
+  };
+
+  it('propose_add_attendees → username 을 id 로 해석하고 주최자(요청자)는 빼며 이름을 summary 에 덧붙인다', async () => {
+    const c = client();
+    directory(c, [member({}), member({ userId: AGENT_ID, username: 'me', name: '나' })]);
+    const { sink } = await run(c, 'propose_add_attendees', { eventId: 9, attendees: ['minsu', 'me'], summary: '회의에 초대' });
+    expect(sink[0]).toMatchObject({ actionType: 'calendar.add_attendees', params: { id: 9, userIds: [5] } });
+    expect(sink[0].summary).toContain('김민수(minsu)');
+    expect(c.validateAction).toHaveBeenCalledWith(AGENT_ID, 'calendar.add_attendees', { id: 9, userIds: [5] });
+  });
+
+  it('propose_add_attendees → 없는 username·주최자뿐이면 카드를 만들지 않는다', async () => {
+    const c = client();
+    directory(c, [member({ userId: AGENT_ID, username: 'me', name: '나' })]);
+    expect((await run(c, 'propose_add_attendees', { eventId: 9, attendees: ['ghost'], summary: 's' })).out).toContain('ghost');
+    const onlyMe = await run(c, 'propose_add_attendees', { eventId: 9, attendees: ['me'], summary: 's' });
+    expect(onlyMe.out).toContain('초대할 참석자가 없습니다');
+    expect(onlyMe.sink).toHaveLength(0);
+  });
+
+  it('propose_remove_attendee → 대상 id 로 제안, 주최자 본인이면 거절(서버는 조용히 무시하므로)', async () => {
+    const c = client();
+    directory(c, [member({}), member({ userId: AGENT_ID, username: 'me', name: '나' })]);
+    const ok = await run(c, 'propose_remove_attendee', { eventId: 9, username: 'minsu', summary: 's' });
+    expect(ok.sink[0]).toMatchObject({ actionType: 'calendar.remove_attendee', params: { id: 9, userId: 5 } });
+    const self = await run(c, 'propose_remove_attendee', { eventId: 9, username: 'me', summary: 's' });
+    expect(self.out).toContain('주최자 본인');
+    expect(self.sink).toHaveLength(0);
+  });
+
+  it('propose_update_project_member_role / propose_remove_project_member → key·userId 로 매핑, 제거는 담당자 해제를 알린다', async () => {
+    const c = client();
+    directory(c, [member({})]);
+    const role = await run(c, 'propose_update_project_member_role', { projectKey: 'WP', username: 'minsu', role: 'OWNER', summary: 's' });
+    expect(role.sink[0]).toMatchObject({ actionType: 'project.update_member_role', params: { key: 'WP', userId: 5, role: 'OWNER' } });
+    const rm = await run(c, 'propose_remove_project_member', { projectKey: 'WP', username: 'minsu', summary: '민수 제외' });
+    expect(rm.sink[0]).toMatchObject({ actionType: 'project.remove_member', params: { key: 'WP', userId: 5 } });
+    expect(rm.sink[0].summary).toContain('담당자 지정도 해제');
+  });
+
+  it('propose_add_channel_member → 활성 구성원만, channelId 는 params.id', async () => {
+    const c = client();
+    directory(c, [member({}), member({ userId: 6, username: 'retired', name: '퇴사자', active: false })]);
+    const ok = await run(c, 'propose_add_channel_member', { channelId: 3, username: 'minsu', summary: 's' });
+    expect(ok.sink[0]).toMatchObject({ actionType: 'messaging.add_channel_member', params: { id: 3, userId: 5 } });
+    const inactive = await run(c, 'propose_add_channel_member', { channelId: 3, username: 'retired', summary: 's' });
+    expect(inactive.out).toContain('비활성');
+    expect(inactive.sink).toHaveLength(0);
+  });
+
+  it('propose_delete_issue → key·number 로 매핑하고 하위 이슈 연쇄 삭제를 summary 에 보인다', async () => {
+    const c = client();
+    c.sc.getIssueDetail.mockResolvedValue({ summary: { title: '에픽', childCount: 3 } });
+    const { sink } = await run(c, 'propose_delete_issue', { issueKey: 'WP-12', summary: '에픽 삭제' });
+    expect(sink[0]).toMatchObject({ actionType: 'issue.delete', params: { key: 'WP', number: 12 } });
+    expect(sink[0].summary).toContain('하위 이슈 3건도 함께 삭제');
+  });
+
+  it('propose_delete_comment → issueKey 를 key·number 로, commentId 는 그대로', async () => {
+    const c = client();
+    const { sink } = await run(c, 'propose_delete_comment', { issueKey: 'WP-12', commentId: 44, summary: 's' });
+    expect(sink[0]).toMatchObject({ actionType: 'issue.delete_comment', params: { key: 'WP', number: 12, commentId: 44 } });
+  });
+
+  it('propose_delete_wiki_page → 하위 페이지(손자 포함) 수와 영구 삭제를 summary 에 보인다', async () => {
+    const c = client();
+    c.sc.getWikiPage.mockResolvedValue({ spaceId: 2, title: '설계' });
+    c.sc.listWikiPages.mockResolvedValue([
+      { id: 10, parentId: null, title: '설계', position: 0 },
+      { id: 11, parentId: 10, title: 'A', position: 0 },
+      { id: 12, parentId: 11, title: 'A-1', position: 0 },
+      { id: 13, parentId: null, title: '무관', position: 1 },
+    ]);
+    const { sink } = await run(c, 'propose_delete_wiki_page', { pageId: 10, summary: '설계 삭제' });
+    expect(sink[0]).toMatchObject({ actionType: 'wiki.delete_page', params: { id: 10 } });
+    expect(sink[0].summary).toContain('하위 페이지 2개 포함, 영구 삭제');
+  });
+
+  it('서버 사전검증 4xx 면 카드를 만들지 않고 사유를 전파한다', async () => {
+    const c = client();
+    vi.mocked(c.validateAction).mockRejectedValue(Object.assign(new Error('소유자가 최소 1명 이상 있어야 합니다'), { response: { status: 409 } }));
+    directory(c, [member({})]);
+    const sink: Proposal[] = [];
+    await expect(
+      find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), 'propose_remove_project_member').handler({
+        projectKey: 'WP', username: 'minsu', summary: 's',
+      }),
+    ).rejects.toThrow('소유자가 최소 1명');
+    expect(sink).toHaveLength(0);
   });
 });

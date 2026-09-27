@@ -6,6 +6,7 @@ import {
   findMemberByUsername,
   issueListFilterShape,
   normalizeTimezone,
+  parseIssueKey,
   projectKeyInput,
   toProjectMemberView,
   type McpTool,
@@ -82,6 +83,42 @@ const moveFolderInput = z.object({ folderId: z.number().int().positive(), target
 const moveFileInput = z.object({ driveFileId: z.number().int().positive(), targetFolderId: z.number().int().positive().nullable().optional() });
 const proposeDeleteFileInput = z.object({ summary: z.string().min(1), driveFileId: z.number().int().positive() });
 const proposeDeleteFolderInput = z.object({ summary: z.string().min(1), folderId: z.number().int().positive() });
+
+// #856: 파괴적이거나 다른 사람에게 영향이 나가는 작업의 확인 카드 제안 입력. 사람은 username, 대상은 조회 도구와 같은 이름
+// (eventId·projectKey·issueKey·channelId·pageId·commentId)으로 받고, 실행기 키(id·key·number)로는 핸들러가 옮긴다.
+const proposeAddAttendeesInput = z.object({
+  eventId: z.number().int().positive(),
+  attendees: z.array(z.string().min(1)).min(1), // 초대할 구성원 username
+  summary: z.string().min(1),
+});
+const proposeRemoveAttendeeInput = z.object({
+  eventId: z.number().int().positive(),
+  username: z.string().min(1),
+  summary: z.string().min(1),
+});
+const proposeUpdateProjectMemberRoleInput = z.object({
+  projectKey: z.string().min(1),
+  username: z.string().min(1),
+  role: z.enum(['OWNER', 'MEMBER']),
+  summary: z.string().min(1),
+});
+const proposeRemoveProjectMemberInput = z.object({
+  projectKey: z.string().min(1),
+  username: z.string().min(1),
+  summary: z.string().min(1),
+});
+const proposeAddChannelMemberInput = z.object({
+  channelId: z.number().int().positive(),
+  username: z.string().min(1),
+  summary: z.string().min(1),
+});
+const proposeDeleteIssueInput = z.object({ issueKey: z.string().min(1), summary: z.string().min(1) });
+const proposeDeleteCommentInput = z.object({
+  issueKey: z.string().min(1),
+  commentId: z.number().int().positive(),
+  summary: z.string().min(1),
+});
+const proposeDeleteWikiPageInput = z.object({ pageId: z.number().int().positive(), summary: z.string().min(1) });
 
 // #333 M4: 메일 계정 목록 + 수동 동기화 입력.
 const syncMailInput = z.object({ accountId: z.number().int().positive() });
@@ -667,7 +704,7 @@ export function buildTools(
   const proposeUpdateEventTool: McpTool = {
     name: 'propose_update_event',
     description:
-      '일정 수정을 제안합니다. 직접 수정하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 참석자 추가·제거는 이 도구로 할 수 없습니다(제목·시간·장소 등 일정 필드만 수정). 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). 승인 시 서버가 실제로 수정합니다.',
+      '일정 수정을 제안합니다. 직접 수정하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 참석자 추가·제거는 이 도구가 아니라 propose_add_attendees / propose_remove_attendee 로 제안하세요(이 도구는 제목·시간·장소 등 일정 필드만 수정). 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). 승인 시 서버가 실제로 수정합니다.',
     inputSchema: proposeUpdateEventInput,
     async handler(args) {
       const { summary, eventId, ...params } = proposeUpdateEventInput.parse(args);
@@ -732,6 +769,14 @@ export function buildTools(
       };
     }
     return { member: found };
+  };
+
+  /** username → 활성 구성원. 없거나 비활성이면 에이전트가 고칠 수 있는 오류 문구. */
+  const requireActiveMember = async (username: string) => {
+    const { member, error } = await requireMemberFor(username);
+    if (error) return { error };
+    if (member!.active === false) return { error: `오류: ${member!.name}(${username}) 은 비활성 계정입니다.` };
+    return { member: member! };
   };
 
   // #333 M3: 외부 연락처 쓰기(생성·수정은 직접 실행, 삭제는 제안) — assistant 프로파일 전용.
@@ -842,11 +887,8 @@ export function buildTools(
       const { summary, username, projectKey, role } = proposeAddProjectMemberInput.parse(args);
       // #833: 제안 생성 전에 대상을 확정한다. 사이드카 쓰기만 하면 검증이 "사용자가 카드를 승인한 뒤"로
       // 밀려, 잘못된 대상은 승인 후 실패하거나(최악) 엉뚱한 사람이 조용히 추가된다.
-      const { member, error } = await requireMemberFor(username);
+      const { member, error } = await requireActiveMember(username);
       if (error) return error;
-      if (!member!.active) {
-        return `오류: ${member!.name}(${username}) 은 비활성 계정이라 프로젝트 멤버로 추가할 수 없습니다.`;
-      }
       return await writeProposal('project.add_member', summary, {
         key: projectKey,
         userId: member!.userId,
@@ -894,6 +936,163 @@ export function buildTools(
       const { driveFileId, targetFolderId } = moveFileInput.parse(args);
       await client.moveFile(agentId, driveFileId, targetFolderId ?? null);
       return 'ok';
+    },
+  };
+
+  // #856: 파괴적이거나 다른 사람에게 영향이 나가는 작업 — 확인 카드 제안만 만든다(승인 시 ConfirmActionDispatcher 가 실행).
+  // 카드는 summary 만 보여주므로, 사용자가 승인 전에 알아야 할 결과(확정된 사람·함께 지워지는 하위 항목)는 LLM 문구에 맡기지 않고
+  // 핸들러가 조회해 summary 에 덧붙인다(propose_create_event 의 참석자·충돌 표기와 같은 원칙).
+
+  const proposeAddAttendeesTool: McpTool = {
+    name: 'propose_add_attendees',
+    description:
+      '내가 만든 일정에 참석자 추가를 제안합니다. 직접 추가하지 않고 확인 카드용 제안만 만듭니다. attendees 는 초대할 구성원 username 목록입니다' +
+      '(search_members 결과, 추측 금지). 외부 이메일은 초대할 수 없고, M365 등 외부 캘린더에서 동기화된 일정은 그 캘린더에서 바꿔야 합니다. ' +
+      'eventId 는 list_events/get_event 결과의 id 입니다. 승인 시 초대 알림이 갑니다.',
+    inputSchema: proposeAddAttendeesInput,
+    async handler(args) {
+      const { eventId, attendees, summary } = proposeAddAttendeesInput.parse(args);
+      // 요청자(=주최자)는 이미 참석자라 뺀다 — #852 와 같은 해석(없거나 비활성인 이름은 모아서 알린다).
+      const resolved = await resolveAttendees(attendees, agentId);
+      if ('error' in resolved) return resolved.error;
+      if (!resolved.ids) return '오류: 초대할 참석자가 없습니다(주최자 본인은 이미 참석자입니다).';
+      return await writeProposal('calendar.add_attendees', `${summary}\n초대: ${resolved.names.join(', ')}`, {
+        id: eventId,
+        userIds: resolved.ids,
+      });
+    },
+  };
+
+  const proposeRemoveAttendeeTool: McpTool = {
+    name: 'propose_remove_attendee',
+    description:
+      '내가 만든 일정에서 참석자 한 명의 제거를 제안합니다. 직접 제거하지 않고 확인 카드용 제안만 만듭니다. username 은 get_event 의 참석자 중 한 명이어야 하며 ' +
+      '주최자 본인은 뺄 수 없습니다. 외부 캘린더에서 동기화된 일정은 그 캘린더에서 바꿔야 합니다.',
+    inputSchema: proposeRemoveAttendeeInput,
+    async handler(args) {
+      const { eventId, username, summary } = proposeRemoveAttendeeInput.parse(args);
+      const { member, error } = await requireMemberFor(username);
+      if (error) return error;
+      // 서버는 주최자 본인 제거를 조용히 무시한다 — 아무 효과 없는 카드를 만들지 않게 여기서 막는다.
+      if (member!.userId === agentId) return '오류: 주최자 본인은 참석자에서 제거할 수 없습니다.';
+      return await writeProposal('calendar.remove_attendee', `${summary}\n제거: ${member!.name}(${username})`, {
+        id: eventId,
+        userId: member!.userId,
+      });
+    },
+  };
+
+  const proposeUpdateProjectMemberRoleTool: McpTool = {
+    name: 'propose_update_project_member_role',
+    description:
+      '프로젝트 멤버의 역할 변경(OWNER/MEMBER)을 제안합니다. 직접 바꾸지 않고 확인 카드용 제안만 만듭니다. 프로젝트 OWNER 만 할 수 있고, ' +
+      '마지막 OWNER 는 강등할 수 없습니다. username 은 get_project 의 members 중 한 명입니다.',
+    inputSchema: proposeUpdateProjectMemberRoleInput,
+    async handler(args) {
+      const { projectKey, username, role, summary } = proposeUpdateProjectMemberRoleInput.parse(args);
+      const { member, error } = await requireMemberFor(username);
+      if (error) return error;
+      return await writeProposal('project.update_member_role', summary, {
+        key: projectKey,
+        userId: member!.userId,
+        role,
+      });
+    },
+  };
+
+  const proposeRemoveProjectMemberTool: McpTool = {
+    name: 'propose_remove_project_member',
+    description:
+      '프로젝트 멤버 제거를 제안합니다. 직접 제거하지 않고 확인 카드용 제안만 만듭니다. 프로젝트 OWNER 만 할 수 있고 마지막 OWNER 는 제거할 수 없습니다. ' +
+      '제거되면 그 사람이 담당한 이 프로젝트 이슈의 담당자 지정도 함께 풀립니다. username 은 get_project 의 members 중 한 명입니다.',
+    inputSchema: proposeRemoveProjectMemberInput,
+    async handler(args) {
+      const { projectKey, username, summary } = proposeRemoveProjectMemberInput.parse(args);
+      const { member, error } = await requireMemberFor(username);
+      if (error) return error;
+      return await writeProposal(
+        'project.remove_member',
+        `${summary}\n(${member!.name}(${username}) 이 담당한 이 프로젝트 이슈의 담당자 지정도 해제됩니다)`,
+        { key: projectKey, userId: member!.userId },
+      );
+    },
+  };
+
+  const proposeAddChannelMemberTool: McpTool = {
+    name: 'propose_add_channel_member',
+    description:
+      '채널에 구성원 초대를 제안합니다. 직접 초대하지 않고 확인 카드용 제안만 만듭니다. 채널 OWNER/ADMIN 만 초대할 수 있고 DM 에는 초대할 수 없습니다. ' +
+      'channelId 는 list_channels 결과의 id, username 은 search_members 결과의 값입니다.',
+    inputSchema: proposeAddChannelMemberInput,
+    async handler(args) {
+      const { channelId, username, summary } = proposeAddChannelMemberInput.parse(args);
+      const { member, error } = await requireActiveMember(username);
+      if (error) return error;
+      return await writeProposal('messaging.add_channel_member', summary, { id: channelId, userId: member!.userId });
+    },
+  };
+
+  const proposeDeleteIssueTool: McpTool = {
+    name: 'propose_delete_issue',
+    description:
+      '이슈 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 복원 기능이 없고 하위 이슈도 함께 삭제됩니다. ' +
+      '작성자(reporter)나 프로젝트 OWNER 만 삭제할 수 있습니다. summary 에 어떤 이슈를 지우는지 한 줄로 넣으세요.',
+    inputSchema: proposeDeleteIssueInput,
+    async handler(args) {
+      const { issueKey, summary } = proposeDeleteIssueInput.parse(args);
+      const { projectKey, number } = parseIssueKey(issueKey);
+      // 카드에 함께 지워질 하위 이슈 수를 보인다 — 사용자가 모르는 채 연쇄 삭제를 승인하지 않게.
+      const detail = (await sc.getIssueDetail(issueKey)) as { summary?: { title?: string; childCount?: number } };
+      const children = detail.summary?.childCount ?? 0;
+      const note = children > 0 ? `하위 이슈 ${children}건도 함께 삭제됩니다. ` : '';
+      return await writeProposal(
+        'issue.delete',
+        `${summary}\n(${issueKey} "${detail.summary?.title ?? ''}" — ${note}복원할 수 없습니다)`,
+        { key: projectKey, number },
+      );
+    },
+  };
+
+  const proposeDeleteCommentTool: McpTool = {
+    name: 'propose_delete_comment',
+    description:
+      '이슈 코멘트 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 복원 기능이 없습니다. 작성자나 프로젝트 OWNER 만 삭제할 수 있습니다. ' +
+      'commentId 는 get_issue_detail 의 comments 에서 확인하세요.',
+    inputSchema: proposeDeleteCommentInput,
+    async handler(args) {
+      const { issueKey, commentId, summary } = proposeDeleteCommentInput.parse(args);
+      const { projectKey, number } = parseIssueKey(issueKey);
+      return await writeProposal('issue.delete_comment', summary, { key: projectKey, number, commentId });
+    },
+  };
+
+  const proposeDeleteWikiPageTool: McpTool = {
+    name: 'propose_delete_wiki_page',
+    description:
+      '노트 페이지 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 휴지통 없이 영구 삭제되며 하위 페이지도 모두 함께 지워집니다. ' +
+      '공간 EDITOR 이상만 할 수 있습니다. pageId 는 list_wiki_pages/search_wiki 결과의 id 입니다.',
+    inputSchema: proposeDeleteWikiPageInput,
+    async handler(args) {
+      const { pageId, summary } = proposeDeleteWikiPageInput.parse(args);
+      // 하위 페이지 수를 트리에서 세어 카드에 보인다 — 영구 삭제라 승인 전에 범위를 알아야 한다.
+      const page = (await sc.getWikiPage(pageId)) as { spaceId?: number; title?: string };
+      let descendants = 0;
+      if (page.spaceId != null) {
+        const childrenOf = new Map<number, number[]>();
+        for (const r of await sc.listWikiPages(page.spaceId)) {
+          if (r.parentId != null) childrenOf.set(r.parentId, [...(childrenOf.get(r.parentId) ?? []), r.id]);
+        }
+        const stack = [pageId];
+        for (let id = stack.pop(); id !== undefined; id = stack.pop()) {
+          const kids = childrenOf.get(id) ?? [];
+          descendants += kids.length;
+          stack.push(...kids);
+        }
+      }
+      const note = descendants > 0 ? `하위 페이지 ${descendants}개 포함, ` : '';
+      return await writeProposal('wiki.delete_page', `${summary}\n("${page.title ?? ''}" — ${note}영구 삭제)`, {
+        id: pageId,
+      });
     },
   };
 
@@ -989,6 +1188,10 @@ export function buildTools(
       sharedTool('list_notifications'), sharedTool('mark_notification_read'), sharedTool('mark_all_notifications_read'),
       createFolderTool, renameFolderTool, moveFolderTool, moveFileTool, // #333 M4: 드라이브 쓰기(직접 실행)
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
+      // #856: 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제 제안(confirm 필요)
+      proposeAddAttendeesTool, proposeRemoveAttendeeTool,
+      proposeUpdateProjectMemberRoleTool, proposeRemoveProjectMemberTool, proposeAddChannelMemberTool,
+      proposeDeleteIssueTool, proposeDeleteCommentTool, proposeDeleteWikiPageTool,
       // #854·#855: 되돌릴 수 있는 쓰기(공유) — 이슈 워치·프로젝트 수정·노트 이동·휴지통 복원·RSVP·채널/DM·메일 AI.
       sharedTool('watch_issue'), sharedTool('unwatch_issue'), sharedTool('update_project'), sharedTool('move_wiki_page'),
       sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),

@@ -10,7 +10,7 @@ describe('project-agent 정의', () => {
   it('loadSubagents 로 project-agent 가 로드된다', () => {
     expect(loaded['project-agent']).toBeDefined();
   });
-  it('tools 는 read 3 + search_members + update_project + propose 3 + submit_response', () => {
+  it('tools 는 read 3 + search_members + update_project + propose 5 + submit_response', () => {
     expect(loaded['project-agent'].tools).toEqual([
       'mcp__workplace__list_projects',
       'mcp__workplace__get_project',
@@ -22,6 +22,9 @@ describe('project-agent 정의', () => {
       'mcp__workplace__propose_create_project',
       'mcp__workplace__propose_delete_project',
       'mcp__workplace__propose_add_project_member',
+      // #856: 멤버 역할 변경·제거 제안
+      'mcp__workplace__propose_update_project_member_role',
+      'mcp__workplace__propose_remove_project_member',
       'mcp__workplace__submit_response',
     ]);
   });
