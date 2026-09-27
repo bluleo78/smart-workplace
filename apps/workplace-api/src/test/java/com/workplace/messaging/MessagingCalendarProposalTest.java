@@ -88,6 +88,7 @@ class MessagingCalendarProposalTest extends IntegrationTestBase {
             "회의실 A",
             10,
             null,
+            null,
             null);
 
     MessageResponse saved = proposalService.propose(agentId, channelId, req);
@@ -153,6 +154,7 @@ class MessagingCalendarProposalTest extends IntegrationTestBase {
         null,
         null,
         rrule,
+        null,
         null);
   }
 

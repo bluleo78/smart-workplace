@@ -31,15 +31,16 @@ class CalendarAttendeeAccessTest extends IntegrationTestBase {
   /** 테스트용 HUMAN 사용자 시드 후 ID 반환. */
   private long seedUser(String prefix) {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, prefix + "_" + t)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, prefix + " " + t)
-        .set(USER.EMAIL, prefix + "_" + t + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    return withMembership(
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, prefix + "_" + t)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, prefix + " " + t)
+            .set(USER.EMAIL, prefix + "_" + t + "@example.com")
+            .set(USER.KIND, "HUMAN")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId());
   }
 
   /** 일정 요청 헬퍼 — attendeeUserIds 포함. */
@@ -89,7 +90,7 @@ class CalendarAttendeeAccessTest extends IntegrationTestBase {
   @Test
   void agentInvitee_isAcceptedImmediately() {
     long organizer = seedUser("org");
-    long agentId = createAgentUser("agent");
+    long agentId = createAgentUserWithMembership("agent");
     long humanId = seedUser("human");
     long eventId =
         service
@@ -107,5 +108,36 @@ class CalendarAttendeeAccessTest extends IntegrationTestBase {
         .filteredOn(r -> r.userId() == humanId)
         .extracting(EventAttendeeRepository.AttendeeRow::rsvpStatus)
         .containsExactly("NEEDS_ACTION");
+  }
+
+  /** 이 워크스페이스 구성원이 아닌 사용자 id 로는 초대할 수 없다(#852) — 생성·사전검증·참석자 추가 모두 400 사유로 거절하고 행을 남기지 않는다. */
+  @Test
+  void nonMemberInvitee_isRejected() {
+    long organizer = seedUser("org");
+    String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    // 멤버십 없는 사용자 — user 는 전역 테이블이라 다른 테넌트 사용자와 같은 상태다.
+    long outsider =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "outsider_" + t)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "outsider")
+            .set(USER.EMAIL, "outsider_" + t + "@example.com")
+            .set(USER.KIND, "HUMAN")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    CalendarEventRequest req = newReq("외부인 초대", now, now.plusHours(1), List.of(outsider));
+
+    assertThatThrownBy(() -> service.validateCreatable(organizer, req))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("userId=[" + outsider + "]");
+    assertThatThrownBy(() -> service.create(organizer, req))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(service.list(organizer, now.minusDays(1), now.plusDays(1))).isEmpty();
+
+    long eventId = service.create(organizer, newReq("회의", now, now.plusHours(1), List.of())).id();
+    assertThatThrownBy(() -> service.inviteAttendees(organizer, eventId, List.of(outsider)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(attendeeRepo.findByEvent(eventId)).hasSize(1); // 주최자만
   }
 }

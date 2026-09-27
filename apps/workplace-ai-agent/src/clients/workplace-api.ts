@@ -147,6 +147,7 @@ export interface WorkplaceApiClient {
       reminderMinutes?: number;
       recurrenceRule?: string;
       conflicts?: { id: number; title: string; startsAt: string; endsAt: string }[];
+      attendeeUserIds?: number[]; // #852: 초대 참석자(username 을 해석한 user id)
       proposedByUserId: number;
       parentMessageId?: number;
     },

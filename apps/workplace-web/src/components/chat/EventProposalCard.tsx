@@ -1,8 +1,9 @@
 // 채팅 일정 생성 확인 카드(편집 가능). AI 가 대화에서 추출한 일정 제안.
 // 위임자(currentUserId === proposedByUserId) + PENDING 일 때만 제목·시간·장소 편집 + 승인/거부.
-// 충돌이 있으면 AiSignalBadge(action)로 "충돌 N건" 경고. 참석자 편집은 이번 슬라이스 범위 밖.
+// 충돌이 있으면 AiSignalBadge(action)로 "충돌 N건" 경고. 초대 참석자는 세 상태 모두 읽기 전용으로 보인다(#852) —
+// 승인하면 그대로 초대되므로 위임자가 누구를 부르는지 확인할 수 있어야 한다. 참석자 편집은 범위 밖.
 
-import { CalendarPlus, CircleCheck } from 'lucide-react'
+import { CalendarPlus, CircleCheck, Users } from 'lucide-react'
 import { useState } from 'react'
 
 import { AiContent } from '@/components/ai/AiContent'
@@ -34,6 +35,23 @@ interface EventProposalCardProps {
 function toOffsetIso(local: string): string | undefined {
   if (!local) return undefined
   return new Date(local).toISOString()
+}
+
+/** 초대 참석자 한 줄(#852). 없으면 렌더하지 않는다. 이름이 길거나 많아도 줄바꿈으로 카드 폭 안에 머문다. */
+function AttendeeLine({ proposal }: { proposal: MessageProposal }) {
+  if (!proposal.attendees?.length) return null
+  return (
+    <div
+      className="flex items-start gap-1 text-xs text-muted-foreground"
+      data-testid={`event-proposal-attendees-${proposal.id}`}
+    >
+      <Users className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 break-words">
+        <span className="sr-only">참석자: </span>
+        {proposal.attendees.map((a) => a.name).join(', ')}
+      </span>
+    </div>
+  )
 }
 
 export function EventProposalCard({
@@ -107,6 +125,7 @@ export function EventProposalCard({
             onChange={(e) => setLocation(e.target.value)}
             placeholder="장소(선택)"
           />
+          <AttendeeLine proposal={proposal} />
           <div className="flex gap-2">
             <Button
               size="sm"
@@ -149,6 +168,7 @@ export function EventProposalCard({
             </div>
           )}
           {proposal.location && <div>장소: {proposal.location}</div>}
+          <AttendeeLine proposal={proposal} />
           <div className="mt-1 font-medium">확인 대기 중</div>
         </div>
       ) : (
@@ -162,6 +182,7 @@ export function EventProposalCard({
             </div>
           )}
           {proposal.location && <div>장소: {proposal.location}</div>}
+          <AttendeeLine proposal={proposal} />
         </div>
       )}
 

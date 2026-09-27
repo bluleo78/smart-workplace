@@ -27,6 +27,7 @@ function makeProposal(proposedByUserId: number): MessageProposal {
     location: null,
     allDay: null,
     conflicts: null,
+    attendees: null,
   }
 }
 
@@ -52,6 +53,7 @@ function makeProposalWithCandidates(proposedByUserId: number): MessageProposal {
     location: null,
     allDay: null,
     conflicts: null,
+    attendees: null,
   }
 }
 

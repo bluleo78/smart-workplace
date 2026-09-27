@@ -21,6 +21,8 @@ import com.workplace.messaging.repository.MessageActionProposalRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
+import com.workplace.user.dto.UserResponse;
+import com.workplace.user.repository.UserRepository;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +45,7 @@ public class MessagingProposalService {
   private final ApplicationEventPublisher publisher;
   private final ObjectMapper objectMapper;
   private final ConfirmActionDispatcher confirmDispatcher; // 공용 액션 디스패처(이슈·일정 생성 위임)
+  private final UserRepository userRepo; // #852: 초대 참석자 id → 카드 표시 이름
 
   /**
    * AI 제안 — 채널에 AGENT 작성 카드 메시지 + 제안 행(PENDING) 생성. 프로젝트는 후보(위임자·AI 둘 다 멤버) 중 AI 가 고른 projectKey,
@@ -330,9 +333,31 @@ public class MessagingProposalService {
       }
     }
 
-    // #848: 승인 때와 같은 파라미터(payload − conflicts, 편집 override 없음)로 위임자 권한 사전검증 — 실패하면 카드를 만들지 않는다.
+    // #852: 초대 참석자 — 승인 시 CalendarEventRequest.attendeeUserIds 로 그대로 전달된다. 위임자(=승인 후 주최자)는 생성 시
+    // 주최자로 자동 포함되고 초대 목록에선 건너뛰므로 여기서 빼 둔다 — 남겨 두면 카드에만 "초대"로 보이고 결과와 어긋난다.
+    List<Long> attendeeIds =
+        req.attendeeUserIds() == null
+            ? List.of()
+            : req.attendeeUserIds().stream()
+                .filter(id -> id != null && !id.equals(req.proposedByUserId()))
+                .distinct()
+                .toList();
+    if (!attendeeIds.isEmpty()) {
+      payload.set("attendeeUserIds", objectMapper.valueToTree(attendeeIds));
+    }
+
+    // #848: 승인 때와 같은 파라미터(payload − 카드 표시 필드, 편집 override 없음)로 위임자 권한 사전검증 — 실패하면 카드를 만들지 않는다.
+    // #852: 참석자가 이 워크스페이스 구성원인지도 여기서 걸러진다(validateCreatable).
     confirmDispatcher.validate(
         req.proposedByUserId(), "calendar.create_event", calendarParams(payload));
+
+    // #852: 카드 표시용 참석자 이름 — 검증을 통과한 id 만 해석한다. 승인 파라미터에는 들어가지 않는다(calendarParams 가 제거).
+    if (!attendeeIds.isEmpty()) {
+      ArrayNode arr = payload.putArray("attendees");
+      for (UserResponse u : userRepo.findByIds(attendeeIds)) {
+        arr.addObject().put("userId", u.id()).put("name", u.name());
+      }
+    }
 
     // 카드 fallback 본문 — 마크다운 미지원 클라이언트·접근성용.
     String fallback = "💡 일정 생성을 제안했어요: **" + req.title() + "**";
@@ -360,12 +385,13 @@ public class MessagingProposalService {
   }
 
   /**
-   * 일정 생성 디스패치 파라미터 — 제안 payload 에서 카드 노출용 conflicts 를 뺀 것(CalendarEventRequest 에 없는 필드라
-   * unknown-property 오류 방지). 제안 시 사전검증과 승인 시 실행이 공유한다(#848).
+   * 일정 생성 디스패치 파라미터 — 제안 payload 에서 카드 노출용 conflicts·attendees(#852 이름 목록)를 뺀
+   * 것(CalendarEventRequest 에 없는 필드). 초대 대상은 attendeeUserIds 로 남는다. 제안 시 사전검증과 승인 시 실행이 공유한다(#848).
    */
   private ObjectNode calendarParams(JsonNode payload) {
     ObjectNode params = (ObjectNode) payload.deepCopy();
     params.remove("conflicts");
+    params.remove("attendees");
     return params;
   }
 

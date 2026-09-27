@@ -298,6 +298,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                null,
                 null));
     assertThat(r1.proposal().projectKey()).isEqualTo(teamKey);
     // candidates 배열에 팀 프로젝트 키가 포함되어야 한다.
@@ -316,6 +317,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
                         "MID",
                         "NOPE-999",
                         delegator,
+                        null,
                         null,
                         null,
                         null,
@@ -354,6 +356,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
                 "MID",
                 null,
                 delegator,
+                null,
                 null,
                 null,
                 null,
@@ -410,6 +413,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                null,
                 null));
 
     // confirm 시 teamKey 로 override.
@@ -453,6 +457,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
                 "MID",
                 teamKey,
                 delegator,
+                null,
                 null,
                 null,
                 null,
@@ -520,6 +525,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
                         null,
                         null,
                         null,
+                        null,
                         null)))
         .isInstanceOf(NoDelegationCandidateException.class);
   }
@@ -544,6 +550,7 @@ class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
                 "MID",
                 null,
                 delegator,
+                null,
                 null,
                 null,
                 null,

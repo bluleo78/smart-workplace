@@ -57,7 +57,7 @@ class CalendarEventExternalWriteTest extends IntegrationTestBase {
     new TransactionTemplate(txManager)
         .execute(
             s -> {
-              ownerId = TestFixtures.createHuman(dsl);
+              ownerId = withMembership(TestFixtures.createHuman(dsl));
               accountId =
                   dsl.insertInto(EMAIL_ACCOUNT)
                       .set(EMAIL_ACCOUNT.USER_ID, ownerId)
@@ -148,7 +148,10 @@ class CalendarEventExternalWriteTest extends IntegrationTestBase {
     // 내가 주최한 외부 일정 + 기존 외부 참석자 1명, 새 내부 멤버 초대.
     long memberId =
         new TransactionTemplate(txManager)
-            .execute(s -> TestFixtures.createHumanWithEmail(dsl, "newinvitee@iacloud.kr"));
+            .execute(
+                s ->
+                    withMembership(
+                        TestFixtures.createHumanWithEmail(dsl, "newinvitee@iacloud.kr")));
     long eventId =
         new TransactionTemplate(txManager)
             .execute(
@@ -201,7 +204,9 @@ class CalendarEventExternalWriteTest extends IntegrationTestBase {
   @Test
   void invite_on_local_event_does_not_call_graph() {
     long eventId = new TransactionTemplate(txManager).execute(s -> seedLocalEventOwnedBy(ownerId));
-    long memberId = new TransactionTemplate(txManager).execute(s -> TestFixtures.createHuman(dsl));
+    long memberId =
+        new TransactionTemplate(txManager)
+            .execute(s -> withMembership(TestFixtures.createHuman(dsl)));
     eventService.inviteAttendees(ownerId, eventId, List.of(memberId));
     verify(graphCalendarClient, never()).patchAttendees(any(), any(), any());
     // 이벤트 삭제(→ event_attendee, notification CASCADE) 후 멤버 사용자 정리.
@@ -234,7 +239,10 @@ class CalendarEventExternalWriteTest extends IntegrationTestBase {
     // 내가 주최한 외부 일정에서 참석자를 제거하면 Graph 에 제거 후 전체 목록 패치.
     long removeeId =
         new TransactionTemplate(txManager)
-            .execute(s -> TestFixtures.createHumanWithEmail(dsl, "toberemoved@iacloud.kr"));
+            .execute(
+                s ->
+                    withMembership(
+                        TestFixtures.createHumanWithEmail(dsl, "toberemoved@iacloud.kr")));
     long eventId =
         new TransactionTemplate(txManager)
             .execute(
@@ -269,7 +277,8 @@ class CalendarEventExternalWriteTest extends IntegrationTestBase {
     // 외부 조직자가 별도 있을 때 주최자가 아닌 ownerId 가 제거 시도하면 거부.
     long removeeId =
         new TransactionTemplate(txManager)
-            .execute(s -> TestFixtures.createHumanWithEmail(dsl, "someuser@iacloud.kr"));
+            .execute(
+                s -> withMembership(TestFixtures.createHumanWithEmail(dsl, "someuser@iacloud.kr")));
     long eventId =
         new TransactionTemplate(txManager)
             .execute(

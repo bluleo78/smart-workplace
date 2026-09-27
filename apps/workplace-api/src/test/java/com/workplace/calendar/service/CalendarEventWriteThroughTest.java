@@ -580,15 +580,16 @@ class CalendarEventWriteThroughTest extends IntegrationTestBase {
             .execute(
                 s -> {
                   long n = System.nanoTime();
-                  return dsl.insertInto(USER)
-                      .set(USER.USERNAME, "invitee-" + n)
-                      .set(USER.NAME, "초대자")
-                      .set(USER.EMAIL, "invitee-" + n + "@iacloud.kr")
-                      .set(USER.PASSWORD, "pw")
-                      .set(USER.KIND, UserKind.HUMAN)
-                      .returning(USER.ID, USER.EMAIL)
-                      .fetchOne()
-                      .getId();
+                  return withMembership(
+                      dsl.insertInto(USER)
+                          .set(USER.USERNAME, "invitee-" + n)
+                          .set(USER.NAME, "초대자")
+                          .set(USER.EMAIL, "invitee-" + n + "@iacloud.kr")
+                          .set(USER.PASSWORD, "pw")
+                          .set(USER.KIND, UserKind.HUMAN)
+                          .returning(USER.ID, USER.EMAIL)
+                          .fetchOne()
+                          .getId());
                 });
     // 초대 대상 이메일 조회 — 단언용.
     String inviteeEmail =

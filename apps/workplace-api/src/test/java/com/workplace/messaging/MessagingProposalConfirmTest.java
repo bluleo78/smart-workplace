@@ -253,6 +253,7 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                null,
                 null));
     long proposalId = proposal.proposal().id();
     long messagesBefore = countMessages(channelId);
@@ -297,6 +298,7 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                null,
                 null));
     assertThatThrownBy(() -> proposalService.confirm(otherHuman, proposal.proposal().id(), null))
         .isInstanceOf(ProposalNotDelegatorException.class);
@@ -316,6 +318,7 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
                 null,
                 null,
                 human,
+                null,
                 null,
                 null,
                 null,
@@ -346,6 +349,7 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
                 null,
                 null,
                 human,
+                null,
                 null,
                 null,
                 null,

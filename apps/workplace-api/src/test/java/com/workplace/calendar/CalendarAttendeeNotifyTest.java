@@ -8,6 +8,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.service.CalendarEventService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,8 +37,15 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
 
   private static final OffsetDateTime NOW = OffsetDateTime.parse("2026-07-01T09:00:00Z");
 
+  /** 참석자 초대는 현재 테넌트 구성원만 허용하므로(#852) 테넌트 컨텍스트가 필요하다. */
+  @BeforeEach
+  void setTenant() {
+    TenantContext.set(1L);
+  }
+
   @AfterEach
   void cleanup() {
+    TenantContext.clear();
     // calendar_event 삭제 → event_attendee, notification(event_id FK ON DELETE CASCADE) 동반 삭제.
     if (!createdEventIds.isEmpty()) {
       dsl.deleteFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.ID.in(createdEventIds)).execute();
@@ -52,15 +61,16 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
   private long seedUser(String prefix) {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     long id =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, prefix + "_" + t)
-            .set(USER.PASSWORD, "pw")
-            .set(USER.NAME, prefix + " " + t)
-            .set(USER.EMAIL, prefix + "_" + t + "@example.com")
-            .set(USER.KIND, "HUMAN")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
+        withMembership(
+            dsl.insertInto(USER)
+                .set(USER.USERNAME, prefix + "_" + t)
+                .set(USER.PASSWORD, "pw")
+                .set(USER.NAME, prefix + " " + t)
+                .set(USER.EMAIL, prefix + "_" + t + "@example.com")
+                .set(USER.KIND, "HUMAN")
+                .returning(USER.ID)
+                .fetchOne()
+                .getId());
     createdUserIds.add(id);
     return id;
   }
@@ -69,15 +79,16 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
   private long seedAgent(String prefix) {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     long id =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, prefix + "_" + t)
-            .set(USER.PASSWORD, "pw")
-            .set(USER.NAME, prefix + " " + t)
-            .set(USER.EMAIL, prefix + "_" + t + "@example.com")
-            .set(USER.KIND, "AGENT")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
+        withMembership(
+            dsl.insertInto(USER)
+                .set(USER.USERNAME, prefix + "_" + t)
+                .set(USER.PASSWORD, "pw")
+                .set(USER.NAME, prefix + " " + t)
+                .set(USER.EMAIL, prefix + "_" + t + "@example.com")
+                .set(USER.KIND, "AGENT")
+                .returning(USER.ID)
+                .fetchOne()
+                .getId());
     createdUserIds.add(id);
     return id;
   }

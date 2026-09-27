@@ -1,6 +1,9 @@
 package com.workplace.global.tenant;
 
 import com.workplace.tenant.repository.MembershipRepository;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -25,5 +28,16 @@ public class MembershipGuard {
   public boolean isForeignUser(long targetUserId) {
     Long tenantId = TenantContext.get();
     return tenantId == null || !membershipRepository.hasActiveMembership(targetUserId, tenantId);
+  }
+
+  /**
+   * {@link #isForeignUser} 의 일괄판 — 대상 중 현재 active 테넌트의 ACTIVE 멤버가 아닌 id 만 입력 순서대로 돌려준다(#852 일정
+   * 참석자처럼 여러 명을 한 번에 검사할 때 N 회 조회를 피한다). 컨텍스트가 없으면 fail-closed 로 전부 반환한다.
+   */
+  public List<Long> foreignUserIds(Collection<Long> targetUserIds) {
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) return List.copyOf(targetUserIds);
+    Set<Long> members = membershipRepository.findActiveUserIds(targetUserIds, tenantId);
+    return targetUserIds.stream().filter(id -> !members.contains(id)).toList();
   }
 }

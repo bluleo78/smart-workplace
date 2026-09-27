@@ -1,5 +1,6 @@
 package com.workplace.action;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +24,7 @@ import com.workplace.user.dto.SetRolesByNamesRequest;
 import com.workplace.user.service.UserService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Arrays;
@@ -132,7 +134,11 @@ public class ConfirmActionDispatcher {
       throw new AccessDeniedException("필요 권한 없음: " + required);
     }
     if ("calendar.create_event".equals(actionType)) {
-      CalendarEventRequest req = mapAndValidate(params, CalendarEventRequest.class);
+      // conflicts 는 확인 카드 표시용(제안 시점 충돌 목록) — 생성 입력이 아니므로 엄격 매핑 전에 뗀다(#852).
+      ObjectNode body =
+          params != null && params.isObject() ? ((ObjectNode) params.deepCopy()) : null;
+      if (body != null) body.remove("conflicts");
+      CalendarEventRequest req = mapAndValidate(body, CalendarEventRequest.class);
       return new PreparedAction(
           () -> calendarEventService.validateCreatable(callerId, req),
           () -> calendarEventService.create(callerId, req));
@@ -375,8 +381,14 @@ public class ConfirmActionDispatcher {
     }
     T dto;
     try {
-      dto = objectMapper.convertValue(params, type);
-    } catch (IllegalArgumentException e) {
+      // #852: 모르는 필드는 거절한다. 전역 기본값(무시)을 따르면 AI 가 틀린 이름으로 보낸 값(attendees↔attendeeUserIds)이 오류 없이
+      // 사라져 "승인했는데 반영 안 됨"이 된다. 이 매핑에만 엄격 모드를 켜 전역 설정은 건드리지 않는다.
+      dto =
+          objectMapper
+              .readerFor(type)
+              .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+              .readValue(params);
+    } catch (IOException e) {
       // #843: Jackson 원문("Cannot deserialize value of type ...")은 영문+내부 클래스명 노출 → 필드 단위 한국어 사유로.
       throw new IllegalArgumentException(describeMappingError(e));
     }
@@ -389,9 +401,9 @@ public class ConfirmActionDispatcher {
     return dto;
   }
 
-  /** convertValue 실패 원인에서 문제 필드 경로를 뽑아 사용자·AI 가 고칠 수 있는 문장으로 만든다. */
-  private static String describeMappingError(IllegalArgumentException e) {
-    if (e.getCause() instanceof JsonMappingException jme) {
+  /** 매핑 실패 원인에서 문제 필드 경로를 뽑아 사용자·AI 가 고칠 수 있는 문장으로 만든다. */
+  private static String describeMappingError(IOException e) {
+    if (e instanceof JsonMappingException jme) {
       String field =
           jme.getPath().stream()
               .map(r -> r.getFieldName() != null ? r.getFieldName() : "[" + r.getIndex() + "]")

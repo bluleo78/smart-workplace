@@ -74,6 +74,7 @@ export interface MessageProposal {
   location: string | null; // 장소(선택)
   allDay: boolean | null; // 하루종일 여부
   conflicts: { id: number; title: string; startsAt: string; endsAt: string }[] | null; // 서버 계산 충돌 일정 목록
+  attendees: { userId: number; name: string }[] | null; // #852: 초대 참석자(주최자 제외). 승인 시 그대로 초대된다
 }
 
 export interface MessageResponse {

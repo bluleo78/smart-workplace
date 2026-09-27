@@ -121,4 +121,54 @@ class ConfirmActionDispatcherCalendarTest extends IntegrationTestBase {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("허용되지 않은 색");
   }
+
+  /** 이벤트 기본 params(제목·시간) — 케이스별로 필드를 덧붙인다. */
+  private ObjectNode eventParams(String title) {
+    ObjectNode params = objectMapper.createObjectNode();
+    params.put("title", title);
+    params.put("startsAt", "2026-08-03T09:00:00+09:00");
+    params.put("endsAt", "2026-08-03T10:00:00+09:00");
+    return params;
+  }
+
+  /**
+   * [케이스 3] 모르는 필드는 조용히 버리지 않고 거절한다(#852). 이전에는 AI 가 보낸 attendees(이메일)가 무시돼 "승인했는데 참석자 없음"이 되었다.
+   * 사전검증에서 필드 이름을 짚어 주므로 AI 가 스스로 고칠 수 있다.
+   */
+  @Test
+  void validate_calendarCreateEvent_unknownField_rejectedWithFieldName() {
+    ObjectNode params = eventParams("모르는 필드");
+    params.putArray("attendees").add("kim@example.com");
+
+    assertThatThrownBy(() -> dispatcher.validate(caller, "calendar.create_event", params))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("잘못된 params: 알 수 없는 필드 'attendees'");
+  }
+
+  /** [케이스 4] conflicts 는 카드 표시용이라 엄격 매핑에서도 받아들인다(생성 입력에서 떼어냄). */
+  @Test
+  void confirm_calendarCreateEvent_withDisplayOnlyConflicts_creates() {
+    ObjectNode params = eventParams("충돌 표시 포함");
+    params.putArray("conflicts").addObject().put("id", 1).put("title", "기존 회의");
+
+    Object result = dispatcher.confirm(caller, "calendar.create_event", params);
+
+    assertThat(((CalendarEventResponse) result).title()).isEqualTo("충돌 표시 포함");
+  }
+
+  /** [케이스 5] 수정으로 참석자를 바꾸려 하면 조용히 무시하지 않고 거절한다(#852). */
+  @Test
+  void validate_calendarUpdateEvent_withAttendees_rejected() {
+    long eventId =
+        ((CalendarEventResponse)
+                dispatcher.confirm(caller, "calendar.create_event", eventParams("수정 대상")))
+            .id();
+    ObjectNode params = eventParams("수정 대상");
+    params.put("id", eventId);
+    params.putArray("attendeeUserIds").add(caller);
+
+    assertThatThrownBy(() -> dispatcher.validate(caller, "calendar.update_event", params))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("참석자를 바꿀 수 없습니다");
+  }
 }

@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * 메시지에 붙은 쓰기 행동 제안(채팅 L3 위임). 이슈: title/priority/projectName/projectKey/candidates.
- * 일정(calendar.create_event): startsAt/endsAt/location/allDay/conflicts. status:
+ * 일정(calendar.create_event): startsAt/endsAt/location/allDay/conflicts/attendees. status:
  * PENDING/CONFIRMED/REJECTED. CONFIRMED 면 resultIssueKey 채워짐(이슈=이슈키, 일정="event:{id}").
  */
 public record MessageProposalResponse(
@@ -23,4 +23,5 @@ public record MessageProposalResponse(
     String endsAt,
     String location,
     Boolean allDay,
-    List<EventConflictDto> conflicts) {}
+    List<EventConflictDto> conflicts,
+    List<ProposalAttendeeDto> attendees) {}

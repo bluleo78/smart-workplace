@@ -20,6 +20,7 @@ import com.workplace.calendar.repository.CalendarRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository.AttendeeRow;
 import com.workplace.calendar.repository.EventReminderRepository;
+import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphAttendeeWrite;
@@ -64,6 +65,7 @@ public class CalendarEventService {
   private final RecurrenceExpander expander;
   private final EventAttendeeRepository attendeeRepo;
   private final UserRepository userRepo;
+  private final MembershipGuard membershipGuard;
   private final ApplicationEventPublisher eventPublisher;
   private final CalendarService calendarService;
   private final CalendarRepository calendarRepo;
@@ -84,6 +86,7 @@ public class CalendarEventService {
       RecurrenceExpander expander,
       EventAttendeeRepository attendeeRepo,
       UserRepository userRepo,
+      MembershipGuard membershipGuard,
       ApplicationEventPublisher eventPublisher,
       CalendarService calendarService,
       CalendarRepository calendarRepo,
@@ -96,6 +99,7 @@ public class CalendarEventService {
     this.expander = expander;
     this.attendeeRepo = attendeeRepo;
     this.userRepo = userRepo;
+    this.membershipGuard = membershipGuard;
     this.eventPublisher = eventPublisher;
     this.calendarService = calendarService;
     this.calendarRepo = calendarRepo;
@@ -679,6 +683,7 @@ public class CalendarEventService {
             s -> {
               requireOwner(callerId, eventId);
               requireWritableEvent(eventId);
+              requireTenantAttendees(userIds);
               var ref = repo.findExternalRef(eventId).orElse(null);
               boolean external =
                   ref != null && ref.externalAccountId() != null && ref.eventExternalId() != null;
@@ -990,6 +995,24 @@ public class CalendarEventService {
     if (req.calendarId() != null) {
       calendarService.requireWritableCalendar(callerId, req.calendarId());
     }
+    requireTenantAttendees(req.attendeeUserIdsOrEmpty());
+  }
+
+  /**
+   * 초대 참석자가 모두 현재 워크스페이스의 활성 구성원인지 검사한다(#852). user 는 전역 테이블이라 id 만 받으면 다른 테넌트 사용자도 초대할 수 있었다 — AI
+   * 제안처럼 id 를 외부에서 받는 경로가 생기면서 쓰기 전에 막아야 한다. 생성 사전검증(validateCreatable)과 참석자 추가(inviteAttendees)가
+   * 공유한다.
+   *
+   * @throws IllegalArgumentException 구성원이 아닌 id 가 섞여 있음(400) — 어떤 id 인지 문구에 담아 AI 가 교정할 수 있게 한다.
+   */
+  private void requireTenantAttendees(List<Long> userIds) {
+    List<Long> ids = userIds.stream().filter(Objects::nonNull).distinct().toList();
+    if (ids.isEmpty()) return;
+    List<Long> outsiders = membershipGuard.foreignUserIds(ids);
+    if (!outsiders.isEmpty()) {
+      throw new IllegalArgumentException(
+          "참석자로 초대할 수 없는 사용자입니다(이 워크스페이스의 활성 구성원이 아님): userId=" + outsiders);
+    }
   }
 
   /**
@@ -1027,6 +1050,11 @@ public class CalendarEventService {
       CalendarEventRequest req,
       EditScope scope,
       OffsetDateTime occurrenceDate) {
+    // #852: 수정은 참석자를 바꾸지 않는다(로컬·외부 모두). 받아서 무시하면 "수정했는데 참석자 반영 안 됨"이 조용히 생기므로 거절하고
+    // 참석자 API 로 안내한다. 웹 편집 폼은 수정 시 attendeeUserIds 를 보내지 않는다.
+    if (!req.attendeeUserIdsOrEmpty().isEmpty()) {
+      throw new IllegalArgumentException("일정 수정으로는 참석자를 바꿀 수 없습니다. 참석자 추가·제거 API 를 사용하세요.");
+    }
     validateRecurrence(req.recurrenceRule());
     validateColorOverride(req.color());
     requireOwner(callerId, id);

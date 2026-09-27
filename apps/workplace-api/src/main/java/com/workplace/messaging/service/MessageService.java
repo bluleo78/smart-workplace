@@ -14,6 +14,7 @@ import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageProposalResponse;
 import com.workplace.messaging.dto.MessageResponse;
+import com.workplace.messaging.dto.ProposalAttendeeDto;
 import com.workplace.messaging.dto.ReactionResponse;
 import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.exception.ChannelArchivedException;
@@ -38,6 +39,7 @@ import com.workplace.messaging.repository.ReactionRepository;
 import com.workplace.messaging.repository.ThreadReadStateRepository;
 import com.workplace.tenant.repository.MembershipRepository;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -364,6 +366,13 @@ public class MessageService {
       }
     }
 
+    // #852: 제안 시점에 해석해 둔 초대 참석자(이름 포함).
+    List<ProposalAttendeeDto> attendees = new ArrayList<>();
+    for (JsonNode a : p.path("attendees")) {
+      attendees.add(
+          new ProposalAttendeeDto(a.path("userId").asLong(), a.path("name").asText(null)));
+    }
+
     return new MessageProposalResponse(
         r.id(),
         r.proposedByUserId(),
@@ -379,7 +388,8 @@ public class MessageService {
         p.path("endsAt").asText(null),
         p.path("location").asText(null),
         p.has("allDay") ? p.path("allDay").asBoolean(false) : null,
-        conflicts.isEmpty() ? null : conflicts);
+        conflicts.isEmpty() ? null : conflicts,
+        attendees.isEmpty() ? null : attendees);
   }
 
   /**

@@ -13,8 +13,9 @@ import java.util.List;
  * proposedByUserId = 위임자(트리거 actor) — 승인 권한자. parentMessageId = 스레드 미러(인라인이면 null).
  *
  * <p>이슈 전용: body·priority·projectKey. 일정 전용:
- * startsAt·endsAt·allDay·location·reminderMinutes·recurrenceRule·conflicts. title 은 두 actionType
- * 공용(필수).
+ * startsAt·endsAt·allDay·location·reminderMinutes·recurrenceRule·conflicts·attendeeUserIds. title 은
+ * 두 actionType 공용(필수). attendeeUserIds 는 ai-agent 가 username 을 해석한 초대 참석자 id(#852) — 서버가 테넌트 구성원인지
+ * 다시 검증한다.
  */
 public record CreateProposalRequest(
     @NotBlank String actionType,
@@ -32,4 +33,5 @@ public record CreateProposalRequest(
     @Size(max = 200) String location,
     @Min(0) Integer reminderMinutes,
     @Size(max = 500) String recurrenceRule,
-    List<EventConflictDto> conflicts) {}
+    List<EventConflictDto> conflicts,
+    List<Long> attendeeUserIds) {}

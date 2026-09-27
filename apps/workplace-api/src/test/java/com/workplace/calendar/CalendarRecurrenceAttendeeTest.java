@@ -30,15 +30,16 @@ class CalendarRecurrenceAttendeeTest extends IntegrationTestBase {
   /** 테스트용 HUMAN 사용자 시드 후 ID 반환. */
   private long seedUser(String prefix) {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, prefix + "_" + t)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, prefix + " " + t)
-        .set(USER.EMAIL, prefix + "_" + t + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    return withMembership(
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, prefix + "_" + t)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, prefix + " " + t)
+            .set(USER.EMAIL, prefix + "_" + t + "@example.com")
+            .set(USER.KIND, "HUMAN")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId());
   }
 
   /** 반복 일정 요청 헬퍼(RRULE 포함, 참석자 포함). */
@@ -73,7 +74,11 @@ class CalendarRecurrenceAttendeeTest extends IntegrationTestBase {
             .update(
                 org,
                 masterId,
-                newReq("수정회의", occ2, occ2.plusHours(1), List.of(guest)),
+                newReq(
+                    "수정회의",
+                    occ2,
+                    occ2.plusHours(1),
+                    List.of() /* 수정은 참석자를 받지 않는다(#852) — 참석자는 원본에서 복사 */),
                 EditScope.THIS,
                 occ2)
             .id();
@@ -105,7 +110,11 @@ class CalendarRecurrenceAttendeeTest extends IntegrationTestBase {
             .update(
                 org,
                 oldMasterId,
-                newRecurringReq("daily", occ3, occ3.plusHours(1), List.of(guest)),
+                newRecurringReq(
+                    "daily",
+                    occ3,
+                    occ3.plusHours(1),
+                    List.of() /* 수정은 참석자를 받지 않는다(#852) — 참석자는 원본에서 복사 */),
                 EditScope.THIS_AND_FOLLOWING,
                 occ3)
             .id();

@@ -115,6 +115,11 @@ class MessagingCalendarConfirmTest extends IntegrationTestBase {
   }
 
   private long proposeEvent() {
+    return proposeEvent(null);
+  }
+
+  /** 일정 제안 — attendeeUserIds 는 ai-agent 가 username 을 해석해 보내는 초대 참석자(#852). */
+  private long proposeEvent(List<Long> attendeeUserIds) {
     var req =
         new CreateProposalRequest(
             "calendar.create_event",
@@ -130,7 +135,8 @@ class MessagingCalendarConfirmTest extends IntegrationTestBase {
             null,
             null,
             null,
-            null);
+            null,
+            attendeeUserIds);
     MessageResponse saved = proposalService.propose(agentId, channelId, req);
     return saved.proposal().id();
   }
@@ -179,5 +185,68 @@ class MessagingCalendarConfirmTest extends IntegrationTestBase {
     proposalService.confirmWithBody(human, proposalId, null);
     assertThatThrownBy(() -> proposalService.confirmWithBody(human, proposalId, null))
         .isInstanceOf(IllegalStateException.class);
+  }
+
+  /** 초대 참석자는 제안 카드에 이름으로 보이고, 승인하면 실제 일정의 참석자가 된다(#852). */
+  @Test
+  void propose_withAttendees_showsNamesAndInvitesOnConfirm() {
+    withMembership(human);
+    withMembership(otherHuman);
+    var saved =
+        proposalService.propose(
+            agentId,
+            channelId,
+            new CreateProposalRequest(
+                "calendar.create_event",
+                "참석자 회의",
+                null,
+                null,
+                null,
+                human,
+                null,
+                OffsetDateTime.parse("2026-07-04T09:00:00+09:00"),
+                OffsetDateTime.parse("2026-07-04T10:00:00+09:00"),
+                false,
+                null,
+                null,
+                null,
+                null,
+                List.of(otherHuman, human)));
+    // 위임자(human)는 승인 후 주최자라 카드의 초대 참석자에서 빠진다.
+    assertThat(saved.proposal().attendees())
+        .extracting(a -> a.userId(), a -> a.name())
+        .containsExactly(org.assertj.core.groups.Tuple.tuple(otherHuman, "calc_other"));
+
+    proposalService.confirmWithBody(human, saved.proposal().id(), null);
+
+    var ev = dsl.selectFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.TITLE.eq("참석자 회의")).fetchOne();
+    assertThat(ev).isNotNull();
+    var attendeeIds =
+        dsl.select(com.workplace.jooq.Tables.EVENT_ATTENDEE.USER_ID)
+            .from(com.workplace.jooq.Tables.EVENT_ATTENDEE)
+            .where(com.workplace.jooq.Tables.EVENT_ATTENDEE.EVENT_ID.eq(ev.getId()))
+            .fetch(com.workplace.jooq.Tables.EVENT_ATTENDEE.USER_ID);
+    assertThat(attendeeIds).containsExactlyInAnyOrder(human, otherHuman);
+  }
+
+  /** 워크스페이스 구성원이 아닌 참석자가 섞이면 카드를 만들지 않는다 — 승인 시점이 아니라 제안 시점에 AI 에게 사유가 돌아간다(#852). */
+  @Test
+  void propose_withNonMemberAttendee_isRejectedWithoutCard() {
+    withMembership(human);
+    int before =
+        dsl.fetchCount(
+            MESSAGE_ACTION_PROPOSAL,
+            com.workplace.jooq.tables.MessageActionProposal.MESSAGE_ACTION_PROPOSAL.CHANNEL_ID.eq(
+                channelId));
+    // otherHuman 은 이 테스트에서 멤버십을 주지 않는다.
+    assertThatThrownBy(() -> proposeEvent(List.of(otherHuman)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("userId=[" + otherHuman + "]");
+    assertThat(
+            dsl.fetchCount(
+                MESSAGE_ACTION_PROPOSAL,
+                com.workplace.jooq.tables.MessageActionProposal.MESSAGE_ACTION_PROPOSAL.CHANNEL_ID
+                    .eq(channelId)))
+        .isEqualTo(before);
   }
 }

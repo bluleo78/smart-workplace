@@ -30,15 +30,16 @@ class CalendarCrossSourceDedupTest extends IntegrationTestBase {
 
   private long seedUser(String prefix) {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, prefix + "_" + t)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, prefix + " " + t)
-        .set(USER.EMAIL, prefix + "_" + t + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    return withMembership(
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, prefix + "_" + t)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, prefix + " " + t)
+            .set(USER.EMAIL, prefix + "_" + t + "@example.com")
+            .set(USER.KIND, "HUMAN")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId());
   }
 
   private CalendarEventRequest req(OffsetDateTime s, List<Long> attendees) {

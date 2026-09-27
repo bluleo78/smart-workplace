@@ -33,6 +33,7 @@ function makeEventProposal(): MessageProposal {
     conflicts: [
       { id: 7, title: '기존 회의', startsAt: '2026-07-05T06:30:00Z', endsAt: '2026-07-05T07:30:00Z' },
     ],
+    attendees: null,
   }
 }
 
@@ -206,4 +207,66 @@ test.describe('채팅 일정 제안 카드', () => {
       )
     },
   )
+
+  // #852: 승인하면 그대로 초대되므로 위임자·비위임자·확정 후 모두 누구를 부르는지 보여야 한다. 참석자 없는 카드엔 줄이 없다.
+  test('초대 참석자를 편집·대기·확정 세 상태 모두에 표시한다', async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: CHANNEL_ID, member: true })
+    await setupChannelStubs(page, channel)
+    await stubMembers(page)
+
+    // 실데이터처럼 긴 이름·여러 명 — 카드 폭 넘침(가로 스크롤) 회귀까지 같이 본다.
+    const attendees = [
+      { userId: 5, name: '김민수(플랫폼개발팀 백엔드 파트장)' },
+      { userId: 6, name: '이지영(Product Design · UX Research)' },
+      { userId: 8, name: 'Alexander Montgomery-Wellington' },
+    ]
+    const withAttendees = (id: number, extra: Partial<MessageProposal>): MessageProposal => ({
+      ...makeEventProposal(),
+      id,
+      conflicts: null,
+      attendees,
+      ...extra,
+    })
+    const messages = [
+      withAttendees(81, {}), // 위임자 편집 폼
+      withAttendees(82, { proposedByUserId: 2 }), // 비위임자 대기
+      withAttendees(83, { status: 'CONFIRMED', resultIssueKey: 'event:501' }), // 확정
+      { ...makeEventProposal(), id: 84, conflicts: null, attendees: null }, // 참석자 없음
+    ].map((proposal, idx) =>
+      createMessage({
+        id: 400 + idx,
+        channelId: CHANNEL_ID,
+        authorId: 99,
+        authorName: 'AI 어시스턴트',
+        authorKind: 'AGENT',
+        body: '💡 일정 생성을 제안했어요',
+        proposal,
+      }),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback()
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items: messages, nextCursor: null, hasMore: false }),
+        })
+      },
+    )
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+
+    for (const id of [81, 82, 83]) {
+      const line = page.getByTestId(`event-proposal-attendees-${id}`)
+      await expect(line).toContainText('김민수(플랫폼개발팀 백엔드 파트장), 이지영(Product Design · UX Research)')
+      await expect(line).toContainText('Alexander Montgomery-Wellington')
+      // 긴 이름이 카드 밖으로 넘치지 않는다(줄바꿈).
+      const card = page.getByTestId(`event-proposal-card-${id}`)
+      const overflow = await card.evaluate((el) => el.scrollWidth - el.clientWidth)
+      expect(overflow).toBeLessThanOrEqual(0)
+    }
+    await expect(page.getByTestId('event-proposal-card-84')).toBeVisible()
+    await expect(page.getByTestId('event-proposal-attendees-84')).toHaveCount(0)
+  })
 })

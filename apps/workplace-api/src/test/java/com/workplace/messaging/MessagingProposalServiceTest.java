@@ -195,6 +195,7 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
+                null,
                 null));
 
     // 메시지 1건(AGENT 작성) 추가됨.
@@ -225,6 +226,7 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
                 null,
                 human,
                 root,
+                null,
                 null,
                 null,
                 null,
@@ -265,6 +267,7 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
                         null,
                         null,
                         null,
+                        null,
                         null)))
         .isInstanceOf(ChannelNotMemberException.class);
   }
@@ -296,6 +299,7 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
                 null,
                 null,
                 freshHuman,
+                null,
                 null,
                 null,
                 null,

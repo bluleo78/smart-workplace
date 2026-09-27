@@ -175,13 +175,21 @@ public abstract class IntegrationTestBase {
    * 그대로 둔다.
    */
   protected Long createAgentUserWithMembership(String prefix) {
-    Long id = createAgentUser(prefix);
+    return withMembership(createAgentUser(prefix));
+  }
+
+  /**
+   * 사용자에게 테넌트#1 ACTIVE 멤버십을 준다 — 참석자 초대처럼 "같은 워크스페이스 구성원"만 허용하는 쓰기(#852)의 대상을 시드할 때 쓴다. user 삭제 시
+   * membership 은 FK CASCADE 로 함께 지워지므로 별도 회수가 필요 없다. 시드 식에 그대로 감쌀 수 있게 id 를 돌려준다.
+   */
+  protected long withMembership(long userId) {
     baseDsl
         .insertInto(MEMBERSHIP)
-        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.USER_ID, userId)
         .set(MEMBERSHIP.TENANT_ID, 1L)
         .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .onConflictDoNothing()
         .execute();
-    return id;
+    return userId;
   }
 }

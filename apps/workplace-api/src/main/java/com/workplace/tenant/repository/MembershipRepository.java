@@ -4,7 +4,9 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.TENANT;
 
 import com.workplace.tenant.dto.MembershipResponse;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -63,5 +65,20 @@ public class MembershipRepository {
             .where(MEMBERSHIP.USER_ID.eq(userId))
             .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
             .and(MEMBERSHIP.STATUS.eq("ACTIVE")));
+  }
+
+  /**
+   * 주어진 사용자 중 해당 테넌트에 ACTIVE 멤버십이 있는 id 만 돌려준다(#852). user 는 전역 테이블이라 id 만으로는 테넌트 경계가 없으므로, 외부에서 받은
+   * user id(초대 참석자 등)를 쓰기 전에 이 술어로 걸러야 다른 테넌트 사용자를 끌어들이지 않는다.
+   */
+  @Transactional(readOnly = true)
+  public Set<Long> findActiveUserIds(Collection<Long> userIds, Long tenantId) {
+    if (userIds.isEmpty()) return Set.of();
+    return dsl.selectDistinct(MEMBERSHIP.USER_ID)
+        .from(MEMBERSHIP)
+        .where(MEMBERSHIP.USER_ID.in(userIds))
+        .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .fetchSet(MEMBERSHIP.USER_ID);
   }
 }

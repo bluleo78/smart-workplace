@@ -30,15 +30,16 @@ class CalendarAttendeeMutationTest extends IntegrationTestBase {
   /** 테스트용 HUMAN 사용자 시드 후 ID 반환. */
   private long seedUser(String prefix) {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, prefix + "_" + t)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, prefix + " " + t)
-        .set(USER.EMAIL, prefix + "_" + t + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    return withMembership(
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, prefix + "_" + t)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, prefix + " " + t)
+            .set(USER.EMAIL, prefix + "_" + t + "@example.com")
+            .set(USER.KIND, "HUMAN")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId());
   }
 
   /** 일정 요청 헬퍼. */
@@ -63,7 +64,7 @@ class CalendarAttendeeMutationTest extends IntegrationTestBase {
   @Test
   void agentInvited_isAccepted() {
     long org = seedUser("org");
-    long ai = createAgentUser("ai");
+    long ai = createAgentUserWithMembership("ai");
     long eventId = service.create(org, newReq("m", now, now.plusHours(1), List.of())).id();
     service.inviteAttendees(org, eventId, List.of(ai));
     var row =

@@ -27,15 +27,16 @@ class CalendarRsvpTest extends IntegrationTestBase {
   /** 테스트용 사용자 삽입 후 ID 반환. */
   private long seedUser(String suffix) {
     String t = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "rsvp_" + suffix + "_" + t)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "U " + suffix + " " + t)
-        .set(USER.EMAIL, t + "_" + suffix + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    return withMembership(
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "rsvp_" + suffix + "_" + t)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "U " + suffix + " " + t)
+            .set(USER.EMAIL, t + "_" + suffix + "@example.com")
+            .set(USER.KIND, "HUMAN")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId());
   }
 
   /** 일정 요청 헬퍼(참석자 목록 지정). */

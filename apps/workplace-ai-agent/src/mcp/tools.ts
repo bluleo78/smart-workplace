@@ -100,7 +100,7 @@ const proposeSendMailInput = z.object({
 });
 
 // #333 M4: 일정 수정 제안 입력 — CalendarEventRequest 미러 + id/scope/occurrenceDate(경로/쿼리 상당) + summary.
-// #402: attendees 추가 — 참석자 이메일 목록(선택). 스키마에 없으면 haiku가 params에서 생략함(create와 동일).
+// #852: attendees 제거 — 서버 일정 수정은 참석자를 바꾸지 않는다(로컬·외부 모두). 받아 두면 승인해도 반영되지 않는 거짓 약속이 된다.
 // #846: 일정은 조회 도구(get_event·show_event)와 같은 이름 eventId 로 가리킨다. 실행기는 params.id 를 읽으므로 핸들러가 옮겨 담는다.
 const proposeUpdateEventInput = z.object({
   summary: z.string().min(1),
@@ -116,7 +116,6 @@ const proposeUpdateEventInput = z.object({
   color: z.string().max(32).optional(),
   reminderMinutes: z.number().int().min(0).optional(),
   recurrenceRule: z.string().max(500).optional(),
-  attendees: z.array(z.string().email()).optional(), // #402: 참석자 이메일 목록(수정 시에도 필수)
 });
 // #333 M4: 일정 삭제 제안 입력 — id + 반복 scope/occurrenceDate + summary.
 const proposeDeleteEventInput = z.object({
@@ -127,7 +126,8 @@ const proposeDeleteEventInput = z.object({
 });
 
 // #333 M2: 일정 생성 제안 입력 — CalendarEventRequest 와 1:1(서버 매핑 단순화) + summary(카드 본문).
-// #393: attendees 추가 — 참석자 이메일 목록(선택). 스키마에 없으면 haiku가 params에서 생략함.
+// #852: attendees 는 초대할 구성원의 username 목록. 핸들러가 user id 로 해석해 attendeeUserIds 로 보낸다 —
+//   이전에는 이메일을 받아 그대로 실었는데 서버는 attendeeUserIds 만 읽어 참석자가 조용히 버려졌다.
 // #394: startsAt/endsAt 타임존 보정은 핸들러에서 normalizeTimezone 으로 처리(Zod transform 불가).
 const proposeCreateEventInput = z.object({
   title: z.string().min(1).max(200),
@@ -138,7 +138,7 @@ const proposeCreateEventInput = z.object({
   location: z.string().max(200).optional(),
   reminderMinutes: z.number().int().min(0).optional(),
   recurrenceRule: z.string().max(500).optional(),
-  attendees: z.array(z.string().email()).optional(), // #393: 참석자 이메일 목록
+  attendees: z.array(z.string().min(1)).optional(), // #852: 초대할 구성원 username 목록(주최자 본인은 넣지 않는다)
   summary: z.string().min(1),    // 사람이 읽는 카드 요약
 });
 
@@ -273,6 +273,37 @@ export function buildTools(
     return t;
   };
 
+  /**
+   * 일정 초대 참석자 username → user id(#852). messaging 위임·assistant 공용. 구성원 조회는 테넌트 스코프라 찾히면 곧 초대 가능한
+   * 구성원이다. 못 찾거나 비활성인 이름은 한 번에 모아 돌려준다 — 하나씩 고치며 여러 번 재호출하지 않게.
+   * organizerId(요청자=주최자)는 서버가 주최자로 자동 포함하고 초대 목록에선 건너뛰므로 여기서도 뺀다 — 안 빼면 카드에만 초대로 보인다.
+   */
+  const resolveAttendees = async (
+    usernames: string[] | undefined,
+    organizerId: number,
+  ): Promise<{ ids?: number[]; names: string[] } | { error: string }> => {
+    const unique = [...new Set(usernames ?? [])];
+    const found = await Promise.all(unique.map((u) => findMemberByUsername(sc, u)));
+    const missing: string[] = [];
+    const inactive: string[] = [];
+    const members: { userId: number; label: string }[] = [];
+    found.forEach((m, i) => {
+      if (!m) missing.push(unique[i]);
+      else if (m.active === false) inactive.push(m.username);
+      else if (m.userId !== organizerId) members.push({ userId: m.userId, label: `${m.name}(${m.username})` });
+    });
+    if (missing.length > 0 || inactive.length > 0) {
+      const parts = [];
+      if (missing.length > 0) parts.push(`찾을 수 없는 username: ${missing.join(', ')}`);
+      if (inactive.length > 0) parts.push(`비활성 계정: ${inactive.join(', ')}`);
+      return {
+        error: `오류: 참석자를 확정하지 못했습니다(${parts.join(' / ')}). search_members 로 정확한 username 을 확인하세요. 외부 이메일 참석자는 지원하지 않습니다.`,
+      };
+    }
+    // 초대할 사람이 없으면 ids 를 비워(undefined) 호출부가 조건 없이 그대로 싣게 한다.
+    return { ids: members.length > 0 ? members.map((m) => m.userId) : undefined, names: members.map((m) => m.label) };
+  };
+
   /** 겹치는 일정을 제안 카드 충돌 표시 형태로 조회한다(messaging 위임·assistant 공용이라 프로필 분기보다 먼저 선언). */
   const listConflicts = async (from: string, to: string) =>
     (await sc.listEvents(from, to)).map(({ id, title, startsAt, endsAt }) => ({ id, title, startsAt, endsAt }));
@@ -348,6 +379,8 @@ export function buildTools(
     // L3 위임: 위임 컨텍스트가 있을 때만 노출. channelId·위임자·parent 는 코드가 스탬프(AI 입력 아님).
     if (delegationContext) {
       const dc = delegationContext;
+      // #852: 일정 제안의 참석자는 username 으로 지칭한다 — 대화 속 이름을 username 으로 바꿀 조회 수단.
+      tools.push(sharedTool('search_members'));
       let proposed = false;
       tools.push({
         name: 'propose_create_issue',
@@ -382,12 +415,14 @@ export function buildTools(
       tools.push({
         name: 'propose_create_event',
         description:
-          '사용자가 대화 내용을 일정으로 잡아달라고 할 때 호출합니다. 일정 생성 "확인 카드"를 그 자리에 올립니다(실제 생성은 위임자 승인 후). title·startsAt·endsAt(타임존 오프셋 포함 ISO-8601, 예: 2026-06-20T14:00:00+09:00)을 채우고, 필요하면 location/reminderMinutes 를 넣으세요. 위치·위임자는 시스템이 정합니다. 호출 시 add_channel_message 는 호출하지 마세요(카드가 곧 응답).',
+          '사용자가 대화 내용을 일정으로 잡아달라고 할 때 호출합니다. 일정 생성 "확인 카드"를 그 자리에 올립니다(실제 생성은 위임자 승인 후). title·startsAt·endsAt(타임존 오프셋 포함 ISO-8601, 예: 2026-06-20T14:00:00+09:00)을 채우고, 필요하면 location/reminderMinutes 를 넣으세요. 함께 초대할 사람이 있으면 attendees 에 그 구성원의 username 을 넣으세요(모르면 search_members 로 확인, 위임자 본인은 넣지 않음). 위치·위임자는 시스템이 정합니다. 호출 시 add_channel_message 는 호출하지 마세요(카드가 곧 응답).',
         inputSchema: proposeCreateEventInput,
         async handler(args) {
           if (eventProposed) return '이미 이 요청에 대한 일정 제안을 등록했습니다.';
-          const { summary: _summary, attendees: _attendees, ...params } =
-            proposeCreateEventInput.parse(args);
+          const { summary: _summary, attendees, ...params } = proposeCreateEventInput.parse(args);
+          // #852: 참석자 username → user id. 확정 못 하면 카드를 만들지 않고 교정 가능한 사유를 돌려준다.
+          const resolved = await resolveAttendees(attendees, dc.actorId);
+          if ('error' in resolved) return resolved.error;
           // 타임존 보정(+09:00) — naive datetime 방어.
           const startsAt = normalizeTimezone(params.startsAt as string);
           const endsAt = normalizeTimezone(params.endsAt as string);
@@ -411,6 +446,7 @@ export function buildTools(
               reminderMinutes: params.reminderMinutes,
               recurrenceRule: params.recurrenceRule,
               conflicts,
+              attendeeUserIds: resolved.ids,
               proposedByUserId: dc.actorId,
               parentMessageId: dc.parentMessageId,
             });
@@ -575,7 +611,7 @@ export function buildTools(
   }
 
   // #333 M2: 일정 생성 제안 도구 — 실행하지 않고(사전검증만, #842) 사이드카에 제안 객체를 쓰고 ack 반환.
-  // #393: attendees 파라미터를 명시하지 않으면 스키마에 없는 것으로 간주해 haiku가 생략함.
+  // #852: attendees(username) 는 resolveAttendees 로 attendeeUserIds 가 되어 서버에 전달된다.
   // #394: startsAt/endsAt 타임존 보정 — 핸들러에서 normalizeTimezone 으로 처리.
   // #395: 새 일정 시간대 충돌을 서버에서 결정론적으로 확인한다. agent.md 는 propose 전 list_events 를
   //       MUST 로 규정하지만 모델이 비결정적으로 그 단계를 건너뛰는 회귀가 반복되므로, 핸들러가
@@ -583,10 +619,14 @@ export function buildTools(
   const proposeCreateEventTool: McpTool = {
     name: 'propose_create_event',
     description:
-      '일정 생성을 제안합니다. 직접 생성하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약(일시·제목)을 넣으세요. 참석자가 있으면 attendees 배열(이메일 문자열 목록)을 반드시 포함하세요. startsAt/endsAt 은 반드시 타임존 오프셋 포함 ISO-8601(예: 2026-06-20T14:00:00+09:00)로 채우세요. 승인 시 서버가 실제로 생성합니다.',
+      '일정 생성을 제안합니다. 직접 생성하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약(일시·제목)을 넣으세요. 함께 초대할 사람이 있으면 attendees 에 그 구성원의 username 목록을 넣으세요(search_members 로 확인, 요청자 본인은 넣지 않음, 외부 이메일은 지원하지 않음). startsAt/endsAt 은 반드시 타임존 오프셋 포함 ISO-8601(예: 2026-06-20T14:00:00+09:00)로 채우세요. 승인 시 서버가 실제로 생성합니다.',
     inputSchema: proposeCreateEventInput,
     async handler(args) {
-      const { summary, ...params } = proposeCreateEventInput.parse(args);
+      const { summary, attendees, ...params } = proposeCreateEventInput.parse(args);
+      // #852: 참석자 username → user id. 서버(CalendarEventRequest)는 attendeeUserIds 만 읽는다.
+      // AI Chat 은 요청자 신원(agentId=onBehalfOf)으로 도구를 부르므로 agentId 가 곧 주최자다.
+      const resolved = await resolveAttendees(attendees, agentId);
+      if ('error' in resolved) return resolved.error;
       // #394: startsAt/endsAt 에 타임존 오프셋이 없으면 +09:00 보정.
       params.startsAt = normalizeTimezone(params.startsAt as string);
       params.endsAt = normalizeTimezone(params.endsAt as string);
@@ -597,8 +637,9 @@ export function buildTools(
       //       막으면 안 되므로 try/catch 로 감싸고 실패 시 conflicts 없이 정상 진행한다.
       // params 는 zod 추론 타입이라 index signature 가 없어 새 키(conflicts) 할당이 타입 에러가 된다.
       // 충돌을 담을 수 있도록 Record 로 복사해 제안 params 를 구성한다.
-      let finalSummary = summary;
-      const proposalParams: Record<string, unknown> = { ...params };
+      // 확인 카드는 summary 만 보여주므로, 누구를 초대하는지 모델 문구에 맡기지 않고 확정된 이름을 덧붙인다(#852).
+      let finalSummary = resolved.ids ? `${summary}\n참석자: ${resolved.names.join(', ')}` : summary;
+      const proposalParams: Record<string, unknown> = { ...params, attendeeUserIds: resolved.ids };
       try {
         const overlapping = await listConflicts(params.startsAt as string, params.endsAt as string);
         if (overlapping.length > 0) {
@@ -624,7 +665,7 @@ export function buildTools(
   const proposeUpdateEventTool: McpTool = {
     name: 'propose_update_event',
     description:
-      '일정 수정을 제안합니다. 직접 수정하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 참석자를 추가/변경할 때는 attendees 배열(이메일 문자열 목록)을 반드시 포함하세요. 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). 승인 시 서버가 실제로 수정합니다.',
+      '일정 수정을 제안합니다. 직접 수정하지 않고 사용자 확인 카드용 제안만 만듭니다. summary 에 사람이 읽을 한 줄 요약을 넣으세요. 참석자 추가·제거는 이 도구로 할 수 없습니다(제목·시간·장소 등 일정 필드만 수정). 반복 일정은 scope 로 범위를 지정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). occurrenceDate 는 대상 회차 시작시각(ISO-8601). 승인 시 서버가 실제로 수정합니다.',
     inputSchema: proposeUpdateEventInput,
     async handler(args) {
       const { summary, eventId, ...params } = proposeUpdateEventInput.parse(args);

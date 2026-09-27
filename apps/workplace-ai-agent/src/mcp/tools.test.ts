@@ -2,7 +2,7 @@
 // 공유 도구(buildSharedTools)의 핸들러 동작은 packages/mcp-tools-shared 테스트가 담당한다.
 // 여기서는 ai-agent 고유 영역만 검증한다: 프로필 구성, 스레드 바인딩 배선, propose_*(사이드카·브리지·사전검증),
 // 구성원 해석, ai-agent 전용 도구 핸들러, 그리고 공유 도구를 로컬에서 재정의하지 않았는지(패리티).
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -188,10 +188,10 @@ describe('프로필 구성', () => {
     expect(names).toEqual(['add_channel_message', 'discover_channels', 'get_channel_messages', 'get_thread_replies', 'list_channels']);
   });
 
-  it('messaging 프로필 + delegationContext: propose_create_issue/propose_create_event 추가', () => {
+  it('messaging 프로필 + delegationContext: propose_create_issue/propose_create_event + 참석자 조회용 search_members 추가', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging', undefined, { actorId: 7, channelId: 9 }).map((t) => t.name);
-    expect(names).toEqual(expect.arrayContaining(['propose_create_issue', 'propose_create_event']));
-    expect(names).toHaveLength(7);
+    expect(names).toEqual(expect.arrayContaining(['propose_create_issue', 'propose_create_event', 'search_members']));
+    expect(names).toHaveLength(8);
   });
 
   it('assistant 프로필: 전 앱 도구 union 을 노출한다', () => {
@@ -478,6 +478,28 @@ describe('messaging 위임 — propose_create_event', () => {
     );
   });
 
+  it('#852: attendees(username) 를 attendeeUserIds 로 해석해 넘기고, 확정 못 하면 카드를 만들지 않는다', async () => {
+    const c = client();
+    c.sc.searchMembers.mockImplementation(async ({ search }: { search?: string }) =>
+      search === 'minsu' ? [{ userId: 5, username: 'minsu', name: '김민수', active: true }] : [],
+    );
+    const t = find(buildTools(c, 42, 'messaging', undefined, { actorId: 7, channelId: 9 }), 'propose_create_event');
+    expect(await t.handler({ ...args, attendees: ['ghost'] })).toContain('찾을 수 없는 username: ghost');
+    expect(c.proposeCreateEvent).not.toHaveBeenCalled();
+    await t.handler({ ...args, attendees: ['minsu'] });
+    expect(c.proposeCreateEvent).toHaveBeenCalledWith(42, 9, expect.objectContaining({ attendeeUserIds: [5] }));
+  });
+
+  it('#852: 위임자 본인은 참석자에서 뺀다(서버가 주최자로 자동 포함)', async () => {
+    const c = client();
+    c.sc.searchMembers.mockImplementation(async ({ search }: { search?: string }) =>
+      search === 'me' ? [{ userId: 7, username: 'me', name: '나', active: true }] : [],
+    );
+    const t = find(buildTools(c, 42, 'messaging', undefined, { actorId: 7, channelId: 9 }), 'propose_create_event');
+    await t.handler({ ...args, attendees: ['me'] });
+    expect(c.proposeCreateEvent).toHaveBeenCalledWith(42, 9, expect.objectContaining({ attendeeUserIds: undefined }));
+  });
+
   // #846 회귀: 충돌 조회 헬퍼가 messaging 분기 뒤에 선언돼 TDZ 로 조용히 실패(fail-open)하던 문제.
   it('겹치는 기존 일정을 sc.listEvents 로 조회해 conflicts 로 넘긴다(#395)', async () => {
     const c = client();
@@ -577,13 +599,37 @@ describe('propose_create_event (assistant)', () => {
     });
   });
 
-  it('#393: attendees 배열이 params 에 포함된다', async () => {
+  // #852: 서버는 attendeeUserIds 만 읽는다 — username 을 id 로 해석해 싣고, 카드(summary)에 확정된 이름을 붙인다.
+  it('#852: attendees(username) 를 attendeeUserIds 로 해석하고 summary 에 참석자를 덧붙인다', async () => {
+    const c = client();
+    c.sc.searchMembers.mockImplementation(async ({ search }: { search?: string }) =>
+      [
+        { userId: 5, username: 'minsu', name: '김민수', active: true },
+        { userId: 6, username: 'jiyoung', name: '이지영', active: true },
+      ].filter((m) => m.username === search),
+    );
     await withSidecar(async (sidecar) => {
-      await find(buildTools(client(), 7, 'assistant'), 'propose_create_event').handler({
+      await find(buildTools(c, 7, 'assistant'), 'propose_create_event').handler({ ...base, attendees: ['minsu', 'jiyoung', 'minsu'] });
+      const [w] = readLines(sidecar);
+      expect(w.params.attendeeUserIds).toEqual([5, 6]);
+      expect(w.params).not.toHaveProperty('attendees');
+      expect(w.summary).toBe(`${base.summary}\n참석자: 김민수(minsu), 이지영(jiyoung)`);
+    });
+  });
+
+  it('#852: 찾을 수 없거나 비활성인 참석자는 한 번에 모아 오류로 돌려주고 제안을 만들지 않는다', async () => {
+    const c = client();
+    c.sc.searchMembers.mockImplementation(async ({ search }: { search?: string }) =>
+      search === 'retired' ? [{ userId: 9, username: 'retired', name: '퇴사자', active: false }] : [],
+    );
+    await withSidecar(async (sidecar) => {
+      const out = await find(buildTools(c, 7, 'assistant'), 'propose_create_event').handler({
         ...base,
-        attendees: ['user@example.com', 'admin@company.com'],
+        attendees: ['kim@example.com', 'retired'],
       });
-      expect(readLines(sidecar)[0].params.attendees).toEqual(['user@example.com', 'admin@company.com']);
+      expect(out).toContain('찾을 수 없는 username: kim@example.com');
+      expect(out).toContain('비활성 계정: retired');
+      expect(existsSync(sidecar) ? readLines(sidecar) : []).toHaveLength(0);
     });
   });
 
@@ -617,14 +663,15 @@ describe('propose_update_event / propose_delete_event — eventId → params.id 
     });
   });
 
-  it('#402: propose_update_event 는 attendees 를 params 에 담는다', async () => {
+  // #852: 서버 수정은 참석자를 바꾸지 않으므로 스키마에서 뺐다 — 들어와도 params 에 싣지 않는다(승인해도 반영 안 되는 거짓 약속 방지).
+  it('#852: propose_update_event 는 attendees 를 params 에 싣지 않는다', async () => {
     await withSidecar(async (sidecar) => {
       await find(buildTools(client(), 7, 'assistant'), 'propose_update_event').handler({
         eventId: 77, title: '팀 회의', startsAt: '2026-07-01T10:00:00+09:00', endsAt: '2026-07-01T11:00:00+09:00',
-        summary: '팀 회의에 김철수 추가', attendees: ['kim@example.com', 'park@example.com'],
+        summary: '팀 회의 시간 변경', attendees: ['minsu'],
       });
       const [w] = readLines(sidecar);
-      expect(w.params.attendees).toEqual(['kim@example.com', 'park@example.com']);
+      expect(w.params).not.toHaveProperty('attendees');
       expect(w.params.scope).toBe('ALL'); // 기본값
     });
   });
