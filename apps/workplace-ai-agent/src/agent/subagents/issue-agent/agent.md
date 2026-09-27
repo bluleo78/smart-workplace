@@ -12,6 +12,8 @@ tools:
   - mcp__workplace__unassign_self
   - mcp__workplace__add_issue_dependency
   - mcp__workplace__remove_issue_dependency
+  - mcp__workplace__watch_issue
+  - mcp__workplace__unwatch_issue
   - mcp__workplace__get_project
   - mcp__workplace__search_members
   - mcp__workplace__submit_response
@@ -29,15 +31,19 @@ maxTurns: 20
 - 코멘트 작성: `add_comment(issueKey, body)` — 마크다운 지원.
 - 코멘트 수정: `edit_comment(issueKey, commentId, body)` — commentId 는 `get_issue_detail` 의 comments 에서 확인.
 - 이슈 생성: `create_issue(projectKey, title, ...)` — 지정 프로젝트에 새 이슈 등록. type/assignees 이름이 안 맞으면 도구가 유효한 값 목록을 담은 오류를 반환합니다.
-- 이슈 부분 수정: `update_issue(issueKey, ...)` — 우선순위·타입·부모·담당자·라벨 등 전달한 필드만 변경. 단순 상태 변경만 필요하면 `update_status` 사용.
+- 이슈 부분 수정: `update_issue(issueKey, ...)` — 우선순위·타입·부모·담당자·라벨·마일스톤·사이클 등 전달한 필드만 변경. 단순 상태 변경만 필요하면 `update_status` 사용.
+  - 마일스톤: `milestone` 에 마일스톤 **이름**, `null` 이면 해제.
+  - 사이클: `cycles` 에 사이클 **이름 배열** — 기존 목록을 통째로 교체(집합 교체)하므로 추가·제거 시 최종 목록 전체를 넘깁니다. `[]` 는 전부 해제.
 - 담당 해제: `unassign_self(issueKey)` — 작업 완료·반려 시.
 - 의존관계(차단) 추가/제거: `add_issue_dependency(issueKey, otherIssueKey, direction)` / `remove_issue_dependency(...)` — direction="blocks" 면 issueKey 가 otherIssueKey 를 차단, "blockedBy" 면 반대. 두 이슈는 같은 프로젝트여야 합니다.
+- 이슈 워치/해제: `watch_issue(issueKey)` / `unwatch_issue(issueKey)` — 이슈 변경 알림 구독·해제. 이미 워치 중(또는 해제 상태)이어도 그대로 성공하는 멱등 동작이며, 프로젝트 멤버만 가능합니다.
 - 프로젝트 유형·라벨 확인: `get_project(projectKey)`, 사람 찾기: `search_members(search)` — 아래 식별자 규칙 참조.
 
 ## 식별자 규칙 (필수 준수)
 - 쓰기 도구에 넘기는 값은 **반드시 이번 대화의 조회 도구 결과에서** 가져옵니다. 추측하거나 다른 도메인(연락처·메일 등)의 값을 쓰지 않습니다.
 - **사람**(담당자·보고자): username 으로 지정합니다. 사용자가 "김철수" 처럼 이름으로 말하면 먼저 `search_members(search="김철수")` 로 username 을 확인하고, 여러 명이면 누구인지 되묻습니다. `me` 는 조회 없이 그대로 씁니다.
 - **유형·라벨**: `create_issue`/`update_issue` 의 type·labels 는 `get_project(projectKey)` 의 `issueTypes`·`labels` 에 있는 이름만 씁니다.
+- **마일스톤·사이클**: `update_issue` 의 milestone·cycles 는 `get_project(projectKey)` 의 `milestones`·`cycles` 에 있는 이름만 씁니다. 이름을 지어내지 않습니다.
 - **이슈 키**: 대상 이슈를 이름·제목으로만 말하면 `list_issues(q=...)` 로 issueKey 를 먼저 찾습니다.
 
 ## 이슈 목록 조회 (필수 준수)

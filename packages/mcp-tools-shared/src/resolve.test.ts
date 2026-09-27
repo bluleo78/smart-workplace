@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { defaultListAssignee, resolveAssigneeIds, resolveLabelIds, resolveTypeId, type ProjectMetaClient } from './resolve.js';
+import {
+  defaultListAssignee,
+  resolveAssigneeIds,
+  resolveCycleIds,
+  resolveLabelIds,
+  resolveMilestoneId,
+  resolveTypeId,
+  type ProjectMetaClient,
+} from './resolve.js';
 
 /** 리졸브 소스만 채운 mock 클라이언트. */
 function client(): ProjectMetaClient {
@@ -15,6 +23,11 @@ function client(): ProjectMetaClient {
     getProjectLabels: vi.fn().mockResolvedValue([
       { id: 100, name: 'urgent' },
       { id: 101, name: 'backend' },
+    ]),
+    getProjectMilestones: vi.fn().mockResolvedValue([{ id: 7, name: 'v1.0' }]),
+    getProjectCycles: vi.fn().mockResolvedValue([
+      { id: 30, name: 'Sprint 3', status: 'ACTIVE' },
+      { id: 31, name: 'Sprint 4', status: 'PLANNED' },
     ]),
   };
 }
@@ -62,5 +75,17 @@ describe('defaultListAssignee', () => {
   });
   it('assignee 가 있으면 그대로', () => {
     expect(defaultListAssignee({ assignee: 'kim', reporter: 'me' })).toBe('kim');
+  });
+});
+
+describe('마일스톤·사이클 리졸브 (#854)', () => {
+  it('마일스톤 이름 → id, 없으면 사용 가능 목록을 담아 throw', async () => {
+    expect(await resolveMilestoneId(client(), 'WP', 'v1.0')).toBe(7);
+    await expect(resolveMilestoneId(client(), 'WP', 'v2')).rejects.toThrow('사용 가능: v1.0');
+  });
+
+  it('사이클 이름 배열 → id 배열, 하나라도 없으면 throw', async () => {
+    expect(await resolveCycleIds(client(), 'WP', ['Sprint 4', 'Sprint 3'])).toEqual([31, 30]);
+    await expect(resolveCycleIds(client(), 'WP', ['Sprint 3', 'Sprint 9'])).rejects.toThrow('Sprint 9');
   });
 });

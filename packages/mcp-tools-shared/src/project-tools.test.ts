@@ -10,7 +10,10 @@ function mockClient(): ProjectToolClient {
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectLabels: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
+    getProjectMilestones: vi.fn().mockResolvedValue([]),
+    getProjectCycles: vi.fn().mockResolvedValue([]),
     listIssues: vi.fn().mockResolvedValue([]),
+    updateProject: vi.fn().mockResolvedValue({ key: 'WP' }),
   };
 }
 
@@ -38,7 +41,7 @@ describe('get_project', () => {
     const c = mockClient();
     const out = JSON.parse(await tool(c, 'get_project').handler({ projectKey: 'WP' }));
     expect(c.getProject).toHaveBeenCalledWith('WP');
-    expect(out).toEqual({ key: 'WP', issueTypes: [], labels: [], members: [] });
+    expect(out).toEqual({ key: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], members: [] });
   });
 
   it('옛 파라미터 key 는 거부한다(projectKey 만)', async () => {
@@ -55,6 +58,8 @@ describe('get_project', () => {
       { id: 2, name: 'BUG' },
     ]);
     vi.mocked(c.getProjectLabels).mockResolvedValue([{ id: 3, name: 'frontend' }]);
+    vi.mocked(c.getProjectMilestones).mockResolvedValue([{ id: 4, name: 'v1.0' }]);
+    vi.mocked(c.getProjectCycles).mockResolvedValue([{ id: 5, name: 'Sprint 3', status: 'ACTIVE' }]);
     vi.mocked(c.getProjectMembers).mockResolvedValue([
       { userId: 1010, username: 'alice', name: 'Alice', role: 'OWNER' } as { userId: number; username: string },
     ]);
@@ -66,11 +71,15 @@ describe('get_project', () => {
       type: 'TEAM',
       issueTypes: ['TASK', 'BUG'],
       labels: ['frontend'],
+      milestones: ['v1.0'],
+      cycles: [{ name: 'Sprint 3', status: 'ACTIVE' }],
       members: [{ username: 'alice', name: 'Alice', role: 'OWNER' }],
     });
     expect(raw).not.toContain('userId');
     expect(raw).not.toContain('1010');
-    for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectMembers]) expect(fn).toHaveBeenCalledWith('WP');
+    for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectMilestones, c.getProjectCycles, c.getProjectMembers]) {
+      expect(fn).toHaveBeenCalledWith('WP');
+    }
   });
 });
 
@@ -177,5 +186,32 @@ describe('toIssueListItem', () => {
 
   it('assignees 가 배열이 아니면 빈 배열', () => {
     expect(toIssueListItem({ projectKey: 'WP', number: 1, assignees: null }).assignees).toEqual([]);
+  });
+});
+
+describe('update_project (#854)', () => {
+  // 서버 PATCH 는 name 필수·description 생략=null 덮어쓰기라, 병합을 빠뜨리면 이름만 바꿔도 설명이 지워진다.
+  it('이름만 주면 현재 설명을 유지해 보낸다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProject).mockResolvedValue({ key: 'WP', name: '옛 이름', description: '기존 설명' });
+    await tool(c, 'update_project').handler({ projectKey: 'WP', name: '새 이름' });
+    expect(c.updateProject).toHaveBeenCalledWith('WP', { name: '새 이름', description: '기존 설명' });
+  });
+
+  it('설명만 주면 현재 이름을 유지하고, description null 은 설명을 비운다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProject).mockResolvedValue({ key: 'WP', name: '이름', description: '기존 설명' });
+    await tool(c, 'update_project').handler({ projectKey: 'WP', description: '새 설명' });
+    await tool(c, 'update_project').handler({ projectKey: 'WP', description: null });
+    expect(vi.mocked(c.updateProject).mock.calls).toEqual([
+      ['WP', { name: '이름', description: '새 설명' }],
+      ['WP', { name: '이름', description: null }],
+    ]);
+  });
+
+  it('바꿀 필드가 없으면 거절한다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'update_project').handler({ projectKey: 'WP' })).rejects.toThrow();
+    expect(c.updateProject).not.toHaveBeenCalled();
   });
 });

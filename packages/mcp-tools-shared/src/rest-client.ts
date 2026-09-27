@@ -58,6 +58,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async getProjectMembers(key) {
       return (await http.get(`${project(key)}/members`)).data ?? [];
     },
+    async getProjectMilestones(key) {
+      return (await http.get(`${project(key)}/milestones`)).data ?? [];
+    },
+    async getProjectCycles(key) {
+      return (await http.get(`${project(key)}/cycles`)).data ?? [];
+    },
+    async updateProject(key, body) {
+      return (await http.patch(project(key), body)).data;
+    },
     async listIssues(query) {
       return (await http.get('/me/issues', { params: query })).data?.items ?? [];
     },
@@ -94,6 +103,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async removeIssueDependency(issueKey, otherNumber, direction) {
       await http.delete(`${issue(issueKey)}/dependencies`, { params: { otherNumber, direction } });
     },
+    async replaceIssueCycles(issueKey, cycleIds) {
+      return (await http.put(`${issue(issueKey)}/cycles`, { cycleIds })).data;
+    },
+    async watchIssue(issueKey) {
+      await http.post(`${issue(issueKey)}/watch`);
+    },
+    async unwatchIssue(issueKey) {
+      await http.delete(`${issue(issueKey)}/watch`);
+    },
 
     // ── 노트 ──
     async listWikiSpaces() {
@@ -118,6 +136,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async getWikiBacklinks(pageId) {
       return (await http.get(`/wiki/pages/${pageId}/backlinks`)).data?.items ?? [];
     },
+    async moveWikiPage(pageId, body) {
+      await http.patch(`/wiki/pages/${pageId}/move`, body);
+    },
 
     // ── 캘린더 ──
     async listEvents(from, to) {
@@ -125,6 +146,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async getEvent(eventId) {
       return (await http.get(`/calendar/events/${eventId}`)).data;
+    },
+    async rsvpEvent(eventId, status) {
+      await http.patch(`/calendar/events/${eventId}/rsvp`, { status });
     },
 
     // ── 메일 ──
@@ -137,6 +161,27 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async getMail(messageId) {
       return (await http.get(`/mail/messages/${messageId}`)).data;
+    },
+    async getMailSummary(messageId) {
+      return (await http.get(`/mail/messages/${messageId}/summary`)).data;
+    },
+    async draftMailReply(messageId) {
+      return (await http.post(`/mail/messages/${messageId}/reply-draft`)).data;
+    },
+    async draftIssueFromMail(messageId) {
+      return (await http.post(`/mail/messages/${messageId}/issue-draft`)).data;
+    },
+    async getMailLinkedIssue(messageId) {
+      // 연결 이슈가 없으면 서버는 { issueKey: null } 을 준다.
+      const data = (await http.get(`/mail/messages/${messageId}/linked-issue`)).data;
+      return data?.issueKey ? data : null;
+    },
+    async promoteMailToIssue(messageId, body) {
+      return (await http.post(`/mail/messages/${messageId}/issue`, body)).data;
+    },
+    async setMailNeedsReplyDone(accountId, messageId, done) {
+      const url = `/mail/accounts/${accountId}/messages/${messageId}/needs-reply-done`;
+      await (done ? http.post(url) : http.delete(url));
     },
 
     // ── 구성원·연락처 ──
@@ -168,6 +213,18 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async getThreadReplies(messageId, params) {
       return (await http.get(`/messaging/messages/${messageId}/replies`, { params })).data;
     },
+    async getChannel(channelId) {
+      return (await http.get(`/messaging/channels/${channelId}`)).data;
+    },
+    async createChannel(body) {
+      return (await http.post('/messaging/channels', body)).data;
+    },
+    async openDm(userIds) {
+      return (await http.post('/messaging/dms', { userIds })).data;
+    },
+    async leaveChannel(channelId) {
+      await http.post(`/messaging/channels/${channelId}/leave`);
+    },
 
     // ── 드라이브 ──
     async listDriveSpaces() {
@@ -185,6 +242,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async searchDriveContent(params) {
       return (await http.get('/drive/search', { params })).data ?? { hits: [] };
+    },
+    async listDriveTrash(spaceId) {
+      return (await http.get(`/drive/spaces/${spaceId}/trash`)).data?.items ?? [];
+    },
+    async restoreDriveFile(driveFileId) {
+      await http.post(`/drive/files/${driveFileId}/restore`);
+    },
+    async restoreDriveFolder(folderId) {
+      await http.post(`/drive/folders/${folderId}/restore`);
     },
 
     // ── 알림 ── 서버가 호출자 본인 알림으로 격리한다(recipientId=callerId).

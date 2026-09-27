@@ -6,7 +6,7 @@ import { buildDriveTools } from './drive-tools.js';
 import type { IssueToolClient } from './tool-client.js';
 import { buildSharedIssueTools } from './issue-tools.js';
 import { buildMailTools } from './mail-tools.js';
-import type { McpTool } from './mcp-tool.js';
+import type { SharedTool } from './mcp-tool.js';
 import { buildMemberTools } from './member-tools.js';
 import { buildMessagingTools, type MessagingToolOptions } from './messaging-tools.js';
 import { buildNotifyTools } from './notify-tools.js';
@@ -37,7 +37,7 @@ export type SharedToolClient = IssueToolClient &
 export type SharedToolOptions = MessagingToolOptions;
 
 /** 공유 도구 전체(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·메시징·드라이브·알림). 이름 목록은 스냅샷 테스트가 고정한다. */
-export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptions = {}): McpTool[] {
+export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptions = {}): SharedTool[] {
   return [
     ...buildSharedIssueTools(client),
     ...buildProjectTools(client),

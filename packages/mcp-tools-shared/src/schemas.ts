@@ -32,6 +32,8 @@ export const updateIssueInput = z.object({
   parent: z.number().int().positive().nullable().optional(), // 번호=설정, null=해제, 생략=변경없음
   assignees: z.array(z.string()).optional(), // username[] → 집합 교체
   labels: z.array(z.string()).optional(), // 라벨명[] → 집합 교체
+  milestone: z.string().min(1).nullable().optional(), // 마일스톤 이름 → milestoneId, null=해제(#854)
+  cycles: z.array(z.string()).optional(), // 사이클명[] → 집합 교체, []=전부 해제(#854)
 });
 
 /** 코멘트 작성 입력. */

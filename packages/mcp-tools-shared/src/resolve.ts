@@ -8,27 +8,30 @@ export interface ProjectMetaClient {
   getProjectTypes(projectKey: string): Promise<{ id: number; name: string }[]>;
   getProjectMembers(projectKey: string): Promise<{ userId: number; username: string; name?: string; role?: string }[]>;
   getProjectLabels(projectKey: string): Promise<{ id: number; name: string }[]>;
+  getProjectMilestones(projectKey: string): Promise<{ id: number; name: string }[]>;
+  getProjectCycles(projectKey: string): Promise<{ id: number; name: string; status?: string }[]>;
 }
 
-/** 유형 이름 → typeId. 없으면 사용 가능한 유형명을 담아 throw. */
-export async function resolveTypeId(
-  client: ProjectMetaClient,
-  projectKey: string,
-  typeName: string,
-): Promise<number> {
-  const types = await client.getProjectTypes(projectKey);
-  const match = types.find((t) => t.name === typeName);
+/**
+ * 이름 → id 공통 조회. 없으면 사용 가능한 이름 목록을 담아 throw — LLM 이 그 목록으로 스스로 고칠 수 있게 한다.
+ * 유형·라벨·마일스톤·사이클 리졸브가 같은 규칙(정확일치)·같은 문구를 쓰도록 한 곳에 둔다.
+ */
+function idByName(rows: { id: number; name: string }[], name: string, what: string): number {
+  const match = rows.find((r) => r.name === name);
   if (!match) {
-    throw new Error(
-      `유형 '${typeName}' 을(를) 찾을 수 없습니다. 사용 가능: ${types.map((t) => t.name).join(', ')}`,
-    );
+    throw new Error(`${what} '${name}' 을(를) 찾을 수 없습니다. 사용 가능: ${rows.map((r) => r.name).join(', ') || '(없음)'}`);
   }
   return match.id;
 }
 
+/** 유형 이름 → typeId. */
+export async function resolveTypeId(client: ProjectMetaClient, projectKey: string, typeName: string): Promise<number> {
+  return idByName(await client.getProjectTypes(projectKey), typeName, '유형');
+}
+
 /** username 배열 → userId 배열. 하나라도 없으면 사용 가능한 username 을 담아 throw. */
 export async function resolveAssigneeIds(
-  client: ProjectMetaClient,
+  client: Pick<ProjectMetaClient, 'getProjectMembers'>,
   projectKey: string,
   usernames: string[],
 ): Promise<number[]> {
@@ -46,22 +49,21 @@ export async function resolveAssigneeIds(
   });
 }
 
-/** 라벨 이름 배열 → labelId 배열. 하나라도 없으면 사용 가능한 라벨명을 담아 throw. */
-export async function resolveLabelIds(
-  client: ProjectMetaClient,
-  projectKey: string,
-  labelNames: string[],
-): Promise<number[]> {
+/** 라벨 이름 배열 → labelId 배열. */
+export async function resolveLabelIds(client: ProjectMetaClient, projectKey: string, labelNames: string[]): Promise<number[]> {
   const labels = await client.getProjectLabels(projectKey);
-  return labelNames.map((n) => {
-    const l = labels.find((x) => x.name === n);
-    if (!l) {
-      throw new Error(
-        `라벨 '${n}' 을(를) 찾을 수 없습니다. 사용 가능: ${labels.map((x) => x.name).join(', ')}`,
-      );
-    }
-    return l.id;
-  });
+  return labelNames.map((n) => idByName(labels, n, '라벨'));
+}
+
+/** 마일스톤 이름 → milestoneId(#854). */
+export async function resolveMilestoneId(client: ProjectMetaClient, projectKey: string, name: string): Promise<number> {
+  return idByName(await client.getProjectMilestones(projectKey), name, '마일스톤');
+}
+
+/** 사이클 이름 배열 → cycleId 배열(#854). */
+export async function resolveCycleIds(client: ProjectMetaClient, projectKey: string, names: string[]): Promise<number[]> {
+  const cycles = await client.getProjectCycles(projectKey);
+  return names.map((n) => idByName(cycles, n, '사이클'));
 }
 
 /**

@@ -1,9 +1,9 @@
-// src/messaging-tools.ts — 메시징 도구 + 멘션 변환. 두 앱 공유(#846, #850).
+// src/messaging-tools.ts — 메시징 도구 + 멘션 변환. 두 앱 공유(#846, #850, #855).
 import { z } from 'zod';
 import { dropEmpty } from './compact.js';
-import type { McpTool } from './mcp-tool.js';
-import { searchMembersByTerm } from './member-tools.js';
-import type { MemberToolClient, MessagingToolClient } from './tool-client.js';
+import type { SharedTool } from './mcp-tool.js';
+import { findMemberByUsername, searchMembersByTerm } from './member-tools.js';
+import type { MemberRow, MemberToolClient, MessagingToolClient } from './tool-client.js';
 
 // 줄 시작·공백·여는 괄호 뒤의 @ 만 후보로 보므로 메일 주소(a@b.com)의 @ 는 건드리지 않고,
 // 캡처는 마침표로 끝나지 않아 문장 끝 마침표("@kim.")는 원문에 남는다.
@@ -94,19 +94,33 @@ export const addChannelMessageInput = z.object({
   body: z.string().min(1),
 });
 
+export const createChannelInput = z.object({
+  name: z.string().trim().min(1).max(80),
+  visibility: z.enum(['PUBLIC', 'PRIVATE']).default('PUBLIC'),
+});
+// 본인은 서버가 자동 포함한다. 본인 포함 최대 8명(서버 MAX_MEMBERS).
+export const openDmInput = z.object({ usernames: z.array(z.string().min(1)).min(1).max(7) });
+export const leaveChannelInput = z.object({ channelId: z.number().int().positive() });
+
+/** DM 응답 → LLM 뷰. 채팅 도구가 channelId 로 가리키므로 id 를 그 이름으로 주고, 참여자는 이름만 둔다(#833). */
+function toDmView(dm: { id: number; participants?: { name: string }[] }) {
+  return { channelId: dm.id, participants: (dm.participants ?? []).map((p) => p.name) };
+}
+
 export interface MessagingToolOptions {
   /** 이 채널에 쓸 때 답을 달 스레드 parent. ai-agent 가 스레드 안에서 호출됐을 때만 값을 준다(그 외 인라인). */
   parentMessageIdFor?(channelId: number): number | undefined;
 }
 
-/** 메시징 도구(list_channels/get_channel_messages/get_thread_replies/add_channel_message). */
+/** 메시징 도구(list_channels/get_channel_messages/get_thread_replies/add_channel_message/create_channel/open_dm/leave_channel). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
-): McpTool[] {
+): SharedTool[] {
   return [
     {
       name: 'list_channels',
+      kind: 'read',
       description:
         '내가 속한 채널·DM 목록을 JSON 배열로 반환합니다(id·name·kind·visibility 포함). 채널 이름만 알 때 channelId 를 확보한 뒤 get_channel_messages / add_channel_message 에 사용하세요.',
       inputSchema: z.object({}),
@@ -116,6 +130,7 @@ export function buildMessagingTools(
     },
     {
       name: 'get_channel_messages',
+      kind: 'read',
       description: '채널/DM 의 최근 메시지 목록을 JSON 으로 반환합니다(대화 흐름 확인용). limit 기본 50.',
       inputSchema: getChannelMessagesInput,
       async handler(args) {
@@ -125,6 +140,7 @@ export function buildMessagingTools(
     },
     {
       name: 'get_thread_replies',
+      kind: 'read',
       description:
         '채널 메시지 하나에 달린 스레드 답글 전체를 오래된 순으로 JSON({items, truncated})으로 반환합니다(스레드 요약·확인용). ' +
         'messageId 는 get_channel_messages 결과에서 replyCount 가 1 이상인 메시지의 id 입니다. ' +
@@ -138,6 +154,7 @@ export function buildMessagingTools(
     },
     {
       name: 'add_channel_message',
+      kind: 'write',
       description:
         '채널/DM 에 메시지를 작성합니다. 본문은 마크다운 지원. 정확히 한 번만 호출하세요. ' +
         '사람을 멘션하려면 본문에 `@username` 을 쓰세요(username 은 search_members 결과) — 멘션 알림으로 변환됩니다.',
@@ -145,6 +162,58 @@ export function buildMessagingTools(
       async handler(args) {
         const { channelId, body } = addChannelMessageInput.parse(args);
         await client.addChannelMessage(channelId, await linkMentions(client, body), opts.parentMessageIdFor?.(channelId));
+        return 'ok';
+      },
+    },
+    {
+      name: 'create_channel',
+      kind: 'write',
+      description:
+        '새 채널을 만들고 내가 OWNER 가 됩니다. visibility 기본 PUBLIC(누구나 참여), PRIVATE 는 초대받은 사람만 봅니다. ' +
+        '이름이 이미 있으면 충돌 오류가 납니다. 만든 채널(id·name·visibility)을 JSON 으로 반환합니다.',
+      inputSchema: createChannelInput,
+      async handler(args) {
+        return JSON.stringify(await client.createChannel(createChannelInput.parse(args)));
+      },
+    },
+    {
+      name: 'open_dm',
+      kind: 'write',
+      description:
+        'username 목록의 사람들과의 DM 을 엽니다(나는 자동 포함, 나 포함 최대 8명). 같은 참여자 DM 이 이미 있으면 그것을 돌려줍니다. ' +
+        '결과 { channelId, participants } 의 channelId 로 add_channel_message 를 호출하세요. username 은 search_members 로 확인합니다.',
+      inputSchema: openDmInput,
+      async handler(args) {
+        const { usernames } = openDmInput.parse(args);
+        const found = await Promise.all(usernames.map((u) => findMemberByUsername(client, u)));
+        // 비활성(퇴사) 계정은 대화할 수 없으므로 없는 사람과 같이 거절한다.
+        const members = found.filter((m): m is MemberRow => m !== undefined && m.active !== false);
+        if (members.length < usernames.length) {
+          const ok = new Set(members.map((m) => m.username));
+          throw new Error(
+            `활성 구성원이 아닌 username: ${usernames.filter((u) => !ok.has(u)).join(', ')}. search_members 로 정확한 username 을 확인하세요.`,
+          );
+        }
+        return JSON.stringify(toDmView(await client.openDm(members.map((m) => m.userId))));
+      },
+    },
+    {
+      name: 'leave_channel',
+      kind: 'write',
+      description:
+        '공개 채널에서 나갑니다(다시 참여 가능). 비공개 채널은 나가면 스스로 돌아올 수 없어 이 도구로 나갈 수 없습니다 — 사용자가 직접 나가도록 안내하세요. ' +
+        '채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다.',
+      inputSchema: leaveChannelInput,
+      async handler(args) {
+        const { channelId } = leaveChannelInput.parse(args);
+        // 비공개 채널 나가기는 사실상 되돌릴 수 없다(join 이 PRIVATE 를 403). 확인 없이 실행되는 도구라 여기서 막는다.
+        const channel = await client.getChannel(channelId);
+        if (channel.visibility !== 'PUBLIC') {
+          throw new Error(
+            `'${channel.name ?? channelId}' 은(는) 공개 채널이 아니어서 나갈 수 없습니다. 나가면 다시 참여할 수 없으니 사용자가 직접 나가야 합니다.`,
+          );
+        }
+        await client.leaveChannel(channelId);
         return 'ok';
       },
     },

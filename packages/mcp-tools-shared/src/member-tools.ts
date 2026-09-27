@@ -4,7 +4,7 @@
 // userId 로 오용하는 사고가 있었으므로 도구 표면에서 이름을 분리한다. 사람은 username 으로 가리키고 숫자 id 는 노출을 최소화한다.
 // 쓰기(외부 연락처 생성·수정, 구성원 역할·활성 변경)는 확인 카드가 있는 ai-agent 쪽에만 있다.
 import { z } from 'zod';
-import type { McpTool } from './mcp-tool.js';
+import type { SharedTool } from './mcp-tool.js';
 import type { MemberRow, MemberToolClient } from './tool-client.js';
 
 /** 연락처 목록 항목 원형 — type 에 따라 id 의 의미가 다르다(MEMBER=user.id, EXTERNAL=contact_entry.id). */
@@ -73,10 +73,11 @@ export const listContactsInput = z.object({
 export const externalContactInput = z.object({ externalId: z.number().int().positive() });
 
 /** 구성원 3종 + 연락처 2종 읽기 도구. */
-export function buildMemberTools(client: MemberToolClient): McpTool[] {
+export function buildMemberTools(client: MemberToolClient): SharedTool[] {
   return [
     {
       name: 'search_members',
+      kind: 'read',
       description:
         '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
         '각 항목의 username 을 담당자(assignees)·멤버 추가·get_member 등 사람을 가리키는 도구에 그대로 넘기세요(숫자 userId 가 아님). ' +
@@ -88,6 +89,7 @@ export function buildMemberTools(client: MemberToolClient): McpTool[] {
     },
     {
       name: 'get_member',
+      kind: 'read',
       description: '구성원 단건(아이디·이메일·직책·활성여부·멤버십 역할)을 JSON 으로 반환합니다. username 은 search_members 로 확보하세요.',
       inputSchema: memberInput,
       async handler(args) {
@@ -98,6 +100,7 @@ export function buildMemberTools(client: MemberToolClient): McpTool[] {
     },
     {
       name: 'get_member_contact',
+      kind: 'read',
       description:
         '사내 구성원의 연락처 상세(직책·소속 그룹·즐겨찾기 여부)를 JSON 으로 반환합니다. 조직/소속을 묻는 질문에 적합합니다. ' +
         '외부 연락처가 아니라 구성원용입니다 — 외부 연락처는 get_external_contact 를 쓰세요.',
@@ -113,6 +116,7 @@ export function buildMemberTools(client: MemberToolClient): McpTool[] {
     },
     {
       name: 'list_contacts',
+      kind: 'read',
       description:
         '연락처 목록을 JSON 으로 반환합니다. type=EXTERNAL 은 외부 연락처(거래처·고객 등), type=MEMBER 는 사내 구성원입니다. ' +
         '**식별자 주의**: MEMBER 항목은 userId(= 사내 구성원 id), EXTERNAL 항목은 externalId(= 외부 연락처 id)를 가지며 둘은 서로 호환되지 않습니다. ' +
@@ -130,6 +134,7 @@ export function buildMemberTools(client: MemberToolClient): McpTool[] {
     },
     {
       name: 'get_external_contact',
+      kind: 'read',
       description:
         '외부 연락처 단건 상세를 JSON 으로 반환합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다. ' +
         '구성원(MEMBER)의 userId 를 넣으면 안 됩니다 — 전혀 다른 사람의 연락처가 나옵니다. 구성원 상세는 get_member_contact 를 쓰세요.',

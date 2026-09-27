@@ -10,13 +10,15 @@ describe('project-agent 정의', () => {
   it('loadSubagents 로 project-agent 가 로드된다', () => {
     expect(loaded['project-agent']).toBeDefined();
   });
-  it('tools 는 read 3 + search_members + propose 3 + submit_response', () => {
+  it('tools 는 read 3 + search_members + update_project + propose 3 + submit_response', () => {
     expect(loaded['project-agent'].tools).toEqual([
       'mcp__workplace__list_projects',
       'mcp__workplace__get_project',
       'mcp__workplace__list_project_members',
       // #833: 이름 → userId 확정 경로. 없으면 에이전트가 연락처 id 를 오용한다.
       'mcp__workplace__search_members',
+      // #855: 이름·설명 직접 수정(OWNER)
+      'mcp__workplace__update_project',
       'mcp__workplace__propose_create_project',
       'mcp__workplace__propose_delete_project',
       'mcp__workplace__propose_add_project_member',

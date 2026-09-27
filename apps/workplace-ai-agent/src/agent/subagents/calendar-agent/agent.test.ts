@@ -10,13 +10,14 @@ describe('calendar-agent 정의', () => {
   it('loadSubagents 로 calendar-agent 가 로드된다', () => {
     expect(loaded['calendar-agent']).toBeDefined();
   });
-  it('tools 는 읽기(list/get) + 생성/수정/삭제 제안(직접 쓰기 없음, #333 M4)', () => {
+  it('tools 는 읽기(list/get) + 생성/수정/삭제 제안(#333 M4) + 참석 응답 rsvp_event(유일한 직접 쓰기)', () => {
     expect(loaded['calendar-agent'].tools).toEqual([
       'mcp__workplace__list_events',
       'mcp__workplace__get_event',
       'mcp__workplace__propose_create_event',
       'mcp__workplace__propose_update_event',
       'mcp__workplace__propose_delete_event',
+      'mcp__workplace__rsvp_event', // #855: 내 참석 응답(직접 실행)
       // #844: 참석자·수신자 이메일 조달 — 구성원 + 외부 연락처
       'mcp__workplace__search_members',
       'mcp__workplace__list_contacts',

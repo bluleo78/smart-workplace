@@ -18,10 +18,22 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 
 ## 앱에서 쓰는 법
 
-- **workplace-mcp**: `buildSharedTools(createPatApiClient(...))` 를 그대로 노출한다. 확인 카드가 없는 PAT 컨텍스트라 조회와 비파괴 쓰기만 공유 도구에 둔다.
+- **workplace-mcp**: `buildSharedTools(createPatApiClient(...))` 에서 `kind: 'destructive'` 를 뺀 나머지를 노출한다. PAT 에는 스코프가 없고 확인 카드도 없어서다.
 - **workplace-ai-agent**: 프로필별로 `sharedTool('이름')` 을 골라 쓴다. 에이전트 전용 도구(`propose_*`, `show_*`, `submit_response`, `unassign_self`, `update_status`, chat, 위임)만 앱에서 직접 정의한다.
 - 공유 도구와 **같은 이름의 도구를 앱에서 다시 정의하지 않는다.** 두 앱의 패리티 테스트가 이름과 `z.toJSONSchema(inputSchema)` 의 일치를 강제한다. ai-agent 에서 안내 문구만 덧붙일 때는 공유본을 펼치고 `description` 만 바꾼다(`list_issues` 가 그 예).
 - `inputSchema` 는 반드시 최상위 `z.object(...)` 여야 한다. 서버 레이어가 `.shape` 를 꺼내 등록하기 때문이다. 공유 패키지 소스를 바꾸면 `pnpm --filter @smart-workplace/mcp-tools-shared build` 를 먼저 돌린다(앱은 `dist` 를 import 한다).
+
+## 도구 등급(kind)
+
+공유 도구는 `SharedTool` 이고 `kind` 가 필수다(#853). 빠뜨리면 타입 오류가 난다.
+
+| kind | 기준 | 예 | workplace-mcp |
+|---|---|---|---|
+| `read` | 상태를 바꾸지 않는다 | `list_issues`, `get_mail` | 노출(`readOnlyHint`) |
+| `write` | 바꾸지만 되돌릴 수 있다. 워크스페이스 안의 알림·메시지는 앱에서 직접 해도 생기는 정상 부작용이라 여기에 든다 | `update_issue`, `rsvp_event`, `open_dm` | 노출 |
+| `destructive` | 되돌릴 수 없거나(영구 삭제) 워크스페이스 밖으로 나간다(메일 발송·외부 공개 링크) | (없음) | **비노출**(`destructiveHint`) |
+
+되돌릴 수 없는 작업이나 대외 발송은 공유 도구보다 ai-agent 의 `propose_*` 확인 카드로 만드는 것이 원칙이다. 등급과 노출 목록은 `shared-tools.test.ts` 와 workplace-mcp `tools/index.test.ts` 의 스냅샷이 고정한다.
 
 ## 파라미터 명명 규칙
 

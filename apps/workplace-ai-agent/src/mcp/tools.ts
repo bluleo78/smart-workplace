@@ -270,6 +270,8 @@ export function buildTools(
   const sharedTool = (name: string): McpTool => {
     const t = shared.find((x) => x.name === name);
     if (!t) throw new Error(`공유 도구 없음: ${name}`);
+    // #853: 되돌릴 수 없는 공유 도구를 직접 실행으로 노출하지 않는다 — 그런 작업은 propose_* 확인 카드로만 한다.
+    if (t.kind === 'destructive') throw new Error(`destructive 공유 도구는 직접 노출할 수 없습니다: ${name}`);
     return t;
   };
 
@@ -987,6 +989,12 @@ export function buildTools(
       sharedTool('list_notifications'), sharedTool('mark_notification_read'), sharedTool('mark_all_notifications_read'),
       createFolderTool, renameFolderTool, moveFolderTool, moveFileTool, // #333 M4: 드라이브 쓰기(직접 실행)
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
+      // #854·#855: 되돌릴 수 있는 쓰기(공유) — 이슈 워치·프로젝트 수정·노트 이동·휴지통 복원·RSVP·채널/DM·메일 AI.
+      sharedTool('watch_issue'), sharedTool('unwatch_issue'), sharedTool('update_project'), sharedTool('move_wiki_page'),
+      sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),
+      sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
+      sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
+      sharedTool('create_issue_from_mail'), sharedTool('set_mail_needs_reply_done'),
       submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)
       ...buildShowTools(),
       // #460 Layer2: 도메인 단순 조회 표시 위젯 — 위임(서브에이전트 nested loop, 느림) 대신 직접 표시.

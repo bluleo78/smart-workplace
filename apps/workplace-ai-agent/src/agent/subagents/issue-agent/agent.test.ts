@@ -12,7 +12,7 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent']).toBeDefined();
   });
 
-  it('tools 는 이슈 MCP 도구 + #371 list_issues + 신규 create/update_issue/edit_comment 를 포함한다', () => {
+  it('tools 는 이슈 MCP 도구 + #371 list_issues + 신규 create/update_issue/edit_comment + watch/unwatch_issue 를 포함한다', () => {
     expect(loaded['issue-agent'].tools).toEqual([
       'mcp__workplace__list_issues',
       'mcp__workplace__get_issue_detail',
@@ -25,6 +25,9 @@ describe('issue-agent 정의', () => {
       // #844: 의존관계 쓰기 + 쓰기 값 조달용 조회(유형·라벨, 사람 username)
       'mcp__workplace__add_issue_dependency',
       'mcp__workplace__remove_issue_dependency',
+      // #854: 이슈 워치/해제(멱등)
+      'mcp__workplace__watch_issue',
+      'mcp__workplace__unwatch_issue',
       'mcp__workplace__get_project',
       'mcp__workplace__search_members',
       'mcp__workplace__submit_response',

@@ -20,3 +20,11 @@ export function toDriveItemsView<F, T extends { id: number; fileId: number }>(r:
     files: r.files.map(({ id, fileId: _coreFileId, ...rest }): DriveFileView<T> => ({ ...rest, driveFileId: id }) as DriveFileView<T>),
   };
 }
+
+/**
+ * 휴지통 항목 → LLM 뷰(#854). 서버는 FILE·FOLDER 모두 id 하나로 주지만 둘은 다른 시퀀스다.
+ * 복원 도구가 driveFileId/folderId 를 나눠 받으므로 뷰도 type 에 맞는 이름으로만 id 를 준다.
+ */
+export function toDriveTrashView<T extends { type: 'FILE' | 'FOLDER'; id: number }>(items: T[]) {
+  return items.map(({ id, ...rest }) => (rest.type === 'FILE' ? { ...rest, driveFileId: id } : { ...rest, folderId: id }));
+}

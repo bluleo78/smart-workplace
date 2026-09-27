@@ -10,7 +10,7 @@ describe('wiki-agent 정의', () => {
   it('loadSubagents 로 wiki-agent 가 로드된다', () => {
     expect(loaded['wiki-agent']).toBeDefined();
   });
-  it('tools 는 읽기(search/get)+쓰기(create/update)', () => {
+  it('tools 는 읽기(search/get)+쓰기(create/update/move)', () => {
     expect(loaded['wiki-agent'].tools).toEqual([
       'mcp__workplace__list_wiki_spaces',
       'mcp__workplace__search_wiki',
@@ -19,6 +19,7 @@ describe('wiki-agent 정의', () => {
       'mcp__workplace__get_wiki_backlinks', // #850: 백링크
       'mcp__workplace__create_wiki_page',
       'mcp__workplace__update_wiki_page',
+      'mcp__workplace__move_wiki_page', // #855: 페이지 이동
       'mcp__workplace__submit_response',
     ]);
   });

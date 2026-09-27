@@ -41,11 +41,11 @@ workplace-mcp 자신은 PAT 를 저장·검증하지 않고 그대로 전달(패
 
 ## 도구 추가 방법
 
-도구 정의(스키마·설명·핸들러)와 REST 경로 매핑은 **공유 패키지 `packages/mcp-tools-shared`** 에 있다(#846). ai-agent 와 같은 정의를 쓰므로 파라미터 이름이 어긋날 수 없다. 이 앱은 인증 헤더(Bearer PAT)가 붙은 axios 인스턴스를 `createSharedToolClient` 에 넘기고, `buildSharedTools` 결과를 그대로 노출한다.
+도구 정의(스키마·설명·핸들러)와 REST 경로 매핑은 **공유 패키지 `packages/mcp-tools-shared`** 에 있다(#846). ai-agent 와 같은 정의를 쓰므로 파라미터 이름이 어긋날 수 없다. 이 앱은 인증 헤더(Bearer PAT)가 붙은 axios 인스턴스를 `createSharedToolClient` 에 넘기고, `buildSharedTools` 결과 중 destructive 를 뺀 나머지를 노출한다.
 
 1. 공유 패키지의 해당 도메인 `src/<domain>-tools.ts` 에 도구를 추가한다. 필요한 경로는 `src/tool-client.ts`(인터페이스)와 `src/rest-client.ts`(구현)에 추가한다. 파라미터 이름은 패키지 README 의 명명 규칙을 따른다.
-2. PAT 컨텍스트에는 확인 카드가 없다. 그래서 공유 도구에는 **조회와 비파괴 쓰기만** 둔다. 파괴적이거나 대외 발송인 쓰기는 ai-agent 의 `propose_*` 로 만든다.
-3. 테스트는 공유 패키지(`<domain>-tools.test.ts`, 스키마 스냅샷 `shared-tools.test.ts`)에 추가한다. 이 앱의 `src/tools/index.test.ts` 는 노출 목록이 공유 정의와 일치하는지만 본다.
+2. PAT 컨텍스트에는 확인 카드가 없다. 공유 도구에는 `kind`(`read`/`write`/`destructive`)가 필수이고, 이 앱은 `destructive` 를 빼고 노출한다(#853, `src/tools/index.ts` 의 `exposableTools`). 파괴적이거나 대외 발송인 쓰기는 ai-agent 의 `propose_*` 로 만든다.
+3. 테스트는 공유 패키지(`<domain>-tools.test.ts`, 스키마 스냅샷 `shared-tools.test.ts`)에 추가한다. 이 앱의 `src/tools/index.test.ts` 는 노출 목록이 공유 정의와 일치하는지, destructive 가 없는지 보고, 노출 이름·kind 를 스냅샷으로 고정한다(새 공유 도구는 이 스냅샷 갱신이 필요하다).
 4. 공유 패키지를 바꾼 뒤에는 `pnpm --filter @smart-workplace/mcp-tools-shared build` 를 돌린다. 앱은 공유 패키지의 `dist` 를 import 한다.
 
 ## 에이전트 전용 도구 노출 금지

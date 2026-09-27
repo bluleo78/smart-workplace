@@ -1,5 +1,64 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
+{
+  "add_channel_message": "write",
+  "add_comment": "write",
+  "add_issue_dependency": "write",
+  "create_channel": "write",
+  "create_issue": "write",
+  "create_issue_from_mail": "write",
+  "create_wiki_page": "write",
+  "draft_issue_from_mail": "read",
+  "draft_mail_reply": "read",
+  "edit_comment": "write",
+  "get_channel_messages": "read",
+  "get_drive_file_summary": "read",
+  "get_event": "read",
+  "get_external_contact": "read",
+  "get_issue_detail": "read",
+  "get_mail": "read",
+  "get_mail_summary": "read",
+  "get_member": "read",
+  "get_member_contact": "read",
+  "get_project": "read",
+  "get_thread_replies": "read",
+  "get_wiki_backlinks": "read",
+  "get_wiki_page": "read",
+  "leave_channel": "write",
+  "list_channels": "read",
+  "list_contacts": "read",
+  "list_drive_items": "read",
+  "list_drive_spaces": "read",
+  "list_drive_trash": "read",
+  "list_events": "read",
+  "list_issues": "read",
+  "list_mail": "read",
+  "list_mail_accounts": "read",
+  "list_notifications": "read",
+  "list_projects": "read",
+  "list_wiki_pages": "read",
+  "list_wiki_spaces": "read",
+  "mark_all_notifications_read": "write",
+  "mark_notification_read": "write",
+  "move_wiki_page": "write",
+  "open_dm": "write",
+  "remove_issue_dependency": "write",
+  "restore_drive_item": "write",
+  "rsvp_event": "write",
+  "search_drive": "read",
+  "search_drive_content": "read",
+  "search_members": "read",
+  "search_wiki": "read",
+  "set_mail_needs_reply_done": "write",
+  "unwatch_issue": "write",
+  "update_issue": "write",
+  "update_project": "write",
+  "update_wiki_page": "write",
+  "watch_issue": "write",
+}
+`;
+
 exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
 [
   {
@@ -78,6 +137,33 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "create_channel",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string",
+        },
+        "visibility": {
+          "default": "PUBLIC",
+          "enum": [
+            "PUBLIC",
+            "PRIVATE",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "name",
+        "visibility",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "create_issue",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -135,6 +221,53 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "create_issue_from_mail",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "assignees": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "body": {
+          "maxLength": 10000,
+          "type": "string",
+        },
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "priority": {
+          "enum": [
+            "LOW",
+            "MID",
+            "HIGH",
+          ],
+          "type": "string",
+        },
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "messageId",
+        "projectKey",
+        "title",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "create_wiki_page",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -159,6 +292,42 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "spaceId",
         "title",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "draft_issue_from_mail",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "draft_mail_reply",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
       ],
       "type": "object",
     },
@@ -306,6 +475,24 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "get_mail_summary",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "get_member",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -411,6 +598,24 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "leave_channel",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "channelId",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "list_channels",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -489,6 +694,24 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {},
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_drive_trash",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "spaceId",
+      ],
       "type": "object",
     },
   },
@@ -731,6 +954,64 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "move_wiki_page",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "pageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "position": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "pageId",
+        "parentId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "open_dm",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "usernames": {
+          "items": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 7,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "usernames",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "remove_issue_dependency",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -756,6 +1037,53 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "issueKey",
         "otherIssueKey",
         "direction",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "restore_drive_item",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "folderId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "type": "object",
+    },
+  },
+  {
+    "name": "rsvp_event",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "eventId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "status": {
+          "enum": [
+            "ACCEPTED",
+            "DECLINED",
+            "TENTATIVE",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "eventId",
+        "status",
       ],
       "type": "object",
     },
@@ -872,6 +1200,52 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "set_mail_needs_reply_done",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "accountId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "done": {
+          "default": true,
+          "type": "boolean",
+        },
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "accountId",
+        "messageId",
+        "done",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "unwatch_issue",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "update_issue",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -893,6 +1267,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "clearStartDate": {
           "type": "boolean",
         },
+        "cycles": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
         "dueDate": {
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "type": "string",
@@ -906,6 +1286,17 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "type": "string",
           },
           "type": "array",
+        },
+        "milestone": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
         },
         "parent": {
           "anyOf": [
@@ -955,6 +1346,39 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "update_project",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string",
+        },
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "update_wiki_page",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -981,6 +1405,23 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "pageId",
         "version",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "watch_issue",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
       ],
       "type": "object",
     },

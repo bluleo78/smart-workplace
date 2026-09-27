@@ -12,6 +12,10 @@ function mockClient(): Client {
     getThreadReplies: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     addChannelMessage: vi.fn().mockResolvedValue(undefined),
     searchMembers: vi.fn().mockResolvedValue([]),
+    getChannel: vi.fn().mockResolvedValue({ id: 4, name: 'general', visibility: 'PUBLIC' }),
+    createChannel: vi.fn().mockResolvedValue({ id: 12, name: 'new', visibility: 'PUBLIC' }),
+    openDm: vi.fn().mockResolvedValue({ id: 20, participants: [] }),
+    leaveChannel: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -196,5 +200,59 @@ describe('add_channel_message @username → <@userId> 멘션 변환', () => {
     const body = Array.from({ length: 25 }, (_, i) => `@u${i}`).join(' ');
     await linkMentions(c, body);
     expect(c.searchMembers).toHaveBeenCalledTimes(20);
+  });
+});
+
+describe('채널·DM 쓰기 (#855)', () => {
+  /** username 정확일치로만 찾히는 구성원 디렉터리. */
+  const directory = (rows: MemberRow[]) => (params: MemberSearchParams) =>
+    Promise.resolve(rows.filter((r) => r.username.includes(params.search ?? '')));
+
+  it('create_channel → visibility 기본 PUBLIC', async () => {
+    const c = mockClient();
+    await tool(c, 'create_channel').handler({ name: '신규' });
+    expect(c.createChannel).toHaveBeenCalledWith({ name: '신규', visibility: 'PUBLIC' });
+  });
+
+  it('open_dm → username 을 userId 로 해석해 열고, channelId·참여자 이름만 돌려준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembers).mockImplementation(
+      directory([{ userId: 5, username: 'kim', name: '김철수' }, { userId: 6, username: 'lee', name: '이영희' }]),
+    );
+    vi.mocked(c.openDm).mockResolvedValue({
+      id: 20,
+      participants: [
+        { userId: 1, name: '나', kind: 'HUMAN' },
+        { userId: 5, name: '김철수', kind: 'HUMAN' },
+      ],
+    });
+    const out = JSON.parse(await tool(c, 'open_dm').handler({ usernames: ['kim'] }));
+    expect(c.openDm).toHaveBeenCalledWith([5]);
+    expect(out).toEqual({ channelId: 20, participants: ['나', '김철수'] });
+  });
+
+  it('open_dm → 없거나 비활성인 username 이 섞이면 DM 을 열지 않고 모아서 알린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembers).mockImplementation(
+      directory([
+        { userId: 5, username: 'kim', name: '김철수' },
+        { userId: 7, username: 'park', name: '박퇴사', active: false },
+      ]),
+    );
+    await expect(tool(c, 'open_dm').handler({ usernames: ['kim', 'park', 'ghost'] })).rejects.toThrow('park, ghost');
+    expect(c.openDm).not.toHaveBeenCalled();
+  });
+
+  it('leave_channel → 공개 채널이면 나간다', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'leave_channel').handler({ channelId: 4 })).toBe('ok');
+    expect(c.leaveChannel).toHaveBeenCalledWith(4);
+  });
+
+  it('leave_channel → 비공개 채널은 스스로 돌아올 수 없어 거절한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getChannel).mockResolvedValue({ id: 4, name: 'secret', visibility: 'PRIVATE' });
+    await expect(tool(c, 'leave_channel').handler({ channelId: 4 })).rejects.toThrow("'secret' 은(는) 공개 채널이 아니어서");
+    expect(c.leaveChannel).not.toHaveBeenCalled();
   });
 });

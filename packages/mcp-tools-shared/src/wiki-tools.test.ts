@@ -12,13 +12,14 @@ function mockClient(): WikiToolClient {
     updateWikiPage: vi.fn().mockResolvedValue({}),
     listWikiPages: vi.fn().mockResolvedValue([]),
     getWikiBacklinks: vi.fn().mockResolvedValue([]),
+    moveWikiPage: vi.fn().mockResolvedValue(undefined),
   };
 }
 
 const tool = (c: WikiToolClient, name: string) => buildWikiTools(c).find((x) => x.name === name)!;
 
 describe('buildWikiTools', () => {
-  it('정확히 7종을 반환한다', () => {
+  it('정확히 8종을 반환한다', () => {
     expect(buildWikiTools(mockClient()).map((t) => t.name).sort()).toEqual(
       [
         'create_wiki_page',
@@ -26,6 +27,7 @@ describe('buildWikiTools', () => {
         'get_wiki_page',
         'list_wiki_pages',
         'list_wiki_spaces',
+        'move_wiki_page',
         'search_wiki',
         'update_wiki_page',
       ].sort(),
@@ -139,5 +141,25 @@ describe('buildWikiTools', () => {
     const out = await tool(c, 'get_wiki_backlinks').handler({ pageId: 3 });
     expect(c.getWikiBacklinks).toHaveBeenCalledWith(3);
     expect(JSON.parse(out)).toEqual([{ pageId: 5, spaceName: '팀', title: '참조', updatedAt: 't' }]);
+  });
+});
+
+describe('move_wiki_page (#854)', () => {
+  it('position 생략 시 맨 끝(서버가 형제 수로 자르는 큰 값)으로 보낸다', async () => {
+    const c = mockClient();
+    await tool(c, 'move_wiki_page').handler({ pageId: 3, parentId: 9 });
+    expect(c.moveWikiPage).toHaveBeenCalledWith(3, { parentId: 9, position: 2_147_483_647 });
+  });
+
+  it('parentId null=최상위, position 은 그대로', async () => {
+    const c = mockClient();
+    await tool(c, 'move_wiki_page').handler({ pageId: 3, parentId: null, position: 0 });
+    expect(c.moveWikiPage).toHaveBeenCalledWith(3, { parentId: null, position: 0 });
+  });
+
+  it('parentId 는 생략할 수 없다 — 생략을 루트로 해석하면 순서만 바꾸려던 호출이 페이지를 끌어올린다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'move_wiki_page').handler({ pageId: 3, position: 1 })).rejects.toThrow();
+    expect(c.moveWikiPage).not.toHaveBeenCalled();
   });
 });

@@ -10,17 +10,19 @@ describe('drive-agent 정의', () => {
   it('loadSubagents 로 drive-agent 가 로드된다', () => {
     expect(loaded['drive-agent']).toBeDefined();
   });
-  it('tools 는 읽기 5개 + 쓰기 4개 + 삭제제안 2개 + submit_response(총 12개)', () => {
+  it('tools 는 읽기 6개 + 쓰기 5개 + 삭제제안 2개 + submit_response(총 14개)', () => {
     expect(loaded['drive-agent'].tools).toEqual([
       'mcp__workplace__list_drive_spaces',
       'mcp__workplace__list_drive_items',
       'mcp__workplace__search_drive',
       'mcp__workplace__get_drive_file_summary',
       'mcp__workplace__search_drive_content',
+      'mcp__workplace__list_drive_trash', // #855: 휴지통 조회
       'mcp__workplace__create_folder',
       'mcp__workplace__rename_folder',
       'mcp__workplace__move_folder',
       'mcp__workplace__move_file',
+      'mcp__workplace__restore_drive_item', // #855: 휴지통 복원
       'mcp__workplace__propose_delete_file',
       'mcp__workplace__propose_delete_folder',
       'mcp__workplace__submit_response',

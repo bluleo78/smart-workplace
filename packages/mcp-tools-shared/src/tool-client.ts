@@ -81,6 +81,11 @@ export interface IssueToolClient extends ProjectMetaClient {
   /** 갱신된 상세 raw 반환. */
   addIssueDependency(issueKey: string, otherNumber: number, direction: 'blocks' | 'blockedBy'): Promise<unknown>;
   removeIssueDependency(issueKey: string, otherNumber: number, direction: 'blocks' | 'blockedBy'): Promise<void>;
+  /** PUT .../cycles — 사이클 집합 교체(빈 배열=전부 해제). */
+  replaceIssueCycles(issueKey: string, cycleIds: number[]): Promise<unknown>;
+  /** POST/DELETE .../watch — 멱등(이미 워치 중이면 no-op). */
+  watchIssue(issueKey: string): Promise<void>;
+  unwatchIssue(issueKey: string): Promise<void>;
 }
 
 /** 노트 페이지 요약 행(GET /wiki/spaces/{id}/pages) — 트리 조립에 쓰는 필드만 고정한다. */
@@ -103,11 +108,15 @@ export interface WikiToolClient {
   listWikiPages(spaceId: number): Promise<WikiPageRow[]>;
   /** GET /wiki/pages/{id}/backlinks — 래퍼 { items } 를 벗긴 배열. */
   getWikiBacklinks(pageId: number): Promise<unknown>;
+  /** PATCH /wiki/pages/{id}/move — parentId null=루트, position 은 서버가 0..형제수로 자른다. */
+  moveWikiPage(pageId: number, body: { parentId: number | null; position: number }): Promise<void>;
 }
 
 export interface CalendarToolClient {
   listEvents(from: string, to: string): Promise<EventRow[]>;
   getEvent(eventId: number): Promise<unknown>;
+  /** PATCH /calendar/events/{id}/rsvp — 내가 초대받은 일정에만 응답한다(아니면 404). */
+  rsvpEvent(eventId: number, status: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE'): Promise<void>;
 }
 
 export interface MailToolClient {
@@ -117,6 +126,21 @@ export interface MailToolClient {
     params: { folder: string; limit: number; query?: string; unread?: boolean },
   ): Promise<unknown>;
   getMail(messageId: number): Promise<unknown>;
+  /** GET .../summary — 없으면 생성해 캐시한다(메일 원문은 바꾸지 않음). */
+  getMailSummary(messageId: number): Promise<unknown>;
+  /** POST .../reply-draft — 초안 본문만 돌려준다(저장·발송 없음). */
+  draftMailReply(messageId: number): Promise<unknown>;
+  /** POST .../issue-draft — 이슈 초안·후보 프로젝트만 돌려준다(저장 없음). */
+  draftIssueFromMail(messageId: number): Promise<unknown>;
+  /** GET .../linked-issue — 이 메일로 만든 이슈. 없으면 null. */
+  getMailLinkedIssue(messageId: number): Promise<{ issueKey: string } | null>;
+  /** POST .../issue — 메일을 이슈로 만들고 백레퍼런스를 남긴다(서버 중복 방지 없음 → 도구가 linked-issue 로 막는다). */
+  promoteMailToIssue(
+    messageId: number,
+    body: { projectKey: string; title: string; body?: string; priority?: string; assigneeIds?: number[] },
+  ): Promise<{ issueKey: string }>;
+  /** POST/DELETE .../needs-reply-done — 회신필요 처리완료 표시/해제. */
+  setMailNeedsReplyDone(accountId: number, messageId: number, done: boolean): Promise<void>;
 }
 
 export interface MemberToolClient {
@@ -137,6 +161,14 @@ export interface MessagingToolClient {
    * 래퍼를 벗기지 않는다: hasMore 를 버리면 긴 스레드의 최신 답글이 잘린 걸 모른 채 요약하게 된다.
    */
   getThreadReplies(messageId: number, params: { limit: number; cursor?: string }): Promise<ThreadReplyPage>;
+  /** GET /messaging/channels/{id} — 나가기 전 공개 여부 확인용. */
+  getChannel(channelId: number): Promise<{ id: number; name?: string; visibility?: string; kind?: string }>;
+  /** POST /messaging/channels — 생성자가 OWNER 가 된다. 이름 중복은 409. */
+  createChannel(body: { name: string; visibility: 'PUBLIC' | 'PRIVATE' }): Promise<unknown>;
+  /** POST /messaging/dms — 같은 참여자 DM 이 있으면 그것을 돌려준다(find-or-create). */
+  openDm(userIds: number[]): Promise<{ id: number; participants?: { name: string; [key: string]: unknown }[] }>;
+  /** POST /messaging/channels/{id}/leave — 이미 비멤버면 no-op, OWNER 는 409. */
+  leaveChannel(channelId: number): Promise<void>;
 }
 
 export interface DriveToolClient {
@@ -148,6 +180,18 @@ export interface DriveToolClient {
   getDriveFileSummary(driveFileId: number): Promise<unknown>;
   /** GET /drive/search — 추출 텍스트 내용 검색. 응답 { hits, semantic } 원형(hit 의 core fileId 제거는 핸들러). */
   searchDriveContent(params: { q: string; spaceId?: number; limit: number }): Promise<DriveContentSearchResult>;
+  /** GET /drive/spaces/{id}/trash — 휴지통 루트 항목(래퍼 { items } 를 벗긴 배열). */
+  listDriveTrash(spaceId: number): Promise<DriveTrashRow[]>;
+  /** POST /drive/files|folders/{id}/restore — 같은 삭제 묶음이 함께 복원된다. */
+  restoreDriveFile(driveFileId: number): Promise<void>;
+  restoreDriveFolder(folderId: number): Promise<void>;
+}
+
+/** 휴지통 항목 — type 에 따라 id 가 drive_file.id(FILE) 또는 폴더 id(FOLDER)다. 뷰가 이름을 나눠 붙이므로 그 필드를 고정한다. */
+export interface DriveTrashRow {
+  type: 'FILE' | 'FOLDER';
+  id: number;
+  [key: string]: unknown;
 }
 
 /** 스레드 답글 한 페이지 — 핸들러가 nextCursor 를 따라 모으고 행을 줄이므로 그 필드만 고정한다. */
@@ -187,7 +231,10 @@ export interface NotificationToolClient {
 
 export interface ProjectToolClient extends ProjectMetaClient {
   listProjects(page: number, size: number): Promise<unknown>;
-  getProject(projectKey: string): Promise<unknown>;
+  /** 병합(update_project)이 읽는 name·description 만 타입으로 고정한다. */
+  getProject(projectKey: string): Promise<{ name: string; description?: string | null; [key: string]: unknown }>;
+  /** PATCH /projects/{key} — 부분 수정이 아니다(name 필수, description 생략=null 로 덮어씀). 병합은 핸들러가 한다. */
+  updateProject(projectKey: string, body: { name: string; description: string | null }): Promise<unknown>;
   /** GET /me/issues — 응답 래퍼 { items } 를 벗긴 이슈 행 배열(가공은 핸들러). */
   listIssues(query: IssueListQuery): Promise<IssueRow[]>;
 }

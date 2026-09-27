@@ -1,8 +1,8 @@
-// src/issue-tools.ts — 두 앱 공유 이슈 도구 7종. 핸들러는 IssueToolClient(issueKey 기준)만 호출.
+// src/issue-tools.ts — 두 앱 공유 이슈 도구 9종. 핸들러는 IssueToolClient(issueKey 기준)만 호출.
 import { errText, parseIssueKey } from './parse.js';
-import type { McpTool } from './mcp-tool.js';
+import type { SharedTool } from './mcp-tool.js';
 import { normalizeIssueDetail } from './issue-detail.js';
-import { resolveAssigneeIds, resolveLabelIds, resolveTypeId } from './resolve.js';
+import { resolveAssigneeIds, resolveCycleIds, resolveLabelIds, resolveMilestoneId, resolveTypeId } from './resolve.js';
 import {
   addCommentInput,
   createIssueInput,
@@ -13,11 +13,12 @@ import {
 } from './schemas.js';
 import type { IssueToolClient } from './tool-client.js';
 
-/** 공유 이슈 도구 7종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
-export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
+/** 공유 이슈 도구 9종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
+export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
   return [
     {
       name: 'get_issue_detail',
+      kind: 'read',
       description:
         '이슈의 본문·상태·담당자·코멘트·의존성 등 전체 컨텍스트를 JSON 으로 반환합니다. issueKey 예: WP-12',
       inputSchema: issueKeyInput,
@@ -28,6 +29,7 @@ export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
     },
     {
       name: 'create_issue',
+      kind: 'write',
       description:
         '프로젝트에 새 이슈를 등록합니다. type 은 유형 이름(예: BUG), assignees 는 username 배열, ' +
         'parent 는 부모 이슈 번호입니다. type/assignees 이름이 유효하지 않으면 오류에 사용 가능한 값 목록이 포함됩니다.',
@@ -53,21 +55,26 @@ export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
     },
     {
       name: 'update_issue',
+      kind: 'write',
       description:
         '이슈를 부분 수정합니다. 전달한 필드만 변경됩니다. status/priority 는 enum, type 은 유형 이름, ' +
         'assignees 는 username 배열(집합 교체), labels 는 라벨명 배열(집합 교체), parent 는 부모 이슈 번호(null=해제)입니다. ' +
+        'milestone 은 마일스톤 이름(null=해제), cycles 는 사이클 이름 배열(집합 교체, []=전부 해제)입니다. ' +
         'clearDueDate/clearStartDate 로 날짜를 비웁니다. 각 항목은 독립 저장되며 결과를 { ok, results } 로 보고합니다.',
       inputSchema: updateIssueInput,
       async handler(args) {
-        const { issueKey, type, parent, assignees, labels, ...rest } = updateIssueInput.parse(args);
+        const { issueKey, type, parent, assignees, labels, milestone, cycles, ...rest } = updateIssueInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
 
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
-        const typeId = type ? await resolveTypeId(client, projectKey, type) : undefined;
-        const assigneeIds = assignees
-          ? await resolveAssigneeIds(client, projectKey, assignees)
-          : undefined;
-        const labelIds = labels ? await resolveLabelIds(client, projectKey, labels) : undefined;
+        //    서로 독립 조회라 병렬로 보낸다.
+        const [typeId, assigneeIds, labelIds, milestoneId, cycleIds] = await Promise.all([
+          type ? resolveTypeId(client, projectKey, type) : undefined,
+          assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
+          labels ? resolveLabelIds(client, projectKey, labels) : undefined,
+          milestone ? resolveMilestoneId(client, projectKey, milestone) : undefined,
+          cycles ? resolveCycleIds(client, projectKey, cycles) : undefined,
+        ]);
 
         // 2) 필드별 팬아웃 — 각 단계 독립 저장, 성공/실패 구조화.
         const results: Record<string, string> = {};
@@ -80,7 +87,10 @@ export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
           }
         };
 
+        // 마일스톤은 이슈 PATCH 본문의 필드다(milestoneId 설정 / clearMilestone 해제).
         const content: Record<string, unknown> = { ...rest };
+        if (milestoneId !== undefined) content.milestoneId = milestoneId;
+        if (milestone === null) content.clearMilestone = true;
         if (Object.keys(content).length > 0) {
           await run('content', () => client.updateIssueContent(issueKey, content));
         }
@@ -92,6 +102,7 @@ export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
         if (labelIds !== undefined) {
           await run('labels', () => client.replaceIssueLabels(issueKey, labelIds));
         }
+        if (cycleIds !== undefined) await run('cycles', () => client.replaceIssueCycles(issueKey, cycleIds));
 
         const ok = Object.values(results).every((v) => v === 'ok');
         return JSON.stringify({ ok, results });
@@ -99,6 +110,7 @@ export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
     },
     {
       name: 'add_comment',
+      kind: 'write',
       description: '이슈에 코멘트를 작성합니다. 본문은 마크다운을 지원합니다.',
       inputSchema: addCommentInput,
       async handler(args) {
@@ -109,6 +121,7 @@ export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
     },
     {
       name: 'edit_comment',
+      kind: 'write',
       description:
         '이슈의 기존 코멘트를 수정합니다. commentId 는 get_issue_detail 의 comments 에서 확인하세요.',
       inputSchema: editCommentInput,
@@ -120,6 +133,7 @@ export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
     },
     {
       name: 'add_issue_dependency',
+      kind: 'write',
       description:
         '이슈 간 의존성(차단 관계)을 추가합니다. direction="blocks" 면 issueKey 이슈가 ' +
         'otherIssueKey 이슈를 차단하고, "blockedBy" 면 반대로 otherIssueKey 에 의해 차단됩니다. ' +
@@ -137,6 +151,7 @@ export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
     },
     {
       name: 'remove_issue_dependency',
+      kind: 'write',
       description: '이슈 간 의존성을 제거합니다. 존재하지 않아도 에러 없이 성공합니다(멱등).',
       inputSchema: dependencyInput,
       async handler(args) {
@@ -147,6 +162,29 @@ export function buildSharedIssueTools(client: IssueToolClient): McpTool[] {
           throw new Error('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
         }
         await client.removeIssueDependency(issueKey, otherNumber, direction);
+        return 'ok';
+      },
+    },
+    {
+      name: 'watch_issue',
+      kind: 'write',
+      description:
+        '이슈를 워치해 이후 변경 알림을 받습니다. 이미 워치 중이면 아무것도 바뀌지 않습니다. 프로젝트 멤버만 할 수 있습니다.',
+      inputSchema: issueKeyInput,
+      async handler(args) {
+        const { issueKey } = issueKeyInput.parse(args);
+        await client.watchIssue(issueKey);
+        return 'ok';
+      },
+    },
+    {
+      name: 'unwatch_issue',
+      kind: 'write',
+      description: '이슈 워치를 해제해 변경 알림을 그만 받습니다. 워치 중이 아니어도 에러 없이 성공합니다.',
+      inputSchema: issueKeyInput,
+      async handler(args) {
+        const { issueKey } = issueKeyInput.parse(args);
+        await client.unwatchIssue(issueKey);
         return 'ok';
       },
     },

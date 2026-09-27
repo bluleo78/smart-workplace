@@ -36,6 +36,10 @@ describe('/mcp', () => {
     const client = await connect('swp_valid');
     const tools = await client.listTools();
     expect(tools.tools.map((t) => t.name)).toContain('create_issue');
+    // #853: kind 가 MCP 표준 힌트로 나가야 클라이언트가 읽기 자동승인·쓰기 확인을 구분한다.
+    const byName = new Map(tools.tools.map((t) => [t.name, t.annotations]));
+    expect(byName.get('get_issue_detail')).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+    expect(byName.get('create_issue')).toMatchObject({ readOnlyHint: false, destructiveHint: false });
   });
 
   it('tools/call create_issue 가 같은 Bearer 로 workplace-api 를 호출한다', async () => {

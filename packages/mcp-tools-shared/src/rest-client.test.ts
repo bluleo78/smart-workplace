@@ -191,6 +191,66 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/notifications/read-all');
   });
 
+  it('#854 업무 쓰기 경로: 사이클·워치·마일스톤/사이클 목록·프로젝트 수정·노트 이동·휴지통', async () => {
+    const { http, client } = mockHttp();
+    await client.replaceIssueCycles('WP-3', [1, 2]);
+    expect(http.put).toHaveBeenCalledWith('/projects/WP/issues/3/cycles', { cycleIds: [1, 2] });
+    await client.watchIssue('WP-3');
+    expect(http.post).toHaveBeenCalledWith('/projects/WP/issues/3/watch');
+    await client.unwatchIssue('WP-3');
+    expect(http.delete).toHaveBeenCalledWith('/projects/WP/issues/3/watch');
+    expect(await client.getProjectMilestones('WP')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/milestones');
+    expect(await client.getProjectCycles('WP')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/cycles');
+    await client.updateProject('WP', { name: 'n', description: null });
+    expect(http.patch).toHaveBeenCalledWith('/projects/WP', { name: 'n', description: null });
+    await client.moveWikiPage(4, { parentId: null, position: 0 });
+    expect(http.patch).toHaveBeenCalledWith('/wiki/pages/4/move', { parentId: null, position: 0 });
+    http.get.mockResolvedValueOnce({ data: { items: [{ type: 'FILE', id: 1 }] } });
+    expect(await client.listDriveTrash(2)).toEqual([{ type: 'FILE', id: 1 }]);
+    expect(http.get).toHaveBeenLastCalledWith('/drive/spaces/2/trash');
+    await client.restoreDriveFile(5);
+    await client.restoreDriveFolder(6);
+    expect(http.post).toHaveBeenCalledWith('/drive/files/5/restore');
+    expect(http.post).toHaveBeenCalledWith('/drive/folders/6/restore');
+  });
+
+  it('#855 소통 쓰기 경로: RSVP·채널·DM·메일 AI·회신필요', async () => {
+    const { http, client } = mockHttp();
+    await client.rsvpEvent(7, 'TENTATIVE');
+    expect(http.patch).toHaveBeenCalledWith('/calendar/events/7/rsvp', { status: 'TENTATIVE' });
+    await client.getChannel(9);
+    expect(http.get).toHaveBeenCalledWith('/messaging/channels/9');
+    await client.createChannel({ name: 'c', visibility: 'PRIVATE' });
+    expect(http.post).toHaveBeenCalledWith('/messaging/channels', { name: 'c', visibility: 'PRIVATE' });
+    await client.openDm([5]);
+    expect(http.post).toHaveBeenCalledWith('/messaging/dms', { userIds: [5] });
+    await client.leaveChannel(9);
+    expect(http.post).toHaveBeenCalledWith('/messaging/channels/9/leave');
+    await client.getMailSummary(3);
+    expect(http.get).toHaveBeenCalledWith('/mail/messages/3/summary');
+    await client.draftMailReply(3);
+    expect(http.post).toHaveBeenCalledWith('/mail/messages/3/reply-draft');
+    await client.draftIssueFromMail(3);
+    expect(http.post).toHaveBeenCalledWith('/mail/messages/3/issue-draft');
+    await client.promoteMailToIssue(3, { projectKey: 'WP', title: 't' });
+    expect(http.post).toHaveBeenCalledWith('/mail/messages/3/issue', { projectKey: 'WP', title: 't' });
+    await client.setMailNeedsReplyDone(1, 3, true);
+    expect(http.post).toHaveBeenCalledWith('/mail/accounts/1/messages/3/needs-reply-done');
+    await client.setMailNeedsReplyDone(1, 3, false);
+    expect(http.delete).toHaveBeenCalledWith('/mail/accounts/1/messages/3/needs-reply-done');
+  });
+
+  it('getMailLinkedIssue 는 서버의 { issueKey: null } 을 null 로 바꾼다', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { issueKey: null } });
+    expect(await client.getMailLinkedIssue(3)).toBeNull();
+    http.get.mockResolvedValueOnce({ data: { issueKey: 'WP-2' } });
+    expect(await client.getMailLinkedIssue(3)).toEqual({ issueKey: 'WP-2' });
+    expect(http.get).toHaveBeenCalledWith('/mail/messages/3/linked-issue');
+  });
+
   it('목록형 조회는 data 가 없으면 빈 배열로 대체한다', async () => {
     const { client } = mockHttp();
     expect(await client.listWikiSpaces()).toEqual([]);

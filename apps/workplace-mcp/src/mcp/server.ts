@@ -16,7 +16,12 @@ export function buildMcpServer(apiBaseUrl: string, token: string): McpServer {
   for (const t of buildUserTools(client)) {
     server.registerTool(
       t.name,
-      { description: t.description, inputSchema: (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape },
+      {
+        description: t.description,
+        inputSchema: (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape,
+        // #853: 클라이언트(Claude Desktop 등)가 읽기 도구는 자동 승인하고 쓰기는 확인을 받도록 등급을 힌트로 알린다.
+        annotations: { readOnlyHint: t.kind === 'read', destructiveHint: t.kind === 'destructive' },
+      },
       async (args: unknown) => {
         try {
           return { content: [{ type: 'text' as const, text: await t.handler(args) }] };

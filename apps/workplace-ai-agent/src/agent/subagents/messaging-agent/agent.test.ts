@@ -10,13 +10,17 @@ describe('messaging-agent 정의', () => {
   it('loadSubagents 로 messaging-agent 가 로드된다', () => {
     expect(loaded['messaging-agent']).toBeDefined();
   });
-  it('tools 는 채널 읽기+쓰기+목록/탐색(propose 없음)', () => {
+  it('tools 는 채널 읽기+쓰기+목록/탐색+채널 생성·DM 열기·나가기(propose 없음)', () => {
     expect(loaded['messaging-agent'].tools).toEqual([
       'mcp__workplace__get_channel_messages',
       'mcp__workplace__get_thread_replies', // #850: 스레드 답글
       'mcp__workplace__add_channel_message',
       'mcp__workplace__list_channels',
       'mcp__workplace__discover_channels',
+      // #855: 채널 생성·DM 열기·공개 채널 나가기
+      'mcp__workplace__create_channel',
+      'mcp__workplace__open_dm',
+      'mcp__workplace__leave_channel',
       'mcp__workplace__search_members', // #844: 이름 → 멘션 userId
       'mcp__workplace__submit_response',
     ]);

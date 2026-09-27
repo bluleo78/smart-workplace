@@ -7,6 +7,7 @@ function mockClient(): CalendarToolClient {
   return {
     listEvents: vi.fn().mockResolvedValue([]),
     getEvent: vi.fn().mockResolvedValue({}),
+    rsvpEvent: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -62,5 +63,20 @@ describe('buildCalendarTools', () => {
     const c = mockClient();
     await expect(tool(c, 'get_event').handler({ id: 1 })).rejects.toThrow();
     expect(c.getEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('rsvp_event (#855)', () => {
+  it('status 를 그대로 client.rsvpEvent 에 넘긴다', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'rsvp_event').handler({ eventId: 7, status: 'DECLINED' })).toBe('ok');
+    expect(c.rsvpEvent).toHaveBeenCalledWith(7, 'DECLINED');
+  });
+
+  it('status 는 필수 — 서버는 null 을 통과시키므로 도구가 막는다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'rsvp_event').handler({ eventId: 7 })).rejects.toThrow();
+    await expect(tool(c, 'rsvp_event').handler({ eventId: 7, status: 'NEEDS_ACTION' })).rejects.toThrow();
+    expect(c.rsvpEvent).not.toHaveBeenCalled();
   });
 });

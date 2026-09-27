@@ -4,7 +4,7 @@
 // 읽음 처리는 본인 알림 상태만 바꾸는 비파괴 쓰기라 확인 카드 없이 직접 실행한다.
 import { z } from 'zod';
 import { dropEmpty } from './compact.js';
-import type { McpTool } from './mcp-tool.js';
+import type { SharedTool } from './mcp-tool.js';
 import { formatIssueKey } from './parse.js';
 import type { NotificationRow, NotificationToolClient } from './tool-client.js';
 
@@ -52,10 +52,11 @@ async function collectUnread(client: NotificationToolClient, limit: number, unre
 }
 
 /** 알림 도구(list_notifications/mark_notification_read/mark_all_notifications_read). */
-export function buildNotifyTools(client: NotificationToolClient): McpTool[] {
+export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
   return [
     {
       name: 'list_notifications',
+      kind: 'read',
       description:
         '내 알림 인박스를 최신순으로 JSON({unreadCount, items})으로 반환합니다. unreadCount 는 전체 안 읽은 알림 수입니다. ' +
         'type: ASSIGNED(담당 지정)·COMMENTED(코멘트)·STATUS_CHANGED·PRIORITY_CHANGED·REMINDER(일정 알림)·CALENDAR_INVITED(일정 초대)·CALENDAR_RSVP_CHANGED(참석 응답 변경). ' +
@@ -80,6 +81,7 @@ export function buildNotifyTools(client: NotificationToolClient): McpTool[] {
     },
     {
       name: 'mark_notification_read',
+      kind: 'write',
       description: '알림 하나를 읽음 처리합니다. notificationId 는 list_notifications 결과의 값입니다. 이미 읽은 알림이어도 오류 없이 성공합니다.',
       inputSchema: markNotificationReadInput,
       async handler(args) {
@@ -90,6 +92,7 @@ export function buildNotifyTools(client: NotificationToolClient): McpTool[] {
     },
     {
       name: 'mark_all_notifications_read',
+      kind: 'write',
       description: '내 알림을 모두 읽음 처리합니다. 사용자가 "알림 다 읽음으로" 처럼 전체 처리를 요청했을 때만 호출하세요.',
       inputSchema: z.object({}),
       async handler() {

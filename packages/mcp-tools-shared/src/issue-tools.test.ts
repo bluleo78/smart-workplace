@@ -19,14 +19,29 @@ function mockClient(): IssueToolClient {
     editComment: vi.fn().mockResolvedValue(undefined),
     addIssueDependency: vi.fn().mockResolvedValue({ summary: { title: 't', status: 'TODO', priority: 'MID', assignees: [] } }),
     removeIssueDependency: vi.fn().mockResolvedValue(undefined),
+    getProjectMilestones: vi.fn().mockResolvedValue([{ id: 7, name: 'v1.0' }]),
+    getProjectCycles: vi.fn().mockResolvedValue([{ id: 30, name: 'Sprint 3' }]),
+    replaceIssueCycles: vi.fn().mockResolvedValue([]),
+    watchIssue: vi.fn().mockResolvedValue(undefined),
+    unwatchIssue: vi.fn().mockResolvedValue(undefined),
   };
 }
 
 describe('buildSharedIssueTools', () => {
-  it('정확히 7종을 반환한다', () => {
+  it('정확히 9종을 반환한다', () => {
     const names = buildSharedIssueTools(mockClient()).map((t) => t.name).sort();
     expect(names).toEqual(
-      ['add_comment', 'add_issue_dependency', 'create_issue', 'edit_comment', 'get_issue_detail', 'remove_issue_dependency', 'update_issue'].sort(),
+      [
+        'add_comment',
+        'add_issue_dependency',
+        'create_issue',
+        'edit_comment',
+        'get_issue_detail',
+        'remove_issue_dependency',
+        'unwatch_issue',
+        'update_issue',
+        'watch_issue',
+      ].sort(),
     );
   });
 
@@ -65,6 +80,40 @@ describe('buildSharedIssueTools', () => {
     expect(out.results).toEqual({ content: 'ok', assignees: 'ok' });
     expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { title: '수정' });
     expect(c.replaceIssueAssignees).toHaveBeenCalledWith('WP-12', [10]);
+  });
+
+  it('update_issue 는 milestone 이름을 milestoneId 로, cycles 이름을 집합 교체로 보낸다 (#854)', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(await t.handler({ issueKey: 'WP-12', milestone: 'v1.0', cycles: ['Sprint 3'] }));
+    expect(out.results).toEqual({ content: 'ok', cycles: 'ok' });
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { milestoneId: 7 });
+    expect(c.replaceIssueCycles).toHaveBeenCalledWith('WP-12', [30]);
+  });
+
+  it('update_issue 는 milestone null 이면 clearMilestone, cycles [] 면 전부 해제 (#854)', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', milestone: null, cycles: [] });
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { clearMilestone: true });
+    expect(c.replaceIssueCycles).toHaveBeenCalledWith('WP-12', []);
+    expect(c.getProjectMilestones).not.toHaveBeenCalled();
+  });
+
+  it('update_issue 는 모르는 마일스톤이면 아무것도 쓰지 않고 throw (#854)', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await expect(t.handler({ issueKey: 'WP-12', title: '수정', milestone: 'v9' })).rejects.toThrow('사용 가능: v1.0');
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+  });
+
+  it('watch_issue / unwatch_issue 는 issueKey 로 호출 (#854)', async () => {
+    const c = mockClient();
+    const tools = buildSharedIssueTools(c);
+    await expect(tools.find((x) => x.name === 'watch_issue')!.handler({ issueKey: 'WP-3' })).resolves.toBe('ok');
+    await expect(tools.find((x) => x.name === 'unwatch_issue')!.handler({ issueKey: 'WP-3' })).resolves.toBe('ok');
+    expect(c.watchIssue).toHaveBeenCalledWith('WP-3');
+    expect(c.unwatchIssue).toHaveBeenCalledWith('WP-3');
   });
 
   it('add_issue_dependency 는 다른 프로젝트면 클라이언트측 거부', async () => {

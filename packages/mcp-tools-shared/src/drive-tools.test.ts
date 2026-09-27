@@ -10,6 +10,9 @@ function mockClient(): DriveToolClient {
     searchDrive: vi.fn().mockResolvedValue({ folders: [], files: [] }),
     getDriveFileSummary: vi.fn().mockResolvedValue({ summary: null, status: 'PENDING', reason: null }),
     searchDriveContent: vi.fn().mockResolvedValue({ hits: [], semantic: false }),
+    listDriveTrash: vi.fn().mockResolvedValue([]),
+    restoreDriveFile: vi.fn().mockResolvedValue(undefined),
+    restoreDriveFolder: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -117,5 +120,37 @@ describe('buildDriveTools', () => {
     await tool(c, 'search_drive_content').handler({ query: '계약', spaceId: 2, limit: 30 });
     expect(c.searchDriveContent).toHaveBeenCalledWith({ q: '계약', spaceId: 2, limit: 30 });
     await expect(tool(c, 'search_drive_content').handler({ query: '계약', limit: 51 })).rejects.toThrow();
+  });
+});
+
+describe('휴지통 (#854)', () => {
+  it('list_drive_trash → 파일은 driveFileId, 폴더는 folderId 로만 id 를 노출한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listDriveTrash).mockResolvedValue([
+      { type: 'FILE', id: 5, name: 'a.pdf', originalPath: '/문서' },
+      { type: 'FOLDER', id: 5, name: '보관', originalPath: '/' },
+    ]);
+    const out = JSON.parse(await tool(c, 'list_drive_trash').handler({ spaceId: 2 }));
+    expect(c.listDriveTrash).toHaveBeenCalledWith(2);
+    expect(out).toEqual([
+      { type: 'FILE', driveFileId: 5, name: 'a.pdf', originalPath: '/문서' },
+      { type: 'FOLDER', folderId: 5, name: '보관', originalPath: '/' },
+    ]);
+  });
+
+  it('restore_drive_item → driveFileId 면 파일, folderId 면 폴더 복원', async () => {
+    const c = mockClient();
+    await tool(c, 'restore_drive_item').handler({ driveFileId: 5 });
+    await tool(c, 'restore_drive_item').handler({ folderId: 6 });
+    expect(c.restoreDriveFile).toHaveBeenCalledWith(5);
+    expect(c.restoreDriveFolder).toHaveBeenCalledWith(6);
+  });
+
+  it('restore_drive_item → 둘 다 주거나 둘 다 없으면 거절(시퀀스가 달라 모호하다)', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'restore_drive_item').handler({ driveFileId: 5, folderId: 6 })).rejects.toThrow();
+    await expect(tool(c, 'restore_drive_item').handler({})).rejects.toThrow();
+    expect(c.restoreDriveFile).not.toHaveBeenCalled();
+    expect(c.restoreDriveFolder).not.toHaveBeenCalled();
   });
 });
