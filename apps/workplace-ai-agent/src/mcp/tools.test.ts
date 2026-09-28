@@ -243,7 +243,7 @@ describe('프로필 구성', () => {
       'create_folder', 'rename_folder', 'move_folder', 'move_file', 'propose_delete_file', 'propose_delete_folder',
       // #856 확인카드 제안
       'propose_add_attendees', 'propose_remove_attendee', 'propose_update_project_member_role', 'propose_remove_project_member',
-      'propose_add_channel_member', 'propose_delete_issue', 'propose_delete_comment', 'propose_delete_wiki_page',
+      'propose_add_channel_member', 'propose_leave_channel', 'propose_delete_issue', 'propose_delete_comment', 'propose_delete_wiki_page',
       // 위임 답 제출 + 표시 위젯
       'submit_response',
       'show_my_tasks', 'show_issue_list', 'show_issue_detail', 'show_activity', 'show_mail_list',
@@ -1152,6 +1152,18 @@ describe('#856 propose 도구', () => {
     const inactive = await run(c, 'propose_add_channel_member', { channelId: 3, username: 'retired', summary: 's' });
     expect(inactive.out).toContain('비활성');
     expect(inactive.sink).toHaveLength(0);
+  });
+
+  it('propose_leave_channel → 비공개 채널만 제안(params.id), 공개 채널은 leave_channel 로 안내', async () => {
+    const c = client();
+    c.sc.getChannel.mockResolvedValueOnce({ id: 3, name: '인사팀', visibility: 'PRIVATE' });
+    const priv = await run(c, 'propose_leave_channel', { channelId: 3, summary: '인사팀 채널 나가기' });
+    expect(priv.sink[0]).toMatchObject({ actionType: 'messaging.leave_channel', params: { id: 3 } });
+    expect(priv.sink[0].summary).toContain('다시 초대받아야');
+    c.sc.getChannel.mockResolvedValueOnce({ id: 4, name: '공지', visibility: 'PUBLIC' });
+    const pub = await run(c, 'propose_leave_channel', { channelId: 4, summary: 's' });
+    expect(pub.out).toContain('leave_channel');
+    expect(pub.sink).toHaveLength(0);
   });
 
   it('propose_delete_issue → key·number 로 매핑하고 하위 이슈 연쇄 삭제를 summary 에 보인다', async () => {

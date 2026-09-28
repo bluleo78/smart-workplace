@@ -181,7 +181,8 @@ export function usePromoteToIssue() {
   return useMutation({
     mutationFn: ({ messageId, payload }: { messageId: number; payload: PromoteToIssuePayload }) =>
       promoteMailToIssue(messageId, payload),
-    onSuccess: (_d, v) =>
+    // 성공이든 실패든 연결 이슈 배지를 다시 불러온다 — #859 이미 이 메일로 만든 이슈가 있으면 서버가 409 로 거절하므로 그 이슈를 드러낸다.
+    onSettled: (_d, _e, v) =>
       qc.invalidateQueries({ queryKey: ['mail', 'linked-issue', v.messageId] }),
     onError: (e) => handleApiError(e, '이슈 생성에 실패했습니다'),
   })

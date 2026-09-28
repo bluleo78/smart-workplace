@@ -134,7 +134,7 @@ export interface MailToolClient {
   draftIssueFromMail(messageId: number): Promise<unknown>;
   /** GET .../linked-issue — 이 메일로 만든 이슈. 없으면 null. */
   getMailLinkedIssue(messageId: number): Promise<{ issueKey: string } | null>;
-  /** POST .../issue — 메일을 이슈로 만들고 백레퍼런스를 남긴다(서버 중복 방지 없음 → 도구가 linked-issue 로 막는다). */
+  /** POST .../issue — 메일을 이슈로 만들고 백레퍼런스를 남긴다. 이미 만든 메일이면 서버가 409(#859). */
   promoteMailToIssue(
     messageId: number,
     body: { projectKey: string; title: string; body?: string; priority?: string; assigneeIds?: number[] },
@@ -231,10 +231,12 @@ export interface NotificationToolClient {
 
 export interface ProjectToolClient extends ProjectMetaClient {
   listProjects(page: number, size: number): Promise<unknown>;
-  /** 병합(update_project)이 읽는 name·description 만 타입으로 고정한다. */
-  getProject(projectKey: string): Promise<{ name: string; description?: string | null; [key: string]: unknown }>;
-  /** PATCH /projects/{key} — 부분 수정이 아니다(name 필수, description 생략=null 로 덮어씀). 병합은 핸들러가 한다. */
-  updateProject(projectKey: string, body: { name: string; description: string | null }): Promise<unknown>;
+  getProject(projectKey: string): Promise<Record<string, unknown>>;
+  /** PATCH /projects/{key} — 부분 수정(#858). 생략(undefined) 필드는 유지, 설명 비우기는 clearDescription. */
+  updateProject(
+    projectKey: string,
+    body: { name?: string; description?: string; clearDescription?: boolean },
+  ): Promise<unknown>;
   /** GET /me/issues — 응답 래퍼 { items } 를 벗긴 이슈 행 배열(가공은 핸들러). */
   listIssues(query: IssueListQuery): Promise<IssueRow[]>;
 }

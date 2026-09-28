@@ -11,6 +11,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.mail.dto.PromoteToIssueRequest;
 import com.workplace.mail.dto.PromotedIssue;
+import com.workplace.mail.exception.MailAlreadyPromotedException;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -135,17 +136,7 @@ class MailIssueServiceTest extends IntegrationTestBase {
     assertThat(result.issueKey()).startsWith(projectKey + "-");
     assertThat(issueRepository.findSourceIssueKey("MAIL", messageId)).contains(result.issueKey());
 
-    // AfterEach 정리를 위해 생성된 이슈 id 수집(SOURCE_TYPE/SOURCE_ID 로 역조회)
-    cleanupInTenant(
-        1L,
-        () -> {
-          Long issueId =
-              dsl.select(ISSUE.ID)
-                  .from(ISSUE)
-                  .where(ISSUE.SOURCE_TYPE.eq("MAIL").and(ISSUE.SOURCE_ID.eq(messageId)))
-                  .fetchOneInto(Long.class);
-          if (issueId != null) createdIssueIds.add(issueId);
-        });
+    mailIssueIds(messageId); // AfterEach 정리 대상으로 등록
   }
 
   @Test
@@ -157,17 +148,7 @@ class MailIssueServiceTest extends IntegrationTestBase {
             messageId,
             new PromoteToIssueRequest(projectKey, "t", null, "MID", List.of()));
 
-    // AfterEach 정리를 위해 생성된 이슈 id 수집
-    cleanupInTenant(
-        1L,
-        () -> {
-          Long issueId =
-              dsl.select(ISSUE.ID)
-                  .from(ISSUE)
-                  .where(ISSUE.SOURCE_TYPE.eq("MAIL").and(ISSUE.SOURCE_ID.eq(messageId)))
-                  .fetchOneInto(Long.class);
-          if (issueId != null) createdIssueIds.add(issueId);
-        });
+    mailIssueIds(messageId); // AfterEach 정리 대상으로 등록
 
     assertThat(mailIssueService.findLinkedIssue(callerId, messageId).issueKey())
         .isEqualTo(promoted.issueKey());
@@ -190,5 +171,54 @@ class MailIssueServiceTest extends IntegrationTestBase {
                     messageId,
                     new PromoteToIssueRequest("NOPE", "x", null, "MID", List.of())))
         .isInstanceOf(RuntimeException.class); // accessGuard.assertMember → 권한/404 계열
+  }
+
+  /** 이 메일로 만들어진 이슈 id 전부(삭제분 포함)를 돌려주고 AfterEach 정리 대상으로 등록한다 — 개수 단언과 정리에 함께 쓴다. */
+  private List<Long> mailIssueIds(long messageId) {
+    List<Long> ids = new java.util.ArrayList<>();
+    cleanupInTenant(
+        1L,
+        () ->
+            ids.addAll(
+                dsl.select(ISSUE.ID)
+                    .from(ISSUE)
+                    .where(ISSUE.SOURCE_TYPE.eq("MAIL").and(ISSUE.SOURCE_ID.eq(messageId)))
+                    .fetchInto(Long.class)));
+    createdIssueIds.addAll(ids);
+    return ids;
+  }
+
+  /** #859 — 이미 전환한 메일을 다시 전환하면 409(기존 이슈 키 포함)이고 이슈는 1건만 남는다. */
+  @Test
+  void promoteToIssue_twice_rejectedWithExistingKey() {
+    long messageId = seedMailMessage(callerId);
+    var req = new PromoteToIssueRequest(projectKey, "중복", null, "MID", List.of());
+    PromotedIssue first = mailIssueService.promoteToIssue(callerId, messageId, req);
+
+    assertThatThrownBy(() -> mailIssueService.promoteToIssue(callerId, messageId, req))
+        .isInstanceOfSatisfying(
+            MailAlreadyPromotedException.class,
+            e -> assertThat(e.issueKey()).isEqualTo(first.issueKey()));
+    assertThat(mailIssueIds(messageId)).hasSize(1);
+  }
+
+  /** #859 — 연결된 이슈가 삭제되면 연결이 끊긴 것으로 보고 다시 전환할 수 있다. */
+  @Test
+  void promoteToIssue_afterIssueDeleted_allowed() {
+    long messageId = seedMailMessage(callerId);
+    var req = new PromoteToIssueRequest(projectKey, "재전환", null, "MID", List.of());
+    mailIssueService.promoteToIssue(callerId, messageId, req);
+    cleanupInTenant(
+        1L,
+        () ->
+            dsl.update(ISSUE)
+                .set(ISSUE.DELETED_AT, java.time.OffsetDateTime.now())
+                .where(ISSUE.SOURCE_TYPE.eq("MAIL").and(ISSUE.SOURCE_ID.eq(messageId)))
+                .execute());
+
+    PromotedIssue again = mailIssueService.promoteToIssue(callerId, messageId, req);
+
+    assertThat(issueRepository.findSourceIssueKey("MAIL", messageId)).contains(again.issueKey());
+    assertThat(mailIssueIds(messageId)).hasSize(2);
   }
 }

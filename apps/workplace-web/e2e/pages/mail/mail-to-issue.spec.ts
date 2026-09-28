@@ -173,4 +173,59 @@ test.describe('메일→이슈 승격', () => {
     await page.getByRole('button', { name: '취소' }).click()
     await expect(page.getByTestId('mail-to-issue-dialog')).not.toBeVisible()
   })
+
+  // #859 이미 전환한 메일 — 서버 409 메시지를 토스트로 보여주고, 연결 이슈 배지를 다시 불러와 기존 이슈를 드러낸다.
+  test('이미 전환한 메일이면 409 안내 후 연결 이슈 배지를 갱신한다', async ({ authenticatedPage: page }) => {
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/messages/7/issue-draft',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            title: '정산 자료 검토',
+            body: '본문',
+            priority: 'MID',
+            suggestedProjectKey: 'FIN',
+            candidateProjects: [{ key: 'FIN', name: '재무' }],
+          }),
+        }),
+    )
+    await page.route(
+      (u) => u.pathname === '/api/v1/projects/FIN/members',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+    // 409 이후엔 서버가 기존 연결 이슈를 돌려준다(다른 탭·AI 가 먼저 만든 상황).
+    let promoted = false
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/messages/7/linked-issue',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ issueKey: promoted ? 'FIN-3' : null }),
+        }),
+    )
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/messages/7/issue',
+      (route) => {
+        promoted = true
+        return route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 409, message: '이미 이 메일로 만든 이슈가 있습니다: FIN-3' }),
+        })
+      },
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await expect(page.getByTestId('mail-linked-issue')).not.toBeVisible()
+    await page.getByTestId('mail-ai-issue').click()
+    await expect(page.getByTestId('issue-draft-title')).toHaveValue('정산 자료 검토')
+    await page.getByTestId('mail-to-issue-submit').click()
+
+    await expect(page.getByText('이미 이 메일로 만든 이슈가 있습니다: FIN-3')).toBeVisible()
+    await expect(page.getByTestId('mail-linked-issue')).toHaveText(/FIN-3/)
+  })
 })

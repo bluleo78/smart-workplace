@@ -22,6 +22,7 @@ describe('messaging-agent 정의', () => {
       'mcp__workplace__open_dm',
       'mcp__workplace__leave_channel',
       'mcp__workplace__propose_add_channel_member', // #856: 채널 초대 제안
+      'mcp__workplace__propose_leave_channel', // #860: 비공개 채널 나가기 제안
       'mcp__workplace__search_members', // #844: 이름 → 멘션 userId
       'mcp__workplace__submit_response',
     ]);

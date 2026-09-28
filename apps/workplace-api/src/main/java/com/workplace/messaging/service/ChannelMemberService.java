@@ -86,14 +86,30 @@ public class ChannelMemberService {
   /** 나가기 — 본인. OWNER 는 소유권 이전 전엔 나갈 수 없음. */
   @Transactional
   public void leave(long callerId, long channelId) {
+    if (!checkLeave(callerId, channelId)) return; // 이미 비멤버 — idempotent
+    memberRepo.remove(channelId, callerId);
+    publishRoster(channelId);
+  }
+
+  /**
+   * 나가기 사전검증(#860) — 확인 카드 dry-run 이 {@link #leave} 와 같은 {@link #checkLeave} 를 쓴다. 실행은 비멤버여도
+   * 성공(idempotent)이지만 그런 카드는 아무 효과가 없으므로 사전검증에서만 사유와 함께 거절한다.
+   */
+  @Transactional(readOnly = true)
+  public void validateLeavable(long callerId, long channelId) {
+    if (!checkLeave(callerId, channelId)) {
+      throw new IllegalArgumentException("이 채널의 멤버가 아닙니다: channelId=" + channelId);
+    }
+  }
+
+  /** 나가기 술어 — 채널 존재·OWNER 아님. 호출자가 현재 멤버인지 돌려준다. */
+  private boolean checkLeave(long callerId, long channelId) {
     ensureExists(channelId);
     String role = memberRepo.findRole(channelId, callerId).orElse(null);
-    if (role == null) return; // 이미 비멤버 — idempotent
     if ("OWNER".equals(role)) {
       throw new OwnershipTransferRequiredException(channelId);
     }
-    memberRepo.remove(channelId, callerId);
-    publishRoster(channelId);
+    return role != null;
   }
 
   /** 역할 변경 — OWNER 만. role=OWNER 면 소유권 이전(대상 OWNER 승격 + 호출자 ADMIN 강등). 한 트랜잭션으로 OWNER 1명 불변식 유지. */

@@ -1,6 +1,6 @@
 package com.workplace.global.security;
 
-import com.workplace.permission.repository.PermissionRepository;
+import com.workplace.permission.service.PermissionService;
 import com.workplace.role.repository.RoleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -10,12 +10,12 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PermissionChecker {
 
-  private final PermissionRepository permissionRepository;
+  private final PermissionService permissionService;
   private final RoleRepository roleRepository;
 
-  /** 사용자가 특정 권한 코드를 보유하는지 여부. */
+  /** 사용자가 특정 권한 코드를 보유하는지 여부(멤버 기본 권한 포함 — 인증 필터와 같은 판정). */
   public boolean hasPermission(Long userId, String permissionCode) {
-    return permissionRepository.findPermissionCodesByUserId(userId).contains(permissionCode);
+    return permissionService.getUserPermissions(userId).contains(permissionCode);
   }
 
   /**

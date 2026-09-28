@@ -112,6 +112,7 @@ public class ConfirmActionDispatcher {
           Map.entry("project.update_member_role", "project:manage"), // OWNER 경계 추가 강제
           Map.entry("project.remove_member", "project:manage"),
           Map.entry("messaging.add_channel_member", ""), // 채널 역할(OWNER/ADMIN) 경계를 서비스가 강제
+          Map.entry("messaging.leave_channel", ""), // 본인 나가기 — OWNER 이양 필요 경계를 서비스가 강제(#860)
           Map.entry("issue.delete", "issue:write"), // reporter·OWNER·ADMIN 경계는 서비스가 강제
           Map.entry("issue.delete_comment", "issue:write"), // 작성자·OWNER 경계는 서비스가 강제
           Map.entry("wiki.delete_page", "")); // 공간 역할(EDITOR) 경계를 서비스가 강제
@@ -333,6 +334,14 @@ public class ConfirmActionDispatcher {
         return new PreparedAction(
             () -> channelMemberService.validateAdd(callerId, id, userId),
             returning(Map.of("id", id), () -> channelMemberService.add(callerId, id, userId)));
+      }
+      case "messaging.leave_channel" -> {
+        // #860 비공개 채널은 나가면 초대 없이 돌아올 수 없어 확인 카드를 거친다.
+        requireOnly(params, "id");
+        long id = requireLong(params, "id");
+        return new PreparedAction(
+            () -> channelMemberService.validateLeavable(callerId, id),
+            returning(Map.of("id", id), () -> channelMemberService.leave(callerId, id)));
       }
       case "issue.delete" -> {
         requireOnly(params, "key", "number");

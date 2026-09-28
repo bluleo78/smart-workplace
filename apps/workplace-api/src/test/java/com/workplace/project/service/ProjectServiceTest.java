@@ -9,6 +9,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.MemberResponse;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.dto.UpdateMemberRoleRequest;
+import com.workplace.project.dto.UpdateProjectRequest;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
@@ -375,5 +376,35 @@ class ProjectServiceTest extends IntegrationTestBase {
               }
             });
     assertThat(members).anyMatch(m -> m.userId().equals(ownerId) && m.active());
+  }
+
+  /** #858 — name 만 보내면 설명은 그대로 남는다(이전엔 전체 덮어쓰기라 null 로 지워졌다). */
+  @Test
+  void update_nameOnly_keepsDescription() {
+    String key = uniqueKey("PU");
+    projectService.create(ownerId, new CreateProjectRequest(key, "원래이름", "원래설명"));
+
+    ProjectResponse updated =
+        projectService.update(ownerId, key, new UpdateProjectRequest("새이름", null, null));
+
+    assertThat(updated.name()).isEqualTo("새이름");
+    assertThat(updated.description()).isEqualTo("원래설명");
+  }
+
+  /** #858 — 설명만 보내면 이름은 그대로, clearDescription 이면 설명이 비워진다. */
+  @Test
+  void update_descriptionOnly_andClear() {
+    String key = uniqueKey("PD");
+    projectService.create(ownerId, new CreateProjectRequest(key, "이름", "설명"));
+
+    ProjectResponse described =
+        projectService.update(ownerId, key, new UpdateProjectRequest(null, "새설명", null));
+    assertThat(described.name()).isEqualTo("이름");
+    assertThat(described.description()).isEqualTo("새설명");
+
+    ProjectResponse cleared =
+        projectService.update(ownerId, key, new UpdateProjectRequest(null, null, true));
+    assertThat(cleared.name()).isEqualTo("이름");
+    assertThat(cleared.description()).isNull();
   }
 }

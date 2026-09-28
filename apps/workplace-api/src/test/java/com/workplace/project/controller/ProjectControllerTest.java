@@ -233,9 +233,39 @@ class ProjectControllerTest {
                 .header("Authorization", "Bearer valid-token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    objectMapper.writeValueAsString(new UpdateProjectRequest("Updated", "new"))))
+                    objectMapper.writeValueAsString(
+                        new UpdateProjectRequest("Updated", "new", null))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.key").value("WP"));
+  }
+
+  /** #858 — 부분 수정이라 name 은 생략할 수 있지만, 보낸다면 공백일 수 없다. */
+  @Test
+  void update_blankName_returns400() throws Exception {
+    mockAuthentication("project:write");
+
+    mockMvc
+        .perform(
+            patch("/api/v1/projects/WP")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"   \"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** #858 — name 을 생략한 부분 수정도 유효한 요청이다. */
+  @Test
+  void update_withoutName_returns200() throws Exception {
+    mockAuthentication("project:write");
+    when(projectService.update(eq(1L), eq("WP"), any())).thenReturn(sampleProject());
+
+    mockMvc
+        .perform(
+            patch("/api/v1/projects/WP")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"description\":\"설명만\"}"))
+        .andExpect(status().isOk());
   }
 
   @Test

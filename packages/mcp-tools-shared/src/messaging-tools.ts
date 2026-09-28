@@ -201,16 +201,18 @@ export function buildMessagingTools(
       name: 'leave_channel',
       kind: 'write',
       description:
-        '공개 채널에서 나갑니다(다시 참여 가능). 비공개 채널은 나가면 스스로 돌아올 수 없어 이 도구로 나갈 수 없습니다 — 사용자가 직접 나가도록 안내하세요. ' +
+        '공개 채널에서 나갑니다(다시 참여 가능). 비공개 채널은 나가면 스스로 돌아올 수 없어 이 도구로 나갈 수 없습니다 — ' +
+        'propose_leave_channel 도구가 있으면 그것으로 확인 카드를 제안하고, 없으면 사용자가 직접 나가도록 안내하세요. ' +
         '채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다.',
       inputSchema: leaveChannelInput,
       async handler(args) {
         const { channelId } = leaveChannelInput.parse(args);
-        // 비공개 채널 나가기는 사실상 되돌릴 수 없다(join 이 PRIVATE 를 403). 확인 없이 실행되는 도구라 여기서 막는다.
+        // 비공개 채널 나가기는 사실상 되돌릴 수 없다(join 이 PRIVATE 를 403). 확인 없이 실행되는 도구라 여기서 막고 확인 카드(#860)로 보낸다.
         const channel = await client.getChannel(channelId);
         if (channel.visibility !== 'PUBLIC') {
           throw new Error(
-            `'${channel.name ?? channelId}' 은(는) 공개 채널이 아니어서 나갈 수 없습니다. 나가면 다시 참여할 수 없으니 사용자가 직접 나가야 합니다.`,
+            `'${channel.name ?? channelId}' 은(는) 공개 채널이 아니어서 바로 나갈 수 없습니다. 나가면 다시 참여할 수 없으니 ` +
+              'propose_leave_channel 로 확인 카드를 제안하거나(도구가 있을 때) 사용자가 직접 나가도록 안내하세요.',
           );
         }
         await client.leaveChannel(channelId);

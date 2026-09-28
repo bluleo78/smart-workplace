@@ -77,4 +77,32 @@ public class PermissionRepository {
             .fetch(r -> r.get(PERMISSION.CODE));
     return new HashSet<>(codes);
   }
+
+  /**
+   * 유효 권한 코드 = 역할 경유 권한 ∪ (해당 테넌트 ACTIVE 멤버면) 멤버 기본 권한(#861). 인증 필터가 요청마다 부르므로 멤버십 판정을 별도 왕복 없이 한
+   * 쿼리(UNION + EXISTS)로 합친다. 기본 권한 코드는 permission 카탈로그에 있는 것만 나온다.
+   */
+  public Set<String> findEffectivePermissionCodes(
+      Long userId, long tenantId, Set<String> memberBaselineCodes) {
+    List<String> codes =
+        dsl.select(PERMISSION.CODE)
+            .from(PERMISSION)
+            .join(ROLE_PERMISSION)
+            .on(ROLE_PERMISSION.PERMISSION_ID.eq(PERMISSION.ID))
+            .join(USER_ROLE)
+            .on(USER_ROLE.ROLE_ID.eq(ROLE_PERMISSION.ROLE_ID))
+            .where(USER_ROLE.USER_ID.eq(userId))
+            .union(
+                dsl.select(PERMISSION.CODE)
+                    .from(PERMISSION)
+                    .where(PERMISSION.CODE.in(memberBaselineCodes))
+                    .andExists(
+                        dsl.selectOne()
+                            .from(MEMBERSHIP)
+                            .where(MEMBERSHIP.USER_ID.eq(userId))
+                            .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
+                            .and(MEMBERSHIP.STATUS.eq("ACTIVE"))))
+            .fetch(PERMISSION.CODE);
+    return new HashSet<>(codes);
+  }
 }

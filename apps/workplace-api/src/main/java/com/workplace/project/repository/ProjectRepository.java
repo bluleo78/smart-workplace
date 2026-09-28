@@ -220,14 +220,19 @@ public class ProjectRepository {
         .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
   }
 
-  /** name/description 갱신. updated_at = now(). */
-  public void update(Long id, String name, String description) {
-    dsl.update(PROJECT)
-        .set(PROJECT.NAME, name)
-        .set(PROJECT.DESCRIPTION, description)
-        .set(PROJECT.UPDATED_AT, OffsetDateTime.now())
-        .where(PROJECT.ID.eq(id))
-        .execute();
+  /**
+   * name/description 부분 갱신(#858). null 인 필드는 건드리지 않고, clearDescription 이면 설명을 NULL 로 비운다.
+   * updated_at = now() 는 항상 갱신.
+   */
+  public void update(Long id, String name, String description, boolean clearDescription) {
+    var step = dsl.update(PROJECT).set(PROJECT.UPDATED_AT, OffsetDateTime.now());
+    if (name != null) step = step.set(PROJECT.NAME, name);
+    if (clearDescription) {
+      step = step.set(PROJECT.DESCRIPTION, (String) null);
+    } else if (description != null) {
+      step = step.set(PROJECT.DESCRIPTION, description);
+    }
+    step.where(PROJECT.ID.eq(id)).execute();
   }
 
   /** soft-delete: deleted_at = now(). */

@@ -12,6 +12,7 @@ import com.workplace.mail.dto.PromoteToIssueRequest;
 import com.workplace.mail.dto.PromotedIssue;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.exception.MailAiUnavailableException;
+import com.workplace.mail.exception.MailAlreadyPromotedException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages;
 import com.workplace.mail.repository.EmailMessageRepository;
@@ -19,6 +20,7 @@ import com.workplace.mail.repository.EmailMessageRepository.AiContext;
 import com.workplace.mail.util.MailBodyText;
 import com.workplace.project.service.ProjectService;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,6 +82,13 @@ public class MailIssueService {
     messageRepo
         .findAiContextByIdAndUser(callerId, messageId)
         .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
+
+    // #859 중복 가드 — 같은 메일의 동시 승격을 메일 행 잠금으로 직렬화한 뒤 기존 연결 이슈를 확인한다. 잠금 없이 확인만 하면 두 요청이 모두
+    // "없음"을 보고 이슈를 두 번 만든다. 이슈가 soft-delete 되면 연결이 끊긴 것으로 보고 재승격을 허용한다(findSourceIssueKey 가 삭제분
+    // 제외).
+    messageRepo.lockById(messageId);
+    Optional<String> existing = issueRepository.findSourceIssueKey("MAIL", messageId);
+    if (existing.isPresent()) throw new MailAlreadyPromotedException(existing.get());
 
     List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
     IssueResponse created =

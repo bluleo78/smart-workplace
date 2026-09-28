@@ -115,13 +115,12 @@ export function buildProjectTools(client: ProjectToolClient): SharedTool[] {
       inputSchema: updateProjectInput,
       async handler(args) {
         const { projectKey, name, description } = updateProjectInput.parse(args);
-        // 서버 PATCH 는 부분 수정이 아니다 — name 필수, description 생략은 null 덮어쓰기. 현재 값과 병합해 보낸다.
-        const current = await client.getProject(projectKey);
+        // 서버 PATCH 는 부분 수정(#858) — 준 필드만 보낸다. 설명 비우기(null)는 clearDescription 플래그로 표현한다.
         return JSON.stringify(
-          await client.updateProject(projectKey, {
-            name: name ?? current.name,
-            description: description !== undefined ? description : (current.description ?? null),
-          }),
+          await client.updateProject(
+            projectKey,
+            description === null ? { name, clearDescription: true } : { name, description },
+          ),
         );
       },
     },

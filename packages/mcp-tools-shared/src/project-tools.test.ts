@@ -189,23 +189,22 @@ describe('toIssueListItem', () => {
   });
 });
 
-describe('update_project (#854)', () => {
-  // 서버 PATCH 는 name 필수·description 생략=null 덮어쓰기라, 병합을 빠뜨리면 이름만 바꿔도 설명이 지워진다.
-  it('이름만 주면 현재 설명을 유지해 보낸다', async () => {
+describe('update_project (#854, #858)', () => {
+  // 서버 PATCH 가 부분 수정이라(#858) 현재 값을 읽어 병합하지 않고 준 필드만 보낸다.
+  it('이름만 주면 이름만 보내고 현재 값을 조회하지 않는다', async () => {
     const c = mockClient();
-    vi.mocked(c.getProject).mockResolvedValue({ key: 'WP', name: '옛 이름', description: '기존 설명' });
     await tool(c, 'update_project').handler({ projectKey: 'WP', name: '새 이름' });
-    expect(c.updateProject).toHaveBeenCalledWith('WP', { name: '새 이름', description: '기존 설명' });
+    expect(c.updateProject).toHaveBeenCalledWith('WP', { name: '새 이름', description: undefined });
+    expect(c.getProject).not.toHaveBeenCalled();
   });
 
-  it('설명만 주면 현재 이름을 유지하고, description null 은 설명을 비운다', async () => {
+  it('설명을 주면 설명만, description null 은 clearDescription 으로 보낸다', async () => {
     const c = mockClient();
-    vi.mocked(c.getProject).mockResolvedValue({ key: 'WP', name: '이름', description: '기존 설명' });
     await tool(c, 'update_project').handler({ projectKey: 'WP', description: '새 설명' });
     await tool(c, 'update_project').handler({ projectKey: 'WP', description: null });
     expect(vi.mocked(c.updateProject).mock.calls).toEqual([
-      ['WP', { name: '이름', description: '새 설명' }],
-      ['WP', { name: '이름', description: null }],
+      ['WP', { name: undefined, description: '새 설명' }],
+      ['WP', { name: undefined, clearDescription: true }],
     ]);
   });
 

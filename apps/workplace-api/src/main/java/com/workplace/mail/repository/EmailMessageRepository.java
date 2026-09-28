@@ -819,6 +819,18 @@ public class EmailMessageRepository {
   }
 
   /**
+   * #859 메일 행 배타 잠금(SELECT ... FOR UPDATE). 같은 메일을 대상으로 하는 확인-후-생성(메일→이슈 승격)을 트랜잭션 끝까지 직렬화한다. 소유권
+   * 검증은 호출자가 먼저 한다.
+   */
+  public void lockById(long messageId) {
+    dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .forUpdate()
+        .fetch();
+  }
+
+  /**
    * AI 요약/답장용 컨텍스트(계정 ai_enabled·본인 이메일 + 메시지 본문/요약). 소유 검증 포함.
    *
    * <p>Task6: 제목·본문은 email_content LEFT JOIN 으로 읽는다. FROM_ADDRESS 는 envelope 잔존(봉투 속성).

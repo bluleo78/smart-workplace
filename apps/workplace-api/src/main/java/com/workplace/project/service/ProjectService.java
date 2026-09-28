@@ -168,10 +168,13 @@ public class ProjectService {
     return ProjectResponse.from(project, isMember);
   }
 
-  /** 프로젝트 이름/설명 수정. 메타데이터 변경은 OWNER(또는 ADMIN) 만 허용 — softDelete/멤버 관리와 일관. */
+  /**
+   * 프로젝트 이름/설명 부분 수정(#858) — 넘어온 필드만 바꾼다. 메타데이터 변경은 OWNER(또는 ADMIN) 만 허용 — softDelete/멤버 관리와 일관.
+   */
   public ProjectResponse update(Long callerId, String projectKey, UpdateProjectRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
-    projectRepository.update(project.id(), req.name(), req.description());
+    projectRepository.update(
+        project.id(), req.name(), req.description(), Boolean.TRUE.equals(req.clearDescription()));
     ProjectRow updated =
         projectRepository
             .findById(project.id())

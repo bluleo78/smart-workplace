@@ -112,6 +112,7 @@ const proposeAddChannelMemberInput = z.object({
   username: z.string().min(1),
   summary: z.string().min(1),
 });
+const proposeLeaveChannelInput = z.object({ channelId: z.number().int().positive(), summary: z.string().min(1) });
 const proposeDeleteIssueInput = z.object({ issueKey: z.string().min(1), summary: z.string().min(1) });
 const proposeDeleteCommentInput = z.object({
   issueKey: z.string().min(1),
@@ -1032,6 +1033,27 @@ export function buildTools(
     },
   };
 
+  const proposeLeaveChannelTool: McpTool = {
+    name: 'propose_leave_channel',
+    description:
+      '비공개 채널에서 나가기를 제안합니다. 직접 나가지 않고 확인 카드용 제안만 만듭니다. 비공개 채널은 나가면 다시 초대받아야 돌아올 수 있습니다. ' +
+      '공개 채널은 leave_channel 로 바로 나가세요. 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다. channelId 는 list_channels 결과의 id 입니다.',
+    inputSchema: proposeLeaveChannelInput,
+    async handler(args) {
+      const { channelId, summary } = proposeLeaveChannelInput.parse(args);
+      // #860 확인이 필요한 건 되돌릴 수 없는 비공개 채널뿐 — 공개 채널은 확인 없는 leave_channel 한 경로로 모은다.
+      const channel = await sc.getChannel(channelId);
+      if (channel.visibility === 'PUBLIC') {
+        return `'${channel.name ?? channelId}' 은(는) 공개 채널이라 확인 없이 leave_channel 로 나갈 수 있습니다.`;
+      }
+      return await writeProposal(
+        'messaging.leave_channel',
+        `${summary}\n(비공개 채널 '${channel.name ?? channelId}' — 나가면 다시 초대받아야 돌아올 수 있습니다)`,
+        { id: channelId },
+      );
+    },
+  };
+
   const proposeDeleteIssueTool: McpTool = {
     name: 'propose_delete_issue',
     description:
@@ -1190,7 +1212,7 @@ export function buildTools(
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
       // #856: 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제 제안(confirm 필요)
       proposeAddAttendeesTool, proposeRemoveAttendeeTool,
-      proposeUpdateProjectMemberRoleTool, proposeRemoveProjectMemberTool, proposeAddChannelMemberTool,
+      proposeUpdateProjectMemberRoleTool, proposeRemoveProjectMemberTool, proposeAddChannelMemberTool, proposeLeaveChannelTool,
       proposeDeleteIssueTool, proposeDeleteCommentTool, proposeDeleteWikiPageTool,
       // #854·#855: 되돌릴 수 있는 쓰기(공유) — 이슈 워치·프로젝트 수정·노트 이동·휴지통 복원·RSVP·채널/DM·메일 AI.
       sharedTool('watch_issue'), sharedTool('unwatch_issue'), sharedTool('update_project'), sharedTool('move_wiki_page'),

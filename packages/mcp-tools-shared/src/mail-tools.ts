@@ -110,13 +110,17 @@ export function buildMailTools(client: MailToolClient & Pick<ProjectMetaClient, 
       inputSchema: createIssueFromMailInput,
       async handler(args) {
         const { messageId, assignees, ...rest } = createIssueFromMailInput.parse(args);
-        // 서버 승격 API 는 중복을 막지 않는다 — 이미 만든 뒤 다시 부르는 순차 재호출은 여기서 막는다.
-        // 확인·생성이 원자적이진 않아 같은 메일을 동시에 두 번 부르는 경우까지는 막지 못한다(서버 유니크 제약 없음).
-        const linked = await client.getMailLinkedIssue(messageId);
-        if (linked) return JSON.stringify({ issueKey: linked.issueKey, created: false });
         const assigneeIds = assignees ? await resolveAssigneeIds(client, rest.projectKey, assignees) : undefined;
-        const { issueKey } = await client.promoteMailToIssue(messageId, { ...rest, assigneeIds });
-        return JSON.stringify({ issueKey, created: true });
+        try {
+          const { issueKey } = await client.promoteMailToIssue(messageId, { ...rest, assigneeIds });
+          return JSON.stringify({ issueKey, created: true });
+        } catch (e) {
+          // 중복은 서버가 메일 행 잠금으로 원자적으로 막고 409 로 알린다(#859) — 기존 연결 이슈를 찾아 안내한다.
+          if ((e as { response?: { status?: number } })?.response?.status !== 409) throw e;
+          const linked = await client.getMailLinkedIssue(messageId);
+          if (!linked) throw e;
+          return JSON.stringify({ issueKey: linked.issueKey, created: false });
+        }
       },
     },
     {

@@ -29,6 +29,7 @@ import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.service.IssueCommentService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.messaging.exception.ChannelForbiddenException;
+import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.project.dto.AddMemberRequest;
@@ -380,6 +381,38 @@ class ConfirmActionDispatcher856Test extends IntegrationTestBase {
     // 이미 멤버면 실행은 idempotent 지만 효과 없는 카드라 사전검증에서 거절.
     assertThatThrownBy(() -> dispatcher.validate(owner, "messaging.add_channel_member", ok))
         .hasMessageContaining("이미 채널 멤버");
+  }
+
+  @Test
+  @DisplayName("messaging.leave_channel(#860) — 비공개 채널을 나가고, OWNER·비멤버는 사전검증에서 거절")
+  void leaveChannel() {
+    long channelId = channelRepo.insert("pc860-" + UUID.randomUUID(), "PRIVATE", owner);
+    channelMemberRepo.add(channelId, owner, "OWNER");
+    channelMemberRepo.add(channelId, member, "MEMBER");
+    JsonNode ok = params("{\"id\":" + channelId + "}");
+
+    // OWNER 는 소유권 이전 전엔 나갈 수 없다 — 실행과 같은 술어.
+    assertThatThrownBy(() -> dispatcher.validate(owner, "messaging.leave_channel", ok))
+        .isInstanceOf(OwnershipTransferRequiredException.class);
+
+    dispatcher.validate(member, "messaging.leave_channel", ok);
+    dispatcher.confirm(member, "messaging.leave_channel", ok);
+    assertThat(
+            dsl.fetchCount(
+                CHANNEL_MEMBER,
+                CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.USER_ID.eq(member))))
+        .isZero();
+    // 이미 나간 뒤엔 실행은 idempotent 지만 효과 없는 카드라 사전검증에서 거절.
+    assertThatThrownBy(() -> dispatcher.validate(member, "messaging.leave_channel", ok))
+        .hasMessageContaining("멤버가 아닙니다");
+    // 미지 필드는 거절(requireOnly).
+    assertThatThrownBy(
+            () ->
+                dispatcher.validate(
+                    member,
+                    "messaging.leave_channel",
+                    params("{\"id\":" + channelId + ",\"userId\":" + owner + "}")))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   // ---------------------------------------------------------------- 이슈·코멘트

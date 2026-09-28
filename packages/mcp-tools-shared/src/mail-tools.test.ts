@@ -94,13 +94,22 @@ describe('메일 AI·처리 (#855)', () => {
     expect(out).toEqual({ issueKey: 'WP-9', created: true });
   });
 
-  // 서버 승격 API 에는 중복 방지가 없다 — 재시도로 같은 메일 이슈가 여럿 생기면 안 된다.
-  it('create_issue_from_mail → 이미 연결된 이슈가 있으면 만들지 않고 그 키를 알린다', async () => {
+  // 중복 판정은 서버(#859)가 한다 — 409 면 새로 만들지 않고 기존 연결 이슈 키를 알린다.
+  it('create_issue_from_mail → 서버가 409 면 기존 연결 이슈 키를 알린다', async () => {
     const c = mockClient();
+    vi.mocked(c.promoteMailToIssue).mockRejectedValue({ response: { status: 409 } });
     vi.mocked(c.getMailLinkedIssue).mockResolvedValue({ issueKey: 'WP-2' });
     const out = JSON.parse(await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't' }));
     expect(out).toEqual({ issueKey: 'WP-2', created: false });
-    expect(c.promoteMailToIssue).not.toHaveBeenCalled();
+  });
+
+  it('create_issue_from_mail → 409 가 아닌 오류는 그대로 던진다', async () => {
+    const c = mockClient();
+    vi.mocked(c.promoteMailToIssue).mockRejectedValue({ response: { status: 403 } });
+    await expect(tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't' })).rejects.toEqual({
+      response: { status: 403 },
+    });
+    expect(c.getMailLinkedIssue).not.toHaveBeenCalled();
   });
 
   it('create_issue_from_mail → 모르는 담당자면 만들지 않고 throw', async () => {

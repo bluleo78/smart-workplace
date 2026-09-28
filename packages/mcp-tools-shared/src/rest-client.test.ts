@@ -203,8 +203,8 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/projects/WP/milestones');
     expect(await client.getProjectCycles('WP')).toEqual([]);
     expect(http.get).toHaveBeenCalledWith('/projects/WP/cycles');
-    await client.updateProject('WP', { name: 'n', description: null });
-    expect(http.patch).toHaveBeenCalledWith('/projects/WP', { name: 'n', description: null });
+    await client.updateProject('WP', { clearDescription: true });
+    expect(http.patch).toHaveBeenCalledWith('/projects/WP', { clearDescription: true });
     await client.moveWikiPage(4, { parentId: null, position: 0 });
     expect(http.patch).toHaveBeenCalledWith('/wiki/pages/4/move', { parentId: null, position: 0 });
     http.get.mockResolvedValueOnce({ data: { items: [{ type: 'FILE', id: 1 }] } });
