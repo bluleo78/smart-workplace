@@ -22,7 +22,7 @@
 |---|---|
 | 푸시 대상 | DM + 멘션 + 기존 인박스 알림(이슈·캘린더). 채널 일반 메시지는 제외 |
 | 알림 설정 | 기기별 푸시 on/off + 사용자 단위 종류별 on/off(DM·MENTION·ISSUE·CALENDAR) |
-| 발송 위치 | workplace-api notify 모듈에서 직접 발송(Java `web-push` + BouncyCastle) |
+| 발송 위치 | workplace-api notify 모듈에서 직접 발송. 암호화(RFC 8291 aes128gcm)·VAPID(RFC 8292)는 JDK 암호 API + 기존 jjwt(ES256)로 구현하고 HTTP 는 RestClient 사용 — 외부 web-push 라이브러리·BouncyCastle 미도입(유지보수 중단 라이브러리·의존성 증가 회피) |
 | 서비스워커 | `vite-plugin-pwa` injectManifest 모드(SW 코드는 직접 작성) |
 | 메시지 알림 저장 | notification 인박스에 저장하지 않는다(푸시 전용). messaging 자체 미읽음이 이미 있음 |
 | 오프라인 | 앱 셸만 precache. `/api/*` 는 캐시하지 않음 |
@@ -53,13 +53,15 @@
   ├─ push/PushSubscriptionService       구독 upsert/삭제/만료 정리
   ├─ push/NotificationPreferenceService 종류별 on/off (행 없으면 기본 on)
   ├─ push/PushGateway (interface)       실제 HTTP 발송 추상화 — 테스트에서 대체
-  ├─ push/WebPushGateway                web-push 라이브러리 구현
+  ├─ push/WebPushGateway                RestClient 로 endpoint 에 POST (타임아웃 5s)
+  ├─ push/WebPushEncryptor             RFC 8291 aes128gcm 암호화(JDK ECDH·HKDF·AES-GCM)
+  ├─ push/VapidSigner                  RFC 8292 VAPID JWT(ES256, jjwt)
   ├─ push/PushSender                    구독 조회 → 게이트웨이 호출 → 결과 반영 (pushExecutor)
   ├─ push/PushDispatcher                "누구에게 무엇을" — 인박스 알림 훅 + 메시지 이벤트 리스너
   └─ controller/PushController          /api/v1/push/*
 ```
 
-- 메시지 푸시 대상 계산은 **messaging 이 이벤트에 담아** 발행하고, notify 는 발송만 한다. `MessageAiTriggerEvent` 와 같은 패턴으로, notify 가 messaging 내부(채널 멤버/종류)를 조회하지 않아 Modulith 경계와 단방향 의존을 유지한다.
+- 메시지 푸시 대상 계산은 **messaging 이 이벤트에 담아** 발행하고, notify 는 발송만 한다. `MessageAiTriggerEvent` 와 같은 패턴으로, notify 가 messaging 내부(채널 멤버/종류)를 조회하지 않아 모듈 경계 규약(도메인 간 이벤트 통신)과 단방향 의존을 유지한다.
 - 발송은 전용 executor `pushExecutor`(core 4, queue 1000, 초과 시 로그 후 drop)에서 수행한다. 도메인 API 응답·SSE fan-out 을 절대 지연시키지 않는다.
 
 ## 3. 데이터 모델 (Flyway V134~, 착수 시점 최신 번호 다음)
@@ -147,7 +149,7 @@ NotificationService.create*AndFanOut
 ```
 
 - 제목/본문은 인박스 표시와 같은 규칙으로 서버에서 조립한다(예: 제목 `SW-123 담당자로 지정됨`, 본문 이슈 제목).
-- url: 이슈 `/projects/:key/issues/:number`, 캘린더 `/calendar?event=:eventId`.
+- url: 이슈 `/projects/:key/issues/:number`, 캘린더 `/calendar?eventId=:eventId` (CalendarPage 기존 딥링크 파라미터).
 
 ### 5.2 메시지 (DM·멘션)
 
@@ -167,7 +169,7 @@ MessageService.create (커밋)
   - DM ∩ 멘션 중복은 1회만, 카테고리는 `DM` 우선
   - `notification_preference` 로 끈 카테고리 제외
   - 작성자가 AGENT 여도 수신자가 HUMAN 이면 발송(AI 가 DM 에 답한 경우 포함)
-- url: DM `/chat/dms/:channelId?m=:messageId`, 채널 `/chat/channels/:channelId?m=:messageId`. 스레드 답글이면 `&thread=:parentMessageId`.
+- url: DM `/chat/dms/:channelId`, 채널 `/chat/channels/:channelId`. 채널 스레드 답글이면 `?thread=:parentMessageId`(ChannelPage 기존 딥링크). 메시지 단위 앵커(`?m=`)와 DM 스레드 딥링크는 현재 화면이 지원하지 않아 1차 제외.
 - 제목: DM `작성자명`, 채널 `#채널명 · 작성자명`. 본문: 미리보기 120자(멘션 토큰은 `@이름` 으로 치환, 첨부만 있으면 `파일을 보냈습니다`).
 
 ### 5.3 payload (Web Push 암호화, ≤ 4KB)
@@ -179,7 +181,7 @@ MessageService.create (커밋)
   "category": "DM",
   "title": "박OO",
   "body": "PR 리뷰 부탁드려요",
-  "url": "/chat/dms/42?m=1234",
+  "url": "/chat/dms/42",
   "tag": "ch-42"
 }
 ```
@@ -204,7 +206,7 @@ MessageService.create (커밋)
 
 ### 6.1 manifest · 서비스워커 등록
 
-- `vite-plugin-pwa`: `strategies: 'injectManifest'`, `srcDir: 'src'`, `filename: 'sw.ts'`, `registerType: 'prompt'`, `devOptions.enabled: false`.
+- `vite-plugin-pwa`: `strategies: 'injectManifest'`, `srcDir: 'src'`, `filename: 'sw.ts'`, `registerType: 'prompt'`, `devOptions.enabled` 는 `E2E=1` 일 때만 true(E2E 가 mock 기반 dev 서버에서 돌기 때문). Playwright 는 기본 `serviceWorkers: 'block'`, PWA 스펙만 `'allow'`.
 - manifest: `name/short_name` Gen:iA Workplace, `display: standalone`, `start_url: /`, `scope: /`, 아이콘 192/512/maskable, `theme_color`/`background_color` 디자인 시스템 토큰 값. `index.html` 에 `apple-touch-icon`, `apple-mobile-web-app-capable` 메타 추가.
 - precache: `index.html` + 해시 에셋. `/api/*` 는 SW 가 가로채지 않는다(네트워크 직행, SSE 포함). 네비게이션 요청은 precache 된 `index.html` 로 fallback(단 `/api/`, `/s/` 제외).
 - 업데이트: 새 SW 대기 시 "새 버전이 있습니다 · 새로고침" 토스트. 사용자가 누를 때만 `skipWaiting` + reload(편집 중 데이터 보호).
@@ -264,7 +266,7 @@ notificationclick
   navigate(to)
 ```
 
-- `/push-open` 은 인증 보호 라우트 안에 둔다. 미로그인이면 로그인 후 원래 목적지로 복귀하는 기존 흐름을 따른다.
+- `/push-open` 은 공개 라우트로 둔다(현재 로그인 후 원래 목적지 복귀 흐름이 없음). 미로그인이면 목적지를 sessionStorage 에 저장하고 `/login` 으로 보내며, 로그인 후 AppLayout 진입 시 저장된 목적지로 이동한다.
 
 ## 7. 보안
 
@@ -289,7 +291,9 @@ notificationclick
   - 카테고리 off → 미발송
   - 이슈·캘린더 인박스 알림 → 푸시 발송, 카테고리 매핑
   - `preview=false` → 본문 고정 문구
-- PushSender (MockWebServer 로 `WebPushGateway` 검증): 2xx 초기화, 410 삭제, 5xx 5회 누적 삭제, 타임아웃 처리, 암호화 헤더(`Content-Encoding: aes128gcm`, VAPID Authorization) 존재
+- WebPushEncryptor: RFC 8291 Appendix A 테스트 벡터와 바이트 단위 일치
+- VapidSigner: 서명 JWT 를 공개키로 검증, aud/exp/sub 클레임
+- PushSender (`WebPushGateway` 는 MockRestServiceServer 로 검증): 2xx 초기화, 410 삭제, 5xx 5회 누적 삭제, 타임아웃 처리, 암호화 헤더(`Content-Encoding: aes128gcm`, VAPID Authorization) 존재
 - `enabled=false` → config `enabled=false`, 발송 no-op
 
 ### Frontend (Playwright E2E, build + preview)
@@ -297,7 +301,7 @@ notificationclick
 - manifest 링크·SW 등록 확인
 - 설정 화면: `context.grantPermissions(['notifications'])` → 토글 on → 서버 구독 등록 확인 → off → 삭제 확인
 - 종류별 토글 저장/복원
-- SW 에 테스트용 push 이벤트 주입 → `getNotifications()` 로 표시 확인, 같은 화면일 때 억제 확인
+- SW 판단 로직(억제 여부·알림 옵션·클릭 url 검증)은 순수 함수로 분리해 vitest 로 검증, E2E 는 CDP `ServiceWorker.deliverPushMessage` 로 push 를 주입해 표시 확인
 - notificationclick 시뮬레이션 → 이동, 다른 테넌트면 전환
 - 로그아웃 → 서버 구독 삭제
 - config `enabled=false` → 푸시 UI 숨김
