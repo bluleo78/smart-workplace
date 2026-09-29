@@ -1,6 +1,6 @@
 // src/components/layout/AppLayout.tsx
 // 전역 셸 — 좌측 앱 런처 LNB + 모듈 콘텐츠 + AI 어시스턴트(칩/사이드/풀스크린). 상단 GNB 없음.
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Outlet } from 'react-router-dom'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
@@ -16,6 +16,7 @@ import { MessagingConnectionContext } from '@/hooks/MessagingConnectionContext'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
+import { syncPushOnLogin } from '@/lib/push/subscription'
 
 export function AppLayout() {
   const { user } = useAuth()
@@ -26,6 +27,11 @@ export function AppLayout() {
   const { isConnected } = useEventStream(user?.id ?? 0)
   // 연결 상태를 하위 채팅 UI(끊김 배너)로 전달 — isConnected 변동 시에만 새 value.
   const messagingConn = useMemo(() => ({ isConnected }), [isConnected])
+
+  // 앱 진입(로그인·새로고침·테넌트 전환) 시 이 기기 구독을 서버에 재등록 — 계정 전환 시 소유자 이전·VAPID 키 변경 재구독.
+  useEffect(() => {
+    void syncPushOnLogin()
+  }, [user?.id])
 
   return (
     <MailComposeProvider>

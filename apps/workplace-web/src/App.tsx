@@ -84,6 +84,7 @@ const MailInboxPage = lazy(() =>
 const M365CallbackPage = lazy(() => import('./pages/oauth/M365CallbackPage'))
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettingsPage'))
 const MailSettingsPage = lazy(() => import('./pages/settings/MailSettingsPage'))
+const NotificationSettingsPage = lazy(() => import('./pages/settings/NotificationSettingsPage'))
 const AssistantSettingsPage = lazy(() => import('./pages/settings/AssistantSettingsPage'))
 const TokenSettingsPage = lazy(() => import('./pages/settings/TokenSettingsPage'))
 const SettingsModuleLayout = lazy(() =>
@@ -191,6 +192,7 @@ export default function App() {
                 <Route path="settings" element={<Navigate to="/settings/profile" replace />} />
                 <Route path="settings/profile" element={<ProfileSettingsPage />} />
                 <Route path="settings/mail" element={<MailSettingsPage />} />
+                <Route path="settings/notifications" element={<NotificationSettingsPage />} />
                 <Route path="settings/assistant" element={<AssistantSettingsPage />} />
                 <Route path="settings/tokens" element={<TokenSettingsPage />} />
 

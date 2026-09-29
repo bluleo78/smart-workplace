@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import { CountBadge } from '@/components/CountBadge'
 import { isCalendarType, notifTarget } from '@/components/home/notifTarget'
 import { useInboxPanel } from '@/components/layout/InboxContext'
+import { PushPromptBanner } from '@/components/layout/PushPromptBanner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificationsRead'
@@ -124,6 +125,7 @@ export function InboxPanel({ expanded = false }: { expanded?: boolean }) {
             모두 읽음
           </button>
         </div>
+        <PushPromptBanner />
         <div
           ref={scrollRef}
           onScroll={onScroll}

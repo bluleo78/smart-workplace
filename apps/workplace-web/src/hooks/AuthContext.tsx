@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { authApi } from '../api/auth';
 import { setAccessToken } from '../api/client';
 import { usersApi } from '../api/users';
+import { clearPushOnLogout } from '../lib/push/subscription';
 import type { LoginFormData, SignupFormData } from '../lib/validations/auth';
 import type { Membership, UserResponse } from '../types/auth';
 import type { RoleResponse } from '../types/role';
@@ -154,6 +155,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      // 서버 logout(토큰 폐기) 전에 이 기기의 푸시 매핑을 지운다 — 토큰이 아직 살아 있어야 인증 호출이 통과한다.
+      // 실패해도 로그아웃 자체는 막지 않는다(clearPushOnLogout 내부에서 흡수).
+      await clearPushOnLogout();
       await authApi.logout();
     } finally {
       setAccessToken(null);
