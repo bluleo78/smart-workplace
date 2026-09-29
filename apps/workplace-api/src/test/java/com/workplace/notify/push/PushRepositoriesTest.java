@@ -1,10 +1,10 @@
 package com.workplace.notify.push;
 
-import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -23,23 +23,10 @@ class PushRepositoriesTest extends IntegrationTestBase {
   @Autowired PushVapidKeyRepository vapid;
 
   /** 격리된 HUMAN 사용자 1명 시드. */
-  private long seedUser() {
-    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "wp_" + s)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "Wp" + s)
-        .set(USER.EMAIL, "wp_" + s + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
-  }
-
   @Test
   void upsert_sameEndpoint_transfersOwnerAndResetsFailure() {
-    long a = seedUser();
-    long b = seedUser();
+    long a = TestFixtures.createHuman(dsl);
+    long b = TestFixtures.createHuman(dsl);
     String ep = "https://203.0.113.10/push/" + UUID.randomUUID();
     subs.upsert(a, ep, "k1", "s1", "UA");
     long id = subs.findByUserIds(List.of(a)).get(0).id();
@@ -55,7 +42,7 @@ class PushRepositoriesTest extends IntegrationTestBase {
 
   @Test
   void trimToLimit_keepsNewest() {
-    long a = seedUser();
+    long a = TestFixtures.createHuman(dsl);
     for (int i = 0; i < 4; i++) {
       subs.upsert(a, "https://203.0.113.10/push/" + i + UUID.randomUUID(), "k", "s", null);
     }
@@ -66,8 +53,8 @@ class PushRepositoriesTest extends IntegrationTestBase {
 
   @Test
   void deleteByUserAndEndpoint_onlyOwner() {
-    long a = seedUser();
-    long b = seedUser();
+    long a = TestFixtures.createHuman(dsl);
+    long b = TestFixtures.createHuman(dsl);
     String ep = "https://203.0.113.10/push/" + UUID.randomUUID();
     subs.upsert(a, ep, "k", "s", null);
     assertThat(subs.deleteByUserAndEndpoint(b, ep)).isZero();
@@ -76,8 +63,8 @@ class PushRepositoriesTest extends IntegrationTestBase {
 
   @Test
   void preferences_defaultOn_andDisabledUsers() {
-    long a = seedUser();
-    long b = seedUser();
+    long a = TestFixtures.createHuman(dsl);
+    long b = TestFixtures.createHuman(dsl);
     prefs.upsert(a, PushCategory.DM, false);
     prefs.upsert(a, PushCategory.DM, false); // 멱등
     prefs.upsert(b, PushCategory.DM, true);

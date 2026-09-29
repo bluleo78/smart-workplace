@@ -3,13 +3,13 @@ package com.workplace.notify.push;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
-import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -29,19 +29,6 @@ class InboxPushEventTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired NotificationService service;
   @Autowired ApplicationEvents events;
-
-  private long seedUser() {
-    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "ipe_" + s)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "Ipe" + s)
-        .set(USER.EMAIL, "ipe_" + s + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
-  }
 
   private long seedIssue(long owner) {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 5);
@@ -75,8 +62,8 @@ class InboxPushEventTest extends IntegrationTestBase {
 
   @Test
   void createAndFanOut_publishesPushEvent_withFilteredRecipients() {
-    long actor = seedUser();
-    long r1 = seedUser();
+    long actor = TestFixtures.createHuman(dsl);
+    long r1 = TestFixtures.createHuman(dsl);
     long issueId = seedIssue(actor);
 
     service.createAndFanOut(NotificationType.COMMENTED, List.of(actor, r1, r1), actor, issueId, 3L);
@@ -91,8 +78,8 @@ class InboxPushEventTest extends IntegrationTestBase {
 
   @Test
   void noTenant_skipsPushButKeepsNotification() {
-    long actor = seedUser();
-    long r1 = seedUser();
+    long actor = TestFixtures.createHuman(dsl);
+    long r1 = TestFixtures.createHuman(dsl);
     long issueId = seedIssue(actor);
     TenantContext.clear(); // 트랜잭션은 이미 GUC 로 열려 있어 insert 는 성공한다
     try {
@@ -106,7 +93,7 @@ class InboxPushEventTest extends IntegrationTestBase {
 
   @Test
   void emptyRecipients_noEvent() {
-    long actor = seedUser();
+    long actor = TestFixtures.createHuman(dsl);
     long issueId = seedIssue(actor);
     service.createAndFanOut(NotificationType.ASSIGNED, List.of(actor), actor, issueId, null);
     assertThat(events.stream(InboxPushRequestedEvent.class)).isEmpty();

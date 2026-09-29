@@ -1,17 +1,18 @@
 package com.workplace.notify.push;
 
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
  * RestClient 기반 PushGateway. 상태코드 해석은 PushSender 가 하므로 여기서는 전송과 코드 반환만 한다. RestClient 는 연결·응답 타임아웃
- * (workplace.push.timeout)을 건 전용 인스턴스를 내부 생성한다 — 외부 푸시 서비스 지연이 스레드를 오래 잡지 않게.
+ * (workplace.push.timeout)을 건 전용 인스턴스를 내부 생성한다 — 외부 푸시 서비스 지연이 스레드를 오래 잡지 않게. 리다이렉트는 따라가지 않는다(SSRF
+ * 방어 — EndpointValidator 가 검증한 공인 주소가 3xx 로 내부 주소에 우회 접근하지 못하게, 3xx 는 상태코드로 그대로 반환).
  */
 @Slf4j
 @Component
@@ -29,10 +30,14 @@ public class WebPushGateway implements PushGateway {
     this.client = client;
   }
 
+  /** 코드베이스 표준 RestClient 구성(IssueAiConfig 등) + 리다이렉트 미추적을 명시한다 — 클라이언트 구현마다 기본값이 달라 생략하면 안 된다. */
   private static RestClient buildClient(PushProperties props) {
-    HttpClient http = HttpClient.newBuilder().connectTimeout(props.timeout()).build();
-    JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(http);
-    factory.setReadTimeout(props.timeout());
+    var settings =
+        ClientHttpRequestFactorySettings.defaults()
+            .withConnectTimeout(props.timeout())
+            .withReadTimeout(props.timeout())
+            .withRedirects(ClientHttpRequestFactorySettings.Redirects.DONT_FOLLOW);
+    var factory = ClientHttpRequestFactoryBuilder.detect().build(settings);
     return RestClient.builder().requestFactory(factory).build();
   }
 

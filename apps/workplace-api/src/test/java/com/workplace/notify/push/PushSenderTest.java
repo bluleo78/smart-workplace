@@ -1,6 +1,5 @@
 package com.workplace.notify.push;
 
-import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -13,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.security.KeyPair;
 import java.security.interfaces.ECPublicKey;
 import java.util.List;
@@ -48,17 +48,7 @@ class PushSenderTest extends IntegrationTestBase {
 
   @BeforeEach
   void seed() {
-    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    user =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, "ps_" + s)
-            .set(USER.PASSWORD, "pw")
-            .set(USER.NAME, "Ps" + s)
-            .set(USER.EMAIL, "ps_" + s + "@example.com")
-            .set(USER.KIND, "HUMAN")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
+    user = TestFixtures.createHuman(dsl);
     KeyPair ua = EcKeys.generate();
     p256dh = EcKeys.b64e(EcKeys.encodePublic((ECPublicKey) ua.getPublic()));
   }
@@ -173,11 +163,5 @@ class PushSenderTest extends IntegrationTestBase {
             .redacted();
     assertThat(issue.title()).isEqualTo("새 알림");
     assertThat(issue.body()).isEqualTo("새 알림이 있습니다");
-  }
-
-  @Test
-  void truncate_keepsCodePoints() {
-    assertThat(PushMessage.truncate("가".repeat(130), 120)).hasSize(121).endsWith("…");
-    assertThat(PushMessage.truncate("짧다", 120)).isEqualTo("짧다");
   }
 }

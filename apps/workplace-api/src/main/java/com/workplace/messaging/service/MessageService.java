@@ -26,7 +26,7 @@ import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageAiTriggerEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
-import com.workplace.messaging.outbound.MessagingDomainEvents.MessagePushRequestedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.MessagePushCandidateEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessagingChannelProgressEvent;
@@ -44,16 +44,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /** 메시지 작성/조회 + MessageCreatedEvent 발행 (AFTER_COMMIT SSE fan-out). */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MessageService {
@@ -62,7 +57,6 @@ public class MessageService {
   private final ChannelMemberRepository memberRepo;
   private final ChannelRepository channelRepo;
   private final ApplicationEventPublisher publisher;
-  private final PlatformTransactionManager txManager; // 푸시 조회용 세이브포인트(NESTED) 트랜잭션 개설용(#866 라운드2)
   private final UserMentionHydrator mentionHydrator;
   private final ReactionRepository reactionRepo;
   private final MessageAttachmentService attachmentService;
@@ -128,94 +122,41 @@ public class MessageService {
     // 암묵적 관련성 발굴은 MessagingAttentionDispatcher 가 커밋 후에 발사한다(directed 제외 판정 포함).
     publisher.publishEvent(new MessageCreatedEvent(channelId, saved));
     maybeTriggerAi(callerId, channelId, saved); // AI 응답 트리거 (신규)
-    publishPushRequest(channelId, saved); // DM·멘션 Web Push 요청 (#866)
+    publishPushCandidate(channelId, saved); // DM·멘션 Web Push 후보 (#866)
     return saved;
   }
 
   /**
-   * 메시지 푸시 대상을 계산해 이벤트를 발행한다. DM: 작성자 외 HUMAN 멤버 전원. 멘션: 채널 멤버인 HUMAN(작성자 제외). 둘 다 없으면 발행하지 않는다.
+   * 푸시 후보 이벤트를 발행한다. 메모리에 있는 값(작성자·미리보기·멘션)만 담고 DB 조회는 하지 않는다 — 수신 대상 계산(채널 종류·멤버 조회)은 커밋 후
+   * MessagePushDispatcher 가 별도 트랜잭션에서 수행하므로, 그 조회가 실패해도 메시지 작성 트랜잭션에는 영향이 없다(#866).
    *
-   * <p>테넌트 미선택(TenantContext.get()==null)이면 즉시 스킵 — 메시지 작성 자체는 그대로 진행한다.
+   * <p>테넌트 미선택(TenantContext.get()==null)이면 발행하지 않는다 — 메시지 작성 자체는 그대로 진행한다.
    *
    * <p>제안 카드 메시지(MessagingProposalService 가 messageRepo.insert 를 직접 호출하는 경로)와 메시지 수정(update())은 이
    * 메서드를 거치지 않으므로 의도적으로 푸시 대상에서 제외된다 — 신규 채팅 메시지만 알림 대상.
    */
-  private void publishPushRequest(long channelId, MessageResponse saved) {
+  private void publishPushCandidate(long channelId, MessageResponse saved) {
     Long tenantId = TenantContext.get();
     if (tenantId == null) return; // 테넌트 미선택 호출(배치 등) — 메시지 작성 자체는 그대로 진행
-    MessagePushRequestedEvent event = computePushEventInSavepoint(channelId, saved, tenantId);
-    if (event != null) publisher.publishEvent(event);
-  }
-
-  /**
-   * 푸시 대상 조회(findKind/listMembers/findName 등)를 세이브포인트(중첩 트랜잭션, PROPAGATION_NESTED)로 감싼다.
-   *
-   * <p>단순 try/catch 만으로는 부족하다 — PostgreSQL 은 트랜잭션 도중 SQL 오류(제약 위반, 문법 오류 등)를 만나면 그 트랜잭션 전체를 abort
-   * 상태로 만들어, catch 로 예외를 삼켜도 이후 같은 트랜잭션의 어떤 쿼리도(메시지 작성 COMMIT 포함) "current transaction is aborted"
-   * 로 실패한다. 즉 조회 실패가 메시지 작성 자체를 롤백시킬 수 있다(리뷰 #866 라운드2). JDBC savepoint 로 감싸면 실패 시 세이브포인트까지만 롤백되어
-   * 바깥 트랜잭션(이미 INSERT 된 메시지)은 그대로 유효하게 남는다.
-   *
-   * <p>{@code DataSourceTransactionManager}(TenantAwareTransactionManager 의 부모)는 기본 생성자에서 {@code
-   * setNestedTransactionAllowed(true)} 를 호출해두므로 별도 설정 없이 JDBC Savepoint(PostgreSQL 드라이버 지원)를 쓸 수
-   * 있다. jOOQ 는 spring-boot-starter-jooq 가 Spring 관리 커넥션(DataSourceUtils 바인딩)을 그대로 쓰므로, 이 메서드 안의 조회도
-   * 바깥 트랜잭션과 같은 커넥션·같은 세이브포인트 범위에서 실행된다.
-   */
-  private MessagePushRequestedEvent computePushEventInSavepoint(
-      long channelId, MessageResponse saved, long tenantId) {
-    TransactionTemplate nested = new TransactionTemplate(txManager);
-    nested.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
-    try {
-      return nested.execute(status -> buildPushEvent(channelId, saved, tenantId));
-    } catch (RuntimeException ex) {
-      // 세이브포인트가 자동 롤백된다 — 바깥 트랜잭션(메시지 작성)은 영향받지 않는다.
-      log.warn("[push] 메시지 푸시 이벤트 계산 실패 channelId={}: {}", channelId, ex.getMessage());
-      return null;
-    }
-  }
-
-  /** 채널 kind·멤버·멘션을 조회해 MessagePushRequestedEvent 를 구성한다. 대상이 없으면 null(미발행). */
-  private MessagePushRequestedEvent buildPushEvent(
-      long channelId, MessageResponse saved, long tenantId) {
-    String kind = channelRepo.findKind(channelId);
-    boolean dm = "DM".equals(kind);
-    // 멘션 없는 일반 채널 메시지(채널 메시지 대다수)는 멤버 조회조차 없이 즉시 스킵.
-    if (!dm && saved.mentions().isEmpty()) return null;
-    // 멤버 조회는 한 번만(listMembers) — DM 수신자 목록과 멘션 유효성 검증(memberIds)에 함께 쓴다.
-    java.util.List<ChannelMemberResponse> members = memberRepo.listMembers(channelId);
-    java.util.List<Long> dmRecipients =
-        dm
-            ? members.stream()
-                .filter(m -> !m.userId().equals(saved.authorId()) && !"AGENT".equals(m.kind()))
-                .map(ChannelMemberResponse::userId)
-                .toList()
-            : java.util.List.of();
-    java.util.Set<Long> memberIds =
-        members.stream()
-            .map(ChannelMemberResponse::userId)
-            .collect(java.util.stream.Collectors.toSet());
-    java.util.List<Long> mentioned =
-        saved.mentions().stream()
-            .filter(m -> !"AGENT".equals(m.kind()))
-            .map(MentionResponse::id)
-            .filter(id -> memberIds.contains(id) && !id.equals(saved.authorId()))
-            .distinct()
-            .toList();
-    if (dmRecipients.isEmpty() && mentioned.isEmpty()) return null;
     boolean hasAttachments =
         (saved.attachments() != null && !saved.attachments().isEmpty())
             || (saved.driveLinks() != null && !saved.driveLinks().isEmpty());
-    return new MessagePushRequestedEvent(
-        tenantId,
-        channelId,
-        kind,
-        dm ? null : channelRepo.findName(channelId).orElse(null),
-        saved.id(),
-        saved.parentMessageId(),
-        saved.authorId(),
-        saved.authorName(),
-        MessagePushPreview.of(saved.body(), saved.mentions(), hasAttachments),
-        dmRecipients,
-        mentioned);
+    // AGENT 멘션은 푸시 대상이 아니다(AI 응답 트리거 경로가 별도로 처리). 종류 정보가 메모리에 있어 여기서 거른다.
+    List<Long> mentionedHumans =
+        saved.mentions().stream()
+            .filter(m -> !"AGENT".equals(m.kind()))
+            .map(MentionResponse::id)
+            .toList();
+    publisher.publishEvent(
+        new MessagePushCandidateEvent(
+            tenantId,
+            channelId,
+            saved.id(),
+            saved.parentMessageId(),
+            saved.authorId(),
+            saved.authorName(),
+            MessagePushPreview.of(saved.body(), saved.mentions(), hasAttachments),
+            mentionedHumans));
   }
 
   /**

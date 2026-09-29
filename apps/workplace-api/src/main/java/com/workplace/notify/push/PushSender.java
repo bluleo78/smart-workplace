@@ -1,7 +1,9 @@
 package com.workplace.notify.push;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,9 +41,13 @@ public class PushSender {
     List<PushSubscriptionRow> subs = subscriptions.findByUserIds(targets);
     if (subs.isEmpty()) return;
     byte[] json = payload(props.preview() ? message : message.redacted());
+    // 한 번의 send 안에서만 재사용하는 캐시 — 같은 푸시 서비스(FCM 등)로 가는 구독이 대부분이라 origin 별 DNS 검증과 origin(aud)별 VAPID
+    // 서명을 1회로 줄인다. 전역 캐시를 두지 않는 이유: 발송 직전 재검증(DNS 재바인딩 완화)과 JWT 만료 관리를 단순하게 유지하기 위해.
+    Map<String, Boolean> allowedByOrigin = new HashMap<>();
+    Map<String, String> authByOrigin = new HashMap<>();
     for (PushSubscriptionRow sub : subs) {
       try {
-        deliverOne(sub, json, message);
+        deliverOne(sub, json, message, allowedByOrigin, authByOrigin);
       } catch (Exception e) {
         log.warn("[push] 구독 {} 발송 중 예외: {}", sub.id(), e.getMessage());
         failed(sub);
@@ -66,9 +72,15 @@ public class PushSender {
     }
   }
 
-  private void deliverOne(PushSubscriptionRow sub, byte[] json, PushMessage m) {
-    if (!endpointValidator.isAllowed(sub.endpoint())) {
-      subscriptions.deleteById(sub.id()); // 재해석 결과 내부 주소 — 폐기
+  private void deliverOne(
+      PushSubscriptionRow sub,
+      byte[] json,
+      PushMessage m,
+      Map<String, Boolean> allowedByOrigin,
+      Map<String, String> authByOrigin) {
+    URI uri = parse(sub.endpoint());
+    if (uri == null || !allowed(sub.endpoint(), uri, allowedByOrigin)) {
+      subscriptions.deleteById(sub.id()); // 파싱 불가 또는 재해석 결과 내부 주소 — 폐기
       return;
     }
     byte[] body = encryptor.encrypt(json, EcKeys.b64d(sub.p256dh()), EcKeys.b64d(sub.auth()));
@@ -77,7 +89,9 @@ public class PushSender {
     headers.put("Urgency", m.urgency());
     headers.put("Content-Encoding", "aes128gcm");
     headers.put("Content-Type", "application/octet-stream");
-    headers.put("Authorization", signer.authorization(sub.endpoint()));
+    headers.put(
+        "Authorization",
+        authByOrigin.computeIfAbsent(origin(uri), o -> signer.authorization(sub.endpoint())));
     int status = gateway.deliver(sub.endpoint(), body, headers);
     if (status >= 200 && status < 300) {
       subscriptions.markSuccess(sub.id());
@@ -88,6 +102,29 @@ public class PushSender {
     } else {
       failed(sub); // 429·5xx·타임아웃(-1)·기타
     }
+  }
+
+  /** endpoint 파싱. 실패하면 null — EndpointValidator 와 같이 "허용 안 됨"으로 취급한다. */
+  private static URI parse(String endpoint) {
+    try {
+      return URI.create(endpoint);
+    } catch (RuntimeException e) {
+      return null;
+    }
+  }
+
+  /**
+   * EndpointValidator 결과를 origin 단위로 재사용한다(DNS 조회가 비싼 부분). 검증 결과는 scheme·host 로만 정해지고 길이 제한만
+   * endpoint 별이라 길이는 매번 따로 본다.
+   */
+  private boolean allowed(String endpoint, URI uri, Map<String, Boolean> cache) {
+    if (endpoint.length() > EndpointValidator.MAX_LENGTH) return false;
+    return cache.computeIfAbsent(origin(uri), k -> endpointValidator.isAllowed(endpoint));
+  }
+
+  /** VAPID aud 와 같은 기준(scheme://host[:port])의 origin — 서명 캐시 키. */
+  private static String origin(URI u) {
+    return u.getScheme() + "://" + u.getHost() + (u.getPort() == -1 ? "" : ":" + u.getPort());
   }
 
   private void failed(PushSubscriptionRow sub) {

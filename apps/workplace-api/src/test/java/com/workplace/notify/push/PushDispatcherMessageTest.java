@@ -6,7 +6,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-import com.workplace.messaging.outbound.MessagingDomainEvents.MessagePushRequestedEvent;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -20,8 +19,8 @@ class PushDispatcherMessageTest {
   @Test
   void dm_sendsDmCategory_withAuthorTitle() {
     // 8L 이 DM 대상이자 멘션 대상 — DM 우선 dedup 검증: MENTION 카테고리로는 절대 다시 보내지 않는다.
-    dispatcher.onMessagePush(
-        new MessagePushRequestedEvent(
+    dispatcher.dispatchMessage(
+        new MessagePushRequest(
             1L, 42L, "DM", null, 1234L, null, 7L, "박민수", "안녕", List.of(8L), List.of(8L)));
 
     ArgumentCaptor<PushMessage> m = ArgumentCaptor.forClass(PushMessage.class);
@@ -39,8 +38,8 @@ class PushDispatcherMessageTest {
   @Test
   void channel_nullChannelName_fallsBackTitle() {
     // 채널명 조회 실패/레이스로 channelName 이 null 이어도 "#null · 작성자" 로 새지 않아야 한다.
-    dispatcher.onMessagePush(
-        new MessagePushRequestedEvent(
+    dispatcher.dispatchMessage(
+        new MessagePushRequest(
             1L, 5L, "CHANNEL", null, 10L, null, 7L, "박민수", "리뷰", List.of(), List.of(9L)));
 
     ArgumentCaptor<PushMessage> m = ArgumentCaptor.forClass(PushMessage.class);
@@ -50,8 +49,8 @@ class PushDispatcherMessageTest {
 
   @Test
   void channelMention_threadReply_urlHasThread() {
-    dispatcher.onMessagePush(
-        new MessagePushRequestedEvent(
+    dispatcher.dispatchMessage(
+        new MessagePushRequest(
             1L, 5L, "CHANNEL", "backend", 10L, 3L, 7L, "박민수", "리뷰", List.of(), List.of(9L)));
 
     ArgumentCaptor<PushMessage> m = ArgumentCaptor.forClass(PushMessage.class);

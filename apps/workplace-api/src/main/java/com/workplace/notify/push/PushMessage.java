@@ -29,11 +29,4 @@ public record PushMessage(
         urgency,
         ttlSeconds);
   }
-
-  /** 코드포인트 기준 max 자로 자르고 말줄임표. null 은 빈 문자열. */
-  public static String truncate(String s, int max) {
-    if (s == null) return "";
-    if (s.codePointCount(0, s.length()) <= max) return s;
-    return s.substring(0, s.offsetByCodePoints(0, max)) + "…";
-  }
 }

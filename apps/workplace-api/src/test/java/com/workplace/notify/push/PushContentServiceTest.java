@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -26,21 +27,10 @@ class PushContentServiceTest extends IntegrationTestBase {
   String key;
   long issueId;
 
-  private long seedUser(String name) {
-    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "pcs_" + s)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, name)
-        .set(USER.EMAIL, "pcs_" + s + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
-  }
-
   private void seedIssue() {
-    actor = seedUser("박민수");
+    actor = TestFixtures.createHuman(dsl);
+    // 푸시 문구가 행위자 이름을 쓰므로 검증용 이름을 지정한다.
+    dsl.update(USER).set(USER.NAME, "박민수").where(USER.ID.eq(actor)).execute();
     key = "P" + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
     long projectId =
         dsl.insertInto(PROJECT)

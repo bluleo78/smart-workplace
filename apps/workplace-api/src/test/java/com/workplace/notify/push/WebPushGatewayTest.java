@@ -7,8 +7,13 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -66,5 +71,45 @@ class WebPushGatewayTest {
     int status = gw.deliver("not a url", new byte[] {1}, Map.of());
 
     assertThat(status).isEqualTo(-1);
+  }
+
+  /**
+   * SSRF 방어 — 실제(운영) 생성자로 만든 클라이언트는 3xx 를 따라가지 않고 상태코드로 반환해야 한다. MockRestServiceServer 는 요청 팩토리를
+   * 대체하므로 리다이렉트 동작을 검증할 수 없어, 로컬 HTTP 서버로 302 → 다른 경로를 실제로 응답시킨다.
+   */
+  @Test
+  void deliver_doesNotFollowRedirects() throws IOException {
+    HttpServer server =
+        HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+    AtomicInteger targetHits = new AtomicInteger();
+    server.createContext(
+        "/redirect",
+        ex -> {
+          ex.getRequestBody().readAllBytes();
+          ex.getResponseHeaders().add("Location", "/target");
+          ex.sendResponseHeaders(302, -1);
+          ex.close();
+        });
+    server.createContext(
+        "/target",
+        ex -> {
+          targetHits.incrementAndGet();
+          ex.sendResponseHeaders(200, -1);
+          ex.close();
+        });
+    server.start();
+    try {
+      WebPushGateway gw =
+          new WebPushGateway(
+              new PushProperties(true, true, null, Duration.ofSeconds(2), null, null));
+      String ep = "http://127.0.0.1:" + server.getAddress().getPort() + "/redirect";
+
+      int status = gw.deliver(ep, new byte[] {1}, Map.of("TTL", "60"));
+
+      assertThat(status).isEqualTo(302);
+      assertThat(targetHits).hasValue(0);
+    } finally {
+      server.stop(0);
+    }
   }
 }

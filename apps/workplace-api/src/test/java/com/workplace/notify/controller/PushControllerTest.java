@@ -1,6 +1,5 @@
 package com.workplace.notify.controller;
 
-import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -13,6 +12,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.notify.push.EcKeys;
 import com.workplace.notify.push.PushSubscriptionRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.security.interfaces.ECPublicKey;
 import java.util.List;
 import java.util.UUID;
@@ -45,23 +45,10 @@ class PushControllerTest extends IntegrationTestBase {
   String p256dh;
   final String auth = EcKeys.b64e(new byte[16]);
 
-  private long seedUser() {
-    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, "pc_" + s)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, "Pc" + s)
-        .set(USER.EMAIL, "pc_" + s + "@example.com")
-        .set(USER.KIND, "HUMAN")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
-  }
-
   @BeforeEach
   void setUp() {
-    userA = seedUser();
-    userB = seedUser();
+    userA = TestFixtures.createHuman(dsl);
+    userB = TestFixtures.createHuman(dsl);
     tokenA = jwt.generateAccessToken(userA, "a");
     tokenB = jwt.generateAccessToken(userB, "b");
     p256dh = EcKeys.b64e(EcKeys.encodePublic((ECPublicKey) EcKeys.generate().getPublic()));

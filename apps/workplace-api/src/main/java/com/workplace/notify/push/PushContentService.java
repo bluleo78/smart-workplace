@@ -1,5 +1,6 @@
 package com.workplace.notify.push;
 
+import com.workplace.global.util.Texts;
 import com.workplace.notify.dto.NotificationType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -29,7 +30,7 @@ public class PushContentService {
                   new PushMessage(
                       e.tenantId(),
                       category,
-                      PushMessage.truncate(
+                      Texts.truncateCodePoints(
                           i.projectKey() + "-" + i.number() + " " + i.title(), 120),
                       actor + label(e.type()),
                       "/projects/" + i.projectKey() + "/issues/" + i.number(),
@@ -46,8 +47,8 @@ public class PushContentService {
               return new PushMessage(
                   e.tenantId(),
                   category,
-                  reminder ? "일정 알림" : PushMessage.truncate(title, 120),
-                  reminder ? PushMessage.truncate(title, 120) : actor + label(e.type()),
+                  reminder ? "일정 알림" : Texts.truncateCodePoints(title, 120),
+                  reminder ? Texts.truncateCodePoints(title, 120) : actor + label(e.type()),
                   "/calendar?eventId=" + e.eventId(),
                   "event-" + e.eventId(),
                   "normal",

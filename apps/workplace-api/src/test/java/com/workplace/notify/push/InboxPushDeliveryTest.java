@@ -16,6 +16,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.security.interfaces.ECPublicKey;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -59,18 +60,9 @@ class InboxPushDeliveryTest extends IntegrationTestBase {
     TenantContext.clear();
   }
 
+  /** 공용 픽스처로 사용자 생성 + 정리 대상 등록(커밋되는 테스트라 @AfterEach 에서 지운다). */
   private long seedUser() {
-    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    long id =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, "ipd_" + s)
-            .set(USER.PASSWORD, "pw")
-            .set(USER.NAME, "Ipd" + s)
-            .set(USER.EMAIL, "ipd_" + s + "@example.com")
-            .set(USER.KIND, "HUMAN")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
+    long id = TestFixtures.createHuman(dsl);
     users.add(id);
     return id;
   }
