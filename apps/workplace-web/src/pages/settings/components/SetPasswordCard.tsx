@@ -11,14 +11,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FormField } from '@/components/ui/form-field'
 import { PasswordInput } from '@/components/ui/password-input'
 import { extractApiError } from '@/lib/api-error'
+import { passwordRule } from '@/lib/validations/user'
 
 const schema = z
   .object({
-    newPassword: z
-      .string()
-      .min(8, '비밀번호는 8자 이상이어야 합니다')
-      .max(128, '비밀번호는 128자 이하여야 합니다')
-      .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, '영문 대문자·소문자·숫자를 각각 1자 이상 포함해야 합니다'),
+    newPassword: passwordRule,
     confirmPassword: z.string(),
   })
   .refine((v) => v.newPassword === v.confirmPassword, { path: ['confirmPassword'], message: '비밀번호가 일치하지 않습니다' })

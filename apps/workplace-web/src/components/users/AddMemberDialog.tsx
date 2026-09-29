@@ -19,17 +19,10 @@ import { Label } from '@/components/ui/label'
 import { useSsoSettings } from '@/hooks/queries/useSsoSettings'
 import { useCreateMember } from '@/hooks/queries/useUsers'
 import { extractApiError } from '@/lib/api-error'
+import { passwordRule } from '@/lib/validations/user'
 
 // 구성원 추가 폼 — 아이디(로그인 ID)/이메일(선택)/이름/역할 + 로그인 방식(WP-48).
 // SSO 전용이면 비밀번호를 받지 않고 아이디는 회사 SSO 계정 주소(이메일)여야 한다(첫 SSO 로그인 매칭 키).
-const PASSWORD_RULE = z
-  .string()
-  .min(8, '비밀번호는 8자 이상이어야 합니다')
-  .max(128, '비밀번호는 128자 이하여야 합니다')
-  .regex(/[A-Z]/, '대문자를 1자 이상 포함해야 합니다')
-  .regex(/[a-z]/, '소문자를 1자 이상 포함해야 합니다')
-  .regex(/[0-9]/, '숫자를 1자 이상 포함해야 합니다')
-
 const addMemberSchema = z
   .object({
     loginMethod: z.enum(['SSO', 'PASSWORD']),
@@ -47,7 +40,7 @@ const addMemberSchema = z
       }
       return
     }
-    const r = PASSWORD_RULE.safeParse(v.password ?? '')
+    const r = passwordRule.safeParse(v.password ?? '')
     if (!r.success) ctx.addIssue({ code: 'custom', path: ['password'], message: r.error.issues[0].message })
   })
 
@@ -73,6 +66,8 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
   // WP-48: 워크스페이스 SSO 가 켜져 있을 때만 로그인 방식 선택을 노출(기본 SSO 전용).
   const { data: ssoSettings } = useSsoSettings(open)
   const ssoOn = ssoSettings?.enabled === true
+  // 로그인 방식 기본값 — SSO 가 켜져 있으면 SSO 전용, 아니면 비밀번호.
+  const defaultMethod = ssoOn ? 'SSO' : 'PASSWORD'
 
   const {
     register,
@@ -89,8 +84,8 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
 
   // SSO 가 켜져 있으면 다이얼로그를 열 때 SSO 전용을 기본 선택으로 맞춘다.
   useEffect(() => {
-    if (open && ssoOn) setValue('loginMethod', 'SSO')
-  }, [open, ssoOn, setValue])
+    if (open && ssoOn) setValue('loginMethod', defaultMethod)
+  }, [open, ssoOn, defaultMethod, setValue])
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
@@ -128,7 +123,7 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
             name: '',
             password: '',
             role: 'USER',
-            loginMethod: ssoOn ? 'SSO' : 'PASSWORD',
+            loginMethod: defaultMethod,
           })
           submittingRef.current = false
           return
@@ -165,7 +160,6 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
             Radix Checkbox 는 소속 form 의 reset 이벤트에 반응해 스스로 onCheckedChange(false) 를
             발화하는데, onSuccess 의 react-hook-form reset() 이 그 reset 을 유발한다 → 폼 안에 두면
             첫 저장 직후 체크가 풀려 '계속 추가'가 깨진다(#655 연속등록 flake 의 진짜 원인). */}
-        { }
         <form id="add-member-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {serverError && (
             <p className="text-sm text-destructive" data-testid="add-member-error">
