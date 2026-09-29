@@ -91,6 +91,14 @@ class CreateMemberSsoOnlyTest extends SsoIntegrationTestBase {
     create(email, "").andExpect(status().isConflict());
   }
 
+  /** WP-48: 비밀번호 구성원 경로도 아이디 중복을 대소문자 무시로 검사 — SSO 전용 계정과 대소문자만 다른 계정이 생기지 않게. */
+  @Test
+  void passwordMember_rejectsCaseInsensitiveDuplicateOfSsoOnly() throws Exception {
+    String email = SsoTestData.uniqueEmail("alice");
+    SsoTestData.user(dsl, email, null);
+    create(email.toUpperCase(), ",\"password\":\"Password123\"").andExpect(status().isConflict());
+  }
+
   @Test
   void passwordMember_unchanged() throws Exception {
     create("pw-user-" + System.nanoTime(), ",\"password\":\"Password123\"")

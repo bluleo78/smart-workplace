@@ -210,8 +210,9 @@ public class UserService {
       if (!userRepository.findIdsByUsernameIgnoreCase(username).isEmpty()) {
         throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
       }
-    } else if (userRepository.existsByUsername(username)) {
-      // 아이디(로그인 ID) 중복 → 409
+    } else if (!userRepository.findIdsByUsernameIgnoreCase(username).isEmpty()) {
+      // 아이디(로그인 ID) 중복 → 409. WP-48: SSO 매칭이 대소문자 무시이므로 비밀번호 경로도 대소문자 무시로 검사한다
+      // (대소문자만 다른 계정이 생기면 SSO 매칭이 모호해져 거부된다).
       throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
     }
     // 이메일은 선택값. 공백/널이면 null 로 저장하고, 값이 있으면 중복 검사.
