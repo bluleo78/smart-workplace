@@ -610,6 +610,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
               // 본문 에디터로 포커스를 넘긴다(#786).
               if (e.key === 'Enter') {
                 e.preventDefault()
+                // commands.focus 는 다음 animation frame 에 포커스를 옮겨, Enter 직후 빠른 타이핑의 앞 글자가
+                // 제목에 붙는다 → view.focus() 로 동기 이동 후 커서만 시작으로 둔다.
+                editor?.view.focus()
                 editor?.commands.focus('start')
               }
             }}

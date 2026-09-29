@@ -43,7 +43,9 @@ test('메뉴에서 마크다운 소스를 열면 현재 본문 원문이 보인�
   const UNSAVED_MARK = '미저장 편집분 확인용 문장'
   // 편집 가능 전환(setEditable effect)·포커스가 끝나기 전에 치면 부하 시 첫 글자가 유실된다(플래키) → 둘 다 기다린다.
   await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
-  await page.locator('.ProseMirror').click()
+  // 에디터 중앙 클릭은 레이아웃 타이밍에 따라 본문 끝 표 주변(노드 선택)에 떨어질 수 있고, 그 선택에선
+  // ProseMirror 가 입력을 되돌려 편집분이 사라진다(preview 빌드 부하 시 재현) → 문단 텍스트를 직접 클릭한다.
+  await page.locator('.ProseMirror p', { hasText: '본문 한 줄.' }).click()
   await expect(page.locator('.ProseMirror')).toBeFocused()
   await page.keyboard.press('End')
   await page.keyboard.type(UNSAVED_MARK)
