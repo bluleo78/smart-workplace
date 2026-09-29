@@ -92,6 +92,37 @@ async function setupChatStubs(
   );
 }
 
+/**
+ * /api/v1/events 게이트 모킹 (WP-59). deliver() 호출 전 도착한 요청(StrictMode 이중 마운트로 2건 가능)은 보류했다가 함께 본문으로 응답하고,
+ * deliver() 이후 도착하는 재연결 요청은 abort 한다. 유한 본문 SSE 는 응답 직후 종료되어 클라이언트가 재연결하는데,
+ * 재연결 catch-up(활성 쿼리 전체 재조회)이 스텁 없는 API 를 때려 에러 토스트가 채팅 열기 버튼을 가리기 때문이다.
+ * 게이트는 드로어가 열려 메시지 캐시가 생긴 *뒤에* 프레임이 도착하도록 보장하는 역할도 한다.
+ */
+async function mockEventsOnce(page: import('@playwright/test').Page, body: string) {
+  let open!: () => void;
+  const gate = new Promise<void>((r) => (open = r));
+  let delivered = false;
+  await page.route(
+    (url) => url.pathname === '/api/v1/events',
+    async (route) => {
+      if (delivered) return route.abort();
+      await gate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        headers: { 'cache-control': 'no-cache' },
+        body,
+      });
+    },
+  );
+  return {
+    deliver: () => {
+      delivered = true;
+      open();
+    },
+  };
+}
+
 test.describe('chat 실시간 SSE', () => {
   test(
     'SSE 로 도착한 메시지가 create POST 없이 즉시 렌더된다',
@@ -140,20 +171,13 @@ test.describe('chat 실시간 SSE', () => {
         `event: chat.message.created\n` +
         `data: ${JSON.stringify(msg)}\n\n`;
 
-      await page.route(
-        (url) => url.pathname === '/api/v1/events',
-        (route) =>
-          route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            headers: { 'cache-control': 'no-cache' },
-            body: sseBody,
-          }),
-      );
+      const events = await mockEventsOnce(page, sseBody);
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
       // 채팅은 드로어로 이동(#558) — 메시지 단언 전 드로어를 연다.
       await page.getByTestId('issue-chat-open').click();
+      // 드로어(메시지 캐시)가 열린 뒤 프레임 전달.
+      events.deliver();
 
       // SSE 프레임으로 도착한 메시지가 렌더돼야 한다 (create POST 없이).
       await expect(page.getByText('SSE 실시간 메시지')).toBeVisible();
@@ -238,20 +262,12 @@ test.describe('chat 실시간 SSE', () => {
     );
 
     // SSE 스트림 — heartbeat 만 (실제 echo 는 GET 시드로 모델링했으므로 불필요). 프록시 에러 회피용.
-    await page.route(
-      (url) => url.pathname === '/api/v1/events',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          headers: { 'cache-control': 'no-cache' },
-          body: `:\n\n`,
-        }),
-    );
+    const events = await mockEventsOnce(page, `:\n\n`);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // 채팅은 드로어로 이동(#558) — 메시지 단언 전 드로어를 연다.
     await page.getByTestId('issue-chat-open').click();
+    events.deliver();
 
     // 시드된 SAVED_ID 행이 먼저 렌더돼야 한다.
     await expect(page.getByTestId(`chat-message-body-${SAVED_ID}`)).toHaveCount(1);
