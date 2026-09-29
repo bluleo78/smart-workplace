@@ -2,8 +2,10 @@ package com.workplace.notify.service;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
+import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.notify.repository.NotificationRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.util.ArrayList;
@@ -11,12 +13,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 알림 생성·조회·읽음. 생성 시 수신자 후보에서 actor 본인 제외 + 중복 제거 후 persist 하고, 같은 수신자 집합에 SSE("notify.created")로
- * fan-out 한다. 모든 조회/변경은 recipientId 스코프(타 사용자 알림 접근 불가).
+ * fan-out 한다. 모든 조회/변경은 recipientId 스코프(타 사용자 알림 접근 불가). insert 후 InboxPushRequestedEvent 발행 → 커밋 후
+ * 푸시.
  */
 @Service
 @RequiredArgsConstructor
@@ -25,6 +29,7 @@ public class NotificationService {
   private final NotificationRepository repo;
   private final SseRegistry registry;
   private final IssueWatcherRepository watcherRepo;
+  private final ApplicationEventPublisher publisher;
 
   /** 수신자 확정(actor 제외·중복 제거) → batch insert → SSE fan-out. 빈 수신자면 no-op. */
   @Transactional
@@ -40,6 +45,16 @@ public class NotificationService {
     repo.insertBatch(recipients, type, actorId, issueId, commentId);
     // 페이로드는 경량(클라가 수신 즉시 쿼리 invalidate). 상세는 REST 재조회.
     registry.fanOut(recipients, "notify.created", Map.of("type", type.name(), "issueId", issueId));
+    publishPush(type, recipients, actorId, issueId, null);
+  }
+
+  /** 테넌트가 없으면(비정상 경로) 푸시만 건너뛴다. 푸시 때문에 인박스 insert 가 롤백되면 안 되므로 require() 금지. */
+  private void publishPush(
+      NotificationType type, List<Long> recipients, Long actorId, Long issueId, Long eventId) {
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) return;
+    publisher.publishEvent(
+        new InboxPushRequestedEvent(tenantId, type, recipients, actorId, issueId, eventId));
   }
 
   /**
@@ -77,6 +92,7 @@ public class NotificationService {
     repo.insertEventNotification(recipientId, type, actorId, eventId);
     registry.fanOut(
         List.of(recipientId), "notify.created", Map.of("type", type.name(), "eventId", eventId));
+    publishPush(type, List.of(recipientId), actorId, null, eventId);
   }
 
   /**
@@ -88,6 +104,7 @@ public class NotificationService {
     repo.insertReminder(recipientId, eventId);
     registry.fanOut(
         List.of(recipientId), "notify.created", Map.of("type", "REMINDER", "eventId", eventId));
+    publishPush(NotificationType.REMINDER, List.of(recipientId), null, null, eventId);
   }
 
   @Transactional(readOnly = true)
