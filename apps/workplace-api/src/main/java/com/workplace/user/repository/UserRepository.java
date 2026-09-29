@@ -80,6 +80,18 @@ public class UserRepository {
         .fetch(this::mapToUserResponse);
   }
 
+  /**
+   * WP-48: username 대소문자 무시 조회 — SSO 최초 연결 매칭용. username 유니크 제약은 대소문자를 구분하므로 대소문자만 다른 두 계정이 공존할 수
+   * 있다. 호출자가 그 경우를 충돌로 처리하도록 최대 2건을 돌려준다.
+   */
+  public List<Long> findIdsByUsernameIgnoreCase(String username) {
+    return dsl.select(USER.ID)
+        .from(USER)
+        .where(org.jooq.impl.DSL.lower(USER.USERNAME).eq(username.toLowerCase(java.util.Locale.ROOT)))
+        .limit(2)
+        .fetch(USER.ID);
+  }
+
   public Optional<UserResponse> findById(Long id) {
     return dsl.select(
             USER.ID,
