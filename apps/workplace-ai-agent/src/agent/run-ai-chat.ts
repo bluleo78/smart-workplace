@@ -61,8 +61,14 @@ function isCreatedDateFilterQuery(query: string): boolean {
 
 // #406/#415: 쿼리에 담당 해제 의도가 있는지 감지하는 공통 헬퍼.
 // isUnassignCompoundQuery / isSimpleUnassignQuery 양쪽에서 재사용해 정규식 중복을 방지한다.
+// WP-45: 예전 `담당자.*나` 패턴이 "담당자는 나로 설정해줘" 같은 **지정** 요청까지 해제로 분류해
+//   #415 가드가 성공 답변을 실패 문구로 바꿨다(복합 요청이면 #406 이 실제로 해제까지 호출할 수 있었다).
+//   그래서 해제 동사(해제/제외/빼)가 있어야만 매칭하고, "나로/나에게" 같은 본인 지정 표현이 있으면
+//   명시적 해제 단어(해제/unassign)가 함께 있을 때만 해제로 본다 — "WP-1 빼고 담당자 나로" 의 '빼' 오탐 방지.
 function hasUnassignIntent(query: string): boolean {
-  return /담당.*(해제|빼줘|제외|빼)|나.*담당.*빼|unassign|담당자.*나|나.*빼줘/i.test(query);
+  const assignToMe = /(나|저|본인|내)\s*(로|으로|에게|한테|게)\s*(설정|지정|바꿔|변경|할당|배정|해|맡)/.test(query);
+  if (assignToMe && !/해제|unassign/i.test(query)) return false;
+  return /담당.*(해제|제외|빼)|unassign|나.*빼줘/i.test(query);
 }
 
 // #406: 이슈 담당 해제 의도가 포함된 복합 쿼리 감지.

@@ -1445,6 +1445,46 @@ describe('runAiChatStream — 단순 해제 허위 성공 환각 차단 (#415)',
   });
 });
 
+// WP-45: "담당자는 나로" 같은 본인 지정 요청이 해제 의도로 오분류되면 안 된다.
+describe('runAiChatStream — 담당 지정 요청 해제 오분류 방지 (WP-45)', () => {
+  // 위임 + unassign 콜백 없음 → 해제로 오분류되면 #415 가드가 실패 문구로 바꾼다.
+  const assignQueries = [
+    '현재 모든 이슈의 담당자는 나로 설정해줘',
+    '담당자는 나로 하고 완료된 건 제외해줘',
+    'WP-1 빼고 담당자 나로 바꿔줘',
+    'EX-2 담당자를 나에게 할당해줘',
+  ];
+  it.each(assignQueries)('지정 요청 "%s" → subagent 답 그대로(해제 실패 문구로 바뀌지 않음)', async (query) => {
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
+    ], { subagent: '담당자를 지정했습니다.' }));
+    const out = await runAiChatStream(baseInput({ query, userId: 1 }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe('담당자를 지정했습니다.');
+  });
+
+  it('지정 + 상태변경 복합 요청 → #406 해제 재처리(unassignSelf)를 호출하지 않는다', async () => {
+    const unassignSelf = vi.fn().mockResolvedValue(undefined);
+    const client = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
+    streamSpy.mockImplementation(makeRunnerImpl([agentDelegation('issue-agent'), result('')], { subagent: '완료했습니다.' }));
+    await runAiChatStream(
+      baseInput({ query: 'EX-2 담당자는 나로 바꾸고 진행중으로 변경해줘', userId: 1 }),
+      { client },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(unassignSelf).not.toHaveBeenCalled();
+  });
+
+  // 기존 해제 표현은 여전히 해제로 인식해야 한다(#415 가드 유지).
+  const unassignQueries = ['담당자에서 나 해제해줘', 'EX-2 나 빼줘', 'EX-2 unassign 해줘', 'EX-2 이슈에서 내 담당을 해제해줘', '나에게 할당된 EX-2 담당 해제해줘'];
+  it.each(unassignQueries)('해제 요청 "%s" + 위임 + unassign 미처리 → 실패 안내(가드 유지)', async (query) => {
+    streamSpy.mockImplementation(makeRunnerImpl([agentDelegation('issue-agent'), result('해제되었습니다.')]));
+    const out = await runAiChatStream(baseInput({ query, userId: 1 }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(out.fullText).toBe('담당 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.');
+  });
+});
+
 // onTool passthrough — mcp.onTool 이 러너 stream 입력에 전달되고, 러너가 이벤트를 발행하면 caller 의 onTool 콜백이 수신하는지 검증.
 describe('runAiChatStream — onTool passthrough (#462)', () => {
   it('onTool 콜백을 mcp 설정으로 전달하고 이벤트가 caller 까지 도달한다', async () => {
