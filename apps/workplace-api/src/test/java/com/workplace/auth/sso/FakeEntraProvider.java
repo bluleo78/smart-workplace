@@ -102,7 +102,7 @@ public final class FakeEntraProvider {
     claims = f;
   }
 
-  /** Entra v2 ID 토큰 기본형 — iss/aud/tid/oid/exp. nonce·email·xms_edov·upn 은 테스트가 더한다. */
+  /** Entra v2 ID 토큰 기본형 — iss/aud/tid/oid/exp. nonce·upn 은 테스트가 더한다. */
   public JWTClaimsSet.Builder claimsBuilder(String tid, String oid) {
     return new JWTClaimsSet.Builder()
         .issuer(authority() + "/" + tid + "/v2.0")

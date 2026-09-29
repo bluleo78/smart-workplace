@@ -5,14 +5,15 @@
    - 지원 계정 유형: **모든 조직 디렉터리의 계정(멀티테넌트)**
    - 리디렉션 URI: 플랫폼 **Web**, `https://<web-host>/api/v1/auth/sso/callback` (SPA 로 등록하면 서버 측 시크릿 교환이 거부됨)
 2. 인증서 및 비밀 → 새 클라이언트 비밀 → 값 보관(만료일 기록)
-3. 토큰 구성 → 선택적 클레임 추가 → ID 토큰: `email`, `upn`, `xms_edov`
-4. API 권한: Microsoft Graph 위임 `openid`, `profile`, `email` (기본값)
+3. 토큰 구성 → 선택적 클레임 추가 → ID 토큰: `upn` 만. "OpenID Connect 범위 구성 필요" 안내가 나오면 API 권한에서 `profile` 을 추가하면 된다
+   (`email`·`xms_edov` 는 쓰지 않는다 — 계정 매칭은 upn 만 사용)
+4. API 권한: Microsoft Graph 위임 `openid`, `profile`
 5. env 주입: `SSO_M365_CLIENT_ID`(애플리케이션 ID), `SSO_M365_CLIENT_SECRET`, `SSO_M365_REDIRECT_URI` — compose `.env` 와 Helm 차트 values(`~/k8s/smart-workplace`) 모두. 적용 후 api 재시작.
 
 ## 2. 워크스페이스 관리자
 1. 설정 › SSO → "SSO 로그인 사용" 켜기
 2. "관리자 동의 링크"를 회사 Entra 관리자에게 전달 → 승인
-3. 설정 › 구성원 › 구성원 추가 → 로그인 방식 "SSO 전용", 아이디 = 회사 Microsoft 계정 주소
+3. 설정 › 구성원 › 구성원 추가 → 로그인 방식 "SSO 전용", 아이디 = 회사 Microsoft 계정의 **사용자 계정 이름(UPN)** 과 동일하게(대소문자 무관)
 
 ## 3. 확인
 - 로그인 화면 "Microsoft 계정으로 로그인" → 등록된 계정은 진입, 미등록은 "등록되지 않은 Microsoft 계정입니다."

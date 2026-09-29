@@ -43,7 +43,8 @@ public class M365OidcClient {
   private static final Pattern GUID =
       Pattern.compile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
   private static final Duration TIMEOUT = Duration.ofSeconds(5);
-  private static final String SCOPE = "openid profile email";
+  // upn 클레임은 profile 범위로 들어온다. email 은 매칭에 쓰지 않으므로 요청하지 않는다.
+  private static final String SCOPE = "openid profile";
 
   private final SsoProperties props;
   private final RestClient http;
