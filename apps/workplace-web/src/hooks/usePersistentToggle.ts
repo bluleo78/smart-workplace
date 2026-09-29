@@ -9,8 +9,13 @@ export function usePersistentToggle(
 ): [boolean, () => void, (v: boolean) => void] {
   const [open, setOpenState] = useState<boolean>(() => {
     if (typeof window === 'undefined') return defaultOpen;
-    const raw = window.localStorage.getItem(key);
-    return raw === null ? defaultOpen : raw === '1';
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw === null ? defaultOpen : raw === '1';
+    } catch {
+      // localStorage 접근 자체가 막힌 환경(차단된 사이트 데이터 등) — 기본값으로 시작.
+      return defaultOpen;
+    }
   });
 
   const set = useCallback(

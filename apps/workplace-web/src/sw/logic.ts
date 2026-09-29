@@ -33,48 +33,21 @@ const FALLBACK: PushPayload = {
 const SENTINEL_ORIGIN = 'https://sentinel.invalid'
 
 /**
- * 제어문자(U+0000~001F, U+007F)나 raw 백슬래시가 하나라도 있으면 true(공백은 대상 아님).
- * 정규식 문자 클래스에 제어문자 리터럴을 그대로 넣으면 ESLint `no-control-regex` 에 걸리므로
- * charCodeAt 비교로 직접 검사한다.
- */
-function hasControlOrBackslash(s: string): boolean {
-  for (let i = 0; i < s.length; i++) {
-    const code = s.charCodeAt(i)
-    if (code <= 0x1f || code === 0x7f || s[i] === '\\') return true
-  }
-  return false
-}
-
-/**
  * 같은 origin 상대경로만 허용 — 그 외(외부·프로토콜 상대·스킴)는 홈으로(오픈 리다이렉트 방지).
  *
- * 문자열 접두사만 보고 판단하면 우회된다: WHATWG URL 파서는 입력 어디에 있든 TAB/LF/CR(U+0009,
- * U+000A, U+000D)을 파싱 전에 제거하므로 `'/\t/evil.com'` 은 `'//evil.com'`(스킴 상대)이 되어
- * origin 이 evil.com 으로 바뀐다. 또한 특수 스킴(http/https 등)에서는 raw 백슬래시를 `/` 와
- * 동일하게 취급해 `'/\\evil.com'` 도 같은 방식으로 우회된다.
- * 그래서 (1) 제어문자(U+0000~001F, U+007F)·raw 백슬래시가 하나라도 있으면 원본 문자열 단계에서
- * 거부하고, (2) 반드시 `/` 로 시작하되 `//` 는 거부하고, (3) sentinel origin 으로 실제 파싱해
- * origin 이 그대로인지 재검증한다(백분율 인코딩된 `%5C` 등은 안전한 리터럴 경로 문자로 남아
- * 통과한다).
- *
- * (3)까지 통과해도 `..` dot-segment 정규화가 문제다 — `/..//evil.com`, `/.//evil.com`,
- * `/a/../..//evil.com`, `/%2e%2e//evil.com` 은 모두 파서가 `..`/`%2e%2e` 를 접어 pathname 이
- * `//evil.com`(스킴 상대) 이 되어 버린다. origin 자체는 sentinel 그대로라 (3)만으로는 못 잡는다.
- * 그래서 (4) 정규화된 pathname 이 `//` 로 시작하거나 백슬래시를 포함하면 거부하고, (5) 반환할
- * 값 자체를 다시 `new URL(out, sentinel)` 로 파싱해 origin 이 그대로 sentinel 인지 재검증한다 —
- * 이 값은 `shouldSuppress`, 그리고 앞으로 추가될 notificationclick 핸들러에서 다시 상대경로로
- * 파싱되므로, "반환값이 다시 파싱돼도 안전한가"까지 확인해야 한다.
+ * 문자열 접두사 검사만으로는 우회된다(WHATWG URL 파서가 TAB/LF/CR 을 제거하고 특수 스킴에서 `\` 를 `/` 로 취급해
+ * `'/\t/evil.com'`·`'/\\evil.com'` 이 `//evil.com` 이 되고, `/..//evil.com`·`/%2e%2e//evil.com` 은 dot-segment 정규화로
+ * pathname 이 `//evil.com` 이 된다). 그래서 입력별 특수 처리 대신 하나의 불변식으로 판단한다:
+ * (1) `/` 로 시작하는 문자열만 받는다(스킴·외부 URL 차단), (2) sentinel origin 기준으로 실제 파싱해 origin 이 그대로여야 하고,
+ * (3) 반환할 정규화 값(pathname+search+hash)을 다시 파싱해도 origin 이 그대로여야 한다 — 이 값은 shouldSuppress·notificationclick
+ * 에서 다시 상대경로로 파싱되므로 "반환값이 재파싱돼도 안전한가"까지 확인한다. 위 우회는 모두 (2) 또는 (3)에서 걸린다.
  */
 export function safeTarget(url: unknown): string {
-  if (typeof url !== 'string') return '/'
-  if (hasControlOrBackslash(url)) return '/'
-  if (!url.startsWith('/') || url.startsWith('//')) return '/'
+  if (typeof url !== 'string' || !url.startsWith('/')) return '/'
   try {
     const u = new URL(url, SENTINEL_ORIGIN)
     if (u.origin !== SENTINEL_ORIGIN) return '/'
-    if (u.pathname.startsWith('//') || hasControlOrBackslash(u.pathname)) return '/'
     const out = u.pathname + u.search + u.hash
-    // 반환값이 다시 파싱돼도(shouldSuppress, notificationclick) 같은 origin 을 유지하는지 재검증.
     if (new URL(out, SENTINEL_ORIGIN).origin !== SENTINEL_ORIGIN) return '/'
     return out
   } catch {

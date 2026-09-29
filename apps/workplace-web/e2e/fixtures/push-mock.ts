@@ -34,6 +34,17 @@ export async function installPushManagerStub(page: Page) {
   )
 }
 
+/**
+ * Notification.permission 정적 프로퍼티를 고정한다. headless Chromium 은 context.grantPermissions() 후에도 이 값이
+ * 즉시 갱신되지 않고(requestPermission() 호출로만 갱신) 캐시돼 있어, 앱이 정적 프로퍼티를 읽는 경로(배너 노출·syncPushOnLogin)의
+ * 권한 상태를 재현하려면 getter 를 직접 스텁해야 한다. 페이지 로드마다 적용되도록 init script 로 등록한다.
+ */
+export async function stubNotificationPermission(page: Page, value: NotificationPermission) {
+  await page.addInitScript((v) => {
+    Object.defineProperty(Notification, 'permission', { get: () => v, configurable: true })
+  }, value)
+}
+
 export async function mockPushApis(page: Page, opts: { enabled?: boolean } = {}) {
   const enabled = opts.enabled ?? true
   await mockApi(page, 'GET', '/api/v1/push/config', { enabled, vapidPublicKey: enabled ? VAPID_KEY : null })

@@ -2,7 +2,7 @@
 // 설정 > 알림 — 기기 푸시 토글(권한→구독→서버 등록), 종류별 토글, 거부·iOS·비활성 안내, 로그아웃 시 구독 해제.
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { FAKE_ENDPOINT, installPushManagerStub, mockPushApis } from '../../fixtures/push-mock'
+import { FAKE_ENDPOINT, installPushManagerStub, mockPushApis, stubNotificationPermission } from '../../fixtures/push-mock'
 
 test.use({ serviceWorkers: 'allow' })
 
@@ -54,9 +54,7 @@ test.describe('알림 설정', () => {
   test('권한을 거부하면 안내가 보인다', async ({ authenticatedPage: page }) => {
     // headless Chromium 은 알림 권한 기본값이 이미 'denied' 라 스텁 없이는 클릭 전부터 안내가 보여
     // "클릭 → 거부" 경로를 검증하지 못한다. 'default' 로 스텁해 실제 거부 플로우를 재현한다.
-    await page.addInitScript(() => {
-      Object.defineProperty(Notification, 'permission', { get: () => 'default', configurable: true })
-    })
+    await stubNotificationPermission(page, 'default')
     await installPushManagerStub(page)
     await mockPushApis(page)
     await page.goto('/settings/notifications')
@@ -109,11 +107,9 @@ test.describe('알림 설정', () => {
   test('서버 키가 바뀐 기기는 재구독 후 재등록한다', async ({ authenticatedPage: page, context }) => {
     await context.grantPermissions(['notifications'])
     // 이전 키(마지막 바이트 다름)로 이미 구독된 브라우저 시뮬레이션
+    // 실사용자가 이미 허용해 둔 상태 재현(syncPushOnLogin 은 정적 프로퍼티를 읽는다 — 스텁 이유는 push-mock 참고).
+    await stubNotificationPermission(page, 'granted')
     await page.addInitScript(() => {
-      // headless Chromium 은 context.grantPermissions() 후에도 Notification.permission 정적 프로퍼티가
-      // 즉시 갱신되지 않고 'denied' 로 캐시돼 있다(requestPermission() 호출로만 갱신) — syncPushOnLogin 은
-      // 정적 프로퍼티를 읽으므로, 실사용자가 이미 허용해 둔 상태를 재현하려면 getter 를 직접 스텁해야 한다.
-      Object.defineProperty(Notification, 'permission', { get: () => 'granted', configurable: true })
       const old = new Uint8Array(65)
       old[0] = 4
       old[64] = 1
@@ -167,9 +163,7 @@ test.describe('인박스 배너', () => {
   test('미구독이면 알림 켜기 배너가 보이고 닫으면 다시 안 보인다', async ({ authenticatedPage: page }) => {
     // headless Chromium 은 알림 권한 기본값이 'denied' 라(grantPermissions 미호출 시) 배너 조건(permission
     // 'default')을 충족 못 한다. 배너 노출 자체를 검증하려는 목적이므로 permission getter 만 'default' 로 스텁.
-    await page.addInitScript(() => {
-      Object.defineProperty(Notification, 'permission', { get: () => 'default', configurable: true })
-    })
+    await stubNotificationPermission(page, 'default')
     await installPushManagerStub(page)
     await mockPushApis(page)
     await mockApi(page, 'GET', '/api/v1/notifications', [])
