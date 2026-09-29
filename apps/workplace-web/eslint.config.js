@@ -47,4 +47,9 @@ export default defineConfig([
       'no-restricted-syntax': 'off',
     },
   },
+  // 서비스워커 — clients·registration 등 SW 전역 사용. React 규칙 무관.
+  {
+    files: ['src/sw.ts'],
+    languageOptions: { globals: globals.serviceworker },
+  },
 ])

@@ -63,6 +63,8 @@ export default defineConfig({
     // on-first-retry + 로컬 retries:0 이면 trace 가 전혀 안 남아 플래키 디버그가 불가능했다.
     // 실패 시 항상 trace 보존으로 변경(다음 플래키부터 원인 추적 가능).
     trace: 'retain-on-failure',
+    // 기본은 SW 차단 — mock(page.route) 이 SW 에 가로채이지 않게. PWA 스펙만 allow.
+    serviceWorkers: 'block',
   },
 
   projects: [

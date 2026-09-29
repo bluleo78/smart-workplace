@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { defineConfig } from 'vite'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // 개발 프록시 대상(workplace-api).
 const API_HOST = 'localhost'
@@ -50,7 +51,41 @@ function waitForApi(timeoutMs: number): Promise<boolean> {
 // - "@/..." → "src/..." 별칭
 // - 개발 서버 /api → workplace-api(6060) 프록시
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // PWA — injectManifest: SW 코드(src/sw.ts)는 직접 작성하고 플러그인은 precache 목록 주입·manifest 생성만 한다.
+    // dev SW 는 E2E=1 일 때만 켠다(E2E 가 mock 기반 dev 서버에서 SW 등록·push 를 검증). 일반 개발에선 캐시 혼선 방지로 끈다.
+    VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      registerType: 'prompt',
+      injectRegister: false, // PwaUpdatePrompt 의 useRegisterSW 가 등록한다
+      manifest: {
+        name: 'Gen:iA Workplace',
+        short_name: 'Gen:iA',
+        description: '사람과 AI가 함께 일하는 워크플레이스',
+        lang: 'ko',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        theme_color: '#4338ca',
+        background_color: '#ffffff',
+        icons: [
+          { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+      },
+      devOptions: { enabled: process.env.E2E === '1', type: 'module' },
+    }),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
