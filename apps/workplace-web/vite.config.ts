@@ -7,9 +7,14 @@ import path from 'path'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// E2E(Playwright)·CI 에서는 백엔드를 띄우지 않고 page.route() 로 /api 를 모킹한다.
+const IS_E2E = process.env.E2E === '1' || !!process.env.CI
+
 // 개발 프록시 대상(workplace-api).
+// E2E 는 모킹 누락 요청이 항상 즉시 503 이 되도록 닫힌 포트(9, discard)로 보낸다 — 6060 으로 보내면
+// 병렬 세션이 띄운 실제 API 가 있을 때만 401·토큰 refresh 재시도가 끼어들어 결과가 환경에 따라 달라졌다(WP-82).
 const API_HOST = 'localhost'
-const API_PORT = 6060
+const API_PORT = IS_E2E ? 9 : 6060
 const API_TARGET = `http://${API_HOST}:${API_PORT}`
 
 // 콜드스타트 재시도 설정.
@@ -17,9 +22,7 @@ const API_TARGET = `http://${API_HOST}:${API_PORT}`
 // /api 요청이 ECONNREFUSED 로 스택과 함께 콘솔을 도배한다. 연결 거부 시 포트가 열릴 때까지
 // 조용히 기다렸다가 한 번만 재프록시하고, 타임아웃이면 한 줄 경고 + 503 으로 마무리한다.
 const RETRY_PROBE_INTERVAL_MS = 500
-// E2E(Playwright)·CI 에서는 백엔드를 띄우지 않고 page.route() 로 /api 를 모킹한다.
-// 모킹 누락 요청이 콜드스타트 대기(20초)에 걸리면 테스트가 느려지므로, 이때는 즉시 503 으로 빠르게 실패시킨다.
-const IS_E2E = process.env.E2E === '1' || !!process.env.CI
+// E2E 에서 모킹 누락 요청이 콜드스타트 대기(20초)에 걸리면 테스트가 느려지므로, 이때는 즉시 503 으로 빠르게 실패시킨다.
 const RETRY_TIMEOUT_MS = IS_E2E ? 0 : 20000 // API 콜드스타트 구간(~10초)을 여유 있게 덮는다(E2E 제외)
 
 // 요청별 재시도 1회만 수행하기 위한 플래그 확장 타입.
