@@ -115,7 +115,10 @@ export default function NotificationSettingsPage() {
                   <Switch
                     data-testid={`push-pref-${c.key}`}
                     checked={prefs.data?.[c.key] ?? true}
-                    disabled={!prefs.isSuccess}
+                    // 저장 요청이 진행 중이면 전부 비활성화 — 하나의 뮤테이션(updatePref)을 네 토글이 공유하므로,
+                    // 응답 오기 전에 다른 종류를 또 누르면 부분 업데이트(PUT body 는 바뀐 필드만)가 겹쳐 순서에 따라
+                    // 먼저 보낸 요청의 결과가 나중 응답으로 덮어써질 수 있다.
+                    disabled={!prefs.isSuccess || updatePref.isPending}
                     onCheckedChange={(v) => updatePref.mutate({ category: c.key, enabled: v })}
                     aria-label={c.label}
                   />

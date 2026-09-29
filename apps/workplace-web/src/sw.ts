@@ -6,7 +6,14 @@
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
 
-import { buildNotification, parsePushPayload, requiresVisibleNotification, safeTarget, shouldSuppress } from './sw/logic'
+import {
+  buildNotification,
+  isAppRouteUrl,
+  parsePushPayload,
+  requiresVisibleNotification,
+  safeTarget,
+  shouldSuppress,
+} from './sw/logic'
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision: string | null }> }
 
@@ -41,7 +48,8 @@ async function handlePush(raw: string | null) {
   await self.registration.showNotification(title, options)
 }
 
-// 알림 탭 — 열린 창이 있으면 포커스 후 앱 라우터로 이동시키고, 없으면 /push-open 으로 새 창(테넌트 전환 포함).
+// 알림 탭 — 앱 라우트 창이 있으면 postMessage 로 그 창 라우터를 이동시키고, 없으면 같은 origin 의 다른 창(예: /login)을
+// /push-open 으로 navigate 시키며, 그마저 없으면 /push-open 으로 새 창을 연다(테넌트 전환 포함, openFromNotification 참고).
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   event.waitUntil(openFromNotification(event.notification.data))
@@ -51,14 +59,45 @@ async function openFromNotification(data: unknown) {
   const d = (data ?? {}) as { url?: unknown; tenantId?: unknown }
   const url = safeTarget(d.url)
   const tenantId = typeof d.tenantId === 'number' ? d.tenantId : null
+  const origin = self.location.origin
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-  const existing = windows.find((c) => new URL(c.url).origin === self.location.origin)
-  if (existing) {
-    await existing.focus()
-    existing.postMessage({ type: 'push-navigate', url, tenantId })
-    return
-  }
   const qs = new URLSearchParams({ to: url })
   if (tenantId != null) qs.set('t', String(tenantId))
-  await self.clients.openWindow(`/push-open?${qs.toString()}`)
+  const target = `/push-open?${qs.toString()}`
+
+  // 1순위: 앱 라우트(로그인/공유링크/알림 진입점이 아닌 일반 화면)를 보고 있는 창 — 그 창의 라우터가 이미 살아 있으므로
+  // postMessage 로 바로 이동시킬 수 있다. postMessage 를 먼저 보내고 focus 는 실패해도(창이 그새 닫히는 등) 무시한다 —
+  // 메시지는 이미 전달됐으므로 이동 자체는 성공한다.
+  const appWindow = windows.find((c) => isAppRouteUrl(c.url, origin))
+  if (appWindow) {
+    appWindow.postMessage({ type: 'push-navigate', url, tenantId })
+    try {
+      await appWindow.focus()
+    } catch {
+      // 포커스만 실패 — 이동은 이미 postMessage 로 전달됐다.
+    }
+    return
+  }
+
+  // 2순위: 앱 라우트는 아니지만 같은 origin 창(/login, /push-open 등)이 열려 있으면 그 창을 /push-open 으로 이동시켜
+  // 재사용한다 — 새 창을 또 띄우지 않는다(예: 로그아웃 후 /login 탭만 남은 상태).
+  const sameOriginWindow = windows.find((c) => {
+    try {
+      return new URL(c.url).origin === origin
+    } catch {
+      return false
+    }
+  })
+  if (sameOriginWindow) {
+    try {
+      const navigated = await sameOriginWindow.navigate(target)
+      await (navigated ?? sameOriginWindow).focus()
+    } catch {
+      // navigate/focus 실패해도 알림 클릭 처리 자체를 막지 않는다.
+    }
+    return
+  }
+
+  // 3순위: 열린 창이 전혀 없으면 새 창.
+  await self.clients.openWindow(target)
 }

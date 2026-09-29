@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildNotification,
+  isAppRouteUrl,
   parsePushPayload,
   requiresVisibleNotification,
   safeTarget,
@@ -84,6 +85,48 @@ describe('shouldSuppress', () => {
   it('client.url 파싱 실패는 일치하지 않음(표시)으로 처리', () => {
     // new URL(c.url) 이 던져도 억제 판단 전체가 죽지 않고 "표시" 로 안전하게 fallback (review round 1).
     expect(shouldSuppress(payload, [{ url: 'not-a-url', visible: true }], ORIGIN, false)).toBe(false)
+  })
+  it('ISSUE·CALENDAR 는 경로가 완전히 같아도 억제하지 않는다 (review round 2)', () => {
+    // 캘린더 url 은 /calendar?eventId=N 형태라 같은 /calendar 화면을 보고 있다는 사실만으로는 "같은 일정을 보는 중"을
+    // 보장 못 한다. 이슈 경로도 테넌트 간 key 충돌 가능성이 있어 ISSUE/CALENDAR 는 절대 억제하지 않는다.
+    const calendarPayload = { ...payload, category: 'CALENDAR', url: '/calendar?eventId=9' }
+    expect(shouldSuppress(calendarPayload, [{ url: `${ORIGIN}/calendar?eventId=9`, visible: true }], ORIGIN, false)).toBe(
+      false,
+    )
+    const issuePayload = { ...payload, category: 'ISSUE', url: '/projects/SW/issues/1' }
+    expect(shouldSuppress(issuePayload, [{ url: `${ORIGIN}/projects/SW/issues/1`, visible: true }], ORIGIN, false)).toBe(
+      false,
+    )
+  })
+  it('채널 메인 화면을 보고 있어도 대상이 스레드(?thread=)면 억제하지 않는다 (review round 2)', () => {
+    const mentionPayload = { ...payload, category: 'MENTION', url: '/chat/channels/5?thread=3' }
+    expect(
+      shouldSuppress(mentionPayload, [{ url: `${ORIGIN}/chat/channels/5`, visible: true }], ORIGIN, false),
+    ).toBe(false)
+  })
+  it('DM 은 pathname 과 search 가 완전히 같아야 억제한다', () => {
+    const dmPayload = { ...payload, category: 'DM', url: '/chat/dms/42?x=1' }
+    expect(shouldSuppress(dmPayload, [{ url: `${ORIGIN}/chat/dms/42?x=1`, visible: true }], ORIGIN, false)).toBe(true)
+    expect(shouldSuppress(dmPayload, [{ url: `${ORIGIN}/chat/dms/42`, visible: true }], ORIGIN, false)).toBe(false)
+  })
+})
+
+describe('isAppRouteUrl', () => {
+  it('/login, /signup, /s/..., /push-open, /oauth/... 는 앱 라우트가 아니다', () => {
+    expect(isAppRouteUrl(`${ORIGIN}/login`, ORIGIN)).toBe(false)
+    expect(isAppRouteUrl(`${ORIGIN}/signup`, ORIGIN)).toBe(false)
+    expect(isAppRouteUrl(`${ORIGIN}/s/abc123`, ORIGIN)).toBe(false)
+    expect(isAppRouteUrl(`${ORIGIN}/push-open?to=%2Fchat%2Fdms%2F1`, ORIGIN)).toBe(false)
+    expect(isAppRouteUrl(`${ORIGIN}/oauth/callback`, ORIGIN)).toBe(false)
+  })
+  it('일반 앱 화면은 앱 라우트다', () => {
+    expect(isAppRouteUrl(`${ORIGIN}/chat/dms/42`, ORIGIN)).toBe(true)
+    expect(isAppRouteUrl(`${ORIGIN}/`, ORIGIN)).toBe(true)
+    expect(isAppRouteUrl(`${ORIGIN}/calendar?eventId=9`, ORIGIN)).toBe(true)
+  })
+  it('다른 origin 이거나 파싱 실패면 앱 라우트가 아니다', () => {
+    expect(isAppRouteUrl('not-a-url', ORIGIN)).toBe(false)
+    expect(isAppRouteUrl('https://other.example/chat', ORIGIN)).toBe(false)
   })
 })
 

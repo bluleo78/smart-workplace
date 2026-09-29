@@ -78,9 +78,15 @@ export function parsePushPayload(raw: string | null): PushPayload {
 /**
  * 알림 생략 여부 — 사용자가 이미 그 화면을 보고 있으면(SSE 로 즉시 반영됨) 알림을 띄우지 않는다. 단 Safari/iOS 는 알림 없는 푸시가
  * 반복되면 구독을 취소하므로 항상 표시(alwaysShow).
+ *
+ * DM·MENTION 만 억제 대상이다 — ISSUE/CALENDAR 는 절대 억제하지 않는다: 캘린더 url 은 `/calendar?eventId=N` 형태라 같은
+ * `/calendar` 화면을 보고 있으면(다른 일정이라도) pathname 만으로는 오탐하고, 이슈 경로(`/projects/:key/issues/:number`)는
+ * 테넌트가 달라도 key 가 겹칠 수 있어 pathname 일치가 실제 동일 화면을 보장하지 못한다. 그래서 비교도 pathname 뿐 아니라
+ * search(쿼리 파라미터)까지 완전히 같아야 억제한다(예: 채널 메인 화면과 `?thread=` 스레드는 다른 화면으로 취급).
  */
 export function shouldSuppress(p: PushPayload, clients: ClientView[], origin: string, alwaysShow: boolean): boolean {
   if (alwaysShow) return false
+  if (p.category !== 'DM' && p.category !== 'MENTION') return false
   const target = new URL(p.url, origin)
   return clients.some((c) => {
     if (!c.visible) return false
@@ -88,11 +94,31 @@ export function shouldSuppress(p: PushPayload, clients: ClientView[], origin: st
       // client.url 파싱 실패 시 "일치하지 않음(표시)" 으로 취급 — 억제 판단이 예외로 죽어 알림
       // 자체가 안 뜨는 사고(iOS 무알림 규칙 위반)를 막는다.
       const u = new URL(c.url)
-      return u.origin === target.origin && u.pathname === target.pathname
+      return u.origin === target.origin && u.pathname === target.pathname && u.search === target.search
     } catch {
       return false
     }
   })
+}
+
+// notificationclick 이 postMessage 로 라우팅을 넘겨도 되는 "앱 라우트"가 아닌 경로 — 로그인/가입/공유링크/알림
+// 진입점/OAuth 콜백은 AppLayout(라우터) 밖이라 push-navigate 메시지를 받아 처리할 화면이 없다.
+const NON_APP_EXACT_PATHS = new Set(['/login', '/signup', '/push-open'])
+const NON_APP_PATH_PREFIXES = ['/s/', '/oauth/']
+
+/**
+ * 창이 "앱 라우트"(AppLayout 안의 일반 화면)를 보고 있는지 — notificationclick 에서 postMessage 로 이동시킬 창을 고를 때 쓴다.
+ * 같은 origin 이 아니거나 파싱 실패면 false(앱 라우트 아님)로 안전하게 처리한다.
+ */
+export function isAppRouteUrl(url: string, origin: string): boolean {
+  try {
+    const u = new URL(url)
+    if (u.origin !== origin) return false
+    if (NON_APP_EXACT_PATHS.has(u.pathname)) return false
+    return !NON_APP_PATH_PREFIXES.some((prefix) => u.pathname.startsWith(prefix))
+  } catch {
+    return false
+  }
 }
 
 /** WebKit(Safari·iOS 전 브라우저) 여부 — Chromium·Firefox 계열 표식이 없고 AppleWebKit 이면 true. */

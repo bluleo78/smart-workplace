@@ -51,6 +51,32 @@ test.describe('알림 설정', () => {
     await expect(page.getByTestId('push-pref-CALENDAR')).toHaveAttribute('aria-checked', 'false')
   })
 
+  test('저장 중에는 종류별 토글이 모두 비활성화된다', async ({ authenticatedPage: page }) => {
+    await installPushManagerStub(page)
+    await mockPushApis(page)
+    await page.goto('/settings/notifications')
+
+    // PUT 응답을 붙잡아 뒀다가 나중에 풀어준다 — 한 뮤테이션(updatePref)을 네 토글이 공유하므로, 응답이 오기 전에
+    // 다른 종류를 또 누르면 부분 업데이트가 겹쳐 먼저 보낸 요청 결과가 나중 응답에 덮어써질 수 있다(item 6).
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    await page.route('**/api/v1/push/preferences', async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback()
+      await gate
+      await route.fulfill({ json: { DM: true, MENTION: true, ISSUE: true, CALENDAR: false } })
+    })
+
+    await page.getByTestId('push-pref-CALENDAR').click()
+    await expect(page.getByTestId('push-pref-DM')).toBeDisabled()
+    await expect(page.getByTestId('push-pref-MENTION')).toBeDisabled()
+    await expect(page.getByTestId('push-pref-ISSUE')).toBeDisabled()
+    await expect(page.getByTestId('push-pref-CALENDAR')).toBeDisabled()
+
+    release()
+    await expect(page.getByTestId('push-pref-DM')).toBeEnabled()
+    await expect(page.getByTestId('push-pref-CALENDAR')).toHaveAttribute('aria-checked', 'false')
+  })
+
   test('권한을 거부하면 안내가 보인다', async ({ authenticatedPage: page }) => {
     // headless Chromium 은 알림 권한 기본값이 이미 'denied' 라 스텁 없이는 클릭 전부터 안내가 보여
     // "클릭 → 거부" 경로를 검증하지 못한다. 'default' 로 스텁해 실제 거부 플로우를 재현한다.
@@ -102,6 +128,27 @@ test.describe('알림 설정', () => {
     await unsubscribe.waitForRequest()
     await expect(page).toHaveURL(/\/login$/)
     expect(order).toEqual(['unsubscribe', 'logout'])
+  })
+
+  test('구독 해제 요청이 멈춰도 3초 후 로그아웃이 진행된다', async ({ authenticatedPage: page, context }) => {
+    await context.grantPermissions(['notifications'])
+    await installPushManagerStub(page)
+    await mockPushApis(page)
+    // DELETE 응답을 영원히 미룬다(네트워크 hang 재현) — clearPushOnLogout 이 멈춰도 AuthContext.logout 의
+    // 3초 타임아웃(item 5)으로 로그아웃 자체는 진행되는지 확인.
+    await page.route('**/api/v1/push/subscriptions', async (route) => {
+      if (route.request().method() !== 'DELETE') return route.fallback()
+      await new Promise(() => {})
+    })
+    await page.route('**/api/v1/auth/logout', (route) => route.fulfill({ json: {} }))
+
+    await page.goto('/settings/notifications')
+    await page.getByTestId('push-device-toggle').click()
+    await expect(page.getByTestId('push-device-toggle')).toHaveAttribute('aria-checked', 'true')
+
+    await page.getByRole('button', { name: '사용자 메뉴' }).click()
+    await page.getByRole('menuitem', { name: '로그아웃' }).click()
+    await expect(page).toHaveURL(/\/login$/)
   })
 
   test('서버 키가 바뀐 기기는 재구독 후 재등록한다', async ({ authenticatedPage: page, context }) => {
