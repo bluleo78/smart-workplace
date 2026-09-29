@@ -85,9 +85,14 @@ const MY_ISSUE_TARGETS: InvalidationTarget[] = [
   { queryKey: ['home', 'watched'] },
 ];
 
-// 리소스 → 무효화 대상. 슬라이스 4~6 에서 drive… 규칙을 여기에 추가한다.
+// 일정·이슈 삭제는 그 알림 행을 cascade 로 함께 지우지만 notification 이벤트는 따로 발행되지 않는다(WP-83).
+// 삭제 이벤트에 알림 목록·안 읽음 배지를 얹어야 열린 화면의 배지가 옛 값으로 남지 않는다.
+const notificationsOnDelete = (p: ResourceChangedPayload): InvalidationTarget[] =>
+  p.op === 'deleted' ? [{ queryKey: notificationKeys.all }] : [];
+
+// 리소스 → 무효화 대상. 새 리소스는 resource-contract.json 과 함께 여기에 규칙을 추가한다.
 const RULES: Record<string, Rule> = {
-  issue: (p) => (p.projectKey ? issueTargets(p.projectKey) : []),
+  issue: (p) => (p.projectKey ? [...issueTargets(p.projectKey), ...notificationsOnDelete(p)] : []),
   project: (p) => [
     { queryKey: ['projects'] }, // 목록·상세·멤버(['projects','detail',pk,'members'])
     { queryKey: ['pinnedViews'] },
@@ -113,7 +118,7 @@ const RULES: Record<string, Rule> = {
     { queryKey: ['pinnedViews'] },
   ],
   // 범위 목록·상세(['calendar','events',…]·['calendar','event',id])·캘린더 목록·홈 위젯이 모두 ['calendar'] 아래에 있다.
-  'calendar-event': () => [{ queryKey: calendarKeys.all }],
+  'calendar-event': (p) => [{ queryKey: calendarKeys.all }, ...notificationsOnDelete(p)],
   calendar: () => [{ queryKey: calendarKeys.all }],
   // 메시지 캐시(['messaging','messages'|'thread'…])는 기존 messaging.* 핸들러가 패치하므로 건드리지 않는다 — 목록·상세·멤버만.
   // 채널 멤버십은 연결된 드라이브 채널 스페이스 멤버도 바꾼다(ChannelDriveListener) → 드라이브 스페이스 목록도 무효화.

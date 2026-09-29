@@ -29,6 +29,25 @@ test.describe('알림·연락처·메일 실시간 반영 (WP-64)', () => {
     await expect(page.getByTestId('inbox-badge')).toHaveCount(0)
   })
 
+  // WP-83 — 초대 일정이 지워지면 알림 행이 cascade 로 사라지지만 notification 이벤트는 오지 않는다.
+  // calendar-event deleted 프레임만으로도 배지가 다시 조회돼 사라져야 한다.
+  test('일정 삭제 이벤트 — cascade 로 지워진 알림의 배지가 사라진다', async ({ authenticatedPage: page }) => {
+    let count = 1
+    await page.route(
+      (url) => url.pathname === '/api/v1/notifications/unread-count',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count }) }),
+    )
+    const events = await mockGatedEvents(page)
+
+    await page.goto('/')
+    await expect(page.getByTestId('inbox-badge')).toHaveText('1')
+
+    count = 0
+    events.deliver(frame({ resource: 'calendar-event', op: 'deleted', ids: [77] }))
+
+    await expect(page.getByTestId('inbox-badge')).toHaveCount(0)
+  })
+
   test('연락처 생성 이벤트 — 새 연락처 행이 나타난다', async ({ authenticatedPage: page }) => {
     let items = [member()]
     await page.route(

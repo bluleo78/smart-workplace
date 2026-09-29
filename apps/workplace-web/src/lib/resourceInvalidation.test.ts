@@ -168,12 +168,38 @@ describe('createInvalidationBatcher', () => {
 });
 
 describe('캘린더 규칙', () => {
-  it.each(['calendar-event', 'calendar'])('%s 는 [calendar] 루트 전체를 무효화한다', (resource) => {
+  it('calendar 는 [calendar] 루트 전체를 무효화한다', () => {
     for (const op of ['created', 'updated', 'deleted'] as const) {
-      expect(invalidationTargets({ resource, op, scopeType: 'USER', scopeId: 1, ids: [1] })).toEqual([
+      expect(invalidationTargets({ resource: 'calendar', op, scopeType: 'USER', scopeId: 1, ids: [1] })).toEqual([
         { queryKey: ['calendar'] },
       ]);
     }
+  });
+
+  it('calendar-event 생성·수정은 [calendar] 만 무효화한다', () => {
+    for (const op of ['created', 'updated'] as const) {
+      expect(invalidationTargets({ resource: 'calendar-event', op, scopeType: 'USER', scopeId: 1, ids: [1] })).toEqual([
+        { queryKey: ['calendar'] },
+      ]);
+    }
+  });
+});
+
+// WP-83 — 일정·이슈를 지우면 그 알림 행이 cascade 로 함께 사라지지만 notification 이벤트는 따로 오지 않는다.
+// 삭제 이벤트에서 알림 목록·안 읽음 배지를 같이 무효화해야 열린 화면의 배지가 옛 값으로 남지 않는다.
+describe('삭제 시 알림 무효화 (WP-83)', () => {
+  it('calendar-event deleted → [calendar] + [notifications]', () => {
+    const keys = invalidationTargets({ resource: 'calendar-event', op: 'deleted', scopeType: 'USER', scopeId: 1, ids: [1] }).map(
+      (t) => t.queryKey,
+    );
+    expect(keys).toEqual([['calendar'], ['notifications']]);
+  });
+
+  it('issue deleted → 이슈 대상 + [notifications], 수정은 알림 미포함', () => {
+    const del = invalidationTargets({ resource: 'issue', op: 'deleted', projectKey: 'EX', issueNumber: 1 }).map((t) => t.queryKey);
+    expect(del).toEqual(expect.arrayContaining([['issues', 'search', 'EX'], ['notifications']]));
+    const upd = invalidationTargets({ resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 1 }).map((t) => t.queryKey);
+    expect(upd).not.toContainEqual(['notifications']);
   });
 });
 
