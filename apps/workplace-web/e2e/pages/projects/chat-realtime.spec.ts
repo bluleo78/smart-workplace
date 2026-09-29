@@ -96,7 +96,8 @@ async function setupChatStubs(
  * /api/v1/events 게이트 모킹 (WP-59). deliver() 호출 전 도착한 요청(StrictMode 이중 마운트로 2건 가능)은 보류했다가 함께 본문으로 응답하고,
  * deliver() 이후 도착하는 재연결 요청은 abort 한다. 유한 본문 SSE 는 응답 직후 종료되어 클라이언트가 재연결하는데,
  * 재연결 catch-up(활성 쿼리 전체 재조회)이 스텁 없는 API 를 때려 에러 토스트가 채팅 열기 버튼을 가리기 때문이다.
- * 게이트는 드로어가 열려 메시지 캐시가 생긴 *뒤에* 프레임이 도착하도록 보장하는 역할도 한다.
+ * 호출 측이 '드로어가 마운트되고 메시지 GET 응답이 렌더된 것'을 확인(시드 메시지 가시)한 뒤에만 deliver() 해야 한다 —
+ * click() 반환은 클릭 디스패치일 뿐이라, 그 전에 프레임이 오면 캐시가 없어 no-op 이거나 늦은 GET 응답이 덮어쓸 수 있다.
  */
 async function mockEventsOnce(page: import('@playwright/test').Page, body: string) {
   let open!: () => void;
@@ -176,7 +177,8 @@ test.describe('chat 실시간 SSE', () => {
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
       // 채팅은 드로어로 이동(#558) — 메시지 단언 전 드로어를 연다.
       await page.getByTestId('issue-chat-open').click();
-      // 드로어(메시지 캐시)가 열린 뒤 프레임 전달.
+      // 드로어가 마운트되고 메시지 GET 이 응답돼 시드 메시지가 보일 때까지 대기 — 캐시 준비 신호. 그 뒤에 프레임 전달.
+      await expect(page.getByText('기존 메시지')).toBeVisible();
       events.deliver();
 
       // SSE 프레임으로 도착한 메시지가 렌더돼야 한다 (create POST 없이).
@@ -267,6 +269,8 @@ test.describe('chat 실시간 SSE', () => {
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // 채팅은 드로어로 이동(#558) — 메시지 단언 전 드로어를 연다.
     await page.getByTestId('issue-chat-open').click();
+    // 메시지 GET 응답(SAVED_ID 시드 행)이 렌더된 뒤 전달 — 캐시 준비 신호.
+    await expect(page.getByTestId(`chat-message-body-${SAVED_ID}`)).toHaveCount(1);
     events.deliver();
 
     // 시드된 SAVED_ID 행이 먼저 렌더돼야 한다.
