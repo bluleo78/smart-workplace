@@ -5,6 +5,8 @@ import { mockApi } from '../fixtures/api-mock'
 test('로그인 페이지가 보인다', { tag: '@smoke' }, async ({ page }) => {
   // #495 — 로그인 페이지가 마운트 시 가입 가용성을 조회하므로 기본 스텁(가용)으로 백엔드 누수 방지.
   await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
+  // WP-48 — 로그인 페이지가 마운트 시 SSO 가용성(/auth/sso/status)도 조회한다. 미스텁 시 로컬 백엔드로 누수돼 401 → refresh 실패 → /login 강제 이동으로 테스트가 깨진다.
+  await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })
   await page.goto('/login')
   await expect(page.getByText('Gen:iA Workplace')).toBeVisible()
   await expect(page.getByRole('button', { name: /로그인/ })).toBeVisible()

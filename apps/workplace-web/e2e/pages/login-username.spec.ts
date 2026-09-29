@@ -19,6 +19,8 @@ test('비-이메일 아이디로 로그인 제출이 가능하다', async ({ pag
     },
   )
   await mockApi(page, 'POST', '/api/v1/auth/refresh', createTokenResponse())
+  // WP-48 — 로그인 페이지가 마운트 시 SSO 가용성(/auth/sso/status)도 조회한다. 미스텁 시 로컬 백엔드로 누수돼 401 → refresh 실패 → /login 강제 이동으로 테스트가 깨진다.
+  await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })
 
   await page.goto('/login')
   await page.getByLabel('아이디').fill('jane')

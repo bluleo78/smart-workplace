@@ -40,6 +40,8 @@ test('외부 returnTo 는 루트로 바꾼다', async ({ page }) => {
 
 test('refresh 실패면 로그인으로 되돌린다', async ({ page }) => {
   await mockApi(page, 'POST', '/api/v1/auth/refresh', { message: 'x' }, { status: 401 })
+  // 실패 시 착지하는 로그인 페이지의 SSO 가용성 조회 스텁 — 누수 401 이 refresh 재시도 후 쿼리 없는 /login 으로 덮어쓰지 않게.
+  await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })
   await page.goto('/login/sso/complete')
   await expect(page).toHaveURL(/\/login\?sso_error=retry$/)
 })
