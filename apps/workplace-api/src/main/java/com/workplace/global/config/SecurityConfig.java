@@ -59,6 +59,13 @@ public class SecurityConfig {
                         "/api/v1/auth/login",
                         "/api/v1/auth/refresh")
                     .permitAll()
+                    // WP-48 SSO 로그인 — 로그인 전 브라우저 전체 이동으로 호출되므로 인증 없음(GET 만).
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.GET,
+                        "/api/v1/auth/sso/status",
+                        "/api/v1/auth/sso/start",
+                        "/api/v1/auth/sso/callback")
+                    .permitAll()
                     .requestMatchers("/api/v1/triggers/api/**", "/api/v1/triggers/webhook/**")
                     .permitAll()
                     // firehub-channel → firehub-api Internal 전용 inbound 엔드포인트
