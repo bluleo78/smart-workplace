@@ -66,7 +66,7 @@ const MY_ISSUE_TARGETS: InvalidationTarget[] = [
   { queryKey: ['home', 'watched'] },
 ];
 
-// 리소스 → 무효화 대상. 슬라이스 3~6 에서 calendar·drive… 규칙을 여기에 추가한다.
+// 리소스 → 무효화 대상. 슬라이스 4~6 에서 drive… 규칙을 여기에 추가한다.
 const RULES: Record<string, Rule> = {
   issue: (p) => (p.projectKey ? issueTargets(p.projectKey) : []),
   project: (p) => [
@@ -86,6 +86,9 @@ const RULES: Record<string, Rule> = {
     ...(p.projectKey ? [{ queryKey: ['savedViews', p.projectKey] }] : []),
     { queryKey: ['pinnedViews'] },
   ],
+  // 범위 목록·상세(['calendar','events',…]·['calendar','event',id])·캘린더 목록·홈 위젯이 모두 ['calendar'] 아래에 있다.
+  'calendar-event': () => [{ queryKey: ['calendar'] }],
+  calendar: () => [{ queryKey: ['calendar'] }],
 };
 
 export function invalidationTargets(p: ResourceChangedPayload): InvalidationTarget[] {

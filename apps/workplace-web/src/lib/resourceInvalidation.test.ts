@@ -136,9 +136,22 @@ describe('createInvalidationBatcher', () => {
   });
 });
 
+describe('캘린더 규칙', () => {
+  it.each(['calendar-event', 'calendar'])('%s 는 [calendar] 루트 전체를 무효화한다', (resource) => {
+    for (const op of ['created', 'updated', 'deleted'] as const) {
+      expect(invalidationTargets({ resource, op, scopeType: 'USER', scopeId: 1, ids: [1] })).toEqual([
+        { queryKey: ['calendar'] },
+      ]);
+    }
+  });
+});
+
 // 규칙이 캐시 패치·AI 요약·세션 키를 건드리지 않는지 — 리소스를 추가하는 task 는 SAMPLES 에 샘플 payload 를 넣는다.
 const SAMPLES: ResourceChangedPayload[] = [
   { resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 1 },
+  // 캘린더 — calendar-event(ids)·calendar 는 projectKey 없이 scope USER 로 온다.
+  { resource: 'calendar-event', op: 'updated', scopeType: 'USER', scopeId: 1, ids: [7] },
+  { resource: 'calendar', op: 'updated', scopeType: 'USER', scopeId: 1, ids: [3] },
   ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view'].map(
     (resource) => ({ resource, op: 'updated' as const, projectKey: 'EX' }),
   ),
