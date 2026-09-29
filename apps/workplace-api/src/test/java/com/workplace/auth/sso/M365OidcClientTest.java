@@ -24,7 +24,7 @@ class M365OidcClientTest extends SsoIntegrationTestBase {
     assertThat(url).startsWith(FAKE.authority() + "/organizations/oauth2/v2.0/authorize?");
     assertThat(q.getFirst("client_id")).isEqualTo("test-client");
     assertThat(q.getFirst("response_type")).isEqualTo("code");
-    assertThat(q.getFirst("scope")).isEqualTo("openid%20profile%20email");
+    assertThat(q.getFirst("scope")).isEqualTo("openid%20profile");
     assertThat(q.getFirst("state")).isEqualTo("st");
     assertThat(q.getFirst("nonce")).isEqualTo("nn");
     assertThat(q.getFirst("code_challenge")).isEqualTo("ch");

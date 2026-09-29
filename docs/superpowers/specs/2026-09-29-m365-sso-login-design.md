@@ -26,9 +26,9 @@
 | # | 결정 | 이유 |
 |---|------|------|
 | D1 | **전역 멀티테넌트 Entra 앱 1개**(`organizations` authority)를 운영자가 env 로 등록한다. 워크스페이스별 앱 등록/시크릿 없음 | 사용자 계정은 전역(여러 워크스페이스 소속)이다. 워크스페이스 관리자가 IdP 를 지정하면 그 관리자가 전역 계정의 신원을 보증하게 되어 워크스페이스 간 계정 탈취가 가능해진다. 신원 보증 주체를 Microsoft 로 두면 세션 고정·워크스페이스 입력이 필요 없다 |
-| D2 | 로그인 앱은 메일/캘린더용 `M365_*` 앱과 **분리**(`SSO_M365_*`) | 메일 앱은 단일 테넌트(`M365_TENANT_ID`)·Graph 권한. 로그인은 `openid profile email` 만 필요하고 동의 범위를 분리한다 |
+| D2 | 로그인 앱은 메일/캘린더용 `M365_*` 앱과 **분리**(`SSO_M365_*`) | 메일 앱은 단일 테넌트(`M365_TENANT_ID`)·Graph 권한. 로그인은 `openid profile` 만 필요하고 동의 범위를 분리한다 |
 | D3 | 흐름은 eis 처럼 **직접 구현한 OIDC Authorization Code + PKCE**, 트랜잭션 상태는 HMAC 서명 쿠키(무상태) | `oauth2Login()` 은 서버 세션 전제로 현재 stateless JWT 구조와 맞지 않음. 기존 `OAuthStateStore`(인메모리)는 다중 인스턴스 불가 |
-| D4 | 계정 연결 키는 `(tid, oid)`. 최초 연결 매칭은 **`username` 과만** 비교(대소문자 무시). Microsoft 쪽 후보값은 **도메인 소유가 검증된 값만**: `xms_edov=true` 인 `email`, `#EXT#` 가 없는 `upn` | `email` 클레임은 임의 Entra 테넌트에서 위조 가능(nOAuth). `user.email` 은 관리자가 자유 입력하는 보조 정보라 매칭 키로 쓰지 않는다 |
+| D4 | 계정 연결 키는 `(tid, oid)`. 최초 연결 매칭은 **`username` 과만** 비교(대소문자 무시). Microsoft 쪽 후보값은 **`#EXT#` 가 없는 `upn` 하나만**(2026-09-30 결정: email 미사용) | `email`·`preferred_username` 클레임은 임의 Entra 테넌트에서 위조 가능(nOAuth). `user.email` 은 관리자가 자유 입력하는 보조 정보라 매칭 키로 쓰지 않는다 |
 | D5 | JIT 없음 — 매칭 실패·비활성·AGENT·SSO 켜진 워크스페이스 소속 없음 → 거부 | 이슈 전제(사전 등록 사용자만) |
 | D6 | 워크스페이스 관리자는 **SSO 로그인 사용 켜기/끄기**(기본 꺼짐) + **관리자 동의 링크** 복사만 한다 | 워크스페이스 단위 통제 최소치. 꺼진 워크스페이스는 SSO 세션으로 접근 불가 |
 | D7 | SSO 로 발급된 세션은 `amr=sso` 클레임을 가지며, 워크스페이스 선택/전환/refresh 시 **SSO 켜진 워크스페이스만** 허용 | D6 의 켜기/끄기를 실제로 강제. 관리자가 끄면 다음 refresh 때 차단 |
@@ -116,7 +116,7 @@ SecurityConfig: `GET /api/v1/auth/sso/**` 만 permitAll 추가. (`apps/workplace
 
 ### 4.2 start
 
-인가 요청: `{authority}/organizations/oauth2/v2.0/authorize` 에 `client_id`, `response_type=code`, `redirect_uri`, `response_mode=query`, `scope=openid profile email`, `state`, `nonce`, `code_challenge`(S256), `code_challenge_method=S256`. 사용 불가(env 없음)면 `/login?sso_error=unavailable` 로 302.
+인가 요청: `{authority}/organizations/oauth2/v2.0/authorize` 에 `client_id`, `response_type=code`, `redirect_uri`, `response_mode=query`, `scope=openid profile`, `state`, `nonce`, `code_challenge`(S256), `code_challenge_method=S256`. 사용 불가(env 없음)면 `/login?sso_error=unavailable` 로 302.
 
 ### 4.3 callback — 처리 순서 (순서 자체가 규칙)
 
@@ -129,7 +129,7 @@ SecurityConfig: `GET /api/v1/auth/sso/**` 만 permitAll 추가. (`apps/workplace
    - `aud` 에 `client-id` 포함, `exp`/`nbf`, `nonce` == 쿠키 nonce
 4. 사용자 결정 (`SsoUserResolver`):
    1. `(M365, tid, oid)` 연결이 있으면 그 사용자.
-   2. 없으면 후보값 = [`email` if `xms_edov == true`] + [`upn` if `#EXT#` 미포함] (trim·소문자). 후보가 없으면 거부(`unverified`).
+   2. 없으면 후보값 = `upn`(`#EXT#` 미포함, trim·소문자). 없으면 거부(`unverified`).
    3. 각 후보로 `username` 을 대소문자 무시 조회. 한 후보가 여러 행에 매칭(대소문자만 다른 username 공존)되거나 후보들이 서로 다른 사용자를 가리키면 거부(`conflict`), 하나도 없으면 거부(`not_registered`).
    4. 그 사용자가 이미 다른 `(tid, oid)` 로 M365 연결돼 있으면 거부(`conflict`).
    5. 진입 검사: HUMAN, `is_active`, **SSO 켜진 ACTIVE 테넌트에 ACTIVE 멤버십 ≥1** — 아니면 거부(`inactive` / `no_workspace`). (연결 저장 전에 검사 — 거부된 로그인은 연결을 남기지 않는다. 기존 연결 사용자도 이 검사를 매번 통과해야 한다)
@@ -159,7 +159,7 @@ SecurityConfig: `GET /api/v1/auth/sso/**` 만 permitAll 추가. (`apps/workplace
 | PUT | `/api/v1/admin/sso/enabled` | `sso:manage` | `{ enabled }` — `available=false` 면 409. 감사 `SSO_SETTING_CHANGED` |
 
 - 대상은 현재 테넌트(`TenantContext`).
-- `adminConsentUrl` = `{authority}/organizations/v2.0/adminconsent?client_id={clientId}&scope=openid%20profile%20email&redirect_uri={redirectUri}`. 동의 완료 후 callback 으로 돌아오는 `admin_consent=True` 요청은 state 쿠키가 없으므로 별도로 `/login?sso_notice=consented` 로 보낸다.
+- `adminConsentUrl` = `{authority}/organizations/v2.0/adminconsent?client_id={clientId}&scope=openid%20profile&redirect_uri={redirectUri}`. 동의 완료 후 callback 으로 돌아오는 `admin_consent=True` 요청은 state 쿠키가 없으므로 별도로 `/login?sso_notice=consented` 로 보낸다.
 - 끄면 해당 워크스페이스의 SSO 세션은 다음 refresh(최대 access 만료 30분) 때 차단된다.
 - 알려진 한계: SSO 사용자가 발급한 PAT(`swp_`)는 워크스페이스 SSO 를 꺼도 계속 유효하다(PAT 는 인증 수단과 무관하게 멤버십만 검사).
 
@@ -187,7 +187,7 @@ SecurityConfig: `GET /api/v1/auth/sso/**` 만 permitAll 추가. (`apps/workplace
 
 ### 8.1 백엔드 (JUnit 통합, `IntegrationTestBase` 상속)
 - `FakeEntraProvider`: eis `FakeOidcProvider` 를 이식·확장한 JDK HttpServer. `/{tid}/...` issuer 로 서명, `/common/discovery/v2.0/keys`, `/organizations/oauth2/v2.0/token` 제공. 클레임 교체·토큰 엔드포인트 오류·키 회전·미공개 키 서명 지원. `workplace.auth.sso.m365.authority-base-url` 로 주입.
-- `SsoLoginFlowTest`: start(PKCE·쿠키), 최초 연결(email+xms_edov / upn), 재로그인(연결), 거부(미등록·비활성·AGENT·SSO 켜진 소속 없음·xms_edov false 만·`#EXT#` upn·email/upn 서로 다른 계정·다른 oid 로 이미 연결), state 불일치/쿠키 변조 시 토큰 교환 미호출, nonce·iss/tid 불일치·aud 불일치·MSA 테넌트, `invalid_grant`→retry, 동의 필요→consent, returnTo 정제, 감사 로그.
+- `SsoLoginFlowTest`: start(PKCE·쿠키), 최초 연결(upn), 재로그인(연결), 거부(미등록·비활성·AGENT·SSO 켜진 소속 없음·upn 없이 email 만·`#EXT#` upn·다른 oid 로 이미 연결), state 불일치/쿠키 변조 시 토큰 교환 미호출, nonce·iss/tid 불일치·aud 불일치·MSA 테넌트, `invalid_grant`→retry, 동의 필요→consent, returnTo 정제, 감사 로그.
 - `SsoSessionConstraintTest`: `amr=sso` select-tenant 는 SSO 켜진 테넌트만, 끈 뒤 refresh 차단, memberships 필터, 비밀번호 세션은 영향 없음.
 - `SsoAdminControllerTest`: 권한, 토글, `available=false` 409, `passwordlessMemberCount`(타 워크스페이스·AGENT·비활성 제외).
 - `CreateMemberSsoOnlyTest`: SSO 전용 생성, SSO 꺼짐 409, username 비이메일 400, SSO 전용 계정 비밀번호 로그인 실패.
@@ -202,7 +202,7 @@ SecurityConfig: `GET /api/v1/auth/sso/**` 만 permitAll 추가. (`apps/workplace
 - `settings/profile-password.spec.ts`: 비밀번호 설정 폼.
 
 ### 8.3 수동 검증 (실 Entra)
-Entra 앱 등록 절차를 `docs/` 에 문서화하고 실제 테넌트로 확인: 지원 계정 유형 "모든 조직 디렉터리(멀티테넌트)", 플랫폼 "Web" + redirect URI, client secret, 토큰 구성 선택 클레임 `email`·`xms_edov`·`upn`, API 권한 `openid profile email`(위임).
+Entra 앱 등록 절차를 `docs/` 에 문서화하고 실제 테넌트로 확인: 지원 계정 유형 "모든 조직 디렉터리(멀티테넌트)", 플랫폼 "Web" + redirect URI, client secret, 토큰 구성 선택 클레임 `upn`, API 권한 `openid profile`(위임).
 
 **구현 착수 전 확인(TASK 1)**: Microsoft 문서로 `xms_edov`·`upn` 이 멀티테넌트 앱의 v2 ID 토큰 선택 클레임으로 제공되는지 검증한다. `upn` 을 신뢰할 수 없으면 후보값을 `email`+`xms_edov=true` 로만 좁힌다(설계 변경 시 이 문서 갱신).
 

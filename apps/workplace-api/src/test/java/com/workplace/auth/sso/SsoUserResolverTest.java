@@ -45,23 +45,16 @@ class SsoUserResolverTest extends SsoIntegrationTestBase {
   }
 
   @Test
-  void firstLink_byVerifiedEmail() {
-    String email = SsoTestData.uniqueEmail("hong");
-    long id = member(email);
+  void firstLink_byUpn() {
+    String upn = SsoTestData.uniqueEmail("kim");
+    long id = member(upn);
 
-    var r = resolver.resolve(token("oid-1", Map.of("email", email, "xms_edov", true)));
+    var r = resolver.resolve(token("oid-2", Map.of("upn", upn)));
 
     assertThat(r.user().id()).isEqualTo(id);
     assertThat(r.newlyLinked()).isTrue();
     assertThat(dsl.fetchCount(USER_EXTERNAL_IDENTITY, USER_EXTERNAL_IDENTITY.USER_ID.eq(id)))
         .isEqualTo(1);
-  }
-
-  @Test
-  void firstLink_byUpn() {
-    String upn = SsoTestData.uniqueEmail("kim");
-    long id = member(upn);
-    assertThat(resolver.resolve(token("oid-2", Map.of("upn", upn))).user().id()).isEqualTo(id);
   }
 
   @Test
@@ -83,11 +76,11 @@ class SsoUserResolverTest extends SsoIntegrationTestBase {
   }
 
   @Test
-  void rejects_unverifiedEmailOnly() {
+  void rejects_emailWithoutUpn_evenIfVerified() {
     String email = SsoTestData.uniqueEmail("choi");
     member(email);
-    assertDenied(token("oid-5", Map.of("email", email, "xms_edov", false)), "unverified");
-    assertDenied(token("oid-5", Map.of("email", email)), "unverified");
+    assertDenied(token("oid-5", Map.of("email", email, "xms_edov", true)), "unverified");
+    assertDenied(token("oid-5", Map.of("preferred_username", email)), "unverified");
   }
 
   @Test
@@ -107,12 +100,13 @@ class SsoUserResolverTest extends SsoIntegrationTestBase {
   }
 
   @Test
-  void rejects_emailAndUpnPointingToDifferentUsers() {
+  void matchesUpn_ignoringEmailClaim() {
     String a = SsoTestData.uniqueEmail("a");
     String b = SsoTestData.uniqueEmail("b");
     member(a);
-    member(b);
-    assertDenied(token("oid-8", Map.of("email", a, "xms_edov", true, "upn", b)), "conflict");
+    long idB = member(b);
+    var r = resolver.resolve(token("oid-8", Map.of("email", a, "xms_edov", true, "upn", b)));
+    assertThat(r.user().id()).isEqualTo(idB);
   }
 
   @Test
