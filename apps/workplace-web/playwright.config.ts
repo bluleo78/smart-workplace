@@ -1,3 +1,6 @@
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { defineConfig, devices } from '@playwright/test'
 
 const CI = !!process.env.CI
@@ -14,6 +17,18 @@ if (!CI && !process.env.E2E_PORT) {
 }
 const PORT = Number(process.env.E2E_PORT ?? 6173)
 const HOST = `http://localhost:${PORT}`
+
+// E2E 서버 모드(E2E_SERVER=preview 로 선택, 기본 dev).
+// - dev: Vite dev 서버. 요청마다 온디맨드 트랜스폼이라 워커를 늘려도 단일 서버가 병목이 된다.
+//   기동이 즉시라 소수 spec 을 돌리는 pre-commit·로컬 디버그(ui/headed)에 적합.
+// - preview: 한 번 번들한 결과물을 vite preview 로 정적 서빙. 빌드(~1분) 비용 대신 트랜스폼 병목이
+//   사라져, 전체 스위트를 도는 pre-push 에서 워커를 더 올릴 수 있다.
+//   ⚠️ webServer 는 globalSetup(세션 락)보다 먼저 기동되므로 빌드는 락 보호를 못 받는다.
+//   병렬 세션이 dist/ 를 서로 덮어쓰지 않도록 포트별 임시 디렉토리로 빌드한다(teardown 에서 정리 —
+//   e2e/global-lock.ts).
+const PREVIEW = process.env.E2E_SERVER === 'preview'
+const PREVIEW_OUT_DIR = join(tmpdir(), `smart-workplace-e2e-dist-${PORT}`)
+process.env.E2E_PREVIEW_OUT_DIR = PREVIEW ? PREVIEW_OUT_DIR : ''
 
 // Playwright E2E 설정.
 // - Vite dev 서버를 자동 기동(위 PORT)하고 Chromium 에서 실행
@@ -33,6 +48,7 @@ export default defineConfig({
   retries: CI ? 2 : 1,
   // 단일 Vite 서버가 병목이라 워커를 더 늘려도 throughput 은 안 오르고 큐 지연만 커진다
   // (8워커 유효 병렬도 5.3x). 동시성을 낮춰 지연 스파이크 → 플래키를 줄인다(10코어 기준 5개).
+  // preview 모드도 같은 워커 수를 쓴다 — 병렬 세션·gradle 과 CPU 를 나눠 써야 하므로 코어를 독점하지 않는다.
   workers: CI ? 1 : '50%',
   reporter: 'html',
 
@@ -59,12 +75,17 @@ export default defineConfig({
   webServer: {
     // --port/--strictPort 로 PORT 강제. 포트가 점유돼 있으면(드문 랜덤 충돌) 조용히 다른 포트로
     // 새지 않고 즉시 실패하도록 strictPort 를 둔다.
-    command: `pnpm dev --port ${PORT} --strictPort`,
+    // preview 모드는 tsc 없이 vite build 만 수행(타입 검사는 typecheck 게이트 담당) 후 같은 outDir 을 서빙.
+    // preview 서버는 server.proxy 를 상속하므로 모킹 누락 /api 는 dev 와 동일하게 즉시 503 이 된다.
+    command: PREVIEW
+      ? `pnpm exec vite build --outDir ${PREVIEW_OUT_DIR} --emptyOutDir --logLevel warn && pnpm exec vite preview --outDir ${PREVIEW_OUT_DIR} --port ${PORT} --strictPort`
+      : `pnpm dev --port ${PORT} --strictPort`,
     // E2E 는 백엔드 없이 page.route() 모킹으로 동작 → 프록시 콜드스타트 대기를 끄도록 신호를 내린다.
     env: { E2E: '1' },
     url: HOST,
     // 병렬 세션 격리를 위해 로컬에서도 기존 서버 재사용 금지(매 런 자체 서버 기동).
     reuseExistingServer: false,
-    timeout: 120_000,
+    // preview 는 빌드 시간(부하 시 1분+)까지 포함해 기다려야 한다.
+    timeout: PREVIEW ? 300_000 : 120_000,
   },
 })

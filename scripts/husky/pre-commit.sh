@@ -58,7 +58,9 @@ NON_DOMAIN_PAGE=$(printf '%s\n' "$WEB_PAGE_CHANGES" | grep -vE "^apps/workplace-
 
 if [ -n "$CONFIG_FORCE_FULL" ] || [ -n "$NON_DOMAIN_PAGE" ] || [ "$GRAPH_DOMAINS" = "ALL" ]; then
   echo "[pre-commit] 공유 영역/매핑 외 변경 감지 — 전체 E2E 실행"
-  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && pnpm test:e2e)
+  # 전체 스위트는 빌드 비용보다 병렬화 이득이 커서 preview 서버로 실행 (playwright.config.ts 참조).
+  # 도메인 한정 실행(아래)은 빌드(~1분)가 테스트 시간과 비슷해 dev 서버를 유지한다.
+  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && E2E_SERVER=preview pnpm test:e2e)
 elif [ -n "$WEB_PAGE_CHANGES" ] || [ -n "$GRAPH_DOMAINS" ]; then
   # 5) 도메인 단독 변경 → 전역 smoke + 해당 도메인의 non-smoke (중복 0)
   PAGE_DOMAINS=$(printf '%s\n' "$WEB_PAGE_CHANGES" | sed -E 's|^apps/workplace-web/src/pages/([^/]+)/.*$|\1|' | sort -u)

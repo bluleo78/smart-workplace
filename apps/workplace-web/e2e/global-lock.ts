@@ -61,5 +61,8 @@ export default async function globalSetup(): Promise<() => void> {
 
   return () => {
     rmSync(LOCK_DIR, { recursive: true, force: true })
+    // preview 모드 빌드 산출물(포트별 임시 디렉토리) 정리 — playwright.config.ts 참조.
+    const previewOutDir = process.env.E2E_PREVIEW_OUT_DIR
+    if (previewOutDir) rmSync(previewOutDir, { recursive: true, force: true })
   }
 }

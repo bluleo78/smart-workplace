@@ -15,6 +15,7 @@ pnpm preview          # production 빌드 미리보기
 pnpm lint             # ESLint
 pnpm typecheck        # tsc -b --noEmit
 pnpm test:e2e         # Playwright E2E (Vite dev 자동 기동)
+E2E_SERVER=preview pnpm test:e2e  # 빌드 결과물 서빙 (전체 스위트용)
 pnpm test:e2e:ui      # Playwright UI 모드
 pnpm test:e2e:headed  # 브라우저 창 띄우고 실행
 ```
@@ -60,6 +61,7 @@ src/
 ## E2E Testing (Playwright)
 
 - 설정: `playwright.config.ts`. 테스트: `e2e/`. baseURL 은 런마다 20000번대 랜덤 `E2E_PORT` 로 자체 Vite 를 띄운다(`CI` 일 때만 6173)
+- 서버 모드: 기본 dev(즉시 기동, 소수 spec·디버그용) / `E2E_SERVER=preview`(포트별 임시 디렉토리에 빌드 후 `vite preview`, 전체 스위트용). pre-push 와 pre-commit 의 전체 E2E 경로는 preview, 도메인 한정 경로는 dev
 - 로컬 E2E·pre-commit·pre-push 게이트는 **6173 dev 서버를 쓰지 않는다** — push/테스트 전에 6173 을 확인·종료할 필요 없음(병렬 세션 dev 서버 kill 금지)
 - 백엔드 없이 동작 — `page.route()` 로 API 모킹
 - 모킹 데이터는 `src/types/` 의 타입 적용 (API 스펙 변경 시 컴파일 에러)

@@ -6,6 +6,7 @@
 
 set -e
 
-(cd apps/workplace-web && pnpm test:e2e)
+# web 전체 E2E 는 preview 서버(빌드 결과물 서빙) + 워커 확대로 실행 — dev 대비 약 절반 (WP-76)
+(cd apps/workplace-web && E2E_SERVER=preview pnpm test:e2e)
 (cd apps/workplace-admin && pnpm test:e2e)
 cd apps/workplace-api && ./gradlew test -x generateJooq --build-cache --configuration-cache
