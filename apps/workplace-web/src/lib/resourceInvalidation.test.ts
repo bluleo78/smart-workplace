@@ -46,6 +46,39 @@ describe('invalidationTargets', () => {
   });
 });
 
+describe('프로젝트 설정 규칙 (WP-60)', () => {
+  const keysOf = (resource: string, op: ResourceChangedPayload['op'], projectKey = 'EX') =>
+    invalidationTargets({ resource, op, projectKey }).map((t) => t.queryKey);
+
+  it('label deleted → labels + 이슈 대상', () => {
+    const keys = keysOf('label', 'deleted');
+    expect(keys).toEqual(expect.arrayContaining([['labels', 'EX'], ['issues', 'search', 'EX']]));
+  });
+
+  it('label created → labels 만 (이슈 대상 없음)', () => {
+    const keys = keysOf('label', 'created');
+    expect(keys).toContainEqual(['labels', 'EX']);
+    expect(keys).not.toContainEqual(['issues', 'search', 'EX']);
+  });
+
+  it('project-member deleted → projects + 이슈 대상', () => {
+    expect(keysOf('project-member', 'deleted')).toEqual(
+      expect.arrayContaining([['projects'], ['issues', 'search', 'EX']]),
+    );
+  });
+
+  it('saved-view → savedViews + pinnedViews', () => {
+    expect(keysOf('saved-view', 'created')).toEqual(expect.arrayContaining([['savedViews', 'EX'], ['pinnedViews']]));
+  });
+
+  it('project deleted → projects, pinnedViews, me-issues', () => {
+    expect(keysOf('project', 'deleted')).toEqual(
+      expect.arrayContaining([['projects'], ['pinnedViews'], ['me-issues']]),
+    );
+    expect(keysOf('project', 'updated')).not.toContainEqual(['me-issues']);
+  });
+});
+
 describe('isProtectedKey', () => {
   it('AI 요약·세션 계열은 보호, 일반 키는 아님', () => {
     expect(isProtectedKey(['mail-summary', 5])).toBe(true);
@@ -106,6 +139,9 @@ describe('createInvalidationBatcher', () => {
 // 규칙이 캐시 패치·AI 요약·세션 키를 건드리지 않는지 — 리소스를 추가하는 task 는 SAMPLES 에 샘플 payload 를 넣는다.
 const SAMPLES: ResourceChangedPayload[] = [
   { resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 1 },
+  ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view'].map(
+    (resource) => ({ resource, op: 'updated' as const, projectKey: 'EX' }),
+  ),
 ];
 
 function forbiddenTarget(t: InvalidationTarget): boolean {

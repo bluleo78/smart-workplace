@@ -48,9 +48,44 @@ export function issueTargets(pk: string): InvalidationTarget[] {
   ];
 }
 
-// 리소스 → 무효화 대상. 슬라이스 2~6 에서 project·calendar·drive… 규칙을 여기에 추가한다.
+// 설정 삭제·수정은 이슈 값을 간접적으로 바꾼다(라벨·사이클 cascade, 마일스톤 SET NULL, 필드값 cascade, 표시명) — 생성만 이슈를 건드리지 않는다.
+const configRule =
+  (own: (pk: string) => InvalidationTarget[]): Rule =>
+  (p) => {
+    const pk = p.projectKey;
+    if (!pk) return [];
+    return p.op === 'created' ? own(pk) : [...own(pk), ...issueTargets(pk)];
+  };
+
+// 내 이슈·홈 계열 — 프로젝트 삭제 시 다른 프로젝트 화면의 내 이슈 목록에서도 빠져야 한다.
+const MY_ISSUE_TARGETS: InvalidationTarget[] = [
+  { queryKey: ['me-issues'] },
+  { queryKey: ['watched-issues'] },
+  { queryKey: ['my-issue-dues'] },
+  { queryKey: ['home', 'myIssues'] },
+  { queryKey: ['home', 'watched'] },
+];
+
+// 리소스 → 무효화 대상. 슬라이스 3~6 에서 calendar·drive… 규칙을 여기에 추가한다.
 const RULES: Record<string, Rule> = {
   issue: (p) => (p.projectKey ? issueTargets(p.projectKey) : []),
+  project: (p) => [
+    { queryKey: ['projects'] }, // 목록·상세·멤버(['projects','detail',pk,'members'])
+    { queryKey: ['pinnedViews'] },
+    ...(p.op === 'deleted' ? MY_ISSUE_TARGETS : []),
+  ],
+  // 멤버 추가·제거는 사이드바 프로젝트 목록(본인 추가/제거)과 담당자 선택기, 제거 시 담당자 해제된 이슈에 영향
+  'project-member': (p) =>
+    p.projectKey ? [{ queryKey: ['projects'] }, ...issueTargets(p.projectKey)] : [{ queryKey: ['projects'] }],
+  label: configRule((pk) => [{ queryKey: ['labels', pk] }]),
+  milestone: configRule((pk) => [{ queryKey: ['milestones', pk] }]),
+  cycle: configRule((pk) => [{ queryKey: ['cycles', pk] }, { queryKey: ['cycleProgress', pk] }]),
+  'field-def': configRule((pk) => [{ queryKey: ['customFields', pk] }]),
+  'issue-type': configRule((pk) => [{ queryKey: ['issueTypes', pk] }]),
+  'saved-view': (p) => [
+    ...(p.projectKey ? [{ queryKey: ['savedViews', p.projectKey] }] : []),
+    { queryKey: ['pinnedViews'] },
+  ],
 };
 
 export function invalidationTargets(p: ResourceChangedPayload): InvalidationTarget[] {
