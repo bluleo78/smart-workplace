@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
@@ -23,6 +24,7 @@ import com.workplace.issue.exception.ParentCannotBeSubtaskException;
 import com.workplace.issue.exception.ParentNotAllowedException;
 import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.exception.SubtaskParentRequiredException;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
@@ -77,6 +79,7 @@ public class IssueService {
   private final DriveLinkService driveLinkService;
   private final PermissionChecker permissionChecker;
   private final MilestoneService milestoneService;
+  private final IssueChangeNotifier changeNotifier;
 
   /** AI 즉시 컨텍스트: 저장 요약 조회. */
   private final IssueAiSummaryRepository aiSummaryRepository;
@@ -262,6 +265,7 @@ public class IssueService {
             actor,
             assigneeSummaries,
             occurredAt));
+    changeNotifier.changed(project, number, row.id(), ResourceChangedEvent.OP_CREATED, callerId);
     if (!assigneeSummaries.isEmpty()) {
       publisher.publishEvent(
           new IssueAssignedEvent(
@@ -535,6 +539,8 @@ public class IssueService {
       }
     }
 
+    // 실시간 무효화 — 제목·본문·날짜 등 모든 필드 변경을 알린다(목록/상세가 보여주므로)
+    changeNotifier.changed(project, number, before.id(), ResourceChangedEvent.OP_UPDATED, callerId);
     historyRecorder.recordChanges(callerId, before, after);
 
     return get(callerId, projectKey, number);
@@ -639,6 +645,7 @@ public class IssueService {
         issue.id(),
         new IssueTypeSummary(oldType.id(), oldType.name(), oldType.colorToken(), oldType.icon()),
         new IssueTypeSummary(newType.id(), newType.name(), newType.colorToken(), newType.icon()));
+    changeNotifier.changed(project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
     return get(callerId, projectKey, number);
   }
 
@@ -659,6 +666,13 @@ public class IssueService {
     // 이슈(부모+자식) 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
     driveLinkService.purgeSource("ISSUE", row.id());
     driveLinkService.purgeSources("ISSUE", childIds);
+    // 실시간 무효화 — checkDeletable 이 project 를 돌려주지 않아 resolve 를 다시 호출(변경 최소)
+    changeNotifier.changed(
+        accessGuard.resolve(projectKey),
+        number,
+        row.id(),
+        ResourceChangedEvent.OP_DELETED,
+        callerId);
   }
 
   /** 이슈 삭제 사전검증(#856) — 확인 카드 dry-run 이 {@link #softDelete} 와 같은 {@link #checkDeletable} 을 쓴다. */
@@ -763,6 +777,7 @@ public class IssueService {
 
     issueRepository.updateParent(row.id(), newParentId);
     historyRecorder.recordParentChanged(callerId, row.id(), oldRef, newRef);
+    changeNotifier.changed(project, number, row.id(), ResourceChangedEvent.OP_UPDATED, callerId);
     return get(callerId, projectKey, number);
   }
 }

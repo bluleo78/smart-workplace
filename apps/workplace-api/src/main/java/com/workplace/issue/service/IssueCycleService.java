@@ -3,8 +3,10 @@ package com.workplace.issue.service;
 import com.workplace.cycle.dto.CycleSummary;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.repository.CycleRepository;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.dto.CycleProgress;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueCycleRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.service.ProjectAccessGuard;
@@ -25,6 +27,7 @@ public class IssueCycleService {
   private final IssueRepository issueRepository;
   private final CycleRepository cycleRepository;
   private final ProjectAccessGuard accessGuard;
+  private final IssueChangeNotifier changeNotifier;
 
   /** 이슈에 연결된 사이클 요약 조회 — 조회 가드(OPEN 은 테넌트 전원 개방, 상세 프로퍼티 레일 로드용). */
   @Transactional(readOnly = true)
@@ -72,6 +75,12 @@ public class IssueCycleService {
 
     for (Long id : toAdd) issueCycleRepository.add(issue.id(), id);
     for (Long id : toRemove) issueCycleRepository.remove(issue.id(), id);
+
+    // 실시간 무효화 — diff 가 있을 때만(no-op 은 미발행)
+    if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
+      changeNotifier.changed(
+          project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+    }
 
     return issueCycleRepository.findCyclesByIssue(issue.id());
   }

@@ -1,9 +1,11 @@
 package com.workplace.issue.service;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.IssueAssigneeAgentRestrictionException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -38,6 +40,7 @@ public class IssueAssigneeService {
   private final WatcherAutoEnroller watcherAutoEnroller;
   private final UserRepository userRepository;
   private final ApplicationEventPublisher publisher;
+  private final IssueChangeNotifier changeNotifier;
 
   /**
    * 이슈 담당자 집합을 통째로 교체한다.
@@ -122,6 +125,9 @@ public class IssueAssigneeService {
       }
       historyRecorder.recordAssigneesChanged(
           callerId, issue.id(), addedSummaries, removedSummaries);
+      // 실시간 무효화 — diff 가 있을 때만
+      changeNotifier.changed(
+          project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
     }
 
     // 5) 신규 추가 사용자 watcher 자동 등록

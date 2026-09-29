@@ -63,7 +63,8 @@ class WatcherEventPublishTest {
             projectRepository,
             userRepository,
             accessGuard,
-            publisher);
+            publisher,
+            mock(com.workplace.issue.outbound.IssueChangeNotifier.class));
 
     ProjectRow project =
         new ProjectRow(

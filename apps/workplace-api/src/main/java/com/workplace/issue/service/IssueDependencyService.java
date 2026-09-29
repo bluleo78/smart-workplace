@@ -1,8 +1,10 @@
 package com.workplace.issue.service;
 
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.exception.DependencyCycleException;
 import com.workplace.issue.exception.InvalidDependencyException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.service.ProjectAccessGuard;
@@ -29,6 +31,7 @@ public class IssueDependencyService {
   private final IssueRepository issueRepository;
   private final ProjectAccessGuard accessGuard;
   private final IssueHistoryRecorder historyRecorder;
+  private final IssueChangeNotifier changeNotifier;
 
   /**
    * 의존성 추가. direction="blocks" → (this, other), direction="blockedBy" → (other, this). 중복은 멱등(no-op
@@ -69,6 +72,7 @@ public class IssueDependencyService {
     depRepository.add(fromId, toId, callerId);
     historyRecorder.recordDependencyAdded(
         callerId, thisRow.id(), otherRow.number(), otherRow.title(), direction);
+    notifyBoth(project, thisRow, otherRow, callerId);
   }
 
   /** 의존성 제거. direction 에 따라 동일 정규화. 0건 삭제(이미 없음) 면 history 미기록. 컨트롤러는 항상 204 응답. */
@@ -98,7 +102,20 @@ public class IssueDependencyService {
     if (removed > 0) {
       historyRecorder.recordDependencyRemoved(
           callerId, thisRow.id(), otherRow.number(), otherRow.title(), direction);
+      notifyBoth(project, thisRow, otherRow, callerId);
     }
+  }
+
+  /** 의존성은 양쪽 이슈 상세(차단/피차단)가 모두 바뀌므로 두 이슈 각각 알린다. */
+  private void notifyBoth(
+      com.workplace.project.dto.ProjectRow project,
+      com.workplace.issue.dto.IssueRow thisRow,
+      com.workplace.issue.dto.IssueRow otherRow,
+      Long callerId) {
+    changeNotifier.changed(
+        project, thisRow.number(), thisRow.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+    changeNotifier.changed(
+        project, otherRow.number(), otherRow.id(), ResourceChangedEvent.OP_UPDATED, callerId);
   }
 
   /**

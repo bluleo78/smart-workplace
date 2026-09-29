@@ -1,10 +1,12 @@
 package com.workplace.watcher.service;
 
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.label.dto.LabelSummary;
@@ -35,6 +37,7 @@ public class WatcherService {
   private final UserRepository userRepository;
   private final ProjectAccessGuard accessGuard;
   private final ApplicationEventPublisher eventPublisher;
+  private final IssueChangeNotifier changeNotifier;
 
   /**
    * 멤버가 본인을 issue watcher 로 등록. 신규 row 가 실제로 insert 된 경우에만 {@link WatcherAddedEvent} 를 발행 — 이미
@@ -50,6 +53,9 @@ public class WatcherService {
     if (inserted) {
       eventPublisher.publishEvent(
           new WatcherAddedEvent(issue.id(), callerId, callerId, Instant.now()));
+      // 실시간 무효화 — 실제 insert 가 일어났을 때만
+      changeNotifier.changed(
+          project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
     }
   }
 
@@ -61,6 +67,7 @@ public class WatcherService {
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     watcherRepository.remove(issue.id(), callerId);
+    changeNotifier.changed(project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
   }
 
   /**

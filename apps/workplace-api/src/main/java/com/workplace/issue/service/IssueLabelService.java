@@ -1,6 +1,8 @@
 package com.workplace.issue.service;
 
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.label.dto.LabelSummary;
@@ -26,6 +28,7 @@ public class IssueLabelService {
   private final LabelRepository labelRepository;
   private final ProjectAccessGuard accessGuard;
   private final IssueHistoryRecorder historyRecorder;
+  private final IssueChangeNotifier changeNotifier;
 
   /** 이슈 라벨 집합 교체 — 멤버 가드, 프로젝트 일관성 검증, diff 기록. */
   public List<LabelSummary> replace(
@@ -78,6 +81,9 @@ public class IssueLabelService {
               .map(r -> new LabelSummary(r.id(), r.name(), r.colorToken()))
               .toList();
       historyRecorder.recordLabelsChanged(callerId, issue.id(), addedSummaries, removedSummaries);
+      // 실시간 무효화 — diff 가 있을 때만(no-op 은 미발행)
+      changeNotifier.changed(
+          project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
     }
 
     return issueLabelRepository.findLabelsByIssue(issue.id());

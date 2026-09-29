@@ -3,7 +3,9 @@ package com.workplace.issue.service;
 import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.file.service.FileUploadService;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
@@ -25,11 +27,13 @@ public class IssueDriveLinkService {
   private final ProjectAccessGuard accessGuard;
   private final IssueRepository issueRepository;
   private final DriveLinkService driveLinks;
+  private final IssueChangeNotifier changeNotifier;
 
   /** 이슈에 드라이브 파일 링크 추가. 호출자가 프로젝트 멤버인지 검증. */
   public void add(long callerId, String key, int number, long driveFileId) {
     long issueId = resolveIssueId(callerId, key, number);
     driveLinks.createLink(callerId, driveFileId, SOURCE, issueId);
+    notifyUpdated(callerId, key, number, issueId);
   }
 
   /** 이슈 드라이브 링크 삭제. OWNER 는 타인 링크도 삭제 가능. */
@@ -37,6 +41,7 @@ public class IssueDriveLinkService {
     long issueId = resolveIssueId(callerId, key, number);
     boolean canManage = isOwner(key, callerId);
     driveLinks.removeLink(callerId, driveFileId, SOURCE, issueId, canManage);
+    notifyUpdated(callerId, key, number, issueId);
   }
 
   /** 이슈에 연결된 드라이브 파일 목록 조회 — 조회 가드(OPEN 은 테넌트 전원 개방, 상세 프로퍼티 레일 로드용). */
@@ -54,6 +59,16 @@ public class IssueDriveLinkService {
     // 이슈 멤버십 검사 = 다운로드 인가
     long issueId = resolveIssueId(callerId, key, number);
     return driveLinks.getLinkContent(SOURCE, issueId, driveFileId);
+  }
+
+  /** 링크 변경을 실시간 무효화로 알림 — resolveIssueId 가 id 만 돌려주므로 project 는 가드로 다시 얻는다. */
+  private void notifyUpdated(long callerId, String key, int number, long issueId) {
+    changeNotifier.changed(
+        accessGuard.assertMember(key, callerId),
+        number,
+        issueId,
+        ResourceChangedEvent.OP_UPDATED,
+        callerId);
   }
 
   /** 프로젝트 멤버십 검사 후 이슈 id 반환 — 쓰기(add/remove)·다운로드(content) 경로 전용. */

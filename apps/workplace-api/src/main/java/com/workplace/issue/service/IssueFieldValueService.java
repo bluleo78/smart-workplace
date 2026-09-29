@@ -1,11 +1,13 @@
 package com.workplace.issue.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.dto.FieldTypeValidator;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest;
 import com.workplace.issue.exception.InvalidFieldForProjectException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueFieldDefRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -32,6 +34,7 @@ public class IssueFieldValueService {
   private final ProjectAccessGuard accessGuard;
   private final IssueService issueService;
   private final IssueHistoryRecorder historyRecorder;
+  private final IssueChangeNotifier changeNotifier;
 
   /** 값 집합 변경 + diff history. */
   public IssueDetailResponse replace(
@@ -68,6 +71,7 @@ public class IssueFieldValueService {
 
     // 3) 현재 값과 diff — 변경된 필드만 upsert/delete + history
     Map<Long, JsonNode> current = valueRepo.findValuesByIssue(issue.id());
+    boolean changed = false;
     for (var v : req.values()) {
       var def = defs.get(v.defId());
       JsonNode before = current.get(v.defId());
@@ -82,6 +86,13 @@ public class IssueFieldValueService {
       }
       historyRecorder.recordCustomFieldChanged(
           callerId, issue.id(), v.defId(), def.name(), def.type(), before, after);
+      changed = true;
+    }
+
+    // 실시간 무효화 — 실제로 바뀐 필드가 있을 때만
+    if (changed) {
+      changeNotifier.changed(
+          project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
     }
 
     return issueService.get(callerId, projectKey, number);
