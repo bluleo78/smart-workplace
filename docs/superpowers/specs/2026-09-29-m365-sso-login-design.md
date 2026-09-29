@@ -173,7 +173,7 @@ SecurityConfig: `GET /api/v1/auth/sso/**` 만 permitAll 추가. (`apps/workplace
 
 ### 6.2 본인 비밀번호 설정
 - `GET /auth/me`(또는 `/users/me`) 응답에 `hasPassword: boolean` 추가.
-- `PUT /api/v1/users/me/password`: 저장된 비밀번호가 NULL 이면 `currentPassword` 없이 `newPassword` 만으로 설정(비밀번호 규칙 동일). 있으면 기존대로 현재 비밀번호 검증. 현재 NULL 에서 발생하는 404 는 이 분기로 해소. 감사 `PASSWORD_SET`.
+- `PUT /api/v1/users/me/password`: 저장된 비밀번호가 NULL 이면 `currentPassword` 없이 `newPassword` 만으로 설정(비밀번호 규칙 동일). 단 **현재 세션이 `amr=sso` 일 때만** 허용 — PAT(`swp_`)·Internal 인증으로는 400(유출된 PAT 가 영구 비밀번호 로그인이 되는 경로 차단). 있으면 기존대로 현재 비밀번호 검증. 현재 NULL 에서 발생하는 404 는 이 분기로 해소. 감사 `PASSWORD_SET`.
 
 ## 7. 프론트엔드 (workplace-web)
 
