@@ -7,6 +7,8 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
 import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.exists;
+import static org.jooq.impl.DSL.noCondition;
+import static org.jooq.impl.DSL.notExists;
 
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueTypeSummary;
@@ -282,6 +284,36 @@ public class IssueRepository {
   }
 
   /**
+   * 사이클 필터 조건 — search·searchMemberOf 두 경로가 공유해 결과가 어긋나지 않게 한다. 지정 사이클 중 하나라도 연결(EXISTS) 또는
+   * includeNoCycle 이면 issue_cycle 연결이 하나도 없는(NOT EXISTS) 이슈를 OR 로 매칭한다(#878). 사이클 상태(COMPLETED 등)와
+   * 무관하게 연결이 하나라도 있으면 미할당이 아니다. 둘 다 없으면 조건 미적용.
+   */
+  private org.jooq.Condition cycleCondition(com.workplace.issue.dto.IssueSearchQuery query) {
+    org.jooq.Condition cond = noCondition();
+    if (query.cycleIds() != null && !query.cycleIds().isEmpty()) {
+      // IN 을 포함한 단일 EXISTS — 지정 사이클 중 하나라도 연결된 이슈
+      cond =
+          cond.or(
+              exists(
+                  dsl.selectOne()
+                      .from(ISSUE_CYCLE)
+                      .where(
+                          ISSUE_CYCLE
+                              .ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(ISSUE_CYCLE.CYCLE_ID.in(query.cycleIds())))));
+    }
+    if (query.includeNoCycle()) {
+      // 사이클 미할당 — M:N 매핑에 행이 하나도 없는 이슈
+      cond =
+          cond.or(
+              notExists(
+                  dsl.selectOne().from(ISSUE_CYCLE).where(ISSUE_CYCLE.ISSUE_ID.eq(ISSUE.ID))));
+    }
+    return cond;
+  }
+
+  /**
    * 검색/필터 + cursor 페이징. 활성(deleted_at IS NULL) 이슈만 대상. 정렬은 (updated_at DESC, id DESC) 고정. size 는
    * 호출자가 1..100 으로 클램프한 값을 넘긴다. assignee 필터는 issue_assignee 매핑에 대한 EXISTS/NOT EXISTS 로 변환된다.
    * typeIds 는 OR 결합. Phase 4a: parentNumber/topLevel 필터.
@@ -358,21 +390,7 @@ public class IssueRepository {
       where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
     }
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
-    if (query.cycleIds() != null && !query.cycleIds().isEmpty()) {
-      // 사이클은 OR 결합 — 지정된 사이클 중 하나라도 연결된 이슈만 매칭 (IN 을 포함한 단일 EXISTS)
-      where =
-          where.and(
-              org.jooq.impl.DSL.exists(
-                  dsl.selectOne()
-                      .from(com.workplace.jooq.Tables.ISSUE_CYCLE)
-                      .where(
-                          com.workplace.jooq.Tables.ISSUE_CYCLE
-                              .ISSUE_ID
-                              .eq(ISSUE.ID)
-                              .and(
-                                  com.workplace.jooq.Tables.ISSUE_CYCLE.CYCLE_ID.in(
-                                      query.cycleIds())))));
-    }
+    where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
       // 마일스톤은 issue.milestone_id 직접 컬럼 — OR 결합(IN), M:N 아니라 EXISTS 불필요
       where = where.and(ISSUE.MILESTONE_ID.in(query.milestoneIds()));
@@ -604,21 +622,7 @@ public class IssueRepository {
       where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
     }
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
-    if (query.cycleIds() != null && !query.cycleIds().isEmpty()) {
-      // 사이클은 OR 결합 — 지정된 사이클 중 하나라도 연결된 이슈만 매칭 (IN 을 포함한 단일 EXISTS)
-      where =
-          where.and(
-              org.jooq.impl.DSL.exists(
-                  dsl.selectOne()
-                      .from(com.workplace.jooq.Tables.ISSUE_CYCLE)
-                      .where(
-                          com.workplace.jooq.Tables.ISSUE_CYCLE
-                              .ISSUE_ID
-                              .eq(ISSUE.ID)
-                              .and(
-                                  com.workplace.jooq.Tables.ISSUE_CYCLE.CYCLE_ID.in(
-                                      query.cycleIds())))));
-    }
+    where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
       // 마일스톤은 issue.milestone_id 직접 컬럼 — OR 결합(IN), M:N 아니라 EXISTS 불필요
       where = where.and(ISSUE.MILESTONE_ID.in(query.milestoneIds()));

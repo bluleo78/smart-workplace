@@ -108,12 +108,19 @@ export function buildMyTaskRows(
   return { rows, waitingCount, isEmpty: false, watchedTotal: watched.length, watchedToday }
 }
 
+// YYYY-MM-DD 날짜까지 남은 일수 — now 의 로컬 자정 기준(음수=지남, 0=오늘).
+// new Date('yyyy-MM-dd') 는 UTC 자정으로 파싱돼 KST 등에서 하루 어긋나므로 로컬 생성자로 만든다.
+// 마감 라벨·사이클 남은 일수(D-N) 가 같은 규칙을 쓰도록 공용화했다.
+export function daysUntilLocalDate(date: string, now: Date): number {
+  const [y, m, d] = date.split('-').map(Number)
+  const target = new Date(y, m - 1, d)
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000)
+}
+
 // 마감 메타 텍스트 — 지남/오늘/D-n. dueDate 는 YYYY-MM-DD, now 기준 로컬 자정 일수 차.
 export function dueLabel(dueDate: string, now: Date): string {
-  const [y, m, d] = dueDate.split('-').map(Number)
-  const due = new Date(y, m - 1, d)
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const days = Math.round((due.getTime() - today.getTime()) / 86_400_000)
+  const days = daysUntilLocalDate(dueDate, now)
   if (days < 0) return '지남'
   if (days === 0) return '오늘'
   return `D-${days}`

@@ -220,6 +220,8 @@ export interface IssueFilters {
   showAllClosed: boolean;
   // 활성 사이클 밖 종료(DONE·CANCELED) 이슈 제외 — URL 비직렬화 파생 필드. withDefaultIssueScope 만 주입한다.
   hideInactiveClosed?: boolean;
+  // 사이클 미할당 이슈 포함 — URL 비직렬화 파생 필드. 사이클 백로그 섹션만 주입하며 cycle 파라미터에 'null' 토큰으로 송신한다(#878).
+  cycleUnassigned?: boolean;
 }
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.

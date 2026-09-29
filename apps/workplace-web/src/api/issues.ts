@@ -50,7 +50,12 @@ export async function searchIssues(
   if (filters.dueFrom) params.set('dueFrom', filters.dueFrom);
   if (filters.dueTo) params.set('dueTo', filters.dueTo);
   if (filters.labelIds.length) params.set('label', filters.labelIds.join(','));
-  if (filters.cycleIds.length) params.set('cycle', filters.cycleIds.join(','));
+  // cycle — 사이클 id 목록 + 사이클 미할당('null' 토큰, assignee 의 미지정 토큰과 동일 패턴 · #878).
+  const cycleTokens: string[] = [
+    ...filters.cycleIds.map(String),
+    ...(filters.cycleUnassigned ? ['null'] : []),
+  ];
+  if (cycleTokens.length) params.set('cycle', cycleTokens.join(','));
   if (filters.milestoneIds.length) params.set('milestone', filters.milestoneIds.join(','));
   if (filters.typeIds.length) params.set('type', filters.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel·excludeSubtasks·excludeEpics 는

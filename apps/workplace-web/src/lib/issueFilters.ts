@@ -97,6 +97,7 @@ export function overridesClosedHiding(f: IssueFilters): boolean {
   return (
     f.statuses.length > 0 ||
     f.cycleIds.length > 0 ||
+    !!f.cycleUnassigned ||
     f.milestoneIds.length > 0 ||
     f.parentNumber != null
   );

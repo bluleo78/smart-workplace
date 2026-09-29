@@ -189,9 +189,12 @@ public class IssueSearchService {
     List<List<Long>> labelIdGroups =
         filterResolver.resolveLabelGroups(csv(p.get("label")), projectId, callerId);
 
-    // 사이클 ID CSV — OR 결합 필터. 잘못된 토큰은 무시.
+    // 사이클 ID CSV — OR 결합 필터. 'null' 은 사이클 미할당 포함(assignee=null 과 동일 규약, #878). 잘못된 토큰은 무시.
+    var cycleTokens = csv(p.get("cycle"));
+    boolean includeNoCycle = cycleTokens.stream().anyMatch("null"::equalsIgnoreCase);
     List<Long> cycleIds = new ArrayList<>();
-    for (String tok : csv(p.get("cycle"))) {
+    for (String tok : cycleTokens) {
+      if ("null".equalsIgnoreCase(tok)) continue;
       try {
         cycleIds.add(Long.parseLong(tok));
       } catch (NumberFormatException ignored) {
@@ -265,6 +268,7 @@ public class IssueSearchService {
         fieldValue,
         reporterIds,
         cycleIds,
+        includeNoCycle,
         milestoneIds,
         excludeSubtasks,
         excludeEpics,

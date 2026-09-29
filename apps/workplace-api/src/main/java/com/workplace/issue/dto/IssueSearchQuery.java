@@ -10,7 +10,8 @@ import java.util.List;
  * IS NULL 인 이슈만 (Phase 4a). parentNumber 가 있으면 topLevel 은 무시된다. blocked=true 면 활성 차단자(미완료)가 존재하는
  * 이슈만 (Phase 4b). fieldId+fieldValue 동시 지정 시 해당 필드의 JSONB 값을 텍스트 캐스트 동등 비교로 필터 (Phase 4c, 1차 단순화).
  * reporterIds 는 OR 결합 — 이슈를 만든 사람(reporter_id 직접 컬럼) 필터. 비어 있으면 미적용. cycleIds 는 OR 결합 — 지정된 사이클 중
- * 하나라도 연결된 이슈만 매칭. milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
+ * 하나라도 연결된 이슈만 매칭하며, includeNoCycle 과 OR 결합되어 "지정 사이클 또는 사이클 미할당" 을 표현한다. milestoneIds 는 OR 결합 —
+ * issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
  */
 public record IssueSearchQuery(
     String q,
@@ -34,6 +35,8 @@ public record IssueSearchQuery(
     List<Long> reporterIds,
     // 사이클 필터 — OR 결합. 지정된 사이클 중 하나에라도 포함된 이슈만 매칭. 비어 있으면 미적용.
     List<Long> cycleIds,
+    // 사이클 미할당 포함 — cycle=null 토큰. issue_cycle 연결이 하나도 없는 이슈를 매칭하며 cycleIds 와 OR 결합(#878).
+    boolean includeNoCycle,
     // 마일스톤 필터 — OR 결합. issue.milestone_id 직접 컬럼 매칭. 비어 있으면 미적용.
     List<Long> milestoneIds,
     // 목록 화면 전용 — true 면 SUBTASK 유형 이슈를 제외한다(에픽 자식 등 비SUBTASK 는 그대로 노출).
