@@ -1,12 +1,14 @@
 package com.workplace.wiki.service;
 
 import com.workplace.drive.service.DriveQuotaService;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
 import com.workplace.wiki.exception.WikiAttachmentLimitException;
 import com.workplace.wiki.exception.WikiAttachmentNotFoundException;
 import com.workplace.wiki.exception.WikiAttachmentRejectedException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
+import com.workplace.wiki.outbound.WikiChangeNotifier;
 import com.workplace.wiki.repository.WikiAttachmentRepository;
 import com.workplace.wiki.repository.WikiPageRepository;
 import java.io.IOException;
@@ -53,6 +55,8 @@ public class WikiAttachmentService {
   private final WikiPermissions perms;
   // #759 (B) 테넌트 쿼터 — 드라이브 모듈의 쿼터 계산·잠금을 그대로 쓴다(chat/messaging/issue 도 drive 서비스를 직접 쓰는 선례).
   private final DriveQuotaService quota;
+  // WP-64: 첨부 변경 resource.changed 발행기.
+  private final WikiChangeNotifier notifier;
 
   @Value("${workplace.storage.wiki.max-image-size-bytes:10485760}")
   private long maxImageSizeBytes;
@@ -127,6 +131,7 @@ public class WikiAttachmentService {
 
     Long fileId = storage.storeTemporary(file, callerId, detectedMime);
     attachments.bind(fileId, pageId, callerId);
+    notifier.attachmentChanged(ResourceChangedEvent.OP_CREATED, spaceId, pageId, callerId);
 
     String originalName =
         file.getOriginalFilename() != null && !file.getOriginalFilename().isBlank()
@@ -163,6 +168,7 @@ public class WikiAttachmentService {
     perms.requireRole(spaceId, callerId, "EDITOR");
     requireBound(pageId, fileId);
     attachments.deleteMapping(fileId);
+    notifier.attachmentChanged(ResourceChangedEvent.OP_DELETED, spaceId, pageId, callerId);
     storage
         .deleteFileRow(fileId)
         .ifPresent(

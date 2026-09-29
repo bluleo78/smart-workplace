@@ -10,6 +10,7 @@ import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
 import com.workplace.mail.event.MessageMarkedReadEvent;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
+import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
@@ -33,6 +34,7 @@ public class MailMessageService {
   private final MailBodyFetcher bodyFetcher;
   private final MailSyncProgress progress;
   private final ApplicationEventPublisher eventPublisher;
+  private final MailChangeNotifier notifier;
 
   /** WP-68: 첨부 행이 없는 인라인 전용 Graph 메일의 첨부 목록 즉시 적재. */
   private final MailInlineContentIdBackfiller inlineBackfiller;
@@ -50,6 +52,7 @@ public class MailMessageService {
       MailSyncProgress progress,
       ApplicationEventPublisher eventPublisher,
       MailInlineContentIdBackfiller inlineBackfiller,
+      MailChangeNotifier notifier,
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
@@ -57,6 +60,7 @@ public class MailMessageService {
     this.progress = progress;
     this.eventPublisher = eventPublisher;
     this.inlineBackfiller = inlineBackfiller;
+    this.notifier = notifier;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -87,6 +91,7 @@ public class MailMessageService {
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     messageRepo.markNeedsReplyDone(messageId, accountId);
+    notifier.mailChanged(userId, accountId, messageId, userId);
   }
 
   /** P2: 처리완료 되돌리기. 계정 소유 검사 후 마커 제거. 계정이 본인 소유가 아니면 404. */
@@ -96,6 +101,7 @@ public class MailMessageService {
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     messageRepo.clearNeedsReplyDone(messageId, accountId);
+    notifier.mailChanged(userId, accountId, messageId, userId);
   }
 
   /** P2: 사이드바용 계정단위 회신필요 건수(ai_needs_reply IS TRUE AND done_at IS NULL). 계정이 본인 소유가 아니면 404. */

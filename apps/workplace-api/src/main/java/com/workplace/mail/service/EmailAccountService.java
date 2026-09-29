@@ -1,5 +1,6 @@
 package com.workplace.mail.service;
 
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.dto.EmailAccountRequest;
@@ -8,6 +9,7 @@ import com.workplace.mail.exception.DuplicateEmailAccountException;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.exception.MailValidationException;
+import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.outbound.MailDomainEvents.MailAccountConnectedEvent;
 import com.workplace.mail.outbound.MailDomainEvents.MailAccountDisconnectedEvent;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -34,6 +36,9 @@ public class EmailAccountService {
 
   /** 계정 연결 직후 즉시 동기화(#514)를 트리거하기 위한 도메인 이벤트 발행기. */
   private final ApplicationEventPublisher events;
+
+  /** WP-64: 계정 변경 resource.changed 발행기. */
+  private final MailChangeNotifier notifier;
 
   /** 본인 계정 목록. */
   @Transactional(readOnly = true)
@@ -77,6 +82,7 @@ public class EmailAccountService {
     long id = repo.insert(userId, req, encryption.encrypt(req.password()));
     // 첫 동기화를 3분 주기 스케줄러까지 기다리지 않도록 즉시 동기화를 트리거(AFTER_COMMIT 에서 소비 — 커밋 후 신규 행이 보여야 sync 가능).
     events.publishEvent(new MailAccountConnectedEvent(userId, id));
+    notifier.accountChanged(ResourceChangedEvent.OP_CREATED, userId, id, userId);
     return repo.findByIdAndUser(userId, id).orElseThrow();
   }
 
@@ -105,6 +111,7 @@ public class EmailAccountService {
     if (!before.aiEnabled() && req.aiEnabled()) {
       classifyBackfillService.classifyRecentUnread(userId, id);
     }
+    notifier.accountChanged(ResourceChangedEvent.OP_UPDATED, userId, id, userId);
     return repo.findByIdAndUser(userId, id).orElseThrow();
   }
 
@@ -128,6 +135,8 @@ public class EmailAccountService {
           .filter(acc -> !acc.aiEnabled())
           .forEach(acc -> classifyBackfillService.classifyRecentUnread(userId, acc.id()));
     }
+    // 전 계정 일괄 설정이라 특정 계정 id 가 없다 — accountId 0.
+    notifier.accountChanged(ResourceChangedEvent.OP_UPDATED, userId, 0L, userId);
   }
 
   /** 계정 비활성화(soft delete). 본인 소유 아니면 404. */
@@ -139,6 +148,7 @@ public class EmailAccountService {
     // 비활성화는 즉시 화면에서 숨겨지고, 실제 물리 purge 는 5분 주기 스케줄러를 기다리지 않도록 즉시 트리거(AFTER_COMMIT 에서
     // 소비 — soft-delete 커밋 후 동작). 즉시 purge 실패 시 스케줄러가 백스톱으로 다음 사이클에 재시도한다.
     events.publishEvent(new MailAccountDisconnectedEvent(userId, id));
+    notifier.accountChanged(ResourceChangedEvent.OP_DELETED, userId, id, userId);
   }
 
   /** 공용: 주어진 비밀번호로 IMAP/SMTP 연결 검증. */

@@ -15,6 +15,7 @@ import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.exception.MailAlreadyPromotedException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages;
+import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AiContext;
 import com.workplace.mail.util.MailBodyText;
@@ -46,6 +47,7 @@ public class MailIssueService {
   private final AiAgentMailClient mailClient;
   private final AssistantResolver assistantResolver;
   private final ProjectService projectService;
+  private final MailChangeNotifier notifier;
 
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
@@ -60,6 +62,7 @@ public class MailIssueService {
       AiAgentMailClient mailClient,
       AssistantResolver assistantResolver,
       ProjectService projectService,
+      MailChangeNotifier notifier,
       PlatformTransactionManager txManager) {
     this.issueService = issueService;
     this.issueRepository = issueRepository;
@@ -67,6 +70,7 @@ public class MailIssueService {
     this.mailClient = mailClient;
     this.assistantResolver = assistantResolver;
     this.projectService = projectService;
+    this.notifier = notifier;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -79,9 +83,10 @@ public class MailIssueService {
   @Transactional
   public PromotedIssue promoteToIssue(long callerId, long messageId, PromoteToIssueRequest req) {
     // 소유권 검증 — 타 사용자 메시지면 404
-    messageRepo
-        .findAiContextByIdAndUser(callerId, messageId)
-        .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
+    AiContext owned =
+        messageRepo
+            .findAiContextByIdAndUser(callerId, messageId)
+            .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
 
     // #859 중복 가드 — 같은 메일의 동시 승격을 메일 행 잠금으로 직렬화한 뒤 기존 연결 이슈를 확인한다. 잠금 없이 확인만 하면 두 요청이 모두
     // "없음"을 보고 이슈를 두 번 만든다. 이슈가 soft-delete 되면 연결이 끊긴 것으로 보고 재승격을 허용한다(findSourceIssueKey 가 삭제분
@@ -98,6 +103,8 @@ public class MailIssueService {
             new CreateIssueRequest(
                 req.title(), req.body(), req.priority(), null, assigneeIds, null, null, null));
     issueRepository.updateSource(created.id(), "MAIL", messageId);
+    // WP-64: 메일 상세의 "연결된 이슈" 표시가 갱신돼야 하므로 소유자에게 mail 변경을 알린다.
+    notifier.mailChanged(callerId, owned.accountId(), messageId, callerId);
     String issueKey = created.projectKey() + "-" + created.number();
     return new PromotedIssue(issueKey);
   }

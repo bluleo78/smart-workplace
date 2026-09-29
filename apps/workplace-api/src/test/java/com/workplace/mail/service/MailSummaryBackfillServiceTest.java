@@ -75,7 +75,8 @@ class MailSummaryBackfillServiceTest {
         null,
         null,
         false,
-        false);
+        false,
+        1L);
   }
 
   // ─── T1 objective pass ────────────────────────────────────────────────────

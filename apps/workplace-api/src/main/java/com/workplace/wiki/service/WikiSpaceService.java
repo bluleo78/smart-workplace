@@ -6,9 +6,11 @@ import com.workplace.wiki.dto.WikiSpaceResponse;
 import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.exception.WikiSpaceNameDuplicatedException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
+import com.workplace.wiki.outbound.WikiChangeNotifier;
 import com.workplace.wiki.repository.WikiSpaceMemberRepository;
 import com.workplace.wiki.repository.WikiSpaceRepository;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,8 @@ public class WikiSpaceService {
   private final WikiSpaceMemberRepository members;
   private final WikiPermissions perms;
   private final MembershipGuard membershipGuard;
+  // WP-64: 멤버 변경 resource.changed 발행기.
+  private final WikiChangeNotifier notifier;
 
   /** 개인 공간 보장(없으면 생성). 멱등. */
   @Transactional
@@ -86,6 +90,7 @@ public class WikiSpaceService {
       throw new WikiForbiddenException(spaceId, userId);
     }
     members.add(spaceId, userId, role);
+    notifier.spaceChanged(spaceId, callerId, Set.of());
   }
 
   @Transactional
@@ -93,11 +98,14 @@ public class WikiSpaceService {
     perms.requireRole(spaceId, callerId, "OWNER");
     perms.validateRole(role);
     members.changeRole(spaceId, userId, role);
+    notifier.spaceChanged(spaceId, callerId, Set.of());
   }
 
   @Transactional
   public void removeMember(long callerId, long spaceId, long userId) {
     perms.requireRole(spaceId, callerId, "OWNER");
     members.remove(spaceId, userId);
+    // 제거된 멤버는 커밋 후 명단에서 빠지므로 extra 로 넘겨 자기 화면에서도 스페이스가 사라지게 한다.
+    notifier.spaceChanged(spaceId, callerId, List.of(userId));
   }
 }

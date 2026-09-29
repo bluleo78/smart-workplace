@@ -879,7 +879,8 @@ public class EmailMessageRepository {
             EMAIL_CONTENT.AI_SUMMARY, // 슬라이스②: 공통(객관적) 요약 — content 공유
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, // Task3: 개인 요약 — envelope(사람별)
             EMAIL_CONTENT.AI_SUMMARIZED_AT, // #484: 공통 요약 시도 여부
-            EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT) // #484: 개인 요약 시도 여부
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, // #484: 개인 요약 시도 여부
+            EMAIL_MESSAGE.ACCOUNT_ID) // WP-64: 계정 id
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -900,7 +901,8 @@ public class EmailMessageRepository {
                     r.get(EMAIL_CONTENT.AI_SUMMARY), // 슬라이스②: content 출처
                     r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY), // Task3: envelope 출처
                     r.get(EMAIL_CONTENT.AI_SUMMARIZED_AT) != null,
-                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT) != null));
+                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT) != null,
+                    r.get(EMAIL_MESSAGE.ACCOUNT_ID)));
   }
 
   /**
@@ -989,7 +991,9 @@ public class EmailMessageRepository {
       String personalSummary,
       // #484: 요약 '시도' 여부(summarized_at 존재). summary 가 null 이어도 true 면 LLM 이 빈 결과를 낸 것 → 재요약 금지.
       boolean summaryAttempted,
-      boolean personalSummaryAttempted) {}
+      boolean personalSummaryAttempted,
+      // WP-64: 메시지가 속한 계정 id — resource.changed 발행(mail 계정 스코프)용
+      long accountId) {}
 
   /** Task6: subject·snippet 은 email_content 에서 읽는다(LEFT JOIN 후 호출). */
   private EmailMessageSummary toSummary(Record r) {
