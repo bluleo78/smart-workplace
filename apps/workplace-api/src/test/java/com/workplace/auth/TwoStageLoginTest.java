@@ -58,9 +58,16 @@ class TwoStageLoginTest extends IntegrationTestBase {
         .execute();
   }
 
-  /** 컨트롤러가 (Long) auth.getPrincipal() 캐스트하므로 principal 을 Long 으로 세팅. */
+  /**
+   * 컨트롤러가 (Long) auth.getPrincipal() 캐스트하므로 principal 을 Long 으로 세팅. select-tenant 는 브라우저 JWT 세션만
+   * 허용하므로(WP-48) JWT 필터처럼 비밀번호 세션 details 를 붙인다.
+   */
   private Authentication authWith(Long uid) {
-    return new UsernamePasswordAuthenticationToken(uid, "n/a", java.util.List.of());
+    var auth = new UsernamePasswordAuthenticationToken(uid, "n/a", java.util.List.of());
+    auth.setDetails(
+        new com.workplace.global.security.AuthDetails(
+            com.workplace.global.security.AuthDetails.PASSWORD));
+    return auth;
   }
 
   @Test

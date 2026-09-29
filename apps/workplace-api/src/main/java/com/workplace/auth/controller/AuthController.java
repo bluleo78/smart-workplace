@@ -7,6 +7,7 @@ import com.workplace.auth.dto.SignupAvailableResponse;
 import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
 import com.workplace.auth.exception.SignupDisabledException;
+import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.service.AuthService;
 import com.workplace.auth.web.RefreshTokenCookies;
 import com.workplace.global.security.AuthDetails;
@@ -93,7 +94,7 @@ public class AuthController {
     // 2단계: tenant-less(또는 기존) access 토큰으로 인증된 사용자가 활성 테넌트를 선택/전환
     Long userId = (Long) authentication.getPrincipal();
     TokenResponse token =
-        authService.selectTenant(userId, request.tenantId(), AuthDetails.methodOf(authentication));
+        authService.selectTenant(userId, request.tenantId(), requireBrowserSession(authentication));
     addRefreshTokenCookie(response, token.refreshToken());
     TokenResponse body =
         new TokenResponse(token.accessToken(), null, token.tokenType(), token.expiresIn());
@@ -104,7 +105,21 @@ public class AuthController {
   public ResponseEntity<List<MembershipResponse>> memberships(Authentication authentication) {
     Long userId = (Long) authentication.getPrincipal();
     return ResponseEntity.ok(
-        authService.membershipsOf(userId, AuthDetails.methodOf(authentication)));
+        authService.membershipsOf(userId, requireBrowserSession(authentication)));
+  }
+
+  /**
+   * WP-48: 워크스페이스 선택/멤버십 조회는 브라우저 JWT 세션 전용. PAT·API 키·Internal 인증은 AuthDetails 가 없으므로 거부한다 — 허용하면
+   * amr 없는 토큰이 발급돼 SSO 세션의 "SSO 켜진 워크스페이스만" 제약을 우회할 수 있다.
+   *
+   * @return 세션의 인증 수단(sso 또는 pwd)
+   */
+  private static String requireBrowserSession(Authentication authentication) {
+    String method = AuthDetails.methodOf(authentication);
+    if (method == null) {
+      throw new TenantAccessDeniedException("브라우저 로그인 세션에서만 워크스페이스를 선택할 수 있습니다.");
+    }
+    return method;
   }
 
   @PostMapping("/refresh")

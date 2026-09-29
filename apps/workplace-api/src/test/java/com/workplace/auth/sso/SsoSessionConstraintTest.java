@@ -91,7 +91,9 @@ class SsoSessionConstraintTest extends SsoIntegrationTestBase {
 
   @Test
   void passwordMemberships_unchanged() throws Exception {
+    // 비밀번호 로그인 브라우저 세션 — JWT 필터는 amr 없는 토큰에도 PASSWORD details 를 붙인다.
     var pw = new UsernamePasswordAuthenticationToken(userId, null, java.util.List.of());
+    pw.setDetails(new AuthDetails(AuthDetails.PASSWORD));
     mvc.perform(get("/api/v1/auth/memberships").with(authentication(pw)))
         .andExpect(jsonPath("$.length()").value(3));
   }

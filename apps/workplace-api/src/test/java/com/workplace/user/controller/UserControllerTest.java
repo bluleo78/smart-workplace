@@ -121,7 +121,13 @@ class UserControllerTest {
                 .content(objectMapper.writeValueAsString(request)))
         .andExpect(status().isNoContent());
 
-    verify(userService).changePassword(1L, "oldpassword", "newPassword123", null);
+    // WP-48: amr 없는 브라우저 JWT 는 비밀번호 세션(PASSWORD) details 로 전달된다.
+    verify(userService)
+        .changePassword(
+            1L,
+            "oldpassword",
+            "newPassword123",
+            com.workplace.global.security.AuthDetails.PASSWORD);
   }
 
   @Test

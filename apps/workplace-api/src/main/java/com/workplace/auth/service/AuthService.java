@@ -226,9 +226,11 @@ public class AuthService {
         userRepository
             .findById(userId)
             .orElseThrow(() -> new InvalidTokenException("사용자를 찾을 수 없습니다."));
+    // 토큰 amr 은 SSO 세션만 싣는다 — 비밀번호 세션(PASSWORD)은 기존처럼 amr 없는 토큰을 받는다.
+    String amr = AuthDetails.SSO.equals(authMethod) ? AuthDetails.SSO : null;
     String accessToken =
-        jwtTokenProvider.generateAccessToken(userId, user.username(), tenantId, authMethod);
-    String refreshToken = jwtTokenProvider.generateRefreshToken(userId, tenantId, authMethod);
+        jwtTokenProvider.generateAccessToken(userId, user.username(), tenantId, amr);
+    String refreshToken = jwtTokenProvider.generateRefreshToken(userId, tenantId, amr);
     storeRefreshToken(userId, refreshToken, UUID.randomUUID());
     return new TokenResponse(
         accessToken, refreshToken, "Bearer", jwtProperties.accessExpiration() / 1000);

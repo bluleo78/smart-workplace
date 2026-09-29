@@ -90,8 +90,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       if (tenantId != null) {
         TenantContext.set(tenantId);
       }
-      // WP-48: SSO 세션이면 인증 수단을 details 로 운반 — select-tenant/memberships 가 SSO 켜진 워크스페이스로 제한한다.
-      setSecurityContext(userId, jwtTokenProvider.getAuthMethodFromToken(token));
+      // WP-48: 브라우저 JWT 세션은 항상 인증 수단을 details 로 운반한다(amr 없으면 비밀번호 세션).
+      // select-tenant/memberships 는 details 가 없는 PAT·API 키·Internal 인증을 거부하고, SSO 세션은 SSO 켜진
+      // 워크스페이스로 제한한다.
+      String amr = jwtTokenProvider.getAuthMethodFromToken(token);
+      setSecurityContext(userId, amr != null ? amr : AuthDetails.PASSWORD);
     }
   }
 
