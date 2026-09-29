@@ -14,6 +14,11 @@ export interface ResourceChangedPayload {
   actorId?: number | null;
   projectKey?: string;
   issueNumber?: number;
+  channelId?: number;
+  spaceId?: number;
+  accountId?: number;
+  messageId?: number;
+  pageId?: number;
 }
 
 export interface InvalidationTarget {
@@ -23,28 +28,29 @@ export interface InvalidationTarget {
 
 type Rule = (p: ResourceChangedPayload) => InvalidationTarget[];
 
+/** issue 리소스 무효화 대상 — projectKey(pk) 기준. 다른 리소스 규칙(예: 프로젝트 변경)도 재사용한다. */
+export function issueTargets(pk: string): InvalidationTarget[] {
+  return [
+    { queryKey: ['issues', 'search', pk] }, // 목록·보드·타임라인·하위 이슈
+    { queryKey: ['issues', pk] }, // 상세(detail) 전체
+    { queryKey: ['me-issues'] },
+    { queryKey: ['watched-issues'] },
+    { queryKey: ['my-issue-dues'] },
+    { queryKey: ['home', 'myIssues'] },
+    { queryKey: ['home', 'watched'] },
+    { queryKey: ['home', 'activity'] },
+    { queryKey: ['issue-dependencies', pk] },
+    { queryKey: ['attachments', pk] },
+    { queryKey: ['watchers', pk] },
+    { queryKey: ['issue-drive-links', pk] },
+    { queryKey: ['issueCycles', pk] },
+    { queryKey: ['cycleProgress', pk] },
+  ];
+}
+
 // 리소스 → 무효화 대상. 슬라이스 2~6 에서 project·calendar·drive… 규칙을 여기에 추가한다.
 const RULES: Record<string, Rule> = {
-  issue: (p) => {
-    const pk = p.projectKey;
-    if (!pk) return [];
-    return [
-      { queryKey: ['issues', 'search', pk] }, // 목록·보드·타임라인·하위 이슈
-      { queryKey: ['issues', pk] }, // 상세(detail) 전체
-      { queryKey: ['me-issues'] },
-      { queryKey: ['watched-issues'] },
-      { queryKey: ['my-issue-dues'] },
-      { queryKey: ['home', 'myIssues'] },
-      { queryKey: ['home', 'watched'] },
-      { queryKey: ['home', 'activity'] },
-      { queryKey: ['issue-dependencies', pk] },
-      { queryKey: ['attachments', pk] },
-      { queryKey: ['watchers', pk] },
-      { queryKey: ['issue-drive-links', pk] },
-      { queryKey: ['issueCycles', pk] },
-      { queryKey: ['cycleProgress', pk] },
-    ];
-  },
+  issue: (p) => (p.projectKey ? issueTargets(p.projectKey) : []),
 };
 
 export function invalidationTargets(p: ResourceChangedPayload): InvalidationTarget[] {

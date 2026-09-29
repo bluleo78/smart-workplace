@@ -1,7 +1,13 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createInvalidationBatcher, invalidationTargets, isProtectedKey } from './resourceInvalidation';
+import {
+  createInvalidationBatcher,
+  invalidationTargets,
+  isProtectedKey,
+  type InvalidationTarget,
+  type ResourceChangedPayload,
+} from './resourceInvalidation';
 
 describe('invalidationTargets', () => {
   it('issue → 해당 프로젝트 검색·상세·하위 리소스 + 내 이슈 계열', () => {
@@ -95,4 +101,28 @@ describe('createInvalidationBatcher', () => {
     vi.advanceTimersByTime(20); // 500ms
     expect(qc.invalidateQueries).toHaveBeenCalledTimes(1);
   });
+});
+
+// 규칙이 캐시 패치·AI 요약·세션 키를 건드리지 않는지 — 리소스를 추가하는 task 는 SAMPLES 에 샘플 payload 를 넣는다.
+const SAMPLES: ResourceChangedPayload[] = [
+  { resource: 'issue', op: 'updated', projectKey: 'EX', issueNumber: 1 },
+];
+
+function forbiddenTarget(t: InvalidationTarget): boolean {
+  const [a, b] = t.queryKey as unknown[];
+  if (a === 'mail-summary') return !(t.queryKey.length === 1 && t.exact === true); // 위젯 키는 exact 만 허용
+  if (a === 'messaging') return t.queryKey.length === 1 || ['messages', 'thread', 'threads', 'catchup'].includes(b as string);
+  if (a === 'chat') return b !== 'thread';
+  return isProtectedKey(t.queryKey);
+}
+
+describe('금지 키 가드', () => {
+  it.each(SAMPLES.flatMap((s) => (['created', 'updated', 'deleted'] as const).map((op) => ({ ...s, op }))))(
+    '$resource/$op 규칙은 금지 키를 무효화하지 않는다',
+    (p) => {
+      const targets = invalidationTargets(p);
+      expect(targets.length).toBeGreaterThan(0);
+      expect(targets.filter(forbiddenTarget)).toEqual([]);
+    },
+  );
 });

@@ -32,6 +32,16 @@ public class MembershipRepository {
         .fetch(r -> new MembershipResponse(r.value1(), r.value2(), r.value3()));
   }
 
+  /** 테넌트의 ACTIVE 멤버 userId 전원 — TENANT scope SSE 수신자(공개 채널·공유 연락처 변경) 조회용 (WP-36). */
+  @Transactional(readOnly = true)
+  public List<Long> findActiveUserIdsByTenant(long tenantId) {
+    return dsl.select(MEMBERSHIP.USER_ID)
+        .from(MEMBERSHIP)
+        .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .fetch(MEMBERSHIP.USER_ID);
+  }
+
   /**
    * 사용자-테넌트 멤버십을 생성한다. membership 은 전역 테넌트-경계 테이블(RLS 비대상)이므로 tenant#1 GUC 하에서도 삽입 가능. signup 에서 신규
    * 사용자에게 tenant#1 소속을 부여하는 데 사용한다(로그인 시 단일 멤버십 자동 선택).
