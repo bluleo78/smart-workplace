@@ -13,6 +13,7 @@ import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.service.AuthService;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +34,7 @@ class SsoSessionConstraintTest extends SsoIntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired AuthService authService;
   @Autowired UserRepository userRepository;
+  @Autowired MembershipRepository membershipRepository;
   @Autowired JwtTokenProvider jwt;
 
   long userId;
@@ -52,9 +54,7 @@ class SsoSessionConstraintTest extends SsoIntegrationTestBase {
   }
 
   private UsernamePasswordAuthenticationToken ssoAuth() {
-    var a = new UsernamePasswordAuthenticationToken(userId, null, java.util.List.of());
-    a.setDetails(new AuthDetails(AuthDetails.SSO));
-    return a;
+    return SsoTestData.auth(userId, AuthDetails.SSO);
   }
 
   @Test
@@ -92,8 +92,7 @@ class SsoSessionConstraintTest extends SsoIntegrationTestBase {
   @Test
   void passwordMemberships_unchanged() throws Exception {
     // 비밀번호 로그인 브라우저 세션 — JWT 필터는 amr 없는 토큰에도 PASSWORD details 를 붙인다.
-    var pw = new UsernamePasswordAuthenticationToken(userId, null, java.util.List.of());
-    pw.setDetails(new AuthDetails(AuthDetails.PASSWORD));
+    var pw = SsoTestData.auth(userId, AuthDetails.PASSWORD);
     mvc.perform(get("/api/v1/auth/memberships").with(authentication(pw)))
         .andExpect(jsonPath("$.length()").value(3));
   }
@@ -145,7 +144,10 @@ class SsoSessionConstraintTest extends SsoIntegrationTestBase {
     SsoTestData.member(dsl, solo, ssoA);
     SsoTestData.member(dsl, solo, plain);
 
-    var session = authService.issueSsoSession(userRepository.findById(solo).orElseThrow());
+    var session =
+        authService.issueSsoSession(
+            userRepository.findById(solo).orElseThrow(),
+            membershipRepository.findActiveSsoEnabledByUser(solo));
 
     assertThat(session.tenantId()).isEqualTo(ssoA);
     assertThat(jwt.getTenantIdFromToken(session.refreshToken())).isEqualTo(ssoA);
@@ -154,7 +156,10 @@ class SsoSessionConstraintTest extends SsoIntegrationTestBase {
 
   @Test
   void issueSsoSession_multipleSsoTenantsIsTenantless() {
-    var session = authService.issueSsoSession(userRepository.findById(userId).orElseThrow());
+    var session =
+        authService.issueSsoSession(
+            userRepository.findById(userId).orElseThrow(),
+            membershipRepository.findActiveSsoEnabledByUser(userId));
     assertThat(session.tenantId()).isNull();
     assertThat(jwt.getTenantIdFromToken(session.refreshToken())).isNull();
   }

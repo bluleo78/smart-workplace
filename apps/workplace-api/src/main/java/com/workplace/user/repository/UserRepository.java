@@ -2,6 +2,7 @@ package com.workplace.user.repository;
 
 import static com.workplace.jooq.Tables.*;
 import static org.jooq.impl.DSL.count;
+import static org.jooq.impl.DSL.lower;
 import static org.jooq.impl.DSL.trueCondition;
 import static org.jooq.impl.DSL.val;
 
@@ -9,6 +10,7 @@ import com.workplace.global.util.LikePatternUtils;
 import com.workplace.user.dto.UserResponse;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
@@ -87,8 +89,7 @@ public class UserRepository {
   public List<Long> findIdsByUsernameIgnoreCase(String username) {
     return dsl.select(USER.ID)
         .from(USER)
-        .where(
-            org.jooq.impl.DSL.lower(USER.USERNAME).eq(username.toLowerCase(java.util.Locale.ROOT)))
+        .where(lower(USER.USERNAME).eq(username.toLowerCase(Locale.ROOT)))
         .limit(2)
         .fetch(USER.ID);
   }

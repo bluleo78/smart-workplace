@@ -5,6 +5,7 @@ import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.security.AuthDetails;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
@@ -22,7 +23,11 @@ import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -178,8 +183,7 @@ public class UserService {
   }
 
   // WP-48: SSO 전용 구성원 아이디(=회사 계정 주소) 형식 검사
-  private static final java.util.regex.Pattern EMAIL =
-      java.util.regex.Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+  private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
   /**
    * 테넌트 관리자가 새 구성원을 추가한다(고객 콘솔 셀프서비스).
@@ -206,13 +210,11 @@ public class UserService {
       if (!EMAIL.matcher(username).matches()) {
         throw new IllegalArgumentException("SSO 전용 구성원의 아이디는 회사 SSO 계정 주소(이메일)여야 합니다.");
       }
-      username = username.toLowerCase(java.util.Locale.ROOT);
-      if (!userRepository.findIdsByUsernameIgnoreCase(username).isEmpty()) {
-        throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
-      }
-    } else if (!userRepository.findIdsByUsernameIgnoreCase(username).isEmpty()) {
-      // 아이디(로그인 ID) 중복 → 409. WP-48: SSO 매칭이 대소문자 무시이므로 비밀번호 경로도 대소문자 무시로 검사한다
-      // (대소문자만 다른 계정이 생기면 SSO 매칭이 모호해져 거부된다).
+      username = username.toLowerCase(Locale.ROOT);
+    }
+    // 아이디(로그인 ID) 중복 → 409. WP-48: SSO 매칭이 대소문자 무시이므로 두 경로 모두 대소문자 무시로 검사한다
+    // (대소문자만 다른 계정이 생기면 SSO 매칭이 모호해져 거부된다).
+    if (!userRepository.findIdsByUsernameIgnoreCase(username).isEmpty()) {
       throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
     }
     // 이메일은 선택값. 공백/널이면 null 로 저장하고, 값이 있으면 중복 검사.
@@ -247,7 +249,7 @@ public class UserService {
         null,
         "SUCCESS",
         null,
-        java.util.Map.of(
+        Map.of(
             "username",
             user.username(),
             "role",
@@ -368,12 +370,12 @@ public class UserService {
   public void changePassword(
       Long userId, String currentPassword, String newPassword, String authMethod) {
     if (!userRepository.existsById(userId)) throw UserNotFoundException.ofId(userId);
-    java.util.Optional<String> storedPassword = userRepository.findPasswordById(userId);
+    Optional<String> storedPassword = userRepository.findPasswordById(userId);
 
     // WP-48: 비밀번호 없는(SSO 전용) 계정의 최초 설정 — 현재 비밀번호 대신 "지금 SSO 로 로그인한 세션"이 본인 확인이다.
     // PAT(swp_)·Internal 인증은 amr 이 없으므로 거부 — 유출된 PAT 가 영구 비밀번호 로그인으로 바뀌는 경로를 막는다.
     if (storedPassword.isEmpty()) {
-      if (!com.workplace.global.security.AuthDetails.SSO.equals(authMethod)) {
+      if (!AuthDetails.SSO.equals(authMethod)) {
         throw new IllegalArgumentException("SSO 로 로그인한 상태에서만 비밀번호를 설정할 수 있습니다");
       }
       userRepository.updatePassword(userId, passwordEncoder.encode(newPassword));

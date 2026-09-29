@@ -32,6 +32,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -203,15 +204,11 @@ public class AuthService {
         accessToken, refreshToken, jwtProperties.accessExpiration() / 1000, memberships);
   }
 
-  /** 2단계: 테넌트 선택 → membership+tenant ACTIVE 검증 후 tenant 스코프 토큰 발급. 전환도 이 메서드. */
-  @Transactional
-  public TokenResponse selectTenant(Long userId, Long tenantId) {
-    return selectTenant(userId, tenantId, null);
-  }
-
   /**
-   * WP-48: authMethod=sso 세션은 SSO 가 켜진 워크스페이스만 선택할 수 있다. 새로 발급하는 토큰에도 amr 을 유지해 이후 전환·갱신에도 같은 제약이
-   * 걸린다.
+   * 2단계: 테넌트 선택 → membership+tenant ACTIVE 검증 후 tenant 스코프 토큰 발급. 전환도 이 메서드.
+   *
+   * <p>WP-48: authMethod=sso 세션은 SSO 가 켜진 워크스페이스만 선택할 수 있다. 새로 발급하는 토큰에도 amr 을 유지해 이후 전환·갱신에도 같은
+   * 제약이 걸린다.
    */
   @Transactional
   public TokenResponse selectTenant(Long userId, Long tenantId, String authMethod) {
@@ -236,13 +233,7 @@ public class AuthService {
         accessToken, refreshToken, "Bearer", jwtProperties.accessExpiration() / 1000);
   }
 
-  /** 사용자의 선택 가능한 ACTIVE 멤버십 목록. */
-  @Transactional(readOnly = true)
-  public List<MembershipResponse> membershipsOf(Long userId) {
-    return membershipsOf(userId, null);
-  }
-
-  /** WP-48: SSO 세션이면 SSO 켜진 워크스페이스만. */
+  /** 사용자의 선택 가능한 ACTIVE 멤버십 목록. WP-48: SSO 세션이면 SSO 켜진 워크스페이스만. */
   @Transactional(readOnly = true)
   public List<MembershipResponse> membershipsOf(Long userId, String authMethod) {
     return AuthDetails.SSO.equals(authMethod)
@@ -329,10 +320,11 @@ public class AuthService {
   /**
    * WP-48: SSO 인증을 마친 사용자에게 세션을 발급한다. SSO 켜진 워크스페이스가 정확히 1개면 자동 선택(tenant-scoped), 여러 개면
    * tenant-less 로 발급해 웹이 선택 화면을 띄운다. access 토큰은 발급하지 않는다 — 웹이 /auth/refresh 로 받는다.
+   *
+   * @param memberships 진입 검사(SsoUserResolver)가 이미 조회한 SSO 켜진 ACTIVE 멤버십 — 재조회를 피한다.
    */
   @Transactional
-  public SsoSession issueSsoSession(UserResponse user) {
-    var memberships = membershipRepository.findActiveSsoEnabledByUser(user.id());
+  public SsoSession issueSsoSession(UserResponse user, List<MembershipResponse> memberships) {
     Long tenantId = memberships.size() == 1 ? memberships.get(0).tenantId() : null;
     String refreshToken =
         jwtTokenProvider.generateRefreshToken(user.id(), tenantId, AuthDetails.SSO);
@@ -349,7 +341,7 @@ public class AuthService {
         requestInfo[1],
         "SUCCESS",
         null,
-        java.util.Map.of("method", "sso"));
+        Map.of("method", "sso"));
     return new SsoSession(refreshToken, tenantId);
   }
 

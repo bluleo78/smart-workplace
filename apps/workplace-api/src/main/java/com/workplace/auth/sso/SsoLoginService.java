@@ -116,7 +116,7 @@ public class SsoLoginService {
             null,
             Map.of("provider", "M365", "tid", r.tid()));
       }
-      AuthService.SsoSession session = authService.issueSsoSession(r.user());
+      AuthService.SsoSession session = authService.issueSsoSession(r.user(), r.ssoMemberships());
       String location =
           "/login/sso/complete?returnTo="
               + URLEncoder.encode(tx.get().returnTo(), StandardCharsets.UTF_8);
@@ -124,12 +124,8 @@ public class SsoLoginService {
     } catch (SsoLoginException e) {
       // 사유에는 IdP 가 보낸 error 파라미터 등 외부 입력이 섞인다 — 로그/감사 주입을 막기 위해 개행 제거·길이 제한.
       String reason = sanitize(e.reason());
-      if (STATE_INVALID.equals(reason)) {
-        // state 불일치/쿠키 없음은 Microsoft 왕복 전 단계라 누구나 무한히 유발할 수 있다 — 감사 테이블을 채우지 않게 로그만 남긴다.
-        log.info("SSO 로그인 실패 code={} reason={}", e.webCode(), reason);
-        return new Redirect(errorPath(e.webCode()), List.of(clearTx));
-      }
-      auditFailure(e.webCode(), reason);
+      // state 불일치/쿠키 없음은 Microsoft 왕복 전 단계라 누구나 무한히 유발할 수 있다 — 감사 테이블을 채우지 않게 로그만 남긴다.
+      if (!STATE_INVALID.equals(reason)) auditFailure(e.webCode(), reason);
       log.info("SSO 로그인 실패 code={} reason={}", e.webCode(), reason);
       return new Redirect(errorPath(e.webCode()), List.of(clearTx));
     } catch (RuntimeException e) {

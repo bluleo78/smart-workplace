@@ -1,6 +1,7 @@
 package com.workplace.auth.sso;
 
 import com.workplace.auth.repository.UserExternalIdentityRepository;
+import com.workplace.tenant.dto.MembershipResponse;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -33,8 +34,16 @@ public class SsoUserResolver {
   private final UserRepository userRepository;
   private final MembershipRepository membershipRepository;
 
-  /** 결정 결과 — newlyLinked 면 감사 USER_SSO_LINK 를 남긴다. */
-  public record Resolution(UserResponse user, boolean newlyLinked, String tid, String oid) {}
+  /**
+   * 결정 결과 — newlyLinked 면 감사 USER_SSO_LINK 를 남긴다. ssoMemberships 는 진입 검사에서 조회한 SSO 켜진 ACTIVE 멤버십으로,
+   * 세션 발급 시 재조회를 피하려고 함께 전달한다.
+   */
+  public record Resolution(
+      UserResponse user,
+      boolean newlyLinked,
+      String tid,
+      String oid,
+      List<MembershipResponse> ssoMemberships) {}
 
   @Transactional
   public Resolution resolve(Jwt idToken) {
@@ -45,21 +54,21 @@ public class SsoUserResolver {
     Optional<Long> linked = identityRepository.findUserId(PROVIDER, tid, oid);
     if (linked.isPresent()) {
       UserResponse user = load(linked.get());
-      checkEntry(user);
-      return new Resolution(user, false, tid, oid);
+      var memberships = checkEntry(user);
+      return new Resolution(user, false, tid, oid, memberships);
     }
 
     UserResponse user = load(matchCandidate(idToken));
     if (identityRepository.existsForUser(user.id(), PROVIDER)) throw denied("conflict");
-    checkEntry(user);
+    var memberships = checkEntry(user);
 
     if (!identityRepository.insert(user.id(), PROVIDER, tid, oid)) {
       // 동시 최초 로그인 — 같은 (tid,oid) 가 같은 사용자로 먼저 연결됐으면 성공, 아니면 충돌.
       Long winner = identityRepository.findUserId(PROVIDER, tid, oid).orElse(null);
       if (!user.id().equals(winner)) throw denied("conflict");
-      return new Resolution(user, false, tid, oid);
+      return new Resolution(user, false, tid, oid, memberships);
     }
-    return new Resolution(user, true, tid, oid);
+    return new Resolution(user, true, tid, oid, memberships);
   }
 
   /** 도메인 검증된 후보값으로 username 매칭. 후보들이 한 사용자로 모여야 한다. */
@@ -84,13 +93,13 @@ public class SsoUserResolver {
     return matched;
   }
 
-  /** 진입 검사 — 비밀번호 로그인과 같은 기준 + SSO 켜진 워크스페이스 소속. */
-  private void checkEntry(UserResponse user) {
+  /** 진입 검사 — 비밀번호 로그인과 같은 기준 + SSO 켜진 워크스페이스 소속. 통과 시 조회한 SSO 멤버십을 돌려준다. */
+  private List<MembershipResponse> checkEntry(UserResponse user) {
     if (UserKind.isAgent(user.kind())) throw denied("agent");
     if (!user.isActive()) throw denied("inactive");
-    if (membershipRepository.findActiveSsoEnabledByUser(user.id()).isEmpty()) {
-      throw denied("no_workspace");
-    }
+    var memberships = membershipRepository.findActiveSsoEnabledByUser(user.id());
+    if (memberships.isEmpty()) throw denied("no_workspace");
+    return memberships;
   }
 
   private UserResponse load(long userId) {

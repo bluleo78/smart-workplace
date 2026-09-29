@@ -4,8 +4,12 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.global.security.AuthDetails;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jooq.DSLContext;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 /** SSO 테스트 시드 헬퍼(WP-48) — 테넌트(SSO on/off)·사용자·멤버십. */
 final class SsoTestData {
@@ -47,5 +51,18 @@ final class SsoTestData {
 
   static String uniqueEmail(String local) {
     return local + "-" + SEQ.incrementAndGet() + "@acme.test";
+  }
+
+  /**
+   * MockMvc 용 인증 토큰. authMethod 가 null 이면 details 를 싣지 않고, 아니면 JwtAuthenticationFilter 처럼
+   * AuthDetails 를 싣는다.
+   */
+  static UsernamePasswordAuthenticationToken auth(
+      long userId, String authMethod, String... authorities) {
+    var token =
+        new UsernamePasswordAuthenticationToken(
+            userId, null, Arrays.stream(authorities).map(SimpleGrantedAuthority::new).toList());
+    if (authMethod != null) token.setDetails(new AuthDetails(authMethod));
+    return token;
   }
 }

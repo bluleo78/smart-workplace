@@ -4,6 +4,7 @@ import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.sso.dto.SsoSettingsResponse;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.tenant.repository.TenantRepository;
+import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -43,7 +44,10 @@ public class SsoSettingsService {
     tenantRepository.setSsoEnabled(tenantId, enabled);
     // audit_log.username 은 NOT NULL — 사용자를 못 찾으면 id 문자열로 대체한다.
     String callerName =
-        userRepository.findById(callerId).map(u -> u.username()).orElse(String.valueOf(callerId));
+        userRepository
+            .findById(callerId)
+            .map(UserResponse::username)
+            .orElse(String.valueOf(callerId));
     auditLogService.log(
         callerId,
         callerName,

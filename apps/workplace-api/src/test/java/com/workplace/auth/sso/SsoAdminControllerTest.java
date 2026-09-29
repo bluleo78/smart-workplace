@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,7 +16,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,13 +38,12 @@ class SsoAdminControllerTest extends SsoIntegrationTestBase {
   // audit_log.user_id 가 user(id) FK 라 실제 존재하는 사용자를 호출자로 쓴다(빈 DB 에는 id=1 이 없을 수 있음).
   private UsernamePasswordAuthenticationToken admin() {
     long callerId = SsoTestData.user(dsl, SsoTestData.uniqueEmail("admin"), "hash");
-    return new UsernamePasswordAuthenticationToken(
-        callerId, null, List.of(new SimpleGrantedAuthority("sso:manage")));
+    return SsoTestData.auth(callerId, null, "sso:manage");
   }
 
   @Test
   void get_requiresPermission() throws Exception {
-    var noPerm = new UsernamePasswordAuthenticationToken(1L, null, List.of());
+    var noPerm = SsoTestData.auth(1L, null);
     mvc.perform(get("/api/v1/admin/sso").with(authentication(noPerm)))
         .andExpect(status().isForbidden());
   }

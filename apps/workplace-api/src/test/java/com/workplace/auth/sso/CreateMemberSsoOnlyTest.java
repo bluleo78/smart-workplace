@@ -1,12 +1,12 @@
 package com.workplace.auth.sso;
 
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,8 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 구성원 추가 — 비밀번호 없는 SSO 전용 계정. */
@@ -34,24 +34,16 @@ class CreateMemberSsoOnlyTest extends SsoIntegrationTestBase {
 
   @BeforeEach
   void seed() {
-    dsl.update(com.workplace.jooq.Tables.TENANT)
-        .set(com.workplace.jooq.Tables.TENANT.SSO_ENABLED, true)
-        .where(com.workplace.jooq.Tables.TENANT.ID.eq(tenantId))
-        .execute();
+    dsl.update(TENANT).set(TENANT.SSO_ENABLED, true).where(TENANT.ID.eq(tenantId)).execute();
     adminId = SsoTestData.user(dsl, SsoTestData.uniqueEmail("admin"), "hash");
     SsoTestData.member(dsl, adminId, tenantId);
   }
 
   private UsernamePasswordAuthenticationToken admin() {
-    return new UsernamePasswordAuthenticationToken(
-        adminId,
-        null,
-        List.of(
-            new SimpleGrantedAuthority("user:write"), new SimpleGrantedAuthority("role:assign")));
+    return SsoTestData.auth(adminId, null, "user:write", "role:assign");
   }
 
-  private org.springframework.test.web.servlet.ResultActions create(
-      String username, String passwordJson) throws Exception {
+  private ResultActions create(String username, String passwordJson) throws Exception {
     String body =
         "{\"username\":\"" + username + "\",\"name\":\"홍\",\"role\":\"USER\"" + passwordJson + "}";
     return mvc.perform(
@@ -72,10 +64,7 @@ class CreateMemberSsoOnlyTest extends SsoIntegrationTestBase {
 
   @Test
   void ssoOnly_rejectedWhenTenantSsoOff() throws Exception {
-    dsl.update(com.workplace.jooq.Tables.TENANT)
-        .set(com.workplace.jooq.Tables.TENANT.SSO_ENABLED, false)
-        .where(com.workplace.jooq.Tables.TENANT.ID.eq(tenantId))
-        .execute();
+    dsl.update(TENANT).set(TENANT.SSO_ENABLED, false).where(TENANT.ID.eq(tenantId)).execute();
     create(SsoTestData.uniqueEmail("off"), "").andExpect(status().isConflict());
   }
 

@@ -1,6 +1,7 @@
 package com.workplace.user.controller;
 
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.user.dto.*;
 import com.workplace.user.service.UserService;
@@ -62,7 +63,7 @@ public class UserController {
         userId,
         request.currentPassword(),
         request.newPassword(),
-        com.workplace.global.security.AuthDetails.methodOf(authentication));
+        AuthDetails.methodOf(authentication));
     return ResponseEntity.noContent().build();
   }
 

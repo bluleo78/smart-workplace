@@ -7,15 +7,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.global.security.AuthDetails;
 import com.workplace.user.repository.UserRepository;
-import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,17 +30,12 @@ class SetPasswordTest extends SsoIntegrationTestBase {
   @Autowired PasswordEncoder encoder;
 
   private UsernamePasswordAuthenticationToken self(long id) {
-    return new UsernamePasswordAuthenticationToken(
-        id, null, List.of(new SimpleGrantedAuthority("user:write:self")));
+    return SsoTestData.auth(id, null, "user:write:self");
   }
 
   /** SSO 로 로그인한 브라우저 세션(amr=sso) — JwtAuthenticationFilter 가 details 를 싣는 형태. */
   private UsernamePasswordAuthenticationToken ssoSelf(long id) {
-    var a = self(id);
-    a.setDetails(
-        new com.workplace.global.security.AuthDetails(
-            com.workplace.global.security.AuthDetails.SSO));
-    return a;
+    return SsoTestData.auth(id, AuthDetails.SSO, "user:write:self");
   }
 
   @Test

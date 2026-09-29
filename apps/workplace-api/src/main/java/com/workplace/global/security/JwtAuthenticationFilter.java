@@ -132,14 +132,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       if (resolved != null) {
         TenantContext.set(resolved);
       }
-      setSecurityContext(userId);
+      setSecurityContext(userId, null);
     } catch (NumberFormatException ignored) {
       // Invalid userId, skip authentication
     }
-  }
-
-  private void setSecurityContext(Long userId) {
-    setSecurityContext(userId, null);
   }
 
   private void setSecurityContext(Long userId, String authMethod) {
