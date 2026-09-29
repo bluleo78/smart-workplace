@@ -3,6 +3,7 @@ package com.workplace.messaging.service;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.DmResponse;
 import com.workplace.messaging.exception.InvalidDmRequestException;
+import com.workplace.messaging.outbound.ChannelChangeNotifier;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.tenant.repository.MembershipRepository;
@@ -25,6 +26,7 @@ public class DmService {
   private final ChannelMemberRepository memberRepo;
   private final UserRepository userRepo;
   private final MembershipRepository membershipRepo;
+  private final ChannelChangeNotifier changeNotifier;
 
   /** create 결과 — 신규(201)/기존(200) 구분용. */
   public record DmResult(DmResponse dm, boolean created) {}
@@ -76,6 +78,8 @@ public class DmService {
       for (Long uid : members) {
         memberRepo.add(id, uid, "MEMBER");
       }
+      // 신규 생성일 때만 발행 — 기존 DM 재사용은 목록 변화가 없다.
+      changeNotifier.dmCreated(id, callerId);
       return new DmResult(channelRepo.findDmDetail(id, callerId).orElseThrow(), true);
     }
     // 레이스 패자: 동시 트랜잭션이 먼저 생성 → 기존 DM 재사용.

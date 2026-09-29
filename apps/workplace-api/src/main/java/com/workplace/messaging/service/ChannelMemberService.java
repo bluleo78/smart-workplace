@@ -6,12 +6,14 @@ import com.workplace.messaging.exception.AgentCannotOwnChannelException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
+import com.workplace.messaging.outbound.ChannelChangeNotifier;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelMembershipChangedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.user.dto.UserKind;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,7 @@ public class ChannelMemberService {
   private final ChannelPermissions perms;
   private final MembershipGuard membershipGuard;
   private final ApplicationEventPublisher publisher;
+  private final ChannelChangeNotifier changeNotifier;
 
   private static final List<String> VALID_ROLES = List.of("OWNER", "ADMIN", "MEMBER");
 
@@ -44,6 +47,7 @@ public class ChannelMemberService {
     checkAdd(callerId, channelId, targetUserId);
     memberRepo.add(channelId, targetUserId, "MEMBER");
     publishRoster(channelId);
+    changeNotifier.membershipChanged(channelId, callerId, List.of(targetUserId));
   }
 
   /**
@@ -81,6 +85,8 @@ public class ChannelMemberService {
     }
     memberRepo.remove(channelId, targetUserId);
     publishRoster(channelId);
+    // 제거된 사용자는 커밋 후 명단에서 빠지므로 extra 로 알린다.
+    changeNotifier.membershipChanged(channelId, callerId, List.of(targetUserId));
   }
 
   /** 나가기 — 본인. OWNER 는 소유권 이전 전엔 나갈 수 없음. */
@@ -89,6 +95,7 @@ public class ChannelMemberService {
     if (!checkLeave(callerId, channelId)) return; // 이미 비멤버 — idempotent
     memberRepo.remove(channelId, callerId);
     publishRoster(channelId);
+    changeNotifier.membershipChanged(channelId, callerId, List.of(callerId));
   }
 
   /**
@@ -139,6 +146,7 @@ public class ChannelMemberService {
       memberRepo.updateRole(channelId, targetUserId, normalized);
     }
     publishRoster(channelId);
+    changeNotifier.membershipChanged(channelId, callerId, Set.of());
   }
 
   /** 변경 후 현재 roster 로 멤버십 변경 이벤트 발행 — 드라이브 연동 공간 reconcile 소스. */
