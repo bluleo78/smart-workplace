@@ -23,7 +23,7 @@ class IssueChangeNotifierTest {
     var project =
         new ProjectRow(7L, "EX", "예제", null, 1L, "TEAM", false, Instant.now(), Instant.now());
 
-    notifier.changed(project, 21, 39L, ResourceChangedEvent.OP_DELETED, 1L);
+    notifier.deleted(project, 21, 39L, 1L);
 
     var captor = ArgumentCaptor.forClass(ResourceChangedEvent.class);
     verify(publisher).publishEvent(captor.capture());
@@ -36,19 +36,25 @@ class IssueChangeNotifierTest {
     assertThat(e.attrs()).containsEntry("projectKey", "EX").containsEntry("issueNumber", 21);
   }
 
+  /** 행위자 수신 규칙은 ResourceSseDispatcher 공통 처리 — 알림 헬퍼는 op 만 다르게 매핑하고 extraRecipients 는 비운다. */
   @Test
-  void actorIsAlwaysExtraRecipient_nullActorYieldsEmpty() {
+  void createdAndUpdatedMapOpsAndLeaveExtraRecipientsEmpty() {
     var publisher = mock(ApplicationEventPublisher.class);
     var notifier = new IssueChangeNotifier(publisher);
     var project =
         new ProjectRow(7L, "EX", "예제", null, 1L, "OPEN", false, Instant.now(), Instant.now());
 
-    notifier.changed(project, 21, 39L, ResourceChangedEvent.OP_UPDATED, 5L);
-    notifier.changed(project, 21, 39L, ResourceChangedEvent.OP_UPDATED, null);
+    notifier.created(project, 21, 39L, 5L);
+    notifier.updated(project, 21, 39L, null);
 
     var captor = ArgumentCaptor.forClass(ResourceChangedEvent.class);
     verify(publisher, times(2)).publishEvent(captor.capture());
-    assertThat(captor.getAllValues().get(0).extraRecipients()).containsExactly(5L);
-    assertThat(captor.getAllValues().get(1).extraRecipients()).isEmpty();
+    var events = captor.getAllValues();
+    assertThat(events.get(0).op()).isEqualTo("created");
+    assertThat(events.get(0).actorId()).isEqualTo(5L);
+    assertThat(events.get(0).extraRecipients()).isEmpty();
+    assertThat(events.get(1).op()).isEqualTo("updated");
+    assertThat(events.get(1).actorId()).isNull();
+    assertThat(events.get(1).extraRecipients()).isEmpty();
   }
 }

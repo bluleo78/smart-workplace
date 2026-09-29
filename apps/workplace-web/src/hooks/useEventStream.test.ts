@@ -134,6 +134,19 @@ describe('createCatchUp 최소 간격(trailing 유예)', () => {
     expect(calls()).toBe(2);
   });
 
+  it('대기 타이머가 있으면 창이 지난 뒤 onOpen 도 즉시 실행하지 않는다(대기 실행이 커버)', () => {
+    const { h, calls } = setup();
+    h.onOpen();
+    h.onOpen(); // 즉시 1회
+    h.onOpen(); // 유예 예약
+    // 타이머는 발화시키지 않고 시계만 창 밖으로 이동(타이머 지연 상황)
+    vi.setSystemTime(1_000_000 + 31_000);
+    h.onOpen();
+    expect(calls()).toBe(1);
+    vi.advanceTimersByTime(60_000);
+    expect(calls()).toBe(2);
+  });
+
   it('dispose 는 대기 중인 유예 실행을 취소한다', () => {
     const { h, calls } = setup();
     h.onOpen();

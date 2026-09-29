@@ -1,6 +1,5 @@
 package com.workplace.issue.service;
 
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.exception.AttachmentNotFoundException;
@@ -77,7 +76,7 @@ public class IssueAttachmentService {
 
     // 4) history 한 건 — payload 에 added 만 포함.
     historyRecorder.recordAttachmentsChanged(callerId, issue.id(), added, List.of());
-    changeNotifier.changed(project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+    changeNotifier.updated(project, number, issue.id(), callerId);
 
     return added;
   }
@@ -140,6 +139,6 @@ public class IssueAttachmentService {
     repo.delete(fileId);
     storage.deleteFileRowAndBinary(fileId);
     historyRecorder.recordAttachmentsChanged(callerId, issue.id(), List.of(), List.of(att));
-    changeNotifier.changed(project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+    changeNotifier.updated(project, number, issue.id(), callerId);
   }
 }

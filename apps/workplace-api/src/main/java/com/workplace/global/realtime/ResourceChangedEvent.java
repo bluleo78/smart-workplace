@@ -16,7 +16,7 @@ import java.util.Set;
  * @param scopeId scope 식별자(예: projectId)
  * @param ids 변경된 엔티티 id 목록(일괄 작업은 한 이벤트에 여러 id)
  * @param attrs 프론트 쿼리 키 구성용 부가 값(예: projectKey, issueNumber) — payload 에 평탄화
- * @param actorId 변경 주체(없으면 null)
+ * @param actorId 변경 주체(없으면 null) — 디스패처가 항상 수신자에 포함한다(비멤버여도 자기 다른 탭/기기에서 수신)
  * @param extraRecipients scope 조회로 잡히지 않는 추가 수신자(예: 방금 제거된 멤버)
  */
 public record ResourceChangedEvent(
@@ -28,6 +28,13 @@ public record ResourceChangedEvent(
     Map<String, Object> attrs,
     Long actorId,
     Set<Long> extraRecipients) {
+
+  /** null 로 들어온 컬렉션을 빈 값으로 정규화하고 불변 복사한다 — 소비자(디스패처)가 null 검사를 반복하지 않게 한다. */
+  public ResourceChangedEvent {
+    ids = ids == null ? List.of() : List.copyOf(ids);
+    attrs = attrs == null ? Map.of() : Map.copyOf(attrs);
+    extraRecipients = extraRecipients == null ? Set.of() : Set.copyOf(extraRecipients);
+  }
 
   public static final String OP_CREATED = "created";
   public static final String OP_UPDATED = "updated";

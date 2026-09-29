@@ -64,7 +64,7 @@ export function createCatchUp(
 ): { onOpen: () => void; dispose: () => void } {
   let opened = false;
   let lastRun = -Infinity;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const run = () => {
     lastRun = now();
     reconnectCatchUp(qc);
@@ -75,21 +75,19 @@ export function createCatchUp(
         opened = true;
         return;
       }
+      // 대기 중인 trailing 실행이 이 재연결의 변경까지 커버하므로 추가 실행·예약하지 않는다.
+      if (timer) return;
       const wait = lastRun + CATCHUP_MIN_INTERVAL_MS - now();
-      if (wait <= 0) {
-        run();
-        return;
-      }
-      // 창 안 재연결 — 이미 대기 중이면 추가 예약하지 않는다.
-      if (timer !== null) return;
-      timer = setTimeout(() => {
-        timer = null;
-        run();
-      }, wait);
+      if (wait <= 0) run();
+      else
+        timer = setTimeout(() => {
+          timer = undefined;
+          run();
+        }, wait);
     },
     dispose: () => {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
+      clearTimeout(timer);
+      timer = undefined;
     },
   };
 }

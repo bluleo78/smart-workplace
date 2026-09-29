@@ -82,8 +82,8 @@ export function createInvalidationBatcher(qc: QueryClient, delayMs = 100, maxWai
   };
   return {
     enqueue(targets: InvalidationTarget[]) {
+      if (targets.length === 0) return;
       for (const t of targets) pending.set(`${t.exact ? 'x' : 'p'}:${JSON.stringify(t.queryKey)}`, t);
-      if (pending.size === 0) return;
       // 트레일링 디바운스 — 요청 지연으로 벌어진 연속 이벤트도 한 번에 모으되, 첫 이벤트 후 maxWaitMs 를 넘기지 않는다.
       const now = Date.now();
       if (!timer) firstAt = now;

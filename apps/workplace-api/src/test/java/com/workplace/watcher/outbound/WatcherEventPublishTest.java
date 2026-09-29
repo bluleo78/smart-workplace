@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
@@ -64,7 +65,7 @@ class WatcherEventPublishTest {
             userRepository,
             accessGuard,
             publisher,
-            mock(com.workplace.issue.outbound.IssueChangeNotifier.class));
+            mock(IssueChangeNotifier.class));
 
     ProjectRow project =
         new ProjectRow(

@@ -1,6 +1,5 @@
 package com.workplace.global.realtime;
 
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -49,17 +48,19 @@ public class ResourceSseDispatcher {
       // 리졸버 누락은 개발 실수 — 커밋 후 흐름을 깨지 않도록 예외 대신 경고만 남긴다.
       log.warn("AudienceResolver 없음: scopeType={} resource={}", e.scopeType(), e.resource());
     }
-    if (e.extraRecipients() != null) recipients.addAll(e.extraRecipients());
+    recipients.addAll(e.extraRecipients());
+    // 행위자는 프로젝트 비멤버(OPEN 프로젝트 보고자·ADMIN)여도 자기 다른 탭/기기에서 변경을 받아야 한다.
+    if (e.actorId() != null) recipients.add(e.actorId());
 
     Map<String, Object> p = new LinkedHashMap<>();
     // attrs 를 먼저 깔고 고정 필드를 나중에 넣는다 — attrs 가 resource/op/... 예약 키를 덮어쓰지 못하게 한다.
-    if (e.attrs() != null) p.putAll(e.attrs());
+    p.putAll(e.attrs());
     p.put("resource", e.resource());
     p.put("op", e.op());
     p.put("scopeType", e.scopeType());
     p.put("scopeId", e.scopeId());
-    p.put("ids", e.ids() == null ? List.of() : e.ids());
+    p.put("ids", e.ids());
     p.put("actorId", e.actorId());
-    registry.fanOut((Collection<Long>) recipients, EVENT_NAME, p);
+    registry.fanOut(recipients, EVENT_NAME, p);
   }
 }

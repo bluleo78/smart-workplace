@@ -19,6 +19,7 @@ import com.workplace.global.realtime.SseRegistry;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.service.IssueLabelService;
 import com.workplace.issue.service.IssueService;
+import com.workplace.label.repository.LabelRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
@@ -53,7 +54,7 @@ class IssueResourceChangedIntegrationTest extends IntegrationTestBase {
   @Autowired PlatformTransactionManager txManager;
   @Autowired IssueService issueService;
   @Autowired IssueLabelService labelService;
-  @Autowired com.workplace.label.repository.LabelRepository labelRepository;
+  @Autowired LabelRepository labelRepository;
   @Autowired ProjectService projectService;
   @Autowired ProjectMemberRepository memberRepository;
 

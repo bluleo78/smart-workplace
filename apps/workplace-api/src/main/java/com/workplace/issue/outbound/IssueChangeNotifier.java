@@ -22,8 +22,23 @@ public class IssueChangeNotifier {
 
   private final ApplicationEventPublisher publisher;
 
-  /** 반드시 쓰기 트랜잭션 안에서 호출 — 밖에서 부르면 AFTER_COMMIT 리스너가 발화하지 않는다. */
-  public void changed(ProjectRow project, int issueNumber, long issueId, String op, Long actorId) {
+  /** 이슈 생성 알림. 반드시 쓰기 트랜잭션 안에서 호출 — 밖에서 부르면 AFTER_COMMIT 리스너가 발화하지 않는다. */
+  public void created(ProjectRow project, int issueNumber, long issueId, Long actorId) {
+    changed(project, issueNumber, issueId, ResourceChangedEvent.OP_CREATED, actorId);
+  }
+
+  /** 이슈 수정(본문·담당자·라벨 등 부속 변경 포함) 알림. */
+  public void updated(ProjectRow project, int issueNumber, long issueId, Long actorId) {
+    changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);
+  }
+
+  /** 이슈 삭제 알림. */
+  public void deleted(ProjectRow project, int issueNumber, long issueId, Long actorId) {
+    changed(project, issueNumber, issueId, ResourceChangedEvent.OP_DELETED, actorId);
+  }
+
+  // 행위자 수신 규칙은 ResourceSseDispatcher 가 공통으로 처리하므로 extraRecipients 는 비운다.
+  private void changed(ProjectRow project, int issueNumber, long issueId, String op, Long actorId) {
     publisher.publishEvent(
         new ResourceChangedEvent(
             RESOURCE,
@@ -33,7 +48,6 @@ public class IssueChangeNotifier {
             List.of(issueId),
             Map.of("projectKey", project.key(), "issueNumber", issueNumber),
             actorId,
-            // 행위자는 프로젝트 비멤버(OPEN 프로젝트 보고자·ADMIN)여도 자기 다른 탭/기기에서 변경을 받아야 한다.
-            actorId == null ? Set.of() : Set.of(actorId)));
+            Set.of()));
   }
 }

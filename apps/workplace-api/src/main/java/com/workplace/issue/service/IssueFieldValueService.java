@@ -1,7 +1,6 @@
 package com.workplace.issue.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.dto.FieldTypeValidator;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest;
@@ -91,8 +90,7 @@ public class IssueFieldValueService {
 
     // 실시간 무효화 — 실제로 바뀐 필드가 있을 때만
     if (changed) {
-      changeNotifier.changed(
-          project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+      changeNotifier.updated(project, number, issue.id(), callerId);
     }
 
     return issueService.get(callerId, projectKey, number);

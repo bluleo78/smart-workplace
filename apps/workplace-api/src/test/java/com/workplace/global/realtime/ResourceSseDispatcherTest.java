@@ -78,13 +78,43 @@ class ResourceSseDispatcherTest {
             any());
   }
 
+  /** 행위자는 프로젝트 비멤버여도 자기 다른 탭/기기에서 받아야 한다 — 디스패처가 항상 수신자에 포함. */
+  @Test
+  void alwaysIncludesActor() {
+    dispatcher()
+        .onChanged(
+            new ResourceChangedEvent(
+                "issue", "updated", "PROJECT", 7L, List.of(), Map.of(), 5L, Set.of()));
+
+    verify(registry)
+        .fanOut(
+            argThat((Collection<Long> c) -> Set.copyOf(c).equals(Set.of(1L, 2L, 5L))),
+            eq("resource.changed"),
+            any());
+  }
+
+  /** 행위자가 null 이면 리졸버 결과만 — null 이 수신자에 섞이지 않는다. */
+  @Test
+  void nullActorYieldsResolverAudienceOnly() {
+    dispatcher()
+        .onChanged(
+            new ResourceChangedEvent(
+                "issue", "updated", "PROJECT", 7L, List.of(), null, null, null));
+
+    verify(registry)
+        .fanOut(
+            argThat((Collection<Long> c) -> Set.copyOf(c).equals(Set.of(1L, 2L))),
+            eq("resource.changed"),
+            any());
+  }
+
   /** 알 수 없는 scope 타입·빈 멤버 — 예외 없이 extraRecipients 만(여기선 0명). */
   @Test
   void unknownScopeFansOutToNobodyWithoutThrowing() {
     dispatcher()
         .onChanged(
             new ResourceChangedEvent(
-                "x", "updated", "NOPE", 7L, List.of(), Map.of(), 1L, Set.of()));
+                "x", "updated", "NOPE", 7L, List.of(), Map.of(), null, Set.of()));
 
     verify(registry)
         .fanOut(argThat((Collection<Long> c) -> c.isEmpty()), eq("resource.changed"), any());

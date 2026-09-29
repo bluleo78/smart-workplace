@@ -1,6 +1,5 @@
 package com.workplace.watcher.service;
 
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
@@ -54,8 +53,7 @@ public class WatcherService {
       eventPublisher.publishEvent(
           new WatcherAddedEvent(issue.id(), callerId, callerId, Instant.now()));
       // 실시간 무효화 — 실제 insert 가 일어났을 때만
-      changeNotifier.changed(
-          project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+      changeNotifier.updated(project, number, issue.id(), callerId);
     }
   }
 
@@ -67,7 +65,7 @@ public class WatcherService {
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     watcherRepository.remove(issue.id(), callerId);
-    changeNotifier.changed(project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+    changeNotifier.updated(project, number, issue.id(), callerId);
   }
 
   /**

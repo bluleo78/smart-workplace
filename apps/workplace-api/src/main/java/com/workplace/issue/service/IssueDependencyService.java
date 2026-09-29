@@ -1,12 +1,13 @@
 package com.workplace.issue.service;
 
-import com.workplace.global.realtime.ResourceChangedEvent;
+import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.DependencyCycleException;
 import com.workplace.issue.exception.InvalidDependencyException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -107,15 +108,9 @@ public class IssueDependencyService {
   }
 
   /** 의존성은 양쪽 이슈 상세(차단/피차단)가 모두 바뀌므로 두 이슈 각각 알린다. */
-  private void notifyBoth(
-      com.workplace.project.dto.ProjectRow project,
-      com.workplace.issue.dto.IssueRow thisRow,
-      com.workplace.issue.dto.IssueRow otherRow,
-      Long callerId) {
-    changeNotifier.changed(
-        project, thisRow.number(), thisRow.id(), ResourceChangedEvent.OP_UPDATED, callerId);
-    changeNotifier.changed(
-        project, otherRow.number(), otherRow.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+  private void notifyBoth(ProjectRow project, IssueRow thisRow, IssueRow otherRow, Long callerId) {
+    changeNotifier.updated(project, thisRow.number(), thisRow.id(), callerId);
+    changeNotifier.updated(project, otherRow.number(), otherRow.id(), callerId);
   }
 
   /**

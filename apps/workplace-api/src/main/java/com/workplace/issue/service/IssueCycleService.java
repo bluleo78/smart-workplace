@@ -3,7 +3,6 @@ package com.workplace.issue.service;
 import com.workplace.cycle.dto.CycleSummary;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.repository.CycleRepository;
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.dto.CycleProgress;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
@@ -78,8 +77,7 @@ public class IssueCycleService {
 
     // 실시간 무효화 — diff 가 있을 때만(no-op 은 미발행)
     if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
-      changeNotifier.changed(
-          project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+      changeNotifier.updated(project, number, issue.id(), callerId);
     }
 
     return issueCycleRepository.findCyclesByIssue(issue.id());

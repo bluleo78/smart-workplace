@@ -3,12 +3,12 @@ package com.workplace.issue.service;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.dto.UserSummary;
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
+import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.dto.UpdateIssueRequest;
@@ -40,6 +40,7 @@ import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.milestone.service.MilestoneService;
+import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
@@ -140,10 +141,7 @@ public class IssueService {
    * 사전검증과 실행이 술어를 공유하게 만드는 핵심 (#842).
    */
   record CreateIssuePlan(
-      com.workplace.project.dto.ProjectRow project,
-      List<Long> assigneeIds,
-      Long typeId,
-      Long parentIssueId) {}
+      ProjectRow project, List<Long> assigneeIds, Long typeId, Long parentIssueId) {}
 
   /** 생성 술어 본체 — 쓰기 없이 검증만 수행하고 실행에 필요한 해석값을 반환한다. 예외 종류·순서는 기존 create 와 동일. */
   CreateIssuePlan planCreate(Long callerId, String projectKey, CreateIssueRequest req) {
@@ -222,11 +220,7 @@ public class IssueService {
 
   /** 생성 실행 후속부 — 담당자 매핑·워처 등록·도메인 이벤트 발행. 검증은 planCreate 가 이미 끝냈다. */
   private IssueResponse finishCreate(
-      Long callerId,
-      com.workplace.project.dto.ProjectRow project,
-      com.workplace.issue.dto.IssueRow row,
-      int number,
-      List<Long> assigneeIds) {
+      Long callerId, ProjectRow project, IssueRow row, int number, List<Long> assigneeIds) {
     // 3) issue_assignee 매핑 INSERT
     for (Long uid : assigneeIds) {
       assigneeRepository.add(row.id(), uid, callerId);
@@ -265,7 +259,7 @@ public class IssueService {
             actor,
             assigneeSummaries,
             occurredAt));
-    changeNotifier.changed(project, number, row.id(), ResourceChangedEvent.OP_CREATED, callerId);
+    changeNotifier.created(project, number, row.id(), callerId);
     if (!assigneeSummaries.isEmpty()) {
       publisher.publishEvent(
           new IssueAssignedEvent(
@@ -540,7 +534,7 @@ public class IssueService {
     }
 
     // 실시간 무효화 — 제목·본문·날짜 등 모든 필드 변경을 알린다(목록/상세가 보여주므로)
-    changeNotifier.changed(project, number, before.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+    changeNotifier.updated(project, number, before.id(), callerId);
     historyRecorder.recordChanges(callerId, before, after);
 
     return get(callerId, projectKey, number);
@@ -645,7 +639,7 @@ public class IssueService {
         issue.id(),
         new IssueTypeSummary(oldType.id(), oldType.name(), oldType.colorToken(), oldType.icon()),
         new IssueTypeSummary(newType.id(), newType.name(), newType.colorToken(), newType.icon()));
-    changeNotifier.changed(project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+    changeNotifier.updated(project, number, issue.id(), callerId);
     return get(callerId, projectKey, number);
   }
 
@@ -656,7 +650,8 @@ public class IssueService {
    * row 를 얻고, reporter/OWNER/ADMIN 여부로 직접 판정한다.
    */
   public void softDelete(Long callerId, String projectKey, int number) {
-    var row = checkDeletable(callerId, projectKey, number);
+    var target = checkDeletable(callerId, projectKey, number);
+    var row = target.row();
     // Phase 4a — 부모 자체와 활성 자식들에 동일 timestamp 로 cascade soft-delete.
     // 자식 id 는 softDeleteChildren 호출 전에 수집해야 한다 (삭제 후엔 DELETED_AT 필터로 목록이 비어버림).
     var childIds = issueRepository.findActiveChildIds(row.id());
@@ -666,13 +661,8 @@ public class IssueService {
     // 이슈(부모+자식) 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
     driveLinkService.purgeSource("ISSUE", row.id());
     driveLinkService.purgeSources("ISSUE", childIds);
-    // 실시간 무효화 — checkDeletable 이 project 를 돌려주지 않아 resolve 를 다시 호출(변경 최소)
-    changeNotifier.changed(
-        accessGuard.resolve(projectKey),
-        number,
-        row.id(),
-        ResourceChangedEvent.OP_DELETED,
-        callerId);
+    // 실시간 무효화 — checkDeletable 이 이미 resolve 한 project 를 재사용(중복 조회 방지)
+    changeNotifier.deleted(target.project(), number, row.id(), callerId);
   }
 
   /** 이슈 삭제 사전검증(#856) — 확인 카드 dry-run 이 {@link #softDelete} 와 같은 {@link #checkDeletable} 을 쓴다. */
@@ -681,9 +671,8 @@ public class IssueService {
     checkDeletable(callerId, projectKey, number);
   }
 
-  /** 이슈 삭제 술어 — reporter·프로젝트 OWNER·ADMIN(개인 프로젝트 제외)만. 삭제 대상 행을 돌려준다. */
-  private com.workplace.issue.dto.IssueRow checkDeletable(
-      Long callerId, String projectKey, int number) {
+  /** 이슈 삭제 술어 — reporter·프로젝트 OWNER·ADMIN(개인 프로젝트 제외)만. 삭제 대상 프로젝트·행을 돌려준다. */
+  private DeletableIssue checkDeletable(Long callerId, String projectKey, int number) {
     // 멤버십 선검증 제거 — reporter/OWNER 로 직접 판정 (OPEN 비멤버 reporter 허용)
     var project = accessGuard.resolve(projectKey);
     var row =
@@ -701,8 +690,11 @@ public class IssueService {
     if (!isReporter && !isOwner && !isAdmin) {
       throw new ProjectAccessDeniedException("이슈 삭제는 reporter 또는 OWNER 만 가능합니다");
     }
-    return row;
+    return new DeletableIssue(project, row);
   }
+
+  /** checkDeletable 결과 — 삭제 대상 이슈 행과 이미 resolve 된 프로젝트(알림 발행에 재사용). */
+  private record DeletableIssue(ProjectRow project, IssueRow row) {}
 
   /**
    * 이슈의 부모 설정/해제. newParentNumber == null 이면 해제. EPIC 자신은 부모를 가질 수 없다({@link
@@ -777,7 +769,7 @@ public class IssueService {
 
     issueRepository.updateParent(row.id(), newParentId);
     historyRecorder.recordParentChanged(callerId, row.id(), oldRef, newRef);
-    changeNotifier.changed(project, number, row.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+    changeNotifier.updated(project, number, row.id(), callerId);
     return get(callerId, projectKey, number);
   }
 }

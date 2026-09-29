@@ -1,6 +1,5 @@
 package com.workplace.issue.service;
 
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueLabelRepository;
@@ -82,8 +81,7 @@ public class IssueLabelService {
               .toList();
       historyRecorder.recordLabelsChanged(callerId, issue.id(), addedSummaries, removedSummaries);
       // 실시간 무효화 — diff 가 있을 때만(no-op 은 미발행)
-      changeNotifier.changed(
-          project, number, issue.id(), ResourceChangedEvent.OP_UPDATED, callerId);
+      changeNotifier.updated(project, number, issue.id(), callerId);
     }
 
     return issueLabelRepository.findLabelsByIssue(issue.id());

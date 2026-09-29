@@ -3,10 +3,10 @@ package com.workplace.issue.service;
 import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.file.service.FileUploadService;
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.io.IOException;
@@ -31,23 +31,23 @@ public class IssueDriveLinkService {
 
   /** 이슈에 드라이브 파일 링크 추가. 호출자가 프로젝트 멤버인지 검증. */
   public void add(long callerId, String key, int number, long driveFileId) {
-    long issueId = resolveIssueId(callerId, key, number);
-    driveLinks.createLink(callerId, driveFileId, SOURCE, issueId);
-    notifyUpdated(callerId, key, number, issueId);
+    var target = resolveIssue(callerId, key, number);
+    driveLinks.createLink(callerId, driveFileId, SOURCE, target.issueId());
+    notifyUpdated(callerId, target);
   }
 
   /** 이슈 드라이브 링크 삭제. OWNER 는 타인 링크도 삭제 가능. */
   public void remove(long callerId, String key, int number, long driveFileId) {
-    long issueId = resolveIssueId(callerId, key, number);
+    var target = resolveIssue(callerId, key, number);
     boolean canManage = isOwner(key, callerId);
-    driveLinks.removeLink(callerId, driveFileId, SOURCE, issueId, canManage);
-    notifyUpdated(callerId, key, number, issueId);
+    driveLinks.removeLink(callerId, driveFileId, SOURCE, target.issueId(), canManage);
+    notifyUpdated(callerId, target);
   }
 
   /** 이슈에 연결된 드라이브 파일 목록 조회 — 조회 가드(OPEN 은 테넌트 전원 개방, 상세 프로퍼티 레일 로드용). */
   @Transactional(readOnly = true)
   public List<DriveLinkResponse> list(long callerId, String key, int number) {
-    // 읽기 전용 경로만 assertReadable 로 개방 — 링크 추가/삭제(add/remove)는 resolveIssueId 의 assertMember 유지.
+    // 읽기 전용 경로만 assertReadable 로 개방 — 링크 추가/삭제(add/remove)는 resolveIssue 의 assertMember 유지.
     long issueId = resolveReadableIssueId(callerId, key, number);
     return driveLinks.listLinks(SOURCE, issueId);
   }
@@ -57,30 +57,30 @@ public class IssueDriveLinkService {
   public FileUploadService.FileContentResult content(
       long callerId, String key, int number, long driveFileId) throws IOException {
     // 이슈 멤버십 검사 = 다운로드 인가
-    long issueId = resolveIssueId(callerId, key, number);
+    long issueId = resolveIssue(callerId, key, number).issueId();
     return driveLinks.getLinkContent(SOURCE, issueId, driveFileId);
   }
 
-  /** 링크 변경을 실시간 무효화로 알림 — resolveIssueId 가 id 만 돌려주므로 project 는 가드로 다시 얻는다. */
-  private void notifyUpdated(long callerId, String key, int number, long issueId) {
-    changeNotifier.changed(
-        accessGuard.assertMember(key, callerId),
-        number,
-        issueId,
-        ResourceChangedEvent.OP_UPDATED,
-        callerId);
+  /** 링크 변경을 실시간 무효화로 알림 — resolveIssue 가 이미 검증한 project 를 재사용한다(중복 멤버십 조회 방지). */
+  private void notifyUpdated(long callerId, ResolvedIssue target) {
+    changeNotifier.updated(target.project(), target.number(), target.issueId(), callerId);
   }
 
-  /** 프로젝트 멤버십 검사 후 이슈 id 반환 — 쓰기(add/remove)·다운로드(content) 경로 전용. */
-  private long resolveIssueId(long callerId, String key, int number) {
+  /** resolveIssue 결과 — 멤버십 검증된 project 와 이슈 번호·id. */
+  private record ResolvedIssue(ProjectRow project, int number, long issueId) {}
+
+  /** 프로젝트 멤버십 검사 후 project·이슈 id 반환 — 쓰기(add/remove)·다운로드(content) 경로 전용. */
+  private ResolvedIssue resolveIssue(long callerId, String key, int number) {
     var project = accessGuard.assertMember(key, callerId);
-    return issueRepository
-        .findByProjectAndNumber(project.id(), number)
-        .orElseThrow(() -> new IssueNotFoundException(key, number))
-        .id();
+    long issueId =
+        issueRepository
+            .findByProjectAndNumber(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(key, number))
+            .id();
+    return new ResolvedIssue(project, number, issueId);
   }
 
-  /** 조회 가드(OPEN 개방) 후 이슈 id 반환 — list 읽기 전용. resolveIssueId 와 프로젝트 resolve 방식만 다르다. */
+  /** 조회 가드(OPEN 개방) 후 이슈 id 반환 — list 읽기 전용. resolveIssue 와 프로젝트 resolve 방식만 다르다. */
   private long resolveReadableIssueId(long callerId, String key, int number) {
     var project = accessGuard.assertReadable(key, callerId);
     return issueRepository
