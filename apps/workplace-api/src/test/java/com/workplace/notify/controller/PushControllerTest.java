@@ -200,6 +200,18 @@ class PushControllerTest extends IntegrationTestBase {
   }
 
   @Test
+  void preferences_unknownCategory_returns400() throws Exception {
+    // PushCategory 에 없는 키 — Jackson 이 Map<PushCategory,Boolean> 역직렬화 중 예외를 던지고
+    // GlobalExceptionHandler(HttpMessageNotReadableException) 가 400 으로 매핑한다.
+    mvc.perform(
+            put("/api/v1/push/preferences")
+                .header("Authorization", "Bearer " + tokenA)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"NOT_A_CATEGORY\":true}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void unauthenticated_returns401() throws Exception {
     mvc.perform(get("/api/v1/push/config")).andExpect(status().isUnauthorized());
   }
