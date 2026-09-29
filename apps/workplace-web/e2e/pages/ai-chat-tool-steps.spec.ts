@@ -113,6 +113,38 @@ test('숨김 도구(show_*/respond_chat) 의 tool 이벤트는 tool-step-tool �
   await expect(toolRows.first()).toContainText('코멘트 작성')
 })
 
+// ── 케이스 3b: 라벨 — 신규 도구도 한국어 라벨로 표시(#879) ─────────────────
+
+test('신규 도구(search_members·update_issue)도 원래 이름이 아닌 한국어 라벨로 표시된다 (#879)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'tool', data: { seq: 6, phase: 'start', toolName: 'mcp__workplace__search_members', args: { query: '민수' } } },
+      { event: 'tool', data: { seq: 6, phase: 'result', toolName: 'mcp__workplace__search_members', isError: false } },
+      // opencode 런타임은 '<서버명>_<도구명>' 형식으로 도구 이름을 보낸다.
+      { event: 'tool', data: { seq: 7, phase: 'start', toolName: 'workplace_update_issue', args: { issueKey: 'WP-77' } } },
+      { event: 'tool', data: { seq: 7, phase: 'result', toolName: 'workplace_update_issue', isError: false } },
+      { event: 'delta', data: { text: '수정했어요.' } },
+      { event: 'done', data: { sessionId: 's-tool-labels' } },
+    ],
+  })
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-input').fill('WP-77 담당자 바꿔줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+
+  const toolRows = page.getByTestId('tool-step-tool')
+  await expect(toolRows).toHaveCount(2)
+  await expect(toolRows.nth(0)).toContainText('구성원 검색')
+  await expect(toolRows.nth(1)).toContainText('이슈 수정')
+  await expect(toolRows.nth(1)).toContainText('WP-77')
+  // 폴백(원래 도구 이름)으로 새지 않는다.
+  await expect(page.getByTestId('tool-step-list')).not.toContainText('search_members')
+  await expect(page.getByTestId('tool-step-list')).not.toContainText('update_issue')
+})
+
 // ── 케이스 4: 복원 — 세션 메시지 toolCalls 가 ToolStepList 로 렌더된다 ────────
 
 test('세션 복원 시 toolCalls 가 ToolStepList(위임+도구 행) 로 렌더된다', async ({

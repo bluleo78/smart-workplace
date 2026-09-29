@@ -12,13 +12,20 @@ describe('ProgressTracker', () => {
     const t = new ProgressTracker();
     t.apply({ kind: 'tool_use', toolName: 'get_issue_detail' });
     expect(t.apply({ kind: 'tool_result' })).toBe(true);
-    expect(t.snapshot('tool').steps).toEqual([{ label: '이슈 조회', status: 'done' }]);
+    expect(t.snapshot('tool').steps).toEqual([{ label: '이슈 상세 조회', status: 'done' }]);
   });
 
   it('미지정 도구는 도구명을 라벨로 사용', () => {
     const t = new ProgressTracker();
     t.apply({ kind: 'tool_use', toolName: 'mystery_tool' });
     expect(t.snapshot('tool').steps[0].label).toBe('mystery_tool');
+  });
+
+  it('공유 라벨 맵(#879)을 써서 AI 채팅과 같은 한국어 라벨을 보인다', () => {
+    const t = new ProgressTracker();
+    t.apply({ kind: 'tool_use', toolName: 'update_issue' });
+    t.apply({ kind: 'tool_use', toolName: 'search_members' });
+    expect(t.snapshot('tool').steps.map((s) => s.label)).toEqual(['이슈 수정', '구성원 검색']);
   });
 
   it('null 신호와 result 신호는 단계 변화 없음 → false', () => {

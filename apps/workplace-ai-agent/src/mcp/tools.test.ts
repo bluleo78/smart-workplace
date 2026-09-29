@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildSharedTools, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { buildSharedTools, isDisplayableTool, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
@@ -354,6 +354,32 @@ describe('공유 도구 패리티 (#846)', () => {
     expect(desc).toContain('show_issue_list');
     expect(desc.endsWith(sharedDesc)).toBe(true);
     expect(desc).not.toBe(sharedDesc);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 도구 표시 라벨(#879)
+// ---------------------------------------------------------------------------
+describe('도구 표시 라벨 (#879)', () => {
+  // 모든 프로필 × 선택 인자 전부를 채워 조건부 도구까지 포함한 전체 도구 이름 + 공유 도구 전부(workplace-mcp 전용 포함).
+  const c = client();
+  const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
+  const allNames = new Set(buildSharedTools(c.sc).map((t) => t.name));
+  for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
+    const tools = buildTools(c, AGENT_ID, p, { channelId: 9, parentMessageId: 1 }, { actorId: 7, channelId: 9, parentMessageId: 1 }, bridge);
+    for (const t of tools) allNames.add(t.name);
+  }
+
+  // 라벨이 없으면 AI 채팅에 원래 도구 이름(update_issue 등)이 영어로 그대로 노출된다. 표시 규칙은 웹과 같은 공유 정의.
+  it('표시되는 도구 전부에 라벨이 있다', () => {
+    const missing = [...allNames].filter((n) => isDisplayableTool(n) && !TOOL_LABELS[n]);
+    expect(missing).toEqual([]);
+  });
+
+  // 도구 이름 변경·삭제 후 라벨이 남으면 새 이름은 라벨 없이 노출된다 — 죽은 키로 드러나게 한다.
+  it('실존하지 않거나 숨김인 도구의 라벨이 없다', () => {
+    const stale = Object.keys(TOOL_LABELS).filter((k) => !allNames.has(k) || !isDisplayableTool(k));
+    expect(stale).toEqual([]);
   });
 });
 

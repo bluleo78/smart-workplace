@@ -1,5 +1,7 @@
 // 진행 신호를 누적해 단계(steps) 목록으로 만든다. 도구명을 한국어 라벨로 매핑.
 // add_chat_message/add_channel_message 호출은 "답변 작성"으로 보여 사용자가 마무리 단계를 인지.
+import { TOOL_LABELS } from '@smart-workplace/mcp-tools-shared';
+
 import type { ProgressSignal } from './chat-progress-parser.js';
 
 export interface ProgressStep {
@@ -11,21 +13,16 @@ export interface ProgressState {
   steps: ProgressStep[];
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  get_issue_detail: '이슈 조회',
-  search_wiki: '노트 검색',
-  get_wiki_page: '노트 문서 읽기',
-  get_chat_thread: '대화 내역 확인',
-  get_channel_messages: '대화 내역 확인',
-  add_chat_message: '답변 작성',
-  add_channel_message: '답변 작성',
-};
-
 // 답변 게시 도구 — 이 도구 호출이 곧 응답 종료점이므로(system prompt 가 마지막 1회 호출 강제),
 // 그 tool_result 는 별도 'tool' progress 를 발행하지 않는다. 답변 메시지(message.created)가
 // 프론트의 백스톱으로 유령 버블을 지운 뒤 뒤늦게 도착하는 이 result 이벤트가 버블을 되살리는 것을 차단.
 // done 처리는 내부에서 그대로 하므로 직후 emit('done') 의 snapshot 에는 '답변 작성 ✓' 가 담긴다.
 const TERMINAL_TOOLS = new Set(['add_chat_message', 'add_channel_message']);
+
+// 라벨은 AI 채팅과 같은 공유 맵(#879) — 별도 맵을 두면 새 도구가 영어 이름으로 새어 나온다.
+// 답변 게시 도구만 이 화면 전용 문구로 덮는다(채팅방에선 "메시지 작성"보다 "답변 작성"이 마무리 단계로 읽힌다).
+const labelOf = (toolName: string): string =>
+  TERMINAL_TOOLS.has(toolName) ? '답변 작성' : (TOOL_LABELS[toolName]?.label ?? toolName);
 
 // 내부 스텝 — terminal 플래그는 발행 억제 판단용이라 snapshot 으로는 내보내지 않는다.
 interface InternalStep extends ProgressStep {
@@ -40,7 +37,7 @@ export class ProgressTracker {
     if (sig == null || sig.kind === 'result') return false;
     if (sig.kind === 'tool_use') {
       this.steps.push({
-        label: TOOL_LABELS[sig.toolName] ?? sig.toolName,
+        label: labelOf(sig.toolName),
         status: 'running',
         terminal: TERMINAL_TOOLS.has(sig.toolName),
       });

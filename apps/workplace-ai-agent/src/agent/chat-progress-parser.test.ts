@@ -8,6 +8,11 @@ describe('fromRunnerEvent', () => {
     expect(fromRunnerEvent(e)).toEqual({ kind: 'tool_use', toolName: 'search_wiki' });
   });
 
+  it('opencode 형식(workplace_X)도 프리픽스를 제거한다(#879)', () => {
+    const e: RunnerEvent = { type: 'tool_use', name: 'workplace_search_wiki', input: {}, parentToolUseId: null };
+    expect(fromRunnerEvent(e)).toEqual({ kind: 'tool_use', toolName: 'search_wiki' });
+  });
+
   it('프리픽스 없는 도구명은 그대로 유지', () => {
     const e: RunnerEvent = { type: 'tool_use', name: 'Agent', input: {}, parentToolUseId: null };
     expect(fromRunnerEvent(e)).toEqual({ kind: 'tool_use', toolName: 'Agent' });
