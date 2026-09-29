@@ -772,4 +772,145 @@ test.describe('태스크 보드/검색', () => {
     // IssueCreateDialog 가 열려 있으면 "새 태스크" role=dialog 가 보여야 함
     await expect(page.getByRole('dialog')).toBeVisible();
   });
+
+  // #875 — 보드는 컬럼마다 status 로 좁힌 독립 쿼리를 쓰고, 컬럼 끝까지 스크롤하면 그 컬럼의 다음 페이지를 받는다.
+  // 왜: 단일 쿼리 100건×2페이지 상한이라 200건을 넘는 프로젝트에서 카드가 안내 없이 누락됐다.
+  test('보드 컬럼별 무한 스크롤 — TODO 컬럼 끝에서 다음 페이지를 cursor+status=TODO 로 로드 (#875)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+
+    // TODO 60건(50 + 10), IN_PROGRESS 1건, 나머지 0건.
+    const todos = Array.from({ length: 60 }, (_, i) =>
+      createIssue({ id: 100 + i, number: 100 + i, title: `할 일 ${i + 1}`, status: 'TODO' }),
+    );
+    const inProgress = [createIssue({ id: 1, number: 1, title: '진행 이슈', status: 'IN_PROGRESS' })];
+
+    const seen: { status: string | null; cursor: string | null; size: string | null }[] = [];
+    await routeIssueSearch(page, (route, url) => {
+      const status = url.searchParams.get('status');
+      const cursor = url.searchParams.get('cursor');
+      seen.push({ status, cursor, size: url.searchParams.get('size') });
+      let body;
+      if (status === 'TODO') {
+        body = cursor
+          ? createIssueSearchResponse(todos.slice(50), null)
+          : createIssueSearchResponse(todos.slice(0, 50), 'TODO_CURSOR');
+      } else if (status === 'IN_PROGRESS') {
+        body = createIssueSearchResponse(inProgress);
+      } else {
+        body = createIssueSearchResponse([]);
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+    // 첫 페이지 — 컬럼마다 status 단일값 + size=50 으로 요청.
+    await expect(page.getByTestId('board-col-TODO').getByTestId('issue-card-100')).toBeVisible();
+    await expect(page.getByTestId('board-col-IN_PROGRESS').getByTestId('issue-card-1')).toBeVisible();
+    for (const s of ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']) {
+      expect(seen.some((q) => q.status === s && q.size === '50' && q.cursor == null)).toBe(true);
+    }
+    // 다른 상태 카드가 섞이지 않고, 남은 페이지가 있는 컬럼은 "50+" 로 표시.
+    await expect(page.getByTestId('board-col-count-TODO')).toHaveText('50+');
+    await expect(page.getByTestId('board-col-count-IN_PROGRESS')).toHaveText('1');
+
+    // TODO 컬럼 끝까지 스크롤 → 두번째 페이지 요청(cursor + status=TODO).
+    await page.getByTestId('board-col-more-TODO').scrollIntoViewIfNeeded();
+    await expect
+      .poll(() => seen.some((q) => q.status === 'TODO' && q.cursor === 'TODO_CURSOR'))
+      .toBe(true);
+    await expect(page.getByTestId('board-col-TODO').getByTestId('issue-card-159')).toBeVisible();
+    await expect(page.getByTestId('board-col-count-TODO')).toHaveText('60');
+    await expect(page.getByTestId('board-col-more-TODO')).not.toBeAttached();
+    // 다른 컬럼은 cursor 요청이 나가지 않는다.
+    expect(seen.some((q) => q.status !== 'TODO' && q.cursor != null)).toBe(false);
+  });
+
+  test('보드 상태 필터 — 필터에서 제외된 상태 컬럼은 요청하지 않는다 (#875)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 왜: 제외 컬럼에 statuses=[] 를 흘리면 API 가 "전체 상태"로 해석해 다른 상태 카드를 받아온다.
+    await stubProjectMeta(page);
+    const seenStatuses: (string | null)[] = [];
+    await routeIssueSearch(page, (route, url) => {
+      const status = url.searchParams.get('status');
+      seenStatuses.push(status);
+      // TODO 는 다음 페이지가 남은 상태(hasMore) — 제외 컬럼으로 새면 "0+"·sentinel 이 보이게 된다.
+      const body =
+        status === 'TODO'
+          ? createIssueSearchResponse([createIssue({ id: 1, number: 1, title: 'A', status: 'TODO' })], 'MORE')
+          : createIssueSearchResponse([]);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board&status=TODO`);
+    await expect(page.getByTestId('board-col-TODO').getByTestId('issue-card-1')).toBeVisible();
+    await expect(page.getByTestId('board-col-empty-DONE')).toBeVisible();
+    // 보드 요청은 TODO 하나뿐 — status 없는(전체) 요청이나 다른 상태 요청이 없어야 한다.
+    expect(seenStatuses.every((s) => s === 'TODO')).toBe(true);
+    // 단일 상태 필터면 비활성 컬럼 쿼리 키가 TODO 컬럼 키와 같아진다 — 그 data 가 제외 컬럼으로 새지 않아야 한다.
+    for (const s of ['IN_PROGRESS', 'DONE', 'CANCELED']) {
+      await expect(page.getByTestId(`board-col-count-${s}`)).toHaveText('0');
+      await expect(page.getByTestId(`board-col-more-${s}`)).not.toBeAttached();
+    }
+  });
+
+  test('보드 컬럼 다음 페이지 실패 — 무한 재요청 없이 다시 시도 버튼 노출 (#875)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 왜: sentinel 이 계속 보이는 상태에서 실패 후 isFetching 해제마다 observer 가 재발화해 실패 요청을 무한 반복했다.
+    await stubProjectMeta(page);
+    let failedCalls = 0;
+    await routeIssueSearch(page, (route, url) => {
+      const status = url.searchParams.get('status');
+      if (status === 'TODO' && url.searchParams.get('cursor')) {
+        failedCalls += 1;
+        return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
+      }
+      const items = status === 'TODO' ? [createIssue({ id: 1, number: 1, title: 'A', status: 'TODO' })] : [];
+      const body = createIssueSearchResponse(items, status === 'TODO' ? 'NEXT' : null);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    const retry = page.getByTestId('board-col-more-TODO').getByRole('button', { name: /다시 시도/ });
+    await expect(retry).toBeVisible({ timeout: 15_000 });
+    // 실패 확정 후 추가 요청이 더 나가지 않는다(react-query 기본 재시도 포함 횟수에서 멈춤).
+    const settled = failedCalls;
+    await page.waitForTimeout(1500);
+    expect(failedCalls).toBe(settled);
+    // 다시 시도 → 요청 1회 더.
+    await retry.click();
+    await expect.poll(() => failedCalls).toBeGreaterThan(settled);
+  });
+
+  test('그룹(담당자) 보드 — 마지막 페이지까지 자동으로 모두 로드 (#875)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 왜: 그룹 컬럼은 동적이라 컬럼별 쿼리가 불가 → 단일 쿼리를 끝까지 순차 로드(기존 2페이지 상한 제거).
+    await stubProjectMeta(page);
+    const pages = [
+      [createIssue({ id: 1, number: 1, title: 'P1', status: 'TODO' })],
+      [createIssue({ id: 2, number: 2, title: 'P2', status: 'DONE' })],
+      [createIssue({ id: 3, number: 3, title: 'P3', status: 'IN_PROGRESS' })],
+    ];
+    await routeIssueSearch(page, (route, url) => {
+      const cursor = url.searchParams.get('cursor');
+      const idx = cursor ? Number(cursor) : 0;
+      const next = idx + 1 < pages.length ? String(idx + 1) : null;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(pages[idx], next)),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_KEY}?view=board&group=assignee`);
+    // 3번째 페이지(기존 상한 밖)의 카드까지 렌더되고, 로딩 안내는 사라진다.
+    await expect(page.getByTestId('issue-card-3')).toBeVisible();
+    await expect(page.getByTestId('issue-card-1')).toBeVisible();
+    await expect(page.getByTestId('board-loading-more')).not.toBeAttached();
+  });
 });

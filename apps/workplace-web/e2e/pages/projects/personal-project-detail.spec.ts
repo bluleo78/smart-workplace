@@ -81,11 +81,12 @@ test('체크리스트는 작업 행과 AI 위임 배지를 렌더한다', async 
 });
 
 test('보드 뷰는 팀 리치카드를 상태 3컬럼으로 배치한다(CANCELED 컬럼 부재)', async ({ authenticatedPage: page }) => {
+  // id 는 카드별로 달라야 한다 — 보드는 컬럼별 쿼리를 합칠 때 id 로 중복 제거한다(#875).
   await mockPersonal(page, [
-    createIssue({ projectKey: KEY, number: 1, title: '할일카드', status: 'TODO' }),
-    createIssue({ projectKey: KEY, number: 2, title: '진행카드', status: 'IN_PROGRESS' }),
-    createIssue({ projectKey: KEY, number: 3, title: '완료카드', status: 'DONE' }),
-    createIssue({ projectKey: KEY, number: 4, title: '취소카드', status: 'CANCELED' }),
+    createIssue({ id: 1, projectKey: KEY, number: 1, title: '할일카드', status: 'TODO' }),
+    createIssue({ id: 2, projectKey: KEY, number: 2, title: '진행카드', status: 'IN_PROGRESS' }),
+    createIssue({ id: 3, projectKey: KEY, number: 3, title: '완료카드', status: 'DONE' }),
+    createIssue({ id: 4, projectKey: KEY, number: 4, title: '취소카드', status: 'CANCELED' }),
   ]);
   await page.goto(`/projects/${KEY}?view=board`);
 
