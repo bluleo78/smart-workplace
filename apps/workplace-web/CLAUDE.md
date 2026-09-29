@@ -14,6 +14,7 @@ pnpm build            # tsc 검증 + Vite production 빌드
 pnpm preview          # production 빌드 미리보기
 pnpm lint             # ESLint
 pnpm typecheck        # tsc -b --noEmit
+pnpm test             # vitest 단위 테스트 (src/**/*.test.ts, 수 초)
 pnpm test:e2e         # Playwright E2E (Vite dev 자동 기동)
 E2E_SERVER=preview pnpm test:e2e  # 빌드 결과물 서빙 (전체 스위트용)
 pnpm test:e2e:ui      # Playwright UI 모드
@@ -58,6 +59,13 @@ src/
 - **날짜/시간 표시**: `src/lib/formatters.ts` 공용 포매터만 사용. `toLocaleDateString`/`toLocaleString`/`toLocaleTimeString` 직접 호출은 ESLint 가 에러로 막는다. 용도별 선택 표는 [코딩 컨벤션 — 날짜/시간 표시 포맷](../../docs/CODING_CONVENTION.md#날짜시간-표시-포맷-workplace-web)
 - **Vite 프록시**: `/api` → `localhost:6060` (SSE 응답은 버퍼링 해제 헤더 자동 추가)
 
+## 단위 테스트 (vitest)
+
+- 설정: `vitest.config.ts`. 대상: `src/**/*.test.ts` (기본 node 환경, DOM 이 필요한 파일만 `// @vitest-environment jsdom`)
+- pre-commit(web 변경 시)·pre-push 게이트가 **항상 전체 실행**한다(400여 건, 수 초) — 게이트에 없던 동안 3건이 깨진 채 방치됐었다(WP-79)
+- 브라우저 없이 검증되는 순수 로직(포매터·그룹핑·파서·zod 스키마·상태 분기 함수)은 vitest 로 쓴다
+- 화면 반영·payload 왕복·레이아웃·상호작용은 E2E 에 둔다 — 아래 E2E 품질 기준(유효성 검사가 **UI 에러로 반영**되는지 등)은 그대로 E2E 가 담당
+
 ## E2E Testing (Playwright)
 
 - 설정: `playwright.config.ts`. 테스트: `e2e/`. baseURL 은 런마다 20000번대 랜덤 `E2E_PORT` 로 자체 Vite 를 띄운다(`CI` 일 때만 6173)
@@ -66,6 +74,8 @@ src/
 - 백엔드 없이 동작 — `page.route()` 로 API 모킹
 - 모킹 데이터는 `src/types/` 의 타입 적용 (API 스펙 변경 시 컴파일 에러)
 - 타입 체크: `npx tsc -p tsconfig.e2e.json --noEmit`
+- **고정 대기(`waitForTimeout`) 지양**: 양성 대기는 조건 대기(`expect.poll`·`toBeVisible`·`waitForResponse`)로, 앱 타이머(디바운스·지연 삭제 등)는 `page.clock` 으로 경과시킨다. "N 초 동안 일어나지 않음" 부재 확인처럼 불가피한 경우만 사유 주석과 함께 둔다(WP-82)
+- 에러 토스트는 fixture 가 포인터 이벤트를 통과시킨다 — 모킹 누락 API 의 에러 토스트가 버튼을 덮어 클릭이 ~4초씩 지연되던 문제(`e2e/fixtures/auth.fixture.ts`)
 
 ### 디렉토리
 

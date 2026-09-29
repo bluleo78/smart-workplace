@@ -8,6 +8,7 @@ import {
   createMessage,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { UNDO_DELETE_DELAY_MS } from '../../../src/lib/deleteWithUndo'
 
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정 기준.
 const ME_ID = 1
@@ -194,6 +195,8 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
       },
     )
 
+    // 삭제 지연(5s) 타이머를 실시간으로 기다리지 않도록 가상 시계를 설치한다(설치만 하면 시간은 평소처럼 흐른다).
+    await page.clock.install()
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('원본')
 
@@ -230,8 +233,9 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     }).toPass()
     // #125: 즉시 삭제되지 않고 Undo 토스트가 뜬다.
     await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible()
-    // 실행 취소를 누르지 않으면 지연(5s) 후 실제 삭제가 반영된다.
-    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('(삭제됨)', { timeout: 8000 })
+    // 실행 취소를 누르지 않으면 지연(5s) 후 실제 삭제가 반영된다 — 가상 시계로 지연을 즉시 경과시킨다.
+    await page.clock.runFor(UNDO_DELETE_DELAY_MS)
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('(삭제됨)')
   })
 
   // 2-0) #125 — 삭제 클릭 후 '실행 취소' 를 누르면 DELETE 가 호출되지 않고 메시지가 보존된다.
@@ -259,6 +263,8 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
       },
     )
 
+    // 삭제 지연(5s) 타이머를 실시간으로 기다리지 않도록 가상 시계를 설치한다(설치만 하면 시간은 평소처럼 흐른다).
+    await page.clock.install()
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
 
@@ -270,8 +276,11 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     // Undo 토스트의 '실행 취소' 액션 클릭 → 지연 타이머 취소.
     await page.getByRole('button', { name: '실행 취소' }).click()
 
-    // 지연(5s) 보다 길게 기다려도 DELETE 가 호출되지 않고 본문이 그대로 유지돼야 한다.
-    await page.waitForTimeout(6000)
+    // 지연(5s) 보다 길게 경과시켜도 DELETE 가 호출되지 않고 본문이 그대로 유지돼야 한다.
+    // 가상 시계로 지연을 즉시 넘긴 뒤, 타이머가 살아 있었다면 나갔을 요청이 라우트에 닿을 짧은 실시간 여유만 둔다
+    // (타이머 만료 → DELETE 경로 자체는 위 '삭제하면 (삭제됨)' 테스트가 같은 방식으로 증명한다).
+    await page.clock.runFor(UNDO_DELETE_DELAY_MS + 1000)
+    await page.waitForTimeout(300)
     expect(deleteCalled).toBe(false)
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
   })

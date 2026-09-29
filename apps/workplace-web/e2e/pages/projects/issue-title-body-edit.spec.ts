@@ -9,6 +9,8 @@ import { createProject } from '../../factories/project.factory';
 
 const PROJECT_KEY = 'WP';
 const ISSUE_NUMBER = 1;
+// 본문 초안 localStorage 키 — IssueDetailPage 의 bodyDraftKey 와 같은 형식(#824).
+const DRAFT_KEY = `issue-body-draft:${PROJECT_KEY}:${ISSUE_NUMBER}`;
 const ISSUES_PATH = `/api/v1/projects/${PROJECT_KEY}/issues`;
 const ISSUE_DETAIL_PATH = `${ISSUES_PATH}/${ISSUE_NUMBER}`;
 
@@ -251,8 +253,10 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     const textarea = page.getByTestId('issue-body-textarea');
     await textarea.fill('저장 안 하고 이탈할 초안');
 
-    // 디바운스(600ms) 만큼 대기해 localStorage 에 초안이 기록되도록 한다.
-    await page.waitForTimeout(900);
+    // 디바운스(600ms) 후 localStorage 에 초안이 기록될 때까지 조건 대기(고정 대기 대신).
+    await expect
+      .poll(() => page.evaluate((key) => localStorage.getItem(key), DRAFT_KEY))
+      .toBe('저장 안 하고 이탈할 초안');
 
     // 브레드크럼의 프로젝트명 링크 클릭 → SPA 내부 네비게이션(프로젝트 목록 화면으로 이동, beforeunload 미발생).
     await page.getByRole('navigation', { name: '이슈 경로' }).getByRole('link').first().click();
@@ -281,8 +285,10 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
 
     await page.getByRole('button', { name: '본문 편집' }).click();
     await page.getByTestId('issue-body-textarea').fill('정상 저장된 본문');
-    // 디바운스 초안 저장이 걸릴 시간을 준 뒤 정식 저장.
-    await page.waitForTimeout(900);
+    // 디바운스 초안 저장이 끝난 뒤 정식 저장 — 저장 성공이 초안을 정리하는지 보려면 초안이 먼저 있어야 한다.
+    await expect
+      .poll(() => page.evaluate((key) => localStorage.getItem(key), DRAFT_KEY))
+      .toBe('정상 저장된 본문');
     await page.getByTestId('issue-body-save').click();
 
     await expect.poll(() => stub.patches.length).toBeGreaterThanOrEqual(1);

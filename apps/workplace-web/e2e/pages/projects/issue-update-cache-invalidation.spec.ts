@@ -98,10 +98,10 @@ test.describe('useUpdateIssue — 검색 캐시 무효화 (#175)', () => {
 
       // 3. 상태를 "진행 중"으로 변경 — PATCH API 호출 트리거
       await page.getByRole('combobox', { name: '상태' }).click();
+      // PATCH 응답까지 조건 대기(고정 대기 대신) — 응답 후 목록 캐시 무효화가 일어난다.
+      const patched = page.waitForResponse((res) => res.request().method() === 'PATCH');
       await page.getByRole('option', { name: '진행 중' }).click();
-
-      // PATCH 처리 대기
-      await page.waitForTimeout(300);
+      await patched;
 
       // 4. 목록으로 복귀 — issueKeys.search 무효화로 인해 검색 API가 재호출되어야 함
       await page.goto(`/projects/${PROJECT_KEY}`);

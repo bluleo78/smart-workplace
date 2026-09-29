@@ -320,10 +320,11 @@ test('사이드 패널이 본문을 밀어낸다(reflow) + 핸들 드래그 후 
   // 10 스텝으로 천천히 왼쪽으로 드래그 (패널 폭 증가 방향)
   await page.mouse.move(hx - 120, hy, { steps: 10 })
   await page.mouse.up()
-  // width transition 이 완료될 시간을 줌 (200ms transition-[width])
-  await page.waitForTimeout(300)
+  // 폭이 넓어질 때까지 조건 대기(고정 대기 대신) — fixture 가 transition 을 0s 로 꺼 두어 도달값이 곧 최종값이다.
+  await expect
+    .poll(async () => (await page.getByTestId('ai-side-panel').boundingBox())!.width)
+    .toBeGreaterThan(380)
   const widened = (await page.getByTestId('ai-side-panel').boundingBox())!.width
-  expect(widened).toBeGreaterThan(380)
 
   // 페이지 재로드 후 폭이 localStorage 에서 복원되어야 함
   await page.reload()
@@ -372,11 +373,8 @@ test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스
   // 충분히 큰 거리(중심을 향해)로 끌어 상한(600)까지 클램프되게 한다.
   await page.mouse.move(hx - 400, hy, { steps: 12 })
   await page.mouse.up()
-  // width transition(200ms) + 칩 left transition 완료 대기
-  await page.waitForTimeout(300)
-
-  const widened = (await panel.boundingBox())!.width
-  expect(widened).toBeGreaterThanOrEqual(560) // 거의 상한까지 넓어졌는지
+  // 거의 상한까지 넓어질 때까지 조건 대기(고정 대기 대신) — transition 은 fixture 가 0s 로 꺼 둔다.
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThanOrEqual(560)
 
   // 대화 선택 스위처가 헤더에 존재해야(빈 상태에서도 "대화 선택" 버튼 렌더)
   const switcher = page.getByTestId('chat-session-switcher')

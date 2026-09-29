@@ -783,6 +783,11 @@ test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내
   const uploadBox = await page.getByTestId('drive-upload').boundingBox()
   expect(uploadBox).not.toBeNull()
   if (uploadBox) {
+    // fixture 의 에러 토스트 포인터 통과 규칙을 걷어내고 실제 화면과 같은 조건에서 히트테스트한다 —
+    // 규칙이 남아 있으면 elementFromPoint 가 토스트를 건너뛰어 이 단언이 공허해진다(auth.fixture.ts).
+    await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
+    // 토스트가 진입 위치가 아닌 최종 위치에 자리 잡은 뒤 검사한다.
+    await expect(page.locator('[data-sonner-toast]').first()).toHaveAttribute('data-mounted', 'true')
     const centerX = uploadBox.x + uploadBox.width / 2
     const centerY = uploadBox.y + uploadBox.height / 2
     // 토스트가 버튼 위에 겹쳐 있으면 elementFromPoint 가 토스트(li[data-sonner-toast])를 반환한다.
