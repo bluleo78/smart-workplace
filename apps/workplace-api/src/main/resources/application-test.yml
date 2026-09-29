@@ -45,6 +45,9 @@ app:
 
 # ai-agent 발사: 테스트 기본 off. 통합 테스트는 @TestPropertySource 로 override.
 workplace:
+  # @Scheduled 작업 비활성 — 캐시된 테스트 컨텍스트마다 스케줄러가 돌며 외부 API 호출·데이터 경합을 일으킨다(SchedulingConfig, WP-80).
+  scheduling:
+    enabled: false
   auth:
     sso:
       m365:
