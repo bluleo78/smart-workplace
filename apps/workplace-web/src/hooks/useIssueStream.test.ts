@@ -27,6 +27,20 @@ describe('handleIssueEvent', () => {
     expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: issueKeys.detail('EX', 21) });
   });
 
+  it('issue.created → 해당 프로젝트 목록·검색·내 이슈 캐시를 무효화 (WP-36)', () => {
+    const qc = mockQueryClient();
+    handleIssueEvent(qc, 'issue.created', { projectKey: 'EX', issueKey: 'EX-22' });
+    expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: issueKeys.lists('EX') });
+    expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: issueKeys.search('EX') });
+    expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['me-issues'] });
+  });
+
+  it('issue.created payload 에 projectKey 가 없으면 invalidate 하지 않는다', () => {
+    const qc = mockQueryClient();
+    handleIssueEvent(qc, 'issue.created', {});
+    expect(qc.invalidateQueries).not.toHaveBeenCalled();
+  });
+
   it('알 수 없는 이벤트는 무시', () => {
     const qc = mockQueryClient();
     handleIssueEvent(qc, 'issue.status_changed', { projectKey: 'EX', issueNumber: 21 });

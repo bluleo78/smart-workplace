@@ -4,8 +4,12 @@ import com.workplace.global.realtime.SseRegistry;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentDeletedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentUpdatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
+import com.workplace.project.repository.ProjectMemberRepository;
+import com.workplace.project.repository.ProjectRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -33,6 +37,32 @@ public class IssueSseDispatcher {
 
   private final SseRegistry registry;
   private final IssueWatcherRepository watcherRepository;
+  private final ProjectRepository projectRepository;
+  private final ProjectMemberRepository projectMemberRepository;
+
+  /**
+   * 이슈 생성 (WP-36) — 프로젝트 멤버 전원에게 issue.created 로 fan-out 해 열려 있는 이슈 목록이 새로고침 없이 갱신되게 한다.
+   *
+   * <p>대상이 watcher 가 아닌 프로젝트 멤버인 이유: 새 이슈는 목록을 보는 모든 멤버에게 보여야 하는데, 생성 직후 watcher 는 reporter·담당자뿐이다.
+   * 특히 AI Chat(MCP create_issue·확인카드 승인)으로 만든 이슈는 브라우저가 직접 mutation 을 하지 않아 캐시 무효화가 일어나지 않으므로, 이
+   * 이벤트가 유일한 갱신 신호다(self-echo 포함).
+   */
+  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onCreated(IssueCreatedEvent e) {
+    List<Long> memberIds =
+        projectRepository
+            .findByKey(e.projectKey())
+            .map(project -> projectMemberRepository.findUserIdsByProject(project.id()))
+            .orElse(List.of());
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("projectKey", e.projectKey());
+    p.put("issueId", e.issueId());
+    p.put("issueKey", e.issueKey());
+    p.put("actorId", e.actor() == null ? null : e.actor().id());
+    registry.fanOut(memberIds, "issue.created", p);
+  }
 
   // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
   @Transactional(propagation = Propagation.REQUIRES_NEW)
