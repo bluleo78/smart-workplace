@@ -17,6 +17,7 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserListPage = lazy(() => import('./pages/admin/UserListPage'))
 const UserDetailPage = lazy(() => import('./pages/admin/UserDetailPage'))
 const RoleListPage = lazy(() => import('./pages/admin/RoleListPage'))
+const SsoSettingsPage = lazy(() => import('./pages/admin/SsoSettingsPage'))
 const RoleDetailPage = lazy(() => import('./pages/admin/RoleDetailPage'))
 const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
 const AgentManagementPage = lazy(() => import('./pages/admin/AgentManagementPage'))
@@ -209,6 +210,7 @@ export default function App() {
                   <Route path="settings/users/:id" element={<UserDetailPage />} />
                   <Route path="settings/roles" element={<RoleListPage />} />
                   <Route path="settings/roles/:id" element={<RoleDetailPage />} />
+                  <Route path="settings/sso" element={<SsoSettingsPage />} />
                   <Route path="settings/audit-logs" element={<AuditLogListPage />} />
                   <Route path="settings/agents" element={<AgentManagementPage />} />
                 </Route>
