@@ -69,6 +69,7 @@ import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
+import com.workplace.jooq.tables.PushSubscription;
 import com.workplace.jooq.tables.RefreshToken;
 import com.workplace.jooq.tables.Role;
 import com.workplace.jooq.tables.RolePermission;
@@ -241,6 +242,7 @@ public class Indexes {
     public static final Index IDX_PROJECT_MEMBER_USER = Internal.createIndex(DSL.name("idx_project_member_user"), ProjectMember.PROJECT_MEMBER, new OrderField[] { ProjectMember.PROJECT_MEMBER.USER_ID }, false);
     public static final Index IDX_PROJECT_TENANT = Internal.createIndex(DSL.name("idx_project_tenant"), Project.PROJECT, new OrderField[] { Project.PROJECT.TENANT_ID }, false);
     public static final Index IDX_PROJECT_TYPE = Internal.createIndex(DSL.name("idx_project_type"), Project.PROJECT, new OrderField[] { Project.PROJECT.TYPE }, false);
+    public static final Index IDX_PUSH_SUBSCRIPTION_USER = Internal.createIndex(DSL.name("idx_push_subscription_user"), PushSubscription.PUSH_SUBSCRIPTION, new OrderField[] { PushSubscription.PUSH_SUBSCRIPTION.USER_ID }, false);
     public static final Index IDX_REACTION_MESSAGE = Internal.createIndex(DSL.name("idx_reaction_message"), MessageReaction.MESSAGE_REACTION, new OrderField[] { MessageReaction.MESSAGE_REACTION.MESSAGE_ID }, false);
     public static final Index IDX_REFRESH_TOKEN_FAMILY_ID = Internal.createIndex(DSL.name("idx_refresh_token_family_id"), RefreshToken.REFRESH_TOKEN, new OrderField[] { RefreshToken.REFRESH_TOKEN.FAMILY_ID }, false);
     public static final Index IDX_REFRESH_TOKEN_USER_ID = Internal.createIndex(DSL.name("idx_refresh_token_user_id"), RefreshToken.REFRESH_TOKEN, new OrderField[] { RefreshToken.REFRESH_TOKEN.USER_ID }, false);

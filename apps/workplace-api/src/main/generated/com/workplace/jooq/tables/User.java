@@ -42,10 +42,12 @@ import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
 import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
+import com.workplace.jooq.tables.NotificationPreference.NotificationPreferencePath;
 import com.workplace.jooq.tables.PlatformRole.PlatformRolePath;
 import com.workplace.jooq.tables.PlatformUserRole.PlatformUserRolePath;
 import com.workplace.jooq.tables.Project.ProjectPath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
+import com.workplace.jooq.tables.PushSubscription.PushSubscriptionPath;
 import com.workplace.jooq.tables.RefreshToken.RefreshTokenPath;
 import com.workplace.jooq.tables.Role.RolePath;
 import com.workplace.jooq.tables.SavedView.SavedViewPath;
@@ -775,6 +777,19 @@ public class User extends TableImpl<UserRecord> {
         return _notificationActorIdFkey;
     }
 
+    private transient NotificationPreferencePath _notificationPreference;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.notification_preference</code> table
+     */
+    public NotificationPreferencePath notificationPreference() {
+        if (_notificationPreference == null)
+            _notificationPreference = new NotificationPreferencePath(this, null, Keys.NOTIFICATION_PREFERENCE__NOTIFICATION_PREFERENCE_USER_ID_FKEY.getInverseKey());
+
+        return _notificationPreference;
+    }
+
     private transient NotificationPath _notificationRecipientIdFkey;
 
     /**
@@ -826,6 +841,19 @@ public class User extends TableImpl<UserRecord> {
             _project = new ProjectPath(this, null, Keys.PROJECT__PROJECT_OWNER_ID_FKEY.getInverseKey());
 
         return _project;
+    }
+
+    private transient PushSubscriptionPath _pushSubscription;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.push_subscription</code> table
+     */
+    public PushSubscriptionPath pushSubscription() {
+        if (_pushSubscription == null)
+            _pushSubscription = new PushSubscriptionPath(this, null, Keys.PUSH_SUBSCRIPTION__PUSH_SUBSCRIPTION_USER_ID_FKEY.getInverseKey());
+
+        return _pushSubscription;
     }
 
     private transient RefreshTokenPath _refreshToken;

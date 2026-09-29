@@ -68,6 +68,7 @@ import com.workplace.jooq.tables.MessageReaction;
 import com.workplace.jooq.tables.MessagingClassifyWatermark;
 import com.workplace.jooq.tables.Milestone;
 import com.workplace.jooq.tables.Notification;
+import com.workplace.jooq.tables.NotificationPreference;
 import com.workplace.jooq.tables.Permission;
 import com.workplace.jooq.tables.PgpArmorHeaders;
 import com.workplace.jooq.tables.PlatformRole;
@@ -76,6 +77,8 @@ import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
+import com.workplace.jooq.tables.PushSubscription;
+import com.workplace.jooq.tables.PushVapidKey;
 import com.workplace.jooq.tables.RefreshToken;
 import com.workplace.jooq.tables.RegexpMatches;
 import com.workplace.jooq.tables.RegexpSplitToTable;
@@ -472,6 +475,11 @@ public class Tables {
     public static final Notification NOTIFICATION = Notification.NOTIFICATION;
 
     /**
+     * The table <code>public.notification_preference</code>.
+     */
+    public static final NotificationPreference NOTIFICATION_PREFERENCE = NotificationPreference.NOTIFICATION_PREFERENCE;
+
+    /**
      * The table <code>public.permission</code>.
      */
     public static final Permission PERMISSION = Permission.PERMISSION;
@@ -544,6 +552,16 @@ public class Tables {
      * The table <code>public.project_member</code>.
      */
     public static final ProjectMember PROJECT_MEMBER = ProjectMember.PROJECT_MEMBER;
+
+    /**
+     * The table <code>public.push_subscription</code>.
+     */
+    public static final PushSubscription PUSH_SUBSCRIPTION = PushSubscription.PUSH_SUBSCRIPTION;
+
+    /**
+     * The table <code>public.push_vapid_key</code>.
+     */
+    public static final PushVapidKey PUSH_VAPID_KEY = PushVapidKey.PUSH_VAPID_KEY;
 
     /**
      * The table <code>public.refresh_token</code>.
@@ -620,7 +638,7 @@ public class Tables {
     }
 
     /**
-     * string citext, pattern citext
+     * string citext, pattern citext, flags text
      */
     public static final RegexpSplitToTable REGEXP_SPLIT_TO_TABLE = RegexpSplitToTable.REGEXP_SPLIT_TO_TABLE;
 
@@ -637,10 +655,12 @@ public class Tables {
           Configuration configuration
         , Object string
         , Object pattern
+        , String flags
     ) {
         return configuration.dsl().selectFrom(com.workplace.jooq.tables.RegexpSplitToTable.REGEXP_SPLIT_TO_TABLE.call(
               string
             , pattern
+            , flags
         )).fetch();
     }
 
@@ -656,10 +676,12 @@ public class Tables {
     public static RegexpSplitToTable REGEXP_SPLIT_TO_TABLE(
           Object string
         , Object pattern
+        , String flags
     ) {
         return com.workplace.jooq.tables.RegexpSplitToTable.REGEXP_SPLIT_TO_TABLE.call(
             string,
-            pattern
+            pattern,
+            flags
         );
     }
 
@@ -675,10 +697,12 @@ public class Tables {
     public static RegexpSplitToTable REGEXP_SPLIT_TO_TABLE(
           Field<Object> string
         , Field<Object> pattern
+        , Field<String> flags
     ) {
         return com.workplace.jooq.tables.RegexpSplitToTable.REGEXP_SPLIT_TO_TABLE.call(
             string,
-            pattern
+            pattern,
+            flags
         );
     }
 

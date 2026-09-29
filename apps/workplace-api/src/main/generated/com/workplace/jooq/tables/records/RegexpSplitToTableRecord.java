@@ -10,7 +10,7 @@ import org.jooq.impl.TableRecordImpl;
 
 
 /**
- * string citext, pattern citext
+ * string citext, pattern citext, flags text
  */
 @SuppressWarnings({ "all", "unchecked", "rawtypes", "this-escape" })
 public class RegexpSplitToTableRecord extends TableRecordImpl<RegexpSplitToTableRecord> {

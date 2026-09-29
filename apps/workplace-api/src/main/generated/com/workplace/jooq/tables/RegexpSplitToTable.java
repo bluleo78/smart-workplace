@@ -21,7 +21,7 @@ import org.jooq.impl.TableImpl;
 
 
 /**
- * string citext, pattern citext
+ * string citext, pattern citext, flags text
  */
 @SuppressWarnings({ "all", "unchecked", "rawtypes", "this-escape" })
 public class RegexpSplitToTable extends TableImpl<RegexpSplitToTableRecord> {
@@ -50,7 +50,8 @@ public class RegexpSplitToTable extends TableImpl<RegexpSplitToTableRecord> {
     private RegexpSplitToTable(Name alias, Table<RegexpSplitToTableRecord> aliased) {
         this(alias, aliased, new Field[] {
             DSL.val(null, DefaultDataType.getDefaultDataType("\"public\".\"citext\"")),
-            DSL.val(null, DefaultDataType.getDefaultDataType("\"public\".\"citext\""))
+            DSL.val(null, DefaultDataType.getDefaultDataType("\"public\".\"citext\"")),
+            DSL.val(null, SQLDataType.CLOB)
         });
     }
 
@@ -59,7 +60,7 @@ public class RegexpSplitToTable extends TableImpl<RegexpSplitToTableRecord> {
     }
 
     private RegexpSplitToTable(Name alias, Table<RegexpSplitToTableRecord> aliased, Field<?>[] parameters, Condition where) {
-        super(alias, null, aliased, parameters, DSL.comment("string citext, pattern citext"), TableOptions.function(), where);
+        super(alias, null, aliased, parameters, DSL.comment("string citext, pattern citext, flags text"), TableOptions.function(), where);
     }
 
     /**
@@ -135,10 +136,12 @@ public class RegexpSplitToTable extends TableImpl<RegexpSplitToTableRecord> {
     public RegexpSplitToTable call(
           Object string
         , Object pattern
+        , String flags
     ) {
         RegexpSplitToTable result = new RegexpSplitToTable(DSL.name("regexp_split_to_table"), null, new Field[] {
             DSL.val(string, DefaultDataType.getDefaultDataType("\"public\".\"citext\"")),
-            DSL.val(pattern, DefaultDataType.getDefaultDataType("\"public\".\"citext\""))
+            DSL.val(pattern, DefaultDataType.getDefaultDataType("\"public\".\"citext\"")),
+            DSL.val(flags, SQLDataType.CLOB)
         });
 
         return aliased() ? result.as(getUnqualifiedName()) : result;
@@ -150,10 +153,12 @@ public class RegexpSplitToTable extends TableImpl<RegexpSplitToTableRecord> {
     public RegexpSplitToTable call(
           Field<Object> string
         , Field<Object> pattern
+        , Field<String> flags
     ) {
         RegexpSplitToTable result = new RegexpSplitToTable(DSL.name("regexp_split_to_table"), null, new Field[] {
             string,
-            pattern
+            pattern,
+            flags
         });
 
         return aliased() ? result.as(getUnqualifiedName()) : result;
