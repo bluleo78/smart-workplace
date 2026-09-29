@@ -174,6 +174,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     setSelFolders(new Set())
   }
 
+  // 스페이스가 바뀌면 휴지통 뷰를 닫는다 — 새 스페이스의 휴지통 조회가 실패해도 trashOpen 이 남아
+  // 이후 재조회 성공 시 화면이 자동으로 휴지통으로 넘어가 갇히는 것을 막는다(렌더 중 이전 값 비교 패턴).
+  const [prevSid, setPrevSid] = useState(sid)
+  if (prevSid !== sid) {
+    setPrevSid(sid)
+    setTrashOpen(false)
+  }
+
   // WP-63: 선택은 재조회(원격 무효화 등)로 지워지지 않으므로, 현재 보이는 목록에서 사라진 항목은
   // 선택 집합과 현재 뷰(검색 중이면 검색 결과, 아니면 폴더 목록) id 의 교집합으로 걸러 쓴다.
   // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다.

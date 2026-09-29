@@ -16,8 +16,6 @@ import static org.mockito.Mockito.verify;
 
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
-import com.workplace.issue.dto.CreateIssueRequest;
-import com.workplace.issue.service.IssueService;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.service.LabelService;
 import com.workplace.milestone.dto.CreateMilestoneRequest;
@@ -62,7 +60,6 @@ class ProjectResourceChangedIntegrationTest extends IntegrationTestBase {
   @Autowired LabelService labelService;
   @Autowired MilestoneService milestoneService;
   @Autowired SavedViewService savedViewService;
-  @Autowired IssueService issueService;
 
   private final List<Long> createdUserIds = new ArrayList<>();
   private final List<Long> createdProjectIds = new ArrayList<>();
@@ -132,32 +129,6 @@ class ProjectResourceChangedIntegrationTest extends IntegrationTestBase {
     clearInvocations(registry);
     projectService.removeMember(owner, key, viewer);
     assertThat(captureRecipients("project-member", "deleted")).contains(viewer, owner);
-  }
-
-  @Test
-  @DisplayName("멤버 제거 시 담당자에서 빠진 이슈의 issue/updated 도 발행")
-  void removeMember_alsoPublishesIssueUpdatedForStrippedAssignees() {
-    int n =
-        issueService
-            .create(
-                owner,
-                key,
-                new CreateIssueRequest("t", "b", "MID", null, List.of(viewer), null, null, null))
-            .number();
-    clearInvocations(registry);
-    projectService.removeMember(owner, key, viewer);
-    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(registry, timeout(2000).atLeastOnce())
-        .fanOut(any(), eq("resource.changed"), payload.capture());
-    boolean found =
-        payload.getAllValues().stream()
-            .map(p -> (Map<?, ?>) p)
-            .anyMatch(
-                p ->
-                    "issue".equals(p.get("resource"))
-                        && "updated".equals(p.get("op"))
-                        && Integer.valueOf(n).equals(p.get("issueNumber")));
-    assertThat(found).isTrue();
   }
 
   @Test

@@ -7,7 +7,6 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.MembershipGuard;
-import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueTypeService;
@@ -55,7 +54,6 @@ public class ProjectService {
   private final IssueAssigneeRepository issueAssigneeRepository;
   private final MembershipGuard membershipGuard;
   private final ProjectChangeNotifier changeNotifier;
-  private final IssueChangeNotifier issueChangeNotifier;
 
   /**
    * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, TEAM/OPEN 이면 공유 프로젝트 경로. 공유
@@ -335,15 +333,10 @@ public class ProjectService {
    */
   public void removeMember(Long callerId, String projectKey, Long memberUserId) {
     ProjectRow project = checkRemoveMember(callerId, projectKey, memberUserId);
-    // 담당자 매핑을 지우기 전에 영향받는 이슈를 확보한다 — 지운 뒤에는 어느 이슈였는지 알 수 없다.
-    var strippedIssues =
-        issueAssigneeRepository.findIssueNumbersByProjectAndUser(project.id(), memberUserId);
     memberRepository.delete(project.id(), memberUserId);
     issueAssigneeRepository.removeByProjectAndUser(project.id(), memberUserId);
-    // 담당자가 빠진 이슈는 목록·상세가 바뀌므로 이슈 갱신을 알린다.
-    for (var ref : strippedIssues) {
-      issueChangeNotifier.updated(project, ref.number(), ref.id(), callerId);
-    }
+    // 담당자가 빠진 이슈별 issue 이벤트는 발행하지 않는다 — 웹의 project-member 규칙이 이미 issueTargets(pk)
+    // (목록·me-issues·홈 포함)를 무효화하므로 이슈 수만큼 fan-out 하는 것은 중복이다.
     // 제거된 멤버는 커밋 후 명단에서 빠지므로 extra 로 직접 받게 한다.
     changeNotifier.changed(
         "project-member", OP_DELETED, project, memberUserId, callerId, List.of(memberUserId));

@@ -137,7 +137,6 @@ test.describe('드라이브 전환 중 목록 유지 (WP-63)', () => {
         })
       },
     )
-    await mockGatedEvents(page)
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await expect(page.getByText('root.txt')).toBeVisible()
 
@@ -162,7 +161,6 @@ test.describe('드라이브 전환 중 목록 유지 (WP-63)', () => {
         })
       },
     )
-    await mockGatedEvents(page)
     await page.goto('/drive/spaces/1')
     await expect(page.getByText('space1.txt')).toBeVisible()
 
