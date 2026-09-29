@@ -1,6 +1,12 @@
 // 사이클 API 클라이언트 — 프로젝트 CRUD + 진행 집계 + 이슈 사이클 집합 교체.
 
-import type { CycleProgress, CycleRequest, CycleResponse, CycleSummary } from '../types/cycle';
+import type {
+  CycleProgress,
+  CycleRequest,
+  CycleResponse,
+  CycleSummary,
+  MoveIssueCycleResult,
+} from '../types/cycle';
 import { client } from './client';
 
 // 프로젝트의 사이클 전체 목록 (멤버 권한).
@@ -59,6 +65,20 @@ export async function replaceIssueCycles(
   const { data } = await client.put<CycleSummary[]>(
     `/projects/${projectKey}/issues/${number}/cycles`,
     { cycleIds },
+  );
+  return data;
+}
+
+// 이슈 사이클 이동 — from 해제 + to 추가(그 외 연결 유지). null 은 백로그(사이클 없음). 사이클 페이지 드래그용(#881).
+export async function moveIssueCycle(
+  projectKey: string,
+  number: number,
+  fromCycleId: number | null,
+  toCycleId: number | null,
+): Promise<MoveIssueCycleResult> {
+  const { data } = await client.post<MoveIssueCycleResult>(
+    `/projects/${projectKey}/issues/${number}/cycles/move`,
+    { fromCycleId, toCycleId },
   );
   return data;
 }

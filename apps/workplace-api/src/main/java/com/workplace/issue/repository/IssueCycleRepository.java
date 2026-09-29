@@ -41,18 +41,18 @@ public class IssueCycleRepository {
         .fetch(r -> new CycleSummary(r.get(CYCLE.ID), r.get(CYCLE.NAME), r.get(CYCLE.STATUS)));
   }
 
-  /** 사이클 1건 연결 — 중복은 무시. */
-  public void add(Long issueId, Long cycleId) {
-    dsl.insertInto(ISSUE_CYCLE)
+  /** 사이클 1건 연결 — 중복은 무시. 반환값은 삽입된 행 수(0=이미 연결됨). */
+  public int add(Long issueId, Long cycleId) {
+    return dsl.insertInto(ISSUE_CYCLE)
         .set(ISSUE_CYCLE.ISSUE_ID, issueId)
         .set(ISSUE_CYCLE.CYCLE_ID, cycleId)
         .onConflictDoNothing()
         .execute();
   }
 
-  /** 사이클 1건 연결 해제. */
-  public void remove(Long issueId, Long cycleId) {
-    dsl.deleteFrom(ISSUE_CYCLE)
+  /** 사이클 1건 연결 해제. 반환값은 삭제된 행 수(0=원래 연결 없음). */
+  public int remove(Long issueId, Long cycleId) {
+    return dsl.deleteFrom(ISSUE_CYCLE)
         .where(ISSUE_CYCLE.ISSUE_ID.eq(issueId).and(ISSUE_CYCLE.CYCLE_ID.eq(cycleId)))
         .execute();
   }

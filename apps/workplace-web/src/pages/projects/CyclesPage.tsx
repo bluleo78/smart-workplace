@@ -1,5 +1,20 @@
 // 프로젝트 사이클 — Jira 백로그 방식(#878). 위→아래: 진행 중 사이클 · 예정 사이클 · 백로그(사이클 미할당) · 완료 사이클(토글).
 // 각 섹션은 이슈 행을 품고, 헤더에 기간·남은 일수·건수·진행률과 기존 편집/삭제 액션을 둔다.
+// 이슈 행을 다른 섹션으로 끌어 놓으면 사이클을 옮긴다(#881) — 출발 사이클 해제 + 도착 사이클 추가, 백로그=사이클 없음.
+import {
+  closestCorners,
+  type CollisionDetection,
+  DndContext,
+  type DragEndEvent,
+  DragOverlay,
+  type DragStartEvent,
+  KeyboardSensor,
+  PointerSensor,
+  pointerWithin,
+  useDndMonitor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 import { ArrowLeft, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -15,15 +30,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { CycleSectionShell } from '../../components/cycle/CycleBacklogSection';
+import {
+  type CycleDragData,
+  type CycleDropData,
+  CycleIssueDragPreview,
+  CycleSectionShell,
+} from '../../components/cycle/CycleBacklogSection';
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
 import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
 import { useCycleProgress, useCycles, useDeleteCycle } from '../../hooks/queries/useCycles';
-import {
-  backlogSectionFilters,
-  cycleSectionFilters,
-  useSectionIssues,
-} from '../../hooks/queries/useCycleSectionIssues';
+import { useSectionIssues } from '../../hooks/queries/useCycleSectionIssues';
+import { useMoveIssueCycle } from '../../hooks/queries/useMoveIssueCycle';
 import { useProject } from '../../hooks/queries/useProjects';
 import { daysUntilLocalDate } from '../../lib/myTasks';
 import { cn } from '../../lib/utils';
@@ -53,6 +70,12 @@ function remainingLabel(endDate: string | null, now: Date): { text: string; over
   return { text: `${-days}일 초과`, overdue: true };
 }
 
+// 충돌 판정 — 포인터 드래그는 포인터가 실제로 들어간 섹션만 대상으로 한다.
+// 가장 가까운 섹션 폴백을 포인터에도 쓰면 완료 사이클(disabled)·섹션 사이 틈에 놓았을 때 엉뚱한 이웃 섹션으로 옮겨진다.
+// 포인터 좌표가 없는 키보드 드래그만 가장 가까운 섹션(closestCorners)을 쓴다.
+const sectionCollision: CollisionDetection = (args) =>
+  args.pointerCoordinates ? pointerWithin(args) : closestCorners(args);
+
 export default function CyclesPage() {
   const { key = '' } = useParams();
   const navigate = useNavigate();
@@ -64,6 +87,36 @@ export default function CyclesPage() {
   // 완료 사이클은 기본 숨김 — 편집·삭제 접근용 토글로만 노출한다.
   const [showCompleted, setShowCompleted] = useState(false);
   const completedListId = useId();
+  // 드래그 이동은 프로젝트 멤버만(서버 assertMember 와 동일) — 보드 상태 드래그와 같은 게이트.
+  const canDrag = project.data?.viewerIsMember ?? false;
+  const moveCycle = useMoveIssueCycle(key);
+  // PointerSensor distance:5 — 짧은 클릭은 행 클릭(상세 이동)으로 남긴다.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    // 키보드 드래그 시작은 Space 만 — Enter 는 행 안 제목 링크의 상세 이동으로 남긴다.
+    useSensor(KeyboardSensor, {
+      keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] },
+    }),
+  );
+  // 섹션 이름·완료 여부 조회 — 드래그/드롭 데이터엔 id 만 싣고 여기서 찾는다(null=백로그).
+  const cycleById = useMemo(() => new Map((cycles.data ?? []).map((c) => [c.id, c])), [cycles.data]);
+  const sectionName = (id: number | null) => (id == null ? '백로그' : (cycleById.get(id)?.name ?? ''));
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    const src = e.active.data.current as CycleDragData | undefined;
+    const dst = e.over?.data.current as CycleDropData | undefined;
+    // 같은 섹션에 놓으면 변화 없음(섹션 내 순서 변경은 범위 밖). 완료 사이클은 droppable 이 disabled 라 over 가 없다.
+    if (!src || !dst || src.fromCycleId === dst.cycleId) return;
+    moveCycle.mutate({
+      issue: src.issue,
+      from: src.fromCycleId,
+      to: dst.cycleId,
+      fromName: sectionName(src.fromCycleId),
+      toName: sectionName(dst.cycleId),
+      fromCompleted:
+        src.fromCycleId != null && cycleById.get(src.fromCycleId)?.status === 'COMPLETED',
+    });
+  };
 
   const progressById = useMemo(() => {
     const m = new Map<number, CycleProgress>();
@@ -120,6 +173,11 @@ export default function CyclesPage() {
           </Button>
         }
       />
+      <DndContext
+        sensors={sensors}
+        collisionDetection={sectionCollision}
+        onDragEnd={handleDragEnd}
+      >
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl space-y-3 p-4 sm:p-6">
           {/* 진행 중 사이클만 기본 펼침 */}
@@ -131,6 +189,7 @@ export default function CyclesPage() {
               progress={progressById.get(c.id)}
               defaultExpanded={c.status === 'ACTIVE'}
               onEdit={openEdit}
+              canDrag={canDrag}
             />
           ))}
           {(cycles.data?.length ?? 0) === 0 && !cycles.isLoading && (
@@ -139,7 +198,7 @@ export default function CyclesPage() {
             </p>
           )}
 
-          <BacklogSection projectKey={key} />
+          <BacklogSection projectKey={key} canDrag={canDrag} />
 
           {groups.completed.length > 0 && (
             <div className="space-y-3 pt-1">
@@ -165,6 +224,7 @@ export default function CyclesPage() {
                       cycle={c}
                       progress={progressById.get(c.id)}
                       onEdit={openEdit}
+                      canDrag={canDrag}
                     />
                   ))}
                 </div>
@@ -174,8 +234,30 @@ export default function CyclesPage() {
         </div>
       </div>
 
+      <CycleDragOverlay projectKey={key} />
+      </DndContext>
+
       <CycleFormDialog projectKey={key} cycle={editing} open={open} onOpenChange={setOpen} />
     </div>
+  );
+}
+
+/**
+ * 드래그 오버레이 — 활성 행 사본이 포인터를 따라간다(원본은 반투명 자리표시).
+ * 드래그 상태를 이 컴포넌트에 가둬 드래그 시작·종료 때 페이지 전체(모든 섹션·행)가 다시 렌더되지 않게 한다.
+ */
+function CycleDragOverlay({ projectKey }: { projectKey: string }) {
+  const [dragging, setDragging] = useState<CycleDragData | null>(null);
+  useDndMonitor({
+    onDragStart: (e: DragStartEvent) =>
+      setDragging((e.active.data.current as CycleDragData | undefined) ?? null),
+    onDragEnd: () => setDragging(null),
+    onDragCancel: () => setDragging(null),
+  });
+  return (
+    <DragOverlay dropAnimation={null}>
+      {dragging && <CycleIssueDragPreview issue={dragging.issue} projectKey={projectKey} />}
+    </DragOverlay>
   );
 }
 
@@ -189,19 +271,20 @@ function CycleSection({
   progress,
   defaultExpanded = false,
   onEdit,
+  canDrag,
 }: {
   projectKey: string;
   cycle: CycleResponse;
   progress: CycleProgress | undefined;
   defaultExpanded?: boolean;
   onEdit: (c: CycleResponse) => void;
+  canDrag: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   // 삭제 확인 다이얼로그 — 데스크톱 삭제 버튼과 모바일 ⋯ 메뉴의 「삭제」가 함께 여는 제어형 상태.
   const [confirmDelete, setConfirmDelete] = useState(false);
   const del = useDeleteCycle(projectKey);
-  const filters = useMemo(() => cycleSectionFilters(c.id), [c.id]);
-  const query = useSectionIssues(projectKey, filters, expanded);
+  const query = useSectionIssues(projectKey, c.id, expanded);
   const active = c.status === 'ACTIVE';
   // 남은 일수는 진행 중 사이클에만 의미가 있다(예정·완료는 기간만).
   const remaining = active ? remainingLabel(c.endDate, new Date()) : null;
@@ -216,6 +299,9 @@ function CycleSection({
     <CycleSectionShell
       testId={`cycle-row-${c.id}`}
       toggleTestId={`cycle-section-toggle-${c.id}`}
+      cycleId={c.id}
+      dropDisabled={c.status === 'COMPLETED'}
+      canDrag={canDrag}
       active={active}
       expanded={expanded}
       onToggle={() => setExpanded((v) => !v)}
@@ -314,14 +400,15 @@ function CycleSection({
 }
 
 // 백로그 섹션 — 사이클 미할당(cycle=null) 미종료 이슈. 계획 대상이라 기본 펼침.
-function BacklogSection({ projectKey }: { projectKey: string }) {
+function BacklogSection({ projectKey, canDrag }: { projectKey: string; canDrag: boolean }) {
   const [expanded, setExpanded] = useState(true);
-  const filters = useMemo(() => backlogSectionFilters(), []);
-  const query = useSectionIssues(projectKey, filters, expanded);
+  const query = useSectionIssues(projectKey, null, expanded);
   return (
     <CycleSectionShell
       testId="backlog-section"
       toggleTestId="backlog-section-toggle"
+      cycleId={null}
+      canDrag={canDrag}
       expanded={expanded}
       onToggle={() => setExpanded((v) => !v)}
       title="백로그"

@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,6 +27,9 @@ public class IssueCycleController {
 
   /** 사이클 집합 교체 요청 본문. */
   public record ReplaceCyclesRequest(@NotNull List<Long> cycleIds) {}
+
+  /** 사이클 이동 요청 본문 — null 은 백로그(사이클 없음). */
+  public record MoveCycleRequest(Long fromCycleId, Long toCycleId) {}
 
   /** 이슈에 연결된 사이클 요약 목록. */
   @GetMapping
@@ -45,5 +49,18 @@ public class IssueCycleController {
       @Valid @RequestBody ReplaceCyclesRequest req) {
     return ResponseEntity.ok(
         issueCycleService.replace((Long) auth.getPrincipal(), key, number, req.cycleIds()));
+  }
+
+  /** 사이클 간 이동(from 해제 + to 추가, 그 외 연결 유지) — 멤버 권한. 사이클 페이지 드래그 앤 드롭용. */
+  @PostMapping("/move")
+  @RequirePermission("issue:write")
+  public ResponseEntity<IssueCycleService.MoveResult> move(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @RequestBody MoveCycleRequest req) {
+    return ResponseEntity.ok(
+        issueCycleService.move(
+            (Long) auth.getPrincipal(), key, number, req.fromCycleId(), req.toCycleId()));
   }
 }

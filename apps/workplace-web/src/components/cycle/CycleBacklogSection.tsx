@@ -1,14 +1,17 @@
 // 사이클 백로그 섹션 — Jira 백로그처럼 사이클(또는 사이클 미할당 백로그)별로 이슈를 묶어 보여준다 (#878).
 // 섹션마다 독립 무한 스크롤 쿼리를 두고, 접힌 섹션은 요청하지 않는다(enabled=펼침).
+// 드래그 앤 드롭(#881): 섹션 전체(헤더 포함, 접혀도)가 드롭 대상, 이슈 행 전체가 드래그 소스. DndContext 는 페이지가 둔다.
 
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { ChevronRight } from 'lucide-react';
-import { type ReactNode, useId, useMemo } from 'react';
+import { memo, type ReactNode, useCallback, useId, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon';
 import { IssueTypeBadge } from '@/components/issueTypes/IssueTypeBadge';
 import { UserAvatar } from '@/components/users/UserAvatar';
+import type { SectionCycleId } from '@/hooks/queries/useCycleSectionIssues';
 import type { BoardColumnQuery } from '@/hooks/queries/useIssueBoardColumns';
 import { useLoadMoreSentinel } from '@/hooks/useLoadMoreSentinel';
 import { cn } from '@/lib/utils';
@@ -20,6 +23,22 @@ function sectionCountLabel(query: BoardColumnQuery | undefined): string | null {
   if (!query?.data) return null;
   const n = query.data.pages.reduce((acc, p) => acc + (p.items?.length ?? 0), 0);
   return `${n}${query.hasNextPage ? '+' : ''}건`;
+}
+
+/** 드래그 소스(이슈 행) 데이터 — 드롭 시 이동 요청의 from 이 된다. 섹션 이름·상태는 페이지가 사이클 목록에서 찾는다. */
+export interface CycleDragData {
+  issue: IssueResponse;
+  fromCycleId: SectionCycleId;
+}
+
+/** 드롭 대상(섹션) 데이터. */
+export interface CycleDropData {
+  cycleId: SectionCycleId;
+}
+
+/** 드롭 대상 id — 섹션 식별자와 1:1. */
+function sectionDropId(cycleId: SectionCycleId): string {
+  return cycleId == null ? 'section-backlog' : `section-cycle-${cycleId}`;
 }
 
 /**
@@ -44,6 +63,9 @@ export function CycleSectionShell({
   emptyText,
   query,
   projectKey,
+  cycleId,
+  dropDisabled = false,
+  canDrag = false,
 }: {
   testId: string;
   toggleTestId: string;
@@ -66,17 +88,37 @@ export function CycleSectionShell({
   emptyText: string;
   query: BoardColumnQuery | undefined;
   projectKey: string;
+  /** 이 섹션이 나타내는 사이클(null=백로그) — 드롭 대상 식별·행 드래그 출발지. */
+  cycleId: SectionCycleId;
+  /** 드롭 불가(완료 사이클) — 드래그 중 흐리게 + 안내. 행을 끌어내는 것은 허용. */
+  dropDisabled?: boolean;
+  /** 행 드래그 허용(프로젝트 멤버만). */
+  canDrag?: boolean;
 }) {
   const bodyId = useId();
   const count = showRowCount ? sectionCountLabel(query) : null;
   const hasMetaRow = !!(meta || progress || badge);
+  const { setNodeRef, isOver, active: dragging } = useDroppable({
+    id: sectionDropId(cycleId),
+    data: { cycleId } satisfies CycleDropData,
+    disabled: dropDisabled,
+  });
+  // 드롭 하이라이트 — 출발 섹션 자신 위에서는 표시하지 않는다(놓아도 변화 없음).
+  const fromHere = (dragging?.data.current as CycleDragData | undefined)?.fromCycleId === cycleId;
+  const dropTarget = isOver && !fromHere;
+  const blocked = !!dragging && dropDisabled;
   return (
     <section
+      ref={setNodeRef}
       data-testid={testId}
       data-active={active ? 'true' : undefined}
+      data-drop-target={dropTarget ? 'true' : undefined}
+      data-drop-blocked={blocked ? 'true' : undefined}
       className={cn(
-        'min-w-0 overflow-hidden rounded-lg border bg-card',
+        'min-w-0 overflow-hidden rounded-lg border bg-card transition-colors',
         active && 'border-l-4 border-l-primary bg-primary/5',
+        dropTarget && 'bg-primary/10 ring-2 ring-primary ring-inset',
+        blocked && 'opacity-50',
       )}
     >
       <div className={cn('flex min-w-0 items-center gap-2 px-3 pt-2.5', !hasMetaRow && !goal && 'pb-2.5')}>
@@ -107,6 +149,16 @@ export function CycleSectionShell({
             </span>
           )}
         </button>
+        {dropTarget && (
+          <span className="shrink-0 text-xs font-medium text-primary" data-testid={`${testId}-drop-hint`}>
+            여기에 놓아 이동
+          </span>
+        )}
+        {blocked && (
+          <span className="shrink-0 text-xs text-destructive" data-testid={`${testId}-drop-blocked`}>
+            완료된 사이클에는 놓을 수 없음
+          </span>
+        )}
         {actions && <div className="hidden shrink-0 gap-1 sm:flex">{actions}</div>}
         {mobileActions && <div className="shrink-0 sm:hidden">{mobileActions}</div>}
       </div>
@@ -133,7 +185,12 @@ export function CycleSectionShell({
       )}
       {expanded && (
         <div id={bodyId} className="border-t bg-muted/30">
-          <SectionIssueList query={query} projectKey={projectKey} emptyText={emptyText} />
+          <SectionIssueList
+            query={query}
+            projectKey={projectKey}
+            emptyText={emptyText}
+            dragFrom={canDrag ? cycleId : undefined}
+          />
         </div>
       )}
     </section>
@@ -148,10 +205,13 @@ function SectionIssueList({
   query,
   projectKey,
   emptyText,
+  dragFrom,
 }: {
   query: BoardColumnQuery | undefined;
   projectKey: string;
   emptyText: string;
+  /** 드래그 허용 시 출발 섹션(사이클 id, null=백로그). undefined 면 행 드래그 비활성. */
+  dragFrom?: SectionCycleId;
 }) {
   const sentinelRef = useLoadMoreSentinel(
     query ?? { hasNextPage: false, isFetching: false, isFetchNextPageError: false, fetchNextPage: noopFetch },
@@ -178,7 +238,7 @@ function SectionIssueList({
     <div>
       <ul className="divide-y">
         {items.map((it) => (
-          <CycleIssueRow key={it.id} issue={it} projectKey={projectKey} />
+          <CycleIssueRow key={it.id} issue={it} projectKey={projectKey} dragFrom={dragFrom} />
         ))}
       </ul>
       <div ref={sentinelRef} aria-hidden="true" className="h-1" />
@@ -191,15 +251,80 @@ function SectionIssueList({
 
 // 이슈 행 — 이슈 목록(IssueListView)의 행과 같은 시각 언어(상태·우선순위 아이콘, 키, 제목, 담당자)를 컴팩트하게.
 // 행 클릭 → 상세 이동, 제목은 실제 링크(키보드 접근점). 링크 클릭이 행 onClick 으로 버블해 이중 push 되지 않게 막는다.
-function CycleIssueRow({ issue: it, projectKey }: { issue: IssueResponse; projectKey: string }) {
+// 행 전체가 드래그 소스(#881) — PointerSensor 임계값(5px) 미만의 짧은 클릭은 그대로 상세 이동으로 남는다.
+function CycleIssueRow({
+  issue: it,
+  projectKey,
+  dragFrom,
+}: {
+  issue: IssueResponse;
+  projectKey: string;
+  dragFrom?: SectionCycleId;
+}) {
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
+  const canDrag = dragFrom !== undefined;
+  const { setNodeRef, setActivatorNodeRef, attributes, listeners, isDragging } = useDraggable({
+    // 같은 이슈가 여러 사이클 섹션에 동시에 보일 수 있어 출발 섹션까지 id 에 넣는다.
+    id: `issue-${it.id}-from-${dragFrom ?? 'backlog'}`,
+    data: canDrag ? ({ issue: it, fromCycleId: dragFrom } satisfies CycleDragData) : undefined,
+    disabled: !canDrag,
+  });
+  // 활성화 노드=행 자신 — 지정하지 않으면 KeyboardSensor 가 제목 링크 등 자손의 키 입력까지 받아 드래그를 시작한다.
+  const ref = useCallback(
+    (el: HTMLLIElement | null) => {
+      setNodeRef(el);
+      setActivatorNodeRef(el);
+    },
+    [setNodeRef, setActivatorNodeRef],
+  );
+  // 드래그 비활성이면 dnd-kit 의 role=button·tabIndex·리스너를 붙이지 않는다(평범한 목록 행).
+  const dragProps = canDrag
+    ? { ...attributes, ...listeners, 'aria-roledescription': '드래그 가능한 이슈' }
+    : {};
   return (
     <li
+      ref={ref}
+      {...dragProps}
       onClick={() => navigate(to)}
-      className="flex min-w-0 cursor-pointer items-center gap-2.5 px-4 py-1.5 text-sm hover:bg-accent"
+      className={cn(
+        'flex min-w-0 cursor-pointer items-center gap-2.5 px-4 py-1.5 text-sm hover:bg-accent',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+        isDragging && 'opacity-40',
+      )}
       data-testid={`section-issue-${it.number}`}
     >
+      <IssueRowContent issue={it} projectKey={projectKey} to={to} />
+    </li>
+  );
+}
+
+/** 드래그 오버레이 — 포인터를 따라가는 행 사본(링크·클릭 없이 모양만). */
+export function CycleIssueDragPreview({ issue, projectKey }: { issue: IssueResponse; projectKey: string }) {
+  return (
+    <div
+      // 폭 상한 — dnd-kit 은 오버레이를 원본 행 폭(섹션 전체)으로 잡아, 그대로면 대상 섹션 헤더의 안내 문구·액션을 덮는다.
+      className="flex w-fit max-w-[min(28rem,calc(100vw-2rem))] min-w-0 cursor-grabbing items-center gap-2.5 rounded-md border bg-card px-4 py-1.5 text-sm shadow-lg"
+      data-testid="cycle-drag-overlay"
+    >
+      <IssueRowContent issue={issue} projectKey={projectKey} />
+    </div>
+  );
+}
+
+// 행 본문 — 목록 행과 드래그 오버레이가 공유. to 가 있으면 제목을 링크로, 없으면 텍스트로.
+// memo — 드래그 중 dnd-kit 컨텍스트 변화로 행 래퍼가 다시 렌더돼도 본문(아이콘·아바타)은 건너뛴다.
+const IssueRowContent = memo(function IssueRowContent({
+  issue: it,
+  projectKey,
+  to,
+}: {
+  issue: IssueResponse;
+  projectKey: string;
+  to?: string;
+}) {
+  return (
+    <>
       <IssueStatusIcon status={it.status} />
       {/* 좁은 화면(<sm)에선 우선순위·유형을 숨겨 제목 폭을 확보한다(상태·키·담당자만). */}
       <span className="hidden shrink-0 sm:inline-flex">
@@ -215,14 +340,18 @@ function CycleIssueRow({ issue: it, projectKey }: { issue: IssueResponse; projec
           {projectKey}-{it.number}
         </span>
       </span>
-      <Link
-        to={to}
-        onClick={(e) => e.stopPropagation()}
-        className="min-w-[8rem] flex-1 truncate rounded font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        title={it.title}
-      >
-        {it.title}
-      </Link>
+      {to ? (
+        <Link
+          to={to}
+          onClick={(e) => e.stopPropagation()}
+          className="min-w-[8rem] flex-1 truncate rounded font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title={it.title}
+        >
+          {it.title}
+        </Link>
+      ) : (
+        <span className="min-w-[8rem] flex-1 truncate font-medium">{it.title}</span>
+      )}
       <span className="flex shrink-0 items-center -space-x-1">
         {it.assignees.slice(0, 3).map((u) => (
           // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분(목록 행과 동일).
@@ -232,6 +361,6 @@ function CycleIssueRow({ issue: it, projectKey }: { issue: IssueResponse; projec
           <span className="ml-1 text-xs text-muted-foreground">+{it.assignees.length - 3}</span>
         )}
       </span>
-    </li>
+    </>
   );
-}
+});

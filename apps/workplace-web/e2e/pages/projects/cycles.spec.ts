@@ -908,3 +908,266 @@ test.describe('사이클 백로그', () => {
     await expect.poll(() => deleteFired, { timeout: 5000 }).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────
+// 사이클 드래그 이동 (#881) — 행을 다른 섹션에 놓으면 from 해제 + to 추가(POST .../cycles/move)
+// ─────────────────────────────────────────────
+
+test.describe('사이클 드래그 이동', () => {
+  const cycles: CycleResponse[] = [
+    createCycle({ id: 1, name: '스프린트 A', status: 'ACTIVE', startDate: '2026-06-01', endDate: '2026-06-15' }),
+    createCycle({ id: 3, name: '예정 스프린트', status: 'PLANNED', startDate: '2026-06-20', endDate: '2026-06-30' }),
+    createCycle({ id: 4, name: '지난 스프린트', status: 'COMPLETED', startDate: '2026-05-01', endDate: '2026-05-15' }),
+  ];
+
+  type MoveBody = { fromCycleId: number | null; toCycleId: number | null };
+
+  // 서버 상태를 흉내 내는 섹션 스텁 — 이동 POST 가 성공하면 byCycle 을 갱신해, onSettled 재조회도 이동 결과를 돌려준다.
+  async function setup(
+    page: import('@playwright/test').Page,
+    opts: { member?: boolean; failMove?: boolean; seed?: Record<string, IssueResponse[]> } = {},
+  ) {
+    // 이슈 7 은 사이클 1·3 에 동시 소속(M:N) — 되돌리기가 뒤집기가 아닌 역차분이어야 함을 확인하는 데 쓴다.
+    const shared = createIssue({ id: 7, number: 7, title: '두 사이클 공유 이슈' });
+    const byCycle: Record<string, IssueResponse[]> = {
+      '1': [createIssue({ id: 1, number: 1, title: '스프린트 A 이슈' }), shared],
+      '3': [shared],
+      '4': [],
+      null: [createIssue({ id: 9, number: 9, title: '백로그 이슈' })],
+      ...opts.seed,
+    };
+    const moves: MoveBody[] = [];
+    await setupCyclesPageStubs(page, cycles, []);
+    await stubSectionIssues(page, byCycle);
+    // 비멤버 — 서버 플래그 viewerIsMember=false 로 드래그 게이트 확인.
+    if (opts.member === false) {
+      await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createProject({ viewerIsMember: false })),
+        }),
+      );
+    }
+    await page.route(
+      (url) => /^\/api\/v1\/projects\/WP\/issues\/\d+\/cycles\/move$/.test(url.pathname),
+      (route) => {
+        const body = route.request().postDataJSON() as MoveBody;
+        moves.push(body);
+        if (opts.failMove) {
+          return route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: '서버 오류' }),
+          });
+        }
+        // 서버 규칙 모사 — from 연결이 있으면 끊고, to 에 없으면 붙인다(백로그='null' 은 사이클 없는 이슈 목록).
+        const number = Number(route.request().url().match(/issues\/(\d+)\/cycles/)![1]);
+        const issue = Object.values(byCycle).flat().find((i) => i.number === number)!;
+        const has = (k: string) => (byCycle[k] ?? []).some((i) => i.number === number);
+        const removedFrom = body.fromCycleId != null && has(String(body.fromCycleId));
+        const addedTo = body.toCycleId != null && !has(String(body.toCycleId));
+        if (removedFrom) {
+          const k = String(body.fromCycleId);
+          byCycle[k] = byCycle[k].filter((i) => i.number !== number);
+        }
+        if (addedTo) {
+          const k = String(body.toCycleId);
+          byCycle[k] = [issue, ...(byCycle[k] ?? [])];
+        }
+        const inAnyCycle = Object.entries(byCycle).some(([k, v]) => k !== 'null' && v.some((i) => i.number === number));
+        byCycle.null = byCycle.null.filter((i) => i.number !== number);
+        if (!inAnyCycle) byCycle.null = [issue, ...byCycle.null];
+        // 이동 후 남은 사이클 집합 — 백로그 이동 시 "다른 사이클에 남음" 안내 판단에 쓰인다.
+        const remaining = cycles.filter((c) => has(String(c.id))).map(({ id, name, status }) => ({ id, name, status }));
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ cycles: remaining, removedFrom, addedTo }),
+        });
+      },
+    );
+    await page.goto(`/projects/${KEY}/cycles`);
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-1')).toBeVisible();
+    await expect(page.getByTestId('backlog-section').getByTestId('section-issue-9')).toBeVisible();
+    return { moves };
+  }
+
+  // 행을 대상 섹션 헤더로 드래그 — PointerSensor distance:5 를 넘기도록 여러 단계로 움직인다.
+  // 놓기 직전 상태를 확인할 수 있게 beforeDrop 콜백을 받는다.
+  async function dragRowTo(
+    page: import('@playwright/test').Page,
+    row: import('@playwright/test').Locator,
+    targetTestId: string,
+    beforeDrop?: () => Promise<void>,
+  ) {
+    await row.hover();
+    await page.mouse.down();
+    const src = await row.boundingBox();
+    await page.mouse.move(src!.x + src!.width / 2, src!.y + src!.height / 2 + 12, { steps: 4 });
+    const box = await page.getByTestId(targetTestId).boundingBox();
+    if (!box) throw new Error(`${targetTestId} bounding box 없음`);
+    // 헤더 영역(섹션 상단)으로 — 접힌 섹션도 헤더가 드롭 대상이다.
+    await page.mouse.move(box.x + box.width / 2, box.y + 14, { steps: 10 });
+    if (beforeDrop) await beforeDrop();
+    await page.mouse.up();
+  }
+
+  test('진행 중 사이클 → 접힌 예정 사이클 헤더로 드래그 — 이동 요청·즉시 반영·되돌리기', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page);
+    const row = page.getByTestId('cycle-row-1').getByTestId('section-issue-1');
+
+    await dragRowTo(page, row, 'cycle-row-3', async () => {
+      // 드래그 중 — 오버레이·대상 하이라이트·안내 문구.
+      await expect(page.getByTestId('cycle-drag-overlay')).toContainText('스프린트 A 이슈');
+      await expect(page.getByTestId('cycle-row-3')).toHaveAttribute('data-drop-target', 'true');
+      await expect(page.getByTestId('cycle-row-3-drop-hint')).toHaveText('여기에 놓아 이동');
+    });
+
+    await expect.poll(() => moves).toEqual([{ fromCycleId: 1, toCycleId: 3 }]);
+    // 출발 섹션에서 사라지고, 드롭 대상은 접힌 채로 남는다(펼치지 않음).
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-1')).toHaveCount(0);
+    await expect(page.getByTestId('cycle-section-toggle-3')).toHaveAttribute('aria-expanded', 'false');
+    await page.getByTestId('cycle-section-toggle-3').click();
+    await expect(page.getByTestId('cycle-row-3').getByTestId('section-issue-1')).toBeVisible();
+
+    // 성공 토스트의 되돌리기 → from/to 를 뒤집어 다시 이동.
+    await expect(page.getByText('WP-1 을(를) 예정 스프린트(으)로 옮겼습니다')).toBeVisible();
+    await page.getByRole('button', { name: '되돌리기' }).click();
+    await expect.poll(() => moves.at(-1)).toEqual({ fromCycleId: 3, toCycleId: 1 });
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-1')).toBeVisible();
+    await expect(page.getByTestId('cycle-row-3').getByTestId('section-issue-1')).toHaveCount(0);
+  });
+
+  test('두 사이클 공유 이슈 — 되돌리기는 뒤집기가 아닌 역차분(떼어낸 출발 사이클만 재연결)', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page);
+    await page.getByTestId('cycle-section-toggle-3').click();
+    await expect(page.getByTestId('cycle-row-3').getByTestId('section-issue-7')).toBeVisible();
+
+    // 사이클 1 → 3 (3 에는 이미 연결) — 결과는 {3}.
+    await dragRowTo(page, page.getByTestId('cycle-row-1').getByTestId('section-issue-7'), 'cycle-row-3');
+    await expect.poll(() => moves).toEqual([{ fromCycleId: 1, toCycleId: 3 }]);
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-7')).toHaveCount(0);
+
+    // 되돌리기 — 3 은 원래 있던 연결이라 떼지 않고, 1 만 다시 붙인다.
+    await page.getByRole('button', { name: '되돌리기' }).click();
+    await expect.poll(() => moves.at(-1)).toEqual({ fromCycleId: null, toCycleId: 1 });
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-7')).toBeVisible();
+    await expect(page.getByTestId('cycle-row-3').getByTestId('section-issue-7')).toBeVisible();
+  });
+
+  test('다른 사이클에도 속한 이슈를 백로그로 — 출발 사이클만 빠지고 백로그엔 안 보인다는 안내', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page);
+
+    await dragRowTo(page, page.getByTestId('cycle-row-1').getByTestId('section-issue-7'), 'backlog-section');
+    await expect.poll(() => moves).toEqual([{ fromCycleId: 1, toCycleId: null }]);
+    await expect(
+      page.getByText('WP-7 을(를) 스프린트 A에서 뺐습니다 (다른 사이클에 남아 있어 백로그에는 표시되지 않습니다)'),
+    ).toBeVisible();
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-7')).toHaveCount(0);
+    // 낙관적으로 백로그에 끼워 넣지 않는다(재조회 결과에도 없다).
+    await expect(page.getByTestId('backlog-section').getByTestId('section-issue-7')).toHaveCount(0);
+  });
+
+  test('완료 사이클에서 끌어낸 이동은 되돌리기를 제공하지 않는다', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page, { seed: { '4': [createIssue({ id: 5, number: 5, title: '지난 이슈' })] } });
+    await page.getByTestId('completed-cycles-toggle').click();
+    await page.getByTestId('cycle-section-toggle-4').click();
+    const row = page.getByTestId('cycle-row-4').getByTestId('section-issue-5');
+    await expect(row).toBeVisible();
+
+    await dragRowTo(page, row, 'cycle-row-1');
+    await expect.poll(() => moves).toEqual([{ fromCycleId: 4, toCycleId: 1 }]);
+    await expect(page.getByText('WP-5 을(를) 스프린트 A(으)로 옮겼습니다')).toBeVisible();
+    await expect(page.getByRole('button', { name: '되돌리기' })).toHaveCount(0);
+  });
+
+  test('키보드 — 행 안 제목 링크의 Enter 는 드래그가 아니라 상세 이동', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page);
+    await page.getByTestId('cycle-row-1').getByRole('link', { name: '스프린트 A 이슈' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/1$`));
+    expect(moves).toEqual([]);
+  });
+
+  test('백로그 → 사이클, 사이클 → 백로그 드래그', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page);
+
+    await dragRowTo(page, page.getByTestId('backlog-section').getByTestId('section-issue-9'), 'cycle-row-1');
+    await expect.poll(() => moves).toEqual([{ fromCycleId: null, toCycleId: 1 }]);
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-9')).toBeVisible();
+    await expect(page.getByTestId('backlog-section').getByTestId('section-issue-9')).toHaveCount(0);
+
+    await dragRowTo(page, page.getByTestId('cycle-row-1').getByTestId('section-issue-1'), 'backlog-section');
+    await expect.poll(() => moves.at(-1)).toEqual({ fromCycleId: 1, toCycleId: null });
+    await expect(page.getByTestId('backlog-section').getByTestId('section-issue-1')).toBeVisible();
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-1')).toHaveCount(0);
+  });
+
+  test('같은 섹션에 놓으면 요청 없음, 짧은 클릭은 상세 이동 유지', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page);
+    const row = page.getByTestId('cycle-row-1').getByTestId('section-issue-1');
+
+    await dragRowTo(page, row, 'cycle-row-1', async () => {
+      // 출발 섹션 위에서는 하이라이트하지 않는다.
+      await expect(page.getByTestId('cycle-row-1')).not.toHaveAttribute('data-drop-target', 'true');
+    });
+    await expect(page.getByTestId('cycle-drag-overlay')).toHaveCount(0);
+    expect(moves).toEqual([]);
+
+    await row.click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/1$`));
+  });
+
+  test('완료 사이클에는 놓을 수 없다 — 드래그 중 차단 표시, 요청 없음', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page);
+    await page.getByTestId('completed-cycles-toggle').click();
+    await expect(page.getByTestId('cycle-row-4')).toBeVisible();
+
+    await dragRowTo(page, page.getByTestId('cycle-row-1').getByTestId('section-issue-1'), 'cycle-row-4', async () => {
+      await expect(page.getByTestId('cycle-row-4')).toHaveAttribute('data-drop-blocked', 'true');
+      await expect(page.getByTestId('cycle-row-4-drop-blocked')).toHaveText('완료된 사이클에는 놓을 수 없음');
+      await expect(page.getByTestId('cycle-row-4')).not.toHaveAttribute('data-drop-target', 'true');
+    });
+    await expect(page.getByTestId('cycle-row-4')).not.toHaveAttribute('data-drop-blocked', 'true');
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-1')).toBeVisible();
+    expect(moves).toEqual([]);
+  });
+
+  test('이동 실패 시 원위치로 롤백 + 에러 토스트', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page, { failMove: true });
+
+    await dragRowTo(page, page.getByTestId('cycle-row-1').getByTestId('section-issue-1'), 'backlog-section');
+    await expect.poll(() => moves.length).toBe(1);
+    await expect(page.getByText('서버 오류')).toBeVisible();
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-1')).toBeVisible();
+    await expect(page.getByTestId('backlog-section').getByTestId('section-issue-1')).toHaveCount(0);
+  });
+
+  test('비멤버는 드래그할 수 없다', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page, { member: false });
+    const row = page.getByTestId('cycle-row-1').getByTestId('section-issue-1');
+    await expect(row).not.toHaveAttribute('role', 'button');
+
+    await dragRowTo(page, row, 'backlog-section');
+    await expect(page.getByTestId('cycle-drag-overlay')).toHaveCount(0);
+    expect(moves).toEqual([]);
+    await expect(page.getByTestId('cycle-row-1').getByTestId('section-issue-1')).toBeVisible();
+  });
+
+  test('키보드로 이동 — Space 로 집고 방향키로 섹션 이동, Space 로 놓기', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page);
+    const row = page.getByTestId('cycle-row-1').getByTestId('section-issue-1');
+    await row.focus();
+    await page.keyboard.press('Space');
+    await expect(page.getByTestId('cycle-drag-overlay')).toBeVisible();
+    // 대상(백로그)에 닿을 때까지 아래로 — 섹션 높이에 따라 필요한 횟수가 달라 조건으로 멈춘다.
+    for (let i = 0; i < 40; i++) {
+      if ((await page.getByTestId('backlog-section').getAttribute('data-drop-target')) === 'true') break;
+      await page.keyboard.press('ArrowDown');
+    }
+    await expect(page.getByTestId('backlog-section')).toHaveAttribute('data-drop-target', 'true');
+    await page.keyboard.press('Space');
+    await expect.poll(() => moves).toEqual([{ fromCycleId: 1, toCycleId: null }]);
+  });
+});

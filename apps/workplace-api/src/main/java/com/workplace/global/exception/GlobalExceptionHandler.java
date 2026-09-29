@@ -12,6 +12,7 @@ import com.workplace.chat.exception.ChatThreadIssueDeletedException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.EmptyChatMessageException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
+import com.workplace.cycle.exception.CompletedCycleNotAssignableException;
 import com.workplace.cycle.exception.CycleNameDuplicatedException;
 import com.workplace.cycle.exception.CycleNotFoundException;
 import com.workplace.cycle.exception.InvalidCycleDateRangeException;
@@ -989,6 +990,14 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(InvalidCycleForProjectException.class)
   public ResponseEntity<ErrorResponse> handleInvalidCycleForProject(
       InvalidCycleForProjectException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 완료된 사이클로 이슈 이동 시도 — 400. */
+  @ExceptionHandler(CompletedCycleNotAssignableException.class)
+  public ResponseEntity<ErrorResponse> handleCompletedCycleNotAssignable(
+      CompletedCycleNotAssignableException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
