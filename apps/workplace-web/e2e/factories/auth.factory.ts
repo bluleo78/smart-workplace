@@ -41,6 +41,7 @@ export function createUser(overrides?: Partial<UserResponse>): UserResponse {
     createdAt: '2024-01-01T00:00:00Z',
     kind: 'HUMAN',
     aiAvailable: false,
+    hasPassword: true,
     ...overrides,
   };
 }
@@ -78,6 +79,7 @@ export function createUserDetail(overrides?: Partial<UserDetailResponse>): UserD
     roles: [createRole()],
     kind: 'HUMAN',
     aiAvailable: false,
+    hasPassword: true,
     ...overrides,
   };
 }

@@ -14,6 +14,8 @@ export interface UserDetailResponse {
   kind: UserKind;
   // AI 가용성 — 개인/공통 비서 보유 여부. AI affordance 게이트용.
   aiAvailable: boolean;
+  // WP-48 비밀번호 보유 여부 — SSO 전용 계정이면 false.
+  hasPassword: boolean;
 }
 
 

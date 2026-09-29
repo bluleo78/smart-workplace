@@ -2,8 +2,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import axios from 'axios';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 
+import { MicrosoftLoginButton } from '../components/auth/MicrosoftLoginButton';
+import { SsoBanner } from '../components/auth/SsoBanner';
 import { WorkspaceSelectCard } from '../components/auth/WorkspaceSelectCard';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -11,6 +13,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { PasswordInput } from '../components/ui/password-input';
 import { useSignupAvailable } from '../hooks/queries/useSignupAvailable';
+import { useSsoStatus } from '../hooks/queries/useSsoStatus';
 import { useAuth } from '../hooks/useAuth';
 import type { LoginFormData } from '../lib/validations/auth';
 import { loginSchema } from '../lib/validations/auth';
@@ -21,6 +24,9 @@ export default function LoginPage() {
   const [serverError, setServerError] = useState('');
   // 가입이 잠긴 상태면 회원가입 링크를 숨긴다(부트스트랩 이후).
   const { data: signupAvailable } = useSignupAvailable();
+  // WP-48 SSO — 버튼 노출 여부와 콜백이 붙여 보낸 결과 코드.
+  const { data: ssoStatus } = useSsoStatus();
+  const [searchParams] = useSearchParams();
 
   const {
     register,
@@ -71,6 +77,9 @@ export default function LoginPage() {
           <CardTitle className="text-2xl">Gen:iA Workplace</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 empty:hidden">
+            <SsoBanner error={searchParams.get('sso_error')} notice={searchParams.get('sso_notice')} />
+          </div>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="username">아이디</Label>
@@ -103,6 +112,17 @@ export default function LoginPage() {
               {isSubmitting ? '로그인 중...' : '로그인'}
             </Button>
           </form>
+          {/* WP-48: 운영자가 SSO 앱을 설정한 경우에만 Microsoft 로그인 노출 */}
+          {ssoStatus?.m365 && (
+            <div className="mt-4 space-y-4">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <div className="h-px flex-1 bg-border" />
+                또는
+                <div className="h-px flex-1 bg-border" />
+              </div>
+              <MicrosoftLoginButton />
+            </div>
+          )}
           {/* 가입이 명시적으로 잠긴 경우(false)만 링크를 숨긴다. 로딩/조회실패(undefined)에는 기본 노출. */}
           {signupAvailable !== false && (
             <div className="mt-4 text-center text-sm">

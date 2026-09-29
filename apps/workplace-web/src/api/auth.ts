@@ -21,6 +21,8 @@ export const authApi = {
     client.post<TokenResponse>('/auth/select-tenant', { tenantId }),
   // 내 활성 멤버십 목록(전환 팝오버에서 lazy fetch)
   memberships: () => client.get<Membership[]>('/auth/memberships'),
+  // WP-48 SSO 사용 가능 여부(공개) — 로그인 화면의 Microsoft 버튼 노출용.
+  ssoStatus: () => client.get<{ m365: boolean }>('/auth/sso/status').then((r) => r.data),
   refresh: () => client.post<TokenResponse>('/auth/refresh'),
   logout: () => client.post<void>('/auth/logout'),
   me: () => client.get<UserResponse>('/auth/me'),
