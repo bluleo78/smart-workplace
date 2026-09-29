@@ -69,19 +69,21 @@ elif [ -n "$WEB_PAGE_CHANGES" ] || [ -n "$GRAPH_DOMAINS" ]; then
 
   if [ -z "$PRECOMMIT_DRY_RUN" ]; then
     cd apps/workplace-web
-    DOMAIN_SPECS=""
+    DOMAIN_RE=""
     for d in $DOMAINS_STR; do
       # 해당 도메인 spec 디렉토리가 있을 때만 추가 (현재는 e2e/pages 평탄)
       if [ -d "e2e/pages/$d" ]; then
-        DOMAIN_SPECS="$DOMAIN_SPECS e2e/pages/$d"
+        DOMAIN_RE="${DOMAIN_RE:+$DOMAIN_RE|}$d"
       fi
     done
 
-    # step 1: 전역 smoke
-    npx playwright test --grep "@smoke"
-    # step 2: 해당 도메인의 non-smoke (디렉토리가 있을 때만)
-    if [ -n "$DOMAIN_SPECS" ]; then
-      npx playwright test $DOMAIN_SPECS --grep-invert "@smoke"
+    # 전역 smoke + 해당 도메인 spec 을 playwright 1회 호출로 실행 (WP-76).
+    # grep 은 파일 경로가 포함된 전체 타이틀에 매칭되므로 "@smoke|pages/<도메인>/" 하나로 두 집합의
+    # 합집합을 고른다(겹치는 도메인 smoke 도 1회만). 2회 호출 시 서버 기동·세션 락 대기가 두 번 든다.
+    if [ -n "$DOMAIN_RE" ]; then
+      npx playwright test --grep "@smoke|pages/($DOMAIN_RE)/"
+    else
+      npx playwright test --grep "@smoke"
     fi
     cd - >/dev/null
   fi
