@@ -33,7 +33,7 @@ const FALLBACK: PushPayload = {
 const SENTINEL_ORIGIN = 'https://sentinel.invalid'
 
 /**
- * 제어문자·공백(U+0000~001F, U+007F)이나 raw 백슬래시가 하나라도 있으면 true.
+ * 제어문자(U+0000~001F, U+007F)나 raw 백슬래시가 하나라도 있으면 true(공백은 대상 아님).
  * 정규식 문자 클래스에 제어문자 리터럴을 그대로 넣으면 ESLint `no-control-regex` 에 걸리므로
  * charCodeAt 비교로 직접 검사한다.
  */
@@ -52,11 +52,18 @@ function hasControlOrBackslash(s: string): boolean {
  * U+000A, U+000D)을 파싱 전에 제거하므로 `'/\t/evil.com'` 은 `'//evil.com'`(스킴 상대)이 되어
  * origin 이 evil.com 으로 바뀐다. 또한 특수 스킴(http/https 등)에서는 raw 백슬래시를 `/` 와
  * 동일하게 취급해 `'/\\evil.com'` 도 같은 방식으로 우회된다.
- * 그래서 (1) 제어문자·공백(U+0000~001F, U+007F)·raw 백슬래시가 하나라도 있으면 원본 문자열
- * 단계에서 거부하고, (2) 반드시 `/` 로 시작하되 `//` 는 거부하고, (3) 그래도 남는 우회 경로를
- * 잡기 위해 sentinel origin 으로 실제 파싱해 origin 이 그대로인지 재검증한다 — 파서가 정규화한
- * pathname+search+hash 만 최종 사용한다(백분율 인코딩된 `%5C` 등은 안전한 리터럴 경로 문자로
- * 그대로 남아 통과한다).
+ * 그래서 (1) 제어문자(U+0000~001F, U+007F)·raw 백슬래시가 하나라도 있으면 원본 문자열 단계에서
+ * 거부하고, (2) 반드시 `/` 로 시작하되 `//` 는 거부하고, (3) sentinel origin 으로 실제 파싱해
+ * origin 이 그대로인지 재검증한다(백분율 인코딩된 `%5C` 등은 안전한 리터럴 경로 문자로 남아
+ * 통과한다).
+ *
+ * (3)까지 통과해도 `..` dot-segment 정규화가 문제다 — `/..//evil.com`, `/.//evil.com`,
+ * `/a/../..//evil.com`, `/%2e%2e//evil.com` 은 모두 파서가 `..`/`%2e%2e` 를 접어 pathname 이
+ * `//evil.com`(스킴 상대) 이 되어 버린다. origin 자체는 sentinel 그대로라 (3)만으로는 못 잡는다.
+ * 그래서 (4) 정규화된 pathname 이 `//` 로 시작하거나 백슬래시를 포함하면 거부하고, (5) 반환할
+ * 값 자체를 다시 `new URL(out, sentinel)` 로 파싱해 origin 이 그대로 sentinel 인지 재검증한다 —
+ * 이 값은 `shouldSuppress`, 그리고 앞으로 추가될 notificationclick 핸들러에서 다시 상대경로로
+ * 파싱되므로, "반환값이 다시 파싱돼도 안전한가"까지 확인해야 한다.
  */
 export function safeTarget(url: unknown): string {
   if (typeof url !== 'string') return '/'
@@ -65,7 +72,11 @@ export function safeTarget(url: unknown): string {
   try {
     const u = new URL(url, SENTINEL_ORIGIN)
     if (u.origin !== SENTINEL_ORIGIN) return '/'
-    return u.pathname + u.search + u.hash
+    if (u.pathname.startsWith('//') || hasControlOrBackslash(u.pathname)) return '/'
+    const out = u.pathname + u.search + u.hash
+    // 반환값이 다시 파싱돼도(shouldSuppress, notificationclick) 같은 origin 을 유지하는지 재검증.
+    if (new URL(out, SENTINEL_ORIGIN).origin !== SENTINEL_ORIGIN) return '/'
+    return out
   } catch {
     return '/'
   }

@@ -43,6 +43,14 @@ describe('safeTarget', () => {
   it('percent-encoded 백슬래시는 안전한 리터럴 경로 문자로 같은 origin 유지', () => {
     expect(safeTarget('/%5Cevil.com')).toBe('/%5Cevil.com')
   })
+  it('dot-segment 정규화가 //evil.com(스킴 상대)로 접히는 우회는 /', () => {
+    // '..'/'%2e%2e' 가 파서에서 접혀 pathname 이 '//evil.com' 이 되면 origin 은 sentinel 그대로라
+    // (3) origin 재검증만으로는 못 잡는다 — 정규화된 pathname 자체를 다시 검사해야 한다 (review round 2).
+    expect(safeTarget('/..//evil.com')).toBe('/')
+    expect(safeTarget('/.//evil.com')).toBe('/')
+    expect(safeTarget('/a/../..//evil.com')).toBe('/')
+    expect(safeTarget('/%2e%2e//evil.com')).toBe('/')
+  })
 })
 
 describe('parsePushPayload', () => {
