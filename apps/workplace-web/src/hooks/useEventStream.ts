@@ -14,6 +14,7 @@ import { handleChatEvent } from './useChatStream';
 import { handleIssueEvent } from './useIssueStream';
 import { handleMessagingEvent } from './useMessageStream';
 import { handleNotifyEvent } from './useNotificationStream';
+import { handleResourceEvent } from './useResourceStream';
 import { handleWikiEvent } from './useWikiStream';
 
 // 이벤트 이름 prefix 로 도메인 핸들러에 분배(순수 라우터). 알 수 없는 prefix 는 무시.
@@ -22,7 +23,9 @@ export function routeStreamEvent(
   data: unknown,
   ctx: { qc: QueryClient; currentUserId: number },
 ) {
-  if (name.startsWith('chat.')) handleChatEvent(ctx.qc, name, data);
+  // resource.changed(WP-59) — 서버 모든 C/U/D 의 범용 변경 이벤트를 리소스별 무효화 규칙으로 처리.
+  if (name === 'resource.changed') handleResourceEvent(ctx.qc, data);
+  else if (name.startsWith('chat.')) handleChatEvent(ctx.qc, name, data);
   else if (name.startsWith('messaging.')) handleMessagingEvent(ctx.qc, name, data, ctx.currentUserId);
   else if (name.startsWith('notify.')) handleNotifyEvent(ctx.qc, name);
   else if (name.startsWith('issue.')) handleIssueEvent(ctx.qc, name, data);

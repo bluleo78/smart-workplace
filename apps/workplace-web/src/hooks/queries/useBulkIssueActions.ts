@@ -38,7 +38,6 @@ function reportBulkResult(results: PromiseSettledResult<unknown>[], successLabel
 // 공통 무효화 — 검색/상세 캐시를 모두 갱신.
 function invalidateIssueCaches(qc: ReturnType<typeof useQueryClient>, projectKey: string) {
   qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
-  qc.invalidateQueries({ queryKey: issueKeys.lists(projectKey) });
   qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
 }
 

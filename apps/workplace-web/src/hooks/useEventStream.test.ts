@@ -4,6 +4,7 @@ vi.mock('./useChatStream', () => ({ handleChatEvent: vi.fn() }));
 vi.mock('./useMessageStream', () => ({ handleMessagingEvent: vi.fn() }));
 vi.mock('./useNotificationStream', () => ({ handleNotifyEvent: vi.fn() }));
 vi.mock('./useIssueStream', () => ({ handleIssueEvent: vi.fn() }));
+vi.mock('./useResourceStream', () => ({ handleResourceEvent: vi.fn() }));
 vi.mock('../lib/aiEventBus', () => ({ emitAiStreamEvent: vi.fn() }));
 
 import { emitAiStreamEvent } from '../lib/aiEventBus';
@@ -12,10 +13,16 @@ import { routeStreamEvent } from './useEventStream';
 import { handleIssueEvent } from './useIssueStream';
 import { handleMessagingEvent } from './useMessageStream';
 import { handleNotifyEvent } from './useNotificationStream';
+import { handleResourceEvent } from './useResourceStream';
 
 const qc = {} as never;
 
 describe('routeStreamEvent', () => {
+  it('resource.changed → handleResourceEvent', () => {
+    routeStreamEvent('resource.changed', { resource: 'issue' }, { qc, currentUserId: 9 });
+    expect(handleResourceEvent).toHaveBeenCalledWith(qc, { resource: 'issue' });
+  });
+
   it('chat.* → handleChatEvent', () => {
     routeStreamEvent('chat.message.created', { threadId: 1 }, { qc, currentUserId: 9 });
     expect(handleChatEvent).toHaveBeenCalledWith(qc, 'chat.message.created', { threadId: 1 });
