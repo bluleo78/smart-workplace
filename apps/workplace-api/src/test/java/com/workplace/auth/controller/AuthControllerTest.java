@@ -16,6 +16,7 @@ import com.workplace.auth.exception.AccountLockedException;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.auth.service.AuthService;
+import com.workplace.auth.web.RefreshTokenCookies;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
@@ -43,7 +44,8 @@ import org.springframework.test.web.servlet.MockMvc;
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
+  UserTokenAuthenticationFilter.class,
+  RefreshTokenCookies.class
 })
 class AuthControllerTest {
 

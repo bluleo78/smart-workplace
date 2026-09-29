@@ -8,7 +8,8 @@ import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
 import com.workplace.auth.exception.SignupDisabledException;
 import com.workplace.auth.service.AuthService;
-import com.workplace.global.security.JwtProperties;
+import com.workplace.auth.web.RefreshTokenCookies;
+import com.workplace.global.security.AuthDetails;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.dto.MembershipResponse;
@@ -19,7 +20,6 @@ import java.util.List;
 import java.util.Set;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.NonNull;
 import org.springframework.security.core.Authentication;
@@ -29,24 +29,17 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
-  private static final String REFRESH_TOKEN_COOKIE = "refreshToken";
-  private static final String REFRESH_TOKEN_PATH = "/api/v1/auth";
-
   private final AuthService authService;
-  private final JwtProperties jwtProperties;
   private final PermissionService permissionService;
-  private final boolean cookieSecure;
+  private final RefreshTokenCookies refreshTokenCookies;
 
   public AuthController(
       AuthService authService,
-      JwtProperties jwtProperties,
       PermissionService permissionService,
-      @org.springframework.beans.factory.annotation.Value("${app.cookie.secure:true}")
-          boolean cookieSecure) {
+      RefreshTokenCookies refreshTokenCookies) {
     this.authService = authService;
-    this.cookieSecure = cookieSecure;
-    this.jwtProperties = jwtProperties;
     this.permissionService = permissionService;
+    this.refreshTokenCookies = refreshTokenCookies;
   }
 
   /**
@@ -99,7 +92,8 @@ public class AuthController {
       HttpServletResponse response) {
     // 2단계: tenant-less(또는 기존) access 토큰으로 인증된 사용자가 활성 테넌트를 선택/전환
     Long userId = (Long) authentication.getPrincipal();
-    TokenResponse token = authService.selectTenant(userId, request.tenantId());
+    TokenResponse token =
+        authService.selectTenant(userId, request.tenantId(), AuthDetails.methodOf(authentication));
     addRefreshTokenCookie(response, token.refreshToken());
     TokenResponse body =
         new TokenResponse(token.accessToken(), null, token.tokenType(), token.expiresIn());
@@ -109,12 +103,13 @@ public class AuthController {
   @GetMapping("/memberships")
   public ResponseEntity<List<MembershipResponse>> memberships(Authentication authentication) {
     Long userId = (Long) authentication.getPrincipal();
-    return ResponseEntity.ok(authService.membershipsOf(userId));
+    return ResponseEntity.ok(
+        authService.membershipsOf(userId, AuthDetails.methodOf(authentication)));
   }
 
   @PostMapping("/refresh")
   public ResponseEntity<TokenResponse> refresh(
-      @CookieValue(name = REFRESH_TOKEN_COOKIE, required = false) String refreshToken,
+      @CookieValue(name = RefreshTokenCookies.NAME, required = false) String refreshToken,
       HttpServletResponse response) {
     if (refreshToken == null || refreshToken.isBlank()) {
       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -156,26 +151,10 @@ public class AuthController {
   }
 
   private void addRefreshTokenCookie(HttpServletResponse response, @NonNull String refreshToken) {
-    ResponseCookie cookie =
-        ResponseCookie.from(REFRESH_TOKEN_COOKIE, refreshToken)
-            .httpOnly(true)
-            .secure(cookieSecure)
-            .sameSite("Lax")
-            .path(REFRESH_TOKEN_PATH)
-            .maxAge(jwtProperties.refreshExpiration() / 1000)
-            .build();
-    response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+    response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(refreshToken).toString());
   }
 
   private void clearRefreshTokenCookie(HttpServletResponse response) {
-    ResponseCookie cookie =
-        ResponseCookie.from(REFRESH_TOKEN_COOKIE, "")
-            .httpOnly(true)
-            .secure(cookieSecure)
-            .sameSite("Lax")
-            .path(REFRESH_TOKEN_PATH)
-            .maxAge(0)
-            .build();
-    response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+    response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookies.clear().toString());
   }
 }

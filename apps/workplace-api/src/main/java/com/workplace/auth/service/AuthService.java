@@ -13,6 +13,7 @@ import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.auth.repository.RefreshTokenRepository;
 import com.workplace.global.exception.CryptoException;
+import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.role.exception.RoleNotFoundException;
@@ -56,6 +57,9 @@ public class AuthService {
   // 최초 가입자 부트스트랩용 플랫폼 RBAC 저장소. platform 모듈 의존이지만 DSLContext 만 참조하므로
   // 순환 빈 의존이 없다(AuthService → PlatformRoleRepository → DSLContext).
   private final com.workplace.platform.repository.PlatformRoleRepository platformRoleRepository;
+
+  /** WP-48: SSO 로그인 결과 — refresh 토큰(쿠키로 설정)과 자동 선택된 테넌트(없으면 null). */
+  public record SsoSession(String refreshToken, Long tenantId) {}
 
   /** 1단계 로그인 결과(내부 운반용): accessToken/refreshToken 분리 + 선택 가능한 멤버십. */
   public record LoginResult(
@@ -202,16 +206,29 @@ public class AuthService {
   /** 2단계: 테넌트 선택 → membership+tenant ACTIVE 검증 후 tenant 스코프 토큰 발급. 전환도 이 메서드. */
   @Transactional
   public TokenResponse selectTenant(Long userId, Long tenantId) {
+    return selectTenant(userId, tenantId, null);
+  }
+
+  /**
+   * WP-48: authMethod=sso 세션은 SSO 가 켜진 워크스페이스만 선택할 수 있다. 새로 발급하는 토큰에도 amr 을 유지해 이후 전환·갱신에도 같은 제약이
+   * 걸린다.
+   */
+  @Transactional
+  public TokenResponse selectTenant(Long userId, Long tenantId, String authMethod) {
     if (!membershipRepository.hasActiveMembership(userId, tenantId)
         || !tenantRepository.isActive(tenantId)) {
       throw new TenantAccessDeniedException("해당 테넌트에 접근 권한이 없습니다.");
+    }
+    if (AuthDetails.SSO.equals(authMethod) && !tenantRepository.isSsoEnabled(tenantId)) {
+      throw new TenantAccessDeniedException("이 워크스페이스는 SSO 로그인을 허용하지 않습니다.");
     }
     UserResponse user =
         userRepository
             .findById(userId)
             .orElseThrow(() -> new InvalidTokenException("사용자를 찾을 수 없습니다."));
-    String accessToken = jwtTokenProvider.generateAccessToken(userId, user.username(), tenantId);
-    String refreshToken = jwtTokenProvider.generateRefreshToken(userId, tenantId);
+    String accessToken =
+        jwtTokenProvider.generateAccessToken(userId, user.username(), tenantId, authMethod);
+    String refreshToken = jwtTokenProvider.generateRefreshToken(userId, tenantId, authMethod);
     storeRefreshToken(userId, refreshToken, UUID.randomUUID());
     return new TokenResponse(
         accessToken, refreshToken, "Bearer", jwtProperties.accessExpiration() / 1000);
@@ -220,7 +237,15 @@ public class AuthService {
   /** 사용자의 선택 가능한 ACTIVE 멤버십 목록. */
   @Transactional(readOnly = true)
   public List<MembershipResponse> membershipsOf(Long userId) {
-    return membershipRepository.findActiveByUser(userId);
+    return membershipsOf(userId, null);
+  }
+
+  /** WP-48: SSO 세션이면 SSO 켜진 워크스페이스만. */
+  @Transactional(readOnly = true)
+  public List<MembershipResponse> membershipsOf(Long userId, String authMethod) {
+    return AuthDetails.SSO.equals(authMethod)
+        ? membershipRepository.findActiveSsoEnabledByUser(userId)
+        : membershipRepository.findActiveByUser(userId);
   }
 
   @Transactional
@@ -281,13 +306,49 @@ public class AuthService {
       throw new InvalidTokenException("테넌트 접근이 만료되었습니다. 테넌트를 다시 선택해 주세요.");
     }
 
-    String accessToken = jwtTokenProvider.generateAccessToken(user.id(), user.username(), tenantId);
-    String newRefreshToken = jwtTokenProvider.generateRefreshToken(user.id(), tenantId);
+    // WP-48: SSO 세션은 해당 워크스페이스의 SSO 가 여전히 켜져 있어야 갱신된다(관리자가 끄면 다음 갱신 때 차단).
+    String amr = jwtTokenProvider.getAuthMethodFromToken(rawRefreshToken);
+    if (AuthDetails.SSO.equals(amr)
+        && tenantId != null
+        && !tenantRepository.isSsoEnabled(tenantId)) {
+      throw new InvalidTokenException("이 워크스페이스는 SSO 로그인을 허용하지 않습니다. 다시 로그인해 주세요.");
+    }
+
+    String accessToken =
+        jwtTokenProvider.generateAccessToken(user.id(), user.username(), tenantId, amr);
+    String newRefreshToken = jwtTokenProvider.generateRefreshToken(user.id(), tenantId, amr);
 
     storeRefreshToken(user.id(), newRefreshToken, familyId);
 
     return new TokenResponse(
         accessToken, newRefreshToken, "Bearer", jwtProperties.accessExpiration() / 1000);
+  }
+
+  /**
+   * WP-48: SSO 인증을 마친 사용자에게 세션을 발급한다. SSO 켜진 워크스페이스가 정확히 1개면 자동 선택(tenant-scoped), 여러 개면
+   * tenant-less 로 발급해 웹이 선택 화면을 띄운다. access 토큰은 발급하지 않는다 — 웹이 /auth/refresh 로 받는다.
+   */
+  @Transactional
+  public SsoSession issueSsoSession(UserResponse user) {
+    var memberships = membershipRepository.findActiveSsoEnabledByUser(user.id());
+    Long tenantId = memberships.size() == 1 ? memberships.get(0).tenantId() : null;
+    String refreshToken =
+        jwtTokenProvider.generateRefreshToken(user.id(), tenantId, AuthDetails.SSO);
+    storeRefreshToken(user.id(), refreshToken, UUID.randomUUID());
+    String[] requestInfo = extractRequestInfo();
+    auditLogService.log(
+        user.id(),
+        user.username(),
+        "LOGIN",
+        "auth",
+        null,
+        "SSO 로그인 성공",
+        requestInfo[0],
+        requestInfo[1],
+        "SUCCESS",
+        null,
+        java.util.Map.of("method", "sso"));
+    return new SsoSession(refreshToken, tenantId);
   }
 
   @Transactional

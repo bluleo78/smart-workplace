@@ -19,6 +19,20 @@ public class MembershipRepository {
 
   private final DSLContext dsl;
 
+  /** WP-48: SSO 세션용 — ACTIVE 멤버십 중 테넌트가 ACTIVE 이고 SSO 가 켜진 것만. */
+  @Transactional(readOnly = true)
+  public List<MembershipResponse> findActiveSsoEnabledByUser(Long userId) {
+    return dsl.select(TENANT.ID, TENANT.NAME, TENANT.SLUG)
+        .from(MEMBERSHIP)
+        .join(TENANT)
+        .on(TENANT.ID.eq(MEMBERSHIP.TENANT_ID))
+        .where(MEMBERSHIP.USER_ID.eq(userId))
+        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .and(TENANT.STATUS.eq("ACTIVE"))
+        .and(TENANT.SSO_ENABLED.isTrue())
+        .fetch(r -> new MembershipResponse(r.value1(), r.value2(), r.value3()));
+  }
+
   /** 사용자의 ACTIVE 멤버십(테넌트도 ACTIVE)만. 테넌트 선택 목록용. */
   @Transactional(readOnly = true)
   public List<MembershipResponse> findActiveByUser(Long userId) {

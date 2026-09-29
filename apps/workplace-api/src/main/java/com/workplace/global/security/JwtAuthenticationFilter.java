@@ -90,7 +90,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       if (tenantId != null) {
         TenantContext.set(tenantId);
       }
-      setSecurityContext(userId);
+      // WP-48: SSO 세션이면 인증 수단을 details 로 운반 — select-tenant/memberships 가 SSO 켜진 워크스페이스로 제한한다.
+      setSecurityContext(userId, jwtTokenProvider.getAuthMethodFromToken(token));
     }
   }
 
@@ -135,6 +136,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   }
 
   private void setSecurityContext(Long userId) {
+    setSecurityContext(userId, null);
+  }
+
+  private void setSecurityContext(Long userId, String authMethod) {
     Set<String> permissions = permissionService.getUserPermissions(userId);
     List<SimpleGrantedAuthority> authorities =
         permissions.stream().map(SimpleGrantedAuthority::new).toList();
