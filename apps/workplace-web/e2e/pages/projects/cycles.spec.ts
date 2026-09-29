@@ -1011,6 +1011,9 @@ test.describe('사이클 드래그 이동', () => {
     await page.mouse.move(box.x + box.width / 2, box.y + 14, { steps: 10 });
     if (beforeDrop) await beforeDrop();
     await page.mouse.up();
+    // dnd-kit PointerSensor 는 드래그 종료 후 50ms 동안 document click 을 삼킨다(드롭 직후 오클릭 방지).
+    // 부하가 큰 전체 실행에선 드롭 직후 토글·되돌리기 클릭이 이 창에 걸려 무시되므로(플래키) 창이 지나길 기다린다.
+    await page.waitForTimeout(100);
   }
 
   test('진행 중 사이클 → 접힌 예정 사이클 헤더로 드래그 — 이동 요청·즉시 반영·되돌리기', async ({ authenticatedPage: page }) => {

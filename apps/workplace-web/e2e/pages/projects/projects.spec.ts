@@ -83,8 +83,14 @@ test(
     const comment = await commentCapture.waitForRequest();
     expect(comment.payload).toMatchObject({ body: '확인했습니다' });
 
-    // UI 반영
-    await expect(page.getByText('확인했습니다')).toBeVisible();
+    // UI 반영 — waitForRequest 는 POST 가로채기 시점에 resolve 되므로 아직 mutateAsync 가 끝나지 않았을 수 있다.
+    // 코멘트 포함 detail 목이 무효화 refetch 로 먼저 렌더되면 입력창(clear 전)과 목록에 같은 텍스트가 공존해
+    // 페이지 전역 getByText 가 strict 위반으로 즉시 실패한다 → 입력창이 비워지길(#123) 먼저 기다리고,
+    // 코멘트 확인은 코멘트 목록으로 범위를 좁힌다.
+    await expect(page.getByTestId('issue-comment-input')).not.toContainText('확인했습니다');
+    await expect(
+      page.getByRole('region', { name: '코멘트' }).getByRole('list').getByText('확인했습니다'),
+    ).toBeVisible();
   },
 );
 

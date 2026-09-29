@@ -459,8 +459,14 @@ test.describe('IssueCommentList 새로고침 유실 경고 (#620)', () => {
     expect(await dispatchBeforeUnload(page)).toBe(true);
 
     await page.getByTestId('issue-comment-submit').click();
-    await expect(page.getByText('제출된 코멘트')).toBeVisible();
+    // 무효화 refetch 가 mutateAsync resolve 보다 먼저 코멘트를 렌더할 수 있어 "코멘트 표시"는 제출 완료 신호가
+    // 아니다. 실제 완료 신호인 입력창 clear(= suppress 처리된 onChange 로 hasDraft 해제)를 기다린다.
+    await expect(input).not.toContainText('제출된 코멘트');
+    await expect(
+      page.getByRole('region', { name: '코멘트' }).getByRole('list').getByText('제출된 코멘트'),
+    ).toBeVisible();
 
-    expect(await dispatchBeforeUnload(page)).toBe(false);
+    // beforeunload 리스너 해제는 setHasDraft(false) 이후 effect 에서 일어나므로 1회 확인 대신 폴링한다.
+    await expect.poll(() => dispatchBeforeUnload(page)).toBe(false);
   });
 });
