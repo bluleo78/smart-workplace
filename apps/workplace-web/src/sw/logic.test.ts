@@ -24,6 +24,7 @@ const payload = {
 describe('safeTarget', () => {
   it('상대경로는 그대로', () => {
     expect(safeTarget('/chat/channels/5?thread=3')).toBe('/chat/channels/5?thread=3')
+    expect(safeTarget('/chat/dms/1?thread=2')).toBe('/chat/dms/1?thread=2')
   })
   it('외부·프로토콜 상대·비문자열은 /', () => {
     expect(safeTarget('https://evil.com')).toBe('/')
@@ -31,6 +32,16 @@ describe('safeTarget', () => {
     expect(safeTarget('/\\evil.com')).toBe('/')
     expect(safeTarget('javascript:alert(1)')).toBe('/')
     expect(safeTarget(null)).toBe('/')
+  })
+  it('TAB/LF/CR 로 origin 이 뒤바뀌는 우회는 /', () => {
+    // WHATWG URL 파서가 TAB/LF/CR 을 파싱 전에 제거해 '//evil.com'(스킴 상대)이 되는 우회 (review round 1).
+    expect(safeTarget('/\t/evil.com')).toBe('/')
+    expect(safeTarget('/\n/evil.com')).toBe('/')
+    expect(safeTarget('/\r/evil.com')).toBe('/')
+    expect(safeTarget('\t//evil.com')).toBe('/')
+  })
+  it('percent-encoded 백슬래시는 안전한 리터럴 경로 문자로 같은 origin 유지', () => {
+    expect(safeTarget('/%5Cevil.com')).toBe('/%5Cevil.com')
   })
 })
 
@@ -61,6 +72,10 @@ describe('shouldSuppress', () => {
   })
   it('항상 표시해야 하는 브라우저(iOS/Safari)는 억제 안 함', () => {
     expect(shouldSuppress(payload, [{ url: `${ORIGIN}/chat/dms/42`, visible: true }], ORIGIN, true)).toBe(false)
+  })
+  it('client.url 파싱 실패는 일치하지 않음(표시)으로 처리', () => {
+    // new URL(c.url) 이 던져도 억제 판단 전체가 죽지 않고 "표시" 로 안전하게 fallback (review round 1).
+    expect(shouldSuppress(payload, [{ url: 'not-a-url', visible: true }], ORIGIN, false)).toBe(false)
   })
 })
 

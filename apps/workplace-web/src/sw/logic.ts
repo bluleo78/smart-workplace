@@ -29,10 +29,46 @@ const FALLBACK: PushPayload = {
   tag: null,
 }
 
-/** 같은 origin 상대경로만 허용 — 그 외(외부·프로토콜 상대·스킴)는 홈으로(오픈 리다이렉트 방지). */
+// 파싱 전에 origin 을 대조할 sentinel — 실제 서비스와 절대 충돌하지 않는 예약 TLD(.invalid) 사용.
+const SENTINEL_ORIGIN = 'https://sentinel.invalid'
+
+/**
+ * 제어문자·공백(U+0000~001F, U+007F)이나 raw 백슬래시가 하나라도 있으면 true.
+ * 정규식 문자 클래스에 제어문자 리터럴을 그대로 넣으면 ESLint `no-control-regex` 에 걸리므로
+ * charCodeAt 비교로 직접 검사한다.
+ */
+function hasControlOrBackslash(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f || s[i] === '\\') return true
+  }
+  return false
+}
+
+/**
+ * 같은 origin 상대경로만 허용 — 그 외(외부·프로토콜 상대·스킴)는 홈으로(오픈 리다이렉트 방지).
+ *
+ * 문자열 접두사만 보고 판단하면 우회된다: WHATWG URL 파서는 입력 어디에 있든 TAB/LF/CR(U+0009,
+ * U+000A, U+000D)을 파싱 전에 제거하므로 `'/\t/evil.com'` 은 `'//evil.com'`(스킴 상대)이 되어
+ * origin 이 evil.com 으로 바뀐다. 또한 특수 스킴(http/https 등)에서는 raw 백슬래시를 `/` 와
+ * 동일하게 취급해 `'/\\evil.com'` 도 같은 방식으로 우회된다.
+ * 그래서 (1) 제어문자·공백(U+0000~001F, U+007F)·raw 백슬래시가 하나라도 있으면 원본 문자열
+ * 단계에서 거부하고, (2) 반드시 `/` 로 시작하되 `//` 는 거부하고, (3) 그래도 남는 우회 경로를
+ * 잡기 위해 sentinel origin 으로 실제 파싱해 origin 이 그대로인지 재검증한다 — 파서가 정규화한
+ * pathname+search+hash 만 최종 사용한다(백분율 인코딩된 `%5C` 등은 안전한 리터럴 경로 문자로
+ * 그대로 남아 통과한다).
+ */
 export function safeTarget(url: unknown): string {
-  if (typeof url !== 'string' || !url.startsWith('/') || url.startsWith('//') || url.startsWith('/\\')) return '/'
-  return url
+  if (typeof url !== 'string') return '/'
+  if (hasControlOrBackslash(url)) return '/'
+  if (!url.startsWith('/') || url.startsWith('//')) return '/'
+  try {
+    const u = new URL(url, SENTINEL_ORIGIN)
+    if (u.origin !== SENTINEL_ORIGIN) return '/'
+    return u.pathname + u.search + u.hash
+  } catch {
+    return '/'
+  }
 }
 
 /** push 데이터 파싱. 형식이 어긋나도 iOS 는 반드시 알림을 띄워야 하므로 예외 대신 일반 문구를 돌려준다. */
@@ -64,8 +100,14 @@ export function shouldSuppress(p: PushPayload, clients: ClientView[], origin: st
   const target = new URL(p.url, origin)
   return clients.some((c) => {
     if (!c.visible) return false
-    const u = new URL(c.url)
-    return u.origin === target.origin && u.pathname === target.pathname
+    try {
+      // client.url 파싱 실패 시 "일치하지 않음(표시)" 으로 취급 — 억제 판단이 예외로 죽어 알림
+      // 자체가 안 뜨는 사고(iOS 무알림 규칙 위반)를 막는다.
+      const u = new URL(c.url)
+      return u.origin === target.origin && u.pathname === target.pathname
+    } catch {
+      return false
+    }
   })
 }
 
