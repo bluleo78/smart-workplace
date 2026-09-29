@@ -1,5 +1,9 @@
 package com.workplace.issue.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.workplace.issue.dto.CreateIssueTypeRequest;
 import com.workplace.issue.dto.IssueTypeIcon;
 import com.workplace.issue.dto.IssueTypeResponse;
@@ -10,6 +14,7 @@ import com.workplace.issue.exception.TypeNameDuplicatedException;
 import com.workplace.issue.exception.TypeNotFoundException;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.label.dto.ColorToken;
+import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +33,7 @@ public class IssueTypeService {
 
   private final IssueTypeRepository repo;
   private final ProjectAccessGuard accessGuard;
+  private final ProjectChangeNotifier changeNotifier;
 
   /**
    * 신규 프로젝트 생성 직후 시스템 유형을 시드한다. ProjectService.create / PersonalProjectProvisioner.createPersonal
@@ -60,6 +66,7 @@ public class IssueTypeService {
     String name = req.name().trim();
     try {
       var row = repo.insert(project.id(), name, color, icon, false, 99);
+      changeNotifier.changed("issue-type", OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
     } catch (DuplicateKeyException e) {
       throw new TypeNameDuplicatedException(name);
@@ -85,6 +92,7 @@ public class IssueTypeService {
     } catch (DuplicateKeyException e) {
       throw new TypeNameDuplicatedException(name);
     }
+    changeNotifier.changed("issue-type", OP_UPDATED, project, typeId, callerId);
     return toResponse(repo.findById(typeId).orElseThrow());
   }
 
@@ -103,6 +111,7 @@ public class IssueTypeService {
       throw new TypeInUseException(inUse);
     }
     repo.delete(typeId);
+    changeNotifier.changed("issue-type", OP_DELETED, project, typeId, callerId);
   }
 
   private IssueTypeResponse toResponse(IssueTypeRow r) {

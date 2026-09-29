@@ -1,5 +1,9 @@
 package com.workplace.issue.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.dto.FieldType;
@@ -12,6 +16,7 @@ import com.workplace.issue.exception.FieldOptionInUseException;
 import com.workplace.issue.exception.TypeImmutableException;
 import com.workplace.issue.repository.IssueFieldDefRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
+import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,6 +39,7 @@ public class IssueFieldDefService {
   private final IssueFieldDefRepository repo;
   private final IssueFieldValueRepository valueRepo;
   private final ProjectAccessGuard accessGuard;
+  private final ProjectChangeNotifier changeNotifier;
 
   /** 프로젝트 내 필드 정의 목록 — 조회 가드(OPEN 은 테넌트 전원 개방). */
   @Transactional(readOnly = true)
@@ -51,6 +57,7 @@ public class IssueFieldDefService {
     String name = req.name().trim();
     try {
       var row = repo.insert(project.id(), name, type, req.options(), 99);
+      changeNotifier.changed("field-def", OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
     } catch (DuplicateKeyException e) {
       throw new FieldNameDuplicatedException(name);
@@ -84,6 +91,7 @@ public class IssueFieldDefService {
     } catch (DuplicateKeyException e) {
       throw new FieldNameDuplicatedException(name);
     }
+    changeNotifier.changed("field-def", OP_UPDATED, project, fieldId, callerId);
     return toResponse(repo.findById(fieldId).orElseThrow());
   }
 
@@ -114,6 +122,7 @@ public class IssueFieldDefService {
       throw new FieldNotFoundException(fieldId);
     }
     repo.delete(fieldId);
+    changeNotifier.changed("field-def", OP_DELETED, project, fieldId, callerId);
   }
 
   private IssueFieldDefResponse toResponse(IssueFieldDefRow r) {

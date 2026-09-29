@@ -1,11 +1,16 @@
 package com.workplace.milestone.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.workplace.milestone.dto.CreateMilestoneRequest;
 import com.workplace.milestone.dto.MilestoneResponse;
 import com.workplace.milestone.dto.MilestoneRow;
 import com.workplace.milestone.exception.MilestoneNameDuplicatedException;
 import com.workplace.milestone.exception.MilestoneNotFoundException;
 import com.workplace.milestone.repository.MilestoneRepository;
+import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +29,7 @@ public class MilestoneService {
 
   private final MilestoneRepository milestoneRepository;
   private final ProjectAccessGuard accessGuard;
+  private final ProjectChangeNotifier changeNotifier;
 
   /** 프로젝트의 마일스톤 목록 — 읽기 가드. */
   @Transactional(readOnly = true)
@@ -40,6 +46,7 @@ public class MilestoneService {
     String name = req.name().trim();
     try {
       var row = milestoneRepository.insert(project.id(), name, req.dueDate(), req.description());
+      changeNotifier.changed("milestone", OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
     } catch (DuplicateKeyException e) {
       throw new MilestoneNameDuplicatedException(name);
@@ -57,6 +64,7 @@ public class MilestoneService {
     } catch (DuplicateKeyException e) {
       throw new MilestoneNameDuplicatedException(name);
     }
+    changeNotifier.changed("milestone", OP_UPDATED, project, milestoneId, callerId);
     return toResponse(milestoneRepository.findById(milestoneId).orElseThrow());
   }
 
@@ -65,6 +73,7 @@ public class MilestoneService {
     var project = accessGuard.assertMember(projectKey, callerId);
     loadInProject(milestoneId, project.id());
     milestoneRepository.deleteById(milestoneId);
+    changeNotifier.changed("milestone", OP_DELETED, project, milestoneId, callerId);
   }
 
   /** 마일스톤이 존재하고 해당 프로젝트 소속인지 확인 후 row 반환. Task 4 의 이슈 milestoneId 검증(다른 프로젝트 마일스톤 연결 차단)이 재사용한다. */

@@ -1,11 +1,16 @@
 package com.workplace.label.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.workplace.label.dto.ColorToken;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.dto.LabelResponse;
 import com.workplace.label.exception.LabelNameDuplicatedException;
 import com.workplace.label.exception.LabelNotFoundException;
 import com.workplace.label.repository.LabelRepository;
+import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +26,7 @@ public class LabelService {
 
   private final LabelRepository labelRepository;
   private final ProjectAccessGuard accessGuard;
+  private final ProjectChangeNotifier changeNotifier;
 
   /**
    * 라벨 목록(라벨 picker) — read 진입점. OPEN 은 테넌트 전원 조회 허용(assertReadable). 라벨 관리(create/update/delete)는
@@ -41,6 +47,7 @@ public class LabelService {
     String name = req.name().trim();
     try {
       var row = labelRepository.insert(project.id(), name, color);
+      changeNotifier.changed("label", OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
     } catch (DuplicateKeyException e) {
       throw new LabelNameDuplicatedException(name);
@@ -63,6 +70,7 @@ public class LabelService {
     } catch (DuplicateKeyException e) {
       throw new LabelNameDuplicatedException(name);
     }
+    changeNotifier.changed("label", OP_UPDATED, project, labelId, callerId);
     return toResponse(labelRepository.findById(labelId).orElseThrow());
   }
 
@@ -75,6 +83,7 @@ public class LabelService {
       throw new LabelNotFoundException(labelId);
     }
     labelRepository.delete(labelId);
+    changeNotifier.changed("label", OP_DELETED, project, labelId, callerId);
   }
 
   /** LabelRow → LabelResponse 변환. */

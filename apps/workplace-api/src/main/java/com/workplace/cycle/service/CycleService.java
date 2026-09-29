@@ -1,5 +1,9 @@
 package com.workplace.cycle.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.workplace.cycle.dto.CreateCycleRequest;
 import com.workplace.cycle.dto.CycleResponse;
 import com.workplace.cycle.dto.CycleRow;
@@ -8,6 +12,7 @@ import com.workplace.cycle.exception.CycleNameDuplicatedException;
 import com.workplace.cycle.exception.CycleNotFoundException;
 import com.workplace.cycle.exception.InvalidCycleDateRangeException;
 import com.workplace.cycle.repository.CycleRepository;
+import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.time.LocalDate;
 import java.util.List;
@@ -24,6 +29,7 @@ public class CycleService {
 
   private final CycleRepository cycleRepository;
   private final ProjectAccessGuard accessGuard;
+  private final ProjectChangeNotifier changeNotifier;
 
   /** 프로젝트의 사이클 목록 — 조회 가드(OPEN 은 테넌트 전원 개방). */
   @Transactional(readOnly = true)
@@ -44,6 +50,7 @@ public class CycleService {
       var row =
           cycleRepository.insert(
               project.id(), name, req.goal(), req.startDate(), req.endDate(), status);
+      changeNotifier.changed("cycle", OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
     } catch (DuplicateKeyException e) {
       throw new CycleNameDuplicatedException(name);
@@ -63,6 +70,7 @@ public class CycleService {
     } catch (DuplicateKeyException e) {
       throw new CycleNameDuplicatedException(name);
     }
+    changeNotifier.changed("cycle", OP_UPDATED, project, cycleId, callerId);
     return toResponse(cycleRepository.findById(cycleId).orElseThrow());
   }
 
@@ -71,6 +79,7 @@ public class CycleService {
     var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     loadInProject(cycleId, project.id());
     cycleRepository.delete(cycleId);
+    changeNotifier.changed("cycle", OP_DELETED, project, cycleId, callerId);
   }
 
   /** 시작일/종료일이 둘 다 있을 때 종료일이 시작일보다 빠르면 거부(#804). */

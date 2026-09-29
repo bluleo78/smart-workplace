@@ -1,8 +1,13 @@
 package com.workplace.project.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.MembershipGuard;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueTypeService;
@@ -17,6 +22,7 @@ import com.workplace.project.dto.UpdateProjectRequest;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
+import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
@@ -48,6 +54,8 @@ public class ProjectService {
   private final IssueRepository issueRepository;
   private final IssueAssigneeRepository issueAssigneeRepository;
   private final MembershipGuard membershipGuard;
+  private final ProjectChangeNotifier changeNotifier;
+  private final IssueChangeNotifier issueChangeNotifier;
 
   /**
    * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, TEAM/OPEN 이면 공유 프로젝트 경로. 공유
@@ -67,6 +75,8 @@ public class ProjectService {
     sequenceRepository.initialize(row.id());
     // TEAM/OPEN 공유 프로젝트 — EPIC 포함 6종 시드.
     issueTypeService.seedSystemTypes(row.id(), true);
+    // 멤버 등록 이후에 발행해야 수신자(생성자)가 명단에 포함된다. PERSONAL 경로는 호출자 본인만 쓰므로 발행하지 않는다.
+    changeNotifier.changed("project", OP_CREATED, row, row.id(), callerId);
     // 생성자는 항상 OWNER — viewerIsMember=true
     return ProjectResponse.from(row, true);
   }
@@ -179,6 +189,7 @@ public class ProjectService {
         projectRepository
             .findById(project.id())
             .orElseThrow(() -> new ProjectNotFoundException(projectKey));
+    changeNotifier.changed("project", OP_UPDATED, updated, updated.id(), callerId);
     // update 는 OWNER 만 가능 — 업데이트 성공 시 항상 멤버.
     return ProjectResponse.from(updated, true);
   }
@@ -187,6 +198,7 @@ public class ProjectService {
   public void softDelete(Long callerId, String projectKey) {
     ProjectRow project = checkDeletable(callerId, projectKey);
     projectRepository.softDelete(project.id());
+    changeNotifier.changed("project", OP_DELETED, project, project.id(), callerId);
   }
 
   /**
@@ -234,6 +246,7 @@ public class ProjectService {
     // (판정은 checkAddMember 가 끝냈고, 여기서는 실행에 쓸 role 만 보정한다.)
     String roleToInsert = "PERSONAL".equals(project.type()) ? "MEMBER" : req.role();
     memberRepository.insert(project.id(), req.userId(), roleToInsert);
+    changeNotifier.changed("project-member", OP_CREATED, project, req.userId(), callerId);
     // username/name 채워서 응답 (단건 조회로 N+1 회피)
     return memberRepository
         .findMemberWithUser(project.id(), req.userId())
@@ -285,6 +298,7 @@ public class ProjectService {
       Long callerId, String projectKey, Long memberUserId, UpdateMemberRoleRequest req) {
     ProjectRow project = checkUpdateMemberRole(callerId, projectKey, memberUserId, req);
     memberRepository.updateRole(project.id(), memberUserId, req.role());
+    changeNotifier.changed("project-member", OP_UPDATED, project, memberUserId, callerId);
   }
 
   /**
@@ -321,8 +335,18 @@ public class ProjectService {
    */
   public void removeMember(Long callerId, String projectKey, Long memberUserId) {
     ProjectRow project = checkRemoveMember(callerId, projectKey, memberUserId);
+    // 담당자 매핑을 지우기 전에 영향받는 이슈를 확보한다 — 지운 뒤에는 어느 이슈였는지 알 수 없다.
+    var strippedIssues =
+        issueAssigneeRepository.findIssueNumbersByProjectAndUser(project.id(), memberUserId);
     memberRepository.delete(project.id(), memberUserId);
     issueAssigneeRepository.removeByProjectAndUser(project.id(), memberUserId);
+    // 담당자가 빠진 이슈는 목록·상세가 바뀌므로 이슈 갱신을 알린다.
+    for (var ref : strippedIssues) {
+      issueChangeNotifier.updated(project, ref.number(), ref.id(), callerId);
+    }
+    // 제거된 멤버는 커밋 후 명단에서 빠지므로 extra 로 직접 받게 한다.
+    changeNotifier.changed(
+        "project-member", OP_DELETED, project, memberUserId, callerId, List.of(memberUserId));
   }
 
   /**

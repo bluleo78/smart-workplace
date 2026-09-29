@@ -21,6 +21,22 @@ public class IssueAssigneeRepository {
 
   private final DSLContext dsl;
 
+  /** 이슈 식별 쌍(id, 프로젝트 내 번호). */
+  public record IssueRef(long id, int number) {}
+
+  /** 프로젝트 내에서 대상 사용자가 담당자로 걸린 (삭제되지 않은) 이슈 목록. 멤버 제거로 담당자 매핑을 지우기 전에 영향받는 이슈에 갱신 알림을 보내려고 조회한다. */
+  public List<IssueRef> findIssueNumbersByProjectAndUser(long projectId, long userId) {
+    return dsl.select(ISSUE.ID, ISSUE.NUMBER)
+        .from(ISSUE_ASSIGNEE)
+        .join(ISSUE)
+        .on(ISSUE.ID.eq(ISSUE_ASSIGNEE.ISSUE_ID))
+        .where(
+            ISSUE.PROJECT_ID.eq(projectId),
+            ISSUE_ASSIGNEE.USER_ID.eq(userId),
+            ISSUE.DELETED_AT.isNull())
+        .fetch(r -> new IssueRef(r.get(ISSUE.ID), r.get(ISSUE.NUMBER)));
+  }
+
   /** 이슈에 부착된 담당자 user_id 목록 (변경 diff 계산용). */
   public List<Long> findUserIdsByIssue(Long issueId) {
     return dsl.select(ISSUE_ASSIGNEE.USER_ID)
