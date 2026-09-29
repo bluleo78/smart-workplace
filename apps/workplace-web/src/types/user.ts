@@ -25,7 +25,7 @@ export interface UpdateProfileRequest {
 }
 
 export interface ChangePasswordRequest {
-  currentPassword: string;
+  currentPassword?: string; // WP-48 비밀번호 없는 계정의 최초 설정은 생략
   newPassword: string;
 }
 
@@ -50,7 +50,7 @@ export interface CreateMemberRequest {
   username: string;
   email?: string;
   name: string;
-  password: string;
+  password?: string; // WP-48 비우면 SSO 전용 구성원
   role: 'ADMIN' | 'USER';
 }
 
