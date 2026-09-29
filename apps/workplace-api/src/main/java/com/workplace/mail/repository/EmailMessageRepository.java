@@ -504,7 +504,12 @@ public class EmailMessageRepository {
                     r.get(CONTENT_ATTACHMENT.SIZE_BYTES) == null
                         ? 0L
                         : r.get(CONTENT_ATTACHMENT.SIZE_BYTES),
-                    r.get(CONTENT_ATTACHMENT.MIME_CONTENT_ID)));
+                    // 빈 문자열은 지연 백필의 내부 표시("확인했지만 없음", WP-68) — API 로는 "없음"(null)으로만 노출
+                    emptyToNull(r.get(CONTENT_ATTACHMENT.MIME_CONTENT_ID))));
+  }
+
+  private static String emptyToNull(String v) {
+    return v == null || v.isEmpty() ? null : v;
   }
 
   /**

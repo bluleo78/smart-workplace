@@ -1,7 +1,9 @@
 package com.workplace.mail.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -17,6 +19,7 @@ import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.mail.dto.MailSendRequest;
+import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
 import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.service.MailComposeService;
@@ -27,6 +30,7 @@ import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -100,5 +104,52 @@ class MailComposeControllerTest {
                 .content(objectMapper.writeValueAsString(body)))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value("수신자를 한 명 이상 입력하세요"));
+  }
+
+  /** WP-69: 원시 JSON 의 inlineImages 가 요청 레코드로 바인딩된다(생략 시 null — 기존 호출처 호환). */
+  @Test
+  void send_bindsInlineImages() throws Exception {
+    when(composeService.send(eq(1L), eq(10L), any()))
+        .thenReturn(new SendResult(100L, "gen@test.local"));
+    String json =
+        """
+        {"to":["a@test.local"],"subject":"RE","bodyHtml":"<img src=\\"cid:x.png\\">","bodyText":"b",
+         "inlineImages":[{"attachmentId":7,"contentId":"x.png"}]}
+        """;
+
+    mockMvc
+        .perform(
+            post("/api/v1/mail/accounts/{id}/send", 10L)
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<MailSendRequest> cap = ArgumentCaptor.forClass(MailSendRequest.class);
+    verify(composeService).send(eq(1L), eq(10L), cap.capture());
+    assertThat(cap.getValue().inlineImages()).containsExactly(new InlineImageRef(7L, "x.png"));
+  }
+
+  /** inlineImages 를 생략한 기존 호출처(AI 에이전트·확인카드 등) JSON 은 빈 목록으로 바인딩된다. */
+  @Test
+  void send_withoutInlineImagesField_bindsEmptyList() throws Exception {
+    when(composeService.send(eq(1L), eq(10L), any()))
+        .thenReturn(new SendResult(100L, "gen@test.local"));
+    String json =
+        """
+        {"to":["a@test.local"],"subject":"s","bodyHtml":"<p>b</p>","bodyText":"b"}
+        """;
+
+    mockMvc
+        .perform(
+            post("/api/v1/mail/accounts/{id}/send", 10L)
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<MailSendRequest> cap = ArgumentCaptor.forClass(MailSendRequest.class);
+    verify(composeService).send(eq(1L), eq(10L), cap.capture());
+    assertThat(cap.getValue().inlineImages()).isEmpty();
   }
 }

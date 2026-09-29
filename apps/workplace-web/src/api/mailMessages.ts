@@ -13,6 +13,7 @@ import type {
   PromoteToIssuePayload,
   SendResult,
 } from '../types/mailMessage';
+import { fetchBlobByPath } from './blobContent';
 import { client } from './client';
 
 /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
@@ -149,4 +150,23 @@ export async function downloadMailAttachment(
     (headers['content-type'] as string | undefined) || 'application/octet-stream';
   const blob = new Blob([data], { type: contentType });
   downloadBlob(filename || `attachment-${attachmentId}`, blob);
+}
+
+/**
+ * 인라인 이미지 첨부를 data URI 로 조회 — 본문 cid: 치환용(WP-65).
+ * sandbox iframe 은 opaque origin 이라 부모 origin 의 blob: URL 을 신뢰할 수 없으므로 data URI 를 쓴다.
+ * 대상은 resolveCidTargets(lib/mailInlineImages) 가 image/* 로 한정하므로, 응답 헤더 대신 첨부 메타 contentType 으로 타입을 지정한다
+ * (서버가 octet-stream 으로 응답해도 img 가 렌더되도록).
+ */
+export async function fetchMailAttachmentDataUri(
+  attachmentId: number,
+  contentType: string,
+): Promise<string> {
+  const blob = await fetchBlobByPath(`/mail/attachments/${attachmentId}/content`);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(new Blob([blob], { type: contentType }));
+  });
 }

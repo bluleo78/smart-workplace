@@ -1,9 +1,12 @@
 package com.workplace.mail;
 
+import static com.workplace.jooq.Tables.EMAIL_ATTACHMENT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -15,26 +18,40 @@ import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.MailSendRequest;
+import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
 import com.workplace.mail.dto.OutgoingMail;
+import com.workplace.mail.dto.ParsedAttachment;
+import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
+import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailAttachmentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.GraphTokenService;
+import com.workplace.mail.service.MailAttachmentService.GraphAttachment;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import jakarta.mail.Part;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Properties;
+import java.util.stream.IntStream;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
@@ -297,5 +314,216 @@ class MailComposeServiceTest extends IntegrationTestBase {
         new String(Base64.getDecoder().decode(base64Captor.getValue()), StandardCharsets.UTF_8);
     assertThat(decodedMime).contains("Bcc:");
     assertThat(decodedMime).contains("secret-bcc@example.com");
+  }
+
+  // ---- WP-69: 답장·전달 인용문 인라인 이미지 재첨부 ----
+
+  @Autowired EmailAttachmentRepository attachmentRepo;
+
+  private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3};
+
+  /** Graph 원본 메일 + 첨부 1건 시드. 첨부 바이트는 Graph 단건 조회 스텁으로 제공한다. @return email_attachment.id */
+  private long seedSourceAttachment(
+      long accountId, String pmid, String filename, String contentType, long size) {
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    ParsedMessage m =
+        new ParsedMessage(
+            0L,
+            "src-" + pmid + "@x",
+            "t-" + pmid,
+            null,
+            null,
+            "a@x.com",
+            "A",
+            "me@x.com",
+            null,
+            "원본",
+            Instant.now(),
+            Instant.now(),
+            true,
+            true,
+            null,
+            null,
+            null,
+            List.of());
+    messageRepo.upsertByProviderId(accountId, folderId, m, pmid);
+    long messageId = messageRepo.findByProviderId(accountId, pmid).orElseThrow();
+    long contentId = messageRepo.findBodyTarget(accountId, messageId).orElseThrow().contentId();
+    attachmentRepo.insert(
+        messageId,
+        contentId,
+        0,
+        new ParsedAttachment(filename, contentType, size, null, "ATT-" + pmid));
+    when(graphApiClient.get(
+            any(), contains(pmid + "/attachments/ATT-" + pmid), eq(GraphAttachment.class)))
+        .thenReturn(
+            new GraphAttachment(filename, contentType, Base64.getEncoder().encodeToString(PNG)));
+    return dsl.select(EMAIL_ATTACHMENT.ID)
+        .from(EMAIL_ATTACHMENT)
+        .where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId))
+        .fetchOne(EMAIL_ATTACHMENT.ID);
+  }
+
+  private MailSendRequest replyWithInline(List<InlineImageRef> refs) {
+    return new MailSendRequest(
+        List.of("peer@example.com"),
+        List.of(),
+        List.of(),
+        "RE: 원본",
+        "<p>답장</p><blockquote><img src=\"cid:7dc8.png\"></blockquote>",
+        "답장",
+        null,
+        refs);
+  }
+
+  /**
+   * 인용문 인라인 이미지는 원본 첨부 바이트를 가져와 같은 Content-ID 의 인라인 파트로 붙는다 — multipart/related(alternative + 이미지).
+   * text/html 본문도 유지된다.
+   */
+  @Test
+  void send_withInlineImages_reattachesAsRelatedInlinePart() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    when(graphTokenService.getAccessToken(eq(user), eq(accountId))).thenReturn("FAKE_TOKEN");
+    long attId = seedSourceAttachment(accountId, "S1", "7dc8.png", "image/png", PNG.length);
+
+    composeService.send(
+        user, accountId, replyWithInline(List.of(new InlineImageRef(attId, "7dc8.png"))));
+
+    ArgumentCaptor<String> cap = ArgumentCaptor.forClass(String.class);
+    verify(graphApiClient).sendMail(eq("FAKE_TOKEN"), cap.capture());
+    MimeMessage sent =
+        new MimeMessage(
+            Session.getInstance(new Properties()),
+            new ByteArrayInputStream(Base64.getDecoder().decode(cap.getValue())));
+    assertThat(sent.isMimeType("multipart/related")).isTrue();
+    MimeMultipart related = (MimeMultipart) sent.getContent();
+    assertThat(related.getCount()).isEqualTo(2);
+    assertThat(related.getBodyPart(0).isMimeType("multipart/alternative")).isTrue();
+    MimeMultipart alt = (MimeMultipart) related.getBodyPart(0).getContent();
+    assertThat(alt.getBodyPart(0).isMimeType("text/plain")).isTrue();
+    assertThat((String) alt.getBodyPart(1).getContent()).contains("cid:7dc8.png");
+    MimeBodyPart img = (MimeBodyPart) related.getBodyPart(1);
+    assertThat(img.getContentID()).isEqualTo("<7dc8.png>");
+    assertThat(img.getDisposition()).isEqualTo(Part.INLINE);
+    assertThat(img.isMimeType("image/png")).isTrue();
+    assertThat(img.getInputStream().readAllBytes()).isEqualTo(PNG);
+  }
+
+  /** 인라인 이미지 없으면 기존처럼 multipart/alternative 만 조립한다(회귀). */
+  @Test
+  void send_withoutInlineImages_keepsAlternativeOnly() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    when(graphTokenService.getAccessToken(eq(user), eq(accountId))).thenReturn("FAKE_TOKEN");
+
+    composeService.send(user, accountId, replyWithInline(null));
+
+    ArgumentCaptor<String> cap = ArgumentCaptor.forClass(String.class);
+    verify(graphApiClient).sendMail(eq("FAKE_TOKEN"), cap.capture());
+    String mime = new String(Base64.getDecoder().decode(cap.getValue()), StandardCharsets.UTF_8);
+    assertThat(mime).contains("multipart/alternative").doesNotContain("multipart/related");
+  }
+
+  /** 타인 소유 첨부는 인라인 원본으로 쓸 수 없다 — 사전검증에서 차단(바이트 조회·발송 없음). */
+  @Test
+  void validateSendable_inlineImageOfOtherUser_rejected() {
+    long owner = TestFixtures.createHuman(dsl);
+    long attacker = TestFixtures.createHuman(dsl);
+    long ownerAccount = MailTestSupport.seedGraphAccount(dsl, encryption, owner);
+    long attackerAccount = MailTestSupport.seedGraphAccount(dsl, encryption, attacker);
+    long attId = seedSourceAttachment(ownerAccount, "S2", "a.png", "image/png", PNG.length);
+
+    assertThatThrownBy(
+            () ->
+                composeService.validateSendable(
+                    attacker,
+                    attackerAccount,
+                    replyWithInline(List.of(new InlineImageRef(attId, "a.png")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("원본을 찾을 수 없습니다");
+    verify(graphApiClient, never()).sendMail(any(), any());
+  }
+
+  /** 이미지가 아닌 첨부는 인라인으로 붙이지 않는다. */
+  @Test
+  void validateSendable_inlineNonImage_rejected() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    long attId = seedSourceAttachment(accountId, "S3", "a.pdf", "application/pdf", 10);
+
+    assertThatThrownBy(
+            () ->
+                composeService.validateSendable(
+                    user, accountId, replyWithInline(List.of(new InlineImageRef(attId, "a.pdf")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("이미지 파일이 아닙니다");
+  }
+
+  /** Content-ID 에 공백·꺾쇠·개행·비ASCII 가 있으면 헤더 인젝션 위험 — 거부한다. */
+  @Test
+  void validateSendable_inlineInvalidContentId_rejected() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    long attId = seedSourceAttachment(accountId, "S4", "a.png", "image/png", 10);
+
+    for (String bad : List.of("a b", "<a>", "a\r\nBcc: x@y", "", "한글.png")) {
+      assertThatThrownBy(
+              () ->
+                  composeService.validateSendable(
+                      user, accountId, replyWithInline(List.of(new InlineImageRef(attId, bad)))))
+          .as(bad)
+          .isInstanceOf(MailValidationException.class);
+    }
+  }
+
+  /** Graph 는 요청 4MB 제한 — 인라인 원본 합계 2MB 초과면 사전검증에서 안내한다. */
+  @Test
+  void validateSendable_inlineOverGraphCap_rejected() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    long attId = seedSourceAttachment(accountId, "S5", "big.png", "image/png", 3L * 1024 * 1024);
+
+    assertThatThrownBy(
+            () ->
+                composeService.validateSendable(
+                    user,
+                    accountId,
+                    replyWithInline(List.of(new InlineImageRef(attId, "big.png")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("용량이 너무 큽니다");
+  }
+
+  /** 개수 상한 초과는 거부. */
+  @Test
+  void validateSendable_tooManyInlineImages_rejected() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    List<InlineImageRef> refs =
+        IntStream.range(0, 21).mapToObj(i -> new InlineImageRef(1L, "c" + i)).toList();
+
+    assertThatThrownBy(
+            () -> composeService.validateSendable(user, accountId, replyWithInline(refs)))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("최대 20개");
+  }
+
+  /** 원본 바이트 조회 실패 시 조용히 빼지 않고 발송 전체를 실패시킨다(수신자에게 깨진 이미지 방지). */
+  @Test
+  void send_inlineSourceFetchFails_sendFailsWithoutTransmit() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.seedGraphAccount(dsl, encryption, user);
+    when(graphTokenService.getAccessToken(eq(user), eq(accountId))).thenReturn("FAKE_TOKEN");
+    long attId = seedSourceAttachment(accountId, "S6", "a.png", "image/png", 10);
+    when(graphApiClient.get(any(), contains("S6/attachments/ATT-S6"), eq(GraphAttachment.class)))
+        .thenThrow(new RuntimeException("graph 503"));
+
+    assertThatThrownBy(
+            () ->
+                composeService.send(
+                    user, accountId, replyWithInline(List.of(new InlineImageRef(attId, "a.png")))))
+        .isInstanceOf(MailSendException.class)
+        .hasMessageContaining("인용문 이미지를 가져오지 못했습니다");
+    verify(graphApiClient, never()).sendMail(any(), any());
   }
 }

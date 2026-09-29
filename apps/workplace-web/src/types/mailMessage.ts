@@ -71,6 +71,8 @@ export interface MailSendRequest {
   bodyHtml: string;
   bodyText: string;
   inReplyToMessageId: number | null;
+  /** 인용문 cid 이미지 재첨부 대상(WP-69) — 생략하면 인라인 파트 없음. */
+  inlineImages?: { attachmentId: number; contentId: string }[];
 }
 
 /** 발송 결과. */

@@ -7,9 +7,13 @@ import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
 import com.workplace.mail.dto.ParsedAttachment;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Table;
 import org.springframework.stereotype.Repository;
 
 /** email_attachment jOOQ 리포지토리. 첨부 메타만 저장하고 바이너리는 보관하지 않는다(다운로드는 후속). */
@@ -101,11 +105,99 @@ public class EmailAttachmentRepository {
     long contentAttachmentId =
         contentAttachmentRepo.findOrCreate(
             contentId, ordinal, a.filename(), a.contentType(), a.sizeBytes(), a.contentId());
+    // find-or-create 는 기존 공유 행을 갱신하지 않는다 — 규칙 도입(WP-68) 전에 만들어진 행도 Content-ID 를 얻도록 보강
+    if (a.contentId() != null) {
+      contentAttachmentRepo.setMimeContentIdIfNull(contentAttachmentId, a.contentId());
+    }
     dsl.insertInto(EMAIL_ATTACHMENT)
         .set(EMAIL_ATTACHMENT.MESSAGE_ID, messageId)
         .set(EMAIL_ATTACHMENT.ORDINAL, ordinal)
         .set(EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID, contentAttachmentId)
         .set(EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID, a.providerAttachmentId())
         .execute();
+  }
+
+  /**
+   * Content-ID 지연 백필 후보(WP-68) — Graph 계정 소유 메시지의 이미지 첨부 중 mime_content_id 가 NULL 이고 단건 조회 가능한
+   * (provider_attachment_id 보유) 소용량 행.
+   *
+   * @param userId 소유자(소유 검증 + 비활성 계정 제외)
+   * @param messageId email_message.id
+   * @param maxBytes 단건 조회 크기 상한(contentBytes 전송 비용 제한)
+   */
+  public List<ContentIdBackfillTarget> findContentIdBackfillTargets(
+      long userId, long messageId, long maxBytes) {
+    return dsl.select(
+            CONTENT_ATTACHMENT.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_MESSAGE.PROVIDER_MESSAGE_ID,
+            EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID)
+        .from(ownedAttachmentJoin())
+        .where(ownedBy(userId))
+        .and(EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.PROVIDER.eq("M365_GRAPH"))
+        .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.isNotNull())
+        .and(EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID.isNotNull())
+        .and(CONTENT_ATTACHMENT.MIME_CONTENT_ID.isNull())
+        .and(CONTENT_ATTACHMENT.CONTENT_TYPE.likeIgnoreCase("image/%"))
+        .and(CONTENT_ATTACHMENT.SIZE_BYTES.le(maxBytes))
+        .fetch(
+            r ->
+                new ContentIdBackfillTarget(
+                    r.get(CONTENT_ATTACHMENT.ID),
+                    r.get(EMAIL_MESSAGE.ACCOUNT_ID),
+                    r.get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID),
+                    r.get(EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID)));
+  }
+
+  /** Content-ID 백필 대상 1건 — 기록 위치(content_attachment)와 Graph 단건 조회 좌표. */
+  public record ContentIdBackfillTarget(
+      long contentAttachmentId,
+      long accountId,
+      String providerMessageId,
+      String providerAttachmentId) {}
+
+  /**
+   * 인용문 인라인 이미지 재첨부용 메타(WP-69) — 발송 사전검증에서 바이트를 읽지 않고 소유·타입·크기를 판정한다. 소유 검증은 {@link
+   * #findContextForDownload} 와 동일(account.user_id + 비활성 계정 제외).
+   */
+  public Optional<InlineSourceMeta> findInlineSourceMeta(long userId, long attachmentId) {
+    return dsl.select(
+            CONTENT_ATTACHMENT.FILENAME,
+            CONTENT_ATTACHMENT.CONTENT_TYPE,
+            CONTENT_ATTACHMENT.SIZE_BYTES)
+        .from(ownedAttachmentJoin())
+        .where(ownedBy(userId))
+        .and(EMAIL_ATTACHMENT.ID.eq(attachmentId))
+        .fetchOptional(
+            r ->
+                new InlineSourceMeta(
+                    r.get(CONTENT_ATTACHMENT.FILENAME),
+                    r.get(CONTENT_ATTACHMENT.CONTENT_TYPE),
+                    Objects.requireNonNullElse(r.get(CONTENT_ATTACHMENT.SIZE_BYTES), 0L)));
+  }
+
+  /** 첨부 → manifest → 메시지 → 계정 조인(WP-68/69 조회 공용). */
+  private static Table<?> ownedAttachmentJoin() {
+    return EMAIL_ATTACHMENT
+        .join(CONTENT_ATTACHMENT)
+        .on(CONTENT_ATTACHMENT.ID.eq(EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID))
+        .join(EMAIL_MESSAGE)
+        .on(EMAIL_MESSAGE.ID.eq(EMAIL_ATTACHMENT.MESSAGE_ID))
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID));
+  }
+
+  /** 소유 검증 — {@link #findContextForDownload} 와 같은 규칙(계정 소유자 + 비활성 계정 제외). */
+  private static Condition ownedBy(long userId) {
+    return EMAIL_ACCOUNT.USER_ID.eq(userId).and(EMAIL_ACCOUNT.DISABLED_AT.isNull());
+  }
+
+  /** 인라인 재첨부 원본 메타. */
+  public record InlineSourceMeta(String filename, String contentType, long sizeBytes) {}
+
+  /** 이 envelope 에 첨부 행이 하나라도 있는지(WP-68 인라인 전용 레거시 메일 적재 가드). */
+  public boolean existsForMessage(long messageId) {
+    return dsl.fetchExists(EMAIL_ATTACHMENT, EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId));
   }
 }

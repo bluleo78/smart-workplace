@@ -94,6 +94,11 @@ export function MailComposeDock() {
         bodyHtml: bodyHtmlRef.current + (draft.quote?.html ?? ''),
         bodyText: bodyTextRef.current + (draft.quote?.text ? '\n\n' + draft.quote.text : ''),
         inReplyToMessageId: draft.inReplyToMessageId,
+        // WP-69 인용문 cid 이미지 — 서버가 원본 첨부를 같은 Content-ID 로 재첨부. 인용문을 지웠으면 보내지 않는다.
+        inlineImages: draft.quote?.inlineImages.map(({ attachment, contentId }) => ({
+          attachmentId: attachment.id,
+          contentId,
+        })),
       },
       { onSuccess: () => closeCompose() },
     );
@@ -231,6 +236,7 @@ export function MailComposeDock() {
                 meta={draft.quote.meta}
                 variant={draft.quote.variant}
                 onRemove={clearQuote}
+                inlineImages={draft.quote.inlineImages}
               />
             )}
           </div>

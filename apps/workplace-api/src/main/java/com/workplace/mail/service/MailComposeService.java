@@ -3,7 +3,9 @@ package com.workplace.mail.service;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSendRequest;
+import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
 import com.workplace.mail.dto.OutgoingMail;
+import com.workplace.mail.dto.OutgoingMail.InlineImagePart;
 import com.workplace.mail.dto.ReplyContext;
 import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
@@ -11,8 +13,11 @@ import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailAttachmentRepository;
+import com.workplace.mail.repository.EmailAttachmentRepository.InlineSourceMeta;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.AddressException;
 import jakarta.mail.internet.InternetAddress;
@@ -21,6 +26,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +42,9 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>로컬 SENT 행 저장(표시 원본).
  *   <li>IMAP 계정만 best-effort APPEND(Graph 는 saveToSentItems 로 서버가 자동 저장).
  * </ol>
+ *
+ * <p>WP-69: 답장·전달 인용문이 cid: 로 참조하는 원본 첨부(inlineImages)는 prepare 에서 소유·타입·용량만 검증하고, send 에서 바이트를 조회해
+ * 같은 Content-ID 의 인라인 파트로 다시 붙인다.
  */
 @Service
 @RequiredArgsConstructor
@@ -44,12 +53,28 @@ public class MailComposeService {
   private static final String SENT = "SENT";
   private static final int SNIPPET_MAX = 280;
 
+  /** 인용문 인라인 이미지 최대 개수(WP-69). */
+  static final int MAX_INLINE_IMAGES = 20;
+
+  /**
+   * 인라인 이미지 원본 합계 상한 — Graph MIME sendMail 은 base64 요청 본문 4MB 제한(MIME 내부 base64 + 요청 base64 로 원본 대비
+   * 약 1.8배)이라 2MB, SMTP 는 일반 릴레이 한도 내 10MB.
+   */
+  static final long MAX_INLINE_TOTAL_GRAPH = 2L * 1024 * 1024;
+
+  static final long MAX_INLINE_TOTAL_SMTP = 10L * 1024 * 1024;
+
+  /** Content-ID 허용 문자 — 출력 가능 ASCII 중 공백·꺾쇠·따옴표 제외(헤더 인젝션 차단), 최대 250자. */
+  private static final Pattern CONTENT_ID = Pattern.compile("^[\\x21-\\x7E&&[^<>\"]]{1,250}$");
+
   private final EmailAccountRepository accountRepo;
   private final EmailFolderRepository folderRepo;
   private final EmailMessageRepository messageRepo;
   private final MailMimeBuilder mimeBuilder;
   private final List<MailTransport> transports;
   private final MailSentAppender appender;
+  private final EmailAttachmentRepository attachmentRepo;
+  private final MailAttachmentService attachmentService;
 
   /**
    * 발송 사전검증(#842) — 확인카드 승인 전에 "승인 후에야 드러날 실패"를 미리 드러내기 위한 dry-run. 실행 경로(send)와 완전히 동일한 술어를
@@ -95,7 +120,71 @@ public class MailComposeService {
     }
 
     // 공급자별 전송기 존재 확인 — 미지원 공급자를 MIME 조립 전에 조기 차단.
-    return new SendPlan(account, to, cc, bcc, replyCtx, transportFor(account.provider()));
+    MailTransport transport = transportFor(account.provider());
+    List<InlineSource> inline =
+        validateInlineImages(userId, account.provider(), req.inlineImages());
+    return new SendPlan(account, to, cc, bcc, replyCtx, transport, inline);
+  }
+
+  /**
+   * 인용문 인라인 이미지 검증(WP-69) — 바이트는 읽지 않는다(validateSendable 읽기 전용 유지). 개수 → Content-ID 형식 → 소유(원본 첨부
+   * 존재) → image/* → 공급자별 총용량 순.
+   */
+  private List<InlineSource> validateInlineImages(
+      long userId, MailProvider provider, List<InlineImageRef> refs) {
+    if (refs.isEmpty()) {
+      return List.of();
+    }
+    if (refs.size() > MAX_INLINE_IMAGES) {
+      throw new MailValidationException("인용문 이미지는 최대 " + MAX_INLINE_IMAGES + "개까지 보낼 수 있습니다");
+    }
+    List<InlineSource> out = new ArrayList<>();
+    long total = 0;
+    for (InlineImageRef ref : refs) {
+      if (ref == null
+          || ref.attachmentId() == null
+          || ref.contentId() == null
+          || !CONTENT_ID.matcher(ref.contentId()).matches()) {
+        throw new MailValidationException("인용문 이미지 참조가 올바르지 않습니다");
+      }
+      InlineSourceMeta meta =
+          attachmentRepo
+              .findInlineSourceMeta(userId, ref.attachmentId())
+              .orElseThrow(() -> new MailValidationException("인용문 이미지 원본을 찾을 수 없습니다"));
+      if (!InlineImageSupport.isImage(meta.contentType())) {
+        throw new MailValidationException("인용문 이미지가 이미지 파일이 아닙니다");
+      }
+      total += meta.sizeBytes();
+      out.add(new InlineSource(ref, meta));
+    }
+    long max = provider == MailProvider.M365_GRAPH ? MAX_INLINE_TOTAL_GRAPH : MAX_INLINE_TOTAL_SMTP;
+    if (total > max) {
+      throw new MailValidationException(
+          "인용문 이미지 용량이 너무 큽니다(최대 " + (max / (1024 * 1024)) + "MB). 인용문을 제거하고 보내세요");
+    }
+    return out;
+  }
+
+  /** 검증을 통과한 인라인 이미지 원본 — send 에서 바이트를 조회한다. */
+  private record InlineSource(InlineImageRef ref, InlineSourceMeta meta) {}
+
+  /** 원본 첨부 바이트를 조회해 인라인 파트로 만든다. 실패 시 발송 전체를 실패시킨다 — 이미지를 빼고 보내면 수신자에게 깨진 참조가 남으므로 조용히 누락하지 않는다. */
+  private List<InlineImagePart> loadInlineImages(long userId, List<InlineSource> sources) {
+    List<InlineImagePart> parts = new ArrayList<>();
+    for (InlineSource src : sources) {
+      try {
+        AttachmentDownload dl = attachmentService.download(userId, src.ref().attachmentId());
+        parts.add(
+            new InlineImagePart(
+                src.ref().contentId(),
+                src.meta().filename(),
+                src.meta().contentType(),
+                dl.content()));
+      } catch (RuntimeException e) {
+        throw new MailSendException("인용문 이미지를 가져오지 못했습니다. 인용문을 제거하고 다시 보내세요", e);
+      }
+    }
+    return parts;
   }
 
   /** prepare 산출물 — 검증 통과 사실 + 재조회 없이 재사용할 값들. replyCtx 는 신규/전달이면 null. */
@@ -105,7 +194,8 @@ public class MailComposeService {
       List<String> cc,
       List<String> bcc,
       ReplyContext replyCtx,
-      MailTransport transport) {}
+      MailTransport transport,
+      List<InlineSource> inline) {}
 
   /** 본인 계정으로 메일 발송. 발송 성공 시 로컬 SENT 행 id + Message-ID 반환. */
   @Transactional
@@ -147,7 +237,8 @@ public class MailComposeService {
             inReplyTo,
             references,
             snippet(req.bodyText()),
-            now);
+            now,
+            loadInlineImages(userId, plan.inline()));
 
     // 1) MIME 조립(공유 빌더) + 공급자별 전송기 디스패치 — 유일한 사용자 노출 실패.
     MimeMessage message;

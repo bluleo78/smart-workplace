@@ -94,7 +94,9 @@ public class MailMessageParser {
     StringBuilder text = new StringBuilder();
     StringBuilder html = new StringBuilder();
     List<ParsedAttachment> attachments = new ArrayList<>();
-    collectBody(msg, text, html, attachments);
+    for (Part part : collectBody(msg, text, html)) {
+      attachments.add(toAttachment(part));
+    }
 
     String bodyText = text.length() == 0 ? null : text.toString();
     String bodyHtml = html.length() == 0 ? null : html.toString();
@@ -109,28 +111,12 @@ public class MailMessageParser {
    */
   public byte[] extractAttachmentBytes(Message msg, int ordinalIndex)
       throws MessagingException, IOException {
-    List<jakarta.mail.Part> parts = new ArrayList<>();
-    collectAttachmentParts(msg, parts);
+    List<Part> parts = collectBody(msg, null, null);
     if (ordinalIndex < 0 || ordinalIndex >= parts.size()) {
       return null;
     }
     try (java.io.InputStream is = parts.get(ordinalIndex).getInputStream()) {
       return is.readAllBytes();
-    }
-  }
-
-  /** collectBody 와 동일한 DFS 순서로 첨부 파트(Part 객체)만 수집. */
-  private void collectAttachmentParts(Part part, List<Part> result)
-      throws MessagingException, IOException {
-    if (part.isMimeType("multipart/*")) {
-      Multipart mp = (Multipart) part.getContent();
-      for (int i = 0; i < mp.getCount(); i++) {
-        collectAttachmentParts(mp.getBodyPart(i), result);
-      }
-      return;
-    }
-    if (isAttachment(part)) {
-      result.add(part);
     }
   }
 
@@ -142,19 +128,45 @@ public class MailMessageParser {
     return value.substring(0, max);
   }
 
-  /** 파트를 재귀로 훑어 본문(text/html)과 첨부 메타를 분리 수집. */
-  private void collectBody(
-      Part part, StringBuilder text, StringBuilder html, List<ParsedAttachment> attachments)
+  /**
+   * 파트를 재귀로 훑어 본문(text/html)을 수집하고, 첨부 파트를 ordinal 순서대로 반환한다. 본문 적재와 첨부 다운로드({@link
+   * #extractAttachmentBytes})가 이 단일 순회를 공유해 ordinal 이 항상 일치한다.
+   *
+   * <p>순서: 일반 첨부(DFS 순) → 파일명 없이 Content-ID 만 있는 인라인 이미지(DFS 순). 후자를 뒤에 붙이는 이유 — 이 규칙 도입(WP-68) 전에
+   * 적재된 메시지의 일반 첨부 ordinal 이 그대로 유지돼야 기존 다운로드가 다른 파트를 가리키지 않는다.
+   *
+   * @param text 본문 text 누적 버퍼. null 이면 본문 수집 생략(첨부 파트만 필요할 때)
+   * @param html 본문 html 누적 버퍼. null 이면 본문 수집 생략
+   */
+  private List<Part> collectBody(Part root, StringBuilder text, StringBuilder html)
+      throws MessagingException, IOException {
+    List<Part> regular = new ArrayList<>();
+    List<Part> cidOnly = new ArrayList<>();
+    walk(root, text, html, regular, cidOnly);
+    regular.addAll(cidOnly);
+    return regular;
+  }
+
+  /** {@link #collectBody} 의 재귀 본체. */
+  private void walk(
+      Part part, StringBuilder text, StringBuilder html, List<Part> regular, List<Part> cidOnly)
       throws MessagingException, IOException {
     if (part.isMimeType("multipart/*")) {
       Multipart mp = (Multipart) part.getContent();
       for (int i = 0; i < mp.getCount(); i++) {
-        collectBody(mp.getBodyPart(i), text, html, attachments);
+        walk(mp.getBodyPart(i), text, html, regular, cidOnly);
       }
       return;
     }
     if (isAttachment(part)) {
-      attachments.add(toAttachment(part));
+      regular.add(part);
+      return;
+    }
+    if (isCidOnlyInlineImage(part)) {
+      cidOnly.add(part);
+      return;
+    }
+    if (text == null) {
       return;
     }
     if (part.isMimeType("text/plain")) {
@@ -169,6 +181,14 @@ public class MailMessageParser {
       }
     }
     // 그 외(text/calendar 등)는 v1 에서 무시
+  }
+
+  /**
+   * 파일명 없이 Content-ID 만 가진 이미지 파트 — 본문이 cid: 로 참조하는 인라인 이미지. 일부 웹메일은 filename 을 생략해 {@link
+   * #isAttachment} 에 걸리지 않으므로 별도로 수집한다(WP-68).
+   */
+  private boolean isCidOnlyInlineImage(Part part) throws MessagingException {
+    return part.isMimeType("image/*") && firstHeader(part, "Content-ID") != null;
   }
 
   /** 첨부 판정: Content-Disposition=attachment 이거나 파일명이 있는 비-멀티파트 파트(인라인 이미지 포함). */
@@ -190,10 +210,7 @@ public class MailMessageParser {
         // 디코딩 실패 시 원본 파일명 유지
       }
     }
-    String contentId = firstHeader(part, "Content-ID");
-    if (contentId != null) {
-      contentId = contentId.replaceAll("[<>]", "").trim();
-    }
+    String contentId = InlineImageSupport.normalizeContentId(firstHeader(part, "Content-ID"));
     int size = part.getSize();
     // IMAP 경로는 providerAttachmentId 없음(null) — Graph 첨부만 저장
     return new ParsedAttachment(

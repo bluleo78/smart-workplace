@@ -6,6 +6,7 @@ import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
+import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
 import com.workplace.mail.event.MessageMarkedReadEvent;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
@@ -33,6 +34,9 @@ public class MailMessageService {
   private final MailSyncProgress progress;
   private final ApplicationEventPublisher eventPublisher;
 
+  /** WP-68: 첨부 행이 없는 인라인 전용 Graph 메일의 첨부 목록 즉시 적재. */
+  private final MailInlineContentIdBackfiller inlineBackfiller;
+
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
    * RLS GUC(app.tenant_id) 가 주입된다.
@@ -45,12 +49,14 @@ public class MailMessageService {
       MailBodyFetcher bodyFetcher,
       MailSyncProgress progress,
       ApplicationEventPublisher eventPublisher,
+      MailInlineContentIdBackfiller inlineBackfiller,
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
     this.bodyFetcher = bodyFetcher;
     this.progress = progress;
     this.eventPublisher = eventPublisher;
+    this.inlineBackfiller = inlineBackfiller;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -141,6 +147,13 @@ public class MailMessageService {
       }
       detail = loadDetail(userId, messageId);
     }
+    // WP-68: 인라인 이미지만 있어 첨부 행이 없는 Graph 레거시 메일 — 본문 온디맨드 적재처럼 즉시 채우고 다시 읽는다
+    if (detail.attachments().isEmpty()
+        && InlineImageSupport.refsCid(detail.bodyHtml())
+        && inlineBackfiller.loadMissingAttachmentsNow(userId, messageId)) {
+      detail = loadDetail(userId, messageId);
+    }
+    requestContentIdBackfillIfNeeded(userId, detail);
     // 읽음 처리 — seen=false 인 메시지를 true 로 업데이트하고 DTO 도 동기화
     if (!detail.seen()) {
       txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
@@ -170,6 +183,25 @@ public class MailMessageService {
               detail.attachments());
     }
     return detail;
+  }
+
+  /**
+   * 본문이 cid: 를 참조하는데 Content-ID 가 비어 있는 이미지 첨부가 있으면 지연 백필을 요청한다(WP-68). 대상 판정(Graph 계정·조회 가능 여부)은
+   * 리스너가 다시 하므로 여기선 값싼 사전 필터만 둔다. TenantContext 가 없으면 내부 경로이므로 생략.
+   */
+  private void requestContentIdBackfillIfNeeded(long userId, EmailMessageDetail detail) {
+    // 첨부 검사(대개 false)를 먼저 — 대부분의 열람이 본문 HTML 스캔 없이 끝난다
+    boolean missing =
+        detail.attachments().stream()
+            .anyMatch(a -> a.contentId() == null && InlineImageSupport.isImage(a.contentType()));
+    if (!missing || !InlineImageSupport.refsCid(detail.bodyHtml())) {
+      return;
+    }
+    Long tenantId = TenantContext.get();
+    if (tenantId != null) {
+      eventPublisher.publishEvent(
+          new InlineContentIdBackfillRequestedEvent(tenantId, userId, detail.id()));
+    }
   }
 
   /** 상세 단건을 짧은 트랜잭션으로 조회(RLS GUC 주입). 없으면 404. */

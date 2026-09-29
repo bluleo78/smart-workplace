@@ -10,6 +10,7 @@ import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
+import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
@@ -17,11 +18,19 @@ import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import jakarta.activation.DataHandler;
+import jakarta.mail.Message;
+import jakarta.mail.internet.MimeBodyPart;
+import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
+import jakarta.mail.util.ByteArrayDataSource;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -31,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 적재 쓰기가 같은 테스트 트랜잭션에 묶여 재조회로 보인다(비동기 백필은 별도 트랜잭션이라 inert).
  */
 @Transactional
+@RecordApplicationEvents
 class MailMessageServiceTest extends IntegrationTestBase {
 
   @RegisterExtension
@@ -45,6 +55,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EmailMessageRepository messageRepo;
   @Autowired EncryptionService encryption;
+  @Autowired ApplicationEvents events;
 
   /** ai-agent 실호출 차단. */
   @MockitoBean AiAgentMailClient mailClient;
@@ -286,5 +297,62 @@ class MailMessageServiceTest extends IntegrationTestBase {
     // aiEnabled 계정 존재 → true
     assertThat(resp.classificationActive()).isTrue();
     assertThat(resp.recent()).hasSize(2);
+  }
+
+  /**
+   * HTML 본문 + 이미지 첨부 1건(파일명 있음, Content-ID 헤더 없음 — 규칙 도입 전 Graph 적재분과 같은 모양)을 GreenMail 로 수신시킨다.
+   */
+  private void deliverHtmlWithImage(String html) throws Exception {
+    MimeMessage msg = new MimeMessage(greenMail.getSmtp().createSession());
+    msg.setFrom("a@x.com");
+    msg.setRecipients(Message.RecipientType.TO, "box@test.local");
+    msg.setSubject("인라인");
+    MimeBodyPart htmlPart = new MimeBodyPart();
+    htmlPart.setContent(html, "text/html; charset=UTF-8");
+    MimeBodyPart img = new MimeBodyPart();
+    img.setDataHandler(
+        new DataHandler(new ByteArrayDataSource(new byte[] {(byte) 0x89, 'P'}, "image/png")));
+    img.setFileName("logo.png");
+    MimeMultipart mixed = new MimeMultipart("mixed");
+    mixed.addBodyPart(htmlPart);
+    mixed.addBodyPart(img);
+    msg.setContent(mixed);
+    msg.saveChanges();
+    GreenMailUtil.sendMimeMessage(msg);
+    greenMail.waitForIncomingEmail(1);
+  }
+
+  /** WP-68: 본문이 cid: 를 참조하는데 Content-ID 없는 이미지 첨부가 있으면 열람 시 지연 백필 이벤트를 발행한다. */
+  @Test
+  void get_publishesContentIdBackfill_whenCidRefAndImageWithoutContentId() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    deliverHtmlWithImage("<p>hi</p><img src=\"cid:ii_opaque\">");
+    syncService.sync(user, accountId);
+    long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
+
+    messageService.get(user, id);
+
+    assertThat(events.stream(InlineContentIdBackfillRequestedEvent.class))
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.userId()).isEqualTo(user);
+              assertThat(e.messageId()).isEqualTo(id);
+            });
+  }
+
+  /** 본문에 cid 참조가 없으면 이미지 첨부가 있어도 백필 이벤트를 발행하지 않는다. */
+  @Test
+  void get_noCidRef_doesNotPublishContentIdBackfill() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    deliverHtmlWithImage("<p>이미지 없음</p>");
+    syncService.sync(user, accountId);
+    long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
+
+    messageService.get(user, id);
+
+    assertThat(events.stream(InlineContentIdBackfillRequestedEvent.class)).isEmpty();
   }
 }

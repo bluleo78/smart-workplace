@@ -365,6 +365,123 @@ test.describe('받은편지함', () => {
     expect(download.suggestedFilename()).toBe('안건.pdf')
   })
 
+  // WP-65 — 본문 인라인 이미지(cid:)를 첨부 바이너리로 받아 data URI 로 치환해 렌더한다.
+  // Graph 경로는 contentId 가 null 이라 파일명 매칭, 매칭 없는 cid 는 원문 유지.
+  test('본문 인라인 이미지 cid: → 첨부 조회 후 data URI 로 렌더', async ({ authenticatedPage: page }) => {
+    // 1x1 투명 PNG
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      'base64',
+    )
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await mockApi(
+      page,
+      'GET',
+      '/api/v1/mail/messages/10',
+      detail({
+        bodyText: null,
+        bodyHtml: '<p>안내</p><img id="inline" src="cid:7dc8b642.png"><img id="missing" src="cid:none.png">',
+        attachments: [
+          { id: 5, filename: '7dc8b642.png', contentType: 'image/png', sizeBytes: png.length, contentId: null },
+          { id: 6, filename: '안건.pdf', contentType: 'application/pdf', sizeBytes: 10, contentId: null },
+        ],
+      }),
+    )
+    const requested: string[] = []
+    await page.route(
+      (url) => url.pathname.startsWith('/api/v1/mail/attachments/'),
+      (route, req) => {
+        requested.push(new URL(req.url()).pathname)
+        // octet-stream 응답도 첨부 메타 contentType(image/png)으로 보정돼야 한다
+        return route.fulfill({ status: 200, headers: { 'content-type': 'application/octet-stream' }, body: png })
+      },
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-10').click()
+
+    const frame = page.frameLocator('[data-testid="mail-body-html"]')
+    await expect(frame.locator('#inline')).toHaveAttribute('src', /^data:image\/png;base64,/)
+    // 실제로 이미지가 디코딩돼 로드됐는지(깨진 이미지면 naturalWidth=0)
+    await expect
+      .poll(() => frame.locator('#inline').evaluate((el) => (el as HTMLImageElement).naturalWidth))
+      .toBe(1)
+    await expect(frame.locator('#missing')).toHaveAttribute('src', 'cid:none.png')
+    expect(requested).toEqual(['/api/v1/mail/attachments/5/content'])
+    // WP-70 본문에 표시된 인라인 이미지는 첨부 목록에서 빠지고 일반 첨부만 남는다
+    await expect(page.getByTestId('mail-attachment-download-6')).toBeVisible()
+    await expect(page.getByTestId('mail-attachment-download-5')).toHaveCount(0)
+  })
+
+  // WP-70 — 인라인 이미지 조회가 실패하면 본문엔 표시할 수 없으므로 첨부 목록에 남겨 다운로드라도 가능해야 한다.
+  test('인라인 이미지 조회 실패 시 해당 첨부는 목록에 남는다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await mockApi(
+      page,
+      'GET',
+      '/api/v1/mail/messages/10',
+      detail({
+        bodyText: null,
+        bodyHtml: '<p>안내</p><img id="inline" src="cid:7dc8b642.png">',
+        attachments: [
+          { id: 5, filename: '7dc8b642.png', contentType: 'image/png', sizeBytes: 10, contentId: null },
+        ],
+      }),
+    )
+    let calls = 0
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/attachments/5/content',
+      (route) => {
+        calls += 1
+        return route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"없음"}' })
+      },
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-10').click()
+
+    // 재시도(1회)까지 실패 확정 후 목록에 다시 노출, 본문 참조는 원문 유지
+    await expect(page.getByTestId('mail-attachment-download-5')).toBeVisible({ timeout: 10_000 })
+    const frame = page.frameLocator('[data-testid="mail-body-html"]')
+    await expect(frame.locator('#inline')).toHaveAttribute('src', 'cid:7dc8b642.png')
+    expect(calls).toBeGreaterThanOrEqual(1)
+  })
+
+  // WP-70 — text 본문이 표시되면 HTML(인라인 이미지)이 안 보이므로 이미지 첨부를 목록에서 숨기지 않고 조회도 하지 않는다.
+  test('text 본문 표시 시 인라인 이미지 첨부는 목록에 남고 조회하지 않는다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await mockApi(
+      page,
+      'GET',
+      '/api/v1/mail/messages/10',
+      detail({
+        bodyText: '안내 본문',
+        bodyHtml: '<p>안내</p><img src="cid:7dc8b642.png">',
+        attachments: [
+          { id: 5, filename: '7dc8b642.png', contentType: 'image/png', sizeBytes: 10, contentId: null },
+        ],
+      }),
+    )
+    let fetched = false
+    await page.route(
+      (url) => url.pathname.startsWith('/api/v1/mail/attachments/'),
+      (route) => {
+        fetched = true
+        return route.fulfill({ status: 200, body: '' })
+      },
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-10').click()
+
+    await expect(page.getByText('안내 본문')).toBeVisible()
+    await expect(page.getByTestId('mail-attachment-download-5')).toBeVisible()
+    expect(fetched).toBe(false)
+  })
+
   // #265 — 답장/전체답장/전달 버튼이 shadcn Button(role=button)으로 렌더링되고 클릭 시 컴포즈 도크가 열린다.
   test('메일 상세 — 답장·전체답장·전달 버튼 shadcn Button + 답장 클릭 → 컴포즈 도크', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])

@@ -9,10 +9,12 @@
 // (프로젝트 관례: MailInboxPage.tsx 등). dangerouslySetInnerHTML 금지.
 
 import { ChevronRight, X } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useInlineMailHtml } from '@/hooks/queries/useMailMessages';
+import type { QuoteInlineImage } from '@/lib/mailInlineImages';
 import { cn } from '@/lib/utils';
 
 interface MailQuoteBlockProps {
@@ -28,10 +30,21 @@ interface MailQuoteBlockProps {
   variant: 'reply' | 'forward';
   /** 인용문 제거 — 기밀 문단을 빼고 회신하는 시나리오. */
   onRemove: () => void;
+  /** 인용문 cid 이미지의 원본 첨부 — 미리보기에서 data URI 로 치환해 보여준다(WP-69). */
+  inlineImages: QuoteInlineImage[];
 }
 
 /** 인용문 표시 블록. 전달은 무엇을 보내는지 알 수 있어야 하므로 기본 펼침이다. */
-export function MailQuoteBlock({ quoteHtml, meta, variant, onRemove }: MailQuoteBlockProps) {
+export function MailQuoteBlock({
+  quoteHtml,
+  meta,
+  variant,
+  onRemove,
+  inlineImages,
+}: MailQuoteBlockProps) {
+  // 미리보기 전용 치환 — 발송 본문은 cid: 를 유지하고 서버가 원본 첨부를 인라인 파트로 다시 붙인다.
+  const attachments = useMemo(() => inlineImages.map((i) => i.attachment), [inlineImages]);
+  const { html: previewHtml } = useInlineMailHtml(quoteHtml, attachments);
   // 펼친 원문 높이 2단계. 표가 든 원문은 기본 높이에서 거의 보이지 않는다.
   const [tall, setTall] = useState(false);
   // details 의 open 은 React 가 재조정하는 속성이다. open={variant==='forward'} 처럼
@@ -100,7 +113,7 @@ export function MailQuoteBlock({ quoteHtml, meta, variant, onRemove }: MailQuote
           data-testid="mail-compose-quote-frame"
           title="인용된 원문"
           sandbox=""
-          srcDoc={quoteHtml}
+          srcDoc={previewHtml ?? quoteHtml}
           className={cn('w-full rounded-md border-0 bg-white', tall ? 'h-64' : 'h-40')}
         />
       </div>

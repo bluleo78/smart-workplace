@@ -1,12 +1,13 @@
 // 받은편지함/보낸편지함 목록·상세 조회 + 동기화·발송 mutation.
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 
-import { clearNeedsReplyDone, coachDraft, generateIssueDraft, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, markNeedsReplyDone, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
+import { clearNeedsReplyDone, coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, markNeedsReplyDone, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
-import type { DraftCoachingRequest, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
+import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
+import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
 
 export const mailMessageKeys = {
   // #469: unread 필터를 캐시 키에 포함(읽음 목록과 안읽음 목록 캐시 분리).
@@ -103,6 +104,66 @@ export function useMailMessage(messageId: number | null) {
   }, [query.isSuccess, messageId, qc]);
 
   return query;
+}
+
+/**
+ * useQueries combine — 모듈 스코프에 둬 렌더마다 새 함수가 생기지 않게 한다(결과는 구조 공유로 값이 같으면 참조 유지).
+ */
+function summarizeDataUriResults(rs: { data?: string; isPending: boolean; isError: boolean }[]) {
+  return rs.map((r) => ({ data: r.data, pending: r.isPending, failed: r.isError }));
+}
+
+/**
+ * 메일 HTML 의 인라인 이미지(cid:)를 data URI 로 치환한 HTML(WP-65). 본문 패널과 답장·전달 인용문 미리보기(WP-69)가 공유한다.
+ * - 첨부별 개별 쿼리 — 한 이미지 실패가 다른 이미지 캐시를 오염시키지 않고, 실패분만 재시도한다.
+ * - 모든 쿼리가 끝난 뒤 한 번에 치환 — 이미지마다 srcDoc 이 바뀌어 iframe 이 N번 다시 로드되는 것을 막는다.
+ * - 치환 준비 중·실패한 참조는 원문(cid:) 유지 — 본문 렌더 자체를 막지 않는다.
+ *
+ * @param enabled false 면 조회하지 않고 원문을 돌려준다(예: text 본문을 보여 iframe 이 없을 때)
+ * @returns html: 치환된 HTML. inlinedIds: 본문에 표시되는(또는 표시 준비 중인) 첨부 id — 조회에 실패한 첨부는 빠진다.
+ *   첨부 목록 숨김(WP-70)은 이 값을 써야 실패한 이미지가 본문·목록 어디에서도 안 보이는 일이 없다.
+ */
+export function useInlineMailHtml(
+  html: string | null,
+  attachments: EmailAttachmentMeta[] | undefined,
+  enabled = true,
+): { html: string | null; inlinedIds: ReadonlySet<number> } {
+  const targets = useMemo(
+    () => (html && attachments && enabled ? resolveCidTargets(html, attachments) : []),
+    [html, attachments, enabled],
+  );
+
+  // combine 결과는 replaceEqualDeep 으로 구조 공유 — 값이 같으면 참조 유지돼 memo 의존성으로 바로 쓸 수 있다.
+  const results = useQueries({
+    queries: targets.map(({ att }) => ({
+      queryKey: ['mail-attachment-data-uri', att.id] as const,
+      queryFn: () => fetchMailAttachmentDataUri(att.id, att.contentType as string),
+      staleTime: Infinity,
+      // 렌더된 iframe 이 결과를 이미 들고 있으므로 base64 캐시는 짧게만 보관(대용량 이미지 메모리 점유 방지)
+      gcTime: 30_000,
+      // 전부 settle 해야 치환하므로 긴 재시도 백오프가 다른 이미지 표시까지 늦추지 않게 1회만
+      retry: 1,
+    })),
+    combine: summarizeDataUriResults,
+  });
+
+  const inlinedIds = useMemo(
+    () => new Set(targets.filter((_, i) => !results[i]?.failed).map((t) => t.att.id)),
+    [targets, results],
+  );
+
+  const resolvedHtml = useMemo(() => {
+    // 전부 settle 전에는 원문 유지 — 치환을 한 번에 적용
+    if (!html || results.some((r) => r.pending)) return html;
+    const urls = new Map<string, string>();
+    targets.forEach((t, i) => {
+      const uri = results[i]?.data;
+      if (uri) urls.set(t.cid, uri);
+    });
+    return replaceCidRefs(html, urls);
+  }, [html, targets, results]);
+
+  return { html: resolvedHtml, inlinedIds };
 }
 
 /** 메일 요약 — 열람 시 자동 조회(계정 AI 사용 + messageId 있을 때만). */

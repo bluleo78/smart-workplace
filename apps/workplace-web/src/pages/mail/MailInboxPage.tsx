@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, Download, Forward, Loader2, Mail, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -17,6 +17,7 @@ import { downloadMailAttachment } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
+  useInlineMailHtml,
   useIssueDraft,
   useLinkedIssue,
   useMailMessage,
@@ -229,6 +230,18 @@ function MessageDetailPanel({
   const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiAvailable)
   // #520 연결된 이슈 키 조회 — issueKey 있으면 배지 표시.
   const linked = useLinkedIssue(messageId, aiEnabled)
+  // WP-65 본문 인라인 이미지(cid:)를 data URI 로 치환한 HTML — 조기 return 이전에 호출(훅 순서 고정).
+  // HTML 본문은 text 본문이 없을 때만 iframe 으로 보인다 — 인라인 치환·첨부 숨김 모두 이때만 적용
+  const rawHtml = detail?.bodyHtml ?? null
+  const attachments = detail?.attachments
+  const showsHtml = !!rawHtml && !detail?.bodyText
+  const { html: bodyHtml, inlinedIds } = useInlineMailHtml(rawHtml, attachments, showsHtml)
+  // WP-70 본문 cid 로 표시되는 인라인 이미지(서명 로고 등)는 첨부 목록에서 뺀다. 매칭되지 않았거나 조회에 실패한 첨부는
+  // 그대로 표시 — 본문에서도 목록에서도 사라지지 않게.
+  const listedAttachments = useMemo(
+    () => (attachments ?? []).filter((a) => !inlinedIds.has(a.id)),
+    [attachments, inlinedIds],
+  )
 
   if (!messageId) {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 (CTA는 단순 안내이므로 생략) */
@@ -373,19 +386,19 @@ function MessageDetailPanel({
             </Button>
           )}
         </div>
-        {detail.attachments.length > 0 && (
-          <AttachmentList attachments={detail.attachments} />
+        {listedAttachments.length > 0 && (
+          <AttachmentList attachments={listedAttachments} />
         )}
       </div>
       <div className="flex-1 p-4">
         {detail.bodyText ? (
           <pre className="whitespace-pre-wrap break-words font-sans text-sm">{detail.bodyText}</pre>
-        ) : detail.bodyHtml ? (
+        ) : bodyHtml ? (
           <iframe
             data-testid="mail-body-html"
             title="메일 본문"
             sandbox=""
-            srcDoc={detail.bodyHtml}
+            srcDoc={bodyHtml}
             className="h-full min-h-[300px] w-full border-0"
           />
         ) : (

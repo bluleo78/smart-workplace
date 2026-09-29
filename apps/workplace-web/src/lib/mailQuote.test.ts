@@ -5,6 +5,7 @@
 // (vitest.config.ts 기본은 node — 위 docblock 예외 케이스에 해당).
 import { describe, expect, it } from 'vitest';
 
+import type { EmailAttachmentMeta } from '../types/mailMessage';
 import { buildQuote, unwrapMailHtml } from './mailQuote';
 
 // EmailMessageDetail(src/types/mailMessage.ts) 실제 필드는 대부분 nullable 이다.
@@ -218,5 +219,69 @@ describe('buildQuote — 전달', () => {
     );
     expect(q.text).not.toContain('p{color:red}');
     expect(q.text).toContain('본문');
+  });
+});
+
+// WP-69 — 인용문 cid 이미지: 매칭되면 재첨부 대상으로 수집(src 유지), 매칭 안 되면 <img> 제거.
+describe('buildQuote — 인라인 이미지(cid)', () => {
+  const img = (o: Partial<EmailAttachmentMeta> & { id: number }): EmailAttachmentMeta => ({
+    filename: null,
+    contentType: 'image/png',
+    sizeBytes: 10,
+    contentId: null,
+    ...o,
+  });
+
+  it('첨부와 매칭된 cid 는 src 를 유지하고 재첨부 대상으로 수집한다 (Content-ID 는 디코딩·대소문자 보존)', () => {
+    const q = buildQuote(
+      {
+        ...detail,
+        bodyHtml: '<p>안내</p><img src="cid:Image001.PNG%4001D9"><img src="cid:7dc8.png">',
+        attachments: [img({ id: 5, filename: 'image001.png' }), img({ id: 6, filename: '7dc8.png' })],
+      },
+      'reply',
+    );
+    expect(q.html).toContain('src="cid:Image001.PNG%4001D9"');
+    expect(q.html).toContain('src="cid:7dc8.png"');
+    expect(q.inlineImages.map(({ attachment, contentId }) => ({ attachmentId: attachment.id, contentId }))).toEqual([
+      { attachmentId: 5, contentId: 'Image001.PNG@01D9' },
+      { attachmentId: 6, contentId: '7dc8.png' },
+    ]);
+  });
+
+  it('매칭되지 않은 cid 이미지는 인용문에서 제거한다 (수신자에게 깨진 이미지 방지)', () => {
+    const q = buildQuote(
+      { ...detail, bodyHtml: '<p>본문</p><img src="cid:gone.png"><img src="https://x/y.png">' },
+      'forward',
+    );
+    expect(q.html).not.toContain('cid:gone.png');
+    expect(q.html).toContain('https://x/y.png');
+    expect(q.inlineImages).toEqual([]);
+  });
+
+  it('발송할 수 없는 Content-ID(비ASCII)는 매칭돼도 제거한다', () => {
+    const q = buildQuote(
+      {
+        ...detail,
+        bodyHtml: '<img src="cid:%ED%95%9C.png">',
+        attachments: [img({ id: 1, filename: '한.png' })],
+      },
+      'reply',
+    );
+    expect(q.html).not.toContain('<img');
+    expect(q.inlineImages).toEqual([]);
+  });
+
+  it('같은 cid 를 여러 번 참조해도 재첨부는 1회', () => {
+    const q = buildQuote(
+      {
+        ...detail,
+        bodyHtml: '<img src="cid:a.png"><p>중간</p><img src="cid:a.png">',
+        attachments: [img({ id: 1, filename: 'a.png' })],
+      },
+      'reply',
+    );
+    expect(q.inlineImages.map((i) => i.contentId)).toEqual(['a.png']);
+    expect(q.html.match(/cid:a\.png/g)).toHaveLength(2);
   });
 });

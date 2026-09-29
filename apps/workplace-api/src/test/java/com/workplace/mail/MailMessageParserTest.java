@@ -97,4 +97,52 @@ class MailMessageParserTest {
     assertThat(b.snippet()).doesNotContain("&amp;");
     assertThat(b.snippet()).contains("실제 본문 미리보기&텍스트입니다");
   }
+
+  // WP-68: related(html + 파일명 없는 cid 이미지) + 일반 첨부. cid-only 이미지는 일반 첨부 뒤에 ordinal 을 받아야
+  // 규칙 도입 전에 저장된 일반 첨부 ordinal(여기선 0)이 그대로 유지된다.
+  private static String relatedWithCidOnlyImageRaw() {
+    return "Message-ID: <m3@example.com>\r\n"
+        + "From: a@example.com\r\n"
+        + "Content-Type: multipart/mixed; boundary=\"MIX\"\r\n\r\n"
+        + "--MIX\r\n"
+        + "Content-Type: multipart/related; boundary=\"REL\"\r\n\r\n"
+        + "--REL\r\n"
+        + "Content-Type: text/html; charset=UTF-8\r\n\r\n"
+        + "<p>hi</p><img src=\"cid:ii_abc123\">\r\n"
+        + "--REL\r\n"
+        + "Content-Type: image/png\r\n"
+        + "Content-ID: <ii_abc123>\r\n"
+        + "Content-Transfer-Encoding: base64\r\n\r\n"
+        + "iVBORw0KGgo=\r\n"
+        + "--REL--\r\n"
+        + "--MIX\r\n"
+        + "Content-Type: application/pdf; name=\"a.pdf\"\r\n"
+        + "Content-Disposition: attachment; filename=\"a.pdf\"\r\n"
+        + "Content-Transfer-Encoding: base64\r\n\r\n"
+        + "JVBERg==\r\n"
+        + "--MIX--\r\n";
+  }
+
+  @Test
+  void parseBody_cidOnlyInlineImage_collectedAfterRegularAttachments() throws Exception {
+    ParsedBody b = parser.parseBody(mime(relatedWithCidOnlyImageRaw()));
+
+    assertThat(b.bodyHtml()).contains("cid:ii_abc123");
+    assertThat(b.attachments()).hasSize(2);
+    // 일반 첨부 ordinal 0 유지, cid-only 이미지는 1
+    assertThat(b.attachments().get(0).filename()).isEqualTo("a.pdf");
+    assertThat(b.attachments().get(1).filename()).isNull();
+    assertThat(b.attachments().get(1).contentType()).isEqualTo("image/png");
+    assertThat(b.attachments().get(1).contentId()).isEqualTo("ii_abc123");
+  }
+
+  @Test
+  void extractAttachmentBytes_sharesOrdinalWithParseBody() throws Exception {
+    Message msg = mime(relatedWithCidOnlyImageRaw());
+    // ordinal 0 = pdf("%PDF"), 1 = png 시그니처 — parseBody 와 같은 순서
+    assertThat(new String(parser.extractAttachmentBytes(msg, 0), StandardCharsets.US_ASCII))
+        .isEqualTo("%PDF");
+    assertThat(parser.extractAttachmentBytes(msg, 1)).startsWith((byte) 0x89, (byte) 'P');
+    assertThat(parser.extractAttachmentBytes(msg, 2)).isNull();
+  }
 }

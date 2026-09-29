@@ -6,6 +6,7 @@
 // 삽입 전에 반드시 언랩한다(설계 §4.1).
 
 import { formatDateMonthDay, formatDateTimeMinute } from '@/lib/formatters';
+import { collectQuoteInlineImages, type QuoteInlineImage } from '@/lib/mailInlineImages';
 import type { EmailMessageDetail } from '@/types/mailMessage';
 
 /** 인용문 조립 결과 — html 은 발송 본문·프리뷰 공용, text 는 plain-text alternative 용. */
@@ -19,7 +20,14 @@ export interface QuoteParts {
  * ComposeDraft 가 들고 다니는 인용문 — buildQuote 가 mode 를 variant 로 채워 돌려주므로
  * 호출부가 variant 를 따로 적을 일이 없다(mode/variant 불일치 원천 차단).
  */
-export type MailQuote = QuoteParts & { variant: 'reply' | 'forward' };
+export type MailQuote = QuoteParts & {
+  variant: 'reply' | 'forward';
+  /**
+   * 인용문이 cid: 로 참조하는 원본 첨부(WP-69). 발송 요청 inlineImages 로 넘겨 서버가 같은 Content-ID 로 재첨부하고,
+   * 미리보기(MailQuoteBlock)는 이 첨부로 cid 를 치환해 보여준다. 매칭되지 않은 cid 이미지는 인용문에서 이미 제거됐다.
+   */
+  inlineImages: QuoteInlineImage[];
+};
 
 /**
  * 문서 밖으로 새어 나가는 요소들과 능동 콘텐츠 요소를 함께 제거한다.
@@ -151,8 +159,11 @@ export function buildQuote(detail: EmailMessageDetail, mode: 'reply' | 'forward'
   // (이전에는 unwrap ×2 + htmlToText 재파싱으로 같은 문서를 최대 3회 파싱했다).
   let innerHtml = '';
   let innerText = '';
+  let inlineImages: QuoteInlineImage[] = [];
   if (detail.bodyHtml) {
     const doc = parseMailHtml(detail.bodyHtml);
+    // innerHTML 직렬화 전에 cid 이미지 정리 — 해석 불가 참조는 제거돼 발송·미리보기 모두에서 빠진다
+    inlineImages = collectQuoteInlineImages(doc.body, detail.attachments ?? []);
     innerHtml = doc.body.innerHTML;
     // detail.bodyText 가 비어있지 않으면 그것을 우선(빈 문자열이면 HTML 추출로 폴백).
     innerText = detail.bodyText || extractBlockText(doc.body);
@@ -179,6 +190,7 @@ export function buildQuote(detail: EmailMessageDetail, mode: 'reply' | 'forward'
       text: ['---------- 전달된 메일 ----------', ...headerLines, '', innerText].join('\n'),
       meta,
       variant: mode,
+      inlineImages,
     };
   }
 
@@ -190,5 +202,6 @@ export function buildQuote(detail: EmailMessageDetail, mode: 'reply' | 'forward'
     ].join('\n'),
     meta,
     variant: mode,
+    inlineImages,
   };
 }

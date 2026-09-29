@@ -26,7 +26,8 @@ import org.springframework.stereotype.Service;
  * <ul>
  *   <li>body.contentType: "html" 또는 "text" — 각각 bodyHtml/bodyText 에 저장.
  *   <li>bodyPreview: 스니펫(최대 255자, Graph 응답 그대로 사용).
- *   <li>첨부 메타: GET /me/messages/{id}/attachments?$select=name,contentType,size.
+ *   <li>첨부 메타: GET /me/messages/{id}/attachments?$select=id,name,contentType,size,isInline. 본문이
+ *       cid: 를 참조하면 인라인 첨부만 단건 조회해 Content-ID 저장(WP-68).
  *   <li>네트워크/파싱 오류는 best-effort 로 삼킨다(로그만, 토큰 평문 미출력).
  * </ul>
  */
@@ -44,6 +45,9 @@ public class GraphBodyLoader implements MailBodyLoader {
   private final GraphTokenService graphTokenService;
   private final GraphApiClient graphApiClient;
 
+  /** WP-68: 인라인 첨부 Content-ID 단건 조회. */
+  private final GraphInlineContentIdResolver contentIdResolver;
+
   @Override
   public MailProvider provider() {
     return MailProvider.M365_GRAPH;
@@ -53,7 +57,8 @@ public class GraphBodyLoader implements MailBodyLoader {
    * Graph API에서 단건 메시지 본문을 적재한다.
    *
    * <p>providerMessageId 가 null 이면 Graph 메시지 조회가 불가하므로 false 반환한다. body.contentType="html" 이면
-   * bodyHtml 에, "text" 이면 bodyText 에 저장한다. 첨부 메타는 hasAttachments=true 일 때만 추가 조회한다.
+   * bodyHtml 에, "text" 이면 bodyText 에 저장한다. 첨부 메타는 hasAttachments=true 이거나 본문이 cid: 를 참조할 때만 추가
+   * 조회한다.
    *
    * <p>Task5: 본문·스니펫은 email_content 에 기록(contentRepo.updateBody). has_attachment 만 envelope 에 남긴다.
    * contentId=0 이면 content 미연결 — false 반환.
@@ -103,9 +108,12 @@ public class GraphBodyLoader implements MailBodyLoader {
       // has_attachment 는 envelope 속성(첨부 존재 표시)으로 유지
       messageRepo.markHasAttachment(target.messageId(), hasAttachment);
 
-      // 첨부 메타 적재 — hasAttachments=true 일 때만 추가 Graph 호출
-      if (hasAttachment) {
-        loadAttachmentMeta(accessToken, providerMessageId, target.messageId(), target.contentId());
+      // 첨부 메타 적재 — hasAttachments=true 이거나 본문이 cid: 를 참조할 때만 추가 Graph 호출.
+      // Graph hasAttachments 는 인라인 첨부를 세지 않아, 인라인 이미지만 있는 메일도 cid 참조로 판정해 적재한다(WP-68).
+      boolean bodyRefsCid = InlineImageSupport.refsCid(bodyHtml);
+      if (hasAttachment || bodyRefsCid) {
+        loadAttachmentMeta(
+            accessToken, providerMessageId, target.messageId(), target.contentId(), bodyRefsCid);
       }
       // V97: per-envelope 마커 — 이 envelope 의 본문/첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());
@@ -121,15 +129,25 @@ public class GraphBodyLoader implements MailBodyLoader {
   /**
    * Graph 첨부 메타 조회 후 DB 에 삽입한다.
    *
-   * <p>GET /me/messages/{id}/attachments?$select=id,name,contentType,size — 바이너리(contentBytes) 는
-   * 요청하지 않는다(메타만). id 를 provider_attachment_id 로 저장해 다운로드 시 ordinal 의존 없이 직접 조회할 수 있도록 한다. ordinal
-   * 은 Graph 응답 배열 인덱스(0-based)로 할당해 content_attachment manifest 의 안정 좌표로 사용한다.
+   * <p>GET /me/messages/{id}/attachments?$select=id,name,contentType,size,isInline —
+   * 바이너리(contentBytes) 는 요청하지 않는다(메타만). id 를 provider_attachment_id 로 저장해 다운로드 시 ordinal 의존 없이 직접
+   * 조회할 수 있도록 한다. ordinal 은 Graph 응답 배열 인덱스(0-based)로 할당해 content_attachment manifest 의 안정 좌표로
+   * 사용한다.
+   *
+   * <p>WP-68: 본문이 cid: 를 참조하면 인라인·소용량 첨부만 단건 조회해 Content-ID 를 함께 저장한다(프론트가 cid → 첨부 매칭). 서명 로고 같은
+   * 인라인 첨부는 거의 모든 메일에 있으므로, 본문에 cid 참조가 없으면 추가 호출하지 않는다.
    */
-  private void loadAttachmentMeta(
-      String accessToken, String providerMessageId, long messageId, long contentId) {
+  void loadAttachmentMeta(
+      String accessToken,
+      String providerMessageId,
+      long messageId,
+      long contentId,
+      boolean bodyRefsCid) {
     try {
       String url =
-          "/me/messages/" + providerMessageId + "/attachments?$select=id,name,contentType,size";
+          "/me/messages/"
+              + providerMessageId
+              + "/attachments?$select=id,name,contentType,size,isInline";
       GraphAttachmentList listResp =
           graphApiClient.get(accessToken, url, GraphAttachmentList.class);
 
@@ -139,12 +157,19 @@ public class GraphBodyLoader implements MailBodyLoader {
       List<GraphAttachmentItem> items = listResp.value();
       for (int i = 0; i < items.size(); i++) {
         GraphAttachmentItem item = items.get(i);
+        long size = item.size() != null ? item.size() : 0L;
+        String mimeContentId =
+            bodyRefsCid
+                    && Boolean.TRUE.equals(item.isInline())
+                    && size <= GraphInlineContentIdResolver.MAX_INLINE_BYTES
+                ? contentIdOrNull(accessToken, providerMessageId, item)
+                : null;
         ParsedAttachment parsed =
             new ParsedAttachment(
                 item.name(),
                 item.contentType(),
-                item.size() != null ? item.size() : 0L,
-                null, // Graph 첨부는 contentId 없음(인라인 img 는 별도 처리 대상)
+                size,
+                mimeContentId,
                 item.id() // Graph 첨부 안정 id — 다운로드 경로에서 사용
                 );
         // ordinal = Graph 응답 배열 인덱스(0-based). content_attachment find-or-create 로 manifest 공유.
@@ -153,6 +178,21 @@ public class GraphBodyLoader implements MailBodyLoader {
     } catch (Exception e) {
       // 첨부 메타 적재 실패는 best-effort — 본문 적재는 이미 완료
       log.warn("Graph 첨부 메타 적재 실패 (messageId={}): {}", messageId, e.toString());
+    }
+  }
+
+  /**
+   * 적재 중 Content-ID 조회 — 실패는 해당 항목만 null 로 흡수해 이후 첨부 적재를 막지 않는다. null 로 남은 행은 열람 시 지연 백필({@link
+   * MailInlineContentIdBackfiller})이 다시 시도한다.
+   */
+  private String contentIdOrNull(
+      String accessToken, String providerMessageId, GraphAttachmentItem item) {
+    try {
+      return contentIdResolver.fetchContentId(accessToken, providerMessageId, item.id());
+    } catch (Exception e) {
+      // 토큰 노출 방지 — 예외 요약만
+      log.warn("Graph 첨부 Content-ID 조회 실패(적재 계속): {}", e.toString());
+      return null;
     }
   }
 
@@ -170,8 +210,15 @@ public class GraphBodyLoader implements MailBodyLoader {
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record GraphAttachmentList(List<GraphAttachmentItem> value) {}
 
-  /** 단일 첨부 메타 항목. id 는 Graph 첨부 안정 식별자 — 다운로드 직접 조회에 사용. */
+  /**
+   * 단일 첨부 메타 항목. id 는 Graph 첨부 안정 식별자 — 다운로드 직접 조회에 사용. isInline 은 본문 인라인 여부(WP-68, Content-ID 단건
+   * 조회 후보 판정).
+   */
   @JsonIgnoreProperties(ignoreUnknown = true)
   public record GraphAttachmentItem(
-      String id, String name, String contentType, @JsonProperty("size") Long size) {}
+      String id,
+      String name,
+      String contentType,
+      @JsonProperty("size") Long size,
+      Boolean isInline) {}
 }

@@ -2,13 +2,18 @@ package com.workplace.mail.service;
 
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.OutgoingMail;
+import com.workplace.mail.dto.OutgoingMail.InlineImagePart;
+import jakarta.activation.DataHandler;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
+import jakarta.mail.Part;
 import jakarta.mail.Session;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
+import jakarta.mail.internet.MimeUtility;
+import jakarta.mail.util.ByteArrayDataSource;
 import java.io.UnsupportedEncodingException;
 import java.util.Date;
 import java.util.List;
@@ -58,9 +63,39 @@ public class MailMimeBuilder {
     MimeMultipart alt = new MimeMultipart("alternative");
     alt.addBodyPart(textPart);
     alt.addBodyPart(htmlPart);
-    msg.setContent(alt);
+    List<InlineImagePart> images = mail.inlineImages();
+    if (images.isEmpty()) {
+      msg.setContent(alt);
+    } else {
+      // WP-69: 인용문 인라인 이미지 — multipart/related(alternative + 이미지들). 본문 cid: 가 Content-ID 로 파트를 찾는다.
+      MimeMultipart related = new MimeMultipart("related");
+      MimeBodyPart altWrapper = new MimeBodyPart();
+      altWrapper.setContent(alt);
+      related.addBodyPart(altWrapper);
+      for (InlineImagePart img : images) {
+        related.addBodyPart(inlinePart(img));
+      }
+      msg.setContent(related);
+    }
     msg.saveChanges();
     return msg;
+  }
+
+  /** 인라인 이미지 파트 — Content-ID(꺾쇠 포함 헤더 표기) + inline disposition + base64 전송 인코딩. */
+  private MimeBodyPart inlinePart(InlineImagePart img) throws MessagingException {
+    MimeBodyPart part = new MimeBodyPart();
+    part.setDataHandler(new DataHandler(new ByteArrayDataSource(img.content(), img.contentType())));
+    part.setContentID("<" + img.contentId() + ">");
+    part.setDisposition(Part.INLINE);
+    if (img.filename() != null && !img.filename().isBlank()) {
+      try {
+        part.setFileName(MimeUtility.encodeText(img.filename(), "UTF-8", null));
+      } catch (UnsupportedEncodingException e) {
+        throw new MessagingException("인라인 파일명 인코딩 실패", e);
+      }
+    }
+    part.setHeader("Content-Transfer-Encoding", "base64");
+    return part;
   }
 
   /** 발신자 InternetAddress 를 구성한다. displayName 은 UTF-8 인코딩. */
