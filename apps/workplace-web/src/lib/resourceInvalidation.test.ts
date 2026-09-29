@@ -155,6 +155,9 @@ const SAMPLES: ResourceChangedPayload[] = [
   // 채널·DM — attrs 는 channelId 만.
   { resource: 'channel', op: 'updated', scopeType: 'CHANNEL', scopeId: 3, channelId: 3 },
   { resource: 'dm', op: 'created', scopeType: 'CHANNEL', scopeId: 4, channelId: 4 },
+  // 드라이브 — attrs 는 spaceId 만(ids 는 비어 있을 수 있음).
+  { resource: 'drive', op: 'updated', scopeType: 'USER', scopeId: 1, spaceId: 2 },
+  { resource: 'drive-space', op: 'updated', scopeType: 'USER', scopeId: 1, spaceId: 2 },
   ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view'].map(
     (resource) => ({ resource, op: 'updated' as const, projectKey: 'EX' }),
   ),

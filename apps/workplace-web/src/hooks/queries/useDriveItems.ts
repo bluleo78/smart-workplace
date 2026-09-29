@@ -1,14 +1,16 @@
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 
 import { driveApi } from '../../api/drive'
 import type { DriveItemList } from '../../types/drive'
 
 // #460: 드라이브 폴더 내용 — show_drive(spaceId 지정) 위젯용. spaceId 없으면 비활성.
-export function useDriveItems(spaceId?: number, folderId?: number) {
+// options.keepPrevious: 폴더 전환 중 새 목록이 올 때까지 이전 목록을 유지(DrivePage 전용). 기본은 꺼짐.
+export function useDriveItems(spaceId?: number, folderId?: number, options?: { keepPrevious?: boolean }) {
   return useQuery<DriveItemList>({
     queryKey: ['drive', 'items', spaceId, folderId ?? null],
     queryFn: () => driveApi.listItems(spaceId as number, folderId ?? null).then((r) => r.data),
     enabled: typeof spaceId === 'number',
     retry: false,
+    placeholderData: options?.keepPrevious ? keepPreviousData : undefined,
   })
 }

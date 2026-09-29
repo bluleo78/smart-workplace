@@ -100,6 +100,23 @@ const RULES: Record<string, Rule> = {
     { queryKey: ['messaging-summary'] },
     { queryKey: ['drive', 'spaces'] },
   ],
+  // 콘텐츠(의미) 검색·파일 요약·썸네일은 재계산 비용이 커서 제외 — 목록·휴지통·이름 검색·용량·첨부 뷰만. spaceId 로만 무효화(ids 비의존).
+  drive: (p) => [
+    ...(p.spaceId != null
+      ? [
+          { queryKey: ['drive', 'items', p.spaceId] },
+          { queryKey: ['drive', 'trash', p.spaceId] },
+          { queryKey: ['drive', 'search', p.spaceId] },
+        ]
+      : []),
+    { queryKey: ['drive', 'quota'] },
+    { queryKey: ['drive-attachments'] },
+    { queryKey: ['drive-file-backlinks'] },
+  ],
+  'drive-space': (p) => [
+    { queryKey: ['drive', 'spaces'] },
+    ...(p.spaceId != null ? [{ queryKey: ['drive', 'space', p.spaceId] }, { queryKey: ['drive', 'items', p.spaceId] }] : []),
+  ],
   dm: () => [{ queryKey: ['messaging', 'dms'] }, { queryKey: ['messaging-summary'] }],
 };
 

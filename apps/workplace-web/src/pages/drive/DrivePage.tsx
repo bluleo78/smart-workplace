@@ -93,8 +93,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const space = useDriveSpace(validSid).data ?? null
   // WP-63: 폴더 내용 — DriveWidget 과 같은 키(['drive','items',sid,folderId])로 캐시를 공유한다.
   // resource.changed 무효화나 사용자 액션 후 reload() 가 이 키를 재조회한다.
-  const itemsQuery = useDriveItems(validSid, folderId ?? undefined)
+  const itemsQuery = useDriveItems(validSid, folderId ?? undefined, { keepPrevious: true })
+  // 폴더 전환 중엔 새 목록이 올 때까지 이전 폴더 목록을 그대로 보여준다(placeholder). 화면 표시용.
   const items = itemsQuery.data ?? EMPTY_ITEMS
+  // 선택 판정·빈 폴더 판정은 placeholder(이전 폴더) 가 아니라 실제 현재 폴더 데이터만 기준으로 한다.
+  const actualItems = itemsQuery.isPlaceholderData ? EMPTY_ITEMS : items
   const fileInput = useRef<HTMLInputElement>(null)
   const [picker, setPicker] = useState<
     { mode: 'move' | 'copy'; kind: 'file' | 'folder'; id: number; name: string } | null
@@ -174,7 +177,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // WP-63: 선택은 재조회(원격 무효화 등)로 지워지지 않으므로, 현재 보이는 목록에서 사라진 항목은
   // 선택 집합과 현재 뷰(검색 중이면 검색 결과, 아니면 폴더 목록) id 의 교집합으로 걸러 쓴다.
   // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다.
-  const viewItems = results ?? items
+  const viewItems = results ?? actualItems
   const viewFileIds = new Set(viewItems.files.map((f) => f.id))
   const viewFolderIds = new Set(viewItems.folders.map((f) => f.id))
   const visibleSelFiles = new Set([...selFiles].filter((id) => viewFileIds.has(id)))
@@ -597,8 +600,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     setShowOverview(false)
     // WP-63: 열 때마다 새로 조회(기존 동작) — staleTime 안의 캐시가 있으면 enabled 전환만으론
     // 재조회되지 않아 목록 화면에서 삭제한 항목이 빠진 옛 휴지통이 보이므로 먼저 리셋한다.
-    await queryClient.resetQueries({ queryKey: ['drive', 'trash', sid] })
-    setTrashOpen(true)
+    // 조회에 성공했을 때만 휴지통 뷰로 전환한다 — 실패 후 trashOpen 이 남으면 이후 재조회(포커스·원격 무효화) 성공 시
+    // 사용자 의도 없이 휴지통 뷰로 바뀌므로, fetchQuery(staleTime 0 = 항상 새로 조회)로 먼저 확인한 뒤 연다.
+    try {
+      await queryClient.fetchQuery({
+        queryKey: ['drive', 'trash', sid],
+        queryFn: () => driveApi.listTrash(sid).then((r) => r.data),
+        staleTime: 0,
+      })
+      setTrashOpen(true)
+    } catch (e) {
+      handleApiError(e, '휴지통을 불러오지 못했습니다.')
+    }
   }
   // WP-63: 휴지통 액션 후 갱신 — 휴지통 쿼리를 무효화(재조회 완료까지 대기).
   async function reloadTrash() {
@@ -1264,7 +1277,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             ))}
             {/* WP-63: 첫 조회 중(isLoading)엔 빈 폴더 문구를 숨긴다 — 폴더 이동 직후 거짓 "빈 폴더" 깜빡임 방지.
                 실패 시엔 isLoading=false 라 기존처럼 빈 상태로 폴백(별도 오류 UI 는 기존에도 없음). */}
-            {!itemsQuery.isLoading && items.folders.length === 0 && items.files.length === 0 && (
+            {!itemsQuery.isLoading && !itemsQuery.isPlaceholderData && items.folders.length === 0 && items.files.length === 0 && (
               // 빈 폴더 empty state — DS §2.5: 아이콘+제목+설명+CTA 4요소.
               <li
                 className="flex flex-col items-center gap-2 px-4 py-12 text-center"
