@@ -72,4 +72,25 @@ public final class MessagingDomainEvents {
 
   /** 채널 보관 토글 — 연동 공간 읽기전용 반영 소스. */
   public record ChannelArchivedEvent(long channelId, boolean archived, Instant occurredAt) {}
+
+  /**
+   * 메시지 푸시 요청 — MessageService.create 가 채널 종류·멤버·멘션을 보고 대상을 계산해 발행한다. notify 가 AFTER_COMMIT 에 수신해
+   * 발송만 한다(notify 가 messaging 내부를 조회하지 않도록 대상을 이벤트에 담는다). 대상이 없으면 발행하지 않는다.
+   *
+   * @param channelName DM 이면 null
+   * @param dmRecipientIds DM 이면 작성자 외 HUMAN 멤버, 아니면 빈 목록
+   * @param mentionedUserIds 채널 멤버인 HUMAN 멘션 대상(작성자 제외)
+   */
+  public record MessagePushRequestedEvent(
+      long tenantId,
+      long channelId,
+      String channelKind,
+      String channelName,
+      long messageId,
+      Long parentMessageId,
+      long authorId,
+      String authorName,
+      String preview,
+      List<Long> dmRecipientIds,
+      List<Long> mentionedUserIds) {}
 }

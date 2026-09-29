@@ -26,6 +26,7 @@ import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageAiTriggerEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.MessagePushRequestedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessagingChannelProgressEvent;
@@ -121,7 +122,49 @@ public class MessageService {
     // 암묵적 관련성 발굴은 MessagingAttentionDispatcher 가 커밋 후에 발사한다(directed 제외 판정 포함).
     publisher.publishEvent(new MessageCreatedEvent(channelId, saved));
     maybeTriggerAi(callerId, channelId, saved); // AI 응답 트리거 (신규)
+    publishPushRequest(channelId, saved); // DM·멘션 Web Push 요청 (#866)
     return saved;
+  }
+
+  /**
+   * 메시지 푸시 대상 계산 후 발행. DM: 작성자 외 HUMAN 멤버 전원. 멘션: 채널 멤버인 HUMAN(작성자 제외). 둘 다 없으면 발행하지 않는다. 같은 트랜잭션
+   * 안이라 멤버 조회에 RLS GUC 가 적용된다.
+   */
+  private void publishPushRequest(long channelId, MessageResponse saved) {
+    String kind = channelRepo.findKind(channelId);
+    boolean dm = "DM".equals(kind);
+    java.util.Set<Long> memberIds = new java.util.HashSet<>(memberRepo.findMemberIds(channelId));
+    java.util.List<Long> dmRecipients =
+        dm
+            ? memberRepo.listMembers(channelId).stream()
+                .filter(m -> !m.userId().equals(saved.authorId()) && !"AGENT".equals(m.kind()))
+                .map(ChannelMemberResponse::userId)
+                .toList()
+            : java.util.List.of();
+    java.util.List<Long> mentioned =
+        saved.mentions().stream()
+            .filter(m -> !"AGENT".equals(m.kind()))
+            .map(MentionResponse::id)
+            .filter(id -> memberIds.contains(id) && !id.equals(saved.authorId()))
+            .distinct()
+            .toList();
+    if (dmRecipients.isEmpty() && mentioned.isEmpty()) return;
+    boolean hasAttachments =
+        (saved.attachments() != null && !saved.attachments().isEmpty())
+            || (saved.driveLinks() != null && !saved.driveLinks().isEmpty());
+    publisher.publishEvent(
+        new MessagePushRequestedEvent(
+            TenantContext.require(),
+            channelId,
+            kind,
+            dm ? null : channelRepo.findName(channelId).orElse(null),
+            saved.id(),
+            saved.parentMessageId(),
+            saved.authorId(),
+            saved.authorName(),
+            MessagePushPreview.of(saved.body(), saved.mentions(), hasAttachments),
+            dmRecipients,
+            mentioned));
   }
 
   /**
